@@ -70,6 +70,18 @@ impl GlyphSynthesis {
             GlyphSynthesis::BoldItalic => 3,
         }
     }
+
+    /// Inverse of [`GlyphSynthesis::bits`]: restore the synthesis mode
+    /// stored in a cache key. Unknown bit patterns fall back to no
+    /// synthesis rather than inventing a style.
+    pub(crate) fn from_bits(bits: u8) -> Self {
+        match bits {
+            1 => GlyphSynthesis::Bold,
+            2 => GlyphSynthesis::Italic,
+            3 => GlyphSynthesis::BoldItalic,
+            _ => GlyphSynthesis::None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -388,7 +400,8 @@ mod tests {
     #[test]
     fn rasterize_ascii_populates_cache() {
         let pipeline = FontPipeline::new(1024, 1024, 14.0);
-        assert!(pipeline.cache_length() >= 95);
+        // ASCII 32..127 共 95 格；空格无位图不入库，94 为正确值。
+        assert!(pipeline.cache_length() >= 94);
     }
 
     #[test]
@@ -686,9 +699,10 @@ mod tests {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         pipeline.rasterize_ascii();
         let after_ascii = pipeline.cache_length();
+        // ASCII 32..127 共 95 格；空格无位图不入库，94 为正确值。
         assert!(
-            after_ascii >= 95,
-            "should have at least 95 cached after rasterize_ascii, got {}",
+            after_ascii >= 94,
+            "should have at least 94 cached after rasterize_ascii, got {}",
             after_ascii
         );
 
@@ -1399,6 +1413,96 @@ mod tests {
         );
     }
 
+    #[test]
+    fn fonts_xml_duplicate_entries_deduplicated() {
+        // 真机形态：zh-Hans 链内同一文件多 weights 同 index 重复出现，
+        // 首位命中后后续重复必须去重（真机 Sans index=2 出现 9 次只取 1 个）。
+        let mut db = fontdb::Database::new();
+        assert!(
+            try_load_cjk_fonts(&mut db),
+            "CJK fonts must load (run inside nix develop)"
+        );
+        let (filename, index) = db
+            .faces()
+            .filter_map(|face| {
+                let path = match &face.source {
+                    fontdb::Source::File(path) => path,
+                    fontdb::Source::SharedFile(path, _) => path,
+                    fontdb::Source::Binary(_) => return None,
+                };
+                let name = path.file_name()?.to_str()?.to_string();
+                (path.extension()?.to_str()?.eq_ignore_ascii_case("ttc"))
+                    .then_some((name, face.index))
+            })
+            .next()
+            .expect("CJK TTC face must exist after try_load_cjk_fonts");
+        let xml = format!(
+            r#"<familyset version="23"><family lang="zh-Hans"><font weight="100" style="normal" index="{index}">{filename}</font><font weight="400" style="normal" index="{index}">{filename}</font><font weight="900" style="normal" index="{index}">{filename}</font></family></familyset>"#
+        );
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, &xml, "zh-CN", 3);
+        assert_eq!(
+            ids.len(),
+            1,
+            "repeated (filename, index) entries must deduplicate: {ids:?}"
+        );
+        let face = db.face(ids[0]).expect("matched face exists");
+        assert_eq!(face.index, index, "TTC index must match fonts.xml");
+    }
+
+    #[test]
+    fn fonts_xml_result_order_follows_xml_order() {
+        // 真机形态：zh-Hans 链 Sans 在前 Serif 在后，返回顺序必须跟随
+        // xml 顺序（首位胜出），而非数据库加载顺序。
+        let mut db = fontdb::Database::new();
+        assert!(
+            try_load_cjk_fonts(&mut db),
+            "CJK fonts must load (run inside nix develop)"
+        );
+        let mut faces: Vec<(String, u32)> = Vec::new();
+        for face in db.faces() {
+            let path = match &face.source {
+                fontdb::Source::File(path) => path,
+                fontdb::Source::SharedFile(path, _) => path,
+                fontdb::Source::Binary(_) => continue,
+            };
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let is_ttc = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("ttc"));
+            if is_ttc && !faces.iter().any(|(_, index)| *index == face.index) {
+                faces.push((name.to_string(), face.index));
+            }
+            if faces.len() == 2 {
+                break;
+            }
+        }
+        assert_eq!(
+            faces.len(),
+            2,
+            "TTC must expose two distinct faces for order test"
+        );
+        let (first_filename, first_index) = &faces[0];
+        let (second_filename, second_index) = &faces[1];
+        let xml = format!(
+            r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{first_index}">{first_filename}</font><font weight="400" style="normal" index="{second_index}">{second_filename}</font></family></familyset>"#
+        );
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, &xml, "zh-CN", 3);
+        assert_eq!(ids.len(), 2, "both entries must resolve: {ids:?}");
+        assert_eq!(
+            db.face(ids[0]).expect("first face exists").index,
+            *first_index,
+            "first result must follow the first xml entry"
+        );
+        assert_eq!(
+            db.face(ids[1]).expect("second face exists").index,
+            *second_index,
+            "second result must follow the second xml entry"
+        );
+    }
+
     /// Locate the Maple Mono font through the system font database
     /// (fontconfig resolves the dev-shell fonts; no paths are hardcoded).
     fn find_maple_mono_font(db: &mut fontdb::Database) -> Option<std::path::PathBuf> {
@@ -1666,6 +1770,72 @@ mod tests {
             .expect("italic A again");
         assert_eq!(bold.atlas_x, bold_again.atlas_x);
         assert_eq!(italic.atlas_x, italic_again.atlas_x);
+    }
+
+    /// 图集重建必须保留合成位：满图重建把合成字形降级为常规位图，
+    /// 斜体重建成常规体（满图后斜体退化缺失）。
+    #[test]
+    fn rebuild_atlas_preserves_synthesis_keyed_entries() {
+        let (mut pipeline, _) = styled_test_pipeline();
+        let regular = pipeline.glyph_information('A').expect("regular A");
+        let glyph_id = pipeline.caches.ascii_glyph_ids['A' as usize].expect("ascii gid cached");
+        let font_id = pipeline.font_id.expect("primary font set");
+        let italic = pipeline
+            .glyph_information_from_font_with_synthesis(font_id, glyph_id, GlyphSynthesis::Italic)
+            .expect("synthesized italic A");
+        assert!(
+            italic.width > 0 && italic.height > 0,
+            "synthesized italic bitmap must exist"
+        );
+        let atlas_width = pipeline.atlas_width as usize;
+        let italic_alpha_before = glyph_region_alpha(&italic, pipeline.atlas_bitmap(), atlas_width);
+        assert!(
+            italic_alpha_before.iter().any(|&alpha| alpha > 0),
+            "synthesized italic region must have ink"
+        );
+        assert!(
+            pipeline
+                .caches
+                .glyph_cache
+                .iter()
+                .any(|(key, _)| key.synthesis == GlyphSynthesis::Italic.bits()),
+            "precondition: italic synthesis entry must be cached"
+        );
+        let generation = pipeline.atlas_generation();
+        pipeline.rebuild_atlas();
+        assert!(
+            pipeline.atlas_generation() > generation,
+            "rebuild must bump the atlas generation"
+        );
+        assert!(
+            pipeline
+                .caches
+                .glyph_cache
+                .iter()
+                .any(|(key, _)| key.synthesis == GlyphSynthesis::Italic.bits()),
+            "rebuild must preserve synthesis-keyed entries"
+        );
+        let italic_after = pipeline
+            .lookup_glyph(font_id, glyph_id, GlyphSynthesis::Italic)
+            .expect("synthesized italic must stay cached after rebuild");
+        let bitmap_after = pipeline.atlas_bitmap().to_vec();
+        let atlas_width_after = pipeline.atlas_width as usize;
+        let italic_alpha_after =
+            glyph_region_alpha(&italic_after, &bitmap_after, atlas_width_after);
+        assert_eq!(
+            italic_alpha_before, italic_alpha_after,
+            "rebuilt synthesized bitmap must match the pre-rebuild content"
+        );
+        let regular_after = pipeline
+            .glyph_information('A')
+            .expect("regular A after rebuild");
+        let regular_alpha_after =
+            glyph_region_alpha(&regular_after, &bitmap_after, atlas_width_after);
+        assert_ne!(
+            regular_alpha_after, italic_alpha_after,
+            "synthesized italic must still differ from regular after rebuild"
+        );
+        let _ = regular;
     }
 
     /// 回应对“d 有些区域像 a”：相邻小写字母必须命中不同缓存条目与不同位图。

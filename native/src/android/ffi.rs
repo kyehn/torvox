@@ -1617,6 +1617,9 @@ fn render_inner(session_id: u64) -> jint {
     // On new data: receive owned CellData from the channel (zero-copy move).
     // On idle: record the fact — Phase 3 will reference last_frame directly,
     // avoiding the 32KB clone that previously happened here.
+    // 暂停期不消费通道：receive 是破坏性取数，暂停帧取走后永不呈现
+    //（render_frame 直接丢弃），恢复后 VT 去重也不再重推——“IME 弹出
+    // 时输入不可见”的主因。帧留在通道里，恢复后第一帧即最新。
     enum FrameData {
         New {
             cells: Vec<crate::terminal::ghostty_terminal::CellData>,
@@ -1626,6 +1629,15 @@ fn render_inner(session_id: u64) -> jint {
             scroll_offset: i64,
         },
         Idle {},
+    }
+    let paused = {
+        let state = render_state_mut();
+        state
+            .as_ref()
+            .is_some_and(|render_state| render_state.renderer.render_paused)
+    };
+    if paused {
+        return 0;
     }
     let frame_data = {
         let registry = rlock_session_registry();
@@ -2925,6 +2937,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.renderer.set_render_paused(paused);
+            // 恢复时强制全量重绘：暂停期消费的 New 帧永不呈现
+            // （render_frame 直接 Ok），且 last_frame 已是新数据。
+            // dirty=true 只进 Idle 稀疏路径（光标行+高亮行），暂停期
+            // 写入的内容行不在 bands 内、被 Load 残留覆盖——“隐藏后仍
+            // 不可见、滑动后部分出现”。frame_invalidated 走全量。
+            if !paused {
+                render_state.renderer.frame_invalidated = true;
+            }
             log::info!("setRenderPaused: paused={}", paused);
         }
     })
@@ -2996,6 +3016,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
+            // 同值跳过：手势 preview 高频推送同一字号时不清图集，
+            // 避免每帧重光栅 ASCII + 丢实例缓存（缩放撕裂/卡顿）。
+            if (render_state.font_pipeline.font_size - size).abs() < f32::EPSILON {
+                return Ok(());
+            }
             let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
             // P2-1 dirty: font-size changes must repaint even on an idle
             // terminal (glyph metrics changed → cached frame is stale).
@@ -3249,36 +3274,50 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let target = offset.max(0) as i64;
-        let mut registry = wlock_session_registry();
-        let Some(entry) = registry.get_mut(&(_session_id as u64)) else {
-            return Ok(());
+        let sent = {
+            let mut registry = wlock_session_registry();
+            let Some(entry) = registry.get_mut(&(_session_id as u64)) else {
+                return Ok(());
+            };
+            // Per-session delta: the previous code computed the
+            // delta against a single global `render_state.scroll_offset`, so
+            // switching sessions polluted the resumed session's viewport.
+            let delta = target - entry.last_scroll_offset;
+            if delta == 0 {
+                return Ok(());
+            }
+            let session = entry.session.lock();
+            // scroll_viewport delta semantics (verified on host + emulator):
+            // NEGATIVE = scroll up into history, POSITIVE = back toward the
+            // bottom. Kotlin's scrollOffset grows when the user swipes up
+            // (into history), so the delta must be negated here:
+            // previously the sign was wrong — swiping down to the bottom sent
+            // a negative delta that scrolled INTO history instead).
+            let sent = session.terminal().scroll_viewport(-(delta as isize));
+            if sent {
+                entry.last_scroll_offset = target;
+                log::debug!("setScrollOffset: target={target} delta={delta}");
+            } else {
+                // Command channel full or VT thread gone: do NOT advance
+                // last_scroll_offset, so the next call with the same target
+                // retries the delta instead of silently dropping it,
+                // previously the global offset was advanced first and a
+                // failed send left the viewport permanently stale).
+                log::warn!(
+                    "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
+                );
+            }
+            sent
         };
-        // Per-session delta: the previous code computed the
-        // delta against a single global `render_state.scroll_offset`, so
-        // switching sessions polluted the resumed session's viewport.
-        let delta = target - entry.last_scroll_offset;
-        if delta == 0 {
-            return Ok(());
-        }
-        let session = entry.session.lock();
-        // scroll_viewport delta semantics (verified on host + emulator):
-        // NEGATIVE = scroll up into history, POSITIVE = back toward the
-        // bottom. Kotlin's scrollOffset grows when the user swipes up
-        // (into history), so the delta must be negated here:
-        // previously the sign was wrong — swiping down to the bottom sent
-        // a negative delta that scrolled INTO history instead).
-        if session.terminal().scroll_viewport(-(delta as isize)) {
-            entry.last_scroll_offset = target;
-            log::debug!("setScrollOffset: target={target} delta={delta}");
-        } else {
-            // Command channel full or VT thread gone: do NOT advance
-            // last_scroll_offset, so the next call with the same target
-            // retries the delta instead of silently dropping it,
-            // previously the global offset was advanced first and a
-            // failed send left the viewport permanently stale).
-            log::warn!(
-                "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
-            );
+        // 行级滚动必须立即重绘：VT 线程推送新 CellData 是异步的，滑动
+        // 期间无 New 帧时 Idle 门控（highlights/scroll_px/dirty/invalidated）
+        // 不含行偏移，会吞掉本次滑动直到下一次输出或点击才刷出来
+        //（“滑动不动、点一下才出”）。
+        if sent {
+            let mut state = render_state_mut();
+            if let Some(render_state) = state.as_mut() {
+                render_state.dirty.store(true, Ordering::Relaxed);
+            }
         }
     })
 }

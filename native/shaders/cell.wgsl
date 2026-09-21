@@ -83,11 +83,15 @@ fn fs_main(
         // raster_scale again would shrink the glyph to font_size logical
         // pixels (glyphs rendered 25px instead of 66px at 420dpi).
         let cell_px = cell_uv * quad_size;
-        // X: glyph advance width is in logical pixels; convert to physical
-        // (× raster_scale) so scaled_x spans the full rasterized bitmap
-        // width (font_size × raster_scale), keeping the glyph 1:1.
-        let glyph_adv_px = glyph_advance_w * uniforms.raster_scale;
-        let scaled_x = cell_px.x * glyph_adv_px / quad_size.x;
+        // X: sample the atlas bitmap at its natural physical size. The quad
+        // spans cell_w × cell_span physical px; the rasterized bitmap
+        // (glyph_size_px, generated at font_size × raster_scale) sits at
+        // bearing.x and is clipped by the in_glyph check below. Scaling by
+        // glyph_advance/quad_size is 1.0 only for monospace Latin (advance ==
+        // cell width); CJK quads (2 cells ≈ 44px) exceed the ~37px advance,
+        // which stretched every CJK glyph ~1.19× horizontally (发虚, 与英文
+        // 宽度不协调). 1:1 sampling keeps glyphs exactly at raster size.
+        let scaled_x = cell_px.x;
         // Y: use natural font metrics. bearing.y positions the glyph relative to
         // the cell top (ascent_px - placement.top). For CJK fallback glyphs where
         // placement.top > ascent_px, bearing.y is negative — the glyph extends

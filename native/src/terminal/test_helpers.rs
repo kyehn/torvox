@@ -560,6 +560,58 @@ mod tests {
     }
 
     #[test]
+    fn test_xtwinops_size_reports() {
+        // 对标 sylirre xtwinopsSizeReports：CSI 18t 回 CSI 8;行;列 t，
+        // CSI 14t 回像素区尺寸，CSI 16t 回单元格像素尺寸。
+        let mut t = terminal();
+        t.set_cell_pixel_size(10, 20);
+        t.flush();
+        t.vt_write(b"\x1b[18t");
+        t.flush();
+        let responses = t.drain_pty_write_responses();
+        let last = responses.last().expect("18t must produce a response");
+        assert_eq!(
+            String::from_utf8_lossy(last).into_owned(),
+            "\x1b[8;24;80t",
+            "18t must report cells"
+        );
+        t.vt_write(b"\x1b[14t");
+        t.flush();
+        let responses = t.drain_pty_write_responses();
+        let last = responses.last().expect("14t must produce a response");
+        assert_eq!(
+            String::from_utf8_lossy(last).into_owned(),
+            "\x1b[4;480;800t",
+            "14t must report pixels"
+        );
+        t.vt_write(b"\x1b[16t");
+        t.flush();
+        let responses = t.drain_pty_write_responses();
+        let last = responses.last().expect("16t must produce a response");
+        assert_eq!(
+            String::from_utf8_lossy(last).into_owned(),
+            "\x1b[6;20;10t",
+            "16t must report cell pixels"
+        );
+    }
+
+    /// 主题色必须落到单元格：默认前景/背景与 ANSI 调色板经 SGR 解析
+    ///（对标 themeColorsApply：fg/bg/调色板红三槽位可测）。
+    #[test]
+    fn theme_colors_apply_to_cells() {
+        let mut t = terminal();
+        let mut ansi = [[0u8, 0, 0]; 16];
+        ansi[1] = [0xAB, 0x12, 0x34];
+        t.set_theme([0x44, 0x55, 0x66], [0x11, 0x22, 0x33], ansi);
+        t.flush();
+        TermTestCase::new(&mut t)
+            .write(b"\x1b[31mX\x1b[0mY")
+            .assert_foreground_exact(0, 0, 0xAB, 0x12, 0x34)
+            .assert_foreground_exact(0, 1, 0x11, 0x22, 0x33)
+            .assert_background_exact(0, 1, 0x44, 0x55, 0x66);
+    }
+
+    #[test]
     fn test_assert_foreground_exact() {
         let mut t = terminal();
         TermTestCase::new(&mut t)
