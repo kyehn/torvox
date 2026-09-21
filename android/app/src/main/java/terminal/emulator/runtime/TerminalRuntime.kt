@@ -57,6 +57,21 @@ data class RuntimeState(
 const val RECENT_SCROLL_WINDOW_NANOS: Long = 100_000_000L
 
 /**
+ * Motion-recency window for the render-loop cadence gate. While a scroll gesture is actively
+ * moving (recent motion-event timestamps inside this window), the loop stays on the ACTIVE 17ms
+ * latch timeout and the vsync callback keeps raising [SessionEntry.vsyncRequested] — even after the
+ * idle clock ([SessionEntry.lastSignalNanos]) has gone stale from a prior >5s idle stretch.
+ *
+ * Root cause of scroll jank: both cadence gates depended only on [SessionEntry.lastSignalNanos]
+ * freshness. After 5s idle, vsync stops pumping AND the loop parks the 500ms idle latch; a scroll
+ * gesture had to break out purely via per-motion-event [SessionEntry.notifyRender] unparks, and in
+ * the gaps between events (sparse emulator motion events, or a main thread busy with gesture +
+ * recomposition) there was no wake source, so the loop parked ~500ms and scroll frames collapsed to
+ * ~2fps. A gesture that stops moving ages out of this window in one frame and the idle latch re-engages.
+ */
+const val SCROLL_MOTION_WINDOW_NANOS: Long = 250_000_000L
+
+/**
  * P1-1 scroll-reset decision (termux `onScreenUpdated` parity, pure and side-effect free so it can
  * be table-driven tested).
  *
@@ -83,6 +98,24 @@ internal fun shouldResetScroll(
     newOutput: Boolean,
     recentlyScrolled: Boolean = false,
 ): Boolean = newOutput && !hasSelectionOrDrag && !scrollActive && !recentlyScrolled
+
+/**
+ * Render-loop cadence gate (T3 backspace latency): pick the idle 500ms latch only when the idle
+ * clock is stale AND no scroll motion is in flight; otherwise stay on the active 17ms latch so
+ * input echoes render promptly.
+ *
+ * Input writes refresh the idle clock through [SessionEntry.notifyRender] — including the
+ * hardware-key/IME-sendKeyEvent path wired via the [Bridge.onPtyWrite] hook — so a single
+ * backspace after a >5s idle stretch snaps the loop back to active cadence and the shell echo
+ * renders on the next 17ms latch tick instead of waiting out the full 500ms idle-latch tick.
+ * Pure and side-effect free (table-driven tested, same style as [shouldResetScroll]).
+ *
+ * @param idleNanos time since the last signal (fresh = recent notifyRender/new-output).
+ * @param hasScrollMotion T1 motion-recency gate: while a gesture moves, stay active.
+ * @param idleThresholdNanos the staleness threshold ([RENDER_IDLE_THRESHOLD_NANOS] at call sites).
+ */
+internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleThresholdNanos: Long): Boolean =
+    idleNanos > idleThresholdNanos && !hasScrollMotion
 
 /**
  * Session state is encoded in two booleans:
@@ -224,6 +257,14 @@ internal data class SessionEntry(
      * into the next gesture.
      */
     @Volatile var scrollRemainderPx: Float = 0f
+
+    /**
+     * True while a scroll gesture is actively moving: any recent scroll-motion event
+     * (per-pixel `setScrollRemainderPx` or whole-row `setScrollOffset`) refreshed
+     * [lastScrollNanos] within [SCROLL_MOTION_WINDOW_NANOS]. Keeps the render loop on the active
+     * cadence so scroll frames are not parked at the ~500ms idle latch during a gesture.
+     */
+    fun hasScrollMotion(): Boolean = System.nanoTime() - lastScrollNanos < SCROLL_MOTION_WINDOW_NANOS
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -311,7 +352,10 @@ constructor(
                 // System UI ANR). The chain itself stays alive (cheap).
                 if (
                     entry != null &&
-                    System.nanoTime() - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS
+                    (
+                        System.nanoTime() - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS ||
+                            entry.hasScrollMotion()
+                        )
                 ) {
                     entry.vsyncRequested = true
                     entry.pokeVsync()
@@ -755,6 +799,10 @@ constructor(
     fun setScrollRemainderPx(px: Float) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollRemainderPx = px
+        // Stamp the scroll-motion clock here too (not just in setScrollOffset):
+        // per-pixel sub-row motion is the highest-frequency event during a drag,
+        // so it must keep the loop's active cadence alive. Mirrors setScrollOffset.
+        entry.lastScrollNanos = System.nanoTime()
         entry.notifyRender()
     }
 
@@ -1293,9 +1341,18 @@ constructor(
                                             !entry.forceRenderRequested &&
                                             !entry.renderSignaled.get()
                                         ) {
-                                            val idleNanos = System.nanoTime() - entry.lastSignalNanos
-                                            val timeoutNanos =
-                                                if (idleNanos > RENDER_IDLE_THRESHOLD_NANOS) {
+                                            val timeoutNanos: Long =
+                                                if (
+                                                    shouldUseIdleLatch(
+                                                        idleNanos =
+                                                        System.nanoTime() -
+                                                            entry.lastSignalNanos,
+                                                        hasScrollMotion =
+                                                        entry.hasScrollMotion(),
+                                                        idleThresholdNanos =
+                                                        RENDER_IDLE_THRESHOLD_NANOS,
+                                                    )
+                                                ) {
                                                     RENDER_LATCH_IDLE_TIMEOUT_NANOS
                                                 } else {
                                                     RENDER_LATCH_TIMEOUT_NANOS
@@ -1424,20 +1481,19 @@ constructor(
                                             // Transient render error (surface not ready, snapshot unavailable,
                                             // etc.)
                                             // These resolve on their own; don't count them toward the fatal limit.
-                                            if (consecutiveErrors == 0) {
+                                            // Never break here: this thread also drives pollAll pumping — exiting
+                                            // freezes native output processing with no guaranteed restart (rotation /
+                                            // app-switch surface outage would wedge the terminal forever). Legitimate
+                                            // exit stays via entry.running / generation conditions above.
+                                            if (consecutiveErrors == 0 ||
+                                                consecutiveErrors % RENDER_MAX_TRANSIENT_ERRORS == 0
+                                            ) {
                                                 LogUtil.w(
                                                     "Runtime",
-                                                    "session ${entry.id} transient render error code=$count",
+                                                    "session ${entry.id} transient render error code=$count (consecutive=$consecutiveErrors, surviving)",
                                                 )
                                             }
                                             consecutiveErrors++
-                                            if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
-                                                LogUtil.e(
-                                                    "Runtime",
-                                                    "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
-                                                )
-                                                break
-                                            }
                                             // Adaptive backoff: 50ms for first 10, then 200ms
                                             val sleepMs =
                                                 if (consecutiveErrors > 10) {
@@ -1827,10 +1883,15 @@ constructor(
         // Logcat LATENCY_REPORT summary cadence (samples).
         private const val LATENCY_REPORT_EVERY = 50
 
-        // 8ms active latch: halves worst-case echo wake quantization
-        // (input→echo latency tail) at negligible cost — the native idle
-        // gate turns extra wake-ups into ~0-cost count=0 JNI crossings.
-        private const val RENDER_LATCH_TIMEOUT_NANOS = 8_000_000L
+        // 17ms active latch = 单个 vsync 周期（60Hz 显示 ~16.7ms）：
+        // waitOutput 是纯 park（PTY 到达无法提前唤醒，见 gate 注释），
+        // 8ms 的旧值让 active 态在每次 vsync 之外再多落一次兜底渲染，
+        // 实测渲染循环以 ~166fps 空转冲刷（多数帧被显示端丢弃，Immediate
+        // 下还叠加撕裂）。17ms 兜底把 active 节拍上界收敛到显示刷新率：
+        // 渲染要么由 Choreographer vsync 唤醒（~16.7ms 一次），要么由
+        // 本超时兜底，二者不会在同一周期重复触发。最坏输入→回显量化
+        // 延迟约 17ms，不可感知。
+        private const val RENDER_LATCH_TIMEOUT_NANOS = 17_000_000L
 
         // Slow-frame diagnostic: frames above this log a SLOW_FRAME line
         // (render-stage wall time) for offline breakdown.
@@ -1919,18 +1980,40 @@ constructor(
      * gesture finalizes through [appliedFontSizeSp]/setFontSize, which runs the full apply (including
      * the grid reflow). Caller rate-limits this — it is cheap enough to run a few times per second
      * even on software-GPU emulators.
+     *
+     * 手势期间不得 resize 网格：每次 preview 都重排会高频发 SIGWINCH +
+     * ghostty 重排 + native 清图集重光栅，触摸格点与渲染格点持续处于
+     * 中间态（布局混乱/撕裂）。网格只在手势结束 finalize 时重算一次。
      */
     fun setFontSizePreview(sizeSp: Float) {
         val tenths = (sizeSp * TENTHS_PER_UNIT.toFloat()).toInt()
         if (tenths < MIN_FONT_SIZE_TENTHS || tenths > MAX_FONT_SIZE_TENTHS) return
+        // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
+        // 与 native 侧跳过配合，缩放期间不抖动。
+        if (tenths == appliedFontSizeTenths) return
         val entry = sessions[activeSessionId] ?: return
         val bridge = entry.bridge ?: return
         bridge.setFontSizeInPlace(tenths)
-        // 预览必须同步网格:只推字形不清网格会导致触摸格点与渲染格点不一致(布局混乱/撕裂)。
-        // 与 finalize 同路径,同步度量后立即重算网格,保证手势期间无中间态错位。
-        syncGridDimensions(bridge)
-        recomputeGridFromFontMetrics()
+        // 只同步触摸/渲染度量，不重算网格不 resize：触摸映射跟上新字形，
+        // 网格行列保持到 finalize，避免手势期间中间态错位。
+        syncCellMetricsOnly(bridge)
         appliedFontSizeTenths = tenths
+    }
+
+    /**
+     * 只同步单元格度量（触摸/渲染用），不碰网格行列、不 resize。
+     * 手势 preview 路径专用；finalize/设置路径仍走全量同步 + 重算。
+     */
+    private fun syncCellMetricsOnly(bridge: Bridge) {
+        val density = context.resources.displayMetrics.density
+        val rawCellWidth = bridge.getCellWidth()
+        val rawCellHeight = bridge.getCellHeight()
+        if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
+        if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
+        val newCellWidth = rawCellWidth * density
+        val newCellHeight = rawCellHeight * density
+        if (newCellWidth > 0f) cellWidth = newCellWidth
+        if (newCellHeight > 0f) cellHeight = newCellHeight
     }
 
     /**
@@ -2315,6 +2398,13 @@ constructor(
                     activeSessionId = finalSessionId
                     bridge.onPtyWrite = { nanos ->
                         entry.latencyProbe.onInputWritten(nanos)
+                        // T3 input-write wake: EVERY PTY write (hardware keys via
+                        // processKeyEvent/writeKey, IME sendKeyEvent backspace, mouse)
+                        // must leave the idle park. After >5s idle the loop sits on
+                        // the 500ms latch with the vsync pump stopped — without this
+                        // wake the shell echo of a backspace waits out the full
+                        // 500ms idle-latch tick (~input→echo latency).
+                        entry.notifyRender()
                     }
                 }
             }
@@ -2608,6 +2698,11 @@ constructor(
                     abandonedByStart = false
                     bridge.onPtyWrite = { nanos ->
                         entry.latencyProbe.onInputWritten(nanos)
+                        // T3 input-write wake: see the createSession wiring — every
+                        // PTY write nudges the render loop off the idle latch so
+                        // input echoes render on the 17ms active cadence (not the
+                        // 500ms idle-latch tick).
+                        entry.notifyRender()
                     }
                 }
             }
