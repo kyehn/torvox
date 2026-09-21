@@ -1,9 +1,6 @@
 # ime-small-write-direct Specification
 
-## Purpose
-小字符提交与退格同延迟，大批量输入仍合并写 PTY。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 小提交直发
 
