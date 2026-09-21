@@ -13,6 +13,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -63,10 +64,44 @@ class SelectionEspressoTest {
     @Test
     fun selectAllShowsSelectionMenu() {
         composeTestRule.waitForSession()
+        // 全量内容断言（对标 selectAllFromToolbarSelectsWholeBuffer）：先送显三行
+        // 唯一标记，全选后 selectedText 必须全部包含，不止菜单出现。
+        val stamp = System.currentTimeMillis() % 100000
+        val markers = listOf("SELL_ALL_A_$stamp", "SELL_ALL_B_$stamp", "SELL_ALL_C_$stamp")
+        // 桥单次读取：会话孵化中为 null，由调用方轮询重试（getBridge 契约）。
+        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            composeTestRule.getBridge() != null
+        }
+        // house 模式：桥每次现取（Activity 重建/会话切换会替换桥实例，缓存实例
+        // 读到的是旧会话）。送显与轮询都用现取桥；若中途切换导致标记丢失则补送。
+        fun freshBridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val payload = (markers.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8)
+        var fed = false
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 500) {
+                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+                val text = composeTestRule.getBridge()?.getTerminalText().orEmpty()
+                if (markers.all { text.contains(it) }) {
+                    true
+                } else {
+                    // 补送幂等：同一标记重复送显不影响 contains 断言。
+                    fed = (runCatching { freshBridge().feedTerminal(payload) }.getOrDefault(false)) || fed
+                    false
+                }
+            }
+        assertNotNull("标记必须落格", settled)
+        assertTrue("标记送显失败", fed)
         composeTestRule.activityRule.scenario.onActivity { activity ->
             activity.terminalViewModel.selectAll(0)
         }
         composeTestRule.waitForIdle()
+        var selectedText = ""
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            selectedText = activity.terminalViewModel.state.value.selection.selectedText
+        }
+        for (marker in markers) {
+            assertTrue("全选必须包含整缓冲区内容 [$marker], 实际=[$selectedText]", selectedText.contains(marker))
+        }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         assertTrue("Selection menu must appear after Select All", device.wait(Until.hasObject(By.text("复制")), 5000))
     }
