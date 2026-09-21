@@ -123,6 +123,26 @@ class NativeBridgeSmokeTest {
     }
 
     @Test
+    fun `feedTerminal OSC52 write surfaces clipboard poll event`() {
+        withSession { sessionId ->
+            // Ghostty→FFI→JSON 全链（host 可验，无需模拟器）：feedTerminal 直注
+            // 解析器，on_clipboard_write 回调经 poll_clipboard 由 Event::Clipboard
+            // 以 JSON 报出。Kotlin 侧解析由 PollEventTest 覆盖，落盘由复制链覆盖。
+            val marker = "SMOKE52_${System.currentTimeMillis() % 100000}"
+            val encoded =
+                java.util.Base64.getEncoder().encodeToString(marker.toByteArray(Charsets.UTF_8))
+            NativeBridge.feedTerminal(sessionId, "\u001B]52;c;$encoded\u0007".toByteArray(Charsets.UTF_8))
+            val seen =
+                awaitTrue("clipboard poll event") {
+                    generateSequence { NativeBridge.pollEvent() }.take(50).any { json ->
+                        json.contains("clipboard") && json.contains(marker)
+                    }
+                }
+            assertTrue("OSC52 write must surface as clipboard poll event", seen)
+        }
+    }
+
+    @Test
     fun `feedTerminal text is queryable via getTerminalText`() {
         withSession { sessionId ->
             NativeBridge.feedTerminal(sessionId, "hello jni roundtrip".toByteArray())
