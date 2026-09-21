@@ -44,3 +44,8 @@ mutants.out/
 .pi-glla/
 *.p12
 .longgraph/
+
+# 本地工具缓存（nix store 缓存 / paseo 会话状态）不入库
+.nix-cache/
+.sessions/
+wt-*/
