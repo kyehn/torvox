@@ -1,6 +1,7 @@
 # backspace-input-wake Specification
 
 ## Purpose
+
 用户主诉"退格慢"：终端空闲 5 秒后（渲染循环进入 500ms 空闲 latch，
 vsync 泵帧停止），按键后画面更新明显延迟。滚动卡顿根因（T1）是渲染循环
 停在 500ms 空闲 latch；退格/按键在空闲态命中同一条延迟路径。本 spec

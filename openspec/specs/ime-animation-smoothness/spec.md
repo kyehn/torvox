@@ -1,6 +1,7 @@
 # ime-animation-smoothness Specification
 
 ## Purpose
+
 输入法弹出/隐藏动画流畅性。取证（Android 15 x86_64 模拟器，guest GPU，logcat
 与 OCR 实测）：IME show/hide 全程零 `setRenderPaused` / `attachWindow` /
 `applySurfaceResize`——暂停链未参与动画；渲染循环在动画及此后 5s 内跑 17ms

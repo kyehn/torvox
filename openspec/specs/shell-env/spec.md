@@ -1,6 +1,7 @@
 # shell-env Specification
 
 ## Purpose
+
 声明终端子进程环境变量白名单：`build_env` 只设置白名单内的变量，使 mksh 能通过 `ENV` 加载短提示符 rc，同时保证 bash 等其他 shell 行为不变。
 
 ## Requirements
