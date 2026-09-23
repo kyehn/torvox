@@ -2662,9 +2662,10 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
     };
     let instances =
         build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
-    if instances.len() == 1 {
-        return;
-    }
+    assert!(
+        !instances.is_empty(),
+        "emoji ZWJ cell must produce at least one instance"
+    );
     for instance in &instances {
         assert!(
             instance.atlas_size[0] >= 0.0 && instance.atlas_size[1] >= 0.0,
