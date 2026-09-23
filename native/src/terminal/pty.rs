@@ -1426,6 +1426,32 @@ mod tests {
         );
     }
 
+    // ── mkshrc 路径端到端：build_env 注入的 ENV 必须真实到达子进程环境。
+    // 子进程 `echo $ENV` 回显传入的 mkshrc_path，证明 ShellEnv → execve 整链透传。
+    #[test]
+    fn spawned_child_sees_env_mkshrc_path() {
+        use crate::terminal::pty::Pty;
+
+        let marker = "/tmp/vt_test_mkshrc/.mkshrc";
+        let env = ShellEnv {
+            mkshrc_path: Some(marker.to_string()),
+            ..ShellEnv::default()
+        };
+
+        let mut pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
+        pty.set_nonblocking().expect("set_nonblocking failed");
+        Pty::write_all(&mut pty, b"echo \"ENV-is:$ENV\"\n").expect("write failed");
+
+        let needle = format!("ENV-is:{marker}");
+        let output = read_until(&mut pty, needle.as_bytes());
+        assert!(
+            output.windows(needle.len()).any(|w| w == needle.as_bytes()),
+            "did not see ENV '{}' in child output: {}",
+            needle,
+            String::from_utf8_lossy(&output)
+        );
+    }
+
     // ── I6: PTY termios flags ───────────────────────────────────────
     // After the child is configured for raw mode, the line discipline must:
     //   * enable IUTF8 so the kernel treats input as UTF-8 (correct
