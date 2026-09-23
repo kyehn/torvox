@@ -1,6 +1,7 @@
 # modifier-bar-height-reservation Specification
 
 ## Purpose
+
 键栏高度预留与实际渲染总高一致，网格与平移不差半行。
 
 ## Requirements
