@@ -1881,7 +1881,7 @@ constructor(
         // [Process completed] prompt fed to the terminal when
         // a foreground session's shell exits (kept visible until Enter).
         private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
-        private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ")] - press Enter"
+        private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
         private const val RENDER_MAX_TRANSIENT_ERRORS =
