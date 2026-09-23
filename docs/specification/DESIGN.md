@@ -121,7 +121,7 @@
 
 - **Shell 启动入口路径及参数设置框**。提供保存按钮，支持保存和显示设置的文本，未设置时为空。保存时不检查文本，不检查路径是否存在，不检查参数是否合法。
   - 支持 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l`。
-  - 不支持 `/data/data/com.termux/files/usr/bin/login.sh` `login.sh`
+  - 不支持 `login.sh`（须为绝对路径）；`/data/data/com.termux/files/usr/bin/login.sh` 需手动设置
   - 启动入口应该是二进制文件且必须是绝对路径。不对文本进行检查，不检查路径/参数是否正确，不进行特殊处理。
   - 不提供启动目录设置
 

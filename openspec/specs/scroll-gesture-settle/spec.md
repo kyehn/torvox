@@ -1,6 +1,7 @@
 # scroll-gesture-settle Specification
 
 ## Purpose
+
 任何滚动手势结束（抬指/取消）后滚动状态必收尾，不残留。
 
 ## Requirements

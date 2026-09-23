@@ -1,6 +1,7 @@
 # modifier-bar-sticky-encoding Specification
 
 ## Purpose
+
 键栏按键与 IME/硬件路径一致地跟随粘滞修饰键。
 
 ## Requirements
