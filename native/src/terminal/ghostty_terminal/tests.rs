@@ -2081,9 +2081,9 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
     );
 }
 
-/// OSC 7 与 OSC 1337 工作目录上报（上游归一化，本仓只断言透出内容）。
+/// OSC 7、OSC 9 与 OSC 1337 工作目录上报（上游归一化，本仓只断言透出内容）。
 #[test]
-fn osc7_and_osc1337_report_working_directory() {
+fn osc7_osc9_and_osc1337_report_working_directory() {
     let mut osc7_terminal = terminal();
     osc7_terminal.pty_write(b"\x1b]7;file:///tmp\x07");
     osc7_terminal.flush();
@@ -2091,6 +2091,14 @@ fn osc7_and_osc1337_report_working_directory() {
         osc7_terminal.poll_cwd_event(),
         Some("file:///tmp".to_string()),
         "OSC 7 must surface the working directory"
+    );
+    let mut osc9_terminal = terminal();
+    osc9_terminal.pty_write(b"\x1b]9;9;/tmp\x07");
+    osc9_terminal.flush();
+    assert_eq!(
+        osc9_terminal.poll_cwd_event(),
+        Some("/tmp".to_string()),
+        "OSC 9 ConEmu CurrentDir must surface the working directory"
     );
     let mut osc1337_terminal = terminal();
     osc1337_terminal.pty_write(b"\x1b]1337;CurrentDir=/tmp\x07");

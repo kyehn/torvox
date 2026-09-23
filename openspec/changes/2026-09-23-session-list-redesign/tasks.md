@@ -7,7 +7,7 @@
 
 ## 任务
 
-- [ ] 1.1 native:补充 OSC 9(`9;9`)pwd 事件测试,按实测修正 `public_api.rs` 注释(`cargo test` 目标用例)。
+- [x] 1.1 native:补充 OSC 9(`9;9`)pwd 事件测试,按实测修正 `public_api.rs` 注释(`cargo test` 目标用例)。
 - [ ] 1.2 Kotlin:`ensureMkshPromptRc` 追加 `report_directory` + `cd` 包装 + 源时初发,marker 改为新内容特征,旧安装自愈。
 - [ ] 1.3 `refreshSessionMetas`:去 `sameSet`/`lastMetaSessionIds`,非 force 2 秒节流、force 恒执行,只取 directory。
 - [ ] 1.4 `SessionInfo` 移除 `title` 字段:抽屉副标题 = 缩写目录;全部构造点迁移;刷新不再调 `getTitle`。
