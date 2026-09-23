@@ -888,13 +888,11 @@ constructor(
     private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
-            val startDirDeferred = async { settingsRepository.startDir.first() }
             val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
             val fontDeferred = async { computeFontSizeTenths() }
             val themeDeferred = async { resolveThemeName() }
             ConfigReads(
                 shellPath = shellDeferred.await(),
-                startDir = startDirDeferred.await(),
                 scrollbackLines = scrollbackDeferred.await(),
                 fontSizeTenths = fontDeferred.await(),
                 themeName = themeDeferred.await(),
@@ -915,19 +913,16 @@ constructor(
             failsafeRequested = false
             return buildFailsafeConfig(rows, cols, configReads, bridgeTheme, homeDir)
         }
-        // 前缀 shell 解析：依次尝试 bash 与 login。候选为 ELF 二进制或系统解释器启动脚本；
-        // 私有目录 shebang 脚本不计入（其解释器本身尚不可用，linker 亦无法加载），由后续 ELF 候选承接。
-        // 系统脚本经内核 shebang 直接执行，不走 linker 桥接（pty 侧非 PIE 即直接执行）。
+        // 默认入口依次探测 bash 与 login（DESIGN :188 文件存在即启动，不检查权限）。
         val prefixShell = findPrefixShell(prefixDir)
-        val prefixComplete = prefixShell != null && java.io.File("$prefixDir/etc").isDirectory
         LogUtil.d(
             "Runtime",
-            "prefixShell=$prefixShell prefixComplete=$prefixComplete prefixDir=$prefixDir",
+            "prefixShell=$prefixShell prefixDir=$prefixDir",
         )
-        val effectivePrefix = if (prefixComplete) prefixDir else ""
-        val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, prefixComplete, shell)
+        val effectivePrefix = if (prefixShell != null) prefixDir else ""
+        val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
         val effectiveHome =
-            if (prefixComplete) {
+            if (prefixShell != null) {
                 homeDir
             } else {
                 java.io
@@ -940,8 +935,7 @@ constructor(
                     .absolutePath
             }
         ensureMkshPromptRc()
-        // 自定义启动目录：为空回落家目录，不校验存在性（子进程 chdir 失败仅记日志）。
-        val startDir = configReads.startDir.ifEmpty { effectiveHome }
+        // 无启动目录设置（DESIGN :126）：工作目录恒为家目录。
         return TerminalConfig(
             shell = effectiveShell,
             rows = rows,
@@ -950,7 +944,7 @@ constructor(
             font_size_tenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = effectiveHome,
-            workingDirectory = startDir,
+            workingDirectory = effectiveHome,
             prefix = effectivePrefix,
             mkshrcPath = mkshrcPath,
         )
@@ -985,7 +979,7 @@ constructor(
             font_size_tenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = home,
-            workingDirectory = configReads.startDir.ifEmpty { homeDir },
+            workingDirectory = home,
             prefix = "",
             mkshrcPath = mkshrcPath,
         )
@@ -1938,37 +1932,25 @@ constructor(
         private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
     }
 
-    private fun resolveEffectiveShell(
-        prefixDir: String,
-        prefixShell: String?,
-        prefixComplete: Boolean,
-        shell: Shell,
-    ): Shell {
-        // 自定义启动入口优先：用户已设置时原样 honor（含参数），仅默认入口才走前缀探测。
+    /** 自定义入口原样透传；默认入口走前缀探测结果，探测失败即系统 shell。 */
+    private fun resolveEffectiveShell(prefixDir: String, prefixShell: String?, shell: Shell): Shell {
         if (shell is Shell.Custom) return shell
         val prefixShellChecked = prefixShell ?: return shell
-        if (prefixComplete) return Shell.Custom("$prefixDir/$prefixShellChecked")
-        return shell
+        return Shell.Custom("$prefixDir/$prefixShellChecked")
     }
 
     private data class ConfigReads(
         val shellPath: String,
-        val startDir: String,
         val scrollbackLines: Int,
         val fontSizeTenths: Int,
         val themeName: String,
     )
 
     /**
-     * Find the prefix shell binary using bash-first resolution. 可执行项为 ELF 二进制或系统解释器启动脚本：后者经内核
-     * shebang 直接执行，不走 linker 桥接； 私有目录 shebang 脚本不计入，其解释器本身尚不可用，仍由后续 ELF 候选承接。
+     * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN :188），不检查权限。
      */
-    private fun findPrefixShell(prefixDir: String): String? {
-        // 依次尝试 bash 与 login，顺序即优先级（见 DESIGN Shell 节）。
-        return listOf("bin/bash", "bin/login").firstOrNull { candidate ->
-            val file = java.io.File("$prefixDir/$candidate")
-            file.isFile && (isElf(file) || isSystemShellScript(file))
-        }
+    private fun findPrefixShell(prefixDir: String): String? = listOf("bin/bash", "bin/login").firstOrNull { candidate ->
+        java.io.File("$prefixDir/$candidate").isFile
     }
 
     internal suspend fun computeFontSizeTenths(): Int {
@@ -2070,7 +2052,8 @@ constructor(
         }
     }
 
-    private fun resolveShell(shellPath: String): Shell = if (shellPath == "/system/bin/sh" || shellPath.isEmpty()) {
+    /** 空即默认入口（DESIGN :122 未设置时为空），其余原样透传，不特殊处理。 */
+    private fun resolveShell(shellPath: String): Shell = if (shellPath.isEmpty()) {
         Shell.SystemDefault
     } else {
         Shell.Custom(shellPath)

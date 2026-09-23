@@ -183,9 +183,7 @@ fun SettingsScreen(
                     val terminalConfigSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalConfigSection(
                         selectedShell = terminalConfigSettings.shell,
-                        onShellChanged = { viewModel.setShell(it) },
-                        startDir = terminalConfigSettings.startDir,
-                        onStartDirChanged = { viewModel.setStartDir(it) },
+                        onShellSaved = { viewModel.setShell(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
                         accentColor = accentColor,
@@ -422,9 +420,7 @@ private fun TerminalThemeSection(
 @Composable
 private fun TerminalConfigSection(
     selectedShell: String,
-    onShellChanged: (String) -> Unit,
-    startDir: String,
-    onStartDirChanged: (String) -> Unit,
+    onShellSaved: (String) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -438,14 +434,7 @@ private fun TerminalConfigSection(
         SettingsCard(cardBackground) {
             ShellInput(
                 shellPath = selectedShell,
-                onShellChanged = { onShellChanged(it) },
-                textColor = textColor,
-                accentColor = accentColor,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            StartDirInput(
-                startDir = startDir,
-                onStartDirChanged = { onStartDirChanged(it) },
+                onShellSaved = { onShellSaved(it) },
                 textColor = textColor,
                 accentColor = accentColor,
             )
@@ -861,45 +850,7 @@ internal fun TerminalThemeModeSelector(
 }
 
 @Composable
-private fun StartDirInput(
-    startDir: String,
-    onStartDirChanged: (String) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-) {
-    val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    Column {
-        Text(stringResource(R.string.start_dir), style = labelStyle, color = textColor)
-        Spacer(modifier = Modifier.height(4.dp))
-        var text by remember(startDir) { mutableStateOf(startDir) }
-        OutlinedTextField(
-            value = text,
-            onValueChange = {
-                text = it
-                onStartDirChanged(it)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            placeholder = {
-                Text(stringResource(R.string.start_dir_placeholder), color = textColor.copy(alpha = 0.5f))
-            },
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedTextColor = textColor,
-                unfocusedTextColor = textColor,
-                cursorColor = accentColor,
-                focusedBorderColor = accentColor,
-                unfocusedBorderColor = textColor.copy(alpha = 0.5f),
-            ),
-        )
-    }
-}
-
-@Composable
-private fun ShellInput(shellPath: String, onShellChanged: (String) -> Unit, textColor: Color, accentColor: Color) {
+private fun ShellInput(shellPath: String, onShellSaved: (String) -> Unit, textColor: Color, accentColor: Color) {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
         if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
@@ -909,10 +860,7 @@ private fun ShellInput(shellPath: String, onShellChanged: (String) -> Unit, text
         var text by remember(shellPath) { mutableStateOf(shellPath) }
         OutlinedTextField(
             value = text,
-            onValueChange = {
-                text = it
-                onShellChanged(it)
-            },
+            onValueChange = { text = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             placeholder = {
@@ -928,6 +876,14 @@ private fun ShellInput(shellPath: String, onShellChanged: (String) -> Unit, text
                 unfocusedBorderColor = textColor.copy(alpha = 0.5f),
             ),
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = { onShellSaved(text) },
+            modifier = Modifier.fillMaxWidth().testTag("ShellSaveButton"),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+        ) {
+            Text(text = stringResource(R.string.save), color = textColor)
+        }
     }
 }
 
