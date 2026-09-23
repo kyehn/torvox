@@ -15,6 +15,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * Quantified verification of the selection/drag behaviors reported broken:
@@ -92,7 +93,7 @@ class SelectionDragQuantifiedTest {
     }
 
     private fun currentText(): String? {
-        runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+        runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
