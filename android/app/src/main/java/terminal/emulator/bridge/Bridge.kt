@@ -271,7 +271,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * Take and clear the native `new_output` flag for this session (P1-1 scroll-reset signal,
-     * dual-flag protocol — see docs/reference/dual-flag-protocol.md). Called once per frame from the
+     * see docs/reference/REFERENCE.md). Called once per frame from the
      * render thread; returns true when PTY output was ingested since the last call. Unknown/destroyed
      * sessions report false.
      */
@@ -643,8 +643,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * Whether the terminal is in application cursor mode (DECCKM, DEC private mode 1). Arrow keys
-     * must then be encoded SS3 (`ESC OA`) instead of CSI (`ESC [ A`) — research-haven.md:141,
-     * research-zed-port.md:252. Queried only for arrow-key key events.
+     * must then be encoded SS3 (`ESC OA`) instead of CSI (`ESC [ A`) — see docs/reference/REFERENCE.md.
+     * Queried only for arrow-key key events.
      */
     fun isAppCursorMode(): Boolean {
         if (sessionId == 0L) return false
@@ -670,8 +670,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             val altActive = modifierBits and 2 != 0
             // DECCKM: when the terminal is in application cursor mode
             // (DEC private mode 1) arrow keys must be encoded SS3 (`ESC OA`)
-            // instead of CSI (`ESC [ A`) — research-haven.md:141,
-            // research-zed-port.md:252. Only queried for arrow keys to avoid
+            // instead of CSI (`ESC [ A`) — see docs/reference/REFERENCE.md. Only queried for arrow keys to avoid
             // a mode_get round-trip on every keystroke.
             val appCursorMode = keyCode in APP_CURSOR_KEY_CODES && isAppCursorMode()
             // Route ALL hardware keys through the same encoder the IME path
