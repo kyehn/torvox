@@ -888,13 +888,11 @@ constructor(
     private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
-            val startDirDeferred = async { settingsRepository.startDir.first() }
             val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
             val fontDeferred = async { computeFontSizeTenths() }
             val themeDeferred = async { resolveThemeName() }
             ConfigReads(
                 shellPath = shellDeferred.await(),
-                startDir = startDirDeferred.await(),
                 scrollbackLines = scrollbackDeferred.await(),
                 fontSizeTenths = fontDeferred.await(),
                 themeName = themeDeferred.await(),
@@ -940,8 +938,7 @@ constructor(
                     .absolutePath
             }
         ensureMkshPromptRc()
-        // 自定义启动目录：为空回落家目录，不校验存在性（子进程 chdir 失败仅记日志）。
-        val startDir = configReads.startDir.ifEmpty { effectiveHome }
+        // 无启动目录设置（DESIGN :126）：工作目录恒为家目录。
         return TerminalConfig(
             shell = effectiveShell,
             rows = rows,
@@ -950,7 +947,7 @@ constructor(
             font_size_tenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = effectiveHome,
-            workingDirectory = startDir,
+            workingDirectory = effectiveHome,
             prefix = effectivePrefix,
             mkshrcPath = mkshrcPath,
         )
@@ -985,7 +982,7 @@ constructor(
             font_size_tenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = home,
-            workingDirectory = configReads.startDir.ifEmpty { homeDir },
+            workingDirectory = home,
             prefix = "",
             mkshrcPath = mkshrcPath,
         )
@@ -1953,7 +1950,6 @@ constructor(
 
     private data class ConfigReads(
         val shellPath: String,
-        val startDir: String,
         val scrollbackLines: Int,
         val fontSizeTenths: Int,
         val themeName: String,

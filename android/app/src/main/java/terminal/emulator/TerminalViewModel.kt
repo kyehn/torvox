@@ -1479,7 +1479,6 @@ constructor(
     }
 
     /** 自由文本设置防抖写入（每次写入为完整文件重写）。 */
-    private val startDirTextDebounce = MutableStateFlow("")
     private val bootstrapUrlDebounce = MutableStateFlow("")
 
     // Written on the UI thread, read on an IO coroutine; volatile makes the
@@ -1492,12 +1491,6 @@ constructor(
         // on every keystroke (each write is a full file rewrite).
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
-            startDirTextDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
-                settingsRepository.setStartDir(value)
-            }
-        }
-        @OptIn(kotlinx.coroutines.FlowPreview::class)
-        viewModelScope.launch {
             bootstrapUrlDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
                 settingsRepository.setBootstrapUrl(value)
             }
@@ -1507,10 +1500,6 @@ constructor(
     /** Shell 启动入口经保存按钮直接写入（DESIGN :122 提供保存按钮），不检查文本。 */
     fun setShell(shell: String) {
         viewModelScope.launch { settingsRepository.setShell(shell) }
-    }
-
-    fun setStartDir(startDir: String) {
-        startDirTextDebounce.value = startDir
     }
 
     // ══════════════════════════════════════════════════════════════════════

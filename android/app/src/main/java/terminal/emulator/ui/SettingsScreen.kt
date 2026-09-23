@@ -184,8 +184,6 @@ fun SettingsScreen(
                     TerminalConfigSection(
                         selectedShell = terminalConfigSettings.shell,
                         onShellSaved = { viewModel.setShell(it) },
-                        startDir = terminalConfigSettings.startDir,
-                        onStartDirChanged = { viewModel.setStartDir(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
                         accentColor = accentColor,
@@ -423,8 +421,6 @@ private fun TerminalThemeSection(
 private fun TerminalConfigSection(
     selectedShell: String,
     onShellSaved: (String) -> Unit,
-    startDir: String,
-    onStartDirChanged: (String) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -439,13 +435,6 @@ private fun TerminalConfigSection(
             ShellInput(
                 shellPath = selectedShell,
                 onShellSaved = { onShellSaved(it) },
-                textColor = textColor,
-                accentColor = accentColor,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            StartDirInput(
-                startDir = startDir,
-                onStartDirChanged = { onStartDirChanged(it) },
                 textColor = textColor,
                 accentColor = accentColor,
             )
@@ -855,44 +844,6 @@ internal fun TerminalThemeModeSelector(
                 checkedTrackColor = accentColor,
                 uncheckedThumbColor = textColor.copy(alpha = 0.6f),
                 uncheckedTrackColor = cardBackground,
-            ),
-        )
-    }
-}
-
-@Composable
-private fun StartDirInput(
-    startDir: String,
-    onStartDirChanged: (String) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-) {
-    val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    Column {
-        Text(stringResource(R.string.start_dir), style = labelStyle, color = textColor)
-        Spacer(modifier = Modifier.height(4.dp))
-        var text by remember(startDir) { mutableStateOf(startDir) }
-        OutlinedTextField(
-            value = text,
-            onValueChange = {
-                text = it
-                onStartDirChanged(it)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            placeholder = {
-                Text(stringResource(R.string.start_dir_placeholder), color = textColor.copy(alpha = 0.5f))
-            },
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedTextColor = textColor,
-                unfocusedTextColor = textColor,
-                cursorColor = accentColor,
-                focusedBorderColor = accentColor,
-                unfocusedBorderColor = textColor.copy(alpha = 0.5f),
             ),
         )
     }
