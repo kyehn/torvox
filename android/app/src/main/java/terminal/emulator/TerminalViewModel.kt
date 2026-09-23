@@ -946,6 +946,12 @@ constructor(
             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
+                    // Register the user drop-in dir before listing so its
+                    // families are included even when loadFonts runs before
+                    // Runtime.start() finishes (repeats are no-ops).
+                    terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { dir ->
+                        bridge?.setExtraFontPaths(listOf(dir.absolutePath))
+                    }
                     val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
                     val fileSystemFonts = terminal.emulator.settings.systemFonts()
                     val allFonts = (rustFontFamilies + fileSystemFonts).distinct().sorted()
