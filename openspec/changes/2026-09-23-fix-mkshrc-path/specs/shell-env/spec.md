@@ -4,7 +4,7 @@
 
 ### Requirement: ENV 指向 mksh rc
 
-`build_env` MUST 注入 `ENV`，其值为调用方经 `ShellEnv.mkshrc_path` 传入的 mksh rc 绝对路径；mksh 交互 shell 经由 `ENV` 加载该文件获得短提示符。该路径 MUST NOT 位于 `$HOME` 下，且 MUST NOT 位于用户数据目录（`/data/data/com.termux/files`）内，由应用私有目录提供（`context.noBackupFilesDir/.mkshrc`）。`mkshrc_path` 为 `None` 时 MUST NOT 注入 `ENV`。
+`build_env` MUST 注入 `ENV`，其值为调用方经 `ShellEnv.mkshrc_path` 传入的 mksh rc 绝对路径（`DESIGN.md` Shell 节：`/data/data/com.termux/.mkshrc`，应用私有根目录，在 `files/` 用户数据树之外）；mksh 交互 shell 经由 `ENV` 加载该文件获得短提示符。`mkshrc_path` 为 `None` 时 MUST NOT 注入 `ENV`。
 
 #### Scenario: mksh 加载短提示符
 

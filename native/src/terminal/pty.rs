@@ -990,7 +990,7 @@ mod tests {
             home: "/tmp/test_home".to_string(),
             working_directory: "/tmp/test_home".to_string(),
             prefix: None,
-            mkshrc_path: Some("/tmp/test_no_backup/.mkshrc".to_string()),
+            mkshrc_path: Some("/tmp/test_app_data/.mkshrc".to_string()),
         }
     }
 
@@ -1138,7 +1138,7 @@ mod tests {
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "ENV" && v == "/tmp/test_no_backup/.mkshrc")
+                .any(|(k, v)| k == "ENV" && v == "/tmp/test_app_data/.mkshrc")
         );
     }
 
