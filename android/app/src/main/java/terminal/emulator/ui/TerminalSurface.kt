@@ -401,8 +401,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 .toInt()
                 .coerceIn(0, (width - estimatedWidth).coerceAtLeast(0))
         val menuHeight = dp(44)
-        val y = (topPx - menuHeight - dp(4)).toInt().coerceIn(0, (height - menuHeight).coerceAtLeast(0))
+        // 菜单在选择区上方：topPx 为选择首行顶缘，菜单底缘留出手柄高度（手柄在选择底缘下方，
+        // 与 Termux 一致避免遮挡所选词）；上方空间不足才翻到下方。
+        val handleHeight = selectionHandleHeight()
+        val aboveY = topPx - menuHeight - dp(4)
+        val y = if (aboveY >= 0) {
+            aboveY.toInt()
+        } else {
+            val (_, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
+            (bottomPx + handleHeight + dp(4)).toInt().coerceIn(0, (height - menuHeight).coerceAtLeast(0))
+        }
         return x to y
+    }
+
+    /** 选择手柄高度（与手柄定位同源；未知时回退一 Character 行高）。 */
+    private fun selectionHandleHeight(): Float {
+        val content = selectionHandles.contentHandleHeight()
+        return if (content > 0) content.toFloat() else cellHeight
     }
 
     /** Dismiss the selection menu popup. */
@@ -1021,6 +1036,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
             hideSelectionHandlesNow()
         }
+
+        /** 手柄内容高度（菜单定位避让同源；未知时 0）。 */
+        fun contentHandleHeight(): Int = overlayContent?.handleHeight ?: 0
 
         private fun hideSelectionHandlesNow() {
             val popup = overlayPopup
@@ -1821,7 +1839,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                if (isSelectingText) return false
+                // 选词中移动由 ACTION_MOVE 长按拖动分支消费；此处吞掉避免双路径竞争致摇晃。
+                if (isSelectingText) return true
                 // Alternate-screen wheel forwarding (Haven research: altScreen
                 // wheel consumption). When the remote is on the alternate
                 // screen (vim/less/htop), a touch-scroll gesture must be sent
@@ -1884,7 +1903,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (isSelectingText) return false
+                // 选词中 fling 同样吞掉，避免落到滚动路径致视口跳变。
+                if (isSelectingText) return true
                 // On the alternate screen (vim/less/htop), a fling must not
                 // scroll local scrollback — the gesture belongs to the remote.
                 // We drop it here (consuming it) rather than forwarding, since
@@ -3305,7 +3325,12 @@ internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_AC
         .substringBefore("\n").trim()
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false
     if (!trimmed.startsWith("/")) return false
-    return !trimmed.contains("\u0000")
+    if (trimmed.contains("\u0000")) return false
+    // shell 错误行不是路径：`/bin/sh: xxx: ...` 形态含冒号分隔的消息体，拒绝。
+    if (trimmed.contains(": ")) return false
+    // 路径内不得含空白：选择文本含空格即非单一路径（如错误行）。
+    if (trimmed.any { it.isWhitespace() }) return false
+    return true
 }
 
 /** 滚动行高下限：避免除零，保持手势可用。 */

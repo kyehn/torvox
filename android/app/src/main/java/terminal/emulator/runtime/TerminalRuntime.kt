@@ -2261,9 +2261,8 @@ constructor(
             // NOTE: bridge.setExtraFontPaths is intentionally NOT called
             // here — Bridge skips it while sessionId == 0 (before
             // spawnTerminal), which silently dropped the extra font paths
-            // Nerd Font in filesDir/fonts never loaded,
-            // NERD_FALLBACK found 0). It is called again right after
-            // spawnTerminal below.
+            // (user fonts never loaded, fallback found 0). It is called
+            // again right after spawnTerminal below.
 
             // The bootstrap download/install above can take minutes. The
             // surface passed into start() may have been destroyed during
@@ -2305,6 +2304,8 @@ constructor(
                 bridge.close()
                 return
             }
+            // 渲染预热与 shell 启动并行：wgpu 初始化 + 字体库加载移出 attach→首帧链。
+            bridge.prefetchRenderStateAsync(scope)
 
             // sessionId is now non-zero — the user font drop-in dir
             // (home/.termux/font) actually reaches the native font
@@ -2656,6 +2657,7 @@ constructor(
                 // 无回退：启动入口失败不尝试其他 shell；已有会话原样保留显示，失败经 logcat 输出。
                 throw RuntimeException("native spawn failed (result=$spawnResult)")
             }
+            bridge.prefetchRenderStateAsync(scope)
             nextId = spawnResult
 
             // Apply the theme AFTER spawn: Bridge.setTheme no-ops while
