@@ -60,6 +60,7 @@ data class TerminalConfig(
     val home: String,
     val workingDirectory: String,
     val prefix: String,
+    val mkshrcPath: String,
     val scrollbackLines: Int,
     val font_size_tenths: Int,
 )
@@ -133,6 +134,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 config.home,
                 config.workingDirectory,
                 config.prefix,
+                config.mkshrcPath,
                 config.scrollbackLines,
             )
         return sessionId
