@@ -1,7 +1,8 @@
 # shell-entry Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-23-shell-entry-spec. Update Purpose after archive.
+
+Shell 启动入口设置与解析行为：设置框未设置时为空并经保存按钮持久化；无启动目录设置；默认入口按存在性依次探测。
 
 ## Requirements
 
