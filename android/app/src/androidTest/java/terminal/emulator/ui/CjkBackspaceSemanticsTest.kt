@@ -8,6 +8,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.util.runCatchingCancellable
 
 /** shell 退格语义基线锁定：一个 0x08 删掉一个完整汉字（字符语义，非列语义）。
  *
@@ -27,7 +28,7 @@ class CjkBackspaceSemanticsTest {
             // 等 prompt 出现，确认 shell 就绪。
             val ready =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTerminalText(sessionId)?.contains("$") == true
                 }
             assertNotNull("shell 未就绪", ready)
@@ -35,7 +36,7 @@ class CjkBackspaceSemanticsTest {
             NativeBridge.feedPty(sessionId, "echo AB中X\n".toByteArray(Charsets.UTF_8))
             val echoed =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTerminalText(sessionId)?.contains("AB中X") == true
                 }
             assertNotNull("基线回显失败", echoed)
@@ -43,7 +44,7 @@ class CjkBackspaceSemanticsTest {
             NativeBridge.feedPty(sessionId, "echo AB中Y".toByteArray(Charsets.UTF_8))
             val lineReady =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTerminalText(sessionId)?.contains("AB中Y") == true
                 }
             assertNotNull("输入行未回显", lineReady)
@@ -51,14 +52,14 @@ class CjkBackspaceSemanticsTest {
             // BS 生效后编辑行回显擦掉 Y：轮询代替固定休眠，慢机不 flake，快机不等足。
             val erased =
                 UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTerminalText(sessionId)?.contains("AB中Y") == false
                 }
             assertNotNull("退格未生效", erased)
             NativeBridge.feedPty(sessionId, "\n".toByteArray(Charsets.UTF_8))
             val probe =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     val text = NativeBridge.getTerminalText(sessionId).orEmpty()
                     // 单个 0x08 必须删掉整个汉字：输出行恰为 AB中（字符语义）。
                     text.lines().any { it.trim() == "AB中" }
@@ -67,7 +68,7 @@ class CjkBackspaceSemanticsTest {
             android.util.Log.w("CJK_PROBE", "tail=${text.takeLast(300)}")
             assertNotNull("探针无输出", probe)
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 }

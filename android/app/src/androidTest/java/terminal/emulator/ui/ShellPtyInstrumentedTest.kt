@@ -11,6 +11,7 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.PollEvent
 import terminal.emulator.bridge.pollEventJson
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 系统 Shell PTY 端到端覆盖（对标 sylirre ShellSessionTest）。
@@ -38,12 +39,12 @@ class ShellPtyInstrumentedTest {
         try {
             body(sessionId)
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 
     private fun pumpAndText(sessionId: Long): String? {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         return NativeBridge.getTerminalText(sessionId)
     }
 
@@ -133,8 +134,10 @@ class ShellPtyInstrumentedTest {
             NativeBridge.feedPty(sessionId, "printf '\\a\\n'\n".toByteArray(Charsets.UTF_8))
             val seen =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                    val json = runCatching { NativeBridge.pollEvent() }.getOrNull()
-                    val event = json?.let { runCatching { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull() }
+                    val json = runCatchingCancellable { NativeBridge.pollEvent() }.getOrNull()
+                    val event = json?.let {
+                        runCatchingCancellable { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
+                    }
                     event is PollEvent.Bell && event.sessionId == sessionId
                 }
             assertNotNull("BEL 振铃事件必须上报: $sessionId", seen)
@@ -150,7 +153,7 @@ class ShellPtyInstrumentedTest {
             NativeBridge.feedPty(sessionId, "printf '\\033]2;$title\\007\\n'\n".toByteArray(Charsets.UTF_8))
             val seen =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTitle(sessionId) == title
                 }
             assertNotNull("shell 设置的标题必须可查询: $title", seen)
@@ -182,8 +185,10 @@ class ShellPtyInstrumentedTest {
         var exit: PollEvent.Exit? = null
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                val json = runCatching { NativeBridge.pollEvent() }.getOrNull()
-                val event = json?.let { runCatching { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull() }
+                val json = runCatchingCancellable { NativeBridge.pollEvent() }.getOrNull()
+                val event = json?.let {
+                    runCatchingCancellable { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
+                }
                 if (event is PollEvent.Exit && event.sessionId == sessionId) {
                     exit = event
                     true

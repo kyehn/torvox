@@ -12,6 +12,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -59,7 +60,7 @@ class ZoomPreviewGestureInstrumentedTest {
     }
 
     private fun pumpedText(): String {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         var text = ""
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
             text = activity.runtime.bridge()?.getTerminalText().orEmpty()

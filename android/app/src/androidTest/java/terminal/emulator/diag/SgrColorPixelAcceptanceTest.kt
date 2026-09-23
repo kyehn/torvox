@@ -19,6 +19,7 @@ import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.getBridge
 import terminal.emulator.grantNotificationPermission
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 颜色像素验收：SGR 红色文本必须在屏幕上产生红色主导像素，
@@ -180,7 +181,7 @@ class SgrColorPixelAcceptanceTest {
                 maxBlue > beforeBlue + PIXEL_GAIN_THRESHOLD,
             )
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 

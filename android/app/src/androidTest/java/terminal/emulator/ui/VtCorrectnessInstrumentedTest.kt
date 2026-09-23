@@ -10,6 +10,7 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.PollEvent
 import terminal.emulator.bridge.pollEventJson
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 真机 VT 直达通道的确定性正确性覆盖（对标 sylirre EmulatorVtTest）。
@@ -37,7 +38,7 @@ class VtCorrectnessInstrumentedTest {
         try {
             body(sessionId)
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 
@@ -132,7 +133,7 @@ class VtCorrectnessInstrumentedTest {
                 !full.contains("CAP_%04d_$stamp".format(1)),
             )
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 
@@ -175,10 +176,10 @@ class VtCorrectnessInstrumentedTest {
             val seen =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
                     // 事件通道单次消费：一次 poll 即解码，重复 poll 会丢事件。
-                    val json = runCatching { NativeBridge.pollEvent() }.getOrNull()
+                    val json = runCatchingCancellable { NativeBridge.pollEvent() }.getOrNull()
                     val event =
                         json?.let {
-                            runCatching { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
+                            runCatchingCancellable { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
                         }
                     event is PollEvent.Bell && event.sessionId == sessionId
                 }
@@ -411,7 +412,7 @@ class VtCorrectnessInstrumentedTest {
         NativeBridge.switchSession(sessionId)
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
-                runCatching { NativeBridge.pollEvent() }
+                runCatchingCancellable { NativeBridge.pollEvent() }
                 NativeBridge.getCurrentDirectory(sessionId) == expected
             }
         assertNotNull("工作目录必须可读: $expected, 实际: ${NativeBridge.getCurrentDirectory(sessionId)}", seen)
