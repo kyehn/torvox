@@ -39,7 +39,6 @@ class SessionDrawerNarrowTest {
                         onSwitchSession = {},
                         onCloseSession = {},
                         onAddSession = {},
-                        onRefreshSessions = {},
                         onSettings = {},
                         onSearch = {},
                         onKeyboardToggle = {},
@@ -79,7 +78,6 @@ class SessionDrawerNarrowTest {
                         listOf(
                             SessionInfo(
                                 id = 1L,
-                                title = "1",
                                 directory = "/data/data/com.termux/files/home",
                             ),
                         ),
@@ -87,7 +85,6 @@ class SessionDrawerNarrowTest {
                         onSwitchSession = {},
                         onCloseSession = {},
                         onAddSession = {},
-                        onRefreshSessions = {},
                         onSettings = {},
                         onSearch = {},
                         onKeyboardToggle = {},
