@@ -15,4 +15,6 @@
 - [x] 2.6 `loadFonts` 致命错误直通崩溃（`IllegalStateException` 单独捕获重抛，不再吞入空列表）；列表恢复文档顺序（`fonts.xml` 在前，native 补充追加，只精确去重不排序；对话框同步去排序；默认名回退去掉硬编码）。
 - [x] 2.7 `font.ttf` 覆盖探测按路径 + mtime + 大小缓存，同一文件只进库一次。
 - [x] 2.8 native `find_font_by_name` 支持 `fonts.xml` 别名（别名→文件名→已加载 face 精确查找，不加载新文件；精确优先于模糊）。
-- [ ] 2.9 验证（`cargo test`、`testDebugUnitTest`、androidTest 编译、release APK 设备验证）后 `openspec archive`。
+- [x] 2.9 去硬编码回退（Kotlin `getDefaultFontName` 空回退，native `system_monospace_name` 空回退；`shaping` 空即 `Family::Monospace` 不变）。
+- [x] 2.10 `loadFonts` 通用异常直通抛出（仅保留取消信号优先重抛），不再吞错置空列表；过时 `filesDir/fonts` 注释更新。
+- [ ] 2.11 验证（`cargo test`、`testDebugUnitTest`、androidTest 编译、release APK 设备验证）后 `openspec archive`。
