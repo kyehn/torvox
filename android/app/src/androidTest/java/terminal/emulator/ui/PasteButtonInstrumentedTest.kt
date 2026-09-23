@@ -20,12 +20,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.R
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.injectLongPress
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -66,7 +68,7 @@ class PasteButtonInstrumentedTest {
 
     /** 泵送事件队列后读全量文本（运行时输出收割需 pollEvent 驱动）。 */
     private fun currentText(): String? {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
@@ -162,7 +164,7 @@ class PasteButtonInstrumentedTest {
         }
         assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipRead == marker)
 
-        val pasteText = composeTestRule.activity.getString(terminal.emulator.R.string.paste)
+        val pasteText = composeTestRule.activity.getString(R.string.paste)
         // 参考实现同款：Espresso 点击 popup 内“粘贴”（UiAutomator 按 accessibility
         // 坐标点击曾出现“清选择但未粘贴”——疑似点中 surface 而非按钮；Espresso 直点
         // 活视图，缺席则大声失败，不会误清选择）。

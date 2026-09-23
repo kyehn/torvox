@@ -17,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.R
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
@@ -25,6 +26,7 @@ import terminal.emulator.getBridge
 import terminal.emulator.injectDoubleTap
 import terminal.emulator.injectTap
 import terminal.emulator.injectTripleTap
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -108,7 +110,7 @@ class MultiTapSelectionInstrumentedTest {
         // 持续泵送事件队列：运行时会话的输出收割/查询可见性需要 pollEvent
         // 驱动（StickyCtrl/VtCorrectness 同模式），否则文本永不更新。
         fun currentText(): String? {
-            runCatching { NativeBridge.pollEvent() }
+            runCatchingCancellable { NativeBridge.pollEvent() }
             return composeTestRule.getBridge()?.getTerminalText()
         }
         // 等输出静默（shell 启动输出落定）：若在标记送显后 shell 再输出，
@@ -167,7 +169,7 @@ class MultiTapSelectionInstrumentedTest {
         return snapshot
     }
 
-    private fun copyMenuText(): String = composeTestRule.activity.getString(terminal.emulator.R.string.copy)
+    private fun copyMenuText(): String = composeTestRule.activity.getString(R.string.copy)
 
     private fun awaitCopyMenu() {
         val menu = device.wait(Until.findObject(By.text(copyMenuText())), MENU_TIMEOUT_MS)

@@ -16,6 +16,7 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -38,7 +39,7 @@ class StickyCtrlInterruptInstrumentedTest {
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private fun pumpAndText(): String? {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         return composeTestRule.getBridge()?.getTerminalText()
     }
 

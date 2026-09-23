@@ -8,6 +8,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 中文呈现语义：CJK 字符落格后 render 必须能呈现（返回码语义），
@@ -25,7 +26,7 @@ class CjkPresentSemanticsTest {
             NativeBridge.switchSession(sessionId)
             val ready =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTerminalText(sessionId)?.contains("$") == true
                 }
             assertNotNull("shell 未就绪", ready)
@@ -40,7 +41,7 @@ class CjkPresentSemanticsTest {
             val text = NativeBridge.getTerminalText(sessionId).orEmpty()
             assertTrue("网格必须保留中文", text.contains("测试中文"))
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 }

@@ -14,6 +14,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
 import terminal.emulator.grantNotificationPermission
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * acceptance: the cursor block visible in the screenshot must sit at the render-source cursor cell,
@@ -52,7 +53,7 @@ class CursorPixelAcceptanceTest {
         val deadline = System.currentTimeMillis() + 20_000
         while (System.currentTimeMillis() < deadline) {
             // 桥在会话孵化完成前为 null：容忍空桥继续轮询，而非首轮即抛。
-            val ready = runCatching { bridge() }.getOrNull()
+            val ready = runCatchingCancellable { bridge() }.getOrNull()
             val text = ready?.getTerminalText()
             if (!text.isNullOrBlank()) break
             Thread.sleep(200)

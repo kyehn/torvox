@@ -16,11 +16,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.R
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -53,7 +55,7 @@ class SessionDrawerInstrumentedTest {
     private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     private fun currentText(): String? {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
@@ -129,7 +131,7 @@ class SessionDrawerInstrumentedTest {
 
         // 关闭当前会话 B：回落到 A，会话数恢复。
         composeTestRule.openDrawer()
-        val closeDescription = composeTestRule.activity.getString(terminal.emulator.R.string.cd_close_session)
+        val closeDescription = composeTestRule.activity.getString(R.string.cd_close_session)
         composeTestRule.onAllNodesWithContentDescription(closeDescription)[1].performClick()
         val closedBack =
             UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) {
