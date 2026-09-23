@@ -222,6 +222,20 @@ struct RenderState {
     dirty: AtomicBool,
 }
 
+/// Prefetch the renderer + font database without a surface: warms the
+/// wgpu device and the 200+ system font loads off the attach→first-frame
+/// path (cold start spends ~3s there on software GL). Called once after
+/// spawn on a background thread; later attach/render reuse the state.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        drop(render_state_mut());
+        log::info!("render state prefetched");
+    })
+}
 /// Ensure the render state exists, creating the renderer + font pipeline
 /// on first use. Panics on GPU init failure (fatal — no graceful
 /// degradation, per project policy: a terminal without rendering is
