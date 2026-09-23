@@ -150,6 +150,57 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
     (monospace, lang_fallbacks)
 }
 
+/// Parse `fonts.xml` into `(alias, filenames)` pairs in document order.
+/// Pure function so host tests can feed real device snippets; the device
+/// accessor below caches the parsed platform file. Nameless families have
+/// no selectable name and are skipped.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
+    let mut aliases = Vec::new();
+    let document = match roxmltree::Document::parse(xml) {
+        Ok(document) => document,
+        Err(_) => return aliases,
+    };
+    let root = document.root_element();
+    if !matches!(root.tag_name().name(), "familyset" | "fontconfig") {
+        return aliases;
+    }
+    for family in root
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "family")
+    {
+        let Some(name) = family.attribute("name").map(str::trim).filter(|name| !name.is_empty()) else {
+            continue;
+        };
+        let mut filenames = Vec::new();
+        for font in family
+            .children()
+            .filter(|node| node.is_element() && node.tag_name().name() == "font")
+        {
+            if let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) {
+                filenames.push(filename.to_string());
+            }
+        }
+        if !filenames.is_empty() {
+            aliases.push((name.to_string(), filenames));
+        }
+    }
+    aliases
+}
+
+#[cfg(target_os = "android")]
+static FONTS_XML_ALIASES: std::sync::OnceLock<Vec<(String, Vec<String>)>> = std::sync::OnceLock::new();
+
+/// Parsed platform `fonts.xml` aliases, read once per process.
+#[cfg(target_os = "android")]
+pub(crate) fn fonts_xml_aliases() -> &'static [(String, Vec<String>)] {
+    FONTS_XML_ALIASES.get_or_init(|| {
+        std::fs::read_to_string("/system/etc/fonts.xml")
+            .map(|content| parse_fonts_xml_aliases(&content))
+            .unwrap_or_default()
+    })
+}
+
 /// Map a system locale tag to `fonts.xml` `lang` candidates in priority
 /// order. AOSP uses `zh-Hans`/`zh-Hant`; older builds may use `zh-CN`.
 #[cfg(any(target_os = "android", test))]
@@ -287,6 +338,26 @@ mod tests {
             super::parse_fonts_xml_families(""),
             (Vec::new(), Vec::new())
         );
+    }
+
+    #[test]
+    fn parse_fonts_xml_aliases_in_document_order() {
+        let aliases = super::parse_fonts_xml_aliases(FONTS_XML_SNIPPET);
+        assert_eq!(aliases.len(), 2);
+        assert_eq!(aliases[0].0, "monospace");
+        assert_eq!(aliases[0].1, vec!["DroidSansMono.ttf"]);
+        assert_eq!(aliases[1].0, "casual");
+        assert_eq!(aliases[1].1, vec!["ComingSoon.ttf"]);
+    }
+
+    #[test]
+    fn parse_fonts_xml_aliases_skips_nameless_and_rejects_garbage() {
+        let xml = FONTS_XML_SNIPPET.replace("<family name=\"casual\">", "<family>");
+        let aliases = super::parse_fonts_xml_aliases(&xml);
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].0, "monospace");
+        assert!(super::parse_fonts_xml_aliases("not xml at all").is_empty());
+        assert!(super::parse_fonts_xml_aliases("").is_empty());
     }
 
     #[test]
