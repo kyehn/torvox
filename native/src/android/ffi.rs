@@ -363,6 +363,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     home: JString,
     working_directory: JString,
     prefix: JString,
+    mkshrc_path: JString,
     scrollback_lines: jint,
 ) -> jlong {
     // A panic escaping this JNI export would abort the whole process.
@@ -377,6 +378,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             home,
             working_directory,
             prefix,
+            mkshrc_path,
             scrollback_lines,
         )
     })
@@ -396,6 +398,7 @@ fn init_session_inner(
     home: JString,
     working_directory: JString,
     prefix: JString,
+    mkshrc_path: JString,
     scrollback_lines: jint,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
@@ -440,7 +443,7 @@ fn init_session_inner(
     };
 
     // Read the environment the Kotlin side resolved from the bootstrap
-    // (home/working directory/prefix). Empty strings mean
+    // (home/working directory/prefix/mkshrc path). Empty strings mean
     // "not known" and fall back to the process environment.
     let read_env_string = |env: &mut Env, value: &JString, name: &str| -> Option<String> {
         match value.try_to_string(env) {
@@ -466,6 +469,10 @@ fn init_session_inner(
         Some(value) => value,
         None => return 0,
     };
+    let mkshrc_path = match read_env_string(env, &mkshrc_path, "mkshrcPath") {
+        Some(value) => value,
+        None => return 0,
+    };
 
     let default = ShellEnv::default();
     let home = if home.is_empty() {
@@ -485,6 +492,11 @@ fn init_session_inner(
             None
         } else {
             Some(prefix.clone())
+        },
+        mkshrc_path: if mkshrc_path.is_empty() {
+            None
+        } else {
+            Some(mkshrc_path)
         },
     };
 

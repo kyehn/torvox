@@ -16,12 +16,18 @@ pub async fn set_prefix(world: &mut TerminalWorld, prefix: String) {
     world.prefix = Some(prefix);
 }
 
+#[given(expr = "mkshrc 路径为 {string}")]
+pub async fn set_mkshrc_path(world: &mut TerminalWorld, mkshrc_path: String) {
+    world.mkshrc_path = Some(mkshrc_path);
+}
+
 #[when("构建子进程环境变量")]
 pub async fn build(world: &mut TerminalWorld) {
     world.env = build_env(&ShellEnv {
         home: world.home.clone(),
         working_directory: world.home.clone(),
         prefix: world.prefix.clone(),
+        mkshrc_path: world.mkshrc_path.clone(),
     });
 }
 

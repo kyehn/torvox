@@ -9,6 +9,7 @@ use native::terminal::ghostty_terminal::{GhosttyTerminal, GridSnapshot};
 pub struct TerminalWorld {
     pub home: String,
     pub prefix: Option<String>,
+    pub mkshrc_path: Option<String>,
     pub env: Vec<(String, String)>,
     pub clipboard_read: Option<String>,
     pub terminal: TermSlot,

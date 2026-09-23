@@ -26,3 +26,12 @@
     那么 环境变量中不存在 "LD_LIBRARY_PATH"
     而且 环境变量中不存在 "LD_PRELOAD"
     而且 环境变量中不存在 "PWD"
+
+  场景: ENV 取传入的应用私有 mkshrc 路径
+    假如 mkshrc 路径为 "/data/data/com.termux/no_backup/.mkshrc"
+    当 构建子进程环境变量
+    那么 环境变量 "ENV" 的值为 "/data/data/com.termux/no_backup/.mkshrc"
+
+  场景: 未传入 mkshrc 路径时不注入 ENV
+    当 构建子进程环境变量
+    那么 环境变量中不存在 "ENV"

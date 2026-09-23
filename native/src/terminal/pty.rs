@@ -18,8 +18,6 @@ const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
 const DEFAULT_LANG: &str = "en_US.UTF-8";
 const TERMUX_VERSION: &str = "0.119.0-beta.3";
-/// mksh 启动文件的文件名：交互式 mksh 仅加载 ENV 指向的该文件。
-const MKSHRC_FILENAME: &str = ".mkshrc";
 /// Android does not have a writable /tmp, so we use /data/local/tmp
 /// which is guaranteed to be writable by the app process on all API levels.
 const ANDROID_TMPDIR: &str = "/data/local/tmp";
@@ -894,14 +892,14 @@ fn base_env_with_host(
 ///
 /// 规范白名单（docs/specification/DESIGN.md Bootstrap 节）：只设置下面这些变量，
 /// 不得设置 LD_LIBRARY_PATH / PWD / LD_PRELOAD 及其他任何未声明变量。
-/// ENV 指向 $HOME/.mkshrc，使 mksh 加载短提示符配置；bash 忽略 ENV。
+/// ENV 取调用方传入的应用私有 mksh rc 路径（不在 $HOME 或用户数据目录内，
+/// 见 DESIGN Shell 节）；未传入时不注入 ENV。bash 忽略 ENV。
 pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
     let mut result = base_env(env.prefix.as_deref());
     result.push(("HOME".to_string(), env.home.clone()));
-    result.push((
-        "ENV".to_string(),
-        format!("{}/{}", env.home.trim_end_matches('/'), MKSHRC_FILENAME),
-    ));
+    if let Some(mkshrc_path) = env.mkshrc_path.as_deref() {
+        result.push(("ENV".to_string(), mkshrc_path.to_string()));
+    }
     result.push(("TERMUX_HOME_DIR_PATH".to_string(), env.home.clone()));
     // `PREFIX` 已由 base_env 压入，此处仅补镜像键，避免重复键。
     if let Some(prefix) = env.prefix.as_deref() {
@@ -992,6 +990,7 @@ mod tests {
             home: "/tmp/test_home".to_string(),
             working_directory: "/tmp/test_home".to_string(),
             prefix: None,
+            mkshrc_path: Some("/tmp/test_no_backup/.mkshrc".to_string()),
         }
     }
 
@@ -1139,8 +1138,18 @@ mod tests {
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "ENV" && v == "/tmp/test_home/.mkshrc")
+                .any(|(k, v)| k == "ENV" && v == "/tmp/test_no_backup/.mkshrc")
         );
+    }
+
+    #[test]
+    fn build_env_omits_env_without_mkshrc_path() {
+        let env = ShellEnv {
+            mkshrc_path: None,
+            ..test_env()
+        };
+        let result = build_env(&env);
+        assert!(!result.iter().any(|(k, _)| k == "ENV"));
     }
 
     #[test]
