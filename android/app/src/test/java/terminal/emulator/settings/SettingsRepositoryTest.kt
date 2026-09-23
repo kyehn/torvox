@@ -119,4 +119,13 @@ class SettingsRepositoryTest {
         repository.applyFirstLaunchDefaultFontSize(800f)
         assertEquals(14f, repository.fontSize.first(), 0.01f)
     }
+
+    @Test
+    fun `font family round-trips then clears`() = runTest {
+        assertEquals("", repository.fontFamily.first())
+        repository.setFontFamily("Noto Sans Mono")
+        assertEquals("Noto Sans Mono", repository.fontFamily.first())
+        repository.clearFontFamily()
+        assertEquals("", repository.fontFamily.first())
+    }
 }
