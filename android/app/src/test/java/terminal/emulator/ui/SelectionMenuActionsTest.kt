@@ -34,4 +34,14 @@ class SelectionMenuActionsTest {
     fun `相对路径不显示打开文件`() {
         assertFalse(isFilePathCandidate("home/file.txt"))
     }
+
+    @Test
+    fun `shell错误行不显示打开文件`() {
+        assertFalse(isFilePathCandidate("/system/bin/sh: helloworldtest8: inaccessible or not found"))
+    }
+
+    @Test
+    fun `含空格文本不显示打开文件`() {
+        assertFalse(isFilePathCandidate("/data/data/com.termux/files/home/my file.txt"))
+    }
 }

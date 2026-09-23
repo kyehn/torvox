@@ -3305,7 +3305,12 @@ internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_AC
         .substringBefore("\n").trim()
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false
     if (!trimmed.startsWith("/")) return false
-    return !trimmed.contains("\u0000")
+    if (trimmed.contains("\u0000")) return false
+    // shell 错误行不是路径：`/bin/sh: xxx: ...` 形态含冒号分隔的消息体，拒绝。
+    if (trimmed.contains(": ")) return false
+    // 路径内不得含空白：选择文本含空格即非单一路径（如错误行）。
+    if (trimmed.any { it.isWhitespace() }) return false
+    return true
 }
 
 /** 滚动行高下限：避免除零，保持手势可用。 */
