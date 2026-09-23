@@ -840,7 +840,7 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Write `$HOME/.mkshrc` with a termux-parity prompt (self-healing).
+     * Write the mksh rc file with a termux-parity prompt (self-healing).
      *
      * root cause: with no rc file, interactive mksh falls back to the AOSP `/system/etc/mkshrc`
      * prompt `:/data/.../home $ ` — 38 columns wide. Any typed command longer than the remaining ~10
@@ -849,13 +849,18 @@ constructor(
      * `<` at the right edge). Real Termux avoids this entirely with the short `PS1='$ '` prompt —
      * same parity rule as every other termux-behavior fix in this round.
      *
+     * The file lives in [Context.getNoBackupFilesDir] rather than `$HOME` because `DESIGN.md`
+     * forbids putting `.mkshrc` under `$HOME`: writing it there would modify the user data tree
+     * (`files/`). The path is handed to native as [TerminalConfig.mkshrcPath] and injected as
+     * `$ENV`, which is how interactive mksh reaches it.
+     *
      * mksh reads `$ENV` when set, else `~/.mkshrc` for interactive shells; we source the system rc
      * first (keeps its PATH/alias setup) and then override PS1. Bash from a bootstrap never reads
      * this file. The file is overwritten when it does not already contain the parity marker so stale
      * installs self-heal.
      */
-    private fun ensureMkshPromptRc(homeDir: String) {
-        val mkshRcFile = java.io.File(homeDir, ".mkshrc")
+    private fun ensureMkshPromptRc() {
+        val mkshRcFile = java.io.File(context.noBackupFilesDir, MKSHRC_FILENAME)
         val parityMarker = "PS1='$ '"
         if (mkshRcFile.isFile) {
             try {
@@ -872,9 +877,13 @@ constructor(
                     "$parityMarker\n",
             )
         } catch (exception: Exception) {
-            LogUtil.w("Runtime", "Failed to write .mkshrc: $exception")
+            LogUtil.w("Runtime", "Failed to write $MKSHRC_FILENAME: $exception")
         }
     }
+
+    /** Absolute path of the mksh rc file written by [ensureMkshPromptRc]. */
+    private val mkshrcPath: String
+        get() = java.io.File(context.noBackupFilesDir, MKSHRC_FILENAME).absolutePath
 
     private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
         val configReads = coroutineScope {
@@ -930,7 +939,7 @@ constructor(
                     }
                     .absolutePath
             }
-        ensureMkshPromptRc(effectiveHome)
+        ensureMkshPromptRc()
         // 自定义启动目录：为空回落家目录，不校验存在性（子进程 chdir 失败仅记日志）。
         val startDir = configReads.startDir.ifEmpty { effectiveHome }
         return TerminalConfig(
@@ -943,6 +952,7 @@ constructor(
             home = effectiveHome,
             workingDirectory = startDir,
             prefix = effectivePrefix,
+            mkshrcPath = mkshrcPath,
         )
     }
 
@@ -966,7 +976,7 @@ constructor(
                     }
                 }
                 .absolutePath
-        ensureMkshPromptRc(home)
+        ensureMkshPromptRc()
         return TerminalConfig(
             shell = Shell.SystemDefault,
             rows = rows,
@@ -977,6 +987,7 @@ constructor(
             home = home,
             workingDirectory = configReads.startDir.ifEmpty { homeDir },
             prefix = "",
+            mkshrcPath = mkshrcPath,
         )
     }
 
@@ -1850,6 +1861,9 @@ constructor(
     }
 
     private companion object {
+        /** mksh 交互 shell 经 `$ENV` 加载的启动文件名（DESIGN Shell 节）。 */
+        const val MKSHRC_FILENAME = ".mkshrc"
+
         const val DEFAULT_GRID_ROWS = 24
         const val DEFAULT_GRID_COLS = 80
         private const val TENTHS_PER_UNIT = 10

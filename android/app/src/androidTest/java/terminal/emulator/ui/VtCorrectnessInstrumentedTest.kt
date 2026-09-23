@@ -32,7 +32,7 @@ class VtCorrectnessInstrumentedTest {
         val context = appContext()
         val home = context.filesDir.resolve("vt-test-home").apply { mkdirs() }.absolutePath
         val sessionId =
-            NativeBridge.initSession(ROWS, COLS, "/system/bin/sh", home, home, "", 2000)
+            NativeBridge.initSession(ROWS, COLS, "/system/bin/sh", home, home, "", "", 2000)
         assertTrue("原生会话创建失败", sessionId != 0L)
         try {
             body(sessionId)
@@ -106,7 +106,7 @@ class VtCorrectnessInstrumentedTest {
         val context = appContext()
         val home = context.filesDir.resolve("vt-test-home").apply { mkdirs() }.absolutePath
         val cap = 10
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", cap)
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", cap)
         assertTrue("原生会话创建失败", sessionId != 0L)
         try {
             val stamp = System.currentTimeMillis() % 100000

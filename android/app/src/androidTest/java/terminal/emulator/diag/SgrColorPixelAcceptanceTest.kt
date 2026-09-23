@@ -117,7 +117,7 @@ class SgrColorPixelAcceptanceTest {
         // 含回滚、列数是内容区折算值，不可直接用作新会话视口几何。
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = context.filesDir.resolve("sgr-test-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
         assertTrue("隔离会话创建失败", sessionId != 0L)
         try {
             val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
