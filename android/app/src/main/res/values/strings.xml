@@ -12,7 +12,6 @@
     <string name="font_family">字体</string>
     <string name="change">更改</string>
     <string name="select_font_family">选择字体</string>
-    <string name="pick_font_file">从文件选择…</string>
     <string name="copy">复制</string>
     <string name="paste">粘贴</string>
     <string name="select_all">全选</string>
