@@ -3281,7 +3281,11 @@ constructor(
         _state.update { it.copy(rows = newRows, cols = newCols) }
     }
 
-    suspend fun applyFontSettings() {
+    /**
+     * 应用字体设置，返回 native 应用结果：true 全会话成功，false 任一失败，
+     * null 无会话可验证（调用方此时不得清除设置）。
+     */
+    suspend fun applyFontSettings(): Boolean? {
         val fontSizeTenths = computeFontSizeTenths()
         appliedFontSizeTenths = fontSizeTenths
         val fontFamily = settingsRepository.fontFamily.first()
@@ -3290,10 +3294,14 @@ constructor(
             "Runtime",
             "applyFontSettings: fontFamily='$fontFamily' effective='$effectiveFontFamily' fontSizeTenths=$fontSizeTenths sessions=${sessions.size}",
         )
+        var applied: Boolean? = null
         sessions.values.forEach { entry ->
             try {
                 val familyResult = entry.bridge?.setFontFamily(effectiveFontFamily)
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
+                if (familyResult != null) {
+                    applied = (applied ?: true) && familyResult
+                }
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
                 entry.bridge?.let { syncGridDimensions(it) }
                 // the grid must follow the font. syncGridDimensions
@@ -3306,13 +3314,10 @@ constructor(
                 recomputeGridFromFontMetrics()
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "applyFontSettings failed for session", exception)
+                applied = false
             }
         }
-    }
-
-    fun loadFontFile(path: String): String? {
-        val entry = sessions.values.firstOrNull() ?: return null
-        return entry.bridge?.loadFontFile(path)
+        return applied
     }
 
     fun writeToPty(data: ByteArray): Boolean {
