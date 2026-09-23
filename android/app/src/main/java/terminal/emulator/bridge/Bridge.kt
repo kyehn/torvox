@@ -532,13 +532,31 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    // font.ttf 覆盖探测缓存：native 每次加载都会追加字体条目，
+    // 同一文件只探测一次，内容变化才重新探测。
+    private var lastDefaultFontProbeKey: String? = null
+    private var lastDefaultFontProbeFamily: String? = null
+
+    private fun probeDefaultFontFile(): String? {
+        val file =
+            terminal.emulator.termuxDefaultFontFile(config.home) ?: run {
+                lastDefaultFontProbeKey = null
+                lastDefaultFontProbeFamily = null
+                return null
+            }
+        val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
+        if (key == lastDefaultFontProbeKey) return lastDefaultFontProbeFamily
+        val family = loadFontFile(file.absolutePath)
+        lastDefaultFontProbeKey = key
+        lastDefaultFontProbeFamily = family
+        return family
+    }
+
     fun setFontFamily(family: String): Boolean {
         Log.d(TAG, "setFontFamily($family)")
         if (sessionId == 0L) return false
-        // DESIGN 字体选择节: font.ttf present means default — probe
-        // without copying and apply it, overriding the stored setting.
-        val override =
-            terminal.emulator.termuxDefaultFontFile(config.home)?.let { loadFontFile(it.absolutePath) }
+        // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
+        val override = probeDefaultFontFile()
         return try {
             NativeBridge.setFontFamily(sessionId, override ?: family)
         } catch (exception: RuntimeException) {
