@@ -30,7 +30,7 @@ class TerminalInputEncoderTest {
     @Test
     fun `ctrl 1 9 0 emit csi 27 instead of being dropped`() {
         // zed-port mappings/keys.rs: digits with no traditional caret fold
-        // are sent as `CSI 27;5;code~` (see docs/reference/REFERENCE.md).
+        // are sent as `CSI 27;5;code~` (see docs/specification/REFERENCE.md).
         assertArrayEquals(csi27(5, '1'.code), enc("1", ctrl = true))
         assertArrayEquals(csi27(5, '9'.code), enc("9", ctrl = true))
         assertArrayEquals(csi27(5, '0'.code), enc("0", ctrl = true))
@@ -118,7 +118,7 @@ class TerminalInputEncoderTest {
 
     @Test
     fun `encodeKeyEvent ctrl digit emits csi 27`() {
-        // Hardware-key path mirrors the IME path (see docs/reference/REFERENCE.md).
+        // Hardware-key path mirrors the IME path (see docs/specification/REFERENCE.md).
         assertArrayEquals(
             "\u001b[27;5;49~".toByteArray(Charsets.UTF_8),
             TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_1, '1'.code, true, false),
@@ -149,7 +149,7 @@ class TerminalInputEncoderTest {
 
     @Test
     fun `encodeKeyEvent arrow uses ss3 in application cursor mode`() {
-        // DECCKM (see docs/reference/REFERENCE.md): app mode must emit ESC O A.
+        // DECCKM (see docs/specification/REFERENCE.md): app mode must emit ESC O A.
         assertArrayEquals(
             bytes(0x1B, 0x4F, 0x41),
             TerminalInputEncoder.encodeKeyEvent(

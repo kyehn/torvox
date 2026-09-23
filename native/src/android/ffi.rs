@@ -209,7 +209,7 @@ struct RenderState {
     kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
     kitty_instances: Vec<crate::render::KittyGraphicsInstance>,
     kitty_uploaded_generation: u64,
-    /// P2-1 content-dirty flag (see docs/reference/REFERENCE.md): raised by the JNI entry
+    /// P2-1 content-dirty flag (see docs/specification/REFERENCE.md): raised by the JNI entry
     /// points that mutate deferred render inputs (`setSearchHighlights`/
     /// `clearSearchHighlights`, `setFontSizeInPlace`) and consumed by the render thread with a
     /// single `getAndSet(false)` swap in `render_inner`. Independent from
@@ -1363,7 +1363,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Take and clear the per-session `new_output` flag (P1-1 scroll-reset
-/// signal, see docs/reference/REFERENCE.md).
+/// signal, see docs/specification/REFERENCE.md).
 ///
 /// The flag is raised by the PTY ingest path (`Session::process_output` /
 /// `poll_pty_output` → `OutputProcessor::process`) and read-and-cleared here
@@ -3395,7 +3395,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
 /// namespace: 0 = DEC private modes, non-zero = ANSI modes. Backs the
 /// DECCKM (application cursor keys, DEC private mode 1) lookup the Kotlin
 /// key encoder needs to switch arrow keys between SS3 (`ESC OA`) and CSI
-/// (`ESC [ A`) — see docs/reference/REFERENCE.md.
+/// (`ESC [ A`) — see docs/specification/REFERENCE.md.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
     mut unowned_env: EnvUnowned<'_>,

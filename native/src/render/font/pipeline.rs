@@ -52,7 +52,7 @@ pub struct FontPipeline {
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
     /// Independent bold/italic/bold-italic family slots (ghostty-android
-    /// TerminalFontStore 4-slot design, see docs/reference/REFERENCE.md):
+    /// TerminalFontStore 4-slot design, see docs/specification/REFERENCE.md):
     /// when a style slot is set, glyph_information_styled prefers that real
     /// face over same-family lookup + synthesis. Index: 0=bold, 1=italic,
     /// 2=bold-italic.
@@ -829,7 +829,7 @@ impl FontPipeline {
         let primary_font_id = self.font_id?;
 
         // 0) Independent bold/italic family slot (ghostty-android 4-slot
-        //    TerminalFontStore, see docs/reference/REFERENCE.md): the
+        //    TerminalFontStore, see docs/specification/REFERENCE.md): the
         //    user-configured style family wins outright, no synthesis.
         let slot = Self::styled_slot_index(bold, italic);
         let style_id = self.styled_font_ids[slot].or_else(|| {

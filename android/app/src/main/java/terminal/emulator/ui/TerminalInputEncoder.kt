@@ -95,7 +95,7 @@ object TerminalInputEncoder {
      * xterm/zed `CSI 27` modifier encoding: `ESC [ 27 ; modifier ; code ~`.
      * Modifier bits: Shift=1, Alt=2, Ctrl=4 (zed mappings/keys.rs
      * modifier_code). Used for Ctrl+digits that have no traditional caret
-     * fold (see docs/reference/REFERENCE.md: Ctrl+数字/标点 → CSI 27;5;n~).
+     * fold (see docs/specification/REFERENCE.md: Ctrl+数字/标点 → CSI 27;5;n~).
      */
     private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
@@ -220,7 +220,7 @@ object TerminalInputEncoder {
     }
 
     /**
-     * Arrow-key sequence honoring DECCKM (see docs/reference/REFERENCE.md): in application cursor mode the arrows must
+     * Arrow-key sequence honoring DECCKM (see docs/specification/REFERENCE.md): in application cursor mode the arrows must
      * use SS3 (`ESC O A`) instead of CSI (`ESC [ A`), or vim/less/mutt in
      * app mode misread them. Modifier-carrying arrows never reach this
      * helper — they are handled by [csiSequenceWithModifier]. Shared with
