@@ -156,6 +156,13 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     suspend fun setFontFamily(family: String) = put(Keys.FONT_FAMILY, family)
 
+    /** Clears an invalid font family setting (DESIGN 字体选择节: 设置错误重置应用数据). */
+    suspend fun clearFontFamily() {
+        provider.dataStore.edit { prefs ->
+            prefs.remove(Keys.FONT_FAMILY)
+        }
+    }
+
     suspend fun setThemeName(name: String) = put(Keys.THEME_NAME, name)
 
     suspend fun setDayThemeName(name: String) = put(Keys.DAY_THEME_NAME, name)
