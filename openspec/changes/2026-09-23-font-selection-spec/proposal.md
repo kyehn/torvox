@@ -10,7 +10,7 @@ native 侧已合规（`ASystemFontIterator` 平台枚举、`font_db::parse_fonts
 
 - `systemFonts()` 改为 `XmlPullParser` 解析 `/system/etc/fonts.xml`，按文档顺序返回 `<family name>`；缺失/不可解析 → 日志 + 抛 `IllegalStateException` 崩溃（`:96`）。
 - 删除文件安装流：对话框首行、`customFontLauncher`、`installFontFile`、`getFileNameFromUri`、`sanitizeFontFileName`、`filesDir/fonts` 创建与缓存迁移、`pick_font_file` 文案；保留 `loadFontFile` JNI 仅作 `font.ttf` family 探测。
-- `font.ttf`（兼 `.ttc` `.otf`）存在即默认：`applyFontSettings` 入口优先探测应用，无则走用户设置。
+- `font.ttf`（兼 `.ttc` `.otf`）存在即默认：`Bridge.setFontFamily` 内优先 `loadFontFile` 探测应用并返回应用结果，无则走传入值（覆盖启动、设置变更全部入口；`TerminalRuntime` 零改动）。
 - 用户字体目录改为 `files/home/.termux/font`，`setExtraFontPaths` 指向它；列表经 `listFontFamilies` 天然包含，无手动判断。
 - `setFontFamily` native 返回 false → 日志 + 清除该设置（`SettingsRepository.clearFontFamily` 新增）。
 
