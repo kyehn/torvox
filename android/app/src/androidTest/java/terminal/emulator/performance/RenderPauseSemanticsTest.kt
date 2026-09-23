@@ -19,7 +19,7 @@ class RenderPauseSemanticsTest {
     fun pausedWritesArePresentedAfterResume() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = context.filesDir.resolve("pause-probe-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
         assertTrue("会话创建失败", sessionId != 0L)
         try {
             NativeBridge.switchSession(sessionId)

@@ -31,7 +31,7 @@ class ShellPtyInstrumentedTest {
         val context = appContext()
         val home = context.filesDir.resolve("shell-test-home").apply { mkdirs() }.absolutePath
         val sessionId =
-            NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
+            NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
         assertTrue("原生会话创建失败", sessionId != 0L)
         // 输出泵：PTY→VT 由 pollEvent 驱动且仅泵活跃会话；切为活跃并在轮询中持续泵送。
         NativeBridge.switchSession(sessionId)

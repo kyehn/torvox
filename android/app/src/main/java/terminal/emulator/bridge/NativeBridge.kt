@@ -46,6 +46,7 @@ object NativeBridge {
         home: String,
         workingDirectory: String,
         prefix: String,
+        mkshrcPath: String,
         scrollbackLines: Int,
     ): Long
 
