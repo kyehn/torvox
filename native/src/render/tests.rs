@@ -2861,8 +2861,8 @@ fn italic_d_advance_covers_sheared_bitmap() {
 /// 若构建后无脏区，帧绘制将按空纹理采样，斜体/新字形首帧缺失。
 #[test]
 fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
-    use crate::terminal::ghostty_terminal::cell_flags;
     use crate::terminal::ghostty_terminal::CellData;
+    use crate::terminal::ghostty_terminal::cell_flags;
     let mut font_pipeline = ascii_font();
     // 模拟 render_inner Phase 1：先取走构建前的脏区（ASCII 预热字形）。
     let _pre_frame_upload = font_pipeline.take_dirty_rect();
@@ -2937,8 +2937,8 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
 /// 与首帧逐字节一致、已上传字形像素不被改写。
 #[test]
 fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
-    use crate::terminal::ghostty_terminal::cell_flags;
     use crate::terminal::ghostty_terminal::CellData;
+    use crate::terminal::ghostty_terminal::cell_flags;
     let mut font_pipeline = ascii_font();
     let _ = font_pipeline.take_dirty_rect();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
@@ -3015,7 +3015,10 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
     );
     let first_bytes = bytemuck::cast_slice::<CellInstance, u8>(&first);
     let second_bytes = bytemuck::cast_slice::<CellInstance, u8>(&second);
-    assert_eq!(first_bytes, second_bytes, "重复构建实例必须与首帧逐字节一致");
+    assert_eq!(
+        first_bytes, second_bytes,
+        "重复构建实例必须与首帧逐字节一致"
+    );
     assert!(
         font_pipeline.take_dirty_rect().is_none(),
         "重复构建全部命中缓存，不得产生新脏区"
@@ -3036,8 +3039,6 @@ fn snapshot_atlas_rect(bitmap: &[u8], atlas_width: usize, rect: (u32, u32, u32, 
     }
     out
 }
-
-
 
 /// 滚动一致性（fix-scroll-residual-tearing）GPU 契约测试：
 /// 带视口像素偏移的全量重绘（非部分路径：Clear + 全部实例 + 偏移投影）
@@ -3119,8 +3120,7 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
     }
     // 帧 B：行 r 内容整体下移，占据 [scroll_px + r*cell_h, scroll_px + (r+1)*cell_h)。
     for row in 0..row_count {
-        let y_mid =
-            (scroll_px as u32) + (row as f32 * cell_h) as u32 + (cell_h * 0.5) as u32;
+        let y_mid = (scroll_px as u32) + (row as f32 * cell_h) as u32 + (cell_h * 0.5) as u32;
         let expected = [
             stripe_colors[row as usize][0],
             stripe_colors[row as usize][1],
