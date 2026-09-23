@@ -864,7 +864,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
 
     override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault(
-        "monospace",
+        "",
     )
 
     override fun getFontInfo(): String? = runCatchingCancellable { queryPort.getFontInfo() }.getOrNull()
