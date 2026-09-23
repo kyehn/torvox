@@ -954,8 +954,8 @@ constructor(
                     // 只做精确去重，不排序、不改写名称。
                     val allFonts = (fileSystemFonts + rustFontFamilies).distinct()
                     _availableFonts.value = allFonts
-                    _defaultFontName.value =
-                        bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
+                    val defaultName = bridge?.getDefaultFontName().orEmpty()
+                    _defaultFontName.value = defaultName.ifEmpty { fileSystemFonts.firstOrNull().orEmpty() }
                     val storedFamily = settingsRepository.fontFamily.first()
                     clearUnknownFontFamily(
                         storedFamily,
@@ -1016,7 +1016,7 @@ constructor(
                     val fontName = bridge?.getDefaultFontName()
                     clearUnknownFontFamily(family, applied)
                     val fontInfo = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
-                    _defaultFontName.value = fontName ?: "monospace"
+                    _defaultFontName.value = fontName ?: ""
                     _fontInfo.value = fontInfo
                     android.util.Log.d("Font", "Font applied: ${_defaultFontName.value}")
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
@@ -1108,7 +1108,7 @@ constructor(
     private val _defaultFontName = MutableStateFlow("")
     val defaultFontName: StateFlow<String> = _defaultFontName.asStateFlow()
 
-    private val _fontInfo = MutableStateFlow(FontInfoDto.placeholderJson("monospace"))
+    private val _fontInfo = MutableStateFlow(FontInfoDto.placeholderJson(""))
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
