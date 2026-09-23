@@ -135,7 +135,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun listFontFamilies(): List<String>? = NativeBridge.listFontFamilies()?.toList()
 
-    override fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: "monospace"
+    override fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: ""
 
     override fun getFontInfo(): String? = NativeBridge.getFontInfo()
 }
