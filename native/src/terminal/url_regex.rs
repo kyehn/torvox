@@ -2,7 +2,7 @@
 //!
 //! # Requirements
 //! - FR-023 — Word boundary and URL detection: auto-expand word selections to URLs.
-//! - zed-android-port `URL_REGEX` (see docs/reference/REFERENCE.md): the 20-protocol
+//! - zed-android-port `URL_REGEX` (see docs/specification/REFERENCE.md): the 20-protocol
 //!   prefix list must include `ipfs:`/`ipns:` (linkify scans any valid scheme).
 //!
 //! linkify implements RFC-3986-style URL scanning (Unicode/IRI, bracket

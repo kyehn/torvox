@@ -19,7 +19,7 @@ pub struct OutputSnapshot {
 /// PTY 输出预处理器：透传 + 读取请求扫描 + new_output 标志。
 pub struct OutputProcessor {
     scan: ReadScan,
-    /// P1-1 `new_output` flag (see docs/reference/REFERENCE.md): set when a non-empty PTY
+    /// P1-1 `new_output` flag (see docs/specification/REFERENCE.md): set when a non-empty PTY
     /// chunk is ingested ([`Self::process`]), read-and-cleared by the
     /// render thread via [`Self::take_new_output`]. Independent from the
     /// P2-1 `dirty` flag: new output may reset the viewport to the
@@ -52,7 +52,7 @@ impl OutputProcessor {
     /// 处理一块 PTY 输出：全部字节透传，仅剥离 OSC 52 读取请求。
     pub fn process(&mut self, data: &[u8]) -> OutputSnapshot {
         // P1-1: PTY ingest → raise `new_output` (bypass flag, not a queued
-        // event — see docs/reference/REFERENCE.md). Empty chunks
+        // event — see docs/specification/REFERENCE.md). Empty chunks
         // carry no output and do not count.
         if !data.is_empty() {
             self.new_output.store(true, Ordering::Release);

@@ -1533,7 +1533,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // anchor semantics plus a CROSSING FLIP — when the dragged handle crosses
     // the stationary one, ownership swaps and the stationary handle returns to
     // its pre-cross position. 目前仅做 coerceIn 夹取（无翻转）；
-    // mirrored as gap, see docs/reference/REFERENCE.md).
+    // mirrored as gap, see docs/specification/REFERENCE.md).
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 

@@ -652,7 +652,7 @@ impl Session {
         self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
-    /// Take and clear the P1-1 `new_output` flag (see docs/reference/REFERENCE.md). Raised by the PTY ingest path
+    /// Take and clear the P1-1 `new_output` flag (see docs/specification/REFERENCE.md). Raised by the PTY ingest path
     /// ([`OutputProcessor::process`]); the render thread is the single
     /// read-clear consumer. Independent from the P2-1 `dirty` flag.
     pub fn take_new_output(&self) -> bool {

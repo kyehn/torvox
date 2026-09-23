@@ -127,7 +127,7 @@ object NativeBridge {
     /**
      * Query a terminal mode (ghostty `mode_get`); `kind` 0 = DEC private modes, non-zero = ANSI
      * modes. Backs the DECCKM (application cursor keys, DEC private mode 1) lookup used to switch
-     * arrow keys between SS3 (`ESC OA`) and CSI (`ESC [ A`) — see docs/reference/REFERENCE.md.
+     * arrow keys between SS3 (`ESC OA`) and CSI (`ESC [ A`) — see docs/specification/REFERENCE.md.
      */
     @JvmStatic external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
 
@@ -159,7 +159,7 @@ object NativeBridge {
      * Take and clear the per-session `new_output` flag (P1-1 scroll-reset signal). Raised by the
      * native PTY ingest path; read-and-cleared by the render thread once per frame as a BYPASS read
      * alongside [pollEvent] — deliberately not a queued event variant so sustained output (tail -f)
-     * cannot starve clipboard/exit events. See docs/reference/REFERENCE.md.
+     * cannot starve clipboard/exit events. See docs/specification/REFERENCE.md.
      */
     @JvmStatic external fun consumeNewOutput(sessionId: Long): Boolean
 
