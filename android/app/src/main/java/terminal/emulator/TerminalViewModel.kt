@@ -145,12 +145,12 @@ data class SelectionState(
 data class HandleDragResult(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
 
 /** Session info for the session drawer. */
-data class SessionInfo(val id: Long, val title: String, val directory: String = "")
+data class SessionInfo(val id: Long, val directory: String = "")
 
 /** 会话目录显示的最大长度，超出时从中间省略。 */
 internal const val MAX_SESSION_DIRECTORY_LENGTH = 40
 
-/** 会话元数据刷新节流窗口，抽屉打开时的重复刷新在此窗口内合并。 */
+/** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
 internal const val SESSION_META_REFRESH_THROTTLE_MS = 2000L
 
 /** 缩写会话目录用于抽屉显示：去 `file://` 前缀，家目录前缀折叠为 `~`， 超长从中间省略（Termux 同款 `~` 习惯）。 */
@@ -1137,10 +1137,7 @@ constructor(
                 }
                 val sortedIds = runtimeState.sessionIds.sorted()
                 val previousById = _state.value.sessions.associateBy { it.id }
-                val sessions = sortedIds.mapIndexed { index, id ->
-                    previousById[id]
-                        ?: SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
-                }
+                val sessions = sortedIds.map { id -> previousById[id] ?: SessionInfo(id = id) }
                 val active = runtimeState.activeSessionId
                 if (active != 0L) {
                     val displayIndex = sortedIds.indexOf(active) + 1
@@ -1221,31 +1218,24 @@ constructor(
     // SECTION 2: Session orchestration & settings setters
     // ══════════════════════════════════════════════════════════════════════
 
-    /** 会话元数据刷新节流窗口，抽屉打开时的重复刷新在此窗口内合并。 */
-    private var lastMetaSessionIds: List<Long> = emptyList()
+    /** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
     private var lastMetaRefreshMs: Long = 0L
 
     /**
-     * 回填抽屉列表的会话元数据：每个会话的 OSC 标题与工作目录（Termux 抽屉同款： 序号按位置从 1 递增，无标题回退 `会话 N`，目录缩写显示）。 JNI 查询在 IO
+     * 回填抽屉列表的工作目录（序号由列表按位置从 1 递增渲染，目录缩写显示）。 JNI 查询在 IO
      * 线程执行；写入时校验集合未变，避免覆盖更新的列表。
      */
     fun refreshSessionMetas(force: Boolean = false) {
+        if (!force && SystemClock.uptimeMillis() - lastMetaRefreshMs < SESSION_META_REFRESH_THROTTLE_MS) return
+        lastMetaRefreshMs = SystemClock.uptimeMillis()
         val ids = _state.value.sessions.map { it.id }.sorted()
-        val now = SystemClock.uptimeMillis()
-        val sameSet = ids == lastMetaSessionIds
-        if (sameSet && !force) return
-        if (sameSet && now - lastMetaRefreshMs < SESSION_META_REFRESH_THROTTLE_MS) return
-        lastMetaSessionIds = ids
-        lastMetaRefreshMs = now
         if (ids.isEmpty()) return
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             val homeDirectory = context.filesDir.parentFile?.resolve("files/home")?.absolutePath.orEmpty()
-            val fresh = ids.mapIndexed { index, id ->
-                val title = runCatchingCancellable { NativeBridge.getTitle(id) }.getOrNull().orEmpty()
+            val fresh = ids.map { id ->
                 val directory = runCatchingCancellable { NativeBridge.getCurrentDirectory(id) }.getOrNull()
                 SessionInfo(
                     id = id,
-                    title = title.ifEmpty { context.getString(R.string.session_number, index + 1) },
                     directory = directory?.let { abbreviateDirectory(it, homeDirectory) }.orEmpty(),
                 )
             }
@@ -1634,9 +1624,8 @@ constructor(
                         // "Key N was already used").
                         val sortedIds = (current.sessions.map { it.id } + newId).distinct().sorted()
                         val displayIndex = sortedIds.indexOf(newId) + 1
-                        val sessions = sortedIds.mapIndexed { index, id ->
-                            SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
-                        }
+                        val previousById = current.sessions.associateBy { it.id }
+                        val sessions = sortedIds.map { id -> previousById[id] ?: SessionInfo(id = id) }
                         current.copy(
                             sessionId = newId,
                             isRunning = true,
