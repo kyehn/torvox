@@ -321,4 +321,7 @@ object NativeBridge {
     external fun setScrollOffset(sessionId: Long, offset: Int)
 
     external fun setScrollYPx(sessionId: Long, offsetPx: Float)
+
+    /** 后台预热渲染器与字体库（spawn 后、attach 前调用，不阻塞）。 */
+    @JvmStatic external fun prefetchRenderState()
 }
