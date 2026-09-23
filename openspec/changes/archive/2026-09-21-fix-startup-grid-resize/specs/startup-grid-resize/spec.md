@@ -1,6 +1,7 @@
 # startup-grid-resize Specification
 
 ## Purpose
+
 确保终端网格在冷启动、Surface 重建、字体度量就绪等所有时序下都按 Surface 真实尺寸与单元格度量收敛，不残留会话 spawn 默认 24×80。
 
 ## ADDED Requirements
