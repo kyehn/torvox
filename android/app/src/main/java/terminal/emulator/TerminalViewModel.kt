@@ -1479,7 +1479,6 @@ constructor(
     }
 
     /** 自由文本设置防抖写入（每次写入为完整文件重写）。 */
-    private val shellTextDebounce = MutableStateFlow("")
     private val startDirTextDebounce = MutableStateFlow("")
     private val bootstrapUrlDebounce = MutableStateFlow("")
 
@@ -1491,12 +1490,6 @@ constructor(
     init {
         // Debounce free-text settings so typing does not write DataStore
         // on every keystroke (each write is a full file rewrite).
-        @OptIn(kotlinx.coroutines.FlowPreview::class)
-        viewModelScope.launch {
-            shellTextDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
-                settingsRepository.setShell(value)
-            }
-        }
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
             startDirTextDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
@@ -1511,8 +1504,9 @@ constructor(
         }
     }
 
+    /** Shell 启动入口经保存按钮直接写入（DESIGN :122 提供保存按钮），不检查文本。 */
     fun setShell(shell: String) {
-        shellTextDebounce.value = shell
+        viewModelScope.launch { settingsRepository.setShell(shell) }
     }
 
     fun setStartDir(startDir: String) {
