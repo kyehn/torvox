@@ -31,7 +31,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +53,6 @@ fun SessionDrawer(
     onSwitchSession: (Long) -> Unit,
     onCloseSession: (Long) -> Unit,
     onAddSession: () -> Unit,
-    onRefreshSessions: () -> Unit,
     onSettings: () -> Unit,
     onSearch: () -> Unit,
     onKeyboardToggle: () -> Unit,
@@ -66,9 +64,6 @@ fun SessionDrawer(
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant
     val accent = MaterialTheme.colorScheme.primary
     val surface = MaterialTheme.colorScheme.surface
-    LaunchedEffect(Unit) {
-        onRefreshSessions()
-    }
 
     Column(
         modifier =
@@ -108,10 +103,7 @@ fun SessionDrawer(
                 val sessionNumber = stringResource(R.string.session_number, index + 1)
                 SessionItem(
                     title = sessionNumber,
-                    subtitle =
-                    session.directory.ifEmpty {
-                        session.title.takeIf { it != sessionNumber }.orEmpty()
-                    },
+                    subtitle = session.directory,
                     isActive = session.id == activeSessionId,
                     onClick = {
                         onSwitchSession(session.id)
