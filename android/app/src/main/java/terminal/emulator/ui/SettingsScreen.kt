@@ -1,6 +1,5 @@
 package terminal.emulator.ui
 
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -626,11 +625,12 @@ private fun SystemFontSelector(
     fontInfo: String = "",
     titleOverride: String? = null,
 ) {
-    val systemFonts = remember(fonts) { fonts.distinct().sorted() }
+    // 保持传入顺序（fonts.xml 文档顺序在前），只做精确去重。
+    val systemFonts = remember(fonts) { fonts.distinct() }
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
         if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
+    val displayName = defaultFontName.ifEmpty { systemFonts.firstOrNull() ?: "" }
     var showFontPicker by remember { mutableStateOf(false) }
 
     Column {
