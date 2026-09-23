@@ -929,15 +929,11 @@ constructor(
      */
     inner class FontManager {
         /**
-         * DESIGN 字体选择节：存入的 family 为 native 未知即设置数据错误，
-         * 输出日志并清除该设置使会话回落默认。`font.ttf` 覆盖生效时跳过
-         * （此时 native 当前字体本就是覆盖字体而非存入值）。
+         * DESIGN 字体选择节：native 应用返回 false 即设置数据错误，
+         * 输出日志并清除该设置使会话回落默认。null 表示无会话可验证，不处理。
          */
-        private suspend fun clearUnknownFontFamily(requestedFamily: String, currentFamily: String?) {
-            if (currentFamily == null) return
-            if (terminal.emulator.termuxDefaultFontFile(context) != null) return
-            val effective = terminal.emulator.resolveEffectiveFontFamily(requestedFamily)
-            if (effective.isEmpty() || currentFamily.equals(effective, ignoreCase = true)) return
+        private suspend fun clearUnknownFontFamily(requestedFamily: String, applied: Boolean?) {
+            if (applied != false) return
             android.util.Log.e("Font", "Unknown font family, clearing setting: $requestedFamily")
             settingsRepository.clearFontFamily()
         }
@@ -954,16 +950,26 @@ constructor(
                     }
                     val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
                     val fileSystemFonts = terminal.emulator.settings.systemFonts()
-                    val allFonts = (rustFontFamilies + fileSystemFonts).distinct().sorted()
+                    // fonts.xml 在前保持文档顺序，native 补充条目追加在后；
+                    // 只做精确去重，不排序、不改写名称。
+                    val allFonts = (fileSystemFonts + rustFontFamilies).distinct()
                     _availableFonts.value = allFonts
                     _defaultFontName.value =
                         bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
+                    val storedFamily = settingsRepository.fontFamily.first()
                     clearUnknownFontFamily(
-                        settingsRepository.fontFamily.first(),
-                        bridge?.getDefaultFontName(),
+                        storedFamily,
+                        bridge?.setFontFamily(
+                            terminal.emulator.resolveEffectiveFontFamily(storedFamily),
+                        ),
                     )
                     _fontInfo.value =
                         bridge?.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
+                } catch (fatal: IllegalStateException) {
+                    // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
+                    // 不得静默回退为空列表。
+                    Log.e("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
+                    throw fatal
                 } catch (exception: Exception) {
                     Log.e("TerminalViewModel", "Failed to load font list", exception)
                     _availableFonts.value = emptyList()
@@ -1005,18 +1011,24 @@ constructor(
                 try {
                     android.util.Log.d("Font", "Setting font family: $family")
                     settingsRepository.setFontFamily(family)
-                    runtime.applyFontSettings()
+                    val applied = runtime.applyFontSettings()
                     val bridge = runtime.bridge()
                     val fontName = bridge?.getDefaultFontName()
-                    clearUnknownFontFamily(family, fontName)
+                    clearUnknownFontFamily(family, applied)
                     val fontInfo = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
                     _defaultFontName.value = fontName ?: "monospace"
                     _fontInfo.value = fontInfo
                     android.util.Log.d("Font", "Font applied: ${_defaultFontName.value}")
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
+                        val message =
+                            if (applied == false) {
+                                context.getString(R.string.font_apply_failed, family)
+                            } else {
+                                context.getString(R.string.font_applied, _defaultFontName.value)
+                            }
                         android.widget.Toast.makeText(
                             context,
-                            context.getString(R.string.font_applied, _defaultFontName.value),
+                            message,
                             android.widget.Toast.LENGTH_SHORT,
                         )
                             .show()
