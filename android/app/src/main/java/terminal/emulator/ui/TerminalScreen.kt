@@ -362,7 +362,6 @@ fun TerminalScreen(
                     onSwitchSession = { viewModel.switchSession(it) },
                     onCloseSession = { viewModel.closeSession(it) },
                     onAddSession = { viewModel.createSession() },
-                    onRefreshSessions = { viewModel.refreshSessionMetas() },
                     onSettings = {
                         scope.launch { drawerState.close() }
                         onSettings()
@@ -393,6 +392,10 @@ fun TerminalScreen(
         ) {
             LaunchedEffect(drawerState.isOpen) {
                 surfaceRef.value?.drawerOpen = drawerState.isOpen
+                if (drawerState.isOpen) {
+                    // cd 不产生状态事件，抽屉打开即强制刷新目录，否则显示过时路径。
+                    viewModel.refreshSessionMetas(force = true)
+                }
             }
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
