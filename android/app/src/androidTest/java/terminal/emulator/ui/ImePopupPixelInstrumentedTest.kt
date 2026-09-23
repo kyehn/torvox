@@ -18,6 +18,7 @@ import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.injectTap
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -56,7 +57,7 @@ class ImePopupPixelInstrumentedTest {
     private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     private fun pumpAndText(): String? {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         return bridge().getTerminalText()
     }
 

@@ -12,6 +12,7 @@ import org.junit.Test
 import terminal.emulator.MainActivity
 import terminal.emulator.getBridge
 import terminal.emulator.grantNotificationPermission
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * regression: a tap that dismisses an active selection must complete as a tap.
@@ -51,7 +52,7 @@ class SelectionTapDismissTest {
         val deadline = System.currentTimeMillis() + 20_000
         while (System.currentTimeMillis() < deadline) {
             // 桥在会话孵化完成前为 null：容忍空桥继续轮询，而非首轮即抛。
-            val ready = runCatching { bridge() }.getOrNull()
+            val ready = runCatchingCancellable { bridge() }.getOrNull()
             if (!ready?.getTerminalText().isNullOrBlank()) break
             Thread.sleep(200)
         }

@@ -146,7 +146,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * 200+ 系统字体加载移到后台线程，不阻塞首帧链。
      */
     fun prefetchRenderStateAsync(scope: kotlinx.coroutines.CoroutineScope) {
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        scope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
             try {
                 NativeBridge.prefetchRenderState()
             } catch (exception: Exception) {

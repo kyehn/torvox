@@ -8,6 +8,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 暂停恢复语义：IME 弹出暂停渲染期间写入的内容，恢复后必须呈现。
@@ -25,7 +26,7 @@ class RenderPauseSemanticsTest {
             NativeBridge.switchSession(sessionId)
             val ready =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatching { NativeBridge.pollEvent() }
+                    runCatchingCancellable { NativeBridge.pollEvent() }
                     NativeBridge.getTerminalText(sessionId)?.contains("$") == true
                 }
             assertNotNull("shell 未就绪", ready)
@@ -62,7 +63,7 @@ class RenderPauseSemanticsTest {
             val text = NativeBridge.getTerminalText(sessionId).orEmpty()
             assertTrue("恢复后网格必须含暂停期标记", text.contains("PAUSE_RED_B"))
         } finally {
-            runCatching { NativeBridge.destroySession(sessionId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 }

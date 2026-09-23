@@ -16,6 +16,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.getBridge
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -50,7 +51,7 @@ class ToolbarConfigInstrumentedTest {
     }
 
     private fun currentText(): String? {
-        runCatching { NativeBridge.pollEvent() }
+        runCatchingCancellable { NativeBridge.pollEvent() }
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
