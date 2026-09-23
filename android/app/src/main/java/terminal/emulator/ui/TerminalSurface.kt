@@ -401,14 +401,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 .toInt()
                 .coerceIn(0, (width - estimatedWidth).coerceAtLeast(0))
         val menuHeight = dp(44)
-        // 菜单在选择区上方：topPx 为选择首行顶缘，菜单底缘留出手柄高度（手柄在选择底缘下方，
-        // 与 Termux 一致避免遮挡所选词）；上方空间不足才翻到下方。
-        val handleHeight = selectionHandleHeight()
-        val aboveY = topPx - menuHeight - dp(4)
+        // 菜单在选择区上方：菜单底缘高出选择首行顶缘一行（完全不遮挡所选词）；
+        // 上方空间不足才翻到选择底缘+手柄高度之下。
+        val aboveY = topPx - menuHeight - ch - dp(4)
         val y = if (aboveY >= 0) {
             aboveY.toInt()
         } else {
             val (_, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
+            val handleHeight = selectionHandleHeight()
             (bottomPx + handleHeight + dp(4)).toInt().coerceIn(0, (height - menuHeight).coerceAtLeast(0))
         }
         return x to y
