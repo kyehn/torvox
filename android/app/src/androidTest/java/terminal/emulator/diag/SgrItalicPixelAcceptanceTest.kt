@@ -113,7 +113,7 @@ class SgrItalicPixelAcceptanceTest {
         // 字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑器）。
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = context.filesDir.resolve("italic-test-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
         assertTrue("隔离会话创建失败", sessionId != 0L)
         var previousActiveId: Long? = null
         try {
