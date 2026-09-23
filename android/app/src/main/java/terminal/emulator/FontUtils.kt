@@ -2,6 +2,19 @@ package terminal.emulator
 
 private const val DEFAULT_ARCH_FALLBACK = "aarch64"
 
+/** `.termux` dir under the Termux home (DESIGN 用户数据节): user fonts live here. */
+internal fun termuxDir(context: android.content.Context): java.io.File =
+    java.io.File(java.io.File(context.filesDir, "home"), ".termux")
+
+/** User font drop-in dir (DESIGN 字体选择节): scanned into the font list, never copied. */
+internal fun termuxFontDir(context: android.content.Context): java.io.File = java.io.File(termuxDir(context), "font")
+
+/** `font.ttf` (or `.ttc` / `.otf`) override (DESIGN 字体选择节): present means default. */
+internal fun termuxDefaultFontFile(context: android.content.Context): java.io.File? =
+    listOf("font.ttf", "font.ttc", "font.otf")
+        .map { java.io.File(termuxDir(context), it) }
+        .firstOrNull { it.isFile }
+
 fun resolveEffectiveFontFamily(fontFamily: String): String {
     val normalized = fontFamily.trim()
     if (normalized.isEmpty()) return ""

@@ -516,9 +516,15 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    private var lastExtraFontPaths: List<String> = emptyList()
+
     fun setExtraFontPaths(paths: List<String>) {
         Log.d(TAG, "setExtraFontPaths($paths)")
         if (sessionId == 0L) return
+        // The native call rebuilds the font pipeline (atlas realloc):
+        // skip repeats, the drop-in dir content is picked up on rebuild.
+        if (paths == lastExtraFontPaths) return
+        lastExtraFontPaths = paths
         try {
             NativeBridge.setExtraFontPaths(sessionId, paths.toTypedArray())
         } catch (exception: RuntimeException) {

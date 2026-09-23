@@ -150,10 +150,6 @@
     <string name="font_info_cjk_none">CJK 后备：无</string>
     <string name="font_info_cjk_skipped">CJK 后备已跳过（主字体支持 CJK）</string>
     <string name="font_info_size_sp">字体大小：%1$s SP（约 %2$s px）</string>
-    <string name="font_install_failed">字体安装失败：%1$s</string>
-    <string name="font_installed">字体已安装：%1$s</string>
-    <string name="font_not_supported">字体不受支持或已损坏</string>
-    <string name="font_read_failed">无法读取字体文件</string>
     <string name="function_key_layer">功能键层</string>
     <string name="home_key">Home</string>
     <string name="no_font_loaded">未加载字体</string>

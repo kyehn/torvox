@@ -2269,10 +2269,10 @@ constructor(
             )
             LogUtil.d("Runtime", "setSystemLocale: ${java.util.Locale.getDefault().toLanguageTag()}")
 
-            val fontsDir = context.filesDir.resolve("fonts")
-            fontsDir.apply {
+            val fontDropDir = terminal.emulator.termuxFontDir(context)
+            fontDropDir.apply {
                 if (!exists() && !mkdirs()) {
-                    LogUtil.w("Runtime", "Failed to create fonts directory: $this")
+                    LogUtil.w("Runtime", "Failed to create font drop-in directory: $this")
                 }
             }
             // NOTE: bridge.setExtraFontPaths is intentionally NOT called
@@ -2323,11 +2323,11 @@ constructor(
                 return
             }
 
-            // sessionId is now non-zero — extra font paths
-            // (filesDir/fonts, e.g. user-installed Nerd Fonts) actually
-            // reach the native font database here. Called before
-            // spawnTerminal it was a silent no-op.
-            bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
+            // sessionId is now non-zero — the user font drop-in dir
+            // (home/.termux/font) actually reaches the native font
+            // database here. Called before spawnTerminal it was a
+            // silent no-op.
+            bridge.setExtraFontPaths(listOf(fontDropDir.absolutePath))
             // Same sessionId-gating applies to the system locale: the
             // pre-spawn setSystemLocale above was dropped by
             // Bridge.setSystemLocale's sessionId == 0 guard, leaving the
