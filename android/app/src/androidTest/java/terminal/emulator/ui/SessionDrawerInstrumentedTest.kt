@@ -77,8 +77,11 @@ class SessionDrawerInstrumentedTest {
 
     @Test
     fun addSwitchAndCloseSession() {
+        // 冷启动会话孵化（首帧网格重算后 attach）晚于桥就绪：轮询等待而非单次读取。
+        val initialSession =
+            UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) { activeSessionId() > 0 }
+        assertNotNull("初始必须有活跃会话", initialSession)
         val idA = activeSessionId()
-        assertTrue("初始必须有活跃会话", idA > 0)
         val countBefore = sessionCount()
 
         // 新建会话 B：经抽屉真实点击，B 成为活跃会话。
