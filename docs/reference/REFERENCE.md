@@ -1,6 +1,6 @@
 # 参考
 
-项目唯一参考文档。代码注释中的 `docs/reference/REFERENCE.md` 指向本文件对应小节。研究报告原件已删除，历史版本见 git 记录（`git log -- docs/reference/`）。
+项目参考文档入口。同目录研究报告原件完整保留，本文只收录已在代码中落地的引用与上游对照。代码注释中的 `docs/reference/REFERENCE.md` 指向本文件对应小节，需要细节时再查同目录原件。
 
 ## 上游对照
 
@@ -55,14 +55,14 @@ termlib `applyHandleDrag` 锚点语义加交叉翻转：拖动手柄越过静止
 - 语义：高亮/字号变更只触发重绘，永不复位视口。
 - 同时是 Kotlin 渲染循环的唤醒信号（UI 调用方 `notifyRender()` + 兜底 latch 节奏）。
 
-## 旧文档对照
+## 原件对照
 
-| 旧文档 | 去向 |
+| 原件 | 本文对应小节 |
 | --- | --- |
 | `research-zed-port.md` | 超链接识别、DECCKM 与方向键编码、CSI 27 修饰键编码 |
 | `research-haven.md` | DECCKM 与方向键编码 |
 | `research-ghostty-android-extra.md` | 字体槽位 |
 | `research-wgpu-example.md` | 离屏验证帧 |
 | `research-termlib.md` | 选择手柄拖动 |
-| `dual-flag-protocol.md` | 双标志协议（原文并入） |
-| 其余研究报告与索引 | 未落地，不收录 |
+| `dual-flag-protocol.md` | 双标志协议（原文并入，文件保留） |
+| 其余研究报告与索引 | 未落地，本文不收录，原件保留备查 |
