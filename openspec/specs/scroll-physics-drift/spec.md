@@ -1,6 +1,7 @@
 # scroll-physics-drift Specification
 
 ## Purpose
+
 消除拖动/惯性滚动中的 1 行级漂移和虚浮感，确保手指跟手、无飘移。
 
 ## Requirements
