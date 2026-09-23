@@ -21,7 +21,7 @@ pub(crate) mod cell_builder;
 pub mod context;
 mod pass;
 mod pipeline;
-// Off-screen render-verification path (research-wgpu-example §6.1/§6.2):
+// Off-screen render-verification path (see docs/reference/REFERENCE.md):
 // procedural geometry + depth-attached LOD grid are crate-test-only — the
 // production `Renderer` keeps zero depth attachments (2D terminal rendering
 // needs none), so this module must not ship in the normal build or leak into
