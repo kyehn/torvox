@@ -1839,7 +1839,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                if (isSelectingText) return false
+                // 选词中移动由 ACTION_MOVE 长按拖动分支消费；此处吞掉避免双路径竞争致摇晃。
+                if (isSelectingText) return true
                 // Alternate-screen wheel forwarding (Haven research: altScreen
                 // wheel consumption). When the remote is on the alternate
                 // screen (vim/less/htop), a touch-scroll gesture must be sent
@@ -1902,7 +1903,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (isSelectingText) return false
+                // 选词中 fling 同样吞掉，避免落到滚动路径致视口跳变。
+                if (isSelectingText) return true
                 // On the alternate screen (vim/less/htop), a fling must not
                 // scroll local scrollback — the gesture belongs to the remote.
                 // We drop it here (consuming it) rather than forwarding, since
