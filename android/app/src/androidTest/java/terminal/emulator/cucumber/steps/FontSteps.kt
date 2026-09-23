@@ -12,7 +12,6 @@ import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openSettings
-import java.io.File
 import javax.inject.Inject
 
 class FontSteps
@@ -54,8 +53,8 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @那么("^字体文件存放在应用私有字体目录$")
     fun fontFilesStoredInPrivateDirectory() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fontsDir = File(context.filesDir, "fonts")
-        // TerminalScreen 先于 TerminalRuntime.start() 可见（私有字体目录是
+        val fontsDir = terminal.emulator.termuxFontDir(context)
+        // TerminalScreen 先于 TerminalRuntime.start() 可见（用户字体目录是
         // 异步创建的），轮询而非立即断言。
         composeRuleHolder.composeRule.waitUntil(timeoutMillis = 15_000) {
             fontsDir.isDirectory

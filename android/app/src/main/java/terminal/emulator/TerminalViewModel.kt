@@ -2,9 +2,7 @@ package terminal.emulator
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.SystemClock
-import android.provider.OpenableColumns
 import android.util.Log
 import android.view.InputDevice
 import android.view.KeyCharacterMap
@@ -245,8 +243,6 @@ constructor(
     fun setFontSizeInPlacePreview(size: Float) = fontManager.setFontSizeInPlacePreview(size)
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
-
-    fun installFontFile(uri: Uri) = fontManager.installFontFile(uri)
 
     // ── Selection forwards (implementation in SelectionManager) ────────────
 
@@ -938,41 +934,7 @@ constructor(
                     val bridge = runtime.bridge()
                     val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
                     val fileSystemFonts = terminal.emulator.settings.systemFonts()
-                    val userFonts =
-                        try {
-                            val allUserFonts = mutableListOf<String>()
-                            val filesDir = context.filesDir.resolve("fonts")
-                            if (filesDir.isDirectory) {
-                                allUserFonts.addAll(
-                                    filesDir
-                                        .listFiles()
-                                        ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
-                                        ?.map { it.nameWithoutExtension } ?: emptyList(),
-                                )
-                            }
-                            val cacheDir = context.cacheDir.resolve("fonts")
-                            if (cacheDir.isDirectory) {
-                                cacheDir
-                                    .listFiles()
-                                    ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
-                                    ?.forEach { cachedFile ->
-                                        val destFile = java.io.File(filesDir, cachedFile.name)
-                                        if (!destFile.exists()) {
-                                            cachedFile.copyTo(destFile)
-                                        }
-                                        cachedFile.delete()
-                                        allUserFonts.add(cachedFile.nameWithoutExtension)
-                                    }
-                                if (cacheDir.listFiles().isNullOrEmpty()) {
-                                    cacheDir.delete()
-                                }
-                            }
-                            allUserFonts.distinct()
-                        } catch (exception: Exception) {
-                            Log.e(TAG, "Failed to load user fonts", exception)
-                            emptyList()
-                        }
-                    val allFonts = (rustFontFamilies + fileSystemFonts + userFonts).distinct().sorted()
+                    val allFonts = (rustFontFamilies + fileSystemFonts).distinct().sorted()
                     _availableFonts.value = allFonts
                     _defaultFontName.value =
                         bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
@@ -1046,103 +1008,6 @@ constructor(
                     }
                 }
             }
-        }
-
-        fun installFontFile(uri: Uri) {
-            viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                try {
-                    val rawName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "custom_font.ttf"
-                    // Sanitize: DISPLAY_NAME from a content provider may contain
-                    // path separators or "..", which would escape fontsDir and
-                    // overwrite app-private files.
-                    val fileName = sanitizeFontFileName(rawName)
-                    val fontsDir =
-                        context.filesDir.resolve("fonts").also { dir ->
-                            if (!dir.mkdirs()) {
-                                Log.w("TerminalViewModel", "Failed to create fonts directory: $dir")
-                            }
-                        }
-                    val destFile = java.io.File(fontsDir, fileName)
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        destFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                        ?: run {
-                            kotlinx.coroutines.withContext(TerminalDispatchers.main) {
-                                android.widget.Toast.makeText(
-                                    context,
-                                    context.getString(R.string.font_read_failed),
-                                    android.widget.Toast.LENGTH_SHORT,
-                                )
-                                    .show()
-                            }
-                            return@launch
-                        }
-
-                    android.util.Log.d(
-                        "Font",
-                        "Font file copied: ${destFile.absolutePath} (${destFile.length()} bytes)",
-                    )
-
-                    val familyName = runtime.loadFontFile(destFile.absolutePath)
-                    if (familyName != null) {
-                        android.util.Log.d("Font", "Font loaded: family=$familyName")
-                        settingsRepository.setFontFamily(familyName)
-                        runtime.applyFontSettings()
-                        loadFonts()
-                        kotlinx.coroutines.withContext(TerminalDispatchers.main) {
-                            android.widget.Toast.makeText(
-                                context,
-                                context.getString(R.string.font_installed, familyName),
-                                android.widget.Toast.LENGTH_SHORT,
-                            )
-                                .show()
-                        }
-                    } else {
-                        android.util.Log.e(
-                            "Font",
-                            "Font load failed: null family from ${destFile.absolutePath}",
-                        )
-                        kotlinx.coroutines.withContext(TerminalDispatchers.main) {
-                            android.widget.Toast.makeText(
-                                context,
-                                context.getString(R.string.font_not_supported),
-                                android.widget.Toast.LENGTH_SHORT,
-                            )
-                                .show()
-                        }
-                    }
-                } catch (exception: Exception) {
-                    android.util.Log.e("TerminalViewModel", "installFontFile failed", exception)
-                    kotlinx.coroutines.withContext(TerminalDispatchers.main) {
-                        android.widget.Toast.makeText(
-                            context,
-                            context.getString(R.string.font_install_failed, exception.message ?: ""),
-                            android.widget.Toast.LENGTH_SHORT,
-                        )
-                            .show()
-                    }
-                }
-            }
-        }
-
-        fun getFileNameFromUri(uri: Uri): String? {
-            val cursor = context.contentResolver.query(uri, null, null, null, null)
-            return cursor?.use {
-                if (it.moveToFirst()) {
-                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index >= 0) it.getString(index) else null
-                } else {
-                    null
-                }
-            }
-        }
-
-        fun sanitizeFontFileName(name: String): String {
-            val base = name.substringAfterLast('/').substringAfterLast('\\')
-            if (base.isEmpty() || base == "." || base == "..") return "custom_font.ttf"
-            return base
         }
     }
 
