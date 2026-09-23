@@ -16,6 +16,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.grantNotificationPermission
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 斜体像素验收：SGR 3 斜体文本必须在屏幕上产生与正体不同的字形像素，
@@ -131,7 +132,7 @@ class SgrItalicPixelAcceptanceTest {
             // 它是全局开关，会连本会话直绘一起停掉（残帧导致差分全零）。
             // 记下运行时原活跃会话，finally 切回，避免销毁后运行时无活跃会话。
             previousActiveId =
-                runCatching {
+                runCatchingCancellable {
                     NativeBridge.listSessions()
                         ?.removeSurrounding("[", "]")
                         ?.split(",")
@@ -169,8 +170,8 @@ class SgrItalicPixelAcceptanceTest {
             )
         } finally {
             // 先切回运行时原会话再销毁隔离会话：顺序反了会短暂无活跃会话。
-            if (previousActiveId != null) runCatching { NativeBridge.switchSession(previousActiveId) }
-            runCatching { NativeBridge.destroySession(sessionId) }
+            if (previousActiveId != null) runCatchingCancellable { NativeBridge.switchSession(previousActiveId) }
+            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 

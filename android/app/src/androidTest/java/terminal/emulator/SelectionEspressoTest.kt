@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -79,13 +80,13 @@ class SelectionEspressoTest {
         var fed = false
         val settled =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 500) {
-                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+                runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
                 val text = composeTestRule.getBridge()?.getTerminalText().orEmpty()
                 if (markers.all { text.contains(it) }) {
                     true
                 } else {
                     // 补送幂等：同一标记重复送显不影响 contains 断言。
-                    fed = (runCatching { freshBridge().feedTerminal(payload) }.getOrDefault(false)) || fed
+                    fed = (runCatchingCancellable { freshBridge().feedTerminal(payload) }.getOrDefault(false)) || fed
                     false
                 }
             }
