@@ -3232,8 +3232,7 @@ constructor(
 
     suspend fun applySettings() {
         val config = buildConfig()
-        val configuredFamily = settingsRepository.fontFamily.first()
-        val fontFamily = probeDefaultFontOverride() ?: configuredFamily
+        val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
         // buildConfig() defaults to 24x80; resizing every session to that
         // on ANY settings change would shrink live PTYs (vim/htop get a
@@ -3299,27 +3298,10 @@ constructor(
         _state.update { it.copy(rows = newRows, cols = newCols) }
     }
 
-    /**
-     * Active font family override (DESIGN 字体选择节): `font.ttf` (or
-     * `.ttc` / `.otf`) present means default. Probes the file without
-     * copying and lets native apply it, overriding the stored setting.
-     * Null when no override file applies.
-     */
-    private fun probeDefaultFontOverride(): String? {
-        val fontFile = terminal.emulator.termuxDefaultFontFile(context) ?: return null
-        val family =
-            sessions.values.firstNotNullOfOrNull { it.bridge?.loadFontFile(fontFile.absolutePath) }
-        if (family == null) {
-            LogUtil.w("Runtime", "Default font file present but unreadable")
-        }
-        return family
-    }
-
     suspend fun applyFontSettings() {
         val fontSizeTenths = computeFontSizeTenths()
         appliedFontSizeTenths = fontSizeTenths
-        val configuredFamily = settingsRepository.fontFamily.first()
-        val fontFamily = probeDefaultFontOverride() ?: configuredFamily
+        val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
         LogUtil.d(
             "Runtime",
