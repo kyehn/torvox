@@ -119,7 +119,10 @@
   - 修饰键栏支持向左滑动进入 文本输入框（参考 termux），位置：修饰键栏 文本输入框
   - 固定2行7列（高度 宽度 等均参考 termux）。
 
-- **Shell 启动入口路径及参数设置框**。提供保存按钮，支持保存和显示设置的文本，未设置时为空。保存时不检查文斌，不检查路径是否存在，不检查参数是否合法。支持 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l`。不支持 `/data/data/com.termux/files/usr/bin/login.sh`，即启动入口应该是二进制文件且必须是可绝对路径。不对文本进行检查，不检查路径/参数是否正确，不进行特殊处理。
+- **Shell 启动入口路径及参数设置框**。提供保存按钮，支持保存和显示设置的文本，未设置时为空。保存时不检查文本，不检查路径是否存在，不检查参数是否合法。
+  - 支持 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l`。
+  - 不支持 `/data/data/com.termux/files/usr/bin/login.sh` `login.sh`
+  - 启动入口应该是二进制文件且必须是绝对路径。不对文本进行检查，不检查路径/参数是否正确，不进行特殊处理。
   - 不提供启动目录设置
 
 - **Bootstrap**：支持 HTTP(S) URL 与本地文件安装。
@@ -182,7 +185,7 @@
 
 ### Shell
 
-- Shell 启动入口为空时依次尝试 /data/data/com.termux/files/usr/bin/bash 和 /data/data/com.termux/files/usr/bin/login，无其他任何回退。
+- 设置中 Shell 启动入口为空时依次寻找 /data/data/com.termux/files/usr/bin/bash 和 /data/data/com.termux/files/usr/bin/login 以及 /system/bin/sh，文件存在即启动，不检查文件权限，失败不回退，无其他任何回退
 
 - 默认 LANG 为 en_US.UTF-8
 
@@ -192,7 +195,7 @@
 
 - 回滚行数和 termux 保持一致，如 2K
 
-- 环境变量 `ENV` 可以设置为 `.mkshrc` 的路径，`.mkshrc` 不得放在 `$HOME` 下，应用不该修改用户数据
+- 环境变量 `ENV` 可以设置为 `/data/data/com.termux/.mkshrc`
 
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和 主题背景，而不是从黑屏花费较长时间过渡
 

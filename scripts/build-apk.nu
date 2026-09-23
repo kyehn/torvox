@@ -15,7 +15,7 @@ def main [--release, --debug] {
     mut build_debug = $debug
     if (not $release) and (not $debug) {
         $build_release = true
-        $build_debug = true
+        $build_debug = false
     }
 
     if $build_release {
