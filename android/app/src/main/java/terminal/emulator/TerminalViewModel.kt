@@ -966,13 +966,15 @@ constructor(
                     _fontInfo.value =
                         bridge?.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
                 } catch (fatal: IllegalStateException) {
+                    if (fatal is kotlinx.coroutines.CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
                     // 不得静默回退为空列表。
                     Log.e("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
                     throw fatal
                 } catch (exception: Exception) {
+                    if (exception is kotlinx.coroutines.CancellationException) throw exception
                     Log.e("TerminalViewModel", "Failed to load font list", exception)
-                    _availableFonts.value = emptyList()
+                    throw exception
                 }
             }
         }
