@@ -40,7 +40,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
         const val DEFAULT_KEYBOARD_MODE = "secure"
-        const val DEFAULT_SHELL = "/system/bin/sh"
+
+        /** Shell 启动入口默认空（DESIGN :122 未设置时为空），空即走默认回退链。 */
+        const val DEFAULT_SHELL = ""
 
         /**
          * Device-adaptive first-launch font size (sp): a fresh install gets a size that shows roughly

@@ -2070,7 +2070,8 @@ constructor(
         }
     }
 
-    private fun resolveShell(shellPath: String): Shell = if (shellPath == "/system/bin/sh" || shellPath.isEmpty()) {
+    /** 空即默认入口（DESIGN :122 未设置时为空），其余原样透传，不特殊处理。 */
+    private fun resolveShell(shellPath: String): Shell = if (shellPath.isEmpty()) {
         Shell.SystemDefault
     } else {
         Shell.Custom(shellPath)
