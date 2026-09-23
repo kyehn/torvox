@@ -532,13 +532,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
-    fun setFontFamily(family: String) {
+    fun setFontFamily(family: String): Boolean {
         Log.d(TAG, "setFontFamily($family)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setFontFamily(sessionId, family)
+        if (sessionId == 0L) return false
+        // DESIGN 字体选择节: font.ttf present means default — probe
+        // without copying and apply it, overriding the stored setting.
+        val override =
+            terminal.emulator.termuxDefaultFontFile(config.home)?.let { loadFontFile(it.absolutePath) }
+        return try {
+            NativeBridge.setFontFamily(sessionId, override ?: family)
         } catch (exception: RuntimeException) {
             LogUtil.e("Bridge", "setFontFamily failed: ${exception.javaClass.simpleName}")
+            false
         }
     }
 

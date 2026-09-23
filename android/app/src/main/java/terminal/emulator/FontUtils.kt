@@ -10,10 +10,13 @@ internal fun termuxDir(context: android.content.Context): java.io.File =
 internal fun termuxFontDir(context: android.content.Context): java.io.File = java.io.File(termuxDir(context), "font")
 
 /** `font.ttf` (or `.ttc` / `.otf`) override (DESIGN 字体选择节): present means default. */
+internal fun termuxDefaultFontFile(homePath: String): java.io.File? = listOf("font.ttf", "font.ttc", "font.otf")
+    .map { java.io.File(java.io.File(homePath, ".termux"), it) }
+    .firstOrNull { it.isFile }
+
+/** Context-based overload of [termuxDefaultFontFile]. */
 internal fun termuxDefaultFontFile(context: android.content.Context): java.io.File? =
-    listOf("font.ttf", "font.ttc", "font.otf")
-        .map { java.io.File(termuxDir(context), it) }
-        .firstOrNull { it.isFile }
+    termuxDefaultFontFile(java.io.File(context.filesDir, "home").absolutePath)
 
 fun resolveEffectiveFontFamily(fontFamily: String): String {
     val normalized = fontFamily.trim()
