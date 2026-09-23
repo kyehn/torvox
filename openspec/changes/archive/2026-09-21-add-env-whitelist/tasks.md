@@ -15,6 +15,6 @@
 ## 3. 设备验证
 
 - [x] 3.1 `ENV=$HOME/.mkshrc /system/bin/sh -i` 加载短提示符，无横滚与左缘裁剪，`clear` 正常
-      （emulator-5554 实测：有 ENV 时 PS1_LEN=2（`$ `），无 ENV 时 77 列长提示符；`clear` exit 0；80 列长命令单行输出无截断。`.mkshrc` 按 `ensureMkshPromptRc` 相同内容经 run-as 播种后验证 ENV 加载路径）
+      （emulator-5554 实测：有 ENV 时 PS1_LEN=2（`$` 短提示符），无 ENV 时 77 列长提示符；`clear` exit 0；80 列长命令单行输出无截断。`.mkshrc` 按 `ensureMkshPromptRc` 相同内容经 run-as 播种后验证 ENV 加载路径）
 - [x] 3.2 bash 启动行为与注入前一致
       （`ENV=<不存在路径> bash --noprofile --norc -c` 两次均 exit 0；`build_env_rejects_unlisted_variables` 白名单约束不变）
