@@ -99,12 +99,6 @@ fun SettingsScreen(
     val cardBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val accentColor = MaterialTheme.colorScheme.primary
     val sectionTitleColor = MaterialTheme.colorScheme.primary
-    val customFontLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.OpenDocument(),
-        ) { uri: Uri? ->
-            if (uri != null) viewModel.installFontFile(uri)
-        }
     BackHandler(enabled = true) { onBack() }
     Surface(
         modifier =
@@ -149,7 +143,6 @@ fun SettingsScreen(
                             onFontSizePreview = { viewModel.setFontSizeInPlacePreview(it) },
                             onFontSizeCommitted = { viewModel.setFontSize(it) },
                             onFontFamilySelected = { viewModel.setFontFamily(it) },
-                            customFontLauncher = customFontLauncher,
                             textColor = textColor,
                             secondaryText = secondaryText,
                             accentColor = accentColor,
@@ -280,7 +273,6 @@ private fun AppearanceSectionContent(
     onFontSizePreview: (Float) -> Unit,
     onFontSizeCommitted: (Float) -> Unit,
     onFontFamilySelected: (String) -> Unit,
-    customFontLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -311,7 +303,6 @@ private fun AppearanceSectionContent(
         FontFamilySelectors(
             regularFamily = fontFamily,
             onFamilySelected = { family -> onFontFamilySelected(family) },
-            customFontLauncher = customFontLauncher,
             colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
             availableFonts = availableFonts.toImmutableList(),
             defaultFontName = defaultFontName,
@@ -617,13 +608,11 @@ private fun FontInfoSectionIfAvailable(
 private fun FontFamilySelectors(
     regularFamily: String,
     onFamilySelected: (String) -> Unit,
-    customFontLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
     colors: SettingsColors,
     availableFonts: ImmutableList<String>,
     defaultFontName: String,
     fontInfo: String,
 ) {
-    val pickFont = { customFontLauncher.launch(arrayOf("font/*", "application/octet-stream")) }
     SystemFontSelector(
         selectedFamily = regularFamily,
         onFamilySelected = { onFamilySelected(it) },
@@ -633,7 +622,6 @@ private fun FontFamilySelectors(
         fonts = availableFonts,
         defaultFontName = defaultFontName,
         fontInfo = fontInfo,
-        onPickFontFile = pickFont,
     )
 }
 
@@ -648,7 +636,6 @@ private fun SystemFontSelector(
     defaultFontName: String = "",
     fontInfo: String = "",
     titleOverride: String? = null,
-    onPickFontFile: (() -> Unit)? = null,
 ) {
     val systemFonts = remember(fonts) { fonts.distinct().sorted() }
     val isSmallScreen = rememberIsSmallScreen()
@@ -706,7 +693,6 @@ private fun SystemFontSelector(
                     textColor = textColor,
                     cardBackground = cardBackground,
                     accentColor = accentColor,
-                    onPickFontFile = { onPickFontFile?.invoke() },
                 )
             }
         }
@@ -732,32 +718,12 @@ private fun FontPickerDialog(
     textColor: Color,
     cardBackground: Color,
     accentColor: Color,
-    onPickFontFile: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.select_font_family), color = textColor) },
         text = {
             LazyColumn {
-                item {
-                    Row(
-                        modifier =
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable {
-                                onPickFontFile?.invoke()
-                                onDismiss()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.pick_font_file),
-                            color = accentColor,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
                 items(fonts) { font ->
                     Row(
                         modifier =

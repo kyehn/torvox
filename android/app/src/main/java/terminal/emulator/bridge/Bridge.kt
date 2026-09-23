@@ -516,9 +516,15 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    private var lastExtraFontPaths: List<String> = emptyList()
+
     fun setExtraFontPaths(paths: List<String>) {
         Log.d(TAG, "setExtraFontPaths($paths)")
         if (sessionId == 0L) return
+        // The native call rebuilds the font pipeline (atlas realloc):
+        // skip repeats, the drop-in dir content is picked up on rebuild.
+        if (paths == lastExtraFontPaths) return
+        lastExtraFontPaths = paths
         try {
             NativeBridge.setExtraFontPaths(sessionId, paths.toTypedArray())
         } catch (exception: RuntimeException) {
@@ -526,13 +532,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
-    fun setFontFamily(family: String) {
+    fun setFontFamily(family: String): Boolean {
         Log.d(TAG, "setFontFamily($family)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setFontFamily(sessionId, family)
+        if (sessionId == 0L) return false
+        // DESIGN 字体选择节: font.ttf present means default — probe
+        // without copying and apply it, overriding the stored setting.
+        val override =
+            terminal.emulator.termuxDefaultFontFile(config.home)?.let { loadFontFile(it.absolutePath) }
+        return try {
+            NativeBridge.setFontFamily(sessionId, override ?: family)
         } catch (exception: RuntimeException) {
             LogUtil.e("Bridge", "setFontFamily failed: ${exception.javaClass.simpleName}")
+            false
         }
     }
 
