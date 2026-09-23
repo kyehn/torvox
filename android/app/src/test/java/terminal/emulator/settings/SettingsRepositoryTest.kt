@@ -128,4 +128,11 @@ class SettingsRepositoryTest {
         repository.clearFontFamily()
         assertEquals("", repository.fontFamily.first())
     }
+
+    @Test
+    fun `shell defaults to empty and round-trips raw`() = runTest {
+        assertEquals("", repository.shell.first())
+        repository.setShell("/data/data/com.termux/files/usr/bin/bash -l")
+        assertEquals("/data/data/com.termux/files/usr/bin/bash -l", repository.shell.first())
+    }
 }
