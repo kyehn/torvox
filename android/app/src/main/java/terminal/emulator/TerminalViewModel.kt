@@ -928,6 +928,20 @@ constructor(
      * context via the outer view model. loadFonts() refreshes the flows after install.
      */
     inner class FontManager {
+        /**
+         * DESIGN 字体选择节：存入的 family 为 native 未知即设置数据错误，
+         * 输出日志并清除该设置使会话回落默认。`font.ttf` 覆盖生效时跳过
+         * （此时 native 当前字体本就是覆盖字体而非存入值）。
+         */
+        private suspend fun clearUnknownFontFamily(requestedFamily: String, currentFamily: String?) {
+            if (currentFamily == null) return
+            if (terminal.emulator.termuxDefaultFontFile(context) != null) return
+            val effective = terminal.emulator.resolveEffectiveFontFamily(requestedFamily)
+            if (effective.isEmpty() || currentFamily.equals(effective, ignoreCase = true)) return
+            android.util.Log.e("Font", "Unknown font family, clearing setting: $requestedFamily")
+            settingsRepository.clearFontFamily()
+        }
+
         fun loadFonts() {
             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
@@ -938,6 +952,10 @@ constructor(
                     _availableFonts.value = allFonts
                     _defaultFontName.value =
                         bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
+                    clearUnknownFontFamily(
+                        settingsRepository.fontFamily.first(),
+                        bridge?.getDefaultFontName(),
+                    )
                     _fontInfo.value =
                         bridge?.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
                 } catch (exception: Exception) {
@@ -983,15 +1001,16 @@ constructor(
                     settingsRepository.setFontFamily(family)
                     runtime.applyFontSettings()
                     val bridge = runtime.bridge()
-                    val fontName = bridge?.getDefaultFontName() ?: "monospace"
+                    val fontName = bridge?.getDefaultFontName()
+                    clearUnknownFontFamily(family, fontName)
                     val fontInfo = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
-                    _defaultFontName.value = fontName
+                    _defaultFontName.value = fontName ?: "monospace"
                     _fontInfo.value = fontInfo
-                    android.util.Log.d("Font", "Font applied: $fontName")
+                    android.util.Log.d("Font", "Font applied: ${_defaultFontName.value}")
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
                             context,
-                            context.getString(R.string.font_applied, fontName),
+                            context.getString(R.string.font_applied, _defaultFontName.value),
                             android.widget.Toast.LENGTH_SHORT,
                         )
                             .show()
