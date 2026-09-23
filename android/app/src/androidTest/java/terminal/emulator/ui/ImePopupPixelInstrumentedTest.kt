@@ -186,7 +186,8 @@ class ImePopupPixelInstrumentedTest {
     }
 
     @Test
-    fun contentManyImePopupMovesUpBottomIdentical() {        val stamp = System.currentTimeMillis() % 100000
+    fun contentManyImePopupMovesUpBottomIdentical() {
+        val stamp = System.currentTimeMillis() % 100000
         val last = "IME_MANY_120_$stamp"
         printAndAwait(
             "for i in \$(seq 1 120); do echo IME_MANY_\${i}" + "_$stamp; done",
