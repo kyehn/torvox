@@ -169,7 +169,11 @@ pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
         .children()
         .filter(|node| node.is_element() && node.tag_name().name() == "family")
     {
-        let Some(name) = family.attribute("name").map(str::trim).filter(|name| !name.is_empty()) else {
+        let Some(name) = family
+            .attribute("name")
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
             continue;
         };
         let mut filenames = Vec::new();
@@ -189,7 +193,8 @@ pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
 }
 
 #[cfg(target_os = "android")]
-static FONTS_XML_ALIASES: std::sync::OnceLock<Vec<(String, Vec<String>)>> = std::sync::OnceLock::new();
+static FONTS_XML_ALIASES: std::sync::OnceLock<Vec<(String, Vec<String>)>> =
+    std::sync::OnceLock::new();
 
 /// Parsed platform `fonts.xml` aliases, read once per process.
 #[cfg(target_os = "android")]

@@ -1197,9 +1197,11 @@ impl FontPipeline {
                         fontdb::Source::SharedFile(path, _) => path,
                         fontdb::Source::Binary(_) => continue,
                     };
-                    if path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-                        name.eq_ignore_ascii_case(filename)
-                    }) {
+                    if path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.eq_ignore_ascii_case(filename))
+                    {
                         return Some(face.id);
                     }
                 }
