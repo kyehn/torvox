@@ -946,36 +946,30 @@ private fun toolbarItemPresentation(
 }
 
 /** DECCKM 感知的方向键码，无对应返回空。 */
-private fun arrowKeyCode(key: ToolbarKey): Int? =
-    when (key) {
-        ToolbarKey.ARROW_UP -> KeyEvent.KEYCODE_DPAD_UP
-        ToolbarKey.ARROW_DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
-        ToolbarKey.ARROW_LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
-        ToolbarKey.ARROW_RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
-        else -> null
-    }
+private fun arrowKeyCode(key: ToolbarKey): Int? = when (key) {
+    ToolbarKey.ARROW_UP -> KeyEvent.KEYCODE_DPAD_UP
+    ToolbarKey.ARROW_DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
+    ToolbarKey.ARROW_LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
+    ToolbarKey.ARROW_RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
+    else -> null
+}
 
 /** 方向键按应用光标模式编码，其余键保持原序列。 */
-private fun arrowOrPlainSequence(
-    keyCode: Int?,
-    fallbackSequence: String,
-    isAppCursorMode: () -> Boolean,
-): String {
+private fun arrowOrPlainSequence(keyCode: Int?, fallbackSequence: String, isAppCursorMode: () -> Boolean): String {
     if (keyCode == null) return fallbackSequence
     return TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode())
 }
 
 /** 可配置键栏普通按键的键码，无对应返回空（修饰键/功能键不参与组合编码）。 */
-private fun plainKeyCode(key: ToolbarKey): Int? =
-    when (key) {
-        ToolbarKey.ESC -> KeyEvent.KEYCODE_ESCAPE
-        ToolbarKey.TAB -> KeyEvent.KEYCODE_TAB
-        ToolbarKey.HOME -> KeyEvent.KEYCODE_MOVE_HOME
-        ToolbarKey.END -> KeyEvent.KEYCODE_MOVE_END
-        ToolbarKey.PGUP -> KeyEvent.KEYCODE_PAGE_UP
-        ToolbarKey.PGDN -> KeyEvent.KEYCODE_PAGE_DOWN
-        else -> arrowKeyCode(key)
-    }
+private fun plainKeyCode(key: ToolbarKey): Int? = when (key) {
+    ToolbarKey.ESC -> KeyEvent.KEYCODE_ESCAPE
+    ToolbarKey.TAB -> KeyEvent.KEYCODE_TAB
+    ToolbarKey.HOME -> KeyEvent.KEYCODE_MOVE_HOME
+    ToolbarKey.END -> KeyEvent.KEYCODE_MOVE_END
+    ToolbarKey.PGUP -> KeyEvent.KEYCODE_PAGE_UP
+    ToolbarKey.PGDN -> KeyEvent.KEYCODE_PAGE_DOWN
+    else -> arrowKeyCode(key)
+}
 
 /**
  * 普通按键发送：无修饰时原序列直发（零行为变化）；CTRL/ALT 激活时经编码器
@@ -993,7 +987,7 @@ private fun sendPlainOrModified(
         modifierStates.altState == ModifierState.Locked || modifierStates.altState == ModifierState.Once
     val keyCode = plainKeyCode(key)
     val bytesClick = actions.onKeyBytesClick
-    if (!ctrlActive && !altActive || keyCode == null || bytesClick == null) {
+    if ((!ctrlActive && !altActive) || keyCode == null || bytesClick == null) {
         actions.onKeyClick(sequence)
         return
     }
@@ -1014,49 +1008,53 @@ private fun toolbarItemKeyHandler(
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
     isAppCursorMode: () -> Boolean = { false },
-): () -> Unit =
-    when (item) {
-        is ToolbarItem.Default ->
-            when (item.key) {
-                ToolbarKey.CTRL -> actions.onToggleCtrl
+): () -> Unit = when (item) {
+    is ToolbarItem.Default ->
+        when (item.key) {
+            ToolbarKey.CTRL -> actions.onToggleCtrl
 
-                ToolbarKey.ALT -> actions.onToggleAlt
+            ToolbarKey.ALT -> actions.onToggleAlt
 
-                ToolbarKey.FN -> actions.onToggleFn
+            ToolbarKey.FN -> actions.onToggleFn
 
-                ToolbarKey.COMPOSE -> actions.onToggleCompose
+            ToolbarKey.COMPOSE -> actions.onToggleCompose
 
-                ToolbarKey.KEYBOARD -> actions.onToggleKeyboard
+            ToolbarKey.KEYBOARD -> actions.onToggleKeyboard
 
-                ToolbarKey.DRAWER -> actions.onDrawerClick
+            ToolbarKey.DRAWER -> actions.onDrawerClick
 
-                ToolbarKey.SCROLL -> actions.onScrollClick
+            ToolbarKey.SCROLL -> actions.onScrollClick
 
-                ToolbarKey.ARROW_UP,
-                ToolbarKey.ARROW_DOWN,
-                ToolbarKey.ARROW_LEFT,
-                ToolbarKey.ARROW_RIGHT,
-                -> {
-                    // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
-                    val keyCode = arrowKeyCode(item.key)
-                    if (keyCode == null) {
-                        {}
-                    } else {
-                        {
-                            sendPlainOrModified(item.key, arrowOrPlainSequence(keyCode, item.key.sequence, isAppCursorMode), actions, modifierStates)
-                        }
-                    }
-                }
-
-                else -> {
-                    val sequence = item.key.sequence
-                    if (sequence.isNotEmpty()) {
-                        { sendPlainOrModified(item.key, sequence, actions, modifierStates) }
-                    } else {
-                        {}
+            ToolbarKey.ARROW_UP,
+            ToolbarKey.ARROW_DOWN,
+            ToolbarKey.ARROW_LEFT,
+            ToolbarKey.ARROW_RIGHT,
+            -> {
+                // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
+                val keyCode = arrowKeyCode(item.key)
+                if (keyCode == null) {
+                    {}
+                } else {
+                    {
+                        sendPlainOrModified(
+                            item.key,
+                            arrowOrPlainSequence(keyCode, item.key.sequence, isAppCursorMode),
+                            actions,
+                            modifierStates,
+                        )
                     }
                 }
             }
+
+            else -> {
+                val sequence = item.key.sequence
+                if (sequence.isNotEmpty()) {
+                    { sendPlainOrModified(item.key, sequence, actions, modifierStates) }
+                } else {
+                    {}
+                }
+            }
+        }
 
     is ToolbarItem.Custom -> {
         val macro = item.macro

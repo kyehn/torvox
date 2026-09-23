@@ -117,7 +117,14 @@ class ScrollDistanceTest {
         // 往返等量拖动（1.5 行上 + 1.5 行下）应回到原位。
         val upStep = applyScrollDistance(0f, 1.5f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         assertEquals(MIDDLE_OFFSET - 1, upStep.newOffset)
-        val downStep = applyScrollDistance(upStep.newAccumulatorPx, -1.5f * CELL_HEIGHT, CELL_HEIGHT, upStep.newOffset, SCROLLBACK_LENGTH)
+        val downStep =
+            applyScrollDistance(
+                upStep.newAccumulatorPx,
+                -1.5f * CELL_HEIGHT,
+                CELL_HEIGHT,
+                upStep.newOffset,
+                SCROLLBACK_LENGTH,
+            )
         assertEquals(MIDDLE_OFFSET, downStep.newOffset)
     }
 
