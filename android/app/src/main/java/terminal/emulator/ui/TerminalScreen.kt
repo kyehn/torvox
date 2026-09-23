@@ -586,7 +586,11 @@ fun TerminalScreen(
                     )
                 }
                     .distinctUntilChanged()
-                    .collect { (cursorRow, barPx, boxHeightPx, barReservedPx) ->
+                    .collect { panInputs ->
+                        val cursorRow = panInputs[0]
+                        val barPx = panInputs[1]
+                        val boxHeightPx = panInputs[2]
+                        val barReservedPx = panInputs[3]
                         val cellHeightPx = viewModel.runtime.cellHeight
                         computeTerminalPanPx(
                             cursorRow = cursorRow,
