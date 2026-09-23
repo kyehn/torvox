@@ -1144,6 +1144,12 @@ impl FontPipeline {
                 }
             }
         }
+        // fonts.xml 别名（如 sans-serif）精确优先于模糊匹配：别名指向的
+        // 文件名在已加载库中直接定位，不加载新文件，避免模糊命中错误字形。
+        #[cfg(target_os = "android")]
+        if let Some(id) = Self::find_font_by_alias(db, family_name) {
+            return Some(id);
+        }
         let cleaned = family_name.replace(['_', '-'], " ").trim().to_lowercase();
         for face in db.faces() {
             for (family, _) in &face.families {
@@ -1170,6 +1176,32 @@ impl FontPipeline {
             for face in db.faces() {
                 if face.monospaced {
                     return Some(face.id);
+                }
+            }
+        }
+        None
+    }
+
+    /// 经 `fonts.xml` 别名定位已加载字体：别名→文件名→库中同名源文件。
+    /// 只做精确查找，不加载新文件。
+    #[cfg(target_os = "android")]
+    fn find_font_by_alias(db: &fontdb::Database, family_name: &str) -> Option<fontdb::ID> {
+        for (alias, filenames) in super::font_db::fonts_xml_aliases() {
+            if !alias.eq_ignore_ascii_case(family_name) {
+                continue;
+            }
+            for filename in filenames {
+                for face in db.faces() {
+                    let path = match &face.source {
+                        fontdb::Source::File(path) => path,
+                        fontdb::Source::SharedFile(path, _) => path,
+                        fontdb::Source::Binary(_) => continue,
+                    };
+                    if path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+                        name.eq_ignore_ascii_case(filename)
+                    }) {
+                        return Some(face.id);
+                    }
                 }
             }
         }
