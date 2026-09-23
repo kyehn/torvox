@@ -2,7 +2,8 @@
 //! Shell environment setup — pre-exec environment configuration for child processes.
 //!
 //! 只保留规范白名单所需的输入：home（HOME 与 TERMUX_HOME_DIR_PATH）、
-//! working_directory（子进程 chdir 目标，非环境变量）、prefix（PREFIX 相关变量）。
+//! working_directory（子进程 chdir 目标，非环境变量）、prefix（PREFIX 相关变量）、
+//! mkshrc_path（ENV 指向的应用私有 mksh rc，见 DESIGN Shell 节）。
 //! 用户名/路径/自定义变量已按规范删除，不再经环境变量接收或传递数据。
 
 #[derive(Debug, Clone)]
@@ -10,6 +11,7 @@ pub struct ShellEnv {
     pub home: String,
     pub working_directory: String,
     pub prefix: Option<String>,
+    pub mkshrc_path: Option<String>,
 }
 
 impl Default for ShellEnv {
@@ -18,6 +20,7 @@ impl Default for ShellEnv {
             home: "/".to_string(),
             working_directory: "/".to_string(),
             prefix: None,
+            mkshrc_path: None,
         }
     }
 }
@@ -32,6 +35,7 @@ mod tests {
         assert_eq!(env.home, "/");
         assert_eq!(env.working_directory, env.home);
         assert!(env.prefix.is_none());
+        assert!(env.mkshrc_path.is_none());
     }
 
     #[test]
@@ -51,9 +55,14 @@ mod tests {
             home: "/custom/home".to_string(),
             working_directory: "/custom/work".to_string(),
             prefix: Some("/custom/prefix".to_string()),
+            mkshrc_path: Some("/data/data/com.termux/no_backup/.mkshrc".to_string()),
         };
         assert_eq!(env.home, "/custom/home");
         assert_eq!(env.working_directory, "/custom/work");
         assert_eq!(env.prefix, Some("/custom/prefix".to_string()));
+        assert_eq!(
+            env.mkshrc_path,
+            Some("/data/data/com.termux/no_backup/.mkshrc".to_string())
+        );
     }
 }
