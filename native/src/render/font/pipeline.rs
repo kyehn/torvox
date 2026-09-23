@@ -645,7 +645,7 @@ impl FontPipeline {
                     .unwrap_or_default();
             }
         }
-        "monospace".to_string()
+        String::new()
     }
 
     /// CJK fallback family names in priority order (same order as
