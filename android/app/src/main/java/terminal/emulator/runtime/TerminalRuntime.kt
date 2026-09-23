@@ -840,7 +840,7 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Write the mksh rc file with a termux-parity prompt (self-healing).
+     * Write the mksh rc file with a termux-parity prompt and OSC 7 directory reporting (self-healing).
      *
      * root cause: with no rc file, interactive mksh falls back to the AOSP `/system/etc/mkshrc`
      * prompt `:/data/.../home $ ` — 38 columns wide. Any typed command longer than the remaining ~10
@@ -849,6 +849,10 @@ constructor(
      * `<` at the right edge). Real Termux avoids this entirely with the short `PS1='$ '` prompt —
      * same parity rule as every other termux-behavior fix in this round.
      *
+     * OSC 7 工作目录上报(DESIGN 侧边面板节)经 `cd` 包装与源时发射:`command cd` 防函数递归,
+     * `&&` 守卫使失败的 `cd` 不发射(均设备实测)。禁止把发射内嵌 PS1:实测 mksh 将 PS1 中
+     * 不可见 OSC 字节计入提示符显示宽度(40 列下第 9 个输入字符即触发横滚重绘,同一花屏根因)。
+     *
      * The file lives in the application data directory (`DESIGN.md` Shell 节：
      * `ENV` 为 `/data/data/com.termux/.mkshrc`，在 `files/` 用户数据树之外）而非 `$HOME`。
      * The path is handed to native as [TerminalConfig.mkshrcPath] and injected as
@@ -856,15 +860,15 @@ constructor(
      *
      * mksh reads `$ENV` when set, else `~/.mkshrc` for interactive shells; we source the system rc
      * first (keeps its PATH/alias setup) and then override PS1. Bash from a bootstrap never reads
-     * this file. The file is overwritten when it does not already contain the parity marker so stale
-     * installs self-heal.
+     * this file. The file is overwritten when it does not already contain the content marker so
+     * stale installs self-heal.
      */
     private fun ensureMkshPromptRc() {
         val mkshRcFile = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
-        val parityMarker = "PS1='$ '"
+        val contentMarker = "report_directory() {"
         if (mkshRcFile.isFile) {
             try {
-                if (mkshRcFile.readText().contains(parityMarker)) return
+                if (mkshRcFile.readText().contains(contentMarker)) return
             } catch (_: Exception) {
                 // unreadable — overwrite below
             }
@@ -872,9 +876,12 @@ constructor(
         try {
             mkshRcFile.parentFile?.mkdirs()
             mkshRcFile.writeText(
-                "# terminal: termux-parity prompt (see TerminalRuntime.ensureMkshPromptRc)\n" +
+                "# terminal: termux-parity prompt + OSC 7 directory (see TerminalRuntime.ensureMkshPromptRc)\n" +
                     ". /system/etc/mkshrc\n" +
-                    "$parityMarker\n",
+                    "PS1='\$ '\n" +
+                    "report_directory() { printf '\\033]7;file://%s\\007' \"\$PWD\"; }\n" +
+                    "cd() { command cd \"\$@\" && report_directory; }\n" +
+                    "report_directory\n",
             )
         } catch (exception: Exception) {
             LogUtil.w("Runtime", "Failed to write $MKSHRC_FILENAME: $exception")
