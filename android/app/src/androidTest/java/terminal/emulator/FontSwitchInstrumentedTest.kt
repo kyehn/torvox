@@ -8,6 +8,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -109,7 +110,7 @@ class FontSwitchInstrumentedTest {
     }
 
     @Test
-    fun settings_shows_pick_font_file_button() {
+    fun settings_does_not_show_pick_font_file_button() {
         openSettings()
         scrollToChange()
         val changeBtn = device.findObject(By.text("更改"))
@@ -117,7 +118,7 @@ class FontSwitchInstrumentedTest {
         changeBtn?.click()
         Thread.sleep(2000)
         val pickBtn = device.findObject(By.text("从文件选择…"))
-        assertNotNull("对话框必须出现从文件选择按钮", pickBtn)
+        assertNull("对话框不得出现从文件选择按钮", pickBtn)
     }
 
     @Test
