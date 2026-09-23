@@ -849,9 +849,9 @@ constructor(
      * `<` at the right edge). Real Termux avoids this entirely with the short `PS1='$ '` prompt —
      * same parity rule as every other termux-behavior fix in this round.
      *
-     * The file lives in [Context.getNoBackupFilesDir] rather than `$HOME` because `DESIGN.md`
-     * forbids putting `.mkshrc` under `$HOME`: writing it there would modify the user data tree
-     * (`files/`). The path is handed to native as [TerminalConfig.mkshrcPath] and injected as
+     * The file lives in the application data directory (`DESIGN.md` Shell 节：
+     * `ENV` 为 `/data/data/com.termux/.mkshrc`，在 `files/` 用户数据树之外）而非 `$HOME`。
+     * The path is handed to native as [TerminalConfig.mkshrcPath] and injected as
      * `$ENV`, which is how interactive mksh reaches it.
      *
      * mksh reads `$ENV` when set, else `~/.mkshrc` for interactive shells; we source the system rc
@@ -860,7 +860,7 @@ constructor(
      * installs self-heal.
      */
     private fun ensureMkshPromptRc() {
-        val mkshRcFile = java.io.File(context.noBackupFilesDir, MKSHRC_FILENAME)
+        val mkshRcFile = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
         val parityMarker = "PS1='$ '"
         if (mkshRcFile.isFile) {
             try {
@@ -883,7 +883,7 @@ constructor(
 
     /** Absolute path of the mksh rc file written by [ensureMkshPromptRc]. */
     private val mkshrcPath: String
-        get() = java.io.File(context.noBackupFilesDir, MKSHRC_FILENAME).absolutePath
+        get() = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME).absolutePath
 
     private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
         val configReads = coroutineScope {

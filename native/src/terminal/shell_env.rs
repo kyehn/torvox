@@ -55,14 +55,14 @@ mod tests {
             home: "/custom/home".to_string(),
             working_directory: "/custom/work".to_string(),
             prefix: Some("/custom/prefix".to_string()),
-            mkshrc_path: Some("/data/data/com.termux/no_backup/.mkshrc".to_string()),
+            mkshrc_path: Some("/data/data/com.termux/.mkshrc".to_string()),
         };
         assert_eq!(env.home, "/custom/home");
         assert_eq!(env.working_directory, "/custom/work");
         assert_eq!(env.prefix, Some("/custom/prefix".to_string()));
         assert_eq!(
             env.mkshrc_path,
-            Some("/data/data/com.termux/no_backup/.mkshrc".to_string())
+            Some("/data/data/com.termux/.mkshrc".to_string())
         );
     }
 }
