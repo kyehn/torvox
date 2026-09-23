@@ -17,8 +17,8 @@
 
 - 使用 Mesa lavapipe 提供 Vulkan 测试环境。
 - 使用 rapidocr cli 进行 OCR 识别
-- 使用 npx aislop@latest scan 和 npm install -g jscpd 检查代码
-- 使用 <https://github.com/awesome-skills/code-review-skill> 审查代码
+- 使用 `npx aislop@latest scan` 和 `npm install -g jscpd` 检查代码
+- 使用 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 审查代码
 
 ## 覆盖范围
 
@@ -27,7 +27,7 @@
 - 简体中文显示宽度
 - 超出屏幕的旧输出进入回滚区，旧行必须按顺序进入回滚，新行显示在底部
 - 输入回显与光标，写入的文本必须出现在对应行且光标跟随移动
-- 复制 `MapleMonoNormal-NF-CN-Medium.ttf` 到 /data/data/com.termux/files/home/.termux/font.ttf 后，字体被正确设置，检查字形
+- 复制 `MapleMonoNormal-NF-CN-Medium.ttf` 到 `/data/data/com.termux/files/home/.termux/font.ttf` 后，字体被正确设置，检查字形
 - 启动后，shell prompt 正常显示，首行不被吞
 - 实际内容较少时输入法弹出时终端无动画 无闪烁 无变化
 - 实际内容较多时输入法弹出时终端内容上移且无闪烁 无卡顿 无撕裂，上移后终端与上移前终端的底部像素完全相同，输入法弹出时输入文本后正确显示，底部不被吞

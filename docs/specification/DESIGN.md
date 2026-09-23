@@ -3,7 +3,7 @@
 ## 依赖
 
 - 依赖/工具尽量使用最新版本，尽量不固定小版本
-- 未声明的细节 参考 <https://github.com/termux/termux-app> 和 <https://github.com/sylirre/ghostty-android-terminal>
+- 未声明的细节参考 [termux-app](https://github.com/termux/termux-app) 和 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal)
 
 ## 习惯
 
@@ -75,7 +75,7 @@
 
 - 支持下划线颜色 (SGR 58) 和上划线 (SGR 53)
 
-- libghostty-vt 使用参考 <https://github.com/sylirre/ghostty-android-terminal/blob/main/docs/architecture.md#libghostty-vt>
+- libghostty-vt 使用参考 [ghostty-android-terminal 架构文档](https://github.com/sylirre/ghostty-android-terminal/blob/main/docs/architecture.md#libghostty-vt)
 
 ### Kotlin
 
@@ -96,9 +96,9 @@
   - 系统不存在 `fonts.xml` 或其内容无法解析，软件输出日志并崩溃退出，不做复杂处理。
   - 相关设置出现错误时（如默认字体设置错误）重置应用数据
   - 从不 复制/移动 文件
-  - /data/data/com.termux/files/home/.termux/font.ttf（也要支持 ttc 等格式） 如果存在设置为默认字体
+  - `/data/data/com.termux/files/home/.termux/font.ttf`（也要支持 ttc 等格式） 如果存在设置为默认字体
   - 需要支持 多字重字体 动态字体 文件
-  - 如果是文件夹 /data/data/com.termux/files/home/.termux/font 存在加入字体扫描路径并显示其中字体在字体列表。
+  - 如果是文件夹 `/data/data/com.termux/files/home/.termux/font` 存在加入字体扫描路径并显示其中字体在字体列表。
   - 只有一项主字体选择，不支持 粗体/斜体 单独设置，粗体/斜体 跟随主字体
   - 字体列表内不得重复，“DroidSans”和“Droid Sans”以及“Droid Sans Regular”重复，不得做手动判断，而是要求外部库 api 提供正确的字体列表
   - 字体列表中不展示“系统默认”等含糊选项，不显示不存在的字体，不使用任何硬编码，字体列表不提供 “从文件加载” 选项
@@ -127,7 +127,7 @@
 
 - **Bootstrap**：支持 HTTP(S) URL 与本地文件安装。
   - 只提供 Termux 预设选项，使用 apt-android-7（较大值） 和 2026.02.12-r1（最新值），不提供 apt-android-5 2022.04.28-r6 等旧值，从 termux-app/app/build.gradle 提取逻辑
-  - 原子化替换 /data/data/com.termux/files/usr/ 目录，（安装时 原 usr 重命名为 usr.xxxxx（随机后缀），安装完成后旧目录由用户手动删除，不自动删除）
+  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，（安装时 原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除）
   - 不记录 Bootstrap 状态，不得生成安装标记
   - 不得特殊化设置权限，按照 termux 同款流程设置，不额外设置某些目录
   - 只允许设置下面的环境变量：
@@ -140,10 +140,10 @@
     - `TERMUX_VERSION` 为 0.119.0-beta.3
   - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD`
   - 宿主透传变量，仅宿主存在时透传，不硬编：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
-  - 必须兼容 nix-on-droid，nix-on-droid 需要提供和 termux bootstrap 一致的格式，软件不做任何特殊兼容。测试：下载 <https://github.com/kyehn/nix-on-droid/releases/download/bootstrap-unstable/bootstrap-x86_64.zip> 或从源码编译，通过 bootstrap 安装逻辑（不得直接解压/复制），使用终端输入 nix build 命令（不得使用adb shell 替代）进行测试。
+  - 必须兼容 nix-on-droid，nix-on-droid 需要提供和 termux bootstrap 一致的格式，软件不做任何特殊兼容。测试：下载 [bootstrap-x86_64.zip](https://github.com/kyehn/nix-on-droid/releases/download/bootstrap-unstable/bootstrap-x86_64.zip) 或从源码编译，通过 bootstrap 安装逻辑（不得直接解压/复制），使用终端输入 `nix build` 命令（不得使用 `adb shell` 替代）进行测试。
   - 禁止对 nix-on-droid 特殊处理，termux/nix-on-droid bootstrap 共用安装逻辑代码，postinstall 只在存在时运行，不做无意义检查/校验，出现问题正常报错就是。
 
-- **清除应用数据按钮**，清除与 /data/data/com.termux/files 无关的设置数据/缓存数据等。应用数据与用户数据为不同概念，除 Bootstrap 设置外不得修改用户数据（即 /data/data/com.termux/files 目录）。
+- **清除应用数据按钮**，清除与 `/data/data/com.termux/files` 无关的设置数据/缓存数据等。应用数据与用户数据为不同概念，除 Bootstrap 设置外不得修改用户数据（即 `/data/data/com.termux/files` 目录）。
 
 ## 终端
 
@@ -185,7 +185,7 @@
 
 ### Shell
 
-- 设置中 Shell 启动入口为空时依次寻找 /data/data/com.termux/files/usr/bin/bash 和 /data/data/com.termux/files/usr/bin/login 以及 /system/bin/sh，文件存在即启动，不检查文件权限，失败不回退，无其他任何回退
+- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败不回退，无其他任何回退
 
 - 默认 LANG 为 en_US.UTF-8
 
@@ -281,7 +281,7 @@
 
 - **自定义终端主题**：支持用户自定义主题：自定义主题可以修改（支持预览）和删除（未使用状态下，包括名称也可修改）。
 
-- **Shizuku 集成开关**。支持从 <https://github.com/rikkaapps/shizuku> 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
+- **Shizuku 集成开关**。支持从 [Shizuku](https://github.com/rikkaapps/shizuku) 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
 
 ## 注意
 
