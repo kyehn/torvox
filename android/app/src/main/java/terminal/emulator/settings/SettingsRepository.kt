@@ -23,7 +23,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val NIGHT_THEME_NAME = stringPreferencesKey("night_theme_name")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val SHELL = stringPreferencesKey("shell")
-        val START_DIR = stringPreferencesKey("start_dir")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
         val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
         val USE_NERD_FONT_GLYPHS = booleanPreferencesKey("use_nerd_font_glyphs")
@@ -89,7 +88,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
     val themeMode: Flow<String> =
         provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
-    val startDir: Flow<String> = provider.dataStore.data.map { it[Keys.START_DIR] ?: "" }
 
     /** 回滚行数固定为 [FIXED_SCROLLBACK_LINES]，不读取、不持久化用户设置。 */
     val scrollbackLines: Flow<Int> = kotlinx.coroutines.flow.flowOf(FIXED_SCROLLBACK_LINES)
@@ -113,7 +111,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val nightThemeName: String = DEFAULT_THEME,
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
-        val startDir: String = "",
         val scrollbackLines: Int = FIXED_SCROLLBACK_LINES,
         val bootstrapUrl: String = "",
         val useNerdFontGlyphs: Boolean = false,
@@ -131,7 +128,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
                 themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
-                startDir = prefs[Keys.START_DIR] ?: "",
                 scrollbackLines = FIXED_SCROLLBACK_LINES,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
                 useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
@@ -176,8 +172,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)
 
     suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
-
-    suspend fun setStartDir(startDir: String) = put(Keys.START_DIR, startDir)
 
     suspend fun setBootstrapUrl(url: String) = put(Keys.BOOTSTRAP_URL, url)
 
