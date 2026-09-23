@@ -1,6 +1,7 @@
 package terminal.emulator.bridge
 
 import android.util.Log
+import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.runCatchingCancellable
 
@@ -138,6 +139,20 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 config.scrollbackLines,
             )
         return sessionId
+    }
+
+    /**
+     * 后台预热渲染器与字体库：PTY 已 spawn（shell 并行启动），attach 前把 wgpu 初始化与
+     * 200+ 系统字体加载移到后台线程，不阻塞首帧链。
+     */
+    fun prefetchRenderStateAsync(scope: kotlinx.coroutines.CoroutineScope) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                NativeBridge.prefetchRenderState()
+            } catch (exception: Exception) {
+                android.util.Log.w("Bridge", "prefetchRenderState failed", exception)
+            }
+        }
     }
 
     fun close() {
