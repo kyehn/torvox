@@ -69,13 +69,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } catch (_: Exception) {
             // View already torn down — ignore.
         }
-        // Stop the edge-scroll self-loop: it is driven by postDelayed and
-        // only stops on ACTION_UP/CANCEL. A detach mid-drag (rotation,
-        // window destruction) would otherwise leave it running forever,
-        // holding this view (and the whole viewModel chain) via the
-        // handler's runnable and burning main-thread cycles on
-        // repositionHandle.
-        stopEdgeScroll()
         // Clear the fling scroll-end marker and the render-unpause callback:
         // both are postDelayed runnables that capture this view; after a
         // detach they would fire on a destroyed window (and repeated flings
@@ -115,11 +108,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // build a new InputBatchBuffer. Without this, every recreation leaks
         // a daemon thread that pins the whole view chain via its sink closure.
         inputBatchBuffer.close()
-    }
-
-    private fun stopEdgeScroll() {
-        edgeScrollRunning = false
-        edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
     }
 
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
@@ -225,13 +213,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // termux behavior: select-all keeps the menu open so the
                         // user can immediately COPY the new selection.
                         viewModel?.selectAll()
+                        // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
+                        showSelectionMenuForCurrentSelection()
                     },
             )
-            if (isLinkTextCandidate(selectionText) || isOpenableLink(selectionText)) {
+            // 打开链接项：文本呈 URL 形态，或选区起点带 OSC 8 超链接——显示判定与
+            // 动作解析共用同一输入（design 决策 8），绝不出现“项显示却无目标”。
+            val selectionStart = viewModel?.state?.value?.selection?.start
+            val selectionHyperlinkUri =
+                selectionStart
+                    ?.let { viewModel?.runtime?.bridge()?.hyperlinkAt(it.row, it.col) }
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            if (isLinkTextCandidate(selectionText) || selectionHyperlinkUri != null) {
                 add(
                     context.getString(R.string.open_link) to
                         {
-                            openSelectionAsLink(selectionText)
+                            openSelectionAsLink(selectionText, selectionHyperlinkUri)
                             viewModel?.clearSelection()
                         },
                 )
@@ -248,33 +246,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    internal fun isOpenableLink(text: String): Boolean {
-        if (isLinkTextCandidate(text)) return true
-        val selection = viewModel?.state?.value?.selection ?: return false
-        val start = selection.start ?: return false
-        val bridge = viewModel?.runtime?.bridge() ?: return false
-        return bridge.hyperlinkAt(start.row, start.col) != null
-    }
-
-    internal fun isUnderFileProviderRoots(path: String): Boolean {
-        if (path.isEmpty()) return false
-        return try {
-            val roots = listOfNotNull(
-                context.filesDir?.absolutePath,
-                context.cacheDir?.absolutePath,
-                context.getExternalFilesDir(null)?.absolutePath,
-            )
-            roots.any { root -> path == root || path.startsWith("$root/") }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    internal fun openSelectionAsLink(text: String) {
-        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-        if (trimmed.isEmpty()) return
+    /**
+     * 菜单“打开链接”动作：目标由 [resolveOpenLinkUri] 解析（选择文本 URL 形态优先、
+     * 否则回退选区起点的 OSC 8 链接），http(s) 白名单后交系统打开；无目标静默返回。
+     */
+    internal fun openSelectionAsLink(text: String, hyperlinkUri: String?) {
+        val target = resolveOpenLinkUri(text, hyperlinkUri) ?: return
         val uri = try {
-            trimmed.toUri()
+            target.toUri()
         } catch (_: IllegalArgumentException) {
             return
         }
@@ -304,10 +283,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             return
         }
         if (!file.isFile || !file.exists()) {
-            toastCannotOpenFile()
-            return
-        }
-        if (!isUnderFileProviderRoots(trimmed)) {
             toastCannotOpenFile()
             return
         }
@@ -347,7 +322,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             android.widget.LinearLayout(context).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
                 val backgroundDrawable = android.graphics.drawable.GradientDrawable()
-                backgroundDrawable.setColor(MENU_BAR_BACKGROUND_ARGB.toInt())
+                backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
                 backgroundDrawable.cornerRadius = dp(MENU_BAR_CORNER_RADIUS_DP).toFloat()
                 background = backgroundDrawable
                 elevation = dp(6).toFloat()
@@ -355,7 +330,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     val item =
                         android.widget.TextView(context).apply {
                             text = label
-                            setTextColor(0xFFFFFFFF.toInt())
+                            setTextColor(resolveThemeColor(R.attr.colorOnSurface, R.color.material_color_on_surface))
                             textSize = 14f
                             val h = dp(16)
                             setPadding(h, dp(12), h, dp(12))
@@ -370,8 +345,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Window coordinates for the menu: above the selection top edge (same viewport math as the
-     * handles), clamped into the surface. Null when cell metrics are not ready yet.
+     * 解析 Material 3 主题颜色属性（spec：选择菜单样式 MUST 用 `colorSurface`/
+     * `colorOnSurface` 主题属性、MUST NOT 硬编码颜色）；属性未定义时回退同值的
+     * 颜色资源，Kotlin 侧不出现任何字面颜色值。
+     */
+    private fun resolveThemeColor(attribute: Int, fallbackColorResource: Int): Int {
+        val typedValue = android.util.TypedValue()
+        if (!context.theme.resolveAttribute(attribute, typedValue, true)) {
+            return androidx.core.content.ContextCompat.getColor(context, fallbackColorResource)
+        }
+        return if (typedValue.resourceId != 0) {
+            androidx.core.content.ContextCompat.getColor(context, typedValue.resourceId)
+        } else {
+            typedValue.data
+        }
+    }
+
+    /**
+     * 选择几何（网格 → 视图像素）→ 纯函数 [menuAnchor] 的输入：选择矩形、视口
+     * 与菜单估计尺寸。返回 null（无处可放/度量未就绪）时调用方隐藏菜单。
      */
     private fun menuAnchor(selection: terminal.emulator.SelectionState): Pair<Int, Int>? {
         val cw = cellWidth
@@ -389,28 +381,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         val viewportTopGrid = currentViewportTopGrid()
         val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cw, ch)
-        val (rightPx, _) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
+        val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
         val density = resources.displayMetrics.density
         val dp = { v: Int -> (v * density + 0.5f).toInt() }
         // PopupWindow measures on show, so use a rough estimate (items ×
         // ~92dp) clamped to the surface.
         val estimatedWidth = width.coerceAtMost(dp(184))
-        val x =
-            ((leftPx + rightPx) / 2 - estimatedWidth / 2)
-                .toInt()
-                .coerceIn(0, (width - estimatedWidth).coerceAtLeast(0))
         val menuHeight = dp(44)
-        // 菜单在选择区上方：菜单底缘高出选择首行顶缘一行（完全不遮挡所选词）；
-        // 上方空间不足才翻到选择底缘+手柄高度之下。
-        val aboveY = topPx - menuHeight - ch - dp(4)
-        val y = if (aboveY >= 0) {
-            aboveY.toInt()
-        } else {
-            val (_, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
-            val handleHeight = selectionHandleHeight()
-            (bottomPx + handleHeight + dp(4)).toInt().coerceIn(0, (height - menuHeight).coerceAtLeast(0))
-        }
-        return x to y
+        return menuAnchor(
+            selection = PixelRect(leftPx.toInt(), topPx.toInt(), rightPx.toInt(), bottomPx.toInt()),
+            viewport = PixelRect(0, 0, width, height),
+            menuWidth = estimatedWidth,
+            menuHeight = menuHeight,
+            handleHeight = selectionHandleHeight().toInt(),
+        )
     }
 
     /** 选择手柄高度（与手柄定位同源；未知时回退一 Character 行高）。 */
@@ -1227,7 +1211,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     companion object {
         private const val TAG = "TerminalSurface"
         private const val WIDE_CHAR_CACHE_TTL_MS = 500L
-        private const val MENU_BAR_BACKGROUND_ARGB = 0xEE2B2B2BL
         private const val MENU_BAR_CORNER_RADIUS_DP = 8
 
         private const val SWIPE_THRESHOLD_PIXELS = 500f
@@ -1268,7 +1251,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         /** Number of Unicode code points in [text] (surrogate-pair safe). */
         private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
 
-        private const val EDGE_SCROLL_INTERVAL_MS = 30L
+        /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
+        private const val EDGE_SCROLL_STEP_UP = 1
+        private const val EDGE_SCROLL_STEP_DOWN = -1
         private const val ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS = 500L
         private const val ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS = 250_000_000L // 4 Hz
 
@@ -1630,12 +1615,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * snapped to the final cells + toolbar, and flush the highlight to the Rust renderer.
      */
     internal fun finishHandleDrag() {
-        // overlay-owned drags BYPASS the
-        // legacy surface UP/CANCEL branch where this cleanup used to live.
-        // Without it, releasing a handle inside an edge-scroll zone left
-        // edgeScrollRunning=true (50ms self-looping runnable doing JNI
-        // scrollback queries and mutating the finished selection forever).
-        stopEdgeScroll()
         handleDragState = HandleDrag.NONE
         dragPointerId = null
         dragWideCharCacheSession = false
@@ -1649,12 +1628,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * Handle-drag ACTION_MOVE body, extracted from onTouchEvent (detekt NestedBlockDepth):
-     * pointer-locked selection update + edge-scroll driving at viewport [touchX]/[touchY] (already
+     * pointer-locked selection update + edge-scroll stepping at viewport [touchX]/[touchY] (already
      * resolved to the locked finger's slot by the caller).
      */
     private fun driveHandleDragMove(touchX: Float, touchY: Float) {
-        val col = pixelToCell(touchX, cellWidth, cols)
-        val row = pixelToCell(touchY, cellHeight, rows)
         currentTouchX = touchX
         currentTouchY = touchY
 
@@ -1667,29 +1644,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val altScreenActive = dragAltScreenSnapshot
         when (edgeScrollDirection(touchY, surfaceHeightPixels.toFloat(), cellHeight)) {
             EdgeScrollDirection.UP -> {
-                if (altScreenActive) {
-                    stopEdgeScroll()
-                } else if (!edgeScrollRunning) {
-                    edgeScrollRunning = true
-                    pendingEdgeScroll = 1
-                    edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                // 每次触点移动滚 1 行（design 决策 5）：无定时循环，滚动只随手指移动发生。
+                if (!altScreenActive) {
+                    stepEdgeScroll(EDGE_SCROLL_STEP_UP)
                 }
             }
 
             EdgeScrollDirection.DOWN -> {
-                if (altScreenActive) {
-                    stopEdgeScroll()
-                } else if (!edgeScrollRunning) {
-                    edgeScrollRunning = true
-                    pendingEdgeScroll = -1
-                    edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                if (!altScreenActive) {
+                    stepEdgeScroll(EDGE_SCROLL_STEP_DOWN)
                 }
             }
 
             EdgeScrollDirection.STOP -> {
-                edgeScrollRunning = false
-                pendingEdgeScroll = 0
-                edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
                 val (gridRow, snapCol) = dragTargetFromTouch(touchX, touchY)
                 // Fast drag path (): compute bounds and reposition handles
                 // directly, bypassing Compose _state.update → recomposition → read-back
@@ -1707,6 +1674,33 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     selectionHandles.repositionHandle(HandleDrag.END, bounds[2], bounds[3])
                 }
             }
+        }
+    }
+
+    /**
+     * 边缘滚动单步：触点位于边缘区的每次 MOVE 滚 [step]（[EDGE_SCROLL_STEP_UP] 向上、
+     * [EDGE_SCROLL_STEP_DOWN] 向下）恰好 1 行，滚动随手指移动即时发生（无定时循环），
+     * 并把拖拽柄钉到新视口的顶/底行后同步两个手柄位置。
+     */
+    private fun stepEdgeScroll(step: Int) {
+        val scrollbackLen = currentScrollbackLength()
+        val newOffset = (scrollOffset + step).coerceIn(0, scrollbackLen)
+        if (newOffset != scrollOffset) {
+            scrollOffset = newOffset
+            onScrollChanged?.invoke(scrollOffset)
+            // 向上滚钉新视口顶行，向下滚钉底行。
+            val gridRow =
+                if (step == EDGE_SCROLL_STEP_UP) {
+                    scrollbackLen - newOffset
+                } else {
+                    scrollbackLen - newOffset + rows - 1
+                }
+            updateDragHandleForCell(gridRow)
+        }
+        val selection = viewModel?.state?.value?.selection
+        if (selection?.start != null && selection.end != null) {
+            selectionHandles.repositionHandle(HandleDrag.START, selection.start.row, selection.start.col)
+            selectionHandles.repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
         }
     }
 
@@ -1762,6 +1756,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
         handleDragState = which
+        // 抓柄即隐藏（design 决策 3）：拖动中菜单不遮挡选择；抬手由
+        // finishHandleDrag 按新几何重锚重显。
+        hideSelectionMenu()
         // Lock onto the finger that started the drag: subsequent MOVE events
         // from other pointers must not steer the selection (issue #15).
         dragPointerId = pointerId
@@ -1803,11 +1800,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val imeConnection = ImeConnection()
     private val selectionHandles = SelectionHandles()
     private val clipboardPaster = ClipboardPaster(clipboardAccess)
-
-    private val edgeScrollHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var edgeScrollRunning = false
-    private var pendingEdgeScroll: Int = 0 // +1 = up, -1 = down, 0 = none
-    private var edgeScrollRunnable: Runnable = Runnable {}
 
     val isSelectingText: Boolean
         get() = viewModel?.state?.value?.selection?.active == true
@@ -2185,43 +2177,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         contentDescription = context.getString(R.string.terminal)
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         installAccessibilityCustomActions()
-        edgeScrollRunnable = Runnable {
-            if (!edgeScrollRunning) return@Runnable
-            when (pendingEdgeScroll) {
-                1 -> {
-                    val scrollbackLen = currentScrollbackLength()
-                    val newOffset = (scrollOffset + 1).coerceAtMost(scrollbackLen)
-                    if (newOffset != scrollOffset) {
-                        scrollOffset = newOffset
-                        onScrollChanged?.invoke(scrollOffset)
-                        // Top viewport row in grid coordinates.
-                        updateDragHandleForCell(scrollbackLen - newOffset)
-                    }
-                }
-
-                -1 -> {
-                    val newOffset = (scrollOffset - 1).coerceAtLeast(0)
-                    if (newOffset != scrollOffset) {
-                        scrollOffset = newOffset
-                        onScrollChanged?.invoke(scrollOffset)
-                        // Bottom viewport row in grid coordinates.
-                        updateDragHandleForCell(currentScrollbackLength() - newOffset + rows - 1)
-                    }
-                }
-            }
-            val selection = viewModel?.state?.value?.selection
-            if (selection?.start != null && selection.end != null) {
-                selectionHandles.repositionHandle(
-                    HandleDrag.START,
-                    selection.start.row,
-                    selection.start.col,
-                )
-                selectionHandles.repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
-            }
-            if (edgeScrollRunning) {
-                edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
-            }
-        }
     }
 
     private var keyboardRequested = false
@@ -2895,9 +2850,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         showSelectionMenuForCurrentSelection()
                     }
                 }
-                edgeScrollRunning = false
-                pendingEdgeScroll = 0
-                edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
                     finishHandleDrag()
                 }
@@ -3057,10 +3009,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // activity leaks (and a BadTokenException crash on rotation when
         // the activity is being destroyed).
         selectionHandles.hideSelectionHandles()
-        // Stop the edge-scroll loop: without this the self-reposting
-        // runnable keeps firing every 50ms after destroy, touching a
-        // cleared ViewModel and dismissed popups.
-        stopEdgeScroll()
         // Reset any latch left by a drag interrupted by surface teardown
         // (review-6 hygiene): the overlay is gone so no UP will arrive;
         // a stale latch would be self-healed only by the next touch.
@@ -3137,6 +3085,39 @@ internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px /
     0,
     (maxCells - 1).coerceAtLeast(0),
 )
+
+/** 纯像素矩形（y 向下增大）：菜单锚定的几何输入，JVM 可单测（不碰 android.jar）。 */
+internal data class PixelRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+/**
+ * 菜单锚定纯函数（design 决策 3）：返回菜单左上角 (x, y)；无处可放返回 null（调用方隐藏菜单）。规则：
+ * - 上方优先：菜单底缘高出选择顶缘一个手柄高（锚隙）；贴顶（越出视口上缘）则翻到选择底缘之下；
+ * - 贴右钳制：水平居中于选择后夹进视口左右缘；
+ * - 选择盖满视口 —— 上下两处落点都放不进选区外的剩余空间（等价于两处都会与选择相交）
+ *   —— 返回 null：菜单任何时刻不遮挡选择。
+ */
+internal fun menuAnchor(
+    selection: PixelRect,
+    viewport: PixelRect,
+    menuWidth: Int,
+    menuHeight: Int,
+    handleHeight: Int,
+): Pair<Int, Int>? {
+    if (viewport.right - viewport.left <= 0 || viewport.bottom - viewport.top <= 0) return null
+    val width = menuWidth.coerceAtMost(viewport.right - viewport.left)
+    val x = (
+        (selection.left + selection.right) / 2 - width / 2
+        ).coerceIn(viewport.left, (viewport.right - width).coerceAtLeast(viewport.left))
+    val aboveTop = selection.top - menuHeight - handleHeight
+    if (aboveTop >= viewport.top) {
+        return x to aboveTop
+    }
+    val belowTop = selection.bottom + handleHeight
+    if (belowTop + menuHeight <= viewport.bottom) {
+        return x to belowTop
+    }
+    return null
+}
 
 /**
  * Snap a selection column left of a wide character's trailing half (the pure core of
@@ -3269,6 +3250,18 @@ internal fun isLinkTextCandidate(text: String, maxLength: Int = MAX_SELECTION_AC
     val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false
     return terminal.emulator.util.UrlToken.looksLikeFullUrl(trimmed)
+}
+
+/**
+ * 菜单“打开链接”目标解析（纯函数，design 决策 8）：选择文本呈 URL 形态优先
+ * （与显示判定同一阈值），否则回退到 OSC 8 超链接 URI（选区起点 hyperlinkAt 的
+ * 归一化结果）；两者皆无返回 null。显示侧 `isLinkTextCandidate(text) ||
+ * hyperlinkUri != null` 与本函数的非空性一一对应，动作与显示绝不分叉。
+ */
+internal fun resolveOpenLinkUri(text: String, hyperlinkUri: String?): String? {
+    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+    if (isLinkTextCandidate(trimmed)) return trimmed
+    return hyperlinkUri?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 /** 菜单显示用文件格式匹配（纯逻辑：绝对路径形态，不查存在性）。 */
