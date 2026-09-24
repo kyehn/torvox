@@ -32,7 +32,7 @@ class MenuDiagTest {
             composeTestRule.getBridge() != null
         }
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
-            activity.terminalViewModel.selectAll(0)
+            activity.terminalViewModel.selectAll()
         }
         composeTestRule.waitForIdle()
         Thread.sleep(1_000)

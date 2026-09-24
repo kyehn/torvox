@@ -93,7 +93,7 @@ class SelectionEspressoTest {
         assertNotNull("标记必须落格", settled)
         assertTrue("标记送显失败", fed)
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            activity.terminalViewModel.selectAll(0)
+            activity.terminalViewModel.selectAll()
         }
         composeTestRule.waitForIdle()
         var selectedText = ""
@@ -133,7 +133,7 @@ class SelectionEspressoTest {
         // Software-rendered emulator: give the PTY output time to render.
         Thread.sleep(3000)
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            activity.terminalViewModel.selectAll(0)
+            activity.terminalViewModel.selectAll()
         }
         composeTestRule.waitForIdle()
 
