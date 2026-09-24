@@ -105,6 +105,36 @@ class SelectionEspressoTest {
         }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         assertTrue("Selection menu must appear after Select All", device.wait(Until.hasObject(By.text("复制")), 5000))
+        // 全选后重锚（design 决策 3）：选择自视口顶起时上方无位，菜单必须翻到
+        // 选择底缘之下（窗口 y ≥ 选择底缘），任何时刻不遮挡选择。
+        var popupY = Int.MIN_VALUE
+        var selectionBottomWindowY = Int.MIN_VALUE
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val surface = findTerminalSurface(activity)
+            val location = IntArray(2)
+            surface.getLocationInWindow(location)
+            val selection = activity.terminalViewModel.state.value.selection
+            val endRow = selection.end?.row ?: -1
+            val bridge = composeTestRule.getBridge()
+            val depth = bridge?.scrollbackLength() ?: -1
+            val density = activity.resources.displayMetrics.density
+            val cellHeightPx = (bridge?.getCellHeight() ?: 0f) * density
+            val scrollOffset = activity.terminalViewModel.runtime.activeSessionScrollOffset()
+            val visibleBottomRow = endRow - (depth - scrollOffset)
+            selectionBottomWindowY = location[1] + ((visibleBottomRow + 1) * cellHeightPx).toInt()
+            val menuField =
+                terminal.emulator.ui.TerminalSurface::class.java.getDeclaredField("selectionMenuPopup")
+            menuField.isAccessible = true
+            val popup = menuField.get(surface) as android.widget.PopupWindow?
+            // PopupWindow 无 y getter：取内容视图窗口坐标（内容顶 ≥ 弹窗顶，断言更严）。
+            val contentLocation = IntArray(2)
+            popup?.contentView?.getLocationInWindow(contentLocation)
+            popupY = if (popup?.contentView == null) Int.MIN_VALUE else contentLocation[1]
+        }
+        assertTrue(
+            "全选后菜单必须重锚到选区下方 (menuY=$popupY bottomY=$selectionBottomWindowY)",
+            popupY >= selectionBottomWindowY,
+        )
     }
 
     @Test

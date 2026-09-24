@@ -254,4 +254,72 @@ class TerminalSurfaceLogicTest {
         val finalSize = zoomFontSize(16f, 1.001f)
         assert(!zoomSettledOnNewSize(16f, finalSize))
     }
+
+    // ── menu anchoring (design decision 3) ────────────────────────────────────
+
+    private val viewport = PixelRect(0, 0, 400, 800)
+
+    @Test
+    fun `menu anchors above the selection, centered`() {
+        // 上方优先：底缘高出选择顶缘一个手柄高；水平居中 (100+200)/2-180/2=60。
+        val anchor = menuAnchor(
+            selection = PixelRect(100, 300, 200, 320),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(60 to 216, anchor)
+    }
+
+    @Test
+    fun `menu flips below when the selection touches the top`() {
+        // 上方贴顶（20-44-40<0）→ 翻到选择底缘之下 (60+40)；x 居中 90-90=0。
+        val anchor = menuAnchor(
+            selection = PixelRect(40, 20, 140, 60),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(0 to 100, anchor)
+    }
+
+    @Test
+    fun `menu clamps to the right edge`() {
+        // 中心 385 → 295 超出右钳制 400-180=220，贴右夹回。
+        val anchor = menuAnchor(
+            selection = PixelRect(350, 300, 420, 320),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(220 to 216, anchor)
+    }
+
+    @Test
+    fun `menu hides when the selection covers the viewport`() {
+        // 全选盖满视口：上方越顶、下方越底 → 无处可放，返回 null（隐藏）。
+        val anchor = menuAnchor(
+            selection = PixelRect(0, 0, 400, 800),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(null, anchor)
+    }
+
+    @Test
+    fun `menu hides when the viewport has no size`() {
+        val anchor = menuAnchor(
+            selection = PixelRect(10, 10, 20, 20),
+            viewport = PixelRect(0, 0, 0, 0),
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(null, anchor)
+    }
 }
