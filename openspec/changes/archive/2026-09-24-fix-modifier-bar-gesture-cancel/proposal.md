@@ -4,8 +4,8 @@
 
 ## What Changes
 
-- `ExtraKeyButton` 手势处理三个分支（普通点按、自动重复、长按副动作）经 `PointerEvent.motionEvent` 识别 `ACTION_CANCEL`，取消即吞掉：不触发按键、不触发长按副动作。
-- 仪器测试：View 派发 `DOWN`+`CANCEL` 不触发 `Key_CTRL`（先红后绿），`DOWN`+`UP` 对照仍触发。
+- `ExtraKeyButton` 手势处理三个分支（普通点按、自动重复、长按副动作）识别取消——Compose 取消由 `processCancel` 合成、无原始 MotionEvent 且指针全释放，据此与抬手区分——取消即吞掉：不触发按键、不触发长按副动作。
+- 仪器测试：View 派发 `DOWN`+`CANCEL` 不触发 `Key_CTRL`（先红后绿），`DOWN`+`UP` 对照仍触发，抽屉键取消不打开抽屉。
 
 ## Capabilities
 
@@ -19,5 +19,5 @@
 
 ## Impact
 
-- `ModifierBar.kt` 手势处理三处分支与一个私有判定函数。
-- `ModifierBarTest.kt` 新增两项仪器测试。
+- `ModifierBar.kt` 手势处理三处分支、排空循环改写与手势处理器内一个本地判定函数。
+- `ModifierBarTest.kt` 新增三项仪器测试。
