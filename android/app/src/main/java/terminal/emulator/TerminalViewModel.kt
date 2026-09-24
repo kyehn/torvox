@@ -144,29 +144,11 @@ data class SelectionState(
 
 data class HandleDragResult(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
 
-/** Session info for the session drawer. */
-data class SessionInfo(val id: Long, val directory: String = "")
-
-/** 会话目录显示的最大长度，超出时从中间省略。 */
-internal const val MAX_SESSION_DIRECTORY_LENGTH = 40
+/** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
+data class SessionInfo(val id: Long, val title: String = "")
 
 /** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
 internal const val SESSION_META_REFRESH_THROTTLE_MS = 2000L
-
-/** 缩写会话目录用于抽屉显示：去 `file://` 前缀，家目录前缀折叠为 `~`， 超长从中间省略（Termux 同款 `~` 习惯）。 */
-internal fun abbreviateDirectory(path: String, homeDirectory: String): String {
-    var abbreviated = path.removePrefix("file://")
-    if (
-        homeDirectory.isNotEmpty() &&
-        (abbreviated == homeDirectory || abbreviated.startsWith("$homeDirectory/"))
-    ) {
-        abbreviated = "~" + abbreviated.removePrefix(homeDirectory)
-    }
-    if (abbreviated.length <= MAX_SESSION_DIRECTORY_LENGTH) return abbreviated
-    val keep = MAX_SESSION_DIRECTORY_LENGTH - 1
-    val head = (keep + 1) / 2
-    return abbreviated.take(head) + "…" + abbreviated.takeLast(keep - head)
-}
 
 data class TerminalState(
     val sessionId: Long = 0L,
@@ -1222,8 +1204,8 @@ constructor(
     private var lastMetaRefreshMs: Long = 0L
 
     /**
-     * 回填抽屉列表的工作目录（序号由列表按位置从 1 递增渲染，目录缩写显示）。 JNI 查询在 IO
-     * 线程执行；写入时校验集合未变，避免覆盖更新的列表。
+     * 回填抽屉列表的终端标题（序号由列表按位置从 1 递增渲染）。 JNI 查询在 IO 线程执行；
+     * 写入时校验集合未变，避免覆盖更新的列表。
      */
     fun refreshSessionMetas(force: Boolean = false) {
         if (!force && SystemClock.uptimeMillis() - lastMetaRefreshMs < SESSION_META_REFRESH_THROTTLE_MS) return
@@ -1231,13 +1213,9 @@ constructor(
         val ids = _state.value.sessions.map { it.id }.sorted()
         if (ids.isEmpty()) return
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            val homeDirectory = context.filesDir.parentFile?.resolve("files/home")?.absolutePath.orEmpty()
             val fresh = ids.map { id ->
-                val directory = runCatchingCancellable { NativeBridge.getCurrentDirectory(id) }.getOrNull()
-                SessionInfo(
-                    id = id,
-                    directory = directory?.let { abbreviateDirectory(it, homeDirectory) }.orEmpty(),
-                )
+                val title = runCatchingCancellable { NativeBridge.getTitle(id) }.getOrNull()
+                SessionInfo(id = id, title = title.orEmpty())
             }
             withContext(TerminalDispatchers.main) {
                 _state.update { current ->

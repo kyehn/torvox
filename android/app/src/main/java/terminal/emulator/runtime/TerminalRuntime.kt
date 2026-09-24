@@ -840,7 +840,7 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Write the mksh rc file with a termux-parity prompt and OSC 7 directory reporting (self-healing).
+     * Write the mksh rc file with a termux-parity prompt (self-healing).
      *
      * root cause: with no rc file, interactive mksh falls back to the AOSP `/system/etc/mkshrc`
      * prompt `:/data/.../home $ ` — 38 columns wide. Any typed command longer than the remaining ~10
@@ -848,10 +848,6 @@ constructor(
      * backspace run), which renders as the garbled echo users reported ("cho …" fragments and a stray
      * `<` at the right edge). Real Termux avoids this entirely with the short `PS1='$ '` prompt —
      * same parity rule as every other termux-behavior fix in this round.
-     *
-     * OSC 7 工作目录上报(DESIGN 侧边面板节)经 `cd` 包装与源时发射:`command cd` 防函数递归,
-     * `&&` 守卫使失败的 `cd` 不发射(均设备实测)。禁止把发射内嵌 PS1:实测 mksh 将 PS1 中
-     * 不可见 OSC 字节计入提示符显示宽度(40 列下第 9 个输入字符即触发横滚重绘,同一花屏根因)。
      *
      * The file lives in the application data directory (`DESIGN.md` Shell 节：
      * `ENV` 为 `/data/data/com.termux/.mkshrc`，在 `files/` 用户数据树之外）而非 `$HOME`。
@@ -865,7 +861,8 @@ constructor(
      */
     private fun ensureMkshPromptRc() {
         val mkshRcFile = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
-        val contentMarker = "report_directory() {"
+        // 新内容独有前缀：含 OSC 7 发射的旧 rc 不匹配，覆盖自愈。
+        val contentMarker = "# terminal: termux-parity prompt (see"
         if (mkshRcFile.isFile) {
             try {
                 if (mkshRcFile.readText().contains(contentMarker)) return
@@ -876,12 +873,9 @@ constructor(
         try {
             mkshRcFile.parentFile?.mkdirs()
             mkshRcFile.writeText(
-                "# terminal: termux-parity prompt + OSC 7 directory (see TerminalRuntime.ensureMkshPromptRc)\n" +
+                "# terminal: termux-parity prompt (see TerminalRuntime.ensureMkshPromptRc)\n" +
                     ". /system/etc/mkshrc\n" +
-                    "PS1='\$ '\n" +
-                    "report_directory() { printf '\\033]7;file://%s\\007' \"\$PWD\"; }\n" +
-                    "cd() { command cd \"\$@\" && report_directory; }\n" +
-                    "report_directory\n",
+                    "PS1='\$ '\n",
             )
         } catch (exception: Exception) {
             LogUtil.w("Runtime", "Failed to write $MKSHRC_FILENAME: $exception")
