@@ -231,6 +231,19 @@ object NativeBridge {
     @JvmStatic
     external fun selectionText(sessionId: Long, startRow: Int, startCol: Int, endRow: Int, endCol: Int): String?
 
+    /**
+     * 上游 select_word：派生并安装落点词选区，回传有序界限
+     * `[startRow, startCol, endRow, endCol]`（绝对网格坐标，0 = 回滚顶部）；落点无可选词或查询失败返回
+     * null。
+     */
+    @JvmStatic external fun selectWordAt(sessionId: Long, row: Int, col: Int): IntArray?
+
+    /** 上游 select_line：整行派生并安装（语义提示边界关），回传与失败语义同 [selectWordAt]。 */
+    @JvmStatic external fun selectLineAt(sessionId: Long, row: Int, col: Int): IntArray?
+
+    /** 上游 select_all：全部内容派生并安装（界限不含尾部空行/空列），回传与失败语义同 [selectWordAt]。 */
+    @JvmStatic external fun selectAll(sessionId: Long): IntArray?
+
     /** OSC 8 hyperlink URI at a grid cell (row 0 = top of scrollback), or null. */
     @JvmStatic external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
 
