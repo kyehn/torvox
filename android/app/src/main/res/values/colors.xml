@@ -4,4 +4,8 @@
          terminal panel color so the menu reads as a neutral system toolbar
          instead of the system dynamic accent banner. -->
     <color name="action_mode_background">#21222C</color>
+    <!-- Material 3 dark baseline 表面色/表面前景色：选择菜单等系统窗口按主题
+         取色（spec：菜单样式 MUST 使用 Material 3 主题属性，MUST NOT 硬编码颜色）。 -->
+    <color name="material_color_surface">#1C1B1F</color>
+    <color name="material_color_on_surface">#E6E1E5</color>
 </resources>
