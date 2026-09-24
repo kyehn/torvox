@@ -103,7 +103,7 @@ fun SessionDrawer(
                 val sessionNumber = stringResource(R.string.session_number, index + 1)
                 SessionItem(
                     title = sessionNumber,
-                    subtitle = session.directory,
+                    subtitle = session.title,
                     isActive = session.id == activeSessionId,
                     onClick = {
                         onSwitchSession(session.id)
