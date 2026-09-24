@@ -393,7 +393,7 @@ fun TerminalScreen(
             LaunchedEffect(drawerState.isOpen) {
                 surfaceRef.value?.drawerOpen = drawerState.isOpen
                 if (drawerState.isOpen) {
-                    // cd 不产生状态事件，抽屉打开即强制刷新目录，否则显示过时路径。
+                    // 后台会话标题变化不产生状态事件，抽屉打开即强制刷新，否则显示过时标题。
                     viewModel.refreshSessionMetas(force = true)
                 }
             }

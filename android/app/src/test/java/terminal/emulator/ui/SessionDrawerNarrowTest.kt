@@ -78,7 +78,7 @@ class SessionDrawerNarrowTest {
                         listOf(
                             SessionInfo(
                                 id = 1L,
-                                directory = "/data/data/com.termux/files/home",
+                                title = "VT_TITLE",
                             ),
                         ),
                         activeSessionId = 1L,
