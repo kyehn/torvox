@@ -47,7 +47,6 @@ impl super::GhosttyTerminal {
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
         let (cell_data_tx, cell_data_rx) =
             flume::bounded::<(Vec<CellData>, CursorInfo)>(CELL_DATA_CHANNEL_CAPACITY);
-        let (cwd_tx, cwd_rx) = bounded::<String>(EVENT_CHANNEL_CAPACITY);
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
         let (bell_tx, bell_rx) = bounded::<()>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
@@ -80,7 +79,6 @@ impl super::GhosttyTerminal {
                         alt_screen_active: alt_screen_active_for_run,
                         cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
-                        cwd_tx,
                         clipboard_tx,
                         bell_tx,
                     })
@@ -103,7 +101,6 @@ impl super::GhosttyTerminal {
             cmd_tx,
             query_tx,
             cell_data_rx: Some(cell_data_rx),
-            cwd_rx,
             clipboard_rx,
             bell_rx,
             handle: Some(handle),
@@ -126,12 +123,6 @@ impl super::GhosttyTerminal {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *guard)
-    }
-
-    /// 取出 VT 线程经上游 OSC 7 回调（on_pwd_changed）上报的工作目录（不阻塞，无事件为 None）。
-    /// 上游同时解析 OSC 7/9/1337：OSC 7、OSC 9 ConEmu CurrentDir（`9;9;`）、OSC 1337 CurrentDir 均触发。
-    pub fn poll_cwd_event(&self) -> Option<String> {
-        self.cwd_rx.try_recv().ok()
     }
 
     /// 取出 VT 线程经上游 OSC 52 回调（on_clipboard_write）上报的剪贴板写入
@@ -496,10 +487,6 @@ impl super::GhosttyTerminal {
             latest = next;
         }
         Some(latest)
-    }
-
-    pub fn cwd(&self) -> String {
-        self.query(Query::Cwd, String::new(), "cwd")
     }
 
     pub fn key_encode(

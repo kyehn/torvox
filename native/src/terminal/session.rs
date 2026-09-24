@@ -173,8 +173,6 @@ pub struct Session {
     /// to the host app and writes the answer back via
     /// [`Session::answer_clipboard_read`].
     clipboard_read: Arc<Mutex<Option<String>>>,
-    /// Shell 上报的工作目录（OSC 7），未上报过为 `None`。
-    current_directory: Mutex<Option<String>>,
 
     // ── Thread lifecycle ─────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
@@ -451,7 +449,6 @@ impl Session {
             clipboard_text,
             clipboard_read,
             bell_pending: Mutex::new(false),
-            current_directory: Mutex::new(None),
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(None)),
@@ -659,12 +656,9 @@ impl Session {
         self.output_processor.take_new_output()
     }
 
-    /// 收割 VT 线程经上游回调上报的事件（cwd/剪贴板写入/BEL 振铃）到锁存槽。
+    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入/BEL 振铃）到锁存槽。
     /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
     fn drain_callback_events(&self) {
-        while let Some(path) = self.terminal.poll_cwd_event() {
-            *self.current_directory.lock() = Some(path);
-        }
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             *self.clipboard_text.lock() = Some(text);
         }
@@ -756,11 +750,6 @@ impl Session {
     /// Get the current window title set by the shell.
     pub fn title(&self) -> String {
         self.terminal.title()
-    }
-
-    /// Shell 上报的工作目录（OSC 7），未上报过为 `None`。
-    pub fn current_directory(&self) -> Option<String> {
-        self.current_directory.lock().clone()
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
