@@ -24,9 +24,8 @@ pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
     pub(crate) query_tx: Sender<Query>,
     pub(crate) cell_data_rx: Option<flume::Receiver<(Vec<CellData>, CursorInfo)>>,
-    /// 上游 OSC 回调事件接收端（VT 线程经 on_pwd_changed / on_clipboard_write 推送）。
+    /// 上游 OSC 52 回调事件接收端（VT 线程经 on_clipboard_write 推送）。
     /// session 在 flush 后收割到锁存槽；BDD 直接轮询断言。
-    pub(crate) cwd_rx: flume::Receiver<String>,
     pub(crate) clipboard_rx: flume::Receiver<(String, String)>,
     /// 上游 BEL 回调事件接收端（VT 线程经 on_bell 推送，每次振铃一个空消息）。
     pub(crate) bell_rx: flume::Receiver<()>,

@@ -1,5 +1,5 @@
-//! OSC 7/8/52 步骤：经 GhosttyTerminal 真实链路断言，不再直驱解析器。
-//! OSC 7/52 写入直达上游（回调推送事件）；OSC 52 读取请求上游忽略，
+//! OSC 8/52 步骤：经 GhosttyTerminal 真实链路断言，不再直驱解析器。
+//! OSC 52 写入直达上游（回调推送事件）；OSC 52 读取请求上游忽略，
 //! 由 OutputProcessor 的最小扫描器拦截；超链接按单元格查询断言。
 
 use cucumber::{then, when};
@@ -10,11 +10,6 @@ use super::{TerminalWorld, unescape};
 
 fn terminal(world: &mut TerminalWorld) -> &mut GhosttyTerminal {
     world.terminal.expect_terminal()
-}
-
-#[then(expr = "工作目录为 {string}")]
-pub async fn expect_cwd(world: &mut TerminalWorld, expected: String) {
-    assert_eq!(terminal(world).cwd(), expected, "工作目录不符");
 }
 
 #[then(expr = "剪贴板事件文本为 {string}")]

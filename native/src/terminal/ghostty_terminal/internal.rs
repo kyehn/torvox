@@ -146,13 +146,6 @@ impl super::GhosttyTerminal {
                     "query channel send failed",
                 );
             }
-            Query::Cwd(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.pwd().map(|p| p.to_string()).unwrap_or_default())
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
-            }
             Query::ModeGet(num, kind, tx) => {
                 let mode_kind = match kind {
                     0 => ModeKind::Dec,
@@ -467,20 +460,10 @@ impl super::GhosttyTerminal {
         }) {
             log::error!("ghostty_terminal: on_pty_write callback registration failed: {error}");
         }
-        // OSC 7 工作目录与 OSC 52 剪贴板写入改走上游回调：序列直达 Ghostty，
-        // 事件经通道推送、由调用方在 flush 后收割。本仓不再自建 OSC 解析器。
-        // try_send 永不阻塞 VT 线程；OSC 52 读取请求（`?`）上游明确忽略，
-        // 仍由 OutputProcessor 的最小扫描器拦截（FR-036）。
-        if let Err(error) = terminal.on_pwd_changed({
-            let cwd_tx = config.cwd_tx.clone();
-            move |terminal| {
-                if let Ok(pwd) = terminal.pwd() {
-                    let _ = cwd_tx.try_send(pwd.to_string());
-                }
-            }
-        }) {
-            log::error!("ghostty_terminal: on_pwd_changed callback registration failed: {error}");
-        }
+        // OSC 52 剪贴板写入改走上游回调：序列直达 Ghostty，事件经通道推送、
+        // 由调用方在 flush 后收割。本仓不再自建 OSC 解析器；try_send 永不阻塞
+        // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
+        // 的最小扫描器拦截（FR-036）。
         if let Err(error) = terminal.on_clipboard_write({
             let clipboard_tx = config.clipboard_tx.clone();
             move |_terminal, write| {
