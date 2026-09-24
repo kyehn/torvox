@@ -8,7 +8,7 @@
 
 ## 任务
 
-1. [ ] 仪器测试先红：View 派发 `DOWN`+`CANCEL` 断言 `Key_CTRL` 不触发；`DOWN`+`UP` 对照断言触发。
-2. [ ] 三分支识别取消并吞掉（含长按副动作）。
-3. [ ] 验证：`ModifierBarTest` 全绿、spotless/detekt/单元测试、release APK 设备矩阵（注入取消不触发、点按触发、真实上滑过键栏不触发、底部边缘上滑回桌面正常）。
+1. [x] 仪器测试先红：View 派发 `DOWN`+`CANCEL` 断言 `Key_CTRL` 不触发；`DOWN`+`UP` 对照断言触发。
+2. [x] 三分支识别取消并吞掉（含长按副动作）。
+3. [x] 验证：`ModifierBarTest` 全绿、spotless/detekt/单元测试、release APK 设备矩阵（注入取消不触发、点按触发、真实上滑过键栏不触发、底部边缘上滑回桌面正常）。
 4. [ ] `openspec validate`、提交推送，验证后同步 `openspec/specs` 并归档变更。
