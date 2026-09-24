@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Material 3 表面/表面前景主题属性（属性名与 M3 对齐）：本应用不带
+         material Views 库，属性在应用侧声明，值取 M3 dark baseline 色板；
+         选择菜单等按主题取色，禁止字面颜色值。 -->
+    <attr name="colorSurface" format="color" />
+    <attr name="colorOnSurface" format="color" />
         <style name="Theme.Terminal" parent="@android:style/Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">#1E1E2E</item>
         <item name="android:statusBarColor">#1E1E2E</item>
@@ -10,6 +15,8 @@
              toolbar with neutral colors, not an accent-colored banner. -->
         <item name="android:actionModeBackground">@color/action_mode_background</item>
         <item name="android:actionModeCloseDrawable">@android:drawable/ic_menu_close_clear_cancel</item>
+        <item name="colorSurface">@color/material_color_surface</item>
+        <item name="colorOnSurface">@color/material_color_on_surface</item>
     </style>
     <!-- 系统启动屏：冷启动首帧前显示主题背景而非黑闪，
          MainActivity.onCreate 内 installSplashScreen 切回本主题。 -->

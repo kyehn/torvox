@@ -21,7 +21,7 @@
 - [x] 4.2 边缘滚动改每次触点移动 1 行（删 30ms 循环）；`SelectionDragQuantifiedTest` 调整后通过
 - [x] 4.3 OSC 8 打开链接回退 `resolveOpenLinkUri` + 单测；`SelectionMenuActionsTest` 通过
 - [x] 4.4 打开文件删位置限制（点击时存在检查与写权限保留）；相关单测通过
-- [ ] 4.5 菜单样式改 Material 3 主题属性；`spotlessCheck`+`detekt` 通过
+- [x] 4.5 菜单样式改 Material 3 主题属性；`spotlessCheck`+`detekt` 通过
 
 ## 5. 总验证与归档
 
