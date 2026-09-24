@@ -138,7 +138,6 @@
     <string name="clear_app_data_done">应用数据已清除。请重新启动应用以完成完全重置。</string>
     <string name="compose_key">Compose 键</string>
     <string name="control_toggle">Ctrl 切换</string>
-    <string name="dismiss_selection">取消选择</string>
     <string name="end_key">End</string>
     <string name="escape">Esc</string>
     <string name="font_applied">字体已应用：%1$s</string>

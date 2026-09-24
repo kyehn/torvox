@@ -4,7 +4,6 @@
 package terminal.emulator.ui
 
 import android.annotation.SuppressLint
-import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -61,7 +60,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import terminal.emulator.R
-import terminal.emulator.SelectionAnchor
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.ModifierState
@@ -777,8 +775,6 @@ fun TerminalScreen(
                     // separate system windows that render above it.
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
-                        // 选择菜单走 Surface 侧 PopupWindow（showSelectionMenu+menuAnchor 定位）；定位参考算法
-                        // （computeMenuPosition/TerminalScreenMenuTest）仅测试行使，不参与生产定位。
                         val menuVisible = !selection.menuDismissed
                         if (menuVisible) {
                             val themeAccentArgb =
@@ -952,13 +948,6 @@ fun TerminalScreen(
                         modifier = Modifier.testTag("TextSearchBar"),
                     )
                 } else {
-                    // Keep the ModifierBar in Normal mode during selection:
-                    // the floating selection context menu (near the selection,
-                    // never covering it, rendered as a PopupWindow) already
-                    // offers Copy/Select All/Paste. Switching the whole bar
-                    // to SelectionActions rendered a SECOND, redundant menu
-                    // at the bottom.
-                    val barMode = terminal.emulator.ui.ModifierBarMode.Normal
                     val clipboardManager =
                         context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                             as? android.content.ClipboardManager
@@ -1025,43 +1014,10 @@ fun TerminalScreen(
                         backgroundColor = resolvedTerminalTheme.background,
                         useNerdFontGlyphs = useNerdFontGlyphs,
                         toolbarLayout = rememberToolbarLayout(),
-                        barMode = barMode,
                         isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
-                        onCopy =
-                        if (selectionActive) {
-                            {
-                                viewModel.copySelectionToClipboard()
-                                viewModel.clearSelection()
-                            }
-                        } else {
-                            null
-                        },
-                        copyEnabled = selectionActive,
-                        onSelectAll =
-                        if (selectionActive) {
-                            { viewModel.selectAll() }
-                        } else {
-                            null
-                        },
-                        // During text selection the floating context menu
-                        // PASTE is never shown in the bottom ModifierBar — it
-                        // belongs only to the selection menu (long-press blank) or
-                        // the dedicated PasteBar above the keys. Showing it near
-                        // the aux keys when not long-pressing was the reported
-                        // "PASTE始终出现" confusion. Gates to null here.
+                        // 不在此接线粘贴：粘贴只经浮动选择菜单（长按空白）出现，
+                        // 常驻修饰键栏会重现“PASTE始终出现”困扰。
                         onPaste = null,
-                        onShare =
-                        if (selectionActive) {
-                            { viewModel.shareSelection() }
-                        } else {
-                            null
-                        },
-                        onDismiss =
-                        if (selectionActive) {
-                            { viewModel.clearSelection() }
-                        } else {
-                            null
-                        },
                     )
                 }
             }
@@ -1100,104 +1056,4 @@ internal fun computeTerminalPanPx(
     val cursorBottomPx = (cursorRow + 1) * cellHeightPx
     val visibleContentPx = boxHeightPx - imePx - barPx
     return (cursorBottomPx - visibleContentPx).toInt().coerceIn(0, imePx)
-}
-
-@VisibleForTesting
-internal data class MenuPosition(
-    val menuX: Float,
-    val menuY: Float,
-    val menuW: Float,
-    val menuH: Float,
-    val selLeft: Float,
-    val selTop: Float,
-    val selRight: Float,
-    val selBottom: Float,
-    val flipAbove: Boolean,
-    val coversSelection: Boolean,
-)
-
-@VisibleForTesting
-internal fun computeMenuPosition(
-    start: SelectionAnchor,
-    end: SelectionAnchor,
-    cellWidth: Float,
-    cellHeight: Float,
-    scrollOffset: Int,
-    screenWidthPx: Float,
-    screenHeightPx: Float,
-    handleWidthPx: Float,
-    pasteOnly: Boolean = false,
-): MenuPosition {
-    val loCol = min(start.col, end.col)
-    val hiCol = max(start.col, end.col)
-    val visibleLoRow = (min(start.row, end.row) - scrollOffset).coerceAtLeast(0)
-    val visibleHiRow = (max(start.row, end.row) - scrollOffset).coerceAtLeast(0)
-
-    val selLeft = loCol * cellWidth
-    val selRight = (hiCol + 1) * cellWidth
-    val selTop = visibleLoRow * cellHeight
-    val selBottom = (visibleHiRow + 1) * cellHeight
-    val selRect = RectF(selLeft, selTop, selRight, selBottom)
-
-    val menuW =
-        // adapt to narrow screens — a fixed 260px menu occupies
-        // more than half of a 480px (360dp) display. Three buttons
-        // (Copy/Select All/Paste) at ~76px each plus padding fit in 240px;
-        // clamp to the screen so the clamp math below never goes negative.
-        260f.coerceAtMost((screenWidthPx - 16f).coerceAtLeast(120f))
-    val menuH = 48f
-    val selMidX = (selLeft + selRight) / 2f
-    var menuX = (selMidX - menuW / 2f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
-    // Place the menu BELOW the drag handles (which sit at the bottom edge
-    // of the selection, ~handleWidthPx tall): a menu at selBottom+8 was
-    // covered by the start-handle PopupWindow, so taps on Copy/Select All
-    // dragged the handle instead. Paste-only popups have no
-    // handles, so they hug the selection directly.
-    var menuY = selBottom + 8f + if (pasteOnly) 0f else handleWidthPx
-    val flipAbove = menuY + menuH > screenHeightPx && (selTop - menuH - 8f) >= 0f
-    if (flipAbove) menuY = selTop - menuH - 8f
-    menuY = menuY.coerceIn(0f, (screenHeightPx - menuH).coerceAtLeast(0f))
-
-    var menuRect = RectF(menuX, menuY, menuX + menuW, menuY + menuH)
-    var coversSelection = RectF.intersects(selRect, menuRect)
-    if (coversSelection) {
-        // Try right of selection
-        val rightX = (selRight + 8f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
-        val rightRect = RectF(rightX, menuY, rightX + menuW, menuY + menuH)
-        if (!RectF.intersects(selRect, rightRect)) {
-            menuX = rightX
-            menuRect = rightRect
-            coversSelection = false
-        } else {
-            // Try left of selection
-            val leftX = (selLeft - menuW - 8f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
-            val leftRect = RectF(leftX, menuY, leftX + menuW, menuY + menuH)
-            if (!RectF.intersects(selRect, leftRect)) {
-                menuX = leftX
-                menuRect = leftRect
-                coversSelection = false
-            } else {
-                // Try below selection (even if off-screen, coerce to bottom)
-                val belowY = (screenHeightPx - menuH - 8f).coerceAtLeast(0f)
-                if (belowY >= selBottom + handleWidthPx + 8f) {
-                    menuY = belowY
-                    menuRect = RectF(menuX, menuY, menuX + menuW, menuY + menuH)
-                    coversSelection = RectF.intersects(selRect, menuRect)
-                }
-                // If still overlapping, accept (menu is small relative to huge selection)
-            }
-        }
-    }
-    return MenuPosition(
-        menuX,
-        menuY,
-        menuW,
-        menuH,
-        selLeft,
-        selTop,
-        selRight,
-        selBottom,
-        flipAbove,
-        coversSelection,
-    )
 }
