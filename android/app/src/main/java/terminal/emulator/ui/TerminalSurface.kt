@@ -217,11 +217,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         showSelectionMenuForCurrentSelection()
                     },
             )
-            if (isLinkTextCandidate(selectionText) || isOpenableLink(selectionText)) {
+            // 打开链接项：文本呈 URL 形态，或选区起点带 OSC 8 超链接——显示判定与
+            // 动作解析共用同一输入（design 决策 8），绝不出现“项显示却无目标”。
+            val selectionStart = viewModel?.state?.value?.selection?.start
+            val selectionHyperlinkUri =
+                selectionStart
+                    ?.let { viewModel?.runtime?.bridge()?.hyperlinkAt(it.row, it.col) }
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            if (isLinkTextCandidate(selectionText) || selectionHyperlinkUri != null) {
                 add(
                     context.getString(R.string.open_link) to
                         {
-                            openSelectionAsLink(selectionText)
+                            openSelectionAsLink(selectionText, selectionHyperlinkUri)
                             viewModel?.clearSelection()
                         },
                 )
@@ -238,14 +246,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    internal fun isOpenableLink(text: String): Boolean {
-        if (isLinkTextCandidate(text)) return true
-        val selection = viewModel?.state?.value?.selection ?: return false
-        val start = selection.start ?: return false
-        val bridge = viewModel?.runtime?.bridge() ?: return false
-        return bridge.hyperlinkAt(start.row, start.col) != null
-    }
-
     internal fun isUnderFileProviderRoots(path: String): Boolean {
         if (path.isEmpty()) return false
         return try {
@@ -260,11 +260,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    internal fun openSelectionAsLink(text: String) {
-        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-        if (trimmed.isEmpty()) return
+    /**
+     * 菜单“打开链接”动作：目标由 [resolveOpenLinkUri] 解析（选择文本 URL 形态优先、
+     * 否则回退选区起点的 OSC 8 链接），http(s) 白名单后交系统打开；无目标静默返回。
+     */
+    internal fun openSelectionAsLink(text: String, hyperlinkUri: String?) {
+        val target = resolveOpenLinkUri(text, hyperlinkUri) ?: return
         val uri = try {
-            trimmed.toUri()
+            target.toUri()
         } catch (_: IllegalArgumentException) {
             return
         }
@@ -3249,6 +3252,18 @@ internal fun isLinkTextCandidate(text: String, maxLength: Int = MAX_SELECTION_AC
     val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false
     return terminal.emulator.util.UrlToken.looksLikeFullUrl(trimmed)
+}
+
+/**
+ * 菜单“打开链接”目标解析（纯函数，design 决策 8）：选择文本呈 URL 形态优先
+ * （与显示判定同一阈值），否则回退到 OSC 8 超链接 URI（选区起点 hyperlinkAt 的
+ * 归一化结果）；两者皆无返回 null。显示侧 `isLinkTextCandidate(text) ||
+ * hyperlinkUri != null` 与本函数的非空性一一对应，动作与显示绝不分叉。
+ */
+internal fun resolveOpenLinkUri(text: String, hyperlinkUri: String?): String? {
+    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+    if (isLinkTextCandidate(trimmed)) return trimmed
+    return hyperlinkUri?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 /** 菜单显示用文件格式匹配（纯逻辑：绝对路径形态，不查存在性）。 */
