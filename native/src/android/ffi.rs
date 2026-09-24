@@ -67,8 +67,7 @@ use jni::objects::JObject;
 use jni::objects::{JClass, JString};
 use jni::strings::JNIString;
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize,
-    jstring,
+    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize, jstring,
 };
 use jni::{Env, EnvUnowned, jni_str};
 

@@ -5,8 +5,10 @@ use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
+use libghostty_vt::screen::GridRef;
+use libghostty_vt::selection::{Order, SelectLineOptions, SelectWordOptions, Selection};
 use libghostty_vt::style::PaletteIndex;
-use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
+use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate, PointSpace};
 
 use super::commands::{Command, Query, RunConfig};
 use super::keymap::map_android_key_code;
@@ -102,6 +104,9 @@ impl super::GhosttyTerminal {
         event: &mut Option<key::Event>,
         mouse_encoder: &mut Option<mouse::Encoder>,
         mouse_event: &mut Option<mouse::Event>,
+        // 上游 select_* 查询会在查询路径内安装选区；成功安装时置 true，
+        // 由 run 循环按 Command::SetSelection 同款规则失效行缓存并重推帧。
+        selection_installed: &mut bool,
     ) {
         match query {
             Query::Rows(tx) => {
@@ -201,6 +206,21 @@ impl super::GhosttyTerminal {
                 // indices internally so CJK wide glyphs are never split.
                 let text = Self::selection_text_impl(terminal, start, end);
                 try_send(&tx, text, "selection text response send failed");
+            }
+            Query::SelectWordAt { row, col, tx } => {
+                let bounds = Self::select_word_at_impl(terminal, row, col);
+                *selection_installed = bounds.is_some();
+                try_send(&tx, bounds, "select word response send failed");
+            }
+            Query::SelectLineAt { row, col, tx } => {
+                let bounds = Self::select_line_at_impl(terminal, row, col);
+                *selection_installed = bounds.is_some();
+                try_send(&tx, bounds, "select line response send failed");
+            }
+            Query::SelectAll { tx } => {
+                let bounds = Self::select_all_impl(terminal);
+                *selection_installed = bounds.is_some();
+                try_send(&tx, bounds, "select all response send failed");
             }
             Query::HyperlinkAt { row, col, tx } => {
                 let url = Self::hyperlink_at_impl(terminal, row, col);
@@ -623,6 +643,7 @@ impl super::GhosttyTerminal {
                     // No bounded commands pending — drain query channel so
                     // queries sent between commands don't wait indefinitely.
                     while let Ok(query) = query_receiver.try_recv() {
+                        let mut selection_installed = false;
                         Self::process_query(
                             query,
                             &mut terminal,
@@ -631,7 +652,15 @@ impl super::GhosttyTerminal {
                             &mut event,
                             &mut mouse_encoder,
                             &mut mouse_event,
+                            &mut selection_installed,
                         );
+                        if selection_installed {
+                            // 查询内安装与 Command::SetSelection 同款失效：
+                            // 反白改变每行内容，行缓存必须重建且帧必须重推。
+                            row_cache.clear();
+                            last_cell_data_push = None;
+                            grid_dirty = true;
+                        }
                     }
                     // ── Auto-push CellData (also sent on each state change below) ──
                     Self::refresh_cell_data(
@@ -842,6 +871,7 @@ impl super::GhosttyTerminal {
             // After processing the batch, drain any pending queries so they
             // see the fully-updated terminal state.
             while let Ok(query) = query_receiver.try_recv() {
+                let mut selection_installed = false;
                 Self::process_query(
                     query,
                     &mut terminal,
@@ -850,7 +880,15 @@ impl super::GhosttyTerminal {
                     &mut event,
                     &mut mouse_encoder,
                     &mut mouse_event,
+                    &mut selection_installed,
                 );
+                if selection_installed {
+                    // 同上：查询内安装的选区需要重建行缓存并纳入本批重推。
+                    row_cache.clear();
+                    last_cell_data_push = None;
+                    grid_dirty = true;
+                    batch_dirty = true;
+                }
             }
             // ONE cell-data build for the whole batch — every state mutation
             // above has completed, so this reflects the final backlog state.
@@ -1892,42 +1930,9 @@ impl super::GhosttyTerminal {
         start: (u32, u32),
         end: (u32, u32),
     ) -> String {
-        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let start_col = (start.1).min(cols - 1);
-        let end_col = (end.1).min(cols - 1);
-        // Grid rows are absolute (0 = top of history; viewport starts at
-        // scrollback_rows). Ghostty's Point::History expects y in history
-        // space and Point::Viewport expects viewport-local y; resolve which
-        // space each endpoint lives in, mirroring read_line_text_impl.
-        let start_point = {
-            let y = start.0;
-            if y < scrollback_rows {
-                Point::History(PointCoordinate {
-                    x: start_col as u16,
-                    y,
-                })
-            } else {
-                Point::Viewport(PointCoordinate {
-                    x: start_col as u16,
-                    y: y - scrollback_rows,
-                })
-            }
-        };
-        let end_point = {
-            let y = end.0;
-            if y < scrollback_rows {
-                Point::History(PointCoordinate {
-                    x: end_col as u16,
-                    y,
-                })
-            } else {
-                Point::Viewport(PointCoordinate {
-                    x: end_col as u16,
-                    y: y - scrollback_rows,
-                })
-            }
-        };
+        // 绝对网格行（0 = 回滚顶部）→ Point 的空间解析统一见 absolute_point。
+        let start_point = Self::absolute_point(terminal, start.0, start.1);
+        let end_point = Self::absolute_point(terminal, end.0, end.1);
         let (Ok(start_gref), Ok(end_gref)) =
             (terminal.grid_ref(start_point), terminal.grid_ref(end_point))
         else {
@@ -1957,30 +1962,104 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 绝对网格行（0 = 回滚顶部）→ Point：唯一前向映射规则（回滚内为
+    /// History、其余为 Viewport，列钳制到网格宽度），供 selection_text_impl、
+    /// install_selection_impl 与上游选择派生共用。
+    fn absolute_point(terminal: &Terminal, row: u32, col: u32) -> Point {
+        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let clamped_col = col.min(cols - 1) as u16;
+        if row < scrollback_rows {
+            Point::History(PointCoordinate {
+                x: clamped_col,
+                y: row,
+            })
+        } else {
+            Point::Viewport(PointCoordinate {
+                x: clamped_col,
+                y: row - scrollback_rows,
+            })
+        }
+    }
+
+    /// gref → 绝对网格坐标：absolute_point 的逆——回滚单元按 History 空间
+    /// 回读（y 即绝对行），其余按 Viewport 空间回读并加回滚偏移；两个空间
+    /// 均无法表达该格时返回 None。
+    fn absolute_coordinate(terminal: &Terminal, grid_ref: &GridRef) -> Option<(u32, u32)> {
+        if let Ok(Some(coordinate)) = terminal.point_from_grid_ref(grid_ref, PointSpace::History) {
+            return Some((coordinate.y, u32::from(coordinate.x)));
+        }
+        let Ok(Some(coordinate)) = terminal.point_from_grid_ref(grid_ref, PointSpace::Viewport)
+        else {
+            return None;
+        };
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        Some((coordinate.y + scrollback_rows, u32::from(coordinate.x)))
+    }
+
+    /// 上游派生选区的公共收尾（design 决策 1 的顺序）：to_ordered(Forward)
+    /// 取序 → gref 反解为绝对坐标 → set_selection 安装 → 回传界限。
+    /// 反解或安装失败时返回 None，绝不回传未安装到终端的界限。
+    fn installed_bounds(
+        terminal: &Terminal,
+        selection: Selection<'_>,
+    ) -> Option<((u32, u32), (u32, u32))> {
+        let ordered = selection.to_ordered(terminal, Order::Forward).ok()?;
+        let start = Self::absolute_coordinate(terminal, &ordered.start())?;
+        let end = Self::absolute_coordinate(terminal, &ordered.end())?;
+        if terminal.set_selection(Some(&ordered)).is_err() {
+            log::warn!("ghostty_terminal: install derived selection failed");
+            return None;
+        }
+        Some((start, end))
+    }
+
+    /// 上游词选语义（`Terminal::select_word`，Ghostty 默认词边界码位）：
+    /// 派生该格所属词的选区、安装并回传有序绝对界限。
+    pub(crate) fn select_word_at_impl(
+        terminal: &Terminal,
+        row: u32,
+        col: u32,
+    ) -> Option<((u32, u32), (u32, u32))> {
+        let grid_ref = terminal
+            .grid_ref(Self::absolute_point(terminal, row, col))
+            .ok()?;
+        let selection = terminal
+            .select_word(SelectWordOptions::new(grid_ref))
+            .ok()??;
+        Self::installed_bounds(terminal, selection)
+    }
+
+    /// 上游行选语义（`Terminal::select_line`，默认不按语义提示截断）：
+    /// 派生该格所在行的选区、安装并回传有序绝对界限。
+    pub(crate) fn select_line_at_impl(
+        terminal: &Terminal,
+        row: u32,
+        col: u32,
+    ) -> Option<((u32, u32), (u32, u32))> {
+        let grid_ref = terminal
+            .grid_ref(Self::absolute_point(terminal, row, col))
+            .ok()?;
+        let selection = terminal
+            .select_line(SelectLineOptions::new(grid_ref))
+            .ok()??;
+        Self::installed_bounds(terminal, selection)
+    }
+
+    /// 上游全选语义（`Terminal::select_all`，“all selectable terminal
+    /// content”）：界限不含尾部空行/空列（design 决策 2，由 cargo 测试钉住）。
+    pub(crate) fn select_all_impl(terminal: &Terminal) -> Option<((u32, u32), (u32, u32))> {
+        let selection = terminal.select_all().ok()??;
+        Self::installed_bounds(terminal, selection)
+    }
+
     /// 将视图坐标的选区安装为终端持有的活动选区（跟踪引用）。
     /// 与 selection_text_impl 同一坐标系：绝对网格行（0 = 回滚顶部）。
     /// 无效端点时静默忽略（调用方已标记脏并重推，保持帧一致）。
-    pub(crate) fn install_selection_impl(
-        terminal: &Terminal,
-        start: (u32, u32),
-        end: (u32, u32),
-    ) {
-        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let resolve = |row: u32, col: u32| {
-            let clamped = col.min(cols - 1) as u16;
-            if row < scrollback_rows {
-                Point::History(PointCoordinate { x: clamped, y: row })
-            } else {
-                Point::Viewport(PointCoordinate {
-                    x: clamped,
-                    y: row - scrollback_rows,
-                })
-            }
-        };
+    pub(crate) fn install_selection_impl(terminal: &Terminal, start: (u32, u32), end: (u32, u32)) {
         let (Ok(start_ref), Ok(end_ref)) = (
-            terminal.grid_ref(resolve(start.0, start.1)),
-            terminal.grid_ref(resolve(end.0, end.1)),
+            terminal.grid_ref(Self::absolute_point(terminal, start.0, start.1)),
+            terminal.grid_ref(Self::absolute_point(terminal, end.0, end.1)),
         ) else {
             return;
         };

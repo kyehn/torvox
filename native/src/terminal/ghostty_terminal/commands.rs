@@ -101,6 +101,30 @@ pub enum Query {
         end: (u32, u32),
         tx: Sender<String>,
     },
+    /// Derive the word selection at an absolute grid cell with upstream
+    /// `Terminal::select_word` (Ghostty word-boundary rules), install it on
+    /// the terminal, and return ordered bounds `(start, end)` (absolute grid
+    /// rows, 0 = top of scrollback). `None` when the cell yields no
+    /// selection.
+    SelectWordAt {
+        row: u32,
+        col: u32,
+        tx: Sender<Option<((u32, u32), (u32, u32))>>,
+    },
+    /// Derive the line selection at an absolute grid cell with upstream
+    /// `Terminal::select_line`, install it, and return ordered bounds.
+    SelectLineAt {
+        row: u32,
+        col: u32,
+        tx: Sender<Option<((u32, u32), (u32, u32))>>,
+    },
+    /// Derive "all selectable terminal content" with upstream
+    /// `Terminal::select_all`, install it, and return ordered bounds
+    /// (upstream semantics: bounds exclude trailing blank rows/columns —
+    /// pinned by cargo tests, see design decision 2).
+    SelectAll {
+        tx: Sender<Option<((u32, u32), (u32, u32))>>,
+    },
     /// Query the OSC 8 hyperlink URI at a grid cell, if any (termux
     /// TerminalView openLinkAt equivalent).
     HyperlinkAt {

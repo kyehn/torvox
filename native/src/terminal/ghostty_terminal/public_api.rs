@@ -653,6 +653,31 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 上游词选（`Terminal::select_word`）：派生该格所属词的选区、安装到
+    /// 终端并回传有序绝对界限 (start, end)（0 = 回滚顶部）；无选区时 None。
+    pub fn select_word_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
+        self.query(
+            |tx| Query::SelectWordAt { row, col, tx },
+            None,
+            "select_word_at",
+        )
+    }
+
+    /// 上游行选（`Terminal::select_line`）：安装契约同 select_word_at。
+    pub fn select_line_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
+        self.query(
+            |tx| Query::SelectLineAt { row, col, tx },
+            None,
+            "select_line_at",
+        )
+    }
+
+    /// 上游全选（`Terminal::select_all`，“all selectable terminal content”）：
+    /// 界限不含尾部空行/空列（design 决策 2，cargo 测试钉住）。
+    pub fn select_all(&self) -> Option<((u32, u32), (u32, u32))> {
+        self.query(|tx| Query::SelectAll { tx }, None, "select_all")
+    }
+
     /// Query the OSC 8 hyperlink URI at a grid cell (row 0 = top of
     /// scrollback, matching scrollbackLine). None when no link.
     pub fn hyperlink_at(&self, row: u32, col: u32) -> Option<String> {
