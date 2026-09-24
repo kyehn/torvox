@@ -39,7 +39,6 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
@@ -101,34 +100,6 @@ data class SelectionState(
         }
         return HandleDragResult(currentStart.row, currentStart.col, targetRow, targetCol)
     }
-
-    /**
-     * arrow-key selection navigation, termlib moveSelection* semantics): move the START anchor by
-     * [deltaRow]/[deltaCol], clamped to the grid so it never crosses the END anchor (the end stays
-     * put as the moving end sweeps up to it). Pure and unit-testable.
-     */
-    fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int, maxRow: Int, maxCol: Int): SelectionState {
-        val currentStart = start ?: return this
-        val currentEnd = end ?: return this
-        if (!active) return this
-        val newRow = (currentStart.row + deltaRow).coerceIn(0, maxRow.coerceAtLeast(0))
-        val newCol = (currentStart.col + deltaCol).coerceIn(0, maxCol.coerceAtLeast(0))
-        val crossedEnd =
-            newRow > currentEnd.row || (newRow == currentEnd.row && newCol > currentEnd.col)
-        val anchor =
-            if (crossedEnd) {
-                // Clamp just before the end anchor so the range never
-                // inverts: same row → col just before END; below END → last
-                // row before it with col just before END's col.
-                currentStart.copy(
-                    row = (currentEnd.row - 1).coerceAtLeast(0),
-                    col = (currentEnd.col - 1).coerceAtLeast(0),
-                )
-            } else {
-                currentStart.copy(row = newRow, col = newCol)
-            }
-        return copy(start = anchor)
-    }
 }
 
 data class HandleDragResult(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
@@ -150,7 +121,6 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
-    val selectionBackground: Int = 0,
     val selectionAccent: Int = 0,
     // Bumped on every programmatic scroll reset (input-driven snap to
     // bottom); TerminalScreen observes it and resyncs the surface's
@@ -284,12 +254,6 @@ constructor(
     fun shareSelection() = selectionManager.shareSelection()
 
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
-
-    // single-column moveSelectionAnchor removed with the ◀/▶
-    // menu items; keyboard/arrow-key anchor movement stays via
-    // [moveSelectionAnchorBy].
-
-    fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) = selectionManager.moveSelectionAnchorBy(deltaRow, deltaCol)
 
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
@@ -594,54 +558,15 @@ constructor(
                     extractSelectedText(selection)
                 }
             if (rawText.isEmpty()) return
-            // Smart processing, Haven smartCopy:357-405) applies
-            // border-strip / wrapped-URL rebuild to the selection text; the
-            // ClipboardAccess.smartCopyProcessor hook stays null here (OSC 52
-            // programmatic writes from the runtime stay verbatim).
-            val text = smartCopySelection(rawText)
             val clipped =
-                if (text.length > CLIPBOARD_TEXT_MAX_LENGTH) {
-                    text.substring(0, CLIPBOARD_TEXT_MAX_LENGTH)
+                if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) {
+                    rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH)
                 } else {
-                    text
+                    rawText
                 }
             clipboardAccess.setClipboardText(clipped, label = "terminal selection")
             // Close the floating menu after the action; keep the highlight.
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-        }
-
-        /**
-         * route the copy through smart processing (TUI border stripping + wrapped-URL rebuild, Haven
-         * smartCopy:357-405). Fetch the selection's rows from the snapshot; on any bridge failure fall
-         * back to the raw text.
-         */
-        private fun smartCopySelection(raw: String): String {
-            val selection = _state.value.selection
-            val start = selection.start ?: return raw
-            val end = selection.end ?: return raw
-            val bitmapSelection =
-                if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
-                    start to end
-                } else {
-                    end to start
-                }
-            val (lo, hi) = bitmapSelection
-            val bridge = runtime.bridge() ?: return raw
-            val lines =
-                (lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)).map { r ->
-                    bridge.scrollbackLine(r) ?: ""
-                }
-            if (lines.isEmpty()) return raw
-            val text =
-                SmartCopy.smartCopyText(
-                    lines = lines,
-                    startRow = 0,
-                    startCol = lo.col.coerceAtLeast(0),
-                    endRow = lines.size - 1,
-                    endCol = hi.col.coerceAtLeast(0),
-                    verbatim = raw,
-                )
-            return text.ifEmpty { raw }
         }
 
         fun clearSelection() {
@@ -691,13 +616,11 @@ constructor(
         fun shareSelection() {
             val rawText = _state.value.selection.selectedText
             if (rawText.isEmpty()) return
-            // share the smart-copied text (border strip / URL rebuild).
-            val text = smartCopySelection(rawText)
             val shareIntent =
                 Intent.createChooser(
                     Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_TEXT, rawText)
                     },
                     null,
                 )
@@ -726,26 +649,6 @@ constructor(
                 )
             val text = extractSelectedText(selectionState)
             _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }
-            syncSelectionToNative()
-        }
-
-        /**
-         * arrow-key selection movement — move the START anchor by [deltaRow]/[deltaCol] (pure
-         * [SelectionState.moveSelectionAnchorBy]), re-extract the selected text and sync to native.
-         * Called from TerminalSurface.onKeyDown while a selection is active.
-         */
-        fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) {
-            val selection = _state.value.selection
-            if (!selection.active || selection.start == null || selection.end == null) return
-            val runtimeState = runtime.state.value
-            val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
-            val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
-            val updated = selection.moveSelectionAnchorBy(deltaRow, deltaCol, maxRow, maxCol)
-            if (updated === selection) return
-            val text = extractSelectedText(updated)
-            _state.update {
-                it.copy(selection = updated.copy(selectedText = text, menuDismissed = false))
-            }
             syncSelectionToNative()
         }
 
@@ -930,11 +833,6 @@ constructor(
         private const val STOP_TIMEOUT_MILLIS = 5000L
         private const val DEBOUNCE_MILLIS = 300L
 
-        // Upper bound for text extraction loops (one JNI scrollbackLine call
-        // per row, on the main thread). Keeps worst case bounded even when a
-        // broadcast-injected selection claims thousands of rows.
-        private const val MAX_SELECTION_LINES = 2000
-
         // Upper bound for clipboard paste (main-thread string copies) and
         // the chunk size used to stream it (must stay well below the PTY
     }
@@ -1030,7 +928,6 @@ constructor(
                             title = title,
                             sessions = sessions,
                             activeSessionId = active,
-                            selectionBackground = runtime.selectionBackgroundColor,
                             selectionAccent = runtime.accentColor,
                         )
                     }
@@ -1501,7 +1398,6 @@ constructor(
                             selection = SelectionState(),
                             sessions = sessions,
                             activeSessionId = newId,
-                            selectionBackground = runtime.selectionBackgroundColor,
                             selectionAccent = runtime.accentColor,
                         )
                     }
@@ -1554,7 +1450,6 @@ constructor(
                     },
                     activeSessionId = id,
                     selection = SelectionState(),
-                    selectionBackground = runtime.selectionBackgroundColor,
                     selectionAccent = runtime.accentColor,
                 )
             }

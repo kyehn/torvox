@@ -33,7 +33,6 @@ data class BridgeTheme(
     val background: Int,
     val foreground: Int,
     val cursor: Int,
-    val selectionBackground: Int,
     val ansi0: Int,
     val ansi1: Int,
     val ansi2: Int,
@@ -793,15 +792,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun getActiveSessionTitle(): String = queryPort.getActiveSessionTitle()
 
     // ── Selection ─────────────────────────────────────────────────────
-    override fun setSelection(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        hasSelection: Boolean?,
-        selectionBackgroundArgb: Int,
-    ) {
-        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, selectionBackgroundArgb)
+    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
+        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection)
     }
 
     // ── Search / scrollback ────────────────────────────────────────────

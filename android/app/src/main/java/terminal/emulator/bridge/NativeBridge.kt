@@ -261,8 +261,8 @@ object NativeBridge {
     @JvmStatic external fun setSearchHighlights(sessionId: Long, data: ByteArray)
 
     /**
-     * Set active text selection (visible-grid rows/cols); selectionBackgroundArgb: theme selection
-     * background color, ARGB packed.
+     * Set active text selection (visible-grid rows/cols); the highlight is baked terminal-side from
+     * the theme palette, no color parameter rides this channel.
      */
     @JvmStatic
     external fun setSelection(
@@ -272,7 +272,6 @@ object NativeBridge {
         endRow: Int,
         endCol: Int,
         hasSelection: Boolean,
-        selectionBackgroundArgb: Int,
     )
 
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
