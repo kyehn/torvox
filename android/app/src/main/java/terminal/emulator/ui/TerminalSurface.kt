@@ -27,9 +27,9 @@ import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
 import kotlinx.coroutines.cancel
 import terminal.emulator.R
+import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.TouchClass
-import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
@@ -2131,27 +2131,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     "menu=PASTE_ONLY",
             )
         } else {
-            // termux-app style word bounds (TerminalEmulator
-            // getWordBoundsAtIndex): expand to the whitespace-delimited run
-            // containing the tap — long-press and double-tap share exactly
-            // this logic.
-            val bounds = whitespaceWordBounds(bridge, gridRow, col)
+            // 上游 select_word 派生词界（ghostty 默认边界：空白与
+            // `'"\`│|:;,()[]{}<>$`），长按与双击共用 native 同一实现；
+            // native 侧已安装选区，回传的有序界限驱动状态与控制柄。
+            val wordBounds = bridge?.selectWordAt(gridRow, col)
 
             val startRow: Int
             val startCol: Int
             val endRow: Int
             val endCol: Int
 
-            if (bounds != null) {
-                val (start, end) = bounds
-                startRow = start.first
-                startCol = start.second
-                endRow = end.first
-                endCol = end.second
+            if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
+                startRow = wordBounds[0]
+                startCol = wordBounds[1]
+                endRow = wordBounds[2]
+                endCol = wordBounds[3]
             } else {
-                startRow = row
+                // 无可选词/查询失败：退化为落点单格（网格坐标），
+                // 粘贴菜单语义不变。
+                startRow = gridRow
                 startCol = col
-                endRow = row
+                endRow = gridRow
                 endCol = col
             }
 
@@ -2167,24 +2167,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             viewModel?.endSelection()
             selectionHandles.showSelectionHandles(startRow, startCol, endRow, endCol, getAccentColor())
         }
-    }
-
-    /**
-     * termux-app style word bounds (TerminalEmulator.getWordBoundsAtIndex): expand (gridRow, col)
-     * outward to the whitespace-delimited run that contains it. Single-line, like termux. A tap on
-     * whitespace or past the end of the line returns null and the caller falls back to the single
-     * cell (paste-only target). Long-press and double-tap share this exact expansion so both gestures
-     * select identically.
-     */
-    private fun whitespaceWordBounds(bridge: Bridge?, gridRow: Int, col: Int): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
-        val line = bridge?.scrollbackLine(gridRow) ?: return null
-        val length = line.length
-        if (col >= length || line.getOrNull(col)?.isWhitespace() == true) return null
-        var start = col
-        while (start > 0 && !line[start - 1].isWhitespace()) start--
-        var end = col
-        while (end < length && !line[end].isWhitespace()) end++
-        return (gridRow to start) to (gridRow to (end - 1))
     }
 
     private var currentTouchX = 0f
@@ -2629,40 +2611,47 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val row = pixelToCell(event.y, cellHeight, rows)
 
         if (selectLine) {
-            // Triple-tap line selection: select the entire line at the tap row.
+            // 上游 select_line 整行派生（语义提示边界关）：界限一次派生
+            // 并由 native 安装，Kotlin 只消费回传值（旧实现自读行拼界限）。
             val scrollbackLength = currentScrollbackLength()
             val gridRow = scrollbackLength - scrollOffset + row
-            viewModel?.startSelection(gridRow, 0)
             val bridge = viewModel?.runtime?.bridge()
-            val line = bridge?.scrollbackLine(gridRow) ?: ""
-            viewModel?.updateSelection(gridRow, line.length.coerceAtLeast(0))
-            viewModel?.endSelection()
-            Log.d(
-                "Selection",
-                "TRIPLE_TAP line: tapRow=$row gridRow=$gridRow lineLen=${line.length}",
-            )
+            val lineBounds = bridge?.selectLineAt(gridRow, col)
+            if (lineBounds != null && lineBounds.size == SELECTION_BOUNDS_LENGTH) {
+                viewModel?.startSelection(lineBounds[0], lineBounds[1])
+                viewModel?.updateSelection(lineBounds[2], lineBounds[3])
+                viewModel?.endSelection()
+                Log.d(
+                    "Selection",
+                    "TRIPLE_TAP line: tapRow=$row gridRow=$gridRow " +
+                        "start=(${lineBounds[0]},${lineBounds[1]}) " +
+                        "end=(${lineBounds[2]},${lineBounds[3]})",
+                )
+            } else {
+                // 空行/查询失败：退化为落点单格，选择仍激活（菜单可见）。
+                viewModel?.startSelection(gridRow, col)
+                viewModel?.endSelection()
+            }
         } else if (expandToWord) {
-            // termux-app whitespace word bounds — identical expansion to
-            // long-press (see handleLongPress), no core-backed divergence.
+            // 上游 select_word 词界 — 与长按完全同一 native 派生，无两侧分叉。
             val bridge = viewModel?.runtime?.bridge()
             val scrollbackLength = currentScrollbackLength()
             val gridRow = scrollbackLength - scrollOffset + row
-            val bounds = whitespaceWordBounds(bridge, gridRow, col)
-            if (bounds != null) {
-                val (start, end) = bounds
-                viewModel?.startSelection(start.first, start.second)
-                viewModel?.updateSelection(end.first, end.second)
+            val wordBounds = bridge?.selectWordAt(gridRow, col)
+            if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
+                viewModel?.startSelection(wordBounds[0], wordBounds[1])
+                viewModel?.updateSelection(wordBounds[2], wordBounds[3])
                 viewModel?.endSelection()
                 Log.d(
                     "Selection",
                     "DOUBLE_TAP word: tapRow=$row tapCol=$col " +
-                        "expanded start=(${start.first},${start.second}) end=(${end.first},${end.second})",
+                        "expanded start=(${wordBounds[0]},${wordBounds[1]}) " +
+                        "end=(${wordBounds[2]},${wordBounds[3]})",
                 )
             } else {
-                // Selection state uses grid rows (0 = top of scrollback):
-                // convert the viewport row before storing so extraction and
-                // handle rendering agree.
-                viewModel?.startSelection(scrollbackLength - scrollOffset + row, col)
+                // 无可选词：单格回退。选区状态用网格行（0 = 回滚顶部），
+                // 此处已换算为 gridRow，抽取与控柄渲染一致。
+                viewModel?.startSelection(gridRow, col)
             }
         } else {
             val scrollbackLength = currentScrollbackLength()

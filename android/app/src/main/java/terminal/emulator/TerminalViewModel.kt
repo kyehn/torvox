@@ -54,6 +54,9 @@ enum class TouchClass {
     Unknown,
 }
 
+/** 上游选择派生查询回传的界限数组长度：[startRow, startCol, endRow, endCol]。 */
+internal const val SELECTION_BOUNDS_LENGTH = 4
+
 data class SelectionAnchor(val row: Int, val col: Int)
 
 data class SelectionState(
@@ -253,7 +256,7 @@ constructor(
 
     fun shareSelection() = selectionManager.shareSelection()
 
-    fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
+    fun selectAll() = selectionManager.selectAll()
 
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
@@ -630,22 +633,20 @@ constructor(
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
-        fun selectAll(scrollOffset: Int = 0) {
-            val runtimeState = runtime.state.value
-            val rows = runtimeState.rows.coerceAtLeast(1)
-            val cols = runtimeState.cols.coerceAtLeast(1)
-            // Selection rows are grid rows (0 = top of scrollback). The
-            // visible viewport starts at grid row (scrollbackLength - scrollOffset).
-            val scrollbackLength = runtime.bridge()?.scrollbackLength() ?: 0
-            val viewportStart = (scrollbackLength - scrollOffset).coerceAtLeast(0)
-            val start = SelectionAnchor(row = viewportStart, col = 0)
-            val end = SelectionAnchor(row = viewportStart + rows - 1, col = cols - 1)
+        fun selectAll() {
+            // 上游 select_all：整个内容（回滚 + 视口）一次派生，native 侧已
+            // 安装为终端选区，Kotlin 只消费回传的有序界限（不含尾部空行）。
+            val bounds = runtime.bridge()?.selectAll()
+            if (bounds == null || bounds.size != SELECTION_BOUNDS_LENGTH) {
+                // 无内容/查询失败：按“无数据”处理，不伪造选择。
+                return
+            }
             val selectionState =
                 SelectionState(
                     active = true,
                     dragging = false,
-                    start = start,
-                    end = end,
+                    start = SelectionAnchor(row = bounds[0], col = bounds[1]),
+                    end = SelectionAnchor(row = bounds[2], col = bounds[3]),
                 )
             val text = extractSelectedText(selectionState)
             _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }

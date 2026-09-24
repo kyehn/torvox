@@ -13,7 +13,7 @@
 ## 3. 上游选择语义接入
 
 - [x] 3.1 native 新增 `SelectWordAt`/`SelectLineAt`/`SelectAll` 查询（派生+安装+回传界限）与 gref→绝对坐标反解；cargo 测试（含全选界限不含尾部空行）通过
-- [ ] 3.2 Kotlin 长按与多击改调上游接口、删 Kotlin 词/行/视口全选自实现；单测与 `MultiTapSelectionInstrumentedTest` 按上游词边界调整后通过
+- [x] 3.2 Kotlin 长按与多击改调上游接口、删 Kotlin 词/行/视口全选自实现；单测与 `MultiTapSelectionInstrumentedTest` 按上游词边界调整后通过
 
 ## 4. 菜单与行为修复
 
