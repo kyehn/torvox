@@ -849,6 +849,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         )
     }.getOrNull()
 
+    // 上游选择派生：native 侧已安装选区并回传界限；unknown session 异常
+    // 同样在此吞掉（与其余查询方法一致，UI/触摸路径不崩）。
+    override fun selectWordAt(row: Int, col: Int): IntArray? = runCatchingCancellable {
+        queryPort.selectWordAt(row, col)
+    }.getOrNull()
+
+    override fun selectLineAt(row: Int, col: Int): IntArray? = runCatchingCancellable {
+        queryPort.selectLineAt(row, col)
+    }.getOrNull()
+
+    override fun selectAll(): IntArray? = runCatchingCancellable { queryPort.selectAll() }.getOrNull()
+
     override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
 
     override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault(
