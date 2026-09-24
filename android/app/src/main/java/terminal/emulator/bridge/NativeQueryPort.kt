@@ -82,6 +82,12 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun hyperlinkAt(row: Int, col: Int): String? = NativeBridge.hyperlinkAt(sessionIdProvider(), row, col)
 
+    override fun selectWordAt(row: Int, col: Int): IntArray? = NativeBridge.selectWordAt(sessionIdProvider(), row, col)
+
+    override fun selectLineAt(row: Int, col: Int): IntArray? = NativeBridge.selectLineAt(sessionIdProvider(), row, col)
+
+    override fun selectAll(): IntArray? = NativeBridge.selectAll(sessionIdProvider())
+
     override fun listFontFamilies(): List<String>? = NativeBridge.listFontFamilies()?.toList()
 
     override fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: ""
