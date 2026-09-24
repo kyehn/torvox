@@ -2,6 +2,7 @@
 
 - [termux-app](https://github.com/termux/termux-app)：文本选择系统（`TextSelectionCursorController` 锚定、手柄拖动状态机、宽字符吸附），`onGetContentRect` 等于列/行乘字体像素加 `TopRow` 滚动偏移、手柄 `PopupWindow` 加 300ms 防误关、宽字符吸附。`WcWidth` 按 Unicode 15 判定宽字符。`TextStyle` 64 位打包前景/背景/属性。选择文本按 `wrap` 感知拼接，不硬插换行；列转 `char` 经宽字符换算防切错 CJK。
   - 反例：用 `termux-exec` 做 `LD_PRELOAD` 重定向；其 CPU 逐格 `Canvas.drawText`
+  - 会话抽屉行 = `"[N] "+会话名`（粗体）+ 换行斜体终端标题；点击切换并关闭抽屉；无行内关闭按钮、长按重命名。本项目保留关闭按钮（DESIGN 声明），不实现重命名。
 - [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal)：选择系统 UX（选择状态由模拟器拥有、tapCount 多击、`Callback2` 加 `onGetContentRect` 菜单锚定、selectionGeometryKey、边缘滚动）。初始 winsize 带 `ws_xpixel`/`ypixel`。PTY 摄取 feed 前 NUL 剥离走 `memchr` 快路径。搜索覆盖层不改终端尺寸免 `SIGWINCH`，防抖 150ms，高亮复用选择机制。
   - 对照：`TerminalFontStore` 四槽字体。
 - [Haven](https://github.com/GlassHaven/Haven)：`cursorKeyAppMode` 跟踪、alt 屏滑动转方向键时 SS3/CSI 区分（应用光标模式（DEC 私有模式 1）下方向键须编码为 SS3（`ESC O A`）而非 CSI（`ESC [ A`），否则 vim/less 误读）。Popup 内 `startActionMode(TYPE_FLOATING)` 静默 no-op。
