@@ -6,7 +6,6 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.view.Surface
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -386,8 +385,6 @@ constructor(
     }
 
     @Volatile var accentColor: Int = 0xFF2196F3.toInt()
-
-    @Volatile var selectionBackgroundColor: Int = 0xFF45475A.toInt()
 
     @Volatile var cellWidth: Float = 0f
 
@@ -902,7 +899,6 @@ constructor(
         val shell = resolveShell(configReads.shellPath)
         val bridgeTheme = makeBridgeTheme(resolvedTheme)
         accentColor = bridgeTheme.ansi5
-        selectionBackgroundColor = bridgeTheme.selectionBackground
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
         val homeDir = java.io.File(context.filesDir, "home").absolutePath
         // Failsafe (termux app shortcut "New session (Failsafe)"): bypass
@@ -1386,7 +1382,6 @@ constructor(
                                                 selectionSnapshot.endRow,
                                                 selectionSnapshot.endCol,
                                                 selectionSnapshot.hasSelection,
-                                                selectionBackgroundColor,
                                             )
                                             lastSelection = selectionSnapshot
                                         }
@@ -2063,18 +2058,11 @@ constructor(
         val foregroundColor = resolvedTheme.foreground.toArgb()
         val cursor = resolvedTheme.cursor.toArgb()
         val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
-        val resolvedSelectionBackground =
-            if (resolvedTheme.selectionBackground == Color.Transparent) {
-                Color(0xFF45475A)
-            } else {
-                resolvedTheme.selectionBackground
-            }
         return BridgeTheme(
             name = resolvedTheme.name,
             background = backgroundColor,
             foreground = foregroundColor,
             cursor = cursor,
-            selectionBackground = resolvedSelectionBackground.toArgb(),
             ansi0 = ansiInts[0],
             ansi1 = ansiInts[1],
             ansi2 = ansiInts[2],
@@ -3432,14 +3420,7 @@ constructor(
         }
     }
 
-    fun setSelection(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        hasSelection: Boolean,
-        selectionBackgroundArgb: Int = selectionBackgroundColor,
-    ) {
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean) {
         LogUtil.d(
             "Runtime",
             "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection",
@@ -3454,7 +3435,7 @@ constructor(
         val entry = sessions[activeSessionId]
         entry
             ?.bridge
-            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection, selectionBackgroundArgb)
+            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection)
         entry?.notifyRender()
     }
 

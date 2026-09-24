@@ -18,14 +18,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun getActiveSessionTitle(): String = getTitle() ?: ""
 
-    override fun setSelection(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        hasSelection: Boolean?,
-        selectionBackgroundArgb: Int,
-    ) {
+    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
         // Selection lives in the terminal (tracked refs, installed via
         // NativeBridge.setSelection): the VT thread bakes the inverse
         // video into CellData, so no view-side cell bookkeeping is needed.
@@ -37,7 +30,6 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
             endRow,
             endCol,
             active,
-            selectionBackgroundArgb,
         )
     }
 

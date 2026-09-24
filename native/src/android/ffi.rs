@@ -2793,7 +2793,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 /// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 CellData；
 /// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
 /// 选区恒为线性（块选通道已随 mode 一并移除）。
-/// `selectionBackgroundArgb` 为 Kotlin 合约保留参数。
 #[unsafe(no_mangle)]
 // JNI exports receive raw handles (jstring/jbyteArray are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee.
@@ -2807,7 +2806,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     end_row: jint,
     end_col: jint,
     has_selection: jboolean,
-    _selection_background_argb: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let id = session_id as u64;

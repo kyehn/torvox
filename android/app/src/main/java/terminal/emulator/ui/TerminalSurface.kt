@@ -432,14 +432,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /** Re-show the menu at the CURRENT selection (handle drag end re-anchor). */
-    private fun reshowToolbar() {
-        val pasteOnly = viewModel?.state?.value?.selection?.pasteOnly ?: false
-        if (selectionMenuPopup != null) {
-            showSelectionMenu(pasteOnly)
-        }
-    }
-
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 5b: Resize/grid computation (extracted K4)
     // ══════════════════════════════════════════════════════════════════════
@@ -1651,7 +1643,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         viewModel?.endSelection()
         lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
         reshowSelectionHandles()
-        reshowToolbar()
         showSelectionMenuForCurrentSelection()
         viewModel?.runtime?.forceRender()
     }
@@ -2696,29 +2687,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        // while a selection is active, arrow keys move the
-        // selection START anchor (termlib moveSelection* semantics) instead
-        // of emitting escape sequences to the shell. Hardware arrows only —
-        // physical keyboards set keyCode; soft IME keys come through as text.
-        val activeSelection = viewModel?.state?.value?.selection
-        if (
-            activeSelection?.active == true &&
-            activeSelection.start != null &&
-            activeSelection.end != null
-        ) {
-            val delta =
-                when (keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> 0 to -1
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> 0 to 1
-                    KeyEvent.KEYCODE_DPAD_UP -> -1 to 0
-                    KeyEvent.KEYCODE_DPAD_DOWN -> 1 to 0
-                    else -> null
-                }
-            if (delta != null) {
-                viewModel?.moveSelectionAnchorBy(delta.first, delta.second)
-                return true
-            }
-        }
         val terminalViewModel = viewModel
         // hardware Enter (including maestro
         // pressKey and adb keyevent) bypasses writeToPty via
