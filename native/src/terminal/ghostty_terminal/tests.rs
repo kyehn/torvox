@@ -3,7 +3,8 @@
 //! 保留集合（本仓机制与对外 API，上游仅作输入夹具）：
 //! 1. 快照管线：snapshot 缓存/回退、视口映射、行缓存；
 //! 2. 查询 API：dump_grid / read_line_text / hyperlink_at / selection_text /
-//!    search_in（断言对象是本仓包装与格式化）；
+//!    select_word_at / select_line_at / select_all / search_in（断言对象是
+//!    本仓包装与格式化）；
 //! 3. 输入输出管道：vt_write 清洗、pty_write LF→CRLF 与分片直透（无 ST/SGR 提前闭合）、
 //!    键盘/鼠标编码（含钳制）；
 //! 4. 会话与生命周期 tc_sm_ / tc_al_ / tc_lifecycle_，性能基准 bench_*。
@@ -1625,7 +1626,7 @@ fn selection_clear_restores_baseline_colors() {
 /// 对标上游 selectWordHighlightsAndExtractsText：上游原生 select_word
 /// 派生选区并经格式化器提取文本。本仓单测经“解析出词边界→
 /// 用 install 链路安装→格式化器提取”验证同一语义（本仓 selection
-/// 接口即 install+format，无独立 select_word 命令）。
+/// 接口即 install+format；上游 select_word 另经 select_word_at 查询接入）。
 #[test]
 fn select_word_via_boundary_resolve_extracts_hello() {
     let mut t = terminal();
@@ -1699,10 +1700,7 @@ fn select_line_via_full_row_extracts_whole_line() {
     let end_col = (line.chars().count() as u32).saturating_sub(1);
     t.set_selection((row0, 0), (row0, end_col));
     t.flush();
-    assert_eq!(
-        t.selection_text((row0, 0), (row0, end_col)),
-        "hello world"
-    );
+    assert_eq!(t.selection_text((row0, 0), (row0, end_col)), "hello world");
 }
 
 /// 对标上游 selectAllCoversScrollback：首行滚入历史后，跨全缓冲
@@ -1723,6 +1721,82 @@ fn select_all_via_range_covers_scrollback() {
         "must include scrolled-off first line"
     );
     assert!(text.contains("filler7"), "must include the latest line");
+}
+
+/// 上游词选接入（design 决策 1）：select_word_at 派生词界限、取序、反解为
+/// 绝对坐标并安装；返回界限提取的文本恰为该词，渲染反白证明选区已装回。
+#[test]
+fn select_word_at_derives_installs_and_returns_bounds() {
+    let mut t = terminal();
+    t.vt_write(b"git status");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let ((start_row, start_col), (end_row, end_col)) =
+        t.select_word_at(row0, 1).expect("word bounds under cell");
+    assert_eq!((start_row, start_col), (row0, 0), "word starts at col 0");
+    assert_eq!((end_row, end_col), (row0, 2), "git spans cols 0..=2");
+    assert_eq!(
+        t.selection_text((start_row, start_col), (end_row, end_col)),
+        "git",
+        "returned bounds must extract exactly the word"
+    );
+    // 安装断言：派生快照经 to_ordered 装回终端后，该格渲染必须反白。
+    t.flush();
+    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    let picked = selected
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 1)
+        .expect("row 0 col 1 present");
+    assert_eq!(
+        picked.foreground, theme_background,
+        "derived selection must be installed (cell inverted)"
+    );
+    t.clear_selection();
+    t.flush();
+}
+
+/// 上游行选接入：select_line_at 取整行界限、安装并回传；返回界限提取
+/// 整行文本。
+#[test]
+fn select_line_at_returns_whole_line_bounds() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let ((start_row, start_col), (end_row, end_col)) =
+        t.select_line_at(row0, 4).expect("line bounds");
+    assert_eq!((start_row, start_col), (row0, 0), "line starts at col 0");
+    assert_eq!(end_row, row0, "single unwrapped line stays on its row");
+    assert_eq!(
+        t.selection_text((start_row, start_col), (end_row, end_col)),
+        "hello world",
+        "returned bounds must extract the whole line"
+    );
+}
+
+/// 上游全选接入（design 决策 2 钉住）：两行内容之后，select_all 界限落在
+/// 最后一行的最后内容列，不含尾部空行与空列。
+#[test]
+fn select_all_bounds_exclude_trailing_blank_rows_and_columns() {
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    t.vt_write(b"alpha\r\nbravo");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let bounds = t.select_all().expect("select_all bounds");
+    assert_eq!(
+        bounds,
+        ((row0, 0), (row0 + 1, 4)),
+        "bounds must exclude trailing blank rows and columns (got {bounds:?})"
+    );
+    let text = t.selection_text(bounds.0, bounds.1);
+    assert!(
+        text.contains("alpha") && text.contains("bravo"),
+        "pinned bounds must cover both content lines (got {text:?})"
+    );
 }
 
 /// 对标上游 selectionTracksTextIntoScrollback：选区安装后文本继续
