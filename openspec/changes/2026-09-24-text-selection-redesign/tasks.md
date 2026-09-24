@@ -25,5 +25,5 @@
 
 ## 5. 总验证与归档
 
-- [ ] 5.1 `cargo fmt --check`+`cargo test`、gradle 三件套、选择相关仪器测试（Espresso/DragQuantified/MultiTap/TapDismiss/cucumber）全绿
+- [x] 5.1 `cargo fmt --check`+`cargo test`、gradle 三件套、选择相关仪器测试（Espresso/DragQuantified/MultiTap/TapDismiss/cucumber）全绿
 - [ ] 5.2 `openspec archive 2026-09-24-text-selection-redesign --yes` 后 `openspec validate --all` 通过并推送
