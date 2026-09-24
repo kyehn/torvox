@@ -407,35 +407,6 @@ class VtCorrectnessInstrumentedTest {
         }
     }
 
-    private fun awaitCurrentDirectory(sessionId: Long, expected: String) {
-        // 工作目录收割紧跟 flush：切活跃并持续泵送，确保回调事件被收割。
-        NativeBridge.switchSession(sessionId)
-        val seen =
-            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
-                runCatchingCancellable { NativeBridge.pollEvent() }
-                NativeBridge.getCurrentDirectory(sessionId) == expected
-            }
-        assertNotNull("工作目录必须可读: $expected, 实际: ${NativeBridge.getCurrentDirectory(sessionId)}", seen)
-    }
-
-    @Test
-    fun osc7WorkingDirectoryReadable() {
-        withSession { sessionId ->
-            // TESTING.md 覆盖要求：OSC 7 工作目录读取（上游透出原样 URL）。
-            feedText(sessionId, "\u001b]7;file:///data/test-dir\u0007")
-            awaitCurrentDirectory(sessionId, "file:///data/test-dir")
-        }
-    }
-
-    @Test
-    fun osc1337CurrentDirReadable() {
-        withSession { sessionId ->
-            // DESIGN.md 工作目录跟踪：OSC 1337 CurrentDir 提路径。
-            feedText(sessionId, "\u001b]1337;CurrentDir=/data/test-dir\u0007")
-            awaitCurrentDirectory(sessionId, "/data/test-dir")
-        }
-    }
-
     @Test
     fun osc0TitleQueryable() {
         withSession { sessionId ->

@@ -210,9 +210,6 @@ object NativeBridge {
     /** Terminal title (OSC 0/2) for a session, or null when unknown. */
     @JvmStatic external fun getTitle(sessionId: Long): String?
 
-    /** Working directory reported by the shell (OSC 7), or null when unreported. */
-    @JvmStatic external fun getCurrentDirectory(sessionId: Long): String?
-
     /** Number of scrollback rows for a session. */
     @JvmStatic external fun scrollbackLength(sessionId: Long): Int
 
