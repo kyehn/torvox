@@ -28,7 +28,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.bridge.SelectionExpander
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
@@ -40,22 +39,12 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.util.TerminalDispatchers
-import terminal.emulator.util.charCellWidth
 import terminal.emulator.util.runCatchingCancellable
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
-
-enum class SelectionMode {
-    Char,
-    Word,
-    Line,
-    Block,
-    Semantic,
-}
 
 /** Mirror of selection::TouchClass. */
 enum class TouchClass {
@@ -72,7 +61,6 @@ data class SelectionState(
     val dragging: Boolean = false,
     val start: SelectionAnchor? = null,
     val end: SelectionAnchor? = null,
-    val mode: SelectionMode = SelectionMode.Char,
     val selectedText: String = "",
     val touchClass: TouchClass = TouchClass.Unknown,
     // Set when a menu action (Copy/Select All/Share) was taken: the
@@ -112,34 +100,6 @@ data class SelectionState(
         }
         return HandleDragResult(currentStart.row, currentStart.col, targetRow, targetCol)
     }
-
-    /**
-     * arrow-key selection navigation, termlib moveSelection* semantics): move the START anchor by
-     * [deltaRow]/[deltaCol], clamped to the grid so it never crosses the END anchor (the end stays
-     * put as the moving end sweeps up to it). Pure and unit-testable.
-     */
-    fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int, maxRow: Int, maxCol: Int): SelectionState {
-        val currentStart = start ?: return this
-        val currentEnd = end ?: return this
-        if (!active) return this
-        val newRow = (currentStart.row + deltaRow).coerceIn(0, maxRow.coerceAtLeast(0))
-        val newCol = (currentStart.col + deltaCol).coerceIn(0, maxCol.coerceAtLeast(0))
-        val crossedEnd =
-            newRow > currentEnd.row || (newRow == currentEnd.row && newCol > currentEnd.col)
-        val anchor =
-            if (crossedEnd) {
-                // Clamp just before the end anchor so the range never
-                // inverts: same row → col just before END; below END → last
-                // row before it with col just before END's col.
-                currentStart.copy(
-                    row = (currentEnd.row - 1).coerceAtLeast(0),
-                    col = (currentEnd.col - 1).coerceAtLeast(0),
-                )
-            } else {
-                currentStart.copy(row = newRow, col = newCol)
-            }
-        return copy(start = anchor)
-    }
 }
 
 data class HandleDragResult(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
@@ -161,7 +121,6 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
-    val selectionBackground: Int = 0,
     val selectionAccent: Int = 0,
     // Bumped on every programmatic scroll reset (input-driven snap to
     // bottom); TerminalScreen observes it and resyncs the surface's
@@ -237,8 +196,6 @@ constructor(
 
     fun endSelection() = selectionManager.endSelection()
 
-    fun setSelectionMode(mode: SelectionMode) = selectionManager.setSelectionMode(mode)
-
     /**
      * Fast drag path: bounds computed without Compose state writes; see [SelectionManager.dragMove].
      */
@@ -263,7 +220,6 @@ constructor(
         if (!current.active || current.pasteOnly) return
         selectionManager.syncDragBoundsToNativeThrottled(
             intArrayOf(start.row, start.col, end.row, end.col),
-            current.mode.ordinal.toByte(),
         )
     }
 
@@ -298,12 +254,6 @@ constructor(
     fun shareSelection() = selectionManager.shareSelection()
 
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
-
-    // single-column moveSelectionAnchor removed with the ◀/▶
-    // menu items; keyboard/arrow-key anchor movement stays via
-    // [moveSelectionAnchorBy].
-
-    fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) = selectionManager.moveSelectionAnchorBy(deltaRow, deltaCol)
 
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
@@ -418,7 +368,6 @@ constructor(
                         dragging = true,
                         start = anchor,
                         end = anchor,
-                        mode = state.selection.mode,
                         touchClass = touchClass,
                         menuDismissed = false,
                     ),
@@ -462,7 +411,7 @@ constructor(
                 )
             val arr = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
             lastDragBounds = arr
-            syncDragBoundsToNativeThrottled(arr, current.mode.ordinal.toByte())
+            syncDragBoundsToNativeThrottled(arr)
             return arr
         }
 
@@ -472,7 +421,7 @@ constructor(
          * JNI crossing + re-render on every MOVE frame. The final exact bounds are committed by
          * endSelection via runtime.setSelection on release.
          */
-        internal fun syncDragBoundsToNativeThrottled(arr: IntArray, modeOrdinal: Byte) {
+        internal fun syncDragBoundsToNativeThrottled(arr: IntArray) {
             val nowMs = SystemClock.uptimeMillis()
             if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
             lastDragNativeSyncUptimeMs = nowMs
@@ -480,7 +429,7 @@ constructor(
             val hiRow = maxOf(arr[0], arr[2])
             val loCol = minOf(arr[1], arr[3])
             val hiCol = maxOf(arr[1], arr[3])
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, modeOrdinal)
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
         }
 
         @Volatile private var lastDragNativeSyncUptimeMs = 0L
@@ -592,57 +541,7 @@ constructor(
             val hiRow = maxOf(start.row, end.row)
             val loCol = minOf(start.col, end.col)
             val hiCol = maxOf(start.col, end.col)
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, current.mode.ordinal.toByte())
-        }
-
-        fun setSelectionMode(mode: SelectionMode) {
-            _state.update { state ->
-                val current = state.selection
-                val adjusted =
-                    if (!current.active || current.start == null || current.end == null) {
-                        current
-                    } else {
-                        adjustSelectionForMode(current, mode)
-                    }
-                state.copy(selection = adjusted.copy(mode = mode))
-            }
-            syncSelectionToNative()
-        }
-
-        /**
-         * mode switch re-expands the range (termlib SelectionManager.adjustSelectionForMode:288-320):
-         * WORD expands both ends onto word boundaries, LINE spans the full rows, CHAR keeps the current
-         * range as-is.
-         */
-        private fun adjustSelectionForMode(selection: SelectionState, mode: SelectionMode): SelectionState {
-            val start = selection.start ?: return selection
-            val end = selection.end ?: return selection
-            return when (mode) {
-                SelectionMode.Line -> {
-                    val cols = (runtime.state.value.cols - 1).coerceAtLeast(0)
-                    selection.copy(
-                        start = start.copy(col = 0),
-                        end = end.copy(col = cols),
-                    )
-                }
-
-                SelectionMode.Word -> {
-                    val bridge = runtime.bridge() ?: return selection
-                    val startLine = bridge.scrollbackLine(start.row) ?: return selection
-                    val endLine = bridge.scrollbackLine(end.row) ?: return selection
-                    val startWord = SelectionExpander.expandBounds(startLine, start.col)
-                    val endWord = SelectionExpander.expandBounds(endLine, end.col)
-                    selection.copy(
-                        start = start.copy(col = startWord.first),
-                        end = end.copy(col = endWord.second),
-                    )
-                }
-
-                SelectionMode.Char,
-                SelectionMode.Block,
-                SelectionMode.Semantic,
-                -> selection
-            }
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
         }
 
         fun copySelectionToClipboard() {
@@ -659,54 +558,15 @@ constructor(
                     extractSelectedText(selection)
                 }
             if (rawText.isEmpty()) return
-            // Smart processing, Haven smartCopy:357-405) applies
-            // border-strip / wrapped-URL rebuild to the selection text; the
-            // ClipboardAccess.smartCopyProcessor hook stays null here (OSC 52
-            // programmatic writes from the runtime stay verbatim).
-            val text = smartCopySelection(rawText)
             val clipped =
-                if (text.length > CLIPBOARD_TEXT_MAX_LENGTH) {
-                    text.substring(0, CLIPBOARD_TEXT_MAX_LENGTH)
+                if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) {
+                    rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH)
                 } else {
-                    text
+                    rawText
                 }
             clipboardAccess.setClipboardText(clipped, label = "terminal selection")
             // Close the floating menu after the action; keep the highlight.
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-        }
-
-        /**
-         * route the copy through smart processing (TUI border stripping + wrapped-URL rebuild, Haven
-         * smartCopy:357-405). Fetch the selection's rows from the snapshot; on any bridge failure fall
-         * back to the raw text.
-         */
-        private fun smartCopySelection(raw: String): String {
-            val selection = _state.value.selection
-            val start = selection.start ?: return raw
-            val end = selection.end ?: return raw
-            val bitmapSelection =
-                if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
-                    start to end
-                } else {
-                    end to start
-                }
-            val (lo, hi) = bitmapSelection
-            val bridge = runtime.bridge() ?: return raw
-            val lines =
-                (lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)).map { r ->
-                    bridge.scrollbackLine(r) ?: ""
-                }
-            if (lines.isEmpty()) return raw
-            val text =
-                SmartCopy.smartCopyText(
-                    lines = lines,
-                    startRow = 0,
-                    startCol = lo.col.coerceAtLeast(0),
-                    endRow = lines.size - 1,
-                    endCol = hi.col.coerceAtLeast(0),
-                    verbatim = raw,
-                )
-            return text.ifEmpty { raw }
         }
 
         fun clearSelection() {
@@ -731,7 +591,6 @@ constructor(
                         dragging = false,
                         start = SelectionAnchor(row, col),
                         end = SelectionAnchor(row, col),
-                        mode = SelectionMode.Char,
                         touchClass = TouchClass.EmptyArea,
                     ),
                 )
@@ -748,22 +607,20 @@ constructor(
                 val hiRow = maxOf(start.row, end.row)
                 val loCol = minOf(start.col, end.col)
                 val hiCol = maxOf(start.col, end.col)
-                runtime.setSelection(loRow, loCol, hiRow, hiCol, true, selection.mode.ordinal.toByte())
+                runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
             } else {
-                runtime.setSelection(0, 0, 0, 0, false, 0)
+                runtime.setSelection(0, 0, 0, 0, false)
             }
         }
 
         fun shareSelection() {
             val rawText = _state.value.selection.selectedText
             if (rawText.isEmpty()) return
-            // share the smart-copied text (border strip / URL rebuild).
-            val text = smartCopySelection(rawText)
             val shareIntent =
                 Intent.createChooser(
                     Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_TEXT, rawText)
                     },
                     null,
                 )
@@ -789,30 +646,9 @@ constructor(
                     dragging = false,
                     start = start,
                     end = end,
-                    mode = SelectionMode.Char,
                 )
             val text = extractSelectedText(selectionState)
             _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }
-            syncSelectionToNative()
-        }
-
-        /**
-         * arrow-key selection movement — move the START anchor by [deltaRow]/[deltaCol] (pure
-         * [SelectionState.moveSelectionAnchorBy]), re-extract the selected text and sync to native.
-         * Called from TerminalSurface.onKeyDown while a selection is active.
-         */
-        fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) {
-            val selection = _state.value.selection
-            if (!selection.active || selection.start == null || selection.end == null) return
-            val runtimeState = runtime.state.value
-            val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
-            val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
-            val updated = selection.moveSelectionAnchorBy(deltaRow, deltaCol, maxRow, maxCol)
-            if (updated === selection) return
-            val text = extractSelectedText(updated)
-            _state.update {
-                it.copy(selection = updated.copy(selectedText = text, menuDismissed = false))
-            }
             syncSelectionToNative()
         }
 
@@ -836,50 +672,7 @@ constructor(
                 } else {
                     end to start
                 }
-            if (selection.mode == SelectionMode.Block) {
-                // Block selection keeps its own rectangle semantics; the
-                // formatter rectangle mode would pad lines, so extract
-                // per-row substrings here (same as before).
-                val visibleCols = runtime.state.value.cols.coerceAtLeast(1)
-                val parts = mutableListOf<String>()
-                for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                    val line = bridge.scrollbackLine(r) ?: ""
-                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                    var startCol = lo.col.coerceAtMost(visLine.length)
-                    var endCol = hi.col.coerceAtMost(visLine.length)
-                    if (startCol > endCol) {
-                        val tmp = startCol
-                        startCol = endCol
-                        endCol = tmp
-                    }
-                    if (startCol < visLine.length) {
-                        parts.add(extractBlockColumn(visLine, startCol, endCol))
-                    }
-                }
-                return parts.joinToString("\n")
-            }
-            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col, rectangle = false) ?: ""
-        }
-
-        /**
-         * Extract a column-bounded rectangle slice from a single line, correctly handling CJK wide
-         * characters that occupy 2 cell columns.
-         */
-        private fun extractBlockColumn(line: String, startCol: Int, endCol: Int): String {
-            var col = 0
-            var charStart = -1
-            var charEnd = line.length
-            for ((i, ch) in line.withIndex()) {
-                val w = charCellWidth(ch)
-                if (col >= startCol && charStart < 0) charStart = i
-                if (col >= endCol) {
-                    charEnd = i
-                    break
-                }
-                col += w
-            }
-            if (charStart < 0) return ""
-            return line.substring(charStart, charEnd.coerceAtMost(line.length))
+            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col) ?: ""
         }
 
         /** Paste clipboard content directly to the PTY (no confirmation dialog). */
@@ -1040,11 +833,6 @@ constructor(
         private const val STOP_TIMEOUT_MILLIS = 5000L
         private const val DEBOUNCE_MILLIS = 300L
 
-        // Upper bound for text extraction loops (one JNI scrollbackLine call
-        // per row, on the main thread). Keeps worst case bounded even when a
-        // broadcast-injected selection claims thousands of rows.
-        private const val MAX_SELECTION_LINES = 2000
-
         // Upper bound for clipboard paste (main-thread string copies) and
         // the chunk size used to stream it (must stay well below the PTY
     }
@@ -1140,7 +928,6 @@ constructor(
                             title = title,
                             sessions = sessions,
                             activeSessionId = active,
-                            selectionBackground = runtime.selectionBackgroundColor,
                             selectionAccent = runtime.accentColor,
                         )
                     }
@@ -1611,7 +1398,6 @@ constructor(
                             selection = SelectionState(),
                             sessions = sessions,
                             activeSessionId = newId,
-                            selectionBackground = runtime.selectionBackgroundColor,
                             selectionAccent = runtime.accentColor,
                         )
                     }
@@ -1664,7 +1450,6 @@ constructor(
                     },
                     activeSessionId = id,
                     selection = SelectionState(),
-                    selectionBackground = runtime.selectionBackgroundColor,
                     selectionAccent = runtime.accentColor,
                 )
             }
