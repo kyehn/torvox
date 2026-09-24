@@ -6,9 +6,13 @@
 
 termux 抽屉不显示目录；第二行改为终端标题后该管线无消费者（死代码），`DESIGN.md` 侧边面板节同步删除该声明。
 
-## MODIFIED Requirements
-
 ### Requirement: 会话项内容
+
+目录与关闭按钮字段由"会话条目内容"取代：目录不再展示，序号与关闭按钮保留并明确点击行为。
+
+## ADDED Requirements
+
+### Requirement: 会话条目内容
 
 每一项 MUST 包含会话序号（从 1 开始、随列表改变按位置递增）与该会话终端标题（斜体第二行，来自 OSC 0/2），未设置标题时 MUST NOT 显示第二行；MUST 保留行内关闭按钮，点击条目 MUST 切换会话并关闭面板，MUST NOT 实现重命名。
 
@@ -26,6 +30,8 @@ termux 抽屉不显示目录；第二行改为终端标题后该管线无消费�
 
 - **WHEN** 会话设置终端标题后打开会话列表
 - **THEN** 该条目第二行斜体显示该标题
+
+## MODIFIED Requirements
 
 ### Requirement: 抽屉打开时元数据刷新
 
