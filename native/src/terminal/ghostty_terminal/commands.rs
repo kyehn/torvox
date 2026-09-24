@@ -77,7 +77,6 @@ pub enum Query {
     CursorY(Sender<u32>),
     CursorVisible(Sender<bool>),
     Title(Sender<String>),
-    Cwd(Sender<String>),
     ModeGet(u16, u8, Sender<bool>),
     ScrollbackLength(Sender<u32>),
     ReadLineText {
@@ -177,9 +176,8 @@ pub(crate) struct RunConfig {
     /// thread on every emitted frame (build_cell_data) so the input path
     /// can detect it without a blocking RPC.
     pub(crate) alt_screen_active: Arc<AtomicBool>,
-    /// 上游 OSC 回调事件通道（VT 线程推送，调用方轮询）：工作目录与剪贴板写入。
+    /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
-    pub(crate) cwd_tx: flume::Sender<String>,
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,
     /// 上游 BEL 回调事件通道（VT 线程推送，调用方轮询）：每次振铃一个空消息。
     /// 有界丢弃——VT 线程永不阻塞；单帧多响在会话锁存处合并为一。

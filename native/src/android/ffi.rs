@@ -2249,37 +2249,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
     })
 }
 
-/// 返回会话工作目录（OSC 7 上报），未上报过返回 null。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCurrentDirectory<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-) -> jstring {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("getCurrentDirectory: session not found"),
-            );
-            return Ok(std::ptr::null_mut());
-        };
-        let session = entry.session.lock();
-        let directory = session.current_directory();
-        drop(session);
-        drop(registry);
-        match directory {
-            Some(path) => match env.new_string(&path) {
-                Ok(s) => s.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            },
-            None => std::ptr::null_mut(),
-        }
-    })
-}
-
 // ── 文本与滚动查询 ──────────────────────────────────────────────
 /// Returns the number of scrollback rows for a session.
 #[unsafe(no_mangle)]

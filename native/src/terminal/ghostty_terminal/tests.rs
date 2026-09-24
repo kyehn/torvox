@@ -2081,35 +2081,6 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
     );
 }
 
-/// OSC 7、OSC 9 与 OSC 1337 工作目录上报（上游归一化，本仓只断言透出内容）。
-#[test]
-fn osc7_osc9_and_osc1337_report_working_directory() {
-    let mut osc7_terminal = terminal();
-    osc7_terminal.pty_write(b"\x1b]7;file:///tmp\x07");
-    osc7_terminal.flush();
-    assert_eq!(
-        osc7_terminal.poll_cwd_event(),
-        Some("file:///tmp".to_string()),
-        "OSC 7 must surface the working directory"
-    );
-    let mut osc9_terminal = terminal();
-    osc9_terminal.pty_write(b"\x1b]9;9;/tmp\x07");
-    osc9_terminal.flush();
-    assert_eq!(
-        osc9_terminal.poll_cwd_event(),
-        Some("/tmp".to_string()),
-        "OSC 9 ConEmu CurrentDir must surface the working directory"
-    );
-    let mut osc1337_terminal = terminal();
-    osc1337_terminal.pty_write(b"\x1b]1337;CurrentDir=/tmp\x07");
-    osc1337_terminal.flush();
-    assert_eq!(
-        osc1337_terminal.poll_cwd_event(),
-        Some("/tmp".to_string()),
-        "OSC 1337 CurrentDir must surface the working directory"
-    );
-}
-
 /// SGR31 红色必须到达渲染 CellData 的前景（设备渲染通路的精确复刻）。
 /// 背景：设备像素验收曾报 SGR 无红色，后证实为测试 harness 自废武功
 ///（全局暂停与直接呈现互斥）；本测试在 host 复刻设备渲染输入
