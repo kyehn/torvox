@@ -249,6 +249,58 @@ class SelectionDragQuantifiedTest {
     private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) =
         device.wait(Until.findObject(By.text(text)), timeoutMs)
 
+    /**
+     * 抓柄不抬手（“抓柄即隐藏”的断言窗口）：经系统注入把 DOWN + 一步 MOVE 送到
+     * overlay 柄位后停住（UiAutomator swipe 无法中途观测），返回 downTime 供
+     * [liftGrabbedHandle] 收尾。必须走系统注入——柄位归属 overlay 窗口。
+     */
+    private fun grabHandleWithoutLifting(xLocal: Float, yLocal: Float): Long {
+        val location = IntArray(2)
+        attachedSurface().getLocationOnScreen(location)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.sendPointerSync(
+            android.view.MotionEvent.obtain(
+                downTime,
+                downTime,
+                android.view.MotionEvent.ACTION_DOWN,
+                location[0] + xLocal,
+                location[1] + yLocal,
+                0,
+            ),
+        )
+        Thread.sleep(120)
+        instrumentation.sendPointerSync(
+            android.view.MotionEvent.obtain(
+                downTime,
+                android.os.SystemClock.uptimeMillis(),
+                android.view.MotionEvent.ACTION_MOVE,
+                location[0] + xLocal + 4f,
+                location[1] + yLocal,
+                0,
+            ),
+        )
+        Thread.sleep(200)
+        return downTime
+    }
+
+    /** 抬手收尾：结束 [grabHandleWithoutLifting] 开始的柄上按压（触发重锚重显）。 */
+    private fun liftGrabbedHandle(downTime: Long, xLocal: Float, yLocal: Float) {
+        val location = IntArray(2)
+        attachedSurface().getLocationOnScreen(location)
+        InstrumentationRegistry.getInstrumentation().sendPointerSync(
+            android.view.MotionEvent.obtain(
+                downTime,
+                android.os.SystemClock.uptimeMillis(),
+                android.view.MotionEvent.ACTION_UP,
+                location[0] + xLocal,
+                location[1] + yLocal,
+                0,
+            ),
+        )
+        Thread.sleep(150)
+    }
+
     private fun menuVisible(text: String): Boolean = device.findObject(By.text(text)) != null
 
     /**
@@ -351,6 +403,16 @@ class SelectionDragQuantifiedTest {
         val (stepCw, _) = cellPx()
         val cwInt = stepCw.toInt().coerceAtLeast(20)
         var currentX = grabX
+
+        // 抓柄即隐藏（design 决策 3）：DOWN 抓住 END柄、未抬手期间菜单必须隐藏；
+        // 抬手由 finishHandleDrag 按新几何重锚重显（同时防回退）。
+        val downTime = grabHandleWithoutLifting(grabX, grabY)
+        val hiddenDuringGrab =
+            UxTestUtils.pollUntilTrue(timeoutMs = 1_500, intervalMs = 100) { !menuVisible("复制") }
+        assertNotNull("抓柄期间菜单必须隐藏", hiddenDuringGrab)
+        liftGrabbedHandle(downTime, grabX + cwInt / 2f, grabY)
+        assertNotNull("抬手后菜单必须重锚重显", waitForMenuText("复制", 3_000))
+
         repeat(4) {
             currentX += cwInt
             // 每步一次真实滑动（down/move/up）：选择在步间保持，控制柄随末端走，

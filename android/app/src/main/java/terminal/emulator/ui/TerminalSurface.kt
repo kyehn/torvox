@@ -225,6 +225,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // termux behavior: select-all keeps the menu open so the
                         // user can immediately COPY the new selection.
                         viewModel?.selectAll()
+                        // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
+                        showSelectionMenuForCurrentSelection()
                     },
             )
             if (isLinkTextCandidate(selectionText) || isOpenableLink(selectionText)) {
@@ -370,8 +372,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Window coordinates for the menu: above the selection top edge (same viewport math as the
-     * handles), clamped into the surface. Null when cell metrics are not ready yet.
+     * 选择几何（网格 → 视图像素）→ 纯函数 [menuAnchor] 的输入：选择矩形、视口
+     * 与菜单估计尺寸。返回 null（无处可放/度量未就绪）时调用方隐藏菜单。
      */
     private fun menuAnchor(selection: terminal.emulator.SelectionState): Pair<Int, Int>? {
         val cw = cellWidth
@@ -389,28 +391,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         val viewportTopGrid = currentViewportTopGrid()
         val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cw, ch)
-        val (rightPx, _) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
+        val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
         val density = resources.displayMetrics.density
         val dp = { v: Int -> (v * density + 0.5f).toInt() }
         // PopupWindow measures on show, so use a rough estimate (items ×
         // ~92dp) clamped to the surface.
         val estimatedWidth = width.coerceAtMost(dp(184))
-        val x =
-            ((leftPx + rightPx) / 2 - estimatedWidth / 2)
-                .toInt()
-                .coerceIn(0, (width - estimatedWidth).coerceAtLeast(0))
         val menuHeight = dp(44)
-        // 菜单在选择区上方：菜单底缘高出选择首行顶缘一行（完全不遮挡所选词）；
-        // 上方空间不足才翻到选择底缘+手柄高度之下。
-        val aboveY = topPx - menuHeight - ch - dp(4)
-        val y = if (aboveY >= 0) {
-            aboveY.toInt()
-        } else {
-            val (_, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
-            val handleHeight = selectionHandleHeight()
-            (bottomPx + handleHeight + dp(4)).toInt().coerceIn(0, (height - menuHeight).coerceAtLeast(0))
-        }
-        return x to y
+        return menuAnchor(
+            selection = PixelRect(leftPx.toInt(), topPx.toInt(), rightPx.toInt(), bottomPx.toInt()),
+            viewport = PixelRect(0, 0, width, height),
+            menuWidth = estimatedWidth,
+            menuHeight = menuHeight,
+            handleHeight = selectionHandleHeight().toInt(),
+        )
     }
 
     /** 选择手柄高度（与手柄定位同源；未知时回退一 Character 行高）。 */
@@ -1762,6 +1756,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
         handleDragState = which
+        // 抓柄即隐藏（design 决策 3）：拖动中菜单不遮挡选择；抬手由
+        // finishHandleDrag 按新几何重锚重显。
+        hideSelectionMenu()
         // Lock onto the finger that started the drag: subsequent MOVE events
         // from other pointers must not steer the selection (issue #15).
         dragPointerId = pointerId
@@ -3137,6 +3134,39 @@ internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px /
     0,
     (maxCells - 1).coerceAtLeast(0),
 )
+
+/** 纯像素矩形（y 向下增大）：菜单锚定的几何输入，JVM 可单测（不碰 android.jar）。 */
+internal data class PixelRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+/**
+ * 菜单锚定纯函数（design 决策 3）：返回菜单左上角 (x, y)；无处可放返回 null（调用方隐藏菜单）。规则：
+ * - 上方优先：菜单底缘高出选择顶缘一个手柄高（锚隙）；贴顶（越出视口上缘）则翻到选择底缘之下；
+ * - 贴右钳制：水平居中于选择后夹进视口左右缘；
+ * - 选择盖满视口 —— 上下两处落点都放不进选区外的剩余空间（等价于两处都会与选择相交）
+ *   —— 返回 null：菜单任何时刻不遮挡选择。
+ */
+internal fun menuAnchor(
+    selection: PixelRect,
+    viewport: PixelRect,
+    menuWidth: Int,
+    menuHeight: Int,
+    handleHeight: Int,
+): Pair<Int, Int>? {
+    if (viewport.right - viewport.left <= 0 || viewport.bottom - viewport.top <= 0) return null
+    val width = menuWidth.coerceAtMost(viewport.right - viewport.left)
+    val x = (
+        (selection.left + selection.right) / 2 - width / 2
+        ).coerceIn(viewport.left, (viewport.right - width).coerceAtLeast(viewport.left))
+    val aboveTop = selection.top - menuHeight - handleHeight
+    if (aboveTop >= viewport.top) {
+        return x to aboveTop
+    }
+    val belowTop = selection.bottom + handleHeight
+    if (belowTop + menuHeight <= viewport.bottom) {
+        return x to belowTop
+    }
+    return null
+}
 
 /**
  * Snap a selection column left of a wide character's trailing half (the pure core of

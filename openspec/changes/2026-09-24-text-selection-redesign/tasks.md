@@ -17,7 +17,7 @@
 
 ## 4. 菜单与行为修复
 
-- [ ] 4.1 锚定纯函数（翻转/贴边/无处可放→隐藏）+ 全选后重锚 + 抓柄即隐藏；新单测、`SelectionEspressoTest` 重锚断言、`SelectionDragQuantifiedTest` 隐藏断言通过
+- [x] 4.1 锚定纯函数（翻转/贴边/无处可放→隐藏）+ 全选后重锚 + 抓柄即隐藏；新单测、`SelectionEspressoTest` 重锚断言、`SelectionDragQuantifiedTest` 隐藏断言通过
 - [ ] 4.2 边缘滚动改每次触点移动 1 行（删 30ms 循环）；`SelectionDragQuantifiedTest` 调整后通过
 - [ ] 4.3 OSC 8 打开链接回退 `resolveOpenLinkUri` + 单测；`SelectionMenuActionsTest` 通过
 - [ ] 4.4 打开文件删位置限制（点击时存在检查与写权限保留）；相关单测通过
