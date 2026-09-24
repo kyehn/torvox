@@ -176,11 +176,6 @@ internal val FN_KEY_SEQUENCES: List<Pair<String, String>> =
         "F12" to "\u001b[24~",
     )
 
-enum class ModifierBarMode {
-    Normal,
-    SelectionActions,
-}
-
 @Composable
 fun rememberToolbarLayout(): ImmutableList<ToolbarItem>? {
     val context = LocalContext.current
@@ -224,13 +219,8 @@ fun ModifierBar(
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     useNerdFontGlyphs: Boolean = false,
     toolbarLayout: ImmutableList<ToolbarItem>? = null,
-    barMode: ModifierBarMode = ModifierBarMode.Normal,
-    onCopy: (() -> Unit)? = null,
-    copyEnabled: Boolean = onCopy != null,
-    onSelectAll: (() -> Unit)? = null,
+    /** DRAWER 长按粘贴（termux 默认 `popup: 'PASTE'`）。 */
     onPaste: (() -> Unit)? = null,
-    onShare: (() -> Unit)? = null,
-    onDismiss: (() -> Unit)? = null,
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
     isAppCursorMode: () -> Boolean = { false },
     /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
@@ -299,25 +289,6 @@ fun ModifierBar(
             backgroundColor = backgroundColor,
             modifier = modifier,
             label = ::label,
-        )
-        return
-    }
-
-    if (barMode == ModifierBarMode.SelectionActions) {
-        SelectionActionsBar(
-            actions =
-            SelectionActions(
-                onCopy,
-                copyEnabled,
-                onSelectAll,
-                onPaste,
-                onShare,
-                onDismiss,
-            ),
-            textColor = textColor,
-            backgroundColor = backgroundColor,
-            buttonHeight = buttonHeight,
-            modifier = modifier,
         )
         return
     }
@@ -592,67 +563,6 @@ private fun FnKeyRows(
                 modifierState = ModifierState.Locked,
                 testTag = "Key_FN",
                 contentDescription = stringResource(R.string.function_key_layer),
-            )
-        }
-    }
-}
-
-private data class SelectionActions(
-    val onCopy: (() -> Unit)?,
-    val copyEnabled: Boolean = onCopy != null,
-    val onSelectAll: (() -> Unit)?,
-    val onPaste: (() -> Unit)?,
-    val onShare: (() -> Unit)?,
-    val onDismiss: (() -> Unit)?,
-)
-
-@Composable
-private fun SelectionActionsBar(
-    actions: SelectionActions,
-    textColor: Color,
-    backgroundColor: Color,
-    buttonHeight: androidx.compose.ui.unit.Dp,
-    modifier: Modifier = Modifier,
-) {
-    val actionList = mutableListOf<Triple<String, () -> Unit, Boolean>>()
-    // the self-invented ◀/▶ anchor-move actions are removed —
-    // handle dragging covers anchor adjustment (spec text-selection
-    // "菜单项动态化": no arrow items in any scenario).
-    if (actions.onCopy != null) {
-        actionList.add(Triple(stringResource(R.string.copy), actions.onCopy, actions.copyEnabled))
-    }
-    if (actions.onSelectAll != null) {
-        actionList.add(Triple(stringResource(R.string.select_all), actions.onSelectAll, true))
-    }
-    if (actions.onPaste != null) {
-        actionList.add(Triple(stringResource(R.string.paste), actions.onPaste, true))
-    }
-    if (actions.onShare != null) {
-        actionList.add(Triple(stringResource(R.string.share), actions.onShare, true))
-    }
-
-    Row(
-        modifier = modifier.fillMaxWidth().height(buttonHeight).background(backgroundColor),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for ((label, action, enabled) in actionList) {
-            ExtraKeyButton(
-                text = label,
-                onClick = action,
-                textColor = textColor,
-                enabled = enabled,
-                testTag = "Action_${label.replace(" ", "")}",
-                contentDescription = label,
-            )
-        }
-        if (actions.onDismiss != null) {
-            ExtraKeyButton(
-                text = "\u00d7",
-                onClick = actions.onDismiss,
-                textColor = textColor,
-                testTag = "Action_Dismiss",
-                contentDescription = stringResource(R.string.dismiss_selection),
             )
         }
     }
@@ -1106,7 +1016,6 @@ private fun RowScope.ExtraKeyButton(
     onClick: () -> Unit,
     textColor: androidx.compose.ui.graphics.Color,
     isActive: Boolean = false,
-    enabled: Boolean = true,
     modifierState: ModifierState? = null,
     testTag: String = "",
     contentDescription: String? = null,
@@ -1122,7 +1031,7 @@ private fun RowScope.ExtraKeyButton(
 
     val scale by
         animateFloatAsState(
-            targetValue = if (isPressed && enabled) 0.90f else 1f,
+            targetValue = if (isPressed) 0.90f else 1f,
             animationSpec =
             spring(
                 dampingRatio = PRESS_SCALE_SPRING_DAMPING,
@@ -1148,7 +1057,6 @@ private fun RowScope.ExtraKeyButton(
         )
     val activeFg =
         when {
-            !enabled -> textColor.copy(alpha = 0.38f)
             isLocked -> MaterialTheme.colorScheme.onPrimary
             isOnce -> MaterialTheme.colorScheme.primary
             isActive -> MaterialTheme.colorScheme.primary
@@ -1172,10 +1080,6 @@ private fun RowScope.ExtraKeyButton(
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnRepeat by rememberUpdatedState(onRepeat)
     val currentSecondaryAction by rememberUpdatedState(secondaryAction)
-    // enabled is a parameter (copy-enabled toggles dynamically): without
-    // this delegate the Unit-keyed gesture coroutine would read a stale
-    // value forever (review-5 MINOR).
-    val currentEnabled by rememberUpdatedState(enabled)
     val gestureModifier =
         Modifier.pointerInput(Unit) {
             awaitEachGesture {
@@ -1196,7 +1100,7 @@ private fun RowScope.ExtraKeyButton(
                 isPressed = true
                 try {
                     var gestureValid = true
-                    if (currentSecondaryAction != null && currentEnabled) {
+                    if (currentSecondaryAction != null) {
                         // Keys with a secondary action (DRAWER → paste):
                         // a quick tap fires onClick IMMEDIATELY (no
                         // long-press confirmation window), while a
@@ -1208,7 +1112,6 @@ private fun RowScope.ExtraKeyButton(
                         fun maybeFireLongPress() {
                             if (
                                 !longPressTriggered &&
-                                currentEnabled &&
                                 System.currentTimeMillis() - downTime >= LONG_PRESS_MS
                             ) {
                                 longPressTriggered = true
@@ -1239,7 +1142,7 @@ private fun RowScope.ExtraKeyButton(
                             }
                             maybeFireLongPress()
                         }
-                        if (!longPressTriggered && gestureValid && currentEnabled) {
+                        if (!longPressTriggered && gestureValid) {
                             view.performHapticFeedback(
                                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                             )
@@ -1263,7 +1166,7 @@ private fun RowScope.ExtraKeyButton(
                                     break
                                 }
                             }
-                            if (tapValid && currentEnabled) {
+                            if (tapValid) {
                                 view.performHapticFeedback(
                                     android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
@@ -1293,7 +1196,7 @@ private fun RowScope.ExtraKeyButton(
                                         null
                                     }
                                 if (ev == null) {
-                                    if (repeatValid && currentEnabled) {
+                                    if (repeatValid) {
                                         if (!repeatFired) {
                                             view.performHapticFeedback(
                                                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
@@ -1318,7 +1221,7 @@ private fun RowScope.ExtraKeyButton(
                                     break
                                 }
                             }
-                            if (!repeatFired && repeatValid && currentEnabled) {
+                            if (!repeatFired && repeatValid) {
                                 view.performHapticFeedback(
                                     android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
