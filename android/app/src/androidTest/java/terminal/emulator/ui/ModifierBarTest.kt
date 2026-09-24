@@ -1,9 +1,13 @@
 package terminal.emulator.ui
 
+import android.os.SystemClock
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsets.Type
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -154,6 +158,56 @@ class ModifierBarTest {
             }
         }
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
+    }
+
+    /** 经 View 派发合成触摸：performTouchInput 无法表达 ACTION_CANCEL，取消语义必须走原始 MotionEvent。 */
+    private fun dispatchMotion(downTime: Long, action: Int, position: Offset) {
+        val content = composeTestRule.activity.findViewById<View>(android.R.id.content)
+        val eventTime = SystemClock.uptimeMillis()
+        content.post {
+            content.dispatchTouchEvent(
+                MotionEvent.obtain(downTime, eventTime, action, position.x, position.y, 0),
+            )
+        }
+        Thread.sleep(80L)
+    }
+
+    private fun ctrlCenter(): Offset =
+        composeTestRule.onNodeWithTag("Key_CTRL").fetchSemanticsNode().boundsInRoot.center
+
+    @Test
+    fun modifier_bar_view_tap_triggers_key() {
+        // 对照：View 派发 DOWN+UP 必须触发 —— 保证取消测试非假绿。
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
+        val downTime = SystemClock.uptimeMillis()
+        dispatchMotion(downTime, MotionEvent.ACTION_DOWN, ctrlCenter())
+        dispatchMotion(downTime, MotionEvent.ACTION_UP, ctrlCenter())
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsSelected()
+    }
+
+    @Test
+    fun modifier_bar_touch_cancel_does_not_trigger_key() {
+        // 全面屏手势认领向应用下发 ACTION_CANCEL：不得当成抬手触发按键。
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
+        val downTime = SystemClock.uptimeMillis()
+        dispatchMotion(downTime, MotionEvent.ACTION_DOWN, ctrlCenter())
+        dispatchMotion(downTime, MotionEvent.ACTION_CANCEL, ctrlCenter())
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
+    }
+
+    @Test
+    fun modifier_bar_touch_cancel_on_drawer_does_not_open_drawer() {
+        // 长按副动作分支：取消同样吞掉，不触发抽屉打开。
+        composeTestRule.onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsNotDisplayed()
+        val drawerCenter =
+            composeTestRule.onNodeWithTag("Key_DRAWER").fetchSemanticsNode().boundsInRoot.center
+        val downTime = SystemClock.uptimeMillis()
+        dispatchMotion(downTime, MotionEvent.ACTION_DOWN, drawerCenter)
+        dispatchMotion(downTime, MotionEvent.ACTION_CANCEL, drawerCenter)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsNotDisplayed()
     }
 
     @Test

@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -1180,6 +1182,17 @@ private fun RowScope.ExtraKeyButton(
                 awaitFirstDown()
                 val downPos = currentEvent.changes.first().position
                 val slop = viewConfiguration.touchSlop
+                // ACTION_CANCEL 会被 MotionEventAdapter 直接丢弃，改由 processCancel 合成
+                // 无 MotionEvent 的全释放事件送达；真实抬手/移动始终携带原始 MotionEvent。
+                var sawRawMotionEvent = currentEvent.motionEvent != null
+                fun PointerEvent.isGestureCancelled(): Boolean {
+                    val raw = motionEvent
+                    if (raw != null) {
+                        sawRawMotionEvent = true
+                        return raw.actionMasked == MotionEvent.ACTION_CANCEL
+                    }
+                    return sawRawMotionEvent && changes.all { !it.pressed }
+                }
                 isPressed = true
                 try {
                     var gestureValid = true
@@ -1207,6 +1220,10 @@ private fun RowScope.ExtraKeyButton(
                         }
                         while (true) {
                             val ev = awaitPointerEvent()
+                            if (ev.isGestureCancelled()) {
+                                gestureValid = false
+                                break
+                            }
                             val ch = ev.changes.first()
                             // A perfectly still hold produces no MOVE events,
                             // so the release itself must also count when the
@@ -1235,6 +1252,10 @@ private fun RowScope.ExtraKeyButton(
                             var tapValid = true
                             while (true) {
                                 val ev = awaitPointerEvent()
+                                if (ev.isGestureCancelled()) {
+                                    tapValid = false
+                                    break
+                                }
                                 val ch = ev.changes.first()
                                 if (!ch.pressed) break
                                 if ((ch.position - downPos).getDistance() > slop) {
@@ -1247,10 +1268,11 @@ private fun RowScope.ExtraKeyButton(
                                     android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
                                 currentOnClick()
-                            } else if (!tapValid) {
-                                while (true) {
-                                    val ev = awaitPointerEvent()
-                                    if (ev.changes.all { !it.pressed }) break
+                            } else if (!tapValid && currentEvent.changes.any { it.pressed }) {
+                                // 滑出后指针仍按下：排空到抬手；取消时已全部释放，
+                                // 不得再等事件，否则会吞掉下一次手势的 DOWN。
+                                while (currentEvent.changes.any { it.pressed }) {
+                                    awaitPointerEvent()
                                 }
                             }
                         } else {
@@ -1285,6 +1307,10 @@ private fun RowScope.ExtraKeyButton(
                                     nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
                                     continue
                                 }
+                                if (ev.isGestureCancelled()) {
+                                    repeatValid = false
+                                    break
+                                }
                                 val ch = ev.changes.first()
                                 if (!ch.pressed) break
                                 if ((ch.position - downPos).getDistance() > slop) {
@@ -1298,10 +1324,9 @@ private fun RowScope.ExtraKeyButton(
                                 )
                                 currentOnClick()
                             }
-                            if (!repeatValid) {
-                                while (true) {
-                                    val ev = awaitPointerEvent()
-                                    if (ev.changes.all { !it.pressed }) break
+                            if (!repeatValid && currentEvent.changes.any { it.pressed }) {
+                                while (currentEvent.changes.any { it.pressed }) {
+                                    awaitPointerEvent()
                                 }
                             }
                         }
