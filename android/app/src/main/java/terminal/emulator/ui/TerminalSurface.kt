@@ -69,13 +69,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } catch (_: Exception) {
             // View already torn down — ignore.
         }
-        // Stop the edge-scroll self-loop: it is driven by postDelayed and
-        // only stops on ACTION_UP/CANCEL. A detach mid-drag (rotation,
-        // window destruction) would otherwise leave it running forever,
-        // holding this view (and the whole viewModel chain) via the
-        // handler's runnable and burning main-thread cycles on
-        // repositionHandle.
-        stopEdgeScroll()
         // Clear the fling scroll-end marker and the render-unpause callback:
         // both are postDelayed runnables that capture this view; after a
         // detach they would fire on a destroyed window (and repeated flings
@@ -115,11 +108,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // build a new InputBatchBuffer. Without this, every recreation leaks
         // a daemon thread that pins the whole view chain via its sink closure.
         inputBatchBuffer.close()
-    }
-
-    private fun stopEdgeScroll() {
-        edgeScrollRunning = false
-        edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
     }
 
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
@@ -1262,7 +1250,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         /** Number of Unicode code points in [text] (surrogate-pair safe). */
         private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
 
-        private const val EDGE_SCROLL_INTERVAL_MS = 30L
+        /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
+        private const val EDGE_SCROLL_STEP_UP = 1
+        private const val EDGE_SCROLL_STEP_DOWN = -1
         private const val ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS = 500L
         private const val ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS = 250_000_000L // 4 Hz
 
@@ -1624,12 +1614,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * snapped to the final cells + toolbar, and flush the highlight to the Rust renderer.
      */
     internal fun finishHandleDrag() {
-        // overlay-owned drags BYPASS the
-        // legacy surface UP/CANCEL branch where this cleanup used to live.
-        // Without it, releasing a handle inside an edge-scroll zone left
-        // edgeScrollRunning=true (50ms self-looping runnable doing JNI
-        // scrollback queries and mutating the finished selection forever).
-        stopEdgeScroll()
         handleDragState = HandleDrag.NONE
         dragPointerId = null
         dragWideCharCacheSession = false
@@ -1643,12 +1627,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * Handle-drag ACTION_MOVE body, extracted from onTouchEvent (detekt NestedBlockDepth):
-     * pointer-locked selection update + edge-scroll driving at viewport [touchX]/[touchY] (already
+     * pointer-locked selection update + edge-scroll stepping at viewport [touchX]/[touchY] (already
      * resolved to the locked finger's slot by the caller).
      */
     private fun driveHandleDragMove(touchX: Float, touchY: Float) {
-        val col = pixelToCell(touchX, cellWidth, cols)
-        val row = pixelToCell(touchY, cellHeight, rows)
         currentTouchX = touchX
         currentTouchY = touchY
 
@@ -1661,29 +1643,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val altScreenActive = dragAltScreenSnapshot
         when (edgeScrollDirection(touchY, surfaceHeightPixels.toFloat(), cellHeight)) {
             EdgeScrollDirection.UP -> {
-                if (altScreenActive) {
-                    stopEdgeScroll()
-                } else if (!edgeScrollRunning) {
-                    edgeScrollRunning = true
-                    pendingEdgeScroll = 1
-                    edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                // 每次触点移动滚 1 行（design 决策 5）：无定时循环，滚动只随手指移动发生。
+                if (!altScreenActive) {
+                    stepEdgeScroll(EDGE_SCROLL_STEP_UP)
                 }
             }
 
             EdgeScrollDirection.DOWN -> {
-                if (altScreenActive) {
-                    stopEdgeScroll()
-                } else if (!edgeScrollRunning) {
-                    edgeScrollRunning = true
-                    pendingEdgeScroll = -1
-                    edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                if (!altScreenActive) {
+                    stepEdgeScroll(EDGE_SCROLL_STEP_DOWN)
                 }
             }
 
             EdgeScrollDirection.STOP -> {
-                edgeScrollRunning = false
-                pendingEdgeScroll = 0
-                edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
                 val (gridRow, snapCol) = dragTargetFromTouch(touchX, touchY)
                 // Fast drag path (): compute bounds and reposition handles
                 // directly, bypassing Compose _state.update → recomposition → read-back
@@ -1701,6 +1673,33 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     selectionHandles.repositionHandle(HandleDrag.END, bounds[2], bounds[3])
                 }
             }
+        }
+    }
+
+    /**
+     * 边缘滚动单步：触点位于边缘区的每次 MOVE 滚 [step]（[EDGE_SCROLL_STEP_UP] 向上、
+     * [EDGE_SCROLL_STEP_DOWN] 向下）恰好 1 行，滚动随手指移动即时发生（无定时循环），
+     * 并把拖拽柄钉到新视口的顶/底行后同步两个手柄位置。
+     */
+    private fun stepEdgeScroll(step: Int) {
+        val scrollbackLen = currentScrollbackLength()
+        val newOffset = (scrollOffset + step).coerceIn(0, scrollbackLen)
+        if (newOffset != scrollOffset) {
+            scrollOffset = newOffset
+            onScrollChanged?.invoke(scrollOffset)
+            // 向上滚钉新视口顶行，向下滚钉底行。
+            val gridRow =
+                if (step == EDGE_SCROLL_STEP_UP) {
+                    scrollbackLen - newOffset
+                } else {
+                    scrollbackLen - newOffset + rows - 1
+                }
+            updateDragHandleForCell(gridRow)
+        }
+        val selection = viewModel?.state?.value?.selection
+        if (selection?.start != null && selection.end != null) {
+            selectionHandles.repositionHandle(HandleDrag.START, selection.start.row, selection.start.col)
+            selectionHandles.repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
         }
     }
 
@@ -1800,11 +1799,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val imeConnection = ImeConnection()
     private val selectionHandles = SelectionHandles()
     private val clipboardPaster = ClipboardPaster(clipboardAccess)
-
-    private val edgeScrollHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var edgeScrollRunning = false
-    private var pendingEdgeScroll: Int = 0 // +1 = up, -1 = down, 0 = none
-    private var edgeScrollRunnable: Runnable = Runnable {}
 
     val isSelectingText: Boolean
         get() = viewModel?.state?.value?.selection?.active == true
@@ -2182,43 +2176,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         contentDescription = context.getString(R.string.terminal)
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         installAccessibilityCustomActions()
-        edgeScrollRunnable = Runnable {
-            if (!edgeScrollRunning) return@Runnable
-            when (pendingEdgeScroll) {
-                1 -> {
-                    val scrollbackLen = currentScrollbackLength()
-                    val newOffset = (scrollOffset + 1).coerceAtMost(scrollbackLen)
-                    if (newOffset != scrollOffset) {
-                        scrollOffset = newOffset
-                        onScrollChanged?.invoke(scrollOffset)
-                        // Top viewport row in grid coordinates.
-                        updateDragHandleForCell(scrollbackLen - newOffset)
-                    }
-                }
-
-                -1 -> {
-                    val newOffset = (scrollOffset - 1).coerceAtLeast(0)
-                    if (newOffset != scrollOffset) {
-                        scrollOffset = newOffset
-                        onScrollChanged?.invoke(scrollOffset)
-                        // Bottom viewport row in grid coordinates.
-                        updateDragHandleForCell(currentScrollbackLength() - newOffset + rows - 1)
-                    }
-                }
-            }
-            val selection = viewModel?.state?.value?.selection
-            if (selection?.start != null && selection.end != null) {
-                selectionHandles.repositionHandle(
-                    HandleDrag.START,
-                    selection.start.row,
-                    selection.start.col,
-                )
-                selectionHandles.repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
-            }
-            if (edgeScrollRunning) {
-                edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
-            }
-        }
     }
 
     private var keyboardRequested = false
@@ -2892,9 +2849,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         showSelectionMenuForCurrentSelection()
                     }
                 }
-                edgeScrollRunning = false
-                pendingEdgeScroll = 0
-                edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
                     finishHandleDrag()
                 }
@@ -3054,10 +3008,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // activity leaks (and a BadTokenException crash on rotation when
         // the activity is being destroyed).
         selectionHandles.hideSelectionHandles()
-        // Stop the edge-scroll loop: without this the self-reposting
-        // runnable keeps firing every 50ms after destroy, touching a
-        // cleared ViewModel and dismissed popups.
-        stopEdgeScroll()
         // Reset any latch left by a drag interrupted by surface teardown
         // (review-6 hygiene): the overlay is gone so no UP will arrive;
         // a stale latch would be self-healed only by the next touch.
