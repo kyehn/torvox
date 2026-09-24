@@ -246,20 +246,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    internal fun isUnderFileProviderRoots(path: String): Boolean {
-        if (path.isEmpty()) return false
-        return try {
-            val roots = listOfNotNull(
-                context.filesDir?.absolutePath,
-                context.cacheDir?.absolutePath,
-                context.getExternalFilesDir(null)?.absolutePath,
-            )
-            roots.any { root -> path == root || path.startsWith("$root/") }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
     /**
      * 菜单“打开链接”动作：目标由 [resolveOpenLinkUri] 解析（选择文本 URL 形态优先、
      * 否则回退选区起点的 OSC 8 链接），http(s) 白名单后交系统打开；无目标静默返回。
@@ -297,10 +283,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             return
         }
         if (!file.isFile || !file.exists()) {
-            toastCannotOpenFile()
-            return
-        }
-        if (!isUnderFileProviderRoots(trimmed)) {
             toastCannotOpenFile()
             return
         }
