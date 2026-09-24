@@ -5,10 +5,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * UrlToken.looksLikeFullUrl — the full-URL regex shared by SmartCopy and
- * SelectionExpander. SelectionExpanderTest/SmartCopyTest cover a few
- * slice samples; this file pins the boundary table so a regex edit cannot
- * silently change what counts as a tappable URL.
+ * UrlToken.looksLikeFullUrl — the full-URL regex behind the Surface-side
+ * word-bound detection. This file pins the boundary table so a regex edit
+ * cannot silently change what counts as a tappable URL.
  */
 class UrlTokenTest {
 

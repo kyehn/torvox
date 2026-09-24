@@ -33,7 +33,6 @@ data class BridgeTheme(
     val background: Int,
     val foreground: Int,
     val cursor: Int,
-    val selectionBackground: Int,
     val ansi0: Int,
     val ansi1: Int,
     val ansi2: Int,
@@ -793,20 +792,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun getActiveSessionTitle(): String = queryPort.getActiveSessionTitle()
 
     // ── Selection ─────────────────────────────────────────────────────
-    override fun setSelection(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        hasSelection: Boolean?,
-        mode: Byte,
-        selectionBackgroundArgb: Int,
-    ) {
-        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBackgroundArgb)
+    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
+        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection)
     }
-
-    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? =
-        queryPort.expandAndSetSelection(row, col, mode)
 
     // ── Search / scrollback ────────────────────────────────────────────
     // Query methods delegate to the real native JNI path via
@@ -848,9 +836,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun getTerminalText(): String? = runCatchingCancellable { queryPort.getTerminalText() }.getOrNull()
 
-    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? =
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
         runCatchingCancellable {
-            queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle)
+            queryPort.selectionText(startRow, startCol, endRow, endCol)
         }
             .getOrNull()
 

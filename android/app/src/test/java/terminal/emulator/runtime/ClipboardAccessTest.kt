@@ -11,12 +11,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * CopyAccess smart-copy processor semantics
- * (Haven SmartTerminalClipboard:407-430):
- *   1. a non-null processor transforms the written text;
- *   2. a null/blank processor result falls back to the caller's text
- *      (drift guard — never clobber the clipboard with empty);
- *   3. the default processor is null → verbatim (OSC 52 path).
+ * ClipboardAccess write/read semantics: a plain-text write round-trips
+ * through `clipboardText()`, the clip label survives, and an empty
+ * clipboard reports null.
  */
 @RunWith(RobolectricTestRunner::class)
 class ClipboardAccessTest {
@@ -30,43 +27,12 @@ class ClipboardAccessTest {
     }
 
     @Test
-    fun `default processor is null - verbatim write`() {
+    fun `plain write round trip preserves content`() {
         access.setClipboardText("osc-52-content")
         assertEquals(
             "osc-52-content",
             access.clipboardText(),
         )
-    }
-
-    @Test
-    fun `processor transforms written text`() {
-        access.smartCopyProcessor = { text -> text.uppercase() }
-        access.setClipboardText("border panel")
-        assertEquals("BORDER PANEL", access.clipboardText())
-    }
-
-    @Test
-    fun `null processor result falls back to caller text`() {
-        access.smartCopyProcessor = { null }
-        access.setClipboardText("drifted snapshot")
-        assertEquals("drifted snapshot", access.clipboardText())
-    }
-
-    @Test
-    fun `blank processor result falls back to caller text`() {
-        access.smartCopyProcessor = { "" }
-        access.setClipboardText("keep me")
-        assertEquals("keep me", access.clipboardText())
-    }
-
-    @Test
-    fun `processor cleared restores verbatim`() {
-        access.smartCopyProcessor = { it.replace("sc", "processed") }
-        access.setClipboardText("sc")
-        assertEquals("processed", access.clipboardText())
-        access.smartCopyProcessor = null
-        access.setClipboardText("sc")
-        assertEquals("sc", access.clipboardText())
     }
 
     @Test

@@ -6,7 +6,6 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.view.Surface
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -387,8 +386,6 @@ constructor(
 
     @Volatile var accentColor: Int = 0xFF2196F3.toInt()
 
-    @Volatile var selectionBackgroundColor: Int = 0xFF45475A.toInt()
-
     @Volatile var cellWidth: Float = 0f
 
     @Volatile var cellHeight: Float = 0f
@@ -752,7 +749,6 @@ constructor(
         val endRow: Int,
         val endCol: Int,
         val hasSelection: Boolean,
-        val mode: Byte,
         // P1-1: true while a selection-handle drag is in progress (UI
         // thread, via setSelectionDragging). The render thread folds this
         // into hasSelectionOrDrag for the scroll-reset decision; it is
@@ -763,7 +759,7 @@ constructor(
 
     private val selectionState =
         java.util.concurrent.atomic.AtomicReference(
-            SelectionStateSnapshot(0, 0, 0, 0, false, 0),
+            SelectionStateSnapshot(0, 0, 0, 0, false),
         )
 
     /**
@@ -903,7 +899,6 @@ constructor(
         val shell = resolveShell(configReads.shellPath)
         val bridgeTheme = makeBridgeTheme(resolvedTheme)
         accentColor = bridgeTheme.ansi5
-        selectionBackgroundColor = bridgeTheme.selectionBackground
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
         val homeDir = java.io.File(context.filesDir, "home").absolutePath
         // Failsafe (termux app shortcut "New session (Failsafe)"): bypass
@@ -1286,7 +1281,7 @@ constructor(
                                 var consecutiveErrors = 0
                                 var lastScrollOffset = Int.MAX_VALUE
                                 var lastScrollRemainderPx = Float.NaN
-                                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
+                                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
                                 // Per-thread frame-duration statistics: reset whenever the
                                 // render thread restarts (fresh lifetime, no stale history).
                                 val frameTiming = FrameTimingStats()
@@ -1387,8 +1382,6 @@ constructor(
                                                 selectionSnapshot.endRow,
                                                 selectionSnapshot.endCol,
                                                 selectionSnapshot.hasSelection,
-                                                selectionSnapshot.mode,
-                                                selectionBackgroundColor,
                                             )
                                             lastSelection = selectionSnapshot
                                         }
@@ -2065,18 +2058,11 @@ constructor(
         val foregroundColor = resolvedTheme.foreground.toArgb()
         val cursor = resolvedTheme.cursor.toArgb()
         val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
-        val resolvedSelectionBackground =
-            if (resolvedTheme.selectionBackground == Color.Transparent) {
-                Color(0xFF45475A)
-            } else {
-                resolvedTheme.selectionBackground
-            }
         return BridgeTheme(
             name = resolvedTheme.name,
             background = backgroundColor,
             foreground = foregroundColor,
             cursor = cursor,
-            selectionBackground = resolvedSelectionBackground.toArgb(),
             ansi0 = ansiInts[0],
             ansi1 = ansiInts[1],
             ansi2 = ansiInts[2],
@@ -3434,43 +3420,23 @@ constructor(
         }
     }
 
-    fun setSelection(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        hasSelection: Boolean,
-        mode: Byte = 0,
-        selectionBackgroundArgb: Int = selectionBackgroundColor,
-    ) {
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean) {
         LogUtil.d(
             "Runtime",
-            "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection mode=$mode",
+            "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection",
         )
         // Full-snapshot overwrite: dragging resets to false here — every
         // commit path (endSelection/clearSelection/syncSelectionToNative)
         // funnels through this call, so a finished drag always clears the
         // P1-1 dragging guard.
         selectionState.set(
-            SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode),
+            SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection),
         )
         val entry = sessions[activeSessionId]
         entry
             ?.bridge
-            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBackgroundArgb)
+            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection)
         entry?.notifyRender()
-    }
-
-    fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
-        LogUtil.d("Runtime", "expandAndSetSelection: row=$row col=$col mode=$mode")
-        val entry = sessions[activeSessionId] ?: return null
-        val bounds = entry.bridge?.expandAndSetSelection(row, col, mode) ?: return null
-        val (start, end) = bounds
-        selectionState.set(
-            SelectionStateSnapshot(start.first, start.second, end.first, end.second, true, mode),
-        )
-        entry.notifyRender()
-        return bounds
     }
 
     /**
