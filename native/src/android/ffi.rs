@@ -67,7 +67,8 @@ use jni::objects::JObject;
 use jni::objects::{JClass, JString};
 use jni::strings::JNIString;
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize, jstring,
+    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jint, jintArray, jlong, jobjectArray, jsize,
+    jstring,
 };
 use jni::{Env, EnvUnowned, jni_str};
 
@@ -2434,6 +2435,102 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
             Ok(s) => s.into_raw(),
             Err(_) => std::ptr::null_mut(),
         }
+    })
+}
+
+/// 有序选区界限（绝对网格坐标，0 = 回滚顶部）→ JNI `IntArray
+/// [startRow, startCol, endRow, endCol]`；`None`（无可选内容）→ null。
+fn bounds_to_int_array(env: &mut Env, bounds: Option<((u32, u32), (u32, u32))>) -> jintArray {
+    let Some(((start_row, start_col), (end_row, end_col))) = bounds else {
+        return std::ptr::null_mut();
+    };
+    let values = [
+        start_row.min(jint::MAX as u32) as jint,
+        start_col.min(jint::MAX as u32) as jint,
+        end_row.min(jint::MAX as u32) as jint,
+        end_col.min(jint::MAX as u32) as jint,
+    ];
+    let Ok(array) = env.new_int_array(values.len()) else {
+        return std::ptr::null_mut();
+    };
+    if array.set_region(env, 0, &values).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
+}
+
+/// 上游 select_word：以落点为锚派生词选区并安装到终端（ghostty 默认词
+/// 边界），回传 `[startRow, startCol, endRow, endCol]`（绝对网格坐标）；
+/// 落点无可选词或查询失败返回 null。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    row: jint,
+    col: jint,
+) -> jintArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return Ok(std::ptr::null_mut());
+        };
+        let session = entry.session.lock();
+        let bounds = session
+            .terminal()
+            .select_word_at(row.max(0) as u32, col.max(0) as u32);
+        drop(session);
+        drop(registry);
+        bounds_to_int_array(env, bounds)
+    })
+}
+
+/// 上游 select_line：落点所在整行派生并安装（语义提示边界关），回传与
+/// 失败语义同 selectWordAt。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectLineAt<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    row: jint,
+    col: jint,
+) -> jintArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return Ok(std::ptr::null_mut());
+        };
+        let session = entry.session.lock();
+        let bounds = session
+            .terminal()
+            .select_line_at(row.max(0) as u32, col.max(0) as u32);
+        drop(session);
+        drop(registry);
+        bounds_to_int_array(env, bounds)
+    })
+}
+
+/// 上游 select_all：全部内容（回滚 + 视口，界限不含尾部空行/空列）派生
+/// 并安装，回传与失败语义同 selectWordAt。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jintArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return Ok(std::ptr::null_mut());
+        };
+        let session = entry.session.lock();
+        let bounds = session.terminal().select_all();
+        drop(session);
+        drop(registry);
+        bounds_to_int_array(env, bounds)
     })
 }
 
