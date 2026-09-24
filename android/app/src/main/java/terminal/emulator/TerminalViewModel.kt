@@ -28,7 +28,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.bridge.SelectionExpander
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
@@ -43,19 +42,10 @@ import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.util.TerminalDispatchers
-import terminal.emulator.util.charCellWidth
 import terminal.emulator.util.runCatchingCancellable
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
-
-enum class SelectionMode {
-    Char,
-    Word,
-    Line,
-    Block,
-    Semantic,
-}
 
 /** Mirror of selection::TouchClass. */
 enum class TouchClass {
@@ -72,7 +62,6 @@ data class SelectionState(
     val dragging: Boolean = false,
     val start: SelectionAnchor? = null,
     val end: SelectionAnchor? = null,
-    val mode: SelectionMode = SelectionMode.Char,
     val selectedText: String = "",
     val touchClass: TouchClass = TouchClass.Unknown,
     // Set when a menu action (Copy/Select All/Share) was taken: the
@@ -237,8 +226,6 @@ constructor(
 
     fun endSelection() = selectionManager.endSelection()
 
-    fun setSelectionMode(mode: SelectionMode) = selectionManager.setSelectionMode(mode)
-
     /**
      * Fast drag path: bounds computed without Compose state writes; see [SelectionManager.dragMove].
      */
@@ -263,7 +250,6 @@ constructor(
         if (!current.active || current.pasteOnly) return
         selectionManager.syncDragBoundsToNativeThrottled(
             intArrayOf(start.row, start.col, end.row, end.col),
-            current.mode.ordinal.toByte(),
         )
     }
 
@@ -418,7 +404,6 @@ constructor(
                         dragging = true,
                         start = anchor,
                         end = anchor,
-                        mode = state.selection.mode,
                         touchClass = touchClass,
                         menuDismissed = false,
                     ),
@@ -462,7 +447,7 @@ constructor(
                 )
             val arr = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
             lastDragBounds = arr
-            syncDragBoundsToNativeThrottled(arr, current.mode.ordinal.toByte())
+            syncDragBoundsToNativeThrottled(arr)
             return arr
         }
 
@@ -472,7 +457,7 @@ constructor(
          * JNI crossing + re-render on every MOVE frame. The final exact bounds are committed by
          * endSelection via runtime.setSelection on release.
          */
-        internal fun syncDragBoundsToNativeThrottled(arr: IntArray, modeOrdinal: Byte) {
+        internal fun syncDragBoundsToNativeThrottled(arr: IntArray) {
             val nowMs = SystemClock.uptimeMillis()
             if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
             lastDragNativeSyncUptimeMs = nowMs
@@ -480,7 +465,7 @@ constructor(
             val hiRow = maxOf(arr[0], arr[2])
             val loCol = minOf(arr[1], arr[3])
             val hiCol = maxOf(arr[1], arr[3])
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, modeOrdinal)
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
         }
 
         @Volatile private var lastDragNativeSyncUptimeMs = 0L
@@ -592,57 +577,7 @@ constructor(
             val hiRow = maxOf(start.row, end.row)
             val loCol = minOf(start.col, end.col)
             val hiCol = maxOf(start.col, end.col)
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, current.mode.ordinal.toByte())
-        }
-
-        fun setSelectionMode(mode: SelectionMode) {
-            _state.update { state ->
-                val current = state.selection
-                val adjusted =
-                    if (!current.active || current.start == null || current.end == null) {
-                        current
-                    } else {
-                        adjustSelectionForMode(current, mode)
-                    }
-                state.copy(selection = adjusted.copy(mode = mode))
-            }
-            syncSelectionToNative()
-        }
-
-        /**
-         * mode switch re-expands the range (termlib SelectionManager.adjustSelectionForMode:288-320):
-         * WORD expands both ends onto word boundaries, LINE spans the full rows, CHAR keeps the current
-         * range as-is.
-         */
-        private fun adjustSelectionForMode(selection: SelectionState, mode: SelectionMode): SelectionState {
-            val start = selection.start ?: return selection
-            val end = selection.end ?: return selection
-            return when (mode) {
-                SelectionMode.Line -> {
-                    val cols = (runtime.state.value.cols - 1).coerceAtLeast(0)
-                    selection.copy(
-                        start = start.copy(col = 0),
-                        end = end.copy(col = cols),
-                    )
-                }
-
-                SelectionMode.Word -> {
-                    val bridge = runtime.bridge() ?: return selection
-                    val startLine = bridge.scrollbackLine(start.row) ?: return selection
-                    val endLine = bridge.scrollbackLine(end.row) ?: return selection
-                    val startWord = SelectionExpander.expandBounds(startLine, start.col)
-                    val endWord = SelectionExpander.expandBounds(endLine, end.col)
-                    selection.copy(
-                        start = start.copy(col = startWord.first),
-                        end = end.copy(col = endWord.second),
-                    )
-                }
-
-                SelectionMode.Char,
-                SelectionMode.Block,
-                SelectionMode.Semantic,
-                -> selection
-            }
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
         }
 
         fun copySelectionToClipboard() {
@@ -731,7 +666,6 @@ constructor(
                         dragging = false,
                         start = SelectionAnchor(row, col),
                         end = SelectionAnchor(row, col),
-                        mode = SelectionMode.Char,
                         touchClass = TouchClass.EmptyArea,
                     ),
                 )
@@ -748,9 +682,9 @@ constructor(
                 val hiRow = maxOf(start.row, end.row)
                 val loCol = minOf(start.col, end.col)
                 val hiCol = maxOf(start.col, end.col)
-                runtime.setSelection(loRow, loCol, hiRow, hiCol, true, selection.mode.ordinal.toByte())
+                runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
             } else {
-                runtime.setSelection(0, 0, 0, 0, false, 0)
+                runtime.setSelection(0, 0, 0, 0, false)
             }
         }
 
@@ -789,7 +723,6 @@ constructor(
                     dragging = false,
                     start = start,
                     end = end,
-                    mode = SelectionMode.Char,
                 )
             val text = extractSelectedText(selectionState)
             _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }
@@ -836,50 +769,7 @@ constructor(
                 } else {
                     end to start
                 }
-            if (selection.mode == SelectionMode.Block) {
-                // Block selection keeps its own rectangle semantics; the
-                // formatter rectangle mode would pad lines, so extract
-                // per-row substrings here (same as before).
-                val visibleCols = runtime.state.value.cols.coerceAtLeast(1)
-                val parts = mutableListOf<String>()
-                for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                    val line = bridge.scrollbackLine(r) ?: ""
-                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                    var startCol = lo.col.coerceAtMost(visLine.length)
-                    var endCol = hi.col.coerceAtMost(visLine.length)
-                    if (startCol > endCol) {
-                        val tmp = startCol
-                        startCol = endCol
-                        endCol = tmp
-                    }
-                    if (startCol < visLine.length) {
-                        parts.add(extractBlockColumn(visLine, startCol, endCol))
-                    }
-                }
-                return parts.joinToString("\n")
-            }
-            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col, rectangle = false) ?: ""
-        }
-
-        /**
-         * Extract a column-bounded rectangle slice from a single line, correctly handling CJK wide
-         * characters that occupy 2 cell columns.
-         */
-        private fun extractBlockColumn(line: String, startCol: Int, endCol: Int): String {
-            var col = 0
-            var charStart = -1
-            var charEnd = line.length
-            for ((i, ch) in line.withIndex()) {
-                val w = charCellWidth(ch)
-                if (col >= startCol && charStart < 0) charStart = i
-                if (col >= endCol) {
-                    charEnd = i
-                    break
-                }
-                col += w
-            }
-            if (charStart < 0) return ""
-            return line.substring(charStart, charEnd.coerceAtMost(line.length))
+            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col) ?: ""
         }
 
         /** Paste clipboard content directly to the PTY (no confirmation dialog). */

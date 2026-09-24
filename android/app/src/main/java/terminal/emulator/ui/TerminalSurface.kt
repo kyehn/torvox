@@ -27,7 +27,6 @@ import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
 import kotlinx.coroutines.cancel
 import terminal.emulator.R
-import terminal.emulator.SelectionMode
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.TouchClass
 import terminal.emulator.bridge.Bridge
@@ -2093,7 +2092,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // Reference (ghostty-android TerminalView.java:1085-1100):
         // ghostty-android uses tapCount (double-tap = word, triple-tap = line)
         // instead of long-press for word selection.  Our long-press → word
-        // selection via SelectionExpander is equivalent but different UX.
+        // selection is equivalent but different UX.
         // ghostty-android also disables GestureDetector's built-in double-tap
         // detection (setOnDoubleTapListener(null)) so onSingleTapUp fires for
         // every tap and handleTap() counts them — more responsive than the
@@ -2114,8 +2113,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // Always attempt smart word selection on long-press. The isCellEmpty
         // check is unreliable because the GPU render path (CellData) and the
         // query path (grid_ref) use different data sources. If the cell is
-        // genuinely empty, SelectionExpander will return a zero-width range
-        // and we fall through to the single-cell invert + paste menu.
+        // genuinely empty, isWhitespaceCell classifies it as whitespace and
+        // we fall through to the single-cell invert + paste menu.
         val line = bridge?.scrollbackLine(gridRow)
         // Blank target = null row, whitespace cell, OR any column past the
         // end of the line — termux's getSelectedText(x,y,x,y) returns ""
@@ -2126,7 +2125,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val isOnWhitespace = isWhitespaceCell(line, col)
 
         if (isOnWhitespace) {
-            viewModel?.setSelectionMode(SelectionMode.Word)
             viewModel?.startSelection(gridRow, col, TouchClass.Whitespace)
             viewModel?.endSelection()
 
@@ -2139,13 +2137,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             Log.d(
                 "Selection",
                 "LONG_PRESS whitespace: row=$row col=$col gridRow=$gridRow " +
-                    "mode=Word menu=PASTE_ONLY",
+                    "menu=PASTE_ONLY",
             )
         } else {
             // termux-app style word bounds (TerminalEmulator
             // getWordBoundsAtIndex): expand to the whitespace-delimited run
-            // containing the tap — no core SelectionExpander divergence, and
-            // long-press and double-tap share exactly this logic.
+            // containing the tap — long-press and double-tap share exactly
+            // this logic.
             val bounds = whitespaceWordBounds(bridge, gridRow, col)
 
             val startRow: Int
@@ -2159,7 +2157,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 startCol = start.second
                 endRow = end.first
                 endCol = end.second
-                viewModel?.setSelectionMode(SelectionMode.Word)
             } else {
                 startRow = row
                 startCol = col
@@ -2171,7 +2168,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 "Selection",
                 "LONG_PRESS text: tapRow=$row tapCol=$col gridRow=$gridRow " +
                     "expanded start=($startRow,$startCol) end=($endRow,$endCol) " +
-                    "mode=Word menu=FULL cellW=$cellWidth cellH=$cellHeight rows=$rows cols=$cols",
+                    "menu=FULL cellW=$cellWidth cellH=$cellHeight rows=$rows cols=$cols",
             )
 
             viewModel?.startSelection(startRow, startCol, TouchClass.Text)
@@ -2644,7 +2641,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // Triple-tap line selection: select the entire line at the tap row.
             val scrollbackLength = currentScrollbackLength()
             val gridRow = scrollbackLength - scrollOffset + row
-            viewModel?.setSelectionMode(SelectionMode.Line)
             viewModel?.startSelection(gridRow, 0)
             val bridge = viewModel?.runtime?.bridge()
             val line = bridge?.scrollbackLine(gridRow) ?: ""
@@ -2663,7 +2659,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val bounds = whitespaceWordBounds(bridge, gridRow, col)
             if (bounds != null) {
                 val (start, end) = bounds
-                viewModel?.setSelectionMode(SelectionMode.Word)
                 viewModel?.startSelection(start.first, start.second)
                 viewModel?.updateSelection(end.first, end.second)
                 viewModel?.endSelection()

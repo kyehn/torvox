@@ -266,7 +266,6 @@ class VtCorrectnessInstrumentedTest {
                     foundCol,
                     foundRow,
                     foundCol + marker.length,
-                    false,
                 )
             assertTrue("选区提取必须原样返回标记, 实际: [$extracted]", extracted == marker)
         }

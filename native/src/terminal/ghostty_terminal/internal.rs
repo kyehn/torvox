@@ -193,18 +193,13 @@ impl super::GhosttyTerminal {
                 }
                 try_send(&tx, text, "ghostty_terminal: query channel send failed");
             }
-            Query::SelectionText {
-                start,
-                end,
-                rectangle,
-                tx,
-            } => {
+            Query::SelectionText { start, end, tx } => {
                 // Ghostty-native wrap-aware selection extraction (termux
                 // TerminalBuffer.getSelectedText semantics): unwrap joins
                 // soft-wrapped lines without '\n', trim drops trailing
                 // whitespace, and the formatter maps grid columns to char
                 // indices internally so CJK wide glyphs are never split.
-                let text = Self::selection_text_impl(terminal, start, end, rectangle);
+                let text = Self::selection_text_impl(terminal, start, end);
                 try_send(&tx, text, "selection text response send failed");
             }
             Query::HyperlinkAt { row, col, tx } => {
@@ -779,15 +774,11 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
-                    Command::SetSelection {
-                        start,
-                        end,
-                        rectangle,
-                    } => {
+                    Command::SetSelection { start, end } => {
                         // 终端持有化：选区经 set_selection 安装为终端状态
                         //（上游转为跟踪引用，随滚动/输出/重排跟随文本）。
                         // 选区变化改变每行反白，需失效行缓存并重推帧。
-                        Self::install_selection_impl(&terminal, start, end, rectangle);
+                        Self::install_selection_impl(&terminal, start, end);
                         row_cache.clear();
                         last_cell_data_push = None;
                         grid_dirty = true;
@@ -1900,7 +1891,6 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         start: (u32, u32),
         end: (u32, u32),
-        rectangle: bool,
     ) -> String {
         let cols = terminal.cols().unwrap_or(80).max(1) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
@@ -1943,7 +1933,8 @@ impl super::GhosttyTerminal {
         else {
             return String::new();
         };
-        let selection = libghostty_vt::selection::Selection::new(start_gref, end_gref, rectangle);
+        // 块选通道已移除：选区固定为线性（rectangle 恒 false）。
+        let selection = libghostty_vt::selection::Selection::new(start_gref, end_gref, false);
         let mut formatter = match libghostty_vt::fmt::Formatter::new(
             terminal,
             libghostty_vt::fmt::FormatterOptions::new()
@@ -1973,7 +1964,6 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         start: (u32, u32),
         end: (u32, u32),
-        rectangle: bool,
     ) {
         let cols = terminal.cols().unwrap_or(80).max(1) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
@@ -1994,7 +1984,8 @@ impl super::GhosttyTerminal {
         ) else {
             return;
         };
-        let selection = libghostty_vt::selection::Selection::new(start_ref, end_ref, rectangle);
+        // 块选通道已移除：选区固定为线性（rectangle 恒 false）。
+        let selection = libghostty_vt::selection::Selection::new(start_ref, end_ref, false);
         if terminal.set_selection(Some(&selection)).is_err() {
             log::warn!("ghostty_terminal: install selection failed");
         }
