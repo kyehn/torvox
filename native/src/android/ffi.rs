@@ -2417,7 +2417,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
     start_col: jint,
     end_row: jint,
     end_col: jint,
-    rectangle: jboolean,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
@@ -2429,7 +2428,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
         let text = session.terminal().selection_text(
             (start_row.max(0) as u32, start_col.max(0) as u32),
             (end_row.max(0) as u32, end_col.max(0) as u32),
-            rectangle == JNI_TRUE,
         );
         drop(session);
         drop(registry);
@@ -2794,8 +2792,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 /// 选区经 `GhosttyTerminal::set_selection` 安装为终端状态（跟踪引用，随滚动/
 /// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 CellData；
 /// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
-/// `mode` 为 Kotlin `SelectionMode` 序号（Char=0, Word=1, Line=2, Block=3,
-/// Semantic=4），仅 Block 映射为矩形选区。`selectionBackgroundArgb` 为 Kotlin 合约保留参数。
+/// 选区恒为线性（块选通道已随 mode 一并移除）。
+/// `selectionBackgroundArgb` 为 Kotlin 合约保留参数。
 #[unsafe(no_mangle)]
 // JNI exports receive raw handles (jstring/jbyteArray are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee.
@@ -2809,7 +2807,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     end_row: jint,
     end_col: jint,
     has_selection: jboolean,
-    mode: jbyte,
     _selection_background_argb: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
@@ -2820,12 +2817,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
         };
         let session = entry.session.lock();
         if has_selection == jni::sys::JNI_TRUE {
-            // 仅 Block 为矩形选区；其余模式均为线性选区（反白语义一致）。
-            let rectangle = mode == 3;
             session.terminal().set_selection(
                 (start_row.max(0) as u32, start_col.max(0) as u32),
                 (end_row.max(0) as u32, end_col.max(0) as u32),
-                rectangle,
             );
         } else {
             session.terminal().clear_selection();

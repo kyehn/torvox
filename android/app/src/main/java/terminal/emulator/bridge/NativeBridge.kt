@@ -229,14 +229,7 @@ object NativeBridge {
      * = top of scrollback). Returns "" on error.
      */
     @JvmStatic
-    external fun selectionText(
-        sessionId: Long,
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        rectangle: Boolean,
-    ): String?
+    external fun selectionText(sessionId: Long, startRow: Int, startCol: Int, endRow: Int, endCol: Int): String?
 
     /** OSC 8 hyperlink URI at a grid cell (row 0 = top of scrollback), or null. */
     @JvmStatic external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
@@ -268,8 +261,8 @@ object NativeBridge {
     @JvmStatic external fun setSearchHighlights(sessionId: Long, data: ByteArray)
 
     /**
-     * Set active text selection (visible-grid rows/cols). mode: 0=Char 1=Word 2=Line 3=Semantic
-     * 4=Block (see SelectionMode). selectionBackgroundArgb: theme selection background color, ARGB packed.
+     * Set active text selection (visible-grid rows/cols); selectionBackgroundArgb: theme selection
+     * background color, ARGB packed.
      */
     @JvmStatic
     external fun setSelection(
@@ -279,7 +272,6 @@ object NativeBridge {
         endRow: Int,
         endCol: Int,
         hasSelection: Boolean,
-        mode: Byte,
         selectionBackgroundArgb: Int,
     )
 

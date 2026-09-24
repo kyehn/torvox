@@ -42,12 +42,11 @@ pub enum Command {
     /// the app's scrollback browsing: previously a Kotlin-side
     /// no-op — the CellData render path had no scroll support at all).
     ScrollViewport(isize),
-    /// 安装终端持有的活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。
-    /// 坐标为绝对网格行（0 = 回滚顶部）与列；rectangle 为块选。
+    /// 安装终端持有的线性活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。
+    /// 坐标为绝对网格行（0 = 回滚顶部）与列。
     SetSelection {
         start: (u32, u32),
         end: (u32, u32),
-        rectangle: bool,
     },
     /// 清除终端持有的活动选区。
     ClearSelection,
@@ -100,7 +99,6 @@ pub enum Query {
         /// ghostty semantics — callers pass Point::Screen coordinates).
         start: (u32, u32),
         end: (u32, u32),
-        rectangle: bool,
         tx: Sender<String>,
     },
     /// Query the OSC 8 hyperlink URI at a grid cell, if any (termux

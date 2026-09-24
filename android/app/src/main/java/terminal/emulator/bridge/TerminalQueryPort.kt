@@ -28,10 +28,8 @@ interface TerminalQueryPort {
         endRow: Int,
         endCol: Int,
         hasSelection: Boolean? = null,
-        mode: Byte = 0,
         selectionBackgroundArgb: Int = 0xFF45475A.toInt(),
     )
-    fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>?
 
     fun clearSearchHighlights()
     fun setSearchHighlights(data: ByteArray)
@@ -48,7 +46,7 @@ interface TerminalQueryPort {
     fun setScrollYPx(offsetPx: Float)
 
     fun getTerminalText(): String?
-    fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String?
+    fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String?
     fun hyperlinkAt(row: Int, col: Int): String?
     fun listFontFamilies(): List<String>?
     fun getDefaultFontName(): String

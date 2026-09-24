@@ -752,7 +752,6 @@ constructor(
         val endRow: Int,
         val endCol: Int,
         val hasSelection: Boolean,
-        val mode: Byte,
         // P1-1: true while a selection-handle drag is in progress (UI
         // thread, via setSelectionDragging). The render thread folds this
         // into hasSelectionOrDrag for the scroll-reset decision; it is
@@ -763,7 +762,7 @@ constructor(
 
     private val selectionState =
         java.util.concurrent.atomic.AtomicReference(
-            SelectionStateSnapshot(0, 0, 0, 0, false, 0),
+            SelectionStateSnapshot(0, 0, 0, 0, false),
         )
 
     /**
@@ -1286,7 +1285,7 @@ constructor(
                                 var consecutiveErrors = 0
                                 var lastScrollOffset = Int.MAX_VALUE
                                 var lastScrollRemainderPx = Float.NaN
-                                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
+                                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
                                 // Per-thread frame-duration statistics: reset whenever the
                                 // render thread restarts (fresh lifetime, no stale history).
                                 val frameTiming = FrameTimingStats()
@@ -1387,7 +1386,6 @@ constructor(
                                                 selectionSnapshot.endRow,
                                                 selectionSnapshot.endCol,
                                                 selectionSnapshot.hasSelection,
-                                                selectionSnapshot.mode,
                                                 selectionBackgroundColor,
                                             )
                                             lastSelection = selectionSnapshot
@@ -3440,37 +3438,24 @@ constructor(
         endRow: Int,
         endCol: Int,
         hasSelection: Boolean,
-        mode: Byte = 0,
         selectionBackgroundArgb: Int = selectionBackgroundColor,
     ) {
         LogUtil.d(
             "Runtime",
-            "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection mode=$mode",
+            "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection",
         )
         // Full-snapshot overwrite: dragging resets to false here — every
         // commit path (endSelection/clearSelection/syncSelectionToNative)
         // funnels through this call, so a finished drag always clears the
         // P1-1 dragging guard.
         selectionState.set(
-            SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode),
+            SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection),
         )
         val entry = sessions[activeSessionId]
         entry
             ?.bridge
-            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBackgroundArgb)
+            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection, selectionBackgroundArgb)
         entry?.notifyRender()
-    }
-
-    fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
-        LogUtil.d("Runtime", "expandAndSetSelection: row=$row col=$col mode=$mode")
-        val entry = sessions[activeSessionId] ?: return null
-        val bounds = entry.bridge?.expandAndSetSelection(row, col, mode) ?: return null
-        val (start, end) = bounds
-        selectionState.set(
-            SelectionStateSnapshot(start.first, start.second, end.first, end.second, true, mode),
-        )
-        entry.notifyRender()
-        return bounds
     }
 
     /**

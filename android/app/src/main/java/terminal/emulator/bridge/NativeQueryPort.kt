@@ -24,7 +24,6 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         endRow: Int,
         endCol: Int,
         hasSelection: Boolean?,
-        mode: Byte,
         selectionBackgroundArgb: Int,
     ) {
         // Selection lives in the terminal (tracked refs, installed via
@@ -38,49 +37,8 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
             endRow,
             endCol,
             active,
-            mode,
             selectionBackgroundArgb,
         )
-    }
-
-    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
-        // Smart word/URL boundary detection on the visible line: fetch the
-        // line text from native, expand bounds in pure Kotlin (testable),
-        // then apply the expanded range through setSelection.
-        val line = scrollbackLine(row)
-        if (line == null) {
-            // Blank line: caller falls back to single-cell selection +
-            // paste menu (long-press on whitespace). Not an error.
-            return null
-        }
-        val (startCol, endCol) = SelectionExpander.expandBounds(line, col)
-
-        // expandAcrossUrlWrap walks wrap-continuation rows
-        // (Haven SelectionToolbar:120-214). Fetch the adjacent rows and
-        // apply the multi-row span through setSelection so the selection
-        // highlight and copied text both cover the full wrapped URL.
-        val prevLine = if (row > 0) scrollbackLine(row - 1) else null
-        val nextLine = scrollbackLine(row + 1)
-        val lines =
-            when {
-                prevLine != null -> listOf(prevLine, line, nextLine ?: "")
-                else -> listOf(line, nextLine ?: "")
-            }
-        val linesRow = if (prevLine != null) 1 else 0
-        val span =
-            lines.getOrNull(linesRow)?.let { _ ->
-                SelectionExpander.expandAcrossUrlWrap(lines, linesRow, startCol, endCol)
-            }
-        if (span != null) {
-            // Map local indices back to absolute grid rows.
-            val absoluteStartRow = row - (linesRow - span.startRow)
-            val absoluteEndRow = row - (linesRow - span.endRow)
-            setSelection(absoluteStartRow, span.startCol, absoluteEndRow, span.endCol, true, mode)
-            return (absoluteStartRow to span.startCol) to (absoluteEndRow to span.endCol)
-        }
-
-        setSelection(row, startCol, row, endCol, true, mode)
-        return (row to startCol) to (row to endCol)
     }
 
     override fun clearSearchHighlights() {
@@ -121,14 +79,13 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())
 
-    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? =
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
         NativeBridge.selectionText(
             sessionIdProvider(),
             startRow,
             startCol,
             endRow,
             endCol,
-            rectangle,
         )
 
     override fun hyperlinkAt(row: Int, col: Int): String? = NativeBridge.hyperlinkAt(sessionIdProvider(), row, col)

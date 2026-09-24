@@ -7,7 +7,7 @@
 ## 2. 死代码与未声明行为清理
 
 - [x] 2.1 删 ModifierBar 第二套选择菜单与 TerminalScreen 死接线、删 `computeMenuPosition`/`MenuPosition` 与 `TerminalScreenMenuTest`、修 SelectionSteps 悬空断言；`testDebugUnitTest`+`spotlessCheck`+`detekt` 通过
-- [ ] 2.2 删 `expandAndSetSelection`/`SelectionExpander` 链与 mode/rectangle 全通道（Kotlin 与 ffi 同步）、删 `SelectionExpanderTest`；`cargo test` 与 gradle 三件套通过
+- [x] 2.2 删 `expandAndSetSelection`/`SelectionExpander` 链与 mode/rectangle 全通道（Kotlin 与 ffi 同步）、删 `SelectionExpanderTest`；`cargo test` 与 gradle 三件套通过
 - [ ] 2.3 删 `selectionBackground` 死通道、方向键移锚（裁剪 `SelectionStateTest`）、SmartCopy（删 `SmartCopyTest`）并修过时注释；gradle 三件套通过
 
 ## 3. 上游选择语义接入

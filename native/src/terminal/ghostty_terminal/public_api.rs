@@ -316,15 +316,11 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 安装终端持有的活动选区（跟踪引用，随滚动/输出/重排跟随文本）。
-    /// 坐标为绝对网格行（0 = 回滚顶部）与列；Block 模式传 rectangle=true。
+    /// 安装终端持有的线性活动选区（跟踪引用，随滚动/输出/重排跟随文本）。
+    /// 坐标为绝对网格行（0 = 回滚顶部）与列。
     /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
-    pub fn set_selection(&self, start: (u32, u32), end: (u32, u32), rectangle: bool) {
-        if let Err(error) = self.cmd_tx.try_send(Command::SetSelection {
-            start,
-            end,
-            rectangle,
-        }) {
+    pub fn set_selection(&self, start: (u32, u32), end: (u32, u32)) {
+        if let Err(error) = self.cmd_tx.try_send(Command::SetSelection { start, end }) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for set_selection: {error}");
         }
     }
@@ -649,14 +645,9 @@ impl super::GhosttyTerminal {
     /// wide-char safe). `start`/`end` are grid rows in screen coordinates
     /// (absolute: scrollback row 0 is the top of history; the caller's
     /// gridRow from scrollbackLine is exactly this). Returns "" on error.
-    pub fn selection_text(&self, start: (u32, u32), end: (u32, u32), rectangle: bool) -> String {
+    pub fn selection_text(&self, start: (u32, u32), end: (u32, u32)) -> String {
         self.query(
-            |tx| Query::SelectionText {
-                start,
-                end,
-                rectangle,
-                tx,
-            },
+            |tx| Query::SelectionText { start, end, tx },
             String::new(),
             "selection_text",
         )
