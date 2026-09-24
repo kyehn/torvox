@@ -322,7 +322,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             android.widget.LinearLayout(context).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
                 val backgroundDrawable = android.graphics.drawable.GradientDrawable()
-                backgroundDrawable.setColor(MENU_BAR_BACKGROUND_ARGB.toInt())
+                backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
                 backgroundDrawable.cornerRadius = dp(MENU_BAR_CORNER_RADIUS_DP).toFloat()
                 background = backgroundDrawable
                 elevation = dp(6).toFloat()
@@ -330,7 +330,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     val item =
                         android.widget.TextView(context).apply {
                             text = label
-                            setTextColor(0xFFFFFFFF.toInt())
+                            setTextColor(resolveThemeColor(R.attr.colorOnSurface, R.color.material_color_on_surface))
                             textSize = 14f
                             val h = dp(16)
                             setPadding(h, dp(12), h, dp(12))
@@ -342,6 +342,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
             }
         return bar
+    }
+
+    /**
+     * 解析 Material 3 主题颜色属性（spec：选择菜单样式 MUST 用 `colorSurface`/
+     * `colorOnSurface` 主题属性、MUST NOT 硬编码颜色）；属性未定义时回退同值的
+     * 颜色资源，Kotlin 侧不出现任何字面颜色值。
+     */
+    private fun resolveThemeColor(attribute: Int, fallbackColorResource: Int): Int {
+        val typedValue = android.util.TypedValue()
+        if (!context.theme.resolveAttribute(attribute, typedValue, true)) {
+            return androidx.core.content.ContextCompat.getColor(context, fallbackColorResource)
+        }
+        return if (typedValue.resourceId != 0) {
+            androidx.core.content.ContextCompat.getColor(context, typedValue.resourceId)
+        } else {
+            typedValue.data
+        }
     }
 
     /**
@@ -1194,7 +1211,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     companion object {
         private const val TAG = "TerminalSurface"
         private const val WIDE_CHAR_CACHE_TTL_MS = 500L
-        private const val MENU_BAR_BACKGROUND_ARGB = 0xEE2B2B2BL
         private const val MENU_BAR_CORNER_RADIUS_DP = 8
 
         private const val SWIPE_THRESHOLD_PIXELS = 500f
