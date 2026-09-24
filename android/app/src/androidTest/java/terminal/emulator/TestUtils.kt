@@ -340,8 +340,8 @@ fun injectLongPress(view: View, x: Float, y: Float) {
     // main-thread looper.  If we dispatch DOWN then sleep(800) on the main
     // thread the long-press timer message is queued but never processed before
     // ACTION_UP arrives — GestureDetector then cancels the pending long-press
-    // and treats the gesture as a tap (the root cause of "Action_Dismiss not
-    // displayed" in text-selection tests).
+    // and treats the gesture as a tap (the root cause of long-press
+    // selection assertions failing in text-selection tests).
     view.post {
         view.dispatchTouchEvent(MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0))
     }

@@ -93,7 +93,7 @@ fn reset_clears_selection() {
     terminal.flush();
     let snap = terminal.take_snapshot();
     let row = snap.scrollback_length;
-    terminal.set_selection((row, 0), (row, 4), false);
+    terminal.set_selection((row, 0), (row, 4));
     terminal.flush();
     terminal.reset();
     terminal.flush();
@@ -1533,7 +1533,7 @@ fn selection_text_unwraps_soft_wrapped_lines() {
     let scrollback = snap.scrollback_length;
     // The text starts at viewport row 0 (grid row = scrollback_rows).
     let row0 = scrollback;
-    let text = t.selection_text((row0, 0), (row0 + 1, 9), false);
+    let text = t.selection_text((row0, 0), (row0 + 1, 9));
     assert_eq!(
         text.len(),
         90,
@@ -1557,7 +1557,7 @@ fn selection_text_wide_char_columns() {
     t.flush();
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
-    let text = t.selection_text((row0, 0), (row0, 3), false);
+    let text = t.selection_text((row0, 0), (row0, 3));
     assert_eq!(
         text, "中ab",
         "wide char must round-trip exactly (got {text:?})"
@@ -1574,7 +1574,7 @@ fn selection_text_blank_cell_selects_itself() {
     t.flush();
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
-    t.set_selection((row0, 1), (row0, 1), false);
+    t.set_selection((row0, 1), (row0, 1));
     t.flush();
     let (selected, _) = t.receive_cell_data().expect("selected cell data");
     let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
@@ -1598,7 +1598,7 @@ fn selection_clear_restores_baseline_colors() {
     t.flush();
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
-    t.set_selection((row0, 0), (row0, 4), false);
+    t.set_selection((row0, 0), (row0, 4));
     t.flush();
     let (selected, _) = t.receive_cell_data().expect("selected cell data");
     let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
@@ -1640,9 +1640,9 @@ fn select_word_via_boundary_resolve_extracts_hello() {
         (0, 5),
         "col 1 must resolve to hello"
     );
-    t.set_selection((row0, word_start), (row0, word_end - 1), false);
+    t.set_selection((row0, word_start), (row0, word_end - 1));
     t.flush();
-    assert_eq!(t.selection_text((row0, 0), (row0, 4), false), "hello");
+    assert_eq!(t.selection_text((row0, 0), (row0, 4)), "hello");
 }
 
 /// 词边界解析辅助：沿行左右扫描词字符（空格/行尾为界）。
@@ -1697,10 +1697,10 @@ fn select_line_via_full_row_extracts_whole_line() {
     let line = t.read_line_text(row0).expect("line text");
     assert_eq!(line, "hello world");
     let end_col = (line.chars().count() as u32).saturating_sub(1);
-    t.set_selection((row0, 0), (row0, end_col), false);
+    t.set_selection((row0, 0), (row0, end_col));
     t.flush();
     assert_eq!(
-        t.selection_text((row0, 0), (row0, end_col), false),
+        t.selection_text((row0, 0), (row0, end_col)),
         "hello world"
     );
 }
@@ -1717,7 +1717,7 @@ fn select_all_via_range_covers_scrollback() {
     t.flush();
     let total = t.take_snapshot();
     let last_row = total.rows + total.scrollback_length - 1;
-    let text = t.selection_text((0, 0), (last_row, 19), false);
+    let text = t.selection_text((0, 0), (last_row, 19));
     assert!(
         text.starts_with("alpha"),
         "must include scrolled-off first line"
@@ -1735,15 +1735,15 @@ fn selection_text_survives_scrolled_output() {
     t.flush();
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
-    t.set_selection((row0, 0), (row0, 4), false);
+    t.set_selection((row0, 0), (row0, 4));
     t.flush();
-    assert_eq!(t.selection_text((row0, 0), (row0, 4), false), "alpha");
+    assert_eq!(t.selection_text((row0, 0), (row0, 4)), "alpha");
     for index in 0..8 {
         t.vt_write(format!("filler{index}\n").as_bytes());
     }
     t.flush();
     assert_eq!(
-        t.selection_text((row0, 0), (row0, 4), false),
+        t.selection_text((row0, 0), (row0, 4)),
         "alpha",
         "tracked selection must follow text into scrollback"
     );
@@ -1824,7 +1824,7 @@ fn terminal_owned_selection_inverts_cell_data() {
     let row0 = snap.scrollback_length;
     // 基线：未选中时前景为主题前景色。
     let (_, _) = t.receive_cell_data().expect("baseline cell data");
-    t.set_selection((row0, 0), (row0, 4), false);
+    t.set_selection((row0, 0), (row0, 4));
     t.flush();
     let (selected, _) = t.receive_cell_data().expect("selected cell data");
     let picked = selected
@@ -2431,12 +2431,12 @@ fn selection_text_flipped_endpoints() {
     t.flush();
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
-    let forward = t.selection_text((row0, 0), (row0, 4), false);
+    let forward = t.selection_text((row0, 0), (row0, 4));
     assert_eq!(
         forward, "hello",
         "forward selection baseline (got {forward:?})"
     );
-    let flipped = t.selection_text((row0, 4), (row0, 0), false);
+    let flipped = t.selection_text((row0, 4), (row0, 0));
     assert_eq!(
         flipped, "hello",
         "flipped endpoints must yield the same range (got {flipped:?})"
@@ -2452,12 +2452,12 @@ fn selection_text_grabbed_endpoint_moves() {
     t.flush();
     let snap = t.take_snapshot();
     let row = snap.scrollback_length;
-    let extended = t.selection_text((row, 0), (row, 8), false);
+    let extended = t.selection_text((row, 0), (row, 8));
     assert_eq!(
         extended, "hello wor",
         "drag end handle must extend (got {extended:?})"
     );
-    let shrunk = t.selection_text((row, 6), (row, 8), false);
+    let shrunk = t.selection_text((row, 6), (row, 8));
     assert_eq!(
         shrunk, "wor",
         "drag start handle must shrink (got {shrunk:?})"
@@ -2471,14 +2471,14 @@ fn selection_text_tracks_scrolled_content() {
     let mut t = GhosttyTerminal::new(4, 20, 100).expect("terminal");
     t.vt_write(b"alpha\n");
     t.flush();
-    let first = t.selection_text((0, 0), (0, 4), false);
+    let first = t.selection_text((0, 0), (0, 4));
     assert_eq!(first, "alpha", "baseline selection (got {first:?})");
     for filler in 0..8 {
         t.vt_write(format!("filler{filler}\n").as_bytes());
     }
     t.flush();
     assert!(t.scrollback_length() > 0, "content must have scrolled");
-    let tracked = t.selection_text((0, 0), (0, 4), false);
+    let tracked = t.selection_text((0, 0), (0, 4));
     assert_eq!(
         tracked, "alpha",
         "selection must track into scrollback (got {tracked:?})"
