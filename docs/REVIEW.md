@@ -2,6 +2,8 @@
 
 审查日期：2026-09-26。审查对象：`docs/specification/` 全部 6 份文档（`BUILD.md` `DESIGN.md` `PROHIBITED.md` `REFERENCE.md` `STYLE.md` `TESTING.md`）与 `AGENTS.md`，基准为 `main` @ `50386a8`。
 
+> 后续阶段：把 `REFERENCE.md` 引用的 10 个参考项目全部克隆、把依赖源码与上游 ghostty 全部落地后重做的外部事实核验，见 [REFERENCE-REVIEW.md](REFERENCE-REVIEW.md)（31 项）。两份报告合并共 72 项。
+
 审查方式：逐条提取文档中可验证的断言，回到 `native/src/`（Rust，30359 行）与 `android/app/src/`（Kotlin，38367 行）取证；辅以 `grep`/`glob` 全量扫描与 `.semgrep/` 规则覆盖度分析。文档中不可验证的描述（参考项目行为、外部链接）标注为「不可验证」，不计入问题数。
 
 问题总计 **41 项**：A 类（代码违反规范）**22 项**、B 类（规范文档自身缺陷）**19 项**。另有 C 类门禁既有失败 2 项（审查前已存在，非本次引入）。
