@@ -142,7 +142,6 @@ fun TerminalScreen(
     val viewModelThemeName = settings.themeName
     val viewModelDayThemeName = settings.dayThemeName
     val viewModelNightThemeName = settings.nightThemeName
-    val useNerdFontGlyphs = settings.useNerdFontGlyphs
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
     val isSettingsDark =
         resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
@@ -1012,7 +1011,6 @@ fun TerminalScreen(
                         onToggleKeyboard = toggleKeyboard,
                         textColor = resolvedTerminalTheme.foreground,
                         backgroundColor = resolvedTerminalTheme.background,
-                        useNerdFontGlyphs = useNerdFontGlyphs,
                         toolbarLayout = rememberToolbarLayout(),
                         isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
                         // 不在此接线粘贴：粘贴只经浮动选择菜单（长按空白）出现，

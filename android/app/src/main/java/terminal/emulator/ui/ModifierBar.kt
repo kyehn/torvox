@@ -217,7 +217,6 @@ fun ModifierBar(
     onLockAlt: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    useNerdFontGlyphs: Boolean = false,
     toolbarLayout: ImmutableList<ToolbarItem>? = null,
     /** DRAWER 长按粘贴（termux 默认 `popup: 'PASTE'`）。 */
     onPaste: (() -> Unit)? = null,
@@ -228,7 +227,6 @@ fun ModifierBar(
     /** Consumes Once sticky modifiers after a modified key is sent. */
     onConsumeModifiers: () -> Unit = {},
 ) {
-    fun label(key: String): String = if (useNerdFontGlyphs) NerdKeyLabels.label(key) else key
     val buttonHeight = BUTTON_HEIGHT_DP.dp
 
     // ── Compose key mode ──────────────────────────────────────────────
@@ -288,7 +286,6 @@ fun ModifierBar(
             textColor = textColor,
             backgroundColor = backgroundColor,
             modifier = modifier,
-            label = ::label,
         )
         return
     }
@@ -318,7 +315,6 @@ fun ModifierBar(
             textColor = textColor,
             backgroundColor = backgroundColor,
             modifier = modifier,
-            label = ::label,
         )
         return
     }
@@ -333,7 +329,7 @@ fun ModifierBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ExtraKeyButton(
-                text = label("ESC"),
+                text = "ESC",
                 onClick = {
                     dispatchKey("\u001b")
                 },
@@ -351,7 +347,7 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.open_session_drawer),
             )
             ExtraKeyButton(
-                text = label("SCROLL"),
+                text = "SCROLL",
                 onClick = {
                     onScrollClick()
                 },
@@ -361,7 +357,7 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.toggle_scroll),
             )
             ExtraKeyButton(
-                text = label("HOME"),
+                text = "HOME",
                 onClick = {
                     dispatchKey("\u001b[H")
                 },
@@ -380,7 +376,7 @@ fun ModifierBar(
                 onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_UP) },
             )
             ExtraKeyButton(
-                text = label("END"),
+                text = "END",
                 onClick = {
                     dispatchKey("\u001b[F")
                 },
@@ -389,7 +385,7 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.end_key),
             )
             ExtraKeyButton(
-                text = label("PGUP"),
+                text = "PGUP",
                 onClick = {
                     dispatchKey("\u001b[5~")
                 },
@@ -405,7 +401,7 @@ fun ModifierBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ExtraKeyButton(
-                text = label("FN"),
+                text = "FN",
                 onClick = { onToggleFn() },
                 textColor = textColor,
                 modifierState = fnState,
@@ -413,7 +409,7 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.function_key_layer),
             )
             ExtraKeyButton(
-                text = label("COMPOSE"),
+                text = "COMPOSE",
                 onClick = { toggleCompose() },
                 textColor = textColor,
                 modifierState = if (composeActive) ModifierState.Locked else null,
@@ -421,14 +417,14 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.compose_key),
             )
             ExtraKeyButton(
-                text = label("TAB"),
+                text = "TAB",
                 onClick = { dispatchKey("\t") },
                 textColor = textColor,
                 testTag = "Key_TAB",
                 contentDescription = stringResource(R.string.tab_key),
             )
             ExtraKeyButton(
-                text = label("CTRL"),
+                text = "CTRL",
                 onClick = { onToggleCtrl() },
                 textColor = textColor,
                 modifierState = ctrlState,
@@ -436,7 +432,7 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.control_toggle),
             )
             ExtraKeyButton(
-                text = label("ALT"),
+                text = "ALT",
                 onClick = { onToggleAlt() },
                 textColor = textColor,
                 modifierState = altState,
@@ -474,7 +470,7 @@ fun ModifierBar(
                 onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
             )
             ExtraKeyButton(
-                text = label("PGDN"),
+                text = "PGDN",
                 onClick = {
                     dispatchKey("\u001b[6~")
                 },
@@ -493,14 +489,13 @@ fun ModifierBar(
 @Composable
 private fun RowScope.FnKeyButtons(
     items: List<Pair<String, String>>,
-    label: (String) -> String,
     onKeyClick: (String) -> Unit,
     onToggleFn: () -> Unit,
     textColor: Color,
 ) {
     for ((name, seq) in items) {
         ExtraKeyButton(
-            text = label(name),
+            text = name,
             onClick = {
                 onKeyClick(seq)
                 onToggleFn()
@@ -524,7 +519,6 @@ private fun FnKeyRows(
     textColor: Color,
     backgroundColor: Color,
     modifier: Modifier = Modifier,
-    label: (String) -> String,
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
     Column(
@@ -538,7 +532,6 @@ private fun FnKeyRows(
         ) {
             FnKeyButtons(
                 items = FN_KEY_SEQUENCES.take(6),
-                label = label,
                 onKeyClick = onKeyClick,
                 onToggleFn = onToggleFn,
                 textColor = textColor,
@@ -551,13 +544,12 @@ private fun FnKeyRows(
         ) {
             FnKeyButtons(
                 items = FN_KEY_SEQUENCES.drop(6),
-                label = label,
                 onKeyClick = onKeyClick,
                 onToggleFn = onToggleFn,
                 textColor = textColor,
             )
             ExtraKeyButton(
-                text = label("FN"),
+                text = "FN",
                 onClick = { onToggleFn() },
                 textColor = textColor,
                 modifierState = ModifierState.Locked,
@@ -636,7 +628,6 @@ private fun ConfigurableModifierBar(
     isAppCursorMode: () -> Boolean = { false },
     onKeyBytesClick: ((ByteArray) -> Unit)? = null,
     onConsumeModifiers: () -> Unit = {},
-    label: (String) -> String,
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
     val allKeys = toolbarLayout.toList()
@@ -678,7 +669,6 @@ private fun ConfigurableModifierBar(
             item = item,
             actions = actions,
             modifierStates = modifierStates,
-            label = label,
             contentDescriptionResolver = { key ->
                 defaultContentDescriptions[key] ?: key.defaultLabel
             },
@@ -803,7 +793,6 @@ private fun toolbarItemPresentation(
     item: ToolbarItem,
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
-    label: (String) -> String,
     contentDescriptionResolver: (ToolbarKey) -> String,
     isAppCursorMode: () -> Boolean = { false },
 ): ToolbarItemPresentation {
@@ -825,7 +814,7 @@ private fun toolbarItemPresentation(
             }
     val itemLabel =
         when (item) {
-            is ToolbarItem.Default -> item.key.symbol ?: label(item.key.defaultLabel)
+            is ToolbarItem.Default -> item.key.symbol ?: item.key.defaultLabel
             is ToolbarItem.Custom -> item.label
         }
     val testTag =
