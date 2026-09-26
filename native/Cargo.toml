@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Terminal engine"
+[lints]
+workspace = true
 [lib]
 crate-type = ["cdylib", "lib"]
 [dependencies]
-base64 = "0.23"
+base64 = { workspace = true }
 bytemuck = { workspace = true }
 cosmic-text = { workspace = true }
 flume = { workspace = true }
@@ -31,7 +33,13 @@ serde = { workspace = true }
 serde_json = "1"
 swash = { workspace = true }
 thiserror = { workspace = true }
-wgpu = { workspace = true, features = ["vulkan"] }
+# DESIGN.md 规定仅 Vulkan 后端且禁止 OpenGL 回退，因此关闭默认特性，
+# 不让 gles / dx12 / metal / webgpu 后端编入产物（默认特性会引入 EGL 与 glow）。
+wgpu = { workspace = true, default-features = false, features = [
+  "std",
+  "wgsl",
+  "vulkan",
+] }
 wgpu-types = { workspace = true }
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = [

@@ -39,7 +39,7 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: |
           scripts/check-rust.nu
-          nix develop --command cargo build --package native
+          scripts/build-host-lib.nu
           scripts/build-android-libs.nu --profile dev x86_64
           scripts/check-gradle.nu
       - uses: actions/cache/save@main

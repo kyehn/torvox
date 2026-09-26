@@ -28,7 +28,7 @@
 - 对于应当存在的目录：须显式检查，若缺失则以非零状态退出。
 - 禁止无助于提升清晰度的中间变量，如 `let start = ... let elapsed = ...`。判据是能否内联：跨越多步、需在多处引用、或承载跨步状态的变量必须保留；仅把表达式换个名字的别名禁止。
 - 禁止使用 `$env.ANDROID_HOME/platform-tools/adb` 或硬编码路径调用二进制，`adb`、`emulator`、`sdkmanager`、`avdmanager` 命令可直接使用。
-- 禁止在 Nushell 脚本内部使用 `nu scripts/xxx.nu` 调用 — 请使用 `./scripts/xxx.nu`（依赖 Shebang）。`flake.nix` 的 `shellHook` 同样遵守此写法。
+- 禁止在 Nushell 脚本内部使用 `nu scripts/xxx.nu` 调用 — 请使用 `./scripts/xxx.nu`（依赖 Shebang）。**例外**：`flake.nix` 的 `shellHook` 已在 `nix develop` 内，脚本 shebang 会再次进入 `nix develop` 造成嵌套与环境污染，那里必须直接调用解释器 `nu scripts/xxx.nu`。
 - 禁止执行 `rustup target add` 或类似命令，仅运行工作区测试。
 
 ### 风格规则

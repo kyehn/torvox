@@ -74,8 +74,7 @@ fn fs_main(
     @location(9) flags: f32,
 ) -> @location(0) vec4<f32> {
     var color: vec4<f32>;
-    // Glyph coverage (0 outside the glyph bitmap). Used for fix F so a
-    // default-background cell can show only the glyph over the wallpaper.
+    // 字形覆盖率（字形位图之外为 0）。Fix F 用它判断默认背景单元格只绘制字形。
     var glyph_coverage: f32 = 0.0;
     if has_glyph > 0.5 {
         // World-space cell pixel coordinates in PHYSICAL surface pixels:

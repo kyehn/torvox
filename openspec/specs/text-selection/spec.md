@@ -1,6 +1,7 @@
 # text-selection Specification
 
 ## Purpose
+
 文本选择的启动（长按/多击）、控制柄拖动与边缘滚动、选择菜单内容与锚定、全选与复制、打开链接/文件的对外行为契约，对齐 `DESIGN.md` 文本选择条款与 termux-app、ghostty-android-terminal 参考实现。
 
 ## Requirements
