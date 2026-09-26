@@ -2,7 +2,8 @@
 
 ## 依赖
 
-- 依赖、工具尽量使用最新版本，尽量不固定小版本。
+- 依赖、工具尽量使用最新版本。版本声明不写精确版本（不用 `=x.y.z`），按可升级的最小兼容前缀声明；是否升级由门禁决定，不由声明方式回避。
+- 已知无法跟进的依赖必须在下方显式记录原因，不得静默钉死。`fontdb` 固定在 0.23：`cosmic-text` 0.19（最新版）内部依赖并重导出 fontdb 0.23，升级到 0.24 会使 `fontdb::ID` 在 native 侧与 cosmic-text 侧分裂；两者公共 API 完全一致，0.24 仅改了 rust-version、feature 开关并把 `ttf-parser` 内联，因此这是上游声明造成的硬约束。
 - 未声明的细节参考 [termux-app](https://github.com/termux/termux-app) 和 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal)。
 
 ## 习惯
@@ -49,9 +50,10 @@
   ├── native/
   │   ├── Cargo.toml
   │   └── src/
-  │       ├── *.rs
+  │       ├── *.rs（lib.rs / event.rs / log_chunk.rs / prop_tests.rs）
   │       ├── android/  ← JNI 导出（ffi.rs）
   │       ├── render/
+  │       │   └── font/  ← 字体库与字形管线
   │       └── terminal/
   ```
 
@@ -59,7 +61,7 @@
 
 - 渲染完全在 Rust 侧通过 `wgpu` 完成。Kotlin 仅通过直接 JNI 接收轻量事件，无沉重网格数据跨越 FFI 边界。
 
-- 每个终端会话独占一个线程，产出扁平化的单元格数组；共享渲染线程消费这些数组并驱动 `wgpu`。
+- 每个终端会话独占自己的 Rust 线程组（PTY 读线程 + 等待线程）与自己的 Kotlin 渲染线程，产出扁平化的单元格数组并驱动 `wgpu`。**不存在跨会话共享的渲染线程**：只允许当前可见会话运行渲染，切换会话时停止旧会话渲染线程并启动新会话渲染线程（`DESIGN.md` 只渲染当前会话一节）。
 
 - 会话归属于 Rust，而非 Kotlin。PTY 的 `fork` / `exec`、Ghostty 终端与渲染循环均由 Rust 管理。Android Activity 生命周期要求应用正确处理以下场景：
 
@@ -67,9 +69,9 @@
   - **进程被回收**：系统可能终止应用进程，全部 Rust 状态与 PTY 进程随之消失。
   - **后台切回前台**：应用须在不销毁终端状态的前提下恢复渲染。
 
-- GPU Vulkan 渲染（无 CPU/OpenGL 回退）。
+- GPU 仅走 Vulkan 后端（`wgpu::Backends::VULKAN`，不启用 fallback adapter），且**必须关闭 wgpu 默认特性**（`default-features = false`），使 GLES / DX12 / Metal / WebGPU 后端根本不编入产物。理由：规范禁止 OpenGL 回退，且默认特性会向 `wgpu-hal` 引入 EGL 与 glow，显著增大体积。
 
-- 上游 `libghostty-vt` / `libghostty-vt-sys` 固定跟踪 git master，无本地补丁。
+- 上游 `libghostty-vt` / `libghostty-vt-sys` 无本地补丁（不 vendoring、不加 `[patch]`），但**不是**自动跟踪 master。版本由 `libghostty-vt-sys` 自身声明的上游 ghostty commit 决定，本仓只能通过升级 `libghostty-rs` 那个 git 依赖的 rev 来跟进。因此「跟踪 master」需要人工核对：升级后必须比对 `libghostty-vt-sys/build.rs` 的 `GHOSTTY_COMMIT` 与上游 master HEAD 的日期，并在变更说明中记录落后周数。两边 `build.zig.zon` 版本字符串相同（当前均为 `1.3.2-dev`），**从版本号看不出落后**。
 
 - 剪贴板集成：通过终端序列（OSC 52）与用户交互读写系统剪贴板。仅在 ghostty 支持时实现，不做过度复杂工作。
 
@@ -79,13 +81,22 @@
 
 ### Kotlin
 
-- 日志必须在 Android `logcat` 中可见以便调试，同时避免在渲染热路径上产生性能开销。不写入文件，不保存日志。
+- 日志必须在 Android `logcat` 中可见以便调试，同时避免在渲染热路径上产生性能开销。**不写入任何文件、不保存任何日志**（含崩溃、ANR、fatal、thermal 日志文件），也不得为此保留 `getDir` 目录。崩溃与 ANR 的可诊断性由 logcat 与崩溃上报承担。
 
 - `applicationId = "com.termux"`。
 
 - 包名 `terminal.emulator`。
 
 - 使用 AOSP testkey（`android/app/aosp-testkey.p12`）签名，禁止 debug 签名，禁止使用其他签名。
+
+### 平台组件
+
+以下组件是终端运行所必需，一并在此声明，不得视为未声明功能：
+
+- **前台服务** `TerminalForegroundService`：后台会话必须存活。`foregroundServiceType` 为 `specialUse`，不弹出常驻通知栏内容，仅维持进程优先级与 `PARTIAL_WAKE_LOCK`。前台服务是唯一允许的「常驻」手段，其余一律禁止。
+- **Bootstrap 安装辅助服务** `BootstrapInstallService`：运行在独立 `:install` 进程。仪器测试进程的 SELinux 域无法写入 `filesDir`，安装动作必须在此域内执行。
+- **文件提供器** `TerminalFileProvider`（`com.termux.fileprovider`）：为 SAF 选取文件提供 `content://` URI。
+- **文档提供器** `TerminalDocumentsProvider`：向系统文件选择器暴露用户文件，用于「打开文件」动作的接收端。只暴露用户数据树，不暴露应用私有配置。
 
 ## 设置
 
@@ -126,7 +137,7 @@
   - 不提供启动目录设置。
 
 - **Bootstrap**：支持 HTTP/HTTPS URL 与本地文件安装。
-  - 只提供 Termux 预设选项，使用 `apt-android-7`（较大值）和 `2026.02.12-r1`（最新值），不提供 `apt-android-5 2022.04.28-r6` 等旧值，从 `termux-app/app/build.gradle` 提取逻辑。
+  - 只提供 Termux 预设选项，共一项：最新发布（同时含 `apt-android-7` 仓库），不提供 `apt-android-5 2022.04.28-r6` 等旧值。预设的 tag 必须以 `termux-packages` 仓库实际存在的最新 release 为准，不得硬编码可能失效的版本号；实现前先查 [termux-packages releases](https://github.com/termux/termux-packages/releases)。
   - 原子化替换 `/data/data/com.termux/files/usr/` 目录（安装时原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除）。
   - 不记录 Bootstrap 状态，不得生成安装标记。
   - 不得特殊化设置权限，按照 Termux 同款流程设置，不额外设置某些目录。
@@ -226,7 +237,7 @@
   - 会话序号从 1 开始递增，列表改变时也是如此。
 
 - 添加会话按钮。
-- “重置终端”按钮，通过 `ghostty_terminal_reset` 重置 ghostty terminal 状态以恢复卡住的终端，清除滚动条。终端页面应该干净，没有残余内容。
+- “重置终端”按钮，通过 JNI 导出 `resetTerminal` 重置 ghostty terminal 状态以恢复卡住的终端，清除滚动条。终端页面应该干净，没有残余内容。
 - 文本搜索按钮。
 - 显示 / 隐藏输入法按钮。
 - 设置按钮。
