@@ -2,6 +2,10 @@
 
 const JNILIBS = "android/app/src/main/jniLibs"
 
+# libnative.so 体积上限（字节）。实测 release 约 10 MiB、dev 约 26 MiB；
+# 上限按 release 取 3 倍、dev 取 2 倍，超过说明引入了多余后端或未 strip。
+const MAX_LIBRARY_SIZE_BYTES = 64mb
+
 def abi-to-target-triple [abi: string] {
     match $abi {
         "x86_64" => "x86_64-linux-android"
@@ -14,6 +18,15 @@ def profile-to-out-dir [name: string] {
     match $name {
         "release" => "release"
         _ => "debug"
+    }
+}
+
+# libghostty-vt-sys 默认静态链接 ghostty，NEEDED 里出现 libghostty-vt.so 说明有人开了 link-dynamic。
+def assert-static-ghostty [so_path: string] {
+    let needed = (^readelf -d $so_path | parse -r 'Shared library: \[(?<name>[^\]]+)\]' | get name)
+    if "libghostty-vt.so" in $needed {
+        print $"ERROR: ($so_path) 动态链接了 libghostty-vt.so，须改为静态链接并移除 link-dynamic feature"
+        exit 1
     }
 }
 
@@ -50,6 +63,16 @@ def main [--profile: string = "", ...abis: string] {
             print $"ERROR: libnative.so not found at ($so_path)"
             exit 1
         }
+        assert-static-ghostty $so_path
         cp $so_path ($lib_dir | path join "libnative.so")
+    }
+
+    for abi in $abis {
+        let triple = abi-to-target-triple $abi
+        let so_size = (ls ($env.PWD | path join "target" $triple $deploy_outdir "libnative.so") | get size.0)
+        if $so_size > $MAX_LIBRARY_SIZE_BYTES {
+            print $"ERROR: ($abi) 的 ($deploy_outdir)/libnative.so 为 ($so_size) 字节，超过上限 ($MAX_LIBRARY_SIZE_BYTES)"
+            exit 1
+        }
     }
 }

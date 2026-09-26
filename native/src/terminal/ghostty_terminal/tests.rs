@@ -1162,7 +1162,7 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 /// Single anti-flake threshold (no environment checks per TESTING.md):
 /// parallel execution and software Vulkan contention make wall time noisy,
 /// so this floor catches order-of-magnitude regressions only.
-/// Fine-grained tracking belongs to `cargo bench` (see check-rust.nu).
+/// 细粒度跟踪由基准测试覆盖，见 scripts/check-rust.nu。
 
 #[test]
 fn bench_typing_latency() {
@@ -2623,6 +2623,44 @@ fn scrollback_cap_is_honored() {
     assert!(
         depth < 2000,
         "回滚上限必须生效（2000 行输入不得全保留）, 实际={depth}",
+    );
+}
+
+/// 回滚区必须「旧行按顺序进入、新行留在底部」，不能只断言深度。
+#[test]
+fn scrollback_keeps_order_and_newest_line_stays_visible() {
+    let mut terminal = GhosttyTerminal::new(24, 80, 5_000).expect("terminal");
+    for index in 0..500u32 {
+        terminal.vt_write(format!("SEQ_{index:04}\r\n").as_bytes());
+    }
+    terminal.flush();
+
+    let depth = terminal.scrollback_length();
+    assert!(depth >= 400, "回滚区应保留大部分输入行, 实际={depth}");
+
+    // 回滚行必须按写入顺序单调递增。
+    let mut previous = String::new();
+    for row in 0..depth.min(400) {
+        let text = terminal
+            .read_line_text(row)
+            .unwrap_or_else(|| panic!("回滚第 {row} 行必须可读"));
+        let Some(marker) = text.trim().strip_prefix("SEQ_") else {
+            panic!("回滚第 {row} 行缺少标记, 实际={text:?}");
+        };
+        if row > 0 {
+            assert!(
+                marker > previous.as_str(),
+                "回滚行必须按写入顺序递增, 第 {row} 行={marker} 上一行={previous}",
+            );
+        }
+        previous = marker.to_string();
+    }
+
+    // 最新一行必须出现在可视区（底部），而不是被推进回滚后丢失。
+    let last_marker = format!("SEQ_{:04}", 499);
+    assert!(
+        terminal.read_visible_text().contains(&last_marker),
+        "最新一行必须留在可视区底部, 可视区未包含 {last_marker}",
     );
 }
 
