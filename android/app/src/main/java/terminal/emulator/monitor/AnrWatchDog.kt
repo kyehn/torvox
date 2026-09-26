@@ -13,18 +13,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
-import java.io.FileOutputStream
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class AnrWatchDog(
-    private val logDir: File,
+    private val stateDir: File,
     private val timeoutMs: Long = ANR_TIMEOUT_MILLIS,
     private val warmUpMillis: Long = WARM_UP_MILLIS,
-    private val onAnr: () -> Unit = { BootGuard.exit(logDir, "ANR") },
+    private val onAnr: () -> Unit = { BootGuard.exit(stateDir, "ANR") },
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -138,24 +134,7 @@ class AnrWatchDog(
                 stackTraces.appendLine()
             }
 
-            val timestamp =
-                DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
-            val logFile = File(logDir, "anr_$timestamp.log")
-            logDir.mkdirs()
-
-            val bytes = stackTraces.toString().toByteArray(Charsets.UTF_8)
-            FileOutputStream(logFile).use { fos ->
-                fos.write(bytes)
-                try {
-                    fos.fd.sync()
-                } catch (e: Exception) {
-                    Log.w("AnrWatchDog", "fsync failed for ANR log", e)
-                }
-            }
-
-            Log.e("AnrWatchDog", "ANR written to ${logFile.absolutePath}")
-
-            Log.e("AnrWatchDog", "Killing process due to ANR")
+            Log.e("AnrWatchDog", "ANR detected, killing process:\n$stackTraces")
             onAnr()
         } catch (e: Exception) {
             Log.e("AnrWatchDog", "Unhandled exception in ANR handler", e)
