@@ -54,6 +54,10 @@
 //! - `ACTIVE_SESSION_ID` is an `AtomicU64` with `Acquire`/`Release` ordering.
 //!   ID 0 means "no active session".
 
+// JNI 导出按签名接收 `jobject` / `jstring` 等裸指针，这是 JNI 调用约定本身决定的。
+// 句柄有效性由 JVM 契约保证，不是 Rust 生命周期能表达的，因此整个文件一次性关闭该 lint。
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -401,7 +405,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
 // list is dictated by the Kotlin `NativeBridge` declaration, not by design
 // choice. The argument count is fixed by the ABI and cannot be reduced
 // without a coordinated Kotlin change.
-#[allow(clippy::too_many_arguments)]
 fn init_session_inner(
     env: &mut Env,
     _class: JClass,
@@ -884,7 +887,6 @@ fn focus_event_inner(
 // JNI exports receive raw handles (jbyteArray/jstring are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee;
 // each unsafe block below carries its own SAFETY comment.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
@@ -901,7 +903,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
 // JNI exports receive raw handles (jbyteArray/jstring are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee;
 // each unsafe block below carries its own SAFETY comment.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
 
@@ -914,9 +915,6 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
         // JVM runtime for the duration of this call. `from_raw` wraps the
         // pointer without taking ownership; the local ref is released by
         // the JVM when this native method returns.
-        // `not_unsafe_ptr_arg_deref` is handled at the function level (JNI
-        // handle validity is the VM's contract, not a Rust lifetime
-        // guarantee); the SAFETY comment above documents the contract.
         let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
         match env.convert_byte_array(&byte_array) {
             Ok(bytes) => bytes,
@@ -975,7 +973,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
 // JNI exports receive raw handles (jbyteArray/jstring are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee;
 // each unsafe block below carries its own SAFETY comment.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
     // SAFETY: `data` is a JNI method argument, guaranteed valid by the JVM
@@ -1117,7 +1114,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
 // list is dictated by the Kotlin `NativeBridge` declaration, not by design
 // choice. The argument count is fixed by the ABI and cannot be reduced
 // without a coordinated Kotlin change.
-#[allow(clippy::too_many_arguments)]
 fn encode_mouse_event_inner(
     env: &mut Env,
     session_id: jlong,
@@ -2805,7 +2801,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
 // JNI exports receive raw handles (jbyteArray/jstring are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee;
 // the SAFETY comment inside documents the contract (feedPty pattern).
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighlights(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
@@ -2892,7 +2887,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 #[unsafe(no_mangle)]
 // JNI exports receive raw handles (jstring/jbyteArray are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
@@ -2933,7 +2927,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
 /// Apply a theme: 54 bytes = background RGB (3) + foreground RGB (3) +
 /// 16 ANSI palette colors (48). Mirrors `GhosttyTerminal::set_theme`.
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
@@ -2981,15 +2974,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         };
         let session = entry.session.lock();
         session.terminal().set_theme(background, foreground, ansi);
-        // The cell shader's Fix F transparency check compares each cell's
-        // background against `uniforms.default_background`, which is sourced from
-        // `Renderer::background`. Without syncing it here, the terminal
-        // theme (e.g. #151515) never matches the renderer default
-        // (#1E1E2E Catppuccin), `is_default_background` stays false, and the
-        // wallpaper is hidden behind opaque cell backgrounds
-        // (emulator-verified: checkerboard probe proved the background
-        // pass and cell transparency both work; only the default_background
-        // comparison failed).
+        // 单元格着色器的 Fix F 判定会把每个单元格的背景与 `uniforms.default_background`
+        // 比对，后者取自 `Renderer::background`。不同步时终端主题与渲染器默认值不一致，
+        // `is_default_background` 恒为 false，背景色判定失效。
         {
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
@@ -3037,7 +3024,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
 /// reaches the renderer (the 54-byte `setTheme` payload has no slot for
 /// it). `None` clears the override (follow the terminal).
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,

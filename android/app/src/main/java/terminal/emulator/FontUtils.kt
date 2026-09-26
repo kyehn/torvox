@@ -38,13 +38,11 @@ fun resolveEffectiveFontFamily(fontFamily: String): String {
     }
 }
 
+/** 仅支持 arm64-v8a 与 x86_64（见 docs/specification/BUILD.md），其余一律回退到 aarch64。 */
 fun detectArchFromAbi(): String = when (android.os.Build.SUPPORTED_ABIS.firstOrNull()) {
-    "arm64-v8a" -> "aarch64"
-    "armeabi-v7a" -> "arm"
     "x86_64" -> "x86_64"
-    "x86" -> "i686"
     else -> DEFAULT_ARCH_FALLBACK
 }
 
-/** True when the primary ABI is 64-bit (determines linker32/64). */
-fun is64BitAbi(): Boolean = android.os.Build.SUPPORTED_ABIS.firstOrNull()?.let { it.contains("64") } ?: false
+/** True when the primary ABI is 64-bit (determines linker32/64). 出货的两个 ABI 都是 64 位。 */
+fun is64BitAbi(): Boolean = true

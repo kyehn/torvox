@@ -14,13 +14,6 @@ import terminal.emulator.monitor.AnrWatchDog
 import terminal.emulator.monitor.BootGuard
 import terminal.emulator.monitor.MemoryMonitor
 import terminal.emulator.monitor.ThermalMonitor
-import java.io.File
-import java.io.FileOutputStream
-import java.io.PrintWriter
-import java.io.StringWriter
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 @HiltAndroidApp
 open class TerminalApp : Application() {
@@ -31,9 +24,8 @@ open class TerminalApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val logDir = getDir("logs", MODE_PRIVATE)
-        BootGuard(logDir).rotateLogs()
-        BootGuard(logDir).check()
+        val stateDir = getDir("boot_state", MODE_PRIVATE)
+        BootGuard(stateDir).check()
         // StrictMode 仅 debug：release 下每次 I/O 的 penaltyLog 拖慢冷启动。
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(
@@ -77,7 +69,7 @@ open class TerminalApp : Application() {
         installCrashHandler()
         monitorScope.launch {
             delay(HEALTHY_UPTIME_MS)
-            BootGuard(logDir).markHealthy()
+            BootGuard(getDir("boot_state", MODE_PRIVATE)).markHealthy()
         }
     }
 
@@ -94,8 +86,8 @@ open class TerminalApp : Application() {
         // native trace). Debug builds serve development/CI where the
         // user-facing self-exit safeguard is not needed.
         if (BuildConfig.DEBUG) return
-        val logDir = getDir("logs", MODE_PRIVATE)
-        anrWatchDog = AnrWatchDog(logDir, ANR_TIMEOUT_MILLIS).also { it.start() }
+        val stateDir = getDir("boot_state", MODE_PRIVATE)
+        anrWatchDog = AnrWatchDog(stateDir, ANR_TIMEOUT_MILLIS).also { it.start() }
     }
 
     private fun installMemoryMonitor() {
@@ -106,18 +98,17 @@ open class TerminalApp : Application() {
     }
 
     private fun installThermalMonitor() {
-        val logDir = getDir("logs", MODE_PRIVATE)
+        val stateDir = getDir("boot_state", MODE_PRIVATE)
         thermalMonitor =
-            ThermalMonitor(this, logDir) {
-                BootGuard.exit(logDir, "Thermal CRITICAL+")
-            }.also { it.register() }
+            ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITICAL+") }
+                .also { it.register() }
     }
 
     private fun installCrashHandler() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                writeCrashLog(thread, throwable)
+                logCrash(thread, throwable)
             } catch (exception: Exception) {
                 Log.e("App", "Failed to write crash log", exception)
             }
@@ -127,7 +118,7 @@ open class TerminalApp : Application() {
             // (remote crash reporting). BootGuard.exit() kills first, so the
             // platform handler never runs and the stack is lost entirely.
             try {
-                BootGuard(getDir("logs", MODE_PRIVATE)).recordExit()
+                BootGuard(getDir("boot_state", MODE_PRIVATE)).recordExit()
             } catch (exception: Exception) {
                 Log.e("App", "Failed to record boot exit", exception)
             }
@@ -135,40 +126,15 @@ open class TerminalApp : Application() {
         }
     }
 
-    private fun writeCrashLog(thread: Thread, throwable: Throwable) {
-        val logDirectory = getDir("logs", MODE_PRIVATE)
-        logDirectory.mkdirs()
-
-        val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
-        val crashLogFile = File(logDirectory, "crash_$timestamp.log")
-
-        val stackTrace = StringWriter()
-        throwable.printStackTrace(PrintWriter(stackTrace))
-
-        val crashLog =
-            buildString {
-                appendLine("# Crash Log")
-                appendLine("## Timestamp: $timestamp")
-                appendLine("## Thread: ${thread.name}")
-                appendLine("## Exception: ${throwable.javaClass.name}: ${throwable.message}")
-                appendLine()
-                appendLine("## Stack Trace:")
-                appendLine(stackTrace.toString())
-
-                val causedBy = throwable.cause
-                if (causedBy != null) {
-                    val causedByTrace = StringWriter()
-                    causedBy.printStackTrace(PrintWriter(causedByTrace))
-                    appendLine()
-                    appendLine("## Caused By:")
-                    appendLine(causedByTrace.toString())
-                }
-            }
-
-        FileOutputStream(crashLogFile).use { fos ->
-            fos.write(crashLog.toByteArray(Charsets.UTF_8))
-        }
-        Log.e("App", "Crash log written to ${crashLogFile.absolutePath}")
+    /** 崩溃诊断只进 logcat：DESIGN.md 禁止把日志写入文件。 */
+    private fun logCrash(thread: Thread, throwable: Throwable) {
+        val causedBy = throwable.cause
+        Log.e(
+            "App",
+            "Uncaught ${throwable.javaClass.name}: ${throwable.message} on thread ${thread.name}" +
+                (causedBy?.let { "\nCaused by: $it" } ?: ""),
+            throwable,
+        )
     }
 
     companion object {
