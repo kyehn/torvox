@@ -20,7 +20,11 @@
 - 使用 `rapidocr cli` 进行 OCR 识别。
 - 使用 `npx aislop@latest scan` 和 `npm install -g jscpd` 检查代码
 - 使用 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 审查代码。
-- 使用 release apk 进行测试，不得使用 debug apk 进行测试
+- 使用 release apk 进行测试，不得使用 debug apk。
+  - **当前未达成，且构成阻塞。** `:app:connectedReleaseAndroidTest` 任务不存在：AGP 只为 `android.testBuildType`（默认 `debug`）生成 connected 任务。要在 release 变体上跑仪器测试必须设 `android.testBuildType = "release"`，而这与以下两条冲突，必须先决策：
+    - release 变体开启 minify + 资源收缩，cucumber runner、Ultron、Espresso 在收缩后是否仍可用未经验证；
+    - `MainActivity` 的测试后门（`BuildConfig.DEBUG` 门控）不会进入 release 包，依赖它的仪器测试会失效，而把后门放进 release 包又会暴露攻击面。
+  - 未决策前，`:app` 仪器测试仍跑 debug APK；`:benchmark` 与 `:baselineprofile` 已在 release 上运行。禁止在未验证前直接切换。 进行测试
 
 ## 覆盖范围
 

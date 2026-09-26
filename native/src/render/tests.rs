@@ -1838,7 +1838,7 @@ fn set_render_paused_idempotent() {
 /// Thresholds are single anti-flake floors (no environment checks per
 /// TESTING.md): parallel execution and software Vulkan contention make
 /// wall time noisy; the floor catches order-of-magnitude regressions only.
-/// Fine-grained tracking belongs to `cargo bench` (see check-rust.nu).
+/// 细粒度跟踪由基准测试覆盖，见 scripts/check-rust.nu。
 
 #[test]
 fn bench_build_instances_from_cell_data() {
