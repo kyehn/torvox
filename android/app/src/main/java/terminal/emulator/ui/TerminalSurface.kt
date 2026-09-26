@@ -25,7 +25,6 @@ import android.widget.PopupWindow
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
-import kotlinx.coroutines.cancel
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
@@ -2217,14 +2216,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         lastImeVisible = settledBottom > 0
         // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
         if (translationY != 0f) translationY = 0f
-    }
-
-    /**
-     * Compute the grid from the window size and the current IME inset, then align the PTY. Single
-     * formula shared by the insets path and applySurfaceResize so both can never diverge: rows
-     * exclude the IME inset and the ModifierBar overlay.
-     */
-    fun initialize(viewModel: TerminalViewModel) {
     }
 
     fun postDelayedUnpause(delayMillis: Long) {
