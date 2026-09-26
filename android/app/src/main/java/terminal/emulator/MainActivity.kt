@@ -10,7 +10,6 @@ import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
@@ -178,10 +177,11 @@ class MainActivity : ComponentActivity() {
         // 首帧就绪后自动切回 Theme.Terminal。
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // activity 1.14.0-alpha03 弃用 ComponentActivity.enableEdgeToEdge()，
+        // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
+        androidx.core.view.WindowCompat.enableEdgeToEdge(window)
         previousNightMode =
             resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         // Color.TRANSPARENT is an ARGB int, not a resource id — the KTX
         // Int.toDrawable() the lint suggests would treat it as a res id (0)
         // and resolve the wrong drawable.

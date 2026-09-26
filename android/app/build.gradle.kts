@@ -111,13 +111,13 @@ dependencies {
   val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
   implementation(composeBom)
 
-  implementation("androidx.core:core-ktx:1.19.0")
+  implementation("androidx.core:core-ktx:1.19.1")
   implementation("androidx.core:core-splashscreen:1.2.0")
   implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2")
-  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.12.0-alpha03")
-  implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.12.0-alpha03")
-  implementation("androidx.lifecycle:lifecycle-runtime-compose:2.12.0-alpha03")
-  implementation("androidx.activity:activity-compose:1.14.0-alpha02")
+  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.12.0-alpha04")
+  implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.12.0-alpha04")
+  implementation("androidx.lifecycle:lifecycle-runtime-compose:2.12.0-alpha04")
+  implementation("androidx.activity:activity-compose:1.14.0-alpha03")
 
   implementation("androidx.compose.ui:ui")
   implementation("androidx.compose.ui:ui-graphics")
@@ -144,7 +144,7 @@ dependencies {
 
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0-RC")
-  implementation("io.coil-kt.coil3:coil-core:3.6.2")
+  implementation("io.coil-kt.coil3:coil-core:3.6.3")
 
   releaseImplementation("androidx.profileinstaller:profileinstaller:1.4.1")
   testImplementation("org.robolectric:robolectric:4.17")
