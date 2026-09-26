@@ -52,34 +52,4 @@ class BootGuardTest {
         guard.check()
         assertTrue("healthy boot must re-enable auto kill", BootGuard.autoKillEnabled)
     }
-
-    @Test
-    fun `rotate logs keeps only the newest per prefix`() {
-        val guard = BootGuard(logDir)
-        repeat(12) { index ->
-            val file = File(logDir, "anr_$index.txt")
-            file.writeText("trace $index")
-            // Stagger timestamps so ordering is deterministic.
-            file.setLastModified(1_000_000L + index * 1_000L)
-        }
-        guard.rotateLogs(maxFilesPerType = 10)
-        val remaining = requireNotNull(logDir.listFiles { f -> f.name.startsWith("anr_") }).toList()
-        assertEquals("oldest entries must be rotated away", 10, remaining.size)
-        val names = remaining.map { it.name }.sorted()
-        assertFalse("the two oldest files are gone", names.contains("anr_0.txt"))
-        assertFalse(names.contains("anr_1.txt"))
-        assertTrue("newest entries survive", names.contains("anr_11.txt"))
-    }
-
-    @Test
-    fun `rotate logs is a no-op below the limit`() {
-        val guard = BootGuard(logDir)
-        repeat(5) { index ->
-            val file = File(logDir, "fatal_$index.txt")
-            file.writeText("trace $index")
-            file.setLastModified(1_000_000L + index * 1_000L)
-        }
-        guard.rotateLogs(maxFilesPerType = 10)
-        assertEquals(5, requireNotNull(logDir.listFiles { f -> f.name.startsWith("fatal_") }).size)
-    }
 }

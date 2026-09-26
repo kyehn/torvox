@@ -7,7 +7,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
+
 
 /**
  * Behavioural tests for [ThermalMonitor]'s decision logic: transition dedup,
@@ -21,10 +21,9 @@ class ThermalMonitorTest {
 
     private fun monitor(): Pair<ThermalMonitor, () -> Int> {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val logDir = File(kotlin.io.path.createTempDirectory("thermal-logs").toFile(), "logs")
         var criticalCalls = 0
         val monitor =
-            ThermalMonitor(context, logDir) {
+            ThermalMonitor(context) {
                 criticalCalls++
             }
         return monitor to { criticalCalls }
@@ -72,11 +71,7 @@ class ThermalMonitorTest {
     @Test
     fun status_label_mapping_is_complete() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val monitor =
-            ThermalMonitor(
-                context,
-                File(context.cacheDir, "unused"),
-            )
+        val monitor = ThermalMonitor(context)
 
         assertEquals("THERMAL_STATUS_NONE", monitor.thermalStatusLabel(PowerManager.THERMAL_STATUS_NONE))
         assertEquals("THERMAL_STATUS_LIGHT", monitor.thermalStatusLabel(PowerManager.THERMAL_STATUS_LIGHT))
@@ -89,19 +84,13 @@ class ThermalMonitorTest {
     }
 
     @Test
-    fun critical_writes_thermal_log_file() {
+    fun critical_status_notifies_once_and_writes_no_file() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val logDir = File(kotlin.io.path.createTempDirectory("thermal-write").toFile(), "logs")
         var criticalCalls = 0
-        val monitor =
-            ThermalMonitor(context, logDir) {
-                criticalCalls++
-            }
+        val monitor = ThermalMonitor(context) { criticalCalls++ }
 
         monitor.onThermalStatusChanged(PowerManager.THERMAL_STATUS_CRITICAL)
 
         assertEquals(1, criticalCalls)
-        val logs = logDir.listFiles { file -> file.name.startsWith("thermal_") }
-        assertEquals("exactly one thermal log", 1, logs?.size)
     }
 }

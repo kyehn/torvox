@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 class AnrWatchDogTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val logDir = File(context.cacheDir, "anr_test_${System.nanoTime()}")
+    private val stateDir = java.io.File(context.cacheDir, "anr_test_${System.nanoTime()}")
 
     /** Idle the paused main looper until `untilNanos` is reached. */
     private fun idleMainLooper(untilMs: Long) {
@@ -39,7 +39,7 @@ class AnrWatchDogTest {
         val fired = CountDownLatch(1)
         val dog =
             AnrWatchDog(
-                logDir = logDir,
+                stateDir = stateDir,
                 timeoutMs = 100L,
                 warmUpMillis = 0L,
                 onAnr = { fired.countDown() },
@@ -54,7 +54,7 @@ class AnrWatchDogTest {
         val fired = AtomicInteger(0)
         val dog =
             AnrWatchDog(
-                logDir = logDir,
+                stateDir = stateDir,
                 timeoutMs = 500L,
                 warmUpMillis = 0L,
                 onAnr = { fired.incrementAndGet() },
@@ -74,7 +74,7 @@ class AnrWatchDogTest {
         val first = CountDownLatch(1)
         val dog =
             AnrWatchDog(
-                logDir = logDir,
+                stateDir = stateDir,
                 timeoutMs = 100L,
                 warmUpMillis = 0L,
                 onAnr = {
@@ -96,7 +96,7 @@ class AnrWatchDogTest {
         val fired = AtomicInteger(0)
         val dog =
             AnrWatchDog(
-                logDir = logDir,
+                stateDir = stateDir,
                 timeoutMs = 100L,
                 warmUpMillis = 0L,
                 onAnr = { fired.incrementAndGet() },

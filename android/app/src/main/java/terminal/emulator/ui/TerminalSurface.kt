@@ -51,11 +51,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        // release the render-loop accessibility hook; the view
-        // is being destroyed and the runtime should not keep calling into
-        // it (activity recreation builds a fresh TerminalSurface).
-        viewModel?.runtime?.onFrameRendered = null
-        accessibilityDescriptionUpdater.cancel()
         // Force-hide the IME: a detach can happen during rotation or back
         // press while the soft keyboard is open.  Without this the keyboard
         // remains visible over a destroyed Activity window (stuck-keyboard
@@ -1254,40 +1249,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
         private const val EDGE_SCROLL_STEP_UP = 1
         private const val EDGE_SCROLL_STEP_DOWN = -1
-        private const val ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS = 500L
-        private const val ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS = 250_000_000L // 4 Hz
-
-        // Custom accessibility action ids start at 0x1000; the
-        // ACTION_CUSTOM_ACTION constant was removed in API 37.
-        private const val ACCESSIBILITY_CUSTOM_ACTION_BASE = 0x1000
     }
 
     private fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
     private var viewModel: TerminalViewModel? = null
-
-    // accessibility integration — the SurfaceView is self-drawn
-    // with no text nodes, so the visible terminal lines are surfaced via a
-    // dynamic contentDescription (debounced) plus Next/Previous line custom
-    // actions. The scrollback length is queried on the render thread (never
-    // on the main thread — it is a synchronous JNI call) and throttled to
-    // ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS; the description itself
-    // is assembled on the main thread from the cached length.
-    private val accessibilityMainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private val accessibilityLineProvider = AccessibilityLineProvider { row ->
-        viewModel?.runtime?.bridge()?.scrollbackLine(row)
-    }
-    private val accessibilityNavigator = AccessibilityLineNavigator(accessibilityLineProvider)
-    private val accessibilityDescriptionUpdater =
-        DebouncedTextUpdater(
-            ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS,
-            HandlerDebounceScheduler(accessibilityMainHandler),
-        )
-
-    @Volatile private var accessibilityDescriptionRefreshPosted = false
-    private var lastAccessibilityScrollbackQueryNanos = 0L
-
-    @Volatile private var accessibilityScrollbackLength = 0
 
     @Volatile private var rows: Int = DEFAULT_ROWS
 
@@ -2174,9 +2140,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         isFocusableInTouchMode = true
         setWillNotDraw(false)
         scaleDetector.isQuickScaleEnabled = false
-        contentDescription = context.getString(R.string.terminal)
-        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        installAccessibilityCustomActions()
     }
 
     private var keyboardRequested = false
@@ -2262,141 +2225,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * exclude the IME inset and the ModifierBar overlay.
      */
     fun initialize(viewModel: TerminalViewModel) {
-        this.viewModel = viewModel
-        // wire the render-loop frame hook so the accessibility
-        // description tracks terminal output (the SurfaceView is drawn by
-        // native code — no other content-changed signal exists).
-        viewModel.runtime.onFrameRendered = { accessibilityRenderTick() }
-    }
-
-    /**
-     * called from the render loop (render thread) after each presented frame. Refreshes the
-     * accessibility contentDescription so TalkBack reads live terminal output. The blocking JNI
-     * scrollback query runs here (never on the main thread) and is throttled; the description
-     * assembly happens on the main thread.
-     */
-    fun accessibilityRenderTick() {
-        if (!isAccessibilityEnabled()) return
-        if (accessibilityDescriptionRefreshPosted) return
-        val now = System.nanoTime()
-        if (
-            now - lastAccessibilityScrollbackQueryNanos < ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS
-        ) {
-            return
-        }
-        val bridge = viewModel?.runtime?.bridge() ?: return
-        lastAccessibilityScrollbackQueryNanos = now
-        val scrollbackLength =
-            try {
-                bridge.scrollbackLength()
-            } catch (exception: Exception) {
-                LogUtil.w(TAG, "accessibility scrollbackLength query failed", exception)
-                return
-            }
-        accessibilityScrollbackLength = scrollbackLength
-        // Per-line scrollback queries are blocking JNI: each one locks the
-        // session, which the render thread holds for the whole frame
-        // (~500 ms under software rendering). Running them on the main
-        // thread would pin the main looper inside a mutex for every frame,
-        // which keeps Espresso/Compose idling permanently busy. Assemble
-        // the description HERE on the render thread; the main thread only
-        // applies the resulting string (no JNI).
-        val lines = accessibilityLineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
-        val description = accessibilityLineProvider.contentDescription(lines)
-        if (description.isEmpty()) return
-        accessibilityDescriptionRefreshPosted = true
-        accessibilityMainHandler.post {
-            accessibilityDescriptionRefreshPosted = false
-            if (isAccessibilityEnabled()) {
-                accessibilityDescriptionUpdater.update(description) { this.contentDescription = it }
-            }
-        }
-    }
-
-    /**
-     * Next (delta > 0) / Previous (delta < 0) / current (delta == 0) accessibility line navigation.
-     * The chosen line becomes the contentDescription immediately (no debounce) so TalkBack reads it
-     * right after the custom action completes. Main thread only.
-     */
-    private fun navigateAccessibilityLine(delta: Int) {
-        val bridge = viewModel?.runtime?.bridge() ?: return
-        if (!isAccessibilityEnabled()) return
-        val scrollbackLength = currentScrollbackLength()
-        val line =
-            when {
-                delta > 0 -> accessibilityNavigator.next(rows, scrollbackLength, scrollOffset)
-                delta < 0 -> accessibilityNavigator.previous(rows, scrollbackLength, scrollOffset)
-                else -> accessibilityNavigator.current(rows, scrollbackLength, scrollOffset)
-            }
-        if (line != null) {
-            accessibilityDescriptionUpdater.cancel()
-            contentDescription = line.text
-        }
-    }
-
-    private fun isAccessibilityEnabled(): Boolean {
-        val manager =
-            context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
-                as? android.view.accessibility.AccessibilityManager ?: return false
-        return manager.isEnabled
-    }
-
-    private fun installAccessibilityCustomActions() {
-        // API 37 removed the ACTION_CUSTOM_ACTION constant; custom action
-        // ids still start at 0x1000 (see AccessibilityNodeInfo docs).
-        val customBase = ACCESSIBILITY_CUSTOM_ACTION_BASE
-        accessibilityDelegate =
-            object : android.view.View.AccessibilityDelegate() {
-                override fun onInitializeAccessibilityNodeInfo(
-                    host: android.view.View,
-                    info: android.view.accessibility.AccessibilityNodeInfo,
-                ) {
-                    super.onInitializeAccessibilityNodeInfo(host, info)
-                    info.addAction(
-                        android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
-                            customBase + 1,
-                            context.getString(R.string.accessibility_next_line),
-                        ),
-                    )
-                    info.addAction(
-                        android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
-                            customBase + 2,
-                            context.getString(R.string.accessibility_previous_line),
-                        ),
-                    )
-                    info.addAction(
-                        android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
-                            customBase + 3,
-                            context.getString(R.string.accessibility_read_screen),
-                        ),
-                    )
-                }
-
-                // API 37 renamed View.AccessibilityDelegate.onPerformAccessibilityAction
-                // to performAccessibilityAction (Android 16 accessibility overhaul).
-                override fun performAccessibilityAction(
-                    host: android.view.View,
-                    action: Int,
-                    arguments: android.os.Bundle?,
-                ): Boolean = when (action) {
-                    customBase + 1 -> {
-                        navigateAccessibilityLine(1)
-                        true
-                    }
-
-                    customBase + 2 -> {
-                        navigateAccessibilityLine(-1)
-                        true
-                    }
-
-                    customBase + 3 -> {
-                        navigateAccessibilityLine(0)
-                        true
-                    }
-
-                    else -> super.performAccessibilityAction(host, action, arguments)
-                }
-            }
     }
 
     fun postDelayedUnpause(delayMillis: Long) {
@@ -2680,8 +2508,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // selection, scroll, long-press, and hardware-key interactions.
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
-            // Accessibility contract: a view overriding onTouchEvent must
-            // call performClick on touch-up so TalkBack click actions work.
+            // 覆写 onTouchEvent 的 View 必须在抬手时调用 performClick，
+            // 否则系统的点击动作收不到事件。
             performClick()
         }
         if (!touchEnabled) {

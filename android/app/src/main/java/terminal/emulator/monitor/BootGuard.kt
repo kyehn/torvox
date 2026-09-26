@@ -3,13 +3,10 @@ package terminal.emulator.monitor
 import android.os.Process
 import android.util.Log
 import java.io.File
-import java.io.FileOutputStream
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
-class BootGuard(private val logDir: File) {
+/** 崩溃循环守卫。计数器是功能状态不是日志，落在应用私有 state 目录；诊断信息一律走 logcat。 */
+class BootGuard(private val stateDir: File) {
     fun check() {
         synchronized(LOCK) {
             val counter = readCounter()
@@ -49,23 +46,6 @@ class BootGuard(private val logDir: File) {
         }
     }
 
-    fun rotateLogs(maxFilesPerType: Int = 10) {
-        for (prefix in arrayOf("anr_", "fatal_", "crash_", "thermal_")) {
-            val files =
-                logDir
-                    .listFiles { f -> f.name.startsWith(prefix) }
-                    ?.sortedBy { it.lastModified() }
-                    ?: continue
-            if (files.size > maxFilesPerType) {
-                files.take(files.size - maxFilesPerType).forEach { file ->
-                    if (file.delete()) {
-                        Log.d(TAG, "Deleted old log: ${file.name}")
-                    }
-                }
-            }
-        }
-    }
-
     companion object {
         private const val TAG = "BootGuard"
 
@@ -78,42 +58,16 @@ class BootGuard(private val logDir: File) {
         private val LOCK = Any()
         private val alreadyKilling = AtomicBoolean(false)
 
-        fun exit(logDir: File, reason: String) {
+        fun exit(stateDir: File, reason: String) {
             if (!alreadyKilling.compareAndSet(false, true)) return
 
-            BootGuard(logDir).recordExit()
+            BootGuard(stateDir).recordExit()
 
             val suppressed = !autoKillEnabled
-            val reasonLine = if (suppressed) "$reason (SUPPRESSED by BootGuard)" else reason
-
-            try {
-                logDir.mkdirs()
-                val timestamp = DateTimeFormatter.ofPattern(
-                    "yyyy-MM-dd_HH-mm-ss",
-                    Locale.US,
-                ).format(LocalDateTime.now())
-                val logFile = File(logDir, "fatal_$timestamp.log")
-                val content =
-                    buildString {
-                        appendLine("== Fatal Self-Exit ==")
-                        appendLine("Reason: $reasonLine")
-                        appendLine("Timestamp: $timestamp")
-                    }
-                FileOutputStream(logFile).use { fos ->
-                    fos.write(content.toByteArray(Charsets.UTF_8))
-                    fos.fd.sync()
-                }
-                Log.e(
-                    TAG,
-                    "${if (suppressed) "[SUPPRESSED] " else ""}Self-exit: $reason — log at ${logFile.absolutePath}",
-                )
-            } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "${if (suppressed) "[SUPPRESSED] " else ""}Failed to write self-exit log for $reason",
-                    e,
-                )
-            }
+            Log.e(
+                TAG,
+                if (suppressed) "[SUPPRESSED] Self-exit: $reason" else "Self-exit: $reason",
+            )
 
             if (suppressed) {
                 alreadyKilling.set(false)
@@ -152,5 +106,5 @@ class BootGuard(private val logDir: File) {
         }
     }
 
-    private fun counterFile(): File = File(logDir, COUNTER_FILENAME)
+    private fun counterFile(): File = File(stateDir, COUNTER_FILENAME)
 }
