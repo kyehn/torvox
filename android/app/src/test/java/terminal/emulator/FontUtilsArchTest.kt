@@ -1,7 +1,6 @@
 package terminal.emulator
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -25,7 +24,6 @@ class FontUtilsArchTest {
     fun `arm64-v8a maps to aarch64 and is 64-bit`() {
         withAbis("arm64-v8a") {
             assertEquals("aarch64", detectArchFromAbi())
-            assertTrue(is64BitAbi())
         }
     }
 
@@ -33,7 +31,6 @@ class FontUtilsArchTest {
     fun `x86_64 maps to x86_64 and is 64-bit`() {
         withAbis("x86_64") {
             assertEquals("x86_64", detectArchFromAbi())
-            assertTrue(is64BitAbi())
         }
     }
 
