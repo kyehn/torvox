@@ -121,7 +121,7 @@ pub enum Query {
     /// Derive "all selectable terminal content" with upstream
     /// `Terminal::select_all`, install it, and return ordered bounds
     /// (upstream semantics: bounds exclude trailing blank rows/columns —
-    /// pinned by cargo tests, see design decision 2).
+    /// 由工作区测试锁定，见设计决策 2)。
     SelectAll {
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
