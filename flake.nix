@@ -140,6 +140,8 @@
             shellHook = ''
               set -e
               chmod -R +x scripts/ android/gradlew
+              # shellHook 已在 nix develop 内，脚本 shebang 会再次进入 nix develop 导致
+              # 嵌套与环境污染，因此这里直接调用解释器，不走 shebang。
               nu scripts/download-aosp-testkey.nu
               nu scripts/download-rapidocr-models.nu
             '';

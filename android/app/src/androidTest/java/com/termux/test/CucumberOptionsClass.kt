@@ -10,7 +10,6 @@ import terminal.emulator.cucumber.SimpleHiltObjectFactory
 @CucumberOptions(
     glue = ["terminal.emulator.cucumber"],
     features = ["features"],
-    tags = "not @wip",
     plugin = ["pretty"],
     objectFactory = SimpleHiltObjectFactory::class,
 )

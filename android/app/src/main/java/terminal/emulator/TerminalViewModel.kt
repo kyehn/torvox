@@ -31,8 +31,6 @@ import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
-import terminal.emulator.input.toKeyboardMode
-import terminal.emulator.input.toSettingsString
 import terminal.emulator.input.toggled
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.LogUtil
@@ -123,6 +121,8 @@ data class TerminalState(
     val scrollActive: Boolean = false,
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
+
+    /** IME 编辑器类型固定为 Secure（DESIGN.md 要求全功能输入法，不提供切换入口）。 */
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
     val selectionAccent: Int = 0,
     // Bumped on every programmatic scroll reset (input-driven snap to
@@ -949,11 +949,6 @@ constructor(
                 refreshSessionMetas()
             }
         }
-        viewModelScope.launch {
-            settingsRepository.keyboardMode.collect { mode ->
-                _state.update { it.copy(keyboardMode = mode.toKeyboardMode()) }
-            }
-        }
     }
 
     /**
@@ -1206,18 +1201,6 @@ constructor(
                     )
             }
             cacheFile.delete()
-        }
-    }
-
-    fun setUseNerdFontGlyphs(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setUseNerdFontGlyphs(enabled)
-        }
-    }
-
-    fun setKeyboardMode(mode: KeyboardMode) {
-        viewModelScope.launch {
-            settingsRepository.setKeyboardMode(mode.toSettingsString())
         }
     }
 

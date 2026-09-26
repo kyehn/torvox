@@ -609,7 +609,6 @@ impl Renderer {
     /// rows are copied from `self.cell_cache` (FR-013 / NFR-010); `None`
     /// forces a full rebuild (and drops the stale cache).
     // 渲染线程入口：参数由调用帧装配固定，成组改结构体只增间接无收益。
-    #[allow(clippy::too_many_arguments)]
     pub fn render_cell_data(
         &mut self,
         cell_data: &[crate::terminal::ghostty_terminal::CellData],

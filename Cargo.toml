@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["native"]
+# 风格类 lint 在此一次性关闭，与 android/detekt.yml 关闭的规则一一对应；
+# 门禁用 `--deny warnings`，缺少此处会把风格问题直接升级为构建失败。
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
@@ -16,7 +21,6 @@ guillotiere = "0.7"
 jni = { version = "0.22", default-features = false }
 libc = "0.2"
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
-libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 log = "0.4"
 lru = "0.18"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
@@ -29,7 +33,7 @@ serde = { version = "1", default-features = false, features = [
 ] }
 swash = "0.2"
 thiserror = { version = "2", default-features = false }
-wgpu = "30"
+wgpu = { version = "30", default-features = false }
 wgpu-types = "30"
 [profile.dev]
 incremental = true

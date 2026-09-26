@@ -1,6 +1,7 @@
 # session-list Specification
 
 ## Purpose
+
 会话抽屉列表：条目渲染（会话序号、斜体终端标题、行内关闭按钮）、点击切换会话并关闭面板、抽屉打开时元数据强制刷新与 2 秒节流，对齐 termux 抽屉设计。
 
 ## Requirements

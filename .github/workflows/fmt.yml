@@ -41,7 +41,7 @@ jobs:
           nix develop --command markdownlint-cli2 --fix "**/*.md"
           nix develop --command cargo fmt --all -v
           nix develop --command cargo clippy --workspace --all-targets --fix --allow-dirty
-          nix develop --command bash -c "pushd android && ./gradlew spotlessApply && ./gradlew detekt --auto-correct && popd"
+          scripts/format-gradle.nu
           nix fmt
           git add .
           git commit --amend --no-edit

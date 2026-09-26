@@ -25,8 +25,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val SHELL = stringPreferencesKey("shell")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
         val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
-        val USE_NERD_FONT_GLYPHS = booleanPreferencesKey("use_nerd_font_glyphs")
-        val KEYBOARD_MODE = stringPreferencesKey("keyboard_mode")
     }
 
     companion object {
@@ -38,7 +36,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
-        const val DEFAULT_KEYBOARD_MODE = "secure"
 
         /** Shell 启动入口默认空（DESIGN :122 未设置时为空），空即走默认回退链。 */
         const val DEFAULT_SHELL = ""
@@ -92,10 +89,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
     /** 回滚行数固定为 [FIXED_SCROLLBACK_LINES]，不读取、不持久化用户设置。 */
     val scrollbackLines: Flow<Int> = kotlinx.coroutines.flow.flowOf(FIXED_SCROLLBACK_LINES)
     val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
-    val useNerdFontGlyphs: Flow<Boolean> =
-        provider.dataStore.data.map { it[Keys.USE_NERD_FONT_GLYPHS] ?: false }
-    val keyboardMode: Flow<String> =
-        provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
 
     /**
      * Single merged snapshot of every persisted setting, derived from one DataStore read. UI
@@ -113,8 +106,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val shell: String = DEFAULT_SHELL,
         val scrollbackLines: Int = FIXED_SCROLLBACK_LINES,
         val bootstrapUrl: String = "",
-        val useNerdFontGlyphs: Boolean = false,
-        val keyboardMode: String = DEFAULT_KEYBOARD_MODE,
     )
 
     val settings: Flow<SettingsState> =
@@ -130,8 +121,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
                 scrollbackLines = FIXED_SCROLLBACK_LINES,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
-                useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
-                keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
             )
         }
 
@@ -174,10 +163,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
 
     suspend fun setBootstrapUrl(url: String) = put(Keys.BOOTSTRAP_URL, url)
-
-    suspend fun setUseNerdFontGlyphs(enabled: Boolean) = put(Keys.USE_NERD_FONT_GLYPHS, enabled)
-
-    suspend fun setKeyboardMode(mode: String) = put(Keys.KEYBOARD_MODE, mode)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         provider.dataStore.edit { it[key] = value }

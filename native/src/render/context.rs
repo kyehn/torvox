@@ -384,8 +384,9 @@ impl Renderer {
     /// Reference (zelland + wgpu-in-app): the surface lifecycle is driven by
     /// the Android SurfaceHolder.Callback (attach/release here), never by the
     /// Activity lifecycle; sizes are re-queried every frame; after attach the
-    /// renderer must render immediately (zelland WGPU_FIXES.md Fix 2), and
-    /// acquire failures (Timeout/Outdated/Lost) must reconfigure + retry.
+    /// renderer must render immediately (zelland WGPU_FIXES.md Fix 2).
+    /// Acquire 失败的处理见 `render/pass.rs`：本仓不对 Lost/Outdated 重试，
+    /// 而是重新 configure 后丢弃本帧；Timeout 由工作线程的 `recv_timeout` 兜底。
     #[cfg(target_os = "android")]
     pub fn attach_surface(
         &mut self,
@@ -433,13 +434,12 @@ impl Renderer {
             ))
         })?;
         // Release the previous surface BEFORE creating the new one: on
-        // Android both wgpu surfaces wrap the same ANativeWindow, and the
-        // GL backend (SwiftShader-on-emulator, ADR-0007) cannot create a
-        // second EGLSurface on a window whose previous surface is still
-        // live — get_current_texture then fails with "Surface is not
-        // configured for presentation" forever, emulator-
-        // verified: every session after the first rendered black; the
-        // first attach worked only because no surface existed yet).
+        // Android both wgpu surfaces wrap the same ANativeWindow, and a
+        // Vulkan swapchain cannot be created for a window whose previous
+        // surface is still live — get_current_texture then fails with
+        // "Surface is not configured for presentation" forever,
+        // emulator-verified: every session after the first rendered black;
+        // the first attach worked only because no surface existed yet.
         // Callers guarantee no render thread is mid-frame (switchSession
         // stops the old thread before/around this), so dropping here is
         // safe.
@@ -505,13 +505,13 @@ impl Renderer {
         };
         // view_formats is deliberately empty on Android: the platform lacks
         // the SURFACE_VIEW_FORMATS downlevel flag, so any non-empty list
-        // fails configure (wgpu-in-app app-surface/src/lib.rs:315-350 has the
-        // full platform matrix — webgl/Android empty, desktop srgb±; format ==
-        // view_formats is also ignored by configure per the spec). Verified on
-        // the API-35 emulator: Rgba8Unorm + empty view_formats renders.
+        // fails configure. wgpu-in-app app-surface/src/lib.rs:324-339 is the
+        // opposite case — only its webgl branch is empty, its Android branch
+        // is `vec![format]` — so this is a deliberate divergence, not a copy.
+        // Verified on the API-35 emulator: Rgba8Unorm + empty view_formats renders.
         // wgpu 30's configure returns (errors surface asynchronously via
-        // get_current_texture's Lost state), so there is no Result to
-        // propagate; the acquire path already reconfigure+retries on Lost.
+        // get_current_texture's Lost state), so there is no Result to propagate;
+        // the acquire path in render/pass.rs reconfigures and drops the frame on Lost.
         surface.configure(&self.device, &config);
         self.surface_config = Some(config);
         // Compare against the PREVIOUS pipeline format (the field is
