@@ -1,16 +1,11 @@
 package terminal.emulator.monitor
 
 import android.content.Context
-import android.os.Build
 import android.os.PowerManager
 import android.util.Log
-import java.util.Locale
 import java.util.concurrent.Executors
 
-class ThermalMonitor(
-    private val context: Context,
-    private val onCritical: (() -> Unit)? = null,
-) {
+class ThermalMonitor(private val context: Context, private val onCritical: (() -> Unit)? = null) {
     private val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
     // Written from the system thermal callback thread, read from the main

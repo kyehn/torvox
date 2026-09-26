@@ -25,6 +25,9 @@ class SecondStageRunner(
 ) {
     companion object {
         private const val THREAD_JOIN_TIMEOUT_MS = 5_000L
+
+        /** 执行 app-data ELF 的系统链接器（SELinux 绕过）。出货的两个 ABI 都是 64 位。 */
+        internal const val SYSTEM_LINKER = "/system/bin/linker64"
     }
 
     data class Result(val success: Boolean, val errors: List<String> = emptyList())
@@ -224,10 +227,6 @@ class SecondStageRunner(
 
     private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()
 
-    /** The system linker used to exec app-data ELFs (SELinux workaround). */
-    internal fun systemLinker(): String =
-        if (terminal.emulator.is64BitAbi()) "/system/bin/linker64" else "/system/bin/linker"
-
     /** Base env for prefix executables: spec-whitelist variables only. */
     internal fun prefixEnvironment(): Map<String, String> = mapOf(
         "HOME" to homeDir.absolutePath,
@@ -248,7 +247,7 @@ class SecondStageRunner(
      * system_linker_exec.
      */
     internal fun prefixExecutableCommand(executable: File, args: List<String>): Array<String> = arrayOf(
-        systemLinker(),
+        SYSTEM_LINKER,
         executable.absolutePath,
     ) + args
 
@@ -283,7 +282,7 @@ class SecondStageRunner(
             // Scripts are patched (patchPostinstForLinker) to route prefix
             // ELF calls through /system/bin/linker64. The interpreter itself
             // is invoked via the linker so the script can load correctly.
-            arrayOf(systemLinker(), canonicalInterpreter, script.absolutePath, "configure")
+            arrayOf(SYSTEM_LINKER, canonicalInterpreter, script.absolutePath, "configure")
         } else {
             arrayOf(canonicalInterpreter, script.absolutePath, "configure")
         }
@@ -297,7 +296,7 @@ class SecondStageRunner(
      */
     private fun patchPostinstForLinker(script: File) {
         try {
-            val linker = systemLinker()
+            val linker = SYSTEM_LINKER
             val uaPath = File(prefixDir, "bin/update-alternatives").absolutePath
             val content = script.readText()
             // Replace bare "update-alternatives" that are NOT already
