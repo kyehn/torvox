@@ -952,7 +952,7 @@ constructor(
     }
 
     /**
-     * Delete all app-private data (settings, sessions, logs, cache) and recreate the DataStore prefs
+     * Delete all app-private data (settings, sessions, crash-loop state, cache) and recreate the DataStore prefs
      * directory so the next settings write does not fail (C10: moved out of the settings UI
      * composable).
      *
@@ -964,8 +964,7 @@ constructor(
             try {
                 context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
                 context.getDir("sessions", Context.MODE_PRIVATE).deleteRecursively()
-                context.getDir("logs", Context.MODE_PRIVATE).deleteRecursively()
-                context.getDir("logs_root", Context.MODE_PRIVATE).deleteRecursively()
+                context.getDir("boot_state", Context.MODE_PRIVATE).deleteRecursively()
                 context.getDir("bin", Context.MODE_PRIVATE).deleteRecursively()
                 context.cacheDir.listFiles()?.forEach { it.delete() }
                 // The process-wide DataStore singleton keeps running: recreate

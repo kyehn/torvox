@@ -4,16 +4,11 @@ import android.content.Context
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
-import java.io.File
-import java.io.FileOutputStream
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.Executors
 
 class ThermalMonitor(
     private val context: Context,
-    private val logDir: File,
     private val onCritical: (() -> Unit)? = null,
 ) {
     private val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -70,7 +65,6 @@ class ThermalMonitor(
         // and killing the process there loses every session without any
         // hardware risk. Only CRITICAL+ (genuine overheating) terminates.
         if (status >= PowerManager.THERMAL_STATUS_CRITICAL) {
-            writeThermalLog(status, label)
             Log.e(TAG, "$label — killing process (CRITICAL+)")
             onCritical?.invoke()
         } else if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
@@ -81,28 +75,6 @@ class ThermalMonitor(
             Log.i(TAG, "$label — returned to normal")
         }
     }
-
-    private fun writeThermalLog(status: Int, label: String): File? = try {
-        logDir.mkdirs()
-        val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
-        val logFile = File(logDir, "thermal_$timestamp.log")
-        val content =
-            buildString {
-                appendLine("== Thermal Event ==")
-                appendLine("Status: $label ($status)")
-                appendLine("Timestamp: $timestamp")
-                appendLine("API Level: ${Build.VERSION.SDK_INT}")
-            }
-        FileOutputStream(logFile).use { fos ->
-            fos.write(content.toByteArray(Charsets.UTF_8))
-            fos.fd.sync()
-        }
-        logFile
-    } catch (e: Exception) {
-        Log.e(TAG, "Failed to write thermal log", e)
-        null
-    }
-
     internal fun thermalStatusLabel(status: Int): String = when (status) {
         PowerManager.THERMAL_STATUS_NONE -> "THERMAL_STATUS_NONE"
         PowerManager.THERMAL_STATUS_LIGHT -> "THERMAL_STATUS_LIGHT"

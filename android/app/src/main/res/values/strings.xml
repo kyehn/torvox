@@ -106,9 +106,6 @@
     <string name="cjk_fallback_missing_warning">未检测到 CJK 备用字体。东亚字符可能无法正确渲染。</string>
     <string name="install">安装</string>
 
-    <string name="accessibility_next_line">下一行</string>
-    <string name="accessibility_previous_line">上一行</string>
-    <string name="accessibility_read_screen">朗读屏幕</string>
     <string name="alt_toggle">Alt 切换</string>
     <string name="arrow_down">向下箭头</string>
     <string name="arrow_left">向左箭头</string>
