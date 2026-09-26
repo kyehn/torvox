@@ -12,11 +12,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.fail
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.util.runCatchingCancellable
+
+private const val DRAWER_BUTTON_DESCRIPTION = "Open session drawer"
+private const val DRAWER_BUTTON_TIMEOUT_MS = 5_000L
+private const val DRAWER_VISIBLE_TIMEOUT_MS = 10_000L
 
 // ── Data model ──────────────────────────────────────
 
@@ -82,63 +87,21 @@ fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
 
 fun AndroidComposeTestRule<*, *>.openDrawer() {
     waitForIdle()
-    // Dismiss permission dialog if it blocks the drawer button (CI cold start on PlayStore image).
-    runCatchingCancellable {
-        val d = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        if (d.hasObject(By.text("Allow")) || d.hasObject(By.text("ALLOW"))) {
-            d.findObject(By.text("Allow"))?.click() ?: d.findObject(By.text("ALLOW"))?.click()
-            Thread.sleep(500)
-        }
-    }
     val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-    // Try multiple selectors for the drawer button: desc, res (testTagsAsResourceId), and Compose
-    // tag.
-    val clicked =
-        runCatchingCancellable {
-            if (device.wait(Until.hasObject(By.desc("Open session drawer")), 5000)) {
-                device.findObject(By.desc("Open session drawer"))?.click()
-                true
-            } else if (device.wait(Until.hasObject(By.res("Key_DRAWER")), 3000)) {
-                device.findObject(By.res("Key_DRAWER"))?.click()
-                true
-            } else {
-                onNodeWithTag("Key_DRAWER").performClick()
-                true
-            }
-        }
-            .getOrDefault(false)
-    if (!clicked) {
-        runCatchingCancellable { onNodeWithTag("Key_DRAWER").performClick() }
-        runCatchingCancellable {
-            if (device.wait(Until.hasObject(By.res("Key_DRAWER")), 3000)) {
-                device.findObject(By.res("Key_DRAWER"))?.click()
-            }
-        }
+    // 系统权限对话框会遮挡抽屉按钮：存在就点掉，不存在不是错误。
+    if (device.hasObject(By.text("Allow")) || device.hasObject(By.text("ALLOW"))) {
+        (device.findObject(By.text("Allow")) ?: device.findObject(By.text("ALLOW")))?.click()
     }
+    if (!device.wait(Until.hasObject(By.desc(DRAWER_BUTTON_DESCRIPTION)), DRAWER_BUTTON_TIMEOUT_MS)) {
+        fail("会话抽屉按钮未出现，无法继续")
+    }
+    device.findObject(By.desc(DRAWER_BUTTON_DESCRIPTION))?.click()
+        ?: fail("会话抽屉按钮无法点击")
     waitForIdle()
-    // Ensure drawer content is composed before caller proceeds. Check both Compose tag and UiDevice
-    // texts.
-    val drawerVisible =
-        runCatchingCancellable {
-            waitUntil(timeoutMillis = 10000) {
-                val composeVisible =
-                    probeAssertion {
-                        onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
-                    }
-                if (composeVisible) return@waitUntil true
-                device.hasObject(By.text("Sessions")) ||
-                    device.hasObject(By.res("SessionDrawer")) ||
-                    device.hasObject(By.res("SettingsButton"))
-            }
-        }
-            .isSuccess
-    if (!drawerVisible) {
-        // Fallback: UiDevice wait for drawer header
-        runCatchingCancellable {
-            device.wait(Until.hasObject(By.text("Sessions")), 3000) ||
-                device.wait(Until.hasObject(By.res("SessionDrawer")), 3000)
-        }
-        Thread.sleep(500)
+    waitUntil(timeoutMillis = DRAWER_VISIBLE_TIMEOUT_MS) {
+        probeAssertion {
+            onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
+        } || device.hasObject(By.text("Sessions")) || device.hasObject(By.res("SessionDrawer"))
     }
 }
 
