@@ -13,7 +13,7 @@ use crate::event::{Event, EventQueue};
 
 /// Concurrent push/pop on the shared EventQueue: every pushed event is
 /// popped exactly once, regardless of scheduling (shuttle explores
-/// interleavings). Runs under plain `cargo test` (64 scheduler iterations;
+/// interleavings). 在工作区测试中运行（64 次调度迭代；
 /// deterministic under shuttle's scheduler).
 #[test]
 fn event_queue_concurrent_push_pop() {

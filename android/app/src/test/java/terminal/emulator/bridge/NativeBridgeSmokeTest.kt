@@ -11,13 +11,13 @@ import kotlin.system.measureTimeMillis
 /**
  * JVM-side JNI round-trip tests — no emulator, no Android device.
  *
- * Loads the HOST-built `libnative.so` (same Rust code as the Android target; `cargo build --package
- * native`) and drives the real JNI bridge: initSession → feedTerminal → getTitle/getTerminalText →
- * destroySession.
+ * Loads the HOST-built `libnative.so` (same Rust code as the Android target, produced by
+ * `scripts/build-host-lib.nu`) and drives the real JNI bridge: initSession → feedTerminal →
+ * getTitle/getTerminalText → destroySession.
  *
  * ## Why this exists (what pure-Rust tests cannot cover)
  *
- * `cargo test` covers the VT parser, cell pipeline, and event queue by calling Rust directly. It
+ * Rust 侧测试覆盖 VT 解析、单元格管线和事件队列（直接调 Rust）。它
  * cannot exercise the JNI boundary layer:
  *
  * - JString→String / String→JString conversion (UTF-16 round-trip, NUL, non-ASCII) — only a real
@@ -31,19 +31,14 @@ import kotlin.system.measureTimeMillis
  * Graphics exports (attachWindow/render/captureFrame) need ANativeWindow and stay on the emulator;
  * everything exercised here is pure CPU logic.
  *
- * Locating the library: unit tests run with cwd = `android/app/`, so repo-root candidates are
- * `../../target/...`. Override via the TERMINAL_NATIVE_LIB env var. Missing host .so → FAILS:
- * build one with `cargo build --package native` first (CI check 任务已提供)。
+ * Locating the library: unit tests run with cwd = `android/app/`, so the path is the fixed
+ * `../../target/release/libnative.so`. No candidate probing and no environment override — the
+ * library must already be there, produced by `scripts/build-host-lib.nu`, or the load fails loudly.
  */
 class NativeBridgeSmokeTest {
     private companion object {
-        private val soCandidates: List<File> =
-            listOfNotNull(
-                System.getenv("TERMINAL_NATIVE_LIB"),
-                "../../target/release/libnative.so",
-                "../../target/debug/libnative.so",
-            )
-                .map(::File)
+        /** 固定路径：缺失时 System.load 自身抛错，不再探测候选位置。 */
+        private const val HOST_LIBRARY_PATH = "../../target/release/libnative.so"
 
         /** Real shell on the dev host (CI runner). Android uses /system/bin/sh. */
         private const val HOST_SHELL = "/bin/sh"
@@ -54,14 +49,7 @@ class NativeBridgeSmokeTest {
 
     @Before
     fun loadNativeLibrary() {
-        val so = soCandidates.firstOrNull { it.isFile }
-        assertTrue(
-            "host libnative.so not found (looked in " +
-                soCandidates.joinToString(", ") { it.path } +
-                ") — run `cargo build --package native` first",
-            so != null,
-        )
-        System.load(requireNotNull(so).absolutePath)
+        System.load(File(HOST_LIBRARY_PATH).absolutePath)
     }
 
     /** Poll `probe` until it returns true or [POLL_TIMEOUT_MS] elapses. */
