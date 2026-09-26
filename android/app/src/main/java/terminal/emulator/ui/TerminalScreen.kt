@@ -630,7 +630,6 @@ fun TerminalScreen(
                                     }
                                 }
                                 .apply {
-                                    initialize(viewModel)
                                     setDimensions(runtimeState.rows, runtimeState.cols)
                                     onSwipeLeft = {
                                         viewModel.writeToPty("\u001b".toByteArray())

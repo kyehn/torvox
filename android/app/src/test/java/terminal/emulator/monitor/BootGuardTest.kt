@@ -1,13 +1,11 @@
 package terminal.emulator.monitor
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.io.File
 
 /**
  * BootGuard crash-loop detection: N exits inside the reset window disable
@@ -18,17 +16,17 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 class BootGuardTest {
 
-    private lateinit var logDir: File
+    private lateinit var stateDir: java.io.File
 
     @Before
     fun setUp() {
-        logDir = java.nio.file.Files.createTempDirectory("bootguard").toFile()
+        stateDir = java.nio.file.Files.createTempDirectory("bootguard").toFile()
         BootGuard.autoKillEnabled = true
     }
 
     @Test
     fun `fewer than max exits keeps auto kill enabled`() {
-        val guard = BootGuard(logDir)
+        val guard = BootGuard(stateDir)
         guard.recordExit()
         guard.check()
         assertTrue("one exit is not a boot loop", BootGuard.autoKillEnabled)
@@ -36,7 +34,7 @@ class BootGuardTest {
 
     @Test
     fun `max exits inside the window disable auto kill`() {
-        val guard = BootGuard(logDir)
+        val guard = BootGuard(stateDir)
         repeat(BootGuard.MAX_EXITS) { guard.recordExit() }
         guard.check()
         assertFalse("repeated exits must disable auto kill", BootGuard.autoKillEnabled)
@@ -44,7 +42,7 @@ class BootGuardTest {
 
     @Test
     fun `mark healthy resets the counter and re-enables auto kill`() {
-        val guard = BootGuard(logDir)
+        val guard = BootGuard(stateDir)
         repeat(BootGuard.MAX_EXITS) { guard.recordExit() }
         guard.check()
         assertFalse(BootGuard.autoKillEnabled)
