@@ -26,15 +26,16 @@
 - 禁止环境变量遮蔽：不要设置 `$env.AVD_DIR = $avd_home` — 请直接使用 `$env.ANDROID_AVD_HOME`。
 - 对于必须存在的目录，禁止使用 `if ($dir | path exists)` 预检 — 让命令以清晰的错误直接失败。
 - 对于应当存在的目录：须显式检查，若缺失则以非零状态退出。
-- 禁止无助于提升清晰度的中间变量，如 `let start = ... let elapsed = ...`。
+- 禁止无助于提升清晰度的中间变量，如 `let start = ... let elapsed = ...`。判据是能否内联：跨越多步、需在多处引用、或承载跨步状态的变量必须保留；仅把表达式换个名字的别名禁止。
 - 禁止使用 `$env.ANDROID_HOME/platform-tools/adb` 或硬编码路径调用二进制，`adb`、`emulator`、`sdkmanager`、`avdmanager` 命令可直接使用。
-- 禁止在 Nushell 脚本内部使用 `nu scripts/xxx.nu` 调用 — 请使用 `./scripts/xxx.nu`（依赖 Shebang）。
+- 禁止在 Nushell 脚本内部使用 `nu scripts/xxx.nu` 调用 — 请使用 `./scripts/xxx.nu`（依赖 Shebang）。`flake.nix` 的 `shellHook` 同样遵守此写法。
 - 禁止执行 `rustup target add` 或类似命令，仅运行工作区测试。
 
 ### 风格规则
 
 - 使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
-- `detekt` 和 `clippy` 以及其他类似工具只允许抑制必要的规则，如参数数量、行数、嵌套层数、缺失文档（这些仅风格问题可全局设置规则），抑制的规则必须在最小范围，不重复设置默认规则。
+- `detekt` 和 `clippy` 以及其他类似工具只允许抑制必要的规则，如参数数量、行数、嵌套层数、缺失文档。**风格类规则必须在工具的全局配置里关闭**（Kotlin 用 `android/detekt.yml`，Rust 用 `clippy.toml`），不得靠逐处抑制蒙混；门禁使用 `--deny warnings` 时，缺少全局配置会直接把风格问题升级为构建失败。
+- 抑制的规则必须在最小范围，不重复设置默认规则。`clippy::not_unsafe_ptr_arg_deref` 一类由设计决定的 lint 不得逐函数抑制，应在文件级一次性处理。
 
 ## Nix
 
@@ -54,13 +55,14 @@
 ## 通用
 
 - 尽可能内联中间变量。
-- 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
+- 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。修饰键符号键名（如连字符键 `DASH`）是硬件键位名称，不属于缩写。
 - 使用简体中文编写注释和文档，表述需要简明扼要。
 - Torvox/torvox 仅为软件名称，除部分介绍文档外一律不得出现，使用如 terminal 等通用词。
-- `nix/store` 不得出现在任何代码/文档中。
-- `fish` `dash` `zsh` 不得出现在任何文件中。
+- 除本条规则文本自身外，`nix/store` 不得出现在任何代码/文档中。
+- 除本条规则文本自身外，fish、dash、zsh 这三款 shell 的名称不得出现在任何文件中（包括大小写敏感之外的变体）；它们是禁止的 shell，不是键位名。
 - 不得定义任何 crate features。
-- 不得保留死代码。
+- 不得保留死代码。**无任何写入方的持久化设置属于死代码**，必须删除设置键、仓储读写与全部消费点。
+- 代码注释必须与代码行为一致。同一行为在多处注释中描述不同时，只保留与实现一致的一处，其余删除。
 - 代码量不得超过 ghostty-android-terminal + termux，必须最小实现。
 - 不允许实现任何未在 docs/specification/ 声明的功能/逻辑。
 - 注释 和 文档 保持极简，避免不必要或意义不大的文本内容。
