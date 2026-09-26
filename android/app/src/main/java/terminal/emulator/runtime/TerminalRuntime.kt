@@ -292,14 +292,6 @@ constructor(
 
     private val eventDispatcher = EventDispatcher()
 
-    /**
-     * invoked from the render loop after every presented frame render thread). Lets the SurfaceView
-     * refresh its accessibility contentDescription — the SurfaceView is self-drawn and has no text
-     * nodes, so the render loop is the only content-changed signal. Must return quickly; the callback
-     * may post to the main thread.
-     */
-    @Volatile var onFrameRendered: (() -> Unit)? = null
-
     private val scope = CoroutineScope(SupervisorJob() + terminal.emulator.util.TerminalDispatchers.inputOutput)
 
     private val _state = MutableStateFlow(RuntimeState())
@@ -1682,16 +1674,6 @@ constructor(
                                                     // a quiet but always-present signal.
                                                     else -> LogUtil.i("Runtime", summary)
                                                 }
-                                            }
-                                            // accessibility hook — the render loop
-                                            // is the only signal that terminal content
-                                            // changed, and the SurfaceView has no text nodes.
-                                            // The listener runs on the render thread and must
-                                            // return quickly (it may post to the main thread).
-                                            try {
-                                                onFrameRendered?.invoke()
-                                            } catch (exception: Exception) {
-                                                LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
                                             }
                                             // P2-1: tail wait removed — parking now happens in
                                             // the loop-top wake gate above (same latch, same

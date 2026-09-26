@@ -31,12 +31,13 @@ class KeyboardModeTest {
     @Test
     fun `secure mode carries no password variation nor privacy ime flags`() {
         val outAttrs = editorInfoOf(KeyboardMode.Secure)
-        for (variation in
-            listOf(
-                InputType.TYPE_TEXT_VARIATION_PASSWORD,
-                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
-                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
-            )
+        for (
+        variation in
+        listOf(
+            InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+            InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+        )
         ) {
             assertEquals(
                 "Secure 模式不得带密码变体 $variation",
@@ -44,8 +45,9 @@ class KeyboardModeTest {
                 outAttrs.inputType and (variation shr 8),
             )
         }
-        for (flag in
-            listOf(EditorInfo.IME_FLAG_NO_EXTRACT_UI, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)
+        for (
+        flag in
+        listOf(EditorInfo.IME_FLAG_NO_EXTRACT_UI, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)
         ) {
             assertEquals("Secure 模式不得限制输入法 $flag", 0, outAttrs.imeOptions and flag)
         }
