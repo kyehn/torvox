@@ -84,21 +84,8 @@ mod tests {
     fn cell(codepoint: u32, width: u8) -> crate::terminal::ghostty_terminal::CellSnapshot {
         crate::terminal::ghostty_terminal::CellSnapshot {
             codepoint,
-            graphemes: vec![],
-            foreground: [0.0; 4],
-            background: [0.0; 4],
-            underline_color: [0.0; 4],
-            bold: false,
-            dim: false,
-            italic: false,
-            underline: false,
-            reverse: false,
-            strikethrough: false,
-            blink: false,
-            hidden: false,
-            overline: false,
-            double_underline: false,
             width,
+            ..crate::terminal::ghostty_terminal::DEFAULT_CELL.clone()
         }
     }
 
