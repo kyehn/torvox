@@ -13,10 +13,6 @@
 //! 锁顺序 `SESSION_REGISTRY` → `Session` → `exit_code`；`EVENT_QUEUE` 独立加锁，
 //! 绝不在持有 `Session` 锁时获取。
 
-// JNI 导出按签名接收 `jobject` / `jstring` 等裸指针，这是 JNI 调用约定本身决定的。
-// 句柄有效性由 JVM 契约保证，不是 Rust 生命周期能表达的，因此整个文件一次性关闭该 lint。
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -1281,9 +1277,12 @@ fn init_logger_inner(_env: &mut Env, _class: JClass) {
 /// 挂载 Android Surface（仅 Android）。surface 挂载时由 Bridge.kt 调用：
 /// `TerminalRuntime` 把 Android Surface 越过 JNI 边界交给渲染线程，后者经原生窗口消费；
 /// surface 随后由 `detachWindow` 卸载。
+///
+/// # Safety
+/// 仅由 JVM 经 JNI 调用，`surface` 须为本次调用期间有效的 Surface 对象。
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
+pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
@@ -1292,12 +1291,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
     height: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        attach_window_inner(env, _class, _session_id, surface, width, height)
+        // SAFETY: 外层已由 JVM 保证参数有效，此处透传同一调用期的引用。
+        unsafe { attach_window_inner(env, _class, _session_id, surface, width, height) }
     })
 }
 
 #[cfg(target_os = "android")]
-fn attach_window_inner(
+unsafe fn attach_window_inner(
     env: &mut Env,
     _class: JClass,
     _session_id: jlong,
@@ -2534,8 +2534,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
 /// 随后是同样数量的 16 字节记录：row(i32) start(i32) end(i32) RGBA(u8x4)。
 /// Kotlin 的 `TerminalSurface` 按此格式打包并调用
 /// `bridge.setSearchHighlights(data.copyOf())`；渲染循环在下一帧消费解析出的列表。
+///
+/// # Safety
+/// 仅由 JVM 经 JNI 调用，`data` 须为本次调用期间有效的 `jbyteArray`。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighlights(
+pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighlights(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
@@ -2653,8 +2656,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
 
 /// 应用主题：54 字节 = 背景 RGB(3) + 前景 RGB(3) + 16 个 ANSI 调色板色(48)。
 /// 对应 `GhosttyTerminal::set_theme`。
+///
+/// # Safety
+/// 仅由 JVM 经 JNI 调用，`data` 须为本次调用期间有效的 `jbyteArray`。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
+pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
@@ -2950,8 +2956,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
 
 /// 登记额外的字体目录/文件（应用私有字体目录）。渲染器管线在创建时读取这些路径；
 /// 若已存在则重建，使新字体可被选中。
+///
+/// # Safety
+/// 仅由 JVM 经 JNI 调用，`paths` 须为本次调用期间有效的 `String[]`。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPaths(
+pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPaths(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
