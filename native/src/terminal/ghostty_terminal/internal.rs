@@ -51,6 +51,12 @@ const ANSI_PALETTE_INDICES: [PaletteIndex; 16] = [
     PaletteIndex::BRIGHT_WHITE,
 ];
 
+/// 终端网格列数：ghostty 断开时回退 DISCONNECTED_COLS。调用方一律经此取值，
+/// 不重复写 `unwrap_or` 链。
+fn grid_cols(terminal: &Terminal) -> u32 {
+    terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32
+}
+
 /// Helper to create the three per-frame render iterators.
 /// Returns `None` and logs on any creation failure.
 fn create_render_iterators() -> Option<(
@@ -118,9 +124,7 @@ impl super::GhosttyTerminal {
                 }
             }
             Query::Cols(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32)
-                {
+                if let Err(error) = tx.send(grid_cols(terminal)) {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
@@ -379,7 +383,7 @@ impl super::GhosttyTerminal {
                     }
                 };
                 mouse_encoder.set_options_from_terminal(terminal);
-                let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+                let cols = grid_cols(terminal);
                 let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
                 let size = mouse::EncoderSize {
                     screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
@@ -1927,7 +1931,7 @@ impl super::GhosttyTerminal {
     /// History、其余为 Viewport，列钳制到网格宽度），供 selection_text_impl、
     /// install_selection_impl 与上游选择派生共用。
     fn absolute_point(terminal: &Terminal, row: u32, col: u32) -> Point {
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16).max(1) as u32;
+        let cols = grid_cols(terminal).max(1);
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let clamped_col = col.min(cols - 1) as u16;
         if row < scrollback_rows {
@@ -2142,7 +2146,7 @@ impl super::GhosttyTerminal {
         };
         let total = terminal.total_rows().unwrap_or(0) as u32;
         let mut results = Vec::new();
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as usize;
+        let cols = grid_cols(terminal) as usize;
 
         // 倒序逐行扫描（软换行续接时相邻物理行拼接后再匹配，对标上游
         // searchSpansSoftWrap）。只保留当前逻辑行，不整块缓存回滚区。
