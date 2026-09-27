@@ -431,13 +431,6 @@ impl FontPipeline {
         normalized
     }
 
-    /// `cjk_fallback_names()` 的字母序视图，供需要规范顺序的 UI 测试与比对工具使用。
-    pub fn cjk_fallback_names_sorted(&self) -> Vec<String> {
-        let mut names = self.cjk_fallback_names();
-        names.sort();
-        names
-    }
-
     fn primary_supports_cjk(&self) -> bool {
         let Some(font_id) = self.font_id else {
             return false;
