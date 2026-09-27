@@ -85,13 +85,9 @@ fn create_render_iterators() -> Option<(
 /// there is no cached snapshot yet. When none of these hold the grid content
 /// is byte-for-byte identical to the cached snapshot, so reusing it cannot
 /// yield a stale frame while skipping ~1920 per-cell ghostty FFI calls.
-pub(crate) fn snapshot_needs_rebuild(
-    grid_dirty: bool,
-    scroll_offset: u32,
-    cached_scroll_offset: u32,
-    has_cache: bool,
-) -> bool {
-    grid_dirty || scroll_offset != cached_scroll_offset || !has_cache
+/// 回滚浏览走 CellData 通道，`TakeSnapshot` 只覆盖当前视口，故只看脏标记。
+pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool {
+    grid_dirty || !has_cache
 }
 
 // ── impl GhosttyTerminal ──────────────────────────────────────
@@ -186,7 +182,7 @@ impl super::GhosttyTerminal {
                 try_send(&tx, visible_cursor, "query channel send failed");
             }
             Query::ReadVisibleText(tx) => {
-                let rows = terminal.rows().unwrap_or(24) as u32;
+                let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
                 let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
                 let mut text = String::new();
                 for row in 0..rows {
@@ -378,8 +374,8 @@ impl super::GhosttyTerminal {
                     }
                 };
                 mouse_encoder.set_options_from_terminal(terminal);
-                let cols = terminal.cols().unwrap_or(80) as u32;
-                let rows = terminal.rows().unwrap_or(24) as u32;
+                let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+                let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
                 let size = mouse::EncoderSize {
                     screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
                     screen_height: rows.saturating_mul(cell_h.max(1.0) as u32),
@@ -609,7 +605,6 @@ impl super::GhosttyTerminal {
         // single-threaded and processes commands sequentially, so there is no
         // race between marking `grid_dirty` and rebuilding.
         let mut cached_snapshot: Option<Arc<GridSnapshot>> = None;
-        let mut cached_scroll_offset: u32 = u32::MAX;
         // ── Auto-push CellData ──
         // Use a separate dirty flag to avoid coupling with the
         // legacy GridSnapshot grid_dirty tracker. Both flags are
@@ -798,7 +793,6 @@ impl super::GhosttyTerminal {
                         let _ = terminal.set_selection(None);
                         row_cache.clear();
                         cached_snapshot = None;
-                        cached_scroll_offset = u32::MAX;
                         last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
@@ -822,41 +816,28 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
-                    Command::TakeSnapshot { tx, scroll_offset } => {
-                        let needs_rebuild = snapshot_needs_rebuild(
-                            grid_dirty,
-                            scroll_offset,
-                            cached_scroll_offset,
-                            cached_snapshot.is_some(),
-                        );
+                    Command::TakeSnapshot { tx } => {
+                        let needs_rebuild =
+                            snapshot_needs_rebuild(grid_dirty, cached_snapshot.is_some());
                         let snapshot = if needs_rebuild {
-                            config
-                                .snapshot_rebuild_count
-                                .fetch_add(1, Ordering::Relaxed);
                             let snap = Self::build_snapshot(
                                 &terminal,
                                 default_foreground,
                                 default_background,
                                 &config.ansi_colors,
-                                scroll_offset,
                             );
                             let cached = Arc::new(snap);
                             cached_snapshot = Some(Arc::clone(&cached));
-                            cached_scroll_offset = scroll_offset;
                             grid_dirty = false;
                             cached
                         } else {
-                            // INVARIANT: when `needs_rebuild` is false, `cached_snapshot`
-                            // is always `Some` (the third clause above guarantees it).
-                            // Use fallback if invariant is violated (poison etc.).
-                            cached_snapshot.as_ref().map(Arc::clone).unwrap_or_else(|| {
-                                log::error!(
-                                    "ghostty_terminal: cached_snapshot missing — using fallback"
-                                );
-                                let fb_rows = terminal.rows().unwrap_or(24) as u32;
-                                let fb_cols = terminal.cols().unwrap_or(80) as u32;
-                                Arc::new(GridSnapshot::fallback(fb_rows, fb_cols))
-                            })
+                            // 不变式：`needs_rebuild` 为 false 时 `cached_snapshot` 必为
+                            // Some（上面第三个子句保证）。违反即渲染管线缺陷，直接崩溃
+                            // 退出，不回退到空白网格（DESIGN 禁止掩盖错误）。
+                            cached_snapshot
+                                .as_ref()
+                                .map(Arc::clone)
+                                .expect("cached_snapshot 在 needs_rebuild=false 时必然存在")
                         };
                         try_send(
                             &tx,
@@ -946,8 +927,8 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn build_dumped_grid(terminal: &Terminal) -> DumpedGrid {
-        let rows = terminal.rows().unwrap_or(24) as u32;
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let (_, fallback_background, fallback_foreground) = Self::catppuccin_mocha_palette();
         let default_foreground = terminal
@@ -963,29 +944,32 @@ impl super::GhosttyTerminal {
             .map(|color| Self::byte_color_to_float([color.r, color.g, color.b]))
             .unwrap_or_else(|| Self::byte_color_to_float(fallback_background));
 
+        let snapshot_at = |point: Point| {
+            let mut data = CellSnapshot::default();
+            if let Ok(point) = terminal.grid_ref(point) {
+                if let Ok(cell) = point.cell() {
+                    data.codepoint = cell.codepoint().unwrap_or(0);
+                }
+                if let Ok(style) = point.style() {
+                    Self::apply_style_to_snapshot(
+                        &mut data,
+                        &style,
+                        terminal,
+                        default_foreground,
+                        default_background,
+                    );
+                }
+            }
+            data
+        };
+
         let mut visible = Vec::with_capacity((rows * cols) as usize);
         for row in 0..rows {
             for col in 0..cols {
-                let coord = PointCoordinate {
+                visible.push(snapshot_at(Point::Viewport(PointCoordinate {
                     x: col as u16,
                     y: row,
-                };
-                let mut data = CellSnapshot::default();
-                if let Ok(point) = terminal.grid_ref(Point::Viewport(coord)) {
-                    if let Ok(cell) = point.cell() {
-                        data.codepoint = cell.codepoint().unwrap_or(0);
-                    }
-                    if let Ok(style) = point.style() {
-                        Self::apply_style_to_snapshot(
-                            &mut data,
-                            &style,
-                            terminal,
-                            default_foreground,
-                            default_background,
-                        );
-                    }
-                }
-                visible.push(data);
+                })));
             }
         }
 
@@ -993,26 +977,10 @@ impl super::GhosttyTerminal {
         for i in 0..scrollback_rows {
             let mut row_cells = Vec::with_capacity(cols as usize);
             for col in 0..cols {
-                let coord = PointCoordinate {
+                row_cells.push(snapshot_at(Point::History(PointCoordinate {
                     x: col as u16,
                     y: i,
-                };
-                let mut data = CellSnapshot::default();
-                if let Ok(point) = terminal.grid_ref(Point::History(coord)) {
-                    if let Ok(cell) = point.cell() {
-                        data.codepoint = cell.codepoint().unwrap_or(0);
-                    }
-                    if let Ok(style) = point.style() {
-                        Self::apply_style_to_snapshot(
-                            &mut data,
-                            &style,
-                            terminal,
-                            default_foreground,
-                            default_background,
-                        );
-                    }
-                }
-                row_cells.push(data);
+                })));
             }
             scrollback.push(row_cells);
         }
@@ -1438,8 +1406,8 @@ impl super::GhosttyTerminal {
                 .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate),
             Ordering::Release,
         );
-        let rows = terminal.rows().unwrap_or(24) as u32;
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
         let size = (rows * cols) as usize;
 
         let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
@@ -1714,21 +1682,9 @@ impl super::GhosttyTerminal {
         default_foreground: [f32; 4],
         default_background: [f32; 4],
         _palette: &[[u8; 3]; 16],
-        scroll_offset: u32,
     ) -> GridSnapshot {
-        // NOTE: a scrolled snapshot returns an EMPTY fallback
-        // grid — the CellData path does not expose scrollback content, and
-        // `take_snapshot_with_scroll` is only exercised by tests. Any
-        // future query caller passing a non-zero offset will get an
-        // empty grid; implement history snapshots there if needed.
-        if scroll_offset > 0 {
-            return GridSnapshot::fallback(
-                terminal.rows().unwrap_or(24) as u32,
-                terminal.cols().unwrap_or(80) as u32,
-            );
-        }
-        let rows = terminal.rows().unwrap_or(24) as u32;
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
         let size = (rows * cols) as usize;
         let mut cells = Vec::with_capacity(size);
 
@@ -1874,7 +1830,7 @@ impl super::GhosttyTerminal {
         }
     }
     pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let mut text = String::new();
         for col in 0..cols {
@@ -1966,7 +1922,7 @@ impl super::GhosttyTerminal {
     /// History、其余为 Viewport，列钳制到网格宽度），供 selection_text_impl、
     /// install_selection_impl 与上游选择派生共用。
     fn absolute_point(terminal: &Terminal, row: u32, col: u32) -> Point {
-        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16).max(1) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let clamped_col = col.min(cols - 1) as u16;
         if row < scrollback_rows {
@@ -2073,7 +2029,7 @@ impl super::GhosttyTerminal {
     /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
     /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
         let total_rows = terminal.total_rows().unwrap_or(0) as u32;
         if col >= cols || row >= total_rows {
             return None;
@@ -2169,7 +2125,7 @@ impl super::GhosttyTerminal {
                 };
                 // 软换行判定：行被写满（尾列非空）且下一行是续接。
                 // 保守启发式：本行长度达到列宽则与下一行拼接。
-                let cols = terminal.cols().unwrap_or(80) as usize;
+                let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as usize;
                 let full = line.chars().count() >= cols;
                 if current_row.is_none() {
                     current_row = Some(row);

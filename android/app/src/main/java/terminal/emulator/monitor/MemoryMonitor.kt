@@ -17,9 +17,8 @@ internal const val LOW_MEMORY_FACTOR = 2.0f
 
 internal enum class MemoryPressure { Critical, Warning, Ok }
 
-/** Pure decision for the memory-pressure log tier. `Critical` when the
- *  system reports low memory, `Warning` when free memory drops below twice
- *  the system threshold, otherwise `Ok`. */
+/** 内存压力日志等级的纯决策。系统报告内存不足时为 `Critical`，可用内存低于
+ *  系统阈值两倍时为 `Warning`，否则为 `Ok`。 */
 internal fun memoryPressure(availMb: Long, thresholdMb: Long, lowMemory: Boolean): MemoryPressure = when {
     lowMemory -> MemoryPressure.Critical
     availMb < thresholdMb * LOW_MEMORY_FACTOR -> MemoryPressure.Warning
@@ -61,9 +60,8 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
             totalMb = memInfo.totalMem / BYTES_PER_MB
             thresholdMb = memInfo.threshold / BYTES_PER_MB
         } catch (exception: Exception) {
-            // A binder/IPC failure would otherwise propagate out of the
-            // polling loop, be swallowed by the SupervisorJob, and silently
-            // disable memory monitoring for the rest of the process lifetime.
+            // binder/IPC 失败否则会抛出轮询循环、被 SupervisorJob 吞没，
+            // 使内存监控在进程剩余生命周期内静默失效。
             Log.w(TAG, "getMemoryInfo failed", exception)
             return
         }
@@ -136,10 +134,8 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
             }
 
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                // The process sits at the bottom of the LRU and the system
-                // will reclaim it shortly — that is exactly what should
-                // happen; killing ourselves first only guarantees losing
-                // every session with no hardware benefit.
+                // 进程已处于 LRU 底部，系统很快就会回收它
+                // ——这正是应该发生的事；抢先自杀只会白白丢失所有会话而对硬件毫无益处。
                 Log.w(TAG, "TRIM_MEMORY_COMPLETE — process is a reclaim candidate, letting the system decide")
             }
         }

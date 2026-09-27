@@ -2,14 +2,12 @@ plugins {
   id("com.android.application")
   id("org.jetbrains.dokka")
   id("org.jetbrains.kotlin.plugin.compose")
-  id("org.jetbrains.kotlinx.kover")
   id("org.jetbrains.kotlin.plugin.serialization")
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
   id("dev.detekt")
   id("com.ncorti.ktfmt.gradle")
   id("org.jlleitschuh.gradle.ktlint")
-  id("de.infix.testBalloon")
 }
 
 detekt {
@@ -127,7 +125,6 @@ dependencies {
 
   implementation("com.google.dagger:hilt-android:2.60.1")
   ksp("com.google.dagger:hilt-android-compiler:2.60.1")
-  implementation("com.google.errorprone:error_prone_annotations:2.50.0")
   implementation("androidx.hilt:hilt-navigation-compose:1.4.0")
 
   implementation("androidx.datastore:datastore-preferences:1.3.0-alpha11")
@@ -144,7 +141,6 @@ dependencies {
 
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0-RC")
-  implementation("io.coil-kt.coil3:coil-core:3.6.3")
 
   releaseImplementation("androidx.profileinstaller:profileinstaller:1.4.1")
   testImplementation("org.robolectric:robolectric:4.17")
@@ -154,8 +150,6 @@ dependencies {
   testImplementation("androidx.test:core:1.7.0")
 
   debugImplementation("com.ms-square:debugoverlay:2.7.0")
-
-  testImplementation("de.infix.testBalloon:testBalloon-framework-core:1.1.0")
 
   lintChecks("com.slack.lint.compose:compose-lint-checks:1.6.0")
   lintChecks("com.slack.lint:slack-lint-checks:0.11.1")
@@ -167,16 +161,11 @@ dependencies {
   androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
   androidTestImplementation("androidx.test:runner:1.7.0")
   androidTestImplementation("androidx.test:rules:1.7.0")
-  androidTestImplementation("com.atiurin:ultron-android:2.6.5")
-  androidTestImplementation("com.atiurin:ultron-compose:2.6.5")
   androidTestImplementation(composeBom)
   androidTestImplementation("androidx.compose.ui:ui-test-junit4")
   androidTestImplementation("androidx.compose.ui:ui-test-manifest")
   androidTestImplementation("com.google.dagger:hilt-android-testing:2.60.1")
   kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60.1")
-  androidTestImplementation("com.google.mlkit:text-recognition:16.0.1")
-
-  androidTestImplementation("de.infix.testBalloon:testBalloon-framework-core:1.1.0")
 
   androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
 }

@@ -1,58 +1,40 @@
-//! Neutral event types and thread-safe event queue.
-//!
-//! Events flow from the terminal engine to the JNI bridge. The `EventQueue`
-//! is the central rendezvous point: terminal sessions push events into it,
-//! Kotlin `pollEvent()` drains them in FIFO order.
+//! 中立事件类型与线程安全事件队列。事件从终端引擎流向 JNI 桥接：会话推入
+//! [`EventQueue`]，Kotlin `pollEvent()` 按 FIFO 消费。
 
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::time::Instant;
 
-/// Maximum number of events buffered before the oldest are dropped.
-/// Bounds memory when a burst of terminal events outpaces the
-/// UI drain rate (Kotlin drains up to 32 events per frame per session).
+/// 缓冲区满时丢弃最旧事件的上限；避免事件突发超过 UI 消费速度时内存无界增长。
 const MAX_QUEUED_EVENTS: usize = 1024;
 
-/// Minimum interval between overflow warnings (rate limiting).
+/// 溢出告警的最小间隔（限频）。
 const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// An event sent from Rust to the Kotlin UI layer.
+/// Rust 发往 Kotlin UI 层的事件。触发来源：`Clipboard` = OSC 52 写入，
+/// `ClipboardRead` = OSC 52 读取请求，`Bell` = BEL，`Exit` = `session.is_exited()`；
+/// 均由 `session` 产生（`Exit` 亦可经 `pollEvent` 上报）。
 ///
-/// # Trigger sources
-///
-/// | Variant | Triggered by | From module |
-/// |---------|-------------|-------------|
-/// | `Clipboard` | OSC 52 **set** (terminal→clipboard) | `session` |
-/// | `ClipboardRead` | OSC 52 **read** (terminal asks the host) | `session` |
-/// | `Bell` | BEL (0x07, 上游 `on_bell` 回调) | `session` |
-/// | `Exit`  | `session.is_exited()` becomes true | `session` / `pollEvent` |
-///
-/// All events are serialised as JSON before crossing the JNI boundary.
-/// Uses internal tagging (`#[serde(tag = "event")]`) so Kotlin can match on `event` field.
+/// 跨 JNI 边界前统一序列化为 JSON，用内部标签（`#[serde(tag = "event")]`）供 Kotlin 匹配。
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    /// Clipboard write content: text the terminal (OSC 52 set) wants placed
-    /// in the SYSTEM clipboard. Kotlin applies it via `setPrimaryClip`.
-    /// (OSC 52 read arrives via [`Event::ClipboardRead`] + `clipboardResult()`.)
+    /// 剪贴板写入内容：OSC 52 set 交由 Kotlin 经 `setPrimaryClip` 写入系统剪贴板。
     Clipboard { session_id: u64, text: String },
     /// 终端收到 BEL（0x07）：上游 `on_bell` 回调经有界通道上报，
     /// 会话锁存后由 `pollEvent` 逐帧上报一次（单帧多响合并为一，
     /// 与对标实现的事件位置位/清零语义等价）。
     Bell { session_id: u64 },
-    /// Child process exited.
+    /// 子进程已退出。
     Exit {
         session_id: u64,
         code: i32,
-        /// how long the child actually lived (ms, from fork to
-        /// waitpid). Native-side measurement — immune to Kotlin event
-        /// handling latency; diagnostics payload.
+        /// 子进程实际存活时长（毫秒，fork 到 waitpid），原生侧测量不受 Kotlin 事件
+        /// 处理延迟影响，仅作诊断载荷。
         alive_ms: u64,
     },
-    /// OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`): the host app
-    /// reads the system clipboard and answers via `clipboardResult()` JNI;
-    /// Rust writes the reply back to the PTY. Carries the requested
-    /// selection name.
+    /// OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）：宿主读系统剪贴板后经
+    /// `clipboardResult()` JNI 应答，Rust 写回 PTY。携带请求的 selection 名。
     ClipboardRead {
         session_id: u64,
         request_id: u64,
@@ -60,18 +42,13 @@ pub enum Event {
     },
 }
 
-/// A thread-safe event queue shared between Rust and Kotlin.
+/// Rust 与 Kotlin 共享的线程安全事件队列，FIFO 消费。
 ///
-/// Events are consumed in FIFO order: `push()` adds to the back,
-/// `pop()` removes from the front.
-///
-/// # Lock ordering
-/// If both the JNI `SESSION_REGISTRY` and this queue must be held, always
-/// lock SESSION_REGISTRY first, then the queue.
-/// The reverse order will deadlock.
+/// 锁顺序：若需同时持有 JNI `SESSION_REGISTRY` 与本队列，必须先锁 `SESSION_REGISTRY`
+/// 再锁队列，反序会死锁。
 pub struct EventQueue {
     inner: Mutex<VecDeque<Event>>,
-    /// Last time an overflow warning was logged (rate limiting).
+    /// 上次记录溢出告警的时刻（限频）。
     last_overflow_warn: Mutex<Option<Instant>>,
 }
 
@@ -82,7 +59,7 @@ impl Default for EventQueue {
 }
 
 impl EventQueue {
-    /// Create a new empty event queue.
+    /// 创建空事件队列。
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(VecDeque::new()),
@@ -90,22 +67,14 @@ impl EventQueue {
         }
     }
 
-    /// Push an event to the back of the queue (FIFO).
+    /// 将事件推入队尾（FIFO）。
     ///
-    /// If the queue is at capacity, an `Exit` event is never dropped:
-    /// the oldest non-Exit event is evicted instead. Kotlin depends on
-    /// `Exit` to reap the session (the native `exit_reported` flag is
-    /// set at push time and never re-sent), so losing it would leak the
-    /// session permanently. Overflow warnings are rate-limited to one
-    /// per second.
+    /// 队列满时绝不丢弃 `Exit`，而是淘汰最旧的非 `Exit` 事件：原生侧的
+    /// `exit_reported` 标志在推入时即置位且不会重发，丢失 `Exit` 会永久泄漏会话。
     ///
-    /// Exception: when the queue holds ONLY Exit events at capacity, the
-    /// NEW event is dropped instead (evicting any Exit would strand its
-    /// session forever). Reaching this state requires 1024 concurrent
-    /// un-reaped exits — practically unreachable (Kotlin reaps within a
-    /// frame), but the invariant is deliberate.
+    /// 例外：满队列中只有 `Exit` 时改为丢弃新事件（淘汰任何 `Exit` 同样会遗弃会话）。
     pub fn push(&self, event: Event) {
-        // parking_lot Mutex has no poisoning, so no recovery branch.
+        // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
         if guard.len() >= MAX_QUEUED_EVENTS {
             self.warn_overflow_once();
@@ -115,10 +84,8 @@ impl EventQueue {
                     guard.remove(idx);
                 }
                 None => {
-                    // Queue holds only Exit events: evicting one
-                    // would strand that session forever (its
-                    // exit_reported flag is already set), so drop
-                    // the NEW event instead.
+                    // 队列只有 Exit：淘汰任一都会遗弃其会话（标志已置位），
+                    // 故丢弃新事件。
                     return;
                 }
             }
@@ -126,7 +93,7 @@ impl EventQueue {
         guard.push_back(event);
     }
 
-    /// Log the queue-overflow warning at most once per second.
+    /// 队列溢出告警每秒至多一次。
     fn warn_overflow_once(&self) {
         let now = Instant::now();
         let mut last = self.last_overflow_warn.lock();
@@ -136,7 +103,7 @@ impl EventQueue {
         }
     }
 
-    /// Pop the oldest event from the front of the queue (FIFO).
+    /// 弹出队首最旧事件（FIFO）。
     pub fn pop(&self) -> Option<Event> {
         self.inner.lock().pop_front()
     }
@@ -252,7 +219,7 @@ mod tests {
                 text: String::new(),
             });
         }
-        // Oldest events must have been dropped, newest retained.
+        // 最旧事件须被丢弃，最新事件保留。
         assert_eq!(
             q.pop(),
             Some(Event::Clipboard {
@@ -272,10 +239,8 @@ mod tests {
     #[test]
     fn push_never_evicts_exit_events() {
         let q = EventQueue::new();
-        // Fill the queue with Exit events, then push more non-Exit events
-        // than fit: Exits must ALL survive (their exit_reported flags are
-        // already set natively and would never be re-sent), the new events
-        // are dropped instead.
+        // 先填满 Exit，再推入放不下的非 Exit 事件：Exit 必须全部存活
+        //（exit_reported 标志已在原生侧置位且不会重发），改为丢弃新事件。
         for i in 0..MAX_QUEUED_EVENTS {
             q.push(Event::Exit {
                 session_id: i as u64,
@@ -291,7 +256,7 @@ mod tests {
             session_id: 1000,
             text: String::new(),
         });
-        // Every Exit survives; the other events were dropped.
+        // 全部 Exit 存活，其余事件被丢弃。
         let mut exits = 0;
         while let Some(event) = q.pop() {
             assert!(
@@ -306,7 +271,7 @@ mod tests {
     #[test]
     fn push_evicts_oldest_non_exit_when_mixed() {
         let q = EventQueue::new();
-        // Fill with events, then cap with one Exit at the back.
+        // 先填事件，末尾补一个 Exit 至满。
         for i in 0..(MAX_QUEUED_EVENTS - 1) {
             q.push(Event::Clipboard {
                 session_id: i as u64,
@@ -318,8 +283,7 @@ mod tests {
             code: 7,
             alive_ms: 10,
         });
-        // Queue is now full; pushing a new event must evict the OLDEST
-        // event (session 0), never the Exit.
+        // 队列已满；新事件应淘汰最旧的（session 0），而非 Exit。
         q.push(Event::Clipboard {
             session_id: 1000,
             text: String::new(),

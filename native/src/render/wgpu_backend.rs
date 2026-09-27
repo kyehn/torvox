@@ -1,12 +1,4 @@
-//! WGPU backend initialization — adapter selection, device creation.
-//!
-//! # Requirements
-//! - FR-050 — surface lifecycle: device/adapter selection survives surface recreation
-//!
-//! Encapsulates the wgpu instance/adapter/device creation logic so
-//! [`Renderer`][super::Renderer] does not need to manage GPU boilerplate.
-//! This makes the adapter-selection path independently testable and
-//! replaceable (e.g. with a mock or different backend).
+//! wgpu 后端初始化：适配器选择与设备创建。
 
 use std::sync::Arc;
 
@@ -14,11 +6,8 @@ use crate::render::GpuError;
 
 // 后端与功耗偏好均为固定值（见 initialize_wgpu），不读取环境变量。
 
-/// Android display wrapper: raw-window-handle's `AndroidDisplayHandle`
-/// does not implement `HasDisplayHandle` itself, but wgpu 30 requires a
-/// `WgpuHasDisplayHandle` object in `InstanceDescriptor::display` for
-/// later surface creation. This zero-sized type satisfies the trait by
-/// handing back the empty Android display handle.
+// `AndroidDisplayHandle` 未实现 `HasDisplayHandle`，而 wgpu 30 建 instance 时要求
+// `InstanceDescriptor::display` 提供该对象，故用此零尺寸类型返回空的 Android display handle。
 #[cfg(target_os = "android")]
 #[derive(Debug)]
 struct AndroidDisplay(raw_window_handle::AndroidDisplayHandle);
@@ -28,8 +17,8 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        // SAFETY: AndroidDisplayHandle is an empty (zero-field) marker;
-        // `borrow_raw`'s validity contract is trivially satisfied.
+        // SAFETY: AndroidDisplayHandle 是空的（无字段）标记类型，
+        // `borrow_raw` 的有效性契约平凡成立。
         Ok(unsafe {
             raw_window_handle::DisplayHandle::borrow_raw(
                 raw_window_handle::RawDisplayHandle::Android(self.0),
@@ -38,15 +27,10 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
     }
 }
 
-/// Create a wgpu [`Instance`], [`Adapter`], [`Device`], and [`Queue`].
-///
-/// Vulkan is the sole backend on every platform: no OpenGL/GLES or CPU
-/// path exists. Debug builds enable validation.
+/// 创建 wgpu [`Instance`]、[`Adapter`]、[`Device`] 与 [`Queue`]；debug 构建开启校验层。
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
-    // Vulkan is the SOLE graphics backend — no OpenGL/GLES or CPU software
-    // path is supported. On emulators without a physical GPU, SwiftShader
-    // provides the software Vulkan implementation.
+    // 仅支持 Vulkan；无实体 GPU 的模拟器上由 SwiftShader 提供软件实现。
     let backends = wgpu::Backends::VULKAN;
     #[cfg(debug_assertions)]
     let instance_flags = wgpu::InstanceFlags::VALIDATION
@@ -54,13 +38,9 @@ pub async fn initialize_wgpu()
         | wgpu::InstanceFlags::DISCARD_HAL_LABELS;
     #[cfg(not(debug_assertions))]
     let instance_flags = wgpu::InstanceFlags::DISCARD_HAL_LABELS;
-    // wgpu 30 requires a display handle at instance creation on Android:
-    // surface creation later (`create_surface_unsafe` with an
-    // AndroidNdkWindowHandle) fails with "No DisplayHandle is available"
-    // unless InstanceDescriptor::display carries AndroidDisplayHandle.
-    // wgpu 30 wants a HasDisplayHandle object at instance creation on
-    // Android: surface creation later fails with "No DisplayHandle is
-    // available" unless InstanceDescriptor::display is set.
+    // Android 上 wgpu 30 建 instance 时必须带 display handle，否则后续
+    // `create_surface_unsafe`（传入 AndroidNdkWindowHandle）会报
+    // "No DisplayHandle is available"。
     #[cfg(target_os = "android")]
     let display = Some(Box::new(AndroidDisplay(
         raw_window_handle::AndroidDisplayHandle::new(),

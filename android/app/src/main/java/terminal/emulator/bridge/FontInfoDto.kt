@@ -5,26 +5,22 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
-/**
- * Structured font state reported by the native font pipeline via
- * [NativeBridge.getFontInfo] (JSON serialized from the Rust `FontInfo`).
- * Display formatting happens in the UI layer with string resources.
- */
+/** 原生字体管线经 [NativeBridge.getFontInfo] 上报的字体状态（由 Rust `FontInfo` 序列化）。 */
 @Serializable
 data class FontInfoDto(
     val active: FontActiveDto? = null,
-    /** "fallback" (families listed), "skipped" (primary covers CJK) or "none". */
+    /** "fallback"（列出回退家族）、"skipped"（主字体已覆盖 CJK）或 "none"。 */
     @SerialName("cjk_state") val cjkState: String = "none",
     @SerialName("cjk_families") val cjkFamilies: List<String> = emptyList(),
     @SerialName("cell_width_px") val cellWidthPx: Float = 0f,
     @SerialName("cell_height_px") val cellHeightPx: Float = 0f,
-    /** Logical font size in sp (native `setFontSizeInPlace` unit, not px). */
+    /** 逻辑字号，单位 sp（原生 `setFontSizeInPlace` 单位，非 px）。 */
     @SerialName("font_size") val fontSize: Float = 0f,
 ) {
     val hasRealCjkFallback: Boolean
         get() = cjkState == "fallback" && cjkFamilies.isNotEmpty()
 
-    /** CJK fallback text with real family names, or null when absent. */
+    /** 带真实家族名的 CJK 回退文本，无则返回 null。 */
     fun cjkFallbackText(): String? = cjkFamilies.takeIf { it.isNotEmpty() }?.joinToString(", ")
 
     companion object {
@@ -34,8 +30,7 @@ data class FontInfoDto(
             null
         }
 
-        /** JSON for the "no font loaded yet" placeholder shown before the
-         *  renderer reports real data. */
+        /** 渲染器尚未上报真实数据前显示的占位 JSON。 */
         fun placeholderJson(fontName: String): String = pollEventJson.encodeToString(
             FontInfoDto(active = FontActiveDto(name = fontName, monospaced = false)),
         )
@@ -45,11 +40,5 @@ data class FontInfoDto(
 @Serializable
 data class FontActiveDto(val name: String = "", val monospaced: Boolean = false)
 
-/**
- * Font size sp → device pixels at a device density. Only used for display
- * (the native pipeline reports its logical size in sp via `font_size` and
- * converts internally with raster_scale × density). Pure function — density
- * is `LocalDensity.current.density` on Android and any positive float in
- * tests.
- */
+/** sp 字号按设备密度换算为像素，仅用于显示（原生管线内部自行按 raster_scale × density 换算）。 */
 fun fontSpToPx(fontSizeSp: Float, density: Float): Float = fontSizeSp * density

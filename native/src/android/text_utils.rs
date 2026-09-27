@@ -1,63 +1,8 @@
-//! Pure text/modifier-key helpers extracted from the JNI bridge so they can
-//! be unit-tested without a JVM. Kept out of `ffi.rs` so the bridge stays a
-//! thin JNI glue layer (see `ffi.rs` module docs for the threading model).
-//!
-//! # Requirements
-//! - FR-049 — JNI NDK bridge: key encoding and URL/text extraction helpers
-//!   live here, outside the JNI export surface, so they are host-testable.
+//! 与 JNI 无关的按键修饰辅助函数，置于 `ffi.rs` 之外以便脱离 JVM 单元测试。
 
-use crate::terminal::session::Session;
-
-/// Renders one terminal row (absolute grid row: scrollback first, then
-/// visible) as a string with exactly one char per column — wide chars are
-/// expanded to two copies of the same char so regex byte offsets map to
-/// column indices via char counts. Continuation cells (codepoint 0) are
-/// skipped because the leading wide cell already consumed both columns.
-pub(crate) fn plain_text_url_at(session: &Session, row_abs: u32, col: u32) -> Option<String> {
-    let grid = session.terminal().dump_grid();
-    let row_abs = row_abs as usize;
-    let line: Option<String> = if row_abs < grid.scrollback.len() {
-        Some(cell_line_text(&grid.scrollback[row_abs]))
-    } else {
-        let visible_row = row_abs.saturating_sub(grid.scrollback.len());
-        let cols = grid.cols as usize;
-        let start = visible_row * cols;
-        let end = start.saturating_add(cols).min(grid.visible.len());
-        if start < end {
-            Some(cell_line_text(&grid.visible[start..end]))
-        } else {
-            None
-        }
-    };
-    line.and_then(|text| crate::terminal::url_regex::url_at_column(&text, col as usize))
-}
-
-/// One char per column; wide (width>=2) cells contribute two copies so the
-/// string's char index equals the terminal column index.
-pub(crate) fn cell_line_text(cells: &[crate::terminal::ghostty_terminal::CellSnapshot]) -> String {
-    let mut text = String::with_capacity(cells.len());
-    for cell in cells {
-        if cell.codepoint == 0 {
-            // Continuation cell of a wide char — the leading cell already
-            // covered both columns.
-            continue;
-        }
-        if let Some(ch) = char::from_u32(cell.codepoint) {
-            text.push(ch);
-            if cell.width > 1 {
-                text.push(ch);
-            }
-        }
-    }
-    text
-}
-
-/// Apply Ctrl/Alt/Meta modifier semantics to a key string, producing the
-/// byte sequence the terminal receives. Printable ASCII under Ctrl uses the
-/// standard `code & 0x1F` formula; Alt/Meta gains an ESC prefix; control chars
-/// and non-ASCII bytes pass through unchanged.
-///
-/// Mask values mirror `KeyModifiers` (SHIFT=1, ALT=2, CTRL=4, META=8).
+/// 对按键串施加 Ctrl/Alt/Meta 修饰语义，返回终端收到的字节序列。
+/// 可打印 ASCII 配 Ctrl 走标准 `code & 0x1F` 公式；Alt/Meta 加 ESC 前缀；
+/// 控制字符与非 ASCII 字节原样透传。掩码值对齐 `KeyModifiers`。
 pub(crate) fn encode_modifiers(input: &[u8], modifiers: i32) -> Vec<u8> {
     const CTRL_MASK: i32 = 4;
     const ALT_MASK: i32 = 2;
@@ -72,14 +17,12 @@ pub(crate) fn encode_modifiers(input: &[u8], modifiers: i32) -> Vec<u8> {
     let mut output = Vec::with_capacity(input.len() + 2);
 
     if alt_or_meta {
-        output.push(ESCAPE_BYTE); // ESC prefix for Alt/Meta
+        output.push(ESCAPE_BYTE); // Alt/Meta 加 ESC 前缀
     }
 
     if ctrl && input.len() == 1 {
         let code = input[0];
-        // For printable ASCII, apply the standard Ctrl formula
-        // code & 0x1F. Pre-existing control chars and non-ASCII
-        // bytes pass through unchanged.
+        // 可打印 ASCII 套用 Ctrl 公式；控制字符与非 ASCII 字节原样透传。
         if PRINTABLE_ASCII_RANGE.contains(&code) {
             output.push(code & CONTROL_FORMULA_MASK);
             return output;
@@ -93,125 +36,6 @@ pub(crate) fn encode_modifiers(input: &[u8], modifiers: i32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── cell_line_text ────────────────────────────────────────────
-
-    fn cell(codepoint: u32, width: u8) -> crate::terminal::ghostty_terminal::CellSnapshot {
-        crate::terminal::ghostty_terminal::CellSnapshot {
-            codepoint,
-            graphemes: vec![],
-            foreground: [0.0; 4],
-            background: [0.0; 4],
-            underline_color: [0.0; 4],
-            bold: false,
-            dim: false,
-            italic: false,
-            underline: false,
-            reverse: false,
-            strikethrough: false,
-            blink: false,
-            hidden: false,
-            overline: false,
-            double_underline: false,
-            width,
-        }
-    }
-
-    #[test]
-    fn cell_line_text_ascii_joins_in_order() {
-        let cells = [
-            cell(b'a' as u32, 1),
-            cell(b'b' as u32, 1),
-            cell(b'c' as u32, 1),
-        ];
-        assert_eq!(cell_line_text(&cells), "abc");
-    }
-
-    #[test]
-    fn cell_line_text_wide_char_duplicates_column() {
-        // A width-2 cell contributes two copies so the char index matches
-        // the terminal column index.
-        let cells = [cell('中' as u32, 2), cell(b'x' as u32, 1)];
-        assert_eq!(cell_line_text(&cells), "中中x");
-    }
-
-    #[test]
-    fn cell_line_text_skips_continuation_cells() {
-        // codepoint 0 = continuation of a wide char — must not emit a
-        // spurious char.
-        let cells = [cell('中' as u32, 2), cell(0, 2), cell(b'y' as u32, 1)];
-        assert_eq!(cell_line_text(&cells), "中中y");
-    }
-
-    #[test]
-    fn cell_line_text_empty() {
-        assert_eq!(cell_line_text(&[]), "");
-    }
-
-    #[test]
-    fn cell_line_text_skips_invalid_codepoint() {
-        // 代理区码点不是合法 Unicode 标量值，必须跳过而不崩溃。
-        let cells = [cell(0xD800, 1), cell(b'a' as u32, 1)];
-        assert_eq!(cell_line_text(&cells), "a");
-    }
-
-    // ── plain_text_url_at ─────────────────────────────────────────
-
-    fn url_session(rows: u32, cols: u32) -> Session {
-        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(rows as u16, cols as u16);
-        Session::with_pty(
-            Box::new(pty) as Box<dyn crate::terminal::pty::Pty>,
-            rows,
-            cols,
-        )
-        .expect("with_pty must succeed")
-    }
-
-    fn write_line(session: &mut Session, line: &[u8]) {
-        session.terminal_mut().vt_write(line);
-        session.terminal_mut().flush();
-    }
-
-    #[test]
-    fn plain_text_url_at_visible_row() {
-        let mut session = url_session(24, 80);
-        write_line(&mut session, b"visit https://example.com now");
-        assert_eq!(
-            plain_text_url_at(&session, 0, 6),
-            Some("https://example.com".to_string())
-        );
-        assert_eq!(plain_text_url_at(&session, 0, 0), None);
-    }
-
-    #[test]
-    fn plain_text_url_at_scrollback_row() {
-        let mut session = url_session(3, 40);
-        write_line(&mut session, b"go https://example.com ok");
-        for index in 0..7 {
-            write_line(&mut session, format!("line{index}\n").as_bytes());
-        }
-        let dumped = session.terminal().dump_grid();
-        assert!(
-            !dumped.scrollback.is_empty(),
-            "scrollback should hold scrolled-off lines"
-        );
-        let row_abs = dumped
-            .scrollback
-            .iter()
-            .position(|row| cell_line_text(row).contains("https://example.com"))
-            .expect("scrollback must contain the url line") as u32;
-        assert_eq!(
-            plain_text_url_at(&session, row_abs, 3),
-            Some("https://example.com".to_string())
-        );
-    }
-
-    #[test]
-    fn plain_text_url_at_out_of_range_returns_none() {
-        let mut session = url_session(24, 80);
-        write_line(&mut session, b"visit https://example.com now");
-        assert_eq!(plain_text_url_at(&session, u32::MAX, 0), None);
-    }
 
     // ── encode_modifiers ──────────────────────────────────────────
 
@@ -229,9 +53,9 @@ mod tests {
 
     #[test]
     fn encode_modifiers_ctrl_non_printable_passthrough() {
-        // Ctrl on a pre-existing control char passes it through unchanged.
+        // Ctrl 作用于已有控制字符时原样透传。
         assert_eq!(encode_modifiers(b"\x01", 4), b"\x01");
-        // Ctrl on non-ASCII bytes passes them through unchanged.
+        // Ctrl 作用于非 ASCII 字节时原样透传。
         assert_eq!(encode_modifiers(&[0xC3, 0xA9], 4), b"\xc3\xa9");
     }
 
@@ -250,7 +74,7 @@ mod tests {
 
     #[test]
     fn encode_modifiers_ctrl_multichar_no_mask() {
-        // Ctrl with more than one byte: no single char to mask, passes through.
+        // Ctrl 下多字节：无单字符可套公式，原样透传。
         assert_eq!(encode_modifiers(b"ab", 4), b"ab");
     }
 }

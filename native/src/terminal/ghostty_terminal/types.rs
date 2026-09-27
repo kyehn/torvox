@@ -1,18 +1,13 @@
-/// Errors returned by [GhosttyTerminal](crate::terminal::ghostty_terminal::GhosttyTerminal) construction.
-///
-/// The only fallible step is spawning the VT thread; runtime query failures
-/// are non-fatal and surface as fallback values, not errors (see
-/// `public_api::query`).
+/// [`GhosttyTerminal`](crate::terminal::ghostty_terminal::GhosttyTerminal) 构造错误。
+/// 唯一可能失败的是启动 VT 线程；运行时查询失败不致命，只回退为默认值。
 #[derive(Debug, thiserror::Error)]
 pub enum TerminalError {
     #[error("failed to spawn terminal thread: {0}")]
     Spawn(#[from] std::io::Error),
 }
 
-/// A single match from search_all_in_scrollback.
-/// Row is a scrollback row; start_col/end_col are character columns in the
-/// line (NOT byte offsets) — they align with CellData.col used by the
-/// renderer's highlight pass.
+/// `search_all_in_scrollback` 的单个匹配。`row` 为回滚行号；`start_col`/`end_col`
+/// 是行内字符列（**非**字节偏移），与渲染高亮所用的 `CellData.col` 对齐。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchMatch {
     pub row: u32,
@@ -20,9 +15,8 @@ pub struct SearchMatch {
     pub end_col: u32,
 }
 
-/// Cursor style. Ghostty is the single source of truth for cursor style
-/// (DECSCUSR); the snapshot conversion maps the upstream visual style
-/// 1:1, except hollow block which renders as solid block for now.
+/// 光标样式。以 Ghostty（DECSCUSR）为单一来源，快照转换 1:1 映射上游视觉样式，
+/// 仅空心块暂按实心块渲染。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorStyle {
     #[default]
@@ -33,12 +27,9 @@ pub enum CursorStyle {
     Underline,
 }
 
-/// Bit positions in `CellData::flags`, the single source of truth shared by
-/// the style packer (`ghostty_terminal::internal::pack_style_flags`), the GPU
-/// cell builder (`render::cell_builder`)
-/// and the shader `cell.wgsl`. Keep in sync with `pack_style_flags` and
-/// `shaders/cell.wgsl` (which reads bits 3/5/6/7/8 for decorations;
-/// bit 4 blink is carried for information, the shader ignores it).
+/// `CellData::flags` 的位定义，是样式打包器、GPU 单元构建器与 `cell.wgsl` 共享的
+/// 单一来源。须与 `pack_style_flags` 和 `shaders/cell.wgsl` 保持一致（着色器读
+/// 3/5/6/7/8 位作装饰；第 4 位 blink 仅透传信息，着色器忽略）。
 pub mod cell_flags {
     pub const BOLD: u32 = 0;
     pub const ITALIC: u32 = 1;
@@ -51,17 +42,15 @@ pub mod cell_flags {
     pub const DOUBLE_UNDERLINE: u32 = 8;
 }
 
-/// Cursor info — terminal cursor state sent alongside CellData for
-/// same-frame cursor rendering. Produced by build_cell_data, consumed
-/// by the render thread as CellCursor.
+/// 光标信息：与 CellData 一同发送的终端光标状态，供同帧渲染。由 `build_cell_data`
+/// 产生，渲染线程以 `CellCursor` 消费。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CursorInfo {
     pub row: u32,
     pub col: u32,
     pub visible: bool,
     pub style: CursorStyle,
-    /// Scrollback length — piggy-backed on the cell data channel so the
-    /// render thread never needs a synchronous scrollback_length() RPC.
+    /// 回滚长度：搭载在单元格数据通道上，渲染线程无需同步 `scrollback_length()` RPC。
     pub scrollback_length: u32,
     /// Kitty 图像存储生成戳（上游 `Graphics::generation`；0 = 从未写入）。
     /// 生成戳不变时放置集合与图像像素相同，渲染线程跳过放置查询；
@@ -69,38 +58,29 @@ pub struct CursorInfo {
     pub kitty_generation: u64,
 }
 
-/// Cell data — the per-cell payload transported from the Session thread
-/// (where it's produced via Ghostty CellIterator) to the Render thread
-/// (where it's converted to CellInstance for GPU upload).
-///
-/// This is a fixed-size bytemuck struct (96 bytes) so `Vec<CellData>` can be
-/// sent across a flume channel with zero copying overhead per cell.
+/// 逐单元载荷：会话线程（经 Ghostty CellIterator 产生）→ 渲染线程（转为 CellInstance
+/// 上传 GPU）。定长 bytemuck 结构（96 字节），故 `Vec<CellData>` 过 flume 通道
+/// 时每单元零拷贝。
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CellData {
-    /// Primary codepoint (typically the only one).
+    /// 主码点（通常即唯一码点）。
     pub codepoint: u32,
-    /// Cell width: 1 = normal, 2 = wide (CJK, emoji).
+    /// 单元宽度：1 = 常规，2 = 宽（CJK、emoji）。
     pub width: u32,
-    /// Reserved grapheme-cluster continuation codepoints (7 extras).
-    /// Most cells have zero extras; `codepoint` alone suffices for ASCII.
+    /// 字素簇续接码点（预留 7 个），多数单元为空；ASCII 只需 `codepoint`。
     pub grapheme_extra: [u32; 7],
-    /// Resolved foreground color as [R, G, B, A] in 0..1.
+    /// 前景色 [R, G, B, A]，取值 0..1。
     pub foreground: [f32; 4],
-    /// Resolved background color as [R, G, B, A] in 0..1.
+    /// 背景色 [R, G, B, A]，取值 0..1。
     pub background: [f32; 4],
-    /// Resolved underline (SGR 58) color as [R, G, B, A] in 0..1.
-    /// Falls back to the resolved foreground when the cell sets no explicit
-    /// underline color, matching the shader's historic `deco_color = foreground`.
+    /// 下划线（SGR 58）色 [R, G, B, A]，取值 0..1；单元未显式设置时回退到前景色，
+    /// 与着色器沿用的 `deco_color = foreground` 一致。
     pub underline_color: [f32; 4],
-    /// Packed style flags; bit positions are defined by [`cell_flags`]
-    /// (bold/italic/reverse/underline/strikethrough/overline/faint/double
-    /// underline), packed by `pack_style_flags` and consumed by the GPU and
-    /// CPU cell builders plus `shaders/cell.wgsl`.
+    /// 打包的样式标志，位定义见 [`cell_flags`]，由 `pack_style_flags` 打包。
     pub flags: u32,
-    /// Grid row (for screen-space position computation on render thread).
+    /// 网格行号（渲染线程据此算屏幕空间位置）。
     pub row: u32,
-    /// Grid column.
     pub col: u32,
 }
 
@@ -113,7 +93,6 @@ mod tests {
     }
     #[test]
     fn cell_data_is_bytemuck() {
-        // Compile-time check: CellData implements Pod + Zeroable
         fn _assert_pod_zeroable<T: bytemuck::Pod + bytemuck::Zeroable>() {}
         _assert_pod_zeroable::<CellData>();
     }
@@ -149,8 +128,7 @@ mod tests {
     }
 }
 
-/// Render snapshot of the terminal grid.
-/// Built on the terminal thread; consumed by the renderer thread.
+/// 终端网格的渲染快照：终端线程构建，渲染线程消费。
 #[derive(Clone, Debug, Default)]
 pub struct GridSnapshot {
     pub rows: u32,
@@ -166,7 +144,7 @@ pub struct GridSnapshot {
     pub sync_active: bool,
 }
 
-/// Raw pixel data for a KGP image (RGBA8).
+/// KGP 图像的原始像素数据（RGBA8）。
 #[derive(Clone, Debug)]
 pub struct KittyGraphicsImageData {
     pub id: u32,
@@ -223,7 +201,7 @@ impl GridSnapshot {
     }
 }
 
-/// A snapshot of the entire terminal grid for serialization across FFI boundaries.
+/// 整个终端网格的快照，用于跨 FFI 边界序列化。
 pub struct DumpedGrid {
     pub rows: u32,
     pub cols: u32,
@@ -231,14 +209,14 @@ pub struct DumpedGrid {
     pub scrollback: Vec<Vec<CellSnapshot>>,
 }
 
-/// A snapshot of a single terminal cell for serialization across FFI.
+/// 单个终端单元的快照，用于跨 FFI 序列化。
 #[derive(Clone, Debug, Default)]
 pub struct CellSnapshot {
     pub codepoint: u32,
     pub graphemes: Vec<u32>,
     pub foreground: [f32; 4],
     pub background: [f32; 4],
-    /// Resolved SGR 58 underline color (falls back to `foreground`).
+    /// 解算后的 SGR 58 下划线色（回退到 `foreground`）。
     pub underline_color: [f32; 4],
     pub bold: bool,
     pub dim: bool,
@@ -261,10 +239,8 @@ pub(crate) const CELL_DATA_CHANNEL_CAPACITY: usize = 4;
 /// 上游 OSC 回调事件通道容量（剪贴板写入、振铃，低频；满则丢弃，VT 线程永不阻塞）。
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
-/// How long `flush()` waits for the VT thread to drain its backlog before
-/// giving up. Must be far above legitimate burst-write drain times in
-/// debug builds (hundreds of ms); 5s of silence means the VT thread is
-/// genuinely wedged.
+/// `flush()` 等待 VT 线程排空积压的上限；须远大于 debug 构建下突发写入的正常排空
+/// 时间（数百毫秒），静默 5s 即视为 VT 线程确实卡死。
 pub(crate) const FLUSH_TIMEOUT_SECS: u64 = 5;
 pub(crate) const DISCONNECTED_ROWS: u32 = 24;
 pub(crate) const DISCONNECTED_COLS: u32 = 80;

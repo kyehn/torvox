@@ -15,16 +15,16 @@ sealed interface KeyboardMode {
 
 data class ImeFlagSet(
     val noSuggestions: Boolean = true,
-    // VISIBLE_PASSWORD by default OFF: the password variation makes IMEs
-    // (Gboard etc.) drop the composition/language UI, so CJK input stops
-    // working. Opt-in for users who really want a password-style field.
+    // VISIBLE_PASSWORD 默认关闭：密码变体会让输入法（Gboard 等）
+    // 丢弃组字/语言 UI，导致 CJK 输入失效。
+    // 仅供确实需要密码式字段的用户主动开启。
     val visiblePassword: Boolean = false,
     val autoCorrect: Boolean = false,
     val fullEditor: Boolean = false,
-    // No IME restrictions by default: NO_EXTRACT_UI / NO_PERSONALIZED_LEARNING
-    // are opt-in. Privacy-style options make IMEs disable learning,
-    // clipboard suggestions and sometimes the language switcher — the hard
-    // requirement ("输入法不应该有任何限制") is an unrestricted IME.
+    // 默认不对输入法施加任何限制：NO_EXTRACT_UI / NO_PERSONALIZED_LEARNING
+    // 均为选择性开启。隐私类选项会让输入法禁用学习、剪贴板建议，
+    // 有时连语言切换器也一并禁用——而硬性要求（「输入法不应该有任何限制」）
+    // 是不受限的输入法。
     val noExtractUi: Boolean = false,
     val noPersonalizedLearning: Boolean = false,
 )
@@ -32,15 +32,12 @@ data class ImeFlagSet(
 fun KeyboardMode.toEditorInfo(outAttrs: EditorInfo) {
     when (this) {
         KeyboardMode.Secure -> {
-            // Unrestricted plain text (termux-style): NO_SUGGESTIONS keeps
-            // the suggestion strip off the terminal screen only — it does
-            // not restrict IME composition. No VISIBLE_PASSWORD and no
-            // privacy IME options (NO_EXTRACT_UI / NO_PERSONALIZED_LEARNING):
-            // those tell the IME it is a password/private field, and Gboard
-            // et al. respond by dropping the composition and language UI
-            // entirely — reported on-device as "not full mode" where
-            // Chinese cannot be typed, plus disabled learning and clipboard
-            // suggestions. The IME is deliberately unrestricted.
+            // 不受限的纯文本（termux 式）：NO_SUGGESTIONS 只把候选栏从终端屏上移除
+            // ——它不限制输入法组字。刻意不使用 VISIBLE_PASSWORD
+            // 与隐私输入法选项（NO_EXTRACT_UI / NO_PERSONALIZED_LEARNING）：
+            // 那些会告知输入法这是密码/私密字段，Gboard 等因此
+            // 完全丢弃组字与语言 UI——设备上表现为「非全屏模式」
+            // （无法输入中文，且学习与剪贴板建议被禁用）。
             outAttrs.inputType =
                 InputType.TYPE_CLASS_TEXT or
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS

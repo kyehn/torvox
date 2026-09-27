@@ -1,4 +1,4 @@
-//! Glyph rasterization — converting font outlines to coverage bitmaps.
+//! 字形光栅化：把字体轮廓转为覆盖率位图。
 use super::FontPipeline;
 
 pub(super) const ASCII_START: u32 = 32;
@@ -9,13 +9,6 @@ pub(super) const DESCENT_FALLBACK_RATIO: f32 = 0.2;
 pub(super) const CELL_WIDTH_FALLBACK_RATIO: f32 = 0.6;
 pub(super) const CELL_HEIGHT_FALLBACK_RATIO: f32 = 1.2;
 
-/// Cap the line-gap contribution to a cell so pathological font `leading`
-/// values (Droid Sans Mono on Android ships a very large one) cannot inflate
-/// the cell height far beyond the glyph metrics. Maximum 25% of
-/// ascent+descent, mirroring Termux/Ghostty row-height behavior.
-///
-/// No longer used in the cell-height computation (row height is
-/// now ascent+descent exactly, like Termux/Ghostty/Kitty); retained for the
 impl FontPipeline {
     pub fn rasterize_ascii(&mut self) {
         let before = self.cache_length();
@@ -31,8 +24,6 @@ impl FontPipeline {
         );
     }
 
-    /// Compute a single scaled font metric (e.g. ascent, descent) with automatic
-    /// fallback when the font database is unavailable.
     fn scaled_metric(&self, extract: impl FnOnce(swash::Metrics) -> f32, fallback: f32) -> f32 {
         if let Some(font_id) = self.font_id {
             let db = self.font_system.db();
@@ -74,14 +65,9 @@ impl FontPipeline {
                 let scale = self.font_size / upem;
                 let ascent = metrics.ascent * scale;
                 let descent = metrics.descent.abs() * scale;
-                // Standard terminal row height is ascent+descent
-                // WITHOUT the font's line gap. Droid Sans Mono ships a huge
-                // leading (~2000 units); even capped at 25% it inflated the
-                // cell to 1.465em, leaving ~2x the glyph height of empty
-                // space between rows (reported as "row spacing way too
-                // large"). Termux/Ghostty/Kitty all use (ascent+descent)
-                // as the row height; the line gap belongs between paragraphs,
-                // not inside every terminal row.
+                // 行高只取 ascent+descent，不计字体 line gap：Droid Sans Mono 的
+                // leading 约 2000 units，即便封顶 25% 仍把行高推到 1.465em，
+                // 行间空白达字高的约两倍。line gap 属于段落间距而非每行内部。
                 let cell_height = ascent + descent;
 
                 let charmap = font_ref.charmap();

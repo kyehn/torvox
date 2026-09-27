@@ -21,9 +21,8 @@ class TerminalForegroundService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
 
-        // Safety net: the wake lock must never outlive the session it keeps
-        // alive. 30 minutes covers the longest expectable interactive run;
-        // a still-running session re-acquires on the next start tick.
+        // 安全网：唤醒锁绝不能活得比它所保活的会话更久。
+        // 30 分钟覆盖可预期的最长交互运行；仍存活的会话会在下个 start 节拍重新获取。
         private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
 
         fun start(context: Context) {
@@ -37,8 +36,8 @@ class TerminalForegroundService : Service() {
 
         fun updateSessionCount(context: Context, count: Int) {
             if (count <= 0) {
-                // Return value intentionally ignored: stopService(false for
-                // a stopped service) is the desired end state either way.
+                // 刻意忽略返回值：对已停止服务 stopService 返回 false
+                // 同样是期望的终态。
                 stop(context)
                 return
             }
@@ -49,11 +48,9 @@ class TerminalForegroundService : Service() {
             try {
                 context.startForegroundService(intent)
             } catch (exception: Exception) {
-                // API 31+: ForegroundServiceStartNotAllowedException when
-                // the app is in the background and the service is not
-                // already running (e.g. system killed it and START_STICKY
-                // has not restarted it yet). This must not crash the
-                // render thread.
+                // API 31+：应用在后台而服务尚未运行时抛 ForegroundServiceStartNotAllowedException
+                // （如系统杀掉了它而 START_STICKY 尚未重启）。
+                // 这绝不能使渲染线程崩溃。
                 android.util.Log.w("TerminalForegroundService", "startForegroundService failed", exception)
             }
         }
@@ -78,10 +75,9 @@ class TerminalForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // START_STICKY restart after the process was killed: no sessions
-        // survive a process death, so the service (and its PARTIAL_WAKE_LOCK)
-        // has nothing to keep alive. Stop instead of re-pinning the
-        // notification forever with a permanent wake lock.
+        // 进程被杀后 START_STICKY 重启：没有会话能在进程死亡后存活，
+        // 故服务（及其 PARTIAL_WAKE_LOCK）已无保活对象。
+        // 改为停止，而不是带着永久唤醒锁无休止地重新固定通知。
         if (intent == null) {
             stopSelf()
             return START_NOT_STICKY
@@ -125,20 +121,17 @@ class TerminalForegroundService : Service() {
         try {
             startForeground(NOTIFICATION_ID, notification)
         } catch (exception: Exception) {
-            // minSdk 33 without POST_NOTIFICATIONS permission (and some
-            // vendor ROMs) makes startForeground throw SecurityException on
-            // the main onStartCommand path — the static updateSessionCount
-            // path already guards; this one must not crash the process.
-            // KNOWN LIMITATION: the runtime's
-            // foregroundServiceRunning flag was already set true by
-            // startForegroundServiceIfNeeded before this call, and no
-            // failure signal is sent back — a subsequent
-            // startForegroundServiceIfNeeded will skip starting (stale
-            // flag) until the count hits 0 via updateForegroundSessionCount
-            //  reset) or stopForegroundService runs. The service
-            // itself is still bound by the runtime's startService call, so
-            // the wake lock and process-foreground guarantees hold; only
-            // the notification is missing. Closing all sessions heals it.
+            // minSdk 33 下缺少 POST_NOTIFICATIONS 权限（以及部分厂商 ROM）
+            // 会使主 onStartCommand 路径上的 startForeground 抛 SecurityException
+            // ——静态的 updateSessionCount 路径已有守卫；此路径绝不能使进程崩溃。
+            //
+            // 已知局限：运行期的 foregroundServiceRunning 标志
+            // 在此调用之前已被 startForegroundServiceIfNeeded 置真，
+            // 且没有任何失败信号回传——后续的 startForegroundServiceIfNeeded
+            // 会因（陈旧的）标志而跳过启动，直到计数经 updateForegroundSessionCount
+            // 归零或 stopForegroundService 运行。服务本身仍由运行期的 startService
+            // 调用所绑定，故唤醒锁与前台进程保证仍然成立；只是缺少通知。
+            // 关闭所有会话即可自愈。
             Log.e("TerminalForegroundService", "startForeground failed", exception)
         }
     }
@@ -171,12 +164,10 @@ class TerminalForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // The service keeps running (START_STICKY) with live terminal
-        // sessions. Re-acquire the wake lock instead of dropping it:
-        // otherwise, with the task swiped away and the screen off, the
-        // sessions' CPU and network access would be frozen with no way
-        // to recover the lock (nothing calls acquireWakeLockIfNeeded
-        // again after this point).
+        // 服务在存活的终端会话下继续运行（START_STICKY）。
+        // 重新获取唤醒锁而不是丢弃它：否则在任务被划掉且屏幕关闭时，
+        // 会话的 CPU 与网络访问会被冻结且无从恢复
+        // （此后再无任何调用 acquireWakeLockIfNeeded）。
         if (wakeLock?.isHeld != true) {
             acquireWakeLockIfNeeded()
         }

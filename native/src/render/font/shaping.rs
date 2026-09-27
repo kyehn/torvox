@@ -1,10 +1,10 @@
-//! Text shaping — cosmic-text integration for Unicode ligature and complex script support.
+//! 文本整形：接入 cosmic-text 以支持连字与复杂文种。
 use super::{FontPipeline, ShapedGlyphInfo, glyph_cache::ShapeKey};
 
-/// Line height as a multiple of font size for cosmic-text Metrics.
+/// cosmic-text Metrics 的行高倍数。
 const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
 
-/// Width used for an effectively infinite shaping buffer.
+/// 等效无限的整形缓冲宽度。
 const INFINITE_BUFFER_WIDTH: f32 = 999_999.0;
 
 impl FontPipeline {
@@ -45,9 +45,8 @@ impl FontPipeline {
 
         buffer.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
         if !self.cjk_fallback_ids.is_empty() {
-            // Only add CJK fallback for actual CJK runs, not whole text.
-            // Prior whole-span 0..len caused Latin in "hello中文" to also
-            // go through fallback shaping (extra cost) and missed cache for IME.
+            // 只对真正的 CJK 段挂回退族：整段 0..len 会让 "hello中文" 的拉丁
+            // 部分也走回退整形（多花开销且 IME 命中不了缓存）。
             let mut cjk_ranges: Vec<std::ops::Range<usize>> = Vec::new();
             let mut start: Option<usize> = None;
             for (idx, ch) in text.char_indices() {
@@ -123,21 +122,19 @@ impl FontPipeline {
 mod tests {
     use super::*;
 
-    const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_fonts");
-
-    fn fixture() -> FontPipeline {
-        FontPipeline::from_fixture(512, 512, 12.0, FIXTURE_DIR)
+    fn small_pipeline() -> FontPipeline {
+        FontPipeline::new(512, 512, 12.0)
     }
 
     #[test]
     fn empty_text_shapes_to_nothing() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         assert!(pipeline.shape_run("").is_empty());
     }
 
     #[test]
     fn ascii_text_produces_glyphs() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let glyphs = pipeline.shape_run("Hello");
         assert!(!glyphs.is_empty(), "ASCII 'Hello' must shape to glyphs");
         let mut prev_x = 0.0f32;
@@ -149,7 +146,7 @@ mod tests {
 
     #[test]
     fn shaping_results_are_cached() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let first = pipeline.shape_run("cache me");
         assert!(!first.is_empty());
         let second = pipeline.shape_run("cache me");
@@ -158,9 +155,8 @@ mod tests {
 
     #[test]
     fn combining_cluster_shapes_to_positioned_glyphs() {
-        let mut pipeline = fixture();
-        // e + combining acute must shape without panic and populate
-        // the shape cache (the render cluster path keys on this).
+        let mut pipeline = small_pipeline();
+        // 组合字符簇须能整形并进入整形缓存（渲染簇路径依赖此）。
         let cluster = "e\u{301}";
         let glyphs = pipeline.shape_run(cluster);
         assert!(!glyphs.is_empty(), "combining cluster must shape to glyphs");
@@ -170,10 +166,7 @@ mod tests {
 
     #[test]
     fn cjk_mixed_text_shapes_without_panic() {
-        let mut pipeline = fixture();
-        // CJK triggers the fallback path; with or without CJK fonts in the
-        // fixture dir, shaping must not panic and must return glyphs for
-        // the ASCII part.
+        let mut pipeline = small_pipeline();
         let glyphs = pipeline.shape_run("A中B");
         assert!(!glyphs.is_empty(), "mixed text must produce glyphs");
     }
@@ -182,7 +175,7 @@ mod tests {
     fn shape_cache_invalidated_by_font_size_change() {
         const SAMPLE_TEXT: &str = "Hello";
         const SCALED_FONT_SIZE: f32 = 28.0;
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let before = pipeline.shape_run(SAMPLE_TEXT);
         assert!(!before.is_empty(), "baseline shape must produce glyphs");
         pipeline.set_font_size_in_place(SCALED_FONT_SIZE);
@@ -204,7 +197,7 @@ mod tests {
         // 时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
         // set_font_size_in_place 本来就清缓存；这里验证键本身携带维度，
         // 即使不清缓存也不会串味。
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let before = pipeline.shape_run("Hello");
         assert!(!before.is_empty());
         let key_small = ShapeKey {

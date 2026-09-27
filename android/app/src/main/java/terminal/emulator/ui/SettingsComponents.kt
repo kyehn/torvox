@@ -1,10 +1,8 @@
 package terminal.emulator.ui
 
-// Shared building blocks for the settings screen. Collapses the duplicated
-// row skeletons that previously existed per setting (3 slider rows, 2 switch
-// rows, 3 selector rows — each with the same isSmallScreen/labelStyle/
-// valueStyle/color logic). Modeled on ghostty-android's declarative Setting
-// pattern.
+// 设置界面的共享构件。收敛了此前各设置项重复的行骨架
+// （3 个滑块行、2 个开关行、3 个选择器行——每处都有相同的
+// isSmallScreen/labelStyle/valueStyle/color 逻辑）。参照 ghostty-android 的声明式 Setting 模式。
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -99,8 +97,7 @@ fun SettingsRow(
     }
 }
 
-/** Slider row: title + formatted value + Slider with the accent colors. When [enabled] is
- * false the slider is greyed out, the value text is dimmed to 50% and changes are ignored. */
+/** 滑块行：标题 + 格式化数值 + 带强调色的滑块。[enabled] 为假时滑块置灰、数值文本暗淡 50% 且忽略改动。 */
 @Composable
 fun SettingsSliderRow(
     title: String,
@@ -153,8 +150,7 @@ fun SettingsSliderRow(
     }
 }
 
-/** Switch row: title + optional description + Switch with the accent colors. When [enabled] is
- * false the switch is greyed out, the text is dimmed to 50% and toggles are ignored. */
+/** 开关行：标题 + 可选描述 + 带强调色的开关。[enabled] 为假时开关置灰、文本暗淡 50% 且忽略切换。 */
 @Composable
 fun SettingsSwitchRow(
     title: String,
@@ -200,8 +196,7 @@ fun SettingsSwitchRow(
     }
 }
 
-/** Selector row: title + a row of pill buttons; one option selected. When [enabled] is false
- * the pills are dimmed to 50% and clicks are ignored. */
+/** 选择器行：标题 + 一排药丸按钮，其中一项被选中。[enabled] 为假时药丸暗淡 50% 且忽略点击。 */
 @Composable
 fun SettingsSelectorRow(
     title: String,
@@ -244,7 +239,7 @@ fun SettingsSelectorRow(
     }
 }
 
-/** One pill inside a [SettingsSelectorRow]. */
+/** [SettingsSelectorRow] 内的单个药丸。 */
 @Composable
 private fun RowScope.SettingsSelectorPill(
     key: String,

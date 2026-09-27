@@ -502,10 +502,8 @@ object BuiltInThemes {
 }
 
 /**
- * Resolve the active terminal theme name from the theme-mode setting (C8).
- *
- * Pure function shared by TerminalScreen's background and theme lookups so
- * the mode switch logic lives in exactly one place.
+ * 由主题模式设置解析出活动的终端主题名。
+ * 纯函数，供 TerminalScreen 的背景与主题查找共用，使模式切换逻辑只存在于一处。
  */
 fun resolveTerminalThemeName(
     mode: String,
@@ -520,7 +518,7 @@ fun resolveTerminalThemeName(
     else -> if (isDark) nightName else dayName
 }
 
-/** Resolve app dark-mode from the app-theme-mode setting (C8). */
+/** 由应用主题模式设置解析应用的深色模式。 */
 fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = when (appThemeMode) {
     "night" -> true
     "day" -> false
@@ -528,8 +526,8 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
 }
 
 /**
- * Resolve the Material 3 color scheme from the app-theme-mode setting (C8).
- * Dynamic colors apply only on Android 12+ when following the system.
+ * 由应用主题模式设置解析 Material 3 配色方案。
+ * 动态取色仅在 Android 12+ 且跟随系统时生效。
  */
 @Composable
 @ReadOnlyComposable
