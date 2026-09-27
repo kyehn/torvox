@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.SystemClock
@@ -177,6 +178,7 @@ class MultiTapSelectionInstrumentedTest {
         menu.click()
     }
 
+    @SuppressLint("DeprecatedCall")
     private fun clipboardText(): String {
         var text = ""
         composeTestRule.activityRule.scenario.onActivity { activity ->
