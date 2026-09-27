@@ -46,6 +46,9 @@ class BaselineProfileGenerator {
         baselineProfileRule.collect(
             packageName = TARGET_PACKAGE,
             maxIterations = PROFILE_ITERATION_COUNT,
+            // 终端模拟器对冷启动极敏感，采集结果需同时进入 ART 启动类表，
+            // 才能在应用启动时预加载类；默认 false 只产出 dexopt 用的热方法集合。
+            includeInStartupProfile = true,
         ) {
             // 重装被测应用会重置运行时权限；不授权则首启弹通知对话框，启动路径与真机不一致。
             device.executeShellCommand("pm grant $TARGET_PACKAGE $NOTIFICATION_PERMISSION")
