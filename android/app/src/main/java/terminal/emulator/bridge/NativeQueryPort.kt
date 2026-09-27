@@ -4,14 +4,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * Native-backed [TerminalQueryPort]: every method maps 1:1 to a JNI
- * export (see `native/src/android/ffi.rs`, "JNI Exports:
- * TerminalQueryPort"). Used by [Bridge] for the live session; there is
- * no stub anymore.
+ * 原生支撑的 [TerminalQueryPort]：每个方法与 JNI 导出 1:1 对应，供 [Bridge] 查询活动会话。
  *
- * Contract for callers: null/0/empty means "no data" from the engine —
- * never fake data. Single-row/font queries are cheap; bulk queries
- * ([getTerminalText], [searchAllInScrollback]) are debounced by the UI.
+ * 对调用方的约定：null/0/空表示引擎「无数据」，绝不可伪造。
+ * 单行/字体查询开销小，批量查询（[getTerminalText]、[searchAllInScrollback]）由 UI 负责防抖。
  */
 class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQueryPort {
     override fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
@@ -19,9 +15,8 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
     override fun getActiveSessionTitle(): String = getTitle() ?: ""
 
     override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
-        // Selection lives in the terminal (tracked refs, installed via
-        // NativeBridge.setSelection): the VT thread bakes the inverse
-        // video into CellData, so no view-side cell bookkeeping is needed.
+        // 选区由终端侧持有（引用跟踪，经 NativeBridge.setSelection 安装）：
+        // VT 线程把反色烘焙进 CellData，视图侧无需维护单元格簿记。
         val active = hasSelection ?: true
         NativeBridge.setSelection(
             sessionIdProvider(),
@@ -58,10 +53,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
             ?.let { parseSearchMatches(it) }
 
     override fun setScrollOffset(offset: Int) {
-        // the native side applies the delta on the VT thread
-        // via scroll_viewport, so the next CellData push carries the
-        // scrolled view. Previously a no-op — scrollback browsing did
-        // nothing.
+        // 原生侧在 VT 线程经 scroll_viewport 应用增量，下一次 CellData 推送即带上滚动后的视图。
         NativeBridge.setScrollOffset(sessionIdProvider(), offset)
     }
 
@@ -99,14 +91,9 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 internal data class SearchMatchDto(val row: Int = 0, val start_col: Int = 0, val end_col: Int = 0)
 
 /**
- * Parses the JSON array of `{"row":int,"start_col":int,"end_col":int}`
- * produced by the native `searchAllInScrollback` export. Returns an empty
- * list on malformed input (never throws) so search degrades to
- * "no results" instead of crashing the UI.
- *
- * Results with impossible ranges (negative, end <= start) are dropped —
- * a missing field would otherwise silently produce a bogus row=0 match
- * that highlights the wrong line.
+ * 解析原生 `searchAllInScrollback` 导出的 `{"row":int,"start_col":int,"end_col":int}` JSON 数组。
+ * 输入非法时返回空列表而不抛异常，使搜索降级为「无结果」而非崩溃 UI；
+ * 丢弃不可能的范围（负值、end <= start），否则缺失字段会静默产生 row=0 的伪命中而高亮错行。
  */
 private val searchJson = Json { ignoreUnknownKeys = true }
 

@@ -64,9 +64,8 @@ data class SelectionState(
     val end: SelectionAnchor? = null,
     val selectedText: String = "",
     val touchClass: TouchClass = TouchClass.Unknown,
-    // Set when a menu action (Copy/Select All/Share) was taken: the
-    // floating menu closes while the selection highlight stays.
-    // Reset on the next long-press or drag-handle move.
+    // 已执行菜单动作（复制/全选/分享）时置位：浮动菜单关闭而选区高亮保留。
+    // 下次长按或拖动手柄移动时重置。
     val menuDismissed: Boolean = false,
 ) {
     val pasteOnly: Boolean
@@ -125,21 +124,18 @@ data class TerminalState(
     /** IME 编辑器类型固定为 Secure（DESIGN.md 要求全功能输入法，不提供切换入口）。 */
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
     val selectionAccent: Int = 0,
-    // Bumped on every programmatic scroll reset (input-driven snap to
-    // bottom); TerminalScreen observes it and resyncs the surface's
-    // local selection-math offset ( spec terminal-scrolling).
+    // 每次程序化滚动复位（由输入驱动的贴底）时递增；TerminalScreen 观察它
+    // 并重同步 Surface 的本地选区计算偏移。
     val scrollEpoch: Long = 0L,
 )
 
 /**
- * Input-driven scroll reset decision ( spec terminal-scrolling "five-dimension zeroing judgment",
- * pure so it can be table-tested): user input containing a newline/return commits intent to
- * interact with the live screen, so the viewport snaps back immediately — without waiting for the
- * shell echo (a bare Enter on an idle prompt produces no output at all, which is exactly the
- * reported symptom).
+ * 输入驱动的滚动复位决策，纯函数以便表驱动测试：
+ * 含换行/回车的用户输入表明了与实时屏幕交互的意图，故视口立即贴回
+ * ——不等 shell 回显（在空闲提示符上单独按回车根本不产生任何输出，
+ * 这正是所反馈的现象）。
  *
- * @param hasSelectionOrDrag active selection or handle drag suppresses the snap exactly like the
- *   output-driven path does.
+ * @param hasSelectionOrDrag 选区激活或手柄拖拽会像输出驱动路径一样抑制贴底。
  */
 internal fun shouldResetScrollOnInput(data: ByteArray, hasSelectionOrDrag: Boolean): Boolean = !hasSelectionOrDrag &&
     data.any { byte -> byte == '\r'.code.toByte() || byte == '\n'.code.toByte() }
@@ -157,7 +153,7 @@ internal fun shouldCreateDefaultSession(
     runtimeSessionIds.isEmpty()
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTION 1: Fields & constructor
+// 一、字段与构造函数
 // ═══════════════════════════════════════════════════════════════════════════
 
 @HiltViewModel
@@ -172,23 +168,22 @@ constructor(
 
     private val selectionManager = SelectionManager()
 
-    // last grid size seen from the runtime; a shrink clamps
-    // the active selection (see runtime.state collector).
+    // 从运行期见到的最近网格尺寸；缩小时会钳位活跃选区（见 runtime.state 收集器）。
     @Volatile private var lastGridRows = 0
 
     @Volatile private var lastGridCols = 0
     private val fontManager = FontManager()
 
-    // ── Font forwards (implementation in FontManager) ─────────────────────
+    // ── 字体转发（实现在 FontManager） ──
 
     fun setFontSize(size: Float) = fontManager.setFontSize(size)
 
-    /** Drag preview (no settings write, no grid reflow) — see FontManager. */
+    /** 拖动预览（不写设置、不重排网格）——见 FontManager。 */
     fun setFontSizeInPlacePreview(size: Float) = fontManager.setFontSizeInPlacePreview(size)
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
 
-    // ── Selection forwards (implementation in SelectionManager) ────────────
+    // ── 选区转发（实现在 SelectionManager） ──
 
     fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) =
         selectionManager.startSelection(row, col, touchClass)
@@ -199,22 +194,17 @@ constructor(
 
     fun endSelection() = selectionManager.endSelection()
 
-    /**
-     * Fast drag path: bounds computed without Compose state writes; see [SelectionManager.dragMove].
-     */
+    /** 快速拖动路径：计算选区边界而不写 Compose 状态；见 [SelectionManager.dragMove]。 */
     fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): IntArray? =
         selectionManager.dragMove(draggingStart, row, col, cachedMaxRow, cachedMaxCol)
 
-    /**
-     * Commit the last fast-path drag bounds to Compose state; see
-     * [SelectionManager.commitDragBounds].
-     */
+    /** 把最后一次快速路径的拖动边界提交到 Compose 状态；见 [SelectionManager.commitDragBounds]。 */
     fun commitDragBounds() = selectionManager.commitDragBounds()
 
     /**
-     * Throttled native push of the CURRENT Compose selection during edge-scroll handle drags: the
-     * slow path ([updateSelection]/[updateSelectionStart]) already wrote state, so read it back and
-     * share the fast path's cadence guard so both drag paths highlight at the same rate.
+     * 边缘滚动手柄拖动期间以节流频率把当前 Compose 选区推送到原生：
+     * 慢速路径（[updateSelection]/[updateSelectionStart]）已写入状态，
+     * 故读回并共用快速路径的节奏守卫，使两条拖动路径的高亮速率一致。
      */
     fun syncDragSelectionToNativeThrottled() {
         val current = _state.value.selection
@@ -227,11 +217,10 @@ constructor(
     }
 
     /**
-     * design D7.5 (termux setInitialTextSelectionPosition flow): grabbing a handle on a blank-cell /
-     * whitespace (paste-only) selection upgrades it to a normal text selection so the subsequent drag
-     * GROWS the range instead of being swallowed by the paste-only immutability guard. The guard
-     * still protects the long-press micro-move window — conversion happens only on a deliberate
-     * handle latch.
+     * termux setInitialTextSelectionPosition 流程：在空白单元格/仅粘贴的选区上抓住手柄时，
+     * 将其升级为普通文本选区，使随后的拖动能*扩展*范围，
+     * 而不被「仅粘贴不可变」守卫吞掉。
+     * 该守卫仍保护长按的微小移动窗口——转换仅在刻意锁定手柄时发生。
      */
     fun beginHandleDragOnPasteOnly() {
         _state.update { state ->
@@ -260,10 +249,7 @@ constructor(
 
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
-    /**
-     * clamp a selection's anchors onto [rows]×[cols] after a grid resize so native setSelection never
-     * receives out-of-bounds cells.
-     */
+    /** 网格 resize 后把选区锚点钳位到 [rows]×[cols]，使原生 setSelection 绝不收到越界单元格。 */
     private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
         val start = selection.start ?: return selection
         val end = selection.end ?: return selection
@@ -284,11 +270,11 @@ constructor(
     }
 
     /**
-     * Shared input-driven scroll handling ( D1, fix 2026-08-23): ANY user input clears the SCROLL
-     * lock; a committing input (CR/LF or hardware Enter) also snaps the viewport to the live screen
-     * without waiting for PTY output. Extracted so BOTH the IME [writeToPty] path and the hardware
-     * [onKeyDown] path share one snap point — the hardware Enter bypasses [writeToPty] via
-     * bridge.processKeyEvent and was the reported "new command + Enter does not scroll" root cause.
+     * 共用的输入驱动滚动处理：任何用户输入都清除 SCROLL 锁；
+     * 提交性输入（CR/LF 或硬件回车）还会把视口立即贴到实时屏幕，不等 PTY 输出。
+     * 抽出此方法使输入法 [writeToPty] 路径与硬件 [onKeyDown] 路径共用一个贴底点
+     * ——硬件回车经 bridge.processKeyEvent 绕过 [writeToPty]，
+     * 正是「输入新命令 + 回车不滚动」这一反馈的根因。
      */
     internal fun onUserInputForScrollSnap(isCommit: Boolean) {
         if (_state.value.scrollActive) {
@@ -305,8 +291,8 @@ constructor(
     fun writeToPty(data: ByteArray) {
         val isCommit =
             shouldResetScrollOnInput(data, _state.value.selection.let { it.active || it.dragging })
-        // hasSelectionOrDrag is checked inside onUserInputForScrollSnap as
-        // well; pass through so the shared helper owns the final guard.
+        // hasSelectionOrDrag 在 onUserInputForScrollSnap 内部也会检查；
+        // 此处透传，使共用的辅助函数拥有最终守卫权。
         onUserInputForScrollSnap(isCommit)
         val written = runtime.writeToPty(data)
         if (!written) {
@@ -347,22 +333,19 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 3b: Selection management (extracted K5)
+    // SECTION 3b: 选区管理
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns selection state transitions: start/update/end, clipboard copy/share, select-all and the
-     * extraction heuristics (URL joining, TUI-border detection). Extracted from TerminalViewModel
-     * inner class: accesses _state, runtime and clipboardPaster via the outer view model.
+     * 拥有选区状态转换：开始/更新/结束、剪贴板复制/分享、全选，
+     * 以及提取启发式（URL 拼接、TUI 边框检测）。内部类：
+     * 经外层 ViewModel 访问 _state、runtime 与 clipboardPaster。
      */
     inner class SelectionManager {
         fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) {
             val anchor = SelectionAnchor(row, col)
-            // CAS: selection is touched from the main thread but
-            // _state is also written by IO coroutines; a plain RMW could lose
-            // one of their updates. mode is read inside the lambda. (The old
-            // EmptyArea override to Char mode was dead — no caller passes
-            // EmptyArea;.)
+            // CAS：选区在主线程上被触碰，但 _state 也被 IO 协程写入；
+            // 普通读-改-写可能丢失其中之一的更新。mode 在 lambda 内读取。
             _state.update { state ->
                 state.copy(
                     selection =
@@ -387,12 +370,12 @@ constructor(
         }
 
         /**
-         * Fast drag path: compute selection bounds without touching Compose state. Returns
-         * intArrayOf(startRow, startCol, endRow, endCol) for direct handle repositioning, or null if
-         * drag is inactive/paste-only.
+         * 快速拖动路径：不触碰 Compose 状态地计算选区边界。
+         * 返回 intArrayOf(startRow, startCol, endRow, endCol) 供直接重定位手柄；
+         * 拖动未激活或仅粘贴时返回 null。
          *
-         * The caller repositions handles directly from the returned bounds, avoiding the Compose _state
-         * -> recomposition -> read-back round-trip that was the main per-MOVE frame bottleneck.
+         * 调用方直接依返回的边界重定位手柄，避开 Compose _state
+         * → 重组 → 回读的往返，而这正是每次 MOVE 的主要帧瓶颈。
          */
         fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): IntArray? {
             val current = _state.value.selection
@@ -419,10 +402,9 @@ constructor(
         }
 
         /**
-         * Push the in-flight drag bounds to the native renderer at a throttled rate so the cell
-         * inversion highlight follows the handle live (termux updatePosition parity) without paying a
-         * JNI crossing + re-render on every MOVE frame. The final exact bounds are committed by
-         * endSelection via runtime.setSelection on release.
+         * 以节流频率把进行中的拖动边界推送到原生渲染器，使单元格反色高亮实时跟随手柄
+         * （termux updatePosition 对等），而无需在每个 MOVE 帧都付出一次 JNI 穿越与重渲染。
+         * 最终的精确边界由松手时 endSelection 经 runtime.setSelection 提交。
          */
         internal fun syncDragBoundsToNativeThrottled(boundsArray: IntArray) {
             val nowMs = SystemClock.uptimeMillis()
@@ -438,8 +420,8 @@ constructor(
         @Volatile private var lastDragNativeSyncUptimeMs = 0L
 
         /**
-         * Commit the last dragMove bounds to Compose state before endSelection. Must be called from
-         * finishHandleDrag so endSelection reads correct bounds.
+         * 在 endSelection 之前把最后一次 dragMove 的边界提交到 Compose 状态。
+         * 必须由 finishHandleDrag 调用，使 endSelection 读到正确的边界。
          */
         fun commitDragBounds() {
             val boundsArray = lastDragBounds ?: return
@@ -460,16 +442,14 @@ constructor(
         private var lastDragBounds: IntArray? = null
 
         private fun dragSelection(draggingStart: Boolean, row: Int, col: Int) {
-            // Grid bounds for the drag-path clamp (see below); read once —
-            // a concurrent resize only makes the bound stale by one frame.
+            // 拖动路径钳位所用的网格边界（见下）；只读一次——
+            // 并发的 resize 最多使该边界陈旧一帧。
             val runtimeState = runtime.state.value
             val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
             val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
-            // CAS with the active-check inside the lambda: the
-            // selection read and the write are atomic against concurrent _state
-            // updates. Paste-only selections (empty-cell/whitespace long-press)
-            // are immutable — a finger micro-move during the long-press must
-            // not drift the single cell.
+            // CAS，活跃性检查置于 lambda 内部：选区读取与写入相对并发的
+            // _state 更新是原子的。仅粘贴的选区（空单元格/空白处长按）不可变
+            // ——长按期间手指的微小移动绝不能使该单格漂移。
             _state.update { state ->
                 val current = state.selection
                 if (!current.active || current.pasteOnly) {
@@ -481,11 +461,10 @@ constructor(
                             targetRow = row,
                             targetCol = col,
                         )
-                    // Defense-in-depth (issue #15/#16): normalize the drag
-                    // result before it reaches native setSelection —
-                    // order-preserving start ≤ end + range clamp to the grid.
-                    // applyHandleDrag already orders correctly; clampSelection
-                    // is the safety net for inverted/out-of-bounds targets.
+                    // 纵深防御：在拖动结果抵达原生 setSelection 之前先规范化
+                    // ——保序的 start ≤ end + 范围钳位到网格。
+                    // applyHandleDrag 本身已正确排序；clampSelection
+                    // 是倒置/越界目标的安全网。
                     val bounds =
                         clampSelection(
                             result.startRow,
@@ -501,18 +480,16 @@ constructor(
                             dragging = true,
                             start = SelectionAnchor(bounds.startRow, bounds.startCol),
                             end = SelectionAnchor(bounds.endRow, bounds.endCol),
-                            // Hide the floating menu while dragging; it
-                            // reappears at the new position on ACTION_UP
-                            // (endSelection restores menuDismissed=false).
+                            // 拖动期间隐藏浮动菜单；它在 ACTION_UP 时
+                            // 于新位置重新出现（endSelection 恢复 menuDismissed=false）。
                             menuDismissed = true,
                         ),
                     )
                 }
             }
-            // P1-1: mark the drag in progress on the runtime side so the
-            // render thread suppresses the new-output scroll reset while a
-            // handle is being moved (termux skipScrolling parity). Cleared by
-            // endSelection/clearSelection via runtime.setSelection.
+            // 在运行期标记拖动进行中，使渲染线程在手柄移动期间
+            // 抑制新输出引起的滚动复位（termux skipScrolling 对等）。
+            // 由 endSelection/clearSelection 经 runtime.setSelection 清除。
             if (_state.value.selection.dragging) {
                 runtime.setSelectionDragging(true)
             }
@@ -522,16 +499,13 @@ constructor(
             val current = _state.value.selection
             if (!current.active || current.start == null || current.end == null) return
             val text = extractSelectedText(current)
-            // Only write when the selection is unchanged since our read: a
-            // concurrent selection update must not be clobbered with stale text.
-            // CAS loop: compareAndSet retries while the state is
-            // still ours and aborts as soon as a concurrent write lands — the
-            // native boundary sync below runs only for a genuinely committed
-            // snapshot (no side-effect flag that could leak across retries).
-            // Note: extractSelectedText itself reads the bridge and
-            // cols across a snapshot — those can also go stale mid-extraction if
-            // an IO coroutine switches sessions; the result is bounded by the
-            // substring guards and is never written unless this CAS commits.
+            // 仅当自读取以来选区未变才写入：并发的选区更新绝不能被陈旧文本覆盖。
+            // CAS 循环：compareAndSet 在状态仍属于我们时重试，
+            // 一旦有并发写入落地即中止——下方的原生边界同步只对真正提交的快照运行
+            // （没有可能跨重试泄漏的副作用标志）。
+            // 注意：extractSelectedText 自身也是跨快照读取 bridge 与 cols
+            // ——若 IO 协程在提取中途切换会话，这些同样可能陈旧；
+            // 结果受子串守卫限制，且除非本次 CAS 提交否则绝不写入。
             val updated = current.copy(dragging = false, selectedText = text, menuDismissed = false)
             while (true) {
                 val state = _state.value
@@ -549,11 +523,10 @@ constructor(
 
         fun copySelectionToClipboard() {
             val selection = _state.value.selection
-            // Re-extract instead of trusting the cached selectedText: if the
-            // cached text is empty (native selection_text null on some
-            // scrollback states), a copy button that silently does nothing
-            // was reported ("copy never works"). Extract-on-demand guarantees
-            // the menu action always copies the current selection.
+            // 重新提取而不信任缓存的 selectedText：若缓存文本为空
+            // （某些回滚状态下原生 selection_text 为 null），
+            // 会出现「复制按钮毫无反应」的反馈。
+            // 按需提取保证菜单动作总是复制当前选区。
             val rawText =
                 if (selection.selectedText.isNotEmpty()) {
                     selection.selectedText
@@ -568,24 +541,22 @@ constructor(
                     rawText
                 }
             clipboardAccess.setClipboardText(clipped, label = "terminal selection")
-            // Close the floating menu after the action; keep the highlight.
+            // 动作完成后关闭浮动菜单；保留高亮。
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
         fun clearSelection() {
             _state.update { it.copy(selection = SelectionState()) }
             syncSelectionToNative()
-            // Force immediate repaint: without this the native-side dirty
-            // flag waits for the next vsync tick, leaving the stale
-            // selection highlight on screen for up to one frame period.
+            // 强制立即重绘：否则原生侧的脏标志要等下一个 vsync 节拍，
+            // 使陈旧的选区高亮在屏幕上残留长达一帧周期。
             runtime.forceRender()
         }
 
         fun showPastePopup(row: Int, col: Int) {
-            // an empty-cell long-press now creates a single-cell
-            // selection (inverted background via the GPU path) with a
-            // paste-only floating menu — matching the text-selection UX
-            // instead of a detached chip with no highlight.
+            // 空单元格处长按现在会创建一个单格选区
+            // （经 GPU 路径反色背景）并配仅粘贴的浮动菜单
+            // ——与文本选区的交互一致，而非无高亮的孤立小片。
             _state.update { state ->
                 state.copy(
                     selection =
@@ -629,7 +600,7 @@ constructor(
                 )
             shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(shareIntent)
-            // Close the floating menu after the action.
+            // 动作完成后关闭浮动菜单。
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
@@ -657,16 +628,14 @@ constructor(
             val start = selection.start ?: return ""
             val end = selection.end ?: return ""
             val bridge = runtime.bridge() ?: return ""
-            // Selection rows are stored in grid coordinates (0 = top of
-            // scrollback), matching the Ghostty formatter's grid rows.
+            // 选区行以网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
             //
-            // Wrap-aware extraction (termux TerminalBuffer.getSelectedText
-            // semantics): soft-wrapped rows are joined without
-            // '\n' (unwrap) and trailing whitespace is trimmed, and the
-            // formatter maps grid columns to char indices internally so CJK
-            // wide glyphs are never split (TerminalRow.findStartOfColumn
-            // equivalent). The old per-row scrollbackLine + '\n' join could
-            // not detect wraps and could cut surrogate pairs.
+            // 换行感知的提取（termux TerminalBuffer.getSelectedText 语义）：
+            // 软换行行拼接时不插入
+            // 软换行处不插入 '\n'（解包）并去除尾部空白，
+            // 且格式化器在内部把网格列映射到字符下标，使 CJK 宽字符绝不被切开
+            // （等效于 TerminalRow.findStartOfColumn）。
+            // 旧的逐行 scrollbackLine + '\n' 拼接无法侦测换行，且可能切开代理对。
             val (lo, hi) =
                 if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
                     start to end
@@ -695,13 +664,13 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 2b: Font management (extracted R4)
+    // 二之二、字体管理
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns font loading, size/family settings and font-file installation. Extracted from
-     * TerminalViewModel. Inner class: accesses the font StateFlows, runtime, settingsRepository and
-     * context via the outer view model. loadFonts() refreshes the flows after install.
+     * 拥有字体加载、字号/家族设置与字体文件安装。内部类：
+     * 经外层 ViewModel 访问字体 StateFlow、runtime、settingsRepository 与 context。
+     * loadFonts() 在安装后刷新这些流。
      */
     inner class FontManager {
         /**
@@ -718,9 +687,8 @@ constructor(
             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
-                    // Register the user drop-in dir before listing so its
-                    // families are included even when loadFonts runs before
-                    // Runtime.start() finishes (repeats are no-ops).
+                    // 先注册用户投放目录再列举，使其字体家族即使在 loadFonts
+                    // 早于 Runtime.start() 完成时也被纳入（重复注册为空操作）。
                     terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { dir ->
                         bridge?.setExtraFontPaths(listOf(dir.absolutePath))
                     }
@@ -755,17 +723,17 @@ constructor(
             }
         }
 
-        // Serializes the full font-apply chain (DataStore write + bridge font
-        // reload + grid reflow). Without it, rapid slider drags launch
-        // concurrent IO coroutines that interleave native setFontSizeInPlace
-        // calls out of order (observed values 96..280 jumping during one
-        // drag) and reflow the grid mid-sequence — garbled layout reports.
+        // 串行化完整的字体应用链（DataStore 写入 + bridge 字体重载 + 网格重排）。
+        // 没有它，快速拖动滑块会启动并发 IO 协程，
+        // 使原生 setFontSizeInPlace 调用乱序交错
+        // （实测一次拖动中值从 96 跳到 280）并在序列中途重排网格
+        // ——即布局错乱的反馈来源。
         private val fontApplyMutex = Mutex()
 
         /**
-         * Lightweight drag preview: applies size to the native pipeline and refreshes cell metrics
-         * WITHOUT writing settings or reflowing the grid. Cheap enough to run per drag step; the
-         * release gesture commits through [setFontSize].
+         * 轻量的拖动预览：把字号应用到原生管线并刷新单元格度量，
+         * 但不写设置、不重排网格。开销足够低，可每个拖动步都运行；
+         * 松手手势经 [setFontSize] 提交。
          */
         fun setFontSizeInPlacePreview(size: Float) {
             runtime.setFontSizePreview(size)
@@ -827,15 +795,15 @@ constructor(
     }
 
     companion object {
-        // Minimum gap between native setSelection pushes during a handle drag:
-        // live highlight cadence (termux parity) vs per-frame JNI + re-render cost.
+        // 手柄拖动期间两次原生 setSelection 推送之间的最小间隔：
+        // 实时高亮节奏（termux 对等）与逐帧 JNI + 重渲染开销之间的取舍。
         private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 50L
         private const val TAG = "TerminalViewModel"
         private const val STOP_TIMEOUT_MILLIS = 5000L
         private const val DEBOUNCE_MILLIS = 300L
 
-        // Upper bound for clipboard paste (main-thread string copies) and
-        // the chunk size used to stream it (must stay well below the PTY
+        // 剪贴板粘贴的上界（主线程字符串拷贝），也是流式发送它所用的块大小
+        // （必须远低于 PTY 缓冲）。
     }
 
     private val _state = MutableStateFlow(TerminalState())
@@ -857,15 +825,15 @@ constructor(
     }
 
     /**
-     * Single merged snapshot of every persisted setting (C7). UI subscribes to this one StateFlow;
-     * per-field access is `settings.fontSize` etc.
+     * 全部持久化设置的单一合并快照。UI 订阅这一条 StateFlow；
+     * 按字段访问形如 `settings.fontSize`。
      */
     val settings: StateFlow<SettingsRepository.SettingsState> =
         settingsRepository.settings.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            // Match the device-adaptive default so the pre-flow snapshot
-            // never flashes the fixed 10sp fallback.
+            // 与按设备自适应的默认值一致，使流建立前的快照
+            // 不会闪现固定的 10sp 兜底值。
             SettingsRepository.SettingsState(
                 fontSize =
                 SettingsRepository.defaultFontSizeFor(
@@ -885,17 +853,15 @@ constructor(
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
-        // First launch: pin a device-adaptive default font size so the grid
-        // is legible before the user touches the font-size slider.
+        // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
         viewModelScope.launch {
             val metrics = context.resources.displayMetrics
             settingsRepository.applyFirstLaunchDefaultFontSize(metrics.widthPixels / metrics.density)
         }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
-                // a grid resize can shrink below the current
-                // selection bounds; clamp start/end onto the new grid so
-                // native setSelection never sees out-of-bounds cells.
+                // 网格 resize 可能把尺寸缩到当前选区边界之下；
+                // 把 start/end 钳位到新网格，使原生 setSelection 绝不看到越界单元格。
                 if (runtimeState.rows != lastGridRows || runtimeState.cols != lastGridCols) {
                     lastGridRows = runtimeState.rows
                     lastGridCols = runtimeState.cols
@@ -918,10 +884,9 @@ constructor(
                         } else {
                             context.getString(R.string.session_number, displayIndex)
                         }
-                    // _state.update (CAS) instead of read-modify-write:
-                    // createSession/switchSession on the IO dispatcher also
-                    // update _state, and a non-atomic write here could
-                    // clobber their just-committed session list.
+                    // 用 _state.update（CAS）而非读-改-写：
+                    // IO 调度器上的 createSession/switchSession 也会更新 _state，
+                    // 此处非原子的写入会覆盖它们刚提交的会话列表。
                     _state.update { current ->
                         current.copy(
                             sessionId = active,
@@ -970,7 +935,7 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 2: Session orchestration & settings setters
+    // 二、会话编排与设置 setter
     // ══════════════════════════════════════════════════════════════════════
 
     /** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
@@ -1034,10 +999,7 @@ constructor(
     val bootstrapProgress: StateFlow<terminal.emulator.installer.BootstrapProgress?> =
         _bootstrapProgress.asStateFlow()
 
-    /**
-     * Maps a bootstrap result to localized user text; failure payloads are machine-readable keys (see
-     * [BootstrapOrchestrator]).
-     */
+    /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [BootstrapOrchestrator]）。 */
     private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
         onSuccess = { diagnostics ->
             val headline = context.getString(R.string.bootstrap_installed_success)
@@ -1067,9 +1029,8 @@ constructor(
     )
 
     /**
-     * The [BootstrapInstaller] and [SecondStageRunner] pair shared by the online and offline install
-     * paths. Files live under `filesDir` so the OS can free them only via app-data management, never
-     * on cache pressure.
+     * 在线与离线安装路径共用的 [BootstrapInstaller] 与 [SecondStageRunner] 配对。
+     * 文件位于 `filesDir` 之下，故操作系统只能经应用数据管理回收它们，绝不会因缓存压力而清理。
      */
     private fun bootstrapComponents(
         onProgress: terminal.emulator.installer.BootstrapProgressCallback,
@@ -1094,13 +1055,12 @@ constructor(
     }
 
     /**
-     * Shared guard + coroutine skeleton for bootstrap installs: serializes concurrent runs via CAS on
-     * [bootstrapRunning], resets progress state, and maps failures to the same error message. The
-     * caller supplies the install body, which receives the shared progress callback.
+     * 引导安装共用的守卫与协程骨架：经 [bootstrapRunning] 上的 CAS 串行化并发运行、
+     * 重置进度状态，并把失败映射为同一条错误消息。
+     * 调用方提供安装主体，它会收到共享的进度回调。
      */
     private fun startBootstrapJob(block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit) {
-        // CAS so a rapid double-tap of the Install button cannot start two
-        // concurrent installs.
+        // CAS 使快速连点安装按钮无法启动两个并发安装。
         if (!_bootstrapRunning.compareAndSet(false, true)) return
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             _bootstrapResult.value = null
@@ -1136,10 +1096,9 @@ constructor(
                     secondStage,
                     onProgress = onProgress,
                 )
-            // Read the debounced value directly: the DataStore write is
-            // debounced by 500ms, so first() could still return the old
-            // URL if the user taps Install right after typing. An edited
-            // (even if cleared) field wins over the stored URL.
+            // 直接读取防抖后的值：DataStore 写入有 500ms 防抖，
+            // 故用户在输入后立刻点安装时 first() 仍可能返回旧 URL。
+            // 已编辑的输入框（即使被清空）优先于已存储的 URL。
             val url =
                 if (bootstrapUrlEdited) {
                     bootstrapUrlDebounce.value
@@ -1152,17 +1111,17 @@ constructor(
     }
 
     /**
-     * Offline bootstrap install from a SAF URI. The user picks a.zip file via
-     * [android.activity.result.contract.ActivityResultContracts.OpenDocument]; the content is copied
-     * to a cache file, then fed to the same installer pipeline as the online path (installer.install
-     * → secondStage.run). No network required; the downloaded bootstrap URL is ignored.
+     * 从 SAF URI 离线安装引导。用户经
+     * [android.activity.result.contract.ActivityResultContracts.OpenDocument] 选择 .zip 文件；
+     * 其内容被复制到缓存文件，再送入与在线路径相同的安装器管线
+     * （installer.install → secondStage.run）。无需网络；已下载的引导 URL 被忽略。
      */
     fun installOffline(uri: android.net.Uri) {
         startBootstrapJob { onProgress ->
             val (installer, secondStage) = bootstrapComponents(onProgress)
-            // Copy SAF URI content to a temp cache file — the installer
-            // needs a File (it hashes + streams the zip).  The cache dir
-            // is always writable and cleared by the OS under pressure.
+            // 把 SAF URI 内容复制到临时缓存文件——安装器需要一个 File
+            // （它会对 zip 做哈希与流式读取）。缓存目录总是可写，
+            // 且会在系统压力下被清理。
             _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
             val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
             context.contentResolver.openInputStream(uri)?.use { input ->
@@ -1210,10 +1169,7 @@ constructor(
         settingsRepository.setAppThemeMode(mode)
     }
 
-    /**
-     * Persist a theme setting then re-apply the whole theme to the bridge. Shared by the five theme
-     * setters (R10: architecture).
-     */
+    /** 持久化一项主题设置，然后把整个主题重新应用到 bridge。由五个主题设置器共用。 */
     private fun applyThemeSettings(persist: suspend () -> Unit) {
         viewModelScope.launch {
             persist()
@@ -1224,14 +1180,13 @@ constructor(
     /** 自由文本设置防抖写入（每次写入为完整文件重写）。 */
     private val bootstrapUrlDebounce = MutableStateFlow("")
 
-    // Written on the UI thread, read on an IO coroutine; volatile makes the
-    // visibility explicit instead of relying on implicit happens-before
-    //
+    // 在 UI 线程写入、在 IO 协程读取；volatile 使可见性显式化，
+    // 而不依赖隐式的 happens-before 关系。
     @Volatile private var bootstrapUrlEdited = false
 
     init {
-        // Debounce free-text settings so typing does not write DataStore
-        // on every keystroke (each write is a full file rewrite).
+        // 对自由文本设置防抖，使输入不会每次击键都写 DataStore
+        // （每次写入都是完整的文件重写）。
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
             bootstrapUrlDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
@@ -1246,20 +1201,19 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 4: Keyboard & hardware-key handling
+    // 四、键盘与硬件按键处理
 
     fun handleLayoutAwareHardwareKey(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return false
 
-        // Only physical keyboards. Soft-keyboard / IME input flows through the
-        // InputConnection (commitText); intercepting it here would turn CJK /
-        // voice composition into raw Latin letters.
+        // 只处理物理键盘。软键盘/输入法输入经 InputConnection（commitText）流动；
+        // 在此拦截会把 CJK/语音组字变成原始拉丁字母。
         if ((event.flags and KeyEvent.FLAG_SOFT_KEYBOARD) != 0) return false
         if (event.deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD) return false
         if (!event.isFromSource(InputDevice.SOURCE_KEYBOARD)) return false
 
         val keyCode = event.keyCode
-        // Skip modifier-only presses and let the view handle them.
+        // 跳过纯修饰键的按压，交由视图处理。
         when (keyCode) {
             KeyEvent.KEYCODE_SHIFT_LEFT,
             KeyEvent.KEYCODE_SHIFT_RIGHT,
@@ -1278,9 +1232,8 @@ constructor(
 
         val meta = event.metaState
         val hasAltGr = (meta and KeyEvent.META_ALT_RIGHT_ON) != 0
-        // Ctrl+key and left-Alt+key are key-code based (control byte / ESC prefix),
-        // not layout dependent — let the encoder path handle them. AltGr is the
-        // exception: it produces a composed character.
+        // Ctrl+键与左 Alt+键基于按键码（控制字节 / ESC 前缀），不依赖布局
+        // ——交给编码器路径处理。AltGr 是例外：它产生的是组合字符。
         if ((meta and KeyEvent.META_CTRL_ON) != 0 && !hasAltGr) return false
         if ((meta and KeyEvent.META_ALT_ON) != 0 && !hasAltGr) return false
 
@@ -1289,21 +1242,18 @@ constructor(
 
         val bridge = runtime.bridge() ?: return false
 
-        // Build the modifier mask from the sticky toolbar state only. Shift is
-        // already baked into the produced character by getUnicodeChar.
+        // 修饰键掩码只由工具栏粘滞状态构建。Shift 已由 getUnicodeChar 并入生成的字符。
         val state = _state.value
         val mask = KeyModifiers.fromStickyStates(state.ctrlState, state.altState)
 
-        // The unshifted codepoint is the base key with no modifiers applied:
-        // recompute the character with SHIFT removed so the encoder can detect a
-        // shift-only change (e.g. Shift+; ->:) and avoid a spurious Kitty shift.
+        // 未上档码点是未施加任何修饰键的基准键：
+        // 去掉 SHIFT 后重算字符，使编码器能侦测纯 Shift 变化
+        // （如 Shift+; -> :）并避免多余的 Kitty shift。
         val unshiftedChar = event.getUnicodeChar(meta and KeyEvent.META_SHIFT_MASK.inv())
         val success = bridge.processKeyEvent(keyCode, mask.toByte(), 0, unicodeChar, unshiftedChar)
         if (success) {
-            // Clear the one-shot (tapped) sticky modifier so it cannot persist
-            // across the next keystroke (Haven TerminalViewModel.clearStickyModifiers,
-            // #298). The encoder above already saw the active modifier for THIS
-            // keystroke; consumption happens after the encode.
+            // 清除一次性（轻点）粘滞修饰键，使其不会延续到下一次击键。
+            // 上方编码器已看到本次击键的激活修饰键；消费发生在编码之后。
             consumeOneShotModifiers()
             Log.d(
                 "TerminalViewModel",
@@ -1316,8 +1266,7 @@ constructor(
 
     fun toggleScrollMode() {
         _state.update { it.copy(scrollActive = !it.scrollActive) }
-        // sync scrollActive to SessionEntry so the render thread
-        // knows whether to auto-reset scroll on new output.
+        // 把 scrollActive 同步到 SessionEntry，使渲染线程知道新输出时是否自动复位滚动。
         runtime.setScrollActive(_state.value.scrollActive)
     }
 
@@ -1354,11 +1303,10 @@ constructor(
                     runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
                 if (newId > 0) {
                     _state.update { current ->
-                        // The runtime sessionIds collector may already have
-                        // incorporated newId before this update runs (both
-                        // run on the IO dispatcher) — distinct() keeps the
-                        // list free of duplicate ids (LazyColumn key clash:
-                        // "Key N was already used").
+                        // 运行期的 sessionIds 收集器可能已在此更新运行前
+                        // 就并入了 newId（两者都跑在 IO 调度器上）
+                        // ——distinct() 使列表不含重复 id
+                        // （否则 LazyColumn 键冲突："Key N was already used"）。
                         val sortedIds = (current.sessions.map { it.id } + newId).distinct().sorted()
                         val displayIndex = sortedIds.indexOf(newId) + 1
                         val previousById = current.sessions.associateBy { it.id }
@@ -1425,11 +1373,10 @@ constructor(
                     selectionAccent = runtime.accentColor,
                 )
             }
-            // Re-sync the SCROLL-button lock to the newly active SessionEntry:
-            // each entry starts with scrollActive=false, so without this the
-            // toggle would silently stop suppressing the new-output scroll
-            // reset after any session switch (state said on, render thread
-            // said off).
+            // 把 SCROLL 按钮锁重新同步到新的活动 SessionEntry：
+            // 每个条目都以 scrollActive=false 起步，故不做此步，
+            // 任何会话切换后该开关都会静默失去对新输出滚动复位的抑制
+            // （状态说开，渲染线程说关）。
             runtime.setScrollActive(_state.value.scrollActive)
         }
     }
@@ -1443,9 +1390,9 @@ constructor(
             try {
                 runtime.closeSession(id)
             } catch (exception: Exception) {
-                // closeSession must never escape to the main-thread uncaught
-                // handler: BootGuard would treat it as a crash and kill the
-                // process. The native side tolerates unknown/dead sessions.
+                // closeSession 绝不能逃逸到主线程的未捕获处理器：
+                // BootGuard 会视其为崩溃并杀掉进程。
+                // 原生侧能容忍未知/已死的会话。
                 android.util.Log.e("TerminalViewModel", "closeSession failed for id=$id", exception)
                 return@launch
             }

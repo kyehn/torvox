@@ -27,15 +27,12 @@ class BootstrapInstaller(
         val EXEC_PREFIXES = listOf("bin/", "libexec/", "lib/apt/apt-helper", "lib/apt/methods/")
         private const val EXTRACT_PROGRESS_INTERVAL = 10
 
-        // Zip-bomb guard: cap total uncompressed payload. A real bootstrap
-        // is ~150 MB; the limit gives headroom while preventing a hostile
-        // archive from filling the data partition.
+        // Zip 炸弹防护：限制解压后总负载。真实引导约 150 MB；
+        // 该上限留有余量，同时阻止恶意归档填满数据分区。
         private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
     }
 
-    /**
-     * True when the prefix must be (re-)installed: no shell entry present. 安装状态不做任何标记文件，只认启动入口存在性。
-     */
+    /** 是否需要（重新）安装 prefix：不存在启动入口时。安装状态不做任何标记文件，只认启动入口存在性。 */
     fun needsInstall(): Boolean = !hasShellBinary()
 
     /** 启动入口存在性：ELF 二进制或系统解释器启动脚本均可（后者经内核 shebang 直接执行）； 私有目录 shebang 脚本不计入，其解释器本身尚不可用。 */
@@ -59,11 +56,8 @@ class BootstrapInstaller(
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(TerminalDispatchers.inputOutput) {
         try {
-            // Only clear the staging area. The existing prefix must survive until the
-            // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
-            // otherwise a failed install would leave the user with no working bootstrap.
-            // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
-            // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
+            // 只清空 staging 区。现有 prefix 必须存活到新引导完全解压并原子换入为止
+            // （见 atomicRename），否则安装失败会让用户完全没有可用的引导。
             delete(stagingDir)
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
@@ -77,16 +71,14 @@ class BootstrapInstaller(
             ensureHomeAndTmp()
             Result.success(Unit)
         } catch (exception: Exception) {
-            // Log the class only, consistent with BootstrapDownloader: the
-            // exception message can embed user-supplied paths.
-            // Truncate to 300 chars for diagnostics without leaking full paths.
+            // 与 BootstrapDownloader 一致只记录异常类名：异常消息可能嵌入用户提供的路径。
+            // 截断到 300 字符以便诊断而不泄露完整路径。
             Log.e(
                 "BootstrapInstaller",
                 "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
             )
-            // Discard the partially extracted staging dir: it can be
-            // hundreds of MB and the system never clears filesDir, so a
-            // failed install would leak disk until the next retry.
+            // 丢弃部分解压的 staging 目录：它可能有数百 MB，
+            // 而系统从不清理 filesDir，故安装失败会一直泄漏磁盘直到下次重试。
             try {
                 delete(stagingDir)
             } catch (cleanupException: Exception) {
@@ -118,9 +110,8 @@ class BootstrapInstaller(
                 }
             }
         }
-        // Executables from EXECUTABLES.txt need +x permission — the archive's
-        // EXECUTABLES.txt is the authoritative list (matches termux-app
-        // TermuxInstaller.java:233-240).
+        // EXECUTABLES.txt 中的可执行文件需要 +x 权限——归档内的
+        // EXECUTABLES.txt 是权威清单。
         for (executable in executables) {
             try {
                 Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
@@ -142,9 +133,9 @@ class BootstrapInstaller(
         var totalExtractedBytes = 0L
         while (entry != null) {
             val name = entry.name
-            // Zip-slip guard: reject absolute paths and any ".." segment
-            // so a malicious/tampered bootstrap archive cannot write
-            // outside the staging directory (e.g. overwrite prefs/logs).
+            // Zip 滑移防护：拒绝绝对路径与任何 ".." 段，
+            // 使恶意/被篡改的引导归档无法写入 staging 目录之外
+            // （例如覆盖 prefs/logs）。
             val normalized = File(name).path
             if (
                 name.startsWith("/") ||
@@ -155,9 +146,8 @@ class BootstrapInstaller(
                 throw java.io.IOException("Unsafe zip entry name: $name")
             }
             if (name == "SYMLINKS.txt") {
-                // Bounded read: the entry is metadata and must be small;
-                // an unbounded readBytes() on a hostile archive OOMs the
-                // process.
+                // 有界读取：该条目是元数据，必须很小；
+                // 在恶意归档上无界 readBytes() 会让进程 OOM。
                 val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
                 if (bytes.size >= MAX_SYMLINKS_BYTES) {
                     throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
@@ -189,10 +179,9 @@ class BootstrapInstaller(
                             )
                         }
                         totalExtractedBytes += read
-                        // Zip-bomb guard across the whole archive: a 1 GiB
-                        // download with a high compression ratio can expand
-                        // to TBs across many entries. The cap is enforced
-                        // here on the cumulative total, not just per entry.
+                        // 全归档的 Zip 炸弹防护：1 GiB 的下载在高压缩比下
+                        // 跨多个条目可膨胀到 TB 级。此处在累计总量上施加上限，
+                        // 而不只是逐条目。
                         if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
                             throw java.io.IOException(
                                 "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed",
@@ -250,9 +239,8 @@ class BootstrapInstaller(
 
     private fun createSymlinks(symlinks: List<Pair<String, String>>) {
         for ((target, linkPath) in symlinks) {
-            // Symlink path escape guard (same rule as zip entry names):
-            // a hostile SYMLINKS.txt must not be able to create links
-            // outside the staging directory.
+            // 符号链接路径逃逸防护（与 zip 条目名同一规则）：
+            // 恶意 SYMLINKS.txt 绝不能创建 staging 目录之外的链接。
             val normalized = File(linkPath).path
             if (
                 linkPath.startsWith("/") ||
@@ -262,26 +250,19 @@ class BootstrapInstaller(
             ) {
                 throw java.io.IOException("Unsafe symlink path: $linkPath")
             }
-            // The target is also attacker-controlled. Reject absolute
-            // paths and traversal so a link cannot point outside the
-            // staging tree — otherwise the recursive delete() below
-            // (staging cleanup / backup removal) would follow the link
-            // and wipe arbitrary directories.
-            // Two legitimate Termux SYMLINKS.txt shapes exist:
-            //  1. relative targets resolved against the LINK's parent dir
-            //     (`../term_entry.h` from `include/ncurses/` resolves to
-            //     `include/term_entry.h`, inside staging) — the naive
-            //     startsWith("../") check wrongly rejected those
-            //     ;
-            //  2. ABSOLUTE targets into the final prefix
-            //     (`<home>/usr/share/...`, i.e. under filesDir), which are
-            //     broken during staging but become valid once the staging
-            //     dir is atomically renamed to `files/usr`. Only allow
-            //     absolute targets that resolve inside the canonical
-            //     prefix path.
+            // 目标同样由攻击者控制。拒绝绝对路径与路径穿越，使链接不能指向
+            // staging 树之外——否则下方的递归 delete()
+            // （staging 清理/备份移除）会跟随链接并抹掉任意目录。
+            // Termux 的 SYMLINKS.txt 存在两种合法形态：
+            //  1. 相对目标，相对「链接的父目录」解析
+            //     （`include/ncurses/` 中的 `../term_entry.h` 解析为
+            //     staging 内的 `include/term_entry.h`）——天真的
+            //     startsWith("../") 检查会错误地拒绝它们；
+            //  2. 指向最终 prefix 的绝对目标
+            //     （`<home>/usr/share/...`，即 filesDir 之下），在 staging 期间
+            //     是断的，但 staging 目录被原子重命名为 `files/usr` 后即有效。
+            //     只允许解析后落在规范 prefix 路径之内的绝对目标。
             if (target.startsWith("/")) {
-                // Absolute symlinks: only allow targets that resolve inside
-                // the canonical prefix path.
                 val canonicalPrefix = prefixDir.canonicalPath
                 val resolvedAbsolute =
                     try {
@@ -300,9 +281,8 @@ class BootstrapInstaller(
             } else {
                 val linkParent = File(linkPath).parent
                 val resolvedTarget = if (linkParent != null) File(linkParent, target).path else target
-                // Java File.path does NOT normalize ".." segments
-                // (File("a/../b").path == "a/../b"), so resolve them manually
-                // before the escape check.
+                // Java 的 File.path 不会规范化 ".." 段
+                // （File("a/../b").path == "a/../b"），故在逃逸检查前手动解析。
                 val normalizedResolved = normalizePath(resolvedTarget)
                 if (normalizedResolved.startsWith("../") || normalizedResolved == "..") {
                     throw java.io.IOException("Unsafe symlink target: $target")
@@ -327,7 +307,7 @@ class BootstrapInstaller(
             }
             val renamed = staging.renameTo(prefix)
             if (!renamed) {
-                // Restore the old prefix so the previous bootstrap stays usable.
+                // 恢复旧 prefix，使先前的引导仍可用。
                 if (!backup.renameTo(prefix)) {
                     throw Exception(
                         "Atomic rename failed and rollback failed: staging=${staging.path} prefix=${prefix.path} backup=${backup.path}",
@@ -346,11 +326,10 @@ class BootstrapInstaller(
     }
 
     private fun delete(file: File) {
-        // Never follow symlinks while deleting: a symlink pointing at a
-        // directory resolves as isDirectory=true, so listing and recursing
-        // would delete the *target's* contents (data loss) and a self-
-        // referential link would recurse forever (StackOverflowError).
-        // A symlink is just an inode — delete it, not its destination.
+        // 删除时绝不跟随符号链接：指向目录的符号链接会解析为 isDirectory=true，
+        // 于是列举并递归会删除*目标*的内容（数据丢失），
+        // 而自指链接会无限递归（StackOverflowError）。
+        // 符号链接只是一个 inode——删它本身，而非其指向。
         if (!java.nio.file.Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
             file.listFiles()?.forEach { delete(it) }
         }

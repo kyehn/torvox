@@ -31,13 +31,9 @@ class BootstrapDownloader(
     }
 
     suspend fun download(url: String, arch: String): Result<File> = withContext(TerminalDispatchers.inputOutput) {
-        // Integrity gate: the bootstrap zip is extracted and its.postinst
-        // script is executed, so the download must be authenticated.
-        // Plain-http is trivially MITM-able; the default URL already ships
-        // https, so rejecting http costs nothing for legitimate users.
-        // (User ruling, rejected-technologies.md #10: "support HTTP download"
-        // means network download as opposed to embedded — https is its safe
-        // implementation; plaintext http stays rejected.)
+        // 完整性门控：引导 zip 会被解压并执行其 postinst 脚本，
+        // 故下载必须经过身份认证。明文 http 极易被中间人篡改；
+        // 而默认 URL 本就是 https，故拒绝 http 对合法用户零成本。
         if (!url.startsWith("https://", ignoreCase = true)) {
             return@withContext Result.failure(
                 Exception("Bootstrap URL must be https (got non-https URL)"),
@@ -46,16 +42,14 @@ class BootstrapDownloader(
         val request = Request.Builder().url(url).build()
         try {
             client.newCall(request).execute().use { response ->
-                // Redirect bypass guard: okhttp follows cross-protocol
-                // redirects (https -> http) by default, which would defeat
-                // the initial https check above. The zip is executed
-                // (postinst), so the FINAL URL must also be https.
+                // 重定向绕过防护：okhttp 默认跟随跨协议重定向（https -> http），
+                // 这会架空上方的 https 检查。zip 会被执行（postinst），
+                // 故最终 URL 也必须是 https。
                 val finalScheme = response.request.url.scheme
                 if (!finalScheme.equals("https", ignoreCase = true)) {
                     return@withContext Result.failure(
-                        // Log only the final protocol, never the URL itself:
-                        // it may carry token/query parameters that would end up
-                        // in the persistent log via the orchestrator.
+                        // 只记录最终协议，绝不记录 URL 本身：
+                        // 它可能携带 token/查询参数而经编排器进入持久日志。
                         Exception("Bootstrap redirect to non-https URL rejected (final protocol: $finalScheme)"),
                     )
                 }
@@ -88,9 +82,8 @@ class BootstrapDownloader(
                             if (bytesRead == -1) break
                             output.write(buffer, 0, bytesRead)
                             total += bytesRead
-                            // Hard cap: a hostile/misconfigured server with no
-                            // Content-Length would otherwise fill the app
-                            // partition without bound.
+                            // 硬上限：恶意/配置不当且不返回 Content-Length 的服务器
+                            // 否则会无界填满应用分区。
                             if (total > MAX_BOOTSTRAP_SIZE_BYTES) {
                                 cachedDir.delete()
                                 return@withContext Result.failure(
@@ -121,9 +114,8 @@ class BootstrapDownloader(
                 Result.success(cachedDir)
             }
         } catch (exception: Exception) {
-            // Log the exception class only, not the exception itself: HTTP
-            // error messages embed the full URL (with any token/query) and
-            // this log can be captured by crash reporters.
+            // 只记录异常类名而非异常本身：HTTP 错误消息会嵌入完整 URL
+            // （含任何 token/查询参数），而此日志可能被崩溃报告器采集。
             Log.e("BootstrapDownloader", "Download failed: ${exception.javaClass.simpleName}")
             Result.failure(exception)
         }

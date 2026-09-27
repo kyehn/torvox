@@ -123,21 +123,19 @@ impl FontPipeline {
 mod tests {
     use super::*;
 
-    const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_fonts");
-
-    fn fixture() -> FontPipeline {
-        FontPipeline::from_fixture(512, 512, 12.0, FIXTURE_DIR)
+    fn small_pipeline() -> FontPipeline {
+        FontPipeline::new(512, 512, 12.0)
     }
 
     #[test]
     fn empty_text_shapes_to_nothing() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         assert!(pipeline.shape_run("").is_empty());
     }
 
     #[test]
     fn ascii_text_produces_glyphs() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let glyphs = pipeline.shape_run("Hello");
         assert!(!glyphs.is_empty(), "ASCII 'Hello' must shape to glyphs");
         let mut prev_x = 0.0f32;
@@ -149,7 +147,7 @@ mod tests {
 
     #[test]
     fn shaping_results_are_cached() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let first = pipeline.shape_run("cache me");
         assert!(!first.is_empty());
         let second = pipeline.shape_run("cache me");
@@ -158,7 +156,7 @@ mod tests {
 
     #[test]
     fn combining_cluster_shapes_to_positioned_glyphs() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         // e + combining acute must shape without panic and populate
         // the shape cache (the render cluster path keys on this).
         let cluster = "e\u{301}";
@@ -170,7 +168,7 @@ mod tests {
 
     #[test]
     fn cjk_mixed_text_shapes_without_panic() {
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         // CJK triggers the fallback path; with or without CJK fonts in the
         // fixture dir, shaping must not panic and must return glyphs for
         // the ASCII part.
@@ -182,7 +180,7 @@ mod tests {
     fn shape_cache_invalidated_by_font_size_change() {
         const SAMPLE_TEXT: &str = "Hello";
         const SCALED_FONT_SIZE: f32 = 28.0;
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let before = pipeline.shape_run(SAMPLE_TEXT);
         assert!(!before.is_empty(), "baseline shape must produce glyphs");
         pipeline.set_font_size_in_place(SCALED_FONT_SIZE);
@@ -204,7 +202,7 @@ mod tests {
         // 时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
         // set_font_size_in_place 本来就清缓存；这里验证键本身携带维度，
         // 即使不清缓存也不会串味。
-        let mut pipeline = fixture();
+        let mut pipeline = small_pipeline();
         let before = pipeline.shape_run("Hello");
         assert!(!before.is_empty());
         let key_small = ShapeKey {

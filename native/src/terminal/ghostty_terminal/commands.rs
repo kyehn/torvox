@@ -5,20 +5,13 @@ use flume::{Receiver, Sender};
 
 use super::types::*;
 
-/// Commands sent from the caller to the VT thread, processed in order.
+/// 调用方发往 VT 线程的命令，按序处理。
 ///
-/// The channel is **bounded** so a wedged VT thread cannot grow memory
-/// unboundedly; senders use `try_send` and fall back to a cached value.
-///
-/// Stateless queries belong in [`Query`] (the bounded `query_tx`
-/// channel, drained by the VT thread between commands) — the two channels
-/// exist so action ordering and query latency are independent.
+/// 通道**有界**，VT 线程卡住时内存不会无限增长；发送方用 `try_send` 并回退到缓存值。
+/// 无状态查询归 [`Query`]，两条通道使动作顺序与查询延迟互不干扰。
 pub enum Command {
-    /// Write raw bytes to the PTY (keyboard input, paste).
     Write(Vec<u8>),
-    /// Request a flush acknowledgment from the render thread.
     FlushAck(Sender<()>),
-    /// Update the terminal color theme.
     SetTheme {
         background: [u8; 3],
         foreground: [u8; 3],
@@ -39,9 +32,7 @@ pub enum Command {
     TakeSnapshot {
         tx: Sender<Arc<GridSnapshot>>,
     },
-    /// Scroll the terminal viewport by a delta (up is negative). Backs
-    /// the app's scrollback browsing: previously a Kotlin-side
-    /// no-op — the CellData render path had no scroll support at all).
+    /// 按增量滚动终端视口（向上为负），供应用浏览回滚。
     ScrollViewport(isize),
     /// 安装终端持有的线性活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。
     /// 坐标为绝对网格行（0 = 回滚顶部）与列。
@@ -49,27 +40,19 @@ pub enum Command {
         start: (u32, u32),
         end: (u32, u32),
     },
-    /// 清除终端持有的活动选区。
     ClearSelection,
     /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
     Reset,
-    /// Graceful shutdown signal.
     Terminate,
 }
 
-/// Stateless queries answered by the VT thread's `process_query` handler.
+/// 由 VT 线程 `process_query` 应答的无状态查询。
 ///
-/// Sent on the `query_tx` channel (bounded 256, `try_send` + fallback — a
-/// burst of queries, e.g. a settings panel reading every mode, never blocks
-/// the caller and never delays ordered actions on the Write/Resize command
-/// channel). The VT thread drains this channel after every command and on
-/// its idle timeout.
+/// 走 `query_tx` 通道（有界 256，`try_send` + 回退）：查询突发（如设置面板遍历所有模式）
+/// 既不阻塞调用方也不延迟命令通道上的有序动作；VT 线程在每条命令后与空闲超时后抽取。
 ///
-/// Ordering note: queries are drained between commands and on the idle
-/// timeout, so a query may be answered before an earlier-issued action
-/// (Write/Resize) is processed — the two channels have no cross-channel
-/// ordering guarantee. Actions that must observe prior state mutations use
-/// the command channel (e.g. [`crate::terminal::ghostty_terminal::Command::TakeSnapshot`]).
+/// 注意：查询在命令之间抽取，故查询可能先于先发的动作（Write/Resize）被应答，两条通道
+/// 之间无顺序保证。必须观察先前状态变更的动作应走命令通道（如 `Command::TakeSnapshot`）。
 pub enum Query {
     Rows(Sender<u32>),
     Cols(Sender<u32>),
@@ -83,51 +66,37 @@ pub enum Query {
         row: u32,
         tx: Sender<Option<String>>,
     },
-    /// Cursor viewport (row, col) read through `build_cell_data` — the EXACT
-    /// source the render thread consumes.  observability: lets the
-    /// instrumentation layer assert the same coordinates the GPU draws.
-    /// None when the cursor is hidden or the build fails.
+    /// 经 `build_cell_data` 读取的光标视口 (row, col)，即渲染线程消费的同一数据源，
+    /// 可断言与 GPU 绘制一致的坐标。光标隐藏或构建失败时为 None。
     RenderCursor(Sender<Option<(u32, u32)>>),
     ReadVisibleText(Sender<String>),
-    /// Extract selection text with Ghostty's native formatter: soft-wrapped
-    /// lines are unwrapped (joined without '\n') and trailing whitespace is
-    /// trimmed — the same wrap-aware semantics as termux-app's
-    /// TerminalBuffer.getSelectedText (joinBackLines). Column endpoints are
-    /// grid columns; the formatter maps columns to char indices internally
-    /// (wide-char safe), matching TerminalRow.findStartOfColumn.
+    /// 用 Ghostty 原生格式化器提取选中文本：软换行行被合并（不加 '\n'）并去尾随空白。
+    /// 列端点是网格列，格式化器内部自行映射到字符下标（宽字符安全）。
     SelectionText {
-        /// Grid rows (absolute: scrollback rows are negative offsets in
-        /// ghostty semantics — callers pass Point::Screen coordinates).
+        /// 网格行号（绝对；ghostty 语义下回滚行为负偏移，调用方传 `Point::Screen` 坐标）。
         start: (u32, u32),
         end: (u32, u32),
         tx: Sender<String>,
     },
-    /// Derive the word selection at an absolute grid cell with upstream
-    /// `Terminal::select_word` (Ghostty word-boundary rules), install it on
-    /// the terminal, and return ordered bounds `(start, end)` (absolute grid
-    /// rows, 0 = top of scrollback). `None` when the cell yields no
-    /// selection.
+    /// 用上游 `Terminal::select_word`（Ghostty 词边界规则）在绝对网格单元导出选区并安装到
+    /// 终端，返回有序边界 (start, end)（绝对网格行，0 = 回滚顶部）；无选区时 None。
     SelectWordAt {
         row: u32,
         col: u32,
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
-    /// Derive the line selection at an absolute grid cell with upstream
-    /// `Terminal::select_line`, install it, and return ordered bounds.
+    /// 用上游 `Terminal::select_line` 导出整行选区并安装，返回有序边界。
     SelectLineAt {
         row: u32,
         col: u32,
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
-    /// Derive "all selectable terminal content" with upstream
-    /// `Terminal::select_all`, install it, and return ordered bounds
-    /// (upstream semantics: bounds exclude trailing blank rows/columns —
-    /// 由工作区测试锁定，见设计决策 2)。
+    /// 用上游 `Terminal::select_all` 导出全部可选内容并安装，返回有序边界
+    /// （上游语义：边界不含尾部空白行列）。
     SelectAll {
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
-    /// Query the OSC 8 hyperlink URI at a grid cell, if any (termux
-    /// TerminalView openLinkAt equivalent).
+    /// 查询网格单元处的 OSC 8 超链接 URI（无则 None）。
     HyperlinkAt {
         row: u32,
         col: u32,
@@ -161,13 +130,9 @@ pub enum Query {
         unshifted_char: u32,
         tx: Sender<Vec<u8>>,
     },
-    /// Encode a mouse event into terminal escape sequences using the
-    /// Ghostty mouse encoder (SGR/X10/UTF-8 per terminal state).
-    /// `position` is in surface pixels; `cell_w`/`cell_h` are the live
-    /// cell dimensions (pixels) so the encoder maps pixel→cell correctly.
-    /// Returns an empty Vec when mouse reporting is disabled or encoding
-    /// fails (zelland renderer/mod.rs pattern: mouse events are dropped
-    /// when the application has not enabled a tracking mode).
+    /// 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按终端状态选 SGR/X10/UTF-8）。
+    /// `position` 为表面像素，`cell_w`/`cell_h` 为实时单元格像素尺寸以便像素→单元映射。
+    /// 鼠标上报关闭或编码失败时返回空 Vec。
     EncodeMouseEvent {
         position: (f32, f32),
         action: u8,
@@ -188,9 +153,7 @@ pub(crate) struct RunConfig {
     pub(crate) foreground_color: [u8; 3],
     pub(crate) ansi_colors: [[u8; 3]; 16],
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
-    /// Mirror of the alternate-screen state, updated lock-free by the VT
-    /// thread on every emitted frame (build_cell_data) so the input path
-    /// can detect it without a blocking RPC.
+    /// 备用屏状态的无锁镜像，由 VT 线程每帧更新，供输入路径免阻塞 RPC 检出。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
@@ -201,10 +164,7 @@ pub(crate) struct RunConfig {
     /// 当前单元格像素几何（XTWINOPS 14/16t 应答用）：Resize 回填默认值，
     /// SetCellPixelSize 回填真实字形度量；回调经此共享，无锁读取。
     pub(crate) cell_size_px: Arc<(AtomicU32, AtomicU32)>,
-    /// Optional channel for auto-pushing CellData after each frame update.
-    /// When set, the ghostty thread will automatically build and send
-    /// Vec<CellData> (via CellIterator) whenever the grid changes.
-    /// This is the data path for the new thread-split architecture:
-    ///   Session thread → Vec<CellData> → Render thread
+    /// 可选通道：设置后 VT 线程在网格变化时自动构建并推送 `Vec<CellData>`，
+    /// 即线程拆分架构的数据路径（会话线程 → Vec<CellData> → 渲染线程）。
     pub(crate) cell_data_tx: Option<flume::Sender<(Vec<CellData>, CursorInfo)>>,
 }

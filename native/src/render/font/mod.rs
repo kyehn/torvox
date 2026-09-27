@@ -107,166 +107,34 @@ pub(crate) use pipeline::OverlayQuad;
 mod tests {
     use super::*;
 
-    const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
-    const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_fonts");
     /// 图集每个像素的字节数（RGBA）。
     const BYTES_PER_PIXEL: usize = 4;
 
-    // ── emoji classification boundary tests ────────────────────
-    // Mirrors warp lib.rs:2192-2307 (classify_char + boundary pins). The
-    // production shaper is cosmic-text; this helper documents the SAME
-    // Unicode ranges the pipeline treats as emoji (routed through the
-    // emoji-capable font when present) and pins them against drift.
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum RunKind {
-        Latin,
-        Cjk,
-        Emoji,
-    }
-
-    /// Classify a char by the Unicode ranges the renderer treats as
-    /// CJK / emoji. Identical ranges to warp's classify_char.
-    fn classify_char(ch: char) -> RunKind {
-        let cp = ch as u32;
-        let is_cjk = matches!(
-            cp,
-            0x1100..=0x11FF
-                | 0x3000..=0x303F
-                | 0x3040..=0x309F
-                | 0x30A0..=0x30FF
-                | 0x3100..=0x312F
-                | 0x3400..=0x4DBF
-                | 0x4E00..=0x9FFF
-                | 0xAC00..=0xD7AF
-                | 0xF900..=0xFAFF
-                | 0xFE30..=0xFE4F
-                | 0xFF00..=0xFFEF
-        );
-        if is_cjk {
-            return RunKind::Cjk;
-        }
-        let is_emoji = matches!(
-            cp,
-            0x1F300..=0x1F6FF | 0x1F900..=0x1F9FF | 0x1FA00..=0x1FAFF | 0x2600..=0x27BF
-        );
-        if is_emoji {
-            return RunKind::Emoji;
-        }
-        RunKind::Latin
-    }
-
-    #[test]
-    fn emoji_codepoints_classify_as_emoji() {
-        let cases = [
-            ('\u{1F389}', "U+1F389 PARTY POPPER (Misc Symbols)"),
-            ('\u{1F600}', "U+1F600 GRINNING FACE (Misc Symbols)"),
-            ('\u{1F4A9}', "U+1F4A9 PILE OF POO (Misc Symbols)"),
-            ('\u{1F923}', "U+1F923 ROFL (Supplemental)"),
-            ('\u{1FA90}', "U+1FA90 RINGED PLANET (Extended-A)"),
-            ('\u{2600}', "U+2600 BLACK SUN (Misc Symbols)"),
-            ('\u{2728}', "U+2728 SPARKLES (Dingbats)"),
-            ('\u{27B0}', "U+27B0 CURLY LOOP (Dingbats end)"),
-        ];
-        for (ch, desc) in cases {
-            assert_eq!(classify_char(ch), RunKind::Emoji, "{desc} must be Emoji");
-        }
-    }
-
-    #[test]
-    fn emoji_range_boundaries_are_tight() {
-        // Just below U+1F300 — must NOT be emoji.
-        assert_eq!(classify_char('\u{1F2FF}'), RunKind::Latin);
-        // Just above U+1F6FF — gap before U+1F900.
-        assert_eq!(classify_char('\u{1F700}'), RunKind::Latin);
-        // Just below U+2600 — Latin punctuation.
-        assert_eq!(classify_char('\u{25FF}'), RunKind::Latin);
-        // Just above U+27BF.
-        assert_eq!(classify_char('\u{27C0}'), RunKind::Latin);
-        // CJK Han must stay Cjk, not Emoji.
-        assert_eq!(classify_char('世'), RunKind::Cjk);
-        assert_eq!(classify_char('界'), RunKind::Cjk);
-        // ASCII stays Latin.
-        assert_eq!(classify_char('H'), RunKind::Latin);
-        assert_eq!(classify_char(' '), RunKind::Latin);
-        assert_eq!(classify_char(','), RunKind::Latin);
-    }
-
-    #[test]
-    fn mixed_string_produces_three_run_kinds() {
-        let s = "Hello, 世界 🎉";
-        let kinds: Vec<RunKind> = s.chars().map(classify_char).collect();
-        assert!(kinds.contains(&RunKind::Latin));
-        assert!(kinds.contains(&RunKind::Cjk));
-        assert!(
-            kinds.contains(&RunKind::Emoji),
-            "🎉 (U+1F389) must classify as Emoji"
-        );
-    }
-
-    /// Pipeline-level contract: emoji glyphs resolve (non-zero) when an
-    /// emoji font exists; flanking codepoints must never panic and resolve
-    /// through the regular path.
-    #[test]
-    fn emoji_glyphs_resolve_and_flanks_do_not_panic() {
-        let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        // Sample inside ranges — tolerant when no emoji font is installed.
-        for ch in ['\u{1F600}', '\u{2728}'] {
-            if let Some(info) = pipeline.glyph_information(ch) {
-                assert!(
-                    info.width > 0 || info.height > 0,
-                    "{ch:?} should produce non-zero glyph info"
-                );
-            }
-        }
-        // Flanking codepoints: no panic, and if glyph info exists it must
-        // be the text path (widths typical of Latin/CJK, not emoji color).
-        for ch in ['\u{1F2FF}', '\u{1F700}', '\u{25FF}', '\u{27C0}'] {
-            let _ = pipeline.glyph_information(ch);
-        }
-    }
-
-    /// Han glyphs resolve and report double-cell width via the existing
-    /// cell-width logic (CJK span detection in glyph_information). Tolerant
-    /// when no CJK font is installed on the host (same as
-    /// cjk_fallback_uses_vector_font).
     #[test]
     fn han_is_wide_and_non_emoji() {
-        assert_eq!(classify_char('世'), RunKind::Cjk);
-        assert_eq!(classify_char('界'), RunKind::Cjk);
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let ascii_info = pipeline.glyph_information('A').expect("ASCII glyph info");
         let han_info = pipeline.glyph_information('世').expect("Han glyph info");
-        let han_wide = han_info.width as f32 > ascii_info.width as f32 * 1.5;
-        if !han_wide {
-            // Host without a CJK font: '世' falls back to a narrow box
-            // glyph. The classification contract still holds (Cjk, not
-            // Emoji) — the width contract is verified on Android (emulator
-            // has Noto CJK) and in cjk_fallback_uses_vector_font.
-            let has_cjk = pipeline
-                .list_monospace_fonts()
-                .iter()
-                .any(|name| name.to_lowercase().contains("cjk"));
-            assert!(
-                !has_cjk,
-                "CJK font present but '世' width {} not > 1.5x ASCII {}",
-                han_info.width, ascii_info.width
-            );
-        }
+        assert!(
+            han_info.width as f32 > ascii_info.width as f32 * 1.5,
+            "CJK 回退字体已安装时汉字必须是双格宽：'世' {} vs 'A' {}",
+            han_info.width,
+            ascii_info.width
+        );
     }
 
-    /// 回应对“加粗中文空白”：合成样式不得跳过回退链，加粗汉字必须有位图。
+    /// 回应对"加粗中文空白"：合成样式不得跳过回退链，加粗汉字必须有位图。
     #[test]
     fn bold_cjk_fallback_not_blank() {
         let (mut pipeline, _) = styled_test_pipeline();
         pipeline.find_cjk_fallback_fonts("");
-        if pipeline.cjk_fallback_ids.is_empty() {
-            return;
-        }
-        let bold_han = pipeline.glyph_information_styled('中', true, false);
-        assert!(bold_han.is_some(), "加粗汉字必须解析出字形");
-        let info = bold_han.expect("bold CJK");
-        assert!(info.width > 0 && info.height > 0, "加粗汉字位图不得为空");
+        let bold_han = pipeline
+            .glyph_information_styled('中', true, false)
+            .expect("加粗汉字必须解析出字形");
+        assert!(
+            bold_han.width > 0 && bold_han.height > 0,
+            "加粗汉字位图不得为空"
+        );
     }
 
     #[test]
@@ -453,34 +321,19 @@ mod tests {
     }
 
     #[test]
-    fn b1_fontlist_includes_fixture() {
-        let pipeline = FontPipeline::from_fixture(512, 512, 12.0, FIXTURE_DIR);
-        let fonts = pipeline.list_monospace_fonts();
-        assert!(
-            fonts
-                .iter()
-                .any(|name| { name.contains("Liberation") || name.contains("Mono") }),
-            "LiberationMono should appear in font list from fixture dir, got: {:?}",
-            fonts
-        );
-    }
-
-    #[test]
-    fn b2_setting_font_changes_metrics() {
-        let mut pipeline = FontPipeline::from_fixture(512, 512, 12.0, FIXTURE_DIR);
-        let fonts = pipeline.list_monospace_fonts();
-        let lm = fonts
-            .iter()
-            .find(|name| name.contains("Liberation") || name.contains("Mono"))
-            .cloned();
-        let name = lm.expect("LiberationMono should be in font list from fixture dir");
+    fn setting_font_family_changes_metrics() {
+        let mut pipeline = FontPipeline::new(512, 512, 12.0);
+        let name = pipeline
+            .list_monospace_fonts()
+            .into_iter()
+            .next()
+            .expect("系统应至少提供一个等宽字体");
         assert!(
             pipeline.set_font_family(&name),
-            "set_font_family should succeed for {name}"
+            "set_font_family 应对 {name} 成功"
         );
-        let (cw, ch) = pipeline.cell_metrics();
-        assert!(cw > 0.0, "cell width should be positive, got {cw}");
-        assert!(ch > 0.0, "cell height should be positive, got {ch}");
+        let (cell_width, cell_height) = pipeline.cell_metrics();
+        assert!(cell_width > 0.0 && cell_height > 0.0, "单元格尺寸必须为正");
     }
 
     #[test]
@@ -1552,54 +1405,40 @@ mod tests {
         );
     }
 
-    /// Locate a TTF font file for tests. FR-057 bans committed font files
-    /// (`.gitignore:53 *.ttf`), so prefer the gitignored local
-    /// `test_data/TerminusTTF-Regular.ttf` copy when present, then fall back
-    /// to a system font via fontconfig (the development shell provides fonts).
+    /// 取字体库中第一个来自文件的字形字体路径。
+    ///
+    /// 开发环境的 `flake.nix` 用 `FONTCONFIG_FILE` 固定了字体集，直接查已加载的
+    /// 字体库即可，不再探测文件系统或调用外部进程。
     fn find_test_font() -> std::path::PathBuf {
-        let local = std::path::Path::new(TEST_DATA_DIR).join("TerminusTTF-Regular.ttf");
-        if local.exists() {
-            return local;
-        }
-        let output = std::process::Command::new("fc-list")
-            .arg(":outline")
-            .output()
-            .expect("fc-list must be available (development shell provides fontconfig)");
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Some(path) = line.split(':').next()
-                && path.ends_with(".ttf")
-            {
-                return std::path::PathBuf::from(path);
-            }
-        }
-        panic!(
-            "no system TTF font found; run inside the development shell or place \
-             native/test_data/TerminusTTF-Regular.ttf (gitignored)"
-        );
+        let pipeline = FontPipeline::new(512, 512, 14.0);
+        pipeline
+            .font_system
+            .db()
+            .faces()
+            .filter_map(|face| match face.source {
+                fontdb::Source::File(ref path) => Some(path.clone()),
+                _ => None,
+            })
+            .find(|path| {
+                path.extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("ttf"))
+            })
+            .expect("开发环境固定了系统字体集，其中必有 .ttf 轮廓字体")
     }
 
     #[test]
     fn load_font_file_valid_ttf_returns_family() {
         let mut p = FontPipeline::new(512, 512, 14.0);
         let font_path = find_test_font();
-        let family = p.load_font_file(&font_path);
-        let family = family.expect("load_font_file should return Some for valid TTF");
+        let family = p.load_font_file(&font_path).expect("有效 TTF 必须返回族名");
         assert!(
-            !family.is_empty(),
-            "family name should not be empty, got '{family}'"
+            p.font_system
+                .db()
+                .faces()
+                .any(|face| face.families.iter().any(|(name, _)| *name == family)),
+            "返回的族名 {family} 必须已在字体库中登记"
         );
-        // The local Terminus fixture asserts the exact family name; system
-        // font fallbacks only need to resolve to a non-empty family.
-        if font_path
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().contains("Terminus"))
-        {
-            assert!(
-                family.contains("Terminus") || family.contains("TerminusTTF"),
-                "expected 'Terminus' in family name, got '{family}'"
-            );
-        }
     }
 
     #[test]

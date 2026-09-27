@@ -3,18 +3,11 @@ package terminal.emulator.runtime
 import android.util.Log
 
 /**
- * Chunks clipboard text for PTY paste.
+ * 为 PTY 粘贴切分剪贴板文本。
  *
- * One synchronous `feedPty` call with a full multi-megabyte payload always
- * exceeds the PTY kernel buffer (~64KB) and is dropped wholesale on EAGAIN.
- * Chunking through the per-frame flush path gives the child shell time to
- * drain between chunks. Chunks are split on code-point boundaries (never
- * inside a surrogate pair).
- *
- * This is the single implementation used by both the view layer
- * ([terminal.emulator.ui.TerminalSurface]) and the view-model layer
- * ([terminal.emulator.TerminalViewModel]) — previously the identical
- * constants + loop existed twice.
+ * 一次同步 `feedPty` 调用携带完整的多兆字节负载必然超出 PTY 内核缓冲（~64KB），
+ * 并在 EAGAIN 时被整块丢弃。经逐帧 flush 路径切分可给子 shell 块间排空的时间。
+ * 切分点落在码点边界（绝不在代理对内部）。
  */
 class PasteChunker(
     private val maxChars: Int = MAX_PASTE_CHARS,
@@ -22,10 +15,10 @@ class PasteChunker(
     private val tag: String = "PasteChunker",
 ) {
     /**
-     * Normalize and split [text] into chunks ready for PTY writes.
+     * 归一化 [text] 并切分为可直接写入 PTY 的块。
      *
-     * Returns an empty list when [text] is blank. Truncates to [maxChars]
-     * (with a warning) and translates `\n` to `\r` (xterm paste semantics).
+     * [text] 为空白时返回空列表。截断到 [maxChars]（并告警），
+     * 并把 `\n` 转成 `\r`（xterm 粘贴语义）。
      */
     fun chunks(text: String): List<String> {
         if (text.isBlank()) return emptyList()
@@ -51,11 +44,10 @@ class PasteChunker(
     }
 
     companion object {
-        /** Upper bound: keeps string copies (toString/replace/toByteArray)
-         *  from OOMing the caller thread on a huge clipboard. */
+        /** 上界：避免在超大剪贴板上让字符串拷贝（toString/replace/toByteArray）把调用线程 OOM。 */
         const val MAX_PASTE_CHARS = 1_000_000
 
-        /** Must stay well below the PTY kernel buffer (~64KB). */
+        /** 必须远低于 PTY 内核缓冲（~64KB）。 */
         const val CHUNK_CHARS = 4_000
     }
 }

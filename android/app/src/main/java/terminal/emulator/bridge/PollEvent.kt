@@ -6,14 +6,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * Events pushed from the Rust native side, serialised with internal
- * tagging (`#[serde(tag = "event", rename_all = "snake_case")]` — see
- * `native/src/event.rs`). Kotlin matches on the `event` discriminator.
- *
- * All fields carry defaults so a missing/unknown field degrades to a
- * sensible value (`coerceInputValues` + `ignoreUnknownKeys`), mirroring
- * the previous `org.json` `opt*` tolerance. Rust and Kotlin schema must
- * stay in sync; a schema drift now surfaces at decode time.
+ * Rust 原生侧推送的事件，以 internal tagging 序列化，Kotlin 侧匹配 `event` 判别字段。
+ * 所有字段均带默认值，缺失或未知字段退化为合理值（coerceInputValues + ignoreUnknownKeys）。
+ * Rust 与 Kotlin 的 schema 必须保持一致。
  */
 @Serializable
 sealed class PollEvent {
@@ -26,7 +21,7 @@ sealed class PollEvent {
     data class Exit(
         @SerialName("session_id") val sessionId: Long = 0,
         val code: Int = 0,
-        // child lifetime (ms, fork → waitpid) measured natively.
+        // 原生测得的子进程存活时长（毫秒，fork → waitpid）。
         @SerialName("alive_ms") val aliveMs: Long = 0,
     ) : PollEvent()
 
@@ -46,24 +41,17 @@ sealed class PollEvent {
 }
 
 /**
- * JSON codec for [PollEvent].
+ * [PollEvent] 的 JSON 编解码器。
  *
- * - `ignoreUnknownKeys`: Rust may add fields without breaking this side.
- * - `coerceInputValues`: missing/illegal values fall back to defaults
- * matches the previous `opt*` tolerance).
- * - `exceptionsWithDebugInfo = false`: decode errors must not embed the
- *   offending JSON (which may contain clipboard text / URLs) in logs.
+ * `ignoreUnknownKeys` 允许 Rust 增字段；`coerceInputValues` 让缺失/非法值回落默认值。
+ * `exceptionsWithDebugInfo = false`：解码错误不得把涉事的 JSON（可能含剪贴板文本/URL）写入日志。
  */
 @OptIn(ExperimentalSerializationApi::class)
 val pollEventJson: Json =
     Json {
-        // Rust serialises Event with `#[serde(tag = "event")]` (internal
-        // tagging); kotlinx default discriminator is "type", which would
-        // reject every event with "Class discriminator was missing" and
-        // silently drop clipboard/exit — the exit event
-        // never reached Kotlin, so a dead shell left the terminal frozen
-        // with the render thread running forever, emulator-
-        // verified via `kill -9 <shell>`).
+        // Rust 用 `#[serde(tag = "event")]`（internal tagging）序列化，
+        // 而 kotlinx 默认判别字段是 "type"，会导致所有事件被拒并静默丢弃——
+        // 退出事件永远到不了 Kotlin，shell 死后终端将卡死而渲染线程空转。
         classDiscriminator = "event"
         ignoreUnknownKeys = true
         coerceInputValues = true

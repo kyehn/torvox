@@ -6,20 +6,16 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * Batches PTY writes to one chunk per frame, keeping IME input off the
- * per-byte native-call path.
+ * 把 PTY 写入按帧合并为一块，使输入法输入避开逐字节的原生调用路径。
  *
- * The native [flushSink] write never blocks: the PTY master fd is
- * O_NONBLOCK, so a full PTY buffer (child not reading — suspended
- * foreground app, huge paste) returns EAGAIN and the bytes are dropped,
- * xterm-style backpressure loss. The single daemon executor below keeps
- * those drops off the IME main thread and the Choreographer frame
- * callback (an ANR is treated as a process kill). Direct callers
- * (TerminalSurface key/soft-keyboard paths via viewModel.writeToPty)
- * have the same drop-on-EAGAIN behavior on the caller's thread.
- * All sink invocations run on a single daemon sender thread: the caller
- * never blocks, and the single-threaded executor preserves drain order
- * across concurrent writers.
+ * 原生 [flushSink] 写入永不阻塞：PTY 主 fd 是 O_NONBLOCK，
+ * 故 PTY 缓冲满时（子进程未读取——前台应用挂起、超大粘贴）返回 EAGAIN 并丢弃字节，
+ * 即 xterm 式背压丢失。下方单守护执行器把这些丢弃挡在输入法主线程
+ * 与 Choreographer 帧回调之外（ANR 会被当作进程杀死）。
+ * 直接调用方（经 viewModel.writeToPty 的 TerminalSurface 按键/软键盘路径）
+ * 在其自身线程上有同样的 EAGAIN 丢弃行为。
+ * 所有 sink 调用都跑在单个守护发送线程上：调用方永不阻塞，
+ * 且单线程执行器在并发写入之间保持排空顺序。
  */
 class InputBatchBuffer(
     private val flushSink: (ByteArray) -> Unit,
@@ -52,9 +48,8 @@ class InputBatchBuffer(
         val toSend = ArrayList<ByteArray>(2)
         synchronized(lock) {
             if (data.size > capacity) {
-                // Flush buffered input first so previously queued bytes
-                // are written before the large chunk — otherwise ordering
-                // is inverted (big paste overtakes earlier keystrokes).
+                // 先 flush 已缓冲的输入，使先前排队的字节写在大块之前
+                // ——否则顺序会颠倒（大块粘贴越过更早的击键）。
                 toSend.add(drainLocked())
                 toSend.add(data)
             } else {
@@ -78,7 +73,7 @@ class InputBatchBuffer(
         if (bytes.isNotEmpty()) send(bytes)
     }
 
-    /** Drains the buffer. Must be called while holding [lock]. */
+    /** 排空缓冲区。必须在持有 [lock] 时调用。 */
     private fun drainLocked(): ByteArray {
         buffer.flip()
         val bytes = ByteArray(buffer.remaining())
@@ -88,7 +83,7 @@ class InputBatchBuffer(
         return bytes
     }
 
-    /** Handles [bytes] to the single sender thread (never blocks the caller). */
+    /** 把 [bytes] 交给单个发送线程处理（绝不阻塞调用方）。 */
     private fun send(bytes: ByteArray) {
         try {
             sender.execute {
@@ -99,27 +94,23 @@ class InputBatchBuffer(
                 }
             }
         } catch (exception: java.util.concurrent.RejectedExecutionException) {
-            // close() was called (view detached); pending input is dropped.
+            // 已调用 close()（视图已分离）；待处理输入被丢弃。
         }
     }
 
     /**
-     * Stops the sender thread. Call from the owning view's detach path so a
-     * recreated view does not leak a "PtyWriter" thread (one per
-     * TerminalSurface instance).
+     * 停止发送线程。应在宿主视图的 detach 路径调用，
+     * 否则重建的视图会泄漏一个「PtyWriter」线程（每个 TerminalSurface 实例一个）。
      */
     fun close() {
-        // flush buffered bytes BEFORE shutting down —
-        // otherwise keystrokes typed in the final frame before detach are
-        // silently dropped (the buffer is drained only by the frame
-        // callback or an explicit flush).
+        // 在关闭前 flush 已缓冲的字节——否则 detach 前最后一帧输入的击键会被静默丢弃
+        // （缓冲区只由帧回调或显式 flush 排空）。
         val pending = synchronized(lock) { drainLocked() }
         if (pending.isNotEmpty()) {
             try {
                 sender.execute { flushSink(pending) }
             } catch (_: java.util.concurrent.RejectedExecutionException) {
-                // Shutdown raced the enqueue; dropping is acceptable at
-                // detach (the view is gone).
+                // shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）。
             }
         }
         sender.shutdown()
@@ -127,10 +118,9 @@ class InputBatchBuffer(
 
     private fun scheduleFrame() {
         if (!useChoreographer) return
-        // Choreographer silently drops frame callbacks when the app renders
-        // nothing (idle downclock stops frames entirely), so buffered
-        // keystrokes wait forever and IME commits are lost mid-typing. A
-        // handler fallback guarantees the drain even with zero frames.
+        // Choreographer 在应用不渲染任何内容时会静默丢弃帧回调
+        // （空闲降频完全停止出帧），于是已缓冲的击键永远等不到，
+        // 输入法提交在打字中途丢失。Handler 回退保证零帧时也能排空。
         scheduled = true
         fallbackHandler.removeCallbacks(fallbackFlush)
         fallbackHandler.postDelayed(fallbackFlush, FALLBACK_FLUSH_TIMEOUT_MS)
@@ -158,7 +148,7 @@ class InputBatchBuffer(
          *  （约 21 汉字）；粘贴/大批量/编程性写入通常数百字节以上，仍走批缓冲。 */
         private const val COMPOSITION_COMMIT_MAX_BYTES = 64
 
-        /** Factory for test usage — avoids Choreographer dependency. */
+        /** 供测试用的工厂——避免依赖 Choreographer。 */
         fun forTest(flushSink: (ByteArray) -> Unit, capacity: Int = BATCH_CAPACITY): InputBatchBuffer =
             InputBatchBuffer(flushSink, capacity, useChoreographer = false)
     }

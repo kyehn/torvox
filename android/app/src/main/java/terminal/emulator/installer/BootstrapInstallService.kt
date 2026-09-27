@@ -11,16 +11,16 @@ import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 
 /**
- * Installs a bootstrap zip from a local path inside its OWN process (`android:process=":install"`).
+ * 在自有进程（`android:process=":install"`）中从本地路径安装引导 zip。
  *
- * Why a separate process: when the app is started as an instrumentation target, the main process
- * carries the TEST package's SELinux category, so every write to the app's filesDir is denied
- * (mkdirs silently fails, open() EACCES — emulator-verified). A process with a distinct
- * android:process name is forked by the app itself and keeps the app's own SELinux domain, so it
- * can write filesDir.
+ * 为何独立进程：当应用作为 instrumentation 目标启动时，主进程携带的是
+ * 测试包的 SELinux 类目，故对应用 filesDir 的每次写入都被拒绝
+ * （mkdirs 静默失败、open() EACCES——模拟器已验证）。
+ * 具有独立 android:process 名的进程由应用自身 fork，保留应用自己的 SELinux 域，
+ * 因此可以写 filesDir。
  *
- * Triggered by MainActivity (EXTRA_INSTALL_BOOTSTRAP intent / INSTALL_BOOTSTRAP broadcast).
- * Progress and outcome go to logcat;
+ * 由 MainActivity 触发（EXTRA_INSTALL_BOOTSTRAP intent / INSTALL_BOOTSTRAP 广播）。
+ * 进度与结果均输出到 logcat。
  */
 class BootstrapInstallService : Service() {
     companion object {
@@ -40,8 +40,8 @@ class BootstrapInstallService : Service() {
             return START_NOT_STICKY
         }
         Thread {
-            // runCatchingCancellable instead of try/catch(Exception): detekt
-            // TooGenericExceptionCaught; the install path returns Results.
+            // 用 runCatchingCancellable 而非 try/catch(Exception)：detekt
+            // TooGenericExceptionCaught；安装路径返回 Result。
             val result =
                 runCatchingCancellable { install(zipPath) }
                     .getOrElse { "FAILED: ${it.message ?: it.javaClass.simpleName}" }
@@ -59,7 +59,7 @@ class BootstrapInstallService : Service() {
         val prefixDir = File(filesDir, PREFIX_DIR_NAME)
         val homeDir = File(filesDir, HOME_DIR_NAME)
         val stagingDir = File(filesDir, STAGING_DIR_NAME)
-        // Move zip to a safe location before installing — it may live under homeDir.
+        // 安装前把 zip 移到安全位置——它可能位于 homeDir 之下。
         val preserved = File(filesDir, "bootstrap-preserved.zip")
         File(zipPath).copyTo(preserved, overwrite = true)
         // 不得预删 prefix/home/staging：原子换入路径负责旧目录随机备份、失败回滚与 staging

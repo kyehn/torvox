@@ -1,20 +1,9 @@
-//! Glyph cache — LRU caches for glyph IDs and shaped runs.
-//!
-//! Separated from FontPipeline so cache eviction strategies can be
-//! unit-tested independently.
+//! 字形的 LRU 缓存：glyph id 与整形结果。独立于 FontPipeline 以便单独测试淘汰策略。
 use std::num::NonZeroUsize;
 
 use super::{GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey};
 use lru::LruCache;
 
-/// Collection of LRU caches for fast glyph re-lookup.
-///
-/// All five caches are evicted together when `clear()` is called
-/// (e.g. on font family change).
-///
-/// 整形缓存键：文本 + 字号 + 光栅缩放 + 主字体 + 回退代际。整形结果依赖
-/// 全部五项（Metrics 字号、Attrs 字体族、回退 span），单文本键在字号/
-/// 字体切换时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShapeKey {
     pub text: String,
@@ -24,33 +13,24 @@ pub struct ShapeKey {
     pub fallback_generation: u64,
 }
 pub struct GlyphCache {
-    /// Full glyph-info cache (keyed by glyph key → rasterized info).
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
-    /// Cache for shaped runs (keyed by text + font/size/fallback generation).
     pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
-    /// ASCII fast-path: pre-allocated array of glyph IDs for ' '..'~'.
+    /// ASCII 快速路径：预分配的 ' '..'~' 字形 id 数组。
     pub ascii_glyph_ids: [Option<swash::GlyphId>; 128],
-    /// Non-ASCII glyph ID lookups (codepoint → glyph_id in primary font).
     pub glyph_id_cache: LruCache<u32, swash::GlyphId>,
-    /// CJK glyph resolution (char → final font_id + glyph_id).
+    /// CJK 字形解析（字符 → 最终 font_id + glyph_id）。
     pub cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
-    /// Same-family styled face resolution (base font, bold, italic) → the
-    /// face id that wins for that style, or None when synthesis must be
-    /// used. Caching this avoids re-running fontdb's family/weight/style
-    /// query on every styled cell every frame: styled glyph
-    /// lookup was ~20µs/cell vs ~0.2µs for plain text).
+    /// 同族样式面解析（基础字体、bold、italic）→ 胜出面 id，需合成时为 None。
+    /// 缓存可避免逐帧逐单元重跑 fontdb 的族/字重/样式查询：实测样式字形查询
+    /// 约 20µs/单元，普通文本仅 0.2µs。
     pub style_face_cache: LruCache<(fontdb::ID, bool, bool), Option<fontdb::ID>>,
-    /// Style-face charmap lookups ((face, codepoint) → glyph id) — avoids
-    /// re-entering `with_face_data` (font-data decompression + charmap
-    /// build) for every styled cell every frame.
+    /// 样式面 charmap 查询（面, 码点 → glyph id），避免逐帧重入 `with_face_data`
+    /// （字体解压与 charmap 构建）。
     pub style_glyph_id_cache: LruCache<(fontdb::ID, u32), swash::GlyphId>,
-    /// Outline source cache ((font ID, glyph ID, raster size) → is outline).
-    /// Swash scaler construction + Render is ~20µs per probe; caching makes
-    /// subsequent CJK resolutions ~0.2µs and drops first-screen 400
-    /// builds to ~3 (majority vote needs one probe per distinct gid).
-    /// 键必须带光栅尺寸：embedded bitmap 只在特定尺寸存在，同样
-    /// (font, gid) 在不同字号/缩放下结论可能相反（bitmap-strike 误分类
-    /// 致 CJK 整字缺失或错走回退）。
+    /// 轮廓来源缓存（font id, glyph id, 光栅尺寸 → 是否轮廓）。
+    /// swash scaler 构建 + Render 约 20µs/次，缓存后 CJK 解析降至约 0.2µs，
+    /// 首屏构建次数从 400 降到约 3。键必须带光栅尺寸：embedded bitmap 只在
+    /// 特定尺寸存在，同样 (font, gid) 在不同字号/缩放下结论可能相反。
     pub outline_cache: LruCache<(fontdb::ID, swash::GlyphId, u32), bool>,
 }
 
@@ -78,7 +58,6 @@ impl GlyphCache {
         }
     }
 
-    /// Clear all caches (called when font family or system locale changes).
     pub fn clear(&mut self) {
         self.glyph_cache.clear();
         self.shape_cache.clear();

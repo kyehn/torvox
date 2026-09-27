@@ -1,33 +1,24 @@
-//! CJK fallback font resolution — finds and loads CJK fonts for ideograph rendering.
+//! CJK 回退字体解析：定位并加载表意文字渲染所需的 CJK 字体。
 use super::{FontPipeline, GlyphInfo};
 
 pub(super) const CJK_BITMAP_PENALTY: u8 = 20;
 pub(super) const OUTLINE_BONUS: u8 = 10;
 
-/// Priority boost applied to CJK fallback fonts whose family name matches
-/// the current system locale tag (e.g. "sc" for Simplified Chinese).
+/// 族名匹配当前系统 locale 标签的 CJK 回退字体的优先级加成（如简体的 `sc`）。
 const CJK_LOCALE_BONUS: i16 = 6;
 
-/// Penalty subtracted from serif CJK families so sans CJK always wins the
-/// fallback tie-break (serif reads as 宋体 next to a sans terminal font).
-/// 32 guarantees Sans wins even when Sans is bitmap and Serif is vector:
-/// Sans worst (bitmap) 5-20=-15 > Serif best (vector) 5-32+10=-17.
+/// 衬线 CJK 族的惩罚分，使无衬线 CJK 在回退平局时必胜（衬线在无衬线终端字体旁
+/// 呈现为宋体，观感突兀）。取 32 可保证即使无衬线是 bitmap、衬线是 vector 也仍然胜出：
+/// Sans 最差 5-20=-15 > Serif 最好 5-32+10=-17。
 const CJK_SERIF_PENALTY: i16 = 32;
 
-/// Priority for well-known CJK font families (Noto Sans/Serif CJK, Source Han,
-/// Droid Sans Fallback, WenQuanYi).
+/// 知名 CJK 字体族（Noto Sans/Serif CJK、Source Han、Droid Sans Fallback、WenQuanYi）的优先级。
 const CJK_PRIORITY_KNOWN_FAMILY: u8 = 5;
-/// Priority for fonts with a generic "cjk" tag in their family name.
 const CJK_PRIORITY_GENERIC_CJK: u8 = 4;
-/// Priority for fonts with a locale-specific tag (sc, tc, jp, kr).
 const CJK_PRIORITY_LOCALE_TAG: u8 = 3;
-/// Baseline priority for any other CJK-capable font.
 const CJK_PRIORITY_FALLBACK: u8 = 2;
 
 impl FontPipeline {
-    /// Whether a family name is a CJK-capable candidate for the CJK
-    /// fallback layer (excludes emoji/color/symbol fonts: they either
-    /// cannot be outlined by swash or are dedicated to other layers).
     pub(crate) fn is_cjk_candidate_family(name: &str) -> bool {
         !(name.contains("emoji")
             || name.contains("color")
@@ -35,10 +26,8 @@ impl FontPipeline {
             || name.contains("nerd"))
     }
 
-    /// Whether a family name belongs to the symbol-fallback layer
-    /// (moke: Noto Sans Symbols 2 — media/geometric/misc symbols such as
-    /// ▶ ⏵ ♥ ★ that terminal fonts usually lack). Excludes emoji/color
-    /// fonts (bitmap) and nerd fonts (their own layer).
+    /// 族名是否属符号回退层（如 Noto Sans Symbols 2 的媒体/几何/杂项符号 ▶ ⏵ ♥ ★，
+    /// 终端字体通常缺失）；排除 emoji/color（bitmap）与 nerd 字体（自成一层）。
     pub(crate) fn is_symbol_candidate_family(name: &str) -> bool {
         (name.contains("symbol")
             || name.contains("dingbat")
@@ -49,35 +38,24 @@ impl FontPipeline {
             && !name.contains("nerd")
     }
 
-    /// Whether a family name belongs to the Nerd layer (moke: Symbols
-    /// Nerd Font — private-use-area U+E000 glyphs: powerline separators,
-    /// devicons, file-type icons).
+    /// 族名是否属 Nerd 层（私用区 U+E000 字形：powerline 分隔符、devicons、文件类型图标）。
     pub(crate) fn is_nerd_candidate_family(name: &str) -> bool {
         name.contains("nerd")
     }
 
-    /// Whether a family name belongs to the emoji layer (moke: emoji
-    /// handled via the system fallback; here NotoColorEmoji-style fonts).
     pub(crate) fn is_emoji_candidate_family(name: &str) -> bool {
         name.contains("emoji") || name.contains("color")
     }
 
-    /// Symbol-layer test glyphs (moke symbol fonts cover these blocks).
     const SYMBOL_TEST_CHARS: [char; 5] =
         ['\u{25b6}', '\u{23f5}', '\u{2665}', '\u{2605}', '\u{25c6}'];
 
-    /// Nerd-layer test glyphs (U+E000..U+F8FF private use: powerline
-    /// separators, devicons, file-type icons).
     const NERD_TEST_CHARS: [char; 4] = ['\u{e0a0}', '\u{e0b0}', '\u{f50a}', '\u{f553}'];
 
-    /// Emoji-layer test glyphs.
     const EMOJI_TEST_CHARS: [char; 2] = ['\u{1f600}', '\u{1f44d}'];
 
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
         let locale_tag = locale_tag(system_locale);
-        // spec DESIGN 字体选择: CJK fallback only for CJK environments.
-        // An explicitly non-CJK locale (e.g. en-US) skips; an unset locale
-        // keeps the scan so host tests exercise the real fallback path.
         if !system_locale.is_empty() && locale_tag.is_empty() {
             log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
             return;
@@ -85,9 +63,8 @@ impl FontPipeline {
 
         if let Some(primary_id) = self.font_id {
             let db = self.font_system.db();
-            // Probe the locale's representative char: CJK fonts are
-            // locale-sliced (a CN font need not cover Hangul syllables),
-            // so requiring 中/日/가 together would reject a matching primary.
+            // 探测 locale 的代表字符：CJK 字体按 locale 分片（CN 字体未必覆盖
+            // 谚文音节），故不要求中/日/가同时存在，否则会拒绝匹配的主字体。
             let probe = if locale_tag == "kr" { '가' } else { '中' };
             let primary_supports_cjk = db
                 .with_face_data(primary_id, |font_data, face_index| {
@@ -103,12 +80,9 @@ impl FontPipeline {
         }
 
         const MAX_CJK_FALLBACK_FONTS: usize = 3;
-        // fonts.xml first: exact (filename, index) matches outrank
-        // heuristic scoring; the scan below only fills the remainder.
         let mut ids = self.fonts_xml_cjk_fallback_ids(system_locale, MAX_CJK_FALLBACK_FONTS);
         if ids.len() < MAX_CJK_FALLBACK_FONTS {
-            // CJK scoring: known families + locale tag + generic "cjk" tags
-            // (see CJK_PRIORITY_* constants), plus the locale boost.
+            // CJK 评分：知名族 + locale 标签 + 通用 `cjk` 标签（见 CJK_PRIORITY_*），再加 locale 加成。
             let test_chars = ['中', '日', '가'];
             let mut scanned = self.scan_fallback_candidates(
                 &test_chars,
@@ -133,11 +107,6 @@ impl FontPipeline {
         );
     }
 
-    /// Resolve CJK fallback faces from the system `fonts.xml` language
-    /// chain. Reads `/system/etc/fonts.xml` (then `fonts_fallback.xml`),
-    /// matches `locale_fonts_xml_langs` blocks in order, and maps each
-    /// `(filename, index)` to a loaded face. Empty when unavailable — the
-    /// caller falls back to heuristic scanning.
     #[cfg(any(target_os = "android", test))]
     fn fonts_xml_cjk_fallback_ids(
         &self,
@@ -152,10 +121,6 @@ impl FontPipeline {
         Self::match_fonts_xml_fallbacks(self.font_system.db(), &xml, system_locale, max_results)
     }
 
-    /// Pure matching core of [`Self::fonts_xml_cjk_fallback_ids`]:
-    /// exact `(file name, TTC index)` hits win; when an index misses,
-    /// same-file faces filtered by the locale tag fill in.
-    /// `pub(crate)` for the `mod.rs` integration tests.
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn match_fonts_xml_fallbacks(
         db: &fontdb::Database,
@@ -194,8 +159,7 @@ impl FontPipeline {
                         Some((face.id, family, face.index))
                     })
                     .collect();
-                // Exact (filename, index) hit wins; otherwise the first
-                // same-file face matching the locale tag fills in.
+                // 精确 (文件名, 索引) 命中优先；否则取首个匹配 locale 标签的同文件面。
                 let hit = same_file
                     .iter()
                     .find(|(_, _, face_index)| *face_index == *index)
@@ -221,7 +185,6 @@ impl FontPipeline {
         ids
     }
 
-    /// Non-Android stub: no `fonts.xml` exists, heuristic scanning covers it.
     #[cfg(not(any(target_os = "android", test)))]
     fn fonts_xml_cjk_fallback_ids(
         &self,
@@ -231,15 +194,12 @@ impl FontPipeline {
         Vec::new()
     }
 
-    /// Resolve the symbol layer (moke chain: after CJK, before Nerd).
     pub(crate) fn find_symbol_fallback_fonts(&mut self) {
         const MAX_SYMBOL_FALLBACK_FONTS: usize = 2;
         let ids = self.scan_fallback_candidates(
             &Self::SYMBOL_TEST_CHARS,
             Self::is_symbol_candidate_family,
             |family_name| {
-                // Known symbol families get a small boost; advance
-                // similarity does the rest.
                 if family_name.contains("noto sans symbols") {
                     2
                 } else {
@@ -255,7 +215,6 @@ impl FontPipeline {
         );
     }
 
-    /// Resolve the Nerd layer (moke chain: after symbols, before emoji).
     pub(crate) fn find_nerd_fallback_fonts(&mut self) {
         const MAX_NERD_FALLBACK_FONTS: usize = 2;
         let ids = self.scan_fallback_candidates(
@@ -277,10 +236,6 @@ impl FontPipeline {
         );
     }
 
-    /// Resolve the emoji layer (moke: emoji via system chain; here the
-    /// color fonts are collected so the lookup at least TRIES them —
-    /// swash cannot outline color glyphs, so they are skipped at render
-    /// time and the database scan /.notdef takes over).
     pub(crate) fn find_emoji_fallback_fonts(&mut self) {
         const MAX_EMOJI_FALLBACK_FONTS: usize = 1;
         let ids = self.scan_fallback_candidates(
@@ -302,15 +257,6 @@ impl FontPipeline {
         );
     }
 
-    /// Generic layered scan: every face whose family passes
-    /// [family_allowed] and whose charmap covers at least one of
-    /// [test_chars] becomes a candidate. Candidates are scored by
-    /// [family_priority] plus an outline bonus, then ranked by score and
-    /// average advance; the top [max_results] IDs are returned.
-    ///
-    /// Borrow discipline: inside `db.with_face_data` only the
-    /// `scaler_context` / `font_size` fields are touched (field-level
-    /// borrows), so the db borrow never conflicts with `&mut self`.
     fn scan_fallback_candidates(
         &mut self,
         test_chars: &[char],
@@ -318,9 +264,6 @@ impl FontPipeline {
         family_priority: impl Fn(&str) -> i16,
         max_results: usize,
     ) -> Vec<fontdb::ID> {
-        // Collect face IDs and family names first with a short-lived immutable borrow;
-        // the subsequent per-face outline-cache probes require &mut self and must not
-        // overlap the db borrow (field-level borrow discipline).
         let faces: Vec<(fontdb::ID, String)> = {
             let db = self.font_system.db();
             db.faces()
@@ -372,10 +315,8 @@ impl FontPipeline {
                 });
             if let Some(Some(Some(advance_px))) = result {
                 let (is_vector, source_quality_penalty): (bool, u8) = {
-                    // Majority vote over test_chars: mixed bitmap/vector fonts have some glyphs
-                    // vector, some bitmap; single-probe on '中' misclassifies. Count hits.
-                    // First collect GIDs with a short-lived db borrow, then probe the outline
-                    // cache (which needs &mut self) after the db borrow is released.
+                    // 对 test_chars 多数表决：bitmap/vector 混合字体两种字形并存，单探测
+                    // `中` 会误判。先用短借用收集 GID，db 借用释放后再探测轮廓缓存。
                     let probe_gids: Vec<swash::GlyphId> = {
                         let db = self.font_system.db();
                         test_chars
@@ -449,19 +390,9 @@ impl FontPipeline {
             .collect()
     }
 
-    /// Whole-database scan (spec d7 tail of the chain): the first face —
-    /// other than the primary — whose charmap maps [ch] to a real glyph.
-    /// Render-time failures (color fonts) are handled by the caller. The
-    /// result is cached by the caller in `cjk_glyph_cache`, so this only
-    /// runs once per character.
-    /// 候选按 CJK 优先级排序后尝试：en-US 等非 CJK locale 下 CJK 层被
-    /// 跳过，中文只能靠本扫描；数据库顺序（Serif 可能先于 Sans）不得
-    /// 决定字形归属，否则中文显示为宋体。
     pub(crate) fn find_glyph_anywhere(&mut self, ch: char) -> Option<(fontdb::ID, u16)> {
         let primary = self.font_id?;
         let db = self.font_system.db();
-        // Collect candidates first: the db borrow must end before the
-        // &mut self render check below.
         let mut candidates: Vec<(fontdb::ID, u16)> = Vec::new();
         for face in db.faces() {
             if face.id == primary {
@@ -479,9 +410,8 @@ impl FontPipeline {
                 candidates.push((face.id, gid));
             }
         }
-        // Sans 优先：同为 CJK 候选时宋体（serif）排后，避免 en-US 下
-        // 中文落到 NotoSerifCJK 而非 NotoSansCJK。分数越高越优先
-        // （升序排完倒序取），故用加法。
+        // Sans 优先：同为 CJK 候选时衬线排后，避免中文落到 NotoSerifCJK。
+        // 分数越高越优先（升序排完倒序取），故用加法。
         let locale_snapshot = self.system_locale_tag();
         candidates.sort_by_key(|(id, _)| {
             let family = db
@@ -491,9 +421,8 @@ impl FontPipeline {
             i16::from(Self::is_cjk_candidate_family(&family)) * 100
                 + cjk_family_priority(&family, locale_tag(&locale_snapshot))
         });
-        // Return the first candidate that actually renders (charmap hits
-        // in color fonts such as Noto Color Emoji cannot be outlined by
-        // swash and must be skipped —).
+        // 返回第一个真正能渲染的候选：彩色字体（如 Noto Color Emoji）的 charmap 命中
+        // 无法被 swash 描边，必须跳过。
         for (id, gid) in candidates.into_iter().rev() {
             if let Some(info) = self.glyph_information_from_font(id, ch, gid)
                 && info.width > 0
@@ -510,8 +439,6 @@ impl FontPipeline {
         None
     }
 
-    /// Cached outline probe: checks `outline_cache` before building a scaler.
-    /// Key includes the raster size (see `outline_cache` docs).
     pub(crate) fn glyph_source_is_outline_cached(
         &mut self,
         font_id: fontdb::ID,
@@ -536,11 +463,11 @@ impl FontPipeline {
         glyph_id: swash::GlyphId,
     ) -> bool {
         let scaler_context = &mut self.scaler_context;
-        // Match the real raster path (atlas.rs): raster_size = font_size * raster_scale,
-        // hint only when 1:1, Source::Outline only. Using font_size + hint(true) without
-        // Source filter hit embedded bitmap strikes in NotoSansCJK TTC at 14sp (is_vector=false)
-        // while the atlas always rasterizes vector outlines at raster_size with hint(false),
-        // causing try_cjk_outline_fallback to skip ALL CJK on high-density screens.
+        // 须与真实光栅路径（atlas.rs）一致：`raster_size = font_size * raster_scale`、
+        // 仅 1:1 时 hint、仅 `Source::Outline`。若改用 `font_size` + `hint(true)` 且不加
+        // Source 过滤，NotoSansCJK TTC 在 14sp 会命中内嵌 bitmap strike（is_vector=false），
+        // 而图集始终以 hint(false) 按 raster_size 光栅化矢量轮廓，导致高密度屏上
+        // `try_cjk_outline_fallback` 跳过全部 CJK。
         let raster_size = self.font_size * self.raster_scale.max(1.0);
         let hint = self.raster_scale <= 1.01;
         let db = self.font_system.db();
@@ -564,7 +491,6 @@ impl FontPipeline {
     }
 
     pub(crate) fn try_cjk_outline_fallback(&mut self, ch: char) -> Option<GlyphInfo> {
-        // Check cache first — skip swash iteration for already-resolved CJK chars
         if let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch) {
             let result = self.glyph_information_from_font(cached_font_id, ch, cached_glyph_id);
             if result.is_some() {
@@ -591,7 +517,6 @@ impl FontPipeline {
             if self.glyph_source_is_outline_cached(*fallback_id, *fid) {
                 let result = self.glyph_information_from_font(*fallback_id, ch, *fid);
                 if result.is_some() {
-                    // Cache the successful CJK resolution
                     self.caches.cjk_glyph_cache.put(ch, (*fallback_id, *fid));
                     return result;
                 }
@@ -623,7 +548,6 @@ mod tests {
 
     #[test]
     fn cjk_candidate_liberation_mono() {
-        // Regular Latin font is also a valid CJK candidate (may have CJK glyphs)
         assert!(FontPipeline::is_cjk_candidate_family("liberation mono"));
     }
 
@@ -733,7 +657,6 @@ mod tests {
         assert!(!FontPipeline::is_emoji_candidate_family("noto symbols 2"));
     }
 
-    // ── Classification boundary: one name can only belong to ONE layer ──
     #[test]
     fn classification_disjoint() {
         let families = [
@@ -749,10 +672,8 @@ mod tests {
             let sym = FontPipeline::is_symbol_candidate_family(name);
             let nerd = FontPipeline::is_nerd_candidate_family(name);
             let emoji = FontPipeline::is_emoji_candidate_family(name);
-            // Nerd+emoji should be disjoint from CJK
             assert!(!(nerd && cjk), "{name} should not be both nerd and cjk");
             assert!(!(emoji && cjk), "{name} should not be both emoji and cjk");
-            // Symbol+emoji should be disjoint
             assert!(
                 !(sym && emoji),
                 "{name} should not be both symbol and emoji"
@@ -760,32 +681,29 @@ mod tests {
         }
     }
 
-    // ── Case sensitivity: family names from fontdb are lowercase ───────
+    // ── 大小写：fontdb 返回的族名均为小写 ──────────────────────────────
     #[test]
     fn case_sensitive_nerd() {
-        // fontdb returns lowercase names, so matching is case-sensitive
         assert!(!FontPipeline::is_nerd_candidate_family("Nerd"));
         assert!(FontPipeline::is_nerd_candidate_family("nerd"));
     }
 
-    // ── Empty / minimal strings ────────────────────────────────────────
+    // ── 空/极简字符串 ──────────────────────────────────────────────────
     #[test]
     fn empty_string_cjk_is_candidate() {
-        // Empty name contains none of the exclusion keywords, so it IS a CJK candidate
         assert!(FontPipeline::is_cjk_candidate_family(""));
     }
 
     #[test]
     fn empty_string_rejects_symbol_nerd_emoji() {
-        // Empty name has no matching keywords for other layers
         assert!(!FontPipeline::is_symbol_candidate_family(""));
         assert!(!FontPipeline::is_nerd_candidate_family(""));
         assert!(!FontPipeline::is_emoji_candidate_family(""));
     }
 }
 
-/// Map a system locale tag to the CJK variant token used for the
-/// locale boost (`sc`/`tc`/`jp`/`kr`, empty when not a CJK locale).
+/// 把系统 locale 标签映射为 locale 加成所用的 CJK 变体标记
+/// （`sc`/`tc`/`jp`/`kr`，非 CJK locale 为空）。
 fn locale_tag(system_locale: &str) -> &'static str {
     match system_locale {
         s if s.starts_with("zh-CN") || s.starts_with("zh-Hans") => "sc",
@@ -797,9 +715,8 @@ fn locale_tag(system_locale: &str) -> &'static str {
     }
 }
 
-/// Returns true when `family_name` contains `locale_tag` as a standalone token
-/// (split on non-alphanumeric). Prevents `misc` matching `sc` (`misc` contains
-/// the substring `sc` but not the token `sc`).
+/// `family_name` 是否以独立 token 形式包含 `locale_tag`（按非字母数字切分）；
+/// 避免 `misc` 误配 `sc`（含子串 `sc` 但非 token `sc`）。
 pub(crate) fn locale_token_match(family_name: &str, locale_tag: &str) -> bool {
     if locale_tag.is_empty() {
         return false;
@@ -809,11 +726,9 @@ pub(crate) fn locale_token_match(family_name: &str, locale_tag: &str) -> bool {
         .any(|token| token == locale_tag)
 }
 
-/// CJK fallback family priority (higher wins). Sans CJK families outrank
-/// serif CJK: serif renders as 宋体/SimSun-style, visually jarring next to a
-/// sans/mono terminal font (user report "中文显示为宋体" — both
-/// NotoSansCJK and NotoSerifCJK ship in /system/fonts and the old equal
-/// priority let load order pick Serif).
+/// CJK 回退族优先级（越高越优先）。无衬线 CJK 压过衬线：衬线在无衬线/等宽终端
+/// 字体旁呈现为宋体，观感突兀（用户反馈“中文显示为宋体”——NotoSansCJK 与
+/// NotoSerifCJK 同在 /system/fonts，原先同分让加载顺序选中了 Serif）。
 fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
     let is_locale_match = locale_token_match(family_name, locale_tag);
     let locale_boost: i16 = if is_locale_match { CJK_LOCALE_BONUS } else { 0 };
@@ -849,7 +764,6 @@ fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
 mod cjk_priority_tests {
     use super::*;
 
-    /// Sans CJK must outrank serif CJK regardless of locale (宋体 complaint).
     #[test]
     fn sans_cjk_outranks_serif_cjk() {
         assert!(
@@ -863,7 +777,7 @@ mod cjk_priority_tests {
 
     #[test]
     fn locale_token_boundary_misc_not_sc() {
-        // "misc" contains substring "sc" but not token "sc" — must NOT boost.
+        // `misc` 含子串 `sc` 但非 token `sc`，不得加成。
         assert!(!locale_token_match("misc", "sc"));
         assert!(!locale_token_match("misc symbols", "sc"));
         assert!(locale_token_match("noto sans cjk sc", "sc"));
@@ -873,7 +787,7 @@ mod cjk_priority_tests {
 
     #[test]
     fn serif_penalty_guards_vector_vs_bitmap() {
-        // Worst Sans (bitmap) = 5-20 = -15; best Serif (vector) = 5-32+10 = -17 → Sans still wins.
+        // Sans 最差（bitmap）= 5-20 = -15；Serif 最好（vector）= 5-32+10 = -17 → Sans 仍胜。
         let sans_bitmap = cjk_family_priority("noto sans cjk", "") - CJK_BITMAP_PENALTY as i16;
         let serif_vector = cjk_family_priority("noto serif cjk", "") + OUTLINE_BONUS as i16;
         assert!(
@@ -882,7 +796,6 @@ mod cjk_priority_tests {
         );
     }
 
-    /// Locale-matching families get the boost on top of their base priority.
     #[test]
     fn locale_boost_applies() {
         assert!(
@@ -891,7 +804,6 @@ mod cjk_priority_tests {
         );
     }
 
-    /// Unknown CJK-capable families still qualify at fallback priority.
     #[test]
     fn unknown_family_gets_fallback_priority() {
         assert_eq!(
@@ -901,7 +813,7 @@ mod cjk_priority_tests {
     }
 
     /// 全库扫描的排序分必须让 Sans 压过 Serif：en-US 下 CJK 层被跳过，
-    /// 中文只能靠 find_glyph_anywhere，数据库顺序不得决定字形归属。
+    /// 中文只能靠 `find_glyph_anywhere`。
     #[test]
     fn anywhere_scan_score_prefers_sans_over_serif() {
         let score = |family: &str| {

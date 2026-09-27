@@ -1,42 +1,20 @@
-//! Platform-independent logcat chunking.
-//!
-//! Android logcat truncates any single log entry payload beyond ~4068
-//! bytes (LOGGER_ENTRY_MAX_PAYLOAD). Long messages must be split into
-//! chunks before being handed to `__android_log_write` (Rust) or
-//! `android.util.Log` (Kotlin), otherwise the tail is silently lost.
-//!
-//! Mirrors termux-kotlin's `Logger.logExtendedMessage` budget math:
-//! `maxEntrySize = 4068 - overhead - tagLen - 4`, where overhead is the
-//! logd per-entry header (32 bytes, measured on-device — the old 8-byte
-//! estimate let logd silently truncate chunks) and 4 bytes a safety
-//! margin. Continuation chunks carry a `(i/n)` prefix so logcat readers
-//! can reassemble.
-//!
-//! Kept free of Android imports so the exact same algorithm is unit
-//! testable on the host and shared with the Kotlin port.
+//! 与平台无关的 logcat 分块。
+//! logcat 单条载荷超约 4068 字节即被**静默**截断，长消息必须先分块，否则尾部丢失；
+//! 预算为 `4068 - 头部 - tagLen - 4`，续接块带 `(i/n)` 前缀供重组。
+//! 不引入 Android 依赖，使同一算法可在 host 上单元测试并与 Kotlin 端共享。
 
-/// Android logcat's per-entry payload cap (LOGGER_ENTRY_MAX_PAYLOAD).
+/// logcat 单条载荷上限（`LOGGER_ENTRY_MAX_PAYLOAD`）。
 pub const LOGGER_ENTRY_MAX_PAYLOAD: usize = 4068;
 
-/// Bytes reserved for the logd per-entry header (logger_entry struct +
-/// tag length field) that counts toward the 4068-byte entry limit.
+/// 计入 4068 字节上限的 logd 单条头部预留（`logger_entry` 结构 + tag 长度字段）。
 ///
-/// On-device measurement, emulator API 35): writing a
-/// 4036-byte payload with a 12-byte tag surfaces as a 4022-byte logcat
-/// line — the entry is truncated to `4068 - header - tag`. The old
-/// estimate of 8 bytes (logcat display prefix) was too small, so chunks
-/// at the computed budget were silently truncated by logd. 32 bytes is
-/// the logger_entry_v3/v4 header size; the display prefix (timestamp +
-/// pid + tid + level) is derived from the header and does not add to the
-/// stored entry.
+/// 32 字节是 `logger_entry_v3/v4` 头部大小。设备实测（API 35 模拟器）：12 字节 tag 配
+/// 4036 字节载荷时，logcat 只显示 4022 字节——条目被截为 `4068 - 头部 - tag`；
+/// 原先按 8 字节（logcat 显示前缀）估算偏小，logd 会静默截断按预算切出的块。
 const LOGGER_PREFIX_OVERHEAD: usize = 32;
 
-/// Safety margin below the hard cap, matching termux-kotlin's `- 4`.
 const LOGGER_SAFETY_MARGIN: usize = 4;
 
-/// Compute the maximum message payload that fits one logcat entry for a
-/// tag of `tag_len` bytes. Never returns below a usable floor so a very
-/// long tag cannot collapse the budget to zero.
 pub fn max_entry_size(tag_len: usize) -> usize {
     LOGGER_ENTRY_MAX_PAYLOAD
         .saturating_sub(LOGGER_PREFIX_OVERHEAD)
@@ -45,16 +23,11 @@ pub fn max_entry_size(tag_len: usize) -> usize {
         .max(64)
 }
 
-/// Split `message` into logcat-sized chunks, each no longer than
-/// `max_entry_size(tag.len())` bytes (UTF-8 aware — splits at char
-/// boundaries only). The first chunk carries the message unchanged; when
-/// more than one chunk is produced, each chunk after the first is prefixed
-/// with `(i/n)\n`. A chunk boundary prefers the last newline within the
-/// window so multi-line messages keep their lines intact where possible.
+/// 把 `message` 切成不超过 `max_entry_size(tag.len())` 字节的块（UTF-8 感知，
+/// 仅在字符边界切分）。首块原样输出；多于一块时其余块带 `(i/n)\n` 前缀。
+/// 切点优先取窗口内最后一个换行，使多行消息尽量保持整行。
 ///
-/// The prefix budget is dynamic: `(N/N)\n` exceeds 8 bytes once N >= 100,
-/// so the split re-runs with the real prefix length in that case
-/// audit fix, mirrored by the Kotlin port).
+/// 前缀预算是动态的：`N >= 100` 时 `(N/N)\n` 超过 8 字节，故用真实前缀长度重切。
 pub fn chunk_message(tag: &str, message: &str) -> Vec<String> {
     let budget = max_entry_size(tag.len());
     if message.len() <= budget {
@@ -64,9 +37,8 @@ pub fn chunk_message(tag: &str, message: &str) -> Vec<String> {
     let mut prefix_len = 8usize;
     let mut chunks = split_into_chunks(message, budget, prefix_len);
     if chunks.len() > 1 {
-        // Re-split until the "(N/N)\n" prefix length converges (it grows
-        // past 8 bytes once N >= 100; for absurdly large N it could grow
-        // again after re-splitting).
+        // 重切直到 `(N/N)\n` 前缀长度收敛（N >= 100 时超过 8 字节；极端大的 N
+        // 在重切后仍可能再变长）。
         while chunks.len() > 1 {
             let actual_prefix_len = format!("({}/{})\n", chunks.len(), chunks.len()).len();
             if actual_prefix_len <= prefix_len {
@@ -89,9 +61,6 @@ pub fn chunk_message(tag: &str, message: &str) -> Vec<String> {
     chunks
 }
 
-/// Split `message` into chunks whose UTF-8 byte length fits
-/// `budget - prefix_len`, preferring cuts at newlines and never splitting
-/// a multi-byte UTF-8 sequence.
 fn split_into_chunks(message: &str, budget: usize, prefix_len: usize) -> Vec<String> {
     let effective = budget.saturating_sub(prefix_len).max(16);
 
@@ -100,23 +69,19 @@ fn split_into_chunks(message: &str, budget: usize, prefix_len: usize) -> Vec<Str
     let bytes = message.as_bytes();
     while start < bytes.len() {
         let mut end = (start + effective).min(bytes.len());
-        // Back off to the last char boundary before `end` (never split a
-        // multi-byte UTF-8 sequence).
+        // 退到 `end` 之前最近的字符边界，绝不切开多字节序列。
         while end > start && !message.is_char_boundary(end) {
             end -= 1;
         }
         if end == start {
-            // Single multi-byte char longer than the budget (pathological):
-            // force include it so we make progress.
+            // 单个多字节字符超预算（异常情形）：强行纳入以保证推进。
             end = (start + 1).min(bytes.len());
             while end < bytes.len() && !message.is_char_boundary(end) {
                 end += 1;
             }
         }
-        // Prefer cutting at the last newline inside the window (but only
-        // when it leaves a non-empty first part and the remainder still
-        // fits a later chunk — keeps `git log --oneline` style lines
-        // together).
+        // 优先在窗口内最后一个换行处切分（仅当首段非空且余下部分仍能装入后续块，
+        // 以保持 `git log --oneline` 风格整行不被拆散）。
         if end < bytes.len()
             && let Some(last_nl) = message[start..end].rfind('\n')
         {
@@ -167,7 +132,6 @@ mod tests {
             "expected >=3 chunks, got {}",
             chunks.len()
         );
-        // Chunk 0 carries no prefix; others carry "(i/n)\n" (<= 8 bytes).
         assert!(chunks[0].len() <= budget);
         for chunk in &chunks[1..] {
             assert!(
@@ -176,7 +140,6 @@ mod tests {
                 chunk.len()
             );
         }
-        // Concatenated payload (minus prefixes) equals the original.
         let mut reassembled = chunks[0].clone();
         for (i, chunk) in chunks.iter().enumerate().skip(1) {
             let body = chunk
@@ -191,15 +154,13 @@ mod tests {
     fn utf8_multibyte_not_split() {
         let tag = "t";
         let budget = max_entry_size(tag.len());
-        // Each CJK char is 3 bytes; craft a message crossing the budget at
-        // a multi-byte boundary.
         let unit = "中";
         let count = budget / unit.len() + 2;
         let msg = unit.repeat(count);
         let chunks = chunk_message(tag, &msg);
         for chunk in &chunks {
             assert!(chunk.is_char_boundary(chunk.len()));
-            // Every chunk must consist of whole 3-byte chars.
+            // 每块都只由完整的 3 字节字符组成。
             assert_eq!(chunk.len() % unit.len(), 0);
         }
         let concat: String = chunks
@@ -223,8 +184,6 @@ mod tests {
         let tag = "t";
         let budget = max_entry_size(tag.len());
         let effective = budget - 8;
-        // Two lines where the first line ends just inside the effective
-        // window so the newline falls inside chunk 0's cut range.
         let line1 = "a".repeat(effective - 4);
         let msg = format!("{line1}\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         let chunks = chunk_message(tag, &msg);
@@ -238,15 +197,14 @@ mod tests {
 
     #[test]
     fn max_entry_size_floor() {
-        // A huge tag still yields a usable floor.
+        // 超长 tag 仍得到可用的下限。
         assert_eq!(max_entry_size(1_000_000), 64);
-        // Tag-less floor: 4068 payload − 32 prefix overhead − 4 safety margin.
+        // 无 tag 下限：4068 载荷 − 32 头部开销 − 4 安全余量。
         assert_eq!(max_entry_size(0), 4032);
     }
 
     #[test]
     fn emoji_surrogates_not_split_and_chunks_fit() {
-        // U+1F600 is 4 UTF-8 bytes; the split must never land inside it.
         let tag = "t";
         let budget = max_entry_size(tag.len());
         let msg = "😀".repeat(budget / 4 + 5);
@@ -262,7 +220,6 @@ mod tests {
                 "chunk {i} has {} bytes, budget {budget}",
                 chunk.len()
             );
-            // Re-encoding must round-trip (valid UTF-8, no lone surrogates).
             let decoded = String::from_utf8(chunk.as_bytes().to_vec()).expect("valid utf-8");
             assert_eq!(decoded, *chunk);
         }
@@ -270,8 +227,6 @@ mod tests {
 
     #[test]
     fn hundred_plus_chunks_keep_prefix_within_budget() {
-        // "(100/100)\n" is 10 bytes > the 8-byte estimate; the dynamic
-        // prefix re-split must keep every continuation chunk within budget.
         let tag = "t";
         let budget = max_entry_size(tag.len());
         let msg = "x".repeat((budget - 8) * 120);

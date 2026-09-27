@@ -1,43 +1,4 @@
-//! Session orchestrator — wires PTY reader, VT parser, and process waiter together.
-//!
-//! # Session Lifecycle
-//!
-//! ```text
-//!                     ┌─────────────┐
-//!                     │   Spawned   │
-//!                     └──────┬──────┘
-//!                            │ PTY created, threads started
-//!                            ▼
-//!                     ┌─────────────┐
-//!                     │   Running   │◄──────┐
-//!                     └──────┬──────┘       │ process_output()
-//!                            │              │
-//!              ┌─────────────┼─────────────┐│
-//!              │             │             ││
-//!              ▼             ▼             ││
-//!       ┌──────────┐  ┌──────────┐        ││
-//!       │  Paused  │  │   Idle   │────────┘│
-//!       └──────────┘  └──────────┘  output  │
-//!                            │             │
-//!                            │ EOF / exit  │
-//!                            ▼             │
-//!                     ┌─────────────┐      │
-//!                     │   Exited    │      │
-//!                     └──────┬──────┘      │
-//!                            │             │
-//!                            ▼             │
-//!                     ┌─────────────┐      │
-//!                     │   Cleaned   │──────┘
-//!                     └─────────────┘  cleanup_resources()
-//! ```
-//!
-//! # Requirements
-//! - [FR-009](crate) — Input: Ctrl-C, Ctrl-D, Ctrl-Z signal passthrough
-//! - [FR-027](crate) — Session: double-fork child with PID tracking
-//! - [FR-028](crate) — Process: exited callback
-//! - [FR-029](crate) — Scrollback: scroll up
-//! - [NFR-005](crate) — Session: zombie reaping
-//! - [NFR-024](crate) — Session: crash recovery
+//! 会话编排器：串接 PTY 读取、VT 解析与进程等待。
 use parking_lot::Mutex;
 use std::fs::File;
 use std::io::Read;
@@ -59,18 +20,16 @@ const READ_BUF_SIZE: usize = 8192;
 
 /// 拆卸会话时 SIGHUP 与 SIGKILL 之间的宽限期，同时作为读/等待线程的 join 超时。
 const TRAILING_EXIT_GRACE: Duration = Duration::from_millis(50);
-/// What the reader thread should do after a failed `read(2)` call.
+/// `read(2)` 失败后读取线程应采取的动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReaderErrorAction {
-    /// Retry the read — transient condition (EINTR), keep the loop alive.
+    /// 重试读取——瞬时条件（EINTR），保持循环存活。
     Retry,
-    /// Stop reading — the PTY is gone (EIO = slave side closed) or the
-    /// error is fatal.
+    /// 停止读取——PTY 已消失（EIO = 从端关闭）或错误致命。
     Stop,
 }
 
-/// Classifies a `read(2)` error into a retry/stop decision. Pure so the
-/// reader-loop branches are unit-testable without a real PTY.
+/// 把 `read(2)` 错误归类为重试/停止决策。纯函数，使读取循环分支无需真实 PTY 即可测试。
 fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
     match raw_os_error {
         Some(libc::EINTR) => ReaderErrorAction::Retry,
@@ -78,16 +37,15 @@ fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
     }
 }
 
-/// How long the reader thread parks in `poll` before re-checking the exit flag.
-/// Replaces the previous 2 ms busy-poll `sleep`, so output latency stays low
-/// while the thread no longer spins the CPU when the PTY is idle.
+/// 读取线程在 `poll` 中停驻多久后重新检查退出标志。改用 poll 后输出延迟依旧很低，
+/// 而 PTY 空闲时不再空转 CPU。
 const READ_POLL_TIMEOUT_MS: i32 = 100;
 
 /// 回滚行数固定值（与 Termux 默认 transcript-rows=2000 一致）。
 /// PROHIBITED 禁止「终端回滚行数」设置，因此既无产品入口也无 FFI 入参通道。
 pub(crate) const DEFAULT_SCROLLBACK_LINES: u32 = 2000;
 
-/// Errors that can occur during session operations.
+/// 会话操作期间可能出现的错误。
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error("pty error: {0}")]
@@ -104,104 +62,67 @@ pub enum SessionError {
     InvalidDimensions,
 }
 
-/// Result of a resize: whether the ghostty grid accepted the command.
-/// `Applied` — PTY and grid both resized. `Dropped` — PTY winsize changed
-/// but the grid command was dropped (channel full/wedged VT thread); the
-/// caller must not publish the new dims as authoritative.
+/// resize 结果：Ghostty 网格是否接受了命令。
+/// `Applied` = PTY 与网格都已缩放；`Dropped` = PTY winsize 已变但网格命令被丢弃
+/// （通道满 / VT 线程卡住），此时调用方不得把新尺寸作为权威值发布。
 pub enum ResizeOutcome {
     Applied,
     Dropped,
 }
 
 impl SessionError {
-    /// True when the underlying write failed with EAGAIN/EWOULDBLOCK —
-    /// i.e. the PTY buffer is full (child not reading) on a non-blocking
-    /// master. Callers drop the input in that case (xterm semantics)
-    /// instead of surfacing it as an error.
+    /// 底层写入以 EAGAIN/EWOULDBLOCK 失败时为真，即非阻塞主端的 PTY 缓冲区已满
+    /// （子进程未读取）。此时调用方按 xterm 语义丢弃该输入而非当作错误上报。
     pub fn is_would_block(&self) -> bool {
         matches!(self, SessionError::Io(e) if e.kind() == std::io::ErrorKind::WouldBlock)
     }
 }
 
-/// A terminal session — wires PTY reader, VT parser, and process waiter together.
+/// 终端会话：串接 PTY 读取、VT 解析与进程等待。
 ///
-/// # Lifecycle
-///
-/// ```text
-///                     ┌─────────────┐
-///                     │   Spawned   │
-///                     └──────┬──────┘
-///                            │ PTY created, threads started
-///                            ▼
-///                     ┌─────────────┐
-///                     │   Running   │◄──────┐
-///                     └──────┬──────┘       │ process_output()
-///                            │              │
-///              ┌─────────────┼─────────────┐│
-///              │             │             ││
-///              ▼             ▼             ││
-///       ┌──────────┐  ┌──────────┐        ││
-///       │  Paused  │  │   Idle   │────────┘│
-///       └──────────┘  └──────────┘  output  │
-///                            │             │
-///                            │ EOF / exit  │
-///                            ▼             │
-///                     ┌─────────────┐      │
-///                     │   Exited    │      │
-///                     └──────┬──────┘      │
-///                            │             │
-///                            ▼             │
-///                     ┌─────────────┐      │
-///                     │   Cleaned   │──────┘
-///                     └─────────────┘  cleanup_resources()
-/// ```
+/// 生命周期：`Spawned`（PTY 建立、线程启动）→ `Running` ⇄ `Idle`/`Paused`（有输出即回到
+/// `Running`）→ `Exited`（EOF/退出）→ `Cleaned`（`cleanup_resources`）。
 pub struct Session {
     pty: Box<dyn Pty>,
     terminal: GhosttyTerminal,
     output_processor: OutputProcessor,
     output_tx: flume::Sender<Vec<u8>>,
     output_rx: Receiver<Vec<u8>>,
-    // ── Event state (polled from Kotlin via push_event) ──────────────
+    // ── 事件状态（Kotlin 经 push_event 轮询） ────────────────────────
     exited: Arc<AtomicBool>,
-    /// Set once the Exit event for a background (non-active) session has
-    /// been pushed to the event queue, so the per-frame sweep in pollEvent
-    /// reports it exactly once.
+    /// 后台（非活跃）会话的 Exit 事件推入事件队列后置位，使 pollEvent 的逐帧扫描
+    /// 只上报一次。
     exit_reported: Arc<AtomicBool>,
     clipboard_text: Arc<Mutex<Option<String>>>,
     /// 待上报的 BEL 振铃（上游 on_bell 回调经通道推送，drain_callback_events 收割）。
     /// 瞬时提示：单帧多响合并为一，poll_bell 取走并清零（get-and-clear）。
     bell_pending: Mutex<bool>,
-    /// Pending OSC 52 clipboard read request: the requested selection name.
-    /// Consumed by the JNI layer (`poll_clipboard_read`), which forwards it
-    /// to the host app and writes the answer back via
-    /// [`Session::answer_clipboard_read`].
+    /// 待处理的 OSC 52 剪贴板读取请求：所请求的 selection 名。
+    /// 由 JNI 层（`poll_clipboard_read`）消费，转发给宿主应用后经
+    /// [`Session::answer_clipboard_read`] 写回应答。
     clipboard_read: Arc<Mutex<Option<String>>>,
 
-    // ── Thread lifecycle ─────────────────────────────────────────────
+    // ── 线程生命周期 ─────────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,
 
-    // ── Runtime state ────────────────────────────────────────────────
-    /// Exit code captured from waitpid, `None` while process runs.
+    // ── 运行态 ───────────────────────────────────────────────────────
+    /// 来自 waitpid 的退出码；进程运行中为 `None`。
     pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
-    /// child alive duration (ms, fork → waitpid), written by
-    /// the wait thread on exit. Carried in the Exit event payload
-    /// for diagnostics.
+    /// 子进程存活时长（毫秒，fork → waitpid），由等待线程在退出时写入，
+    /// 随 Exit 事件载荷作诊断用。
     pub(crate) exit_alive_ms: Arc<Mutex<Option<u64>>>,
-    /// fork timestamp, the start point for [Self::exit_alive_ms].
+    /// fork 时间戳，即 [Self::exit_alive_ms] 的起点。
     spawned_at: std::time::Instant,
 
-    // ── Cached grid size ─────────────────────────────────────────────
-    /// Last known terminal grid size, updated on spawn and successful
-    /// resize. Read lock-free by ffi::switch_session_inner to refresh the
-    /// cached grid dims WITHOUT a blocking query RPC on the VT
-    /// thread (a query inside the registry write lock would freeze every
-    /// session operation for up to 2×QUERY_TIMEOUT_MS).
+    // ── 缓存的网格尺寸 ───────────────────────────────────────────────
+    /// 最近已知的终端网格尺寸，spawn 与成功 resize 时更新。`ffi::switch_session_inner`
+    /// 无锁读取以刷新缓存的网格尺寸，**不**发起阻塞式查询 RPC（在注册表写锁内查询会让
+    /// 所有会话操作最多阻塞 2×`QUERY_TIMEOUT_MS`）。
     terminal_rows: AtomicU32,
     terminal_cols: AtomicU32,
-    /// Set when a grid resize command was dropped while the PTY was already
-    /// resized. Cleared on the next successful grid resize. Prevents the
-    /// size short-circuit from permanently masking the PTY/grid divergence
+    /// PTY 已缩放但网格 resize 命令被丢弃时置位，下次成功缩放网格后清除；
+    /// 避免尺寸短路永久掩盖 PTY/网格不一致。
     ///
     grid_dirty: AtomicBool,
 }
@@ -224,20 +145,15 @@ impl Default for ThemeConfig {
 }
 
 impl Session {
-    /// Create a session with an already-constructed PTY.
-    /// No reader/wait threads are spawned — the caller is responsible for
-    /// driving PTY I/O. Primarily used for testing with `MockPty`.
+    /// 以已构造的 PTY 创建会话，不启动读取/等待线程（PTY I/O 由调用方驱动），
+    /// 主要用于配合 `MockPty` 的测试。
     pub fn with_pty(pty: Box<dyn Pty>, rows: u32, cols: u32) -> Result<Self, SessionError> {
         Self::spawn_with_theme_inner(pty, rows, cols, ThemeConfig::default())
     }
 
-    /// Spawn a new session with the default Catppuccin Mocha theme.
-    ///
-    /// `cwd` optionally overrides the child's initial working directory
-    /// (termux `createSubprocess(workingDirectory)` semantics). `None`
-    /// keeps the legacy behavior: chdir to `env.working_directory`. A cwd
-    /// that is missing or not a directory is logged to stderr by the child
-    /// but does not fail spawn (matches shell behavior).
+    /// 以默认 Catppuccin Mocha 主题创建会话。`cwd` 可选，覆盖子进程初始工作目录；
+    /// `None` 则 chdir 到 `env.working_directory`。cwd 不存在或非目录时由子进程记 stderr
+    /// 但不使启动失败（与 shell 行为一致）。
     pub fn spawn(
         shell: &str,
         rows: u32,
@@ -248,7 +164,6 @@ impl Session {
         Self::spawn_with_theme(shell, rows, cols, env, cwd, ThemeConfig::default())
     }
 
-    /// Spawn a new session with a custom theme and scrollback buffer size.
     pub fn spawn_with_theme(
         shell: &str,
         rows: u32,
@@ -258,9 +173,8 @@ impl Session {
         theme: ThemeConfig,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}, cwd={cwd:?}");
-        // Reject out-of-range dimensions up front (mirrors resize's
-        // InvalidDimensions check): `as u16` below would silently truncate
-        // and the cached grid_size would then disagree with the PTY.
+        // 预先拒绝越界尺寸（对齐 `resize` 的 `InvalidDimensions` 检查）：下方的
+        // `as u16` 会静默截断，导致缓存的 grid_size 与 PTY 不一致。
         if !(u16::try_from(rows).is_ok() && u16::try_from(cols).is_ok()) {
             return Err(SessionError::InvalidDimensions);
         }
@@ -283,9 +197,8 @@ impl Session {
         }
 
         log::info!("Session::spawn: cloning master fd for reader");
-        // Safe: the dup happens inside `try_clone_reader_fd` (in pty.rs, where
-        // `unsafe` is permitted). The result is an owned, safe handle we read
-        // through a `std::fs::File`, so no `unsafe` block is needed here.
+        // 安全：dup 发生在 `try_clone_reader_fd` 内部（位于允许 `unsafe` 的 pty.rs）。
+        // 返回的是自有安全句柄，经 `std::fs::File` 读取，此处无需 `unsafe` 块。
         let reader_fd = pty.try_clone_reader_fd().map_err(SessionError::Io)?;
         let mut read_file = File::from(reader_fd);
 
@@ -295,7 +208,7 @@ impl Session {
             match Self::spawn_with_theme_inner(Box::new(pty) as Box<dyn Pty>, rows, cols, theme) {
                 Ok(session) => session,
                 Err(e) => {
-                    // `read_file` is dropped here, closing its fd safely.
+                    // `read_file` 在此被丢弃，其 fd 随之安全关闭。
                     return Err(e);
                 }
             };
@@ -318,11 +231,10 @@ impl Session {
                     events: libc::POLLIN,
                     revents: 0,
                 };
-                // SAFETY: `poll` is a POSIX syscall; `poll_fd` is a valid, initialized
-                // `pollfd` whose `fd` is the live reader fd owned by `read_file`.
-                // `poll` only reads these inputs and writes `revents` back. This is
-                // the sole `unsafe` remaining in the reader and does not bypass the
-                // `Pty` abstraction (the fd was obtained via `try_clone_reader_fd`).
+                // SAFETY: `poll` 是 POSIX 系统调用；`poll_fd` 是有效且已初始化的
+                // `pollfd`，其 `fd` 是 `read_file` 持有的存活读取 fd。`poll` 只读这些
+                // 输入并回写 `revents`。这是读取线程中仅剩的 `unsafe`，且未绕过
+                // `Pty` 抽象（fd 由 `try_clone_reader_fd` 取得）。
                 let poll_result = unsafe {
                     libc::poll(&mut poll_fd as *mut libc::pollfd, 1, READ_POLL_TIMEOUT_MS)
                 };
@@ -342,8 +254,7 @@ impl Session {
                         break;
                     }
                     Ok(bytes_read) => {
-                        // NUL stripping: remove 0x00 bytes before VT parsing.
-                        // Reference: ghostty-android strips NUL to avoid APC-NUL rendering artifacts.
+                        // NUL 剥离：VT 解析前剔除 0x00 字节，避免 APC-NUL 渲染伪影。
                         let mut data = read_buf[..bytes_read].to_vec();
                         if data.contains(&0) {
                             data.retain(|&b| b != 0);
@@ -367,7 +278,7 @@ impl Session {
                     },
                 }
             }
-            // `read_file` (and its fd) is dropped here, closing it safely.
+            // `read_file`（及其 fd）在此被丢弃，随之安全关闭。
         });
 
         let exit_code = session.exit_code.clone();
@@ -377,17 +288,14 @@ impl Session {
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
-            // record the child's real lifetime (fork → waitpid)
-            // for the Exit event diagnostics payload.
+            // 记录子进程真实存活时长（fork → waitpid）供 Exit 事件诊断载荷使用。
             *exit_alive_ms.lock() = Some(spawned_at.elapsed().as_millis() as u64);
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
                 && code >= 100
             {
-                // codes >= 100 MAY encode execve errno + 100 (our child writes
-                // "execve failed: errno=" to the PTY first — that marker is
-                // authoritative). Shells also exit 126/127 conventionally
-                // (e.g. a launcher script whose inner exec was denied), so a
-                // code like 126 without the PTY marker is NOT an execve failure.
+                // 退出码 >= 100 可能编码了 execve 的 errno + 100（本仓子进程会先向 PTY
+                // 写 “execve failed: errno=”，该标记才权威）。Shell 也按惯例退出
+                // 126/127（如启动器脚本内部 exec 被拒），故无 PTY 标记的 126 并非 execve 失败。
                 log::error!(
                     "wait thread: child exited with code {code} (possible execve errno={}; see PTY output for the authoritative marker)",
                     code - 100
@@ -398,9 +306,8 @@ impl Session {
                 Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => {
                     *exit_code.lock() = Some(code);
                 }
-                // Shell killed by a signal (Ctrl+\, kill -9): report the
-                // conventional 128 + signal code so the UI does not present
-                // a signal death as a clean exit code 0.
+                // Shell 被信号杀死（Ctrl+\、kill -9）：上报惯例的 128 + 信号码，
+                // 避免 UI 把信号死亡当成干净的退出码 0。
                 Ok(nix::sys::wait::WaitStatus::Signaled(_, signal, _)) => {
                     *exit_code.lock() = Some(128 + signal as i32);
                 }
@@ -427,7 +334,7 @@ impl Session {
         let clipboard_text = Arc::new(Mutex::new(None));
         let clipboard_read = Arc::new(Mutex::new(None));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
-        // Tee channel: secondary consumer for raw PTY output (logging, tracing).
+        // 管道分支：原始 PTY 输出的次要消费者（日志、追踪）。
 
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
@@ -461,7 +368,6 @@ impl Session {
         })
     }
 
-    /// Write raw bytes to the PTY (keyboard input, paste).
     pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
         if self.is_exited() {
             return Err(SessionError::Closed);
@@ -470,29 +376,22 @@ impl Session {
         Ok(())
     }
 
-    /// Resize the terminal to the given number of rows and columns.
-    /// Rejects dimensions outside the u16 range of the PTY ioctl.
-    ///
-    /// Returns the outcome: when the grid command was dropped the PTY
-    /// winsize is still updated (ioctl already succeeded) but the caller
-    /// must not publish the new dims as authoritative.
+    /// 把终端缩放到给定行列数，超出 PTY ioctl 的 u16 范围时拒绝。网格命令被丢弃时
+    /// PTY winsize 仍已更新（ioctl 已成功），但调用方不得把新尺寸作为权威值发布。
     pub fn resize(&mut self, rows: u32, cols: u32) -> Result<ResizeOutcome, SessionError> {
         let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
             return Err(SessionError::InvalidDimensions);
         };
-        // Short-circuit identical sizes UNLESS a previous grid resize was
-        // dropped: the cached size then no longer matches the grid, so the
-        // same dims must be re-sent to heal the divergence.
+        // 相同尺寸直接短路，**除非**上一次网格 resize 被丢弃——此时缓存尺寸已与网格
+        // 不符，必须重发相同尺寸以修复分歧。
         let dirty = self.grid_dirty.load(Ordering::Acquire);
         if !dirty && (rows as u32, cols as u32) == self.grid_size() {
             return Ok(ResizeOutcome::Applied);
         }
         self.pty.resize(rows, cols)?;
         if !self.terminal.resize(rows as u32, cols as u32) {
-            // PTY winsize changed but the ghostty grid did not (command
-            // dropped). Cache keeps the OLD size and grid_dirty is set so
-            // the next resize event (even with identical dims) retries
-            // instead of short-circuiting /113).
+            // PTY winsize 已变但 Ghostty 网格未变（命令被丢弃）。缓存保留旧尺寸并置
+            // `grid_dirty`，使下次 resize 事件（即使尺寸相同）重试而非短路。
             self.grid_dirty.store(true, Ordering::Release);
             log::warn!(
                 "session: ghostty grid resize to {rows}x{cols} dropped; PTY updated, grid lags — retry on next resize"
@@ -505,12 +404,9 @@ impl Session {
         Ok(ResizeOutcome::Applied)
     }
 
-    /// Update the PTY winsize pixel fields (`ws_xpixel`/`ws_ypixel`) via
-    /// TIOCSWINSZ, preserving the current rows/cols. ghostty-android
-    /// `pty_jni.c:84-87`: pixel-aware programs (`icat`, fullscreen TUIs)
-    /// read the pixel size from TIOCGWINSZ and fall back to a wrong default
-    /// cell size when it is 0. The cached rows/cols are preserved because
-    /// TIOCSWINSZ replaces the whole struct (see `Pty::set_pixel_size`).
+    /// 经 TIOCSWINSZ 更新 PTY winsize 的像素字段（`ws_xpixel`/`ws_ypixel`）并保留当前行列。
+    /// 像素感知的程序（`icat`、全屏 TUI）从 TIOCGWINSZ 读像素尺寸，为 0 时会回退到错误的
+    /// 默认单元格尺寸。行列必须保留，因为 TIOCSWINSZ 会替换整个结构体。
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), SessionError> {
         self.pty.set_pixel_size(width, height)?;
         // 同步单元格像素几何到终端（Kitty 放置几何依赖它；失败仅日志，不阻断 PTY）。
@@ -528,9 +424,8 @@ impl Session {
         self.terminal.reset();
     }
 
-    /// Lock-free read of the last known grid size (spawn/resize). Never
-    /// blocks: the VT thread's authoritative size is only reachable via a
-    /// query RPC, which callers holding the registry write lock must avoid.
+    /// 无锁读取最近已知的网格尺寸（spawn/resize 时更新）。绝不阻塞：VT 线程的权威尺寸
+    /// 只能经查询 RPC 获得，而持有注册表写锁的调用方必须避开它。
     pub fn grid_size(&self) -> (u32, u32) {
         (
             self.terminal_rows.load(Ordering::Acquire),
@@ -538,18 +433,17 @@ impl Session {
         )
     }
 
-    /// Send a POSIX signal (by number) to the child process backing this session.
-    /// 供外部控制器调用，向存活 Shell 发送中断/终止信号。
+    /// 向本会话子进程发送 POSIX 信号（按编号），供外部控制器向存活 Shell 发送中断/终止信号。
     pub fn send_signal(&self, signum: i32) -> Result<(), SessionError> {
         let signal = nix::sys::signal::Signal::try_from(signum)
             .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
         let child = self.pty.child_pid();
-        // Kill the foreground process group first (zed-port pattern: pty_info.rs:29-53).
+        // 先杀前台进程组。
         if let Some(foreground_pid) = self.pty.foreground_pid() {
             let foreground_raw = foreground_pid.as_raw() as libc::pid_t;
             if foreground_raw > 1 {
                 let pgid = -foreground_raw;
-                // SAFETY: killpg sends signal to a process group.
+                // SAFETY: `killpg` 向进程组发送信号；`pgid` 取自存活的前台进程组。
                 let result = unsafe { libc::kill(pgid, signal as i32) };
                 if result == 0 {
                     return Ok(());
@@ -560,8 +454,8 @@ impl Session {
                 );
             }
         }
-        // Fall back to direct child kill
-        // SAFETY: `child` 为存活子进程 pid，仅发送已校验 `Signal`。
+        // 回退为直接杀子进程
+        // SAFETY: `child` 为存活子进程 pid，仅发送已校验的 `Signal`。
         let result = unsafe { libc::kill(child.as_raw() as libc::pid_t, signal as i32) };
         if result == 0 {
             Ok(())
@@ -574,19 +468,15 @@ impl Session {
         }
     }
 
-    /// Maximum chunks of VT output processed per session frame, bounding
-    /// render-thread latency when the PTY floods output.
+    /// 每会话帧处理的最大 VT 输出块数，用于 PTY 输出洪水时限制渲染线程延迟。
     const MAX_CHUNKS_PER_FRAME: u32 = 10;
 
-    /// Timeout for the DECSET 1004 mode query inside [`Self::focus_event`].
-    /// focus_event runs on the UI thread (window focus change), so the
-    /// query must fail fast when the VT thread is wedged instead of
-    /// stalling the UI for the full query timeout.
+    /// [`Self::focus_event`] 中 DECSET 1004 模式查询的超时。`focus_event` 运行在 UI
+    /// 线程（窗口焦点变化），故 VT 线程卡住时必须快速失败而非按完整查询超时拖住 UI。
     const FOCUS_MODE_QUERY_TIMEOUT_MS: u64 = 50;
 
-    /// Process terminal output from the PTY reader thread.
-    /// Reads VT output, updates terminal state, and drains write-back responses.
-    /// Returns true if any VT data was processed.
+    /// 处理来自 PTY 读取线程的终端输出：读取 VT 输出、更新终端状态并排空回写应答。
+    /// 处理过任何 VT 数据时返回 true。
     pub(crate) fn poll_pty_output(&mut self, max_chunks: u32) -> bool {
         let mut count = 0u32;
         while let Ok(data) = self.output_rx.try_recv() {
@@ -597,10 +487,8 @@ impl Session {
             }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
-            // Cap per-frame processing to avoid one render call blocking
-            // the session lock for too long. Remaining chunks are processed
-            // on the next render frame at no correctness cost — the VT thread
-            // processes commands in FIFO order.
+            // 限制每帧处理量，避免单次渲染调用长时间持有会话锁。剩余块在下一渲染帧处理，
+            // 无正确性代价——VT 线程按 FIFO 处理命令。
             if count >= max_chunks {
                 log::trace!(
                     "poll_pty_output: hit cap of {} chunks, {} remain",
@@ -609,9 +497,8 @@ impl Session {
                 );
                 self.terminal.flush();
                 self.drain_callback_events();
-                // Drain write-back responses even on the cap path: a flood
-                // of output must not starve DECRPM/DSR/DA replies (the
-                // child application would wait for them indefinitely).
+                // 即使走到封顶路径也排空回写应答：输出洪水不得饿死 DECRPM/DSR/DA 应答，
+                // 否则子应用会无限期等待。
                 self.drain_pty_write_back();
                 return true;
             }
@@ -627,8 +514,7 @@ impl Session {
         }
     }
 
-    /// Write back any pending VT responses (DECRPM, DSR, DA, …) to the
-    /// child PTY. The VT engine buffers them; the child waits for them.
+    /// 把待处理的 VT 应答（DECRPM、DSR、DA 等）回写到子 PTY。VT 引擎负责缓冲，子进程在等它们。
     fn drain_pty_write_back(&mut self) {
         for response in self.terminal.drain_pty_write_responses() {
             log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
@@ -642,22 +528,19 @@ impl Session {
         }
     }
 
-    /// Process all available output and user input for this frame.
-    ///
-    /// Returns `true` if any VT output was processed (caller should
-    /// rebuild the display snapshot).
+    /// 处理本帧所有可用输出与用户输入；处理过任何 VT 输出时返回 `true`
+    /// （调用方应重建显示快照）。
     pub fn process_output(&mut self) -> bool {
         self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
-    /// Take and clear the P1-1 `new_output` flag (see docs/specification/REFERENCE.md). Raised by the PTY ingest path
-    /// ([`OutputProcessor::process`]); the render thread is the single
-    /// read-clear consumer. Independent from the P2-1 `dirty` flag.
+    /// 读取并清除 `new_output` 标志（见 docs/specification/REFERENCE.md）。由 PTY 摄入
+    /// 路径置位，渲染线程是唯一的读清消费者；与 `dirty` 标志相互独立。
     pub fn take_new_output(&self) -> bool {
         self.output_processor.take_new_output()
     }
 
-    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入/BEL 振铃）到锁存槽。
+    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入 / BEL 振铃）到锁存槽。
     /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
     fn drain_callback_events(&self) {
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
@@ -674,25 +557,21 @@ impl Session {
         std::mem::replace(&mut *guard, false)
     }
 
-    /// Poll for clipboard text set by an OSC 52 escape sequence.
+    /// 轮询 OSC 52 转义序列写入的剪贴板文本。
     pub fn poll_clipboard(&self) -> Option<String> {
         let mut guard = self.clipboard_text.lock();
         guard.take()
     }
 
-    /// Take the pending OSC 52 clipboard read request (the selection name),
-    /// if any. The JNI layer forwards it to the host app and calls
-    /// [`Session::answer_clipboard_read`] with the result.
+    /// 取走待处理的 OSC 52 剪贴板读取请求（selection 名）。
+    /// JNI 层将其转发给宿主应用，并经 [`Session::answer_clipboard_read`] 回传结果。
     pub fn poll_clipboard_read(&self) -> Option<String> {
         let mut guard = self.clipboard_read.lock();
         guard.take()
     }
 
-    /// Answer a pending OSC 52 clipboard read request by writing
-    /// `ESC ] 52 ; <selection> ; <base64> ESC \\` to the PTY (FR-036).
-    ///
-    /// An empty selection string (`c` is the conventional default) is
-    /// answered verbatim; the application decides what it means.
+    /// 向 PTY 写入 `ESC ] 52 ; <selection> ; <base64> ESC \\` 应答待处理的 OSC 52
+    /// 剪贴板读取请求。selection 为空串（惯例默认 `c`）时原样应答，含义由应用自行解释。
     pub fn answer_clipboard_read(
         &mut self,
         selection: &str,
@@ -713,42 +592,35 @@ impl Session {
         Ok(())
     }
 
-    /// Returns true if the child process has exited.
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::Acquire)
     }
 
-    /// Read the child's exit code if the wait thread already wrote it.
-    /// Non-blocking: callers that need to wait for the code poll this in a
-    /// loop WITHOUT holding the session lock (see ffi::wait_exit_code).
+    /// 读取子进程退出码（若等待线程已写入）。
+    /// 非阻塞：需要等待退出码的调用方在**不**持有会话锁的前提下轮询（见 `ffi::wait_exit_code`）。
     pub fn exit_code_now(&self) -> Option<i32> {
         let guard = self.exit_code.lock();
         *guard
     }
 
-    /// Get a clone of the exit flag for external monitoring.
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
         self.exited.clone()
     }
 
-    /// Atomically mark the exit event as reported to the Kotlin side.
-    /// Returns true only for the first caller — the per-frame background
-    /// sweep in pollEvent uses this to report each exit exactly once.
+    /// 原子地标记退出事件已上报给 Kotlin 侧，仅首个调用者返回 true——pollEvent 的
+    /// 逐帧后台扫描据此保证每次退出只上报一次。
     pub fn mark_exit_reported(&self) -> bool {
         !self.exit_reported.swap(true, Ordering::AcqRel)
     }
 
-    /// Get a reference to the terminal engine.
     pub fn terminal(&self) -> &GhosttyTerminal {
         &self.terminal
     }
 
-    /// Get a mutable reference to the terminal engine.
     pub fn terminal_mut(&mut self) -> &mut GhosttyTerminal {
         &mut self.terminal
     }
 
-    /// Get the current window title set by the shell.
     pub fn title(&self) -> String {
         self.terminal.title()
     }
@@ -758,14 +630,10 @@ impl Session {
     }
 
     pub fn focus_event(&mut self, focused: bool) {
-        // DECSET 1004 focus reporting: the sequence must go DIRECTLY to the
-        // child PTY, not into the VT engine. The engine's output-stream
-        // parser interprets `CSI I` as CHT (cursor horizontal tab) and
-        // `CSI O` as an invalid CSI — feeding them to the engine moves the
-        // cursor to the next tab stop instead of notifying the application.
-        // Only send when the child actually enabled 1004 (xterm semantics).
-        // Short timeout: this runs on the UI thread (window focus change);
-        // a wedged VT thread must not stall it for the full query timeout.
+        // DECSET 1004 焦点上报：序列必须**直接**写入子 PTY 而非进入 VT 引擎——引擎的
+        // 输出流解析器把 `CSI I` 当作 CHT（光标水平制表）、`CSI O` 当作非法 CSI，送入
+        // 引擎只会把光标移到下一个制表位而非通知应用。仅当子进程确实启用了 1004 时才发送
+        // （xterm 语义）。超时很短：本调用在 UI 线程运行，VT 线程卡住时不得拖满查询超时。
         if !self.terminal.mode_get_with_timeout(
             1004,
             0,
@@ -780,13 +648,10 @@ impl Session {
     }
 }
 
-/// Join a thread handle with a deadline timeout, then retry up to 3×.
+/// 带截止超时地 join 线程句柄，最多重试 3 次。
 ///
-/// If the initial `timeout` expires, we retry the join with 100ms deadlines
-/// for up to 3 additional attempts. This handles the case where the thread
-/// is blocked on I/O that may need multiple signals to unblock.
-/// If all retries fail, we detach (handle dropped) and log an error — the
-/// thread's resources are leaked (fd, memory).
+/// 初次超时后以 100ms 截止再尝试 3 次，以应对线程阻塞在需要多个信号才能唤醒的 I/O 上。
+/// 全部失败则分离（丢弃句柄）并记错误——该线程的资源（fd、内存）会泄漏。
 fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: Duration) {
     let Some(handle) = handle.take() else {
         return;
@@ -815,7 +680,7 @@ fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: 
         }
     }
     log::error!("session: thread failed to exit after retries — DETACHING (resource leak)");
-    // handle is dropped here → detached
+    // 句柄在此被丢弃 → 分离
 }
 
 impl Drop for Session {
@@ -823,13 +688,12 @@ impl Drop for Session {
         self.exited.store(true, Ordering::Release);
         let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
-            // 优先组杀：kill(-pgid) 把信号发给整个前台进程组（参考 zed-port
-            // pty_info.rs:29-53），使 shell 的子进程（管道、前台组内的后台作业）
-            // 一并退出。
+            // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
+            // （管道、前台组内的后台作业）一并退出。
             if let Ok(pgid) = nix::unistd::getpgid(Some(pid)) {
                 let pgid_raw = pgid.as_raw();
-                // 自杀 guard：子进程 fork 后 setsid 前与本进程同组，
-                // 组杀会连带杀死本进程（设备实证 SIGKILL 自杀），退化为直杀子进程。
+                // 自杀 guard：子进程 fork 后在 setsid 前与本进程同组，组杀会连带杀死
+                // 本进程（设备实证 SIGKILL 自杀），故退化为直杀子进程。
                 let own_pgid = nix::unistd::getpgid(None)
                     .map(|group| group.as_raw())
                     .unwrap_or(-1);
@@ -854,7 +718,7 @@ impl Drop for Session {
                     return;
                 }
             }
-            // 退化路径：getpgid 失败或 pgid <= 0 时直杀子进程。
+            // 退化路径：`getpgid` 失败或 pgid <= 0 时直杀子进程。
             deliver_signal(pid, nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
             deliver_signal(pid, nix::sys::signal::Signal::SIGCONT, "SIGCONT to child");
             std::thread::sleep(TRAILING_EXIT_GRACE);
@@ -900,12 +764,12 @@ mod tests {
         }
     }
 
-    /// Spawn a 24x80 /bin/sh session for tests.
+    /// 为测试创建 24x80 的 `/bin/sh` 会话。
     fn spawn_test_session() -> Session {
         Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed")
     }
 
-    /// Spawn a shell, send `exit`, and wait until the session reports exit.
+    /// 启动 shell、发送 `exit` 并等待会话报告退出。
     fn spawn_and_exit() -> Session {
         let mut session = spawn_test_session();
         session.write(b"exit\n").expect("write failed");
@@ -959,23 +823,22 @@ mod tests {
         let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         let before = handle.resize_count();
-        // Clean state: same-size resize short-circuits and reports Applied.
+        // 干净状态：同尺寸 resize 短路并报告 Applied。
         let outcome = session.resize(24, 80).expect("resize failed");
         assert!(matches!(outcome, ResizeOutcome::Applied));
         assert!(!session.grid_dirty.load(Ordering::Acquire));
-        // The PTY must be untouched by the short-circuit.
+        // 短路不得改动 PTY。
         assert_eq!(
             handle.resize_count(),
             before,
             "pty.resize must not be called"
         );
-        // Grid unchanged (still the spawn size).
+        // 网格未变（仍是 spawn 时的尺寸）。
         assert_eq!(session.grid_size(), (24, 80));
         assert_eq!(session.terminal().rows(), 24);
     }
 
-    /// OSC 52 read answer is written back to the PTY as
-    /// `ESC ] 52 ; <selection> ; <base64> BEL` (FR-036).
+    /// OSC 52 读取应答以 `ESC ] 52 ; <selection> ; <base64> BEL` 写回 PTY。
     #[test]
     fn answer_clipboard_read_writes_esc52_reply() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
@@ -991,8 +854,7 @@ mod tests {
         );
     }
 
-    /// An empty clipboard answer still produces a valid (empty payload)
-    /// OSC 52 reply — the xterm-compatible "empty clipboard" response.
+    /// 剪贴板应答为空时仍产生合法（空载荷）的 OSC 52 回复，即兼容 xterm 的“空剪贴板”响应。
     #[test]
     fn answer_clipboard_read_empty_text() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
@@ -1004,7 +866,7 @@ mod tests {
         assert_eq!(handle.written(), b"\x1b]52;c;\x07");
     }
 
-    /// Writing an answer after the session exited must fail cleanly.
+    /// 会话退出后写应答必须干净失败。
     #[test]
     fn answer_clipboard_read_after_exit_fails() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
@@ -1019,10 +881,9 @@ mod tests {
     #[test]
     fn session_resize_dirty_same_size_still_retries() {
         let mut session = spawn_test_session();
-        // Simulate a dropped grid command: dirty set, cache at old size.
+        // 模拟网格命令被丢弃：置脏标志，缓存保持旧尺寸。
         session.grid_dirty.store(true, Ordering::Release);
-        // Same-size resize must NOT short-circuit: it re-issues the ioctl +
-        // grid command and clears the dirty flag (heals the divergence).
+        // 同尺寸 resize 不得短路：须重发 ioctl 与网格命令并清除脏标志（修复分歧）。
         let outcome = session.resize(24, 80).expect("resize failed");
         assert!(matches!(outcome, ResizeOutcome::Applied));
         assert!(!session.grid_dirty.load(Ordering::Acquire));
@@ -1033,7 +894,7 @@ mod tests {
     fn session_resize_dirty_cleared_on_success() {
         let mut session = spawn_test_session();
         session.grid_dirty.store(true, Ordering::Release);
-        // A genuinely different size clears the dirty flag on success.
+        // 真正不同的尺寸在成功后清除脏标志。
         let outcome = session.resize(40, 120).expect("resize failed");
         assert!(matches!(outcome, ResizeOutcome::Applied));
         assert!(!session.grid_dirty.load(Ordering::Acquire));
@@ -1109,11 +970,9 @@ mod tests {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
-        // Exactly one caller must win the report race; every other caller
-        // (concurrent pollEvent threads) must see false so the Exit event
-        // is never duplicated. Arc<Mutex<...>> mirrors the production
-        // SESSION_REGISTRY shape (Box<dyn Pty> is not Sync, so the session
-        // must be shared through a mutex).
+        // 上报竞态中只能有一个调用者胜出；其余（并发的 pollEvent 线程）都须看到 false，
+        // 使 Exit 事件永不重复。`Arc<Mutex<..>>` 镜像生产 SESSION_REGISTRY 的形状
+        // （`Box<dyn Pty>` 非 Sync，故会话须经互斥锁共享）。
         let session = std::sync::Arc::new(parking_lot::Mutex::new(session));
         let mut handles = Vec::new();
         for _ in 0..8 {
@@ -1128,7 +987,7 @@ mod tests {
             .filter(|won| *won)
             .count();
         assert_eq!(winners, 1, "exactly one caller must report the exit");
-        // Subsequent calls stay false.
+        // 后续调用保持 false。
         assert!(!session.lock().mark_exit_reported());
     }
 
@@ -1145,7 +1004,7 @@ mod tests {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
-        // Mode 2004 (bracketed paste) should be off by default
+        // 模式 2004（bracketed paste）默认应关闭。
         assert!(!session.mode_get(2004, 0));
     }
 
@@ -1154,7 +1013,7 @@ mod tests {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
-        // focus_event writes CSI sequences to terminal; should not panic
+        // `focus_event` 向终端写 CSI 序列，不应 panic。
         session.focus_event(true);
         session.focus_event(false);
     }
@@ -1167,7 +1026,7 @@ mod tests {
         assert!(!session.is_exited(), "fresh session must not be exited");
         let flag = session.exited_flag();
         assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
-        // Mark exited and verify
+        // 标记已退出并验证。
         handle.set_exited();
         assert!(handle.is_exited());
     }
@@ -1177,7 +1036,7 @@ mod tests {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
-        // Set the session's exited flag so write() checks it before calling the PTY
+        // 置会话的退出标志，使 `write()` 在调用 PTY 前先检查它。
         session.exited_flag().store(true, Ordering::Release);
         let result = session.write(b"test");
         assert!(
@@ -1188,14 +1047,14 @@ mod tests {
 
     #[test]
     fn read_error_action_classifies_errno() {
-        // EINTR is transient and must keep the reader loop alive.
+        // EINTR 是瞬时错误，必须保持读取循环存活。
         assert_eq!(
             read_error_action(Some(libc::EINTR)),
             ReaderErrorAction::Retry
         );
-        // EIO means the PTY slave closed (EOF on Linux PTYs) — stop.
+        // EIO 表示 PTY 从端已关闭（Linux PTY 上的 EOF）——停止。
         assert_eq!(read_error_action(Some(libc::EIO)), ReaderErrorAction::Stop);
-        // Any other errno (or none) also stops the reader.
+        // 其他 errno（或无 errno）同样停止读取。
         assert_eq!(
             read_error_action(Some(libc::EPIPE)),
             ReaderErrorAction::Stop

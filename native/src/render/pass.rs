@@ -46,6 +46,22 @@ fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
     WORKER_TX.get_or_init(spawn_acquire_worker)
 }
 
+/// 单颜色附件：整帧写入 `load` 指定的内容后保留。
+fn store_attachment(
+    view: &wgpu::TextureView,
+    load: wgpu::LoadOp<wgpu::Color>,
+) -> [Option<wgpu::RenderPassColorAttachment<'_>>; 1] {
+    [Some(wgpu::RenderPassColorAttachment {
+        view,
+        resolve_target: None,
+        ops: wgpu::Operations {
+            load,
+            store: wgpu::StoreOp::Store,
+        },
+        depth_slice: None,
+    })]
+}
+
 impl Renderer {
     /// Present one background-colored frame immediately (启动黑屏防护、
     /// 渲染稳定性 spec §4)：首个内容帧要等 shell 输出 + 冷启动
@@ -75,15 +91,7 @@ impl Renderer {
         {
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Warmup Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.background),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
+                color_attachments: &store_attachment(&view, wgpu::LoadOp::Clear(self.background)),
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
@@ -497,15 +505,7 @@ impl Renderer {
         };
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Main Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load,
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
+            color_attachments: &store_attachment(view, load),
             depth_stencil_attachment: None,
             ..Default::default()
         });
@@ -862,15 +862,7 @@ impl Renderer {
         {
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Readback Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.background),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
+                color_attachments: &store_attachment(&view, wgpu::LoadOp::Clear(self.background)),
                 depth_stencil_attachment: None,
                 ..Default::default()
             });

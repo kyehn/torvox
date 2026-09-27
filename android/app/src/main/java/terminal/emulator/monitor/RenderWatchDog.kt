@@ -36,9 +36,8 @@ class RenderWatchDog(
     fun stop() {
         val job = watchJob ?: return
         watchJob = null
-        // Join so a stale watchdog cannot fire onHangDetected after a
-        // restart: the closure reads the *new* thread's running flag and
-        // would falsely mark the fresh render thread as dead.
+        // join 以防陈旧看门狗在重启后触发 onHangDetected：
+        // 该闭包读取的是*新*线程的 running 标志，会错误地把全新的渲染线程标记为死亡。
         runBlocking {
             withTimeoutOrNull(2000L) { job.cancelAndJoin() }
         }

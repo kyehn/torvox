@@ -1,7 +1,5 @@
-//! Ghostty terminal engine — VT parser, command dispatch, and public API.
-//!
-//! Wraps the Ghostty VT parser in a thread-safe terminal engine with
-//! command-based communication between the PTY reader and render thread.
+//! Ghostty 终端引擎：VT 解析、命令分发与公开 API。
+//! 以命令方式在 PTY 读取线程与渲染线程间通信。
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -30,18 +28,13 @@ pub struct GhosttyTerminal {
     pub(crate) bell_rx: flume::Receiver<()>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
-    /// Set to true if the terminal thread panicked. All subsequent operations
-    /// return errors instead of silently sending commands into a dead channel.
+    /// 终端线程 panic 后置真：后续操作一律返回错误，不再向死信道静默发命令。
     pub(crate) panicked: Arc<AtomicBool>,
-    /// Last byte written by `pty_write()`, used to detect `\r`/`\n` split
-    /// across consecutive write chunks. Prevents spurious `\r\r\n`.
+    /// `pty_write()` 末次写入的字节，用于识别 `\r`/`\n` 跨写入块拆分，避免多余的 `\r\r\n`。
     pub(crate) last_pty_write_byte: u8,
-    /// Mirror of `Terminal::active_screen() == Alternate`, updated lock-free
-    /// by the VT thread on every emitted frame (internal.rs build_cell_data).
-    /// Lets the Android input path detect the alternate screen buffer
-    /// (vim/less/htop) without a blocking RPC, so touch-scroll gestures can
-    /// be forwarded as mouse-wheel escapes instead of scrolling local
-    /// scrollback (Haven research: altScreen wheel consumption).
+    /// `Terminal::active_screen() == Alternate` 的无锁镜像，由 VT 线程每帧更新。
+    /// 供 Android 输入路径免阻塞 RPC 检出备用屏（vim/less/htop），使触摸滚动
+    /// 转发为滚轮转义序列而非滚动本地回滚（备用屏会吞掉滚轮）。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
 }
 

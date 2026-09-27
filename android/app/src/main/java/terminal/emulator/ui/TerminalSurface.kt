@@ -50,10 +50,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        // Force-hide the IME: a detach can happen during rotation or back
-        // press while the soft keyboard is open.  Without this the keyboard
-        // remains visible over a destroyed Activity window (stuck-keyboard
-        // bug).
+        // 强制隐藏输入法：软键盘打开时可能在旋转或返回键期间发生 detach。
+        // 不做此步，键盘会残留显示在已销毁的 Activity 窗口之上（键盘卡死问题）。
         try {
             val imm =
                 context.getSystemService(
@@ -61,14 +59,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 ) as android.view.inputmethod.InputMethodManager
             imm.hideSoftInputFromWindow(windowToken, 0)
         } catch (_: Exception) {
-            // View already torn down — ignore.
+            // 视图已拆除——忽略。
         }
-        // Clear the fling scroll-end marker and the render-unpause callback:
-        // both are postDelayed runnables that capture this view; after a
-        // detach they would fire on a destroyed window (and repeated flings
-        // stack up multiple copies).
-        // The fling animation is vsync-paced via postOnAnimation; cancel it
-        // explicitly on detach so no step fires on a destroyed window.
+        // 清除 fling 滚动结束标记与渲染恢复回调：两者都是捕获本视图的 postDelayed
+        // runnable；detach 之后它们会在已销毁的窗口上触发（且重复 fling 会叠加多份）。
+        // fling 动画经 postOnAnimation 按 vsync 驱动；在 detach 时显式取消，
+        // 使没有任何一步在已销毁的窗口上触发。
         stopFlingAnimation()
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable = null
@@ -82,13 +78,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             pendingSurfaceResize = null
             viewModel?.runtime?.setRenderPaused(false)
         }
-        // Dismiss the floating selection UI: an action mode, the selection
-        // handle popups and the magnifier all own system windows that hold
-        // this view (and the whole viewModel chain) alive after the view is
-        // detached — same leak class as the runnables above. The surface
-        // teardown path also calls this, but a detach can happen without a
-        // surface destruction (Compose replaces the view during
-        // recomposition).
+        // 关闭浮动的选区 UI：action mode、选区手柄弹窗与放大镜都持有系统窗口，
+        // 会在视图 detach 后继续让本视图（及整条 viewModel 链）存活
+        // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
+        // 但 detach 可以不伴随 Surface 销毁发生（重组时 Compose 替换视图）。
         selectionHandles.hideSelectionHandles()
         hideSelectionMenu()
         try {
@@ -97,10 +90,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             LogUtil.w(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
         }
         magnifier = null
-        // Stop the PtyWriter sender thread: the view is being destroyed
-        // (activity recreation, back press) and a fresh TerminalSurface will
-        // build a new InputBatchBuffer. Without this, every recreation leaks
-        // a daemon thread that pins the whole view chain via its sink closure.
+        // 停止 PtyWriter 发送线程：视图正在被销毁（Activity 重建、返回键），
+        // 而新的 TerminalSurface 会构建新的 InputBatchBuffer。
+        // 不做此步，每次重建都会泄漏一个守护线程，它经 sink 闭包钉住整条视图链。
         inputBatchBuffer.close()
     }
 
@@ -116,16 +108,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var selectionMenuPopup: PopupWindow? = null
 
     /**
-     * Selection context menu as a [PopupWindow] (the same separate-system-window pattern as the
-     * selection handles): the old Compose menu was covered by the SurfaceView hole and the ActionMode
-     * TYPE_FLOATING toolbar does not render on the API-35 emulator ( emulator-verified: handles
-     * visible, toolbar absent). A PopupWindow always renders above the SurfaceView on every platform.
+     * 选区上下文菜单，以 [PopupWindow] 实现（与选区手柄相同的独立系统窗口模式）：
+     * 旧的 Compose 菜单会被 SurfaceView 的开孔遮住，而 ActionMode TYPE_FLOATING 工具栏
+     * 在 API 35 模拟器上不渲染（模拟器已验证：手柄可见、工具栏缺失）。
+     * PopupWindow 在所有平台上都渲染在 SurfaceView 之上。
      *
-     * Items mirror termux: a text selection offers COPY | SELECT ALL; a paste-only (blank-cell)
-     * selection offers PASTE — and PASTE only when the clipboard actually has text
-     * (ClipboardAccess.hasClipboardText), so a dead PASTE action can never show (the reported "PASTE
-     * 按钮始终显示" bug). Dismissal rides the existing selection-state flow: a tap outside reaches the
-     * terminal, clears the selection, and TerminalScreen's LaunchedEffect calls [hideSelectionMenu].
+     * 菜单项对标 termux：文本选区提供 COPY | SELECT ALL；仅粘贴的（空白单元格）
+     * 选区提供 PASTE——且仅当剪贴板确实有文本时（ClipboardAccess.hasClipboardText），
+     * 使失效的 PASTE 动作永不出现（即「PASTE 按钮始终显示」这一反馈）。
+     * 关闭沿用既有的选区状态流：点击外部会抵达终端并清除选区，
+     * TerminalScreen 的 LaunchedEffect 随即调用 [hideSelectionMenu]。
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
         hideSelectionMenu()
@@ -157,8 +149,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         try {
             popup.showAtLocation(this@TerminalSurface, 0, loc[0] + anchor.first, loc[1] + anchor.second)
         } catch (exception: Exception) {
-            // Activity detached between the check and show — same guard as the
-            // selection handles; the popup never became visible.
+            // Activity 在检查与显示之间被 detach——与选区手柄同一守卫；
+            // 弹窗从未变为可见。
             LogUtil.w(TAG, "showSelectionMenu: popup show failed", exception)
             return
         }
@@ -204,8 +196,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             add(
                 context.getString(R.string.select_all) to
                     {
-                        // termux behavior: select-all keeps the menu open so the
-                        // user can immediately COPY the new selection.
+                        // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
                         viewModel?.selectAll()
                         // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
                         showSelectionMenuForCurrentSelection()
@@ -378,8 +369,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
         val density = resources.displayMetrics.density
         val dp = { v: Int -> (v * density + 0.5f).toInt() }
-        // PopupWindow measures on show, so use a rough estimate (items ×
-        // ~92dp) clamped to the surface.
+        // PopupWindow 在显示时才测量，故用粗略估算（项数 × ~92dp）并钳位到 Surface。
         val estimatedWidth = width.coerceAtMost(dp(184))
         val menuHeight = dp(44)
         return menuAnchor(
@@ -405,38 +395,34 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         try {
             popup.dismiss()
         } catch (exception: Exception) {
-            // Already dismissed — log-only so the cause is never lost.
+            // 已 dismiss——只记日志，使原因不丢失。
             LogUtil.w(TAG, "hideSelectionMenu: dismiss failed", exception)
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 5b: Resize/grid computation (extracted K4)
+    // 五之二、尺寸/网格计算
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns grid/size computation: view-size → rows/cols → PTY resize and swapchain reconfigure.
-     * Extracted from TerminalSurface inner class: accesses the outer view's rows/cols/lastConfigured*
-     * fields directly.
+     * 拥有网格/尺寸计算：视图尺寸 → 行列 → PTY resize 与交换链重配置。
+     * 内部类：直接访问外层视图的 rows/cols/lastConfigured* 字段。
      */
     inner class ResizeManager {
         /**
-         * Single grid formula, shared with
-         * [TerminalRuntime.recomputeGridFromFontMetrics]: rows =
-         * (surface − ModifierBar) / cell, cols = surface / cell. The IME
-         * inset is deliberately NOT subtracted — the keyboard is followed by
-         * pure pan ([TerminalScreen] cursor pan), never by grid reflow, so
-         * showing/hiding it must not change rows/cols (reflow flicker,
-         * wrapped-line shuffle, lost bottom rows).
+         * 单一网格公式，与 [TerminalRuntime.recomputeGridFromFontMetrics] 共用：
+         * rows = (surface − ModifierBar) / cell，cols = surface / cell。
+         * 刻意不减去输入法 inset——键盘靠纯滚动跟随（[TerminalScreen] 光标跟随），
+         * 从不触发网格重排，故其显示/隐藏绝不能改变 rows/cols
+         * （否则会有重排闪烁、换行错乱、底部行丢失）。
          */
         internal fun applyGridResize(width: Int, height: Int) {
             val runtime = viewModel?.runtime ?: return
             val cellWidth = runtime.cellWidth
             val cellHeight = runtime.cellHeight
             if (cellWidth <= 0f || cellHeight <= 0f) return
-            // Height is the SurfaceView's layout height. The ModifierBar
-            // overlays its bottom, so its height is subtracted before
-            // computing rows — the same reservation the runtime applies.
+            // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
+            // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
             val availableHeight = (height - runtime.modifierBarHeightPx).coerceAtLeast(1)
             if (availableHeight <= 0) return
             val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
@@ -448,12 +434,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             )
             if (newRows != rows || newCols != cols) {
                 runtime.resize(newRows, newCols)
-                // Push the pixel dimensions alongside the grid resize so the
-                // PTY winsize carries real ws_xpixel/ws_ypixel: pixel-aware
-                // programs (`icat`, fullscreen TUIs) read them from
-                // TIOCGWINSZ and misrender when they are 0 (ghostty-android
-                // pty_jni.c:84-87). availableHeight excludes the modifier
-                // bar — exactly the grid area rows covers.
+                // 随网格 resize 一同推入像素尺寸，使 PTY winsize 携带真实的
+                // ws_xpixel/ws_ypixel：感知像素的程序（icat、全屏 TUI）
+                // 经 TIOCGWINSZ 读取它们，为 0 时会渲染错误。
+                // availableHeight 已排除工具栏——正是 rows 覆盖的网格区域。
                 runtime.setPixelSize(width, availableHeight)
                 rows = newRows
                 cols = newCols
@@ -466,9 +450,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 val cellWidth = viewModel.runtime.cellWidth
                 val cellHeight = viewModel.runtime.cellHeight
                 if (cellWidth > 0f && cellHeight > 0f) {
-                    // Same reservation as the runtime grid: without the bar
-                    // subtraction this mirror disagreed by the bar rows and
-                    // forced requestLayout() on every recomposition.
+                    // 与运行期网格相同的预留量：不减去工具栏高度时，
+                    // 此镜像会相差工具栏那几行，并在每次重组时被迫 requestLayout()。
                     val barPx = viewModel.runtime.modifierBarHeightPx
                     cols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
                     rows =
@@ -493,15 +476,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             ) {
                 return
             }
-            // First layout: apply immediately (startup black-flash avoidance).
-            // Later changes (IME animation frames, Gboard strip flicker):
-            // debounce to the settled size via IME_RESIZE_DEBOUNCE_MS —
-            // every intermediate size otherwise forces a full swapchain
-            // reconfigure + PTY grid reflow (frame drops, CellData race
-            // errors, battery drain). While debounced, pause rendering so
-            // the stale-sized buffer is never stretched over the animating
-            // view (squash on show, stretch on hide); the settled fire
-            // below resumes and presents one fresh frame.
+            // 首次布局：立即应用（避免启动黑屏闪烁）。
+            // 后续变化（输入法动画帧、Gboard 候选栏闪烁）：
+            // 经 IME_RESIZE_DEBOUNCE_MS 防抖到稳定尺寸
+            // ——否则每个中间尺寸都会强制一次完整的交换链重配置
+            // 与 PTY 网格重排（掉帧、CellData 竞争错误、耗电）。
+            // 防抖期间暂停渲染，使陈旧尺寸的缓冲绝不会被拉伸到正在动画的视图上
+            // （显示时压扁、隐藏时拉伸）；下方的稳定触发会恢复并呈现一帧新画面。
             if (lastConfiguredWidth == 0) {
                 applySurfaceResizeNow(width, height)
                 return
@@ -511,11 +492,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             pendingSurfaceResize =
                 Runnable {
                     pendingSurfaceResize = null
-                    // Latest size wins: onSizeChanged already stored it.
+                    // 以最新尺寸为准：onSizeChanged 已存储了它。
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
-                    // The settled fire may land back on the configured size
-                    // and early-return before its own resume — always resume
-                    // here (idempotent on the success path).
+                    // 稳定触发可能恰好落在已配置的尺寸上而提前返回、
+                    // 来不及执行自身的恢复——故始终在此恢复
+                    // （在成功路径上幂等）。
                     viewModel?.runtime?.setRenderPaused(false)
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
@@ -542,8 +523,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
         internal fun applySurfaceResizeNow(width: Int, height: Int) {
             if (width <= 0 || height <= 0) return
-            // A deferred fire after a size oscillation may land back on the
-            // configured size — skip the redundant reconfigure.
+            // 尺寸振荡后的延迟触发可能又落回已配置的尺寸——跳过冗余的重配置。
             if (
                 width == lastConfiguredWidth && height == lastConfiguredHeight && lastConfiguredWidth != 0
             ) {
@@ -553,8 +533,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.surfaceWidth = width
             terminalViewModel.surfaceHeight = height
 
-            // Size is handed to native via attachSurface below; there is
-            // no separate surface-size channel.
+            // 尺寸经下方的 attachSurface 交给原生；不存在独立的 Surface 尺寸通道。
             applyResizeNormal(width, height, terminalViewModel)
         }
 
@@ -568,20 +547,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return
             }
             terminalViewModel.currentSurface = surface
-            // ADR-0007: hand the Surface to native; the renderer builds a
-            // wgpu surface from it (attachWindow JNI extracts the
-            // ANativeWindow inside Rust).
+            // 把 Surface 交给原生；渲染器据此创建 wgpu surface
+            // （attachWindow JNI 在 Rust 内部提取 ANativeWindow）。
             terminalViewModel.runtime.attachSurface(surface, width, height)
             val runtimeState = terminalViewModel.runtime.state.value
             if (runtimeState.rows > 0 && runtimeState.cols > 0) {
                 rows = runtimeState.rows
                 cols = runtimeState.cols
             } else if (!runtimeState.isRunning) {
-                // start() bails out on small surfaces (split-screen, freeform,
-                // foldable half-screen) and nothing retries it — the terminal
-                // would stay blank forever once the window grows, because
-                // surfaceChanged only resizes. Retry session creation here now
-                // that the surface is valid and sized.
+                // start() 在过小的 Surface 上会提前退出（分屏、自由窗口、
+                // 可折叠半屏）且没有任何重试——窗口变大后终端将永远空白，
+                // 因为 surfaceChanged 只会 resize。趁 Surface 此刻有效且已定尺寸，
+                // 在此重试会话创建。
                 Log.i(TAG, "applySurfaceResize: runtime not started, retrying default session")
                 terminalViewModel.ensureDefaultSession()
             }
@@ -591,13 +568,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.runtime.setRenderPaused(false)
             terminalViewModel.runtime.resumeRendering()
             terminalViewModel.runtime.forceRender()
-            // Rotation / window-size changes (without an IME event) never reach
-            // runtime.resize: the only other trigger is onApplyWindowInsets.
-            // Use the shared formula so both paths agree on the grid.
-            // Effective only once real cell metrics arrive (Bridge.getCellWidth
-            // is an ADR-0007 stub returning 0, so this is a no-op until then).
-            // IME insets never reach the grid: the keyboard is followed by
-            // pure pan, so rows/cols stay put while it shows/hides.
+            // 旋转/窗口尺寸变化（无输入法事件时）永远不会到达 runtime.resize：
+            // 另一个触发点只有 onApplyWindowInsets。
+            // 使用共享公式使两条路径对网格的认知一致。
+            // 仅在真实单元格度量到达后生效（此前为空操作）。
+            // 输入法 inset 永不影响网格：键盘靠纯滚动跟随，
+            // 故其显示/隐藏期间 rows/cols 保持不变。
             applyGridResize(width, height)
         }
 
@@ -608,13 +584,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 5c: IME input connection (extracted K4)
+    // 五之三、输入法 InputConnection
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns the IME InputConnection: composition tracking, commit/delete handling and the
-     * keyboardMode-to-EditorInfo mapping. Extracted from TerminalSurface. The outer class exposes
-     * finishComposing/restoreKeyboardFocus as thin forwards.
+     * 拥有输入法 InputConnection：组字跟踪、提交/删除处理
+     * 以及 keyboardMode 到 EditorInfo 的映射。内部类：
+     * 外层以轻量转发暴露 finishComposing/restoreKeyboardFocus。
      */
     inner class ImeConnection {
         var currentInputConnection: InputConnection? = null
@@ -624,10 +600,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             mode.toEditorInfo(outAttrs)
             val connection =
                 object : BaseInputConnection(this@TerminalSurface, true) {
-                    // Tracks in-progress IME composition so deltas reconcile instead
-                    // of being dropped. Modeled on Haven's WaylandDesktopView
-                    // setComposingText / commitText (core/wayland/.../WaylandDesktopView.kt:296-329).
-                    // warp WarpInputView.kt:553 commitTextSynthExpiresMs debounce + EmptyFinish
+                    // 跟踪进行中的输入法组字，使增量得以校对而非被丢弃。
+                    // 另含 commitText 合成防抖（80ms），防重复发送。
                     private var composingBuffer: String = ""
                     private var lastCommitText: String = ""
                     private var lastCommitMs: Long = 0L
@@ -650,16 +624,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             return true
                         }
                         val newComposing = text?.toString() ?: ""
-                        // pure reconciliation (ComposingDiff),
-                        // unit-tested — grow/contract/diverged in one place.
+                        // 纯校对逻辑（ComposingDiff），已单元测试
+                        // ——增长/回退/全量重写三种情况集中在一处。
                         val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
-                        // (spec cursor-rendering "composing 链路可
-                        // 观测"): trace-level anchor for automated IME
-                        // verification — the log sequence must match the
-                        // injected composing text one-to-one. VERBOSE only:
-                        // zero cost unless explicitly enabled via
-                        // Debug-only: the spec requires ZERO output on
-                        // release builds (R8 -dontoptimize would not strip it).
+                        // 供自动化输入法验证的 trace 级锚点——日志序列必须与
+                        // 注入的组字文本一一对应。仅在 DEBUG 下输出：
+                        // 规范要求 release 构建零输出（R8 的 -dontoptimize 不会剔除它）。
                         if (terminal.emulator.BuildConfig.DEBUG) {
                             Log.v(
                                 "ComposingDiff",
@@ -701,8 +671,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val altActive =
                             state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once
 
-                        // Synthetic commit debounce (warp 553): Gboard may fire commitText twice
-                        // for same text within 80ms; drop duplicate to avoid double send.
+                        // 合成提交防抖：Gboard 可能在 80ms 内对同一文本触发两次 commitText；
+                        // 丢弃重复项以避免重复发送。
                         val nowMs = android.os.SystemClock.uptimeMillis()
                         if (
                             composingBuffer.isEmpty() &&
@@ -713,7 +683,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         }
                         if (composingBuffer.isNotEmpty()) {
                             if (committedText == composingBuffer) {
-                                // Already forwarded via composing deltas; do not resend.
+                                // 已经组字增量转发；不再重发。
                             } else {
                                 val clear = ComposingDiff.reconcile(composingBuffer, "")
                                 terminalViewModel?.writeToPty(
@@ -753,11 +723,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
                             return true
                         }
-                        // beforeLength/afterLength come from the IME (untrusted):
-                        // a negative or huge value would crash with
-                        // NegativeArraySizeException / OutOfMemoryError on the
-                        // main thread. Clamp to the composing-buffer length when
-                        // composing, otherwise to a sane single-line maximum.
+                        // beforeLength/afterLength 来自输入法（不可信）：
+                        // 负值或巨大值会在主线程上以 NegativeArraySizeException /
+                        // OutOfMemoryError 崩溃。组字时钳位到组字缓冲区长度，
+                        // 否则钳位到合理的单行上限。
                         // 注意：beforeLength 按码点计数，退格按码点 1:1 发送
                         // （shell 行编辑按字符删除，一个 0x08 删掉整个汉字，
                         // 真机实测锁定：见 CjkBackspaceSemanticsTest）。
@@ -766,18 +735,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val safeBefore = beforeLength.coerceIn(0, maxDeletes)
                         val safeAfter = afterLength.coerceIn(0, maxDeletes)
                         if (safeBefore > 0) {
-                            // Keep composingBuffer in sync with what the PTY will
-                            // contain: setComposingText's incremental logic
-                            // (startsWith/append/backspace branches) assumes the
-                            // buffer mirrors the committed+composing text.
-                            // Otherwise IME backspace during composition deletes
-                            // once here and again in setComposingText's backspace
-                            // branch, eating an extra character.
+                            // 保持 composingBuffer 与 PTY 将要持有的内容同步：
+                            // setComposingText 的增量逻辑（startsWith/追加/退格分支）
+                            // 假定该缓冲区镜像「已提交 + 组字」文本。
+                            // 否则组字期间的输入法退格会在此删一次，
+                            // 又在 setComposingText 的退格分支再删一次，多吃一个字符。
                             if (composingBuffer.isNotEmpty()) {
-                                // beforeLength counts code points (API 33+);
-                                // drop that many from the end, walking over
-                                // surrogate pairs so emoji stay aligned with the
-                                // PTY content.退格数与移除码点数 1:1。
+                                // beforeLength 按码点计数（API 33+）；
+                                // 从末尾丢弃同样数量的码点，遍历时跨过代理对，
+                                // 使 emoji 与 PTY 内容保持对齐。退格数与移除码点数 1:1。
                                 var removed = 0
                                 var end = composingBuffer.length
                                 while (removed < safeBefore && end > 0) {
@@ -808,25 +774,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 5d: Selection handle popups (extracted K4)
+    // 五之四、选区手柄弹窗
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns the selection-handle overlay ( redesign, spec text-selection "手柄窗口生命周期单一 owner"): ONE
-     * full-surface TYPE_APPLICATION_SUB_PANEL window hosts both teardrop handles.
+     * 拥有选区手柄覆盖层：一个铺满 Surface 的 TYPE_APPLICATION_SUB_PANEL 窗口承载两个泪滴手柄。
      *
-     * Why one overlay instead of two WRAP_CONTENT popups:
-     * - dragging repositions a handle by changing View translationX/Y + invalidating inside the
-     *   overlay — ZERO WindowManager IPC per frame (the old dual-popup design issued 2
-     *   PopupWindow.update binder transactions per ACTION_MOVE);
-     * - one window created/dismissed as a unit cannot leak orphaned handles (the old
-     *   dismiss-exception path left windows on screen — reported as "multiple pointers that never
-     *   disappear");
-     * - [HandleOverlayLayout.dispatchTouchEvent] routes handle touches to the drag logic and forwards
-     *   everything else to the terminal surface (termux TextSelectionPopupView pattern).
+     * 为何用单个覆盖层而非两个 WRAP_CONTENT 弹窗：
+     * - 拖动时只需在覆盖层内改 View 的 translationX/Y 并 invalidate——
+     *   每帧零次 WindowManager IPC（旧的双手柄弹窗方案每个 ACTION_MOVE
+     *   要发 2 次 PopupWindow.update 的 binder 事务）；
+     * - 单一窗口整体创建/关闭，不会泄漏孤立手柄（旧的 dismiss 异常路径
+     *   会把窗口留在屏幕上——即「多个指针始终不消失」的反馈）；
+     * - [HandleOverlayLayout.dispatchTouchEvent] 把手柄触摸路由到拖动逻辑，
+     *   其余全部转发给终端 Surface（termux TextSelectionPopupView 模式）。
      *
-     * Drag state (handleDragState/HandleDrag/dragPointerId) stays on the outer class — the touch path
-     * and edge-scroll runnable read them.
+     * 拖动状态（handleDragState/HandleDrag/dragPointerId）保留在外层类
+     * ——触摸路径与边缘滚动 runnable 会读取它们。
      */
     inner class SelectionHandles {
         private var overlayPopup: PopupWindow? = null
@@ -840,9 +804,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         internal fun endHandleHitRect() = endHandleRect
 
         /**
-         * System Material selection handle: resolve the platform theme attribute
-         * (android.R.attr.textSelectHandleLeft/Right) so the handle shape is the framework's teardrop,
-         * not a custom vector.
+         * 系统 Material 选区手柄：解析平台主题属性
+         * （android.R.attr.textSelectHandleLeft/Right），
+         * 使手柄形态是框架自带的泪滴形而非自定义矢量图。
          */
         internal fun resolveSelectionHandleDrawable(left: Boolean): android.graphics.drawable.Drawable? {
             val attr =
@@ -877,9 +841,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 hideSelectionHandlesNow()
             }
             if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) return
-            // showAtLocation requires a window token; during activity-finish
-            // transition frames the view may already be detached and the call
-            // throws BadTokenException.
+            // showAtLocation 需要窗口 token；在 Activity 结束过渡的帧中
+            // 视图可能已 detach，调用会抛 BadTokenException。
             if (!isAttachedToWindow) return
             if (width <= 0 || height <= 0) return
 
@@ -910,17 +873,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     setAnimationStyle(0)
                     setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL)
                     isSplitTouchEnabled = false
-                    // focusable=false keeps keyboard input flowing to the
-                    // terminal while the overlay consumes touches in its
-                    // bounds (dispatchTouchEvent routes them).
+                    // focusable=false 使键盘输入继续流向终端，
+                    // 同时覆盖层消费其边界内的触摸（由 dispatchTouchEvent 路由）。
                     isFocusable = false
                     isOutsideTouchable = false
                 }
             try {
                 popup.showAtLocation(this@TerminalSurface, 0, loc[0], loc[1])
             } catch (exception: Exception) {
-                // WindowManager.BadTokenException: the activity detached
-                // between the isAttachedToWindow check and showAtLocation.
+                // WindowManager.BadTokenException：Activity 在 isAttachedToWindow
+                // 检查与 showAtLocation 之间被 detach。
                 LogUtil.w(TAG, "showSelectionHandles: overlay show failed", exception)
                 overlayContent = null
                 return
@@ -930,8 +892,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
 
         /**
-         * Move one dragged handle to its anchor cell. Pure in-process view updates: translationX/Y +
-         * invalidate, NO WindowManager IPC (spec text-selection "拖拽流畅性" constraint a).
+         * 把一个被拖动的手柄移到其锚定单元格。纯进程内视图更新：
+         * translationX/Y + invalidate，无任何 WindowManager IPC。
          */
         internal fun repositionHandle(which: HandleDrag, row: Int, col: Int) {
             val content = overlayContent ?: return
@@ -977,10 +939,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             updateHitRect(HandleDrag.END, Math.round(ex), Math.round(ey))
         }
 
-        /**
-         * Anchor math shared by both positioning paths (termux hotspot): START hangs below-left of its
-         * cell corner, END below-right.
-         */
+        /** 两条定位路径共用的锚点计算（termux hotspot）：START 悬于其单元格角的左下，END 在右下。 */
         private fun updateHitRect(which: HandleDrag, anchorX: Int, anchorY: Int) {
             val handleW = selectionHandleWidth
             if (handleW == 0) return
@@ -1031,17 +990,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         as android.view.WindowManager
                 wm.removeViewImmediate(popup.contentView)
             } catch (_: Exception) {
-                // Already removed by dismiss — harmlessly ignored.
+                // 已被 dismiss 移除——无害忽略。
             }
         }
 
         /**
-         * Full-surface transparent container hosting both teardrop handles. Positions handles purely
-         * with translationX/Y. Touch routing:
-         * - DOWN inside an expanded handle hit rect latches that handle's drag (per-handle lock; the
-         *   OTHER handle's stream cannot steal it — root cause C3 fix),
-         * - every other event stream is forwarded untouched to the terminal surface so tap/swipe/pinch
-         *   gestures behave exactly as without the overlay.
+         * 铺满 Surface 的透明容器，承载两个泪滴手柄；手柄纯靠 translationX/Y 定位。
+         * 触摸路由：
+         * - DOWN 落在扩大的手柄命中矩形内会锁定该手柄的拖动（按手柄加锁，
+         *   另一个手柄的事件流无法抢走——根因 C3 的修复）；
+         * - 其余全部事件流原样转发给终端 Surface，
+         *   使轻击/滑动/双指缩放手势与没有覆盖层时完全一致。
          */
         private inner class HandleOverlayLayout(
             private val leftDrawable: android.graphics.drawable.Drawable,
@@ -1093,23 +1052,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                 MotionEvent.ACTION_MOVE -> routeMove(event)
 
-                // ACTION_POINTER_UP included: when the OWNING finger lifts
-                // while a second finger stays down, the stream delivers
-                // POINTER_UP (not UP) — missing it here left drags latched
-                // forever with edge-scroll possibly self-running
-                // ( review-1 BLOCKING finding).
+                // 包含 ACTION_POINTER_UP：当所属手指抬起而第二根仍按下时，
+                // 事件流送来的是 POINTER_UP（而非 UP）
+                // ——遗漏它会让拖动永久锁定，边缘滚动还可能自行运转。
                 MotionEvent.ACTION_UP,
                 MotionEvent.ACTION_POINTER_UP,
                 MotionEvent.ACTION_CANCEL,
                 -> routeStreamEnd(event)
 
-                // Other pointer events (POINTER_DOWN etc.) are swallowed:
-                // a second finger must never open a second stream while a
-                // drag or forwarding stream is owned.
+                // 其他指针事件（POINTER_DOWN 等）一律吞掉：
+                // 拖动或转发流被占用期间，第二根手指绝不能开启第二条流。
                 else -> true
             }
 
-            /** DOWN: latch a handle drag or start forwarding a terminal stream. */
+            /** DOWN：锁定手柄拖动，或开始转发终端事件流。 */
             private fun routeDown(event: MotionEvent): Boolean {
                 val x = event.x.toInt()
                 val y = event.y.toInt()
@@ -1147,8 +1103,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     if (lockedIdx >= 0) {
                         driveHandleDragMove(event.getX(lockedIdx), event.getY(lockedIdx))
                     }
-                    // Locked finger gone: swallow stray moves from any
-                    // other pointer (spec 多指防漂移).
+                    // 锁定的手指已消失：吞掉来自任何其他指针的游移（多指防漂移）。
                     return true
                 }
                 if (streamForwarding) {
@@ -1157,14 +1112,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            /** UP/CANCEL: end the owned drag once the owning pointer lifts; else forward. */
+            /** UP/CANCEL：仅当所属指针抬起时结束已接管的拖动；否则转发。 */
             private fun routeStreamEnd(event: MotionEvent): Boolean {
                 if (dragOwner != null) {
-                    // End the drag only when the pointer that LIFTED is the
-                    // locked owner (review-2): ACTION_POINTER_UP carries ALL
-                    // still-down pointers, so a lockedIndex>=0 check alone
-                    // would end the drag when a SECOND finger lifts while the
-                    // owner keeps dragging.
+                    // 仅当抬起的指针就是锁定的持有者时才结束拖动：
+                    // ACTION_POINTER_UP 会携带所有仍按下的指针，
+                    // 故单靠 lockedIndex>=0 检查会在「第二根手指抬起而持有者
+                    // 仍在拖动」时错误地结束拖动。
                     val endedByOwner =
                         event.actionMasked == MotionEvent.ACTION_CANCEL ||
                             event.getPointerId(event.actionIndex) == dragPointerLocked
@@ -1214,17 +1168,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val ZOOM_THRESHOLD_LOW = 0.9f
         private const val ZOOM_THRESHOLD_HIGH = 1.1f
 
-        // ⑥ pinch zoom: preview bounds match TerminalScreen's FONT_SIZE
-        // clamp; the preview rate is a few updates per second so sculpting
-        // feels smooth without reflowing ghostty per frame (41ms frame
-        // baseline on the emulator).
+        // ⑥ 双指缩放：预览边界与 TerminalScreen 的 FONT_SIZE 钳位一致；
+        // 预览频率为每秒数次，使塑形手感平滑而无需逐帧重排 ghostty
+        // （模拟器上帧基线 41ms）。
         private const val ZOOM_PREVIEW_INTERVAL_NANOS = 60_000_000L // 60ms
 
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L
 
-        // 350ms close animation
-        private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms settle, spec ime-translation
+        // 350ms 关闭动画
+        private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms 稳定窗
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
         private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
         private const val SURFACE_RECREATE_ATTEMPTS = 10
@@ -1234,15 +1187,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val BACKSPACE_BYTE = 0x08.toByte()
         private const val DELETE_BYTE = 0x7F.toByte()
 
-        // Upper bound for deleteSurroundingText arguments (untrusted IME
-        // input). One line is more than any real IME requests at once.
-        // Upper bound for deleteSurroundingText arguments (untrusted
-        // IME input). 4096 covers select-all delete of a large committed
-        // block: 256 left >256-char selections
-        // half-deleted) while still bounding the PTY write size.
+        // deleteSurroundingText 参数的上界（输入法输入不可信）。
+        // 4096 足以覆盖「全选删除大块已提交内容」：256 左 > 256 字符的选区
+        // （半删除），同时仍限定了 PTY 写入大小。
         private const val MAX_SURROUNDING_DELETES = 4096
 
-        /** Number of Unicode code points in [text] (surrogate-pair safe). */
+        /** [text] 中的 Unicode 码点数（对代理对安全）。 */
         private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
 
         /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
@@ -1266,25 +1216,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var lastImeBottom: Int = 0
     private var lastImeVisible: Boolean = false
 
-    // IME show/hide animations fire onApplyWindowInsets with a changing
-    // imeBottom every frame; each distinct value used to trigger a ghostty
-    // resize (full grid reflow) immediately — visibly janky on software-GPU
-    // emulators (41ms frame baseline). Coalesce to the final inset; the
-    // debounce runnable is re-armed on every inset change and only fires
-    // once the animation settles.
+    // 输入法显示/隐藏动画每帧都以变化的 imeBottom 触发 onApplyWindowInsets；
+    // 此前每个不同的值都会立即触发一次 ghostty resize（完整网格重排）
+    // ——在软件 GPU 模拟器上明显卡顿（帧基线 41ms）。此处合并到最终 inset；
+    // 防抖 runnable 在每次 inset 变化时重新武装，只在动画稳定后触发一次。
     private var resizeDebounceRunnable: Runnable? = null
 
-    // Scrollback-length cache: `scrollbackLength()` is a
-    // synchronous JNI query that can block up to 500 ms when the VT thread
-    // is busy parsing a large write. The gesture path calls it on every
-    // MotionEvent, so it is throttled to ~10 Hz and the cached value is
-    // used in between — prevents UI-thread jank / ANR during scroll.
+    // 回滚长度缓存：`scrollbackLength()` 是同步 JNI 查询，
+    // 当 VT 线程忙于解析大块写入时最多可阻塞 500ms。
+    // 手势路径在每个 MotionEvent 上都调用它，
+    // 故节流到 ~10Hz 并在其间使用缓存值——避免滚动期间的 UI 线程卡顿/ANR。
     @Volatile private var cachedScrollbackLength: Int = 0
 
     /**
-     * One-entry cache for [snapToWideCharBoundary]: avoids a JNI scrollbackLine copy on every
-     * handle-drag MOVE within the same row. Time-bounded so a long drag cannot serve a stale line
-     * after the shell rewrote the row.
+     * [snapToWideCharBoundary] 的单项缓存：避免同一行内手柄拖动的每次 MOVE
+     * 都做一次 JNI scrollbackLine 拷贝。有时间界，使长距离拖动在 shell
+     * 重写该行后不会返回陈旧的行内容。
      */
     private var cachedWideCharLineRow = -1
     private var cachedWideCharLine: String? = null
@@ -1303,15 +1250,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     fun setSearchHighlights(data: ByteArray) {
         val bridge = viewModel?.runtime?.bridge() ?: return
-        bridge.setSearchHighlights(data.copyOf()) // defensive copy for JNI
+        bridge.setSearchHighlights(data.copyOf()) // 为 JNI 防御性拷贝
         viewModel?.runtime?.forceRender()
     }
 
     fun clearSearchHighlights() {
         val bridge = viewModel?.runtime?.bridge() ?: return
         bridge.clearSearchHighlights()
-        // Force render after clearing highlights so the inverted colors disappear
-        // immediately instead of lingering for a frame.
+        // 清除高亮后强制重绘，使反色立即消失而不是残留一帧。
         viewModel?.runtime?.forceRender()
     }
 
@@ -1328,10 +1274,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     var onPasteRequested: (() -> Unit)? = null
     var onZoomChanged: ((fontSizeSp: Float) -> Unit)? = null
 
-    // ⑥ live zoom preview: fired a few times per second during a pinch
-    // gesture with the interpolated font size; the renderer follows
-    // without a grid resize. Finalizing the gesture calls onZoomChanged
-    // once with the settled size (full apply + grid reflow).
+    // ⑥ 实时缩放预览：双指手势期间每秒数次以插值字号触发，渲染器无需网格 resize 即可跟随。
+    // 手势终结时以稳定尺寸调用一次 onZoomChanged（完整应用 + 网格重排）。
     var onZoomPreview: ((fontSizeSp: Float) -> Unit)? = null
 
     var drawerOpen: Boolean = false
@@ -1340,21 +1284,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (value) {
                 selectionHandles.hideSelectionHandles()
             } else {
-                // ModalNavigationDrawer's scrim click closes the
-                // drawer, but during the close animation the tap can fall
-                // through to the TerminalSurface — a terminal tap clears
-                // the selection, so closing the drawer would silently wipe
-                // an active text selection. Suppress tap-to-clear for the
-                // drawer close animation duration (300ms) so the selection
-                // survives the drawer's own close gesture.
+                // ModalNavigationDrawer 的遮罩轻击会关闭抽屉，
+                // 但在关闭动画期间该轻击可能穿透到 TerminalSurface
+                // ——终端轻击会清除选区，故关闭抽屉会静默抹掉活跃的文本选区。
+                // 在抽屉关闭动画时长（300ms）内抑制「轻击清除」，
+                // 使选区能存活抽屉自身的关闭手势。
                 suppressUntilNanos = System.nanoTime() + DRAWER_CLOSE_TAP_GRACE_NANOS
             }
         }
 
-    /**
-     * When true, the search bar is shown and modifier bar is hidden — touches should reach the
-     * terminal surface instead of being excluded at the bottom.
-     */
+    /** 为真时显示搜索栏并隐藏工具栏——触摸应抵达终端 Surface，而不是在底部被排除。 */
     var searchActive: Boolean = false
 
     private var cachedCellWidth: Float = FALLBACK_CELL_WIDTH
@@ -1362,14 +1301,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     val cellWidth: Float
         get() {
-            // Font-metric cell width (runtime.cellWidth = native font
-            // pipeline cell_metrics × density). The surface÷cols ratio is
-            // NOT used for hit-testing: the renderer draws glyphs at the
-            // font cell size and stretches the grid, so dividing the
-            // surface by the grid would double-count the stretch and land
-            // long-presses on the wrong cells  regression, fixed
-            // again here: the surface÷grid ratio self-amplifies — a wider
-            // cell shrinks the grid, which widens the cell further).
+            // 字体度量的单元格宽度（runtime.cellWidth = 原生字体管线 cell_metrics × 密度）。
+            // 命中测试刻意不用 surface÷cols 比值：渲染器按字体单元格尺寸绘制字形并拉伸网格，
+            // 故用 surface 除以网格会重复计入该拉伸，使长按落到错误的单元格
+            // （回归已在此修复：surface÷grid 比值会自我放大
+            // ——更宽的单元格缩小网格，而这又进一步加宽单元格）。
             val viewModelCellWidth = viewModel?.runtime?.cellWidth ?: 0f
             if (viewModelCellWidth > 0f) {
                 cachedCellWidth = viewModelCellWidth
@@ -1380,7 +1316,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     val cellHeight: Float
         get() {
-            // Font-metric cell height — see cellWidth above.
+            // 字体度量的单元格高度——见上方 cellWidth。
             val viewModelCellHeight = viewModel?.runtime?.cellHeight ?: 0f
             if (viewModelCellHeight > 0f) {
                 cachedCellHeight = viewModelCellHeight
@@ -1396,15 +1332,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var pendingUnpauseRunnable: Runnable? = null
 
     /**
-     * Fling physics (termux TerminalView:1345 pattern): an [OverScroller] drives a per-frame
-     * deceleration animation instead of the old single jump of the clamped distance — the jump made
-     * flings feel instant and abrupt ("上下滑动…异常并且卡顿"). [postOnAnimation] paces the steps to vsync;
-     * each step only pushes the delta through onScrollChanged.
+     * 惯性滚动物理（termux TerminalView:1345 模式）：由 [OverScroller] 驱动逐帧减速动画，
+     * 而非旧的一次性跳到钳位距离——跳变使惯性滚动显得生硬突兀
+     * （「上下滑动…异常并且卡顿」）。[postOnAnimation] 把各步对齐到 vsync；
+     * 每步只经 onScrollChanged 推出增量。
      */
     private val flingScroller = OverScroller(context)
     private val flingStepRunnable = Runnable { doFlingStep() }
 
-    /** Advance the fling animation one vsync tick. */
+    /** 把惯性滚动动画推进一个 vsync 节拍。 */
     private fun doFlingStep() {
         if (!flingScroller.computeScrollOffset()) {
             finishFlingAnimation()
@@ -1414,18 +1350,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (target != scrollOffset) {
             scrollOffset = target
             onScrollChanged?.invoke(target)
-            // Spec scroll-physics: vsync-throttled requestRender after each fling step
-            // so the render thread (Mailbox) presents the newest frame without stalling.
+            // 每个惯性步进后按 vsync 节流请求重绘，
+            // 使渲染线程（Mailbox）不拖滞地呈现最新帧。
             viewModel?.runtime?.forceRender()
         }
         postOnAnimation(flingStepRunnable)
     }
 
-    /** Stop any in-flight fling animation (touch down, programmatic scroll).
-     *  When the fling is still in progress (not yet naturally ended), this also
-     *  performs the settle semantics — clears sub-pixel remainder and fires
-     *  onScrollingStateChanged(false) — so render-loop's shouldResetScroll is
-     *  not blocked by a stale scroll-active flag after the interrupt. */
+    /** 停止进行中的惯性动画（触点按下、程序化滚动）。
+     *  惯性尚未自然结束时，这也会执行收尾语义——清除亚像素余量并触发
+     *  onScrollingStateChanged(false)——使中断后渲染循环的 shouldResetScroll
+     *  不会被陈旧的滚动激活标志阻塞。 */
     private fun stopFlingAnimation() {
         if (!flingScroller.isFinished) {
             flingScroller.forceFinished(true)
@@ -1454,9 +1389,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     @JvmField var scaleFactor = 1.0f
 
-    // ⑥ pinch-zoom state: the gesture anchors to the rendered font size and
-    // interpolates it per onScale; previews push metrics without resizing,
-    // onScaleEnd finalizes once.
+    // ⑥ 双指缩放状态：手势以已渲染字号为锚，每次 onScale 插值；
+    // 预览推入度量而不 resize，onScaleEnd 时终结一次。
     private var zoomActive = false
     private var zoomBaseFontSizeSp = 0f
     private var lastZoomPreviewNanos = 0L
@@ -1471,35 +1405,29 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var selectionHandleWidth = 0
 
     /**
-     * Pointer-id lock (issue #15 multi-pointer drift): set on ACTION_DOWN by the finger that latched
-     * the drag (handle hit-test or handle popup); later ACTION_MOVE events update the selection only
-     * when they carry this pointer id. Cleared on UP/CANCEL. See [acceptsDragPointer].
+     * 指针 id 锁定（多指针漂移）：在 ACTION_DOWN 时由锁定拖动的那根手指设定
+     * （手柄命中测试或手柄弹窗）；后续 ACTION_MOVE 只有携带该指针 id 时才更新选区。
+     * UP/CANCEL 时清除。见 [acceptsDragPointer]。
      */
     private var dragPointerId: Int? = null
 
-    /**
-     * uptimeMillis of the last drag end — drives the [shouldSuppressTapAfterDragEnd] menu re-show
-     * guard.
-     */
+    /** 最后一次拖动结束的 uptimeMillis；驱动 [shouldSuppressTapAfterDragEnd] 的菜单重显保护。 */
     private var lastHandleDragEndUptimeMs = 0L
 
-    // Drag anchor: the cell boundary the grabbed handle was pinned to when
-    // the drag started (grid coordinates). Drag deltas are computed relative
-    // to this anchor because the handle window hangs below its anchor cell —
-    // raw touch pixels would resolve to the row below the boundary.
-    //
-    // Reference: termlib applyHandleDrag (Terminal.kt:1899-1935) uses the same
-    // anchor semantics plus a CROSSING FLIP — when the dragged handle crosses
-    // the stationary one, ownership swaps and the stationary handle returns to
-    // its pre-cross position. 目前仅做 coerceIn 夹取（无翻转）；
-    // mirrored as gap, see docs/specification/REFERENCE.md).
+    // 拖动锚点：拖动开始时被抓住手柄所固定的单元格边界（网格坐标）。
+    // 拖动增量相对该锚点计算，因为手柄窗口悬于其锚定单元格之下
+    // ——直接用触摸像素会解析到边界下方的那一行。
+    // 参照 termux 的 applyHandleDrag（Terminal.kt:1899-1935）使用相同的锚点语义，
+    // 另加「交叉翻转」——被拖动的手柄越过静止手柄时，归属互换且静止手柄
+    // 回到穿越前的位置。目前仅做 coerceIn 夹取（无翻转），
+    // 详见 docs/specification/REFERENCE.md。
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
     /**
-     * Opens an OSC 8 hyperlink at viewport pixel (px, py), if any. Mirrors termux
-     * TerminalView.openLinkAt: pixel→cell mapping through cellWidth/cellHeight, then queries the
-     * native hyperlink URI and launches the system handler. Returns true when a link was opened.
+     * 在视口像素 (px, py) 处打开 OSC 8 超链接（若有）。对标 termux 的
+     * TerminalView.openLinkAt：经 cellWidth/cellHeight 完成像素→单元格映射，
+     * 再查询原生超链接 URI 并启动系统处理器。成功打开链接时返回 true。
      */
     private fun openLinkAt(px: Float, py: Float): Boolean {
         if (cellWidth <= 0f || cellHeight <= 0f) return false
@@ -1516,8 +1444,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 LogUtil.w(TAG, "openLinkAt: bad URI", e)
                 return false
             }
-        // Scheme allowlist: terminal output is untrusted, so only http(s)
-        // may be opened (blocks intent:/file:/javascript: from OSC 8).
+        // 协议白名单：终端输出不可信，故只允许打开 http(s)
+        // （阻止 OSC 8 中的 intent:/file:/javascript:）。
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
             LogUtil.w(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
@@ -1555,10 +1483,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         return gridRow to snapToWideCharBoundary(gridRow, col)
     }
 
-    /**
-     * Re-hide and re-show the selection handles at the current selection range (used after ending a
-     * drag so handles snap to the final cell).
-     */
+    /** 在当前选区范围上重新隐藏并显示选区手柄（拖动结束后使用，使手柄吸附到最终单元格）。 */
     private fun reshowSelectionHandles() {
         val selection = viewModel?.state?.value?.selection
         if (selection?.start != null && selection.end != null) {
@@ -1574,10 +1499,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Shared end-of-handle-drag commit — called by BOTH the overlay-owned drag path
-     * ([SelectionHandles.HandleOverlayLayout]) and the legacy surface touch path: commit the final
-     * selection to Compose state, arm the 300ms tap guard (termux hide-protection), re-show handles
-     * snapped to the final cells + toolbar, and flush the highlight to the Rust renderer.
+     * 手柄拖动结束的共用提交——由覆盖层所属的拖动路径
+     * （[SelectionHandles.HandleOverlayLayout]）与旧的 Surface 触摸路径共同调用：
+     * 把最终选区提交到 Compose 状态、启用 300ms 轻击保护（termux 隐藏保护）、
+     * 重新显示已吸附到最终单元格的手柄与工具栏，
+     * 并把高亮刷新到 Rust 渲染器。
      */
     internal fun finishHandleDrag() {
         handleDragState = HandleDrag.NONE
@@ -1592,20 +1518,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Handle-drag ACTION_MOVE body, extracted from onTouchEvent (detekt NestedBlockDepth):
-     * pointer-locked selection update + edge-scroll stepping at viewport [touchX]/[touchY] (already
-     * resolved to the locked finger's slot by the caller).
+     * 手柄拖动的 ACTION_MOVE 主体，从 onTouchEvent 抽出（detekt NestedBlockDepth）：
+     * 指针锁定的选区更新 + 在视口 [touchX]/[touchY] 处的边缘滚动步进
+     * （调用方已把坐标解析到锁定手指的槽位）。
      */
     private fun driveHandleDragMove(touchX: Float, touchY: Float) {
         currentTouchX = touchX
         currentTouchY = touchY
 
-        // Alternate screen (TUI): edge scroll is disabled — the drag belongs
-        // to the remote full-screen buffer, not local scrollback (termux
-        // TextSelectionCursorController :218-337 semantics). Priority:
-        // SCROLL lock > alternate-screen disable > normal scroll.
-        // Uses the drag-start snapshot: MOVE frames issue zero JNI calls
-        // ( spec "drag fluency" constraint b).
+        // 备用屏（TUI）：禁用边缘滚动——该拖动属于远端全屏缓冲，
+        // 而非本地回滚（termux TextSelectionCursorController :218-337 语义）。优先级：
+        // SCROLL 锁 > 备用屏禁用 > 普通滚动。
+        // 使用拖动开始时的快照：MOVE 帧发出零次 JNI 调用。
         val altScreenActive = dragAltScreenSnapshot
         when (edgeScrollDirection(touchY, surfaceHeightPixels.toFloat(), cellHeight)) {
             EdgeScrollDirection.UP -> {
@@ -1623,9 +1547,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
             EdgeScrollDirection.STOP -> {
                 val (gridRow, snapCol) = dragTargetFromTouch(touchX, touchY)
-                // Fast drag path (): compute bounds and reposition handles
-                // directly, bypassing Compose _state.update → recomposition → read-back
-                // round-trip that was the main per-MOVE frame bottleneck.
+                // 快速拖动路径：直接计算边界并重定位手柄，
+                // 避开 Compose _state.update → 重组 → 回读的往返
+                // ——那正是每次 MOVE 的主要帧瓶颈。
                 val bounds =
                     viewModel?.dragMove(
                         draggingStart = handleDragState == HandleDrag.START,
@@ -1669,10 +1593,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /**
-     * Move the dragged handle to the cell at [gridRow] under the current touch column, snapping
-     * across wide (CJK) character boundaries.
-     */
+    /** 把被拖动的手柄移到当前触摸列所在 [gridRow] 的单元格，并在宽字符（CJK）边界处吸附。 */
     private fun updateDragHandleForCell(gridRow: Int) {
         val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
         val snappedCol = snapToWideCharBoundary(gridRow, curCol)
@@ -1681,25 +1602,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } else if (handleDragState == HandleDrag.END) {
             viewModel?.updateSelection(gridRow, snappedCol)
         }
-        // Throttled native push keeps the cell-inversion highlight live during
-        // edge-scroll drags (same cadence as the fast MOVE path).
+        // 节流的原生推送使单元格反色高亮在边缘滚动拖动期间保持实时
+        // （与快速 MOVE 路径同一节奏）。
         viewModel?.syncDragSelectionToNativeThrottled()
     }
 
     /**
-     * Snap a column onto a wide-char boundary: when `col` lands on the trailing (second) half of a
-     * wide char, step back one cell so the selection handle never splits a wide character in two.
+     * 把列吸附到宽字符边界：当 `col` 落在宽字符的后半部分时回退一格，
+     * 使选区手柄绝不把一个宽字符从中间切开。
      */
     private fun snapToWideCharBoundary(gridRow: Int, col: Int): Int {
         if (col <= 0) return col
         val bridge = viewModel?.runtime?.bridge() ?: return col
-        // Cache the last queried row (time-bounded): during a handle drag
-        // the row is stable for long stretches (only col moves), and
-        // scrollbackLine copies a whole line across JNI on every call.
+        // 缓存最后查询的行（有时间界）：手柄拖动期间行在很长一段时间内保持不变
+        // （只有列在动），而 scrollbackLine 每次调用都要跨 JNI 复制整行。
         val nowMs = SystemClock.uptimeMillis()
-        // During an active handle drag the cache is session-scoped
-        // (spec constraint b): rows only change via edge-scroll which
-        // re-latches anyway; otherwise the 500ms TTL applies.
+        // 手柄拖动活跃期间缓存按拖动会话生效：
+        // 行只经边缘滚动变化，而那本身会重新锁定；否则适用 500ms 的 TTL。
         val line =
             if (
                 gridRow == cachedWideCharLineRow &&
@@ -1724,22 +1643,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 抓柄即隐藏（design 决策 3）：拖动中菜单不遮挡选择；抬手由
         // finishHandleDrag 按新几何重锚重显。
         hideSelectionMenu()
-        // Lock onto the finger that started the drag: subsequent MOVE events
-        // from other pointers must not steer the selection (issue #15).
+        // 锁定到发起拖动的那根手指：来自其他指针的后续 MOVE 事件
+        // 绝不能改变选区。
         dragPointerId = pointerId
-        // (spec text-selection "drag fluency" constraint b):
-        // snapshot per-drag state so MOVE frames issue ZERO JNI calls.
+        // 按拖动快照化状态，使 MOVE 帧发出零次 JNI 调用。
         dragAltScreenSnapshot =
             runCatchingCancellable { viewModel?.runtime?.bridge()?.isAltScreenActive() ?: false }
                 .getOrDefault(false)
         dragWideCharCacheSession = true
-        // call setSelectionDragging(true) ONCE at drag start so the
-        // render thread suppresses new-output scroll reset. Previously this was
-        // called per-MOVE inside dragSelection — wasteful since it's idempotent.
+        // 在拖动开始时只调用一次 setSelectionDragging(true)，
+        // 使渲染线程抑制新输出引起的滚动复位。原先在 dragSelection 内
+        // 按每个 MOVE 调用——鉴于它是幂等的，那纯属浪费。
         viewModel?.runtime?.setSelectionDragging(true)
-        // D7.5 completion ( review): a handle grab on a paste-only
-        // selection upgrades it to a text selection so dragging grows the range
-        // instead of being swallowed by the paste-only immutability guard.
+        // 抓住仅粘贴选区的手柄会把它升级为文本选区，
+        // 使拖动能扩展范围，而不被「仅粘贴不可变」守卫吞掉。
         viewModel?.beginHandleDragOnPasteOnly()
         val selection = viewModel?.state?.value?.selection
         if (which == HandleDrag.START) {
@@ -1751,10 +1668,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /** alt-screen flag snapshotted at drag start (MOVE frames must not JNI). */
+    /** 拖动开始时快照的备用屏标志（MOVE 帧绝不做 JNI 调用）。 */
     private var dragAltScreenSnapshot = false
 
-    /** True while a handle drag session keeps the wide-char line cache alive. */
+    /** 手柄拖动会话保持宽字符行缓存存活期间为真。 */
     private var dragWideCharCacheSession = false
     private var longPressDragging = false
     private var longPressStartX = 0f
@@ -1772,8 +1689,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val gestureListener =
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean {
-                // Reset sub-cell accumulator at gesture start so the first
-                // onScroll distance is measured from a clean origin.
+                // 手势开始时重置亚单元格累加器，使首次 onScroll 距离从干净的起点算起。
                 // 同步本地偏移与运行时真源：渲染线程回底后本地仍旧值，下次手势若从旧值起算会跳变。
                 viewModel?.runtime?.activeSessionScrollOffset()?.let { scrollOffset = it }
                 scrollAccumulatorPx = 0f
@@ -1788,23 +1704,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 // 选词中移动由 ACTION_MOVE 长按拖动分支消费；此处吞掉避免双路径竞争致摇晃。
                 if (isSelectingText) return true
-                // Alternate-screen wheel forwarding (Haven research: altScreen
-                // wheel consumption). When the remote is on the alternate
-                // screen (vim/less/htop), a touch-scroll gesture must be sent
-                // to the remote as mouse-wheel escapes rather than scrolling
-                // local scrollback — otherwise the user cannot scroll inside
-                // those programs. Forward one wheel event per scrolled row,
-                // matching the external-mouse path in onGenericMotionEvent.
+                // 备用屏滚轮转发。当远端处于备用屏（vim/less/htop）时，
+                // 触摸滚动手势必须以滚轮转义发送给远端而非滚动本地回滚，
+                // 否则用户无法在这些程序内部滚动。
+                // 每个滚过的行转发一个滚轮事件，与 onGenericMotionEvent
+                // 中的外接鼠标路径一致。
                 val altBridge = viewModel?.runtime?.bridge()
                 if (altBridge != null && altBridge.isAltScreenActive()) {
                     val cellW = viewModel?.runtime?.cellWidth ?: 1f
                     val cellH = viewModel?.runtime?.cellHeight ?: 1f
                     val x = e2.x
                     val y = e2.y
-                    // One full cell-height of travel = one wheel row, matching
-                    // the local-scroll mapping below (distanceY / cellHeight).
+                    // 走满一个单元格高度 = 一个滚轮行，与下方的本地滚动映射
+                    // （distanceY / cellHeight）一致。
                     val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellH).toInt()))
-                    // finger up (distanceY > 0) = wheel-up (3, older), finger down = wheel-down (4, newer)
+                    // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
                     var forwarded = false
                     repeat(lines) {
@@ -1820,13 +1734,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     isScrolling = true
                     onScrollingStateChanged?.invoke(true)
                 }
-                // Sub-cell accumulator: distanceY < cellHeight must not be dropped
-                // — otherwise slow drags produce 0 rows and feel卡顿/闪烁. Accumulate
-                // and emit whole rows only, carrying remainder to the next onScroll.
-                // Direction: finger DOWN (distanceY<0, currentY - previousY) → older history
-                // (offset increases, viewportTop decreases) →
-                // termux TerminalView:onScroll deltaRows = distanceY / lineSpacing +
-                // doScroll rowsDown>0 → mTopRow+1 newer, rowsDown<0 → mTopRow-1 older.
+                // 亚单元格累加器：distanceY < cellHeight 绝不能被丢弃，
+                // 只发出整行，余量带入下一次 onScroll。
+                // 方向：手指下移（distanceY<0，currentY - previousY）→ 更旧的历史
+                // （偏移增大，视口顶部行号减小）→
+                // 对应 termux TerminalView:onScroll 的 deltaRows = distanceY / lineSpacing
+                // 与 doScroll rowsDown>0 → mTopRow+1（更新）、rowsDown<0 → mTopRow-1（更旧）。
                 // 即 distanceY 为负(下移)时 deltaRows 为负,对应 older,与本实现 scrollOffset 增加一致。
                 // 截断趋向零（toInt）：正/负亚行阈值对称，消除 floor 非对称导致的漂移。
                 // 注意符号:distanceY = previousY - currentY,下移为负,需取反累加才能使下移增加偏移。
@@ -1837,10 +1750,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     scrollOffset = scrollStep.newOffset
                     onScrollChanged?.invoke(scrollOffset)
                 }
-                // Per-pixel remainder: mirror the sub-row accumulator to the
-                // renderer so content follows the finger within the row.
-                // Gated on non-empty scrollback — with no history any offset
-                // would expose empty space.
+                // 逐像素余量：把亚行累加器镜像给渲染器，
+                // 使内容在行内跟随手指。
+                // 以非空回滚为条件——没有历史时任何偏移都会露出空白。
                 // setScrollRemainderPx 已含 notifyRender，不再额外 forceRender
                 // （双重唤醒致手势期间渲染线程空转，滚动卡顿）。
                 if (scrollbackLen > 0) {
@@ -1852,11 +1764,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 // 选词中 fling 同样吞掉，避免落到滚动路径致视口跳变。
                 if (isSelectingText) return true
-                // On the alternate screen (vim/less/htop), a fling must not
-                // scroll local scrollback — the gesture belongs to the remote.
-                // We drop it here (consuming it) rather than forwarding, since
-                // fling velocity has no clean wheel-line mapping; drag-scroll
-                // (onScroll) already forwards per-row wheel events.
+                // 在备用屏（vim/less/htop）上，fling 绝不能滚动本地回滚
+                // ——该手势属于远端。此处直接丢弃（消费掉）而不转发，
+                // 因为惯性速度没有干净的滚轮行数映射；
+                // 拖动滚动（onScroll）已经按行转发滚轮事件。
                 val flingBridge = viewModel?.runtime?.bridge()
                 if (flingBridge != null && flingBridge.isAltScreenActive()) {
                     return true
@@ -1899,8 +1810,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onSingleTapUp(event: MotionEvent): Boolean {
-                // Multi-tap selection (ghostty-android pattern): count
-                // rapid taps and handle word/line/select-all on tap 2/3/4+.
+                // 多击选择（ghostty-android 模式）：统计快速轻击次数，在第 2/3/4+ 次上处理词/行/全选。
                 // 用事件时间而非处理时间计数：慢设备/模拟器上主线程卡顿
                 // （软件渲染帧 1s+）会把处理间隔撑过 400ms 窗口，导致三击
                 // 的第 3 击被重置为单击并清掉选词；事件时间是用户真实点速。
@@ -1911,9 +1821,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                 if (handleMultiTap(event)) return true
 
-                // 300ms hide-protection (termux :57-80): the first tap right
-                // after a handle-drag release is part of finishing the drag
-                // gesture, not "tap outside the selection → dismiss menu".
+                // 300ms 隐藏保护：手柄拖动松手后的首次轻击属于拖动手势的收尾，
+                // 而非「点击选区外 → 关闭菜单」。
                 if (shouldSuppressTapAfterDragEnd(now, lastHandleDragEndUptimeMs)) {
                     return true
                 }
@@ -1923,27 +1832,24 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     longPressDragging = false
                     return true
                 }
-                // the drawer close animation lets a scrim tap
-                // fall through to the surface; do not treat it as a
-                // terminal tap (which would clear the selection).
+                // 抽屉关闭动画会让遮罩轻击穿透到 Surface；
+                // 不要把它当作终端轻击（那会清除选区）。
                 if (System.nanoTime() < suppressUntilNanos) {
                     return true
                 }
                 if (isScrolling) {
-                    // Just end the scroll state; do NOT reset scrollOffset to 0
-                    // because that would undo the user's scroll on every tap,
-                    // making scrollback feel unusable ("scrolling doesn't work").
-                    // The pixel remainder IS reset so the view settles on a
-                    // whole row instead of stopping mid-row.
+                    // 只结束滚动状态；绝不要把 scrollOffset 重置为 0，
+                    // 否则每次轻击都会撤销用户的滚动，使回滚浏览不可用
+                    // （「滚动不起作用」的反馈）。像素余量确实会被重置，
+                    // 使视图停在整行而非行中间。
                     isScrolling = false
                     scrollAccumulatorPx = 0f
                     viewModel?.runtime?.setScrollRemainderPx(0f)
                     onScrollingStateChanged?.invoke(false)
                     return true
                 }
-                // OSC 8 hyperlink tap (termux TerminalView.openLinkAt
-                // pattern): a tap on a hyperlink cell opens the URI instead
-                // of raising the keyboard.
+                // OSC 8 超链接轻点（对标 termux TerminalView.openLinkAt）：
+                // 轻点超链接单元格会打开该 URI，而不是拉起键盘。
                 if (openLinkAt(event.x, event.y)) {
                     return true
                 }
@@ -1951,8 +1857,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     selectionHandles.hideSelectionHandles()
                     viewModel?.clearSelection()
                     post {
-                        // minSdk 33: the platform WindowInsetsController is
-                        // available directly; ViewCompat's helper is deprecated.
+                        // minSdk 33：可直接使用平台的 WindowInsetsController；ViewCompat 的辅助方法已弃用。
                         val controller = windowInsetsController
                         controller?.hide(
                             android.view.WindowInsets.Type.ime(),
@@ -2000,8 +1905,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     if (isSelectingText) return false
                     zoomBaseFontSizeSp = viewModel?.runtime?.appliedFontSizeSp() ?: return false
                     zoomActive = true
-                    // scaleFactor doubles as the long-press guard: while a
-                    // pinch owns the touch sequence, onLongPress skips.
+                    // scaleFactor 同时充当长按守卫：双指缩放占用触摸序列期间，onLongPress 会跳过。
                     scaleFactor = 1.0f
                     return true
                 }
@@ -2024,12 +1928,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     scaleFactor = 1.0f
                     if (zoomSettledOnNewSize(zoomBaseFontSizeSp, sizeSp)) {
-                        // The gesture settled on a new size: persist + full
-                        // apply (single grid reflow).
+                        // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
                         onZoomChanged?.invoke(sizeSp)
                     } else {
-                        // Back to the anchor size: undo the previews that
-                        // already pushed native metrics.
+                        // 回到锚定尺寸：撤销已推入原生度量的预览。
                         onZoomPreview?.invoke(zoomBaseFontSizeSp)
                     }
                 }
@@ -2037,14 +1939,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         )
 
     fun handleLongPress(x: Float, y: Float) {
-        // Reference (ghostty-android TerminalView.java:1085-1100):
-        // ghostty-android uses tapCount (double-tap = word, triple-tap = line)
-        // instead of long-press for word selection.  Our long-press → word
-        // selection is equivalent but different UX.
-        // ghostty-android also disables GestureDetector's built-in double-tap
-        // detection (setOnDoubleTapListener(null)) so onSingleTapUp fires for
-        // every tap and handleTap() counts them — more responsive than the
-        // default 300ms+ double-tap timeout.
+        // 参照 ghostty-android TerminalView.java:1085-1100：它用 tapCount
+        // （双击 = 词、三击 = 行）而非长按做词选择；此处的「长按 → 词选择」
+        // 等效但交互不同。ghostty-android 还禁用了 GestureDetector 内置的
+        // 双击检测（setOnDoubleTapListener(null)），使 onSingleTapUp 对每次轻击都触发
+        // 而由 handleTap() 计数——比默认 300ms+ 的双击超时更跟手。
         if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
         isAfterLongPress = true
 
@@ -2058,28 +1957,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val row = (y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
         val gridRow = (scrollbackLength - scrollOffset + row)
 
-        // Always attempt smart word selection on long-press. The isCellEmpty
-        // check is unreliable because the GPU render path (CellData) and the
-        // query path (grid_ref) use different data sources. If the cell is
-        // genuinely empty, isWhitespaceCell classifies it as whitespace and
-        // we fall through to the single-cell invert + paste menu.
+        // 长按时始终尝试智能选词。isCellEmpty 检查不可靠，
+        // 因为 GPU 渲染路径（CellData）与查询路径（grid_ref）使用不同的数据源。
+        // 若单元格确实为空，isWhitespaceCell 会把它归类为空白，
+        // 我们则落到单格反色 + 粘贴菜单。
         val line = bridge?.scrollbackLine(gridRow)
-        // Blank target = null row, whitespace cell, OR any column past the
-        // end of the line — termux's getSelectedText(x,y,x,y) returns ""
-        // for all three, so they must all classify as paste-only. The old
-        // `col < line.length` conjunct classified end-of-line columns as
-        // TEXT, which is exactly why long-pressing right of the prompt
-        // showed the full menu with PASTE ( root cause A1).
+        // 空白目标 = 空行、空白单元格，或行尾之后的任何列
+        // ——termux 的 getSelectedText(x,y,x,y) 对三者都返回 ""，
+        // 故它们都必须归类为仅粘贴。原先的 `col < line.length` 合取条件
+        // 把行尾各列归类为文本，这正是「在提示符右侧长按
+        // 却弹出带 PASTE 的完整菜单」的根因。
         val isOnWhitespace = isWhitespaceCell(line, col)
 
         if (isOnWhitespace) {
             viewModel?.startSelection(gridRow, col, TouchClass.Whitespace)
             viewModel?.endSelection()
 
-            // (termux parity, design D7.5): a blank-cell selection
-            // also shows both handles stacked on the cell — dragging either
-            // one grows a range selection from blank space, exactly like
-            // termux's setInitialTextSelectionPosition flow.
+            // （termux 对等）：空白单元格的选区也显示两个手柄叠在该单元格上
+            // ——拖动任一手柄都会从空白处扩展出范围选区，
+            // 与 termux 的 setInitialTextSelectionPosition 流程完全一致。
             selectionHandles.showSelectionHandles(gridRow, col, gridRow, col, getAccentColor())
 
             Log.d(
@@ -2131,9 +2027,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     init {
         holder.addCallback(this)
-        // SurfaceView punches a hole in the window; the terminal content is
-        // drawn by the native renderer into the Surface, everything else
-        // (ModifierBar, overlays) stays in the normal view hierarchy.
+        // SurfaceView 在窗口中开了孔；终端内容由原生渲染器绘制到 Surface，
+        // 其余一切（工具栏、覆盖层）留在普通视图层级中。
         holder.setFormat(android.graphics.PixelFormat.RGBA_8888)
         isFocusable = true
         isFocusableInTouchMode = true
@@ -2176,9 +2071,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
         }
         if (hasFocus) {
-            // Reset pause state but do NOT call finishComposingText — the IME may be
-            // mid-composition; aborting it here causes the IME to lose sync and
-            // produce duplicate text, extra spaces, or silently drop input.
+            // 重置暂停状态，但绝不要调用 finishComposingText——输入法可能正处于
+            // 组字中；在此中止会导致输入法失步，产生重复文本、多余空格或静默丢字。
             isPaused = false
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
         }
@@ -2187,13 +2081,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
         val result = super.onApplyWindowInsets(insets)
         val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
-        // Spec ime-translation: only a shown/hidden FLIP dismisses the selection
-        // handles + context menu — popups positioned at show time can never be
-        // stale relative to the pan. Gating on the flip (not every px delta)
-        // matters: the show/hide animation fires insets every frame, and clearing
-        // per-frame wipes a selection made mid-animation (e.g. double-tap select
-        // right after tap-to-focus shows the keyboard). Do NOT resize here; the
-        // hybrid pan-then-reflow defers the single grid reflow to onImeSettled(48ms).
+        // 只有键盘的显示/隐藏 FLIP 才关闭选区手柄与上下文菜单
+        // ——显示时定位的弹窗绝不会相对滚动而陈旧。
+        // 以 FLIP（而非每像素变化）为闸门很重要：显示/隐藏动画每帧都发出 insets，
+        // 逐帧清除会抹掉动画期间做出的选择
+        // （例如轻击聚焦唤起键盘后紧接着双击选词）。此处不要 resize；
+        // 「先平移后重排」的混合方案把唯一一次网格重排推迟到 onImeSettled(48ms)。
         val imeVisible = insets.isVisible(WindowInsets.Type.ime())
         lastImeBottom = imeBottom
         if (imeVisible != lastImeVisible) {
@@ -2206,10 +2099,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Called once per IME transition after the 48ms settle window (3×16ms) by TerminalScreen's
-     * LaunchedEffect. Pans the view instead of reflowing the grid: the PTY rows/cols stay fixed so
-     * existing rows never rewrap (no line shuffle, no lost content). The view shifts up only by the
-     * overflow amount — content that fits keeps every pixel in place.
+     * 由 TerminalScreen 的 LaunchedEffect 在每次输入法转换后经 48ms 稳定窗（3×16ms）调用一次。
+     * 平移视图而非重排网格：PTY 行列保持不变，故既有行绝不重新换行
+     * （无行错乱、无内容丢失）。视图只按溢出量上移
+     * ——放得下的内容保持每个像素原位。
      */
     fun onImeSettled(settledBottom: Int) {
         lastImeBottom = settledBottom
@@ -2231,10 +2124,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * App-switch resume: the holder Surface is often still invalid in ON_RESUME
-     * (system reclaims the BufferQueue while backgrounded, no surfaceDestroyed
-     * is delivered). Retry the detach+attach swapchain rebuild until the holder
-     * is valid again, then unpause + resume + force one frame.
+     * 切应用恢复：ON_RESUME 时 holder 的 Surface 往往仍无效
+     * （系统在后台回收了 BufferQueue，且未送达 surfaceDestroyed）。
+     * 持续重试 detach+attach 的交换链重建直到 holder 重新有效，
+     * 然后解除暂停 + 恢复 + 强制渲染一帧。
      */
     fun postDelayedSurfaceRecreate(viewModel: TerminalViewModel, attemptsLeft: Int = SURFACE_RECREATE_ATTEMPTS) {
         postDelayed({
@@ -2273,11 +2166,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         return cachedScrollbackLength
     }
 
-    /**
-     * Absolute grid row displayed at the viewport top (scrollbackLength - scrollOffset): the single
-     * source for the old inline `scrollbackLength - scrollOffset` formula that selection rectangles
-     * and drag/cursor handles all need.
-     */
+    /** 视口顶部显示的绝对网格行（scrollbackLength - scrollOffset）：选区矩形与拖动/光标手柄都需要的唯一来源。 */
     private fun currentViewportTopGrid(): Int = currentScrollbackLength() - scrollOffset
 
     fun scrollToRow(row: Int) {
@@ -2287,16 +2176,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (targetOffset != scrollOffset) {
             scrollOffset = targetOffset
             onScrollChanged?.invoke(scrollOffset)
-            // Signal the render thread (vsync-paced) instead of blocking the UI
-            // thread with a synchronous GPU render on every scroll event.
+            // 以信号（按 vsync 节奏）通知渲染线程，
+            // 而不是在每个滚动事件上用同步 GPU 渲染阻塞 UI 线程。
             viewModel?.runtime?.forceRender()
         }
     }
 
-    /**
-     * Reset the local scroll offset to the session's offset ): called on session switch so selection
-     * coordinate math does not use the previous session's offset.
-     */
+    /** 把本地滚动偏移重置为会话的偏移；会话切换时调用，使选区坐标计算不使用上一个会话的偏移。 */
     fun resetScrollOffset() {
         stopFlingAnimation()
         val sessionOffset = viewModel?.runtime?.activeSessionScrollOffset() ?: 0
@@ -2327,10 +2213,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         clipboardPaster.pasteTo { inputBatchBuffer.write(it) }
     }
 
-    /**
-     * Handle multi-tap selection (ghostty-android pattern). Returns true if the event was consumed
-     * (tapCount >= 2).
-     */
+    /** 处理多击选择（ghostty-android 模式）。事件被消费（tapCount >= 2）时返回 true。 */
     private fun handleMultiTap(event: MotionEvent): Boolean {
         val consumed =
             when (multiTapAction(tapCount)) {
@@ -2451,11 +2334,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val terminalViewModel = viewModel
-        // hardware Enter (including maestro
-        // pressKey and adb keyevent) bypasses writeToPty via
-        // bridge.processKeyEvent — the reported "new command + Enter does
-        // not scroll" root cause. Share the input-driven snap so ANY Enter
-        // snaps immediately, and any hardware input clears the SCROLL lock.
+        // 硬件回车（包括 maestro 的 pressKey 与 adb keyevent）经
+        // bridge.processKeyEvent 绕过 writeToPty
+        // ——正是「输入新命令 + 回车不滚动」这一反馈的根因。
+        // 共用输入驱动的贴底逻辑，使任意回车都立即贴底，
+        // 且任意硬件输入都会清除 SCROLL 锁。
         if (terminalViewModel != null) {
             val isEnter =
                 keyCode == KeyEvent.KEYCODE_ENTER ||
@@ -2479,24 +2362,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        // Key-up is intentionally NOT forwarded to the bridge: Bridge's
-        // processKeyEvent drops every non-ACTION_DOWN (writing on UP would
-        // double each keystroke), so it always returns false here. Fall
-        // through to the system so key-up semantics (long-press repeat,
-        // system gestures) are not swallowed.
+        // 刻意不把 key-up 转发给 bridge：Bridge 的 processKeyEvent 会丢弃所有
+        // 非 ACTION_DOWN 事件（在 UP 上写入会让每次击键写两遍），
+        // 故它在此总是返回 false。放行给系统，
+        // 使 key-up 语义（长按重复、系统手势）不被吞掉。
         return super.onKeyUp(keyCode, event)
     }
 
     private fun handleKeyEvent(event: KeyEvent): Boolean = onKeyDown(event.keyCode, event)
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 4: Touch event dispatch
+    // 四、触摸事件派发
     // ══════════════════════════════════════════════════════════════════════
 
     override fun performClick(): Boolean = super.performClick()
 
-    // Acceptable: dispatches ~15 distinct gesture/intent types with
-    // selection, scroll, long-press, and hardware-key interactions.
+    // 派发约 15 种彼此不同的手势/意图，涵盖选区、滚动、长按与硬件按键交互。
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             // 覆写 onTouchEvent 的 View 必须在抬手时调用 performClick，
@@ -2510,37 +2391,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
         if (event.action == MotionEvent.ACTION_DOWN) {
             parent?.requestDisallowInterceptTouchEvent(true)
-            // A new touch stops any in-flight fling animation (standard
-            // Android scrollable behavior; termux does the same in onTouchEvent).
+            // 新触摸会停止进行中的惯性动画（标准 Android 可滚动行为；termux 在 onTouchEvent 中亦同）。
             stopFlingAnimation()
         }
-        // the drawer's swipe-from-edge gesture starts in the
-        // screen-edge slop (~32dp). The surface must not consume those
-        // touches: when drawerOpen is false the surface would otherwise
-        // receive DOWN + UP without MOVEs (the drawer gesture takes the
-        // moves), GestureDetector classifies that as a tap and clears the
-        // selection. Edge touches always belong to the drawer gesture.
-        // While the drawer is open the surface must yield ALL touches to
-        // the scrim (its close gesture), otherwise requestDisallowIntercept
-        // on DOWN steals the stream and the drawer can never close.
+        // 抽屉的边缘滑动手势始于屏幕边缘区（~32dp）。Surface 绝不能消费这些触摸：
+        // 当 drawerOpen 为假时，Surface 本会收到没有 MOVE 的 DOWN + UP
+        // （MOVE 都被抽屉手势取走），GestureDetector 会把它判为轻击而清除选区。
+        // 边缘触摸始终属于抽屉手势。抽屉打开时，Surface 必须把全部触摸让给
+        // 遮罩（其关闭手势），否则 DOWN 上的 requestDisallowIntercept
+        // 会抢走事件流，抽屉将永远无法关闭。
         val drawerEdgePixels = (32 * resources.displayMetrics.density).toInt()
         if (drawerOpen || event.x < drawerEdgePixels) {
             return false
         }
 
-        // No longer needed — ModifierBar is now a Compose overlay at higher
-        // z-index which naturally intercepts touches in the mod bar zone.
-
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
 
         if (fromMouse) {
-            // Mouse-mode reporting (DECSET 1000/1002/1003): route mouse
-            // events to the terminal via the Ghostty mouse encoder (zelland
-            // src-tauri/src/terminal.rs encode_mouse_event pattern). The
-            // encoder returns an empty sequence when the application has not
-            // enabled mouse reporting, in which case the event falls through
-            // to the app gestures below (right-click word-select,
-            // middle-click paste).
+            // 鼠标模式上报（DECSET 1000/1002/1003）：经 Ghostty 鼠标编码器
+            // 把鼠标事件路由到终端。应用未启用鼠标上报时编码器返回空序列，
+            // 此时事件落到下方的应用手势（右键选词、中键粘贴）。
             val runtime = viewModel?.runtime
             val bridge = runtime?.bridge()
             if (bridge != null) {
@@ -2591,11 +2461,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (isSelectingText) {
-                    // handle drags are owned by the single
-                    // overlay window (spec "生命周期单一 owner") — a DOWN
-                    // on a handle never reaches the surface anymore. Any
-                    // DOWN that DOES arrive here is a non-handle tap:
-                    // clear the selection exactly as before.
+                    // 手柄拖动由唯一的覆盖层窗口拥有
+                    // （生命周期单一 owner）——落在手柄上的 DOWN 不会再抵达 Surface。
+                    // 任何确实抵达此处的 DOWN 都是非手柄轻击：
+                    // 与之前一样清除选区。
                     viewModel?.clearSelection()
                     selectionHandles.hideSelectionHandles()
                     hideSelectionMenu()
@@ -2604,10 +2473,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
             MotionEvent.ACTION_MOVE -> {
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
-                    // Pointer-id lock (issue #15): only the finger that
-                    // latched the drag may steer the selection. Coordinates
-                    // come from that pointer's slot; moves carried by a second
-                    // finger — or after it lifted — are swallowed.
+                    // 指针 id 锁定：只有锁定拖动的那根手指才能改变选区。
+                    // 坐标取自该指针的槽位；由第二根手指携带的移动
+                    // ——或它抬起之后的移动——一律吞掉。
                     val lockedIdx = dragPointerId?.let { event.findPointerIndex(it) }
                     val lockedMissing = dragPointerId != null && (lockedIdx == null || lockedIdx < 0)
                     if (!lockedMissing) {
@@ -2622,12 +2490,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     viewModel?.updateSelection(gridRow, col)
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel.end != null) {
-                        // reposition, don't rebuild: showSelectionHandles
-                        // dismisses and recreates 2 PopupWindows (4
-                        // WindowManager IPC + allocations) — at 60-120Hz
-                        // ACTION_MOVE that is a guaranteed frame-drop
-                        // source. repositionHandle uses PopupWindow.update
-                        // (in-process) instead.
+                        // 重定位而非重建：showSelectionHandles 会 dismiss 并重建
+                        // 2 个 PopupWindow（4 次 WindowManager IPC + 分配）
+                        // ——在 60-120Hz 的 ACTION_MOVE 下是必然掉帧的来源。
+                        // repositionHandle 改用 PopupWindow.update（进程内）。
                         selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
                         selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
                     }
@@ -2648,17 +2514,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
                 if (longPressDragging) {
                     longPressDragging = false
-                    // Long-press drag also ends a selection gesture: arm the
-                    // tap guard so the release tap cannot dismiss the menu.
+                    // 长按拖动同样终结一次选区手势：启用轻击保护，
+                    // 使松手轻击无法关闭菜单。
                     lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel.end != null) {
                         viewModel?.endSelection()
-                        // (termux parity, design D7.5): paste-only
-                        // single-cell selections ALSO get handles — dragging
-                        // them is how a range selection starts from blank
-                        // space. The toolbar anchors above the handles via
-                        // onGetContentRect's handle-height offset.
+                        // （termux 对等）：仅粘贴的单格选区同样获得手柄
+                        // ——从空白处开始范围选区正是靠拖动它们。
+                        // 工具栏经 onGetContentRect 的手柄高度偏移锚定在手柄之上。
                         selectionHandles.showSelectionHandles(
                             sel.start.row,
                             sel.start.col,
@@ -2688,11 +2552,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Mouse wheel events (external mouse / trackpad). When the application has mouse reporting
-     * enabled (DECSET 1000/1002/1003), wheel events are encoded as buttons 4/5 by the Ghostty mouse
-     * encoder and written to the PTY (zelland src-tauri/src/terminal.rs: scroll_up/scroll_down →
-     * button FOUR/FIVE). The encoder returns an empty sequence when reporting is off — the event is
-     * then ignored (there is no scrollback wheel handling; touch scrolling covers that).
+     * 鼠标滚轮事件（外接鼠标/触控板）。应用启用鼠标上报时
+     * （DECSET 1000/1002/1003），滚轮事件经 Ghostty 鼠标编码器编码为按钮 4/5
+     * 并写入 PTY。未启用上报时编码器返回空序列——事件被忽略
+     * （回滚没有滚轮处理，触摸滚动已覆盖该场景）。
      */
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
@@ -2711,7 +2574,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         runtime.cellHeight,
                     )
                 ) {
-                    // Wheel release completes the scroll gesture.
+                    // 滚轮释放完成滚动手势。
                     bridge.encodeMouseEvent(
                         event.x,
                         event.y,
@@ -2727,10 +2590,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         return super.onGenericMotionEvent(event)
     }
 
-    // ── Surface lifecycle (SurfaceHolder.Callback; the native renderer
-    // ── draws into the Surface — SurfaceView, not TextureView, because
-    // ── TextureView's SurfaceTexture is consumed by the GL compositor and
-    // ── blocks Vulkan dequeueBuffer on software emulators) ────────────────
+    // ── Surface 生命周期（SurfaceHolder.Callback；原生渲染器绘制到 Surface
+    // ── —— 用 SurfaceView 而非 TextureView，因为 TextureView 的 SurfaceTexture
+    // ── 会被 GL 合成器消费，在软件模拟器上阻塞 Vulkan 的 dequeueBuffer） ──
 
     override fun onSizeChanged(width: Int, height: Int, previousWidth: Int, previousHeight: Int) {
         super.onSizeChanged(width, height, previousWidth, previousHeight)
@@ -2740,29 +2602,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         resizeManager.recomputeRowsColsImmediate(width, height)
-        // Resize the GPU swapchain synchronously and immediately so the rendered
-        // frame always matches the new view size: if the wgpu/swapchain
-        // buffer stayed at the old size for even a few frames (e.g. while the
-        // IME animates), the stale buffer would be non-uniformly scaled ->
-        // the text would visibly stretch/compress. Immediate resize keeps
-        // buffer == view at all times, eliminating the artifact.
+        // 同步且立即地 resize GPU 交换链，使渲染帧始终匹配新视图尺寸：
+        // 若 wgpu/交换链缓冲哪怕停留在旧尺寸几帧（如输入法动画期间），
+        // 陈旧缓冲就会被非均匀缩放——文字会明显拉伸/压缩。
+        // 立即 resize 使缓冲与视图始终相等，彻底消除该瑕疵。
         resizeManager.applySurfaceResize(width, height)
     }
 
-    /**
-     * Reconfigure the native (wgpu) surface + grid to [width]x[height] right now. Idempotent: a no-op
-     * when the size already matches the last configured size. Must run on the main thread (holds the
-     * bridge surface lock while the render thread may briefly contend, but never deadlocks).
-     */
-
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 5: Surface lifecycle (ResizeManager owns grid/size)
+    // 五、Surface 生命周期（网格/尺寸由 ResizeManager 拥有）
     // ══════════════════════════════════════════════════════════════════════
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        // 0-size guard: layout may call surfaceCreated before the view is measured
-        // (width/height 0) — binding a 0×0 ANativeWindow creates a black swapchain
-        // that acquireNextImage fails on (flash). Defer until surfaceChanged with real size.
+        // 0 尺寸守卫：布局可能在视图测量完成前就调用 surfaceCreated
+        // （宽高为 0）——绑定 0×0 的 ANativeWindow 会创建一个
+        // acquireNextImage 失败的黑色交换链（一闪而过）。推迟到 surfaceChanged 拿到真实尺寸。
         if (width <= 0 || height <= 0) return
         val surface = holder.surface
         if (!surface.isValid) return
@@ -2776,16 +2630,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (!isRunning) {
                 terminalViewModel.startRuntime(surface, width, height)
             } else {
-                // ADR-0007: re-attach the (recreated) surface; the renderer
-                // rebuilds its wgpu surface from it.
+                // 重新绑定（重建后的）Surface；渲染器据此重建其 wgpu surface。
                 terminalViewModel.runtime.attachSurface(surface, width, height)
                 terminalViewModel.runtime.recomputeGrid(width, height)
-                // onSurfaceDestroyed set render_paused=true on this path;
-                // it is only cleared by the settings screen, so a plain
-                // background/resume cycle left the flag set and the
-                // restarted render thread produced black frames
-                // (render_frame short-circuits when paused). Clear it
-                // before the thread restarts.
+                // onSurfaceDestroyed 会在此路径上置 render_paused=true，
+                // 而只有设置界面会清除它，
+                // 故普通的后台/恢复循环会让该标志保持置位，
+                // 使重启的渲染线程输出黑帧（暂停时 render_frame 会短路）。
+                // 在线程重启前清除它。
                 terminalViewModel.runtime.setRenderPaused(false)
                 terminalViewModel.runtime.resumeRendering()
                 terminalViewModel.runtime.forceRender()
@@ -2812,33 +2664,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         resizeManager.recomputeRowsColsImmediate(width, height)
-        // Always resize the swapchain when the surface size changes,
-        // including IME show/hide (height-only changes). The old approach
-        // of skipping height-only changes caused text stretch/compression
-        // because the GPU rendered into a stale-sized buffer while the
-        // TextureView had already resized, producing non-uniform scaling.
+        // Surface 尺寸变化时总是 resize 交换链，包括输入法的显示/隐藏（仅高度变化）。
+        // 旧的「跳过纯高度变化」做法会导致文字拉伸/压缩，
+        // 因为视图已 resize 而 GPU 仍在旧尺寸缓冲中渲染，产生非均匀缩放。
         resizeManager.applySurfaceResize(width, height)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         viewModel?.runtime?.onSurfaceDestroyed()
         viewModel?.runtime?.releaseAllGpuSurfaces()
-        // Dismiss selection/cursor handle popups: they hold an Activity
-        // context and a dismissed-but-showing popup triggers StrictMode
-        // activity leaks (and a BadTokenException crash on rotation when
-        // the activity is being destroyed).
+        // 关闭选区/光标手柄弹窗：它们持有 Activity 上下文，
+        // 而「已 dismiss 但仍显示」的弹窗会触发 StrictMode 的
+        // Activity 泄漏（在 Activity 销毁期间旋转时还会触发 BadTokenException 崩溃）。
         selectionHandles.hideSelectionHandles()
-        // Reset any latch left by a drag interrupted by surface teardown
-        // (review-6 hygiene): the overlay is gone so no UP will arrive;
-        // a stale latch would be self-healed only by the next touch.
+        // 重置因 Surface 拆除而中断的拖动所残留的任何锁定：
+        // 覆盖层已消失故不会再有 UP 到达；陈旧的锁定只能靠下一次触摸自愈。
         handleDragState = HandleDrag.NONE
         dragPointerId = null
         dragWideCharCacheSession = false
-        // Release the Android Surface only after the render thread has been
-        // joined (pauseRendering runs on the surface-transition executor and
-        // its join can take up to 1s per session). Releasing the ANativeWindow
-        // while the render thread may still be inside native render code is a
-        // use-after-free; the executor ordering guarantees the join finished.
+        // 仅在渲染线程被 join 之后才释放 Android Surface
+        // （pauseRendering 跑在 Surface 转换执行器上，其 join 每会话最长 1s）。
+        // 在渲染线程可能仍处于原生渲染代码中时释放 ANativeWindow 即 use-after-free；
+        // 执行器的顺序保证 join 已完成。
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
         viewModel?.currentSurface = null
@@ -2846,13 +2693,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pure helpers (top-level, unit-testable without a view / bridge)
+// 纯辅助函数（顶层，无需视图/bridge 即可单元测试）
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Next multi-tap count: rapid tap within [windowMs] increments, older resets to 1 (strict `<` — a
- * tap exactly at the window edge starts a fresh click). Backs onSingleTapUp's tap counter.
- */
+/** 下一个多击计数：[windowMs] 内的快速轻击则递增，更早的则重置为 1（严格 `<`——恰好落在窗口边界的轻击开启新的一次点击）。 */
+
 internal fun nextTapCount(now: Long, lastTapTime: Long, tapCount: Int, windowMs: Long): Int = if (now - lastTapTime <
     windowMs
 ) {
@@ -2861,10 +2706,7 @@ internal fun nextTapCount(now: Long, lastTapTime: Long, tapCount: Int, windowMs:
     1
 }
 
-/**
- * Selection action for a tap count (ghostty-android pattern): 2 taps → word, 3 → line, 4+ →
- * select-all; 1 is not consumed. Backs handleMultiTap.
- */
+/** 轻击次数对应的选择动作（ghostty-android 模式）：2 → 词，3 → 行，4+ → 全选；1 不消费。 */
 internal enum class MultiTapAction {
     NOT_A_MULTI_TAP,
     WORD,
@@ -2880,9 +2722,9 @@ internal fun multiTapAction(tapCount: Int): MultiTapAction = when {
 }
 
 /**
- * Edge-scroll zone for a drag y: top half-cell → scroll up, bottom half-cell → scroll down, middle
- * → stop. Matches the asymmetrical boundaries in the drag handler (`<` top vs `>=` bottom) so a
- * degenerate surface (height < cellHeight) favors the top zone.
+ * 拖动 y 所在的边缘滚动区：上半格 → 上滚，下半格 → 下滚，中间 → 停止。
+ * 与拖动处理器中的非对称边界一致（顶部 `<`、底部 `>=`），
+ * 使退化 Surface（高度 < cellHeight）偏向顶部区。
  */
 internal enum class EdgeScrollDirection {
     UP,
@@ -2896,10 +2738,7 @@ internal fun edgeScrollDirection(y: Float, surfaceHeightPx: Float, cellHeight: F
     else -> EdgeScrollDirection.STOP
 }
 
-/**
- * Pixel offset → clamped grid cell (0..maxCells-1; maxCells 0 stays 0). Backs openLinkAt and the
- * drag target mapping.
- */
+/** 像素偏移 → 钳位后的网格单元格（0..maxCells-1；maxCells 为 0 时保持 0）。 */
 internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px / cellSize).toInt().coerceIn(
     0,
     (maxCells - 1).coerceAtLeast(0),
@@ -2938,10 +2777,7 @@ internal fun menuAnchor(
     return null
 }
 
-/**
- * Snap a selection column left of a wide character's trailing half (the pure core of
- * snapToWideCharBoundary given a fetched line; the bridge/row-cache part stays in the surface).
- */
+/** 把落在宽字符后半部分的选区列向左吸附（snapToWideCharBoundary 的纯内核，已给定取回的整行；bridge/行缓存部分留在 Surface 中）。 */
 internal fun snapColToWideChar(line: String, col: Int): Int {
     if (col <= 0) return col
     var cell = 0
@@ -2950,8 +2786,8 @@ internal fun snapColToWideChar(line: String, col: Int): Int {
         val cp = line.codePointAt(i)
         val width = if (isWideCodePoint(cp)) 2 else 1
         if (cell + width > col) {
-            // col inside this char: snap back only on a wide char's
-            // trailing half — the leading half and ASCII stay in place.
+            // col 落在该字符内部：仅当处于宽字符后半部分时回退
+            // ——前半部分与 ASCII 保持原位。
             if (width == 2 && col == cell + 1) return col - 1
             return col
         }
@@ -2962,14 +2798,13 @@ internal fun snapColToWideChar(line: String, col: Int): Int {
 }
 
 /**
- * Map an absolute scrollback-grid coordinate (row, col) to viewport pixel coordinates.
- * `viewportTopGrid` is the absolute grid row shown at the top of the viewport (scrollbackLength -
- * scrollOffset); pass 0 for a row that is already viewport-relative. Extracted from the inline
- * `row - (scrollbackLength - scrollOffset)` formulas so scrolling, search-jump and font-size
- * changes share one testable conversion.
+ * 把绝对回滚网格坐标 (row, col) 映射为视口像素坐标。
+ * `viewportTopGrid` 是视口顶部显示的绝对网格行（scrollbackLength - scrollOffset）；
+ * 对已是视口相对的行传 0。从内联的 `row - (scrollbackLength - scrollOffset)` 公式中抽出，
+ * 使滚动、搜索跳转与字号变化共用一个可测试的换算。
  *
- * Returns un-rounded pixels; callers round and clamp to view bounds themselves (handles anchor at
- * row bottoms by passing row + 1).
+ * 返回未取整的像素；调用方自行取整并钳位到视图边界
+ * （手柄锚定在行底部时传入 row + 1）。
  */
 internal fun gridToScreen(
     row: Int,
@@ -2980,20 +2815,19 @@ internal fun gridToScreen(
 ): Pair<Float, Float> = Pair(col * cellWidth, (row - viewportTopGrid) * cellHeight)
 
 /**
- * Normalized selection bounds: start ≤ end, both anchors clamped to the grid. Produced by
- * [clampSelection]; consumed by the drag-handle update path so native setSelection never sees
- * inverted or out-of-bounds cells.
+ * 规范化的选区边界：start ≤ end，两个锚点均钳位到网格内。
+ * 由 [clampSelection] 产出；供拖动手柄更新路径消费，
+ * 使原生 setSelection 绝不看到倒置或越界的单元格。
  */
 internal data class SelectionBounds(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
 
 /**
- * Order-preserving range clamp for a selection (termux TextSelectionCursorController.updatePosition
- * semantics):
+ * 保序的范围钳位（termux TextSelectionCursorController.updatePosition 语义）：
  *
- * 1. clamp each anchor into `[0,maxRow] × [0,maxCol]` (negative max → empty grid → all zeros);
- * 2. swap the anchors when they came in inverted so the returned bounds always satisfy start ≤ end.
+ * 1. 把每个锚点钳入 `[0,maxRow] × [0,maxCol]`（max 为负 → 空网格 → 全零）；
+ * 2. 输入倒置时交换锚点，使返回的边界始终满足 start ≤ end。
  *
- * Pure; backs the drag-path defense-in-depth in SelectionManager.dragSelection.
+ * 纯函数；支撑 SelectionManager.dragSelection 中拖动路径的纵深防御。
  */
 internal fun clampSelection(
     startRow: Int,
@@ -3010,7 +2844,7 @@ internal fun clampSelection(
     val er = endRow.coerceIn(0, maxR)
     val ec = endCol.coerceIn(0, maxC)
     return if (er < sr || (er == sr && ec < sc)) {
-        // Inverted input: swap so start ≤ end after clamping.
+        // 输入倒置：交换以使钳位后 start ≤ end。
         SelectionBounds(startRow = er, startCol = ec, endRow = sr, endCol = sc)
     } else {
         SelectionBounds(startRow = sr, startCol = sc, endRow = er, endCol = ec)
@@ -3018,11 +2852,10 @@ internal fun clampSelection(
 }
 
 /**
- * True when the long-press target cell is a paste-only (blank) target: a null row, a whitespace
- * cell, OR any column past the end of the line. termux's getSelectedText(x,y,x,y) returns "" for
- * all three, so they all classify as blank — the old `col < line.length` conjunct classified
- * end-of-line columns as TEXT and surfaced the full menu with PASTE there ( root cause A1). Pure;
- * backs handleLongPress.
+ * 长按目标单元格是否为仅粘贴（空白）目标：空行、空白单元格，
+ * 或行尾之后的任何列。termux 的 getSelectedText(x,y,x,y) 对三者都返回 ""，
+ * 故它们都归类为空白——原先的 `col < line.length` 合取条件把行尾各列归类为文本，
+ * 并在那里弹出带 PASTE 的完整菜单（根因 A1）。纯函数；支撑 handleLongPress。
  */
 internal fun isWhitespaceCell(line: String?, col: Int): Boolean = when {
     line == null -> true
@@ -3031,12 +2864,11 @@ internal fun isWhitespaceCell(line: String?, col: Int): Boolean = when {
 }
 
 /**
- * Pointer-id lock for handle drags (issue #15 multi-pointer drift): once a drag is latched by
- * [ownerPointerId], later move events may steer the selection only when they carry that same
- * pointer. A null owner means no drag was latched through the locking path — accept, preserving
- * legacy behavior. A null candidate means the event carries no usable pointer id — reject, a second
- * finger must never hijack an existing drag. Pure; backs the ACTION_MOVE guards in TerminalSurface
- * and the handle popups.
+ * 手柄拖动的指针 id 锁定（多指针漂移）：一旦拖动被 [ownerPointerId] 锁定，
+ * 后续移动事件只有携带同一指针时才可改变选区。
+ * owner 为 null 表示没有拖动经锁定路径接入——接受，保持既有行为；
+ * candidate 为 null 表示事件不带可用指针 id——拒绝，第二根手指绝不能劫持已有拖动。
+ * 纯函数；支撑 TerminalSurface 与手柄弹窗中的 ACTION_MOVE 守卫。
  */
 internal fun acceptsDragPointer(ownerPointerId: Int?, candidatePointerId: Int?): Boolean = when {
     ownerPointerId == null -> true
@@ -3044,16 +2876,13 @@ internal fun acceptsDragPointer(ownerPointerId: Int?, candidatePointerId: Int?):
     else -> ownerPointerId == candidatePointerId
 }
 
-/**
- * Guard window after a handle-drag ends during which a tap at the release position is swallowed
- * instead of dismissing the freshly re-shown menu (termux hide-protection :57-80).
- */
+/** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */
 internal const val SELECTION_MENU_RESHOW_GUARD_MS = 300L
 
 /**
- * True while [nowMs] is inside [SELECTION_MENU_RESHOW_GUARD_MS] of the last drag end
- * ([lastDragEndMs], uptimeMillis). The first tap after a drag is consumed as part of finishing the
- * gesture, not as a "tap outside the selection → dismiss" command. Pure; backs onSingleTapUp.
+ * [nowMs] 是否落在上次拖动结束（[lastDragEndMs]，uptimeMillis）后的
+ * [SELECTION_MENU_RESHOW_GUARD_MS] 之内。拖动后的首次轻点被视为手势收尾的一部分，
+ * 而非「点击选区外 → 关闭」的命令。纯函数；支撑 onSingleTapUp。
  */
 internal fun shouldSuppressTapAfterDragEnd(
     nowMs: Long,

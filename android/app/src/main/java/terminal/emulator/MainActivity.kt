@@ -38,10 +38,7 @@ import terminal.emulator.ui.theme.resolveMaterialColorScheme
 import java.io.File
 import javax.inject.Inject
 
-/**
- * How long the settings-overlay pause waits for the bridge to appear after a cold start before
- * giving up (50ms × 50 = 2.5s).
- */
+/** 冷启动后，设置覆盖层的暂停逻辑为等待 bridge 出现而放弃的时长（50ms × 50 = 2.5s）。 */
 private const val BRIDGE_READY_POLL_INTERVAL_MS = 50L
 private const val BRIDGE_READY_POLL_ATTEMPTS = 50
 
@@ -51,8 +48,8 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
 
         /**
-         * termux-compatible failsafe extra: app shortcut "New session (Failsafe)" and third-party
-         * launchers/taskers send `com.termux.app.failsafe_session=true` with ACTION_RUN. 保留 termux
+         * 兼容 termux 的应急 extra：应用快捷方式「新建会话（应急）」与第三方
+         * 启动器/任务器随 ACTION_RUN 发送 `com.termux.app.failsafe_session=true`。保留 termux
          * 原名（applicationId 即 com.termux），以便现有快捷方式与 tasker 任务继续工作。
          */
         const val EXTRA_FAILSAFE_SESSION = "com.termux.app.failsafe_session"
@@ -61,9 +58,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
 
         /**
-         * Test-only extra: install a bootstrap zip from a local path used by NixExecRealTerminalTest —
-         * the instrumentation process cannot write the app filesDir, SELinux app_data category).
-         * Mirrors the INSTALL_BOOTSTRAP broadcast backdoor.
+         * 仅测试用的 extra：从本地路径安装引导 zip，供 NixExecRealTerminalTest 使用
+         * ——instrumentation 进程无法写应用 filesDir（SELinux app_data 类目）。
+         * 对应 INSTALL_BOOTSTRAP 广播后门。
          */
         const val EXTRA_INSTALL_BOOTSTRAP = "terminal.emulator.install_bootstrap"
     }
@@ -208,11 +205,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * App-shortcut / third-party intent handling (termux-compatible): `ACTION_RUN` +
-     * EXTRA_FAILSAFE_SESSION switches the next session to the failsafe system shell;
-     * EXTRA_OPEN_SETTINGS opens the settings sheet. Mirrors termux-app TermuxActivity.java:401-425
-     * (shortcut intents are re-delivered on recreation, so the failsafe flag must be re-applied in
-     * onNewIntent, not just onCreate).
+     * 应用快捷方式/第三方 intent 处理（兼容 termux）：`ACTION_RUN` +
+     * EXTRA_FAILSAFE_SESSION 把下个会话切换到应急系统 shell；
+     * EXTRA_OPEN_SETTINGS 打开设置面板。对应 termux-app TermuxActivity.java:401-425
+     * （快捷方式 intent 在重建时会重新投递，故应急标志必须在 onNewIntent 中
+     * 重新应用，而不只是 onCreate）。
      */
     private var launchOpenSettings = false
 
@@ -236,9 +233,9 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             launchOpenSettings = true
         }
-        // Test-only bootstrap installer entry (NixExecRealTerminalTest).
-        // Debug builds only: release APKs must not carry the install-backdoor
-        // extra (any app could otherwise point us at an arbitrary zip).
+        // 仅测试用的引导安装入口（NixExecRealTerminalTest）。
+        // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
+        // （否则任何应用都能把我们指向任意 zip）。
         if (BuildConfig.DEBUG) {
             intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)?.let { zipPath ->
                 installBootstrapFromPath(zipPath)
@@ -309,17 +306,15 @@ private fun TerminalNavHost(
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
     var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
     LaunchedEffect(showSettings) {
-        // Closing settings resumes rendering immediately (the bridge exists
-        // by then); only the "open" transition needs the cold-start poll
-        // that waits for the bridge to appear.
+        // 关闭设置时立即恢复渲染（此时 bridge 已存在）；
+        // 只有「打开」转换才需要等待 bridge 出现的冷启轮询。
         if (!showSettings) {
             viewModel.runtime.bridge()?.setRenderPaused(false)
             return@LaunchedEffect
         }
-        // The bridge is created asynchronously by the runtime after the
-        // first session spawns; polling for it here (bounded) prevents the
-        // pause state from being silently dropped on a cold start with
-        // `openSettingsOnLaunch`.
+        // bridge 由运行期在首个会话 spawn 之后异步创建；
+        // 在此有界轮询可避免在带 `openSettingsOnLaunch` 的冷启动中
+        // 静默丢失暂停状态。
         var attempts = 0
         while (viewModel.runtime.bridge() == null && attempts < BRIDGE_READY_POLL_ATTEMPTS) {
             kotlinx.coroutines.delay(BRIDGE_READY_POLL_INTERVAL_MS)

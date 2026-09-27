@@ -1,8 +1,4 @@
-//! PTY master/slave creation — fork 与直接系统调用处允许 unsafe，
-//! VT/网格数据路径禁用 unsafe。
-//!
-//! # Requirements
-//! - [FR-026](crate) — PTY: master/slave pair creation
+//! PTY 主/从端创建：fork 与直接系统调用处允许 unsafe，VT/网格数据路径禁用 unsafe。
 use std::cell::Cell;
 use std::io;
 use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
@@ -47,34 +43,27 @@ impl From<nix::errno::Errno> for PtyError {
     }
 }
 
-/// Trait abstracting a pseudoterminal for testability.
 pub trait Pty: Send {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError>;
-    /// Update the cached pixel dimensions and write them to the kernel via
-    /// TIOCSWINSZ (ws_xpixel/ws_ypixel), so fullscreen applications see
-    /// the real pixel size instead of 0.
+    /// 更新缓存的像素尺寸并经 TIOCSWINSZ（ws_xpixel/ws_ypixel）写入内核，
+    /// 使全屏程序看到真实像素尺寸而非 0。
     ///
-    /// Default: no-op — test doubles without a kernel winsize (e.g.
-    /// `MockPty`) inherit this; real PTYs override it.
+    /// 默认空操作——无内核 winsize 的测试替身（如 `MockPty`）继承此实现，真实 PTY 覆写。
     fn set_pixel_size(&self, _width: u16, _height: u16) -> Result<(), PtyError> {
         Ok(())
     }
-    /// Query the current terminal window size (rows x cols) via
-    /// TIOCGWINSZ. used to verify the 24x80 spawn seed.
+    /// 经 TIOCGWINSZ 查询当前终端窗口尺寸（rows x cols），用于验证 24x80 spawn 种子。
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
     fn child_pid(&self) -> nix::unistd::Pid;
-    /// Return the foreground process group PID (via tcgetpgrp), or None on error.
-    /// Used for process group kill (zed-port pattern: pty_info.rs:29-53).
+    /// 返回前台进程组 pid（经 tcgetpgrp），出错时为 None；用于进程组 Kill。
     fn foreground_pid(&self) -> Option<nix::unistd::Pid>;
     fn master_fd(&self) -> RawFd;
-    /// Returns an independently-owned duplicate of the master fd for use by a
-    /// dedicated reader thread. The duplicate shares the underlying open file
-    /// description with `master_fd()` (so O_NONBLOCK state is shared), which is
-    /// fine because the reader uses `poll` + a blocking-style read. The dup is
-    /// performed here (where `unsafe` is permitted) so callers can read through
-    /// a safe `std::fs::File` without any `unsafe` blocks.
+    /// 返回独立所有的主端 fd 副本供专用读取线程使用。副本与 `master_fd()` 共享同一
+    /// 打开文件描述（故共享 O_NONBLOCK 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
+    /// dup 在此处（允许 `unsafe` 的位置）完成，使调用方能经安全的 `std::fs::File`
+    /// 读取而无需任何 `unsafe` 块。
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
     fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus>;
     fn set_nonblocking(&self) -> Result<(), PtyError>;
@@ -92,9 +81,8 @@ pub trait Pty: Send {
         while !buf.is_empty() {
             let bytes_written = self.write(buf)?;
             if bytes_written == 0 {
-                // Non-blocking master returns EAGAIN via write(), never a
-                // 0 count, but a test double or unusual backend could: an
-                // infinite loop on 0 is worse than a spurious WouldBlock.
+                // 非阻塞主端只会以 EAGAIN 失败、绝不会返回 0，但测试替身或异常后端可能：
+                // 在 0 上死循环比一次虚假的 WouldBlock 更糟。
                 return Err(io::Error::from(io::ErrorKind::WouldBlock));
             }
             buf = &buf[bytes_written..];
@@ -103,10 +91,8 @@ pub trait Pty: Send {
     }
 }
 
-/// A PTY pair consisting of a master file descriptor and child process.
-///
-/// The master side is used by the terminal emulator to read output and write input.
-/// The child process runs the shell and communicates via the slave side.
+/// PTY 对：主端文件描述符 + 子进程。主端供终端模拟器读输出、写输入；
+/// 子进程运行 shell 并经从端通信。
 pub struct PtyPair {
     master: OwnedFd,
     child_pid: nix::unistd::Pid,
@@ -115,30 +101,16 @@ pub struct PtyPair {
 }
 
 impl PtyPair {
-    /// Spawn a child process in a new PTY.
+    /// 在新 PTY 中启动子进程。
     ///
-    /// # async-signal-safety
+    /// 异步信号安全：`fork()` 后子进程只能调用异步信号安全函数，所有堆分配都在
+    /// fork **之前**完成，子进程路径只用 `execvp`/`dup2`/`close`/`write(2)`/`_exit(2)`。
+    /// **切勿在 `fork()` 之后的子进程分支中添加 `log::debug!`、`format!` 或任何分配。**
     ///
-    /// After `fork()`, the child process must only call async-signal-safe
-    /// functions. All heap allocation (`CString::new`, `format!`, `log!`,
-    /// `println!`, etc.) happens **before** the fork. The child path uses
-    /// only `execvp`, `dup2`, `close`, `write(2)`, and `_exit(2)` which
-    /// are all async-signal-safe in a single-threaded child.
-    ///
-    /// **DO NOT add `log::debug!`, `format!`, or any allocation in the
-    /// child branch after `fork()`.**
-    ///
-    /// Reference: warp-mobile-android crates/android-host/src/pty.rs:106-160
-    /// — identical AS-safe discipline (pre-built CStrings, setsid +
-    /// TIOCSCTTY, TIOCSWINSZ seed, errno via write(2) on execve failure).
-    /// The TIOCSWINSZ seed is the caller-provided rows/cols — spawn is
-    /// called with 24x80 by tests and default sessions  §3.5.1,
-    /// verified by `spawn_seeds_24x80_winsize`), mirroring warp's
-    /// non-zero seed so shells never observe 0x0 before the first resize.
-    /// 本实现将 execve errno 编码进退出码（100 + errno）
-    /// decoded by the wait thread; warp writes it directly to stderr.
-    /// Both are correct; the write(2) variant is more immediately visible
-    /// in logcat.
+    /// TIOCSWINSZ 种子取调用方给的 rows/cols（测试与默认会话均以 24x80 调用，
+    /// 由 `spawn_seeds_24x80_winsize` 验证），使 shell 在首次 resize 前不会看到 0x0。
+    /// execve 的 errno 编码进退出码（100 + errno）由等待线程解码，在 logcat 中
+    /// 比直接写 stderr 更易观测。
     pub fn spawn(
         shell: &str,
         rows: u16,
@@ -158,11 +130,8 @@ impl PtyPair {
         let master_fd = result.master;
         let slave_fd = result.slave;
 
-        // Build all child process data before fork to avoid allocations in child.
-        // (Multi-threaded process fork may corrupt malloc heap.)
-        // Shell 启动入口可含参数（如 `/data/.../bash -l`，见 DESIGN Shell 节）：
-        // 以 ASCII 空白切分出可执行路径与附加参数，执行路径用于前缀/linker/shebang
-        // 判定，附加参数拼入各分支 argv。无引号转义语义，设置页原样保存显示。
+        // fork 之前构建好子进程的全部数据，避免子进程中分配
+        // （多线程进程中 fork 可能破坏 malloc 堆）。
         let (shell_executable, shell_argument_texts) = split_shell_entry(shell);
         let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|e| {
             let msg = format!("shell path contains null byte: {e}");
@@ -188,12 +157,6 @@ impl PtyPair {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        // chdir target: an explicit `cwd` argument overrides the ShellEnv
-        // working directory (termux createSubprocess(workingDirectory)
-        // semantics). `None` keeps the legacy behavior (chdir to
-        // env.working_directory). The child chdirs below; a missing or
-        // non-directory cwd makes chdir fail there, which is logged to
-        // stderr but does not fail spawn (matches shell behavior).
         let chdir_target: &str = cwd.map_or(env.working_directory.as_str(), |p| {
             p.to_str().unwrap_or(env.working_directory.as_str())
         });
@@ -203,14 +166,11 @@ impl PtyPair {
             PtyError::Fork(nix::errno::Errno::EINVAL)
         })?;
 
-        // Pre-allocate argument and environment arrays before fork.
-        // After fork, the child must NOT call any allocation functions.
-        // Android 15+ SELinux denies `execute_no_trans` on
-        // app_data_file for untrusted_app, so execve() of Termux binaries
-        // under $PREFIX fails with EACCES. The Termux solution: exec the
-        // system linker with the ELF path as its argument
-        // (`/system/bin/linker64 $PREFIX/bin/bash`) — the linker runs in
-        // system_linker_exec domain and loads app-data ELFs fine.
+        // fork 之前预分配参数与环境数组；fork 之后子进程不得调用任何分配函数。
+        // Android 15+ 的 SELinux 对 untrusted_app 拒绝 app_data_file 上的
+        // `execute_no_trans`，故直接 execve $PREFIX 下的二进制会 EACCES。解法是 exec
+        // 系统 linker 并把 ELF 路径作为其参数（`/system/bin/linker64 $PREFIX/bin/bash`）
+        // ——linker 运行于 system_linker_exec 域，能正常加载 app-data 中的 ELF。
         // 子进程不设置 `LD_PRELOAD`，仅走 linker 间接。
         let prefix = env.prefix.as_deref().unwrap_or("");
         let use_linker = !prefix.is_empty()
@@ -237,10 +197,6 @@ impl PtyPair {
         } else {
             None
         };
-        // 脚本经解释器直调：内核 shebang 语义要求执行脚本文件本身，
-        // 而应用数据目录脚本无 execute_no_trans 许可（设备实证 EACCES）。
-        // 显式执行解释器并以脚本为参数只需对脚本的读许可，与内核
-        // 等价且满足 SELinux。解释器在前缀内且为 PIE 时仍走 linker 桥接。
         let script_dispatch: Option<(std::ffi::CString, Option<std::ffi::CString>)> =
             if linker_cstr.is_none() {
                 read_shebang_interpreter(shell_executable)
@@ -254,12 +210,6 @@ impl PtyPair {
             );
         }
         let shell_ptr = shell_cstr.as_ptr();
-        // execve()'s FIRST argument is the executable PATH; argv[0] is
-        // passed separately in args_ptrs. With the linker, the path is
-        // /system/bin/linker64 and argv = [linker64, bash]. With a script,
-        // the path is the interpreter (via the linker when the interpreter
-        // itself lives under the prefix) and argv = [argv0, interpreter,
-        // optarg?, script], mirroring kernel shebang dispatch.
         let script_linker_cstr: Option<std::ffi::CString> = match &script_dispatch {
             Some((interpreter, _)) => {
                 let interpreter_text = interpreter.to_string_lossy();
@@ -331,12 +281,10 @@ impl PtyPair {
             .chain(std::iter::once(std::ptr::null()))
             .collect();
 
-        // SAFETY: `fork()` is unsafe because it creates a new process. The child
-        // process calls `execve()`, which replaces the process image
-        // (no heap data is used after the fork — all data is pre-allocated and
-        // signal handlers are reset before execve). No signal handlers run between
-        // fork and exec (all operations are async-signal-safe syscalls). The parent
-        // process checks the `ForkResult` return value and handles errors via `?`.
+        // SAFETY: `fork()` 之所以不安全在于它创建了新进程。子进程调用 `execve()` 替换
+        // 进程映像（fork 之后不使用任何堆数据——数据全部预先分配，且在 execve 前重置
+        // 信号处理器）。fork 与 exec 之间不运行任何信号处理器（所有操作均为异步信号
+        // 安全系统调用）。父进程检查 `ForkResult` 返回值并经 `?` 处理错误。
         match unsafe { nix::unistd::fork()? } {
             nix::unistd::ForkResult::Parent { child } => {
                 if let Err(e) = nix::unistd::close(slave_fd) {
@@ -351,20 +299,12 @@ impl PtyPair {
             }
             nix::unistd::ForkResult::Child => {
                 if let Err(e) = nix::unistd::close(master_fd) {
-                    // close(2) failure before execve is harmless; ignore
-                    // silently (no allocation/logging allowed post-fork).
+                    // execve 前 close(2) 失败无害，静默忽略
+                    // （fork 后不允许分配/记日志）。
                     let _ = e;
                 }
-                // Manually set controlling terminal using only syscalls.
-                // Avoid login_tty because it may call malloc() internally,
-                // which is unsafe after fork in a multithreaded process.
-                // Create a new session/process group so the shell is detached
-                // from the parent's controlling terminal (termux.c:54-96). Only
-                // call setsid() if we are not already a session leader, since
-                // calling it again would fail with EPERM.
-                // SAFETY: getsid(0) is a POSIX function that returns the calling
-                // process's session ID. Passing 0 is always valid and safe in
-                // the single-threaded child after fork.
+                // SAFETY: `getsid(0)` 是返回调用进程会话 ID 的 POSIX 函数。传 0 始终
+                // 有效，在 fork 后的单线程子进程中安全。
                 let is_session_leader =
                     unsafe { libc::getsid(0) } == nix::unistd::getpid().as_raw();
                 if !is_session_leader && nix::unistd::setsid().is_err() {
@@ -373,24 +313,16 @@ impl PtyPair {
                         libc::_exit(2);
                     }
                 }
-                // Detect a fork-time orphan: if the app process died between
-                // fork() and this check, the child was reparented to init
-                // (PPid == 1). Exit instead of leaking a permanent orphan.
-                // NOTE: PR_SET_PDEATHSIG is deliberately NOT
-                // used. It binds to the fork thread (a Kotlin
-                // Dispatchers.IO worker), and when that thread times out
-                // and exits after ~60s of idle (kotlinx KEEP_ALIVE), the
-                // shell is killed by the parent-death signal — observed on
-                // the emulator (Android 15 GKI 6.6): every session died
-                // ~60s after startup, and disabling PDEATHSIG made shells
-                // survive indefinitely. (Whether this is the standard
-                // thread-group semantics or an Android kernel nuance is
-                // not asserted here; the empirical result is what matters.)
-                // App-death cleanup is covered by Android's cgroup.kill
-                // (AMS/lmkd kill the app's process group on force-stop,
-                // crash and OOM — verified on-device: force-stop reaps the
-                // shell), so PDEATHSIG is redundant as well as harmful.
-                // SAFETY: getppid is a plain syscall; safe after fork.
+                // 检测 fork 时的孤儿：若应用进程在 fork() 与本检查之间死亡，
+                // 子进程已被重新托管给 init（PPid == 1），此时退出而非泄漏永久孤儿。
+                // 注意：**故意不用** PR_SET_PDEATHSIG——它绑定的是 fork 线程
+                // （Kotlin Dispatchers.IO 的 worker），该线程在空闲约 60s 后超时退出
+                // （kotlinx KEEP_ALIVE），shell 会被父进程死亡信号杀死（模拟器
+                // Android 15 GKI 6.6 实测：每个会话启动约 60s 后死亡，禁用 PDEATHSIG
+                // 后 shell 无限存活）。应用死亡清理由 Android 的 cgroup.kill 负责
+                // （AMS/lmkd 在强制停止、崩溃与 OOM 时杀掉应用的进程组，真机实测
+                // 强制停止能回收 shell），故 PDEATHSIG 既多余又有害。
+                // SAFETY: `getppid` 是普通系统调用，fork 后安全。
                 let orphaned = unsafe { libc::getppid() } == 1;
                 if orphaned {
                     // nosemgrep: semgrep.no-process-exit — child after fork
@@ -399,9 +331,8 @@ impl PtyPair {
                     }
                 }
                 let slave_raw = slave_fd.as_raw_fd();
-                // SAFETY: All these libc calls are lightweight syscall wrappers that do not allocate.
-                // The child process is single-threaded. No signal handlers run between fork and exec
-                // (all operations are async-signal-safe syscalls).
+                // SAFETY: 这些 libc 调用都是不分配的轻量系统调用包装。子进程是单线程的；
+                // fork 与 exec 之间不运行信号处理器（所有操作均为异步信号安全系统调用）。
                 let result = unsafe { libc::ioctl(slave_raw, libc::TIOCSCTTY, 0) };
                 if result < 0 {
                     // nosemgrep: semgrep.no-process-exit — child process after fork, must not longjmp
@@ -409,38 +340,36 @@ impl PtyPair {
                         libc::_exit(3);
                     }
                 }
-                // SAFETY: dup2 across well-known FDs (0, 1, 2) is safe and async-signal-safe
-                // post-fork. The slave FD is valid because setsid()+ioctl(TIOCSCTTY) above
-                // assigned it as the controlling terminal (manual alternative to login_tty).
+                // SAFETY: 在标准 fd（0、1、2）上执行 dup2 在 fork 后安全且异步信号安全。
+                // 从端 fd 有效，因为上方的 `setsid()` + `ioctl(TIOCSCTTY)` 已把它指定为
+                // 控制终端（`login_tty` 的手工替代方案）。
                 unsafe {
                     libc::dup2(slave_raw, 0);
                     libc::dup2(slave_raw, 1);
                     libc::dup2(slave_raw, 2);
                 }
                 if slave_raw > 2 {
-                    // SAFETY: slave_raw is only closed if it is not one of the standard FDs
-                    // (0, 1, 2), ensuring we don't accidentally close a critical FD.
+                    // SAFETY: 仅当 `slave_raw` 不是标准 fd（0、1、2）时才关闭，
+                    // 确保不会误关关键 fd。
                     unsafe {
                         libc::close(slave_raw);
                     }
                 }
-                // Configure raw mode on stdin (fd 0, PTY slave device).
-                // Failure is non-fatal (shell runs in canonical mode without raw mode).
-                // SAFETY: tcgetattr/tcsetattr are lightweight syscall wrappers, safe in
-                // single-threaded child after fork.
+                // SAFETY: `tcgetattr`/`tcsetattr` 是轻量系统调用包装，在 fork 后的
+                // 单线程子进程中安全。
                 configure_raw_mode_child(libc::STDIN_FILENO);
-                // SAFETY: chdir is safe with a valid, null-terminated path string.
-                // working_directory_ptr was allocated via CString::new() which guarantees
-                // null termination. Failure is non-fatal (defaults to /).
+                // SAFETY: 传入有效且 NUL 结尾的路径字符串时 `chdir` 安全。
+                // `working_directory_ptr` 由 `CString::new()` 构造，保证 NUL 结尾。
+                // 失败不致命（默认回退到 `/`）。
                 if unsafe { libc::chdir(working_directory_ptr) } != 0 {
                     const MSG: &[u8] = b"chdir to working directory failed, using /\n";
-                    // SAFETY: write(2) is async-signal-safe in single-threaded child after fork.
-                    // MSG is a static byte slice (no allocation).
+                    // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全。
+                    // `MSG` 是静态字节切片（不分配）。
                     let _ =
                         unsafe { libc::write(2, MSG.as_ptr() as *const libc::c_void, MSG.len()) };
                 }
-                // SAFETY: signal() is safe in the single-threaded child process post-fork.
-                // Resetting to SIG_DFL prevents leakage of parent's custom signal handlers.
+                // SAFETY: `signal()` 在 fork 后的单线程子进程中安全。
+                // 复位为 `SIG_DFL` 可防止父进程自定义信号处理器泄漏。
                 unsafe {
                     libc::signal(libc::SIGCHLD, libc::SIG_DFL);
                     libc::signal(libc::SIGHUP, libc::SIG_DFL);
@@ -450,29 +379,19 @@ impl PtyPair {
                     libc::signal(libc::SIGPIPE, libc::SIG_DFL);
                     libc::signal(libc::SIGALRM, libc::SIG_DFL);
                 }
-                // Close any stray fds inherited from the parent (termux.c:54-96).
-                // Standard streams 0/1/2 (the PTY slave) are preserved; the PTY
-                // master was already closed above. Non-fatal — failures are
-                // ignored and spawn continues.
                 close_stray_fds();
-                // SAFETY: execve is safe with pre-allocated null-terminated arrays.
-                // shell_ptr, args_ptrs, and env_ptrs were created via CString::new()
-                // and CString::as_ptr() before fork(), guaranteeing valid pointers.
-                // nix::unistd::execve allocates internally via collect(), which is unsafe
-                // after fork in a multithreaded process — hence the direct libc call.
-                // SAFETY: execve with pre-allocated arrays (see above).
-                // exec_path_ptr is the linker when use_linker, else shell.
+                // SAFETY: 传入预先分配且 NUL 结尾的数组时 `execve` 安全。
+                // `shell_ptr`、`args_ptrs`、`env_ptrs` 均在 fork() 之前经
+                // `CString::new()` 与 `CString::as_ptr()` 构造，保证指针有效。
+                // `nix::unistd::execve` 内部经 `collect()` 分配，在多线程进程 fork 后
+                // 不安全——故直接调用 libc。
+                // SAFETY: 使用预分配数组的 `execve`（见上）。
+                // `use_linker` 时 `exec_path_ptr` 是 linker，否则是 shell。
                 unsafe {
                     libc::execve(exec_path_ptr, args_ptrs.as_ptr(), env_ptrs.as_ptr());
                 }
-                // execve only returns on failure. Write the errno to the PTY
-                // (async-signal-safe: static buffer + manual itoa) so a
-                // failing shell path is diagnosable on-device, then _exit
-                // (not exit) to avoid running atexit handlers from the
-                // parent process: bash exited 4 with no output).
                 unsafe {
-                    // nix::errno::errno() reads the thread-local errno
-                    // (no allocation); platform-specific underneath.
+                    // `nix::errno::errno()` 读取线程局部 errno（不分配），底层依平台而定。
                     let errno = nix::errno::Errno::last_raw();
                     let mut buf = [0u8; 64];
                     let prefix = b"execve failed: errno=";
@@ -498,9 +417,8 @@ impl PtyPair {
                     buf[i] = b'\n';
                     i += 1;
                     let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, i);
-                    // Encode errno in the exit code (>= 100) so the parent's
-                    // wait thread can log the exact failure cause even when
-                    // the PTY output is lost to a destroy race.
+                    // 把 errno 编码进退出码（>= 100），使父进程的等待线程即使在 PTY
+                    // 输出因销毁竞态丢失时也能记录确切失败原因。
                     let code = 100 + errno.min(155);
                     libc::_exit(code);
                 }
@@ -526,10 +444,9 @@ impl PtyPair {
         self.write_winsize(&winsize)
     }
 
-    /// Update the cached pixel dimensions and push them to the kernel via
-    /// TIOCSWINSZ (ws_xpixel/ws_ypixel), so fullscreen applications see
-    /// the real pixel size instead of 0. TIOCSWINSZ replaces the whole
-    /// struct, so the current rows/cols are read back first and preserved.
+    /// 更新缓存的像素尺寸并经 TIOCSWINSZ（ws_xpixel/ws_ypixel）推送给内核，
+    /// 使全屏程序看到真实像素尺寸而非 0。TIOCSWINSZ 会替换整个结构体，
+    /// 故先读回并保留当前 rows/cols。
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), PtyError> {
         self.pixel_width.set(width);
         self.pixel_height.set(height);
@@ -539,16 +456,14 @@ impl PtyPair {
         self.write_winsize(&winsize)
     }
 
-    /// Query the current terminal window size via TIOCGWINSZ.
-    /// verifies the 24x80 spawn seed is in place before any resize.
+    /// 经 TIOCGWINSZ 查询当前终端窗口尺寸，用于在任何 resize 之前验证 24x80 spawn 种子。
     pub fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
         let winsize = self.read_winsize()?;
         Ok((winsize.ws_row, winsize.ws_col))
     }
 
-    /// Read the current terminal window size from the kernel via
-    /// TIOCGWINSZ. The ioctl fills a well-formed Winsize struct; the fd is
-    /// owned and valid and the struct is fully initialized before use.
+    /// 经 TIOCGWINSZ 从内核读取当前终端窗口尺寸。ioctl 会填充格式良好的 Winsize 结构；
+    /// fd 为自有且有效，结构在使用前已完全初始化。
     fn read_winsize(&self) -> Result<nix::pty::Winsize, PtyError> {
         let mut winsize = nix::pty::Winsize {
             ws_row: 0,
@@ -556,9 +471,8 @@ impl PtyPair {
             ws_xpixel: 0,
             ws_ypixel: 0,
         };
-        // SAFETY: ioctl TIOCGWINSZ fills a well-formed Winsize struct from
-        // the kernel; the fd is owned and valid. The struct is fully
-        // initialized before use.
+        // SAFETY: TIOCGWINSZ 的 ioctl 从内核填充格式良好的 Winsize 结构；
+        // fd 自有且有效，结构在使用前已完全初始化。
         unsafe {
             let result = libc::ioctl(
                 self.master.as_raw_fd(),
@@ -572,14 +486,11 @@ impl PtyPair {
         Ok(winsize)
     }
 
-    /// Push a Winsize struct to the kernel via TIOCSWINSZ. The ioctl copies
-    /// the winsize to the slave side; the fd is owned and valid and the
-    /// return value is checked for errors.
+    /// 经 TIOCSWINSZ 把 Winsize 结构推送给内核。ioctl 会把 winsize 复制到从端；
+    /// fd 自有且有效，返回值已做错误检查。
     fn write_winsize(&self, winsize: &nix::pty::Winsize) -> Result<(), PtyError> {
-        // SAFETY: ioctl with TIOCSWINSZ writes a well-formed Winsize struct
-        // to the master PTY fd. The fd is owned and valid. The kernel copies
-        // the winsize to the slave side — no memory safety risk. The return
-        // value is checked for errors.
+        // SAFETY: TIOCSWINSZ 的 ioctl 向 PTY 主端 fd 写入格式良好的 Winsize 结构。
+        // fd 自有且有效。内核把 winsize 复制到从端——无内存安全风险。返回值已做错误检查。
         unsafe {
             let result = libc::ioctl(
                 self.master.as_raw_fd(),
@@ -634,8 +545,7 @@ impl Pty for PtyPair {
     }
 
     fn foreground_pid(&self) -> Option<nix::unistd::Pid> {
-        // SAFETY: tcgetpgrp is async-signal-safe and returns the foreground
-        // process group ID on the PTY master fd.
+        // SAFETY: `tcgetpgrp` 异步信号安全，并在 PTY 主端 fd 上返回前台进程组 ID。
         nix::unistd::tcgetpgrp(&self.master).ok()
     }
 
@@ -686,38 +596,28 @@ impl std::io::Write for PtyPair {
 
 impl Drop for PtyPair {
     fn drop(&mut self) {
-        // Close the master FDs. The session drop owns signal delivery and
-        // reaping, so PtyPair only needs to release file descriptors.
-        // Closing master_fd will cause any blocking PTY read/write to fail,
-        // unblocking reader/writer threads.
+        // 无需显式关闭主端 fd：会话析构负责信号投递与回收，关闭主端会使阻塞的
+        // PTY 读写失败，从而解除读取/写入线程的阻塞。
     }
 }
 
 #[cfg(test)]
 fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
-    // SAFETY: tcgetattr is safe with a valid fd. The caller must pass a
-    // terminal fd it holds (tests pass the PTY master; production paths
-    // pass the slave after login).
+    // SAFETY: 传入有效 fd 时 `tcgetattr` 安全。调用方必须传入自己持有的终端 fd
+    // （测试传 PTY 主端；生产路径在 login 后传从端）。
     let result = unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) };
     if result != 0 {
         return Err(PtyError::Termios(nix::errno::Errno::last()));
     }
-    // SAFETY: assume_init() is safe because we checked tcgetattr returned 0 above,
-    // which guarantees termios has been initialized by the kernel.
+    // SAFETY: 上方已检查 `tcgetattr` 返回 0，保证 termios 已被内核初始化，
+    // 故 `assume_init()` 安全。
     let mut termios = unsafe { termios.assume_init() };
-    // Following termux-app's known-correct practice (termux-app termux.c:54-96):
-    //   * Disable software flow control (IXON/IXOFF). When IXON is set, the
-    //     kernel interprets Ctrl+S / Ctrl+Q and freezes/resumes output, which
-    //     makes the terminal appear hung. Clearing both keeps Ctrl+S/Ctrl+Q
-    //     usable by the application running in the PTY.
-    //   * IUTF8: tell the kernel the input is UTF-8 so it correctly handles
-    //     erase/word-erase and character width on Android.
-    // NOTE: we deliberately do NOT clear ECHO/ICANON/ISIG here.
-    // Termux leaves the line discipline canonical with echo on; bash readline
-    // (which re-configures the tty itself on startup) then echoes typed
-    // characters. A full raw mask breaks readline echo (see
-    // configure_raw_mode_child for the full analysis).
+    // 沿用 termux-app 的既定做法：关闭软件流控（IXON/IXOFF，置位时内核会把
+    // Ctrl+S/Ctrl+Q 当作冻结/恢复输出，使终端看似卡死），并开启 IUTF8 让内核
+    // 正确处理 UTF-8 擦除/词擦除与字符宽度。
+    // 注意：**故意不**清除 ECHO/ICANON/ISIG——全量 raw 掩码会破坏 bash readline
+    // 的回显与信号设置（完整分析见 `configure_raw_mode_child`）。
     termios.c_iflag &= !(libc::IXON | libc::IXOFF);
     termios.c_iflag |= libc::IUTF8;
     log::debug!(
@@ -726,7 +626,7 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
         (termios.c_iflag & libc::IXON) == 0,
         (termios.c_iflag & libc::IXOFF) == 0,
     );
-    // SAFETY: tcsetattr is safe with a valid fd and valid termios struct.
+    // SAFETY: fd 有效且 termios 结构有效时 `tcsetattr` 安全。
     let result = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
     if result != 0 {
         return Err(PtyError::Termios(nix::errno::Errno::last()));
@@ -734,76 +634,58 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     Ok(())
 }
 
-/// Terminal-mode setup for the child after fork, matching Termux's
-/// termux.c (terminal-emulator/src/main/jni/termux.c): the PTY keeps the
-/// kernel line discipline (ECHO+ICANON on) so the shell's own line editor
-/// (bash readline) performs echo, and interactive full-screen programs
-/// (vim, less) put the tty into raw mode themselves when they start.
+/// fork 后子进程的终端模式配置，对齐 Termux 的做法：PTY 保留内核行规程
+/// （ECHO+ICANON 开启），由 shell 自己的行编辑器（bash readline）负责回显，
+/// 全屏程序（vim、less）启动时自行把 tty 切到 raw 模式。
 ///
-/// A full cfmakeraw() here (ECHO|ICANON|ISIG off) breaks bash readline:
-///  observed typed characters reaching the shell (commands
-/// executed) with zero echo — readline does not re-enable echo when the
-/// termios it inherits already has ECHO cleared, and with ISIG off it
-/// skips its signal setup. Termux intentionally avoids this.
+/// 在此完整执行 cfmakeraw()（关闭 ECHO|ICANON|ISIG）会破坏 bash readline：实测输入
+/// 的字符能到达 shell（命令得以执行）却完全无回显——readline 继承的 termios 中 ECHO
+/// 已被清除时不会重新开启，且 ISIG 关闭时它会跳过信号设置。
 ///
-/// Async-signal-safe: does NOT allocate, does NOT call log::warn!.
-/// Silently ignores errors (non-fatal).
+/// 异步信号安全：不分配、不调用 `log::warn!`。错误静默忽略（不致命）。
 fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
-    // SAFETY: tcgetattr is a syscall wrapper, safe in single-threaded child after fork.
+    // SAFETY: `tcgetattr` 是系统调用包装，在 fork 后的单线程子进程中安全。
     if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
-        return; // Non-fatal
+        return; // 不致命
     }
-    // SAFETY: assume_init() after successful tcgetattr.
+    // SAFETY: `tcgetattr` 成功后 `assume_init()` 安全。
     let mut termios = unsafe { termios.assume_init() };
-    // Match termux.c: enable UTF-8 mode, disable flow control so Ctrl+S
-    // cannot lock the display. Everything else (ECHO, ICANON, ISIG, OPOST)
-    // stays at the kernel default.
+    // 对齐 termux.c：开启 UTF-8 模式，关闭流控以免 Ctrl+S 锁住显示。
+    // 其余（ECHO、ICANON、ISIG、OPOST）保持内核默认。
     termios.c_iflag |= libc::IUTF8;
     termios.c_iflag &= !(libc::IXON | libc::IXOFF);
-    // SAFETY: tcsetattr is a syscall wrapper, safe in child.
+    // SAFETY: `tcsetattr` 是系统调用包装，在子进程中安全。
     let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
 }
 
-/// Conservative upper bound (in fd numbers) used when scanning for stray
-/// file descriptors to close in the child, if `sysconf(_SC_OPEN_MAX)` is
-/// unavailable. Kept small enough to bound syscall volume on any platform.
-/// Maximum fd number to scan in `close_stray_fds`. Chosen as a safe
-/// upper bound that prevents pathological scan times on systems where
-/// `sysconf(_SC_OPEN_MAX)` reports a very large value (e.g. 1 M+).
+/// `close_stray_fds` 扫描的最大 fd 号；取保守上界，避免在 `sysconf(_SC_OPEN_MAX)`
+/// 报出极大值（如 100 万以上）的系统上出现病态扫描时长。
 const STRAY_FD_SCAN_LIMIT: libc::c_int = 65536;
 
-/// Close every open file descriptor in the child except the standard streams
-/// (0,1,2), which are the PTY slave after `dup2`. This mirrors termux-app's
-/// termux.c:54-96 cleanup so the spawned shell does not inherit unrelated open
-/// fds from the parent (which could keep resources alive or leak capabilities).
+/// 关闭子进程中除标准流（0、1、2，即 `dup2` 后的 PTY 从端）外的所有已打开 fd，
+/// 避免启动的 shell 继承父进程的无关 fd（它们会占用资源或泄漏能力）。
 ///
-/// NOTE: This is a best-effort cleanup in the single-threaded child after fork
-/// but before exec. Any fd not in {0,1,2} is closed unconditionally — no
-/// white-list (e.g., for fd-passing socket pairs) is supported. If the calling
-/// process holds an fd from a library (e.g., log forwarding), it will be closed.
-/// This is acceptable because the child immediately exec()s into the shell.
-///
-/// Non-fatal: a failed `close()` (e.g. already closed / invalid) is ignored.
+/// 注意：fork 后、exec 前的单线程子进程中的尽力清理，不在 {0,1,2} 的 fd 一律关闭
+/// ——不支持白名单。调用进程持有的库 fd（如日志转发）也会被关闭，但子进程随即
+/// exec 成 shell，故可接受。`close()` 失败一律忽略（不致命）。
 fn close_stray_fds() {
-    // SAFETY: getrlimit(2) is in the POSIX async-signal-safe list. It is
-    // safe to call from a thread forked from a multi-threaded process if
-    // RLIMIT_NOFILE has not been modified concurrently (it never is here).
+    // SAFETY: `getrlimit(2)` 在 POSIX 异步信号安全列表中。只要 `RLIMIT_NOFILE` 未被
+    // 并发修改（此处从不发生），在从多线程进程 fork 出的线程中调用是安全的。
     let mut rlim = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
     };
     let upper = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) } == 0 {
-        // rlim_cur is the soft limit (typically 1024-4096 on modern Linux).
-        // This is vastly cheaper than iterating to sysconf(OPEN_MAX) which can
-        // return ~1M on systemd-based systems.
-        // RLIM_INFINITY means "unlimited" — fall back to the static limit
-        // to avoid scanning to c_int::MAX (~2 billion).
+        // `rlim_cur` 是软限制（现代 Linux 上通常 1024-4096），远比迭代到
+        // `sysconf(OPEN_MAX)` 便宜（systemd 系统上后者可达约 100 万）。
+        // `RLIM_INFINITY` 表示“无限制”——回退到静态上限，避免扫描到
+        // `c_int::MAX`（约 20 亿）。
         if rlim.rlim_cur == libc::RLIM_INFINITY {
             STRAY_FD_SCAN_LIMIT
         } else {
-            // Cap at STRAY_FD_SCAN_LIMIT to avoid iterating millions of fds
-            // in containers with large RLIMIT_NOFILE.
+            // 封顶到 `STRAY_FD_SCAN_LIMIT`，避免在 RLIMIT_NOFILE 很大的容器中
+            // 迭代数百万个 fd。
             rlim.rlim_cur
                 .min(STRAY_FD_SCAN_LIMIT as u64)
                 .min(libc::c_int::MAX as u64) as libc::c_int
@@ -811,12 +693,11 @@ fn close_stray_fds() {
     } else {
         STRAY_FD_SCAN_LIMIT
     };
-    // NOTE: cannot use log here because this may run in the child after fork
-    // (not async-signal-safe). Errors are silent by design.
+    // 注意：此处不能用 log，因为它可能在 fork 后的子进程中运行（非异步信号安全）。
+    // 错误按设计静默。
     for fd in 3..=upper {
-        // SAFETY: close(2) on an invalid fd returns EBADF (harmless),
-        // so there is no risk of double-close or invalid-fd crash.
-        // Standard fds (0,1,2) are excluded by starting at 3.
+        // SAFETY: 对无效 fd 执行 `close(2)` 只返回 EBADF（无害），
+        // 故不存在重复关闭或无效 fd 崩溃的风险。从 3 开始即排除了标准流（0、1、2）。
         unsafe {
             libc::close(fd);
         }
@@ -827,11 +708,9 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
     base_env_with_host(prefix, &|key| std::env::var(key).ok())
 }
 
-/// [`base_env`] with an injectable host environment: production passes the
-/// real process env; tests pass a fixed map so assertions stay hermetic on
-/// any machine (CI runners export ANDROID_ROOT/EXTERNAL_STORAGE, dev
-/// machines usually do not — an exact-set assertion on `base_env` alone is
-/// environment-dependent and must not exist).
+/// 带可注入宿主环境的 [`base_env`]：生产传真实进程环境，测试传固定映射，
+/// 使断言在任何机器上都保持封闭（CI runner 会导出 ANDROID_ROOT/EXTERNAL_STORAGE，
+/// 开发机通常不会——对 `base_env` 本身做精确集合断言是环境相关的，不可存在）。
 fn base_env_with_host(
     prefix: Option<&str>,
     host_var: &dyn Fn(&str) -> Option<String>,
@@ -841,20 +720,14 @@ fn base_env_with_host(
         ("COLORTERM".to_string(), DEFAULT_COLORTERM.to_string()),
         ("LANG".to_string(), DEFAULT_LANG.to_string()),
     ];
-    //  (recheck): passthrough of Android system env vars.
-    // Reference (termux-kotlin AndroidShellEnvironment.kt:19-66,
-    // https://github.com/reapercanuk39/termux-kotlin-app):
-    //   ANDROID_ASSETS/ANDROID_DATA/ANDROID_ROOT/ANDROID_STORAGE/
-    //   EXTERNAL_STORAGE/ASEC_MOUNTPOINT/LOOP_MOUNTPOINT/
-    //   ANDROID_RUNTIME_ROOT/ANDROID_ART_ROOT/ANDROID_I18N_ROOT/
-    //   ANDROID_TZDATA_ROOT/BOOTCLASSPATH/DEX2OATBOOTCLASSPATH/
-    //   SYSTEMSERVERCLASSPATH
-    // EXTERNAL_STORAGE is required for /system/bin/am to work on at
-    // least Samsung S7 (termux-kotlin comment); a Termux-bootstrap shell
-    // that invokes `am`/`content` needs these. Only vars present in the
-    // host process env are forwarded (values differ per device/Android
-    // version — hardcoding like the old ANDROID_ROOT=/system would be
-    // wrong on API 26+ where ANDROID_ROOT may be /system or /system_ext).
+    // 透传 Android 系统环境变量（ANDROID_ASSETS/ANDROID_DATA/ANDROID_ROOT/ANDROID_STORAGE/
+    // EXTERNAL_STORAGE/ASEC_MOUNTPOINT/LOOP_MOUNTPOINT/ANDROID_RUNTIME_ROOT/ANDROID_ART_ROOT/
+    // ANDROID_I18N_ROOT/ANDROID_TZDATA_ROOT/BOOTCLASSPATH/DEX2OATBOOTCLASSPATH/
+    // SYSTEMSERVERCLASSPATH）。EXTERNAL_STORAGE 是 `/system/bin/am` 在至少三星 S7 上
+    // 工作的必要条件，调用 `am`/`content` 的 Termux bootstrap shell 需要这些变量。
+    // 只转发宿主环境中实际存在的变量：各设备/版本取值不同，硬编码
+    // ANDROID_ROOT=/system 在 API 26+ 上是错的。
+    // 参考 <https://github.com/reapercanuk39/termux-kotlin-app> AndroidShellEnvironment.kt
     const ANDROID_ENV_VARS: &[&str] = &[
         "ANDROID_ASSETS",
         "ANDROID_DATA",
@@ -876,8 +749,6 @@ fn base_env_with_host(
             result.push((key.to_string(), value));
         }
     }
-    // 规范（DESIGN Bootstrap 节）只声明 PREFIX/TMPDIR 指向 files/usr；无引导程序的
-    // 会话没有任何合法的 PREFIX，故整组变量都不设置（不猜测、不回退到未声明路径）。
     if let Some(prefix) = prefix {
         result.push(("PREFIX".to_string(), prefix.to_string()));
         result.push(("TMPDIR".to_string(), format!("{prefix}/tmp")));
@@ -885,12 +756,6 @@ fn base_env_with_host(
     result
 }
 
-/// Build the environment variables for the child process.
-///
-/// 规范白名单（docs/specification/DESIGN.md Bootstrap 节）：只设置下面这些变量，
-/// 不得设置 LD_LIBRARY_PATH / PWD / LD_PRELOAD 及其他任何未声明变量。
-/// ENV 取调用方传入的应用私有 mksh rc 路径（不在 $HOME 或用户数据目录内，
-/// 见 DESIGN Shell 节）；未传入时不注入 ENV。bash 忽略 ENV。
 pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
     let mut result = base_env(env.prefix.as_deref());
     result.push(("HOME".to_string(), env.home.clone()));
@@ -898,7 +763,6 @@ pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
         result.push(("ENV".to_string(), mkshrc_path.to_string()));
     }
     result.push(("TERMUX_HOME_DIR_PATH".to_string(), env.home.clone()));
-    // `PREFIX`/`TMPDIR` 已由 base_env 压入，此处仅补镜像键，避免重复键。
     if let Some(prefix) = env.prefix.as_deref() {
         result.push(("TERMUX_PREFIX_DIR_PATH".to_string(), prefix.to_string()));
         result.push((
@@ -910,8 +774,8 @@ pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
     result
 }
 
-/// Returns `true` if the ELF at `path` is PIE (ET_DYN, e_type == 3).
-/// Android linker refuses non-PIE (ET_EXEC) binaries from app data.
+/// `path` 处的 ELF 是否为 PIE（ET_DYN，e_type == 3）。
+/// Android linker 拒绝来自 app 数据的非 PIE（ET_EXEC）二进制。
 fn is_pie(path: &str) -> bool {
     use std::io::Read;
     let Ok(mut file) = std::fs::File::open(path) else {
@@ -921,20 +785,17 @@ fn is_pie(path: &str) -> bool {
     if file.read_exact(&mut header).is_err() {
         return false;
     }
-    // ELF magic: 0x7f 'E' 'L' 'F'
     if header[0] != 0x7f || header[1] != b'E' || header[2] != b'L' || header[3] != b'F' {
         return false;
     }
-    // e_type is at offset 16 (2 bytes, little-endian).
     let e_type = u16::from_le_bytes([header[16], header[17]]);
     const ET_DYN: u16 = 3;
     e_type == ET_DYN
 }
 
-/// Reads the `#!` interpreter of a script: `(interpreter, optional single
-/// argument)`, mirroring kernel binfmt_script (at most one optional argument;
-/// extra tokens are ignored). Returns `None` for non-scripts or unreadable
-/// files. Called pre-fork; no allocation happens in the child.
+/// 读取脚本的 `#!` 解释器：`(解释器, 可选的单个参数)`，对齐内核 `binfmt_script`
+/// （至多一个可选参数，多余 token 被忽略）。非脚本或文件不可读时返回 `None`。
+/// 在 fork 之前调用；子进程中不发生分配。
 fn read_shebang_interpreter(path: &str) -> Option<(std::ffi::CString, Option<std::ffi::CString>)> {
     use std::io::Read;
     let mut file = std::fs::File::open(path).ok()?;
@@ -988,8 +849,7 @@ mod tests {
         }
     }
 
-    /// Read PTY output until `needle` appears (2 s deadline). Returns
-    /// whatever was read; callers assert on the needle themselves.
+    /// 读取 PTY 输出直到出现 `needle`（2 秒截止）；返回已读内容，调用方自行断言。
     fn read_until(pty: &mut PtyPair, needle: &[u8]) -> Vec<u8> {
         use crate::terminal::pty::Pty;
 
@@ -1050,10 +910,9 @@ mod tests {
 
     #[test]
     fn base_env_is_minimal_set() {
-        // 固定契约：宿主环境为空时 base_env 只产出 TERM/COLORTERM/LANG。
+        // 固定契约：宿主环境为空时 `base_env` 只产出 TERM/COLORTERM/LANG；
         // 无 PREFIX 时不产出 PREFIX/TMPDIR（规范未声明无引导程序会话的取值）。
-        // 不能直接断言 base_env：CI 会导出 ANDROID_ROOT/EXTERNAL_STORAGE。
-        // TERM_PROGRAM* 已删除（无消费方），其余由 build_env 叠加。
+        // 不能直接断言 `base_env`：CI 会导出 ANDROID_ROOT/EXTERNAL_STORAGE。
         let keys: std::collections::BTreeSet<String> = base_env_with_host(None, &|_| None)
             .into_iter()
             .map(|(key, _)| key)
@@ -1067,8 +926,7 @@ mod tests {
 
     #[test]
     fn base_env_forwards_only_present_host_vars() {
-        // Spec passthrough, hermetically: present host vars are forwarded
-        // with their values, absent ones are omitted.
+        // 规范透传（封闭）：宿主中存在的变量按原值转发，不存在的省略。
         let host = std::collections::HashMap::from([
             ("ANDROID_ROOT".to_string(), "/system".to_string()),
             ("EXTERNAL_STORAGE".to_string(), "/sdcard".to_string()),
@@ -1255,9 +1113,8 @@ mod tests {
 
     #[test]
     fn spawn_seeds_24x80_winsize() {
-        //  (warp WarpTerminalService.kt:797-808): a TIOCGWINSZ
-        // before any UI-driven resize must return the seeded 24x80, so
-        // shells (line editors etc.) never see 0x0.
+        // 在任何 UI 驱动的 resize 之前，TIOCGWINSZ 必须返回种子值 24x80，
+        // 使 shell（行编辑器等）不会看到 0x0。
         let pty =
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
@@ -1286,11 +1143,9 @@ mod tests {
 
     #[test]
     fn set_pixel_size_reflected_in_winsize() {
-        // ghostty-android pty_jni.c:84-87: ws_xpixel/ws_ypixel must reach
-        // the kernel so pixel-aware programs (icat, fullscreen TUIs) can
-        // size themselves; a 0 pixel field makes them misrender. The
-        // TIOCSWINSZ struct is replaced wholesale, so rows/cols must be
-        // preserved by set_pixel_size.
+        // `ws_xpixel`/`ws_ypixel` 必须送达内核，像素感知的程序（icat、全屏 TUI）
+        // 才能自行定尺寸；像素字段为 0 会导致错渲。TIOCSWINSZ 会整体替换结构体，
+        // 故 `set_pixel_size` 必须保留 rows/cols。
         let pty =
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.set_pixel_size(640, 480).expect("set_pixel_size failed");
@@ -1300,8 +1155,8 @@ mod tests {
             ws_xpixel: 0,
             ws_ypixel: 0,
         };
-        // SAFETY: TIOCGWINSZ writes a well-formed Winsize struct into
-        // `winsize`; the fd is owned and valid. The return value is checked.
+        // SAFETY: TIOCGWINSZ 把格式良好的 Winsize 结构写入 `winsize`；
+        // fd 自有且有效。返回值已做检查。
         let result = unsafe { libc::ioctl(pty.master_fd(), libc::TIOCGWINSZ, &mut winsize) };
         assert_eq!(result, 0, "TIOCGWINSZ ioctl must succeed");
         assert_eq!(
@@ -1329,34 +1184,33 @@ mod tests {
 
     #[test]
     fn drop_closes_master_fd() {
-        // PtyPair drop must complete without blocking. Signal delivery
-        // and child reaping are now the responsibility of Session::drop().
+        // `PtyPair` 的析构必须能无阻塞完成；信号投递与子进程回收由
+        // `Session::drop()` 负责。
         let _pty =
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
-        // PtyPair is dropped here at end of scope — must not block.
+        // `PtyPair` 在作用域末尾于此析构——不得阻塞。
     }
 
     #[test]
     fn child_survives_without_session_kill() {
-        // PtyPair::drop() closes the master fd, which causes the kernel to
-        // send SIGHUP to the slave's foreground process group (per pts(4)).
-        // The child MAY die from SIGHUP — that's expected kernel behavior.
-        // What we verify: PtyPair drop does NOT block or panic, and does NOT
-        // call waitpid (reaping is Session::drop()'s job).
+        // `PtyPair::drop()` 关闭主端 fd，内核据此向从端的前台进程组发送 SIGHUP
+        // （见 pts(4)）。子进程**可能**因 SIGHUP 死亡——这是预期的内核行为。
+        // 本测试验证的是：析构不阻塞、不 panic，也不调用 waitpid（回收是
+        // `Session::drop()` 的职责）。
         let child = {
             let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None)
                 .expect("spawn failed");
             pty.child_pid()
         };
         std::thread::sleep(Duration::from_millis(100));
-        // Child may be alive (SIGTERM succeeds) or dead (ESRCH) — both OK.
-        // The key invariant: no panic, no hang.
+        // 子进程可能存活（SIGTERM 成功）或已死（ESRCH），两者皆可。
+        // 关键不变式：不 panic、不挂起。
         let result = nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGTERM);
         assert!(
             matches!(result, Ok(()) | Err(nix::errno::Errno::ESRCH)),
             "SIGTERM to child after PtyPair drop must be Ok or ESRCH, got {result:?}"
         );
-        // Clean up if still alive.
+        // 仍存活则清理。
         let _ = nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGKILL);
         let _ = nix::sys::wait::waitpid(child, Some(nix::sys::wait::WaitPidFlag::WNOHANG));
     }
@@ -1382,9 +1236,9 @@ mod tests {
 
     #[test]
     fn pty_error_from_errno_maps_to_fork() {
-        // The blanket `From<nix::errno::Errno>` conversion is the error path
-        // used by `fork()`; it must keep mapping to `PtyError::Fork` even after
-        // `openpty` was changed to use an explicit `map_err(PtyError::Open)`.
+        // 通配的 `From<nix::errno::Errno>` 转换是 `fork()` 走的错误路径，
+        // 即使 `openpty` 改为显式 `map_err(PtyError::Open)`，它也必须继续映射到
+        // `PtyError::Fork`。
         let err = PtyError::from(nix::errno::Errno::EINVAL);
         assert!(
             matches!(err, PtyError::Fork(_)),
@@ -1446,27 +1300,17 @@ mod tests {
         );
     }
 
-    // ── I6: PTY termios flags ───────────────────────────────────────
-    // After the child is configured for raw mode, the line discipline must:
-    //   * enable IUTF8 so the kernel treats input as UTF-8 (correct
-    //     erase/word-erase and character width for multibyte input), and
-    //   * clear IXON/IXOFF (software flow control) so Ctrl+S/Ctrl+Q
-    //     are delivered to the application rather than freezing output.
-    // `configure_raw_mode` is the helper that applies these flags to a
-    // given fd; we exercise it on a real PTY master fd and read the
-    // resulting termios back to confirm the flags are set/cleared.
-
     #[test]
     fn configure_raw_mode_sets_iutf8_and_clears_ixon_ixoff() {
         let pty =
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let fd = pty.master_fd();
 
-        // Apply the same raw-mode configuration the child uses on the slave.
+        // 施加与子进程在从端相同的 raw 模式配置。
         configure_raw_mode(fd).expect("configure_raw_mode failed");
 
-        // SAFETY: `tcgetattr` is a simple syscall wrapper; `fd` is a
-        // valid, owned PTY master descriptor, so reading its termios is safe.
+        // SAFETY: `tcgetattr` 是简单系统调用包装；`fd` 是有效且自有的 PTY 主端描述符，
+        // 读取其 termios 安全。
         let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
         let termios = unsafe {
             assert_eq!(
