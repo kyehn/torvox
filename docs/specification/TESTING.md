@@ -46,7 +46,8 @@
 - `:app` 是消费端，`:benchmark` 与 `:baselineprofile` 是 `com.android.test` 采集端，`targetProjectPath = ":app"`。
 - 消费端由 `androidx.baselineprofile` 派生 `benchmarkRelease`（`debuggable = false`、`profileable = true`），两个采集端都测该变体，不用 debug 变体。
 - 采集：`./gradlew generateBaselineProfile`，需真机，等价链路为 `:baselineprofile:connectedNonMinifiedReleaseAndroidTest` → `mergeReleaseBaselineProfile` → `copyReleaseBaselineProfileIntoSrc`。
-- 采集结果与手写规则同落 `android/app/src/main/baselineProfiles/`，由 AGP 合并进 `assets/dexopt/baseline.prof`；`proguard-rules.pro` 必须保持 `-dontobfuscate`，否则规则中的类名失效。
+- 采集必须带 `includeInStartupProfile = true`，否则只产出 dexopt 热方法，缺少 ART 启动类表，并触发 `noBaselineProfileRulesGenerated` 警告。
+- 采集结果写入 `android/app/src/<变体>/generated/baselineProfiles/baseline-prof.txt`，由插件把该路径注入为 baseline profile 源集，与 `src/main/baselineProfiles/` 的手写规则一并合并进 `assets/dexopt/baseline.prof`；`proguard-rules.pro` 必须保持 `-dontobfuscate`，否则规则中的类名失效。
 - 宏基准：`./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest`，默认 `CompilationMode.Partial(baselineProfileMode = Require)`，profile 未安装直接失败。
 - 宏基准只输出指标不设阈值：CI 模拟器为 swiftshader 软件渲染，帧率不可作判据，阈值须在真机标定。
 - 采集模块不使用 `Thread.sleep`，等待一律走 UiAutomator 的 `wait`/`waitForIdle`。
