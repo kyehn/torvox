@@ -798,7 +798,7 @@ constructor(
         // 实时高亮节奏（termux 对等）与逐帧 JNI + 重渲染开销之间的取舍。
         private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 50L
         private const val TAG = "TerminalViewModel"
-        private const val STOP_TIMEOUT_MILLIS = 5000L
+        private const val TIMEOUT_MILLIS = 5000L
         private const val DEBOUNCE_MILLIS = 300L
 
         // 剪贴板粘贴的上界（主线程字符串拷贝），也是流式发送它所用的块大小
@@ -830,7 +830,7 @@ constructor(
     val settings: StateFlow<SettingsRepository.SettingsState> =
         settingsRepository.settings.stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            SharingStarted.WhileSubscribed(TIMEOUT_MILLIS),
             // 与按设备自适应的默认值一致，使流建立前的快照
             // 不会闪现固定的 10sp 兜底值。
             SettingsRepository.SettingsState(
