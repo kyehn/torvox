@@ -517,21 +517,6 @@ impl FontPipeline {
         }
     }
 
-    pub fn list_all_font_families(&self) -> Vec<String> {
-        let db = self.font_system.db();
-        let mut families = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for face in db.faces() {
-            for (family, _) in &face.families {
-                if seen.insert(family.to_lowercase()) {
-                    families.push(family.clone());
-                }
-            }
-        }
-        families.sort();
-        families
-    }
-
     pub fn font_size(&self) -> f32 {
         self.font_size
     }
