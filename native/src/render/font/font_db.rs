@@ -14,6 +14,11 @@ pub(crate) const FONT_DIRS: &[&str] = &[
     "/data/fonts/",
 ];
 
+/// 按序尝试的 fonts.xml 位置：部分 ROM 只提供 `fonts_fallback.xml`。
+#[cfg(target_os = "android")]
+pub(crate) const FONTS_XML_CANDIDATES: [&str; 2] =
+    ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"];
+
 #[cfg(target_os = "android")]
 static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
 
@@ -36,58 +41,109 @@ pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
 #[cfg(target_os = "android")]
 pub(crate) fn load_font_database() -> fontdb::Database {
     let db = CACHED_FONT_DB.get_or_init(|| {
-        let font_paths = CACHED_FONT_PATHS.get_or_init(|| {
-            // 优先用 NDK ASystemFontIterator（API 29+，minSdk 33）：它能枚举平台
-            // 已知的所有系统字体（含 OEM 路径），无需猜测静态目录表。API 不可用
-            // （特殊运行时）或结果为空时回退到 FONT_DIRS 扫描。
-            let mut paths = android_font_iterator::enumerate_font_paths();
-            if paths.is_empty() {
-                log::debug!("FONT_LOAD: ASystemFontIterator empty, falling back to FONT_DIRS scan");
-                for dir in FONT_DIRS {
-                    let dir_path = std::path::Path::new(dir);
-                    if let Ok(entries) = std::fs::read_dir(dir_path) {
-                        let mut dir_count = 0usize;
-                        for entry in entries.flatten() {
-                            if is_font_file(&entry.path()) {
-                                dir_count += 1;
-                                paths.push(entry.path());
-                            }
-                        }
-                        // 每个存在的目录都记日志（即使为空），便于设备诊断确认已扫描。
-                        log::debug!("FONT_LOAD: dir={dir} files={dir_count}");
+        // 只加载 fonts.xml 声明的文件：平台字体集的唯一来源，DESIGN 字体节要求
+        // 「遵循 Android 系统 fonts.xml」。OEM 私放但未声明的文件不加载。
+        let mut paths = CACHED_FONT_PATHS.get_or_init(|| {
+            let mut declared = Vec::new();
+            for xml_path in FONTS_XML_CANDIDATES {
+                let Ok(content) = std::fs::read_to_string(xml_path) else {
+                    continue;
+                };
+                for (_, filenames) in parse_fonts_xml_aliases(&content) {
+                    declared.extend(filenames);
+                }
+                for filenames in parse_fonts_xml_families(&content).1 {
+                    declared.extend(filenames.into_iter().map(|(filename, _)| filename));
+                }
+                break;
+            }
+            declared.sort();
+            declared.dedup();
+
+            // fonts.xml 只给文件名，路径由平台字体目录表给出。
+            let mut resolved = Vec::new();
+            let mut missing = 0usize;
+            for filename in declared {
+                let Some(path) = resolve_font_path(&filename) else {
+                    missing += 1;
+                    continue;
+                };
+                resolved.push(path);
+            }
+            log::debug!(
+                "FONT_LOAD: fonts.xml declared {} loaded, {missing} missing",
+                resolved.len()
+            );
+            resolved
+        });
+
+        // 用户投放字体（DESIGN 字体选择节）：`~/.termux/font` 下的 ttf/ttc/otf。
+        let extra = EXTRA_FONT_PATHS.read();
+        let mut extra_loaded = 0usize;
+        for path in extra.iter() {
+            if path.is_file() {
+                match paths.iter_mut().find(|known| *known == path) {
+                    Some(known) => *known = path.clone(),
+                    None => paths.push(path.clone()),
+                }
+                extra_loaded += 1;
+            } else if path.is_dir()
+                && let Ok(entries) = std::fs::read_dir(path)
+            {
+                for entry in entries.flatten() {
+                    let file_path = entry.path();
+                    if is_font_file(&file_path) && !paths.contains(&file_path) {
+                        paths.push(file_path);
+                        extra_loaded += 1;
                     }
                 }
             }
-            log::debug!("FONT_LOAD: cached {} font paths", paths.len());
-            paths
-        });
+        }
+        if extra_loaded > 0 {
+            log::debug!(
+                "FONT_LOAD: {extra_loaded} user fonts from {} paths",
+                extra.len()
+            );
+        }
 
         let mut db = fontdb::Database::new();
         let mut count = 0u32;
-        for path in font_paths {
-            if db.load_font_file(path).is_ok() {
+        for path in paths {
+            if let Err(error) = db.load_font_file(&path) {
+                // 只记文件名：完整路径可能带出用户主目录。
+                log::warn!(
+                    "font: failed to load font file {}: {error}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                );
+            } else {
                 count += 1;
             }
         }
-        log::debug!("FONT_LOAD: loaded {count} fonts from cached paths");
+        log::debug!("FONT_LOAD: loaded {count} fonts");
         db
     });
     db.clone()
+}
+
+/// 按平台字体目录表解析 `fonts.xml` 声明的文件名，首个命中即为该字体。
+#[cfg(target_os = "android")]
+fn resolve_font_path(filename: &str) -> Option<std::path::PathBuf> {
+    FONT_DIRS
+        .iter()
+        .map(|dir| std::path::Path::new(dir).join(filename))
+        .find(|path| path.is_file())
 }
 
 /// 系统等宽字体文件名，取自 `fonts.xml`（DESIGN 字体节：fonts.xml 是唯一来源，
 /// 不得使用任何硬编码字体名）。
 ///
 /// 规范要求「系统不存在 fonts.xml 或其内容无法解析，输出日志并崩溃退出」：
-/// 两个候选文件都读不到、都无法解析、或都没给出等宽字体时直接 `abort`。
+/// 候选文件都读不到、都无法解析、或都没给出等宽字体时直接 `abort`。
 /// 宿主（非 Android）不参与：那里没有 fonts.xml，见下方 `#[cfg]` 版本。
 #[cfg(target_os = "android")]
 pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
-    /// 按序尝试的 fonts.xml 位置：部分 ROM 只提供 fonts_fallback.xml。
-    const CANDIDATES: [&str; 2] = ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"];
-
     let mut last_error = String::new();
-    for xml_path in CANDIDATES {
+    for xml_path in FONTS_XML_CANDIDATES {
         let content = match std::fs::read_to_string(xml_path) {
             Ok(content) => content,
             Err(error) => {
@@ -382,70 +438,5 @@ mod tests {
         assert_eq!(super::locale_fonts_xml_langs("ja"), &["ja"]);
         assert_eq!(super::locale_fonts_xml_langs("ko"), &["ko"]);
         assert!(super::locale_fonts_xml_langs("en-US").is_empty());
-    }
-}
-
-/// NDK `ASystemFontIterator` 绑定（android/font.h + android/system_fonts.h，API 29+，
-/// minSdk 33）：枚举平台已知的所有系统字体，避免静态目录表漏掉 OEM 位置与新分区。
-#[cfg(target_os = "android")]
-mod android_font_iterator {
-    use std::ffi::{CStr, c_char};
-    use std::path::PathBuf;
-
-    /// 不透明迭代器句柄。
-    #[repr(C)]
-    pub(super) struct ASystemFontIterator {
-        _private: [u8; 0],
-    }
-
-    /// `ASystemFontIterator_next` 返回的不透明字体句柄。
-    #[repr(C)]
-    pub(super) struct AFont {
-        _private: [u8; 0],
-    }
-
-    // SAFETY: 这些是 system_fonts.h/font.h 声明的稳定 NDK C 函数；所有指针均为同一
-    // API 族产生并消费的不透明句柄。
-    #[link(name = "android")]
-    unsafe extern "C" {
-        fn ASystemFontIterator_open() -> *mut ASystemFontIterator;
-        fn ASystemFontIterator_next(iterator: *mut ASystemFontIterator) -> *mut AFont;
-        fn ASystemFontIterator_close(iterator: *mut ASystemFontIterator);
-        fn AFont_getFontFilePath(font: *const AFont) -> *const c_char;
-        fn AFont_close(font: *mut AFont);
-    }
-
-    /// 枚举所有系统字体的绝对路径；API 失败或未安装字体时返回空 vec，由调用方回退到
-    /// 静态 `FONT_DIRS` 扫描。
-    pub(super) fn enumerate_font_paths() -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        // SAFETY: open() 或返回有效迭代器或返回 null；迭代器经 ASystemFontIterator_close()
-        // 恰好关闭一次；next() 返回的每个 AFont 均经 AFont_close() 关闭；
-        // AFont_getFontFilePath() 返回的路径指针按头文件契约仅在其所属 AFont 存活期间读取。
-        unsafe {
-            let iterator = ASystemFontIterator_open();
-            if iterator.is_null() {
-                log::warn!("FONT_LOAD: ASystemFontIterator_open failed");
-                return paths;
-            }
-            loop {
-                let font = ASystemFontIterator_next(iterator);
-                if font.is_null() {
-                    break;
-                }
-                let path_ptr = AFont_getFontFilePath(font);
-                if !path_ptr.is_null() {
-                    let cstr = CStr::from_ptr(path_ptr);
-                    if let Ok(path) = cstr.to_str() {
-                        paths.push(PathBuf::from(path));
-                    } else {
-                        log::warn!("FONT_LOAD: non-UTF-8 font path skipped");
-                    }
-                }
-                AFont_close(font);
-            }
-            ASystemFontIterator_close(iterator);
-        }
-        paths
     }
 }

@@ -623,6 +623,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
             .getOrNull()
 
+    override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
+
     override fun hyperlinkAt(row: Int, col: Int): String? = runCatchingCancellable {
         queryPort.hyperlinkAt(
             row,
@@ -641,8 +643,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }.getOrNull()
 
     override fun selectAll(): IntArray? = runCatchingCancellable { queryPort.selectAll() }.getOrNull()
-
-    override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
 
     override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault(
         "",

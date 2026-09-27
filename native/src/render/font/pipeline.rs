@@ -50,15 +50,6 @@ pub struct FontPipeline {
     /// 下标：0=粗，1=斜，2=粗斜。
     pub(crate) styled_font_ids: [Option<fontdb::ID>; 3],
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
-    /// 符号层（回退链：主字体 → CJK → 符号 → Nerd → emoji → 库扫描）：
-    /// 承载 ▶ ⏵ ♥ ★ 等终端字形的通用符号字体。
-    pub(crate) symbol_fallback_ids: Vec<fontdb::ID>,
-    /// Nerd 层：为私用区码位（U+E000..U+F8FF，powerline 分隔符、devicons、文件图标）
-    /// 打过 Nerd 补丁的族。
-    pub(crate) nerd_fallback_ids: Vec<fontdb::ID>,
-    /// Emoji 层：NotoColorEmoji 一类族。swash 无法为彩色字形生成轮廓，
-    /// 渲染时会被尝试后跳过；保留该层是为让回退链与 moke 的 "try emoji" 语义一致。
-    pub(crate) emoji_fallback_ids: Vec<fontdb::ID>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
     pub(crate) atlas_generation: u64,
@@ -72,11 +63,6 @@ pub struct FontPipeline {
 }
 
 impl FontPipeline {
-    /// 当前系统语言（CJK 回退排序用；子模块只读）。
-    pub(crate) fn system_locale_tag(&self) -> String {
-        self.system_locale.clone()
-    }
-
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
         #[cfg(target_os = "android")]
         let mut db = font_db::load_font_database();
@@ -145,9 +131,6 @@ impl FontPipeline {
             font_id: None,
             styled_font_ids: [None, None, None],
             cjk_fallback_ids: Vec::new(),
-            symbol_fallback_ids: Vec::new(),
-            nerd_fallback_ids: Vec::new(),
-            emoji_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
             fallback_generation: 0,
@@ -162,9 +145,6 @@ impl FontPipeline {
         }
         let system_locale = pipeline.system_locale.clone();
         pipeline.find_cjk_fallback_fonts(&system_locale);
-        pipeline.find_symbol_fallback_fonts();
-        pipeline.find_nerd_fallback_fonts();
-        pipeline.find_emoji_fallback_fonts();
         pipeline.rasterize_ascii();
         pipeline
     }
@@ -273,19 +253,13 @@ impl FontPipeline {
         self.caches.ascii_glyph_ids = [None; 128];
     }
 
-    /// 重新发现全部回退字体层（CJK、符号、Nerd、emoji）并重光栅化 ASCII。
-    /// 任何可能改变可用回退字体的字体变更后调用。
+    /// 重新发现 CJK 回退层并重光栅化 ASCII。任何可能改变可用回退字体的
+    /// 字体变更后调用。
     fn rediscover_fallback_fonts(&mut self) {
         self.fallback_generation = self.fallback_generation.wrapping_add(1);
         self.cjk_fallback_ids.clear();
-        self.symbol_fallback_ids.clear();
-        self.nerd_fallback_ids.clear();
-        self.emoji_fallback_ids.clear();
         let system_locale = self.system_locale.clone();
         self.find_cjk_fallback_fonts(&system_locale);
-        self.find_symbol_fallback_fonts();
-        self.find_nerd_fallback_fonts();
-        self.find_emoji_fallback_fonts();
     }
 
     pub fn set_font_family(&mut self, family_name: &str) -> bool {
@@ -824,21 +798,13 @@ impl FontPipeline {
             }
         }
 
-        // ── 字形号为 0：按层搜索回退链 ──
-        // 主字体 → CJK → 符号 → Nerd → emoji → 全库扫描（spec d7）。
+        // ── 字形号为 0：先走 CJK 回退层，再全库扫描 ──
         // 私用区字符即使主字体映射成功也必须走链：多数字体把 PUA 映射到
         // .notdef（豆腐块），非零字形号并不代表真的有字形。
         if glyph_id == 0 || is_nerd_pua {
-            // 先收集各层 id：链会借用 self 的字段，与循环内的 &mut self 渲染调用冲突。
-            let fallback_ids: Vec<fontdb::ID> = self
-                .cjk_fallback_ids
-                .iter()
-                .chain(&self.symbol_fallback_ids)
-                .chain(&self.nerd_fallback_ids)
-                .chain(&self.emoji_fallback_ids)
-                .copied()
-                .collect();
-            for &fallback_id in &fallback_ids {
+            // 先收集 id：链会借用 self 的字段，与循环内的 &mut self 渲染调用冲突。
+            let cjk_fallback_ids: Vec<fontdb::ID> = self.cjk_fallback_ids.clone();
+            for fallback_id in cjk_fallback_ids {
                 let fallback_glyph = {
                     let db = self.font_system.db();
                     db.with_face_data(fallback_id, |font_data, face_index| {

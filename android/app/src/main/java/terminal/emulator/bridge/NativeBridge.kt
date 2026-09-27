@@ -204,7 +204,7 @@ object NativeBridge {
     /** (row, col) 处单元格是否没有可打印码点。 */
     @JvmStatic external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean
 
-    /** 管线已知的等宽字体家族。 */
+    /** 字体库族名列表（fonts.xml 声明的文件集 + 用户投放目录）。 */
     @JvmStatic external fun listFontFamilies(): Array<String>?
 
     /** 默认字体家族名。 */
