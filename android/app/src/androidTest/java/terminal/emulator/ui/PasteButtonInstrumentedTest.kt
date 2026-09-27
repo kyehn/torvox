@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -90,6 +91,7 @@ class PasteButtonInstrumentedTest {
         assertNotNull("终端输出未静默", quiet)
     }
 
+    @SuppressLint("DeprecatedCall")
     @Test
     fun pasteMenuTypesClipboardIntoShell() {
         // 参考实现首步即等 prompt：静默等待在空屏（shell 未就绪）也会通过，
