@@ -45,6 +45,10 @@ const READ_POLL_TIMEOUT_MS: i32 = 100;
 /// PROHIBITED 禁止「终端回滚行数」设置，因此既无产品入口也无 FFI 入参通道。
 pub(crate) const DEFAULT_SCROLLBACK_LINES: u32 = 2000;
 
+/// PTY 输出通道缓冲块数：读取线程与 VT 线程之间的背压边界，满时读取线程阻塞
+/// 而非堆积无界内存。
+const OUTPUT_CHANNEL_BOUND: usize = 128;
+
 /// 会话操作期间可能出现的错误。
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -333,7 +337,7 @@ impl Session {
         let exit_reported = Arc::new(AtomicBool::new(false));
         let clipboard_text = Arc::new(Mutex::new(None));
         let clipboard_read = Arc::new(Mutex::new(None));
-        let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
+        let (output_tx, output_rx) = bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND);
         // 管道分支：原始 PTY 输出的次要消费者（日志、追踪）。
 
         let terminal = GhosttyTerminal::new_with_theme(
