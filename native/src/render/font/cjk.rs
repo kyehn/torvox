@@ -51,9 +51,7 @@ impl FontPipeline {
         system_locale: &str,
         max_results: usize,
     ) -> Vec<fontdb::ID> {
-        let xml = std::fs::read_to_string("/system/etc/fonts.xml")
-            .or_else(|_| std::fs::read_to_string("/system/etc/fonts_fallback.xml"));
-        let Ok(xml) = xml else {
+        let Some(xml) = super::font_db::read_fonts_xml_fallback() else {
             return Vec::new();
         };
         Self::match_fonts_xml_fallbacks(self.font_system.db(), &xml, system_locale, max_results)
@@ -68,7 +66,6 @@ impl FontPipeline {
     ) -> Vec<fontdb::ID> {
         let (_, lang_fallbacks) = super::font_db::parse_fonts_xml_families(xml);
         let langs = super::font_db::locale_fonts_xml_langs(system_locale);
-        let locale_tag = locale_tag(system_locale);
         let mut ids = Vec::new();
         for wanted in langs {
             let Some((_, filenames)) = lang_fallbacks
@@ -78,7 +75,7 @@ impl FontPipeline {
                 continue;
             };
             for (filename, index) in filenames {
-                let same_file: Vec<(fontdb::ID, String, u32)> = db
+                let same_file: Vec<(fontdb::ID, u32)> = db
                     .faces()
                     .filter_map(|face| {
                         let path = match &face.source {
@@ -89,28 +86,19 @@ impl FontPipeline {
                         path.file_name()
                             .and_then(|name| name.to_str())
                             .filter(|name| name.eq_ignore_ascii_case(filename))?;
-                        let family = face
-                            .families
-                            .first()
-                            .map(|(name, _)| name.to_lowercase())
-                            .unwrap_or_default();
-                        Some((face.id, family, face.index))
+                        Some((face.id, face.index))
                     })
                     .collect();
-                // 精确 (文件名, 索引) 命中优先；否则取首个匹配 locale 标签的同文件面。
+                // 纯 fonts.xml 精确命中：仅 (文件名, 索引) 一致才算，不做族名猜测。
                 let hit = same_file
                     .iter()
-                    .find(|(_, _, face_index)| *face_index == *index)
-                    .or_else(|| {
-                        same_file
-                            .iter()
-                            .find(|(_, family, _)| locale_token_match(family, locale_tag))
-                    });
-                if let Some((id, _, _)) = hit
-                    && !ids.contains(id)
+                    .find(|(_, face_index)| *face_index == *index)
+                    .map(|(id, _)| *id);
+                if let Some(id) = hit
+                    && !ids.contains(&id)
                 {
                     log::debug!("FONTS_XML_FALLBACK: file='{filename}' index={index} id={id:?}");
-                    ids.push(*id);
+                    ids.push(id);
                 }
                 if ids.len() >= max_results {
                     return ids;
@@ -268,17 +256,4 @@ fn locale_tag(system_locale: &str) -> &'static str {
         s if s.starts_with("ko") => "kr",
         _ => "",
     }
-}
-
-/// `family_name` 是否以独立 token 形式包含 `locale_tag`（按非字母数字切分）；
-/// 避免 `misc` 误配 `sc`（含子串 `sc` 但非 token `sc`）。用于在 fonts.xml
-/// 声明的同一个 TTC 内挑选 SC/TC/JP/KR 分片。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn locale_token_match(family_name: &str, locale_tag: &str) -> bool {
-    if locale_tag.is_empty() {
-        return false;
-    }
-    family_name
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|token| token == locale_tag)
 }
