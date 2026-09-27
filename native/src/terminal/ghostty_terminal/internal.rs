@@ -2166,7 +2166,9 @@ impl super::GhosttyTerminal {
                 logical_row = previous_row;
             }
             let search_line = logical_text;
-            for (match_start_col, match_end_col) in Self::search_line_columns(&search_line, &pattern) {
+            for (match_start_col, match_end_col) in
+                Self::search_line_columns(&search_line, &pattern)
+            {
                 results.push(SearchMatch {
                     row: logical_row,
                     start_col: match_start_col,

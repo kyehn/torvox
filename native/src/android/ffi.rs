@@ -2881,9 +2881,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
             };
             // 把文件登记到渲染器并重建其管线，使新字体族可被选中。
             // 追加而非覆盖：用户字体目录已在此前注册，覆盖会丢掉目录内字体。
-            crate::render::font::font_db::add_extra_font_path(std::path::PathBuf::from(
-                &path_str,
-            ));
+            crate::render::font::font_db::add_extra_font_path(std::path::PathBuf::from(&path_str));
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
                 let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
