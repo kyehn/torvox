@@ -8,6 +8,10 @@ use std::sync::mpsc::SyncSender;
 
 const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+/// 回读 map 轮询步长：每次 poll 等待的分片，避免忙等。
+const MAP_POLL_STEP: std::time::Duration = std::time::Duration::from_millis(10);
+/// 回读 map 总超时：超时即报 Readback 错误，不无限等待。
+const MAP_READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
 type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any + Send>>;
 
@@ -874,7 +878,7 @@ impl Renderer {
         loop {
             if let Err(error) = self.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
-                timeout: Some(std::time::Duration::from_millis(10)),
+                timeout: Some(MAP_POLL_STEP),
             }) {
                 log::warn!("render_to_buffer (map wait): device poll error: {error}");
             }
@@ -888,7 +892,7 @@ impl Renderer {
                     return Err(GpuError::Readback("map channel disconnected".into()));
                 }
             }
-            if poll_start.elapsed() > std::time::Duration::from_millis(100) {
+            if poll_start.elapsed() > MAP_READBACK_TIMEOUT {
                 return Err(GpuError::Readback("map_async timed out".into()));
             }
         }
