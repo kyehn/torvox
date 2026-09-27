@@ -2915,7 +2915,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
 /// 设置系统 locale（BCP 47，如 `zh-CN`）：决定 fonts.xml 里选哪个区域回退族。
 ///
 /// 进程启动时 Kotlin 就会调一次（此时还没有渲染管线），故 locale 同时写入渲染层
-/// 进程级静态供 [`crate::render::font::font_db::load_font_database`] 取用；管线已存在时
+/// 进程级静态供 `load_font_database` 取用；管线已存在时
 /// 再推给它并作废同 UV 缓存（回退族变化会改变字形来源）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocale(
