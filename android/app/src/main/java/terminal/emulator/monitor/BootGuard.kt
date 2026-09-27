@@ -100,7 +100,7 @@ class BootGuard(private val stateDir: File) {
         val counterFile = counterFile()
         try {
             counterFile.writeText("${counter.count}:${counter.lastResetTime}")
-            // No fsync — called from crash handler path; kernel flushes on process death.
+            // 不 fsync——在崩溃处理路径上调用；内核会在进程死亡时刷写。
         } catch (e: Exception) {
             Log.w(TAG, "Failed to write counter file", e)
         }

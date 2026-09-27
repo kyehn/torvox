@@ -13,9 +13,6 @@ pub struct TerminalWorld {
     pub env: Vec<(String, String)>,
     pub clipboard_read: Option<String>,
     pub terminal: TermSlot,
-    pub probe_line: String,
-    pub probe_col: usize,
-    pub found_url: Option<String>,
 }
 
 /// 延迟创建的终端槽位：场景先 `创建 N 行 M 列终端` 再写入输出。
@@ -42,7 +39,6 @@ impl TermSlot {
 pub mod env_steps;
 pub mod osc_steps;
 pub mod terminal_steps;
-pub mod url_steps;
 
 /// 还原 feature 文件中的转义写法：`\x1b`、`\x07`、`\n` 等变为真实字节。
 pub fn unescape(raw: &str) -> Vec<u8> {

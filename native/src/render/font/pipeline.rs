@@ -1,16 +1,12 @@
-//! FontPipeline — font loading, glyph rasterization, and atlas management.
+//! FontPipeline：字体加载、字形光栅化与图集管理。
 
 use cosmic_text::FontSystem;
 
 use super::font_db;
-use super::{
-    CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis, PREFERRED_MONOSPACE_FONTS,
-};
+use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis};
 
-/// Structured font state for the Android UI layer. Serialized to JSON over
-/// JNI; all display formatting is done with string resources in Kotlin.
-/// Placement/color payload for an overlay glyph (grapheme continuation)
-/// drawn on top of a base cell quad.
+/// 叠加字形（字素簇延续部分）绘制在基础单元四边形之上的位置与配色。
+/// 整个 FontInfo 系列仅承载数据，全部显示格式由 Kotlin 的字符串资源完成。
 pub(crate) struct OverlayQuad {
     pub origin: [f32; 2],
     pub size: [f32; 2],
@@ -23,16 +19,14 @@ pub(crate) struct OverlayQuad {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FontInfo {
     pub active: Option<FontInfoActive>,
-    /// CJK fallback state: "fallback" (families listed), "skipped"
-    /// (primary font covers CJK) or "none".
+    /// CJK 回退状态："fallback"（已列出族名）、"skipped"（主字体已覆盖 CJK）或 "none"。
     pub cjk_state: String,
-    /// CJK fallback family names when `cjk_state` is "fallback".
+    /// `cjk_state` 为 "fallback" 时的 CJK 回退族名。
     pub cjk_families: Vec<String>,
     pub cell_width_px: f32,
     pub cell_height_px: f32,
-    /// Logical font size in sp (the value setFontSizeInPlace receives from
-    /// the Kotlin side, e.g. 41.3 for 413 tenths). Named `font_size` — NOT
-    /// px; device pixels = font_size * raster_scale * density.
+    /// 逻辑字号（sp，Kotlin 侧传入 setFontSizeInPlace 的值）。
+    /// 设备像素 = font_size * raster_scale * density。
     pub font_size: f32,
 }
 
@@ -51,25 +45,11 @@ pub struct FontPipeline {
     pub(crate) atlas_width: u32,
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
-    /// Independent bold/italic/bold-italic family slots (ghostty-android
-    /// TerminalFontStore 4-slot design, see docs/specification/REFERENCE.md):
-    /// when a style slot is set, glyph_information_styled prefers that real
-    /// face over same-family lookup + synthesis. Index: 0=bold, 1=italic,
-    /// 2=bold-italic.
+    /// 独立的粗体/斜体/粗斜体族槽位（ghostty-android 四槽位设计，参考 REFERENCE.md）：
+    /// 槽位已设置时 glyph_information_styled 优先用真实面而非同族查找 + 合成。
+    /// 下标：0=粗，1=斜，2=粗斜。
     pub(crate) styled_font_ids: [Option<fontdb::ID>; 3],
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
-    /// Symbol layer, moke chain: primary → CJK → symbols →
-    /// Nerd → emoji → db scan): generic symbol fonts (Noto Sans Symbols 2
-    /// and friends) for ▶ ⏵ ♥ ★ and similar terminal glyphs.
-    pub(crate) symbol_fallback_ids: Vec<fontdb::ID>,
-    /// Nerd layer: Nerd-patched families for private-use-area glyphs
-    /// (U+E000..U+F8FF — powerline separators, devicons, file icons).
-    pub(crate) nerd_fallback_ids: Vec<fontdb::ID>,
-    /// Emoji layer: NotoColorEmoji-style families. swash cannot outline
-    /// color glyphs, so these are tried and skipped at render time; the
-    /// layer exists so the chain matches moke's "try emoji" semantics
-    /// and the database scan /.notdef takes over.
-    pub(crate) emoji_fallback_ids: Vec<fontdb::ID>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
     pub(crate) atlas_generation: u64,
@@ -83,11 +63,6 @@ pub struct FontPipeline {
 }
 
 impl FontPipeline {
-    /// 当前系统语言（CJK 回退排序用；子模块只读）。
-    pub(crate) fn system_locale_tag(&self) -> String {
-        self.system_locale.clone()
-    }
-
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
         #[cfg(target_os = "android")]
         let mut db = font_db::load_font_database();
@@ -99,7 +74,7 @@ impl FontPipeline {
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {
-                        // File name only: the full path can embed a user home dir.
+                        // 只记文件名：完整路径可能带出用户主目录。
                         log::warn!(
                             "font: failed to load font file {}: {error}",
                             path.file_name().unwrap_or_default().to_string_lossy()
@@ -114,7 +89,7 @@ impl FontPipeline {
                         let file_path = entry.path();
                         if font_db::is_font_file(&file_path) {
                             if let Err(error) = db.load_font_file(&file_path) {
-                                // File name only: the full path can embed a user home dir.
+                                // 只记文件名：完整路径可能带出用户主目录。
                                 log::warn!(
                                     "font: failed to load font file {}: {error}",
                                     file_path.file_name().unwrap_or_default().to_string_lossy()
@@ -156,9 +131,6 @@ impl FontPipeline {
             font_id: None,
             styled_font_ids: [None, None, None],
             cjk_fallback_ids: Vec::new(),
-            symbol_fallback_ids: Vec::new(),
-            nerd_fallback_ids: Vec::new(),
-            emoji_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
             fallback_generation: 0,
@@ -173,236 +145,95 @@ impl FontPipeline {
         }
         let system_locale = pipeline.system_locale.clone();
         pipeline.find_cjk_fallback_fonts(&system_locale);
-        pipeline.find_symbol_fallback_fonts();
-        pipeline.find_nerd_fallback_fonts();
-        pipeline.find_emoji_fallback_fonts();
         pipeline.rasterize_ascii();
         pipeline
     }
 
-    pub fn from_fixture(
-        atlas_width: i32,
-        atlas_height: i32,
-        font_size: f32,
-        fixture_dir: &str,
-    ) -> Self {
-        let mut font_system = FontSystem::new();
-        let db = font_system.db_mut();
-
-        let path = std::path::Path::new(fixture_dir);
-        if path.is_dir()
-            && let Ok(entries) = std::fs::read_dir(path)
-        {
-            for entry in entries.flatten() {
-                let file_path = entry.path();
-                if file_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf"))
-                    && let Err(error) = db.load_font_file(&file_path)
-                {
-                    // File name only: the full path can embed a user home dir.
-                    log::warn!(
-                        "font: failed to load font file {}: {error}",
-                        file_path.file_name().unwrap_or_default().to_string_lossy()
-                    );
-                }
-            }
-        }
-
-        let scaler_context = swash::scale::ScaleContext::new();
-        let atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(atlas_width, atlas_height));
-        let atlas_bitmap = vec![0u8; (atlas_width * atlas_height * 4) as usize];
-
-        let mut pipeline = Self {
-            font_system,
-            scaler_context,
-            atlas,
-            caches: super::glyph_cache::GlyphCache::new(),
-            atlas_bitmap,
-            atlas_width: atlas_width as u32,
-            atlas_height: atlas_height as u32,
-            font_id: None,
-            styled_font_ids: [None, None, None],
-            cjk_fallback_ids: Vec::new(),
-            symbol_fallback_ids: Vec::new(),
-            nerd_fallback_ids: Vec::new(),
-            emoji_fallback_ids: Vec::new(),
-            font_size,
-            atlas_generation: 0,
-            fallback_generation: 0,
-            dirty_rect: None,
-            system_locale: String::new(),
-            shaping_buffer: None,
-            raster_scale: 1.0,
-        };
-
-        pipeline.find_monospace_font();
-        let system_locale = pipeline.system_locale.clone();
-        pipeline.find_cjk_fallback_fonts(&system_locale);
-        pipeline.find_symbol_fallback_fonts();
-        pipeline.find_nerd_fallback_fonts();
-        pipeline.find_emoji_fallback_fonts();
-        pipeline
-    }
-
+    /// 选定主字体。
+    ///
+    /// 设备上 `fonts.xml` 是唯一来源（DESIGN 字体节：不得使用任何硬编码字体名）：
+    /// 缺失或无法解析由 [`font_db::resolve_system_monospace_from_fonts_xml`] 直接
+    /// `abort`，`fonts.xml` 声明的字体未加载也视为解析失败并 `abort`。
     fn find_monospace_font(&mut self) {
-        let db = self.font_system.db();
-
         if let Some(target_filename) = font_db::resolve_system_monospace_from_fonts_xml() {
+            let db = self.font_system.db();
             let stem = std::path::Path::new(&target_filename)
                 .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+                .and_then(|stem| stem.to_str())
+                .unwrap_or_default();
+            // fonts.xml 给的是文件名，fontdb 给的是家族名：先用「分隔符归一 +
+            // 精确相等」匹配，再退到「去空白后精确相等」覆盖 Droid Sans Mono 这类
+            // 家族名带空格而文件名带下划线的差异。
             let stem_lower = stem.to_lowercase().replace(['-', '_'], " ");
-            for face in db.faces() {
-                if !face.monospaced {
-                    continue;
-                }
-                let name = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.to_lowercase())
-                    .unwrap_or_default();
-                let name_normalized = name.replace(['-', '_'], " ");
-                if name_normalized == stem_lower || name_normalized.contains(&stem_lower) {
-                    let display = face
+            if let Some(face_id) = db
+                .faces()
+                .filter(|face| face.monospaced)
+                .find(|face| {
+                    let name = face
                         .families
                         .first()
-                        .map(|(n, _)| n.clone())
-                        .unwrap_or_default();
-                    log::debug!(
-                        "FONT_SELECT: fonts.xml monospace id={:?} name='{}' (stem='{}')",
-                        face.id,
-                        display,
-                        stem
-                    );
-                    self.font_id = Some(face.id);
-                    return;
-                }
-            }
-            for face in db.faces() {
-                if !face.monospaced {
-                    continue;
-                }
-                let name_nospace: String = face
-                    .families
-                    .first()
-                    .map(|(n, _)| {
-                        n.to_lowercase()
-                            .chars()
-                            .filter(|c| !c.is_whitespace())
-                            .collect()
+                        .map_or("", |(name, _)| name)
+                        .to_lowercase();
+                    name.replace(['-', '_'], " ") == stem_lower
+                })
+                .or_else(|| {
+                    let stem_nospace = stem_lower.replace(' ', "");
+                    db.faces().find(|face| {
+                        face.monospaced
+                            && face
+                                .families
+                                .first()
+                                .map_or(String::new(), |(name, _)| name.to_lowercase())
+                                .chars()
+                                .filter(|character| !character.is_whitespace())
+                                .collect::<String>()
+                                == stem_nospace
                     })
-                    .unwrap_or_default();
-                let stem_nospace = stem_lower.replace(' ', "");
-                if name_nospace == stem_nospace {
-                    let display = face
-                        .families
-                        .first()
-                        .map(|(n, _)| n.clone())
-                        .unwrap_or_default();
-                    log::debug!(
-                        "FONT_SELECT: fonts.xml monospace (nospace) id={:?} name='{}'",
-                        face.id,
-                        display
-                    );
-                    self.font_id = Some(face.id);
-                    return;
-                }
-            }
-        }
-
-        for face in db.faces() {
-            if !face.monospaced {
-                continue;
-            }
-            let name = face
-                .families
-                .first()
-                .map(|(n, _)| n.to_lowercase())
-                .unwrap_or_default();
-            if PREFERRED_MONOSPACE_FONTS.iter().any(|p| name.contains(p)) {
-                let display = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-                log::debug!(
-                    "FONT_SELECT: preferred monospace id={:?} name='{}'",
-                    face.id,
-                    display
-                );
-                self.font_id = Some(face.id);
+                })
+                .map(|face| face.id)
+            {
+                log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
+                self.font_id = Some(face_id);
                 return;
             }
+            log::error!("FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未加载");
+            std::process::abort();
         }
 
-        for face in db.faces() {
-            if face.monospaced {
-                let name = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.to_lowercase())
-                    .unwrap_or_default();
-                if name.contains("cjk")
-                    || name.contains("sc")
-                    || name.contains("tc")
-                    || name.contains("jp")
-                    || name.contains("kr")
-                    || name.contains("han")
-                {
-                    continue;
-                }
-                let display = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-                log::debug!("FONT_SELECT: monospace id={:?} name='{}'", face.id, display);
+        // 宿主（单元测试与基准）没有系统 fonts.xml：取 fontdb 首个等宽面。
+        // 优先选自身不覆盖 CJK 的面 —— 否则 `find_cjk_fallback_fonts` 会判定
+        // 「主字体已支持 CJK」而整层跳过，单元测试就再也验证不到 CJK 回退链路。
+        // 判定用字形能力探测（charmap），不是硬编码字体名。全部等宽面都覆盖 CJK
+        // 时退回首面。设备上 resolve_system_monospace_from_fonts_xml 从不返回
+        // None，故该段不可达。
+        #[cfg(not(target_os = "android"))]
+        {
+            let db = self.font_system.db();
+            let covers_cjk = |face_id| {
+                db.with_face_data(face_id, |font_data, face_index| {
+                    swash::FontRef::from_index(font_data, face_index as usize)
+                        .map(|font| font.charmap().map('中') != 0)
+                })
+                .flatten()
+                .unwrap_or(false)
+            };
+            let face = db
+                .faces()
+                .find(|face| face.monospaced && !covers_cjk(face.id))
+                .or_else(|| db.faces().find(|face| face.monospaced));
+            if let Some(face) = face {
+                let name = face.families.first().map_or("", |(name, _)| name);
+                log::debug!("FONT_SELECT: host monospace id={:?} name='{name}'", face.id);
                 self.font_id = Some(face.id);
-                return;
             }
         }
 
-        for face in db.faces() {
-            if face.monospaced {
-                let name = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-                log::debug!(
-                    "FONT_SELECT: monospace (CJK ok) id={:?} name='{}'",
-                    face.id,
-                    name
-                );
-                self.font_id = Some(face.id);
-                return;
-            }
-        }
-
-        if let Some(face) = db.faces().next() {
-            let name = face
-                .families
-                .first()
-                .map(|(n, _)| n.clone())
-                .unwrap_or_default();
-            log::warn!(
-                "FONT_SELECT: fallback to any face id={:?} name='{}'",
-                face.id,
-                name
-            );
-            self.font_id = Some(face.id);
-            return;
-        }
-
-        log::error!("FONT_SELECT: no font found in system!");
+        #[cfg(target_os = "android")]
+        unreachable!("fonts.xml 解析失败时 resolve_system_monospace_from_fonts_xml 已 abort");
     }
 
-    /// Reset the glyph atlas allocator, clear the bitmap, bump the
-    /// generation counter, and re-rasterize ASCII glyphs. Called whenever
-    /// font size, raster scale, or font family changes.
+    /// 重建字形图集：重置分配器、清位图、递增代次并重光栅化 ASCII。
+    /// 字号、光栅缩放或字体族变化后调用。
     fn reset_atlas(&mut self) {
         self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
             self.atlas_width as i32,
@@ -414,9 +245,7 @@ impl FontPipeline {
         self.rasterize_ascii();
     }
 
-    /// Clear all shape/glyph lookup caches (identity caches that map
-    /// codepoints to glyph IDs). Called before any font-family or locale
-    /// change that invalidates glyph identity resolution.
+    /// 清空整形/字形标识缓存。字体族或语言变化使码位到字形号的映射失效后调用。
     fn clear_identity_caches(&mut self) {
         self.caches.shape_cache.clear();
         self.caches.glyph_id_cache.clear();
@@ -424,20 +253,13 @@ impl FontPipeline {
         self.caches.ascii_glyph_ids = [None; 128];
     }
 
-    /// Rediscover all fallback font layers (CJK, symbol, Nerd, emoji)
-    /// and re-rasterize ASCII glyphs. Called after any font change that
-    /// may affect which fallback fonts are available.
+    /// 重新发现 CJK 回退层并重光栅化 ASCII。任何可能改变可用回退字体的
+    /// 字体变更后调用。
     fn rediscover_fallback_fonts(&mut self) {
         self.fallback_generation = self.fallback_generation.wrapping_add(1);
         self.cjk_fallback_ids.clear();
-        self.symbol_fallback_ids.clear();
-        self.nerd_fallback_ids.clear();
-        self.emoji_fallback_ids.clear();
         let system_locale = self.system_locale.clone();
         self.find_cjk_fallback_fonts(&system_locale);
-        self.find_symbol_fallback_fonts();
-        self.find_nerd_fallback_fonts();
-        self.find_emoji_fallback_fonts();
     }
 
     pub fn set_font_family(&mut self, family_name: &str) -> bool {
@@ -479,7 +301,7 @@ impl FontPipeline {
         false
     }
 
-    /// Style slot index for the independent bold/italic families.
+    /// 独立粗/斜体族的槽位下标。
     /// 0 = bold, 1 = italic, 2 = bold-italic.
     pub(crate) fn styled_slot_index(bold: bool, italic: bool) -> usize {
         match (bold, italic) {
@@ -539,12 +361,9 @@ impl FontPipeline {
         self.raster_scale.max(f32::EPSILON)
     }
 
-    /// Build the overlay quad for a grapheme-continuation codepoint
-    /// (combining mark, emoji ZWJ component, ...) on top of a base glyph.
-    /// Returns `None` when the codepoint is not a char or the glyph is not
-    /// in the atlas. The overlay shares the base instance's quad origin,
-    /// size and colors; UVs and bearing derive from the glyph metrics like
-    /// the base instance, except the overlay always advances 0 cells.
+    /// 为字素簇延续码位（组合标记、emoji ZWJ 组件等）构造叠加四边形。
+    /// 叠加与基础实例共享原点、尺寸与配色，UV 与基线偏移同样取自字形度量，
+    /// 区别只在于叠加永远前进 0 个单元格。
     pub(crate) fn overlay_glyph_instance(
         &mut self,
         codepoint: u32,
@@ -556,9 +375,8 @@ impl FontPipeline {
         self.shaped_overlay_instance(&info, quad, cell_h)
     }
 
-    /// Overlay quad from an already-rasterized shaped glyph (cluster shaping
-    /// path): same math as the codepoint lookup above, plus the caller
-    /// bakes the shaper position into the quad origin beforehand.
+    /// 由已光栅化的整形字形构造叠加四边形（簇整形路径）：计算同上，
+    /// 另需调用方事先把整形器位置烘进四边形原点。
     pub(crate) fn shaped_overlay_instance(
         &self,
         info: &super::GlyphInfo,
@@ -618,44 +436,18 @@ impl FontPipeline {
     }
 
     pub fn system_monospace_name(&self) -> String {
-        let db = self.font_system.db();
-        for face in db.faces() {
-            if !face.monospaced {
-                continue;
-            }
-            let name = face
-                .families
-                .first()
-                .map(|(n, _)| n.to_lowercase())
-                .unwrap_or_default();
-            if PREFERRED_MONOSPACE_FONTS.iter().any(|p| name.contains(p)) {
-                return face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-            }
-        }
-        for face in db.faces() {
-            if face.monospaced {
-                return face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-            }
-        }
-        String::new()
+        self.font_system
+            .db()
+            .faces()
+            .find(|face| face.monospaced)
+            .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+            .unwrap_or_default()
     }
 
-    /// CJK fallback family names in priority order (same order as
-    /// `cjk_fallback_ids`, which is sorted by effective_priority).
-    /// Deduplicated preserving first occurrence, and generic CJK families
-    /// (containing "cjk" but not "serif") are normalized to "Noto Sans CJK"
-    /// so "Noto Sans CJK SC" / "Noto Sans CJK JP" collapse to one display
-    /// entry while "Noto Serif CJK" stays distinct. No alphabetical sort —
-    /// the first element is the actual render winner and must equal the
-    /// `FALLBACK_HIT` family.
+    /// 按优先级返回 CJK 回退族名（顺序同按 effective_priority 排序的
+    /// `cjk_fallback_ids`）。去重保留首次出现，通用 CJK 族（含 "cjk" 不含
+    /// "serif"）归并为一项 "Noto Sans CJK"，"Noto Serif CJK" 仍独立保留。
+    /// 不按字母排序：首元素即实际渲染命中者，必须与 `FALLBACK_HIT` 族一致。
     pub fn cjk_fallback_names(&self) -> Vec<String> {
         let db = self.font_system.db();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -687,8 +479,7 @@ impl FontPipeline {
         normalized
     }
 
-    /// Alphabetically sorted view of `cjk_fallback_names()`, for deterministic
-    /// UI tests and comparison harnesses that need a canonical order.
+    /// `cjk_fallback_names()` 的字母序视图，供需要规范顺序的 UI 测试与比对工具使用。
     pub fn cjk_fallback_names_sorted(&self) -> Vec<String> {
         let mut names = self.cjk_fallback_names();
         names.sort();
@@ -744,9 +535,8 @@ impl FontPipeline {
         parts.join("\n")
     }
 
-    /// Structured font information for the UI layer (JNI). The renderer's
-    /// display strings live in Kotlin resources; this carries only data so
-    /// the Android side can localize each line.
+    /// 供 UI 层（JNI）使用的结构化字体信息，仅承载数据，
+    /// 显示字符串一律放在 Kotlin 资源里以便本地化。
     pub fn font_info(&self) -> FontInfo {
         let db = self.font_system.db();
         let active = self.font_id.and_then(|id| db.face(id)).map(|face| {
@@ -794,7 +584,7 @@ impl FontPipeline {
         self.font_size
     }
 
-    /// Look up a previously rasterized glyph in the cache.
+    /// 在缓存中查已光栅化的字形。
     pub(super) fn lookup_glyph(
         &mut self,
         font_id: fontdb::ID,
@@ -814,9 +604,22 @@ impl FontPipeline {
         self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
     }
 
-    /// Style-aware glyph lookup: prefers a real bold/italic
-    /// face of the same family when one exists, otherwise rasterizes the
-    /// base face with font synthesis (embolden/shear).
+    /// 在真实样式面上取字形：字形号非 0 且光栅化出非空位图才算命中，
+    /// 命中即返回，不做任何合成。
+    fn styled_face_glyph(&mut self, style_id: fontdb::ID, ch: char) -> Option<GlyphInfo> {
+        let glyph_id = self
+            .style_glyph_id(style_id, ch)
+            .filter(|&glyph| glyph != 0)?;
+        let info = self.glyph_information_from_font_with_synthesis(
+            style_id,
+            glyph_id,
+            GlyphSynthesis::None,
+        )?;
+        (info.width > 0 && info.height > 0).then_some(info)
+    }
+
+    /// 优先用同族的真实粗/斜体面（保持字形清晰且可微调），否则对基底面
+    /// 做合成（加粗/倾斜）。
     pub fn glyph_information_styled(
         &mut self,
         ch: char,
@@ -828,52 +631,30 @@ impl FontPipeline {
         }
         let primary_font_id = self.font_id?;
 
-        // 0) Independent bold/italic family slot (ghostty-android 4-slot
-        //    TerminalFontStore, see docs/specification/REFERENCE.md): the
-        //    user-configured style family wins outright, no synthesis.
+        // 0) 用户单独指定的样式族（ghostty-android 四槽位，参考 REFERENCE.md）直接胜出，不合成。
         let slot = Self::styled_slot_index(bold, italic);
         let style_id = self.styled_font_ids[slot].or_else(|| {
-            // bold-italic falls back to the bold slot (synthesized italic
-            // on top of the real bold face) when no dedicated face exists.
+            // 粗斜没有专属面时退回粗体槽（真实粗体面上再合成倾斜）。
             if slot == 2 {
                 self.styled_font_ids[0]
             } else {
                 None
             }
         });
-        if let Some(style_id) = style_id {
-            let style_gid = self.style_glyph_id(style_id, ch);
-            if let Some(gid) = style_gid.filter(|&g| g != 0)
-                && let Some(info) = self.glyph_information_from_font_with_synthesis(
-                    style_id,
-                    gid,
-                    GlyphSynthesis::None,
-                )
-                && info.width > 0
-                && info.height > 0
-            {
-                return Some(info);
-            }
+        if let Some(style_id) = style_id
+            && let Some(info) = self.styled_face_glyph(style_id, ch)
+        {
+            return Some(info);
         }
 
-        // 1) Same-family bold/italic face wins when it actually contains the
-        //    glyph (this keeps real styled faces crisp and hintable).
-        if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic) {
-            let style_gid = self.style_glyph_id(style_id, ch);
-            if let Some(gid) = style_gid.filter(|&g| g != 0)
-                && let Some(info) = self.glyph_information_from_font_with_synthesis(
-                    style_id,
-                    gid,
-                    GlyphSynthesis::None,
-                )
-                && info.width > 0
-                && info.height > 0
-            {
-                return Some(info);
-            }
+        // 1) 同族真实粗/斜体面。
+        if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic)
+            && let Some(info) = self.styled_face_glyph(style_id, ch)
+        {
+            return Some(info);
         }
 
-        // 2) Fall back to synthesizing the base (or fallback) face.
+        // 2) 退回对基底面（或回退面）做合成。
         let synthesis = match (bold, italic) {
             (true, true) => GlyphSynthesis::BoldItalic,
             (true, false) => GlyphSynthesis::Bold,
@@ -883,13 +664,10 @@ impl FontPipeline {
         self.glyph_information_with_synthesis(ch, synthesis)
     }
 
-    /// Find a face of the same font family with the requested weight/style.
-    /// Returns the same id when the base face already matches, and None
-    /// when no matching face exists (caller then uses synthesis).
-    ///
-    /// Results are memoized in `style_face_cache` so the fontdb family/
-    /// weight/style query runs at most once per (font, bold, italic)
-    /// combination instead of once per styled cell per frame.
+    /// 查找同族内符合请求字重/样式的面：基底面已符合时返回同一 id，
+    /// 无匹配面时返回 None（由调用方改用合成）。
+    /// 结果记在 `style_face_cache`，使 fontdb 查询每个 (字体, 粗, 斜)
+    /// 组合至多执行一次，而非每帧每个样式单元一次。
     pub(crate) fn resolve_style_face(
         &mut self,
         base_id: fontdb::ID,
@@ -926,8 +704,8 @@ impl FontPipeline {
         result
     }
 
-    /// Cached charmap lookup on a (possibly styled) face: maps `ch` to its
-    /// glyph id without re-entering `with_face_data` on every call.
+    /// 在（可能已加样式的）面上缓存式查 charmap，把 `ch` 映射到字形号，
+    /// 避免每次调用都重入 `with_face_data`。
     fn style_glyph_id(&mut self, face_id: fontdb::ID, ch: char) -> Option<swash::GlyphId> {
         let key = (face_id, ch as u32);
         if let Some(&cached) = self.caches.style_glyph_id_cache.get(&key) {
@@ -954,7 +732,7 @@ impl FontPipeline {
         let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
         let synthesized = synthesis != GlyphSynthesis::None;
 
-        // ── Fast path: ASCII with cached glyph_id —─────────────────────────
+        // ── 快径：ASCII 且字形号已缓存 ──
         if (ch as u32) < 128
             && let Some(gid) = self.caches.ascii_glyph_ids[ch as usize]
             && let Some(info) = self.lookup_glyph(primary_font_id, gid, synthesis)
@@ -962,9 +740,8 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── CJK cache: skip swash + fallback for already-resolved chars ─────
-        // (skipped when synthesizing — the cached (font, glyph) pair was
-        // resolved for the regular style and does not apply to styled runs)
+        // ── CJK 缓存：已解析过的字跳过 swash 与回退 ──
+        // 合成时不用：缓存的 (字体, 字形) 是按常规样式解析的，不适用于样式运行
         if !synthesized
             && (ch as u32) >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
@@ -974,7 +751,7 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── Resolve glyph_id (cached if possible) ───────────────────────────
+        // ── 解析字形号（优先缓存） ──
         let glyph_id = if let Some(&cached) = self.caches.glyph_id_cache.get(&(ch as u32)) {
             cached
         } else {
@@ -990,15 +767,14 @@ impl FontPipeline {
             gid
         };
 
-        // Cache ASCII glyph_id for future fast-path lookups.
+        // 缓存 ASCII 字形号供后续快径命中。
         if (ch as u32) < 128 {
             self.caches.ascii_glyph_ids[ch as usize] = Some(glyph_id);
         }
 
-        // ── Check glyph_cache before expensive CJK ops ──────────────────────
-        // PUA (Nerd Font) characters skip this fast path: the cache may
-        // hold the primary font's.notdef (tofu) from before a Nerd Font
-        // was installed/loaded.
+        // ── 进入开销较大的 CJK 处理前先查 glyph_cache ──
+        // 私用区（Nerd Font）字符不走这条快径：缓存里可能是加载 Nerd Font
+        // 之前主字体写入的 .notdef（豆腐块）。
         let is_nerd_pua = (ch as u32) >= 0xE000 && (ch as u32) <= 0xF8FF;
         if !is_nerd_pua && let Some(info) = self.lookup_glyph(primary_font_id, glyph_id, synthesis)
         {
@@ -1010,10 +786,9 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── CJK: check outline, try fallback ────────────────────────────────
-        // (skipped when synthesizing: the outline-fallback face resolves
-        // the regular glyph shape; styled runs keep the base path so the
-        // synthesis applies to the rasterized mask)
+        // ── CJK：先查轮廓再试回退 ──
+        // 合成时跳过：轮廓回退面解析的是常规字形，样式运行必须留在基底路径上，
+        // 这样合成的加粗/倾斜才能作用到已光栅化的遮罩。
         if !synthesized && glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback
         {
             // cached 版：scaler 构建 + Render 约 20µs/次，不缓存则每字重复探测。
@@ -1023,27 +798,13 @@ impl FontPipeline {
             }
         }
 
-        // ── glyph_id == 0: search the layered fallback chain ────────────────
-        //, moke chain: primary → CJK → symbols → Nerd →
-        // emoji → whole-database scan; spec d7)
-        //
-        // PUA (Nerd Font private-use area U+E000..U+F8FF) characters must
-        // also route through the chain even when the primary font maps
-        // them: most fonts map the PUA to.notdef (the tofu box), so a
-        // non-zero glyph_id from the primary is not a real glyph.
+        // ── 字形号为 0：先走 CJK 回退层，再全库扫描 ──
+        // 私用区字符即使主字体映射成功也必须走链：多数字体把 PUA 映射到
+        // .notdef（豆腐块），非零字形号并不代表真的有字形。
         if glyph_id == 0 || is_nerd_pua {
-            // Collect the layered ids first: the chain borrows self's
-            // fields, which would conflict with the &mut self render call
-            // inside the loop.
-            let fallback_ids: Vec<fontdb::ID> = self
-                .cjk_fallback_ids
-                .iter()
-                .chain(&self.symbol_fallback_ids)
-                .chain(&self.nerd_fallback_ids)
-                .chain(&self.emoji_fallback_ids)
-                .copied()
-                .collect();
-            for &fallback_id in &fallback_ids {
+            // 先收集 id：链会借用 self 的字段，与循环内的 &mut self 渲染调用冲突。
+            let cjk_fallback_ids: Vec<fontdb::ID> = self.cjk_fallback_ids.clone();
+            for fallback_id in cjk_fallback_ids {
                 let fallback_glyph = {
                     let db = self.font_system.db();
                     db.with_face_data(fallback_id, |font_data, face_index| {
@@ -1077,14 +838,10 @@ impl FontPipeline {
                         self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
                     }
                     return Some(result);
-                    // Rendering failed (e.g. a color font swash cannot
-                    // outline): try the next layer instead of returning a
-                    // 0x0 placeholder.
                 }
             }
-            // Whole-database scan tail of the chain (spec d7: "ending with
-            // a whole-font-database scan"). Cached by cjk_glyph_cache, so
-            // it runs once per character.
+            // 链尾的全库扫描（spec d7：以全字体库扫描结束）。结果进
+            // cjk_glyph_cache，故每个字只跑一次。
             if let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
                 && let Some(result) =
                     self.glyph_information_from_font_with_synthesis(scan_id, scan_gid, synthesis)

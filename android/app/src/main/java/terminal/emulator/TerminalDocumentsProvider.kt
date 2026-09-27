@@ -45,12 +45,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
         fun encodeDocId(file: File, rootDir: File): String? {
             val rootPath = rootDir.canonicalPath
-            // For symlinks, encode the link's own path rather than its
-            // canonical target: SAF clients then address the link entry
-            // itself, so deleteDocument removes only the link — never the
-            // target's whole tree. Containment is still checked against the
-            // canonical path (a link pointing outside the home is skipped
-            // below, as before).
+            // 对符号链接，编码链接自身的路径而非其规范目标：
+            // SAF 客户端于是寻址该链接条目本身，
+            // deleteDocument 只删除链接——绝不会删除目标的整棵目录树。
+            // 包含性仍针对规范路径检查（指向 home 之外的链接在下文被跳过，同之前）。
             val filePath =
                 if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
                     file.path
@@ -58,10 +56,9 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                     file.canonicalPath
                 }
             val fileCanonical = file.canonicalPath
-            // Symlinks pointing outside the home dir are common in a
-            // terminal (e.g. ln -s /sdcard/x ~/link). Skip them rather
-            // than throwing — require() would abort the whole SAF
-            // directory listing on every browse.
+            // 终端中指向 home 目录之外的符号链接很常见
+            // （如 ln -s /sdcard/x ~/link）。跳过它们而非抛异常
+            // ——require() 会使每次浏览都中断整个 SAF 目录列举。
             if (!(fileCanonical.startsWith(rootPath + File.separator) || fileCanonical == rootPath)) {
                 return null
             }
@@ -80,12 +77,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         }
 
         fun isHomeLink(rawFile: File, rootDir: File): Boolean {
-            // Containment is checked on the link's OWN path, never its
-            // canonical target: rawFile may contain ".." segments (a
-            // hostile docId), and File does not normalize them. Resolve
-            // the parent canonically and re-append the name so the check
-            // covers the actual entry being touched. A null parent (a bare
-            // name with no directory part) cannot escape the root.
+            // 包含性针对链接*自身*路径检查，绝不针对其规范目标：
+            // rawFile 可能含 ".." 段（恶意 docId），而 File 不会规范化它们。
+            // 规范解析父目录后重新追加文件名，使检查覆盖实际被触及的条目。
+            // 父目录为 null（无目录部分的裸文件名）无法逃出根目录。
             if (!java.nio.file.Files.isSymbolicLink(rawFile.toPath())) return false
             val parentCanonical = rawFile.parentFile?.canonicalFile ?: return true
             val linkPath = File(parentCanonical, rawFile.name).canonicalPath

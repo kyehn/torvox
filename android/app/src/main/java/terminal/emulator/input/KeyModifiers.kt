@@ -2,23 +2,14 @@ package terminal.emulator.input
 
 import android.view.KeyEvent
 
-/**
- * Modifier bit masks shared by the key-encoder and hardware-key paths
- * (architecture). Previously the mask constants and the
- * sticky-state OR logic were duplicated across TerminalSurface.modifierBitmask
- * and TerminalViewModel.handleLayoutAwareHardwareKey.
- */
+/** 编码器与硬件按键路径共用的修饰键位掩码。 */
 object KeyModifiers {
     const val SHIFT = 1
     const val ALT = 2
     const val CTRL = 4
     const val META = 8
 
-    /**
-     * Mask contribution from the sticky toolbar modifier states only
-     * used by the layout-aware hardware-key path where Shift is already
-     * baked into the produced character).
-     */
+    /** 仅取工具栏粘滞状态；布局感知路径中 Shift 已并入生成的字符。 */
     fun fromStickyStates(ctrlState: ModifierState, altState: ModifierState): Int {
         var mask = 0
         if (ctrlState == ModifierState.Locked || ctrlState == ModifierState.Once) {
@@ -30,10 +21,7 @@ object KeyModifiers {
         return mask
     }
 
-    /**
-     * Full mask for a hardware key event: physical key state OR sticky
-     * toolbar states (used by the surface's onKeyDown/onKeyUp path).
-     */
+    /** 硬件按键的完整掩码：物理按键状态与工具栏粘滞状态取并。 */
     fun fromKeyEvent(event: KeyEvent, ctrlState: ModifierState, altState: ModifierState): Byte {
         var mask = 0
         if (event.isShiftPressed) mask = mask or SHIFT

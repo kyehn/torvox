@@ -1,4 +1,4 @@
-//! Glyph atlas — packing rasterized glyphs into GPU texture.
+//! 字形图集：把光栅化后的字形打包进 GPU 纹理。
 use swash::scale::{Render, Source};
 use swash::zeno::Transform;
 
@@ -6,11 +6,10 @@ use super::{FontPipeline, GlyphInfo, GlyphKey, GlyphSynthesis};
 
 pub(super) const GLYPH_CACHE_EVICTION_DIVISOR: usize = 4;
 
-/// Italic shear slope: tan(12°) — the classic synthetic-italic angle.
+/// 斜体剪切斜率：tan(12°)，合成斜体的经典角度。
 const ITALIC_SHEAR: f32 = 0.2126;
 
-/// Faux-bold strength as a fraction of the em size (pixels). 4% matches
-/// common text-renderer defaults (FreeType's bold strength is ~4.5%).
+/// 伪粗体强度（占 em 尺寸的像素比例），4% 与常见渲染器默认一致（FreeType 约 4.5%）。
 const BOLD_STRENGTH_EM: f32 = 0.04;
 
 impl FontPipeline {
@@ -23,12 +22,9 @@ impl FontPipeline {
         self.glyph_information_from_font_with_synthesis(font_id, glyph_id, GlyphSynthesis::None)
     }
 
-    /// Style-aware glyph lookup: when the requested synthesis
-    /// is bold/italic and the primary font has no matching face, the alpha
-    /// mask is post-processed — embolden for bold, shear for italic. When a
-    /// matching bold/italic face exists (e.g. Roboto-Bold.ttf), the caller
-    /// resolves it first via [FontPipeline::resolve_style_face] and passes
-    /// [GlyphSynthesis::None] with that face id.
+    /// 样式感知字形查询：请求合成 bold/italic 而主字体无匹配面时对 alpha 遮罩做后处理
+    /// （bold 加粗、italic 剪切）；若存在匹配面（如 Roboto-Bold.ttf），调用方先用
+    /// [FontPipeline::resolve_style_face] 解析出该面并传 [GlyphSynthesis::None]。
     pub(crate) fn glyph_information_from_font_with_synthesis(
         &mut self,
         font_id: fontdb::ID,
@@ -55,19 +51,15 @@ impl FontPipeline {
                 .scaler_context
                 .builder(font_ref)
                 .size(raster_size)
-                // Hinting aligns TrueType stems to the pixel grid. With a
-                // raster_scale > 1 (device density) the bitmap is large
-                // enough that hinting is unnecessary and can distort the
-                // glyph shapes: emulator OCR failed on hinted
-                // 124px bitmaps); hint only when rendering at 1:1.
+                // Hinting 把 TrueType 竖干对齐到像素网格；raster_scale > 1（设备密度）时
+                // 位图已足够大，hinting 只会扭曲字形（模拟器 OCR 在 124px hinting 位图上
+                // 失败），故仅在 1:1 渲染时启用。
                 .hint(self.raster_scale <= 1.01)
                 .build();
             let image = {
                 let mut render = Render::new(&[Source::Outline]);
-                // font synthesis at the outline level (swash
-                // native) — faux bold via embolden(), synthetic italic via
-                // an affine shear, both applied while rasterizing so the
-                // anti-aliasing quality is preserved.
+                // 在轮廓级做字体合成（swash 原生）：bold 用 embolden()，italic 用仿射
+                // 剪切，均在光栅化时应用以保留抗锯齿质量。
                 if matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic) {
                     render.embolden(raster_size * BOLD_STRENGTH_EM);
                 }
@@ -75,7 +67,7 @@ impl FontPipeline {
                     synthesis,
                     GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
                 ) {
-                    // Shear x' = x + y * slope (top rows lean right).
+                    // 剪切 x' = x + y * slope（顶部行向右倾）。
                     render.transform(Some(Transform::new(1.0, 0.0, ITALIC_SHEAR, 1.0, 0.0, 0.0)));
                 }
                 render.render(&mut scaler, glyph_id)
@@ -101,14 +93,10 @@ impl FontPipeline {
             }
         };
 
-        // font synthesis is applied at the outline level by
-        // the Render builder above (embolden/shear); the image returned here
-        // is already styled.
         let width = image.placement.width as i32;
         let height = image.placement.height as i32;
 
         if width == 0 || height == 0 {
-            // 空位图同样返回 None，理由同上。
             return None;
         }
 
@@ -129,9 +117,8 @@ impl FontPipeline {
                         evicted_any = true;
                     }
                 }
-                // Evicted regions are handed to later allocations: cached
-                // cell instances still reference the old UVs, so the
-                // instance cache must rebuild (see atlas_generation).
+                // 被驱逐的区域会分给后续分配，已缓存的单元实例仍引用旧 UV，
+                // 故须重建实例缓存（见 atlas_generation）。
                 if evicted_any {
                     self.atlas_generation = self.atlas_generation.wrapping_add(1);
                 }
@@ -241,9 +228,8 @@ impl FontPipeline {
         };
 
         self.caches.glyph_cache.put(key, info.clone());
-        // 注意：此处不推进 atlas_generation。新分配只占用空闲区，
-        // 已有 UV 不变；代际只在驱逐/重建（真正搬迁 UV 时）推进，
-        // 否则每帧新字形都会误杀增量实例缓存（NFR-010 失效致卡顿）。
+        // 注意：此处不推进 atlas_generation。新分配只占用空闲区，已有 UV 不变；
+        // 代际只在驱逐/重建（真正搬迁 UV）时推进，否则每帧新字形都会误杀增量实例缓存。
         Some(info)
     }
 

@@ -1,5 +1,4 @@
-// @REQ_TERM_007
-//! Shell environment setup — pre-exec environment configuration for child processes.
+//! Shell 环境设置：子进程 pre-exec 的环境配置。
 //!
 //! 只保留规范白名单所需的输入：home（HOME 与 TERMUX_HOME_DIR_PATH）、
 //! working_directory（子进程 chdir 目标，非环境变量）、prefix（PREFIX 相关变量）、

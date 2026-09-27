@@ -1,23 +1,10 @@
 package terminal.emulator.runtime
 
-/**
- * One paste implementation for both call layers (K2:  architecture).
- *
- * Previously TerminalViewModel.pasteFromClipboard and
- * TerminalSurface.pasteFromClipboardDirect each had their own
- * clipboard-read + PasteChunker loop with near-identical comments claiming
- * "shared chunking". This class is the single source: read clipboard via
- * [ClipboardAccess], chunk via [PasteChunker], hand each chunk to the
- * caller-supplied sink.
- */
+/** 两层调用共用的粘贴实现：经 [ClipboardAccess] 读取、[PasteChunker] 分块后交给 [sink]。 */
 class ClipboardPaster(private val clipboard: ClipboardAccess, private val chunker: PasteChunker = PasteChunker()) {
     /**
-     * Paste the current clipboard through [sink] (one call per chunk).
-     *
-     * Returns the number of characters queued up to the last successful
-     * chunk boundary (post-truncation); a chunk dropped by PTY backpressure
-     * EAGAIN) is still counted — the xterm-style "accepted" count, not
-     * byte-exact delivery  semantics).
+     * 逐块粘贴当前剪贴板内容。
+     * 返回入队到最后一个块边界的字符数（截断之后），采用 xterm 式「已接受」计数而非精确送达字节数。
      */
     fun pasteTo(sink: (ByteArray) -> Unit): Int {
         val text = clipboard.clipboardText() ?: return 0

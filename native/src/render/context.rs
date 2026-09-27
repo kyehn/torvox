@@ -1,9 +1,4 @@
-//! GPU context — wgpu instance, adapter, device, and pipeline management.
-//!
-//! Centralizes all wgpu resources into a single `Renderer` struct.
-//!
-//! # Requirements
-//! - FR-050 — surface lifecycle: attach/detach recreates the wgpu surface and render pipeline
+//! GPU 上下文：把 wgpu 的 instance、adapter、device 与管线集中到单个 `Renderer` 结构。
 use parking_lot::Mutex;
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
@@ -15,9 +10,8 @@ pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
 }
 
-/// Per-frame rendering context — bundles encoder, surface texture, and view
-/// so these short-lived resources are clearly separated from the long-lived
-/// `Renderer` state. Created by `Renderer::begin_frame()`.
+/// 逐帧渲染上下文：打包 encoder、surface 纹理与 view，把短生命周期资源与长生命周期的
+/// `Renderer` 状态分开。由 `Renderer::begin_frame()` 创建。
 pub struct FrameContext {
     pub(crate) encoder: wgpu::CommandEncoder,
     pub(crate) view: wgpu::TextureView,
@@ -27,7 +21,6 @@ pub struct FrameContext {
 }
 
 impl FrameContext {
-    /// Submit the encoded commands to the GPU queue and present the surface texture.
     pub fn submit(self, queue: &wgpu::Queue) {
         queue.submit(std::iter::once(self.encoder.finish()));
         queue.present(self.texture);
@@ -35,18 +28,14 @@ impl FrameContext {
 }
 
 pub(crate) struct GlobalGpu {
-    /// wgpu instance — only stored for `attach_surface` (Android).
     #[cfg(target_os = "android")]
     pub(crate) instance: wgpu::Instance,
-    /// Adapter — only stored for surface capability queries (Android).
     #[cfg(target_os = "android")]
     pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
 }
 
-/// Test-only access to the shared wgpu instance/adapter (used by
-/// render/tests.rs helpers to construct Renderers).
 #[cfg(test)]
 pub(crate) fn global_gpu_for_tests() -> &'static GlobalGpu {
     global_gpu()
@@ -80,24 +69,11 @@ fn global_gpu() -> &'static GlobalGpu {
     })
 }
 
-/// Central GPU context — owns the wgpu device, queues, pipelines, and all GPU resources.
-/// GPU renderer — owns wgpu resources and pipelines.
+/// GPU 渲染器：持有 wgpu 资源与管线。字段按空行分组：核心资源、单元管线资源、图集资源、
+/// Kitty 图形协议（kgp_*）、逐帧瞬时状态。
 ///
-/// Fields are grouped (via blank lines) into:
-/// 1. Core wgpu resources (instance, adapter, device, queue, surface) — always
-///    created, never `Option` except surface which is acquired from Android.
-/// 2. Cell pipeline resources (pipeline, buffers, bind group) — created lazily
-///    on first frame, hence `Option`.
-/// 3. Atlas resources (texture, view, sampler) — created on first font upload.
-/// 4. Kitty graphics protocol (kgp_*) — KGP image display, separate pipeline.
-/// 5. Frame state (raster_scale, render_paused, pending_gpu_drain) — per-frame
-///    transient state.
-///
-/// # Thread safety
-///
-/// `Renderer` is `Send + Sync` (verified by `send_check::renderer_is_send`).
-/// It lives behind the global `RENDER_STATE` mutex and `begin_frame()` and
-/// `render_frame()` are called from the single render thread, with `&mut self`.
+/// 线程安全：`Renderer` 为 `Send + Sync`，位于全局 `RENDER_STATE` 互斥锁后，
+/// `begin_frame()` 与 `render_frame()` 由单一渲染线程以 `&mut self` 调用。
 pub struct Renderer {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -108,16 +84,12 @@ pub struct Renderer {
     pub(crate) cell_bind_group: Option<wgpu::BindGroup>,
     pub(crate) cell_uniform_buffer: Option<wgpu::Buffer>,
     pub(crate) instance_buffer: Option<wgpu::Buffer>,
-    /// CPU-side instance buffer reused across frames (avoids a ~100KB
-    /// allocation per frame; see build_instances_from_cell_data).
+    /// 跨帧复用的 CPU 侧实例缓冲（避免每帧约 100KB 分配）。
     pub(crate) cpu_instances: Vec<crate::render::CellInstance>,
-    /// Row-dirty instance cache (FR-013 / NFR-010): retains per-row
-    /// instance slices so clean rows are copied instead of rebuilt.
+    /// 行级脏区实例缓存：保留各行的实例切片，使干净行只复制而不重建。
     pub(crate) cell_cache: Option<crate::render::cell_builder::CachedInstances>,
-    /// Reusable all-true dirty mask (length = current grid rows) for the
-    /// frame where `cell_cache` was just rebuilt from scratch (resize):
-    /// serving "clean" rows from an empty cache would drop them
-    /// regression fix).
+    /// 可复用的全 true 脏标记（长度为当前网格行数），用于 `cell_cache` 刚从零重建后
+    /// 的那一帧（resize）：此时把“干净”行当作无缓存会导致丢行。
     pub(crate) cell_full_mask_cache: Vec<bool>,
     pub(crate) viewport_scroll_px: f32,
     /// 上一呈现帧实际使用的视口像素偏移。当前偏移非零或与此值不同
@@ -146,26 +118,20 @@ pub struct Renderer {
     pub(crate) raster_scale: f32,
     pub(crate) render_paused: bool,
     pub(crate) pending_gpu_drain: bool,
-    /// Persistent offscreen frame accumulator (render-vulkan-performance):
-    /// authoritative frame content that survives across frames so partial
-    /// (dirty-band) frames can composite onto previous output. Presented
-    /// to the swapchain with one `copy_texture_to_texture` per frame.
+    /// 持久离屏帧累加器：权威帧内容跨帧存活，使部分（脏带）帧可合成到上次输出上，
+    /// 每帧一次 `copy_texture_to_texture` 呈现到交换链。
     pub(crate) frame_texture: Option<wgpu::Texture>,
-    /// True when the accumulator's content is stale/unknown and the next
-    /// frame MUST be a full redraw (first frame, resize, format change,
-    /// surface re-attach). Cleared after a successful full frame.
+    /// 累加器内容陈旧/未知，下一帧必须全量重绘（首帧、resize、格式变更、surface
+    /// 重挂载）；成功全量绘制后清除。
     pub(crate) frame_invalidated: bool,
-    /// Whether the swapchain supports `COPY_DST` (checked against
-    /// `supported_usage_flags` at attach time). When false, the legacy
-    /// direct-to-swapchain path is used and dirty bands are ignored.
+    /// 交换链是否支持 `COPY_DST`（挂载时依据 `usages` 检查）；为 false 时走旧的
+    /// 直接渲染路径并忽略脏带。
     pub(crate) swapchain_copy_supported: bool,
 }
 
 impl Renderer {
-    /// Get (or recreate) the persistent frame accumulator view. Returns
-    /// `None` when accumulation is unsupported or texture creation fails.
-    /// A size/format mismatch recreates the texture AND flags the next
-    /// frame as a full redraw (`frame_invalidated`).
+    /// 取得（或重建）持久帧累加器的 view。不支持累加或纹理创建失败时返回 `None`；
+    /// 尺寸/格式不匹配会重建纹理并把下一帧标记为全量重绘。
     pub(crate) fn ensure_frame_texture(
         &mut self,
         width: u32,
@@ -195,8 +161,7 @@ impl Renderer {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             }));
-            // Fresh texture has undefined content: the next frame must be
-            // a full redraw.
+            // 新纹理内容未定义，下一帧必须全量重绘。
             self.frame_invalidated = true;
         }
         self.frame_texture
@@ -204,10 +169,9 @@ impl Renderer {
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
     }
 
-    /// Acquire the surface texture and create a FrameContext for this frame.
-    /// Returns `None` if acquire fails (lost surface, timeout, or hung GPU).
+    /// 获取 surface 纹理并为本帧创建 `FrameContext`；获取失败（surface 丢失、超时、
+    /// GPU 卡死）时返回 `None`。
     pub(crate) fn begin_frame(&mut self) -> Option<FrameContext> {
-        // Drain deferred GPU work before acquiring new texture.
         if self.pending_gpu_drain {
             let _ = self.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
@@ -247,8 +211,7 @@ impl Renderer {
                 (config_width, config_height)
             };
 
-        // Uniform buffer content is rewritten every frame — the bind group
-        // is bound by object identity and stays valid.
+        // uniform 缓冲内容每帧重写；绑定组按对象标识绑定，仍然有效。
         self.refresh_cell_uniforms(config_width as f32, config_height as f32);
 
         let view = output
@@ -296,7 +259,6 @@ impl Drop for Renderer {
 }
 
 impl Renderer {
-    /// Shared initialization for all constructors.
     pub(crate) fn new_inner(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -345,7 +307,6 @@ impl Renderer {
         }
     }
 
-    /// Create a new Renderer with full async initialization.
     pub async fn new() -> Result<Self, GpuError> {
         let (_instance, _adapter, device, queue) =
             crate::render::wgpu_backend::initialize_wgpu().await?;
@@ -358,8 +319,7 @@ impl Renderer {
         Ok(Self::new_inner(device, queue, quad_vertex_buffer))
     }
 
-    /// Create a Renderer sharing the global wgpu instance/adapter/device.
-    /// Useful for headless contexts (e.g., tests, screenshot capture).
+    /// 创建共享全局 wgpu instance/adapter/device 的 `Renderer`，适用于无窗口上下文。
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();
         let device = gpu.device.clone();
@@ -373,20 +333,13 @@ impl Renderer {
         Self::new_inner(device, queue, quad_vertex_buffer)
     }
 
-    /// Attach an Android `ANativeWindow` as the render surface (ADR-0007).
+    /// 把 Android `ANativeWindow` 挂载为渲染 surface：据原生窗口句柄建 wgpu surface
+    /// 并按给定尺寸重建配置。调用方保证 `ptr` 是有效的 `ANativeWindow*`，存活至
+    /// [`Renderer::release_surface`]（或 drop）——所有权转交 wgpu，其在创建时自行持有引用。
     ///
-    /// Builds a wgpu surface from the native window handle and (re)creates
-    /// the surface configuration at the given dimensions. The caller
-    /// guarantees `ptr` is a valid `ANativeWindow*` that stays alive until
-    /// [`Renderer::release_surface`] (or drop) — ownership is transferred
-    /// to wgpu, which holds its own reference via `Surface::from_...`.
-    ///
-    /// Reference (zelland + wgpu-in-app): the surface lifecycle is driven by
-    /// the Android SurfaceHolder.Callback (attach/release here), never by the
-    /// Activity lifecycle; sizes are re-queried every frame; after attach the
-    /// renderer must render immediately (zelland WGPU_FIXES.md Fix 2).
-    /// Acquire 失败的处理见 `render/pass.rs`：本仓不对 Lost/Outdated 重试，
-    /// 而是重新 configure 后丢弃本帧；Timeout 由工作线程的 `recv_timeout` 兜底。
+    /// surface 生命周期由 Android SurfaceHolder.Callback 驱动（此处挂载/释放）而非
+    /// Activity 生命周期；尺寸每帧重新查询；挂载后须立即渲染一帧。Acquire 失败的
+    /// 处理见 `render/pass.rs`：不对 Lost/Outdated 重试，而是重新 configure 后丢弃本帧。
     #[cfg(target_os = "android")]
     pub fn attach_surface(
         &mut self,
@@ -398,10 +351,9 @@ impl Renderer {
         let non_null = std::ptr::NonNull::new(ptr).ok_or_else(|| {
             GpuError::Surface("attach_surface: null ANativeWindow pointer".into())
         })?;
-        // Fast path: if a surface is already attached (IME settle, HOME→recents with retained
-        // Surface), reconfigure the live swapchain in place instead of dropping + recreating
-        // (spec ime-smooth + app-switch-continuity). Recreation races the render thread and
-        // fails with ERROR_NATIVE_WINDOW_IN_USE_KHR on SwiftShader. Reconfigure is zero-copy.
+        // 快速路径：已挂载 surface 时（输入法收起、HOME→recents 且 surface 保留）
+        // 原地 reconfigure 而非丢弃重建。重建会与渲染线程竞争，在 SwiftShader 上
+        // 报 ERROR_NATIVE_WINDOW_IN_USE_KHR；reconfigure 是零拷贝的。
         if self.surface.is_some() && self.surface_config.is_some() {
             self.reconfigure_swapchain(width, height);
             log::info!("attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)");
@@ -409,19 +361,17 @@ impl Renderer {
         }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
         // SAFETY:
-        // - `global_gpu().instance` is a valid wgpu Instance;
-        // - the handle wraps a caller-guaranteed live ANativeWindow (JNI
-        //   attachWindow contract) that stays valid until detachWindow
-        //   drops the resulting surface — wgpu takes its own reference at
-        //   creation, and the caller releases theirs right after this call;
-        // - display handle is None on Android (no X11/Wayland display).
+        // - `global_gpu().instance` 是有效的 wgpu Instance；
+        // - 句柄包裹调用方保证存活的 ANativeWindow（JNI attachWindow 契约），
+        //   存活至 detachWindow 丢弃由其产生的 surface——wgpu 在创建时自行取得引用，
+        //   调用方在本调用返回后即释放自己的引用；
+        // - Android 上无 X11/Wayland display。
         let surface = unsafe {
             global_gpu()
                 .instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    // Must match the instance display (wgpu_backend sets
-                    // AndroidDisplayHandle at instance creation); wgpu-core rejects
-                    // a None display when the instance carries one.
+                    // 须与 instance 的 display 匹配（wgpu_backend 在建 instance 时设置
+                    // AndroidDisplayHandle）；instance 携带 display 时 wgpu-core 拒绝 None。
                     raw_display_handle: Some(raw_window_handle::RawDisplayHandle::Android(
                         raw_window_handle::AndroidDisplayHandle::new(),
                     )),
@@ -433,34 +383,24 @@ impl Renderer {
                 "attach_surface: wgpu create_surface failed: {error}"
             ))
         })?;
-        // Release the previous surface BEFORE creating the new one: on
-        // Android both wgpu surfaces wrap the same ANativeWindow, and a
-        // Vulkan swapchain cannot be created for a window whose previous
-        // surface is still live — get_current_texture then fails with
-        // "Surface is not configured for presentation" forever,
-        // emulator-verified: every session after the first rendered black;
-        // the first attach worked only because no surface existed yet.
-        // Callers guarantee no render thread is mid-frame (switchSession
-        // stops the old thread before/around this), so dropping here is
-        // safe.
+        // 先释放旧 surface 再建新 surface：Android 上两个 wgpu surface 包裹同一个
+        // ANativeWindow，旧 surface 仍存活时无法为该窗口创建 Vulkan swapchain，
+        // 随后的 get_current_texture 永远报 “Surface is not configured for presentation”
+        // （模拟器实测：首次之后的每个会话都黑屏）。调用方保证此刻无渲染线程处于帧中
+        // （switchSession 会先停旧线程），故可安全丢弃。
         self.surface = None;
         self.surface_config = None;
-        // Accumulator content belongs to the old surface; force a full
-        // redraw after re-attach.
+        // 累加器内容属于旧 surface，重挂载后强制全量重绘。
         self.frame_texture = None;
         self.frame_invalidated = true;
         let surface = std::sync::Arc::new(surface);
-        // The default config picks a present mode + format the driver
-        // supports; RENDER_SCALE mirrors reconfigure_swapchain (a fixed
-        // scale used across the renderer for consistent cell metrics).
+        // 默认配置挑选驱动支持的呈现模式与格式；`RENDER_SCALE` 与 `reconfigure_swapchain`
+        // 一致（跨渲染器固定的缩放，保证单元格度量一致）。
         let scaled_width = ((width as f32 * crate::render::RENDER_SCALE) as u32).max(1);
         let scaled_height = ((height as f32 * crate::render::RENDER_SCALE) as u32).max(1);
         let caps = surface.get_capabilities(&global_gpu().adapter);
-        // Dirty-band compositing needs the swapchain texture to accept a
-        // copy from the frame accumulator. Universally supported on
-        // Vulkan; if an exotic driver omits it we fall back to legacy
-        // direct-to-swapchain rendering (full redraws only).
-        // (wgpu 30 renamed `supported_usage_flags` → `usages`.)
+        // 脏带合成要求交换链纹理接受来自帧累加器的拷贝（Vulkan 上普遍支持）；
+        // 特殊驱动缺失时回退到旧的直接渲染路径（仅全量重绘）。
         let swapchain_copy_supported = caps.usages.contains(wgpu::TextureUsages::COPY_DST);
         self.swapchain_copy_supported = swapchain_copy_supported;
         let usage = if swapchain_copy_supported {
@@ -468,10 +408,8 @@ impl Renderer {
         } else {
             wgpu::TextureUsages::RENDER_ATTACHMENT
         };
-        // Prefer the non-sRGB variant: Android SurfaceFlinger defaults to
-        // RGBA_8888 (non-sRGB); SwiftShader-on-emulator buffer queues fail
-        // to allocate (dequeueBuffer timeout) when the swapchain format
-        // does not match the Surface's native format.
+        // 优先非 sRGB 变体：Android SurfaceFlinger 默认 RGBA_8888（非 sRGB）；模拟器上
+        // SwiftShader 交换链格式与 Surface 原生格式不符时缓冲区队列无法分配。
         let format = caps
             .formats
             .iter()
@@ -489,36 +427,24 @@ impl Renderer {
             present_mode: Self::select_present_mode(&caps),
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
-            // Three buffers (max_frame_latency=3): with FIFO vsync and a
-            // single buffer the render thread blocks in acquire until the
-            // display consumes the previous frame, so any frame that takes
-            // longer than one vsync period stalls the whole pipeline and
-            // frame times alias to vsync multiples (measured 20-30 fps on a
-            // Mali device). With three buffers acquire returns immediately,
-            // the render pipeline decouples from the display scanout, and
-            // Mailbox (when the driver advertises it, selected above) drops
-            // the oldest queued frame instead of backpressuring the render
-            // thread — the right trade-off for a scrolling terminal where
-            // the newest frame always wins.
+            // 三个缓冲（max_frame_latency=3）：FIFO vsync 下单缓冲时渲染线程会阻塞在
+            // acquire 直到显示端消费上一帧，任何超过一个 vsync 周期的帧都会拖垮整条
+            // 管线，帧时间还会混叠到 vsync 倍数（Mali 设备实测 20-30fps）。三缓冲使
+            // acquire 立即返回、渲染管线与扫描输出解耦；Mailbox（驱动支持时已在上方
+            // 选中）丢弃最旧的排队帧而不回压渲染线程——滚动终端中新帧永远胜出。
             desired_maximum_frame_latency: 3,
             color_space: wgpu::SurfaceColorSpace::Srgb,
         };
-        // view_formats is deliberately empty on Android: the platform lacks
-        // the SURFACE_VIEW_FORMATS downlevel flag, so any non-empty list
-        // fails configure. wgpu-in-app app-surface/src/lib.rs:324-339 is the
-        // opposite case — only its webgl branch is empty, its Android branch
-        // is `vec![format]` — so this is a deliberate divergence, not a copy.
-        // Verified on the API-35 emulator: Rgba8Unorm + empty view_formats renders.
-        // wgpu 30's configure returns (errors surface asynchronously via
-        // get_current_texture's Lost state), so there is no Result to propagate;
-        // the acquire path in render/pass.rs reconfigures and drops the frame on Lost.
+        // Android 上 view_formats 故意置空：平台缺少 SURFACE_VIEW_FORMATS 降级标志，
+        // 任何非空列表都会使 configure 失败（已在 API 35 模拟器上验证
+        // Rgba8Unorm + 空 view_formats 可正常渲染）。
+        // wgpu 30 的 configure 无返回值（错误经 get_current_texture 的 Lost 状态异步
+        // 上报），故无可传播的 Result；render/pass.rs 的 acquire 路径在 Lost 时
+        // 重新 configure 并丢弃该帧。
         surface.configure(&self.device, &config);
         self.surface_config = Some(config);
-        // Compare against the PREVIOUS pipeline format (the field is
-        // updated below): a format change on re-attach must drop the
-        // lazily-created cell pipeline so the next render rebuilds it with
-        // the new surface's format (the lazy path in ffi.rs render_inner
-        // recreates pipeline + bind group together).
+        // 与**上一个**管线格式比较（该字段在下方更新）：重挂载时格式变化必须丢弃
+        // 惰性创建的单元管线，使下次渲染用新 surface 的格式重建。
         let previous_format = self.pipeline_format;
         self.pipeline_format = self
             .surface_config
@@ -535,14 +461,12 @@ impl Renderer {
         self.projection_width = scaled_width;
         self.projection_height = scaled_height;
         self.surface = Some(surface);
-        // ── 启动黑屏防护（渲染稳定性 spec §4）────────────────────
-        // 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百
-        // 毫秒：字形整形、整幅 atlas 上传、纹理分配）；期间交换链一帧
-        // 未提交，屏幕保持空黑，静默 shell（无任何 New 数据）甚至永远
-        // 黑屏。这里在 attach 线程上（渲染线程未启动，无竞争）：
-        //   1. 预先创建 frame accumulator，把一次性纹理分配移出首个
-        //      渲染帧（创建时 frame_invalidated=true，首帧仍全量重绘）；
-        //   2. warmup() 立即呈现一帧背景色，让表面立刻可见。
+        // ── 启动黑屏防护 ─────────────────────────────
+        // 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百毫秒：字形整形、
+        // 整幅 atlas 上传、纹理分配）；期间交换链一帧未提交，屏幕保持空黑，静默 shell
+        // （无任何新数据）甚至永远黑屏。故在 attach 线程上（渲染线程未启动，无竞争）
+        // 预先创建帧累加器，把一次性纹理分配移出首个渲染帧，并立即 warmup() 呈现一帧
+        // 背景色，让表面立刻可见。
         if let Some(config) = &self.surface_config {
             let _ = self.ensure_frame_texture(config.width, config.height, config.format);
         }
@@ -551,7 +475,7 @@ impl Renderer {
         Ok(())
     }
 
-    /// Drop the attached surface (Android detach path).
+    /// 丢弃已挂载的 surface（Android detach 路径）。
     #[cfg(target_os = "android")]
     pub fn release_surface(&mut self) {
         self.surface = None;
@@ -561,11 +485,9 @@ impl Renderer {
         log::info!("release_surface: surface dropped");
     }
 
-    /// Set the surface configuration used by headless/off-screen tests.
+    /// 设置无窗口/离屏测试所用的 surface 配置。
     ///
-    /// The render pass uses `surface_config` as the frame dimensions and
-    /// format when no real window surface is attached. Exposed publicly for
-    /// integration tests that drive the renderer without an Android window.
+    /// 未挂载真实窗口 surface 时，渲染通道以 `surface_config` 作为帧尺寸与格式。
     pub fn set_surface_config(&mut self, config: wgpu::SurfaceConfiguration) {
         self.surface_config = Some(config);
     }
@@ -577,9 +499,8 @@ impl Renderer {
             b: background[2] as f64 / 255.0,
             a: 1.0,
         };
-        // The clear color only lands on full frames (margins outside the
-        // grid quads are never repainted by partial frames) — force the
-        // next frame to be full so theme switches repaint everywhere.
+        // 清除色只在全量帧上生效（部分帧从不再绘网格四边形之外的边距），
+        // 故强制下一帧全量，使主题切换能重绘到每一处。
         self.frame_invalidated = true;
     }
 
@@ -593,8 +514,7 @@ impl Renderer {
         }
     }
 
-    /// Non-finite input is ignored; the Kotlin side keeps the value
-    /// within one row height (whole rows travel the row channel).
+    /// 非有限输入被忽略；Kotlin 侧把该值限制在一行高度内（整行走行通道）。
     pub fn set_viewport_scroll_px(&mut self, px: f32) {
         if px.is_finite() {
             self.viewport_scroll_px = px;
@@ -649,7 +569,7 @@ impl Renderer {
     }
 }
 
-/// Create an orthographic projection matrix for the given viewport dimensions.
+/// 为给定视口尺寸创建正交投影矩阵。
 pub fn orthographic_projection(width: f32, height: f32) -> [[f32; 4]; 4] {
     [
         [2.0 / width, 0.0, 0.0, 0.0],
@@ -659,10 +579,8 @@ pub fn orthographic_projection(width: f32, height: f32) -> [[f32; 4]; 4] {
     ]
 }
 
-/// Translate an orthographic projection by a viewport Y pixel offset
-/// (positive = content moves down). Screen Y grows downward while NDC Y
-/// grows upward, so the offset subtracts from the translation row.
-/// Zero height or zero offset leaves the matrix untouched.
+/// 按视口 Y 像素偏移平移正交投影（正值 = 内容下移）。屏幕 Y 向下增长而 NDC Y
+/// 向上增长，故偏移从平移行中减去；高度或偏移为 0 时矩阵不变。
 pub fn apply_scroll_px_offset(
     mut proj: [[f32; 4]; 4],
     scroll_px: f32,
@@ -674,15 +592,14 @@ pub fn apply_scroll_px_offset(
     proj
 }
 
-// ── Inlined from atlas.rs ─────────────────────────────────────────
+// ── 自 atlas.rs 内联 ─────────────────────────────────────────────
 pub const MIN_ATLAS_BUFFER_SIZE: u64 = 64;
 
 impl Renderer {
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {
-        // NOTE: atlas size must be clamped to the adapter's
-        // max_texture_dimension_2d limit (some GPUs report only 2048;
-        // zelland WGPU_FIXES.md pitfall #9). Callers currently pass a fixed
-        // 1024x1024 atlas, which is safe; if this ever grows, clamp here.
+        // 注意：图集尺寸必须钳制到 adapter 的 `max_texture_dimension_2d` 上限
+        // （部分 GPU 只报 2048）。当前调用方固定传 1024x1024，安全；
+        // 若日后调大，须在此处钳制。
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture"),
             size: wgpu::Extent3d {
@@ -699,11 +616,9 @@ impl Renderer {
         });
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        // Text atlas is sampled 1:1 (glyph raster pixels == screen pixels via
-        // raster_scale = density * fontScale). Nearest keeps glyphs sharp;
-        // Linear interpolates across texel borders and renders text blurry —
-        // the "font blur" reports on real devices. This also skips per-texel
-        // bilinear filtering cost in software Vulkan (Lavapipe/SwiftShader).
+        // 文本图集按 1:1 采样（字形光栅像素 = 屏幕像素，`raster_scale = 密度 * fontScale`）。
+        // Nearest 保持字形锐利；Linear 会在纹素边界插值使文字模糊（真机“字体模糊”反馈），
+        // 且在软件 Vulkan（Lavapipe/SwiftShader）下省去逐纹素双线性开销。
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -769,10 +684,8 @@ impl Renderer {
         }
     }
 
-    /// Build the cell-pipeline uniform block for the given projection and
-    /// atlas dimensions. Single construction site so projection/atlas
-    /// fields stay in lockstep across the write, refresh, and
-    /// swapchain-reconfigure paths.
+    /// 构建单元管线的 uniform 块。单点构造，使投影/图集字段在写入、刷新与交换链
+    /// 重配置三条路径上始终同步。
     pub(crate) fn cell_uniforms(
         &self,
         projection_width: f32,
@@ -793,11 +706,10 @@ impl Renderer {
         }
     }
 
-    /// Write uniforms and rebuild the cell bind group.
+    /// 写入 uniforms 并重建单元绑定组。
     ///
-    /// Shared by [`update_bind_group`] and [`initialize_pipeline_and_bind_group`]
-    /// to eliminate ~40 lines of identical uniform construction + buffer write
-    /// + bind group creation.
+    /// 由 [`update_bind_group`] 与 [`initialize_pipeline_and_bind_group`] 共用，
+    /// 避免约 40 行重复的 uniform 构建 + 缓冲写入 + 绑定组创建。
     fn write_uniforms(
         &mut self,
         atlas_width: f32,
@@ -861,11 +773,9 @@ impl Renderer {
         }));
     }
 
-    /// Lightweight per-frame sync of the cell uniform buffer contents only.
-    /// Unlike `write_uniforms`, it never recreates the bind group: the cell
-    /// bind group is bound by buffer object identity, and wgpu reads the
-    /// buffer contents at draw time, so rewriting the bytes is sufficient
-    /// to update the projection.
+    /// 轻量的逐帧同步：只刷新单元 uniform 缓冲内容。
+    /// 与 `write_uniforms` 不同，它绝不重建绑定组——单元绑定组按缓冲对象标识绑定，
+    /// 而 wgpu 在绘制时读取缓冲内容，故重写字节即可更新投影。
     pub(crate) fn refresh_cell_uniforms(&mut self, projection_width: f32, projection_height: f32) {
         let Some(buf) = self.cell_uniform_buffer.as_ref() else {
             return;
@@ -895,7 +805,7 @@ impl Renderer {
     }
 }
 
-// ── Inlined from surface.rs ───────────────────────────────────────
+// ── 自 surface.rs 内联 ──────────────────────────────────────────
 type CachedSurface = (
     std::sync::Arc<wgpu::Surface<'static>>,
     wgpu::SurfaceConfiguration,
@@ -905,9 +815,8 @@ pub(crate) static GLOBAL_SURFACE: OnceLock<parking_lot::Mutex<Option<CachedSurfa
     std::sync::OnceLock::new();
 
 impl Renderer {
-    /// Host builds exclude the Android-only `attach_surface` caller, so the
-    /// function would be dead there: gate it to Android prod + tests instead
-    /// of an `allow(dead_code)`.
+    /// 宿主构建排除了仅 Android 的 `attach_surface` 调用方，本函数在宿主上会成为死代码，
+    /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn select_present_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
         // 渲染稳定性 spec §3「滚动不得有可见撕裂」：Immediate 无 vsync 直通
@@ -928,7 +837,7 @@ impl Renderer {
         }
     }
 
-    /// Release the current GPU surface, caching it for potential reuse.
+    /// 释放当前 GPU surface，并缓存以备复用。
     pub fn release_gpu_surface(&mut self) {
         if self.surface.is_some() {
             let surface = self
@@ -943,8 +852,7 @@ impl Renderer {
             }
         }
         self.surface_config = None;
-        // Mark that we need to drain GPU work before the next frame.
-        // The poll is deferred to avoid blocking session switches.
+        // 标记下一帧前需排空 GPU 工作；poll 延后以免阻塞会话切换。
         self.pending_gpu_drain = true;
     }
 
@@ -978,11 +886,9 @@ impl Renderer {
         config.height = scaled_height;
         surface.configure(&self.device, config);
 
-        // Accumulator content belongs to the old size; force a full redraw
-        // after reconfigure (same as the attach slow path). Without this an
-        // idle shell keeps its empty recreated accumulator forever: the idle
-        // gate only repaints on frame_invalidated, so IME resize / app-switch
-        // with a retained surface ended black or flashing.
+        // 累加器内容属于旧尺寸，reconfigure 后强制全量重绘（同 attach 慢路径）。
+        // 否则空闲 shell 会永远持有重建后为空的累加器——空闲门控只在
+        // `frame_invalidated` 时重绘，导致输入法 resize / 切后台且 surface 保留时黑屏或闪烁。
         self.frame_texture = None;
         self.frame_invalidated = true;
 

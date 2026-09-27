@@ -81,6 +81,13 @@ import terminal.emulator.ui.theme.TerminalTheme
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
 private const val FONT_SIZE_RANGE_STEPS = 23
+
+/** 引导程序包变体（DESIGN Bootstrap 节：只用 apt-android-7）。 */
+private const val TERMUX_PACKAGE_VARIANT = "apt.android-7"
+
+/** 引导程序版本，取自 termux-app app/build.gradle 的 downloadBootstraps 任务。 */
+private const val TERMUX_BOOTSTRAP_RELEASE = "2026.02.12-r1"
+
 private val WARNING_ORANGE = Color(0xFFFF9800)
 
 @OptIn(ExperimentalMaterial3Api::class) // Material3 experimental API used intentionally
@@ -98,25 +105,31 @@ fun SettingsScreen(
     val cardBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val accentColor = MaterialTheme.colorScheme.primary
     val sectionTitleColor = MaterialTheme.colorScheme.primary
+    // 单一订阅：SettingsRepository 只暴露一条设置 flow，在 LazyColumn 外订阅一次
+    // 向下传递，避免每个 item 各自 collect 造成多条并行管线。
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
+    val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
+    val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
+    val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
+    val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
+    val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     BackHandler(enabled = true) { onBack() }
     Surface(
         modifier =
         modifier.fillMaxSize()
             .testTag("SettingsScreen")
-            // Consume taps on the settings backdrop so they do not fall
-            // through to the TerminalScreen composable underneath. This must
-            // be pointerInput, not clickable: clickable forces
-            // mergeDescendants semantics, which swallowed every descendant
-            // testTag from the merged tree and made the whole screen
-            // unreadable to Compose UI tests and TalkBack.
+            // 消费设置背景上的点击，使其不穿透到下层的 TerminalScreen。
+            // 必须用 pointerInput 而非 clickable：clickable 会强制
+            // mergeDescendants 语义，从合并树中吞掉所有后代的 testTag，
+            // 使整个界面对 Compose UI 测试与 TalkBack 不可读。
             .pointerInput(Unit) { detectTapGestures(onTap = {}) },
         color = backgroundColor,
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            // Fixed header: SettingsHeader must stay visible while the
-            // LazyColumn scrolls, otherwise the back button scrolls out of
-            // reach: maestro open-settings flow failed to find
-            // SettingsBackButton after scrolling down).
+            // 固定表头：SettingsHeader 必须在 LazyColumn 滚动时保持可见，
+            // 否则返回按钮会滚出可达范围
+            // （maestro 的 open-settings 流程在向下滚动后找不到 SettingsBackButton）。
             SettingsHeader(onBack, textColor, isSmallScreen)
             LazyColumn(
                 modifier =
@@ -129,16 +142,12 @@ fun SettingsScreen(
                 item {
                     SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
                     SettingsCard(cardBackground) {
-                        val appearanceSettings by viewModel.settings.collectAsStateWithLifecycle()
-                        val appearanceFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
-                        val appearanceDefaultFont by viewModel.defaultFontName.collectAsStateWithLifecycle()
-                        val appearanceFontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
                         AppearanceSectionContent(
-                            fontSize = appearanceSettings.fontSize,
-                            fontFamily = appearanceSettings.fontFamily,
-                            availableFonts = appearanceFonts,
-                            defaultFontName = appearanceDefaultFont,
-                            fontInfo = appearanceFontInfo,
+                            fontSize = settings.fontSize,
+                            fontFamily = settings.fontFamily,
+                            availableFonts = availableFonts,
+                            defaultFontName = defaultFontName,
+                            fontInfo = fontInfo,
                             onFontSizePreview = { viewModel.setFontSizeInPlacePreview(it) },
                             onFontSizeCommitted = { viewModel.setFontSize(it) },
                             onFontFamilySelected = { viewModel.setFontFamily(it) },
@@ -150,9 +159,8 @@ fun SettingsScreen(
                     }
                 }
                 item {
-                    val themeSettings by viewModel.settings.collectAsStateWithLifecycle()
                     AppThemeSection(
-                        appThemeMode = themeSettings.appThemeMode,
+                        appThemeMode = settings.appThemeMode,
                         onAppThemeModeSelected = { viewModel.setAppThemeMode(it) },
                         cardBackground = cardBackground,
                         textColor = textColor,
@@ -161,12 +169,11 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    val terminalThemeSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalThemeSection(
-                        themeMode = terminalThemeSettings.themeMode,
-                        dayThemeName = terminalThemeSettings.dayThemeName,
-                        nightThemeName = terminalThemeSettings.nightThemeName,
-                        themeName = terminalThemeSettings.themeName,
+                        themeMode = settings.themeMode,
+                        dayThemeName = settings.dayThemeName,
+                        nightThemeName = settings.nightThemeName,
+                        themeName = settings.themeName,
                         onThemeModeSelected = { viewModel.setThemeMode(it) },
                         onDayThemeSelected = { viewModel.setDayThemeName(it) },
                         onNightThemeSelected = { viewModel.setNightThemeName(it) },
@@ -179,9 +186,8 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    val terminalConfigSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalConfigSection(
-                        selectedShell = terminalConfigSettings.shell,
+                        selectedShell = settings.shell,
                         onShellSaved = { viewModel.setShell(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
@@ -193,16 +199,11 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    val bootstrapSettings by viewModel.settings.collectAsStateWithLifecycle()
-                    val settingsBootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
-                    val settingsBootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
-                    val settingsBootstrapProgress: BootstrapProgress? by
-                        viewModel.bootstrapProgress.collectAsStateWithLifecycle()
                     BootstrapSectionFromSettings(
-                        bootstrapUrl = bootstrapSettings.bootstrapUrl,
-                        bootstrapRunning = settingsBootstrapRunning,
-                        bootstrapResult = settingsBootstrapResult,
-                        bootstrapProgress = settingsBootstrapProgress,
+                        bootstrapUrl = settings.bootstrapUrl,
+                        bootstrapRunning = bootstrapRunning,
+                        bootstrapResult = bootstrapResult,
+                        bootstrapProgress = bootstrapProgress,
                         onUrlChanged = { viewModel.setBootstrapUrl(it) },
                         onRunBootstrap = { viewModel.runBootstrap() },
                         onInstallOffline = { viewModel.installOffline(it) },
@@ -275,13 +276,11 @@ private fun AppearanceSectionContent(
     accentColor: Color,
     backgroundColor: Color,
 ) {
-    // Dragging previews through the lightweight path (setFontSizeInPlace +
-    // cell-metric refresh, no DataStore write, no grid reflow); the value is
-    // committed once on release. Committing on every drag step ran full
-    // applyFontSettings chains concurrently (IO dispatcher), interleaving
-    // JNI setFontSizeInPlace calls out of order (96..280 observed) and
-    // reflowing the grid per step — the "slider jumps / layout garbles"
-    // reports. Preview keeps drags cheap and single-threaded.
+    // 拖动过程只走轻量路径做预览（setFontSizeInPlace + 单元格度量刷新，
+    // 不写 DataStore、不重排网格）；数值在松手时一次性提交。
+    // 每一步拖动都提交会并发运行完整的 applyFontSettings 链（IO 调度器），
+    // 使 JNI setFontSizeInPlace 调用乱序交错（实测 96..280）并逐步重排网格
+    // ——即「滑块跳动/布局错乱」的来源。预览让拖动保持廉价且单线程。
     var sliderFontSize by rememberSaveable { mutableFloatStateOf(fontSize) }
     Column {
         FontSizeSlider(
@@ -909,10 +908,10 @@ internal fun ThemeSelector(
             items(themes) { theme ->
                 ThemePreview(
                     theme = theme,
-                    // `selectedTheme` is always a theme *name* (built-in or
-                    // user-created); do NOT fall back through byName() here —
-                    // its default returns Catppuccin Mocha, which would
-                    // highlight that card whenever a user theme is selected.
+                    // `selectedTheme` 始终是主题*名*（内置或用户创建）；
+                    // 此处绝不要经 byName() 回退
+                    // ——其默认值会返回 Catppuccin Mocha，
+                    // 导致选中任意用户主题时都高亮那张卡片。
                     isSelected = theme.name == selectedTheme,
                     onClick = { onThemeSelected(theme.name) },
                     isSmallScreen = isSmallScreen,
@@ -959,12 +958,11 @@ private fun ThemePreview(
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
+        // 主题名位于预览框下方，长名称必须完整可读（DESIGN 终端主题节），不截断。
         Text(
             text = theme.name,
             style = MaterialTheme.typography.labelSmall,
             color = if (isSelected) textColor else textColor.copy(alpha = 0.7f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1020,30 +1018,20 @@ private fun BootstrapSection(
 
         val arch = terminal.emulator.detectArchFromAbi()
         val termuxUrl =
-            "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
-
-        val presets =
-            listOf(
-                Triple(
-                    stringResource(R.string.bootstrap_preset_termux),
-                    termuxUrl,
-                    stringResource(R.string.bootstrap_preset_termux_desc),
-                ),
-            )
-        presets.forEachIndexed { index, preset ->
-            BootstrapPresetItem(
-                preset = preset,
-                colors = PresetColors(accentColor, textColor, secondaryText),
-                modifier =
-                Modifier.testTag(
-                    "BootstrapPreset_TermuxDefault",
-                ),
-                onAction = {
-                    url = preset.second
-                    onUrlChanged(preset.second)
-                },
-            )
-        }
+            "https://github.com/termux/termux-packages/releases/download/" +
+                "bootstrap-$TERMUX_BOOTSTRAP_RELEASE%2B$TERMUX_PACKAGE_VARIANT/bootstrap-$arch.zip"
+        val presetLabel = stringResource(R.string.bootstrap_preset_termux)
+        val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
+        BootstrapPresetItem(
+            label = presetLabel,
+            description = presetDescription,
+            colors = PresetColors(accentColor, textColor, secondaryText),
+            modifier = Modifier.testTag("BootstrapPreset_TermuxDefault"),
+            onAction = {
+                url = termuxUrl
+                onUrlChanged(termuxUrl)
+            },
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
         BootstrapInstallButton(
@@ -1055,7 +1043,7 @@ private fun BootstrapSection(
             textColor,
         )
 
-        // Offline install: pick a.zip file via SAF, no network required
+        // 离线安装：经 SAF 选择 .zip 文件，无需网络。
         Spacer(modifier = Modifier.height(8.dp))
         val offlineLauncher =
             rememberLauncherForActivityResult(
@@ -1185,12 +1173,12 @@ private data class PresetColors(val accent: Color, val text: Color, val secondar
 
 @Composable
 private fun BootstrapPresetItem(
-    preset: Triple<String, String, String>,
+    label: String,
+    description: String,
     colors: PresetColors,
     modifier: Modifier = Modifier,
     onAction: () -> Unit,
 ) {
-    val (label, _, description) = preset
     Surface(
         onClick = onAction,
         shape = RoundedCornerShape(8.dp),
@@ -1224,9 +1212,9 @@ private fun BootstrapPresetItem(
 @Composable
 private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColor: Color) {
     val context = LocalContext.current
-    // Resolve once in composable scope: LocalContext-based resource reads
-    // are not configuration-aware (lint LocalContextGetResourceValueCall),
-    // and stringResource() cannot be called inside the onClick lambda.
+    // 在 composable 作用域内解析一次：基于 LocalContext 的资源读取
+    // 不感知配置变化（lint LocalContextGetResourceValueCall），
+    // 且 stringResource() 不能在 onClick lambda 内调用。
     val clearAppDataDone = stringResource(R.string.clear_app_data_done)
     var showConfirmDialog by remember { mutableStateOf(false) }
 
@@ -1240,8 +1228,7 @@ private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColo
                     onClick = {
                         showConfirmDialog = false
                         onClearAppData {
-                            // In-process StateFlows still hold the old
-                            // values; a restart is required for a full reset.
+                            // 进程内的 StateFlow 仍持有旧值；需重启才能彻底重置。
                             android.widget.Toast.makeText(
                                 context,
                                 clearAppDataDone,

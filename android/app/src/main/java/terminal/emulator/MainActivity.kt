@@ -38,10 +38,7 @@ import terminal.emulator.ui.theme.resolveMaterialColorScheme
 import java.io.File
 import javax.inject.Inject
 
-/**
- * How long the settings-overlay pause waits for the bridge to appear after a cold start before
- * giving up (50ms × 50 = 2.5s).
- */
+/** 冷启动后，设置覆盖层的暂停逻辑为等待 bridge 出现而放弃的时长（50ms × 50 = 2.5s）。 */
 private const val BRIDGE_READY_POLL_INTERVAL_MS = 50L
 private const val BRIDGE_READY_POLL_ATTEMPTS = 50
 
@@ -51,8 +48,8 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
 
         /**
-         * termux-compatible failsafe extra: app shortcut "New session (Failsafe)" and third-party
-         * launchers/taskers send `com.termux.app.failsafe_session=true` with ACTION_RUN. 保留 termux
+         * 兼容 termux 的应急 extra：应用快捷方式「新建会话（应急）」与第三方
+         * 启动器/任务器随 ACTION_RUN 发送 `com.termux.app.failsafe_session=true`。保留 termux
          * 原名（applicationId 即 com.termux），以便现有快捷方式与 tasker 任务继续工作。
          */
         const val EXTRA_FAILSAFE_SESSION = "com.termux.app.failsafe_session"
@@ -61,9 +58,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
 
         /**
-         * Test-only extra: install a bootstrap zip from a local path used by NixExecRealTerminalTest —
-         * the instrumentation process cannot write the app filesDir, SELinux app_data category).
-         * Mirrors the INSTALL_BOOTSTRAP broadcast backdoor.
+         * 仅测试用的 extra：从本地路径安装引导 zip，供 NixExecRealTerminalTest 使用
+         * ——instrumentation 进程无法写应用 filesDir（SELinux app_data 类目）。
+         * 对应 INSTALL_BOOTSTRAP 广播后门。
          */
         const val EXTRA_INSTALL_BOOTSTRAP = "terminal.emulator.install_bootstrap"
     }
@@ -120,9 +117,7 @@ class MainActivity : ComponentActivity() {
                 terminalViewModel.clearSelection()
                 Thread {
                     try {
-                        // Never log the input payload: it may contain
-                        // passwords/tokens and lands in the persisted logcat
-                        // dump (term_*.log). Length only.
+                        // 绝不记录输入内容：可能含密码/token，logcat 无差别记录。仅记长度。
                         Log.d("T", "Input received (len=${text.length})")
                         val processed =
                             text
@@ -131,10 +126,8 @@ class MainActivity : ComponentActivity() {
                                 .replace("\\t", "\t")
                                 .replace("\\x1b", "\u001b")
                                 .replace("\\033", "\u001b")
-                        // RAW mode (rawInput): write the bytes verbatim
-                        // without appending '\n' — used by tests to inject
-                        // escape sequences (OSC 8 links, DECSET) that must
-                        // not be interpreted as a shell command line.
+                        // RAW 模式（rawInput）：逐字节原样写入、不追加换行，供测试注入
+                        // 转义序列（OSC 8 链接、DECSET），避免被当作 shell 命令行解释。
                         val data =
                             (if (rawInput) processed else processed + "\n")
                                 .byteInputStream()
@@ -182,36 +175,23 @@ class MainActivity : ComponentActivity() {
         androidx.core.view.WindowCompat.enableEdgeToEdge(window)
         previousNightMode =
             resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-        // Color.TRANSPARENT is an ARGB int, not a resource id — the KTX
-        // Int.toDrawable() the lint suggests would treat it as a res id (0)
-        // and resolve the wrong drawable.
+        // Color.TRANSPARENT 是 ARGB 整数而非资源 id —— lint 建议的 KTX
+        // Int.toDrawable() 会把它当作资源 id (0) 并解析到错误的 drawable。
         @SuppressLint("UseKtx")
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
-        // Test-backdoor broadcasts are instrumentation-only: never register
-        // them outside debug builds (a release APK must not expose the
-        // DUMP_TERMINAL/INPUT/SELECT_ALL/VT_WRITE/INSTALL_BOOTSTRAP hooks).
+        // 测试后门广播仅用于 instrumentation：非 debug 构建一律不注册
+        // （release APK 不得暴露 DUMP_TERMINAL/INPUT/SELECT_ALL/VT_WRITE/
+        // INSTALL_BOOTSTRAP 钩子）。
         if (BuildConfig.DEBUG) {
             testBackdoorReceivers.register()
         }
-        try {
-            terminal.emulator.service.TerminalForegroundService.start(this)
-        } catch (serviceException: Exception) {
-            // Defensive: a ROM SecurityException or similar must
-            // not crash onCreate. A live session created later starts the
-            // service itself via the runtime's guarded path.
-            LogUtil.e("MainActivity", "Failed to start foreground service in onCreate", serviceException)
-        }
-        // Note: TerminalForegroundService.start() (static) unconditionally
-        // starts the service (which acquires a PARTIAL_WAKE_LOCK on start).
-        // onDestroy routes through runtime.stopForegroundServiceIfIdle(),
-        // which stops it unconditionally (no flag gate) when no
-        // session is running, so the wake lock is not held forever after
-        // the user leaves the app.
-        // Android 13+ requires the POST_NOTIFICATIONS runtime permission;
-        // without it every notify() throws SecurityException and session
-        // notifications silently never appear. Ask once at startup; the
-        // denial is non-fatal (notifications stay disabled).
+        terminal.emulator.service.TerminalForegroundService.start(this)
+        // TerminalForegroundService.start() 静态方法无条件启动服务（启动即获取
+        // PARTIAL_WAKE_LOCK）；onDestroy 经 runtime.stopForegroundServiceIfIdle()
+        // 在无会话时无条件停止服务，不设标志门控，因此离开应用后不会长期持锁。
+        // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，缺失时每次 notify() 都抛
+        // SecurityException 且会话通知不再出现。启动时申请一次；拒绝不影响终端功能。
         if (
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -225,11 +205,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * App-shortcut / third-party intent handling (termux-compatible): `ACTION_RUN` +
-     * EXTRA_FAILSAFE_SESSION switches the next session to the failsafe system shell;
-     * EXTRA_OPEN_SETTINGS opens the settings sheet. Mirrors termux-app TermuxActivity.java:401-425
-     * (shortcut intents are re-delivered on recreation, so the failsafe flag must be re-applied in
-     * onNewIntent, not just onCreate).
+     * 应用快捷方式/第三方 intent 处理（兼容 termux）：`ACTION_RUN` +
+     * EXTRA_FAILSAFE_SESSION 把下个会话切换到应急系统 shell；
+     * EXTRA_OPEN_SETTINGS 打开设置面板。对应 termux-app TermuxActivity.java:401-425
+     * （快捷方式 intent 在重建时会重新投递，故应急标志必须在 onNewIntent 中
+     * 重新应用，而不只是 onCreate）。
      */
     private var launchOpenSettings = false
 
@@ -253,9 +233,9 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             launchOpenSettings = true
         }
-        // Test-only bootstrap installer entry (NixExecRealTerminalTest).
-        // Debug builds only: release APKs must not carry the install-backdoor
-        // extra (any app could otherwise point us at an arbitrary zip).
+        // 仅测试用的引导安装入口（NixExecRealTerminalTest）。
+        // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
+        // （否则任何应用都能把我们指向任意 zip）。
         if (BuildConfig.DEBUG) {
             intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)?.let { zipPath ->
                 installBootstrapFromPath(zipPath)
@@ -270,11 +250,10 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Install a bootstrap zip from a local path. Delegates to
-     * [terminal.emulator.installer.BootstrapInstallService], which runs in its own `:install`
-     * process: when the main process is an instrumentation target it carries the TEST package's
-     * SELinux category and cannot write filesDir, emulator-verified). Install state is read back from
-     * the installed entry (usr/bin/login), never from a marker file.
+     * 从本地路径安装引导程序 zip。委托给 [terminal.emulator.installer.BootstrapInstallService]，
+     * 该服务运行在独立的 `:install` 进程：主进程为 instrumentation 目标时携带的是测试包的
+     * SELinux 分类，无法写入 filesDir（已在模拟器验证）。安装状态一律从已安装的条目
+     * （usr/bin/login）读回，不读标记文件。
      */
     private fun installBootstrapFromPath(zipPath: String) {
         LogUtil.d("MainActivity", "delegating bootstrap install to :install process")
@@ -285,17 +264,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "onDestroy (session persistence removed)")
+        Log.d(TAG, "onDestroy")
         super.onDestroy()
         if (BuildConfig.DEBUG) {
             testBackdoorReceivers.unregister()
         }
-        // Stop the foreground service when no session is running. Without
-        // this, the service (and its PARTIAL_WAKE_LOCK) stays alive forever
-        // after the user leaves the app, draining the battery and pinning a
-        // permanent notification. With live sessions it must keep running.
-        // The runtime re-checks under its session lock: a background session
-        // created on the IO thread may have raced the (older) state snapshot.
+        // 无会话时停止前台服务：否则用户离开应用后服务（及其 PARTIAL_WAKE_LOCK）
+        // 永久存活，持续耗电并常驻通知。有活跃会话时必须继续运行。运行时在会话锁内
+        // 重新核对：IO 线程上新建的后台会话可能已越过（较旧的）状态快照。
         runtime.stopForegroundServiceIfIdle()
     }
 
@@ -319,9 +295,6 @@ class MainActivity : ComponentActivity() {
         }
         return super.dispatchKeyEvent(event)
     }
-
-    @Deprecated("Use View.OnKeyListener pattern")
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean = super.onKeyDown(keyCode, event)
 }
 
 @Composable
@@ -333,17 +306,15 @@ private fun TerminalNavHost(
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
     var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
     LaunchedEffect(showSettings) {
-        // Closing settings resumes rendering immediately (the bridge exists
-        // by then); only the "open" transition needs the cold-start poll
-        // that waits for the bridge to appear.
+        // 关闭设置时立即恢复渲染（此时 bridge 已存在）；
+        // 只有「打开」转换才需要等待 bridge 出现的冷启轮询。
         if (!showSettings) {
             viewModel.runtime.bridge()?.setRenderPaused(false)
             return@LaunchedEffect
         }
-        // The bridge is created asynchronously by the runtime after the
-        // first session spawns; polling for it here (bounded) prevents the
-        // pause state from being silently dropped on a cold start with
-        // `openSettingsOnLaunch`.
+        // bridge 由运行期在首个会话 spawn 之后异步创建；
+        // 在此有界轮询可避免在带 `openSettingsOnLaunch` 的冷启动中
+        // 静默丢失暂停状态。
         var attempts = 0
         while (viewModel.runtime.bridge() == null && attempts < BRIDGE_READY_POLL_ATTEMPTS) {
             kotlinx.coroutines.delay(BRIDGE_READY_POLL_INTERVAL_MS)

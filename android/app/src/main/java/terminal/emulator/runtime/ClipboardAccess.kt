@@ -7,13 +7,9 @@ import android.content.Context
 import android.util.Log
 
 /**
- * Single clipboard access point (K2:  architecture).
- *
- * All clipboard reads/writes in the app previously went through 5 ad-hoc
- * `getSystemService` calls and 2 parallel paste implementations. This
- * wrapper owns the ClipboardManager lookup, the nullability dance and the
- * "clipboard service not available" log so callers get a simple
- * `clipboardText()` / `setClipboardText()` pair.
+ * 全应用唯一的剪贴板访问点，封装 ClipboardManager 查找、可空处理
+ * 与「剪贴板服务不可用」的日志，使调用方只需一对
+ * `clipboardText()` / `setClipboardText()`。
  */
 class ClipboardAccess(private val context: Context, private val tag: String = "ClipboardAccess") {
     private fun manager(): ClipboardManager? {
@@ -24,15 +20,14 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
         return manager
     }
 
-    /** Current primary clip text, or null when unavailable/empty. */
+    /** 当前主剪贴板文本，不可用或为空时为 null。 */
     @SuppressLint("DeprecatedCall")
     fun clipboardText(): String? {
         val clipboard = manager() ?: return null
-        // hasPrimaryClip()/primaryClip: deprecated without replacement
-        // (API 36); the platform exposes no other synchronous existence
-        // query. slack-lint also flags getPrimaryClip here although it has
-        // no @Deprecated annotation in API 37 (rule data lag) — same calls
-        // stay, comments document intent.
+        // hasPrimaryClip()/primaryClip：无替代方案的弃用 API（API 36），
+        // 平台未提供其他同步存在性查询。slack-lint 在此也标记 getPrimaryClip，
+        // 尽管它在 API 37 中没有 @Deprecated 注解（规则数据滞后）——保留同样的调用，
+        // 以注释说明意图。
         if (!clipboard.hasPrimaryClip()) return null
         return clipboard.primaryClip?.getItemAt(0)?.text?.toString()
     }
@@ -40,17 +35,16 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
     @SuppressLint("DeprecatedCall")
     fun setClipboardText(text: String, label: String = "terminal clipboard") {
         val clipboard = manager() ?: return
-        // setPrimaryClip(): deprecated without replacement (API 36).
+        // setPrimaryClip()：无替代方案的弃用 API（API 36）。
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
-    /** True when a primary clip exists (safe against dead-clipboard
-     *  exceptions; used by paste-button enablement). */
+    /** 是否存在主剪贴板（能防范剪贴板服务死掉时的异常；用于粘贴按钮的可用性判断）。 */
     @SuppressLint("DeprecatedCall")
     fun hasClipboardText(): Boolean {
         val clipboard = manager() ?: return false
         return try {
-            // hasPrimaryClip(): deprecated without replacement (API 36).
+            // hasPrimaryClip()：无替代方案的弃用 API（API 36）。
             clipboard.hasPrimaryClip()
         } catch (_: Exception) {
             false

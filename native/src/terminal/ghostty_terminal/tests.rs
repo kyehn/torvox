@@ -1241,46 +1241,31 @@ fn bench_bulk_output_throughput() {
 
 // ── Scrollback fallback ────────────────────────────────────────────────
 
-/// Verify that `take_snapshot_with_scroll` returns a valid snapshot when
-/// scrollback exists, and returns `GridSnapshot::fallback` once the VT
-/// thread is disconnected (channel closed — the real disconnected path,
-/// exercised via the test-only `disconnect_for_test`).
+/// A live terminal must report a valid viewport snapshot; a disconnected VT
+/// thread must surface as a panic from `take_snapshot` rather than silently
+/// substituting a blank grid (DESIGN 禁止掩盖错误).
 #[test]
-fn scrollback_fallback_on_disconnected_terminal() {
-    // Create a terminal and fill with content to establish scrollback.
+#[should_panic(expected = "快照命令入队失败")]
+fn snapshot_panics_when_terminal_disconnected() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for i in 0..20 {
         t.vt_write(format!("line {i}\n").as_bytes());
     }
     t.flush();
 
-    // With scrollback available, snapshot should have valid content.
     assert!(t.is_alive(), "terminal should be alive before disconnect");
-    let snap = t.take_snapshot_with_scroll(0);
+    let snap = t.take_snapshot();
     assert!(
         snap.rows > 0 && snap.cols > 0,
         "viewport snapshot should have valid dimensions"
     );
 
-    // Kill the VT thread; every subsequent query must take the fallback path.
     t.disconnect_for_test();
     assert!(!t.is_alive(), "terminal must report dead after disconnect");
-
-    let fb = t.take_snapshot_with_scroll(0);
-    assert_eq!(fb.rows, DISCONNECTED_ROWS, "fallback rows");
-    assert_eq!(fb.cols, DISCONNECTED_COLS, "fallback cols");
-    assert_eq!(
-        fb.cells.len(),
-        (fb.rows * fb.cols) as usize,
-        "fallback cells should match dimensions"
-    );
-    assert!(
-        fb.dirty.iter().all(|&d| d),
-        "all fallback cells should be dirty"
-    );
+    let _ = t.take_snapshot();
 }
 
-/// Verify that `take_snapshot_with_scroll(scroll_offset=0)` returns
+/// Verify that `take_snapshot` returns
 /// consistent results across multiple calls (cache hit path).
 #[test]
 fn scrollback_cache_consistency() {
@@ -1288,8 +1273,8 @@ fn scrollback_cache_consistency() {
     t.vt_write(b"Hello World\n");
     t.flush();
 
-    let snap1 = t.take_snapshot_with_scroll(0);
-    let snap2 = t.take_snapshot_with_scroll(0);
+    let snap1 = t.take_snapshot();
+    let snap2 = t.take_snapshot();
     assert_eq!(snap1.rows, snap2.rows, "cached snapshots should match");
     assert_eq!(snap1.cols, snap2.cols, "cached snapshots should match");
     assert_eq!(
@@ -1345,23 +1330,46 @@ fn scroll_viewport_delta_scrolls_cell_data() {
         scrolled_rows, bottom_rows,
         "scrolled view keeps 5 viewport rows"
     );
-    // The scrolled CellData must differ from the bottom view: the last
-    // visible line is no longer "line 19". Read the visible text through
-    // the snapshot path at offset 2 and check the last line.
-    let snap = t.take_snapshot_with_scroll(2);
-    let last_line = snap
-        .cells
-        .chunks(snap.cols as usize)
-        .last()
-        .map(|row| {
-            row.iter()
-                .filter_map(|c| char::from_u32(c.codepoint))
-                .collect::<String>()
-        })
-        .unwrap_or_default();
+    // 滚动后的可见文本必须真的变了：不再显示最底部的 "line 19"。
+    // 断言直接读 CellData（渲染热路径）；此前经带偏移的快照通道读取，而该通道
+    // 永远返回空白网格，断言形同虚设。
+    let visible_text = scrolled
+        .iter()
+        .map(|cell| char::from_u32(cell.codepoint).unwrap_or('\0'))
+        .collect::<String>();
     assert!(
-        !last_line.contains("line 19"),
-        "scrolled view should not show the bottom line, got {last_line:?}"
+        !visible_text.contains("line 19"),
+        "scrolled view should not show the bottom line, got {visible_text:?}"
+    );
+    assert!(
+        visible_text.contains("line 1"),
+        "scrolled view should show an earlier line, got {visible_text:?}"
+    );
+
+    // 向下滚回底部：可见文本必须再次变化（DESIGN 修饰键栏节：方向键/滑动双向移动）。
+    assert!(t.scroll_viewport(2), "scroll_viewport 应接受正向增量");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let scrolled_back = loop {
+        if let Some((cells, _)) = t.receive_cell_data() {
+            break cells;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "向下滚动后 2s 内未收到 CellData 帧"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    let bottom_again = scrolled_back
+        .iter()
+        .map(|cell| char::from_u32(cell.codepoint).unwrap_or('\0'))
+        .collect::<String>();
+    assert_ne!(
+        bottom_again, visible_text,
+        "回到底部的可见文本必须与回滚深处不同"
+    );
+    assert!(
+        bottom_again.contains("line 19"),
+        "回到底部必须重新显示最后一行, got {bottom_again:?}"
     );
 }
 
