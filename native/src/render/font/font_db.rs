@@ -153,10 +153,12 @@ pub(crate) fn family_files(family: &str) -> Option<&'static [String]> {
         .map(|entry| entry.files.as_slice())
 }
 
-/// 当前系统语言，供 `fonts.xml` 的 `lang` 匹配使用。
+/// 当前系统语言（BCP 47），由 JNI `setSystemLocale` 写入。
+/// 不读进程环境变量：Android 上 `LANG` 是 `zh_CN.UTF-8`（下划线），
+/// 与 fonts.xml 的 `zh-Hans` 标签体系对不上。
 #[cfg(target_os = "android")]
-fn current_locale() -> String {
-    std::env::var("LANG").unwrap_or_default()
+pub(crate) fn current_locale() -> String {
+    crate::android::system_locale()
 }
 
 /// fonts.xml 里既无 `name` 也无 `lang` 的族即符号层：实测 emulator 的

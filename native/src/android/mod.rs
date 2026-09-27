@@ -76,3 +76,10 @@ mod tests {
         )));
     }
 }
+
+/// 进程级系统 locale（BCP 47），由 `setSystemLocale` 写入。供字体库在
+/// 创建管线前决定区域回退族。
+#[cfg(target_os = "android")]
+pub(crate) fn system_locale() -> String {
+    ffi::SYSTEM_LOCALE.read().clone()
+}
