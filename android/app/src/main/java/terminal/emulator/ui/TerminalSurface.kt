@@ -1205,6 +1205,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private var viewModel: TerminalViewModel? = null
 
+    /** 绑定宿主视图模型：Surface 回调内的全部运行期调用经此进入。 */
+    fun attachViewModel(viewModel: TerminalViewModel) {
+        this.viewModel = viewModel
+    }
+
     @Volatile private var rows: Int = DEFAULT_ROWS
 
     @Volatile private var cols: Int = DEFAULT_COLS
