@@ -56,39 +56,36 @@ class SecondStageRunner(
             lockFile.parentFile?.mkdirs()
             Os.symlink(lockFile.absolutePath, lockFile.absolutePath)
         } catch (exception: android.system.ErrnoException) {
-            if (exception.errno == android.system.OsConstants.EEXIST) {
-                return@withContext Result(true)
-            }
+            // EEXIST 表示另一个安装进程正持有锁：postinst 根本没跑，不能报成功。
             return@withContext Result(false, listOf("Lock file error: ${exception.message}"))
         }
         try {
             return@withContext runPostInstalls()
         } finally {
-            // Always release the lock: if the process is killed mid-postinst
-            // the stale lock would otherwise make every retry short-circuit
-            // to "success" while dpkg stays half-configured. Deleting the
-            // lock (not the symlink target) allows a genuine retry.
+            // 总是释放锁：若进程在 postinst 中途被杀，残留锁会让每次重试都短路，
+            // 而 dpkg 仍处于半配置状态。删除锁（而非链接目标）以允许真正重试。
             lockFile.delete()
         }
     }
 
     private suspend fun runPostInstalls(): Result {
         val postinstDir = File(prefixDir, "var/lib/dpkg/info")
+        if (!postinstDir.isDirectory) return Result(true)
+        // dpkg 版本只用于 DPKG_RUNNING_VERSION 环境变量；探测失败不阻断 postinst
+        // （postinst 是普通 shell 脚本，DESIGN「不做无意义检查」）。探测失败本身
+        // 已在 detectDpkgVersion 内记警告，不是静默。
+        val dpkgVersion = detectDpkgVersion().orEmpty()
+        val arch = detectAbi()
+        val scripts = postinstDir.listFiles()?.filter { it.name.endsWith(".postinst") }?.toList() ?: emptyList()
+        val totalScripts = scripts.size
         val errors = mutableListOf<String>()
-        if (postinstDir.isDirectory) {
-            val dpkgVersion = detectDpkgVersion() ?: "unknown"
-            val arch = detectAbi()
-            val scripts =
-                postinstDir.listFiles()?.filter { it.name.endsWith(".postinst") }?.toList() ?: emptyList()
-            val totalScripts = scripts.size
-            var scriptsCompleted = 0
-            scripts.forEach { script ->
-                onProgress?.onProgress(
-                    BootstrapProgress.RunningPostInstall(scriptsCompleted, totalScripts),
-                )
-                runOnePostinst(script, dpkgVersion, arch, errors)
-                scriptsCompleted++
-            }
+        var scriptsCompleted = 0
+        scripts.forEach { script ->
+            onProgress?.onProgress(
+                BootstrapProgress.RunningPostInstall(scriptsCompleted, totalScripts),
+            )
+            runOnePostinst(script, dpkgVersion, arch, errors)
+            scriptsCompleted++
         }
         return Result(true, errors)
     }
@@ -101,11 +98,6 @@ class SecondStageRunner(
         val packageName = script.name.removeSuffix(".postinst")
         try {
             Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
-            // Patch postinst: replace bare `update-alternatives` with
-            // linker-wrapped invocation so SELinux allows execution from
-            // untrusted_app domain. The script uses the bare name, which
-            // triggers a direct execve of app_data_file (denied by SELinux).
-            patchPostinstForLinker(script)
             val environment =
                 mapOf(
                     "DPKG_MAINTSCRIPT_PACKAGE" to packageName,
@@ -288,45 +280,13 @@ class SecondStageRunner(
         }
     }
 
-    /**
-     * Patch a postinst script to route `update-alternatives` through the system linker. On Android
-     * 15+, SELinux denies direct exec of app_data_file from the untrusted_app domain. The linker runs
-     * in system_linker_exec domain which is allowed. We replace bare `update-alternatives`
-     * invocations with a linker-wrapped form.
-     */
-    private fun patchPostinstForLinker(script: File) {
-        try {
-            val linker = SYSTEM_LINKER
-            val uaPath = File(prefixDir, "bin/update-alternatives").absolutePath
-            val content = script.readText()
-            // Replace bare "update-alternatives" that are NOT already
-            // preceded by a path (to avoid double-patching). Match at
-            // word boundary: start of line, space, tab, or semicolon.
-            val patched =
-                content.replace(
-                    Regex("""(?<![/\w])update-alternatives\b"""),
-                    "$linker $uaPath",
-                )
-            if (patched != content) {
-                script.writeText(patched)
-            }
-        } catch (exception: Exception) {
-            Log.w("SecondStageRunner", "patchPostinstForLinker failed for ${script.name}", exception)
-        }
-    }
-
     /** Read the `#!` interpreter from a script, or null if absent. */
-    private fun readShebang(script: File): String? = try {
-        script.bufferedReader().use { reader ->
-            val firstLine = reader.readLine() ?: return null
-            if (firstLine.startsWith("#!")) {
-                firstLine.removePrefix("#!").trim().substringBefore(' ')
-            } else {
-                null
-            }
+    private fun readShebang(script: File): String? = script.bufferedReader().use { reader ->
+        val firstLine = reader.readLine() ?: return null
+        if (firstLine.startsWith("#!")) {
+            firstLine.removePrefix("#!").trim().substringBefore(' ')
+        } else {
+            null
         }
-    } catch (exception: Exception) {
-        Log.w("SecondStageRunner", "readShebang failed for ${script.name}", exception)
-        null
     }
 }

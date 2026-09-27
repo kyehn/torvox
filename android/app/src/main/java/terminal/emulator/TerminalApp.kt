@@ -50,26 +50,17 @@ open class TerminalApp : Application() {
                     .build(),
             )
         }
-        Thread({
-            try {
-                getSharedPreferences("toolbar_prefs", MODE_PRIVATE)
-                NativeBridge.initLogger()
-            } catch (error: Throwable) {
-                // Native library missing/corrupt (or any cold-start error in
-                // this best-effort init): swallow it here. The installCrashHandler
-                // below would otherwise see an uncaught exception from this
-                // background thread and kill the process via BootGuard on
-                // every cold start, with no recovery option.
-                android.util.Log.e("TerminalApp", "Native JNI init failed: ${error.message}")
-            }
-        }, "NativeInit").start()
         installAnrWatchDog()
         installMemoryMonitor()
         installThermalMonitor()
         installCrashHandler()
+        // 原生库缺失/损坏时终端根本无法工作：按 DESIGN 错误策略让异常抛出，
+        // 由已安装的崩溃处理器记录 logcat 后终止进程，不得在此层捕获后吞掉。
+        // 放在 installCrashHandler 之后，避免与处理器安装产生竞态。
+        Thread({ NativeBridge.initLogger() }, "NativeInit").start()
         monitorScope.launch {
             delay(HEALTHY_UPTIME_MS)
-            BootGuard(getDir("boot_state", MODE_PRIVATE)).markHealthy()
+            BootGuard(stateDir).markHealthy()
         }
     }
 
@@ -139,6 +130,8 @@ open class TerminalApp : Application() {
 
     companion object {
         private const val ANR_TIMEOUT_MILLIS = 5_000L
-        private const val HEALTHY_UPTIME_MS = 10 * 60 * 1000L
+        private const val MINUTES_TO_HEALTHY = 10L
+        private const val MILLIS_PER_MINUTE = 60_000L
+        private const val HEALTHY_UPTIME_MS = MINUTES_TO_HEALTHY * MILLIS_PER_MINUTE
     }
 }

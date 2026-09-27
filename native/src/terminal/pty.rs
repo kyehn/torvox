@@ -18,9 +18,6 @@ const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
 const DEFAULT_LANG: &str = "en_US.UTF-8";
 const TERMUX_VERSION: &str = "0.119.0-beta.3";
-/// Android does not have a writable /tmp, so we use /data/local/tmp
-/// which is guaranteed to be writable by the app process on all API levels.
-const ANDROID_TMPDIR: &str = "/data/local/tmp";
 
 /// 切分 Shell 启动入口为可执行路径与附加参数（DESIGN Shell 节支持
 /// `/data/.../bash -l` 形态）。以 ASCII 空白切分，无引号转义语义。
@@ -879,11 +876,11 @@ fn base_env_with_host(
             result.push((key.to_string(), value));
         }
     }
-    if let Some(p) = prefix {
-        result.push(("PREFIX".to_string(), p.to_string()));
-        result.push(("TMPDIR".to_string(), format!("{p}/tmp")));
-    } else {
-        result.push(("TMPDIR".to_string(), ANDROID_TMPDIR.to_string()));
+    // 规范（DESIGN Bootstrap 节）只声明 PREFIX/TMPDIR 指向 files/usr；无引导程序的
+    // 会话没有任何合法的 PREFIX，故整组变量都不设置（不猜测、不回退到未声明路径）。
+    if let Some(prefix) = prefix {
+        result.push(("PREFIX".to_string(), prefix.to_string()));
+        result.push(("TMPDIR".to_string(), format!("{prefix}/tmp")));
     }
     result
 }
@@ -901,16 +898,13 @@ pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
         result.push(("ENV".to_string(), mkshrc_path.to_string()));
     }
     result.push(("TERMUX_HOME_DIR_PATH".to_string(), env.home.clone()));
-    // `PREFIX` 已由 base_env 压入，此处仅补镜像键，避免重复键。
+    // `PREFIX`/`TMPDIR` 已由 base_env 压入，此处仅补镜像键，避免重复键。
     if let Some(prefix) = env.prefix.as_deref() {
         result.push(("TERMUX_PREFIX_DIR_PATH".to_string(), prefix.to_string()));
-    }
-    if let Some(tmpdir) = result
-        .iter()
-        .find(|(key, _)| *key == "TMPDIR")
-        .map(|(_, value)| value.clone())
-    {
-        result.push(("TERMUX_TMP_PREFIX_DIR_PATH".to_string(), tmpdir));
+        result.push((
+            "TERMUX_TMP_PREFIX_DIR_PATH".to_string(),
+            format!("{prefix}/tmp"),
+        ));
     }
     result.push(("TERMUX_VERSION".to_string(), TERMUX_VERSION.to_string()));
     result
@@ -1056,16 +1050,15 @@ mod tests {
 
     #[test]
     fn base_env_is_minimal_set() {
-        // Hermetic: an empty host env yields exactly the minimal contract
-        // (TERM/COLORTERM/LANG plus TMPDIR fallback). Asserting on base_env
-        // directly is environment-dependent (CI exports ANDROID_ROOT/
-        // EXTERNAL_STORAGE) and must not be done. TERM_PROGRAM* were removed
-        // (no consumer); everything else is layered by build_env.
+        // 固定契约：宿主环境为空时 base_env 只产出 TERM/COLORTERM/LANG。
+        // 无 PREFIX 时不产出 PREFIX/TMPDIR（规范未声明无引导程序会话的取值）。
+        // 不能直接断言 base_env：CI 会导出 ANDROID_ROOT/EXTERNAL_STORAGE。
+        // TERM_PROGRAM* 已删除（无消费方），其余由 build_env 叠加。
         let keys: std::collections::BTreeSet<String> = base_env_with_host(None, &|_| None)
             .into_iter()
-            .map(|(k, _)| k)
+            .map(|(key, _)| key)
             .collect();
-        let expected: std::collections::BTreeSet<String> = ["COLORTERM", "LANG", "TERM", "TMPDIR"]
+        let expected: std::collections::BTreeSet<String> = ["COLORTERM", "LANG", "TERM"]
             .into_iter()
             .map(str::to_string)
             .collect();
@@ -1099,12 +1092,11 @@ mod tests {
     }
 
     #[test]
-    fn base_env_includes_tmpdir_without_prefix() {
+    fn base_env_omits_tmpdir_without_prefix() {
+        // 规范只声明 TMPDIR = files/usr/tmp；无 PREFIX 时不存在合法的 TMPDIR 取值，
+        // 不得回退到未声明路径（DESIGN Bootstrap 节白名单 + 禁止未声明回退）。
         let env = base_env(None);
-        assert!(
-            env.iter()
-                .any(|(k, v)| k == "TMPDIR" && v == "/data/local/tmp")
-        );
+        assert!(!env.iter().any(|(key, _)| key == "TMPDIR"));
     }
 
     #[test]
@@ -1229,16 +1221,18 @@ mod tests {
 
     #[test]
     fn build_env_without_prefix_omits_prefix_vars() {
-        let env = test_env();
-        let result = build_env(&env);
-        assert!(!result.iter().any(|(k, _)| k == "PREFIX"));
-        assert!(!result.iter().any(|(k, _)| k == "TERMUX_PREFIX_DIR_PATH"));
-        assert!(
-            result
-                .iter()
-                .any(|(k, _)| k == "TERMUX_TMP_PREFIX_DIR_PATH"),
-            "TMPDIR 对等变量无 prefix 时也必须存在"
-        );
+        let result = build_env(&test_env());
+        for key in [
+            "PREFIX",
+            "TERMUX_PREFIX_DIR_PATH",
+            "TMPDIR",
+            "TERMUX_TMP_PREFIX_DIR_PATH",
+        ] {
+            assert!(
+                !result.iter().any(|(name, _)| name == key),
+                "{key} must be absent without a prefix, got {result:?}"
+            );
+        }
     }
 
     #[test]

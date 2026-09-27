@@ -86,13 +86,19 @@ pub(crate) fn load_font_database() -> fontdb::Database {
 #[cfg(target_os = "android")]
 pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
     for xml_path in ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"] {
-        let content = std::fs::read_to_string(xml_path).ok()?;
+        // 部分 ROM 只提供 fonts_fallback.xml：单个文件读失败必须继续尝试下一个，
+        // 提前返回会让该 ROM 完全走不到系统等宽字体。
+        let Ok(content) = std::fs::read_to_string(xml_path) else {
+            log::warn!("FONT_XML: 读取 {xml_path} 失败");
+            continue;
+        };
         let (monospace, _) = parse_fonts_xml_families(&content);
         if let Some(filename) = monospace.into_iter().next() {
             log::debug!("FONT_XML: monospace target='{filename}'");
             return Some(filename);
         }
     }
+    log::error!("FONT_XML: 两个 fonts.xml 均未提供等宽字体");
     None
 }
 
@@ -101,21 +107,23 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
 #[cfg(any(target_os = "android", test))]
 type FontsXmlFamilies = (Vec<String>, Vec<(String, Vec<(String, u32)>)>);
 
-/// Parse `fonts.xml` content into monospace filenames plus ordered
-/// `(lang, [(filename, ttc_index)])` fallback entries. Pure function so
-/// host tests can feed real device snippets. Unknown elements are
-/// ignored; unparseable input yields empty lists (caller falls back to
-/// heuristic scanning).
+/// 解析 `fonts.xml` 内容，产出等宽字体文件名与有序的
+/// `(lang, [(filename, ttc_index)])` 回退条目。纯函数，便于宿主测试喂入真实设备片段。
+/// 未知元素忽略；无法解析的输入产出空列表，由调用方按设计决定后续处理。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
     let mut monospace = Vec::new();
     let mut lang_fallbacks = Vec::new();
     let document = match roxmltree::Document::parse(xml) {
         Ok(document) => document,
-        Err(_) => return (monospace, lang_fallbacks),
+        Err(error) => {
+            log::error!("FONT_XML: 解析失败（{error}）");
+            return (monospace, lang_fallbacks);
+        }
     };
     let root = document.root_element();
     if !matches!(root.tag_name().name(), "familyset" | "fontconfig") {
+        log::error!("FONT_XML: 根元素不是 familyset/fontconfig");
         return (monospace, lang_fallbacks);
     }
     for family in root

@@ -81,13 +81,6 @@
         <item quantity="other">已粘贴 %d 个字符</item>
     </plurals>
 
-    <!-- Accessibility -->
-    <plurals name="sessions_accessible">
-        <item quantity="one">%d 个会话</item>
-        <item quantity="other">%d 个会话</item>
-    </plurals>
-    <string name="title_changed">终端标题已更改为 %s</string>
-
     <!-- Bootstrap -->
     <string name="bootstrap_install">安装引导程序</string>
     <string name="bootstrap_installing">安装中…</string>
@@ -151,9 +144,6 @@
     <string name="open_session_drawer">打开会话抽屉</string>
     <string name="page_down">Page Down</string>
     <string name="page_up">Page Up</string>
-    <string name="search_no_results_accessible">未找到结果</string>
-    <string name="search_result_accessible">第 %1$d 个，共 %2$d 个</string>
-    <string name="selection_accessible">已选择：%1$s</string>
     <string name="session_number">会话 %1$d</string>
     <string name="tab_key">Tab</string>
     <string name="toggle_keyboard">显示或隐藏键盘</string>

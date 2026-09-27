@@ -892,14 +892,33 @@ constructor(
         val bridgeTheme = makeBridgeTheme(resolvedTheme)
         accentColor = bridgeTheme.ansi5
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
-        val homeDir = java.io.File(context.filesDir, "home").absolutePath
-        // Failsafe (termux app shortcut "New session (Failsafe)"): bypass
-        // the prefix bootstrap entirely — system shell, system PATH, no
-        // PREFIX — so a broken bootstrap cannot brick terminal access
-        // (matches termux-app TermuxSession.java:95-113 isFailsafe path).
+        val homeDir =
+            java.io
+                .File(context.filesDir, "home")
+                .apply {
+                    if (!exists() && !mkdirs()) {
+                        LogUtil.w("Runtime", "Failed to create home directory: $this")
+                    }
+                }
+                .absolutePath
+        // Failsafe（termux 应用快捷方式 “New session (Failsafe)”）：完全绕开引导程序——
+        // 系统 shell、系统 PATH、无 PREFIX——避免引导程序损坏后终端彻底不可用
+        // （对应 termux-app TermuxSession.java:95-113 的 isFailsafe 路径）。
         if (failsafeRequested) {
             failsafeRequested = false
-            return buildFailsafeConfig(rows, cols, configReads, bridgeTheme, homeDir)
+            ensureMkshPromptRc()
+            return TerminalConfig(
+                shell = Shell.SystemDefault,
+                rows = rows,
+                cols = cols,
+                scrollbackLines = configReads.scrollbackLines,
+                fontSizeTenths = configReads.fontSizeTenths,
+                theme = bridgeTheme,
+                home = homeDir,
+                workingDirectory = homeDir,
+                prefix = "",
+                mkshrcPath = mkshrcPath,
+            )
         }
         // 默认入口依次探测 bash 与 login（DESIGN :188 文件存在即启动，不检查权限）。
         val prefixShell = findPrefixShell(prefixDir)
@@ -909,19 +928,6 @@ constructor(
         )
         val effectivePrefix = if (prefixShell != null) prefixDir else ""
         val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
-        val effectiveHome =
-            if (prefixShell != null) {
-                homeDir
-            } else {
-                java.io
-                    .File(context.filesDir, "home")
-                    .apply {
-                        if (!exists() && !mkdirs()) {
-                            LogUtil.w("Runtime", "Failed to create home directory: $this")
-                        }
-                    }
-                    .absolutePath
-            }
         ensureMkshPromptRc()
         // 无启动目录设置（DESIGN :126）：工作目录恒为家目录。
         return TerminalConfig(
@@ -929,46 +935,11 @@ constructor(
             rows = rows,
             cols = cols,
             scrollbackLines = configReads.scrollbackLines,
-            font_size_tenths = configReads.fontSizeTenths,
+            fontSizeTenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
-            home = effectiveHome,
-            workingDirectory = effectiveHome,
+            home = homeDir,
+            workingDirectory = homeDir,
             prefix = effectivePrefix,
-            mkshrcPath = mkshrcPath,
-        )
-    }
-
-    /**
-     * Failsafe session config: system shell, system PATH, no PREFIX. Extracted from buildConfig so
-     * the failsafe branch does not push buildConfig past the detekt LongMethod limit.
-     */
-    private fun buildFailsafeConfig(
-        rows: Int,
-        cols: Int,
-        configReads: ConfigReads,
-        bridgeTheme: BridgeTheme,
-        homeDir: String,
-    ): TerminalConfig {
-        val home =
-            java.io
-                .File(context.filesDir, "home")
-                .apply {
-                    if (!exists() && !mkdirs()) {
-                        LogUtil.w("Runtime", "Failed to create home directory: $this")
-                    }
-                }
-                .absolutePath
-        ensureMkshPromptRc()
-        return TerminalConfig(
-            shell = Shell.SystemDefault,
-            rows = rows,
-            cols = cols,
-            scrollbackLines = configReads.scrollbackLines,
-            font_size_tenths = configReads.fontSizeTenths,
-            theme = bridgeTheme,
-            home = home,
-            workingDirectory = home,
-            prefix = "",
             mkshrcPath = mkshrcPath,
         )
     }
@@ -2156,10 +2127,9 @@ constructor(
             val testUrl = System.getProperty("test.bootstrapUrl")
             val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
             if (bootstrapUrl.isNotEmpty()) {
-                // Log only the origin (scheme://host), never the full URL:
-                // private bootstrap URLs can carry token/query parameters,
-                // and LogUtil writes the persistent log file unconditionally
-                //
+                // 仅记录来源（scheme://host），不记录完整 URL：
+                // 私有引导程序地址可能携带 token 与查询参数，logcat 无差别记录。
+
                 val origin =
                     runCatchingCancellable {
                         val uri = bootstrapUrl.toUri()
@@ -2206,7 +2176,7 @@ constructor(
             val config = buildConfig()
             LogUtil.d(
                 "Runtime",
-                "buildConfig: fontSizeTenths=${config.font_size_tenths} rows=${config.rows} cols=${config.cols} theme=${config.theme.name} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
+                "buildConfig: fontSizeTenths=${config.fontSizeTenths} rows=${config.rows} cols=${config.cols} theme=${config.theme.name} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
             )
             val bridgeStartNs = System.nanoTime()
             val bridge = createBridge(config)
@@ -2298,7 +2268,7 @@ constructor(
                 // 14.0px font; without this the user's font-size setting
                 // never reached the GPU path — glyphs stayed tiny and
                 // "setting did nothing / got worse after restart".
-                bridge.setFontSizeInPlace(config.font_size_tenths)
+                bridge.setFontSizeInPlace(config.fontSizeTenths)
                 // rasterize glyphs at device density so text is
                 // crisp on high-density screens (swash bitmaps are scaled by
                 // raster_scale; the shader samples the atlas at that scale).
@@ -2321,11 +2291,11 @@ constructor(
                 // grid for ~60-160ms until the next insets/surface event).
                 syncGridDimensions(bridge)
                 recomputeGridFromFontMetrics()
-                appliedFontSizeTenths = config.font_size_tenths
+                appliedFontSizeTenths = config.fontSizeTenths
                 bridge.setTheme(config.theme)
                 LogUtil.d(
                     "Runtime",
-                    "settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.font_size_tenths} theme=${config.theme.name}",
+                    "settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.theme.name}",
                 )
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
@@ -2455,7 +2425,7 @@ constructor(
                     )
                 LogUtil.d(
                     "Runtime",
-                    "session $finalSessionId config: rows=${config.rows} cols=${config.cols} fontSizeTenths=${config.font_size_tenths}",
+                    "session $finalSessionId config: rows=${config.rows} cols=${config.cols} fontSizeTenths=${config.fontSizeTenths}",
                 )
                 LogUtil.d("Runtime", "session $finalSessionId started")
                 try {
@@ -3198,7 +3168,7 @@ constructor(
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         sessions.values.forEach { entry ->
-            entry.bridge?.setFontSize(config.font_size_tenths)
+            entry.bridge?.setFontSize(config.fontSizeTenths)
             entry.bridge?.setFontFamily(effectiveFontFamily)
             entry.bridge?.setTheme(config.theme)
             entry.notifyRender()

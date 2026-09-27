@@ -62,7 +62,7 @@ data class TerminalConfig(
     val prefix: String,
     val mkshrcPath: String,
     val scrollbackLines: Int,
-    val font_size_tenths: Int,
+    val fontSizeTenths: Int,
 )
 
 /** Create a new Bridge instance wrapping [NativeBridge] JNI exports. */
@@ -72,18 +72,11 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * Instance bridge wrapping [NativeBridge] static JNI exports.
  *
  * Each [Bridge] holds a session ID and manages session lifecycle so callers don't touch session IDs
- * directly. Methods without a native counterpart log a warning and return a safe default.
+ * directly. Every per-session JNI call goes through [onSession], which reports the one shared
+ * "no result available" case instead of repeating the guard in each method.
  *
  * Bridge is a gateway to the native side by design; the function count is the JNI surface, not an
  * interface smell.
- *
- * # ADR-0007 surface integration (implemented)
- *
- * The rendering path is live: `render`/`attachSurface`/`releaseGpuSurface` map to the wgpu renderer
- * via JNI, and the render-pause setting is wired end-to-end. The remaining log-only helpers
- * (`recomputeGrid`, `getCellWidth/Height`, `loadFontFile`, `setSystemLocale`,...) are either
- * superseded by other channels (attachSurface carries the size; events carry grid dims) or are
- * query-path stubs backed by [NativeQueryPort].
  */
 // when-dispatch over the PollEvent sealed class — one branch per variant.
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
@@ -111,6 +104,25 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * here and a backspace after >5s idle no longer waits out the 500ms idle-latch tick for its echo.
      */
     @Volatile var onPtyWrite: ((Long) -> Unit)? = null
+
+    /**
+     * 统一转发一次 JNI 调用。
+     *
+     * 两种「拿不到结果」的状态共用 [onUnavailable]：会话尚未建立（id 为 0），
+     * 以及检查之后、调用之前会话被销毁（native 对未知会话抛 RuntimeException，
+     * 见 DESIGN 的 Activity 重建/进程回收场景）。两者都不是崩溃理由，但都记
+     * 警告而非静默丢弃。
+     */
+    private inline fun <T> onSession(name: String, onUnavailable: T, call: (Long) -> T): T {
+        val id = sessionId
+        if (id == 0L) return onUnavailable
+        return try {
+            call(id)
+        } catch (exception: RuntimeException) {
+            LogUtil.w(TAG, "$name: 会话 $id 已销毁，返回缺省值（${exception.javaClass.simpleName}）")
+            onUnavailable
+        }
+    }
 
     fun ping(): String {
         if (!NativeBridge.isNativeLoaded()) throw RuntimeException("native library not loaded")
@@ -172,16 +184,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     fun resize(rows: Int, cols: Int) {
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.resize(sessionId, rows, cols)
-        } catch (exception: RuntimeException) {
-            // Race: the session was destroyed on the IO thread between the
-            // sessionId check and this call (closeSession/stop/exit). The
-            // native side throws RuntimeException for unknown sessions;
-            // dropping the resize is correct — the session is gone.
-            Log.d(TAG, "resize: session $sessionId already destroyed, dropping")
-        }
+        onSession("resize", Unit) { NativeBridge.resize(it, rows, cols) }
     }
 
     /**
@@ -191,13 +194,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * ghostty-android pty_jni.c:84-87).
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setPixelSize(sessionId, widthPx, heightPx)
-        } catch (exception: RuntimeException) {
-            // Same destruction race as resize: dropping is correct.
-            Log.d(TAG, "setPixelSize: session $sessionId already destroyed, dropping")
-        }
+        onSession("setPixelSize", Unit) { NativeBridge.setPixelSize(it, widthPx, heightPx) }
     }
 
     /**
@@ -210,51 +207,26 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         Log.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
     }
 
-    fun getGridRowsColsPacked(): Long {
-        if (sessionId == 0L) return 0L
-        return try {
-            NativeBridge.getGridRowsColsPacked(sessionId)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "getGridRowsColsPacked failed: ${exception.javaClass.simpleName}")
-            0L
-        }
-    }
+    fun getGridRowsColsPacked(): Long = onSession("getGridRowsColsPacked", 0L, NativeBridge::getGridRowsColsPacked)
 
-    fun getCellWidth(): Float {
-        if (sessionId == 0L) return 0f
-        return try {
-            NativeBridge.getCellWidth(sessionId)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "getCellWidth failed: ${exception.javaClass.simpleName}")
-            0f
-        }
-    }
+    fun getCellWidth(): Float = onSession("getCellWidth", 0f, NativeBridge::getCellWidth)
 
-    fun getCellHeight(): Float {
-        if (sessionId == 0L) return 0f
-        return try {
-            NativeBridge.getCellHeight(sessionId)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "getCellHeight failed: ${exception.javaClass.simpleName}")
-            0f
-        }
-    }
+    fun getCellHeight(): Float = onSession("getCellHeight", 0f, NativeBridge::getCellHeight)
 
     // ── Rendering ─────────────────────────────────────────────────────
     // ADR-0007 surface integration is implemented:
     // render/attachSurface/releaseGpuSurface/setRenderPaused map to the
     // wgpu renderer via JNI.
 
-    /** Render a frame. Returns >0 if output was available, 0 if idle, -1 on error. */
-    fun render(): Int {
-        if (sessionId == 0L) return 0
-        return try {
-            NativeBridge.render(sessionId, lastSurfaceWidth, lastSurfaceHeight)
-        } catch (exception: RuntimeException) {
-            // Class only: exception messages can embed session data.
-            LogUtil.e("Bridge", "render failed: ${exception.javaClass.simpleName}")
-            -1
-        }
+    /**
+     * Render a frame. Returns >0 if output was available, 0 if idle, -1 on error.
+     *
+     * 「无会话」与「会话已销毁」都归为 idle（0）而非错误：两者都是「没有可渲染的会话」，
+     * 且不会随首帧重试自愈（重试只对原生返回的 -1 有意义）。首帧重试依赖的 -1 由
+     * `NativeBridge.render` 原样返回，不经 [onSession]。
+     */
+    fun render(): Int = onSession("render", RENDER_IDLE) {
+        NativeBridge.render(it, lastSurfaceWidth, lastSurfaceHeight)
     }
 
     /**
@@ -262,24 +234,19 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * separate calls). Returns [RenderResult] with the render count, the new-output flag and the
      * viewport cursor row (-1 when hidden/off-viewport, drives the IME-follow pan).
      */
-    fun renderWithNewOutput(): RenderResult {
-        if (sessionId == 0L) return RenderResult(0, false, CURSOR_ROW_UNKNOWN)
-        return try {
-            val packed = NativeBridge.renderWithNewOutput(sessionId, lastSurfaceWidth, lastSurfaceHeight)
+    fun renderWithNewOutput(): RenderResult =
+        onSession("renderWithNewOutput", RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN)) {
+            val packed = NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight)
             val count = packed.toInt()
-            // Mask bit 32 only: bits 33..48 carry the cursor row and must
-            // not leak into the output flag (idle latch depends on it).
+            // 仅屏蔽第 32 位：第 33..48 位承载光标行号，不得泄漏到输出标志
+            // （空闲闭锁依赖该标志）。
             val newOutput = ((packed shr 32) and 0x1L) != 0L
             val cursorRow =
                 ((packed shr 33) and CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
                     if (raw == CURSOR_ROW_HIDDEN_BITS) CURSOR_ROW_UNKNOWN else raw
                 }
             RenderResult(count, newOutput, cursorRow)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "renderWithNewOutput failed: ${exception.javaClass.simpleName}")
-            RenderResult(-1, false, CURSOR_ROW_UNKNOWN)
         }
-    }
 
     data class RenderResult(val count: Int, val newOutput: Boolean, val cursorRow: Int)
 
@@ -289,27 +256,13 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * render thread; returns true when PTY output was ingested since the last call. Unknown/destroyed
      * sessions report false.
      */
-    fun consumeNewOutput(): Boolean {
-        if (sessionId == 0L) return false
-        return try {
-            NativeBridge.consumeNewOutput(sessionId)
-        } catch (exception: RuntimeException) {
-            // Class only: exception messages can embed session data.
-            LogUtil.e("Bridge", "consumeNewOutput failed: ${exception.javaClass.simpleName}")
-            false
-        }
-    }
+    fun consumeNewOutput(): Boolean = onSession("consumeNewOutput", false, NativeBridge::consumeNewOutput)
 
     /** Attach the Android Surface for GPU rendering (ADR-0007). */
     fun attachSurface(surface: Any, width: Int, height: Int) {
-        if (sessionId == 0L) return
         lastSurfaceWidth = width
         lastSurfaceHeight = height
-        try {
-            NativeBridge.attachWindow(sessionId, surface, width, height)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "attachWindow failed: ${exception.javaClass.simpleName}")
-        }
+        onSession("attachWindow", Unit) { NativeBridge.attachWindow(it, surface, width, height) }
     }
 
     /**
@@ -338,12 +291,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun setRenderPaused(paused: Boolean) {
         Log.d(TAG, "setRenderPaused($paused)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setRenderPaused(sessionId, paused)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setRenderPaused failed: ${exception.javaClass.simpleName}")
-        }
+        onSession("setRenderPaused", Unit) { NativeBridge.setRenderPaused(it, paused) }
     }
 
     // ── Events ────────────────────────────────────────────────────────
@@ -464,19 +412,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Theme / appearance ────────────────────────────────────────────
-    // Wired end-to-end: setTheme packs 54 bytes
-    // (background3 foreground3 ansi48) for the native palette; OSC 10/11/4 color handling
-    // lives in the terminal engine and is applied via the palette API.
-    // The cursor color rides a separate [setCursorColor] channel so the
-    // 54-byte layout stays stable (ffi.rs validates the exact length).
+    // 端到端接线：setTheme 打包 54 字节（背景 3 + 前景 3 + ansi 48）交给原生调色板；
+    // OSC 10/11/4 颜色处理位于终端引擎内部并经调色板 API 应用。光标颜色走独立的
+    // setCursorColor 通道，以保持 54 字节布局稳定（ffi.rs 校验精确长度）。
     fun setTheme(theme: BridgeTheme) {
         Log.d(TAG, "setTheme: ${theme.name}")
-        if (sessionId == 0L) return
-        val data = ByteArray(54)
-        fun packColor(dst: Int, argb: Int) {
-            data[dst] = (argb shr 16 and 0xFF).toByte()
-            data[dst + 1] = (argb shr 8 and 0xFF).toByte()
-            data[dst + 2] = (argb and 0xFF).toByte()
+        val data = ByteArray(THEME_PACKED_BYTES)
+        fun packColor(offset: Int, argb: Int) {
+            data[offset] = (argb shr 16 and 0xFF).toByte()
+            data[offset + 1] = (argb shr 8 and 0xFF).toByte()
+            data[offset + 2] = (argb and 0xFF).toByte()
         }
         packColor(0, theme.background)
         packColor(3, theme.foreground)
@@ -499,51 +444,28 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 theme.ansi14,
                 theme.ansi15,
             )
-        ansi.forEachIndexed { i, c -> packColor(6 + i * 3, c) }
-        try {
-            NativeBridge.setTheme(sessionId, data)
-            setCursorColor(theme.cursor)
-        } catch (exception: RuntimeException) {
-            // Race: session destroyed between the check and the call.
-            Log.d(TAG, "setTheme: session $sessionId already destroyed, dropping")
-        }
-    }
-
-    /** App-level cursor color override, applied on top of the theme's own cursor color. */
-    fun setCursorColor(argb: Int) {
-        if (sessionId == 0L) return
-        try {
-            val rgb = argbToRgbFloats(argb)
-            NativeBridge.setCursorColor(sessionId, rgb[0], rgb[1], rgb[2])
-        } catch (exception: RuntimeException) {
-            Log.d(TAG, "setCursorColor: session $sessionId already destroyed, dropping")
+        ansi.forEachIndexed { index, color -> packColor(6 + index * 3, color) }
+        val cursorRgb = argbToRgbFloats(theme.cursor)
+        onSession("setTheme", Unit) {
+            NativeBridge.setTheme(it, data)
+            NativeBridge.setCursorColor(it, cursorRgb[0], cursorRgb[1], cursorRgb[2])
         }
     }
 
     fun setSystemLocale(locale: String) {
         Log.d(TAG, "setSystemLocale($locale)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setSystemLocale(sessionId, locale)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setSystemLocale failed: ${exception.javaClass.simpleName}")
-        }
+        onSession("setSystemLocale", Unit) { NativeBridge.setSystemLocale(it, locale) }
     }
 
     private var lastExtraFontPaths: List<String> = emptyList()
 
     fun setExtraFontPaths(paths: List<String>) {
         Log.d(TAG, "setExtraFontPaths($paths)")
-        if (sessionId == 0L) return
         // The native call rebuilds the font pipeline (atlas realloc):
         // skip repeats, the drop-in dir content is picked up on rebuild.
         if (paths == lastExtraFontPaths) return
         lastExtraFontPaths = paths
-        try {
-            NativeBridge.setExtraFontPaths(sessionId, paths.toTypedArray())
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setExtraFontPaths failed: ${exception.javaClass.simpleName}")
-        }
+        onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
     }
 
     // font.ttf 覆盖探测缓存：native 每次加载都会追加字体条目，
@@ -568,15 +490,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun setFontFamily(family: String): Boolean {
         Log.d(TAG, "setFontFamily($family)")
-        if (sessionId == 0L) return false
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
-        return try {
-            NativeBridge.setFontFamily(sessionId, override ?: family)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setFontFamily failed: ${exception.javaClass.simpleName}")
-            false
-        }
+        return onSession("setFontFamily", false) { NativeBridge.setFontFamily(it, override ?: family) }
     }
 
     fun setFontSize(sizeTenths: Int) {
@@ -586,69 +502,32 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun setFontSizeInPlace(sizeTenths: Int) {
         Log.d(TAG, "setFontSizeInPlace($sizeTenths)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setFontSizeInPlace(sessionId, sizeTenths)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setFontSizeInPlace failed: ${exception.javaClass.simpleName}")
-        }
+        onSession("setFontSizeInPlace", Unit) { NativeBridge.setFontSizeInPlace(it, sizeTenths) }
     }
 
     fun setRasterScale(scale: Float) {
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setRasterScale(sessionId, scale)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setRasterScale failed: ${exception.javaClass.simpleName}")
-        }
+        onSession("setRasterScale", Unit) { NativeBridge.setRasterScale(it, scale) }
     }
 
     // Custom font loading probes the file in native code (fontdb), registers
     // it with the renderer and returns the family name; null on failure.
     fun loadFontFile(path: String): String? {
         Log.d(TAG, "loadFontFile($path)")
-        if (sessionId == 0L) return null
-        return try {
-            NativeBridge.loadFontFile(sessionId, path)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "loadFontFile failed: ${exception.javaClass.simpleName}")
-            null
-        }
+        return onSession("loadFontFile", null) { NativeBridge.loadFontFile(it, path) }
     }
 
     // ── Input ─────────────────────────────────────────────────────────
-    // Command-safety reference (sushi-ssh CommandSafety.kt:1-220,
-    // https://github.com/hlan-net/sushi-ssh-client): three-level shell
-    // command classifier — SAFE (read-only, auto-exec) / CONFIRM (write,
-    // ask user) / BLOCKED (never: shutdown, rm -rf /, fork-bomb, `curl |
-    // bash` via shell-interpreter pipe/chain detection).
-    fun feedTerminal(data: ByteArray): Boolean {
-        if (sessionId == 0L) return false
-        try {
-            NativeBridge.feedTerminal(sessionId, data)
-        } catch (exception: RuntimeException) {
-            Log.d(TAG, "feedTerminal: session $sessionId destroyed, dropping")
-            return false
-        }
-        return true
+    fun feedTerminal(data: ByteArray): Boolean = onSession("feedTerminal", false) {
+        NativeBridge.feedTerminal(it, data)
+        true
     }
 
-    fun writeToPty(data: ByteArray): Boolean {
-        if (sessionId == 0L) return false
-        try {
-            // Raw bytes end-to-end: decoding to a Java String here would
-            // replace non-UTF-8 sequences (pasted GBK/ISO-8859-1, binary
-            // protocols) with U+FFFD and corrupt what the child receives.
-            NativeBridge.feedPty(sessionId, data)
-            onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
-        } catch (exception: RuntimeException) {
-            // Race: session destroyed between the sessionId check and this
-            // call (closeSession/stop on the IO thread). Input for a closed
-            // session is dropped by design.
-            Log.d(TAG, "writeToPty: session $sessionId already destroyed, dropping")
-            return false
-        }
-        return true
+    fun writeToPty(data: ByteArray): Boolean = onSession("writeToPty", false) {
+        // 原始字节端到端：此处解码为 Java String 会把非 UTF-8 序列
+        // （粘贴的 GBK/ISO-8859-1、二进制协议）替换为 U+FFFD 并破坏子进程收到的内容。
+        NativeBridge.feedPty(it, data)
+        onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
+        true
     }
 
     /**
@@ -657,13 +536,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * disabled, encoding failed, or the session is gone (event dropped).
      */
     fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellW: Float, cellH: Float): Boolean {
-        if (sessionId == 0L) return false
         val bytes =
-            try {
-                NativeBridge.encodeMouseEvent(sessionId, xPx, yPx, action, button, cellW, cellH)
-            } catch (exception: RuntimeException) {
-                Log.d(TAG, "encodeMouseEvent: session $sessionId destroyed, dropping")
-                return false
+            onSession("encodeMouseEvent", ByteArray(0)) {
+                NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, cellW, cellH)
             }
         if (bytes.isEmpty()) return false
         return writeToPty(bytes)
@@ -674,53 +549,34 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * on every touch-scroll event. When true, touch scroll gestures must be forwarded to the remote
      * as mouse-wheel escapes see [TerminalSurface] onScroll) rather than scrolling local scrollback.
      */
-    fun isAltScreenActive(): Boolean {
-        if (sessionId == 0L) return false
-        return try {
-            NativeBridge.getAltScreenState(sessionId)
-        } catch (exception: RuntimeException) {
-            Log.d(TAG, "isAltScreenActive: session $sessionId destroyed, returning false")
-            false
-        }
-    }
+    fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
     /**
      * Whether the terminal is in application cursor mode (DECCKM, DEC private mode 1). Arrow keys
      * must then be encoded SS3 (`ESC OA`) instead of CSI (`ESC [ A`) — see docs/specification/REFERENCE.md.
      * Queried only for arrow-key key events.
      */
-    fun isAppCursorMode(): Boolean {
-        if (sessionId == 0L) return false
-        return try {
-            NativeBridge.getMode(sessionId, DEC_PRIVATE_MODE_APP_CURSOR, 0)
-        } catch (exception: RuntimeException) {
-            Log.d(TAG, "isAppCursorMode: session $sessionId destroyed, returning false")
-            false
-        }
-    }
+    fun isAppCursorMode(): Boolean =
+        onSession("getMode", false) { NativeBridge.getMode(it, DEC_PRIVATE_MODE_APP_CURSOR, 0) }
 
     fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
         Log.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
-        if (sessionId == 0L) return false
-        // Only ACTION_DOWN produces output: both onKeyDown and onKeyUp route
-        // here, and writing on UP would double every keystroke ("llss",
-        // double Enter, double Ctrl+C). ACTION_UP returns false so the
-        // platform default (no-op) handles it.
+        // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
+        // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
+        // false，交由平台默认实现（空操作）处理。
         if (action != android.view.KeyEvent.ACTION_DOWN) return false
-        try {
+        return onSession("processKeyEvent", false) { id ->
             val modifierBits = modifiers.toInt()
             val ctrlActive = modifierBits and 4 != 0
             val altActive = modifierBits and 2 != 0
-            // DECCKM: when the terminal is in application cursor mode
-            // (DEC private mode 1) arrow keys must be encoded SS3 (`ESC OA`)
-            // instead of CSI (`ESC [ A`) — see docs/specification/REFERENCE.md. Only queried for arrow keys to avoid
-            // a mode_get round-trip on every keystroke.
+            // DECCKM：终端处于应用光标模式（DEC 私有模式 1）时方向键须编码为 SS3
+            // （`ESC OA`）而非 CSI（`ESC [ A`），见 docs/specification/REFERENCE.md。
+            // 仅方向键查询，避免每次击键都做一次 mode_get 往返。
             val appCursorMode = keyCode in APP_CURSOR_KEY_CODES && isAppCursorMode()
-            // Route ALL hardware keys through the same encoder the IME path
-            // uses. Sending the key NAME (keyCodeToName: "Up", "Home",...)
-            // as literal bytes would write the text "Up" into the PTY — the
-            // native writeKey does not parse key names, so vim/less arrows,
-            // Home/End, PageUp/Down and Delete were all broken.
+            // 所有硬件按键都走输入法同一条编码路径。直接发送键名
+            // （keyCodeToName："Up"、"Home"…）会把这些字面文本写进 PTY —— 原生
+            // writeKey 不解析键名，vim/less 的方向键、Home/End、PageUp/Down、
+            // Delete 都会失效。
             val encoded =
                 terminal.emulator.ui.TerminalInputEncoder.encodeKeyEvent(
                     keyCode,
@@ -730,60 +586,37 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                     appCursorMode,
                 )
             if (encoded != null) {
-                NativeBridge.feedPty(sessionId, encoded)
+                NativeBridge.feedPty(id, encoded)
                 onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
-                return true
+                return@onSession true
             }
-            // Fallback for keys the encoder does not handle: raw printable
-            // unicode (supplementary-plane safe). Never while Ctrl is held:
-            // the native writeKey folds single-byte ASCII with c & 0x1F,
-            // which would turn Ctrl+9/Ctrl+0 into Ctrl+Y/Ctrl+P. Ctrl+printable
-            // keys are either encoded above or intentionally dropped
-            // (Ctrl+9/0 have no traditional mapping).
+            // 编码器未覆盖的按键走原始可打印 unicode（补全平面安全）。按 Ctrl 时
+            // 绝不走此路：原生 writeKey 会把单字节 ASCII 折叠为 c & 0x1F，把
+            // Ctrl+9/Ctrl+0 变成 Ctrl+Y/Ctrl+P。Ctrl+可打印键要么在上面已编码，
+            // 要么被有意丢弃（Ctrl+9/0 无传统映射）。
             if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
-                val ch =
-                    if (Character.isValidCodePoint(unicodeChar)) {
-                        String(Character.toChars(unicodeChar))
-                    } else {
-                        return false
-                    }
-                NativeBridge.writeKey(sessionId, ch, modifierBits, null)
-                return true
+                if (!Character.isValidCodePoint(unicodeChar)) return@onSession false
+                NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), modifierBits, null)
+                return@onSession true
             }
-            // some IMEs (Gboard under InputType.TYPE_NULL) emit
-            // key events with unicodeChar == 0 even though the key is a
-            // printable letter. Derive the character from the virtual
-            // keyboard's key character map as a fallback so those key
-            // presses still reach the PTY.
-            if (
-                !ctrlActive && keyCode in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z
-            ) {
+            // 部分输入法（Gboard 在 InputType.TYPE_NULL 下）发出的按键事件
+            // unicodeChar == 0，尽管该键是可打印字母。回退到虚拟键盘的按键字符
+            // 映射表推导字符，保证这类击键仍能到达 PTY。
+            if (!ctrlActive && keyCode in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z) {
                 val derived =
                     android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
                         .get(keyCode, 0)
                 if (derived > 0) {
-                    NativeBridge.writeKey(sessionId, derived.toChar().toString(), modifierBits, null)
-                    return true
+                    NativeBridge.writeKey(id, derived.toChar().toString(), modifierBits, null)
+                    return@onSession true
                 }
             }
-            return false
-        } catch (exception: RuntimeException) {
-            // Either the session was destroyed between the check and the
-            // call, or the native write failed. Log the actual message so
-            // the two are distinguishable (payload itself is never logged).
-            Log.d(TAG, "processKeyEvent: session $sessionId write failed: ${exception.message}")
-            return false
+            false
         }
     }
 
     fun focusEvent(focused: Boolean) {
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.focusEvent(sessionId, focused)
-        } catch (exception: RuntimeException) {
-            // Session closed between the id check and the native call.
-            Log.d(TAG, "focusEvent: session gone: ${exception.message}")
-        }
+        onSession("focusEvent", Unit) { NativeBridge.focusEvent(it, focused) }
     }
 
     // ── Terminal queries (delegated to TerminalQueryPort seam) ────────
@@ -797,10 +630,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Search / scrollback ────────────────────────────────────────────
-    // Query methods delegate to the real native JNI path via
-    // NativeQueryPort. Native exports throw IllegalArgumentException for
-    // unknown sessions (e.g. the window between bridge.close() and
-    // session-map removal); catch it here so UI/触摸 paths never crash.
+    // 查询方法经 NativeQueryPort 转发到真实的原生 JNI 路径。native 对未知会话
+    // 抛 IllegalArgumentException（如 bridge.close() 到会话表移除之间的窗口），
+    // 在此转为缺省值返回，使 UI/触摸路径不崩。
     override fun clearSearchHighlights() = queryPort.clearSearchHighlights()
 
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
@@ -850,7 +682,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }.getOrNull()
 
     // 上游选择派生：native 侧已安装选区并回传界限；unknown session 异常
-    // 同样在此吞掉（与其余查询方法一致，UI/触摸路径不崩）。
+    // 与其余查询方法一致转为缺省值（UI/触摸路径不崩）。
     override fun selectWordAt(row: Int, col: Int): IntArray? = runCatchingCancellable {
         queryPort.selectWordAt(row, col)
     }.getOrNull()
@@ -875,11 +707,17 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         /** renderWithNewOutput packing: cursor row bits 33..48, this value = hidden/off-viewport. */
         const val CURSOR_ROW_HIDDEN_BITS = 0xFFFF
 
+        /** render 缺省返回值：无可渲染的会话（未建立或已销毁），按 idle 处理。 */
+        private const val RENDER_IDLE = 0
+
         /** Decoded cursor row when hidden/off-viewport (or no session). */
         const val CURSOR_ROW_UNKNOWN = -1
 
         /** Max events drained per pollAll() frame — bounds render-thread cost. */
         private const val MAX_EVENTS_PER_POLL = 32
+
+        /** setTheme 打包长度：背景 3 + 前景 3 + 16 色 × 3 = 54 字节，ffi.rs 校验精确长度。 */
+        private const val THEME_PACKED_BYTES = 54
 
         /** DEC private mode 1 = application cursor keys (DECCKM). */
         private const val DEC_PRIVATE_MODE_APP_CURSOR = 1

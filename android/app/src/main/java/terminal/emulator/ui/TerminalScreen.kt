@@ -45,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
@@ -86,6 +85,9 @@ private const val IME_TOGGLE_DELAY_MS = 50L
 private const val IME_SETTLE_FRAMES = 3
 private const val IME_POLL_INTERVAL_MS = 16L
 
+/** 搜索查询串长度上限（DESIGN 修饰键栏节：匹配文本的长度需要被限制）。 */
+private const val SEARCH_QUERY_MAX_LENGTH = 256
+
 /**
  * Consolidated search state for text search within the terminal. Replaces 6 independent remember
  * variables.
@@ -108,19 +110,7 @@ private data class SearchState(
         get() = results.getOrNull(currentIndex)
 }
 
-@SuppressLint("DeprecatedCall")
-@Suppress("DEPRECATION")
-private fun announceForAccessibility(view: android.view.View, text: CharSequence) {
-    // View.announceForAccessibility has no @Deprecated annotation in
-    // API 37 (verified via javap); the Kotlin compiler hard-codes it as
-    // deprecated (system accessibility announcement is being phased out)
-    // and slack-lint mirrors that. There is no modern equivalent — the
-    // platform method is still the supported talk-back path.
-    view.announceForAccessibility(text)
-}
-
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Suppress("DEPRECATION")
 // 仅简体中文：无复数形态，plurals 仅 other 分支生效，无需本地化计数修饰。
 @SuppressLint("ArgInFormattedQuantityStringRes")
 @Composable
@@ -172,8 +162,6 @@ fun TerminalScreen(
         )
     }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val resources = androidx.compose.ui.platform.LocalResources.current
-    val hostView = androidx.compose.ui.platform.LocalView.current
     var showTextSearch by remember { mutableStateOf(false) }
     // Sticky FN layer (ModifierBar): when Locked the bar shows the F1-F12
     // second layer; tapping an F-key or FN again exits it.
@@ -294,55 +282,6 @@ fun TerminalScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(state.sessions.size) {
-        val count = state.sessions.size
-        if (count > 0) {
-            announceForAccessibility(
-                hostView,
-                resources.getQuantityString(R.plurals.sessions_accessible, count, count),
-            )
-        }
-    }
-
-    LaunchedEffect(state.title) {
-        val title = state.title
-        if (
-            title.isNotEmpty() &&
-            title != context.getString(R.string.terminal_title) &&
-            title != context.getString(R.string.terminal)
-        ) {
-            announceForAccessibility(
-                hostView,
-                resources.getString(R.string.title_changed, title),
-            )
-        }
-    }
-
-    LaunchedEffect(
-        state.selection.active,
-        state.selection.dragging,
-        state.selection.start,
-        state.selection.end,
-    ) {
-        val sel = state.selection
-        // Announce only on settle, not while the user is dragging a handle
-        // (start/end change every frame during a drag — announcing each one
-        // floods TalkBack).
-        if (sel.active && !sel.dragging && sel.hasSelection) {
-            val text = sel.selectedText
-            if (text.isNotEmpty()) {
-                val preview = if (text.length > 100) text.take(100) + "..." else text
-                announceForAccessibility(
-                    hostView,
-                    context.getString(R.string.selection_accessible, preview),
-                )
-            }
-        }
-    }
-
-    // Selection accessibility is announced from the search effect below (after searchState is
-    // declared).
-
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
@@ -434,27 +373,6 @@ fun TerminalScreen(
             LaunchedEffect(state.scrollEpoch) {
                 if (state.scrollEpoch > 0L) {
                     surfaceRef.value?.resetScrollOffset()
-                }
-            }
-
-            // Announce search result count changes for TalkBack.
-            LaunchedEffect(searchState.resultCount, searchState.currentIndex, searchState.query) {
-                if (searchState.query.isNotEmpty()) {
-                    if (searchState.resultCount > 0) {
-                        announceForAccessibility(
-                            hostView,
-                            context.getString(
-                                R.string.search_result_accessible,
-                                searchState.currentIndex + 1,
-                                searchState.resultCount,
-                            ),
-                        )
-                    } else {
-                        announceForAccessibility(
-                            hostView,
-                            context.getString(R.string.search_no_results_accessible),
-                        )
-                    }
                 }
             }
 
@@ -893,15 +811,14 @@ fun TerminalScreen(
                 if (showTextSearch) {
                     TextSearchBar(
                         query = searchState.query,
-                        onQueryChange = { query ->
-                            searchState = searchState.copy(query = query)
+                        onQueryChange = { newQuery ->
+                            // 匹配文本长度须受限（DESIGN 修饰键栏节）：查询串直接送入
+                            // 原生全回滚区扫描，过长会使单次搜索耗时不可预测。
+                            searchState = searchState.copy(query = newQuery.take(SEARCH_QUERY_MAX_LENGTH))
                             searchJob?.cancel()
-                            // P0#13: debounce the search so rapid keystrokes
-                            // collapse into a single performSearch after 150ms of
-                            // quiet (termlib / ghostty-android adoption). The
-                            // previous pending search is cancelled by the
-                            // debouncer, not by re-launching a coroutine per
-                            // keystroke.
+                            // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
+                            // （termlib / ghostty-android 做法）。待执行的搜索由
+                            // debouncer 取消，而非每次击键都新起协程。
                             searchDebouncer.submit {
                                 searchJob = scope.launch { performSearch() }
                             }
