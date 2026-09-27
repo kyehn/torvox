@@ -199,8 +199,8 @@ class SecondStageRunner(
             val text = proc.inputStream.bufferedReader().readText()
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value
-        } catch (e: Exception) {
-            Log.w("SecondStageRunner", "detectDpkgVersion failed", e)
+        } catch (exception: Exception) {
+            Log.w("SecondStageRunner", "detectDpkgVersion failed", exception)
             null
         } finally {
             proc?.destroy()

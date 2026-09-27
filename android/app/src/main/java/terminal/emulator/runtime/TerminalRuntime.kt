@@ -31,6 +31,7 @@ import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.bridge.createBridge
+import terminal.emulator.BuildConfig
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
@@ -500,8 +501,8 @@ constructor(
             } else {
                 entry.bridge?.close()
             }
-        } catch (e: Exception) {
-            LogUtil.e("Runtime", "session ${entry.id} bridge close on exit failed", e)
+        } catch (exception: Exception) {
+            LogUtil.e("Runtime", "session ${entry.id} bridge close on exit failed", exception)
         }
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
@@ -548,8 +549,8 @@ constructor(
             } else {
                 entry.bridge?.close()
             }
-        } catch (e: Exception) {
-            LogUtil.e("Runtime", "session ${entry.id} bridge close during cleanup failed", e)
+        } catch (exception: Exception) {
+            LogUtil.e("Runtime", "session ${entry.id} bridge close during cleanup failed", exception)
         }
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
@@ -1216,10 +1217,12 @@ constructor(
                                                     SystemClock.elapsedRealtimeNanos(),
                                                 )
                                                 ?.let { latencyNanos ->
-                                                    LogUtil.d(
-                                                        "Runtime",
-                                                        "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
-                                                    )
+                                                    if (BuildConfig.DEBUG) {
+                                                        LogUtil.d(
+                                                            "Runtime",
+                                                            "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
+                                                        )
+                                                    }
                                                     // 周期性 p50/p95 汇总写入 logcat
                                                     // （LATENCY_REPORT 标记便于 grep，
                                                     // 供离线采集分位数）。
@@ -2189,7 +2192,7 @@ constructor(
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to start terminal", exception)
-            // 完整堆栈经 LogUtil 抵达 logcat（必要时分块），并带稳定的 FAILED grep 锚点。
+            // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
             // createBridge() 之后的任何失败（设置、attachSurface、spawnTerminal 抛异常而非返回 0）
             // 否则会永久泄漏原生会话及其 PTY 子进程。
             try {
@@ -2445,7 +2448,7 @@ constructor(
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to create session $nextId", exception)
-            // 完整堆栈经 LogUtil 抵达 logcat（必要时分块），并带稳定的 FAILED grep 锚点。
+            // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
             // 若失败发生在条目插入之前（应用设置、spawnTerminal 抛异常），
             // 上方从未回滚该 bridge——关闭它以避免泄漏原生会话与 PTY 子进程。
             createdBridge?.let { leaked ->

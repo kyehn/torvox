@@ -17,8 +17,8 @@ object NativeBridge {
             System.loadLibrary("native")
             nativeLoaded = true
             Log.i(TAG, "Native library loaded: native")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Failed to load native library: ${e.message}")
+        } catch (exception: UnsatisfiedLinkError) {
+            Log.e(TAG, "Failed to load native library: ${exception.message}")
         }
     }
 
