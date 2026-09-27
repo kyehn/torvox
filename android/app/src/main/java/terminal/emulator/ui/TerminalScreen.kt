@@ -506,6 +506,7 @@ fun TerminalScreen(
                                 .apply { setTag("TerminalSurfaceView") }
                                 .also { surface ->
                                     surfaceRef.value = surface
+                                    surface.attachViewModel(viewModel)
                                     surface.onScrollChanged = { offset ->
                                         viewModel.runtime.setScrollOffset(offset)
                                     }
