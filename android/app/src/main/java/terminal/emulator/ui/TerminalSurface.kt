@@ -1418,10 +1418,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // 拖动锚点：拖动开始时被抓住手柄所固定的单元格边界（网格坐标）。
     // 拖动增量相对该锚点计算，因为手柄窗口悬于其锚定单元格之下
     // ——直接用触摸像素会解析到边界下方的那一行。
-    // 参照 termux 的 applyHandleDrag（Terminal.kt:1899-1935）使用相同的锚点语义，
-    // 另加「交叉翻转」——被拖动的手柄越过静止手柄时，归属互换且静止手柄
-    // 回到穿越前的位置。目前仅做 coerceIn 夹取（无翻转），
-    // 详见 docs/specification/REFERENCE.md。
+    // 锚点语义对标 termux 的 applyHandleDrag（Terminal.kt:1899-1935）；
+    // 交叉翻转由 [SelectionState.applyHandleDrag] 实现并经 SelectionStateTest 覆盖
+    // （拖动手柄越过静止手柄时归属权交换），此处只负责把触点换算成网格目标。
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
