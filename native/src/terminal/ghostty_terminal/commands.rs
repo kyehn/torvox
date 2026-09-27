@@ -102,10 +102,6 @@ pub enum Query {
         col: u32,
         tx: Sender<Option<String>>,
     },
-    SearchInScrollback {
-        query: String,
-        tx: Sender<Option<(u32, u32)>>,
-    },
     SearchInScrollbackAll {
         query: String,
         case_sensitive: bool,

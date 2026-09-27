@@ -234,10 +234,6 @@ impl super::GhosttyTerminal {
                 let url = Self::hyperlink_at_impl(terminal, row, col);
                 try_send(&tx, url, "hyperlink_at response send failed");
             }
-            Query::SearchInScrollback { query, tx } => {
-                let result = Self::search_in_scrollback_impl(terminal, &query);
-                try_send(&tx, result, "ghostty_terminal: query channel send failed");
-            }
             Query::SearchInScrollbackAll {
                 query,
                 case_sensitive,
@@ -2059,24 +2055,6 @@ impl super::GhosttyTerminal {
             }
             Err(_) => None,
         }
-    }
-
-    pub(crate) fn search_in_scrollback_impl(
-        terminal: &Terminal,
-        query: &str,
-    ) -> Option<(u32, u32)> {
-        let pattern = Self::compile_search_pattern(query, true)?;
-        let total = terminal.total_rows().unwrap_or(0) as u32;
-        for row in 0..total {
-            if let Some(line) = Self::read_line_text_impl(terminal, row)
-                && let Some(matched) = pattern.find(&line)
-            {
-                // SearchMatch 列为字符列而非字节偏移，CJK 行须转换以免高亮错位。
-                let column = line[..matched.start()].chars().count() as u32;
-                return Some((row, column));
-            }
-        }
-        None
     }
 
     /// 文本搜索匹配长度上限：超长查询直接无命中，避免正则引擎与全回滚扫描浪费资源。

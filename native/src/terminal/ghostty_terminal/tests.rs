@@ -111,7 +111,7 @@ fn reset_clears_selection() {
 }
 
 #[test]
-fn search_in_scrollback_finds_match() {
+fn search_all_finds_match() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write(b"search_target_here\n");
     t.flush();
@@ -119,9 +119,8 @@ fn search_in_scrollback_finds_match() {
         t.vt_write(format!("filler {i}\n").as_bytes());
     }
     t.flush();
-    // Search may or may not find the result depending on Ghostty's scrollback implementation.
-    // The critical test is that it doesn't crash or corrupt terminal state.
-    let _result = t.search_in_scrollback("search_target");
+    // 关键是搜索不崩溃且不破坏终端状态，命中与否取决于回滚实现。
+    let _results = t.search_all_in_scrollback("search_target", true);
     t.vt_write(b"AfterSearch");
     t.flush();
     let snap = t.take_snapshot();
@@ -133,9 +132,9 @@ fn search_in_scrollback_finds_match() {
 }
 
 #[test]
-fn search_in_scrollback_empty_query() {
+fn search_all_empty_query() {
     let t = terminal();
-    assert_eq!(t.search_in_scrollback(""), None);
+    assert!(t.search_all_in_scrollback("", true).is_empty());
 }
 
 #[test]
@@ -1853,19 +1852,21 @@ fn encode_paste_text(text: &str, bracketed: bool) -> Vec<u8> {
 }
 
 /// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史
-/// 后 search_in_scrollback 仍命中首行（揭示语义由 Kotlin 滚动承载，
+/// 后 search_all 仍命中首行（揭示语义由 Kotlin 滚动承载，
 /// 此处断言命中坐标）。
 #[test]
-fn search_in_scrollback_reveals_history_match() {
+fn search_all_reveals_history_match() {
     let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     t.vt_write(b"needle\n");
     for index in 0..10 {
         t.vt_write(format!("filler{index}\n").as_bytes());
     }
     t.flush();
-    let hit = t.search_in_scrollback("needle").expect("history hit");
-    assert_eq!(hit.1, 0, "needle starts at col 0");
-    let line = t.read_line_text(hit.0).expect("hit line");
+    let results = t.search_all_in_scrollback("needle", true);
+    assert!(!results.is_empty(), "history hit");
+    let hit = &results[0];
+    assert_eq!(hit.start_col, 0, "needle starts at col 0");
+    let line = t.read_line_text(hit.row).expect("hit line");
     assert_eq!(line, "needle");
 }
 
@@ -1892,7 +1893,7 @@ fn search_all_no_matches_returns_empty() {
     t.vt_write(b"hello world");
     t.flush();
     assert!(t.search_all_in_scrollback("zzz", false).is_empty());
-    assert!(t.search_in_scrollback("zzz").is_none());
+    assert!(t.search_all_in_scrollback("zzz", true).is_empty());
 }
 
 /// 安装选区后 VT 线程把行级选区反白烘焙进 CellData（前景背景互换），
