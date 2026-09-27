@@ -35,7 +35,7 @@ use jni::sys::{
 };
 use jni::{Env, EnvUnowned, jni_str};
 
-use super::text_utils::{encode_modifiers, plain_text_url_at};
+use super::text_utils::encode_modifiers;
 use crate::terminal::ShellEnv;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::session::Session;
@@ -2289,7 +2289,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'loc
 }
 
 /// 查询网格单元处的 OSC 8 超链接 URI（第 0 行 = 回滚顶部，与 `scrollbackLine` 一致），
-/// 无链接时返回 null。
+/// 无链接时返回 null。纯文本裸 URL 不做识别：libghostty-vt 只提供 OSC 8 超链接。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2308,21 +2308,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
         let url = session
             .terminal()
             .hyperlink_at(row.max(0) as u32, col.max(0) as u32);
-        if url.is_none() {
-            // 纯文本 URL 兜底：OSC 8 只覆盖超链接，终端输出中裸 URL 的点击仍应打开
-            // 浏览器。复用 `dump_grid` 文本路径（与 `getTerminalText` 同一份数据），
-            // 扫描被点击行的列区间。
-            if let Some(fallback) =
-                plain_text_url_at(&session, row.max(0) as u32, col.max(0) as u32)
-            {
-                drop(session);
-                drop(registry);
-                return Ok(match env.new_string(&fallback) {
-                    Ok(s) => s.into_raw(),
-                    Err(_) => std::ptr::null_mut(),
-                });
-            }
-        }
         drop(session);
         drop(registry);
         match url {

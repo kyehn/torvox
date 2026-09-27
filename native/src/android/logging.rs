@@ -1,7 +1,4 @@
 //! 自定义 `log::Log` 实现，写入 logcat，由 Kotlin 经 JNI 初始化。
-//!
-//! logcat 单条上限 4068 字节且超限**静默截断**，故长消息必须分块，
-//! 否则尾部丢失；分块算法置于 [`crate::log_chunk`] 以便在 host 上单元测试。
 
 #![cfg(target_os = "android")]
 
@@ -52,16 +49,13 @@ impl Log for AndroidLogger {
             // SAFETY: "Rust" has no interior NUL bytes
             CString::new("Rust").expect("hardcoded string without NUL")
         });
-        // 分块以免 logcat 截断。
-        for chunk in crate::log_chunk::chunk_message(tag, &msg) {
-            let msg_c = CString::new(chunk.as_str()).unwrap_or_else(|_| {
-                // SAFETY: Vec::<u8>::new() contains no NUL bytes
-                CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
-            });
-            // SAFETY: `__android_log_write` 是公开 NDK 函数，指针指向有效的 NUL 结尾 C 字符串。
-            unsafe {
-                __android_log_write(prio, tag_c.as_ptr(), msg_c.as_ptr());
-            }
+        let msg_c = CString::new(msg).unwrap_or_else(|_| {
+            // SAFETY: Vec::<u8>::new() contains no NUL bytes
+            CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
+        });
+        // SAFETY: `__android_log_write` 是公开 NDK 函数，指针指向有效的 NUL 结尾 C 字符串。
+        unsafe {
+            __android_log_write(prio, tag_c.as_ptr(), msg_c.as_ptr());
         }
     }
 
