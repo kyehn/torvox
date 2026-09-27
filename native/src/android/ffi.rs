@@ -1047,24 +1047,29 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'loc
     })
 }
 
-/// 等待（最多 100ms）等待线程写入会话的退出码，以短暂持有会话锁的方式轮询，
+/// 等待（最多 EXIT_CODE_WAIT_TIMEOUT_MS）等待线程写入会话的退出码，以短暂持有会话锁的方式轮询，
 /// 避免其他线程在整个等待期被阻塞。读取线程可能在等待线程写入 `exit_code` 前刚好
 /// 置位 `exited`（EOF）；本函数关闭该窗口，使真实退出码（如 137）不会被报成 0。
 /// **必须**在不持有会话锁时调用。
 ///
 /// 超时时按 0 上报——与正常退出无法区分。这是已文档化的取舍：延长阻塞会拖慢
 /// pollEvent 帧，而退出事件无法重发（`mark_exit_reported` 已置位），只有 warn 日志可作信号。
+/// 退出码等待上限：轮询步数 × 步长即此值，超时按 0 上报（见函数文档）。
+const EXIT_CODE_WAIT_TIMEOUT_MS: u64 = 100;
+/// 退出码轮询步长：短暂持有会话锁后让出，避免阻塞其他线程。
+const EXIT_CODE_POLL_STEP_MS: u64 = 10;
+
 fn wait_exit_code(session: &Arc<Mutex<Session>>) -> i32 {
-    for _ in 0..10 {
+    for _ in 0..(EXIT_CODE_WAIT_TIMEOUT_MS / EXIT_CODE_POLL_STEP_MS) {
         {
             let guard = session.as_ref().lock();
             if let Some(code) = guard.exit_code_now() {
                 return code;
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(EXIT_CODE_POLL_STEP_MS));
     }
-    log::warn!("ffi: exit code not written within 100ms of exit");
+    log::warn!("ffi: exit code not written within {EXIT_CODE_WAIT_TIMEOUT_MS}ms of exit");
     0
 }
 
