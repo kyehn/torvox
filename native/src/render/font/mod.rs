@@ -60,6 +60,56 @@ impl GlyphSynthesis {
     }
 }
 
+/// 可变字体 `wght` 轴的目标取值（与 CSS `font-weight: 700` 同义）。
+const VARIATION_WEIGHT_BOLD: f32 = 700.0;
+/// 可变字体 `ital` 轴的目标取值（0 = upright，1 = italic）。
+const VARIATION_ITALIC_ON: f32 = 1.0;
+
+/// 由 `synthesis` 与字体自身声明的轴，产出要写入 swash 的轴设置。
+///
+/// fonts.xml 的 39 个 VF 字体（Roboto、NotoSans*-VF、MapleMono NF CN 等）把字重与
+/// 倾斜表达为 `wght`/`ital` 轴而非独立文件，而 fontdb 对 VF 只登记默认实例，
+/// 其余取值必须显式告知 swash，否则拿到的永远是 Regular 轮廓。
+/// 字体没声明该轴时返回空，调用方退回轮廓级加粗/剪切。
+///
+/// 取值一律 clamp 到字体声明的轴范围：部分 VF 只声明 `wght 100..400`，
+/// 越界会经 `avar` 映射到非预期位置。
+pub(super) fn variation_settings(
+    font_ref: &swash::FontRef<'_>,
+    synthesis: GlyphSynthesis,
+) -> Vec<swash::Setting<f32>> {
+    let mut settings = Vec::new();
+    for (requested, tag_bytes, wanted) in [
+        (
+            matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic),
+            b"wght",
+            VARIATION_WEIGHT_BOLD,
+        ),
+        (
+            matches!(
+                synthesis,
+                GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
+            ),
+            b"ital",
+            VARIATION_ITALIC_ON,
+        ),
+    ] {
+        if !requested {
+            continue;
+        }
+        let tag = swash::tag_from_bytes(tag_bytes);
+        // 字体没声明该轴（非 VF）时留空，调用方退回轮廓级加粗/剪切。
+        let Some(axis) = font_ref.variations().find(|axis| axis.tag() == tag) else {
+            continue;
+        };
+        settings.push(swash::Setting {
+            tag,
+            value: wanted.clamp(axis.min_value(), axis.max_value()),
+        });
+    }
+    settings
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
     pub font_id: fontdb::ID,
@@ -68,7 +118,8 @@ pub struct GlyphKey {
     /// （此前 `as u16` 截断使 36.75px 与 36.22px 共用同一键，
     /// 缩放后取到错误尺寸位图，表现为模糊/字形不对）。
     pub raster_size_bits: u32,
-    /// Glyph synthesis applied at rasterization time (0 = none).
+    /// 样式：光栅化时的合成模式（0 = none）。可变字体走轴设置时同样按此值
+    /// 区分缓存条目——同一字形号在不同 `wght`/`ital` 下轮廓不同。
     pub synthesis: u8,
 }
 
@@ -1415,6 +1466,83 @@ mod tests {
         let family = p.load_font_file(&font_path).expect("test font loads");
         assert!(p.set_font_family(&family), "test font family selects");
         (p, family)
+    }
+
+    /// 可变字体必须走 `wght`/`ital` 轴（DESIGN 字体节：多字重与动态字体）。
+    ///
+    /// 按能力而非按名字找：开发环境的 `flake.nix` 固定了 `noto-fonts-cjk-sans`
+    /// （`NotoSansCJK-VF.otf.ttc`，带 `wght` 轴）与 `maple-mono.Normal-NF-CN`
+    /// （16 个静态字重的族，**无** `fvar` 表，真字重靠同族查询）。两种形态都须正确。
+    #[test]
+    fn variable_font_axes_are_applied() {
+        let pipeline = FontPipeline::new(512, 512, 24.0);
+        let db = pipeline.font_system.db();
+        let axes_of = |font_id: fontdb::ID| {
+            db.with_face_data(font_id, |font_data, face_index| {
+                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                Some(
+                    font_ref
+                        .variations()
+                        .map(|axis| (axis.tag(), axis.min_value(), axis.max_value()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .flatten()
+        };
+        let settings_of = |font_id: fontdb::ID, synthesis: GlyphSynthesis| {
+            db.with_face_data(font_id, |font_data, face_index| {
+                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                Some(super::variation_settings(&font_ref, synthesis))
+            })
+            .flatten()
+            .expect("字体可读")
+        };
+
+        let (variable_id, variable_axes) = db
+            .faces()
+            .filter_map(|face| axes_of(face.id).map(|axes| (face.id, axes)))
+            .find(|(_, axes)| {
+                axes.iter()
+                    .any(|(tag, min, max)| *tag == swash::tag_from_bytes(b"wght") && max > min)
+            })
+            .expect("开发环境固定了带 wght 轴的可变字体（noto-fonts-cjk-sans）");
+        let (_, min_weight, max_weight) = variable_axes
+            .iter()
+            .find(|(tag, _, _)| *tag == swash::tag_from_bytes(b"wght"))
+            .copied()
+            .expect("已断言存在 wght 轴");
+
+        // 粗体只设 wght 一条轴，取值被 clamp 到字体声明的范围。
+        let bold = settings_of(variable_id, GlyphSynthesis::Bold);
+        assert_eq!(bold.len(), 1, "粗体只应设置 wght 一条轴");
+        assert_eq!(bold[0].tag, swash::tag_from_bytes(b"wght"));
+        assert_eq!(
+            bold[0].value,
+            VARIATION_WEIGHT_BOLD.min(max_weight).max(min_weight)
+        );
+
+        // 粗斜体：字体声明 ital 轴时两条，否则只有 wght。
+        let bold_italic = settings_of(variable_id, GlyphSynthesis::BoldItalic);
+        let has_ital = variable_axes
+            .iter()
+            .any(|(tag, _, _)| *tag == swash::tag_from_bytes(b"ital"));
+        assert_eq!(
+            bold_italic.len(),
+            if has_ital { 2 } else { 1 },
+            "粗斜体轴数须与字体声明一致"
+        );
+
+        // 静态字体（无 fvar，如 Maple Mono / DroidSansMono）不得产出轴设置，
+        // 交回轮廓级加粗/剪切。
+        let static_id = db
+            .faces()
+            .map(|face| face.id)
+            .find(|id| axes_of(*id).is_some_and(|axes| axes.is_empty()))
+            .expect("系统等宽字体不是可变字体");
+        assert!(
+            settings_of(static_id, GlyphSynthesis::BoldItalic).is_empty(),
+            "静态字体必须退回轮廓级合成"
+        );
     }
 
     #[test]
