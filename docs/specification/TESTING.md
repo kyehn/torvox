@@ -48,6 +48,7 @@
 - 采集：`./gradlew generateBaselineProfile`，需真机，等价链路为 `:baselineprofile:connectedNonMinifiedReleaseAndroidTest` → `mergeReleaseBaselineProfile` → `copyReleaseBaselineProfileIntoSrc`。
 - 采集必须带 `includeInStartupProfile = true`，否则只产出 dexopt 热方法，缺少 ART 启动类表，并触发 `noBaselineProfileRulesGenerated` 警告。
 - 采集结果写入 `android/app/src/<变体>/generated/baselineProfiles/baseline-prof.txt`，由插件把该路径注入为 baseline profile 源集，与 `src/main/baselineProfiles/` 的手写规则一并合并进 `assets/dexopt/baseline.prof`；`proguard-rules.pro` 必须保持 `-dontobfuscate`，否则规则中的类名失效。
+- 当前入库的采集结果来自 x86_64 模拟器（API 35、软件渲染），仅作兜底；正式发布前需在真机上重采并覆盖提交。
 - 宏基准：`./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest`，默认 `CompilationMode.Partial(baselineProfileMode = Require)`，profile 未安装直接失败。
 - 宏基准只输出指标不设阈值：CI 模拟器为 swiftshader 软件渲染，帧率不可作判据，阈值须在真机标定。
 - 采集模块不使用 `Thread.sleep`，等待一律走 UiAutomator 的 `wait`/`waitForIdle`。
