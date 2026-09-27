@@ -20,9 +20,6 @@ pub(crate) const FONTS_XML_CANDIDATES: [&str; 2] =
     ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"];
 
 #[cfg(target_os = "android")]
-static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
-
-#[cfg(target_os = "android")]
 static CACHED_FONT_DB: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]
@@ -38,86 +35,228 @@ pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
     log::debug!("FONT_LOAD: set {} extra font paths", extra.len());
 }
 
+/// 渲染侧的精简字体库：只装 fonts.xml 中**一个符号族** + **一个区域族**，
+/// 加上主字体（`~/.termux/font.ttf|ttc|otf`；为空时用 fonts.xml 的 monospace 族）。
+///
+/// DESIGN 字体节要求「遵循 Android 系统 fonts.xml」，而终端实际只用得上这几族：
+/// 符号层承载 ▶ ⏵ ♥ ★，区域层承载当前语言的 CJK，其余 200 余个族是
+/// WebView/UI 用字，渲染路径永不触及，故不加载。
 #[cfg(target_os = "android")]
 pub(crate) fn load_font_database() -> fontdb::Database {
     let db = CACHED_FONT_DB.get_or_init(|| {
-        // 只加载 fonts.xml 声明的文件：平台字体集的唯一来源，DESIGN 字体节要求
-        // 「遵循 Android 系统 fonts.xml」。OEM 私放但未声明的文件不加载。
-        let mut paths = CACHED_FONT_PATHS.get_or_init(|| {
-            let mut declared = Vec::new();
-            for xml_path in FONTS_XML_CANDIDATES {
-                let Ok(content) = std::fs::read_to_string(xml_path) else {
-                    continue;
-                };
-                declared.extend(parse_fonts_xml_declared_files(&content));
-                break;
-            }
-            declared.sort();
-            declared.dedup();
-
-            // fonts.xml 只给文件名，路径由平台字体目录表给出。
-            let mut resolved = Vec::new();
-            let mut missing = 0usize;
-            for filename in declared {
-                let Some(path) = resolve_font_path(&filename) else {
-                    missing += 1;
-                    continue;
-                };
-                resolved.push(path);
-            }
-            log::debug!(
-                "FONT_LOAD: fonts.xml declared {} loaded, {missing} missing",
-                resolved.len()
-            );
-            resolved
-        });
-
-        // 用户投放字体（DESIGN 字体选择节）：`~/.termux/font` 下的 ttf/ttc/otf。
-        let extra = EXTRA_FONT_PATHS.read();
-        let mut extra_loaded = 0usize;
-        for path in extra.iter() {
-            if path.is_file() {
-                match paths.iter_mut().find(|known| *known == path) {
-                    Some(known) => *known = path.clone(),
-                    None => paths.push(path.clone()),
-                }
-                extra_loaded += 1;
-            } else if path.is_dir()
-                && let Ok(entries) = std::fs::read_dir(path)
-            {
-                for entry in entries.flatten() {
-                    let file_path = entry.path();
-                    if is_font_file(&file_path) && !paths.contains(&file_path) {
-                        paths.push(file_path);
-                        extra_loaded += 1;
-                    }
-                }
-            }
-        }
-        if extra_loaded > 0 {
-            log::debug!(
-                "FONT_LOAD: {extra_loaded} user fonts from {} paths",
-                extra.len()
-            );
-        }
-
         let mut db = fontdb::Database::new();
-        let mut count = 0u32;
-        for path in paths {
-            if let Err(error) = db.load_font_file(&path) {
-                // 只记文件名：完整路径可能带出用户主目录。
-                log::warn!(
-                    "font: failed to load font file {}: {error}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                );
-            } else {
-                count += 1;
-            }
+        let mut loaded = 0u32;
+
+        // 主字体优先：用户投放的 `~/.termux/font.ttf|ttc|otf`，否则用 fonts.xml
+        // 的 monospace 族（`resolve_system_monospace_from_fonts_xml` 负责缺失时 abort）。
+        let primary = user_font_files();
+        if primary.is_empty() {
+            let target = resolve_system_monospace_from_fonts_xml();
+            loaded += load_files(&mut db, &resolve_font_files(std::slice::from_ref(&target)));
+        } else {
+            loaded += load_files(&mut db, &primary);
         }
-        log::debug!("FONT_LOAD: loaded {count} fonts");
+
+        // 一个符号族 + 一个区域族。fonts.xml 缺失时这两项为空：符号缺失只是
+        // ▶ ⏵ ♥ ★ 变豆腐块，区域缺失只是 CJK 变豆腐块，都不该让应用不可用。
+        let Some(content) = read_fonts_xml() else {
+            log::warn!("FONT_LOAD: fonts.xml 不可读，符号与区域回退族为空");
+            log::debug!("FONT_LOAD: loaded {loaded} font files");
+            return db;
+        };
+        let symbol = resolve_font_files(&symbol_family_files(&content));
+        loaded += load_files(&mut db, &symbol);
+        let region = resolve_font_files(&locale_fallback_files(&content, &current_locale()));
+        loaded += load_files(&mut db, &region);
+
+        log::debug!(
+            "FONT_LOAD: loaded {loaded} font files, {} faces",
+            db.faces().count()
+        );
         db
     });
     db.clone()
+}
+
+/// 按需加载一个字体族：设置页选中但尚未装入的族走这里。
+#[cfg(target_os = "android")]
+pub(crate) fn load_family(db: &mut fontdb::Database, family: &str) -> bool {
+    let Some(files) = family_files(family) else {
+        return false;
+    };
+    load_files(db, &resolve_font_files(files)) > 0
+}
+
+/// 字体族索引项：`display_name` 是展示用原始族名，`files` 是 fonts.xml 声明的
+/// 文件名（加载时按平台字体目录表解析成路径）。
+#[cfg(target_os = "android")]
+pub(crate) struct FamilyEntry {
+    pub display_name: String,
+    pub files: Vec<String>,
+}
+
+/// 族名 → 字体文件。**只在设置页显示字体列表时构建**，渲染路径永不触发：
+/// 族名存在字体的 name 表里，只能读完全部声明文件才能得到，实测约 4ms。
+/// 按展示名排序，供设置页直接渲染。
+#[cfg(target_os = "android")]
+pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
+    static INDEX: std::sync::OnceLock<Vec<FamilyEntry>> = std::sync::OnceLock::new();
+    INDEX.get_or_init(|| {
+        let Some(content) = read_fonts_xml() else {
+            return Vec::new();
+        };
+        // 同名字族（如 Noto Sans CJK SC 的多个文件）合并，DESIGN 字体节要求
+        // 列表内不重复；「DroidSans」与「Droid Sans」由字体自身的 name 表区分，
+        // 不做人工归并。
+        let mut display_to_files: std::collections::HashMap<String, Vec<String>> =
+            Default::default();
+        for filename in parse_fonts_xml_declared_files(&content) {
+            let Some(path) = resolve_font_path(&filename) else {
+                continue;
+            };
+            let mut db = fontdb::Database::new();
+            if db.load_font_file(&path).is_err() {
+                continue;
+            }
+            for face in db.faces() {
+                for (family, _) in &face.families {
+                    display_to_files
+                        .entry(family.clone())
+                        .or_default()
+                        .push(filename.clone());
+                }
+            }
+        }
+        let mut entries: Vec<FamilyEntry> = display_to_files
+            .into_iter()
+            .map(|(display_name, mut files)| {
+                files.sort();
+                files.dedup();
+                FamilyEntry {
+                    display_name,
+                    files,
+                }
+            })
+            .collect();
+        entries.sort_by(|a, b| a.display_name.cmp(&b.display_name));
+        log::debug!("FONT_INDEX: {} families indexed", entries.len());
+        entries
+    })
+}
+
+/// 按族名（忽略大小写）取其字体文件。
+#[cfg(target_os = "android")]
+pub(crate) fn family_files(family: &str) -> Option<&'static [String]> {
+    family_index()
+        .iter()
+        .find(|entry| entry.display_name.eq_ignore_ascii_case(family))
+        .map(|entry| entry.files.as_slice())
+}
+
+/// 当前系统语言，供 `fonts.xml` 的 `lang` 匹配使用。
+#[cfg(target_os = "android")]
+fn current_locale() -> String {
+    std::env::var("LANG").unwrap_or_default()
+}
+
+/// fonts.xml 里既无 `name` 也无 `lang` 的族即符号层：实测 emulator 的
+/// `NotoSansSymbols-Regular-Subsetted.ttf` 正是声明在这里。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn symbol_family_files(xml: &str) -> Vec<String> {
+    let Ok(document) = roxmltree::Document::parse(xml) else {
+        return Vec::new();
+    };
+    for family in document
+        .root_element()
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "family")
+    {
+        if family.attribute("name").is_some() || family.attribute("lang").is_some() {
+            continue;
+        }
+        let filenames: Vec<String> = family
+            .children()
+            .filter(|node| node.is_element() && node.tag_name().name() == "font")
+            .filter_map(|font| font.text().map(str::trim).map(str::to_string))
+            .filter(|text| !text.is_empty())
+            .collect();
+        if !filenames.is_empty() {
+            return filenames;
+        }
+    }
+    Vec::new()
+}
+
+/// 当前语言对应的区域回退族（简中 → `zh-Hans` 的 NotoSansCJK）。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn locale_fallback_files(xml: &str, locale: &str) -> Vec<String> {
+    let (_, lang_fallbacks) = parse_fonts_xml_families(xml);
+    for wanted in locale_fonts_xml_langs(locale) {
+        if let Some((_, filenames)) = lang_fallbacks
+            .iter()
+            .find(|(lang, _)| lang.split(',').any(|tag| tag == *wanted))
+        {
+            return filenames
+                .iter()
+                .map(|(filename, _)| filename.clone())
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// 用户投放字体：`~/.termux/font` 目录下的 ttf/ttc/otf。
+#[cfg(target_os = "android")]
+fn user_font_files() -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    for path in EXTRA_FONT_PATHS.read().iter() {
+        if path.is_file() {
+            files.push(path.clone());
+        } else if path.is_dir()
+            && let Ok(entries) = std::fs::read_dir(path)
+        {
+            files.extend(
+                entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|file_path| is_font_file(file_path)),
+            );
+        }
+    }
+    files
+}
+
+/// `fonts.xml` 只给文件名，路径由平台字体目录表解析；解析不到的文件丢弃。
+#[cfg(target_os = "android")]
+fn resolve_font_files(filenames: &[String]) -> Vec<std::path::PathBuf> {
+    filenames
+        .iter()
+        .filter_map(|filename| resolve_font_path(filename))
+        .collect()
+}
+
+#[cfg(target_os = "android")]
+fn read_fonts_xml() -> Option<String> {
+    FONTS_XML_CANDIDATES
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())
+}
+
+#[cfg(target_os = "android")]
+fn load_files(db: &mut fontdb::Database, paths: &[std::path::PathBuf]) -> u32 {
+    let mut count = 0u32;
+    for path in paths {
+        if let Err(error) = db.load_font_file(path) {
+            // 只记文件名：完整路径可能带出用户主目录。
+            log::warn!(
+                "font: failed to load font file {}: {error}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            );
+        } else {
+            count += 1;
+        }
+    }
+    count
 }
 
 /// 按平台字体目录表解析 `fonts.xml` 声明的文件名，首个命中即为该字体。
@@ -312,13 +451,6 @@ pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
     }
 }
 
-/// 宿主环境没有系统 fonts.xml：调用方据此跳过 fonts.xml 分支（见
-/// [`super::pipeline::FontPipeline::find_monospace_font`] 的 `cfg` 分派）。
-#[cfg(not(target_os = "android"))]
-pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
-    None
-}
-
 #[cfg(target_os = "android")]
 pub(crate) fn is_font_file(entry: &std::path::Path) -> bool {
     entry
@@ -394,7 +526,40 @@ mod tests {
             NotoSansCJK-Regular.ttc
         </font>
     </family>
+    <family>
+        <font>NotoSansSymbols-Regular-Subsetted.ttf</font>
+    </family>
 </familyset>"#;
+
+    /// 符号层取自既无 `name` 也无 `lang` 的族：实测 emulator（API 35）的
+    /// `NotoSansSymbols-Regular-Subsetted.ttf` 正声明在那里，按 name/lang 过滤会漏掉，
+    /// 终端将失去 ▶ ⏵ ♥ ★。
+    #[test]
+    fn symbol_family_comes_from_nameless_family() {
+        assert_eq!(
+            super::symbol_family_files(FONTS_XML_SNIPPET),
+            vec!["NotoSansSymbols-Regular-Subsetted.ttf"]
+        );
+        assert!(super::symbol_family_files("<familyset></familyset>").is_empty());
+        assert!(super::symbol_family_files("not xml").is_empty());
+    }
+
+    /// 区域族按当前语言取 `lang` 匹配项；语言不匹配时为空（不猜）。
+    #[test]
+    fn locale_family_follows_system_language() {
+        assert_eq!(
+            super::locale_fallback_files(FONTS_XML_SNIPPET, "zh-CN"),
+            vec!["NotoSansCJK-Regular.ttc"]
+        );
+        assert_eq!(
+            super::locale_fallback_files(FONTS_XML_SNIPPET, "ja"),
+            vec!["NotoSansCJK-Regular.ttc"]
+        );
+        assert!(
+            super::locale_fallback_files(FONTS_XML_SNIPPET, "en-US").is_empty(),
+            "非 CJK 语言不得回退到 CJK 族"
+        );
+    }
 
     #[test]
     fn parse_fonts_xml_monospace_and_lang_blocks() {
