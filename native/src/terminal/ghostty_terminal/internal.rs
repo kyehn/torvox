@@ -24,6 +24,11 @@ fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
 
 // ── Free functions ──────────────────────────────────────────────
 
+/// OSC 8 超链接内联缓冲（4KiB）：常见 URI 一次取回，超长按需增长。
+const HYPERLINK_INLINE_BUFFER_SIZE: usize = 4096;
+/// 超链接 URI 上限（64KiB）：`OutOfSpace{required}` 重试的封顶，避免无界分配。
+const MAX_HYPERLINK_URI_BYTES: usize = 64 * 1024;
+
 /// The 16 standard ANSI palette indices, in xterm order (normal colors
 /// followed by bright variants). `libghostty_vt::Palette` only exposes named
 /// `PaletteIndex` constants, so map theme colors onto them explicitly.
@@ -2052,12 +2057,12 @@ impl super::GhosttyTerminal {
             return None;
         }
         // 超长 URI（>4KiB）按上游 OutOfSpace{required} 重试，避免截断长链接。
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; HYPERLINK_INLINE_BUFFER_SIZE];
         match grid_ref.hyperlink_uri(&mut buf) {
             Ok(0) => None,
             Ok(len) => Some(String::from_utf8_lossy(&buf[..len]).into_owned()),
             Err(libghostty_vt::error::Error::OutOfSpace { required }) => {
-                let capped = required.min(64 * 1024);
+                let capped = required.min(MAX_HYPERLINK_URI_BYTES);
                 if capped == 0 {
                     return None;
                 }
@@ -2076,20 +2081,49 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         query: &str,
     ) -> Option<(u32, u32)> {
-        if query.is_empty() {
-            return None;
-        }
+        let pattern = Self::compile_search_pattern(query, true)?;
         let total = terminal.total_rows().unwrap_or(0) as u32;
         for row in 0..total {
             if let Some(line) = Self::read_line_text_impl(terminal, row)
-                && let Some(byte_offset) = line.find(query)
+                && let Some(matched) = pattern.find(&line)
             {
                 // SearchMatch 列为字符列而非字节偏移，CJK 行须转换以免高亮错位。
-                let column = line[..byte_offset].chars().count() as u32;
+                let column = line[..matched.start()].chars().count() as u32;
                 return Some((row, column));
             }
         }
         None
+    }
+
+    /// 文本搜索匹配长度上限：超长查询直接无命中，避免正则引擎与全回滚扫描浪费资源。
+    const MAX_SEARCH_QUERY_CHARS: usize = 128;
+
+    /// 用外部 `regex` 库编译字面搜索模式（大小写开关由库承载，不手写折叠循环）。
+    fn compile_search_pattern(query: &str, case_sensitive: bool) -> Option<regex::Regex> {
+        if query.is_empty() || query.chars().count() > Self::MAX_SEARCH_QUERY_CHARS {
+            return None;
+        }
+        regex::RegexBuilder::new(&regex::escape(query))
+            .case_insensitive(!case_sensitive)
+            .unicode(true)
+            .build()
+            .map_err(|error| {
+                log::warn!("search: invalid query: {error}");
+            })
+            .ok()
+    }
+
+    /// 单行内全部非重叠命中的字符列区间（库给出字节偏移，此处转字符列）。
+    fn search_line_columns(line: &str, pattern: &regex::Regex) -> Vec<(u32, u32)> {
+        pattern
+            .find_iter(line)
+            .map(|matched| {
+                (
+                    line[..matched.start()].chars().count() as u32,
+                    line[..matched.end()].chars().count() as u32,
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn search_in_scrollback_all_impl(
@@ -2103,16 +2137,11 @@ impl super::GhosttyTerminal {
         // 可导航上限（对标上游 50k 窗口）：超长回滚全匹配会卡死 UI，
         // 保留最新的 MAX 命中（用户最可能要看的是最新输出）。
         const MAX_NAVIGABLE_MATCHES: usize = 50_000;
+        let Some(pattern) = Self::compile_search_pattern(query, case_sensitive) else {
+            return vec![];
+        };
         let total = terminal.total_rows().unwrap_or(0) as u32;
         let mut results = Vec::new();
-        let search_query = if case_sensitive {
-            query.to_string()
-        } else {
-            // 大小写不敏感路径在小写空间匹配，无 Unicode 规范化：
-            // 小写展开字符（如 U+0130）后方列可能漂移，组合/分解形式直接 miss。
-            // 主流 ASCII/CJK 场景不受影响，复杂场景按规范不处理。
-            query.to_lowercase()
-        };
         let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as usize;
 
         // 倒序逐行扫描（软换行续接时相邻物理行拼接后再匹配，对标上游
@@ -2136,30 +2165,13 @@ impl super::GhosttyTerminal {
                 logical_text.insert_str(0, &previous);
                 logical_row = previous_row;
             }
-            let search_line = if case_sensitive {
-                logical_text
-            } else {
-                logical_text.to_lowercase()
-            };
-            let mut start = 0;
-            while let Some(col) = search_line[start..].find(&search_query) {
-                let abs_col = start + col;
-                // 字节偏移 → 字符列，CJK 行才不会高亮错位。
-                let match_start_col = search_line[..abs_col].chars().count() as u32;
-                let match_end = abs_col + search_query.len();
-                let match_end_col = search_line[..match_end].chars().count() as u32;
+            let search_line = logical_text;
+            for (match_start_col, match_end_col) in Self::search_line_columns(&search_line, &pattern) {
                 results.push(SearchMatch {
                     row: logical_row,
                     start_col: match_start_col,
                     end_col: match_end_col,
                 });
-                // 推进到本次匹配末尾（必为字符边界）：相邻匹配仍会找到，
-                // 重叠匹配不重复上报。
-                let mut next = match_end;
-                while next < search_line.len() && !search_line.is_char_boundary(next) {
-                    next += 1;
-                }
-                start = next;
                 if results.len() >= MAX_NAVIGABLE_MATCHES {
                     break;
                 }
