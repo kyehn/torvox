@@ -8,7 +8,7 @@ import terminal.emulator.BuildConfig
  *
  * 长消息被切分，使任何单条 logcat 条目都不超过平台负载上限（4068 字节）
  * ——超出部分会被 logcat 静默截断，丢失消息尾部。
- * 切分算法与原生 [`log_chunk`] 模块一致：`maxEntrySize = 4068 - 32 - tagLen - 4`
+ * 切分预算：`maxEntrySize = 4068 - 32 - tagLen - 4`
  * （32 字节 = logd 的每条头部，实测所得），续块带 `(i/n)` 前缀。
  */
 object LogUtil {
@@ -55,8 +55,7 @@ object LogUtil {
     }
 
     /**
-     * 把 [message] 切分为 logcat 大小的块。暴露供单元测试，对标原生
-     * `log_chunk::chunk_message`。
+     * 把 [message] 切分为 logcat 大小的块。暴露供单元测试。
      *
      * 预算以 UTF-8 字节计（logcat 计字节而非 UTF-16 码元），
      * 且切分只落在码点边界，使多字节 CJK 字符与 emoji 代理对绝不被切开。
