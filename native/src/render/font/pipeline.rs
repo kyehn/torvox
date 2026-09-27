@@ -1,14 +1,12 @@
-//! FontPipeline — font loading, glyph rasterization, and atlas management.
+//! FontPipeline：字体加载、字形光栅化与图集管理。
 
 use cosmic_text::FontSystem;
 
 use super::font_db;
 use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis};
 
-/// Structured font state for the Android UI layer. Serialized to JSON over
-/// JNI; all display formatting is done with string resources in Kotlin.
-/// Placement/color payload for an overlay glyph (grapheme continuation)
-/// drawn on top of a base cell quad.
+/// 叠加字形（字素簇延续部分）绘制在基础单元四边形之上的位置与配色。
+/// 整个 FontInfo 系列仅承载数据，全部显示格式由 Kotlin 的字符串资源完成。
 pub(crate) struct OverlayQuad {
     pub origin: [f32; 2],
     pub size: [f32; 2],
@@ -21,16 +19,14 @@ pub(crate) struct OverlayQuad {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FontInfo {
     pub active: Option<FontInfoActive>,
-    /// CJK fallback state: "fallback" (families listed), "skipped"
-    /// (primary font covers CJK) or "none".
+    /// CJK 回退状态："fallback"（已列出族名）、"skipped"（主字体已覆盖 CJK）或 "none"。
     pub cjk_state: String,
-    /// CJK fallback family names when `cjk_state` is "fallback".
+    /// `cjk_state` 为 "fallback" 时的 CJK 回退族名。
     pub cjk_families: Vec<String>,
     pub cell_width_px: f32,
     pub cell_height_px: f32,
-    /// Logical font size in sp (the value setFontSizeInPlace receives from
-    /// the Kotlin side, e.g. 41.3 for 413 tenths). Named `font_size` — NOT
-    /// px; device pixels = font_size * raster_scale * density.
+    /// 逻辑字号（sp，Kotlin 侧传入 setFontSizeInPlace 的值）。
+    /// 设备像素 = font_size * raster_scale * density。
     pub font_size: f32,
 }
 
@@ -49,24 +45,19 @@ pub struct FontPipeline {
     pub(crate) atlas_width: u32,
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
-    /// Independent bold/italic/bold-italic family slots (ghostty-android
-    /// TerminalFontStore 4-slot design, see docs/specification/REFERENCE.md):
-    /// when a style slot is set, glyph_information_styled prefers that real
-    /// face over same-family lookup + synthesis. Index: 0=bold, 1=italic,
-    /// 2=bold-italic.
+    /// 独立的粗体/斜体/粗斜体族槽位（ghostty-android 四槽位设计，参考 REFERENCE.md）：
+    /// 槽位已设置时 glyph_information_styled 优先用真实面而非同族查找 + 合成。
+    /// 下标：0=粗，1=斜，2=粗斜。
     pub(crate) styled_font_ids: [Option<fontdb::ID>; 3],
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
-    /// Symbol layer, moke chain: primary → CJK → symbols →
-    /// Nerd → emoji → db scan): generic symbol fonts (Noto Sans Symbols 2
-    /// and friends) for ▶ ⏵ ♥ ★ and similar terminal glyphs.
+    /// 符号层（回退链：主字体 → CJK → 符号 → Nerd → emoji → 库扫描）：
+    /// 承载 ▶ ⏵ ♥ ★ 等终端字形的通用符号字体。
     pub(crate) symbol_fallback_ids: Vec<fontdb::ID>,
-    /// Nerd layer: Nerd-patched families for private-use-area glyphs
-    /// (U+E000..U+F8FF — powerline separators, devicons, file icons).
+    /// Nerd 层：为私用区码位（U+E000..U+F8FF，powerline 分隔符、devicons、文件图标）
+    /// 打过 Nerd 补丁的族。
     pub(crate) nerd_fallback_ids: Vec<fontdb::ID>,
-    /// Emoji layer: NotoColorEmoji-style families. swash cannot outline
-    /// color glyphs, so these are tried and skipped at render time; the
-    /// layer exists so the chain matches moke's "try emoji" semantics
-    /// and the database scan /.notdef takes over.
+    /// Emoji 层：NotoColorEmoji 一类族。swash 无法为彩色字形生成轮廓，
+    /// 渲染时会被尝试后跳过；保留该层是为让回退链与 moke 的 "try emoji" 语义一致。
     pub(crate) emoji_fallback_ids: Vec<fontdb::ID>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
@@ -97,7 +88,7 @@ impl FontPipeline {
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {
-                        // File name only: the full path can embed a user home dir.
+                        // 只记文件名：完整路径可能带出用户主目录。
                         log::warn!(
                             "font: failed to load font file {}: {error}",
                             path.file_name().unwrap_or_default().to_string_lossy()
@@ -112,7 +103,7 @@ impl FontPipeline {
                         let file_path = entry.path();
                         if font_db::is_font_file(&file_path) {
                             if let Err(error) = db.load_font_file(&file_path) {
-                                // File name only: the full path can embed a user home dir.
+                                // 只记文件名：完整路径可能带出用户主目录。
                                 log::warn!(
                                     "font: failed to load font file {}: {error}",
                                     file_path.file_name().unwrap_or_default().to_string_lossy()
@@ -261,9 +252,8 @@ impl FontPipeline {
         unreachable!("fonts.xml 解析失败时 resolve_system_monospace_from_fonts_xml 已 abort");
     }
 
-    /// Reset the glyph atlas allocator, clear the bitmap, bump the
-    /// generation counter, and re-rasterize ASCII glyphs. Called whenever
-    /// font size, raster scale, or font family changes.
+    /// 重建字形图集：重置分配器、清位图、递增代次并重光栅化 ASCII。
+    /// 字号、光栅缩放或字体族变化后调用。
     fn reset_atlas(&mut self) {
         self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
             self.atlas_width as i32,
@@ -275,9 +265,7 @@ impl FontPipeline {
         self.rasterize_ascii();
     }
 
-    /// Clear all shape/glyph lookup caches (identity caches that map
-    /// codepoints to glyph IDs). Called before any font-family or locale
-    /// change that invalidates glyph identity resolution.
+    /// 清空整形/字形标识缓存。字体族或语言变化使码位到字形号的映射失效后调用。
     fn clear_identity_caches(&mut self) {
         self.caches.shape_cache.clear();
         self.caches.glyph_id_cache.clear();
@@ -285,9 +273,8 @@ impl FontPipeline {
         self.caches.ascii_glyph_ids = [None; 128];
     }
 
-    /// Rediscover all fallback font layers (CJK, symbol, Nerd, emoji)
-    /// and re-rasterize ASCII glyphs. Called after any font change that
-    /// may affect which fallback fonts are available.
+    /// 重新发现全部回退字体层（CJK、符号、Nerd、emoji）并重光栅化 ASCII。
+    /// 任何可能改变可用回退字体的字体变更后调用。
     fn rediscover_fallback_fonts(&mut self) {
         self.fallback_generation = self.fallback_generation.wrapping_add(1);
         self.cjk_fallback_ids.clear();
@@ -340,7 +327,7 @@ impl FontPipeline {
         false
     }
 
-    /// Style slot index for the independent bold/italic families.
+    /// 独立粗/斜体族的槽位下标。
     /// 0 = bold, 1 = italic, 2 = bold-italic.
     pub(crate) fn styled_slot_index(bold: bool, italic: bool) -> usize {
         match (bold, italic) {
@@ -400,12 +387,9 @@ impl FontPipeline {
         self.raster_scale.max(f32::EPSILON)
     }
 
-    /// Build the overlay quad for a grapheme-continuation codepoint
-    /// (combining mark, emoji ZWJ component, ...) on top of a base glyph.
-    /// Returns `None` when the codepoint is not a char or the glyph is not
-    /// in the atlas. The overlay shares the base instance's quad origin,
-    /// size and colors; UVs and bearing derive from the glyph metrics like
-    /// the base instance, except the overlay always advances 0 cells.
+    /// 为字素簇延续码位（组合标记、emoji ZWJ 组件等）构造叠加四边形。
+    /// 叠加与基础实例共享原点、尺寸与配色，UV 与基线偏移同样取自字形度量，
+    /// 区别只在于叠加永远前进 0 个单元格。
     pub(crate) fn overlay_glyph_instance(
         &mut self,
         codepoint: u32,
@@ -417,9 +401,8 @@ impl FontPipeline {
         self.shaped_overlay_instance(&info, quad, cell_h)
     }
 
-    /// Overlay quad from an already-rasterized shaped glyph (cluster shaping
-    /// path): same math as the codepoint lookup above, plus the caller
-    /// bakes the shaper position into the quad origin beforehand.
+    /// 由已光栅化的整形字形构造叠加四边形（簇整形路径）：计算同上，
+    /// 另需调用方事先把整形器位置烘进四边形原点。
     pub(crate) fn shaped_overlay_instance(
         &self,
         info: &super::GlyphInfo,
@@ -487,14 +470,10 @@ impl FontPipeline {
             .unwrap_or_default()
     }
 
-    /// CJK fallback family names in priority order (same order as
-    /// `cjk_fallback_ids`, which is sorted by effective_priority).
-    /// Deduplicated preserving first occurrence, and generic CJK families
-    /// (containing "cjk" but not "serif") are normalized to "Noto Sans CJK"
-    /// so "Noto Sans CJK SC" / "Noto Sans CJK JP" collapse to one display
-    /// entry while "Noto Serif CJK" stays distinct. No alphabetical sort —
-    /// the first element is the actual render winner and must equal the
-    /// `FALLBACK_HIT` family.
+    /// 按优先级返回 CJK 回退族名（顺序同按 effective_priority 排序的
+    /// `cjk_fallback_ids`）。去重保留首次出现，通用 CJK 族（含 "cjk" 不含
+    /// "serif"）归并为一项 "Noto Sans CJK"，"Noto Serif CJK" 仍独立保留。
+    /// 不按字母排序：首元素即实际渲染命中者，必须与 `FALLBACK_HIT` 族一致。
     pub fn cjk_fallback_names(&self) -> Vec<String> {
         let db = self.font_system.db();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -526,8 +505,7 @@ impl FontPipeline {
         normalized
     }
 
-    /// Alphabetically sorted view of `cjk_fallback_names()`, for deterministic
-    /// UI tests and comparison harnesses that need a canonical order.
+    /// `cjk_fallback_names()` 的字母序视图，供需要规范顺序的 UI 测试与比对工具使用。
     pub fn cjk_fallback_names_sorted(&self) -> Vec<String> {
         let mut names = self.cjk_fallback_names();
         names.sort();
@@ -583,9 +561,8 @@ impl FontPipeline {
         parts.join("\n")
     }
 
-    /// Structured font information for the UI layer (JNI). The renderer's
-    /// display strings live in Kotlin resources; this carries only data so
-    /// the Android side can localize each line.
+    /// 供 UI 层（JNI）使用的结构化字体信息，仅承载数据，
+    /// 显示字符串一律放在 Kotlin 资源里以便本地化。
     pub fn font_info(&self) -> FontInfo {
         let db = self.font_system.db();
         let active = self.font_id.and_then(|id| db.face(id)).map(|face| {
@@ -633,7 +610,7 @@ impl FontPipeline {
         self.font_size
     }
 
-    /// Look up a previously rasterized glyph in the cache.
+    /// 在缓存中查已光栅化的字形。
     pub(super) fn lookup_glyph(
         &mut self,
         font_id: fontdb::ID,
@@ -703,7 +680,7 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // 2) Fall back to synthesizing the base (or fallback) face.
+        // 2) 退回对基底面（或回退面）做合成。
         let synthesis = match (bold, italic) {
             (true, true) => GlyphSynthesis::BoldItalic,
             (true, false) => GlyphSynthesis::Bold,
@@ -713,13 +690,10 @@ impl FontPipeline {
         self.glyph_information_with_synthesis(ch, synthesis)
     }
 
-    /// Find a face of the same font family with the requested weight/style.
-    /// Returns the same id when the base face already matches, and None
-    /// when no matching face exists (caller then uses synthesis).
-    ///
-    /// Results are memoized in `style_face_cache` so the fontdb family/
-    /// weight/style query runs at most once per (font, bold, italic)
-    /// combination instead of once per styled cell per frame.
+    /// 查找同族内符合请求字重/样式的面：基底面已符合时返回同一 id，
+    /// 无匹配面时返回 None（由调用方改用合成）。
+    /// 结果记在 `style_face_cache`，使 fontdb 查询每个 (字体, 粗, 斜)
+    /// 组合至多执行一次，而非每帧每个样式单元一次。
     pub(crate) fn resolve_style_face(
         &mut self,
         base_id: fontdb::ID,
@@ -756,8 +730,8 @@ impl FontPipeline {
         result
     }
 
-    /// Cached charmap lookup on a (possibly styled) face: maps `ch` to its
-    /// glyph id without re-entering `with_face_data` on every call.
+    /// 在（可能已加样式的）面上缓存式查 charmap，把 `ch` 映射到字形号，
+    /// 避免每次调用都重入 `with_face_data`。
     fn style_glyph_id(&mut self, face_id: fontdb::ID, ch: char) -> Option<swash::GlyphId> {
         let key = (face_id, ch as u32);
         if let Some(&cached) = self.caches.style_glyph_id_cache.get(&key) {
@@ -784,7 +758,7 @@ impl FontPipeline {
         let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
         let synthesized = synthesis != GlyphSynthesis::None;
 
-        // ── Fast path: ASCII with cached glyph_id —─────────────────────────
+        // ── 快径：ASCII 且字形号已缓存 ──
         if (ch as u32) < 128
             && let Some(gid) = self.caches.ascii_glyph_ids[ch as usize]
             && let Some(info) = self.lookup_glyph(primary_font_id, gid, synthesis)
@@ -792,9 +766,8 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── CJK cache: skip swash + fallback for already-resolved chars ─────
-        // (skipped when synthesizing — the cached (font, glyph) pair was
-        // resolved for the regular style and does not apply to styled runs)
+        // ── CJK 缓存：已解析过的字跳过 swash 与回退 ──
+        // 合成时不用：缓存的 (字体, 字形) 是按常规样式解析的，不适用于样式运行
         if !synthesized
             && (ch as u32) >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
@@ -804,7 +777,7 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── Resolve glyph_id (cached if possible) ───────────────────────────
+        // ── 解析字形号（优先缓存） ──
         let glyph_id = if let Some(&cached) = self.caches.glyph_id_cache.get(&(ch as u32)) {
             cached
         } else {
@@ -820,15 +793,14 @@ impl FontPipeline {
             gid
         };
 
-        // Cache ASCII glyph_id for future fast-path lookups.
+        // 缓存 ASCII 字形号供后续快径命中。
         if (ch as u32) < 128 {
             self.caches.ascii_glyph_ids[ch as usize] = Some(glyph_id);
         }
 
-        // ── Check glyph_cache before expensive CJK ops ──────────────────────
-        // PUA (Nerd Font) characters skip this fast path: the cache may
-        // hold the primary font's.notdef (tofu) from before a Nerd Font
-        // was installed/loaded.
+        // ── 进入开销较大的 CJK 处理前先查 glyph_cache ──
+        // 私用区（Nerd Font）字符不走这条快径：缓存里可能是加载 Nerd Font
+        // 之前主字体写入的 .notdef（豆腐块）。
         let is_nerd_pua = (ch as u32) >= 0xE000 && (ch as u32) <= 0xF8FF;
         if !is_nerd_pua && let Some(info) = self.lookup_glyph(primary_font_id, glyph_id, synthesis)
         {
@@ -840,10 +812,9 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── CJK: check outline, try fallback ────────────────────────────────
-        // (skipped when synthesizing: the outline-fallback face resolves
-        // the regular glyph shape; styled runs keep the base path so the
-        // synthesis applies to the rasterized mask)
+        // ── CJK：先查轮廓再试回退 ──
+        // 合成时跳过：轮廓回退面解析的是常规字形，样式运行必须留在基底路径上，
+        // 这样合成的加粗/倾斜才能作用到已光栅化的遮罩。
         if !synthesized && glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback
         {
             // cached 版：scaler 构建 + Render 约 20µs/次，不缓存则每字重复探测。
@@ -853,18 +824,12 @@ impl FontPipeline {
             }
         }
 
-        // ── glyph_id == 0: search the layered fallback chain ────────────────
-        //, moke chain: primary → CJK → symbols → Nerd →
-        // emoji → whole-database scan; spec d7)
-        //
-        // PUA (Nerd Font private-use area U+E000..U+F8FF) characters must
-        // also route through the chain even when the primary font maps
-        // them: most fonts map the PUA to.notdef (the tofu box), so a
-        // non-zero glyph_id from the primary is not a real glyph.
+        // ── 字形号为 0：按层搜索回退链 ──
+        // 主字体 → CJK → 符号 → Nerd → emoji → 全库扫描（spec d7）。
+        // 私用区字符即使主字体映射成功也必须走链：多数字体把 PUA 映射到
+        // .notdef（豆腐块），非零字形号并不代表真的有字形。
         if glyph_id == 0 || is_nerd_pua {
-            // Collect the layered ids first: the chain borrows self's
-            // fields, which would conflict with the &mut self render call
-            // inside the loop.
+            // 先收集各层 id：链会借用 self 的字段，与循环内的 &mut self 渲染调用冲突。
             let fallback_ids: Vec<fontdb::ID> = self
                 .cjk_fallback_ids
                 .iter()
@@ -907,14 +872,10 @@ impl FontPipeline {
                         self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
                     }
                     return Some(result);
-                    // Rendering failed (e.g. a color font swash cannot
-                    // outline): try the next layer instead of returning a
-                    // 0x0 placeholder.
                 }
             }
-            // Whole-database scan tail of the chain (spec d7: "ending with
-            // a whole-font-database scan"). Cached by cjk_glyph_cache, so
-            // it runs once per character.
+            // 链尾的全库扫描（spec d7：以全字体库扫描结束）。结果进
+            // cjk_glyph_cache，故每个字只跑一次。
             if let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
                 && let Some(result) =
                     self.glyph_information_from_font_with_synthesis(scan_id, scan_gid, synthesis)
