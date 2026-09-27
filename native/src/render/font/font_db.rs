@@ -117,16 +117,12 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
         let mut display_to_files: std::collections::HashMap<String, Vec<String>> =
             Default::default();
         let mut push_family = |family: String, file_label: String| {
-            if let std::collections::hash_map::Entry::Vacant(entry) =
-                display_to_files.entry(family.clone())
-            {
-                entry.insert(Vec::new());
-                ordered_names.push(family);
-            }
-            if let Some(files) = display_to_files.get_mut(&family) {
-                if !files.contains(&file_label) {
-                    files.push(file_label);
-                }
+            let files = display_to_files.entry(family.clone()).or_insert_with(|| {
+                ordered_names.push(family.clone());
+                Vec::new()
+            });
+            if !files.contains(&file_label) {
+                files.push(file_label);
             }
         };
         if let Some(content) = read_fonts_xml() {
