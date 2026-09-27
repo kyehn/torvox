@@ -1,10 +1,10 @@
 use libghostty_vt::key::Key;
 
-/// Map Android `KeyEvent` key codes to ghostty `key::Key` values.
-/// Reference: <https://developer.android.com/reference/android/view/KeyEvent>
+/// 将 Android `KeyEvent` 键码映射为 ghostty `key::Key`。
+/// 参考 <https://developer.android.com/reference/android/view/KeyEvent>
 pub(crate) fn map_android_key_code(key_code: u32) -> Key {
     match key_code {
-        // Alphabet keys
+        // 字母键
         29 => Key::A,
         30 => Key::B,
         31 => Key::C,
@@ -31,7 +31,7 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         52 => Key::X,
         53 => Key::Y,
         54 => Key::Z,
-        // Digit keys
+        // 数字键
         7 => Key::Digit0,
         8 => Key::Digit1,
         9 => Key::Digit2,
@@ -42,7 +42,7 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         14 => Key::Digit7,
         15 => Key::Digit8,
         16 => Key::Digit9,
-        // Symbol keys
+        // 符号键
         68 => Key::Backquote,
         69 => Key::Minus,
         70 => Key::Equal,
@@ -54,7 +54,7 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         76 => Key::Slash,
         55 => Key::Comma,
         56 => Key::Period,
-        // Navigation and editing
+        // 导航与编辑
         19 => Key::ArrowUp,
         20 => Key::ArrowDown,
         21 => Key::ArrowLeft,
@@ -70,7 +70,7 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         92 => Key::PageUp,
         93 => Key::PageDown,
         124 => Key::Insert,
-        // Modifier keys
+        // 修饰键
         57 => Key::AltLeft,
         58 => Key::AltRight,
         59 => Key::ShiftLeft,
@@ -81,7 +81,7 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         116 => Key::ScrollLock,
         143 => Key::NumLock,
         119 => Key::Fn,
-        // Function keys
+        // 功能键
         131 => Key::F1,
         132 => Key::F2,
         133 => Key::F3,
@@ -94,12 +94,12 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         140 => Key::F10,
         141 => Key::F11,
         142 => Key::F12,
-        // System keys
+        // 系统键
         117 => Key::MetaLeft,
         118 => Key::MetaRight,
         120 => Key::PrintScreen,
         121 => Key::Pause,
-        // Numpad keys
+        // 小键盘
         144 => Key::Numpad0,
         145 => Key::Numpad1,
         146 => Key::Numpad2,
@@ -118,7 +118,7 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         159 => Key::NumpadComma,
         160 => Key::NumpadEnter,
         161 => Key::NumpadEqual,
-        // Media keys
+        // 媒体键
         85 => Key::MediaPlayPause,
         86 => Key::MediaStop,
         87 => Key::MediaTrackNext,
@@ -235,13 +235,13 @@ mod tests {
         assert_eq!(map_android_key_code(0), Key::Unidentified);
         assert_eq!(map_android_key_code(1), Key::Unidentified);
         assert_eq!(map_android_key_code(999), Key::Unidentified);
-        // KEYCODE_SYSRQ etc. that we don't map
+        // KEYCODE_SYSRQ 等未映射的键码
         assert_eq!(map_android_key_code(200), Key::Unidentified);
     }
 
     #[test]
     fn every_android_code_has_unique_mapping() {
-        // 全映射键码无重复映射：收集所有已定义码并确认总数（代表性抽查保证结构完整）
+        // 已映射键码无重复映射：全部已定义码与总数一致
         let mapped: Vec<u32> = vec![
             7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
             41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 68, 69, 70, 71, 72, 73,

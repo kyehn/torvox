@@ -1,19 +1,10 @@
-//! GPU render pipeline — wgpu instance management, atlas, glyph rendering.
+//! GPU 渲染管线：wgpu 实例管理、图集与字形渲染，无 CPU/Canvas 回退路径。
+//! [`font`] 负责整形与光栅化，`pipeline` 构建管线，`pass` 驱动逐帧渲染。
 //!
-//! The only rendering path — there is no CPU/Canvas fallback. The [`font`]
-//! sub-module performs text shaping (cosmic-text), glyph rasterization (swash),
-//! and atlas packing (guillotiere); [`context`] owns the `Renderer` struct;
-//! `pipeline` builds wgpu pipelines; `pass` drives per-frame rendering;
-//! [`context`] owns the Android surface lifecycle.
-//!
-//! The atlas alpha-coverage texture uses `Rgba8Unorm` (R channel = coverage,
-//! GBA = 0), a **linear** (non-sRGB) format; glyph coverage data is already in
-//! linear space, so the GPU applies no gamma correction on sampling.
+//! 图集的 alpha 覆盖纹理用 `Rgba8Unorm`（R 通道为覆盖率，GBA 为 0）且是
+//! **线性**非 sRGB 格式：覆盖率数据本就在线性空间，GPU 采样时不做 gamma 校正。
 
-//! # Requirements
-//! - FR-050 — Android surface lifecycle (attach/detach) recreates the wgpu surface and pipeline
-
-// ── Sub-modules ──────────────────────────────────────────────────────────
+// ── 子模块 ──────────────────────────────────────────────────────────────
 pub mod font;
 pub mod kitty;
 
@@ -21,17 +12,15 @@ pub(crate) mod cell_builder;
 pub mod context;
 mod pass;
 mod pipeline;
-// Off-screen render-verification path (see docs/specification/REFERENCE.md):
-// procedural geometry + depth-attached LOD grid are crate-test-only — the
-// production `Renderer` keeps zero depth attachments (2D terminal rendering
-// needs none), so this module must not ship in the normal build or leak into
-// the native integration tests (which enable `test-util`).
+// 离屏渲染验证路径（见 docs/specification/REFERENCE.md）：程序化几何与带深度附件的
+// LOD 网格仅供 crate 内测试，2D 终端渲染不需要深度附件，故不进正常构建，
+// 也不泄漏到启用了 `test-util` 的原生集成测试。
 pub(crate) mod wgpu_backend;
 
 #[cfg(test)]
 mod tests;
 
-// ── Re-exports ───────────────────────────────────────────────────────────
+// ── 再导出 ──────────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, build_instances_from_cell_data};
 #[cfg(test)]
 pub(crate) use cell_builder::{SearchHighlight, blend_highlight, cell_highlight};
@@ -43,14 +32,12 @@ pub use pipeline::GpuUniforms;
 #[cfg(test)]
 pub(crate) use pipeline::QUAD_CORNERS;
 
-/// Serialises GPU benchmarks: under software Vulkan (Mesa Lavapipe) each
-/// test creates its own wgpu device, and parallel benchmarks contend for
-/// CPU so hard throughput thresholds become flaky. The lock is held for
-/// the whole benchmark body, guaranteeing one benchmark at a time.
+/// 串行化 GPU 基准：软件 Vulkan（Mesa Lavapipe）下每个测试各自建设备，
+/// 并行争抢 CPU 会使吞吐阈值抖动，故整段基准持有锁，保证一次只跑一个。
 #[cfg(test)]
 pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
-// ── Public Constants ─────────────────────────────────────────────────────
+// ── 公开常量 ────────────────────────────────────────────────────────────
 pub const RENDER_SCALE: f32 = 1.0;
 
 pub const CATPPUCCIN_MOCHA_BACKGROUND: wgpu::Color = wgpu::Color {
@@ -60,7 +47,7 @@ pub const CATPPUCCIN_MOCHA_BACKGROUND: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
-// ── Error Type ───────────────────────────────────────────────────────────
+// ── 错误类型 ────────────────────────────────────────────────────────────
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -79,7 +66,7 @@ pub enum GpuError {
     Readback(String),
 }
 
-// ── GPU Instance Types ───────────────────────────────────────────────────
+// ── GPU 实例类型 ────────────────────────────────────────────────────────
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -89,7 +76,7 @@ pub struct CellInstance {
     pub atlas_size: [f32; 2],
     pub foreground: [f32; 4],
     pub background: [f32; 4],
-    /// SGR 58 underline/decoration color (falls back to foreground upstream).
+    /// SGR 58 下划线/装饰色，上游回退到前景色。
     pub underline_color: [f32; 4],
     pub quad_size: [f32; 2],
     pub flags: f32,
@@ -166,9 +153,7 @@ impl KittyGraphicsInstance {
     }
 }
 
-// ── Re-export surface for benches and render tests ─────────────────────────
-// Benches and in-crate tests reach the render internals (instance types +
-// builders) through this single module.
+// ── 供基准与渲染测试使用的再导出面 ─────────────────────────────────────────
 pub mod gpu {
     pub use super::cell_builder::{
         CellCursor, CellInstanceConfig, SearchHighlight, build_instances_from_cell_data,

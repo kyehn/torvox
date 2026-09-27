@@ -81,13 +81,6 @@
         <item quantity="other">已粘贴 %d 个字符</item>
     </plurals>
 
-    <!-- Accessibility -->
-    <plurals name="sessions_accessible">
-        <item quantity="one">%d 个会话</item>
-        <item quantity="other">%d 个会话</item>
-    </plurals>
-    <string name="title_changed">终端标题已更改为 %s</string>
-
     <!-- Bootstrap -->
     <string name="bootstrap_install">安装引导程序</string>
     <string name="bootstrap_installing">安装中…</string>
@@ -133,7 +126,6 @@
     <string name="clear_app_data_confirm">确定要清除所有应用数据吗？此操作无法撤销。设置、会话历史记录和日志将被永久删除。引导程序文件和主目录不受影响。</string>
     <string name="clear_app_data_desc">重置所有设置、会话和日志。不会删除引导程序文件或主目录。</string>
     <string name="clear_app_data_done">应用数据已清除。请重新启动应用以完成完全重置。</string>
-    <string name="compose_key">Compose 键</string>
     <string name="control_toggle">Ctrl 切换</string>
     <string name="end_key">End</string>
     <string name="escape">Esc</string>
@@ -145,15 +137,11 @@
     <string name="font_info_cjk_none">CJK 后备：无</string>
     <string name="font_info_cjk_skipped">CJK 后备已跳过（主字体支持 CJK）</string>
     <string name="font_info_size_sp">字体大小：%1$s SP（约 %2$s px）</string>
-    <string name="function_key_layer">功能键层</string>
     <string name="home_key">Home</string>
     <string name="no_font_loaded">未加载字体</string>
     <string name="open_session_drawer">打开会话抽屉</string>
     <string name="page_down">Page Down</string>
     <string name="page_up">Page Up</string>
-    <string name="search_no_results_accessible">未找到结果</string>
-    <string name="search_result_accessible">第 %1$d 个，共 %2$d 个</string>
-    <string name="selection_accessible">已选择：%1$s</string>
     <string name="session_number">会话 %1$d</string>
     <string name="tab_key">Tab</string>
     <string name="toggle_keyboard">显示或隐藏键盘</string>

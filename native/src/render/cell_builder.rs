@@ -934,18 +934,18 @@ fn append_row_instances(
 
 /// Detect a pure vertical scroll shift between two frames for the blit path.
 /// Returns `Some(shift)` when `new[0..(rows-shift)*cols]` equals
-/// `old[shift*cols..]` for some `1<=shift<=max_scan`, otherwise `None`.
+/// `old[shift*cols..]` for some `1<=shift<=max_scan_rows`, otherwise `None`.
 /// Used by the GPU dirty-band path to replace a full rebuild with a blit.
-/// `rows` is the grid height, `max_scan` caps the search (prevents O(n²)
+/// `rows` is the grid height, `max_scan_rows` caps the search (prevents O(n²)
 /// on large grids). Empty grids or `rows==0` return `None`.
 #[cfg(test)]
 pub fn detect_vertical_shift(
     old: &[crate::terminal::ghostty_terminal::CellData],
     new: &[crate::terminal::ghostty_terminal::CellData],
     rows: usize,
-    max_scan: usize,
+    max_scan_rows: usize,
 ) -> Option<usize> {
-    if old.is_empty() || new.is_empty() || rows == 0 || max_scan == 0 {
+    if old.is_empty() || new.is_empty() || rows == 0 || max_scan_rows == 0 {
         return None;
     }
     if old.len() != new.len() {
@@ -968,7 +968,7 @@ pub fn detect_vertical_shift(
     if identical {
         return None;
     }
-    let max = max_scan.min(rows.saturating_sub(1));
+    let max = max_scan_rows.min(rows.saturating_sub(1));
     for shift in 1..=max {
         let remaining_rows = rows - shift;
         let mut matches = true;

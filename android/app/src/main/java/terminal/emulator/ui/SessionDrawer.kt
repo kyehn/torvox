@@ -75,12 +75,11 @@ fun SessionDrawer(
             .fillMaxWidth(0.84f)
             .background(backgroundColor)
             .testTag("SessionDrawer")
-            // Requires AndroidManifest `windowSoftInputMode="adjustNothing"` —
-            // imePadding adds keyboard-height bottom padding; adjustNothing
-            // prevents the framework from resizing the activity (which would
-            // change terminal grid rows/cols).  WindowInsets(0.dp) in Compose
-            // alone does NOT prevent View.setImeWindowInsets() from modifying
-            // mPaddingBottom at the View layer.
+            // 需要 AndroidManifest 的 `windowSoftInputMode="adjustNothing"`
+            // ——imePadding 会加入键盘高度的底部内边距；adjustNothing
+            // 则阻止框架调整 Activity 尺寸（那会改变终端网格的行列）。
+            // 仅在 Compose 侧用 WindowInsets(0.dp)
+            // 并不能阻止 View.setImeWindowInsets() 在视图层修改 mPaddingBottom。
             .imePadding()
             .navigationBarsPadding(),
     ) {

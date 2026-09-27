@@ -1,21 +1,16 @@
 package terminal.emulator.runtime
 
 /**
- * Baseline-adaptive degradation detector for the frame-timing windows
- * reported by [FrameTimingStats].
+ * 针对 [FrameTimingStats] 窗口的基线自适应降级检测器。
  *
- * A fixed absolute WARN threshold cannot serve both the software-rendered
- * emulator (~555ms/frame baseline) and a real device (~17ms/frame): on the
- * emulator it never fires, on a device it misses gradual regressions. This
- * class instead learns each device's own baseline (EMA of non-degraded
- * window averages) and flags a window as degraded when its average climbs
- * to [degradationFactor]× the baseline and stays above an absolute
- * [attentionFloorNanos] — so a real regression surfaces in the logs on any
- * hardware without assuming the device type.
+ * 固定的绝对 WARN 阈值无法同时服务软件渲染模拟器（基线 ~555ms/帧）与真机（~17ms/帧）：
+ * 在模拟器上永不触发，在真机上则漏掉渐进回归。本类改为学习每台设备自身的基线
+ * （非降级窗口均值的 EMA），当某窗口均值攀升到基线的 [degradationFactor] 倍
+ * 且持续高于绝对阈值 [attentionFloorNanos] 时标记为降级
+ * ——使真实回归在任何硬件上都能在日志中显现，而无需假定设备类型。
  *
- * Baseline update rule: only non-degraded windows move the EMA, so a
- * sustained regression keeps alerting instead of being absorbed into the
- * baseline ("boiling frog" guard).
+ * 基线更新规则：只有非降级窗口才推进 EMA，使持续回归持续告警
+ * 而不是被吸收进基线（「温水煮青蛙」防护）。
  */
 class FrameTimingTrend(
     private val degradationFactor: Double = DEFAULT_DEGRADATION_FACTOR,
@@ -25,9 +20,8 @@ class FrameTimingTrend(
     private var baselineNanos: Double? = null
 
     /**
-     * Feeds one completed window's average render duration and returns true
-     * when it is degraded relative to the learned baseline (and above the
-     * attention floor). The first window only initializes the baseline.
+     * 喂入一个已完成窗口的平均渲染时长；当其相对学习到的基线已降级
+     * （且高于关注阈值）时返回 true。首个窗口仅用于初始化基线。
      */
     fun observe(windowAverageNanos: Long): Boolean {
         val baseline = baselineNanos
@@ -42,19 +36,20 @@ class FrameTimingTrend(
         return degraded && windowAverageNanos >= attentionFloorNanos
     }
 
-    /** Learned baseline (ns), or null before the first window. Test/debug aid. */
+    /** 学习到的基线（ns），首个窗口之前为 null。供测试/调试。 */
     fun currentBaselineNanos(): Long? = baselineNanos?.toLong()
 
     companion object {
-        /** 3× the learned baseline counts as a degradation worth logging. */
+        /** 学习到的基线的 3 倍即视为值得记录的降级。 */
         const val DEFAULT_DEGRADATION_FACTOR = 3.0
 
-        /** Below 100ms average a window is never "degraded" — sub-6 FPS
-         *  is a real problem on a device and already pathological on the
-         *  emulator, so the floor adds no signal loss either way. */
+        /**
+         * 平均值低于 100ms 的窗口绝不算「降级」——低于 6 FPS 在真机上已是真问题，
+         * 在模拟器上更是病态，故该阈值在两种情况下都不会损失信号。
+         */
         const val DEFAULT_ATTENTION_FLOOR_NANOS = 100_000_000L
 
-        /** EMA smoothing: 0.25 weights the newest window, 0.75 the history. */
+        /** EMA 平滑系数：0.25 权重给最新窗口，0.75 给历史。 */
         const val DEFAULT_EMA_ALPHA = 0.25
     }
 }

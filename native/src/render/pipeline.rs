@@ -1,7 +1,4 @@
-//! GPU render pipeline — shader compilation, bind groups, and draw calls.
-//!
-//! # Requirements
-//! - FR-050 — surface lifecycle: pipelines rebuilt when the surface is recreated
+//! GPU 渲染管线：着色器编译、绑定组与绘制调用。
 use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
@@ -33,16 +30,14 @@ pub struct GpuUniforms {
     pub projection: [[f32; 4]; 4],
     pub atlas_size: [f32; 2],
     pub raster_scale: f32,
-    /// std140 trailing padding: uniform struct size must be a multiple of
-    /// 16 (76 -> 80). Without it the shader reads past the buffer, wgpu
-    /// drops every instance draw, and glyph renders come back all zeros.
+    /// std140 尾部对齐：uniform 结构体大小须为 16 的倍数（76 → 80）。否则着色器
+    /// 越界读取，wgpu 丢弃所有实例绘制，字形渲染结果全为 0。
     pub _padding: f32,
 }
 
 impl Renderer {
-    /// Bind-group layout shared by the cell and KGP pipelines: binding 0 =
-    /// uniforms, 1 = sampled RGBA texture, 2 = filtering sampler. One
-    /// construction site so the two text pipelines cannot drift apart.
+    /// cell 与 KGP 管线共用的绑定组布局：0 = uniforms，1 = 采样 RGBA 纹理，
+    /// 2 = 过滤采样器。单点构造以防两条文本管线走偏。
     pub(crate) fn text_bind_group_layout(
         device: &wgpu::Device,
         label: &str,
@@ -80,53 +75,37 @@ impl Renderer {
         })
     }
 
-    pub(crate) fn create_cell_pipeline(
+    /// 两条文本管线只差实例顶点布局与混合方式；入口点、图元状态、无深度全部
+    /// 一致，单点构造以防走偏。
+    fn create_text_pipeline(
         device: &wgpu::Device,
+        label: &str,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        shader: &wgpu::ShaderModule,
+        instance_layout: wgpu::VertexBufferLayout<'static>,
+        blend: Option<wgpu::BlendState>,
         format: wgpu::TextureFormat,
     ) -> wgpu::RenderPipeline {
-        let wgsl_source = include_str!("../../shaders/cell.wgsl");
-        let cell_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Cell Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
-        });
-
-        let cell_bind_group_layout = Self::text_bind_group_layout(device, "Cell Bind Group Layout");
-
-        let cell_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Cell Pipeline Layout"),
-            bind_group_layouts: &[Some(&cell_bind_group_layout)],
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(&format!("{label} Layout")),
+            bind_group_layouts: &[Some(bind_group_layout)],
             immediate_size: 0,
         });
-
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Cell Pipeline"),
-            layout: Some(&cell_pipeline_layout),
+            label: Some(label),
+            layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &cell_shader,
+                module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[
-                    Some(quad_corner_buffer_layout()),
-                    Some(crate::render::CellInstance::buffer_layout()),
-                ],
+                buffers: &[Some(quad_corner_buffer_layout()), Some(instance_layout)],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &cell_shader,
+                module: shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
+                    blend,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -147,67 +126,51 @@ impl Renderer {
         })
     }
 
+    pub(crate) fn create_cell_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Cell Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../../shaders/cell.wgsl"
+            ))),
+        });
+        let bind_group_layout = Self::text_bind_group_layout(device, "Cell Bind Group Layout");
+        Self::create_text_pipeline(
+            device,
+            "Cell Pipeline",
+            &bind_group_layout,
+            &shader,
+            crate::render::CellInstance::buffer_layout(),
+            // 图集是预乘 alpha 的覆盖率遮罩，采样后须按 alpha 混合而非覆盖写。
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            format,
+        )
+    }
+
     pub(crate) fn create_kgp_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
     ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
-        let wgsl_source = include_str!("../../shaders/kitty_graphics.wgsl");
-        let kgp_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("KGP Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../../shaders/kitty_graphics.wgsl"
+            ))),
         });
-
-        let kgp_bind_group_layout = Self::text_bind_group_layout(device, "KGP Bind Group Layout");
-
-        let kgp_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("KGP Pipeline Layout"),
-            bind_group_layouts: &[Some(&kgp_bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("KGP Pipeline"),
-            layout: Some(&kgp_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &kgp_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[
-                    Some(quad_corner_buffer_layout()),
-                    Some(crate::render::KittyGraphicsInstance::buffer_layout()),
-                ],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &kgp_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    // kitty graphics protocol images may
-                    // carry alpha (semi-transparent PNG); REPLACE painted
-                    // the image RGB over the background, producing black
-                    // fringes on transparent areas. SrcAlpha blend lets
-                    // opacity apply correctly.
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        (pipeline, kgp_bind_group_layout)
+        let bind_group_layout = Self::text_bind_group_layout(device, "KGP Bind Group Layout");
+        let pipeline = Self::create_text_pipeline(
+            device,
+            "KGP Pipeline",
+            &bind_group_layout,
+            &shader,
+            crate::render::KittyGraphicsInstance::buffer_layout(),
+            // KGP 图像可能带 alpha（半透明 PNG）；REPLACE 会在透明区域绘出黑边。
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            format,
+        );
+        (pipeline, bind_group_layout)
     }
 
     pub(crate) fn ensure_kgp_pipeline(&mut self, config_width: u32, config_height: u32) {

@@ -6,25 +6,20 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Process() 返回的单块快照：透传字节与读取请求。
 #[derive(Debug, Default)]
 pub struct OutputSnapshot {
-    /// 透传给 VT 引擎的字节（读取请求序列已剥离）。
     pub filtered: Vec<u8>,
     /// OSC 52 读取请求的选择器名，无请求为 None。
     /// 同一块内多个请求为 last-wins：上游忽略读取且应用侧读取极低频，不设队列。
     pub clipboard_read: Option<String>,
 }
 
-/// PTY 输出预处理器：透传 + 读取请求扫描 + new_output 标志。
 pub struct OutputProcessor {
     scan: ReadScan,
-    /// P1-1 `new_output` flag (see docs/specification/REFERENCE.md): set when a non-empty PTY
-    /// chunk is ingested ([`Self::process`]), read-and-cleared by the
-    /// render thread via [`Self::take_new_output`]. Independent from the
-    /// P2-1 `dirty` flag: new output may reset the viewport to the
-    /// bottom; dirty (selection/highlight/font-size changes) must only
-    /// trigger a repaint, never a scroll reset.
+    /// `new_output` 标志（见 docs/specification/REFERENCE.md）：[`Self::process`] 摄入
+    /// 非空 PTY 块时置位，渲染线程经 [`Self::take_new_output`] 读取并清除。
+    /// 与 `dirty` 标志相互独立：新输出可把视口复位到底部，而 dirty（选区/高亮/字号
+    /// 变化）只能触发重绘，绝不滚动复位。
     new_output: AtomicBool,
 }
 
@@ -42,18 +37,12 @@ impl OutputProcessor {
         }
     }
 
-    /// Take and clear the `new_output` flag (single-consumer read-clear;
-    /// the render thread is the only reader). Returns true if any PTY
-    /// output was ingested since the last take.
     pub fn take_new_output(&self) -> bool {
         self.new_output.swap(false, Ordering::AcqRel)
     }
 
-    /// 处理一块 PTY 输出：全部字节透传，仅剥离 OSC 52 读取请求。
     pub fn process(&mut self, data: &[u8]) -> OutputSnapshot {
-        // P1-1: PTY ingest → raise `new_output` (bypass flag, not a queued
-        // event — see docs/specification/REFERENCE.md). Empty chunks
-        // carry no output and do not count.
+        // PTY 摄入即置 `new_output`（旁路标志而非入队事件）。空块不算输出。
         if !data.is_empty() {
             self.new_output.store(true, Ordering::Release);
         }
@@ -109,7 +98,6 @@ impl ReadScan {
                 if byte == b']' {
                     self.state = ReadState::EscBracket;
                 } else {
-                    // 不是 OSC：暂存（含本字节）整体吐出。
                     self.drain(&mut snapshot.filtered);
                 }
             }
@@ -142,8 +130,6 @@ impl ReadScan {
                     self.buf.push(byte);
                     self.state = ReadState::Question;
                 } else if byte == 0x07 || byte == 0x1B || self.buf.len() >= MAX_SCAN_BYTES {
-                    // BEL/ESC 说明这不是读取请求（读取请求形如 `52;<sel>;?`）：
-                    // 吐出暂存，本字节按 Ground 语义处理（ESC 开启新扫描）。
                     self.drain(&mut snapshot.filtered);
                     if byte == 0x1B {
                         self.buf.push(byte);
@@ -192,7 +178,6 @@ impl ReadScan {
         }
     }
 
-    /// 吐出全部暂存字节并回 Ground。
     fn drain(&mut self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.buf);
         self.buf.clear();
@@ -224,12 +209,12 @@ mod tests {
     #[test]
     fn pty_write_raises_new_output_flag() {
         let mut proc = OutputProcessor::new();
-        // Idle before any ingest: flag must be clear.
+        // 摄入前空闲：标志须为清。
         assert!(!proc.take_new_output());
-        // PTY write → flag true.
+        // PTY 写入后标志为置。
         let _ = proc.process(b"echo hi\r\n");
         assert!(proc.take_new_output());
-        // Single-consumer read-clear: a second take sees false.
+        // 单消费者读清：第二次读取为 false。
         assert!(!proc.take_new_output());
     }
 
@@ -238,7 +223,7 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let _ = proc.process(b"first chunk");
         assert!(proc.take_new_output());
-        // No further PTY writes: the flag stays clear across takes.
+        // 此后无 PTY 写入：多次读取后标志仍为清。
         assert!(!proc.take_new_output());
         assert!(!proc.take_new_output());
     }
