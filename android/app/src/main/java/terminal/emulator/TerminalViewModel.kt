@@ -692,14 +692,13 @@ constructor(
                     terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { dir ->
                         bridge?.setExtraFontPaths(listOf(dir.absolutePath))
                     }
-                    val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
-                    val fileSystemFonts = terminal.emulator.settings.systemFonts()
-                    // fonts.xml 在前保持文档顺序，native 补充条目追加在后；
-                    // 只做精确去重，不排序、不改写名称。
-                    val allFonts = (fileSystemFonts + rustFontFamilies).distinct()
+                    val allFonts =
+                        terminal.emulator.settings.availableFontFamilies(
+                            bridge?.listFontFamilies().orEmpty(),
+                        )
                     _availableFonts.value = allFonts
                     val defaultName = bridge?.getDefaultFontName().orEmpty()
-                    _defaultFontName.value = defaultName.ifEmpty { fileSystemFonts.firstOrNull().orEmpty() }
+                    _defaultFontName.value = defaultName.ifEmpty { allFonts.first() }
                     val storedFamily = settingsRepository.fontFamily.first()
                     clearUnknownFontFamily(
                         storedFamily,

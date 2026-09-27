@@ -1,52 +1,24 @@
 package terminal.emulator.settings
 
-private const val SYSTEM_FONTS_XML_PATH = "/system/etc/fonts.xml"
+import android.util.Log
+
+private const val TAG = "SystemFonts"
 
 /**
- * 纯 `fonts.xml` 解析：按文档顺序返回 `<family name>`，不改写、不去重、不排序。
- * 无名条目无法展示与选择，只收直接 `name` 属性。
+ * 完整字体列表，只在设置页打开字体列表时获取。
+ *
+ * 取自渲染侧字体库：库的内容即 `/system/etc/fonts.xml` 声明的文件集加上用户投放
+ * 目录 `~/.termux/font`（DESIGN 字体选择节），因此列表与渲染侧可选择的字体必然一致
+ * —— 列表里选中的字体一定能被 `setFontFamily` 应用。
+ *
+ * 平台 `SystemFonts.getAvailableFonts()` 不可用于此：它返回 `Set<Font>`，而 SDK 没有
+ * 公开的族名访问器（`Typeface` 无 `familyName`，`createFromFile` 无 ttc 下标重载），
+ * 且未加载进渲染库的文件本就无法被选择。
  */
-internal fun parseFontsXmlFamilies(xml: String): List<String> {
-    val families = mutableListOf<String>()
-    val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
-    factory.isNamespaceAware = false
-    val document = factory.newDocumentBuilder().parse(xml.byteInputStream())
-    val nodes = document.getElementsByTagName("family")
-    for (index in 0 until nodes.length) {
-        val name = nodes.item(index).attributes?.getNamedItem("name")?.nodeValue
-        if (!name.isNullOrEmpty()) {
-            families.add(name)
-        }
+internal fun availableFontFamilies(rustFamilies: List<String>): List<String> {
+    if (rustFamilies.isEmpty()) {
+        Log.e(TAG, "font database is empty")
+        throw IllegalStateException("No available font families")
     }
-    return families
-}
-
-/**
- * 系统字体列表，解析平台 `fonts.xml`（DESIGN 字体选择节）。
- * 缺失或不可解析即致命：记录日志并崩溃，永不静默回退。
- */
-internal fun systemFonts(): List<String> {
-    val xml =
-        try {
-            java.io.File(SYSTEM_FONTS_XML_PATH).readText()
-        } catch (exception: Exception) {
-            android.util.Log.e("SystemFonts", "Missing $SYSTEM_FONTS_XML_PATH", exception)
-            throw IllegalStateException("Missing system fonts.xml", exception)
-        }
-    if (xml.isBlank()) {
-        android.util.Log.e("SystemFonts", "Empty $SYSTEM_FONTS_XML_PATH")
-        throw IllegalStateException("Empty system fonts.xml")
-    }
-    val families =
-        try {
-            parseFontsXmlFamilies(xml)
-        } catch (exception: Exception) {
-            android.util.Log.e("SystemFonts", "Unparseable $SYSTEM_FONTS_XML_PATH", exception)
-            throw IllegalStateException("Unparseable system fonts.xml", exception)
-        }
-    if (families.isEmpty()) {
-        android.util.Log.e("SystemFonts", "No families in $SYSTEM_FONTS_XML_PATH")
-        throw IllegalStateException("No families in system fonts.xml")
-    }
-    return families
+    return rustFamilies
 }

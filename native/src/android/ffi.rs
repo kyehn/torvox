@@ -2434,7 +2434,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
 }
 
 // ── 字体与主题 ──────────────────────────────────────────────────
-/// 返回管线已知的等宽字体族列表。
+/// 返回字体库的族名列表（fonts.xml 声明的文件集 + 用户投放目录）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2456,9 +2456,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamili
         let Ok(array) = array else {
             return Ok(std::ptr::null_mut());
         };
-        for (i, family) in families.iter().enumerate() {
-            if let Ok(s) = env.new_string(family) {
-                let _ = array.set_element(env, i, &s);
+        for (index, family) in families.iter().enumerate() {
+            if let Ok(family) = env.new_string(family) {
+                let _ = array.set_element(env, index, &family);
             }
         }
         array.into_raw()

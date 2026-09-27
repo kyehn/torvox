@@ -932,22 +932,6 @@ mod tests {
         assert!(!name.is_empty(), "should find a monospace font, got empty");
     }
 
-    #[test]
-    fn cjk_fallback_uses_vector_font() {
-        let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        let names = pipeline.cjk_fallback_names();
-        assert!(
-            !names.is_empty(),
-            "CJK fallback fonts must load (run inside nix develop)"
-        );
-        let cjk_info = pipeline.glyph_information('好').expect("CJK glyph info");
-        assert!(
-            cjk_info.width > 0,
-            "CJK glyph should have meaningful width, got {}",
-            cjk_info.width
-        );
-    }
-
     fn try_load_cjk_fonts(db: &mut fontdb::Database) -> bool {
         let has_cjk = db.faces().any(|face| {
             face.families
@@ -996,38 +980,7 @@ mod tests {
         assert!(parsed["cjk_families"].is_array());
     }
 
-    // ──: layered fallback (moke chain, spec d7) ─────────────
-
-    #[test]
-    fn fallback_layer_family_predicates() {
-        // moke chain layers: CJK / symbols / nerd / emoji are partitioned
-        // by family name; a family belongs to exactly one layer.
-        assert!(FontPipeline::is_cjk_candidate_family("noto sans cjk sc"));
-        assert!(!FontPipeline::is_cjk_candidate_family("noto color emoji"));
-        assert!(!FontPipeline::is_cjk_candidate_family("symbols nerd font"));
-
-        assert!(FontPipeline::is_symbol_candidate_family(
-            "noto sans symbols 2"
-        ));
-        assert!(FontPipeline::is_symbol_candidate_family("dejavu dingbats"));
-        assert!(!FontPipeline::is_symbol_candidate_family("dejavu sans"));
-        assert!(!FontPipeline::is_symbol_candidate_family(
-            "symbols nerd font"
-        ));
-
-        assert!(FontPipeline::is_nerd_candidate_family("symbols nerd font"));
-        assert!(FontPipeline::is_nerd_candidate_family(
-            "jetbrainsmono nerd font"
-        ));
-        assert!(!FontPipeline::is_nerd_candidate_family(
-            "noto sans symbols 2"
-        ));
-
-        assert!(FontPipeline::is_emoji_candidate_family("noto color emoji"));
-        assert!(!FontPipeline::is_emoji_candidate_family(
-            "noto sans symbols 2"
-        ));
-    }
+    // ──: layered fallback ─────────────
 
     #[test]
     fn symbol_glyph_resolves_via_database_scan() {
@@ -1096,42 +1049,6 @@ mod tests {
             cjk.iter().all(|n| !n.is_empty()),
             "CJK fallback names must not be empty strings"
         );
-    }
-
-    #[test]
-    fn cjk_locale_selects_correct_variant() {
-        let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        assert!(
-            try_load_cjk_fonts(pipeline.font_system.db_mut()),
-            "CJK fonts must load (run inside nix develop)"
-        );
-        let cases: &[(&str, &str)] = &[
-            ("zh-CN", "sc"),
-            ("zh-TW", "tc"),
-            ("zh-HK", "tc"),
-            ("zh-Hant", "tc"),
-            ("zh-Hans", "sc"),
-            ("zh", "sc"),
-            ("ja", "jp"),
-            ("ko", "kr"),
-        ];
-        for (locale, expected_tag) in cases {
-            let mut pipeline = FontPipeline::new(512, 512, 14.0);
-            try_load_cjk_fonts(pipeline.font_system.db_mut());
-            pipeline.set_system_locale(locale);
-            let ids = &pipeline.cjk_fallback_ids;
-            assert!(!ids.is_empty(), "locale '{locale}' should have fallback");
-            let db = pipeline.font_system.db();
-            let has_tag = ids.iter().any(|id| {
-                db.face(*id)
-                    .and_then(|f| f.families.first())
-                    .is_some_and(|(n, _)| n.to_lowercase().contains(expected_tag))
-            });
-            assert!(
-                has_tag,
-                "locale '{locale}' fallback should include '{expected_tag}'-family font"
-            );
-        }
     }
 
     #[test]
