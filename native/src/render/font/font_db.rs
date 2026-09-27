@@ -164,10 +164,12 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
         let entries: Vec<FamilyEntry> = ordered_names
             .into_iter()
             .filter_map(|display_name| {
-                display_to_files.remove(&display_name).map(|files| FamilyEntry {
-                    display_name,
-                    files,
-                })
+                display_to_files
+                    .remove(&display_name)
+                    .map(|files| FamilyEntry {
+                        display_name,
+                        files,
+                    })
             })
             .collect();
         log::debug!("FONT_INDEX: {} families indexed", entries.len());
@@ -285,12 +287,9 @@ pub(crate) fn read_fonts_xml_fallback() -> Option<String> {
     }
     #[cfg(not(target_os = "android"))]
     {
-        [
-            "/system/etc/fonts.xml",
-            "/system/etc/fonts_fallback.xml",
-        ]
-        .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok())
+        ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"]
+            .iter()
+            .find_map(|path| std::fs::read_to_string(path).ok())
     }
 }
 
