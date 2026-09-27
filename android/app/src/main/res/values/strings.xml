@@ -55,9 +55,6 @@
     <string name="settings_button">设置</string>
     <string name="text_input_box">文本输入框</string>
 
-    <!-- Terminal screen -->
-    <string name="terminal_title">Terminal</string>
-
     <!-- Content descriptions -->
     <string name="cd_new_session">新建会话</string>
     <string name="cd_close_session">关闭会话</string>

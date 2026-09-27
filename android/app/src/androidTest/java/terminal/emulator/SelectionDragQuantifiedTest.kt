@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -307,6 +308,7 @@ class SelectionDragQuantifiedTest {
      * 粘贴项是否进菜单取决于剪贴板非空（pasteEnabled 门控）：测试必须自建
      * 剪贴板内容，不能依赖系统剪贴板历史（会被清，届时菜单无粘贴项）。
      */
+    @SuppressLint("DeprecatedCall")
     private fun seedClipboard(text: String = "CLIPSEED") {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val clipboard =

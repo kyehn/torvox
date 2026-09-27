@@ -66,7 +66,7 @@ class SgrColorPixelAcceptanceTest {
                 ready != null
             }
         assertNotNull("运行时桥必须就绪", seen)
-        return ready!!
+        return requireNotNull(ready) { "运行时桥必须就绪" }
     }
 
     private fun isReddish(pixel: Int): Boolean {
