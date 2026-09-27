@@ -6,7 +6,7 @@ package terminal.emulator.ui
  */
 object ComposingDiff {
     /**
-     * 把上一个候选区变为 [next] 所需的编辑：追加/回退/全量重写三种情况统一按
+     * 把上一个候选区变为 `next` 所需的编辑：追加/回退/全量重写三种情况统一按
      * 「最长公共前缀 + 其后重打」处理。退格数按码点计，删去一个 emoji 只算一次。
      */
     data class Edit(val backspaces: Int, val append: String) {

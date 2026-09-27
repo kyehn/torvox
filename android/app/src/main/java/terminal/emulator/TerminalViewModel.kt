@@ -272,7 +272,7 @@ constructor(
     /**
      * 共用的输入驱动滚动处理：任何用户输入都清除 SCROLL 锁；
      * 提交性输入（CR/LF 或硬件回车）还会把视口立即贴到实时屏幕，不等 PTY 输出。
-     * 抽出此方法使输入法 [writeToPty] 路径与硬件 [onKeyDown] 路径共用一个贴底点
+     * 抽出此方法使输入法 [writeToPty] 路径与硬件 [terminal.emulator.ui.TerminalSurface.onKeyDown] 路径共用一个贴底点
      * ——硬件回车经 bridge.processKeyEvent 绕过 [writeToPty]，
      * 正是「输入新命令 + 回车不滚动」这一反馈的根因。
      */
@@ -998,7 +998,7 @@ constructor(
     val bootstrapProgress: StateFlow<terminal.emulator.installer.BootstrapProgress?> =
         _bootstrapProgress.asStateFlow()
 
-    /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [BootstrapOrchestrator]）。 */
+    /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [terminal.emulator.installer.BootstrapOrchestrator]）。 */
     private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
         onSuccess = { diagnostics ->
             val headline = context.getString(R.string.bootstrap_installed_success)
@@ -1028,7 +1028,7 @@ constructor(
     )
 
     /**
-     * 在线与离线安装路径共用的 [BootstrapInstaller] 与 [SecondStageRunner] 配对。
+     * 在线与离线安装路径共用的 [terminal.emulator.installer.BootstrapInstaller] 与 [terminal.emulator.installer.SecondStageRunner] 配对。
      * 文件位于 `filesDir` 之下，故操作系统只能经应用数据管理回收它们，绝不会因缓存压力而清理。
      */
     private fun bootstrapComponents(
@@ -1110,8 +1110,7 @@ constructor(
     }
 
     /**
-     * 从 SAF URI 离线安装引导。用户经
-     * [android.activity.result.contract.ActivityResultContracts.OpenDocument] 选择 .zip 文件；
+     * 从 SAF URI 离线安装引导。用户经 `ActivityResultContracts.OpenDocument` 选择 .zip 文件；
      * 其内容被复制到缓存文件，再送入与在线路径相同的安装器管线
      * （installer.install → secondStage.run）。无需网络；已下载的引导 URL 被忽略。
      */

@@ -94,7 +94,7 @@ internal fun shouldResetScroll(
  *
  * @param idleNanos 距上次信号的时间（新鲜 = 刚有 notifyRender/新输出）。
  * @param hasScrollMotion 运动新鲜度门控：手势仍在移动时保持活跃。
- * @param idleThresholdNanos 新鲜度阈值（调用处传 [RENDER_IDLE_THRESHOLD_NANOS]）。
+ * @param idleThresholdNanos 新鲜度阈值（调用处传 `RENDER_IDLE_THRESHOLD_NANOS`）。
  */
 internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleThresholdNanos: Long): Boolean =
     idleNanos > idleThresholdNanos && !hasScrollMotion
