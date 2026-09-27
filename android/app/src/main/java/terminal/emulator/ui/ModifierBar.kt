@@ -138,18 +138,16 @@ internal val TERMUX_EXTRA_KEYS: ImmutableList<ToolbarKey> = persistentListOf(
     ToolbarKey.PGDN,
 )
 
-// Termux ExtraKeysView parity: long-press threshold 400ms
-// (FALLBACK_LONG_PRESS_DURATION), repeat starts after the same delay
-// and repeats at 80ms cadence (DEFAULT_LONG_PRESS_REPEAT_DELAY).
+// Termux ExtraKeysView 对等：长按阈值 400ms（FALLBACK_LONG_PRESS_DURATION），
+// 自动重复在同一延迟后开始，并以 80ms 节奏重复（DEFAULT_LONG_PRESS_REPEAT_DELAY）。
 private const val LONG_PRESS_MS = 400L
 
-// (spec modifier-bar-interaction "press-down fires immediately"):
-// termux ExtraKeysView semantics — the key fires on ACTION_DOWN, auto-repeat
-// starts after an initial delay and repeats at a fixed cadence until UP.
+// termux ExtraKeysView 语义：按键在 ACTION_DOWN 即触发，
+// 自动重复在初始延迟后开始，并以固定节奏重复直到 UP。
 private const val AUTO_REPEAT_INITIAL_DELAY_MS = 400L
 private const val AUTO_REPEAT_INTERVAL_MS = 80L
 
-// spec modifier-bar-interaction press-feedback thresholds.
+// 按下反馈阈值。
 private const val PRESS_BG_TWEEN_MS = 30
 private const val PRESS_SCALE_SPRING_DAMPING = 0.55f
 private const val PRESS_SCALE_SPRING_STIFFNESS = 5000f
@@ -160,12 +158,11 @@ private const val TEXT_INPUT_PAGE_INDEX = 1
 private const val KEY_PAGE_COUNT = TEXT_INPUT_PAGE_INDEX + 1
 
 /**
- * Termux v0.119.0-beta.3 extra_keys layout: Row 1: ESC, DRAWER, SCROLL, HOME, ↑, END, PGUP Row 2:
- * TAB, CTRL, ALT, ←, ↓, →, PGDN
+ * Termux v0.119.0-beta.3 的 extra_keys 布局：第 1 行 ESC、DRAWER、SCROLL、HOME、↑、END、PGUP；
+ * 第 2 行 TAB、CTRL、ALT、←、↓、→、PGDN。
  *
- * Session button (DRAWER) is on the LEFT as the second button and has the termux default `popup:
- * 'PASTE'` (long-press pastes the clipboard). All buttons are borderless with transparent
- * background. Each button has equal weight for uniform sizing.
+ * 会话按钮（DRAWER）位于左侧第二个位置，带 termux 默认的 `popup: 'PASTE'`
+ * （长按粘贴剪贴板）。所有按钮无边框、背景透明，权重相等以保证尺寸一致。
  */
 @Composable
 fun ModifierBar(
@@ -608,11 +605,9 @@ private fun RowScope.ExtraKeyButton(
 
     val view = LocalView.current
 
-    // the old pointerInput(onRepeat,
-    // secondaryAction) keyed on freshly-allocated lambda instances, so ANY
-    // recomposition during a hold (CTRL toggle, pager state change) cancelled
-    // and restarted the gesture coroutine — silently killing auto-repeat.
-    // Key on Unit and read the latest callbacks via rememberUpdatedState.
+    // 旧的 pointerInput(onRepeat, secondaryAction) 以新分配的 lambda 实例为 key，
+    // 于是长按期间（CTRL 切换、分页状态变化）的任何重组都会取消并重启手势协程
+    // ——静默地杀死自动重复。改以 Unit 为 key 并经 rememberUpdatedState 读取最新回调。
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnRepeat by rememberUpdatedState(onRepeat)
     val currentSecondaryAction by rememberUpdatedState(secondaryAction)
@@ -637,12 +632,10 @@ private fun RowScope.ExtraKeyButton(
                 try {
                     var gestureValid = true
                     if (currentSecondaryAction != null) {
-                        // Keys with a secondary action (DRAWER → paste):
-                        // a quick tap fires onClick IMMEDIATELY (no
-                        // long-press confirmation window), while a
-                        // sustained press past LONG_PRESS_MS triggers
-                        // secondaryAction once. Mirrors Android's
-                        // onClick/onLongClick split.
+                        // 带次级动作的按键（DRAWER → 粘贴）：轻点立即触发 onClick
+                        // （无长按确认窗口），而超过 LONG_PRESS_MS 的持续按压
+                        // 只触发一次 secondaryAction。对应 Android 的
+                        // onClick/onLongClick 划分。
                         var longPressTriggered = false
                         val downTime = System.currentTimeMillis()
                         fun maybeFireLongPress() {
@@ -664,10 +657,8 @@ private fun RowScope.ExtraKeyButton(
                                 break
                             }
                             val ch = ev.changes.first()
-                            // A perfectly still hold produces no MOVE events,
-                            // so the release itself must also count when the
-                            // threshold already passed — otherwise the
-                            // long-press is silently lost.
+                            // 完全静止的长按不产生任何 MOVE 事件，
+                            // 故阈值已过时松手本身也必须计入——否则长按会被静默丢失。
                             if (!ch.pressed) {
                                 maybeFireLongPress()
                                 break
@@ -790,9 +781,8 @@ private fun RowScope.ExtraKeyButton(
             .then(
                 Modifier.semantics {
                     if (contentDescription != null) this.contentDescription = contentDescription
-                    // Toggle keys (CTRL/ALT/FN) expose their armed state so
-                    // UI tests (and accessibility) can verify the toggle
-                    // without probing colors.
+                    // 切换类按键（CTRL/ALT/FN）暴露其置起状态，
+                    // 使 UI 测试（与无障碍）无需探测颜色即可验证切换。
                     selected = modifierState != null && modifierState != ModifierState.Off
                 },
             )

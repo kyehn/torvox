@@ -5,18 +5,18 @@ import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.runCatchingCancellable
 
-/** Shell configuration for a terminal session. */
+/** 终端会话的 shell 配置。 */
 sealed interface Shell {
-    /** Use the system default shell (/system/bin/sh). */
+    /** 使用系统默认 shell（/system/bin/sh）。 */
     data object SystemDefault : Shell
 
-    /** Use a custom shell at the given path. */
+    /** 使用指定路径的自定义 shell。 */
     data class Custom(val path: String) : Shell
 }
 
 /**
- * ARGB → linear RGB floats (0..1 per channel) for the JNI cursor-color channel. The alpha byte is
- * intentionally dropped (the renderer treats the cursor as opaque).
+ * ARGB → 线性 RGB 浮点（每通道 0..1），供 JNI 光标颜色通道使用。
+ * alpha 字节被刻意丢弃（渲染器将光标视为不透明）。
  */
 internal fun argbToRgbFloats(argb: Int): FloatArray = floatArrayOf(
     (argb shr 16 and 0xFF) / 255f,
@@ -24,10 +24,7 @@ internal fun argbToRgbFloats(argb: Int): FloatArray = floatArrayOf(
     (argb and 0xFF) / 255f,
 )
 
-/**
- * Terminal theme expressed as ARGB ints for the native renderer. Matches
- * [terminal.emulator.ui.theme.TerminalTheme] conversion in makeBridgeTheme().
- */
+/** 以 ARGB 整数表达的终端主题，供原生渲染器使用，对应 makeBridgeTheme() 的转换。 */
 data class BridgeTheme(
     val name: String,
     val background: Int,
@@ -51,7 +48,7 @@ data class BridgeTheme(
     val ansi15: Int,
 )
 
-/** Configuration passed to [createBridge]. */
+/** 传给 [createBridge] 的配置。 */
 data class TerminalConfig(
     val shell: Shell,
     val rows: Int,
@@ -64,26 +61,17 @@ data class TerminalConfig(
     val fontSizeTenths: Int,
 )
 
-/** Create a new Bridge instance wrapping [NativeBridge] JNI exports. */
+/** 创建包裹 [NativeBridge] JNI 导出的 Bridge 实例。 */
 fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
 
 /**
- * Instance bridge wrapping [NativeBridge] static JNI exports.
- *
- * Each [Bridge] holds a session ID and manages session lifecycle so callers don't touch session IDs
- * directly. Every per-session JNI call goes through [onSession], which reports the one shared
- * "no result available" case instead of repeating the guard in each method.
- *
- * Bridge is a gateway to the native side by design; the function count is the JNI surface, not an
- * interface smell.
+ * 包裹 [NativeBridge] 静态 JNI 导出的实例桥接。每个 Bridge 持有会话 ID 并管理生命周期，
+ * 使调用方不直接接触会话 ID；所有按会话的 JNI 调用都经 [onSession]，集中处理「拿不到结果」的情况。
+ * Bridge 按设计就是通往原生的网关，函数数量对应 JNI 表面而非接口异味。
  */
-// when-dispatch over the PollEvent sealed class — one branch per variant.
+// 对 PollEvent 密封类做 when 分派，每个变体一个分支。
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
-    /**
-     * ADR-0007: native query path wired — all queries delegate to [NativeQueryPort], which maps 1:1
-     * to the JNI query exports native/src/android/ffi.rs, "TerminalQueryPort" section). The stub only
-     * backs the no-session window (sessionId == 0, before spawn).
-     */
+    /** 原生查询路径：所有查询委托给 [NativeQueryPort]，它与 ffi.rs 的 JNI 查询导出 1:1 对应。 */
     private val queryPort: TerminalQueryPort = NativeQueryPort { sessionId }
 
     @Volatile private var sessionId: Long = 0L
@@ -93,14 +81,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     @Volatile private var lastSurfaceHeight: Int = 0
 
     /**
-     * Every-PTY-write hook: invoked with `SystemClock.elapsedRealtimeNanos()` on EVERY PTY write
-     * path ([Bridge.writeToPty], [processKeyEvent], [encodeMouseEvent]) so hardware keys — which
-     * bypass [terminal.emulator.runtime.TerminalRuntime.writeToPty] — are stamped for the
-     * input→echo latency probe (emulator-performance-verification).
-     *
-     * Also the T3 render-wake seam: called on the same paths that would otherwise never notify the
-     * render loop, so the SessionEntry wiring raises [terminal.emulator.runtime.SessionEntry.notifyRender]
-     * here and a backspace after >5s idle no longer waits out the 500ms idle-latch tick for its echo.
+     * 每次 PTY 写入的钩子：在所有 PTY 写路径（[Bridge.writeToPty]、[processKeyEvent]、
+     * [encodeMouseEvent]）上以 `SystemClock.elapsedRealtimeNanos()` 调用，使绕过
+     * TerminalRuntime.writeToPty 的硬件按键也能为输入→回显延迟探针打点。
+     * 同时是渲染唤醒接缝：空闲 >5s 后的退格不再需要等满 500ms 空闲闭锁才能看到回显。
      */
     @Volatile var onPtyWrite: ((Long) -> Unit)? = null
 
@@ -128,9 +112,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         return "native library OK, sessions=${NativeBridge.getSessionCount()}"
     }
 
-    // ── Session lifecycle ─────────────────────────────────────────────
+    // ── 会话生命周期 ──
 
-    /** Resolve the configured [Shell] to an absolute executable path. */
+    /** 把配置的 [Shell] 解析为绝对可执行路径。 */
     fun shellPath(): String = when (val shell = config.shell) {
         is Shell.SystemDefault -> "/system/bin/sh"
         is Shell.Custom -> shell.path
@@ -169,12 +153,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             try {
                 NativeBridge.destroySession(sessionId)
             } catch (exception: Throwable) {
-                // Cleanup path: a failure here (RuntimeException from the
-                // native side for an unknown session, UnsatisfiedLinkError for
-                // a partially loaded library) must never escape — callers
-                // catch(Exception) only, and an Error would reach the global
-                // handler and kill the process. The registry entry is removed
-                // regardless; native tolerates unknown IDs.
+                // 清理路径：此处失败（未知会话的 RuntimeException、库部分加载的 UnsatisfiedLinkError）
+                // 绝不能外逃——调用方只捕获 Exception，Error 会直达全局处理器并杀掉进程。
+                // 无论成败都移除注册表项，原生容忍未知 ID。
                 Log.e(TAG, "close: destroySession failed", exception)
             }
             sessionId = 0L
@@ -186,20 +167,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     /**
-     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for this session, preserving
-     * rows/cols. The Kotlin host calls this alongside each grid resize with the surface's pixel
-     * dimensions so pixel-aware programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ
-     * ghostty-android pty_jni.c:84-87).
+     * 更新本会话 PTY winsize 的像素字段（ws_xpixel/ws_ypixel）而保持 rows/cols。
+     * 每次网格 resize 时 Kotlin 侧同时以 Surface 像素尺寸调用，使感知像素的程序
+     * （icat、全屏 TUI）能经 TIOCGWINSZ 读到真实像素。
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
         onSession("setPixelSize", Unit) { NativeBridge.setPixelSize(it, widthPx, heightPx) }
     }
 
     /**
-     * Recompute the grid from pixel dimensions. The cell-size calculation lives in Rust: the renderer
-     * derives cell metrics from the font pipeline, and [TerminalRuntime.syncGridDimensions] pulls the
-     * real grid via [getGridRowsColsPacked] after a resize. This method only logs: the native side
-     * resolves rows/cols from events).
+     * 按像素尺寸重算网格。单元格尺寸计算在 Rust 侧：渲染器从字体管线导出单元格度量，
+     * resize 后 [TerminalRuntime.syncGridDimensions] 经 [getGridRowsColsPacked] 取回真实网格。
+     * 本方法仅记录日志：rows/cols 由原生侧从事件解析。
      */
     fun recomputeGrid(width: Int, height: Int) {
         Log.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
@@ -211,13 +190,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun getCellHeight(): Float = onSession("getCellHeight", 0f, NativeBridge::getCellHeight)
 
-    // ── Rendering ─────────────────────────────────────────────────────
-    // ADR-0007 surface integration is implemented:
-    // render/attachSurface/releaseGpuSurface/setRenderPaused map to the
-    // wgpu renderer via JNI.
+    // ── 渲染 ──
 
     /**
-     * Render a frame. Returns >0 if output was available, 0 if idle, -1 on error.
+     * 渲染一帧。>0 表示有输出，0 表示空闲，-1 表示出错。
      *
      * 「无会话」与「会话已销毁」都归为 idle（0）而非错误：两者都是「没有可渲染的会话」，
      * 且不会随首帧重试自愈（重试只对原生返回的 -1 有意义）。首帧重试依赖的 -1 由
@@ -228,9 +204,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     /**
-     * Combined render + consumeNewOutput in a single JNI crossing (saves ~0.1-0.3ms per frame vs two
-     * separate calls). Returns [RenderResult] with the render count, the new-output flag and the
-     * viewport cursor row (-1 when hidden/off-viewport, drives the IME-follow pan).
+     * 渲染与 new_output 读取合并为单次 JNI 穿越（比两次单独调用每帧省约 0.1-0.3ms）。
+     * 返回渲染计数、输出标志与视口光标行（隐藏或在视口外时为 -1，驱动输入法跟随滚动）。
      */
     fun renderWithNewOutput(): RenderResult =
         onSession("renderWithNewOutput", RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN)) {
@@ -249,14 +224,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class RenderResult(val count: Int, val newOutput: Boolean, val cursorRow: Int)
 
     /**
-     * Take and clear the native `new_output` flag for this session (P1-1 scroll-reset signal,
-     * see docs/specification/REFERENCE.md). Called once per frame from the
-     * render thread; returns true when PTY output was ingested since the last call. Unknown/destroyed
-     * sessions report false.
+     * 读取并清除本会话原生的 `new_output` 标志（滚动复位信号）。
+     * 渲染线程每帧调用一次；上次调用以来摄入过 PTY 输出则返回 true。会话未知/已销毁时返回 false。
      */
     fun consumeNewOutput(): Boolean = onSession("consumeNewOutput", false, NativeBridge::consumeNewOutput)
 
-    /** Attach the Android Surface for GPU rendering (ADR-0007). */
+    /** 绑定 Android Surface 供 GPU 渲染。 */
     fun attachSurface(surface: Any, width: Int, height: Int) {
         lastSurfaceWidth = width
         lastSurfaceHeight = height
@@ -264,17 +237,11 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     /**
-     * Parks the calling thread for [timeoutMs] (or until [TerminalRuntime.notifyRender] unparks it,
-     * whichever comes first).
-     *
-     * There is no native render JNI export yet (ADR-0007: surface integration pending), so this
-     * park-based sleep both bounds the render-loop poll cadence (no 100% CPU busy-spin) and pairs
-     * with [TerminalRuntime.SessionEntry.notifyRender] which calls LockSupport.unpark on the render
-     * thread.
-     *
-     * The return value is advisory only — callers re-check the interrupt flag themselves after this
-     * returns; `parkNanos` returns on interrupt without clearing the flag, so `Thread.interrupted()`
-     * still sees it. Returns true if the wait was not interrupted.
+     * 将调用线程挂起 [timeoutMs]，或直到 [TerminalRuntime.notifyRender] 唤醒（先到为准）。
+     * 基于 park 的睡眠既限定渲染循环的轮询节奏（避免 100% CPU 空转），又与调用
+     * LockSupport.unpark 的 SessionEntry.notifyRender 配对。
+     * 返回值仅供参考：parkNanos 遇中断即返回且不清除中断标志，调用方须自行重查。
+     * 未被中断则返回 true。
      */
     fun waitOutput(timeoutMs: Long): Boolean {
         if (timeoutMs <= 0L) return true
@@ -292,42 +259,36 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         onSession("setRenderPaused", Unit) { NativeBridge.setRenderPaused(it, paused) }
     }
 
-    // ── Events ────────────────────────────────────────────────────────
+    // ── 事件 ──
     data class PollResult(
         val clipboard: String? = null,
         val exit: Boolean = false,
         val exitCode: Int = 0,
-        // native-measured child lifetime for the first exit.
+        // 首次退出时由原生测得的子进程存活时长。
         val exitAliveMs: Long = 0,
         val sessionId: Long = 0L,
         val clipboardReads: List<ClipboardRequest> = emptyList(),
-        // Every exit event seen this frame, in order. The single-slot
-        // exit/sessionId/exitCode fields above describe only the FIRST one;
-        // extra exits in the same frame must be reaped from this list or
-        // they would leak (native exit_reported is set at push and never
-        // re-sent).
+        // 本帧见到的全部退出事件，按序。上方单槽字段只描述首个退出；
+        // 同帧多余退出必须从该列表回收，否则会泄漏（原生 exit_reported 在推送时置位且不重发）。
         val exits: List<ExitInfo> = emptyList(),
         // BEL 振铃到达（同帧 sticky；提示动作待定行为后另起一步）。
         val bell: Boolean = false,
     ) {
-        /** Merge a later polled event into this result; later wins for scalar fields. */
+        /** 把后续轮询到的事件并入本结果，标量字段以后者为准。 */
         fun merge(later: PollResult): PollResult = PollResult(
             clipboard = later.clipboard ?: clipboard,
             exit = exit || later.exit,
-            // exitCode belongs to the same (first) exit as sessionId.
+            // exitCode 与 sessionId 属于同一次（首次）退出。
             exitCode = if (later.exit && !exit) later.exitCode else exitCode,
-            // alive_ms travels with its exit event.
+            // alive_ms 随其退出事件一同传递。
             exitAliveMs = if (later.exit && !exit) later.exitAliveMs else exitAliveMs,
-            // sessionId only serves exit attribution. The FIRST exit
-            // seen in a frame wins: a later non-exit event must not
-            // overwrite the exiting session's id (which would reap a
-            // live session).
+            // sessionId 只用于退出归属：本帧首个退出获胜，后续非退出事件不得覆盖
+            // 正在退出会话的 id（否则会误回收仍存活的会话）。
             sessionId = if (later.exit && !exit) later.sessionId else sessionId,
-            // Request events accumulate: each one carries a distinct
-            // request_id and must be dispatched exactly once.
+            // 请求事件累加：每个都带不同的 request_id，必须且只能分发一次。
             clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
-            // Bell is sticky like exit: once raised in a frame it stays.
+            // Bell 与 exit 同为 sticky：本帧一旦置起就保持。
             bell = bell || later.bell,
         )
     }
@@ -335,19 +296,15 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class ExitInfo(
         val sessionId: Long,
         val exitCode: Int,
-        // child lifetime (ms) measured natively — diagnostics payload,
-        // not Kotlin event latency.
+        // 原生测得的子进程存活时长（毫秒），仅作诊断负载，不是 Kotlin 事件延迟。
         val exitAliveMs: Long = 0,
     )
 
     data class ClipboardRequest(val sessionId: Long, val requestId: Long, val selection: String = "")
 
     fun pollAll(): PollResult {
-        // Drain up to MAX_EVENTS_PER_POLL queued events per frame so a
-        // backlog is consumed in a few frames instead of one event per
-        // 16ms frame.
-        // Results merge: a later event of the same kind wins (exit is
-        // sticky — later events for a dead session are stale).
+        // 每帧最多排空 MAX_EVENTS_PER_POLL 个事件，使积压在几帧内消化而非每帧只取一个。
+        // 合并结果：同类以靠后的事件为准（exit 为 sticky，死会话的后续事件已陈旧）。
         var result = PollResult()
         // 有界排空：队列见空即 break；计数器具名（下划线形式需实验开关）。
         var pollAttempt = 0
@@ -362,9 +319,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                     continue
                 }
             result = result.merge(parsed)
-            // Do NOT break on exit: events queued after the Exit would
-            // otherwise be stranded in the native queue — no other session
-            // drains them. Exit is sticky in merge, so draining on is harmless.
+            // 遇 exit 不 break：其后排队的事件否则会滞留在原生队列中——没有其他会话会排空它们。
+            // exit 在 merge 中是 sticky，继续排空无害。
         }
         return result
     }
@@ -409,7 +365,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             PollResult(bell = true, sessionId = event.sessionId)
     }
 
-    // ── Theme / appearance ────────────────────────────────────────────
+    // ── 主题 / 外观 ──
     // 端到端接线：setTheme 打包 54 字节（背景 3 + 前景 3 + ansi 48）交给原生调色板；
     // OSC 10/11/4 颜色处理位于终端引擎内部并经调色板 API 应用。光标颜色走独立的
     // setCursorColor 通道，以保持 54 字节布局稳定（ffi.rs 校验精确长度）。
@@ -459,8 +415,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun setExtraFontPaths(paths: List<String>) {
         Log.d(TAG, "setExtraFontPaths($paths)")
-        // The native call rebuilds the font pipeline (atlas realloc):
-        // skip repeats, the drop-in dir content is picked up on rebuild.
+        // 原生调用会重建字体管线（重新分配图集），因此跳过重复调用，目录内容在重建时自行拾取。
         if (paths == lastExtraFontPaths) return
         lastExtraFontPaths = paths
         onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
@@ -507,14 +462,13 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         onSession("setRasterScale", Unit) { NativeBridge.setRasterScale(it, scale) }
     }
 
-    // Custom font loading probes the file in native code (fontdb), registers
-    // it with the renderer and returns the family name; null on failure.
+    // 自定义字体由原生 fontdb 探测文件、注册到渲染器并返回家族名，失败返回 null。
     fun loadFontFile(path: String): String? {
         Log.d(TAG, "loadFontFile($path)")
         return onSession("loadFontFile", null) { NativeBridge.loadFontFile(it, path) }
     }
 
-    // ── Input ─────────────────────────────────────────────────────────
+    // ── 输入 ──
     fun feedTerminal(data: ByteArray): Boolean = onSession("feedTerminal", false) {
         NativeBridge.feedTerminal(it, data)
         true
@@ -529,9 +483,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     /**
-     * Encode a mouse event via the Ghostty mouse encoder and write the resulting escape sequence to
-     * the PTY. Returns true when a sequence was produced and written; false when mouse reporting is
-     * disabled, encoding failed, or the session is gone (event dropped).
+     * 用 Ghostty 鼠标编码器编码鼠标事件并把转义序列写入 PTY。
+     * 生成并写入序列时返回 true；关闭鼠标上报、编码失败或会话消失（事件丢弃）时返回 false。
      */
     fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellW: Float, cellH: Float): Boolean {
         val bytes =
@@ -543,16 +496,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     /**
-     * Whether the remote is on the alternate screen buffer (vim/less/htop). Lock-free; safe to call
-     * on every touch-scroll event. When true, touch scroll gestures must be forwarded to the remote
-     * as mouse-wheel escapes see [TerminalSurface] onScroll) rather than scrolling local scrollback.
+     * 远端是否处于备用屏幕缓冲（vim/less/htop）。无锁，可在每次触摸滚动时安全调用。
+     * 为真时触摸滚动必须以滚轮转义转发给远端（见 [TerminalSurface] onScroll）而非滚动本地回滚。
      */
     fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
     /**
-     * Whether the terminal is in application cursor mode (DECCKM, DEC private mode 1). Arrow keys
-     * must then be encoded SS3 (`ESC OA`) instead of CSI (`ESC [ A`) — see docs/specification/REFERENCE.md.
-     * Queried only for arrow-key key events.
+     * 终端是否处于应用光标模式（DECCKM，DEC 私有模式 1）。此时方向键须编码为 SS3（`ESC OA`）
+     * 而非 CSI（`ESC [ A`），见 docs/specification/REFERENCE.md。仅在方向键事件时查询。
      */
     fun isAppCursorMode(): Boolean =
         onSession("getMode", false) { NativeBridge.getMode(it, DEC_PRIVATE_MODE_APP_CURSOR, 0) }
@@ -617,17 +568,17 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         onSession("focusEvent", Unit) { NativeBridge.focusEvent(it, focused) }
     }
 
-    // ── Terminal queries (delegated to TerminalQueryPort seam) ────────
+    // ── 终端查询（委托给 TerminalQueryPort 接缝） ──
     override fun getTitle(): String? = queryPort.getTitle()
 
     override fun getActiveSessionTitle(): String = queryPort.getActiveSessionTitle()
 
-    // ── Selection ─────────────────────────────────────────────────────
+    // ── 选区 ──
     override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
         queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection)
     }
 
-    // ── Search / scrollback ────────────────────────────────────────────
+    // ── 搜索 / 回滚 ──
     // 查询方法经 NativeQueryPort 转发到真实的原生 JNI 路径。native 对未知会话
     // 抛 IllegalArgumentException（如 bridge.close() 到会话表移除之间的窗口），
     // 在此转为缺省值返回，使 UI/触摸路径不崩。
@@ -702,25 +653,25 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     companion object {
         private const val TAG = "Bridge"
 
-        /** renderWithNewOutput packing: cursor row bits 33..48, this value = hidden/off-viewport. */
+        /** renderWithNewOutput 打包：光标行占 bit 33..48，该值表示隐藏或在视口外。 */
         const val CURSOR_ROW_HIDDEN_BITS = 0xFFFF
 
         /** render 缺省返回值：无可渲染的会话（未建立或已销毁），按 idle 处理。 */
         private const val RENDER_IDLE = 0
 
-        /** Decoded cursor row when hidden/off-viewport (or no session). */
+        /** 隐藏/在视口外（或无会话）时解码出的光标行。 */
         const val CURSOR_ROW_UNKNOWN = -1
 
-        /** Max events drained per pollAll() frame — bounds render-thread cost. */
+        /** pollAll() 每帧最多排空的事件数，限定渲染线程开销。 */
         private const val MAX_EVENTS_PER_POLL = 32
 
         /** setTheme 打包长度：背景 3 + 前景 3 + 16 色 × 3 = 54 字节，ffi.rs 校验精确长度。 */
         private const val THEME_PACKED_BYTES = 54
 
-        /** DEC private mode 1 = application cursor keys (DECCKM). */
+        /** DEC 私有模式 1 = 应用光标键（DECCKM）。 */
         private const val DEC_PRIVATE_MODE_APP_CURSOR = 1
 
-        /** Key codes whose encoding depends on DECCKM. */
+        /** 编码结果依赖 DECCKM 的按键码。 */
         private val APP_CURSOR_KEY_CODES =
             setOf(
                 android.view.KeyEvent.KEYCODE_DPAD_UP,

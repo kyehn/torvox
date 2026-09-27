@@ -9,10 +9,10 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Read a child-process pipe to EOF, never throwing. destroy() closes pipes while a daemon drain may
- * still block in read; an uncaught throw on a raw Thread is a process FATAL (device-proven in
- * detectDpkgVersion on a dpkg-less prefix when the child exits first). Returns null when the read
- * raced the close. Drain results that nobody consumes stay discarded.
+ * 把子进程管道读到 EOF，绝不抛异常。destroy() 关闭管道时守护排空可能仍阻塞在 read；
+ * 裸 Thread 上未捕获的抛出会导致进程 FATAL（设备上已证：
+ * 无 dpkg 的 prefix 上子进程先退出时 detectDpkgVersion 复现）。
+ * 读取与关闭竞争时返回 null。无人消费的排空结果直接丢弃。
  */
 internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable {
     stream.bufferedReader().readText()
@@ -35,20 +35,20 @@ class SecondStageRunner(
     suspend fun run(): Result = withContext(TerminalDispatchers.inputOutput) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
         if (lockFile.exists() || java.nio.file.Files.isSymbolicLink(lockFile.toPath())) {
-            // The lock is a SELF-REFERENTIAL symlink (created below).
-            // File.exists() follows the link → ELOOP → false, so stale
-            // locks from a killed process (SIGKILL skips finally) must be
-            // detected via isSymbolicLink. Short-circuiting to "success"
-            // would permanently skip postinst while dpkg stays half-
-            // configured. The postinst scripts are idempotent (dpkg
-            // "configure" reruns), so delete the stale lock and retry.
-            // NOTE: this stale-detection cannot distinguish a
-            // live concurrent runner from a stale lock — a second process
-            // would delete the active lock and run postinst concurrently.
-            // This is best-effort by design: process-local concurrency is
-            // serialized by BootstrapOrchestrator.processInstalling, and
-            // cross-process overlap is tolerated because postinst scripts
-            // are idempotent (dpkg "configure" semantics).
+            // 该锁是自指符号链接（如下方所创建）。
+            // File.exists() 会跟随链接 → ELOOP → 返回 false，
+            // 故被杀进程遗留的陈旧锁（SIGKILL 跳过 finally）
+            // 必须经 isSymbolicLink 侦测。若短路返回「成功」，
+            // 会在 dpkg 保持半配置状态时永久跳过 postinst。
+            // postinst 脚本是幂等的（dpkg "configure" 会重跑），
+            // 故删除陈旧锁后重试。
+            //
+            // 注意：此陈旧侦测无法区分存活的并发运行者与陈旧锁
+            // ——第二个进程会删掉活跃的锁并并发运行 postinst。
+            // 这是有意为之的尽力而为：进程内并发由
+            // BootstrapOrchestrator.processInstalling 串行化，
+            // 而跨进程重叠可容忍，因为 postinst 脚本是幂等的
+            // （dpkg "configure" 语义）。
             Log.w("SecondStageRunner", "Stale lock file found, deleting and retrying postinst")
             lockFile.delete()
         }
@@ -90,10 +90,7 @@ class SecondStageRunner(
         return Result(true, errors)
     }
 
-    /**
-     * Execute one dpkg postinst script with the DPKG_* environment and the linker-wrapped interpreter
-     * ; extracted from runPostInstalls for the detekt LongMethod limit).
-     */
+    /** 在 DPKG_* 环境与经链接器包装的解释器下执行一个 dpkg postinst 脚本（从 runPostInstalls 抽出以满足 detekt LongMethod 限制）。 */
     private suspend fun runOnePostinst(script: File, dpkgVersion: String, arch: String, errors: MutableList<String>) {
         val packageName = script.name.removeSuffix(".postinst")
         try {
@@ -112,13 +109,11 @@ class SecondStageRunner(
                     "HOME" to homeDir.absolutePath,
                     "PREFIX" to prefixDir.absolutePath,
                 )
-            // postinst scripts start with
-            // `#!<home>/usr/bin/sh` (prefix sh under filesDir), and Android
-            // 15+ SELinux denies execute_no_trans of app_data_file —
-            // direct exec of the script fails EACCES even when the
-            // shell itself works. Run the interpreter through the
-            // system linker (system_linker_exec domain) exactly like
-            // the PTY spawn path.
+            // postinst 脚本以 `#!<home>/usr/bin/sh` 开头（filesDir 之下的 prefix sh），
+            // 而 Android 15+ 的 SELinux 拒绝 app_data_file 的 execute_no_trans
+            // ——即便 shell 本身可用，直接 exec 脚本也会 EACCES。
+            // 故与 PTY spawn 路径完全相同地，经系统链接器
+            // （system_linker_exec 域）运行解释器。
             val command = postinstCommand(script)
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
             Log.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
@@ -130,14 +125,13 @@ class SecondStageRunner(
                         File("/"),
                     )
             proc.outputStream.close()
-            // Daemon consumers: if the postinst's grandchildren keep
-            // the pipes open after destroyForcibly(), the blocked
-            // readText threads must not outlive the process (a plain
-            // thread would leak and pin the JVM's lifetime).
-            // Drain lambdas must never throw: proc.destroy() below closes the
-            // pipes while a daemon reader may still be blocked in readText
-            // (device-proven FATAL in detectDpkgVersion when the child exits
-            // first). An uncaught throw on a raw Thread kills the app process.
+            // 守护消费者：若 destroyForcibly() 之后 postinst 的孙进程仍持有管道，
+            // 阻塞的 readText 线程绝不能比进程活得更久
+            // （普通线程会泄漏并绑定 JVM 生命周期）。
+            // 排空 lambda 绝不能抛异常：下方的 proc.destroy() 关闭管道时
+            // 守护读取线程可能仍阻塞在 readText 中
+            // （设备上已证：子进程先退出时 detectDpkgVersion 出现 FATAL）。
+            // 裸 Thread 上未捕获的抛出会杀掉应用进程。
             val stdoutThread =
                 Thread { drainQuietly(proc.inputStream) }
                     .apply {
@@ -152,12 +146,10 @@ class SecondStageRunner(
             val exited = proc.waitFor(30, TimeUnit.SECONDS)
             if (!exited) {
                 proc.destroyForcibly()
-                // Android's Process has no ProcessHandle API, so
-                // grandchildren cannot be killed directly. SIGKILL on
-                // the direct child plus the daemon pipe consumers
-                // below is the best available cleanup; a surviving
-                // grandchild is orphaned and reaped by the system
-                // when the app process dies.
+                // Android 的 Process 没有 ProcessHandle API，
+                // 故无法直接杀掉孙进程。向下述守护管道消费者
+                // 对直接子进程发 SIGKILL 是可得的最佳清理手段；
+                // 幸存的孙进程会成孤儿，并在应用进程死亡时被系统回收。
                 proc.waitFor(5, TimeUnit.SECONDS)
                 stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
                 stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
@@ -191,10 +183,8 @@ class SecondStageRunner(
                         File("/"),
                     )
             proc.outputStream.close()
-            // Consume stderr on a daemon thread: a corrupt dpkg binary that
-            // floods stderr past the 64KB pipe buffer would otherwise block
-            // the readText() below forever (the main postinst path has a 30s
-            // timeout; this helper had none).
+            // 在守护线程上消费 stderr：损坏的 dpkg 二进制若把 stderr 灌满 64KB 管道缓冲，
+            // 会使下方 readText() 永久阻塞（主 postinst 路径有 30s 超时；此辅助函数原本没有）。
             val stderrThread =
                 Thread { drainQuietly(proc.errorStream) }
                     .apply {
@@ -234,9 +224,9 @@ class SecondStageRunner(
     )
 
     /**
-     * Build the exec argv for a prefix ELF binary. Direct execve fails with EACCES on Android 15+
-     * (SELinux execute_no_trans on app_data_file), so run it through the system linker which lives in
-     * system_linker_exec.
+     * 构造 prefix ELF 二进制的 exec argv。在 Android 15+ 上直接 execve 会因
+     * SELinux 对 app_data_file 的 execute_no_trans 而 EACCES，
+     * 故经位于 system_linker_exec 的系统链接器运行。
      */
     internal fun prefixExecutableCommand(executable: File, args: List<String>): Array<String> = arrayOf(
         SYSTEM_LINKER,
@@ -244,9 +234,9 @@ class SecondStageRunner(
     ) + args
 
     /**
-     * Build the exec argv for a postinst shell script. The script's shebang points at $PREFIX/bin/sh
-     * (a symlink to bash); exec the interpreter via the system linker so SELinux permits it, with the
-     * script + args passed through (bash <script> configure -> $0=script, $1=configure).
+     * 构造 postinst shell 脚本的 exec argv。脚本的 shebang 指向 $PREFIX/bin/sh
+     * （指向 bash 的符号链接）；经系统链接器 exec 解释器以便 SELinux 允许，
+     * 并透传脚本与参数（bash <script> configure → $0=script，$1=configure）。
      */
     internal fun postinstCommand(script: File): Array<String> {
         val shebang = readShebang(script)
@@ -262,18 +252,17 @@ class SecondStageRunner(
             } else {
                 File(prefixDir, interpreter.path).path
             }
-        // /bin/sh (system) scripts run directly; prefix scripts need the
-        // linker. Compare canonical paths: Termux packages hardcode the
-        // shebang as <home>/usr/bin/sh (both /data/data and /data/user/0
-        // spellings resolve to the same inode) — a plain
-        // string prefix check would send prefix scripts down the direct
-        // exec path and die with SELinux EACCES.
+        // /bin/sh（系统）脚本直接运行；prefix 脚本需要链接器。
+        // 比较规范路径：Termux 包把 shebang 硬编码为 <home>/usr/bin/sh
+        // （/data/data 与 /data/user/0 两种写法解析到同一 inode）
+        // ——朴素的字符串前缀检查会把 prefix 脚本送进直接 exec 路径
+        // 而死于 SELinux EACCES。
         val canonicalInterpreter = File(interpreterPath).canonicalPath
         val canonicalPrefix = prefixDir.canonicalPath
         return if (canonicalInterpreter.startsWith(canonicalPrefix)) {
-            // Scripts are patched (patchPostinstForLinker) to route prefix
-            // ELF calls through /system/bin/linker64. The interpreter itself
-            // is invoked via the linker so the script can load correctly.
+            // 脚本已被 patch（patchPostinstForLinker）以把 prefix 内的
+            // ELF 调用导向 /system/bin/linker64。解释器本身也经链接器调用，
+            // 使脚本能正确加载。
             arrayOf(SYSTEM_LINKER, canonicalInterpreter, script.absolutePath, "configure")
         } else {
             arrayOf(canonicalInterpreter, script.absolutePath, "configure")

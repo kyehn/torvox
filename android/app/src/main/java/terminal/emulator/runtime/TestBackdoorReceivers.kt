@@ -7,10 +7,8 @@ import android.content.IntentFilter
 import android.util.Log
 
 /**
- * Test-backdoor broadcast receivers (R6:  architecture; extracted
- * from MainActivity). Instrumentation and Maestro flows trigger terminal
- * actions via same-process broadcasts; all receivers are registered with
- * RECEIVER_NOT_EXPORTED so third-party apps cannot reach them.
+ * 测试后门广播接收器。instrumentation 与 Maestro 流程经同进程广播触发终端动作；
+ * 所有接收器均以 RECEIVER_NOT_EXPORTED 注册，使第三方应用无法触达。
  */
 class TestBackdoorReceivers(
     private val context: Context,
@@ -61,12 +59,10 @@ class TestBackdoorReceivers(
             Pair(
                 object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
-                        // Clamp: the receiver is NOT_EXPORTED, but
-                        // instrumentation (same-uid) can still broadcast; a
-                        // hostile broadcast could otherwise carry Int.MAX and
-                        // trigger a multi-billion-iteration main-thread loop
-                        // (ANR). A generous upper bound is enough since
-                        // terminal grids are small.
+                        // 钳位：接收器虽为 NOT_EXPORTED，但 instrumentation
+                        // （同 uid）仍可广播；恶意广播否则可携带 Int.MAX
+                        // 并触发数十亿次迭代的主线程循环（ANR）。
+                        // 终端网格很小，宽裕的上界已经足够。
                         val startRow = intent.getIntExtra("startRow", 0).coerceIn(0, 4095)
                         val startCol = intent.getIntExtra("startCol", 0).coerceIn(0, 4095)
                         val endRow = intent.getIntExtra("endRow", 2).coerceIn(0, 4095)
@@ -79,7 +75,7 @@ class TestBackdoorReceivers(
             Pair(
                 object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
-                        // Clamp defensively (see PARTIAL_SELECT).
+                        // 同样防御性钳位（见 PARTIAL_SELECT）。
                         val row = intent.getIntExtra("row", 10).coerceIn(0, 4095)
                         val col = intent.getIntExtra("col", 0).coerceIn(0, 4095)
                         onShowPaste(row, col)

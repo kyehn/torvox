@@ -70,26 +70,21 @@ import kotlin.math.min
 private const val FONT_SIZE_MIN = 14f
 private const val FONT_SIZE_MAX = 48f
 
-// The toggleKeyboard lambda already skips the defer path when the
-// drawer is fully closed; when the drawer IS open, 50ms is enough
-// for the scrim tap to register before the IME competes with the
-// close animation. The old 250ms was perceptible as input lag.
+// toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
+// 抽屉打开时，50ms 足以让遮罩轻击在输入法与关闭动画竞争前生效。
+// 原先的 250ms 会被感知为输入延迟。
 private const val IME_TOGGLE_DELAY_MS = 50L
 
-// Spec ime-translation hybrid pan-then-reflow (v5 zero-recomposition): placement-phase offset
-// reads WindowInsets inline so no Compose spring is needed — the system
-// WindowInsetsAnimation already interpolates smoothly. Settled detection is
-// 3 stable frames × 16ms = 48ms, matching TerminalSurface debounce.
+// 「先平移后重排」的输入法混合方案（零重组）：布置阶段的偏移直接读取 WindowInsets，
+// 无需 Compose 弹簧——系统的 WindowInsetsAnimation 已能平滑插值。
+// 稳定判定为 3 个稳定帧 × 16ms = 48ms，与 TerminalSurface 的防抖一致。
 private const val IME_SETTLE_FRAMES = 3
 private const val IME_POLL_INTERVAL_MS = 16L
 
 /** 搜索查询串长度上限（DESIGN 修饰键栏节：匹配文本的长度需要被限制）。 */
 private const val SEARCH_QUERY_MAX_LENGTH = 256
 
-/**
- * Consolidated search state for text search within the terminal. Replaces 6 independent remember
- * variables.
- */
+/** 终端内文本搜索的合并状态，取代原先 6 个独立的 remember 变量。 */
 private data class SearchState(
     val query: String = "",
     val results: List<SearchResult> = emptyList(),
@@ -120,11 +115,9 @@ fun TerminalScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    // Height of the terminal content Box (below: the context menu
-    // positions itself with an offset relative to this Box — the menu must
-    // be placed against the BOX height, not the full screen height, or a
-    // Select-All selection (selBottom == box height)
-    // pushes the menu off-screen below the ModifierBar).
+    // 终端内容 Box 的高度（下方的上下文菜单按相对此 Box 的偏移定位
+    // ——菜单必须按 BOX 高度而非全屏高度放置，
+    // 否则「全选」选区（selBottom == box 高度）会把菜单推到工具栏之下的屏幕外）。
     var terminalBoxSize by remember { mutableStateOf(IntSize(0, 0)) }
     val viewModelThemeMode = settings.themeMode
     val viewModelThemeName = settings.themeName
@@ -147,12 +140,10 @@ fun TerminalScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // P0#13: real 150ms debounce for the search query (termlib / ghostty-android
-    // adoption). SearchDebouncer collapses rapid keystrokes into a single
-    // performSearch after a quiet period instead of firing a full-scrollback
-    // search on every keystroke. The production scheduler runs on the main
-    // Looper (TerminalSurface callbacks are main-thread); unit tests use a fake
-    // scheduler (see SearchDebouncerTest).
+    // 搜索查询的 150ms 真实防抖。SearchDebouncer 把快速连击合并为静默期后的
+    // 一次 performSearch，而不是每次击键都触发一次全回滚搜索。
+    // 生产调度器跑在主 Looper 上（TerminalSurface 回调在主线程）；
+    // 单元测试使用假调度器。
     val searchDebouncer = remember {
         SearchDebouncer(
             debounceMillis = 150L,
@@ -164,14 +155,13 @@ fun TerminalScreen(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = LocalView.current
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
-    // Toggle the soft keyboard (termux KEYBOARD key): used by the session
-    // drawer's keyboard button and by a KEYBOARD extra key in a custom
-    // toolbar layout. No-op in Raw keyboard mode (no IME to show or hide).
-    // Visibility is read synchronously from the attached window insets at
-    // tap time — never from TerminalSurface.lastImeBottom, whose
-    // SurfaceView.onApplyWindowInsets feed does not fire reliably for a
-    // SurfaceView hosted in a Compose AndroidView, leaving imeVisible stale
-    // (false) forever and reducing the toggle to show-only.
+    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮
+    // 与自定义工具栏布局中的 KEYBOARD 附加键使用。
+    // 在 Raw 键盘模式下为空操作（无可显示/隐藏的输入法）。
+    // 可见性在轻点时从已挂载的 window insets 同步读取
+    // ——绝不用 TerminalSurface.lastImeBottom：对于托管在 Compose AndroidView 中的
+    // SurfaceView，其 SurfaceView.onApplyWindowInsets 回调不可靠，
+    // 会使 imeVisible 永远陈旧（false），把切换退化为只能显示。
     val toggleKeyboard: () -> Unit = {
         if (state.keyboardMode != terminal.emulator.input.KeyboardMode.Raw) {
             val inputMethodManager =
@@ -183,24 +173,20 @@ fun TerminalScreen(
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else {
                 view.requestFocus()
-                // (spec ime-follow-animation "keyboard toggle zero
-                // unnecessary delay"): the defer exists ONLY to let the
-                // session drawer's close animation settle — firing while the
-                // scrim is animating competes with it. With the drawer fully
-                // closed there is nothing to wait for: show immediately.
+                // 此延迟只为让会话抽屉的关闭动画稳定下来
+                // ——在遮罩仍在动画时触发会与之竞争。
+                // 抽屉完全关闭时无可等待，立即显示。
                 val deferForDrawer = drawerState.isOpen || drawerState.isAnimationRunning
                 if (!deferForDrawer) {
                     view.windowInsetsController?.show(
                         android.view.WindowInsets.Type.ime(),
                     )
                 } else {
-                    // SHOW_IMPLICIT outside a user gesture is silently
-                    // rejected on Android 12+ (IME visibility requires a
-                    // trusted gesture or window focus trust), which made
-                    // the drawer's keyboard button a no-op for showing.
-                    // Use the same WindowInsetsController path as a
-                    // terminal tap (proven to show); it is not gesture-
-                    // restricted.
+                    // 用户手势之外的 SHOW_IMPLICIT 在 Android 12+ 上会被静默拒绝
+                    // （输入法可见性需要受信任的手势或窗口焦点信任），
+                    // 这使抽屉的键盘按钮在显示方向形同虚设。
+                    // 改用与终端轻点相同的 WindowInsetsController 路径（已证实能显示）；
+                    // 它不受手势限制。
                     view.postDelayed(
                         {
                             view.windowInsetsController?.show(
@@ -216,15 +202,12 @@ fun TerminalScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
-                // LocalView.current at composition top level is the
-                // AndroidComposeView, not the TerminalSurface; use the
-                // surfaceRef captured from the AndroidView factory.
+                // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
+                // 故使用从 AndroidView 工厂捕获的 surfaceRef。
                 surfaceRef.value?.finishComposing()
-                // Stop the render thread while backgrounded: surfaceDestroyed
-                // is NOT called on app-switch (the Surface is retained), so
-                // without this the thread keeps acquiring on a BufferQueue
-                // the system reclaims → ERROR_SURFACE_LOST_KHR → permanent
-                // black screen on return (emulator-verified).
+                // 后台时停止渲染线程：切应用不会调用 surfaceDestroyed（Surface 被保留），
+                // 不做此步线程会继续在已被系统回收的 BufferQueue 上取帧
+                // → ERROR_SURFACE_LOST_KHR → 返回后永久黑屏（模拟器已验证）。
                 viewModel.runtime.setRenderPaused(true)
                 viewModel.runtime.pauseRendering()
                 val inputMethodManager =
@@ -234,22 +217,20 @@ fun TerminalScreen(
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else if (event == Lifecycle.Event.ON_RESUME) {
                 val surface = surfaceRef.value
-                // App-switch continuity: if the Surface was retained (no surfaceDestroyed),
-                // render_paused is still true from onSurfaceDestroyed or previous pause and
-                // surfaceCreated was never called to clear it → black frames. Clear immediately
-                // when the surface is already attached and sized; only defer 200ms when the
-                // surface is not yet ready (race with layout).
+                // 切应用连续性：若 Surface 被保留（无 surfaceDestroyed），
+                // render_paused 仍为 true（来自 onSurfaceDestroyed 或此前的暂停），
+                // 而 surfaceCreated 从未被调用以清除它 → 黑屏。
+                // Surface 已挂载且已定尺寸时立即清除；仅在 Surface 尚未就绪
+                // （与布局竞争）时延迟 200ms。
                 if (
                     surface != null && surface.isAttachedToWindow && surface.width > 0 && surface.height > 0
                 ) {
-                    // The system may reclaim the BufferQueue while backgrounded
-                    // even though the Surface object survives (no
-                    // surfaceDestroyed): re-attaching reconfigures a dead
-                    // surface → ERROR_SURFACE_LOST_KHR forever. Drop it first
-                    // so attach takes the slow path and rebuilds the swapchain
-                    // from the (now valid again) ANativeWindow. Use the
-                    // holder's live Surface, not the cached currentSurface
-                    // (its isValid stays false after the reclaim).
+                    // 即使 Surface 对象存活（无 surfaceDestroyed），
+                    // 系统也可能在后台回收其 BufferQueue：
+                    // 重新 attach 会去重配一个已死的 Surface → 永远 ERROR_SURFACE_LOST_KHR。
+                    // 故先丢弃它，使 attach 走慢路径并从（此时又有效的）
+                    // ANativeWindow 重建交换链。使用 holder 的实时 Surface，
+                    // 而非缓存的 currentSurface（回收后其 isValid 恒为 false）。
                     val bridge = viewModel.runtime.bridge()
                     val holderSurface = surface.holder?.surface
                     if (bridge != null && holderSurface != null && holderSurface.isValid) {
@@ -260,10 +241,9 @@ fun TerminalScreen(
                         viewModel.runtime.resumeRendering()
                         viewModel.runtime.forceRender()
                     } else {
-                        // Holder not valid yet (system still restoring the
-                        // BufferQueue): retry until it is, then rebuild.
-                        // Do NOT unpause now — frames on the dead surface
-                        // would fail forever.
+                        // holder 尚未有效（系统仍在恢复 BufferQueue）：
+                        // 持续重试直到有效，然后重建。
+                        // 此刻绝不要解除暂停——在已死的 Surface 上出帧会永远失败。
                         surface.postDelayedSurfaceRecreate(viewModel)
                     }
                 } else {
@@ -330,40 +310,34 @@ fun TerminalScreen(
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
 
-            // with the legacy View.startActionMode(Callback) the
-            // system does NOT intercept BACK to finish the ActionMode (only
-            // TYPE_FLOATING modes do); BACK therefore fell through to the
-            // Activity and exited the app while a selection was active
-            // (emulator-verified). Intercept BACK while a selection is
-            // active and end it first — ghostty-android onDestroyActionMode
-            // clears the selection; Termux's first BACK dismisses the
-            // toolbar. The drawer's own BackHandler takes priority (it is
-            // registered earlier and LIFO runs ours first, so gate ours on
-            // the drawer being closed: BACK with the drawer open closes the
-            // drawer and must NOT clear the selection).
+            // 使用旧的 View.startActionMode(Callback) 时，系统不会拦截返回键
+            // 来结束 ActionMode（只有 TYPE_FLOATING 模式才会）；因此返回键会落到
+            // Activity，在选区激活时退出应用（模拟器已验证）。
+            // 故在选区激活时拦截返回键并先结束它——ghostty-android 的
+            // onDestroyActionMode 会清除选区；Termux 的首次返回关闭工具栏。
+            // 抽屉自身的 BackHandler 优先（它注册得更早，而 LIFO 使我们的先跑，
+            // 故把我们的门控在「抽屉已关闭」上：
+            // 抽屉打开时的返回键关闭抽屉，绝不能清除选区）。
             BackHandler(enabled = selectionActive && !drawerState.isOpen) {
                 viewModel.clearSelection()
                 surfaceRef.value?.hideSelectionMenu()
             }
 
-            // Consolidated text search state
+            // 合并的文本搜索状态
             var searchState by remember { mutableStateOf(SearchState()) }
 
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
                 searchState = SearchState()
                 surfaceRef.value?.searchActive = false
-                // the surface keeps a private scrollOffset
-                // used for selection coordinate math; it must follow the
-                // session's own offset on switch, otherwise the first
-                // gesture after a switch computes wrong grid rows.
+                // Surface 持有一个用于选区坐标计算的私有 scrollOffset；
+                // 切换时它必须跟随会话自身的偏移，
+                // 否则切换后的首个手势会算出错误的网格行。
                 surfaceRef.value?.resetScrollOffset()
             }
 
-            // Programmatic scroll resets (input-driven snap to bottom,
-            //  terminal-scrolling spec): resync the surface's
-            // private offset so selection/drag coordinate math stays in
-            // sync with the runtime viewport.
+            // 程序化滚动复位（由输入驱动的贴底）：重同步 Surface 的私有偏移，
+            // 使选区/拖动的坐标计算与运行时视口保持一致。
             LaunchedEffect(state.scrollEpoch) {
                 if (state.scrollEpoch > 0L) {
                     surfaceRef.value?.resetScrollOffset()
@@ -407,12 +381,10 @@ fun TerminalScreen(
                 val results = matches.map { (row, startCol, endCol) ->
                     SearchResult(lineIndex = row, startIndex = startCol, endIndex = endCol)
                 }
-                // narrowing_down: GNOME Console (kgx) uses g_strrstr() to check
-                // if the last_search string *contains* the current query — not just
-                // prefix matching. This allows narrowing to work when the user
-                // deletes characters from the middle or end of a search string,
-                // not only when they remove the last characters.
-                // See: kgx-tab.c:191-250 (search_changed callback).
+                // 收窄判定：GNOME Console（kgx）用 g_strrstr() 检查 last_search
+                // 字符串是否*包含*当前查询——而非仅做前缀匹配。
+                // 这使收窄在用户从搜索串中部或末尾删字时也能生效，
+                // 而不只是删掉末尾字符时。
                 val isNarrowing = SearchResult.isNarrowingDown(query, searchState.previousQuery)
                 val newIndex =
                     if (isNarrowing && results.isNotEmpty()) {
@@ -523,7 +495,7 @@ fun TerminalScreen(
                     .testTag("TerminalContent")
                     .offset { IntOffset(0, -heldTerminalPanPx) },
             ) {
-                // Terminal content area — moves above IME via animated padding
+                // 终端内容区——经动画 padding 上移到输入法之上
                 Box(
                     modifier = Modifier.fillMaxWidth().weight(1f).onSizeChanged { terminalBoxSize = it },
                 ) {
@@ -581,9 +553,8 @@ fun TerminalScreen(
                                         }
                                     }
                                     onZoomChanged = { sizeSp ->
-                                        // ⑥ pinch finalize: persist the
-                                        // settled size and run the full
-                                        // apply (single grid reflow).
+                                        // ⑥ 双指缩放终结：持久化稳定尺寸并执行完整应用
+                                        // （单次网格重排）。
                                         viewModel.setFontSize(sizeSp.coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX))
                                     }
                                     onZoomPreview = { sizeSp ->
@@ -598,13 +569,10 @@ fun TerminalScreen(
                         },
                         update = { surface ->
                             surface.touchEnabled = !isOverlayVisible
-                            // Only re-layout when the terminal grid dimensions
-                            // actually change (resize / font change). The
-                            // AndroidView update block runs on every
-                            // recomposition of TerminalScreen, so an
-                            // unconditional requestLayout() here forced a
-                            // full View layout pass on every selection drag
-                            // and scroll event — a key source of UI jank.
+                            // 仅在终端网格尺寸真正变化时（resize / 字体变化）才重新布局。
+                            // AndroidView 的 update 块在 TerminalScreen 的每次重组上都会运行，
+                            // 此处无条件 requestLayout() 会迫使每次选区拖动与滚动事件
+                            // 都走一遍完整的 View 布局流程——UI 卡顿的一个主要来源。
                             if (
                                 runtimeState.rows > 0 &&
                                 runtimeState.cols > 0 &&
@@ -643,13 +611,11 @@ fun TerminalScreen(
 
                         val themeAccentArgb = themeAccent.toArgb()
 
-                        // A single effect keyed on the whole selection state:
-                        // when the keys change the running effect is
-                        // cancelled first, so a drag that ends without
-                        // changing the anchor cells cannot leave the handles
-                        // hidden (the old split show/hide effects could run
-                        // out of order on the software renderer and hide
-                        // after showing).
+                        // 以整个选区状态为 key 的单一 effect：
+                        // key 变化时先取消正在运行的 effect，
+                        // 故未改变锚点单元格就结束的拖动不会把手柄留在隐藏状态
+                        // （此前拆分的显示/隐藏 effect 会在软件渲染器上乱序执行，
+                        // 在显示之后又隐藏）。
                         LaunchedEffect(
                             selectionActive,
                             selection.dragging,
@@ -659,14 +625,11 @@ fun TerminalScreen(
                             hiCol,
                             themeAccentArgb,
                         ) {
-                            // while a handle
-                            // drag is live the single overlay OWNS the touch
-                            // stream and repositions handles in-process —
-                            // hideSelectionHandles() here used to dismiss the
-                            // window under the finger and kill the gesture
-                            // after the first cross-cell move. During
-                            // dragging: deliberately a no-op. The menu is
-                            // hidden separately via menuDismissed.
+                            // 手柄拖动进行中时，单一覆盖层拥有触摸事件流
+                            // 并在进程内重定位手柄
+                            // ——此处的 hideSelectionHandles() 会在手指底下
+                            // dismiss 窗口，从而在首次跨单元格移动后杀死手势。
+                            // 拖动期间刻意为空操作。菜单另行经 menuDismissed 隐藏。
                             if (!selection.dragging) {
                                 surfaceRef.value?.showSelectionHandles(loRow, loCol, hiRow, hiCol, themeAccentArgb)
                             }
@@ -677,12 +640,11 @@ fun TerminalScreen(
                         }
                     }
 
-                    // ── Selection context menu (PopupWindow) ──
-                    // the menu must be a PopupWindow, not a
-                    // Compose overlay — the terminal is a SurfaceView whose
-                    // surface punches a hole over the whole terminal area,
-                    // hiding any in-window Compose drawing. PopupWindows are
-                    // separate system windows that render above it.
+                    // ── 选区上下文菜单（PopupWindow） ──
+                    // 菜单必须是 PopupWindow 而非 Compose 覆盖层
+                    // ——终端是 SurfaceView，其 surface 在整个终端区域开了孔，
+                    // 会遮住任何窗口内的 Compose 绘制。
+                    // PopupWindow 是独立的系统窗口，渲染在其之上。
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
                         val menuVisible = !selection.menuDismissed
@@ -711,11 +673,9 @@ fun TerminalScreen(
                         }
                     }
 
-                    // Search-highlight painting must run as a side effect,
-                    // not inline during composition: it calls into native
-                    // (bridge.render) and mutates searchState, which would
-                    // otherwise re-execute on every recomposition and
-                    // trigger a state write during composition.
+                    // 搜索高亮绘制必须作为副作用运行，而不能在组合期间内联：
+                    // 它会调入原生（bridge.render）并改写 searchState，
+                    // 否则会在每次重组时重复执行，并在组合期间触发状态写入。
                     LaunchedEffect(
                         showTextSearch,
                         searchState.hasResults,
@@ -756,20 +716,20 @@ fun TerminalScreen(
                                     writeI32(match.startIndex)
                                     writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
                                     if (isCurrent) {
-                                        // Current match: fully opaque theme foreground.
-                                        // Alpha >= 128 makes the Rust renderer swap foreground/background
-                                        // (inverse video) and blend the opaque color over the
-                                        // background, so the current hit is unmistakable.
-                                        // See SearchHighlightColors.CURRENT_MATCH_ALPHA and
-                                        // native/src/render/tests.rs production-value tests.
+                                        // 当前命中项：完全不透明的主题前景色。
+                                        // alpha >= 128 使 Rust 渲染器交换前景/背景
+                                        // （反色）并把不透明色混合到背景上，
+                                        // 使当前命中项毫无疑问地突出。
+                                        // 见 SearchHighlightColors.CURRENT_MATCH_ALPHA
+                                        // 与 native/src/render/tests.rs 的生产值测试。
                                         writeByte((themeForeground.red * 255).toInt().toByte())
                                         writeByte((themeForeground.green * 255).toInt().toByte())
                                         writeByte((themeForeground.blue * 255).toInt().toByte())
                                         writeByte(SearchHighlightColors.CURRENT_MATCH_ALPHA.toByte())
                                     } else {
-                                        // Other matches: selection_background tint below the 128 swap
-                                        // threshold — visible overlay, no inversion.
-                                        // See SearchHighlightColors.OTHER_MATCH_ALPHA.
+                                        // 其余命中项：低于 128 反色阈值的
+                                        // selection_background 着色——可见覆盖层，不反色。
+                                        // 见 SearchHighlightColors.OTHER_MATCH_ALPHA。
                                         writeByte((themeSelectionBackground.red * 255).toInt().toByte())
                                         writeByte((themeSelectionBackground.green * 255).toInt().toByte())
                                         writeByte((themeSelectionBackground.blue * 255).toInt().toByte())
@@ -777,7 +737,7 @@ fun TerminalScreen(
                                     }
                                 }
                                 val highlightBytes = buf.toByteArray()
-                                // Single call: surface.setSearchHighlights internally calls
+                                // 单次调用：surface.setSearchHighlights 内部会调用
                                 // bridge.setSearchHighlights + bridge.render
                                 surface.setSearchHighlights(highlightBytes)
                                 searchState = searchState.copy(highlightsActive = true)
@@ -789,8 +749,8 @@ fun TerminalScreen(
                     }
                 }
 
-                // END OF COLUMN — terminal and bar both above IME
-            } // close Column
+                // Column 结束——终端与工具栏均位于输入法之上
+            } // 关闭 Column
 
             // 底部栏随动：整体跟随到键盘上方（与终端区的光标最小平移不同策略），避免重测与交换链重建。
             Box(
@@ -801,7 +761,7 @@ fun TerminalScreen(
                     .offset { IntOffset(0, -barPanPx.intValue) }
                     .testTag("ModifierBarOverlay"),
             ) {
-                // Bottom bar — below terminal, above IME
+                // 底部栏——位于终端之下、输入法之上
                 if (showTextSearch) {
                     TextSearchBar(
                         query = searchState.query,
@@ -857,33 +817,6 @@ fun TerminalScreen(
                         modifier = Modifier.testTag("TextSearchBar"),
                     )
                 } else {
-                    val clipboardManager =
-                        context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                            as? android.content.ClipboardManager
-                    var hasClipboard by remember { mutableStateOf(false) }
-
-                    LaunchedEffect(Unit) {
-                        // hasPrimaryClip() is deprecated without a
-                        // replacement (API 36); it is the only existence
-                        // query the platform exposes.
-                        @SuppressLint("DeprecatedCall")
-                        hasClipboard = clipboardManager?.hasPrimaryClip() == true
-                    }
-
-                    // OnPrimaryClipChangedListener and the add/remove
-                    // pair are deprecated without replacement (API 36);
-                    // they are still the only clip-change notification API.
-                    @SuppressLint("DeprecatedCall")
-                    DisposableEffect(context) {
-                        val listener =
-                            android.content.ClipboardManager.OnPrimaryClipChangedListener {
-                                @SuppressLint("DeprecatedCall")
-                                hasClipboard = clipboardManager?.hasPrimaryClip() == true
-                            }
-                        clipboardManager?.addPrimaryClipChangedListener(listener)
-                        onDispose { clipboardManager?.removePrimaryClipChangedListener(listener) }
-                    }
-
                     ModifierBar(
                         modifier = Modifier.testTag("ModifierBar"),
                         onKeyClick = { data ->
@@ -923,10 +856,6 @@ fun TerminalScreen(
                     )
                 }
             }
-            // The soft-keyboard toggle moved into the session drawer
-            // (SessionDrawer keyboard button — same termux KEYBOARD key
-            // semantics); the old floating side button overlapped terminal
-            // content on narrow screens.
         }
     }
 }
@@ -951,7 +880,7 @@ internal fun computeTerminalPanPx(
     imePx: Int,
     barPx: Int,
 ): Int? {
-    // null = hold the previous pan (cursor hidden while browsing history).
+    // null = 保持上一次平移（浏览历史时光标隐藏）。
     if (imePx <= 0) return 0
     if (cursorRow < 0) return null
     if (cellHeightPx <= 0f || boxHeightPx <= 0) return imePx

@@ -1,45 +1,41 @@
 package terminal.emulator.util
 
-// wcwidth-style wide-character classification (CJK, emoji, Hangul).
-// Cell width rules: narrow (width 1) vs wide (width 2) code points, from
-// Markus Kuhn's wcwidth() tables. Single source of truth for terminal cell
-// width — previously duplicated in TerminalSurface, TextSearchBar and
-// TerminalViewModel (deduplicated; see docs/rejected-technologies.md §9).
+// 终端单元格宽度的唯一来源，取自 Markus Kuhn 的 wcwidth 表。
 
-/** BMP wide ranges from Markus Kuhn's wcwidth() tables. */
-fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
-    cp in 0x2329..0x232A || // angle brackets
-    cp in 0x2E80..0x303E || // CJK Radicals Supplement .. CJK Symbols and Punctuation
-    cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
-    cp in 0x3400..0x4DBF || // CJK Unified Ideographs Extension A
-    cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
-    cp in 0xA000..0xA4CF || // Yi Syllables
-    cp in 0xAC00..0xD7A3 || // Hangul Syllables
-    cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
-    cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
-    cp in 0xFF00..0xFF60 || // Fullwidth Forms
-    cp in 0xFFE0..0xFFE6 // Fullwidth Signs
+/** Markus Kuhn wcwidth 表中的 BMP 宽字符区间。 */
+fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // 谚文字母
+    cp in 0x2329..0x232A || // 尖括号
+    cp in 0x2E80..0x303E || // CJK 部首补充 .. CJK 符号和标点
+    cp in 0x3041..0x33FF || // 平假名 .. CJK 兼容
+    cp in 0x3400..0x4DBF || // CJK 扩展 A
+    cp in 0x4E00..0x9FFF || // CJK 统一表意文字
+    cp in 0xA000..0xA4CF || // 彝文音节
+    cp in 0xAC00..0xD7A3 || // 谚文音节
+    cp in 0xF900..0xFAFF || // CJK 兼容表意文字
+    cp in 0xFE30..0xFE4F || // CJK 兼容形式
+    cp in 0xFF00..0xFF60 || // 全角形式
+    cp in 0xFFE0..0xFFE6 // 全角符号
 
-/** Astral-plane wide ranges (emoji and CJK extensions B-G). */
-fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag)
-    cp in 0x1F300..0x1F64F || // Emoticons
-    cp in 0x1F680..0x1F6FF || // Transport and Map Symbols
-    cp in 0x1F700..0x1F8FF || // Alchemical .. Geometric Extended
-    cp in 0x1F900..0x1F9FF || // Supplemental Symbols
-    cp in 0x1FA00..0x1FAFF || // Chess .. Symbols Extended-A
-    cp in 0x20000..0x2FFFD || // CJK Extensions B-F
-    cp in 0x30000..0x3FFFD // CJK Extension G
+/** 宽字符的星平面区间（emoji 与 CJK 扩展 B-G）。 */
+fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // 区域指示符（旗帜）
+    cp in 0x1F300..0x1F64F || // 表情符号
+    cp in 0x1F680..0x1F6FF || // 交通与地图符号
+    cp in 0x1F700..0x1F8FF || // 炼金术 .. 几何图形扩展
+    cp in 0x1F900..0x1F9FF || // 补充符号
+    cp in 0x1FA00..0x1FAFF || // 国际象棋 .. 符号扩展 A
+    cp in 0x20000..0x2FFFD || // CJK 扩展 B-F
+    cp in 0x30000..0x3FFFD // CJK 扩展 G
 
-/** True when the code point occupies two terminal cells. */
+/** 码点是否占两个单元格。 */
 fun isWideCodePoint(cp: Int): Boolean = isWideBmp(cp) || isWideAstral(cp)
 
-/** True when the character occupies two terminal cells. */
+/** 字符是否占两个单元格。 */
 fun isWideChar(ch: Char): Boolean = isWideCodePoint(ch.code)
 
-/** Terminal cell width of a character: 1 or 2. */
+/** 字符的单元格宽度：1 或 2。 */
 fun charCellWidth(ch: Char): Int = if (isWideChar(ch)) 2 else 1
 
-/** Cell column of the character at [charIndex] on [line], summing cell widths. */
+/** [line] 上第 [charIndex] 个字符所在的单元格列号。 */
 fun charIndexToCellColumn(line: String, charIndex: Int): Int {
     var col = 0
     for (i in 0 until charIndex.coerceAtMost(line.length)) {

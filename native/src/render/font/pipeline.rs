@@ -178,72 +178,6 @@ impl FontPipeline {
         pipeline
     }
 
-    pub fn from_fixture(
-        atlas_width: i32,
-        atlas_height: i32,
-        font_size: f32,
-        fixture_dir: &str,
-    ) -> Self {
-        let mut font_system = FontSystem::new();
-        let db = font_system.db_mut();
-
-        let path = std::path::Path::new(fixture_dir);
-        if path.is_dir()
-            && let Ok(entries) = std::fs::read_dir(path)
-        {
-            for entry in entries.flatten() {
-                let file_path = entry.path();
-                if file_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf"))
-                    && let Err(error) = db.load_font_file(&file_path)
-                {
-                    // File name only: the full path can embed a user home dir.
-                    log::warn!(
-                        "font: failed to load font file {}: {error}",
-                        file_path.file_name().unwrap_or_default().to_string_lossy()
-                    );
-                }
-            }
-        }
-
-        let scaler_context = swash::scale::ScaleContext::new();
-        let atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(atlas_width, atlas_height));
-        let atlas_bitmap = vec![0u8; (atlas_width * atlas_height * 4) as usize];
-
-        let mut pipeline = Self {
-            font_system,
-            scaler_context,
-            atlas,
-            caches: super::glyph_cache::GlyphCache::new(),
-            atlas_bitmap,
-            atlas_width: atlas_width as u32,
-            atlas_height: atlas_height as u32,
-            font_id: None,
-            styled_font_ids: [None, None, None],
-            cjk_fallback_ids: Vec::new(),
-            symbol_fallback_ids: Vec::new(),
-            nerd_fallback_ids: Vec::new(),
-            emoji_fallback_ids: Vec::new(),
-            font_size,
-            atlas_generation: 0,
-            fallback_generation: 0,
-            dirty_rect: None,
-            system_locale: String::new(),
-            shaping_buffer: None,
-            raster_scale: 1.0,
-        };
-
-        pipeline.find_monospace_font();
-        let system_locale = pipeline.system_locale.clone();
-        pipeline.find_cjk_fallback_fonts(&system_locale);
-        pipeline.find_symbol_fallback_fonts();
-        pipeline.find_nerd_fallback_fonts();
-        pipeline.find_emoji_fallback_fonts();
-        pipeline
-    }
-
     /// 选定主字体。
     ///
     /// 设备上 `fonts.xml` 是唯一来源（DESIGN 字体节：不得使用任何硬编码字体名）：
@@ -719,9 +653,22 @@ impl FontPipeline {
         self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
     }
 
-    /// Style-aware glyph lookup: prefers a real bold/italic
-    /// face of the same family when one exists, otherwise rasterizes the
-    /// base face with font synthesis (embolden/shear).
+    /// 在真实样式面上取字形：字形号非 0 且光栅化出非空位图才算命中，
+    /// 命中即返回，不做任何合成。
+    fn styled_face_glyph(&mut self, style_id: fontdb::ID, ch: char) -> Option<GlyphInfo> {
+        let glyph_id = self
+            .style_glyph_id(style_id, ch)
+            .filter(|&glyph| glyph != 0)?;
+        let info = self.glyph_information_from_font_with_synthesis(
+            style_id,
+            glyph_id,
+            GlyphSynthesis::None,
+        )?;
+        (info.width > 0 && info.height > 0).then_some(info)
+    }
+
+    /// 优先用同族的真实粗/斜体面（保持字形清晰且可微调），否则对基底面
+    /// 做合成（加粗/倾斜）。
     pub fn glyph_information_styled(
         &mut self,
         ch: char,
@@ -733,49 +680,27 @@ impl FontPipeline {
         }
         let primary_font_id = self.font_id?;
 
-        // 0) Independent bold/italic family slot (ghostty-android 4-slot
-        //    TerminalFontStore, see docs/specification/REFERENCE.md): the
-        //    user-configured style family wins outright, no synthesis.
+        // 0) 用户单独指定的样式族（ghostty-android 四槽位，参考 REFERENCE.md）直接胜出，不合成。
         let slot = Self::styled_slot_index(bold, italic);
         let style_id = self.styled_font_ids[slot].or_else(|| {
-            // bold-italic falls back to the bold slot (synthesized italic
-            // on top of the real bold face) when no dedicated face exists.
+            // 粗斜没有专属面时退回粗体槽（真实粗体面上再合成倾斜）。
             if slot == 2 {
                 self.styled_font_ids[0]
             } else {
                 None
             }
         });
-        if let Some(style_id) = style_id {
-            let style_gid = self.style_glyph_id(style_id, ch);
-            if let Some(gid) = style_gid.filter(|&g| g != 0)
-                && let Some(info) = self.glyph_information_from_font_with_synthesis(
-                    style_id,
-                    gid,
-                    GlyphSynthesis::None,
-                )
-                && info.width > 0
-                && info.height > 0
-            {
-                return Some(info);
-            }
+        if let Some(style_id) = style_id
+            && let Some(info) = self.styled_face_glyph(style_id, ch)
+        {
+            return Some(info);
         }
 
-        // 1) Same-family bold/italic face wins when it actually contains the
-        //    glyph (this keeps real styled faces crisp and hintable).
-        if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic) {
-            let style_gid = self.style_glyph_id(style_id, ch);
-            if let Some(gid) = style_gid.filter(|&g| g != 0)
-                && let Some(info) = self.glyph_information_from_font_with_synthesis(
-                    style_id,
-                    gid,
-                    GlyphSynthesis::None,
-                )
-                && info.width > 0
-                && info.height > 0
-            {
-                return Some(info);
-            }
+        // 1) 同族真实粗/斜体面。
+        if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic)
+            && let Some(info) = self.styled_face_glyph(style_id, ch)
+        {
+            return Some(info);
         }
 
         // 2) Fall back to synthesizing the base (or fallback) face.

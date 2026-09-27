@@ -1,23 +1,14 @@
 package terminal.emulator.bridge
 
 /**
- * Kotlin-side query port for terminal content.
+ * 终端内容的 Kotlin 侧查询端口。实际实现是 [NativeQueryPort]（JNI）。
  *
- * ADR-0007 (surface integration) is implemented: the
- * native query path exists and is backed by JNI. Instead of sprinkling
- * `?: ""` / try-catch defense across the UI, every caller depends on
- * this interface. The live implementation is [NativeQueryPort] (JNI);
- * [StubQueryPort] was removed as dead code.
- *
- * Contract for callers:
- * - `scrollbackLine`/`scrollbackLength`/`searchAllInScrollback` return
- *   null/0/empty-list: "no data". Treat as unavailable, not "empty
- *   content" — faking data would corrupt selections and search results.
- * - `isCellEmpty` returns true: long-press opens the paste popup (the
- *   only long-press action usable without native data).
+ * 对调用方的约定：
+ * - `scrollbackLine`/`scrollbackLength`/`searchAllInScrollback` 返回 null/0/空列表即「无数据」，
+ *   应视为不可用而非「内容为空」——伪造数据会损坏选区与搜索结果。
+ * - `isCellEmpty` 返回 true 时长按弹出粘贴菜单（无原生数据时唯一可用的长按动作）。
  */
-// The query surface is intentionally wide: it mirrors the native exports
-// one-to-one so the seam can be swapped without UI churn.
+// 查询面刻意保持宽接口：与原生导出一一对应，使接缝可替换而不牵动 UI。
 interface TerminalQueryPort {
     fun getTitle(): String?
     fun getActiveSessionTitle(): String = getTitle() ?: ""
@@ -29,13 +20,13 @@ interface TerminalQueryPort {
     fun scrollbackLine(row: Int): String?
     fun scrollbackLength(): Int
 
-    /** Cursor viewport position packed `(y << 32) | x`, or -1 when hidden. */
+    /** 光标视口位置，打包为 `(y << 32) | x`，隐藏时为 -1。 */
     fun cursorViewportPacked(): Long
     fun isCellEmpty(row: Int, col: Int): Boolean
     fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>?
     fun setScrollOffset(offset: Int)
 
-    /** Viewport Y pixel remainder for per-pixel smooth scrolling (positive = content down). */
+    /** 视口 Y 像素余量，用于逐像素平滑滚动（正值 = 内容下移）。 */
     fun setScrollYPx(offsetPx: Float)
 
     fun getTerminalText(): String?

@@ -87,8 +87,7 @@ impl super::GhosttyTerminal {
                         .or_else(|| panic.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown panic payload");
                     log::error!("ghostty_terminal thread panicked: {msg}");
-                    // Mark all future operations as failed so callers
-                    // don't silently send commands into a dead channel.
+                    // 标记后续所有操作失败，避免调用方向死信道静默发命令。
                     panicked_for_run.store(true, Ordering::Release);
                 }
             })
@@ -116,26 +115,19 @@ impl super::GhosttyTerminal {
         std::mem::take(&mut *guard)
     }
 
-    /// 取出 VT 线程经上游 OSC 52 回调（on_clipboard_write）上报的剪贴板写入
-    ///（选择器字母，文本）。不阻塞，无事件为 None。
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
         self.clipboard_rx.try_recv().ok()
     }
 
-    /// 取出 VT 线程经上游 BEL 回调（on_bell）上报的振铃（不阻塞，无事件为 None）。
     pub fn poll_bell_event(&self) -> Option<()> {
         self.bell_rx.try_recv().ok()
     }
 
     pub fn vt_write(&mut self, data: &[u8]) {
-        // Sanitize bytes that the underlying C library cannot handle.
-        // NUL is an ECMA-48 ignore control character: strip it before the
-        // parser sees it, otherwise one stray NUL (mpv --vo=kitty appends
-        // one per frame) corrupts the whole payload, e.g. drops a Kitty
-        // image entirely. 0xF8–0xFF are not valid UTF-8 lead bytes and are
-        // not standard VT100 C1 control codes. The C parser may crash on
-        // long runs of these bytes, so we replace them with spaces to
-        // preserve input length while avoiding the crash.
+        // 清洗底层 C 库无法处理的字节。NUL 是 ECMA-48 忽略控制字符，必须在解析器看到前
+        // 剔除，否则一个游离 NUL（mpv --vo=kitty 每帧追加一个）就会毁掉整块载荷，
+        // 甚至让整张 Kitty 图像丢失。0xF8–0xFF 既非合法 UTF-8 首字节也非标准 VT100 C1
+        // 控制码，C 解析器遇到长串此类字节可能崩溃，故替换为空格以保长。
         let sanitized: Vec<u8> = data
             .iter()
             .filter(|&&b| b != 0x00)
@@ -143,41 +135,31 @@ impl super::GhosttyTerminal {
             .collect();
         let mut buf = Vec::with_capacity(data.len() + 4);
         buf.extend_from_slice(&sanitized);
-        // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，
-        // 此处不得追加 ST/SGR 提前闭合（会截断合法跨块 OSC 并洗掉颜色）。
-        // try_send: a wedged VT thread must not block the caller
-        // indefinitely (same policy as pty_write). vt_write is used for
-        // programmatic VT data only, never on a hot path.
+        // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，此处不得追加
+        // ST/SGR 提前闭合（会截断合法跨块 OSC 并洗掉颜色）。用 try_send：VT 线程卡住时
+        // 不得无限期阻塞调用方（与 pty_write 同策略）。
         if let Err(error) = self.cmd_tx.try_send(Command::Write(buf)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
 
-    /// Write PTY output to the terminal, converting LF (`\n`) to CR+LF (`\r\n`).
-    /// This is necessary because Ghostty's VT engine treats LF as a line feed
-    /// without carriage return, which produces incorrect line advancement for
-    /// typical terminal output.
+    /// 写入 PTY 输出并把 LF（`\n`）转成 CR+LF（`\r\n`）——Ghostty 的 VT 引擎把 LF 当作
+    /// 无回车的换行，不转换则常规输出的行推进会出错。
     ///
-    /// Unlike [`Self::vt_write`], this method applies text-level `\n`→`\r\n` conversion
-    /// suitable for PTY output. VT control sequences, DEC rectangle operations,
-    /// and binary VT data should use [`Self::vt_write`] instead.
+    /// 适用于 PTY 输出的文本级 `\n`→`\r\n` 转换；VT 控制序列、DEC 矩形操作与二进制
+    /// VT 数据应改用 [`Self::vt_write`]。
     pub fn pty_write(&mut self, data: &[u8]) {
         let mut buf = Vec::with_capacity(data.len() + 4);
-        // Use last byte from previous call to detect `\r`/`\n` split across
-        // chunk boundaries (common with PTY output on Linux). Without this
-        // the LF→CRLF converter inserts a spurious `\r`, producing `\r\r\n`.
+        // 用上次调用的末字节识别跨块拆分的 `\r`/`\n`（Linux PTY 输出常见）；否则
+        // LF→CRLF 转换会多插入一个 `\r`，产生 `\r\r\n`。
         let mut prev: u8 = self.last_pty_write_byte;
         for &raw in data {
-            // NUL 是 ECMA-48 忽略控制字符：直接跳过，不计入 LF 前导判定。
             if raw == 0x00 {
                 continue;
             }
-            // 与 vt_write 同规则清洗：0xF8–0xFF 非法 UTF-8 首字节会使 C 解析器崩溃，保长替换为空格。
             let sanitized = if raw > 0xF7 { b' ' } else { raw };
-            // Convert a bare LF to CRLF, but only when the LF is not already
-            // preceded by a CR. Input that already contains CRLF (common from
-            // PTY output) would otherwise become CRCRLF, producing a spurious
-            // extra carriage return.
+            // 裸 LF 转成 CRLF，但仅当其前一个字节不是 CR；否则本已含 CRLF 的输入
+            // （PTY 输出常见）会变成 CRCRLF，多出一个回车。
             if sanitized == b'\n' && prev != b'\r' {
                 buf.push(b'\r');
             }
@@ -188,57 +170,32 @@ impl super::GhosttyTerminal {
         // CSI/OSC/DCS 分片由上游增量重组，此处不得提前闭合（ST 自动闭合
         // 会截断合法跨块 OSC，实测分片 OSC 52 被截为空内容）。
         self.last_pty_write_byte = prev;
-        // try_send: this runs on the session/render path while holding the
-        // session lock. A full command channel (VT thread busy with a long
-        // command) must not block the caller indefinitely; dropping a chunk
-        // is acceptable — the VT engine is frame-based and the next chunk
-        // carries on.
+        // 用 try_send：本方法在持有会话锁的会话/渲染路径上运行，命令通道满（VT 线程
+        // 忙于长命令）时不得无限期阻塞调用方；丢弃一块可接受——VT 引擎是帧式的。
         if let Err(error) = self.cmd_tx.try_send(Command::Write(buf)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
 
-    /// Returns `true` if the terminal thread is still alive and accepting commands.
-    /// Uses flume's built-in disconnect detection: when the terminal thread exits,
-    /// its `Receiver<Command>` is dropped, causing `Sender::is_disconnected()` to
-    /// return `true`.
-    ///
-    /// Note: there is an inherent race — the terminal can die between an
-    /// `is_alive()` check and the next command send. This is acceptable for
-    /// zombie-detection purposes; at most one command will silently fail before
-    /// the next check detects the disconnection.
     pub fn is_alive(&self) -> bool {
         !self.panicked.load(Ordering::Acquire) && !self.cmd_tx.is_disconnected()
     }
 
-    /// Test-only: sever the command channel so the VT thread exits and every
-    /// subsequent public query takes its disconnected/fallback path
-    /// (`is_alive` → false, snapshots → `GridSnapshot::fallback`). Replaces
-    /// the live sender with a dud sender (whose receiver is dropped, so it
-    /// reports disconnected); the VT thread sees the disconnect and breaks
-    /// out of its command loop.
     #[cfg(test)]
     pub(crate) fn disconnect_for_test(&mut self) {
         let (dud_tx, _dud_rx) = bounded::<Command>(1);
         self.cmd_tx = dud_tx;
     }
 
-    /// 等待 VT 线程处理完此前全部命令（含本次 build）。只保证 build 完成，
-    /// 不保证推送 cell 数据帧：去重命中或通道满丢弃时 `receive_cell_data` 为
-    /// `None`，测试需先制造内容变更再 `expect`。
     pub fn flush(&self) {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.try_send(Command::FlushAck(tx)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
             return;
         }
-        // Bounded wait: if the VT thread is wedged (e.g. a pathological C
-        // parser input), an unbounded recv would block the caller forever
-        // while it holds the session lock, freezing every JNI entry point
-        // and tripping the ANR watchdog. The timeout is deliberately far
-        // above the worst legitimate backlog (a burst of writes can take a
-        // while to drain in debug builds) — 5s of silence means the VT
-        // thread is genuinely stuck.
+        // 有界等待：VT 线程卡死（如病态的 C 解析器输入）时，无限 recv 会在持有会话锁
+        // 期间永久阻塞调用方，冻结所有 JNI 入口并触发 ANR 看门狗。超时远大于合法积压
+        // 上限，静默 5s 即 VT 线程确实卡死。
         match rx.recv_timeout(std::time::Duration::from_secs(FLUSH_TIMEOUT_SECS)) {
             Ok(()) => {}
             Err(_) => {
@@ -248,7 +205,7 @@ impl super::GhosttyTerminal {
     }
 
     pub fn set_theme(&self, background: [u8; 3], foreground: [u8; 3], ansi: [[u8; 3]; 16]) {
-        // try_send: same non-blocking policy as resize.
+        // try_send：与 resize 同非阻塞策略。
         if let Err(error) = self.cmd_tx.try_send(Command::SetTheme {
             background,
             foreground,
@@ -258,9 +215,6 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Scroll the terminal viewport by a delta (up is negative). The
-    /// delta is applied on the VT thread via `scroll_viewport`; the next
-    /// CellData push carries the scrolled view.
     pub fn scroll_viewport(&self, delta: isize) -> bool {
         if let Err(error) = self.cmd_tx.try_send(Command::ScrollViewport(delta)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for scroll: {error}");
@@ -269,17 +223,12 @@ impl super::GhosttyTerminal {
         true
     }
 
-    /// Returns true when the resize command was accepted by the VT thread.
-    /// A `false` result means the grid was NOT resized (PTY may still have
-    /// been updated by the caller's `pty.resize`); the caller must not cache
-    /// the new size so the next resize event retries.
+    /// VT 线程接受 resize 命令时为 true。为 false 表示网格**未**缩放（调用方的
+    /// `pty.resize` 可能已更新 PTY）；调用方不得缓存新尺寸，以便下次 resize 事件重试。
     pub fn resize(&mut self, rows: u32, cols: u32) -> bool {
-        // try_send, not send: a wedged VT thread must not block the caller
-        // (switchSession holds the Kotlin sessionLock across this call).
-        // NOTE: a dropped resize is NOT replayed — the PTY/grid keep the old
-        // size until the next resize event arrives (IME change, rotation,
-        // settings change, session switch). The channel capacity (1024) makes
-        // loss unlikely outside a VT-thread stall /111).
+        // 用 try_send 而非 send：VT 线程卡住时不得阻塞调用方（switchSession 在此调用
+        // 期间持有 Kotlin sessionLock）。注意：被丢弃的 resize **不会重放**——PTY/网格
+        // 保持旧尺寸直到下次 resize 事件（输入法变化、旋转、设置变更、切换会话）。
         if let Err(error) = self.cmd_tx.try_send(Command::Resize { rows, cols }) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for resize: {error}");
             return false;
@@ -287,7 +236,6 @@ impl super::GhosttyTerminal {
         true
     }
 
-    /// 更新单元格像素尺寸（Kitty 放置几何依赖它；与 resize 同一非阻塞策略）。
     pub fn set_cell_pixel_size(&self, cell_width: u32, cell_height: u32) {
         if let Err(error) = self.cmd_tx.try_send(Command::SetCellPixelSize {
             cell_width,
@@ -299,8 +247,6 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
-    /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
     pub fn reset(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::Reset) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for reset: {error}");
@@ -316,7 +262,6 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 清除终端持有的活动选区（与 set_selection 同一非阻塞策略）。
     pub fn clear_selection(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::ClearSelection) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for clear_selection: {error}");
@@ -331,17 +276,11 @@ impl super::GhosttyTerminal {
         self.query(Query::Cols, DISCONNECTED_COLS, "cols")
     }
 
-    /// Returns a **fresh** grid snapshot of the current viewport.
+    /// 返回当前视口的**最新**网格快照：始终阻塞到 VT 线程处理完请求，调用方不会看到
+    /// 陈旧缓存帧。VT 线程仅在网格实际变化时重建快照（见 `snapshot_needs_rebuild`），
+    /// 故阻塞代价仅一次通道往返。
     ///
-    /// This always blocks until the VT thread has processed the request, so
-    /// callers observe the latest grid content (never a stale cached frame).
-    /// The VT thread rebuilds the snapshot only when the grid actually changed
-    /// (see `snapshot_needs_rebuild`), so the blocking cost is a single channel
-    /// round-trip and is cheap when the grid is unchanged.
-    ///
-    /// 通道满或超时说明 VT 线程已卡死：记错误后 panic，不回退到空白网格
-    /// （DESIGN 禁止掩盖错误）。回滚浏览走 CellData 通道（`ScrollViewport` +
-    /// `receive_cell_data`），本快照只覆盖当前视口。
+    /// 通道满或超时说明 VT 线程已卡死：记错误后 panic，不回退到空白网格。
     pub fn take_snapshot(&self) -> GridSnapshot {
         let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
         if let Err(error) = self.cmd_tx.try_send(Command::TakeSnapshot { tx }) {
@@ -365,7 +304,6 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// 采集全部可见 Kitty 放置（渲染线程按需调用；VT 繁忙时回退空列表）。
     pub fn take_kitty_placements(&self) -> Vec<KittyPlacementFrame> {
         self.query(
             |tx| Query::TakeKittyPlacements { tx },
@@ -390,19 +328,10 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// Cursor viewport (row, col) read through `build_cell_data` — the exact
-    /// source the render thread consumes. `None` when hidden or build fails.
-    ///  observability: the JNI cursor query and the deterministic
-    /// cursor-coordinate contract tests read through this so instrumentation
-    /// sees the same coordinates the GPU draws.
     pub fn render_cursor(&self) -> Option<(u32, u32)> {
         self.query(Query::RenderCursor, None, "render_cursor")
     }
 
-    /// Receive the most recent CellData snapshot from the ghostty thread
-    /// (auto-pushed after every state mutation when the channel is enabled).
-    /// Drains stale entries so the caller always gets the freshest snapshot.
-    /// Returns `None` if the channel is disabled or no data is available yet.
     pub fn receive_cell_data(&self) -> Option<(Vec<CellData>, CursorInfo)> {
         let rx = self.cell_data_rx.as_ref()?;
         let mut latest = rx.try_recv().ok()?;
@@ -422,21 +351,16 @@ impl super::GhosttyTerminal {
     ) -> Option<Vec<u8>> {
         let rx =
             self.key_encode_submit(key_code, modifiers, action, unicode_char, unshifted_char)?;
-        // Bounded wait: a wedged VT thread must not block the caller
-        // (potentially the UI thread) forever.
+        // 有界等待：VT 线程卡住时不得永久阻塞调用方（可能是 UI 线程）。
         rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
             .ok()
     }
 
-    /// Encode a mouse event (pixel position, action, button) into terminal
-    /// escape sequences using the Ghostty mouse encoder. `cell_w`/`cell_h`
-    /// are the renderer's live cell dimensions so the pixel→cell mapping
-    /// matches what is displayed (zelland `get_cell_size()` pattern,
-    /// src-tauri/src/terminal.rs:41-90 + ghostty_mouse_encoder SGR/1006).
+    /// 用 Ghostty 鼠标编码器把鼠标事件（像素位置、动作、按键）编码为终端转义序列。
+    /// `cell_w`/`cell_h` 取渲染器的实时单元格尺寸，使像素→单元映射与实际显示一致。
     ///
-    /// Returns `Some(empty)` when mouse reporting is disabled (no DECSET
-    /// 1000/1002/1003) or encoding fails — the caller drops the event.
-    /// (Only a wedged query channel yields `None`, as with `key_encode`.)
+    /// 鼠标上报未启用（无 DECSET 1000/1002/1003）或编码失败时返回 `Some(空)`，
+    /// 由调用方丢弃该事件；仅查询通道卡死时返回 `None`。
     pub fn encode_mouse_event(
         &self,
         position: (f32, f32),
@@ -460,8 +384,6 @@ impl super::GhosttyTerminal {
         .into()
     }
 
-    /// Submit a key for encoding and return a receiver for the result.
-    /// The caller should NOT hold any session lock while waiting on the returned receiver.
     pub fn key_encode_submit(
         &self,
         key_code: u32,
@@ -471,8 +393,6 @@ impl super::GhosttyTerminal {
         unshifted_char: u32,
     ) -> Option<flume::Receiver<Vec<u8>>> {
         let (tx, rx) = flume::bounded(1);
-        // try_send: consistent with resize/set_theme — a wedged VT thread
-        // must not block the caller.
         if let Err(error) = self.query_tx.try_send(Query::KeyEncode {
             key_code,
             modifiers,
@@ -495,10 +415,6 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// Like [`Self::mode_get`] but with a caller-provided timeout. Used by
-    /// callers on latency-sensitive paths (e.g. UI-thread focus reporting)
-    /// where a wedged VT thread must not stall the caller for the full
-    /// query timeout.
     pub fn mode_get_with_timeout(
         &self,
         mode_num: u16,
@@ -520,17 +436,12 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Lock-free read of the alternate-screen mirror, updated by the VT thread
-    /// on every emitted frame. Safe to call from the Android
-    /// input path on every touch-scroll event without blocking the UI thread.
     pub fn alt_screen_active_atomic(&self) -> bool {
         self.alt_screen_active.load(Ordering::Acquire)
     }
 
-    /// Send a stateless [`Query`] to the VT thread and wait for its reply,
-    /// falling back to `fallback` on send failure or timeout. Single call
-    /// site for the bounded-channel + recv_timeout boilerplate shared by
-    /// every query method (see also `Query` docs for the channel design).
+    /// 向 VT 线程发送无状态 [`Query`] 并等待应答，发送失败或超时回退到 `fallback`；
+    /// 全部查询方法共用这唯一一处有界通道 + 超时样板。
     fn query<T>(&self, build: impl FnOnce(Sender<T>) -> Query, fallback: T, method: &str) -> T {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.query_tx.try_send(build(tx)) {
@@ -568,10 +479,6 @@ impl super::GhosttyTerminal {
         self.query(Query::ReadVisibleText, String::new(), "read_visible_text")
     }
 
-    /// Extract selection text with Ghostty's native formatter (wrap-aware,
-    /// wide-char safe). `start`/`end` are grid rows in screen coordinates
-    /// (absolute: scrollback row 0 is the top of history; the caller's
-    /// gridRow from scrollbackLine is exactly this). Returns "" on error.
     pub fn selection_text(&self, start: (u32, u32), end: (u32, u32)) -> String {
         self.query(
             |tx| Query::SelectionText { start, end, tx },
@@ -580,8 +487,6 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// 上游词选（`Terminal::select_word`）：派生该格所属词的选区、安装到
-    /// 终端并回传有序绝对界限 (start, end)（0 = 回滚顶部）；无选区时 None。
     pub fn select_word_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
         self.query(
             |tx| Query::SelectWordAt { row, col, tx },
@@ -590,7 +495,6 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// 上游行选（`Terminal::select_line`）：安装契约同 select_word_at。
     pub fn select_line_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
         self.query(
             |tx| Query::SelectLineAt { row, col, tx },
@@ -599,14 +503,12 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// 上游全选（`Terminal::select_all`，“all selectable terminal content”）：
-    /// 界限不含尾部空行/空列（design 决策 2，cargo 测试钉住）。
     pub fn select_all(&self) -> Option<((u32, u32), (u32, u32))> {
         self.query(|tx| Query::SelectAll { tx }, None, "select_all")
     }
 
-    /// Query the OSC 8 hyperlink URI at a grid cell (row 0 = top of
-    /// scrollback, matching scrollbackLine). None when no link.
+    /// 查询网格单元处的 OSC 8 超链接 URI（行 0 = 回滚顶部，与 scrollbackLine 一致）；
+    /// 无链接时为 None。
     pub fn hyperlink_at(&self, row: u32, col: u32) -> Option<String> {
         self.query(
             |tx| Query::HyperlinkAt { row, col, tx },

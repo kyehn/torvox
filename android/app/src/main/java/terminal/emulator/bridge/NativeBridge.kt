@@ -3,20 +3,10 @@ package terminal.emulator.bridge
 import android.util.Log
 
 /**
- * JNI bridge to the native Rust terminal engine (`native.so`).
+ * 到原生 Rust 终端引擎（`native.so`）的 JNI 桥接，全部为直接 `external fun` 导出，无 JNA、无线路编码。
  *
- * All functions are direct `external fun` JNI exports — no JNA, no wire encoding.
- *
- * Session lifecycle:
- * 1. Call [initSession] to create a new terminal session (returns session ID)
- * 2. Call [feedPty] / [writeKey] to send input
- * 3. Call [pollEvent] every frame (~16ms) to drain events (title, clipboard, exit)
- * 4. Call [destroySession] when done
- *
- * Surface rendering:
- * - [attachWindow] passes Android Surface pointer to the native render thread
- * - [detachWindow] detaches when surface is destroyed
- * - [resize] updates terminal dimensions
+ * 会话流程：[initSession] 创建 → [feedPty]/[writeKey] 送输入 → 每帧 [pollEvent] 排空事件 → [destroySession] 销毁。
+ * 渲染流程：[attachWindow] 传入 Surface 指针，[detachWindow] 在 Surface 销毁时解绑，[resize] 更新尺寸。
  */
 object NativeBridge {
     private const val TAG = "NativeBridge"
@@ -34,11 +24,11 @@ object NativeBridge {
 
     fun isNativeLoaded(): Boolean = nativeLoaded
 
-    // ── Session lifecycle ─────────────────────────────────────────────
+    // ── 会话生命周期 ──
 
-    /** Create a new terminal session. Returns session ID (0 on failure). */
+    /** 新建终端会话，返回会话 ID（0 表示失败）。 */
     @JvmStatic
-    // JNI signature mirrors native init_session - parameters cannot be grouped
+    // JNI 签名对齐原生 init_session，参数不可合并
     external fun initSession(
         rows: Int,
         cols: Int,
@@ -49,59 +39,52 @@ object NativeBridge {
         mkshrcPath: String,
     ): Long
 
-    /** Destroy a session by ID. Returns true on success. */
+    /** 按 ID 销毁会话，成功返回 true。 */
     @JvmStatic external fun destroySession(sessionId: Long): Boolean
 
-    /** Switch the active session. Returns true if the session exists. */
+    /** 切换当前会话，会话存在返回 true。 */
     @JvmStatic external fun switchSession(sessionId: Long): Boolean
 
-    /** Returns the number of active sessions. */
+    /** 当前活跃会话数。 */
     @JvmStatic external fun getSessionCount(): Int
 
     /**
-     * Returns the current scrollback row count for a session (0 when the session is unknown). Feed
-     * for the memory gauge emitted with the frame-timing window: an unbounded scrollback would show
-     * up as a monotonically growing row count.
+     * 会话的回滚行数（会话未知时为 0），作为内存计量的输入：回滚无界增长会表现为行数单调上升。
      */
     @JvmStatic external fun getScrollbackRows(sessionId: Long): Int
 
-    /** Returns a JSON array of active session IDs. Example: "[1, 2, 3]" */
+    /** 活跃会话 ID 的 JSON 数组，如 "[1, 2, 3]"。 */
     @JvmStatic external fun listSessions(): String?
 
-    // ── Terminal I/O ──────────────────────────────────────────────────
+    // ── 终端输入输出 ──
 
-    /** Resize the specified session. */
+    /** 调整指定会话尺寸。 */
     @JvmStatic external fun resize(sessionId: Long, rows: Int, cols: Int)
 
     /**
-     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the specified session, preserving
-     * rows/cols. pixel-aware programs `icat`, fullscreen TUIs) read the pixel size from TIOCGWINSZ.
+     * 更新 PTY winsize 的像素字段（ws_xpixel/ws_ypixel）而保持 rows/cols 不变。
+     * 感知像素的程序（icat、全屏 TUI）经 TIOCGWINSZ 读取该尺寸。
      */
     @JvmStatic external fun setPixelSize(sessionId: Long, widthPx: Int, heightPx: Int)
 
-    /** Write raw bytes to the PTY (binary-safe; no UTF-8 mangling). */
+    /** 向 PTY 写入原始字节（二进制安全，不做 UTF-8 转码）。 */
     @JvmStatic external fun feedPty(sessionId: Long, data: ByteArray)
 
-    /**
-     * Feed bytes directly to the VT parser (not the PTY). Test-only path to inject escape sequences
-     * (OSC 8 links, DECSET) that must be parsed by the terminal rather than echoed by the shell.
-     */
+    /** 字节直接送入 VT 解析器而非 PTY，仅测试用：注入需由终端解析、而非被 shell 回显的转义序列（OSC 8 链接、DECSET）。 */
     @JvmStatic external fun feedTerminal(sessionId: Long, data: ByteArray)
 
     /**
-     * Encode and submit a key event.
+     * 编码并提交按键事件。
      *
-     * @param key Key name (e.g., "a", "Enter", "Escape", "Space")
-     * @param mods Modifier bitmask (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super)
-     * @param text Optional composed text for IME input (null for non-IME keys)
+     * @param key 按键名，如 "a"、"Enter"、"Escape"、"Space"
+     * @param mods 修饰键位掩码（1=shift，2=alt，4=ctrl，8=meta，16=super）
+     * @param text 输入法合成的文本，非输入法按键传 null
      */
     @JvmStatic external fun writeKey(sessionId: Long, key: String, mods: Int, text: String?)
 
     /**
-     * Encode a mouse event into terminal escape sequences using the Ghostty mouse encoder
-     * (SGR/X10/UTF-8 per the application's DECSET selection). Position is in surface pixels;
-     * cellW/cellH are the live cell dims. Returns an empty array when mouse reporting is off or
-     * encoding fails the event is dropped — zelland renderer/mod.rs pattern).
+     * 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用的 DECSET 选择 SGR/X10/UTF-8）。
+     * 坐标为 Surface 像素，cellW/cellH 为实时单元格尺寸；关闭鼠标上报或编码失败时返回空数组。
      */
     @JvmStatic
     external fun encodeMouseEvent(
@@ -115,117 +98,82 @@ object NativeBridge {
     ): ByteArray
 
     /**
-     * Whether the remote is on the alternate screen buffer (vim/less/htop). Lock-free mirror
-     * maintained by the Rust VT thread; safe to call on every touch-scroll event. Backs
-     * [Bridge.isAltScreenActive] so touch-scroll on the alternate screen forwards to the remote as
-     * wheel escapes instead of scrolling local scrollback (Haven research: altScreen wheel
-     * consumption).
+     * 远端是否处于备用屏幕缓冲（vim/less/htop）。由 Rust VT 线程维护的无锁镜像，
+     * 可在每次触摸滚动时安全调用：备用屏下滚动以滚轮转义转发给远端而非本地回滚。
      */
     @JvmStatic external fun getAltScreenState(sessionId: Long): Boolean
 
-    /**
-     * Query a terminal mode (ghostty `mode_get`); `kind` 0 = DEC private modes, non-zero = ANSI
-     * modes. Backs the DECCKM (application cursor keys, DEC private mode 1) lookup used to switch
-     * arrow keys between SS3 (`ESC OA`) and CSI (`ESC [ A`) — see docs/specification/REFERENCE.md.
-     */
+    /** 查询终端模式（ghostty `mode_get`）；`kind` 为 0 是 DEC 私有模式，非 0 是 ANSI 模式。用于查 DECCKM（应用光标键，DEC 私有模式 1）以在 SS3（`ESC OA`）与 CSI（`ESC [ A`）之间切换方向键。 */
     @JvmStatic external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
 
-    /**
-     * Forward an application-window focus change to a session so the child receives DECSET 1004 focus
-     * reporting (`\x1b[I` / `\x1b[O`).
-     */
+    /** 将窗口焦点变化转发给会话，使子进程收到 DECSET 1004 焦点上报（`\x1b[I` / `\x1b[O`）。 */
     @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
 
-    /**
-     * Reply to an OSC 52 clipboard-read request with the system clipboard text. A request must be
-     * answered exactly once: a second reply for the same request id is a native no-op.
-     */
+    /** 回复 OSC 52 剪贴板读取请求。每个请求必须且只能回复一次，同一请求 ID 的重复回复是原生空操作。 */
     @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
 
-    // ── Events ────────────────────────────────────────────────────────
+    // ── 事件 ──
 
     /**
-     * Poll the event queue. Returns a JSON-encoded event or null. Call every frame (~16ms) in a
-     * coroutine.
+     * 轮询事件队列，返回 JSON 编码的事件或 null；每帧在协程中调用一次（约 16ms）。
      *
-     * Event JSON format (serde internal tag, snake_case):
+     * 事件 JSON 格式（serde internal tag，snake_case）：
      * {"event":"clipboard","session_id":1,"text":"copied text"}
      * {"event":"exit","session_id":1,"code":0}
      */
     @JvmStatic external fun pollEvent(): String?
 
     /**
-     * Take and clear the per-session `new_output` flag (P1-1 scroll-reset signal). Raised by the
-     * native PTY ingest path; read-and-cleared by the render thread once per frame as a BYPASS read
-     * alongside [pollEvent] — deliberately not a queued event variant so sustained output (tail -f)
-     * cannot starve clipboard/exit events. See docs/specification/REFERENCE.md.
+     * 读取并清除每会话的 `new_output` 标志（滚动复位信号）。
+     * 由原生 PTY 摄入路径置位，渲染线程每帧与 [pollEvent] 一并旁路读取一次；
+     * 刻意不排队为事件，以免持续输出（tail -f）饿死剪贴板/退出事件。
      */
     @JvmStatic external fun consumeNewOutput(sessionId: Long): Boolean
 
-    // ── Surface ───────────────────────────────────────────────────────
+    // ── Surface ──
 
-    /**
-     * Attach an Android Surface for GPU rendering. The native side creates a wgpu surface from the
-     * ANativeWindow pointer.
-     */
+    /** 绑定 Android Surface 供 GPU 渲染，原生侧据此 ANativeWindow 指针创建 wgpu surface。 */
     @JvmStatic external fun attachWindow(sessionId: Long, surface: Any, width: Int, height: Int)
 
-    /** Detach the current surface. */
+    /** 解绑当前 Surface。 */
     @JvmStatic external fun detachWindow(sessionId: Long)
 
-    /**
-     * Render one frame for the session from the CellData fast path ADR-0007). Returns 1 if output was
-     * presented, 0 if idle, -1 on error.
-     */
+    /** 经 CellData 快路径渲染一帧：1 已输出，0 空闲，-1 出错。 */
     @JvmStatic external fun render(sessionId: Long, width: Int, height: Int): Int
 
     /**
-     * Combined render + consumeNewOutput in a single JNI crossing.
-     *
-     * Returns a packed `Long`:
-     * - bits 0..31 = render count (same as [render])
-     * - bit 32 = new_output flag (1 = PTY output ingested, 0 = idle)
-     * - bits 33..48 = viewport cursor row (0xFFFF = hidden/off-viewport)
-     *
-     * Usage:
-     * ```kotlin
-     * val packed = NativeBridge.renderWithNewOutput(sessionId, width, height)
-     * val count = packed.toInt()
-     * val newOutput = ((packed shr 32) and 0x1L) != 0L
-     * val cursorRow = ((packed shr 33) and 0xFFFFL).toInt().let { if (it == 0xFFFF) -1 else it }
-     * ```
+     * 渲染与 new_output 读取合并为单次 JNI 穿越，返回打包的 `Long`：
+     * bit 0..31 为渲染计数，bit 32 为 new_output 标志，bit 33..48 为视口光标行（0xFFFF 表示隐藏或在视口外）。
      */
     @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
 
-    // ── User input callbacks ────────────────────────────────────────────
+    // ── 用户输入回调 ──
 
-    // ── Logging ──────────────────────────────────────────────────────────
+    // ── 日志 ──
 
-    /** Initialise native-side logging. Should be called once at startup. */
+    /** 初始化原生日志，启动时调用一次。 */
     @JvmStatic external fun initLogger()
 
-    // ── TerminalQueryPort (native query exports) ─────────────────────────
+    // ── TerminalQueryPort（原生查询导出） ──
 
-    /** Terminal title (OSC 0/2) for a session, or null when unknown. */
+    /** 会话的终端标题（OSC 0/2），会话未知时为 null。 */
     @JvmStatic external fun getTitle(sessionId: Long): String?
 
-    /** Number of scrollback rows for a session. */
+    /** 会话的回滚行数。 */
     @JvmStatic external fun scrollbackLength(sessionId: Long): Int
 
-    /** Trimmed text of one row, or null for an empty row. Absolute row. */
+    /** 某一行的文本（已去除尾部空白），空行返回 null。row 为绝对行号。 */
     @JvmStatic external fun scrollbackLine(sessionId: Long, row: Int): String?
 
-    /** Cursor viewport position packed `(y << 32) | x`, or -1 when hidden. */
+    /** 光标视口位置，打包为 `(y << 32) | x`，隐藏时为 -1。 */
     @JvmStatic external fun getCursorViewportPacked(sessionId: Long): Long
 
-    /** Visible + scrollback text joined by newlines. */
+    /** 可视区与回滚文本以换行连接。 */
     @JvmStatic external fun getTerminalText(sessionId: Long): String?
 
     /**
-     * Extract selection text with Ghostty's native formatter: soft-wrapped lines are joined without
-     * '\n' and trailing whitespace is trimmed — the same wrap-aware semantics as termux-app's
-     * TerminalBuffer.getSelectedText (joinBackLines). Coordinates are grid rows/cols (absolute: row 0
-     * = top of scrollback). Returns "" on error.
+     * 用 Ghostty 原生格式化器提取选中文本：软换行处不插入 '\n' 并去除尾部空白，
+     * 与 termux 的 TerminalBuffer.getSelectedText 同为换行感知语义。坐标为绝对网格行列（0 = 回滚顶部），出错返回 ""。
      */
     @JvmStatic
     external fun selectionText(sessionId: Long, startRow: Int, startCol: Int, endRow: Int, endCol: Int): String?
@@ -243,38 +191,36 @@ object NativeBridge {
     /** 上游 select_all：全部内容派生并安装（界限不含尾部空行/空列），回传与失败语义同 [selectWordAt]。 */
     @JvmStatic external fun selectAll(sessionId: Long): IntArray?
 
-    /** OSC 8 hyperlink URI at a grid cell (row 0 = top of scrollback), or null. */
+    /** 网格单元格处的 OSC 8 超链接 URI（row 0 = 回滚顶部），无则返回 null。 */
     @JvmStatic external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
 
     /**
-     * Search the whole scrollback. Returns a JSON array of
-     * `{"row":int,"start_col":int,"end_col":int}` (byte-offset columns), or `[]` on timeout. Debounce
-     * from the UI thread.
+     * 搜索整个回滚缓冲，返回 `{"row":int,"start_col":int,"end_col":int}` 的 JSON 数组
+     * （列号为字节偏移），超时返回 `[]`。调用方需在 UI 线程做防抖。
      */
     @JvmStatic
     external fun searchAllInScrollback(sessionId: Long, query: String, caseSensitive: Boolean): String?
 
-    /** True when the cell at (row, col) has no printable codepoint. */
+    /** (row, col) 处单元格是否没有可打印码点。 */
     @JvmStatic external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean
 
-    /** Monospace font families known to the pipeline. */
+    /** 管线已知的等宽字体家族。 */
     @JvmStatic external fun listFontFamilies(): Array<String>?
 
-    /** Default font family name. */
+    /** 默认字体家族名。 */
     @JvmStatic external fun getDefaultFontName(): String?
 
-    /** Structured font info as JSON (see [FontInfoDto]); null before the renderer is initialized. */
+    /** 结构化字体信息 JSON（见 [FontInfoDto]），渲染器未初始化时为 null。 */
     @JvmStatic external fun getFontInfo(): String?
 
-    /** Clear renderer search highlights. */
+    /** 清除渲染器的搜索高亮。 */
     @JvmStatic external fun clearSearchHighlights(sessionId: Long)
 
-    /** Set renderer search highlight ranges (byte-packed, see TerminalSurface). */
+    /** 设置渲染器搜索高亮范围（按字节打包，见 TerminalSurface）。 */
     @JvmStatic external fun setSearchHighlights(sessionId: Long, data: ByteArray)
 
     /**
-     * Set active text selection (visible-grid rows/cols); the highlight is baked terminal-side from
-     * the theme palette, no color parameter rides this channel.
+     * 设置当前文本选区（可视网格行列）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
      */
     @JvmStatic
     external fun setSelection(
@@ -294,8 +240,7 @@ object NativeBridge {
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
     /**
-     * App-level cursor color override in linear RGB (0..1 per channel); 0xFFFFFFFF sentinel clears
-     * the override (follow the terminal).
+     * 应用层光标颜色覆盖，线性 RGB（每通道 0..1）；0xFFFFFFFF 哨兵值表示清除覆盖（跟随终端）。
      */
     external fun setCursorColor(sessionId: Long, r: Float, g: Float, b: Float)
 
@@ -303,7 +248,7 @@ object NativeBridge {
 
     external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
 
-    /** Set glyph rasterization scale (device pixel density) for crisp text. */
+    /** 设置字形光栅化缩放（设备像素密度），保证文字清晰。 */
     external fun setRasterScale(sessionId: Long, scale: Float)
 
     external fun loadFontFile(sessionId: Long, path: String): String?

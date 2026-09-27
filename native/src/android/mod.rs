@@ -1,7 +1,4 @@
-//! Android JNI bridge and NDK integration.
-//!
-//! # Requirements
-//! - FR-049 — JNI NDK bridge: direct JNI exports for the Android platform
+//! Android JNI 桥接与 NDK 集成。
 
 pub mod ffi;
 pub(crate) mod text_utils;
@@ -9,9 +6,8 @@ pub(crate) mod text_utils;
 #[cfg(target_os = "android")]
 pub mod logging;
 
-/// wgpu-in-app init_logger() pattern (wgpu-in-app/src/lib.rs:15-40): keep
-/// wgpu_hal / naga at Error so the logcat is not flooded by per-frame
-/// backend noise, while the rest of the app stays at Debug.
+/// 参照 wgpu-in-app 的 init_logger() 模式：将 wgpu_hal / naga 降到 Error，
+/// 避免逐帧后端日志淹没 logcat；其余模块仍为 Debug。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn module_filtered(metadata: &log::Metadata) -> bool {
     if metadata.level() <= log::Level::Debug {
@@ -36,7 +32,7 @@ mod tests {
 
     #[test]
     fn wgpu_hal_debug_is_filtered() {
-        // wgpu-in-app keeps wgpu_hal at Error (per-frame noise).
+        // wgpu_hal 降到 Error（逐帧噪声）。
         assert!(!module_filtered(&metadata(
             log::Level::Debug,
             "wgpu_hal::gles::egl"
@@ -56,8 +52,7 @@ mod tests {
 
     #[test]
     fn wgpu_core_info_is_allowed() {
-        // LevelFilter::Info means Info and above (Error/Warn/Info); Debug
-        // and Trace from wgpu_core are suppressed.
+        // LevelFilter::Info 意为 Info 及以上；wgpu_core 的 Debug/Trace 被抑制。
         assert!(module_filtered(&metadata(
             log::Level::Info,
             "wgpu_core::device"

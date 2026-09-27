@@ -37,13 +37,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val DEFAULT_SHELL = ""
 
         /**
-         * Device-adaptive first-launch font size (sp): a fresh install gets a size that shows roughly
-         * [DEFAULT_FONT_COLUMNS_TARGET] visible columns (a monospace glyph is ~0.6em wide: sp = widthDp
-         * / (0.6 * target)), clamped to [MIN_FONT_SP, MAX_FONT_SP]. (spec default-typography): the
-         * floor is 14sp so small phones can never land below readable. Calibrated against real termux
-         * 0.118.3 on the same emulator (1080x2400@420dpi, ): termux glyph band 27px / char pitch
-         * ~21.2px / ~51 cols vs ours 27px / 21.8px / ~49 cols — within the C_ref ±10% tolerance, no
-         * further change needed.
+         * 首次启动的按设备自适应字号（sp）：全新安装得到的尺寸能显示约
+         * [DEFAULT_FONT_COLUMNS_TARGET] 个可见列（等宽字形约 0.6em 宽：sp = widthDp / (0.6 * target)），
+         * 并钳位到 [MIN_FONT_SP, MAX_FONT_SP]。下限为 14sp，使小屏手机绝不会低于可读范围。
+         * 已在同一模拟器上与真 termux 0.118.3 标定（1080x2400@420dpi）：
+         * termux 字形带 27px / 字距 ~21.2px / ~51 列，本应用 27px / 21.8px / ~49 列
+         * ——在 ±10% 容差内，无需再改。
          */
         fun defaultFontSizeFor(screenWidthDp: Float): Float = (
             screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET /
@@ -85,9 +84,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
     val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
 
     /**
-     * Single merged snapshot of every persisted setting, derived from one DataStore read. UI
-     * subscribes to this one flow instead of 13 parallel per-field pipelines. Field defaults
-     * mirror the per-field flows above; keep both in sync when adding a setting.
+     * 全部持久化设置的单一合并快照，由一次 DataStore 读取派生。UI 订阅这一条流，
+     * 而非 13 条并行的按字段管线。字段默认值与上方的按字段流保持一致；
+     * 新增设置时两者都要同步。
      */
     data class SettingsState(
         val appThemeMode: String = DEFAULT_FOLLOW_SYSTEM,
@@ -119,12 +118,11 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 
     /**
-     * Persist the device-adaptive default font size on first launch so a fresh install renders a
-     * legible grid before the user touches the font-size slider. No-op once the user has explicitly
-     * picked a size.
+     * 首次启动时持久化按设备自适应的默认字号，使全新安装在用户触碰字号滑块前
+     * 就渲染出可读的网格。用户已显式选过字号后为空操作。
      */
     suspend fun applyFirstLaunchDefaultFontSize(screenWidthDp: Float) {
-        // Skip the write transaction entirely once the user has picked a size.
+        // 用户已选过字号则完全跳过写事务。
         if (fontSizeExplicitlySet.first()) return
         provider.dataStore.edit { prefs ->
             if (prefs[Keys.FONT_SIZE] == null) {

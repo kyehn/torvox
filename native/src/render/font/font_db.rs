@@ -1,11 +1,8 @@
-//! System font database loading and resolution.
+//! 系统字体库的加载与解析。
 
-/// Android system font directories, in scan order. /odm/fonts/
-/// and /data/fonts/ added — OEMs place custom fonts there and
-/// ASystemFontIterator (the NDK reference, warp font_render.rs:133-155)
-/// enumerates them. `cfg(any(target_os = "android", test))`: compiled for
-/// Android production builds and for host tests that pin the list; absent
-/// from plain host builds so clippy stays dead-code clean.
+/// Android 系统字体目录（扫描顺序），含 OEM 放置自定义字体的 `/odm/fonts/` 与
+/// `/data/fonts/`（`ASystemFontIterator` 也会枚举这两处）。仅 Android 构建与固定该
+/// 列表的宿主测试编译，避免纯宿主构建下成为死代码。
 #[cfg(any(target_os = "android", test))]
 pub(crate) const FONT_DIRS: &[&str] = &[
     "/system/fonts/",
@@ -24,9 +21,7 @@ static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sy
 static CACHED_FONT_DB: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]
-/// Extra font paths provided by the GUI layer (Android).
-/// Written by `set_extra_font_paths()`, read by `FontPipeline::new()`
-/// via `pipeline.rs`.
+/// GUI 层提供的额外字体路径：由 `set_extra_font_paths()` 写入，`FontPipeline::new()` 读取。
 #[cfg(target_os = "android")]
 pub(crate) static EXTRA_FONT_PATHS: parking_lot::RwLock<Vec<std::path::PathBuf>> =
     parking_lot::RwLock::new(Vec::new());
@@ -42,11 +37,9 @@ pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
 pub(crate) fn load_font_database() -> fontdb::Database {
     let db = CACHED_FONT_DB.get_or_init(|| {
         let font_paths = CACHED_FONT_PATHS.get_or_init(|| {
-            // Prefer the NDK ASystemFontIterator API (API 29+,
-            // minSdk 33) — it enumerates every system-installed font the
-            // platform knows about, including OEM paths, without guessing a
-            // static directory list. Fall back to the FONT_DIRS scan when the
-            // API is unavailable (e.g. unusual runtimes) or yields nothing.
+            // 优先用 NDK ASystemFontIterator（API 29+，minSdk 33）：它能枚举平台
+            // 已知的所有系统字体（含 OEM 路径），无需猜测静态目录表。API 不可用
+            // （特殊运行时）或结果为空时回退到 FONT_DIRS 扫描。
             let mut paths = android_font_iterator::enumerate_font_paths();
             if paths.is_empty() {
                 log::debug!("FONT_LOAD: ASystemFontIterator empty, falling back to FONT_DIRS scan");
@@ -60,8 +53,7 @@ pub(crate) fn load_font_database() -> fontdb::Database {
                                 paths.push(entry.path());
                             }
                         }
-                        // Log every EXISTING directory (even empty) so device
-                        // diagnostics can confirm each path was scanned.
+                        // 每个存在的目录都记日志（即使为空），便于设备诊断确认已扫描。
                         log::debug!("FONT_LOAD: dir={dir} files={dir_count}");
                     }
                 }
@@ -114,14 +106,11 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
     std::process::abort();
 }
 
-/// Parsed `fonts.xml`: monospace filenames plus ordered
-/// `(lang, [(filename, ttc_index)])` fallback entries.
 #[cfg(any(target_os = "android", test))]
 type FontsXmlFamilies = (Vec<String>, Vec<(String, Vec<(String, u32)>)>);
 
-/// 解析 `fonts.xml` 内容，产出等宽字体文件名与有序的
-/// `(lang, [(filename, ttc_index)])` 回退条目。纯函数，便于宿主测试喂入真实设备片段。
-/// 未知元素忽略；无法解析的输入产出空列表，由调用方按设计决定后续处理。
+/// 解析 `fonts.xml`，产出等宽字体文件名与有序的 `(lang, [(filename, ttc_index)])`
+/// 回退条目。纯函数，便于宿主测试喂入真实设备片段；无法解析的输入产出空列表。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
     let mut monospace = Vec::new();
@@ -170,10 +159,7 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
     (monospace, lang_fallbacks)
 }
 
-/// Parse `fonts.xml` into `(alias, filenames)` pairs in document order.
-/// Pure function so host tests can feed real device snippets; the device
-/// accessor below caches the parsed platform file. Nameless families have
-/// no selectable name and are skipped.
+/// 按文档顺序把 `fonts.xml` 解析为 `(alias, filenames)` 对。无名字段被跳过。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
     let mut aliases = Vec::new();
@@ -216,7 +202,7 @@ pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
 static FONTS_XML_ALIASES: std::sync::OnceLock<Vec<(String, Vec<String>)>> =
     std::sync::OnceLock::new();
 
-/// Parsed platform `fonts.xml` aliases, read once per process.
+/// 平台 `fonts.xml` 的别名解析结果，每进程读取一次。
 #[cfg(target_os = "android")]
 pub(crate) fn fonts_xml_aliases() -> &'static [(String, Vec<String>)] {
     FONTS_XML_ALIASES.get_or_init(|| {
@@ -226,8 +212,8 @@ pub(crate) fn fonts_xml_aliases() -> &'static [(String, Vec<String>)] {
     })
 }
 
-/// Map a system locale tag to `fonts.xml` `lang` candidates in priority
-/// order. AOSP uses `zh-Hans`/`zh-Hant`; older builds may use `zh-CN`.
+/// 把系统 locale 标签映射为按优先级排列的 `fonts.xml` `lang` 候选。
+/// AOSP 用 `zh-Hans`/`zh-Hant`，旧版本可能用 `zh-CN`。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
     if locale.starts_with("zh-CN") || locale.starts_with("zh-Hans") || locale == "zh" {
@@ -269,10 +255,8 @@ pub(crate) fn is_font_file(entry: &std::path::Path) -> bool {
 mod tests {
     use super::FONT_DIRS;
 
-    /// The scan list must include the OEM font directories that
-    /// ASystemFontIterator (NDK reference) would enumerate — /odm/fonts/
-    /// and /data/fonts/ — so OEM-custom fonts are not missed on devices
-    /// that keep them outside /system/fonts.
+    /// 扫描列表须含 `ASystemFontIterator` 会枚举的 OEM 目录（/odm/fonts/、
+    /// /data/fonts/），以免漏掉放在 /system/fonts 之外的 OEM 自定义字体。
     #[test]
     fn font_dirs_include_oem_paths() {
         assert!(
@@ -283,7 +267,7 @@ mod tests {
             FONT_DIRS.contains(&"/data/fonts/"),
             "OEM font dir /data/fonts/ must be scanned"
         );
-        // The baseline Android paths must remain.
+        // Android 基础路径必须保留。
         for required in [
             "/system/fonts/",
             "/system/product/fonts/",
@@ -293,7 +277,7 @@ mod tests {
         ] {
             assert!(FONT_DIRS.contains(&required), "{required} must be scanned");
         }
-        // No duplicates.
+        // 不得重复。
         let mut sorted = FONT_DIRS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -304,16 +288,14 @@ mod tests {
         );
     }
 
-    /// The directory list must be ordered with the most standard paths
-    /// first (they win when a face exists in several locations).
+    /// 目录须以最标准的路径优先（同名字体存在于多处时靠前者胜出）。
     #[test]
     fn font_dirs_start_with_system_fonts() {
         assert_eq!(FONT_DIRS[0], "/system/fonts/");
     }
 
-    /// Minimal AOSP-shaped snippet mirroring the real API 35 emulator
-    /// file: monospace with attributes, an unattributed `<font>`, and
-    /// `lang` blocks sharing one TTC with distinct `index` values.
+    /// 仿 AOSP 结构的最小片段（对照真实 API 35 模拟器文件）：带属性的 monospace、
+    /// 无属性 `<font>`，以及共用同一 TTC 但 `index` 不同的 `lang` 块。
     const FONTS_XML_SNIPPET: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <familyset version="23">
     <family name="monospace">
@@ -403,30 +385,27 @@ mod tests {
     }
 }
 
-/// NDK `ASystemFontIterator` bindings (android/font.h + android/system_fonts.h,
-/// API 29+; minSdk is 33). Enumerate every system-installed
-/// font the platform knows about instead of relying on a static directory
-/// list, which misses OEM font locations and new partitions.
+/// NDK `ASystemFontIterator` 绑定（android/font.h + android/system_fonts.h，API 29+，
+/// minSdk 33）：枚举平台已知的所有系统字体，避免静态目录表漏掉 OEM 位置与新分区。
 #[cfg(target_os = "android")]
 mod android_font_iterator {
     use std::ffi::{CStr, c_char};
     use std::path::PathBuf;
 
-    /// Opaque iterator handle.
+    /// 不透明迭代器句柄。
     #[repr(C)]
     pub(super) struct ASystemFontIterator {
         _private: [u8; 0],
     }
 
-    /// Opaque font handle returned by `ASystemFontIterator_next`.
+    /// `ASystemFontIterator_next` 返回的不透明字体句柄。
     #[repr(C)]
     pub(super) struct AFont {
         _private: [u8; 0],
     }
 
-    // SAFETY: these are the stable NDK C functions declared in
-    // system_fonts.h/font.h; all pointers are opaque handles produced and
-    // consumed by the same API family.
+    // SAFETY: 这些是 system_fonts.h/font.h 声明的稳定 NDK C 函数；所有指针均为同一
+    // API 族产生并消费的不透明句柄。
     #[link(name = "android")]
     unsafe extern "C" {
         fn ASystemFontIterator_open() -> *mut ASystemFontIterator;
@@ -436,16 +415,13 @@ mod android_font_iterator {
         fn AFont_close(font: *mut AFont);
     }
 
-    /// Enumerate the absolute paths of every system font. Returns an empty
-    /// vec when the API fails or no fonts are installed — the caller then
-    /// falls back to the static `FONT_DIRS` scan.
+    /// 枚举所有系统字体的绝对路径；API 失败或未安装字体时返回空 vec，由调用方回退到
+    /// 静态 `FONT_DIRS` 扫描。
     pub(super) fn enumerate_font_paths() -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        // SAFETY: open() either returns a valid iterator or null; the
-        // iterator is closed exactly once via ASystemFontIterator_close();
-        // each AFont from next() is closed via AFont_close(); the path
-        // pointer returned by AFont_getFontFilePath() is only read while
-        // its owning AFont is alive, per the header contract.
+        // SAFETY: open() 或返回有效迭代器或返回 null；迭代器经 ASystemFontIterator_close()
+        // 恰好关闭一次；next() 返回的每个 AFont 均经 AFont_close() 关闭；
+        // AFont_getFontFilePath() 返回的路径指针按头文件契约仅在其所属 AFont 存活期间读取。
         unsafe {
             let iterator = ASystemFontIterator_open();
             if iterator.is_null() {

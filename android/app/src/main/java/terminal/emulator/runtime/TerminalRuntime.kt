@@ -49,47 +49,33 @@ data class RuntimeState(
 )
 
 /**
- * Window after a user scroll gesture during which new output must NOT yank the viewport back to the
- * bottom (P1-1 recentlyScrolled guard; branch-B semantics, kept off in the default termux-parity
- * path by feeding a zero timestamp — see [shouldResetScroll]).
+ * 用户滚动手势后的窗口期，期间新输出不得把视口拽回底部（见 [shouldResetScroll]）。
+ * 默认 termux 对等路径传入零时间戳，故该保护保持关闭。
  */
 const val RECENT_SCROLL_WINDOW_NANOS: Long = 100_000_000L
 
 /**
- * Motion-recency window for the render-loop cadence gate. While a scroll gesture is actively
- * moving (recent motion-event timestamps inside this window), the loop stays on the ACTIVE 17ms
- * latch timeout and the vsync callback keeps raising [SessionEntry.vsyncRequested] — even after the
- * idle clock ([SessionEntry.lastSignalNanos]) has gone stale from a prior >5s idle stretch.
+ * 渲染循环节奏门控的运动新鲜度窗口。手势仍在移动时（运动事件时间戳落在窗口内），
+ * 循环保持 17ms 活跃闭锁，即使空闲时钟已因先前 >5s 空闲而陈旧。
  *
- * Root cause of scroll jank: both cadence gates depended only on [SessionEntry.lastSignalNanos]
- * freshness. After 5s idle, vsync stops pumping AND the loop parks the 500ms idle latch; a scroll
- * gesture had to break out purely via per-motion-event [SessionEntry.notifyRender] unparks, and in
- * the gaps between events (sparse emulator motion events, or a main thread busy with gesture +
- * recomposition) there was no wake source, so the loop parked ~500ms and scroll frames collapsed to
- * ~2fps. A gesture that stops moving ages out of this window in one frame and the idle latch re-engages.
+ * 滚动卡顿的根因：两个节奏门都只看空闲时钟新鲜度。空闲超 5s 后 vsync 停止驱动且循环驻留
+ * 500ms 空闲闭锁，事件间隙（模拟器运动事件稀疏、或主线程忙于手势与重组）内无唤醒源，
+ * 循环驻留 ~500ms，滚动帧率跌至 ~2fps。手势一停止即在一帧内老化，空闲闭锁重新生效。
  */
 const val SCROLL_MOTION_WINDOW_NANOS: Long = 250_000_000L
 
 /**
- * P1-1 scroll-reset decision (termux `onScreenUpdated` parity, pure and side-effect free so it can
- * be table-driven tested).
+ * 滚动复位决策（termux `onScreenUpdated` 对等语义），纯函数无副作用以便表驱动测试。
  *
- * termux semantics (TerminalView.java onScreenUpdated, verified against termux-app master): new
- * output scrolls the viewport back to the bottom UNLESS text selection is active or auto-scroll is
- * explicitly disabled. Verified against source: termux's `isAutoScrollDisabled()` is an explicit
- * host-app toggle (`toggleAutoScrollDisabled()`), NOT raised by user scrolling — so the default
- * here matches termux branch A (recentlyScrolled stays false); branch B may pass a
- * gesture-time-window predicate later.
+ * termux 语义：除文本选区激活或自动滚动被显式关闭外，新输出都会把视口滚回底部。
+ * termux 的 `isAutoScrollDisabled()` 是宿主应用的显式开关，不由用户滚动触发，
+ * 故默认走分支 A（recentlyScrolled 保持 false）。
  *
- * @param scrollActive SCROLL-button explicit lock (user wants to stay browsing; maps to termux's
- *   explicit auto-scroll disable).
- * @param hasSelectionOrDrag selection active or handle drag in progress (maps to termux's
- *   `isSelectingText()` / skipScrolling parameter).
- * @param newOutput native PTY-ingest flag consumed this frame (NOT the render() count, which also
- *   counts idle repaints).
- * @param recentlyScrolled true within [RECENT_SCROLL_WINDOW_NANOS] of a UI scroll gesture; the
- *   caller passes the real window check so a brief in-flight scroll is not yanked by an output
- *   burst landing mid-gesture (100 ms guard — a deliberate improvement over raw termux parity).
+ * @param scrollActive SCROLL 按钮显式锁定（用户想停留在回浏览位置）。
+ * @param hasSelectionOrDrag 选区激活或手柄拖拽进行中。
+ * @param newOutput 本帧消费到的原生 PTY 摄入标志（不是 render() 计数，后者含空闲重绘）。
+ * @param recentlyScrolled UI 滚动手势后 [RECENT_SCROLL_WINDOW_NANOS] 内为真，
+ *   使进行中的滚动不被落在手势中途的输出拽回。
  */
 internal fun shouldResetScroll(
     scrollActive: Boolean,
@@ -99,119 +85,85 @@ internal fun shouldResetScroll(
 ): Boolean = newOutput && !hasSelectionOrDrag && !scrollActive && !recentlyScrolled
 
 /**
- * Render-loop cadence gate (T3 backspace latency): pick the idle 500ms latch only when the idle
- * clock is stale AND no scroll motion is in flight; otherwise stay on the active 17ms latch so
- * input echoes render promptly.
+ * 渲染循环节奏门控：仅当空闲时钟已陈旧且无滚动运动时才选 500ms 空闲闭锁，
+ * 否则保持 17ms 活跃闭锁使输入回显及时渲染。
  *
- * Input writes refresh the idle clock through [SessionEntry.notifyRender] — including the
- * hardware-key/IME-sendKeyEvent path wired via the [Bridge.onPtyWrite] hook — so a single
- * backspace after a >5s idle stretch snaps the loop back to active cadence and the shell echo
- * renders on the next 17ms latch tick instead of waiting out the full 500ms idle-latch tick.
- * Pure and side-effect free (table-driven tested, same style as [shouldResetScroll]).
+ * 输入写入经 [SessionEntry.notifyRender] 刷新空闲时钟（含 [Bridge.onPtyWrite] 接入的
+ * 硬件按键与 IME 路径），故空闲 >5s 后的单次退格能把循环拉回活跃节奏，
+ * shell 回显在下一个 17ms 闭锁节拍渲染，而无需等满 500ms。纯函数无副作用。
  *
- * @param idleNanos time since the last signal (fresh = recent notifyRender/new-output).
- * @param hasScrollMotion T1 motion-recency gate: while a gesture moves, stay active.
- * @param idleThresholdNanos the staleness threshold ([RENDER_IDLE_THRESHOLD_NANOS] at call sites).
+ * @param idleNanos 距上次信号的时间（新鲜 = 刚有 notifyRender/新输出）。
+ * @param hasScrollMotion 运动新鲜度门控：手势仍在移动时保持活跃。
+ * @param idleThresholdNanos 新鲜度阈值（调用处传 [RENDER_IDLE_THRESHOLD_NANOS]）。
  */
 internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleThresholdNanos: Long): Boolean =
     idleNanos > idleThresholdNanos && !hasScrollMotion
 
 /**
- * Session state is encoded in two booleans:
- * - running=true, renderThreadExited=false → alive
- * - running=true, renderThreadExited=true → dead (needs cleanup)
- * - running=false, renderThreadExited=* → stopped (stale entry; skip) renderThreadExited is set by
- *   the render thread after loop exit; always read under sessionLock alongside running.
+ * 会话状态由两个布尔量编码：running 且未退出 = 存活；running 且已退出 = 死亡（待清理）；
+ * running 为假 = 已停止（陈旧条目，跳过）。renderThreadExited 由渲染线程在循环退出后置位，
+ * 须与 running 一同在 sessionLock 下读取。
  */
 internal data class SessionEntry(
     val id: Long,
-    // Invariant: bridge is never null while the entry lives (created non-
-    // null in createSession, never reassigned). The scattered
-    // `entry.bridge == null` checks are defensive-only and always false.
+    // 不变式：条目存活期间 bridge 从不为 null（createSession 中以非 null 创建且不再重新赋值），
+    // 各处 `entry.bridge == null` 检查纯属防御，恒为假。
     var bridge: Bridge?,
     var renderThreadRef: Thread?,
     @Volatile var running: Boolean,
     @Volatile var renderThreadExited: Boolean = false,
     @Volatile var restartAttempts: Int = 0,
-    // Same initial value as TerminalRuntime.INITIAL_RESTART_DELAY_MS (100L);
-    // decayRestartCounts/confirmRestartGrace reset to that constant after a
-    // healthy period, so a fresh session must start from the same delay.
+    // 初始值同 TerminalRuntime.INITIAL_RESTART_DELAY_MS（100L）；decayRestartCounts/confirmRestartGrace
+    // 会在健康期后重置为该常量，故新会话须从相同延迟起步。
     @Volatile var nextRestartDelayMs: Long = 100L,
-    // True while a dead-render-thread restart is scheduled (handleDeadRenderThread
-    // dispatched and waiting out the backoff delay). Guards against the render
-    // monitor re-dispatching the same dead entry every 500ms tick while the
-    // backoff delay (up to 1000ms) is still pending — without it restartAttempts
-    // would be double-counted and the session closed prematurely.
+    // 已调度死亡渲染线程的重启且仍在等待退避延迟。防止渲染监视器在退避延迟（最长 1000ms）
+    // 未到期期间每个 500ms 节拍重复派发同一死亡条目——否则 restartAttempts 被重复计数而提前关闭会话。
     @Volatile var restartScheduled: Boolean = false,
-    // True when a render thread failed to die within the join timeout and
-    // may still be executing native render code against this session's
-    // bridge/surface. While set, closeSession/stop/closeDeadSession must
-    // NOT call releaseGpuSurface() or bridge.close() — destroying the
-    // native session under a resumed thread is a use-after-free. Cleared
-    // only when a subsequent join confirms the thread exited. The leaked
-    // session is reclaimed when the process dies.
+    // 渲染线程未能在 join 超时内退出，可能仍在对本会话的 bridge/surface 执行原生渲染代码。
+    // 置位期间 closeSession/stop/closeDeadSession 绝不可调用 releaseGpuSurface() 或 bridge.close()，
+    // 在复活的线程下销毁原生会话即 use-after-free。仅在后续 join 确认线程退出后清除；
+    // 泄漏的会话随进程消亡回收。
     @Volatile var renderThreadPossiblyAlive: Boolean = false,
-    // The thread that failed to die within a join timeout (GPU hang). Kept
-    // so a later exit path can join it once more: if it finally exited, the
-    // session is safe to close; if it is still hung, close must be skipped.
+    // 未能在 join 超时内退出的渲染线程（GPU 挂起）。保留以便后续退出路径再 join 一次：
+    // 若已退出则可安全关闭会话，仍挂起则必须跳过关闭。
     @Volatile var hungRenderThread: Thread? = null,
-    // Set under sessionLock when closeSession begins. startRenderThread
-    // checks it and refuses to start a fresh thread, closing the
-    // close-vs-restart TOCTOU window: without it, a concurrent
-    // resumeRendering/switchSession could start a new render thread after
-    // the close decision but before bridge.close(), leaving an orphaned
-    // thread polling a destroyed native session (global event queue
-    // double-consumer, native UAF risk).
+    // closeSession 开始时在 sessionLock 下置位。startRenderThread 检查它并拒绝启动新线程，
+    // 封闭「关闭与重启」的 TOCTOU 窗口：否则并发的 resumeRendering/switchSession 可能在关闭决定之后、
+    // bridge.close() 之前启动新渲染线程，留下轮询已销毁会话的孤儿线程（全局事件队列双重消费、原生 UAF 风险）。
     @Volatile var closing: Boolean = false,
-    // when true (SCROLL button active), new output should NOT
-    // auto-reset scroll — the user intentionally wants to stay browsing.
+    // 为真时（SCROLL 按钮激活），新输出不应自动复位滚动——用户有意停留在回浏览位置。
     @Volatile var scrollActive: Boolean = false,
-    // P1-1: timestamp (System.nanoTime) of the last UI-thread scroll
-    // gesture (written in setScrollOffset). The render thread reads it to
-    // compute the recentlyScrolled guard; 0L means "never scrolled".
+    // 最近一次 UI 线程滚动手势的时间戳（System.nanoTime，在 setScrollOffset 中写入），
+    // 渲染线程据此计算 recentlyScrolled 保护；0L 表示从未滚动过。
     @Volatile var lastScrollNanos: Long = 0L,
-    // Input→echo latency probe (emulator-performance-verification): input
-    // stamps land in writeToPty AND in Bridge.onPtyWrite (hardware-key path
-    // bypasses writeToPty), echo pairing happens in the render loop when a
-    // frame consumes the native new_output flag.
+    // 输入→回显延迟探针：输入打点落在 writeToPty 与 Bridge.onPtyWrite（硬件按键绕过 writeToPty），
+    // 回显配对发生在渲染循环消费原生 new_output 标志时。
     val latencyProbe: LatencyProbe = LatencyProbe(),
-    // the shell exited and the [Process completed (code X)]
-    // prompt was fed to the terminal (see feedProcessCompletedPrompt).
-    // The session stays visible and running until the user presses Enter.
+    // shell 已退出且 [Process completed (code X)] 提示已送入终端（见 feedProcessCompletedPrompt）。
+    // 会话保持可见与运行，直到用户按 Enter。
     @Volatile var waitingForProcessCompleted: Boolean = false,
-    // Exit code captured when the [Process completed] prompt was shown;
-    // reused when Enter confirms the close.
+    // 显示 [Process completed] 提示时捕获的退出码；Enter 确认关闭时复用。
     @Volatile var processExitCode: Int = 0,
-    // Set by writeToPty when the user presses Enter on the prompt. The
-    // render loop detects it and re-dispatches handleSessionExit so the
-    // bridge close stays on the render thread (no UAF against a live
-    // render loop).
+    // 用户在提示上按 Enter 时由 writeToPty 置位。渲染循环侦测到后重新派发 handleSessionExit，
+    // 使 bridge 关闭留在渲染线程上（避免对存活渲染循环的 UAF）。
     @Volatile var processCompletedConfirmed: Boolean = false,
 ) {
-    // renderSignaled replaced a per-frame `CountDownLatch`, which had a
-    // lost-wakeup race: after `bridge.render()` the loop published a fresh
-    // latch and waited, but a producer `countDown()` on the stale latch
-    // during the render left the new latch unsignaled, so the thread waited
-    // the full timeout. A coalescing flag under a lock/condition avoids
-    // both the race and the per-frame allocation.
+    // renderSignaled 取代了每帧一个 CountDownLatch：后者有丢唤醒竞态——bridge.render() 后循环发布
+    // 新的 latch 并等待，但渲染期间生产者对旧 latch 的 countDown() 会让新 latch 始终未置位，
+    // 线程只能等满超时。锁/条件变量下的合并标志同时避免了竞态与每帧分配。
     //
-    // Remaining accepted window: a notifyRender() landing between the
-    // `get()` check and the `set(false)` after waitOutput is coalesced into
-    // the flag and can be cleared by that set(false), costing one idle
-    // timeout (max ~500ms) — never a lost frame (the next signal or the
-    // periodic frame tick re-renders). Coalescing signals inherently
-    // allows this; the alternative (per-signal queue) is overkill here.
+    // 保留的可接受窗口：落在 get() 检查与 waitOutput 后 set(false) 之间的 notifyRender() 会被并入标志，
+    // 并可能被该 set(false) 一并清除，代价是一个空闲超时（最长 ~500ms）——绝不会丢帧
+    // （下次信号或周期帧节拍会重渲染）。信号合并天然允许此情形，逐信号队列在此属过度设计。
 
     val renderSignaled = java.util.concurrent.atomic.AtomicBoolean(false)
 
     @Volatile var forceRenderRequested: Boolean = false
 
-    // P2-1 vsync alignment (warp semantics): raised by the Choreographer
-    // frame callback on the MAIN thread every display frame. The callback is
-    // SIGNAL-ONLY — it never touches the surface Mutex and never calls
-    // bridge.render() directly (mutex starvation precedent: a non-render-
-    // thread render call hung on the surface Mutex and permanently blocked
-    // the real render thread). Consumed by the render loop's wake gate.
+    // vsync 对齐：由主线程上的 Choreographer 帧回调在每个显示帧置起。
+    // 该回调只发信号——它绝不触碰 surface Mutex，也绝不直接调用 bridge.render()
+    // （有互斥量饿死的先例：非渲染线程的渲染调用卡在 surface Mutex 上，
+    // 永久阻塞了真正的渲染线程）。由渲染循环的唤醒门控消费。
     @Volatile var vsyncRequested: Boolean = false
 
     @Volatile var lastRenderStart: Long = 0L
@@ -230,10 +182,10 @@ internal data class SessionEntry(
     }
 
     /**
-     * Vsync-alignment poke: raises the render-thread wakeup WITHOUT touching the idle clock and
-     * WITHOUT setting [renderSignaled]. The per-vsync [notifyRender] call used to refresh
-     * [lastSignalNanos] every display frame, which kept the clock perpetually fresh so the idle latch
-     * could never engage (self-sustaining 60-166fps loop on an idle terminal).
+     * vsync 对齐的唤醒：置起渲染线程唤醒，但既不触碰空闲时钟，也不设置 [renderSignaled]。
+     * 此前每个 vsync 都经 [notifyRender] 刷新 [lastSignalNanos]，
+     * 使该时钟永远新鲜，空闲闭锁因而永不生效
+     *（空闲终端上自我维持的 60-166fps 循环）。
      */
     fun pokeVsync() {
         renderThreadRef?.let {
@@ -244,30 +196,27 @@ internal data class SessionEntry(
     @Volatile var scrollOffset: Int = 0
 
     /**
-     * Last viewport cursor row seen by this session's render thread (0-based,
-     * Bridge.CURSOR_ROW_UNKNOWN = hidden/off-viewport). Mirrors the active session's cursorRowFlow so
-     * session switches can reseed it without a JNI query.
+     * 本会话渲染线程最后见到的视口光标行（0 起，Bridge.CURSOR_ROW_UNKNOWN = 隐藏/在视口外）。
+     * 与活动会话的 cursorRowFlow 对应，使会话切换无需 JNI 查询即可重新初始化它。
      */
     @Volatile var cursorRow: Int = Bridge.CURSOR_ROW_UNKNOWN
 
     /**
-     * Per-pixel scroll remainder (px, positive = content down), picked up by the render thread
-     * alongside [scrollOffset]. Reset to 0 on gesture end / session switch so no stale offset leaks
-     * into the next gesture.
+     * 逐像素滚动余量（px，正值 = 内容下移），由渲染线程与 [scrollOffset] 一同取用。
+     * 手势结束/会话切换时重置为 0，避免陈旧偏移泄漏到下一次手势。
      */
     @Volatile var scrollRemainderPx: Float = 0f
 
     /**
-     * True while a scroll gesture is actively moving: any recent scroll-motion event
-     * (per-pixel `setScrollRemainderPx` or whole-row `setScrollOffset`) refreshed
-     * [lastScrollNanos] within [SCROLL_MOTION_WINDOW_NANOS]. Keeps the render loop on the active
-     * cadence so scroll frames are not parked at the ~500ms idle latch during a gesture.
+     * 滚动手势是否正在移动：最近的滚动运动事件（逐像素 `setScrollRemainderPx` 或整行 `setScrollOffset`）
+     * 在 [SCROLL_MOTION_WINDOW_NANOS] 内刷新过 [lastScrollNanos]。
+     * 使渲染循环在手势期间保持活跃节奏，不被 ~500ms 空闲闭锁驻留。
      */
     fun hasScrollMotion(): Boolean = System.nanoTime() - lastScrollNanos < SCROLL_MOTION_WINDOW_NANOS
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTION 1: Fields & injected dependencies
+// 一、字段与注入依赖
 // ═══════════════════════════════════════════════════════════════════════════
 
 @Singleton
@@ -277,15 +226,14 @@ constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
 ) {
-    // ADR-0007: surface handed over by TerminalSurface; attached once the
-    // session's Bridge exists (attach can only run after spawn).
+    // 由 TerminalSurface 移交的 Surface；待会话的 Bridge 就绪后才绑定（attach 只能在 spawn 之后）。
     @Volatile private var pendingSurface: android.view.Surface? = null
 
     @Volatile private var pendingSurfaceWidth: Int = 0
 
     @Volatile private var pendingSurfaceHeight: Int = 0
 
-    /** Render-thread lifecycle supervision (C6). */
+    /** 渲染线程生命周期监管。 */
     val renderSupervisor = RenderSupervisor()
 
     private val clipboardAccess = ClipboardAccess(context, tag = "Runtime")
@@ -298,49 +246,39 @@ constructor(
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
 
     /**
-     * Active session's viewport cursor row (0-based, [Bridge.CURSOR_ROW_UNKNOWN] =
-     * hidden/off-viewport). Published by the render thread on change only; the IME-follow pan
-     * collects it while the keyboard is open. Separate from [state] so cursor motion does not
-     * recompose state subscribers when the keyboard is closed.
+     * 活动会话的视口光标行（0 起，[Bridge.CURSOR_ROW_UNKNOWN] = 隐藏/在视口外）。
+     * 仅在变化时由渲染线程发布；键盘打开时输入法跟随滚动订阅它。
+     * 与 [state] 分开，使键盘关闭时光标移动不触发 state 订阅者重组。
      */
     private val cursorRowFlowInternal = MutableStateFlow(Bridge.CURSOR_ROW_UNKNOWN)
     val cursorRowFlow: StateFlow<Int> = cursorRowFlowInternal.asStateFlow()
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
-    // ── P2-1 vsync frame-callback chain (warp semantics) ─────────────
-    // Posts UI work to the main looper (Choreographer.getInstance()
-    // requires a Looper; TerminalRuntime itself may be built on any
-    // thread via DI).
+    // ── vsync 帧回调链 ──
+    // UI 工作投递到主 Looper（Choreographer.getInstance() 需要 Looper，
+    // 而 TerminalRuntime 本身可能由 DI 在任意线程构建）。
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    /**
-     * Idempotence guard: exactly one self-rescheduling callback chain per process (CAS-guarded; reset
-     * on registration failure to allow retry).
-     */
+    /** 幂等保护：每进程仅一条自调度回调链（CAS 保护；注册失败时重置以允许重试）。 */
     private val vsyncChainStarted = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
-     * The single self-rescheduling Choreographer frame callback: each display frame IS the vsync
-     * signal. It only raises [SessionEntry.vsyncRequested] + unparks the render thread via
-     * [SessionEntry.notifyRender] — the render thread owns all rendering (design D3: main thread
-     * never touches the surface Mutex).
+     * 唯一的自调度 Choreographer 帧回调：每个显示帧即一次 vsync 信号。
+     * 它只置起 [SessionEntry.vsyncRequested] 并经 [SessionEntry.notifyRender] 唤醒渲染线程
+     * ——所有渲染均由渲染线程拥有（主线程绝不触碰 surface Mutex）。
      *
-     * The chain re-posts itself unconditionally at the end of every frame, whether or not a frame is
-     * pushed: RenderState's deferred fields (search_highlights / selection / pending_flash_phase)
-     * rely on per-frame consumption, so a broken chain would silently freeze them.
+     * 无论本帧是否推出画面，链都会在帧末无条件重新投递自身：RenderState 的延迟字段
+     * （search_highlights / selection / pending_flash_phase）依赖逐帧消费，链断会使其静默冻结。
      */
     private val vsyncFrameCallback =
         object : android.view.Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
-                // Lock-free read: sessions is a ConcurrentHashMap and
-                // activeSessionId is @Volatile.
+                // 无锁读取：sessions 是 ConcurrentHashMap，activeSessionId 是 @Volatile。
                 val entry = sessions[activeSessionId]
-                // Idle sessions stay parked: the poke must not refresh the
-                // idle clock (pokeVsync) and stops once the clock aged past
-                // the threshold, so the 500ms idle latch engages and an idle
-                // terminal no longer burns CPU/GPU at display rate (emulator
-                // System UI ANR). The chain itself stays alive (cheap).
+                // 空闲会话保持驻留：唤醒不得刷新空闲时钟（pokeVsync），且时钟超过阈值即停止，
+                // 于是 500ms 空闲闭锁生效，空闲终端不再以显示帧率空耗 CPU/GPU。
+                // 链本身保持存活（开销很小）。
                 if (
                     entry != null &&
                     (
@@ -351,17 +289,12 @@ constructor(
                     entry.vsyncRequested = true
                     entry.pokeVsync()
                 }
-                // Self-reschedule (warp pattern): keep the chain alive at
-                // display refresh rate regardless of whether this frame
-                // produced a paint.
+                // 自调度：无论本帧是否产出绘制，都以显示刷新率保持链存活。
                 android.view.Choreographer.getInstance().postFrameCallback(this)
             }
         }
 
-    /**
-     * Starts the vsync frame-callback chain on the main looper. Idempotent: CAS guard ensures a
-     * single chain for the process.
-     */
+    /** 在主 Looper 上启动 vsync 帧回调链。幂等：CAS 保护保证每进程仅一条链。 */
     private fun ensureVsyncChainStarted() {
         if (!vsyncChainStarted.compareAndSet(false, true)) return
         mainHandler.post {
@@ -369,7 +302,7 @@ constructor(
                 android.view.Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
                 LogUtil.d("Runtime", "vsync frame callback chain started")
             } catch (exception: Exception) {
-                // Allow a later session start to retry the registration.
+                // 允许后续会话启动时重试注册。
                 vsyncChainStarted.set(false)
                 LogUtil.e("Runtime", "vsync frame callback registration failed", exception)
             }
@@ -383,21 +316,18 @@ constructor(
     @Volatile var cellHeight: Float = 0f
 
     /**
-     * ModifierBar overlay height in physical pixels. Single owner of the reservation: the grid
-     * (recomputeGridFromFontMetrics and TerminalSurface.applyGridResize) and the IME-follow pan all
-     * subtract this same value, so rows and pan can never disagree about which rows the bar covers.
+     * ModifierBar 覆盖层高度（物理像素）。该预留量的唯一所有者：网格计算
+     * （recomputeGridFromFontMetrics 与 TerminalSurface.applyGridResize）与输入法跟随滚动
+     * 都减去同一值，故行数与滚动永远不会对工具栏遮盖哪些行产生分歧。
      */
     internal val modifierBarHeightPx: Int
         get() = (MODIFIER_BAR_HEIGHT_DP * context.resources.displayMetrics.density + 0.5f).toInt()
 
-    // ⑥ last font size pushed to native (tenths). Zoom gestures anchor to
-    // this so the preview/finalize math starts from the actually rendered
-    // size, not the raw settings value (which can differ when the size was
-    // never explicitly set).
+    // 最近一次推给原生的字号（十分之一单位）。缩放手势以其为锚点，使预览/确定从实际渲染尺寸
+    // 而非原始设置值出发（后者在字号从未显式设置时可能不同）。
     @Volatile internal var appliedFontSizeTenths: Int = 0
 
-    // Logical pixel cell dimensions (for grid row/col computation).
-    // These are the raw native values WITHOUT density scaling.
+    // 逻辑像素单元格尺寸（用于网格行列计算），是未经密度缩放的原生原始值。
     @Volatile var logicalCellWidth: Float = 0f
 
     @Volatile var logicalCellHeight: Float = 0f
@@ -410,11 +340,9 @@ constructor(
     private val sessionLock = Any()
 
     /**
-     * Failsafe session request (termux-compatible app shortcut extra
-     * `com.termux.app.failsafe_session`): the next session starts with the system shell and no prefix
-     * bootstrap, so a broken bootstrap cannot brick terminal access. Consumed once by
-     * buildConfig; a second shortcut tap while a session is already up is a no-op 因为只保留单个会话 (see
-     * start()'s `sessions.isNotEmpty()` guard).
+     * 应急会话请求（兼容 termux 的应用快捷方式 extra `com.termux.app.failsafe_session`）：
+     * 下个会话以系统 shell 启动且不做 prefix 引导，避免引导损坏导致终端不可用。
+     * 由 buildConfig 消费一次；已有会话时重复点击为空操作（见 start() 的 `sessions.isNotEmpty()` 守卫）。
      */
     @Volatile
     var failsafeRequested: Boolean = false
@@ -429,10 +357,9 @@ constructor(
     }
 
     /**
-     * Serialises surface lifecycle transitions (pause/resume). Both [pauseRendering] and
-     * [resumeRendering] run on this single thread so that surface-destroy → surface-available
-     * ordering is preserved; running them on different threads can leave a fresh surface without a
-     * render thread (async pause stopping a just-started resume).
+     * 串行化 Surface 生命周期转换（暂停/恢复）。[pauseRendering] 与 [resumeRendering] 都跑在这唯一线程上，
+     * 以保持 surface-destroy → surface-available 的顺序；分处不同线程可能让新 Surface 没有渲染线程
+     * （异步暂停停掉了刚启动的恢复）。
      */
     private val surfaceTransitionExecutor: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
@@ -443,21 +370,20 @@ constructor(
 
     @Volatile private var renderMonitorJob: Job? = null
 
-    // Serializes startRenderMonitor's check-then-assign: start() (IO
-    // coroutine) and resumeRendering (surfaceTransitionExecutor thread) can
-    // both reach it, and an unsynchronized pair would launch two monitor
-    // loops (stopRenderMonitor cancels only the referenced one, leaving the
-    // other to spin until the scope cancels).
+    // 串行化 startRenderMonitor 的「检查后赋值」：start()（IO 协程）与
+    // resumeRendering（surfaceTransitionExecutor 线程）都可能到达，
+    // 未同步的一对操作会启动两个监视循环
+    // （stopRenderMonitor 只取消被引用的那个，另一个会空转到作用域取消为止）。
     private val monitorLock = Any()
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 2: Render thread lifecycle
+    // 二、渲染线程生命周期
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Answer OSC 52 clipboard read requests: read the system clipboard and reply via
-     * [NativeBridge.clipboardResult]. Empty text is a legitimate result; only exceptions produce an
-     * empty fallback reply.
+     * 应答 OSC 52 剪贴板读取请求：读取系统剪贴板并经
+     * [NativeBridge.clipboardResult] 回复。空文本是合法结果；
+     * 只有异常才会产生空的回退回复。
      */
     private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
         requests.forEach { request ->
@@ -465,7 +391,7 @@ constructor(
                 val text = clipboardAccess.clipboardText().orEmpty()
                 NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
             } catch (exception: Exception) {
-                // Class only: exception messages can embed clipboard text.
+                // 只记异常类名：异常消息可能嵌入剪贴板文本。
                 LogUtil.e("Runtime", "clipboard request dispatch failed: ${exception.javaClass.simpleName}")
                 NativeBridge.clipboardResult(request.sessionId, request.requestId, "")
             }
@@ -473,8 +399,8 @@ constructor(
     }
 
     /**
-     * print the [Process completed (code X)] - press Enter prompt directly into the VT parser (the
-     * child is gone, so the PTY no longer carries writes; the screen must be updated in-band).
+     * 把 [Process completed (code X)] - press Enter 提示直接送入 VT 解析器
+     * （子进程已消失，PTY 不再承载写入，必须带内更新画面）。
      */
     private fun feedProcessCompletedPrompt(entry: SessionEntry, exitCode: Int) {
         val text = PROCESS_COMPLETED_PROMPT_PREFIX + exitCode + PROCESS_COMPLETED_PROMPT_SUFFIX
@@ -487,11 +413,9 @@ constructor(
     }
 
     /**
-     * for the foreground session, keep it visible after the shell exits and show a
-     * [Process completed] prompt instead of closing immediately (termux-app
-     * TerminalSession.java:353-364 semantics). The entry stays in the session map with running=true
-     * until the user presses Enter, which then closes it. Returns true when the prompt was shown
-     * (caller should return early and NOT close the session).
+     * 前台会话的 shell 退出后保持可见并显示 [Process completed] 提示而非立即关闭（termux 对等语义）。
+     * 条目以 running=true 留在会话表中，直到用户按 Enter 才关闭。
+     * 提示已显示时返回 true（调用方应提前返回且不关闭会话）。
      */
     private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int): Boolean {
         if (entry.id != activeSessionId || entry.waitingForProcessCompleted) return false
@@ -513,25 +437,18 @@ constructor(
     private fun handleSessionExit(
         entry: SessionEntry,
         exitCode: Int,
-        // native-measured child lifetime (ms); 0 when the
-        // event predates the field (or is a sweep).
+        // 原生测得的子进程存活时长（毫秒）；事件早于该字段或为清扫时为 0。
         aliveMs: Long,
     ) {
         // 启动入口失败不得回退：shell 退出即走 [Process completed] 提示，
-        // 输出保留显示，由用户确认关闭；此前失败自动降级系统 shell 的路径已删除。
-        // this function runs both for the initial shell exit
-        // (from the poll.exit branch) and, after the user presses Enter on
-        // the [Process completed] prompt, for the confirmed close (render
-        // loop re-dispatch); the prompt path is skipped for confirmed closes.
+        // 输出保留显示，由用户确认关闭。
+        // 本函数既用于 shell 首次退出（poll.exit 分支），也用于用户在 [Process completed]
+        // 提示上按 Enter 后的确认关闭（渲染循环重新派发）；确认关闭时跳过提示路径。
         val confirmedClose = entry.processCompletedConfirmed
-        // Foreground session: keep it visible with a [Process completed]
-        // prompt instead of closing immediately. The entry stays in
-        // sessions with running=true until Enter, which then closes it.
         if (!confirmedClose && maybeShowProcessCompletedPrompt(entry, exitCode)) return
         LogUtil.i("Runtime", "session ${entry.id} exited with code $exitCode")
-        // Phase 1 (locked): capture the possibly-hung thread; the actual
-        // join runs UNLOCKED below (up to THREAD_JOIN_TIMEOUT_MS) so a hung
-        // GPU thread does not stall every session operation.
+        // 阶段 1（加锁）：捕获可能挂起的线程；实际 join 在下方不持锁执行
+        // （最长 THREAD_JOIN_TIMEOUT_MS），使挂起的 GPU 线程不阻塞所有会话操作。
         val hungThreadToJoin: Thread?
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
@@ -539,14 +456,11 @@ constructor(
             hungThreadToJoin = if (entry.renderThreadPossiblyAlive) entry.hungRenderThread else null
         }
 
-        // Phase 2 (UNLOCKED): one final chance — the previously-hung thread
-        // may have resumed and exited by now (GPU unblocked). Join it with a
-        // fresh timeout; only skip bridge close if it is STILL alive.
-        // Guard against joining ourselves: this function runs on the render
-        // thread (poll.exit), and a concurrent join-timeout path may have
-        // recorded THIS thread as hung. Joining self always times out and
-        // would leak the native session for nothing — the caller is about to
-        // exit the loop anyway.
+        // 阶段 2（不持锁）：最后机会——此前挂起的线程可能已恢复并退出（GPU 已解阻）。
+        // 以新的超时 join 它；仅当它仍然存活时才跳过 bridge 关闭。
+        // 防止 join 自身：本函数在渲染线程上运行（poll.exit），
+        // 而并发的 join 超时路径可能把本线程记为挂起。join 自身必然超时，
+        // 徒然泄漏原生会话——调用方本就即将退出循环。
         val hungExited =
             if (hungThreadToJoin == null || hungThreadToJoin === Thread.currentThread()) {
                 true
@@ -558,19 +472,16 @@ constructor(
                 true
             }
 
-        // Decide close eligibility under the lock, then perform the actual
-        // bridge.close() OUTSIDE it: Session::drop kills the child and joins
-        // reader/wait threads (up to ~100ms+); holding sessionLock during
-        // that would block every session operation (switch/create/close).
+        // 锁内决定关闭资格，实际的 bridge.close() 放到锁外：Session::drop 会 kill 子进程
+        // 并 join reader/wait 线程（可达 ~100ms+），持锁会阻塞所有会话操作（切换/创建/关闭）。
         val skipClose =
             synchronized(sessionLock) {
                 if (!sessions.containsKey(entry.id)) return
-                // The watchdog thread is per-session; stop it here (normal exit
-                // path) or every exited session leaks a polling thread.
+                // 看门狗线程是每会话一个；在此停止（正常退出路径），
+                // 否则每个退出会话都会泄漏一个轮询线程。
                 entry.renderWatchDog?.stop()
                 entry.renderWatchDog = null
-                // Clear the flag only when the joined thread is still the
-                // recorded hung thread (no other path replaced it meanwhile).
+                // 仅当已 join 的线程仍是记录的挂起线程时才清标志（期间无其他路径替换它）。
                 if (hungExited && entry.hungRenderThread === hungThreadToJoin) {
                     entry.renderThreadPossiblyAlive = false
                     entry.hungRenderThread = null
@@ -579,10 +490,9 @@ constructor(
             }
         try {
             if (skipClose) {
-                // A render thread may still be stuck in native render
-                // code (GPU hang, join timeout). destroySession under it
-                // is a use-after-free; leave the native session to be
-                // reclaimed at process death, same rule as closeSession.
+                // 渲染线程可能仍卡在原生渲染代码中（GPU 挂起、join 超时）。
+                // 在其下 destroySession 即 use-after-free；按与 closeSession 相同的规则，
+                // 泄漏的原生会话待进程消亡时回收。
                 LogUtil.e(
                     "Runtime",
                     "session ${entry.id} render thread possibly alive — skipping bridge close on exit",
@@ -597,10 +507,8 @@ constructor(
             if (!sessions.containsKey(entry.id)) return
             sessions.remove(entry.id)
             if (entry.id == activeSessionId) {
-                // The foreground session just disappeared; the replacement
-                // session has no render thread (only the active session
-                // renders) so its output/events would never be polled and
-                // the terminal would appear frozen. Activate it now.
+                // 前台会话刚刚消失；接替会话没有渲染线程（只有活动会话渲染），
+                // 其输出/事件永远不会被轮询，终端将看似卡死。此刻立即激活它。
                 activeSessionId = sessions.keys.sorted().lastOrNull() ?: 0L
                 if (activeSessionId != 0L) {
                     activateReplacementSession(
@@ -618,24 +526,21 @@ constructor(
     }
 
     private fun closeDeadSession(entry: SessionEntry) {
-        // Mark closing under the lock, symmetric with closeSession: the
-        // replacement branches of handleSessionExit/closeDeadSession call
-        // startRenderThread for the new active session, and without the
-        // closing flag a racing closeDeadSession(entry) could have its
-        // bridge closed while a replacement render thread starts on it —
-        // orphaned thread double-consuming the global event queue.
+        // 锁内置 closing 标志，与 closeSession 对称：handleSessionExit/closeDeadSession 的
+        // 接替分支会为新活动会话调用 startRenderThread，缺少该标志时竞争的
+        // closeDeadSession(entry) 可能在接替渲染线程启动期间关闭其 bridge，
+        // 留下双重消费全局事件队列的孤儿线程。
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
             entry.closing = true
             entry.running = false
         }
-        // LogUtil.e already logs to logcat — no duplicate write.
+        // LogUtil.e 已写入 logcat，不重复输出。
         LogUtil.e("Runtime", "session ${entry.id} exceeded max restart attempts, closing session")
         try {
             if (entry.renderThreadPossiblyAlive) {
-                // The hung thread may still be inside native render code;
-                // destroying the session under it is a use-after-free.
-                // Leave the native session to be reclaimed at process death.
+                // 挂起线程可能仍在原生渲染代码中；在其下销毁会话即 use-after-free，
+                // 泄漏的原生会话待进程消亡时回收。
                 LogUtil.e(
                     "Runtime",
                     "session ${entry.id} render thread possibly alive — skipping bridge close",
@@ -649,15 +554,12 @@ constructor(
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
             sessions.remove(entry.id)
-            // Keep the foreground service count in sync, symmetric with
-            // handleSessionExit and closeSession: closing the LAST session
-            // via this path must stop the foreground service and clear its
-            // stale notification.
+            // 保持前台服务计数同步，与 handleSessionExit 和 closeSession 对称：
+            // 经此路径关闭最后一个会话时必须停掉前台服务并清除其陈旧通知。
             updateForegroundSessionCount(sessions.size)
             if (entry.id == activeSessionId) {
-                // Same as handleSessionExit: the replacement session needs a
-                // render thread or its output/events are never polled and the
-                // terminal appears frozen.
+                // 同 handleSessionExit：接替会话需要渲染线程，
+                // 否则其输出/事件永远不会被轮询，终端将看似卡死。
                 val remaining = sessions.keys.sorted()
                 activeSessionId = remaining.lastOrNull() ?: 0L
                 if (activeSessionId != 0L) {
@@ -683,13 +585,10 @@ constructor(
     }
 
     private fun stopForegroundService() {
-        // NO flag gate: MainActivity.onCreate starts the service
-        // directly via the static TerminalForegroundService.start() without
-        // setting this flag, so a flag-gated stop would leak the service and
-        // its PARTIAL_WAKE_LOCK when the Activity is destroyed before the
-        // runtime's bootstrap completes. stopService on a non-running
-        // service is a harmless no-op (returns false), so stop unconditionally
-        // and reset the flag.
+        // 不以标志位为闸门：MainActivity.onCreate 经静态 TerminalForegroundService.start()
+        // 直接启动服务而不设置该标志，若以标志位控制停止，当 Activity 在运行期引导完成前
+        // 销毁时会泄漏服务及其 PARTIAL_WAKE_LOCK。对未运行的服务调 stopService
+        // 是无害空操作（返回 false），故无条件停止并重置标志。
         val stopped =
             try {
                 terminal.emulator.service.TerminalForegroundService.stop(context)
@@ -697,11 +596,9 @@ constructor(
                 if (serviceException is kotlinx.coroutines.CancellationException) {
                     throw serviceException
                 }
-                // A stopService binder failure (rare) must not leave the flag
-                // true: a stale flag makes the next startForegroundServiceIfNeeded
-                // skip starting, leaving no notification and no wake lock for
-                // live sessions. Reset the flag anyway — the service either
-                // stopped or is about to be killed by the system.
+                // stopService 的 binder 失败（罕见）不得让标志残留为真：陈旧标志会使
+                // 下次 startForegroundServiceIfNeeded 跳过启动，存活会话因此没有通知也没有唤醒锁。
+                // 无论如何都重置标志——服务要么已停止，要么即将被系统杀死。
                 LogUtil.e("Runtime", "Failed to stop foreground service", serviceException)
                 false
             }
@@ -712,14 +609,12 @@ constructor(
     }
 
     /**
-     * Update the foreground service session count, keeping the [foregroundServiceRunning] flag in
-     * sync: the service stops itself when the count reaches 0
-     * (TerminalForegroundService.updateSessionCount calls stop()), so the flag MUST be cleared here
-     * or a later startForegroundServiceIfNeeded would skip restarting the service — no foreground
-     * notification, no wake lock, and background sessions can be killed.
+     * 更新前台服务的会话数，并保持 [foregroundServiceRunning] 标志同步：计数降到 0 时服务自行停止，
+     * 故此处必须清除标志，否则后续 startForegroundServiceIfNeeded 会跳过重启服务
+     * ——无前台通知、无唤醒锁，后台会话可能被杀。
      *
-     * Exception-safe: called from inside sessionLock on the close paths; a service exception must
-     * never escape the lock (it would skip updateState and corrupt the session bookkeeping).
+     * 异常安全：在关闭路径上于 sessionLock 内调用，服务异常绝不能逃出锁
+     * （否则会跳过 updateState 并破坏会话簿记）。
      */
     private fun updateForegroundSessionCount(count: Int) {
         if (count <= 0) {
@@ -741,11 +636,9 @@ constructor(
         val endRow: Int,
         val endCol: Int,
         val hasSelection: Boolean,
-        // P1-1: true while a selection-handle drag is in progress (UI
-        // thread, via setSelectionDragging). The render thread folds this
-        // into hasSelectionOrDrag for the scroll-reset decision; it is
-        // NOT forwarded to native setSelection — dragging only affects
-        // scroll semantics, never the painted selection range.
+        // 选区手柄拖拽进行中（UI 线程，经 setSelectionDragging 置位）。渲染线程将其并入
+        // hasSelectionOrDrag 参与滚动复位决策；不会转发给原生 setSelection
+        // ——拖拽只影响滚动语义，绝不影响绘制出的选区范围。
         val dragging: Boolean = false,
     )
 
@@ -754,10 +647,7 @@ constructor(
             SelectionStateSnapshot(0, 0, 0, 0, false),
         )
 
-    /**
-     * Active session's scroll offset: read by the surface on session switch to resync its local
-     * selection-math offset.
-     */
+    /** 活动会话的滚动偏移：会话切换时由 Surface 读取以重同步其本地选区计算偏移。 */
     fun activeSessionScrollOffset(): Int {
         synchronized(sessionLock) {
             return sessions[activeSessionId]?.scrollOffset ?: 0
@@ -767,48 +657,39 @@ constructor(
     fun setScrollOffset(offset: Int) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollOffset = offset
-        // P1-1: record the gesture time so the render thread's
-        // recentlyScrolled guard can suppress the new-output scroll reset
-        // for RECENT_SCROLL_WINDOW_NANOS after user scrolling.
+        // 记录手势时间，使渲染线程的 recentlyScrolled 保护能在用户滚动后的
+        // RECENT_SCROLL_WINDOW_NANOS 内抑制新输出引起的滚动复位。
         entry.lastScrollNanos = System.nanoTime()
-        // The render thread already reads entry.scrollOffset and calls
-        // bridge.setScrollOffset() under the surface lock, so calling it here
-        // would be a redundant JNA round-trip + surface-lock acquisition on the
-        // calling thread (often the UI thread during scroll). Just signal the
-        // render thread to pick up the change.
+        // 渲染线程已读取 entry.scrollOffset 并在 surface 锁下调 bridge.setScrollOffset()，
+        // 在此调用只会给调用线程（滚动时通常是 UI 线程）多一次 JNI 往返与 surface 锁获取。
+        // 只信号渲染线程去取该变更即可。
         entry.notifyRender()
     }
 
     /**
-     * sync per-pixel scroll remainder from the gesture layer so the render thread forwards it to
-     * native (mirrors [setScrollOffset]: store + notify, the render thread performs the JNI crossing
-     * under the surface lock).
+     * 从手势层同步逐像素滚动余量，交由渲染线程转发给原生
+     * （同 [setScrollOffset]：只存储 + 通知，由渲染线程在 surface 锁下完成 JNI 穿越）。
      */
     fun setScrollRemainderPx(px: Float) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollRemainderPx = px
-        // Stamp the scroll-motion clock here too (not just in setScrollOffset):
-        // per-pixel sub-row motion is the highest-frequency event during a drag,
-        // so it must keep the loop's active cadence alive. Mirrors setScrollOffset.
+        // 此处也盖上滚动运动时钟（不只 setScrollOffset 中盖）：逐像素的亚行运动是
+        // 拖拽期间频率最高的事件，必须保持循环的活跃节奏。
         entry.lastScrollNanos = System.nanoTime()
         entry.notifyRender()
     }
 
-    /**
-     * sync scroll-active state from TerminalViewModel so the render thread knows whether to
-     * auto-reset scroll on new output.
-     */
+    /** 从 TerminalViewModel 同步滚动激活状态，使渲染线程知道新输出时是否自动复位滚动。 */
     fun setScrollActive(active: Boolean) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollActive = active
     }
 
     /**
-     * P1-1: mark the start/end of a selection-handle drag on the UI thread. Folds into
-     * SelectionStateSnapshot.dragging via the existing selectionState channel; the render thread
-     * treats dragging like an active selection for the scroll-reset decision (termux skipScrolling
-     * parity). endSelection/clearSelection overwrite the snapshot with dragging=false through
-     * setSelection, so no dedicated clear needed.
+     * 在 UI 线程标记选区手柄拖拽的开始/结束，经既有 selectionState 通道并入
+     * SelectionStateSnapshot.dragging。渲染线程在滚动复位决策中视拖拽等同选区激活
+     * （termux skipScrolling 对等语义）。endSelection/clearSelection 经 setSelection
+     * 以 dragging=false 覆写快照，故无需专门的清除路径。
      */
     fun setSelectionDragging(dragging: Boolean) {
         val current = selectionState.get()
@@ -824,28 +705,23 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 3: Session lifecycle
+    // 三、会话生命周期
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Write the mksh rc file with a termux-parity prompt (self-healing).
+     * 写入带 termux 对等提示符的 mksh rc 文件（自愈式）。
      *
-     * root cause: with no rc file, interactive mksh falls back to the AOSP `/system/etc/mkshrc`
-     * prompt `:/data/.../home $ ` — 38 columns wide. Any typed command longer than the remaining ~10
-     * columns forces mksh's horizontal line-scroll redraw (`\r` + scrolled window + `<` marker +
-     * backspace run), which renders as the garbled echo users reported ("cho …" fragments and a stray
-     * `<` at the right edge). Real Termux avoids this entirely with the short `PS1='$ '` prompt —
-     * same parity rule as every other termux-behavior fix in this round.
+     * 根因：无 rc 文件时交互式 mksh 回退到 AOSP `/system/etc/mkshrc` 的
+     * 38 列宽提示符 `:/data/.../home $ `。任何长于剩余 ~10 列的命令都会触发 mksh 的
+     * 横向滚动重绘（`\r` + 滚动窗口 + `<` 标记 + 退格串），表现为用户报告的乱码回显
+     * （"cho …" 碎片与右缘杂散 `<`）。真 Termux 用简短的 `PS1='$ '` 彻底避开。
      *
-     * The file lives in the application data directory (`DESIGN.md` Shell 节：
-     * `ENV` 为 `/data/data/com.termux/.mkshrc`，在 `files/` 用户数据树之外）而非 `$HOME`。
-     * The path is handed to native as [TerminalConfig.mkshrcPath] and injected as
-     * `$ENV`, which is how interactive mksh reaches it.
+     * 文件位于应用数据目录而非 `$HOME`：该路径作为 [TerminalConfig.mkshrcPath] 交给原生
+     * 并注入为 `$ENV`，交互式 mksh 正是经此读取。
      *
-     * mksh reads `$ENV` when set, else `~/.mkshrc` for interactive shells; we source the system rc
-     * first (keeps its PATH/alias setup) and then override PS1. Bash from a bootstrap never reads
-     * this file. The file is overwritten when it does not already contain the content marker so
-     * stale installs self-heal.
+     * mksh 在设置 `$ENV` 时读它，否则交互式读 `~/.mkshrc`；我们先 source 系统 rc
+     * （保留其 PATH/别名设置）再覆盖 PS1。引导中的 bash 从不读此文件。
+     * 文件不含内容标记时覆写，使陈旧安装自愈。
      */
     private fun ensureMkshPromptRc() {
         val mkshRcFile = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
@@ -855,7 +731,7 @@ constructor(
             try {
                 if (mkshRcFile.readText().contains(contentMarker)) return
             } catch (_: Exception) {
-                // unreadable — overwrite below
+                // 不可读——下方覆写
             }
         }
         try {
@@ -941,16 +817,14 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 2b: Render-thread supervision (extracted C6)
+    // 三之二、渲染线程监管
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns render-thread lifecycle: monitor loop, dead-thread detection, restart/backoff, and thread
-     * start/stop.
+     * 拥有渲染线程生命周期：监视循环、死线程检测、重启/退避与线程启停。
      *
-     * Extracted from TerminalRuntime so the supervision logic has one home and the orchestrator stays
-     * thin. Inner class: accesses TerminalRuntime's session registry/locks without threading them
-     * through constructors (pure code move, zero behavior change).
+     * 内部类：直接访问 TerminalRuntime 的会话注册表与锁，无需经构造函数层层传递
+     * （纯代码搬迁，行为零变化）。
      */
     inner class RenderSupervisor {
         internal fun startRenderMonitor() {
@@ -1025,9 +899,9 @@ constructor(
                 "session ${entry.id} render thread exited, restart attempt ${entry.restartAttempts + 1}",
             )
 
-            // Phase 1 (locked): quick state checks only. Phase 2 (UNLOCKED):
-            // stopDeadRenderThreadResources joins the old thread (up to 1s) —
-            // holding sessionLock across a join blocks every session operation.
+            // 阶段 1（加锁）：仅做快速状态检查。阶段 2（不持锁）：
+            // stopDeadRenderThreadResources 会 join 旧线程（最长 1s），
+            // 跨 join 持有 sessionLock 会阻塞所有会话操作。
             synchronized(sessionLock) {
                 if (!entry.running) return
                 if (!entry.renderThreadExited) {
@@ -1042,31 +916,26 @@ constructor(
                 }
             }
 
-            // Phase 2 (UNLOCKED): the join below may block up to
-            // THREAD_JOIN_TIMEOUT_MS when the render thread is stuck in native
-            // GPU code — exactly the case that would stall every session
-            // operation if sessionLock were held. It is deliberately outside the
-            // lock.
+            // 阶段 2（不持锁）：下方 join 在渲染线程卡死于原生 GPU 代码时
+            // 最长阻塞 THREAD_JOIN_TIMEOUT_MS——这正是若持有 sessionLock
+            // 就会拖住所有会话操作的情形，故刻意置于锁外。
             stopDeadRenderThreadResources(entry)
 
             synchronized(sessionLock) {
-                // running stays true after the join above (it is the session
-                // intent flag; only pause/stop set it false). Re-check it here so
-                // a concurrent pauseRendering() — which ran between Phase 1 and
-                // now — cancels the restart instead of starting a render thread
-                // on a destroyed surface.
+                // 上方 join 后 running 仍为 true（它是会话意图标志，只有 pause/stop 置假）。
+                // 在此重查，使在阶段 1 与此刻之间运行的并发 pauseRendering()
+                // 能取消重启，而非在已销毁的 Surface 上启动渲染线程。
                 if (!entry.running) return
                 if (entry.bridge == null || !sessions.containsKey(entry.id)) return
                 if (entry.restartScheduled) return
                 entry.restartScheduled = true
                 entry.restartAttempts++
             }
-            // closeDeadSession runs UNLOCKED: it closes the bridge (Session::drop
-            // kills and joins threads, ~100ms+) and may start a replacement
-            // render thread (join up to THREAD_JOIN_TIMEOUT_MS). Both must never
-            // run while holding sessionLock. The attempt counter is monotonic
-            // and closeDeadSession re-checks sessions.containsKey, so a racing
-            // concurrent caller is harmless (second call returns immediately).
+            // closeDeadSession 在锁外运行：它会关闭 bridge（Session::drop 会 kill
+            // 并 join 线程，~100ms+）并可能启动接替渲染线程（join 最长
+            // THREAD_JOIN_TIMEOUT_MS），两者绝不可在持有 sessionLock 时运行。
+            // 尝试计数单调递增且 closeDeadSession 会重查 sessions.containsKey，
+            // 故并发竞争调用无害（第二次调用立即返回）。
             if (shouldCloseDeadRender(entry.restartAttempts, RENDER_MAX_RESTART_ATTEMPTS)) {
                 closeDeadSession(entry)
                 return
@@ -1088,12 +957,10 @@ constructor(
         internal fun stopDeadRenderThreadResources(entry: SessionEntry) {
             entry.renderWatchDog?.stop()
             entry.renderWatchDog = null
-            // NOTE: do NOT set entry.running = false here. running is the
-            // session-intent flag (pause/stop set it false; start/resume set it
-            // true). The dead-thread restart path relies on running staying true
-            // so the delayed restart (restartRenderThreadAfterDelay) can still
-            // run — and so a concurrent pauseRendering() (which sets running =
-            // false) correctly cancels the pending restart.
+            // 注意：此处绝不要把 entry.running 置假。running 是会话意图标志
+            // （pause/stop 置假，start/resume 置真）。死线程重启路径依赖 running 保持为真，
+            // 使延迟重启（restartRenderThreadAfterDelay）仍能执行；
+            // 也使并发的 pauseRendering()（将 running 置假）能正确取消待执行的重启。
             entry.renderThreadRef?.let { t ->
                 t.interrupt()
                 t.join(THREAD_JOIN_TIMEOUT_MS)
@@ -1106,12 +973,10 @@ constructor(
             }
             entry.renderThreadRef = null
             entry.renderSignaled.set(false)
-            // A renderThreadRef join that SUCCEEDED does not prove the recorded
-            // hung thread (from an earlier join timeout) is dead too — it may
-            // still be inside native render code. Only clear the flag when no
-            // hung thread is recorded, or give the hung thread one final join
-            // first; unconditional clearing would let close paths destroy the
-            // native session under a still-alive thread (use-after-free).
+            // renderThreadRef 的 join 成功，并不能证明先前 join 超时时记录的挂起线程也已死亡
+            // ——它可能仍在原生渲染代码中。仅在未记录挂起线程时才清标志，
+            // 或先给挂起线程最后一次 join；无条件清除会让关闭路径在存活线程下
+            // 销毁原生会话（use-after-free）。
             val hung = entry.hungRenderThread
             if (entry.renderThreadPossiblyAlive && hung != null && hung.isAlive) {
                 hung.interrupt()
@@ -1121,23 +986,19 @@ constructor(
                 entry.renderThreadPossiblyAlive = false
                 entry.hungRenderThread = null
             }
-            // Skip releaseGpuSurface here — the new render thread will
-            // reconfigure the surface via attachSurface.
+            // 此处跳过 releaseGpuSurface——新渲染线程会经 attachSurface 重新配置 Surface。
         }
 
         internal suspend fun restartRenderThreadAfterDelay(entry: SessionEntry) {
             synchronized(sessionLock) {
-                // Consume the scheduling marker first: whether this restart runs
-                // or is cancelled (paused/closed), a later monitor dispatch must
-                // be able to schedule a fresh restart.
+                // 先消费调度标记：无论本次重启执行还是被取消（暂停/关闭），
+                // 后续监视器派发都必须能调度一次全新的重启。
                 entry.restartScheduled = false
                 if (!sessions.containsKey(entry.id)) return
-                // Only restart when the session still intends to run. A paused
-                // session (surface destroyed) must not get a render thread — the
-                // resume path starts it when the surface returns.
+                // 仅当会话仍意图运行时才重启。已暂停的会话（Surface 已销毁）
+                // 不应获得渲染线程——恢复路径会在 Surface 回来时启动它。
                 if (!entry.running) return
-                // Another thread may already have been started (e.g. resume
-                // racing the delayed restart); do not start a second one.
+                // 其他线程可能已启动（例如恢复与延迟重启竞争）；不要启动第二个。
                 if (entry.renderThreadRef?.isAlive == true) return
                 if (entry.bridge == null) return
                 entry.renderThreadExited = false
@@ -1164,17 +1025,13 @@ constructor(
         }
 
         internal fun startRenderThread(entry: SessionEntry) {
-            // Refuse to start a thread for a session that is being closed:
-            // closeSession sets entry.closing under sessionLock before it
-            // starts the unlocked stop/close sequence, and every caller of
-            // this function holds sessionLock — so a closing entry can never
-            // get a fresh render thread (orphaned-thread TOCTOU, see the
-            // closing field doc). Also reset the running intent flag: callers
-            // (resumeRendering/switchSession/closeSession Phase 3) set it
-            // true BEFORE calling, and leaving it true would make
-            // closeSession's locked re-check misclassify this entry as
-            // running and skip bridge.close (native session + child process
-            // leak).
+            // 拒绝为正在关闭的会话启动线程：closeSession 在启动不持锁的
+            // 停止/关闭序列之前会在 sessionLock 下置 entry.closing，
+            // 且本函数的每个调用方都持有 sessionLock
+            // ——因此正在关闭的条目绝不可能获得新渲染线程（孤儿线程 TOCTOU，见 closing 字段说明）。
+            // 同时重置运行意图标志：调用方（resumeRendering/switchSession/closeSession 阶段 3）
+            // 在调用前已将其置真，若保留为真会使 closeSession 的锁内重查
+            // 把该条目误判为运行中而跳过 bridge.close（泄漏原生会话与子进程）。
             if (entry.closing) {
                 entry.running = false
                 LogUtil.d("Runtime", "session ${entry.id} closing — refusing to start render thread")
@@ -1189,9 +1046,8 @@ constructor(
             entry.renderThreadRef = null
             oldThread?.let { t ->
                 if (t === Thread.currentThread()) {
-                    // Self-join would time out and wrongly mark the current
-                    // thread as hung; skip (the caller is the render thread
-                    // itself, e.g. handleSessionExit replacement).
+                    // join 自身必然超时并错误地把当前线程标记为挂起；跳过
+                    // （调用方就是渲染线程本身，如 handleSessionExit 的接替）。
                     LogUtil.w(
                         "Runtime",
                         "session ${entry.id} startRenderThread called from its own render thread — skipping join",
@@ -1204,17 +1060,15 @@ constructor(
                             "Runtime",
                             "session ${entry.id} previous render thread still alive after join — forcing new thread anyway",
                         )
-                        // The old thread may still be inside native render code.
-                        // Record that so close paths skip releaseGpuSurface/close,
-                        // and keep the reference for one final join at exit time.
+                        // 旧线程可能仍在原生渲染代码中。记录之，
+                        // 使关闭路径跳过 releaseGpuSurface/close，
+                        // 并保留引用以便退出时做最后一次 join。
                         entry.renderThreadPossiblyAlive = true
                         entry.hungRenderThread = t
                     } else {
-                        // Clear the flag only when the joined thread IS the recorded
-                        // hung thread (or none is recorded). A different hung thread
-                        // from an earlier GPU stall may still be alive inside native
-                        // code; clearing here would let close paths destroy the
-                        // session under it (use-after-free).
+                        // 仅当已 join 的线程就是记录的挂起线程（或未记录）时才清标志。
+                        // 早先 GPU 停滞留下的另一个挂起线程可能仍在原生代码中存活；
+                        // 在此清除会让关闭路径在其下销毁会话（use-after-free）。
                         if (entry.hungRenderThread == null || entry.hungRenderThread === t) {
                             entry.renderThreadPossiblyAlive = false
                             entry.hungRenderThread = null
@@ -1229,43 +1083,36 @@ constructor(
                     {
                         try {
                             runBlocking {
-                                // Display-priority render thread: the frame pipeline
-                                // competes with the UI thread for CPU when the IME is
-                                // open or surfaces churn. THREAD_PRIORITY_DISPLAY puts
-                                // frame production ahead of the UI thread's less
-                                // time-critical work, cutting frame-time jitter on
-                                // real devices (and SwiftShader emulators).
+                                // 显示优先级的渲染线程：输入法打开或 Surface 频繁变动时，
+                                // 帧管线会与 UI 线程争抢 CPU。THREAD_PRIORITY_DISPLAY 让帧生产
+                                // 优先于 UI 线程时效性较低的工作，在真机与 SwiftShader 模拟器上
+                                // 都可降低帧时间抖动。
                                 Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
                                 var diagCount = 0
                                 var consecutiveErrors = 0
                                 var lastScrollOffset = Int.MAX_VALUE
                                 var lastScrollRemainderPx = Float.NaN
                                 var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
-                                // Per-thread frame-duration statistics: reset whenever the
-                                // render thread restarts (fresh lifetime, no stale history).
+                                // 每线程帧时长统计：渲染线程重启时重置（新生涯，不带陈旧历史）。
                                 val frameTiming = FrameTimingStats()
-                                // Whole-loop period statistics (render + pollAll + event
-                                // dispatch + waitOutput): `frameTiming` above covers only
-                                // bridge.render(); the loop window's inverse is the actual
-                                // frame rate and separates "native render is slow" from
-                                // "something else in the loop is slow".
+                                // 整循环周期统计（渲染 + pollAll + 事件派发 + waitOutput）：
+                                // 上方 frameTiming 只覆盖 bridge.render()；
+                                // 循环窗口的倒数才是真实帧率，且能区分「原生渲染慢」
+                                // 与「循环中其他环节慢」。
                                 val loopTiming = FrameTimingStats()
-                                // Baseline-adaptive degradation detector: learns the
-                                // device's own frame-time baseline and alerts on windows
-                                // that regress ~3x above it — works on the software
-                                // emulator (~555ms/frame) and on real devices (~17ms)
-                                // with one mechanism instead of fixed thresholds.
+                                // 基线自适应降级检测器：学习设备自身的帧时间基线，
+                                // 对回归至其约 3 倍以上的窗口告警——同一套机制
+                                // 既适用于软件模拟器（~555ms/帧）也适用于真机（~17ms），
+                                // 无需固定阈值。
                                 val frameTimingTrend = FrameTimingTrend()
                                 LogUtil.d(
                                     "Runtime",
                                     "render thread started for session ${entry.id} generation=$generation",
                                 )
                                 while (entry.running && renderGeneration.get() == generation) {
-                                    // user pressed Enter on the
-                                    // [Process completed] prompt — writeToPty only
-                                    // signals; the close path runs here on the render
-                                    // thread so the bridge is not destroyed under a
-                                    // live render loop.
+                                    // 用户在 [Process completed] 提示上按了 Enter
+                                    // ——writeToPty 只发信号；关闭路径在此渲染线程上执行，
+                                    // 避免在存活的渲染循环下销毁 bridge。
                                     if (entry.processCompletedConfirmed) {
                                         handleSessionExit(entry, entry.processExitCode, 0L)
                                         break
@@ -1273,29 +1120,22 @@ constructor(
                                     try {
                                         val loopFrameStart = System.nanoTime()
                                         val bridge = entry.bridge ?: break
-                                        // ── P2-1 vsync wake gate (design D3) ──────────
-                                        // The loop renders ONLY when a wake source fired:
-                                        //   ① vsyncRequested — Choreographer frame callback
-                                        //     (the display-frame signal; the callback is
-                                        //     signal-only and never touches the surface
-                                        //     Mutex or calls render itself),
-                                        //   ② forceRenderRequested — immediate-feedback
-                                        //     bypass (forceRender(); semantics unchanged),
-                                        //   ③ renderSignaled — any notifyRender() producer
-                                        //     (scroll/selection/PTY-adjacent UI signals).
-                                        // Otherwise it parks on the output latch. The latch
-                                        // timeout (active 16ms / idle 500ms) doubles as the
-                                        // safety-net cadence (M-10): a timeout return still
-                                        // falls through to one render attempt so deferred-
-                                        // field consumption never stalls if the main thread
-                                        // blocks or a vsync signal is lost. PTY output note:
-                                        // waitOutput is a pure park — PTY arrival cannot wake
-                                        // it early (pre-existing behavior); new output is
-                                        // picked up on the next vsync attempt (~16.7ms) or
-                                        // by this timeout fallback, where receive_cell_data
-                                        // consumes the pending data. After waking, render()
-                                        // is called UNCONDITIONALLY — idle-gate
-                                        // decisions live exclusively inside the native gate.
+                                        // ── vsync 唤醒门控 ──
+                                        // 循环仅在有唤醒源触发时才渲染：
+                                        //   ① vsyncRequested — Choreographer 帧回调
+                                        //     （显示帧信号；该回调只发信号，绝不触碰 surface
+                                        //     Mutex，也绝不自行调用 render），
+                                        //   ② forceRenderRequested — 即时反馈旁路
+                                        //     （forceRender()，语义不变），
+                                        //   ③ renderSignaled — 任意 notifyRender() 生产者
+                                        //     （滚动/选区/PTY 相邻的 UI 信号）。
+                                        // 否则驻留在输出闭锁上。闭锁超时（活跃 16ms / 空闲 500ms）
+                                        // 同时充当安全网节奏：超时返回仍会落下一次渲染尝试，
+                                        // 使主线程阻塞或 vsync 信号丢失时延迟字段的消费不会停摆。
+                                        // 关于 PTY 输出：waitOutput 是纯 park——PTY 到达无法提前唤醒它；
+                                        // 新输出在下一次 vsync 尝试（~16.7ms）或本超时回退时
+                                        // 被取走，此时 receive_cell_data 消费待处理数据。
+                                        // 唤醒后 render() 无条件调用——空闲门控决策完全位于原生门控内部。
                                         if (
                                             !entry.vsyncRequested &&
                                             !entry.forceRenderRequested &&
@@ -1320,16 +1160,14 @@ constructor(
                                             bridge.waitOutput(timeoutNanos / 1_000_000L)
                                             if (Thread.interrupted()) throw InterruptedException()
                                         }
-                                        // Consume the wake flags before rendering. ALL THREE are
-                                        // cleared unconditionally: a signal landing between the
-                                        // gate check and this clear folds into the render below;
-                                        // one landing mid-render waits for the next vsync/timeout
-                                        // tick — at most one frame of extra latency, never a lost
-                                        // wake-up. Clearing renderSignaled here (not inside the
-                                        // park branch) fixes a busy-spin leak: when vsyncRequested
-                                        // won the gate check, renderSignaled stayed true forever,
-                                        // every subsequent iteration skipped the park, and the
-                                        // thread spun at full speed burning CPU between renders.
+                                        // 渲染前消费唤醒标志。三者都无条件清除：
+                                        // 落在门控检查与本次清除之间的信号会并入下方的渲染；
+                                        // 落在渲染期间的信号则等下一次 vsync/超时节拍
+                                        // ——最多多一帧延迟，绝不会丢唤醒。
+                                        // 在此（而非在驻留分支内）清除 renderSignaled 修掉了忙等泄漏：
+                                        // 当 vsyncRequested 赢得门控检查时，renderSignaled 会永远为真，
+                                        // 之后每次迭代都跳过驻留，
+                                        // 线程在两次渲染之间全速空转空耗 CPU。
                                         entry.vsyncRequested = false
                                         entry.forceRenderRequested = false
                                         entry.renderSignaled.set(false)
@@ -1355,8 +1193,7 @@ constructor(
                                             lastScrollRemainderPx = currentRemainderPx
                                         }
                                         entry.lastRenderStart = System.nanoTime()
-                                        // Combined render + consumeNewOutput in a single JNI
-                                        // crossing (~0.1-0.3ms saved per frame).
+                                        // 渲染与 consumeNewOutput 合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
                                         val (count, newOutput, cursorRow) = bridge.renderWithNewOutput()
                                         if (cursorRow != entry.cursorRow) {
                                             entry.cursorRow = cursorRow
@@ -1372,9 +1209,8 @@ constructor(
                                             )
                                         }
                                         if (newOutput) {
-                                            // Latency probe echo pairing: this frame
-                                            // consumed PTY output; if an input stamp is
-                                            // pending, one input→echo sample lands.
+                                            // 延迟探针的回显配对：本帧消费了 PTY 输出；
+                                            // 若有待配对的输入打点，就落下一个输入→回显样本。
                                             entry.latencyProbe
                                                 .onEchoFrame(
                                                     SystemClock.elapsedRealtimeNanos(),
@@ -1384,9 +1220,9 @@ constructor(
                                                         "Runtime",
                                                         "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
                                                     )
-                                                    // Periodic p50/p95 summary into logcat
-                                                    // (LATENCY_REPORT marker is grep-stable
-                                                    // for offline percentile collection).
+                                                    // 周期性 p50/p95 汇总写入 logcat
+                                                    // （LATENCY_REPORT 标记便于 grep，
+                                                    // 供离线采集分位数）。
                                                     val n = entry.latencyProbe.sampleCount
                                                     if (n % LATENCY_REPORT_EVERY == 0) {
                                                         LogUtil.i(
@@ -1397,25 +1233,17 @@ constructor(
                                                 }
                                         }
                                         if (newOutput) {
-                                            // Only real PTY ingest refreshes the idle
-                                            // clock: count also counts idle repaints of
-                                            // a static grid, which kept lastSignalNanos
-                                            // within the idle threshold forever so the
-                                            // 500ms idle latch never engaged. Sustained
-                                            // streams (tail -f, ping, gradle) always
-                                            // carry newOutput, so they stay active.
+                                            // 只有真实的 PTY 摄入才刷新空闲时钟：count 同样统计静态网格的
+                                            // 空闲重绘，会使 lastSignalNanos 永远处于空闲阈值内，
+                                            // 500ms 空闲闭锁因而永不生效。持续输出流
+                                            // （tail -f、ping、gradle）总是携带 newOutput，故保持活跃。
                                             entry.lastSignalNanos = System.nanoTime()
-                                            // P1-1 scroll semantics (termux onScreenUpdated
-                                            // parity): consume the native new_output flag
-                                            // (PTY ingest → bypass flag, NOT the render()
-                                            // count which also counts idle repaints)
-                                            // and reset the viewport to the bottom only when
-                                            // no selection/drag is active, the SCROLL lock is
-                                            // off, and no scroll gesture happened within
-                                            // RECENT_SCROLL_WINDOW_NANOS. Skipped resets are
-                                            // dropped ("skip = give up"): the flag is already
-                                            // read-clear; the next output arrival resets
-                                            // again (termux: sustained output always wins).
+                                            // 滚动语义（termux onScreenUpdated 对等）：消费原生 new_output
+                                            // 标志（PTY 摄入的旁路标志，而非同样统计空闲重绘的
+                                            // render() 计数），且仅在无选区/拖拽、SCROLL 锁关闭、
+                                            // 且 RECENT_SCROLL_WINDOW_NANOS 内无滚动手势时才把视口复位到底部。
+                                            // 被跳过的复位就此丢弃（「跳过 = 放弃」）：标志已是读后即清，
+                                            // 下次输出到达时会再次复位（termux：持续输出总是胜出）。
                                             if (
                                                 shouldResetScroll(
                                                     scrollActive = entry.scrollActive,
@@ -1428,21 +1256,18 @@ constructor(
                                                         RECENT_SCROLL_WINDOW_NANOS,
                                                 )
                                             ) {
-                                                // Single-point reset write on the render
-                                                // thread; lastScrollOffset stays untouched so
-                                                // the existing diff-push forwards offset 0 to
-                                                // native on the next frame.
+                                                // 渲染线程上的单点复位写入；lastScrollOffset 保持不动，
+                                                // 使既有的差量推送在下一帧把偏移 0 转发给原生。
                                                 entry.scrollOffset = 0
                                             }
                                         }
                                         if (count < 0) {
-                                            // Transient render error (surface not ready, snapshot unavailable,
-                                            // etc.)
-                                            // These resolve on their own; don't count them toward the fatal limit.
-                                            // Never break here: this thread also drives pollAll pumping — exiting
-                                            // freezes native output processing with no guaranteed restart (rotation /
-                                            // app-switch surface outage would wedge the terminal forever). Legitimate
-                                            // exit stays via entry.running / generation conditions above.
+                                            // 瞬时渲染错误（Surface 未就绪、快照不可用等），
+                                            // 会自行恢复，不计入致命上限。
+                                            // 绝不在此 break：本线程同时驱动 pollAll 泵送，
+                                            // 退出会冻结原生输出处理且不保证重启
+                                            // （旋转/切应用的 Surface 中断会让终端永久卡死）。
+                                            // 正常退出仍走上方 entry.running / generation 条件。
                                             if (consecutiveErrors == 0 ||
                                                 consecutiveErrors % RENDER_MAX_TRANSIENT_ERRORS == 0
                                             ) {
@@ -1452,7 +1277,7 @@ constructor(
                                                 )
                                             }
                                             consecutiveErrors++
-                                            // Adaptive backoff: 50ms for first 10, then 200ms
+                                            // 自适应退避：前 10 次 50ms，之后 200ms
                                             val sleepMs =
                                                 if (consecutiveErrors > 10) {
                                                     RENDER_ERROR_BACKOFF_MS
@@ -1470,33 +1295,22 @@ constructor(
                                             consecutiveErrors = 0
                                             try {
                                                 val poll = bridge.pollAll()
-                                                // Exit is handled FIRST, in its own branch:
-                                                // the event was already consumed from the
-                                                // native queue and cannot be replayed, so an
-                                                // exception in clipboard
-                                                // handling below must never skip the cleanup.
+                                                // 退出优先在独立分支中处理：该事件已从原生队列消费且无法重放，
+                                                // 故下方剪贴板处理中的异常绝不能跳过清理。
                                                 if (poll.exit) {
-                                                    // Reply empty FIRST, before any cleanup:
-                                                    // these clipboard-read requests were already
-                                                    // consumed from the native queue and can
-                                                    // never be dispatched, so leaving them
-                                                    // unanswered would hang the requester.
-                                                    // Answering before
-                                                    // handleSessionExit (which may close the
-                                                    // bridge, ~100ms+) also minimizes latency.
-                                                    // Each reply is guarded
-                                                    // individually: a JNI failure here must
+                                                    // 先回复空值，再做任何清理：这些剪贴板读取请求
+                                                    // 已从原生队列消费且永不会再被派发，
+                                                    // 不予回复会挂起请求方。
+                                                    // 先于 handleSessionExit 回复（后者可能关闭
+                                                    // bridge，~100ms+）也把延迟降到最低。
+                                                    // 每次回复单独保护：此处的 JNI 失败绝不能
                                                     dispatchClipboardRequests(poll.clipboardReads)
                                                     if (poll.sessionId != 0L && poll.sessionId != entry.id) {
-                                                        // A background (non-active) session's
-                                                        // shell exited. Its render thread is
-                                                        // stopped, so nobody else would ever
-                                                        // reap it — the native sweep reports
-                                                        // it once through this queue. Close it
-                                                        // here (handleSessionExit is safe for
-                                                        // non-active sessions: the replacement
-                                                        // branch is gated on entry.id ==
-                                                        // activeSessionId).
+                                                        // 后台（非活动）会话的 shell 已退出。
+                                                        // 其渲染线程已停止，不会再有其他方回收它
+                                                        // ——原生清扫只经本队列上报一次。在此关闭它
+                                                        // （handleSessionExit 对非活动会话是安全的：
+                                                        // 接替分支以 entry.id == activeSessionId 为闸门）。
                                                         val exitedEntry =
                                                             synchronized(sessionLock) { sessions[poll.sessionId] }
                                                         if (exitedEntry != null) {
@@ -1511,24 +1325,17 @@ constructor(
                                                             )
                                                         }
                                                     } else {
-                                                        // Full cleanup (bridge close, session removal,
-                                                        // state update) happens here; the render monitor
-                                                        // skips !running entries so it would never reap
-                                                        // an exited session.
+                                                        // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；
+                                                        // 渲染监视器跳过 !running 的条目，因而绝不会回收已退出会话。
                                                         handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
                                                     }
-                                                    // Shared by both branches: reap any
-                                                    // ADDITIONAL sessions that exited in the
-                                                    // same frame (the first one was handled
-                                                    // above). Their native exit_reported
-                                                    // flags are already set and never re-sent.
-                                                    // Only poll.sessionId is excluded — every
-                                                    // OTHER id in the list (including entry.id
-                                                    // when this is the background branch) must
-                                                    // be reaped or the Kotlin entry, native
-                                                    // session and zombie child leak forever.
-                                                    // handleSessionExit is idempotent
-                                                    // (containsKey re-check).
+                                                    // 两个分支共用：回收同一帧内退出的其他会话
+                                                    // （首个已在上方处理）。它们的原生 exit_reported
+                                                    // 标志已置位且不重发。
+                                                    // 仅排除 poll.sessionId——列表中其他每个 id
+                                                    // （含后台分支下的 entry.id）都必须回收，
+                                                    // 否则 Kotlin 条目、原生会话与僵尸子进程将永久泄漏。
+                                                    // handleSessionExit 幂等（内部重查 containsKey）。
                                                     poll.exits.forEach { exitInfo ->
                                                         if (exitInfo.sessionId != poll.sessionId) {
                                                             val extra =
@@ -1551,11 +1358,10 @@ constructor(
                                                     if (!entry.waitingForProcessCompleted) {
                                                         break
                                                     }
-                                                    // the [Process completed]
-                                                    // prompt is showing — keep the session
-                                                    // visible (running stays true) until the
-                                                    // user presses Enter. Native exit_reported
-                                                    // is set so no further exit events arrive.
+                                                    // 正在显示 [Process completed] 提示
+                                                    // ——保持会话可见（running 保持为真）
+                                                    // 直到用户按 Enter。
+                                                    // 原生 exit_reported 已置位，故不会再有退出事件到达。
                                                 }
                                                 eventDispatcher.handle(poll)
                                             } catch (exception: Exception) {
@@ -1578,19 +1384,16 @@ constructor(
                                                         ""
                                                     }
                                                 if (title.isNotEmpty() && title != _state.value.title) {
-                                                    // CAS update: the collector and the IO
-                                                    // session functions also write _state; a
-                                                    // non-atomic read-modify-write here could
-                                                    // clobber their session list.
+                                                    // CAS 更新：收集器与 IO 会话函数也会写 _state，
+                                                    // 此处非原子的读-改-写会覆盖它们的会话列表。
                                                     _state.update { current -> current.copy(title = title) }
                                                 }
                                             }
                                             entry.lastRenderDone = System.nanoTime()
                                             frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
                                             frameTiming.takeReport()?.let { report ->
-                                                // Memory gauge alongside the timing window: a
-                                                // monotonically growing scrollback row count
-                                                // across windows indicates unbounded history.
+                                                // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长
+                                                // 即表示历史无界。
                                                 val scrollbackRows =
                                                     try {
                                                         NativeBridge.getScrollbackRows(entry.id)
@@ -1609,9 +1412,8 @@ constructor(
                                                 val baselineNanos = frameTimingTrend.currentBaselineNanos()
                                                 val baselineMs = baselineNanos?.div(1_000_000L)
                                                 when {
-                                                    // Absolute pathology: a stall beyond any
-                                                    // device's expectation (emulator baseline
-                                                    // ~555ms/frame; real devices ~17ms).
+                                                    // 绝对病态：超出任何设备预期的停滞
+                                                    // （模拟器基线 ~555ms/帧；真机 ~17ms）。
                                                     report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
                                                         report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
                                                         LogUtil.w(
@@ -1619,11 +1421,9 @@ constructor(
                                                             "$summary — severe stall(s), investigate render cost",
                                                         )
 
-                                                    // Baseline-relative regression (~3x the
-                                                    // device's own learned baseline, at least
-                                                    // 100ms average): catches gradual and
-                                                    // device-specific degradations that an
-                                                    // absolute threshold cannot.
+                                                    // 相对基线的回归（约为设备自身学习到的基线的 3 倍，
+                                                    // 且平均至少 100ms）：捕捉绝对阈值无法覆盖的
+                                                    // 渐进式、设备特定的降级。
                                                     trendDegraded ->
                                                         LogUtil.w(
                                                             "Runtime",
@@ -1631,27 +1431,22 @@ constructor(
                                                                 "investigate render cost",
                                                         )
 
-                                                    // Normal window: Info (not Debug) so the
-                                                    // gauge survives release builds — LogUtil.d
-                                                    // is gated on BuildConfig.DEBUG and would
-                                                    // hide every window on a release APK,
-                                                    // leaving gradual issues invisible.
-                                                    // One line per 60 rendered frames (~1s on
-                                                    // a real device, ~33s on the emulator) is
-                                                    // a quiet but always-present signal.
+                                                    // 正常窗口：用 Info 而非 Debug，使该计量在 release 构建中仍保留
+                                                    // ——LogUtil.d 受 BuildConfig.DEBUG 门控，
+                                                    // 在 release APK 上会隐藏每个窗口，
+                                                    // 使渐进问题不可见。
+                                                    // 每 60 个渲染帧一行（真机 ~1s，模拟器 ~33s），
+                                                    // 是安静但始终存在的信号。
                                                     else -> LogUtil.i("Runtime", summary)
                                                 }
                                             }
-                                            // P2-1: tail wait removed — parking now happens in
-                                            // the loop-top wake gate above (same latch, same
-                                            // active/idle timeouts). Falling through here goes
-                                            // straight back to the gate.
+                                            // 尾部队列等待已移除——驻留现在发生在上方的循环顶部唤醒门控
+                                            // （同一闭锁、同一活跃/空闲超时）。落到此处即直接返回门控。
                                         }
-                                        // Whole-loop period: the inverse of the average is
-                                        // the ACTUAL frame rate (waitOutput + pollAll +
-                                        // event dispatch included). If render avg is ~16ms
-                                        // but this is ~50ms, the frame time goes elsewhere
-                                        // in the loop, not the native render path.
+                                        // 整循环周期：平均值的倒数才是真实帧率
+                                        // （含 waitOutput + pollAll + 事件派发）。
+                                        // 若渲染均值 ~16ms 而此处 ~50ms，
+                                        // 说明时间花在循环的其他环节，而非原生渲染路径。
                                         loopTiming.record(System.nanoTime() - loopFrameStart)
                                         loopTiming.takeReport()?.let { loopReport ->
                                             val loopAvgMs = loopReport.averageNanos / 1_000_000L
@@ -1665,9 +1460,8 @@ constructor(
                                             )
                                         }
                                     } catch (exception: InterruptedException) {
-                                        // The render thread was interrupted during shutdown
-                                        // (session switch / runtime stop). This is an expected
-                                        // signal, not a render failure — exit the loop cleanly.
+                                        // 渲染线程在关闭期间（会话切换/运行期停止）被中断。
+                                        // 这是预期信号而非渲染失败——干净地退出循环。
                                         Thread.currentThread().interrupt()
                                         break
                                     } catch (exception: Exception) {
@@ -1715,8 +1509,8 @@ constructor(
                     }
             entry.renderThreadRef = renderThread
             renderThread.start()
-            // P2-1: drive the new render loop's wake gate from display vsync
-            // (one self-rescheduling Choreographer chain per process).
+            // 以显示 vsync 驱动新渲染循环的唤醒门控
+            // （每进程一条自调度的 Choreographer 链）。
             ensureVsyncChainStarted()
             entry.renderWatchDog =
                 RenderWatchDog(
@@ -1730,9 +1524,8 @@ constructor(
                             "Runtime",
                             "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
                         )
-                        // Mark the thread as dead. The render monitor (checkSessions)
-                        // will detect this and restart the thread with exponential backoff.
-                        // This avoids killing the entire process for a GPU hang.
+                        // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
+                        // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
                         entry.renderThreadExited = true
                     },
                     hangTimeoutNanos = RENDER_HANG_TIMEOUT_NANOS,
@@ -1760,10 +1553,9 @@ constructor(
                     return false
                 }
             }
-            // Clear the possibly-alive flag only when the joined thread IS the
-            // recorded hung thread (or none is recorded); a different hung
-            // thread may still be alive inside native code, and clearing here
-            // would let close paths destroy the native session under it.
+            // 仅当已 join 的线程就是记录的挂起线程（或未记录）时才清除存活标志；
+            // 另一个挂起线程可能仍在原生代码中存活，在此清除会让关闭路径在其下
+            // 销毁原生会话。
             if (entry.hungRenderThread == null || entry.hungRenderThread === thread) {
                 entry.renderThreadPossiblyAlive = false
                 entry.hungRenderThread = null
@@ -1773,21 +1565,19 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 4b: Event dispatch (extracted K3)
+    // 四之二、事件派发
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Dispatches non-exit poll events (clipboard).
+     * 派发非退出的轮询事件（剪贴板）。
      *
-     * Extracted from the render loop so the loop body stays a tight poll → handle → wait cycle. Inner
-     * class: accesses TerminalRuntime's handlers/context/clipboard without threading them through
-     * constructors. Exit reaping stays in the loop it owns the break/cleanup control flow).
+     * 内部类：直接访问 TerminalRuntime 的处理器/上下文/剪贴板，无需经构造函数传递。
+     * 退出回收留在循环中（它拥有 break/清理控制流）。
      */
     inner class EventDispatcher {
         /**
-         * Handle all non-exit events in [poll]. Called from the render loop after exit handling.
-         * Exceptions here must never skip the loop's per-frame bookkeeping (caller wraps us in the
-         * outer try).
+         * 处理 [poll] 中所有非退出事件，由渲染循环在退出处理之后调用。
+         * 此处的异常绝不能跳过循环的逐帧簿记（调用方把我们包在外层 try 中）。
          */
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.clipboard != null) {
@@ -1805,13 +1595,13 @@ constructor(
         const val DEFAULT_GRID_COLS = 80
         private const val TENTHS_PER_UNIT = 10
 
-        /** Zoom-preview bounds in tenths — mirrors the native setFontSizeInPlace clamp (4.0..100.0). */
+        /** 缩放预览的字号上下界（十分之一单位），对齐原生 setFontSizeInPlace 的钳位（4.0..100.0）。 */
         private const val MIN_FONT_SIZE_TENTHS = 40
         private const val MAX_FONT_SIZE_TENTHS = 1000
 
-        /** ModifierBar overlay height reserved when recomputing the grid from font metrics.
-         *  Equals two button rows (BUTTON_HEIGHT_DP 36 × 2, zero spacing) so the
-         *  grid reservation and the IME-follow pan agree on which rows the bar covers. */
+        /** 按字体度量重算网格时为 ModifierBar 预留的覆盖层高度，
+         *  等于两行按钮（BUTTON_HEIGHT_DP 36 × 2，零间距），
+         *  使网格预留与输入法跟随滚动对工具栏遮盖哪些行保持一致。 */
         private const val MODIFIER_BAR_HEIGHT_DP = 72f
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
@@ -1821,19 +1611,18 @@ constructor(
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
 
-        // [Process completed] prompt fed to the terminal when
-        // a foreground session's shell exits (kept visible until Enter).
+        // 前台会话的 shell 退出时送入终端的 [Process completed] 提示（保持可见直到按 Enter）。
         private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
         private const val RENDER_MAX_TRANSIENT_ERRORS =
-            50 // ~2.5s of transient errors before thread exit
+            50 // 约 2.5s 瞬时错误后退出线程
         private const val RENDER_ERROR_SLEEP_MS = 50L
         private const val RENDER_ERROR_BACKOFF_MS =
-            200L // Longer sleep after 10 consecutive transient errors
+            200L // 连续 10 次瞬时错误后延长睡眠
 
-        // Logcat LATENCY_REPORT summary cadence (samples).
+        // logcat 中 LATENCY_REPORT 汇总的输出节奏（样本数）。
         private const val LATENCY_REPORT_EVERY = 50
 
         // 17ms active latch = 单个 vsync 周期（60Hz 显示 ~16.7ms）：
@@ -1846,8 +1635,7 @@ constructor(
         // 延迟约 17ms，不可感知。
         private const val RENDER_LATCH_TIMEOUT_NANOS = 17_000_000L
 
-        // Slow-frame diagnostic: frames above this log a SLOW_FRAME line
-        // (render-stage wall time) for offline breakdown.
+        // 慢帧诊断：超过此值的帧输出一行 SLOW_FRAME（渲染阶段墙钟时间）供离线拆解。
         private const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
         private const val RENDER_LATCH_IDLE_TIMEOUT_NANOS = 500_000_000L // 500ms for idle (~2 FPS)
         private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
@@ -1855,19 +1643,17 @@ constructor(
         private const val THREAD_JOIN_TIMEOUT_MS = 1000L
         private const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
 
-        // Frame-timing diagnostics (FrameTimingStats + FrameTimingTrend): the
-        // absolute thresholds below cover stalls beyond any device's
-        // expectation (measured emulator idle windows average single-digit
-        // ms; a real device targets ~17ms). Gradual/device-specific
-        // regressions are caught by the baseline-adaptive FrameTimingTrend
-        // (~3x of the learned baseline, ≥100ms average) so a real
-        // degradation surfaces in the logs on any hardware.
+        // 帧时间诊断（FrameTimingStats + FrameTimingTrend）：下方的绝对阈值覆盖超出任何设备
+        // 预期的停滞（实测模拟器空闲窗口平均个位数毫秒；真机目标 ~17ms）。
+        // 渐进式/设备特定的回归由基线自适应的 FrameTimingTrend 捕捉
+        // （约为学习到的基线的 3 倍，平均 ≥100ms），
+        // 使真实降级在任何硬件上都能在日志中显现。
         private const val FRAME_TIME_WARN_P95_NANOS = 1_000_000_000L // 1s p95
-        private const val FRAME_TIME_WARN_MAX_NANOS = 2_000_000_000L // 2s single frame
+        private const val FRAME_TIME_WARN_MAX_NANOS = 2_000_000_000L // 2s 单帧
         private const val RENDER_INITIAL_RETRY_MAX = 5
         private const val RENDER_INITIAL_RETRY_DELAY_MS = 150L
 
-        // Render monitor — proactive death detection
+        // 渲染监视器 —— 主动死亡检测
         private const val RENDER_MONITOR_INTERVAL_MS = 500L
         private const val RENDER_MAX_RESTART_ATTEMPTS = 5
         private const val INITIAL_RESTART_DELAY_MS = 100L
@@ -1894,28 +1680,24 @@ constructor(
     internal suspend fun computeFontSizeTenths(): Int {
         val userFontSize = settingsRepository.fontSize.first()
         if (settingsRepository.fontSizeExplicitlySet.first()) {
-            // fontSize is in sp (SettingsRepository default 10f). fontSizeTenths
-            // is the same value in tenths of a sp (native font pipeline consumes
-            // sp directly — the raster scale applies the density). Multiplying
-            // by density here double-scaled the font (10sp → 225 tenths = 22.5sp)
-            // and made the Settings slider disagree with the rendered size
-            // "font size setting vs actual mismatch").
+            // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
+            // 十分之一 sp 形式（原生字体管线直接消费 sp，光栅缩放会施加密度）。
+            // 此处再乘密度会双重缩放字号（10sp → 225 tenths = 22.5sp），
+            // 使设置滑块与渲染尺寸不一致。
             return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
         }
-        // Fresh install: derive a sensible default from the screen width
-        // (single source of truth: SettingsRepository.defaultFontSizeFor) so a
-        // phone (~360dp) and a tablet (~600dp) show the same column count.
+        // 全新安装：按屏幕宽度推导合理默认值
+        // （唯一来源：SettingsRepository.defaultFontSizeFor），
+        // 使手机（~360dp）和平板（~600dp）显示相同的列数。
         val widthDp = context.resources.configuration.screenWidthDp.toFloat()
         return (SettingsRepository.defaultFontSizeFor(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
     }
 
     /**
-     * ⑥ Zoom preview: push new font metrics to the native font pipeline and refresh the Kotlin cell
-     * metrics WITHOUT resizing the grid. The renderer draws the next frame at the new cell size
-     * (cell_builder reads the font metrics every frame), while ghostty keeps its rows/cols until the
-     * gesture finalizes through [appliedFontSizeSp]/setFontSize, which runs the full apply (including
-     * the grid reflow). Caller rate-limits this — it is cheap enough to run a few times per second
-     * even on software-GPU emulators.
+     * 缩放预览：把新字体度量推给原生字体管线并刷新 Kotlin 单元格度量，但不 resize 网格。
+     * 渲染器在下一帧按新单元格尺寸绘制（cell_builder 每帧读取字体度量），
+     * 而 ghostty 保持其行列数，直到手势经 [appliedFontSizeSp]/setFontSize 终结时才执行
+     * 完整应用（含网格重排）。调用方需限频——即使在软件 GPU 模拟器上也足够每秒跑数次。
      *
      * 手势期间不得 resize 网格：每次 preview 都重排会高频发 SIGWINCH +
      * ghostty 重排 + native 清图集重光栅，触摸格点与渲染格点持续处于
@@ -1952,10 +1734,7 @@ constructor(
         if (newCellHeight > 0f) cellHeight = newCellHeight
     }
 
-    /**
-     * The font size (sp) currently rendered by the native pipeline (last value pushed via
-     * setFontSizeInPlace). Falls back to the built-in default before the first application.
-     */
+    /** 原生管线当前渲染的字号（sp），即经 setFontSizeInPlace 最后一次推送的值；首次应用前回落为内置默认值。 */
     fun appliedFontSizeSp(): Float {
         val tenths = appliedFontSizeTenths
         return if (tenths > 0) {
@@ -2031,10 +1810,9 @@ constructor(
             if (sessions.isNotEmpty() || starting) return
             starting = true
         }
-        // LogUtil.d already logs to logcat — no duplicate write.
+        // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.d("Runtime", "start() called: surface=$surface width=$width height=$height")
-        // ADR-0007: remember the surface handed in by startRuntime so the
-        // renderer can attach it once the session bridge exists.
+        // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
         if (surface != null) {
             pendingSurface = surface
             pendingSurfaceWidth = width
@@ -2050,10 +1828,9 @@ constructor(
             }
         }
         if (!NativeBridge.isNativeLoaded()) {
-            // Mirror createSession's guard. Without it, bridge.ping() throws
-            // RuntimeException, the rollback's destroySession throws
-            // UnsatisfiedLinkError (an Error — not caught by catch(Exception))
-            // and the app crashes when the native lib is missing/ABI-mismatched.
+            // 与 createSession 的守卫对称。没有它，bridge.ping() 抛 RuntimeException，
+            // 回滚中的 destroySession 抛 UnsatisfiedLinkError（是 Error，catch(Exception) 捕获不到），
+            // 原生库缺失或 ABI 不匹配时应用会崩溃。
             LogUtil.e("Runtime", "start: native library not loaded, aborting start")
             synchronized(sessionLock) {
                 starting = false
@@ -2094,27 +1871,20 @@ constructor(
             return
         }
 
-        // Hoisted so the failure path can close it; stays null when
-        // start() bails out before createBridge().
+        // 提到外层以便失败路径能关闭它；start() 在 createBridge() 之前提前返回时保持为 null。
         var startedBridge: terminal.emulator.bridge.Bridge? = null
         if (surface != null) {
-            // ADR-0007: surface integration is deferred — the native side
-            // receives the Surface via attachWindow(JNI) and Kotlin never
-            // hands a raw ANativeWindow pointer across the bridge; do NOT
-            // abort startup when the pointer is 0, or the terminal cannot
-            // start at all.
+            // 原生侧经 attachWindow(JNI) 接收 Surface，Kotlin 绝不跨桥传递裸 ANativeWindow 指针；
+            // 指针为 0 时不得中止启动，否则终端根本无法启动。
             LogUtil.d("Runtime", "surface present — render integration pending (ADR-0007)")
         } else {
             LogUtil.d("Runtime", "no surface — using GPU offscreen rendering path")
         }
 
         try {
-            // Bootstrap is strictly opt-in: a fresh app runs the system
-            // shell and downloads nothing unless the user explicitly
-            // configured a bootstrap URL in settings. Auto-downloading a
-            // Termux bootstrap (~150 MB) on first launch would be
-            // intrusive and unbounded. Test override via system property
-            // (no DataStore dependency).
+            // 引导严格选择性启用：全新应用运行系统 shell 且不下载任何内容，
+            // 除非用户在设置中显式配置了引导 URL。首启自动下载 Termux 引导
+            // （~150 MB）既侵入又无上限。测试可用系统属性覆盖（不依赖 DataStore）。
             val testUrl = System.getProperty("test.bootstrapUrl")
             val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
             if (bootstrapUrl.isNotEmpty()) {
@@ -2147,12 +1917,9 @@ constructor(
                     terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
                 when (installOrchestrator.getInstallStatus()) {
                     terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
-                        // Never auto-download: a Termux bootstrap (~150 MB)
-                        // must be installed explicitly from Settings — the
-                        // app must not download or install it on its own.
-                        // Log state only so a missing install stays
-                        // diagnosable; the Settings bootstrap button is the
-                        // single entry point.
+                        // 绝不自动下载：Termux 引导（~150 MB）必须从设置显式安装，
+                        // 应用不得自行下载或安装。仅记录状态使缺失安装仍可诊断；
+                        // 设置中的引导按钮是唯一入口。
                         LogUtil.d("Runtime", "Bootstrap not installed — install manually from Settings")
                     }
 
@@ -2188,27 +1955,24 @@ constructor(
                     LogUtil.w("Runtime", "Failed to create font drop-in directory: $this")
                 }
             }
-            // NOTE: bridge.setExtraFontPaths is intentionally NOT called
-            // here — Bridge skips it while sessionId == 0 (before
-            // spawnTerminal), which silently dropped the extra font paths
-            // (user fonts never loaded, fallback found 0). It is called
-            // again right after spawnTerminal below.
+            // 注意：此处刻意不调用 bridge.setExtraFontPaths
+            // ——Bridge 在 sessionId == 0（spawnTerminal 之前）会跳过它，
+            // 那会静默丢弃额外的字体路径（用户字体永远不加载，回退找到 0 个）。
+            // 它在下方 spawnTerminal 之后被再次调用。
 
-            // The bootstrap download/install above can take minutes. The
-            // surface passed into start() may have been destroyed during
-            // that window (rotation, split-screen); its ANativeWindow
-            // pointer is dangling. Spawning on it would render into a dead
-            // window (black screen / hang). Abort and let the next
-            // surface-available event retry start() with a fresh surface.
+            // 上方的引导下载/安装可能耗时数分钟。传入 start() 的 Surface
+            // 可能已在此期间被销毁（旋转、分屏）；其 ANativeWindow 指针已悬空。
+            // 在其上 spawn 会渲染到已死的窗口（黑屏/挂起）。中止，
+            // 让下一次 surface-available 事件用新的 Surface 重试 start()。
             if (surface != null && !surface.isValid) {
                 LogUtil.e(
                     "Runtime",
                     "start(): surface became invalid during bootstrap, aborting (will retry on next surface)",
                 )
-                // The bridge (native engine) was already created above;
-                // close it or every invalid-surface retry leaks one.
-                // (Flow analysis guarantees startedBridge is non-null here:
-                // the assignment happened earlier in this same try block.)
+                // bridge（原生引擎）已在上方创建；必须关闭它，
+                // 否则每次无效 Surface 重试都会泄漏一个。
+                // （流分析保证此处 startedBridge 非 null：
+                // 赋值发生在同一 try 块内的更早处。）
                 try {
                     startedBridge.close()
                 } catch (closeException: Exception) {
@@ -2237,16 +2001,12 @@ constructor(
             // 渲染预热与 shell 启动并行：wgpu 初始化 + 字体库加载移出 attach→首帧链。
             bridge.prefetchRenderStateAsync(scope)
 
-            // sessionId is now non-zero — the user font drop-in dir
-            // (home/.termux/font) actually reaches the native font
-            // database here. Called before spawnTerminal it was a
-            // silent no-op.
+            // sessionId 此时已非零——用户字体目录（home/.termux/font）此刻才真正到达原生字体库。
+            // 在 spawnTerminal 之前调用则是静默空操作。
             bridge.setExtraFontPaths(listOf(fontDropDir.absolutePath))
-            // Same sessionId-gating applies to the system locale: the
-            // pre-spawn setSystemLocale above was dropped by
-            // Bridge.setSystemLocale's sessionId == 0 guard, leaving the
-            // native pipeline at locale "" (no CJK locale boost). Re-apply
-            // now so CJK fallback ordering matches the system locale.
+            // 同样的 sessionId 门控也适用于系统区域设置：上方的 spawn 前 setSystemLocale
+            // 被 Bridge.setSystemLocale 的 sessionId == 0 守卫丢弃，使原生管线停留在
+            // locale ""（无 CJK locale 增强）。在此重新应用，使 CJK 回退顺序与系统区域设置一致。
             bridge.setSystemLocale(
                 java.util.Locale.getDefault().toLanguageTag(),
             )
@@ -2255,31 +2015,24 @@ constructor(
                 val initialFontFamily = settingsRepository.fontFamily.first()
                 val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
                 bridge.setFontFamily(effectiveFont)
-                // the native renderer starts with a hardcoded
-                // 14.0px font; without this the user's font-size setting
-                // never reached the GPU path — glyphs stayed tiny and
-                // "setting did nothing / got worse after restart".
+                // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
+                // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
                 bridge.setFontSizeInPlace(config.fontSizeTenths)
-                // rasterize glyphs at device density so text is
-                // crisp on high-density screens (swash bitmaps are scaled by
-                // raster_scale; the shader samples the atlas at that scale).
+                // 按设备密度光栅化字形，使高密度屏上文字清晰
+                // （swash 位图按 raster_scale 缩放，着色器按该尺度采样图集）。
                 val density = context.resources.displayMetrics.density
-                // raster_scale must cover the full sp→px mapping: font size
-                // is stored in sp, and sp scales with BOTH display density
-                // and the user's system font scale. Rasterizing at density
-                // alone under-rasterizes when fontScale > 1 (e.g. "font
-                // size" accessibility), and the shader then upscales the
-                // atlas bitmap — the "blurry text" reports.
+                // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
+                // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
+                // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
+                // 着色器随后放大图集位图——即「文字模糊」问题的来源。
                 bridge.setRasterScale(
                     (density * context.resources.configuration.fontScale).coerceIn(0.5f, 4f),
                 )
-                // Refresh cellWidth/cellHeight from the new font metrics and
-                // recompute the grid so the first rendered frame matches the
-                // configured size. Without this the renderer draws
-                // new-sized cells at the spawn-time grid — the
-                // "font-size setting vs actual mismatch" flash in the logs
-                // (cell_builder logged new cell metrics against the old
-                // grid for ~60-160ms until the next insets/surface event).
+                // 从新字体度量刷新 cellWidth/cellHeight 并重算网格，
+                // 使首个渲染帧与配置的字号一致。不做此步，渲染器会在 spawn 时的旧网格上
+                // 绘制新尺寸的单元格——日志中「字号设置与实际不符」的闪烁
+                // （cell_builder 会在 ~60-160ms 内用新单元格度量配旧网格记录，
+                // 直到下一次 insets/surface 事件）。
                 syncGridDimensions(bridge)
                 recomputeGridFromFontMetrics()
                 appliedFontSizeTenths = config.fontSizeTenths
@@ -2297,21 +2050,17 @@ constructor(
                 )
             }
 
-            // The native spawn result is the authoritative session ID (the
-            // native and Kotlin sequences can drift when createSession runs
-            // concurrently with this slower bootstrap path). Insert under the
-            // lock with that ID.
+            // 原生 spawn 结果是权威会话 ID（当 createSession 与这条较慢的引导路径
+            // 并发运行时，原生与 Kotlin 两侧的序列可能漂移）。在锁内以该 ID 插入。
             var finalSessionId = 0L
             var entry: SessionEntry? = null
             var abandonedReason: String? = null
             synchronized(sessionLock) {
                 if (sessions.isNotEmpty()) {
-                    // A session was created (or start() re-entered) while the
-                    // bootstrap download above was running. Inserting a second
-                    // active entry would start a second render thread on the
-                    // single global event queue and clobber the existing
-                    // session's UI state — destroy the just-spawned native
-                    // session instead and keep the existing one active.
+                    // 上方引导下载运行期间已有会话被创建（或 start() 重入）。
+                    // 插入第二个活动条目会在唯一的全局事件队列上启动第二个渲染线程，
+                    // 并覆盖现有会话的 UI 状态——改为销毁刚 spawn 的原生会话，
+                    // 保持现有会话活动。
                     LogUtil.w("Runtime", "start: sessions already exist, aborting own insertion")
                     starting = false
                     abandonedReason = "duplicate"
@@ -2328,22 +2077,19 @@ constructor(
                     activeSessionId = finalSessionId
                     bridge.onPtyWrite = { nanos ->
                         entry.latencyProbe.onInputWritten(nanos)
-                        // T3 input-write wake: EVERY PTY write (hardware keys via
-                        // processKeyEvent/writeKey, IME sendKeyEvent backspace, mouse)
-                        // must leave the idle park. After >5s idle the loop sits on
-                        // the 500ms latch with the vsync pump stopped — without this
-                        // wake the shell echo of a backspace waits out the full
-                        // 500ms idle-latch tick (~input→echo latency).
+                        // 输入写入唤醒：每次 PTY 写入（经 processKeyEvent/writeKey 的硬件按键、
+                        // IME sendKeyEvent 退格、鼠标）都必须离开空闲驻留。
+                        // 空闲 >5s 后循环驻留在 500ms 闭锁上且 vsync 泵已停
+                        // ——没有此唤醒，退格的 shell 回显要等满整个 500ms 空闲闭锁节拍
+                        // （即输入→回显延迟）。
                         entry.notifyRender()
                     }
                 }
             }
             if (abandonedReason != null) {
-                // Close the bridge OUTSIDE the lock (Session::drop joins the
-                // PTY reader thread for hundreds of ms; holding sessionLock
-                // across it would freeze every session operation). Mirrors
-                // createSessionInner's abandonedByStart/abandonedByStop
-                // rollback.
+                // 在锁外关闭 bridge（Session::drop 会 join PTY 读取线程数百毫秒；
+                // 跨它持有 sessionLock 会冻结所有会话操作）。与
+                // createSessionInner 的 abandonedByStart/abandonedByStop 回滚一致。
                 try {
                     bridge.close()
                 } catch (closeException: Exception) {
@@ -2351,61 +2097,45 @@ constructor(
                 }
                 return
             }
-            // entry is assigned in every branch above; the nullability is
-            // only invisible to smart-cast across the early return.
+            // entry 在上方每个分支中都已赋值；只是跨提前返回时智能转换看不到可空性。
             val startedEntry = requireNotNull(entry) { "start: session entry must exist after spawn" }
-            // First render: problematic GPUs (Mali-G57 w/ missing SURFACE_VIEW_FORMATS)
-            // can hang get_current_texture() indefinitely. The previous approach of
-            // spawning a daemon thread to call bridge.render() caused mutex starvation —
-            // the daemon would acquire the surface Mutex and hang, permanently blocking
-            // the real render thread. Instead, signal the render loop to produce the
-            // first frame via forceRenderRequested, which will be picked up by the
-            // real render thread once it starts.
-            // ADR-0007: attach the surface now that the bridge exists.
+            // 首帧渲染：有问题的 GPU（缺少 SURFACE_VIEW_FORMATS 的 Mali-G57 等）
+            // 可能让 get_current_texture() 无限挂起。此前派生守护线程调用 bridge.render()
+            // 的做法会导致互斥量饿死——守护线程会获取 surface Mutex 并挂起，
+            // 永久阻塞真正的渲染线程。改为经 forceRenderRequested 信号渲染循环产出首帧，
+            // 由真正的渲染线程启动后取走。
             attachPendingSurface(bridge)
-            //  (warp WarpTerminalService.kt:797-808): the first
-            // resize with grid dims must be issued right after spawn —
-            // attachPendingSurface → recomputeGridFromFontMetrics does it;
-            // anchor the grid dims in the spawn sequence for verification.
+            // 带网格尺寸的首次 resize 必须在 spawn 之后立即发出
+            // ——attachPendingSurface → recomputeGridFromFontMetrics 会做这件事；
+            // 在 spawn 序列中锚定网格尺寸以便验证。
             LogUtil.d(
                 "Runtime",
                 "first resize after spawn: grid=${_state.value.rows}x${_state.value.cols}",
             )
             startedEntry.forceRenderRequested = true
-            // Start the render thread, publish the UI state, and start the
-            // foreground service + monitor under ONE sessionLock critical
-            // section: the last writer wins against concurrent close
-            // paths. A check-then-publish split leaves a window where a
-            // close completes and start() still publishes a ghost
-            // RuntimeState / resurrects the service.
+            // 在同一个 sessionLock 临界区内启动渲染线程、发布 UI 状态并启动前台服务与监视器：
+            // 最后一个写入者对并发关闭路径胜出。先检查后发布会留下一个窗口，
+            // 使关闭已完成而 start() 仍发布幽灵 RuntimeState / 复活服务。
             synchronized(sessionLock) {
                 val stillActive = sessions[finalSessionId] === startedEntry
                 if (!stillActive) {
-                    // A concurrent close landed after our insertion: the
-                    // entry is already being cleaned up (closeSession
-                    // removed the entry). Publishing a RuntimeState or
-                    // starting the foreground service now would resurrect a
-                    // ghost UI state and the notification underneath
-                    // teardown.
+                    // 插入之后有并发关闭落地：条目已在清理中（closeSession 已移除条目）。
+                    // 此刻发布 RuntimeState 或启动前台服务会在拆除之下复活幽灵 UI 状态与通知。
                     LogUtil.w(
                         "Runtime",
                         "start: session $finalSessionId closed/stopped during startup, skipping render start",
                     )
-                    // Defensive: keep the monitor alive for surviving
-                    // sessions when this was a concurrent close rather than
-                    // a full stop. Unreachable today (start() only inserts
-                    // into an empty map and starting=true blocks concurrent
-                    // creates, so no OTHER session can exist), but cheap to
-                    // honor if that invariant ever changes.
+                    // 防御性：若这是并发关闭而非完全停止，则为存活会话保持监视器运行。
+                    // 当前不可达（start() 只向空映射插入，且 starting=true 阻止并发创建，
+                    // 因此不可能存在其他会话），但若该不变式日后变化，遵守它成本很低。
                     if (sessions.isNotEmpty()) {
                         renderSupervisor.startRenderMonitor()
                     }
                     return
                 }
 
-                // Publish the state BEFORE starting the thread: the render
-                // thread's title CAS  would otherwise be overwritten
-                // by this direct assignment on its first frame.
+                // 在启动线程之前发布状态：否则渲染线程对 title 的 CAS
+                // 会在其首帧被这次直接赋值覆盖。
                 _state.value =
                     RuntimeState(
                         isRunning = true,
@@ -2424,15 +2154,13 @@ constructor(
                     updateForegroundSessionCount(sessions.size)
                 } catch (serviceException: Exception) {
                     if (serviceException is kotlinx.coroutines.CancellationException) {
-                        // Unreachable in practice (no suspend points in this
-                        // locked block; service calls are synchronous IPC)
-                        // but rethrown per project convention. If it ever
-                        // fires, the entry stays inserted and the caller's
-                        // scope teardown owns the cleanup.
+                        // 实践中不可达（该加锁块内无挂起点；服务调用是同步 IPC），
+                        // 但按项目约定重抛。若它真的触发，条目保持已插入状态，
+                        // 清理由调用方的作用域拆除负责。
                         throw serviceException
                     }
-                    // Same guard as createSession: a service-start failure
-                    // must not roll back the already-created session.
+                    // 与 createSession 同样的守卫：服务启动失败
+                    // 绝不能回滚已创建的会话。
                     LogUtil.e(
                         "Runtime",
                         "Failed to start foreground service for session $finalSessionId",
@@ -2442,44 +2170,39 @@ constructor(
                 renderSupervisor.startRenderThread(startedEntry)
                 renderSupervisor.startRenderMonitor()
             }
-            // recompute the grid AFTER the session is registered
-            // — the earlier attempt (pre-insertion) was a silent no-op, so
-            // the 24x80 startup grid stayed even though the native font was
-            // 47px, leaving huge vertical gaps (92px rows vs 36px glyphs).
+            // 在会话注册之后才重算网格
+            // ——先前（插入之前）的尝试是静默空操作，
+            // 于是 24x80 的启动网格留存，尽管原生字体是 47px，
+            // 留下巨大的垂直空隙（92px 行高对 36px 字形）。
             try {
                 startedEntry.bridge?.let { syncGridDimensions(it) }
-                // Grid stays at initial 24x80 — font metrics don't determine
-                // grid dimensions; the terminal scrolls when content overflows.
+                // 网格保持初始 24x80——字体度量不决定网格尺寸；
+                // 内容溢出时终端自行滚动。
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "initial grid recompute failed", exception)
             }
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) {
-                // Re-throw cancellation: swallowing it breaks structured
-                // concurrency (same convention as createSessionInner). The
-                // finally block still resets starting; any spawned bridge
-                // leaks are closed by the caller's scope teardown path.
+                // 重抛取消：吞没它会破坏结构化并发（与 createSessionInner 同一约定）。
+                // finally 块仍会重置 starting；已 spawn 的 bridge 泄漏由调用方的
+                // 作用域拆除路径关闭。
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to start terminal", exception)
-            // The full stack trace reaches logcat via LogUtil (chunked if
-            // needed), with a stable FAILED grep anchor.
-            // Any failure after createBridge() (settings, attachSurface,
-            // spawnTerminal throwing instead of returning 0) would otherwise
-            // leak the native session and its PTY child forever.
+            // 完整堆栈经 LogUtil 抵达 logcat（必要时分块），并带稳定的 FAILED grep 锚点。
+            // createBridge() 之后的任何失败（设置、attachSurface、spawnTerminal 抛异常而非返回 0）
+            // 否则会永久泄漏原生会话及其 PTY 子进程。
             try {
                 startedBridge?.close()
             } catch (closeException: Exception) {
                 LogUtil.e("Runtime", "Failed to close bridge during start rollback", closeException)
             }
-            // If the failure happened AFTER the entry was inserted (e.g.
-            // startRenderThread threw inside the lock), the map still holds
-            // the entry with a null renderThreadRef: checkSessions' alive
-            // logic never marks it dead (null thread reference) and the
-            // ghost tab would persist forever. Remove it under the lock —
-            // the bridge is already closed above and close is idempotent.
-            // Restore the UI state too: a RuntimeState published before the
-            // failure would otherwise keep isRunning=true with a dead id.
+            // 若失败发生在条目插入之后（例如 startRenderThread 在锁内抛异常），
+            // 映射中仍持有 renderThreadRef 为 null 的条目：checkSessions 的存活逻辑
+            // 永不将其标记为死亡（线程引用为 null），幽灵标签页将永久存在。
+            // 在锁内移除它——bridge 已在上方关闭，且关闭是幂等的。
+            // 同时恢复 UI 状态：失败前发布的 RuntimeState 否则会保持 isRunning=true
+            // 却配上已死的 id。
             synchronized(sessionLock) {
                 startedBridge?.let { bridgeToRemove ->
                     sessions.entries.removeIf { it.value.bridge === bridgeToRemove }
@@ -2487,11 +2210,9 @@ constructor(
                 if (sessions.isEmpty()) {
                     activeSessionId = 0L
                     _state.value = RuntimeState()
-                    // The service may have been started inside the lock
-                    // before the failure; bring the count back to 0 so the
-                    // notification and wake lock do not outlive the empty
-                    // session map (updateForegroundSessionCount is
-                    // exception-safe and clears the running flag at 0).
+                    // 服务可能在失败前已在锁内启动；把计数归零，
+                    // 使通知与唤醒锁不活得比空会话映射更久
+                    // （updateForegroundSessionCount 异常安全，且在 0 时清除运行标志）。
                     updateForegroundSessionCount(0)
                 }
             }
@@ -2500,18 +2221,16 @@ constructor(
         }
     }
 
-    // Architecture Note: each session currently creates its own bridge with a
-    // separate GPU surface (surface.rs owns the wgpu pipeline per ANativeWindow).
-    // Sharing a single pre-initialized GPU pipeline across sessions is a possible
-    // future optimization (could cut session-creation time) but is not yet
-    // implemented — do not assume a shared pipeline exists.
+    // 架构说明：每个会话当前各自创建 bridge 与独立 GPU Surface
+    // （surface.rs 按 ANativeWindow 拥有各自的 wgpu 管线）。
+    // 跨会话共享单条预初始化 GPU 管线是可能的未来优化（可缩短会话创建时间），
+    // 但尚未实现——不要假定存在共享管线。
     private val createSessionMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
-     * Creates a new terminal session. Serialized against concurrent calls double-tap on the
-     * new-session button) and against [start]: two concurrent creations would each spawn a native
-     * session and start a render thread, and two render threads consuming the single global event
-     * queue misroute events (exit events dropped, sessions leaked).
+     * 新建终端会话。与并发调用（新会话按钮连点）以及 [start] 串行化：
+     * 两次并发创建会各自 spawn 原生会话并启动渲染线程，
+     * 而两个渲染线程消费唯一的全局事件队列会导致事件错投（退出事件被丢弃、会话泄漏）。
      */
     suspend fun createSession(surface: Surface, width: Int, height: Int): Long = createSessionMutex.withLock {
         createSessionInner(surface, width, height)
@@ -2534,11 +2253,9 @@ constructor(
             return -1L
         }
         if (!NativeBridge.isNativeLoaded()) {
-            // UnsatisfiedLinkError is an Error, not an Exception — it would
-            // escape the catch below and crash the app when the native
-            // library is missing/corrupt (e.g. ABI mismatch on x86
-            // emulators or 32-bit devices). Fail soft and reuse the
-            // existing rollback path.
+            // UnsatisfiedLinkError 是 Error 而非 Exception——当原生库缺失/损坏时
+            // （如 x86 模拟器或 32 位设备上的 ABI 不匹配）它会逃出下方的 catch 并使应用崩溃。
+            // 软失败并复用既有的回滚路径。
             LogUtil.e("Runtime", "createSession: native library not loaded, refusing to spawn")
             return -1L
         }
@@ -2570,12 +2287,10 @@ constructor(
                 )
             }
 
-            // Spawn FIRST (outside the lock) so the native session ID
-            // becomes the authoritative map key. Kotlin's max+1 sequence
-            // and the native sequence can drift apart when start() (the
-            // slow bootstrap path, which also spawns outside its lock) and
-            // createSession run concurrently; routing switchSession /
-            // handleSessionExit by the native ID keeps them in sync.
+            // 先 spawn（在锁外），使原生会话 ID 成为权威映射键。
+            // 当 start()（较慢的引导路径，同样在其锁外 spawn）与 createSession 并发时，
+            // Kotlin 的 max+1 序列与原生序列可能漂移；
+            // 以原生 ID 路由 switchSession/handleSessionExit 可保持同步。
             val spawnStartNs = System.nanoTime()
             val spawnResult = bridge.spawnTerminal(config.rows, config.cols, bridge.shellPath())
             val spawnElapsedMs = (System.nanoTime() - spawnStartNs) / 1_000_000
@@ -2590,15 +2305,13 @@ constructor(
             bridge.prefetchRenderStateAsync(scope)
             nextId = spawnResult
 
-            // Apply the theme AFTER spawn: Bridge.setTheme no-ops while
-            // sessionId == 0, and calling it before spawnTerminal would
-            // silently drop the user's theme (the native session would
-            // keep the default palette). Mirrors the start() ordering.
+            // spawn 之后才应用主题：Bridge.setTheme 在 sessionId == 0 时为空操作，
+            // 在 spawnTerminal 之前调用会静默丢弃用户主题
+            // （原生会话将保留默认调色板）。与 start() 的顺序一致。
             bridge.setTheme(config.theme)
-            // Same sessionId-gating applies to the system locale: the
-            // pre-spawn setSystemLocale above was dropped while
-            // sessionId == 0, leaving CJK fallback ordering without the
-            // locale boost. Re-apply now that spawn assigned the ID.
+            // 同样的 sessionId 门控也适用于系统区域设置：上方的 spawn 前 setSystemLocale
+            // 在 sessionId == 0 时被丢弃，使 CJK 回退顺序缺少 locale 增强。
+            // 此刻 spawn 已分配 ID，重新应用。
             bridge.setSystemLocale(
                 java.util.Locale.getDefault().toLanguageTag(),
             )
@@ -2607,14 +2320,11 @@ constructor(
             val abandonedByStart: Boolean
             synchronized(sessionLock) {
                 if (starting) {
-                    // start() (bootstrap slow path) may have begun after our
-                    // earlier check and inserted its own session while we
-                    // were suspended on the spawn call. Inserting a second
-                    // entry would leave one of the two sessions without a
-                    // render thread (zombie shell process) and desync the UI
-                    // session list. Refuse the insertion; the caller
-                    // (onSurfaceTextureAvailable fallback) will retry via
-                    // start() once bootstrap completes.
+                    // start()（引导慢路径）可能在我们先前检查之后启动，
+                    // 并在我们挂起于 spawn 调用期间插入了自己的会话。
+                    // 插入第二个条目会让两个会话中有一个没有渲染线程（僵尸 shell 进程），
+                    // 并使 UI 会话列表失步。拒绝插入；调用方
+                    // （onSurfaceTextureAvailable 回退）会在引导完成后经 start() 重试。
                     LogUtil.w("Runtime", "createSession: start() began during spawn, abandoning insertion")
                     abandonedByStart = true
                 } else {
@@ -2629,18 +2339,15 @@ constructor(
                     abandonedByStart = false
                     bridge.onPtyWrite = { nanos ->
                         entry.latencyProbe.onInputWritten(nanos)
-                        // T3 input-write wake: see the createSession wiring — every
-                        // PTY write nudges the render loop off the idle latch so
-                        // input echoes render on the 17ms active cadence (not the
-                        // 500ms idle-latch tick).
+                        // 输入写入唤醒：每次 PTY 写入都把渲染循环推离空闲闭锁，
+                        // 使输入回显按 17ms 活跃节奏渲染（而非 500ms 空闲闭锁节拍）。
                         entry.notifyRender()
                     }
                 }
             }
             if (abandonedByStart) {
-                // Close the bridge outside the lock (Session::drop joins the
-                // PTY reader thread) so the just-spawned native session and
-                // its shell child are not leaked.
+                // 在锁外关闭 bridge（Session::drop 会 join PTY 读取线程），
+                // 使刚 spawn 的原生会话及其 shell 子进程不被泄漏。
                 try {
                     bridge.close()
                 } catch (closeException: Exception) {
@@ -2650,13 +2357,11 @@ constructor(
             }
 
             try {
-                // Outside the lock: switchSessionInternal performs a
-                // synchronous first-frame render that can block on a hung
-                // GPU; holding sessionLock across it would freeze every
-                // session operation. needsSpawn=false: the session was
-                // spawned above — spawning again here would create a second
-                // native session whose ID diverges from the map key
-                // (split input/output + a leaked shell process).
+                // 在锁外：switchSessionInternal 会执行同步的首帧渲染，
+                // 在挂起的 GPU 上可能阻塞；跨它持有 sessionLock
+                // 会冻结所有会话操作。needsSpawn=false：该会话已在上方 spawn
+                // ——在此再 spawn 会创建第二个原生会话，其 ID 与映射键分歧
+                // （输入/输出分裂 + 泄漏的 shell 进程）。
                 switchSessionInternal(
                     nextId,
                     surface,
@@ -2665,14 +2370,12 @@ constructor(
                 )
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "Failed to switch to new session $nextId, rolling back", exception)
-                // Structural map change under the lock  invariant);
-                // the bridge close below stays OUTSIDE the lock (Session::drop
-                // joins threads).
+                // 结构性的映射变更在锁内完成（不变式）；
+                // 下方的 bridge 关闭留在锁外（Session::drop 会 join 线程）。
                 synchronized(sessionLock) {
                     sessions.remove(nextId)
                 }
-                // Close the native bridge so the Rust-side session and
-                // its PTY child are not leaked.
+                // 关闭原生 bridge，避免 Rust 侧会话及其 PTY 子进程泄漏。
                 try {
                     bridge.close()
                 } catch (closeException: Exception) {
@@ -2686,22 +2389,16 @@ constructor(
             }
 
             updateState()
-            // A session created outside the bootstrap path (e.g. the "+"
-            // button after all sessions were closed) must bring the
-            // foreground service back: the close paths stop it at count 0,
-            // and without it there is no foreground notification and no
-            // PARTIAL_WAKE_LOCK — background sessions can be killed.
-            // Service start + liveness re-check happen in ONE sessionLock
-            // section, symmetric with start(): serializes with
-            // concurrent close paths, so a close can neither land between
-            // the service start and the re-check (resurrecting the
-            // notification underneath teardown) nor clear the map
-            // mid-block (ghost id).
-            // Guarded individually: a ForegroundServiceStartNotAllowedException
-            // (API 31+ background start) or ROM SecurityException here must
-            // NOT leak the already-inserted session through the generic
-            // catch below (which would skip the bridge close and return -1
-            // for a live session).
+            // 在引导路径之外创建的会话（如关闭全部会话后的「+」按钮）
+            // 必须让前台服务重新运行：关闭路径在计数为 0 时会停掉它，
+            // 没有它就没有前台通知也没有 PARTIAL_WAKE_LOCK——后台会话会被杀。
+            // 服务启动与存活重查在同一个 sessionLock 段内完成，与 start() 对称：
+            // 与并发关闭路径串行化，使关闭既不会落在服务启动与重查之间
+            // （在拆除之下复活通知），也不会在段中途清空映射（幽灵 id）。
+            // 单独保护：此处的 ForegroundServiceStartNotAllowedException
+            // （API 31+ 后台启动）或 ROM 的 SecurityException
+            // 绝不能经下方通用 catch 泄漏已插入的会话
+            // （那会跳过 bridge 关闭并对一个存活会话返回 -1）。
             val stillPresent: Boolean
             synchronized(sessionLock) {
                 stillPresent = sessions.containsKey(nextId)
@@ -2711,9 +2408,8 @@ constructor(
                         updateForegroundSessionCount(sessions.size)
                     } catch (serviceException: Exception) {
                         if (serviceException is kotlinx.coroutines.CancellationException) {
-                            // Unreachable in practice (no suspend points in
-                            // this locked block), rethrown per convention;
-                            // scope teardown owns any cleanup.
+                            // 实践中不可达（该加锁段内无挂起点），按约定重抛；
+                            // 任何清理由作用域拆除负责。
                             throw serviceException
                         }
                         LogUtil.e(
@@ -2729,11 +2425,10 @@ constructor(
                     "Runtime",
                     "createSession: session $nextId removed concurrently (exit/close), rolling back",
                 )
-                // NOTE: this close may race the lock-outside close of the
-                // path that removed the entry (handleSessionExit /
-                // closeSession). Safe by construction: Bridge.close() is
-                // idempotent via its sessionId!=0 guard, and native
-                // destroySession is idempotent via registry remove.
+                // 注意：此 close 可能与移除该条目的路径在锁外的 close 竞争
+                // （handleSessionExit / closeSession）。构造上安全：
+                // Bridge.close() 凭其 sessionId!=0 守卫幂等，
+                // 原生 destroySession 凭注册表移除幂等。
                 try {
                     bridge.close()
                 } catch (closeException: Exception) {
@@ -2745,18 +2440,14 @@ constructor(
             return nextId
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) {
-                // Re-throw cancellation: swallowing it breaks structured
-                // concurrency and can leak the session if the caller's
-                // scope is cancelled mid-spawn.
+                // 重抛取消：吞没它会破坏结构化并发，
+                // 且在调用方作用域于 spawn 中途被取消时会泄漏会话。
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to create session $nextId", exception)
-            // The full stack trace reaches logcat via LogUtil (chunked if
-            // needed), with a stable FAILED grep anchor.
-            // If the failure happened before the entry was inserted (settings
-            // application, spawnTerminal throwing), the bridge was never
-            // rolled back above — close it to avoid leaking the native
-            // session and PTY child.
+            // 完整堆栈经 LogUtil 抵达 logcat（必要时分块），并带稳定的 FAILED grep 锚点。
+            // 若失败发生在条目插入之前（应用设置、spawnTerminal 抛异常），
+            // 上方从未回滚该 bridge——关闭它以避免泄漏原生会话与 PTY 子进程。
             createdBridge?.let { leaked ->
                 if (leaked !== sessions[nextId]?.bridge) {
                     try {
@@ -2780,13 +2471,11 @@ constructor(
     }
 
     private suspend fun switchSessionInternal(id: Long, surface: Surface, width: Int, height: Int) {
-        // Phase 1 (locked): validate, stop the previous render thread,
-        // (re)configure the target bridge. Phase 2 (UNLOCKED): the
-        // synchronous first-frame render retry — bridge.render() can block
-        // forever on a hung GPU, and holding sessionLock across it would
-        // freeze every session operation (close/switch/stop, render
-        // monitor). Phase 3 (locked): start the new render thread and
-        // publish the new active session.
+        // 阶段 1（加锁）：校验、停止上一个渲染线程、（重）配置目标 bridge。
+        // 阶段 2（不持锁）：同步的首帧渲染重试——bridge.render() 在挂起的 GPU 上
+        // 可能永久阻塞，跨它持有 sessionLock 会冻结所有会话操作
+        // （关闭/切换/停止、渲染监视器）。
+        // 阶段 3（加锁）：启动新渲染线程并发布新的活动会话。
         val target: SessionEntry
         val previousActiveId: Long
         synchronized(sessionLock) {
@@ -2796,19 +2485,14 @@ constructor(
                         LogUtil.e("Runtime", "switchSession: session $id not found")
                         return
                     }
-            // Capture before any stopping happens; used to restore the
-            // previous session if the switch/spawn fails.
+            // 在任何停止动作之前捕获；用于切换/spawn 失败时恢复前一个会话。
             previousActiveId = activeSessionId
             if (id == activeSessionId) return
-            // ADR-0007: hand the Surface to the renderer (attachWindow JNI
-            // extracts the ANativeWindow inside Rust). This is LAZY: it only
-            // stores the reference — the wgpu surface is created on the
-            // first render frame, which happens after the old session's
-            // thread is stopped and its surface released below
-            // the release order is therefore attach-stored → stop
-            // old thread → release old surface → new surface created on
-            // first frame; the same ANativeWindow is never held by two
-            // live wgpu surfaces).
+            // 把 Surface 交给渲染器（attachWindow JNI 在 Rust 内部提取 ANativeWindow）。
+            // 这是惰性的：它只存储引用——wgpu surface 在首个渲染帧才创建，
+            // 而那发生在旧会话线程停止、其 surface 在下方释放之后。
+            // 因此释放顺序为：attach 存储 → 停止旧线程 → 释放旧 surface →
+            // 首帧时创建新 surface；同一 ANativeWindow 绝不会被两个存活的 wgpu surface 持有。
             target.bridge?.attachSurface(surface, width, height)
 
             if (!surface.isValid) {
@@ -2818,27 +2502,22 @@ constructor(
 
             val current = sessions[activeSessionId]
             if (current != null) {
-                // NOTE /93): stopRenderThread joins the OLD render
-                // thread while holding sessionLock (up to THREAD_JOIN_TIMEOUT_MS
-                // = 1s). switchSession runs on an IO-dispatcher coroutine
-                // (TerminalViewModel), so this does NOT ANR the UI thread —
-                // but it stalls every sessionLock-mediated operation
-                // (close/switch/create/stopForegroundServiceIfIdle, including
-                // MainActivity.onDestroy). ACCEPTED tradeoff: the join only
-                // blocks when the old thread is stuck in native code (GPU
-                // hang — rendering is already degraded), and a lock-free
-                // stop would let closeSession race this entry's teardown
-                // (use-after-free on the bridge).
+                // stopRenderThread 在持有 sessionLock 时 join 旧渲染线程
+                // （最长 THREAD_JOIN_TIMEOUT_MS = 1s）。switchSession 运行在
+                // IO 调度器协程上（TerminalViewModel），因此不会 ANR UI 线程
+                // ——但它会拖住所有经 sessionLock 协调的操作
+                // （关闭/切换/创建/stopForegroundServiceIfIdle，包括 MainActivity.onDestroy）。
+                // 这是已接受的取舍：join 只在旧线程卡死于原生代码时才阻塞
+                // （GPU 挂起——渲染本已降级），而无锁停止会让 closeSession
+                // 与该条目的拆除竞争（bridge 上的 use-after-free）。
                 try {
                     val stopped = renderSupervisor.stopRenderThread(current)
                     if (stopped) {
-                        // Release the old bridge's GPU surface before the new
-                        // bridge creates its own on the same ANativeWindow.
-                        // This avoids VK_ERROR_NATIVE_WINDOW_IN_USE_KHR from
-                        // the Vulkan driver when two wgpu surfaces share the
-                        // same ANativeWindow. Skipped when the render thread
-                        // hung (join timeout) — releasing would be a
-                        // use-after-free once the thread resumes.
+                        // 在新 bridge 于同一 ANativeWindow 上创建自己的 surface 之前，
+                        // 释放旧 bridge 的 GPU surface。这可避免两个 wgpu surface
+                        // 共享同一 ANativeWindow 时 Vulkan 驱动报
+                        // VK_ERROR_NATIVE_WINDOW_IN_USE_KHR。
+                        // 渲染线程挂起时（join 超时）跳过——线程恢复后释放即是 use-after-free。
                         current.bridge?.releaseGpuSurface()
                     } else {
                         LogUtil.e(
@@ -2852,15 +2531,13 @@ constructor(
             }
 
             try {
-                // ADR-0007: the surface is handed to the renderer via
-                // attachSurface above; nothing else is needed here.
+                // Surface 已在上方经 attachSurface 交给渲染器；此处无需其他操作。
                 target.running = true
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "switchSession: attachSurface failed for session $id", exception)
-                // Spawn failure: the previous active session was stopped and
-                // its GPU surface released above. Restore it so the terminal
-                // is not left frozen (running=false, no render thread, and
-                // the monitor skips !running entries forever).
+                // 启动失败：前一个活动会话已停止且其 GPU surface 已释放。
+                // 恢复它，使终端不会被留在冻结状态（running=false、无渲染线程，
+                // 且监视器会永远跳过 !running 的条目）。
                 val previous = sessions[previousActiveId]
                 if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
                     LogUtil.w(
@@ -2885,26 +2562,21 @@ constructor(
             }
         }
 
-        // Phase 2 (UNLOCKED): render the new session's first frame
-        // SYNCHRONOUSLY before the event-driven render thread starts, so
-        // the reconfigured swapchain shows real content immediately instead
-        // of a brief blank/clear frame. Reconfiguring the swapchain
-        // (above) discards the previous session's backbuffer, and the
-        // render thread's first frame is only presented after OS thread
-        // scheduling — that gap is exactly the blank flash. Presenting
-        // here closes it. The render thread takes over right after (it
-        // re-renders once, then latches on the RENDER_LATCH_IDLE_TIMEOUT_NANOS
-        // cadence, so the event-driven model is preserved).
+        // 阶段 2（不持锁）：在事件驱动的渲染线程启动前，同步渲染新会话的首帧，
+        // 使重配后的交换链立即显示真实内容而非一闪而过的空白/清屏帧。
+        // 上方的交换链重配会丢弃上一个会话的后缓冲，
+        // 而渲染线程的首帧要等操作系统线程调度后才呈现——那段空隙正是空白闪烁。
+        // 在此呈现即可消除它。渲染线程紧接着接管
+        // （它会先重渲染一次，随后按 RENDER_LATCH_IDLE_TIMEOUT_NANOS 节奏闭锁，
+        // 事件驱动的模型得以保留）。
         //
-        // NOTE: deliberately outside sessionLock — bridge.render() can hang
-        // indefinitely on a GPU fault (Mali-G57 get_current_texture).
+        // 注意：刻意置于 sessionLock 之外——bridge.render() 在 GPU 故障时
+        // （Mali-G57 的 get_current_texture）可能无限挂起。
         try {
-            // The GPU surface may not be fully configured immediately after
-            // spawnTerminal/attachSurface (a transient race on shared
-            // ANativeWindow). Retry the first synchronous render a few times
-            // with a short delay so we present real content instead of
-            // starting a render thread on a not-yet-ready surface (which would
-            // block and trip the hang watchdog).
+            // GPU surface 在 spawnTerminal/attachSurface 之后可能尚未完全配置好
+            // （共享 ANativeWindow 上的一瞬竞争）。以短暂延迟重试几次首次同步渲染，
+            // 以便呈现真实内容，而不是在尚未就绪的 Surface 上启动渲染线程
+            // （那会阻塞并触发挂起看门狗）。
             var initialRender = target.bridge?.render() ?: 0
             var attempts = 1
             while (initialRenderRetryNeeded(initialRender, attempts, RENDER_INITIAL_RETRY_MAX)) {
@@ -2926,10 +2598,9 @@ constructor(
             )
         }
 
-        // Phase 3 (locked): publish the switch.
+        // 阶段 3（加锁）：发布切换。
         synchronized(sessionLock) {
-            // Re-validate: the session may have been closed while the first
-            // frame was rendering (user closed it, or the monitor reaped it).
+            // 重新校验：首帧渲染期间会话可能已关闭（用户关闭，或被监视器回收）。
             if (sessions[id] !== target) {
                 LogUtil.w(
                     "Runtime",
@@ -2937,11 +2608,10 @@ constructor(
                 )
                 return
             }
-            // A concurrent switchSession may have published a different
-            // active session while we were rendering the first frame. Its
-            // render thread is running; stop it before starting ours so only
-            // one render thread ever consumes the shared event queue (two
-            // consumers misroute clipboard events).
+            // 我们渲染首帧期间，并发的 switchSession 可能发布了另一个活动会话。
+            // 它的渲染线程正在运行；在启动我们的之前先停掉它，
+            // 使任何时刻只有一个渲染线程消费共享事件队列
+            // （两个消费者会错投剪贴板事件）。
             val concurrentToStop =
                 concurrentRenderThreadToStop(
                     activeSessionIdAfterRender = activeSessionId,
@@ -2970,18 +2640,15 @@ constructor(
             try {
                 renderSupervisor.startRenderThread(target)
                 activeSessionId = id
-                // Reseed the cursor pan source: the new session's render
-                // thread republishes on change from here.
+                // 重新初始化光标滚动源：新会话的渲染线程从此刻起在变化时重新发布。
                 cursorRowFlowInternal.value = target.cursorRow
-                // Clear any stale per-pixel scroll remainder from the
-                // previous session: the native viewport offset is global,
-                // so the new session must start aligned (its own render
-                // thread also forwards its zero remainder on first frame).
+                // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
+                // 故新会话必须从对齐状态开始
+                // （其渲染线程也会在首帧转发零余量）。
                 setScrollRemainderPx(0f)
-                // Sync the native ACTIVE_SESSION_ID so pollEvent/process_output
-                // operate on the new session. Without this, all sessions except
-                // the first share one native-active session and multi-session
-                // output/exit detection silently breaks.
+                // 同步原生 ACTIVE_SESSION_ID，使 pollEvent/process_output 作用于新会话。
+                // 不做此步，除首个会话外的所有会话会共用同一个原生活动会话，
+                // 多会话的输出/退出检测将静默失效。
                 try {
                     NativeBridge.switchSession(id)
                 } catch (exception: Exception) {
@@ -2992,21 +2659,18 @@ constructor(
                     )
                 }
                 target.bridge?.let { syncGridDimensions(it) }
-                //  stopped applySettings from resizing background
-                // sessions, so the newly active session must be aligned to the
-                // current window size here: syncGridDimensions reads the
-                // native grid (an ADR-0007 stub returning 0) and can't tell us
-                // the real dims, so resize unconditionally with the latest UI
-                // state.
+                // applySettings 已停止调整后台会话尺寸，
+                // 故新激活的会话必须在此对齐到当前窗口尺寸：
+                // syncGridDimensions 读取的是原生网格（一个返回 0 的桩），
+                // 无法告知真实尺寸，故无条件以最新 UI 状态 resize。
                 target.bridge?.resize(
                     _state.value.rows.coerceAtLeast(1),
                     _state.value.cols.coerceAtLeast(1),
                 )
                 LogUtil.d("Runtime", "switched to session $id")
-                // DECSET 1004 focus reporting is per-window and the new
-                // active session never received a focus-in while backgrounded.
-                // Re-send the last known window focus state so a focused
-                // TUI (vim/fzf) resumes its FocusGained behaviour.
+                // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
+                // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
+                // 使获得焦点的 TUI（vim/fzf）恢复其 FocusGained 行为。
                 if (lastWindowFocus) {
                     target.bridge?.focusEvent(true)
                 }
@@ -3021,21 +2685,18 @@ constructor(
     }
 
     /**
-     * Single entry point for the Activity teardown path (onDestroy): stop the foreground service when
-     * no session is running, or refresh the notification count when sessions survive. Centralizes the
-     * service lifecycle here instead of MainActivity calling the static methods directly (which
-     * bypassed the runtime's foregroundServiceRunning flag and its exception protection).
+     * Activity 拆除路径（onDestroy）的唯一入口：无会话运行时停止前台服务，会话存活时刷新通知计数。
+     * 把服务生命周期集中在此，而不是由 MainActivity 直接调用静态方法
+     * （那会绕过运行期的 foregroundServiceRunning 标志及其异常保护）。
      *
-     * The count read and the stop decision both happen inside sessionLock : a createSession landing
-     * between the snapshot and the stop would otherwise leave a live session without its foreground
-     * service.
+     * 计数读取与停止决定都在 sessionLock 内完成：否则落在快照与停止之间的
+     * createSession 会让一个存活会话失去其前台服务。
      *
-     * note: if onDestroy runs while runtime.start() is mid-bootstrap (no session inserted yet), this
-     * stops the service and start() later re-inserts a session and re-starts the service. That is the
-     * intended background-session semantics (Termux-style: sessions outlive the Activity), not a leak
-     * — the final state is one live session + one foreground service. A leak would only occur if
-     * start() FAILED after the service restart, which its rollback (updateForegroundSessionCount(0))
-     * already handles.
+     * 注意：若 onDestroy 在 runtime.start() 引导中途运行（尚未插入会话），本方法停止服务，
+     * 而 start() 稍后重新插入会话并重启服务。这正是预期的后台会话语义
+     * （termux 式：会话比 Activity 活得更久），不是泄漏
+     * ——最终状态是一个存活会话 + 一个前台服务。只有当 start() 在服务重启之后
+     * 失败才会泄漏，而其回滚（updateForegroundSessionCount(0)）已处理该情形。
      */
     fun stopForegroundServiceIfIdle() {
         synchronized(sessionLock) {
@@ -3048,14 +2709,12 @@ constructor(
     }
 
     fun closeSession(id: Long) {
-        // Phase 1 (locked): capture close eligibility AND clear the running
-        // intent flag immediately, symmetric with handleSessionExit — a
-        // delayed restart (restartRenderThreadAfterDelay) checks running
-        // under the lock and must see false to cancel. Reading running
-        // UNLOCKED later could catch startRenderThread's transient
-        // running=false→true window and misclassify the close as safe while
-        // a brand-new render thread is starting (orphaned thread, global
-        // event queue double-consumer).
+        // 阶段 1（加锁）：立即捕获关闭资格并清除运行意图标志，与 handleSessionExit 对称
+        // ——延迟重启（restartRenderThreadAfterDelay）在锁内检查 running，
+        // 必须看到 false 才能取消。若稍后在不持锁状态下读 running，
+        // 可能撞上 startRenderThread 瞬时的 running=false→true 窗口，
+        // 把关闭误判为安全，而全新渲染线程正在启动
+        // （孤儿线程、全局事件队列双重消费）。
         var wasRunning: Boolean = false
         val entry =
             synchronized(sessionLock) {
@@ -3067,46 +2726,38 @@ constructor(
             }
         LogUtil.d("Runtime", "closeSession($id)")
 
-        // Stop the render thread for any session, active or not.
-        // running and renderThreadPossiblyAlive are @Volatile; the entry
-        // reference stays valid outside the lock (the object is only
-        // dropped when our last reference goes away).
+        // 停止任何会话的渲染线程（活动或非活动）。
+        // running 与 renderThreadPossiblyAlive 是 @Volatile；条目引用在锁外仍然有效
+        // （只有在我们最后一个引用消失时对象才会被丢弃）。
         var renderThreadStopped = true
         if (wasRunning) {
             renderThreadStopped = renderSupervisor.stopRenderThread(entry)
         } else if (entry.renderThreadPossiblyAlive) {
-            // A previous join timed out (hung GPU) while running was
-            // still true; the flag survives the pause path where
-            // running is set false. The thread may still be inside
-            // native render code, so this is NOT a safe-to-close state.
+            // 先前的 join 在 running 仍为 true 时超时（GPU 挂起）；
+            // 该标志在把 running 置假的暂停路径中依然存活。
+            // 线程可能仍在原生渲染代码中，故这不是可安全关闭的状态。
             renderThreadStopped = false
         }
-        // Locked re-check before closing (pure state read, NO join — a
-        // join here would hold sessionLock for up to THREAD_JOIN_TIMEOUT_MS
-        // and block every session operation). Any concurrent
-        // startRenderThread is rejected by entry.closing (and resets
-        // running=false), so only a thread that predates the close can be
-        // alive here; mark the session un-closable instead (native session
-        // reclaimed at process death) — safe and non-blocking.
+        // 关闭前在锁内重查（纯状态读取，不 join——此处 join 会持有 sessionLock
+        // 最长 THREAD_JOIN_TIMEOUT_MS 并阻塞所有会话操作）。
+        // 任何并发的 startRenderThread 都会被 entry.closing 拒绝（并重置 running=false），
+        // 故此处存活的只可能是早于本次关闭的线程；
+        // 改为把该会话标记为不可关闭（原生会话待进程消亡时回收）——安全且不阻塞。
         synchronized(sessionLock) {
             if (entry.renderThreadRef?.isAlive == true) {
                 renderThreadStopped = false
             }
         }
         if (renderThreadStopped && !entry.renderThreadPossiblyAlive) {
-            // Only release the GPU surface when the render thread is
-            // confirmed dead. stopRenderThread's join may have succeeded
-            // on the CURRENT thread while an EARLIER hung thread (from a
-            // previous join timeout, recorded in hungRenderThread) is
-            // still alive inside native code — renderThreadPossiblyAlive
-            // covers that case. Releasing/closing here would be a
-            // use-after-free when that thread resumes.
+            // 仅在确认渲染线程已死时才释放 GPU surface。
+            // stopRenderThread 的 join 可能在当前线程上成功，
+            // 而更早挂起（来自先前 join 超时、记录在 hungRenderThread 中）的线程
+            // 仍在原生代码中存活——renderThreadPossiblyAlive 覆盖该情形。
+            // 在此释放/关闭会在该线程恢复时构成 use-after-free。
             entry.bridge?.releaseGpuSurface()
-            // Same reasoning applies to close(): destroySession tears
-            // down the native session/PTY/wgpu context that the hung
-            // thread may still be touching. The native session is
-            // reclaimed when the process dies; destroying it here
-            // would be a use-after-free the moment the thread resumes.
+            // 同样的道理适用于 close()：destroySession 会拆除挂起线程
+            // 可能仍在触碰的原生会话/PTY/wgpu 上下文。
+            // 原生会话待进程消亡时回收；在此销毁会在该线程恢复的瞬间构成 use-after-free。
             entry.bridge?.close()
         } else {
             LogUtil.e(
@@ -3115,16 +2766,15 @@ constructor(
             )
         }
 
-        // Phase 3 (locked): remove the session and, if it was active,
-        // switch to a replacement. The replacement's hung-thread join and
-        // render restart stay inside the lock, symmetric with
-        // handleSessionExit (they only run on the close-active path).
+        // 阶段 3（加锁）：移除会话，若它是活动的则切换到接替会话。
+        // 接替会话的挂起线程 join 与渲染重启留在锁内，与 handleSessionExit 对称
+        // （它们仅在关闭活动会话的路径上运行）。
         synchronized(sessionLock) {
             if (!sessions.containsKey(id)) return
             sessions.remove(id)
             updateForegroundSessionCount(sessions.size)
 
-            // If we closed the active session, switch to another
+            // 若关闭的是活动会话，切换到另一个
             if (id == activeSessionId) {
                 val remaining = sessions.keys.sorted()
                 if (remaining.isNotEmpty()) {
@@ -3149,13 +2799,11 @@ constructor(
         val config = buildConfig()
         val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
-        // buildConfig() defaults to 24x80; resizing every session to that
-        // on ANY settings change would shrink live PTYs (vim/htop get a
-        // spurious SIGWINCH and reflow). Keep each session's current grid
-        // size instead.
-        // Floor of 1, not 24: with the IME open the visible grid can
-        // legitimately be smaller, and inflating it fires a spurious
-        // SIGWINCH + shell reflow.
+        // buildConfig() 默认 24x80；任何设置变更都用它 resize 所有会话
+        // 会缩小存活的 PTY（vim/htop 会收到多余的 SIGWINCH 并重排）。
+        // 改为保持各会话当前的网格尺寸。
+        // 下限取 1 而非 24：输入法打开时可见网格确实可能更小，
+        // 把它撑大会触发多余的 SIGWINCH 与 shell 重排。
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         sessions.values.forEach { entry ->
@@ -3164,29 +2812,27 @@ constructor(
             entry.bridge?.setTheme(config.theme)
             entry.notifyRender()
         }
-        // Font metrics changed — but grid dimensions stay fixed.
-        // The terminal scrolls when content overflows the visible area.
+        // 字体度量已变——但网格尺寸保持不变。
+        // 内容超出可视区域时终端自行滚动。
     }
 
     /**
-     * Recompute the active session's grid from the CURRENT native font metrics: rows = (surface -
-     * ModifierBar) / cell_height, cols = surface / cell_width. No-op when the surface size or metrics
-     * aren't known yet (fonts applied pre-attach). Called after every font-size change and after the
-     * initial font application.
+     * 按当前原生字体度量重算活动会话的网格：rows = (surface - ModifierBar) / cell_height，
+     * cols = surface / cell_width。Surface 尺寸或度量尚未知时为空操作
+     * （attach 之前就应用了字体）。每次字号变更与初始字体应用后调用。
      */
     private fun recomputeGridFromFontMetrics() {
         val barHeightPx = modifierBarHeightPx
-        // Surface size: the pending surface (set by startRuntime) is the
-        // authoritative source before the first attachSurface lands.
+        // Surface 尺寸：在首次 attachSurface 落地之前，pendingSurface
+        // （由 startRuntime 设置）是权威来源。
         val surfaceW = pendingSurfaceWidth
         val surfaceH = pendingSurfaceHeight
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
-        // Compute grid dimensions from physical surface / physical cell metrics.
-        // Both surface and cell are in physical pixels (density-scaled). The
-        // ModifierBar overlays the bottom of the surface, so its height is
-        // subtracted before computing rows.
+        // 由物理 surface / 物理单元格度量计算网格尺寸。
+        // 两者都是物理像素（已按密度缩放）。ModifierBar 覆盖 Surface 底部，
+        // 故计算 rows 之前先减去其高度。
         val (newRows, newCols) =
             computeGridDimensions(
                 surfaceWidth = surfaceW,
@@ -3195,9 +2841,8 @@ constructor(
                 cellHeight = cellHeight,
             )
         if (newRows == 0 || newCols == 0) {
-            // Degenerate geometry (usable height ≤ 0, e.g. a surface no
-            // taller than the ModifierBar): keep the current grid instead
-            // of collapsing it to one row.
+            // 退化几何（可用高度 ≤ 0，例如 Surface 不高于 ModifierBar）：
+            // 保持当前网格，而不是把它塌缩为一行。
             return
         }
         if (newRows == currentRows && newCols == currentCols) return
@@ -3206,9 +2851,8 @@ constructor(
             "recomputeGridFromFontMetrics: ${currentRows}x$currentCols -> ${newRows}x$newCols " +
                 "(cell ${cellWidth}x$cellHeight, surface ${surfaceW}x$surfaceH)",
         )
-        // Resize only the active session: background sessions keep their own
-        // grid dimensions; resizing every session with the active one's size
-        // would fire spurious SIGWINCH + reflow on them.
+        // 只 resize 活动会话：后台会话保留各自的网格尺寸；
+        // 用活动会话的尺寸 resize 所有会话会对它们触发多余的 SIGWINCH 与重排。
         sessions[activeSessionId]?.bridge?.resize(newRows, newCols)
         _state.update { it.copy(rows = newRows, cols = newCols) }
     }
@@ -3236,13 +2880,11 @@ constructor(
                 }
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
                 entry.bridge?.let { syncGridDimensions(it) }
-                // the grid must follow the font. syncGridDimensions
-                // only reads the existing native grid (still the default
-                // 80x24 after a restart); without recomputing rows/cols from
-                // the surface and the new font metrics the renderer lays the
-                // grid at surface/80 x surface/24 (13.5x92) while glyphs are
-                // rasterized for 41.2x81.4 cells — fonts look huge and rows
-                // overlap. Recompute and resize the active session.
+                // 网格必须随字体变化。syncGridDimensions 只读取既有的原生网格
+                // （重启后仍是默认的 80x24）；若不按 Surface 与新字体度量重算 rows/cols，
+                // 渲染器会按 surface/80 x surface/24（13.5x92）布置网格，
+                // 而字形却按 41.2x81.4 的单元格光栅化——字体显得巨大且行重叠。
+                // 重算并 resize 活动会话。
                 recomputeGridFromFontMetrics()
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "applyFontSettings failed for session", exception)
@@ -3255,9 +2897,8 @@ constructor(
     fun writeToPty(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId]
         if (entry != null && entry.running) {
-            // the shell exited and [Process completed] is
-            // showing — the only accepted input is Enter, which confirms
-            // the prompt and lets the render loop run the close path.
+            // shell 已退出且正在显示 [Process completed]
+            // ——唯一被接受的输入是 Enter，它确认提示并让渲染循环执行关闭路径。
             if (entry.waitingForProcessCompleted) {
                 if (data.any { it == '\r'.code.toByte() || it == '\n'.code.toByte() }) {
                     synchronized(sessionLock) {
@@ -3270,8 +2911,8 @@ constructor(
             }
             val written = entry.bridge?.writeToPty(data) ?: false
             if (written) {
-                // Latency probe input stamp (elapsed-realtime clock: it
-                // survives deep sleep, unlike nanoTime's monotonic base).
+                // 延迟探针的输入打点（用 elapsed-realtime 时钟：它能跨深度睡眠存活，
+                // 而 nanoTime 的单调基准不能）。
                 entry.latencyProbe.onInputWritten(SystemClock.elapsedRealtimeNanos())
             }
             entry.notifyRender()
@@ -3281,7 +2922,7 @@ constructor(
         return false
     }
 
-    /** Feed bytes directly to the VT parser (test path for escape sequences). */
+    /** 字节直接送入 VT 解析器（注入转义序列的测试路径）。 */
     fun feedTerminal(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId] ?: return false
         return entry.bridge?.feedTerminal(data) ?: false
@@ -3290,8 +2931,8 @@ constructor(
     fun bridge(): Bridge? = sessions[activeSessionId]?.bridge
 
     /**
-     * Input→echo latency summary of the active session (emulator-performance-verification). `NOT
-     * MEASURED` below N=30 — callers must surface that verbatim instead of inventing a number.
+     * 活动会话的输入→回显延迟汇总。样本数 N<30 时为 `NOT MEASURED`
+     * ——调用方必须原样呈现，而不得编造数字。
      */
     fun latencyReport(): String = sessions[activeSessionId]?.latencyProbe?.report() ?: "latency NOT MEASURED n=0"
 
@@ -3299,30 +2940,27 @@ constructor(
 
     fun focusChange(focused: Boolean) {
         lastWindowFocus = focused
-        // Focus reporting (DECSET 1004) is per-window: only the active
-        // session receives it. Broadcasting to every session would perform
-        // N synchronous JNI RPCs (each holding the session lock) on the UI
-        // thread for a single window focus change.
+        // 焦点上报（DECSET 1004）按窗口生效：只有活动会话会收到。
+        // 向每个会话广播会让单次窗口焦点变化在 UI 线程上执行 N 次同步 JNI RPC
+        // （每次都持有会话锁）。
         val entry = sessions[activeSessionId] ?: return
         entry.bridge?.focusEvent(focused)
     }
 
     fun pauseRendering() {
-        // stopRenderThread joins the render thread (up to 1s per session);
-        // on the main thread (surface destroy) with 3+ sessions this can
-        // exceed the 5s ANR threshold, so run it off the main thread.
-        // surfaceDestroyed returns immediately; rendering simply stops.
+        // stopRenderThread 会 join 渲染线程（每会话最长 1s）；
+        // 在主线程上（Surface 销毁）且有 3 个以上会话时可能超出 5s 的 ANR 阈值，
+        // 故在主线程之外执行。surfaceDestroyed 立即返回，渲染只是停止。
         //
-        // Both pause and resume go through the same single-thread executor
-        // so surface-destroy → surface-available ordering is preserved:
-        // otherwise an async pause could stop the render thread that a
-        // synchronous resume just started (fixed-size device rotation).
+        // 暂停与恢复都走同一个单线程执行器，以保持 surface-destroy → surface-available
+        // 的顺序：否则异步暂停可能停掉同步恢复刚启动的渲染线程
+        // （固定尺寸设备旋转）。
         //
-        //  note: the per-session join happens INSIDE sessionLock
-        // (up to 1s each), so with several sessions every sessionLock
-        // operation (close/switch/stopForegroundServiceIfIdle) stalls for
-        // the sum — same accepted tradeoff as switchSession's locked join
-        // (GPU-hang-only in practice, executor thread so no ANR).
+        // 注意：每会话的 join 发生在 sessionLock 内（各最长 1s），
+        // 故有多个会话时所有 sessionLock 操作
+        // （关闭/切换/stopForegroundServiceIfIdle）会按总和停顿
+        // ——与 switchSession 锁内 join 相同的已接受取舍
+        // （实践中仅 GPU 挂起时发生，且在执行器线程上故不 ANR）。
         surfaceTransitionExecutor.execute {
             synchronized(sessionLock) {
                 sessions.values.forEach { entry ->
@@ -3339,11 +2977,9 @@ constructor(
     fun resumeRendering() {
         surfaceTransitionExecutor.execute {
             synchronized(sessionLock) {
-                // Only the active session renders (see switchSessionInternal);
-                // starting threads for every session would create multiple
-                // consumers of the single global native event queue, and an
-                // exit event could then be handled by the wrong session's
-                // thread (closing an innocent session).
+                // 只有活动会话渲染（见 switchSessionInternal）；
+                // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
+                // 退出事件可能因此被错误的会话线程处理（关闭掉无辜的会话）。
                 val activeEntry = sessions[activeSessionId]
                 if (activeEntry != null && !activeEntry.running && activeEntry.bridge != null) {
                     try {
@@ -3354,10 +2990,9 @@ constructor(
                         LogUtil.e("Runtime", "resumeRendering failed for session ${activeEntry.id}", exception)
                     }
                 }
-                // Inside the lock: serializing here means the
-                // monitor starts before any concurrent close path's
-                // stopRenderMonitor and gets cancelled by it — never a
-                // monitor resurrected after teardown completed.
+                // 在锁内：在此串行化意味着监视器先于任何并发关闭路径的
+                // stopRenderMonitor 启动并被其取消
+                // ——绝不会在拆除完成后监视器又被复活。
                 renderSupervisor.startRenderMonitor()
             }
         }
@@ -3368,10 +3003,9 @@ constructor(
             "Runtime",
             "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection",
         )
-        // Full-snapshot overwrite: dragging resets to false here — every
-        // commit path (endSelection/clearSelection/syncSelectionToNative)
-        // funnels through this call, so a finished drag always clears the
-        // P1-1 dragging guard.
+        // 全量快照覆写：dragging 在此被重置为 false
+        // ——每条提交路径（endSelection/clearSelection/syncSelectionToNative）
+        // 都汇入本调用，故已结束的拖动总能清除 dragging 保护。
         selectionState.set(
             SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection),
         )
@@ -3383,40 +3017,36 @@ constructor(
     }
 
     /**
-     * Resize the active session's terminal grid. Values are clamped to the native u16 range
-     * (1..=65535) BEFORE the bridge call so the PTY grid dimensions and the UI state agree.
+     * 调整活动会话的终端网格尺寸。值在 bridge 调用之前钳位到原生 u16 范围（1..=65535），
+     * 使 PTY 网格尺寸与 UI 状态保持一致。
      */
     fun resize(rows: Int, cols: Int) {
         val entry = sessions[activeSessionId] ?: return
-        // Clamp BEFORE the bridge call so native (PTY grid dims) and UI state
-        // can never diverge: 0 is a legal native size but would break grid
-        // math elsewhere, and native resize rejects anything >u16 (the
-        // Kotlin state would otherwise carry a value the PTY silently
-        // refused). This clamp is the single end-to-end guard. When the
-        // native grid command is dropped (ResizeOutcome::Dropped) this state
-        // holds the REQUESTED size while native keeps the old cached size;
-        // the divergence self-heals on the next resize event, and once
-        // getGridRowsColsPacked is real, syncGridDimensions would rewrite
-        // this state back to the native value. Note the
-        // upper bound is the u16 protocol limit, NOT a display-size sanity
-        // limit: the UI paths (window insets, applySettings) supply real
-        // grid sizes, so a 65535×65535 grid can only be requested by a
-        // direct API caller; native would attempt the allocation.
+        // 在 bridge 调用之前钳位，使原生（PTY 网格尺寸）与 UI 状态永不分歧：
+        // 0 在原生上是合法尺寸但会破坏别处的网格计算，
+        // 而原生 resize 拒绝任何 >u16 的值（否则 Kotlin 状态会携带一个
+        // PTY 静默拒绝的值）。此钳位是唯一的端到端守卫。
+        // 当原生网格命令被丢弃（ResizeOutcome::Dropped）时，
+        // 本状态持有「请求的」尺寸而原生保留旧的缓存尺寸；
+        // 该分歧会在下次 resize 事件自愈，且一旦 getGridRowsColsPacked 真实可用，
+        // syncGridDimensions 会把本状态改回原生值。
+        // 注意上界是 u16 协议限制，而非显示尺寸的合理性限制：
+        // UI 路径（window insets、applySettings）提供的是真实网格尺寸，
+        // 故 65535×65535 的网格只可能由直接 API 调用者请求；原生会尝试分配。
         val clampedRows = rows.coerceIn(1, 0xFFFF)
         val clampedCols = cols.coerceIn(1, 0xFFFF)
         entry.bridge?.resize(clampedRows, clampedCols)
-        // CAS: a plain copy would overwrite a title update the
-        // render thread published between read and write.
+        // CAS：普通 copy 会覆盖渲染线程在读与写之间发布的 title 更新。
         _state.update { it.copy(rows = clampedRows, cols = clampedCols) }
         entry.notifyRender()
     }
 
     /**
-     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the active session, preserving
-     * rows/cols. Called alongside every grid resize with the terminal surface's pixel dimensions, so
-     * pixel-aware programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ instead of 0
-     * (ghostty-android pty_jni.c:84-87). Values are clamped to the native u16 range like [resize]; a
-     * 0 both is legal (clears the fields) and the ioctl succeeds, so no lower-bound guard is needed.
+     * 更新活动会话 PTY winsize 的像素字段（ws_xpixel/ws_ypixel）而保持 rows/cols。
+     * 每次网格 resize 时以终端 Surface 的像素尺寸一同调用，
+     * 使感知像素的程序（icat、全屏 TUI）经 TIOCGWINSZ 读到真实像素而非 0。
+     * 值按原生 u16 范围钳位，同 [resize]；两者都为 0 是合法的（清空字段）
+     * 且 ioctl 会成功，故无需下界守卫。
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
         val entry = sessions[activeSessionId] ?: return
@@ -3427,18 +3057,17 @@ constructor(
         val bridge = sessions[activeSessionId]?.bridge ?: return
         bridge.recomputeGrid(width, height)
         syncGridDimensions(bridge)
-        // bridge.recomputeGrid is a logging stub — the real reflow happens
-        // here: rows/cols recomputed from the current surface size and the
-        // native font cell metrics. Without it, surface re-attach after a
-        // restart kept the bootstrap 24x80 grid while glyphs render at the
-        // configured (larger) size: prompts got truncated ("/home/com.ter"
-        // instead of the full path) and wrapping broke.
+        // bridge.recomputeGrid 只是一个日志桩——真正的重排发生在此：
+        // 按当前 Surface 尺寸与原生字体单元格度量重算 rows/cols。
+        // 不做此步，重启后重新绑定 Surface 会保留引导期的 24x80 网格，
+        // 而字形却按配置的（更大）尺寸渲染：提示符被截断
+        // （"/home/com.ter" 而非完整路径）且换行失效。
         recomputeGridFromFontMetrics()
     }
 
     /**
-     * Hand the Android Surface to the renderer (ADR-0007). If the session bridge does not exist yet
-     * (spawn in progress), the surface is kept pending and attached right after the session starts.
+     * 把 Android Surface 交给渲染器。若会话 bridge 尚不存在（spawn 进行中），
+     * 则保留为待绑定，会话启动后立即绑定。
      */
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
         pendingSurface = surface
@@ -3452,43 +3081,38 @@ constructor(
 
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
         val surface = pendingSurface ?: return
-        // The holder may have been destroyed while the bridge was spawning
-        // (onSurfaceDestroyed clears the field, but a racing read can still
-        // observe the stale value) — never attach a dead Surface.
+        // bridge spawn 期间持有者可能已被销毁
+        // （onSurfaceDestroyed 会清空该字段，但竞争的读取仍可能
+        // 观察到陈旧值）——绝不绑定已死的 Surface。
         if (!surface.isValid) {
             pendingSurface = null
             return
         }
         bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
-        // the grid must match the font cell metrics against the
-        // real surface. attachSurface makes the surface size authoritative;
-        // syncGridDimensions pulls the native font cell metrics, then
-        // recomputeGridFromFontMetrics resizes the grid so the renderer's
-        // quads (surface/rows x surface/cols) match the glyph raster size
-        // (font cell x density). Without this the grid stays at the default
-        // 80x24 while glyphs are rasterized for the configured font size —
-        // fonts look huge and rows overlap after every restart.
+        // 网格必须以真实 Surface 为准匹配字体单元格度量。
+        // attachSurface 使 Surface 尺寸成为权威；syncGridDimensions 取来原生字体单元格度量，
+        // 随后 recomputeGridFromFontMetrics resize 网格，使渲染器的
+        // 四边形（surface/rows x surface/cols）匹配字形光栅尺寸
+        // （字体单元格 x 密度）。不做此步，网格会停留在默认的 80x24，
+        // 而字形却按配置字号光栅化——每次重启后字体显得巨大且行重叠。
         syncGridDimensions(bridge)
         recomputeGridFromFontMetrics()
     }
 
     /**
-     * Activate [newId] as the foreground session after its predecessor closed: final hung-thread
-     * join, native ACTIVE_SESSION_ID sync switchSession), render-thread restart and focus re-send.
+     * 在前一个会话关闭后把 [newId] 激活为前台会话：挂起线程的最终 join、
+     * 原生 ACTIVE_SESSION_ID 同步（switchSession）、渲染线程重启与焦点重发。
      *
-     * Shared by handleSessionExit, closeDeadSession and closeSession so this lock-held sequence lives
-     * in exactly one place instead of three drifting copies.
+     * 由 handleSessionExit、closeDeadSession 与 closeSession 共用，
+     * 使这段持锁序列只存在于一处而非三份漂移的副本。
      *
-     * Must be called with sessionLock held; the caller already removed the closing entry and set
-     * activeSessionId = [newId].
+     * 必须在持有 sessionLock 时调用；调用方已移除正在关闭的条目并设置
+     * activeSessionId = [newId]。
      *
-     * @param caller log prefix (e.g. "handleSessionExit")
-     * @param markRunning set replacement.running = true first (closeSession needs it; the exit paths
-     *   already run with the session running)
-     * @param withRetry retry switchSession once on JNI failure (exit paths; a user close skips the
-     *   retry to keep latency bounded)
-     * @param syncGrid call syncGridDimensions on the replacement after the render start (closeSession
-     *   only)
+     * @param caller 日志前缀（如 "handleSessionExit"）
+     * @param markRunning 先把 replacement.running 置真（closeSession 需要；退出路径本就以运行中状态执行）
+     * @param withRetry JNI 失败时重试 switchSession 一次（退出路径；用户关闭跳过重试以限制延迟）
+     * @param syncGrid 在渲染启动后对接替会话调用 syncGridDimensions（仅 closeSession）
      */
     private fun activateReplacementSession(
         newId: Long,
@@ -3516,14 +3140,12 @@ constructor(
                     updateState()
                     return
                 }
-        // Final join of any hung thread: if it exited meanwhile, clear the
-        // flag so a later close() destroys the native session (no leak).
-        // Guard against joining ourselves: the exit paths run on a render
-        // thread (poll.exit), and with background-session reaping
-        // ANY session's render thread can end up here — including the
-        // replacement's own, if it was previously recorded as hung. Joining
-        // self always times out and would freeze every session operation
-        // for the full timeout.
+        // 挂起线程的最终 join：若它在此期间已退出，就清标志，
+        // 使后续 close() 能销毁原生会话（不泄漏）。
+        // 防止 join 自身：退出路径在渲染线程上运行（poll.exit），
+        // 而在回收后台会话的情况下任何会话的渲染线程都可能到达此处
+        // ——包括接替会话自己的（若它先前被记为挂起）。
+        // join 自身必然超时，会使所有会话操作冻结满整个超时时间。
         val hung = replacement.hungRenderThread
         if (
             replacement.renderThreadPossiblyAlive &&
@@ -3543,22 +3165,20 @@ constructor(
             replacement.renderThreadPossiblyAlive = false
             replacement.hungRenderThread = null
         }
-        // Sync the native ACTIVE_SESSION_ID so pollEvent/process_output
-        // drive the replacement session. destroySession only clears the
-        // native active id to 0; without an explicit switchSession the
-        // replacement would never be polled and output stays frozen.
-        // NOTE: this runs even when the old render thread is still alive
-        // (it is exiting: running=false makes the loop end) — skipping
-        // would leave native active=0 and freeze the replacement.
+        // 同步原生 ACTIVE_SESSION_ID，使 pollEvent/process_output 驱动接替会话。
+        // destroySession 只把原生活动 id 清为 0；没有显式的 switchSession，
+        // 接替会话将永远不被轮询，输出保持冻结。
+        // 注意：即使旧渲染线程仍存活也照常执行
+        // （它正在退出：running=false 会使循环结束）——跳过会让原生 active=0
+        // 并冻结接替会话。
         var nativeSwitched =
             try {
                 NativeBridge.switchSession(newId)
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "$caller: native switchSession failed", exception)
                 if (withRetry) {
-                    // One retry: a transient JNI failure leaves the native
-                    // active id stale and the replacement degraded to the
-                    // background sweep rate (2 chunks/frame).
+                    // 重试一次：瞬时 JNI 失败会让原生活动 id 陈旧，
+                    // 接替会话降级到后台清扫速率（2 块/帧）。
                     try {
                         val retried = NativeBridge.switchSession(newId)
                         if (retried) {
@@ -3574,15 +3194,13 @@ constructor(
                 }
             }
         if (!nativeSwitched) {
-            // Same guard on all three paths: the native session is already
-            // gone (concurrent close destroyed it). Starting a render thread
-            // would error-loop against a missing native session; the entry
-            // is being removed by that close path anyway. Reset the intent
-            // flags and refresh the UI state so nothing observes a
-            // running-but-dead replacement in the meantime. closing=true is
-            // defensive: if the native-side semantics ever change (new
-            // destroy paths), the entry cannot become a frozen zombie that
-            // the monitor skips forever.
+            // 三条路径共用的守卫：原生会话已消失（被并发关闭销毁）。
+            // 启动渲染线程会对着缺失的原生会话陷入错误循环；
+            // 且该条目本就会被那条关闭路径移除。
+            // 重置意图标志并刷新 UI 状态，使期间没有任何东西观察到
+            // 一个「运行中但已死」的接替会话。closing=true 是防御性的：
+            // 若原生侧语义日后变化（新增销毁路径），
+            // 该条目不会变成被监视器永远跳过的僵死僵尸。
             LogUtil.w(
                 "Runtime",
                 "$caller: native switchSession returned false for session $newId — skipping render start",
@@ -3592,22 +3210,21 @@ constructor(
             updateState()
             return
         }
-        // Restart unconditionally: a still-alive old thread is exiting;
-        // startRenderThread interrupts+joins it and forces a fresh one.
+        // 无条件重启：仍存活的旧线程正在退出；
+        // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
         renderSupervisor.startRenderThread(replacement)
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
         }
-        // The replacement became active while the window is focused;
-        // re-send focus-in so DECSET 1004 TUIs resume.
+        // 接替会话在窗口获得焦点时成为活动会话；
+        // 重发 focus-in 使 DECSET 1004 的 TUI 恢复。
         if (lastWindowFocus && !replacement.closing) {
             bridge.focusEvent(true)
         }
         if (replacement.closing) {
-            // A concurrent closeSession/closeDeadSession won the race for
-            // the replacement; startRenderThread refused (closing flag) and
-            // reset running=false. The entry will be removed by that close
-            // path.
+            // 并发的 closeSession/closeDeadSession 赢得了接替会话的竞争；
+            // startRenderThread 已拒绝（closing 标志）并把 running 重置为 false。
+            // 该条目将由那条关闭路径移除。
             LogUtil.d("Runtime", "$caller: replacement session $newId is closing — render start skipped")
         } else {
             LogUtil.d("Runtime", "$caller: restarted render for new active session $newId")
@@ -3618,20 +3235,19 @@ constructor(
         val packed = bridge.getGridRowsColsPacked()
         val rows = (packed shr 32).toInt()
         val cols = packed.toInt()
-        // Only overwrite cell metrics with valid values: the current bridge
-        // returns 0f/0 (ADR-0007 stubs) and writing those would clobber the
-        // real metrics computed from the surface.
-        // Native metrics are in LOGICAL pixels (font pipeline units);
-        // touch/anchor math in TerminalSurface works in physical pixels, so
-        // scale by density here  — fixes long-press hit-testing
-        // landing on wrong cells and the font-size mismatch reports).
+        // 只用有效值覆写单元格度量：当前 bridge 返回 0f/0（桩），
+        // 写入这些值会覆盖按 Surface 计算出的真实度量。
+        // 原生度量以逻辑像素（字体管线单位）给出；
+        // 而 TerminalSurface 中的触摸/锚点计算以物理像素进行，
+        // 故在此按密度缩放——这修掉了长按命中测试落到错误单元格
+        // 以及字号不匹配的反馈。
         val density = context.resources.displayMetrics.density
         val rawCellWidth = bridge.getCellWidth()
         val rawCellHeight = bridge.getCellHeight()
-        // Logical pixel dimensions (for grid computation): raw native values
+        // 逻辑像素尺寸（用于网格计算）：原生原始值
         if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
         if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
-        // Physical pixel dimensions (for rendering/touch): density-scaled
+        // 物理像素尺寸（用于渲染/触摸）：已按密度缩放
         val newCellWidth = rawCellWidth * density
         val newCellHeight = rawCellHeight * density
         val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
@@ -3644,13 +3260,11 @@ constructor(
         if (!hadCellMetrics && cellWidth > 0f && cellHeight > 0f) {
             recomputeGridFromFontMetrics()
         }
-        // CAS with the size check INSIDE the lambda: the old code
-        // read rows/cols outside the update, so a concurrent title CAS could
-        // land between the check and the write. rows/cols are a snapshot
-        // read from the bridge BEFORE the CAS: on a retry they may overwrite
-        // a newer size with a slightly stale one — inherent to read-outside-
-        // CAS, self-heals on the next sync, and strictly narrower than the
-        // old lock-outside read-check-write.
+        // CAS，尺寸检查置于 lambda 内部：旧代码在 update 之外读 rows/cols，
+        // 并发的 title CAS 可能落在检查与写入之间。
+        // rows/cols 是 CAS 之前从 bridge 读到的快照：重试时它们可能用略陈旧的尺寸
+        // 覆盖更新的尺寸——这是「CAS 外读取」的固有特性，下次同步会自愈，
+        // 且严格窄于旧的在锁外读-检查-写。
         _state.update { previous ->
             if (rows > 0 && cols > 0 && (rows != previous.rows || cols != previous.cols)) {
                 previous.copy(rows = rows, cols = cols)
@@ -3661,22 +3275,20 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 4: State & surface lifecycle
+    // 四、状态与 Surface 生命周期
     // ══════════════════════════════════════════════════════════════════════
 
     private fun updateState() {
         val currentTitle =
             sessions[activeSessionId]?.bridge?.getActiveSessionTitle() ?: _state.value.title
-        // _state.update (CAS) instead of a read-modify-write assignment: the
-        // render thread's title CAS could land between our read and write
-        // and be overwritten by a stale title (self-heals next cycle, but
-        // the CAS avoids the regression entirely). The map reads inside the
-        // lambda go through the ConcurrentHashMap (weakly consistent, no
-        // lock needed); callers that hold sessionLock get structural
-        // serialization with session create/close as a bonus. currentTitle
-        // itself is a snapshot read before the CAS: two concurrent
-        // updateState calls can still write a stale title over a newer one
-        // (same read-outside-CAS class as syncGridDimensions, self-heals).
+        // 用 _state.update（CAS）而非读-改-写赋值：渲染线程的 title CAS
+        // 可能落在我们的读与写之间，被陈旧 title 覆盖
+        // （下个周期会自愈，但 CAS 完全避免该回归）。
+        // lambda 内的映射读取走 ConcurrentHashMap（弱一致，无需加锁）；
+        // 持有 sessionLock 的调用方额外获得与会话创建/关闭的结构性串行化。
+        // currentTitle 本身是 CAS 之前的快照读取：两个并发的 updateState 调用
+        // 仍可能用陈旧 title 覆盖更新的 title
+        // （与 syncGridDimensions 同属「CAS 外读取」一类，会自愈）。
         _state.update { previous ->
             previous.copy(
                 isRunning = sessions.isNotEmpty(),
@@ -3688,20 +3300,20 @@ constructor(
     }
 
     fun onSurfaceDestroyed() {
-        // A pending surface (start/attachSurface before the bridge existed)
-        // is stale the moment the holder is destroyed — attaching it later
-        // would hand the new bridge a dead Surface and render black frames.
+        // 待绑定的 Surface（bridge 存在之前的 start/attachSurface）
+        // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
+        // 并渲染出黑帧。
         pendingSurface = null
         setRenderPaused(true)
     }
 
     /**
-     * Toggle the native renderer pause flag for every session. The flag lives on the single global
-     * renderer (ffi.rs setRenderPaused), so pausing any session pauses the shared GPU pipeline.
+     * 切换所有会话的原生渲染器暂停标志。该标志位于单一的全局渲染器上
+     * （ffi.rs setRenderPaused），故暂停任一会话都会暂停共享的 GPU 管线。
      *
-     * The flag must be cleared on the surface-restore path (TerminalSurface.surfaceCreated) — nothing
-     * else does, and while it stays set, render_frame short-circuits with Ok(()) and the restored
-     * session renders pure black frames with a healthy-looking render thread (no errors, no restart).
+     * 该标志必须在 Surface 恢复路径（TerminalSurface.surfaceCreated）上清除
+     * ——没有别处会做这件事：只要它保持置位，render_frame 就以 Ok() 短路，
+     * 恢复后的会话会渲染出纯黑帧，而渲染线程看起来完全健康（无错误、无重启）。
      */
     fun setRenderPaused(paused: Boolean) {
         for (entry in sessions.values) {
@@ -3710,18 +3322,16 @@ constructor(
     }
 
     fun releaseAllGpuSurfaces() {
-        // Surface destroyed: pause render threads cleanly instead of marking
-        // them dead. Marking renderThreadExited on live threads makes the
-        // monitor treat them as crashed and eventually close the sessions
-        // after RENDER_MAX_RESTART_ATTEMPTS (~20s background).
+        // Surface 销毁：干净地暂停渲染线程，而不是把它们标记为死亡。
+        // 在存活线程上标记 renderThreadExited 会让监视器视其为已崩溃，
+        // 并在 RENDER_MAX_RESTART_ATTEMPTS 之后（后台约 20s）关闭这些会话。
         pauseRendering()
     }
 
     /**
-     * Queue [action] on the same single-thread executor that stops render threads during
-     * pauseRendering. Callers use this to release surfaces / views only AFTER the render thread's
-     * join has confirmed it is no longer inside native render code — releasing an ANativeWindow while
-     * the render thread still uses it is a use-after-free.
+     * 把 [action] 排入 pauseRendering 期间停止渲染线程所用的同一个单线程执行器。
+     * 调用方借此只在渲染线程的 join 确认其已不在原生渲染代码中之后
+     * 才释放 Surface/视图——在渲染线程仍在使用时释放 ANativeWindow 即 use-after-free。
      */
     fun runAfterRenderThreadsStopped(action: () -> Unit) {
         surfaceTransitionExecutor.execute {
@@ -3733,9 +3343,8 @@ constructor(
 }
 
 /**
- * True when [file] starts with the ELF magic (0x7f 'E' 'L' 'F'). Used to exclude shebang scripts
- * from prefix-shell resolution: the linker-wrapper spawn path can only load real ELF binaries.
- * Top-level (not on the private companion) so installer/settings code can reuse it.
+ * [file] 是否以 ELF 魔数（0x7f 'E' 'L' 'F'）开头。用于在 prefix shell 解析中排除 shebang 脚本：
+ * linker-wrapper 的 spawn 路径只能加载真正的 ELF 二进制。
  */
 internal fun isElf(file: java.io.File): Boolean = try {
     file.inputStream().use { input ->
@@ -3770,31 +3379,23 @@ internal fun isSystemShellScript(file: java.io.File): Boolean = try {
     false
 }
 
-/**
- * Next dead-render-thread restart backoff: double the previous delay up to [maxDelayMs] (the
- * exponential backoff in handleDeadRenderThread).
- */
+/** 下次死渲染线程重启的退避延迟：把先前延迟翻倍，上限 [maxDelayMs]（handleDeadRenderThread 中的指数退避）。 */
 internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (currentMs * 2).coerceAtMost(maxDelayMs)
 
-/**
- * Dead-render restart budget: attempt counter past [maxAttempts] means the session is closed
- * instead of restarted again.
- */
+/** 死亡渲染重启预算：尝试计数超过 [maxAttempts] 即关闭会话而非再次重启。 */
 internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
 
 /**
- * Initial synchronous render retry (switchSession): keep retrying while the first render result is
- * a failure (< 0) and the attempt counter is still below [maxAttempts]. Pure decision extracted
- * from the retry loop.
+ * 初始同步渲染重试（switchSession）：只要首帧渲染结果为失败（< 0）
+ * 且尝试计数仍低于 [maxAttempts] 就继续重试。纯决策，从重试循环中抽出以便测试。
  */
 internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean =
     result < 0 && attempts < maxAttempts
 
 /**
- * switchSession Phase-3 concurrent-switch guard: while the first frame was rendering (outside
- * sessionLock), another switchSession may have published a different active session. Returns the id
- * of the session whose render thread must be stopped before publishing this switch, or null when
- * the active session did not change under us (or is this very target).
+ * switchSession 阶段 3 的并发切换守卫：首帧渲染期间（在 sessionLock 之外），
+ * 另一个 switchSession 可能发布了不同的活动会话。返回在发布本次切换之前
+ * 必须停止其渲染线程的会话 id；当活动会话未变（或正是本目标）时返回 null。
  */
 internal fun concurrentRenderThreadToStop(
     activeSessionIdAfterRender: Long?,
@@ -3808,19 +3409,15 @@ internal fun concurrentRenderThreadToStop(
     return concurrentId
 }
 
-/**
- * switchSession Phase-1 failure restore: after a failed spawn the previous active session is
- * restarted unless it is the session that just failed.
- */
+/** switchSession 阶段 1 的失败恢复：spawn 失败后重启前一个活动会话，除非它正是刚刚失败的那个会话。 */
 internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Long): Boolean =
     previousId != null && previousId != failedTargetId
 
 /**
- * Pure grid-dimension computation behind recomputeGridFromFontMetrics: cols = floor(surfaceWidth /
- * cellWidth), rows = floor(surfaceHeight / cellHeight), each clamped to ≥ 1 so a tiny surface still
- * yields a usable grid. Returns (0, 0) for degenerate input (non-positive surface or cell metrics)
- * so callers can distinguish "invalid geometry" from a real one-cell grid and keep their current
- * dimensions instead.
+ * recomputeGridFromFontMetrics 背后的纯网格尺寸计算：cols = floor(surfaceWidth / cellWidth)，
+ * rows = floor(surfaceHeight / cellHeight)，各自钳位到 ≥ 1，使极小 Surface 仍得到可用网格。
+ * 退化输入（Surface 或单元格度量非正）返回 (0, 0)，
+ * 使调用方能区分「几何无效」与真实的一行一列网格，并改为保持当前尺寸。
  */
 internal fun computeGridDimensions(
     surfaceWidth: Int,

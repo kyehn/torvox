@@ -1,42 +1,34 @@
 package terminal.emulator.runtime
 
 /**
- * Fixed-window frame-duration statistics for the render loop.
+ * 渲染循环的定窗帧时长统计。
  *
- * Every frame records the render duration (`lastRenderDone - lastRenderStart`
- * around `bridge.render()`) into a fixed-size window. Once the window is
- * full, [takeReport] returns a [FrameTimingReport] (average / p95 / max) and
- * collection restarts — a simple, non-sliding window that keeps the hot path
- * to exactly one array store per frame.
+ * 每帧把渲染时长（`bridge.render()` 前后的 `lastRenderDone - lastRenderStart`）记入定长窗口，
+ * 窗口填满后 [takeReport] 返回 [FrameTimingReport]（均值/p95/最大）并重新开始采集
+ * ——简单的非滑动窗口，使热路径每帧只有一次数组写入。
  *
- * Pure Kotlin (no Android dependency) so the window and percentile math is
- * unit-testable on the JVM. Threading contract: the render thread is the only
- * writer; readers (log output) run on the same thread, so no synchronization
- * is needed. The caller must drain each completed window via [takeReport]
- * before recording more frames, or the next [record] would overwrite within
- * the window (count is capped at [windowSize]).
+ * 纯 Kotlin（不依赖 Android），故窗口与分位数计算可在 JVM 上单元测试。
+ * 线程约定：渲染线程是唯一写入者；读者（日志输出）在同一线程上运行，无需同步。
+ * 调用方必须在记录更多帧之前经 [takeReport] 排空每个已完成的窗口，
+ * 否则下一次 [record] 会在窗口内覆写（计数以 [windowSize] 为上限）。
  *
- * Window size trade-off: 60 frames is ~1s of history at 60 FPS on a real
- * device, and ~33s on the software-rendered emulator (~1.8 FPS baseline) —
- * either way one summary line per window is a low-frequency diagnostic.
+ * 窗口大小取舍：60 帧在真机 60 FPS 下约 1s 历史，在软件渲染模拟器（~1.8 FPS 基线）下约 33s
+ * ——两种情况下每窗一行汇总都是低频诊断。
  */
 class FrameTimingStats(private val windowSize: Int = DEFAULT_WINDOW_SIZE) {
     private val samplesNanos = LongArray(windowSize)
     private var count = 0
 
-    /** Records one frame's render duration (ns). The caller must drain each completed window via [takeReport]. */
+    /** 记录一帧的渲染时长（ns）。调用方必须经 [takeReport] 排空每个已完成的窗口。 */
     fun record(durationNanos: Long) {
         samplesNanos[count] = durationNanos
         count++
     }
 
-    /** True once [windowSize] frames have been recorded since the last report. */
+    /** 自上次报告以来已记录满 [windowSize] 帧时为真。 */
     fun isWindowComplete(): Boolean = count >= windowSize
 
-    /**
-     * Returns the report for the completed window and resets collection, or
-     * null while fewer than [windowSize] frames have been recorded.
-     */
+    /** 返回已完成窗口的报告并重置采集；帧数不足 [windowSize] 时返回 null。 */
     fun takeReport(): FrameTimingReport? {
         if (count < windowSize) return null
         val samples = LongArray(windowSize)
@@ -57,7 +49,5 @@ class FrameTimingStats(private val windowSize: Int = DEFAULT_WINDOW_SIZE) {
     }
 }
 
-/**
- * Summary of one completed frame-timing window. All durations in nanoseconds.
- */
+/** 一个已完成帧时间窗口的汇总，所有时长均为纳秒。 */
 data class FrameTimingReport(val frameCount: Int, val averageNanos: Long, val p95Nanos: Long, val maxNanos: Long)

@@ -8,9 +8,8 @@ import java.util.concurrent.Executors
 class ThermalMonitor(private val context: Context, private val onCritical: (() -> Unit)? = null) {
     private val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
-    // Written from the system thermal callback thread, read from the main
-    // thread (onThermalStatusChanged) — cross-thread visibility requires
-    // volatile or the dedup may log duplicate transitions.
+    // 由系统热状态回调线程写入，主线程（onThermalStatusChanged）读取
+    // ——跨线程可见性要求 volatile，否则去重可能记录重复的状态跳变。
     @Volatile
     private var lastStatus = PowerManager.THERMAL_STATUS_NONE
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
@@ -56,9 +55,9 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
         lastStatus = status
         val label = thermalStatusLabel(status)
 
-        // SEVERE is a common throttling level (compile, download, charging)
-        // and killing the process there loses every session without any
-        // hardware risk. Only CRITICAL+ (genuine overheating) terminates.
+        // SEVERE 是常见的降频档位（编译、下载、充电），
+        // 在此杀掉进程会白白丢失所有会话而硬件并无风险。
+        // 只有 CRITICAL+（真正过热）才终止。
         if (status >= PowerManager.THERMAL_STATUS_CRITICAL) {
             Log.e(TAG, "$label — killing process (CRITICAL+)")
             onCritical?.invoke()

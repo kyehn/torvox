@@ -70,12 +70,11 @@ open class TerminalApp : Application() {
     }
 
     private fun installAnrWatchDog() {
-        // Release-only on purpose: on slow software-rendered emulators a
-        // cold Activity launch or first Compose frame routinely exceeds the
-        // 5s watchdog window, and during instrumented tests the watchdog
-        // kills the process under test (seen as "Process crashed" with no
-        // native trace). Debug builds serve development/CI where the
-        // user-facing self-exit safeguard is not needed.
+        // 刻意仅用于 release：在慢速软件渲染模拟器上，
+        // 冷启动 Activity 或首个 Compose 帧经常超出 5s 的看门狗窗口；
+        // 且在插桩测试中看门狗会杀掉被测进程
+        // （表现为无任何原生栈的「Process crashed」）。
+        // debug 构建服务于开发/CI，那里不需要这个面向用户的自退保护。
         if (BuildConfig.DEBUG) return
         val stateDir = getDir("boot_state", MODE_PRIVATE)
         anrWatchDog = AnrWatchDog(stateDir, ANR_TIMEOUT_MILLIS).also { it.start() }
@@ -103,11 +102,10 @@ open class TerminalApp : Application() {
             } catch (exception: Exception) {
                 Log.e("App", "Failed to write crash log", exception)
             }
-            // Record the exit for boot-loop detection WITHOUT killing the
-            // process ourselves: the platform handler below terminates the
-            // process and writes the FATAL EXCEPTION stack to logcat/dropbox
-            // (remote crash reporting). BootGuard.exit() kills first, so the
-            // platform handler never runs and the stack is lost entirely.
+            // 记录退出以供启动循环检测，而不由我们自己杀进程：
+            // 下方的平台处理器会终止进程并把 FATAL EXCEPTION 堆栈
+            // 写入 logcat/dropbox（远程崩溃上报）。
+            // BootGuard.exit() 会先行杀进程，平台处理器因而永不运行，堆栈完全丢失。
             try {
                 BootGuard(getDir("boot_state", MODE_PRIVATE)).recordExit()
             } catch (exception: Exception) {

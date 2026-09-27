@@ -21,17 +21,16 @@ object TerminalInputEncoder {
             bytes.addAll(BRACKETED_PASTE_END.toByteArray(Charsets.UTF_8).toList())
             return bytes.toByteArray()
         }
-        // CTRL conversion applies to a single character only (a real Ctrl+X
-        // keypress). Multi-character IME commits — pinyin candidates, swipe
-        // input, IME-internal paste, autocomplete — must NOT have each
-        // character folded into a control byte ("abc" → 0x01 0x02 0x03).
-        // A bracketed-paste-wrapped multi-char commit is the correct shape.
+        // Ctrl 转换只适用于单个字符（即真实的 Ctrl+X 按键）。
+        // 多字符输入法提交——拼音候选、滑行输入、输入法内部粘贴、自动补全
+        // ——绝不能逐字符折叠为控制字节（"abc" → 0x01 0x02 0x03）。
+        // 正确形态是由 bracketed-paste 包裹的多字符提交。
         if (ctrlActive && text.length == 1) {
             val codePoint = text[0].code
-            // Digits 1/9/0 have no traditional Ctrl mapping (c & 0x1F would
-            // collide with Ctrl+Q / Ctrl+Y / Ctrl+P); per zed-port
-            // mappings/keys.rs they are emitted as `CSI 27;5;code~` instead
-            // of being dropped, matching the hardware-key path.
+            // 数字 1/9/0 没有传统的 Ctrl 映射（c & 0x1F 会与
+            // Ctrl+Q / Ctrl+Y / Ctrl+P 冲突）；按 zed 的 mappings/keys.rs，
+            // 它们改以 `CSI 27;5;code~` 发出而非被丢弃，
+            // 与硬件按键路径一致。
             if (codePoint == '1'.code || codePoint == '9'.code || codePoint == '0'.code) {
                 val modifier = 1 + (if (altActive) 2 else 0) + 4
                 return csi27(modifier, codePoint)
@@ -39,9 +38,9 @@ object TerminalInputEncoder {
             val controlByte = controlByteForCodePoint(codePoint)
             if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
         }
-        // Iterate by code point: text.forEach over Char would split surrogate
-        // pairs and encode each half as U+FFFD replacement, corrupting any
-        // supplementary-plane character (emoji) committed by the IME.
+        // 按码点迭代：text.forEach 遍历 Char 会拆开代理对，
+        // 并把每一半编码为 U+FFFD 替换字符，破坏输入法提交的任何
+        // 增补平面字符（emoji）。
         var index = 0
         while (index < text.length) {
             val codePoint = text.codePointAt(index)
@@ -62,17 +61,15 @@ object TerminalInputEncoder {
         if (ctrlActive) {
             val controlByte = controlByteForKeyCode(keyCode)
             if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
-            // Ctrl+Space — some devices report unicodeChar=0 here, some 0x20.
+            // Ctrl+Space——部分设备在此报告 unicodeChar=0，部分报告 0x20。
             if (keyCode == KeyEvent.KEYCODE_SPACE) {
                 return withAltPrefix(altActive, byteArrayOf(0x00))
             }
-            // Fold Ctrl+printable-ASCII into a control byte (shared table
-            // with encodeCommittedText). Digits 1/9/0 have no traditional
-            // mapping (c & 0x1F would collide with Ctrl+Q / Ctrl+Y / Ctrl+P),
-            // so per zed-port mappings/keys.rs they are emitted as
-            // `CSI 27;5;code~` instead of being dropped. When Alt is also
-            // held the folded byte is prefixed with ESC, matching xterm
-            // (Ctrl+Alt+A → ESC 0x01).
+            // 把 Ctrl+可打印 ASCII 折叠为控制字节（与 encodeCommittedText 共用表）。
+            // 数字 1/9/0 没有传统映射（c & 0x1F 会与 Ctrl+Q / Ctrl+Y / Ctrl+P 冲突），
+            // 故按 zed 的 mappings/keys.rs 改以 `CSI 27;5;code~` 发出而非丢弃。
+            // 同时按住 Alt 时折叠字节前加 ESC 前缀，对应 xterm
+            // （Ctrl+Alt+A → ESC 0x01）。
             if (unicodeChar in 0x20..0x7E) {
                 if (unicodeChar == '1'.code || unicodeChar == '9'.code || unicodeChar == '0'.code) {
                     val modifier = 1 + (if (altActive) 2 else 0) + 4
@@ -92,10 +89,9 @@ object TerminalInputEncoder {
     }
 
     /**
-     * xterm/zed `CSI 27` modifier encoding: `ESC [ 27 ; modifier ; code ~`.
-     * Modifier bits: Shift=1, Alt=2, Ctrl=4 (zed mappings/keys.rs
-     * modifier_code). Used for Ctrl+digits that have no traditional caret
-     * fold (see docs/specification/REFERENCE.md: Ctrl+数字/标点 → CSI 27;5;n~).
+     * xterm/zed 的 `CSI 27` 修饰键编码：`ESC [ 27 ; modifier ; code ~`。
+     * 修饰键位：Shift=1，Alt=2，Ctrl=4。用于没有传统脱字符映射的
+     * Ctrl+数字（见 docs/specification/REFERENCE.md：Ctrl+数字/标点 → CSI 27;5;n~）。
      */
     private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
@@ -122,9 +118,8 @@ object TerminalInputEncoder {
         return when (keyCode) {
             KeyEvent.KEYCODE_TAB ->
                 when {
-                    // With Alt held, xterm sends ESC TAB
-                    // (Meta prefix), not a bare tab; with Ctrl held it
-                    // sends CSI 9;mod~ (xterm/kitty convention).
+                    // 按住 Alt 时，xterm 发送 ESC TAB（Meta 前缀）而非裸制表符；
+                    // 按住 Ctrl 时发送 CSI 9;mod~（xterm/kitty 约定）。
                     ctrlActive || altActive -> {
                         val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
                         "\u001b[9;$modParam~"
@@ -135,7 +130,7 @@ object TerminalInputEncoder {
 
             KeyEvent.KEYCODE_ENTER ->
                 if (ctrlActive || altActive) {
-                    // Enter with modifiers: xterm reports via CSI 13;mod~.
+                    // 带修饰键的回车：xterm 经 CSI 13;mod~ 上报。
                     val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
                     "\u001b[13;$modParam~"
                 } else {
@@ -220,11 +215,11 @@ object TerminalInputEncoder {
     }
 
     /**
-     * Arrow-key sequence honoring DECCKM (see docs/specification/REFERENCE.md): in application cursor mode the arrows must
-     * use SS3 (`ESC O A`) instead of CSI (`ESC [ A`), or vim/less/mutt in
-     * app mode misread them. Modifier-carrying arrows never reach this
-     * helper — they are handled by [csiSequenceWithModifier]. Shared with
-     * [ModifierBar], whose arrow buttons must follow the same mode.
+     * 遵循 DECCKM 的方向键序列（见 docs/specification/REFERENCE.md）：
+     * 在应用光标模式下方向键须用 SS3（`ESC O A`）而非 CSI（`ESC [ A`），
+     * 否则 app 模式下的 vim/less/mutt 会误读。
+     * 带修饰键的方向键不会到达此辅助函数——它们由 [csiSequenceWithModifier] 处理。
+     * 与 [ModifierBar] 共用，其方向键按钮必须遵循相同模式。
      */
     internal fun arrowSequence(keyCode: Int, appCursorMode: Boolean): String = when {
         appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_UP -> "\u001bOA"
@@ -238,20 +233,17 @@ object TerminalInputEncoder {
     }
 
     /**
-     * POSIX Ctrl fold for a printable ASCII code point; null = not foldable
-     * (callers send it verbatim or drop it). Digits 9/0 are intentionally
-     * absent: c & 0x1F would collide with Ctrl+Y / Ctrl+P, so callers drop
-     * them before calling.
+     * 可打印 ASCII 码点的 POSIX Ctrl 折叠；null = 不可折叠（调用方原样发送或丢弃）。
+     * 刻意不含数字 9/0：c & 0x1F 会与 Ctrl+Y / Ctrl+P 冲突，调用方在调用前先丢弃它们。
      */
     private fun controlByteForCodePoint(codePoint: Int): Byte? = when (codePoint) {
         in 'a'.code..'z'.code -> (codePoint - LOWERCASE_CONTROL_OFFSET).toByte()
 
         in 'A'.code..'Z'.code -> (codePoint - UPPERCASE_CONTROL_OFFSET).toByte()
 
-        // Space and digits 2-8 follow the ANSI/VT100 tradition (their shifted
-        // symbols are @ [ \ ] ^ _): Ctrl+Space/Ctrl+2 → NUL, Ctrl+3 → ESC,
-        // Ctrl+4 → 0x1C, Ctrl+5 → 0x1D, Ctrl+6 → 0x1E, Ctrl+7 → 0x1F,
-        // Ctrl+8 → DEL.
+        // 空格与数字 2-8 遵循 ANSI/VT100 传统（其上档符号为 @ [ \ ] ^ _）：
+        // Ctrl+Space/Ctrl+2 → NUL，Ctrl+3 → ESC，Ctrl+4 → 0x1C，Ctrl+5 → 0x1D，
+        // Ctrl+6 → 0x1E，Ctrl+7 → 0x1F，Ctrl+8 → DEL。
         ' '.code, '2'.code -> 0x00
 
         '3'.code -> 0x1B
@@ -266,8 +258,8 @@ object TerminalInputEncoder {
 
         '8'.code -> 0x7F
 
-        // Ctrl+[ → ESC, Ctrl+\ → 0x1C, Ctrl+] → 0x1D, Ctrl+^ → 0x1E,
-        // Ctrl+_ → 0x1F, Ctrl+/ → 0x0F, and other punctuation via c & 0x1F.
+        // Ctrl+[ → ESC，Ctrl+\ → 0x1C，Ctrl+] → 0x1D，Ctrl+^ → 0x1E，
+        // Ctrl+_ → 0x1F，Ctrl+/ → 0x0F，其他标点经 c & 0x1F 处理。
         in 0x20..0x7E -> (codePoint and 0x1F).toByte()
 
         else -> null

@@ -1,18 +1,7 @@
-//! Custom `log::Log` implementation for Android that writes to logcat.
+//! 自定义 `log::Log` 实现，写入 logcat，由 Kotlin 经 JNI 初始化。
 //!
-//! Initialised from Kotlin via JNI (`Java_..._initLogger`).
-//!
-//! Messages longer than logcat's per-entry payload cap (4068 bytes) are
-//! split into chunks  — logcat silently truncates any entry
-//! past that limit, so the tail of a long log line would otherwise be
-//! lost. Chunking math lives in [`crate::log_chunk`] and is unit-tested
-//! on the host.
-//!
-//! Replaces the previous `android_logger`-based initialization.
-//!
-//! # Requirements
-//! - NFR-025 — Unified logging infrastructure (logcat;:
-//!   logcat-only, no file sink — mirrors termux-kotlin Logger)
+//! logcat 单条上限 4068 字节且超限**静默截断**，故长消息必须分块，
+//! 否则尾部丢失；分块算法置于 [`crate::log_chunk`] 以便在 host 上单元测试。
 
 #![cfg(target_os = "android")]
 
@@ -20,7 +9,7 @@ use core::ffi::c_char;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use std::ffi::CString;
 
-// ── Android log priorities (from <android/log.h>) ──────────────────────
+// ── Android 日志优先级（来自 <android/log.h>） ─────────────────────────
 
 const ANDROID_LOG_VERBOSE: i32 = 2;
 const ANDROID_LOG_DEBUG: i32 = 3;
@@ -28,10 +17,9 @@ const ANDROID_LOG_INFO: i32 = 4;
 const ANDROID_LOG_WARN: i32 = 5;
 const ANDROID_LOG_ERROR: i32 = 6;
 
-// SAFETY: `__android_log_write` is the public NDK logging function from
-// liblog.so. The `tag` and `text` pointers must be NUL-terminated C strings
-// valid for the duration of the call; all call sites pass CString/str::as_ptr
-// into strings that outlive the call (see `log` below).
+// SAFETY: `__android_log_write` 是 liblog.so 公开的 NDK 日志函数。`tag` 与 `text`
+// 指针须为 NUL 结尾的 C 字符串且在调用期间有效；所有调用点传入的 CString/str::as_ptr
+// 均指向生命周期长于本次调用的字符串（见下方 `log`）。
 #[link(name = "log")]
 unsafe extern "C" {
     fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32;
@@ -47,7 +35,7 @@ fn level_to_android(level: Level) -> i32 {
     }
 }
 
-// ── Logger ──────────────────────────────────────────────────────────────
+// ── Logger ─────────────────────────────────────────────────────────────
 
 struct AndroidLogger;
 
@@ -64,14 +52,13 @@ impl Log for AndroidLogger {
             // SAFETY: "Rust" has no interior NUL bytes
             CString::new("Rust").expect("hardcoded string without NUL")
         });
-        // Split long messages so logcat does not truncate them.
+        // 分块以免 logcat 截断。
         for chunk in crate::log_chunk::chunk_message(tag, &msg) {
             let msg_c = CString::new(chunk.as_str()).unwrap_or_else(|_| {
                 // SAFETY: Vec::<u8>::new() contains no NUL bytes
                 CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
             });
-            // SAFETY: __android_log_write is a public NDK function; the
-            // pointers point to valid NUL-terminated C strings.
+            // SAFETY: `__android_log_write` 是公开 NDK 函数，指针指向有效的 NUL 结尾 C 字符串。
             unsafe {
                 __android_log_write(prio, tag_c.as_ptr(), msg_c.as_ptr());
             }
@@ -83,9 +70,7 @@ impl Log for AndroidLogger {
 
 static LOGGER: AndroidLogger = AndroidLogger;
 
-/// Must be called exactly once (idempotent via [`std::sync::Once`]).
-/// Replaces the `android_logger` initialization previously done on the Kotlin side
-/// when the bridge starts up.
+/// 必须且只需调用一次（经 [`std::sync::Once`] 幂等）。
 pub(crate) fn init() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
@@ -95,18 +80,12 @@ pub(crate) fn init() {
     });
 }
 
-/// Route panics from any Rust thread into the logging system (logcat)
-/// with a captured backtrace.
+/// 将任意 Rust 线程的 panic 连同 backtrace 导入日志系统。
 ///
-/// Without this hook a panic in a non-JNI thread — e.g. the PTY reader
-/// thread spawned in `session.rs`, which has no `catch_unwind` — prints
-/// to stderr only, which is invisible on Android: the thread dies
-/// silently and the crash site is lost. Kotlin's
-/// `Thread.setDefaultUncaughtExceptionHandler` does not cover Rust
-/// threads.
-///
-/// `Backtrace::force_capture()` works in release builds without
-/// `RUST_BACKTRACE` (Rust 1.65+).
+/// 无此钩子时，非 JNI 线程（如 `session.rs` 起的 PTY 读取线程，无 `catch_unwind`）
+/// 的 panic 只进 stderr，在 Android 上不可见：线程静默死亡且丢失崩溃现场；
+/// Kotlin 的 `Thread.setDefaultUncaughtExceptionHandler` 不覆盖 Rust 线程。
+/// `Backtrace::force_capture()` 在 release 构建下无需 `RUST_BACKTRACE` 亦生效。
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::force_capture();

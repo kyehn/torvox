@@ -30,14 +30,12 @@ class AnrWatchDog(
     private val anrInProgress = AtomicBoolean(false)
     private val completed = AtomicBoolean(false)
 
-    // Bumped on every start(); a watchdog thread whose generation no longer
-    // matches exits — so a stop()→start() cycle where the old thread
-    // survived the join timeout cannot leave two watchers alive.
+    // 每次 start() 递增；代次不再匹配的看门狗线程自行退出
+    // ——使 stop()→start() 循环中存活过 join 超时的旧线程不会留下两个监视者。
     private val generation = AtomicInteger(0)
 
     fun start() {
-        // CAS: two concurrent callers must not start two watchdog threads
-        // (each may kill the process).
+        // CAS：两个并发调用方绝不能启动两个看门狗线程（每个都可能杀掉进程）。
         if (!running.compareAndSet(false, true)) return
         val myGeneration = generation.incrementAndGet()
         completed.set(false)
@@ -48,9 +46,8 @@ class AnrWatchDog(
             }
     }
 
-    // Defensive API: no production caller today (the watchdog lives for the
-    // whole process). Keep the generation handshake so a future caller
-    // cannot leak a stale watcher.
+    // 防御性 API：当前无生产调用方（看门狗存活于整个进程生命周期）。
+    // 保留代次握手，使未来的调用方不会泄漏陈旧的监视者。
     fun stop() {
         running.set(false)
         generation.incrementAndGet()
@@ -64,10 +61,9 @@ class AnrWatchDog(
     }
 
     private suspend fun watchLoop(myGeneration: Int) {
-        // Warm-up window: cold start (Hilt injection, first Compose frame,
-        // DataStore reads) routinely exceeds 5s on slow devices; a single
-        // false positive kills the process and loses every session. Skip
-        // checks until the app has been running for a while.
+        // 预热窗口：冷启动（Hilt 注入、首个 Compose 帧、DataStore 读取）
+        // 在慢速设备上经常超过 5s；一次误报就会杀掉进程并丢失所有会话。
+        // 在应用已运行一段时间之前跳过检查。
         val startUpNanos = System.nanoTime()
         while (System.nanoTime() - startUpNanos < warmUpMillis * 1_000_000L) {
             if (!running.get() || generation.get() != myGeneration) return
@@ -87,11 +83,10 @@ class AnrWatchDog(
                 val elapsed = System.currentTimeMillis() - startMs
                 if (elapsed >= timeoutMs) {
                     onAnrDetected()
-                    // ANR is terminal: either BootGuard kills the
-                    // process or killing is suppressed and the dump was
-                    // already logged. Re-arming here would re-trigger
-                    // every `timeoutMs` (filling the data partition in
-                    // the suppressed case) — stop the watcher instead.
+                    // ANR 是终止性的：要么 BootGuard 杀掉进程，
+                    // 要么杀进程被抑制且 dump 已记录。在此重新武装
+                    // 会每 `timeoutMs` 再次触发（在被抑制的情形下填满数据分区）
+                    // ——改为停止监视者。
                     return
                 }
                 if (completed.get()) break
@@ -105,11 +100,9 @@ class AnrWatchDog(
         try {
             val suppressed = !BootGuard.autoKillEnabled
             if (suppressed) {
-                // BootGuard has already suppressed killing after repeated
-                // exits. Writing a full thread dump every 5 s while the
-                // main thread stays blocked would fill the data partition
-                // (dumps are fsync'd and never rotated), so only log to
-                // logcat in this state.
+                // BootGuard 已在反复退出后抑制了杀进程。
+                // 主线程持续阻塞时每 5s 写一份完整线程 dump 会填满数据分区
+                // （dump 会 fsync 且从不轮转），故此状态下只写 logcat。
                 Log.e("AnrWatchDog", "ANR suppressed by BootGuard; skipping dump")
                 return
             }
