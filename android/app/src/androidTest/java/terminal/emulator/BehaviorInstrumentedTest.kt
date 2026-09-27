@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Bitmap
@@ -145,6 +146,7 @@ class BehaviorInstrumentedTest {
         goBack()
     }
 
+    @SuppressLint("DeprecatedCall")
     @Test
     fun behavior_selection_toolbar_shows_copy_select_all() {
         // 选择菜单走 Surface 侧 PopupWindow（复制/粘贴/分享/全选），不用系统
