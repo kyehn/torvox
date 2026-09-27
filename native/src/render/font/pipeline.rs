@@ -2,6 +2,7 @@
 
 use cosmic_text::FontSystem;
 
+#[cfg(target_os = "android")]
 use super::font_db;
 use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis};
 
@@ -60,48 +61,10 @@ pub struct FontPipeline {
 
 impl FontPipeline {
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
+        // 渲染侧只常驻 4 个族（主字体/用户字体 + 一个符号族 + 一个区域族），
+        // 用户投放目录由 load_font_database 内部一并处理。
         #[cfg(target_os = "android")]
-        let mut db = font_db::load_font_database();
-
-        #[cfg(target_os = "android")]
-        {
-            let extra = font_db::EXTRA_FONT_PATHS.read();
-            let mut extra_loaded = 0usize;
-            for path in extra.iter() {
-                if path.is_file() {
-                    if let Err(error) = db.load_font_file(path) {
-                        // 只记文件名：完整路径可能带出用户主目录。
-                        log::warn!(
-                            "font: failed to load font file {}: {error}",
-                            path.file_name().unwrap_or_default().to_string_lossy()
-                        );
-                    } else {
-                        extra_loaded += 1;
-                    }
-                } else if path.is_dir()
-                    && let Ok(entries) = std::fs::read_dir(path)
-                {
-                    for entry in entries.flatten() {
-                        let file_path = entry.path();
-                        if font_db::is_font_file(&file_path) {
-                            if let Err(error) = db.load_font_file(&file_path) {
-                                // 只记文件名：完整路径可能带出用户主目录。
-                                log::warn!(
-                                    "font: failed to load font file {}: {error}",
-                                    file_path.file_name().unwrap_or_default().to_string_lossy()
-                                );
-                            } else {
-                                extra_loaded += 1;
-                            }
-                        }
-                    }
-                }
-            }
-            log::debug!(
-                "FONT_EXTRA: loaded {extra_loaded} fonts from {} extra paths",
-                extra.len()
-            );
-        }
+        let db = super::font_db::load_font_database();
 
         #[cfg(not(target_os = "android"))]
         let db = {
@@ -150,7 +113,9 @@ impl FontPipeline {
     /// 缺失或无法解析由 [`font_db::resolve_system_monospace_from_fonts_xml`] 直接
     /// `abort`，`fonts.xml` 声明的字体未加载也视为解析失败并 `abort`。
     fn find_monospace_font(&mut self) {
-        if let Some(target_filename) = font_db::resolve_system_monospace_from_fonts_xml() {
+        #[cfg(target_os = "android")]
+        {
+            let target_filename = font_db::resolve_system_monospace_from_fonts_xml();
             let db = self.font_system.db();
             let stem = std::path::Path::new(&target_filename)
                 .file_stem()
@@ -199,8 +164,7 @@ impl FontPipeline {
         // 优先选自身不覆盖 CJK 的面 —— 否则 `find_cjk_fallback_fonts` 会判定
         // 「主字体已支持 CJK」而整层跳过，单元测试就再也验证不到 CJK 回退链路。
         // 判定用字形能力探测（charmap），不是硬编码字体名。全部等宽面都覆盖 CJK
-        // 时退回首面。设备上 resolve_system_monospace_from_fonts_xml 从不返回
-        // None，故该段不可达。
+        // 时退回首面。设备上走上面的 fonts.xml 分支，本段不编译。
         #[cfg(not(target_os = "android"))]
         {
             let db = self.font_system.db();
@@ -222,9 +186,6 @@ impl FontPipeline {
                 self.font_id = Some(face.id);
             }
         }
-
-        #[cfg(target_os = "android")]
-        unreachable!("fonts.xml 解析失败时 resolve_system_monospace_from_fonts_xml 已 abort");
     }
 
     /// 重建字形图集：重置分配器、清位图、递增代次并重光栅化 ASCII。
@@ -266,6 +227,13 @@ impl FontPipeline {
             self.reset_atlas();
             self.rediscover_fallback_fonts();
             return true;
+        }
+        // 库内没有该族时按需装入：渲染侧只常驻 4 个族（见 font_db::load_font_database），
+        // 设置页选中的其余族要到这里才真正加载。
+        #[cfg(target_os = "android")]
+        if !Self::find_font_by_name(self.font_system.db(), family_name).is_some() {
+            let loaded = super::font_db::load_family(self.font_system.db_mut(), family_name);
+            log::debug!("FONT_SELECT: 按需装入族 '{family_name}' -> {loaded} 个文件");
         }
         let found = {
             let db = self.font_system.db_mut();
@@ -842,23 +810,35 @@ impl FontPipeline {
         self.glyph_information_from_font(font_id, '\0', glyph_id)
     }
 
+    /// 字体列表。宿主列出库内全部等宽族；设备上改为按需枚举
+    /// `fonts.xml` 声明的完整族集合——渲染侧只常驻 4 个族，列表却必须完整，
+    /// 故此处才触发那次枚举（约 4ms），且只在设置页显示列表时被调用。
     pub fn list_monospace_fonts(&self) -> Vec<String> {
-        let db = self.font_system.db();
-        let mut fonts = Vec::new();
-        for face in db.faces() {
-            #[cfg(not(target_os = "android"))]
-            if !face.monospaced {
-                continue;
-            }
-            for (family, _) in &face.families {
-                let name = family.to_string();
-                if !fonts.contains(&name) {
-                    fonts.push(name);
+        #[cfg(target_os = "android")]
+        {
+            return super::font_db::family_index()
+                .iter()
+                .map(|entry| entry.display_name.clone())
+                .collect();
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let db = self.font_system.db();
+            let mut fonts = Vec::new();
+            for face in db.faces() {
+                if !face.monospaced {
+                    continue;
+                }
+                for (family, _) in &face.families {
+                    let name = family.to_string();
+                    if !fonts.contains(&name) {
+                        fonts.push(name);
+                    }
                 }
             }
+            fonts.sort();
+            fonts
         }
-        fonts.sort();
-        fonts
     }
 
     fn find_font_by_name(db: &fontdb::Database, family_name: &str) -> Option<fontdb::ID> {
