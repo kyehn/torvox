@@ -10,6 +10,10 @@ pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
 }
 
+/// 排空挂起 GPU 工作时的单次 poll 等待量（一帧 60Hz 量级）：只求排空提交，
+/// 不阻塞帧循环。
+const GPU_DRAIN_POLL_QUANTUM: std::time::Duration = std::time::Duration::from_millis(16);
+
 /// 逐帧渲染上下文：打包 encoder、surface 纹理与 view，把短生命周期资源与长生命周期的
 /// `Renderer` 状态分开。由 `Renderer::begin_frame()` 创建。
 pub struct FrameContext {
@@ -175,7 +179,7 @@ impl Renderer {
         if self.pending_gpu_drain {
             let _ = self.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
-                timeout: Some(std::time::Duration::from_millis(16)),
+                timeout: Some(GPU_DRAIN_POLL_QUANTUM),
             });
             self.pending_gpu_drain = false;
         }
