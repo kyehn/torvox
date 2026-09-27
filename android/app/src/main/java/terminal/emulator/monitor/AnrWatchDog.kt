@@ -129,8 +129,8 @@ class AnrWatchDog(
 
             Log.e("AnrWatchDog", "ANR detected, killing process:\n$stackTraces")
             onAnr()
-        } catch (e: Exception) {
-            Log.e("AnrWatchDog", "Unhandled exception in ANR handler", e)
+        } catch (exception: Exception) {
+            Log.e("AnrWatchDog", "Unhandled exception in ANR handler", exception)
         } finally {
             anrInProgress.set(false)
         }
