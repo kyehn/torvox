@@ -13,7 +13,6 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import kotlinx.collections.immutable.persistentListOf
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -115,9 +114,8 @@ class ModifierBarRobolectricTest {
 
     @Test
     fun `configurable ctrl key toggles selected on tap`() {
-        // App path (toolbarLayout != null) with Termux-parity wiring: a tap
-        // must arm CTRL (selected), mirroring the device scenario
-        // 修饰键可以切换状态 which regressed to Selected=false.
+        // Termux 对等接线：点击必须使 CTRL 进入 armed（selected）态，
+        // 对应设备场景「修饰键可以切换状态」曾回归为 Selected=false。
         var ctrl by mutableStateOf(ModifierState.Off)
         composeRule.setContent {
             MaterialTheme {
@@ -125,7 +123,6 @@ class ModifierBarRobolectricTest {
                     onKeyClick = {},
                     ctrlState = ctrl,
                     onToggleCtrl = { ctrl = ctrl.next() },
-                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.CTRL)),
                 )
             }
         }
@@ -170,7 +167,6 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onKeyClick = { sent.add(it) },
-                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.ARROW_UP)),
                 )
             }
         }
@@ -187,7 +183,6 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onKeyClick = { sent.add(it) },
-                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.ARROW_UP)),
                     isAppCursorMode = { true },
                 )
             }
@@ -209,7 +204,6 @@ class ModifierBarRobolectricTest {
                     onKeyClick = { sent.add(it) },
                     onKeyBytesClick = { sentBytes.add(it) },
                     onConsumeModifiers = { consumed++ },
-                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.PGUP)),
                 )
             }
         }
@@ -233,7 +227,6 @@ class ModifierBarRobolectricTest {
                     onKeyBytesClick = { sentBytes.add(it) },
                     onConsumeModifiers = { consumed++ },
                     ctrlState = ModifierState.Once,
-                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.PGUP)),
                 )
             }
         }

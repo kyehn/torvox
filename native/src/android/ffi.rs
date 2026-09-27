@@ -381,7 +381,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     working_directory: JString,
     prefix: JString,
     mkshrc_path: JString,
-    scrollback_lines: jint,
 ) -> jlong {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
@@ -396,7 +395,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             working_directory,
             prefix,
             mkshrc_path,
-            scrollback_lines,
         )
     })
 }
@@ -415,7 +413,6 @@ fn init_session_inner(
     working_directory: JString,
     prefix: JString,
     mkshrc_path: JString,
-    scrollback_lines: jint,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
         Ok(r) => r,
@@ -516,16 +513,8 @@ fn init_session_inner(
         },
     };
 
-    // Parse scrollback_lines: Kotlin Settings → JNI → native.
-    // Negative values fall back to the default (2000); zero clamps to 1.
-    let scrollback_lines = u32::try_from(scrollback_lines)
-        .unwrap_or(crate::terminal::session::DEFAULT_SCROLLBACK_LINES)
-        .max(1);
-
-    let theme = crate::terminal::session::ThemeConfig {
-        scrollback_lines,
-        ..Default::default()
-    };
+    // 回滚行数固定：PROHIBITED 禁止「终端回滚行数」设置，故不提供任何入参通道。
+    let theme = crate::terminal::session::ThemeConfig::default();
 
     match Session::spawn_with_theme(&shell_path, rows, cols, &shell_env, None, theme) {
         Ok(session) => {

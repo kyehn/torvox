@@ -3,9 +3,7 @@
 use cosmic_text::FontSystem;
 
 use super::font_db;
-use super::{
-    CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis, PREFERRED_MONOSPACE_FONTS,
-};
+use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis};
 
 /// Structured font state for the Android UI layer. Serialized to JSON over
 /// JNI; all display formatting is done with string resources in Kotlin.
@@ -246,158 +244,87 @@ impl FontPipeline {
         pipeline
     }
 
+    /// 选定主字体。
+    ///
+    /// 设备上 `fonts.xml` 是唯一来源（DESIGN 字体节：不得使用任何硬编码字体名）：
+    /// 缺失或无法解析由 [`font_db::resolve_system_monospace_from_fonts_xml`] 直接
+    /// `abort`，`fonts.xml` 声明的字体未加载也视为解析失败并 `abort`。
     fn find_monospace_font(&mut self) {
-        let db = self.font_system.db();
-
         if let Some(target_filename) = font_db::resolve_system_monospace_from_fonts_xml() {
+            let db = self.font_system.db();
             let stem = std::path::Path::new(&target_filename)
                 .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+                .and_then(|stem| stem.to_str())
+                .unwrap_or_default();
+            // fonts.xml 给的是文件名，fontdb 给的是家族名：先用「分隔符归一 +
+            // 精确相等」匹配，再退到「去空白后精确相等」覆盖 Droid Sans Mono 这类
+            // 家族名带空格而文件名带下划线的差异。
             let stem_lower = stem.to_lowercase().replace(['-', '_'], " ");
-            for face in db.faces() {
-                if !face.monospaced {
-                    continue;
-                }
-                let name = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.to_lowercase())
-                    .unwrap_or_default();
-                let name_normalized = name.replace(['-', '_'], " ");
-                if name_normalized == stem_lower || name_normalized.contains(&stem_lower) {
-                    let display = face
+            if let Some(face_id) = db
+                .faces()
+                .filter(|face| face.monospaced)
+                .find(|face| {
+                    let name = face
                         .families
                         .first()
-                        .map(|(n, _)| n.clone())
-                        .unwrap_or_default();
-                    log::debug!(
-                        "FONT_SELECT: fonts.xml monospace id={:?} name='{}' (stem='{}')",
-                        face.id,
-                        display,
-                        stem
-                    );
-                    self.font_id = Some(face.id);
-                    return;
-                }
-            }
-            for face in db.faces() {
-                if !face.monospaced {
-                    continue;
-                }
-                let name_nospace: String = face
-                    .families
-                    .first()
-                    .map(|(n, _)| {
-                        n.to_lowercase()
-                            .chars()
-                            .filter(|c| !c.is_whitespace())
-                            .collect()
+                        .map_or("", |(name, _)| name)
+                        .to_lowercase();
+                    name.replace(['-', '_'], " ") == stem_lower
+                })
+                .or_else(|| {
+                    let stem_nospace = stem_lower.replace(' ', "");
+                    db.faces().find(|face| {
+                        face.monospaced
+                            && face
+                                .families
+                                .first()
+                                .map_or(String::new(), |(name, _)| name.to_lowercase())
+                                .chars()
+                                .filter(|character| !character.is_whitespace())
+                                .collect::<String>()
+                                == stem_nospace
                     })
-                    .unwrap_or_default();
-                let stem_nospace = stem_lower.replace(' ', "");
-                if name_nospace == stem_nospace {
-                    let display = face
-                        .families
-                        .first()
-                        .map(|(n, _)| n.clone())
-                        .unwrap_or_default();
-                    log::debug!(
-                        "FONT_SELECT: fonts.xml monospace (nospace) id={:?} name='{}'",
-                        face.id,
-                        display
-                    );
-                    self.font_id = Some(face.id);
-                    return;
-                }
-            }
-        }
-
-        for face in db.faces() {
-            if !face.monospaced {
-                continue;
-            }
-            let name = face
-                .families
-                .first()
-                .map(|(n, _)| n.to_lowercase())
-                .unwrap_or_default();
-            if PREFERRED_MONOSPACE_FONTS.iter().any(|p| name.contains(p)) {
-                let display = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-                log::debug!(
-                    "FONT_SELECT: preferred monospace id={:?} name='{}'",
-                    face.id,
-                    display
-                );
-                self.font_id = Some(face.id);
+                })
+                .map(|face| face.id)
+            {
+                log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
+                self.font_id = Some(face_id);
                 return;
             }
+            log::error!("FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未加载");
+            std::process::abort();
         }
 
-        for face in db.faces() {
-            if face.monospaced {
-                let name = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.to_lowercase())
-                    .unwrap_or_default();
-                if name.contains("cjk")
-                    || name.contains("sc")
-                    || name.contains("tc")
-                    || name.contains("jp")
-                    || name.contains("kr")
-                    || name.contains("han")
-                {
-                    continue;
-                }
-                let display = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-                log::debug!("FONT_SELECT: monospace id={:?} name='{}'", face.id, display);
+        // 宿主（单元测试与基准）没有系统 fonts.xml：取 fontdb 首个等宽面。
+        // 优先选自身不覆盖 CJK 的面 —— 否则 `find_cjk_fallback_fonts` 会判定
+        // 「主字体已支持 CJK」而整层跳过，单元测试就再也验证不到 CJK 回退链路。
+        // 判定用字形能力探测（charmap），不是硬编码字体名。全部等宽面都覆盖 CJK
+        // 时退回首面。设备上 resolve_system_monospace_from_fonts_xml 从不返回
+        // None，故该段不可达。
+        #[cfg(not(target_os = "android"))]
+        {
+            let db = self.font_system.db();
+            let covers_cjk = |face_id| {
+                db.with_face_data(face_id, |font_data, face_index| {
+                    swash::FontRef::from_index(font_data, face_index as usize)
+                        .map(|font| font.charmap().map('中') != 0)
+                })
+                .flatten()
+                .unwrap_or(false)
+            };
+            let face = db
+                .faces()
+                .find(|face| face.monospaced && !covers_cjk(face.id))
+                .or_else(|| db.faces().find(|face| face.monospaced));
+            if let Some(face) = face {
+                let name = face.families.first().map_or("", |(name, _)| name);
+                log::debug!("FONT_SELECT: host monospace id={:?} name='{name}'", face.id);
                 self.font_id = Some(face.id);
-                return;
             }
         }
 
-        for face in db.faces() {
-            if face.monospaced {
-                let name = face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-                log::debug!(
-                    "FONT_SELECT: monospace (CJK ok) id={:?} name='{}'",
-                    face.id,
-                    name
-                );
-                self.font_id = Some(face.id);
-                return;
-            }
-        }
-
-        if let Some(face) = db.faces().next() {
-            let name = face
-                .families
-                .first()
-                .map(|(n, _)| n.clone())
-                .unwrap_or_default();
-            log::warn!(
-                "FONT_SELECT: fallback to any face id={:?} name='{}'",
-                face.id,
-                name
-            );
-            self.font_id = Some(face.id);
-            return;
-        }
-
-        log::error!("FONT_SELECT: no font found in system!");
+        #[cfg(target_os = "android")]
+        unreachable!("fonts.xml 解析失败时 resolve_system_monospace_from_fonts_xml 已 abort");
     }
 
     /// Reset the glyph atlas allocator, clear the bitmap, bump the
@@ -618,34 +545,12 @@ impl FontPipeline {
     }
 
     pub fn system_monospace_name(&self) -> String {
-        let db = self.font_system.db();
-        for face in db.faces() {
-            if !face.monospaced {
-                continue;
-            }
-            let name = face
-                .families
-                .first()
-                .map(|(n, _)| n.to_lowercase())
-                .unwrap_or_default();
-            if PREFERRED_MONOSPACE_FONTS.iter().any(|p| name.contains(p)) {
-                return face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-            }
-        }
-        for face in db.faces() {
-            if face.monospaced {
-                return face
-                    .families
-                    .first()
-                    .map(|(n, _)| n.clone())
-                    .unwrap_or_default();
-            }
-        }
-        String::new()
+        self.font_system
+            .db()
+            .faces()
+            .find(|face| face.monospaced)
+            .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+            .unwrap_or_default()
     }
 
     /// CJK fallback family names in priority order (same order as

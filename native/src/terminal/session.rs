@@ -83,9 +83,9 @@ fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
 /// while the thread no longer spins the CPU when the PTY is idle.
 const READ_POLL_TIMEOUT_MS: i32 = 100;
 
-/// 回滚行数固定值（与 Termux 默认 transcript-rows=2000 一致），产品层不提供修改入口。
-/// 原生 `ThemeConfig.scrollback_lines` 字段保留可调能力，仅供测试与基准使用。
-pub const DEFAULT_SCROLLBACK_LINES: u32 = 2000;
+/// 回滚行数固定值（与 Termux 默认 transcript-rows=2000 一致）。
+/// PROHIBITED 禁止「终端回滚行数」设置，因此既无产品入口也无 FFI 入参通道。
+pub(crate) const DEFAULT_SCROLLBACK_LINES: u32 = 2000;
 
 /// Errors that can occur during session operations.
 #[derive(Debug, Error)]
@@ -210,7 +210,6 @@ pub struct ThemeConfig {
     pub background: [u8; 3],
     pub foreground: [u8; 3],
     pub ansi: [[u8; 3]; 16],
-    pub scrollback_lines: u32,
 }
 
 impl Default for ThemeConfig {
@@ -220,7 +219,6 @@ impl Default for ThemeConfig {
             background,
             foreground,
             ansi,
-            scrollback_lines: DEFAULT_SCROLLBACK_LINES,
         }
     }
 }
@@ -434,7 +432,7 @@ impl Session {
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
             cols,
-            theme.scrollback_lines,
+            DEFAULT_SCROLLBACK_LINES,
             theme.background,
             theme.foreground,
             theme.ansi,

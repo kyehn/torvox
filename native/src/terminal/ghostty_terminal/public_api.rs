@@ -1,10 +1,10 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use flume::{Sender, bounded};
 
-use super::commands::{Command, Query, RunConfig, SnapshotCache};
+use super::commands::{Command, Query, RunConfig};
 use super::types::*;
 
 impl super::GhosttyTerminal {
@@ -51,8 +51,6 @@ impl super::GhosttyTerminal {
         let (bell_tx, bell_rx) = bounded::<()>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
-        let snapshot_rebuild_count = Arc::new(AtomicU64::new(0));
-        let snapshot_rebuild_count_for_run = snapshot_rebuild_count.clone();
         let panicked = Arc::new(AtomicBool::new(false));
         let panicked_for_run = panicked.clone();
         let alt_screen_active = Arc::new(AtomicBool::new(false));
@@ -75,7 +73,6 @@ impl super::GhosttyTerminal {
                         foreground_color: initial_foreground,
                         ansi_colors: initial_ansi,
                         response_buffer: pty_for_run,
-                        snapshot_rebuild_count: snapshot_rebuild_count_for_run,
                         alt_screen_active: alt_screen_active_for_run,
                         cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
@@ -105,12 +102,6 @@ impl super::GhosttyTerminal {
             bell_rx,
             handle: Some(handle),
             pty_write_responses,
-            snapshot_rebuild_count,
-            snapshot_cache: Mutex::new(SnapshotCache {
-                cached: Arc::new(GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS)),
-                pending_rx: None,
-                initialized: false,
-            }),
             panicked,
             last_pty_write_byte: 0,
             alt_screen_active,
@@ -340,94 +331,30 @@ impl super::GhosttyTerminal {
         self.query(Query::Cols, DISCONNECTED_COLS, "cols")
     }
 
-    pub fn take_snapshot(&self) -> GridSnapshot {
-        self.take_snapshot_with_scroll(0)
-    }
-
-    /// Number of times the VT thread actually rebuilt the grid snapshot
-    /// (vs reusing the cached snapshot) since this terminal was created.
-    /// Used by tests to prove the snapshot cache skips rebuilds on
-    /// unchanged frames.
-    pub fn snapshot_rebuild_count(&self) -> u64 {
-        self.snapshot_rebuild_count.load(Ordering::Relaxed)
-    }
-
-    /// Returns a **fresh** grid snapshot for the current terminal state.
+    /// Returns a **fresh** grid snapshot of the current viewport.
     ///
     /// This always blocks until the VT thread has processed the request, so
     /// callers observe the latest grid content (never a stale cached frame).
-    /// The VT thread rebuilds the snapshot only when the grid or scroll offset
-    /// actually changed (see `snapshot_needs_rebuild`), so the blocking cost is
-    /// a single channel round-trip and is cheap when the grid is unchanged.
-    pub fn take_snapshot_with_scroll(&self, scroll_offset: u32) -> GridSnapshot {
-        let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
-        if let Err(error) = self
-            .cmd_tx
-            .try_send(Command::TakeSnapshot { tx, scroll_offset })
-        {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-            return GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS);
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(snapshot) => Arc::unwrap_or_clone(snapshot),
-            Err(_) => {
-                log::warn!("ghostty_terminal: take_snapshot_with_scroll timed out");
-                GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS)
-            }
-        }
-    }
-
-    /// Non-blocking snapshot read for the **render hot path**.
+    /// The VT thread rebuilds the snapshot only when the grid actually changed
+    /// (see `snapshot_needs_rebuild`), so the blocking cost is a single channel
+    /// round-trip and is cheap when the grid is unchanged.
     ///
-    /// Returns `None` on the very first call (the cache is primed by issuing a
-    /// command, populated on the next call). Thereafter it returns the latest
-    /// available snapshot without ever blocking on the VT thread — so the
-    /// render thread can call this while holding the session lock without
-    /// stalling main-thread work (IME input, settings). The returned snapshot
-    /// is at most 1 frame behind, which is harmless because the surface diffs
-    /// against `prev_cells`.
-    pub fn try_take_snapshot_with_scroll(&self, scroll_offset: u32) -> Option<GridSnapshot> {
-        let mut cache = match self.snapshot_cache.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::warn!("snapshot_cache mutex poisoned, recovering");
-                poisoned.into_inner()
-            }
-        };
-
-        // Collect any pending response from the previous command.
-        if let Some(rx) = &cache.pending_rx
-            && let Ok(snapshot) = rx.try_recv()
-        {
-            cache.cached = snapshot;
-        }
-
-        if !cache.initialized {
-            // First call: issue a command so the cache populates next frame,
-            // then return None (the surface skips this one frame).
-            let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
-            if self
-                .cmd_tx
-                .try_send(Command::TakeSnapshot { tx, scroll_offset })
-                .is_ok()
-            {
-                cache.pending_rx = Some(rx);
-            }
-            cache.initialized = true;
-            return None;
-        }
-
-        // Issue a command for the next frame's snapshot.
+    /// 通道满或超时说明 VT 线程已卡死：记错误后 panic，不回退到空白网格
+    /// （DESIGN 禁止掩盖错误）。回滚浏览走 CellData 通道（`ScrollViewport` +
+    /// `receive_cell_data`），本快照只覆盖当前视口。
+    pub fn take_snapshot(&self) -> GridSnapshot {
         let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
-        if self
-            .cmd_tx
-            .try_send(Command::TakeSnapshot { tx, scroll_offset })
-            .is_ok()
-        {
-            cache.pending_rx = Some(rx);
+        if let Err(error) = self.cmd_tx.try_send(Command::TakeSnapshot { tx }) {
+            log::error!("ghostty_terminal: 快照命令入队失败（VT 线程已卡死）: {error}");
+            panic!("ghostty_terminal: 快照命令入队失败: {error}");
         }
-
-        Some(Arc::unwrap_or_clone(cache.cached.clone()))
+        let snapshot = rx
+            .recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
+            .unwrap_or_else(|error| {
+                log::error!("ghostty_terminal: 等待 VT 线程快照超时: {error}");
+                panic!("ghostty_terminal: 等待 VT 线程快照超时: {error}");
+            });
+        Arc::unwrap_or_clone(snapshot)
     }
 
     pub fn take_kitty_graphics_image(&self, image_id: u32) -> Option<KittyGraphicsImageData> {

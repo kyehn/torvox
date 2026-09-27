@@ -61,8 +61,6 @@ import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
-import terminal.emulator.input.ModifierState
-import terminal.emulator.input.next
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -163,10 +161,6 @@ fun TerminalScreen(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     var showTextSearch by remember { mutableStateOf(false) }
-    // Sticky FN layer (ModifierBar): when Locked the bar shows the F1-F12
-    // second layer; tapping an F-key or FN again exits it.
-    var fnState by remember { mutableStateOf(ModifierState.Off) }
-    val onToggleFn: () -> Unit = { fnState = fnState.next() }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = LocalView.current
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
@@ -910,8 +904,6 @@ fun TerminalScreen(
                         scrollActive = state.scrollActive,
                         ctrlState = state.ctrlState,
                         altState = state.altState,
-                        fnState = fnState,
-                        onToggleFn = onToggleFn,
                         onToggleCtrl = {
                             viewModel.cycleCtrlState()
                         },
@@ -924,14 +916,10 @@ fun TerminalScreen(
                         onLockAlt = {
                             viewModel.lockAltState()
                         },
-                        onToggleKeyboard = toggleKeyboard,
                         textColor = resolvedTerminalTheme.foreground,
                         backgroundColor = resolvedTerminalTheme.background,
-                        toolbarLayout = rememberToolbarLayout(),
+
                         isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
-                        // 不在此接线粘贴：粘贴只经浮动选择菜单（长按空白）出现，
-                        // 常驻修饰键栏会重现“PASTE始终出现”困扰。
-                        onPaste = null,
                     )
                 }
             }

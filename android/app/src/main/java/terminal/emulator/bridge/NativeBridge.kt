@@ -47,7 +47,6 @@ object NativeBridge {
         workingDirectory: String,
         prefix: String,
         mkshrcPath: String,
-        scrollbackLines: Int,
     ): Long
 
     /** Destroy a session by ID. Returns true on success. */

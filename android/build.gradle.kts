@@ -3,7 +3,6 @@ plugins {
   id("com.android.library") version "9.5.0-alpha07" apply false
   id("org.jetbrains.dokka") version "2.3.0-Beta" apply false
   id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
-  id("org.jetbrains.kotlinx.kover") version "0.9.9" apply false
   id("org.jetbrains.kotlin.plugin.serialization") version "2.4.20" apply false
   id("com.google.dagger.hilt.android") version "2.60.1" apply false
   id("com.google.devtools.ksp") version "2.3.12" apply false
@@ -14,7 +13,6 @@ plugins {
   id("io.github.ben-manes.versions") version "0.64.0" apply false
   id("com.ncorti.ktfmt.gradle") version "0.27.0" apply false
   id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
-  id("de.infix.testBalloon") version "1.1.0" apply false
 }
 
 if (

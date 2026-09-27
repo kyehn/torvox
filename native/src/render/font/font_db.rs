@@ -83,23 +83,35 @@ pub(crate) fn load_font_database() -> fontdb::Database {
     db.clone()
 }
 
+/// 系统等宽字体文件名，取自 `fonts.xml`（DESIGN 字体节：fonts.xml 是唯一来源，
+/// 不得使用任何硬编码字体名）。
+///
+/// 规范要求「系统不存在 fonts.xml 或其内容无法解析，输出日志并崩溃退出」：
+/// 两个候选文件都读不到、都无法解析、或都没给出等宽字体时直接 `abort`。
+/// 宿主（非 Android）不参与：那里没有 fonts.xml，见下方 `#[cfg]` 版本。
 #[cfg(target_os = "android")]
-pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
-    for xml_path in ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"] {
-        // 部分 ROM 只提供 fonts_fallback.xml：单个文件读失败必须继续尝试下一个，
-        // 提前返回会让该 ROM 完全走不到系统等宽字体。
-        let Ok(content) = std::fs::read_to_string(xml_path) else {
-            log::warn!("FONT_XML: 读取 {xml_path} 失败");
-            continue;
+pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
+    /// 按序尝试的 fonts.xml 位置：部分 ROM 只提供 fonts_fallback.xml。
+    const CANDIDATES: [&str; 2] = ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"];
+
+    let mut last_error = String::new();
+    for xml_path in CANDIDATES {
+        let content = match std::fs::read_to_string(xml_path) {
+            Ok(content) => content,
+            Err(error) => {
+                last_error = format!("读取 {xml_path} 失败: {error}");
+                continue;
+            }
         };
         let (monospace, _) = parse_fonts_xml_families(&content);
         if let Some(filename) = monospace.into_iter().next() {
             log::debug!("FONT_XML: monospace target='{filename}'");
-            return Some(filename);
+            return filename;
         }
+        last_error = format!("{xml_path} 未声明等宽字体");
     }
-    log::error!("FONT_XML: 两个 fonts.xml 均未提供等宽字体");
-    None
+    log::error!("FONT_XML: 无法从系统 fonts.xml 解析等宽字体（{last_error}）");
+    std::process::abort();
 }
 
 /// Parsed `fonts.xml`: monospace filenames plus ordered
@@ -234,6 +246,8 @@ pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
     }
 }
 
+/// 宿主环境没有系统 fonts.xml：调用方据此跳过 fonts.xml 分支（见
+/// [`super::pipeline::FontPipeline::find_monospace_font`] 的 `cfg` 分派）。
 #[cfg(not(target_os = "android"))]
 pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
     None

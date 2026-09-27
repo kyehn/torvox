@@ -34,6 +34,9 @@ def main [--profile: string = "", ...abis: string] {
         }
     }
 
+    cargo build --package native
+    cargo build --package native --profile release
+
     for profile in $profiles {
         let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
         cargo ndk ...$ndk_args --platform 21 build --package native --profile $profile
