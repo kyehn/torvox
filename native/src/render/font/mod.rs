@@ -150,7 +150,7 @@ pub struct ShapedGlyphInfo {
 }
 
 #[cfg(target_os = "android")]
-pub use font_db::{add_extra_font_path, set_extra_font_paths};
+pub use font_db::{add_extra_font_path, set_current_locale, set_extra_font_paths};
 pub use pipeline::FontPipeline;
 pub(crate) use pipeline::OverlayQuad;
 
