@@ -982,12 +982,12 @@ impl super::GhosttyTerminal {
         }
 
         let mut scrollback = Vec::with_capacity(scrollback_rows as usize);
-        for i in 0..scrollback_rows {
+        for scrollback_row in 0..scrollback_rows {
             let mut row_cells = Vec::with_capacity(cols as usize);
             for col in 0..cols {
                 row_cells.push(snapshot_at(Point::History(PointCoordinate {
                     x: col as u16,
-                    y: i,
+                    y: scrollback_row,
                 })));
             }
             scrollback.push(row_cells);
