@@ -944,29 +944,32 @@ impl super::GhosttyTerminal {
             .map(|color| Self::byte_color_to_float([color.r, color.g, color.b]))
             .unwrap_or_else(|| Self::byte_color_to_float(fallback_background));
 
+        let snapshot_at = |point: Point| {
+            let mut data = CellSnapshot::default();
+            if let Ok(point) = terminal.grid_ref(point) {
+                if let Ok(cell) = point.cell() {
+                    data.codepoint = cell.codepoint().unwrap_or(0);
+                }
+                if let Ok(style) = point.style() {
+                    Self::apply_style_to_snapshot(
+                        &mut data,
+                        &style,
+                        terminal,
+                        default_foreground,
+                        default_background,
+                    );
+                }
+            }
+            data
+        };
+
         let mut visible = Vec::with_capacity((rows * cols) as usize);
         for row in 0..rows {
             for col in 0..cols {
-                let coord = PointCoordinate {
+                visible.push(snapshot_at(Point::Viewport(PointCoordinate {
                     x: col as u16,
                     y: row,
-                };
-                let mut data = CellSnapshot::default();
-                if let Ok(point) = terminal.grid_ref(Point::Viewport(coord)) {
-                    if let Ok(cell) = point.cell() {
-                        data.codepoint = cell.codepoint().unwrap_or(0);
-                    }
-                    if let Ok(style) = point.style() {
-                        Self::apply_style_to_snapshot(
-                            &mut data,
-                            &style,
-                            terminal,
-                            default_foreground,
-                            default_background,
-                        );
-                    }
-                }
-                visible.push(data);
+                })));
             }
         }
 
@@ -974,26 +977,10 @@ impl super::GhosttyTerminal {
         for i in 0..scrollback_rows {
             let mut row_cells = Vec::with_capacity(cols as usize);
             for col in 0..cols {
-                let coord = PointCoordinate {
+                row_cells.push(snapshot_at(Point::History(PointCoordinate {
                     x: col as u16,
                     y: i,
-                };
-                let mut data = CellSnapshot::default();
-                if let Ok(point) = terminal.grid_ref(Point::History(coord)) {
-                    if let Ok(cell) = point.cell() {
-                        data.codepoint = cell.codepoint().unwrap_or(0);
-                    }
-                    if let Ok(style) = point.style() {
-                        Self::apply_style_to_snapshot(
-                            &mut data,
-                            &style,
-                            terminal,
-                            default_foreground,
-                            default_background,
-                        );
-                    }
-                }
-                row_cells.push(data);
+                })));
             }
             scrollback.push(row_cells);
         }
