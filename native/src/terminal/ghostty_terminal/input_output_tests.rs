@@ -2,8 +2,7 @@ use super::*;
 use crate::terminal::test_helpers::assert_invariants;
 use libghostty_vt::key::{self};
 
-/// Enable the Kitty keyboard protocol so the encoder reports
-/// explicit mods (required to observe SHIFT stripping, RK2).
+/// 启用 Kitty 键盘协议，使编码器显式上报修饰键（否则观察不到 SHIFT 被剥离）。
 fn enable_kitty(t: &mut GhosttyTerminal) {
     t.vt_write(b"\x1b[?u"); // query supported flags
     t.flush();
@@ -154,7 +153,7 @@ fn key_encode_shift_a_uses_utf8_char() {
     );
 }
 
-/// RK2: SHIFT is only stripped when it changed the printed char.
+/// SHIFT is only stripped when it changed the printed char.
 /// For Enter, the shifted and unshifted char are both 0x0d, so
 /// SHIFT is RETAINED and the Kitty encoder emits a CSI sequence
 /// (proving the strip is conditional, not blanket).
@@ -170,7 +169,7 @@ fn key_encode_shift_enter_keeps_shift() {
     );
 }
 
-/// RK3: pure control keys must pass `utf8 = NULL` so the encoder
+/// pure control keys must pass `utf8 = NULL` so the encoder
 /// uses the logical key. The base behaviour (Kitty progressive
 /// enhancement intentionally NOT enabled here) is that Ctrl+A still
 /// reaches the PTY as the control byte 0x01 — the encoder must NOT
@@ -196,7 +195,7 @@ fn key_encode_ctrl_a_passes_null_utf8() {
     );
 }
 
-/// RK4: the encoder/event are stored once on `GhosttyTerminal`
+/// the encoder/event are stored once on `GhosttyTerminal`
 /// and reused. Repeated encodes of the same key must produce
 /// identical output (no per-call state loss from re-allocation).
 #[test]
@@ -228,7 +227,7 @@ fn key_encode_ctrl_c_escape_enter_basics() {
     assert_eq!(enter, vec![0x0D], "Enter must emit 0x0D (got {enter:?})");
 }
 
-/// P1-S3: search_all_in_scrollback returns all occurrences of a query
+/// search_all_in_scrollback returns all occurrences of a query
 #[test]
 fn search_all_in_scrollback_finds_all_matches() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
@@ -260,7 +259,7 @@ fn search_all_in_scrollback_finds_adjacent_matches() {
     assert_eq!((results[1].start_col, results[1].end_col), (2, 4));
 }
 
-/// P1-S3: search_all_in_scrollback with case-insensitive matching
+/// search_all_in_scrollback with case-insensitive matching
 #[test]
 fn search_all_in_scrollback_case_insensitive() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
@@ -271,7 +270,7 @@ fn search_all_in_scrollback_case_insensitive() {
     assert_eq!(results.len(), 2, "must find 'hello' case-insensitively");
 }
 
-/// P1-S3: search_all_in_scrollback empty query returns nothing
+/// search_all_in_scrollback empty query returns nothing
 #[test]
 fn search_all_in_scrollback_empty_query() {
     let t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
@@ -295,7 +294,7 @@ fn search_all_in_scrollback_spans_soft_wrap() {
     );
 }
 
-/// P1-S3: search_all_in_scrollback no matches returns empty
+/// search_all_in_scrollback no matches returns empty
 #[test]
 fn search_all_in_scrollback_no_matches() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
