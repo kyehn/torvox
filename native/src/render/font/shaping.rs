@@ -1,10 +1,10 @@
-//! Text shaping — cosmic-text integration for Unicode ligature and complex script support.
+//! 文本整形：接入 cosmic-text 以支持连字与复杂文种。
 use super::{FontPipeline, ShapedGlyphInfo, glyph_cache::ShapeKey};
 
-/// Line height as a multiple of font size for cosmic-text Metrics.
+/// cosmic-text Metrics 的行高倍数。
 const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
 
-/// Width used for an effectively infinite shaping buffer.
+/// 等效无限的整形缓冲宽度。
 const INFINITE_BUFFER_WIDTH: f32 = 999_999.0;
 
 impl FontPipeline {
@@ -45,9 +45,8 @@ impl FontPipeline {
 
         buffer.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
         if !self.cjk_fallback_ids.is_empty() {
-            // Only add CJK fallback for actual CJK runs, not whole text.
-            // Prior whole-span 0..len caused Latin in "hello中文" to also
-            // go through fallback shaping (extra cost) and missed cache for IME.
+            // 只对真正的 CJK 段挂回退族：整段 0..len 会让 "hello中文" 的拉丁
+            // 部分也走回退整形（多花开销且 IME 命中不了缓存）。
             let mut cjk_ranges: Vec<std::ops::Range<usize>> = Vec::new();
             let mut start: Option<usize> = None;
             for (idx, ch) in text.char_indices() {
@@ -157,8 +156,7 @@ mod tests {
     #[test]
     fn combining_cluster_shapes_to_positioned_glyphs() {
         let mut pipeline = small_pipeline();
-        // e + combining acute must shape without panic and populate
-        // the shape cache (the render cluster path keys on this).
+        // 组合字符簇须能整形并进入整形缓存（渲染簇路径依赖此）。
         let cluster = "e\u{301}";
         let glyphs = pipeline.shape_run(cluster);
         assert!(!glyphs.is_empty(), "combining cluster must shape to glyphs");
@@ -169,9 +167,6 @@ mod tests {
     #[test]
     fn cjk_mixed_text_shapes_without_panic() {
         let mut pipeline = small_pipeline();
-        // CJK triggers the fallback path; with or without CJK fonts in the
-        // fixture dir, shaping must not panic and must return glyphs for
-        // the ASCII part.
         let glyphs = pipeline.shape_run("A中B");
         assert!(!glyphs.is_empty(), "mixed text must produce glyphs");
     }

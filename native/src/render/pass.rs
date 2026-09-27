@@ -1,7 +1,4 @@
-//! Render loop — frame submission, synchronization, and error recovery.
-//!
-//! # Requirements
-//! - FR-050 — surface lifecycle: frame submission recovers from surface recreation
+//! 渲染循环：帧提交、同步与错误恢复。
 use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::context::MIN_ATLAS_BUFFER_SIZE;
@@ -106,26 +103,16 @@ impl Renderer {
         _config_width: u32,
         _config_height: u32,
     ) -> Option<wgpu::SurfaceTexture> {
-        // Mali-G57 (Unisoc SoCs) can hang vkAcquireNextImageKHR indefinitely when
-        // SURFACE_VIEW_FORMATS is missing. Use a persistent worker thread with a
-        // timeout to prevent blocking the render thread forever.
-        //
-        // Reference (wgpu-in-app app-surface/src/lib.rs:210-235): acquire retry
-        // pattern — Outdated/Lost → surface.configure → retry once.  Our worker
-        // thread handles Lost and Outdated inline; wgpu-in-app also handles
-        // Timeout but we treat a hung acquire as permanent (Mali-G57-specific),
-        // while Outdated is transient (surface resized or recreated by the
-        // window system) and recovers via reconfigure — emulator-verified:
-        // SwiftShader dequeueBuffer timeouts and SurfaceFlinger resize races
-        // surface as Outdated, and without the reconfigure the render thread
-        // spins on begin_frame failures forever after switching apps.
-        //
-        // Reference (zelland WGPU_FIXES.md Fix 1): atlas format must equal
-        // surface format; wgpu-in-app notes Android view_formats must be
-        // vec![format] (downlevel SURFACE_VIEW_FORMATS not supported).
-        // The worker thread
-        // is created once (via OnceLock) and reused across all frames, avoiding the
-        // ~1ms per-frame overhead of std::thread::spawn on Android.
+        // Mali-G57（联发科/展锐 SoC）在缺 SURFACE_VIEW_FORMATS 时会永久卡在
+        // vkAcquireNextImageKHR，故用常驻工作线程 + 超时，绝不让渲染线程无限阻塞。
+        // Lost/Outdated 在工作线程内就地处理；卡死视为永久故障（Mali-G57 专有），
+        // Outdated 是瞬态（surface 被缩放或重建），reconfigure 后可恢复 —— 模拟器实测：
+        // SwiftShader 的 dequeueBuffer 超时与 SurfaceFlinger 缩放竞态都会报 Outdated，
+        // 不 reconfigure 的话切回应用后渲染线程会永久空转在 begin_frame 失败上。
+        // 图集格式必须等于 surface 格式，且 Android 的 view_formats 只能是
+        // vec![format]（不支持 downlevel SURFACE_VIEW_FORMATS）。
+        // 工作线程经 OnceLock 只建一次并跨帧复用，省掉 Android 上每帧约 1ms 的
+        // std::thread::spawn 开销。
         let (response_sender, response_receiver) =
             std::sync::mpsc::sync_channel::<AcquireResult>(1);
         let request = AcquireRequest {
@@ -133,8 +120,8 @@ impl Renderer {
             response: response_sender,
         };
         if let Err(e) = acquire_worker_tx().try_send(request) {
-            // Worker channel full or thread died (panic in catch_unwind).
-            // Fall back to inline acquire so the render thread never blocks.
+            // 工作线程通道满或已死（catch_unwind 内 panic）：就地取纹理，
+            // 渲染线程绝不阻塞。
             log::warn!("acquire_texture: worker {e:?}, acquiring inline");
             return match surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(tex)
@@ -175,12 +162,9 @@ impl Renderer {
         }
     }
 
-    /// Grow-if-needed and upload cell instance data to the instance buffer.
-    /// Associated function on the exact fields (not `&mut self`) so callers
-    /// can invoke it while holding other field borrows (e.g. the cell
-    /// pipeline) for the rest of the frame. Shared by the surface frame and
-    /// the readback (screenshot) paths; `label` distinguishes them in debug
-    /// tooling.
+    /// 按需扩容并上传单元实例数据。写成对精确字段的关联函数（而非 `&mut self`），
+    /// 使调用方在整帧持有其他字段借用（如单元管线）时仍能调用。
+    /// 表面帧与截图回读两条路径共用，`label` 用于在调试工具中区分。
     fn upload_cell_instances(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -209,8 +193,7 @@ impl Renderer {
         }
     }
 
-    /// Grow-if-needed and upload KGP instance data, mirroring
-    /// [`Self::upload_cell_instances`].
+    /// 按需扩容并上传 KGP 实例数据，同 [`Self::upload_cell_instances`]。
     fn upload_kgp_instances(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -239,11 +222,8 @@ impl Renderer {
         }
     }
 
-    /// Decision for the partial (dirty-band) render path. Pure function —
-    /// table-driven unit tested. Partial is only valid when the frame's
-    /// ONLY changes are the flagged bands' cell instances; any full-screen
-    /// overlay (kitty graphics) or an invalidated accumulator forces a full
-    /// redraw.
+    /// 脏带部分渲染的判定（纯函数，表驱动单测）。仅当本帧唯一变化是被标记
+    /// 脏带的单元实例时成立；任何全屏叠加（kitty 图像）或累加器失效都强制全量重绘。
     fn should_render_partial(
         accumulator_ready: bool,
         frame_invalidated: bool,
@@ -292,9 +272,8 @@ impl Renderer {
         )
     }
 
-    /// Build one flat-fill instance per dirty band: a has_glyph=0 quad the
-    /// cell shader paints with `background` verbatim, covering the band's full
-    /// pixel rect (all grid columns × the band's row span).
+    /// 每个脏带构造一个纯色实例：has_glyph=0 的四边形，单元着色器直接以
+    /// `background` 原样填充，覆盖该带的完整像素矩形（全部列 × 该带的行跨度）。
     fn band_clear_instances(
         &self,
         dirty_bands: &[crate::render::cell_builder::DirtyBand],
@@ -333,8 +312,7 @@ impl Renderer {
         instances
     }
 
-    /// Render one frame (see [`Self::render_frame_with_plan`] for the
-    /// merged-pass / dirty-band architecture notes).
+    /// 渲染一帧（合并通道/脏带架构说明见 [`Self::render_frame_with_plan`]）。
     pub fn render_frame_with_plan(
         &mut self,
         instances: &[crate::render::CellInstance],
@@ -348,7 +326,7 @@ impl Renderer {
         if self.render_paused {
             return Err(GpuError::Surface("render paused".to_string()));
         }
-        // Surface and config must be available when not paused.
+        // 未暂停时 surface 与 config 必须可用。
         if self.surface.is_none() || self.surface_config.is_none() {
             return Err(GpuError::Surface("no surface configured".to_string()));
         }
@@ -359,11 +337,11 @@ impl Renderer {
 
         let config_width = frame_ctx.config_width;
         let config_height = frame_ctx.config_height;
-        // Owned clone so it outlives &mut self calls below.
+        // 克隆持有，使其活得比下方对 &mut self 的调用更久。
         let swapchain_view = frame_ctx.view.clone();
         let encoder = &mut frame_ctx.encoder;
 
-        // ── Target selection (must run before `pipeline` borrows self) ──
+        // ── 选定渲染目标（必须早于 `pipeline` 借用 self） ──
         let format = self.pipeline_format;
         let accumulator_view = if self.swapchain_copy_supported {
             self.ensure_frame_texture(config_width, config_height, format)
@@ -384,8 +362,7 @@ impl Renderer {
             self.cell_bind_group.is_some(),
         );
 
-        // ── Overlay / partial-path state (must precede the instance
-        // upload: band-clear instances are concatenated into it) ─────
+        // ── 叠加与部分路径状态（必须早于实例上传：脏带清除实例会拼进上传缓冲） ──
         let kgp_present = !kgp_instances.is_empty();
         // 滚动一致性（scroll-residual）：viewport_scroll_px 只平移当帧新
         // 绘几何，累加器的旧像素不会移动；脏带部分路径以 Load 叠在新内容
@@ -403,14 +380,10 @@ impl Renderer {
             kgp_present,
             scroll_active,
         );
-        // Band clear instances (partial frames only): empty cells emit no
-        // covering quads, so a band redraw over LoadOp::Load left stale
-        // pixels in place — most visibly old cursor blocks that never
-        // disappeared ( emulator evidence: blocks accumulated at
-        // every previous cursor column). The cell shader paints
-        // has_glyph=0 quads with background verbatim, so one clear instance
-        // per band wipes the band's stale pixels before the redraw — no
-        // extra pipeline needed.
+        // 脏带清除实例（仅部分帧）：空单元不产生覆盖四边形，故 LoadOp::Load 上的
+        // 脏带重绘会留下陈旧像素——最明显的是永不消失的旧光标块（模拟器实证：色块
+        // 累积在此前每个光标列上）。单元着色器把 has_glyph=0 四边形直接以背景色
+        // 填充，故每带一个清除实例即可在重绘前抹掉陈旧像素，无需额外管线。
         let clear_instances = if partial {
             self.band_clear_instances(dirty_bands, plan.cell_h_px, config_width, config_height)
         } else {
@@ -440,8 +413,7 @@ impl Renderer {
             kgp_instances,
             "KGP Instance Buffer",
         );
-        // Passes write into the accumulator when available (its content is
-        // what gets presented); otherwise straight into the swapchain.
+        // 有累加器时各通道写入其中（呈现的正是它的内容），否则直接写交换链。
         let view = match accumulator_view.as_ref() {
             Some(acc) => acc,
             None => &swapchain_view,
@@ -598,17 +570,10 @@ impl Renderer {
         Ok(())
     }
 
-    /// Render a frame from `Vec<CellData>` (new thread-split data path).
+    /// 由 CellData 渲染一帧：先查图集并定位转成 CellInstance，再提交 GPU。
     ///
-    /// Converts CellData to CellInstance (atlas lookup + positioning), then
-    /// submits to GPU. This is the entry point for the render thread.
-    ///
-    /// `atlas_width`/`atlas_height` come from the font pipeline's atlas
-    /// texture dimensions (typically passed alongside the CellData).
-    ///
-    /// When `dirty_rows` is `Some`, only those rows are rebuilt and clean
-    /// rows are copied from `self.cell_cache` (FR-013 / NFR-010); `None`
-    /// forces a full rebuild (and drops the stale cache).
+    /// `dirty_rows` 为 `Some` 时只重建被标记的行，干净行取自 `self.cell_cache`；
+    /// `None` 强制全量重建并丢弃陈旧缓存。
     // 渲染线程入口：参数由调用帧装配固定，成组改结构体只增间接无收益。
     pub fn render_cell_data(
         &mut self,
@@ -624,26 +589,17 @@ impl Renderer {
         scroll_up_rows: Option<u32>,
         kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
-        // Grid cell dimensions from the attached surface: quads must cover
-        // the full grid (surface_width/cols x surface_height/rows), not the font
-        // cell metrics — otherwise rows show gaps of the clear color.
-        // quad geometry uses the FONT cell size (logical cell
-        // metrics × raster_scale, i.e. the same physical values the Kotlin
-        // side computes as cellWidth/cellHeight), NOT surface/rows. The
-        // Kotlin grid derives rows from the CONTENT area (surface minus IME
-        // and ModifierBar), so surface/rows would stretch each quad to the
-        // full surface height whenever the IME is open (2209/14 = 157.8px
-        // apx glyphs — reported as "row spacing way too large" and
-        // "content overflows without scrolling"). With font-cell quads the
-        // glyph fills the quad regardless of how many rows fit on screen.
+        // 四边形几何必须用字体单元格尺寸（逻辑单元格度量 × raster_scale，即 Kotlin
+        // 侧算出的 cellWidth/cellHeight），不能用 surface/rows：Kotlin 的网格行数来自
+        // 内容区（surface 减去输入法与修饰键栏），故 IME 打开时 surface/rows 会把每个
+        // 四边形拉高到整个 surface（2209/14 = 157.8px/字形，实测表现为“行距过大”与
+        // “内容溢出且无法滚动”）。用字体单元格时无论屏幕能放下多少行，字形都填满四边形。
         let (font_w, font_h) = font_pipeline.cell_metrics();
         let scale = font_pipeline.get_raster_scale();
         let grid_cell_w = if font_w > 0.0 { font_w * scale } else { 0.0 };
         let grid_cell_h = if font_h > 0.0 { font_h * scale } else { 0.0 };
-        // Row-level dirty caching (FR-013 / NFR-010): with a dirty mask,
-        // only flagged rows are rebuilt through the font atlas; clean rows
-        // are copied from the cross-frame cache. `None` (caller has no
-        // baseline, e.g. first frame) forces a full rebuild.
+        // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
+        // `None`（调用方无基线，如首帧）强制全量重建。
         let converted = match dirty_rows {
             Some(mask) => {
                 let cache = self.cell_cache.get_or_insert_with(|| {
@@ -652,12 +608,8 @@ impl Renderer {
                 let effective_mask: &[bool] = if cache.is_compatible(rows, cols) {
                     mask
                 } else {
-                    // Cache no longer matches the grid (resize): the new
-                    // cache starts EMPTY, so serving "clean" rows from it
-                    // would copy 0 instances and drop rows. Force a full
-                    // rebuild for this frame regression: a
-                    // cols-only change kept the diff path alive but the
-                    // rebuilt cache had no data).
+                    // 缓存已与网格不匹配（缩放）：新缓存是空的，若仍按“干净行”
+                    // 取值会复制 0 个实例并丢行。本帧强制全量重建。
                     *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
                     self.cell_full_mask_cache.resize(rows as usize, true);
                     &self.cell_full_mask_cache
@@ -681,8 +633,7 @@ impl Renderer {
                 )
             }
             None => {
-                // No baseline: drop any stale cache (grid may have changed
-                // out from under it) and rebuild every row.
+                // 无基线：丢弃可能已失效的陈旧缓存并重建所有行。
                 self.cell_cache = None;
                 crate::render::build_instances_from_cell_data(
                     cell_data,
@@ -716,14 +667,12 @@ impl Renderer {
         if converted.is_none() {
             return Err(GpuError::Surface("CellData conversion failed".into()));
         }
-        // Take the buffer out of self so render_frame can borrow it
-        // without aliasing the &mut self call (NLL cannot split these
-        // borrows because both flow through the same receiver).
+        // 把缓冲移出 self，使 render_frame 能借用它而不与对 self 的 &mut 调用
+        // 别名冲突（NLL 无法拆分同一个接收者的借用）。
         let cpu_instances = std::mem::take(&mut self.cpu_instances);
-        // Resolve the dirty-row mask into contiguous instance-slice bands
-        // for the GPU dirty-band path. Only valid when the cache is
-        // coherent (incremental build actually happened); otherwise the
-        // empty band list forces a full redraw.
+        // 把行级脏掩码解析成连续的实例切片脏带，供 GPU 脏带路径使用。
+        // 仅在缓存
+        // 本身一致（确实发生了增量构建）时有效，否则空脏带列表会强制全量重绘。
         // 代际必须一致：atlas 重建/驱逐搬迁 UV 后实例已全量重建（新 UV），
         // 若 bands 仍稀疏，partial 路径只画 bands，干净行残留 stale UV
         //（`nix --help` 斜体/新字形部分不可见、滑动后部分出现）。
@@ -752,8 +701,7 @@ impl Renderer {
                     .collect::<Vec<_>>(),
             )
         });
-        // Scroll-blit geometry guard: only safe when the grid exactly fills
-        // the target vertically (otherwise shifting would smear margins).
+        // 滚动平移的几何前提：网格必须恰好纵向填满目标，否则平移会拖出边距。
         let scroll_up_rows = scroll_up_rows.filter(|_| {
             self.surface_config
                 .as_ref()
@@ -915,12 +863,12 @@ impl Renderer {
         }
 
         let slice = dst.slice(..);
-        // Use a oneshot channel to reliably detect map completion.
+        // 用 oneshot 通道可靠地判定 map 完成。
         let (map_tx, map_rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = map_tx.send(r);
         });
-        // Poll repeatedly until the map completes or timeout expires.
+        // 反复轮询直到 map 完成或超时。
         let poll_start = std::time::Instant::now();
         let map_result;
         loop {
@@ -944,7 +892,7 @@ impl Renderer {
                 return Err(GpuError::Readback("map_async timed out".into()));
             }
         }
-        // Propagate map_async errors (e.g. buffer too large, device lost).
+        // 向上传递 map_async 错误（如缓冲过大、设备丢失）。
         map_result.map_err(|e| GpuError::Readback(format!("map_async failed: {e:?}")))?;
         let data = slice
             .get_mapped_range()
@@ -986,7 +934,7 @@ mod tests {
         );
     }
 
-    // ── should_render_partial decision table (render-vulkan-performance) ──
+    // ── should_render_partial 判定表 ──
 
     /// `(ready, invalidated, bands, kgp) -> partial`
     fn partial(args: (bool, bool, usize, bool)) -> bool {
@@ -1017,9 +965,8 @@ mod tests {
         );
     }
 
-    /// Band clear instances: one flat quad per band, covering the band's
-    /// full pixel rect (: stale cursor pixels persisted because
-    /// empty cells emit no covering quads over LoadOp::Load).
+    /// 脏带清除实例：每带一个纯色四边形，覆盖该带完整像素矩形
+    /// （空单元在 LoadOp::Load 上不产生覆盖四边形，会残留陈旧光标像素）。
     #[test]
     fn band_clear_instances_cover_band_rect() {
         let renderer = Renderer::new_with_no_surface();
@@ -1044,10 +991,10 @@ mod tests {
         assert_eq!(clears[0].quad_size, [1080.0, cell_h]);
         assert_eq!(clears[1].quad_origin, [0.0, 3.0 * cell_h]);
         assert_eq!(clears[1].quad_size, [1080.0, 2.0 * cell_h]);
-        // Flat fill: no glyph, background carries the clear color.
+        // 纯色填充：无字形，清除色由背景承担。
         assert_eq!(clears[0].atlas_size, [0.0; 2]);
         assert_eq!(clears[0].background[3], 1.0);
-        // Degenerate geometry produces no clears.
+        // 退化几何不产生清除。
         assert!(
             renderer
                 .band_clear_instances(&bands, 0.0, 1080, 2400)
@@ -1077,10 +1024,10 @@ mod tests {
 
     #[test]
     fn partial_rejected_by_overlays() {
-        // Any full-screen overlay forces a full redraw.
+        // 任何全屏叠加都强制全量重绘。
         assert!(!partial((true, false, 1, true))); // kgp
     }
-    // ── scroll-gate composition decision table：partial 候选与 scroll 门控的合成 ──
+    // ── 滚动门控合成判定表：partial 候选与 scroll 门控的合成 ──
     // 覆盖生产合成（render_frame_with_plan 经 should_render_partial_frame 求值）：
     // 归零稳定基线接受部分渲染；滚动激活（含惯性滚动中、归零复位瞬间、
     // 持屏拖动非零保持）一律强制全量，不依赖 GPU。
