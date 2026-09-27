@@ -1,6 +1,5 @@
 package terminal.emulator.bridge
 
-import android.util.Log
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.runCatchingCancellable
@@ -143,7 +142,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             try {
                 NativeBridge.prefetchRenderState()
             } catch (exception: Exception) {
-                android.util.Log.w("Bridge", "prefetchRenderState failed", exception)
+                LogUtil.w("Bridge", "prefetchRenderState failed", exception)
             }
         }
     }
@@ -156,7 +155,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 // 清理路径：此处失败（未知会话的 RuntimeException、库部分加载的 UnsatisfiedLinkError）
                 // 绝不能外逃——调用方只捕获 Exception，Error 会直达全局处理器并杀掉进程。
                 // 无论成败都移除注册表项，原生容忍未知 ID。
-                Log.e(TAG, "close: destroySession failed", exception)
+                LogUtil.e(TAG, "close: destroySession failed", exception)
             }
             sessionId = 0L
         }
@@ -181,7 +180,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * 本方法仅记录日志：rows/cols 由原生侧从事件解析。
      */
     fun recomputeGrid(width: Int, height: Int) {
-        Log.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
+        LogUtil.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
     }
 
     fun getGridRowsColsPacked(): Long = onSession("getGridRowsColsPacked", 0L, NativeBridge::getGridRowsColsPacked)
@@ -250,12 +249,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     fun releaseGpuSurface() {
-        Log.d(TAG, "releaseGpuSurface()")
+        LogUtil.d(TAG, "releaseGpuSurface()")
         if (sessionId != 0L) NativeBridge.detachWindow(sessionId)
     }
 
     fun setRenderPaused(paused: Boolean) {
-        Log.d(TAG, "setRenderPaused($paused)")
+        LogUtil.d(TAG, "setRenderPaused($paused)")
         onSession("setRenderPaused", Unit) { NativeBridge.setRenderPaused(it, paused) }
     }
 
@@ -314,8 +313,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             val parsed =
                 try {
                     parseEvent(json)
-                } catch (e: Exception) {
-                    Log.w(TAG, "pollAll: bad JSON: ${e.message}")
+                } catch (exception: Exception) {
+                    LogUtil.w(TAG, "pollAll: bad JSON: ${exception.message}")
                     continue
                 }
             result = result.merge(parsed)
@@ -370,7 +369,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // OSC 10/11/4 颜色处理位于终端引擎内部并经调色板 API 应用。光标颜色走独立的
     // setCursorColor 通道，以保持 54 字节布局稳定（ffi.rs 校验精确长度）。
     fun setTheme(theme: BridgeTheme) {
-        Log.d(TAG, "setTheme: ${theme.name}")
+        LogUtil.d(TAG, "setTheme: ${theme.name}")
         val data = ByteArray(THEME_PACKED_BYTES)
         fun packColor(offset: Int, argb: Int) {
             data[offset] = (argb shr 16 and 0xFF).toByte()
@@ -407,14 +406,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     fun setSystemLocale(locale: String) {
-        Log.d(TAG, "setSystemLocale($locale)")
+        LogUtil.d(TAG, "setSystemLocale($locale)")
         onSession("setSystemLocale", Unit) { NativeBridge.setSystemLocale(it, locale) }
     }
 
     private var lastExtraFontPaths: List<String> = emptyList()
 
     fun setExtraFontPaths(paths: List<String>) {
-        Log.d(TAG, "setExtraFontPaths($paths)")
+        LogUtil.d(TAG, "setExtraFontPaths($paths)")
         // 原生调用会重建字体管线（重新分配图集），因此跳过重复调用，目录内容在重建时自行拾取。
         if (paths == lastExtraFontPaths) return
         lastExtraFontPaths = paths
@@ -442,19 +441,19 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     fun setFontFamily(family: String): Boolean {
-        Log.d(TAG, "setFontFamily($family)")
+        LogUtil.d(TAG, "setFontFamily($family)")
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
         return onSession("setFontFamily", false) { NativeBridge.setFontFamily(it, override ?: family) }
     }
 
     fun setFontSize(sizeTenths: Int) {
-        Log.d(TAG, "setFontSize($sizeTenths)")
+        LogUtil.d(TAG, "setFontSize($sizeTenths)")
         setFontSizeInPlace(sizeTenths)
     }
 
     fun setFontSizeInPlace(sizeTenths: Int) {
-        Log.d(TAG, "setFontSizeInPlace($sizeTenths)")
+        LogUtil.d(TAG, "setFontSizeInPlace($sizeTenths)")
         onSession("setFontSizeInPlace", Unit) { NativeBridge.setFontSizeInPlace(it, sizeTenths) }
     }
 
@@ -464,7 +463,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     // 自定义字体由原生 fontdb 探测文件、注册到渲染器并返回家族名，失败返回 null。
     fun loadFontFile(path: String): String? {
-        Log.d(TAG, "loadFontFile($path)")
+        LogUtil.d(TAG, "loadFontFile($path)")
         return onSession("loadFontFile", null) { NativeBridge.loadFontFile(it, path) }
     }
 
@@ -509,7 +508,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         onSession("getMode", false) { NativeBridge.getMode(it, DEC_PRIVATE_MODE_APP_CURSOR, 0) }
 
     fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
-        Log.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
+        LogUtil.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
         // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
         // false，交由平台默认实现（空操作）处理。

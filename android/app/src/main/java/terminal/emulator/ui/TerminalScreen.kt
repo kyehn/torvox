@@ -6,7 +6,7 @@ package terminal.emulator.ui
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+import terminal.emulator.runtime.LogUtil
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.background
@@ -697,15 +697,15 @@ fun TerminalScreen(
                                 val themeForeground = resolvedTerminalTheme.foreground
                                 val themeSelectionBackground = resolvedTerminalTheme.selectionBackground
 
-                                val buf = java.io.ByteArrayOutputStream()
-                                fun writeI32(v: Int) {
-                                    buf.write(v and 0xFF)
-                                    buf.write((v ushr 8) and 0xFF)
-                                    buf.write((v ushr 16) and 0xFF)
-                                    buf.write((v ushr 24) and 0xFF)
+                                val highlightBuffer = java.io.ByteArrayOutputStream()
+                                fun writeI32(value: Int) {
+                                    highlightBuffer.write(value and 0xFF)
+                                    highlightBuffer.write((value ushr 8) and 0xFF)
+                                    highlightBuffer.write((value ushr 16) and 0xFF)
+                                    highlightBuffer.write((value ushr 24) and 0xFF)
                                 }
-                                fun writeByte(v: Byte) {
-                                    buf.write(v.toInt())
+                                fun writeByte(value: Byte) {
+                                    highlightBuffer.write(value.toInt())
                                 }
                                 writeI32(searchState.resultCount)
                                 for ((index, match) in searchState.results.withIndex()) {
@@ -736,7 +736,7 @@ fun TerminalScreen(
                                         writeByte(SearchHighlightColors.OTHER_MATCH_ALPHA.toByte())
                                     }
                                 }
-                                val highlightBytes = buf.toByteArray()
+                                val highlightBytes = highlightBuffer.toByteArray()
                                 // 单次调用：surface.setSearchHighlights 内部会调用
                                 // bridge.setSearchHighlights + bridge.render
                                 surface.setSearchHighlights(highlightBytes)
@@ -788,7 +788,7 @@ fun TerminalScreen(
                                     )
                                 val match = searchState.results[newIndex]
                                 scrollToMatchIfNeeded(match)
-                                Log.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
+                                LogUtil.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
                                 searchState = searchState.copy(currentIndex = newIndex)
                             }
                         },
@@ -798,7 +798,7 @@ fun TerminalScreen(
                                     SearchResult.nextIndex(searchState.currentIndex, searchState.resultCount)
                                 val match = searchState.results[newIndex]
                                 scrollToMatchIfNeeded(match)
-                                Log.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
+                                LogUtil.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
                                 searchState = searchState.copy(currentIndex = newIndex)
                             }
                         },

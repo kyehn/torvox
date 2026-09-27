@@ -644,19 +644,28 @@ impl Renderer {
         dirty_rect: Option<(u32, u32, u32, u32)>,
     ) {
         if let Some(texture) = &self.atlas_texture {
-            let (origin_x, origin_y, upload_w, upload_h) = match dirty_rect {
-                Some((x, y, w, h)) => {
-                    let w = w.min(width);
-                    let h = h.min(height);
-                    (x.min(width - w), y.min(height - h), w, h)
+            let (origin_x, origin_y, upload_width, upload_height) = match dirty_rect {
+                Some((dirty_x, dirty_y, dirty_width, dirty_height)) => {
+                    let clamped_width = dirty_width.min(width);
+                    let clamped_height = dirty_height.min(height);
+                    (
+                        dirty_x.min(width - clamped_width),
+                        dirty_y.min(height - clamped_height),
+                        clamped_width,
+                        clamped_height,
+                    )
                 }
                 None => (0, 0, width, height),
             };
-            let offset = (origin_y as u64 * width as u64 + origin_x as u64) * 4;
-            let needed = offset as usize + upload_h as usize * upload_w as usize * 4;
+            let offset = (origin_y as u64 * width as u64 + origin_x as u64)
+                * crate::render::font::ATLAS_BYTES_PER_PIXEL as u64;
+            let needed = offset as usize
+                + upload_height as usize
+                    * upload_width as usize
+                    * crate::render::font::ATLAS_BYTES_PER_PIXEL;
             if data.len() < needed {
                 log::error!(
-                    "upload_atlas: data too short ({} < {}), upload_w={upload_w} upload_h={upload_h}",
+                    "upload_atlas: data too short ({} < {}), upload_w={upload_width} upload_h={upload_height}",
                     data.len(),
                     needed
                 );
@@ -676,12 +685,12 @@ impl Renderer {
                 data,
                 wgpu::TexelCopyBufferLayout {
                     offset,
-                    bytes_per_row: Some(4 * width),
-                    rows_per_image: Some(upload_h),
+                    bytes_per_row: Some(width * crate::render::font::ATLAS_BYTES_PER_PIXEL as u32),
+                    rows_per_image: Some(upload_height),
                 },
                 wgpu::Extent3d {
-                    width: upload_w,
-                    height: upload_h,
+                    width: upload_width,
+                    height: upload_height,
                     depth_or_array_layers: 1,
                 },
             );

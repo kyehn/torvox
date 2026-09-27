@@ -121,7 +121,10 @@ fn search_all_finds_match() {
     t.flush();
     // 搜索命中回滚首行并保持终端可用。
     let results = t.search_all_in_scrollback("search_target", true);
-    assert!(!results.is_empty(), "search_target must be found in scrollback");
+    assert!(
+        !results.is_empty(),
+        "search_target must be found in scrollback"
+    );
     t.vt_write(b"AfterSearch");
     t.flush();
     let snap = t.take_snapshot();
