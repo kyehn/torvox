@@ -93,7 +93,7 @@
     <string name="search_previous">上一个</string>
     <string name="search_close">关闭搜索</string>
     <string name="search_no_results">无结果</string>
-    <string name="search_result_of">第 %d 个，共 %d 个</string>
+    <string name="search_result_of">第 %1$d 个，共 %2$d 个</string>
 
     <!-- CJK Warning -->
     <string name="cjk_fallback_missing_warning">未检测到 CJK 备用字体。东亚字符可能无法正确渲染。</string>
