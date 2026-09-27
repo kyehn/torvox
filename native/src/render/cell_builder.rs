@@ -297,9 +297,9 @@ fn rows_equal(
     old: &[crate::terminal::ghostty_terminal::CellData],
     new: &[crate::terminal::ghostty_terminal::CellData],
 ) -> bool {
-    let a: &[u8] = bytemuck::cast_slice(old);
-    let b: &[u8] = bytemuck::cast_slice(new);
-    a == b
+    let old_bytes: &[u8] = bytemuck::cast_slice(old);
+    let new_bytes: &[u8] = bytemuck::cast_slice(new);
+    old_bytes == new_bytes
 }
 
 /// Zero-allocation per-row dirty mask: writes into a pre-allocated buffer
@@ -318,10 +318,10 @@ pub(crate) fn diff_dirty_rows_into(
         dirty[..rows as usize].fill(true);
         return;
     };
-    for r in 0..rows as usize {
-        let o = &old[old_ranges[r].clone()];
-        let n = &new[new_ranges[r].clone()];
-        dirty[r] = !rows_equal(o, n);
+    for row_index in 0..rows as usize {
+        let old_row = &old[old_ranges[row_index].clone()];
+        let new_row = &new[new_ranges[row_index].clone()];
+        dirty[row_index] = !rows_equal(old_row, new_row);
     }
 }
 
@@ -420,8 +420,11 @@ fn build_row_instances_into(
     let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>, RandomState> =
         HashMap::with_hasher(RandomState::default());
     if !search_highlights.is_empty() {
-        for h in search_highlights {
-            highlights_by_row.entry(h.row).or_default().push(h);
+        for highlight in search_highlights {
+            highlights_by_row
+                .entry(highlight.row)
+                .or_default()
+                .push(highlight);
         }
     }
 

@@ -74,8 +74,8 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
             pssKb =
                 try {
                     Debug.getPss().also { cachedPss = it }
-                } catch (e: SecurityException) {
-                    Log.w(TAG, "Debug.getPss() not available", e)
+                } catch (exception: SecurityException) {
+                    Log.w(TAG, "Debug.getPss() not available", exception)
                     -1L
                 }
         } else {
