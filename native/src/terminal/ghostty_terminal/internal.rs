@@ -57,6 +57,11 @@ fn grid_cols(terminal: &Terminal) -> u32 {
     terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32
 }
 
+/// 终端网格行数：ghostty 断开时回退 DISCONNECTED_ROWS（与 `grid_cols` 对称）。
+fn grid_rows(terminal: &Terminal) -> u32 {
+    terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32
+}
+
 /// Helper to create the three per-frame render iterators.
 /// Returns `None` and logs on any creation failure.
 fn create_render_iterators() -> Option<(
@@ -117,9 +122,7 @@ impl super::GhosttyTerminal {
     ) {
         match query {
             Query::Rows(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32)
-                {
+                if let Err(error) = tx.send(grid_rows(terminal)) {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
@@ -191,7 +194,7 @@ impl super::GhosttyTerminal {
                 try_send(&tx, visible_cursor, "query channel send failed");
             }
             Query::ReadVisibleText(tx) => {
-                let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
+                let rows = grid_rows(terminal);
                 let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
                 let mut text = String::new();
                 for row in 0..rows {
@@ -384,7 +387,7 @@ impl super::GhosttyTerminal {
                 };
                 mouse_encoder.set_options_from_terminal(terminal);
                 let cols = grid_cols(terminal);
-                let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
+                let rows = grid_rows(terminal);
                 let size = mouse::EncoderSize {
                     screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
                     screen_height: rows.saturating_mul(cell_h.max(1.0) as u32),
@@ -936,8 +939,8 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn build_dumped_grid(terminal: &Terminal) -> DumpedGrid {
-        let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+        let rows = grid_rows(terminal);
+        let cols = grid_cols(terminal);
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let (_, fallback_background, fallback_foreground) = Self::catppuccin_mocha_palette();
         let default_foreground = terminal
@@ -1415,8 +1418,8 @@ impl super::GhosttyTerminal {
                 .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate),
             Ordering::Release,
         );
-        let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+        let rows = grid_rows(terminal);
+        let cols = grid_cols(terminal);
         let size = (rows * cols) as usize;
 
         let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
@@ -1692,8 +1695,8 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         _palette: &[[u8; 3]; 16],
     ) -> GridSnapshot {
-        let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+        let rows = grid_rows(terminal);
+        let cols = grid_cols(terminal);
         let size = (rows * cols) as usize;
         let mut cells = Vec::with_capacity(size);
 
@@ -1839,7 +1842,7 @@ impl super::GhosttyTerminal {
         }
     }
     pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+        let cols = grid_cols(terminal);
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let mut text = String::new();
         for col in 0..cols {
@@ -2038,7 +2041,7 @@ impl super::GhosttyTerminal {
     /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
     /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
-        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
+        let cols = grid_cols(terminal);
         let total_rows = terminal.total_rows().unwrap_or(0) as u32;
         if col >= cols || row >= total_rows {
             return None;
