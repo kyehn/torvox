@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, Mutex};
 
 use flume::{Receiver, Sender};
@@ -34,9 +34,10 @@ pub enum Command {
         cell_width: u32,
         cell_height: u32,
     },
+    /// 取当前视口网格快照。回滚浏览走 CellData 通道（`ScrollViewport` +
+    /// `receive_cell_data`），本命令只覆盖当前视口，因此没有偏移参数。
     TakeSnapshot {
         tx: Sender<Arc<GridSnapshot>>,
-        scroll_offset: u32,
     },
     /// Scroll the terminal viewport by a delta (up is negative). Backs
     /// the app's scrollback browsing: previously a Kotlin-side
@@ -177,12 +178,6 @@ pub enum Query {
     },
 }
 
-pub(crate) struct SnapshotCache {
-    pub(crate) cached: Arc<GridSnapshot>,
-    pub(crate) pending_rx: Option<Receiver<Arc<GridSnapshot>>>,
-    pub(crate) initialized: bool,
-}
-
 pub(crate) struct RunConfig {
     pub(crate) command_receiver: Receiver<Command>,
     pub(crate) query_receiver: Receiver<Query>,
@@ -193,7 +188,6 @@ pub(crate) struct RunConfig {
     pub(crate) foreground_color: [u8; 3],
     pub(crate) ansi_colors: [[u8; 3]; 16],
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
-    pub(crate) snapshot_rebuild_count: Arc<AtomicU64>,
     /// Mirror of the alternate-screen state, updated lock-free by the VT
     /// thread on every emitted frame (build_cell_data) so the input path
     /// can detect it without a blocking RPC.

@@ -2503,60 +2503,6 @@ mod vertical_shift_tests {
 /// 归属说明：度量对象虽为终端快照，但本用例与相邻渲染 bench 共享
 /// `GPU_BENCH_LOCK`（防 Lavapipe 并行争用），故置于渲染 bench 套件内；
 /// 终端输入仅作夹具。阈值为单防抖地板（见本文件头注释）。
-/// Simulate scrolling through terminal history.
-/// Writes many lines of content, then measures take_snapshot_with_scroll
-/// at varying offset positions.
-/// 归属说明：见本用例上方注释（与渲染 bench 共享 `GPU_BENCH_LOCK`）。
-#[test]
-fn bench_scroll_throughput() {
-    use std::hint::black_box;
-    use std::time::Instant;
-
-    use crate::terminal::ghostty_terminal::GhosttyTerminal;
-    // Serialize against the GPU benches: in parallel runs the shared CPU
-    // (Lavapipe software rasterizer + this CPU-bound bench) drops the
-    // measured throughput below the threshold — 400-500 MB/s vs 725 MB/s
-    // in isolation. Each bench is fast (<1s) so the lock is
-    // uncontended in practice.
-    let _serial = super::GPU_BENCH_LOCK.lock();
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
-    // Fill scrollback with 500 lines of content
-    for i in 0..500 {
-        t.vt_write(
-            format!("Line {i}: some realistic terminal content with numbers and text\n").as_bytes(),
-        );
-    }
-    t.flush();
-
-    // Measure scroll snapshot at 3 different offsets
-    let offsets = [0u32, 100, 400];
-    let n = 20;
-    for &offset in &offsets {
-        let start = Instant::now();
-        for _ in 0..n {
-            let snap = black_box(t.take_snapshot_with_scroll(offset));
-            black_box(snap.cells.len());
-        }
-        let elapsed = start.elapsed();
-        let snaps_per_sec = n as f64 / elapsed.as_secs_f64();
-        println!(
-            "Scroll offset={}: {:.0} snapshots/sec ({:.1}ms for {} iterations)",
-            offset,
-            snaps_per_sec,
-            elapsed.as_millis(),
-            n,
-        );
-        // 单防抖地板：并行套件 + 软件 Vulkan 争用下吞吐波动大，
-        // 只捕获量级回退（见本文件头注释）。
-        let threshold = if offset == 0 { 400.0 } else { 250.0 };
-        assert!(
-            snaps_per_sec > threshold,
-            "Scroll offset={offset} too slow: {:.0} snapshots/sec (need >{threshold:.0})",
-            snaps_per_sec,
-        );
-    }
-}
-
 /// Benchmark the full CPU-side pipeline: write terminal content → flush →
 /// receive CellData → build CellInstances. This simulates the complete
 /// per-frame data path before GPU submission.

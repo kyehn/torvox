@@ -28,9 +28,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     companion object {
         const val DEFAULT_FONT_SIZE = 14f
-
-        /** 回滚行数固定值（与 Termux 默认 transcript-rows=2000 一致），不提供修改入口。 */
-        const val FIXED_SCROLLBACK_LINES = 2_000
         private const val DEFAULT_THEME = "Dracula Plus"
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
@@ -85,13 +82,11 @@ constructor(private val provider: SettingsDataStoreProvider) {
         provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
 
-    /** 回滚行数固定为 [FIXED_SCROLLBACK_LINES]，不读取、不持久化用户设置。 */
-    val scrollbackLines: Flow<Int> = kotlinx.coroutines.flow.flowOf(FIXED_SCROLLBACK_LINES)
     val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
 
     /**
      * Single merged snapshot of every persisted setting, derived from one DataStore read. UI
-     * subscribes to this one flow instead of 14 parallel per-field pipelines (C7). Field defaults
+     * subscribes to this one flow instead of 13 parallel per-field pipelines. Field defaults
      * mirror the per-field flows above; keep both in sync when adding a setting.
      */
     data class SettingsState(
@@ -103,7 +98,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val nightThemeName: String = DEFAULT_THEME,
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
-        val scrollbackLines: Int = FIXED_SCROLLBACK_LINES,
         val bootstrapUrl: String = "",
     )
 
@@ -118,7 +112,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
                 themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
-                scrollbackLines = FIXED_SCROLLBACK_LINES,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
             )
         }

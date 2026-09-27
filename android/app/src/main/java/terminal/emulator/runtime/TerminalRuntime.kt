@@ -877,12 +877,10 @@ constructor(
     private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
-            val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
             val fontDeferred = async { computeFontSizeTenths() }
             val themeDeferred = async { resolveThemeName() }
             ConfigReads(
                 shellPath = shellDeferred.await(),
-                scrollbackLines = scrollbackDeferred.await(),
                 fontSizeTenths = fontDeferred.await(),
                 themeName = themeDeferred.await(),
             )
@@ -911,7 +909,6 @@ constructor(
                 shell = Shell.SystemDefault,
                 rows = rows,
                 cols = cols,
-                scrollbackLines = configReads.scrollbackLines,
                 fontSizeTenths = configReads.fontSizeTenths,
                 theme = bridgeTheme,
                 home = homeDir,
@@ -934,7 +931,6 @@ constructor(
             shell = effectiveShell,
             rows = rows,
             cols = cols,
-            scrollbackLines = configReads.scrollbackLines,
             fontSizeTenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = homeDir,
@@ -1886,12 +1882,7 @@ constructor(
         return Shell.Custom("$prefixDir/$prefixShellChecked")
     }
 
-    private data class ConfigReads(
-        val shellPath: String,
-        val scrollbackLines: Int,
-        val fontSizeTenths: Int,
-        val themeName: String,
-    )
+    private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int, val themeName: String)
 
     /**
      * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN :188），不检查权限。

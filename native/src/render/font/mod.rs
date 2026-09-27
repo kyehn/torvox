@@ -14,30 +14,6 @@ pub const GLYPH_CACHE_CAPACITY: usize = 10_000;
 /// Used to decide whether to attempt CJK fallback font lookup.
 pub(crate) const CJK_IDEOGRAPHIC_START: u32 = 0x2E80;
 
-const PREFERRED_MONOSPACE_FONTS: &[&str] = &[
-    "roboto mono",
-    "droid sans mono",
-    "noto sans mono",
-    "source code pro",
-    "fira code",
-    "fira mono",
-    "jetbrains mono",
-    "dejavu sans mono",
-    "noto sans mono cjk",
-    "liberation mono",
-    "ubuntu mono",
-    "cascadia",
-    "ia writer",
-    "hack",
-    "inconsolata",
-    "iosevka",
-    "meslo",
-    "consolas",
-    "menlo",
-    "monaco",
-    "courier",
-];
-
 #[derive(Debug, Error)]
 pub enum FontError {
     #[error("no monospace font found")]

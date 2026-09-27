@@ -85,13 +85,9 @@ fn create_render_iterators() -> Option<(
 /// there is no cached snapshot yet. When none of these hold the grid content
 /// is byte-for-byte identical to the cached snapshot, so reusing it cannot
 /// yield a stale frame while skipping ~1920 per-cell ghostty FFI calls.
-pub(crate) fn snapshot_needs_rebuild(
-    grid_dirty: bool,
-    scroll_offset: u32,
-    cached_scroll_offset: u32,
-    has_cache: bool,
-) -> bool {
-    grid_dirty || scroll_offset != cached_scroll_offset || !has_cache
+/// 回滚浏览走 CellData 通道，`TakeSnapshot` 只覆盖当前视口，故只看脏标记。
+pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool {
+    grid_dirty || !has_cache
 }
 
 // ── impl GhosttyTerminal ──────────────────────────────────────
@@ -609,7 +605,6 @@ impl super::GhosttyTerminal {
         // single-threaded and processes commands sequentially, so there is no
         // race between marking `grid_dirty` and rebuilding.
         let mut cached_snapshot: Option<Arc<GridSnapshot>> = None;
-        let mut cached_scroll_offset: u32 = u32::MAX;
         // ── Auto-push CellData ──
         // Use a separate dirty flag to avoid coupling with the
         // legacy GridSnapshot grid_dirty tracker. Both flags are
@@ -798,7 +793,6 @@ impl super::GhosttyTerminal {
                         let _ = terminal.set_selection(None);
                         row_cache.clear();
                         cached_snapshot = None;
-                        cached_scroll_offset = u32::MAX;
                         last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
@@ -822,27 +816,18 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
-                    Command::TakeSnapshot { tx, scroll_offset } => {
-                        let needs_rebuild = snapshot_needs_rebuild(
-                            grid_dirty,
-                            scroll_offset,
-                            cached_scroll_offset,
-                            cached_snapshot.is_some(),
-                        );
+                    Command::TakeSnapshot { tx } => {
+                        let needs_rebuild =
+                            snapshot_needs_rebuild(grid_dirty, cached_snapshot.is_some());
                         let snapshot = if needs_rebuild {
-                            config
-                                .snapshot_rebuild_count
-                                .fetch_add(1, Ordering::Relaxed);
                             let snap = Self::build_snapshot(
                                 &terminal,
                                 default_foreground,
                                 default_background,
                                 &config.ansi_colors,
-                                scroll_offset,
                             );
                             let cached = Arc::new(snap);
                             cached_snapshot = Some(Arc::clone(&cached));
-                            cached_scroll_offset = scroll_offset;
                             grid_dirty = false;
                             cached
                         } else {
@@ -1710,19 +1695,7 @@ impl super::GhosttyTerminal {
         default_foreground: [f32; 4],
         default_background: [f32; 4],
         _palette: &[[u8; 3]; 16],
-        scroll_offset: u32,
     ) -> GridSnapshot {
-        // NOTE: a scrolled snapshot returns an EMPTY fallback
-        // grid — the CellData path does not expose scrollback content, and
-        // `take_snapshot_with_scroll` is only exercised by tests. Any
-        // future query caller passing a non-zero offset will get an
-        // empty grid; implement history snapshots there if needed.
-        if scroll_offset > 0 {
-            return GridSnapshot::fallback(
-                terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32,
-                terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32,
-            );
-        }
         let rows = terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32;
         let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32;
         let size = (rows * cols) as usize;

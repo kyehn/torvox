@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import android.view.KeyEvent
 import android.view.MotionEvent
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +39,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -53,6 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
@@ -61,31 +61,82 @@ import terminal.emulator.input.ModifierState
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
-/** Key columns per horizontal page (default layout = 7 columns = 1 page). */
-private const val MAX_COLUMNS_PER_PAGE = 7
-
-/** One toolbar column: (top key, bottom key); either slot may be empty. */
-internal typealias ToolbarColumn = Pair<ToolbarItem?, ToolbarItem?>
+/**
+ * 修饰键栏按键种类（固定）：布局不可配置（PROHIBITED 禁止布局编辑器），
+ * 故只有枚举本身，没有「自定义按键」与「按键宽度」概念。
+ */
+enum class ToolbarKey(
+    val defaultLabel: String,
+    val sequence: String,
+    /** 显示符号覆盖（抽屉图标与标签不同）。 */
+    val symbol: String? = null,
+    /** 测试标签覆盖，缺省为 "Key_<defaultLabel>"。 */
+    val testTag: String? = null,
+    /** 无障碍描述资源，缺省取 defaultLabel。 */
+    @StringRes val contentDescriptionRes: Int? = null,
+    /** 按住时重复发送按键序列（方向键）。 */
+    val repeatable: Boolean = false,
+    /** 由 [ModifierState] 驱动的切换型修饰键。 */
+    val modifier: Boolean = false,
+) {
+    ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape),
+    DRAWER(
+        "\u2261",
+        "",
+        symbol = "\u2630",
+        testTag = "Key_DRAWER",
+        contentDescriptionRes = R.string.open_session_drawer,
+    ),
+    SCROLL("SCROLL", "", contentDescriptionRes = R.string.toggle_scroll),
+    HOME("HOME", "\u001b[H", contentDescriptionRes = R.string.home_key),
+    ARROW_UP("\u2191", "\u001b[A", contentDescriptionRes = R.string.arrow_up, repeatable = true),
+    END("END", "\u001b[F", contentDescriptionRes = R.string.end_key),
+    PGUP("PGUP", "\u001b[5~", contentDescriptionRes = R.string.page_up),
+    TAB("TAB", "\t", contentDescriptionRes = R.string.tab_key),
+    CTRL("CTRL", "", contentDescriptionRes = R.string.control_toggle, modifier = true),
+    ALT("ALT", "", contentDescriptionRes = R.string.alt_toggle, modifier = true),
+    ARROW_LEFT("\u2190", "\u001b[D", contentDescriptionRes = R.string.arrow_left, repeatable = true),
+    ARROW_DOWN("\u2193", "\u001b[B", contentDescriptionRes = R.string.arrow_down, repeatable = true),
+    ARROW_RIGHT("\u2192", "\u001b[C", contentDescriptionRes = R.string.arrow_right, repeatable = true),
+    PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down),
+    PIPE("|", "|"),
+    SLASH("/", "/"),
+    DASH("-", "-"),
+    UNDERSCORE("_", "_"),
+    DOT(".", "."),
+    EQUALS("=", "="),
+    HASH("#", "#"),
+    AT("@", "@"),
+    AMPERSAND("&", "&"),
+    TILDE("~", "~"),
+    BACKTICK("`", "`"),
+    BANG("!", "!"),
+    QUESTION("?", "?"),
+}
 
 /**
- * Splits the flat toolbar layout into horizontal pages (termux ViewPager behaviour): the list is
- * split at the midpoint into two rows, paired into top/bottom columns, then chunked so each page
- * holds up to [maxColumnsPerPage] columns; swipe left/right reaches the rest. The default 14-key
- * layout is a single 7-column page.
+ * 固定布局，对应 termux-app v0.119.0-beta.3 的 extra_keys：
+ * 第一行 ESC DRAWER SCROLL HOME ↑ END PGUP，第二行 TAB CTRL ALT ← ↓ → PGDN。
+ * 渲染时从中点切分为两行。
+ *
+ * DRAWER 位于左侧第二个键，长按粘贴剪贴板（termux 默认 `popup: 'PASTE'`）。
  */
-internal fun paginateToolbarKeys(
-    keys: ImmutableList<ToolbarItem>,
-    maxColumnsPerPage: Int = MAX_COLUMNS_PER_PAGE,
-): List<List<ToolbarColumn>> {
-    val midpoint = (keys.size + 1) / 2
-    val row1 = keys.take(midpoint)
-    val row2 = keys.drop(midpoint)
-    val columns: List<ToolbarColumn> =
-        (0 until maxOf(row1.size, row2.size)).map { index ->
-            row1.getOrNull(index) to row2.getOrNull(index)
-        }
-    return columns.chunked(maxColumnsPerPage)
-}
+internal val TERMUX_EXTRA_KEYS: ImmutableList<ToolbarKey> = persistentListOf(
+    ToolbarKey.ESC,
+    ToolbarKey.DRAWER,
+    ToolbarKey.SCROLL,
+    ToolbarKey.HOME,
+    ToolbarKey.ARROW_UP,
+    ToolbarKey.END,
+    ToolbarKey.PGUP,
+    ToolbarKey.TAB,
+    ToolbarKey.CTRL,
+    ToolbarKey.ALT,
+    ToolbarKey.ARROW_LEFT,
+    ToolbarKey.ARROW_DOWN,
+    ToolbarKey.ARROW_RIGHT,
+    ToolbarKey.PGDN,
+)
 
 // Termux ExtraKeysView parity: long-press threshold 400ms
 // (FALLBACK_LONG_PRESS_DURATION), repeat starts after the same delay
@@ -104,89 +155,9 @@ private const val PRESS_SCALE_SPRING_DAMPING = 0.55f
 private const val PRESS_SCALE_SPRING_STIFFNESS = 5000f
 private const val SECONDARY_FONT_SIZE_SP = 8
 
-/**
- * Compose key sequences: (first char, second char) → composed character. Mirrors the classic X11
- * default compose table for the common Latin-1 accented characters plus a few symbols.
- */
-private val COMPOSE_TABLE: Map<Pair<Char, Char>, Char> =
-    mapOf(
-        // Grave accents
-        Pair('a', '`') to 'à',
-        Pair('e', '`') to 'è',
-        Pair('i', '`') to 'ì',
-        Pair('o', '`') to 'ò',
-        Pair('u', '`') to 'ù',
-        // Acute accents
-        Pair('a', '\'') to 'á',
-        Pair('e', '\'') to 'é',
-        Pair('i', '\'') to 'í',
-        Pair('o', '\'') to 'ó',
-        Pair('u', '\'') to 'ú',
-        // Circumflex accents
-        Pair('a', '^') to 'â',
-        Pair('e', '^') to 'ê',
-        Pair('i', '^') to 'î',
-        Pair('o', '^') to 'ô',
-        Pair('u', '^') to 'û',
-        // Tilde
-        Pair('a', '~') to 'ã',
-        Pair('n', '~') to 'ñ',
-        Pair('o', '~') to 'õ',
-        // Diaeresis
-        Pair('a', '"') to 'ä',
-        Pair('e', '"') to 'ë',
-        Pair('i', '"') to 'ï',
-        Pair('o', '"') to 'ö',
-        Pair('u', '"') to 'ü',
-        Pair('y', '"') to 'ÿ',
-        // Ring, ligatures, stroke
-        Pair('a', 'o') to 'å',
-        Pair('a', 'e') to 'æ',
-        Pair('o', 'e') to 'œ',
-        Pair('o', '/') to 'ø',
-        Pair('s', 's') to 'ß',
-        // Cedilla
-        Pair('c', ',') to 'ç',
-        // Symbols
-        Pair('(', 'c') to '©',
-        Pair('(', 'r') to '®',
-        Pair('o', 'o') to '°',
-        Pair('!', '!') to '¡',
-        Pair('?', '?') to '¿',
-        Pair('-', '-') to '\u2013',
-    )
-
-/** Look up a two-key compose sequence; null when no match exists. */
-private fun composeLookup(first: Char, second: Char): Char? = COMPOSE_TABLE[first to second]
-
-/** F1-F12 escape sequences (XTerm function-key codes). */
-internal val FN_KEY_SEQUENCES: List<Pair<String, String>> =
-    listOf(
-        "F1" to "\u001bOP",
-        "F2" to "\u001bOQ",
-        "F3" to "\u001bOR",
-        "F4" to "\u001bOS",
-        "F5" to "\u001b[15~",
-        "F6" to "\u001b[17~",
-        "F7" to "\u001b[18~",
-        "F8" to "\u001b[19~",
-        "F9" to "\u001b[20~",
-        "F10" to "\u001b[21~",
-        "F11" to "\u001b[23~",
-        "F12" to "\u001b[24~",
-    )
-
-@Composable
-fun rememberToolbarLayout(): ImmutableList<ToolbarItem>? {
-    val context = LocalContext.current
-    val toolbarPreferences = remember { ToolbarPreferences(context) }
-    var layout by remember { mutableStateOf(toolbarPreferences.getLayout().toImmutableList()) }
-    DisposableEffect(toolbarPreferences) {
-        val listener = toolbarPreferences.registerLayoutListener { layout = it.toImmutableList() }
-        onDispose { toolbarPreferences.unregisterLayoutListener(listener) }
-    }
-    return layout
-}
+/** 横向分页：第 0 页按键，第 1 页文本输入。 */
+private const val TEXT_INPUT_PAGE_INDEX = 1
+private const val KEY_PAGE_COUNT = TEXT_INPUT_PAGE_INDEX + 1
 
 /**
  * Termux v0.119.0-beta.3 extra_keys layout: Row 1: ESC, DRAWER, SCROLL, HOME, ↑, END, PGUP Row 2:
@@ -206,20 +177,13 @@ fun ModifierBar(
     scrollActive: Boolean = false,
     ctrlState: ModifierState = ModifierState.Off,
     altState: ModifierState = ModifierState.Off,
-    fnState: ModifierState = ModifierState.Off,
     onToggleCtrl: () -> Unit = {},
     onToggleAlt: () -> Unit = {},
-    onToggleFn: () -> Unit = {},
-    /** termux `KEYBOARD` special key — toggle soft keyboard visibility. */
-    onToggleKeyboard: () -> Unit = {},
-    /** Termux-parity long-press lock for CTRL/ALT (tap only toggles one-shot). */
+    /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
     onLockCtrl: () -> Unit = {},
     onLockAlt: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    toolbarLayout: ImmutableList<ToolbarItem>? = null,
-    /** DRAWER 长按粘贴（termux 默认 `popup: 'PASTE'`）。 */
-    onPaste: (() -> Unit)? = null,
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
     isAppCursorMode: () -> Boolean = { false },
     /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
@@ -227,337 +191,24 @@ fun ModifierBar(
     /** Consumes Once sticky modifiers after a modified key is sent. */
     onConsumeModifiers: () -> Unit = {},
 ) {
-    val buttonHeight = BUTTON_HEIGHT_DP.dp
-
-    // ── Compose key mode ──────────────────────────────────────────────
-    var composeActive by remember { mutableStateOf(false) }
-    var composeBuffer by remember { mutableStateOf<Char?>(null) }
-
-    fun flushCompose() {
-        composeBuffer?.let { onKeyClick(it.toString()) }
-        composeBuffer = null
-        composeActive = false
-    }
-
-    fun toggleCompose() {
-        if (composeActive) flushCompose() else composeActive = true
-    }
-
-    /** Route every key sequence through the compose state machine. */
-    fun dispatchKey(seq: String) {
-        if (!composeActive) {
-            onKeyClick(seq)
-            return
-        }
-        val ch = if (seq.length == 1) seq[0] else null
-        if (ch == null || ch.isISOControl()) {
-            // Non-printable key: flush the buffered char and exit compose mode.
-            flushCompose()
-            onKeyClick(seq)
-            return
-        }
-        val buffered = composeBuffer
-        if (buffered == null) {
-            composeBuffer = ch
-        } else {
-            composeBuffer = null
-            composeActive = false
-            val composed = composeLookup(buffered, ch)
-            if (composed != null) {
-                onKeyClick(composed.toString())
-            } else {
-                // No match: deliver both keys verbatim.
-                onKeyClick(buffered.toString())
-                onKeyClick(ch.toString())
-            }
-        }
-    }
-
-    /** Arrow buttons follow DECCKM like the hardware-key path ([TerminalInputEncoder]). */
-    fun dispatchArrow(keyCode: Int) {
-        dispatchKey(TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode()))
-    }
-
-    // ── FN second layer (F1-F12) ──────────────────────────────────────
-    if (fnState == ModifierState.Locked) {
-        FnKeyRows(
-            onKeyClick = ::dispatchKey,
-            onToggleFn = onToggleFn,
-            textColor = textColor,
-            backgroundColor = backgroundColor,
-            modifier = modifier,
-        )
-        return
-    }
-
-    if (toolbarLayout != null) {
-        ConfigurableModifierBar(
-            toolbarLayout = toolbarLayout,
-            onKeyClick = ::dispatchKey,
-            onDrawerClick = onDrawerClick,
-            onScrollClick = onScrollClick,
-            scrollActive = scrollActive,
-            ctrlState = ctrlState,
-            altState = altState,
-            fnState = fnState,
-            onToggleCtrl = onToggleCtrl,
-            onToggleAlt = onToggleAlt,
-            onToggleFn = onToggleFn,
-            onToggleKeyboard = onToggleKeyboard,
-            onLockCtrl = onLockCtrl,
-            onLockAlt = onLockAlt,
-            composeActive = composeActive,
-            onToggleCompose = ::toggleCompose,
-            isAppCursorMode = isAppCursorMode,
-            onKeyBytesClick = onKeyBytesClick,
-            onConsumeModifiers = onConsumeModifiers,
-            onPaste = onPaste,
-            textColor = textColor,
-            backgroundColor = backgroundColor,
-            modifier = modifier,
-        )
-        return
-    }
-
-    Column(
-        modifier = modifier.fillMaxWidth().background(backgroundColor).testTag("ModifierBar"),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(buttonHeight),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ExtraKeyButton(
-                text = "ESC",
-                onClick = {
-                    dispatchKey("\u001b")
-                },
-                textColor = textColor,
-                testTag = "Key_ESC",
-                contentDescription = stringResource(R.string.escape),
-            )
-            ExtraKeyButton(
-                text = "\u2630",
-                onClick = {
-                    onDrawerClick()
-                },
-                textColor = textColor,
-                testTag = "Key_DRAWER",
-                contentDescription = stringResource(R.string.open_session_drawer),
-            )
-            ExtraKeyButton(
-                text = "SCROLL",
-                onClick = {
-                    onScrollClick()
-                },
-                textColor = textColor,
-                modifierState = if (scrollActive) ModifierState.Locked else null,
-                testTag = "Key_SCROLL",
-                contentDescription = stringResource(R.string.toggle_scroll),
-            )
-            ExtraKeyButton(
-                text = "HOME",
-                onClick = {
-                    dispatchKey("\u001b[H")
-                },
-                textColor = textColor,
-                testTag = "Key_HOME",
-                contentDescription = stringResource(R.string.home_key),
-            )
-            ExtraKeyButton(
-                text = "\u2191",
-                onClick = {
-                    dispatchArrow(KeyEvent.KEYCODE_DPAD_UP)
-                },
-                textColor = textColor,
-                testTag = "Key_↑",
-                contentDescription = stringResource(R.string.arrow_up),
-                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_UP) },
-            )
-            ExtraKeyButton(
-                text = "END",
-                onClick = {
-                    dispatchKey("\u001b[F")
-                },
-                textColor = textColor,
-                testTag = "Key_END",
-                contentDescription = stringResource(R.string.end_key),
-            )
-            ExtraKeyButton(
-                text = "PGUP",
-                onClick = {
-                    dispatchKey("\u001b[5~")
-                },
-                textColor = textColor,
-                testTag = "Key_PGUP",
-                contentDescription = stringResource(R.string.page_up),
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().height(buttonHeight),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ExtraKeyButton(
-                text = "FN",
-                onClick = { onToggleFn() },
-                textColor = textColor,
-                modifierState = fnState,
-                testTag = "Key_FN",
-                contentDescription = stringResource(R.string.function_key_layer),
-            )
-            ExtraKeyButton(
-                text = "COMPOSE",
-                onClick = { toggleCompose() },
-                textColor = textColor,
-                modifierState = if (composeActive) ModifierState.Locked else null,
-                testTag = "Key_COMPOSE",
-                contentDescription = stringResource(R.string.compose_key),
-            )
-            ExtraKeyButton(
-                text = "TAB",
-                onClick = { dispatchKey("\t") },
-                textColor = textColor,
-                testTag = "Key_TAB",
-                contentDescription = stringResource(R.string.tab_key),
-            )
-            ExtraKeyButton(
-                text = "CTRL",
-                onClick = { onToggleCtrl() },
-                textColor = textColor,
-                modifierState = ctrlState,
-                testTag = "Key_CTRL",
-                contentDescription = stringResource(R.string.control_toggle),
-            )
-            ExtraKeyButton(
-                text = "ALT",
-                onClick = { onToggleAlt() },
-                textColor = textColor,
-                modifierState = altState,
-                testTag = "Key_ALT",
-                contentDescription = stringResource(R.string.alt_toggle),
-            )
-            ExtraKeyButton(
-                text = "\u2190",
-                onClick = {
-                    dispatchArrow(KeyEvent.KEYCODE_DPAD_LEFT)
-                },
-                textColor = textColor,
-                testTag = "Key_←",
-                contentDescription = stringResource(R.string.arrow_left),
-                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_LEFT) },
-            )
-            ExtraKeyButton(
-                text = "\u2193",
-                onClick = {
-                    dispatchArrow(KeyEvent.KEYCODE_DPAD_DOWN)
-                },
-                textColor = textColor,
-                testTag = "Key_↓",
-                contentDescription = stringResource(R.string.arrow_down),
-                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_DOWN) },
-            )
-            ExtraKeyButton(
-                text = "\u2192",
-                onClick = {
-                    dispatchArrow(KeyEvent.KEYCODE_DPAD_RIGHT)
-                },
-                textColor = textColor,
-                testTag = "Key_→",
-                contentDescription = stringResource(R.string.arrow_right),
-                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
-            )
-            ExtraKeyButton(
-                text = "PGDN",
-                onClick = {
-                    dispatchKey("\u001b[6~")
-                },
-                textColor = textColor,
-                testTag = "Key_PGDN",
-                contentDescription = stringResource(R.string.page_down),
-            )
-        }
-    }
-}
-
-/**
- * One row of F-key buttons (F1-F6 or F7-F12). Each tap sends the key sequence and returns to the
- * normal layer (single-shot FN).
- */
-@Composable
-private fun RowScope.FnKeyButtons(
-    items: List<Pair<String, String>>,
-    onKeyClick: (String) -> Unit,
-    onToggleFn: () -> Unit,
-    textColor: Color,
-) {
-    for ((name, seq) in items) {
-        ExtraKeyButton(
-            text = name,
-            onClick = {
-                onKeyClick(seq)
-                onToggleFn()
-            },
-            textColor = textColor,
-            testTag = "Key_$name",
-            contentDescription = name,
-        )
-    }
-}
-
-/**
- * Second-layer rows shown when the FN modifier is Locked: F1-F12. Tapping an F-key sends its escape
- * sequence and returns to the normal layer (single-shot); tapping FN again returns without sending
- * anything.
- */
-@Composable
-private fun FnKeyRows(
-    onKeyClick: (String) -> Unit,
-    onToggleFn: () -> Unit,
-    textColor: Color,
-    backgroundColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    val buttonHeight = BUTTON_HEIGHT_DP.dp
-    Column(
-        modifier = modifier.fillMaxWidth().background(backgroundColor).testTag("ModifierBar"),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(buttonHeight),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FnKeyButtons(
-                items = FN_KEY_SEQUENCES.take(6),
-                onKeyClick = onKeyClick,
-                onToggleFn = onToggleFn,
-                textColor = textColor,
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().height(buttonHeight),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FnKeyButtons(
-                items = FN_KEY_SEQUENCES.drop(6),
-                onKeyClick = onKeyClick,
-                onToggleFn = onToggleFn,
-                textColor = textColor,
-            )
-            ExtraKeyButton(
-                text = "FN",
-                onClick = { onToggleFn() },
-                textColor = textColor,
-                modifierState = ModifierState.Locked,
-                testTag = "Key_FN",
-                contentDescription = stringResource(R.string.function_key_layer),
-            )
-        }
-    }
+    ConfigurableModifierBar(
+        onKeyClick = onKeyClick,
+        onDrawerClick = onDrawerClick,
+        onScrollClick = onScrollClick,
+        scrollActive = scrollActive,
+        ctrlState = ctrlState,
+        altState = altState,
+        onToggleCtrl = onToggleCtrl,
+        onToggleAlt = onToggleAlt,
+        onLockCtrl = onLockCtrl,
+        onLockAlt = onLockAlt,
+        isAppCursorMode = isAppCursorMode,
+        onKeyBytesClick = onKeyBytesClick,
+        onConsumeModifiers = onConsumeModifiers,
+        textColor = textColor,
+        backgroundColor = backgroundColor,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -605,21 +256,14 @@ private fun ModifierBarTextInputPage(
 
 @Composable
 private fun ConfigurableModifierBar(
-    toolbarLayout: ImmutableList<ToolbarItem>,
     onKeyClick: (String) -> Unit,
     onDrawerClick: () -> Unit,
     onScrollClick: () -> Unit,
     scrollActive: Boolean,
     ctrlState: ModifierState,
     altState: ModifierState,
-    fnState: ModifierState,
     onToggleCtrl: () -> Unit,
     onToggleAlt: () -> Unit,
-    onToggleFn: () -> Unit,
-    onToggleKeyboard: () -> Unit,
-    composeActive: Boolean,
-    onToggleCompose: () -> Unit,
-    onPaste: (() -> Unit)?,
     textColor: Color,
     backgroundColor: Color,
     modifier: Modifier = Modifier,
@@ -630,11 +274,11 @@ private fun ConfigurableModifierBar(
     onConsumeModifiers: () -> Unit = {},
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
-    val allKeys = toolbarLayout.toList()
-    // Page the layout horizontally so more keys can be added than fit one
-    // screen width (termux ViewPager behaviour): see paginateToolbarKeys.
-    val pages = paginateToolbarKeys(allKeys.toImmutableList())
-    val pagerState = rememberPagerState(pageCount = { pages.size + 1 })
+    // 固定 2 行 7 列：从中点切分（termux extra_keys 顺序）。
+    val row1 = TERMUX_EXTRA_KEYS.take(TERMUX_EXTRA_KEYS.size / 2)
+    val row2 = TERMUX_EXTRA_KEYS.drop(TERMUX_EXTRA_KEYS.size / 2)
+    // 第 0 页是按键页，第 1 页是文本输入页（DESIGN：左滑进入文本输入框）。
+    val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
     val actions =
         ModifierBarActions(
             onKeyClick = onKeyClick,
@@ -642,31 +286,25 @@ private fun ConfigurableModifierBar(
             onScrollClick = onScrollClick,
             onToggleCtrl = onToggleCtrl,
             onToggleAlt = onToggleAlt,
-            onToggleFn = onToggleFn,
-            onToggleCompose = onToggleCompose,
-            onToggleKeyboard = onToggleKeyboard,
             onLockCtrl = onLockCtrl,
             onLockAlt = onLockAlt,
             isAppCursorMode = isAppCursorMode,
             onKeyBytesClick = onKeyBytesClick,
             onConsumeModifiers = onConsumeModifiers,
-            onPaste = onPaste,
         )
     val modifierStates =
         ModifierBarStates(
             ctrlState = ctrlState,
             altState = altState,
-            fnState = fnState,
-            composeActive = composeActive,
             scrollActive = scrollActive,
         )
     val defaultContentDescriptions: Map<ToolbarKey, String> =
         ToolbarKey.entries.associateWith { key ->
             key.contentDescriptionRes?.let { stringResource(it) } ?: key.defaultLabel
         }
-    val presentation = { item: ToolbarItem ->
-        toolbarItemPresentation(
-            item = item,
+    val presentation = { key: ToolbarKey ->
+        toolbarKeyPresentation(
+            key = key,
             actions = actions,
             modifierStates = modifierStates,
             contentDescriptionResolver = { key ->
@@ -677,17 +315,16 @@ private fun ConfigurableModifierBar(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth().background(backgroundColor),
+        modifier = modifier.fillMaxWidth().background(backgroundColor).testTag("ModifierBar"),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        // Trailing text-input page (termux TerminalToolbarViewPager
-        // behaviour): swipe past the key pages to type into a box; Done
-        // sends the text verbatim (empty sends carriage return), then clears.
+        // 末页为文本输入页（termux TerminalToolbarViewPager 行为）：滑过按键页
+        // 输入文本，Done 原样发送（空则发送回车）并清空。
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxWidth().testTag("ModifierBarPager"),
         ) { page ->
-            if (page >= pages.size) {
+            if (page == TEXT_INPUT_PAGE_INDEX) {
                 ModifierBarTextInputPage(
                     buttonHeight = buttonHeight,
                     textColor = textColor,
@@ -696,52 +333,34 @@ private fun ConfigurableModifierBar(
                 )
                 return@HorizontalPager
             }
-            val pageColumns = pages[page]
-            val pageRow1 = pageColumns.mapNotNull { it.first }
-            val pageRow2 = pageColumns.mapNotNull { it.second }
             Column {
-                ModifierBarButtonRow(
-                    items = pageRow1.map(presentation).toImmutableList(),
-                    buttonHeight = buttonHeight,
-                    textColor = textColor,
-                )
-                if (pageRow2.isNotEmpty()) {
-                    ModifierBarButtonRow(
-                        items = pageRow2.map(presentation).toImmutableList(),
-                        buttonHeight = buttonHeight,
-                        textColor = textColor,
-                    )
-                }
+                ModifierBarButtonRow(row1.map(presentation).toImmutableList(), buttonHeight, textColor)
+                ModifierBarButtonRow(row2.map(presentation).toImmutableList(), buttonHeight, textColor)
             }
         }
     }
 }
 
-/** One rendered button's full presentation, derived from a [ToolbarItem]. */
-private data class ToolbarItemPresentation(
+/** 一个按键按钮的完整呈现状态，由 [ToolbarKey] 派生。 */
+private data class ToolbarKeyPresentation(
     val label: String,
     val onClick: () -> Unit,
     val modifierState: ModifierState?,
     val testTag: String,
     val contentDescription: String?,
     val onRepeat: (() -> Unit)?,
-    val widthWeight: Int,
     val secondaryLabel: String?,
     val secondaryAction: (() -> Unit)?,
 )
 
-/** The callbacks a configurable modifier bar can trigger. */
+/** 修饰键栏可触发的回调集合。 */
 private data class ModifierBarActions(
     val onKeyClick: (String) -> Unit,
     val onDrawerClick: () -> Unit,
     val onScrollClick: () -> Unit,
     val onToggleCtrl: () -> Unit,
     val onToggleAlt: () -> Unit,
-    val onToggleFn: () -> Unit,
-    val onToggleCompose: () -> Unit,
-    /** termux `KEYBOARD` special key — toggle soft keyboard visibility. */
-    val onToggleKeyboard: () -> Unit,
-    /** Termux-parity long-press lock for CTRL/ALT (tap only toggles one-shot). */
+    /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
     val onLockCtrl: () -> Unit = {},
     val onLockAlt: () -> Unit = {},
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
@@ -750,99 +369,59 @@ private data class ModifierBarActions(
     val onKeyBytesClick: ((ByteArray) -> Unit)? = null,
     /** Consumes Once sticky modifiers after a modified key is sent. */
     val onConsumeModifiers: () -> Unit = {},
-    /** Long-press paste on DRAWER (termux default `popup: 'PASTE'`). */
-    val onPaste: (() -> Unit)?,
 )
 
 /** The live toggle states of the modifier keys. */
 private data class ModifierBarStates(
     val ctrlState: ModifierState,
     val altState: ModifierState,
-    val fnState: ModifierState,
-    val composeActive: Boolean,
     val scrollActive: Boolean,
 )
 
-/**
- * Long-press action for a key: an explicit secondary sequence, CTRL/ALT lock
- * (termux long-press), or the DRAWER paste popup (termux default) as fallback.
- */
-private fun secondaryLongPressAction(
-    item: ToolbarItem,
-    actions: ModifierBarActions,
-    isDrawer: Boolean,
-): (() -> Unit)? = item.secondarySequence?.takeIf { it.isNotEmpty() }?.let { { actions.onKeyClick(it) } }
-    ?: when {
-        item is ToolbarItem.Default && item.key == ToolbarKey.CTRL -> actions.onLockCtrl
-        item is ToolbarItem.Default && item.key == ToolbarKey.ALT -> actions.onLockAlt
-        isDrawer -> actions.onPaste
-        else -> null
-    }
+/** 长按动作：CTRL/ALT 锁定（termux 长按）。其余按键无长按动作。 */
+private fun secondaryLongPressAction(key: ToolbarKey, actions: ModifierBarActions): (() -> Unit)? = when (key) {
+    ToolbarKey.CTRL -> actions.onLockCtrl
+    ToolbarKey.ALT -> actions.onLockAlt
+    else -> null
+}
 
 /** The live toggle state for one [ToolbarKey], or null for non-toggle keys. */
 private fun modifierStateFor(key: ToolbarKey?, states: ModifierBarStates): ModifierState? = when (key) {
     ToolbarKey.CTRL -> states.ctrlState
     ToolbarKey.ALT -> states.altState
-    ToolbarKey.FN -> states.fnState
-    ToolbarKey.COMPOSE -> if (states.composeActive) ModifierState.Locked else null
     ToolbarKey.SCROLL -> if (states.scrollActive) ModifierState.Locked else null
     else -> null
 }
 
-private fun toolbarItemPresentation(
-    item: ToolbarItem,
+private fun toolbarKeyPresentation(
+    key: ToolbarKey,
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
     contentDescriptionResolver: (ToolbarKey) -> String,
     isAppCursorMode: () -> Boolean = { false },
-): ToolbarItemPresentation {
-    val modifierState = modifierStateFor((item as? ToolbarItem.Default)?.key, modifierStates)
-    val toolbarKey = (item as? ToolbarItem.Default)?.key
-    val fallbackSequence = toolbarKey?.sequence.orEmpty()
+): ToolbarKeyPresentation {
     val onRepeat =
-        (item as? ToolbarItem.Default)
-            ?.takeIf { it.key.repeatable }
-            ?.let { entry ->
-                {
-                    sendPlainOrModified(
-                        entry.key,
-                        arrowOrPlainSequence(arrowKeyCode(entry.key), fallbackSequence, actions.isAppCursorMode),
-                        actions,
-                        modifierStates,
-                    )
-                }
+        if (key.repeatable) {
+            {
+                sendPlainOrModified(
+                    key,
+                    arrowOrPlainSequence(arrowKeyCode(key), key.sequence, actions.isAppCursorMode),
+                    actions,
+                    modifierStates,
+                )
             }
-    val itemLabel =
-        when (item) {
-            is ToolbarItem.Default -> item.key.symbol ?: item.key.defaultLabel
-            is ToolbarItem.Custom -> item.label
+        } else {
+            null
         }
-    val testTag =
-        when (item) {
-            is ToolbarItem.Default -> item.key.testTag ?: "Key_${item.key.defaultLabel}"
-            is ToolbarItem.Custom -> item.testTag
-        }
-    val contentDescription =
-        when (item) {
-            is ToolbarItem.Default -> contentDescriptionResolver(item.key)
-            is ToolbarItem.Custom -> item.label
-        }
-    val isDrawer = (item as? ToolbarItem.Default)?.key == ToolbarKey.DRAWER
-    // DRAWER long-press = paste (termux default `popup: 'PASTE'`); an
-    // explicit per-item secondary sequence wins over the default popup.
-    val secondaryLabel =
-        item.secondaryLabel ?: if (isDrawer && actions.onPaste != null) "PASTE" else null
-    val secondaryAction = secondaryLongPressAction(item, actions, isDrawer)
-    return ToolbarItemPresentation(
-        label = itemLabel,
-        onClick = toolbarItemKeyHandler(item, actions, modifierStates, isAppCursorMode),
-        modifierState = modifierState,
-        testTag = testTag,
-        contentDescription = contentDescription,
+    return ToolbarKeyPresentation(
+        label = key.symbol ?: key.defaultLabel,
+        onClick = toolbarKeyClickHandler(key, actions, modifierStates, isAppCursorMode),
+        modifierState = modifierStateFor(key, modifierStates),
+        testTag = key.testTag ?: "Key_${key.defaultLabel}",
+        contentDescription = contentDescriptionResolver(key),
         onRepeat = onRepeat,
-        widthWeight = item.width,
-        secondaryLabel = secondaryLabel,
-        secondaryAction = secondaryAction,
+        secondaryLabel = null,
+        secondaryAction = secondaryLongPressAction(key, actions),
     )
 }
 
@@ -904,79 +483,48 @@ private fun sendPlainOrModified(
     actions.onConsumeModifiers()
 }
 
-private fun toolbarItemKeyHandler(
-    item: ToolbarItem,
+private fun toolbarKeyClickHandler(
+    key: ToolbarKey,
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
     isAppCursorMode: () -> Boolean = { false },
-): () -> Unit = when (item) {
-    is ToolbarItem.Default ->
-        when (item.key) {
-            ToolbarKey.CTRL -> actions.onToggleCtrl
+): () -> Unit = when (key) {
+    ToolbarKey.CTRL -> actions.onToggleCtrl
 
-            ToolbarKey.ALT -> actions.onToggleAlt
+    ToolbarKey.ALT -> actions.onToggleAlt
 
-            ToolbarKey.FN -> actions.onToggleFn
+    ToolbarKey.DRAWER -> actions.onDrawerClick
 
-            ToolbarKey.COMPOSE -> actions.onToggleCompose
+    ToolbarKey.SCROLL -> actions.onScrollClick
 
-            ToolbarKey.KEYBOARD -> actions.onToggleKeyboard
-
-            ToolbarKey.DRAWER -> actions.onDrawerClick
-
-            ToolbarKey.SCROLL -> actions.onScrollClick
-
-            ToolbarKey.ARROW_UP,
-            ToolbarKey.ARROW_DOWN,
-            ToolbarKey.ARROW_LEFT,
-            ToolbarKey.ARROW_RIGHT,
-            -> {
-                // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
-                val keyCode = arrowKeyCode(item.key)
-                if (keyCode == null) {
-                    {}
-                } else {
-                    {
-                        sendPlainOrModified(
-                            item.key,
-                            arrowOrPlainSequence(keyCode, item.key.sequence, isAppCursorMode),
-                            actions,
-                            modifierStates,
-                        )
-                    }
-                }
-            }
-
-            else -> {
-                val sequence = item.key.sequence
-                if (sequence.isNotEmpty()) {
-                    { sendPlainOrModified(item.key, sequence, actions, modifierStates) }
-                } else {
-                    {}
-                }
-            }
-        }
-
-    is ToolbarItem.Custom -> {
-        val macro = item.macro
-        if (macro != null && ToolbarMacroExpander.isMacro(macro)) {
-            val keys = ToolbarMacroExpander.expand(macro)
-            if (keys.isNotEmpty()) {
-                { keys.forEach(actions.onKeyClick) }
-            } else {
-                {}
-            }
-        } else if (item.sequence.isNotEmpty()) {
-            { actions.onKeyClick(item.sequence) }
-        } else {
-            {}
+    ToolbarKey.ARROW_UP,
+    ToolbarKey.ARROW_DOWN,
+    ToolbarKey.ARROW_LEFT,
+    ToolbarKey.ARROW_RIGHT,
+    -> {
+        // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
+        val keyCode = arrowKeyCode(key) ?: return { }
+        {
+            sendPlainOrModified(
+                key,
+                arrowOrPlainSequence(keyCode, key.sequence, isAppCursorMode),
+                actions,
+                modifierStates,
+            )
         }
     }
+
+    else ->
+        if (key.sequence.isEmpty()) {
+            { }
+        } else {
+            { sendPlainOrModified(key, key.sequence, actions, modifierStates) }
+        }
 }
 
 /** One full-width row of extra-key buttons from pre-computed presentations. */
 @Composable
-private fun ModifierBarButtonRow(items: ImmutableList<ToolbarItemPresentation>, buttonHeight: Dp, textColor: Color) {
+private fun ModifierBarButtonRow(items: ImmutableList<ToolbarKeyPresentation>, buttonHeight: Dp, textColor: Color) {
     Row(
         modifier = Modifier.fillMaxWidth().height(buttonHeight),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -991,7 +539,6 @@ private fun ModifierBarButtonRow(items: ImmutableList<ToolbarItemPresentation>, 
                 testTag = item.testTag,
                 contentDescription = item.contentDescription,
                 onRepeat = item.onRepeat,
-                widthWeight = item.widthWeight,
                 secondaryLabel = item.secondaryLabel,
                 secondaryAction = item.secondaryAction,
             )
