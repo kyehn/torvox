@@ -211,11 +211,7 @@ class BootstrapInstaller(
         }
     }
 
-    private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any {
-        name.startsWith(
-            it,
-        )
-    } || name.startsWith("lib/apt/methods/")
+    private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any { name.startsWith(it) }
 
     internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
 

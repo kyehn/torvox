@@ -81,6 +81,13 @@ import terminal.emulator.ui.theme.TerminalTheme
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
 private const val FONT_SIZE_RANGE_STEPS = 23
+
+/** 引导程序包变体（DESIGN Bootstrap 节：只用 apt-android-7）。 */
+private const val TERMUX_PACKAGE_VARIANT = "apt.android-7"
+
+/** 引导程序版本，取自 termux-app app/build.gradle 的 downloadBootstraps 任务。 */
+private const val TERMUX_BOOTSTRAP_RELEASE = "2026.02.12-r1"
+
 private val WARNING_ORANGE = Color(0xFFFF9800)
 
 @OptIn(ExperimentalMaterial3Api::class) // Material3 experimental API used intentionally
@@ -98,6 +105,15 @@ fun SettingsScreen(
     val cardBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val accentColor = MaterialTheme.colorScheme.primary
     val sectionTitleColor = MaterialTheme.colorScheme.primary
+    // 单一订阅：SettingsRepository 只暴露一条设置 flow，在 LazyColumn 外订阅一次
+    // 向下传递，避免每个 item 各自 collect 造成多条并行管线。
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
+    val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
+    val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
+    val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
+    val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
+    val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     BackHandler(enabled = true) { onBack() }
     Surface(
         modifier =
@@ -129,16 +145,12 @@ fun SettingsScreen(
                 item {
                     SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
                     SettingsCard(cardBackground) {
-                        val appearanceSettings by viewModel.settings.collectAsStateWithLifecycle()
-                        val appearanceFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
-                        val appearanceDefaultFont by viewModel.defaultFontName.collectAsStateWithLifecycle()
-                        val appearanceFontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
                         AppearanceSectionContent(
-                            fontSize = appearanceSettings.fontSize,
-                            fontFamily = appearanceSettings.fontFamily,
-                            availableFonts = appearanceFonts,
-                            defaultFontName = appearanceDefaultFont,
-                            fontInfo = appearanceFontInfo,
+                            fontSize = settings.fontSize,
+                            fontFamily = settings.fontFamily,
+                            availableFonts = availableFonts,
+                            defaultFontName = defaultFontName,
+                            fontInfo = fontInfo,
                             onFontSizePreview = { viewModel.setFontSizeInPlacePreview(it) },
                             onFontSizeCommitted = { viewModel.setFontSize(it) },
                             onFontFamilySelected = { viewModel.setFontFamily(it) },
@@ -150,9 +162,8 @@ fun SettingsScreen(
                     }
                 }
                 item {
-                    val themeSettings by viewModel.settings.collectAsStateWithLifecycle()
                     AppThemeSection(
-                        appThemeMode = themeSettings.appThemeMode,
+                        appThemeMode = settings.appThemeMode,
                         onAppThemeModeSelected = { viewModel.setAppThemeMode(it) },
                         cardBackground = cardBackground,
                         textColor = textColor,
@@ -161,12 +172,11 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    val terminalThemeSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalThemeSection(
-                        themeMode = terminalThemeSettings.themeMode,
-                        dayThemeName = terminalThemeSettings.dayThemeName,
-                        nightThemeName = terminalThemeSettings.nightThemeName,
-                        themeName = terminalThemeSettings.themeName,
+                        themeMode = settings.themeMode,
+                        dayThemeName = settings.dayThemeName,
+                        nightThemeName = settings.nightThemeName,
+                        themeName = settings.themeName,
                         onThemeModeSelected = { viewModel.setThemeMode(it) },
                         onDayThemeSelected = { viewModel.setDayThemeName(it) },
                         onNightThemeSelected = { viewModel.setNightThemeName(it) },
@@ -179,9 +189,8 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    val terminalConfigSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalConfigSection(
-                        selectedShell = terminalConfigSettings.shell,
+                        selectedShell = settings.shell,
                         onShellSaved = { viewModel.setShell(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
@@ -193,16 +202,11 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    val bootstrapSettings by viewModel.settings.collectAsStateWithLifecycle()
-                    val settingsBootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
-                    val settingsBootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
-                    val settingsBootstrapProgress: BootstrapProgress? by
-                        viewModel.bootstrapProgress.collectAsStateWithLifecycle()
                     BootstrapSectionFromSettings(
-                        bootstrapUrl = bootstrapSettings.bootstrapUrl,
-                        bootstrapRunning = settingsBootstrapRunning,
-                        bootstrapResult = settingsBootstrapResult,
-                        bootstrapProgress = settingsBootstrapProgress,
+                        bootstrapUrl = settings.bootstrapUrl,
+                        bootstrapRunning = bootstrapRunning,
+                        bootstrapResult = bootstrapResult,
+                        bootstrapProgress = bootstrapProgress,
                         onUrlChanged = { viewModel.setBootstrapUrl(it) },
                         onRunBootstrap = { viewModel.runBootstrap() },
                         onInstallOffline = { viewModel.installOffline(it) },
@@ -959,12 +963,11 @@ private fun ThemePreview(
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
+        // 主题名位于预览框下方，长名称必须完整可读（DESIGN 终端主题节），不截断。
         Text(
             text = theme.name,
             style = MaterialTheme.typography.labelSmall,
             color = if (isSelected) textColor else textColor.copy(alpha = 0.7f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1020,30 +1023,20 @@ private fun BootstrapSection(
 
         val arch = terminal.emulator.detectArchFromAbi()
         val termuxUrl =
-            "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
-
-        val presets =
-            listOf(
-                Triple(
-                    stringResource(R.string.bootstrap_preset_termux),
-                    termuxUrl,
-                    stringResource(R.string.bootstrap_preset_termux_desc),
-                ),
-            )
-        presets.forEachIndexed { index, preset ->
-            BootstrapPresetItem(
-                preset = preset,
-                colors = PresetColors(accentColor, textColor, secondaryText),
-                modifier =
-                Modifier.testTag(
-                    "BootstrapPreset_TermuxDefault",
-                ),
-                onAction = {
-                    url = preset.second
-                    onUrlChanged(preset.second)
-                },
-            )
-        }
+            "https://github.com/termux/termux-packages/releases/download/" +
+                "bootstrap-$TERMUX_BOOTSTRAP_RELEASE%2B$TERMUX_PACKAGE_VARIANT/bootstrap-$arch.zip"
+        val presetLabel = stringResource(R.string.bootstrap_preset_termux)
+        val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
+        BootstrapPresetItem(
+            label = presetLabel,
+            description = presetDescription,
+            colors = PresetColors(accentColor, textColor, secondaryText),
+            modifier = Modifier.testTag("BootstrapPreset_TermuxDefault"),
+            onAction = {
+                url = termuxUrl
+                onUrlChanged(termuxUrl)
+            },
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
         BootstrapInstallButton(
@@ -1185,12 +1178,12 @@ private data class PresetColors(val accent: Color, val text: Color, val secondar
 
 @Composable
 private fun BootstrapPresetItem(
-    preset: Triple<String, String, String>,
+    label: String,
+    description: String,
     colors: PresetColors,
     modifier: Modifier = Modifier,
     onAction: () -> Unit,
 ) {
-    val (label, _, description) = preset
     Surface(
         onClick = onAction,
         shape = RoundedCornerShape(8.dp),

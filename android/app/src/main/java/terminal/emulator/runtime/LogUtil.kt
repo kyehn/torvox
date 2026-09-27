@@ -64,7 +64,7 @@ object LogUtil {
      *
      * The budget is measured in UTF-8 bytes (logcat counts bytes, not UTF-16 code units) and chunks
      * are only ever cut at code point boundaries, so multi-byte CJK characters and emoji surrogate
-     * pairs are never split audit fix).
+     * pairs are never split.
      */
     internal fun chunkMessage(tag: String, message: String): List<String> {
         val budget = maxEntrySize(tag.toByteArray(Charsets.UTF_8).size)

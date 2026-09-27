@@ -412,10 +412,10 @@ constructor(
                     cachedMaxRow,
                     cachedMaxCol,
                 )
-            val arr = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
-            lastDragBounds = arr
-            syncDragBoundsToNativeThrottled(arr)
-            return arr
+            val boundsArray = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
+            lastDragBounds = boundsArray
+            syncDragBoundsToNativeThrottled(boundsArray)
+            return boundsArray
         }
 
         /**
@@ -424,14 +424,14 @@ constructor(
          * JNI crossing + re-render on every MOVE frame. The final exact bounds are committed by
          * endSelection via runtime.setSelection on release.
          */
-        internal fun syncDragBoundsToNativeThrottled(arr: IntArray) {
+        internal fun syncDragBoundsToNativeThrottled(boundsArray: IntArray) {
             val nowMs = SystemClock.uptimeMillis()
             if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
             lastDragNativeSyncUptimeMs = nowMs
-            val loRow = minOf(arr[0], arr[2])
-            val hiRow = maxOf(arr[0], arr[2])
-            val loCol = minOf(arr[1], arr[3])
-            val hiCol = maxOf(arr[1], arr[3])
+            val loRow = minOf(boundsArray[0], boundsArray[2])
+            val hiRow = maxOf(boundsArray[0], boundsArray[2])
+            val loCol = minOf(boundsArray[1], boundsArray[3])
+            val hiCol = maxOf(boundsArray[1], boundsArray[3])
             runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
         }
 
@@ -442,15 +442,15 @@ constructor(
          * finishHandleDrag so endSelection reads correct bounds.
          */
         fun commitDragBounds() {
-            val arr = lastDragBounds ?: return
+            val boundsArray = lastDragBounds ?: return
             _state.update { state ->
                 val cur = state.selection
                 if (!cur.active) return@update state
                 state.copy(
                     selection =
                     cur.copy(
-                        start = SelectionAnchor(arr[0], arr[1]),
-                        end = SelectionAnchor(arr[2], arr[3]),
+                        start = SelectionAnchor(boundsArray[0], boundsArray[1]),
+                        end = SelectionAnchor(boundsArray[2], boundsArray[3]),
                     ),
                 )
             }
@@ -952,29 +952,20 @@ constructor(
     }
 
     /**
-     * Delete all app-private data (settings, sessions, crash-loop state, cache) and recreate the DataStore prefs
-     * directory so the next settings write does not fail (C10: moved out of the settings UI
-     * composable).
+     * 删除与用户数据（files 目录下的 home/usr）无关的设置、崩溃循环状态与缓存数据，
+     * 并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
      *
-     * The [onComplete] callback runs on the IO dispatcher (not the main thread); post UI work (e.g.
-     * Toasts) must hop to the main thread themselves or use Android's auto-posting Toast API.
+     * [onComplete] 在 IO 调度器上回调（非主线程）；界面工作（如 Toast）需自行切回主线程
+     * 或使用 Android 自动投递的 Toast API。删除失败按 DESIGN 错误策略抛出，不回调成功。
      */
     fun clearAppData(onComplete: () -> Unit) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            try {
-                context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
-                context.getDir("sessions", Context.MODE_PRIVATE).deleteRecursively()
-                context.getDir("boot_state", Context.MODE_PRIVATE).deleteRecursively()
-                context.getDir("bin", Context.MODE_PRIVATE).deleteRecursively()
-                context.cacheDir.listFiles()?.forEach { it.delete() }
-                // The process-wide DataStore singleton keeps running: recreate
-                // the prefs directory so the next settings write does not fail.
-                context.getDir("prefs", Context.MODE_PRIVATE)
-            } catch (exception: Exception) {
-                Log.e("ClearAppData", "Failed to clear app data", exception)
-            } finally {
-                onComplete()
-            }
+            context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
+            context.getDir("boot_state", Context.MODE_PRIVATE).deleteRecursively()
+            context.cacheDir.listFiles()?.forEach { it.delete() }
+            // 进程级 DataStore 单例仍在运行：重建 prefs 目录使下一次设置写入不会失败。
+            context.getDir("prefs", Context.MODE_PRIVATE)
+            onComplete()
         }
     }
 
@@ -1316,9 +1307,7 @@ constructor(
             consumeOneShotModifiers()
             Log.d(
                 "TerminalViewModel",
-                // Never log the character itself — hardware keyboard input
-                // may contain passwords; the payload lands in the persisted
-                // logcat dump (term_*.log).
+                // 绝不记录字符本身——硬件键盘输入可能含密码，logcat 无差别记录。
                 "handleLayoutAwareHardwareKey: keyCode=$keyCode mask=$mask",
             )
         }

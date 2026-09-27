@@ -56,6 +56,9 @@ use crate::terminal::pty::{Pty, PtyError, PtyPair};
 use crate::terminal::shell_env::ShellEnv;
 
 const READ_BUF_SIZE: usize = 8192;
+
+/// 拆卸会话时 SIGHUP 与 SIGKILL 之间的宽限期，同时作为读/等待线程的 join 超时。
+const TRAILING_EXIT_GRACE: Duration = Duration::from_millis(50);
 /// What the reader thread should do after a failed `read(2)` call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReaderErrorAction {
@@ -822,11 +825,9 @@ impl Drop for Session {
         self.exited.store(true, Ordering::Release);
         let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
-            // Try process-group-first kill: kill(-pgid) sends the signal to
-            // the entire foreground process group (reference: zed-port
-            // pty_info.rs:29-53), so child processes of the shell
-            // (pipelines, background jobs in the foreground group) die
-            // together with it.
+            // 优先组杀：kill(-pgid) 把信号发给整个前台进程组（参考 zed-port
+            // pty_info.rs:29-53），使 shell 的子进程（管道、前台组内的后台作业）
+            // 一并退出。
             if let Ok(pgid) = nix::unistd::getpgid(Some(pid)) {
                 let pgid_raw = pgid.as_raw();
                 // 自杀 guard：子进程 fork 后 setsid 前与本进程同组，
@@ -838,44 +839,52 @@ impl Drop for Session {
                     log::warn!("session drop: child shares our process group, direct kill only");
                 }
                 if pgid_raw > 0 && pgid_raw != own_pgid {
-                    if let Err(e) = nix::sys::signal::kill(
-                        nix::unistd::Pid::from_raw(-pgid_raw),
-                        nix::sys::signal::Signal::SIGHUP,
-                    ) {
-                        log::warn!(
-                            "session drop: SIGHUP to pgid -{pgid_raw}: {e}, falling back to child pid"
-                        );
-                        // Group kill failed, fall back to direct child.
-                        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGHUP);
+                    let group = nix::unistd::Pid::from_raw(-pgid_raw);
+                    if !deliver_signal(group, nix::sys::signal::Signal::SIGHUP, "SIGHUP to pgid") {
+                        // 组杀失败，退化为直杀子进程。
+                        deliver_signal(pid, nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
                     }
-                    let _ = nix::sys::signal::kill(
-                        nix::unistd::Pid::from_raw(-pgid_raw),
-                        nix::sys::signal::Signal::SIGCONT,
-                    );
-                    std::thread::sleep(Duration::from_millis(50));
-                    if let Err(e) = nix::sys::signal::kill(
-                        nix::unistd::Pid::from_raw(-pgid_raw),
-                        nix::sys::signal::Signal::SIGKILL,
-                    ) {
-                        log::warn!(
-                            "session drop: SIGKILL to pgid -{pgid_raw}: {e}, falling back to child pid"
-                        );
-                        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+                    deliver_signal(group, nix::sys::signal::Signal::SIGCONT, "SIGCONT to pgid");
+                    std::thread::sleep(TRAILING_EXIT_GRACE);
+                    if !deliver_signal(group, nix::sys::signal::Signal::SIGKILL, "SIGKILL to pgid")
+                    {
+                        deliver_signal(pid, nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
                     }
-                    // Try to wait for any process in the group.
-                    join_with_timeout(&mut self.reader_handle, Duration::from_millis(50));
-                    join_with_timeout(&mut self.wait_handle, Duration::from_millis(50));
+                    // 等待组内进程退出。
+                    join_with_timeout(&mut self.reader_handle, TRAILING_EXIT_GRACE);
+                    join_with_timeout(&mut self.wait_handle, TRAILING_EXIT_GRACE);
                     return;
                 }
             }
-            // Fallback: direct child kill (if getpgid fails or pgid <= 0).
-            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGHUP);
-            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGCONT);
-            std::thread::sleep(Duration::from_millis(50));
-            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+            // 退化路径：getpgid 失败或 pgid <= 0 时直杀子进程。
+            deliver_signal(pid, nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
+            deliver_signal(pid, nix::sys::signal::Signal::SIGCONT, "SIGCONT to child");
+            std::thread::sleep(TRAILING_EXIT_GRACE);
+            deliver_signal(pid, nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
         }
-        join_with_timeout(&mut self.reader_handle, Duration::from_millis(50));
-        join_with_timeout(&mut self.wait_handle, Duration::from_millis(50));
+        join_with_timeout(&mut self.reader_handle, TRAILING_EXIT_GRACE);
+        join_with_timeout(&mut self.wait_handle, TRAILING_EXIT_GRACE);
+    }
+}
+
+/// 向进程或进程组发信号并记录失败原因（`Drop` 无法返回错误）。
+///
+/// `ESRCH` 表示目标已退出，是拆卸过程的正常结局，不记警告；其余 errno 必须留痕，
+/// 否则信号丢失会表现为“会话关闭后 shell 仍在后台跑”。返回信号是否送达，供组杀
+/// 失败时退化为直杀子进程。
+fn deliver_signal(
+    target: nix::unistd::Pid,
+    signal: nix::sys::signal::Signal,
+    description: &str,
+) -> bool {
+    match nix::sys::signal::kill(target, signal) {
+        Ok(()) => true,
+        Err(error) => {
+            if error != nix::errno::Errno::ESRCH {
+                log::warn!("session drop: {description} {}: {error}", target.as_raw());
+            }
+            false
+        }
     }
 }
 

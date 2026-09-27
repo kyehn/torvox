@@ -118,10 +118,11 @@ impl Renderer {
         // The worker thread
         // is created once (via OnceLock) and reused across all frames, avoiding the
         // ~1ms per-frame overhead of std::thread::spawn on Android.
-        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel::<AcquireResult>(1);
+        let (response_sender, response_receiver) =
+            std::sync::mpsc::sync_channel::<AcquireResult>(1);
         let request = AcquireRequest {
             surface: std::sync::Arc::clone(surface),
-            response: resp_tx,
+            response: response_sender,
         };
         if let Err(e) = acquire_worker_tx().try_send(request) {
             // Worker channel full or thread died (panic in catch_unwind).
@@ -140,7 +141,7 @@ impl Renderer {
             };
         }
 
-        match resp_rx.recv_timeout(ACQUIRE_TIMEOUT) {
+        match response_receiver.recv_timeout(ACQUIRE_TIMEOUT) {
             Ok(Ok(result)) => match result {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
