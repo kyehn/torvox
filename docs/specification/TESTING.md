@@ -40,3 +40,14 @@
 - `ENV` 指向应用私有 `mkshrc` 路径且不在用户数据树内，未传入路径时不注入 `ENV`。
 - mksh 交互会话启动即显示短提示符，长命令回显完整无横滚裁切，`clear` 后首行首列为短提示符
 - `bash` 会话忽略 `ENV`，启动行为不变。
+
+## Baseline Profile 与宏基准
+
+- `:app` 是消费端，`:benchmark` 与 `:baselineprofile` 是 `com.android.test` 采集端，`targetProjectPath = ":app"`。
+- 消费端由 `androidx.baselineprofile` 派生 `benchmarkRelease`（`debuggable = false`、`profileable = true`），两个采集端都测该变体，不用 debug 变体。
+- 采集：`./gradlew generateBaselineProfile`，需真机，等价链路为 `:baselineprofile:connectedNonMinifiedReleaseAndroidTest` → `mergeReleaseBaselineProfile` → `copyReleaseBaselineProfileIntoSrc`。
+- 采集结果与手写规则同落 `android/app/src/main/baselineProfiles/`，由 AGP 合并进 `assets/dexopt/baseline.prof`；`proguard-rules.pro` 必须保持 `-dontobfuscate`，否则规则中的类名失效。
+- 宏基准：`./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest`，默认 `CompilationMode.Partial(baselineProfileMode = Require)`，profile 未安装直接失败。
+- 宏基准只输出指标不设阈值：CI 模拟器为 swiftshader 软件渲染，帧率不可作判据，阈值须在真机标定。
+- 采集模块不使用 `Thread.sleep`，等待一律走 UiAutomator 的 `wait`/`waitForIdle`。
+- CI 只编译两个采集模块（`compileBenchmarkReleaseKotlin`、`compileNonMinifiedReleaseKotlin`），不执行采集与宏基准。
