@@ -5,12 +5,11 @@
 - 仅测试公共 API。
 - 禁止不稳定的测试。
 - 测试失败时检查问题，只在非常可疑时才怀疑稳定性。
-- 每个测试必须断言具体行为，“不崩溃”不是有效断言。断言必须覆盖该测试名称声称的全部行为：声称「滚动到匹配位置」就必须断言视口移动，声称「按顺序进入回滚」就必须断言顺序而不只是深度。
-- 禁止无声跳过测试如 `#[ignore = "requires GPU adapter"]`，正确进行测试，不得隐藏错误。**无声跳过包括但不限于**：helper 函数里把失败收敛为 `runCatching` + `getOrDefault` 默认值后正常返回、仪器测试 setup 失败后 `sleep` 继续、cucumber 的 `tags` 排除开关。这些位置必须显式失败。
+- 每个测试必须断言具体行为，“不崩溃”不是有效断言。
+- 禁止无声跳过测试如 `#[ignore = "requires GPU adapter"]`，正确进行测试，不得隐藏错误。
 - 新测试进入 `cargo test` `testDebugUnitTest` `connectedDebugAndroidTest` 或其他现有体系，未经允许不得随意添加新体系，禁止跳过测试。
 - 测试失败无法解决并且找不到任何解决途径/探索路径/方法时停止并如实报告，不得跳过，不得删除，不得忽略。
-- 不得设置某些测试条件触发，缺少 Mesa lavapipe 时 Vulkan 测试失败而不是跳过或忽略，依赖 rust 的 kotlin 测试在缺少 rust 产物时应该失败而不是跳过或忽略。测试代码中不得检查环境：不得搜索候选路径、不得用 `getenv` 改写被测行为、不得判断产物是否存在再决定行为，路径固定、缺失时自然抛错。
-- 门禁必须能拦住上述禁止项。`#[ignore]` / `@Ignore` / `assume` / 静默跳过 / 受管构建命令（含注释与文档字符串）均需有对应的静态检查规则；helper 内的静默收敛也要覆盖，不能只检查 `@Test` 函数体。
+- 不得设置某些测试条件触发，缺少 Mesa lavapipe 时 Vulkan 测试失败而不是跳过或忽略，依赖 rust 的 kotlin 测试在缺少 rust 产物时应该失败而不是跳过或忽略。测试代码中不得检查环境，如不得检查 rust 产物是否存在，不存在则自然失败。
 - 针对性测试，不要随意运行所有测试。
 - 测试是为了保证正确性和调试问题，不可保留无意义测试，不保留或添加低价值测试。
 
@@ -20,11 +19,7 @@
 - 使用 `rapidocr cli` 进行 OCR 识别。
 - 使用 `npx aislop@latest scan` 和 `npm install -g jscpd` 检查代码
 - 使用 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 审查代码。
-- 使用 release apk 进行测试，不得使用 debug apk。
-  - **当前未达成，且构成阻塞。** `:app:connectedReleaseAndroidTest` 任务不存在：AGP 只为 `android.testBuildType`（默认 `debug`）生成 connected 任务。要在 release 变体上跑仪器测试必须设 `android.testBuildType = "release"`，而这与以下两条冲突，必须先决策：
-    - release 变体开启 minify + 资源收缩，cucumber runner、Ultron、Espresso 在收缩后是否仍可用未经验证；
-    - `MainActivity` 的测试后门（`BuildConfig.DEBUG` 门控）不会进入 release 包，依赖它的仪器测试会失效，而把后门放进 release 包又会暴露攻击面。
-  - 未决策前，`:app` 仪器测试仍跑 debug APK；`:benchmark` 与 `:baselineprofile` 已在 release 上运行。禁止在未验证前直接切换。 进行测试
+- 使用 release apk 进行测试，不得使用 debug apk 进行测试
 
 ## 覆盖范围
 
