@@ -186,12 +186,22 @@ pub(crate) fn family_files(family: &str) -> Option<&'static [String]> {
         .map(|entry| entry.files.as_slice())
 }
 
-/// 当前系统语言（BCP 47），由 JNI `setSystemLocale` 写入。
-/// 不读进程环境变量：Android 上 `LANG` 是 `zh_CN.UTF-8`（下划线），
-/// 与 fonts.xml 的 `zh-Hans` 标签体系对不上。
+/// 当前系统语言（BCP 47），由 JNI `setSystemLocale` 经 `set_current_locale` 写入。
+/// locale 归渲染层自有：`load_font_database` 在管线创建前读取，不回读 android 层
+///（层方向只许 android → render）。不读进程环境变量：Android 上 `LANG` 是
+/// `zh_CN.UTF-8`（下划线），与 fonts.xml 的 `zh-Hans` 标签体系对不上。
+#[cfg(target_os = "android")]
+static CURRENT_LOCALE: parking_lot::RwLock<String> = parking_lot::RwLock::new(String::new());
+
+/// 写入当前系统语言（BCP 47），供管线创建前的区域回退族决策使用。
+#[cfg(target_os = "android")]
+pub fn set_current_locale(locale: String) {
+    *CURRENT_LOCALE.write() = locale;
+}
+
 #[cfg(target_os = "android")]
 pub(crate) fn current_locale() -> String {
-    crate::android::system_locale()
+    CURRENT_LOCALE.read().clone()
 }
 
 /// fonts.xml 里既无 `name` 也无 `lang` 的族即符号层：实测 emulator 的
