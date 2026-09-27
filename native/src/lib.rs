@@ -15,8 +15,5 @@ pub mod render;
 // ── Android JNI 桥接 ────────────────────────────────────────────────────
 pub mod android;
 
-/// 与平台无关的 logcat 分块；置于 `android` 模块外以便在 host 上单元测试。
-pub mod log_chunk;
-
 #[cfg(test)]
 mod prop_tests;

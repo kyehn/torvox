@@ -11,49 +11,18 @@ import org.junit.Test
  */
 class SelectionMenuActionsTest {
     @Test
-    fun `链接形态文本优先于OSC8超链接`() {
-        assertEquals(
-            "https://example.com/a",
-            resolveOpenLinkUri("https://example.com/a", "https://other.example/"),
-        )
+    fun `OSC8超链接去除首尾空白`() {
+        assertEquals("https://osc8.example/", resolveOpenLinkUri("  https://osc8.example/  "))
     }
 
     @Test
-    fun `非URL文本回退到选区起点的OSC8超链接`() {
-        assertEquals(
-            "https://osc8.example/",
-            resolveOpenLinkUri("readme", "https://osc8.example/"),
-        )
+    fun `无超链接或空白超链接返回null`() {
+        assertNull(resolveOpenLinkUri(null))
+        assertNull(resolveOpenLinkUri("   "))
     }
 
     @Test
-    fun `文本与超链接皆无返回null`() {
-        assertNull(resolveOpenLinkUri("readme", null))
-        assertNull(resolveOpenLinkUri("readme", "   "))
-    }
-
-    @Test
-    fun `带引号的链接文本剥离包裹后仍优先`() {
-        assertEquals(
-            "https://example.com/a",
-            resolveOpenLinkUri("\"https://example.com/a\"", null),
-        )
-    }
-
-    @Test
-    fun `http链接显示打开链接`() {
-        assertTrue(isLinkTextCandidate("https://example.com/a?q=1"))
-    }
-
-    @Test
-    fun `普通文本不显示打开链接`() {
-        assertFalse(isLinkTextCandidate("hello world"))
-    }
-
-    @Test
-    fun `超长选择不显示链接文件项`() {
-        val long = "https://example.com/" + "a".repeat(2048)
-        assertFalse(isLinkTextCandidate(long))
+    fun `超长选择不显示文件项`() {
         assertFalse(isFilePathCandidate("/" + "a".repeat(2048)))
     }
 

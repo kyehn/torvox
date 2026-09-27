@@ -202,19 +202,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         showSelectionMenuForCurrentSelection()
                     },
             )
-            // 打开链接项：文本呈 URL 形态，或选区起点带 OSC 8 超链接——显示判定与
-            // 动作解析共用同一输入（design 决策 8），绝不出现“项显示却无目标”。
-            val selectionStart = viewModel?.state?.value?.selection?.start
-            val selectionHyperlinkUri =
-                selectionStart
-                    ?.let { viewModel?.runtime?.bridge()?.hyperlinkAt(it.row, it.col) }
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-            if (isLinkTextCandidate(selectionText) || selectionHyperlinkUri != null) {
+            // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
+            // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
+            val selectionHyperlinkUri = selectionHyperlinkUri()
+            if (selectionHyperlinkUri != null) {
                 add(
                     context.getString(R.string.open_link) to
                         {
-                            openSelectionAsLink(selectionText, selectionHyperlinkUri)
+                            openSelectionAsLink(selectionHyperlinkUri)
                             viewModel?.clearSelection()
                         },
                 )
@@ -231,12 +226,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /**
-     * 菜单“打开链接”动作：目标由 [resolveOpenLinkUri] 解析（选择文本 URL 形态优先、
-     * 否则回退选区起点的 OSC 8 链接），http(s) 白名单后交系统打开；无目标静默返回。
-     */
-    internal fun openSelectionAsLink(text: String, hyperlinkUri: String?) {
-        val target = resolveOpenLinkUri(text, hyperlinkUri) ?: return
+    /** 选区起点的 OSC 8 超链接 URI，无链接返回 null。 */
+    private fun selectionHyperlinkUri(): String? = viewModel
+        ?.state
+        ?.value
+        ?.selection
+        ?.start
+        ?.let { viewModel?.runtime?.bridge()?.hyperlinkAt(it.row, it.col) }
+        ?.let { resolveOpenLinkUri(it) }
+
+    /** 菜单“打开链接”动作：http(s) 白名单后交系统打开；无目标静默返回。 */
+    internal fun openSelectionAsLink(hyperlinkUri: String) {
+        val target = resolveOpenLinkUri(hyperlinkUri) ?: return
         val uri = try {
             target.toUri()
         } catch (_: IllegalArgumentException) {
@@ -2893,24 +2894,12 @@ internal fun shouldSuppressTapAfterDragEnd(
 /** 选择长度合理阈值：链接/文件项只在该长度内按格式匹配显示，不查可用性。 */
 internal const val MAX_SELECTION_ACTION_LENGTH = 2048
 
-/** 菜单显示用链接格式匹配（纯逻辑，不查可用性）。 */
-internal fun isLinkTextCandidate(text: String, maxLength: Int = MAX_SELECTION_ACTION_LENGTH): Boolean {
-    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-    if (trimmed.isEmpty() || trimmed.length > maxLength) return false
-    return terminal.emulator.util.UrlToken.looksLikeFullUrl(trimmed)
-}
-
 /**
- * 菜单“打开链接”目标解析（纯函数，design 决策 8）：选择文本呈 URL 形态优先
- * （与显示判定同一阈值），否则回退到 OSC 8 超链接 URI（选区起点 hyperlinkAt 的
- * 归一化结果）；两者皆无返回 null。显示侧 `isLinkTextCandidate(text) ||
- * hyperlinkUri != null` 与本函数的非空性一一对应，动作与显示绝不分叉。
+ * 菜单“打开链接”目标：仅 OSC 8 超链接 URI。纯文本裸 URL 不做识别
+ * （libghostty-vt 只提供 OSC 8，不含纯文本 URL 扫描）。显示侧以本函数的
+ * 非空性判定，动作与显示绝不分叉。
  */
-internal fun resolveOpenLinkUri(text: String, hyperlinkUri: String?): String? {
-    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-    if (isLinkTextCandidate(trimmed)) return trimmed
-    return hyperlinkUri?.trim()?.takeIf { it.isNotEmpty() }
-}
+internal fun resolveOpenLinkUri(hyperlinkUri: String?): String? = hyperlinkUri?.trim()?.takeIf { it.isNotEmpty() }
 
 /** 菜单显示用文件格式匹配（纯逻辑：绝对路径形态，不查存在性）。 */
 internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_ACTION_LENGTH): Boolean {

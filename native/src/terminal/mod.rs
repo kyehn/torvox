@@ -16,7 +16,6 @@ pub mod pty;
 pub mod session;
 pub use session::ThemeConfig;
 pub mod shell_env;
-pub mod url_regex;
 
 #[cfg(test)]
 pub(crate) mod snapshot_test;

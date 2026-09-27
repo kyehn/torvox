@@ -249,7 +249,7 @@ pub(crate) const DISCONNECTED_CURSOR_Y: u32 = 0;
 pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = true;
 pub(crate) const DISCONNECTED_TITLE: &str = "";
 pub(crate) const DISCONNECTED_SCROLLBACK: u32 = 0;
-pub(crate) static DEFAULT_CELL: CellSnapshot = CellSnapshot {
+static DEFAULT_CELL: CellSnapshot = CellSnapshot {
     codepoint: 0,
     graphemes: Vec::new(),
     foreground: [0.0; 4],
