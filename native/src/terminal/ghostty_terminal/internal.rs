@@ -2113,61 +2113,49 @@ impl super::GhosttyTerminal {
             // 主流 ASCII/CJK 场景不受影响，复杂场景按规范不处理。
             query.to_lowercase()
         };
-        // 逻辑行缓存：软换行续接时相邻物理行拼接后再匹配
-        //（对标上游 searchSpansSoftWrap）。
-        let mut logical_lines: Vec<(u32, String)> = Vec::new();
-        {
-            let mut current_row: Option<u32> = None;
-            let mut current_text = String::new();
-            for row in 0..total {
-                let Some(line) = Self::read_line_text_impl(terminal, row) else {
-                    continue;
+        let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as usize;
+
+        // 倒序逐行扫描（软换行续接时相邻物理行拼接后再匹配，对标上游
+        // searchSpansSoftWrap）。只保留当前逻辑行，不整块缓存回滚区。
+        for row in (0..total).rev() {
+            let Some(line) = Self::read_line_text_impl(terminal, row) else {
+                continue;
+            };
+            // 软换行判定：本行是续接段当且仅当上一行（更早的一行）被写满。
+            // 倒序扫描，故向前回溯拼接满行；保守启发式：行长度达到列宽即算写满。
+            let mut logical_row = row;
+            let mut logical_text = line;
+            while logical_row > 0 {
+                let previous_row = logical_row - 1;
+                let Some(previous) = Self::read_line_text_impl(terminal, previous_row) else {
+                    break;
                 };
-                // 软换行判定：行被写满（尾列非空）且下一行是续接。
-                // 保守启发式：本行长度达到列宽则与下一行拼接。
-                let cols = terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as usize;
-                let full = line.chars().count() >= cols;
-                if current_row.is_none() {
-                    current_row = Some(row);
+                if previous.chars().count() < cols {
+                    break;
                 }
-                current_text.push_str(&line);
-                if full && row + 1 < total {
-                    continue;
-                }
-                logical_lines.push((
-                    current_row.unwrap_or(row),
-                    std::mem::take(&mut current_text),
-                ));
-                current_row = None;
+                logical_text.insert_str(0, &previous);
+                logical_row = previous_row;
             }
-            if !current_text.is_empty() {
-                logical_lines.push((current_row.unwrap_or(total.saturating_sub(1)), current_text));
-            }
-        }
-        // 从最新行倒序扫描：超上限时保留最新命中（用户最可能要看
-        // 最新输出），对标上游可导航窗口语义。
-        for (row, line) in logical_lines.iter().rev() {
             let search_line = if case_sensitive {
-                line.clone()
+                logical_text
             } else {
-                line.to_lowercase()
+                logical_text.to_lowercase()
             };
             let mut start = 0;
             while let Some(col) = search_line[start..].find(&search_query) {
                 let abs_col = start + col;
-                // Byte offset -> character column (see above).
+                // 字节偏移 → 字符列，CJK 行才不会高亮错位。
                 let match_start_col = search_line[..abs_col].chars().count() as u32;
                 let match_end = abs_col + search_query.len();
                 let match_end_col = search_line[..match_end].chars().count() as u32;
                 results.push(SearchMatch {
-                    row: *row,
+                    row: logical_row,
                     start_col: match_start_col,
                     end_col: match_end_col,
                 });
-                // Advance past this match (its end is always a char
-                // boundary): adjacent matches are still found,
-                // overlapping matches are not reported.
-                let mut next = abs_col + search_query.len();
+                // 推进到本次匹配末尾（必为字符边界）：相邻匹配仍会找到，
+                // 重叠匹配不重复上报。
+                let mut next = match_end;
                 while next < search_line.len() && !search_line.is_char_boundary(next) {
                     next += 1;
                 }
@@ -2180,7 +2168,7 @@ impl super::GhosttyTerminal {
                 break;
             }
         }
-        // 倒序扫描 + 上限截断：结果已是最新窗口内的 50k，按
+        // 倒序扫描 + 上限截断：结果已是最新窗口内的命中，按
         // (row, start_col) 恢复旧→新稳定顺序（同行内匹配保持正序）。
         results.sort_by_key(|matched| (matched.row, matched.start_col));
         results
