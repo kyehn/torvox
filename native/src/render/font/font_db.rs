@@ -35,6 +35,16 @@ pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
     log::debug!("FONT_LOAD: set {} extra font paths", extra.len());
 }
 
+/// 追加单条额外字体路径（已存在则跳过）：`loadFontFile` 探测不得覆盖用户目录。
+#[cfg(target_os = "android")]
+pub fn add_extra_font_path(path: std::path::PathBuf) {
+    let mut extra = EXTRA_FONT_PATHS.write();
+    if !extra.contains(&path) {
+        extra.push(path);
+    }
+    log::debug!("FONT_LOAD: {} extra font paths", extra.len());
+}
+
 /// 渲染侧的精简字体库：只装 fonts.xml 中**一个符号族** + **一个区域族**，
 /// 加上主字体（`~/.termux/font.ttf|ttc|otf`；为空时用 fonts.xml 的 monospace 族）。
 ///
@@ -97,48 +107,69 @@ pub(crate) struct FamilyEntry {
 
 /// 族名 → 字体文件。**只在设置页显示字体列表时构建**，渲染路径永不触发：
 /// 族名存在字体的 name 表里，只能读完全部声明文件才能得到，实测约 4ms。
-/// 按展示名排序，供设置页直接渲染。
+/// 按 fonts.xml 文档顺序返回，`~/.termux/fonts` 投放字体追加在后；精确去重，
+/// 不排序、不归并（外部库 name 表为准）。
 #[cfg(target_os = "android")]
 pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
     static INDEX: std::sync::OnceLock<Vec<FamilyEntry>> = std::sync::OnceLock::new();
     INDEX.get_or_init(|| {
-        let Some(content) = read_fonts_xml() else {
-            return Vec::new();
-        };
-        // 同名字族（如 Noto Sans CJK SC 的多个文件）合并，DESIGN 字体节要求
-        // 列表内不重复；「DroidSans」与「Droid Sans」由字体自身的 name 表区分，
-        // 不做人工归并。
+        let mut ordered_names: Vec<String> = Vec::new();
         let mut display_to_files: std::collections::HashMap<String, Vec<String>> =
             Default::default();
-        for filename in parse_fonts_xml_declared_files(&content) {
-            let Some(path) = resolve_font_path(&filename) else {
-                continue;
-            };
+        let mut push_family = |family: String, file_label: String| {
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                display_to_files.entry(family.clone())
+            {
+                entry.insert(Vec::new());
+                ordered_names.push(family);
+            }
+            if let Some(files) = display_to_files.get_mut(&family) {
+                if !files.contains(&file_label) {
+                    files.push(file_label);
+                }
+            }
+        };
+        if let Some(content) = read_fonts_xml() {
+            for filename in parse_fonts_xml_declared_files(&content) {
+                let Some(path) = resolve_font_path(&filename) else {
+                    continue;
+                };
+                let mut db = fontdb::Database::new();
+                if db.load_font_file(&path).is_err() {
+                    continue;
+                }
+                for face in db.faces() {
+                    for (family, _) in &face.families {
+                        push_family(family.clone(), filename.clone());
+                    }
+                }
+            }
+        }
+        for path in user_font_files() {
             let mut db = fontdb::Database::new();
             if db.load_font_file(&path).is_err() {
                 continue;
             }
+            let label = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string();
             for face in db.faces() {
                 for (family, _) in &face.families {
-                    display_to_files
-                        .entry(family.clone())
-                        .or_default()
-                        .push(filename.clone());
+                    push_family(family.clone(), label.clone());
                 }
             }
         }
-        let mut entries: Vec<FamilyEntry> = display_to_files
+        let entries: Vec<FamilyEntry> = ordered_names
             .into_iter()
-            .map(|(display_name, mut files)| {
-                files.sort();
-                files.dedup();
-                FamilyEntry {
+            .filter_map(|display_name| {
+                display_to_files.remove(&display_name).map(|files| FamilyEntry {
                     display_name,
                     files,
-                }
+                })
             })
             .collect();
-        entries.sort_by(|a, b| a.display_name.cmp(&b.display_name));
         log::debug!("FONT_INDEX: {} families indexed", entries.len());
         entries
     })
@@ -238,10 +269,29 @@ fn resolve_font_files(filenames: &[String]) -> Vec<std::path::PathBuf> {
 }
 
 #[cfg(target_os = "android")]
-fn read_fonts_xml() -> Option<String> {
+pub(crate) fn read_fonts_xml() -> Option<String> {
     FONTS_XML_CANDIDATES
         .iter()
         .find_map(|path| std::fs::read_to_string(path).ok())
+}
+
+/// CJK 回退读取 fonts.xml：与 `read_fonts_xml` 同一候选顺序，测试目标下直接试读
+/// 系统路径（宿主无该文件即为空，不猜测）。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn read_fonts_xml_fallback() -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        read_fonts_xml()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        [
+            "/system/etc/fonts.xml",
+            "/system/etc/fonts_fallback.xml",
+        ]
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())
+    }
 }
 
 #[cfg(target_os = "android")]

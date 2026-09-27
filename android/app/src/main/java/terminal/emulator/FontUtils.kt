@@ -6,15 +6,16 @@ private const val DEFAULT_ARCH_FALLBACK = "aarch64"
 internal fun termuxDir(context: android.content.Context): java.io.File =
     java.io.File(java.io.File(context.filesDir, "home"), ".termux")
 
-/** User font drop-in dir (DESIGN 字体选择节): scanned into the font list, never copied. */
-internal fun termuxFontDir(context: android.content.Context): java.io.File = java.io.File(termuxDir(context), "font")
+/** 用户字体目录 `~/.termux/fonts`（DESIGN:99）：存在时并入字体扫描路径，
+ *  其中的字体出现在字体列表里。从不复制/移动文件。 */
+internal fun termuxFontDir(context: android.content.Context): java.io.File = java.io.File(termuxDir(context), "fonts")
 
-/** `font.ttf` (or `.ttc` / `.otf`) override (DESIGN 字体选择节): present means default. */
+/** 主字体覆盖 `~/.termux/font.ttf`（DESIGN:97，ttc/otf 同理）：存在即设为主字体。 */
 internal fun termuxDefaultFontFile(homePath: String): java.io.File? = listOf("font.ttf", "font.ttc", "font.otf")
     .map { java.io.File(java.io.File(homePath, ".termux"), it) }
     .firstOrNull { it.isFile }
 
-/** Context-based overload of [termuxDefaultFontFile]. */
+/** [termuxDefaultFontFile] 的 Context 重载。 */
 internal fun termuxDefaultFontFile(context: android.content.Context): java.io.File? =
     termuxDefaultFontFile(java.io.File(context.filesDir, "home").absolutePath)
 
