@@ -411,7 +411,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     inner class ResizeManager {
         /**
-         * 单一网格公式，与 [TerminalRuntime.recomputeGridFromFontMetrics] 共用：
+         * 单一网格公式，与 `recomputeGridFromFontMetrics` 共用：
          * rows = (surface − ModifierBar) / cell，cols = surface / cell。
          * 刻意不减去输入法 inset——键盘靠纯滚动跟随（[TerminalScreen] 光标跟随），
          * 从不触发网格重排，故其显示/隐藏绝不能改变 rows/cols
