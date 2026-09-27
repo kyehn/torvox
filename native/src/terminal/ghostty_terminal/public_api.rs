@@ -517,17 +517,6 @@ impl super::GhosttyTerminal {
         )
     }
 
-    pub fn search_in_scrollback(&self, query: &str) -> Option<(u32, u32)> {
-        self.query(
-            |tx| Query::SearchInScrollback {
-                query: query.to_string(),
-                tx,
-            },
-            None,
-            "search_in_scrollback",
-        )
-    }
-
     pub fn search_all_in_scrollback(&self, query: &str, case_sensitive: bool) -> Vec<SearchMatch> {
         self.query(
             |tx| Query::SearchInScrollbackAll {
