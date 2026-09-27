@@ -10,6 +10,15 @@ use thiserror::Error;
 
 pub const GLYPH_CACHE_CAPACITY: usize = 10_000;
 
+/// 整形跨度缓存容量：整簇字形按 (文本, 字号, 面) 缓存，一屏通常远少于此。
+pub(crate) const SHAPE_CACHE_CAPACITY: usize = 1024;
+
+/// 同族样式面解析缓存容量：键为 (字体, 粗, 斜) 三元组，组合数天然很小。
+pub(crate) const STYLE_FACE_CACHE_CAPACITY: usize = 64;
+
+/// 轮廓来源探测缓存容量：键带光栅尺寸，覆盖常用字号×字形组合。
+pub(crate) const OUTLINE_CACHE_CAPACITY: usize = 10_000;
+
 /// Unicode code point where CJK Ideographic characters begin (U+2E80).
 /// Used to decide whether to attempt CJK fallback font lookup.
 pub(crate) const CJK_IDEOGRAPHIC_START: u32 = 0x2E80;
