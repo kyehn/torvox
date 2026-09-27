@@ -1,5 +1,6 @@
 plugins {
   id("com.android.application")
+  id("androidx.baselineprofile")
   id("org.jetbrains.dokka")
   id("org.jetbrains.kotlin.plugin.compose")
   id("org.jetbrains.kotlin.plugin.serialization")
@@ -97,6 +98,22 @@ android {
   }
 }
 
+// 消费端（app）baseline profile 配置。
+//
+// 应用 `androidx.baselineprofile` 后，插件按 release 派生 `benchmarkRelease` 构建类型
+// （debuggable = false、profileable = true），供 `:benchmark` / `:baselineprofile`
+// 两个 `com.android.test` 模块安装后做宏基准与 profile 采集。
+//
+// `automaticGenerationDuringBuild = false`：采集需要真机，不允许在 assemble / lintVital
+// 阶段被隐式触发；`saveInSrc = true`：采集结果落到 `src/main/baselineProfiles/`，
+// 与手写规则同目录，由 AGP 合并进 `assets/dexopt/baseline.prof`。
+//
+// 刷新方式（真机）：`./gradlew generateBaselineProfile`。
+baselineProfile {
+  automaticGenerationDuringBuild = false
+  saveInSrc = true
+}
+
 configurations {
   all {
     resolutionStrategy {
@@ -168,6 +185,10 @@ dependencies {
   kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60.1")
 
   androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
+
+  // 采集模块产出的 profile 经该配置喂给 mergeBaselineProfile，
+  // 缺失时 generateBaselineProfile 不会触发真机采集。
+  baselineProfile(project(":baselineprofile"))
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

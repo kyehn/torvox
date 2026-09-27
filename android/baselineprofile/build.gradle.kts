@@ -1,11 +1,12 @@
 plugins {
-  id("com.android.library")
+  id("com.android.test")
   id("androidx.baselineprofile")
 }
 
 android {
   namespace = "terminal.emulator.baselineprofile"
   compileSdk = 37
+  targetProjectPath = ":app"
 
   defaultConfig {
     minSdk = 33
@@ -19,15 +20,8 @@ android {
 }
 
 dependencies {
-  compileOnly(project(":app"))
-  androidTestImplementation("androidx.benchmark:benchmark-macro-junit4:1.5.0")
-  androidTestImplementation("androidx.test.ext:junit:1.3.0")
-  androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-  androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
-  androidTestImplementation("androidx.test:runner:1.7.0")
-}
-
-baselineProfile {
-  automaticGenerationDuringBuild = false
-  saveInSrc = true
+  implementation("androidx.benchmark:benchmark-macro-junit4:1.5.0")
+  implementation("androidx.test.ext:junit:1.3.0")
+  implementation("androidx.test.uiautomator:uiautomator:2.4.0")
+  implementation("androidx.test:runner:1.7.0")
 }
