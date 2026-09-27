@@ -6,6 +6,24 @@ use super::{FontPipeline, GlyphInfo, GlyphKey, GlyphSynthesis};
 
 pub(super) const GLYPH_CACHE_EVICTION_DIVISOR: usize = 4;
 
+/// 图集每个像素的字节数（RGBA）。
+pub(crate) const ATLAS_BYTES_PER_PIXEL: usize = 4;
+
+/// 图集像素内红色通道偏移。
+const ATLAS_RED_OFFSET: usize = 0;
+
+/// 图集像素内绿色通道偏移。
+const ATLAS_GREEN_OFFSET: usize = 1;
+
+/// 图集像素内蓝色通道偏移。
+const ATLAS_BLUE_OFFSET: usize = 2;
+
+/// 图集像素内透明通道偏移。
+const ATLAS_ALPHA_OFFSET: usize = 3;
+
+/// 全不透明 alpha 值。
+const OPAQUE_ALPHA: u8 = 255;
+
 /// 斜体剪切斜率：tan(12°)，合成斜体的经典角度。
 const ITALIC_SHEAR: f32 = 0.2126;
 
@@ -164,75 +182,82 @@ impl FontPipeline {
         };
         let rect = allocation.rectangle;
         let allocation_id = Some(allocation.id);
-        let ax = rect.min.x as u32;
-        let ay = rect.min.y as u32;
+        let origin_x = rect.min.x as u32;
+        let origin_y = rect.min.y as u32;
 
         if width > 0 && height > 0 {
-            let gw = width as u32;
-            let gh = height as u32;
+            let glyph_width = width as u32;
+            let glyph_height = height as u32;
             match &mut self.dirty_rect {
-                Some((dx, dy, dw, dh)) => {
-                    let cx2 = (*dx + *dw).max(ax + gw);
-                    let cy2 = (*dy + *dh).max(ay + gh);
-                    *dx = (*dx).min(ax);
-                    *dy = (*dy).min(ay);
-                    *dw = cx2 - *dx;
-                    *dh = cy2 - *dy;
+                Some((dirty_x, dirty_y, dirty_width, dirty_height)) => {
+                    let combined_max_x = (*dirty_x + *dirty_width).max(origin_x + glyph_width);
+                    let combined_max_y = (*dirty_y + *dirty_height).max(origin_y + glyph_height);
+                    *dirty_x = (*dirty_x).min(origin_x);
+                    *dirty_y = (*dirty_y).min(origin_y);
+                    *dirty_width = combined_max_x - *dirty_x;
+                    *dirty_height = combined_max_y - *dirty_y;
                 }
                 None => {
-                    self.dirty_rect = Some((ax, ay, gw, gh));
+                    self.dirty_rect = Some((origin_x, origin_y, glyph_width, glyph_height));
                 }
             }
         }
 
         match image.content {
             swash::scale::image::Content::Mask => {
-                let atlas_w = self.atlas_width as usize;
-                let atlas_h = self.atlas_height as usize;
-                for y in 0..height as usize {
-                    let dst_y = ay as usize + y;
-                    if dst_y >= atlas_h {
+                let atlas_width_pixels = self.atlas_width as usize;
+                let atlas_height_pixels = self.atlas_height as usize;
+                for offset_y in 0..height as usize {
+                    let destination_y = origin_y as usize + offset_y;
+                    if destination_y >= atlas_height_pixels {
                         break;
                     }
-                    for x in 0..width as usize {
-                        let src_idx = y * width as usize + x;
-                        let alpha = image.data.get(src_idx).copied().unwrap_or(0);
-                        let dst_x = ax as usize + x;
-                        if dst_x >= atlas_w {
+                    for offset_x in 0..width as usize {
+                        let source_index = offset_y * width as usize + offset_x;
+                        let alpha = image.data.get(source_index).copied().unwrap_or(0);
+                        let destination_x = origin_x as usize + offset_x;
+                        if destination_x >= atlas_width_pixels {
                             break;
                         }
-                        let dst_idx = (dst_y * atlas_w + dst_x) * 4;
-                        if dst_idx + 3 < self.atlas_bitmap.len() {
-                            self.atlas_bitmap[dst_idx] = alpha;
-                            self.atlas_bitmap[dst_idx + 1] = alpha;
-                            self.atlas_bitmap[dst_idx + 2] = alpha;
-                            self.atlas_bitmap[dst_idx + 3] = alpha;
+                        let destination_index = (destination_y * atlas_width_pixels
+                            + destination_x)
+                            * ATLAS_BYTES_PER_PIXEL;
+                        if destination_index + ATLAS_ALPHA_OFFSET < self.atlas_bitmap.len() {
+                            self.atlas_bitmap[destination_index + ATLAS_RED_OFFSET] = alpha;
+                            self.atlas_bitmap[destination_index + ATLAS_GREEN_OFFSET] = alpha;
+                            self.atlas_bitmap[destination_index + ATLAS_BLUE_OFFSET] = alpha;
+                            self.atlas_bitmap[destination_index + ATLAS_ALPHA_OFFSET] = alpha;
                         }
                     }
                 }
             }
             _ => {
-                let atlas_w = self.atlas_width as usize;
-                let atlas_h = self.atlas_height as usize;
-                let bpp = 4;
-                for y in 0..height as usize {
-                    let dst_y = ay as usize + y;
-                    if dst_y >= atlas_h {
+                let atlas_width_pixels = self.atlas_width as usize;
+                let atlas_height_pixels = self.atlas_height as usize;
+                for offset_y in 0..height as usize {
+                    let destination_y = origin_y as usize + offset_y;
+                    if destination_y >= atlas_height_pixels {
                         break;
                     }
-                    for x in 0..width as usize {
-                        let dst_x = ax as usize + x;
-                        if dst_x >= atlas_w {
+                    for offset_x in 0..width as usize {
+                        let destination_x = origin_x as usize + offset_x;
+                        if destination_x >= atlas_width_pixels {
                             break;
                         }
-                        let src_idx = (y * width as usize + x) * bpp;
-                        let dst_idx = (dst_y * atlas_w + dst_x) * 4;
-                        if dst_idx + 3 < self.atlas_bitmap.len() && src_idx + 3 < image.data.len() {
-                            let alpha = image.data[src_idx + 3];
-                            self.atlas_bitmap[dst_idx] = alpha;
-                            self.atlas_bitmap[dst_idx + 1] = alpha;
-                            self.atlas_bitmap[dst_idx + 2] = alpha;
-                            self.atlas_bitmap[dst_idx + 3] = 255;
+                        let source_index =
+                            (offset_y * width as usize + offset_x) * ATLAS_BYTES_PER_PIXEL;
+                        let destination_index = (destination_y * atlas_width_pixels
+                            + destination_x)
+                            * ATLAS_BYTES_PER_PIXEL;
+                        if destination_index + ATLAS_ALPHA_OFFSET < self.atlas_bitmap.len()
+                            && source_index + ATLAS_ALPHA_OFFSET < image.data.len()
+                        {
+                            let alpha = image.data[source_index + ATLAS_ALPHA_OFFSET];
+                            self.atlas_bitmap[destination_index + ATLAS_RED_OFFSET] = alpha;
+                            self.atlas_bitmap[destination_index + ATLAS_GREEN_OFFSET] = alpha;
+                            self.atlas_bitmap[destination_index + ATLAS_BLUE_OFFSET] = alpha;
+                            self.atlas_bitmap[destination_index + ATLAS_ALPHA_OFFSET] =
+                                OPAQUE_ALPHA;
                         }
                     }
                 }
@@ -240,8 +265,8 @@ impl FontPipeline {
         }
 
         let info = GlyphInfo {
-            atlas_x: ax as i32,
-            atlas_y: ay as i32,
+            atlas_x: origin_x as i32,
+            atlas_y: origin_y as i32,
             width,
             height,
             placement: image.placement,

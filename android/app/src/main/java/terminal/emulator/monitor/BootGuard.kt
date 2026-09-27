@@ -90,8 +90,8 @@ class BootGuard(private val stateDir: File) {
                 parts.getOrNull(0)?.toIntOrNull() ?: 0,
                 parts.getOrNull(1)?.toLongOrNull() ?: 0L,
             )
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to read counter file", e)
+        } catch (exception: Exception) {
+            Log.w(TAG, "Failed to read counter file", exception)
             ExitCounter(0, 0L)
         }
     }
@@ -101,8 +101,8 @@ class BootGuard(private val stateDir: File) {
         try {
             counterFile.writeText("${counter.count}:${counter.lastResetTime}")
             // 不 fsync——在崩溃处理路径上调用；内核会在进程死亡时刷写。
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to write counter file", e)
+        } catch (exception: Exception) {
+            Log.w(TAG, "Failed to write counter file", exception)
         }
     }
 

@@ -32,8 +32,8 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
                     ?: error("thermalListener must be initialized before use"),
             )
             Log.i(TAG, "ThermalStatusListener registered")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register thermal status listener — not supported on this device/environment", e)
+        } catch (exception: Exception) {
+            Log.e(TAG, "Failed to register thermal status listener — not supported on this device/environment", exception)
             thermalListener = null
             thermalExecutor?.shutdownNow()
             thermalExecutor = null

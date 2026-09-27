@@ -100,7 +100,7 @@ open class TerminalApp : Application() {
             try {
                 logCrash(thread, throwable)
             } catch (exception: Exception) {
-                Log.e("App", "Failed to write crash log", exception)
+                Log.e("App", "Failed to log crash", exception)
             }
             // 记录退出以供启动循环检测，而不由我们自己杀进程：
             // 下方的平台处理器会终止进程并把 FATAL EXCEPTION 堆栈

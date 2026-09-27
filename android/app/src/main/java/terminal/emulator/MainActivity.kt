@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
     private val testBackdoorReceivers =
         TestBackdoorReceivers(
             context = this,
-            onDumpTerminal = { ctx ->
+            onDumpTerminal = { dumpContext ->
                 Thread {
                     try {
                         val bridge = runtime.bridge()
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 "(no active session)"
                             }
-                        val file = java.io.File(ctx.cacheDir, "terminal_dump.txt")
+                        val file = java.io.File(dumpContext.cacheDir, "terminal_dump.txt")
                         file.writeText(text)
                         Log.d("T", "Terminal dump: ${file.absolutePath} (${text.length} chars)")
                     } catch (exception: Exception) {
@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity() {
                 terminalViewModel.showPastePopup(row, col)
                 Log.d("T", "showPaste: row=$row col=$col")
             },
-            onInstallBootstrap = { ctx, zipPath ->
+            onInstallBootstrap = { installContext, zipPath ->
                 installBootstrapFromPath(zipPath)
             },
         )
