@@ -49,12 +49,7 @@ pub(crate) fn load_font_database() -> fontdb::Database {
                 let Ok(content) = std::fs::read_to_string(xml_path) else {
                     continue;
                 };
-                for (_, filenames) in parse_fonts_xml_aliases(&content) {
-                    declared.extend(filenames);
-                }
-                for filenames in parse_fonts_xml_families(&content).1 {
-                    declared.extend(filenames.into_iter().map(|(filename, _)| filename));
-                }
+                declared.extend(parse_fonts_xml_declared_files(&content));
                 break;
             }
             declared.sort();
@@ -213,6 +208,35 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
         }
     }
     (monospace, lang_fallbacks)
+}
+
+/// `fonts.xml` 声明的全部字体文件名（去重前，按文档顺序）。
+///
+/// 覆盖**每个** `<family>` 下的 `<font>`，包括既无 `name` 也无 `lang` 的族：
+/// 实测 emulator（API 35）的 `NotoSansSymbols-Regular-Subsetted*.ttc` 正声明在无名族里，
+/// 终端的 ▶ ⏵ ♥ ★ 依赖它，按 name/lang 过滤会漏掉。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn parse_fonts_xml_declared_files(xml: &str) -> Vec<String> {
+    let mut filenames = Vec::new();
+    let Ok(document) = roxmltree::Document::parse(xml) else {
+        log::error!("FONT_XML: 解析失败");
+        return filenames;
+    };
+    for family in document
+        .root_element()
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "family")
+    {
+        for font in family
+            .children()
+            .filter(|node| node.is_element() && node.tag_name().name() == "font")
+        {
+            if let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) {
+                filenames.push(filename.to_string());
+            }
+        }
+    }
+    filenames
 }
 
 /// 按文档顺序把 `fonts.xml` 解析为 `(alias, filenames)` 对。无名字段被跳过。
@@ -402,6 +426,35 @@ mod tests {
         assert_eq!(
             super::parse_fonts_xml_families(""),
             (Vec::new(), Vec::new())
+        );
+    }
+
+    #[test]
+    fn parse_fonts_xml_declared_files_includes_nameless_family() {
+        // emulator（API 35）的符号字体声明在既无 name 也无 lang 的族里，
+        // 按 name/lang 过滤会漏掉，终端将失去 ▶ ⏵ ♥ ★。
+        let xml = r#"<familyset>
+            <family name="monospace"><font>DroidSansMono.ttf</font></family>
+            <family lang="zh-Hans"><font index="2">NotoSansCJK-Regular.ttc</font></family>
+            <family><font>NotoSansSymbols-Regular-Subsetted.ttf</font></family>
+        </familyset>"#;
+        assert_eq!(
+            super::parse_fonts_xml_declared_files(xml),
+            vec![
+                "DroidSansMono.ttf",
+                "NotoSansCJK-Regular.ttc",
+                "NotoSansSymbols-Regular-Subsetted.ttf",
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_fonts_xml_declared_files_rejects_garbage() {
+        assert!(super::parse_fonts_xml_declared_files("not xml at all").is_empty());
+        assert!(super::parse_fonts_xml_declared_files("").is_empty());
+        assert!(
+            super::parse_fonts_xml_declared_files("<familyset><family></family></familyset>")
+                .is_empty()
         );
     }
 

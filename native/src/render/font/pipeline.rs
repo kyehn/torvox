@@ -45,10 +45,6 @@ pub struct FontPipeline {
     pub(crate) atlas_width: u32,
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
-    /// 独立的粗体/斜体/粗斜体族槽位（ghostty-android 四槽位设计，参考 REFERENCE.md）：
-    /// 槽位已设置时 glyph_information_styled 优先用真实面而非同族查找 + 合成。
-    /// 下标：0=粗，1=斜，2=粗斜。
-    pub(crate) styled_font_ids: [Option<fontdb::ID>; 3],
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
@@ -129,7 +125,6 @@ impl FontPipeline {
             atlas_width: atlas_width as u32,
             atlas_height: atlas_height as u32,
             font_id: None,
-            styled_font_ids: [None, None, None],
             cjk_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
@@ -299,17 +294,6 @@ impl FontPipeline {
             family_name
         );
         false
-    }
-
-    /// 独立粗/斜体族的槽位下标。
-    /// 0 = bold, 1 = italic, 2 = bold-italic.
-    pub(crate) fn styled_slot_index(bold: bool, italic: bool) -> usize {
-        match (bold, italic) {
-            (true, true) => 2,
-            (true, false) => 0,
-            (false, true) => 1,
-            (false, false) => 0,
-        }
     }
 
     pub fn set_system_locale(&mut self, locale: &str) {
@@ -631,23 +615,7 @@ impl FontPipeline {
         }
         let primary_font_id = self.font_id?;
 
-        // 0) 用户单独指定的样式族（ghostty-android 四槽位，参考 REFERENCE.md）直接胜出，不合成。
-        let slot = Self::styled_slot_index(bold, italic);
-        let style_id = self.styled_font_ids[slot].or_else(|| {
-            // 粗斜没有专属面时退回粗体槽（真实粗体面上再合成倾斜）。
-            if slot == 2 {
-                self.styled_font_ids[0]
-            } else {
-                None
-            }
-        });
-        if let Some(style_id) = style_id
-            && let Some(info) = self.styled_face_glyph(style_id, ch)
-        {
-            return Some(info);
-        }
-
-        // 1) 同族真实粗/斜体面。
+        // 同族真实粗/斜体面：命中即用，不合成。
         if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic)
             && let Some(info) = self.styled_face_glyph(style_id, ch)
         {
