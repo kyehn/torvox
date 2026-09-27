@@ -1,7 +1,10 @@
 //! 字形的 LRU 缓存：glyph id 与整形结果。独立于 FontPipeline 以便单独测试淘汰策略。
 use std::num::NonZeroUsize;
 
-use super::{GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey};
+use super::{
+    GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey, OUTLINE_CACHE_CAPACITY, SHAPE_CACHE_CAPACITY,
+    STYLE_FACE_CACHE_CAPACITY,
+};
 use lru::LruCache;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,9 +46,12 @@ impl Default for GlyphCache {
 impl GlyphCache {
     pub fn new() -> Self {
         let cache_cap = NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
-        let shape_cache_cap = NonZeroUsize::new(1024).expect("1024 > 0");
-        let style_face_cache_cap = NonZeroUsize::new(64).expect("64 > 0");
-        let outline_cache_cap = NonZeroUsize::new(10_000).expect("10000 > 0");
+        let shape_cache_cap =
+            NonZeroUsize::new(SHAPE_CACHE_CAPACITY).expect("SHAPE_CACHE_CAPACITY > 0");
+        let style_face_cache_cap =
+            NonZeroUsize::new(STYLE_FACE_CACHE_CAPACITY).expect("STYLE_FACE_CACHE_CAPACITY > 0");
+        let outline_cache_cap =
+            NonZeroUsize::new(OUTLINE_CACHE_CAPACITY).expect("OUTLINE_CACHE_CAPACITY > 0");
         Self {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
