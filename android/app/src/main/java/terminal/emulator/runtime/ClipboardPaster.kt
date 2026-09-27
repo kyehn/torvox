@@ -1,6 +1,6 @@
 package terminal.emulator.runtime
 
-/** 两层调用共用的粘贴实现：经 [ClipboardAccess] 读取、[PasteChunker] 分块后交给 [sink]。 */
+/** 两层调用共用的粘贴实现：经 [ClipboardAccess] 读取、[PasteChunker] 分块后交给 `sink`。 */
 class ClipboardPaster(private val clipboard: ClipboardAccess, private val chunker: PasteChunker = PasteChunker()) {
     /**
      * 逐块粘贴当前剪贴板内容。

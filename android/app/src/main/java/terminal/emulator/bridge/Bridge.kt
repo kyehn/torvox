@@ -177,7 +177,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * 按像素尺寸重算网格。单元格尺寸计算在 Rust 侧：渲染器从字体管线导出单元格度量，
-     * resize 后 [TerminalRuntime.syncGridDimensions] 经 [getGridRowsColsPacked] 取回真实网格。
+     * resize 后 `syncGridDimensions` 经 [getGridRowsColsPacked] 取回真实网格。
      * 本方法仅记录日志：rows/cols 由原生侧从事件解析。
      */
     fun recomputeGrid(width: Int, height: Int) {
@@ -237,7 +237,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     /**
-     * 将调用线程挂起 [timeoutMs]，或直到 [TerminalRuntime.notifyRender] 唤醒（先到为准）。
+     * 将调用线程挂起 [timeoutMs]，或直到 [terminal.emulator.runtime.SessionEntry.notifyRender] 唤醒（先到为准）。
      * 基于 park 的睡眠既限定渲染循环的轮询节奏（避免 100% CPU 空转），又与调用
      * LockSupport.unpark 的 SessionEntry.notifyRender 配对。
      * 返回值仅供参考：parkNanos 遇中断即返回且不清除中断标志，调用方须自行重查。
@@ -497,7 +497,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * 远端是否处于备用屏幕缓冲（vim/less/htop）。无锁，可在每次触摸滚动时安全调用。
-     * 为真时触摸滚动必须以滚轮转义转发给远端（见 [TerminalSurface] onScroll）而非滚动本地回滚。
+     * 为真时触摸滚动必须以滚轮转义转发给远端（见 [terminal.emulator.ui.TerminalSurface] onScroll）而非滚动本地回滚。
      */
     fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
