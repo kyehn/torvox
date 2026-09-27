@@ -1843,23 +1843,10 @@ impl super::GhosttyTerminal {
     }
     pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
         let cols = grid_cols(terminal);
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let mut text = String::new();
         for col in 0..cols {
-            let coord = PointCoordinate {
-                x: col as u16,
-                y: row,
-            };
-            let point = if row < scrollback_rows {
-                terminal.grid_ref(Point::History(coord))
-            } else {
-                let viewport_row = row - scrollback_rows;
-                let vp_coord = PointCoordinate {
-                    x: col as u16,
-                    y: viewport_row,
-                };
-                terminal.grid_ref(Point::Viewport(vp_coord))
-            };
+            // 行列 → Point 的空间解析统一走 absolute_point（列恒在界内，钳制恒等）。
+            let point = terminal.grid_ref(Self::absolute_point(terminal, row, col));
             if let Ok(point) = point
                 && let Ok(cell) = point.cell()
             {
@@ -2046,18 +2033,8 @@ impl super::GhosttyTerminal {
         if col >= cols || row >= total_rows {
             return None;
         }
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let point = if row < scrollback_rows {
-            Point::History(PointCoordinate {
-                x: col as u16,
-                y: row,
-            })
-        } else {
-            Point::Viewport(PointCoordinate {
-                x: col as u16,
-                y: row - scrollback_rows,
-            })
-        };
+        // 绝对行 → Point 的空间解析统一走 absolute_point（列已验界，钳制恒等）。
+        let point = Self::absolute_point(terminal, row, col);
         let grid_ref = terminal.grid_ref(point).ok()?;
         let cell = grid_ref.cell().ok()?;
         if !cell.has_hyperlink().unwrap_or(false) {
