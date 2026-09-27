@@ -1,4 +1,5 @@
 # 任务
+
 - [x] 建 change
 - [x] CJK 去启发式，纯 (文件名,index) 精确顺序
 - [x] 列表文档顺序 + 附加 `~/.termux/fonts`，仅设置页触发
