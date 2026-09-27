@@ -2913,7 +2913,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
     })
 }
 
-/// 设置渲染器的系统 locale（用于字体回退排序）。
+/// 设置系统 locale（BCP 47，如 `zh-CN`）：决定 fonts.xml 里选哪个区域回退族。
+///
+/// 进程启动时 Kotlin 就会调一次（此时还没有渲染管线），故 locale 同时写入进程级
+/// 静态供 [`crate::render::font::font_db::load_font_database`] 取用；管线已存在时
+/// 再推给它并作废同 UV 缓存（回退族变化会改变字形来源）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocale(
     mut unowned_env: EnvUnowned<'_>,
@@ -2926,16 +2930,21 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
             Ok(s) => s,
             Err(_) => return Ok(()),
         };
+        log::info!("setSystemLocale: {locale_str}");
+        *SYSTEM_LOCALE.write() = locale_str.clone();
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.font_pipeline.set_system_locale(&locale_str);
             // CJK 回退排序变化会改变字形来源，同 UV 缓存过期。
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
-            log::info!("setSystemLocale: {locale_str}");
         }
     })
 }
+
+/// 进程级系统 locale，由 `setSystemLocale` 写入。
+pub(crate) static SYSTEM_LOCALE: parking_lot::RwLock<String> =
+    parking_lot::RwLock::new(String::new());
 
 /// 登记额外的字体目录/文件（应用私有字体目录）。渲染器管线在创建时读取这些路径；
 /// 若已存在则重建，使新字体可被选中。

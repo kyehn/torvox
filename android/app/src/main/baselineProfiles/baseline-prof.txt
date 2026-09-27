@@ -1,6 +1,7 @@
 # Baseline Profile — hand-written rules covering the cold-start path.
-# Generated profiles (from the :baselineprofile module) can be merged
-# into this file later; these rules cover the app class + first frame.
+# `generateBaselineProfile` 在真机采集到的规则会写入本目录下的变体子目录，
+# AGP 会把本文件与采集结果一并合并进 `assets/dexopt/baseline.prof`，
+# 因此这里只保留采集脚本覆盖不到的入口类。
 
 # Application + entry points
 Lterminal/emulator/TerminalApp;
