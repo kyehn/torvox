@@ -105,8 +105,9 @@ android {
 // 两个 `com.android.test` 模块安装后做宏基准与 profile 采集。
 //
 // `automaticGenerationDuringBuild = false`：采集需要真机，不允许在 assemble / lintVital
-// 阶段被隐式触发；`saveInSrc = true`：采集结果落到 `src/main/baselineProfiles/`，
-// 与手写规则同目录，由 AGP 合并进 `assets/dexopt/baseline.prof`。
+// 阶段被隐式触发；`saveInSrc = true`：采集结果落到 `src/<变体>/generated/baselineProfiles/`，
+// 插件把该路径注入为源集后与 `src/main/baselineProfiles/` 的手写规则一起合并进
+// `assets/dexopt/baseline.prof`。
 //
 // 刷新方式（真机）：`./gradlew generateBaselineProfile`。
 baselineProfile {
