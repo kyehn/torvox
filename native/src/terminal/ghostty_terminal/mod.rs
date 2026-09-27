@@ -56,7 +56,7 @@ impl Drop for GhosttyTerminal {
 mod tests;
 
 #[cfg(test)]
-mod tests_s2_fixes;
+mod input_output_tests;
 
 #[cfg(test)]
 mod snapshot_cache_unit_tests;
