@@ -33,8 +33,6 @@ serde = { workspace = true }
 serde_json = "1"
 swash = { workspace = true }
 thiserror = { workspace = true }
-# DESIGN.md 规定仅 Vulkan 后端且禁止 OpenGL 回退，因此关闭默认特性，
-# 不让 gles / dx12 / metal / webgpu 后端编入产物（默认特性会引入 EGL 与 glow）。
 wgpu = { workspace = true, default-features = false, features = [
   "std",
   "wgsl",

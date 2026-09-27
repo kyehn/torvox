@@ -1,11 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["native"]
-# 风格类 lint 在此一次性关闭，与 android/detekt.yml 关闭的规则一一对应；
-# 门禁用 `--deny warnings`，缺少此处会把风格问题直接升级为构建失败。
-[workspace.lints.clippy]
-too_many_arguments = "allow"
-type_complexity = "allow"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
@@ -49,3 +44,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
