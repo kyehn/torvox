@@ -12,9 +12,9 @@ import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
 import terminal.emulator.getBridge
 import terminal.emulator.grantNotificationPermission
-import terminal.emulator.util.runCatchingCancellable
 
 /**
  * acceptance: the cursor block visible in the screenshot must sit at the render-source cursor cell,
@@ -50,13 +50,9 @@ class CursorPixelAcceptanceTest {
                 false
             }
         }
-        val deadline = System.currentTimeMillis() + 20_000
-        while (System.currentTimeMillis() < deadline) {
-            // 桥在会话孵化完成前为 null：容忍空桥继续轮询，而非首轮即抛。
-            val ready = runCatchingCancellable { bridge() }.getOrNull()
-            val text = ready?.getTerminalText()
-            if (!text.isNullOrBlank()) break
-            Thread.sleep(200)
+        composeTestRule.awaitBridge()
+        UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {
+            bridge().getTerminalText()?.isNotBlank() == true
         }
         Thread.sleep(1_500)
     }
