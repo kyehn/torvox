@@ -21,6 +21,8 @@ import terminal.emulator.util.runCatchingCancellable
 
 private const val DRAWER_BUTTON_DESCRIPTION = "打开会话抽屉"
 private const val DRAWER_BUTTON_TIMEOUT_MS = 5_000L
+private const val BRIDGE_READY_TIMEOUT_MS = 30_000L
+private const val BRIDGE_POLL_INTERVAL_MS = 200L
 private const val DRAWER_VISIBLE_TIMEOUT_MS = 10_000L
 
 // ── Data model ──────────────────────────────────────
@@ -83,6 +85,19 @@ fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
         bridge = null
     }
     return bridge
+}
+
+/**
+ * 等待运行时桥孵化完成并返回。会话创建后桥异步建立，`waitForSession` 只等界面
+ * 节点，首次直读必为 null——未等即用会拿到「桥为 null」的假失败。
+ */
+fun AndroidComposeTestRule<*, *>.awaitBridge(
+    timeoutMs: Long = BRIDGE_READY_TIMEOUT_MS,
+): Bridge {
+    UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = BRIDGE_POLL_INTERVAL_MS) {
+        getBridge() != null
+    }
+    return checkNotNull(getBridge()) { "运行时桥必须就绪（${timeoutMs}ms 未孵化）" }
 }
 
 fun AndroidComposeTestRule<*, *>.openDrawer() {
