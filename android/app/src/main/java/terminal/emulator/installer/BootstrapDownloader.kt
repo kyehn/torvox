@@ -31,6 +31,16 @@ class BootstrapDownloader(
     }
 
     suspend fun download(url: String, arch: String): Result<File> = withContext(TerminalDispatchers.inputOutput) {
+        // 本地 file 链路：测试把已下载的 zip 推到设备，安装器直接用它。
+        // 产品 UI 只提供 https URL（见下门控），file 永远到不了用户手里。
+        if (url.startsWith("file://", ignoreCase = true)) {
+            val localFile = File(url.removePrefix("file://").substringBefore("?"))
+            return@withContext if (localFile.isFile && localFile.canRead()) {
+                Result.success(localFile)
+            } else {
+                Result.failure(Exception("Local bootstrap file unreadable"))
+            }
+        }
         // 完整性门控：引导 zip 会被解压并执行其 postinst 脚本，
         // 故下载必须经过身份认证。明文 http 极易被中间人篡改；
         // 而默认 URL 本就是 https，故拒绝 http 对合法用户零成本。
