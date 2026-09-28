@@ -1704,7 +1704,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private val gestureListener =
         object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent): Boolean {
+            override fun onDown(motionEvent: MotionEvent): Boolean {
                 // 手势开始时重置亚单元格累加器，使首次 onScroll 距离从干净的起点算起。
                 // 同步本地偏移与运行时真源：渲染线程回底后本地仍旧值，下次手势若从旧值起算会跳变。
                 viewModel?.runtime?.activeSessionScrollOffset()?.let { scrollOffset = it }
@@ -1713,7 +1713,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            override fun onShowPress(e: MotionEvent) {
+            override fun onShowPress(motionEvent: MotionEvent) {
                 isAfterLongPress = false
             }
 
