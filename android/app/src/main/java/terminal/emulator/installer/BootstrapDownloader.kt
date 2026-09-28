@@ -1,11 +1,11 @@
 package terminal.emulator.installer
 
 import android.content.Context
-import android.util.Log
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.FileOutputStream
@@ -126,7 +126,7 @@ class BootstrapDownloader(
         } catch (exception: Exception) {
             // 只记录异常类名而非异常本身：HTTP 错误消息会嵌入完整 URL
             // （含任何 token/查询参数），而此日志可能被崩溃报告器采集。
-            Log.e("BootstrapDownloader", "Download failed: ${exception.javaClass.simpleName}")
+            LogUtil.e("BootstrapDownloader", "Download failed: ${exception.javaClass.simpleName}")
             Result.failure(exception)
         }
     }

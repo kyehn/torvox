@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
-import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -88,9 +87,9 @@ class MainActivity : ComponentActivity() {
                             }
                         val file = java.io.File(dumpContext.cacheDir, "terminal_dump.txt")
                         file.writeText(text)
-                        Log.d("T", "Terminal dump: ${file.absolutePath} (${text.length} chars)")
+                        LogUtil.d("T", "Terminal dump: ${file.absolutePath} (${text.length} chars)")
                     } catch (exception: Exception) {
-                        Log.e("T", "Terminal dump failed", exception)
+                        LogUtil.e("T", "Terminal dump failed", exception)
                     }
                 }
                     .apply {
@@ -101,11 +100,11 @@ class MainActivity : ComponentActivity() {
             onVtWrite = { text ->
                 Thread {
                     try {
-                        Log.d("T", "VT_WRITE received (len=${text.length})")
+                        LogUtil.d("T", "VT_WRITE received (len=${text.length})")
                         val processed = text.replace("\\x1b", "\u001b").replace("\\033", "\u001b")
                         terminalViewModel.feedTerminal(processed.toByteArray(Charsets.ISO_8859_1))
                     } catch (exception: Exception) {
-                        Log.e("T", "VT_WRITE failed", exception)
+                        LogUtil.e("T", "VT_WRITE failed", exception)
                     }
                 }
                     .apply {
@@ -118,7 +117,7 @@ class MainActivity : ComponentActivity() {
                 Thread {
                     try {
                         // 绝不记录输入内容：可能含密码/token，logcat 无差别记录。仅记长度。
-                        Log.d("T", "Input received (len=${text.length})")
+                        LogUtil.d("T", "Input received (len=${text.length})")
                         val processed =
                             text
                                 .replace("\\n", "\n")
@@ -133,9 +132,9 @@ class MainActivity : ComponentActivity() {
                                 .byteInputStream()
                                 .readBytes()
                         runtime.writeToPty(data)
-                        Log.d("T", "Input sent: ${data.size} bytes raw=$rawInput")
+                        LogUtil.d("T", "Input sent: ${data.size} bytes raw=$rawInput")
                     } catch (exception: Exception) {
-                        Log.e("T", "Input failed", exception)
+                        LogUtil.e("T", "Input failed", exception)
                     }
                 }
                     .apply {
@@ -145,7 +144,7 @@ class MainActivity : ComponentActivity() {
             },
             onSelectAll = {
                 terminalViewModel.selectAll()
-                Log.d(
+                LogUtil.d(
                     "T",
                     "selectAll called via broadcast, active=${terminalViewModel.state.value.selection.active}",
                 )
@@ -154,11 +153,11 @@ class MainActivity : ComponentActivity() {
                 terminalViewModel.startSelection(startRow, startCol)
                 terminalViewModel.updateSelection(endRow, endCol)
                 terminalViewModel.endSelection()
-                Log.d("T", "partialSelect: ($startRow,$startCol)->($endRow,$endCol)")
+                LogUtil.d("T", "partialSelect: ($startRow,$startCol)->($endRow,$endCol)")
             },
             onShowPaste = { row, col ->
                 terminalViewModel.showPastePopup(row, col)
-                Log.d("T", "showPaste: row=$row col=$col")
+                LogUtil.d("T", "showPaste: row=$row col=$col")
             },
             onInstallBootstrap = { installContext, zipPath ->
                 installBootstrapFromPath(zipPath)
@@ -264,7 +263,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "onDestroy")
+        LogUtil.d(TAG, "onDestroy")
         super.onDestroy()
         if (BuildConfig.DEBUG) {
             testBackdoorReceivers.unregister()
@@ -290,7 +289,7 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val handled = terminalViewModel.handleLayoutAwareHardwareKey(event)
         if (handled) {
-            Log.d(TAG, "dispatchKeyEvent: consumed physical-key layout-aware char")
+            LogUtil.d(TAG, "dispatchKeyEvent: consumed physical-key layout-aware char")
             return true
         }
         return super.dispatchKeyEvent(event)

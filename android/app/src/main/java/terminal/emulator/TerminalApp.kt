@@ -2,7 +2,6 @@ package terminal.emulator
 
 import android.app.Application
 import android.os.StrictMode
-import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +13,7 @@ import terminal.emulator.monitor.AnrWatchDog
 import terminal.emulator.monitor.BootGuard
 import terminal.emulator.monitor.MemoryMonitor
 import terminal.emulator.monitor.ThermalMonitor
+import terminal.emulator.runtime.LogUtil
 
 @HiltAndroidApp
 open class TerminalApp : Application() {
@@ -100,7 +100,7 @@ open class TerminalApp : Application() {
             try {
                 logCrash(thread, throwable)
             } catch (exception: Exception) {
-                Log.e("App", "Failed to log crash", exception)
+                LogUtil.e("App", "Failed to log crash", exception)
             }
             // 记录退出以供启动循环检测，而不由我们自己杀进程：
             // 下方的平台处理器会终止进程并把 FATAL EXCEPTION 堆栈
@@ -109,7 +109,7 @@ open class TerminalApp : Application() {
             try {
                 BootGuard(getDir("boot_state", MODE_PRIVATE)).recordExit()
             } catch (exception: Exception) {
-                Log.e("App", "Failed to record boot exit", exception)
+                LogUtil.e("App", "Failed to record boot exit", exception)
             }
             defaultHandler?.uncaughtException(thread, throwable)
         }
@@ -118,7 +118,7 @@ open class TerminalApp : Application() {
     /** 崩溃诊断只进 logcat：DESIGN.md 禁止把日志写入文件。 */
     private fun logCrash(thread: Thread, throwable: Throwable) {
         val causedBy = throwable.cause
-        Log.e(
+        LogUtil.e(
             "App",
             "Uncaught ${throwable.javaClass.name}: ${throwable.message} on thread ${thread.name}" +
                 (causedBy?.let { "\nCaused by: $it" } ?: ""),

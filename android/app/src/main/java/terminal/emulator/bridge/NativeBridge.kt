@@ -1,6 +1,6 @@
 package terminal.emulator.bridge
 
-import android.util.Log
+import terminal.emulator.runtime.LogUtil
 
 /**
  * 到原生 Rust 终端引擎（`native.so`）的 JNI 桥接，全部为直接 `external fun` 导出，无 JNA、无线路编码。
@@ -16,9 +16,9 @@ object NativeBridge {
         try {
             System.loadLibrary("native")
             nativeLoaded = true
-            Log.i(TAG, "Native library loaded: native")
+            LogUtil.i(TAG, "Native library loaded: native")
         } catch (exception: UnsatisfiedLinkError) {
-            Log.e(TAG, "Failed to load native library: ${exception.message}")
+            LogUtil.e(TAG, "Failed to load native library: ${exception.message}")
         }
     }
 

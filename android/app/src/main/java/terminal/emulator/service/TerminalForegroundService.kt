@@ -11,9 +11,9 @@ import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
 import terminal.emulator.MainActivity
 import terminal.emulator.R
+import terminal.emulator.runtime.LogUtil
 
 class TerminalForegroundService : Service() {
     companion object {
@@ -51,7 +51,7 @@ class TerminalForegroundService : Service() {
                 // API 31+：应用在后台而服务尚未运行时抛 ForegroundServiceStartNotAllowedException
                 // （如系统杀掉了它而 START_STICKY 尚未重启）。
                 // 这绝不能使渲染线程崩溃。
-                android.util.Log.w("TerminalForegroundService", "startForegroundService failed", exception)
+                LogUtil.w("TerminalForegroundService", "startForegroundService failed", exception)
             }
         }
     }
@@ -132,7 +132,7 @@ class TerminalForegroundService : Service() {
             // 归零或 stopForegroundService 运行。服务本身仍由运行期的 startService
             // 调用所绑定，故唤醒锁与前台进程保证仍然成立；只是缺少通知。
             // 关闭所有会话即可自愈。
-            Log.e("TerminalForegroundService", "startForeground failed", exception)
+            LogUtil.e("TerminalForegroundService", "startForeground failed", exception)
         }
     }
 
