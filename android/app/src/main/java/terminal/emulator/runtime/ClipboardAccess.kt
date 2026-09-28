@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 
 /**
  * 全应用唯一的剪贴板访问点，封装 ClipboardManager 查找、可空处理
@@ -15,7 +14,7 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
     private fun manager(): ClipboardManager? {
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (manager == null) {
-            Log.w(tag, "Clipboard service not available")
+            LogUtil.w(tag, "Clipboard service not available")
         }
         return manager
     }

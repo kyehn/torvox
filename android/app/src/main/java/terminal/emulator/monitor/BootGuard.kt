@@ -1,7 +1,7 @@
 package terminal.emulator.monitor
 
 import android.os.Process
-import android.util.Log
+import terminal.emulator.runtime.LogUtil
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -14,7 +14,7 @@ class BootGuard(private val stateDir: File) {
 
             if (counter.count >= MAX_EXITS && (now - counter.lastResetTime) < RESET_WINDOW_MS) {
                 autoKillEnabled = false
-                Log.w(
+                LogUtil.w(
                     TAG,
                     "Boot loop detected: ${counter.count} exits in ${(now - counter.lastResetTime) / 1000}s — disabling auto-kill",
                 )
@@ -42,7 +42,7 @@ class BootGuard(private val stateDir: File) {
         synchronized(LOCK) {
             writeCounter(ExitCounter(0, System.currentTimeMillis()))
             autoKillEnabled = true
-            Log.i(TAG, "Marked healthy — auto-kill re-enabled")
+            LogUtil.i(TAG, "Marked healthy — auto-kill re-enabled")
         }
     }
 
@@ -64,7 +64,7 @@ class BootGuard(private val stateDir: File) {
             BootGuard(stateDir).recordExit()
 
             val suppressed = !autoKillEnabled
-            Log.e(
+            LogUtil.e(
                 TAG,
                 if (suppressed) "[SUPPRESSED] Self-exit: $reason" else "Self-exit: $reason",
             )
@@ -91,7 +91,7 @@ class BootGuard(private val stateDir: File) {
                 parts.getOrNull(1)?.toLongOrNull() ?: 0L,
             )
         } catch (exception: Exception) {
-            Log.w(TAG, "Failed to read counter file", exception)
+            LogUtil.w(TAG, "Failed to read counter file", exception)
             ExitCounter(0, 0L)
         }
     }
@@ -102,7 +102,7 @@ class BootGuard(private val stateDir: File) {
             counterFile.writeText("${counter.count}:${counter.lastResetTime}")
             // 不 fsync——在崩溃处理路径上调用；内核会在进程死亡时刷写。
         } catch (exception: Exception) {
-            Log.w(TAG, "Failed to write counter file", exception)
+            LogUtil.w(TAG, "Failed to write counter file", exception)
         }
     }
 

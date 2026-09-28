@@ -5,7 +5,6 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import android.util.AttributeSet
-import android.util.Log
 import android.view.GestureDetector
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -303,23 +302,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** Dark pill toolbar hosting one clickable label per action. */
     private fun buildMenuBar(actions: List<Pair<String, () -> Unit>>): android.widget.LinearLayout {
         val density = resources.displayMetrics.density
-        fun dp(v: Int): Int = (v * density + 0.5f).toInt()
+        fun densityPixels(value: Int): Int = (value * density + HALF_PIXEL_OFFSET).toInt()
         val bar =
             android.widget.LinearLayout(context).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
                 val backgroundDrawable = android.graphics.drawable.GradientDrawable()
                 backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
-                backgroundDrawable.cornerRadius = dp(MENU_BAR_CORNER_RADIUS_DP).toFloat()
+                backgroundDrawable.cornerRadius = densityPixels(MENU_BAR_CORNER_RADIUS_DP).toFloat()
                 background = backgroundDrawable
-                elevation = dp(6).toFloat()
+                elevation = densityPixels(MENU_ELEVATION_DP).toFloat()
                 for ((label, action) in actions) {
                     val item =
                         android.widget.TextView(context).apply {
                             text = label
                             setTextColor(resolveThemeColor(R.attr.colorOnSurface, R.color.material_color_on_surface))
-                            textSize = 14f
-                            val h = dp(16)
-                            setPadding(h, dp(12), h, dp(12))
+                            textSize = MENU_ITEM_TEXT_SIZE_SP
+                            val horizontalPadding = densityPixels(MENU_ITEM_HORIZONTAL_PADDING_DP)
+                            setPadding(
+                                horizontalPadding,
+                                densityPixels(MENU_ITEM_VERTICAL_PADDING_DP),
+                                horizontalPadding,
+                                densityPixels(MENU_ITEM_VERTICAL_PADDING_DP),
+                            )
                             isClickable = true
                             isFocusable = false
                             setOnClickListener { action() }
@@ -369,10 +373,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cw, ch)
         val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
         val density = resources.displayMetrics.density
-        val dp = { v: Int -> (v * density + 0.5f).toInt() }
+        val densityPixels = { value: Int -> (value * density + HALF_PIXEL_OFFSET).toInt() }
         // PopupWindow 在显示时才测量，故用粗略估算（项数 × ~92dp）并钳位到 Surface。
-        val estimatedWidth = width.coerceAtMost(dp(184))
-        val menuHeight = dp(44)
+        val estimatedWidth = width.coerceAtMost(densityPixels(MENU_ESTIMATED_WIDTH_DP))
+        val menuHeight = densityPixels(MENU_HEIGHT_DP)
         return menuAnchor(
             selection = PixelRect(leftPx.toInt(), topPx.toInt(), rightPx.toInt(), bottomPx.toInt()),
             viewport = PixelRect(0, 0, width, height),
@@ -428,7 +432,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (availableHeight <= 0) return
             val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
             val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
-            Log.d(
+            LogUtil.d(
                 "TerminalSurface",
                 "applyGridResize: $width x $height cell=($cellWidth,$cellHeight) " +
                     "-> ${newRows}x$newCols (was ${rows}x$cols)",
@@ -542,7 +546,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.runtime.recomputeGrid(width, height)
             val surface = holder.surface
             if (!surface.isValid) {
-                Log.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
+                LogUtil.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
                 pendingRetryWidth = width
                 pendingRetryHeight = height
                 return
@@ -560,7 +564,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 可折叠半屏）且没有任何重试——窗口变大后终端将永远空白，
                 // 因为 surfaceChanged 只会 resize。趁 Surface 此刻有效且已定尺寸，
                 // 在此重试会话创建。
-                Log.i(TAG, "applySurfaceResize: runtime not started, retrying default session")
+                LogUtil.i(TAG, "applySurfaceResize: runtime not started, retrying default session")
                 terminalViewModel.ensureDefaultSession()
             }
             lastConfiguredWidth = width
@@ -632,7 +636,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 注入的组字文本一一对应。仅在 DEBUG 下输出：
                         // 规范要求 release 构建零输出（R8 的 -dontoptimize 不会剔除它）。
                         if (terminal.emulator.BuildConfig.DEBUG) {
-                            Log.v(
+                            LogUtil.d(
                                 "ComposingDiff",
                                 "reconcile prev=${composingBuffer.length}ch next=$newComposing " +
                                     "bs=${edit.backspaces} app=${edit.append.length}ch",
@@ -1026,9 +1030,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             fun consumeDeferredDismiss(): android.widget.PopupWindow? {
-                val p = popupDeferredDismiss
+                val pendingPopup = popupDeferredDismiss
                 popupDeferredDismiss = null
-                return p
+                return pendingPopup
             }
 
             init {
@@ -1161,6 +1165,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val TAG = "TerminalSurface"
         private const val WIDE_CHAR_CACHE_TTL_MS = 500L
         private const val MENU_BAR_CORNER_RADIUS_DP = 8
+        private const val MENU_ELEVATION_DP = 6
+        private const val MENU_ITEM_TEXT_SIZE_SP = 14f
+        private const val MENU_ITEM_HORIZONTAL_PADDING_DP = 16
+        private const val MENU_ITEM_VERTICAL_PADDING_DP = 12
+        private const val MENU_ESTIMATED_WIDTH_DP = 184
+        private const val MENU_HEIGHT_DP = 44
+        private const val HALF_PIXEL_OFFSET = 0.5f
 
         private const val SWIPE_THRESHOLD_PIXELS = 500f
         private const val DEFAULT_ROWS = 24
@@ -1445,8 +1456,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val uri =
             try {
                 url.trim().toUri()
-            } catch (e: IllegalArgumentException) {
-                LogUtil.w(TAG, "openLinkAt: bad URI", e)
+            } catch (urlError: IllegalArgumentException) {
+                LogUtil.w(TAG, "openLinkAt: bad URI", urlError)
                 return false
             }
         // 协议白名单：终端输出不可信，故只允许打开 http(s)
@@ -1463,11 +1474,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             true
-        } catch (e: android.content.ActivityNotFoundException) {
-            LogUtil.w(TAG, "openLinkAt: no handler for $uri", e)
+        } catch (missingHandler: android.content.ActivityNotFoundException) {
+            LogUtil.w(TAG, "openLinkAt: no handler for $uri", missingHandler)
             false
-        } catch (e: SecurityException) {
-            LogUtil.w(TAG, "openLinkAt: blocked for $uri", e)
+        } catch (blockedError: SecurityException) {
+            LogUtil.w(TAG, "openLinkAt: blocked for $uri", blockedError)
             false
         }
     }
@@ -1983,7 +1994,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 与 termux 的 setInitialTextSelectionPosition 流程完全一致。
             selectionHandles.showSelectionHandles(gridRow, col, gridRow, col, getAccentColor())
 
-            Log.d(
+            LogUtil.d(
                 "Selection",
                 "LONG_PRESS whitespace: row=$row col=$col gridRow=$gridRow " +
                     "menu=PASTE_ONLY",
@@ -2013,7 +2024,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 endCol = col
             }
 
-            Log.d(
+            LogUtil.d(
                 "Selection",
                 "LONG_PRESS text: tapRow=$row tapCol=$col gridRow=$gridRow " +
                     "expanded start=($startRow,$startCol) end=($endRow,$endCol) " +
@@ -2283,7 +2294,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 viewModel?.startSelection(lineBounds[0], lineBounds[1])
                 viewModel?.updateSelection(lineBounds[2], lineBounds[3])
                 viewModel?.endSelection()
-                Log.d(
+                LogUtil.d(
                     "Selection",
                     "TRIPLE_TAP line: tapRow=$row gridRow=$gridRow " +
                         "start=(${lineBounds[0]},${lineBounds[1]}) " +
@@ -2304,7 +2315,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 viewModel?.startSelection(wordBounds[0], wordBounds[1])
                 viewModel?.updateSelection(wordBounds[2], wordBounds[3])
                 viewModel?.endSelection()
-                Log.d(
+                LogUtil.d(
                     "Selection",
                     "DOUBLE_TAP word: tapRow=$row tapCol=$col " +
                         "expanded start=(${wordBounds[0]},${wordBounds[1]}) " +
@@ -2324,7 +2335,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             magnifier = magnifier ?: Magnifier.Builder(this@TerminalSurface).build()
             magnifier?.show(event.rawX, event.rawY)
         } catch (exception: Exception) {
-            Log.w(TAG, "magnifier show failed (non-critical)", exception)
+            LogUtil.w(TAG, "magnifier show failed (non-critical)", exception)
         }
     }
 
@@ -2547,7 +2558,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 try {
                     magnifier?.dismiss()
                 } catch (exception: Exception) {
-                    Log.w(TAG, "magnifier dismiss failed (non-critical)", exception)
+                    LogUtil.w(TAG, "magnifier dismiss failed (non-critical)", exception)
                 }
                 magnifier = null
                 scaleFactor = 1.0f

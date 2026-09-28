@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.util.Log
 
 /**
  * 测试后门广播接收器。instrumentation 与 Maestro 流程经同进程广播触发终端动作；
@@ -105,7 +104,7 @@ class TestBackdoorReceivers(
             try {
                 context.unregisterReceiver(receiver)
             } catch (exception: IllegalArgumentException) {
-                Log.w("TestBackdoorReceivers", "unregister $action failed", exception)
+                LogUtil.w("TestBackdoorReceivers", "unregister $action failed", exception)
             }
         }
     }

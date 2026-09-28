@@ -91,9 +91,7 @@ fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
  * 等待运行时桥孵化完成并返回。会话创建后桥异步建立，`waitForSession` 只等界面
  * 节点，首次直读必为 null——未等即用会拿到「桥为 null」的假失败。
  */
-fun AndroidComposeTestRule<*, *>.awaitBridge(
-    timeoutMs: Long = BRIDGE_READY_TIMEOUT_MS,
-): Bridge {
+fun AndroidComposeTestRule<*, *>.awaitBridge(timeoutMs: Long = BRIDGE_READY_TIMEOUT_MS): Bridge {
     UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = BRIDGE_POLL_INTERVAL_MS) {
         getBridge() != null
     }

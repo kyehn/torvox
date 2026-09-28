@@ -9,7 +9,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
-import android.util.Log
+import terminal.emulator.runtime.LogUtil
 import java.io.File
 
 class TerminalDocumentsProvider : DocumentsProvider() {
@@ -279,10 +279,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val child = decodeDocId(documentId, rootDir)
             child.canonicalPath.startsWith(parent.canonicalPath + File.separator)
         } catch (error: java.io.FileNotFoundException) {
-            Log.w(TAG, "isChildDocument: docId outside root", error)
+            LogUtil.w(TAG, "isChildDocument: docId outside root", error)
             false
         } catch (error: IllegalArgumentException) {
-            Log.w(TAG, "isChildDocument: malformed docId", error)
+            LogUtil.w(TAG, "isChildDocument: malformed docId", error)
             false
         }
     }

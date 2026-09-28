@@ -3,7 +3,6 @@ package terminal.emulator
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
-import android.util.Log
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -679,7 +678,7 @@ constructor(
          */
         private suspend fun clearUnknownFontFamily(requestedFamily: String, applied: Boolean?) {
             if (applied != false) return
-            android.util.Log.e("Font", "Unknown font family, clearing setting: $requestedFamily")
+            LogUtil.e("Font", "Unknown font family, clearing setting: $requestedFamily")
             settingsRepository.clearFontFamily()
         }
 
@@ -712,11 +711,11 @@ constructor(
                     if (fatal is kotlinx.coroutines.CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
                     // 不得静默回退为空列表。
-                    Log.e("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
+                    LogUtil.e("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
                     throw fatal
                 } catch (exception: Exception) {
                     if (exception is kotlinx.coroutines.CancellationException) throw exception
-                    Log.e("TerminalViewModel", "Failed to load font list", exception)
+                    LogUtil.e("TerminalViewModel", "Failed to load font list", exception)
                     throw exception
                 }
             }
@@ -754,7 +753,7 @@ constructor(
         fun setFontFamily(family: String) {
             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
-                    android.util.Log.d("Font", "Setting font family: $family")
+                    LogUtil.d("Font", "Setting font family: $family")
                     settingsRepository.setFontFamily(family)
                     val applied = runtime.applyFontSettings()
                     val bridge = runtime.bridge()
@@ -763,7 +762,7 @@ constructor(
                     val fontInfo = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
                     _defaultFontName.value = fontName ?: ""
                     _fontInfo.value = fontInfo
-                    android.util.Log.d("Font", "Font applied: ${_defaultFontName.value}")
+                    LogUtil.d("Font", "Font applied: ${_defaultFontName.value}")
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         val message =
                             if (applied == false) {
@@ -779,7 +778,7 @@ constructor(
                             .show()
                     }
                 } catch (exception: Exception) {
-                    android.util.Log.e("Font", "setFontFamily failed for $family", exception)
+                    LogUtil.e("Font", "setFontFamily failed for $family", exception)
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
                             context,
@@ -978,7 +977,7 @@ constructor(
         ) {
             return
         }
-        android.util.Log.d("TerminalViewModel", "ensureDefaultSession: creating default session")
+        LogUtil.d("TerminalViewModel", "ensureDefaultSession: creating default session")
         createSession()
     }
 
@@ -1253,7 +1252,7 @@ constructor(
             // 清除一次性（轻点）粘滞修饰键，使其不会延续到下一次击键。
             // 上方编码器已看到本次击键的激活修饰键；消费发生在编码之后。
             consumeOneShotModifiers()
-            Log.d(
+            LogUtil.d(
                 "TerminalViewModel",
                 // 绝不记录字符本身——硬件键盘输入可能含密码，logcat 无差别记录。
                 "handleLayoutAwareHardwareKey: keyCode=$keyCode mask=$mask",
@@ -1271,7 +1270,7 @@ constructor(
     fun createSession() {
         val surface = currentSurface
         if (surface == null || !surface.isValid) {
-            android.util.Log.e(
+            LogUtil.e(
                 "TerminalViewModel",
                 "createSession: surface null or invalid, currentSurface=$currentSurface",
             )
@@ -1280,7 +1279,7 @@ constructor(
         val surfaceWidthPixels = surfaceWidth
         val surfaceHeightPixels = surfaceHeight
         if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) {
-            android.util.Log.e(
+            LogUtil.e(
                 "TerminalViewModel",
                 "createSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
             )
@@ -1290,7 +1289,7 @@ constructor(
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             val currentSurfaceNow = currentSurface
             if (currentSurfaceNow == null || !currentSurfaceNow.isValid) {
-                android.util.Log.e(
+                LogUtil.e(
                     "TerminalViewModel",
                     "createSession: surface became invalid before launch",
                 )
@@ -1320,13 +1319,13 @@ constructor(
                         )
                     }
                 } else {
-                    android.util.Log.e(
+                    LogUtil.e(
                         "TerminalViewModel",
                         "createSession: runtime returned invalid id=$newId",
                     )
                 }
             } catch (exception: Exception) {
-                android.util.Log.e("TerminalViewModel", "createSession failed", exception)
+                LogUtil.e("TerminalViewModel", "createSession failed", exception)
             }
         }
     }
@@ -1334,7 +1333,7 @@ constructor(
     fun switchSession(id: Long) {
         val surface = currentSurface
         if (surface == null || !surface.isValid) {
-            android.util.Log.e(
+            LogUtil.e(
                 "TerminalViewModel",
                 "switchSession: surface null or invalid, currentSurface=$currentSurface",
             )
@@ -1343,7 +1342,7 @@ constructor(
         val surfaceWidthPixels = surfaceWidth
         val surfaceHeightPixels = surfaceHeight
         if (surfaceWidthPixels == 0 || surfaceHeightPixels == 0) {
-            android.util.Log.e(
+            LogUtil.e(
                 "TerminalViewModel",
                 "switchSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
             )
@@ -1354,7 +1353,7 @@ constructor(
             try {
                 runtime.switchSession(id, surface, surfaceWidthPixels, surfaceHeightPixels)
             } catch (exception: Exception) {
-                android.util.Log.e("TerminalViewModel", "switchSession failed for id=$id", exception)
+                LogUtil.e("TerminalViewModel", "switchSession failed for id=$id", exception)
                 return@launch
             }
             _state.update { current ->
@@ -1391,7 +1390,7 @@ constructor(
                 // closeSession 绝不能逃逸到主线程的未捕获处理器：
                 // BootGuard 会视其为崩溃并杀掉进程。
                 // 原生侧能容忍未知/已死的会话。
-                android.util.Log.e("TerminalViewModel", "closeSession failed for id=$id", exception)
+                LogUtil.e("TerminalViewModel", "closeSession failed for id=$id", exception)
                 return@launch
             }
             withContext(TerminalDispatchers.main) {
@@ -1438,7 +1437,7 @@ constructor(
             try {
                 NativeBridge.resetTerminal(id)
             } catch (exception: Exception) {
-                android.util.Log.e("TerminalViewModel", "resetTerminal failed for id=$id", exception)
+                LogUtil.e("TerminalViewModel", "resetTerminal failed for id=$id", exception)
                 return@launch
             }
             // VT 视口已归零：同步清零 Kotlin 侧滚动记账并通知 surface 重同步，
