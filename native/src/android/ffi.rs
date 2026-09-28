@@ -2758,7 +2758,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
     })
 }
 
-/// 应用层光标色覆盖（`r` | `g` | `b`，0..1 线性 RGB）。叠加在主题光标色之上，
+/// 应用层光标色覆盖（`red` | `green` | `blue`，0..1 线性 RGB）。叠加在主题光标色之上，
 /// 使用户主题的光标色能抵达渲染器（54 字节的 `setTheme` 载荷没有对应槽位）。
 /// `None` 清除覆盖（跟随终端）。
 #[unsafe(no_mangle)]
@@ -2766,16 +2766,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
-    r: f32,
-    g: f32,
-    b: f32,
+    red: f32,
+    green: f32,
+    blue: f32,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.cursor_color =
-                Some([r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), 1.0]);
-            log::info!("setCursorColor: ({r}, {g}, {b})");
+            render_state.cursor_color = Some([
+                red.clamp(0.0, 1.0),
+                green.clamp(0.0, 1.0),
+                blue.clamp(0.0, 1.0),
+                1.0,
+            ]);
+            log::info!("setCursorColor: ({red}, {green}, {blue})");
         }
     })
 }
