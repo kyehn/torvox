@@ -13,6 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.bridge.NativeBridge
 import kotlin.properties.Delegates
 
 @RunWith(AndroidJUnit4::class)
@@ -179,32 +180,14 @@ class FontSwitchInstrumentedTest {
             }
         changeBtn.click()
         Thread.sleep(3000)
-        val fonts = listOf("Roboto Mono", "Noto Sans Mono", "Fira Code", "Source Code Pro", "monospace")
-        val selectedFont = checkNotNull(fonts.firstOrNull { device.findObject(By.textContains(it)) != null }) {
-            "Font picker must show at least one known font family"
+        // 候选族取自字体库本身（原生公开 API，列表即对话框渲染的那一份），
+        // 不写死具体族名：模拟器镜像的字体清单随版本变，写死即环境耦合的脆弱断言。
+        val families = NativeBridge.listFontFamilies()?.toList().orEmpty()
+        check(families.isNotEmpty()) { "字体库必须非空（fonts.xml 不可读时产品已崩溃退出）" }
+        val selectedFont = checkNotNull(families.firstOrNull { device.findObject(By.text(it)) != null }) {
+            "字体选择器必须列出字体库中的族（库含 ${families.size} 族）"
         }
-        device.findObject(By.textContains(selectedFont))?.click()
-        Thread.sleep(3000)
-        val appAlive = device.findObject(By.pkg(PACKAGE).depth(0)) != null
-        assertTrue("App must survive font change", appAlive)
-    }
-
-    @Test
-    fun app_survives_font_change() {
-        openSettings()
-        scrollToChange()
-        val changeBtn =
-            checkNotNull(device.findObject(By.text("更改"))) {
-                "字体设置中更改按钮必须可见"
-            }
-        changeBtn.click()
-        Thread.sleep(2000)
-        // Emulator system font list (from FontInfoDto) contains Fira Code /
-        // Droid Sans Mono etc. but no Noto family — pick a font that exists.
-        val firstFont = checkNotNull(device.findObject(By.text("Fira Code"))) {
-            "Font picker must show the Fira Code family"
-        }
-        firstFont.click()
+        device.findObject(By.text(selectedFont))?.click()
         Thread.sleep(3000)
         val appAlive = device.findObject(By.pkg(PACKAGE).depth(0)) != null
         assertTrue("App must survive font change", appAlive)
