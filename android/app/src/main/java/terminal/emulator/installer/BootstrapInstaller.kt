@@ -264,9 +264,21 @@ class BootstrapInstaller(
             //     只允许解析后落在规范 prefix 路径之内的绝对目标。
             if (target.startsWith("/")) {
                 val canonicalPrefix = prefixDir.canonicalPath
+                // 官方包的 SYMLINKS.txt 用硬编码旧路径
+                // `/data/data/com.termux/files/usr/...`：与当前 filesDir 同应用即
+                // 同一目录（包名即应用身份），规范化到当前 prefix 下再校验。
+                val canonicalTarget =
+                    if (target.startsWith("/data/data/com.termux/files/usr/")) {
+                        File(
+                            canonicalPrefix,
+                            target.removePrefix("/data/data/com.termux/files/usr/"),
+                        ).path
+                    } else {
+                        target
+                    }
                 val resolvedAbsolute =
                     try {
-                        File(target).canonicalPath
+                        File(canonicalTarget).canonicalPath
                     } catch (exception: Exception) {
                         throw java.io.IOException(
                             "Unsafe symlink target: $target (${exception.message})",
