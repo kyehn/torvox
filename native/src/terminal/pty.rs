@@ -126,15 +126,15 @@ impl PtyPair {
         };
 
         let result = nix::pty::openpty(Some(&winsize), None)
-            .map_err(|e| PtyError::Open(std::io::Error::other(e)))?;
+            .map_err(|pty_error| PtyError::Open(std::io::Error::other(pty_error)))?;
         let master_fd = result.master;
         let slave_fd = result.slave;
 
         // fork 之前构建好子进程的全部数据，避免子进程中分配
         // （多线程进程中 fork 可能破坏 malloc 堆）。
         let (shell_executable, shell_argument_texts) = split_shell_entry(shell);
-        let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|e| {
-            let msg = format!("shell path contains null byte: {e}");
+        let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|null_error| {
+            let msg = format!("shell path contains null byte: {null_error}");
             log::error!("{msg}");
             PtyError::Fork(nix::errno::Errno::EINVAL)
         })?;
@@ -150,21 +150,22 @@ impl PtyPair {
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
             .map(|(k, v)| {
-                std::ffi::CString::new(format!("{k}={v}")).map_err(|e| {
-                    let msg = format!("env var contains null byte: {e}");
+                std::ffi::CString::new(format!("{k}={v}")).map_err(|null_error| {
+                    let msg = format!("env var contains null byte: {null_error}");
                     log::error!("{msg}");
                     PtyError::Fork(nix::errno::Errno::EINVAL)
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let chdir_target: &str = cwd.map_or(env.working_directory.as_str(), |p| {
-            p.to_str().unwrap_or(env.working_directory.as_str())
+        let chdir_target: &str = cwd.map_or(env.working_directory.as_str(), |path| {
+            path.to_str().unwrap_or(env.working_directory.as_str())
         });
-        let working_directory_cstr = std::ffi::CString::new(chdir_target).map_err(|e| {
-            let msg = format!("working directory contains null byte: {e}");
-            log::error!("{msg}");
-            PtyError::Fork(nix::errno::Errno::EINVAL)
-        })?;
+        let working_directory_cstr =
+            std::ffi::CString::new(chdir_target).map_err(|null_error| {
+                let msg = format!("working directory contains null byte: {null_error}");
+                log::error!("{msg}");
+                PtyError::Fork(nix::errno::Errno::EINVAL)
+            })?;
 
         // fork 之前预分配参数与环境数组；fork 之后子进程不得调用任何分配函数。
         // Android 15+ 的 SELinux 对 untrusted_app 拒绝 app_data_file 上的
