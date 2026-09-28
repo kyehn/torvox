@@ -21,7 +21,7 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class DocumentsProviderTest {
-    private val authority = "terminal.emulator.documents"
+    private val authority = "com.termux.documents"
 
     // Robolectric's ShadowContentResolver does not perform the Android-O+
     // ContentResolver → DocumentsProvider Bundle-extras conversion, so the

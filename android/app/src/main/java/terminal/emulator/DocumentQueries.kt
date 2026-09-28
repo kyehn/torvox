@@ -56,7 +56,7 @@ internal class DocumentQueries(private val context: Context) {
         null
     }
 
-    fun addDocRow(cursor: MatrixCursor, file: File, rootDir: File) {
+    fun addDocRow(cursor: MatrixCursor, file: File, rootDir: File, columns: Array<out String>) {
         val docId = TerminalDocumentsProvider.encodeDocId(file, rootDir) ?: return
         val mime = if (file.isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
         var flags = 0
@@ -72,12 +72,12 @@ internal class DocumentQueries(private val context: Context) {
         // 与 Termux 一致：图片声明缩略图支持，对应 openDocumentThumbnail。
         if (mime.startsWith("image/")) flags = flags or Document.FLAG_SUPPORTS_THUMBNAIL
         cursor.newRow().apply {
-            add(Document.COLUMN_DOCUMENT_ID, docId)
-            add(Document.COLUMN_DISPLAY_NAME, file.name)
-            add(Document.COLUMN_MIME_TYPE, mime)
-            add(Document.COLUMN_SIZE, file.length())
-            add(Document.COLUMN_LAST_MODIFIED, file.lastModified())
-            add(Document.COLUMN_FLAGS, flags)
+            if (Document.COLUMN_DOCUMENT_ID in columns) add(Document.COLUMN_DOCUMENT_ID, docId)
+            if (Document.COLUMN_DISPLAY_NAME in columns) add(Document.COLUMN_DISPLAY_NAME, file.name)
+            if (Document.COLUMN_MIME_TYPE in columns) add(Document.COLUMN_MIME_TYPE, mime)
+            if (Document.COLUMN_SIZE in columns) add(Document.COLUMN_SIZE, file.length())
+            if (Document.COLUMN_LAST_MODIFIED in columns) add(Document.COLUMN_LAST_MODIFIED, file.lastModified())
+            if (Document.COLUMN_FLAGS in columns) add(Document.COLUMN_FLAGS, flags)
         }
     }
 
