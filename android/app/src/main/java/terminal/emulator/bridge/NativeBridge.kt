@@ -242,7 +242,7 @@ object NativeBridge {
     /**
      * 应用层光标颜色覆盖，线性 RGB（每通道 0..1）；0xFFFFFFFF 哨兵值表示清除覆盖（跟随终端）。
      */
-    external fun setCursorColor(sessionId: Long, r: Float, g: Float, b: Float)
+    external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
 
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 

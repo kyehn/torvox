@@ -59,20 +59,20 @@ class TerminalSurfaceLogicTest {
         // Top boundary is strict `<`: dead-center of the top half-cell is up.
         assertEquals(
             EdgeScrollDirection.UP,
-            edgeScrollDirection(y = 9f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(yPx = 9f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
         // Bottom boundary is `>= surface - half`: exactly at the edge is down.
         assertEquals(
             EdgeScrollDirection.DOWN,
-            edgeScrollDirection(y = 190f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(yPx = 190f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
         assertEquals(
             EdgeScrollDirection.DOWN,
-            edgeScrollDirection(y = 200f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(yPx = 200f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
         assertEquals(
             EdgeScrollDirection.STOP,
-            edgeScrollDirection(y = 100f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(yPx = 100f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
     }
 
@@ -80,8 +80,8 @@ class TerminalSurfaceLogicTest {
     fun `degenerate surface favors the top zone`() {
         // Surface shorter than a cell: top zone (y < cellHeight/2) wins at 0
         // when both zones would overlap — matches the `<`/`>=` asymmetry.
-        assertEquals(EdgeScrollDirection.UP, edgeScrollDirection(y = 0f, surfaceHeightPx = 10f, cellHeight = 20f))
-        assertEquals(EdgeScrollDirection.DOWN, edgeScrollDirection(y = 10f, surfaceHeightPx = 10f, cellHeight = 20f))
+        assertEquals(EdgeScrollDirection.UP, edgeScrollDirection(yPx = 0f, surfaceHeightPx = 10f, cellHeight = 20f))
+        assertEquals(EdgeScrollDirection.DOWN, edgeScrollDirection(yPx = 10f, surfaceHeightPx = 10f, cellHeight = 20f))
     }
 
     // ── pixel → cell mapping ──────────────────────────────────────────────────
