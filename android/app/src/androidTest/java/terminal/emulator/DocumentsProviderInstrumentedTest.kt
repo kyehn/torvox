@@ -2,10 +2,10 @@ package terminal.emulator
 
 import android.provider.DocumentsContract
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class DocumentsProviderInstrumentedTest {
     private val authority = "com.termux.documents"
