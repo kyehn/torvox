@@ -4,7 +4,6 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
-import org.junit.AfterClass
 import org.junit.Assert
 import org.junit.BeforeClass
 import org.junit.Test
@@ -15,11 +14,13 @@ import java.io.File
 @RunWith(JUnit4::class)
 class BootstrapCompatibilityTest {
     companion object {
-        private const val PREFIX = "/data/data/com.termux/files/usr"
-        private const val BASH_PATH = "$PREFIX/bin/bash"
-        private const val HOME_DIR = "$PREFIX/home"
+        private const val PREFIX_SUFFIX = "files/usr"
         private val BOOTSTRAP_URL by lazy {
-            System.getProperty("test.bootstrapUrl")
+            // 模拟器无外网：CI/本地先 adb push 官方 zip 到 Download 目录，测试经
+            // Instrumentation arguments 以 test.bootstrapUrl 传入 file:// 路径
+            // （adb shell am instrument -e test.bootstrapUrl file:///...）。
+            // 未传参则回退官方 https URL（有外网的设备仍可直跑）。
+            InstrumentationRegistry.getArguments().getString("test.bootstrapUrl")
                 ?: "https://github.com/termux/termux-packages/releases/download/" +
                 "bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"
         }
@@ -27,18 +28,24 @@ class BootstrapCompatibilityTest {
 
         @BeforeClass @JvmStatic
         fun ensureBootstrap() {
-            val bash = File(BASH_PATH)
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val bash = java.io.File(context.filesDir, "usr/bin/bash")
             if (bash.exists()) {
-                File(HOME_DIR).mkdirs()
+                java.io.File(context.filesDir, "home").mkdirs()
                 return
             }
             val ctx = InstrumentationRegistry.getInstrumentation().targetContext
             Log.i(TAG, "installing bootstrap from $BOOTSTRAP_URL")
             val result =
                 runBlocking {
-                    val prefixDir = java.io.File("/data/data/com.termux/files/usr")
-                    val homeDir = java.io.File("/data/data/com.termux/files/home")
-                    val stagingDir = java.io.File(ctx.cacheDir, "bootstrap-staging")
+                    // 路径必须经 context 解析：/data/data 与 /data/user/0 在此设备
+                    // 上并非同一挂载，硬编码前者会导致 staging→prefix 的原子换入
+                    // 跨分区失败。prefix/home/staging 三者必须同目录同挂载。
+                    val prefixDir = java.io.File(ctx.filesDir, "usr")
+                    val homeDir = java.io.File(ctx.filesDir, "home")
+                    // staging 必须与 prefix 同文件系统（filesDir），否则原子换入
+                    // 的 rename 跨分区失败（cacheDir 与 filesDir 不同挂载）。
+                    val stagingDir = java.io.File(ctx.filesDir, "bootstrap-staging")
                     BootstrapOrchestrator(
                         BootstrapDownloader(ctx),
                         BootstrapInstaller(prefixDir, homeDir, stagingDir),
@@ -48,12 +55,7 @@ class BootstrapCompatibilityTest {
             Log.i(TAG, "bootstrap result: $result")
             Assert.assertTrue("bootstrap failed", result.isSuccess)
             Assert.assertTrue("bash not found after bootstrap", bash.exists())
-            File(HOME_DIR).mkdirs()
-        }
-
-        @AfterClass @JvmStatic
-        fun cleanupBootstrapUrl() {
-            System.clearProperty("test.bootstrapUrl")
+            java.io.File(context.filesDir, "home").mkdirs()
         }
     }
 
@@ -66,13 +68,17 @@ class BootstrapCompatibilityTest {
         return ParcelFileDescriptor.AutoCloseInputStream(pfd).bufferedReader().readText()
     }
 
+    private fun prefixPath(): String = "${InstrumentationRegistry.getInstrumentation().targetContext.filesDir}/usr"
+
+    private fun homePath(): String = "${InstrumentationRegistry.getInstrumentation().targetContext.filesDir}/home"
+
     private fun makeScript(body: String): File {
         val testFile = File("/data/data/com.termux/cache/tc.sh")
         testFile.parentFile?.mkdirs()
         val env = (
-            "export PREFIX=/data/data/com.termux/files/usr" + "\n" +
+            "export PREFIX=" + prefixPath() + "\n" +
                 "export PATH=\$PREFIX/bin:\$PREFIX/bin/applets:/system/bin" + "\n" +
-                "export HOME=\$PREFIX/home" + "\n" +
+                "export HOME=" + homePath() + "\n" +
                 "export SHELL=\$PREFIX/bin/bash" + "\n" +
                 "export TERM=vt100"
             )
@@ -115,9 +121,9 @@ class BootstrapCompatibilityTest {
     @Test
     fun bootstrap_dirsExist() {
         for (d in listOf("bin", "etc", "lib", "tmp")) {
-            Assert.assertTrue("$d in PREFIX missing", File("$PREFIX/$d").isDirectory)
+            Assert.assertTrue("$d in PREFIX missing", File("${prefixPath()}/$d").isDirectory)
         }
-        Assert.assertTrue("home missing", File(HOME_DIR).isDirectory)
+        Assert.assertTrue("home missing", File(homePath()).isDirectory)
     }
 
     @Test
@@ -133,17 +139,17 @@ class BootstrapCompatibilityTest {
 
     @Test
     fun bash_prefix() {
-        Assert.assertEquals(PREFIX, runAs("echo \$PREFIX").trim())
+        Assert.assertEquals(prefixPath(), runAs("echo \$PREFIX").trim())
     }
 
     @Test
     fun bash_path() {
-        Assert.assertTrue(runAs("echo \$PATH").contains(PREFIX))
+        Assert.assertTrue(runAs("echo \$PATH").contains(prefixPath()))
     }
 
     @Test
     fun bash_which() {
-        Assert.assertEquals(BASH_PATH, runAs("which bash").trim())
+        Assert.assertEquals("${prefixPath()}/bin/bash", runAs("which bash").trim())
     }
 
     @Test
@@ -245,12 +251,12 @@ class BootstrapCompatibilityTest {
 
     @Test
     fun bash_env_HOME() {
-        Assert.assertEquals(HOME_DIR, runAs("echo \$HOME").trim())
+        Assert.assertEquals(homePath(), runAs("echo \$HOME").trim())
     }
 
     @Test
     fun bash_env_SHELL() {
-        Assert.assertEquals(BASH_PATH, runAs("echo \$SHELL").trim())
+        Assert.assertEquals("${prefixPath()}/bin/bash", runAs("echo \$SHELL").trim())
     }
 
     @Test
