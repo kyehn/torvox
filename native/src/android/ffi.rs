@@ -1818,6 +1818,11 @@ fn render_inner(session_id: u64) -> jint {
 /// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..48 = 视口光标行（0xFFFF = 隐藏/
 /// 视口外）；位 49..63 = 0（保留）。
 ///
+/// 光标行采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner` 返回 0（无新单元数据，
+/// 无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要光标坐标；若随渲染一并
+/// 跳过，`cursorRowFlow` 恒为未知，内容较多时终端不上移。`Query::RenderCursor` 带
+/// 200μs 超时兜底（超时即未知，与旧空闲语义一致），故空闲帧多一次查询无阻塞风险。
+///
 /// Kotlin 必须分别掩码两个字段：裸读 `(packed shr 32) != 0` 会把光标位误当作输出。
 /// 出错时渲染计数为负、`new_output` 为 0、光标行为 0xFFFF。
 #[unsafe(no_mangle)]
@@ -1833,9 +1838,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     ));
     let mut new_output: i64 = 0;
     let mut cursor_bits: i64 = 0xFFFF;
-    if count > 0 {
+    if count >= 0 {
         // 就地消费 `new_output` 标志（逻辑同 `consumeNewOutput` 但省一次 JNI 穿越），
         // 并从同一个已加锁的会话采样视口光标行，使跟随输入法的平移看到本帧绘制的坐标。
+        // 空闲帧（count == 0）同样采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 跟随
+        // 平移恰在空闲定居后最需要光标坐标——挂在 `count > 0` 门下会使 `cursorRowFlow`
+        // 恒为未知。`Query::RenderCursor` 带 200μs 超时兜底，阻塞风险已封顶。
         let registry = rlock_session_registry();
         if let Some(entry) = registry.get(&(session_id as u64)) {
             let session = entry.session.lock();
