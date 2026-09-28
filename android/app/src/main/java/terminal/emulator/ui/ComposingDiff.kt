@@ -17,13 +17,18 @@ object ComposingDiff {
     fun reconcile(previous: String, next: String): Edit {
         if (previous == next) return Edit(0, "")
         // 按 UTF-16 下标求最长公共前缀；前缀两侧相同，故码点切分点一致。
-        var i = 0
-        val maxI = minOf(previous.length, next.length)
-        while (i < maxI && previous[i] == next[i]) i++
+        var commonPrefixLength = 0
+        val maxPrefixLength = minOf(previous.length, next.length)
+        while (
+            commonPrefixLength < maxPrefixLength &&
+            previous[commonPrefixLength] == next[commonPrefixLength]
+        ) {
+            commonPrefixLength++
+        }
 
-        val textToErase = if (previous.length > i) previous.substring(i) else ""
+        val textToErase = if (previous.length > commonPrefixLength) previous.substring(commonPrefixLength) else ""
         val backspaces = textToErase.codePointCount(0, textToErase.length)
-        val toAdd = if (next.length > i) next.substring(i) else ""
+        val toAdd = if (next.length > commonPrefixLength) next.substring(commonPrefixLength) else ""
         return Edit(backspaces, toAdd)
     }
 }

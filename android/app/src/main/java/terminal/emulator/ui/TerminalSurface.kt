@@ -950,14 +950,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (handleW == 0) return
             val content = overlayContent ?: return
             val handleH = content.handleHeight
-            val x =
+            val handleLeft =
                 (anchorX - (if (which == HandleDrag.START) (handleW * 3) / 4 else handleW / 4)).coerceIn(
                     0,
                     (width - handleW).coerceAtLeast(0),
                 )
-            val y = anchorY.coerceIn(0, (height - handleH).coerceAtLeast(0))
+            val handleTop = anchorY.coerceIn(0, (height - handleH).coerceAtLeast(0))
             val rect = if (which == HandleDrag.START) startHandleRect else endHandleRect
-            rect.set(x, y, x + handleW, y + handleH)
+            rect.set(handleLeft, handleTop, handleLeft + handleW, handleTop + handleH)
             rect.inset(-handleW / 4, -handleH / 4)
         }
 
@@ -1072,9 +1072,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
             /** DOWN：锁定手柄拖动，或开始转发终端事件流。 */
             private fun routeDown(event: MotionEvent): Boolean {
-                val x = event.x.toInt()
-                val y = event.y.toInt()
-                val which = handleAt(x, y)
+                val touchX = event.x.toInt()
+                val touchY = event.y.toInt()
+                val which = handleAt(touchX, touchY)
                 if (which != null) {
                     dragOwner = which
                     dragPointerLocked = event.getPointerId(event.actionIndex)
@@ -1089,9 +1089,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            private fun handleAt(x: Int, y: Int): HandleDrag? = when {
-                !startHandleRect.isEmpty() && startHandleRect.contains(x, y) -> HandleDrag.START
-                !endHandleRect.isEmpty() && endHandleRect.contains(x, y) -> HandleDrag.END
+            private fun handleAt(xPx: Int, yPx: Int): HandleDrag? = when {
+                !startHandleRect.isEmpty() && startHandleRect.contains(xPx, yPx) -> HandleDrag.START
+                !endHandleRect.isEmpty() && endHandleRect.contains(xPx, yPx) -> HandleDrag.END
                 else -> null
             }
 
@@ -1727,19 +1727,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 中的外接鼠标路径一致。
                 val altBridge = viewModel?.runtime?.bridge()
                 if (altBridge != null && altBridge.isAltScreenActive()) {
-                    val cellW = viewModel?.runtime?.cellWidth ?: 1f
-                    val cellH = viewModel?.runtime?.cellHeight ?: 1f
-                    val x = e2.x
-                    val y = e2.y
+                    val cellWidth = viewModel?.runtime?.cellWidth ?: 1f
+                    val cellHeight = viewModel?.runtime?.cellHeight ?: 1f
+                    val pointerXPx = e2.x
+                    val pointerYPx = e2.y
                     // 走满一个单元格高度 = 一个滚轮行，与下方的本地滚动映射
                     // （distanceY / cellHeight）一致。
-                    val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellH).toInt()))
+                    val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellHeight).toInt()))
                     // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
                     var forwarded = false
                     repeat(lines) {
-                        if (altBridge.encodeMouseEvent(x, y, 0, button, cellW, cellH)) {
-                            altBridge.encodeMouseEvent(x, y, 1, button, cellW, cellH)
+                        if (altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 0, button, cellWidth, cellHeight)) {
+                            altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 1, button, cellWidth, cellHeight)
                             forwarded = true
                         }
                     }
@@ -1954,7 +1954,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             },
         )
 
-    fun handleLongPress(x: Float, y: Float) {
+    fun handleLongPress(xPx: Float, yPx: Float) {
         // 参照 ghostty-android TerminalView.java:1085-1100：它用 tapCount
         // （双击 = 词、三击 = 行）而非长按做词选择；此处的「长按 → 词选择」
         // 等效但交互不同。ghostty-android 还禁用了 GestureDetector 内置的
@@ -1969,8 +1969,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
         val bridge = viewModel?.runtime?.bridge()
         val scrollbackLength = currentScrollbackLength()
-        val col = (x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-        val row = (y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+        val col = (xPx / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+        val row = (yPx / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
         val gridRow = (scrollbackLength - scrollOffset + row)
 
         // 长按时始终尝试智能选词。isCellEmpty 检查不可靠，
@@ -2748,9 +2748,9 @@ internal enum class EdgeScrollDirection {
     STOP,
 }
 
-internal fun edgeScrollDirection(y: Float, surfaceHeightPx: Float, cellHeight: Float): EdgeScrollDirection = when {
-    y < cellHeight / 2 -> EdgeScrollDirection.UP
-    y >= surfaceHeightPx - cellHeight / 2 -> EdgeScrollDirection.DOWN
+internal fun edgeScrollDirection(yPx: Float, surfaceHeightPx: Float, cellHeight: Float): EdgeScrollDirection = when {
+    yPx < cellHeight / 2 -> EdgeScrollDirection.UP
+    yPx >= surfaceHeightPx - cellHeight / 2 -> EdgeScrollDirection.DOWN
     else -> EdgeScrollDirection.STOP
 }
 
@@ -2779,16 +2779,16 @@ internal fun menuAnchor(
 ): Pair<Int, Int>? {
     if (viewport.right - viewport.left <= 0 || viewport.bottom - viewport.top <= 0) return null
     val width = menuWidth.coerceAtMost(viewport.right - viewport.left)
-    val x = (
+    val menuLeft = (
         (selection.left + selection.right) / 2 - width / 2
         ).coerceIn(viewport.left, (viewport.right - width).coerceAtLeast(viewport.left))
     val aboveTop = selection.top - menuHeight - handleHeight
     if (aboveTop >= viewport.top) {
-        return x to aboveTop
+        return menuLeft to aboveTop
     }
     val belowTop = selection.bottom + handleHeight
     if (belowTop + menuHeight <= viewport.bottom) {
-        return x to belowTop
+        return menuLeft to belowTop
     }
     return null
 }
@@ -2796,19 +2796,19 @@ internal fun menuAnchor(
 /** 把落在宽字符后半部分的选区列向左吸附（snapToWideCharBoundary 的纯内核，已给定取回的整行；bridge/行缓存部分留在 Surface 中）。 */
 internal fun snapColToWideChar(line: String, col: Int): Int {
     if (col <= 0) return col
-    var cell = 0
-    var i = 0
-    while (i < line.length) {
-        val cp = line.codePointAt(i)
-        val width = if (isWideCodePoint(cp)) 2 else 1
-        if (cell + width > col) {
+    var cellCount = 0
+    var charIndex = 0
+    while (charIndex < line.length) {
+        val codePoint = line.codePointAt(charIndex)
+        val charWidth = if (isWideCodePoint(codePoint)) 2 else 1
+        if (cellCount + charWidth > col) {
             // col 落在该字符内部：仅当处于宽字符后半部分时回退
             // ——前半部分与 ASCII 保持原位。
-            if (width == 2 && col == cell + 1) return col - 1
+            if (charWidth == 2 && col == cellCount + 1) return col - 1
             return col
         }
-        cell += width
-        i += Character.charCount(cp)
+        cellCount += charWidth
+        charIndex += Character.charCount(codePoint)
     }
     return col
 }
