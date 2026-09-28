@@ -14,7 +14,7 @@ import java.io.File
 
 class TerminalDocumentsProvider : DocumentsProvider() {
     companion object {
-        const val AUTHORITY = "terminal.emulator.documents"
+        const val AUTHORITY = "com.termux.documents"
         const val ROOT_ID = "terminal_home"
         private const val TAG = "TerminalDocumentsProvider"
 
@@ -139,17 +139,19 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val cursor = MatrixCursor(cols)
         val rootDir = queries.rootDir()
         cursor.newRow().apply {
-            add(Root.COLUMN_ROOT_ID, ROOT_ID)
-            add(Root.COLUMN_DOCUMENT_ID, encodeDocId(rootDir, rootDir))
-            add(Root.COLUMN_TITLE, "Terminal Home")
-            add(Root.COLUMN_SUMMARY, rootDir.absolutePath)
-            add(
-                Root.COLUMN_FLAGS,
-                Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_SEARCH or Root.FLAG_SUPPORTS_IS_CHILD,
-            )
-            add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
-            add(Root.COLUMN_MIME_TYPES, "*/*")
-            add(Root.COLUMN_AVAILABLE_BYTES, rootDir.freeSpace)
+            if (Root.COLUMN_ROOT_ID in cols) add(Root.COLUMN_ROOT_ID, ROOT_ID)
+            if (Root.COLUMN_DOCUMENT_ID in cols) add(Root.COLUMN_DOCUMENT_ID, encodeDocId(rootDir, rootDir))
+            if (Root.COLUMN_TITLE in cols) add(Root.COLUMN_TITLE, "Terminal Home")
+            if (Root.COLUMN_SUMMARY in cols) add(Root.COLUMN_SUMMARY, rootDir.absolutePath)
+            if (Root.COLUMN_FLAGS in cols) {
+                add(
+                    Root.COLUMN_FLAGS,
+                    Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_SEARCH or Root.FLAG_SUPPORTS_IS_CHILD,
+                )
+            }
+            if (Root.COLUMN_ICON in cols) add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
+            if (Root.COLUMN_MIME_TYPES in cols) add(Root.COLUMN_MIME_TYPES, "*/*")
+            if (Root.COLUMN_AVAILABLE_BYTES in cols) add(Root.COLUMN_AVAILABLE_BYTES, rootDir.freeSpace)
         }
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
@@ -164,7 +166,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val cols = projection ?: DOC_PROJECTION
         val cursor = MatrixCursor(cols)
         val rootDir = queries.rootDir()
-        queries.addDocRow(cursor, queries.resolveLinkEntry(documentId, rootDir), rootDir)
+        queries.addDocRow(cursor, queries.resolveLinkEntry(documentId, rootDir), rootDir, cols)
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
                 resolver,
@@ -190,7 +192,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() },
             )
         for (child in sorted) {
-            queries.addDocRow(cursor, child, rootDir)
+            queries.addDocRow(cursor, child, rootDir, cols)
         }
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
@@ -312,11 +314,11 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             }
             if (!java.nio.file.Files.isSymbolicLink(current.toPath()) && current.isDirectory) {
                 if (canonical != rootPath && current.name.lowercase().contains(needle)) {
-                    queries.addDocRow(cursor, current, rootDir)
+                    queries.addDocRow(cursor, current, rootDir, cols)
                 }
                 current.listFiles()?.forEach { pending.addLast(it) }
             } else if (current.name.lowercase().contains(needle)) {
-                queries.addDocRow(cursor, current, rootDir)
+                queries.addDocRow(cursor, current, rootDir, cols)
             }
         }
         context?.contentResolver?.let { resolver ->
