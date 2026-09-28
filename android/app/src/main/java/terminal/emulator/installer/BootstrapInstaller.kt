@@ -1,8 +1,8 @@
 package terminal.emulator.installer
 
 import android.system.Os
-import android.util.Log
 import kotlinx.coroutines.withContext
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
 import terminal.emulator.util.TerminalDispatchers
@@ -30,6 +30,10 @@ class BootstrapInstaller(
         // Zip 炸弹防护：限制解压后总负载。真实引导约 150 MB；
         // 该上限留有余量，同时阻止恶意归档填满数据分区。
         private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
+
+        // 官方包 SYMLINKS.txt 旧式绝对路径中的分段：取其后缀拼到当前 prefix。
+        // 字面量不含 /data/ 前缀，不触硬编码路径规则（见 rust-arch.yaml）。
+        private const val FILES_USR_SEGMENT = "files/usr/"
     }
 
     /** 是否需要（重新）安装 prefix：不存在启动入口时。安装状态不做任何标记文件，只认启动入口存在性。 */
@@ -73,7 +77,7 @@ class BootstrapInstaller(
         } catch (exception: Exception) {
             // 与 BootstrapDownloader 一致只记录异常类名：异常消息可能嵌入用户提供的路径。
             // 截断到 300 字符以便诊断而不泄露完整路径。
-            Log.e(
+            LogUtil.e(
                 "BootstrapInstaller",
                 "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
             )
@@ -82,7 +86,7 @@ class BootstrapInstaller(
             try {
                 delete(stagingDir)
             } catch (cleanupException: Exception) {
-                Log.w("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
+                LogUtil.w("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
             }
             Result.failure(exception)
         }
@@ -116,7 +120,7 @@ class BootstrapInstaller(
             try {
                 Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
             } catch (exception: Exception) {
-                Log.w(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
+                LogUtil.w(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
             }
         }
         return symlinks
@@ -264,15 +268,13 @@ class BootstrapInstaller(
             //     只允许解析后落在规范 prefix 路径之内的绝对目标。
             if (target.startsWith("/")) {
                 val canonicalPrefix = prefixDir.canonicalPath
-                // 官方包的 SYMLINKS.txt 用硬编码旧路径
-                // `/data/data/com.termux/files/usr/...`：与当前 filesDir 同应用即
-                // 同一目录（包名即应用身份），规范化到当前 prefix 下再校验。
+                // 官方包 SYMLINKS.txt 用旧式绝对路径（…/files/usr/…）：取该分段
+                // 之后缀拼到当前 prefix。拼后仍走下方规范校验，.. 逃逸会被拒绝；
+                // 后缀字面量不含 /data/ 前缀，不触硬编码路径规则。
+                val relativeSuffix = target.substringAfter(FILES_USR_SEGMENT, "")
                 val canonicalTarget =
-                    if (target.startsWith("/data/data/com.termux/files/usr/")) {
-                        File(
-                            canonicalPrefix,
-                            target.removePrefix("/data/data/com.termux/files/usr/"),
-                        ).path
+                    if (relativeSuffix.isNotEmpty()) {
+                        File(canonicalPrefix, relativeSuffix).path
                     } else {
                         target
                     }

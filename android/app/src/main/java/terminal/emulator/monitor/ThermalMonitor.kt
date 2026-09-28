@@ -2,7 +2,7 @@ package terminal.emulator.monitor
 
 import android.content.Context
 import android.os.PowerManager
-import android.util.Log
+import terminal.emulator.runtime.LogUtil
 import java.util.concurrent.Executors
 
 class ThermalMonitor(private val context: Context, private val onCritical: (() -> Unit)? = null) {
@@ -31,9 +31,13 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
                 thermalListener
                     ?: error("thermalListener must be initialized before use"),
             )
-            Log.i(TAG, "ThermalStatusListener registered")
+            LogUtil.i(TAG, "ThermalStatusListener registered")
         } catch (exception: Exception) {
-            Log.e(TAG, "Failed to register thermal status listener — not supported on this device/environment", exception)
+            LogUtil.e(
+                TAG,
+                "Failed to register thermal status listener — not supported on this device/environment",
+                exception,
+            )
             thermalListener = null
             thermalExecutor?.shutdownNow()
             thermalExecutor = null
@@ -59,14 +63,14 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
         // 在此杀掉进程会白白丢失所有会话而硬件并无风险。
         // 只有 CRITICAL+（真正过热）才终止。
         if (status >= PowerManager.THERMAL_STATUS_CRITICAL) {
-            Log.e(TAG, "$label — killing process (CRITICAL+)")
+            LogUtil.e(TAG, "$label — killing process (CRITICAL+)")
             onCritical?.invoke()
         } else if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
-            Log.w(TAG, "$label — severe throttling, consider cooling")
+            LogUtil.w(TAG, "$label — severe throttling, consider cooling")
         } else if (status >= PowerManager.THERMAL_STATUS_MODERATE) {
-            Log.w(TAG, "$label — throttling may occur")
+            LogUtil.w(TAG, "$label — throttling may occur")
         } else {
-            Log.i(TAG, "$label — returned to normal")
+            LogUtil.i(TAG, "$label — returned to normal")
         }
     }
     internal fun thermalStatusLabel(status: Int): String = when (status) {
