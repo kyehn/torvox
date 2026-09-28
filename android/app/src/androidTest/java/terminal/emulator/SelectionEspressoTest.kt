@@ -76,7 +76,10 @@ class SelectionEspressoTest {
         // house 模式：桥每次现取（Activity 重建/会话切换会替换桥实例，缓存实例
         // 读到的是旧会话）。送显与轮询都用现取桥；若中途切换导致标记丢失则补送。
         fun freshBridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-        val payload = (markers.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8)
+        // vt_write 是裸 VT 路径（不做 \n→\r\n 转换，见 pty_write 注释）：
+        // 裸 \n 只换行不回车，多行负载逐行右漂并在行尾从中间截断标记，
+        // 使 contains 永远失败。用 \r\n 使每行自列 0 起笔。
+        val payload = (markers.joinToString("\r\n") + "\r\n").toByteArray(Charsets.UTF_8)
         var fed = false
         val settled =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 500) {
@@ -126,9 +129,14 @@ class SelectionEspressoTest {
                 terminal.emulator.ui.TerminalSurface::class.java.getDeclaredField("selectionMenuPopup")
             menuField.isAccessible = true
             val popup = menuField.get(surface) as android.widget.PopupWindow?
-            // PopupWindow 无 y getter：取内容视图窗口坐标（内容顶 ≥ 弹窗顶，断言更严）。
+            // PopupWindow 无 y getter：内容视图相对自身窗口恒为 [0,0]，
+            // 故取屏幕坐标（与 surface 的窗口坐标同为屏幕系，可比）。
             val contentLocation = IntArray(2)
-            popup?.contentView?.getLocationInWindow(contentLocation)
+            popup?.contentView?.getLocationOnScreen(contentLocation)
+            val surfaceScreenLocation = IntArray(2)
+            surface.getLocationOnScreen(surfaceScreenLocation)
+            selectionBottomWindowY =
+                surfaceScreenLocation[1] + ((visibleBottomRow + 1) * cellHeightPx).toInt()
             popupY = if (popup?.contentView == null) Int.MIN_VALUE else contentLocation[1]
         }
         assertTrue(
