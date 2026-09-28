@@ -941,7 +941,7 @@ constructor(
                 closeDeadSession(entry)
                 return
             }
-            val d =
+            val restartDelayMillis =
                 synchronized(sessionLock) {
                     val next = entry.nextRestartDelayMs
                     entry.nextRestartDelayMs =
@@ -949,7 +949,7 @@ constructor(
                     next
                 }
 
-            delay(d)
+            delay(restartDelayMillis)
             restartRenderThreadAfterDelay(entry)
             delay(GRACE_PERIOD_AFTER_RESTART_MS)
             confirmRestartGrace(entry)
@@ -962,13 +962,13 @@ constructor(
             // （pause/stop 置假，start/resume 置真）。死线程重启路径依赖 running 保持为真，
             // 使延迟重启（restartRenderThreadAfterDelay）仍能执行；
             // 也使并发的 pauseRendering()（将 running 置假）能正确取消待执行的重启。
-            entry.renderThreadRef?.let { t ->
-                t.interrupt()
-                t.join(THREAD_JOIN_TIMEOUT_MS)
-                if (t.isAlive) {
+            entry.renderThreadRef?.let { renderThread ->
+                renderThread.interrupt()
+                renderThread.join(THREAD_JOIN_TIMEOUT_MS)
+                if (renderThread.isAlive) {
                     LogUtil.w("Runtime", "Render thread did not exit within timeout, continuing anyway")
                     entry.renderThreadPossiblyAlive = true
-                    entry.hungRenderThread = t
+                    entry.hungRenderThread = renderThread
                     return
                 }
             }
@@ -1226,8 +1226,8 @@ constructor(
                                                     // 周期性 p50/p95 汇总写入 logcat
                                                     // （LATENCY_REPORT 标记便于 grep，
                                                     // 供离线采集分位数）。
-                                                    val n = entry.latencyProbe.sampleCount
-                                                    if (n % LATENCY_REPORT_EVERY == 0) {
+                                                    val sampleCount = entry.latencyProbe.sampleCount
+                                                    if (sampleCount % LATENCY_REPORT_EVERY == 0) {
                                                         LogUtil.i(
                                                             "Runtime",
                                                             "LATENCY_REPORT session=${entry.id} ${entry.latencyProbe.report()}",
@@ -2721,11 +2721,11 @@ constructor(
         var wasRunning: Boolean = false
         val entry =
             synchronized(sessionLock) {
-                val e = sessions[id] ?: return
-                wasRunning = e.running
-                e.running = false
-                e.closing = true
-                e
+                val sessionEntry = sessions[id] ?: return
+                wasRunning = sessionEntry.running
+                sessionEntry.running = false
+                sessionEntry.closing = true
+                sessionEntry
             }
         LogUtil.d("Runtime", "closeSession($id)")
 
