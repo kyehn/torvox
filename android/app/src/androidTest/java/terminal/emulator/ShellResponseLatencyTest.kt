@@ -10,6 +10,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.MainActivity
+import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
 
 /**
  * Quantified verification of "shell 反应稍显缓慢" — the matrix marked this "(C) 需设备验证" precisely because
@@ -46,17 +49,18 @@ class ShellResponseLatencyTest {
 
     @Test
     fun shell_echo_latency_meets_emulator_budget() {
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val bridge = composeTestRule.awaitBridge()
 
         val latencies = mutableListOf<Long>()
-        for (i in 1..SAMPLES) {
-            val marker = "UXMARK$i"
-            // Drain any earlier marker so the predicate matches THIS one.
+        for (index in 1..SAMPLES) {
+            val marker = "UXMARK$index"
+            // 先排空旧标记，再写入本次标记：轮询测的是本次写入到落格的延迟。
             bridge.writeToPty("clear\n".toByteArray(Charsets.UTF_8))
             UxTestUtils.pollUntilTrue(timeoutMs = 2_000) {
                 bridge.getTerminalText()?.contains("UXMARK") != true
             }
             Thread.sleep(150)
+            bridge.writeToPty("echo $marker\n".toByteArray(Charsets.UTF_8))
 
             val elapsed =
                 UxTestUtils.pollUntilTrue(timeoutMs = POLL_TIMEOUT_MS) {
@@ -89,7 +93,7 @@ class ShellResponseLatencyTest {
 
     @Test
     fun rapid_command_stream_preserves_order_and_completes() {
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val bridge = composeTestRule.awaitBridge()
         // Ten commands fired back-to-back with NO waiting in between: all
         // ten markers must eventually appear and stay in order — a queued
         // writer that reorders or drops bursts fails here.
