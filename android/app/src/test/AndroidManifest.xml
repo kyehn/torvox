@@ -13,7 +13,7 @@
 
         <provider
             android:name="terminal.emulator.TerminalDocumentsProvider"
-            android:authorities="terminal.emulator.documents"
+            android:authorities="com.termux.documents"
             android:exported="true"
             android:grantUriPermissions="true" />
     </application>
