@@ -19,12 +19,12 @@
 - 使用 `rapidocr cli` 进行 OCR 识别。
 - 使用 `npx aislop@latest scan` 和 `npm install -g jscpd` 检查代码
 - 使用 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 审查代码。
-- 使用 release apk 进行测试，不得使用 debug apk 进行测试
+- 如果需要在安卓模拟器上手动调试使用 release apk 而不是 debug apk
 
 ## 覆盖范围
 
 - 字体设置值与实际渲染尺寸的对照测试。
-- 会话列表序号与终端标题（OSC 0/2）读取。
+- 会话列表序号与终端标题读取。
 - 简体中文显示宽度。
 - 超出屏幕的旧输出进入回滚区，旧行必须按顺序进入回滚，新行显示在底部。
 - 输入回显与光标，写入的文本必须出现在对应行且光标跟随移动。
