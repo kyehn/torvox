@@ -19,7 +19,7 @@ import org.junit.Assert.fail
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.util.runCatchingCancellable
 
-private const val DRAWER_BUTTON_DESCRIPTION = "Open session drawer"
+private const val DRAWER_BUTTON_DESCRIPTION = "打开会话抽屉"
 private const val DRAWER_BUTTON_TIMEOUT_MS = 5_000L
 private const val DRAWER_VISIBLE_TIMEOUT_MS = 10_000L
 

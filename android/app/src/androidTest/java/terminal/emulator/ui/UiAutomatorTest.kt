@@ -82,7 +82,7 @@ class UiAutomatorTest {
      */
     @Test
     fun typingViaSystemKeyboardReacts() {
-        val drawerButton = device.findObject(By.desc("Open session drawer"))
+        val drawerButton = device.findObject(By.desc("打开会话抽屉"))
         assertNotNull("Session drawer button should exist", drawerButton)
         requireNotNull(drawerButton).click()
         assertTrue(
