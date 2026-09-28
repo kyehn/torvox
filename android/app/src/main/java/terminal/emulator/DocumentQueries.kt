@@ -3,8 +3,8 @@ package terminal.emulator
 import android.content.Context
 import android.database.MatrixCursor
 import android.provider.DocumentsContract.Document
-import android.util.Log
 import android.webkit.MimeTypeMap
+import terminal.emulator.runtime.LogUtil
 import java.io.File
 
 /**
@@ -23,7 +23,7 @@ internal class DocumentQueries(private val context: Context) {
             // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
             dir.mkdirs()
             if (!dir.isDirectory) {
-                Log.w("DocumentsProvider", "Failed to create home directory: $dir")
+                LogUtil.w("DocumentsProvider", "Failed to create home directory: $dir")
             }
         }
 
@@ -52,7 +52,7 @@ internal class DocumentQueries(private val context: Context) {
     fun canonicalOrNull(file: File): String? = try {
         file.canonicalPath
     } catch (error: java.io.IOException) {
-        Log.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+        LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
         null
     }
 

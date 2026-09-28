@@ -25,13 +25,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import terminal.emulator.BuildConfig
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.bridge.createBridge
-import terminal.emulator.BuildConfig
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes

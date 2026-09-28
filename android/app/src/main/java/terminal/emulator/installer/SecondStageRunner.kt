@@ -1,8 +1,8 @@
 package terminal.emulator.installer
 
 import android.system.Os
-import android.util.Log
 import kotlinx.coroutines.withContext
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
@@ -49,7 +49,7 @@ class SecondStageRunner(
             // BootstrapOrchestrator.processInstalling 串行化，
             // 而跨进程重叠可容忍，因为 postinst 脚本是幂等的
             // （dpkg "configure" 语义）。
-            Log.w("SecondStageRunner", "Stale lock file found, deleting and retrying postinst")
+            LogUtil.w("SecondStageRunner", "Stale lock file found, deleting and retrying postinst")
             lockFile.delete()
         }
         try {
@@ -116,7 +116,7 @@ class SecondStageRunner(
             // （system_linker_exec 域）运行解释器。
             val command = postinstCommand(script)
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
-            Log.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
+            LogUtil.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
             val proc =
                 Runtime.getRuntime()
                     .exec(
@@ -193,14 +193,14 @@ class SecondStageRunner(
             stderrThread.start()
             if (!proc.waitFor(10, TimeUnit.SECONDS)) {
                 proc.destroyForcibly()
-                Log.w("SecondStageRunner", "detectDpkgVersion timed out")
+                LogUtil.w("SecondStageRunner", "detectDpkgVersion timed out")
                 return null
             }
             val text = proc.inputStream.bufferedReader().readText()
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value
         } catch (exception: Exception) {
-            Log.w("SecondStageRunner", "detectDpkgVersion failed", exception)
+            LogUtil.w("SecondStageRunner", "detectDpkgVersion failed", exception)
             null
         } finally {
             proc?.destroy()
