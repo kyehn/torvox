@@ -541,6 +541,23 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun queryDocument_subset_projection_does_not_crash() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "subset.txt").apply { writeText("x") }
+        val cursor = provider.queryDocument(
+            "subset.txt",
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+        )
+        cursor.use {
+            assertTrue(it.moveToFirst())
+            assertEquals(
+                "subset.txt",
+                it.getString(it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)),
+            )
+        }
+    }
+
+    @Test
     fun openDocument_rw_creates_missing_file() {
         val provider = ensureProvider()
         val target = java.io.File(rootDir(), "fresh.txt")
