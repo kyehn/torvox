@@ -1,7 +1,5 @@
 package terminal.emulator.runtime
 
-import android.util.Log
-
 /**
  * 为 PTY 粘贴切分剪贴板文本。
  *
@@ -23,7 +21,7 @@ class PasteChunker(
     fun chunks(text: String): List<String> {
         if (text.isBlank()) return emptyList()
         if (text.length > maxChars) {
-            Log.w(
+            LogUtil.w(
                 tag,
                 "clipboard too large (${text.length} chars), truncating to $maxChars",
             )

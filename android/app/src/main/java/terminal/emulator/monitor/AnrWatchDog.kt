@@ -2,7 +2,6 @@ package terminal.emulator.monitor
 
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import terminal.emulator.runtime.LogUtil
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -103,7 +103,7 @@ class AnrWatchDog(
                 // BootGuard 已在反复退出后抑制了杀进程。
                 // 主线程持续阻塞时每 5s 写一份完整线程 dump 会填满数据分区
                 // （dump 会 fsync 且从不轮转），故此状态下只写 logcat。
-                Log.e("AnrWatchDog", "ANR suppressed by BootGuard; skipping dump")
+                LogUtil.e("AnrWatchDog", "ANR suppressed by BootGuard; skipping dump")
                 return
             }
             val stackTraces = StringBuilder()
@@ -127,10 +127,10 @@ class AnrWatchDog(
                 stackTraces.appendLine()
             }
 
-            Log.e("AnrWatchDog", "ANR detected, killing process:\n$stackTraces")
+            LogUtil.e("AnrWatchDog", "ANR detected, killing process:\n$stackTraces")
             onAnr()
         } catch (exception: Exception) {
-            Log.e("AnrWatchDog", "Unhandled exception in ANR handler", exception)
+            LogUtil.e("AnrWatchDog", "Unhandled exception in ANR handler", exception)
         } finally {
             anrInProgress.set(false)
         }

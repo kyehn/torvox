@@ -1,6 +1,5 @@
 package terminal.emulator.monitor
 
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,6 +10,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import terminal.emulator.runtime.LogUtil
 
 class RenderWatchDog(
     private val getStart: () -> Long,
@@ -50,7 +50,7 @@ class RenderWatchDog(
             val done = getDone()
             val elapsed = System.nanoTime() - start
             if (start > done && elapsed > hangTimeoutNanos && isRunning()) {
-                Log.e(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
+                LogUtil.e(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
                 onHangDetected()
             }
         }

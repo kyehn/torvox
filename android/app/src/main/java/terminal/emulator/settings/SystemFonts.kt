@@ -1,6 +1,6 @@
 package terminal.emulator.settings
 
-import android.util.Log
+import terminal.emulator.runtime.LogUtil
 
 private const val TAG = "SystemFonts"
 
@@ -17,7 +17,7 @@ private const val TAG = "SystemFonts"
  */
 internal fun availableFontFamilies(rustFamilies: List<String>): List<String> {
     if (rustFamilies.isEmpty()) {
-        Log.e(TAG, "font database is empty")
+        LogUtil.e(TAG, "font database is empty")
         throw IllegalStateException("No available font families")
     }
     return rustFamilies

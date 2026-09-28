@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Debug
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,7 +61,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
         } catch (exception: Exception) {
             // binder/IPC 失败否则会抛出轮询循环、被 SupervisorJob 吞没，
             // 使内存监控在进程剩余生命周期内静默失效。
-            Log.w(TAG, "getMemoryInfo failed", exception)
+            LogUtil.w(TAG, "getMemoryInfo failed", exception)
             return
         }
 
@@ -75,7 +74,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
                 try {
                     Debug.getPss().also { cachedPss = it }
                 } catch (exception: SecurityException) {
-                    Log.w(TAG, "Debug.getPss() not available", exception)
+                    LogUtil.w(TAG, "Debug.getPss() not available", exception)
                     -1L
                 }
         } else {
@@ -91,7 +90,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
             MemoryPressure.Critical -> {
                 if (!lowMemoryReported) {
                     lowMemoryReported = true
-                    Log.e(
+                    LogUtil.e(
                         TAG,
                         "LOW MEMORY: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, nativeHeap=$nativeHeapMb MB, threshold=$thresholdMb MB",
                     )
@@ -100,7 +99,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
 
             MemoryPressure.Warning -> {
                 lowMemoryReported = false
-                Log.w(
+                LogUtil.w(
                     TAG,
                     "Memory pressure: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, threshold=$thresholdMb MB",
                 )
@@ -118,15 +117,15 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
     fun onTrimMemory(level: Int) {
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
-                Log.e(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — reducing memory footprint")
+                LogUtil.e(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — reducing memory footprint")
             }
 
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
-                Log.w(TAG, "TRIM_MEMORY_RUNNING_LOW")
+                LogUtil.w(TAG, "TRIM_MEMORY_RUNNING_LOW")
             }
 
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
-                Log.w(TAG, "TRIM_MEMORY_RUNNING_MODERATE")
+                LogUtil.w(TAG, "TRIM_MEMORY_RUNNING_MODERATE")
             }
 
             ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
@@ -136,7 +135,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
                 // 进程已处于 LRU 底部，系统很快就会回收它
                 // ——这正是应该发生的事；抢先自杀只会白白丢失所有会话而对硬件毫无益处。
-                Log.w(TAG, "TRIM_MEMORY_COMPLETE — process is a reclaim candidate, letting the system decide")
+                LogUtil.w(TAG, "TRIM_MEMORY_COMPLETE — process is a reclaim candidate, letting the system decide")
             }
         }
     }

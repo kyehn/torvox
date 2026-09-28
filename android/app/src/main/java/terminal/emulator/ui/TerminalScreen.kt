@@ -6,7 +6,6 @@ package terminal.emulator.ui
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
-import terminal.emulator.runtime.LogUtil
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.background
@@ -61,6 +60,7 @@ import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
