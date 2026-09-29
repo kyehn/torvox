@@ -1815,6 +1815,22 @@ fn render_inner(session_id: u64) -> jint {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+const CURSOR_ROW_UNKNOWN_BITS: i64 = 0xFFFF;
+
+/// 把已渲染帧缓存的光标映射为上报位：无缓存、隐藏或在视口外时回未知哨兵，
+/// 可见光标取视口行并截断到 16 位上报宽度。
+fn cursor_bits_for_rendered_cursor(
+    rendered_cursor: Option<&crate::terminal::ghostty_terminal::CursorInfo>,
+) -> i64 {
+    let Some(rendered_cursor) = rendered_cursor else {
+        return CURSOR_ROW_UNKNOWN_BITS;
+    };
+    if !rendered_cursor.visible {
+        return CURSOR_ROW_UNKNOWN_BITS;
+    }
+    (rendered_cursor.row as i64) & CURSOR_ROW_UNKNOWN_BITS
+}
+
 // JNI 导出：renderWithNewOutput
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -1827,8 +1843,8 @@ fn render_inner(session_id: u64) -> jint {
 ///
 /// 光标行采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner` 返回 0（无新单元数据，
 /// 无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要光标坐标；若随渲染一并
-/// 跳过，`cursorRowFlow` 恒为未知，内容较多时终端不上移。`Query::RenderCursor` 带
-/// 200μs 超时兜底（超时即未知，与旧空闲语义一致），故空闲帧多一次查询无阻塞风险。
+/// 跳过，`cursorRowFlow` 恒为未知，内容较多时终端不上移。采样复用本帧已渲染缓存，
+/// 不新增发往 VT 线程的同步查询，故空闲帧无阻塞风险。
 ///
 /// Kotlin 必须分别掩码两个字段：裸读 `(packed shr 32) != 0` 会把光标位误当作输出。
 /// 出错时渲染计数为负、`new_output` 为 0、光标行为 0xFFFF。
@@ -1844,25 +1860,78 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         session_id as u64
     ));
     let mut new_output: i64 = 0;
-    let mut cursor_bits: i64 = 0xFFFF;
+    let mut cursor_bits: i64 = CURSOR_ROW_UNKNOWN_BITS;
     if count >= 0 {
         // 就地消费 `new_output` 标志（逻辑同 `consumeNewOutput` 但省一次 JNI 穿越），
-        // 并从同一个已加锁的会话采样视口光标行，使跟随输入法的平移看到本帧绘制的坐标。
+        // 并读取本帧已渲染缓存的光标，使跟随输入法的平移看到本帧绘制的坐标。
         // 空闲帧（count == 0）同样采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 跟随
         // 平移恰在空闲定居后最需要光标坐标——挂在 `count > 0` 门下会使 `cursorRowFlow`
-        // 恒为未知。`Query::RenderCursor` 带 200μs 超时兜底，阻塞风险已封顶。
+        // 恒为未知。这里不调用 `render_cursor()`：它要走 VT 线程同步查询，
+        // 缓存才是无阻塞且与绘制同源的坐标。
         let registry = rlock_session_registry();
         if let Some(entry) = registry.get(&(session_id as u64)) {
             let session = entry.session.lock();
             if session.take_new_output() {
                 new_output = 1;
             }
-            if let Some((row, _)) = session.terminal().render_cursor() {
-                cursor_bits = (row as i64) & 0xFFFF;
-            }
         }
+        let render_state = render_state_mut();
+        let rendered_cursor = render_state
+            .as_ref()
+            .and_then(|render_state| render_state.last_frame.as_ref())
+            .map(|(_, cursor_info, _, _)| cursor_info);
+        cursor_bits = cursor_bits_for_rendered_cursor(rendered_cursor);
     }
     (new_output << 32) | (cursor_bits << 33) | (count as i64 & 0xFFFF_FFFF)
+}
+
+#[cfg(test)]
+mod rendered_cursor_tests {
+    use super::cursor_bits_for_rendered_cursor;
+    use crate::terminal::ghostty_terminal::{CursorInfo, CursorStyle};
+
+    fn rendered_cursor(visible: bool, row: u32) -> CursorInfo {
+        CursorInfo {
+            row,
+            col: 7,
+            visible,
+            style: CursorStyle::Block,
+            scrollback_length: 0,
+            kitty_generation: 0,
+        }
+    }
+
+    #[test]
+    fn missing_cursor_reports_unknown() {
+        assert_eq!(
+            cursor_bits_for_rendered_cursor(None),
+            super::CURSOR_ROW_UNKNOWN_BITS
+        );
+    }
+
+    #[test]
+    fn hidden_cursor_reports_unknown() {
+        let cursor = rendered_cursor(false, 44);
+        assert_eq!(
+            cursor_bits_for_rendered_cursor(Some(&cursor)),
+            super::CURSOR_ROW_UNKNOWN_BITS
+        );
+    }
+
+    #[test]
+    fn visible_cursor_reports_viewport_row() {
+        let cursor = rendered_cursor(true, 44);
+        assert_eq!(cursor_bits_for_rendered_cursor(Some(&cursor)), 44);
+    }
+
+    #[test]
+    fn visible_cursor_row_is_truncated_to_sixteen_bits() {
+        let cursor = rendered_cursor(true, 70_000);
+        assert_eq!(
+            cursor_bits_for_rendered_cursor(Some(&cursor)),
+            70_000_i64 & super::CURSOR_ROW_UNKNOWN_BITS
+        );
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
