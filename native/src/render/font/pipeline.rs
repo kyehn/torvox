@@ -4,7 +4,10 @@ use cosmic_text::FontSystem;
 
 #[cfg(target_os = "android")]
 use super::font_db;
-use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis};
+use super::{
+    ASCII_UPPER_BOUND, CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis,
+    NERD_FONT_PRIVATE_USE_END, NERD_FONT_PRIVATE_USE_START,
+};
 
 /// 叠加字形（字素簇延续部分）绘制在基础单元四边形之上的位置与配色。
 /// 整个 FontInfo 系列仅承载数据，全部显示格式由 Kotlin 的字符串资源完成。
@@ -649,9 +652,10 @@ impl FontPipeline {
         let primary_font_id = self.font_id?;
         let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
         let synthesized = synthesis != GlyphSynthesis::None;
+        let code_point = ch as u32;
 
         // ── 快径：ASCII 且字形号已缓存 ──
-        if (ch as u32) < 128
+        if code_point < ASCII_UPPER_BOUND
             && let Some(gid) = self.caches.ascii_glyph_ids[ch as usize]
             && let Some(info) = self.lookup_glyph(primary_font_id, gid, synthesis)
         {
@@ -661,7 +665,7 @@ impl FontPipeline {
         // ── CJK 缓存：已解析过的字跳过 swash 与回退 ──
         // 合成时不用：缓存的 (字体, 字形) 是按常规样式解析的，不适用于样式运行
         if !synthesized
-            && (ch as u32) >= CJK_IDEOGRAPHIC_START
+            && code_point >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
             && let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
             && let Some(info) = self.lookup_glyph(cached_font_id, cached_glyph_id, synthesis)
@@ -670,7 +674,7 @@ impl FontPipeline {
         }
 
         // ── 解析字形号（优先缓存） ──
-        let glyph_id = if let Some(&cached) = self.caches.glyph_id_cache.get(&(ch as u32)) {
+        let glyph_id = if let Some(&cached) = self.caches.glyph_id_cache.get(&code_point) {
             cached
         } else {
             let gid = {
@@ -681,22 +685,24 @@ impl FontPipeline {
                     Some(charmap.map(ch))
                 })?
             }?;
-            self.caches.glyph_id_cache.put(ch as u32, gid);
+            self.caches.glyph_id_cache.put(code_point, gid);
             gid
         };
 
         // 缓存 ASCII 字形号供后续快径命中。
-        if (ch as u32) < 128 {
+        if code_point < ASCII_UPPER_BOUND {
             self.caches.ascii_glyph_ids[ch as usize] = Some(glyph_id);
         }
 
         // ── 进入开销较大的 CJK 处理前先查 glyph_cache ──
         // 私用区（Nerd Font）字符不走这条快径：缓存里可能是加载 Nerd Font
         // 之前主字体写入的 .notdef（豆腐块）。
-        let is_nerd_pua = (ch as u32) >= 0xE000 && (ch as u32) <= 0xF8FF;
-        if !is_nerd_pua && let Some(info) = self.lookup_glyph(primary_font_id, glyph_id, synthesis)
+        let is_nerd_private_use =
+            (NERD_FONT_PRIVATE_USE_START..=NERD_FONT_PRIVATE_USE_END).contains(&code_point);
+        if !is_nerd_private_use
+            && let Some(info) = self.lookup_glyph(primary_font_id, glyph_id, synthesis)
         {
-            if !synthesized && (ch as u32) >= CJK_IDEOGRAPHIC_START {
+            if !synthesized && code_point >= CJK_IDEOGRAPHIC_START {
                 self.caches
                     .cjk_glyph_cache
                     .put(ch, (primary_font_id, glyph_id));
@@ -707,7 +713,7 @@ impl FontPipeline {
         // ── CJK：先查轮廓再试回退 ──
         // 合成时跳过：轮廓回退面解析的是常规字形，样式运行必须留在基底路径上，
         // 这样合成的加粗/倾斜才能作用到已光栅化的遮罩。
-        if !synthesized && glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback
+        if !synthesized && glyph_id != 0 && code_point >= CJK_IDEOGRAPHIC_START && has_cjk_fallback
         {
             // cached 版：scaler 构建 + Render 约 20µs/次，不缓存则每字重复探测。
             let is_outline = self.glyph_source_is_outline_cached(primary_font_id, glyph_id);
@@ -719,7 +725,7 @@ impl FontPipeline {
         // ── 字形号为 0：先走 CJK 回退层，再全库扫描 ──
         // 私用区字符即使主字体映射成功也必须走链：多数字体把 PUA 映射到
         // .notdef（豆腐块），非零字形号并不代表真的有字形。
-        if glyph_id == 0 || is_nerd_pua {
+        if glyph_id == 0 || is_nerd_private_use {
             // 先收集 id：链会借用 self 的字段，与循环内的 &mut self 渲染调用冲突。
             let cjk_fallback_ids: Vec<fontdb::ID> = self.cjk_fallback_ids.clone();
             for fallback_id in cjk_fallback_ids {
@@ -776,7 +782,7 @@ impl FontPipeline {
         // ── Fallback to primary font ────────────────────────────────────────
         let result =
             self.glyph_information_from_font_with_synthesis(primary_font_id, glyph_id, synthesis)?;
-        if !synthesized && (ch as u32) >= CJK_IDEOGRAPHIC_START {
+        if !synthesized && code_point >= CJK_IDEOGRAPHIC_START {
             self.caches
                 .cjk_glyph_cache
                 .put(ch, (primary_font_id, glyph_id));

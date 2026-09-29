@@ -23,6 +23,14 @@ pub(crate) const OUTLINE_CACHE_CAPACITY: usize = 10_000;
 /// Used to decide whether to attempt CJK fallback font lookup.
 pub(crate) const CJK_IDEOGRAPHIC_START: u32 = 0x2E80;
 
+/// Nerd Font 私用区（U+E000–U+F8FF）：这些码位只在加载 Nerd Font 后才有字形，
+/// 查字形缓存前必须跳过，否则会命中主字体写入的 .notdef（豆腐块）。
+pub(crate) const NERD_FONT_PRIVATE_USE_START: u32 = 0xE000;
+pub(crate) const NERD_FONT_PRIVATE_USE_END: u32 = 0xF8FF;
+
+/// ASCII 上界（不含）：`ascii_glyph_ids` 定长表按下标直查，表长即此值。
+pub(crate) const ASCII_UPPER_BOUND: u32 = 0x80;
+
 #[derive(Debug, Error)]
 pub enum FontError {
     #[error("no monospace font found")]
