@@ -2,7 +2,10 @@
 
 ## Purpose
 
-键栏按键与 IME/硬件路径一致地跟随粘滞修饰键。
+粘滞 CTRL/ALT 必须在所有输入路径一致生效。可配置键栏的普通按键（ESC、TAB、
+HOME、END、PGUP、PGDN 等）此前走裸序列直写 PTY，不读粘滞态：点亮 CTRL 后点其他
+键没有组合效果，且 Once 状态无人消费。键栏普通按键须与 IME、硬件路径同样经
+`TerminalInputEncoder.encodeKeyEvent` 编码，并在发送后消费 Once 态。
 
 ## Requirements
 
