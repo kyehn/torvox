@@ -70,23 +70,23 @@ fn create_render_iterators() -> Option<(
     CellIterator<'static>,
 )> {
     let render_state = match RenderState::new() {
-        Ok(rs) => rs,
-        Err(e) => {
-            log::error!("create_render_iterators: RenderState::new() failed: {e}");
+        Ok(initialized_state) => initialized_state,
+        Err(state_error) => {
+            log::error!("create_render_iterators: RenderState::new() failed: {state_error}");
             return None;
         }
     };
     let row_iter = match RowIterator::new() {
-        Ok(ri) => ri,
-        Err(e) => {
-            log::error!("create_render_iterators: RowIterator::new() failed: {e}");
+        Ok(initialized_rows) => initialized_rows,
+        Err(row_error) => {
+            log::error!("create_render_iterators: RowIterator::new() failed: {row_error}");
             return None;
         }
     };
     let cell_iter = match CellIterator::new() {
-        Ok(ci) => ci,
-        Err(e) => {
-            log::error!("create_render_iterators: CellIterator::new() failed: {e}");
+        Ok(initialized_cells) => initialized_cells,
+        Err(cell_error) => {
+            log::error!("create_render_iterators: CellIterator::new() failed: {cell_error}");
             return None;
         }
     };
@@ -357,8 +357,8 @@ impl super::GhosttyTerminal {
                 position,
                 action,
                 button,
-                cell_w,
-                cell_h,
+                cell_width,
+                cell_height,
                 tx,
             } => {
                 // Reference: zelland src-tauri/src/terminal.rs
@@ -372,7 +372,7 @@ impl super::GhosttyTerminal {
                     mouse_encoder.as_mut(),
                     mouse_event.as_mut(),
                 ) {
-                    (Some(enc), Some(evt)) => (enc, evt),
+                    (Some(encoder), Some(event)) => (encoder, event),
                     _ => {
                         log::warn!(
                             "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
@@ -385,10 +385,10 @@ impl super::GhosttyTerminal {
                 let cols = grid_cols(terminal);
                 let rows = grid_rows(terminal);
                 let size = mouse::EncoderSize {
-                    screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
-                    screen_height: rows.saturating_mul(cell_h.max(1.0) as u32),
-                    cell_width: cell_w.max(1.0) as u32,
-                    cell_height: cell_h.max(1.0) as u32,
+                    screen_width: cols.saturating_mul(cell_width.max(1.0) as u32),
+                    screen_height: rows.saturating_mul(cell_height.max(1.0) as u32),
+                    cell_width: cell_width.max(1.0) as u32,
+                    cell_height: cell_height.max(1.0) as u32,
                     padding_top: 0,
                     padding_bottom: 0,
                     padding_right: 0,
@@ -1411,7 +1411,7 @@ impl super::GhosttyTerminal {
         alt_screen_active.store(
             terminal
                 .active_screen()
-                .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate),
+                .is_ok_and(|screen| screen == libghostty_vt::screen::Screen::Alternate),
             Ordering::Release,
         );
         let rows = grid_rows(terminal);
@@ -1421,17 +1421,17 @@ impl super::GhosttyTerminal {
         let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
 
         let snapshot = match render_state.update(terminal) {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("build_cell_data: render_state.update failed: {e}");
+            Ok(render_snapshot) => render_snapshot,
+            Err(update_error) => {
+                log::error!("build_cell_data: render_state.update failed: {update_error}");
                 return None;
             }
         };
 
         let mut row_iter_impl = match row_iter.update(&snapshot) {
-            Ok(ri) => ri,
-            Err(e) => {
-                log::error!("build_cell_data: row_iter.update failed: {e}");
+            Ok(row_iterator) => row_iterator,
+            Err(row_error) => {
+                log::error!("build_cell_data: row_iter.update failed: {row_error}");
                 return None;
             }
         };
@@ -1486,7 +1486,7 @@ impl super::GhosttyTerminal {
 
             while let Some(cell) = cell_iter_impl.next() {
                 let raw = match cell.raw_cell() {
-                    Ok(c) => c,
+                    Ok(raw_cell) => raw_cell,
                     Err(_) => {
                         Self::push_blank_cell(
                             &mut row_data,
@@ -1514,18 +1514,21 @@ impl super::GhosttyTerminal {
                     )
                 } else {
                     match cell.style() {
-                        Ok(s) => {
+                        Ok(style) => {
                             let foreground = Self::cell_color(cell.fg_color(), default_foreground);
                             let background = Self::cell_color(cell.bg_color(), default_background);
-                            let underline =
-                                Self::resolve_style_color(terminal, &s.underline_color, foreground);
-                            let fl = Self::pack_style_flags(&s);
+                            let underline = Self::resolve_style_color(
+                                terminal,
+                                &style.underline_color,
+                                foreground,
+                            );
+                            let style_flags = Self::pack_style_flags(&style);
                             cached_style_id = style_id;
                             cached_foreground = foreground;
                             cached_background = background;
                             cached_underline = underline;
-                            cached_flags = fl;
-                            (Some(s), foreground, background, underline, fl)
+                            cached_flags = style_flags;
+                            (Some(style), foreground, background, underline, style_flags)
                         }
                         Err(_) => {
                             row_data.push(CellData {
@@ -1566,9 +1569,10 @@ impl super::GhosttyTerminal {
                 };
 
                 let mut grapheme_extra = [0u32; 7];
-                if let Ok(g) = cell.graphemes() {
-                    for (i, &c) in g.iter().enumerate().skip(1).take(7) {
-                        grapheme_extra[i - 1] = c as u32;
+                if let Ok(graphemes) = cell.graphemes() {
+                    for (grapheme_index, &codepoint) in graphemes.iter().enumerate().skip(1).take(7)
+                    {
+                        grapheme_extra[grapheme_index - 1] = codepoint as u32;
                     }
                 }
 
@@ -1699,22 +1703,22 @@ impl super::GhosttyTerminal {
         // Local RenderState+iterators — created per-call to avoid lifetime
         // issues with the invariant-param Terminal type.
         let (mut render_state, mut row_iter, mut cell_iter) = match create_render_iterators() {
-            Some(v) => v,
+            Some(iterator_bundle) => iterator_bundle,
             None => return GridSnapshot::fallback(rows, cols),
         };
 
         let snapshot = match render_state.update(terminal) {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("build_snapshot: render_state.update failed: {e}");
+            Ok(render_snapshot) => render_snapshot,
+            Err(update_error) => {
+                log::error!("build_snapshot: render_state.update failed: {update_error}");
                 return GridSnapshot::fallback(rows, cols);
             }
         };
 
         let mut row_iter_impl = match row_iter.update(&snapshot) {
-            Ok(ri) => ri,
-            Err(e) => {
-                log::error!("build_snapshot: row_iter.update failed: {e}");
+            Ok(row_iterator) => row_iterator,
+            Err(row_error) => {
+                log::error!("build_snapshot: row_iter.update failed: {row_error}");
                 return GridSnapshot::fallback(rows, cols);
             }
         };
@@ -1724,13 +1728,13 @@ impl super::GhosttyTerminal {
         // per row via CellIterator. This replaces per-cell grid_ref.
         while let Some(row) = row_iter_impl.next() {
             let mut cell_iter_impl = match cell_iter.update(row) {
-                Ok(ci) => ci,
+                Ok(cell_iterator) => cell_iterator,
                 Err(_) => break,
             };
 
             while let Some(cell) = cell_iter_impl.next() {
                 let raw = match cell.raw_cell() {
-                    Ok(c) => c,
+                    Ok(raw_cell) => raw_cell,
                     Err(_) => {
                         cells.push(CellSnapshot {
                             foreground: default_foreground,
@@ -1742,7 +1746,7 @@ impl super::GhosttyTerminal {
                 };
 
                 let style = match cell.style() {
-                    Ok(s) => s,
+                    Ok(cell_style) => cell_style,
                     Err(_) => {
                         cells.push(CellSnapshot {
                             foreground: default_foreground,
@@ -1762,13 +1766,16 @@ impl super::GhosttyTerminal {
                 };
 
                 let graphemes: Vec<u32> = match cell.graphemes() {
-                    Ok(g) if g.len() <= MAX_GRAPHEME_CLUSTERS => {
-                        g.iter().map(|&c| c as u32).collect()
+                    Ok(grapheme_slice) if grapheme_slice.len() <= MAX_GRAPHEME_CLUSTERS => {
+                        grapheme_slice
+                            .iter()
+                            .map(|&codepoint| codepoint as u32)
+                            .collect()
                     }
-                    Ok(g) => g
+                    Ok(grapheme_slice) => grapheme_slice
                         .iter()
                         .take(MAX_GRAPHEME_CLUSTERS)
-                        .map(|&c| c as u32)
+                        .map(|&codepoint| codepoint as u32)
                         .collect(),
                     Err(_) => vec![codepoint],
                 };
@@ -1898,7 +1905,7 @@ impl super::GhosttyTerminal {
                 .with_trim(true)
                 .with_selection(&selection),
         ) {
-            Ok(f) => f,
+            Ok(initialized_formatter) => initialized_formatter,
             Err(error) => {
                 log::error!("ghostty_terminal: formatter new failed: {error}");
                 return String::new();

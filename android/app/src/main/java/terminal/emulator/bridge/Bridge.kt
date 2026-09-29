@@ -485,10 +485,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * 用 Ghostty 鼠标编码器编码鼠标事件并把转义序列写入 PTY。
      * 生成并写入序列时返回 true；关闭鼠标上报、编码失败或会话消失（事件丢弃）时返回 false。
      */
-    fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellW: Float, cellH: Float): Boolean {
+    fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellWidth: Float, cellHeight: Float): Boolean {
         val bytes =
             onSession("encodeMouseEvent", ByteArray(0)) {
-                NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, cellW, cellH)
+                NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, cellWidth, cellHeight)
             }
         if (bytes.isEmpty()) return false
         return writeToPty(bytes)

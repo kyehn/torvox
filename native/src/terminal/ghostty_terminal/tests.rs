@@ -39,11 +39,11 @@ fn cell_at(snap: &GridSnapshot, row: u32, col: u32) -> Option<&CellSnapshot> {
 fn row_text(snap: &GridSnapshot, row: u32) -> String {
     let mut text = String::new();
     for col in 0..snap.cols {
-        if let Some(c) = cell_at(snap, row, col)
-            && c.codepoint != 0
-            && let Some(ch) = char::from_u32(c.codepoint)
+        if let Some(cell) = cell_at(snap, row, col)
+            && cell.codepoint != 0
+            && let Some(character) = char::from_u32(cell.codepoint)
         {
-            text.push(ch);
+            text.push(character);
         }
     }
     text.trim_end().to_string()
@@ -51,24 +51,24 @@ fn row_text(snap: &GridSnapshot, row: u32) -> String {
 
 #[test]
 fn create_terminal_zero_scrollback() {
-    let t = GhosttyTerminal::new(5, 10, 0).expect("terminal");
-    assert_eq!(t.scrollback_length(), 0);
+    let terminal_under_test = GhosttyTerminal::new(5, 10, 0).expect("terminal");
+    assert_eq!(terminal_under_test.scrollback_length(), 0);
 }
 
 #[test]
 fn read_line_text_returns_text() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b[1;1HHello World");
-    t.flush();
-    let text = t.read_line_text(0);
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[1;1HHello World");
+    terminal_under_test.flush();
+    let text = terminal_under_test.read_line_text(0);
     assert!(text.is_some());
     assert!(text.unwrap().contains("Hello"));
 }
 
 #[test]
 fn read_line_text_empty_returns_none() {
-    let t = terminal();
-    let text = t.read_line_text(5);
+    let terminal_under_test = terminal();
+    let text = terminal_under_test.read_line_text(5);
     assert!(text.is_none());
 }
 
@@ -112,24 +112,24 @@ fn reset_clears_selection() {
 
 #[test]
 fn search_all_finds_match() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
-    t.vt_write(b"search_target_here\n");
-    t.flush();
-    for i in 0..5 {
-        t.vt_write(format!("filler {i}\n").as_bytes());
+    let mut terminal_under_test = GhosttyTerminal::new(3, 80, 100).expect("terminal");
+    terminal_under_test.vt_write(b"search_target_here\n");
+    terminal_under_test.flush();
+    for line_number in 0..5 {
+        terminal_under_test.vt_write(format!("filler {line_number}\n").as_bytes());
     }
-    t.flush();
+    terminal_under_test.flush();
     // 搜索命中回滚首行并保持终端可用。
-    let results = t.search_all_in_scrollback("search_target", true);
+    let results = terminal_under_test.search_all_in_scrollback("search_target", true);
     assert!(
         !results.is_empty(),
         "search_target must be found in scrollback"
     );
-    t.vt_write(b"AfterSearch");
-    t.flush();
-    let snap = t.take_snapshot();
+    terminal_under_test.vt_write(b"AfterSearch");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     assert!(
-        snap.cells.iter().any(|c| c.codepoint == 'A' as u32),
+        snap.cells.iter().any(|cell| cell.codepoint == 'A' as u32),
         "terminal should remain functional after scrollback search"
     );
     assert_invariants(&snap);
@@ -137,18 +137,22 @@ fn search_all_finds_match() {
 
 #[test]
 fn search_all_empty_query() {
-    let t = terminal();
-    assert!(t.search_all_in_scrollback("", true).is_empty());
+    let terminal_under_test = terminal();
+    assert!(
+        terminal_under_test
+            .search_all_in_scrollback("", true)
+            .is_empty()
+    );
 }
 
 #[test]
 fn dump_grid_dimensions_match() {
-    let t = terminal();
+    let terminal_under_test = terminal();
     // 查询经工作线程超时回退空值，新终端繁忙时单次查询可能命中回退；
     // 确定性轮询直到就绪，杜绝 flaky。
     let start = Instant::now();
     let dumped = loop {
-        let dumped = t.dump_grid();
+        let dumped = terminal_under_test.dump_grid();
         if dumped.rows == 24 && dumped.cols == 80 {
             break dumped;
         }
@@ -161,33 +165,36 @@ fn dump_grid_dimensions_match() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
     assert_eq!(dumped.visible.len(), (24 * 80) as usize);
-    let _snap = t.take_snapshot();
+    let _snap = terminal_under_test.take_snapshot();
     assert_invariants(&_snap);
 }
 
 #[test]
 fn dump_grid_visible_populated() {
-    let mut t = terminal();
-    t.vt_write(b"hello");
-    t.flush();
-    let dumped = t.dump_grid();
-    let has_h = dumped.visible.iter().any(|c| c.codepoint == 'h' as u32);
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello");
+    terminal_under_test.flush();
+    let dumped = terminal_under_test.dump_grid();
+    let has_h_character = dumped
+        .visible
+        .iter()
+        .any(|cell| cell.codepoint == 'h' as u32);
     assert!(
-        has_h,
+        has_h_character,
         "dump_grid visible: 'h' from 'hello' should be present"
     );
-    let _snap = t.take_snapshot();
+    let _snap = terminal_under_test.take_snapshot();
     assert_invariants(&_snap);
 }
 
 #[test]
 fn dump_grid_scrollback_populated_after_scroll() {
-    let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
-    for i in 0..10 {
-        t.vt_write(format!("line{i}\n").as_bytes());
+    let mut terminal_under_test = GhosttyTerminal::new(3, 10, 100).expect("terminal");
+    for line_number in 0..10 {
+        terminal_under_test.vt_write(format!("line{line_number}\n").as_bytes());
     }
-    t.flush();
-    let dumped = t.dump_grid();
+    terminal_under_test.flush();
+    let dumped = terminal_under_test.dump_grid();
     assert!(
         !dumped.scrollback.is_empty(),
         "scrollback should contain scrolled-off lines"
@@ -195,9 +202,9 @@ fn dump_grid_scrollback_populated_after_scroll() {
     let has_line0 = dumped
         .scrollback
         .iter()
-        .any(|row| row.iter().any(|c| c.codepoint == 'l' as u32));
+        .any(|row| row.iter().any(|cell| cell.codepoint == 'l' as u32));
     assert!(has_line0, "scrollback: should contain 'l' from line0");
-    let _snap = t.take_snapshot();
+    let _snap = terminal_under_test.take_snapshot();
     assert_invariants(&_snap);
 }
 
@@ -208,8 +215,8 @@ fn dump_grid_scrollback_populated_after_scroll() {
 /// drops mouse events when `get_mouse_mode()` is false.
 #[test]
 fn encode_mouse_event_gated_off_without_tracking_mode() {
-    let t = terminal();
-    let encoded = t.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
+    let terminal_under_test = terminal();
+    let encoded = terminal_under_test.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
     let encoded = encoded.expect("encode_mouse_event should return Some");
     assert!(
         encoded.is_empty(),
@@ -222,10 +229,10 @@ fn encode_mouse_event_gated_off_without_tracking_mode() {
 /// cell (3,2). Matches ghostty's standard SGR encoding.
 #[test]
 fn encode_mouse_event_sgr_press() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
-    t.flush();
-    let encoded = t
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let encoded = terminal_under_test
         .encode_mouse_event((35.0, 45.0), 0, 0, 10.0, 20.0)
         .expect("encode_mouse_event should return Some");
     // SGR: ESC [ < Cb ; Cx ; Cy M — Cb is the 0-based button (0 = left
@@ -241,17 +248,17 @@ fn encode_mouse_event_sgr_press() {
 /// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
 #[test]
 fn encode_mouse_event_wheel() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
-    t.flush();
-    let up = t
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let up = terminal_under_test
         .encode_mouse_event((10.0, 10.0), 0, 3, 10.0, 20.0)
         .expect("wheel-up encode");
     assert!(
         up.len() >= 6 && up.starts_with(b"\x1b[<"),
         "wheel-up must produce an SGR sequence (got {up:?})"
     );
-    let down = t
+    let down = terminal_under_test
         .encode_mouse_event((10.0, 10.0), 0, 4, 10.0, 20.0)
         .expect("wheel-down encode");
     assert!(
@@ -266,10 +273,10 @@ fn encode_mouse_event_wheel() {
 /// behavior — the application should clamp before calling this.
 #[test]
 fn encode_mouse_event_bounds_negative_clamp() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
-    t.flush();
-    let result = t.encode_mouse_event((-5.0, -10.0), 0, 0, 10.0, 20.0);
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let result = terminal_under_test.encode_mouse_event((-5.0, -10.0), 0, 0, 10.0, 20.0);
     // The encoder returns Some(empty) or Some(sgr) — it must not panic.
     assert!(
         result.is_some(),
@@ -292,11 +299,11 @@ fn encode_mouse_event_bounds_negative_clamp() {
 /// gracefully — no panic, no overflow.
 #[test]
 fn encode_mouse_event_bounds_oversized_clamp() {
-    let mut t = terminal(); // default 24 rows × 80 cols
-    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
-    t.flush();
+    let mut terminal_under_test = terminal(); // default 24 rows × 80 cols
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
     // Position far beyond the grid: 9999x9999 with 10x20 cells.
-    let result = t.encode_mouse_event((9999.0, 9999.0), 0, 0, 10.0, 20.0);
+    let result = terminal_under_test.encode_mouse_event((9999.0, 9999.0), 0, 0, 10.0, 20.0);
     assert!(result.is_some(), "oversized coords must return Some");
     let encoded = result.unwrap();
     if !encoded.is_empty() {
@@ -321,16 +328,16 @@ fn encode_mouse_event_bounds_oversized_clamp() {
 /// (0=press, 2=motion, 1=release).
 #[test]
 fn encode_mouse_event_drag_sequence() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b[?1000h\x1b[?1006h"); // button tracking + SGR
-    t.vt_write(b"\x1b[?1002h"); // button-event tracking (motion reports)
-    t.flush();
-    let cell_w = 10.0;
-    let cell_h = 20.0;
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h"); // button tracking + SGR
+    terminal_under_test.vt_write(b"\x1b[?1002h"); // button-event tracking (motion reports)
+    terminal_under_test.flush();
+    let cell_width = 10.0;
+    let cell_height = 20.0;
 
     // Press at (10, 20)
-    let press = t
-        .encode_mouse_event((10.0, 20.0), 0, 0, cell_w, cell_h)
+    let press = terminal_under_test
+        .encode_mouse_event((10.0, 20.0), 0, 0, cell_width, cell_height)
         .expect("press encode");
     assert!(
         press.starts_with(b"\x1b[<"),
@@ -342,8 +349,8 @@ fn encode_mouse_event_drag_sequence() {
     );
 
     // Drag (motion) at (30, 20) — action=2
-    let drag = t
-        .encode_mouse_event((30.0, 20.0), 2, 0, cell_w, cell_h)
+    let drag = terminal_under_test
+        .encode_mouse_event((30.0, 20.0), 2, 0, cell_width, cell_height)
         .expect("drag encode");
     assert!(
         drag.starts_with(b"\x1b[<"),
@@ -351,8 +358,8 @@ fn encode_mouse_event_drag_sequence() {
     );
 
     // Release at (50, 20) — action=1
-    let release = t
-        .encode_mouse_event((50.0, 20.0), 1, 0, cell_w, cell_h)
+    let release = terminal_under_test
+        .encode_mouse_event((50.0, 20.0), 1, 0, cell_width, cell_height)
         .expect("release encode");
     assert!(
         release.starts_with(b"\x1b[<"),
@@ -386,20 +393,20 @@ fn encode_mouse_event_drag_sequence() {
 /// must be consumed by the OSC, not rendered as text).
 #[test]
 fn osc_title_split_buffer() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     // Send the first and second parts of OSC 0 sequence
-    t.vt_write(b"\x1b]0;My ");
-    t.flush();
-    t.vt_write(b"QQQ\x07");
-    t.flush();
-    let _snap = t.take_snapshot();
+    terminal_under_test.vt_write(b"\x1b]0;My ");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"QQQ\x07");
+    terminal_under_test.flush();
+    let _snap = terminal_under_test.take_snapshot();
     // After setting the title, terminal should not crash, text should still be writable
-    t.vt_write(b"AfterTitle");
-    t.flush();
-    let snap2 = t.take_snapshot();
-    let found = snap2.cells.iter().any(|c| c.codepoint == 'A' as u32);
+    terminal_under_test.vt_write(b"AfterTitle");
+    terminal_under_test.flush();
+    let snap2 = terminal_under_test.take_snapshot();
+    let found = snap2.cells.iter().any(|cell| cell.codepoint == 'A' as u32);
     assert!(found, "OSC split: text after split title should render");
-    let leaked = snap2.cells.iter().any(|c| c.codepoint == 'Q' as u32);
+    let leaked = snap2.cells.iter().any(|cell| cell.codepoint == 'Q' as u32);
     assert!(
         !leaked,
         "OSC split: title second half must be consumed, not rendered"
@@ -411,24 +418,24 @@ fn osc_title_split_buffer() {
 /// must reach the clipboard callback, not the grid).
 #[test]
 fn osc_clipboard_split_buffer() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     // OSC 52 sequence: first part sets clipboard selection, second provides data.
-    t.vt_write(b"\x1b]52;c;");
-    t.flush();
-    t.vt_write(b"SGVsbG8=\x07");
-    t.flush();
+    terminal_under_test.vt_write(b"\x1b]52;c;");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"SGVsbG8=\x07");
+    terminal_under_test.flush();
     // 分片必须由上游重组：剪贴板事件内容为解码后文本。
-    let event = t.poll_clipboard_event();
+    let event = terminal_under_test.poll_clipboard_event();
     assert_eq!(
         event,
         Some(("c".to_string(), "Hello".to_string())),
         "OSC 52 split: payload must reassemble into clipboard event"
     );
     // Terminal should not crash, text should still be writable
-    t.vt_write(b"PostClip");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'P' as u32);
+    terminal_under_test.vt_write(b"PostClip");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'P' as u32);
     assert!(found, "OSC 52 split: post-clipboard text should render");
     assert_invariants(&snap);
 }
@@ -438,10 +445,10 @@ fn osc_clipboard_split_buffer() {
 /// vt_write). LF→CRLF conversion must not corrupt the sequence.
 #[test]
 fn osc_clipboard_via_pty_write_path() {
-    let mut t = terminal();
-    t.pty_write(b"\x1b]52;c;SGVsbG8=\x07");
-    t.flush();
-    let event = t.poll_clipboard_event();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.pty_write(b"\x1b]52;c;SGVsbG8=\x07");
+    terminal_under_test.flush();
+    let event = terminal_under_test.poll_clipboard_event();
     assert_eq!(
         event,
         Some(("c".to_string(), "Hello".to_string())),
@@ -452,15 +459,15 @@ fn osc_clipboard_via_pty_write_path() {
 /// OSC color reset — sent across split buffer.
 #[test]
 fn osc_color_reset_split_buffer() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b]104;");
-    t.flush();
-    t.vt_write(b"\x07");
-    t.flush();
-    t.vt_write(b"ColorReset");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'C' as u32);
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b]104;");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"\x07");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"ColorReset");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'C' as u32);
     assert!(found, "OSC 104 split: text after color reset should render");
     assert_invariants(&snap);
 }
@@ -468,16 +475,16 @@ fn osc_color_reset_split_buffer() {
 /// OSC sequence terminated after partial first block — crash test
 #[test]
 fn osc_aborted_after_partial_feed() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     // Send partial OSC sequence, then BEL to terminate it
-    t.vt_write(b"H\x1b]0;Partial\x07");
-    t.flush();
+    terminal_under_test.vt_write(b"H\x1b]0;Partial\x07");
+    terminal_under_test.flush();
     // Then write normally, should not be consumed by OSC
-    t.vt_write(b"Normal");
-    t.flush();
-    let snap = t.take_snapshot();
-    let outer = snap.cells.iter().any(|c| c.codepoint == 'H' as u32);
-    let normal = snap.cells.iter().any(|c| c.codepoint == 'N' as u32);
+    terminal_under_test.vt_write(b"Normal");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let outer = snap.cells.iter().any(|cell| cell.codepoint == 'H' as u32);
+    let normal = snap.cells.iter().any(|cell| cell.codepoint == 'N' as u32);
     assert!(outer, "aborted OSC: H should be visible before OSC");
     assert!(normal, "aborted OSC: Normal should be visible");
     assert_invariants(&snap);
@@ -486,17 +493,17 @@ fn osc_aborted_after_partial_feed() {
 /// Oversized OSC 52 payload — no crash
 #[test]
 fn osc_large_clipboard_payload_terminal_survives() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     let large = vec![b'A'; 1024 * 4]; // 4KB base64
     let mut seq = Vec::from(b"\x1b]52;c;");
     seq.extend_from_slice(&large);
     seq.push(b'\x07');
-    t.vt_write(&seq);
-    t.flush();
-    t.vt_write(b"OK");
-    t.flush();
-    let snap = t.take_snapshot();
-    let ok = snap.cells.iter().any(|c| c.codepoint == 'O' as u32);
+    terminal_under_test.vt_write(&seq);
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"OK");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let ok = snap.cells.iter().any(|cell| cell.codepoint == 'O' as u32);
     assert!(ok, "OSC large payload: OK should render");
     assert_invariants(&snap);
 }
@@ -504,16 +511,16 @@ fn osc_large_clipboard_payload_terminal_survives() {
 /// Extremely long 8KB OSC string — no crash
 #[test]
 fn osc_extremely_long_8kb_string() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     let mut seq = Vec::from(b"\x1b]0;");
     seq.extend(std::iter::repeat_n(b'x', 8000));
     seq.push(b'\x07');
-    t.vt_write(&seq);
-    t.flush();
-    t.vt_write(b"LongDone");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'L' as u32);
+    terminal_under_test.vt_write(&seq);
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"LongDone");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'L' as u32);
     assert!(found, "OSC 8KB: LongDone should render");
     assert_invariants(&snap);
 }
@@ -537,20 +544,20 @@ fn osc_extremely_long_8kb_string() {
 /// 100 resize cycles with scrolling — ring buffer stress test.
 #[test]
 fn resize_stress_100_cycles_with_scroll() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for cycle in 0..50 {
-        t.vt_write(format!("cycle{cycle}\n").as_bytes());
-        // Alternate width and height
-        let h = if cycle % 2 == 0 { 5 } else { 8 };
-        let w = if cycle % 3 == 0 { 10 } else { 15 };
-        t.resize(h, w);
-        t.flush();
+        terminal_under_test.vt_write(format!("cycle{cycle}\n").as_bytes());
+        // Alternate row and column counts
+        let row_count = if cycle % 2 == 0 { 5 } else { 8 };
+        let column_count = if cycle % 3 == 0 { 10 } else { 15 };
+        terminal_under_test.resize(row_count, column_count);
+        terminal_under_test.flush();
     }
-    t.flush();
-    t.vt_write(b"StressTest");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'S' as u32);
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"StressTest");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'S' as u32);
     assert!(
         found,
         "resize stress: StressTest should render after 50 cycles"
@@ -562,19 +569,19 @@ fn resize_stress_100_cycles_with_scroll() {
 // 与字面量默认值精确比较，不涉及浮点运算。
 #[allow(clippy::float_cmp)]
 fn cell_snapshot_default() {
-    let c = CellSnapshot::default();
-    assert_eq!(c.codepoint, 0);
-    assert_eq!(c.foreground, [0.0, 0.0, 0.0, 0.0]);
-    assert_eq!(c.background, [0.0, 0.0, 0.0, 0.0]);
-    assert!(!c.bold);
-    assert!(!c.italic);
+    let cell = CellSnapshot::default();
+    assert_eq!(cell.codepoint, 0);
+    assert_eq!(cell.foreground, [0.0, 0.0, 0.0, 0.0]);
+    assert_eq!(cell.background, [0.0, 0.0, 0.0, 0.0]);
+    assert!(!cell.bold);
+    assert!(!cell.italic);
 }
 
 #[test]
 // 与字面量默认值精确比较，不涉及浮点运算。
 #[allow(clippy::float_cmp)]
 fn cell_snapshot_clone() {
-    let c = CellSnapshot {
+    let cell = CellSnapshot {
         codepoint: 65,
         graphemes: Vec::new(),
         foreground: [1.0, 0.0, 0.0, 1.0],
@@ -592,9 +599,9 @@ fn cell_snapshot_clone() {
         double_underline: false,
         width: 1,
     };
-    let c2 = c.clone();
-    assert_eq!(c.codepoint, c2.codepoint);
-    assert_eq!(c.foreground, c2.foreground);
+    let cloned_cell = cell.clone();
+    assert_eq!(cell.codepoint, cloned_cell.codepoint);
+    assert_eq!(cell.foreground, cloned_cell.foreground);
 }
 
 // ── CellIterator vs Legacy grid_ref verification ──────────────────────────
@@ -611,20 +618,20 @@ fn cell_snapshot_clone() {
 /// cells from both paths cell-by-cell.
 #[test]
 fn cell_iterator_matches_legacy_grid_ref() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
 
     // Feed mixed content: ASCII, bold, colored, CJK
-    t.vt_write(b"\x1b[31mRed\x1b[0m Normal ");
-    t.vt_write(b"\x1b[1mBold\x1b[0m ");
-    t.vt_write(b"\x1b[44mBlueBg\x1b[0m ");
-    t.vt_write("Hello 日本 World!".as_bytes());
-    t.vt_write(b"\n");
-    t.vt_write(b"Second line with \x1b[33mYELLOW\x1b[0m text");
-    t.vt_write(b"\n");
-    t.vt_write(b"Third line\x1b[K");
-    t.flush();
+    terminal_under_test.vt_write(b"\x1b[31mRed\x1b[0m Normal ");
+    terminal_under_test.vt_write(b"\x1b[1mBold\x1b[0m ");
+    terminal_under_test.vt_write(b"\x1b[44mBlueBg\x1b[0m ");
+    terminal_under_test.vt_write("Hello 日本 World!".as_bytes());
+    terminal_under_test.vt_write(b"\n");
+    terminal_under_test.vt_write(b"Second line with \x1b[33mYELLOW\x1b[0m text");
+    terminal_under_test.vt_write(b"\n");
+    terminal_under_test.vt_write(b"Third line\x1b[K");
+    terminal_under_test.flush();
 
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
 
     // Basic invariants that validate CellIterator correctness
     assert!(
@@ -655,7 +662,10 @@ fn cell_iterator_matches_legacy_grid_ref() {
     );
 
     // Verify colors on specific cells
-    let first_red = snap.cells.iter().position(|c| c.codepoint == 'R' as u32);
+    let first_red = snap
+        .cells
+        .iter()
+        .position(|cell| cell.codepoint == 'R' as u32);
     assert!(first_red.is_some(), "Should find 'R' at start of 'Red'");
     if let Some(idx) = first_red {
         let cell = &snap.cells[idx];
@@ -677,9 +687,12 @@ fn cell_iterator_matches_legacy_grid_ref() {
     }
 
     // Verify bold flag on Bold word
-    let first_b = snap.cells.iter().position(|c| c.codepoint == 'B' as u32);
-    if let Some(idx) = first_b {
-        let cell = &snap.cells[idx];
+    let first_bold_position = snap
+        .cells
+        .iter()
+        .position(|cell| cell.codepoint == 'B' as u32);
+    if let Some(cell_index) = first_bold_position {
+        let cell = &snap.cells[cell_index];
         assert!(cell.bold, "Bold word should have bold=true");
     }
 
@@ -691,10 +704,10 @@ fn cell_iterator_matches_legacy_grid_ref() {
 /// characters in the snapshot (width=2).
 #[test]
 fn cell_iterator_cjk_double_width() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    t.vt_write("A中B".as_bytes());
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write("A中B".as_bytes());
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
 
     let a_cell = &snap.cells[0];
     assert_eq!(a_cell.codepoint, 'A' as u32, "Cell 0 should be 'A'");
@@ -713,15 +726,15 @@ fn cell_iterator_cjk_double_width() {
 /// matching the GridSnapshot content.
 #[test]
 fn build_cell_data_matches_grid_snapshot() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     // Feed various content
-    t.vt_write(b"AB");
-    t.vt_write(b"\x1b[31mRed\x1b[0m");
-    t.vt_write(b"\n");
-    t.vt_write("中".as_bytes());
-    t.flush();
+    terminal_under_test.vt_write(b"AB");
+    terminal_under_test.vt_write(b"\x1b[31mRed\x1b[0m");
+    terminal_under_test.vt_write(b"\n");
+    terminal_under_test.vt_write("中".as_bytes());
+    terminal_under_test.flush();
 
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
 
     // Verify grid state
     assert!(
@@ -749,7 +762,7 @@ fn build_cell_data_matches_grid_snapshot() {
     let mid_cells: Vec<_> = snap
         .cells
         .iter()
-        .filter(|c| c.codepoint == 0x4E2D)
+        .filter(|cell| cell.codepoint == 0x4E2D)
         .collect();
     assert_eq!(mid_cells.len(), 1, "Should find exactly one CJK cell");
     assert_eq!(mid_cells[0].width, 2, "CJK width should be 2");
@@ -761,10 +774,10 @@ fn build_cell_data_matches_grid_snapshot() {
 /// CellIterator snapshot path.
 #[test]
 fn cell_iterator_grid_dimensions() {
-    let mut t = terminal();
-    t.vt_write(b"Hello World");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"Hello World");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     assert_eq!(snap.rows, 24, "Grid should have 24 rows");
     assert_eq!(snap.cols, 80, "Grid should have 80 cols");
     assert_eq!(snap.cells.len(), 24 * 80, "Total cells should be 1920");
@@ -825,13 +838,13 @@ fn cell_iterator_grid_dimensions() {
 /// previous line's end column instead of column 0.
 #[test]
 fn newline_lf_implies_crlf() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    t.flush();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.flush();
     // Write "AB\nCD" — after LF→CR+LF conversion, CD should be at col 0 of row 1
-    t.pty_write(b"AB\nCD");
-    t.flush();
-    t.flush();
-    let dumped = t.dump_grid();
+    terminal_under_test.pty_write(b"AB\nCD");
+    terminal_under_test.flush();
+    terminal_under_test.flush();
+    let dumped = terminal_under_test.dump_grid();
     let row1_col0 = dumped.visible[10].codepoint;
     assert_eq!(
         row1_col0, 'C' as u32,
@@ -850,13 +863,13 @@ fn newline_lf_implies_crlf() {
 fn newline_lf_after_full_line_restore() {
     // Simulate session restore: write a full-width line then \n then another line.
     // LF must return cursor to column 0 so the next line starts correctly.
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    t.flush();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.flush();
     // "ABCDEFGHIJ" is exactly 10 chars (full width), then \n, then "next"
-    t.pty_write(b"ABCDEFGHIJ\nnext");
-    t.flush();
-    t.flush();
-    let dumped = t.dump_grid();
+    terminal_under_test.pty_write(b"ABCDEFGHIJ\nnext");
+    terminal_under_test.flush();
+    terminal_under_test.flush();
+    let dumped = terminal_under_test.dump_grid();
     // Row 0: A B C D E F G H I J
     assert_eq!(
         dumped.visible[9].codepoint, 'J' as u32,
@@ -878,12 +891,12 @@ fn newline_lf_after_full_line_restore() {
 #[test]
 fn newline_crlf_still_works() {
     // CR+LF must continue to work as before
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    t.flush();
-    t.vt_write(b"AB\r\nCD");
-    t.flush();
-    t.flush();
-    let dumped = t.dump_grid();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"AB\r\nCD");
+    terminal_under_test.flush();
+    terminal_under_test.flush();
+    let dumped = terminal_under_test.dump_grid();
     let row1_col0 = dumped.visible[10].codepoint;
     assert_eq!(row1_col0, 'C' as u32, "CRLF: 'C' at column 0 of row 1");
 }
@@ -895,21 +908,21 @@ fn newline_crlf_still_works() {
 /// TC-IV-002: Alt buffer has no history
 #[test]
 fn tc_iv_002_alt_buffer_no_history() {
-    let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
-    t.flush();
-    for i in 0..5 {
-        t.vt_write(format!("line{i}\r\n").as_bytes());
+    let mut terminal_under_test = GhosttyTerminal::new(3, 10, 100).expect("terminal");
+    terminal_under_test.flush();
+    for line_number in 0..5 {
+        terminal_under_test.vt_write(format!("line{line_number}\r\n").as_bytes());
     }
-    t.flush();
-    t.vt_write(b"\x1b[?1049h");
-    t.flush();
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"\x1b[?1049h");
+    terminal_under_test.flush();
     // Alt buffer should have no scrollback
     assert_eq!(
-        t.scrollback_length(),
+        terminal_under_test.scrollback_length(),
         0,
         "IV-002: alt buffer should have no scrollback"
     );
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
@@ -941,11 +954,11 @@ fn tc_iv_002_alt_buffer_no_history() {
 /// TC-SM-001: Create terminal with valid dimensions
 #[test]
 fn tc_sm_001_create_valid_dimensions() {
-    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    t.flush();
-    assert_eq!(t.rows(), 24, "SM-001: rows == 24");
-    assert_eq!(t.cols(), 80, "SM-001: cols == 80");
-    let snap = t.take_snapshot();
+    let terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
+    terminal_under_test.flush();
+    assert_eq!(terminal_under_test.rows(), 24, "SM-001: rows == 24");
+    assert_eq!(terminal_under_test.cols(), 80, "SM-001: cols == 80");
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
@@ -961,12 +974,12 @@ fn tc_sm_002_independent_sessions() {
     t2.flush();
     let snap1 = t1.take_snapshot();
     let snap2 = t2.take_snapshot();
-    let a_in_1 = snap1.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    let b_in_2 = snap2.cells.iter().any(|c| c.codepoint == 'B' as u32);
+    let a_in_1 = snap1.cells.iter().any(|cell| cell.codepoint == 'A' as u32);
+    let b_in_2 = snap2.cells.iter().any(|cell| cell.codepoint == 'B' as u32);
     assert!(a_in_1, "SM-002: session 1 has 'A'");
     assert!(b_in_2, "SM-002: session 2 has 'B'");
     // Session 1 should NOT have B
-    let a_in_2 = snap2.cells.iter().any(|c| c.codepoint == 'A' as u32);
+    let a_in_2 = snap2.cells.iter().any(|cell| cell.codepoint == 'A' as u32);
     assert!(!a_in_2, "SM-002: session 2 should not have 'A'");
     let snap = t1.take_snapshot();
     assert_invariants(&snap);
@@ -975,37 +988,37 @@ fn tc_sm_002_independent_sessions() {
 /// TC-SM-003: Drop terminal cleans up
 #[test]
 fn tc_sm_003_drop_cleans_up() {
-    let t = GhosttyTerminal::new(3, 3, 100).expect("terminal");
-    t.flush();
-    let snap = t.take_snapshot();
+    let terminal_under_test = GhosttyTerminal::new(3, 3, 100).expect("terminal");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
-    drop(t);
+    drop(terminal_under_test);
     // If we reach here, no panic
 }
 
 /// TC-SM-004: Double drop is safe (handled by Drop impl)
 #[test]
 fn tc_sm_004_double_drop_safe() {
-    let t = GhosttyTerminal::new(3, 3, 100).expect("terminal");
-    t.flush();
+    let terminal_under_test = GhosttyTerminal::new(3, 3, 100).expect("terminal");
+    terminal_under_test.flush();
     // Can't explicitly double-drop in safe Rust, but we can verify
     // that a normal drop completes without panic
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
-    drop(t);
+    drop(terminal_under_test);
 }
 
 /// TC-SM-005: Process-like cleanup (just verify terminal works)
 #[test]
 fn tc_sm_005_terminal_works_after_writes() {
-    let mut t = terminal();
-    t.flush();
-    t.vt_write(b"SessionActive");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'S' as u32);
+    let mut terminal_under_test = terminal();
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"SessionActive");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'S' as u32);
     assert!(found, "SM-005: terminal should work normally");
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
@@ -1015,69 +1028,75 @@ fn tc_sm_005_terminal_works_after_writes() {
 /// TC-AL-001: "Pause" (snapshot) preserves content — verify via snapshot
 #[test]
 fn tc_al_001_snapshot_preserves_content() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.flush();
-    t.vt_write(b"LifecycleContent");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'L' as u32);
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"LifecycleContent");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'L' as u32);
     assert!(found, "AL-001: content preserved in snapshot");
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
 /// TC-AL-002: Alt screen via snapshot
 #[test]
 fn tc_al_002_alt_screen_preserved() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.flush();
-    t.vt_write(b"\x1b[?1049h");
-    t.vt_write(b"AltContent");
-    t.flush();
-    let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"\x1b[?1049h");
+    terminal_under_test.vt_write(b"AltContent");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let found = snap.cells.iter().any(|cell| cell.codepoint == 'A' as u32);
     assert!(found, "AL-002: alt screen content in snapshot");
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
 /// TC-AL-003: Cursor position restored after resize cycle
 #[test]
 fn tc_al_003_cursor_restored() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    t.flush();
-    t.vt_write(b"\x1b[3;5H"); // CUP to (3,5)
-    t.flush();
-    let x_before = t.cursor_x();
-    let y_before = t.cursor_y();
-    t.resize(5, 10); // same size, simulate pause/resume
-    t.flush();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"\x1b[3;5H"); // CUP to (3,5)
+    terminal_under_test.flush();
+    let x_before = terminal_under_test.cursor_x();
+    let y_before = terminal_under_test.cursor_y();
+    terminal_under_test.resize(5, 10); // same size, simulate pause/resume
+    terminal_under_test.flush();
     assert_eq!(
-        t.cursor_x(),
+        terminal_under_test.cursor_x(),
         x_before,
         "AL-003: cursor_x preserved after resize"
     );
     assert_eq!(
-        t.cursor_y(),
+        terminal_under_test.cursor_y(),
         y_before,
         "AL-003: cursor_y preserved after resize"
     );
-    let snap = t.take_snapshot();
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
 /// TC-AL-004: Mode state preserved after resize cycle
 #[test]
 fn tc_al_004_mode_preserved() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.flush();
-    t.vt_write(b"\x1b[?25l"); // hide cursor
-    t.flush();
-    assert!(!t.cursor_visible(), "AL-004: cursor hidden before resize");
-    t.resize(5, 20);
-    t.flush();
-    assert!(!t.cursor_visible(), "AL-004: cursor hidden after resize");
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"\x1b[?25l"); // hide cursor
+    terminal_under_test.flush();
+    assert!(
+        !terminal_under_test.cursor_visible(),
+        "AL-004: cursor hidden before resize"
+    );
+    terminal_under_test.resize(5, 20);
+    terminal_under_test.flush();
+    assert!(
+        !terminal_under_test.cursor_visible(),
+        "AL-004: cursor hidden after resize"
+    );
+    let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
 }
 
@@ -1086,24 +1105,29 @@ fn tc_al_004_mode_preserved() {
 
 #[test]
 fn tc_lifecycle_001_pause_resume_cycles() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.vt_write(b"BaseContent");
-    t.flush();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"BaseContent");
+    terminal_under_test.flush();
 
-    for i in 0..50 {
-        let marker = format!("\x1b[{};{}HCycle{}", 1 + (i % 5), 1 + (i % 18), i);
-        t.vt_write(marker.as_bytes());
-        t.flush();
+    for cycle in 0..50 {
+        let marker = format!(
+            "\x1b[{};{}HCycle{}",
+            1 + (cycle % 5),
+            1 + (cycle % 18),
+            cycle
+        );
+        terminal_under_test.vt_write(marker.as_bytes());
+        terminal_under_test.flush();
 
         // Simulate pause/resume via resize to same size.
-        t.resize(5, 20);
-        t.flush();
+        terminal_under_test.resize(5, 20);
+        terminal_under_test.flush();
 
         // Verify basic invariants after each cycle.
-        let snap = t.take_snapshot();
+        let snap = terminal_under_test.take_snapshot();
         assert_invariants(&snap);
-        assert_eq!(snap.rows, 5, "rows unchanged after cycle {i}");
-        assert_eq!(snap.cols, 20, "cols unchanged after cycle {i}");
+        assert_eq!(snap.rows, 5, "rows unchanged after cycle {cycle}");
+        assert_eq!(snap.cols, 20, "cols unchanged after cycle {cycle}");
     }
 }
 
@@ -1111,29 +1135,29 @@ fn tc_lifecycle_001_pause_resume_cycles() {
 
 #[test]
 fn tc_lifecycle_002_content_preserved_after_pause_resume() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.vt_write(b"PreserveThisContent!");
-    t.flush();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"PreserveThisContent!");
+    terminal_under_test.flush();
 
     // Capture row 0 text before simulated pause/resume.
-    let snap_before = t.take_snapshot();
+    let snap_before = terminal_under_test.take_snapshot();
     let text_before: String = snap_before
         .cells
         .iter()
         .take(20)
-        .map(|c| char::from_u32(c.codepoint).unwrap_or('�'))
+        .map(|cell| char::from_u32(cell.codepoint).unwrap_or('�'))
         .collect();
 
     // Simulate pause (release/destroy) and resume (recreate) via resize.
-    t.resize(5, 20);
-    t.flush();
+    terminal_under_test.resize(5, 20);
+    terminal_under_test.flush();
 
-    let snap_after = t.take_snapshot();
+    let snap_after = terminal_under_test.take_snapshot();
     let text_after: String = snap_after
         .cells
         .iter()
         .take(20)
-        .map(|c| char::from_u32(c.codepoint).unwrap_or('�'))
+        .map(|cell| char::from_u32(cell.codepoint).unwrap_or('�'))
         .collect();
 
     assert_eq!(
@@ -1169,31 +1193,37 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 
 #[test]
 fn bench_typing_latency() {
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
+    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     // Pre-fill with some content to avoid empty-terminal optimizations
     for _ in 0..10 {
-        t.vt_write(b"A line to fill the screen with some realistic content\n");
+        terminal_under_test.vt_write(b"A line to fill the screen with some realistic content\n");
     }
-    t.flush();
+    terminal_under_test.flush();
 
     let keystrokes: [&[u8]; 6] = [b"h", b"e", b"l", b"l", b"o", b"\n"];
-    let n = 300; // 300 keystrokes
+    let round_count = 300; // 300 keystrokes
     let start = Instant::now();
-    for _ in 0..n {
-        for ks in &keystrokes {
-            t.vt_write(ks);
+    for _ in 0..round_count {
+        for keystroke in &keystrokes {
+            terminal_under_test.vt_write(keystroke);
         }
-        t.flush();
-        let count = black_box(t.receive_cell_data().map(|(c, _)| c.len()).unwrap_or(0));
+        terminal_under_test.flush();
+        let count = black_box(
+            terminal_under_test
+                .receive_cell_data()
+                .map(|(cells, _)| cells.len())
+                .unwrap_or(0),
+        );
         black_box(count);
     }
     let elapsed = start.elapsed();
-    let ms_per_keystroke = elapsed.as_millis() as f64 / (n as f64 * keystrokes.len() as f64);
+    let ms_per_keystroke =
+        elapsed.as_millis() as f64 / (round_count as f64 * keystrokes.len() as f64);
     println!(
         "Typing latency: {:.3}ms per keystroke ({:.1}ms for {} keystrokes)",
         ms_per_keystroke,
         elapsed.as_millis(),
-        n * keystrokes.len(),
+        round_count * keystrokes.len(),
     );
     let threshold = 6.0;
     assert!(
@@ -1209,29 +1239,29 @@ fn bench_typing_latency() {
 /// debug builds; ANSI throughput is implicitly covered by other benchmarks).
 #[test]
 fn bench_bulk_output_throughput() {
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
+    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     // Build a 4KB buffer of realistic plain-text terminal output
     let mut buf = Vec::with_capacity(4096);
     while buf.len() < 4096 {
         buf.extend_from_slice(b"user@host:~$ ls -la src/main.rs docs/README.md\n");
     }
 
-    let n = 50; // 50 × 4KB = 200KB total
+    let round_count = 50; // 50 × 4KB = 200KB total
     let start = Instant::now();
-    for _ in 0..n {
-        t.vt_write(&buf);
-        t.flush();
-        let r = t.receive_cell_data();
-        let count = black_box(r.map(|(c, _)| c.len()).unwrap_or(0));
+    for _ in 0..round_count {
+        terminal_under_test.vt_write(&buf);
+        terminal_under_test.flush();
+        let receive_result = terminal_under_test.receive_cell_data();
+        let count = black_box(receive_result.map(|(cells, _)| cells.len()).unwrap_or(0));
         black_box(count);
     }
     let elapsed = start.elapsed();
-    let throughput_cells = n as f64 * 1920.0 / elapsed.as_secs_f64();
+    let throughput_cells = round_count as f64 * 1920.0 / elapsed.as_secs_f64();
     println!(
         "Bulk output: {:.0} cells/sec ({:.1}ms for {}×{}KB plain text)",
         throughput_cells,
         elapsed.as_millis(),
-        n,
+        round_count,
         buf.len() / 1024,
     );
     let threshold = 4_000.0;
@@ -1250,34 +1280,40 @@ fn bench_bulk_output_throughput() {
 #[test]
 #[should_panic(expected = "快照命令入队失败")]
 fn snapshot_panics_when_terminal_disconnected() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    for i in 0..20 {
-        t.vt_write(format!("line {i}\n").as_bytes());
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
     }
-    t.flush();
+    terminal_under_test.flush();
 
-    assert!(t.is_alive(), "terminal should be alive before disconnect");
-    let snap = t.take_snapshot();
+    assert!(
+        terminal_under_test.is_alive(),
+        "terminal should be alive before disconnect"
+    );
+    let snap = terminal_under_test.take_snapshot();
     assert!(
         snap.rows > 0 && snap.cols > 0,
         "viewport snapshot should have valid dimensions"
     );
 
-    t.disconnect_for_test();
-    assert!(!t.is_alive(), "terminal must report dead after disconnect");
-    let _ = t.take_snapshot();
+    terminal_under_test.disconnect_for_test();
+    assert!(
+        !terminal_under_test.is_alive(),
+        "terminal must report dead after disconnect"
+    );
+    let _ = terminal_under_test.take_snapshot();
 }
 
 /// Verify that `take_snapshot` returns
 /// consistent results across multiple calls (cache hit path).
 #[test]
 fn scrollback_cache_consistency() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    t.vt_write(b"Hello World\n");
-    t.flush();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write(b"Hello World\n");
+    terminal_under_test.flush();
 
-    let snap1 = t.take_snapshot();
-    let snap2 = t.take_snapshot();
+    let snap1 = terminal_under_test.take_snapshot();
+    let snap2 = terminal_under_test.take_snapshot();
     assert_eq!(snap1.rows, snap2.rows, "cached snapshots should match");
     assert_eq!(snap1.cols, snap2.cols, "cached snapshots should match");
     assert_eq!(
@@ -1292,15 +1328,15 @@ fn scrollback_cache_consistency() {
 /// browsing previously did nothing).
 #[test]
 fn scroll_viewport_delta_scrolls_cell_data() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    for i in 0..20 {
-        t.vt_write(format!("line {i}\n").as_bytes());
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
     }
-    t.flush();
+    terminal_under_test.flush();
 
     // First frame at offset 0 shows the bottom of the output.
-    let (cells0, _) = t.receive_cell_data().expect("cell data");
-    let bottom_rows: std::collections::HashSet<u32> = cells0.iter().map(|c| c.row).collect();
+    let (cells0, _) = terminal_under_test.receive_cell_data().expect("cell data");
+    let bottom_rows: std::collections::HashSet<u32> = cells0.iter().map(|cell| cell.row).collect();
     assert!(
         bottom_rows.contains(&4),
         "offset 0 should include viewport row 4, got {bottom_rows:?}"
@@ -1308,7 +1344,7 @@ fn scroll_viewport_delta_scrolls_cell_data() {
 
     // The terminal must actually accumulate scrollback (host probe:
     // scrollback_length should be > 0 after 20 lines into a 5-row view).
-    let scrollback = t.scrollback_length();
+    let scrollback = terminal_under_test.scrollback_length();
     assert!(
         scrollback > 0,
         "scrollback should exist after output, got {scrollback}"
@@ -1317,18 +1353,22 @@ fn scroll_viewport_delta_scrolls_cell_data() {
     // Scroll up by 2: the VT thread applies the delta and pushes new
     // CellData; the visible content shifts (rows are renumbered from the
     // new viewport top, so the row set is unchanged but the text differs).
-    assert!(t.scroll_viewport(-2), "scroll_viewport should accept delta");
+    assert!(
+        terminal_under_test.scroll_viewport(-2),
+        "scroll_viewport should accept delta"
+    );
     // Give the VT thread a moment to process and push.
     let mut scrolled = None;
     for _ in 0..50 {
-        if let Some((cells, _)) = t.receive_cell_data() {
+        if let Some((cells, _)) = terminal_under_test.receive_cell_data() {
             scrolled = Some(cells);
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
     let scrolled = scrolled.expect("scrolled cell data");
-    let scrolled_rows: std::collections::HashSet<u32> = scrolled.iter().map(|c| c.row).collect();
+    let scrolled_rows: std::collections::HashSet<u32> =
+        scrolled.iter().map(|cell| cell.row).collect();
     assert_eq!(
         scrolled_rows, bottom_rows,
         "scrolled view keeps 5 viewport rows"
@@ -1350,10 +1390,13 @@ fn scroll_viewport_delta_scrolls_cell_data() {
     );
 
     // 向下滚回底部：可见文本必须再次变化（DESIGN 修饰键栏节：方向键/滑动双向移动）。
-    assert!(t.scroll_viewport(2), "scroll_viewport 应接受正向增量");
+    assert!(
+        terminal_under_test.scroll_viewport(2),
+        "scroll_viewport 应接受正向增量"
+    );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     let scrolled_back = loop {
-        if let Some((cells, _)) = t.receive_cell_data() {
+        if let Some((cells, _)) = terminal_under_test.receive_cell_data() {
             break cells;
         }
         assert!(
@@ -1384,24 +1427,27 @@ fn scroll_viewport_delta_scrolls_cell_data() {
 /// the reported cursor "block" offset ~1 cell down/right.
 #[test]
 fn cursor_viewport_coordinates_track_scrollback_scroll() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    for i in 0..20 {
-        t.vt_write(format!("line {i}\n").as_bytes());
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
     }
-    t.flush();
+    terminal_under_test.flush();
 
     // Cursor sits on the active bottom row (row 4), col 0.
-    let (_, cursor0) = t.receive_cell_data().expect("cell data");
+    let (_, cursor0) = terminal_under_test.receive_cell_data().expect("cell data");
     assert!(cursor0.visible, "cursor visible at scroll offset 0");
     assert_eq!(cursor0.row, 4, "cursor on active bottom row");
 
     // Scroll up 1: viewport now shows scrollback rows 14..18; the
     // cursor page (active row 19) is out of view → the cursor must be
     // hidden, not drawn on scrollback row 4.
-    assert!(t.scroll_viewport(-1), "scroll_viewport(-1)");
+    assert!(
+        terminal_under_test.scroll_viewport(-1),
+        "scroll_viewport(-1)"
+    );
     let mut hidden = None;
     for _ in 0..50 {
-        if let Some((_, cursor)) = t.receive_cell_data() {
+        if let Some((_, cursor)) = terminal_under_test.receive_cell_data() {
             hidden = Some(cursor);
             break;
         }
@@ -1415,10 +1461,13 @@ fn cursor_viewport_coordinates_track_scrollback_scroll() {
     }
 
     // Scroll back to the bottom: the cursor reappears on row 4.
-    assert!(t.scroll_viewport(1), "scroll_viewport(+1)");
+    assert!(
+        terminal_under_test.scroll_viewport(1),
+        "scroll_viewport(+1)"
+    );
     let mut restored = None;
     for _ in 0..50 {
-        if let Some((_, cursor)) = t.receive_cell_data() {
+        if let Some((_, cursor)) = terminal_under_test.receive_cell_data() {
             restored = Some(cursor);
             break;
         }
@@ -1435,23 +1484,23 @@ fn cursor_viewport_coordinates_track_scrollback_scroll() {
 
 #[test]
 fn terminal_is_alive_after_creation() {
-    let t = small_terminal();
-    assert!(t.is_alive());
+    let terminal_under_test = small_terminal();
+    assert!(terminal_under_test.is_alive());
 }
 
 #[test]
 fn terminal_is_alive_after_vt_write() {
-    let mut t = small_terminal();
-    t.vt_write(b"Hello, world!");
-    assert!(t.is_alive());
+    let mut terminal_under_test = small_terminal();
+    terminal_under_test.vt_write(b"Hello, world!");
+    assert!(terminal_under_test.is_alive());
 }
 
 #[test]
 fn terminal_is_alive_after_flush() {
-    let mut t = small_terminal();
-    t.vt_write(b"ABC");
-    t.flush();
-    assert!(t.is_alive());
+    let mut terminal_under_test = small_terminal();
+    terminal_under_test.vt_write(b"ABC");
+    terminal_under_test.flush();
+    assert!(terminal_under_test.is_alive());
 }
 
 /// zelland row-level dirty cache: after a write, only the affected row must
@@ -1460,26 +1509,36 @@ fn terminal_is_alive_after_flush() {
 /// the public receive_cell_data() stream.
 #[test]
 fn row_cache_returns_consistent_cell_data_across_writes() {
-    let mut t = terminal();
-    t.vt_write(b"hello");
-    t.flush();
-    let first = t.receive_cell_data().expect("first cell data");
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello");
+    terminal_under_test.flush();
+    let first = terminal_under_test
+        .receive_cell_data()
+        .expect("first cell data");
     let (first_cells, _) = first;
     let cols = 80usize;
-    let row0_first: Vec<u32> = first_cells[..cols].iter().map(|c| c.codepoint).collect();
+    let row0_first: Vec<u32> = first_cells[..cols]
+        .iter()
+        .map(|cell| cell.codepoint)
+        .collect();
 
     // 空闲去重下静默 VT 线程不再推送相同内容：一致性由下方第三快照
     // （新输入后的确定性重建）验证，此处不做定时等待。
 
     // New input on row 1 must not disturb row 0's cached content.
-    t.vt_write(b"\nworld");
-    t.flush();
-    let third = t.receive_cell_data().expect("third cell data");
+    terminal_under_test.vt_write(b"\nworld");
+    terminal_under_test.flush();
+    let third = terminal_under_test
+        .receive_cell_data()
+        .expect("third cell data");
     let (third_cells, _) = third;
-    let row0_third: Vec<u32> = third_cells[..cols].iter().map(|c| c.codepoint).collect();
+    let row0_third: Vec<u32> = third_cells[..cols]
+        .iter()
+        .map(|cell| cell.codepoint)
+        .collect();
     let row1_third: Vec<u32> = third_cells[cols..cols * 2]
         .iter()
-        .map(|c| c.codepoint)
+        .map(|cell| cell.codepoint)
         .collect();
     assert_eq!(row0_third, row0_first, "row 0 unchanged after row-1 write");
     // vt_write treats LF as a bare line feed (no CR), so "world" lands at
@@ -1491,13 +1550,13 @@ fn row_cache_returns_consistent_cell_data_across_writes() {
 /// reflect the new grid dimensions, not stale cached rows.
 #[test]
 fn row_cache_invalidated_on_resize() {
-    let mut t = terminal();
-    t.vt_write(b"top");
-    t.flush();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"top");
+    terminal_under_test.flush();
     // 确定性轮询直到工作线程产出对应尺寸数据，杜绝固定时长等待的 flaky。
     let start = Instant::now();
     let before_cells = loop {
-        if let Some((cells, _)) = t.receive_cell_data()
+        if let Some((cells, _)) = terminal_under_test.receive_cell_data()
             && cells.len() == 24 * 80
         {
             break cells;
@@ -1510,10 +1569,10 @@ fn row_cache_invalidated_on_resize() {
     };
     assert_eq!(before_cells.len(), 24 * 80);
 
-    assert!(t.resize(10, 40), "resize to 10x40");
+    assert!(terminal_under_test.resize(10, 40), "resize to 10x40");
     let start = Instant::now();
     let after_cells = loop {
-        if let Some((cells, _)) = t.receive_cell_data()
+        if let Some((cells, _)) = terminal_under_test.receive_cell_data()
             && cells.len() == 10 * 40
         {
             break cells;
@@ -1536,16 +1595,16 @@ fn row_cache_invalidated_on_resize() {
 /// semantics). Write a line longer than 80 cols then select across the wrap.
 #[test]
 fn selection_text_unwraps_soft_wrapped_lines() {
-    let mut t = terminal(); // 24x80
+    let mut terminal_under_test = terminal(); // 24x80
     // 90 chars: exceeds the 80-col width -> soft wrap onto row 2.
     let long = "a".repeat(90);
-    t.vt_write(long.as_bytes());
-    t.flush();
-    let snap = t.take_snapshot();
+    terminal_under_test.vt_write(long.as_bytes());
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let scrollback = snap.scrollback_length;
     // The text starts at viewport row 0 (grid row = scrollback_rows).
     let row0 = scrollback;
-    let text = t.selection_text((row0, 0), (row0 + 1, 9));
+    let text = terminal_under_test.selection_text((row0, 0), (row0 + 1, 9));
     assert_eq!(
         text.len(),
         90,
@@ -1563,13 +1622,13 @@ fn selection_text_unwraps_soft_wrapped_lines() {
 /// content (TerminalRow.findStartOfColumn equivalent).
 #[test]
 fn selection_text_wide_char_columns() {
-    let mut t = terminal();
-    t.vt_write("中".as_bytes()); // wide char at cols 0-1
-    t.vt_write(b"ab");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write("中".as_bytes()); // wide char at cols 0-1
+    terminal_under_test.vt_write(b"ab");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let text = t.selection_text((row0, 0), (row0, 3));
+    let text = terminal_under_test.selection_text((row0, 0), (row0, 3));
     assert_eq!(
         text, "中ab",
         "wide char must round-trip exactly (got {text:?})"
@@ -1581,14 +1640,16 @@ fn selection_text_wide_char_columns() {
 /// 烘焙到了该格（选区存在且可见）。
 #[test]
 fn selection_text_blank_cell_selects_itself() {
-    let mut t = terminal();
-    t.vt_write(b"a b");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"a b");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    t.set_selection((row0, 1), (row0, 1));
-    t.flush();
-    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    terminal_under_test.set_selection((row0, 1), (row0, 1));
+    terminal_under_test.flush();
+    let (selected, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("selected cell data");
     let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
     let picked = selected
         .iter()
@@ -1598,30 +1659,34 @@ fn selection_text_blank_cell_selects_itself() {
         picked.foreground, theme_background,
         "blank cell under selection must be inverted"
     );
-    t.clear_selection();
-    t.flush();
+    terminal_under_test.clear_selection();
+    terminal_under_test.flush();
 }
 
 /// 选择清除往返：装选区烘焙反白，清除后恢复基线（对标 selectionClearRemovesSelection）。
 #[test]
 fn selection_clear_restores_baseline_colors() {
-    let mut t = terminal();
-    t.vt_write(b"hello");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    t.set_selection((row0, 0), (row0, 4));
-    t.flush();
-    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    terminal_under_test.set_selection((row0, 0), (row0, 4));
+    terminal_under_test.flush();
+    let (selected, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("selected cell data");
     let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
     let picked = selected
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
         .expect("row 0 col 0 present");
     assert_eq!(picked.foreground, theme_background);
-    t.clear_selection();
-    t.flush();
-    let (cleared, _) = t.receive_cell_data().expect("cleared cell data");
+    terminal_under_test.clear_selection();
+    terminal_under_test.flush();
+    let (cleared, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("cleared cell data");
     let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
     let restored = cleared
         .iter()
@@ -1640,21 +1705,24 @@ fn selection_clear_restores_baseline_colors() {
 /// 接口即 install+format；上游 select_word 另经 select_word_at 查询接入）。
 #[test]
 fn select_word_via_boundary_resolve_extracts_hello() {
-    let mut t = terminal();
-    t.vt_write(b"hello world");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello world");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
     // 词边界解析：col 1（hello 内）→ 词起止 (0, 5)。
-    let (word_start, word_end) = resolve_word_bounds(&t, row0, 1);
+    let (word_start, word_end) = resolve_word_bounds(&terminal_under_test, row0, 1);
     assert_eq!(
         (word_start, word_end),
         (0, 5),
         "col 1 must resolve to hello"
     );
-    t.set_selection((row0, word_start), (row0, word_end - 1));
-    t.flush();
-    assert_eq!(t.selection_text((row0, 0), (row0, 4)), "hello");
+    terminal_under_test.set_selection((row0, word_start), (row0, word_end - 1));
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.selection_text((row0, 0), (row0, 4)),
+        "hello"
+    );
 }
 
 /// 词边界解析辅助：沿行左右扫描词字符（空格/行尾为界）。
@@ -1684,12 +1752,12 @@ fn resolve_word_bounds(terminal: &GhosttyTerminal, row: u32, col: u32) -> (u32, 
 /// selection_text_blank_cell_selects_itself）。
 #[test]
 fn select_word_blank_cell_resolves_empty_bounds() {
-    let mut t = terminal();
-    t.vt_write(b"a b");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"a b");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let (word_start, word_end) = resolve_word_bounds(&t, row0, 1);
+    let (word_start, word_end) = resolve_word_bounds(&terminal_under_test, row0, 1);
     assert_eq!(
         (word_start, word_end),
         (1, 2),
@@ -1701,32 +1769,35 @@ fn select_word_blank_cell_resolves_empty_bounds() {
 /// install+format 提取整行文本。
 #[test]
 fn select_line_via_full_row_extracts_whole_line() {
-    let mut t = terminal();
-    t.vt_write(b"hello world");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello world");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let line = t.read_line_text(row0).expect("line text");
+    let line = terminal_under_test.read_line_text(row0).expect("line text");
     assert_eq!(line, "hello world");
     let end_col = (line.chars().count() as u32).saturating_sub(1);
-    t.set_selection((row0, 0), (row0, end_col));
-    t.flush();
-    assert_eq!(t.selection_text((row0, 0), (row0, end_col)), "hello world");
+    terminal_under_test.set_selection((row0, 0), (row0, end_col));
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.selection_text((row0, 0), (row0, end_col)),
+        "hello world"
+    );
 }
 
 /// 对标上游 selectAllCoversScrollback：首行滚入历史后，跨全缓冲
 /// 的 install+format 仍覆盖首尾行。
 #[test]
 fn select_all_via_range_covers_scrollback() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.vt_write(b"alpha\n");
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"alpha\n");
     for index in 0..8 {
-        t.vt_write(format!("filler{index}\n").as_bytes());
+        terminal_under_test.vt_write(format!("filler{index}\n").as_bytes());
     }
-    t.flush();
-    let total = t.take_snapshot();
+    terminal_under_test.flush();
+    let total = terminal_under_test.take_snapshot();
     let last_row = total.rows + total.scrollback_length - 1;
-    let text = t.selection_text((0, 0), (last_row, 19));
+    let text = terminal_under_test.selection_text((0, 0), (last_row, 19));
     assert!(
         text.starts_with("alpha"),
         "must include scrolled-off first line"
@@ -1738,23 +1809,26 @@ fn select_all_via_range_covers_scrollback() {
 /// 绝对坐标并安装；返回界限提取的文本恰为该词，渲染反白证明选区已装回。
 #[test]
 fn select_word_at_derives_installs_and_returns_bounds() {
-    let mut t = terminal();
-    t.vt_write(b"git status");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"git status");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let ((start_row, start_col), (end_row, end_col)) =
-        t.select_word_at(row0, 1).expect("word bounds under cell");
+    let ((start_row, start_col), (end_row, end_col)) = terminal_under_test
+        .select_word_at(row0, 1)
+        .expect("word bounds under cell");
     assert_eq!((start_row, start_col), (row0, 0), "word starts at col 0");
     assert_eq!((end_row, end_col), (row0, 2), "git spans cols 0..=2");
     assert_eq!(
-        t.selection_text((start_row, start_col), (end_row, end_col)),
+        terminal_under_test.selection_text((start_row, start_col), (end_row, end_col)),
         "git",
         "returned bounds must extract exactly the word"
     );
     // 安装断言：派生快照经 to_ordered 装回终端后，该格渲染必须反白。
-    t.flush();
-    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    terminal_under_test.flush();
+    let (selected, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("selected cell data");
     let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
     let picked = selected
         .iter()
@@ -1764,25 +1838,26 @@ fn select_word_at_derives_installs_and_returns_bounds() {
         picked.foreground, theme_background,
         "derived selection must be installed (cell inverted)"
     );
-    t.clear_selection();
-    t.flush();
+    terminal_under_test.clear_selection();
+    terminal_under_test.flush();
 }
 
 /// 上游行选接入：select_line_at 取整行界限、安装并回传；返回界限提取
 /// 整行文本。
 #[test]
 fn select_line_at_returns_whole_line_bounds() {
-    let mut t = terminal();
-    t.vt_write(b"hello world");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello world");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let ((start_row, start_col), (end_row, end_col)) =
-        t.select_line_at(row0, 4).expect("line bounds");
+    let ((start_row, start_col), (end_row, end_col)) = terminal_under_test
+        .select_line_at(row0, 4)
+        .expect("line bounds");
     assert_eq!((start_row, start_col), (row0, 0), "line starts at col 0");
     assert_eq!(end_row, row0, "single unwrapped line stays on its row");
     assert_eq!(
-        t.selection_text((start_row, start_col), (end_row, end_col)),
+        terminal_under_test.selection_text((start_row, start_col), (end_row, end_col)),
         "hello world",
         "returned bounds must extract the whole line"
     );
@@ -1792,18 +1867,18 @@ fn select_line_at_returns_whole_line_bounds() {
 /// 最后一行的最后内容列，不含尾部空行与空列。
 #[test]
 fn select_all_bounds_exclude_trailing_blank_rows_and_columns() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.vt_write(b"alpha\r\nbravo");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"alpha\r\nbravo");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let bounds = t.select_all().expect("select_all bounds");
+    let bounds = terminal_under_test.select_all().expect("select_all bounds");
     assert_eq!(
         bounds,
         ((row0, 0), (row0 + 1, 4)),
         "bounds must exclude trailing blank rows and columns (got {bounds:?})"
     );
-    let text = t.selection_text(bounds.0, bounds.1);
+    let text = terminal_under_test.selection_text(bounds.0, bounds.1);
     assert!(
         text.contains("alpha") && text.contains("bravo"),
         "pinned bounds must cover both content lines (got {text:?})"
@@ -1815,20 +1890,23 @@ fn select_all_bounds_exclude_trailing_blank_rows_and_columns() {
 /// 经 install 链路保持）。
 #[test]
 fn selection_text_survives_scrolled_output() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.vt_write(b"alpha\n");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"alpha\n");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    t.set_selection((row0, 0), (row0, 4));
-    t.flush();
-    assert_eq!(t.selection_text((row0, 0), (row0, 4)), "alpha");
-    for index in 0..8 {
-        t.vt_write(format!("filler{index}\n").as_bytes());
-    }
-    t.flush();
+    terminal_under_test.set_selection((row0, 0), (row0, 4));
+    terminal_under_test.flush();
     assert_eq!(
-        t.selection_text((row0, 0), (row0, 4)),
+        terminal_under_test.selection_text((row0, 0), (row0, 4)),
+        "alpha"
+    );
+    for index in 0..8 {
+        terminal_under_test.vt_write(format!("filler{index}\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.selection_text((row0, 0), (row0, 4)),
         "alpha",
         "tracked selection must follow text into scrollback"
     );
@@ -1860,17 +1938,19 @@ fn encode_paste_text(text: &str, bracketed: bool) -> Vec<u8> {
 /// 此处断言命中坐标）。
 #[test]
 fn search_all_reveals_history_match() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
-    t.vt_write(b"needle\n");
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"needle\n");
     for index in 0..10 {
-        t.vt_write(format!("filler{index}\n").as_bytes());
+        terminal_under_test.vt_write(format!("filler{index}\n").as_bytes());
     }
-    t.flush();
-    let results = t.search_all_in_scrollback("needle", true);
+    terminal_under_test.flush();
+    let results = terminal_under_test.search_all_in_scrollback("needle", true);
     assert!(!results.is_empty(), "history hit");
     let hit = &results[0];
     assert_eq!(hit.start_col, 0, "needle starts at col 0");
-    let line = t.read_line_text(hit.row).expect("hit line");
+    let line = terminal_under_test
+        .read_line_text(hit.row)
+        .expect("hit line");
     assert_eq!(line, "needle");
 }
 
@@ -1879,12 +1959,12 @@ fn search_all_reveals_history_match() {
 /// 此处锁定顺序契约：首个为最旧、末个为最新。
 #[test]
 fn search_all_order_oldest_first_newest_last() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     for _ in 0..3 {
-        t.vt_write(b"match\n");
+        terminal_under_test.vt_write(b"match\n");
     }
-    t.flush();
-    let results = t.search_all_in_scrollback("match", true);
+    terminal_under_test.flush();
+    let results = terminal_under_test.search_all_in_scrollback("match", true);
     assert_eq!(results.len(), 3);
     assert!(results[0].row < results[2].row, "oldest first, newest last");
 }
@@ -1893,27 +1973,39 @@ fn search_all_order_oldest_first_newest_last() {
 /// 由 Kotlin 搜索状态机承载，此处锁定空结果契约）。
 #[test]
 fn search_all_no_matches_returns_empty() {
-    let mut t = terminal();
-    t.vt_write(b"hello world");
-    t.flush();
-    assert!(t.search_all_in_scrollback("zzz", false).is_empty());
-    assert!(t.search_all_in_scrollback("zzz", true).is_empty());
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello world");
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test
+            .search_all_in_scrollback("zzz", false)
+            .is_empty()
+    );
+    assert!(
+        terminal_under_test
+            .search_all_in_scrollback("zzz", true)
+            .is_empty()
+    );
 }
 
 /// 安装选区后 VT 线程把行级选区反白烘焙进 CellData（前景背景互换），
 /// 清除后恢复。该测试断言本仓的安装—烘焙链路，不复述上游选区语义。
 #[test]
 fn terminal_owned_selection_inverts_cell_data() {
-    let mut t = terminal(); // 24x80
-    t.vt_write(b"hello");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal(); // 24x80
+    terminal_under_test.vt_write(b"hello");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
     // 基线：未选中时前景为主题前景色。
-    let (_, _) = t.receive_cell_data().expect("baseline cell data");
-    t.set_selection((row0, 0), (row0, 4));
-    t.flush();
-    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    let (_, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("baseline cell data");
+    terminal_under_test.set_selection((row0, 0), (row0, 4));
+    terminal_under_test.flush();
+    let (selected, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("selected cell data");
     let picked = selected
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
@@ -1937,9 +2029,11 @@ fn terminal_owned_selection_inverts_cell_data() {
     assert_eq!(outside.foreground, theme_foreground);
     assert_eq!(outside.background, theme_background);
     // 清除后恢复基线。
-    t.clear_selection();
-    t.flush();
-    let (cleared, _) = t.receive_cell_data().expect("cleared cell data");
+    terminal_under_test.clear_selection();
+    terminal_under_test.flush();
+    let (cleared, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("cleared cell data");
     let restored = cleared
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
@@ -1953,20 +2047,25 @@ fn terminal_owned_selection_inverts_cell_data() {
 /// cells and None outside them.
 #[test]
 fn hyperlink_at_returns_uri_inside_link() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b]8;;https://example.com\x1b\\Link\x1b]8;;\x1b\\");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b]8;;https://example.com\x1b\\Link\x1b]8;;\x1b\\");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
     // "Link" starts at col 0.
-    let url = t.hyperlink_at(row0, 0).expect("cell 0 has the link");
+    let url = terminal_under_test
+        .hyperlink_at(row0, 0)
+        .expect("cell 0 has the link");
     assert_eq!(url, "https://example.com");
     // Last link cell still resolves; one past the link does not.
     assert!(
-        t.hyperlink_at(row0, 3).is_some(),
+        terminal_under_test.hyperlink_at(row0, 3).is_some(),
         "col 3 is the last link char"
     );
-    assert!(t.hyperlink_at(row0, 4).is_none(), "col 4 is past the link");
+    assert!(
+        terminal_under_test.hyperlink_at(row0, 4).is_none(),
+        "col 4 is past the link"
+    );
 }
 
 /// Kitty 图像协议像素回读（ghostty-android-terminal
@@ -1974,14 +2073,14 @@ fn hyperlink_at_returns_uri_inside_link() {
 /// take_kitty_graphics_image 返回 Some 且宽高为 1x1。
 #[test]
 fn kitty_graphics_transmit_returns_1x1_image() {
-    let mut t = terminal();
+    let mut terminal_under_test = terminal();
     // 1x1 RGB 红色像素：base64("/wAA") = {0xff, 0x00, 0x00}。
     // 显式 i=1 指定图像 id（上游默认自动分配 id，不保证为 1）。
     // 注意：vt_write/pty_write 均为分片直透（上游跨调用重组，无 ST/SGR 提前闭合）；
     // 此处走 pty_write 以覆盖 LF→CRLF 文本路径。
-    t.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=1;/wAA\x1b\\");
-    t.flush();
-    let image = t
+    terminal_under_test.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=1;/wAA\x1b\\");
+    terminal_under_test.flush();
+    let image = terminal_under_test
         .take_kitty_graphics_image(1)
         .expect("image id 1 must exist after transmit");
     assert_eq!(image.width, 1);
@@ -2106,26 +2205,26 @@ fn arrow_key_encoding_honors_cursor_key_mode() {
 /// build_cell_data → (cells, CursorInfo).
 #[test]
 fn cursor_matches_last_printed_row_after_echo_print() {
-    let mut t = terminal();
-    t.vt_write(b"$ ");
-    t.vt_write(b"abc");
-    t.flush();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"$ ");
+    terminal_under_test.vt_write(b"abc");
+    terminal_under_test.flush();
 
-    let (cells, cursor) = t
+    let (cells, cursor) = terminal_under_test
         .receive_cell_data()
         .expect("VT loop must auto-push cell data after writes");
 
     // Last row that has any non-blank cell = the row the text visibly sits on.
     let last_text_row = cells
         .iter()
-        .filter(|c| c.codepoint != 0)
-        .map(|c| c.row)
+        .filter(|cell| cell.codepoint != 0)
+        .map(|cell| cell.row)
         .max()
         .expect("printed cells must exist");
     let last_text_col = cells
         .iter()
-        .filter(|c| c.codepoint != 0 && c.row == last_text_row)
-        .map(|c| c.col)
+        .filter(|cell| cell.codepoint != 0 && cell.row == last_text_row)
+        .map(|cell| cell.col)
         .max()
         .expect("printed cells must exist on the text row");
 
@@ -2145,11 +2244,11 @@ fn cursor_matches_last_printed_row_after_echo_print() {
 /// must agree with the echo path — one coordinate contract for both.
 #[test]
 fn cursor_matches_cell_rows_after_cup_positioning() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b[3;5H"); // CUP to row 2, col 4 (1-based)
-    t.flush();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[3;5H"); // CUP to row 2, col 4 (1-based)
+    terminal_under_test.flush();
 
-    let (cells, cursor) = t
+    let (cells, cursor) = terminal_under_test
         .receive_cell_data()
         .expect("VT loop must auto-push cell data after CUP");
 
@@ -2159,8 +2258,8 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
     // cursor must therefore sit on an empty row, not below any text.
     let text_rows: Vec<u32> = cells
         .iter()
-        .filter(|c| c.codepoint != 0)
-        .map(|c| c.row)
+        .filter(|cell| cell.codepoint != 0)
+        .map(|cell| cell.row)
         .collect();
     assert!(
         text_rows.is_empty(),
@@ -2181,7 +2280,7 @@ fn sgr31_red_reaches_cell_data_foreground() {
     let (cells, _) = plain.receive_cell_data().expect("cell data");
     let red_cell = cells
         .iter()
-        .find(|c| c.codepoint == 'R' as u32)
+        .find(|cell| cell.codepoint == 'R' as u32)
         .expect("R cell present");
     assert!(
         red_cell.foreground[0] > 0.9
@@ -2224,7 +2323,7 @@ fn sgr31_red_reaches_cell_data_foreground() {
     let (cells, _) = dracula.receive_cell_data().expect("cell data");
     let red_cell = cells
         .iter()
-        .find(|c| c.codepoint == 'R' as u32)
+        .find(|cell| cell.codepoint == 'R' as u32)
         .expect("R cell present");
     assert!(
         (red_cell.foreground[0] - 1.0).abs() < 0.02
@@ -2248,7 +2347,7 @@ fn sgr31_mocha_default_theme_reaches_foreground() {
     let (cells, _) = mocha.receive_cell_data().expect("cell data");
     let red_cell = cells
         .iter()
-        .find(|c| c.codepoint == 'R' as u32)
+        .find(|cell| cell.codepoint == 'R' as u32)
         .expect("R cell present");
     assert!(
         (red_cell.foreground[0] - 243.0 / 255.0).abs() < 0.02
@@ -2281,7 +2380,7 @@ fn sgr_same_text_tricolor_rows_all_present() {
     for (row, expected_rgb) in expected {
         let cell = cells
             .iter()
-            .find(|c| c.row == row && c.col == 0)
+            .find(|cell| cell.row == row && cell.col == 0)
             .unwrap_or_else(|| panic!("行{row}首格缺席"));
         assert_eq!(
             cell.codepoint, 'E' as u32,
@@ -2318,7 +2417,7 @@ fn sgr_tricolor_mocha_reaches_foreground() {
         let (cells, _) = terminal.receive_cell_data().expect("cell data");
         let marked = cells
             .iter()
-            .find(|c| c.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == marker as u32)
             .expect("marked cell present");
         assert!(
             (marked.foreground[0] - expected[0] as f32 / 255.0).abs() < 0.02
@@ -2383,7 +2482,7 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
         let (cells, _) = styled.receive_cell_data().expect("cell data");
         let marked = cells
             .iter()
-            .find(|c| c.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == marker as u32)
             .expect("marked cell present");
         assert_eq!(
             (marked.flags >> flag_bit) & 1,
@@ -2394,7 +2493,7 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
         let snap_cell = snapshot
             .cells
             .iter()
-            .find(|c| c.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == marker as u32)
             .expect("marked snapshot cell present");
         let snapshot_set = match code {
             3 => snap_cell.italic,
@@ -2418,7 +2517,7 @@ fn blink_reaches_cell_data_without_underline_pollution() {
     let (underlined_cells, _) = underlined.receive_cell_data().expect("cell data");
     let underlined_cell = underlined_cells
         .iter()
-        .find(|c| c.codepoint == 'A' as u32)
+        .find(|cell| cell.codepoint == 'A' as u32)
         .expect("A present");
     assert_eq!((underlined_cell.flags >> cell_flags::UNDERLINE) & 1, 1);
     assert_eq!(
@@ -2433,7 +2532,7 @@ fn blink_reaches_cell_data_without_underline_pollution() {
     let (blinking_cells, _) = blinking.receive_cell_data().expect("cell data");
     let blinking_cell = blinking_cells
         .iter()
-        .find(|c| c.codepoint == 'B' as u32)
+        .find(|cell| cell.codepoint == 'B' as u32)
         .expect("B present");
     assert_eq!((blinking_cell.flags >> cell_flags::BLINK) & 1, 1);
     assert_eq!(
@@ -2445,7 +2544,7 @@ fn blink_reaches_cell_data_without_underline_pollution() {
     let snap_cell = snapshot
         .cells
         .iter()
-        .find(|c| c.codepoint == 'B' as u32)
+        .find(|cell| cell.codepoint == 'B' as u32)
         .expect("snapshot B present");
     assert!(snap_cell.blink, "SGR 5 must set snapshot blink");
     // 两者叠加各自完整。
@@ -2455,7 +2554,7 @@ fn blink_reaches_cell_data_without_underline_pollution() {
     let (both_cells, _) = both.receive_cell_data().expect("cell data");
     let both_cell = both_cells
         .iter()
-        .find(|c| c.codepoint == 'C' as u32)
+        .find(|cell| cell.codepoint == 'C' as u32)
         .expect("C present");
     assert_eq!((both_cell.flags >> cell_flags::BLINK) & 1, 1);
     assert_eq!((both_cell.flags >> cell_flags::UNDERLINE) & 1, 1);
@@ -2479,7 +2578,7 @@ fn underline_styles_reach_cell_data_and_snapshot() {
         let (cells, _) = styled.receive_cell_data().expect("cell data");
         let marked = cells
             .iter()
-            .find(|c| c.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == marker as u32)
             .expect("marked cell present");
         assert_eq!(
             (marked.flags >> cell_flags::UNDERLINE) & 1,
@@ -2495,7 +2594,7 @@ fn underline_styles_reach_cell_data_and_snapshot() {
         let snap_cell = snapshot
             .cells
             .iter()
-            .find(|c| c.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == marker as u32)
             .expect("marked snapshot cell present");
         assert!(
             snap_cell.underline,
@@ -2513,17 +2612,17 @@ fn underline_styles_reach_cell_data_and_snapshot() {
 ///（对标 selectionDragAcrossAnchorFlips 的端点重排语义）。
 #[test]
 fn selection_text_flipped_endpoints() {
-    let mut t = terminal();
-    t.vt_write(b"hello world");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello world");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
-    let forward = t.selection_text((row0, 0), (row0, 4));
+    let forward = terminal_under_test.selection_text((row0, 0), (row0, 4));
     assert_eq!(
         forward, "hello",
         "forward selection baseline (got {forward:?})"
     );
-    let flipped = t.selection_text((row0, 4), (row0, 0));
+    let flipped = terminal_under_test.selection_text((row0, 4), (row0, 0));
     assert_eq!(
         flipped, "hello",
         "flipped endpoints must yield the same range (got {flipped:?})"
@@ -2534,17 +2633,17 @@ fn selection_text_flipped_endpoints() {
 ///（对标 selectionDragMovesGrabbedEndpoint：先拖尾端点 0→8，再拖首端点 0→6）。
 #[test]
 fn selection_text_grabbed_endpoint_moves() {
-    let mut t = terminal();
-    t.vt_write(b"hello world");
-    t.flush();
-    let snap = t.take_snapshot();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello world");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
     let row = snap.scrollback_length;
-    let extended = t.selection_text((row, 0), (row, 8));
+    let extended = terminal_under_test.selection_text((row, 0), (row, 8));
     assert_eq!(
         extended, "hello wor",
         "drag end handle must extend (got {extended:?})"
     );
-    let shrunk = t.selection_text((row, 6), (row, 8));
+    let shrunk = terminal_under_test.selection_text((row, 6), (row, 8));
     assert_eq!(
         shrunk, "wor",
         "drag start handle must shrink (got {shrunk:?})"
@@ -2555,17 +2654,20 @@ fn selection_text_grabbed_endpoint_moves() {
 ///（对标 selectionTracksTextIntoScrollback）。
 #[test]
 fn selection_text_tracks_scrolled_content() {
-    let mut t = GhosttyTerminal::new(4, 20, 100).expect("terminal");
-    t.vt_write(b"alpha\n");
-    t.flush();
-    let first = t.selection_text((0, 0), (0, 4));
+    let mut terminal_under_test = GhosttyTerminal::new(4, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"alpha\n");
+    terminal_under_test.flush();
+    let first = terminal_under_test.selection_text((0, 0), (0, 4));
     assert_eq!(first, "alpha", "baseline selection (got {first:?})");
     for filler in 0..8 {
-        t.vt_write(format!("filler{filler}\n").as_bytes());
+        terminal_under_test.vt_write(format!("filler{filler}\n").as_bytes());
     }
-    t.flush();
-    assert!(t.scrollback_length() > 0, "content must have scrolled");
-    let tracked = t.selection_text((0, 0), (0, 4));
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.scrollback_length() > 0,
+        "content must have scrolled"
+    );
+    let tracked = terminal_under_test.selection_text((0, 0), (0, 4));
     assert_eq!(
         tracked, "alpha",
         "selection must track into scrollback (got {tracked:?})"
@@ -2576,14 +2678,14 @@ fn selection_text_tracks_scrolled_content() {
 /// 我方无标题事件通道且 DESIGN 未声明，只断言值本身）。
 #[test]
 fn osc2_title_readable() {
-    let mut t = terminal();
-    t.vt_write(b"\x1b]2;my title\x07");
-    t.flush();
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b]2;my title\x07");
+    terminal_under_test.flush();
     assert_eq!(
-        t.title(),
+        terminal_under_test.title(),
         "my title",
         "OSC 2 title must be readable (got {:?})",
-        t.title()
+        terminal_under_test.title()
     );
 }
 
@@ -2716,7 +2818,7 @@ fn inverse_reaches_cell_data_and_snapshot() {
     let (cells, _) = inverse.receive_cell_data().expect("cell data");
     let marked = cells
         .iter()
-        .find(|c| c.codepoint == 'X' as u32)
+        .find(|cell| cell.codepoint == 'X' as u32)
         .expect("X cell present");
     assert_eq!(
         (marked.flags >> cell_flags::REVERSE) & 1,
@@ -2727,7 +2829,7 @@ fn inverse_reaches_cell_data_and_snapshot() {
     let snap_cell = snapshot
         .cells
         .iter()
-        .find(|c| c.codepoint == 'X' as u32)
+        .find(|cell| cell.codepoint == 'X' as u32)
         .expect("snapshot X present");
     assert!(snap_cell.reverse, "SGR 7 must set snapshot reverse flag");
 }
@@ -2742,7 +2844,7 @@ fn combining_mark_reaches_grapheme_channel() {
     let (cells, _) = clustered.receive_cell_data().expect("cell data");
     let base = cells
         .iter()
-        .find(|c| c.codepoint == 'e' as u32)
+        .find(|cell| cell.codepoint == 'e' as u32)
         .expect("base e present");
     assert_eq!(
         base.grapheme_extra[0], 0x301,
@@ -2752,7 +2854,7 @@ fn combining_mark_reaches_grapheme_channel() {
     let snap_cell = snapshot
         .cells
         .iter()
-        .find(|c| c.codepoint == 'e' as u32)
+        .find(|cell| cell.codepoint == 'e' as u32)
         .expect("snapshot e present");
     assert!(
         snap_cell.graphemes.contains(&0x301),

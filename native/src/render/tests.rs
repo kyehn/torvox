@@ -17,7 +17,9 @@ fn f32_eq(a: f32, b: f32) -> bool {
 }
 
 fn f32_arrays_equal(a: &[f32], b: &[f32]) -> bool {
-    a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+    a.iter()
+        .zip(b)
+        .all(|(first, second)| first.to_bits() == second.to_bits())
 }
 
 /// Font pipeline with the ASCII glyph atlas pre-rasterized.
@@ -142,7 +144,7 @@ fn cell_instance_buffer_layout() {
 
 #[test]
 fn cell_instance_pod_roundtrip() {
-    let c = CellInstance {
+    let instance = CellInstance {
         quad_origin: [1.0, 2.0],
         atlas_offset: [0.5, 0.5],
         atlas_size: [0.1, 0.1],
@@ -154,7 +156,7 @@ fn cell_instance_pod_roundtrip() {
         bearing: [0.0; 2],
         glyph_advance_width: 8.0,
     };
-    let bytes = bytemuck::bytes_of(&c);
+    let bytes = bytemuck::bytes_of(&instance);
     let back: &CellInstance = bytemuck::from_bytes(bytes);
     assert!(f32_arrays_equal(&back.quad_origin, &[1.0, 2.0]));
     assert!(f32_eq(back.flags, 5.0));
@@ -163,11 +165,14 @@ fn cell_instance_pod_roundtrip() {
 
 #[test]
 fn cell_instance_zeroable() {
-    let c: CellInstance = bytemuck::Zeroable::zeroed();
-    assert!(f32_arrays_equal(&c.quad_origin, &[0.0, 0.0]));
-    assert!(f32_arrays_equal(&c.foreground, &[0.0, 0.0, 0.0, 0.0]));
-    assert!(f32_eq(c.flags, 0.0));
-    assert!(f32_arrays_equal(&c.bearing, &[0.0, 0.0]));
+    let instance: CellInstance = bytemuck::Zeroable::zeroed();
+    assert!(f32_arrays_equal(&instance.quad_origin, &[0.0, 0.0]));
+    assert!(f32_arrays_equal(
+        &instance.foreground,
+        &[0.0, 0.0, 0.0, 0.0]
+    ));
+    assert!(f32_eq(instance.flags, 0.0));
+    assert!(f32_arrays_equal(&instance.bearing, &[0.0, 0.0]));
 }
 
 #[test]
@@ -187,15 +192,18 @@ fn orthographic_projection_basic() {
     assert!((proj[3][1] - 1.0).abs() < f32::EPSILON, "translation Y");
     // [3][3] = 1 (result.w=1 for all vertices via Rust row-major→WGSL column-major)
     assert!((proj[3][3] - 1.0).abs() < f32::EPSILON);
-    // Rust row-major → WGSL column-major: result[0]=sum_j Rust[j][0]*v[j]
-    // For v=(1,1,0,1):
+    // Rust row-major → WGSL column-major: result[0]=sum_j Rust[j][0]*input_vector[j]
+    // For input_vector=(1,1,0,1):
     //   result[0]=2/w*1 + 0*1 + 0*0 + (-1)*1 = 0.02-1 = -0.98
     //   result[1]=0*1 + (-2/h)*1 + 0*0 + 1*1 = -0.02+1 = 0.98
     //   result[3]=0*1 + 0*1 + 0*0 + 1*1 = 1
-    let v = [1.0_f32, 1.0, 0.0, 1.0];
+    let input_vector = [1.0_f32, 1.0, 0.0, 1.0];
     let mut result = [0.0_f32; 4];
-    for i in 0..4 {
-        result[i] = proj[0][i] * v[0] + proj[1][i] * v[1] + proj[2][i] * v[2] + proj[3][i] * v[3];
+    for component_index in 0..4 {
+        result[component_index] = proj[0][component_index] * input_vector[0]
+            + proj[1][component_index] * input_vector[1]
+            + proj[2][component_index] * input_vector[2]
+            + proj[3][component_index] * input_vector[3];
     }
     assert!(
         (result[0] - (-0.98)).abs() < 1e-6,
@@ -513,7 +521,7 @@ fn orthographic_projection_resize_gpu_uniforms() {
 fn cursor_rendering_on_visible_cursor() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![
         CellData {
             codepoint: 'A' as u32,
@@ -551,8 +559,8 @@ fn cursor_rendering_on_visible_cursor() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 2,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -579,15 +587,15 @@ fn cursor_rendering_on_visible_cursor() {
 #[test]
 fn cursor_not_rendered_when_invisible() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         'A' as u32,
         [1.0, 1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
         0,
         false,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
         &mut font_pipeline,
     );
     assert_eq!(instances.len(), 1);
@@ -602,7 +610,7 @@ fn cursor_not_rendered_when_invisible() {
 fn reverse_video_applied_to_blank_cell() {
     use crate::terminal::ghostty_terminal::cell_flags;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let foreground = [1.0, 0.0, 0.0, 1.0];
     let background = [0.0, 0.0, 1.0, 1.0];
     let instances = build_cursor_probe_instance(
@@ -611,8 +619,8 @@ fn reverse_video_applied_to_blank_cell() {
         background,
         1 << cell_flags::REVERSE,
         false,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
         &mut font_pipeline,
     );
     assert_eq!(instances.len(), 1);
@@ -647,8 +655,8 @@ fn build_configured_cell_instance(
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: cell_data.len() as u32,
-            grid_cell_w: cell_width,
-            grid_cell_h: cell_height,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: TEST_ATLAS_SIZE,
             atlas_height: TEST_ATLAS_SIZE,
@@ -702,8 +710,8 @@ fn build_cursor_probe_instance(
 /// below): one [`CellData`], default cursor, unit grid.
 fn build_single_cell_instance(
     ch: char,
-    cell_w: f32,
-    cell_h: f32,
+    cell_width: f32,
+    cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
 ) -> Vec<crate::render::CellInstance> {
     use crate::terminal::ghostty_terminal::CellData;
@@ -731,8 +739,8 @@ fn build_single_cell_instance(
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -749,7 +757,7 @@ fn build_single_cell_instance(
 fn cluster_cell_merged_precomposed_emits_single_primary() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     // e + combining acute shapes to one precomposed glyph: it replaces
     // the primary quad instead of stacking an overlay.
     let mut extras = [0u32; 7];
@@ -772,8 +780,13 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
         style: CursorStyle::Block,
         color: None,
     };
-    let instances =
-        build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
+    let instances = build_configured_cell_instance(
+        &cell_data,
+        cursor,
+        cell_width,
+        cell_height,
+        &mut font_pipeline,
+    );
     assert_eq!(
         instances.len(),
         1,
@@ -794,7 +807,7 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
 fn cluster_cell_multi_mark_shapes_positioned_overlays() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     // a + two combining marks shapes to two glyphs: base primary plus
     // one positioned overlay from the shaper.
     let mut extras = [0u32; 7];
@@ -847,8 +860,8 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         crate::render::gpu::CellInstanceConfig {
             rows: 2,
             cols: 4,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: TEST_ATLAS_SIZE,
             atlas_height: TEST_ATLAS_SIZE,
@@ -880,7 +893,7 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         instances.iter().any(is_shaped_overlay),
         "a glyph overlay must sit at the shaper offset {expected_origin:?}"
     );
-    let expected_shifted = [3.0 * cell_w + shaped[1].x_offset, shaped[1].y_offset];
+    let expected_shifted = [3.0 * cell_width + shaped[1].x_offset, shaped[1].y_offset];
     let is_shifted_overlay = |instance: &crate::render::CellInstance| {
         instance.atlas_size != [0.0; 2] && instance.quad_origin == expected_shifted
     };
@@ -888,7 +901,10 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         instances.iter().any(is_shifted_overlay),
         "an overlay must sit at grid origin plus shaper offset {expected_shifted:?}"
     );
-    let expected_row = [cell_w + shaped[1].x_offset, cell_h + shaped[1].y_offset];
+    let expected_row = [
+        cell_width + shaped[1].x_offset,
+        cell_height + shaped[1].y_offset,
+    ];
     let is_row_overlay = |instance: &crate::render::CellInstance| {
         instance.atlas_size != [0.0; 2] && instance.quad_origin == expected_row
     };
@@ -911,7 +927,7 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
 fn cluster_cell_invalid_extra_falls_back_without_overlay() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     // An unrepresentable extra (lone surrogate) cannot join the cluster
     // string and cannot convert back to char: shaping is skipped and the
     // fallback drops it, leaving exactly the primary quad.
@@ -935,8 +951,13 @@ fn cluster_cell_invalid_extra_falls_back_without_overlay() {
         style: CursorStyle::Block,
         color: None,
     };
-    let instances =
-        build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
+    let instances = build_configured_cell_instance(
+        &cell_data,
+        cursor,
+        cell_width,
+        cell_height,
+        &mut font_pipeline,
+    );
     assert_eq!(
         instances.len(),
         1,
@@ -952,7 +973,7 @@ fn cluster_cell_invalid_extra_falls_back_without_overlay() {
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let ascent_pixels = font_pipeline.ascent_pixels();
 
     let chars = ['A', 'g', 'p', '.', ','];
@@ -960,7 +981,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_y = ascent_pixels - info.placement.top as f32;
 
-        let instances = build_single_cell_instance(ch, cell_w, cell_h, &mut font_pipeline);
+        let instances = build_single_cell_instance(ch, cell_width, cell_height, &mut font_pipeline);
         let cell = &instances[0];
 
         assert!(
@@ -976,14 +997,14 @@ fn bearing_y_uses_font_baseline_not_centering() {
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
 
     let chars = ['A', 'i', 'l', 'W', 'M'];
     for ch in chars {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_x = info.placement.left as f32;
 
-        let instances = build_single_cell_instance(ch, cell_w, cell_h, &mut font_pipeline);
+        let instances = build_single_cell_instance(ch, cell_width, cell_height, &mut font_pipeline);
         let cell = &instances[0];
 
         assert!(
@@ -1002,7 +1023,7 @@ fn bearing_x_uses_font_natural_bearing() {
 #[test]
 fn all_chars_share_same_baseline_y() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
 
     let chars = ['A', 'B', 'C', 'x', 'y', 'z', '0', '1', '9'];
     let cell_data: Vec<crate::terminal::ghostty_terminal::CellData> = chars
@@ -1033,8 +1054,8 @@ fn all_chars_share_same_baseline_y() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: chars.len() as u32,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -1101,15 +1122,15 @@ fn cjk_bearing_y_not_centered() {
                 style: CursorStyle::Block,
                 color: None,
             };
-            let (cell_w, cell_h) = font_pipeline.cell_metrics();
+            let (cell_width, cell_height) = font_pipeline.cell_metrics();
             let mut instances = Vec::new();
             let built = crate::render::build_instances_from_cell_data(
                 &cell_data,
                 crate::render::gpu::CellInstanceConfig {
                     rows: 1,
                     cols: 2,
-                    grid_cell_w: cell_w,
-                    grid_cell_h: cell_h,
+                    grid_cell_width: cell_width,
+                    grid_cell_height: cell_height,
                     cursor,
                     atlas_width: 1024.0,
                     atlas_height: 1024.0,
@@ -1225,7 +1246,7 @@ fn blend_highlight_semi_transparent() {
 fn search_highlight_blends_on_non_cursor_cell() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
         codepoint: 'X' as u32,
         width: 1,
@@ -1256,8 +1277,8 @@ fn search_highlight_blends_on_non_cursor_cell() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -1280,7 +1301,7 @@ fn search_highlight_blends_on_non_cursor_cell() {
 fn cursor_cell_not_affected_by_search_highlight() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
         codepoint: 'A' as u32,
         width: 1,
@@ -1311,8 +1332,8 @@ fn cursor_cell_not_affected_by_search_highlight() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -1339,8 +1360,8 @@ fn group_highlights_by_row(
 ) -> HashMap<i32, Vec<&SearchHighlight>, foldhash::fast::RandomState> {
     let mut by_row: HashMap<i32, Vec<&SearchHighlight>, foldhash::fast::RandomState> =
         HashMap::with_hasher(foldhash::fast::RandomState::default());
-    for h in highlights {
-        by_row.entry(h.row).or_default().push(h);
+    for highlight in highlights {
+        by_row.entry(highlight.row).or_default().push(highlight);
     }
     by_row
 }
@@ -1549,7 +1570,7 @@ fn selection_intersect_current_match_double_swap() {
     // background becomes the fully-opaque highlight color.
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     // Terminal-baked selection: white-on-black becomes black-on-white.
     let cell_data = vec![CellData {
         codepoint: 'X' as u32,
@@ -1581,8 +1602,8 @@ fn selection_intersect_current_match_double_swap() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -1613,15 +1634,15 @@ fn selection_intersect_current_match_double_swap() {
 #[test]
 fn cursor_block_full_cell_size() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         0x20,
         [1.0, 1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
         0,
         true,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
         &mut font_pipeline,
     );
     assert_eq!(instances.len(), 1);
@@ -1629,11 +1650,11 @@ fn cursor_block_full_cell_size() {
     // Production block cursor tracks the glyph bitmap (not the full cell):
     // full cell width, glyph height, placed inside the cell.
     assert!(
-        f32_eq(cell.quad_size[0], cell_w),
+        f32_eq(cell.quad_size[0], cell_width),
         "Block cursor width should equal cell width"
     );
     assert!(
-        cell.quad_size[1] > 0.0 && cell.quad_size[1] <= cell_h,
+        cell.quad_size[1] > 0.0 && cell.quad_size[1] <= cell_height,
         "Block cursor height should cover the glyph within the cell, got {}",
         cell.quad_size[1]
     );
@@ -1642,15 +1663,15 @@ fn cursor_block_full_cell_size() {
 #[test]
 fn cursor_not_rendered_when_visible_false() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         0x20,
         [1.0, 1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
         0,
         false,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
         &mut font_pipeline,
     );
     assert_eq!(instances.len(), 1);
@@ -1665,15 +1686,15 @@ fn cursor_not_rendered_when_visible_false() {
 #[test]
 fn cursor_at_origin() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         'A' as u32,
         [1.0, 1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
         0,
         true,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
         &mut font_pipeline,
     );
     assert_eq!(
@@ -1691,15 +1712,15 @@ fn cursor_at_origin() {
 #[test]
 fn cursor_with_text_and_block_style() {
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         'X' as u32,
         [0.0, 1.0, 0.0, 1.0],
         [0.0, 0.0, 1.0, 1.0],
         0,
         true,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
         &mut font_pipeline,
     );
     assert_eq!(instances.len(), 1);
@@ -1719,7 +1740,7 @@ fn cursor_with_text_and_block_style() {
 fn cursor_color_custom_values() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
         codepoint: 0x20,
         width: 1,
@@ -1744,8 +1765,8 @@ fn cursor_color_custom_values() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -1855,8 +1876,11 @@ fn bench_gpu_buffer_upload_throughput() {
 
     // Generate realistic instance data
     let instance_data: Vec<CellInstance> = (0..1920)
-        .map(|i| CellInstance {
-            quad_origin: [i as f32 % 80.0 * 10.0, i as f32 / 80.0 * 20.0],
+        .map(|instance_index| CellInstance {
+            quad_origin: [
+                instance_index as f32 % 80.0 * 10.0,
+                instance_index as f32 / 80.0 * 20.0,
+            ],
             atlas_offset: [0.0, 0.0],
             atlas_size: [0.0, 0.0],
             foreground: [0.9, 0.9, 0.9, 1.0],
@@ -1870,18 +1894,19 @@ fn bench_gpu_buffer_upload_throughput() {
         .collect();
     let bytes = bytemuck::cast_slice(&instance_data);
 
-    let n = 1000;
+    let iteration_count = 1000;
     let start = Instant::now();
-    for _ in 0..n {
+    for _ in 0..iteration_count {
         queue.write_buffer(&buffer, 0, bytes);
         black_box(&buffer);
     }
     let elapsed = start.elapsed();
-    let mb_per_sec = n as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
+    let mb_per_sec =
+        iteration_count as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
     println!(
         "GPU buffer upload: {:.0} MB/s ({}×{} bytes in {:.1}ms)",
         mb_per_sec,
-        n,
+        iteration_count,
         bytes.len(),
         elapsed.as_millis(),
     );
@@ -1922,9 +1947,9 @@ fn bench_gpu_command_encoding_overhead() {
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let n = 500;
+    let iteration_count = 500;
     let start = Instant::now();
-    for _ in 0..n {
+    for _ in 0..iteration_count {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Bench Encoder"),
         });
@@ -1948,11 +1973,11 @@ fn bench_gpu_command_encoding_overhead() {
         queue.submit(black_box([encoder.finish()]));
     }
     let elapsed = start.elapsed();
-    let submissions_per_sec = n as f64 / elapsed.as_secs_f64();
+    let submissions_per_sec = iteration_count as f64 / elapsed.as_secs_f64();
     println!(
         "GPU command encoding + submit: {:.0} submissions/sec ({:.1}ms per submission)",
         submissions_per_sec,
-        elapsed.as_millis() as f64 / n as f64,
+        elapsed.as_millis() as f64 / iteration_count as f64,
     );
     assert!(
         submissions_per_sec > 100.0,
@@ -1993,8 +2018,11 @@ fn bench_gpu_full_submit_throughput() {
 
     // Staging buffer + instance data
     let instance_data: Vec<CellInstance> = (0..1920)
-        .map(|i| CellInstance {
-            quad_origin: [i as f32 % 80.0 * 10.0, i as f32 / 80.0 * 20.0],
+        .map(|instance_index| CellInstance {
+            quad_origin: [
+                instance_index as f32 % 80.0 * 10.0,
+                instance_index as f32 / 80.0 * 20.0,
+            ],
             atlas_offset: [0.0, 0.0],
             atlas_size: [0.0, 0.0],
             foreground: [0.9, 0.9, 0.9, 1.0],
@@ -2015,9 +2043,9 @@ fn bench_gpu_full_submit_throughput() {
         mapped_at_creation: false,
     });
 
-    let n = 200;
+    let iteration_count = 200;
     let start = Instant::now();
-    for _ in 0..n {
+    for _ in 0..iteration_count {
         queue.write_buffer(&buffer, 0, bytes);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2048,12 +2076,13 @@ fn bench_gpu_full_submit_throughput() {
         timeout: Some(std::time::Duration::from_secs(2)),
     });
     let elapsed = start.elapsed();
-    let fps = n as f64 / elapsed.as_secs_f64();
-    let mb_per_sec = n as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
+    let fps = iteration_count as f64 / elapsed.as_secs_f64();
+    let mb_per_sec =
+        iteration_count as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
     println!(
         "GPU full submit: {:.0} frames/sec ({:.1}ms per frame, {:.0} MB/s upload)",
         fps,
-        elapsed.as_millis() as f64 / n as f64,
+        elapsed.as_millis() as f64 / iteration_count as f64,
         mb_per_sec,
     );
     // Headless wgpu (Mesa Lavapipe) varies widely; set a conservative threshold
@@ -2077,9 +2106,9 @@ fn bench_gpu_atlas_texture_upload() {
     let device = &renderer.device;
     let queue = &renderer.queue;
 
-    let n = 100;
+    let iteration_count = 100;
     let start = Instant::now();
-    for _ in 0..n {
+    for _ in 0..iteration_count {
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Bench"),
             size: wgpu::Extent3d {
@@ -2118,11 +2147,11 @@ fn bench_gpu_atlas_texture_upload() {
         black_box(tex);
     }
     let elapsed = start.elapsed();
-    let uploads_per_sec = n as f64 / elapsed.as_secs_f64();
+    let uploads_per_sec = iteration_count as f64 / elapsed.as_secs_f64();
     println!(
         "GPU atlas texture upload: {:.0} uploads/sec ({:.1}ms per 1024×1024 RGBA)",
         uploads_per_sec,
-        elapsed.as_millis() as f64 / n as f64,
+        elapsed.as_millis() as f64 / iteration_count as f64,
     );
     // Lavapipe may be slow; threshold is set conservatively
     assert!(
@@ -2266,22 +2295,22 @@ mod vertical_shift_tests {
     use crate::render::cell_builder::detect_vertical_shift;
     use crate::terminal::ghostty_terminal::CellData;
 
-    fn cell(row: u32, col: u32, tag: u8) -> CellData {
-        let mut cd: CellData = bytemuck::Zeroable::zeroed();
-        cd.row = row;
-        cd.col = col;
-        cd.codepoint = if col == 0 { tag as u32 } else { b' ' as u32 };
-        cd
+    fn cell(row: u32, column: u32, tag: u8) -> CellData {
+        let mut cell_data: CellData = bytemuck::Zeroable::zeroed();
+        cell_data.row = row;
+        cell_data.col = column;
+        cell_data.codepoint = if column == 0 { tag as u32 } else { b' ' as u32 };
+        cell_data
     }
 
     fn row(row: u32, tag: u8, cols: u32) -> Vec<CellData> {
-        (0..cols).map(|c| cell(row, c, tag)).collect()
+        (0..cols).map(|column| cell(row, column, tag)).collect()
     }
 
     fn grid(cols: u32, tags: &[u8]) -> Vec<CellData> {
         tags.iter()
             .enumerate()
-            .flat_map(|(r, &t)| row(r as u32, t, cols))
+            .flat_map(|(row_index, &tag_byte)| row(row_index as u32, tag_byte, cols))
             .collect()
     }
 
@@ -2302,8 +2331,8 @@ mod vertical_shift_tests {
 
     #[test]
     fn rejects_identical_frames() {
-        let g = grid(2, b"ABCD");
-        assert_eq!(detect_vertical_shift(&g, &g, 4, 8), None);
+        let grid_cells = grid(2, b"ABCD");
+        assert_eq!(detect_vertical_shift(&grid_cells, &grid_cells, 4, 8), None);
     }
 
     #[test]
@@ -2350,18 +2379,18 @@ fn bench_end_to_end_cpu_pipeline_latency() {
 
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
+    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     let mut font_pipeline = super::font::FontPipeline::new(1024, 1024, 14.0);
 
     // Simulate a realistic screen: fill with text content
     let content = b"user@host:~$ cargo build --release --features=test-util\n   Compiling native v0.1.0\n    Finished `release` profile [optimized] target(s) in 0.42s\n";
-    let n = 20; // 20 screens
+    let iteration_count = 20; // 20 screens
 
     let start = Instant::now();
-    for _ in 0..n {
-        t.vt_write(content);
-        t.flush();
-        let cell_data = t.receive_cell_data();
+    for _ in 0..iteration_count {
+        terminal_under_test.vt_write(content);
+        terminal_under_test.flush();
+        let cell_data = terminal_under_test.receive_cell_data();
         let (cells, cursor_info) = cell_data.expect("should receive CellData after flush");
 
         let cursor = super::CellCursor {
@@ -2377,8 +2406,8 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             super::cell_builder::CellInstanceConfig {
                 rows: 24,
                 cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
+                grid_cell_width: 1024.0 / 80.0,
+                grid_cell_height: 1024.0 / 24.0,
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
@@ -2391,8 +2420,8 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         black_box(count);
     }
     let elapsed = start.elapsed();
-    let ms_per_frame = elapsed.as_millis() as f64 / n as f64;
-    let fps = n as f64 / elapsed.as_secs_f64();
+    let ms_per_frame = elapsed.as_millis() as f64 / iteration_count as f64;
+    let fps = iteration_count as f64 / elapsed.as_secs_f64();
     println!(
         "End-to-end CPU pipeline: {:.1}ms per frame ({:.0} fps) — terminal write + CellData + build_instances",
         ms_per_frame, fps,
@@ -2414,7 +2443,7 @@ fn bench_end_to_end_cpu_pipeline_latency() {
 fn merged_cluster_emits_single_primary_without_ghost_overlays() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     // 👨‍👩‍👧 shapes to one glyph: it must replace the primary quad,
     // not stack component overlays on top (ghosting).
     // 彩色 emoji 无 outline 光栅时合并字形查不到，走逐码点 overlay
@@ -2443,8 +2472,13 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
         style: CursorStyle::Block,
         color: None,
     };
-    let instances =
-        build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
+    let instances = build_configured_cell_instance(
+        &cell_data,
+        cursor,
+        cell_width,
+        cell_height,
+        &mut font_pipeline,
+    );
     assert!(
         !instances.is_empty(),
         "emoji ZWJ cell must produce at least one instance"
@@ -2463,7 +2497,7 @@ fn same_glyph_at_different_cells_samples_identical_atlas_region() {
     // 区域，仅 quad 原点随位置偏移；UV 与位置无关。
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell = |row: u32, col: u32| CellData {
         codepoint: 'd' as u32,
         width: 1,
@@ -2489,8 +2523,8 @@ fn same_glyph_at_different_cells_samples_identical_atlas_region() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 6,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: TEST_ATLAS_SIZE,
             atlas_height: TEST_ATLAS_SIZE,
@@ -2509,7 +2543,7 @@ fn same_glyph_at_different_cells_samples_identical_atlas_region() {
         instances[0].atlas_size, instances[1].atlas_size,
         "same glyph must sample the same atlas extent"
     );
-    let expected_dx = 5.0 * cell_w;
+    let expected_dx = 5.0 * cell_width;
     assert!(
         (instances[1].quad_origin[0] - instances[0].quad_origin[0] - expected_dx).abs() < 1e-4,
         "quad origin must shift exactly by columns"
@@ -2521,7 +2555,7 @@ fn distinct_glyphs_sample_distinct_atlas_regions() {
     // 回归网（d 像 a 类字形混淆）：不同字符必须采样不同图集区域。
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell = |ch: char, col: u32| CellData {
         codepoint: ch as u32,
         width: 1,
@@ -2547,8 +2581,8 @@ fn distinct_glyphs_sample_distinct_atlas_regions() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: 2,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: TEST_ATLAS_SIZE,
             atlas_height: TEST_ATLAS_SIZE,
@@ -2591,11 +2625,11 @@ fn italic_d_rasterizes_distinct_from_regular() {
     let bitmap = pipeline.atlas_bitmap();
     let atlas_width = pipeline.atlas_dimensions().0 as usize;
     let top_rows_foreground = (0..italic.height.min(3))
-        .flat_map(|row| {
-            (0..italic.width).map(move |col| {
-                let x = (italic.atlas_x + col) as usize;
-                let y = (italic.atlas_y + row) as usize;
-                bitmap[(y * atlas_width + x) * 4]
+        .flat_map(|atlas_row| {
+            (0..italic.width).map(move |atlas_column| {
+                let pixel_column = (italic.atlas_x + atlas_column) as usize;
+                let pixel_row = (italic.atlas_y + atlas_row) as usize;
+                bitmap[(pixel_row * atlas_width + pixel_column) * 4]
             })
         })
         .filter(|&alpha| alpha > 0)
@@ -2650,7 +2684,7 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
     let mut font_pipeline = ascii_font();
     // 模拟 render_inner Phase 1：先取走构建前的脏区（ASCII 预热字形）。
     let _pre_frame_upload = font_pipeline.take_dirty_rect();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let text = "abcdefghijklmnop";
     let cell_data: Vec<CellData> = text
         .char_indices()
@@ -2679,8 +2713,8 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
         crate::render::gpu::CellInstanceConfig {
             rows: 1,
             cols: text.len() as u32,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
+            grid_cell_width: cell_width,
+            grid_cell_height: cell_height,
             cursor,
             atlas_width: TEST_ATLAS_SIZE,
             atlas_height: TEST_ATLAS_SIZE,
@@ -2725,7 +2759,7 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
     use crate::terminal::ghostty_terminal::cell_flags;
     let mut font_pipeline = ascii_font();
     let _ = font_pipeline.take_dirty_rect();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let text = "abcdefghijklmnop";
     let cell_data: Vec<CellData> = text
         .char_indices()
@@ -2756,8 +2790,8 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
     let config = crate::render::gpu::CellInstanceConfig {
         rows: 1,
         cols: text.len() as u32,
-        grid_cell_w: cell_w,
-        grid_cell_h: cell_h,
+        grid_cell_width: cell_width,
+        grid_cell_height: cell_height,
         cursor,
         atlas_width: TEST_ATLAS_SIZE,
         atlas_height: TEST_ATLAS_SIZE,
@@ -2835,7 +2869,7 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
     };
     let mut context = setup_test_gpu_context(device, queue);
     let (surface_width, surface_height) = (50u32, 50u32);
-    let (row_count, cell_h) = (8u32, 5.0f32);
+    let (row_count, cell_height_px) = (8u32, 5.0f32);
     let scroll_px = 3.0f32;
     let stripe_colors: [[u8; 3]; 8] = [
         [200, 0, 0],
@@ -2858,13 +2892,13 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
                 1.0,
             ];
             CellInstance {
-                quad_origin: [0.0, row as f32 * cell_h],
+                quad_origin: [0.0, row as f32 * cell_height_px],
                 atlas_offset: [0.0; 2],
                 atlas_size: [0.0; 2],
                 foreground: color,
                 background: color,
                 underline_color: color,
-                quad_size: [surface_width as f32, cell_h],
+                quad_size: [surface_width as f32, cell_height_px],
                 flags: 0.0,
                 bearing: [0.0; 2],
                 glyph_advance_width: 0.0,
@@ -2886,47 +2920,54 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
     context.refresh_cell_uniforms(surface_width as f32, surface_height as f32);
     let frame_back = context.render_to_buffer(&instances, &[]).unwrap();
 
-    let pixel_at = |buf: &[u8], x: u32, y: u32| -> [u8; 4] {
-        let index = ((y * surface_width + x) * 4) as usize;
-        [buf[index], buf[index + 1], buf[index + 2], buf[index + 3]]
+    let pixel_at = |buffer: &[u8], pixel_x: u32, pixel_y: u32| -> [u8; 4] {
+        let index = ((pixel_y * surface_width + pixel_x) * 4) as usize;
+        [
+            buffer[index],
+            buffer[index + 1],
+            buffer[index + 2],
+            buffer[index + 3],
+        ]
     };
 
     // 帧 B：上边缘条带 [0, scroll_px) 必须是清屏背景色（该条带在
     // 行进位前本应显示上一行尚未到达的内容，背景即自洽表现）。
-    for y in 0..scroll_px as u32 {
-        for x in 0..surface_width {
+    for pixel_row in 0..scroll_px as u32 {
+        for pixel_column in 0..surface_width {
             assert_eq!(
-                pixel_at(&frame_scrolled, x, y),
+                pixel_at(&frame_scrolled, pixel_column, pixel_row),
                 background,
-                "top edge strip must be cleared background (x={x}, y={y})"
+                "top edge strip must be cleared background (x={pixel_column}, y={pixel_row})"
             );
         }
     }
-    // 帧 B：行 r 内容整体下移，占据 [scroll_px + r*cell_h, scroll_px + (r+1)*cell_h)。
+    // 帧 B：行 r 内容整体下移，占据 [scroll_px + r*cell_height_px, scroll_px + (r+1)*cell_height_px)。
     for row in 0..row_count {
-        let y_mid = (scroll_px as u32) + (row as f32 * cell_h) as u32 + (cell_h * 0.5) as u32;
+        let row_middle_y = (scroll_px as u32)
+            + (row as f32 * cell_height_px) as u32
+            + (cell_height_px * 0.5) as u32;
         let expected = [
             stripe_colors[row as usize][0],
             stripe_colors[row as usize][1],
             stripe_colors[row as usize][2],
             255,
         ];
-        for x in 0..surface_width {
+        for pixel_column in 0..surface_width {
             assert_eq!(
-                pixel_at(&frame_scrolled, x, y_mid),
+                pixel_at(&frame_scrolled, pixel_column, row_middle_y),
                 expected,
-                "row {row} must sit at shifted position (x={x}, y={y_mid})"
+                "row {row} must sit at shifted position (x={pixel_column}, y={row_middle_y})"
             );
         }
     }
     // 帧 B：下边缘条带（网格底线之下）为清屏背景色。
-    let grid_bottom_px = (scroll_px as u32) + (row_count as f32 * cell_h) as u32;
-    for y in grid_bottom_px..surface_height {
-        for x in 0..surface_width {
+    let grid_bottom_px = (scroll_px as u32) + (row_count as f32 * cell_height_px) as u32;
+    for pixel_row in grid_bottom_px..surface_height {
+        for pixel_column in 0..surface_width {
             assert_eq!(
-                pixel_at(&frame_scrolled, x, y),
+                pixel_at(&frame_scrolled, pixel_column, pixel_row),
                 background,
-                "bottom edge strip must be cleared background (x={x}, y={y})"
+                "bottom edge strip must be cleared background (x={pixel_column}, y={pixel_row})"
             );
         }
     }

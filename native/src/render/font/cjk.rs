@@ -17,11 +17,11 @@ impl FontPipeline {
         }
 
         if let Some(primary_id) = self.font_id {
-            let db = self.font_system.db();
+            let font_database = self.font_system.db();
             // 探测 locale 的代表字符：CJK 字体按 locale 分片（CN 字体未必覆盖
             // 谚文音节），故不要求中/日/가同时存在，否则会拒绝匹配的主字体。
             let probe = if locale_tag == "kr" { '가' } else { '中' };
-            let primary_supports_cjk = db
+            let primary_supports_cjk = font_database
                 .with_face_data(primary_id, |font_data, face_index| {
                     let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                     Some(font_ref.charmap().map(probe) != 0)
@@ -59,7 +59,7 @@ impl FontPipeline {
 
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn match_fonts_xml_fallbacks(
-        db: &fontdb::Database,
+        font_database: &fontdb::Database,
         xml: &str,
         system_locale: &str,
         max_results: usize,
@@ -75,7 +75,7 @@ impl FontPipeline {
                 continue;
             };
             for (filename, index) in filenames {
-                let same_file: Vec<(fontdb::ID, u32)> = db
+                let same_file: Vec<(fontdb::ID, u32)> = font_database
                     .faces()
                     .filter_map(|face| {
                         let path = match &face.source {
@@ -122,13 +122,13 @@ impl FontPipeline {
 
     pub(crate) fn find_glyph_anywhere(&mut self, ch: char) -> Option<(fontdb::ID, u16)> {
         let primary = self.font_id?;
-        let db = self.font_system.db();
+        let font_database = self.font_system.db();
         let mut candidates: Vec<(fontdb::ID, u16)> = Vec::new();
-        for face in db.faces() {
+        for face in font_database.faces() {
             if face.id == primary {
                 continue;
             }
-            let gid = db
+            let gid = font_database
                 .with_face_data(face.id, |font_data, face_index| {
                     let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                     let charmap = font_ref.charmap();
@@ -190,8 +190,8 @@ impl FontPipeline {
         // `try_cjk_outline_fallback` 跳过全部 CJK。
         let raster_size = self.font_size * self.raster_scale.max(1.0);
         let hint = self.raster_scale <= 1.01;
-        let db = self.font_system.db();
-        let result = db.with_face_data(font_id, |font_data, face_index| {
+        let font_database = self.font_system.db();
+        let result = font_database.with_face_data(font_id, |font_data, face_index| {
             let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
             let mut scaler = scaler_context
                 .builder(font_ref)
@@ -218,16 +218,18 @@ impl FontPipeline {
             }
         }
         let glyphs: Vec<(fontdb::ID, swash::GlyphId)> = {
-            let db = self.font_system.db();
+            let font_database = self.font_system.db();
             self.cjk_fallback_ids
                 .iter()
                 .filter_map(|&fallback_id| {
-                    let result = db.with_face_data(fallback_id, |font_data, face_index| {
-                        let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                        let charmap = font_ref.charmap();
-                        let gid = charmap.map(ch);
-                        if gid != 0 { Some(gid) } else { None }
-                    })?;
+                    let result =
+                        font_database.with_face_data(fallback_id, |font_data, face_index| {
+                            let font_ref =
+                                swash::FontRef::from_index(font_data, face_index as usize)?;
+                            let charmap = font_ref.charmap();
+                            let gid = charmap.map(ch);
+                            if gid != 0 { Some(gid) } else { None }
+                        })?;
                     let gid = result?;
                     Some((fallback_id, gid))
                 })
