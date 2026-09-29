@@ -1598,6 +1598,9 @@ constructor(
         const val DEFAULT_GRID_COLS = 80
         private const val TENTHS_PER_UNIT = 10
 
+        /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */
+        private const val U16_MAX = 0xFFFF
+
         /** 缩放预览的字号上下界（十分之一单位），对齐原生 setFontSizeInPlace 的钳位（4.0..100.0）。 */
         private const val MIN_FONT_SIZE_TENTHS = 40
         private const val MAX_FONT_SIZE_TENTHS = 1000
@@ -2810,7 +2813,7 @@ constructor(
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         sessions.values.forEach { entry ->
-            entry.bridge?.setFontSize(config.fontSizeTenths)
+            entry.bridge?.setFontSizeInPlace(config.fontSizeTenths)
             entry.bridge?.setFontFamily(effectiveFontFamily)
             entry.bridge?.setTheme(config.theme)
             entry.notifyRender()
@@ -3036,8 +3039,8 @@ constructor(
         // 注意上界是 u16 协议限制，而非显示尺寸的合理性限制：
         // UI 路径（window insets、applySettings）提供的是真实网格尺寸，
         // 故 65535×65535 的网格只可能由直接 API 调用者请求；原生会尝试分配。
-        val clampedRows = rows.coerceIn(1, 0xFFFF)
-        val clampedCols = cols.coerceIn(1, 0xFFFF)
+        val clampedRows = rows.coerceIn(1, U16_MAX)
+        val clampedCols = cols.coerceIn(1, U16_MAX)
         entry.bridge?.resize(clampedRows, clampedCols)
         // CAS：普通 copy 会覆盖渲染线程在读与写之间发布的 title 更新。
         _state.update { it.copy(rows = clampedRows, cols = clampedCols) }
@@ -3053,18 +3056,19 @@ constructor(
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
         val entry = sessions[activeSessionId] ?: return
-        entry.bridge?.setPixelSize(widthPx.coerceIn(0, 0xFFFF), heightPx.coerceIn(0, 0xFFFF))
+        entry.bridge?.setPixelSize(widthPx.coerceIn(0, U16_MAX), heightPx.coerceIn(0, U16_MAX))
     }
 
-    fun recomputeGrid(width: Int, height: Int) {
+    /**
+     * 按当前 Surface 尺寸与原生字体单元格度量重算 rows/cols，并把权威网格同步到会话状态。
+     *
+     * 不做此步，重启后重新绑定 Surface 会保留引导期的 24x80 网格，
+     * 而字形却按配置的（更大）尺寸渲染：提示符被截断
+     * （"/home/com.ter" 而非完整路径）且换行失效。
+     */
+    fun recomputeGrid() {
         val bridge = sessions[activeSessionId]?.bridge ?: return
-        bridge.recomputeGrid(width, height)
         syncGridDimensions(bridge)
-        // bridge.recomputeGrid 只是一个日志桩——真正的重排发生在此：
-        // 按当前 Surface 尺寸与原生字体单元格度量重算 rows/cols。
-        // 不做此步，重启后重新绑定 Surface 会保留引导期的 24x80 网格，
-        // 而字形却按配置的（更大）尺寸渲染：提示符被截断
-        // （"/home/com.ter" 而非完整路径）且换行失效。
         recomputeGridFromFontMetrics()
     }
 

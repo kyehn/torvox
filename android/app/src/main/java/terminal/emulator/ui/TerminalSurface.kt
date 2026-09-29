@@ -124,7 +124,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val selection = viewModel?.state?.value?.selection ?: return
         if (selection.start == null || selection.end == null) return
         val pasteEnabled = clipboardAccess.hasClipboardText()
-        val actions = menuActions(pasteOnly, pasteEnabled)
+        val actions = menuActionsForSelection(pasteOnly, pasteEnabled, selection.selectedText.orEmpty())
         if (actions.isEmpty()) return
         val bar = buildMenuBar(actions)
         val popup =
@@ -157,11 +157,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK|OPEN FILE / PASTE-if-clipboard). */
-    private fun menuActions(pasteOnly: Boolean, pasteEnabled: Boolean): List<Pair<String, () -> Unit>> {
-        val selectionText = viewModel?.state?.value?.selection?.selectedText.orEmpty()
-        return menuActionsForSelection(pasteOnly, pasteEnabled, selectionText)
-    }
-
     internal fun menuActionsForSelection(
         pasteOnly: Boolean,
         pasteEnabled: Boolean,
@@ -267,7 +262,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             toastCannotOpenFile()
             return
         }
-        if (!file.isFile || !file.exists()) {
+        if (!file.isFile) {
             toastCannotOpenFile()
             return
         }
@@ -371,7 +366,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         val viewportTopGrid = currentViewportTopGrid()
         val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cellWidthPixels, cellHeightPixels)
-        val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cellWidthPixels, cellHeightPixels)
+        val (rightPx, bottomPx) =
+            gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cellWidthPixels, cellHeightPixels)
         val density = resources.displayMetrics.density
         val densityPixels = { value: Int -> (value * density + HALF_PIXEL_OFFSET).toInt() }
         // PopupWindow 在显示时才测量，故用粗略估算（项数 × ~92dp）并钳位到 Surface。
@@ -543,7 +539,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
 
         internal fun applyResizeNormal(width: Int, height: Int, terminalViewModel: TerminalViewModel) {
-            terminalViewModel.runtime.recomputeGrid(width, height)
+            terminalViewModel.runtime.recomputeGrid()
             val surface = holder.surface
             if (!surface.isValid) {
                 LogUtil.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
@@ -2648,7 +2644,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             } else {
                 // 重新绑定（重建后的）Surface；渲染器据此重建其 wgpu surface。
                 terminalViewModel.runtime.attachSurface(surface, width, height)
-                terminalViewModel.runtime.recomputeGrid(width, height)
+                terminalViewModel.runtime.recomputeGrid()
                 // onSurfaceDestroyed 会在此路径上置 render_paused=true，
                 // 而只有设置界面会清除它，
                 // 故普通的后台/恢复循环会让该标志保持置位，
