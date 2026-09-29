@@ -2,7 +2,10 @@
 
 ## Purpose
 
-键栏高度预留与实际渲染总高一致，网格与平移不差半行。
+键盘弹出与隐藏时终端可用高度变化，网格重算、内容平移与键栏占位必须同源：
+`runtime.modifierBarHeightPx` 同时供 `TerminalScreen` 的高度预留、`TerminalSurface`
+的可用高度（`applyGridResize`）与 `computeTerminalPanPx` 的平移量使用。任一处
+另算即出现平移与行数差半行，表现为底行被吞或内容跳动。
 
 ## Requirements
 
