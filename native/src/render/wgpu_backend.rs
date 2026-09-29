@@ -88,7 +88,7 @@ pub async fn initialize_wgpu()
     let (device, queue) = adapter
         .request_device(&device_descriptor)
         .await
-        .map_err(|e| GpuError::DeviceRequest(e.to_string()))?;
+        .map_err(|request_error| GpuError::DeviceRequest(request_error.to_string()))?;
 
     device.on_uncaptured_error(Arc::new(|error| {
         crate::render::context::log_gpu_error(&error);

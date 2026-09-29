@@ -357,7 +357,7 @@ impl super::GhosttyTerminal {
     }
 
     /// 用 Ghostty 鼠标编码器把鼠标事件（像素位置、动作、按键）编码为终端转义序列。
-    /// `cell_w`/`cell_h` 取渲染器的实时单元格尺寸，使像素→单元映射与实际显示一致。
+    /// `cell_width`/`cell_height` 取渲染器的实时单元格尺寸，使像素→单元映射与实际显示一致。
     ///
     /// 鼠标上报未启用（无 DECSET 1000/1002/1003）或编码失败时返回 `Some(空)`，
     /// 由调用方丢弃该事件；仅查询通道卡死时返回 `None`。
@@ -366,16 +366,16 @@ impl super::GhosttyTerminal {
         position: (f32, f32),
         action: u8,
         button: u8,
-        cell_w: f32,
-        cell_h: f32,
+        cell_width: f32,
+        cell_height: f32,
     ) -> Option<Vec<u8>> {
         self.query(
             |tx| Query::EncodeMouseEvent {
                 position,
                 action,
                 button,
-                cell_w,
-                cell_h,
+                cell_width,
+                cell_height,
                 tx,
             },
             Vec::new(),

@@ -77,10 +77,10 @@ impl FontPipeline {
                 cjk_ranges.push(s..text.len());
             }
             if !cjk_ranges.is_empty() {
-                let db = self.font_system.db();
+                let font_database = self.font_system.db();
                 let mut list = cosmic_text::AttrsList::new(&attrs);
                 for &fallback_id in &self.cjk_fallback_ids {
-                    if let Some(face) = db.face(fallback_id)
+                    if let Some(face) = font_database.face(fallback_id)
                         && let Some((fallback_name, _)) = face.families.first()
                     {
                         for range in &cjk_ranges {

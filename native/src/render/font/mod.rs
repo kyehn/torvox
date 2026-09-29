@@ -223,7 +223,7 @@ mod tests {
         let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let names = pipeline.list_monospace_fonts();
         assert!(!names.is_empty(), "Should have at least one font");
-        let name_with_space = names.iter().find(|n| n.contains(' '));
+        let name_with_space = names.iter().find(|name| name.contains(' '));
         let name = match name_with_space {
             Some(n) => n.clone(),
             None => {
@@ -233,7 +233,10 @@ mod tests {
                 );
             }
         };
-        let stripped: String = name.chars().filter(|c| !c.is_whitespace()).collect();
+        let stripped: String = name
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
         assert!(stripped != name, "Sanity: stripped name differs");
         let mut p2 = FontPipeline::new(1024, 1024, 14.0);
         assert!(
@@ -272,8 +275,8 @@ mod tests {
             "ASCII glyph should have positive width"
         );
         assert!(cjk_info.width > 0, "CJK glyph should have positive width");
-        let (cell_w, _) = pipeline.cell_metrics();
-        assert!(cell_w > 0.0, "cell width should be positive");
+        let (cell_width, _) = pipeline.cell_metrics();
+        assert!(cell_width > 0.0, "cell width should be positive");
         let cell_span = if cjk_info.width as f32 > ascii_info.width as f32 * 1.5 {
             2
         } else {
@@ -463,17 +466,17 @@ mod tests {
         let info = pipeline
             .glyph_information(glyph)
             .unwrap_or_else(|| panic!("'{glyph}' glyph_information"));
-        let (_cell_w, cell_h) = pipeline.cell_metrics();
+        let (_cell_width, cell_height) = pipeline.cell_metrics();
         let ascent = pipeline.ascent_pixels();
         let bearing_y = ascent - info.placement.top as f32;
         let glyph_h = info.placement.height as f32;
         assert!(
-            bearing_y >= -cell_h,
-            "{label} glyph starts way above cell: bearing_y={} < -cell_h",
+            bearing_y >= -cell_height,
+            "{label} glyph starts way above cell: bearing_y={} < -cell_height",
             bearing_y
         );
         assert!(glyph_h > 0.0, "{label} glyph has zero height");
-        assert!(cell_h > 0.0, "{label} cell has zero height");
+        assert!(cell_height > 0.0, "{label} cell has zero height");
     }
 
     #[test]
@@ -564,7 +567,11 @@ mod tests {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let ch = '\u{1F600}';
         let info = pipeline.glyph_information(ch);
-        if info.is_none() || info.as_ref().is_some_and(|i| i.width == 0) {
+        if info.is_none()
+            || info
+                .as_ref()
+                .is_some_and(|glyph_info| glyph_info.width == 0)
+        {
             let fonts = pipeline.list_monospace_fonts();
             let found_emoji = fonts.iter().any(|name| {
                 name.contains("Emoji")
@@ -600,7 +607,10 @@ mod tests {
         let mut inserted = 0u32;
         for cp in 0x4E00u32..0x4F00u32 {
             let ch = char::from_u32(cp).unwrap_or('\0');
-            if pipeline.glyph_information(ch).is_some_and(|i| i.width > 0) {
+            if pipeline
+                .glyph_information(ch)
+                .is_some_and(|glyph_info| glyph_info.width > 0)
+            {
                 inserted += 1;
             }
         }
@@ -744,7 +754,7 @@ mod tests {
         let (_, ch) = pipeline.cell_metrics();
         assert!(
             ascent > 0.0 && ascent < ch,
-            "ascent({ascent}) must be in (0, cell_h={ch})"
+            "ascent({ascent}) must be in (0, cell_height={ch})"
         );
     }
 
@@ -763,7 +773,7 @@ mod tests {
         let (_, ch) = pipeline.cell_metrics();
         assert!(
             bearing_y < ch,
-            "bearing_y({bearing_y}) should be < cell_h({ch})"
+            "bearing_y({bearing_y}) should be < cell_height({ch})"
         );
     }
 
@@ -782,13 +792,13 @@ mod tests {
         let (cw, _ch) = pipeline.cell_metrics();
         assert!(
             (info_m.advance_width - cw).abs() < 1.0,
-            "advance_width('m')={} ≈ cell_w={}",
+            "advance_width('m')={} ≈ cell_width={}",
             info_m.advance_width,
             cw
         );
         assert!(
             (info_x.advance_width - cw).abs() < 1.0,
-            "advance_width('X')={} ≈ cell_w={}",
+            "advance_width('X')={} ≈ cell_width={}",
             info_x.advance_width,
             cw
         );
@@ -803,7 +813,7 @@ mod tests {
             if let Some(info) = pipeline.glyph_information(ch) {
                 assert!(
                     (info.advance_width - cw).abs() < 2.0,
-                    "advance('{ch}')={:.1} ≈ cell_w={:.1}",
+                    "advance('{ch}')={:.1} ≈ cell_width={:.1}",
                     info.advance_width,
                     cw
                 );
@@ -817,7 +827,7 @@ mod tests {
                 if let Some(info) = pipeline.glyph_information(ch) {
                     assert!(
                         (info.advance_width - cw2).abs() < 2.0,
-                        "font '{alt}': advance('{ch}')={:.1} ≈ cell_w={:.1}",
+                        "font '{alt}': advance('{ch}')={:.1} ≈ cell_width={:.1}",
                         info.advance_width,
                         cw2
                     );
@@ -840,7 +850,7 @@ mod tests {
                 );
                 assert!(
                     info.advance_width <= cw * 3.0,
-                    "CJK '{ch}' advance={:.1} should be ≤ 3*cell_w={:.1}",
+                    "CJK '{ch}' advance={:.1} should be ≤ 3*cell_width={:.1}",
                     info.advance_width,
                     cw * 3.0
                 );
@@ -869,24 +879,24 @@ mod tests {
     fn all_glyphs_within_atlas_bounds() {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.rasterize_ascii();
-        let aw = pipeline.atlas_width as i32;
-        let ah = pipeline.atlas_height as i32;
+        let atlas_width = pipeline.atlas_width as i32;
+        let atlas_height = pipeline.atlas_height as i32;
         let chars = ['A', '中', '好', 'α', 'Ω'];
         for ch in chars {
             if let Some(info) = pipeline.glyph_information(ch) {
                 assert!(
-                    info.atlas_x + info.width <= aw,
+                    info.atlas_x + info.width <= atlas_width,
                     "glyph '{ch}' atlas_x({}) + width({}) exceeds atlas_w({})",
                     info.atlas_x,
                     info.width,
-                    aw
+                    atlas_width
                 );
                 assert!(
-                    info.atlas_y + info.height <= ah,
+                    info.atlas_y + info.height <= atlas_height,
                     "glyph '{ch}' atlas_y({}) + height({}) exceeds atlas_h({})",
                     info.atlas_y,
                     info.height,
-                    ah
+                    atlas_height
                 );
             }
         }
@@ -907,7 +917,10 @@ mod tests {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let default_name = pipeline.default_font_name().clone();
         let fonts = pipeline.list_monospace_fonts();
-        if let Some(other) = fonts.iter().find(|n| n.as_str() != default_name.as_str()) {
+        if let Some(other) = fonts
+            .iter()
+            .find(|name| name.as_str() != default_name.as_str())
+        {
             pipeline.set_font_family(other);
             assert_eq!(
                 pipeline.current_font_family_name().as_deref(),
@@ -969,7 +982,7 @@ mod tests {
         let cjk_names = pipeline.cjk_fallback_names();
         if !cjk_names.is_empty() {
             assert!(
-                cjk_names.iter().all(|n| !n.is_empty()),
+                cjk_names.iter().all(|name| !name.is_empty()),
                 "CJK fallback names should not be empty strings"
             );
         }
@@ -994,8 +1007,8 @@ mod tests {
         assert!(!name.is_empty(), "should find a monospace font, got empty");
     }
 
-    fn try_load_cjk_fonts(db: &mut fontdb::Database) -> bool {
-        let has_cjk = db.faces().any(|face| {
+    fn try_load_cjk_fonts(font_database: &mut fontdb::Database) -> bool {
+        let has_cjk = font_database.faces().any(|face| {
             face.families
                 .first()
                 .map(|(n, _)| n.to_lowercase().contains("cjk"))
@@ -1006,8 +1019,8 @@ mod tests {
         }
         // System fonts only (fontconfig resolves the dev-shell fonts):
         // never scan hardcoded store paths.
-        db.load_system_fonts();
-        db.faces().any(|face| {
+        font_database.load_system_fonts();
+        font_database.faces().any(|face| {
             face.families
                 .first()
                 .map(|(n, _)| n.to_lowercase().contains("cjk"))
@@ -1053,7 +1066,7 @@ mod tests {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let names = pipeline.list_monospace_fonts();
         assert!(
-            names.iter().any(|n| n.contains("Liberation")),
+            names.iter().any(|name| name.contains("Liberation")),
             "Liberation Mono must be present (run inside nix develop)"
         );
         assert!(
@@ -1108,7 +1121,7 @@ mod tests {
         let pipeline = FontPipeline::new(512, 512, 14.0);
         let cjk = pipeline.cjk_fallback_names();
         assert!(
-            cjk.iter().all(|n| !n.is_empty()),
+            cjk.iter().all(|name| !name.is_empty()),
             "CJK fallback names must not be empty strings"
         );
     }
@@ -1126,7 +1139,7 @@ mod tests {
         let cjk_fonts: Vec<String> = pipeline
             .list_monospace_fonts()
             .into_iter()
-            .filter(|n| n.to_lowercase().contains("cjk"))
+            .filter(|name| name.to_lowercase().contains("cjk"))
             .collect();
         if let Some(cjk_name) = cjk_fonts.first() {
             pipeline.set_font_family(cjk_name);
@@ -1167,13 +1180,13 @@ mod tests {
 
     #[test]
     fn fonts_xml_index_match_resolves_exact_face() {
-        let mut db = fontdb::Database::new();
+        let mut font_database = fontdb::Database::new();
         assert!(
-            try_load_cjk_fonts(&mut db),
+            try_load_cjk_fonts(&mut font_database),
             "CJK fonts must load (run inside nix develop)"
         );
         // Pick a TTC face so (filename, index) mapping is exercised.
-        let (filename, index) = db
+        let (filename, index) = font_database
             .faces()
             .filter_map(|face| {
                 let path = match &face.source {
@@ -1190,9 +1203,9 @@ mod tests {
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{index}">{filename}</font></family></familyset>"#
         );
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, &xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, &xml, "zh-CN", 3);
         assert_eq!(ids.len(), 1, "exact (filename, index) hit expected");
-        let face = db.face(ids[0]).expect("matched face exists");
+        let face = font_database.face(ids[0]).expect("matched face exists");
         assert_eq!(face.index, index, "TTC index must match fonts.xml");
         let matched_name = match &face.source {
             fontdb::Source::File(path) => path,
@@ -1208,13 +1221,13 @@ mod tests {
     #[test]
     fn fonts_xml_missing_file_falls_back_to_scan() {
         // Unknown filename: no exact hit, caller fills from the scan.
-        let mut db = fontdb::Database::new();
+        let mut font_database = fontdb::Database::new();
         assert!(
-            try_load_cjk_fonts(&mut db),
+            try_load_cjk_fonts(&mut font_database),
             "CJK fonts must load (run inside nix develop)"
         );
         let xml = r#"<familyset version="23"><family lang="zh-Hans"><font index="2">NoSuchFont-Regular.ttc</font></family></familyset>"#;
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, xml, "zh-CN", 3);
         assert!(
             ids.is_empty(),
             "unknown file must yield no exact hit: {ids:?}"
@@ -1225,12 +1238,12 @@ mod tests {
     fn fonts_xml_duplicate_entries_deduplicated() {
         // 真机形态：zh-Hans 链内同一文件多 weights 同 index 重复出现，
         // 首位命中后后续重复必须去重（真机 Sans index=2 出现 9 次只取 1 个）。
-        let mut db = fontdb::Database::new();
+        let mut font_database = fontdb::Database::new();
         assert!(
-            try_load_cjk_fonts(&mut db),
+            try_load_cjk_fonts(&mut font_database),
             "CJK fonts must load (run inside nix develop)"
         );
-        let (filename, index) = db
+        let (filename, index) = font_database
             .faces()
             .filter_map(|face| {
                 let path = match &face.source {
@@ -1247,13 +1260,13 @@ mod tests {
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="100" style="normal" index="{index}">{filename}</font><font weight="400" style="normal" index="{index}">{filename}</font><font weight="900" style="normal" index="{index}">{filename}</font></family></familyset>"#
         );
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, &xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, &xml, "zh-CN", 3);
         assert_eq!(
             ids.len(),
             1,
             "repeated (filename, index) entries must deduplicate: {ids:?}"
         );
-        let face = db.face(ids[0]).expect("matched face exists");
+        let face = font_database.face(ids[0]).expect("matched face exists");
         assert_eq!(face.index, index, "TTC index must match fonts.xml");
     }
 
@@ -1261,13 +1274,13 @@ mod tests {
     fn fonts_xml_result_order_follows_xml_order() {
         // 真机形态：zh-Hans 链 Sans 在前 Serif 在后，返回顺序必须跟随
         // xml 顺序（首位胜出），而非数据库加载顺序。
-        let mut db = fontdb::Database::new();
+        let mut font_database = fontdb::Database::new();
         assert!(
-            try_load_cjk_fonts(&mut db),
+            try_load_cjk_fonts(&mut font_database),
             "CJK fonts must load (run inside nix develop)"
         );
         let mut faces: Vec<(String, u32)> = Vec::new();
-        for face in db.faces() {
+        for face in font_database.faces() {
             let path = match &face.source {
                 fontdb::Source::File(path) => path,
                 fontdb::Source::SharedFile(path, _) => path,
@@ -1297,15 +1310,18 @@ mod tests {
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{first_index}">{first_filename}</font><font weight="400" style="normal" index="{second_index}">{second_filename}</font></family></familyset>"#
         );
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, &xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, &xml, "zh-CN", 3);
         assert_eq!(ids.len(), 2, "both entries must resolve: {ids:?}");
         assert_eq!(
-            db.face(ids[0]).expect("first face exists").index,
+            font_database.face(ids[0]).expect("first face exists").index,
             *first_index,
             "first result must follow the first xml entry"
         );
         assert_eq!(
-            db.face(ids[1]).expect("second face exists").index,
+            font_database
+                .face(ids[1])
+                .expect("second face exists")
+                .index,
             *second_index,
             "second result must follow the second xml entry"
         );
@@ -1313,9 +1329,10 @@ mod tests {
 
     /// Locate the Maple Mono font through the system font database
     /// (fontconfig resolves the dev-shell fonts; no paths are hardcoded).
-    fn find_maple_mono_font(db: &mut fontdb::Database) -> Option<std::path::PathBuf> {
-        db.load_system_fonts();
-        db.faces()
+    fn find_maple_mono_font(font_database: &mut fontdb::Database) -> Option<std::path::PathBuf> {
+        font_database.load_system_fonts();
+        font_database
+            .faces()
             .filter(|face| {
                 face.families
                     .first()
@@ -1368,7 +1385,9 @@ mod tests {
         let mut successes = 0u32;
         for cp in 0x4E00u32..0x4F00u32 {
             if let Some(ch) = char::from_u32(cp)
-                && pipeline.glyph_information(ch).is_some_and(|i| i.width > 0)
+                && pipeline
+                    .glyph_information(ch)
+                    .is_some_and(|glyph_info| glyph_info.width > 0)
             {
                 successes += 1;
             }
@@ -1408,11 +1427,14 @@ mod tests {
 
     #[test]
     fn load_font_file_valid_ttf_returns_family() {
-        let mut p = FontPipeline::new(512, 512, 14.0);
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let font_path = find_test_font();
-        let family = p.load_font_file(&font_path).expect("有效 TTF 必须返回族名");
+        let family = pipeline
+            .load_font_file(&font_path)
+            .expect("有效 TTF 必须返回族名");
         assert!(
-            p.font_system
+            pipeline
+                .font_system
                 .db()
                 .faces()
                 .any(|face| face.families.iter().any(|(name, _)| *name == family)),
@@ -1422,8 +1444,8 @@ mod tests {
 
     #[test]
     fn load_font_file_nonexistent_path_returns_none() {
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let result = p.load_font_file(std::path::Path::new("/nonexistent/path/to/font.ttf"));
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let result = pipeline.load_font_file(std::path::Path::new("/nonexistent/path/to/font.ttf"));
         assert!(result.is_none(), "should return None for nonexistent path");
     }
 
@@ -1433,8 +1455,8 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let empty_path = dir.join("empty.ttf");
         std::fs::write(&empty_path, []).ok();
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let result = p.load_font_file(&empty_path);
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let result = pipeline.load_font_file(&empty_path);
         assert!(result.is_none(), "empty file should return None");
         let _ = std::fs::remove_file(&empty_path);
     }
@@ -1444,10 +1466,10 @@ mod tests {
         let dir = std::env::temp_dir().join("test_font_load");
         let _ = std::fs::create_dir_all(&dir);
         let corrupt_path = dir.join("corrupt.ttf");
-        let garbage: Vec<u8> = (0..256).map(|i| (i ^ 0xAB) as u8).collect();
+        let garbage: Vec<u8> = (0..256).map(|raw_byte| (raw_byte ^ 0xAB) as u8).collect();
         std::fs::write(&corrupt_path, &garbage).ok();
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let result = p.load_font_file(&corrupt_path);
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let result = pipeline.load_font_file(&corrupt_path);
         assert!(result.is_none(), "corrupt file should return None");
         let _ = std::fs::remove_file(&corrupt_path);
     }
@@ -1473,11 +1495,16 @@ mod tests {
     }
 
     fn styled_test_pipeline() -> (FontPipeline, String) {
-        let mut p = FontPipeline::new(512, 512, 14.0);
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let font_path = find_test_font();
-        let family = p.load_font_file(&font_path).expect("test font loads");
-        assert!(p.set_font_family(&family), "test font family selects");
-        (p, family)
+        let family = pipeline
+            .load_font_file(&font_path)
+            .expect("test font loads");
+        assert!(
+            pipeline.set_font_family(&family),
+            "test font family selects"
+        );
+        (pipeline, family)
     }
 
     /// 可变字体必须走 `wght`/`ital` 轴（DESIGN 字体节：多字重与动态字体）。
@@ -1488,29 +1515,31 @@ mod tests {
     #[test]
     fn variable_font_axes_are_applied() {
         let pipeline = FontPipeline::new(512, 512, 24.0);
-        let db = pipeline.font_system.db();
+        let font_database = pipeline.font_system.db();
         let axes_of = |font_id: fontdb::ID| {
-            db.with_face_data(font_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                Some(
-                    font_ref
-                        .variations()
-                        .map(|axis| (axis.tag(), axis.min_value(), axis.max_value()))
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .flatten()
+            font_database
+                .with_face_data(font_id, |font_data, face_index| {
+                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                    Some(
+                        font_ref
+                            .variations()
+                            .map(|axis| (axis.tag(), axis.min_value(), axis.max_value()))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .flatten()
         };
         let settings_of = |font_id: fontdb::ID, synthesis: GlyphSynthesis| {
-            db.with_face_data(font_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                Some(super::variation_settings(&font_ref, synthesis))
-            })
-            .flatten()
-            .expect("字体可读")
+            font_database
+                .with_face_data(font_id, |font_data, face_index| {
+                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                    Some(super::variation_settings(&font_ref, synthesis))
+                })
+                .flatten()
+                .expect("字体可读")
         };
 
-        let (variable_id, variable_axes) = db
+        let (variable_id, variable_axes) = font_database
             .faces()
             .filter_map(|face| axes_of(face.id).map(|axes| (face.id, axes)))
             .find(|(_, axes)| {
@@ -1546,7 +1575,7 @@ mod tests {
 
         // 静态字体（无 fvar，如 Maple Mono / DroidSansMono）不得产出轴设置，
         // 交回轮廓级加粗/剪切。
-        let static_id = db
+        let static_id = font_database
             .faces()
             .map(|face| face.id)
             .find(|id| axes_of(*id).is_some_and(|axes| axes.is_empty()))
@@ -1559,9 +1588,9 @@ mod tests {
 
     #[test]
     fn styled_bold_produces_heavier_glyph() {
-        let (mut p, _) = styled_test_pipeline();
-        let regular = p.glyph_information('A').expect("regular A");
-        let bold = p
+        let (mut pipeline, _) = styled_test_pipeline();
+        let regular = pipeline.glyph_information('A').expect("regular A");
+        let bold = pipeline
             .glyph_information_styled('A', true, false)
             .expect("bold A");
         assert!(bold.width > 0 && bold.height > 0, "bold bitmap must exist");
@@ -1575,9 +1604,9 @@ mod tests {
 
     #[test]
     fn styled_italic_shears_glyph() {
-        let (mut p, _) = styled_test_pipeline();
-        let regular = p.glyph_information('A').expect("regular A");
-        let italic = p
+        let (mut pipeline, _) = styled_test_pipeline();
+        let regular = pipeline.glyph_information('A').expect("regular A");
+        let italic = pipeline
             .glyph_information_styled('A', false, true)
             .expect("italic A");
         assert!(
@@ -1590,8 +1619,8 @@ mod tests {
         );
         // 真实斜体字面或剪切合成都会改变位图内容，直接比较区域字节，
         // 避免像素计数偶然相同导致的误判。
-        let bitmap = p.atlas_bitmap();
-        let atlas_width = p.atlas_width as usize;
+        let bitmap = pipeline.atlas_bitmap();
+        let atlas_width = pipeline.atlas_width as usize;
         let regular_alpha = glyph_region_alpha(&regular, bitmap, atlas_width);
         let italic_alpha = glyph_region_alpha(&italic, bitmap, atlas_width);
         assert!(
@@ -1610,9 +1639,9 @@ mod tests {
 
     #[test]
     fn styled_bold_italic_combines_both() {
-        let (mut p, _) = styled_test_pipeline();
-        let regular = p.glyph_information('A').expect("regular A");
-        let bold_italic = p
+        let (mut pipeline, _) = styled_test_pipeline();
+        let regular = pipeline.glyph_information('A').expect("regular A");
+        let bold_italic = pipeline
             .glyph_information_styled('A', true, true)
             .expect("bold-italic A");
         assert!(bold_italic.width > 0 && bold_italic.height > 0);
@@ -1624,20 +1653,20 @@ mod tests {
 
     #[test]
     fn styled_glyph_cache_distinguishes_synthesis() {
-        let (mut p, _) = styled_test_pipeline();
-        let _regular = p.glyph_information('A').expect("regular A");
-        let bold = p
+        let (mut pipeline, _) = styled_test_pipeline();
+        let _regular = pipeline.glyph_information('A').expect("regular A");
+        let bold = pipeline
             .glyph_information_styled('A', true, false)
             .expect("bold A");
-        let italic = p
+        let italic = pipeline
             .glyph_information_styled('A', false, true)
             .expect("italic A");
         // Re-lookup returns the cached styled glyphs (same atlas slot) and
         // never the regular one.
-        let bold_again = p
+        let bold_again = pipeline
             .glyph_information_styled('A', true, false)
             .expect("bold A again");
-        let italic_again = p
+        let italic_again = pipeline
             .glyph_information_styled('A', false, true)
             .expect("italic A again");
         assert_eq!(bold.atlas_x, bold_again.atlas_x);
@@ -1732,24 +1761,24 @@ mod tests {
 
     #[test]
     fn resolve_style_face_prefers_same_family_bold_when_available() {
-        let (mut p, _) = styled_test_pipeline();
-        let base_id = p.font_id.expect("font selected");
-        let base_family = p
-            .font_system
-            .db()
-            .face(base_id)
-            .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+        let (mut pipeline, _) = styled_test_pipeline();
+        let base_id = pipeline.font_id.expect("font selected");
+        let base_family = pipeline.font_system.db().face(base_id).and_then(|face| {
+            face.families
+                .first()
+                .map(|(family_name, _)| family_name.clone())
+        });
         // With system fonts loaded, the family may or may not have a bold
         // face on this host. Either way the contract must hold: a resolved
         // face belongs to the same family and differs from the base; no
         // face at all means the caller falls back to synthesis.
-        if let Some(style_id) = p.resolve_style_face(base_id, true, false) {
+        if let Some(style_id) = pipeline.resolve_style_face(base_id, true, false) {
             assert_ne!(style_id, base_id, "bold face must differ from regular");
-            let style_family = p
-                .font_system
-                .db()
-                .face(style_id)
-                .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+            let style_family = pipeline.font_system.db().face(style_id).and_then(|face| {
+                face.families
+                    .first()
+                    .map(|(family_name, _)| family_name.clone())
+            });
             assert_eq!(
                 base_family, style_family,
                 "style face must share the base family"
@@ -1759,12 +1788,12 @@ mod tests {
         // (fontdb's query returns the closest match, which is the base
         // itself unless another normal face of the family exists — e.g.
         // DejaVuSansCondensed — so only the family invariant is asserted).
-        if let Some(plain) = p.resolve_style_face(base_id, false, false) {
-            let plain_family = p
-                .font_system
-                .db()
-                .face(plain)
-                .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+        if let Some(plain) = pipeline.resolve_style_face(base_id, false, false) {
+            let plain_family = pipeline.font_system.db().face(plain).and_then(|face| {
+                face.families
+                    .first()
+                    .map(|(family_name, _)| family_name.clone())
+            });
             assert_eq!(
                 base_family, plain_family,
                 "plain-style face must share the base family"
@@ -1774,10 +1803,10 @@ mod tests {
 
     #[test]
     fn load_font_file_multiple_times_works() {
-        let mut p = FontPipeline::new(512, 512, 14.0);
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let font_path = find_test_font();
-        let first = p.load_font_file(&font_path);
-        let second = p.load_font_file(&font_path);
+        let first = pipeline.load_font_file(&font_path);
+        let second = pipeline.load_font_file(&font_path);
         assert!(first.is_some(), "first load should succeed");
         assert!(second.is_some(), "second load of same file should succeed");
         assert_eq!(
@@ -1788,37 +1817,37 @@ mod tests {
 
     #[test]
     fn load_font_file_does_not_break_cell_metrics() {
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let (cw_before, ch_before) = p.cell_metrics();
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let (cell_width_before, cell_height_before) = pipeline.cell_metrics();
         assert!(
-            cw_before > 0.0 && ch_before > 0.0,
+            cell_width_before > 0.0 && cell_height_before > 0.0,
             "initial metrics should be positive"
         );
         let font_path = find_test_font();
-        let family = p.load_font_file(&font_path);
+        let family = pipeline.load_font_file(&font_path);
         assert!(family.is_some(), "should load test font");
-        let (cw_after, ch_after) = p.cell_metrics();
+        let (cell_width_after, cell_height_after) = pipeline.cell_metrics();
         assert!(
-            (cw_before - cw_after).abs() < f32::EPSILON,
+            (cell_width_before - cell_width_after).abs() < f32::EPSILON,
             "cell width unchanged after load_font_file"
         );
         assert!(
-            (ch_before - ch_after).abs() < f32::EPSILON,
+            (cell_height_before - cell_height_after).abs() < f32::EPSILON,
             "cell height unchanged after load_font_file"
         );
     }
 
     #[test]
     fn load_font_file_loaded_font_can_be_set() {
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let family = p
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let family = pipeline
             .load_font_file(&find_test_font())
             .expect("should load test font");
         assert!(
-            p.set_font_family(&family),
+            pipeline.set_font_family(&family),
             "set_font_family should succeed for loaded font '{family}'"
         );
-        let (cw, ch) = p.cell_metrics();
+        let (cw, ch) = pipeline.cell_metrics();
         assert!(cw > 0.0, "cell width positive after setting loaded font");
         assert!(ch > 0.0, "cell height positive after setting loaded font");
     }
@@ -1829,8 +1858,8 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let target = dir.join("测试-font.ttf");
         std::fs::copy(find_test_font(), &target).expect("copy test font to unicode path");
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let family = p.load_font_file(&target);
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let family = pipeline.load_font_file(&target);
         assert!(family.is_some(), "should load font from unicode path");
         assert!(!family.unwrap().is_empty(), "family should not be empty");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1838,12 +1867,12 @@ mod tests {
 
     #[test]
     fn load_font_file_after_set_font_family() {
-        let mut p = FontPipeline::new(512, 512, 14.0);
-        let fonts = p.list_monospace_fonts();
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let fonts = pipeline.list_monospace_fonts();
         if let Some(first) = fonts.first() {
-            assert!(p.set_font_family(first), "set font family {first}");
+            assert!(pipeline.set_font_family(first), "set font family {first}");
         }
-        let result = p.load_font_file(&find_test_font());
+        let result = pipeline.load_font_file(&find_test_font());
         assert!(
             result.is_some(),
             "load after set_font_family should succeed"

@@ -84,7 +84,7 @@ object NativeBridge {
 
     /**
      * 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用的 DECSET 选择 SGR/X10/UTF-8）。
-     * 坐标为 Surface 像素，cellW/cellH 为实时单元格尺寸；关闭鼠标上报或编码失败时返回空数组。
+     * 坐标为 Surface 像素，cellWidth/cellHeight 为实时单元格尺寸；关闭鼠标上报或编码失败时返回空数组。
      */
     @JvmStatic
     external fun encodeMouseEvent(
@@ -93,8 +93,8 @@ object NativeBridge {
         yPx: Float,
         action: Int,
         button: Int,
-        cellW: Float,
-        cellH: Float,
+        cellWidth: Float,
+        cellHeight: Float,
     ): ByteArray
 
     /**

@@ -61,8 +61,8 @@ fn build_instances(c: &mut Criterion) {
             let config = CellInstanceConfig {
                 rows,
                 cols,
-                grid_cell_w: 1024.0,
-                grid_cell_h: 1024.0,
+                grid_cell_width: 1024.0,
+                grid_cell_height: 1024.0,
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
