@@ -21,6 +21,12 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 搜索结果上限，与 Termux 的 MAX_SEARCH_RESULTS 对齐。
         private const val MAX_SEARCH_RESULTS = 50
 
+        /** SAF mode 字符串的最大长度（`ParcelFileDescriptor.parseMode` 的上界）。 */
+        private const val MAX_OPEN_MODE_LENGTH = 4
+
+        /** mode 字符串允许的字符（与 `parseOpenModeFallback` 的语义集合一致）。 */
+        private const val OPEN_MODE_CHARACTERS = "rwatsd"
+
         private val ROOT_PROJECTION =
             arrayOf(
                 Root.COLUMN_ROOT_ID,
@@ -99,11 +105,22 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         }
 
         internal fun parseOpenModeFallback(mode: String): Int {
-            require(mode.isNotEmpty() && mode.length <= 4) { "Unsupported mode '$mode'" }
-            require(mode.all { it in "rwatsd" }) { "Unsupported mode '$mode'" }
+            // 抛 FileNotFoundException 而非 require() 的 IllegalArgumentException：
+            // openDocument 跨 Binder 返回，后者在调用方进程里是未捕获异常（崩溃），
+            // 前者才是 SAF 契约里「这个文档打不开」的可处理失败。
+            fun unsupported(reason: String): Nothing =
+                throw java.io.FileNotFoundException("Unsupported open mode '$mode': $reason")
+            if (mode.isEmpty() || mode.length > MAX_OPEN_MODE_LENGTH) {
+                unsupported("length must be 1..$MAX_OPEN_MODE_LENGTH")
+            }
+            if (!mode.all { it in OPEN_MODE_CHARACTERS }) {
+                unsupported("allowed characters are $OPEN_MODE_CHARACTERS")
+            }
             val read = mode.contains('r')
             val write = mode.contains('w')
-            require(read || write) { "Unsupported mode '$mode'" }
+            if (!read && !write) {
+                unsupported("needs at least one of r/w")
+            }
             var parsed = 0
             parsed =
                 parsed or
@@ -132,6 +149,15 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             requireNotNull(context) { "TerminalDocumentsProvider requires a Context" },
             { queries.rootDir() },
         )
+    }
+
+    /**
+     * 写回通知的回调线程。`openDocument` 跑在 Binder 线程上，而
+     * `ParcelFileDescriptor.OnCloseListener` 需要一个带 Looper 的 Handler；
+     * 主 Looper 进程内恒在，是唯一不必在此判空的选择。
+     */
+    private val closeNotifyHandler: android.os.Handler by lazy {
+        android.os.Handler(android.os.Looper.getMainLooper())
     }
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
@@ -240,7 +266,11 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
                 else -> parseOpenModeFallback(mode)
             }
-        return ParcelFileDescriptor.open(file, fileMode)
+        // 句柄关闭即视为外部写回：广播文档与父目录，文件选择器（以及终端自身的
+        // 打开文件菜单）才能看到大小/时间变化。裸 open() 时外部编辑"看起来没反应"。
+        return ParcelFileDescriptor.open(file, fileMode, closeNotifyHandler) {
+            mutations.notifyWritten(documentId, file)
+        }
     }
 
     override fun openDocumentThumbnail(

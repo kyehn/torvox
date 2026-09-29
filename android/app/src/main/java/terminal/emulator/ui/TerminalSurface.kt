@@ -290,7 +290,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 context.getString(R.string.open_file_failed),
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
-        } catch (_: Exception) {
+        } catch (exception: Exception) {
+            LogUtil.w(TAG, "toastCannotOpenFile: toast failed", exception)
         }
     }
 
