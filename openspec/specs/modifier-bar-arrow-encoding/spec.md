@@ -2,7 +2,10 @@
 
 ## Purpose
 
-可配置修饰键栏方向键跟随 DECCKM 应用光标模式编码，与输入法/硬件箭头路径一致。
+可配置修饰键栏的方向键须与输入法、硬件箭头路径共用同一编码来源。点击时刻查询
+应用光标模式（DECCKM），经 `TerminalInputEncoder.arrowSequence` 得普通模式 CSI
+（`ESC [ A`）或应用光标模式 SS3（`ESC O A`）。键栏此前走裸序列，在应用光标模式
+下（vim、tmux 等）发出的 CSI 不被识别，方向键表现为无响应。
 
 ## Requirements
 
