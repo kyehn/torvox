@@ -2,8 +2,8 @@
 use std::num::NonZeroUsize;
 
 use super::{
-    GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey, OUTLINE_CACHE_CAPACITY, SHAPE_CACHE_CAPACITY,
-    STYLE_FACE_CACHE_CAPACITY,
+    ASCII_UPPER_BOUND, GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey, OUTLINE_CACHE_CAPACITY,
+    SHAPE_CACHE_CAPACITY, STYLE_FACE_CACHE_CAPACITY,
 };
 use lru::LruCache;
 
@@ -19,7 +19,7 @@ pub struct GlyphCache {
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
     pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
     /// ASCII 快速路径：预分配的 ' '..'~' 字形 id 数组。
-    pub ascii_glyph_ids: [Option<swash::GlyphId>; 128],
+    pub ascii_glyph_ids: [Option<swash::GlyphId>; ASCII_UPPER_BOUND as usize],
     pub glyph_id_cache: LruCache<u32, swash::GlyphId>,
     /// CJK 字形解析（字符 → 最终 font_id + glyph_id）。
     pub cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
@@ -55,7 +55,7 @@ impl GlyphCache {
         Self {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
-            ascii_glyph_ids: [None; 128],
+            ascii_glyph_ids: [None; ASCII_UPPER_BOUND as usize],
             glyph_id_cache: LruCache::new(cache_cap),
             cjk_glyph_cache: LruCache::new(cache_cap),
             style_face_cache: LruCache::new(style_face_cache_cap),
@@ -67,7 +67,7 @@ impl GlyphCache {
     pub fn clear(&mut self) {
         self.glyph_cache.clear();
         self.shape_cache.clear();
-        self.ascii_glyph_ids = [None; 128];
+        self.ascii_glyph_ids = [None; ASCII_UPPER_BOUND as usize];
         self.glyph_id_cache.clear();
         self.cjk_glyph_cache.clear();
         self.style_face_cache.clear();
