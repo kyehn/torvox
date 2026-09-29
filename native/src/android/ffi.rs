@@ -1885,55 +1885,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     (new_output << 32) | (cursor_bits << 33) | (count as i64 & 0xFFFF_FFFF)
 }
 
-#[cfg(test)]
-mod rendered_cursor_tests {
-    use super::cursor_bits_for_rendered_cursor;
-    use crate::terminal::ghostty_terminal::{CursorInfo, CursorStyle};
-
-    fn rendered_cursor(visible: bool, row: u32) -> CursorInfo {
-        CursorInfo {
-            row,
-            col: 7,
-            visible,
-            style: CursorStyle::Block,
-            scrollback_length: 0,
-            kitty_generation: 0,
-        }
-    }
-
-    #[test]
-    fn missing_cursor_reports_unknown() {
-        assert_eq!(
-            cursor_bits_for_rendered_cursor(None),
-            super::CURSOR_ROW_UNKNOWN_BITS
-        );
-    }
-
-    #[test]
-    fn hidden_cursor_reports_unknown() {
-        let cursor = rendered_cursor(false, 44);
-        assert_eq!(
-            cursor_bits_for_rendered_cursor(Some(&cursor)),
-            super::CURSOR_ROW_UNKNOWN_BITS
-        );
-    }
-
-    #[test]
-    fn visible_cursor_reports_viewport_row() {
-        let cursor = rendered_cursor(true, 44);
-        assert_eq!(cursor_bits_for_rendered_cursor(Some(&cursor)), 44);
-    }
-
-    #[test]
-    fn visible_cursor_row_is_truncated_to_sixteen_bits() {
-        let cursor = rendered_cursor(true, 70_000);
-        assert_eq!(
-            cursor_bits_for_rendered_cursor(Some(&cursor)),
-            70_000_i64 & super::CURSOR_ROW_UNKNOWN_BITS
-        );
-    }
-}
-
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：detachWindow
 // ══════════════════════════════════════════════════════════════════════════
@@ -3278,4 +3229,53 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
             JNI_FALSE
         }
     })
+}
+
+#[cfg(test)]
+mod rendered_cursor_tests {
+    use super::cursor_bits_for_rendered_cursor;
+    use crate::terminal::ghostty_terminal::{CursorInfo, CursorStyle};
+
+    fn rendered_cursor(visible: bool, row: u32) -> CursorInfo {
+        CursorInfo {
+            row,
+            col: 7,
+            visible,
+            style: CursorStyle::Block,
+            scrollback_length: 0,
+            kitty_generation: 0,
+        }
+    }
+
+    #[test]
+    fn missing_cursor_reports_unknown() {
+        assert_eq!(
+            cursor_bits_for_rendered_cursor(None),
+            super::CURSOR_ROW_UNKNOWN_BITS
+        );
+    }
+
+    #[test]
+    fn hidden_cursor_reports_unknown() {
+        let cursor = rendered_cursor(false, 44);
+        assert_eq!(
+            cursor_bits_for_rendered_cursor(Some(&cursor)),
+            super::CURSOR_ROW_UNKNOWN_BITS
+        );
+    }
+
+    #[test]
+    fn visible_cursor_reports_viewport_row() {
+        let cursor = rendered_cursor(true, 44);
+        assert_eq!(cursor_bits_for_rendered_cursor(Some(&cursor)), 44);
+    }
+
+    #[test]
+    fn visible_cursor_row_is_truncated_to_sixteen_bits() {
+        let cursor = rendered_cursor(true, 70_000);
+        assert_eq!(
+            cursor_bits_for_rendered_cursor(Some(&cursor)),
+            70_000_i64 & super::CURSOR_ROW_UNKNOWN_BITS
+        );
+    }
 }
