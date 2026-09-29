@@ -21,6 +21,8 @@ const UNDERLINE_CURSOR_HEIGHT_FRACTION: f32 = 0.15;
 const CURSOR_MARKER_MINIMUM_THICKNESS: f32 = 1.0;
 /// 方块光标背景透明度系数（半透明覆盖保证原文可读）。
 const BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE: f32 = 0.7;
+/// 未指定光标颜色时的默认光标颜色（不透明白色）。
+const DEFAULT_CURSOR_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 use std::collections::HashMap;
 
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
@@ -31,6 +33,24 @@ pub struct CellCursor {
     pub visible: bool,
     pub style: CursorStyle,
     pub color: Option<[f32; 4]>,
+}
+
+impl CellCursor {
+    /// 解析后的光标颜色，未指定时使用默认白色。
+    fn resolved_color(self) -> [f32; 4] {
+        self.color.unwrap_or(DEFAULT_CURSOR_COLOR)
+    }
+
+    /// 半透明光标标记背景，保证原文可读。
+    fn marker_background(self) -> [f32; 4] {
+        let cursor_color = self.resolved_color();
+        [
+            cursor_color[0],
+            cursor_color[1],
+            cursor_color[2],
+            cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
+        ]
+    }
 }
 
 /// Configuration for a cell-instance build pass.
@@ -647,13 +667,7 @@ fn append_row_instances(
         if is_cursor && matches!(cursor.style, CursorStyle::Block) {
             // 方块光标（独占样式）：保留原文前景保证可读，仅把背景
             // 替换为光标色半透明覆盖。
-            let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-            effective_background = [
-                cursor_color[0],
-                cursor_color[1],
-                cursor_color[2],
-                cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
-            ];
+            effective_background = cursor.marker_background();
         }
 
         // Full-size glyph quad dimensions (so combining marks etc. aren't clipped
@@ -675,13 +689,7 @@ fn append_row_instances(
                 // block one row below the text" report (, verified
                 // on the emulator: VT cursor (0,38), block pixels at row 1).
                 if is_cursor {
-                    let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                    let marker_background = [
-                        cursor_color[0],
-                        cursor_color[1],
-                        cursor_color[2],
-                        cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
-                    ];
+                    let marker_background = cursor.marker_background();
                     let reference = font_pipeline
                         .glyph_information('M')
                         .or_else(|| font_pipeline.glyph_information('0'));
@@ -822,13 +830,7 @@ fn append_row_instances(
             // 竖线/下划线光标：在字形之上追加细标记（原文颜色不动，
             // 标记盖在上层保证可见）。
             if is_cursor && !matches!(cursor.style, CursorStyle::Block) {
-                let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                let marker_background = [
-                    cursor_color[0],
-                    cursor_color[1],
-                    cursor_color[2],
-                    cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
-                ];
+                let marker_background = cursor.marker_background();
                 let glyph_top = glyph_quad_origin[1] + raw_bearing_y;
                 let glyph_height = glyph_h_px.max(1.0);
                 let (marker_origin, marker_size) = match cursor.style {
