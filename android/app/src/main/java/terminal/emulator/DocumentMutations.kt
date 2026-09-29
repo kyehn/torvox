@@ -17,7 +17,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
     fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
         val root = rootDir()
         val parent = TerminalDocumentsProvider.decodeDocId(parentDocumentId, root)
-        require(parent.isDirectory) { "Parent is not a directory" }
+        requireDirectory(parent)
         val safeName = sanitize(displayName)
         val isDir = mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR
         val child = uniqueChild(parent, safeName)
@@ -111,7 +111,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
             throw java.io.FileNotFoundException("Refusing to copy the root document")
         }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
-        require(targetParent.isDirectory) { "Target parent is not a directory" }
+        requireDirectory(targetParent)
         // 读源用跟随语义（复制链接目标内容）还是链接自身？与浏览一致：
         // 行地址是链接自身时复制链接 inode，避免把站外目标整棵树吸入家目录。
         val rawSource = File(root, sourceDocumentId)
@@ -141,7 +141,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
             throw java.io.FileNotFoundException("Refusing to move the root document")
         }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
-        require(targetParent.isDirectory) { "Target parent is not a directory" }
+        requireDirectory(targetParent)
         // 禁止把目录搬进自己的子孙：否则复制/删除在环上打转。
         val sourceCanonical = source.canonicalFile.path
         val targetParentCanonical = targetParent.canonicalFile.path
@@ -270,11 +270,40 @@ internal class DocumentMutations(private val context: Context, private val rootD
     }
 
     private fun sanitize(displayName: String): String {
-        // 非法名是客户端契约违反，大声失败：空名或 "." 会让
-        // File(parent, name) 指回父目录自身，后续删除将清空整棵树。
-        val safeName = displayName.replace(Regex("[/\\\\]"), "_").replace("..", "_").trim()
-        require(safeName.isNotEmpty() && safeName != ".") { "Invalid document name: '$displayName'" }
+        // 只校验、不改写：静默把 `a..b.txt` 改成 `a_b.txt` 会让客户端拿到的
+        // docId 与自己请求的名字对不上，文件选择器里表现为"存成了别的名字"。
+        // 非法名是客户端契约违反，大声失败。`..` 出现在名字内部是合法文件名
+        // （File(parent, name) 不会因此跳出父目录），只有整体等于 "." / ".."
+        // 才危险；路径分隔符则任何文件系统都不允许出现在文件名里。
+        val safeName = displayName.trim()
+        if (safeName.isEmpty() || safeName == "." || safeName == "..") {
+            throw java.io.FileNotFoundException("Invalid document name: '$displayName'")
+        }
+        if (safeName.contains('/') || safeName.contains('\\')) {
+            throw java.io.FileNotFoundException(
+                "Document name must not contain a path separator: '$displayName'",
+            )
+        }
         return safeName
+    }
+
+    private fun requireDirectory(candidate: File) {
+        // 抛 FileNotFoundException 而非 require() 的 IllegalArgumentException：
+        // 后者跨 Binder 会让调用方（DocumentsUI / 编辑器）崩溃而非得到可处理的失败。
+        if (!candidate.isDirectory) {
+            throw java.io.FileNotFoundException("Not a directory: ${candidate.path}")
+        }
+    }
+
+    /**
+     * 外部应用经 SAF 句柄写回后广播：文档本身与其父目录的子文档列表。
+     *
+     * 提供者自身的变更操作各自已发通知；唯独经 [android.os.ParcelFileDescriptor]
+     * 写回的外部修改不经过这里，缺了它文件选择器只在下一次手动刷新才看到变化。
+     */
+    fun notifyWritten(documentId: String, written: File) {
+        notifyDocument(documentId)
+        notifyParentOf(written, rootDir())
     }
 
     private fun notifyChildren(parentDocumentId: String) {

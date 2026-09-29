@@ -132,18 +132,35 @@ class DocumentsProviderTest {
     }
 
     @Test
-    fun renameDocument_sanitizes_escape_names() {
-        // ".." and "/" in the requested name are sanitized (never allowed
-        // to escape the root), so the rename succeeds with a safe name.
+    fun renameDocument_rejects_escape_names() {
+        // 路径分隔符与整体 "." / ".." 是客户端契约违反：大声失败而非静默改名。
+        // 静默改名会让客户端拿到的 docId 与自己请求的名字对不上。
         val rootDir = rootDir()
         val original = java.io.File(rootDir, "escape-me.txt")
         original.writeText("x")
         val docId = requireNotNull(TerminalDocumentsProvider.encodeDocId(original, rootDir))
-        val newDocId = ensureProvider().renameDocument(docId, "../escaped.txt")
-        assertTrue("original must be gone", !original.exists())
-        val renamed = java.io.File(rootDir, newDocId)
-        assertTrue("renamed file must exist inside root", renamed.exists())
-        assertTrue("no path separators allowed", !newDocId.contains("/") && !newDocId.contains("\\"))
+        for (illegal in listOf("../escaped.txt", "..\\escaped.txt", ".", "..", "   ")) {
+            try {
+                ensureProvider().renameDocument(docId, illegal)
+                fail("rename to '$illegal' must be rejected")
+            } catch (expected: java.io.FileNotFoundException) {
+                // 跨 Binder 需为可处理失败，而非 IllegalArgumentException（会打崩调用方）。
+            }
+        }
+        assertTrue("source must survive every rejected rename", original.exists())
+    }
+
+    @Test
+    fun renameDocument_keeps_dots_inside_name() {
+        // 名字内部的 ".." 是合法文件名，File(parent, name) 不会跳出父目录，
+        // 必须原样保留而不是被替换成下划线。
+        val rootDir = rootDir()
+        val original = java.io.File(rootDir, "dots.txt")
+        original.writeText("x")
+        val docId = requireNotNull(TerminalDocumentsProvider.encodeDocId(original, rootDir))
+        val newDocId = ensureProvider().renameDocument(docId, "a..b.txt")
+        assertEquals("a..b.txt", newDocId)
+        assertTrue(java.io.File(rootDir, "a..b.txt").exists())
     }
 
     @Test
@@ -227,9 +244,49 @@ class DocumentsProviderTest {
         try {
             provider.openDocument("f.txt", "rwx", null)
             fail("unknown mode must be rejected")
-        } catch (expected: IllegalArgumentException) {
-            // Mode strings outside the ParcelFileDescriptor.parseMode set
-            // are a client contract violation — reject loudly.
+        } catch (expected: java.io.FileNotFoundException) {
+            // 跨 Binder 的契约违反必须是可处理失败：IllegalArgumentException
+            // 在调用方进程里是未捕获异常，直接打崩 DocumentsUI / 编辑器。
+        }
+    }
+
+    @Test
+    fun openDocument_write_notifies_document_and_parent() {
+        val provider = ensureProvider()
+        provider.createDocument("terminal_home", "text/plain", "watched.txt")
+        val resolver = requireNotNull(provider.context).contentResolver
+        val documentUri = DocumentsContract.buildDocumentUri(authority, "watched.txt")
+        val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
+        val notified = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        fun observerFor(label: String) =
+            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    notified.add(label)
+                }
+            }
+        val documentObserver = observerFor("document")
+        val childrenObserver = observerFor("children")
+        resolver.registerContentObserver(documentUri, true, documentObserver)
+        resolver.registerContentObserver(childrenUri, true, childrenObserver)
+        try {
+            provider.openDocument("watched.txt", "rwt", null).use { parcelFileDescriptor ->
+                java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("written".toByteArray())
+            }
+            // OnCloseListener 是 post 到主 Looper 的回调，Robolectric 默认暂停主 Looper，
+            // 必须显式跑空队列它才会执行。
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals("written", java.io.File(rootDir(), "watched.txt").readText())
+            assertTrue(
+                "external write-back must notify the document, got $notified",
+                notified.contains("document"),
+            )
+            assertTrue(
+                "external write-back must notify the parent listing, got $notified",
+                notified.contains("children"),
+            )
+        } finally {
+            resolver.unregisterContentObserver(documentObserver)
+            resolver.unregisterContentObserver(childrenObserver)
         }
     }
 
