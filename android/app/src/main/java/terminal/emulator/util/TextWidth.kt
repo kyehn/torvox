@@ -37,9 +37,9 @@ fun charCellWidth(ch: Char): Int = if (isWideChar(ch)) 2 else 1
 
 /** [line] 上第 [charIndex] 个字符所在的单元格列号。 */
 fun charIndexToCellColumn(line: String, charIndex: Int): Int {
-    var col = 0
-    for (i in 0 until charIndex.coerceAtMost(line.length)) {
-        col += charCellWidth(line[i])
+    var column = 0
+    for (characterPosition in 0 until charIndex.coerceAtMost(line.length)) {
+        column += charCellWidth(line[characterPosition])
     }
-    return col
+    return column
 }

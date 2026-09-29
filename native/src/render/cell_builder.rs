@@ -1478,10 +1478,10 @@ mod tests {
         let mut cache = CachedInstances::new(ROWS, 80);
         // Frame 1：全 dirty 播种缓存。
         let mut frame1 = Vec::new();
-        for r in 0..ROWS {
-            for c in 0..COLS_PER_ROW {
-                let ch = pool[((r * COLS_PER_ROW + c) as usize) % pool.len()];
-                frame1.push(mk(r, c, ch, (r + c) % 7 == 0));
+        for row in 0..ROWS {
+            for column in 0..COLS_PER_ROW {
+                let ch = pool[((row * COLS_PER_ROW + column) as usize) % pool.len()];
+                frame1.push(mk(row, column, ch, (row + column) % 7 == 0));
             }
         }
         let all_dirty = vec![true; ROWS as usize];
@@ -1509,20 +1509,20 @@ mod tests {
         }
         // Frame 2：偶数行不变（clean），奇数行换新字形（dirty，迫使驱逐）。
         let mut frame2 = Vec::new();
-        for r in 0..ROWS {
-            for c in 0..COLS_PER_ROW {
-                let idx = (r * COLS_PER_ROW + c) as usize;
-                let ch = if r % 2 == 0 {
+        for row in 0..ROWS {
+            for column in 0..COLS_PER_ROW {
+                let idx = (row * COLS_PER_ROW + column) as usize;
+                let ch = if row % 2 == 0 {
                     pool[idx % pool.len()]
                 } else {
                     pool[(idx + 45) % pool.len()]
                 };
-                frame2.push(mk(r, c, ch, (r + c) % 7 == 0));
+                frame2.push(mk(row, column, ch, (row + column) % 7 == 0));
             }
         }
         let mut dirty = vec![false; ROWS as usize];
-        for (r, d) in dirty.iter_mut().enumerate() {
-            *d = r % 2 == 1;
+        for (row, dirty_entry) in dirty.iter_mut().enumerate() {
+            *dirty_entry = row % 2 == 1;
         }
         instances.clear();
         let ok = build_instances_cached(
