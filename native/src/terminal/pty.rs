@@ -149,8 +149,8 @@ impl PtyPair {
             .collect::<Result<Vec<_>, _>>()?;
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
-            .map(|(k, v)| {
-                std::ffi::CString::new(format!("{k}={v}")).map_err(|null_error| {
+            .map(|(key, value)| {
+                std::ffi::CString::new(format!("{key}={value}")).map_err(|null_error| {
                     let msg = format!("env var contains null byte: {null_error}");
                     log::error!("{msg}");
                     PtyError::Fork(nix::errno::Errno::EINVAL)
@@ -278,7 +278,7 @@ impl PtyPair {
         };
         let env_ptrs: Vec<*const libc::c_char> = env_cstrings
             .iter()
-            .map(|s| s.as_ptr())
+            .map(|cstring| cstring.as_ptr())
             .chain(std::iter::once(std::ptr::null()))
             .collect();
 
@@ -522,11 +522,13 @@ impl PtyPair {
 
 impl Pty for PtyPair {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        nix::unistd::write(&self.master, buf).map_err(|e| io::Error::from_raw_os_error(e as i32))
+        nix::unistd::write(&self.master, buf)
+            .map_err(|errno| io::Error::from_raw_os_error(errno as i32))
     }
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        nix::unistd::read(&self.master, buf).map_err(|e| io::Error::from_raw_os_error(e as i32))
+        nix::unistd::read(&self.master, buf)
+            .map_err(|errno| io::Error::from_raw_os_error(errno as i32))
     }
 
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
@@ -573,21 +575,22 @@ impl Pty for PtyPair {
         env: &ShellEnv,
         cwd: Option<&Path>,
     ) -> Result<Box<dyn Pty>, PtyError> {
-        PtyPair::spawn(shell, rows, cols, env, cwd).map(|p| Box::new(p) as Box<dyn Pty>)
+        PtyPair::spawn(shell, rows, cols, env, cwd)
+            .map(|pty_pair| Box::new(pty_pair) as Box<dyn Pty>)
     }
 }
 
 impl std::io::Read for PtyPair {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         nix::unistd::read(&self.master, buf)
-            .map_err(|e| std::io::Error::from_raw_os_error(e as i32))
+            .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
     }
 }
 
 impl std::io::Write for PtyPair {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         nix::unistd::write(&self.master, buf)
-            .map_err(|e| std::io::Error::from_raw_os_error(e as i32))
+            .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

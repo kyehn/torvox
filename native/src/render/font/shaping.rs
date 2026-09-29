@@ -138,9 +138,9 @@ mod tests {
         let glyphs = pipeline.shape_run("Hello");
         assert!(!glyphs.is_empty(), "ASCII 'Hello' must shape to glyphs");
         let mut prev_x = 0.0f32;
-        for g in &glyphs {
-            assert!(g.x >= prev_x, "glyph x must not go backwards");
-            prev_x = g.x;
+        for glyph in &glyphs {
+            assert!(glyph.x >= prev_x, "glyph x must not go backwards");
+            prev_x = glyph.x;
         }
     }
 
