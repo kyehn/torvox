@@ -100,8 +100,9 @@ pub(crate) fn load_family(font_database: &mut fontdb::Database, family: &str) ->
     load_files(font_database, &resolve_font_files(files)) > 0
 }
 
-/// 字体族索引项：`display_name` 是展示用原始族名，`files` 是 fonts.xml 声明的
-/// 文件名（加载时按平台字体目录表解析成路径）。
+/// 字体族索引项：`display_name` 是展示用原始族名，`files` 是字体文件定位串。
+/// 系统族存 `fonts.xml` 里的裸文件名（加载时经平台字体目录表解析）；用户投放族存
+/// 绝对路径——它不在任何字体目录内，只留文件名会在按需装入时解析到别的文件或解析不到。
 #[cfg(target_os = "android")]
 pub(crate) struct FamilyEntry {
     pub display_name: String,
@@ -149,11 +150,9 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
             if font_database.load_font_file(&path).is_err() {
                 continue;
             }
-            let label = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default()
-                .to_string();
+            // 用户投放字体存绝对路径：它不在任何 FONT_DIRS 内，按裸文件名解析只会
+            // 落空（同名系统字体时更会装错文件），使 `font.ttf` 永远选不中。
+            let label = path.to_string_lossy().into_owned();
             for face in font_database.faces() {
                 for (family, _) in &face.families {
                     push_family(family.clone(), label.clone());
@@ -370,8 +369,22 @@ fn user_font_files() -> Vec<std::path::PathBuf> {
 fn resolve_font_files(filenames: &[String]) -> Vec<std::path::PathBuf> {
     filenames
         .iter()
-        .filter_map(|filename| resolve_font_path(filename))
+        .filter_map(|filename| resolve_font_entry(filename))
         .collect()
+}
+
+/// 族索引项的文件定位串 → 实际路径：绝对路径原样使用（用户投放字体不在任何
+/// `FONT_DIRS` 内），裸文件名才走平台字体目录表。
+///
+/// 绝不能对绝对路径也走目录表：用户把字体命名为某个系统字体的文件名时，
+/// 会静默装入系统的那一份，用户选的族与实际渲染的不是同一个字体。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn resolve_font_entry(entry: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::Path::new(entry);
+    if path.is_absolute() {
+        return path.is_file().then(|| path.to_path_buf());
+    }
+    resolve_font_path(entry)
 }
 
 pub(crate) fn read_fonts_xml() -> Option<String> {
@@ -398,7 +411,7 @@ fn load_files(font_database: &mut fontdb::Database, paths: &[std::path::PathBuf]
 }
 
 /// 按平台字体目录表解析 `fonts.xml` 声明的文件名，首个命中即为该字体。
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn resolve_font_path(filename: &str) -> Option<std::path::PathBuf> {
     FONT_DIRS
         .iter()
@@ -715,6 +728,47 @@ mod tests {
             &font_database,
             "NoSuchFont-Regular.ttc"
         ));
+    }
+
+    /// 用户投放字体（`~/.termux/font.ttf`）存的是绝对路径，按需装入时必须原样
+    /// 解析：它不在任何平台字体目录内，只留文件名的旧实现永远解析不到，
+    /// `font.ttf 存在即默认` 因此在设备上完全失效。
+    #[test]
+    fn absolute_font_entry_resolves_without_font_dir_lookup() {
+        let probe = probe_font_file();
+        let entry = probe.to_string_lossy().into_owned();
+        assert!(
+            probe.is_absolute(),
+            "probe font must be referenced by absolute path, got {probe:?}"
+        );
+        assert_eq!(
+            super::resolve_font_entry(&entry).as_deref(),
+            Some(probe.as_path()),
+            "绝对路径必须原样解析，不得退回平台字体目录表"
+        );
+    }
+
+    /// 反向断言：裸文件名仍走目录表解析（宿主无 `/system/fonts/` 即解析不到），
+    /// 绝对路径分支没有把该语义一并改掉。
+    #[test]
+    fn bare_file_name_still_resolves_through_font_dirs() {
+        assert_eq!(
+            super::resolve_font_entry("NoSuchFont-Regular.ttf"),
+            None,
+            "裸文件名只经 FONT_DIRS 解析，宿主上无此目录即为空"
+        );
+    }
+
+    /// 绝对路径指向不存在的文件时不得回落目录表：回落会装到同名的系统字体，
+    /// 表现为「选中的族和渲染的不是同一个字体」。
+    #[test]
+    fn missing_absolute_entry_does_not_fall_back_to_font_dirs() {
+        let missing = std::path::Path::new("/nonexistent-user-font-dir/font.ttf");
+        assert_eq!(
+            super::resolve_font_entry(&missing.to_string_lossy()),
+            None,
+            "绝对路径不存在时必须为空，不得按文件名回落"
+        );
     }
 
     /// 扫描列表须含 `ASystemFontIterator` 会枚举的 OEM 目录（/odm/fonts/、
