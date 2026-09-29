@@ -1399,9 +1399,9 @@ fn build_cursor(
 fn mark_overlay_dirty_rows(dirty_mask: &mut [bool], rows_usize: usize, highlight_rows: &[i32]) {
     // 搜索高亮行，当前与上次绘制的都要算：高亮是逐行叠加，增删移动会改变像素而
     // 不改变单元内容。
-    for r in highlight_rows {
-        if *r >= 0 && (*r as usize) < rows_usize {
-            dirty_mask[*r as usize] = true;
+    for highlight_row in highlight_rows {
+        if *highlight_row >= 0 && (*highlight_row as usize) < rows_usize {
+            dirty_mask[*highlight_row as usize] = true;
         }
     }
 }
@@ -2987,8 +2987,8 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             // （与 `feed_pty_inner` 同一模式）。
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
             let len = array.len(env).unwrap_or(0);
-            for i in 0..len {
-                if let Ok(item) = array.get_element(env, i) {
+            for font_index in 0..len {
+                if let Ok(item) = array.get_element(env, font_index) {
                     if let Ok(text) = item.try_to_string(env) {
                         path_list.push(std::path::PathBuf::from(text));
                     }

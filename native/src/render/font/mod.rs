@@ -539,13 +539,14 @@ mod tests {
             info.height
         );
         let atlas = pipeline.atlas_bitmap();
-        let atlas_w = 512usize;
-        let ax = info.atlas_x as usize;
-        let ay = info.atlas_y as usize;
+        let atlas_width = 512usize;
+        let atlas_left = info.atlas_x as usize;
+        let atlas_top = info.atlas_y as usize;
         let mut has_ink = false;
-        for y in 0..info.height as usize {
-            for x in 0..info.width as usize {
-                let byte_offset = ((ay + y) * atlas_w + ax + x) * 4;
+        for pixel_row in 0..info.height as usize {
+            for pixel_column in 0..info.width as usize {
+                let byte_offset =
+                    ((atlas_top + pixel_row) * atlas_width + atlas_left + pixel_column) * 4;
                 if byte_offset < atlas.len() && atlas[byte_offset] > 0 {
                     has_ink = true;
                     break;
@@ -1459,11 +1460,12 @@ mod tests {
             return Vec::new();
         }
         let mut region = Vec::with_capacity(info.width as usize * info.height as usize);
-        for y in 0..info.height as usize {
-            for x in 0..info.width as usize {
-                let offset =
-                    ((info.atlas_y as usize + y) * atlas_width + info.atlas_x as usize + x)
-                        * BYTES_PER_PIXEL;
+        for pixel_row in 0..info.height as usize {
+            for pixel_column in 0..info.width as usize {
+                let offset = ((info.atlas_y as usize + pixel_row) * atlas_width
+                    + info.atlas_x as usize
+                    + pixel_column)
+                    * BYTES_PER_PIXEL;
                 region.push(bitmap[offset]);
             }
         }

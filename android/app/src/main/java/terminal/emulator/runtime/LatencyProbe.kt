@@ -65,8 +65,8 @@ class LatencyProbe(private val capacity: Int = DEFAULT_CAPACITY) {
     fun snapshot(): List<Long> = synchronized(this) {
         val out = ArrayList<Long>(count)
         val oldest = (head - count + capacity) % capacity
-        for (i in 0 until count) {
-            out.add(samples[(oldest + i) % capacity])
+        for (sampleIndex in 0 until count) {
+            out.add(samples[(oldest + sampleIndex) % capacity])
         }
         out
     }

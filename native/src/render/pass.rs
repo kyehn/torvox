@@ -32,9 +32,9 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                 let _ = request.response.send(result);
             }
         })
-        .unwrap_or_else(|e| {
+        .unwrap_or_else(|spawn_error| {
             panic!(
-                "FATAL: cannot spawn gpu-acquire worker thread: {e}. \
+                "FATAL: cannot spawn gpu-acquire worker thread: {spawn_error}. \
                  This is required for safe surface texture acquisition. \
                  Check RLIMIT_NPROC / RLIMIT_THREAD."
             )
@@ -707,9 +707,9 @@ impl Renderer {
         });
         // 滚动平移的几何前提：网格必须恰好纵向填满目标，否则平移会拖出边距。
         let scroll_up_rows = scroll_up_rows.filter(|_| {
-            self.surface_config
-                .as_ref()
-                .is_some_and(|c| (rows as f32 * grid_cell_h - c.height as f32).abs() <= 2.0)
+            self.surface_config.as_ref().is_some_and(|surface_config| {
+                (rows as f32 * grid_cell_h - surface_config.height as f32).abs() <= 2.0
+            })
         });
         let plan = crate::render::cell_builder::FramePatch {
             bands: bands.unwrap_or_default(),
@@ -726,19 +726,21 @@ impl Renderer {
         instances: &[crate::render::CellInstance],
         kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<Vec<u8>, GpuError> {
-        let (w, h) = self
+        let (frame_width, frame_height) = self
             .surface_config
             .as_ref()
-            .map_or((0, 0), |c| (c.width, c.height));
-        if w == 0 || h == 0 {
+            .map_or((0, 0), |surface_config| {
+                (surface_config.width, surface_config.height)
+            });
+        if frame_width == 0 || frame_height == 0 {
             return Err(GpuError::Surface("No surface config".to_string()));
         }
 
-        self.ensure_kgp_pipeline(w, h);
+        self.ensure_kgp_pipeline(frame_width, frame_height);
 
         let tex_size = wgpu::Extent3d {
-            width: w,
-            height: h,
+            width: frame_width,
+            height: frame_height,
             depth_or_array_layers: 1,
         };
         // the readback texture must match the pipeline
@@ -748,7 +750,11 @@ impl Renderer {
         // render attachment for those pipelines.
         let pipeline_format = self.pipeline_format;
         let needs_new = match &self.readback_texture {
-            Some(t) => t.width() != w || t.height() != h || t.format() != pipeline_format,
+            Some(texture) => {
+                texture.width() != frame_width
+                    || texture.height() != frame_height
+                    || texture.format() != pipeline_format
+            }
             None => true,
         };
         if needs_new {
@@ -769,9 +775,9 @@ impl Renderer {
             .ok_or_else(|| GpuError::Surface("readback_texture creation failed".to_string()))?;
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let bytes_per_row_padded = ((w * 4) + (wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1))
+        let bytes_per_row_padded = ((frame_width * 4) + (wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1))
             & !(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1);
-        let buf_size = (bytes_per_row_padded * h) as u64;
+        let buf_size = (bytes_per_row_padded * frame_height) as u64;
         let needs_buf_new = match &self.readback_buffer {
             Some(b) => b.size() < buf_size,
             None => true,
@@ -818,11 +824,11 @@ impl Renderer {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            let wf = w as f32;
-            let hf = h as f32;
+            let width_float = frame_width as f32;
+            let height_float = frame_height as f32;
             rp.set_pipeline(pipeline);
-            rp.set_viewport(0.0, 0.0, wf, hf, 0.0, 1.0);
-            rp.set_scissor_rect(0, 0, w, h);
+            rp.set_viewport(0.0, 0.0, width_float, height_float, 0.0, 1.0);
+            rp.set_scissor_rect(0, 0, frame_width, frame_height);
             if let Some(bind_group) = &self.cell_bind_group {
                 rp.set_bind_group(0, bind_group, &[]);
                 if !instances.is_empty() {
@@ -851,7 +857,7 @@ impl Renderer {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row_padded),
-                    rows_per_image: Some(h),
+                    rows_per_image: Some(frame_height),
                 },
             },
             tex_size,
@@ -897,20 +903,21 @@ impl Renderer {
             }
         }
         // 向上传递 map_async 错误（如缓冲过大、设备丢失）。
-        map_result.map_err(|e| GpuError::Readback(format!("map_async failed: {e:?}")))?;
+        map_result
+            .map_err(|map_error| GpuError::Readback(format!("map_async failed: {map_error:?}")))?;
         let data = slice
             .get_mapped_range()
-            .map_err(|e| GpuError::Readback(e.to_string()))?
+            .map_err(|map_error| GpuError::Readback(map_error.to_string()))?
             .to_vec();
         dst.unmap();
 
-        let pixel_bytes = (w * h * 4) as usize;
+        let pixel_bytes = (frame_width * frame_height * 4) as usize;
         let stride = bytes_per_row_padded as usize;
-        let trimmed = if data.len() > pixel_bytes && stride > (w as usize * 4) {
+        let trimmed = if data.len() > pixel_bytes && stride > (frame_width as usize * 4) {
             let mut flat = Vec::with_capacity(pixel_bytes);
-            for row in 0..h as usize {
+            for row in 0..frame_height as usize {
                 let row_start = row * stride;
-                let row_end = row_start + (w as usize * 4);
+                let row_end = row_start + (frame_width as usize * 4);
                 if row_end <= data.len() {
                     flat.extend_from_slice(&data[row_start..row_end]);
                 }

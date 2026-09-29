@@ -78,7 +78,9 @@ impl EventQueue {
         let mut guard = self.inner.lock();
         if guard.len() >= MAX_QUEUED_EVENTS {
             self.warn_overflow_once();
-            let evict_idx = guard.iter().position(|e| !matches!(e, Event::Exit { .. }));
+            let evict_idx = guard
+                .iter()
+                .position(|existing_event| !matches!(existing_event, Event::Exit { .. }));
             match evict_idx {
                 Some(idx) => {
                     guard.remove(idx);
