@@ -2,7 +2,7 @@
 
 ## Context
 
-`renderWithNewOutput` 已把光标采样移出 `count > 0` 门，空闲帧同样上报，见 `proposal.md - Why`。当前实现随后对会话调用 `render_cursor()`；该方法经通用查询通道实现，上限为 `QUERY_TIMEOUT_MS`（500ms），见 `native/src/terminal/ghostty_terminal/types.rs:241` 与 `public_api.rs:445`。`render_inner` 已有避免同步查询的先例：回滚长度搭载在 `CursorInfo` 上，而不是调用 `scrollback_length()`，见 `native/src/android/ffi.rs:1497`。
+`renderWithNewOutput` 已把光标采样移出 `count > 0` 门，空闲帧同样上报，见 `proposal.md - Why`。此前实现随后对会话调用 `render_cursor()`；该方法经通用查询通道实现，上限为 `QUERY_TIMEOUT_MS`（500ms），见 `native/src/terminal/ghostty_terminal/types.rs:241` 与 `public_api.rs:445`。`render_inner` 已有避免同步查询的先例：回滚长度搭载在 `CursorInfo` 上，而不是调用 `scrollback_length()`，见 `native/src/android/ffi.rs:1497`。
 
 ## Goals / Non-Goals
 
