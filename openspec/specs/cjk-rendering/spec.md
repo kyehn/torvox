@@ -10,12 +10,19 @@ CJK 字形在终端中的渲染质量与输入链路要求。记录设备取证�
 
 CJK fallback MUST 遵循 Android fonts.xml：zh-Hans 链首选 `NotoSansCJK-Regular.ttc`
 index=2（Noto Sans CJK SC），MUST NOT 回退到 Serif/JP。`FontPipeline::find_cjk_fallback_fonts`
-按 fonts.xml 顺序匹配，首个命中即用。
+按 fonts.xml 顺序匹配，首个命中即用。匹配 MUST 为纯 `(文件名, ttc_index)` 精确命中，
+MUST NOT 使用族名子串启发式或打分排序：族名在不同 ROM 间不稳定，启发式会把
+Noto Serif CJK 或 Noto Sans CJK JP 排到 SC 之前。
 
 #### Scenario: 简体中文环境选中 CJK SC
 
 - **WHEN** 系统 locale 为 zh-Hans 且需要 CJK 字形回退
 - **THEN** 选中 Noto Sans CJK SC，不使用 Noto Serif 或 Noto Sans CJK JP
+
+#### Scenario: 同名族不靠打分取
+
+- **WHEN** 库内同时存在 Serif 与 Sans 两个 CJK 族且 fonts.xml 先声明 Sans
+- **THEN** 命中 Sans 的精确面，不因族名启发式改序
 
 ### Requirement: CJK 字形按位图物理像素 1:1 取样
 
@@ -38,3 +45,29 @@ bridge.writeToPty 进入 PTY 后，提交的 CJK 文本 MUST 在首帧渲染可�
 
 - **WHEN** 冷启动后一次点击开键盘，经拼音 SPACE 提交“你好”
 - **THEN** 终端立即显示“你好”，无需额外点击
+
+### Requirement: 区域回退族按 locale 增补而非冻结
+
+字体库构建时若 locale 尚未到达（Kotlin 侧按会话调用在 `sessionId == 0` 时被丢弃，
+spawn 后重放的 locale 晚于库定型），区域回退族 MUST 能在 locale 到达后被补装进
+**活动字体库**。实现 MUST 只增补缺失的面而不得重建整个库：`fontdb::ID` 是库内序号，
+重建会使主字体 `font_id` 指向另一个面。同一文件已装入时 MUST NOT 重复装入。
+
+CJK 回退层的发现 MUST NOT 依赖 locale 早于字体库构建这一调用顺序。
+
+#### Scenario: locale 晚于字体库构建到达
+
+- **WHEN** 字体库在 locale 为空时已定型（仅主字体与符号族）
+- **AND** 随后 `setSystemLocale("zh-CN")` 到达
+- **THEN** 区域族被补装，`find_cjk_fallback_fonts` 找到 fonts.xml `zh-Hans` 块声明的面
+- **AND** 汉字渲染出真实字形而非 `.notdef`，`CJK_FALLBACK: found` 计数大于零
+
+#### Scenario: 补装幂等
+
+- **WHEN** 同一 locale 重复到达
+- **THEN** 库内面数不变，区域族不重复装入
+
+#### Scenario: 非 CJK locale 不补装
+
+- **WHEN** locale 为 `en-US`
+- **THEN** 不补装任何 `lang` 族，CJK 回退层保持为空
