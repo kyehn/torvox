@@ -921,7 +921,7 @@ mod tests {
         let env = base_env(None);
         assert!(
             env.iter()
-                .any(|(k, v)| k == "TERM" && v == "xterm-256color")
+                .any(|(key, value)| key == "TERM" && value == "xterm-256color")
         );
     }
 
@@ -951,19 +951,22 @@ mod tests {
         let env = base_env_with_host(None, &|key| host.get(key).cloned());
         assert!(
             env.iter()
-                .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system"),
+                .any(|(key, value)| key == "ANDROID_ROOT" && value == "/system"),
         );
         assert!(
             env.iter()
-                .any(|(k, v)| k == "EXTERNAL_STORAGE" && v == "/sdcard"),
+                .any(|(key, value)| key == "EXTERNAL_STORAGE" && value == "/sdcard"),
         );
-        assert!(env.iter().all(|(k, _)| k != "ANDROID_DATA"));
+        assert!(env.iter().all(|(key, _)| key != "ANDROID_DATA"));
     }
 
     #[test]
     fn base_env_includes_lang() {
         let env = base_env(None);
-        assert!(env.iter().any(|(k, v)| k == "LANG" && v == "en_US.UTF-8"));
+        assert!(
+            env.iter()
+                .any(|(key, value)| key == "LANG" && value == "en_US.UTF-8")
+        );
     }
 
     #[test]
@@ -977,8 +980,14 @@ mod tests {
     #[test]
     fn base_env_includes_prefix_and_tmpdir_when_set() {
         let env = base_env(Some(TEST_PREFIX));
-        assert!(env.iter().any(|(k, v)| k == "PREFIX" && v == TEST_PREFIX));
-        assert!(env.iter().any(|(k, v)| k == "TMPDIR" && v == TEST_TMPDIR));
+        assert!(
+            env.iter()
+                .any(|(key, value)| key == "PREFIX" && value == TEST_PREFIX)
+        );
+        assert!(
+            env.iter()
+                .any(|(key, value)| key == "TMPDIR" && value == TEST_TMPDIR)
+        );
     }
 
     #[test]
@@ -988,7 +997,7 @@ mod tests {
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "TERM" && v == "xterm-256color")
+                .any(|(key, value)| key == "TERM" && value == "xterm-256color")
         );
     }
 
@@ -999,7 +1008,7 @@ mod tests {
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "ENV" && v == "/tmp/test_app_data/.mkshrc")
+                .any(|(key, value)| key == "ENV" && value == "/tmp/test_app_data/.mkshrc")
         );
     }
 
@@ -1010,7 +1019,7 @@ mod tests {
             ..test_env()
         };
         let result = build_env(&env);
-        assert!(!result.iter().any(|(k, _)| k == "ENV"));
+        assert!(!result.iter().any(|(key, _)| key == "ENV"));
     }
 
     #[test]
@@ -1020,7 +1029,7 @@ mod tests {
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "COLORTERM" && v == "truecolor")
+                .any(|(key, value)| key == "COLORTERM" && value == "truecolor")
         );
     }
 
@@ -1031,7 +1040,7 @@ mod tests {
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "HOME" && v == "/tmp/test_home")
+                .any(|(key, value)| key == "HOME" && value == "/tmp/test_home")
         );
     }
 
@@ -1049,7 +1058,9 @@ mod tests {
             ("TERMUX_HOME_DIR_PATH", "/tmp/test_home"),
         ] {
             assert!(
-                result.iter().any(|(k, v)| k == key && v == value),
+                result
+                    .iter()
+                    .any(|(entry_key, entry_value)| entry_key == key && entry_value == value),
                 "missing {key}={value}"
             );
         }
@@ -1073,7 +1084,7 @@ mod tests {
             "CURL_CA_BUNDLE",
         ] {
             assert!(
-                !result.iter().any(|(k, _)| k == key),
+                !result.iter().any(|(entry_key, _)| entry_key == key),
                 "unlisted variable {key} must not be set"
             );
         }
