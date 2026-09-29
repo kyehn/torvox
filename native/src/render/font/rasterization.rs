@@ -26,8 +26,8 @@ impl FontPipeline {
 
     fn scaled_metric(&self, extract: impl FnOnce(swash::Metrics) -> f32, fallback: f32) -> f32 {
         if let Some(font_id) = self.font_id {
-            let db = self.font_system.db();
-            let result = db.with_face_data(font_id, |font_data, face_index| {
+            let font_database = self.font_system.db();
+            let result = font_database.with_face_data(font_id, |font_data, face_index| {
                 let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                 let metrics = font_ref.metrics(&[]);
                 let upem = metrics.units_per_em as f32;
@@ -54,8 +54,8 @@ impl FontPipeline {
 
     pub fn cell_metrics(&self) -> (f32, f32) {
         if let Some(font_id) = self.font_id {
-            let db = self.font_system.db();
-            let result = db.with_face_data(font_id, |font_data, face_index| {
+            let font_database = self.font_system.db();
+            let result = font_database.with_face_data(font_id, |font_data, face_index| {
                 let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                 let metrics = font_ref.metrics(&[]);
                 let upem = metrics.units_per_em as f32;
@@ -75,7 +75,7 @@ impl FontPipeline {
 
                 if self
                     .font_id
-                    .is_some_and(|id| db.faces().any(|f| f.id == id && f.monospaced))
+                    .is_some_and(|id| font_database.faces().any(|f| f.id == id && f.monospaced))
                 {
                     let glyph_id = charmap.map('m' as u32);
                     let advance = glyph_metrics.advance_width(glyph_id);

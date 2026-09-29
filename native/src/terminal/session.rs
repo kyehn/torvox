@@ -987,7 +987,7 @@ mod tests {
         }
         let winners = handles
             .into_iter()
-            .filter_map(|h| h.join().ok())
+            .filter_map(|join_handle| join_handle.join().ok())
             .filter(|won| *won)
             .count();
         assert_eq!(winners, 1, "exactly one caller must report the exit");

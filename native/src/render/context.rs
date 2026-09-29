@@ -57,15 +57,15 @@ fn global_gpu() -> &'static GlobalGpu {
                 device,
                 queue,
             },
-            Err(e) => {
-                log::error!("GPU initialization failed: {e}");
+            Err(initialization_error) => {
+                log::error!("GPU initialization failed: {initialization_error}");
                 log::error!("Solution: ensure a Vulkan-capable GPU is available.");
                 log::error!("  - Linux desktop: set VK_ICD_FILENAMES to a lavapipe or Mesa driver");
                 log::error!("  - Android emulator: use SwiftShader (default with GPU emulation)");
                 log::error!("  - Physical device: install Vulkan drivers for your hardware");
                 log::error!("This is a fatal error — the terminal cannot render without a GPU.");
                 panic!(
-                    "GPU initialization failed: {e}. \
+                    "GPU initialization failed: {initialization_error}. \
                      See log for details."
                 )
             }
@@ -170,7 +170,7 @@ impl Renderer {
         }
         self.frame_texture
             .as_ref()
-            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
+            .map(|frame_texture| frame_texture.create_view(&wgpu::TextureViewDescriptor::default()))
     }
 
     /// 获取 surface 纹理并为本帧创建 `FrameContext`；获取失败（surface 丢失、超时、
@@ -183,8 +183,14 @@ impl Renderer {
             });
             self.pending_gpu_drain = false;
         }
-        let config_width = self.surface_config.as_ref().map(|c| c.width)?;
-        let config_height = self.surface_config.as_ref().map(|c| c.height)?;
+        let config_width = self
+            .surface_config
+            .as_ref()
+            .map(|surface_config| surface_config.width)?;
+        let config_height = self
+            .surface_config
+            .as_ref()
+            .map(|surface_config| surface_config.height)?;
 
         self.refresh_cell_uniforms(config_width as f32, config_height as f32);
         self.ensure_kgp_pipeline(config_width, config_height);
@@ -418,7 +424,7 @@ impl Renderer {
             .formats
             .iter()
             .copied()
-            .find(|f| !f.is_srgb())
+            .find(|candidate| !candidate.is_srgb())
             .or_else(|| caps.formats.first().copied())
             .ok_or_else(|| {
                 GpuError::Surface("attach_surface: no supported surface formats".into())
@@ -453,7 +459,9 @@ impl Renderer {
         self.pipeline_format = self
             .surface_config
             .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |surface_config| {
+                surface_config.format
+            });
         if previous_format != self.pipeline_format {
             self.cell_pipeline = None;
             self.cell_bind_group = None;
@@ -793,11 +801,18 @@ impl Renderer {
         let Some(buf) = self.cell_uniform_buffer.as_ref() else {
             return;
         };
-        let (aw, ah) = self
+        let (atlas_width, atlas_height) = self
             .atlas_texture
             .as_ref()
-            .map_or((0.0, 0.0), |t| (t.width() as f32, t.height() as f32));
-        let uniforms = self.cell_uniforms(projection_width, projection_height, aw, ah);
+            .map_or((0.0, 0.0), |atlas_texture| {
+                (atlas_texture.width() as f32, atlas_texture.height() as f32)
+            });
+        let uniforms = self.cell_uniforms(
+            projection_width,
+            projection_height,
+            atlas_width,
+            atlas_height,
+        );
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
     }
@@ -909,13 +924,19 @@ impl Renderer {
         self.projection_height = scaled_height;
 
         if let Some(buf) = &self.cell_uniform_buffer {
-            let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
-            let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+            let atlas_width = self
+                .atlas_texture
+                .as_ref()
+                .map_or(0, |atlas_texture| atlas_texture.width());
+            let atlas_height = self
+                .atlas_texture
+                .as_ref()
+                .map_or(0, |atlas_texture| atlas_texture.height());
             let uniforms = self.cell_uniforms(
                 scaled_width as f32,
                 scaled_height as f32,
-                aw as f32,
-                ah as f32,
+                atlas_width as f32,
+                atlas_height as f32,
             );
             self.queue
                 .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
@@ -938,7 +959,9 @@ impl Renderer {
         let format = self
             .surface_config
             .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |surface_config| {
+                surface_config.format
+            });
         self.pipeline_format = format;
         self.cell_pipeline = Some(Self::create_cell_pipeline(&self.device, format));
 

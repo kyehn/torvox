@@ -119,12 +119,12 @@ impl Pty for MockPty {
             return Ok(0);
         }
         if let Some(data) = inner.output_buffer.pop_front() {
-            let n = data.len().min(buf.len());
-            buf[..n].copy_from_slice(&data[..n]);
-            if n < data.len() {
-                inner.output_buffer.push_front(data[n..].to_vec());
+            let byte_count = data.len().min(buf.len());
+            buf[..byte_count].copy_from_slice(&data[..byte_count]);
+            if byte_count < data.len() {
+                inner.output_buffer.push_front(data[byte_count..].to_vec());
             }
-            Ok(n)
+            Ok(byte_count)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::WouldBlock,

@@ -853,22 +853,30 @@ mod tests {
         }
     }
 
-    /// 读取 PTY 输出直到出现 `needle`（2 秒截止）；返回已读内容，调用方自行断言。
+    /// 测试读取缓冲（单次 `read` 上限）与轮询节拍：`read_until` 的截止、
+    /// 步长与 `double_write` 的尝试次数/最小输出。
+    const TEST_READ_BUF_SIZE: usize = 4096;
+    const TEST_READ_DEADLINE_SECS: u64 = 2;
+    const TEST_READ_POLL_STEP_MS: u64 = 10;
+    const TEST_READ_ATTEMPTS: usize = 50;
+    const TEST_MIN_OUTPUT_LEN: usize = 200;
+
+    /// 读取 PTY 输出直到出现 `needle`（截止见 `TEST_READ_DEADLINE_SECS`）；返回已读内容，调用方自行断言。
     fn read_until(pty: &mut PtyPair, needle: &[u8]) -> Vec<u8> {
         use crate::terminal::pty::Pty;
 
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; TEST_READ_BUF_SIZE];
         let mut output = Vec::new();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + Duration::from_secs(TEST_READ_DEADLINE_SECS);
         while std::time::Instant::now() < deadline {
             match Pty::read(pty, &mut buf) {
-                Ok(n) => output.extend_from_slice(&buf[..n]),
+                Ok(byte_count) => output.extend_from_slice(&buf[..byte_count]),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(10));
+                    std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
                 }
                 Err(_) => break,
             }
-            if output.windows(needle.len()).any(|w| w == needle) {
+            if output.windows(needle.len()).any(|window| window == needle) {
                 return output;
             }
         }
@@ -1109,7 +1117,7 @@ mod tests {
 
         let output = read_until(&mut pty, b"hello_vt");
         assert!(
-            output.windows(8).any(|w| w == b"hello_vt"),
+            output.windows(8).any(|window| window == b"hello_vt"),
             "did not see 'hello_vt' in output: {}",
             String::from_utf8_lossy(&output)
         );
@@ -1271,7 +1279,7 @@ mod tests {
         assert!(
             output
                 .windows(temp.to_string_lossy().len())
-                .any(|w| w == temp.to_string_lossy().as_bytes()),
+                .any(|window| window == temp.to_string_lossy().as_bytes()),
             "did not see working directory '{}' in pwd output: {}",
             temp.display(),
             String::from_utf8_lossy(&output)
@@ -1297,7 +1305,9 @@ mod tests {
         let needle = format!("ENV-is:{marker}");
         let output = read_until(&mut pty, needle.as_bytes());
         assert!(
-            output.windows(needle.len()).any(|w| w == needle.as_bytes()),
+            output
+                .windows(needle.len())
+                .any(|window| window == needle.as_bytes()),
             "did not see ENV '{}' in child output: {}",
             needle,
             String::from_utf8_lossy(&output)
@@ -1349,17 +1359,17 @@ mod tests {
         Pty::write_all(&mut pty, b"echo a\n").expect("first write must succeed");
         Pty::write_all(&mut pty, b"echo b\n").expect("second write must succeed");
 
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; TEST_READ_BUF_SIZE];
         let mut output = Vec::new();
-        for _ in 0..50 {
+        for _ in 0..TEST_READ_ATTEMPTS {
             match Pty::read(&mut pty, &mut buf) {
-                Ok(n) => output.extend_from_slice(&buf[..n]),
+                Ok(byte_count) => output.extend_from_slice(&buf[..byte_count]),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(10));
+                    std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
                 }
                 Err(_) => break,
             }
-            if output.len() > 200 {
+            if output.len() > TEST_MIN_OUTPUT_LEN {
                 break;
             }
         }

@@ -963,7 +963,7 @@ fn write_key_inner(
 // JNI 导出：encodeMouseEvent
 // ══════════════════════════════════════════════════════════════════════════
 // 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用方的 DECSET 选择
-// SGR/X10/UTF-8）。`position` 为 surface 像素，`cellW`/`cellH` 为渲染器的实时
+// SGR/X10/UTF-8）。`position` 为 surface 像素，`cellWidth`/`cellHeight` 为渲染器的实时
 // 单元格尺寸。鼠标上报关闭或编码失败时返回空字节数组（该事件被丢弃）。
 
 #[unsafe(no_mangle)]
@@ -975,11 +975,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
     y_px: jfloat,
     action: jint,
     button: jint,
-    cell_w: jfloat,
-    cell_h: jfloat,
+    cell_width: jfloat,
+    cell_height: jfloat,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        encode_mouse_event_inner(env, session_id, x_px, y_px, action, button, cell_w, cell_h)
+        encode_mouse_event_inner(
+            env,
+            session_id,
+            x_px,
+            y_px,
+            action,
+            button,
+            cell_width,
+            cell_height,
+        )
     })
 }
 
@@ -999,8 +1008,8 @@ fn encode_mouse_event_inner(
     y_px: jfloat,
     action: jint,
     button: jint,
-    cell_w: jfloat,
-    cell_h: jfloat,
+    cell_width: jfloat,
+    cell_height: jfloat,
 ) -> jbyteArray {
     let id = session_id as u64;
     let registry = rlock_session_registry();
@@ -1012,8 +1021,8 @@ fn encode_mouse_event_inner(
         (x_px, y_px),
         action as u8,
         button as u8,
-        cell_w,
-        cell_h,
+        cell_width,
+        cell_height,
     ) else {
         return empty_java_byte_array(env);
     };

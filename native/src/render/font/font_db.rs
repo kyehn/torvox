@@ -53,8 +53,8 @@ pub fn add_extra_font_path(path: std::path::PathBuf) {
 /// WebView/UI 用字，渲染路径永不触及，故不加载。
 #[cfg(target_os = "android")]
 pub(crate) fn load_font_database() -> fontdb::Database {
-    let db = CACHED_FONT_DB.get_or_init(|| {
-        let mut db = fontdb::Database::new();
+    let font_database = CACHED_FONT_DB.get_or_init(|| {
+        let mut font_database = fontdb::Database::new();
         let mut loaded = 0u32;
 
         // 主字体优先：用户投放的 `~/.termux/font.ttf|ttc|otf`，否则用 fonts.xml
@@ -62,9 +62,12 @@ pub(crate) fn load_font_database() -> fontdb::Database {
         let primary = user_font_files();
         if primary.is_empty() {
             let target = resolve_system_monospace_from_fonts_xml();
-            loaded += load_files(&mut db, &resolve_font_files(std::slice::from_ref(&target)));
+            loaded += load_files(
+                &mut font_database,
+                &resolve_font_files(std::slice::from_ref(&target)),
+            );
         } else {
-            loaded += load_files(&mut db, &primary);
+            loaded += load_files(&mut font_database, &primary);
         }
 
         // 一个符号族 + 一个区域族。fonts.xml 缺失时这两项为空：符号缺失只是
@@ -72,29 +75,29 @@ pub(crate) fn load_font_database() -> fontdb::Database {
         let Some(content) = read_fonts_xml() else {
             log::warn!("FONT_LOAD: fonts.xml 不可读，符号与区域回退族为空");
             log::debug!("FONT_LOAD: loaded {loaded} font files");
-            return db;
+            return font_database;
         };
         let symbol = resolve_font_files(&symbol_family_files(&content));
-        loaded += load_files(&mut db, &symbol);
+        loaded += load_files(&mut font_database, &symbol);
         let region = resolve_font_files(&locale_fallback_files(&content, &current_locale()));
-        loaded += load_files(&mut db, &region);
+        loaded += load_files(&mut font_database, &region);
 
         log::debug!(
             "FONT_LOAD: loaded {loaded} font files, {} faces",
-            db.faces().count()
+            font_database.faces().count()
         );
-        db
+        font_database
     });
-    db.clone()
+    font_database.clone()
 }
 
 /// 按需加载一个字体族：设置页选中但尚未装入的族走这里。
 #[cfg(target_os = "android")]
-pub(crate) fn load_family(db: &mut fontdb::Database, family: &str) -> bool {
+pub(crate) fn load_family(font_database: &mut fontdb::Database, family: &str) -> bool {
     let Some(files) = family_files(family) else {
         return false;
     };
-    load_files(db, &resolve_font_files(files)) > 0
+    load_files(font_database, &resolve_font_files(files)) > 0
 }
 
 /// 字体族索引项：`display_name` 是展示用原始族名，`files` 是 fonts.xml 声明的
@@ -130,11 +133,11 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
                 let Some(path) = resolve_font_path(&filename) else {
                     continue;
                 };
-                let mut db = fontdb::Database::new();
-                if db.load_font_file(&path).is_err() {
+                let mut font_database = fontdb::Database::new();
+                if font_database.load_font_file(&path).is_err() {
                     continue;
                 }
-                for face in db.faces() {
+                for face in font_database.faces() {
                     for (family, _) in &face.families {
                         push_family(family.clone(), filename.clone());
                     }
@@ -142,8 +145,8 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
             }
         }
         for path in user_font_files() {
-            let mut db = fontdb::Database::new();
-            if db.load_font_file(&path).is_err() {
+            let mut font_database = fontdb::Database::new();
+            if font_database.load_font_file(&path).is_err() {
                 continue;
             }
             let label = path
@@ -151,7 +154,7 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
                 .and_then(|name| name.to_str())
                 .unwrap_or_default()
                 .to_string();
-            for face in db.faces() {
+            for face in font_database.faces() {
                 for (family, _) in &face.families {
                     push_family(family.clone(), label.clone());
                 }
@@ -300,10 +303,10 @@ pub(crate) fn read_fonts_xml_fallback() -> Option<String> {
 }
 
 #[cfg(target_os = "android")]
-fn load_files(db: &mut fontdb::Database, paths: &[std::path::PathBuf]) -> u32 {
+fn load_files(font_database: &mut fontdb::Database, paths: &[std::path::PathBuf]) -> u32 {
     let mut count = 0u32;
     for path in paths {
-        if let Err(error) = db.load_font_file(path) {
+        if let Err(error) = font_database.load_font_file(path) {
             // 只记文件名：完整路径可能带出用户主目录。
             log::warn!(
                 "font: failed to load font file {}: {error}",

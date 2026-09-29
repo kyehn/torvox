@@ -212,136 +212,136 @@ mod tests {
 
     #[test]
     fn pty_write_raises_new_output_flag() {
-        let mut proc = OutputProcessor::new();
+        let mut processor = OutputProcessor::new();
         // 摄入前空闲：标志须为清。
-        assert!(!proc.take_new_output());
+        assert!(!processor.take_new_output());
         // PTY 写入后标志为置。
-        let _ = proc.process(b"echo hi\r\n");
-        assert!(proc.take_new_output());
+        let _ = processor.process(b"echo hi\r\n");
+        assert!(processor.take_new_output());
         // 单消费者读清：第二次读取为 false。
-        assert!(!proc.take_new_output());
+        assert!(!processor.take_new_output());
     }
 
     #[test]
     fn idle_keeps_new_output_flag_clear() {
-        let mut proc = OutputProcessor::new();
-        let _ = proc.process(b"first chunk");
-        assert!(proc.take_new_output());
+        let mut processor = OutputProcessor::new();
+        let _ = processor.process(b"first chunk");
+        assert!(processor.take_new_output());
         // 此后无 PTY 写入：多次读取后标志仍为清。
-        assert!(!proc.take_new_output());
-        assert!(!proc.take_new_output());
+        assert!(!processor.take_new_output());
+        assert!(!processor.take_new_output());
     }
 
     #[test]
     fn empty_chunk_does_not_raise_new_output_flag() {
-        let mut proc = OutputProcessor::new();
-        let _ = proc.process(b"");
-        assert!(!proc.take_new_output());
+        let mut processor = OutputProcessor::new();
+        let _ = processor.process(b"");
+        assert!(!processor.take_new_output());
     }
 
     #[test]
     fn default_matches_new_idle_behavior() {
-        let mut proc = OutputProcessor::default();
-        assert!(!proc.take_new_output());
-        let snapshot = proc.process(b"");
+        let mut processor = OutputProcessor::default();
+        assert!(!processor.take_new_output());
+        let snapshot = processor.process(b"");
         assert!(snapshot.filtered.is_empty());
-        assert!(!proc.take_new_output());
+        assert!(!processor.take_new_output());
     }
 
     #[test]
     fn osc52_read_request_stripped_and_reported() {
-        let mut proc = OutputProcessor::new();
-        let snap = proc.process(b"\x1b]52;c;?\x07");
-        assert_eq!(snap.clipboard_read.as_deref(), Some("c"));
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"\x1b]52;c;?\x07");
+        assert_eq!(snapshot.clipboard_read.as_deref(), Some("c"));
         assert!(
-            snap.filtered.is_empty(),
+            snapshot.filtered.is_empty(),
             "read request must not reach the VT parser"
         );
     }
 
     #[test]
     fn osc52_read_request_st_terminator() {
-        let mut proc = OutputProcessor::new();
-        let snap = proc.process(b"\x1b]52;p;?\x1b\\");
-        assert_eq!(snap.clipboard_read.as_deref(), Some("p"));
-        assert!(snap.filtered.is_empty());
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"\x1b]52;p;?\x1b\\");
+        assert_eq!(snapshot.clipboard_read.as_deref(), Some("p"));
+        assert!(snapshot.filtered.is_empty());
     }
 
     #[test]
     fn osc52_read_request_split_across_chunks() {
-        let mut proc = OutputProcessor::new();
-        let snap = proc.process(b"\x1b]52;c;");
-        assert!(snap.clipboard_read.is_none());
-        assert!(snap.filtered.is_empty());
-        let snap = proc.process(b"?\x07");
-        assert_eq!(snap.clipboard_read.as_deref(), Some("c"));
-        assert!(snap.filtered.is_empty());
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"\x1b]52;c;");
+        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.filtered.is_empty());
+        let snapshot = processor.process(b"?\x07");
+        assert_eq!(snapshot.clipboard_read.as_deref(), Some("c"));
+        assert!(snapshot.filtered.is_empty());
     }
 
     #[test]
     fn osc52_write_passes_through() {
-        let mut proc = OutputProcessor::new();
+        let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;c;SGVsbG8=\x07";
-        let snap = proc.process(input);
-        assert!(snap.clipboard_read.is_none());
-        assert_eq!(snap.filtered, input);
+        let snapshot = processor.process(input);
+        assert!(snapshot.clipboard_read.is_none());
+        assert_eq!(snapshot.filtered, input);
     }
 
     #[test]
     fn osc7_and_osc8_pass_through() {
         // 工作目录与超链接直达 Ghostty（上游回调/查询处理），不再剥离。
-        let mut proc = OutputProcessor::new();
+        let mut processor = OutputProcessor::new();
         let input = b"\x1b]7;file:///home/user\x07ab\x1b]8;;https://example.com\x07cd";
-        let snap = proc.process(input);
-        assert!(snap.clipboard_read.is_none());
-        assert_eq!(snap.filtered, input);
+        let snapshot = processor.process(input);
+        assert!(snapshot.clipboard_read.is_none());
+        assert_eq!(snapshot.filtered, input);
     }
 
     #[test]
     fn question_with_payload_is_not_a_read() {
         // `?` 后还有负载就不是读取请求，原样透传（上游忽略）。
-        let mut proc = OutputProcessor::new();
+        let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;c;?abc\x07";
-        let snap = proc.process(input);
-        assert!(snap.clipboard_read.is_none());
-        assert_eq!(snap.filtered, input);
+        let snapshot = processor.process(input);
+        assert!(snapshot.clipboard_read.is_none());
+        assert_eq!(snapshot.filtered, input);
     }
 
     #[test]
     fn short_form_without_selection_passes_through() {
-        let mut proc = OutputProcessor::new();
+        let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;?\x07";
-        let snap = proc.process(input);
-        assert!(snap.clipboard_read.is_none());
-        assert_eq!(snap.filtered, input);
+        let snapshot = processor.process(input);
+        assert!(snapshot.clipboard_read.is_none());
+        assert_eq!(snapshot.filtered, input);
     }
 
     #[test]
     fn mixed_text_and_read_request() {
-        let mut proc = OutputProcessor::new();
-        let snap = proc.process(b"before\x1b]52;c;?\x07after");
-        assert_eq!(snap.filtered, b"beforeafter");
-        assert_eq!(snap.clipboard_read.as_deref(), Some("c"));
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"before\x1b]52;c;?\x07after");
+        assert_eq!(snapshot.filtered, b"beforeafter");
+        assert_eq!(snapshot.clipboard_read.as_deref(), Some("c"));
     }
 
     #[test]
     fn sgr_sequence_untouched() {
         // 非 OSC 转义（SGR/CSI）在 Esc 状态即吐出，不被吞字节。
-        let mut proc = OutputProcessor::new();
+        let mut processor = OutputProcessor::new();
         let input = b"\x1b[31mred\x1b[0m";
-        let snap = proc.process(input);
-        assert!(snap.clipboard_read.is_none());
-        assert_eq!(snap.filtered, input);
+        let snapshot = processor.process(input);
+        assert!(snapshot.clipboard_read.is_none());
+        assert_eq!(snapshot.filtered, input);
     }
 
     proptest! {
         /// 无 ESC 的任意可打印文本必须原样透传且无读取事件（扫描器不误伤普通输出）。
         #[test]
         fn printable_text_passthrough_identity(text in "\\PC*") {
-            let mut proc = OutputProcessor::new();
-            let snap = proc.process(text.as_bytes());
-            prop_assert_eq!(snap.filtered, text.as_bytes());
-            prop_assert!(snap.clipboard_read.is_none());
+            let mut processor = OutputProcessor::new();
+            let snapshot = processor.process(text.as_bytes());
+            prop_assert_eq!(snapshot.filtered, text.as_bytes());
+            prop_assert!(snapshot.clipboard_read.is_none());
         }
     }
 }

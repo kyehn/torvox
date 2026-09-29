@@ -356,9 +356,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 与菜单估计尺寸。返回 null（无处可放/度量未就绪）时调用方隐藏菜单。
      */
     private fun menuAnchor(selection: terminal.emulator.SelectionState): Pair<Int, Int>? {
-        val cw = cellWidth
-        val ch = cellHeight
-        if (cw <= 0f || ch <= 0f) return null
+        val cellWidthPixels = cellWidth
+        val cellHeightPixels = cellHeight
+        if (cellWidthPixels <= 0f || cellHeightPixels <= 0f) return null
         val start = selection.start ?: return null
         val end = selection.end ?: return null
         val (topRow, bottomRow) =
@@ -370,8 +370,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 end.col to start.col
             }
         val viewportTopGrid = currentViewportTopGrid()
-        val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cw, ch)
-        val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cw, ch)
+        val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cellWidthPixels, cellHeightPixels)
+        val (rightPx, bottomPx) = gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cellWidthPixels, cellHeightPixels)
         val density = resources.displayMetrics.density
         val densityPixels = { value: Int -> (value * density + HALF_PIXEL_OFFSET).toInt() }
         // PopupWindow 在显示时才测量，故用粗略估算（项数 × ~92dp）并钳位到 Surface。
@@ -2430,8 +2430,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val runtime = viewModel?.runtime
             val bridge = runtime?.bridge()
             if (bridge != null) {
-                val cellW = runtime.cellWidth
-                val cellH = runtime.cellHeight
+                val cellWidth = runtime.cellWidth
+                val cellHeight = runtime.cellHeight
                 val button =
                     when {
                         event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> 1
@@ -2448,7 +2448,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                         else -> 0
                     }
-                if (bridge.encodeMouseEvent(event.x, event.y, action, button, cellW, cellH)) {
+                if (bridge.encodeMouseEvent(event.x, event.y, action, button, cellWidth, cellHeight)) {
                     return true
                 }
             }

@@ -43,8 +43,8 @@ pub struct CellCursor {
 pub struct CellInstanceConfig<'a> {
     pub rows: u32,
     pub cols: u32,
-    pub grid_cell_w: f32,
-    pub grid_cell_h: f32,
+    pub grid_cell_width: f32,
+    pub grid_cell_height: f32,
     pub cursor: CellCursor,
     pub atlas_width: f32,
     pub atlas_height: f32,
@@ -66,10 +66,10 @@ pub(crate) fn cell_highlight<'a>(
     col: u32,
     by_row: &'a HashMap<i32, Vec<&'a SearchHighlight>, RandomState>,
 ) -> Option<&'a [u8; 4]> {
-    let h_list = by_row.get(&(row as i32))?;
-    let highlight = h_list
-        .iter()
-        .find(|h| (col as i32) >= h.start_col && (col as i32) < h.end_col_exclusive)?;
+    let highlight_list = by_row.get(&(row as i32))?;
+    let highlight = highlight_list.iter().find(|candidate| {
+        (col as i32) >= candidate.start_col && (col as i32) < candidate.end_col_exclusive
+    })?;
     Some(&highlight.color)
 }
 
@@ -139,7 +139,7 @@ pub struct FramePatch {
     /// same-texture copies) BEFORE drawing `bands`. `None` = no scroll.
     pub scroll_up_rows: Option<u32>,
     /// Rendered pixel height of one grid row (for the blit geometry).
-    pub cell_h_px: f32,
+    pub cell_height_px: f32,
 }
 
 /// Merge a row dirty mask into minimal contiguous `[start, end)` row runs.
@@ -383,8 +383,8 @@ fn build_row_instances_into(
     let CellInstanceConfig {
         rows,
         cols,
-        grid_cell_w,
-        grid_cell_h,
+        grid_cell_width,
+        grid_cell_height,
         cursor,
         atlas_width,
         atlas_height,
@@ -396,11 +396,11 @@ fn build_row_instances_into(
     // font metrics left visible gaps between rows. The shader positions
     // glyphs inside the grid quad via bearing + ascent (glyph_h > cell_h
     // is then never true, so glyphs use the raw bearing path).
-    let (cell_w, cell_h) = (grid_cell_w, grid_cell_h);
+    let (cell_width, cell_height) = (grid_cell_width, grid_cell_height);
     // trace-level: this fires on every dirty rebuild; at info it floods
     // logcat (binder IPC per line) and causes frame-time jitter.
     log::trace!(
-        "cell_builder: grid {rows}x{cols} cell {cell_w:.1}x{cell_h:.1} cells={}",
+        "cell_builder: grid {rows}x{cols} cell {cell_width:.1}x{cell_height:.1} cells={}",
         cell_data.len()
     );
     let _ = (rows, cols); // used by callers for projection; quad grid covers all
@@ -434,9 +434,10 @@ fn build_row_instances_into(
     // Incremental serving requires dimensional compatibility AND a current
     // atlas generation: rebuilds/evictions relocate glyph UVs, so instances
     // cached against an older generation would render wrong or blank glyphs.
-    let incremental = dirty_rows.is_some_and(|d| d.len() >= rows as usize)
-        && cache.as_ref().is_some_and(|c| {
-            c.is_compatible(rows, cols) && c.atlas_generation == font_pipeline.atlas_generation()
+    let incremental = dirty_rows.is_some_and(|dirty_flags| dirty_flags.len() >= rows as usize)
+        && cache.as_ref().is_some_and(|instance_cache| {
+            instance_cache.is_compatible(rows, cols)
+                && instance_cache.atlas_generation == font_pipeline.atlas_generation()
         });
 
     // 发射前预热：本帧所有字形先光栅化（结果丢弃）。atlas 驱逐搬迁 UV，
@@ -444,7 +445,7 @@ fn build_row_instances_into(
     // 预热后发射遍为纯查表，UV 稳定；若代际仍变化（防御），缓存已热，
     // 重建一遍即稳定，最多两遍。
     let generation_at_entry = font_pipeline.atlas_generation();
-    warm_frame_glyphs(cell_data, cursor, cell_w, cell_h, font_pipeline);
+    warm_frame_glyphs(cell_data, cursor, cell_width, cell_height, font_pipeline);
     // 预热本身可能驱逐并搬迁 UV：此时缓存行的旧 UV 已失效，
     // 必须降级为全量重建（预热后为纯查表，代价低且正确）。
     let mut incremental = incremental && font_pipeline.atlas_generation() == generation_at_entry;
@@ -462,8 +463,8 @@ fn build_row_instances_into(
                     instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
                 } else {
                     append_row_instances(
-                        cell_w,
-                        cell_h,
+                        cell_width,
+                        cell_height,
                         ascent_pixels,
                         raster_scale,
                         atlas_width,
@@ -477,8 +478,8 @@ fn build_row_instances_into(
                 }
             } else {
                 append_row_instances(
-                    cell_w,
-                    cell_h,
+                    cell_width,
+                    cell_height,
                     ascent_pixels,
                     raster_scale,
                     atlas_width,
@@ -517,8 +518,8 @@ fn build_row_instances_into(
 fn warm_frame_glyphs(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     cursor: CellCursor,
-    cell_w: f32,
-    cell_h: f32,
+    cell_width: f32,
+    cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
 ) {
     if cursor.visible {
@@ -566,7 +567,7 @@ fn warm_frame_glyphs(
         } else {
             let dummy_quad = || crate::render::font::OverlayQuad {
                 origin: [0.0; 2],
-                size: [cell_w, cell_h],
+                size: [cell_width, cell_height],
                 foreground: [0.0; 4],
                 background: [0.0; 4],
                 deco: [0.0; 4],
@@ -576,7 +577,7 @@ fn warm_frame_glyphs(
                 if *codepoint == 0 {
                     continue;
                 }
-                let _ = font_pipeline.overlay_glyph_instance(*codepoint, dummy_quad(), cell_h);
+                let _ = font_pipeline.overlay_glyph_instance(*codepoint, dummy_quad(), cell_height);
             }
         }
     }
@@ -586,8 +587,8 @@ fn warm_frame_glyphs(
 /// builders so the cell-level logic stays identical in both paths.
 // 渲染热路径：参数由双构建路径共享调用，成组改结构体只增间接无收益。
 fn append_row_instances(
-    cell_w: f32,
-    cell_h: f32,
+    cell_width: f32,
+    cell_height: f32,
     ascent_pixels: f32,
     raster_scale: f32,
     atlas_width: f32,
@@ -608,7 +609,7 @@ fn append_row_instances(
         );
         let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
         let cell_span = cd.width.max(1) as f32;
-        let quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
+        let quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         let mut foreground = cd.foreground;
         let mut background = cd.background;
         // SGR 7 reverse video: swap foreground and background colors
@@ -637,7 +638,7 @@ fn append_row_instances(
         let effective_foreground = foreground;
         let mut effective_background = background;
         // Default quad size (used for Block cursor and empty cells)
-        let quad_size = [cell_w * cell_span, cell_h];
+        let quad_size = [cell_width * cell_span, cell_height];
         // Block cursor height tracks the glyph (ascent+descent in
         // physical pixels), not the full grid cell — a cell-high block at
         // 420dpi looks like a giant filled rectangle around a ~66px glyph in
@@ -657,8 +658,8 @@ fn append_row_instances(
 
         // Full-size glyph quad dimensions (so combining marks etc. aren't clipped
         // by Bar/Underline cursor marker size).
-        let glyph_quad_size = [cell_w * cell_span, cell_h];
-        let glyph_quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
+        let glyph_quad_size = [cell_width * cell_span, cell_height];
+        let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
             // Empty cell: no background quad, only the cursor block below.
             {
@@ -705,14 +706,14 @@ fn append_row_instances(
                         CursorStyle::Bar => {
                             // 竖线光标：单元格左侧细竖条，高度与字形盒一致。
                             origin[1] += glyph_top;
-                            size[0] = (cell_w * BAR_CURSOR_WIDTH_FRACTION)
+                            size[0] = (cell_width * BAR_CURSOR_WIDTH_FRACTION)
                                 .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                             size[1] = glyph_height;
                             effective_background = marker_background;
                         }
                         CursorStyle::Underline => {
                             // 下划线光标：字形盒底部细横条，宽度覆盖整格。
-                            let marker_height = (cell_h * UNDERLINE_CURSOR_HEIGHT_FRACTION)
+                            let marker_height = (cell_height * UNDERLINE_CURSOR_HEIGHT_FRACTION)
                                 .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                             origin[1] += glyph_top + glyph_height - marker_height;
                             size[1] = marker_height;
@@ -790,8 +791,8 @@ fn append_row_instances(
             // pixels too: units must not mix).
             let glyph_h_px = info.height as f32;
             let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-            let bearing_y = if glyph_h_px > cell_h {
-                (cell_h - glyph_h_px) / 2.0
+            let bearing_y = if glyph_h_px > cell_height {
+                (cell_height - glyph_h_px) / 2.0
             } else {
                 raw_bearing_y
             };
@@ -834,20 +835,20 @@ fn append_row_instances(
                     CursorStyle::Bar => (
                         [glyph_quad_origin[0], glyph_top],
                         [
-                            (cell_w * BAR_CURSOR_WIDTH_FRACTION)
+                            (cell_width * BAR_CURSOR_WIDTH_FRACTION)
                                 .max(CURSOR_MARKER_MINIMUM_THICKNESS),
                             glyph_height,
                         ],
                     ),
                     _ => {
-                        let marker_height = (cell_h * UNDERLINE_CURSOR_HEIGHT_FRACTION)
+                        let marker_height = (cell_height * UNDERLINE_CURSOR_HEIGHT_FRACTION)
                             .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                         (
                             [
                                 glyph_quad_origin[0],
                                 glyph_top + glyph_height - marker_height,
                             ],
-                            [cell_w * cell_span, marker_height],
+                            [cell_width * cell_span, marker_height],
                         )
                     }
                 };
@@ -888,7 +889,7 @@ fn append_row_instances(
                                 deco: cd.underline_color,
                                 flags: cd.flags as f32,
                             },
-                            cell_h,
+                            cell_height,
                         ) {
                             instances.push(overlay);
                         }
@@ -909,7 +910,7 @@ fn append_row_instances(
                             deco: cd.underline_color,
                             flags: cd.flags as f32,
                         },
-                        cell_h,
+                        cell_height,
                     ) {
                         instances.push(overlay);
                     }
@@ -1040,8 +1041,8 @@ mod tests {
             CellInstanceConfig {
                 rows: 24,
                 cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
+                grid_cell_width: 1024.0 / 80.0,
+                grid_cell_height: 1024.0 / 24.0,
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
@@ -1261,8 +1262,8 @@ mod tests {
         CellInstanceConfig {
             rows: TEST_GRID_ROWS,
             cols: TEST_GRID_COLS,
-            grid_cell_w: 1024.0 / TEST_GRID_COLS as f32,
-            grid_cell_h: 1024.0 / TEST_GRID_ROWS as f32,
+            grid_cell_width: 1024.0 / TEST_GRID_COLS as f32,
+            grid_cell_height: 1024.0 / TEST_GRID_ROWS as f32,
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
@@ -1312,7 +1313,7 @@ mod tests {
         let mk = |row: u32, ch: char| {
             cell_data(row, 0, ch, [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
         };
-        let cells: Vec<CellData> = (0..24).map(|r| mk(r, 'a')).collect();
+        let cells: Vec<CellData> = (0..24).map(|row| mk(row, 'a')).collect();
         let cursor = CellCursor {
             row: 0,
             col: 0,
@@ -1378,7 +1379,7 @@ mod tests {
         let mk = |row: u32, ch: char| {
             cell_data(row, 0, ch, [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
         };
-        let cells: Vec<CellData> = (0..24).map(|r| mk(r, 'a')).collect();
+        let cells: Vec<CellData> = (0..24).map(|row| mk(row, 'a')).collect();
         let cursor = CellCursor {
             row: 0,
             col: 0,
@@ -1465,8 +1466,8 @@ mod tests {
         let config = CellInstanceConfig {
             rows: ROWS,
             cols: 80,
-            grid_cell_w: 1024.0 / 80.0,
-            grid_cell_h: 1024.0 / 24.0,
+            grid_cell_width: 1024.0 / 80.0,
+            grid_cell_height: 1024.0 / 24.0,
             cursor,
             atlas_width: ATLAS,
             atlas_height: ATLAS,
@@ -1579,7 +1580,7 @@ mod tests {
     #[test]
     fn cached_degraded_input_falls_back_to_full_rebuild() {
         let cells: Vec<CellData> = (0..24)
-            .map(|r| cell_data(r, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
+            .map(|row| cell_data(row, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
             .collect();
         let cursor = CellCursor {
             row: 0,
@@ -1637,7 +1638,7 @@ mod tests {
     #[test]
     fn stale_cache_with_partial_mask_must_not_drop_rows() {
         let cells: Vec<CellData> = (0..24)
-            .map(|r| cell_data(r, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
+            .map(|row| cell_data(row, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
             .collect();
         let cursor = CellCursor {
             row: 0,
@@ -1699,12 +1700,12 @@ mod tests {
         let cells = vec![cell_data(0, 38, '\0', [1.0; 4], [0.0; 4], 0)];
         let instances = build(&cells, cursor, &[]);
         assert_eq!(instances.len(), 1, "empty cursor cell emits one quad");
-        let cell_h = 1024.0 / 24.0;
+        let cell_height = 1024.0 / 24.0;
         let origin_y = instances[0].quad_origin[1];
         let bottom_y = origin_y + instances[0].quad_size[1];
         assert!(
-            origin_y >= 0.0 && bottom_y <= cell_h + 0.5,
-            "block quad spans y [{origin_y}, {bottom_y}] but row 0 ends at {cell_h}"
+            origin_y >= 0.0 && bottom_y <= cell_height + 0.5,
+            "block quad spans y [{origin_y}, {bottom_y}] but row 0 ends at {cell_height}"
         );
         // The block must align with the glyph box of a reference glyph, matching
         // the non-empty path (top = baseline − placement.top).
@@ -1731,14 +1732,14 @@ mod tests {
         let cells = vec![cell_data(0, 5, '\0', [1.0; 4], [0.0; 4], 0)];
         let instances = build(&cells, cursor, &[]);
         assert_eq!(instances.len(), 1, "empty bar cursor emits one quad");
-        let cell_w = 1024.0 / 80.0;
-        let cell_h = 1024.0 / 24.0;
+        let cell_width = 1024.0 / 80.0;
+        let cell_height = 1024.0 / 24.0;
         let width = instances[0].quad_size[0];
         let height = instances[0].quad_size[1];
         let origin_y = instances[0].quad_origin[1];
         assert!(
-            width <= cell_w * 0.5,
-            "bar width {width} must stay thin within cell {cell_w}"
+            width <= cell_width * 0.5,
+            "bar width {width} must stay thin within cell {cell_width}"
         );
         assert!(
             width >= CURSOR_MARKER_MINIMUM_THICKNESS - 0.01,
@@ -1749,12 +1750,12 @@ mod tests {
             "bar height {height} must stay visible"
         );
         assert!(
-            origin_y >= 0.0 && origin_y + height <= cell_h + 0.5,
-            "bar spans y [{origin_y}, {}] but row 0 ends at {cell_h}",
+            origin_y >= 0.0 && origin_y + height <= cell_height + 0.5,
+            "bar spans y [{origin_y}, {}] but row 0 ends at {cell_height}",
             origin_y + height
         );
         assert!(
-            (instances[0].quad_origin[0] - 5.0 * cell_w).abs() <= 0.5,
+            (instances[0].quad_origin[0] - 5.0 * cell_width).abs() <= 0.5,
             "bar must sit at the cell left edge"
         );
     }
@@ -1771,22 +1772,22 @@ mod tests {
         let cells = vec![cell_data(0, 7, '\0', [1.0; 4], [0.0; 4], 0)];
         let instances = build(&cells, cursor, &[]);
         assert_eq!(instances.len(), 1, "empty underline cursor emits one quad");
-        let cell_w = 1024.0 / 80.0;
-        let cell_h = 1024.0 / 24.0;
+        let cell_width = 1024.0 / 80.0;
+        let cell_height = 1024.0 / 24.0;
         let width = instances[0].quad_size[0];
         let height = instances[0].quad_size[1];
         assert!(
-            (width - cell_w).abs() <= 0.5,
-            "underline width {width} must span the cell {cell_w}"
+            (width - cell_width).abs() <= 0.5,
+            "underline width {width} must span the cell {cell_width}"
         );
         assert!(
-            height <= cell_h * 0.5,
-            "underline height {height} must stay thin within cell {cell_h}"
+            height <= cell_height * 0.5,
+            "underline height {height} must stay thin within cell {cell_height}"
         );
         let bottom = instances[0].quad_origin[1] + height;
         assert!(
-            bottom <= cell_h + 0.5,
-            "underline bottom {bottom} must stay inside row 0 ({cell_h})"
+            bottom <= cell_height + 0.5,
+            "underline bottom {bottom} must stay inside row 0 ({cell_height})"
         );
     }
     /// 非空单元格竖线光标：字形保持原文色并追加一枚标记。
