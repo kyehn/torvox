@@ -14,8 +14,8 @@ pub(crate) const FONT_DIRS: &[&str] = &[
     "/data/fonts/",
 ];
 
-/// 按序尝试的 fonts.xml 位置：部分 ROM 只提供 `fonts_fallback.xml`。
-#[cfg(target_os = "android")]
+/// 按序尝试的 fonts.xml 位置：部分 ROM 只提供 `fonts_fallback.xml`。宿主非测试构建下
+/// 两者都不存在，`read_fonts_xml` 自然返回 `None`，故无需平台分支。
 pub(crate) const FONTS_XML_CANDIDATES: [&str; 2] =
     ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"];
 
@@ -279,27 +279,10 @@ fn resolve_font_files(filenames: &[String]) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-#[cfg(target_os = "android")]
 pub(crate) fn read_fonts_xml() -> Option<String> {
     FONTS_XML_CANDIDATES
         .iter()
         .find_map(|path| std::fs::read_to_string(path).ok())
-}
-
-/// CJK 回退读取 fonts.xml：与 `read_fonts_xml` 同一候选顺序，测试目标下直接试读
-/// 系统路径（宿主无该文件即为空，不猜测）。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn read_fonts_xml_fallback() -> Option<String> {
-    #[cfg(target_os = "android")]
-    {
-        read_fonts_xml()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"]
-            .iter()
-            .find_map(|path| std::fs::read_to_string(path).ok())
-    }
 }
 
 #[cfg(target_os = "android")]
@@ -356,12 +339,10 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
     std::process::abort();
 }
 
-#[cfg(any(target_os = "android", test))]
 type FontsXmlFamilies = (Vec<String>, Vec<(String, Vec<(String, u32)>)>);
 
 /// 解析 `fonts.xml`，产出等宽字体文件名与有序的 `(lang, [(filename, ttc_index)])`
 /// 回退条目。纯函数，便于宿主测试喂入真实设备片段；无法解析的输入产出空列表。
-#[cfg(any(target_os = "android", test))]
 pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
     let mut monospace = Vec::new();
     let mut lang_fallbacks = Vec::new();
@@ -493,7 +474,6 @@ pub(crate) fn fonts_xml_aliases() -> &'static [(String, Vec<String>)] {
 
 /// 把系统 locale 标签映射为按优先级排列的 `fonts.xml` `lang` 候选。
 /// AOSP 用 `zh-Hans`/`zh-Hant`，旧版本可能用 `zh-CN`。
-#[cfg(any(target_os = "android", test))]
 pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
     if locale.starts_with("zh-CN") || locale.starts_with("zh-Hans") || locale == "zh" {
         &["zh-Hans", "zh-CN", "zh", "und-Hani"]
