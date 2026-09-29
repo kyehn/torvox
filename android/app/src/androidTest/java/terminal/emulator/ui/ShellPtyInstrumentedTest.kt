@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -24,6 +25,12 @@ import terminal.emulator.util.runCatchingCancellable
 class ShellPtyInstrumentedTest {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 20_000L
+
+        /** 判定「输出已落定」的静默窗口：文本在此窗口内不变即认为写完。 */
+        private const val SETTLE_WINDOW_MS = 600L
+
+        /** 静默窗口的轮询间隔。 */
+        private const val SETTLE_POLL_INTERVAL_MS = 100L
     }
 
     private fun appContext() = InstrumentationRegistry.getInstrumentation().targetContext
@@ -48,6 +55,27 @@ class ShellPtyInstrumentedTest {
         return NativeBridge.getTerminalText(sessionId)
     }
 
+    /**
+     * 轮询直到终端文本在 [SETTLE_WINDOW_MS] 内不再变化，返回最终文本。
+     *
+     * 固定 `Thread.sleep` 是构造性竞态：模拟器负载高时 800ms 不足以让 shell
+     * 输出落地，读到的文本会停在命令回显中途（实测 `echo $PAT`），断言随即失败。
+     * 改为「持续泵送 + 读到相同文本满一个静默窗口」，与负载无关。
+     */
+    private fun settledText(sessionId: Long): String {
+        var previous = pumpAndText(sessionId).orEmpty()
+        var stableSince = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - stableSince < SETTLE_WINDOW_MS) {
+            Thread.sleep(SETTLE_POLL_INTERVAL_MS)
+            val current = pumpAndText(sessionId).orEmpty()
+            if (current != previous) {
+                previous = current
+                stableSince = SystemClock.elapsedRealtime()
+            }
+        }
+        return previous
+    }
+
     private fun shellLines(sessionId: Long, command: String): String {
         NativeBridge.feedPty(sessionId, "$command\n".toByteArray(Charsets.UTF_8))
         val settled =
@@ -55,8 +83,7 @@ class ShellPtyInstrumentedTest {
                 pumpAndText(sessionId)?.contains(command.trim()) == true
             }
         assertNotNull("终端未回显: $command", settled)
-        Thread.sleep(800)
-        return pumpAndText(sessionId).orEmpty()
+        return settledText(sessionId)
     }
 
     @Test
