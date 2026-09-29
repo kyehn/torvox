@@ -281,11 +281,11 @@ impl Renderer {
     fn band_clear_instances(
         &self,
         dirty_bands: &[crate::render::cell_builder::DirtyBand],
-        cell_h_px: f32,
+        cell_height_px: f32,
         config_width: u32,
         config_height: u32,
     ) -> Vec<crate::render::CellInstance> {
-        if cell_h_px <= 0.0 || config_width == 0 || config_height == 0 {
+        if cell_height_px <= 0.0 || config_width == 0 || config_height == 0 {
             return Vec::new();
         }
         let background = [
@@ -296,8 +296,9 @@ impl Renderer {
         ];
         let mut instances = Vec::with_capacity(dirty_bands.len());
         for band in dirty_bands {
-            let y0 = (band.start_row as f32 * cell_h_px).floor().max(0.0) as u32;
-            let y1 = ((band.end_row_exclusive as f32 * cell_h_px).ceil() as u32).min(config_height);
+            let y0 = (band.start_row as f32 * cell_height_px).floor().max(0.0) as u32;
+            let y1 =
+                ((band.end_row_exclusive as f32 * cell_height_px).ceil() as u32).min(config_height);
             if y1 > y0 {
                 instances.push(crate::render::CellInstance {
                     quad_origin: [0.0, y0 as f32],
@@ -389,7 +390,12 @@ impl Renderer {
         // 累积在此前每个光标列上）。单元着色器把 has_glyph=0 四边形直接以背景色
         // 填充，故每带一个清除实例即可在重绘前抹掉陈旧像素，无需额外管线。
         let clear_instances = if partial {
-            self.band_clear_instances(dirty_bands, plan.cell_h_px, config_width, config_height)
+            self.band_clear_instances(
+                dirty_bands,
+                plan.cell_height_px,
+                config_width,
+                config_height,
+            )
         } else {
             Vec::new()
         };
@@ -431,10 +437,10 @@ impl Renderer {
         // it is redrawn by this frame's bands.
         if partial
             && let Some(shift_rows) = plan.scroll_up_rows
-            && plan.cell_h_px > 0.0
+            && plan.cell_height_px > 0.0
             && let Some(acc_texture) = self.frame_texture.as_ref()
         {
-            let sh = (shift_rows as f32 * plan.cell_h_px).round() as i32;
+            let sh = (shift_rows as f32 * plan.cell_height_px).round() as i32;
             if sh > 0 && sh < config_height as i32 {
                 let mut dst_y = 0i32;
                 while dst_y + sh <= config_height as i32 {
@@ -600,8 +606,8 @@ impl Renderer {
         // “内容溢出且无法滚动”）。用字体单元格时无论屏幕能放下多少行，字形都填满四边形。
         let (font_w, font_h) = font_pipeline.cell_metrics();
         let scale = font_pipeline.get_raster_scale();
-        let grid_cell_w = if font_w > 0.0 { font_w * scale } else { 0.0 };
-        let grid_cell_h = if font_h > 0.0 { font_h * scale } else { 0.0 };
+        let grid_cell_width = if font_w > 0.0 { font_w * scale } else { 0.0 };
+        let grid_cell_height = if font_h > 0.0 { font_h * scale } else { 0.0 };
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
         // `None`（调用方无基线，如首帧）强制全量重建。
         let converted = match dirty_rows {
@@ -623,8 +629,8 @@ impl Renderer {
                     crate::render::cell_builder::CellInstanceConfig {
                         rows,
                         cols,
-                        grid_cell_w,
-                        grid_cell_h,
+                        grid_cell_width,
+                        grid_cell_height,
                         cursor,
                         atlas_width,
                         atlas_height,
@@ -644,8 +650,8 @@ impl Renderer {
                     crate::render::cell_builder::CellInstanceConfig {
                         rows,
                         cols,
-                        grid_cell_w,
-                        grid_cell_h,
+                        grid_cell_width,
+                        grid_cell_height,
                         cursor,
                         atlas_width,
                         atlas_height,
@@ -708,13 +714,13 @@ impl Renderer {
         // 滚动平移的几何前提：网格必须恰好纵向填满目标，否则平移会拖出边距。
         let scroll_up_rows = scroll_up_rows.filter(|_| {
             self.surface_config.as_ref().is_some_and(|surface_config| {
-                (rows as f32 * grid_cell_h - surface_config.height as f32).abs() <= 2.0
+                (rows as f32 * grid_cell_height - surface_config.height as f32).abs() <= 2.0
             })
         });
         let plan = crate::render::cell_builder::FramePatch {
             bands: bands.unwrap_or_default(),
             scroll_up_rows,
-            cell_h_px: grid_cell_h,
+            cell_height_px: grid_cell_height,
         };
         let result = self.render_frame_with_plan(&cpu_instances, kgp_instances, &plan);
         self.cpu_instances = cpu_instances;
@@ -995,13 +1001,13 @@ mod tests {
                 instance_end: 400,
             },
         ];
-        let cell_h = 44.0;
-        let clears = renderer.band_clear_instances(&bands, cell_h, 1080, 2400);
+        let cell_height = 44.0;
+        let clears = renderer.band_clear_instances(&bands, cell_height, 1080, 2400);
         assert_eq!(clears.len(), 2, "one clear quad per band");
         assert_eq!(clears[0].quad_origin, [0.0, 0.0]);
-        assert_eq!(clears[0].quad_size, [1080.0, cell_h]);
-        assert_eq!(clears[1].quad_origin, [0.0, 3.0 * cell_h]);
-        assert_eq!(clears[1].quad_size, [1080.0, 2.0 * cell_h]);
+        assert_eq!(clears[0].quad_size, [1080.0, cell_height]);
+        assert_eq!(clears[1].quad_origin, [0.0, 3.0 * cell_height]);
+        assert_eq!(clears[1].quad_size, [1080.0, 2.0 * cell_height]);
         // 纯色填充：无字形，清除色由背景承担。
         assert_eq!(clears[0].atlas_size, [0.0; 2]);
         assert_eq!(clears[0].background[3], 1.0);
