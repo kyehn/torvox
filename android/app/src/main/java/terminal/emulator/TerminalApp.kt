@@ -57,7 +57,11 @@ open class TerminalApp : Application() {
         // 原生库缺失/损坏时终端根本无法工作：按 DESIGN 错误策略让异常抛出，
         // 由已安装的崩溃处理器记录 logcat 后终止进程，不得在此层捕获后吞掉。
         // 放在 installCrashHandler 之后，避免与处理器安装产生竞态。
-        Thread({ NativeBridge.initLogger() }, "NativeInit").start()
+        // 库缺失时跳过异步 initLogger（必崩，且崩溃处理异步回写计数器污染启动计数）；
+        // 缺 .so 时首次真实调用仍直接抛出，不掩盖错误。
+        if (NativeBridge.isNativeLoaded()) {
+            Thread({ NativeBridge.initLogger() }, "NativeInit").start()
+        }
         monitorScope.launch {
             delay(HEALTHY_UPTIME_MS)
             BootGuard(stateDir).markHealthy()
