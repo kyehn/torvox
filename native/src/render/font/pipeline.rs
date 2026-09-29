@@ -64,16 +64,16 @@ impl FontPipeline {
         // 渲染侧只常驻 4 个族（主字体/用户字体 + 一个符号族 + 一个区域族），
         // 用户投放目录由 load_font_database 内部一并处理。
         #[cfg(target_os = "android")]
-        let db = super::font_db::load_font_database();
+        let font_database = super::font_db::load_font_database();
 
         #[cfg(not(target_os = "android"))]
-        let db = {
-            let mut db = fontdb::Database::new();
-            db.load_system_fonts();
-            db
+        let font_database = {
+            let mut font_database = fontdb::Database::new();
+            font_database.load_system_fonts();
+            font_database
         };
 
-        let font_system = FontSystem::new_with_locale_and_db(String::new(), db);
+        let font_system = FontSystem::new_with_locale_and_db(String::new(), font_database);
 
         let scaler_context = swash::scale::ScaleContext::new();
         let atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(atlas_width, atlas_height));
@@ -116,7 +116,7 @@ impl FontPipeline {
         #[cfg(target_os = "android")]
         {
             let target_filename = font_db::resolve_system_monospace_from_fonts_xml();
-            let db = self.font_system.db();
+            let font_database = self.font_system.db();
             let stem = std::path::Path::new(&target_filename)
                 .file_stem()
                 .and_then(|stem| stem.to_str())
@@ -125,7 +125,7 @@ impl FontPipeline {
             // 精确相等」匹配，再退到「去空白后精确相等」覆盖 Droid Sans Mono 这类
             // 家族名带空格而文件名带下划线的差异。
             let stem_lower = stem.to_lowercase().replace(['-', '_'], " ");
-            if let Some(face_id) = db
+            if let Some(face_id) = font_database
                 .faces()
                 .filter(|face| face.monospaced)
                 .find(|face| {
@@ -138,7 +138,7 @@ impl FontPipeline {
                 })
                 .or_else(|| {
                     let stem_nospace = stem_lower.replace(' ', "");
-                    db.faces().find(|face| {
+                    font_database.faces().find(|face| {
                         face.monospaced
                             && face
                                 .families
@@ -167,19 +167,20 @@ impl FontPipeline {
         // 时退回首面。设备上走上面的 fonts.xml 分支，本段不编译。
         #[cfg(not(target_os = "android"))]
         {
-            let db = self.font_system.db();
+            let font_database = self.font_system.db();
             let covers_cjk = |face_id| {
-                db.with_face_data(face_id, |font_data, face_index| {
-                    swash::FontRef::from_index(font_data, face_index as usize)
-                        .map(|font| font.charmap().map('中') != 0)
-                })
-                .flatten()
-                .unwrap_or(false)
+                font_database
+                    .with_face_data(face_id, |font_data, face_index| {
+                        swash::FontRef::from_index(font_data, face_index as usize)
+                            .map(|font| font.charmap().map('中') != 0)
+                    })
+                    .flatten()
+                    .unwrap_or(false)
             };
-            let face = db
+            let face = font_database
                 .faces()
                 .find(|face| face.monospaced && !covers_cjk(face.id))
-                .or_else(|| db.faces().find(|face| face.monospaced));
+                .or_else(|| font_database.faces().find(|face| face.monospaced));
             if let Some(face) = face {
                 let name = face.families.first().map_or("", |(name, _)| name);
                 log::debug!("FONT_SELECT: host monospace id={:?} name='{name}'", face.id);
@@ -236,12 +237,12 @@ impl FontPipeline {
             log::debug!("FONT_SELECT: 按需装入族 '{family_name}' -> {loaded} 个文件");
         }
         let found = {
-            let db = self.font_system.db_mut();
-            Self::find_font_by_name(db, family_name)
+            let font_database = self.font_system.db_mut();
+            Self::find_font_by_name(font_database, family_name)
         };
         if let Some(id) = found {
-            let db = self.font_system.db();
-            let name = db
+            let font_database = self.font_system.db();
+            let name = font_database
                 .face(id)
                 .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
                 .unwrap_or_default();
@@ -320,11 +321,11 @@ impl FontPipeline {
         &mut self,
         codepoint: u32,
         quad: super::OverlayQuad,
-        cell_h: f32,
+        cell_height: f32,
     ) -> Option<crate::render::CellInstance> {
-        let mark_ch = char::from_u32(codepoint)?;
-        let info = self.glyph_information(mark_ch)?;
-        self.shaped_overlay_instance(&info, quad, cell_h)
+        let mark_character = char::from_u32(codepoint)?;
+        let info = self.glyph_information(mark_character)?;
+        self.shaped_overlay_instance(&info, quad, cell_height)
     }
 
     /// 由已光栅化的整形字形构造叠加四边形（簇整形路径）：计算同上，
@@ -333,7 +334,7 @@ impl FontPipeline {
         &self,
         info: &super::GlyphInfo,
         quad: super::OverlayQuad,
-        cell_h: f32,
+        cell_height: f32,
     ) -> Option<crate::render::CellInstance> {
         let atlas_width = self.atlas_width as f32;
         let atlas_height = self.atlas_height as f32;
@@ -345,10 +346,10 @@ impl FontPipeline {
         let uv_h = info.height as f32 / atlas_height;
         let bearing_x = info.placement.left as f32;
         // 物理像素对物理像素：与主字形路径同式（height 已含光栅缩放）。
-        let glyph_h_px = info.height as f32;
+        let glyph_height_px = info.height as f32;
         let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-        let bearing_y = if glyph_h_px > cell_h {
-            (cell_h - glyph_h_px) / 2.0
+        let bearing_y = if glyph_height_px > cell_height {
+            (cell_height - glyph_height_px) / 2.0
         } else {
             raw_bearing_y
         };
@@ -368,8 +369,8 @@ impl FontPipeline {
 
     pub fn current_font_family_name(&self) -> Option<String> {
         let font_id = self.font_id?;
-        let db = self.font_system.db();
-        let face_info = db.face(font_id)?;
+        let font_database = self.font_system.db();
+        let face_info = font_database.face(font_id)?;
         let family = face_info.families.first()?;
         Some(family.0.clone())
     }
@@ -401,11 +402,11 @@ impl FontPipeline {
     /// "serif"）归并为一项 "Noto Sans CJK"，"Noto Serif CJK" 仍独立保留。
     /// 不按字母排序：首元素即实际渲染命中者，必须与 `FALLBACK_HIT` 族一致。
     pub fn cjk_fallback_names(&self) -> Vec<String> {
-        let db = self.font_system.db();
+        let font_database = self.font_system.db();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut ordered: Vec<String> = Vec::new();
         for &id in &self.cjk_fallback_ids {
-            if let Some(face) = db.face(id)
+            if let Some(face) = font_database.face(id)
                 && let Some((name, _)) = face.families.first()
             {
                 let lower = name.to_lowercase();
@@ -435,8 +436,8 @@ impl FontPipeline {
         let Some(font_id) = self.font_id else {
             return false;
         };
-        let db = self.font_system.db();
-        let Some(face) = db.face(font_id) else {
+        let font_database = self.font_system.db();
+        let Some(face) = font_database.face(font_id) else {
             return false;
         };
         face.families.iter().any(|(name, _)| {
@@ -453,10 +454,10 @@ impl FontPipeline {
     }
 
     pub fn font_information(&self) -> String {
-        let db = self.font_system.db();
+        let font_database = self.font_system.db();
         let mut parts = Vec::new();
         if let Some(id) = self.font_id
-            && let Some(face) = db.face(id)
+            && let Some(face) = font_database.face(id)
         {
             let name = face.families.first().map_or("unknown", |(n, _)| n.as_str());
             let mono = if face.monospaced {
@@ -483,14 +484,17 @@ impl FontPipeline {
     /// 供 UI 层（JNI）使用的结构化字体信息，仅承载数据，
     /// 显示字符串一律放在 Kotlin 资源里以便本地化。
     pub fn font_info(&self) -> FontInfo {
-        let db = self.font_system.db();
-        let active = self.font_id.and_then(|id| db.face(id)).map(|face| {
-            let name = face.families.first().map_or("unknown", |(n, _)| n.as_str());
-            FontInfoActive {
-                name: name.to_string(),
-                monospaced: face.monospaced,
-            }
-        });
+        let font_database = self.font_system.db();
+        let active = self
+            .font_id
+            .and_then(|id| font_database.face(id))
+            .map(|face| {
+                let name = face.families.first().map_or("unknown", |(n, _)| n.as_str());
+                FontInfoActive {
+                    name: name.to_string(),
+                    monospaced: face.monospaced,
+                }
+            });
         let cjk = self.cjk_fallback_names();
         let (cjk_state, cjk_families) = if !cjk.is_empty() {
             ("fallback".to_string(), cjk)
@@ -592,8 +596,8 @@ impl FontPipeline {
         if let Some(cached) = self.caches.style_face_cache.get(&key) {
             return *cached;
         }
-        let db = self.font_system.db();
-        let base = db.face(base_id)?;
+        let font_database = self.font_system.db();
+        let base = font_database.face(base_id)?;
         let family = base.families.first()?.0.clone();
         let query = fontdb::Query {
             families: &[fontdb::Family::Name(&family)],
@@ -609,7 +613,7 @@ impl FontPipeline {
                 fontdb::Style::Normal
             },
         };
-        let matched = db.query(&query);
+        let matched = font_database.query(&query);
         let result = match matched {
             Some(id) if id != base_id => Some(id),
             _ => None,
@@ -670,8 +674,8 @@ impl FontPipeline {
             cached
         } else {
             let gid = {
-                let db = self.font_system.db();
-                db.with_face_data(primary_font_id, |font_data, face_index| {
+                let font_database = self.font_system.db();
+                font_database.with_face_data(primary_font_id, |font_data, face_index| {
                     let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                     let charmap = font_ref.charmap();
                     Some(charmap.map(ch))
@@ -720,8 +724,8 @@ impl FontPipeline {
             let cjk_fallback_ids: Vec<fontdb::ID> = self.cjk_fallback_ids.clone();
             for fallback_id in cjk_fallback_ids {
                 let fallback_glyph = {
-                    let db = self.font_system.db();
-                    db.with_face_data(fallback_id, |font_data, face_index| {
+                    let font_database = self.font_system.db();
+                    font_database.with_face_data(fallback_id, |font_data, face_index| {
                         let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                         let charmap = font_ref.charmap();
                         Some(charmap.map(ch))
@@ -734,8 +738,8 @@ impl FontPipeline {
                     && result.width > 0
                     && result.height > 0
                 {
-                    let db = self.font_system.db();
-                    let face_name = db
+                    let font_database = self.font_system.db();
+                    let face_name = font_database
                         .face(fallback_id)
                         .and_then(|f| f.families.first())
                         .map(|(n, _)| n.clone())
@@ -801,9 +805,9 @@ impl FontPipeline {
         }
         #[cfg(not(target_os = "android"))]
         {
-            let db = self.font_system.db();
+            let font_database = self.font_system.db();
             let mut fonts = Vec::new();
-            for face in db.faces() {
+            for face in font_database.faces() {
                 if !face.monospaced {
                     continue;
                 }
@@ -819,8 +823,11 @@ impl FontPipeline {
         }
     }
 
-    fn find_font_by_name(db: &fontdb::Database, family_name: &str) -> Option<fontdb::ID> {
-        for face in db.faces() {
+    fn find_font_by_name(
+        font_database: &fontdb::Database,
+        family_name: &str,
+    ) -> Option<fontdb::ID> {
+        for face in font_database.faces() {
             for (family, _) in &face.families {
                 if family.eq_ignore_ascii_case(family_name) {
                     return Some(face.id);
@@ -830,11 +837,11 @@ impl FontPipeline {
         // fonts.xml 别名（如 sans-serif）精确优先于模糊匹配：别名指向的
         // 文件名在已加载库中直接定位，不加载新文件，避免模糊命中错误字形。
         #[cfg(target_os = "android")]
-        if let Some(id) = Self::find_font_by_alias(db, family_name) {
+        if let Some(id) = Self::find_font_by_alias(font_database, family_name) {
             return Some(id);
         }
         let cleaned = family_name.replace(['_', '-'], " ").trim().to_lowercase();
-        for face in db.faces() {
+        for face in font_database.faces() {
             for (family, _) in &face.families {
                 let fam_lower = family.to_lowercase();
                 if fam_lower == cleaned || fam_lower.contains(&cleaned) {
@@ -843,7 +850,7 @@ impl FontPipeline {
             }
         }
         let cleaned_nospace: String = cleaned.chars().filter(|c| !c.is_whitespace()).collect();
-        for face in db.faces() {
+        for face in font_database.faces() {
             for (family, _) in &face.families {
                 let fam_nospace: String = family
                     .to_lowercase()
@@ -856,7 +863,7 @@ impl FontPipeline {
             }
         }
         if family_name.eq_ignore_ascii_case("monospace") {
-            for face in db.faces() {
+            for face in font_database.faces() {
                 if face.monospaced {
                     return Some(face.id);
                 }
@@ -868,13 +875,16 @@ impl FontPipeline {
     /// 经 `fonts.xml` 别名定位已加载字体：别名→文件名→库中同名源文件。
     /// 只做精确查找，不加载新文件。
     #[cfg(target_os = "android")]
-    fn find_font_by_alias(db: &fontdb::Database, family_name: &str) -> Option<fontdb::ID> {
+    fn find_font_by_alias(
+        font_database: &fontdb::Database,
+        family_name: &str,
+    ) -> Option<fontdb::ID> {
         for (alias, filenames) in super::font_db::fonts_xml_aliases() {
             if !alias.eq_ignore_ascii_case(family_name) {
                 continue;
             }
             for filename in filenames {
-                for face in db.faces() {
+                for face in font_database.faces() {
                     let path = match &face.source {
                         fontdb::Source::File(path) => path,
                         fontdb::Source::SharedFile(path, _) => path,
@@ -894,11 +904,11 @@ impl FontPipeline {
     }
 
     pub fn load_font_file(&mut self, path: &std::path::Path) -> Option<String> {
-        let db = self.font_system.db_mut();
+        let font_database = self.font_system.db_mut();
         let source = fontdb::Source::File(path.into());
-        let ids = db.load_font_source(source);
+        let ids = font_database.load_font_source(source);
         let first_id = ids.first()?;
-        let face = db.face(*first_id)?;
+        let face = font_database.face(*first_id)?;
         face.families.first().map(|(name, _)| name.clone())
     }
 

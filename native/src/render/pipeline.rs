@@ -180,7 +180,9 @@ impl Renderer {
         let format = self
             .surface_config
             .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |surface_config| {
+                surface_config.format
+            });
 
         if self.kgp_pipeline.is_none() {
             let (pipeline, layout) = Self::create_kgp_pipeline(&self.device, format);

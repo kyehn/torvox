@@ -60,67 +60,75 @@ impl FontPipeline {
             synthesis: synthesis.bits(),
         };
 
-        let db = self.font_system.db();
+        let font_database = self.font_system.db();
         let font_size = self.font_size;
         let raster_size = font_size * self.raster_scale;
-        let pair = db.with_face_data(font_id, |font_data, face_index| -> Option<(_, f32)> {
-            let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-            // 可变字体优先走 `wght`/`ital` 轴（真字重/真倾斜）；字体未声明该轴
-            // 时才退回轮廓级合成。轴必须在 builder 之前设定才生效。
-            let variations = super::variation_settings(&font_ref, synthesis);
-            let mut scaler = self
-                .scaler_context
-                .builder(font_ref)
-                .size(raster_size)
-                // Hinting 把 TrueType 竖干对齐到像素网格；raster_scale > 1（设备密度）时
-                // 位图已足够大，hinting 只会扭曲字形（模拟器 OCR 在 124px hinting 位图上
-                // 失败），故仅在 1:1 渲染时启用。
-                .hint(self.raster_scale <= 1.01)
-                .variations(variations.clone())
-                .build();
-            let image = {
-                let mut render = Render::new(&[Source::Outline]);
-                // 轮廓级合成（swash 原生）：bold 用 embolden()，italic 用仿射剪切，
-                // 在光栅化时应用以保留抗锯齿质量。已由轴表达的部分不重复合成。
-                let axis_has = |tag: &[u8; 4]| {
-                    variations
-                        .iter()
-                        .any(|setting| setting.tag == swash::tag_from_bytes(tag))
+        let pair =
+            font_database.with_face_data(font_id, |font_data, face_index| -> Option<(_, f32)> {
+                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                // 可变字体优先走 `wght`/`ital` 轴（真字重/真倾斜）；字体未声明该轴
+                // 时才退回轮廓级合成。轴必须在 builder 之前设定才生效。
+                let variations = super::variation_settings(&font_ref, synthesis);
+                let mut scaler = self
+                    .scaler_context
+                    .builder(font_ref)
+                    .size(raster_size)
+                    // Hinting 把 TrueType 竖干对齐到像素网格；raster_scale > 1（设备密度）时
+                    // 位图已足够大，hinting 只会扭曲字形（模拟器 OCR 在 124px hinting 位图上
+                    // 失败），故仅在 1:1 渲染时启用。
+                    .hint(self.raster_scale <= 1.01)
+                    .variations(variations.clone())
+                    .build();
+                let image = {
+                    let mut render = Render::new(&[Source::Outline]);
+                    // 轮廓级合成（swash 原生）：bold 用 embolden()，italic 用仿射剪切，
+                    // 在光栅化时应用以保留抗锯齿质量。已由轴表达的部分不重复合成。
+                    let axis_has = |tag: &[u8; 4]| {
+                        variations
+                            .iter()
+                            .any(|setting| setting.tag == swash::tag_from_bytes(tag))
+                    };
+                    if matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic)
+                        && !axis_has(b"wght")
+                    {
+                        render.embolden(raster_size * BOLD_STRENGTH_EM);
+                    }
+                    if matches!(
+                        synthesis,
+                        GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
+                    ) && !axis_has(b"ital")
+                    {
+                        // 剪切 x' = x + y * slope（顶部行向右倾）。
+                        render.transform(Some(Transform::new(
+                            1.0,
+                            0.0,
+                            ITALIC_SHEAR,
+                            1.0,
+                            0.0,
+                            0.0,
+                        )));
+                    }
+                    render.render(&mut scaler, glyph_id)
                 };
-                if matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic)
-                    && !axis_has(b"wght")
-                {
-                    render.embolden(raster_size * BOLD_STRENGTH_EM);
-                }
-                if matches!(
-                    synthesis,
-                    GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
-                ) && !axis_has(b"ital")
-                {
-                    // 剪切 x' = x + y * slope（顶部行向右倾）。
-                    render.transform(Some(Transform::new(1.0, 0.0, ITALIC_SHEAR, 1.0, 0.0, 0.0)));
-                }
-                render.render(&mut scaler, glyph_id)
-            };
-            let upem = font_ref.metrics(&[]).units_per_em as f32;
-            let scale = if upem > 0.0 {
-                font_size / upem
-            } else {
-                font_size
-            };
-            // `glyph_metrics(&[])` 不带轴坐标，VF 加粗后前伸宽度会偏小；
-            // 轴生效时改用缩放后轮廓的水平范围（swash 未公开带坐标的
-            // GlyphMetrics 构造）。等宽网格布局本身不消费该值，仅供诊断。
-            let advance_width = if variations.is_empty() {
-                font_ref.glyph_metrics(&[]).advance_width(glyph_id) * scale
-            } else {
-                scaler.scale_outline(glyph_id).map_or(0.0, |outline| {
-                    let bounds = outline.bounds();
-                    (bounds.max.x - bounds.min.x) * scale
-                })
-            };
-            Some((image, advance_width))
-        })?;
+                let upem = font_ref.metrics(&[]).units_per_em as f32;
+                let scale = if upem > 0.0 {
+                    font_size / upem
+                } else {
+                    font_size
+                };
+                // `glyph_metrics(&[])` 不带轴坐标，VF 加粗后前伸宽度会偏小；
+                // 轴生效时改用缩放后轮廓的水平范围（swash 未公开带坐标的
+                // GlyphMetrics 构造）。等宽网格布局本身不消费该值，仅供诊断。
+                let advance_width = if variations.is_empty() {
+                    font_ref.glyph_metrics(&[]).advance_width(glyph_id) * scale
+                } else {
+                    scaler.scale_outline(glyph_id).map_or(0.0, |outline| {
+                        let bounds = outline.bounds();
+                        (bounds.max.x - bounds.min.x) * scale
+                    })
+                };
+                Some((image, advance_width))
+            })?;
         let (image, advance_width) = pair?;
 
         let image = match image {
