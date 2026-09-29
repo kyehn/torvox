@@ -861,6 +861,11 @@ mod tests {
     const TEST_READ_ATTEMPTS: usize = 50;
     const TEST_MIN_OUTPUT_LEN: usize = 200;
 
+    /// DESIGN 声明的规范路径常量（测试断言专用）：生产代码经调用方
+    ///（Kotlin `filesDir`）传入，绝不硬编码；此处断言规范值本身。
+    const TEST_PREFIX: &str = "/data/data/com.termux/files/usr";
+    const TEST_TMPDIR: &str = "/data/data/com.termux/files/usr/tmp";
+
     /// 读取 PTY 输出直到出现 `needle`（截止见 `TEST_READ_DEADLINE_SECS`）；返回已读内容，调用方自行断言。
     fn read_until(pty: &mut PtyPair, needle: &[u8]) -> Vec<u8> {
         use crate::terminal::pty::Pty;
@@ -971,15 +976,9 @@ mod tests {
 
     #[test]
     fn base_env_includes_prefix_and_tmpdir_when_set() {
-        let env = base_env(Some("/data/data/com.termux/files/usr"));
-        assert!(
-            env.iter()
-                .any(|(k, v)| k == "PREFIX" && v == "/data/data/com.termux/files/usr")
-        );
-        assert!(
-            env.iter()
-                .any(|(k, v)| k == "TMPDIR" && v == "/data/data/com.termux/files/usr/tmp")
-        );
+        let env = base_env(Some(TEST_PREFIX));
+        assert!(env.iter().any(|(k, v)| k == "PREFIX" && v == TEST_PREFIX));
+        assert!(env.iter().any(|(k, v)| k == "TMPDIR" && v == TEST_TMPDIR));
     }
 
     #[test]
@@ -1039,16 +1038,13 @@ mod tests {
     #[test]
     fn build_env_emits_prefix_pairs() {
         let mut env = test_env();
-        env.prefix = Some("/data/data/com.termux/files/usr".to_string());
+        env.prefix = Some(TEST_PREFIX.to_string());
         let result = build_env(&env);
         for (key, value) in [
-            ("PREFIX", "/data/data/com.termux/files/usr"),
-            ("TERMUX_PREFIX_DIR_PATH", "/data/data/com.termux/files/usr"),
-            ("TMPDIR", "/data/data/com.termux/files/usr/tmp"),
-            (
-                "TERMUX_TMP_PREFIX_DIR_PATH",
-                "/data/data/com.termux/files/usr/tmp",
-            ),
+            ("PREFIX", TEST_PREFIX),
+            ("TERMUX_PREFIX_DIR_PATH", TEST_PREFIX),
+            ("TMPDIR", TEST_TMPDIR),
+            ("TERMUX_TMP_PREFIX_DIR_PATH", TEST_TMPDIR),
             ("TERMUX_VERSION", "0.119.0-beta.3"),
             ("TERMUX_HOME_DIR_PATH", "/tmp/test_home"),
         ] {
@@ -1062,7 +1058,7 @@ mod tests {
     #[test]
     fn build_env_rejects_unlisted_variables() {
         let mut env = test_env();
-        env.prefix = Some("/data/data/com.termux/files/usr".to_string());
+        env.prefix = Some(TEST_PREFIX.to_string());
         let result = build_env(&env);
         for key in [
             "LD_PRELOAD",
