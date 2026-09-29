@@ -985,6 +985,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
 
 // JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge` 声明
 // 决定，而非设计选择。参数个数由 ABI 固定，不可能在不配套修改 Kotlin 的情况下减少。
+/// 鼠标事件被丢弃时的空字节数组（上报关闭/编码失败/空编码三处复用）。
+fn empty_java_byte_array(env: &mut Env) -> jbyteArray {
+    env.byte_array_from_slice(&[])
+        .map(|array| array.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn encode_mouse_event_inner(
     env: &mut Env,
     session_id: jlong,
@@ -998,10 +1005,7 @@ fn encode_mouse_event_inner(
     let id = session_id as u64;
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        return env
-            .byte_array_from_slice(&[])
-            .map(|arr| arr.into_raw())
-            .unwrap_or(std::ptr::null_mut());
+        return empty_java_byte_array(env);
     };
     let session = entry.session.lock();
     let Some(bytes) = session.terminal().encode_mouse_event(
@@ -1011,16 +1015,10 @@ fn encode_mouse_event_inner(
         cell_w,
         cell_h,
     ) else {
-        return env
-            .byte_array_from_slice(&[])
-            .map(|arr| arr.into_raw())
-            .unwrap_or(std::ptr::null_mut());
+        return empty_java_byte_array(env);
     };
     if bytes.is_empty() {
-        return env
-            .byte_array_from_slice(&[])
-            .map(|arr| arr.into_raw())
-            .unwrap_or(std::ptr::null_mut());
+        return empty_java_byte_array(env);
     }
     env.byte_array_from_slice(&bytes)
         .map(|arr| arr.into_raw())
