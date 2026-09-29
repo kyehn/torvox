@@ -16,7 +16,7 @@
 ## What Changes
 
 - `renderWithNewOutput`：光标行采样与 `new_output` 消费移出 `count > 0` 门，空闲帧同样上报。
-- 代价：空闲帧多一次 `Query::RenderCursor`（200μs 超时兜底，超时回 0xFFFF=未知，旧语义不变）。
+- 代价：空闲帧复用本帧已渲染缓存，不新增发往 VT 线程的同步查询。
 - 错误路径（count<0）仍回 0xFFFF。
 - 影响面：仅 `cursorRowFlow` 在空闲时也能更新；渲染呈现逻辑不动；Kotlin 侧无需改动
   （变更检测 `if (cursorRow != entry.cursorRow)` 已存在，无值变不触发重组）。
