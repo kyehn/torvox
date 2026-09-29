@@ -1,7 +1,12 @@
 # font-selection Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-27-font-search-strict. Update Purpose after archive.
+
+终端字体选择的来源与生效链路。字体列表须是 `/system/etc/fonts.xml` 声明的族，
+不是硬编码表也不是目录扫描结果；渲染路径只常驻主字体、符号族与区域族三族，完整
+族索引仅在设置页按需构建。`files/home/.termux/font.{ttf,ttc,otf}` 存在即默认生效
+（不复制不移动），`files/home/.termux/fonts` 目录内字体并入列表。设置项写错时
+清除该设置而不是弹一次 toast 掩盖。
 
 ## Requirements
 
