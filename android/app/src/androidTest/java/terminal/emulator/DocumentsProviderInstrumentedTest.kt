@@ -73,4 +73,45 @@ class DocumentsProviderInstrumentedTest {
         assertTrue(DocumentsContract.deleteDocument(context.contentResolver, docUri))
         assertTrue(!probe.exists())
     }
+
+    /**
+     * 跨进程写回：经 `ContentResolver` 打开文档 URI 写入，验证内容真正落盘。
+     *
+     * Robolectric 单测直调 provider 对象，绕过 `ContentProvider.Transport` 与清单属性，
+     * 覆盖不到「其他应用能编辑并回写」这条契约（DESIGN 终端页文本选择节）。
+     */
+    @Test
+    fun external_process_write_back_lands_on_disk() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val probe = File(home, "write-back-probe.txt")
+        probe.writeText("stale content that must be truncated away")
+        val docUri = DocumentsContract.buildDocumentUri(authority, "write-back-probe.txt")
+
+        context.contentResolver.openOutputStream(docUri, "rwt").use { stream ->
+            requireNotNull(stream) { "provider must open a writable stream" }
+            stream.write("edited by another app".toByteArray())
+        }
+        assertEquals("edited by another app", probe.readText())
+
+        // 追加语义：wa 不截断。
+        context.contentResolver.openOutputStream(docUri, "wa").use { stream ->
+            requireNotNull(stream) { "provider must open an append stream" }
+            stream.write("|more".toByteArray())
+        }
+        assertEquals("edited by another app|more", probe.readText())
+    }
+
+    /** 读取通道对不持 `MANAGE_DOCUMENTS` 的进程开放（清单不得声明无效权限）。 */
+    @Test
+    fun external_process_read_succeeds_without_manage_documents() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        File(home, "external-read-probe.txt").writeText("readable")
+        val docUri = DocumentsContract.buildDocumentUri(authority, "external-read-probe.txt")
+        context.contentResolver.openInputStream(docUri).use { stream ->
+            val text = requireNotNull(stream) { "read stream must open" }.readBytes().decodeToString()
+            assertEquals("readable", text)
+        }
+    }
 }

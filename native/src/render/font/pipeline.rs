@@ -275,6 +275,11 @@ impl FontPipeline {
         // 回退层变化必须推进代际，否则整形缓存按旧回退 span 摆字
         //（中文字形错位/用了错误 locale 变体）。
         self.fallback_generation = self.fallback_generation.wrapping_add(1);
+        // 区域回退族在 locale 到达后补装：字体库在管线创建时已定型，而 spawn 前的
+        // locale 调用被 `Bridge.onSession` 的 `sessionId == 0` 守卫丢弃，重建整个
+        // 库又会因 `fontdb::ID` 重排而废掉主字体，故只增补缺失的面。
+        #[cfg(target_os = "android")]
+        super::font_db::load_region_fallback_faces(self.font_system.db_mut(), locale);
         self.find_cjk_fallback_fonts(&self.system_locale.clone());
     }
 

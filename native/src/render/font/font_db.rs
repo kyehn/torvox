@@ -189,6 +189,11 @@ pub(crate) fn family_files(family: &str) -> Option<&'static [String]> {
 /// locale 归渲染层自有：`load_font_database` 在管线创建前读取，不回读 android 层
 ///（层方向只许 android → render）。不读进程环境变量：Android 上 `LANG` 是
 /// `zh_CN.UTF-8`（下划线），与 fonts.xml 的 `zh-Hans` 标签体系对不上。
+///
+/// 只作**建库时的提示**：locale 可能晚于建库才到达（spawn 前的调用被
+/// `Bridge.onSession` 的 `sessionId == 0` 守卫丢弃），届时由
+/// `FontPipeline::set_system_locale` 经 `load_region_fallback_faces` 增补，
+/// 两条路径以本值为准。
 #[cfg(target_os = "android")]
 static CURRENT_LOCALE: parking_lot::RwLock<String> = parking_lot::RwLock::new(String::new());
 
@@ -231,22 +236,112 @@ pub(crate) fn symbol_family_files(xml: &str) -> Vec<String> {
     Vec::new()
 }
 
-/// 当前语言对应的区域回退族（简中 → `zh-Hans` 的 NotoSansCJK）。
+/// 当前语言对应的区域回退条目 `(文件名, ttc_index)`（简中 → `zh-Hans` 的 NotoSansCJK）。
+/// 保留 `ttc_index` 供面级匹配使用；按 locale 优先级取首个匹配的 `lang` 块。
 #[cfg(any(target_os = "android", test))]
-pub(crate) fn locale_fallback_files(xml: &str, locale: &str) -> Vec<String> {
+pub(crate) fn locale_fallback_entries(xml: &str, locale: &str) -> Vec<(String, u32)> {
     let (_, lang_fallbacks) = parse_fonts_xml_families(xml);
     for wanted in locale_fonts_xml_langs(locale) {
         if let Some((_, filenames)) = lang_fallbacks
             .iter()
             .find(|(lang, _)| lang.split(',').any(|tag| tag == *wanted))
         {
-            return filenames
-                .iter()
-                .map(|(filename, _)| filename.clone())
-                .collect();
+            return filenames.clone();
         }
     }
     Vec::new()
+}
+
+/// 当前语言对应的区域回退族文件名（简中 → `zh-Hans` 的 NotoSansCJK）。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn locale_fallback_files(xml: &str, locale: &str) -> Vec<String> {
+    locale_fallback_entries(xml, locale)
+        .into_iter()
+        .map(|(filename, _)| filename)
+        .collect()
+}
+
+/// 库内是否已有该字体文件。装入一个 TTC 即含其全部面，故按文件名判定即可，
+/// 无需逐面比较索引。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn font_file_is_loaded(font_database: &fontdb::Database, filename: &str) -> bool {
+    font_database.faces().any(|face| {
+        let path = match &face.source {
+            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path,
+            fontdb::Source::Binary(_) => return false,
+        };
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case(filename))
+    })
+}
+
+/// 区域回退族中库内尚缺的 `(文件名, ttc_index)`。
+///
+/// 字体库在管线创建时构建，而 locale 由 JNI 在其之后才到达：spawn 前的调用被
+/// `Bridge.onSession` 的 `sessionId == 0` 守卫丢弃，随后的重放又晚于库定型。
+/// 故区域族必须能在 locale 到达后按本函数的结果补装，而不是指望它建库时就在。
+/// 纯函数（库 + XML + locale → 缺失项），便于宿主单测覆盖该时序。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn missing_region_fallback_faces(
+    font_database: &fontdb::Database,
+    xml: &str,
+    system_locale: &str,
+) -> Vec<(String, u32)> {
+    let mut missing: Vec<(String, u32)> = Vec::new();
+    for (filename, index) in locale_fallback_entries(xml, system_locale) {
+        // 真机 `zh-Hans` 块把同一 TTC 按 weight 100..900 重复声明九次
+        // （对照设备 /system/etc/fonts.xml）。装一个文件即含全部面，
+        // 故按文件名去重、只补首个。
+        if font_file_is_loaded(font_database, &filename) {
+            continue;
+        }
+        if missing
+            .iter()
+            .any(|(present, _)| present.eq_ignore_ascii_case(&filename))
+        {
+            continue;
+        }
+        missing.push((filename, index));
+    }
+    missing
+}
+
+/// 把当前 locale 的区域回退族补装进**活动**字体库，返回新装入的面 id。
+///
+/// 只增补不重建整个库：`fontdb::ID` 是库内序号，重建会让主字体的 `font_id`
+/// 指向另一个面。已在库中的文件跳过，重复调用只有一次比对开销。
+#[cfg(target_os = "android")]
+pub(crate) fn load_region_fallback_faces(
+    font_database: &mut fontdb::Database,
+    system_locale: &str,
+) -> Vec<fontdb::ID> {
+    let Some(content) = read_fonts_xml() else {
+        log::warn!("FONT_LOAD: fonts.xml 不可读，区域回退族无法补装");
+        return Vec::new();
+    };
+    let missing = missing_region_fallback_faces(font_database, &content, system_locale);
+    let mut loaded = Vec::new();
+    for path in resolve_font_files(
+        &missing
+            .into_iter()
+            .map(|(filename, _)| filename)
+            .collect::<Vec<String>>(),
+    ) {
+        // `load_font_source` 直接返回新面 id，解析失败时为空 vec。
+        let ids = font_database.load_font_source(fontdb::Source::File(path));
+        if ids.is_empty() {
+            log::warn!("FONT_LOAD: 区域回退族装入失败（无法解析）");
+        }
+        loaded.extend(ids);
+    }
+    if !loaded.is_empty() {
+        log::debug!(
+            "FONT_LOAD: locale='{system_locale}' 补装 {} 个区域回退族面",
+            loaded.len()
+        );
+    }
+    loaded
 }
 
 /// 用户投放字体：`~/.termux/font` 目录下的 ttf/ttc/otf。
@@ -506,6 +601,121 @@ pub(crate) fn is_font_file(entry: &std::path::Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::FONT_DIRS;
+
+    /// 宿主字体库里取一个真实字体文件（绝对路径）作为区域族探针。
+    /// 区域族的「是否已在库内」按文件名判定，故任一字体文件即可。
+    /// 依赖 dev shell 的 fontconfig（见 flake.nix 的 `FONTCONFIG_FILE`），
+    /// 无字体时自然失败，不做环境检查也不跳过。
+    fn probe_font_file() -> std::path::PathBuf {
+        let mut font_database = fontdb::Database::new();
+        font_database.load_system_fonts();
+        font_database
+            .faces()
+            .find_map(|face| match &face.source {
+                fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => {
+                    path.is_file().then(|| path.clone())
+                }
+                fontdb::Source::Binary(_) => None,
+            })
+            .expect("宿主字体库须有可加载的字体文件（run inside nix develop）")
+    }
+
+    /// 区域族的探针 XML：一个 `zh-Hans` 块声明探针文件。
+    fn probe_fonts_xml(filename: &str) -> String {
+        format!(
+            r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="2">{filename}</font></family></familyset>"#
+        )
+    }
+
+    /// 设备上的真实时序：字体库在 locale 到达之前就已定型（spawn 前的 locale
+    /// 调用被 `Bridge.onSession` 的 `sessionId == 0` 守卫丢弃），区域族此时
+    /// 必须被报为「缺失」以便事后补装；补装后不得再报，否则会重复装入。
+    #[test]
+    fn region_family_missing_until_loaded() {
+        let probe = probe_font_file();
+        let filename = probe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("探针字体须有文件名")
+            .to_string();
+        let xml = probe_fonts_xml(&filename);
+
+        let mut font_database = fontdb::Database::new();
+        assert_eq!(
+            super::missing_region_fallback_faces(&font_database, &xml, "zh-CN"),
+            vec![(filename.clone(), 2)],
+            "库在 locale 之前定型时区域族必须报为缺失，否则 zh-CN 用户无 CJK 可用"
+        );
+
+        font_database
+            .load_font_file(&probe)
+            .expect("探针字体须可装入");
+        assert!(
+            super::missing_region_fallback_faces(&font_database, &xml, "zh-CN").is_empty(),
+            "补装后不得再报缺失，否则重复调用会重复装入同一个 TTC"
+        );
+    }
+
+    /// 真机 `zh-Hans` 块把同一 TTC 按 weight 100..900 重复声明九次。装一个文件
+    /// 即含其全部面，故缺失项必须按文件名去重，只补首个。
+    #[test]
+    fn region_family_deduplicates_repeated_weights() {
+        let filename = "NotoSansCJK-Regular.ttc";
+        let weights: String = (100..=900)
+            .step_by(100)
+            .map(|weight| {
+                format!(r#"<font weight="{weight}" style="normal" index="2">{filename}</font>"#)
+            })
+            .collect();
+        let xml = format!(
+            r#"<familyset version="23"><family lang="zh-Hans">{weights}</family></familyset>"#
+        );
+        let font_database = fontdb::Database::new();
+        assert_eq!(
+            super::missing_region_fallback_faces(&font_database, &xml, "zh-CN"),
+            vec![(filename.to_string(), 2)],
+            "同一 TTC 的九个字重声明只补一个文件"
+        );
+    }
+
+    /// 非 CJK locale 不补装任何 `lang` 族：否则 en-US 设备会被塞入整本 CJK 字体。
+    #[test]
+    fn region_family_not_missing_for_non_cjk_locale() {
+        let font_database = fontdb::Database::new();
+        let xml = probe_fonts_xml("NotoSansCJK-Regular.ttc");
+        assert!(
+            super::missing_region_fallback_faces(&font_database, &xml, "en-US").is_empty(),
+            "非 CJK locale 不得补装区域回退族"
+        );
+        assert!(
+            super::missing_region_fallback_faces(&font_database, &xml, "ja").is_empty(),
+            "CJK locale 才补装"
+        );
+    }
+
+    /// 已装入判定按文件名且忽略大小写：库内来源路径的目录前缀无关。
+    #[test]
+    fn font_file_loaded_matching_ignores_directory_and_case() {
+        let probe = probe_font_file();
+        let filename = probe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("探针字体须有文件名");
+        let mut font_database = fontdb::Database::new();
+        assert!(!super::font_file_is_loaded(&font_database, filename));
+        font_database
+            .load_font_file(&probe)
+            .expect("探针字体须可装入");
+        assert!(super::font_file_is_loaded(&font_database, filename));
+        assert!(super::font_file_is_loaded(
+            &font_database,
+            &filename.to_uppercase()
+        ));
+        assert!(!super::font_file_is_loaded(
+            &font_database,
+            "NoSuchFont-Regular.ttc"
+        ));
+    }
 
     /// 扫描列表须含 `ASystemFontIterator` 会枚举的 OEM 目录（/odm/fonts/、
     /// /data/fonts/），以免漏掉放在 /system/fonts 之外的 OEM 自定义字体。
