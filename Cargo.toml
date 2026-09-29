@@ -15,7 +15,7 @@ futures = "0.3"
 guillotiere = "0.7"
 jni = { version = "0.22", default-features = false }
 libc = "0.2"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "8953a740bc378cec3e07e1f6ca949f0595eab19b" }
 log = "0.4"
 lru = "0.18"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
