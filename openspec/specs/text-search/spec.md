@@ -1,6 +1,7 @@
 # text-search Specification
 
 ## Purpose
+
 终端文本搜索的能力边界。搜索须走外部 `regex` 库而非手写大小写折叠循环，命中规模与
 查询长度须有上限以免拖住输入线程。
 
