@@ -428,6 +428,38 @@ fun TerminalScreen(
             var followedCursorRow by remember {
                 androidx.compose.runtime.mutableIntStateOf(Bridge.CURSOR_ROW_UNKNOWN)
             }
+            // 第二路输入：Compose 的 insets 订阅在部分环境/时序下收不到更新
+            // （键盘已弹但叶节点永不重组），而视图系统的 dispatch 可靠到达
+            // SurfaceView（`imeHeightPx` 同源）。监听只读不消费（原样返回
+            // insets，SurfaceView 无子视图），与 Compose 读取双写同一状态。
+            // 同步只写无布局读者的 `imeBottomPx`；布局相关的驱动推迟到下一主循环——
+            // 在 dispatch 遍历内同步写布局状态会与遍历形成反馈风暴。
+            val surfaceView = surfaceRef.value
+            DisposableEffect(surfaceView) {
+                if (surfaceView == null) return@DisposableEffect onDispose {}
+                val listener =
+                    androidx.core.view.OnApplyWindowInsetsListener { _, insets ->
+                        val bottom = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                        imeBottomPx.intValue = bottom
+                        surfaceView.post {
+                            barPanPx.intValue = bottom
+                            val cursorRow = viewModel.runtime.cursorRowFlow.value
+                            computeTerminalPanPx(
+                                cursorRow = cursorRow,
+                                cellHeightPx = viewModel.runtime.cellHeight,
+                                boxHeightPx = terminalBoxSize.height,
+                                imePx = bottom,
+                                barPx = reservedBarPx,
+                            )?.let { heldTerminalPanPx = it }
+                            if (bottom <= 0) heldTerminalPanPx = 0
+                        }
+                        insets
+                    }
+                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
+                onDispose {
+                    androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
+                }
+            }
             LaunchedEffect(Unit) {
                 snapshotFlow { imeBottomPx.intValue > 0 || settledImePx.intValue > 0 }
                     .distinctUntilChanged()

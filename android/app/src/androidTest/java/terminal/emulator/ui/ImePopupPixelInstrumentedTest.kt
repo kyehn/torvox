@@ -34,6 +34,8 @@ class ImePopupPixelInstrumentedTest {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val IME_TIMEOUT_MS = 10_000L
         private const val SETTLE_MILLIS = 600L
+        private const val MOVE_MIN_SHIFT_PX = 20
+        private const val STRIP_MATCH_MAX_DIFF = 300
     }
 
     @get:Rule
@@ -115,6 +117,20 @@ class ImePopupPixelInstrumentedTest {
         return height
     }
 
+    /** 单像素 RGB 差分和（阈值由调用方判定）。 */
+    private fun pixelDelta(first: Int, second: Int): Int = kotlin.math.abs(
+        android.graphics.Color.red(first) -
+            android.graphics.Color.red(second),
+    ) +
+        kotlin.math.abs(
+            android.graphics.Color.green(first) -
+                android.graphics.Color.green(second),
+        ) +
+        kotlin.math.abs(
+            android.graphics.Color.blue(first) -
+                android.graphics.Color.blue(second),
+        )
+
     /** 步长采样统计两截图在纵向区间内的差异像素数。 */
     private fun countDifferingPixels(
         first: android.graphics.Bitmap,
@@ -125,57 +141,114 @@ class ImePopupPixelInstrumentedTest {
         var count = 0
         for (y in top until bottom step 3) {
             for (x in 0 until first.width step 3) {
-                val delta =
-                    kotlin.math.abs(
-                        android.graphics.Color.red(first.getPixel(x, y)) -
-                            android.graphics.Color.red(second.getPixel(x, y)),
-                    ) +
-                        kotlin.math.abs(
-                            android.graphics.Color.green(first.getPixel(x, y)) -
-                                android.graphics.Color.green(second.getPixel(x, y)),
-                        ) +
-                        kotlin.math.abs(
-                            android.graphics.Color.blue(first.getPixel(x, y)) -
-                                android.graphics.Color.blue(second.getPixel(x, y)),
-                        )
-                if (delta > 40) count++
+                if (pixelDelta(first.getPixel(x, y), second.getPixel(x, y)) > 40) count++
             }
         }
         return count
     }
 
+    /**
+     * 在顶部条带里搜索终端内容的上移量，返回（位移像素，匹配差异）。
+     * 条带取在键盘永远碰不到的高处：键盘扫过只改变底部像素，顶部条带只随终端
+     * 平移而动——扫过恒得位移 0，只有真正的终端上移才能给出显著位移。
+     */
+    private fun bestUpwardShift(
+        first: android.graphics.Bitmap,
+        second: android.graphics.Bitmap,
+        stripTop: Int,
+        stripHeight: Int,
+        maxShift: Int,
+    ): Pair<Int, Int> {
+        var bestShift = 0
+        var bestDiff = Int.MAX_VALUE
+        var shift = 0
+        while (shift <= maxShift) {
+            var diff = 0
+            var y = 0
+            while (y < stripHeight) {
+                var x = 0
+                while (x < first.width) {
+                    if (
+                        pixelDelta(
+                            first.getPixel(x, stripTop + y),
+                            second.getPixel(x, stripTop + y - shift),
+                        ) > 40
+                    ) {
+                        diff++
+                    }
+                    x += 3
+                }
+                y += 3
+            }
+            if (diff < bestDiff) {
+                bestDiff = diff
+                bestShift = shift
+            }
+            shift += 6
+        }
+        return bestShift to bestDiff
+    }
+
+    private fun isImeVisible(): Boolean {
+        var visible = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            visible =
+                findTerminalSurface(
+                    composeTestRule.activity,
+                ).rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+        }
+        return visible
+    }
+
     /** 确保输入法收起：Gboard 系统级持久，跨用例仍展开会使 before 拍到已上移态导致差分为零。 */
     private fun hideImeAndSettle() {
-        composeTestRule.activity.runOnUiThread {
-            val imm =
-                composeTestRule.activity.getSystemService(
-                    android.content.Context.INPUT_METHOD_SERVICE,
-                ) as android.view.inputmethod.InputMethodManager
-            imm.hideSoftInputFromWindow(
-                composeTestRule.activity.window.decorView.windowToken,
-                0,
-            )
-        }
+        // 启动期自动弹键盘会与收起竞态：只确认“某一刻隐藏”不够，before 可能在
+        // 自动弹出后拍到已上移态，后续差分恒为零。先等自动弹出出现（若出现），再收起；
+        // 收起后必须经过静默窗口复核，自动弹出则重试；仍不稳定就直接失败，
+        // 而不是继续走像素比较。
         UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
-            var hidden = false
-            InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                hidden =
-                    findTerminalSurface(
-                        composeTestRule.activity,
-                    ).rootWindowInsets?.isVisible(WindowInsets.Type.ime()) ==
-                    false
-            }
-            hidden
+            isImeVisible()
         }
-        Thread.sleep(SETTLE_MILLIS)
+        repeat(3) {
+            composeTestRule.activity.runOnUiThread {
+                val imm =
+                    composeTestRule.activity.getSystemService(
+                        android.content.Context.INPUT_METHOD_SERVICE,
+                    ) as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(
+                    composeTestRule.activity.window.decorView.windowToken,
+                    0,
+                )
+            }
+            val hidden =
+                UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
+                    !isImeVisible()
+                }
+            assertNotNull("输入法必须收起", hidden)
+            val stableUntil = android.os.SystemClock.uptimeMillis() + 2_000L
+            var reshown = false
+            while (android.os.SystemClock.uptimeMillis() < stableUntil) {
+                if (isImeVisible()) {
+                    reshown = true
+                    break
+                }
+                Thread.sleep(200)
+            }
+            if (!reshown) {
+                Thread.sleep(SETTLE_MILLIS)
+                return
+            }
+        }
+        throw AssertionError("输入法隐藏后仍自动弹出")
     }
 
     @Test
     fun contentFewImePopupTerminalUnchanged() {
-        hideImeAndSettle()
         val marker = "IME_FEW_${System.currentTimeMillis() % 100000}"
         printAndAwait("printf '$marker\\n'", marker)
         Thread.sleep(SETTLE_MILLIS)
+        // 收起必须紧贴截图：输出期间自动弹键盘可能在任何时刻出现。
+        hideImeAndSettle()
         val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
         tapAndAwaitIme()
         val after = device.takeScreenshot() ?: throw AssertionError("截图失败")
@@ -201,31 +274,51 @@ class ImePopupPixelInstrumentedTest {
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
         assertTrue("输入法必须占据高度", imeHeight > 0)
-        // 内容较多时终端内容上移：慢模拟器上内边距动画可滞后数秒，固定等待即拍即判必抖动。轮询至上移出现（15s 上限），成功帧留给闪烁/缝线检查。
-        val regionTop = before.height / 10
-        val regionBottom = before.height - imeHeight - 40
+        // 内容较多时终端内容上移：慢模拟器上内边距动画可滞后数秒，固定等待即拍即判必抖动。
+        // 位移在顶部条带里度量（键盘永远碰不到的高处）：旧的底部区域差分口径会被键盘
+        // 扫过动画触发——扫过只改变底部像素，顶部条带只随终端平移而动。
+        // 轮询至上移出现（15s 上限），成功帧留给闪烁/缝线检查。
+        val stripTop = before.height * 4 / 10
+        val stripHeight = 150
+        val maxShift = minOf(imeHeight, stripTop)
         var moved: android.graphics.Bitmap? = null
-        var moveDiff = 0
+        var bestShift = 0
+        var bestDiff = Int.MAX_VALUE
         val moveDeadline = android.os.SystemClock.uptimeMillis() + 15_000L
         while (android.os.SystemClock.uptimeMillis() < moveDeadline) {
             val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
-            moveDiff = countDifferingPixels(before, shot, regionTop, regionBottom)
-            if (moveDiff > 20) {
+            val (shift, diff) = bestUpwardShift(before, shot, stripTop, stripHeight, maxShift)
+            if (shift > bestShift || (shift == bestShift && diff < bestDiff)) {
+                bestShift = shift
+                bestDiff = diff
+            }
+            if (bestShift > MOVE_MIN_SHIFT_PX && bestDiff <= STRIP_MATCH_MAX_DIFF) {
                 moved = shot
                 break
             }
             Thread.sleep(500)
         }
-        assertTrue("内容较多时弹出输入法终端内容必须上移 (差分=$moveDiff)", moveDiff > 20)
-        val movedFrame = moved ?: throw AssertionError("上移帧缺失")
-        // 上移后无闪烁：稳定后连续两帧必须一致。
+        assertTrue(
+            "内容较多时弹出输入法终端内容必须上移 (位移=$bestShift 差异=$bestDiff)",
+            moved != null,
+        )
+        // 动画定居后再取成功帧：移动中途的帧不能作为闪烁/缝线基准。
+        Thread.sleep(1_000)
+        val movedFrame = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        val (settledShift, settledDiff) =
+            bestUpwardShift(before, movedFrame, stripTop, stripHeight, maxShift)
+        assertTrue(
+            "上移必须保持到动画定居 (位移=$settledShift 差异=$settledDiff)",
+            settledShift > MOVE_MIN_SHIFT_PX && settledDiff <= STRIP_MATCH_MAX_DIFF,
+        )
+        // 上移后无闪烁：稳定后连续两帧必须一致（仍在顶部条带内比较，不受键盘影响）。
         Thread.sleep(SETTLE_MILLIS)
         val settled = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val flickerDiff = countDifferingPixels(movedFrame, settled, regionTop, regionBottom)
+        val flickerDiff = countDifferingPixels(movedFrame, settled, stripTop, stripTop + stripHeight)
         assertTrue("上移稳定后必须无闪烁 (差分=$flickerDiff)", flickerDiff <= 5)
         // 上移前后底部像素完全相同：贴输入法上沿的缝线行必须一致。
-        val seamTop = regionBottom - 12
-        val seamDiff = countDifferingPixels(movedFrame, settled, seamTop, regionBottom)
+        val seamTop = before.height - imeHeight - 12
+        val seamDiff = countDifferingPixels(movedFrame, settled, seamTop, before.height - imeHeight)
         assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff == 0)
         // 弹出时输入文本正确显示，底部不被吞。
         // 回车后缀：输入即执行，断言执行输出而非行回显——行回显依赖从机回显开关（mksh 自管理），内边距动画期的 SIGWINCH 重绘会擦掉未提交行并造成抖动；执行输出稳定可断言，覆盖同一“输入正确显示、底部不被吞”条款。
