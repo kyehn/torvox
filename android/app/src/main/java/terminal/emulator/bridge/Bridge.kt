@@ -174,15 +174,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         onSession("setPixelSize", Unit) { NativeBridge.setPixelSize(it, widthPx, heightPx) }
     }
 
-    /**
-     * 按像素尺寸重算网格。单元格尺寸计算在 Rust 侧：渲染器从字体管线导出单元格度量，
-     * resize 后 `syncGridDimensions` 经 [getGridRowsColsPacked] 取回真实网格。
-     * 本方法仅记录日志：rows/cols 由原生侧从事件解析。
-     */
-    fun recomputeGrid(width: Int, height: Int) {
-        LogUtil.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
-    }
-
     fun getGridRowsColsPacked(): Long = onSession("getGridRowsColsPacked", 0L, NativeBridge::getGridRowsColsPacked)
 
     fun getCellWidth(): Float = onSession("getCellWidth", 0f, NativeBridge::getCellWidth)
@@ -447,11 +438,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         return onSession("setFontFamily", false) { NativeBridge.setFontFamily(it, override ?: family) }
     }
 
-    fun setFontSize(sizeTenths: Int) {
-        LogUtil.d(TAG, "setFontSize($sizeTenths)")
-        setFontSizeInPlace(sizeTenths)
-    }
-
     fun setFontSizeInPlace(sizeTenths: Int) {
         LogUtil.d(TAG, "setFontSizeInPlace($sizeTenths)")
         onSession("setFontSizeInPlace", Unit) { NativeBridge.setFontSizeInPlace(it, sizeTenths) }
@@ -485,7 +471,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * 用 Ghostty 鼠标编码器编码鼠标事件并把转义序列写入 PTY。
      * 生成并写入序列时返回 true；关闭鼠标上报、编码失败或会话消失（事件丢弃）时返回 false。
      */
-    fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellWidth: Float, cellHeight: Float): Boolean {
+    fun encodeMouseEvent(
+        xPx: Float,
+        yPx: Float,
+        action: Int,
+        button: Int,
+        cellWidth: Float,
+        cellHeight: Float,
+    ): Boolean {
         val bytes =
             onSession("encodeMouseEvent", ByteArray(0)) {
                 NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, cellWidth, cellHeight)

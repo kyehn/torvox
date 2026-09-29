@@ -108,6 +108,8 @@ pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool 
 
 // ── impl GhosttyTerminal ──────────────────────────────────────
 impl super::GhosttyTerminal {
+    /// 处理单条查询。上游 `select_*` 查询会在查询路径内安装选区；成功安装时返回
+    /// true，由 run 循环按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
     pub(crate) fn process_query(
         query: Query,
         terminal: &mut Terminal,
@@ -116,10 +118,8 @@ impl super::GhosttyTerminal {
         event: &mut Option<key::Event>,
         mouse_encoder: &mut Option<mouse::Encoder>,
         mouse_event: &mut Option<mouse::Event>,
-        // 上游 select_* 查询会在查询路径内安装选区；成功安装时置 true，
-        // 由 run 循环按 Command::SetSelection 同款规则失效行缓存并重推帧。
-        selection_installed: &mut bool,
-    ) {
+    ) -> bool {
+        let mut selection_installed = false;
         match query {
             Query::Rows(tx) => {
                 if let Err(error) = tx.send(grid_rows(terminal)) {
@@ -217,17 +217,17 @@ impl super::GhosttyTerminal {
             }
             Query::SelectWordAt { row, col, tx } => {
                 let bounds = Self::select_word_at_impl(terminal, row, col);
-                *selection_installed = bounds.is_some();
+                selection_installed = bounds.is_some();
                 try_send(&tx, bounds, "select word response send failed");
             }
             Query::SelectLineAt { row, col, tx } => {
                 let bounds = Self::select_line_at_impl(terminal, row, col);
-                *selection_installed = bounds.is_some();
+                selection_installed = bounds.is_some();
                 try_send(&tx, bounds, "select line response send failed");
             }
             Query::SelectAll { tx } => {
                 let bounds = Self::select_all_impl(terminal);
-                *selection_installed = bounds.is_some();
+                selection_installed = bounds.is_some();
                 try_send(&tx, bounds, "select all response send failed");
             }
             Query::HyperlinkAt { row, col, tx } => {
@@ -287,7 +287,7 @@ impl super::GhosttyTerminal {
                             "ghostty_terminal: key encoder/event unavailable — dropping key"
                         );
                         let _ = tx.send(Vec::new());
-                        return;
+                        return false;
                     }
                 };
 
@@ -378,7 +378,7 @@ impl super::GhosttyTerminal {
                             "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
                         );
                         let _ = tx.send(Vec::new());
-                        return;
+                        return false;
                     }
                 };
                 mouse_encoder.set_options_from_terminal(terminal);
@@ -418,6 +418,33 @@ impl super::GhosttyTerminal {
                 try_send(&tx, response, "mouse encode response send failed");
             }
         }
+        selection_installed
+    }
+
+    /// 排空查询通道，使查询看到最新终端状态。返回真表示最后一条查询安装了选区，
+    /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
+    pub(crate) fn drain_queries(
+        query_receiver: &flume::Receiver<Query>,
+        terminal: &mut Terminal,
+        alt_screen_active: &Arc<AtomicBool>,
+        encoder: &mut Option<key::Encoder>,
+        event: &mut Option<key::Event>,
+        mouse_encoder: &mut Option<mouse::Encoder>,
+        mouse_event: &mut Option<mouse::Event>,
+    ) -> bool {
+        let mut selection_installed = false;
+        while let Ok(query) = query_receiver.try_recv() {
+            selection_installed = Self::process_query(
+                query,
+                terminal,
+                alt_screen_active,
+                encoder,
+                event,
+                mouse_encoder,
+                mouse_event,
+            );
+        }
+        selection_installed
     }
 
     pub(crate) fn run(config: RunConfig) {
@@ -645,25 +672,20 @@ impl super::GhosttyTerminal {
                 Err(flume::RecvTimeoutError::Timeout) => {
                     // No bounded commands pending — drain query channel so
                     // queries sent between commands don't wait indefinitely.
-                    while let Ok(query) = query_receiver.try_recv() {
-                        let mut selection_installed = false;
-                        Self::process_query(
-                            query,
-                            &mut terminal,
-                            &config.alt_screen_active,
-                            &mut encoder,
-                            &mut event,
-                            &mut mouse_encoder,
-                            &mut mouse_event,
-                            &mut selection_installed,
-                        );
-                        if selection_installed {
-                            // 查询内安装与 Command::SetSelection 同款失效：
-                            // 反白改变每行内容，行缓存必须重建且帧必须重推。
-                            row_cache.clear();
-                            last_cell_data_push = None;
-                            grid_dirty = true;
-                        }
+                    if Self::drain_queries(
+                        &query_receiver,
+                        &mut terminal,
+                        &config.alt_screen_active,
+                        &mut encoder,
+                        &mut event,
+                        &mut mouse_encoder,
+                        &mut mouse_event,
+                    ) {
+                        // 查询内安装与 Command::SetSelection 同款失效：
+                        // 反白改变每行内容，行缓存必须重建且帧必须重推。
+                        row_cache.clear();
+                        last_cell_data_push = None;
+                        grid_dirty = true;
                     }
                     // ── Auto-push CellData (also sent on each state change below) ──
                     Self::refresh_cell_data(
@@ -859,25 +881,20 @@ impl super::GhosttyTerminal {
             }
             // After processing the batch, drain any pending queries so they
             // see the fully-updated terminal state.
-            while let Ok(query) = query_receiver.try_recv() {
-                let mut selection_installed = false;
-                Self::process_query(
-                    query,
-                    &mut terminal,
-                    &config.alt_screen_active,
-                    &mut encoder,
-                    &mut event,
-                    &mut mouse_encoder,
-                    &mut mouse_event,
-                    &mut selection_installed,
-                );
-                if selection_installed {
-                    // 同上：查询内安装的选区需要重建行缓存并纳入本批重推。
-                    row_cache.clear();
-                    last_cell_data_push = None;
-                    grid_dirty = true;
-                    batch_dirty = true;
-                }
+            if Self::drain_queries(
+                &query_receiver,
+                &mut terminal,
+                &config.alt_screen_active,
+                &mut encoder,
+                &mut event,
+                &mut mouse_encoder,
+                &mut mouse_event,
+            ) {
+                // 同上：查询内安装的选区需要重建行缓存并纳入本批重推。
+                row_cache.clear();
+                last_cell_data_push = None;
+                grid_dirty = true;
+                batch_dirty = true;
             }
             // ONE cell-data build for the whole batch — every state mutation
             // above has completed, so this reflects the final backlog state.

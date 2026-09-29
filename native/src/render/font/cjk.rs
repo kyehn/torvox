@@ -45,19 +45,17 @@ impl FontPipeline {
         );
     }
 
-    #[cfg(any(target_os = "android", test))]
     fn fonts_xml_cjk_fallback_ids(
         &self,
         system_locale: &str,
         max_results: usize,
     ) -> Vec<fontdb::ID> {
-        let Some(xml) = super::font_db::read_fonts_xml_fallback() else {
+        let Some(xml) = super::font_db::read_fonts_xml() else {
             return Vec::new();
         };
         Self::match_fonts_xml_fallbacks(self.font_system.db(), &xml, system_locale, max_results)
     }
 
-    #[cfg(any(target_os = "android", test))]
     pub(crate) fn match_fonts_xml_fallbacks(
         font_database: &fontdb::Database,
         xml: &str,
@@ -109,15 +107,6 @@ impl FontPipeline {
             }
         }
         ids
-    }
-
-    #[cfg(not(any(target_os = "android", test)))]
-    fn fonts_xml_cjk_fallback_ids(
-        &self,
-        _system_locale: &str,
-        _max_results: usize,
-    ) -> Vec<fontdb::ID> {
-        Vec::new()
     }
 
     pub(crate) fn find_glyph_anywhere(&mut self, ch: char) -> Option<(fontdb::ID, u16)> {
