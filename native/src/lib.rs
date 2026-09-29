@@ -2,7 +2,7 @@
 //!
 //! `terminal/` 为 Ghostty VT 解析、PTY 管理与 Session；`render/` 为 wgpu 管线与
 //! 字形渲染；`android/` 为 JNI FFI 导出、NDK 桥接与日志。单元测试就近存放于
-//! `#[cfg(test)]`，集成行为由 `tests/features/*.feature` 统一管理。
+//! `#[cfg(test)]`，集成行为由 `tests/bdd/`（Cucumber + Gherkin）统一管理。
 
 pub mod event;
 

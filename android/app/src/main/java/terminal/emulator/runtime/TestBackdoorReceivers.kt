@@ -58,14 +58,10 @@ class TestBackdoorReceivers(
             Pair(
                 object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
-                        // 钳位：接收器虽为 NOT_EXPORTED，但 instrumentation
-                        // （同 uid）仍可广播；恶意广播否则可携带 Int.MAX
-                        // 并触发数十亿次迭代的主线程循环（ANR）。
-                        // 终端网格很小，宽裕的上界已经足够。
-                        val startRow = intent.getIntExtra("startRow", 0).coerceIn(0, 4095)
-                        val startCol = intent.getIntExtra("startCol", 0).coerceIn(0, 4095)
-                        val endRow = intent.getIntExtra("endRow", 2).coerceIn(0, 4095)
-                        val endCol = intent.getIntExtra("endCol", 10).coerceIn(0, 4095)
+                        val startRow = intent.getIntExtra("startRow", 0).coerceIn(0, COORDINATE_MAX)
+                        val startCol = intent.getIntExtra("startCol", 0).coerceIn(0, COORDINATE_MAX)
+                        val endRow = intent.getIntExtra("endRow", 2).coerceIn(0, COORDINATE_MAX)
+                        val endCol = intent.getIntExtra("endCol", 10).coerceIn(0, COORDINATE_MAX)
                         onPartialSelect(startRow, startCol, endRow, endCol)
                     }
                 },
@@ -74,9 +70,8 @@ class TestBackdoorReceivers(
             Pair(
                 object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
-                        // 同样防御性钳位（见 PARTIAL_SELECT）。
-                        val row = intent.getIntExtra("row", 10).coerceIn(0, 4095)
-                        val col = intent.getIntExtra("col", 0).coerceIn(0, 4095)
+                        val row = intent.getIntExtra("row", 10).coerceIn(0, COORDINATE_MAX)
+                        val col = intent.getIntExtra("col", 0).coerceIn(0, COORDINATE_MAX)
                         onShowPaste(row, col)
                     }
                 },
@@ -107,5 +102,14 @@ class TestBackdoorReceivers(
                 LogUtil.w("TestBackdoorReceivers", "unregister $action failed", exception)
             }
         }
+    }
+
+    private companion object {
+        /**
+         * 广播坐标上界：接收器虽为 NOT_EXPORTED，但 instrumentation（同 uid）仍可广播；
+         * 恶意广播否则可携带 Int.MAX 并触发数十亿次迭代的主线程循环（ANR）。
+         * 终端网格很小，宽裕的上界已经足够。
+         */
+        const val COORDINATE_MAX = 4095
     }
 }

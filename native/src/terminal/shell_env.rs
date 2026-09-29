@@ -28,6 +28,10 @@ impl Default for ShellEnv {
 mod tests {
     use super::*;
 
+    /// DESIGN 声明的规范路径常量（测试断言专用）。
+    const TEST_PREFIX: &str = "/data/data/com.termux/files/usr";
+    const TEST_MKSHRC: &str = "/data/data/com.termux/.mkshrc";
+
     #[test]
     fn shell_env_default_is_minimal() {
         let env = ShellEnv::default();
@@ -41,11 +45,8 @@ mod tests {
     fn shell_env_prefix_is_optional() {
         let mut env = ShellEnv::default();
         assert!(env.prefix.is_none());
-        env.prefix = Some("/data/data/com.termux/files/usr".to_string());
-        assert_eq!(
-            env.prefix.as_deref(),
-            Some("/data/data/com.termux/files/usr")
-        );
+        env.prefix = Some(TEST_PREFIX.to_string());
+        assert_eq!(env.prefix.as_deref(), Some(TEST_PREFIX));
     }
 
     #[test]
@@ -54,14 +55,11 @@ mod tests {
             home: "/custom/home".to_string(),
             working_directory: "/custom/work".to_string(),
             prefix: Some("/custom/prefix".to_string()),
-            mkshrc_path: Some("/data/data/com.termux/.mkshrc".to_string()),
+            mkshrc_path: Some(TEST_MKSHRC.to_string()),
         };
         assert_eq!(env.home, "/custom/home");
         assert_eq!(env.working_directory, "/custom/work");
         assert_eq!(env.prefix, Some("/custom/prefix".to_string()));
-        assert_eq!(
-            env.mkshrc_path,
-            Some("/data/data/com.termux/.mkshrc".to_string())
-        );
+        assert_eq!(env.mkshrc_path, Some(TEST_MKSHRC.to_string()));
     }
 }
