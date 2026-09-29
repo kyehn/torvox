@@ -191,7 +191,11 @@ impl ReadScan {
             .buf
             .iter()
             .enumerate()
-            .filter_map(|(i, &b)| if b == b';' { Some(i) } else { None });
+            .filter_map(
+                |(byte_index, &byte)| {
+                    if byte == b';' { Some(byte_index) } else { None }
+                },
+            );
         if let (Some(first), Some(second)) = (semis.next(), semis.next()) {
             let selection = String::from_utf8_lossy(&self.buf[first + 1..second]).into_owned();
             snapshot.clipboard_read = Some(selection);

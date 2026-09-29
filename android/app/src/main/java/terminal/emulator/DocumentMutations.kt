@@ -200,9 +200,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 }
             }
         }
-        for (i in directories.indices.reversed()) {
-            if (!directories[i].delete()) {
-                throw IOException("Failed to delete directory '${directories[i].path}'")
+        for (directoryIndex in directories.indices.reversed()) {
+            if (!directories[directoryIndex].delete()) {
+                throw IOException("Failed to delete directory '${directories[directoryIndex].path}'")
             }
         }
     }

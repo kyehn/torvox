@@ -78,7 +78,7 @@ impl SessionError {
     /// 底层写入以 EAGAIN/EWOULDBLOCK 失败时为真，即非阻塞主端的 PTY 缓冲区已满
     /// （子进程未读取）。此时调用方按 xterm 语义丢弃该输入而非当作错误上报。
     pub fn is_would_block(&self) -> bool {
-        matches!(self, SessionError::Io(e) if e.kind() == std::io::ErrorKind::WouldBlock)
+        matches!(self, SessionError::Io(io_error) if io_error.kind() == std::io::ErrorKind::WouldBlock)
     }
 }
 
@@ -183,20 +183,20 @@ impl Session {
             return Err(SessionError::InvalidDimensions);
         }
         let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env, cwd) {
-            Ok(p) => {
+            Ok(pty_pair) => {
                 log::info!("Session::spawn: PtyPair::spawn OK");
-                p
+                pty_pair
             }
-            Err(e) => {
-                log::info!("Session::spawn: PtyPair::spawn error: {e}");
-                return Err(e.into());
+            Err(spawn_error) => {
+                log::info!("Session::spawn: PtyPair::spawn error: {spawn_error}");
+                return Err(spawn_error.into());
             }
         };
         match pty.set_nonblocking() {
             Ok(()) => log::info!("Session::spawn: set_nonblocking OK"),
-            Err(e) => {
-                log::info!("Session::spawn: set_nonblocking error: {e}");
-                return Err(e.into());
+            Err(nonblocking_error) => {
+                log::info!("Session::spawn: set_nonblocking error: {nonblocking_error}");
+                return Err(nonblocking_error.into());
             }
         }
 
@@ -211,9 +211,9 @@ impl Session {
         let mut session =
             match Self::spawn_with_theme_inner(Box::new(pty) as Box<dyn Pty>, rows, cols, theme) {
                 Ok(session) => session,
-                Err(e) => {
+                Err(inner_error) => {
                     // `read_file` 在此被丢弃，其 fd 随之安全关闭。
-                    return Err(e);
+                    return Err(inner_error);
                 }
             };
 
@@ -261,20 +261,20 @@ impl Session {
                         // NUL 剥离：VT 解析前剔除 0x00 字节，避免 APC-NUL 渲染伪影。
                         let mut data = read_buf[..bytes_read].to_vec();
                         if data.contains(&0) {
-                            data.retain(|&b| b != 0);
+                            data.retain(|&byte| byte != 0);
                         }
                         if output_tx.send(data).is_err() {
                             log::info!("reader thread: output channel closed");
                             break;
                         }
                     }
-                    Err(e) => match read_error_action(e.raw_os_error()) {
+                    Err(read_error) => match read_error_action(read_error.raw_os_error()) {
                         ReaderErrorAction::Retry => {}
                         ReaderErrorAction::Stop => {
-                            if e.raw_os_error() == Some(libc::EIO) {
+                            if read_error.raw_os_error() == Some(libc::EIO) {
                                 log::info!("reader thread: PTY EOF (slave closed, EIO)");
                             } else {
-                                log::info!("reader thread: read error: {e}");
+                                log::info!("reader thread: read error: {read_error}");
                             }
                             exited_read.store(true, Ordering::Release);
                             break;
