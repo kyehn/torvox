@@ -2,7 +2,10 @@
 
 ## Purpose
 
-触摸被系统取消（全面屏手势认领、窗口取消）时修饰键栏绝不触发按键，且键栏不阻挡系统底部手势。
+修饰键栏位于系统底部手势区，全面上滑与侧缘返回会被系统手势认领，并向应用补发
+`ACTION_CANCEL`。按键若不吞掉取消手势，就会在用户意图返回桌面时误发按键序列。
+`ModifierBar` 经 `MotionEventAdapter` 丢弃 `ACTION_CANCEL` 并合成 `processCancel`，
+使被认领的手势彻底无输出；键栏底边同时须留在导航手势区之外不被起滑点命中。
 
 ## Requirements
 
