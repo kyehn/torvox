@@ -663,31 +663,39 @@ fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: 
     let Some(handle) = handle.take() else {
         return;
     };
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if handle.is_finished() {
-            if let Err(e) = handle.join() {
-                log::error!("session: thread panicked: {:?}", e);
-            }
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(10));
+    if wait_finished(&handle, timeout) {
+        join_finished(handle);
+        return;
     }
     log::warn!("session: thread did not exit within {timeout:?}, retrying up to 3×");
     for _attempt in 0..3 {
-        let retry_deadline = std::time::Instant::now() + Duration::from_millis(100);
-        while std::time::Instant::now() < retry_deadline {
-            if handle.is_finished() {
-                if let Err(e) = handle.join() {
-                    log::error!("session: thread panicked: {:?}", e);
-                }
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
+        if wait_finished(&handle, Duration::from_millis(100)) {
+            join_finished(handle);
+            return;
         }
     }
     log::error!("session: thread failed to exit after retries — DETACHING (resource leak)");
     // 句柄在此被丢弃 → 分离
+}
+
+/// 在截止前轮询句柄完成，完成返回 true（不消费句柄，join 留给调用方）。
+fn wait_finished(handle: &std::thread::JoinHandle<()>, timeout: Duration) -> bool {
+    const POLL_STEP: Duration = Duration::from_millis(10);
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if handle.is_finished() {
+            return true;
+        }
+        std::thread::sleep(POLL_STEP);
+    }
+    false
+}
+
+/// join 已完成的句柄并报告 panic。
+fn join_finished(handle: std::thread::JoinHandle<()>) {
+    if let Err(e) = handle.join() {
+        log::error!("session: thread panicked: {:?}", e);
+    }
 }
 
 impl Drop for Session {
