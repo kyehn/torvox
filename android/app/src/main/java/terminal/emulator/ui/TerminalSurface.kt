@@ -36,6 +36,7 @@ import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.computeGridDimensions
 import terminal.emulator.util.isWideCodePoint
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
@@ -426,9 +427,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
             // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
             val availableHeight = (height - runtime.modifierBarHeightPx).coerceAtLeast(1)
-            if (availableHeight <= 0) return
-            val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
-            val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
+            val (newRows, newCols) =
+                computeGridDimensions(
+                    surfaceWidth = width,
+                    surfaceHeight = availableHeight,
+                    cellWidth = cellWidth,
+                    cellHeight = cellHeight,
+                )
+            if (newRows == 0 || newCols == 0) return
             LogUtil.d(
                 "TerminalSurface",
                 "applyGridResize: $width x $height cell=($cellWidth,$cellHeight) " +
@@ -455,11 +461,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 与运行期网格相同的预留量：不减去工具栏高度时，
                     // 此镜像会相差工具栏那几行，并在每次重组时被迫 requestLayout()。
                     val barPx = viewModel.runtime.modifierBarHeightPx
-                    cols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
-                    rows =
-                        ((height - barPx).coerceAtLeast(1).toFloat() / cellHeight)
-                            .toInt()
-                            .coerceAtLeast(1)
+                    val availableHeight = (height - barPx).coerceAtLeast(1)
+                    val (newRows, newCols) =
+                        computeGridDimensions(
+                            surfaceWidth = width,
+                            surfaceHeight = availableHeight,
+                            cellWidth = cellWidth,
+                            cellHeight = cellHeight,
+                        )
+                    if (newRows == 0 || newCols == 0) return
+                    cols = newCols
+                    rows = newRows
                     return
                 }
             }
