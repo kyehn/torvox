@@ -1419,6 +1419,58 @@ fn scroll_viewport_delta_scrolls_cell_data() {
     );
 }
 
+/// 视口滚动后，绝对网格行（0 = 回滚顶部，与 Kotlin 的
+/// `scrollbackLength - scrollOffset + row` 同口径）查询必须仍命中该行的内容。
+/// `dump_grid.visible` 直接取 `Point::Viewport`，即屏幕上真实显示的文本，
+/// 作为地面真值。
+#[test]
+fn absolute_row_text_survives_viewport_scroll() {
+    const ROWS: u32 = 5;
+    const SCROLL_OFFSET: u32 = 3;
+    let mut terminal_under_test = GhosttyTerminal::new(ROWS, 20, 100).expect("terminal");
+    // vt_write 不做 LF→CRLF 展开，必须自带 CR，否则光标只下移不回列。
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line{line_number}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    let scrollback = terminal_under_test.scrollback_length();
+    assert!(
+        scrollback > SCROLL_OFFSET,
+        "回滚须多于上滚量, got {scrollback}"
+    );
+    assert!(terminal_under_test.scroll_viewport(-(SCROLL_OFFSET as isize)));
+    terminal_under_test.flush();
+
+    let dumped = terminal_under_test.dump_grid();
+    assert_eq!(dumped.rows, ROWS);
+    let visible_line = |viewport_row: u32| -> String {
+        let start = (viewport_row * dumped.cols) as usize;
+        dumped.visible[start..start + dumped.cols as usize]
+            .iter()
+            .map(|cell| match char::from_u32(cell.codepoint) {
+                Some('\0') | None => ' ',
+                Some(character) => character,
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    };
+    assert_eq!(
+        visible_line(0),
+        format!("line{}", scrollback - SCROLL_OFFSET),
+        "上滚后视口首行应是回滚中的某一行"
+    );
+
+    for viewport_row in 0..ROWS {
+        let absolute_row = scrollback - SCROLL_OFFSET + viewport_row;
+        assert_eq!(
+            terminal_under_test.read_line_text(absolute_row).as_deref(),
+            Some(visible_line(viewport_row).as_str()),
+            "绝对行 {absolute_row}（视口第 {viewport_row} 行）在上滚 {SCROLL_OFFSET} 后读错行"
+        );
+    }
+}
+
 /// Scrollback browsing: the cursor must be reported in VIEWPORT
 /// coordinates (or hidden when the cursor page is scrolled out of the
 /// viewport), never in active-screen coordinates. The old code used

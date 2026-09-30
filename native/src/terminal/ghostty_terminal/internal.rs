@@ -1969,39 +1969,27 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 绝对网格行（0 = 回滚顶部）→ Point：唯一前向映射规则（回滚内为
-    /// History、其余为 Viewport，列钳制到网格宽度），供 selection_text_impl、
-    /// install_selection_impl 与上游选择派生共用。
+    /// 绝对网格行（0 = 回滚顶部）→ Point：唯一前向映射规则，列钳制到网格宽度。
+    ///
+    /// 恒用 [`PointSpace::Screen`]/`Point::Screen`（上游 `.screen` 的原点恒为
+    /// `pages.first`，即回滚顶部的绝对行）。`Point::Viewport` 的原点随
+    /// `pages.viewport` 滚动而移动，把它当绝对坐标会在上滚 `s` 行后整体错位 `s` 行。
+    /// 供 selection_text_impl、install_selection_impl 与上游选择派生共用。
     fn absolute_point(terminal: &Terminal, row: u32, col: u32) -> Point {
-        let cols = grid_cols(terminal).max(1);
-        let scrollback_rows = scrollback_len(terminal);
-        let clamped_col = col.min(cols - 1) as u16;
-        if row < scrollback_rows {
-            Point::History(PointCoordinate {
-                x: clamped_col,
-                y: row,
-            })
-        } else {
-            Point::Viewport(PointCoordinate {
-                x: clamped_col,
-                y: row - scrollback_rows,
-            })
-        }
+        let clamped_col = col.min(grid_cols(terminal).saturating_sub(1)) as u16;
+        Point::Screen(PointCoordinate {
+            x: clamped_col,
+            y: row,
+        })
     }
 
-    /// gref → 绝对网格坐标：absolute_point 的逆——回滚单元按 History 空间
-    /// 回读（y 即绝对行），其余按 Viewport 空间回读并加回滚偏移；两个空间
-    /// 均无法表达该格时返回 None。
+    /// gref → 绝对网格坐标：absolute_point 的逆，单次 Screen 空间回读
+    /// （`.screen` 原点与 `absolute_point` 同一），无法表达该格时返回 None。
     fn absolute_coordinate(terminal: &Terminal, grid_ref: &GridRef) -> Option<(u32, u32)> {
-        if let Ok(Some(coordinate)) = terminal.point_from_grid_ref(grid_ref, PointSpace::History) {
-            return Some((coordinate.y, u32::from(coordinate.x)));
-        }
-        let Ok(Some(coordinate)) = terminal.point_from_grid_ref(grid_ref, PointSpace::Viewport)
-        else {
-            return None;
-        };
-        let scrollback_rows = scrollback_len(terminal);
-        Some((coordinate.y + scrollback_rows, u32::from(coordinate.x)))
+        let coordinate = terminal
+            .point_from_grid_ref(grid_ref, PointSpace::Screen)
+            .ok()??;
+        Some((coordinate.y, u32::from(coordinate.x)))
     }
 
     /// 上游派生选区的公共收尾（design 决策 1 的顺序）：to_ordered(Forward)
