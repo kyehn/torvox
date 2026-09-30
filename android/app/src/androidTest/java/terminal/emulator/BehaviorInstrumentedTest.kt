@@ -242,13 +242,25 @@ class BehaviorInstrumentedTest {
             device.wait(Until.hasObject(By.text("ESC")), WAIT_TIMEOUT)
         assertTrue("Modifier bar should load with ESC key", modifierBarReady)
         val esc = device.findObject(By.text("ESC"))
-        val ctrl = device.findObject(By.text("CTRL"))
-        val alt = device.findObject(By.text("ALT"))
-        val home = device.findObject(By.text("HOME"))
         assertTrue("ESC should be visible", esc != null)
-        assertTrue("CTRL should be visible", ctrl != null)
-        assertTrue("ALT should be visible", alt != null)
-        assertTrue("HOME should be visible", home != null)
+        var ctrl = device.findObject(By.text("CTRL"))
+        var alt = device.findObject(By.text("ALT"))
+        var home = device.findObject(By.text("HOME"))
+        // ESC 已见但同行键缺失：节点树打印全部文本做根因诊断，
+        // 下一步按实际缺失模式修（不再盲猜重组/热启动）。
+        if (ctrl == null || alt == null || home == null) {
+            val texts = mutableListOf<String>()
+            for (depth in 0..3) {
+                for (node in device.findObjects(By.pkg(PACKAGE).depth(depth))) {
+                    val text = node.text
+                    if (!text.isNullOrEmpty()) texts.add(text)
+                }
+            }
+            throw AssertionError(
+                "修饰键栏缺键（ctrl=${ctrl != null} alt=${alt != null} home=${home != null}）：" +
+                    "屏上文本=${texts.distinct().take(60)}",
+            )
+        }
     }
 
     @Test
