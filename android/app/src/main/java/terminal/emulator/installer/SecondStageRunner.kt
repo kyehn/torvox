@@ -87,7 +87,7 @@ class SecondStageRunner(
             runOnePostinst(script, dpkgVersion, arch, errors)
             scriptsCompleted++
         }
-        return Result(true, errors)
+        return Result(errors.isEmpty(), errors)
     }
 
     /** 在 DPKG_* 环境与经链接器包装的解释器下执行一个 dpkg postinst 脚本（从 runPostInstalls 抽出以满足 detekt LongMethod 限制）。 */

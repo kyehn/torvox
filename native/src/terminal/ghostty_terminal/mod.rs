@@ -4,6 +4,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use flume::Sender;
 
@@ -16,6 +17,9 @@ mod types;
 pub use commands::Command;
 pub use commands::Query;
 pub use types::*;
+
+/// VT 线程析构等待上限，与会话拆卸宽限一致，避免无界阻塞。
+const TERMINAL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
 
 pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
@@ -40,15 +44,11 @@ pub struct GhosttyTerminal {
 
 impl Drop for GhosttyTerminal {
     fn drop(&mut self) {
-        // try_send：VT 线程卡住时不得阻塞析构（与全仓非阻塞策略一致），失败仅记日志后 join。
+        // try_send：VT 线程卡住时不得阻塞析构（与全仓非阻塞策略一致），失败仅记日志后限时等待。
         if let Err(error) = self.cmd_tx.try_send(Command::Terminate) {
             log::error!("ghostty_terminal: cmd_tx send Terminate failed: {error}");
         }
-        if let Some(handle) = self.handle.take()
-            && let Err(error) = handle.join()
-        {
-            log::error!("ghostty_terminal: thread join failed: {:?}", error);
-        }
+        crate::terminal::session::join_with_timeout(&mut self.handle, TERMINAL_THREAD_JOIN_TIMEOUT);
     }
 }
 
