@@ -39,7 +39,7 @@ internal class DocumentQueries(private val context: Context) {
             TerminalDocumentsProvider.requireInsideRoot(decoded, rootDir)
             return decoded
         }
-        val rootPath = rootDir.canonicalPath
+        val rootPath = rootDir.toPath().normalize().toString()
         val linkPath = linkCandidate.toPath().normalize().toString()
         if (!(linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath)) {
             throw java.io.FileNotFoundException(

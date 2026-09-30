@@ -93,6 +93,12 @@ class BootstrapOrchestrator(
                     return Result.failure(Exception("Install failed: ${exception.javaClass.simpleName}"))
                 }
                 val secondStageResult = secondStageRunner.run()
+                if (!secondStageResult.success) {
+                    onProgress?.onProgress(BootstrapProgress.Error("Postinst failed"))
+                    state.set(Status.ERROR)
+                    val failureDetails = secondStageResult.errors.take(3).joinToString("\n") { "- $it" }
+                    return Result.failure(Exception(failureDetails.ifEmpty { "Postinst failed" }))
+                }
                 // CreatingSymlinks 进度在 BootstrapInstaller.install() 内部
                 // 符号链接真正创建时发出；在此重复会乱序。
                 onProgress?.onProgress(BootstrapProgress.Complete)
