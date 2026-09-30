@@ -111,13 +111,14 @@ struct RenderState {
     /// `render_inner` 消费；只有最新输入有意义（渲染循环约 60fps 且每次按键都重设）。
     /// 存为已解析结构便于按切片传入，由 `clearSearchHighlights` 清除。
     search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
-    /// 上次渲染的帧（单元 + 光标 + 尺寸）。`render()` 只在有新输出时绘制，故空闲
-    /// 终端复用此缓存帧而非逐帧重新合成。
+    /// 上次渲染的帧（单元 + 光标 + 尺寸 + 会话）。`render()` 只在有新输出时绘制，故空闲
+    /// 终端复用此缓存帧而非逐帧重新合成。会话标识避免切会话后把旧会话网格画到新会话。
     last_frame: Option<(
         Vec<crate::terminal::ghostty_terminal::CellData>,
         crate::terminal::ghostty_terminal::CursorInfo,
         u32,
         u32,
+        u64,
     )>,
     /// 上次绘制时的视口 Y 像素偏移——供空闲重绘门控检测逐像素滚动余数变化并强制重绘
     /// （该偏移移动像素但不改单元内容）。
@@ -1657,17 +1658,22 @@ fn render_inner(session_id: u64) -> jint {
             // 先取不可变快照：掩码是对 `render_state.dirty_mask` 的 `&mut` 借用，
             // 无法与下方对 `render_state` 其他字段的读取共存。
             let scroll_up_rows: Option<u32> = None;
-            let previous_cursor_row = render_state
-                .last_frame
-                .as_ref()
-                .map(|(_, old_cursor_info, _, _)| old_cursor_info.row);
+            let previous_cursor_row = render_state.last_frame.as_ref().and_then(
+                |(_, old_cursor_info, _, _, cached_session)| {
+                    if *cached_session == session_id {
+                        Some(old_cursor_info.row)
+                    } else {
+                        None
+                    }
+                },
+            );
             let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
             dirty_mask.resize(rows_usize, false);
             match &render_state.last_frame {
-                Some((old_cells, _, old_rows, old_cols))
-                    if *old_rows == rows && *old_cols == cols =>
+                Some((old_cells, _, old_rows, old_cols, cached_session))
+                    if *cached_session == session_id && *old_rows == rows && *old_cols == cols =>
                 {
                     if let Some(s) = scroll_up_rows {
                         // 纯滚动：只有新露出的底部行带有新内容，其余经累加器 blit 到达。
@@ -1712,7 +1718,7 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.kitty_instances,
             );
             if result.is_ok() {
-                render_state.last_frame = Some((cells, cursor_info, rows, cols));
+                render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
             }
@@ -1725,12 +1731,15 @@ fn render_inner(session_id: u64) -> jint {
             }
         }
         FrameData::Idle {} => {
-            // 空闲路径：引用 `last_frame`——零克隆。
-            let Some((ref cached_cells, cached_cursor, cached_rows, cached_cols)) =
+            // 空闲路径：引用 `last_frame`——零克隆。会话不一致时不重绘，避免把旧会话画到新会话。
+            let Some((ref cached_cells, cached_cursor, cached_rows, cached_cols, cached_session)) =
                 render_state.last_frame
             else {
                 return 0;
             };
+            if cached_session != session_id {
+                return 0;
+            }
             let cursor = build_cursor(render_state, &cached_cursor);
             // 空闲重绘门控：仅当确有变化时重绘——搜索高亮、滚动偏移、内容脏标志被置位，
             // 或累加器失效（surface 重挂载/resize：新交换链从未收到过帧，空闲 shell
@@ -1884,7 +1893,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         let rendered_cursor = render_state
             .as_ref()
             .and_then(|render_state| render_state.last_frame.as_ref())
-            .map(|(_, cursor_info, _, _)| cursor_info);
+            .and_then(|(_, cursor_info, _, _, cached_session)| {
+                if *cached_session == session_id as u64 {
+                    Some(cursor_info)
+                } else {
+                    None
+                }
+            });
         cursor_bits = cursor_bits_for_rendered_cursor(rendered_cursor);
     }
     (new_output << 32) | (cursor_bits << 33) | (count as i64 & 0xFFFF_FFFF)
