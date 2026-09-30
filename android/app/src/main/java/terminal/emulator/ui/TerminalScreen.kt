@@ -455,17 +455,6 @@ fun TerminalScreen(
                     androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
                 }
             }
-            LaunchedEffect(Unit) {
-                snapshotFlow { imeBottomPx.intValue > 0 || settledImePx.intValue > 0 }
-                    .distinctUntilChanged()
-                    .collectLatest { imeOpen ->
-                        if (!imeOpen) {
-                            followedCursorRow = Bridge.CURSOR_ROW_UNKNOWN
-                            return@collectLatest
-                        }
-                        viewModel.runtime.cursorRowFlow.collect { followedCursorRow = it }
-                    }
-            }
             // 定居节流：键盘动画逐帧更新 imeBottomPx；值停止变化 IME_SETTLE_FRAMES×轮询间隔后
             // 锁定 settled 值（等价于旧 LaunchedEffect(rawImeBottomPx) 的取消/重启语义）。
             // 修饰键栏 live 跟随必须先行：每帧立即写入 barPanPx，不被定居延迟阻塞，
