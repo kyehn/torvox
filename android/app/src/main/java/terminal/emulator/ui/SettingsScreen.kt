@@ -90,6 +90,9 @@ private const val TERMUX_BOOTSTRAP_RELEASE = "2026.02.12-r1"
 
 private val WARNING_ORANGE = Color(0xFFFF9800)
 
+/** 危险操作（清除应用数据）的警示红色。 */
+private val DANGER_RED = Color.Red
+
 @OptIn(ExperimentalMaterial3Api::class) // Material3 experimental API used intentionally
 @Composable
 fun SettingsScreen(
@@ -1237,7 +1240,7 @@ private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColo
                                 .show()
                         }
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red),
+                    colors = ButtonDefaults.textButtonColors(contentColor = DANGER_RED),
                 ) {
                     Text(stringResource(R.string.clear_app_data_action))
                 }
@@ -1270,7 +1273,7 @@ private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColo
         TextButton(onClick = { showConfirmDialog = true }) {
             Text(
                 text = stringResource(R.string.clear_app_data_action),
-                color = Color.Red,
+                color = DANGER_RED,
             )
         }
     }
