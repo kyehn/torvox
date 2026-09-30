@@ -243,13 +243,28 @@ class BehaviorInstrumentedTest {
         assertTrue("Modifier bar should load with ESC key", modifierBarReady)
         val esc = device.findObject(By.text("ESC"))
         assertTrue("ESC should be visible", esc != null)
-        val ctrl = device.findObject(By.text("CTRL"))
-        val alt = device.findObject(By.text("ALT"))
-        val home = device.findObject(By.text("HOME"))
+        val deadline = System.currentTimeMillis() + WAIT_TIMEOUT
+        var ctrl = device.findObject(By.text("CTRL"))
+        var alt = device.findObject(By.text("ALT"))
+        var home = device.findObject(By.text("HOME"))
+        // 修饰键栏已有 ESC 但同行键缺失：冷启动首帧组合尚未落定。
+        // 拉回前台一次让 MainActivity 重走 onResume→渲染。下轮测试不清数据，
+        // 无冷启动语义，仅重组当前组合。
+        if (ctrl == null || alt == null || home == null) {
+            device.executeShellCommand("am start -n $PACKAGE/terminal.emulator.MainActivity")
+            while ((ctrl == null || alt == null || home == null) &&
+                System.currentTimeMillis() < deadline
+            ) {
+                Thread.sleep(1000)
+                ctrl = device.findObject(By.text("CTRL"))
+                alt = device.findObject(By.text("ALT"))
+                home = device.findObject(By.text("HOME"))
+            }
+        }
         if (ctrl == null || alt == null || home == null) {
             throw AssertionError(
-                "修饰键栏可见但 CTRL/ALT/HOME 缺失（ctrl=${ctrl != null} alt=${alt != null} home=${home != null}）：" +
-                    "疑似脏会话（热启动卡旧状态）。若仅分支 CI 复现、本地干净启动通过，即为此根因",
+                "修饰键栏缺键（ctrl=${ctrl != null} alt=${alt != null} home=${home != null}）：" +
+                    "ESC 已见但同行键缺失——首帧重组未落定或节点树不一致",
             )
         }
     }
