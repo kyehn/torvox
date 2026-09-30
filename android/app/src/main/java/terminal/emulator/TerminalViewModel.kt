@@ -1128,17 +1128,19 @@ constructor(
             } ?: throw java.io.IOException("Failed to open bootstrap file")
             val result = installer.install(cacheFile)
             if (result.isSuccess) {
-                _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
                 val secondResult = secondStage.run()
-                val headline = context.getString(R.string.bootstrap_installed_from_file)
-                val diagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
-                val details =
-                    if (secondResult.errors.isNotEmpty()) {
-                        context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
-                    } else {
-                        ""
-                    }
-                _bootstrapResult.value = if (details.isEmpty()) headline else "$headline\n$details"
+                if (!secondResult.success) {
+                    val failureDiagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
+                    _bootstrapResult.value =
+                        context.getString(
+                            R.string.bootstrap_error,
+                            failureDiagnostics.ifEmpty { "Postinst failed" },
+                        )
+                } else {
+                    _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
+                    val headline = context.getString(R.string.bootstrap_installed_from_file)
+                    _bootstrapResult.value = headline
+                }
             } else {
                 _bootstrapResult.value =
                     context.getString(
