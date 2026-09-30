@@ -94,7 +94,9 @@ class InputBatchBuffer(
                 }
             }
         } catch (exception: java.util.concurrent.RejectedExecutionException) {
-            // 已调用 close()（视图已分离）；待处理输入被丢弃。
+            // 已调用 close()（视图已分离）；待处理输入被丢弃。必须记日志：
+            // 静默丢弃会让输入与粘贴在没有任何症状的情况下彻底失效。
+            LogUtil.w("InputBatchBuffer", "PTY write rejected: batch buffer closed", exception)
         }
     }
 
@@ -109,8 +111,9 @@ class InputBatchBuffer(
         if (pending.isNotEmpty()) {
             try {
                 sender.execute { flushSink(pending) }
-            } catch (_: java.util.concurrent.RejectedExecutionException) {
+            } catch (exception: java.util.concurrent.RejectedExecutionException) {
                 // shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）。
+                LogUtil.w("InputBatchBuffer", "final flush rejected during close", exception)
             }
         }
         sender.shutdown()
