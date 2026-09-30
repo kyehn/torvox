@@ -1520,6 +1520,9 @@ fn render_inner(session_id: u64) -> jint {
     }; // ── 会话锁在此释放 ─────────────────────────────────────────────────
 
     // ── 阶段 3：渲染（持渲染状态锁）────────────────────────────────────
+    // 本阶段是全局锁序 SESSION_REGISTRY → Session → RENDER_STATE 中唯一反向的一处：
+    // 其余入口取 RENDER_STATE 前必已释放前两级锁，故不构成环形等待。新增反向取锁的
+    // 代码必须先释放注册表与会话锁（`setSelection`/`setTheme` 同款作用域写法）。
     let mut state = render_state_mut();
     let Some(render_state) = state.as_mut() else {
         log::error!("render: render state missing");
@@ -1882,10 +1885,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         // 平移恰在空闲定居后最需要光标坐标——挂在 `count > 0` 门下会使 `cursorRowFlow`
         // 恒为未知。这里不调用 `render_cursor()`：它要走 VT 线程同步查询，
         // 缓存才是无阻塞且与绘制同源的坐标。
-        let registry = rlock_session_registry();
-        if let Some(entry) = registry.get(&(session_id as u64)) {
-            let session = entry.session.lock();
-            if session.take_new_output() {
+        // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE（`setSelection` 同款，
+        // 不可跨作用域持有）。
+        {
+            let registry = rlock_session_registry();
+            if let Some(entry) = registry.get(&(session_id as u64))
+                && entry.session.lock().take_new_output()
+            {
                 new_output = 1;
             }
         }
@@ -2769,6 +2775,11 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setThem
         };
         let session = entry.session.lock();
         session.terminal().set_theme(background, foreground, ansi);
+        // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE。`render_inner` 在阶段 3
+        // 持 RENDER_STATE 反向取注册表与会话锁，若此处嵌套持有即构成环形等待
+        // （parking_lot 互斥锁不可重入），渲染线程与设置应用线程将同时冻结。
+        drop(session);
+        drop(registry);
         // 单元格着色器的 Fix F 判定会把每个单元格的背景与 `uniforms.default_background`
         // 比对，后者取自 `Renderer::background`。不同步时终端主题与渲染器默认值不一致，
         // `is_default_background` 恒为 false，背景色判定失效。
