@@ -192,13 +192,6 @@ impl GridSnapshot {
             sync_active: false,
         }
     }
-    pub fn cell_at(&self, row: u32, col: u32) -> &CellSnapshot {
-        let idx = (row * self.cols + col) as usize;
-        if idx >= self.cells.len() {
-            return &DEFAULT_CELL;
-        }
-        &self.cells[idx]
-    }
 }
 
 /// 整个终端网格的快照，用于跨 FFI 边界序列化。
@@ -249,24 +242,6 @@ pub(crate) const DISCONNECTED_CURSOR_Y: u32 = 0;
 pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = true;
 pub(crate) const DISCONNECTED_TITLE: &str = "";
 pub(crate) const DISCONNECTED_SCROLLBACK: u32 = 0;
-static DEFAULT_CELL: CellSnapshot = CellSnapshot {
-    codepoint: 0,
-    graphemes: Vec::new(),
-    foreground: [0.0; 4],
-    background: [0.0; 4],
-    underline_color: [0.0; 4],
-    bold: false,
-    dim: false,
-    italic: false,
-    underline: false,
-    reverse: false,
-    strikethrough: false,
-    blink: false,
-    hidden: false,
-    overline: false,
-    double_underline: false,
-    width: 1,
-};
 pub(crate) const KGP_STORAGE_LIMIT: u64 = 64 * 1024 * 1024;
 pub(crate) const MAX_GRAPHEME_CLUSTERS: usize = 8;
 pub(crate) const DEFAULT_CELL_WIDTH: u32 = 8;
