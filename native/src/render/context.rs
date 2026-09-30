@@ -465,8 +465,13 @@ impl Renderer {
         if previous_format != self.pipeline_format {
             self.cell_pipeline = None;
             self.cell_bind_group = None;
+            // Kitty 管线同样以 surface 格式为 color target：格式变化后若保留旧管线，
+            // 绘制时附件格式与管线声明不符，每帧 wgpu 校验失败，Kitty 图像全部不可见。
+            self.kgp_pipeline = None;
+            self.kgp_bind_group = None;
+            self.kgp_bind_group_layout = None;
             log::info!(
-                "attach_surface: surface format changed {previous_format:?} -> {:?}, cell pipeline scheduled for rebuild",
+                "attach_surface: surface format changed {previous_format:?} -> {:?}, cell/kitty pipelines scheduled for rebuild",
                 self.pipeline_format,
             );
         }

@@ -1183,6 +1183,11 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         if let Some(session) = session {
             std::thread::spawn(move || {
                 let text = wait_for_clipboard_answer(rx);
+                // 应答线程是槽位的唯一所有者：无论宿主是否作答（事件被队列淘汰、
+                // UI 未处理、答复晚于截止时间），槽位至多存活 CLIPBOARD_ANSWER_TIMEOUT。
+                // 否则远端反复 `\e]52;c;?` 会让本表无界增长。
+                // 迟到的 clipboardResult 在此之后到达即为无操作（见 clipboard_result_inner）。
+                cancel_request(session_id, request_id);
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, &text) {
                     log::warn!("osc52: clipboard read answer write-back failed: {error}");
@@ -1455,6 +1460,12 @@ fn render_inner(session_id: u64) -> jint {
             render_state
                 .renderer
                 .initialize_pipeline_and_bind_group(ATLAS_SIZE, ATLAS_SIZE, w, h);
+            // initialize_pipeline_and_bind_group 重建了**空的**图集纹理，而 CPU 侧的
+            // 字形缓存仍全部命中 → 没有任何字形会被重新 blit，终端只剩背景、无文字，
+            // 且不会自愈（重建路径只在 surface 格式变化时触发）。故整幅标脏重传。
+            render_state.font_pipeline.reset_dirty_rect_full();
+            render_state.renderer.cell_cache = None;
+            render_state.renderer.frame_invalidated = true;
         }
         // 上传字形图集的脏区（即便在空闲帧：新光栅化的字形必须在下次绘制前抵达 GPU 纹理）。
         if let Some(rect) = render_state.font_pipeline.take_dirty_rect() {
