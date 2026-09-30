@@ -3363,7 +3363,8 @@ internal fun isElf(file: java.io.File): Boolean = try {
             magic[2] == 'L'.code.toByte() &&
             magic[3] == 'F'.code.toByte()
     }
-} catch (_: Exception) {
+} catch (exception: Exception) {
+    LogUtil.w("Runtime", "isElf: cannot read ${file.absolutePath}", exception)
     false
 }
 
@@ -3382,7 +3383,8 @@ internal fun isSystemShellScript(file: java.io.File): Boolean = try {
             firstLine.startsWith("#!/system/bin/")
         }
     }
-} catch (_: Exception) {
+} catch (exception: Exception) {
+    LogUtil.w("Runtime", "isSystemShellScript: cannot read ${file.absolutePath}", exception)
     false
 }
 
