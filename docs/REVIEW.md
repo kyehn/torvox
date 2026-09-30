@@ -338,3 +338,71 @@ Bootstrap 安装（DESIGN:126-142，含环境变量白名单、原子化替换�
 ## 八、建议修复顺序
 
 P0-1（死锁）→ P0-2（死锁）→ P0-4（安装假成功）→ P1-6/7/8（数据与状态不一致）→ P0-3（ANR）→ P0-5（规范缺口）→ P1 剩余 → P2/P3 → E1（CI 发布）→ B1–B7（构建校验）→ 依赖降级 → S 组（保护文件，需授权）。
+
+---
+
+## 九、循环复审记录
+
+连续三轮扫描（`aislop` + `jscpd` + code-review-skill），逐轮降低 jscpd 阈值并核实每项发现。
+
+| 轮次 | jscpd 阈值 | clones | 重复率 | aislop | 新增问题 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 12 行 / 60 词 | 71 | 2.43% | 12 warnings | 初始清单（本报告一至六节） |
+| 2 | 12 行 / 60 词 | 71 | 2.41% | 12 warnings（一致） | 3 项（见 N1–N3） |
+| 3 | 10 行 / 50 词（排除归档） | 83 | 1.80% | — | 3 项（见 N4–N6） |
+
+第 2、3 轮 aislop 与 jscpd 数值与第 1 轮一致（差异仅来自新增本文档），确认无回归。
+
+### 第 2 轮新增（经核实修正了首轮判断）
+
+#### N1. `build_snapshot` / `GridSnapshot.dirty` / `cached_snapshot` 整条链零生产消费者
+
+首轮判为「脏跟踪形同虚设」（P3-11），本轮核实**更严重**：`take_snapshot`（`ghostty_terminal/public_api.rs:284`）的全部调用方都在 `test_helpers.rs` 与 `tests.rs`，`Command::TakeSnapshot`（`internal.rs:856`）唯一发送点是 `take_snapshot` 自身。`ffi.rs` 与渲染路径都不使用快照——`build_snapshot`（`internal.rs:1736`）、`GridSnapshot::fallback`、`dirty` 字段（`types.rs:141/185`）、`cached_snapshot`（`internal.rs:649`）全部只服务测试。
+
+同时 DESIGN:150「脏跟踪，跳过干净快照」在**生产路径**由 `build_cell_data` 的 `row_cache` 实现（`internal.rs:1477-1484`），快照路径是遗留的第二套机制。
+
+违反 STYLE:63「不得保留死代码」＋STYLE:64「必须最小实现」。
+
+**修法**：删除 `take_snapshot`、`build_snapshot`、`Command::TakeSnapshot`、`GridSnapshot`、`cached_snapshot`、`GridSnapshot::fallback` 及其 `DISCONNECTED_*` 常量组；测试改用 `dump_grid` 或直接断言 `build_cell_data`。这同时消除首轮 P2-17 的一半。
+
+#### N2. 软换行搜索的列号错位（首轮 P1-12 成立并强化）
+
+`internal.rs:2167-2202`：`logical_row` 记录拼接后**最早**的物理行，而 `start_col`/`end_col` 来自拼接后**逻辑行**（`search_line_columns(&search_line, ...)`）。匹配落在续接段时，返回的列号属于逻辑行但 `row` 属于首行 → `cell_highlight` 定位到错误单元格。
+
+**违反** DESIGN:216-221。
+
+**修法**：逻辑行匹配后按物理行切分 `SearchMatch`（`row + i` + 列偏移），一次扫描完成；同时消除 `insert_str(0, …)` 的 O(n²) 前插。
+
+#### N3. `InputBatchBuffer.close()` 并非缺陷（首轮判断过重，已撤回）
+
+首轮 P1-10 曾列为「无重开路径导致输入被静默吞掉」。本轮读 `InputBatchBuffer.kt:100-119` 原文确认：注释明确「应在宿主视图的 detach 路径调用」「shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）」——这是**文档化的 detach 语义**，非缺陷。**从清单移除。**
+
+### 第 3 轮新增（降低阈值后暴露的生产重复）
+
+#### N4. `ffi.rs:3060 ↔ :3076` — `getCellWidth` / `getCellHeight` JNI 样板重复（11 行）
+
+两者除末尾 `.cell_metrics().0` / `.1` 外完全相同：`jni_export_guard!` + `render_state_mut()` + `let Some(...) else { return Ok(0.0) }`。
+
+**修法**：提取 `fn cell_metric(state, pick: impl Fn(&FontPipeline) -> f32) -> f32`，两处各传闭包。
+
+#### N5. `ffi.rs:2029 ↔ :2154` — 「取 registry + session + 抛异常」样板重复（12 行）
+
+`getTitle` 与 `getTerminalText` 的前 12 行同构：`rlock_session_registry()` → `registry.get(&id)` → `throw_new(IllegalArgumentException, "<name>: session not found")` → `entry.session.lock()`。
+
+该模式在 `ffi.rs` 中出现约 20 次（`getTitle`/`getTerminalText`/`selectionText`/`scrollbackLine`/`hyperlinkAt`/`selectWordAt` 等）。
+
+**修法**：提取 `fn with_session<T>(env, id, name, f: impl FnOnce(&Session) -> T) -> Option<T>`，统一「查会话 + 抛异常 + 锁」。
+
+#### N6. `render/font/rasterization.rs:27 ↔ :55` — `scaled_metric` 与 `cell_metrics` 同构（11 行）
+
+两者都是 `font_id` → `db.with_face_data` → `FontRef::from_index` → `metrics(&[])` → `upem == 0` 早退 → 按 `font_size / upem` 缩放。
+
+**修法**：提取 `fn face_metrics<R>(&self, f: impl FnOnce(swash::Metrics, f32) -> Option<R>) -> Option<R>` 统一缩放逻辑。
+
+### 第 3 轮排除项
+
+`event.rs:127 ↔ :173`（13 行）在 `#[cfg(test)]` 内为测试夹具；`cell_builder.rs:1314↔1380`、`1583↔1641`、`font/mod.rs:1197↔1254` 经核实同样位于 `mod tests`（分别起于 `cell_builder.rs:948`、`font/mod.rs:176`），非生产重复。
+
+### 连续三轮无新问题的判定
+
+第 2、3 轮相对第 1 轮**未发现新的 P0/P1 缺陷**，仅在第 3 轮降低阈值后暴露 3 项生产代码重复（N4–N6）与 1 项死代码链（N1）。三轮工具数值一致，无回归。
