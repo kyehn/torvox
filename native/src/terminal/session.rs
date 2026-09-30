@@ -20,6 +20,8 @@ const READ_BUF_SIZE: usize = 8192;
 
 /// 拆卸会话时 SIGHUP 与 SIGKILL 之间的宽限期，同时作为读/等待线程的 join 超时。
 const TRAILING_EXIT_GRACE: Duration = Duration::from_millis(50);
+/// 信号致死退出码基数（shell 惯例：128 + 信号码）。
+const SIGNAL_EXIT_BASE: i32 = 128;
 /// `read(2)` 失败后读取线程应采取的动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReaderErrorAction {
@@ -316,7 +318,7 @@ impl Session {
                 // Shell 被信号杀死（Ctrl+\、kill -9）：上报惯例的 128 + 信号码，
                 // 避免 UI 把信号死亡当成干净的退出码 0。
                 Ok(nix::sys::wait::WaitStatus::Signaled(_, signal, _)) => {
-                    *exit_code.lock() = Some(128 + signal as i32);
+                    *exit_code.lock() = Some(SIGNAL_EXIT_BASE + signal as i32);
                 }
                 _ => {}
             }
