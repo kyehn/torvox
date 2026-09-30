@@ -834,3 +834,20 @@ fun TerminalScreen(
     }
 }
 
+/**
+ * IME insets 叶节点观察器：键盘动画期间 insets 逐帧变化只重组本节点——
+ * 读取发生在 composition，写入 [onChanged] 的状态后，终端区/修饰键栏位移经布局期
+ * offset lambda 应用，主组合（Column/ModifierBar/搜索层）不随之逐帧重组。
+ *
+ * 后备扣除：`WindowInsets.ime` 在手势导航下包含底部系统导航条高度，
+ * `navigationBarsPadding` 已在根 Box 消费同一高度。不扣除会导致位移恒大一个
+ * 导航条高度（约 3 行）：内容较少时终端被顶起约 3 行，内容较多时底部约 3 行被键盘遮挡。
+ */
+@Composable
+private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
+    SideEffect { onChanged(max(imeBottom - navigationBottom, 0)) }
+}
+
