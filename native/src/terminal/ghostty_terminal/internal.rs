@@ -1090,28 +1090,45 @@ impl super::GhosttyTerminal {
         foreground: [u8; 3],
         ansi: &[[u8; 3]],
     ) {
-        let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
-            r: background[0],
-            g: background[1],
-            b: background[2],
-        }));
-        let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
-            r: foreground[0],
-            g: foreground[1],
-            b: foreground[2],
-        }));
-        if let Ok(mut palette) = terminal.default_color_palette() {
-            for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
-                palette.set(
-                    *index,
-                    libghostty_vt::style::RgbColor {
-                        r: color[0],
-                        g: color[1],
-                        b: color[2],
-                    },
-                );
+        if terminal
+            .set_default_bg_color(Some(libghostty_vt::style::RgbColor {
+                r: background[0],
+                g: background[1],
+                b: background[2],
+            }))
+            .is_err()
+        {
+            log::error!("ghostty_terminal: apply_theme failed to set background color");
+        }
+        if terminal
+            .set_default_fg_color(Some(libghostty_vt::style::RgbColor {
+                r: foreground[0],
+                g: foreground[1],
+                b: foreground[2],
+            }))
+            .is_err()
+        {
+            log::error!("ghostty_terminal: apply_theme failed to set foreground color");
+        }
+        match terminal.default_color_palette() {
+            Ok(mut palette) => {
+                for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
+                    palette.set(
+                        *index,
+                        libghostty_vt::style::RgbColor {
+                            r: color[0],
+                            g: color[1],
+                            b: color[2],
+                        },
+                    );
+                }
+                if terminal.set_default_color_palette(Some(palette)).is_err() {
+                    log::error!("ghostty_terminal: apply_theme failed to set ANSI palette");
+                }
             }
-            let _ = terminal.set_default_color_palette(Some(palette));
+            Err(error) => {
+                log::error!("ghostty_terminal: apply_theme failed to read ANSI palette: {error}");
+            }
         }
     }
 
