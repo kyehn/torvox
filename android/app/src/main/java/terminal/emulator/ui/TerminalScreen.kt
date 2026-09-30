@@ -792,10 +792,7 @@ fun TerminalScreen(
                     .align(Alignment.BottomCenter)
                     .background(resolvedTerminalTheme.background)
                     .offset { IntOffset(0, -barPanPx.intValue) }
-                    .testTag("ModifierBarOverlay")
-                    // 修饰键栏常驻视口底部：UiAutomator 只认视口内节点，
-                    // 手势导航条遮挡的键会被判不可见。
-                    .navigationBarsPadding(),
+                    .testTag("ModifierBarOverlay"),
             ) {
                 // 底部栏——位于终端之下、输入法之上
                 if (showTextSearch) {
