@@ -7,11 +7,9 @@ import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
-import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -414,70 +413,49 @@ fun TerminalScreen(
                 }
             }
 
-            // IME 跟随：单一位移不重排（双位移差拍是内容重叠/闪烁/键栏半透明的根因）。
-            // 终端区与键栏同为一列内联行，整列按键盘高度平移，差拍物理消失。
-            // Surface 尺寸永不变化，不触发交换链重建与网格重排；
-            // insets 逐帧值只在 WindowImeBottomPx 叶节点读取并写入状态，
-            // 位移经 snapshotFlow 收集器 + 布局期 offset lambda 应用——动画期间主组合不逐帧重组。
+            // IME 跟随：单一位移不重排。
+            // 终端 Surface 与键栏同处一个平移容器（TerminalContent），整容器按键盘高度
+            // 平移，双位移差拍（内容重叠/持续闪烁/键栏被输入法遮住）在结构上不可能发生。
+            // Surface 尺寸永不变化，故不触发交换链重建与网格重排。
+            //
+            // 唯一 insets 来源是 [WindowImeBottomPx]：它在动画期间逐帧给出真实键盘高度
+            // （实测 0→772→818→820 后静止）。此处刻意不再挂 SurfaceView 的
+            // OnApplyWindowInsetsListener——它在 dispatch 遍历中读到的是尚未更新的
+            // ime=0，写入布局状态又触发新一轮 dispatch，实测自激振荡 506 次、
+            // 使键栏在「键盘上方」与「键盘后方」之间来回跳，即持续闪烁的根因。
+            //
+            // insets 只在叶节点读取并写入状态，位移经布局期 offset lambda 应用，
+            // 动画期间主组合（容器/键栏/搜索层）不逐帧重组。
             val imeBottomPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             WindowImeBottomPx { imeBottomPx.intValue = it }
             val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            // 单一位移：整列（含键栏行）整体跟随键盘高度，动画期间为 live 值，定居后为 settled 值。
-            val barPanPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            // 第二路输入：Compose 的 insets 订阅在部分环境/时序下收不到更新
-            // （键盘已弹但叶节点永不重组），而视图系统的 dispatch 可靠到达
-            // SurfaceView（`imeHeightPx` 同源）。监听只读不消费（原样返回
-            // insets，SurfaceView 无子视图），与 Compose 读取双写同一状态。
-            // 同步只写无布局读者的 `imeBottomPx`；布局相关的驱动推迟到下一主循环——
-            // 在 dispatch 遍历内同步写布局状态会与遍历形成反馈风暴。
-            val surfaceView = surfaceRef.value
-            DisposableEffect(surfaceView) {
-                if (surfaceView == null) return@DisposableEffect onDispose {}
-                val listener =
-                    androidx.core.view.OnApplyWindowInsetsListener { _, insets ->
-                        // 与 WindowImeBottomPx 同一口径：扣除手势导航条高度
-                        // （`navigationBarsPadding` 已在根 Box 消费它）。
-                        val rawBottom = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
-                        val navigationBottom =
-                            insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
-                        val bottom = max(rawBottom - navigationBottom, 0)
-                        imeBottomPx.intValue = bottom
-                        surfaceView.post { barPanPx.intValue = bottom }
-                        insets
-                    }
-                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
-                onDispose {
-                    androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
-                }
-            }
-            // 定居节流：键盘动画逐帧更新 imeBottomPx；值停止变化 IME_SETTLE_FRAMES×轮询间隔后
-            // 锁定 settled 值。单一位移每帧立即跟随 live 值，不被定居延迟阻塞，
-            // 修饰键栏 live 跟随必须先行：每帧立即写入 barPanPx，不被定居延迟阻塞，
-            // 否则动画期间键栏冻结、定居后跳变（违反逐帧跟随）。
+            // 定居节流：值停止变化 IME_SETTLE_FRAMES×轮询间隔后锁定 settled 值。
+            // 位移本身直接读 imeBottomPx（每帧即跟随 live 值），不被此节流阻塞——
+            // 否则动画期间终端与键栏冻结、定居后跳变（违反逐帧跟随）。
             LaunchedEffect(Unit) {
                 snapshotFlow { imeBottomPx.intValue }
                     .distinctUntilChanged()
                     .collectLatest { imeBottom ->
-                        // 每个 insets 帧都跟随（弹出/隐藏动画期间为 live 值，
-                        // 值稳定后与 settled 一致）：整列与键盘同步移动。
-                        barPanPx.intValue = imeBottom
+                        delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
                         if (imeBottom != settledImePx.intValue) {
-                            delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
                             settledImePx.intValue = imeBottom
                             surfaceRef.value?.onImeSettled(imeBottom)
                         }
                     }
             }
-            // 单列整体跟随：终端区与键栏同为一列内联行，同位移无差拍；尺寸恒定，网格不收缩。
-            Column(
+            // 单一位移容器：终端 Surface 与键栏同处此容器，全树只有一次 offset 调用——
+            // 两者位移在结构上恒等，双位移差拍（内容重叠/持续闪烁/键栏被输入法遮住）物理消失。
+            // Surface 尺寸全程不变，故网格不重排、无 SIGWINCH。
+            Box(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
-                    .offset { IntOffset(0, -barPanPx.intValue) },
+                    .offset { IntOffset(0, -imeBottomPx.intValue) },
             ) {
-                // 终端内容区——随整列上移到输入法之上
+                // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
+                // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 Box(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -724,112 +702,111 @@ fun TerminalScreen(
                     }
                 }
 
-                // Column 结束——终端与键栏同列整体位移，单一位移无差拍。
-            } // 关闭 Column
+                // 键栏覆盖在 Surface 底部（网格已预留其高度），且同处位移容器，
+                // 故随键盘同步上下移动，恒位于输入法上方而不被遮挡。
+                Box(
+                    modifier =
+                    Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(resolvedTerminalTheme.background)
+                        .testTag("ModifierBarOverlay"),
+                ) {
+                    // 底部栏——位于终端之下、输入法之上
+                    if (showTextSearch) {
+                        TextSearchBar(
+                            query = searchState.query,
+                            onQueryChange = { newQuery ->
+                                // 匹配文本长度须受限（DESIGN 修饰键栏节）：查询串直接送入
+                                // 原生全回滚区扫描，过长会使单次搜索耗时不可预测。
+                                searchState = searchState.copy(query = newQuery.take(SEARCH_QUERY_MAX_LENGTH))
+                                searchJob?.cancel()
+                                // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
+                                // （termlib / ghostty-android 做法）。待执行的搜索由
+                                // debouncer 取消，而非每次击键都新起协程。
+                                searchDebouncer.submit {
+                                    searchJob = scope.launch { performSearch() }
+                                }
+                            },
+                            resultCount = searchState.resultCount,
+                            currentResultIndex = searchState.currentIndex,
+                            onPrevious = {
+                                if (searchState.hasResults) {
+                                    val newIndex =
+                                        SearchResult.previousIndex(
+                                            searchState.currentIndex,
+                                            searchState.resultCount,
+                                        )
+                                    val match = searchState.results[newIndex]
+                                    scrollToMatchIfNeeded(match)
+                                    LogUtil.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
+                                    searchState = searchState.copy(currentIndex = newIndex)
+                                }
+                            },
+                            onNext = {
+                                if (searchState.hasResults) {
+                                    val newIndex =
+                                        SearchResult.nextIndex(searchState.currentIndex, searchState.resultCount)
+                                    val match = searchState.results[newIndex]
+                                    scrollToMatchIfNeeded(match)
+                                    LogUtil.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
+                                    searchState = searchState.copy(currentIndex = newIndex)
+                                }
+                            },
+                            onClose = {
+                                showTextSearch = false
+                                searchState = SearchState()
+                                searchDebouncer.cancel()
+                                searchJob?.cancel()
+                                surfaceRef.value?.searchActive = false
+                                surfaceRef.value?.clearSearchHighlights()
+                            },
+                            caseSensitive = searchState.caseSensitive,
+                            onCaseSensitiveToggle = { searchState = searchState.copy(caseSensitive = it) },
+                            autoCaseSensitive =
+                            !searchState.caseSensitive && searchState.query.any { it.isUpperCase() },
+                            modifier = Modifier.testTag("TextSearchBar"),
+                        )
+                    } else {
+                        ModifierBar(
+                            modifier = Modifier.testTag("ModifierBar"),
+                            onKeyClick = { data ->
+                                viewModel.writeToPty(data.toByteArray())
+                            },
+                            onKeyBytesClick = { bytes ->
+                                viewModel.writeToPty(bytes)
+                            },
+                            onConsumeModifiers = {
+                                viewModel.consumeOneShotModifiers()
+                            },
+                            onDrawerClick = {
+                                scope.launch { drawerState.open() }
+                            },
+                            onScrollClick = {
+                                viewModel.toggleScrollMode()
+                            },
+                            scrollActive = state.scrollActive,
+                            ctrlState = state.ctrlState,
+                            altState = state.altState,
+                            onToggleCtrl = {
+                                viewModel.cycleCtrlState()
+                            },
+                            onToggleAlt = {
+                                viewModel.cycleAltState()
+                            },
+                            onLockCtrl = {
+                                viewModel.lockCtrlState()
+                            },
+                            onLockAlt = {
+                                viewModel.lockAltState()
+                            },
+                            textColor = resolvedTerminalTheme.foreground,
+                            backgroundColor = resolvedTerminalTheme.background,
 
-            // 键栏行：列内末行，与终端同位移；高度恒为网格预留，行数不变。
-            // 键栏行在列内，整列位移已把它送到键盘上方：此处不再另设跟随层。
-            Box(
-                modifier =
-                Modifier.fillMaxWidth()
-                    .background(resolvedTerminalTheme.background)
-                    .testTag("ModifierBarOverlay"),
-            ) {
-                // 底部栏——位于终端之下、输入法之上
-                if (showTextSearch) {
-                    TextSearchBar(
-                        query = searchState.query,
-                        onQueryChange = { newQuery ->
-                            // 匹配文本长度须受限（DESIGN 修饰键栏节）：查询串直接送入
-                            // 原生全回滚区扫描，过长会使单次搜索耗时不可预测。
-                            searchState = searchState.copy(query = newQuery.take(SEARCH_QUERY_MAX_LENGTH))
-                            searchJob?.cancel()
-                            // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
-                            // （termlib / ghostty-android 做法）。待执行的搜索由
-                            // debouncer 取消，而非每次击键都新起协程。
-                            searchDebouncer.submit {
-                                searchJob = scope.launch { performSearch() }
-                            }
-                        },
-                        resultCount = searchState.resultCount,
-                        currentResultIndex = searchState.currentIndex,
-                        onPrevious = {
-                            if (searchState.hasResults) {
-                                val newIndex =
-                                    SearchResult.previousIndex(
-                                        searchState.currentIndex,
-                                        searchState.resultCount,
-                                    )
-                                val match = searchState.results[newIndex]
-                                scrollToMatchIfNeeded(match)
-                                LogUtil.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
-                                searchState = searchState.copy(currentIndex = newIndex)
-                            }
-                        },
-                        onNext = {
-                            if (searchState.hasResults) {
-                                val newIndex =
-                                    SearchResult.nextIndex(searchState.currentIndex, searchState.resultCount)
-                                val match = searchState.results[newIndex]
-                                scrollToMatchIfNeeded(match)
-                                LogUtil.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
-                                searchState = searchState.copy(currentIndex = newIndex)
-                            }
-                        },
-                        onClose = {
-                            showTextSearch = false
-                            searchState = SearchState()
-                            searchDebouncer.cancel()
-                            searchJob?.cancel()
-                            surfaceRef.value?.searchActive = false
-                            surfaceRef.value?.clearSearchHighlights()
-                        },
-                        caseSensitive = searchState.caseSensitive,
-                        onCaseSensitiveToggle = { searchState = searchState.copy(caseSensitive = it) },
-                        autoCaseSensitive =
-                        !searchState.caseSensitive && searchState.query.any { it.isUpperCase() },
-                        modifier = Modifier.testTag("TextSearchBar"),
-                    )
-                } else {
-                    ModifierBar(
-                        modifier = Modifier.testTag("ModifierBar"),
-                        onKeyClick = { data ->
-                            viewModel.writeToPty(data.toByteArray())
-                        },
-                        onKeyBytesClick = { bytes ->
-                            viewModel.writeToPty(bytes)
-                        },
-                        onConsumeModifiers = {
-                            viewModel.consumeOneShotModifiers()
-                        },
-                        onDrawerClick = {
-                            scope.launch { drawerState.open() }
-                        },
-                        onScrollClick = {
-                            viewModel.toggleScrollMode()
-                        },
-                        scrollActive = state.scrollActive,
-                        ctrlState = state.ctrlState,
-                        altState = state.altState,
-                        onToggleCtrl = {
-                            viewModel.cycleCtrlState()
-                        },
-                        onToggleAlt = {
-                            viewModel.cycleAltState()
-                        },
-                        onLockCtrl = {
-                            viewModel.lockCtrlState()
-                        },
-                        onLockAlt = {
-                            viewModel.lockAltState()
-                        },
-                        textColor = resolvedTerminalTheme.foreground,
-                        backgroundColor = resolvedTerminalTheme.background,
-
-                        isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
-                    )
+                            isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
+                        )
+                    }
                 }
-            }
+            } // 关闭位移容器——终端 Surface 与键栏同容器，位移恒等，无差拍
         }
     }
 }
@@ -837,7 +814,7 @@ fun TerminalScreen(
 /**
  * IME insets 叶节点观察器：键盘动画期间 insets 逐帧变化只重组本节点——
  * 读取发生在 composition，写入 [onChanged] 的状态后，终端区/修饰键栏位移经布局期
- * offset lambda 应用，主组合（Column/ModifierBar/搜索层）不随之逐帧重组。
+ * offset lambda 应用，主组合（位移容器/键栏/搜索层）不随之逐帧重组。
  *
  * 后备扣除：`WindowInsets.ime` 在手势导航下包含底部系统导航条高度，
  * `navigationBarsPadding` 已在根 Box 消费同一高度。不扣除会导致位移恒大一个
@@ -850,4 +827,3 @@ private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
     val navigationBottom = WindowInsets.navigationBars.getBottom(density)
     SideEffect { onChanged(max(imeBottom - navigationBottom, 0)) }
 }
-
