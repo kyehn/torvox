@@ -419,24 +419,16 @@ fun TerminalScreen(
                 }
             }
 
-            // IME 跟随：纯平移不重排（修复闪烁与底部行遮挡）。动画与定居均用 placement 阶段 offset，
-            // Surface 尺寸永不变化，不触发交换链重建与网格重排；定居态用 settled 值避免每帧抖动。
-            // 终端区按光标最小平移（稀疏会话不再整体上抬播黑屏），修饰键栏仍整体跟随到键盘上方。
-            // 性能结构（T2 ime-omp）：insets 逐帧值只在 WindowImeBottomPx 叶节点读取并写入状态，
+            // IME 跟随：单一位移不重排（双位移差拍是内容重叠/闪烁/键栏半透明的根因）。
+            // 终端区与键栏同为一列内联行，整列按键盘高度平移，差拍物理消失。
+            // Surface 尺寸永不变化，不触发交换链重建与网格重排；
+            // insets 逐帧值只在 WindowImeBottomPx 叶节点读取并写入状态，
             // 位移经 snapshotFlow 收集器 + 布局期 offset lambda 应用——动画期间主组合不逐帧重组。
             val imeBottomPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             WindowImeBottomPx { imeBottomPx.intValue = it }
             val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            var heldTerminalPanPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            // 修饰键栏位移：动画期间逐帧跟随 live 值（与键盘同步），定居后锁定 settled 值。
+            // 单一位移：整列（含键栏行）整体跟随键盘高度，动画期间为 live 值，定居后为 settled 值。
             val barPanPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            // 与网格同一预留（runtime.modifierBarHeightPx）：平移与行数严格一致，
-            // 光标行恰好停在键栏上方，不多不少。
-            val reservedBarPx = viewModel.runtime.modifierBarHeightPx
-            // 仅键盘打开时订阅光标行：关闭时不为此重组。
-            var followedCursorRow by remember {
-                androidx.compose.runtime.mutableIntStateOf(Bridge.CURSOR_ROW_UNKNOWN)
-            }
             // 第二路输入：Compose 的 insets 订阅在部分环境/时序下收不到更新
             // （键盘已弹但叶节点永不重组），而视图系统的 dispatch 可靠到达
             // SurfaceView（`imeHeightPx` 同源）。监听只读不消费（原样返回
@@ -455,18 +447,7 @@ fun TerminalScreen(
                             insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
                         val bottom = max(rawBottom - navigationBottom, 0)
                         imeBottomPx.intValue = bottom
-                        surfaceView.post {
-                            barPanPx.intValue = bottom
-                            val cursorRow = viewModel.runtime.cursorRowFlow.value
-                            computeTerminalPanPx(
-                                cursorRow = cursorRow,
-                                cellHeightPx = viewModel.runtime.cellHeight,
-                                boxHeightPx = terminalBoxSize.height,
-                                imePx = bottom,
-                                barPx = reservedBarPx,
-                            )?.let { heldTerminalPanPx = it }
-                            if (bottom <= 0) heldTerminalPanPx = 0
-                        }
+                        surfaceView.post { barPanPx.intValue = bottom }
                         insets
                     }
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
