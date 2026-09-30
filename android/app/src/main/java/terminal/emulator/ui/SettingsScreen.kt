@@ -913,7 +913,7 @@ internal fun ThemeSelector(
                     theme = theme,
                     // `selectedTheme` 始终是主题*名*（内置或用户创建）；
                     // 此处绝不要经 byName() 回退
-                    // ——其默认值会返回 Catppuccin Mocha，
+                    // ——其默认值会返回 Dracula Plus，
                     // 导致选中任意用户主题时都高亮那张卡片。
                     isSelected = theme.name == selectedTheme,
                     onClick = { onThemeSelected(theme.name) },

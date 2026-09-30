@@ -498,7 +498,7 @@ object BuiltInThemes {
 
     val all: List<TerminalTheme> = darkThemes + lightThemes
 
-    fun byName(name: String): TerminalTheme = all.firstOrNull { it.name == name } ?: catppuccinMocha
+    fun byName(name: String): TerminalTheme = all.firstOrNull { it.name == name } ?: draculaPlus
 }
 
 /**
