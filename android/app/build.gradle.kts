@@ -237,7 +237,7 @@ val reportConnectedFailures by tasks.registering {
         if (detail != null) {
           failed++
           println("connected-failure: ${testCase.getAttribute("classname")}#${testCase.getAttribute("name")}")
-          println("connected-failure-message: ${detail.textContent.trim().take(600)}")
+          println("connected-failure-message: ${detail.textContent.trim().take(4000)}")
         }
       }
     }
