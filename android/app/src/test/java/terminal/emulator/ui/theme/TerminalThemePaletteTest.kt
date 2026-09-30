@@ -14,8 +14,8 @@ class TerminalThemePaletteTest {
     }
 
     @Test
-    fun `byName falls back to catppuccin mocha for unknown names`() {
-        assertEquals(BuiltInThemes.catppuccinMocha, BuiltInThemes.byName("no-such-theme"))
-        assertEquals(BuiltInThemes.catppuccinMocha, BuiltInThemes.byName(""))
+    fun `byName falls back to dracula plus for unknown names`() {
+        assertEquals(BuiltInThemes.draculaPlus, BuiltInThemes.byName("no-such-theme"))
+        assertEquals(BuiltInThemes.draculaPlus, BuiltInThemes.byName(""))
     }
 }
