@@ -96,6 +96,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         inputBatchBuffer.close()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // 同一实例可被重新 attach（见 inputBatchBuffer 注释）：重建已关闭的批缓冲。
+        inputBatchBuffer = newInputBatchBuffer()
+    }
+
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
 
     /** Forward: selection handle popups live in [SelectionHandles]. */
@@ -2224,7 +2230,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     fun getCols(): Int = cols
 
-    private val inputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
+    // 视图 detach 时 close() 会 shutdown 发送线程；同一实例再次 attach（窗口转换、
+    // 分屏、Compose 重新挂载）时必须重建，否则每次 write 都抛 RejectedExecutionException
+    // ——输入法输入与粘贴会在无任何症状的情况下永久失效。
+    private var inputBatchBuffer = newInputBatchBuffer()
+
+    private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection = imeConnection.createInputConnection(
         outAttrs,
