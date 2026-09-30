@@ -1455,6 +1455,12 @@ fn render_inner(session_id: u64) -> jint {
             render_state
                 .renderer
                 .initialize_pipeline_and_bind_group(ATLAS_SIZE, ATLAS_SIZE, w, h);
+            // initialize_pipeline_and_bind_group 重建了**空的**图集纹理，而 CPU 侧的
+            // 字形缓存仍全部命中 → 没有任何字形会被重新 blit，终端只剩背景、无文字，
+            // 且不会自愈（重建路径只在 surface 格式变化时触发）。故整幅标脏重传。
+            render_state.font_pipeline.reset_dirty_rect_full();
+            render_state.renderer.cell_cache = None;
+            render_state.renderer.frame_invalidated = true;
         }
         // 上传字形图集的脏区（即便在空闲帧：新光栅化的字形必须在下次绘制前抵达 GPU 纹理）。
         if let Some(rect) = render_state.font_pipeline.take_dirty_rect() {
