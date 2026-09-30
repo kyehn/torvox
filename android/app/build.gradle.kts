@@ -237,19 +237,7 @@ val reportConnectedFailures by tasks.registering {
         if (detail != null) {
           failed++
           println("connected-failure: ${testCase.getAttribute("classname")}#${testCase.getAttribute("name")}")
-          println("connected-failure-node: ${detail.nodeName} attrs=${detail.attributes.length} children=${detail.childNodes.length} rawlen=${detail.textContent.length}")
-          for (attrIndex in 0 until detail.attributes.length) {
-            val attr = detail.attributes.item(attrIndex)
-            println("connected-failure-fattr: ${attr.nodeName}=${attr.nodeValue.take(500)}")
-          }
-          val caseChildren = testCase.childNodes
-          println("connected-failure-casechildren: ${caseChildren.length}")
-          for (childIndex in 0 until caseChildren.length) {
-            val child = caseChildren.item(childIndex)
-            if (child.nodeName != "#text") {
-              println("connected-failure-casechild: ${child.nodeName} len=${child.textContent.length} val=${child.textContent.trim().take(8000)}")
-            }
-          }
+          println("connected-failure-message: ${detail.textContent.trim().take(600)}")
         }
       }
     }
