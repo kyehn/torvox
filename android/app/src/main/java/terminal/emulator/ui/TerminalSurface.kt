@@ -1182,7 +1182,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val MENU_HEIGHT_DP = 44
         private const val HALF_PIXEL_OFFSET = 0.5f
 
-        private const val SWIPE_THRESHOLD_PIXELS = 500f
         private const val DEFAULT_ROWS = 24
         private const val DEFAULT_COLS = 80
         private const val DOUBLE_TAP_WINDOW_MS = 400L
@@ -1294,8 +1293,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
-    var onSwipeLeft: (() -> Unit)? = null
-    var onSwipeRight: (() -> Unit)? = null
     var onCopyRequested: ((text: String) -> Unit)? = null
     var onPasteRequested: (() -> Unit)? = null
     var onZoomChanged: ((fontSizeSp: Float) -> Unit)? = null
@@ -1801,12 +1798,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 val absX = kotlin.math.abs(velocityX)
                 val absY = kotlin.math.abs(velocityY)
 
-                if (absX > absY && absX > SWIPE_THRESHOLD_PIXELS) {
-                    if (velocityX > 0) {
-                        onSwipeRight?.invoke()
-                    } else {
-                        onSwipeLeft?.invoke()
-                    }
+                // 横向 fling 消费掉但不做任何事：DESIGN 只要求修饰键栏左右滑动，
+                // 终端内容区的横向甩动没有声明语义。此前它被映射成向运行中程序注入
+                // ESC / Tab（500px/s 的门槛极低），会在 vim/less 或半行命令中直接
+                // 破坏用户输入。
+                if (absX > absY) {
                     return true
                 }
 

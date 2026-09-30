@@ -561,9 +561,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── 终端查询（委托给 TerminalQueryPort 接缝） ──
-    override fun getTitle(): String? = queryPort.getTitle()
+    override fun getTitle(): String? = runCatchingCancellable { queryPort.getTitle() }.getOrNull()
 
-    override fun getActiveSessionTitle(): String = queryPort.getActiveSessionTitle()
+    override fun getActiveSessionTitle(): String =
+        runCatchingCancellable { queryPort.getActiveSessionTitle() }.getOrDefault("")
 
     // ── 选区 ──
     override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {

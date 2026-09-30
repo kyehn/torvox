@@ -135,6 +135,53 @@ fn search_all_finds_match() {
     assert_invariants(&snap);
 }
 
+/// 软换行的逻辑行只算一次，且命中按其真实所在的物理行与列返回：
+/// 逐物理行拼接会产生 N 份重复命中，并把续接段的命中记到行首那一行。
+#[test]
+fn search_reports_each_wrapped_line_once_with_physical_rows() {
+    const COLS: u32 = 10;
+    let mut terminal_under_test = GhosttyTerminal::new(5, COLS, 100).expect("terminal");
+    // 26 字符在 10 列网格上软换行为 3 个物理行：abcdefghij / klmnopqrst / uvwxyz
+    terminal_under_test.vt_write(b"abcdefghijklmnopqrstuvwxyz\r\n");
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.read_line_text(0).as_deref(),
+        Some("abcdefghij")
+    );
+    assert_eq!(
+        terminal_under_test.read_line_text(1).as_deref(),
+        Some("klmnopqrst")
+    );
+
+    assert_eq!(
+        terminal_under_test.search_all_in_scrollback("klmnopqrst", true),
+        vec![SearchMatch {
+            row: 1,
+            start_col: 0,
+            end_col: 10,
+        }],
+        "单个物理行内的命中不得按逻辑行重复上报"
+    );
+
+    // 跨软换行的命中按物理行拆成两段，列区间落在各自行内。
+    assert_eq!(
+        terminal_under_test.search_all_in_scrollback("ijklm", true),
+        vec![
+            SearchMatch {
+                row: 0,
+                start_col: 8,
+                end_col: 10,
+            },
+            SearchMatch {
+                row: 1,
+                start_col: 0,
+                end_col: 3,
+            },
+        ],
+        "跨软换行的命中必须按各物理行拆分"
+    );
+}
+
 #[test]
 fn search_all_empty_query() {
     let terminal_under_test = terminal();
@@ -1417,6 +1464,58 @@ fn scroll_viewport_delta_scrolls_cell_data() {
         bottom_again.contains("line 19"),
         "回到底部必须重新显示最后一行, got {bottom_again:?}"
     );
+}
+
+/// 视口滚动后，绝对网格行（0 = 回滚顶部，与 Kotlin 的
+/// `scrollbackLength - scrollOffset + row` 同口径）查询必须仍命中该行的内容。
+/// `dump_grid.visible` 直接取 `Point::Viewport`，即屏幕上真实显示的文本，
+/// 作为地面真值。
+#[test]
+fn absolute_row_text_survives_viewport_scroll() {
+    const ROWS: u32 = 5;
+    const SCROLL_OFFSET: u32 = 3;
+    let mut terminal_under_test = GhosttyTerminal::new(ROWS, 20, 100).expect("terminal");
+    // vt_write 不做 LF→CRLF 展开，必须自带 CR，否则光标只下移不回列。
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line{line_number}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    let scrollback = terminal_under_test.scrollback_length();
+    assert!(
+        scrollback > SCROLL_OFFSET,
+        "回滚须多于上滚量, got {scrollback}"
+    );
+    assert!(terminal_under_test.scroll_viewport(-(SCROLL_OFFSET as isize)));
+    terminal_under_test.flush();
+
+    let dumped = terminal_under_test.dump_grid();
+    assert_eq!(dumped.rows, ROWS);
+    let visible_line = |viewport_row: u32| -> String {
+        let start = (viewport_row * dumped.cols) as usize;
+        dumped.visible[start..start + dumped.cols as usize]
+            .iter()
+            .map(|cell| match char::from_u32(cell.codepoint) {
+                Some('\0') | None => ' ',
+                Some(character) => character,
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    };
+    assert_eq!(
+        visible_line(0),
+        format!("line{}", scrollback - SCROLL_OFFSET),
+        "上滚后视口首行应是回滚中的某一行"
+    );
+
+    for viewport_row in 0..ROWS {
+        let absolute_row = scrollback - SCROLL_OFFSET + viewport_row;
+        assert_eq!(
+            terminal_under_test.read_line_text(absolute_row).as_deref(),
+            Some(visible_line(viewport_row).as_str()),
+            "绝对行 {absolute_row}（视口第 {viewport_row} 行）在上滚 {SCROLL_OFFSET} 后读错行"
+        );
+    }
 }
 
 /// Scrollback browsing: the cursor must be reported in VIEWPORT

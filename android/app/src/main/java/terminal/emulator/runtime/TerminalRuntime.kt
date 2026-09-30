@@ -2280,19 +2280,6 @@ constructor(
                 java.util.Locale.getDefault().toLanguageTag(),
             )
 
-            try {
-                val initialFontFamily = settingsRepository.fontFamily.first()
-                val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
-                bridge.setFontFamily(effectiveFont)
-            } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e(
-                    "Runtime",
-                    "Failed to apply settings to new session (continuing with defaults)",
-                    exception,
-                )
-            }
-
             // 先 spawn（在锁外），使原生会话 ID 成为权威映射键。
             // 当 start()（较慢的引导路径，同样在其锁外 spawn）与 createSession 并发时，
             // Kotlin 的 max+1 序列与原生序列可能漂移；
@@ -2311,16 +2298,41 @@ constructor(
             bridge.prefetchRenderStateAsync(scope)
             nextId = spawnResult
 
-            // spawn 之后才应用主题：Bridge.setTheme 在 sessionId == 0 时为空操作，
-            // 在 spawnTerminal 之前调用会静默丢弃用户主题
-            // （原生会话将保留默认调色板）。与 start() 的顺序一致。
+            // spawn 之后才应用渲染设置：Bridge 的每项设置在 sessionId == 0 时都是空操作，
+            // spawnTerminal 之前调用会静默丢弃（用户主题被丢、渲染器停在默认调色板）。
+            // 原生渲染状态是进程级单例，而 start() 会在 surface 过小/无效时提前返回
+            // （见上方 bypassMinSurface 分支），此时 createSession 是首个建会话的入口；
+            // 不在此补齐整组设置，本进程余下所有会话都会用硬编码的默认字号、
+            // 默认光栅尺度渲染，且用户字体目录永不注册。
             bridge.setTheme(config.theme)
-            // 同样的 sessionId 门控也适用于系统区域设置：上方的 spawn 前 setSystemLocale
-            // 在 sessionId == 0 时被丢弃，使 CJK 回退顺序缺少 locale 增强。
-            // 此刻 spawn 已分配 ID，重新应用。
             bridge.setSystemLocale(
                 java.util.Locale.getDefault().toLanguageTag(),
             )
+            bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
+            try {
+                val effectiveFont =
+                    terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+                bridge.setFontFamily(effectiveFont)
+                bridge.setFontSizeInPlace(config.fontSizeTenths)
+                bridge.setRasterScale(
+                    (
+                        context.resources.displayMetrics.density *
+                            context.resources.configuration.fontScale
+                        ).coerceIn(0.5f, 4f),
+                )
+                appliedFontSizeTenths = config.fontSizeTenths
+                LogUtil.d(
+                    "Runtime",
+                    "createSession settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths}",
+                )
+            } catch (exception: Exception) {
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
+                LogUtil.e(
+                    "Runtime",
+                    "Failed to apply settings to new session (continuing with defaults)",
+                    exception,
+                )
+            }
 
             val entry: SessionEntry
             val abandonedByStart: Boolean
@@ -2805,13 +2817,8 @@ constructor(
         val config = buildConfig()
         val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
-        // buildConfig() 默认 24x80；任何设置变更都用它 resize 所有会话
-        // 会缩小存活的 PTY（vim/htop 会收到多余的 SIGWINCH 并重排）。
-        // 改为保持各会话当前的网格尺寸。
-        // 下限取 1 而非 24：输入法打开时可见网格确实可能更小，
-        // 把它撑大会触发多余的 SIGWINCH 与 shell 重排。
-        val currentRows = _state.value.rows.coerceAtLeast(1)
-        val currentCols = _state.value.cols.coerceAtLeast(1)
+        // 只换字体/字号/主题，不 resize 各会话网格：buildConfig() 的默认 24x80 会
+        // 缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
         sessions.values.forEach { entry ->
             entry.bridge?.setFontSizeInPlace(config.fontSizeTenths)
             entry.bridge?.setFontFamily(effectiveFontFamily)
