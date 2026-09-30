@@ -2141,9 +2141,14 @@ impl super::GhosttyTerminal {
     /// 不再用「上一行长度是否等于列宽」猜测（被 trim 过的行尾空格会判错）。
     /// 网格引用无法表达该行时返回 None，调用方跳过而非猜测。
     fn row_wrap_flags(terminal: &Terminal, row: u32) -> Option<(bool, bool)> {
-        let grid_ref = terminal.grid_ref(Self::absolute_point(terminal, row, 0)).ok()?;
+        let grid_ref = terminal
+            .grid_ref(Self::absolute_point(terminal, row, 0))
+            .ok()?;
         let row_ref = grid_ref.row().ok()?;
-        Some((row_ref.is_wrapped().ok()?, row_ref.is_wrap_continuation().ok()?))
+        Some((
+            row_ref.is_wrapped().ok()?,
+            row_ref.is_wrap_continuation().ok()?,
+        ))
     }
 
     pub(crate) fn search_in_scrollback_all_impl(
@@ -2194,9 +2199,7 @@ impl super::GhosttyTerminal {
                 }
                 physical_row += 1;
             }
-            for (match_start, match_end) in
-                Self::search_line_columns(&logical_text, &pattern)
-            {
+            for (match_start, match_end) in Self::search_line_columns(&logical_text, &pattern) {
                 // 命中跨物理行时按段拆分，逐段给出该行内的列区间：
                 // 高亮必须落在真实所在行，且列号不得越过网格宽度。
                 for (segment_row, segment_start, segment_len) in &segments {
