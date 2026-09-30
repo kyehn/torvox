@@ -423,7 +423,10 @@ impl super::GhosttyTerminal {
     ) -> bool {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.query_tx.try_send(Query::ModeGet(mode_num, kind, tx)) {
+            // 发送失败即无人会应答：继续 recv 只会白等满整个 timeout，
+            // 而调用方普遍持有会话锁，故立即返回（与 query() 同策略）。
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            return false;
         }
         match rx.recv_timeout(timeout) {
             Ok(mode) => mode,
