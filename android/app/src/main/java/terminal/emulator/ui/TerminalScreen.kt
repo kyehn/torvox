@@ -327,6 +327,12 @@ fun TerminalScreen(
             // 合并的文本搜索状态
             var searchState by remember { mutableStateOf(SearchState()) }
 
+            // 视口滚动偏移的 Compose 可观察镜像：搜索高亮按绝对行→视口行换算绘制，
+            // 换算依赖滚动偏移。直接读 Surface 的普通方法拿不到重组通知，滚动后
+            // 高亮会整体停在旧行；此处由所有改变可见偏移的路径（手势、程序化滚动、
+            // 会话切换与输出引起的贴底复位）同步。
+            val viewportScrollOffset = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
                 searchState = SearchState()
@@ -335,6 +341,7 @@ fun TerminalScreen(
                 // 切换时它必须跟随会话自身的偏移，
                 // 否则切换后的首个手势会算出错误的网格行。
                 surfaceRef.value?.resetScrollOffset()
+                viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
             }
 
             // 程序化滚动复位（由输入驱动的贴底）：重同步 Surface 的私有偏移，
@@ -342,6 +349,7 @@ fun TerminalScreen(
             LaunchedEffect(state.scrollEpoch) {
                 if (state.scrollEpoch > 0L) {
                     surfaceRef.value?.resetScrollOffset()
+                    viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
                 }
             }
 
@@ -546,6 +554,7 @@ fun TerminalScreen(
                                     surfaceRef.value = surface
                                     surface.attachViewModel(viewModel)
                                     surface.onScrollChanged = { offset ->
+                                        viewportScrollOffset.intValue = offset
                                         viewModel.runtime.setScrollOffset(offset)
                                     }
                                     surface.onScrollingStateChanged = { isScrolling ->
@@ -554,12 +563,6 @@ fun TerminalScreen(
                                 }
                                 .apply {
                                     setDimensions(runtimeState.rows, runtimeState.cols)
-                                    onSwipeLeft = {
-                                        viewModel.writeToPty("\u001b".toByteArray())
-                                    }
-                                    onSwipeRight = {
-                                        viewModel.writeToPty("\t".toByteArray())
-                                    }
                                     onCopyRequested = { text ->
                                         scope.launch {
                                             snackbarHostState.currentSnackbarData?.dismiss()
@@ -721,9 +724,8 @@ fun TerminalScreen(
                         searchState.resultCount,
                         searchState.currentIndex,
                         searchState.results,
-                        surfaceRef.value?.let {
-                            Triple(it.getRows(), it.getMaxScrollOffset(), it.getScrollOffset())
-                        },
+                        viewportScrollOffset.intValue,
+                        surfaceRef.value?.getMaxScrollOffset(),
                         resolvedTerminalTheme.foreground,
                         resolvedTerminalTheme.selectionBackground,
                     ) {
@@ -732,7 +734,7 @@ fun TerminalScreen(
                             if (surface != null) {
                                 val rows = surface.getRows()
                                 val scrollbackCount = surface.getMaxScrollOffset()
-                                val scrollOffset = surface.getScrollOffset()
+                                val scrollOffset = viewportScrollOffset.intValue
                                 val themeForeground = resolvedTerminalTheme.foreground
                                 val themeSelectionBackground = resolvedTerminalTheme.selectionBackground
 
