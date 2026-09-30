@@ -241,6 +241,14 @@ class BehaviorInstrumentedTest {
         val modifierBarReady =
             device.wait(Until.hasObject(By.text("ESC")), WAIT_TIMEOUT)
         assertTrue("Modifier bar should load with ESC key", modifierBarReady)
+        // 单用例运行时无前序污染：CTRL 必须在 ESC 就绪后短时间内出现，
+        // 否则说明键栏组合/渲染有问题，直接失败而非逐级返回掩盖。
+        val ctrlDeadline = System.currentTimeMillis() + 15_000
+        while (device.findObject(By.text("CTRL")) == null &&
+            System.currentTimeMillis() < ctrlDeadline
+        ) {
+            Thread.sleep(500)
+        }
         val esc = device.findObject(By.text("ESC"))
         val ctrl = device.findObject(By.text("CTRL"))
         val alt = device.findObject(By.text("ALT"))
