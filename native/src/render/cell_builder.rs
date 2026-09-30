@@ -548,7 +548,7 @@ fn warm_frame_glyphs(
         let _ = font_pipeline.glyph_information('0');
     }
     for cd in cell_data {
-        let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
+        let ch = char::from_u32(cd.codepoint).unwrap_or('�');
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
             continue;
         }
@@ -627,7 +627,7 @@ fn append_row_instances(
             "cell_builder: invalid codepoint: {}",
             cd.codepoint
         );
-        let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
+        let ch = char::from_u32(cd.codepoint).unwrap_or('�');
         let cell_span = cd.width.max(1) as f32;
         let quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         let mut foreground = cd.foreground;
