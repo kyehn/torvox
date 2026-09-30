@@ -242,13 +242,16 @@ class BehaviorInstrumentedTest {
             device.wait(Until.hasObject(By.text("ESC")), WAIT_TIMEOUT)
         assertTrue("Modifier bar should load with ESC key", modifierBarReady)
         val esc = device.findObject(By.text("ESC"))
+        assertTrue("ESC should be visible", esc != null)
         val ctrl = device.findObject(By.text("CTRL"))
         val alt = device.findObject(By.text("ALT"))
         val home = device.findObject(By.text("HOME"))
-        assertTrue("ESC should be visible", esc != null)
-        assertTrue("CTRL should be visible", ctrl != null)
-        assertTrue("ALT should be visible", alt != null)
-        assertTrue("HOME should be visible", home != null)
+        if (ctrl == null || alt == null || home == null) {
+            throw AssertionError(
+                "修饰键栏可见但 CTRL/ALT/HOME 缺失（ctrl=${ctrl != null} alt=${alt != null} home=${home != null}）：" +
+                    "疑似脏会话（热启动卡旧状态）。若仅分支 CI 复现、本地干净启动通过，即为此根因",
+            )
+        }
     }
 
     @Test
