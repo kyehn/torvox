@@ -661,7 +661,10 @@ impl Session {
 ///
 /// 初次超时后以 100ms 截止再尝试 3 次，以应对线程阻塞在需要多个信号才能唤醒的 I/O 上。
 /// 全部失败则分离（丢弃句柄）并记错误——该线程的资源（fd、内存）会泄漏。
-fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: Duration) {
+pub(crate) fn join_with_timeout(
+    handle: &mut Option<std::thread::JoinHandle<()>>,
+    timeout: Duration,
+) {
     let Some(handle) = handle.take() else {
         return;
     };
