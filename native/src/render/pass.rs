@@ -101,6 +101,34 @@ impl Renderer {
         self.queue.present(output);
     }
 
+    /// surface 失效时重配（Lost/Outdated 的统一恢复）。
+    fn reconfigure_surface(
+        surface: &wgpu::Surface<'static>,
+        surface_config: &Option<wgpu::SurfaceConfiguration>,
+        device: &wgpu::Device,
+    ) {
+        if let Some(config) = surface_config {
+            surface.configure(device, config);
+        }
+    }
+
+    /// 就地取纹理：成功/次优返回纹理，失效则重配后返回空。
+    fn texture_or_reconfigure(
+        surface: &wgpu::Surface<'static>,
+        surface_config: &Option<wgpu::SurfaceConfiguration>,
+        device: &wgpu::Device,
+    ) -> Option<wgpu::SurfaceTexture> {
+        match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(tex)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
+                Self::reconfigure_surface(surface, surface_config, device);
+                None
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn acquire_texture(
         &self,
         surface: &std::sync::Arc<wgpu::Surface<'static>>,
@@ -127,17 +155,7 @@ impl Renderer {
             // 工作线程通道满或已死（catch_unwind 内 panic）：就地取纹理，
             // 渲染线程绝不阻塞。
             log::warn!("acquire_texture: worker {e:?}, acquiring inline");
-            return match surface.get_current_texture() {
-                wgpu::CurrentSurfaceTexture::Success(tex)
-                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
-                wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                    if let Some(config) = &self.surface_config {
-                        surface.configure(&self.device, config);
-                    }
-                    None
-                }
-                _ => None,
-            };
+            return Self::texture_or_reconfigure(surface, &self.surface_config, &self.device);
         }
 
         match response_receiver.recv_timeout(ACQUIRE_TIMEOUT) {
@@ -145,9 +163,7 @@ impl Renderer {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
                 wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                    if let Some(config) = &self.surface_config {
-                        surface.configure(&self.device, config);
-                    }
+                    Self::reconfigure_surface(surface, &self.surface_config, &self.device);
                     None
                 }
                 _ => None,
