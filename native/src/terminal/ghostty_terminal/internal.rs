@@ -421,7 +421,7 @@ impl super::GhosttyTerminal {
         selection_installed
     }
 
-    /// 排空查询通道，使查询看到最新终端状态。返回真表示最后一条查询安装了选区，
+    /// 排空查询通道，使查询看到最新终端状态。返回真表示本批中有查询安装了选区，
     /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
     pub(crate) fn drain_queries(
         query_receiver: &flume::Receiver<Query>,
@@ -434,7 +434,9 @@ impl super::GhosttyTerminal {
     ) -> bool {
         let mut selection_installed = false;
         while let Ok(query) = query_receiver.try_recv() {
-            selection_installed = Self::process_query(
+            // 累积而非覆盖：同批中选区安装查询之后若跟着普通查询（如 SelectionText），
+            // 普通查询返回 false 会抹掉安装信号，导致行缓存不失效、反白帧不重推。
+            selection_installed |= Self::process_query(
                 query,
                 terminal,
                 alt_screen_active,

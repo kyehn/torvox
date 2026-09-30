@@ -32,7 +32,7 @@ enum ReaderErrorAction {
 /// 把 `read(2)` 错误归类为重试/停止决策。纯函数，使读取循环分支无需真实 PTY 即可测试。
 fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
     match raw_os_error {
-        Some(libc::EINTR) => ReaderErrorAction::Retry,
+        Some(code) if code == libc::EINTR || code == libc::EAGAIN => ReaderErrorAction::Retry,
         _ => ReaderErrorAction::Stop,
     }
 }
@@ -246,6 +246,9 @@ impl Session {
                     std::cmp::Ordering::Greater => {}
                     std::cmp::Ordering::Equal => continue,
                     std::cmp::Ordering::Less => {
+                        if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                            continue;
+                        }
                         log::info!("reader thread: poll error: {poll_result}");
                         exited_read.store(true, Ordering::Release);
                         break;
@@ -1051,9 +1054,13 @@ mod tests {
 
     #[test]
     fn read_error_action_classifies_errno() {
-        // EINTR 是瞬时错误，必须保持读取循环存活。
+        // EINTR/EAGAIN 是瞬时错误，必须保持读取循环存活。
         assert_eq!(
             read_error_action(Some(libc::EINTR)),
+            ReaderErrorAction::Retry
+        );
+        assert_eq!(
+            read_error_action(Some(libc::EAGAIN)),
             ReaderErrorAction::Retry
         );
         // EIO 表示 PTY 从端已关闭（Linux PTY 上的 EOF）——停止。
