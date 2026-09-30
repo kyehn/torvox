@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -439,7 +440,12 @@ fun TerminalScreen(
                 if (surfaceView == null) return@DisposableEffect onDispose {}
                 val listener =
                     androidx.core.view.OnApplyWindowInsetsListener { _, insets ->
-                        val bottom = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                        // 与 WindowImeBottomPx 同一口径：扣除手势导航条高度
+                        // （`navigationBarsPadding` 已在根 Box 消费它）。
+                        val rawBottom = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                        val navigationBottom =
+                            insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+                        val bottom = max(rawBottom - navigationBottom, 0)
                         imeBottomPx.intValue = bottom
                         surfaceView.post {
                             barPanPx.intValue = bottom
@@ -897,12 +903,18 @@ fun TerminalScreen(
  * IME insets 叶节点观察器（T2 ime-omp）：键盘动画期间 insets 逐帧变化只重组本节点——
  * 读取发生在 composition，写入 [onChanged] 的状态后，终端区/修饰键栏位移经布局期
  * offset lambda 应用，主组合（Column/ModifierBar/搜索层）不随之逐帧重组。
+ *
+ * 后备扣除：`WindowInsets.ime` 在手势导航下包含底部系统导航条高度
+ * （本机实测 126px），`navigationBarsPadding` 已在根 Box 消费同一高度。
+ * 不扣除会导致位移恒大 126px（约 3 行）：内容较少时终端被顶起约 3 行
+ * （与“光标可见时终端不上抬”条款冲突），内容较多时底部约 3 行被键盘遮挡。
  */
 @Composable
 private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
-    SideEffect { onChanged(imeBottom) }
+    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
+    SideEffect { onChanged(max(imeBottom - navigationBottom, 0)) }
 }
 
 @VisibleForTesting
