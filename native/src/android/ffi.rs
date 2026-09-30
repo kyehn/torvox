@@ -337,6 +337,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
 
 // JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge` 声明
 // 决定，而非设计选择。参数个数由 ABI 固定，不可能在不配套修改 Kotlin 的情况下减少。
+/// 读取 initSession 的 JNI 字符串参数，失败时抛 Java 异常并返回 None。
+fn read_jni_string(env: &mut Env, value: &JString, name: &str) -> Option<String> {
+    match value.try_to_string(env) {
+        Ok(text) => Some(text),
+        Err(_) => {
+            let _ = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                JNIString::from(format!("initSession: failed to read {name}")),
+            );
+            None
+        }
+    }
+}
+
 fn init_session_inner(
     env: &mut Env,
     _class: JClass,
@@ -389,31 +403,19 @@ fn init_session_inner(
 
     // 读取 Kotlin 侧从 bootstrap 解析出的环境（home / 工作目录 / prefix / mkshrc 路径）。
     // 空串表示“未知”，回退到进程环境。
-    let read_env_string = |env: &mut Env, value: &JString, name: &str| -> Option<String> {
-        match value.try_to_string(env) {
-            Ok(text) => Some(text),
-            Err(_) => {
-                let _ = env.throw_new(
-                    jni_str!("java/lang/RuntimeException"),
-                    JNIString::from(format!("initSession: failed to read {name}")),
-                );
-                None
-            }
-        }
-    };
-    let home = match read_env_string(env, &home, "home") {
+    let home = match read_jni_string(env, &home, "home") {
         Some(value) => value,
         None => return 0,
     };
-    let working_directory = match read_env_string(env, &working_directory, "workingDirectory") {
+    let working_directory = match read_jni_string(env, &working_directory, "workingDirectory") {
         Some(value) => value,
         None => return 0,
     };
-    let prefix = match read_env_string(env, &prefix, "prefix") {
+    let prefix = match read_jni_string(env, &prefix, "prefix") {
         Some(value) => value,
         None => return 0,
     };
-    let mkshrc_path = match read_env_string(env, &mkshrc_path, "mkshrcPath") {
+    let mkshrc_path = match read_jni_string(env, &mkshrc_path, "mkshrcPath") {
         Some(value) => value,
         None => return 0,
     };
