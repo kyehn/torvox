@@ -115,8 +115,18 @@ class BootstrapInstaller(
             }
         }
         // EXECUTABLES.txt 中的可执行文件需要 +x 权限——归档内的
-        // EXECUTABLES.txt 是权威清单。
+        // EXECUTABLES.txt 是权威清单。路径校验与归档条目名同一规则，
+        // 恶意条目不得逃出 staging 目录。
         for (executable in executables) {
+            val normalizedExecutable = File(executable).path
+            if (
+                executable.startsWith("/") ||
+                normalizedExecutable == ".." ||
+                normalizedExecutable.startsWith("../") ||
+                normalizedExecutable.contains("/../")
+            ) {
+                throw java.io.IOException("Unsafe executable path: $executable")
+            }
             try {
                 Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
             } catch (exception: Exception) {
