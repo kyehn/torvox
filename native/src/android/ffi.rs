@@ -2570,6 +2570,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
     })
 }
 
+/// 搜索高亮线格式：匹配数前缀字节数（i32 LE）。
+const SEARCH_HIGHLIGHT_COUNT_BYTES: usize = 4;
+/// 搜索高亮线格式：单条记录字节数（row/start/end 各 i32 + RGBA）。
+const SEARCH_HIGHLIGHT_RECORD_BYTES: usize = 16;
+
 /// 设置搜索高亮区间。`data` 按字节打包：先是 4 字节的匹配数（i32 LE，权威长度），
 /// 随后是同样数量的 16 字节记录：row(i32) start(i32) end(i32) RGBA(u8x4)。
 /// Kotlin 的 `TerminalSurface` 按此格式打包并调用
@@ -2593,22 +2598,25 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSear
             return Ok(());
         };
         // 线格式（对应 Kotlin `TerminalScreen` 的搜索结果打包）：
-        //   [0..4]   匹配数 (i32 LE)——该计数前缀**就是**权威长度；尾部残留字节
-        //            （最后一条不完整的 16 字节记录）防御性地忽略。
-        //   [4..]    16 字节记录：row(i32) start(i32) end(i32) RGBA(u8x4)
-        let Some(prefix) = bytes.get(0..4) else {
+        //   [0..COUNT]   匹配数 (i32 LE)——该计数前缀**就是**权威长度；尾部残留字节
+        //                （最后一条不完整的记录）防御性地忽略。
+        //   [COUNT..]    定长记录：row(i32) start(i32) end(i32) RGBA(u8x4)
+        let Some(prefix) = bytes.get(0..SEARCH_HIGHLIGHT_COUNT_BYTES) else {
             return Ok(());
         };
         let count =
             i32::from_le_bytes([prefix[0], prefix[1], prefix[2], prefix[3]]).max(0) as usize;
         // 把声称的匹配数封顶为实际存在的完整记录数：损坏/巨大的计数不得导致
         // 无界的 `Vec::with_capacity` 分配。
-        let count = count.min(bytes.len().saturating_sub(4) / 16);
+        let count = count.min(
+            bytes.len().saturating_sub(SEARCH_HIGHLIGHT_COUNT_BYTES)
+                / SEARCH_HIGHLIGHT_RECORD_BYTES,
+        );
         let mut highlights = Vec::with_capacity(count);
-        let payload = &bytes[4..];
+        let payload = &bytes[SEARCH_HIGHLIGHT_COUNT_BYTES..];
         let mut offset = 0;
         for _ in 0..count {
-            if offset + 16 > payload.len() {
+            if offset + SEARCH_HIGHLIGHT_RECORD_BYTES > payload.len() {
                 break;
             }
             let row = i32::from_le_bytes(
@@ -2638,7 +2646,7 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSear
                 end_col_exclusive,
                 color,
             });
-            offset += 16;
+            offset += SEARCH_HIGHLIGHT_RECORD_BYTES;
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
