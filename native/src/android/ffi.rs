@@ -1183,6 +1183,11 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         if let Some(session) = session {
             std::thread::spawn(move || {
                 let text = wait_for_clipboard_answer(rx);
+                // 应答线程是槽位的唯一所有者：无论宿主是否作答（事件被队列淘汰、
+                // UI 未处理、答复晚于截止时间），槽位至多存活 CLIPBOARD_ANSWER_TIMEOUT。
+                // 否则远端反复 `\e]52;c;?` 会让本表无界增长。
+                // 迟到的 clipboardResult 在此之后到达即为无操作（见 clipboard_result_inner）。
+                cancel_request(session_id, request_id);
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, &text) {
                     log::warn!("osc52: clipboard read answer write-back failed: {error}");
