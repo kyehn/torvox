@@ -1230,8 +1230,12 @@ impl super::GhosttyTerminal {
             if unchanged {
                 return;
             }
-            *last_push = Some(data.clone());
-            let _ = tx.try_send(data);
+            // 去重基线只在帧真正入队后推进：通道满时本帧被丢弃，若同时推进基线，
+            // 下一帧同一内容会命中 unchanged 而不再补发，屏幕将永久停留在旧帧。
+            match tx.try_send((data.0.clone(), data.1)) {
+                Ok(()) => *last_push = Some(data),
+                Err(error) => log::warn!("ghostty_terminal: cell frame dropped: {error}"),
+            }
         }
     }
 }
