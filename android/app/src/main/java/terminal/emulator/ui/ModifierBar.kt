@@ -154,6 +154,9 @@ private const val PRESS_SCALE_SPRING_DAMPING = 0.55f
 private const val PRESS_SCALE_SPRING_STIFFNESS = 5000f
 private const val SECONDARY_FONT_SIZE_SP = 8
 
+// 按下态的灰色遮罩（无主题色时的中性反馈）。
+private val PRESSED_SCRIM = Color(0xFF7F7F7F)
+
 /** 横向分页：第 0 页按键，第 1 页文本输入。 */
 private const val TEXT_INPUT_PAGE_INDEX = 1
 private const val KEY_PAGE_COUNT = TEXT_INPUT_PAGE_INDEX + 1
@@ -575,13 +578,12 @@ private fun RowScope.ExtraKeyButton(
             label = "btnScale",
         )
 
-    val pressedColor = Color(0xFF7F7F7F)
     val targetBg =
         when {
             isLocked -> MaterialTheme.colorScheme.primary
             isOnce -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
             isActive -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-            isPressed -> pressedColor
+            isPressed -> PRESSED_SCRIM
             else -> Color.Transparent
         }
     val animatedBg by
