@@ -419,16 +419,24 @@ fun TerminalScreen(
                 }
             }
 
-            // IME 跟随：单一位移不重排（双位移差拍是内容重叠/闪烁/键栏半透明的根因）。
-            // 终端列与键栏同为一列内联行，整体按键盘高度平移，差拍物理消失。
-            // Surface 尺寸永不变化，不触发交换链重建与网格重排；
-            // insets 逐帧值只在 WindowImeBottomPx 叶节点读取并写入状态，
+            // IME 跟随：纯平移不重排（修复闪烁与底部行遮挡）。动画与定居均用 placement 阶段 offset，
+            // Surface 尺寸永不变化，不触发交换链重建与网格重排；定居态用 settled 值避免每帧抖动。
+            // 终端区按光标最小平移（稀疏会话不再整体上抬播黑屏），修饰键栏仍整体跟随到键盘上方。
+            // 性能结构（T2 ime-omp）：insets 逐帧值只在 WindowImeBottomPx 叶节点读取并写入状态，
             // 位移经 snapshotFlow 收集器 + 布局期 offset lambda 应用——动画期间主组合不逐帧重组。
             val imeBottomPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             WindowImeBottomPx { imeBottomPx.intValue = it }
             val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            // 单一位移：整列（含键栏行）整体跟随键盘高度，动画期间为 live 值，定居后为 settled 值。
+            var heldTerminalPanPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            // 修饰键栏位移：动画期间逐帧跟随 live 值（与键盘同步），定居后锁定 settled 值。
             val barPanPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            // 与网格同一预留（runtime.modifierBarHeightPx）：平移与行数严格一致，
+            // 光标行恰好停在键栏上方，不多不少。
+            val reservedBarPx = viewModel.runtime.modifierBarHeightPx
+            // 仅键盘打开时订阅光标行：关闭时不为此重组。
+            var followedCursorRow by remember {
+                androidx.compose.runtime.mutableIntStateOf(Bridge.CURSOR_ROW_UNKNOWN)
+            }
             // 第二路输入：Compose 的 insets 订阅在部分环境/时序下收不到更新
             // （键盘已弹但叶节点永不重组），而视图系统的 dispatch 可靠到达
             // SurfaceView（`imeHeightPx` 同源）。监听只读不消费（原样返回
@@ -447,7 +455,18 @@ fun TerminalScreen(
                             insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
                         val bottom = max(rawBottom - navigationBottom, 0)
                         imeBottomPx.intValue = bottom
-                        surfaceView.post { barPanPx.intValue = bottom }
+                        surfaceView.post {
+                            barPanPx.intValue = bottom
+                            val cursorRow = viewModel.runtime.cursorRowFlow.value
+                            computeTerminalPanPx(
+                                cursorRow = cursorRow,
+                                cellHeightPx = viewModel.runtime.cellHeight,
+                                boxHeightPx = terminalBoxSize.height,
+                                imePx = bottom,
+                                barPx = reservedBarPx,
+                            )?.let { heldTerminalPanPx = it }
+                            if (bottom <= 0) heldTerminalPanPx = 0
+                        }
                         insets
                     }
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
@@ -455,15 +474,27 @@ fun TerminalScreen(
                     androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
                 }
             }
+            LaunchedEffect(Unit) {
+                snapshotFlow { imeBottomPx.intValue > 0 || settledImePx.intValue > 0 }
+                    .distinctUntilChanged()
+                    .collectLatest { imeOpen ->
+                        if (!imeOpen) {
+                            followedCursorRow = Bridge.CURSOR_ROW_UNKNOWN
+                            return@collectLatest
+                        }
+                        viewModel.runtime.cursorRowFlow.collect { followedCursorRow = it }
+                    }
+            }
             // 定居节流：键盘动画逐帧更新 imeBottomPx；值停止变化 IME_SETTLE_FRAMES×轮询间隔后
-            // 锁定 settled 值。单一位移每帧立即跟随 live 值，不被定居延迟阻塞，
-            // 否则动画期间冻结、定居后跳变（违反逐帧跟随）。
+            // 锁定 settled 值（等价于旧 LaunchedEffect(rawImeBottomPx) 的取消/重启语义）。
+            // 修饰键栏 live 跟随必须先行：每帧立即写入 barPanPx，不被定居延迟阻塞，
+            // 否则动画期间键栏冻结、定居后跳变（违反逐帧跟随）。
             LaunchedEffect(Unit) {
                 snapshotFlow { imeBottomPx.intValue }
                     .distinctUntilChanged()
                     .collectLatest { imeBottom ->
                         // 每个 insets 帧都跟随（弹出/隐藏动画期间为 live 值，
-                        // 值稳定后与 settled 一致）：整列与键盘同步移动。
+                        // 值稳定后与 settled 一致）：修饰键栏与键盘同步移动。
                         barPanPx.intValue = imeBottom
                         if (imeBottom != settledImePx.intValue) {
                             delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
@@ -472,17 +503,47 @@ fun TerminalScreen(
                         }
                     }
             }
+            // 光标最小平移：只把被键盘挡住的光标行抬到可见区；光标隐藏
+            // （上滑浏览历史）时保持上次位置，不抢夺视图。动画期间 barPanPx=live 值，
+            // 定居后=settled 值——位移只重排布局，不重组合成。
+            LaunchedEffect(Unit) {
+                snapshotFlow {
+                    listOf(
+                        followedCursorRow,
+                        barPanPx.intValue,
+                        terminalBoxSize.height,
+                        reservedBarPx,
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collect { panInputs ->
+                        val cursorRow = panInputs[0]
+                        val barPx = panInputs[1]
+                        val boxHeightPx = panInputs[2]
+                        val barReservedPx = panInputs[3]
+                        val cellHeightPx = viewModel.runtime.cellHeight
+                        computeTerminalPanPx(
+                            cursorRow = cursorRow,
+                            cellHeightPx = cellHeightPx,
+                            boxHeightPx = boxHeightPx,
+                            imePx = barPx,
+                            barPx = barReservedPx,
+                        )?.let { heldTerminalPanPx = it }
+                        if (barPx <= 0) heldTerminalPanPx = 0
+                    }
+            }
 
-            // 单列整体跟随：终端区与键栏同为一列内联行，同位移无差拍；尺寸恒定，网格不收缩。
+            // v5: 全程 placement 阶段 offset（无重测）。终端区用光标最小平移，
+            // 修饰键栏用整体跟随；尺寸恒定，网格不收缩。
             Column(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
-                    .offset { IntOffset(0, -barPanPx.intValue) },
+                    .offset { IntOffset(0, -heldTerminalPanPx) },
             ) {
-                // 终端内容区——随整列上移到输入法之上
+                // 终端内容区——经动画 padding 上移到输入法之上
                 Box(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.fillMaxWidth().weight(1f).onSizeChanged { terminalBoxSize = it },
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -729,15 +790,16 @@ fun TerminalScreen(
                     }
                 }
 
-                // Column 结束——终端与键栏同列整体位移，单一位移无差拍。
+                // Column 结束——终端与工具栏均位于输入法之上
             } // 关闭 Column
 
-            // 键栏行：列内末行，与终端同位移；高度恒为网格预留，行数不变。
-            // 键栏行在列内，整列位移已把它送到键盘上方：此处不再另设跟随层。
+            // 底部栏随动：整体跟随到键盘上方（与终端区的光标最小平移不同策略），避免重测与交换链重建。
             Box(
                 modifier =
                 Modifier.fillMaxWidth()
+                    .align(Alignment.BottomCenter)
                     .background(resolvedTerminalTheme.background)
+                    .offset { IntOffset(0, -barPanPx.intValue) }
                     .testTag("ModifierBarOverlay"),
             ) {
                 // 底部栏——位于终端之下、输入法之上
