@@ -39,16 +39,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -60,7 +57,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.bridge.Bridge
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
@@ -119,7 +115,6 @@ fun TerminalScreen(
     // 终端内容 Box 的高度（下方的上下文菜单按相对此 Box 的偏移定位
     // ——菜单必须按 BOX 高度而非全屏高度放置，
     // 否则「全选」选区（selBottom == box 高度）会把菜单推到工具栏之下的屏幕外）。
-    var terminalBoxSize by remember { mutableStateOf(IntSize(0, 0)) }
     val viewModelThemeMode = settings.themeMode
     val viewModelThemeName = settings.themeName
     val viewModelDayThemeName = settings.dayThemeName
@@ -456,7 +451,7 @@ fun TerminalScreen(
                 }
             }
             // 定居节流：键盘动画逐帧更新 imeBottomPx；值停止变化 IME_SETTLE_FRAMES×轮询间隔后
-            // 锁定 settled 值（等价于旧 LaunchedEffect(rawImeBottomPx) 的取消/重启语义）。
+            // 锁定 settled 值。单一位移每帧立即跟随 live 值，不被定居延迟阻塞，
             // 修饰键栏 live 跟随必须先行：每帧立即写入 barPanPx，不被定居延迟阻塞，
             // 否则动画期间键栏冻结、定居后跳变（违反逐帧跟随）。
             LaunchedEffect(Unit) {
@@ -464,7 +459,7 @@ fun TerminalScreen(
                     .distinctUntilChanged()
                     .collectLatest { imeBottom ->
                         // 每个 insets 帧都跟随（弹出/隐藏动画期间为 live 值，
-                        // 值稳定后与 settled 一致）：修饰键栏与键盘同步移动。
+                        // 值稳定后与 settled 一致）：整列与键盘同步移动。
                         barPanPx.intValue = imeBottom
                         if (imeBottom != settledImePx.intValue) {
                             delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
@@ -473,47 +468,16 @@ fun TerminalScreen(
                         }
                     }
             }
-            // 光标最小平移：只把被键盘挡住的光标行抬到可见区；光标隐藏
-            // （上滑浏览历史）时保持上次位置，不抢夺视图。动画期间 barPanPx=live 值，
-            // 定居后=settled 值——位移只重排布局，不重组合成。
-            LaunchedEffect(Unit) {
-                snapshotFlow {
-                    listOf(
-                        followedCursorRow,
-                        barPanPx.intValue,
-                        terminalBoxSize.height,
-                        reservedBarPx,
-                    )
-                }
-                    .distinctUntilChanged()
-                    .collect { panInputs ->
-                        val cursorRow = panInputs[0]
-                        val barPx = panInputs[1]
-                        val boxHeightPx = panInputs[2]
-                        val barReservedPx = panInputs[3]
-                        val cellHeightPx = viewModel.runtime.cellHeight
-                        computeTerminalPanPx(
-                            cursorRow = cursorRow,
-                            cellHeightPx = cellHeightPx,
-                            boxHeightPx = boxHeightPx,
-                            imePx = barPx,
-                            barPx = barReservedPx,
-                        )?.let { heldTerminalPanPx = it }
-                        if (barPx <= 0) heldTerminalPanPx = 0
-                    }
-            }
-
-            // v5: 全程 placement 阶段 offset（无重测）。终端区用光标最小平移，
-            // 修饰键栏用整体跟随；尺寸恒定，网格不收缩。
+            // 单列整体跟随：终端区与键栏同为一列内联行，同位移无差拍；尺寸恒定，网格不收缩。
             Column(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
-                    .offset { IntOffset(0, -heldTerminalPanPx) },
+                    .offset { IntOffset(0, -barPanPx.intValue) },
             ) {
-                // 终端内容区——经动画 padding 上移到输入法之上
+                // 终端内容区——随整列上移到输入法之上
                 Box(
-                    modifier = Modifier.fillMaxWidth().weight(1f).onSizeChanged { terminalBoxSize = it },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -760,16 +724,15 @@ fun TerminalScreen(
                     }
                 }
 
-                // Column 结束——终端与工具栏均位于输入法之上
+                // Column 结束——终端与键栏同列整体位移，单一位移无差拍。
             } // 关闭 Column
 
-            // 底部栏随动：整体跟随到键盘上方（与终端区的光标最小平移不同策略），避免重测与交换链重建。
+            // 键栏行：列内末行，与终端同位移；高度恒为网格预留，行数不变。
+            // 键栏行在列内，整列位移已把它送到键盘上方：此处不再另设跟随层。
             Box(
                 modifier =
                 Modifier.fillMaxWidth()
-                    .align(Alignment.BottomCenter)
                     .background(resolvedTerminalTheme.background)
-                    .offset { IntOffset(0, -barPanPx.intValue) }
                     .testTag("ModifierBarOverlay"),
             ) {
                 // 底部栏——位于终端之下、输入法之上
@@ -871,37 +834,3 @@ fun TerminalScreen(
     }
 }
 
-/**
- * IME insets 叶节点观察器（T2 ime-omp）：键盘动画期间 insets 逐帧变化只重组本节点——
- * 读取发生在 composition，写入 [onChanged] 的状态后，终端区/修饰键栏位移经布局期
- * offset lambda 应用，主组合（Column/ModifierBar/搜索层）不随之逐帧重组。
- *
- * 后备扣除：`WindowInsets.ime` 在手势导航下包含底部系统导航条高度
- * （本机实测 126px），`navigationBarsPadding` 已在根 Box 消费同一高度。
- * 不扣除会导致位移恒大 126px（约 3 行）：内容较少时终端被顶起约 3 行
- * （与“光标可见时终端不上抬”条款冲突），内容较多时底部约 3 行被键盘遮挡。
- */
-@Composable
-private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
-    val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
-    SideEffect { onChanged(max(imeBottom - navigationBottom, 0)) }
-}
-
-@VisibleForTesting
-internal fun computeTerminalPanPx(
-    cursorRow: Int,
-    cellHeightPx: Float,
-    boxHeightPx: Int,
-    imePx: Int,
-    barPx: Int,
-): Int? {
-    // null = 保持上一次平移（浏览历史时光标隐藏）。
-    if (imePx <= 0) return 0
-    if (cursorRow < 0) return null
-    if (cellHeightPx <= 0f || boxHeightPx <= 0) return imePx
-    val cursorBottomPx = (cursorRow + 1) * cellHeightPx
-    val visibleContentPx = boxHeightPx - imePx - barPx
-    return (cursorBottomPx - visibleContentPx).toInt().coerceIn(0, imePx)
-}
