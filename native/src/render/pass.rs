@@ -112,23 +112,6 @@ impl Renderer {
         }
     }
 
-    /// 就地取纹理：成功/次优返回纹理，失效则重配后返回空。
-    fn texture_or_reconfigure(
-        surface: &wgpu::Surface<'static>,
-        surface_config: &Option<wgpu::SurfaceConfiguration>,
-        device: &wgpu::Device,
-    ) -> Option<wgpu::SurfaceTexture> {
-        match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(tex)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
-            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                Self::reconfigure_surface(surface, surface_config, device);
-                None
-            }
-            _ => None,
-        }
-    }
-
     pub(crate) fn acquire_texture(
         &self,
         surface: &std::sync::Arc<wgpu::Surface<'static>>,
@@ -151,11 +134,12 @@ impl Renderer {
             surface: std::sync::Arc::clone(surface),
             response: response_sender,
         };
-        if let Err(e) = acquire_worker_tx().try_send(request) {
-            // 工作线程通道满或已死（catch_unwind 内 panic）：就地取纹理，
-            // 渲染线程绝不阻塞。
-            log::warn!("acquire_texture: worker {e:?}, acquiring inline");
-            return Self::texture_or_reconfigure(surface, &self.surface_config, &self.device);
+        // 通道满 = 上一帧的请求仍卡在工作线程里（Mali-G57 专有卡死），此时**绝不能**
+        // 退回渲染线程就地取纹理：那正是本文件存在的理由所要避免的无超时阻塞，
+        // 会让渲染线程永久挂死。本帧跳过，下一帧重试。
+        if let Err(error) = acquire_worker_tx().try_send(request) {
+            log::warn!("acquire_texture: worker busy or dead ({error}); frame skipped");
+            return None;
         }
 
         match response_receiver.recv_timeout(ACQUIRE_TIMEOUT) {
