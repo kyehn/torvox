@@ -238,6 +238,12 @@ val reportConnectedFailures by tasks.registering {
           failed++
           println("connected-failure: ${testCase.getAttribute("classname")}#${testCase.getAttribute("name")}")
           println("connected-failure-message: ${detail.textContent.trim().take(4000)}")
+          println("connected-failure-xmlattrs: ${testCase.attributes.length} attrs")
+          for (attrIndex in 0 until testCase.attributes.length) {
+            val attr = testCase.attributes.item(attrIndex)
+            println("connected-failure-xmlattr: ${attr.nodeName}=${attr.nodeValue.take(200)}")
+          }
+          println("connected-failure-stacktrace: ${detail.textContent.trim().take(8000)}")
         }
       }
     }
