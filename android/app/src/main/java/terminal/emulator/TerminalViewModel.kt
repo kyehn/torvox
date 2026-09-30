@@ -11,6 +11,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -982,8 +984,8 @@ constructor(
     }
 
     fun setBootstrapUrl(url: String) {
-        bootstrapUrlDebounce.value = url
         bootstrapUrlEdited = true
+        bootstrapUrlEdits.tryEmit(url)
     }
 
     private val _bootstrapRunning = MutableStateFlow(false)
@@ -1099,7 +1101,7 @@ constructor(
             // 已编辑的输入框（即使被清空）优先于已存储的 URL。
             val url =
                 if (bootstrapUrlEdited) {
-                    bootstrapUrlDebounce.value
+                    bootstrapUrlEdits.replayCache.last()
                 } else {
                     settingsRepository.bootstrapUrl.first()
                 }
@@ -1176,8 +1178,15 @@ constructor(
         }
     }
 
-    /** 自由文本设置防抖写入（每次写入为完整文件重写）。 */
-    private val bootstrapUrlDebounce = MutableStateFlow("")
+    /**
+     * 已编辑的引导 URL 文本。必须是 `MutableSharedFlow` 而非 `MutableStateFlow`：
+     * 后者的初值就是首次 emission，会在 ViewModel 创建后经防抖把空串写进 DataStore，
+     * 静默抹掉用户已保存的源。`replay = 1` 让安装按钮能读到最近一次编辑值。
+     */
+    private val bootstrapUrlEdits = MutableSharedFlow<String>(
+        replay = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     // 在 UI 线程写入、在 IO 协程读取；volatile 使可见性显式化，
     // 而不依赖隐式的 happens-before 关系。
@@ -1188,7 +1197,7 @@ constructor(
         // （每次写入都是完整的文件重写）。
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
-            bootstrapUrlDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
+            bootstrapUrlEdits.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
                 settingsRepository.setBootstrapUrl(value)
             }
         }
