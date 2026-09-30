@@ -2136,6 +2136,16 @@ impl super::GhosttyTerminal {
             .collect()
     }
 
+    /// 物理行的软换行标志（是否为续接段、本行是否折行），取自上游
+    /// `WRAP_CONTINUATION` / `WRAP`——软换行判定以 Ghostty 为单一来源，
+    /// 不再用「上一行长度是否等于列宽」猜测（被 trim 过的行尾空格会判错）。
+    /// 网格引用无法表达该行时返回 None，调用方跳过而非猜测。
+    fn row_wrap_flags(terminal: &Terminal, row: u32) -> Option<(bool, bool)> {
+        let grid_ref = terminal.grid_ref(Self::absolute_point(terminal, row, 0)).ok()?;
+        let row_ref = grid_ref.row().ok()?;
+        Some((row_ref.is_wrapped().ok()?, row_ref.is_wrap_continuation().ok()?))
+    }
+
     pub(crate) fn search_in_scrollback_all_impl(
         terminal: &Terminal,
         query: &str,
@@ -2152,38 +2162,59 @@ impl super::GhosttyTerminal {
         };
         let total = terminal.total_rows().unwrap_or(0) as u32;
         let mut results = Vec::new();
-        let cols = grid_cols(terminal) as usize;
 
-        // 倒序逐行扫描（软换行续接时相邻物理行拼接后再匹配，对标上游
-        // searchSpansSoftWrap）。只保留当前逻辑行，不整块缓存回滚区。
+        // 倒序遍历**逻辑行**（对标上游 searchSpansSoftWrap）：续接段跳过——它归入
+        // 行首所在的逻辑行，倒序下先被处理；行首向下按 WRAP 拼接。只保留当前逻辑行，
+        // 不整块缓存回滚区。
         for row in (0..total).rev() {
-            let Some(line) = Self::read_line_text_impl(terminal, row) else {
+            let Some((_, is_wrap_continuation)) = Self::row_wrap_flags(terminal, row) else {
                 continue;
             };
-            // 软换行判定：本行是续接段当且仅当上一行（更早的一行）被写满。
-            // 倒序扫描，故向前回溯拼接满行；保守启发式：行长度达到列宽即算写满。
-            let mut logical_row = row;
-            let mut logical_text = line;
-            while logical_row > 0 {
-                let previous_row = logical_row - 1;
-                let Some(previous) = Self::read_line_text_impl(terminal, previous_row) else {
+            if is_wrap_continuation {
+                continue;
+            }
+            // 逻辑行拼接文本，以及每个物理行在其中的（行号，起始字符下标，字符数）。
+            // read_line_text_impl 每网格列产出一个字符，故段内字符下标即列号。
+            let mut segments: Vec<(u32, u32, u32)> = Vec::new();
+            let mut logical_text = String::new();
+            let mut physical_row = row;
+            loop {
+                let text = Self::read_line_text_impl(terminal, physical_row).unwrap_or_default();
+                segments.push((
+                    physical_row,
+                    logical_text.chars().count() as u32,
+                    text.chars().count() as u32,
+                ));
+                logical_text.push_str(&text);
+                let Some((is_wrapped, _)) = Self::row_wrap_flags(terminal, physical_row) else {
                     break;
                 };
-                if previous.chars().count() < cols {
+                if !is_wrapped || physical_row + 1 >= total {
                     break;
                 }
-                logical_text.insert_str(0, &previous);
-                logical_row = previous_row;
+                physical_row += 1;
             }
-            let search_line = logical_text;
-            for (match_start_col, match_end_col) in
-                Self::search_line_columns(&search_line, &pattern)
+            for (match_start, match_end) in
+                Self::search_line_columns(&logical_text, &pattern)
             {
-                results.push(SearchMatch {
-                    row: logical_row,
-                    start_col: match_start_col,
-                    end_col: match_end_col,
-                });
+                // 命中跨物理行时按段拆分，逐段给出该行内的列区间：
+                // 高亮必须落在真实所在行，且列号不得越过网格宽度。
+                for (segment_row, segment_start, segment_len) in &segments {
+                    let segment_end = segment_start + segment_len;
+                    let start = match_start.max(*segment_start);
+                    let end = match_end.min(segment_end);
+                    if start >= end {
+                        continue;
+                    }
+                    results.push(SearchMatch {
+                        row: *segment_row,
+                        start_col: start - segment_start,
+                        end_col: end - segment_start,
+                    });
+                    if results.len() >= MAX_NAVIGABLE_MATCHES {
+                        break;
+                    }
+                }
                 if results.len() >= MAX_NAVIGABLE_MATCHES {
                     break;
                 }
