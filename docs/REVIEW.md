@@ -406,3 +406,86 @@ P0-1（死锁）→ P0-2（死锁）→ P0-4（安装假成功）→ P1-6/7/8（
 ### 连续三轮无新问题的判定
 
 第 2、3 轮相对第 1 轮**未发现新的 P0/P1 缺陷**，仅在第 3 轮降低阈值后暴露 3 项生产代码重复（N4–N6）与 1 项死代码链（N1）。三轮工具数值一致，无回归。
+
+---
+
+## 十、第 4 轮：Manifest / 资源 / ProGuard / CI / semgrep
+
+前三轮覆盖 native Rust、Kotlin main、scripts、gradle、openspec、CI。本轮转向 **Manifest、res 资源、ProGuard、semgrep 规则本身、活跃 change 状态**。
+
+工具复核：`aislop` 12 warnings（与前三轮逐字一致）；`jscpd` 83 clones / 1.82%（与第 3 轮一致，排除 `docs/**` 后数值差 0.02% 来自文档本身）。
+
+### 确认升级的两项
+
+#### N7. 发布链路断裂追加两处断点
+
+首轮 E1 已记录 `build-apk.nu:6-13` 删除两变体 APK。本轮核实追加：
+
+- `.github/workflows/build.yml:73` `generate_release_notes: false` 且未给 `tag_name`/`name`/`body` → 即使 APK 修好，Release 仍是无标题、无说明的空发布。
+- `build.yml:2-5` 只有 `schedule` + `workflow_dispatch`，**无 `push: tags` 触发器** → `:70` 的 `startsWith(github.ref, 'refs/tags/')` 在常规 `git push --tags` 下永不为真，该分支实际不可达。
+
+#### N8. release 变体在 CI 中零冒烟，且 R8 配置自相矛盾
+
+- `app/build.gradle.kts:62-63` release 开 `isMinifyEnabled` + `isShrinkResources`；`build.yml:48` 只构建 debug，`test-emulator.nu:8` 只跑 `connectedDebugAndroidTest` → **被发布的 release APK 全流程零验证**。
+- `proguard-rules.pro:1-2` 的 `-dontoptimize` / `-dontobfuscate` 立刻把 `:66` 引入的 `proguard-android-optimize.txt`（优化/合并/内联）全部关掉；`:3` 的 `-keep class terminal.emulator.** { *; }` 又让全部应用类不可裁剪。
+
+净效果：release 变体 = 保留全部符号名 + 不优化 + 应用代码零裁剪，与 `isShrinkResources = true` 的意图完全相反。
+
+**当前无运行时缺陷**（`-keep` 覆盖了 `@Serializable` 的 `FontInfoDto`/`PollEvent`），但正确性完全依赖这一条兜底：任何「去掉 `-dontobfuscate`」或「启用 optimize」的改动都会让 `FontInfoDto.fromJson()` 在 release 上静默抛 `SerializationException`，而 CI 只测 debug **无法发现**。
+
+**违反** STYLE:64「必须最小实现」——`isMinifyEnabled = true` 当前不产生任何收益，只增加构建时长与不确定性。
+
+### 第 4 轮新增
+
+#### N9. 日间软件主题下系统窗口与选择菜单恒为夜间配色
+
+`res/values/themes.xml:9-11` 的 `windowBackground`/`statusBarColor`/`navigationBarColor` 全硬编码 `#1E1E2E`；`:18-19` 把 `colorSurface`/`colorOnSurface` 固定为 **M3 dark baseline**；仓库**无 `values-night/`**。
+
+`TerminalSurface.kt:307/315` 的 `resolveThemeColor(R.attr.colorSurface, …)` 因此永远命中属性、永远走不到回退 —— 选择菜单在日间主题下仍是深色背景（`colors.xml:6` 硬编码 `#21222C`）。
+
+`colors.xml:7-8` 注释自述「选择菜单等系统窗口按主题取色」——**声明与代码事实不符**。同时 `TerminalTheme.kt:534-543` 的 `resolveMaterialColorScheme` 正确地在 `dynamicLight/DarkColorScheme` 间切换，两套主题机制脱节。
+
+**违反** DESIGN:106（软件主题日间/夜间/跟随系统）、:108、:200（启动动画结束后直接显示主题背景）。
+
+#### N10. baseline profile 两文件逐字节相同，基准模块 0 覆盖
+
+`android/app/src/release/generated/baselineProfiles/{baseline-prof,startup-prof}.txt` 均为 18,913 行，`cmp` 结果 **IDENTICAL**；`grep -c 'terminal/emulator/benchmark' baseline-prof.txt` = **0**。
+
+`build.gradle.kts:108-110` 注释声称宏基准采集结果会合并进 `assets/dexopt/baseline.prof`，但入库产物不含任何 `:benchmark` 模块类 → 宏基准那一路未产出或未合并，`:192` 的 `baselineProfile(project(":benchmark"))` 形同虚设。37,826 行机器产物直接入库。
+
+**违反** STYLE:63（不得保留死内容）。
+
+#### N11. `res/values/ids.xml` 四个 id 零引用
+
+`terminal_menu_copy/paste/select_all/share` 在整个 `android/app/src`（含 androidTest）零引用，且 `res/` 下无任何 `layout/` XML。
+
+**违反** STYLE:63。
+
+#### N12. semgrep 规则的漏报与噪声配置错误
+
+| 位置 | 问题 |
+| --- | --- |
+| `.semgrep/rust-deny-patterns.yml:105-109` | `no-prohibited-shells` 声明 `languages: [rust, kotlin]`，**不扫描 `.github/workflows/*.yml`** —— 而 `fmt.yml:44` 恰恰用 `bash -c`（违反 STYLE:5/61）。这是规则漏报的真实实例。 |
+| `.semgrep/rust-arch.yaml:11-23` | `no-allow-in-prod` 用无锚点 `pattern-regex: '\#\[allow\('`（会命中注释与字符串字面量）配 `pattern-not-inside: '#[cfg(test)]'`（独立属性不是合法 Rust 节点，范围判定不可靠）。既漏报测试模块内的 `#[allow]`，也对注释误报。应改用 `paths.exclude`。 |
+| `.semgrep/kotlin-deny-patterns.yml:91-96` | `no-map-get-nonnull` 的 `message` 里写了 `$MAP`/`$KEY`，但 semgrep **不对 message 做 metavariable 插值** → 告警永远显示字面 `$MAP.get($KEY)!!`，等于噪声。 |
+| `.semgrep/kotlin-deny-patterns.yml:66-67` | `no-runblocking-production` 用单文件白名单 `**/installer/BootstrapInstallService.kt`，与同文件 `:74-78` 的目录级排除风格不一致；该文件改名/拆分即静默失效。 |
+
+**修法**：补 workflow 语言的 shell 规则；`no-allow-in-prod` 改 `paths.exclude`；删除 message 中的 `$` 占位；统一排除风格。
+
+### 第 4 轮排除项（经核实撤回）
+
+- **`configChanges` 缺 `density`/`fontScale`**（`AndroidManifest.xml:25`）：系统字号/密度变化会重建 Activity。子代理推断会「会话丢失」，但项目在设置内自行处理字号（`MIN/MAX_FONT_SIZE_TENTHS` + `applyFontSettings`），且 DESIGN 未声明跟随系统字号。**属设计选择，非缺陷**。
+- **Manifest 导出属性**：`exported="true"` 仅 `:73` 的 DocumentsProvider，由 `:75-76` 的 `MANAGE_DOCUMENTS` read/write permission 保护（AOSP 强制要求）；`MainActivity` 是 LAUNCHER 入口；service/FileProvider 均 `exported="false"`；备份规则全排除。**无缺陷**。
+- **release 用 AOSP testkey 签名**（`build.gradle.kts:64`）：DESIGN:86 明确要求「使用 AOSP testkey 签名，禁止 debug 签名，禁止使用其他签名」。**符合规范，非缺陷**（但公开发布 testkey 包的供应链风险值得你单独决策，见第八节新增第 8 项）。
+- **字符串国际化**：`strings.xml` 105 条零未引用；英文残留均为技术词，符合 STYLE:72「Shell 及其他技术词汇不得翻译」。**无缺陷**。
+- **`rust-toolchain.toml:2` `channel = "stable"` 未钉 1.98**：BUILD:22 的下限已由 `Cargo.toml:6-7`（`edition 2024` + `rust-version 1.98`）强制，**不会编译失败**。仅工具链版本跨机漂移，属 BUILD:9「环境确定性」的关注点，非缺陷。
+- **`fmt.yml:41` `markdownlint-cli2 --fix` 全仓生效未排除 `docs/specification/`**：确认存在（AGENTS 声明该目录只读）。属 CI 越权风险，见第八节新增第 9 项。
+
+### 第 4 轮新增待决策项
+
+- **D8. release APK 用公开 AOSP testkey 签名并公开发布**（`build.gradle.kts:64` + `build.yml:70-74`）：DESIGN:86 要求 testkey（已遵守），但任何人持同一公钥即可签出 `com.termux` 的更新包。是否接受该风险，或为发布单独配置上传密钥？
+- **D9. `fmt.yml:41` 的 `markdownlint-cli2 --fix` 会改写 `docs/specification/`**：AGENTS 明令该目录不可修改。CI 越权改写保护目录。是否需要在 workflow 中加 `--ignore`？
+
+### 连续四轮无新问题的判定
+
+第 4 轮相对前三轮**未发现新的 P0/P1 逻辑缺陷**，新增问题集中在资源配置（N9 主题色）、生成物失真（N10）、死资源（N11）与工具规则配置（N12），并确认升级了发布链路（N7）与 R8 配置（N8）两项。四轮工具数值一致，无回归。
