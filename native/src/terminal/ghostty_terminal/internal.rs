@@ -1090,28 +1090,45 @@ impl super::GhosttyTerminal {
         foreground: [u8; 3],
         ansi: &[[u8; 3]],
     ) {
-        let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
-            r: background[0],
-            g: background[1],
-            b: background[2],
-        }));
-        let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
-            r: foreground[0],
-            g: foreground[1],
-            b: foreground[2],
-        }));
-        if let Ok(mut palette) = terminal.default_color_palette() {
-            for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
-                palette.set(
-                    *index,
-                    libghostty_vt::style::RgbColor {
-                        r: color[0],
-                        g: color[1],
-                        b: color[2],
-                    },
-                );
+        if terminal
+            .set_default_bg_color(Some(libghostty_vt::style::RgbColor {
+                r: background[0],
+                g: background[1],
+                b: background[2],
+            }))
+            .is_err()
+        {
+            log::error!("ghostty_terminal: apply_theme failed to set background color");
+        }
+        if terminal
+            .set_default_fg_color(Some(libghostty_vt::style::RgbColor {
+                r: foreground[0],
+                g: foreground[1],
+                b: foreground[2],
+            }))
+            .is_err()
+        {
+            log::error!("ghostty_terminal: apply_theme failed to set foreground color");
+        }
+        match terminal.default_color_palette() {
+            Ok(mut palette) => {
+                for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
+                    palette.set(
+                        *index,
+                        libghostty_vt::style::RgbColor {
+                            r: color[0],
+                            g: color[1],
+                            b: color[2],
+                        },
+                    );
+                }
+                if terminal.set_default_color_palette(Some(palette)).is_err() {
+                    log::error!("ghostty_terminal: apply_theme failed to set ANSI palette");
+                }
             }
-            let _ = terminal.set_default_color_palette(Some(palette));
+            Err(error) => {
+                log::error!("ghostty_terminal: apply_theme failed to read ANSI palette: {error}");
+            }
         }
     }
 
@@ -1488,7 +1505,10 @@ impl super::GhosttyTerminal {
             let mut row_data = Vec::with_capacity(cols as usize);
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(ci) => ci,
-                Err(_) => break,
+                Err(error) => {
+                    log::warn!("build_cell_data: cell_iter.update failed: {error}");
+                    break;
+                }
             };
 
             let mut current_col = 0u32;
@@ -1748,13 +1768,17 @@ impl super::GhosttyTerminal {
         while let Some(row) = row_iter_impl.next() {
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(cell_iterator) => cell_iterator,
-                Err(_) => break,
+                Err(error) => {
+                    log::warn!("build_snapshot: cell_iter.update failed: {error}");
+                    break;
+                }
             };
 
             while let Some(cell) = cell_iter_impl.next() {
                 let raw = match cell.raw_cell() {
                     Ok(raw_cell) => raw_cell,
-                    Err(_) => {
+                    Err(error) => {
+                        log::warn!("build_snapshot: raw_cell failed: {error}");
                         cells.push(CellSnapshot {
                             foreground: default_foreground,
                             background: default_background,
@@ -1766,7 +1790,8 @@ impl super::GhosttyTerminal {
 
                 let style = match cell.style() {
                     Ok(cell_style) => cell_style,
-                    Err(_) => {
+                    Err(error) => {
+                        log::warn!("build_snapshot: cell style failed: {error}");
                         cells.push(CellSnapshot {
                             foreground: default_foreground,
                             background: default_background,
