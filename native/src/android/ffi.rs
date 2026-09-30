@@ -1211,10 +1211,13 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
 
     match event {
         Some(e) => {
-            let json = serde_json::to_string(&e).unwrap_or_else(|err| {
-                log::error!("pollEvent: event serialization failed: {err}");
-                String::new()
-            });
+            let json = match serde_json::to_string(&e) {
+                Ok(json) => json,
+                Err(err) => {
+                    log::error!("pollEvent: event serialization failed: {err}");
+                    return std::ptr::null_mut();
+                }
+            };
             match env.new_string(&json) {
                 Ok(s) => s.into_raw(),
                 Err(_) => std::ptr::null_mut(),
