@@ -135,6 +135,53 @@ fn search_all_finds_match() {
     assert_invariants(&snap);
 }
 
+/// 软换行的逻辑行只算一次，且命中按其真实所在的物理行与列返回：
+/// 逐物理行拼接会产生 N 份重复命中，并把续接段的命中记到行首那一行。
+#[test]
+fn search_reports_each_wrapped_line_once_with_physical_rows() {
+    const COLS: u32 = 10;
+    let mut terminal_under_test = GhosttyTerminal::new(5, COLS, 100).expect("terminal");
+    // 26 字符在 10 列网格上软换行为 3 个物理行：abcdefghij / klmnopqrst / uvwxyz
+    terminal_under_test.vt_write(b"abcdefghijklmnopqrstuvwxyz\r\n");
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.read_line_text(0).as_deref(),
+        Some("abcdefghij")
+    );
+    assert_eq!(
+        terminal_under_test.read_line_text(1).as_deref(),
+        Some("klmnopqrst")
+    );
+
+    assert_eq!(
+        terminal_under_test.search_all_in_scrollback("klmnopqrst", true),
+        vec![SearchMatch {
+            row: 1,
+            start_col: 0,
+            end_col: 10,
+        }],
+        "单个物理行内的命中不得按逻辑行重复上报"
+    );
+
+    // 跨软换行的命中按物理行拆成两段，列区间落在各自行内。
+    assert_eq!(
+        terminal_under_test.search_all_in_scrollback("ijklm", true),
+        vec![
+            SearchMatch {
+                row: 0,
+                start_col: 8,
+                end_col: 10,
+            },
+            SearchMatch {
+                row: 1,
+                start_col: 0,
+                end_col: 3,
+            },
+        ],
+        "跨软换行的命中必须按各物理行拆分"
+    );
+}
+
 #[test]
 fn search_all_empty_query() {
     let terminal_under_test = terminal();

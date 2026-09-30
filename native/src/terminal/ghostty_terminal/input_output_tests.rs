@@ -304,14 +304,29 @@ fn search_all_in_scrollback_empty_query() {
 #[test]
 fn search_all_in_scrollback_spans_soft_wrap() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    // 18 个 x + needle = 24 字符，在 20 列网格上折成
+    // "xxxxxxxxxxxxxxxxxxxx" / "xxxxneedle" 两个物理行。
     let token = format!("{}needle", "x".repeat(18));
     terminal_under_test.vt_write(token.as_bytes());
     terminal_under_test.flush();
     let results = terminal_under_test.search_all_in_scrollback("needle", true);
+    // 命中按物理行拆分：列区间必须落在各自行内（旧实现把整段记在行首行并给出
+    // 越过 20 列网格的 end_col，高亮实际不可见）。
     assert_eq!(
-        results.len(),
-        1,
-        "soft-wrapped needle must be found (got {results:?})"
+        results,
+        vec![
+            SearchMatch {
+                row: 0,
+                start_col: 18,
+                end_col: 20,
+            },
+            SearchMatch {
+                row: 1,
+                start_col: 0,
+                end_col: 4,
+            },
+        ],
+        "soft-wrapped needle must be split per physical row (got {results:?})"
     );
 }
 
