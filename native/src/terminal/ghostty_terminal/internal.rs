@@ -62,6 +62,11 @@ fn grid_rows(terminal: &Terminal) -> u32 {
     terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32
 }
 
+/// 回滚行数：ghostty 断开时为 0（与 `grid_rows` 对称）。
+fn scrollback_len(terminal: &Terminal) -> u32 {
+    terminal.scrollback_rows().unwrap_or(0) as u32
+}
+
 /// Helper to create the three per-frame render iterators.
 /// Returns `None` and logs on any creation failure.
 fn create_render_iterators() -> Option<(
@@ -171,7 +176,7 @@ impl super::GhosttyTerminal {
                 }
             }
             Query::ScrollbackLength(tx) => {
-                let len = terminal.scrollback_rows().unwrap_or(0) as u32;
+                let len = scrollback_len(terminal);
                 log::debug!("ghostty_terminal: scrollback_rows query returned {len}");
                 try_send(&tx, len, "ghostty_terminal: query channel send failed");
             }
@@ -195,7 +200,7 @@ impl super::GhosttyTerminal {
             }
             Query::ReadVisibleText(tx) => {
                 let rows = grid_rows(terminal);
-                let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+                let scrollback_rows = scrollback_len(terminal);
                 let mut text = String::new();
                 for row in 0..rows {
                     // read_line_text_impl expects an absolute row (history + viewport).
@@ -956,7 +961,7 @@ impl super::GhosttyTerminal {
     pub(crate) fn build_dumped_grid(terminal: &Terminal) -> DumpedGrid {
         let rows = grid_rows(terminal);
         let cols = grid_cols(terminal);
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let scrollback_rows = scrollback_len(terminal);
         let (_, fallback_background, fallback_foreground) = Self::catppuccin_mocha_palette();
         let default_foreground = terminal
             .default_fg_color()
@@ -1674,7 +1679,7 @@ impl super::GhosttyTerminal {
                 col: cursor_col,
                 visible: cursor_visible,
                 style: cursor_style,
-                scrollback_length: terminal.scrollback_rows().unwrap_or(0) as u32,
+                scrollback_length: scrollback_len(terminal),
                 kitty_generation: terminal
                     .kitty_graphics()
                     .ok()
@@ -1884,7 +1889,7 @@ impl super::GhosttyTerminal {
             dirty,
 
             title: terminal.title().unwrap_or_default().to_string(),
-            scrollback_length: terminal.scrollback_rows().unwrap_or(0) as u32,
+            scrollback_length: scrollback_len(terminal),
             sync_active,
         }
     }
@@ -1969,7 +1974,7 @@ impl super::GhosttyTerminal {
     /// install_selection_impl 与上游选择派生共用。
     fn absolute_point(terminal: &Terminal, row: u32, col: u32) -> Point {
         let cols = grid_cols(terminal).max(1);
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let scrollback_rows = scrollback_len(terminal);
         let clamped_col = col.min(cols - 1) as u16;
         if row < scrollback_rows {
             Point::History(PointCoordinate {
@@ -1995,7 +2000,7 @@ impl super::GhosttyTerminal {
         else {
             return None;
         };
-        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let scrollback_rows = scrollback_len(terminal);
         Some((coordinate.y + scrollback_rows, u32::from(coordinate.x)))
     }
 
