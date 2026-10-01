@@ -675,13 +675,23 @@ fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, co
             return;
         }
     };
-    if let Err(e) = session.resize(rows, cols)
-        && let Err(e) = env.throw_new(
-            jni_str!("java/lang/RuntimeException"),
-            JNIString::from(format!("resize: failed: {e}")),
-        )
-    {
-        log::error!("resize: throw_new failed: {e}");
+    // 网格命令被丢弃时只记日志：PTY 已缩放而网格滞后，下次缩放事件重试，
+    // 不向 Kotlin 抛异常（调用方按固定节拍重发，异常会刷爆日志）。
+    match session.resize(rows, cols) {
+        Ok(crate::terminal::session::ResizeOutcome::Dropped) => {
+            log::warn!(
+                "resize: grid command dropped for session {id} ({rows}x{cols}); PTY updated, grid retries on next resize"
+            );
+        }
+        Err(e) => {
+            if let Err(e) = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                JNIString::from(format!("resize: failed: {e}")),
+            ) {
+                log::error!("resize: throw_new failed: {e}");
+            }
+        }
+        Ok(_) => {}
     }
 }
 

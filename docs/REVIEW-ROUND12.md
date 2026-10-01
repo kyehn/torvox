@@ -46,7 +46,6 @@
 | N2-48 | `TerminalSurface.kt:636` | `TerminalInputEncoder.encodeCommittedText(bracketedPaste = false)` 硬编码 false，`\e[200~…\e[201~` 机制**从不发出**。向启用 bracketed paste 的程序（vim、现代 shell）粘贴会逐行执行而非作为一次输入。参数与实现是死代码。 |
 | N2-49 | `ffi.rs:828-832` | 主端 `O_NONBLOCK` 下 `write_all`（`pty.rs:80-91`）遇部分写后 `EAGAIN` → 剩余字节**静默丢弃且无日志**。注释只授权「丢弃整块输入」（与 xterm 一致），未覆盖「部分写后截断」。 |
 | N2-50 | `TerminalRuntime.kt:2911` | `writeToPty` 在**执行时**才解析目标会话，故跨会话切换的大块粘贴会把尾部写进新会话。对比 OSC-52 应答路径在请求时即捕获 `Arc<Session>`（`ffi.rs:1181-1194`）—— 同一代码库内两种正确性标准。 |
-| N2-51 | `PasteChunker.kt:29` | `text.take(maxChars)` 按 UTF-16 索引截断，可把代理对劈开（尾部变孤立代理项，`toByteArray(UTF_8)` 输出 `?`）。分块边界（`:34-36`）是代理安全的，整体截断不是。另 `replace("\n","\r")` 会把 CRLF 变成 `\r\r`。 |
 | N2-52 | `android/detekt.yml:26-34` | `SwallowedException` / `TooGenericExceptionCaught` / `TooGenericExceptionThrown` / `InstanceOfCheckForException` / `MagicNumber` 全部 `active: false`。`STYLE.md:37` 只允许抑制「参数数量、行数、嵌套层数、缺失文档」等纯风格项；`AGENTS.md` 明确「禁止魔数」。吞异常正是 `TestUtils.kt:80-86`、`NavigationSteps.kt` 九处 `getOrDefault(false)` 保持不可见的原因。 |
 | N2-53 | `app/build.gradle.kts:86-89` + `src/test/java/android/util/Log.kt:11-53` | `unitTests.isReturnDefaultValues = true` 叠加一个恒返回 0 的 `Log` 桩，使「Android SDK 未被打桩」这件事不可见。检索全部 57 个单测文件对 `Log.` 的引用为 0 命中 —— 该桩不换来任何东西，却让未打桩调用静默返回默认值而非大声失败。违反 `TESTING.md:12`。 |
 | N2-54 | `native/src/terminal/ghostty_terminal/snapshot_cache_unit_tests.rs:3-18` | 三个同义反复测试。被测函数（`internal.rs:110-112`）就是 `grid_dirty \|\| !has_cache`，每个测试复述其中一个子句。把实现改成 `grid_dirty && !has_cache` 只有一个测试会失败，且没有任何测试触及缓存路径本身。违反 `TESTING.md:14`。 |
