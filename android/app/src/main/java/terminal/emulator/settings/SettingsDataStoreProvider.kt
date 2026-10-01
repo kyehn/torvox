@@ -3,8 +3,10 @@ package terminal.emulator.settings
 import android.content.Context
 import android.os.StrictMode
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -25,7 +27,9 @@ constructor(@ApplicationContext private val context: Context) {
         }
 
     val dataStore: DataStore<Preferences> =
-        PreferenceDataStoreFactory.create {
+        PreferenceDataStoreFactory.create(
+            corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+        ) {
             File(prefsDir, "settings.preferences_pb")
         }
 
