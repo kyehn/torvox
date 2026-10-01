@@ -2422,15 +2422,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
             );
             return Ok(std::ptr::null_mut());
         };
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("searchAllInScrollback: session not found"),
-            );
-            return Ok(std::ptr::null_mut());
+        let session_handle = {
+            let registry = rlock_session_registry();
+            let Some(entry) = registry.get(&id) else {
+                let _ = env.throw_new(
+                    jni_str!("java/lang/IllegalArgumentException"),
+                    jni_str!("searchAllInScrollback: session not found"),
+                );
+                return Ok(std::ptr::null_mut());
+            };
+            entry.session.clone()
         };
-        let session = entry.session.lock();
+        // 注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让销毁会话的写锁饥饿。
+        // 克隆的会话句柄使查询期间销毁仍安全，会话在查询结束前保持存活。
+        let session = session_handle.lock();
         let matches = session
             .terminal()
             .search_all_in_scrollback(&query, case_sensitive);
@@ -2439,7 +2444,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
             matches.len(),
         );
         drop(session);
-        drop(registry);
 
         let json = serde_json::to_string(
             &matches
