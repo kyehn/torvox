@@ -587,10 +587,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
+                        if (isPaused) {
                             composingBuffer = ""
                             return true
                         }
+                        // 触摸抑制窗口内不清组字基线、不吞输入：返回 false 让输入法重试，
+                        // 否则下次更新以空基线做 diff 致重复文本（N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
                         val newComposing = text?.toString() ?: ""
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
@@ -625,10 +628,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
+                        if (isPaused) {
                             composingBuffer = ""
                             return true
                         }
+                        // 同上：抑制窗口内返回 false 让输入法重发该提交，
+                        // 返回 true 等于声称已处理，字符永久丢失（N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
                         val committedText = text?.toString() ?: return false
                         val terminalViewModel = viewModel
                         val state = terminalViewModel?.state?.value
@@ -684,9 +690,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
-                            return true
-                        }
+                        if (isPaused) return true
+                        // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
                         // beforeLength/afterLength 来自输入法（不可信）：
                         // 负值或巨大值会在主线程上以 NegativeArraySizeException /
                         // OutOfMemoryError 崩溃。组字时钳位到组字缓冲区长度，
