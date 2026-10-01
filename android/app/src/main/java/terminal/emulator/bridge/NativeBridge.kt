@@ -240,7 +240,7 @@ object NativeBridge {
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
     /**
-     * 应用层光标颜色覆盖，线性 RGB（每通道 0..1）；0xFFFFFFFF 哨兵值表示清除覆盖（跟随终端）。
+     * 应用层光标颜色覆盖，线性 RGB（每通道 0..1），总是覆盖，无清除路径。
      */
     external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
 

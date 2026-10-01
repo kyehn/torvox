@@ -86,50 +86,9 @@ reused update#2 (无输出变化)      rows=80   dirty=80   clean=0
 > （`render.rs:38-40` 要求 `RowIteration` 的借用不越过 `Snapshot`），
 > 属于非平凡改动，**需要用户确认方向后再动手**。
 
-### N0-14 `push_cell_data` 的空闲去重使**行级滚动完全无画面反馈**
-
-同一函数的去重逻辑（`internal.rs:1222-1232`）：
-
-```rust
-let unchanged = match last_push {
-    Some((last_cells, last_cursor)) => {
-        *last_cursor == data.1
-            && bytemuck::cast_slice::<CellData, u8>(last_cells)
-                == bytemuck::cast_slice::<CellData, u8>(&data.0)
-    }
-    None => false,
-};
-if unchanged {
-    return;
-}
-```
-
-**实验证据**（探针已删除）：4×20 网格写入 8 行后 `scroll_viewport(3)` + `flush()`，
-`receive_cell_data()` **3 秒内无任何帧**：
-
-```text
-  [base] cells=80 scrollback=5 cursor=(3,0)
-    row0 = "L5                  "
-  [scrolled] NO FRAME (deduped as unchanged)
-```
-
-`ffi.rs:3176` 的实参是 `scroll_viewport(-(delta as isize))`，正 delta 向下滚到底部；
-此时视口已在底部、网格内容不变，于是**逐字节完全相同** → 被判为 `unchanged` → 不推送。
-`ffi.rs:3193-3197` 的 `render_state.dirty.store(true)` 只能解锁 Idle 门控，
-但 Idle 帧读的是**上一次缓存的 CellData**（`ffi.rs:1518` 附近的 `FrameData::Idle`），
-画出来仍是滚动前的画面。
-
-**与规范的关系**：`ffi.rs:3190-3192` 的注释声称「行级滚动必须立即重绘……否则会吞掉本次滑动」，
-但去重把这条补救路径也一并吞掉。`DESIGN.md:184`（支持按像素流畅滚动）、
-`openspec/specs/scroll-physics-drift/spec.md` 均要求滚动有可见反馈。
-
-**修法**：`last_push` 的去重键必须纳入视口偏移。当前 `CursorInfo`（`types.rs:48-59`）
-带 `scrollback_length` 但**不带视口偏移**，两者在「向底部滚且已在底部」时相同。
-最小改法：把 `entry.last_scroll_offset` 或等价的 `viewport_offset` 字段并入比较键；
-或对 `Command::ScrollViewport` 直接跳过 `unchanged` 判定（滚动是显式用户动作，
-本就该强制推帧）。
-
----
+> 维护注：N0-14（滚动强制重推帧）已修复并验证，对应小节删除；采用修法第二种
+> （`ScrollViewport` 分支清 `last_cell_data_push`，与 SetSelection/Reset 同模式），
+> 编号保持不变。
 
 ## 二、新的 P1
 
@@ -190,8 +149,6 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 | --- | --- | --- |
 | N2-25 | `ffi.rs:682` + `session.rs:408` | `ResizeOutcome::Dropped` 在 JNI 边界被静默丢弃（`resize_inner` 只 match `Err`）。`session.rs:396-404` 的 `grid_dirty` 重试使它在**下一次** resize 事件自愈，但若不再有 resize 事件（如旋转后输入法再也不弹出），PTY 停留在新尺寸而网格与渲染器停留在旧尺寸，且无任何日志。 |
 | N2-26 | `session.rs:128-133` + `ffi.rs:1520` | `Session::grid_size()` 只记录 Rust 侧发起的 resize。渲染器用它来排布 `Vec<CellData>`，而 `CursorInfo`（`types.rs:48-59`）不带 `rows`/`cols`。`CSI ?3h`（DECCOLM）会在上游内部改网格且不发 `Command::Resize`，届时 `CellData.col` 可达 159 而渲染器按 80 列排布。 |
-| N2-29 | `TerminalScreen.kt:81` vs `internal.rs:2109` | UI 允许 256 字符查询（`SEARCH_QUERY_MAX_LENGTH = 256`），原生上限是 `MAX_SEARCH_QUERY_CHARS: usize = 128`；129–256 字符的查询被 `compile_search_pattern` 静默返回 `None` → 空结果，用户看到「无匹配」而实际有匹配。两侧常量必须同源。 |
-| N2-30 | `ffi.rs:2840` vs `NativeBridge.kt:243` | 注释/文档矛盾**仍未对齐**：Rust 侧 `ffi.rs:2840` 写「`None` 清除覆盖（跟随终端）」，Kotlin 侧 `NativeBridge.kt:243` 仍写「`0xFFFFFFFF` 哨兵值表示清除覆盖」。实现（`ffi.rs:2853` 无条件写 `Some(...)`）**没有清除路径**。第 9 轮 N1-19 只改了一侧。当前无 Kotlin 调用方依赖清除（`Bridge.setTheme` 总是显式下发颜色），故为文档级残留，但下一位读者会被误导。 |
 | N2-31 | `TerminalViewModel.kt:698-702` | `bridge?.listFontFamilies().orEmpty()` 在 bridge 缺席时伪造「空字体库」，随后 `SystemFonts.availableFontFamilies`（`SystemFonts.kt:9-12`）抛 `IllegalStateException`，被 `:712-717` 记录后**重新抛出**导致进程终止。把 `NativeQueryPort` 的「null = 无数据，绝不可伪造」契约变成了崩溃。 |
 | N2-32 | `native/src/terminal/ghostty_terminal/keymap.rs`（261 行） | 整条上游 key 编码链在生产中不可达：`map_android_key_code` 只被 `internal.rs:299` 的 `Query::KeyEncode` 引用，而 `public_api.rs:344`/`:387` 的 `key_encode`/`key_encode_submit` 无非测试调用方；`NativeBridge.kt` 也没有任何 `keyCode` 入参的导出（唯一按键入口是 `writeKey(sessionId, key: String, mods, text)`，`ffi.rs:901-945`）。但 `ffi.rs:940-942` 的注释声称「完整 Kitty 键盘协议编码由上游 key::Encoder 经 `Query::KeyEncode` 承担」——**注释与事实相反**。违反 `STYLE.md:63`。 |
 | N2-33 | `public_api.rs:284-297` + `internal.rs:1740-1899` | 快照缓存（`Command::TakeSnapshot`、`build_snapshot`、`GridSnapshot`、`CellSnapshot`、`cached_snapshot`、`snapshot_needs_rebuild`）在生产中不可达：`.take_snapshot()` 只出现在测试文件；渲染走 CellData 通道。`public_api.rs:288`/`:294` 还是 `panic!`。`snapshot_cache_unit_tests.rs`（18 行）只为测试这段死代码而存在。 |

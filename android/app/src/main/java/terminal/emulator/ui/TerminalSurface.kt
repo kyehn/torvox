@@ -1583,7 +1583,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         draggingStart = handleDragState == HandleDrag.START,
                         row = gridRow,
                         col = snapCol,
-                        cachedMaxRow = (rows - 1).coerceAtLeast(0),
+                        cachedMaxRow = (currentScrollbackLength() + rows - 1).coerceAtLeast(0),
                         cachedMaxCol = (cols - 1).coerceAtLeast(0),
                     )
                 if (bounds != null) {
@@ -2196,6 +2196,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 LogUtil.e(TAG, "scrollbackLength query failed", error)
                 cachedScrollbackLength
             }
+        viewModel.updateScrollbackLength(cachedScrollbackLength)
         return cachedScrollbackLength
     }
 
