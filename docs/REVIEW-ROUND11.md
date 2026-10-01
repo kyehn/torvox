@@ -324,7 +324,7 @@ Surface 已销毁后这两个字段仍是旧值，于是 `attachSurface` 尚未�
 13. **输出通道冻结已修复**：`render_inner`（`ffi.rs:1504-1506`）在消费 CellData **之前**
     就对 `paused`/无 surface 早返回；`pollEvent` 无条件排空活动会话输出。
 14. **环境变量白名单精确合规**：`pty.rs:711-779` 只注入 `DESIGN.md:131-140` 列出的变量
-    + 13 个「宿主存在才透传」项，无 `LD_LIBRARY_PATH`/`PWD`/`LD_PRELOAD`/`PATH`，无 `termux.env`。
+    - 13 个「宿主存在才透传」项，无 `LD_LIBRARY_PATH`/`PWD`/`LD_PRELOAD`/`PATH`，无 `termux.env`。
 15. **OSC-52 扫描器无损**：`output_processor.rs:85-206` 的每个分支都重发缓冲字节，
     `MAX_SCAN_BYTES` 溢出回退到直通；`ESC`/`0x07` 在选择名内被拒绝，
     因此应答写回 PTY（`session.rs:592-596`）时不会注入分隔符。
