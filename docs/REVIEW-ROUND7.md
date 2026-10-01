@@ -25,7 +25,7 @@
 
 ## 三、新的 P0
 
-> 维护注：N0-7（输出泵与渲染解耦）、N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：N0-7（输出泵与渲染解耦）、N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）、N1-3（设置损坏降级为空偏好）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N0-6 PTY 主端是非阻塞的，`write_all` 在中途失败后丢弃剩余字节 —— 粘贴被静默截断
 
@@ -105,23 +105,6 @@ sixel 栅格属性、iTerm2 / tmux 携带二进制的控制串，其载荷中都
 违反 `DESIGN.md:22`（尽早抛出错误，避免浪费资源）。
 
 **修法**：让 `PtyPair::drop` 真正回收子进程（kill + `waitpid`），或引入一个作用域守卫类型覆盖这三条路径。
-
-### N1-3 偏好设置 DataStore 没有 `corruptionHandler`
-
-`android/app/src/main/java/terminal/emulator/settings/SettingsDataStoreProvider.kt:27-30`
-
-```kotlin
-val dataStore: DataStore<Preferences> =
-    PreferenceDataStoreFactory.create {
-        File(prefsDir, "settings.preferences_pb")
-    }
-```
-
-`settings.preferences_pb` 被截断或无法解析时（写一半掉电、存储错误、非原子文件系统上被杀进程留下的 `..tmp`），`dataStore.data` 抛 `CorruptionException` → `SettingsRepository.settings` → `stateIn` → `MainActivity.kt:324` 的 `collectAsStateWithLifecycle`，**无人捕获 → 每次启动必崩**，且崩溃发生在能显示「清除应用数据」按钮的 UI 之前。
-
-`DESIGN.md:16`（设置数据错误 → 清除设置数据）与 `DESIGN.md:95`（相关设置出现错误时重置应用数据）都要求恢复路径，代码里没有任何恢复。
-
-**修法**：`PreferenceDataStoreFactory.create(corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() })`，损坏即降级为默认设置 —— 这正是规范要求的语义。
 
 ### N1-4 `installOffline` 把 SAF 文档无上限地写进 `cacheDir`
 
