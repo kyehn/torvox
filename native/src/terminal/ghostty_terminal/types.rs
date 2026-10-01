@@ -232,6 +232,9 @@ pub(crate) const CELL_DATA_CHANNEL_CAPACITY: usize = 4;
 /// 上游 OSC 回调事件通道容量（剪贴板写入、振铃，低频；满则丢弃，VT 线程永不阻塞）。
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
+/// 构造函数等待 VT 线程进入其闭包的时限。超过即判定线程调度异常。
+/// 与 [QUERY_TIMEOUT_MS] 同量级：正常调度是微秒级，超时只可能来自系统过载。
+pub(crate) const VT_READY_TIMEOUT_MS: u64 = 500;
 /// `flush()` 等待 VT 线程排空积压的上限；须远大于 debug 构建下突发写入的正常排空
 /// 时间（数百毫秒），静默 5s 即视为 VT 线程确实卡死。
 pub(crate) const FLUSH_TIMEOUT_SECS: u64 = 5;
