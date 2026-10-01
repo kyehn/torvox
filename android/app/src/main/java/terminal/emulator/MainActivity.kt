@@ -199,7 +199,7 @@ class MainActivity : ComponentActivity() {
         }
         handleLaunchIntent(intent)
         setContent {
-            TerminalNavHost(openSettingsOnLaunch = launchOpenSettings)
+            TerminalNavHost(openSettingsRequests = openSettingsRequests)
         }
     }
 
@@ -209,8 +209,12 @@ class MainActivity : ComponentActivity() {
      * EXTRA_OPEN_SETTINGS 打开设置面板。对应 termux-app TermuxActivity.java:401-425
      * （快捷方式 intent 在重建时会重新投递，故应急标志必须在 onNewIntent 中
      * 重新应用，而不只是 onCreate）。
+     *
+     * 打开设置请求计数：每次带 `EXTRA_OPEN_SETTINGS` 的 intent 到达即递增。
+     * 用计数而不用布尔值——设置关闭后计数保持，再次到达仍能触发重组；
+     * 布尔值在首次置 true 后不再变化，二次 intent 无法生效。
      */
-    private var launchOpenSettings = false
+    private var openSettingsRequests by mutableStateOf(0)
 
     private fun handleLaunchIntent(intent: Intent?) {
         if (intent == null) {
@@ -230,7 +234,7 @@ class MainActivity : ComponentActivity() {
             runtime.requestFailsafeSession()
         }
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
-            launchOpenSettings = true
+            openSettingsRequests++
         }
         // 仅测试用的引导安装入口（NixExecRealTerminalTest）。
         // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
@@ -298,12 +302,15 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun TerminalNavHost(
-    openSettingsOnLaunch: Boolean = false,
+    openSettingsRequests: Int = 0,
     viewModel: TerminalViewModel = hiltViewModel(),
     viewModelReady: (TerminalViewModel) -> Unit = {},
 ) {
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
-    var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
+    var showSettings by remember { mutableStateOf(openSettingsRequests > 0) }
+    LaunchedEffect(openSettingsRequests) {
+        if (openSettingsRequests > 0) showSettings = true
+    }
     LaunchedEffect(showSettings) {
         // 关闭设置时立即恢复渲染（此时 bridge 已存在）；
         // 只有「打开」转换才需要等待 bridge 出现的冷启轮询。
