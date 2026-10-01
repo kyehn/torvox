@@ -580,6 +580,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         )
                     }
 
+                    // 同一事务的退格与追加走同一出口（N1-27）：退格同步直写而追加经批缓冲
+                    // 异步发送时，超量追加被推迟到下一帧，退格先到即顺序反转。
+                    private fun sendBackspaces(count: Int) {
+                        if (count > 0) inputBatchBuffer.write(ByteArray(count) { BACKSPACE_BYTE })
+                    }
+
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
                             composingBuffer = ""
@@ -600,9 +606,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             )
                         }
                         if (edit.backspaces > 0) {
-                            viewModel?.writeToPty(
-                                ByteArray(edit.backspaces) { BACKSPACE_BYTE },
-                            )
+                            sendBackspaces(edit.backspaces)
                         }
                         if (edit.append.isNotEmpty()) {
                             encodeAndSend(
@@ -648,9 +652,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 // 已经组字增量转发；不再重发。
                             } else {
                                 val clear = ComposingDiff.reconcile(composingBuffer, "")
-                                terminalViewModel?.writeToPty(
-                                    ByteArray(clear.backspaces) { BACKSPACE_BYTE },
-                                )
+                                sendBackspaces(clear.backspaces)
                                 encodeAndSend(committedText, ctrlActive, altActive)
                             }
                             composingBuffer = ""
@@ -714,18 +716,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                     removed++
                                 }
                                 composingBuffer = composingBuffer.substring(0, end)
-                                val bs = ByteArray(removed) { BACKSPACE_BYTE }
-                                viewModel?.writeToPty(bs)
+                                val removedBs = ByteArray(removed) { BACKSPACE_BYTE }
+                                inputBatchBuffer.write(removedBs)
                             } else {
                                 // 非组词直删：safeBefore 已按码点钳制，
                                 // shell 按字符删除，1:1 发送。
-                                val bs = ByteArray(safeBefore) { BACKSPACE_BYTE }
-                                viewModel?.writeToPty(bs)
+                                val directBs = ByteArray(safeBefore) { BACKSPACE_BYTE }
+                                inputBatchBuffer.write(directBs)
                             }
                         }
                         if (safeAfter > 0) {
                             val del = ByteArray(safeAfter) { DELETE_BYTE }
-                            viewModel?.writeToPty(del)
+                            inputBatchBuffer.write(del)
                         }
                         return true
                     }
