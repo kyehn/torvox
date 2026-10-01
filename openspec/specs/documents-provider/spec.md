@@ -56,6 +56,15 @@ SAF 客户端 MUST 仍能读写：`enforceReadPermissionInner` / `enforceWritePe
 - **WHEN** 客户端请求的名字为 `a..b.txt` 或含 `/`
 - **THEN** 抛 `FileNotFoundException`；MUST NOT 静默改写成别的名字后返回不匹配的 docId
 
+#### Scenario: 空名新建取默认名而非静默失败
+
+- **WHEN** 客户端以空名或纯空白名请求新建（DocumentsUI 在名字为空时仍放行 SAVE，
+      系统自带 DownloadsProvider 对同一手势会建出占位文件）
+- **THEN** MUST 创建成功而非抛异常：文件按 mimeType 取默认名（`text/plain` →
+      `New Document.txt`，目录 mimeType → `New Folder`），返回的 docId 指向该文件
+- **AND** 重命名路径 MUST NOT 套用此默认名——空名在重命名语境下仍是客户端契约违反，
+      照旧抛 `FileNotFoundException`
+
 ### Requirement: 提供者权威用应用标识前缀
 
 文档提供者的 authority MUST 取 `${applicationId}.documents`（即 `com.termux.documents`），

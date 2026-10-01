@@ -37,7 +37,7 @@ offset lambda 应用（状态变化只重排布局、不重组终端/修饰键�
 #### Scenario: 动画帧仅叶节点重组
 
 - **WHEN** 键盘动画期间 insets 每帧变化
-- **THEN** 只有 `WindowImeBottomPx` 节点重组并把新值写入状态，终端 Column/
+- **THEN** 只有 `WindowImeBottomPx` 节点重组并把新值写入状态，位移容器/
       修饰键栏/搜索层不逐帧重组
 
 #### Scenario: 定居节流语义不变
@@ -58,18 +58,35 @@ IME 弹出/隐藏动画及定居 MUST NOT 触发 `setRenderPaused`、`attachWind
 - **THEN** logcat 无 `setRenderPaused` / `attachWindow` / `applySurfaceResize`
       记录，循环 cadence 保持 idle → 活跃(≈5s) → idle
 
-### Requirement: 光标可见时终端不上抬
+### Requirement: 终端与修饰键栏同属一个位移容器
 
-键盘打开但光标行本就在可见区（最小平移为 0）时，终端内容 MUST NOT 整体上抬
-（稀疏会话防黑屏）；光标被键盘遮挡时才按 `computeTerminalPanPx` 最小平移抬升
-到可见区，平移与修饰键栏预留严格一致。
+输入法弹出时终端 Surface 与修饰键栏 MUST 处于同一个平移容器内，由**同一次**
+offset 施加**同一个**位移值。两者 MUST NOT 各自持有独立位移来源：双位移在屏幕上
+互压即表现为内容重叠；两个位移源取值不一致（如一个跟随 live insets、另一个跟随
+settled 值）即表现为持续闪烁。键栏覆盖在 Surface 底部，其高度已由网格按同一口径
+预留，故合并不改变 Surface 尺寸，网格不重排、无 SIGWINCH。
 
-#### Scenario: 顶部提示符原位
+#### Scenario: 键栏底边恒等于键盘顶边
 
-- **WHEN** 提示符位于顶部且键盘弹出
-- **THEN** 终端内容保持原位（pan=0），仅修饰键栏上移
+- **WHEN** 键盘弹出完成定居
+- **THEN** 修饰键栏底边像素与键盘顶边像素相等（同屏实测 `y=1516/1517` 相接），
+      终端末行紧贴键栏顶边，无空隙无重叠
 
-#### Scenario: 底部光标抬升
+#### Scenario: 位移源唯一
 
-- **WHEN** 光标行被键盘遮挡
-- **THEN** 终端区按 `computeTerminalPanPx` 平移恰好使光标行停在修饰键栏上方
+- **WHEN** 键盘动画期间
+- **THEN** insets 仅由 `WindowImeBottomPx` 叶节点读取并写入 `imeBottomPx`，
+      位移容器与键栏同读该状态；MUST NOT 再挂 SurfaceView 的
+      `OnApplyWindowInsetsListener`——它在 insets dispatch 遍历中读到尚未更新的
+      `ime=0`，写入布局状态又触发新一轮 dispatch，形成自激振荡
+
+### Requirement: 位移源不得自激振荡
+
+键入/隐藏动画期间位移值 MUST 收敛静止。写入布局状态 MUST NOT 位于会反过来触发
+该写入的回调内（insets dispatch 遍历），否则构成反馈环。
+
+#### Scenario: 定居后位移静止
+
+- **WHEN** 键盘保持打开并持续输出
+- **THEN** 连续 8 帧截图中，修饰键栏所在条带逐帧一致；差异只允许出现在系统状态栏
+      时钟等无关区域（MUST NOT 出现键栏条带整块跳变）
