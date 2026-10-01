@@ -122,7 +122,6 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
-| N2-25 | `ffi.rs:682` + `session.rs:408` | `ResizeOutcome::Dropped` 在 JNI 边界被静默丢弃（`resize_inner` 只 match `Err`）。`session.rs:396-404` 的 `grid_dirty` 重试使它在**下一次** resize 事件自愈，但若不再有 resize 事件（如旋转后输入法再也不弹出），PTY 停留在新尺寸而网格与渲染器停留在旧尺寸，且无任何日志。 |
 | N2-26 | `session.rs:128-133` + `ffi.rs:1520` | `Session::grid_size()` 只记录 Rust 侧发起的 resize。渲染器用它来排布 `Vec<CellData>`，而 `CursorInfo`（`types.rs:48-59`）不带 `rows`/`cols`。`CSI ?3h`（DECCOLM）会在上游内部改网格且不发 `Command::Resize`，届时 `CellData.col` 可达 159 而渲染器按 80 列排布。 |
 | N2-31 | `TerminalViewModel.kt:698-702` | `bridge?.listFontFamilies().orEmpty()` 在 bridge 缺席时伪造「空字体库」，随后 `SystemFonts.availableFontFamilies`（`SystemFonts.kt:9-12`）抛 `IllegalStateException`，被 `:712-717` 记录后**重新抛出**导致进程终止。把 `NativeQueryPort` 的「null = 无数据，绝不可伪造」契约变成了崩溃。 |
 | N2-32 | `native/src/terminal/ghostty_terminal/keymap.rs`（261 行） | 整条上游 key 编码链在生产中不可达：`map_android_key_code` 只被 `internal.rs:299` 的 `Query::KeyEncode` 引用，而 `public_api.rs:344`/`:387` 的 `key_encode`/`key_encode_submit` 无非测试调用方；`NativeBridge.kt` 也没有任何 `keyCode` 入参的导出（唯一按键入口是 `writeKey(sessionId, key: String, mods, text)`，`ffi.rs:901-945`）。但 `ffi.rs:940-942` 的注释声称「完整 Kitty 键盘协议编码由上游 key::Encoder 经 `Query::KeyEncode` 承担」——**注释与事实相反**。违反 `STYLE.md:63`。 |
