@@ -25,7 +25,7 @@
 
 ## 三、新的 P0
 
-> 维护注：N0-7（输出泵与渲染解耦）、N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）、N1-3（设置损坏降级为空偏好）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：N0-7（输出泵与渲染解耦）、N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）、N1-3（设置损坏降级为空偏好）、N1-5（释放走统一会话防护）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N0-6 PTY 主端是非阻塞的，`write_all` 在中途失败后丢弃剩余字节 —— 粘贴被静默截断
 
@@ -121,20 +121,6 @@ context.contentResolver.openInputStream(uri)?.use { input -> cacheFile.outputStr
 
 违反 `DESIGN.md:20`（低内存友好）、`DESIGN.md:142`。
 
-### N1-5 `releaseGpuSurface` 是唯一绕过 `onSession` 的 JNI 调用
-
-`android/app/src/main/java/terminal/emulator/bridge/Bridge.kt:243-245`
-
-```kotlin
-fun releaseGpuSurface() {
-    LogUtil.d(TAG, "releaseGpuSurface()")
-    if (sessionId != 0L) NativeBridge.detachWindow(sessionId)
-}
-```
-
-同类的 `resize` / `setPixelSize` / `render` / `setRenderPaused` / `setTheme` 全部走 `onSession`，其契约（`Bridge.kt:96-97`）是「native 抛 `RuntimeException` → 缺省值」。这一处是**反过来的缺口**：`id` 检查与实际调用之间会话被销毁，异常直接抛给调用方（Surface 拆卸路径），而该路径的既定处理是「绝不外逃」。
-
-P1-15 记的是「`onSession` 吞掉一切」，这里是它的镜像：**唯一一处毫无防护的调用**。
 
 ### N1-6 KGP 管线在 surface 格式变化时不失效；且每帧重建 TextureView + BindGroup
 

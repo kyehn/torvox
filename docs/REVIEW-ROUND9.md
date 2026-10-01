@@ -54,36 +54,6 @@ thermalMonitor = ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITIC
 
 ## 三、新的 P1
 
-### N1-14 `Bridge.getTitle()` 是唯一没有异常护栏的查询，而它的 Rust 侧会抛异常
-
-`android/app/src/main/java/terminal/emulator/bridge/Bridge.kt:564`
-
-```kotlin
-override fun getTitle(): String? = queryPort.getTitle()
-```
-
-同文件 `:581-620` 的十四个兄弟方法全部包了 `runCatchingCancellable { … }.getOrNull()` / `.getOrDefault(…)`，**唯独这一个没有**。`NativeQueryPort.kt:13` 直接调 `NativeBridge.getTitle(sessionIdProvider())` —— 绕过了 `onSession` 的 catch。
-
-而 Rust 侧确实会抛：`native/src/android/ffi.rs:2021-2027`
-
-```rust
-let Some(entry) = registry.get(&id) else {
-    let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"),
-                          jni_str!("getTitle: session not found"));
-    return Ok(std::ptr::null_mut());
-};
-```
-
-`sessionIdProvider()` 每次调用都重新求值，所以「读取活动会话 id」与「实际 JNI 调用」之间发生会话关闭/切换，就会产生一个合法但无人处理的 `IllegalArgumentException`。
-
-**可达路径**：`NativeQueryPort.kt:15` 的 `getActiveSessionTitle() = getTitle() ?: ""` → `TerminalRuntime.kt:3290 updateState()`（在 `sessionLock` 内）→ 被 `MainActivity.kt:274 onDestroy`（**主线程**）调用。同一个 `updateState` 还被 `:525 / :2800 / :3217 / :3136 / :3147` 调用。
-
-若从组合中调用（会话抽屉标题），这是主线程进程终止。
-
-这与第 8 轮 N1-8（14 个**无日志**的 `getOrNull`）不是一回事：那里是护栏存在但无日志，这里是**护栏根本不存在**。
-
-**修法**：照兄弟方法包一层 `runCatchingCancellable { }.getOrNull()`。
-
 ### N1-15 `scrollbackLine` 对负行号抛异常，而该行号在正常滚动中就会出现
 
 `native/src/android/ffi.rs:2127-2132`
@@ -153,23 +123,6 @@ var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
 2. 若进程在主 Looper 排空之前被切后台或被杀，**通知永久丢失** —— 选择器里的文件大小/mtime 保持陈旧，且没有任何重试路径。`Mutation.notifyWritten` 只由这一条路径可达，不存在兜底。
 
 违反 `DESIGN.md:22`（减少兜底，尽早抛出错误）、`DESIGN.md:80`（日志可见但不写文件，隐含的进程生命周期假设）。
-
-### N1-19 `setCursorColor` 文档声明的清除哨兵不存在，主题切换后光标色永久残留
-
-`android/app/src/main/java/terminal/emulator/bridge/NativeBridge.kt:243`
-
-```kotlin
-/**
- * 应用层光标颜色覆盖，线性 RGB（每通道 0..1）；0xFFFFFFFF 哨兵值表示清除覆盖（跟随终端）。
- */
-external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
-```
-
-而 `native/src/android/ffi.rs:2805-2812` 只收**三个 `f32`、没有哨兵**；`:2816` 无条件写 `render_state.cursor_color = Some([…])`，该字段仅在 `ffi.rs:191` 初始化为一次 `None`。
-
-**结论：根本不存在清除路径。** 从一个带自定义光标色的主题切到不带的主题时，`Bridge.kt:395` 仍会用 `argbToRgbFloats(theme.cursor)` 调用 `setCursorColor`，旧覆盖**持续到进程结束**。
-
-违反 `DESIGN.md:14`（「有 `a` `b` `c` 项」指有且只有，不可有未声明行为）。
 
 ---
 
