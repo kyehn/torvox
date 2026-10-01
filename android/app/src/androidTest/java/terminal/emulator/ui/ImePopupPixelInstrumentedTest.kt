@@ -36,6 +36,12 @@ class ImePopupPixelInstrumentedTest {
         private const val SETTLE_MILLIS = 600L
         private const val MOVE_MIN_SHIFT_PX = 20
         private const val STRIP_MATCH_MAX_DIFF = 300
+
+        /** 位移逐像素扫描时的窄窗宽度；命中后按整幅条带宽度重新计分。 */
+        private const val SHIFT_SCAN_WIDTH_PX = 300
+
+        /** 像素采样步长（x 与 y 同用），只影响统计速度。 */
+        private const val PIXEL_SAMPLE_STEP_PX = 3
     }
 
     @get:Rule
@@ -151,6 +157,12 @@ class ImePopupPixelInstrumentedTest {
      * 在顶部条带里搜索终端内容的上移量，返回（位移像素，匹配差异）。
      * 条带取在键盘永远碰不到的高处：键盘扫过只改变底部像素，顶部条带只随终端
      * 平移而动——扫过恒得位移 0，只有真正的终端上移才能给出显著位移。
+     *
+     * 位移逐像素扫描而非按步长抽样：条带差异地形是尖峰（行高 ~45px，错 1px 即整行
+     * 错位，差异从 0 跳到上千），按 6px 抽样会整体落空——实测粗搜命中 774，
+     * 真值 820（差异 0），二者相距 46px，任何以此为中心的细搜都够不到。
+     * 扫描用窄窗降低单候选代价，命中后再按整幅条带宽度计分，使返回的差异
+     * 与 STRIP_MATCH_MAX_DIFF 阈值保持同一口径。
      */
     private fun bestUpwardShift(
         first: android.graphics.Bitmap,
@@ -159,34 +171,45 @@ class ImePopupPixelInstrumentedTest {
         stripHeight: Int,
         maxShift: Int,
     ): Pair<Int, Int> {
+        val scanWidth = minOf(SHIFT_SCAN_WIDTH_PX, first.width)
         var bestShift = 0
-        var bestDiff = Int.MAX_VALUE
-        var shift = 0
-        while (shift <= maxShift) {
-            var diff = 0
-            var y = 0
-            while (y < stripHeight) {
-                var x = 0
-                while (x < first.width) {
-                    if (
-                        pixelDelta(
-                            first.getPixel(x, stripTop + y),
-                            second.getPixel(x, stripTop + y - shift),
-                        ) > 40
-                    ) {
-                        diff++
-                    }
-                    x += 3
-                }
-                y += 3
-            }
-            if (diff < bestDiff) {
-                bestDiff = diff
+        var bestScanDiff = Int.MAX_VALUE
+        for (shift in 0..maxShift) {
+            val scanDiff = shiftDiff(first, second, stripTop, stripHeight, shift, scanWidth)
+            if (scanDiff < bestScanDiff) {
+                bestScanDiff = scanDiff
                 bestShift = shift
             }
-            shift += 6
+            if (bestScanDiff == 0) break
         }
-        return bestShift to bestDiff
+        return bestShift to shiftDiff(first, second, stripTop, stripHeight, bestShift, first.width)
+    }
+
+    /** 给定位移下，条带内前 [widthPx] 列的像素差异数；越界行按跳过处理，避免负下标。 */
+    private fun shiftDiff(
+        first: android.graphics.Bitmap,
+        second: android.graphics.Bitmap,
+        stripTop: Int,
+        stripHeight: Int,
+        shift: Int,
+        widthPx: Int,
+    ): Int {
+        var diff = 0
+        var y = 0
+        while (y < stripHeight) {
+            val sourceY = stripTop + y - shift
+            if (sourceY >= 0) {
+                var x = 0
+                while (x < widthPx) {
+                    if (pixelDelta(first.getPixel(x, stripTop + y), second.getPixel(x, sourceY)) > 40) {
+                        diff++
+                    }
+                    x += PIXEL_SAMPLE_STEP_PX
+                }
+            }
+            y += PIXEL_SAMPLE_STEP_PX
+        }
+        return diff
     }
 
     private fun isImeVisible(): Boolean {
