@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import android.view.WindowInsets
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
@@ -42,6 +43,18 @@ class ImePopupPixelInstrumentedTest {
 
         /** 行墨量的横向抽样步长：放宽到 12px 仍能精确命中（见 bestUpwardShift）。 */
         private const val ROW_INK_SAMPLE_STEP_PX = 12
+
+        /** 顶部条带高度：键盘永远够不到的高处，只随终端平移而动。 */
+        private const val STRIP_HEIGHT_PX = 150
+
+        /** 位移出现的轮询上限，与 contentMany 同一口径。 */
+        private const val SETTLE_MOVE_TIMEOUT_MS = 15_000L
+
+        /** 位移轮询间隔。 */
+        private const val SETTLE_POLL_MILLIS = 500L
+
+        /** 键栏底边相对键盘顶边的容差：亚像素取整误差。 */
+        private const val BAR_SEAM_TOLERANCE_PX = 8
 
         /** 行指纹在每个箱内的抽样步长。 */
         private const val ROW_BIN_SAMPLE_STEP_PX = 2
@@ -294,21 +307,43 @@ class ImePopupPixelInstrumentedTest {
         throw AssertionError("输入法隐藏后仍自动弹出")
     }
 
+    /**
+     * 内容较少时弹出输入法：终端与键栏同属一个位移容器，整体上移后必须稳定，
+     * 且键栏完整位于键盘上方、不被键盘遮挡（半透明/被吞）。
+     *
+     * 旧口径断言「内容较少时终端无变化」——那是双位移时代的光标最小平移契约，
+     * 已随单一位移容器一并作废：终端与键栏同属一个容器、只有一个位移值，
+     * 不可能只动键栏而终端不动。稀疏会话的内容上抬是该设计的已知代价
+     * （见 openspec ime-animation-smoothness「终端与修饰键栏同属一个位移容器」）。
+     *
+     * 此处**不**度量位移像素：内容仅一行时顶部条带本就空白，位移搜索恒得 0，
+     * 量到的不是位移而是空白。可断言的实质是键栏位置与定居后的稳定性。
+     */
     @Test
-    fun contentFewImePopupTerminalUnchanged() {
+    fun contentFewImePopupBarAboveKeyboardAndNoFlicker() {
         val marker = "IME_FEW_${System.currentTimeMillis() % 100000}"
         printAndAwait("printf '$marker\\n'", marker)
         Thread.sleep(SETTLE_MILLIS)
-        // 收起必须紧贴截图：输出期间自动弹键盘可能在任何时刻出现。
         hideImeAndSettle()
-        val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
         tapAndAwaitIme()
-        val after = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        // 内容较少时终端无变化：顶部六成区域像素必须一致（裁掉状态栏与输入法区）。
-        val top = before.height / 10
-        val bottom = before.height * 6 / 10
-        val diff = countDifferingPixels(before, after, top, bottom)
-        assertTrue("内容较少时弹出输入法终端必须无变化 (差分=$diff)", diff <= 5)
+        val imeHeight = imeHeightPx()
+        assertTrue("输入法必须占据高度", imeHeight > 0)
+        // 键栏完整位于键盘上方：底边不得低于键盘顶边（差一个取整容差内）。
+        val keyboardTop = device.displayHeight - imeHeight
+        val barBottom =
+            composeTestRule.onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue(
+            "键栏必须完整位于输入法上方 (键栏底边=$barBottom 键盘顶边=$keyboardTop)",
+            barBottom <= keyboardTop + BAR_SEAM_TOLERANCE_PX,
+        )
+        // 定居后无闪烁：键盘上方整片区域连续两帧必须一致。
+        Thread.sleep(SETTLE_MILLIS)
+        val first = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        Thread.sleep(SETTLE_MILLIS)
+        val second = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        val band = countDifferingPixels(first, second, 0, first.height - imeHeight)
+        assertTrue("内容较少时弹出输入法必须无闪烁 (差分=$band)", band <= 5)
     }
 
     @Test

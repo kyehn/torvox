@@ -78,6 +78,9 @@ private const val IME_TOGGLE_DELAY_MS = 50L
 private const val IME_SETTLE_FRAMES = 3
 private const val IME_POLL_INTERVAL_MS = 16L
 
+/** 位移稳定后的空闲轮询间隔：动画结束后无需逐帧跟随，降低常驻唤醒。 */
+private const val IME_IDLE_POLL_INTERVAL_MS = 200L
+
 /** 搜索查询串长度上限（DESIGN 修饰键栏节：匹配文本的长度需要被限制）。 */
 private const val SEARCH_QUERY_MAX_LENGTH = 256
 
@@ -427,9 +430,9 @@ fun TerminalScreen(
             // insets 有两个来源，**按较大者合成**而非后写覆盖：
             //  1) [WindowImeBottomPx] 叶节点——动画期间逐帧给出真实键盘高度
             //     （实测 0→772→818→820 后静止）。
-            //  2) SurfaceView 的 OnApplyWindowInsetsListener——视图系统通道。Compose
-            //     订阅并非在所有环境都收到更新（实测仪器化运行中叶节点恒为 0，
-            //     而 rootWindowInsets 已报出真实键盘高度），故此路必须保留。
+            //  2) 轮询 rootWindowInsets——视图系统通道。Compose 订阅并非在所有环境都
+            //     收到更新（实测仪器化运行中叶节点恒为 0，而 rootWindowInsets 已报出
+            //     真实键盘高度），故此路必须保留。
             //
             // 早期实现让两路**后写覆盖**同一状态，视图通道在 insets dispatch 遍历中
             // 读到尚未更新的 ime=0，写入布局状态又触发新一轮 dispatch，实测自激振荡
@@ -438,44 +441,34 @@ fun TerminalScreen(
             // 两侧同时归零（键盘收起）时位移同样归零。
             val imeLeafPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             WindowImeBottomPx { imeLeafPx.intValue = it }
+            // 视图通道：轮询 rootWindowInsets，不监听 dispatch。
+            //
+            // 监听 dispatch 两次踩坑：其一，在 dispatch 遍历内写布局状态会触发新一轮
+            // dispatch，读到的 ime 在 0 与真实高度间往复，形成自激回路（实测常驻 46% CPU，
+            // 并使 UiAutomation.takeScreenshot() 永不稳定）；其二，改为「静止后才采纳」
+            // 后又被连续 dispatch 反复取消计时而饿死，位移时有时无。
+            // 轮询只读框架已算好的 insets，不回灌 dispatch，两条问题都不成立；
+            // 且 rootWindowInsets 本身可靠——实测仪器化环境下 Compose 叶节点恒为 0，
+            // rootWindowInsets 仍给出真实键盘高度。
+            //
+            // 值变化时按动画帧率轮询，稳定后退到空闲间隔，避免常驻高频唤醒。
             val imeViewPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            val surfaceView = surfaceRef.value
-            DisposableEffect(surfaceView) {
-                if (surfaceView == null) return@DisposableEffect onDispose {}
-                // 只采纳「静止后」的值：每次 dispatch 读到的 ime 会在 0 与真实高度间
-                // 跳变，而写入布局状态又触发新一轮 dispatch——叶节点正常时两者一致，
-                // 本路是同值空写；叶节点恒零时（实测仪器化环境）则是自激回路：
-                // 0→写→重排→dispatch→正数→写→……实测让应用常驻 46% CPU 并使
-                // UiAutomation.takeScreenshot() 永远等不到稳定帧。
-                // 故每次 dispatch 取消上一个待采纳任务并重新计时，只有该值连续
-                // 保持一个定居窗口才写入：值不停跳变时永不写入，回路在结构上断开。
-                var pending: Runnable? = null
-                val settleDelayMillis = IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES
-                val listener =
-                    androidx.core.view.OnApplyWindowInsetsListener { _, insets ->
-                        // 与 WindowImeBottomPx 同一口径：扣除手势导航条高度
-                        // （`navigationBarsPadding` 已在根 Box 消费它）。
-                        val imeInset = insets.getInsets(android.view.WindowInsets.Type.ime())
-                        val navigationInset =
-                            insets.getInsets(android.view.WindowInsets.Type.navigationBars())
-                        val bottom = max(imeInset.bottom - navigationInset.bottom, 0)
-                        pending?.let { surfaceView.removeCallbacks(it) }
-                        val task =
-                            Runnable {
-                                // 叶节点已给出正数时丢弃本路的 0：dispatch 遍历早于
-                                // 本帧 IME inset 更新，该 0 是时序假值而非键盘收起。
-                                if (bottom > 0 || imeLeafPx.intValue == 0) {
-                                    imeViewPx.intValue = bottom
-                                }
-                            }
-                        pending = task
-                        surfaceView.postDelayed(task, settleDelayMillis)
-                        insets
+            LaunchedEffect(Unit) {
+                var lastSeen = -1
+                while (true) {
+                    val insets = surfaceRef.value?.rootWindowInsets
+                    val imeBottom = insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+                    val navigationBottom =
+                        insets?.getInsets(android.view.WindowInsets.Type.navigationBars())?.bottom ?: 0
+                    val bottom = max(imeBottom - navigationBottom, 0)
+                    val changed = bottom != lastSeen
+                    if (changed) {
+                        lastSeen = bottom
+                        imeViewPx.intValue = bottom
                     }
-                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
-                onDispose {
-                    pending?.let { surfaceView.removeCallbacks(it) }
-                    androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
+                    kotlinx.coroutines.delay(
+                        if (changed) IME_POLL_INTERVAL_MS else IME_IDLE_POLL_INTERVAL_MS,
+                    )
                 }
             }
             val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
