@@ -820,6 +820,9 @@ impl super::GhosttyTerminal {
                         // setScrollOffset re-sends on the next offset change.
                         terminal
                             .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+                        // 显式滚动强制重推：视口内容可能逐字节相同（如已在底部），
+                        // 内容去重会吞掉本次滑动的即时重绘。与 SetSelection 同款失效。
+                        last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
                     }
@@ -2106,6 +2109,7 @@ impl super::GhosttyTerminal {
     }
 
     /// 文本搜索匹配长度上限：超长查询直接无命中，避免正则引擎与全回滚扫描浪费资源。
+    /// 与 UI 侧 `SEARCH_QUERY_MAX_LENGTH` 同值，两侧必须一起改。
     const MAX_SEARCH_QUERY_CHARS: usize = 128;
 
     /// 用外部 `regex` 库编译字面搜索模式（大小写开关由库承载，不手写折叠循环）。

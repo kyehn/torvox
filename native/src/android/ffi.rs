@@ -2830,7 +2830,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
 
 /// 应用层光标色覆盖（`red` | `green` | `blue`，0..1 线性 RGB）。叠加在主题光标色之上，
 /// 使用户主题的光标色能抵达渲染器（54 字节的 `setTheme` 载荷没有对应槽位）。
-/// `None` 清除覆盖（跟随终端）。
+/// 总是覆盖，无清除路径：唯一调用方 `Bridge.setTheme` 每次显式下发主题光标色。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor(
     mut unowned_env: EnvUnowned<'_>,

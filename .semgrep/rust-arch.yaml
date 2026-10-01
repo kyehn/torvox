@@ -11,12 +11,15 @@ rules:
   - id: no-allow-in-prod
     patterns:
       - pattern-regex: '#\[allow\('
-      - pattern-not-inside: '#[cfg(test)]'
     paths:
       include:
         - "**/native/src/**/*.rs"
       exclude:
         - "**/test_helpers*"
+        - "**/tests.rs"
+        - "**/*_tests.rs"
+        - "**/prop_tests.rs"
+        - "**/snapshot_test.rs"
     message: "No #[allow] in production source code — fix the underlying issue instead"
     severity: ERROR
     languages:
