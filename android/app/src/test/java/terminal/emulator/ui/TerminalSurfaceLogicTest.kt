@@ -255,6 +255,14 @@ class TerminalSurfaceLogicTest {
         assert(!zoomSettledOnNewSize(16f, finalSize))
     }
 
+    @Test
+    fun `no-op pinch on a below-zoom-min base does not settle`() {
+        // N2-96: settings allows 8sp but zoom clamps to 14sp; onScaleEnd must judge
+        // the unclamped product so a net-1.0 gesture never persists a new size.
+        val rawSizeSp = 8f * 1.0f
+        assert(!zoomSettledOnNewSize(8f, rawSizeSp))
+    }
+
     // ── menu anchoring (design decision 3) ────────────────────────────────────
 
     private val viewport = PixelRect(0, 0, 400, 800)
