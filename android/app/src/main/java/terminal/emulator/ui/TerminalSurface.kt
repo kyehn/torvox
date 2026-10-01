@@ -21,7 +21,6 @@ import android.view.inputmethod.InputConnection
 import android.widget.Magnifier
 import android.widget.OverScroller
 import android.widget.PopupWindow
-import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
 import terminal.emulator.R
@@ -39,7 +38,6 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.computeGridDimensions
 import terminal.emulator.util.isWideCodePoint
 import terminal.emulator.util.runCatchingCancellable
-import java.io.File
 import kotlin.math.roundToInt
 
 class TerminalSurface
@@ -131,7 +129,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val selection = viewModel?.state?.value?.selection ?: return
         if (selection.start == null || selection.end == null) return
         val pasteEnabled = clipboardAccess.hasClipboardText()
-        val actions = menuActionsForSelection(pasteOnly, pasteEnabled, selection.selectedText.orEmpty())
+        val actions = menuActionsForSelection(pasteOnly, pasteEnabled)
         if (actions.isEmpty()) return
         val bar = buildMenuBar(actions)
         val popup =
@@ -163,11 +161,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         selectionMenuPopup = popup
     }
 
-    /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK|OPEN FILE / PASTE-if-clipboard). */
+    /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK / PASTE-if-clipboard). */
     internal fun menuActionsForSelection(
         pasteOnly: Boolean,
         pasteEnabled: Boolean,
-        selectionText: String,
     ): List<Pair<String, () -> Unit>> = buildList {
         if (pasteOnly) {
             if (pasteEnabled) {
@@ -215,15 +212,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         },
                 )
             }
-            if (isFilePathCandidate(selectionText)) {
-                add(
-                    context.getString(R.string.open_file) to
-                        {
-                            openSelectionAsFile(selectionText)
-                            viewModel?.clearSelection()
-                        },
-                )
-            }
         }
     }
 
@@ -253,52 +241,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             context.startActivity(intent)
         } catch (exception: Exception) {
             LogUtil.w(TAG, "openSelectionAsLink: no handler", exception)
-        }
-    }
-
-    internal fun openSelectionAsFile(text: String) {
-        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-            .substringBefore("\n").trim()
-        if (trimmed.isEmpty()) {
-            toastCannotOpenFile()
-            return
-        }
-        val file = try {
-            File(trimmed)
-        } catch (_: Exception) {
-            toastCannotOpenFile()
-            return
-        }
-        if (!file.isFile) {
-            toastCannotOpenFile()
-            return
-        }
-        try {
-            val uri =
-                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            val mime = context.contentResolver.getType(uri) ?: "*/*"
-            val intent =
-                android.content.Intent(android.content.Intent.ACTION_VIEW)
-                    .setDataAndType(uri, mime)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    .addFlags(android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            context.startActivity(intent)
-        } catch (exception: Exception) {
-            LogUtil.w(TAG, "openSelectionAsFile: no handler", exception)
-            toastCannotOpenFile()
-        }
-    }
-
-    internal fun toastCannotOpenFile() {
-        try {
-            android.widget.Toast.makeText(
-                context,
-                context.getString(R.string.open_file_failed),
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-        } catch (exception: Exception) {
-            LogUtil.w(TAG, "toastCannotOpenFile: toast failed", exception)
         }
     }
 
@@ -2926,29 +2868,11 @@ internal fun shouldSuppressTapAfterDragEnd(
     windowMs: Long = SELECTION_MENU_RESHOW_GUARD_MS,
 ): Boolean = lastDragEndMs > 0L && nowMs >= lastDragEndMs && nowMs - lastDragEndMs < windowMs
 
-/** 选择长度合理阈值：链接/文件项只在该长度内按格式匹配显示，不查可用性。 */
-internal const val MAX_SELECTION_ACTION_LENGTH = 2048
-
-/**
- * 菜单“打开链接”目标：仅 OSC 8 超链接 URI。纯文本裸 URL 不做识别
+/** 菜单“打开链接”目标：仅 OSC 8 超链接 URI。纯文本裸 URL 不做识别
  * （libghostty-vt 只提供 OSC 8，不含纯文本 URL 扫描）。显示侧以本函数的
  * 非空性判定，动作与显示绝不分叉。
  */
 internal fun resolveOpenLinkUri(hyperlinkUri: String?): String? = hyperlinkUri?.trim()?.takeIf { it.isNotEmpty() }
-
-/** 菜单显示用文件格式匹配（纯逻辑：绝对路径形态，不查存在性）。 */
-internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_ACTION_LENGTH): Boolean {
-    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-        .substringBefore("\n").trim()
-    if (trimmed.isEmpty() || trimmed.length > maxLength) return false
-    if (!trimmed.startsWith("/")) return false
-    if (trimmed.contains("\u0000")) return false
-    // shell 错误行不是路径：`/bin/sh: xxx: ...` 形态含冒号分隔的消息体，拒绝。
-    if (trimmed.contains(": ")) return false
-    // 路径内不得含空白：选择文本含空格即非单一路径（如错误行）。
-    if (trimmed.any { it.isWhitespace() }) return false
-    return true
-}
 
 /** 滚动行高下限：避免除零，保持手势可用。 */
 internal const val MIN_CELL_HEIGHT_PX = 1f
