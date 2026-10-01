@@ -12,6 +12,7 @@
 ## 一、新的 P2
 
 > 维护注：N2-96（缩放落定误持久化）、N2-97（绝对行换算收敛）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：N2-98 的 `2026-09-30-fix-audit-p0` 行已完成归档（2.1/2.2/3.1 均合入），仅 `2026-09-28-render-idle-cursor`（环境受阻）仍悬挂；编号保持不变。
 
 ### N2-98 openspec 有两个变更长期未归档，其中一个带未完成任务
 
@@ -21,11 +22,9 @@
 | 变更 | 已完成 | 未完成 | 状态 |
 | --- | --- | --- | --- |
 | `2026-09-28-render-idle-cursor` | 4 | 1 | 任务 4 自述「**受阻，非产品缺陷**」：新建 AVD 只装 `LatinIME`，Gboard 未启用中文输入语言，`imeCommitChineseTextGridded` 无法提交中文 |
-| `2026-09-30-fix-audit-p0` | 6 | 3 | 未完成项为 `2.1 take_kitty_placements 移出 RENDER_STATE`、`2.2 pollEvent 锁区收缩与输出泵独立`、`3.1 回滚搜索单次前向扫描` |
+| `2026-09-30-fix-audit-p0` | 9 | 0 | 全部完成并已归档（`openspec/changes/archive/2026-09-30-fix-audit-p0`） |
 
-两个变更都处于「半完成且未归档」状态，`openspec/specs/` 的同步因此也悬空
-（`2026-09-30-fix-audit-p0` 没有 `specs/` 目录，其 `proposal.md` 亦声明
-「Modified Capabilities: 无」，即它的行为变更没有对应的 spec delta）。
+当前 `2026-09-28-render-idle-cursor` 处于「半完成且未归档」状态（受阻任务合规悬挂，见下注）。
 
 **注**：`2026-09-28` 的受阻任务已按 `TESTING.md:11` 如实报告而未跳过/删除/忽略，
 **这一点是合规的**。问题只在于变更没有被归档或关闭，工作流处于悬挂态。
