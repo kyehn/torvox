@@ -154,11 +154,7 @@ impl DirtyBand {
 pub struct FramePatch {
     /// Dirty row bands to redraw (`load: Load` over previous content).
     pub bands: Vec<DirtyBand>,
-    /// Pure vertical scroll detected against the previous frame: shift the
-    /// existing accumulator content UP by this many grid rows (via chunked
-    /// same-texture copies) BEFORE drawing `bands`. `None` = no scroll.
-    pub scroll_up_rows: Option<u32>,
-    /// Rendered pixel height of one grid row (for the blit geometry).
+    /// Rendered pixel height of one grid row（脏带清除实例的几何）。
     pub cell_height_px: f32,
 }
 
@@ -936,71 +932,6 @@ fn append_row_instances(
             });
         }
     }
-}
-
-/// Detect a pure vertical scroll shift between two frames for the blit path.
-/// Returns `Some(shift)` when `new[0..(rows-shift)*cols]` equals
-/// `old[shift*cols..]` for some `1<=shift<=max_scan_rows`, otherwise `None`.
-/// Used by the GPU dirty-band path to replace a full rebuild with a blit.
-/// `rows` is the grid height, `max_scan_rows` caps the search (prevents O(n²)
-/// on large grids). Empty grids or `rows==0` return `None`.
-#[cfg(test)]
-pub fn detect_vertical_shift(
-    old: &[crate::terminal::ghostty_terminal::CellData],
-    new: &[crate::terminal::ghostty_terminal::CellData],
-    rows: usize,
-    max_scan_rows: usize,
-) -> Option<usize> {
-    if old.is_empty() || new.is_empty() || rows == 0 || max_scan_rows == 0 {
-        return None;
-    }
-    if old.len() != new.len() {
-        return None;
-    }
-    let total = old.len();
-    if !total.is_multiple_of(rows) {
-        return None;
-    }
-    let cols = total / rows;
-    if cols == 0 {
-        return None;
-    }
-    // Identical frames are not a scroll — report None even though every shift would match.
-    let identical = old.len() == new.len()
-        && old
-            .iter()
-            .zip(new.iter())
-            .all(|(a, b)| a.codepoint == b.codepoint && a.width == b.width);
-    if identical {
-        return None;
-    }
-    let max = max_scan_rows.min(rows.saturating_sub(1));
-    for shift in 1..=max {
-        let remaining_rows = rows - shift;
-        let mut matches = true;
-        for row in 0..remaining_rows {
-            for col in 0..cols {
-                let old_idx = (row + shift) * cols + col;
-                let new_idx = row * cols + col;
-                if old[old_idx].codepoint != new[new_idx].codepoint
-                    || old[old_idx].width != new[new_idx].width
-                {
-                    matches = false;
-                    break;
-                }
-            }
-            if !matches {
-                break;
-            }
-        }
-        if matches {
-            // Ensure the shift is minimal and the tail rows are "new" (not equal to old tail)
-            // — the tests consider ABCDEF→EFGHIJ shift 4, not shift 1, so we must find the
-            // smallest shift that satisfies the prefix equality. Our loop already scans in order.
-            return Some(shift);
-        }
-    }
-    None
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
