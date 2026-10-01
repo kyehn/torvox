@@ -1553,13 +1553,15 @@ fn render_inner(session_id: u64) -> jint {
             // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
             // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
             // 打包重传，滚动/缩放只经无拷贝布局重建实例。
+            // 全局锁序：渲染状态锁内绝不嵌套注册表与会话锁。会话查询在锁外完成
+            // 后再重取渲染状态锁应用结果，消除渲染线程与主题线程的环形等待。
             let kitty_generation = cursor_info.kitty_generation;
             // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
             let (font_width, font_height) = render_state.font_pipeline.cell_metrics();
             let raster_scale = render_state.font_pipeline.get_raster_scale();
             let grid_cell_width = font_width * raster_scale;
             let grid_cell_height = font_height * raster_scale;
-            let mut kitty_keys_changed = session_id != render_state.kitty_session
+            let kitty_keys_snapshot = session_id != render_state.kitty_session
                 || kitty_generation != render_state.kitty_generation
                 || scroll_offset != render_state.kitty_scroll_offset
                 || rows != render_state.kitty_rows
@@ -1567,27 +1569,48 @@ fn render_inner(session_id: u64) -> jint {
             let kitty_cell_changed = (grid_cell_width - render_state.kitty_cell_width).abs()
                 > f32::EPSILON
                 || (grid_cell_height - render_state.kitty_cell_height).abs() > f32::EPSILON;
-            // 单元格几何失步：终端侧仍为旧值时上游按旧几何重算 pixel 尺寸，
-            // 与新 origin 口径不一致。先同步新尺寸到终端再重查
-            // （VT 先排空命令积压再处理查询，命令先发即先生效，无竞态）。
-            // 纯文本（generation==0）零开销跳过；首图/切会话无缓存帧也同步，
+            // 单元格几何失步：终端侧仍为旧值时上游按旧几何重算像素尺寸，
+            // 与新来源口径不一致。先同步新尺寸到终端再重查
+            // （先排空命令积压再处理查询，命令先发即先生效，无竞态）。
+            // 纯文本（生成戳为 0）零开销跳过；首图与切会话无缓存帧也同步，
             // 否则缓存的新尺寸会永久掩盖终端侧的旧几何。
-            if kitty_generation != 0
-                && (kitty_cell_changed || session_id != render_state.kitty_session)
-            {
-                let cell_width = grid_cell_width.max(1.0) as u32;
-                let cell_height = grid_cell_height.max(1.0) as u32;
+            let need_cell_sync = kitty_generation != 0
+                && (kitty_cell_changed || session_id != render_state.kitty_session);
+            let need_kitty_fetch = kitty_generation != 0 && (kitty_keys_snapshot || need_cell_sync);
+            let sync_cell_width = grid_cell_width.max(1.0) as u32;
+            let sync_cell_height = grid_cell_height.max(1.0) as u32;
+            drop(state);
+            if need_cell_sync {
                 let registry = rlock_session_registry();
                 if let Some(entry) = registry.get(&session_id) {
                     entry
                         .session
                         .lock()
                         .terminal()
-                        .set_cell_pixel_size(cell_width, cell_height);
+                        .set_cell_pixel_size(sync_cell_width, sync_cell_height);
                 }
-                // 强制重查：旧帧 pixel 尺寸按旧几何解算，必须按新几何重算。
-                kitty_keys_changed = true;
             }
+            // 渲染状态锁外查询：仅放置键变化时触发；刚推送帧时通常毫秒级返回
+            // （卡住时由 500 毫秒超时兜底），期间其他渲染状态消费者不再排队。
+            let fetched_kitty_frames = if need_kitty_fetch {
+                let registry = rlock_session_registry();
+                registry
+                    .get(&session_id)
+                    .map(|entry| entry.session.lock().terminal().take_kitty_placements())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let mut state = render_state_mut();
+            let Some(render_state) = state.as_mut() else {
+                log::error!("render: render state missing");
+                return -1;
+            };
+            if render_state.renderer.surface.is_none() {
+                return 0;
+            }
+            // 强制重查：旧帧像素尺寸按旧几何解算，必须按新几何重算。
+            let kitty_keys_changed = kitty_keys_snapshot || need_cell_sync;
             if kitty_keys_changed || kitty_cell_changed {
                 let generation_changed = kitty_generation != render_state.kitty_generation
                     || session_id != render_state.kitty_session;
@@ -1606,19 +1629,9 @@ fn render_inner(session_id: u64) -> jint {
                         render_state.kitty_uploaded_generation = 0;
                     }
                 } else {
-                    // 渲染状态锁内 RPC：仅放置键变化时触发；VT 刚推送帧，
-                    // 查询通常毫秒级返回（卡住时由 500ms 超时兜底）。
+                    // 锁外已取回放置帧，此处仅应用，不再持渲染状态锁查询会话。
                     if kitty_keys_changed {
-                        let frames = {
-                            let registry = rlock_session_registry();
-                            registry
-                                .get(&session_id)
-                                .map(|entry| {
-                                    entry.session.lock().terminal().take_kitty_placements()
-                                })
-                                .unwrap_or_default()
-                        };
-                        render_state.kitty_frames = frames;
+                        render_state.kitty_frames = fetched_kitty_frames;
                     }
                     if generation_changed {
                         repack_kitty_atlas(
