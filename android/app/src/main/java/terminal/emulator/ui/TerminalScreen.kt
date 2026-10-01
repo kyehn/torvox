@@ -418,22 +418,51 @@ fun TerminalScreen(
             // 平移，双位移差拍（内容重叠/持续闪烁/键栏被输入法遮住）在结构上不可能发生。
             // Surface 尺寸永不变化，故不触发交换链重建与网格重排。
             //
-            // 唯一 insets 来源是 [WindowImeBottomPx]：它在动画期间逐帧给出真实键盘高度
-            // （实测 0→772→818→820 后静止）。此处刻意不再挂 SurfaceView 的
-            // OnApplyWindowInsetsListener——它在 dispatch 遍历中读到的是尚未更新的
-            // ime=0，写入布局状态又触发新一轮 dispatch，实测自激振荡 506 次、
-            // 使键栏在「键盘上方」与「键盘后方」之间来回跳，即持续闪烁的根因。
+            // insets 有两个来源，**按较大者合成**而非后写覆盖：
+            //  1) [WindowImeBottomPx] 叶节点——动画期间逐帧给出真实键盘高度
+            //     （实测 0→772→818→820 后静止）。
+            //  2) SurfaceView 的 OnApplyWindowInsetsListener——视图系统通道。Compose
+            //     订阅并非在所有环境都收到更新（实测仪器化运行中叶节点恒为 0，
+            //     而 rootWindowInsets 已报出真实键盘高度），故此路必须保留。
             //
-            // insets 只在叶节点读取并写入状态，位移经布局期 offset lambda 应用，
-            // 动画期间主组合（容器/键栏/搜索层）不逐帧重组。
-            val imeBottomPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            WindowImeBottomPx { imeBottomPx.intValue = it }
+            // 早期实现让两路**后写覆盖**同一状态，视图通道在 insets dispatch 遍历中
+            // 读到尚未更新的 ime=0，写入布局状态又触发新一轮 dispatch，实测自激振荡
+            // 506 次，键栏在「键盘上方」与「键盘后方」之间来回跳，即持续闪烁的根因。
+            // 取较大者后任一方的 0 都压不掉对方的真实值，振荡在结构上不可能复现；
+            // 两侧同时归零（键盘收起）时位移同样归零。
+            val imeLeafPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            WindowImeBottomPx { imeLeafPx.intValue = it }
+            val imeViewPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            val surfaceView = surfaceRef.value
+            DisposableEffect(surfaceView) {
+                if (surfaceView == null) return@DisposableEffect onDispose {}
+                val listener =
+                    androidx.core.view.OnApplyWindowInsetsListener { _, insets ->
+                        // 与 WindowImeBottomPx 同一口径：扣除手势导航条高度
+                        // （`navigationBarsPadding` 已在根 Box 消费它）。
+                        val imeInset = insets.getInsets(android.view.WindowInsets.Type.ime())
+                        val navigationInset =
+                            insets.getInsets(android.view.WindowInsets.Type.navigationBars())
+                        val bottom = max(imeInset.bottom - navigationInset.bottom, 0)
+                        // 叶节点已给出正数时丢弃本路的 0：dispatch 遍历早于本帧 IME
+                        // inset 更新，该 0 是遍历时序的假值，不是键盘真的收起。
+                        // 值相同时不写，避免同值写入触发无谓的重排→再次 dispatch。
+                        if (bottom != imeViewPx.intValue && (bottom > 0 || imeLeafPx.intValue == 0)) {
+                            imeViewPx.intValue = bottom
+                        }
+                        insets
+                    }
+                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
+                onDispose {
+                    androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
+                }
+            }
             val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             // 定居节流：值停止变化 IME_SETTLE_FRAMES×轮询间隔后锁定 settled 值。
-            // 位移本身直接读 imeBottomPx（每帧即跟随 live 值），不被此节流阻塞——
+            // 位移本身直接读合成值（每帧即跟随 live 值），不被此节流阻塞——
             // 否则动画期间终端与键栏冻结、定居后跳变（违反逐帧跟随）。
             LaunchedEffect(Unit) {
-                snapshotFlow { imeBottomPx.intValue }
+                snapshotFlow { max(imeLeafPx.intValue, imeViewPx.intValue) }
                     .distinctUntilChanged()
                     .collectLatest { imeBottom ->
                         delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
@@ -450,7 +479,7 @@ fun TerminalScreen(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
-                    .offset { IntOffset(0, -imeBottomPx.intValue) },
+                    .offset { IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue)) },
             ) {
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。

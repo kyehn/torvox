@@ -37,11 +37,14 @@ class ImePopupPixelInstrumentedTest {
         private const val MOVE_MIN_SHIFT_PX = 20
         private const val STRIP_MATCH_MAX_DIFF = 300
 
-        /** 位移逐像素扫描时的窄窗宽度；命中后按整幅条带宽度重新计分。 */
-        private const val SHIFT_SCAN_WIDTH_PX = 300
-
-        /** 像素采样步长（x 与 y 同用），只影响统计速度。 */
+        /** 像素采样步长（x 与 y 同用）：只影响差异统计速度。 */
         private const val PIXEL_SAMPLE_STEP_PX = 3
+
+        /** 行指纹的横向分箱数。 */
+        private const val ROW_PROFILE_BINS = 48
+
+        /** 行指纹在每个箱内的抽样步长。 */
+        private const val ROW_BIN_SAMPLE_STEP_PX = 2
     }
 
     @get:Rule
@@ -161,8 +164,14 @@ class ImePopupPixelInstrumentedTest {
      * 位移逐像素扫描而非按步长抽样：条带差异地形是尖峰（行高 ~45px，错 1px 即整行
      * 错位，差异从 0 跳到上千），按 6px 抽样会整体落空——实测粗搜命中 774，
      * 真值 820（差异 0），二者相距 46px，任何以此为中心的细搜都够不到。
-     * 扫描用窄窗降低单候选代价，命中后再按整幅条带宽度计分，使返回的差异
-     * 与 STRIP_MATCH_MAX_DIFF 阈值保持同一口径。
+     *
+     * 代价控制：先把每行压成横向分箱亮度指纹（一次性 O(条带面积)），位移搜索退化为
+     * 指纹的逐箱相减，O(maxShift × 条带行数 × 箱数) 次整数比较。逐候选全像素比对
+     * 在慢模拟器上会把一次搜索拖到分钟级（实测整类用例卡死 40 分钟）。
+     *
+     * 索引注意：上移后匹配内容落在条带**上方**，故第二张图必须自 `stripTop - maxShift`
+     * 起建指纹；只用条带自身的高度会与位移下界产生「比较行数越少越容易命中」的假解
+     * （实测位移 148、代价 0）。
      */
     private fun bestUpwardShift(
         first: android.graphics.Bitmap,
@@ -171,28 +180,61 @@ class ImePopupPixelInstrumentedTest {
         stripHeight: Int,
         maxShift: Int,
     ): Pair<Int, Int> {
-        val scanWidth = minOf(SHIFT_SCAN_WIDTH_PX, first.width)
+        val firstProfile = rowProfiles(first, stripTop, stripHeight)
+        val secondProfile = rowProfiles(second, stripTop - maxShift, maxShift + stripHeight)
         var bestShift = 0
-        var bestScanDiff = Int.MAX_VALUE
+        var bestCost = Long.MAX_VALUE
         for (shift in 0..maxShift) {
-            val scanDiff = shiftDiff(first, second, stripTop, stripHeight, shift, scanWidth)
-            if (scanDiff < bestScanDiff) {
-                bestScanDiff = scanDiff
+            var cost = 0L
+            var row = 0
+            while (row < stripHeight) {
+                val fromFirst = firstProfile[row]
+                val fromSecond = secondProfile[row - shift + maxShift]
+                var bin = 0
+                while (bin < ROW_PROFILE_BINS) {
+                    cost += kotlin.math.abs(fromFirst[bin] - fromSecond[bin]).toLong()
+                    bin++
+                }
+                row++
+            }
+            if (cost < bestCost) {
+                bestCost = cost
                 bestShift = shift
             }
-            if (bestScanDiff == 0) break
+            if (bestCost == 0L) break
         }
-        return bestShift to shiftDiff(first, second, stripTop, stripHeight, bestShift, first.width)
+        // 返回值仍按整幅条带逐像素计分，使 STRIP_MATCH_MAX_DIFF 与旧口径一致。
+        return bestShift to shiftDiff(first, second, stripTop, stripHeight, bestShift)
     }
 
-    /** 给定位移下，条带内前 [widthPx] 列的像素差异数；越界行按跳过处理，避免负下标。 */
+    /** 每行的横向分箱亮度指纹：文本行的字形分布各不相同，足以定位纵向对齐。 */
+    private fun rowProfiles(bitmap: android.graphics.Bitmap, top: Int, height: Int): Array<IntArray> {
+        val binWidth = kotlin.math.max(1, bitmap.width / ROW_PROFILE_BINS)
+        return Array(height) { row ->
+            val y = top + row
+            IntArray(ROW_PROFILE_BINS) { bin ->
+                val from = bin * binWidth
+                val until = kotlin.math.min(bitmap.width, from + binWidth)
+                var sum = 0
+                var count = 0
+                var x = from
+                while (x < until) {
+                    sum += android.graphics.Color.red(bitmap.getPixel(x, y))
+                    count++
+                    x += ROW_BIN_SAMPLE_STEP_PX
+                }
+                if (count == 0) 0 else sum / count
+            }
+        }
+    }
+
+    /** 给定位移下条带内的像素差异数；越界行按跳过处理，避免负下标。 */
     private fun shiftDiff(
         first: android.graphics.Bitmap,
         second: android.graphics.Bitmap,
         stripTop: Int,
         stripHeight: Int,
         shift: Int,
-        widthPx: Int,
     ): Int {
         var diff = 0
         var y = 0
@@ -200,7 +242,7 @@ class ImePopupPixelInstrumentedTest {
             val sourceY = stripTop + y - shift
             if (sourceY >= 0) {
                 var x = 0
-                while (x < widthPx) {
+                while (x < first.width) {
                     if (pixelDelta(first.getPixel(x, stripTop + y), second.getPixel(x, sourceY)) > 40) {
                         diff++
                     }
