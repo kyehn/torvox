@@ -59,9 +59,16 @@ impl super::GhosttyTerminal {
             AtomicU32::new(DEFAULT_CELL_WIDTH),
             AtomicU32::new(DEFAULT_CELL_HEIGHT),
         ));
+        // 就绪握手：`thread::spawn` 返回时新线程可能尚未被调度，此时构造完成、
+        // 调用方立刻发查询，查询会在 QUERY_TIMEOUT_MS 内无人应答而回退到
+        // DISCONNECTED_*（表现为「spawn 完马上 resize 却拿到旧网格」的竞态）。
+        // 零容量同步通道：VT 线程一进入闭包就握手成功。
+        let (vt_ready_tx, vt_ready_rx) = std::sync::mpsc::sync_channel(0);
         let handle = thread::Builder::new()
             .name("ghostty-terminal".into())
             .spawn(move || {
+                // 先握手再进 run：此时命令/查询通道已就位，run 一进入 select 即可应答。
+                let _ = vt_ready_tx.send(());
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     Self::run(RunConfig {
                         command_receiver: cmd_rx,
@@ -92,6 +99,19 @@ impl super::GhosttyTerminal {
                 }
             })
             .map_err(TerminalError::Spawn)?;
+
+        // 握手超时说明 VT 线程连闭包都没进入：此时任何查询都必然回退到断开值，
+        // 与其把一个注定答不出查询的会话交给调用方，不如在此显式失败。
+        if vt_ready_rx
+            .recv_timeout(std::time::Duration::from_millis(VT_READY_TIMEOUT_MS))
+            .is_err()
+        {
+            log::error!("ghostty_terminal: VT thread did not start within {VT_READY_TIMEOUT_MS}ms");
+            return Err(TerminalError::Spawn(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "ghostty VT thread did not start",
+            )));
+        }
 
         Ok(Self {
             cmd_tx,
