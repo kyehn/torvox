@@ -1466,6 +1466,37 @@ fn scroll_viewport_delta_scrolls_cell_data() {
     );
 }
 
+/// 已在底部时继续向下滚动：视口内容不变，但显式滚动是用户动作，
+/// 必须强制推帧，否则行级滚动的即时重绘补救路径会被内容去重吞掉。
+#[test]
+fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line{line_number}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_some(),
+        "首帧必须到达"
+    );
+    assert!(
+        terminal_under_test.scroll_viewport(2),
+        "scroll_viewport 应接受增量"
+    );
+    terminal_under_test.flush();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if terminal_under_test.receive_cell_data().is_some() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "内容不变的滚动后 2s 内未收到 CellData 帧"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 /// 视口滚动后，绝对网格行（0 = 回滚顶部，与 Kotlin 的
 /// `scrollbackLength - scrollOffset + row` 同口径）查询必须仍命中该行的内容。
 /// `dump_grid.visible` 直接取 `Point::Viewport`，即屏幕上真实显示的文本，

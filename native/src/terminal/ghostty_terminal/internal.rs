@@ -820,6 +820,9 @@ impl super::GhosttyTerminal {
                         // setScrollOffset re-sends on the next offset change.
                         terminal
                             .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+                        // 显式滚动强制重推：视口内容可能逐字节相同（如已在底部），
+                        // 内容去重会吞掉本次滑动的即时重绘。与 SetSelection 同款失效。
+                        last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
                     }
