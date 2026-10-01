@@ -12,6 +12,8 @@
 
 ## 一、本轮的四个 P0（三个已实机复现）
 
+> 维护注：N0-16（新增`.semgrepignore`恢复单测扫描）已修复并验证，对应小节删除；其余编号保持不变。
+
 ### N0-15 选区行号在**视口空间**被钳位，而选区状态是**绝对行空间**——长按选词会选错、复制错
 
 `docs/` 下三条互相独立的证据链锁定了坐标系冲突。
@@ -70,41 +72,6 @@ val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
 
 > 本项是本轮最高优先级：它同时命中「正确性」「选区这一 DESIGN 核心功能」
 > 与「四处重复的同一处错误」，且是纯 Kotlin 改动，无需触碰原生层。
-
-### N0-16 `semgrep` 从不扫描 `android/app/src/test/**`，全部「禁止静默跳过测试」规则在该树内失效
-
-**实机复现**（semgrep 1.178.0，用仓库自带配置）：
-
-```text
-$ semgrep scan --config .semgrep/kotlin-deny-patterns.yml --json --quiet
-scanned total: 123
-src/test scanned : 0        ← 57 个 git 跟踪的 JVM 单测文件
-src/androidTest  : 55
-src/main         : 62
-```
-
-semgrep 默认跳过路径段名为 `test` / `tests` / `spec` 的目录。
-`androidTest` 不匹配该段名所以被扫描，而 `src/test` 被整体排除。
-规则里的 `paths` 配置对此无能为力 —— 文件根本没有成为扫描目标。
-
-**后果**：`.semgrep/kotlin-deny-patterns.yml:2-27` 的 `no-junit-ignore`、
-`no-junit-assume`、`no-test-early-return` 与
-`.semgrep/rust-deny-patterns.yml:23-43` 的三个对应 rust 规则，
-是 `TESTING.md:9`（禁止 `#[ignore = "..."]`）、`TESTING.md:11`（不得跳过测试）、
-`TESTING.md:12`（不得隐藏错误）**唯一的自动化执行者**。
-在这 57 个文件里新增任何一个 `@Ignore` 或 `Assume.assumeTrue`，CI 全绿。
-
-**修法**（已验证可行）：在仓库根加 `.semgrepignore`，内容仅两行：
-
-```text
-!**/test/**
-!**/tests/**
-```
-
-对照实验确认加上后 `src/test` 恢复扫描且 `no-junit-ignore` 正常触发。
-`.semgrepignore` 是新增文件（非保护文件），不需要修改 `.semgrep/*`。
-若不接受新增文件，替代方案是在 `check-gradle.nu` 里加一步
-`grep -rnE '@Ignore|@Disabled|Assume\.' android/app/src/test` 作为兜底。
 
 ### N0-17 七条规范禁令规则的 `languages` 只声明 `rust, kotlin`，结构上无法匹配规范禁止的文件类型
 
@@ -437,7 +404,7 @@ assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff =
 
 ## 五、需要用户裁决的问题
 
-1. **`.semgrep/*` 是保护文件**，N0-16（新增 `.semgrepignore`）、N0-17（改 7 条规则的
+1. **`.semgrep/*` 是保护文件**，N0-17（改 7 条规则的
    `languages`）、N0-18（删一行 `pattern-not-inside`）、N2-52（`detekt.yml` 重新启用
    4 条吞异常规则）全部需要明确授权。是否授权？其中 N0-17 与 N0-18 各只改 1 行 / 1 处配置。
 2. **`ktlint` / `ktfmt`（N1-29）**：删除插件（需改 `build.gradle.kts`，受保护）
@@ -456,7 +423,7 @@ assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff =
 ## 六、修复顺序建议
 
 1. **N0-15 选区行钳位** —— 纯 Kotlin、纯正确性、命中 DESIGN 核心功能、错误重复四处。
-2. **N0-16 / N0-17 / N0-18 三条门禁** —— 先取得授权；每条 1 行至 1 处配置，
+2. **N0-17 / N0-18 两条门禁** —— 先取得授权；每条 1 行至 1 处配置，
    收益是恢复 `TESTING.md:9/11/12` 与 `STYLE.md:60/61`、`BUILD.md:13` 的**唯一**执行者。
 3. **N1-24 / N1-27 输入法丢字与乱序** —— 两条都在中文输入下可直接观察到。
 4. **N1-25 硬件键盘 SCROLL** —— 一行调用。
