@@ -668,9 +668,10 @@ impl FontPipeline {
         }
 
         // ── CJK 缓存：已解析过的字跳过 swash 与回退 ──
-        // 合成时不用：缓存的 (字体, 字形) 是按常规样式解析的，不适用于样式运行
+        // 合成时不用：缓存的 (字体, 字形) 是按常规样式解析的，不适用于样式运行。
+        // 不按码点设限：回退与全库扫描的写入本就不设限，符号字形同样受益；
+        // 缓存是有界 LRU，不会无界增长。
         if !synthesized
-            && code_point >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
             && let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
             && let Some(info) = self.lookup_glyph(cached_font_id, cached_glyph_id, synthesis)
