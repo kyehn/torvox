@@ -122,48 +122,7 @@ override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Bool
 （让输入法重试）且**不清 `composingBuffer`**；或把待处理的
 `commitText`/`setComposingText` 入队，窗口过期后重放。
 
-### N1-25 硬件键盘输入不经过 `onUserInputForScrollSnap`，粘滞 SCROLL 永不被硬件输入解除
-
-`MainActivity.kt:288-296`：
-
-```kotlin
-override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-    val handled = terminalViewModel.handleLayoutAwareHardwareKey(event)
-    if (handled) return true
-    return super.dispatchKeyEvent(event)
-}
-```
-
-`handleLayoutAwareHardwareKey`（`TerminalViewModel.kt:1214-1273`）接受任何
-`event.getUnicodeChar(meta) > 0` 的物理键 —— 这包含回车（`KEYCODE_ENTER` 的
-`getUnicodeChar` 返回 `'\n'`）—— 并在 `:1261` 直接调
-`bridge.processKeyEvent(...)`，**全程不调用 `onUserInputForScrollSnap`**。
-事件被 `return true` 消费，视图的 `onKeyDown`（`TerminalSurface.kt:2379`，
-唯一另一个调用点）根本不会执行。
-
-`onUserInputForScrollSnap`（`TerminalViewModel.kt:280-297`）的无条件清除逻辑：
-
-```kotlin
-if (_state.value.scrollActive) {
-    _state.update { it.copy(scrollActive = false) }
-    runtime.setScrollActive(false)
-}
-```
-
-**后果**：粘滞 SCROLL 生效时，用蓝牙/USB 键盘输入命令（**不回车**）
-→ `scrollActive` 保持 true → 渲染循环的 `shouldResetScroll(...)`
-（`TerminalRuntime.kt:86`）拒绝跟随新输出 → **屏幕无任何输出反馈**。
-`adb keyevent` 与软键盘会穿透（`event.deviceId == VIRTUAL_KEYBOARD` /
-`FLAG_SOFT_KEYBOARD` 在 `:1219-1220` 被排除），所以自动化测试路径掩盖了该缺陷。
-
-该函数自己的文档注释（`:274-278`）写明「抽出此方法使输入法 `writeToPty` 路径与硬件
-`TerminalSurface.onKeyDown` 路径共用一个贴底点」—— 第三条硬件路径被遗漏了。
-
-**修法**：在 `handleLayoutAwareHardwareKey` 的 `:1261` 之前调用
-`onUserInputForScrollSnap(isCommit = keyCode in listOf(KEYCODE_ENTER, KEYCODE_NUMPAD_ENTER, KEYCODE_DPAD_CENTER))`。
-
-> 需确认：Termux 的 SCROLL 键是「再按一次才解除」还是「任意输入即解除」。
-> 本仓代码的意图（无条件清除 + 上述注释）倾向前者不成立，但这是产品决策，见第五节 Q3。
+> 维护注：N1-25（硬件按键经共用贴底点）已修复并验证，对应小节删除；编号保持不变。
 
 ### N1-26 选区菜单的粘贴在主线程逐块同步写 PTY，绕过 `InputBatchBuffer`
 
