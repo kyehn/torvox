@@ -9,7 +9,7 @@
 ## 2. 渲染锁序与输出
 
 - [x] 2.1 `take_kitty_placements`移出`RENDER_STATE`
-- [ ] 2.2 `pollEvent`锁区收缩与输出泵独立
+- [x] 2.2 `pollEvent`锁区收缩与输出泵独立
 - [x] 2.3 `last_frame`会话归属
 
 ## 3. 搜索与文档

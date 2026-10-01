@@ -16,58 +16,7 @@
 
 ## 二、新的 P0
 
-### N0-10 `flush()` 在持有注册表读锁 + 会话锁时最多阻塞 5 秒 —— 每个后台会话各付一次
-
-这是第 7 轮 N0-7（输出通道无独立泵）的**量化升级版**：N0-7 说「读取线程会阻塞」，本条说「更糟的是**谁**在阻塞、**阻塞多久**、**持着什么锁**」。
-
-`native/src/android/ffi.rs:1122-1165`（`pollEvent`）：
-
-```rust
-let registry = rlock_session_registry();          // :1122  注册表读锁
-if active_id != 0 && let Some(entry) = registry.get(&active_id) {
-    let mut session = entry.session.lock();       // :1126  会话锁
-    session.process_output();                      // :1131  → poll_pty_output → flush()
-    …
-}
-for (id, entry) in registry.iter() {
-    …
-    let mut session = entry.session.lock();       // :1157  会话锁
-    session.poll_pty_output(PTY_POLL_CHUNKS_PER_FRAME);  // :1158  → flush()
-    …
-}
-```
-
-`poll_pty_output`（`native/src/terminal/session.rs:489-524`）在每处理完一批数据后调用 `self.terminal.flush()`（`:507` 与 `:518`），而 `flush()`（`native/src/terminal/ghostty_terminal/public_api.rs:190-206`）是：
-
-```rust
-match rx.recv_timeout(std::time::Duration::from_secs(FLUSH_TIMEOUT_SECS)) {
-    Ok(()) => {}
-    Err(_) => { log::warn!("ghostty_terminal: flush_ack timed out — session may be dead"); }
-}
-```
-
-`FLUSH_TIMEOUT_SECS = 5`（`types.rs:237`）。**全部 5 秒都在注册表读锁与会话锁之内。**
-
-`ffi.rs:1146-1149` 的注释恰好描述了这条路径要防的故障：
-
-```rust
-// 后台会话的输出通道一旦填满（读取线程阻塞在有界发送 → PTY 内核缓冲填满
-// → 子进程写入阻塞）就会冻结后台作业；每帧排空若干块既保持管道流动，
-```
-
-注释担心的是「后台作业被冻结」，而实现引入的是「整个注册表被冻结」。
-
-**故障场景**：
-
-1. 任意一个会话的 VT 线程卡住 —— 第 6 轮 N0-2 的搜索、或任何病态 `vt_write` 都足以造成。
-2. `pollEvent` 在该会话上耗 5 秒，**持注册表读锁**。
-3. 注册表读锁被 `setScrollOffset`（`ffi.rs:3124`，**写锁**，每滚动一帧调用一次）排队等待；`parking_lot` 的 RwLock 任务公平性让后续新读者也一起排队。
-4. 与此同时 UI 线程阻塞在 `Bridge.pollAll()`（渲染循环，`TerminalRuntime.kt:1300`）——正是 N0-7 描述的全应用冻结，且现在是**确定性的 5 秒起步、每多一个后台会话再加 5 秒**。
-5. 同一时间 `TerminalSurface.kt:2090` 的 `focusChange` 也要取会话锁，`MainActivity.onDestroy:274` 要取注册表锁 —— 全部排队。
-
-违反 `DESIGN.md:20`（高性能优先）、`DESIGN.md:22`（减少兜底，尽早抛出错误）、`DESIGN.md:156`。
-
-**修法（与 N0-7 同一处，一起修）**：把 `output_rx` 的排空与 `flush()` 移出 `pollEvent` 的锁区 —— 更彻底的做法是给输出通道配一个独立于渲染循环的泵线程，`flush()` 不应在持锁路径上做有界等待。
+> 维护注：N0-10（锁内零期限排空）已修复并验证（`poll_pty_output` 改零期限，输出泵移出渲染分支），对应小节删除；其余编号保持不变。
 
 ### N0-11 `CACHED_FONT_DB` 初始化在全局渲染锁内做文件 I/O（约 3 秒）
 
