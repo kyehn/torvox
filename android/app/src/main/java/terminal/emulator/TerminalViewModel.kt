@@ -927,7 +927,7 @@ constructor(
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
             context.getDir("boot_state", Context.MODE_PRIVATE).deleteRecursively()
-            context.cacheDir.listFiles()?.forEach { it.delete() }
+            context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
             // 进程级 DataStore 单例仍在运行：重建 prefs 目录使下一次设置写入不会失败。
             context.getDir("prefs", Context.MODE_PRIVATE)
             onComplete()
