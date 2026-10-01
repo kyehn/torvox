@@ -913,9 +913,13 @@ constructor(
                         if (_availableFonts.value.isEmpty()) {
                             fontManager.loadFonts()
                         } else {
-                            val bridge = runtime.bridge()
-                            _defaultFontName.value = bridge?.getDefaultFontName() ?: ""
-                            _fontInfo.value = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                            // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
+                            viewModelScope.launch(TerminalDispatchers.inputOutput) {
+                                val bridge = runtime.bridge()
+                                _defaultFontName.value = bridge?.getDefaultFontName() ?: ""
+                                _fontInfo.value =
+                                    bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                            }
                         }
                     }
                 } else {

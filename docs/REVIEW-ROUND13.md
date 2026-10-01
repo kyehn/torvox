@@ -261,7 +261,8 @@ repeat(lines) {
 | N2-75 | `TerminalRuntime.kt:3123`、`:3131-3246` | `activateReplacementSession` 的文档写明「必须在持有 `sessionLock` 时调用」，其内部却做两次有界 join（`:3171`、`:1058` 各最长 1s）加 `renderWatchDog.stop()`（`:1041`，最长 2s）。`:2491-2702` 的「阶段 2 放锁外」策略未覆盖阶段 3。 |
 | N2-76 | `TerminalRuntime.kt:1317-1329` | 活动会话的渲染循环为**后台**会话调用 `handleSessionExit`，其中 `:502` 的 `entry.bridge?.close()` 会内联执行 `destroySession`（kill + join 子进程线程，注释称「~100ms+」），直接拖慢当前帧并推迟 `pollAll`。`checkSessions`（`:858`）走 `scope.launch` 避免了这一点，渲染循环路径没有。 |
 | N2-77 | `context.rs:497` vs `:874` | `release_surface` 直接丢弃 `Arc<wgpu::Surface>`，而 `release_gpu_surface` 会把它停放到 `GLOBAL_SURFACE` —— 后者在生产中**无调用方**。`GLOBAL_SURFACE` 因此永不初始化，`ERROR_NATIVE_WINDOW_IN_USE_KHR` 黑屏规避路径（`context.rs:396-400` 注释所述）实际被绕过。 |
-| N2-78 | `TerminalViewModel.kt:904-906` | `runtime.state` 收集器无 dispatcher（跑在 `Main.immediate`），其中 `bridge?.getDefaultFontName()` 与 `bridge?.getFontInfo()` 是**主线程 JNI**。与第 11 轮 N1-21 是同类问题的另一处，未被那次修复覆盖。 |
+
+> 维护注：N2-78（字体信息刷新移出主线程收集器）已修复并验证，对应行删除。
 
 ---
 
