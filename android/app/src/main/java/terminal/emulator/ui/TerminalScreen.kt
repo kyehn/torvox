@@ -442,6 +442,15 @@ fun TerminalScreen(
             val surfaceView = surfaceRef.value
             DisposableEffect(surfaceView) {
                 if (surfaceView == null) return@DisposableEffect onDispose {}
+                // 只采纳「静止后」的值：每次 dispatch 读到的 ime 会在 0 与真实高度间
+                // 跳变，而写入布局状态又触发新一轮 dispatch——叶节点正常时两者一致，
+                // 本路是同值空写；叶节点恒零时（实测仪器化环境）则是自激回路：
+                // 0→写→重排→dispatch→正数→写→……实测让应用常驻 46% CPU 并使
+                // UiAutomation.takeScreenshot() 永远等不到稳定帧。
+                // 故每次 dispatch 取消上一个待采纳任务并重新计时，只有该值连续
+                // 保持一个定居窗口才写入：值不停跳变时永不写入，回路在结构上断开。
+                var pending: Runnable? = null
+                val settleDelayMillis = IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES
                 val listener =
                     androidx.core.view.OnApplyWindowInsetsListener { _, insets ->
                         // 与 WindowImeBottomPx 同一口径：扣除手势导航条高度
@@ -450,16 +459,22 @@ fun TerminalScreen(
                         val navigationInset =
                             insets.getInsets(android.view.WindowInsets.Type.navigationBars())
                         val bottom = max(imeInset.bottom - navigationInset.bottom, 0)
-                        // 叶节点已给出正数时丢弃本路的 0：dispatch 遍历早于本帧 IME
-                        // inset 更新，该 0 是遍历时序的假值，不是键盘真的收起。
-                        // 值相同时不写，避免同值写入触发无谓的重排→再次 dispatch。
-                        if (bottom != imeViewPx.intValue && (bottom > 0 || imeLeafPx.intValue == 0)) {
-                            imeViewPx.intValue = bottom
-                        }
+                        pending?.let { surfaceView.removeCallbacks(it) }
+                        val task =
+                            Runnable {
+                                // 叶节点已给出正数时丢弃本路的 0：dispatch 遍历早于
+                                // 本帧 IME inset 更新，该 0 是时序假值而非键盘收起。
+                                if (bottom > 0 || imeLeafPx.intValue == 0) {
+                                    imeViewPx.intValue = bottom
+                                }
+                            }
+                        pending = task
+                        surfaceView.postDelayed(task, settleDelayMillis)
                         insets
                     }
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, listener)
                 onDispose {
+                    pending?.let { surfaceView.removeCallbacks(it) }
                     androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(surfaceView, null)
                 }
             }
