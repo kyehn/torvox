@@ -21,17 +21,20 @@
    **持 `sessionLock` 遍历全部会话**：
 
    ```kotlin
+
    surfaceTransitionExecutor.execute {
        synchronized(sessionLock) {
            sessions.values.forEach { entry ->
                if (entry.running) {
                    renderSupervisor.stopRenderThread(entry)
+
    ```
 
 2. `stopRenderThread`（`:1539-1548`）**第一件事**就是看门狗的阻塞式停止，
    然后才 join 渲染线程：
 
    ```kotlin
+
    internal fun stopRenderThread(entry: SessionEntry): Boolean {
        entry.renderWatchDog?.stop()          // ← runBlocking，最长 2s
        entry.renderWatchDog = null
@@ -41,14 +44,17 @@
        thread?.let { t ->
            t.interrupt()
            t.join(THREAD_JOIN_TIMEOUT_MS)    // ← 1000ms
+
    ```
 
 3. `RenderWatchDog.stop()`（`monitor/RenderWatchDog.kt:36-44`）确实是阻塞的：
 
    ```kotlin
+
    runBlocking {
        withTimeoutOrNull(2000L) { job.cancelAndJoin() }
    }
+
    ```
 
    ⇒ **每会话最长 2s + 1s = 3s**。
@@ -67,9 +73,11 @@
 **代码注释的两处错误**（`:2964-2976`）：
 
 ```kotlin
+
 // stopRenderThread 会 join 渲染线程（每会话最长 1s）；
 ...
 // 注意：每会话的 join 发生在 sessionLock 内（各最长 1s），
+
 ```
 
 - 「每会话最长 1s」漏算了 `renderWatchDog.stop()` 的 2s `runBlocking`；
@@ -88,8 +96,10 @@
 `render_inner` 在 `ffi.rs:1537` 取全局渲染锁，该 guard 活到函数结束：
 
 ```rust
+
 // ── 阶段 3：渲染（持渲染状态锁）────────────────────────────────────
 let mut state = render_state_mut();
+
 ```
 
 锁内调用 `render_state.renderer.render_cell_data(...)`（`ffi.rs:1721`）
@@ -121,10 +131,12 @@ let mut state = render_state_mut();
 `ffi.rs:1007-1031`：
 
 ```rust
+
 let registry = rlock_session_registry();
 let Some(entry) = registry.get(&id) else { … };
 let session = entry.session.lock();
 let Some(bytes) = session.terminal().encode_mouse_event(…) else { … };
+
 ```
 
 `encode_mouse_event` 走查询通道，`QUERY_TIMEOUT_MS = 500`（`types.rs:234`）。
@@ -132,6 +144,7 @@ let Some(bytes) = session.terminal().encode_mouse_event(…) else { … };
 `TerminalSurface.kt:1748-1757`：
 
 ```kotlin
+
 val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellHeight).toInt()))
 val button = if (distanceY > 0f) 3 else 4
 var forwarded = false
@@ -141,6 +154,7 @@ repeat(lines) {
         forwarded = true
     }
 }
+
 ```
 
 `lines` 由手指划过的高度除以单元格高度得到，**没有任何上限**。
@@ -165,6 +179,7 @@ repeat(lines) {
 `TerminalRuntime.kt:2190-2205`：
 
 ```kotlin
+
 } catch (exception: Exception) {
     if (exception is kotlinx.coroutines.CancellationException) {
         // 重抛取消：吞没它会破坏结构化并发（与 createSessionInner 同一约定）。
@@ -172,6 +187,7 @@ repeat(lines) {
         // 作用域拆除路径关闭。
         throw exception          // ← 跳过了 2201-2205 的 startedBridge?.close()
     }
+
 ```
 
 `createSessionInner` 的 `:2460-2464` 同样是「先重抛、后关闭」。
@@ -179,16 +195,23 @@ repeat(lines) {
 **注释指向的「调用方的作用域拆除路径」不存在**。逐个核实调用方：
 
 - `TerminalViewModel.kt:822-824`：
+
   ```kotlin
+
   viewModelScope.launch(TerminalDispatchers.inputOutput) {
       runtime.start(surface, width, height)
   }
+
   ```
+
 - `TerminalViewModel.kt:1300-1311`：
+
   ```kotlin
+
   viewModelScope.launch(TerminalDispatchers.inputOutput) {
       …
       runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
+
   ```
 
 两处都**没有 `finally`**，也不持有 bridge 引用（bridge 由 `runtime` 内部创建）。
