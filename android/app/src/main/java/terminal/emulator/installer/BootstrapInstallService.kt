@@ -66,24 +66,30 @@ class BootstrapInstallService : Service() {
         // 安全清理（含符号链接守卫），预删会绕过安全机制并丢失用户数据（服务侧 deleteRecursively 无符号链接守卫）。
         return runBlocking {
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-            val install = installer.install(preserved)
-            if (install.isFailure) {
-                install.exceptionOrNull()?.message ?: "install failed"
-            } else {
-                val stage = SecondStageRunner(prefixDir, homeDir).run()
-                if (stage.success) {
-                    "OK prefix=$prefixDir shell=" +
-                        (
-                            listOf("bin/login", "bin/bash").firstOrNull {
-                                val entry = File(prefixDir, it)
-                                entry.isFile && (isElf(entry) || isSystemShellScript(entry))
-                            } ?: "none"
-                            ) +
-                        " installed=${installer.isInstalled()}" +
-                        " needsInstall=${installer.needsInstall()}"
+            try {
+                val install = installer.install(preserved)
+                if (install.isFailure) {
+                    install.exceptionOrNull()?.message ?: "install failed"
                 } else {
-                    "SECOND_STAGE_FAILED: ${stage.errors}"
+                    val stage = SecondStageRunner(prefixDir, homeDir).run()
+                    if (stage.success) {
+                        "OK prefix=$prefixDir shell=" +
+                            (
+                                listOf("bin/login", "bin/bash").firstOrNull {
+                                    val entry = File(prefixDir, it)
+                                    entry.isFile && (isElf(entry) || isSystemShellScript(entry))
+                                } ?: "none"
+                                ) +
+                            " installed=${installer.isInstalled()}" +
+                            " needsInstall=${installer.needsInstall()}"
+                    } else {
+                        "SECOND_STAGE_FAILED: ${stage.errors}"
+                    }
                 }
+            } finally {
+                // 始终删除中转包：落在用户数据树内，清除应用数据按规范不得触碰，
+                // 不删即永久占用数百MB。
+                preserved.delete()
             }
         }
     }
