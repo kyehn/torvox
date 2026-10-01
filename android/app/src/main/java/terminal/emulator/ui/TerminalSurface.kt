@@ -1461,7 +1461,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (cellWidth <= 0f || cellHeight <= 0f) return false
         val col = pixelToCell(px, cellWidth, cols)
         val row = pixelToCell(py, cellHeight, rows)
-        val gridRow = currentScrollbackLength() - scrollOffset + row
+        val gridRow = currentViewportTopGrid() + row
         val bridge = viewModel?.runtime?.bridge() ?: return false
         val url = bridge.hyperlinkAt(gridRow, col) ?: return false
         if (url.isBlank()) return false
@@ -1507,7 +1507,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         val deltaCols = ((touchX - anchorLocalX) / cellWidth).roundToInt()
         val col = (dragAnchorCol + deltaCols).coerceIn(0, (cols - 1).coerceAtLeast(0))
-        val gridRow = currentScrollbackLength() - scrollOffset + row
+        val gridRow = currentViewportTopGrid() + row
         return gridRow to snapToWideCharBoundary(gridRow, col)
     }
 
@@ -1956,9 +1956,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
+                    // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
+                    // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
+                    val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
                     val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     scaleFactor = 1.0f
-                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, sizeSp)) {
+                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
                         onZoomChanged?.invoke(sizeSp)
                     } else {
@@ -1983,10 +1986,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         selectionHandles.hideSelectionHandles()
 
         val bridge = viewModel?.runtime?.bridge()
-        val scrollbackLength = currentScrollbackLength()
         val col = (xPx / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
         val row = (yPx / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-        val gridRow = (scrollbackLength - scrollOffset + row)
+        val gridRow = currentViewportTopGrid() + row
 
         // 长按时始终尝试智能选词。isCellEmpty 检查不可靠，
         // 因为 GPU 渲染路径（CellData）与查询路径（grid_ref）使用不同的数据源。
@@ -2306,8 +2308,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (selectLine) {
             // 上游 select_line 整行派生（语义提示边界关）：界限一次派生
             // 并由 native 安装，Kotlin 只消费回传值（旧实现自读行拼界限）。
-            val scrollbackLength = currentScrollbackLength()
-            val gridRow = scrollbackLength - scrollOffset + row
+            val gridRow = currentViewportTopGrid() + row
             val bridge = viewModel?.runtime?.bridge()
             val lineBounds = bridge?.selectLineAt(gridRow, col)
             if (lineBounds != null && lineBounds.size == SELECTION_BOUNDS_LENGTH) {
@@ -2328,8 +2329,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } else if (expandToWord) {
             // 上游 select_word 词界 — 与长按完全同一 native 派生，无两侧分叉。
             val bridge = viewModel?.runtime?.bridge()
-            val scrollbackLength = currentScrollbackLength()
-            val gridRow = scrollbackLength - scrollOffset + row
+            val gridRow = currentViewportTopGrid() + row
             val wordBounds = bridge?.selectWordAt(gridRow, col)
             if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
                 viewModel?.startSelection(wordBounds[0], wordBounds[1])
@@ -2347,8 +2347,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 viewModel?.startSelection(gridRow, col)
             }
         } else {
-            val scrollbackLength = currentScrollbackLength()
-            viewModel?.startSelection(scrollbackLength - scrollOffset + row, col)
+            viewModel?.startSelection(currentViewportTopGrid() + row, col)
         }
 
         try {
@@ -2522,7 +2521,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 } else if (longPressDragging && isSelectingText) {
                     val col = pixelToCell(event.x, cellWidth, cols)
                     val row = pixelToCell(event.y, cellHeight, rows)
-                    val gridRow = currentScrollbackLength() - scrollOffset + row
+                    val gridRow = currentViewportTopGrid() + row
                     viewModel?.updateSelection(gridRow, col)
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel.end != null) {
