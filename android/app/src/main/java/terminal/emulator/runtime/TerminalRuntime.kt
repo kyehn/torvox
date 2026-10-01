@@ -111,7 +111,8 @@ internal data class SessionEntry(
     // 不变式：条目存活期间 bridge 从不为 null（createSession 中以非 null 创建且不再重新赋值），
     // 各处 `entry.bridge == null` 检查纯属防御，恒为假。
     var bridge: Bridge?,
-    var renderThreadRef: Thread?,
+    // 无锁读取（notifyRender/pokeVsync 在锁外解引用唤醒），与相邻字段同为易变。
+    @Volatile var renderThreadRef: Thread?,
     @Volatile var running: Boolean,
     @Volatile var renderThreadExited: Boolean = false,
     @Volatile var restartAttempts: Int = 0,
