@@ -189,6 +189,43 @@ class DocumentsProviderTest {
         assertEquals("file must be gone after delete", false, file.exists())
     }
 
+    /**
+     * 空名新建：DocumentsUI 在名字为空时依然放行 SAVE，异常只进日志、
+     * 界面毫无反馈（真机表现为「无法创建新文件」）。系统自带 DownloadsProvider
+     * 对同一手势会建出占位文件，故此处必须成功创建而不是抛异常。
+     */
+    @Test
+    fun createDocument_with_blank_name_creates_default_named_file() {
+        val provider = ensureProvider()
+        val docId = provider.createDocument("terminal_home", "text/plain", "   ")
+        val created = java.io.File(rootDir(), "New Document.txt")
+        assertTrue("blank name must fall back to the default file name", created.exists())
+        assertEquals("returned docId must point at the created file", "New Document.txt", docId)
+    }
+
+    /** 空名 + 目录 mimeType：默认名不带扩展名，且落盘为目录。 */
+    @Test
+    fun createDocument_with_blank_name_creates_default_named_directory() {
+        val provider = ensureProvider()
+        provider.createDocument("terminal_home", DocumentsContract.Document.MIME_TYPE_DIR, "")
+        val created = java.io.File(rootDir(), "New Folder")
+        assertTrue("blank directory name must fall back to the default", created.exists())
+        assertTrue("fallback directory must be a directory", created.isDirectory)
+    }
+
+    /** 重命名仍走严格校验：空名是客户端契约违反，不得被默认名掩盖。 */
+    @Test
+    fun renameDocument_with_blank_name_throws() {
+        val provider = ensureProvider()
+        val file = java.io.File(rootDir(), "renamed.txt").apply { writeText("x") }
+        try {
+            provider.renameDocument("renamed.txt", "  ")
+            fail("blank rename name must be rejected")
+        } catch (expected: java.io.FileNotFoundException) {
+            assertTrue(file.exists())
+        }
+    }
+
     @Test
     fun openDocument_returns_parcel_file_for_existing_file() {
         val provider = ensureProvider()
