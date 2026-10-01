@@ -1147,6 +1147,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 350ms 关闭动画
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms 稳定窗
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
+        // 单次触摸手势转发的滚轮行数上限：无界 repeat 会在主线程逐行同步
+        // 等待原生查询（VT 忙时每行最长 500ms），大幅滑动即冻结 UI。
+        // 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。
+        private const val MAX_WHEEL_LINES_PER_GESTURE = 8
         private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
         private const val SURFACE_RECREATE_ATTEMPTS = 10
 
@@ -1691,7 +1695,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
                     var forwarded = false
-                    repeat(lines) {
+                    val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
+                    repeat(cappedLines) {
                         if (altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 0, button, cellWidth, cellHeight)) {
                             altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 1, button, cellWidth, cellHeight)
                             forwarded = true
