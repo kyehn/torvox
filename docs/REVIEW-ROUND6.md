@@ -79,37 +79,7 @@
 
 ## 三、新的 P0
 
-### N0-1 `GhosttyTerminal::drop` 无界 `join()` —— 注释与代码自相矛盾
-
-`native/src/terminal/ghostty_terminal/mod.rs:41-53`
-
-```rust
-// try_send：VT 线程卡住时不得阻塞析构（与全仓非阻塞策略一致），失败仅记日志后 join。
-if let Err(error) = self.cmd_tx.try_send(Command::Terminate) {
-    log::error!("ghostty_terminal: cmd_tx send Terminate failed: {error}");
-}
-if let Some(handle) = self.handle.take()
-    && let Err(error) = handle.join()
-{
-    log::error!("ghostty_terminal: thread join failed: {:?}", error);
-}
-```
-
-注释说「不得阻塞析构」，紧跟着就是一个无超时的 `handle.join()`。这是 P0-3（`pass.rs`）同一类错误的重演：意图写在注释里，代码没兑现。
-
-对照同仓库的实现，`native/src/terminal/session.rs:661-681` 早就把这件事做对了：
-
-```rust
-/// 带截止超时地 join 线程句柄，最多重试 3 次。
-/// …全部失败则分离（丢弃句柄）并记错误——该线程的资源（fd、内存）会泄漏。
-fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: Duration) {
-```
-
-**故障场景**：用户在终端跑 `cat` 或任何持续输出的命令时关闭会话 → `destroySession` → `ffi.rs:505-522` 在注册表锁外 drop 条目 → `Session::drop` → `GhosttyTerminal::drop` → 若此刻 VT 线程正卡在 N0-2 的搜索扫描或某个病态 `vt_write` 中，`join()` 永不返回。Kotlin 侧的 `Dispatchers.IO` 协程永不完成，而 `switchSessionInternal` 与 `stopRenderThread` 都在 `synchronized(sessionLock)` 内调用，**整个会话子系统永久停摆**。
-
-违反 AGENTS「最低兜底，不隐藏错误」与 `ffi.rs:6-7` 自述的「不得无限阻塞」。
-
-**修法**：`GhosttyTerminal::drop` 改用 `session.rs` 已有的 `join_with_timeout`。
+> 维护注：N0-1（析构超时等待）、N0-3（渲染帧会话归属）、N0-4（安装假成功）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N0-2 回滚区搜索在 VT 线程上是 O(n²)，调用方静默拿到空结果
 
@@ -141,61 +111,6 @@ for row in (0..total).rev() {
 这是一个**输入可达的、由正常使用触发的全局冻结**，且失败被完全掩盖。违反 `DESIGN.md:24`、`DESIGN.md:216-221`、`DESIGN.md:150`。
 
 **修法**：改为单次正向前向扫描，先把物理行按软换行规则分组成逻辑行，对每条逻辑行匹配一次，再按物理行切分 `SearchMatch` 并把列号重映射。这同时消灭 P1-12（列号越过网格宽度）和这里的 O(n²)。
-
-### N0-3 渲染状态跨会话复用 `last_frame`，会把 A 会话的网格画到 B 会话
-
-`native/src/android/ffi.rs:114-121`
-
-```rust
-    /// 上次渲染的帧（单元 + 光标 + 尺寸）。`render()` 只在新输出时绘制，故空闲
-    /// 终端复用此缓存帧而非逐帧重新合成。
-    last_frame: Option<(
-        Vec<crate::terminal::ghostty_terminal::CellData>,
-        crate::terminal::ghostty_terminal::CursorInfo,
-        u32,
-        u32,
-    )>,
-```
-
-缓存帧**不带会话 id**。`ffi.rs:1727-1733` 的空闲分支直接取用：
-
-```rust
-FrameData::Idle {} => {
-    // 空闲路径：引用 `last_frame`——零克隆。
-    let Some((ref cached_cells, cached_cursor, cached_rows, cached_cols)) =
-        render_state.last_frame
-```
-
-**故障场景**：`switchSession(A→B)` 后，B 的 VT 线程要等到下一次循环（`internal.rs:676` 附近的 50ms 节拍）才会推第一帧 `CellData`。这中间任何一个落到 B 上的 `render()` 轮询都会拿到 `FrameData::Idle`，于是把 **A 的单元格内容** blit 到共享 surface 上。`renderWithNewOutput`（`ffi.rs:1884-1888`）同样会回报 A 的光标行，IME 跟随偏移随之错位。
-
-同文件里 `ATTACHED_SESSION_ID`（`ffi.rs:107`）和 `kitty_session` 都在为 Kitty 状态做会话归属校验，唯独 `last_frame` 没有。违反 `DESIGN.md:156`「只渲染当前使用的会话」。
-
-**修法**：`last_frame` 增列 `session_id`，空闲分支不匹配时返回 0（不重绘）。
-
-### N0-4 `BootstrapOrchestrator` 第二处假成功：第二阶段失败仍然上报 INSTALLED
-
-`android/app/src/main/java/terminal/emulator/installer/BootstrapOrchestrator.kt:95-103`
-
-```kotlin
-val secondStageResult = secondStageRunner.run()
-onProgress?.onProgress(BootstrapProgress.Complete)
-state.set(Status.INSTALLED)
-val details = secondStageResult.errors.take(3).joinToString("\n") { "- $it" }
-return Result.success(details)
-```
-
-`.success` 字段**从未被读取**，返回值完全由 `errors`（一段诊断字符串）派生。而上游 `SecondStageRunner.kt:90` 是 `return Result(true, errors)`，即 `success` 恒为 `true`。
-
-这把 P0-4 从「一处 `success` 写死」升级为「**两处都不看结果**」：
-
-- `SecondStageRunner.kt:60` 在 postinst 锁被占用时明确返回 `Result(false, listOf("Lock file error…"))` —— 编排器完全无视，照样 `INSTALLED`。
-- `TerminalViewModel.kt:1132-1141` 的 `installOffline` 只用 `result.isSuccess` 判断第一阶段，第二阶段同样不判。
-
-**故障场景**：dpkg 处于半配置状态（权限、ABI 或 postinst 脚本出错）→ 用户看到「bootstrap 安装成功」的绿色结果 → `BootstrapInstaller.isInstalled()` 因 `usr/bin/login` 存在而报告已安装 → dpkg 锁与半配置状态无重试路径，用户拿到的 prefix 不可用且无从恢复。
-
-`DESIGN.md:142` 明文「postinstall 只在存在时运行，不做无意义检查/校验，**出现问题正常报错就是**」。
-
-**修法**：`SecondStageRunner` 改 `Result(errors.isEmpty(), errors)`，编排器与 `TerminalViewModel` 按 `.success` 分支到 `Status.ERROR` + `Result.failure`。
 
 ---
 
