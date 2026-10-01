@@ -1686,7 +1686,6 @@ fn render_inner(session_id: u64) -> jint {
             let rows_usize = rows as usize;
             // 先取不可变快照：掩码是对 `render_state.dirty_mask` 的 `&mut` 借用，
             // 无法与下方对 `render_state` 其他字段的读取共存。
-            let scroll_up_rows: Option<u32> = None;
             let previous_cursor_row = render_state.last_frame.as_ref().and_then(
                 |(_, old_cursor_info, _, _, cached_session)| {
                     if *cached_session == session_id {
@@ -1704,18 +1703,12 @@ fn render_inner(session_id: u64) -> jint {
                 Some((old_cells, _, old_rows, old_cols, cached_session))
                     if *cached_session == session_id && *old_rows == rows && *old_cols == cols =>
                 {
-                    if let Some(s) = scroll_up_rows {
-                        // 纯滚动：只有新露出的底部行带有新内容，其余经累加器 blit 到达。
-                        let start = rows_usize - s as usize;
-                        dirty_mask[start..rows_usize].fill(true);
-                    } else {
-                        crate::render::cell_builder::diff_dirty_rows_into(
-                            old_cells,
-                            &cells,
-                            rows,
-                            &mut dirty_mask[..rows_usize],
-                        );
-                    }
+                    crate::render::cell_builder::diff_dirty_rows_into(
+                        old_cells,
+                        &cells,
+                        rows,
+                        &mut dirty_mask[..rows_usize],
+                    );
                 }
                 _ => {
                     dirty_mask[..rows_usize].fill(true);
@@ -1743,7 +1736,6 @@ fn render_inner(session_id: u64) -> jint {
                 ATLAS_SIZE as f32,
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
-                scroll_up_rows,
                 &render_state.kitty_instances,
             );
             if result.is_ok() {
@@ -1838,7 +1830,6 @@ fn render_inner(session_id: u64) -> jint {
                 ATLAS_SIZE as f32,
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
-                None,
                 &render_state.kitty_instances,
             );
             if result.is_ok() {

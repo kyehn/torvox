@@ -429,53 +429,6 @@ impl Renderer {
             None => &swapchain_view,
         };
 
-        // ── Scroll blit: shift existing accumulator content up ────────
-        // A pure vertical scroll only needs unchanged glyph pixels MOVED,
-        // not re-shaded. Chunked same-texture copies execute in encoder
-        // order, top-first, so each chunk reads source rows still intact
-        // below the write cursor. The bottom shift_px band stays stale —
-        // it is redrawn by this frame's bands.
-        if partial
-            && let Some(shift_rows) = plan.scroll_up_rows
-            && plan.cell_height_px > 0.0
-            && let Some(acc_texture) = self.frame_texture.as_ref()
-        {
-            let sh = (shift_rows as f32 * plan.cell_height_px).round() as i32;
-            if sh > 0 && sh < config_height as i32 {
-                let mut dst_y = 0i32;
-                while dst_y + sh <= config_height as i32 {
-                    encoder.copy_texture_to_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: acc_texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d {
-                                x: 0,
-                                y: (dst_y + sh) as u32,
-                                z: 0,
-                            },
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::TexelCopyTextureInfo {
-                            texture: acc_texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d {
-                                x: 0,
-                                y: dst_y as u32,
-                                z: 0,
-                            },
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::Extent3d {
-                            width: config_width,
-                            height: sh as u32,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                    dst_y += sh;
-                }
-            }
-        }
-
         // ── Main merged pass: background → cells → KGP ──────
         // Load rules:
         // - partial: always Load (bands composite over previous output)
@@ -596,7 +549,6 @@ impl Renderer {
         atlas_height: f32,
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
         dirty_rows: Option<&[bool]>,
-        scroll_up_rows: Option<u32>,
         kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
         // 四边形几何必须用字体单元格尺寸（逻辑单元格度量 × raster_scale，即 Kotlin
@@ -711,15 +663,8 @@ impl Renderer {
                     .collect::<Vec<_>>(),
             )
         });
-        // 滚动平移的几何前提：网格必须恰好纵向填满目标，否则平移会拖出边距。
-        let scroll_up_rows = scroll_up_rows.filter(|_| {
-            self.surface_config.as_ref().is_some_and(|surface_config| {
-                (rows as f32 * grid_cell_height - surface_config.height as f32).abs() <= 2.0
-            })
-        });
         let plan = crate::render::cell_builder::FramePatch {
             bands: bands.unwrap_or_default(),
-            scroll_up_rows,
             cell_height_px: grid_cell_height,
         };
         let result = self.render_frame_with_plan(&cpu_instances, kgp_instances, &plan);
