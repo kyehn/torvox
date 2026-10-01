@@ -1,8 +1,8 @@
-# 样式指南
+# 风格
 
 ## Shell 脚本
 
-所有 Shell 脚本均使用 Nushell（`.nu`），禁止使用 `bash` 或 `sh`。
+所有 Shell 脚本均使用 Nushell（`.nu`），不使用 `bash` 或 `sh`。
 
 - Shebang：`#!/usr/bin/env -S nix develop --command nu`
 - 命名：`snake_case`
@@ -28,20 +28,14 @@
 - 对于应当存在的目录：须显式检查，若缺失则以非零状态退出。
 - 禁止无助于提升清晰度的中间变量，如 `let start = ... let elapsed = ...`。
 - 禁止使用 `$env.ANDROID_HOME/platform-tools/adb` 或硬编码路径调用二进制，`adb`、`emulator`、`sdkmanager`、`avdmanager` 命令可直接使用。
-- 禁止在 Nushell 脚本内部使用 `nu scripts/xxx.nu` 调用 — 请使用 `./scripts/xxx.nu`（依赖 Shebang）。
-- 禁止执行 `rustup target add` 或类似命令，仅运行工作区测试。
 
 ### 风格规则
 
 - 使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
-- `detekt` 和 `clippy` 以及其他类似工具只允许抑制必要的规则，如参数数量、行数、嵌套层数、缺失文档（这些仅风格问题可全局设置规则），抑制的规则必须在最小范围，不重复设置默认规则。
 
 ## Nix
 
-全部环境管理均通过 Nix 完成，禁止使用系统 Shell 构建。
-
 - 始终使用 `nix develop`。
-- ShellHook 为主要机制；检查与格式化器在 `flake.nix` 中定义。
 
 ## GitHub Actions
 
@@ -76,3 +70,4 @@
 - 每个提交消息保持简洁，仅一行。
 - 保持和旧提交相同作者，不允许其他作者/提交者/协作者。
 - 不得轻易还原会话外修改的文件（无论修改发生的原因是什么都不得轻易还原，如果不影响当前工作禁止修改），`git checkout --` 未经允许不得使用。
+- `detekt` 和 `clippy` 以及其他类似工具只允许抑制必要的规则，如参数数量、行数、嵌套层数、缺失文档（这些仅风格问题可全局设置规则），抑制的规则必须在最小范围，不重复设置默认规则。
