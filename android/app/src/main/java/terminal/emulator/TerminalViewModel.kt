@@ -173,6 +173,18 @@ constructor(
     @Volatile private var lastGridRows = 0
 
     @Volatile private var lastGridCols = 0
+
+    // 视图侧回写的回滚长度缓存：选区行是绝对行（0 = 回滚顶部），
+    // 钳位上界必须是绝对空间最后一行（回滚长度 + 视口行数 - 1），不得用视口行数。
+    @Volatile private var cachedScrollbackLength = 0
+
+    /** 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。 */
+    internal fun updateScrollbackLength(length: Int) {
+        cachedScrollbackLength = length
+    }
+
+    /** 绝对空间的最后一行：两处选区钳位的唯一来源，避免各自计算再次漂移。 */
+    private fun absoluteMaxRow(rows: Int): Int = (cachedScrollbackLength + rows - 1).coerceAtLeast(0)
     private val fontManager = FontManager()
 
     // ── 字体转发（实现在 FontManager） ──
@@ -250,11 +262,11 @@ constructor(
 
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
-    /** 网格 resize 后把选区锚点钳位到 [rows]×[cols]，使原生 setSelection 绝不收到越界单元格。 */
+    /** 网格 resize 后把选区锚点钳位到绝对网格，使原生 setSelection 绝不收到越界单元格。 */
     private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
         val start = selection.start ?: return selection
         val end = selection.end ?: return selection
-        val maxRow = (rows - 1).coerceAtLeast(0)
+        val maxRow = absoluteMaxRow(rows)
         val maxCol = (cols - 1).coerceAtLeast(0)
         return selection.copy(
             start =
@@ -443,10 +455,10 @@ constructor(
         private var lastDragBounds: IntArray? = null
 
         private fun dragSelection(draggingStart: Boolean, row: Int, col: Int) {
-            // 拖动路径钳位所用的网格边界（见下）；只读一次——
+            // 拖动路径钳位所用的绝对网格边界（见下）；只读一次——
             // 并发的 resize 最多使该边界陈旧一帧。
             val runtimeState = runtime.state.value
-            val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
+            val maxRow = absoluteMaxRow(runtimeState.rows)
             val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
             // CAS，活跃性检查置于 lambda 内部：选区读取与写入相对并发的
             // _state 更新是原子的。仅粘贴的选区（空单元格/空白处长按）不可变

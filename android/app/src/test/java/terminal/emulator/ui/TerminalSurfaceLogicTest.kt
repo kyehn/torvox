@@ -182,6 +182,17 @@ class TerminalSurfaceLogicTest {
         )
     }
 
+    @Test
+    fun `clampSelection keeps scrolled-off selections in absolute space`() {
+        // 选区行是绝对行（0 = 回滚顶部）：回滚 100 行、视口 24 行时，
+        // 上界必须是 100 + 24 - 1，视口下半部分的词选区不得被拉到视口最后一行。
+        val absoluteMaxRow = 100 + 24 - 1
+        assertEquals(
+            SelectionBounds(startRow = 110, startCol = 3, endRow = 110, endCol = 9),
+            clampSelection(110, 3, 110, 9, maxRow = absoluteMaxRow, maxCol = 79),
+        )
+    }
+
     // ── pointer-id lock ──────────────────────────────────────────────────────
 
     @Test

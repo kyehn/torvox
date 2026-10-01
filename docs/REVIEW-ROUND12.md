@@ -12,66 +12,7 @@
 
 ## 一、本轮的四个 P0（三个已实机复现）
 
-> 维护注：N0-16（新增`.semgrepignore`恢复单测扫描）已修复并验证，对应小节删除；其余编号保持不变。
-
-### N0-15 选区行号在**视口空间**被钳位，而选区状态是**绝对行空间**——长按选词会选错、复制错
-
-`docs/` 下三条互相独立的证据链锁定了坐标系冲突。
-
-**证据一：状态层明确声明选区是绝对行。** `TerminalViewModel.kt:632`：
-
-```kotlin
-// 选区行以网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
-```
-
-`extractSelectedText`（`:646`）把 `lo.row` / `hi.row` 直接交给 `bridge.selectionText(...)`，
-而该 RPC 的上游用 `Point::Screen` 解析（`internal.rs:1976-1988` `absolute_point`），即绝对行。
-
-**证据二：生产者传入的确实是绝对行。** `TerminalSurface.kt:1985`：
-
-```kotlin
-val gridRow = (scrollbackLength - scrollOffset + row)
-```
-
-随后 `:2000`、`:2046`、`:2332` 把 `gridRow` / `selectWordAt` 返回的绝对界限交给
-`startSelection` / `updateSelection`。
-
-**证据三：钳位用的是视口行数。** `TerminalViewModel.kt:449`（`dragSelection`）：
-
-```kotlin
-val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
-```
-
-`runtimeState.rows` 来自 `syncGridDimensions`（`TerminalRuntime.kt:3248-3251`）
-← `bridge.getGridRowsColsPacked()` ← `ffi.rs:3131` ← `session.rs:440 terminal_rows`，
-而 `terminal_rows` 只在 `Session::resize`（`session.rs:411`）与构造时写入，**不含回滚区**。
-
-**同一错误在四处重复**：`dragSelection`（`:449`）、`clampSelectionToGrid`（`:257`）、
-`dragMove` 的调用方 `TerminalSurface.kt:1586`（`cachedMaxRow = (rows - 1)`）、
-以及 `clampSelection`（`TerminalSurface.kt:2864-2884`）的 `maxRow` 入参。
-
-**内部不自洽是决定性证据**：同一个长按处理里，空白分支（`:2000-2001`）走
-`startSelection(gridRow, …)` + `endSelection()`，**不经过 `updateSelection` 因而不被钳位**，
-保留正确的绝对行；文本分支（`:2045-2046`）走 `startSelection` + `updateSelection`，
-**被钳位**。两条路径处理同一个 `gridRow` 却得到不同的行。
-
-**触发条件**：`gridRow = scrollbackLength - scrollOffset + row > rows - 1`。
-`scrollOffset = 0`（用户未向上滚动）时即 `scrollbackLength + row > rows - 1`。
-24 行视口下，**只要终端产生过任何滚屏**（即几乎所有真实使用），
-长按屏幕下半部分的词就会被强行拉到视口最后一行。
-
-**用户表现**：长按屏幕下部的一个词 → 选区落在上方若干行 → 高亮错位 →
-「复制」得到的是**另一行的文本**。违反 `DESIGN.md:170-176`（文本选择与复制）、
-`TESTING.md:29`（旧行按顺序进入回滚）。
-
-**修法**：钳位上界必须是绝对空间的最后一行。最小改法是把
-`maxRow` 统一为 `currentScrollbackLength() + rows - 1`
-（`currentScrollbackLength()` 已在 `TerminalSurface.kt:2178` 存在并带节流缓存），
-`dragSelection` 与 `clampSelectionToGrid` 需要能读到该值 —— 建议在 `SelectionManager`
-构造时注入一个 `scrollbackLength` 提供者，避免四处各自计算再次漂移。
-
-> 本项是本轮最高优先级：它同时命中「正确性」「选区这一 DESIGN 核心功能」
-> 与「四处重复的同一处错误」，且是纯 Kotlin 改动，无需触碰原生层。
+> 维护注：N0-16（新增`.semgrepignore`恢复单测扫描）、N0-15（选区钳位改绝对空间）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N0-17 七条规范禁令规则的 `languages` 只声明 `rust, kotlin`，结构上无法匹配规范禁止的文件类型
 
