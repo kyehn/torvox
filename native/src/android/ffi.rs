@@ -2164,10 +2164,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
             return Ok(std::ptr::null_mut());
         };
         let Ok(row) = u32::try_from(row) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("scrollbackLine: row must be non-negative"),
-            );
+            // 负行号表示无数据而非调用错误：视口拖过回滚顶部时正常出现，
+            // 按查询契约返回 null，不抛异常。
             return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();

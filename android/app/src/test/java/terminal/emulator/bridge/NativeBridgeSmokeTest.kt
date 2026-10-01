@@ -160,6 +160,13 @@ class NativeBridgeSmokeTest {
     }
 
     @Test
+    fun `negative scrollback row reads as null instead of throwing`() {
+        withSession { sessionId ->
+            assertEquals(null, NativeBridge.scrollbackLine(sessionId, -1))
+        }
+    }
+
+    @Test
     fun `unknown session id throws IllegalArgumentException`() {
         // A bogus id must not crash the process: the export throws a Java
         // exception (jni_export_guard) instead of aborting. The exact type

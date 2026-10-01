@@ -54,31 +54,6 @@ thermalMonitor = ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITIC
 
 ## 三、新的 P1
 
-### N1-15 `scrollbackLine` 对负行号抛异常，而该行号在正常滚动中就会出现
-
-`native/src/android/ffi.rs:2127-2132`
-
-```rust
-let Ok(row) = u32::try_from(row) else {
-    let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"),
-                          jni_str!("scrollbackLine: row must be non-negative"));
-    return Ok(std::ptr::null_mut());
-};
-```
-
-而 `ffi.rs:2137-2140` 的注释说明了 Kotlin 侧传的是什么：
-
-```rust
-// Kotlin 传入的是绝对行号（回滚 + 视口偏移，经
-// `scrollbackLength - scrollOffset + row` 计算），故直接透传给期望绝对行号的
-```
-
-`scrollbackLength - scrollOffset + row` 在**视口被拖过缓冲区顶部**、或回滚缓冲区在滚动后缩短时会变成负数。此时 `Bridge.kt:581-585` 把 IAE 吞成 `null`，终端**静默不画那一行**。
-
-用户表现：向上拖动时回滚区突然出现空白行，且**不能选中、不能复制**（`N1-8` 的第 1 条后果）。`DESIGN.md:29`（TESTING 覆盖范围「旧行必须按顺序进入回滚」）、`DESIGN.md:170`。
-
-**修法**：负行号应返回 `null`（无数据），而不是抛异常 —— `NativeQueryPort.kt:9` 的契约「null/0/空表示引擎『无数据』，绝不可伪造」说的就是这个。
-
 ### N1-16 `EXTRA_OPEN_SETTINGS` 在 `onNewIntent` 中被静默丢弃
 
 `android/app/src/main/java/terminal/emulator/MainActivity.kt:232-234`
