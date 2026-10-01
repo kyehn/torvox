@@ -15,8 +15,9 @@ class PasteChunker(
     /**
      * 归一化 [text] 并切分为可直接写入 PTY 的块。
      *
-     * [text] 为空白时返回空列表。截断到 [maxChars]（并告警），
-     * 并把 `\n` 转成 `\r`（xterm 粘贴语义）。
+     * [text] 为空白时返回空列表。截断到 [maxChars]（并告警；截断点落在代理对
+     * 中间时多取一字符保住完整码点），并把换行转成 `\r`（xterm 粘贴语义；
+     * 先折叠 `\r\n`，否则回车换行会被展开成两个回车）。
      */
     fun chunks(text: String): List<String> {
         if (text.isBlank()) return emptyList()
@@ -26,7 +27,14 @@ class PasteChunker(
                 "clipboard too large (${text.length} chars), truncating to $maxChars",
             )
         }
-        val normalized = text.take(maxChars).replace("\n", "\r")
+        var truncated = text.take(maxChars)
+        if (text.length > maxChars && truncated.isNotEmpty() &&
+            Character.isHighSurrogate(truncated.last()) &&
+            Character.isLowSurrogate(text[maxChars])
+        ) {
+            truncated += text[maxChars]
+        }
+        val normalized = truncated.replace("\r\n", "\r").replace("\n", "\r")
         val chunks = mutableListOf<String>()
         var offset = 0
         while (offset < normalized.length) {
