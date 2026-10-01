@@ -81,8 +81,8 @@ private const val IME_POLL_INTERVAL_MS = 16L
 /** 位移稳定后的空闲轮询间隔：动画结束后无需逐帧跟随，降低常驻唤醒。 */
 private const val IME_IDLE_POLL_INTERVAL_MS = 200L
 
-/** 搜索查询串长度上限（DESIGN 修饰键栏节：匹配文本的长度需要被限制）。 */
-private const val SEARCH_QUERY_MAX_LENGTH = 256
+/** 搜索查询串长度上限：与原生 `MAX_SEARCH_QUERY_CHARS` 同值，超长查询原生直接无命中。 */
+private const val SEARCH_QUERY_MAX_LENGTH = 128
 
 /** 终端内文本搜索的合并状态，取代原先 6 个独立的 remember 变量。 */
 private data class SearchState(

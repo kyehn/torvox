@@ -2109,6 +2109,7 @@ impl super::GhosttyTerminal {
     }
 
     /// 文本搜索匹配长度上限：超长查询直接无命中，避免正则引擎与全回滚扫描浪费资源。
+    /// 与 UI 侧 `SEARCH_QUERY_MAX_LENGTH` 同值，两侧必须一起改。
     const MAX_SEARCH_QUERY_CHARS: usize = 128;
 
     /// 用外部 `regex` 库编译字面搜索模式（大小写开关由库承载，不手写折叠循环）。
