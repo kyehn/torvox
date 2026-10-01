@@ -91,37 +91,142 @@ rules:
     pattern-regex: 'termux-api|termux_api|termux\.env\b'
     message: "termux-api and termux.env are forbidden by spec."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
     message: "Old bootstrap presets are forbidden; use current values."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   - id: no-bootstrap-sidecar
     pattern-regex: '\bsidecar\b'
     message: "Bootstrap sha256 sidecar checks are forbidden by spec."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   - id: no-prohibited-shells
     pattern-regex: '\b(fish|dash|zsh)\b'
     message: "fish/dash/zsh must not appear in code."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
     message: "Use generic terms; Torvox only in intro docs."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'
     message: "Hardcoded nix store paths are forbidden in code."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   - id: no-zigbuild
     pattern-regex: 'zigbuild'
     message: "Use cargo ndk for Android builds, not cargo zigbuild."
     severity: ERROR
-    languages: [rust, kotlin]
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.rs"
+        - "**/*.kt"
+        - "**/*.kts"
+        - "**/*.md"
+        - "**/*.yml"
+        - "**/*.nix"
+        - "**/*.nu"
+        - "**/*.toml"
+      exclude:
+        - ".semgrep/**"
+        - "docs/specification/*"
+        - "docs/REVIEW*.md"
+        - "README.md"
   # Repo tooling rules (generic): manifests, scripts and workflows.
   # check-rust.nu scans this file, so they live here.
   - id: no-crate-features

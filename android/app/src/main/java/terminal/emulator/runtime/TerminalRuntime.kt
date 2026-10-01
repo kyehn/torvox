@@ -47,6 +47,7 @@ data class RuntimeState(
     val cols: Int = 80,
     val activeSessionId: Long = 0L,
     val sessionIds: List<Long> = emptyList(),
+    val scrollResetEpoch: Long = 0L,
 )
 
 /**
@@ -1248,6 +1249,7 @@ constructor(
                                             // 被跳过的复位就此丢弃（「跳过 = 放弃」）：标志已是读后即清，
                                             // 下次输出到达时会再次复位（termux：持续输出总是胜出）。
                                             if (
+                                                entry.scrollOffset != 0 &&
                                                 shouldResetScroll(
                                                     scrollActive = entry.scrollActive,
                                                     hasSelectionOrDrag =
@@ -1262,6 +1264,13 @@ constructor(
                                                 // 渲染线程上的单点复位写入；lastScrollOffset 保持不动，
                                                 // 使既有的差量推送在下一帧把偏移 0 转发给原生。
                                                 entry.scrollOffset = 0
+                                                // 搜索高亮按 Compose 镜像换算绘制：此处同步递增复位计数，
+                                                // 使订阅方重读真实偏移，否则高亮按旧偏移错位。
+                                                _state.update { current ->
+                                                    current.copy(
+                                                        scrollResetEpoch = current.scrollResetEpoch + 1,
+                                                    )
+                                                }
                                             }
                                         }
                                         if (count < 0) {
