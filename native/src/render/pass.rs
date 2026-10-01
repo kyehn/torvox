@@ -126,8 +126,8 @@ impl Renderer {
         // 不 reconfigure 的话切回应用后渲染线程会永久空转在 begin_frame 失败上。
         // 图集格式必须等于 surface 格式，且 Android 的 view_formats 只能是
         // vec![format]（不支持 downlevel SURFACE_VIEW_FORMATS）。
-        // 工作线程经 OnceLock 只建一次并跨帧复用，省掉 Android 上每帧约 1ms 的
-        // std::thread::spawn 开销。
+        // 工作线程经 OnceLock 只建一次并跨帧复用，避免每进程重复建线程；
+        // 每帧仅一次同步通道分配。
         let (response_sender, response_receiver) =
             std::sync::mpsc::sync_channel::<AcquireResult>(1);
         let request = AcquireRequest {

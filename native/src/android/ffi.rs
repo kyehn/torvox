@@ -132,9 +132,6 @@ struct RenderState {
     cursor_color: Option<[f32; 4]>,
     /// 预分配的脏行掩码，跨帧复用以避免逐帧 `Vec<bool>` 分配（约 100-300 字节 × 120fps）。
     dirty_mask: Vec<bool>,
-    /// 缓存的回滚长度——在 FrameData::New 时更新，空闲时复用，避免同步
-    /// `scrollback_length()` RPC（VT 线程繁忙时会把渲染线程阻塞最多 50ms）。
-    cached_scrollback: u32,
     /// Kitty 图像缓存（按会话键控）：VT 线程经生成戳推送变更通知，
     /// 渲染线程仅在生成戳/滚动/网格变化时查询放置，平时复用实例。
     kitty_session: u64,
@@ -191,7 +188,6 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             last_drawn_search_highlights: Vec::new(),
             cursor_color: None,
             dirty_mask: Vec::new(),
-            cached_scrollback: 0,
             kitty_session: 0,
             kitty_generation: u64::MAX,
             kitty_scroll_offset: i64::MIN,
@@ -1481,7 +1477,7 @@ fn render_inner(session_id: u64) -> jint {
 
     // ── 阶段 2：收集单元数据（仅持会话锁）───────────────────────────────
     // 有新数据时从通道接收自有的 `CellData`（零拷贝移动）；空闲时只记录事实——
-    // 阶段 3 将直接引用 `last_frame`，省去此处原有的 32KB 克隆。
+    // 阶段 3 将直接引用 `last_frame`，省去此处原有的整帧克隆（CellData 96B×行列数）。
     // 暂停期不消费通道：receive 是破坏性取数，暂停帧取走后永不呈现
     //（render_frame 直接丢弃），恢复后 VT 去重也不再重推——“IME 弹出
     // 时输入不可见”的主因。帧留在通道里，恢复后第一帧即最新。
@@ -1512,7 +1508,7 @@ fn render_inner(session_id: u64) -> jint {
         };
         let session = entry.session.lock();
         // 关键：**不要**在此调用 `session.terminal().scrollback_length()`——
-        // 它是发往 VT 线程的同步 RPC，VT 线程繁忙时会把渲染线程阻塞最多 50ms。
+        // 它是发往 VT 线程的同步 RPC，VT 线程繁忙时会把渲染线程阻塞最多 500ms。
         // 回滚长度搭载在经单元数据通道传递的 `CursorInfo` 上
         // （见 `push_cell_data` → `CursorInfo.scrollback_length`）。
         match session.terminal().receive_cell_data() {
@@ -1545,7 +1541,7 @@ fn render_inner(session_id: u64) -> jint {
     // 单点读清内容脏标志。
     let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
 
-    // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，每个空闲帧省下约 32KB。
+    // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，省去整帧克隆（CellData 96B×行列数）。
     match frame_data {
         FrameData::New {
             cells,
@@ -1554,10 +1550,6 @@ fn render_inner(session_id: u64) -> jint {
             cols,
             scroll_offset,
         } => {
-            // 使用单元数据通道带来的回滚长度——无需同步 RPC。
-            // VT 线程在每次推送 `CursorInfo` 时都附带它。
-            let scrollback = cursor_info.scrollback_length;
-            render_state.cached_scrollback = scrollback;
             // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
             // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
             // 打包重传，滚动/缩放只经无拷贝布局重建实例。

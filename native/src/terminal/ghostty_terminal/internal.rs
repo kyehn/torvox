@@ -478,8 +478,8 @@ impl super::GhosttyTerminal {
         // scrollback is configured with the `set_scrollback_max_lines` setter.
         // A non-zero value enables scrollback (scrollback_rows query returned
         // 0 when scrollback was disabled).
-        // 字节预算必须同步解除：上游默认字节上限先于行数触发，深缓冲
-        // （2 万行）会被拦腰截断到几百行。行数是唯一约束。
+        // 字节预算必须同步解除：上游默认字节上限先于行数触发，回滚
+        // （DEFAULT_SCROLLBACK_LINES 行）会被拦腰截断到几百行。行数是唯一约束。
         if let Err(error) = terminal.set_scrollback_max_bytes(None) {
             log::error!("ghostty_terminal: set_scrollback_max_bytes failed: {error}");
         }
