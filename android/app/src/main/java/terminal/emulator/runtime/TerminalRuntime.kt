@@ -3316,8 +3316,10 @@ constructor(
     fun onSurfaceDestroyed() {
         // 待绑定的 Surface（bridge 存在之前的 start/attachSurface）
         // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
-        // 并渲染出黑帧。
+        // 并渲染出黑帧。尺寸字段一并清零，否则重算网格会沿用已销毁尺寸。
         pendingSurface = null
+        pendingSurfaceWidth = 0
+        pendingSurfaceHeight = 0
         setRenderPaused(true)
     }
 
