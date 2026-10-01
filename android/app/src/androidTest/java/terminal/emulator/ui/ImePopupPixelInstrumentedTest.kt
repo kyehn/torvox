@@ -40,8 +40,8 @@ class ImePopupPixelInstrumentedTest {
         /** 像素采样步长（x 与 y 同用）：只影响差异统计速度。 */
         private const val PIXEL_SAMPLE_STEP_PX = 3
 
-        /** 行指纹的横向分箱数。 */
-        private const val ROW_PROFILE_BINS = 48
+        /** 行墨量的横向抽样步长：放宽到 12px 仍能精确命中（见 bestUpwardShift）。 */
+        private const val ROW_INK_SAMPLE_STEP_PX = 12
 
         /** 行指纹在每个箱内的抽样步长。 */
         private const val ROW_BIN_SAMPLE_STEP_PX = 2
@@ -161,17 +161,17 @@ class ImePopupPixelInstrumentedTest {
      * 条带取在键盘永远碰不到的高处：键盘扫过只改变底部像素，顶部条带只随终端
      * 平移而动——扫过恒得位移 0，只有真正的终端上移才能给出显著位移。
      *
-     * 位移逐像素扫描而非按步长抽样：条带差异地形是尖峰（行高 ~45px，错 1px 即整行
-     * 错位，差异从 0 跳到上千），按 6px 抽样会整体落空——实测粗搜命中 774，
-     * 真值 820（差异 0），二者相距 46px，任何以此为中心的细搜都够不到。
+     * 位移逐像素扫描而非按步长抽样：条带差异地形是尖峰——真值 820 处代价 0，
+     * 相邻 818/822 处代价已到 34 万，按步长抽样会整体落空。
      *
-     * 代价控制：先把每行压成横向分箱亮度指纹（一次性 O(条带面积)），位移搜索退化为
-     * 指纹的逐箱相减，O(maxShift × 条带行数 × 箱数) 次整数比较。逐候选全像素比对
-     * 在慢模拟器上会把一次搜索拖到分钟级（实测整类用例卡死 40 分钟）。
+     * 代价控制：每行压成一个墨量标量（横向抽样求和），位移搜索退化为标量序列的
+     * 逐行绝对差，O(maxShift × 条带行数) 次整数减法。横向分箱或逐像素比对会把
+     * getPixel 的 JNI 调用推到数十万次，在慢模拟器上单次搜索即以分钟计
+     * （实测整类用例卡死 20 分钟以上）。相邻行列的字形分布不同，标量已足以定位；
+     * 实测步长放宽到 12px 仍精确命中（820，代价 0）。
      *
      * 索引注意：上移后匹配内容落在条带**上方**，故第二张图必须自 `stripTop - maxShift`
-     * 起建指纹；只用条带自身的高度会与位移下界产生「比较行数越少越容易命中」的假解
-     * （实测位移 148、代价 0）。
+     * 起建指纹；只取条带自身高度会与位移下界产生「比较行数越少越容易命中」的假解。
      */
     private fun bestUpwardShift(
         first: android.graphics.Bitmap,
@@ -179,22 +179,18 @@ class ImePopupPixelInstrumentedTest {
         stripTop: Int,
         stripHeight: Int,
         maxShift: Int,
+        firstInk: IntArray,
     ): Pair<Int, Int> {
-        val firstProfile = rowProfiles(first, stripTop, stripHeight)
-        val secondProfile = rowProfiles(second, stripTop - maxShift, maxShift + stripHeight)
+        val secondInk = rowInk(second, stripTop - maxShift, maxShift + stripHeight)
         var bestShift = 0
         var bestCost = Long.MAX_VALUE
         for (shift in 0..maxShift) {
             var cost = 0L
             var row = 0
             while (row < stripHeight) {
-                val fromFirst = firstProfile[row]
-                val fromSecond = secondProfile[row - shift + maxShift]
-                var bin = 0
-                while (bin < ROW_PROFILE_BINS) {
-                    cost += kotlin.math.abs(fromFirst[bin] - fromSecond[bin]).toLong()
-                    bin++
-                }
+                cost += kotlin.math.abs(
+                    (firstInk[row] - secondInk[row - shift + maxShift]).toLong(),
+                )
                 row++
             }
             if (cost < bestCost) {
@@ -207,25 +203,16 @@ class ImePopupPixelInstrumentedTest {
         return bestShift to shiftDiff(first, second, stripTop, stripHeight, bestShift)
     }
 
-    /** 每行的横向分箱亮度指纹：文本行的字形分布各不相同，足以定位纵向对齐。 */
-    private fun rowProfiles(bitmap: android.graphics.Bitmap, top: Int, height: Int): Array<IntArray> {
-        val binWidth = kotlin.math.max(1, bitmap.width / ROW_PROFILE_BINS)
-        return Array(height) { row ->
-            val y = top + row
-            IntArray(ROW_PROFILE_BINS) { bin ->
-                val from = bin * binWidth
-                val until = kotlin.math.min(bitmap.width, from + binWidth)
-                var sum = 0
-                var count = 0
-                var x = from
-                while (x < until) {
-                    sum += android.graphics.Color.red(bitmap.getPixel(x, y))
-                    count++
-                    x += ROW_BIN_SAMPLE_STEP_PX
-                }
-                if (count == 0) 0 else sum / count
-            }
+    /** 每行墨量：从 [top] 起连续 [height] 行，每行抽样像素的亮度之和。 */
+    private fun rowInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): IntArray = IntArray(height) { row ->
+        val y = top + row
+        var sum = 0
+        var x = 0
+        while (x < bitmap.width) {
+            sum += android.graphics.Color.red(bitmap.getPixel(x, y))
+            x += ROW_INK_SAMPLE_STEP_PX
         }
+        sum
     }
 
     /** 给定位移下条带内的像素差异数；越界行按跳过处理，避免负下标。 */
@@ -346,13 +333,16 @@ class ImePopupPixelInstrumentedTest {
         val stripTop = before.height * 4 / 10
         val stripHeight = 150
         val maxShift = minOf(imeHeight, stripTop)
+        // before 逐像素基线在轮询中不变，预先算一次行墨量避免重复采样。
+        val beforeInk = rowInk(before, stripTop, stripHeight)
         var moved: android.graphics.Bitmap? = null
         var bestShift = 0
         var bestDiff = Int.MAX_VALUE
         val moveDeadline = android.os.SystemClock.uptimeMillis() + 15_000L
         while (android.os.SystemClock.uptimeMillis() < moveDeadline) {
             val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
-            val (shift, diff) = bestUpwardShift(before, shot, stripTop, stripHeight, maxShift)
+            val (shift, diff) =
+                bestUpwardShift(before, shot, stripTop, stripHeight, maxShift, beforeInk)
             if (shift > bestShift || (shift == bestShift && diff < bestDiff)) {
                 bestShift = shift
                 bestDiff = diff
@@ -371,7 +361,7 @@ class ImePopupPixelInstrumentedTest {
         Thread.sleep(1_000)
         val movedFrame = device.takeScreenshot() ?: throw AssertionError("截图失败")
         val (settledShift, settledDiff) =
-            bestUpwardShift(before, movedFrame, stripTop, stripHeight, maxShift)
+            bestUpwardShift(before, movedFrame, stripTop, stripHeight, maxShift, beforeInk)
         assertTrue(
             "上移必须保持到动画定居 (位移=$settledShift 差异=$settledDiff)",
             settledShift > MOVE_MIN_SHIFT_PX && settledDiff <= STRIP_MATCH_MAX_DIFF,
