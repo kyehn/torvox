@@ -2546,6 +2546,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFont
             return Ok(std::ptr::null_mut());
         };
         let name = render_state.font_pipeline.default_font_name();
+        drop(state);
         match env.new_string(&name) {
             Ok(s) => s.into_raw(),
             Err(_) => std::ptr::null_mut(),
