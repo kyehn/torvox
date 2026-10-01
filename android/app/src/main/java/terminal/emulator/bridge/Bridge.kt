@@ -241,7 +241,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun releaseGpuSurface() {
         LogUtil.d(TAG, "releaseGpuSurface()")
-        if (sessionId != 0L) NativeBridge.detachWindow(sessionId)
+        onSession("releaseGpuSurface", Unit) { NativeBridge.detachWindow(it) }
     }
 
     fun setRenderPaused(paused: Boolean) {
