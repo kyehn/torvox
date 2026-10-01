@@ -116,26 +116,7 @@ for row in (0..total).rev() {
 
 ## 四、新的 P1
 
-### N1 `RENDER_STATE` 被持有跨越一次 500ms 有界的 VT RPC
-
-`native/src/android/ffi.rs:1522` 取 `render_state_mut()`，随后 `:1601-1611`：
-
-```rust
-if kitty_keys_changed {
-    let frames = {
-        let registry = rlock_session_registry();
-        registry
-            .get(&session_id)
-            .map(|entry| { entry.session.lock().terminal().take_kitty_placements() })
-            .unwrap_or_default()
-    };
-```
-
-`kitty_keys_changed`（`:1555-1559`）在**会话 id 变化、滚动偏移变化、网格尺寸变化、Kitty 代次变化**时都为真。也就是说，只要屏幕上有一张 Kitty 图像，**每次滚动一行、每次 resize、每次切会话**，渲染线程都会握着全局 `RENDER_STATE` 做一次最长 500ms 的同步 RPC，并且同一时刻还持有 registry 读锁与 session 锁。
-
-`RENDER_STATE` 的其他消费者（`setFontSizeInPlace`、`setScrollYPx`、`setRenderPaused`、`getCellWidth/Height`、`renderWithNewOutput`）全部排队等待。这既是 N0-1/N0-2 之外的性能塌陷，也是 N0-1 那条 ABBA 边的来源之一。
-
-**修法**：把 `take_kitty_placements()` 移到取 `RENDER_STATE` 之前的阶段 2（此时已持 session 锁），彻底消除「`RENDER_STATE` → 会话锁」这条边 —— 这同时关闭 P0-1 与 P0-2。
+> 维护注：N1（渲染状态锁外取图放置）已修复并验证，对应小节删除；编号保持不变。
 
 ### N2 `grid_size()` 缓存与实时网格发散，会让每一帧渲染都失败
 
