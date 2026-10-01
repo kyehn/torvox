@@ -162,58 +162,56 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK / PASTE-if-clipboard). */
-    internal fun menuActionsForSelection(
-        pasteOnly: Boolean,
-        pasteEnabled: Boolean,
-    ): List<Pair<String, () -> Unit>> = buildList {
-        if (pasteOnly) {
-            if (pasteEnabled) {
+    internal fun menuActionsForSelection(pasteOnly: Boolean, pasteEnabled: Boolean): List<Pair<String, () -> Unit>> =
+        buildList {
+            if (pasteOnly) {
+                if (pasteEnabled) {
+                    add(
+                        context.getString(R.string.paste) to
+                            {
+                                viewModel?.pasteFromClipboard()
+                                viewModel?.clearSelection()
+                            },
+                    )
+                }
+            } else {
                 add(
-                    context.getString(R.string.paste) to
+                    context.getString(R.string.copy) to
                         {
-                            viewModel?.pasteFromClipboard()
+                            viewModel?.copySelectionToClipboard()
                             viewModel?.clearSelection()
                         },
                 )
-            }
-        } else {
-            add(
-                context.getString(R.string.copy) to
-                    {
-                        viewModel?.copySelectionToClipboard()
-                        viewModel?.clearSelection()
-                    },
-            )
-            add(
-                context.getString(R.string.share) to
-                    {
-                        viewModel?.shareSelection()
-                        viewModel?.clearSelection()
-                    },
-            )
-            add(
-                context.getString(R.string.select_all) to
-                    {
-                        // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
-                        viewModel?.selectAll()
-                        // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
-                        showSelectionMenuForCurrentSelection()
-                    },
-            )
-            // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
-            // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
-            val selectionHyperlinkUri = selectionHyperlinkUri()
-            if (selectionHyperlinkUri != null) {
                 add(
-                    context.getString(R.string.open_link) to
+                    context.getString(R.string.share) to
                         {
-                            openSelectionAsLink(selectionHyperlinkUri)
+                            viewModel?.shareSelection()
                             viewModel?.clearSelection()
                         },
                 )
+                add(
+                    context.getString(R.string.select_all) to
+                        {
+                            // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
+                            viewModel?.selectAll()
+                            // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
+                            showSelectionMenuForCurrentSelection()
+                        },
+                )
+                // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
+                // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
+                val selectionHyperlinkUri = selectionHyperlinkUri()
+                if (selectionHyperlinkUri != null) {
+                    add(
+                        context.getString(R.string.open_link) to
+                            {
+                                openSelectionAsLink(selectionHyperlinkUri)
+                                viewModel?.clearSelection()
+                            },
+                    )
+                }
             }
         }
-    }
 
     /** 选区起点的 OSC 8 超链接 URI，无链接返回 null。 */
     private fun selectionHyperlinkUri(): String? = viewModel
@@ -1155,6 +1153,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 350ms 关闭动画
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms 稳定窗
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
+
         // 单次触摸手势转发的滚轮行数上限：无界 repeat 会在主线程逐行同步
         // 等待原生查询（VT 忙时每行最长 500ms），大幅滑动即冻结 UI。
         // 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。

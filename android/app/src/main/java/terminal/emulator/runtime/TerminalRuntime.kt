@@ -1305,84 +1305,88 @@ constructor(
                                                 )
                                             }
                                             consecutiveErrors = 0
-                                            try {
-                                                val poll = bridge.pollAll()
-                                                // 退出优先在独立分支中处理：该事件已从原生队列消费且无法重放，
-                                                // 故下方剪贴板处理中的异常绝不能跳过清理。
-                                                if (poll.exit) {
-                                                    // 先回复空值，再做任何清理：这些剪贴板读取请求
-                                                    // 已从原生队列消费且永不会再被派发，
-                                                    // 不予回复会挂起请求方。
-                                                    // 先于 handleSessionExit 回复（后者可能关闭
-                                                    // bridge，~100ms+）也把延迟降到最低。
-                                                    // 每次回复单独保护：此处的 JNI 失败绝不能
-                                                    dispatchClipboardRequests(poll.clipboardReads)
-                                                    if (poll.sessionId != 0L && poll.sessionId != entry.id) {
-                                                        // 后台（非活动）会话的 shell 已退出。
-                                                        // 其渲染线程已停止，不会再有其他方回收它
-                                                        // ——原生清扫只经本队列上报一次。在此关闭它
-                                                        // （handleSessionExit 对非活动会话是安全的：
-                                                        // 接替分支以 entry.id == activeSessionId 为闸门）。
-                                                        val exitedEntry =
-                                                            synchronized(sessionLock) { sessions[poll.sessionId] }
-                                                        if (exitedEntry != null) {
+                                        }
+                                        // 输出泵与渲染解耦：无论渲染成功与否都必须排空原生输出，
+                                        // 否则一次持续渲染失败会阻塞读取线程并冻结全部会话。
+                                        try {
+                                            val poll = bridge.pollAll()
+                                            // 退出优先在独立分支中处理：该事件已从原生队列消费且无法重放，
+                                            // 故下方剪贴板处理中的异常绝不能跳过清理。
+                                            if (poll.exit) {
+                                                // 先回复空值，再做任何清理：这些剪贴板读取请求
+                                                // 已从原生队列消费且永不会再被派发，
+                                                // 不予回复会挂起请求方。
+                                                // 先于 handleSessionExit 回复（后者可能关闭
+                                                // bridge，~100ms+）也把延迟降到最低。
+                                                // 每次回复单独保护：此处的 JNI 失败绝不能
+                                                dispatchClipboardRequests(poll.clipboardReads)
+                                                if (poll.sessionId != 0L && poll.sessionId != entry.id) {
+                                                    // 后台（非活动）会话的 shell 已退出。
+                                                    // 其渲染线程已停止，不会再有其他方回收它
+                                                    // ——原生清扫只经本队列上报一次。在此关闭它
+                                                    // （handleSessionExit 对非活动会话是安全的：
+                                                    // 接替分支以 entry.id == activeSessionId 为闸门）。
+                                                    val exitedEntry =
+                                                        synchronized(sessionLock) { sessions[poll.sessionId] }
+                                                    if (exitedEntry != null) {
+                                                        LogUtil.i(
+                                                            "Runtime",
+                                                            "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
+                                                        )
+                                                        handleSessionExit(
+                                                            exitedEntry,
+                                                            poll.exitCode,
+                                                            poll.exitAliveMs,
+                                                        )
+                                                    }
+                                                } else {
+                                                    // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；
+                                                    // 渲染监视器跳过 !running 的条目，因而绝不会回收已退出会话。
+                                                    handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
+                                                }
+                                                // 两个分支共用：回收同一帧内退出的其他会话
+                                                // （首个已在上方处理）。它们的原生 exit_reported
+                                                // 标志已置位且不重发。
+                                                // 仅排除 poll.sessionId——列表中其他每个 id
+                                                // （含后台分支下的 entry.id）都必须回收，
+                                                // 否则 Kotlin 条目、原生会话与僵尸子进程将永久泄漏。
+                                                // handleSessionExit 幂等（内部重查 containsKey）。
+                                                poll.exits.forEach { exitInfo ->
+                                                    if (exitInfo.sessionId != poll.sessionId) {
+                                                        val extra =
+                                                            synchronized(
+                                                                sessionLock,
+                                                            ) { sessions[exitInfo.sessionId] }
+                                                        if (extra != null) {
                                                             LogUtil.i(
                                                                 "Runtime",
-                                                                "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
+                                                                "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
                                                             )
                                                             handleSessionExit(
-                                                                exitedEntry,
-                                                                poll.exitCode,
-                                                                poll.exitAliveMs,
+                                                                extra,
+                                                                exitInfo.exitCode,
+                                                                exitInfo.exitAliveMs,
                                                             )
                                                         }
-                                                    } else {
-                                                        // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；
-                                                        // 渲染监视器跳过 !running 的条目，因而绝不会回收已退出会话。
-                                                        handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
                                                     }
-                                                    // 两个分支共用：回收同一帧内退出的其他会话
-                                                    // （首个已在上方处理）。它们的原生 exit_reported
-                                                    // 标志已置位且不重发。
-                                                    // 仅排除 poll.sessionId——列表中其他每个 id
-                                                    // （含后台分支下的 entry.id）都必须回收，
-                                                    // 否则 Kotlin 条目、原生会话与僵尸子进程将永久泄漏。
-                                                    // handleSessionExit 幂等（内部重查 containsKey）。
-                                                    poll.exits.forEach { exitInfo ->
-                                                        if (exitInfo.sessionId != poll.sessionId) {
-                                                            val extra =
-                                                                synchronized(
-                                                                    sessionLock,
-                                                                ) { sessions[exitInfo.sessionId] }
-                                                            if (extra != null) {
-                                                                LogUtil.i(
-                                                                    "Runtime",
-                                                                    "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
-                                                                )
-                                                                handleSessionExit(
-                                                                    extra,
-                                                                    exitInfo.exitCode,
-                                                                    exitInfo.exitAliveMs,
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                    if (!entry.waitingForProcessCompleted) {
-                                                        break
-                                                    }
-                                                    // 正在显示 [Process completed] 提示
-                                                    // ——保持会话可见（running 保持为真）
-                                                    // 直到用户按 Enter。
-                                                    // 原生 exit_reported 已置位，故不会再有退出事件到达。
                                                 }
-                                                eventDispatcher.handle(poll)
-                                            } catch (exception: Exception) {
-                                                LogUtil.e(
-                                                    "Runtime",
-                                                    "pollAll failed for session ${entry.id}; deferred events dropped",
-                                                    exception,
-                                                )
+                                                if (!entry.waitingForProcessCompleted) {
+                                                    break
+                                                }
+                                                // 正在显示 [Process completed] 提示
+                                                // ——保持会话可见（running 保持为真）
+                                                // 直到用户按 Enter。
+                                                // 原生 exit_reported 已置位，故不会再有退出事件到达。
                                             }
+                                            eventDispatcher.handle(poll)
+                                        } catch (exception: Exception) {
+                                            LogUtil.e(
+                                                "Runtime",
+                                                "pollAll failed for session ${entry.id}; deferred events dropped",
+                                                exception,
+                                            )
+                                        }
+                                        if (count >= 0) {
                                             diagCount++
                                             if (diagCount == 1) {
                                                 LogUtil.d("Runtime", "session ${entry.id} first render OK")
