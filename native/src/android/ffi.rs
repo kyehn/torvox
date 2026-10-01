@@ -1477,7 +1477,7 @@ fn render_inner(session_id: u64) -> jint {
 
     // ── 阶段 2：收集单元数据（仅持会话锁）───────────────────────────────
     // 有新数据时从通道接收自有的 `CellData`（零拷贝移动）；空闲时只记录事实——
-    // 阶段 3 将直接引用 `last_frame`，省去此处原有的 32KB 克隆。
+    // 阶段 3 将直接引用 `last_frame`，省去此处原有的整帧克隆（CellData 96B×行列数）。
     // 暂停期不消费通道：receive 是破坏性取数，暂停帧取走后永不呈现
     //（render_frame 直接丢弃），恢复后 VT 去重也不再重推——“IME 弹出
     // 时输入不可见”的主因。帧留在通道里，恢复后第一帧即最新。
@@ -1541,7 +1541,7 @@ fn render_inner(session_id: u64) -> jint {
     // 单点读清内容脏标志。
     let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
 
-    // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，每个空闲帧省下约 32KB。
+    // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，省去整帧克隆（CellData 96B×行列数）。
     match frame_data {
         FrameData::New {
             cells,
