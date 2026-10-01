@@ -1179,6 +1179,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** 绑定宿主视图模型：Surface 回调内的全部运行期调用经此进入。 */
     fun attachViewModel(viewModel: TerminalViewModel) {
         this.viewModel = viewModel
+        // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
+        // 避免主线程逐块同步写 PTY。
+        viewModel.pasteSink = { data -> inputBatchBuffer.write(data) }
     }
 
     @Volatile private var rows: Int = DEFAULT_ROWS
