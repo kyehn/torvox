@@ -79,63 +79,13 @@
 
 ## 三、新的 P0
 
-> 维护注：N0-1（析构超时等待）、N0-3（渲染帧会话归属）、N0-4（安装假成功）已修复并验证，对应小节删除；其余编号保持不变。
-
-### N0-2 回滚区搜索在 VT 线程上是 O(n²)，调用方静默拿到空结果
-
-`native/src/terminal/ghostty_terminal/internal.rs:2167-2202`
-
-```rust
-for row in (0..total).rev() {
-    let Some(line) = Self::read_line_text_impl(terminal, row) else { continue };
-    let mut logical_row = row;
-    let mut logical_text = line;
-    while logical_row > 0 {
-        let previous_row = logical_row - 1;
-        let Some(previous) = Self::read_line_text_impl(terminal, previous_row) else { break };
-        if previous.chars().count() < cols { break; }
-        logical_text.insert_str(0, &previous);   // ← O(len) 前插
-        logical_row = previous_row;
-    }
-```
-
-两处独立的复杂度爆炸：
-
-1. `read_line_text_impl`（`internal.rs:1896-1921`）每行要 `cols` 次 `grid_ref()` + `cell()` 的 FFI 往返。倒序扫描 + 向前回溯拼接软换行，当连续 N 行都被写满时，同一行会被反复读取，最坏 **O(N²)** 次行读取。
-2. `insert_str(0, …)` 每次前插 O(len)，拼接出的逻辑行最长 `N·cols`，同样 **O(N²)** 次字节搬移。
-
-`total` = 回滚 2000 行 + 可见行（`session.rs:48`）。手机竖屏 `cols` 小（20–40），`ls -l` / `ps aux` / `df` 这类常规输出几乎每行都写满，正是最常见的回滚内容。
-
-**故障场景**：用户打开文本搜索框输入一个常见词 → `search_all_in_scrollback`（`public_api.rs:520-530`）把请求投给 VT 线程 → VT 线程被上述循环独占数秒到数分钟 → 期间不处理任何 `Command::Write` → flume `cmd_tx`（容量 1024）填满 → `try_send` 在 `public_api.rs:141/175` 开始**静默丢弃 PTY 输出** → 子进程写满 PTY 缓冲区后阻塞 → **用户正在运行的程序挂起**。与此同时查询侧 500ms（`types.rs:234`）超时，只留一条 `log::warn!`，Kotlin 收到的是「无匹配」的空列表。
-
-这是一个**输入可达的、由正常使用触发的全局冻结**，且失败被完全掩盖。违反 `DESIGN.md:24`、`DESIGN.md:216-221`、`DESIGN.md:150`。
-
-**修法**：改为单次正向前向扫描，先把物理行按软换行规则分组成逻辑行，对每条逻辑行匹配一次，再按物理行切分 `SearchMatch` 并把列号重映射。这同时消灭 P1-12（列号越过网格宽度）和这里的 O(n²)。
+> 维护注：N0-1（析构超时等待）、N0-2（回滚搜索二次复杂度）、N0-3（渲染帧会话归属）、N0-4（安装假成功）已修复并验证，对应小节删除；其余编号保持不变。
 
 ---
 
 ## 四、新的 P1
 
-### N1 `RENDER_STATE` 被持有跨越一次 500ms 有界的 VT RPC
-
-`native/src/android/ffi.rs:1522` 取 `render_state_mut()`，随后 `:1601-1611`：
-
-```rust
-if kitty_keys_changed {
-    let frames = {
-        let registry = rlock_session_registry();
-        registry
-            .get(&session_id)
-            .map(|entry| { entry.session.lock().terminal().take_kitty_placements() })
-            .unwrap_or_default()
-    };
-```
-
-`kitty_keys_changed`（`:1555-1559`）在**会话 id 变化、滚动偏移变化、网格尺寸变化、Kitty 代次变化**时都为真。也就是说，只要屏幕上有一张 Kitty 图像，**每次滚动一行、每次 resize、每次切会话**，渲染线程都会握着全局 `RENDER_STATE` 做一次最长 500ms 的同步 RPC，并且同一时刻还持有 registry 读锁与 session 锁。
-
-`RENDER_STATE` 的其他消费者（`setFontSizeInPlace`、`setScrollYPx`、`setRenderPaused`、`getCellWidth/Height`、`renderWithNewOutput`）全部排队等待。这既是 N0-1/N0-2 之外的性能塌陷，也是 N0-1 那条 ABBA 边的来源之一。
-
-**修法**：把 `take_kitty_placements()` 移到取 `RENDER_STATE` 之前的阶段 2（此时已持 session 锁），彻底消除「`RENDER_STATE` → 会话锁」这条边 —— 这同时关闭 P0-1 与 P0-2。
+> 维护注：N1（渲染状态锁外取图放置）已修复并验证，对应小节删除；编号保持不变。
 
 ### N2 `grid_size()` 缓存与实时网格发散，会让每一帧渲染都失败
 

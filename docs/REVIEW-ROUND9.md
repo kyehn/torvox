@@ -178,7 +178,6 @@ external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Flo
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
 | N2-15 | `ffi.rs:2261-2262` vs `:2275-2279` | `select_bounds_export` 的注释写「会话锁与注册表读锁都在构造界限后立即释放：选区查询走 VT 线程，绝不能持锁跨越」，而代码恰恰持着 `registry` 与 `session` 跨越 `select(...)` 这个 VT RPC，只在构造完界限**之后**才 drop。**注释与代码相反** —— 与第 6 轮 N0-1 同一模式。 |
-| N2-16 | `ffi.rs:2397-2400` | `searchAllInScrollback` 持注册表读锁 + 会话锁跨越 `search_all_in_scrollback`，而**这条路径没有超时**（与 `ffi.rs:6-8` 自述的「查询 RPC 用有界超时」不一致）。叠加第 6 轮 N0-2（该函数本身在 VT 线程上是 O(n²)），一次搜索会**无上界**地占住注册表读锁；期间 `destroySession` 的写锁永远拿不到。 |
 | N2-17 | `DocumentQueries.kt:62-64` | `flags = flags or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_WRITE` 是**无条件**的，目录也被标成可写。SAF 客户端会对文件夹显示「粘贴/编辑」，点进去得到系统的 `FileNotFoundException`。`FLAG_DIR_SUPPORTS_*` 存在的意义正是与此对应。 |
 | N2-18 | `TerminalForegroundService.kt:121-136` | `startForeground` 抛异常后 catch 并继续，注释承认 `foregroundServiceRunning` 标志会陈旧并压制后续重启。Android 12+ 上这**阻止不了终止**：`startForegroundService` 要求 5 秒内 `startForeground`，否则系统抛 `ForegroundServiceDidNotStartInTimeException` 并杀进程 —— 该异常在应用侧**无法捕获**。即：一个无效的 Fallback（`DESIGN.md:24`）加上一个把重试彻底堵死的陈旧标志。 |
 | N2-19 | `ffi.rs:2439-2446`、`ffi.rs:2066-2072` | `isCellEmpty` 与 `scrollbackLength` 在抛异常**之后**仍返回 `JNI_TRUE` / `0`。JNI 层面合法（值被忽略），但 Kotlin 侧签名是非空 `Int` / `Boolean`，于是 `NativeQueryPort.kt:9` 声明的「null/0/空表示无数据」通道对这两个方法是不可达的。契约自相矛盾。 |

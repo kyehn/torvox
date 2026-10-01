@@ -162,58 +162,56 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK / PASTE-if-clipboard). */
-    internal fun menuActionsForSelection(
-        pasteOnly: Boolean,
-        pasteEnabled: Boolean,
-    ): List<Pair<String, () -> Unit>> = buildList {
-        if (pasteOnly) {
-            if (pasteEnabled) {
+    internal fun menuActionsForSelection(pasteOnly: Boolean, pasteEnabled: Boolean): List<Pair<String, () -> Unit>> =
+        buildList {
+            if (pasteOnly) {
+                if (pasteEnabled) {
+                    add(
+                        context.getString(R.string.paste) to
+                            {
+                                viewModel?.pasteFromClipboard()
+                                viewModel?.clearSelection()
+                            },
+                    )
+                }
+            } else {
                 add(
-                    context.getString(R.string.paste) to
+                    context.getString(R.string.copy) to
                         {
-                            viewModel?.pasteFromClipboard()
+                            viewModel?.copySelectionToClipboard()
                             viewModel?.clearSelection()
                         },
                 )
-            }
-        } else {
-            add(
-                context.getString(R.string.copy) to
-                    {
-                        viewModel?.copySelectionToClipboard()
-                        viewModel?.clearSelection()
-                    },
-            )
-            add(
-                context.getString(R.string.share) to
-                    {
-                        viewModel?.shareSelection()
-                        viewModel?.clearSelection()
-                    },
-            )
-            add(
-                context.getString(R.string.select_all) to
-                    {
-                        // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
-                        viewModel?.selectAll()
-                        // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
-                        showSelectionMenuForCurrentSelection()
-                    },
-            )
-            // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
-            // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
-            val selectionHyperlinkUri = selectionHyperlinkUri()
-            if (selectionHyperlinkUri != null) {
                 add(
-                    context.getString(R.string.open_link) to
+                    context.getString(R.string.share) to
                         {
-                            openSelectionAsLink(selectionHyperlinkUri)
+                            viewModel?.shareSelection()
                             viewModel?.clearSelection()
                         },
                 )
+                add(
+                    context.getString(R.string.select_all) to
+                        {
+                            // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
+                            viewModel?.selectAll()
+                            // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
+                            showSelectionMenuForCurrentSelection()
+                        },
+                )
+                // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
+                // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
+                val selectionHyperlinkUri = selectionHyperlinkUri()
+                if (selectionHyperlinkUri != null) {
+                    add(
+                        context.getString(R.string.open_link) to
+                            {
+                                openSelectionAsLink(selectionHyperlinkUri)
+                                viewModel?.clearSelection()
+                            },
+                    )
+                }
             }
         }
-    }
 
     /** 选区起点的 OSC 8 超链接 URI，无链接返回 null。 */
     private fun selectionHyperlinkUri(): String? = viewModel
@@ -580,11 +578,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         )
                     }
 
+                    // 同一事务的退格与追加走同一出口（N1-27）：退格同步直写而追加经批缓冲
+                    // 异步发送时，超量追加被推迟到下一帧，退格先到即顺序反转。
+                    private fun sendBackspaces(count: Int) {
+                        if (count > 0) inputBatchBuffer.write(ByteArray(count) { BACKSPACE_BYTE })
+                    }
+
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
+                        if (isPaused) {
                             composingBuffer = ""
                             return true
                         }
+                        // 触摸抑制窗口内不清组字基线、不吞输入：返回 false 让输入法重试，
+                        // 否则下次更新以空基线做 diff 致重复文本（N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
                         val newComposing = text?.toString() ?: ""
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
@@ -600,9 +607,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             )
                         }
                         if (edit.backspaces > 0) {
-                            viewModel?.writeToPty(
-                                ByteArray(edit.backspaces) { BACKSPACE_BYTE },
-                            )
+                            sendBackspaces(edit.backspaces)
                         }
                         if (edit.append.isNotEmpty()) {
                             encodeAndSend(
@@ -621,10 +626,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
+                        if (isPaused) {
                             composingBuffer = ""
                             return true
                         }
+                        // 同上：抑制窗口内返回 false 让输入法重发该提交，
+                        // 返回 true 等于声称已处理，字符永久丢失（N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
                         val committedText = text?.toString() ?: return false
                         val terminalViewModel = viewModel
                         val state = terminalViewModel?.state?.value
@@ -648,9 +656,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 // 已经组字增量转发；不再重发。
                             } else {
                                 val clear = ComposingDiff.reconcile(composingBuffer, "")
-                                terminalViewModel?.writeToPty(
-                                    ByteArray(clear.backspaces) { BACKSPACE_BYTE },
-                                )
+                                sendBackspaces(clear.backspaces)
                                 encodeAndSend(committedText, ctrlActive, altActive)
                             }
                             composingBuffer = ""
@@ -682,9 +688,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
-                            return true
-                        }
+                        if (isPaused) return true
+                        // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
                         // beforeLength/afterLength 来自输入法（不可信）：
                         // 负值或巨大值会在主线程上以 NegativeArraySizeException /
                         // OutOfMemoryError 崩溃。组字时钳位到组字缓冲区长度，
@@ -714,18 +720,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                     removed++
                                 }
                                 composingBuffer = composingBuffer.substring(0, end)
-                                val bs = ByteArray(removed) { BACKSPACE_BYTE }
-                                viewModel?.writeToPty(bs)
+                                val removedBs = ByteArray(removed) { BACKSPACE_BYTE }
+                                inputBatchBuffer.write(removedBs)
                             } else {
                                 // 非组词直删：safeBefore 已按码点钳制，
                                 // shell 按字符删除，1:1 发送。
-                                val bs = ByteArray(safeBefore) { BACKSPACE_BYTE }
-                                viewModel?.writeToPty(bs)
+                                val directBs = ByteArray(safeBefore) { BACKSPACE_BYTE }
+                                inputBatchBuffer.write(directBs)
                             }
                         }
                         if (safeAfter > 0) {
                             val del = ByteArray(safeAfter) { DELETE_BYTE }
-                            viewModel?.writeToPty(del)
+                            inputBatchBuffer.write(del)
                         }
                         return true
                     }
@@ -1147,6 +1153,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 350ms 关闭动画
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms 稳定窗
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
+
+        // 单次触摸手势转发的滚轮行数上限：无界 repeat 会在主线程逐行同步
+        // 等待原生查询（VT 忙时每行最长 500ms），大幅滑动即冻结 UI。
+        // 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。
+        private const val MAX_WHEEL_LINES_PER_GESTURE = 8
         private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
         private const val SURFACE_RECREATE_ATTEMPTS = 10
 
@@ -1175,6 +1186,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** 绑定宿主视图模型：Surface 回调内的全部运行期调用经此进入。 */
     fun attachViewModel(viewModel: TerminalViewModel) {
         this.viewModel = viewModel
+        // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
+        // 避免主线程逐块同步写 PTY。
+        viewModel.pasteSink = { data -> inputBatchBuffer.write(data) }
     }
 
     @Volatile private var rows: Int = DEFAULT_ROWS
@@ -1691,7 +1705,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
                     var forwarded = false
-                    repeat(lines) {
+                    val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
+                    repeat(cappedLines) {
                         if (altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 0, button, cellWidth, cellHeight)) {
                             altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 1, button, cellWidth, cellHeight)
                             forwarded = true

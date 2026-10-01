@@ -11,6 +11,8 @@
 
 ## 一、本轮的四个 P0（全部经回读源码证实）
 
+> 维护注：N0-21（触摸滚轮转发按手势钳制行数）、N0-22（取消先回滚 bridge 再重抛）已修复并验证，对应小节删除；其余编号保持不变。
+
 ### N0-19 `pauseRendering` 持 `sessionLock` 做**每会话 3 秒**的阻塞，而主线程在等同一把锁
 
 代码自己的成本模型算错了 3 倍，且「不会 ANR」的结论不成立。
@@ -126,110 +128,7 @@ let mut state = render_state_mut();
 （阶段 1/2/3 已经这样处理过其它资源），或把 `ACQUIRE_TIMEOUT` 降到约 1 个 vsync
 并直接丢帧。
 
-### N0-21 `encodeMouseEvent` 是持双锁的 500ms VT RPC，被 UI 线程在**无界循环**里调用
-
-`ffi.rs:1007-1031`：
-
-```rust
-
-let registry = rlock_session_registry();
-let Some(entry) = registry.get(&id) else { … };
-let session = entry.session.lock();
-let Some(bytes) = session.terminal().encode_mouse_event(…) else { … };
-
-```
-
-`encode_mouse_event` 走查询通道，`QUERY_TIMEOUT_MS = 500`（`types.rs:234`）。
-调用点在 UI 线程的触摸处理里，**每次滚轮行两次，且行数无上限** ——
-`TerminalSurface.kt:1748-1757`：
-
-```kotlin
-
-val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellHeight).toInt()))
-val button = if (distanceY > 0f) 3 else 4
-var forwarded = false
-repeat(lines) {
-    if (altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 0, button, cellWidth, cellHeight)) {
-        altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 1, button, cellWidth, cellHeight)
-        forwarded = true
-    }
-}
-
-```
-
-`lines` 由手指划过的高度除以单元格高度得到，**没有任何上限**。
-最坏情况：一次大幅滑动 → 主线程阻塞 `2 × lines × 500ms`。
-
-且查询只在**批次边界**被服务（`internal.rs:891` `drain_queries` 在整个命令积压排空后才跑），
-所以一次 `yes` / `cat bigfile` 的输出突发会稳定吃满 500ms。
-
-**同一形状的其它 UI 线程调用**：`scrollbackLength`（`ffi.rs:2090-2108`，
-仅在 `TerminalSurface.kt:1207` 节流到 10Hz）与 `isCellEmpty`（`ffi.rs:2485-2489`，**串三次** RPC ⇒ 最长 1.5s）。
-
-**与文档矛盾**：`ffi.rs:5-9` 的模块文档声明生命周期调用来自 `Dispatchers.IO`，
-「唯一的**主线程**例外是 `focusEvent`（50ms）」。`encodeMouseEvent` 与 `scrollbackLength`
-是另外两个主线程例外，超时大 10 倍，且完全没有出现在该文档中。
-
-**修法**：为 UI 可达的查询加短期限变体（`public_api.rs:438` 已有
-`mode_get_with_timeout` 的同款写法可复用），期限取 16–32ms；
-或把这两个调用改走 `Dispatchers.IO`（`writeToPty` 已是此形）。
-
-### N0-22 `spawnTerminal` 之后的协程取消会泄漏**原生会话 + `mksh` 子进程**，而注释声称的兜底并不存在
-
-`TerminalRuntime.kt:2190-2205`：
-
-```kotlin
-
-} catch (exception: Exception) {
-    if (exception is kotlinx.coroutines.CancellationException) {
-        // 重抛取消：吞没它会破坏结构化并发（与 createSessionInner 同一约定）。
-        // finally 块仍会重置 starting；已 spawn 的 bridge 泄漏由调用方的
-        // 作用域拆除路径关闭。
-        throw exception          // ← 跳过了 2201-2205 的 startedBridge?.close()
-    }
-
-```
-
-`createSessionInner` 的 `:2460-2464` 同样是「先重抛、后关闭」。
-
-**注释指向的「调用方的作用域拆除路径」不存在**。逐个核实调用方：
-
-- `TerminalViewModel.kt:822-824`：
-
-  ```kotlin
-
-  viewModelScope.launch(TerminalDispatchers.inputOutput) {
-      runtime.start(surface, width, height)
-  }
-
-  ```
-
-- `TerminalViewModel.kt:1300-1311`：
-
-  ```kotlin
-
-  viewModelScope.launch(TerminalDispatchers.inputOutput) {
-      …
-      runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
-
-  ```
-
-两处都**没有 `finally`**，也不持有 bridge 引用（bridge 由 `runtime` 内部创建）。
-`bridge.spawnTerminal` 在挂起点之前就已执行
-（`TerminalRuntime.kt:1993` / `:2288`，而下一个挂起点是
-`settingsRepository.fontFamily.first()`，`:2021` / `:2314`），
-故 `viewModelScope` 在此之间被取消（Activity 销毁 / nav owner 销毁）
-就留下一个**活着的原生会话与 `mksh` 子进程**，既不在 `sessions` 里，也无 UI 入口，
-只在进程死亡时由内核回收。
-
-`:2199-2200` 的注释其实已经说明了正确的重要性：
-「createBridge() 之后的任何失败……否则会**永久泄漏**原生会话及其 PTY 子进程」——
-非取消路径做了关闭，取消路径没做，而取消恰恰是最容易发生的路径。
-
-**修法**：把重抛移到关闭之后（`try { bridge.close() } finally { if (cancel) throw }`），
-或在两个 `viewModelScope.launch` 调用处用 `try/finally` 兜底。
-
----
+> 维护注：N0-21（触摸滚轮转发按手势钳制行数）、N0-22（取消先回滚 bridge 再重抛）已修复并验证，对应小节删除；其余编号保持不变。
 
 ## 二、新的 P1
 
