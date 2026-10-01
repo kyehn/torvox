@@ -1101,6 +1101,14 @@ mod tests {
             resolved.1, 0,
             "symbol must resolve to a real glyph, not .notdef"
         );
+        // 同一符号再次解析必须稳定一致：缓存读路径不得丢失解析或引入毒化。
+        let reread = pipeline
+            .glyph_information('▶')
+            .expect("symbol glyph reread");
+        assert_eq!(
+            reread.width, info.width,
+            "symbol reread must match first resolution"
+        );
     }
 
     #[test]

@@ -26,7 +26,8 @@ class AnrWatchDog(
 
     private val running = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var watchJob: Job? = null
+
+    @Volatile private var watchJob: Job? = null
     private val anrInProgress = AtomicBoolean(false)
     private val completed = AtomicBoolean(false)
 

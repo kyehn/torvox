@@ -122,7 +122,6 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
-| N2-25 | `ffi.rs:682` + `session.rs:408` | `ResizeOutcome::Dropped` 在 JNI 边界被静默丢弃（`resize_inner` 只 match `Err`）。`session.rs:396-404` 的 `grid_dirty` 重试使它在**下一次** resize 事件自愈，但若不再有 resize 事件（如旋转后输入法再也不弹出），PTY 停留在新尺寸而网格与渲染器停留在旧尺寸，且无任何日志。 |
 | N2-26 | `session.rs:128-133` + `ffi.rs:1520` | `Session::grid_size()` 只记录 Rust 侧发起的 resize。渲染器用它来排布 `Vec<CellData>`，而 `CursorInfo`（`types.rs:48-59`）不带 `rows`/`cols`。`CSI ?3h`（DECCOLM）会在上游内部改网格且不发 `Command::Resize`，届时 `CellData.col` 可达 159 而渲染器按 80 列排布。 |
 | N2-31 | `TerminalViewModel.kt:698-702` | `bridge?.listFontFamilies().orEmpty()` 在 bridge 缺席时伪造「空字体库」，随后 `SystemFonts.availableFontFamilies`（`SystemFonts.kt:9-12`）抛 `IllegalStateException`，被 `:712-717` 记录后**重新抛出**导致进程终止。把 `NativeQueryPort` 的「null = 无数据，绝不可伪造」契约变成了崩溃。 |
 | N2-32 | `native/src/terminal/ghostty_terminal/keymap.rs`（261 行） | 整条上游 key 编码链在生产中不可达：`map_android_key_code` 只被 `internal.rs:299` 的 `Query::KeyEncode` 引用，而 `public_api.rs:344`/`:387` 的 `key_encode`/`key_encode_submit` 无非测试调用方；`NativeBridge.kt` 也没有任何 `keyCode` 入参的导出（唯一按键入口是 `writeKey(sessionId, key: String, mods, text)`，`ffi.rs:901-945`）。但 `ffi.rs:940-942` 的注释声称「完整 Kitty 键盘协议编码由上游 key::Encoder 经 `Query::KeyEncode` 承担」——**注释与事实相反**。违反 `STYLE.md:63`。 |
@@ -131,7 +130,6 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 | N2-35 | `ffi.rs:1674` → `pass.rs:438-477` + `cell_builder.rs:947-1004` | 整个纵向滚动 blit 是死代码：生产者硬编码 `let scroll_up_rows: Option<u32> = None;`，`detect_vertical_shift` 是 `#[cfg(test)] pub fn`。且 `pass.rs:447-473` 的 `copy_texture_to_texture` 存在**重叠区域**，而 wgpu 只校验 Z 层不相交（`wgpu-core/src/command/transfer.rs` `validate_copy_within_same_texture`），正确性依赖 API 不提供的顺序保证。 |
 | N2-36 | `pipeline.rs:229-256` | `ensure_kgp_pipeline` 每帧新建 `TextureView` **和** `BindGroup`（`context.rs:196` 每帧调用），而同函数上方的 sampler/pipeline/buffer 都有 `is_none()` 守卫。只有「屏幕上有图片」时才走这条路，即稳态分配抖动。 |
 | N2-37 | `context.rs:582` | `kgp_atlas_data` 是 KGP 图集的**永久 CPU 全量副本**，全仓仅 3 处出现（声明 `:119`、初始化 `:308`、写入 `:582`），从不读取。对 `kitty.rs:63` 文档化的 64 MiB 存储预算而言等于内存翻倍。违反 `DESIGN.md:20`（低内存友好）。 |
-| N2-38 | `font/pipeline.rs:674` vs `:781` | `cjk_glyph_cache` 的**写**是无条件的，**读**却被 `code_point >= CJK_IDEOGRAPHIC_START`（0x2E80）门控。U+2E80 以下的符号字形（▶ ★ ♥ ✓ ✗ 等）每次都重跑整条回退链 + 全字体库扫描（`cjk.rs:116-131`），且 `cell_builder.rs:550-561` 的 `warm_frame_glyphs` 每帧第二次调用。`font/mod.rs:1069` 的测试只断言缓存**含有**该条目，从不断言被命中。 |
 | N2-39 | `android/ffi.rs:399-403` | `initSession` 把空 shell 入口改写为 `/system/bin/sh`，这是 `DESIGN.md:188`「失败不回退，无其他任何回退」之外的**额外回退**。当前 Kotlin 侧已实现 bash→login→`/system/bin/sh` 的解析顺序（`TerminalRuntime.kt:1682`、`Bridge.kt:118`），该分支不可达，但它会掩盖 Kotlin 侧回归。 |
 | N2-40 | `pty.rs:311-316`、`:337-343` | 子进程 `setsid` 失败 → `_exit(2)`、`TIOCSCTTY` 失败 → `_exit(3)`，两者**不写任何 PTY 输出**（对比 `execve` 路径会写 `execve failed: errno=N`，`:394-425`）。由这两者引起的启动失败会表现为 `[Process completed (code 3)]`，而非 `DESIGN.md:194` 要求的「保留输出显示」。 |
 | N2-41 | `pty.rs:128` | `openpty` 的两个 fd 未设 `FD_CLOEXEC`（`nix-0.31.3/src/pty.rs:274` 直接包 `OwnedFd`）。当前不可利用（`pty.rs:676-708` `close_stray_fds` 关闭子进程中所有 ≥3 的 fd，且 `fork()` 是全仓唯一 fork 点），但一旦新增任何 spawn 路径即成 fd 泄漏。 |

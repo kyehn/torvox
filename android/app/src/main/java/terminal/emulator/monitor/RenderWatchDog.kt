@@ -26,7 +26,9 @@ class RenderWatchDog(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var watchJob: Job? = null
+
+    // 启动与停止分属不同线程（surfaceTransitionExecutor 与渲染线程），与它处同为易变。
+    @Volatile private var watchJob: Job? = null
 
     fun start() {
         if (watchJob?.isActive == true) return
