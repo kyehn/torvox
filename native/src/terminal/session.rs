@@ -504,19 +504,23 @@ impl Session {
                     max_chunks,
                     self.output_rx.len(),
                 );
-                self.terminal.flush();
-                self.drain_callback_events();
-                // 即使走到封顶路径也排空回写应答：输出洪水不得饿死 DECRPM/DSR/DA 应答，
-                // 否则子应用会无限期等待。
-                self.drain_pty_write_back();
+                // 锁内渲染路径：VT 线程卡住时跳过本次排空，剩余块下一帧重试
+                // （N1-20：5s flush 不得阻塞会话锁）。
+                if self.terminal.flush_with_timeout(std::time::Duration::ZERO) {
+                    self.drain_callback_events();
+                    // 即使走到封顶路径也排空回写应答：输出洪水不得饿死 DECRPM/DSR/DA 应答，
+                    // 否则子应用会无限期等待。
+                    self.drain_pty_write_back();
+                }
                 return true;
             }
         }
         if count > 0 {
             log::trace!("poll_pty_output: processed {count} chunks");
-            self.terminal.flush();
-            self.drain_callback_events();
-            self.drain_pty_write_back();
+            if self.terminal.flush_with_timeout(std::time::Duration::ZERO) {
+                self.drain_callback_events();
+                self.drain_pty_write_back();
+            }
             true
         } else {
             false
