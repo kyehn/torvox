@@ -85,7 +85,7 @@ reused update#2 (无输出变化)      rows=80   dirty=80   clean=0
 > 注意：本项若选「修复」，必须同时处理 `RenderState` 的 `snapshot` 借用生命周期
 > （`render.rs:38-40` 要求 `RowIteration` 的借用不越过 `Snapshot`），
 > 属于非平凡改动，**需要用户确认方向后再动手**。
-
+>
 > 维护注：N0-14（滚动强制重推帧）已修复并验证，对应小节删除；采用修法第二种
 > （`ScrollViewport` 分支清 `last_cell_data_push`，与 SetSelection/Reset 同模式），
 > 编号保持不变。
@@ -127,7 +127,6 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 | N2-32 | `native/src/terminal/ghostty_terminal/keymap.rs`（261 行） | 整条上游 key 编码链在生产中不可达：`map_android_key_code` 只被 `internal.rs:299` 的 `Query::KeyEncode` 引用，而 `public_api.rs:344`/`:387` 的 `key_encode`/`key_encode_submit` 无非测试调用方；`NativeBridge.kt` 也没有任何 `keyCode` 入参的导出（唯一按键入口是 `writeKey(sessionId, key: String, mods, text)`，`ffi.rs:901-945`）。但 `ffi.rs:940-942` 的注释声称「完整 Kitty 键盘协议编码由上游 key::Encoder 经 `Query::KeyEncode` 承担」——**注释与事实相反**。违反 `STYLE.md:63`。 |
 | N2-33 | `public_api.rs:284-297` + `internal.rs:1740-1899` | 快照缓存（`Command::TakeSnapshot`、`build_snapshot`、`GridSnapshot`、`CellSnapshot`、`cached_snapshot`、`snapshot_needs_rebuild`）在生产中不可达：`.take_snapshot()` 只出现在测试文件；渲染走 CellData 通道。`public_api.rs:288`/`:294` 还是 `panic!`。`snapshot_cache_unit_tests.rs`（18 行）只为测试这段死代码而存在。 |
 | N2-34 | `session.rs:446 send_signal`、`public_api.rs:481 read_visible_text` | 二者均无非测试生产调用方。且 `ReadVisibleText` 会整行丢弃纯空白行（`internal.rs:207`），输出丢失行结构。 |
-| N2-35 | `ffi.rs:1674` → `pass.rs:438-477` + `cell_builder.rs:947-1004` | 整个纵向滚动 blit 是死代码：生产者硬编码 `let scroll_up_rows: Option<u32> = None;`，`detect_vertical_shift` 是 `#[cfg(test)] pub fn`。且 `pass.rs:447-473` 的 `copy_texture_to_texture` 存在**重叠区域**，而 wgpu 只校验 Z 层不相交（`wgpu-core/src/command/transfer.rs` `validate_copy_within_same_texture`），正确性依赖 API 不提供的顺序保证。 |
 | N2-36 | `pipeline.rs:229-256` | `ensure_kgp_pipeline` 每帧新建 `TextureView` **和** `BindGroup`（`context.rs:196` 每帧调用），而同函数上方的 sampler/pipeline/buffer 都有 `is_none()` 守卫。只有「屏幕上有图片」时才走这条路，即稳态分配抖动。 |
 | N2-37 | `context.rs:582` | `kgp_atlas_data` 是 KGP 图集的**永久 CPU 全量副本**，全仓仅 3 处出现（声明 `:119`、初始化 `:308`、写入 `:582`），从不读取。对 `kitty.rs:63` 文档化的 64 MiB 存储预算而言等于内存翻倍。违反 `DESIGN.md:20`（低内存友好）。 |
 | N2-39 | `android/ffi.rs:399-403` | `initSession` 把空 shell 入口改写为 `/system/bin/sh`，这是 `DESIGN.md:188`「失败不回退，无其他任何回退」之外的**额外回退**。当前 Kotlin 侧已实现 bash→login→`/system/bin/sh` 的解析顺序（`TerminalRuntime.kt:1682`、`Bridge.kt:118`），该分支不可达，但它会掩盖 Kotlin 侧回归。 |
@@ -241,7 +240,7 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 3. **N1-20 `flush` 锁区** —— 加带期限的变体，关闭写锁饥饿。
 4. **N2-29 搜索长度双常量**、
    **N2-30 文档矛盾** —— 各自几行。
-5. **N2-32 / N2-33 / N2-34 / N2-35 死代码** —— 按 `STYLE.md:63` 应删除；需确认后再动。
+5. **N2-32 / N2-33 / N2-34 死代码** —— 按 `STYLE.md:63` 应删除；需确认后再动。
 6. 其余 N2 项。
 
 ---
