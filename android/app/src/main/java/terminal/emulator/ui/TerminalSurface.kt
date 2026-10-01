@@ -1956,9 +1956,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
+                    // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
+                    // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
+                    val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
                     val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     scaleFactor = 1.0f
-                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, sizeSp)) {
+                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
                         onZoomChanged?.invoke(sizeSp)
                     } else {
