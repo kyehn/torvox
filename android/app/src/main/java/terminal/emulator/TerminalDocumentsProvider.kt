@@ -266,8 +266,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
                 else -> parseOpenModeFallback(mode)
             }
-        // 句柄关闭即视为外部写回：广播文档与父目录，文件选择器（以及终端自身的
-        // 打开文件菜单）才能看到大小/时间变化。裸 open() 时外部编辑"看起来没反应"。
+        // 句柄关闭即视为外部写回：广播文档与父目录，文件选择器才能看到大小/时间变化。裸 open() 时外部编辑"看起来没反应"。
         return ParcelFileDescriptor.open(file, fileMode, closeNotifyHandler) {
             mutations.notifyWritten(documentId, file)
         }
