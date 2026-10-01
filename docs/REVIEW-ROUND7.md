@@ -25,7 +25,7 @@
 
 ## 三、新的 P0
 
-> 维护注：N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：N0-7（输出泵与渲染解耦）、N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N0-6 PTY 主端是非阻塞的，`write_all` 在中途失败后丢弃剩余字节 —— 粘贴被静默截断
 
@@ -71,49 +71,6 @@ fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
 违反 `DESIGN.md:24`、`DESIGN.md:16`，并直接破坏 `DESIGN.md:176`（全功能输入法）与 `DESIGN.md:170`（全选后复制必须正常工作）。
 
 **修法**：要么在写入前用 `poll(POLLOUT)` 带截止等待，要么保留未写尾部并在渲染循环里排空；无论哪种都不能把截断报告为成功。注释里那句「上报为错误会刷爆日志」不构成丢弃数据的理由。
-
-### N0-7 输出通道没有独立于渲染线程的泵 —— 一处渲染错误冻结全应用所有 shell
-
-两个事实叠加：
-
-**(a)** `native/src/terminal/session.rs:271`，读取线程用的是**阻塞**发送：
-
-```rust
-if output_tx.send(data).is_err() {
-```
-
-通道容量 `OUTPUT_CHANNEL_BOUND = 128` × 8192B ≈ 1MB。塞满后**读取线程 park**。
-
-**(b)** 唯一的消费者是 `poll_pty_output`（`session.rs:489-524`），其调用链是 `Bridge.pollAll()`（`Bridge.kt:295`）← 唯一调用点 `TerminalRuntime.kt:1300`。而 `TerminalRuntime.kt:1274-1300` 的结构是：
-
-```kotlin
-if (count >= 0) {
-    …
-    val poll = bridge.pollAll()
-    …
-} else {
-    …
-    consecutiveErrors++
-    val sleepMs = if (consecutiveErrors > 10) RENDER_ERROR_BACKOFF_MS else RENDER_ERROR_SLEEP_MS
-    delay(sleepMs)
-}
-```
-
-`pollAll()` **只在 `render() >= 0` 分支里**。`render()` 返回负值时，只 `delay` 然后继续，`output_rx` 永远不被排空。
-
-**故障场景**：任何一个会话的渲染持续返回负值 —— 第 6 轮的 **N2（`grid_size()` 缓存与实时网格发散导致每帧都失败）正是这样一个必然持续的错误源** —— 于是：
-
-1. 所有读取线程阻塞在 `output_tx.send`
-2. PTY 内核缓冲区填满
-3. **所有正在运行的 shell（含后台会话的 `tail -f`、编译任务）阻塞在 `write()` 上**
-
-`ffi.rs:1146-1149` 的注释专门说明后台会话输出处理要「保护不被前台阻塞」，这条路径恰好把它彻底废掉。渲染暂停（打开设置页、`surfaceDestroyed`）时同理。
-
-用户看到的是：打开设置页再回来，终端不动了。没有任何错误提示。
-
-违反 `DESIGN.md:150`（脏跟踪减少突发输出期间的工作量）、`DESIGN.md:156`、`DESIGN.md:22`。
-
-**修法**：把 `output_rx` 的排空移到渲染分支之外（无论 `render()` 返回什么都必须排空），或为输出通道配一个独立于渲染循环的泵。渲染失败绝不能成为停止读取 PTY 的理由。
 
 ---
 
