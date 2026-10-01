@@ -55,4 +55,18 @@ class PasteChunkerTest {
         val chunks = chunker4.chunks("a😀b")
         assertEquals(listOf("a😀b"), chunks)
     }
+
+    @Test
+    fun crlfCollapsesToSingleCarriageReturn() {
+        // 回车换行必须只产生一次回车，否则每粘贴一行多出一个空行。
+        assertEquals(listOf("a\rb"), chunker.chunks("a\r\nb"))
+    }
+
+    @Test
+    fun truncationNeverSplitsSurrogatePair() {
+        // maxChars 恰切在表情中间（高代理项在末尾）时多取一字符保住完整码点。
+        val capped = PasteChunker(maxChars = 3, chunkChars = 4)
+        val chunks = capped.chunks("ab😀c")
+        assertEquals("ab😀", chunks.joinToString(""))
+    }
 }

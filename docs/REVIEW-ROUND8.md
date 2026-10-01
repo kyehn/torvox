@@ -139,19 +139,7 @@ private val scope = CoroutineScope(SupervisorJob() + terminal.emulator.util.Term
 
 违反 `DESIGN.md:20`（低内存友好）、`DESIGN.md:64-66`（Activity 重建 / 进程回收场景）。
 
-### N1-13 `RenderWatchDog.watchJob` / `AnrWatchDog.watchJob` 是非 volatile 的普通 `var`
-
-`android/app/src/main/java/terminal/emulator/monitor/RenderWatchDog.kt:29`
-
-```kotlin
-private var watchJob: Job? = null
-```
-
-`start()` 由 `surfaceTransitionExecutor` 线程调用，`stop()` 由渲染线程（`TerminalRuntime.kt:1536`）在 `sessionLock` 内调用，`start()` 内部又读 `watchJob?.isActive` —— **无 happens-before 关系**。可能漏启看门狗，或 `stop()` 与 `start()` 交错导致刚启动的看门狗被误停（`stop()` 的注释恰好在防这件事，但它自己就是竞态的一方）。
-
-同结构的 `SessionEntry.renderThreadRef`（`TerminalRuntime.kt:112`）也是普通 `var`，而它周围 13 个兄弟字段都是 `@Volatile`。
-
-违反 `DESIGN.md:20`。
+> 维护注：N1-13（看门狗任务引用与渲染线程引用补齐易变注解）已修复并验证，对应小节删除；其余编号保持不变。
 
 ---
 
