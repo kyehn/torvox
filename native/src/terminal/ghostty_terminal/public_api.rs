@@ -208,18 +208,26 @@ impl super::GhosttyTerminal {
     }
 
     pub fn flush(&self) {
+        self.flush_with_timeout(std::time::Duration::from_secs(FLUSH_TIMEOUT_SECS));
+    }
+
+    /// 带期限的 `flush` 变体：锁内渲染路径（`poll_pty_output`）用零/极短期限，
+    /// VT 线程卡住时跳过本次排空而非阻塞会话锁（写锁饥饿见 N1-20）。
+    /// 返回真表示 VT 线程已确认排空，调用方才可收割回调事件与回写应答。
+    pub fn flush_with_timeout(&self, timeout: std::time::Duration) -> bool {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.try_send(Command::FlushAck(tx)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-            return;
+            return false;
         }
         // 有界等待：VT 线程卡死（如病态的 C 解析器输入）时，无限 recv 会在持有会话锁
         // 期间永久阻塞调用方，冻结所有 JNI 入口并触发 ANR 看门狗。超时远大于合法积压
         // 上限，静默 5s 即 VT 线程确实卡死。
-        match rx.recv_timeout(std::time::Duration::from_secs(FLUSH_TIMEOUT_SECS)) {
-            Ok(()) => {}
+        match rx.recv_timeout(timeout) {
+            Ok(()) => true,
             Err(_) => {
                 log::warn!("ghostty_terminal: flush_ack timed out — session may be dead");
+                false
             }
         }
     }

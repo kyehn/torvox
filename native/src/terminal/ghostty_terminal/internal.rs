@@ -2128,16 +2128,19 @@ impl super::GhosttyTerminal {
     }
 
     /// 单行内全部非重叠命中的字符列区间（库给出字节偏移，此处转字符列）。
+    /// 字节游标与字符游标单遍推进：逐命中从行首重数字符是 O(命中×行长)。
     fn search_line_columns(line: &str, pattern: &regex::Regex) -> Vec<(u32, u32)> {
-        pattern
-            .find_iter(line)
-            .map(|matched| {
-                (
-                    line[..matched.start()].chars().count() as u32,
-                    line[..matched.end()].chars().count() as u32,
-                )
-            })
-            .collect()
+        let mut columns = Vec::new();
+        let mut byte_cursor = 0;
+        let mut char_cursor: u32 = 0;
+        for matched in pattern.find_iter(line) {
+            char_cursor += line[byte_cursor..matched.start()].chars().count() as u32;
+            let start_col = char_cursor;
+            char_cursor += line[matched.start()..matched.end()].chars().count() as u32;
+            columns.push((start_col, char_cursor));
+            byte_cursor = matched.end();
+        }
+        columns
     }
 
     /// 物理行的软换行标志（是否为续接段、本行是否折行），取自上游
@@ -2184,17 +2187,17 @@ impl super::GhosttyTerminal {
             }
             // 逻辑行拼接文本，以及每个物理行在其中的（行号，起始字符下标，字符数）。
             // read_line_text_impl 每网格列产出一个字符，故段内字符下标即列号。
+            // 起始下标用运行计数累加：逐段重数拼接串字符是 O(段×行长)。
             let mut segments: Vec<(u32, u32, u32)> = Vec::new();
             let mut logical_text = String::new();
+            let mut logical_char_len: u32 = 0;
             let mut physical_row = row;
             loop {
                 let text = Self::read_line_text_impl(terminal, physical_row).unwrap_or_default();
-                segments.push((
-                    physical_row,
-                    logical_text.chars().count() as u32,
-                    text.chars().count() as u32,
-                ));
+                let text_char_len = text.chars().count() as u32;
+                segments.push((physical_row, logical_char_len, text_char_len));
                 logical_text.push_str(&text);
+                logical_char_len += text_char_len;
                 let Some((is_wrapped, _)) = Self::row_wrap_flags(terminal, physical_row) else {
                     break;
                 };
@@ -2203,24 +2206,42 @@ impl super::GhosttyTerminal {
                 }
                 physical_row += 1;
             }
+            // 命中跨物理行时按段拆分，逐段给出该行内的列区间：
+            // 高亮必须落在真实所在行，且列号不得越过网格宽度。
+            // 匹配与段都按起始下标有序，游标单遍推进即得全部重叠段，
+            // 总计线性而非每命中扫描全部段。
+            let mut segment_cursor: usize = 0;
             for (match_start, match_end) in Self::search_line_columns(&logical_text, &pattern) {
-                // 命中跨物理行时按段拆分，逐段给出该行内的列区间：
-                // 高亮必须落在真实所在行，且列号不得越过网格宽度。
-                for (segment_row, segment_start, segment_len) in &segments {
-                    let segment_end = segment_start + segment_len;
-                    let start = match_start.max(*segment_start);
-                    let end = match_end.min(segment_end);
-                    if start >= end {
-                        continue;
-                    }
-                    results.push(SearchMatch {
-                        row: *segment_row,
-                        start_col: start - segment_start,
-                        end_col: end - segment_start,
-                    });
-                    if results.len() >= MAX_NAVIGABLE_MATCHES {
+                while segment_cursor < segments.len() {
+                    let (_, cursor_start, cursor_len) = segments[segment_cursor];
+                    if cursor_start + cursor_len > match_start {
                         break;
                     }
+                    segment_cursor += 1;
+                }
+                let mut overlap_cursor = segment_cursor;
+                while overlap_cursor < segments.len() {
+                    let (segment_row, segment_start, segment_len) = segments[overlap_cursor];
+                    if segment_start >= match_end {
+                        break;
+                    }
+                    let segment_end = segment_start + segment_len;
+                    let start = match_start.max(segment_start);
+                    let end = match_end.min(segment_end);
+                    if start < end {
+                        results.push(SearchMatch {
+                            row: segment_row,
+                            start_col: start - segment_start,
+                            end_col: end - segment_start,
+                        });
+                        if results.len() >= MAX_NAVIGABLE_MATCHES {
+                            break;
+                        }
+                    }
+                    if segment_end >= match_end {
+                        break;
+                    }
+                    overlap_cursor += 1;
                 }
                 if results.len() >= MAX_NAVIGABLE_MATCHES {
                     break;
