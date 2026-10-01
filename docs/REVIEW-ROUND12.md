@@ -16,29 +16,7 @@
 
 ## 二、新的 P1
 
-> 维护注：N1-24（输入法抑制窗口返回 false 重试）、N1-26（选区菜单粘贴经批缓冲）、N1-27（输入法退格追加走同一出口）已修复并验证，对应小节删除；其余编号保持不变。
-
-### N1-28 `ImePopupPixelInstrumentedTest` 的「上移前后」断言实际比较的是**弹出后的两帧**
-
-`android/app/src/androidTest/java/terminal/emulator/ui/ImePopupPixelInstrumentedTest.kt:319-322`：
-
-```kotlin
-// 上移前后底部像素完全相同：贴输入法上沿的缝线行必须一致。
-val seamTop = before.height - imeHeight - 12
-val seamDiff = countDifferingPixels(movedFrame, settled, seamTop, before.height - imeHeight)
-assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff == 0)
-```
-
-`movedFrame` 采自 `:307`（**弹出之后**），`settled` 采自 `:316`（再过 1 s）。
-`before`（`:273`，弹出前）只被用来计算 `seamTop`，**从未参与像素比较**。
-两帧之间界面静止，`diff == 0` 平凡成立，无法发现弹出引入的缝线/吞底缺陷。
-
-`docs/specification/TESTING.md:34` 原文：「上移后终端与上移前终端的**底部像素完全相同**」。
-
-注：同一文件的闪烁断言（`:317`）用 `movedFrame` vs `settled` 是**正确**的 ——
-闪烁本就该比较弹出后的两帧，不能与 `before` 比。
-
-**修法**：另采一组弹出前帧（`beforeSeam`），与 `settled` 比较缝线行。
+> 维护注：N1-24（输入法抑制窗口返回 false 重试）、N1-26（选区菜单粘贴经批缓冲）、N1-27（输入法退格追加走同一出口）、N1-28（缝线空断言改比对弹出前后终端文本）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N1-29 `ktlint` 与 `ktfmt` 已配置但从未被任何门禁调用
 
