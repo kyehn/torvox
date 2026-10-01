@@ -34,38 +34,7 @@
 
 ## 二、新的 P1
 
-### N1-36 `cached_scrollback` 是**只写字段**，其「空闲时复用」的声明从未兑现
-
-`ffi.rs:136` 的字段文档：
-
-```rust
-/// 缓存的回滚长度——在 FrameData::New 时更新，空闲时复用，避免同步
-/// `scrollback_length()` RPC（VT 线程繁忙时会把渲染线程阻塞最多 50ms）。
-cached_scrollback: u32,
-```
-
-**全仓三处命中，无一处读取**：
-
-```text
-ffi.rs:137   cached_scrollback: u32,                       ← 声明
-ffi.rs:194   cached_scrollback: 0,                          ← 初始化
-ffi.rs:1560  render_state.cached_scrollback = scrollback;   ← 唯一写入
-```
-
-即：每帧都写、从不读。「空闲时复用」是假的。
-同时该注释把 `scrollback_length()` 的代价说成「最多 50ms」，实际是
-`QUERY_TIMEOUT_MS = 500`（`types.rs:234`，经 `public_api.rs:474` 的
-`recv_timeout` 生效）；`50` 是 `session.rs:485` 的 `FOCUS_MODE_QUERY_TIMEOUT_MS`
-—— 一个完全不同的常量，被复制到了错误的注释里。
-
-**后果**：
-(1) 违反 `STYLE.md:63`（不得保留死代码）；
-(2) 「把回滚长度随 `CursorInfo` 一起传」这一设计的**存在理由**被错误陈述 ——
-真实的理由是「避免 500ms 阻塞的同步 RPC」，而按注释的 50ms 理解会得出
-「同步查询也不贵」的相反结论，未来有人据此重新引入该 RPC 时会按 50ms 预算设计。
-
-**修法**：删除该字段（回滚长度已随 `CursorInfo` 传递，无需缓存），
-或为 `FrameData::Idle` 路径补上读取。两种情况都应把 `50ms` 改为 `500ms`。
+> 维护注：N1-36（只写回滚缓存字段）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N1-37 `TerminalSurface.surfaceDestroyed` 断言的 Surface 释放不变式**既未接线，也不可能成立**
 
@@ -170,14 +139,13 @@ ffi.rs:1560  render_state.cached_scrollback = scrollback;   ← 唯一写入
 
 ## 六、修复顺序建议
 
-1. **N1-36 `cached_scrollback`** —— 删字段（连同两处错误注释）。一行级改动，同时消掉死代码与错误的设计理由陈述。
-2. **N1-37 Surface 释放不变式** —— 让 `runAfterRenderThreadsStopped` 有调用方，顺带消除跨三轮的未修项。
-3. **成本数字批量更正**（N2-79 ~ N2-84）—— 这些数字是后续容量与性能判断的依据，
+1. **N1-37 Surface 释放不变式** —— 让 `runAfterRenderThreadsStopped` 有调用方，顺带消除跨三轮的未修项。
+2. **成本数字批量更正**（N2-79 ~ N2-84）—— 这些数字是后续容量与性能判断的依据，
    错误数字比没有数字更危险。优先更正被**用作论证**的三处：
    `internal.rs:482`（字节预算解除的论证）、`TerminalRuntime.kt:3341`（方案取舍的论证）、
    `ffi.rs:136`/`:1515`（RPC 预算的依据）。
-4. **N2-90 同文件内三处超时不一致** —— 应统一引用 `QUERY_TIMEOUT_MS` 的常量名。
-5. 其余 N2 项。
+2. **N2-90 同文件内三处超时不一致** —— 应统一引用 `QUERY_TIMEOUT_MS` 的常量名。
+3. 其余 N2 项。
 
 ---
 

@@ -7,6 +7,8 @@
 
 本轮只审查，未改动代码。
 
+> 维护注：P0-4（二段安装假成功）已修复并验证，对应小节删除；其余编号保持不变。
+
 ---
 
 ## 一、致命缺陷（P0）
@@ -44,14 +46,6 @@
 **违反** DESIGN:24「不做任何未要求的 Fallback 机制」——注释与代码自相矛盾。
 
 **修法**：`try_send` 失败与超时只记 error 并返回 `None`；检测「工作线程已取请求未应答」直接 `panic!`（合 DESIGN:16）。
-
-### 4. postinst 全部失败仍上报「安装成功」
-
-`installer/SecondStageRunner.kt:90` `return Result(true, errors)`——`success` 恒 true。`BootstrapOrchestrator.kt:95-103` 据此置 `INSTALLED` 并 `Result.success`，`TerminalViewModel.kt:1130-1141` 只把 errors 拼成「诊断」文本。
-
-**违反** DESIGN:142 明文「postinstall 只在存在时运行，不做无意义检查/校验，**出现问题正常报错就是**」＋DESIGN:16/24。dpkg 半配置状态（权限/ABI/脚本错）被完全掩盖为绿色成功，用户拿到的 prefix 不可用。
-
-**修法**：`errors.isNotEmpty()` 时返回 `Result(false, errors)`，编排器据此 `state.set(ERROR)` + `Result.failure`。
 
 ### 5. 前台服务/看门狗/热管理整块功能无规范声明
 
