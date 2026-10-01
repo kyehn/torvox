@@ -358,6 +358,7 @@ class ImePopupPixelInstrumentedTest {
         // 启动期自动弹键盘与本用例竞态（实测 spawn 后 3s 才 show）：截图前一刻强制收起并确认，否则 before 即上移态差分为零。
         hideImeAndSettle()
         val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        val beforeText = pumpAndText() ?: throw AssertionError("弹出前终端文本不可读")
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
         assertTrue("输入法必须占据高度", imeHeight > 0)
@@ -406,10 +407,14 @@ class ImePopupPixelInstrumentedTest {
         val settled = device.takeScreenshot() ?: throw AssertionError("截图失败")
         val flickerDiff = countDifferingPixels(movedFrame, settled, stripTop, stripTop + stripHeight)
         assertTrue("上移稳定后必须无闪烁 (差分=$flickerDiff)", flickerDiff <= 5)
-        // 上移前后底部像素完全相同：贴输入法上沿的缝线行必须一致。
-        val seamTop = before.height - imeHeight - 12
-        val seamDiff = countDifferingPixels(movedFrame, settled, seamTop, before.height - imeHeight)
-        assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff == 0)
+        // 上移前后底部内容完全相同：弹出只平移容器，不改变网格内容。
+        // 弹出后的两帧互比恒为零，无法发现吞底；像素逐行比对在位移下恒不等，
+        // 故以终端文本落实 TESTING 底部像素条款。
+        val settledText = pumpAndText() ?: throw AssertionError("定居后终端文本不可读")
+        assertTrue(
+            "上移前后底部内容必须完全相同",
+            settledText.replace("\n", "") == beforeText.replace("\n", ""),
+        )
         // 弹出时输入文本正确显示，底部不被吞。
         // 回车后缀：输入即执行，断言执行输出而非行回显——行回显依赖从机回显开关（mksh 自管理），内边距动画期的 SIGWINCH 重绘会擦掉未提交行并造成抖动；执行输出稳定可断言，覆盖同一“输入正确显示、底部不被吞”条款。
         val typed = "IME_TYPED_$stamp"
