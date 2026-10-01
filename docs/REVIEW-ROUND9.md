@@ -17,31 +17,8 @@
 > 维护注：N0-12（安装进程跳过监控安装）已修复并验证，对应小节删除。
 
 ---
----
 
 ## 三、新的 P1
-
-### N1-16 `EXTRA_OPEN_SETTINGS` 在 `onNewIntent` 中被静默丢弃
-
-`android/app/src/main/java/terminal/emulator/MainActivity.kt:232-234`
-
-```kotlin
-if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
-    launchOpenSettings = true
-}
-```
-
-而 `:302`
-
-```kotlin
-var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
-```
-
-`remember` 只在首次组合时求值，而 `handleLaunchIntent` 运行在 `onNewIntent`（`:248`）里 —— 远晚于 `setContent`。
-
-**故障场景**：Activity 已在栈中时，第二次启动带 `terminal.emulator.open_settings`（通知点击、快捷方式、Tasker 自动化）→ **打开的是终端而不是设置页**，无任何提示。
-
-对照 `:230` 的 `runtime.requestFailsafeSession()`：它在每个 intent 上都被重新应用，`:209-212` 的注释也明确要求「必须在每个 intent 上重新应用」—— 同一要求没有在 `EXTRA_OPEN_SETTINGS` 上兑现。`launchOpenSettings` 本身是普通 `var` 而非 `State`，更不会触发重组。
 
 ### N1-17 `openDocumentThumbnail` 忽略 `sizeHint` 与 `CancellationSignal`，返回整个文件
 
