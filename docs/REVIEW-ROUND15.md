@@ -11,54 +11,7 @@
 
 ## 一、新的 P2
 
-### N2-96 字号下界在三处不一致，导致「无变化的捏合」会静默改写并持久化字号
-
-三个硬编码的下界互不相同：
-
-| 位置 | 常量 | 值 |
-| --- | --- | --- |
-| `SettingsScreen.kt:81-82` | `FONT_SIZE_RANGE_MIN/MAX`（设置滑杆范围） | **8f** .. 48f |
-| `TerminalScreen.kt:66-67` | `FONT_SIZE_MIN/MAX`（缩放落定钳位） | **14f** .. 48f |
-| `TerminalSurface.kt:2995-2996` | `ZOOM_FONT_SIZE_MIN_SP/MAX_SP` | **14f** .. 48f |
-
-**故障链**（逐跳核实）：
-
-1. 用户在设置页把字号调到 8sp（滑杆允许，`SettingsScreen.kt:543`）。
-2. 任意一次双指手势**净缩放为 1.0**（手指按下后回到原位、被系统判为缩放但 scale 抵消）：
-   - `TerminalSurface.kt:1933` `zoomBaseFontSizeSp = runtime.appliedFontSizeSp()` = **8f**；
-   - `:1955` `sizeSp = zoomFontSize(8f, 1.0f)`
-     = `(8f * 1.0f).coerceIn(ZOOM_FONT_SIZE_MIN_SP /*14f*/, 48f)` = **14f**；
-   - `:1957` `zoomSettledOnNewSize(8f, 14f)`
-     = `kotlin.math.abs(14f - 8f) > ZOOM_FONT_SIZE_EPSILON_SP` = **true**；
-   - `:1959` `onZoomChanged?.invoke(14f)`
-     → `TerminalScreen.kt:541` `viewModel.setFontSize(14f.coerceIn(14f, 48f))`
-     → **持久化为 14sp**。
-
-即：**一次没有实际缩放的手势，把用户设置的 8sp 改成了 14sp 并写进 DataStore。**
-
-根因是 `:1955` 的钳位发生在 `:1957` 的「是否落定于新尺寸」判定**之前** ——
-钳位把「没变」变成了「变了」。`appliedFontSizeSp()` 返回真实生效字号（8f），
-所以不存在别处的补偿。
-
-**修法**：在 `onScaleEnd` 中先判 `scaleFactor` 是否接近 1（净缩放无变化即撤销预览），
-或把落定判定改为比较**未钳位**的 `zoomBaseFontSizeSp * scaleFactor`。
-三处下界应合并为单一来源（`STYLE.md:64` 要求最小实现，三份重复常量本身就是负债）。
-
-### N2-97 绝对行换算 `scrollbackLength - scrollOffset + row` 有 7 处各自硬编码
-
-`TerminalSurface.kt` 中该表达式出现在 7 个位置（`:1464`、`:1510`、`:1985`、`:2306`、
-`:2328`、`:2347`、`:2521`），而**唯一来源** `currentViewportTopGrid()`（`:2197`）就在同文件内
-且自带文档：
-
-```kotlin
-private fun currentViewportTopGrid(): Int = currentScrollbackLength() - scrollOffset
-```
-
-第 12 轮 P0-15（选区行钳位用视口行数而非绝对行）正是这类重复的必然产物：
-每一处各自决定「行号在哪个空间」，其中一处决定错了，而没有任何机制能发现。
-
-**修法**：全部替换为 `currentViewportTopGrid() + row`。这同时消除
-第 12 轮 P0-15 修复时最容易再犯错的隐患（改一处漏六处）。
+> 维护注：N2-96（缩放落定误持久化）、N2-97（绝对行换算收敛）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N2-98 openspec 有两个变更长期未归档，其中一个带未完成任务
 
