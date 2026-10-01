@@ -10,7 +10,4 @@
 - [wgpu-in-app](https://github.com/jinleili/wgpu-in-app)：
   - 反例：JNI 导出用 `jni_fn` 宏
 - [zelland](https://github.com/njreid/zelland)：surface 就绪竞态用 `PENDING_SIZE` 独立存尺寸弥合初始化窗口。鼠标映射须用实时 cell 尺寸而非编译期常量。
-
-## 输入与 IME
-
 - IME composing 增量 diff 同步，避免全量重设。
