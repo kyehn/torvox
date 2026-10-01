@@ -658,23 +658,36 @@ constructor(
             return bridge.selectionText(lo.row, lo.col, hi.row, hi.col) ?: ""
         }
 
-        /** Paste clipboard content directly to the PTY (no confirmation dialog). */
+        /** Paste clipboard content directly to the PTY (no confirmation dialog).
+         *
+         * 粘贴走 `pasteSink`（默认 `InputBatchBuffer.write`）：100 万字符剪贴板
+         * 产生 250 块，主线程逐块同步写 PTY 会阻塞在会话锁 + PTY 写入上
+         *（N1-26）。ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
+         */
         fun pasteFromClipboard(): Int {
             val text = clipboardAccess.clipboardText() ?: return 0
             return executePaste(text)
         }
 
-        /** Actually send [text] to PTY via the chunker. */
+        /** Actually send [text] to PTY via the chunker.
+         *
+         * 主线程禁直接写：100 万字符剪贴板产生 250 块 JNI 同步写，
+         * 阻塞在会话锁 + PTY 写入上。调用方须经 `InputBatchBuffer` 入队
+         *（见 `TerminalSurface.pasteFromClipboardDirect` 同形）。
+         */
         fun executePaste(text: String): Int {
             var offset = 0
             for (chunk in PasteChunker().chunks(text)) {
-                runtime.writeToPty(chunk.toByteArray())
+                pasteSink(chunk.toByteArray())
                 offset += chunk.length
             }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
             return offset
         }
     }
+
+    /** 粘贴字节出口：默认同步写，Surface 侧注入批缓冲后走异步合并写。 */
+    var pasteSink: (ByteArray) -> Unit = { data -> runtime.writeToPty(data) }
 
     // ══════════════════════════════════════════════════════════════════════
     // 二之二、字体管理
