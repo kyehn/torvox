@@ -1846,13 +1846,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 tapCount = nextTapCount(tapTime, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
                 lastTapTime = tapTime
 
-                if (handleMultiTap(event)) return true
-
                 // 300ms 隐藏保护：手柄拖动松手后的首次轻击属于拖动手势的收尾，
-                // 而非「点击选区外 → 关闭菜单」。
+                // 而非多击选择。先于多击判定拦截，避免拖尾被计为第3击选整行。
                 if (shouldSuppressTapAfterDragEnd(now, lastHandleDragEndUptimeMs)) {
+                    tapCount = 0
+                    lastTapTime = 0L
                     return true
                 }
+
+                if (handleMultiTap(event)) return true
 
                 if (isAfterLongPress) {
                     isAfterLongPress = false
@@ -1883,6 +1885,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 if (isSelectingText) {
                     selectionHandles.hideSelectionHandles()
                     viewModel?.clearSelection()
+                    tapCount = 0
+                    lastTapTime = 0L
                     post {
                         // minSdk 33：可直接使用平台的 WindowInsetsController；ViewCompat 的辅助方法已弃用。
                         val controller = windowInsetsController
