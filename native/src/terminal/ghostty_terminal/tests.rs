@@ -1485,15 +1485,16 @@ fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
     );
     terminal_under_test.flush();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        if terminal_under_test.receive_cell_data().is_some() {
-            return;
-        }
+    let mut pushed = false;
+    while !pushed {
+        pushed = terminal_under_test.receive_cell_data().is_some();
         assert!(
-            std::time::Instant::now() < deadline,
+            pushed || std::time::Instant::now() < deadline,
             "内容不变的滚动后 2s 内未收到 CellData 帧"
         );
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        if !pushed {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
     }
 }
 
