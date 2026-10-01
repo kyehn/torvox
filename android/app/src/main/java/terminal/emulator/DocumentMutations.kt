@@ -14,12 +14,18 @@ import java.nio.file.LinkOption
  * 阈值内。所有变更落盘后广播通知， 外部文件客户端才能即时刷新（否则复制进入、重命名看起来“没反应”）。
  */
 internal class DocumentMutations(private val context: Context, private val rootDir: () -> File) {
+    private companion object {
+        /** 客户端未给名字时的新建占位名，扩展名按 mimeType 追加。 */
+        const val DEFAULT_FILE_NAME = "New Document"
+        const val DEFAULT_DIRECTORY_NAME = "New Folder"
+    }
+
     fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
         val root = rootDir()
         val parent = TerminalDocumentsProvider.decodeDocId(parentDocumentId, root)
         requireDirectory(parent)
-        val safeName = sanitize(displayName)
         val isDir = mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+        val safeName = createName(displayName, mimeType)
         val child = uniqueChild(parent, safeName)
         if (isDir) {
             if (!child.mkdirs() && !child.isDirectory) {
@@ -269,12 +275,14 @@ internal class DocumentMutations(private val context: Context, private val rootD
         return child
     }
 
+    /**
+     * 只校验、不改写：静默把 `a..b.txt` 改成 `a_b.txt` 会让客户端拿到的
+     * docId 与自己请求的名字对不上，文件选择器里表现为"存成了别的名字"。
+     * 非法名是客户端契约违反，大声失败。`..` 出现在名字内部是合法文件名
+     * （File(parent, name) 不会因此跳出父目录），只有整体等于 "." / ".."
+     * 才危险；路径分隔符则任何文件系统都不允许出现在文件名里。
+     */
     private fun sanitize(displayName: String): String {
-        // 只校验、不改写：静默把 `a..b.txt` 改成 `a_b.txt` 会让客户端拿到的
-        // docId 与自己请求的名字对不上，文件选择器里表现为"存成了别的名字"。
-        // 非法名是客户端契约违反，大声失败。`..` 出现在名字内部是合法文件名
-        // （File(parent, name) 不会因此跳出父目录），只有整体等于 "." / ".."
-        // 才危险；路径分隔符则任何文件系统都不允许出现在文件名里。
         val safeName = displayName.trim()
         if (safeName.isEmpty() || safeName == "." || safeName == "..") {
             throw java.io.FileNotFoundException("Invalid document name: '$displayName'")
@@ -285,6 +293,23 @@ internal class DocumentMutations(private val context: Context, private val rootD
             )
         }
         return safeName
+    }
+
+    /**
+     * 新建时对空名的处理：空名不是「非法名」而是「未命名」——DocumentsUI 在名字
+     * 为空时依然放行 SAVE，系统自带 DownloadsProvider 会建出占位文件，而本提供者
+     * 若照旧抛异常，异常只进日志、界面上毫无反馈，用户看到的就是「无法创建新文件」。
+     * 故仅新建路径取按 mimeType 派生的默认名；非空名与重命名仍走严格校验。
+     *
+     * 扩展名取自 mimeType（text/plain → .txt），取不到时用无扩展名的占位名。
+     */
+    private fun createName(displayName: String, mimeType: String): String {
+        if (displayName.isNotBlank()) return sanitize(displayName)
+        if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+            return DEFAULT_DIRECTORY_NAME
+        }
+        val extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+        return if (extension.isNullOrEmpty()) DEFAULT_FILE_NAME else "$DEFAULT_FILE_NAME.$extension"
     }
 
     private fun requireDirectory(candidate: File) {
