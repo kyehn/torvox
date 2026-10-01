@@ -2197,21 +2197,23 @@ constructor(
                 LogUtil.e("Runtime", "initial grid recompute failed", exception)
             }
         } catch (exception: Exception) {
+            // 取消与失败统一先回滚已 spawn 的 bridge，再按类型处理：
+            // 取消恰是最易发生的路径（Activity 销毁），跳过回滚即永久泄漏
+            // 原生会话及其 PTY 子进程（既不在 sessions 里，也无 UI 入口）。
+            try {
+                startedBridge?.close()
+            } catch (closeException: Exception) {
+                LogUtil.e("Runtime", "Failed to close bridge during start rollback", closeException)
+            }
             if (exception is kotlinx.coroutines.CancellationException) {
                 // 重抛取消：吞没它会破坏结构化并发（与 createSessionInner 同一约定）。
-                // finally 块仍会重置 starting；已 spawn 的 bridge 泄漏由调用方的
-                // 作用域拆除路径关闭。
+                // finally 块仍会重置 starting。
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to start terminal", exception)
             // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
             // createBridge() 之后的任何失败（设置、attachSurface、spawnTerminal 抛异常而非返回 0）
             // 否则会永久泄漏原生会话及其 PTY 子进程。
-            try {
-                startedBridge?.close()
-            } catch (closeException: Exception) {
-                LogUtil.e("Runtime", "Failed to close bridge during start rollback", closeException)
-            }
             // 若失败发生在条目插入之后（例如 startRenderThread 在锁内抛异常），
             // 映射中仍持有 renderThreadRef 为 null 的条目：checkSessions 的存活逻辑
             // 永不将其标记为死亡（线程引用为 null），幽灵标签页将永久存在。
@@ -2466,15 +2468,7 @@ constructor(
             LogUtil.d("Runtime", "session $nextId created and activated")
             return nextId
         } catch (exception: Exception) {
-            if (exception is kotlinx.coroutines.CancellationException) {
-                // 重抛取消：吞没它会破坏结构化并发，
-                // 且在调用方作用域于 spawn 中途被取消时会泄漏会话。
-                throw exception
-            }
-            LogUtil.e("Runtime", "Failed to create session $nextId", exception)
-            // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
-            // 若失败发生在条目插入之前（应用设置、spawnTerminal 抛异常），
-            // 上方从未回滚该 bridge——关闭它以避免泄漏原生会话与 PTY 子进程。
+            // 取消与失败统一先回滚未入库的 bridge，再按类型处理（与 start 同形）。
             createdBridge?.let { leaked ->
                 if (leaked !== sessions[nextId]?.bridge) {
                     try {
@@ -2488,6 +2482,12 @@ constructor(
                     }
                 }
             }
+            if (exception is kotlinx.coroutines.CancellationException) {
+                // 重抛取消：吞没它会破坏结构化并发。
+                throw exception
+            }
+            LogUtil.e("Runtime", "Failed to create session $nextId", exception)
+            // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
             return -1L
         }
     }
