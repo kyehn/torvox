@@ -14,42 +14,9 @@
 
 ## 二、新的 P0
 
-### N0-12 `:install` 进程会执行完整的 `Application.onCreate`，重置启动崩溃循环计数器
+> 维护注：N0-12（安装进程跳过监控安装）已修复并验证，对应小节删除。
 
-`android/app/src/main/AndroidManifest.xml:11` 声明 `android:name=".TerminalApp"`，而 `:46-49` 声明：
-
-```xml
-<service
-    android:name=".installer.BootstrapInstallService"
-    android:exported="false"
-    android:process=":install" />
-```
-
-`Application.onCreate` 在**每一个**进程里都会执行。于是 `android/app/src/main/java/terminal/emulator/TerminalApp.kt:65-68`：
-
-```kotlin
-monitorScope.launch {
-    delay(HEALTHY_UPTIME_MS)
-    BootGuard(stateDir).markHealthy()
-}
-```
-
-会在安装进程里也跑一遍。`BootGuard.kt:43-48` 的 `markHealthy()` 把**按 UID 共享**的计数器（`stateDir = getDir("boot_state", MODE_PRIVATE)`）写回零。
-
-**故障场景**：主进程在 10 分钟内崩溃 3 次（`BootGuard.kt:19-26` 据此禁用自杀保护）→ 用户触发一次 bootstrap 安装 → `:install` 进程把共享计数器清零 → 循环检测器从头开始，`DESIGN.md:237`（应用启动时检查兼容性并清除应用数据）**永远不会触发**。崩溃循环的兜底被一个从不运行终端的进程静默拆掉。
-
-同一进程还继承了 `TerminalApp.kt:93-99` 的 `installThermalMonitor()`：
-
-```kotlin
-thermalMonitor = ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITICAL+") }.also { it.register() }
-```
-
-而 `BootGuard.kt:75` 是 `Process.killProcess(Process.myPid())`。**设备处于 thermal CRITICAL 时的任何一次 bootstrap 安装，会在 `BootstrapInstallService.kt:67-88` 的 `runBlocking` 中途被杀，留下半解压的 `usr-staging/`。**
-
-这两条都是 `DESIGN.md:237` 与「不干涉用户数据」的直接违反，且安装进程的存在本身就是 P2-20 记录的「测试后门进 release」的一部分。
-
-**修法**：`Application` 本身无法按进程跳过，但可以在 `TerminalApp.onCreate` 里用进程名判定（`getProcessName()`）跳过安装进程的监控安装；更彻底的做法是把 `BootstrapInstallService` 移出 release 源集（它本来就只在 debug 下可达）。
-
+---
 ---
 
 ## 三、新的 P1
