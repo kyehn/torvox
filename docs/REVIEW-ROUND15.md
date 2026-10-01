@@ -1,0 +1,129 @@
+# 第 15 轮专项审查（坐标/数值不变量 + openspec 卫生）
+
+审查日期：2026-09-30
+基线提交：`54bac7e`
+方法：第 14 轮定位到「注释失真」这一类缺陷。同一根源的近邻是**同一个数值/坐标常量
+在多处各自硬编码**，第 12 轮已因此产出 P0-15（选区行钳位用错坐标系）。
+本轮把该类单独抽出审读，并附带核查 `AGENTS.md` 要求的 openspec 流程卫生。
+本轮只审查，**未改动任何源码**。
+
+---
+
+## 一、新的 P2
+
+### N2-96 字号下界在三处不一致，导致「无变化的捏合」会静默改写并持久化字号
+
+三个硬编码的下界互不相同：
+
+| 位置 | 常量 | 值 |
+| --- | --- | --- |
+| `SettingsScreen.kt:81-82` | `FONT_SIZE_RANGE_MIN/MAX`（设置滑杆范围） | **8f** .. 48f |
+| `TerminalScreen.kt:66-67` | `FONT_SIZE_MIN/MAX`（缩放落定钳位） | **14f** .. 48f |
+| `TerminalSurface.kt:2995-2996` | `ZOOM_FONT_SIZE_MIN_SP/MAX_SP` | **14f** .. 48f |
+
+**故障链**（逐跳核实）：
+
+1. 用户在设置页把字号调到 8sp（滑杆允许，`SettingsScreen.kt:543`）。
+2. 任意一次双指手势**净缩放为 1.0**（手指按下后回到原位、被系统判为缩放但 scale 抵消）：
+   - `TerminalSurface.kt:1933` `zoomBaseFontSizeSp = runtime.appliedFontSizeSp()` = **8f**；
+   - `:1955` `sizeSp = zoomFontSize(8f, 1.0f)`
+     = `(8f * 1.0f).coerceIn(ZOOM_FONT_SIZE_MIN_SP /*14f*/, 48f)` = **14f**；
+   - `:1957` `zoomSettledOnNewSize(8f, 14f)`
+     = `kotlin.math.abs(14f - 8f) > ZOOM_FONT_SIZE_EPSILON_SP` = **true**；
+   - `:1959` `onZoomChanged?.invoke(14f)`
+     → `TerminalScreen.kt:541` `viewModel.setFontSize(14f.coerceIn(14f, 48f))`
+     → **持久化为 14sp**。
+
+即：**一次没有实际缩放的手势，把用户设置的 8sp 改成了 14sp 并写进 DataStore。**
+
+根因是 `:1955` 的钳位发生在 `:1957` 的「是否落定于新尺寸」判定**之前** ——
+钳位把「没变」变成了「变了」。`appliedFontSizeSp()` 返回真实生效字号（8f），
+所以不存在别处的补偿。
+
+**修法**：在 `onScaleEnd` 中先判 `scaleFactor` 是否接近 1（净缩放无变化即撤销预览），
+或把落定判定改为比较**未钳位**的 `zoomBaseFontSizeSp * scaleFactor`。
+三处下界应合并为单一来源（`STYLE.md:64` 要求最小实现，三份重复常量本身就是负债）。
+
+### N2-97 绝对行换算 `scrollbackLength - scrollOffset + row` 有 7 处各自硬编码
+
+`TerminalSurface.kt` 中该表达式出现在 7 个位置（`:1464`、`:1510`、`:1985`、`:2306`、
+`:2328`、`:2347`、`:2521`），而**唯一来源** `currentViewportTopGrid()`（`:2197`）就在同文件内
+且自带文档：
+
+```kotlin
+private fun currentViewportTopGrid(): Int = currentScrollbackLength() - scrollOffset
+```
+
+第 12 轮 P0-15（选区行钳位用视口行数而非绝对行）正是这类重复的必然产物：
+每一处各自决定「行号在哪个空间」，其中一处决定错了，而没有任何机制能发现。
+
+**修法**：全部替换为 `currentViewportTopGrid() + row`。这同时消除
+第 12 轮 P0-15 修复时最容易再犯错的隐患（改一处漏六处）。
+
+### N2-98 openspec 有两个变更长期未归档，其中一个带未完成任务
+
+`AGENTS.md` 要求「修改前编写对应的 changes（**完成后进行归档和删除**）」。
+当前 `openspec/changes/` 下仍有两个未归档变更：
+
+| 变更 | 已完成 | 未完成 | 状态 |
+| --- | --- | --- | --- |
+| `2026-09-28-render-idle-cursor` | 4 | 1 | 任务 4 自述「**受阻，非产品缺陷**」：新建 AVD 只装 `LatinIME`，Gboard 未启用中文输入语言，`imeCommitChineseTextGridded` 无法提交中文 |
+| `2026-09-30-fix-audit-p0` | 6 | 3 | 未完成项为 `2.1 take_kitty_placements 移出 RENDER_STATE`、`2.2 pollEvent 锁区收缩与输出泵独立`、`3.1 回滚搜索单次前向扫描` |
+
+两个变更都处于「半完成且未归档」状态，`openspec/specs/` 的同步因此也悬空
+（`2026-09-30-fix-audit-p0` 没有 `specs/` 目录，其 `proposal.md` 亦声明
+「Modified Capabilities: 无」，即它的行为变更没有对应的 spec delta）。
+
+**注**：`2026-09-28` 的受阻任务已按 `TESTING.md:11` 如实报告而未跳过/删除/忽略，
+**这一点是合规的**。问题只在于变更没有被归档或关闭，工作流处于悬挂态。
+（当前工作区中 `ImePopupPixelInstrumentedTest.kt` 与 `TerminalScreen.kt` 正被修改，
+推测正在处理该受阻项。）
+
+**修法**：完成或显式关闭这些任务后归档；`fix-audit-p0` 若确无能力变更，
+应在其 `proposal.md` 中说明并直接归档。
+
+---
+
+## 二、经核实**正确**的部分
+
+- **`ime-animation-smoothness` spec 与代码一致**：`openspec/specs/ime-animation-smoothness/spec.md:63-64`
+  要求「输入法弹出时终端 Surface 与修饰键栏 MUST 处于同一个平移容器内，由**同一次** offset
+  施加**同一个**位移值」；`TerminalScreen.kt:422-441` 确实以 `WindowImeBottomPx`
+  为唯一叶节点（`:434` 写入、`:441` 以「与 `WindowImeBottomPx` 同一口径」派生导航条扣除量），
+  符合 spec。
+- **字体字号的其余三个下界本身自洽**：`MIN_FONT_SIZE_TENTHS = 40` /
+  `MAX_FONT_SIZE_TENTHS = 1000`（`TerminalRuntime.kt:1605-1606`）与 `TerminalRuntime.kt:1714`
+  的拒绝阈值一致，不存在第四份字面量。
+- **`settings` StateFlow 的 `SharingStarted` 超时是具名常量**（`TIMEOUT_MILLIS`，`:802`、`:834`），
+  符合 `STYLE.md` 关于 `WhileSubscribed(TIMEOUT_MILLIS)` 的要求。
+
+---
+
+## 三、收敛状态与建议
+
+- 本轮**不是**「无新问题」的一轮：新增 **3 个 P2**，无 P0/P1。
+- 产出量显著下降（4 轮：4/4/4/0 个 P0 → 本轮 0 个 P0、0 个 P1），
+  这与「第 11–14 轮反复发现的 P0 大多集中在**跨语言边界的单一机制**上」一致：
+  坐标空间（P0-15）、锁序与成本模型（P0-19/20/21/22）、
+  门禁规则惰性（P0-16/17/18）、行缓存不命中（P0-13）—— 这些已被本轮及前四轮**逐一定位并给出修法**。
+- **「连续五次无新问题」尚未达成**：第 11、12、13、14 轮各有新 P0，计数已四次归零。
+  继续以同一未修复的代码为对象做审查，边际收益已显著低于先执行修复。
+- **明确建议**：停止审查、改为修复。理由与前几轮一致，但本轮新增一条客观依据 ——
+  P0 产出已连续归零且 P1 产出归零，说明**剩余高危缺陷的定位工作已基本完成**；
+  继续审查只会产出 P2 级的重复与漂移类问题。
+  修复完成后重跑同维度复审（坐标/数值不变量、注释断言、门禁有效性），
+  那时若确实连续五轮无新问题，才构成有效的收敛证据。
+
+### 累计（第 6–15 轮）
+
+**19 个 P0、47 个 P1、约 129 个 P2/P3**，外加 60+ 处死代码。
+按修复顺序的前 13 项（跨文档汇总见各轮第六节）：
+
+1. `row_cache` 整条删除或真正启用（第 11 轮 P0-13）
+2. 滚动去重键纳入视口偏移（第 11 轮 P0-14）
+3. 选区行钳位改用绝对空间（第 12 轮 P0-15）
+4. 恢复三道门禁规则的有效性（第 12 轮 P0-16/17/18）
+5. `RenderWatchDog.stop()` 去阻塞化（第 13 轮 P0-19）
+6. 取纹理移出 `RENDER_STATE`（第 13 轮 P0-20）
+7. UI 线程查询加短期限（第 13 轮 P0-21）
+8. 取消时先关闭 bridge 再重抛（第 13 轮 P0-22）
