@@ -92,32 +92,7 @@ reused update#2 (无输出变化)      rows=80   dirty=80   clean=0
 
 ## 二、新的 P1
 
-> 维护注：N1-21（主题应用后台调度）、N1-22（多击计数复位）、N1-24（表面销毁清尺寸）、N2-27（清除缓存递归）、N2-28（安装包残留删除）已修复并验证，对应小节/行删除；其余编号保持不变。
-
-### N1-20 `pollEvent` 仍在注册表读锁 + 会话锁内执行 5 秒有界 `flush()`
-
-第 9 轮 N0-4 的**残留**。`ffi.rs:1122-1169`：
-
-```rust
-let registry = rlock_session_registry();
-if active_id != 0 && let Some(entry) = registry.get(&active_id) {
-    let mut session = entry.session.lock();
-    session.process_output();          // → session.rs:507 / :517 self.terminal.flush()
-```
-
-`flush()`（`public_api.rs:190-205`）是 `rx.recv_timeout(Duration::from_secs(5))`，
-`FLUSH_TIMEOUT_SECS = 5`（`types.rs:237`）。后台会话分支（`ffi.rs:1151-1167`）同样在锁内调用
-`poll_pty_output` → `flush()`。
-
-**后果**：VT 线程卡死时，`destroySession` / `initSession` 的写锁（`ffi.rs:217` `wlock_session_registry`）
-被阻塞 `5s × (1 + 后台会话数)`。`session.rs:499-500` 的注释「限制每帧处理量，避免单次渲染调用
-长时间持有会话锁」只限制了**块数**，没有限制**flush 的等待上限**。
-
-第 9 轮已修好的是**退出码**那一半（`ffi.rs:1202-1211` 在锁外读码），这一半未动。
-
-**修法**：`flush()` 旁加 `flush_with_timeout(Duration) -> bool`，
-`pollEvent` 路径用零/极短期限；返回 false 时跳过 `drain_callback_events` /
-`drain_pty_write_back`（`session.rs:508-511`）。
+> 维护注：N1-20（锁内排空改零期限 flush）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N1-23 `BootstrapDownloader` 拒绝 `http://`，与 `DESIGN.md:126` 字面冲突
 
