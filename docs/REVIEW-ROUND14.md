@@ -69,11 +69,12 @@
 
 ## 三、新的 P2（注释失真，低危但会误导后续修改）
 
+> 维护注：N2-81（后台关闭耗时注释约 20s→约 7s）已修复并验证，对应行删除；其余编号保持不变。
+
 | 编号 | 位置 | 断言 vs 实际 |
 | --- | --- | --- |
 | N2-79 | `ffi.rs:1484`、`:1548` | 「每帧省约 32KB」；`CellData` 为 96B（`types.rs:92` 断言），24×80 = **180KB**，真机网格更大（50×120 ≈ 540KB）。该数字早于 `CellData` 字段集重写。 |
 | N2-80 | `pass.rs:129-130` | 「省掉 Android 上每帧约 1ms 的 `std::thread::spawn` 开销」。`OnceLock` 确实省建线程，但建线程是**每进程一次**；每帧仍有一次 `sync_channel(1)` 分配（亚微秒）。把 hang 防护（`pass.rs:121-122` Mali-G57）与省建线程混为一谈，可能诱导后人「优化」掉真正的超时防护。 |
-| N2-81 | `TerminalRuntime.kt:3341` | 「后台约 20s」。实算：`shouldCloseDeadRender(attempts, 5) = attempts > 5` ⇒ 6 轮；6×`RENDER_MONITOR_INTERVAL_MS`(500ms) + 退避 (100+200+400+800+1000) + 5×`GRACE_PERIOD_AFTER_RESTART_MS`(300ms) = **≈7.0s**，尚未计入每次最多 1s 的 join。方向保守（高估了被否决方案的代价），但常量错误。 |
 | N2-82 | `internal.rs:481-482` | 「深缓冲（2 万行）会被拦腰截断」。`DEFAULT_SCROLLBACK_LINES = 2000`（`session.rs:48`，用于 `:351`），差 10×。该注释是「必须同步解除字节预算」的论证依据，论证对象与实际配置不符。 |
 | N2-83 | `TerminalRuntime.kt:1419` / `:1653` / `FrameTimingTrend.kt:6` | 同一指标两套基线：「模拟器基线 ~555ms/帧」与「实测模拟器空闲窗口平均个位数毫秒」不可同真。`FrameTimingTrend` 的绝对阈值（`FRAME_TIME_WARN_P95_NANOS = 1s`、`DEFAULT_ATTENTION_FLOOR_NANOS = 100ms`）是按 555ms 标定的，与当前空闲门控后的实测行为脱节。 |
 | N2-84 | `TerminalRuntime.kt:1133` | 「闭锁超时（活跃 16ms / 空闲 500ms）」；`RENDER_LATCH_TIMEOUT_NANOS = 17_000_000L`（`:1642`）。`NativeBridge.kt:118` 写「约 16ms」，常量自身注释（`:1634`）写「17ms」，三处不一致。 |

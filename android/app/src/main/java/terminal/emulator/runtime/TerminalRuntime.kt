@@ -3349,7 +3349,7 @@ constructor(
     fun releaseAllGpuSurfaces() {
         // Surface 销毁：干净地暂停渲染线程，而不是把它们标记为死亡。
         // 在存活线程上标记 renderThreadExited 会让监视器视其为已崩溃，
-        // 并在 RENDER_MAX_RESTART_ATTEMPTS 之后（后台约 20s）关闭这些会话。
+        // 并在 RENDER_MAX_RESTART_ATTEMPTS 之后（约 7s：6 轮监视间隔与退避之和）关闭这些会话。
         pauseRendering()
     }
 
