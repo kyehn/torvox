@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
@@ -293,7 +294,12 @@ fun TerminalScreen(
                 .testTag("TerminalScreen")
                 .background(terminalBackground)
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                // 裁到安全区内：输入法位移把终端整体上移，位移量可达整个键盘高度，
+                // 而 Compose 默认不裁剪，越过 statusBarsPadding 的内容会直接画到
+                // 状态栏底下——时钟与终端行叠字，即输入法弹出时的内容重叠。
+                // 置于两个内边距之后，裁剪矩形即安全区本身，位移内容被裁在区内而非压到状态栏。
+                .clipToBounds(),
         ) {
             LaunchedEffect(drawerState.isOpen) {
                 surfaceRef.value?.drawerOpen = drawerState.isOpen
