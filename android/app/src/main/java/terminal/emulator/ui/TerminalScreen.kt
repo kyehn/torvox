@@ -356,6 +356,14 @@ fun TerminalScreen(
                 }
             }
 
+            // 新输出驱动的自动贴底（渲染线程复位）：同步搜索高亮的偏移镜像，
+            // 否则搜索中新输出到达后高亮按旧偏移错位绘制。
+            LaunchedEffect(runtimeState.scrollResetEpoch) {
+                if (runtimeState.scrollResetEpoch > 0L) {
+                    viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
+                }
+            }
+
             fun scrollToMatchIfNeeded(match: SearchResult) {
                 val surface = surfaceRef.value ?: return
                 val visibleRows = surface.getRows()
