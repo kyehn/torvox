@@ -50,21 +50,18 @@
 
 ---
 
-## 三、9 个 P0（按建议修复顺序）
+## 三、剩余 P0（按建议修复顺序）
+
+> 维护注：第 1、2、7、8、9 项已修复并验证（对应各轮小节已删除），下表仅保留开放项；原编号保持不变。
 
 | # | 位置 | 一句话 | 建议改动量 |
 | --- | --- | --- | --- |
-| 1 | `ghostty_terminal/mod.rs:41-53` | `Drop` 里无界 `handle.join()`；同文件 `session.rs:661-681` 已有 `join_with_timeout` 却没用。注释写「不得阻塞析构」，代码恰好相反 | 1 处 |
-| 2 | `installer/SecondStageRunner.kt:90` + `BootstrapOrchestrator.kt:95-103` + `TerminalViewModel.kt:1132` | 二段安装失败（`Result(false, …)`）被三处忽略，一律上报 `INSTALLED` | 3 处 |
 | 3 | `android/ffi.rs:1601-1611`（+`:2745-2761`、`:1876-1883`） | `take_kitty_placements` 在持 `RENDER_STATE` 时再取注册表 + 会话锁，与 `setTheme`/`renderWithNewOutput` 构成 ABBA **硬死锁** | 1 处（同时关闭三个缺陷） |
 | 4 | `android/ffi.rs:1122-1165` → `session.rs:507/518` → `public_api.rs:201` | `pollEvent` 持注册表读锁 + 会话锁调 `flush()`，`recv_timeout(5s)` × (1 + 后台会话数)；同时 `output_rx` 无独立泵，渲染失败即冻结全应用 shell | 1 处（与第 5 条同源） |
 | 5 | `terminal/session.rs:271` + `TerminalRuntime.kt:1274-1300` | 输出通道是**阻塞**发送、唯一消费者只在 `render() >= 0` 分支被调用 | 1 处 |
 | 6 | `ghostty_terminal/internal.rs:2167-2202` | 回滚区搜索 O(n²)：向前回溯拼接软换行（每行 O(cols) 次 FFI 往返）+ `insert_str(0, …)` 前插；同时造成列号越过网格宽度 | 1 处（同时修掉 P1 列号错位） |
-| 7 | `DocumentQueries.kt:36-49` | `rootDir.canonicalPath`（解符号链接）对比 `Path.normalize()`（纯词法）—— Android 上 `/data/data` → `/data/user/0`，**每个符号链接条目都抛异常** | 1 处 |
-| 8 | `installer/BootstrapInstaller.kt:119-126, 160-167` | `EXECUTABLES.txt` 的行未经 `..` 校验就 `Os.chmod`；同文件对 zip 条目名与 `SYMLINKS.txt` **都有**校验 | 1 处 |
-| 9 | `android/ffi.rs:114-121` + `:1727-1733` | `last_frame` 缓存帧不带会话 id → 切会话后可能把 A 的网格画到 B | 1 处 |
 
-累计：**9 个 P0、28 个 P1、约 55 个 P2/P3、30+ 处死代码**。全部细节见各轮文档。
+累计开放：**4 个 P0**（另有第 10–15 轮新增的高危项见各轮文档第六节与 openspec 变更任务）。全部细节见各轮文档。
 
 ---
 
@@ -99,7 +96,7 @@
 **建议停止审查、改为修复。** 理由：
 
 1. 缺陷密度高到任何抽样都会漏 P0 —— 四轮、四种维度、四次验证，每次都产出新的 P0。
-2. 上表 9 个 P0 中至少 7 个是「几行改动消除一个永久错误状态」，边际收益远高于继续读码。
+2. 上表剩余 4 个 P0 均为「几行改动消除一个永久错误状态」，边际收益远高于继续读码。
 3. 「连续四次无新问题」这个验收标准，**只有建立在已修完的代码上才有意义**；在未修的代码上，它衡量的是抽样运气，不是代码质量。
 
 修复完成后再重跑四轮复审 —— 那时若确实连续四轮无新问题，才构成有效的收敛证据。

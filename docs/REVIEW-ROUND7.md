@@ -25,6 +25,8 @@
 
 ## 三、新的 P0
 
+> 维护注：N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）已修复并验证，对应小节删除；其余编号保持不变。
+
 ### N0-6 PTY 主端是非阻塞的，`write_all` 在中途失败后丢弃剩余字节 —— 粘贴被静默截断
 
 `native/src/terminal/pty.rs:80-91`
@@ -112,72 +114,6 @@ if (count >= 0) {
 违反 `DESIGN.md:150`（脏跟踪减少突发输出期间的工作量）、`DESIGN.md:156`、`DESIGN.md:22`。
 
 **修法**：把 `output_rx` 的排空移到渲染分支之外（无论 `render()` 返回什么都必须排空），或为输出通道配一个独立于渲染循环的泵。渲染失败绝不能成为停止读取 PTY 的理由。
-
-### N0-8 文档提供器对**每一个**符号链接条目都抛异常
-
-`android/app/src/main/java/terminal/emulator/DocumentQueries.kt:36-49`
-
-```kotlin
-fun resolveLinkEntry(documentId: String, rootDir: File): File {
-    val linkCandidate = File(rootDir, documentId)
-    if (!java.nio.file.Files.isSymbolicLink(linkCandidate.toPath())) { … }
-    val rootPath = rootDir.canonicalPath
-    val linkPath = linkCandidate.toPath().normalize().toString()
-    if (!(linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath)) {
-        throw java.io.FileNotFoundException(
-            "Access denied: $linkPath is outside the terminal home directory",
-        )
-    }
-    return linkCandidate
-}
-```
-
-`rootDir.canonicalPath` 会**解析符号链接**；`Path.normalize()` 是**纯词法**的，不跟随链接。Android 上 `/data/data` 是指向 `/data/user/0` 的符号链接，于是：
-
-- `rootPath` = `/data/user/0/com.termux/files/home`
-- `linkPath` = `/data/data/com.termux/files/home/x`（保持词法形式）
-
-`startsWith` 恒为假 → 抛 `FileNotFoundException`。
-
-调用方 `TerminalDocumentsProvider.kt:195`（`queryDocument`）与 `:283`（`openDocumentThumbnail`）**都没有 try/catch**，异常会跨 Binder 抛回客户端。而 `queryChildDocuments` 是会把符号链接作为行返回的（`addDocRow` → `encodeDocId` 返回链接自身路径），也就是说**列表里看得见的每一行，点进去就崩**。
-
-同文件其余所有根内校验（`TerminalDocumentsProvider.kt:68, 81, 94, 100`）都正确地两侧都做 canonical 化 —— 这是一处孤立的不一致，不是策略选择。
-
-**为什么两个测试层都抓不到**：JVM 侧的 Robolectric 临时目录没有符号化的路径前缀；`DocumentsProviderInstrumentedTest` 从不创建符号链接。
-
-违反 `DESIGN.md:238`（实现文档提供器，向系统文件选择器暴露用户文件）。
-
-**修法**：两侧都用同一口径——要么都 canonical 化，要么都用 `rootDir.toPath()` 词法比较；并补一个创建符号链接的仪器测试。
-
-### N0-9 `EXECUTABLES.txt` 的路径未经校验就交给 `Os.chmod`（zip 滑移等价物）
-
-`android/app/src/main/java/terminal/emulator/installer/BootstrapInstaller.kt:160-167`
-
-```kotlin
-} else if (name == "EXECUTABLES.txt") {
-    val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
-    …
-    executables.addAll(
-        bytes.decodeToString().lines().map { it.trim() }.filter { it.isNotEmpty() },
-    )
-}
-```
-
-这些字符串随后在 `:119-126` 被原样使用：
-
-```kotlin
-for (executable in executables) {
-    try {
-        Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
-```
-
-`File(stagingDir, "../../../shared_prefs/com.termux_preferences.xml")` 会逃出 staging 目录。**归档条目名在 `:144-151` 有完整的 `..` 校验，`SYMLINKS.txt` 的目标在 `:249-304` 也有** —— 唯独 `EXECUTABLES.txt` 的内容漏了。这是不对称遗漏，不是策略。
-
-**故障场景**：被篡改或恶意构造的 bootstrap zip，其 `EXECUTABLES.txt` 含一行 `../../../shared_prefs/com.termux_preferences.xml` → 应用把任意 app-private 文件改成 0755。影响面限于权限位（`Os.chmod` 对不存在路径逐行捕获），但这正是 zip 滑移防护本该覆盖的类别。
-
-违反 `DESIGN.md:142`，以及该文件自己在 `:246` 声明的不变式。
-
-**修法**：对每一行复用 `:144-151` 已有的判定谓词（`startsWith("/")`、`== ".."`、`startsWith("../")`、`contains("/../")`），并给 `EXECUTABLES.txt` 自己的字节上限（现在复用 `MAX_SYMLINKS_BYTES`）。
 
 ---
 

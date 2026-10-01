@@ -133,6 +133,8 @@ if unchanged {
 
 ## 二、新的 P1
 
+> 维护注：N1-21（主题应用后台调度）、N1-22（多击计数复位）、N1-24（表面销毁清尺寸）、N2-27（清除缓存递归）、N2-28（安装包残留删除）已修复并验证，对应小节/行删除；其余编号保持不变。
+
 ### N1-20 `pollEvent` 仍在注册表读锁 + 会话锁内执行 5 秒有界 `flush()`
 
 第 9 轮 N0-4 的**残留**。`ffi.rs:1122-1169`：
@@ -158,61 +160,6 @@ if active_id != 0 && let Some(entry) = registry.get(&active_id) {
 `pollEvent` 路径用零/极短期限；返回 false 时跳过 `drain_callback_events` /
 `drain_pty_write_back`（`session.rs:508-511`）。
 
-### N1-21 `applyThemeSettings` 在主线程同步跑完整条原生渲染管线重配置
-
-`TerminalViewModel.kt:1174-1179`：
-
-```kotlin
-private fun applyThemeSettings(persist: suspend () -> Unit) {
-    viewModelScope.launch {          // viewModelScope == Dispatchers.Main.immediate
-        persist()
-        runtime.applySettings()
-    }
-}
-```
-
-`runtime.applySettings()`（`TerminalRuntime.kt:2816-2830`）对**每个**会话同步调用
-`setFontSizeInPlace` / `setFontFamily` / `setTheme`。原生侧三者都要
-`render_state_mut()`（`ffi.rs:2851`、`:2877`、`:2798`），而渲染线程整帧持有该锁，
-其中还含 `ffi.rs:1615` 记录的 500ms 兜底 VT RPC。`Bridge.setFontFamily`
-（`Bridge.kt:434-439`）另加三次 `File.isFile` 磁盘 stat。
-
-**证伪尝试**：逐个检查 `applySettings` 的全部调用方。`MainActivity.kt:281-283`
-（`onConfigurationChanged`）显式用了 `TerminalDispatchers.inputOutput`；
-`TerminalViewModel.kt:743`、`:756` 的字号/字体 setter 也用了 `inputOutput`。
-**只有 `applyThemeSettings` 没有。** `applySettings` 内部也无 `withContext`。
-
-五个主题设置项（日间/夜间/跟随系统/终端主题名 ×2）每次点击都命中。
-
-**修法**：`viewModelScope.launch(TerminalDispatchers.inputOutput) { persist(); runtime.applySettings() }`。
-
-### N1-22 多击计数在消除选择后不重置，第 3 击变成「选整行」
-
-`TerminalSurface.kt:1846-1849`：
-
-```kotlin
-tapCount = nextTapCount(tapTime, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
-lastTapTime = tapTime
-if (handleMultiTap(event)) return true
-```
-
-`tapCount` 全文件仅在 `:1417` 声明、`:1846` 赋值，**没有任何复位点**。
-`isSelectingText` 的消除分支（`:1883-1894`）只 `clearSelection()` + 隐藏键盘，不动 `tapCount`。
-
-**故障场景**：双击选词 → 400ms 内再点一次（用户意图是「点空白消除选择」）→
-`tapCount == 3` → `multiTapAction`（`:2751`）返回 `LINE` → 选中整行，`clearSelection()` 被跳过。
-
-同理，拖动手柄后的首次轻击：`shouldSuppressTapAfterDragEnd`（`:1853`）在
-`handleMultiTap` **之后**才判定，而手柄拖动发生在覆盖窗口、不经过 Surface 的
-`GestureDetector`，故 `tapCount` 不被重置——这条 300ms 保护（其注释自述 purpose 正是
-「手柄拖动松手后的首次轻击」）挡不住多击，反而先被 `handleMultiTap` 消费。
-
-**与规范的关系**：`openspec/specs/text-selection/spec.md` 要求
-「单击消除选择 MUST 重置多击计数」+ 场景「消除后计数重置 … 两次单击均不触发选词」。
-
-**修法**：在 `:1883` 消除分支与 `shouldSuppressTapAfterDragEnd` 为真时
-`tapCount = 0; lastTapTime = 0`；并把拖动尾迹守卫上移到 `handleMultiTap` 之前。
-
 ### N1-23 `BootstrapDownloader` 拒绝 `http://`，与 `DESIGN.md:126` 字面冲突
 
 `BootstrapDownloader.kt:47-51`：
@@ -235,32 +182,6 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 只保留 `:58-65` 的重定向后最终 scheme 校验（那一条防的是 https→http 降级，有独立价值）；
 或修改 `DESIGN.md:126` 为「仅 HTTPS」（需授权改保护文件）。
 
-### N1-24 `onSurfaceDestroyed` 清空 `pendingSurface` 却保留其尺寸字段
-
-`TerminalRuntime.kt:3316-3322`：
-
-```kotlin
-fun onSurfaceDestroyed() {
-    pendingSurface = null
-    setRenderPaused(true)
-}
-```
-
-而 `recomputeGridFromFontMetrics`（`:2837-2846`）读的是
-`pendingSurfaceWidth` / `pendingSurfaceHeight`：
-
-```kotlin
-val surfaceW = pendingSurfaceWidth
-val surfaceH = pendingSurfaceHeight
-```
-
-Surface 已销毁后这两个字段仍是旧值，于是 `attachSurface` 尚未完成时的任何一次
-`recomputeGridFromFontMetrics` 都会**按已销毁 Surface 的尺寸算网格**。
-与 `:3317-3319` 注释的意图（防止「把已死的 Surface 交给新 bridge 并渲染出黑帧」）同源，
-只是漏了尺寸字段。
-
-**修法**：`pendingSurface = null` 旁一并清零两个尺寸字段。
-
 ---
 
 ## 三、新的 P2
@@ -269,8 +190,6 @@ Surface 已销毁后这两个字段仍是旧值，于是 `attachSurface` 尚未�
 | --- | --- | --- |
 | N2-25 | `ffi.rs:682` + `session.rs:408` | `ResizeOutcome::Dropped` 在 JNI 边界被静默丢弃（`resize_inner` 只 match `Err`）。`session.rs:396-404` 的 `grid_dirty` 重试使它在**下一次** resize 事件自愈，但若不再有 resize 事件（如旋转后输入法再也不弹出），PTY 停留在新尺寸而网格与渲染器停留在旧尺寸，且无任何日志。 |
 | N2-26 | `session.rs:128-133` + `ffi.rs:1520` | `Session::grid_size()` 只记录 Rust 侧发起的 resize。渲染器用它来排布 `Vec<CellData>`，而 `CursorInfo`（`types.rs:48-59`）不带 `rows`/`cols`。`CSI ?3h`（DECCOLM）会在上游内部改网格且不发 `Command::Resize`，届时 `CellData.col` 可达 159 而渲染器按 80 列排布。 |
-| N2-27 | `TerminalViewModel.kt:930` | `clearAppData` 的 `context.cacheDir.listFiles()?.forEach { it.delete() }` **不递归**。`File.delete()` 对非空目录返回 false，缓存子目录在「清除应用数据」后残留且无诊断。同两行的 `getDir` 路径用的是 `deleteRecursively()`，自相矛盾。 |
-| N2-28 | `BootstrapInstallService.kt:63-64` | `filesDir/bootstrap-preserved.zip` 复制后**从不删除**。`BootstrapOrchestrator.kt:113` 与 `TerminalViewModel.kt:1153` 都有 `finally { delete() }`，此处没有。该文件落在 `filesDir`（用户数据树，`clearAppData` 按 `DESIGN.md:144` 不得触碰），因此永久占用数百 MB。 |
 | N2-29 | `TerminalScreen.kt:81` vs `internal.rs:2109` | UI 允许 256 字符查询（`SEARCH_QUERY_MAX_LENGTH = 256`），原生上限是 `MAX_SEARCH_QUERY_CHARS: usize = 128`；129–256 字符的查询被 `compile_search_pattern` 静默返回 `None` → 空结果，用户看到「无匹配」而实际有匹配。两侧常量必须同源。 |
 | N2-30 | `ffi.rs:2840` vs `NativeBridge.kt:243` | 注释/文档矛盾**仍未对齐**：Rust 侧 `ffi.rs:2840` 写「`None` 清除覆盖（跟随终端）」，Kotlin 侧 `NativeBridge.kt:243` 仍写「`0xFFFFFFFF` 哨兵值表示清除覆盖」。实现（`ffi.rs:2853` 无条件写 `Some(...)`）**没有清除路径**。第 9 轮 N1-19 只改了一侧。当前无 Kotlin 调用方依赖清除（`Bridge.setTheme` 总是显式下发颜色），故为文档级残留，但下一位读者会被误导。 |
 | N2-31 | `TerminalViewModel.kt:698-702` | `bridge?.listFontFamilies().orEmpty()` 在 bridge 缺席时伪造「空字体库」，随后 `SystemFonts.availableFontFamilies`（`SystemFonts.kt:9-12`）抛 `IllegalStateException`，被 `:712-717` 记录后**重新抛出**导致进程终止。把 `NativeQueryPort` 的「null = 无数据，绝不可伪造」契约变成了崩溃。 |
@@ -389,13 +308,11 @@ Surface 已销毁后这两个字段仍是旧值，于是 `attachSurface` 尚未�
 
 1. **N0-13 `row_cache`**（先裁决方向）—— 一个机制同时是零收益优化 + 逐帧 368 KB 无用拷贝 + 两个假阳性测试。
 2. **N0-14 滚动去重** —— 用户可见的功能缺失（滑动无反馈），几行可解。
-3. **N1-21 主题设置主线程阻塞** —— 一行 dispatcher，五个设置项受益。
-4. **N1-22 多击计数** —— 选词后无法消除选择，用户可见。
-5. **N1-20 `flush` 锁区** —— 加带期限的变体，关闭写锁饥饿。
-6. **N2-29 搜索长度双常量**、**N2-27 `clearAppData` 不递归**、**N2-28 zip 不删除**、
-   **N2-30 文档矛盾**、**N2-24 surface 尺寸残留** —— 各自几行。
-7. **N2-32 / N2-33 / N2-34 / N2-35 死代码** —— 按 `STYLE.md:63` 应删除；需确认后再动。
-8. 其余 N2 项。
+3. **N1-20 `flush` 锁区** —— 加带期限的变体，关闭写锁饥饿。
+4. **N2-29 搜索长度双常量**、
+   **N2-30 文档矛盾** —— 各自几行。
+5. **N2-32 / N2-33 / N2-34 / N2-35 死代码** —— 按 `STYLE.md:63` 应删除；需确认后再动。
+6. 其余 N2 项。
 
 ---
 
