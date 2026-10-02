@@ -475,41 +475,6 @@ impl Session {
         )
     }
 
-    /// 向本会话子进程发送 POSIX 信号（按编号），供外部控制器向存活 Shell 发送中断/终止信号。
-    pub fn send_signal(&self, signum: i32) -> Result<(), SessionError> {
-        let signal = nix::sys::signal::Signal::try_from(signum)
-            .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
-        let child = self.pty.child_pid();
-        // 先杀前台进程组。
-        if let Some(foreground_pid) = self.pty.foreground_pid() {
-            let foreground_raw = foreground_pid.as_raw() as libc::pid_t;
-            if foreground_raw > 1 {
-                let pgid = -foreground_raw;
-                // SAFETY: `killpg` 向进程组发送信号；`pgid` 取自存活的前台进程组。
-                let result = unsafe { libc::kill(pgid, signal as i32) };
-                if result == 0 {
-                    return Ok(());
-                }
-                log::warn!(
-                    "send_signal: group kill(-{foreground_raw}, {signal:?}) failed: {}, falling back to child",
-                    nix::errno::Errno::last()
-                );
-            }
-        }
-        // 回退为直接杀子进程
-        // SAFETY: `child` 为存活子进程 pid，仅发送已校验的 `Signal`。
-        let result = unsafe { libc::kill(child.as_raw() as libc::pid_t, signal as i32) };
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(SessionError::Ghostty(format!(
-                "kill({}, {signal:?}) failed: {}",
-                child,
-                nix::errno::Errno::last()
-            )))
-        }
-    }
-
     /// 每会话帧处理的最大 VT 输出块数，用于 PTY 输出洪水时限制渲染线程延迟。
     const MAX_CHUNKS_PER_FRAME: u32 = 10;
 
