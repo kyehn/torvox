@@ -600,8 +600,28 @@ impl std::io::Write for PtyPair {
 
 impl Drop for PtyPair {
     fn drop(&mut self) {
-        // 无需显式关闭主端 fd：会话析构负责信号投递与回收，关闭主端会使阻塞的
-        // PTY 读写失败，从而解除读取/写入线程的阻塞。
+        // `Session::drop` 先投递信号再由 wait 线程回收；此处只兜住
+        // `Session::spawn` 中 fork 成功后的错误路径——那些路径上 `Session`
+        // 从未构造，没有 wait 线程，子进程会永久滞留。
+        //
+        // 先 WNOHANG 查询而非直接 kill：`Session::drop` 的正常路径已由 wait
+        // 线程回收，此时 pid 可能已被系统复用，直接 kill 会误杀无关进程。
+        // 只有仍处于「未回收且存活」状态才动手。
+        let pid = self.child_pid;
+        if !matches!(
+            nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)),
+            Ok(nix::sys::wait::WaitStatus::StillAlive)
+        ) {
+            return;
+        }
+        // 直杀子进程：错误路径上 shell 尚未 fork 任何子进程，且组杀会因
+        // setsid 前的同组窗口连带杀死本进程（见 `Session::drop` 的自杀 guard）。
+        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+        if let Err(error) = nix::sys::wait::waitpid(pid, None)
+            && error != nix::errno::Errno::ECHILD
+        {
+            log::warn!("pty drop: waitpid({}) failed: {error}", pid.as_raw());
+        }
     }
 }
 
@@ -832,6 +852,27 @@ fn read_shebang_interpreter(path: &str) -> Option<(std::ffi::CString, Option<std
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `Session::spawn` 中 fork 成功后的错误路径上 `Session` 从未构造，
+    /// 回收只能由主端所有者（`PtyPair::drop`）完成：drop 返回后子进程必须已被
+    /// waitpid 回收（再查询即 ECHILD），既不得留活子进程也不得留僵尸。
+    #[test]
+    fn drop_reaps_child_process() {
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let pid = pty.child_pid();
+        drop(pty);
+
+        match nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+            Err(nix::errno::Errno::ECHILD) => {}
+            Ok(status) => panic!("drop 后子进程未被回收（僵尸残留）: {status:?}"),
+            Err(error) => panic!("waitpid failed: {error}"),
+        }
+        assert!(
+            nix::sys::signal::kill(pid, None).is_err(),
+            "child {pid} 仍存活：drop 未终止子进程"
+        );
+    }
 
     #[test]
     fn shell_entry_splits_executable_and_arguments() {
