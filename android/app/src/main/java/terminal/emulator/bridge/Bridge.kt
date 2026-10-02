@@ -560,15 +560,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), modifierBits, null)
                 return@onSession true
             }
-            // 部分输入法（Gboard 在 InputType.TYPE_NULL 下）发出的按键事件
-            // unicodeChar == 0，尽管该键是可打印字母。回退到虚拟键盘的按键字符
-            // 映射表推导字符，保证这类击键仍能到达 PTY。
-            if (!ctrlActive && keyCode in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z) {
+            // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
+            // unicodeChar == 0，尽管该键是可打印字符。回退到虚拟键盘的按键字符映射表
+            // 推导字符，保证这类击键仍能到达 PTY：范围必须覆盖**整个**按键码域而非只有
+            // A..Z，否则空格、数字与标点（输入法同样报告 unicodeChar=0）会被整键丢弃。
+            if (!ctrlActive) {
                 val derived =
                     android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
                         .get(keyCode, 0)
-                if (derived > 0) {
-                    NativeBridge.writeKey(id, derived.toChar().toString(), modifierBits, null)
+                if (derived > 0 && Character.isValidCodePoint(derived)) {
+                    NativeBridge.writeKey(id, String(Character.toChars(derived)), modifierBits, null)
                     return@onSession true
                 }
             }
