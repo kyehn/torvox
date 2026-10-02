@@ -39,7 +39,7 @@ def main [--profile: string = "", ...abis: string] {
 
     for profile in $profiles {
         let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
-        cargo ndk ...$ndk_args --platform 21 build --package native --profile $profile
+        cargo ndk ...$ndk_args --platform 33 build --package native --profile $profile
     }
 
     let deploy_profile = if "release" in $profiles { "release" } else { $profiles | first }
