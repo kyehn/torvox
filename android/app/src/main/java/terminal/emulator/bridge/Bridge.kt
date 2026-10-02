@@ -281,7 +281,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class PollResult(
         val clipboard: String? = null,
         val exit: Boolean = false,
-        val exitCode: Int = 0,
+        /** 退出码；`null` 为「原生未能取得」（`waitpid` 失败），不是退出码 0。 */
+        val exitCode: Int? = null,
         // 首次退出时由原生测得的子进程存活时长。
         val exitAliveMs: Long = 0,
         val sessionId: Long = 0L,
@@ -313,7 +314,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     data class ExitInfo(
         val sessionId: Long,
-        val exitCode: Int,
+        /** 同 [PollResult.exitCode]：`null` 表示码未知，不可当 0 用。 */
+        val exitCode: Int?,
         // 原生测得的子进程存活时长（毫秒），仅作诊断负载，不是 Kotlin 事件延迟。
         val exitAliveMs: Long = 0,
     )

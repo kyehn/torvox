@@ -22,6 +22,29 @@ const READ_BUF_SIZE: usize = 8192;
 const TRAILING_EXIT_GRACE: Duration = Duration::from_millis(50);
 /// 信号致死退出码基数（shell 惯例：128 + 信号码）。
 const SIGNAL_EXIT_BASE: i32 = 128;
+
+/// 子进程退出码槽位。三态而非 `Option<i32>`：等待线程写入与「已退出但码无从取得」
+/// 必须可区分——前者要继续等，后者必须上报（否则退出事件永不到达，会话表泄漏）。
+enum ExitCodeSlot {
+    /// 子进程尚未退出，等待线程未写入。
+    Pending,
+    /// 等待线程已取得的真实退出码（含 128+信号 的信号死亡）。
+    Code(i32),
+    /// 子进程确已退出，但 `waitpid` 失败或返回了预期外状态：码未知。
+    Unknown,
+}
+
+/// 可以上报给宿主的退出结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportedExit {
+    /// 等待线程取得的真实退出码（信号死亡为 128+信号号）。
+    Code(i32),
+    /// 子进程已退出但退出码无从取得（`waitpid` 失败或状态预期外）。
+    ///
+    /// 单独一态而不是塞个 0 或 -1：调用方据此显示「退出码未知」，而不是把一次查不到
+    /// 原因的死亡说成正常退出。序列化到 JNI 时为 JSON `null`。
+    Unknown,
+}
 /// `read(2)` 失败后读取线程应采取的动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReaderErrorAction {
@@ -113,8 +136,8 @@ pub struct Session {
     wait_handle: Option<std::thread::JoinHandle<()>>,
 
     // ── 运行态 ───────────────────────────────────────────────────────
-    /// 来自 waitpid 的退出码；进程运行中为 `None`。
-    pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
+    /// 来自 waitpid 的退出码；进程运行中为 [ExitCodeSlot::Pending]。
+    exit_code: Arc<Mutex<ExitCodeSlot>>,
     /// 子进程存活时长（毫秒，fork → waitpid），由等待线程在退出时写入，
     /// 随 Exit 事件载荷作诊断用。
     pub(crate) exit_alive_ms: Arc<Mutex<Option<u64>>>,
@@ -311,14 +334,26 @@ impl Session {
             log::info!("wait thread: child exited: {result:?}");
             match result {
                 Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => {
-                    *exit_code.lock() = Some(code);
+                    *exit_code.lock() = ExitCodeSlot::Code(code);
                 }
                 // Shell 被信号杀死（Ctrl+\、kill -9）：上报惯例的 128 + 信号码，
                 // 避免 UI 把信号死亡当成干净的退出码 0。
                 Ok(nix::sys::wait::WaitStatus::Signaled(_, signal, _)) => {
-                    *exit_code.lock() = Some(SIGNAL_EXIT_BASE + signal as i32);
+                    *exit_code.lock() = ExitCodeSlot::Code(SIGNAL_EXIT_BASE + signal as i32);
                 }
-                _ => {}
+                Ok(other) => {
+                    // 未传 WUNTRACED/WCONTINUED，正常只可能是 Exited 或 Signaled；
+                    // 真到这里说明等待语义变了，不能让退出码永远缺席（那会让退出事件
+                    // 永远不上报、会话表泄漏），故显式记为「未知」。
+                    log::error!("wait thread: unexpected wait status {other:?}; exit code unknown");
+                    *exit_code.lock() = ExitCodeSlot::Unknown;
+                }
+                Err(error) => {
+                    // 同上：`waitpid` 失败时真实退出码无从取得。记为错误并置「未知」，
+                    // 由上报侧（`take_reported_exit_code`）把它当作「已退出但码未知」。
+                    log::error!("wait thread: waitpid failed: {error}");
+                    *exit_code.lock() = ExitCodeSlot::Unknown;
+                }
             }
             exited_wait.store(true, Ordering::Release);
         });
@@ -366,7 +401,7 @@ impl Session {
             bell_pending: Mutex::new(false),
             reader_handle: None,
             wait_handle: None,
-            exit_code: Arc::new(Mutex::new(None)),
+            exit_code: Arc::new(Mutex::new(ExitCodeSlot::Pending)),
             exit_alive_ms: Arc::new(Mutex::new(None)),
             spawned_at: std::time::Instant::now(),
             terminal_rows: AtomicU32::new(rows),
@@ -502,27 +537,40 @@ impl Session {
                     max_chunks,
                     self.output_rx.len(),
                 );
-                // 锁内渲染路径：VT 线程卡住时跳过本次排空，剩余块下一帧重试
-                // （N1-20：5s flush 不得阻塞会话锁）。
-                if self.terminal.flush_with_timeout(std::time::Duration::ZERO) {
-                    self.drain_callback_events();
-                    // 即使走到封顶路径也排空回写应答：输出洪水不得饿死 DECRPM/DSR/DA 应答，
-                    // 否则子应用会无限期等待。
-                    self.drain_pty_write_back();
-                }
+                // 即使走到封顶路径也排空回写应答：输出洪水不得饿死 DECRPM/DSR/DA 应答，
+                // 否则子应用会无限期等待。
+                self.harvest_vt_side_effects();
                 return true;
             }
         }
         if count > 0 {
             log::trace!("poll_pty_output: processed {count} chunks");
-            if self.terminal.flush_with_timeout(std::time::Duration::ZERO) {
-                self.drain_callback_events();
-                self.drain_pty_write_back();
-            }
+            self.harvest_vt_side_effects();
             true
         } else {
+            // 本帧没有新输出，但 VT 线程可能仍在处理此前投递的命令：其回调事件
+            // （OSC 52 写入、BEL）与回写应答此刻可能刚好就绪。仍然收割一次，否则
+            // 这些副作用要一直等到下一批输出到来才上报——终端安静时（恰恰是用户
+            // 复制完内容的那一刻）就永远不发生。
+            self.harvest_vt_side_effects();
             false
         }
+    }
+
+    /// 收割 VT 侧的副作用：回调事件（OSC 52 写入、BEL）与 PTY 回写应答（DECRPM/DSR/DA）。
+    ///
+    /// 两者都是非阻塞取（`try_recv` 与加锁后 `take`），故**不**以 VT 线程的 flush ack
+    /// 为条件。原实现把收割挂在 `flush_with_timeout(Duration::ZERO)` 的成功分支上，
+    /// 而零期限的 `recv_timeout` 要在 ack 已被 VT 线程送出的一瞬才可能命中，实测 32 次
+    /// 连续尝试 0 次成功（`zero_timeout_flush_observes_the_ack`）——于是这条分支实际是
+    /// 死代码：OSC 52 写入与 BEL 永远不收割（用户复制内容后剪贴板不更新、振铃不响），
+    /// DECRPM/DSR/DA 应答也永不写回 PTY（子应用无限期等待设备状态查询）。
+    ///
+    /// 丢弃 flush 的代价是无 Synchronization：VT 线程尚未处理完时取到空，下次取到。
+    /// 收割是每帧重复的拉取式操作，事件不会因此丢失，只是可能晚一帧。
+    fn harvest_vt_side_effects(&mut self) {
+        self.drain_callback_events();
+        self.drain_pty_write_back();
     }
 
     /// 把待处理的 VT 应答（DECRPM、DSR、DA 等）回写到子 PTY。VT 引擎负责缓冲，子进程在等它们。
@@ -607,11 +655,14 @@ impl Session {
         self.exited.load(Ordering::Acquire)
     }
 
-    /// 读取子进程退出码（若等待线程已写入）。
-    /// 非阻塞：需要等待退出码的调用方在**不**持有会话锁的前提下轮询（见 `ffi::wait_exit_code`）。
+    /// 读取子进程退出码：`None` 表示等待线程尚未写入（子进程仍在运行或正在被等待）。
+    /// 非阻塞，调用方每帧轮询即可。
     pub fn exit_code_now(&self) -> Option<i32> {
         let guard = self.exit_code.lock();
-        *guard
+        match *guard {
+            ExitCodeSlot::Code(code) => Some(code),
+            ExitCodeSlot::Unknown | ExitCodeSlot::Pending => None,
+        }
     }
 
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
@@ -622,6 +673,32 @@ impl Session {
     /// 逐帧后台扫描据此保证每次退出只上报一次。
     pub fn mark_exit_reported(&self) -> bool {
         !self.exit_reported.swap(true, Ordering::AcqRel)
+    }
+
+    /// 取出「已可上报的退出」：`None` 表示子进程还没退出到能上报的程度，调用方
+    /// 每帧再问一次即可（不阻塞、不睡眠）。
+    ///
+    /// 上报条件与 `mark_exit_reported` 合成一个动作，二者因此不可能不一致。原先 FFI
+    /// 层先 `mark_exit_reported()` 再去忙等退出码，等不到就上报一个伪造的 0；而标志
+    /// 已锁存、退出事件又不会重发——被 OOM kill（137）之类的会话会永远显示成正常退出 0。
+    /// 现在「码到手」才上报：拿到的一定是真码，且退出事件仍恰好发一次。
+    pub fn take_reported_exit(&self) -> Option<ReportedExit> {
+        if !self.is_exited() {
+            return None;
+        }
+        let reported = {
+            let guard = self.exit_code.lock();
+            match *guard {
+                ExitCodeSlot::Pending => return None,
+                ExitCodeSlot::Code(code) => ReportedExit::Code(code),
+                ExitCodeSlot::Unknown => ReportedExit::Unknown,
+            }
+        };
+        if self.mark_exit_reported() {
+            Some(reported)
+        } else {
+            None
+        }
     }
 
     pub fn terminal(&self) -> &GhosttyTerminal {
@@ -985,6 +1062,90 @@ mod tests {
             written, b"hello world",
             "input written to session must reach PTY master"
         );
+    }
+
+    #[test]
+    fn take_reported_exit_waits_for_the_real_code_then_reports_once() {
+        // 这是本次改动的核心契约：真实 `exit 3` 的会话必须报出 3 而不是 0。
+        // 旧实现先锁存上报标志、再忙等退出码，等不到就报 0，且退出事件不会重发——
+        // 于是一次 3 退出被永久谎报成 0。
+        let mut session = spawn_test_session();
+        // 用非零码：裸 `exit` 的惯例码是 0，断言 0 等于没断言——正是本缺陷的形态。
+        session.write(b"exit 3\n").expect("write failed");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        drain_output(&mut session, deadline);
+        assert!(session.is_exited());
+        // 每帧轮询直到可上报；真实退出码必然在等待线程里被写入，无需忙等。
+        let reported = loop {
+            if let Some(reported) = session.take_reported_exit() {
+                break reported;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "exit code must become reportable well within 3s"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(reported, ReportedExit::Code(3));
+        // 恰好一次：此后不再有可上报的退出。
+        assert_eq!(session.take_reported_exit(), None);
+    }
+
+    /// 回归护栏：OSC 52 写入必须被收割，用户复制的内容才能进系统剪贴板。
+    ///
+    /// 原实现把收割挂在 `flush_with_timeout(Duration::ZERO)` 成功分支上，而零期限
+    /// `recv_timeout` 实测 32 次 0 次命中 ack，故 OSC 52 与 BEL 事件永不上报
+    /// （`NativeBridgeSmokeTest > feedTerminal OSC52 write surfaces clipboard poll event`
+    /// 长期失败即由此而来）。本测试只依赖「投递 + 收割」，不依赖任何 flush 时序。
+    #[test]
+    fn osc52_write_is_harvested_without_relying_on_flush_ack() {
+        let mut session = spawn_test_session();
+        let marker = "harvest-probe";
+        use base64::Engine;
+        let payload = base64::engine::general_purpose::STANDARD.encode(marker.as_bytes());
+        // 与 `feedTerminal` 同路径：直接投进 VT 解析器（不经 PTY，故不依赖回显）。
+        session
+            .terminal_mut()
+            .vt_write(format!("\u{1b}]52;c;{payload}\u{7}").as_bytes());
+        // 单次收割即须命中：VT 线程处理完 `vt_write` 后回调事件已在通道里，
+        // `harvest_vt_side_effects` 是非阻塞取。这里**不轮询**——轮询会把「收割被
+        // 条件门控住、每帧才有机会捡到」的实现也判为通过，护栏就形同虚设。
+        // 与生产渲染帧完全同口径：只 `process_output` + 收割，**不 flush、不轮询
+        // 额外同步**。VT 线程是异步的，事件在它处理完 `vt_write` 之后的某一帧被收割；
+        // 这正是「每帧重复的拉取式收割」的设计前提，也让本护栏对「收割被条件门控住」
+        // 的旧实现为红（门控一旦失配，事件在所有帧里都取不到）。
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut harvested = session.poll_clipboard();
+        while harvested.is_none() && std::time::Instant::now() < deadline {
+            session.process_output();
+            std::thread::sleep(Duration::from_millis(5));
+            harvested = session.poll_clipboard();
+        }
+        assert_eq!(
+            harvested.as_deref(),
+            Some(marker),
+            "OSC 52 payload must reach the clipboard slot within a few render frames"
+        );
+    }
+
+    #[test]
+    fn take_reported_exit_is_silent_before_exit() {
+        // 运行中的会话不得产生退出上报——否则会误报一个还在跑的 shell。
+        let session = spawn_test_session();
+        assert!(!session.is_exited());
+        assert_eq!(session.take_reported_exit(), None);
+    }
+
+    #[test]
+    fn unknown_exit_code_is_reported_rather_than_suppressed() {
+        // `waitpid` 失败时代码槽为 Unknown。必须照常上报（`ReportedExit::Unknown`），
+        // 否则退出事件永不到达、会话表泄漏——比报出错误的码更糟。
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        *session.exit_code.lock() = ExitCodeSlot::Unknown;
+        session.exited.store(true, Ordering::Release);
+        assert_eq!(session.take_reported_exit(), Some(ReportedExit::Unknown));
     }
 
     #[test]
