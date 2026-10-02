@@ -90,9 +90,6 @@
               openssl
               zig_0_16
               cargo-ndk
-              # 上游 semgrep 1.172.0 的 wheel 元数据声明 pyjwt~=2.13.0，而新 nixpkgs 的
-              # python3.14 包集提供 pyjwt 2.14.0；pyjwt 是纯 Python 包，不存在 ABI 差异，
-              # 故放宽该运行时依赖检查，而非把 pyjwt 钉回旧版。
               (semgrep.overridePythonAttrs (oldAttrs: {
                 pythonRelaxDeps = true;
               }))
