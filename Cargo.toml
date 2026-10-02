@@ -4,7 +4,7 @@ members = ["native"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99"
 [workspace.dependencies]
 base64 = "0.23"
 bytemuck = { version = "1", features = ["derive"] }
