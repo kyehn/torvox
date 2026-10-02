@@ -1255,8 +1255,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
-    var onCopyRequested: ((text: String) -> Unit)? = null
-    var onPasteRequested: (() -> Unit)? = null
     var onZoomChanged: ((fontSizeSp: Float) -> Unit)? = null
 
     // ⑥ 实时缩放预览：双指手势期间每秒数次以插值字号触发，渲染器无需网格 resize 即可跟随。
