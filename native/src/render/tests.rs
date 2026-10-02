@@ -2287,6 +2287,99 @@ mod dirty_band_tests {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// Content-bottom row (ime-content-aware-shift)
+// ══════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod last_content_row_tests {
+    use crate::render::cell_builder::last_content_row;
+    use crate::terminal::ghostty_terminal::CellData;
+
+    /// 行优先单元数据（宽字符的占位单元已被终端省略，行长因此可变）。
+    fn cell(row: u32, codepoint: u32) -> CellData {
+        CellData {
+            codepoint,
+            width: 1,
+            grapheme_extra: [0; 7],
+            foreground: [1.0, 1.0, 1.0, 1.0],
+            background: [0.0, 0.0, 0.0, 0.0],
+            underline_color: [1.0, 1.0, 1.0, 1.0],
+            flags: 0,
+            row,
+            col: 0,
+        }
+    }
+
+    /// 3 行 × 4 列，内容只落在 `marks` 给出的 (行, 列)。
+    fn grid_3x4(marks: &[(u32, u32, u32)]) -> Vec<CellData> {
+        let mut cells = Vec::with_capacity(12);
+        for row in 0..3u32 {
+            for col in 0..4u32 {
+                let codepoint = marks
+                    .iter()
+                    .find(|(r, c, _)| *r == row && *c == col)
+                    .map_or(0, |(_, _, cp)| *cp);
+                cells.push(cell(row, codepoint));
+            }
+        }
+        cells
+    }
+
+    #[test]
+    fn empty_viewport_has_no_content_row() {
+        assert_eq!(last_content_row(&[], 3), None);
+        assert_eq!(last_content_row(&grid_3x4(&[]), 3), None);
+    }
+
+    /// 空格与制表不撑起下沿：空白行像素上与背景无异，若计入则稀疏会话退化为
+    /// 「网格填满」，输入法弹出又会整体上移把首行推出屏幕。
+    #[test]
+    fn blank_rows_do_not_count_as_content() {
+        let cells = grid_3x4(&[
+            (0, 0, u32::from(b'$')),
+            (1, 0, b' '.into()),
+            (2, 0, b'\t'.into()),
+        ]);
+        assert_eq!(last_content_row(&cells, 3), Some(0));
+    }
+
+    #[test]
+    fn bottom_row_content_wins() {
+        let cells = grid_3x4(&[(0, 0, u32::from(b'$')), (2, 3, u32::from(b'x'))]);
+        assert_eq!(last_content_row(&cells, 3), Some(2));
+    }
+
+    #[test]
+    fn middle_row_content_is_the_bottom_when_last_row_blank() {
+        let cells = grid_3x4(&[(1, 2, u32::from(b'y'))]);
+        assert_eq!(last_content_row(&cells, 3), Some(1));
+    }
+
+    /// 宽字符只产出一个单元（续列被省略），行号仍取自 `CellData.row`，
+    /// 不依赖 `行号 × 列宽` 的下标推算。
+    #[test]
+    fn wide_char_rows_use_cell_row_field() {
+        let cells = vec![
+            cell(0, u32::from(b'a')),
+            cell(0, 0),
+            CellData {
+                width: 2,
+                ..cell(1, '中' as u32)
+            },
+        ];
+        assert_eq!(last_content_row(&cells, 2), Some(1));
+    }
+
+    /// 行号越界的陈旧单元不得影响下沿（否则位移按不可见数据裁剪）。
+    #[test]
+    fn stale_out_of_range_rows_are_ignored() {
+        let cells = vec![cell(0, u32::from(b'$')), cell(9, u32::from(b'x'))];
+        assert_eq!(last_content_row(&cells, 3), Some(0));
+        assert_eq!(last_content_row(&[cell(9, u32::from(b'x'))], 3), None);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // End-to-End Pipeline Benchmarks  (terminal write → CellData → instances)
 // Moved from terminal::ghostty_terminal::tests: they drive the render
 // pipeline, and terminal modules must not reference render (rust-arch).
