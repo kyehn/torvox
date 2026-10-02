@@ -23,104 +23,9 @@
 
 ---
 
-## 三、新的 P0
+## 三、新的 P0 / P1
 
-> 维护注：N0-7（输出泵与渲染解耦）、N0-8（文档链接两侧同口径）、N0-9（安装可执行路径穿越）、N1-3（设置损坏降级为空偏好）、N1-5（释放走统一会话防护）已修复并验证，对应小节删除；其余编号保持不变。
-
-### N0-6 PTY 主端是非阻塞的，`write_all` 在中途失败后丢弃剩余字节 —— 粘贴被静默截断
-
-`native/src/terminal/pty.rs:80-91`
-
-```rust
-fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
-    while !buf.is_empty() {
-        let bytes_written = self.write(buf)?;
-        if bytes_written == 0 {
-            return Err(io::Error::from(io::ErrorKind::WouldBlock));
-        }
-        buf = &buf[bytes_written..];
-    }
-    Ok(())
-}
-```
-
-主端在 `session.rs:197` 被设为 `O_NONBLOCK`。Linux tty 线路的 `N_TTY_BUF_SIZE` 是 4096。因此：写入超过 4096 字节时，第一次 `write` 写掉 4096，第二次返回 `EAGAIN`，`write_all` 返回 `Err(WouldBlock)`，**`buf` 中剩余的全部字节被丢弃**。
-
-`native/src/android/ffi.rs:824-832` 把这个错误吞掉：
-
-```rust
-    if let Err(e) = session.write(&input) {
-        // 主端 fd 是 O_NONBLOCK（`Session::spawn` 中设置）：PTY 缓冲区已满
-        // （子进程未读取）时表现为 EAGAIN。丢弃输入与 xterm 行为一致；
-        // 上报为错误会在大量粘贴的每次按键时刷爆日志。
-        if e.is_would_block() {
-            return;
-        }
-```
-
-注释声称「丢弃输入与 xterm 行为一致」。**这与 xterm 的实际行为相反**：xterm 会在 PTY 满时阻塞或排队，绝不截断。这里是本地造的一个未声明的 Fallback（`DESIGN.md:24` 明确禁止），且注释在给自己找理由。
-
-**故障场景**：用户粘贴一段 6KB 的 shell 脚本 → shell 收到前 4096 字节并**当作完整命令执行**（可能是半条 `if`、半个路径），随后用户在终端里看到毫无关联的错误。整个过程无日志、无提示。
-
-同一函数还被三处复用，后果各不相同：
-
-- `session.rs:530 drain_pty_write_back`：VT 应答（DA / DSR / DECRPM）被截断在转义序列中间 → 子应用（`less`/`vim`/tmux）**永久等待一个永远不完整的应答**。
-- `session.rs:600 answer_clipboard_read`：OSC 52 应答被截断。
-- `session.rs:654 focus_event`：焦点上报被丢弃。
-
-违反 `DESIGN.md:24`、`DESIGN.md:16`，并直接破坏 `DESIGN.md:176`（全功能输入法）与 `DESIGN.md:170`（全选后复制必须正常工作）。
-
-**修法**：要么在写入前用 `poll(POLLOUT)` 带截止等待，要么保留未写尾部并在渲染循环里排空；无论哪种都不能把截断报告为成功。注释里那句「上报为错误会刷爆日志」不构成丢弃数据的理由。
-
----
-
-## 四、新的 P1
-
-### N1-1 读取线程在 Ghostty 之前就删掉了 PTY 字节流里的 `0x00`
-
-`native/src/terminal/session.rs:266-270`
-
-```rust
-// NUL 剥离：VT 解析前剔除 0x00 字节，避免 APC-NUL 渲染伪影。
-let mut data = read_buf[..bytes_read].to_vec();
-if data.contains(&0) {
-    data.retain(|&byte| byte != 0);
-}
-```
-
-这发生在 `OutputProcessor` **之前**，与第 6 轮 P1-11（`public_api.rs` 的 `pty_write` 改写）是**两个独立缺陷**。
-
-sixel 栅格属性、iTerm2 / tmux 携带二进制的控制串，其载荷中都可能出现 NUL。删除后字节数改变，序列终止符的位置也随之错位。丢弃的字节**没有计数、没有日志**。
-
-违反 `DESIGN.md:58`（Ghostty 是终端状态的单一来源，不重复实现 Ghostty 已有功能）与 `DESIGN.md:180`。
-
-### N1-2 三条 fork 后错误路径泄漏活子进程与永久僵尸
-
-`native/src/terminal/session.rs:197-220`：`set_nonblocking()` 失败、`try_clone_reader_fd()` 失败、`spawn_with_theme_inner()` 失败，三处都在 `PtyPair::spawn` **已经成功之后**直接 `return Err`。
-
-`PtyPair::drop`（`pty.rs:601-606`）是显式空实现，注释写「回收是 `Session::drop` 的职责」；而这三条路径上 `Session` 从未构造出来，因此**永远不会 `waitpid`**。唯一生效的是关闭主端带来的隐式 `SIGHUP`。
-
-**故障场景**：创建第 10 个会话时 fd 耗尽（`dup()` → `EMFILE`）→ `return Err` → shell 继续运行但调用方已消失，同时留下一个僵尸。每次会话创建失败都累积。
-
-违反 `DESIGN.md:22`（尽早抛出错误，避免浪费资源）。
-
-**修法**：让 `PtyPair::drop` 真正回收子进程（kill + `waitpid`），或引入一个作用域守卫类型覆盖这三条路径。
-
-### N1-4 `installOffline` 把 SAF 文档无上限地写进 `cacheDir`
-
-`android/app/src/main/java/terminal/emulator/TerminalViewModel.kt:1123-1128`
-
-```kotlin
-val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
-context.contentResolver.openInputStream(uri)?.use { input -> cacheFile.outputStream().use { output -> input.copyTo(output) } }
-```
-
-在线路径两次限流（`BootstrapDownloader.kt:75, 97` 的 `MAX_BOOTSTRAP_SIZE_BYTES = 1 GiB`），离线路径**没有任何上限**。恶意或超大文档流会填满数据分区。
-
-同一路径还完全绕过 `BootstrapOrchestrator`，因此跳过主用户守卫（`BootstrapOrchestrator.kt:50-53`）与 `processInstalling` 的 CAS，并同样忽略 `secondResult.success`（第 6 轮 N0-4 的**第三处**实例）。
-
-违反 `DESIGN.md:20`（低内存友好）、`DESIGN.md:142`。
-
+> 维护注：N0-6（PTY 写入截断）、N1-1（读取线程重复剥离 NUL）、N1-2（fork 后泄漏活子进程与僵尸）、N1-4（离线安装无上限写 cacheDir）已修复并验证，对应小节删除；其余编号保持不变。
 
 ### N1-6 KGP 管线在 surface 格式变化时不失效；且每帧重建 TextureView + BindGroup
 
@@ -134,7 +39,7 @@ context.contentResolver.openInputStream(uri)?.use { input -> cacheFile.outputStr
 
 ---
 
-## 五、新的 P2
+## 四、新的 P2
 
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
@@ -173,24 +78,17 @@ context.contentResolver.openInputStream(uri)?.use { input -> cacheFile.outputStr
 
 ---
 
-## 六、修复顺序（本轮增量）
+## 五、修复顺序（本轮增量）
 
-1. **N0-6**（PTY 写入截断）—— 用户数据被静默破坏，粘贴与 VT 应答都受影响。
-2. **N0-7**（输出通道无独立泵）—— 一处渲染错误冻结全应用所有 shell，且与第 6 轮 N2 构成必现组合。
-3. **N0-8**（符号链接条目全崩）—— 文档提供器的链接功能整体不可用。
-4. **N0-9**（`EXECUTABLES.txt` 路径穿越）—— 复用同文件已有的谓词，改动最小。
-5. **N1-3**（DataStore 损坏无恢复）—— 一行 `corruptionHandler`，消掉一类「必崩且无法自救」。
-6. **N1-2**（fork 后泄漏）—— 让 `PtyPair::drop` 真正回收。
-7. **N1-1**（NUL 剥离）—— 与第 6 轮 P1-11 合并成「输入流不得被本地改写」一条一起修。
-8. **N1-4 / N1-5 / N1-6** —— 上限、异常防护、KGP 管线失效与每帧分配。
-9. **N2-1 / N2-2** —— 违反 `DESIGN.md:99/101/102` 的显式条款。
-10. **N2-6 / N2-7** —— 崩溃无诊断、重配后提交失效纹理，两者都直接破坏 `DESIGN.md:194` 与 `DESIGN.md:160`。
-11. 剩余 P2/P3 与死代码清单。
-12. 第 6 轮第八节的 1–7 项。
+1. **N1-6** —— KGP 管线失效与每帧分配。
+2. **N2-1 / N2-2** —— 违反 `DESIGN.md:99/101/102` 的显式条款。
+3. **N2-6 / N2-7** —— 崩溃无诊断、重配后提交失效纹理，两者都直接破坏 `DESIGN.md:194` 与 `DESIGN.md:160`。
+4. 剩余 P2/P3 与死代码清单。
+5. 第 6 轮第八节的 1–7 项。
 
 ---
 
-## 七、收敛状态
+## 六、收敛状态
 
 - 本轮**不是**「无新问题」的一轮。新增 **2 个 P0、1 个 P1 组（另 5 个独立 P1）、14 个 P2、10+ 个 P3**、**12 处死代码**。
 - 「连续四次无新问题」计数**第二次归零**，从第 7 轮重新开始。
