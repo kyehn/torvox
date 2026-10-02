@@ -2719,6 +2719,7 @@ constructor(
             target.forceRenderRequested = true
             target.notifyRender()
         } catch (exception: Exception) {
+            if (exception is kotlinx.coroutines.CancellationException) throw exception
             LogUtil.e(
                 "Runtime",
                 "switchSession: initial render failed for session $id",

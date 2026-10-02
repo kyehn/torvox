@@ -713,27 +713,34 @@ constructor(
             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
+                    if (bridge == null) {
+                        // 会话已登记但 bridge 尚未就绪（spawn 前的瞬间）：跳过本轮。
+                        // _availableFonts 仍为空，后续状态更新会再次触发本函数——直接
+                        // 交给 availableFontFamilies 会因空列表抛致命异常，把「还没准备好」
+                        // 变成「进程崩溃」。
+                        return@launch
+                    }
                     // 先注册用户投放目录再列举，使其字体家族即使在 loadFonts
                     // 早于 Runtime.start() 完成时也被纳入（重复注册为空操作）。
                     terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { dir ->
-                        bridge?.setExtraFontPaths(listOf(dir.absolutePath))
+                        bridge.setExtraFontPaths(listOf(dir.absolutePath))
                     }
                     val allFonts =
                         terminal.emulator.settings.availableFontFamilies(
-                            bridge?.listFontFamilies().orEmpty(),
+                            bridge.listFontFamilies().orEmpty(),
                         )
                     _availableFonts.value = allFonts
-                    val defaultName = bridge?.getDefaultFontName().orEmpty()
+                    val defaultName = bridge.getDefaultFontName().orEmpty()
                     _defaultFontName.value = defaultName.ifEmpty { allFonts.first() }
                     val storedFamily = settingsRepository.fontFamily.first()
                     clearUnknownFontFamily(
                         storedFamily,
-                        bridge?.setFontFamily(
+                        bridge.setFontFamily(
                             terminal.emulator.resolveEffectiveFontFamily(storedFamily),
                         ),
                     )
                     _fontInfo.value =
-                        bridge?.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
+                        bridge.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
                 } catch (fatal: IllegalStateException) {
                     if (fatal is kotlinx.coroutines.CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
@@ -805,6 +812,7 @@ constructor(
                             .show()
                     }
                 } catch (exception: Exception) {
+                    if (exception is kotlinx.coroutines.CancellationException) throw exception
                     LogUtil.e("Font", "setFontFamily failed for $family", exception)
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
@@ -1101,6 +1109,7 @@ constructor(
                     }
                 block(onProgress)
             } catch (exception: Exception) {
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e("ViewModel", "Bootstrap failed", exception)
                 _bootstrapResult.value =
                     context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
@@ -1385,6 +1394,7 @@ constructor(
                     )
                 }
             } catch (exception: Exception) {
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e("TerminalViewModel", "createSession failed", exception)
             }
         }
@@ -1413,6 +1423,7 @@ constructor(
             try {
                 runtime.switchSession(id, surface, surfaceWidthPixels, surfaceHeightPixels)
             } catch (exception: Exception) {
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e("TerminalViewModel", "switchSession failed for id=$id", exception)
                 return@launch
             }
@@ -1450,6 +1461,7 @@ constructor(
                 // closeSession 绝不能逃逸到主线程的未捕获处理器：
                 // BootGuard 会视其为崩溃并杀掉进程。
                 // 原生侧能容忍未知/已死的会话。
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e("TerminalViewModel", "closeSession failed for id=$id", exception)
                 return@launch
             }
@@ -1497,6 +1509,7 @@ constructor(
             try {
                 NativeBridge.resetTerminal(id)
             } catch (exception: Exception) {
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e("TerminalViewModel", "resetTerminal failed for id=$id", exception)
                 return@launch
             }
