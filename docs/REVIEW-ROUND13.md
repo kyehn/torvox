@@ -9,128 +9,9 @@
 
 ---
 
-## 一、本轮的四个 P0（全部经回读源码证实）
+## 一、新的 P1
 
-> 维护注：N0-21（触摸滚轮转发按手势钳制行数）、N0-22（取消先回滚 bridge 再重抛）已修复并验证，对应小节删除；其余编号保持不变。
-
-### N0-19 `pauseRendering` 持 `sessionLock` 做**每会话 3 秒**的阻塞，而主线程在等同一把锁
-
-代码自己的成本模型算错了 3 倍，且「不会 ANR」的结论不成立。
-
-**阻塞链**（逐跳核实）：
-
-1. `pauseRendering`（`TerminalRuntime.kt:2977-2987`）在 `surfaceTransitionExecutor` 上，
-   **持 `sessionLock` 遍历全部会话**：
-
-   ```kotlin
-
-   surfaceTransitionExecutor.execute {
-       synchronized(sessionLock) {
-           sessions.values.forEach { entry ->
-               if (entry.running) {
-                   renderSupervisor.stopRenderThread(entry)
-
-   ```
-
-2. `stopRenderThread`（`:1539-1548`）**第一件事**就是看门狗的阻塞式停止，
-   然后才 join 渲染线程：
-
-   ```kotlin
-
-   internal fun stopRenderThread(entry: SessionEntry): Boolean {
-       entry.renderWatchDog?.stop()          // ← runBlocking，最长 2s
-       entry.renderWatchDog = null
-       entry.running = false
-       val thread = entry.renderThreadRef
-       ...
-       thread?.let { t ->
-           t.interrupt()
-           t.join(THREAD_JOIN_TIMEOUT_MS)    // ← 1000ms
-
-   ```
-
-3. `RenderWatchDog.stop()`（`monitor/RenderWatchDog.kt:36-44`）确实是阻塞的：
-
-   ```kotlin
-
-   runBlocking {
-       withTimeoutOrNull(2000L) { job.cancelAndJoin() }
-   }
-
-   ```
-
-   ⇒ **每会话最长 2s + 1s = 3s**。
-
-4. 而 `sessionLock` 的**另一个消费者在主线程**：
-   `MainActivity.kt:274` `onDestroy` → `runtime.stopForegroundServiceIfIdle()`
-   → `TerminalRuntime.kt:2719-2727` 的 `synchronized(sessionLock)`。
-   `onDestroy` 跑在主线程。
-
-**结论**：Activity 销毁时若 `pauseRendering` 正在执行，主线程被阻塞
-`3 × 会话数` 秒。2 个会话 = 6s，已超过 Android 的 5s ANR 窗口；
-而本仓的 `AnrWatchDog`（`monitor/AnrWatchDog.kt`，`ANR_TIMEOUT_MILLIS = 5_000L`）
-在该阈值触发时执行 `BootGuard.exit` → `Process.killProcess` → **销毁全部 shell**。
-即「退出应用」这条最普通的路径，在 GPU 恰好挂起时会把所有会话连同用户数据窗口一起杀掉。
-
-**代码注释的两处错误**（`:2964-2976`）：
-
-```kotlin
-
-// stopRenderThread 会 join 渲染线程（每会话最长 1s）；
-...
-// 注意：每会话的 join 发生在 sessionLock 内（各最长 1s），
-
-```
-
-- 「每会话最长 1s」漏算了 `renderWatchDog.stop()` 的 2s `runBlocking`；
-- 「故不 ANR」只对执行器线程成立，**没有考虑主线程经 `stopForegroundServiceIfIdle` 争用同一把锁**。
-
-同类问题还有两处：`startRenderThread`（`:1041`）也在锁内调 `renderWatchDog?.stop()`，
-与 `:920-923`「阶段 2 刻意放在锁外以免 join 阻塞会话操作」的既定策略自相矛盾；
-`handleSessionExit`（`:479-491`，**运行在渲染线程上**）同样在锁内 `runBlocking`。
-
-**修法**：`RenderWatchDog.stop()` 改为非阻塞 `job.cancel()`（join 交给后台路径），
-或把所有 `renderWatchDog?.stop()` 移出 `synchronized(sessionLock)`。
-同时修正 `:2964-2976` 的成本注释。
-
-### N0-20 `RENDER_STATE` 跨 **2 秒**阻塞的取纹理往返被持有，且 UI 线程的 `attachSurface` 同形
-
-`render_inner` 在 `ffi.rs:1537` 取全局渲染锁，该 guard 活到函数结束：
-
-```rust
-
-// ── 阶段 3：渲染（持渲染状态锁）────────────────────────────────────
-let mut state = render_state_mut();
-
-```
-
-锁内调用 `render_state.renderer.render_cell_data(...)`（`ffi.rs:1721`）
-→ `begin_frame()`（`render/context.rs:178`）→ `acquire_texture()`（`context.rs:199`）
-→ `acquire_worker_tx().try_send(request)` 后
-`response_receiver.recv_timeout(ACQUIRE_TIMEOUT)`（`render/pass.rs:140-145`），
-而 `ACQUIRE_TIMEOUT = Duration::from_secs(2)`（`pass.rs:10`）。
-
-**GPU 取纹理工作线程**（`pass.rs:23-33`）的目的是让**渲染线程**不被无限阻塞 ——
-它并不阻止**其他线程**进入 `RENDER_STATE`。于是所有 setter
-（`setFontFamily` / `setFontSizeInPlace` / `setSearchHighlights` / `clearSearchHighlights` /
-`setCursorColor` / `setScrollYPx` / `listFontFamilies` / `getDefaultFontName` / `getCellWidth|Height`）
-在一次 2s GPU 卡死期间全部阻塞。
-
-**更严重的是 `attachSurface`**：`ffi.rs:1357` 同样取 `render_state_mut()`
-并跨越 `attach_surface` → `warmup()` → `acquire_texture()`（`context.rs:490`）。
-而 `attachWindow`/`detachWindow` 是 `SurfaceHolder.Callback`，**由 UI 线程驱动**
-（`context.rs:350` 注释自述）。故一次 2s 的 GPU 卡死 = **2s 的主线程冻结**。
-
-与第 12 轮 N0-15/N1-24 叠加：`AnrWatchDog` 在 5s 触发，
-而这 2s 阻塞会反复占用主线程，使触发概率上升。
-
-**修法**：与 `render_inner` 已有的三阶段做法一致 —— 在**取锁之前**把纹理取到局部变量
-（阶段 1/2/3 已经这样处理过其它资源），或把 `ACQUIRE_TIMEOUT` 降到约 1 个 vsync
-并直接丢帧。
-
-> 维护注：N0-21（触摸滚轮转发按手势钳制行数）、N0-22（取消先回滚 bridge 再重抛）已修复并验证，对应小节删除；其余编号保持不变。
-
-## 二、新的 P1
+> 维护注：N0-19（`RenderWatchDog.stop()` 阻塞化）、N0-20（取纹理移出 `RENDER_STATE`）、N0-21（触摸滚轮转发按手势钳制行数）、N0-22（取消先回滚 bridge 再重抛）已修复并验证，对应小节删除；其余编号保持不变。
 
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
@@ -143,7 +24,7 @@ let mut state = render_state_mut();
 
 ---
 
-## 三、新的 P2
+## 二、新的 P2
 
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
@@ -164,7 +45,7 @@ let mut state = render_state_mut();
 
 ---
 
-## 四、本轮的正面结论（经核实为健康）
+## 三、本轮的正面结论（经核实为健康）
 
 1. **锁图无环**。全部 30+ 个 `render_state_mut()` / `RENDER_STATE.lock()` 调用点逐个检查，
    除 `render_inner` 阶段 3 外都在取 `RENDER_STATE` 前释放了注册表与会话锁。
@@ -219,7 +100,7 @@ let mut state = render_state_mut();
 
 ---
 
-## 五、需要用户裁决的问题
+## 四、需要用户裁决的问题
 
 1. **`AnrWatchDog` 仍是这一切的放大器**（第 9 轮 D3、第 11 轮 Q6、第 12 轮 Q6 三次未决）。
    N0-19 表明主线程一次 6s 阻塞即可触发它并销毁全部会话。
@@ -235,22 +116,17 @@ let mut state = render_state_mut();
 
 ---
 
-## 六、修复顺序建议
+## 五、修复顺序建议
 
-1. **N0-19 `RenderWatchDog.stop()` 阻塞化** —— 一处改动，同时消除主线程 3N 秒阻塞、
-   渲染线程上的 2s `runBlocking`（N2-74）与两处锁内 `stop()`。
-2. **N0-22 取消时先关闭再重抛** —— 两处 `catch` 调换顺序，堵住原生会话 + 子进程泄漏。
-3. **N0-20 取纹理移出 `RENDER_STATE`** —— 与 `render_inner` 既有的三阶段做法同形。
-4. **N0-21 UI 线程查询加短期限** —— 复用一个已有的 `*_with_timeout` 写法。
-5. **N1-30 / N1-31 停机可中断** —— 同一个根因（`join_with_timeout` 无法打断阻塞原语），
+1. **N1-30 / N1-31 停机可中断** —— 同一个根因（`join_with_timeout` 无法打断阻塞原语），
    一处修法可同时解决两条。
-6. **N1-34 / N1-35** —— 守卫复用与 `CancellationException` 重抛。
-7. **N2-71 `@Volatile` 缺失**、**N2-70 CAS 绕过**、**N2-66 锁内建串** —— 各自一行。
-8. 其余 N2 项。
+2. **N1-34 / N1-35** —— 守卫复用与 `CancellationException` 重抛。
+3. **N2-71 `@Volatile` 缺失**、**N2-70 CAS 绕过**、**N2-66 锁内建串** —— 各自一行。
+4. 其余 N2 项。
 
 ---
 
-## 七、收敛状态
+## 六、收敛状态
 
 - 本轮**不是**「无新问题」的一轮：新增 **4 个 P0、6 个 P1、14 个 P2**，
   外加 **17 组经核实的正面结论**。
