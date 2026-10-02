@@ -750,6 +750,17 @@ fn join_finished(handle: std::thread::JoinHandle<()>) {
 impl Drop for Session {
     fn drop(&mut self) {
         self.exited.store(true, Ordering::Release);
+        // 先断开输出通道再 join。
+        //
+        // `Drop` 体运行时字段尚未析构，`output_rx` 仍存活；读取线程若正阻塞在
+        // `output_tx.send`（通道满 = 128 块未消费），它既看不到 `exited` 也等不到
+        // 接收方释放——于是下方四个 `wait_finished` 窗口全部超时：每次关闭会话都要
+        // 付满 ~350ms + 50ms 的等待，且线程句柄被分离（fd 与内存泄漏）。
+        //
+        // 换掉接收端即可立刻解除阻塞：flume 的旧接收端一析构，`send` 即返回
+        // Err（无接收方），读取线程随即走到 `output channel closed` 分支退出。
+        // 换入的是一个空的新通道，故本字段此后仍可用（`poll_pty_output` 不会 panic）。
+        self.output_rx = flume::bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND).1;
         let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
             // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
@@ -1177,6 +1188,40 @@ mod tests {
         // 标记已退出并验证。
         handle.set_exited();
         assert!(handle.is_exited());
+    }
+
+    /// 护栏：满输出通道下的会话拆卸必须及时完成。
+    ///
+    /// 读取线程会持续生产直到通道满（128 块）然后阻塞在 `send`。`Drop` 体运行时
+    /// `output_rx` 仍存活，故若不先换掉接收端，读取线程永远等不到解除——四个
+    /// `wait_finished` 窗口全部超时，每次关闭会话都要付满约 400ms 并泄漏线程句柄。
+    /// 这里用真实 PTY 产生远超通道容量的输出，再断言拆卸在预算内返回。
+    #[test]
+    fn drop_does_not_stall_on_a_full_output_channel() {
+        // 预算：正常拆卸路径含 SIGHUP/SIGCONT 与两个 50ms grace 窗口，理论下界远小于
+        // 1s。旧实现在此稳定超过 1s（四个窗口全超时 + 重试）。
+        let start = std::time::Instant::now();
+        {
+            let mut session = spawn_test_session();
+            session.write(b"seq 1 4000000\n").expect("write failed");
+            // 等到通道真的填满：此时读取线程必然阻塞在 `send` 上。
+            //
+            // 不等填满就 drop 是测不出来的——子进程可能还没产出 128 块，读取线程于是
+            // 从 EOF 正常退出，断言有没有修复都会通过。这正是我第一版测试无效的原因。
+            let fill_deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while session.output_rx.len() < OUTPUT_CHANNEL_BOUND {
+                assert!(
+                    std::time::Instant::now() < fill_deadline,
+                    "output channel never filled; this test cannot discriminate"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "dropping a session with a full output channel took {elapsed:?},              the reader thread is blocked on send()"
+        );
     }
 
     #[test]
