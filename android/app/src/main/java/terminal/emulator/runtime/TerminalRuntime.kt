@@ -213,6 +213,21 @@ internal data class SessionEntry(
     @Volatile var lastContentRow: Int = Bridge.LAST_CONTENT_ROW_NONE
 
     /**
+     * 渲染线程最后见到的原生 surface 失效标志（缓存的原生窗口对应被遗弃的
+     * BufferQueue，reconfigure 不可复活）。失效时由 [maybeRequestSurfaceRecreate]
+     * 按间隔请求宿主换新的原生窗口。
+     */
+    @Volatile var surfaceInvalidated: Boolean = false
+
+    /** 已发出的 surface 重建请求次数与上次请求时刻（纳秒），用于间隔限流与次数上限。 */
+    @Volatile var surfaceRecreateAttempts: Int = 0
+
+    @Volatile var surfaceRecreateLastRequestNanos: Long = 0L
+
+    /** 次数上限已用尽且已告警——避免每帧重复打同一条日志。 */
+    @Volatile var surfaceRecreateExhaustedLogged: Boolean = false
+
+    /**
      * 逐像素滚动余量（px，正值 = 内容下移），由渲染线程与 [scrollOffset] 一同取用。
      * 手势结束/会话切换时重置为 0，避免陈旧偏移泄漏到下一次手势。
      */
@@ -271,6 +286,25 @@ constructor(
      */
     private val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
+
+    /**
+     * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
+     * [maybeRequestSurfaceRecreate]），由持有 `SurfaceView` 的界面读取并换掉整个视图。
+     *
+     * 原生 surface 判死（其原生窗口的 BufferQueue 被遗弃，实测此后每帧
+     * `begin_frame failed`、终端永久黑屏）后，新视图的 `surfaceCreated` 会带来**新的**
+     * 原生窗口——同一窗口反复 detach/attach 是唤不活被遗弃的 BufferQueue 的。
+     *
+     * 用**快照状态**而非帧轮询或回调：帧轮询（`withFrameNanos` 循环）会让 Compose 永远
+     * 处于「有挂起帧回调」状态，仪器化用例的 idling 判定随之超时（`ComposeNotIdleException`）；
+     * 回调则要多注册/注销一份生命周期。快照状态由运行期持有而非组合捕获，换视图导致的
+     * 组合重建也不会让它指向已销毁的状态。
+     *
+     * 注意消费侧必须真的被重算：Compose 仪器化用例里组合只在 `waitForIdle`/`advanceTimeBy`
+     * 期间前进，写入方（如本类）无法替测试推进时钟。
+     */
+    private val surfaceRecreateSignalState = androidx.compose.runtime.mutableIntStateOf(0)
+    val surfaceRecreateSignal: androidx.compose.runtime.IntState get() = surfaceRecreateSignalState
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
@@ -721,6 +755,43 @@ constructor(
         val entry = sessions[activeSessionId] ?: return
         entry.forceRenderRequested = true
         entry.notifyRender()
+    }
+
+    /**
+     * 原生 surface 判死后按间隔请求宿主换新的原生窗口（[surfaceRecreateGeneration] 递增）。
+     *
+     * 由渲染线程在每帧读到失效位时调用。失效位在重建成功后由原生回落为 0，
+     * 故请求天然边沿触发；间隔限流与次数上限由 [decideSurfaceRecreate] 裁决，
+     * 避免重建无望时反复拆装视图（抖动与耗电）。
+     */
+    private fun maybeRequestSurfaceRecreate(entry: SessionEntry) {
+        val now = System.nanoTime()
+        val decision = decideSurfaceRecreate(entry.surfaceRecreateAttempts, entry.surfaceRecreateLastRequestNanos, now)
+        if (decision.exhausted) {
+            if (!entry.surfaceRecreateExhaustedLogged) {
+                entry.surfaceRecreateExhaustedLogged = true
+                LogUtil.e(
+                    TAG,
+                    "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS recreate attempts exhausted; " +
+                        "terminal will stay blank until the surface is recreated by the platform",
+                )
+            }
+            return
+        }
+        if (!decision.request) return
+        entry.surfaceRecreateAttempts += 1
+        entry.surfaceRecreateLastRequestNanos = now
+        // 快照状态在主线程写：组合的重算调度与主线程一致，跨线程写只会让换视图延迟到
+        // 下一次读，且无法保证与界面重建同帧完成。
+        mainHandler.post {
+            surfaceRecreateSignalState.intValue += 1
+            android.util.Log.w("DbgRecreate", "signal now ${'$'}{surfaceRecreateSignalState.intValue}")
+        }
+        LogUtil.w(
+            TAG,
+            "surface invalidated (attempt ${entry.surfaceRecreateAttempts}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
+                "requesting a fresh Android surface",
+        )
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1231,6 +1302,16 @@ constructor(
                                                 lastContentRowFlowInternal.value = lastContentRow
                                             }
                                         }
+                                        if (renderResult.surfaceInvalidated) {
+                                            entry.surfaceInvalidated = true
+                                            maybeRequestSurfaceRecreate(entry)
+                                        } else if (entry.surfaceInvalidated) {
+                                            // 恢复即清零预算：下一次判死仍从满额开始。
+                                            entry.surfaceInvalidated = false
+                                            entry.surfaceRecreateAttempts = 0
+                                            entry.surfaceRecreateLastRequestNanos = 0L
+                                            entry.surfaceRecreateExhaustedLogged = false
+                                        }
                                         val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                             LogUtil.w(
@@ -1632,6 +1713,8 @@ constructor(
     }
 
     private companion object {
+        private const val TAG = "Runtime"
+
         /** mksh 交互 shell 经 `$ENV` 加载的启动文件名（DESIGN Shell 节）。 */
         const val MKSHRC_FILENAME = ".mkshrc"
 
@@ -2650,6 +2733,7 @@ constructor(
             target.forceRenderRequested = true
             target.notifyRender()
         } catch (exception: Exception) {
+            if (exception is kotlinx.coroutines.CancellationException) throw exception
             LogUtil.e(
                 "Runtime",
                 "switchSession: initial render failed for session $id",
@@ -3492,6 +3576,13 @@ internal fun computeGridDimensions(
     return Pair(rows, cols)
 }
 
+// surface 重建请求的最小间隔（纳秒）：一次重建含拆装视图 + 新 surface 交付 + 首帧，
+// 短于此的重试只会连累在途的重建。
+private const val SURFACE_RECREATE_MIN_INTERVAL_NANOS = 500_000_000L
+
+// 单会话连续重建请求上限：超过即停止并告警（重建无望时避免无限拆装视图）。
+private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
+
 /**
  * 输入法弹出时终端 Surface 的上移像素：只移「键盘遮住且上方放不下」的内容高度。
  *
@@ -3509,6 +3600,7 @@ internal fun computeGridDimensions(
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
  * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
  */
+
 internal fun computeImeSurfaceShift(
     contentBottomPx: Int,
     surfaceHeightPx: Int,
@@ -3518,3 +3610,27 @@ internal fun computeImeSurfaceShift(
     val visibleContentPx = surfaceHeightPx - modifierBarHeightPx - imeBottomPx
     return (contentBottomPx - visibleContentPx).coerceIn(0, imeBottomPx)
 }
+
+/**
+ * surface 重建请求的纯决策（[maybeRequestSurfaceRecreate] 的判据）。
+ *
+ * 失效位在原生侧重建成功后回落为 0，故「判死后未回落」本身即是边沿；间隔限流
+ * 覆盖重建无望的情形（窗口始终换不到），次数上限兜住无限拆装视图的抖动与耗电。
+ *
+ * @param attempts 已发出的请求次数
+ * @param lastRequestNanos 上次请求时刻（纳秒，0 = 从未请求）
+ * @param nowNanos 当前时刻（纳秒）
+ */
+internal fun decideSurfaceRecreate(attempts: Int, lastRequestNanos: Long, nowNanos: Long): SurfaceRecreateDecision {
+    if (attempts >= SURFACE_RECREATE_MAX_ATTEMPTS) {
+        return SurfaceRecreateDecision(exhausted = true)
+    }
+    val intervalElapsed = lastRequestNanos == 0L || nowNanos - lastRequestNanos >= SURFACE_RECREATE_MIN_INTERVAL_NANOS
+    return SurfaceRecreateDecision(request = intervalElapsed)
+}
+
+/**
+ * [decideSurfaceRecreate] 的结论：[request] = 本帧请求换新的原生窗口，
+ * [exhausted] = 次数上限已用尽（调用方据此只告警一次）。
+ */
+internal data class SurfaceRecreateDecision(val request: Boolean = false, val exhausted: Boolean = false)
