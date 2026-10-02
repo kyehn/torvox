@@ -24,7 +24,6 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -57,7 +56,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.runtime.LogUtil
@@ -580,37 +578,6 @@ fun TerminalScreen(
                                     }
                                     .apply {
                                         setDimensions(runtimeState.rows, runtimeState.cols)
-                                        onCopyRequested = { text ->
-                                            scope.launch {
-                                                snackbarHostState.currentSnackbarData?.dismiss()
-                                                snackbarHostState.showSnackbar(
-                                                    message =
-                                                    context.resources.getQuantityString(
-                                                        R.plurals.copied_chars,
-                                                        text.length,
-                                                        text.length,
-                                                    ),
-                                                    duration = SnackbarDuration.Short,
-                                                )
-                                            }
-                                        }
-                                        onPasteRequested = {
-                                            val count = viewModel.pasteFromClipboard()
-                                            if (count > 0) {
-                                                scope.launch {
-                                                    snackbarHostState.currentSnackbarData?.dismiss()
-                                                    snackbarHostState.showSnackbar(
-                                                        message =
-                                                        context.resources.getQuantityString(
-                                                            R.plurals.pasted_chars,
-                                                            count,
-                                                            count,
-                                                        ),
-                                                        duration = SnackbarDuration.Short,
-                                                    )
-                                                }
-                                            }
-                                        }
                                         onZoomChanged = { sizeSp ->
                                             // ⑥ 双指缩放终结：持久化稳定尺寸并执行完整应用
                                             // （单次网格重排）。
