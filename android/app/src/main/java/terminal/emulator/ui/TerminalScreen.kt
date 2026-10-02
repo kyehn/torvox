@@ -509,6 +509,7 @@ fun TerminalScreen(
             val lastContentRow = remember {
                 androidx.compose.runtime.mutableIntStateOf(Bridge.LAST_CONTENT_ROW_NONE)
             }
+            val debugShiftHolder = remember { IntArray(2) }
             val runtimeForContent = viewModel.runtime
             LaunchedEffect(runtimeForContent) {
                 snapshotFlow { runtimeForContent.lastContentRowFlow.value }
@@ -544,6 +545,18 @@ fun TerminalScreen(
                                 modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
                                 imeBottomPx = max(imeLeafPx.intValue, imeViewPx.intValue),
                             )
+                        val holder = debugShiftHolder
+                        if (holder[0] != shift || holder[1] != placeable.height) {
+                            holder[0] = shift
+                            holder[1] = placeable.height
+                            LogUtil.d(
+                                "TerminalScreen",
+                                "DEBUG_IME shift=$shift H=${placeable.height} " +
+                                    "bar=${runtimeForContent.modifierBarHeightPx} " +
+                                    "ime=${max(imeLeafPx.intValue, imeViewPx.intValue)} " +
+                                    "row=$contentRow bottom=$contentBottomPx",
+                            )
+                        }
                         layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
                     },
                 ) {
