@@ -251,27 +251,33 @@ impl Renderer {
         let output = outcome.into_texture()?;
 
         let tex_size = output.texture.size();
-        let (config_width, config_height) =
-            if tex_size.width != config_width || tex_size.height != config_height {
-                log::warn!(
-                    "begin_frame: size mismatch! config={}x{} texture={}x{}",
-                    config_width,
-                    config_height,
-                    tex_size.width,
-                    tex_size.height
-                );
-                let existing_config = self.surface_config.take()?;
-                let new_config = wgpu::SurfaceConfiguration {
-                    width: tex_size.width,
-                    height: tex_size.height,
-                    ..existing_config
-                };
+        if tex_size.width != config_width || tex_size.height != config_height {
+            // 尺寸不一致：surface 已被 SurfaceFlinger 缩放，而当前配置仍是旧尺寸。
+            //
+            // 旧实现在这里就地重配，然后**继续用刚取到的旧尺寸纹理**建 FrameContext
+            // 渲染——那一帧画进一个尺寸已不合脚的 swapchain，且 `surface_config.take()?`
+            // 那条返回 `None` 的路上，刚取得的 SurfaceTexture 被丢弃且从不 present，
+            // 交换链因此丢掉一次缓冲区。
+            //
+            // 改为：按纹理实际尺寸重配，丢弃本次纹理并跳过本帧。下一帧取得的纹理
+            // 尺寸即与配置一致，于是渲染的是正确的目标，且没有缓冲区泄漏。
+            log::warn!(
+                "begin_frame: size mismatch! config={}x{} texture={}x{}; reconfiguring and skipping frame",
+                config_width,
+                config_height,
+                tex_size.width,
+                tex_size.height
+            );
+            if let Some(mut new_config) = self.surface_config.take() {
+                new_config.width = tex_size.width;
+                new_config.height = tex_size.height;
                 surface.configure(&self.device, &new_config);
                 self.surface_config = Some(new_config);
-                (tex_size.width, tex_size.height)
-            } else {
-                (config_width, config_height)
-            };
+            }
+            // 丢弃 `output`（不 present）后返回：下一帧按新配置重新取纹理。
+            self.frame_invalidated = true;
+            return None;
+        }
 
         // uniform 缓冲内容每帧重写；绑定组按对象标识绑定，仍然有效。
         self.refresh_cell_uniforms(config_width as f32, config_height as f32);
