@@ -3100,10 +3100,17 @@ constructor(
     fun focusChange(focused: Boolean) {
         lastWindowFocus = focused
         // 焦点上报（DECSET 1004）按窗口生效：只有活动会话会收到。
-        // 向每个会话广播会让单次窗口焦点变化在 UI 线程上执行 N 次同步 JNI RPC
-        // （每次都持有会话锁）。
+        // 向每个会话广播会让单次窗口焦点变化执行 N 次同步 JNI RPC。
         val entry = sessions[activeSessionId] ?: return
-        entry.bridge?.focusEvent(focused)
+        val bridge = entry.bridge ?: return
+        // 不在主线程做：原生 focus_event 先经 VT 线程做 1004 模式查询（最长 50ms）
+        // 再写 PTY，两者都在会话锁内。此前在 UI 线程同步调用，VT 线程一旦卡住
+        // （大输出、GC）每次窗口焦点变化都会把主线程堵满 50ms——正是掉帧的形状。
+        // 焦点顺序由单线程执行器保持，与键盘事件进入 PTY 的顺序一致（xterm 语义：
+        // 焦点上报与按键的先后须与用户操作顺序相符）。
+        scope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
+            bridge.focusEvent(focused)
+        }
     }
 
     fun pauseRendering() {
