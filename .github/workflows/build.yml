@@ -66,6 +66,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: |
             set -e
+            scripts/build-android-libs.nu --profile release
             nix develop --command nu ${{ github.workspace }}/scripts/test-emulator.nu
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@master
