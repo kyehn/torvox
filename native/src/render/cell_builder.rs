@@ -178,6 +178,42 @@ pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
     bands
 }
 
+/// 视口内最后一个有内容的行（0 起）；视口全空返回 `None`。
+///
+/// 「有内容」= 该行存在码点不为 `NUL`/空格/制表的单元。单元数据行优先且行号
+/// 单调不减（与 `build_row_ranges` 同一约定），故自尾部回溯遇见的首个内容单元
+/// 必属行号最大的有内容行——首个命中即返回，无需逐行成段、无分配。
+///
+/// 空格与制表**不**计内容：空白行在像素上与背景无异，若计入则「内容较少」
+/// 退化为「网格填满」，输入法跟随平移又会整体上移，把首行内容推出屏幕
+/// （实测提示符由 y=134 落到 y=−686）。
+///
+/// 行号越界（≥ `rows`）的单元跳过：布局元数据与单元数据失配时的陈旧数据，
+/// 与 `build_row_ranges` 返回 `None` 的判据同源，不可据以上报下沿。
+///
+/// 行坐标即渲染视口坐标：`cells` 已按视口滚动偏移取样（见 `set_scroll_offset`
+/// → `scroll_viewport`），故视口滚入回滚区时返回的仍是屏幕上真实可见的那一行。
+/// 颜色填充（SGR 48）而无字形的单元不计内容——背景色已按主题默认值解析，
+/// 无法与默认背景区分。
+pub fn last_content_row(
+    cells: &[crate::terminal::ghostty_terminal::CellData],
+    rows: u32,
+) -> Option<u32> {
+    cells
+        .iter()
+        .rev()
+        .find(|cell| cell.row < rows && is_content_codepoint(cell.codepoint))
+        .map(|cell| cell.row)
+}
+
+/// 码点是否为可见内容：排除 `NUL`（未写入）、空格与制表（终端内已展开为空格）。
+fn is_content_codepoint(codepoint: u32) -> bool {
+    !matches!(
+        char::from_u32(codepoint),
+        None | Some(' ') | Some('\t') | Some('\0')
+    )
+}
+
 /// Row-level instance cache for incremental rendering (FR-013 / NFR-010).
 ///
 /// Mirrors the test-only reference in `snapshot_reference::build_cell_instances_into`

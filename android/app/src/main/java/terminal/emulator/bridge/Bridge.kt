@@ -195,23 +195,30 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * 渲染与 new_output 读取合并为单次 JNI 穿越（比两次单独调用每帧省约 0.1-0.3ms）。
-     * 返回渲染计数、输出标志与视口光标行（隐藏或在视口外时为 -1，驱动输入法跟随滚动）。
+     * 返回渲染计数、输出标志、视口光标行（隐藏或在视口外时为 -1）与视口最后一个
+     * 有内容的行（视口全空时为 -1），后两者驱动输入法跟随位移的裁剪量。
      */
-    fun renderWithNewOutput(): RenderResult =
-        onSession("renderWithNewOutput", RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN)) {
-            val packed = NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight)
-            val count = packed.toInt()
-            // 仅屏蔽第 32 位：第 33..48 位承载光标行号，不得泄漏到输出标志
-            // （空闲闭锁依赖该标志）。
-            val newOutput = ((packed shr 32) and 0x1L) != 0L
-            val cursorRow =
-                ((packed shr 33) and CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
-                    if (raw == CURSOR_ROW_HIDDEN_BITS) CURSOR_ROW_UNKNOWN else raw
-                }
-            RenderResult(count, newOutput, cursorRow)
-        }
+    fun renderWithNewOutput(): RenderResult = onSession(
+        "renderWithNewOutput",
+        RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN, LAST_CONTENT_ROW_NONE),
+    ) {
+        val packed = NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight)
+        val count = packed.toInt()
+        // 仅屏蔽第 32 位：第 33..48 位承载光标行号，不得泄漏到输出标志
+        // （空闲闭锁依赖该标志）。
+        val newOutput = ((packed shr 32) and 0x1L) != 0L
+        val cursorRow =
+            ((packed shr 33) and CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
+                if (raw == CURSOR_ROW_HIDDEN_BITS) CURSOR_ROW_UNKNOWN else raw
+            }
+        val lastContentRow =
+            ((packed shr 49) and LAST_CONTENT_ROW_NONE_BITS.toLong()).toInt().let { raw ->
+                if (raw == LAST_CONTENT_ROW_NONE_BITS) LAST_CONTENT_ROW_NONE else raw
+            }
+        RenderResult(count, newOutput, cursorRow, lastContentRow)
+    }
 
-    data class RenderResult(val count: Int, val newOutput: Boolean, val cursorRow: Int)
+    data class RenderResult(val count: Int, val newOutput: Boolean, val cursorRow: Int, val lastContentRow: Int)
 
     /**
      * 读取并清除本会话原生的 `new_output` 标志（滚动复位信号）。
@@ -648,6 +655,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
         /** renderWithNewOutput 打包：光标行占 bit 33..48，该值表示隐藏或在视口外。 */
         const val CURSOR_ROW_HIDDEN_BITS = 0xFFFF
+
+        /** renderWithNewOutput 打包：内容下沿行占 bit 49..63，该值表示视口全空。 */
+        const val LAST_CONTENT_ROW_NONE_BITS = 0x7FFF
+
+        /** 视口全空（或无会话）时解码出的内容下沿行。 */
+        const val LAST_CONTENT_ROW_NONE = -1
 
         /** render 缺省返回值：无可渲染的会话（未建立或已销毁），按 idle 处理。 */
         private const val RENDER_IDLE = 0
