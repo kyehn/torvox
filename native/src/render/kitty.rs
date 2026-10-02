@@ -61,8 +61,8 @@ type PackedAtlas = (Vec<u8>, u32, u32, Vec<Option<AtlasEntry>>);
 
 /// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
 /// 输入总量由上游存储上限约束（KGP_STORAGE_LIMIT=64MiB，见 types.rs）；
-/// 横条带布局存在矩形空洞（输出像素数可大于输入面积和），此处饱和/受检算术
-/// 仅防溢出 panic，不另设未声明的截断。
+/// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
+/// 计算并在超限时明确记日志后放弃该图集。
 fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas> {
     if frames.is_empty() {
         return None;
@@ -93,7 +93,17 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas> {
     }
     let layout = layout_strip(frames)?;
     let stride = layout.width.checked_mul(4)? as usize;
-    let mut atlas = vec![0u8; stride.saturating_mul(layout.height as usize)];
+    // 受检而非饱和：饱和会把「超限」变成一个看似正常的巨大分配，最终以分配器 abort
+    // 收场且无任何日志（PTY 可控的图像尺寸即可触发）。此处显式放弃并留证据。
+    let Some(atlas_len) = stride.checked_mul(layout.height as usize) else {
+        log::warn!(
+            "kitty: atlas {}x{} overflows usize; dropping image",
+            layout.width,
+            layout.height
+        );
+        return None;
+    };
+    let mut atlas = vec![0u8; atlas_len];
     for (index, frame) in frames.iter().enumerate() {
         let (Some(entry), (source_x, source_y, source_width, source_height)) =
             (&layout.entries[index], layout.clamped[index])
