@@ -1152,11 +1152,24 @@ constructor(
             // 且会在系统压力下被清理。
             _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
             val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                cacheFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            } ?: throw java.io.IOException("Failed to open bootstrap file")
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    cacheFile.outputStream().use { output ->
+                        terminal.emulator.installer.copyBootstrapArchive(
+                            input = input,
+                            output = output,
+                            onCopied = { copied ->
+                                _bootstrapProgress.value =
+                                    terminal.emulator.installer.BootstrapProgress.Downloading(copied, 0)
+                            },
+                        )
+                    }
+                } ?: throw java.io.IOException("Failed to open bootstrap file")
+            } catch (copyError: Exception) {
+                // 部分写入的归档不是合法 zip；留着只会占满 cacheDir。
+                cacheFile.delete()
+                throw copyError
+            }
             val result = installer.install(cacheFile)
             if (result.isSuccess) {
                 val secondResult = secondStage.run()

@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
+use crate::render::pass::ACQUIRE_TIMEOUT;
 use crate::render::pipeline::QUAD_CORNERS;
 use crate::render::{CATPPUCCIN_MOCHA_BACKGROUND, GpuError};
 
@@ -196,7 +197,7 @@ impl Renderer {
         self.ensure_kgp_pipeline(config_width, config_height);
 
         let surface = self.surface.as_ref()?;
-        let output = self.acquire_texture(surface, config_width, config_height)?;
+        let output = self.acquire_texture(surface, config_width, config_height, ACQUIRE_TIMEOUT)?;
 
         let tex_size = output.texture.size();
         let (config_width, config_height) =

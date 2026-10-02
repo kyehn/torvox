@@ -15,6 +15,13 @@ const DEFAULT_COLORTERM: &str = "truecolor";
 const DEFAULT_LANG: &str = "en_US.UTF-8";
 const TERMUX_VERSION: &str = "0.119.0-beta.3";
 
+/// PTY 输入缓冲排空的等待上限。
+///
+/// 交互式 shell 读走一个缓冲只需微秒级，故正常粘贴永不触及该上限；它只在子进程
+/// 长时间不读 stdin 时收敛，使调用方收到**错误**而不是被静默截断的输入。
+/// 取值远大于任何合理的交互延迟，又短于调用线程可接受的卡顿上限。
+const WRITE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// 切分 Shell 启动入口为可执行路径与附加参数（DESIGN Shell 节支持
 /// `/data/.../bash -l` 形态）。以 ASCII 空白切分，无引号转义语义。
 fn split_shell_entry(shell: &str) -> (&str, Vec<&str>) {
@@ -78,16 +85,64 @@ pub trait Pty: Send {
         Self: Sized;
 
     fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
+        let mut deadline = std::time::Instant::now() + WRITE_DRAIN_TIMEOUT;
         while !buf.is_empty() {
-            let bytes_written = self.write(buf)?;
-            if bytes_written == 0 {
-                // 非阻塞主端只会以 EAGAIN 失败、绝不会返回 0，但测试替身或异常后端可能：
-                // 在 0 上死循环比一次虚假的 WouldBlock 更糟。
-                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            match self.write(buf) {
+                Ok(0) => {
+                    // 非阻塞主端只会以 EAGAIN 失败、绝不会返回 0，但测试替身或异常后端可能：
+                    // 在 0 上死循环比一次虚假的 WouldBlock 更糟。
+                    return Err(io::Error::from(io::ErrorKind::WouldBlock));
+                }
+                Ok(bytes_written) => {
+                    buf = &buf[bytes_written..];
+                    // 已推进：重新给子进程整个宽限期，慢速消费者不被累计等待误伤。
+                    deadline = std::time::Instant::now() + WRITE_DRAIN_TIMEOUT;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    // PTY 输入缓冲已满。**绝不丢弃剩余字节**：丢弃会让粘贴被静默截断
+                    // （子进程执行半条命令），也会把 VT 应答截断在转义序列中间，
+                    // 使子应用永久等待一个永远不完整的回答。等子进程消费即可。
+                    wait_writable(self.master_fd(), deadline)?;
+                }
+                Err(error) => return Err(error),
             }
-            buf = &buf[bytes_written..];
         }
         Ok(())
+    }
+}
+
+/// 等待主端变为可写直至 [deadline]。
+///
+/// `unsafe`：仅调用 `poll`，其输入是本方法内构造的 `pollfd` 与调用方持有的有效
+/// 主端 fd（`Pty` 契约保证 `master_fd` 在对象存活期间有效），`poll` 只写 `revents`。
+fn wait_writable(fd: RawFd, deadline: std::time::Instant) -> io::Result<()> {
+    loop {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "PTY 输入缓冲在等待后仍未排空",
+            ));
+        }
+        let remaining = (deadline - now).as_millis().min(i32::MAX as u128) as i32;
+        let mut poll_fd = libc::pollfd {
+            fd,
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        // SAFETY: 见上方文档——`poll_fd` 有效且已初始化，`fd` 由 `Pty` 保证存活。
+        let result = unsafe { libc::poll(&mut poll_fd as *mut libc::pollfd, 1, remaining) };
+        if result > 0 {
+            return Ok(());
+        }
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        // 0 = 期限内仍不可写，交给下一轮重试（由 deadline 收敛）。
     }
 }
 
@@ -600,8 +655,28 @@ impl std::io::Write for PtyPair {
 
 impl Drop for PtyPair {
     fn drop(&mut self) {
-        // 无需显式关闭主端 fd：会话析构负责信号投递与回收，关闭主端会使阻塞的
-        // PTY 读写失败，从而解除读取/写入线程的阻塞。
+        // `Session::drop` 先投递信号再由 wait 线程回收；此处只兜住
+        // `Session::spawn` 中 fork 成功后的错误路径——那些路径上 `Session`
+        // 从未构造，没有 wait 线程，子进程会永久滞留。
+        //
+        // 先 WNOHANG 查询而非直接 kill：`Session::drop` 的正常路径已由 wait
+        // 线程回收，此时 pid 可能已被系统复用，直接 kill 会误杀无关进程。
+        // 只有仍处于「未回收且存活」状态才动手。
+        let pid = self.child_pid;
+        if !matches!(
+            nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)),
+            Ok(nix::sys::wait::WaitStatus::StillAlive)
+        ) {
+            return;
+        }
+        // 直杀子进程：错误路径上 shell 尚未 fork 任何子进程，且组杀会因
+        // setsid 前的同组窗口连带杀死本进程（见 `Session::drop` 的自杀 guard）。
+        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+        if let Err(error) = nix::sys::wait::waitpid(pid, None)
+            && error != nix::errno::Errno::ECHILD
+        {
+            log::warn!("pty drop: waitpid({}) failed: {error}", pid.as_raw());
+        }
     }
 }
 
@@ -833,6 +908,66 @@ fn read_shebang_interpreter(path: &str) -> Option<(std::ffi::CString, Option<std
 mod tests {
     use super::*;
 
+    /// `Session::spawn` 中 fork 成功后的错误路径上 `Session` 从未构造，
+    /// 回收只能由主端所有者（`PtyPair::drop`）完成：drop 返回后子进程必须已被
+    /// waitpid 回收（再查询即 ECHILD），既不得留活子进程也不得留僵尸。
+    #[test]
+    fn drop_reaps_child_process() {
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let pid = pty.child_pid();
+        drop(pty);
+
+        match nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+            Err(nix::errno::Errno::ECHILD) => {}
+            Ok(status) => panic!("drop 后子进程未被回收（僵尸残留）: {status:?}"),
+            Err(error) => panic!("waitpid failed: {error}"),
+        }
+        assert!(
+            nix::sys::signal::kill(pid, None).is_err(),
+            "child {pid} 仍存活：drop 未终止子进程"
+        );
+    }
+
+    /// 主端是 O_NONBLOCK：PTY 输入缓冲（~4KB）满时 `write` 失败并返回 EAGAIN。
+    /// 旧实现据此返回 `WouldBlock` 并丢弃剩余字节——粘贴被静默截断、子进程执行
+    /// 半条命令，VT 应答也会被截断在转义序列中间使子应用永久等待。
+    ///
+    /// 断言 `write_all` 对超出缓冲的载荷**等待子进程消费**而非报错丢弃。
+    #[test]
+    fn write_all_waits_instead_of_dropping_bytes_past_a_full_pty_buffer() {
+        let capture = std::env::temp_dir().join(format!("pty-write-{}", std::process::id()));
+        std::fs::remove_file(&capture).ok();
+        let mut pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        pty.set_nonblocking().expect("set_nonblocking failed");
+        let script = format!("sleep 0.2; cat > {}\n", capture.display());
+        Pty::write_all(&mut pty, script.as_bytes()).expect("write failed");
+
+        // 总量远超 PTY 输入缓冲（~4KB），中途必然 EAGAIN；逐行短行避开内核
+        // 规范模式 4095 字符的行长上限。
+        let payload = std::iter::repeat_n(
+            [PTY_TEST_PAYLOAD_BYTE; PTY_TEST_PAYLOAD_LINE_BYTES],
+            PTY_TEST_PAYLOAD_LINES,
+        )
+        .flatten()
+        .chain(std::iter::repeat_n(b'\n', PTY_TEST_PAYLOAD_LINES))
+        .collect::<Vec<u8>>();
+        assert!(payload.len() > PTY_INPUT_BUFFER_BYTES);
+
+        Pty::write_all(&mut pty, &payload).expect("write_all 不得因缓冲满而丢弃字节");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(PTY_WRITE_TEST_DRAIN_SECS);
+        while std::time::Instant::now() < deadline {
+            if std::fs::metadata(&capture).is_ok_and(|meta| meta.len() > 0) {
+                std::fs::remove_file(&capture).ok();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
+        }
+        panic!("子进程在期限内未读到任何载荷：write_all 交付失败");
+    }
+
     #[test]
     fn shell_entry_splits_executable_and_arguments() {
         let (executable, arguments) =
@@ -860,6 +995,20 @@ mod tests {
     const TEST_READ_POLL_STEP_MS: u64 = 10;
     const TEST_READ_ATTEMPTS: usize = 50;
     const TEST_MIN_OUTPUT_LEN: usize = 200;
+
+    /// 写入排空测试的读取上限：远大于实测耗时，只为在异常时给出确定的失败而非挂起。
+    const PTY_WRITE_TEST_DRAIN_SECS: u64 = 10;
+
+    /// 每行远小于内核规范模式行长上限（4095），行数足够多使总量远超
+    /// PTY 输入缓冲（~4KB）——那才是 EAGAIN 的真实触发条件。
+    const PTY_TEST_PAYLOAD_LINE_BYTES: usize = 1000;
+    const PTY_TEST_PAYLOAD_LINES: usize = 16;
+
+    /// 载荷字节取值，命令文本中不含该字节。
+    const PTY_TEST_PAYLOAD_BYTE: u8 = b'z';
+
+    /// Linux tty 线路缓冲上限（`N_TTY_BUF_SIZE`）：超过即触发 EAGAIN。
+    const PTY_INPUT_BUFFER_BYTES: usize = 4096;
 
     /// DESIGN 声明的规范路径常量（测试断言专用）：生产代码经调用方
     ///（Kotlin `filesDir`）传入，绝不硬编码；此处断言规范值本身。

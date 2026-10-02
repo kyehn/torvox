@@ -15,82 +15,7 @@
 
 ---
 
-## 一、本轮的两个决定性发现
-
-### N0-13 `row_cache` 的读路径在生产中**永不命中**——整条 zelland 行缓存是纯开销
-
-`native/src/terminal/ghostty_terminal/internal.rs:1466` 每次 `build_cell_data` 都新建迭代器：
-
-```rust
-let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
-```
-
-`create_render_iterators`（`internal.rs:72-99`）每次调用 `RenderState::new()` / `RowIterator::new()` /
-`CellIterator::new()`。而缓存的读路径要求 `!is_dirty`（`internal.rs:1505-1507`）：
-
-```rust
-if !is_dirty
-    && !selection_active
-    && let Some(cached) = row_cache.get(row_idx)
-{
-    data.extend_from_slice(cached);
-```
-
-**行脏标志只存在于 `RenderState` 实例内。** 上游 `render.zig:1045` 在 `RowBuilder.row()` 里写
-`b.dirties[vy] = true`，`render.zig:603-612`（`page_row.dirty = false`）在**同一次** `update()` 内消费它。
-新建的 `RenderState` 走 `render.zig:148` 的 `empty` 初值（`rows=0, cols=0`），`beginUpdate` 因此在
-`render.zig:385-390` 命中「维度变化 → 全量重建」分支，**每一行都被标脏**。
-
-**实验证据**（探针已删除）：对同一 `Terminal` 连续构造全新 `RenderState` 并统计 `row.dirty()`：
-
-```text
-== 每帧新建 RenderState（生产实际） ==
-fresh frame#1                rows=80   dirty=80   clean=0
-fresh frame#2                rows=80   dirty=80   clean=0
-fresh frame#3                rows=80   dirty=80   clean=0
-== 复用同一 RenderState ==
-reused update#2 (无输出变化)      rows=80   dirty=80   clean=0
-```
-
-连复用同一实例也是 `clean=0` —— 因为 `RenderState::empty` 的 `rows=0` 每次都触发全量重建，
-只有第二次 `update` 之后维度才被填上。上游文档 `render.rs:45-51` 明确写着
-「The user of the render state API is expected to unset both of these」，
-本项目从未调用 `row.set_dirty(false)`（`render.rs:610`）。
-
-**三重代价**：
-
-1. **缓存零收益**：每帧仍走完整逐单元 FFI 路径（`internal.rs:1514-1651`），
-   即 `row_cache` 声称要省掉的 `N` 次 FFI 往返一次都没省。
-2. **缓存纯成本**：写路径 `internal.rs:1656` 每行 `row_data.clone()`，
-   `CellData` 为 96 字节（`types.rs:66-85`，测试 `cell_data_size` 断言），
-   80 列 × 24 行 = **184 KB 逐帧深拷贝 + 184 KB 逐帧分配**，全部丢弃。
-3. **测试是假阳性**：`tests.rs:1610 row_cache_returns_consistent_cell_data_across_writes` 与
-   `tests.rs:1651 row_cache_invalidated_on_resize` **在缓存永不命中的情况下依然通过** ——
-   它们断言的是「输出一致」，而非「缓存被命中」。这违反 `TESTING.md:8`
-   「每个测试必须断言具体行为」。
-
-**与规范的关系**：`internal.rs:1444` 的注释「The cache is invalidated by the caller on resize」只覆盖
-失效面，完全没有意识到**命中面**从未存在；`internal.rs:1503` 与 `internal.rs:1652` 两处
-「zelland row-cache pattern」注释描述的是一个未生效的机制。
-
-**修法**（二选一，倾向后者）：
-
-- **删除**：`row_cache` 全部读写点 + `RowBuilder` 相关注释 + 两个名不副实的测试。
-  符合 `STYLE.md:63`「不得保留死代码」与 `STYLE.md:64`「代码量不得超过 ghostty-android-terminal + termux」。
-- **修复**：把 `RenderState`/`RowIterator`/`CellIterator` 提到 VT 线程主循环里**跨帧复用**
-  （`internal.rs:725` 的 `while` 循环之外），并在消费完 `row.dirty()` 后调用
-  `row.set_dirty(false)`（`render.rs:610`），最后在 `RowIterator` 侧对应清除。
-  这样才真正兑现 `render.rs:26-31` 承诺的增量更新。
-
-> 注意：本项若选「修复」，必须同时处理 `RenderState` 的 `snapshot` 借用生命周期
-> （`render.rs:38-40` 要求 `RowIteration` 的借用不越过 `Snapshot`），
-> 属于非平凡改动，**需要用户确认方向后再动手**。
->
-> 维护注：N0-14（滚动强制重推帧）已修复并验证，对应小节删除；采用修法第二种
-> （`ScrollViewport` 分支清 `last_cell_data_push`，与 SetSelection/Reset 同模式），
-> 编号保持不变。
-
-## 二、新的 P1
+## 一、新的 P1
 
 > 维护注：N1-20（锁内排空改零期限 flush）已修复并验证，对应小节删除；其余编号保持不变。
 
@@ -118,7 +43,7 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 ---
 
-## 三、新的 P2
+## 二、新的 P2
 
 | 编号 | 位置 | 问题 |
 | --- | --- | --- |
@@ -140,7 +65,7 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 ---
 
-## 四、本轮的正面结论（经核实为健康，记录以免重复怀疑）
+## 三、本轮的正面结论（经核实为健康，记录以免重复怀疑）
 
 1. **WGSL ↔ Rust 实例布局逐字节吻合**：`CellInstance` 96 字节、偏移 0/8/16/24/40/56/72/80/84/92，
    `mod.rs:88-99` 的 location 1,2,3,4,5,10,6,7,8,9 与 `cell.wgsl:29-39` 完全对应；
@@ -209,7 +134,7 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 ---
 
-## 五、需要用户裁决的问题
+## 四、需要用户裁决的问题
 
 1. **`DESIGN.md:126`（HTTP/HTTPS）vs `BootstrapDownloader.kt:47`（仅 HTTPS）** —— N1-23。
    改代码还是改规范？`docs/specification/` 是保护文件，改它需要明确授权。
@@ -233,7 +158,7 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 ---
 
-## 六、修复顺序建议
+## 五、修复顺序建议
 
 1. **N0-13 `row_cache`**（先裁决方向）—— 一个机制同时是零收益优化 + 逐帧 368 KB 无用拷贝 + 两个假阳性测试。
 2. **N0-14 滚动去重** —— 用户可见的功能缺失（滑动无反馈），几行可解。
@@ -245,7 +170,7 @@ if (!url.startsWith("https://", ignoreCase = true)) {
 
 ---
 
-## 七、收敛状态
+## 六、收敛状态
 
 - 本轮**不是**「无新问题」的一轮：新增 **2 个 P0、5 个 P1、22 个 P2**，外加 **27 组经核实的正面结论**。
 - 「连续五次无新问题」计数**第一次归零**，从第 10 轮重新开始。
