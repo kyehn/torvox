@@ -622,7 +622,9 @@ constructor(
             // 安装为终端选区，Kotlin 只消费回传的有序界限（不含尾部空行）。
             val bounds = runtime.bridge()?.selectAll()
             if (bounds == null || bounds.size != SELECTION_BOUNDS_LENGTH) {
-                // 无内容/查询失败：按“无数据”处理，不伪造选择。
+                // 无内容/查询失败：按“无数据”处理，不伪造选择。显式记录：
+                // 静默返回让调用方无法区分空缓冲与查询超时。
+                LogUtil.w("TerminalViewModel", "selectAll: no bounds (bridge/request failed), skipping")
                 return
             }
             val selectionState =

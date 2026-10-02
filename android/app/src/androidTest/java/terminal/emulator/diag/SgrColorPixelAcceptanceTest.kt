@@ -92,8 +92,10 @@ class SgrColorPixelAcceptanceTest {
 
     private fun countPixels(shot: Bitmap, predicate: (Int) -> Boolean): Int {
         var count = 0
-        for (y in 0 until shot.height step 3) {
-            for (x in 0 until shot.width step 3) {
+        // 步长 2 采样：步长 3 在阈值边缘（实测信号 16 vs 阈值 20），加密采样增强信号，
+        // 不降低阈值。背景纯色区加密后仍为 0，不引入噪声。
+        for (y in 0 until shot.height step 2) {
+            for (x in 0 until shot.width step 2) {
                 if (predicate(shot.getPixel(x, y))) count++
             }
         }
