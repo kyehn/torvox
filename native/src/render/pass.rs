@@ -7,7 +7,12 @@ use std::sync::OnceLock;
 use std::sync::mpsc::SyncSender;
 
 const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+/// warmup 的取纹理期限：它跑在 `attach_surface` 内，即持有全局 `RENDER_STATE`，
+/// 而该调用由 UI 线程（`surfaceChanged`）驱动——按渲染帧的 2s 上限会让一次
+/// GPU 卡死冻结主线程 2s。warmup 只是「立刻铺一层背景色」的尽力而为，
+/// 失败也由随后的渲染帧补上，故用约 6 个 vsync 的短期限。
+const WARMUP_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 /// 回读 map 轮询步长：每次 poll 等待的分片，避免忙等。
 const MAP_POLL_STEP: std::time::Duration = std::time::Duration::from_millis(10);
 /// 回读 map 总超时：超时即报 Readback 错误，不无限等待。
@@ -78,7 +83,9 @@ impl Renderer {
         let Some(config) = self.surface_config.as_ref() else {
             return;
         };
-        let Some(output) = self.acquire_texture(surface, config.width, config.height) else {
+        let Some(output) =
+            self.acquire_texture(surface, config.width, config.height, WARMUP_ACQUIRE_TIMEOUT)
+        else {
             return;
         };
         let mut encoder = self
@@ -117,6 +124,7 @@ impl Renderer {
         surface: &std::sync::Arc<wgpu::Surface<'static>>,
         _config_width: u32,
         _config_height: u32,
+        deadline: std::time::Duration,
     ) -> Option<wgpu::SurfaceTexture> {
         // Mali-G57（联发科/展锐 SoC）在缺 SURFACE_VIEW_FORMATS 时会永久卡在
         // vkAcquireNextImageKHR，故用常驻工作线程 + 超时，绝不让渲染线程无限阻塞。
@@ -142,7 +150,7 @@ impl Renderer {
             return None;
         }
 
-        match response_receiver.recv_timeout(ACQUIRE_TIMEOUT) {
+        match response_receiver.recv_timeout(deadline) {
             Ok(Ok(result)) => match result {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
@@ -159,7 +167,7 @@ impl Renderer {
             Err(_) => {
                 log::warn!(
                     "acquire_texture: get_current_texture timed out after {}ms (slow SurfaceFlinger/SwiftShader; frame skipped, retried next frame)",
-                    ACQUIRE_TIMEOUT.as_millis()
+                    deadline.as_millis()
                 );
                 None
             }

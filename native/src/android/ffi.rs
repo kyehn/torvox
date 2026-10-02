@@ -831,10 +831,14 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
     };
     let mut session = entry.session.lock();
     if let Err(e) = session.write(&input) {
-        // 主端 fd 是 O_NONBLOCK（`Session::spawn` 中设置）：PTY 缓冲区已满
-        // （子进程未读取）时表现为 EAGAIN。丢弃输入与 xterm 行为一致；
-        // 上报为错误会在大量粘贴的每次按键时刷爆日志。
+        // 主端 fd 是 O_NONBLOCK：`write_all` 已为缓冲排空等待过（见 pty::WRITE_DRAIN_TIMEOUT），
+        // 到此仍失败说明子进程长时间不读 stdin。此处记日志——静默返回等于让用户
+        // 丢输入却毫无痕迹，xterm 亦不会截断。
         if e.is_would_block() {
+            log::error!(
+                "feedPty: 子进程未在期限内消费输入，丢弃 {} 字节",
+                input.len()
+            );
             return;
         }
         let _ = env.throw_new(
@@ -950,8 +954,9 @@ fn write_key_inner(
             session.write(&bytes)
         };
         if let Err(e) = result {
-            // EAGAIN（PTY 缓冲区已满）时静默丢弃输入，理由同 `feedPty`。
+            // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
             if e.is_would_block() {
+                log::error!("writeKey: 子进程未在期限内消费按键，丢弃 {key_str}");
                 return;
             }
             if let Err(e) = env.throw_new(

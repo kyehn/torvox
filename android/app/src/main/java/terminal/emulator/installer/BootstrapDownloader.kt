@@ -20,8 +20,6 @@ class BootstrapDownloader(
         private const val NETWORK_CONNECT_TIMEOUT_MS = 30_000L
         private const val NETWORK_READ_TIMEOUT_MS = 300_000L
         private const val MIN_BOOTSTRAP_SIZE_BYTES = 1_048_576L
-        private const val MAX_BOOTSTRAP_SIZE_BYTES = 1_073_741_824L // 1 GiB hard cap
-        private const val DOWNLOAD_BUFFER_SIZE = 8192
         private const val PROGRESS_PERCENT_STEP = 2
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
@@ -72,47 +70,45 @@ class BootstrapDownloader(
                 if (contentLength > 0 && contentLength < MIN_BOOTSTRAP_SIZE_BYTES) {
                     return@withContext Result.failure(Exception("File too small: $contentLength bytes"))
                 }
-                if (contentLength > MAX_BOOTSTRAP_SIZE_BYTES) {
+                if (contentLength > BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES) {
                     return@withContext Result.failure(Exception("File too large: $contentLength bytes"))
                 }
                 val body = response.body
                 val cachedDir = File(context.cacheDir, "bootstrap-$arch.zip")
                 cachedDir.delete()
-                body.source().use { input ->
+                body.byteStream().use { input ->
                     FileOutputStream(cachedDir).use { output ->
-                        val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
                         var total = 0L
                         var lastReportedPct = -100
-                        while (true) {
-                            if (!isActive) {
-                                cachedDir.delete()
-                                return@withContext Result.failure(Exception(BootstrapOrchestrator.ERROR_CANCELLED))
-                            }
-                            val bytesRead = input.read(buffer)
-                            if (bytesRead == -1) break
-                            output.write(buffer, 0, bytesRead)
-                            total += bytesRead
-                            // 硬上限：恶意/配置不当且不返回 Content-Length 的服务器
-                            // 否则会无界填满应用分区。
-                            if (total > MAX_BOOTSTRAP_SIZE_BYTES) {
-                                cachedDir.delete()
-                                return@withContext Result.failure(
-                                    Exception("Download exceeds $MAX_BOOTSTRAP_SIZE_BYTES bytes"),
-                                )
-                            }
-                            val pct =
-                                if (contentLength > 0L) {
-                                    (total * 100L / contentLength).toInt()
-                                } else {
-                                    -1
-                                }
-                            if (pct != lastReportedPct) {
-                                lastReportedPct = pct
-                                if (lastReportedPct % PROGRESS_PERCENT_STEP == 0 || lastReportedPct >= 99) {
-                                    onProgress?.onProgress(
-                                        BootstrapProgress.Downloading(total, contentLength),
-                                    )
-                                }
+                        try {
+                            copyBootstrapArchive(
+                                input = input,
+                                output = output,
+                                shouldAbort = { !isActive },
+                                onCopied = { copied ->
+                                    total = copied
+                                    val pct =
+                                        if (contentLength > 0L) {
+                                            (total * 100L / contentLength).toInt()
+                                        } else {
+                                            -1
+                                        }
+                                    if (pct != lastReportedPct) {
+                                        lastReportedPct = pct
+                                        if (pct % PROGRESS_PERCENT_STEP == 0 || pct >= 99) {
+                                            onProgress?.onProgress(
+                                                BootstrapProgress.Downloading(total, contentLength),
+                                            )
+                                        }
+                                    }
+                                },
+                            )
+                        } catch (copyError: Exception) {
+                            cachedDir.delete()
+                            return@withContext if (!isActive) {
+                                Result.failure(Exception(BootstrapOrchestrator.ERROR_CANCELLED))
+                            } else {
+                                Result.failure(copyError)
                             }
                         }
                         if (total < MIN_BOOTSTRAP_SIZE_BYTES) {
