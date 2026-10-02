@@ -2196,6 +2196,25 @@ fn all_static_pipelines_create_without_validation_errors() {
 
 // ── Context setter coverage (pure logic, no surface needed) ─────────────
 
+/// 护栏：`write_texture` 在数据短于 `4 * width * height` 时 panic，而这份数据经 JNI
+/// 跨越 FFI。少给一个字节曾足以让渲染线程被带走（表现为会话静默冻结而非崩溃）。
+#[test]
+fn kgp_atlas_short_payload_is_rejected_instead_of_panicking() {
+    let mut context = Renderer::new_with_no_surface();
+    let (width, height) = (4u32, 4u32);
+    let short_by_one = vec![0u8; (width as usize) * 4 * (height as usize) - 1];
+    context.set_kgp_atlas(&short_by_one, width, height);
+    assert!(
+        context.kgp_atlas_width == 0,
+        "a short payload must not install an atlas"
+    );
+    // 恰好够长则接受。
+    let exact = vec![0u8; (width as usize) * 4 * (height as usize)];
+    context.set_kgp_atlas(&exact, width, height);
+    assert_eq!(context.kgp_atlas_width, width);
+    assert_eq!(context.kgp_atlas_height, height);
+}
+
 #[test]
 fn kgp_atlas_zero_size_clears_texture() {
     let mut context = Renderer::new_with_no_surface();
