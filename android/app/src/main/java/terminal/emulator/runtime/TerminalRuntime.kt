@@ -205,6 +205,14 @@ internal data class SessionEntry(
     @Volatile var cursorRow: Int = Bridge.CURSOR_ROW_UNKNOWN
 
     /**
+     * 本会话渲染线程最后见到的视口最后一个有内容的行（0 起，
+     * [Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。输入法跟随位移按它裁剪平移量：
+     * 稀疏会话不下移（内容原位），内容占满网格时按整块键盘高度上移。
+     * 与活动会话的 [lastContentRowFlow] 对应，会话切换时随之重新初始化。
+     */
+    @Volatile var lastContentRow: Int = Bridge.LAST_CONTENT_ROW_NONE
+
+    /**
      * 逐像素滚动余量（px，正值 = 内容下移），由渲染线程与 [scrollOffset] 一同取用。
      * 手势结束/会话切换时重置为 0，避免陈旧偏移泄漏到下一次手势。
      */
@@ -255,6 +263,14 @@ constructor(
      */
     private val cursorRowFlowInternal = MutableStateFlow(Bridge.CURSOR_ROW_UNKNOWN)
     val cursorRowFlow: StateFlow<Int> = cursorRowFlowInternal.asStateFlow()
+
+    /**
+     * 活动会话的视口最后一个有内容的行（0 起，[Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。
+     * 仅在变化时由渲染线程发布；输入法跟随位移订阅它以裁剪平移量。
+     * 与 [state] 分开，使光标/内容变化不触发 state 订阅者重组。
+     */
+    private val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
+    val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
@@ -1197,11 +1213,22 @@ constructor(
                                         }
                                         entry.lastRenderStart = System.nanoTime()
                                         // 渲染与 consumeNewOutput 合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
-                                        val (count, newOutput, cursorRow) = bridge.renderWithNewOutput()
+                                        // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
+                                        val renderResult = bridge.renderWithNewOutput()
+                                        val count = renderResult.count
+                                        val newOutput = renderResult.newOutput
+                                        val cursorRow = renderResult.cursorRow
                                         if (cursorRow != entry.cursorRow) {
                                             entry.cursorRow = cursorRow
                                             if (entry.id == activeSessionId) {
                                                 cursorRowFlowInternal.value = cursorRow
+                                            }
+                                        }
+                                        val lastContentRow = renderResult.lastContentRow
+                                        if (lastContentRow != entry.lastContentRow) {
+                                            entry.lastContentRow = lastContentRow
+                                            if (entry.id == activeSessionId) {
+                                                lastContentRowFlowInternal.value = lastContentRow
                                             }
                                         }
                                         val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
@@ -2672,8 +2699,9 @@ constructor(
             try {
                 renderSupervisor.startRenderThread(target)
                 activeSessionId = id
-                // 重新初始化光标滚动源：新会话的渲染线程从此刻起在变化时重新发布。
+                // 重新初始化光标/内容下沿滚动源：新会话的渲染线程从此刻起在变化时重新发布。
                 cursorRowFlowInternal.value = target.cursorRow
+                lastContentRowFlowInternal.value = target.lastContentRow
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3463,4 +3491,31 @@ internal fun computeGridDimensions(
     val cols = (surfaceWidth / cellWidth).toInt().coerceAtLeast(1)
     val rows = (surfaceHeight / cellHeight).toInt().coerceAtLeast(1)
     return Pair(rows, cols)
+}
+
+/**
+ * 输入法弹出时终端 Surface 的上移像素：只移「键盘遮住且上方放不下」的内容高度。
+ *
+ * 网格自顶端锚定渲染，键盘遮住的是网格**末尾**行，故无条件按整块键盘高度平移会把
+ * 稀疏会话（提示符在首行）整体推出屏幕上边界，终端区表现为全空（实测提示符由
+ * y=134 落到 y=−686）。本函数返回的量等价于 Termux `adjustResize` 会砍掉的那些行高：
+ * 放得下的内容每个像素都留在原处，放不下的才上移，且上移后末行恰好贴在键栏顶边。
+ *
+ * @param contentBottomPx 内容下沿像素（视口最后一个有内容的行的下沿，视口全空为 0）
+ * @param surfaceHeightPx Surface 布局高度（容器高度，键栏覆盖其底部）
+ * @param modifierBarHeightPx 键栏高度（网格已按同一口径预留）
+ * @param imeBottomPx 键盘遮挡高度（已扣除被 `navigationBarsPadding` 消费的系统导航条）
+ *
+ * 上界取 `imeBottomPx`：位移超过键盘高度会在键盘上方留下一段终端背景空隙。
+ * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
+ * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
+ */
+internal fun computeImeSurfaceShift(
+    contentBottomPx: Int,
+    surfaceHeightPx: Int,
+    modifierBarHeightPx: Int,
+    imeBottomPx: Int,
+): Int {
+    val visibleContentPx = surfaceHeightPx - modifierBarHeightPx - imeBottomPx
+    return (contentBottomPx - visibleContentPx).coerceIn(0, imeBottomPx)
 }

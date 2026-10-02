@@ -123,7 +123,7 @@
   - 启动入口应该是二进制文件且必须是绝对路径。不对文本进行检查，不检查路径/参数是否正确，不进行特殊处理。
   - 不提供启动目录设置。
 
-- **Bootstrap**：支持 HTTP/HTTPS URL 与本地文件安装。
+- **Bootstrap**：支持 URL 与本地文件安装。
   - 只提供 Termux 预设选项，使用 `apt-android-7`（较大值）和 `2026.02.12-r1`（最新值），不提供 `apt-android-5 2022.04.28-r6` 等旧值，从 `termux-app/app/build.gradle` 提取逻辑。
   - 原子化替换 `/data/data/com.termux/files/usr/` 目录（安装时原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除）。
   - 不记录 Bootstrap 状态，不得生成安装标记。

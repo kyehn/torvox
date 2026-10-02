@@ -1,8 +1,10 @@
 package terminal.emulator.settings
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import io.mockk.every
@@ -35,7 +37,9 @@ class SettingsRepositoryTest {
         prefsDir = File(context.cacheDir, "settings_test_${System.nanoTime()}")
         prefsDir.mkdirs()
         val dataStore: androidx.datastore.core.DataStore<Preferences> =
-            PreferenceDataStoreFactory.create {
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+            ) {
                 File(prefsDir, "settings.preferences_pb")
             }
         val provider = mockk<SettingsDataStoreProvider>()
@@ -125,6 +129,12 @@ class SettingsRepositoryTest {
         assertEquals("Noto Sans Mono", repository.fontFamily.first())
         repository.clearFontFamily()
         assertEquals("", repository.fontFamily.first())
+    }
+
+    @Test
+    fun `corrupted preferences degrade to defaults instead of crashing`() = runTest {
+        File(prefsDir, "settings.preferences_pb").writeBytes(byteArrayOf(1, 2, 3, 4))
+        assertEquals(14f, repository.fontSize.first(), 0.01f)
     }
 
     @Test
