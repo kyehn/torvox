@@ -1064,56 +1064,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'loc
     })
 }
 
-/// 等待（最多 EXIT_CODE_WAIT_TIMEOUT_MS）等待线程写入会话的退出码，以短暂持有会话锁的方式轮询，
-/// 避免其他线程在整个等待期被阻塞。读取线程可能在等待线程写入 `exit_code` 前刚好
-/// 置位 `exited`（EOF）；本函数关闭该窗口，使真实退出码（如 137）不会被报成 0。
-/// **必须**在不持有会话锁时调用。
-///
-/// 超时时按 0 上报——与正常退出无法区分。这是已文档化的取舍：延长阻塞会拖慢
-/// pollEvent 帧，而退出事件无法重发（`mark_exit_reported` 已置位），只有 warn 日志可作信号。
-/// 退出码等待上限：轮询步数 × 步长即此值，超时按 0 上报（见函数文档）。
-const EXIT_CODE_WAIT_TIMEOUT_MS: u64 = 100;
-/// 退出码轮询步长：短暂持有会话锁后让出，避免阻塞其他线程。
-const EXIT_CODE_POLL_STEP_MS: u64 = 10;
-
-fn wait_exit_code(session: &Arc<Mutex<Session>>) -> i32 {
-    for _ in 0..(EXIT_CODE_WAIT_TIMEOUT_MS / EXIT_CODE_POLL_STEP_MS) {
-        {
-            let guard = session.as_ref().lock();
-            if let Some(code) = guard.exit_code_now() {
-                return code;
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(EXIT_CODE_POLL_STEP_MS));
-    }
-    log::warn!("ffi: exit code not written within {EXIT_CODE_WAIT_TIMEOUT_MS}ms of exit");
-    0
-}
-
-/// 读取子进程记录的存活时长（fork → waitpid，毫秒）。由等待线程在退出时写入，
-/// 故本调用立即返回；0 是字段尚未填充的异常会话的回退值。
-fn wait_exit_alive_ms(session: &Arc<Mutex<Session>>) -> u64 {
-    let guard = session.as_ref().lock();
-    let alive = guard.exit_alive_ms.lock();
-    (*alive).unwrap_or(0)
-}
-
 fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jstring {
     // 步骤 1：轮询活跃会话的新事件。先收集事件，释放会话锁后再推入，
     // 以保持锁顺序 `SESSION_REGISTRY` → `Session` → `EVENT_QUEUE`。
     // 绝不在持有 `Session` 锁时锁 `EVENT_QUEUE`。
     let mut pending_events: Vec<Event> = Vec::new();
-    // 本帧需上报 Exit 事件的会话，并克隆其 Arc，使退出码可在释放
-    // `SESSION_REGISTRY` 读锁**之后**读取：`wait_exit_code` 最多忙等 100ms，
-    // 长时间持有注册表读锁会阻塞 destroySession/initSession 的写锁（RwLock 写者饥饿）。
-    let mut pending_exits: Vec<(u64, Arc<Mutex<Session>>)> = Vec::new();
+    // 本帧可上报 Exit 事件的会话（退出码已就绪者）及其退出结果与存活时长。
+    // 退出码在会话锁内就地判定：只读一次 Mutex，不再有原先「先锁存上报标志、再忙等
+    // 最多 100ms 取码」的两段式——那会在渲染线程上引入可见停顿，且超时只能上报
+    // 伪造的 0。改为每帧问一次「退出了吗」，未就绪就下一帧再问，零阻塞。
+    let mut pending_exits: Vec<(u64, crate::terminal::session::ReportedExit, u64)> = Vec::new();
     // 剪贴板/退出的轮询对活跃会话与所有后台会话完全相同，共用同一实现。
     let collect_session_events =
         |session_id: u64,
          session: &mut Session,
-         handle: &Arc<Mutex<Session>>,
          events: &mut Vec<Event>,
-         exits: &mut Vec<(u64, Arc<Mutex<Session>>)>| {
+         exits: &mut Vec<(u64, crate::terminal::session::ReportedExit, u64)>| {
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
             }
@@ -1121,11 +1087,14 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             if session.poll_bell() {
                 events.push(Event::Bell { session_id });
             }
-            // 进程退出后只有首次轮询会报告（`mark_exit_reported`）；后台扫描分支
-            // 使用同一去重，使缓慢的消费方也不会看到同一会话的重复 Exit 事件。
-            // 退出码在两个锁都释放之后才读取（见下方 `pending_exits`）。
-            if session.is_exited() && session.mark_exit_reported() {
-                exits.push((session_id, handle.clone()));
+            // 退出码就绪才上报（`take_reported_exit` 内部同时锁存「已上报」），后台扫描
+            // 分支走同一判定：既保证退出事件恰好一次，也保证报出的是真实退出码。
+            if let Some(reported) = session.take_reported_exit() {
+                exits.push((
+                    session_id,
+                    reported,
+                    session.exit_alive_ms.lock().unwrap_or(0),
+                ));
             }
         };
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
@@ -1149,7 +1118,6 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             collect_session_events(
                 active_id,
                 &mut session,
-                &entry.session,
                 &mut pending_events,
                 &mut pending_exits,
             );
@@ -1168,13 +1136,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             session.poll_pty_output(PTY_POLL_CHUNKS_PER_FRAME);
             // 立即消费陈旧的事件标志并带上正确的 `session_id` 推入。若留着不管，
             // 它们会在数分钟后该会话重新活跃时被重放（陈旧重放）。
-            collect_session_events(
-                *id,
-                &mut session,
-                &entry.session,
-                &mut pending_events,
-                &mut pending_exits,
-            );
+            collect_session_events(*id, &mut session, &mut pending_events, &mut pending_exits);
         }
         // 注册表读锁在此释放。
     }
@@ -1210,14 +1172,14 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         }
     }
 
-    // 退出码在注册表读锁释放**之后**才读取：等待最长 100ms，长时间持有读锁会让
-    // destroySession/initSession 的写锁饥饿（RwLock 写者饥饿）。克隆的 Arc 保证会话
-    // 不受注册表变动影响而保持存活。
-    for (id, session) in pending_exits {
+    for (id, reported, alive_ms) in pending_exits {
         pending_events.push(Event::Exit {
             session_id: id,
-            code: wait_exit_code(&session),
-            alive_ms: wait_exit_alive_ms(&session),
+            code: match reported {
+                crate::terminal::session::ReportedExit::Code(code) => Some(code),
+                crate::terminal::session::ReportedExit::Unknown => None,
+            },
+            alive_ms,
         });
     }
     // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。

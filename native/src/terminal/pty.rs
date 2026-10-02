@@ -364,10 +364,7 @@ impl PtyPair {
                 let is_session_leader =
                     unsafe { libc::getsid(0) } == nix::unistd::getpid().as_raw();
                 if !is_session_leader && nix::unistd::setsid().is_err() {
-                    // nosemgrep: semgrep.no-process-exit — child process after fork, must not longjmp
-                    unsafe {
-                        libc::_exit(2);
-                    }
+                    child_exit_with_reason("torvox: setsid() failed\n", 2);
                 }
                 // 检测 fork 时的孤儿：若应用进程在 fork() 与本检查之间死亡，
                 // 子进程已被重新托管给 init（PPid == 1），此时退出而非泄漏永久孤儿。
@@ -381,20 +378,17 @@ impl PtyPair {
                 // SAFETY: `getppid` 是普通系统调用，fork 后安全。
                 let orphaned = unsafe { libc::getppid() } == 1;
                 if orphaned {
-                    // nosemgrep: semgrep.no-process-exit — child after fork
-                    unsafe {
-                        libc::_exit(1);
-                    }
+                    child_exit_with_reason("torvox: app died during fork; child is orphaned\n", 1);
                 }
                 let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: 这些 libc 调用都是不分配的轻量系统调用包装。子进程是单线程的；
                 // fork 与 exec 之间不运行信号处理器（所有操作均为异步信号安全系统调用）。
                 let result = unsafe { libc::ioctl(slave_raw, libc::TIOCSCTTY, 0) };
                 if result < 0 {
-                    // nosemgrep: semgrep.no-process-exit — child process after fork, must not longjmp
-                    unsafe {
-                        libc::_exit(3);
-                    }
+                    child_exit_with_reason(
+                        "torvox: TIOCSCTTY failed; no controlling terminal\n",
+                        3,
+                    );
                 }
                 // SAFETY: 在标准 fd（0、1、2）上执行 dup2 在 fork 后安全且异步信号安全。
                 // 从端 fd 有效，因为上方的 `setsid()` + `ioctl(TIOCSCTTY)` 已把它指定为
@@ -736,6 +730,23 @@ fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
     termios.c_iflag &= !(libc::IXON | libc::IXOFF);
     // SAFETY: `tcsetattr` 是系统调用包装，在子进程中安全。
     let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
+}
+
+/// fork 后、exec 前的子进程失败诊断：把固定文本写到 fd 2 后按给定码退出。
+///
+/// 异步信号安全：只调用 `write(2)` 与 `_exit`，不分配、不格式化、不记日志——调用点
+/// 都在 fork 之后的子进程里。
+///
+/// 这三处失败发生在 `dup2` 把 fd 2 指向 PTY 从端**之前**，故 fd 2 仍是应用自身的
+/// stderr，Android 会把它送进 logcat。此前三处都是裸 `_exit(code)`，用户只看到
+/// `[Process completed (code 3)]` 这样的空会话，失败原因彻底丢失。
+fn child_exit_with_reason(reason: &str, code: i32) -> ! {
+    // SAFETY: `write(2)` 在 POSIX 异步信号安全列表内；`reason` 是调用点传入的
+    // `&'static str` 字面量，fork 后不触碰堆。
+    unsafe {
+        libc::write(2, reason.as_ptr() as *const libc::c_void, reason.len());
+        libc::_exit(code);
+    }
 }
 
 /// `close_stray_fds` 扫描的最大 fd 号；取保守上界，避免在 `sysconf(_SC_OPEN_MAX)`

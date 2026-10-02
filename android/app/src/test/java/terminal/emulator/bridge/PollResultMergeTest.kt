@@ -2,6 +2,7 @@ package terminal.emulator.bridge
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,7 +57,9 @@ class PollResultMergeTest {
         val merged = Bridge.PollResult().merge(Bridge.PollResult())
         assertFalse(merged.exit)
         assertEquals(0, merged.sessionId)
-        assertEquals(0, merged.exitCode)
+        // 未见退出事件时退出码保持「无」：断言 0 会把「没有退出」与「退出码是 0」混同，
+        // 而两者在界面上走完全不同的分支（前者不提示，后者直接关闭会话）。
+        assertNull(merged.exitCode)
     }
 
     // ── scalar later-wins fields ──────────────────────────────────────
