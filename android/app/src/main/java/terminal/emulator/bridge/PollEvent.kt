@@ -20,7 +20,14 @@ sealed class PollEvent {
     @SerialName("exit")
     data class Exit(
         @SerialName("session_id") val sessionId: Long = 0,
-        val code: Int = 0,
+        /**
+         * 退出码；`null` 表示原生侧 `waitpid` 失败、子进程已退出但码无从取得。
+         *
+         * 刻意**不给默认值**：缺省成 0 会把「查不到原因」读成「正常退出」，界面随即按
+         * exit 0 直接关闭会话，用户连一个 `[Process completed]` 提示都看不到。原生侧
+         * 序列化为显式 `null`，故真实事件永远带该字段。
+         */
+        val code: Int?,
         // 原生测得的子进程存活时长（毫秒，fork → waitpid）。
         @SerialName("alive_ms") val aliveMs: Long = 0,
     ) : PollEvent()
