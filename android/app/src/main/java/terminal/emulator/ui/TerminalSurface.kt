@@ -2673,13 +2673,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         handleDragState = HandleDrag.NONE
         dragPointerId = null
         dragWideCharCacheSession = false
-        // 仅在渲染线程被 join 之后才释放 Android Surface
-        // （pauseRendering 跑在 Surface 转换执行器上，其 join 每会话最长 1s）。
-        // 在渲染线程可能仍处于原生渲染代码中时释放 ANativeWindow 即 use-after-free；
-        // 执行器的顺序保证 join 已完成。
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
-        viewModel?.currentSurface = null
+        // 仅在渲染线程被 join 之后才释放 Android Surface。
+        //
+        // `releaseAllGpuSurfaces()` → `pauseRendering()` 只是把 join **排入**
+        // Surface 转换执行器并立即返回，所以此处的 `currentSurface = null`
+        // （它决定 `createSession` 还能不能拿到 Surface）仍与渲染线程的 join 并发。
+        // 真正的释放必须在 join 之后——这正是 `runAfterRenderThreadsStopped`
+        // 的用途：它排在同一个执行器上，因而排在 pauseRendering 的 join 之后。
+        //
+        // 此前这里在主线程同步清空：注释声称「执行器的顺序保证 join 已完成」，
+        // 但该顺序只覆盖 `pauseRendering` 内部，不覆盖这一行。
+        viewModel?.runtime?.runAfterRenderThreadsStopped {
+            viewModel?.currentSurface = null
+        }
     }
 }
 
