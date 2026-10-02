@@ -1,0 +1,19 @@
+# 宿主（x86_64-unknown-linux-gnu）链接口径。
+#
+# libghostty-vt.a 内含 Zig 0.16 的 `compiler_rt.o`，其中
+# `compiler_rt.ssp.__memmove_chk` 等函数以 **null 符号**（符号表第 0 项，名字为空）
+# 生成 `R_X86_64_PLT32` 引用——Zig 把它当作不可达陷阱的落点，不要求链接期解析。
+# rustc 自 1.90 起在该目标默认用 rust-lld，而 lld 对 null 符号引用直接报
+# `undefined symbol:`（名字为空）并终止链接，于是**全新环境**（CI、
+# `cargo clean --package libghostty-vt-sys` 后的本地）的主机 cdylib、测试与
+# bench 链接全数失败。GNU ld 按 null→0 的本义解析该引用，语义正确。
+#
+# Zig 把机器码相同的 `_chk` 包装合并成同一函数，其 `.eh_frame` 因此重叠，
+# ld.bfd 的 `--eh-frame-hdr` 排序阶段会拒绝（`.eh_frame_hdr refers to overlapping
+# FDEs` → `final link failed: bad value`）。该头只是 unwind 的快速索引表，
+# 关闭后 `.eh_frame` 与 libunwind 行为不变。
+#
+# Android 目标（aarch64/x86_64-linux-android）不经此处：cargo-ndk 自带 lld，
+# 且 Zig 对象不参与 Android 链接。
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=bfd", "-C", "link-arg=-Wl,--no-eh-frame-hdr"]
