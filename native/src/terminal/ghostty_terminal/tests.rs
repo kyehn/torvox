@@ -1634,12 +1634,9 @@ fn terminal_is_alive_after_flush() {
     assert!(terminal_under_test.is_alive());
 }
 
-/// zelland row-level dirty cache: after a write, only the affected row must
-/// be rebuilt; a subsequent build with no changes must return identical
-/// CellData (cache hit path). Verifies row-cache correctness end to end via
-/// the public receive_cell_data() stream.
+/// 经公开 receive_cell_data() 流断言逐行输出一致性：写入第 1 行不得扰动第 0 行。
 #[test]
-fn row_cache_returns_consistent_cell_data_across_writes() {
+fn cell_data_rows_stay_consistent_across_writes() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"hello");
     terminal_under_test.flush();
@@ -1677,10 +1674,9 @@ fn row_cache_returns_consistent_cell_data_across_writes() {
     assert_eq!(row1_third[5], 'w' as u32, "row 1 col 5 is 'w'");
 }
 
-/// Resize invalidates the row cache (row count changes); the next build must
-/// reflect the new grid dimensions, not stale cached rows.
+/// 调整尺寸后推送的单元数据必须反映新网格维度，而非旧尺寸的行。
 #[test]
-fn row_cache_invalidated_on_resize() {
+fn cell_data_follows_resized_grid() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"top");
     terminal_under_test.flush();
@@ -1714,11 +1710,7 @@ fn row_cache_invalidated_on_resize() {
         );
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
-    assert_eq!(
-        after_cells.len(),
-        10 * 40,
-        "row cache must be invalidated on resize (stale rows would keep 24x80)"
-    );
+    assert_eq!(after_cells.len(), 10 * 40, "调整后仍推送旧尺寸的行");
 }
 
 /// Ghostty formatter selection extraction: a soft-wrapped long line must be
