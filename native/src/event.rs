@@ -28,7 +28,9 @@ pub enum Event {
     /// 子进程已退出。
     Exit {
         session_id: u64,
-        code: i32,
+        /// 退出码；`None` 表示子进程已退出但码无从取得（`waitpid` 失败），序列化为
+        /// JSON `null`。绝不用 0 顶替——那会把一次原因不明的死亡说成正常退出。
+        code: Option<i32>,
         /// 子进程实际存活时长（毫秒，fork 到 waitpid），原生侧测量不受 Kotlin 事件
         /// 处理延迟影响，仅作诊断载荷。
         alive_ms: u64,
@@ -77,7 +79,10 @@ impl EventQueue {
         // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
         if guard.len() >= MAX_QUEUED_EVENTS {
-            self.warn_overflow_once();
+            // 先记录**将被淘汰**的那个事件，push 之后它已不在队列里，取不到。
+            if let Some(victim) = guard.front() {
+                self.warn_overflow_once(victim);
+            }
             let evict_idx = guard
                 .iter()
                 .position(|existing_event| !matches!(existing_event, Event::Exit { .. }));
@@ -95,12 +100,22 @@ impl EventQueue {
         guard.push_back(event);
     }
 
-    /// 队列溢出告警每秒至多一次。
-    fn warn_overflow_once(&self) {
+    /// 队列溢出告警每秒至多一次。带事件种类与会话 ID：溢出日志若不指明丢的是哪种
+    /// 事件、从哪个会话来的，看到「队列满」也无从判断影响（退出事件绝不淘汰，故
+    /// 丢的只可能是剪贴板或振铃，而剪贴板丢失会静默丢失用户刚复制的内容）。
+    fn warn_overflow_once(&self, dropped: &Event) {
+        let (kind, session_id) = match dropped {
+            Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
+            Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
+            Event::Bell { session_id } => ("bell", *session_id),
+            Event::Exit { session_id, .. } => ("exit", *session_id),
+        };
         let now = Instant::now();
         let mut last = self.last_overflow_warn.lock();
         if last.is_none_or(|t| now.duration_since(t) >= OVERFLOW_WARN_INTERVAL) {
-            log::warn!("EventQueue: dropping oldest event (queue full at {MAX_QUEUED_EVENTS})");
+            log::warn!(
+                "EventQueue: dropping oldest {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
+            );
             *last = Some(now);
         }
     }
@@ -169,7 +184,7 @@ mod tests {
         });
         queue.push(Event::Exit {
             session_id: 2,
-            code: 0,
+            code: Some(0),
             alive_ms: 10,
         });
         queue.push(Event::Clipboard {
@@ -191,7 +206,7 @@ mod tests {
             queue.pop(),
             Some(Event::Exit {
                 session_id: 2,
-                code: 0,
+                code: Some(0),
                 alive_ms: 10
             })
         );
@@ -246,7 +261,7 @@ mod tests {
         for session_sequence in 0..MAX_QUEUED_EVENTS {
             queue.push(Event::Exit {
                 session_id: session_sequence as u64,
-                code: 0,
+                code: Some(0),
                 alive_ms: 10,
             });
         }
@@ -282,7 +297,7 @@ mod tests {
         }
         queue.push(Event::Exit {
             session_id: 42,
-            code: 7,
+            code: Some(7),
             alive_ms: 10,
         });
         // 队列已满；新事件应淘汰最旧的（session 0），而非 Exit。
@@ -302,7 +317,7 @@ mod tests {
         );
         assert!(popped.contains(&Event::Exit {
             session_id: 42,
-            code: 7,
+            code: Some(7),
             alive_ms: 10
         }));
         assert_eq!(
@@ -319,14 +334,14 @@ mod tests {
         let queue: EventQueue = Default::default();
         queue.push(Event::Exit {
             session_id: 1,
-            code: 0,
+            code: Some(0),
             alive_ms: 10,
         });
         assert_eq!(
             queue.pop(),
             Some(Event::Exit {
                 session_id: 1,
-                code: 0,
+                code: Some(0),
                 alive_ms: 10
             })
         );
@@ -343,5 +358,43 @@ mod bell_tests {
         // Kotlin PollEvent.Bell 解码的契约：discriminator 必须为 "bell"。
         let json = serde_json::to_string(&Event::Bell { session_id: 7 }).expect("bell serializes");
         assert_eq!(json, r#"{"event":"bell","session_id":7}"#);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+
+    #[test]
+    fn exit_with_known_code_serializes_the_code() {
+        // Kotlin PollEvent.Exit 的解码契约：`code` 缺省为 0，故真实码必须显式出现，
+        // 否则一次 137 的 OOM 退出会被 Kotlin 侧读成正常退出。
+        let json = serde_json::to_string(&Event::Exit {
+            session_id: 3,
+            code: Some(137),
+            alive_ms: 42,
+        })
+        .expect("exit serializes");
+        assert_eq!(
+            json,
+            r#"{"event":"exit","session_id":3,"code":137,"alive_ms":42}"#
+        );
+    }
+
+    #[test]
+    fn exit_with_unknown_code_serializes_null_not_zero() {
+        // `code: None`（waitpid 失败）必须序列化为 JSON `null`，让 Kotlin 侧能区分
+        // 「查不到退出码」与「退出码就是 0」。序列化成 0 就等于把原因不明的死亡谎报成
+        // 正常退出，这正是本改动要消除的缺陷。
+        let json = serde_json::to_string(&Event::Exit {
+            session_id: 3,
+            code: None,
+            alive_ms: 42,
+        })
+        .expect("exit serializes");
+        assert_eq!(
+            json,
+            r#"{"event":"exit","session_id":3,"code":null,"alive_ms":42}"#
+        );
     }
 }

@@ -28,6 +28,9 @@ fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
 const HYPERLINK_INLINE_BUFFER_SIZE: usize = 4096;
 /// 超链接 URI 上限（64KiB）：`OutOfSpace{required}` 重试的封顶，避免无界分配。
 const MAX_HYPERLINK_URI_BYTES: usize = 64 * 1024;
+/// OSC 52 剪贴板负载上限（1MiB）：远超任何真实剪贴板内容，又不至于让一份异常负载
+/// 拖垮进程内存（负载经 `String` 事件 → 事件队列 → Kotlin 剪贴板逐层复制）。
+const MAX_CLIPBOARD_PAYLOAD_BYTES: usize = 1024 * 1024;
 
 /// The 16 standard ANSI palette indices, in xterm order (normal colors
 /// followed by bright variants). `libghostty_vt::Palette` only exposes named
@@ -537,7 +540,24 @@ impl super::GhosttyTerminal {
                         break;
                     }
                 }
-                let text = String::from_utf8_lossy(chosen.or(fallback).unwrap_or(&[])).into_owned();
+                let payload = chosen.or(fallback).unwrap_or(&[]);
+                // OSC 52 的负载由被测程序任意大，而下游是 `String` 事件、事件队列与
+                // Kotlin 侧剪贴板：一份几十 MB 的负载会一路复制到 UI 线程并撑爆内存。
+                // 上限取「远超任何真实剪贴板内容、又不至于拖垮进程」的量级，并在
+                // 截断时显式记录——静默截断只会让用户拿到半个剪贴板却不知为何。
+                let original_len = payload.len();
+                let truncated = original_len > MAX_CLIPBOARD_PAYLOAD_BYTES;
+                let payload = if truncated {
+                    &payload[..MAX_CLIPBOARD_PAYLOAD_BYTES]
+                } else {
+                    payload
+                };
+                let text = String::from_utf8_lossy(payload).into_owned();
+                if truncated {
+                    log::warn!(
+                        "OSC 52 clipboard payload truncated from {original_len} to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes"
+                    );
+                }
                 let _ = clipboard_tx.try_send((selection, text));
                 Ok(())
             }
