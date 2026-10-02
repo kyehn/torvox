@@ -47,7 +47,9 @@ class MultiTapSelectionInstrumentedTest {
 
         /** 输出静默窗口：shell 启动输出落定后才送显标记。 */
         private const val QUIET_WINDOW_MS = 2_000L
-        private const val MENU_TIMEOUT_MS = 5_000L
+
+        // 选择菜单是独立系统窗口：慢模拟器上无障碍树同步滞后，5s 偶发超时，提到 15s。
+        private const val MENU_TIMEOUT_MS = 15_000L
         private const val CLIPBOARD_TIMEOUT_MS = 5_000L
 
         /** 0 基中带行：24 行视口第 13 行，上下留白，IME 与状态栏均不干扰。 */
