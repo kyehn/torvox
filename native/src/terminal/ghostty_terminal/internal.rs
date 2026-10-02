@@ -192,7 +192,6 @@ impl super::GhosttyTerminal {
                     terminal,
                     [1.0, 1.0, 1.0, 1.0],
                     [0.0, 0.0, 0.0, 1.0],
-                    &mut Vec::new(),
                     alt_screen_active,
                 )
                 .and_then(|(_, cursor)| cursor.visible.then_some((cursor.row, cursor.col)));
@@ -653,10 +652,6 @@ impl super::GhosttyTerminal {
         // set together on Write/Resize/SetTheme, but cleared
         // grid_dirty after TakeSnapshot.
         let mut grid_dirty = true;
-        // zelland row-level dirty cache: rows that did not change are copied
-        // from this cache instead of re-walking cells (build_cell_data).
-        // Invalidated on resize below (row count changes).
-        let mut row_cache: Vec<Vec<CellData>> = Vec::new();
         // Content dedup for the auto-push path: `push_cell_data` builds the
         // full grid on every loop iteration (including the 50ms idle
         // timeout), and the render thread treats every received batch as
@@ -689,8 +684,7 @@ impl super::GhosttyTerminal {
                         &mut mouse_event,
                     ) {
                         // 查询内安装与 Command::SetSelection 同款失效：
-                        // 反白改变每行内容，行缓存必须重建且帧必须重推。
-                        row_cache.clear();
+                        // 反白改变每行内容，帧必须重推。
                         last_cell_data_push = None;
                         grid_dirty = true;
                     }
@@ -700,7 +694,6 @@ impl super::GhosttyTerminal {
                         &terminal,
                         default_foreground,
                         default_background,
-                        &mut row_cache,
                         &mut last_cell_data_push,
                     );
                     continue;
@@ -789,9 +782,6 @@ impl super::GhosttyTerminal {
                                 .1
                                 .store(DEFAULT_CELL_HEIGHT, Ordering::Release);
                         }
-                        // zelland row-cache pattern: row count changed on resize,
-                        // the row cache is stale and must be invalidated.
-                        row_cache.clear();
                         grid_dirty = true;
                         batch_dirty = true;
                     }
@@ -800,7 +790,7 @@ impl super::GhosttyTerminal {
                         cell_height,
                     } => {
                         // 同行列重调，仅更新单元格像素几何（Kitty 放置/鼠标映射用）。
-                        // 网格内容不变，不失效行缓存、不置脏，避免字体变化引发全量重绘。
+                        // 网格内容不变，不置脏，避免字体变化引发全量重绘。
                         let (Ok(cols), Ok(rows)) = (terminal.cols(), terminal.rows()) else {
                             continue;
                         };
@@ -831,7 +821,6 @@ impl super::GhosttyTerminal {
                         // 显式清除终端持有的活动选区（幂等，不依赖上游副作用）。
                         terminal.reset();
                         let _ = terminal.set_selection(None);
-                        row_cache.clear();
                         cached_snapshot = None;
                         last_cell_data_push = None;
                         grid_dirty = true;
@@ -840,9 +829,8 @@ impl super::GhosttyTerminal {
                     Command::SetSelection { start, end } => {
                         // 终端持有化：选区经 set_selection 安装为终端状态
                         //（上游转为跟踪引用，随滚动/输出/重排跟随文本）。
-                        // 选区变化改变每行反白，需失效行缓存并重推帧。
+                        // 选区变化改变每行反白，需重推帧。
                         Self::install_selection_impl(&terminal, start, end);
-                        row_cache.clear();
                         last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
@@ -851,7 +839,6 @@ impl super::GhosttyTerminal {
                         if terminal.set_selection(None).is_err() {
                             log::warn!("ghostty_terminal: clear selection failed");
                         }
-                        row_cache.clear();
                         last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
@@ -900,8 +887,7 @@ impl super::GhosttyTerminal {
                 &mut mouse_encoder,
                 &mut mouse_event,
             ) {
-                // 同上：查询内安装的选区需要重建行缓存并纳入本批重推。
-                row_cache.clear();
+                // 同上：查询内安装的选区需要纳入本批重推。
                 last_cell_data_push = None;
                 grid_dirty = true;
                 batch_dirty = true;
@@ -918,7 +904,6 @@ impl super::GhosttyTerminal {
                     &terminal,
                     default_foreground,
                     default_background,
-                    &mut row_cache,
                     &mut last_cell_data_push,
                 );
             }
@@ -1183,7 +1168,6 @@ impl super::GhosttyTerminal {
         terminal: &libghostty_vt::terminal::Terminal,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        row_cache: &mut Vec<Vec<CellData>>,
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
     ) {
         Self::push_cell_data(
@@ -1192,7 +1176,6 @@ impl super::GhosttyTerminal {
             terminal,
             default_foreground,
             default_background,
-            row_cache,
             last_push,
         );
     }
@@ -1203,7 +1186,6 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        row_cache: &mut Vec<Vec<CellData>>,
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
     ) {
         if let Some(tx) = cell_data_tx
@@ -1211,7 +1193,6 @@ impl super::GhosttyTerminal {
                 terminal,
                 default_foreground,
                 default_background,
-                row_cache,
                 alt_screen_active,
             )
         {
@@ -1436,20 +1417,17 @@ impl super::GhosttyTerminal {
         out
     }
 
-    /// Builds the full `CellData` grid for rendering, skipping clean rows.
+    /// Builds the full flat `CellData` grid for rendering.
     ///
-    /// Reference: zelland src-tauri/src/renderer/mod.rs `draw_ghostty_state`
-    /// (row-level dirty cache): the Ghostty render state tracks per-row
-    /// dirty flags; rows that did not change since the last build are copied
-    /// from `row_cache` instead of re-walking their cells (which costs N
-    /// FFI calls and per-cell style/color resolution). The output is still
-    /// the full flat `Vec<CellData>` (render side and JNI are unchanged).
-    /// The cache is invalidated by the caller on resize (row count changes).
+    /// 上游的 `row.dirty()` 依赖跨帧复用的 `RenderState`：本函数每帧新建
+    /// `RenderState`，其 `rows = 0` 初值使 `update` 走「维度变化 → 全量重建」分支，
+    /// 全部行恒为脏（实测命中率 0%）。故不做行级缓存——那只会逐帧多一次
+    /// 整网格深拷贝与分配而永不命中。跳过干净快照由 `snapshot_needs_rebuild`
+    /// 在网格层面完成。
     pub(crate) fn build_cell_data(
         terminal: &Terminal,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        row_cache: &mut Vec<Vec<CellData>>,
         alt_screen_active: &Arc<AtomicBool>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         // Keep the lock-free alternate-screen mirror in sync on every frame
@@ -1486,33 +1464,19 @@ impl super::GhosttyTerminal {
 
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
-        // 终端持有选区激活期间禁用行缓存读取：跟踪选区随滚动/输出移动时，
-        // 网格未变脏的行也可能改变反白归属，缓存会提供过期高亮。
-        // （写入仍更新缓存；清除选区时整缓存失效。）
+        // 无选区时跳过每行一次 selection FFI。
         let selection_active = terminal
             .selection()
             .map(|selected| selected.is_some())
             .unwrap_or(false);
 
         while let Some(row) = row_iter_impl.next() {
-            let row_idx = current_row as usize;
-            let is_dirty = row.dirty().unwrap_or(true);
             // 行级选区范围（无选区时为 None）：每行一次 FFI，避免逐单元格查询。
             let row_selection = if selection_active {
                 row.selection().ok().flatten()
             } else {
                 None
             };
-            // zelland row-cache pattern: clean rows are copied from the
-            // cache instead of re-walking their cells (FFI per cell).
-            if !is_dirty
-                && !selection_active
-                && let Some(cached) = row_cache.get(row_idx)
-            {
-                data.extend_from_slice(cached);
-                current_row += 1;
-                continue;
-            }
 
             let mut row_data = Vec::with_capacity(cols as usize);
             let mut cell_iter_impl = match cell_iter.update(row) {
@@ -1652,11 +1616,6 @@ impl super::GhosttyTerminal {
                 });
                 current_col += width;
             }
-            // Update the row cache for this row (zelland row-cache pattern).
-            if row_idx >= row_cache.len() {
-                row_cache.resize(row_idx + 1, Vec::new());
-            }
-            row_cache[row_idx] = row_data.clone();
             data.extend_from_slice(&row_data);
             current_row += 1;
         }
