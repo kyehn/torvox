@@ -3003,7 +3003,7 @@ constructor(
     }
 
     fun pauseRendering() {
-        // stopRenderThread 会 join 渲染线程（每会话最长 1s）；
+        // stopRenderThread 会 join 渲染线程（每会话最长 THREAD_JOIN_TIMEOUT_MS）；
         // 在主线程上（Surface 销毁）且有 3 个以上会话时可能超出 5s 的 ANR 阈值，
         // 故在主线程之外执行。surfaceDestroyed 立即返回，渲染只是停止。
         //
@@ -3011,11 +3011,10 @@ constructor(
         // 的顺序：否则异步暂停可能停掉同步恢复刚启动的渲染线程
         // （固定尺寸设备旋转）。
         //
-        // 注意：每会话的 join 发生在 sessionLock 内（各最长 1s），
-        // 故有多个会话时所有 sessionLock 操作
-        // （关闭/切换/stopForegroundServiceIfIdle）会按总和停顿
-        // ——与 switchSession 锁内 join 相同的已接受取舍
-        // （实践中仅 GPU 挂起时发生，且在执行器线程上故不 ANR）。
+        // 注意：每会话的 join 发生在 sessionLock 内，故有多个会话时主线程经
+        // sessionLock 的操作（onDestroy → stopForegroundServiceIfIdle）会按总和停顿。
+        // 该代价仅在渲染线程确实挂起时出现（join 立即返回则无停顿）；
+        // 与 switchSession 锁内 join 是同一取舍，故不在此另立策略。
         surfaceTransitionExecutor.execute {
             synchronized(sessionLock) {
                 sessions.values.forEach { entry ->
