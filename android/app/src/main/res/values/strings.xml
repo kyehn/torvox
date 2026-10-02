@@ -66,16 +66,6 @@
         <item quantity="other">%d 个终端会话活跃中</item>
     </plurals>
 
-    <!-- Feedback -->
-    <plurals name="copied_chars">
-        <item quantity="one">已复制 %d 个字符</item>
-        <item quantity="other">已复制 %d 个字符</item>
-    </plurals>
-    <plurals name="pasted_chars">
-        <item quantity="one">已粘贴 %d 个字符</item>
-        <item quantity="other">已粘贴 %d 个字符</item>
-    </plurals>
-
     <!-- Bootstrap -->
     <string name="bootstrap_install">安装引导程序</string>
     <string name="bootstrap_installing">安装中…</string>
