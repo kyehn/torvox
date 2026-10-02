@@ -1230,10 +1230,6 @@ constructor(
                                             if (entry.id == activeSessionId) {
                                                 lastContentRowFlowInternal.value = lastContentRow
                                             }
-                                            LogUtil.d(
-                                                "Runtime",
-                                                "DEBUG_IME lastContentRow=$lastContentRow cellHeight=$cellHeight",
-                                            )
                                         }
                                         val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {

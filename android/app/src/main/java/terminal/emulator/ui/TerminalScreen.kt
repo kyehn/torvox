@@ -509,12 +509,12 @@ fun TerminalScreen(
             val lastContentRow = remember {
                 androidx.compose.runtime.mutableIntStateOf(Bridge.LAST_CONTENT_ROW_NONE)
             }
-            val debugShiftHolder = remember { IntArray(2) }
             val runtimeForContent = viewModel.runtime
+            // 直接收集 StateFlow，不经 snapshotFlow：后者只跟踪组合快照的读，
+            // 实测对 StateFlow 的后续更新不再触发（只发初值），内容下沿会永远停在
+            // -1 → 网格填满时终端也不上移，末行被键栏吞掉。
             LaunchedEffect(runtimeForContent) {
-                snapshotFlow { runtimeForContent.lastContentRowFlow.value }
-                    .distinctUntilChanged()
-                    .collect { lastContentRow.intValue = it }
+                runtimeForContent.lastContentRowFlow.collect { lastContentRow.intValue = it }
             }
             // 位移容器不再整体平移：终端 Surface 与键栏各自持有自己的位移量，
             // 但两者都只读上面那一个合成 ime 状态、并在同一帧 placement 中求值——
@@ -545,18 +545,6 @@ fun TerminalScreen(
                                 modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
                                 imeBottomPx = max(imeLeafPx.intValue, imeViewPx.intValue),
                             )
-                        val holder = debugShiftHolder
-                        if (holder[0] != shift || holder[1] != placeable.height) {
-                            holder[0] = shift
-                            holder[1] = placeable.height
-                            LogUtil.d(
-                                "TerminalScreen",
-                                "DEBUG_IME shift=$shift H=${placeable.height} " +
-                                    "bar=${runtimeForContent.modifierBarHeightPx} " +
-                                    "ime=${max(imeLeafPx.intValue, imeViewPx.intValue)} " +
-                                    "row=$contentRow bottom=$contentBottomPx",
-                            )
-                        }
                         layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
                     },
                 ) {
