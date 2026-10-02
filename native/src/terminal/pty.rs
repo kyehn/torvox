@@ -38,6 +38,8 @@ pub enum PtyError {
     Open(std::io::Error),
     #[error("ioctl TIOCSWINSZ failed: {0}")]
     Resize(nix::errno::Errno),
+    #[error("shell path is empty")]
+    EmptyShell,
     #[error("fcntl failed: {0}")]
     Fcntl(nix::errno::Errno),
     #[error("termios configuration failed: {0}")]
@@ -187,6 +189,12 @@ impl PtyPair {
 
         // fork 之前构建好子进程的全部数据，避免子进程中分配
         // （多线程进程中 fork 可能破坏 malloc 堆）。
+        // 空 shell 早于 fork 就拒绝：`split_shell_entry("")` 会产出 `("", [])`，
+        // 随后 `execve("")` 失败，errno 是 ENOENT——用户看到的是「空会话 + 一个查不到
+        // 文件的错误」，既不像「没配置 shell」，也不指向真正的配置项。明确报错才可定位。
+        if shell.trim_ascii().is_empty() {
+            return Err(PtyError::EmptyShell);
+        }
         let (shell_executable, shell_argument_texts) = split_shell_entry(shell);
         let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|null_error| {
             let msg = format!("shell path contains null byte: {null_error}");
@@ -977,6 +985,19 @@ mod tests {
             std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
         }
         panic!("子进程在期限内未读到任何载荷：write_all 交付失败");
+    }
+
+    #[test]
+    fn spawn_rejects_empty_shell_before_forking() {
+        // 护栏：空 shell 曾一路走到 `execve("")`，只换来一个 ENOENT——现象是空会话
+        // 加一条「查不到文件」，完全看不出是 shell 没配置。必须在 fork 前明确拒绝。
+        let error = PtyPair::spawn("", 24, 80, &ShellEnv::default(), None)
+            .err()
+            .expect("empty shell must be rejected");
+        assert!(
+            matches!(error, PtyError::EmptyShell),
+            "expected EmptyShell, got {error:?}"
+        );
     }
 
     #[test]
