@@ -288,14 +288,23 @@ constructor(
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
 
     /**
-     * surface 重建请求计数（每次请求 +1）：原生 surface 判死（其原生窗口的 BufferQueue
-     * 被遗弃，实测此后每帧 `begin_frame failed`、终端永久黑屏）时递增。
-     * UI 侧据此换掉 `SurfaceView`（`key(计数)`），新视图的 `surfaceCreated` 会带来
-     * **新的** 原生窗口——同一窗口反复 detach/attach 是唤不活被遗弃的 BufferQueue 的。
-     * 失效标志在重建成功后由原生回落为 0，故不会持续自增。
+     * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
+     * [maybeRequestSurfaceRecreate]），由持有 `SurfaceView` 的界面读取并换掉整个视图。
+     *
+     * 原生 surface 判死（其原生窗口的 BufferQueue 被遗弃，实测此后每帧
+     * `begin_frame failed`、终端永久黑屏）后，新视图的 `surfaceCreated` 会带来**新的**
+     * 原生窗口——同一窗口反复 detach/attach 是唤不活被遗弃的 BufferQueue 的。
+     *
+     * 用**快照状态**而非帧轮询或回调：帧轮询（`withFrameNanos` 循环）会让 Compose 永远
+     * 处于「有挂起帧回调」状态，仪器化用例的 idling 判定随之超时（`ComposeNotIdleException`）；
+     * 回调则要多注册/注销一份生命周期。快照状态由运行期持有而非组合捕获，换视图导致的
+     * 组合重建也不会让它指向已销毁的状态。
+     *
+     * 注意消费侧必须真的被重算：Compose 仪器化用例里组合只在 `waitForIdle`/`advanceTimeBy`
+     * 期间前进，写入方（如本类）无法替测试推进时钟。
      */
-    private val surfaceRecreateRequestsInternal = MutableStateFlow(0)
-    val surfaceRecreateRequests: StateFlow<Int> = surfaceRecreateRequestsInternal.asStateFlow()
+    private val surfaceRecreateSignalState = androidx.compose.runtime.mutableIntStateOf(0)
+    val surfaceRecreateSignal: androidx.compose.runtime.IntState get() = surfaceRecreateSignalState
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
@@ -749,7 +758,7 @@ constructor(
     }
 
     /**
-     * 原生 surface 判死后按间隔请求宿主换新的原生窗口（[surfaceRecreateRequests] 递增）。
+     * 原生 surface 判死后按间隔请求宿主换新的原生窗口（[surfaceRecreateGeneration] 递增）。
      *
      * 由渲染线程在每帧读到失效位时调用。失效位在重建成功后由原生回落为 0，
      * 故请求天然边沿触发；间隔限流与次数上限由 [decideSurfaceRecreate] 裁决，
@@ -772,7 +781,12 @@ constructor(
         if (!decision.request) return
         entry.surfaceRecreateAttempts += 1
         entry.surfaceRecreateLastRequestNanos = now
-        surfaceRecreateRequestsInternal.value += 1
+        // 快照状态在主线程写：组合的重算调度与主线程一致，跨线程写只会让换视图延迟到
+        // 下一次读，且无法保证与界面重建同帧完成。
+        mainHandler.post {
+            surfaceRecreateSignalState.intValue += 1
+            android.util.Log.w("DbgRecreate", "signal now ${'$'}{surfaceRecreateSignalState.intValue}")
+        }
         LogUtil.w(
             TAG,
             "surface invalidated (attempt ${entry.surfaceRecreateAttempts}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +

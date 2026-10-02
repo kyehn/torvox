@@ -115,6 +115,15 @@ pub struct Renderer {
     /// 22 分钟零帧上屏）。置位后 `attach_surface` 改走重建慢路径，且由
     /// `renderWithNewOutput` 的状态位上报宿主换新的 `ANativeWindow`。
     surface_invalidated: bool,
+    /// 测试钩子：置位后每帧取纹理都按 surface 级失败处理。
+    ///
+    /// 真机上被遗弃的 BufferQueue 无法从进程内制造（那是 SurfaceFlinger 的回收决策），
+    /// 而自愈路径若只能等系统回收来验证，就永远拿不到回归护栏。持续注入复刻的正是
+    /// 实测到的真实形态（`abandoned=6148`、`begin_frame failed=3074`：每帧都失败），
+    /// 供仪器化用例断言「宿主换新 `SurfaceView` 后画面重新有墨迹」。
+    ///
+    /// 只经进程内 JNI 暴露，无生产调用方；由调用方显式关闭。
+    surface_loss_injected: bool,
     pub(crate) cell_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) quad_vertex_buffer: wgpu::Buffer,
     pub(crate) cell_bind_group: Option<wgpu::BindGroup>,
@@ -232,7 +241,12 @@ impl Renderer {
         self.ensure_kgp_pipeline(config_width, config_height);
 
         let surface = std::sync::Arc::clone(self.surface.as_ref()?);
-        let outcome = self.acquire_texture(&surface, config_width, config_height, ACQUIRE_TIMEOUT);
+        let mut outcome =
+            self.acquire_texture(&surface, config_width, config_height, ACQUIRE_TIMEOUT);
+        if self.surface_loss_injected {
+            log::warn!("surface loss injected for test; this frame reports a surface failure");
+            outcome = AcquireOutcome::SurfaceLost;
+        }
         self.note_surface_acquire(&outcome);
         let output = outcome.into_texture()?;
 
@@ -319,6 +333,7 @@ impl Renderer {
             surface_config: None,
             surface_loss_streak: 0,
             surface_invalidated: false,
+            surface_loss_injected: false,
             cell_pipeline: None,
             quad_vertex_buffer,
             cell_bind_group: None,
@@ -555,6 +570,12 @@ impl Renderer {
     /// 当前缓存的 surface 是否已判死（见 [Self::surface_invalidated]）。
     pub fn surface_invalidated(&self) -> bool {
         self.surface_invalidated
+    }
+
+    /// 测试钩子：让此后每帧 [Self::begin_frame] 都报 surface 级失败，直到传入 false
+    /// 关闭（见 [Self::surface_loss_injected]）。
+    pub fn set_surface_loss_injected_for_test(&mut self, enabled: bool) {
+        self.surface_loss_injected = enabled;
     }
 
     /// 按单帧取纹理结局推进失效判定：拿到纹理或仅本帧跳过都清零计数，

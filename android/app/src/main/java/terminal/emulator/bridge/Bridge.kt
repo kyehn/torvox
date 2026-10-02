@@ -269,6 +269,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         onSession("setRenderPaused", Unit) { NativeBridge.setRenderPaused(it, paused) }
     }
 
+    /**
+     * 测试钩子：开启/关闭持续的 surface 级取纹理失败（等价于原生窗口的 BufferQueue
+     * 被遗弃，实测形态是每帧都失败）。仅供仪器化用例验证 surface 失效自愈，
+     * 无生产调用方。
+     */
+    fun setSurfaceLossInjectedForTest(injected: Boolean): Boolean =
+        onSession("setSurfaceLossInjected", false) { NativeBridge.setSurfaceLossInjected(it, injected) }
+
     // ── 事件 ──
     data class PollResult(
         val clipboard: String? = null,
