@@ -195,30 +195,43 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * 渲染与 new_output 读取合并为单次 JNI 穿越（比两次单独调用每帧省约 0.1-0.3ms）。
-     * 返回渲染计数、输出标志、视口光标行（隐藏或在视口外时为 -1）与视口最后一个
-     * 有内容的行（视口全空时为 -1），后两者驱动输入法跟随位移的裁剪量。
+     * 返回渲染计数、输出标志、视口光标行（隐藏或在视口外时为 -1）、视口最后一个
+     * 有内容的行（视口全空时为 -1）与 surface 失效标志（true = 缓存的原生窗口已被
+     * 遗弃，宿主须换新的原生窗口才能恢复渲染）。
      */
     fun renderWithNewOutput(): RenderResult = onSession(
         "renderWithNewOutput",
-        RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN, LAST_CONTENT_ROW_NONE),
+        RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN, LAST_CONTENT_ROW_NONE, false),
     ) {
         val packed = NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight)
         val count = packed.toInt()
-        // 仅屏蔽第 32 位：第 33..48 位承载光标行号，不得泄漏到输出标志
-        // （空闲闭锁依赖该标志）。
+        // 仅屏蔽第 32 位：第 33..53 位承载光标行/内容下沿/surface 失效位，
+        // 不得泄漏到输出标志（空闲闭锁依赖该标志）。
         val newOutput = ((packed shr 32) and 0x1L) != 0L
         val cursorRow =
             ((packed shr 33) and CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
                 if (raw == CURSOR_ROW_HIDDEN_BITS) CURSOR_ROW_UNKNOWN else raw
             }
         val lastContentRow =
-            ((packed shr 49) and LAST_CONTENT_ROW_NONE_BITS.toLong()).toInt().let { raw ->
+            ((packed shr 43) and LAST_CONTENT_ROW_NONE_BITS.toLong()).toInt().let { raw ->
                 if (raw == LAST_CONTENT_ROW_NONE_BITS) LAST_CONTENT_ROW_NONE else raw
             }
-        RenderResult(count, newOutput, cursorRow, lastContentRow)
+        RenderResult(
+            count,
+            newOutput,
+            cursorRow,
+            lastContentRow,
+            (packed and SURFACE_INVALIDATED_BIT) != 0L,
+        )
     }
 
-    data class RenderResult(val count: Int, val newOutput: Boolean, val cursorRow: Int, val lastContentRow: Int)
+    data class RenderResult(
+        val count: Int,
+        val newOutput: Boolean,
+        val cursorRow: Int,
+        val lastContentRow: Int,
+        val surfaceInvalidated: Boolean,
+    )
 
     /**
      * 读取并清除本会话原生的 `new_output` 标志（滚动复位信号）。
@@ -255,6 +268,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         LogUtil.d(TAG, "setRenderPaused($paused)")
         onSession("setRenderPaused", Unit) { NativeBridge.setRenderPaused(it, paused) }
     }
+
+    /**
+     * 测试钩子：开启/关闭持续的 surface 级取纹理失败（等价于原生窗口的 BufferQueue
+     * 被遗弃，实测形态是每帧都失败）。仅供仪器化用例验证 surface 失效自愈，
+     * 无生产调用方。
+     */
+    fun setSurfaceLossInjectedForTest(injected: Boolean): Boolean =
+        onSession("setSurfaceLossInjected", false) { NativeBridge.setSurfaceLossInjected(it, injected) }
 
     // ── 事件 ──
     data class PollResult(
@@ -547,15 +568,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), modifierBits, null)
                 return@onSession true
             }
-            // 部分输入法（Gboard 在 InputType.TYPE_NULL 下）发出的按键事件
-            // unicodeChar == 0，尽管该键是可打印字母。回退到虚拟键盘的按键字符
-            // 映射表推导字符，保证这类击键仍能到达 PTY。
-            if (!ctrlActive && keyCode in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z) {
+            // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
+            // unicodeChar == 0，尽管该键是可打印字符。回退到虚拟键盘的按键字符映射表
+            // 推导字符，保证这类击键仍能到达 PTY：范围必须覆盖**整个**按键码域而非只有
+            // A..Z，否则空格、数字与标点（输入法同样报告 unicodeChar=0）会被整键丢弃。
+            if (!ctrlActive) {
                 val derived =
                     android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
                         .get(keyCode, 0)
-                if (derived > 0) {
-                    NativeBridge.writeKey(id, derived.toChar().toString(), modifierBits, null)
+                if (derived > 0 && Character.isValidCodePoint(derived)) {
+                    NativeBridge.writeKey(id, String(Character.toChars(derived)), modifierBits, null)
                     return@onSession true
                 }
             }
@@ -653,11 +675,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     companion object {
         private const val TAG = "Bridge"
 
-        /** renderWithNewOutput 打包：光标行占 bit 33..48，该值表示隐藏或在视口外。 */
-        const val CURSOR_ROW_HIDDEN_BITS = 0xFFFF
+        /** renderWithNewOutput 打包：光标行占 bit 33..42，该值表示隐藏或在视口外。 */
+        const val CURSOR_ROW_HIDDEN_BITS = 0x3FF
 
-        /** renderWithNewOutput 打包：内容下沿行占 bit 49..63，该值表示视口全空。 */
-        const val LAST_CONTENT_ROW_NONE_BITS = 0x7FFF
+        /** renderWithNewOutput 打包：内容下沿行占 bit 43..52，该值表示视口全空。 */
+        const val LAST_CONTENT_ROW_NONE_BITS = 0x3FF
+
+        /** renderWithNewOutput 打包：bit 53 = 原生 surface 已判死，须换新的原生窗口。 */
+        const val SURFACE_INVALIDATED_BIT = 1L shl 53
 
         /** 视口全空（或无会话）时解码出的内容下沿行。 */
         const val LAST_CONTENT_ROW_NONE = -1

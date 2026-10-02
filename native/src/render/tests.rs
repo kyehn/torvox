@@ -2291,6 +2291,47 @@ mod dirty_band_tests {
 // ══════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
+// ══════════════════════════════════════════════════════════════════════════
+// Surface loss → invalidation decision (render-surface-loss-recovery)
+// ══════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod surface_loss_tests {
+    use crate::render::context::surface_loss_transition;
+
+    /// A single Lost/Outdated can be a SurfaceFlinger scaling race that recovers on
+    /// the next reconfigure — it must NOT invalidate (that would force a rebuild on
+    /// every resize).
+    #[test]
+    fn single_surface_loss_keeps_surface() {
+        assert_eq!(surface_loss_transition(0, false, true), (1, false));
+    }
+
+    /// Consecutive losses mean the window's BufferQueue is gone (abandoned): mark the
+    /// surface invalid so the next attach rebuilds instead of reconfiguring forever.
+    #[test]
+    fn consecutive_losses_invalidate_surface() {
+        let (streak, invalidated) = surface_loss_transition(1, false, true);
+        assert_eq!((streak, invalidated), (2, true));
+    }
+
+    /// A frame that skipped (worker busy / acquire timeout) proves the surface is
+    /// still alive, so the streak resets.
+    #[test]
+    fn skipped_frame_resets_streak() {
+        assert_eq!(surface_loss_transition(1, false, false), (0, false));
+        assert_eq!(surface_loss_transition(2, true, false), (0, true));
+    }
+
+    /// Already-invalid surfaces stay invalid (idempotent): the host is expected to
+    /// deliver a fresh ANativeWindow, and no duplicate error log is emitted.
+    #[test]
+    fn invalidation_is_idempotent() {
+        assert_eq!(surface_loss_transition(2, true, true), (3, true));
+        assert_eq!(surface_loss_transition(7, true, true), (8, true));
+    }
+}
+
+#[cfg(test)]
 mod last_content_row_tests {
     use crate::render::cell_builder::last_content_row;
     use crate::terminal::ghostty_terminal::CellData;

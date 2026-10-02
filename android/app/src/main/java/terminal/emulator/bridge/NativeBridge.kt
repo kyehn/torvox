@@ -240,6 +240,12 @@ object NativeBridge {
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
     /**
+     * 测试钩子：开启/关闭持续的 surface 级取纹理失败（等价于 BufferQueue 被遗弃）。
+     * 仅供仪器化用例验证自愈路径，无生产调用方；关闭后立刻恢复真实取纹理。
+     */
+    external fun setSurfaceLossInjected(sessionId: Long, injected: Boolean): Boolean
+
+    /**
      * 应用层光标颜色覆盖，线性 RGB（每通道 0..1），总是覆盖，无清除路径。
      */
     external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
