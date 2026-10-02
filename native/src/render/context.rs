@@ -641,6 +641,29 @@ impl Renderer {
     }
 
     pub fn set_kgp_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) {
+        // `write_texture` 在数据不足 `bytes_per_row * height` 时 panic，而这份数据
+        // 经 JNI 跨越 FFI：调用方算错一行字节数就会把渲染线程直接带走。
+        // 长度不符是调用方的缺陷，故此处拒绝并留证据，而不是让 wgpu 抛。
+        let Some(expected_len) = (width as usize)
+            .checked_mul(4)
+            .and_then(|row| row.checked_mul(height as usize))
+        else {
+            log::warn!(
+                "set_kgp_atlas: {}x{} overflows usize; atlas rejected",
+                width,
+                height
+            );
+            return;
+        };
+        if rgba_data.len() < expected_len {
+            log::warn!(
+                "set_kgp_atlas: {}x{} needs {expected_len} bytes, got {}; atlas rejected",
+                width,
+                height,
+                rgba_data.len()
+            );
+            return;
+        }
         if width == 0 || height == 0 {
             self.kgp_texture = None;
             self.kgp_bind_group = None;
