@@ -90,7 +90,14 @@ constructor(private val provider: SettingsDataStoreProvider) {
      */
     data class SettingsState(
         val appThemeMode: String = DEFAULT_FOLLOW_SYSTEM,
-        val fontSize: Float = DEFAULT_FONT_SIZE,
+        /**
+         * 无默认值：真实缺省值随屏幕宽度自适应（`deviceDefaultFontSize`），任何常量都会
+         * 与 [settings] 流的实际行为不符。此前这里是 `DEFAULT_FONT_SIZE`（14sp），
+         * 于是 `SettingsState()` 造出的快照在窄屏设备上谎报字号——调用方无从察觉，
+         * 因为它与「用户已设为 14sp」不可区分。改为必须显式传入：
+         * 与真实缺省行为一致的唯一写法就是从 [settings] 流取。
+         */
+        val fontSize: Float,
         val fontFamily: String = "",
         val themeName: String = DEFAULT_THEME,
         val dayThemeName: String = DEFAULT_DAY_THEME_NAME,
