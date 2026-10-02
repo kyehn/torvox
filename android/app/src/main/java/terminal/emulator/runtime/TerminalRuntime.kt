@@ -146,7 +146,13 @@ internal data class SessionEntry(
     // 会话保持可见与运行，直到用户按 Enter。
     @Volatile var waitingForProcessCompleted: Boolean = false,
     // 显示 [Process completed] 提示时捕获的退出码；Enter 确认关闭时复用。
-    @Volatile var processExitCode: Int = 0,
+    /**
+     * 退出会话缓存的退出码；`null` 表示原生未能取得（`waitpid` 失败），**不是** 0。
+     *
+     * 用户在 `[Process completed]` 提示上回车确认关闭时，渲染循环要把缓存的退出码
+     * 再交给 [handleSessionExit] 一次；可空类型让「码未知」在这一跳里也不会退化成 0。
+     */
+    @Volatile var processExitCode: Int? = null,
     // 用户在提示上按 Enter 时由 writeToPty 置位。渲染循环侦测到后重新派发 handleSessionExit，
     // 使 bridge 关闭留在渲染线程上（避免对存活渲染循环的 UAF）。
     @Volatile var processCompletedConfirmed: Boolean = false,
@@ -455,8 +461,10 @@ constructor(
      * 把 [Process completed (code X)] - press Enter 提示直接送入 VT 解析器
      * （子进程已消失，PTY 不再承载写入，必须带内更新画面）。
      */
-    private fun feedProcessCompletedPrompt(entry: SessionEntry, exitCode: Int) {
-        val text = PROCESS_COMPLETED_PROMPT_PREFIX + exitCode + PROCESS_COMPLETED_PROMPT_SUFFIX
+    private fun feedProcessCompletedPrompt(entry: SessionEntry, exitCode: Int?) {
+        // 码未知时如实写「exit code unknown」，不留空也不谎报 0。
+        val rendered = exitCode?.toString() ?: PROCESS_EXIT_CODE_UNKNOWN_TEXT
+        val text = PROCESS_COMPLETED_PROMPT_PREFIX + rendered + PROCESS_COMPLETED_PROMPT_SUFFIX
         try {
             entry.bridge?.feedTerminal(text.encodeToByteArray())
         } catch (exception: Exception) {
@@ -470,9 +478,9 @@ constructor(
      * 条目以 running=true 留在会话表中，直到用户按 Enter 才关闭。
      * 提示已显示时返回 true（调用方应提前返回且不关闭会话）。
      */
-    private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int): Boolean {
+    private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int?): Boolean {
         if (entry.id != activeSessionId || entry.waitingForProcessCompleted) return false
-        // 正常退出（exit 0）直接关闭会话；仅非零退出保留现场待回车确认关闭。
+        // 正常退出（exit 0）直接关闭会话；非零退出与「码未知」都保留现场待回车确认关闭。
         if (exitCode == 0) return false
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return false
@@ -487,9 +495,17 @@ constructor(
         return true
     }
 
+    /**
+     * 处理会话退出。
+     *
+     * [exitCode] 可为 `null`：原生侧 `waitpid` 失败、子进程确已退出但码无从取得。
+     * 这类死亡**不能**当作退出码 0 处理——按 0 走会立即静默关闭会话，用户既看不到
+     * `[Process completed]` 提示，也无从得知 shell 是怎么没的。码未知一律按「非正常
+     * 退出」对待：保留现场、显示退出码未知的提示，等用户回车确认。
+     */
     private fun handleSessionExit(
         entry: SessionEntry,
-        exitCode: Int,
+        exitCode: Int?,
         // 原生测得的子进程存活时长（毫秒）；事件早于该字段或为清扫时为 0。
         aliveMs: Long,
     ) {
@@ -1742,6 +1758,10 @@ constructor(
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
 
         // 前台会话的 shell 退出时送入终端的 [Process completed] 提示（保持可见直到按 Enter）。
+
+        /** 退出码未知时写入提示的文本：如实说明，不用 0 冒充。 */
+        private const val PROCESS_EXIT_CODE_UNKNOWN_TEXT = "exit code unknown"
+
         private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
