@@ -76,7 +76,13 @@ class SecondStageRunner(
         // 已在 detectDpkgVersion 内记警告，不是静默。
         val dpkgVersion = detectDpkgVersion().orEmpty()
         val arch = detectAbi()
-        val scripts = postinstDir.listFiles()?.filter { it.name.endsWith(".postinst") }?.toList() ?: emptyList()
+        // 按文件名排序：`File.listFiles()` 的返回顺序未定义（实测为目录项顺序），
+        // 于是 postinst 的执行次序随文件系统而变。两个后果：进度条的脚本名顺序不可复现，
+        // 且依赖彼此的包（dpkg 自身即依赖某些包先就位）可能随机失败。
+        // dpkg 记录的文件名本身就是版本化的字典序（如 `libfoo_1.2.postinst`），
+        // 故字典序即 dpkg 的惯例序。
+        val scripts =
+            postinstDir.listFiles()?.filter { it.name.endsWith(".postinst") }?.sortedBy { it.name } ?: emptyList()
         val totalScripts = scripts.size
         val errors = mutableListOf<String>()
         var scriptsCompleted = 0
