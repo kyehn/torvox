@@ -22,8 +22,9 @@ pub(crate) const FONTS_XML_CANDIDATES: [&str; 2] =
 #[cfg(target_os = "android")]
 static CACHED_FONT_DB: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLock::new();
 
-#[cfg(target_os = "android")]
-/// GUI 层提供的额外字体路径：由 `set_extra_font_paths()` 写入，`FontPipeline::new()` 读取。
+/// GUI 层提供的额外字体路径：由 `set_extra_font_paths()` 写入，供 `family_index()`
+/// 枚举列表与 `load_family()` 按需装入使用；渲染常驻字体库不读它（主字体恒为
+/// fonts.xml 的 monospace 族，见 `load_font_database`）。
 #[cfg(target_os = "android")]
 pub(crate) static EXTRA_FONT_PATHS: parking_lot::RwLock<Vec<std::path::PathBuf>> =
     parking_lot::RwLock::new(Vec::new());
@@ -45,30 +46,30 @@ pub fn add_extra_font_path(path: std::path::PathBuf) {
     log::debug!("FONT_LOAD: {} extra font paths", extra.len());
 }
 
-/// 渲染侧的精简字体库：只装 fonts.xml 中**一个符号族** + **一个区域族**，
-/// 加上主字体（`~/.termux/font.ttf|ttc|otf`；为空时用 fonts.xml 的 monospace 族）。
+/// 渲染侧的精简字体库：只装 fonts.xml 的 monospace 族（主字体）+ **一个符号族** +
+/// **一个区域族**。
+///
+/// 主字体恒为 fonts.xml 的 monospace 族（DESIGN：主字体为空时取 fonts.xml 的
+/// monospace 字体）：用户 `~/.termux/font.{ttf,ttc,otf}` 覆盖经 Kotlin 探测后由
+/// `setFontFamily` 按需装入，`~/.termux/fonts` 投放字体只进字体列表、选中时经
+/// `load_family` 装入，两者都不在建库时常驻——否则投放字体会抢占 fonts.xml 等宽
+/// 主字体令其选择失败（启动 abort），且建库结果依赖 `setExtraFontPaths` 时序。
 ///
 /// DESIGN 字体节要求「遵循 Android 系统 fonts.xml」，而终端实际只用得上这几族：
 /// 符号层承载 ▶ ⏵ ♥ ★，区域层承载当前语言的 CJK，其余 200 余个族是
-/// WebView/UI 用字，渲染路径永不触及，故不加载。
+/// WebView/UI 用字，渲染路径永不触及，故不加载。例外见 `widen_to_declared_set`。
 #[cfg(target_os = "android")]
 pub(crate) fn load_font_database() -> fontdb::Database {
     let font_database = CACHED_FONT_DB.get_or_init(|| {
         let mut font_database = fontdb::Database::new();
-        let mut loaded = 0u32;
 
-        // 主字体优先：用户投放的 `~/.termux/font.ttf|ttc|otf`，否则用 fonts.xml
-        // 的 monospace 族（`resolve_system_monospace_from_fonts_xml` 负责缺失时 abort）。
-        let primary = user_font_files();
-        if primary.is_empty() {
-            let target = resolve_system_monospace_from_fonts_xml();
-            loaded += load_files(
-                &mut font_database,
-                &resolve_font_files(std::slice::from_ref(&target)),
-            );
-        } else {
-            loaded += load_files(&mut font_database, &primary);
-        }
+        // 主字体：fonts.xml 的 monospace 族（`resolve_system_monospace_from_fonts_xml`
+        // 负责 fonts.xml 缺失或不可解析时 abort）。
+        let target = resolve_system_monospace_from_fonts_xml();
+        let mut loaded = load_files(
+            &mut font_database,
+            &resolve_font_files(std::slice::from_ref(&target)),
+        );
 
         // 一个符号族 + 一个区域族。fonts.xml 缺失时这两项为空：符号缺失只是
         // ▶ ⏵ ♥ ★ 变豆腐块，区域缺失只是 CJK 变豆腐块，都不该让应用不可用。
@@ -82,6 +83,10 @@ pub(crate) fn load_font_database() -> fontdb::Database {
         let region = resolve_font_files(&locale_fallback_files(&content, &current_locale()));
         loaded += load_files(&mut font_database, &region);
 
+        if !db_has_monospaced(&font_database) {
+            loaded += widen_to_declared_set(&mut font_database, &content);
+        }
+
         log::debug!(
             "FONT_LOAD: loaded {loaded} font files, {} faces",
             font_database.faces().count()
@@ -89,6 +94,36 @@ pub(crate) fn load_font_database() -> fontdb::Database {
         font_database
     });
     font_database.clone()
+}
+
+/// 库内是否已有任一等宽面：主字体选择梯次的建库侧不变量——最小常驻集不含
+/// 等宽面时必须放宽装库，否则 `select_primary_face` 无从选择。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn db_has_monospaced(font_database: &fontdb::Database) -> bool {
+    font_database.faces().any(|face| face.monospaced)
+}
+
+/// OEM 精简 ROM 可能声明了等宽字体却不提供文件（或文件损坏），使最小常驻集
+/// 没有任何等宽面：放宽装入 fonts.xml 全量声明文件（跳过已在库中的），保证
+/// 库内至少有一个可用面，返回新装入的文件数。健康设备永不进入此路径。
+#[cfg(target_os = "android")]
+fn widen_to_declared_set(font_database: &mut fontdb::Database, content: &str) -> u32 {
+    let mut loaded = 0u32;
+    for path in resolve_font_files(&parse_fonts_xml_declared_files(content)) {
+        let Some(filename) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        if font_file_is_loaded(font_database, &filename) {
+            continue;
+        }
+        loaded += load_files(font_database, std::slice::from_ref(&path));
+    }
+    log::error!("FONT_LOAD: fonts.xml 等宽字体不可用，放宽到全量声明集（+{loaded} 文件）");
+    loaded
 }
 
 /// 按需加载一个字体族：设置页选中但尚未装入的族走这里。
@@ -343,7 +378,8 @@ pub(crate) fn load_region_fallback_faces(
     loaded
 }
 
-/// 用户投放字体：`~/.termux/font` 目录下的 ttf/ttc/otf。
+/// 用户投放字体：`~/.termux/font` 目录下的 ttf/ttc/otf。仅供 `family_index()`
+/// 枚举列表使用；渲染常驻字体库不装它们（选中时经 `load_family` 按需装入）。
 #[cfg(target_os = "android")]
 fn user_font_files() -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
@@ -445,6 +481,68 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
     }
     log::error!("FONT_XML: 无法从系统 fonts.xml 解析等宽字体（{last_error}）");
     std::process::abort();
+}
+
+/// 主字体面选择梯次（fonts.xml 是默认主字体的唯一来源）：
+/// 1. 声明的等宽文件按词干匹配——fonts.xml 给文件名、fontdb 给家族名，先用
+///    「分隔符归一 + 精确相等」，再退「去空白后精确相等」，覆盖 Droid Sans Mono
+///    这类家族名带空格而文件名不带的差异；
+/// 2. 库内任一等宽面：声明文件被 OEM 改包装（家族名与词干对不上）或放宽装库后
+///    声明文件本就不存在时，仍拿到等宽字体；
+/// 3. 库内首个可用面：全库无等宽面时的最后手段——单元格度量按该字体计算，
+///    终端降级可用胜过启动即崩溃；
+/// 4. 库为空返回 `None`，由调用方按「fonts.xml 不可用」输出日志并崩溃。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn select_primary_face(
+    font_database: &fontdb::Database,
+    target_filename: &str,
+) -> Option<fontdb::ID> {
+    let stem = std::path::Path::new(target_filename)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    let stem_lower = stem.to_lowercase().replace(['-', '_'], " ");
+    let stem_nospace = stem_lower.replace(' ', "");
+    let family_lower = |face: &fontdb::FaceInfo| {
+        face.families
+            .first()
+            .map_or("", |(name, _)| name)
+            .to_lowercase()
+    };
+    if let Some(face_id) = font_database
+        .faces()
+        .filter(|face| face.monospaced)
+        .find(|face| family_lower(face).replace(['-', '_'], " ") == stem_lower)
+        .or_else(|| {
+            font_database.faces().find(|face| {
+                face.monospaced
+                    && family_lower(face)
+                        .chars()
+                        .filter(|character| !character.is_whitespace())
+                        .collect::<String>()
+                        == stem_nospace
+            })
+        })
+        .map(|face| face.id)
+    {
+        log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
+        return Some(face_id);
+    }
+    if let Some(face) = font_database.faces().find(|face| face.monospaced) {
+        log::warn!(
+            "FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未匹配，改用库内等宽面 '{}'",
+            family_lower(face)
+        );
+        return Some(face.id);
+    }
+    if let Some(face) = font_database.faces().next() {
+        log::error!(
+            "FONT_SELECT: 库内无等宽面，降级使用首个可用面 '{}'",
+            family_lower(face)
+        );
+        return Some(face.id);
+    }
+    None
 }
 
 type FontsXmlFamilies = (Vec<String>, Vec<(String, Vec<(String, u32)>)>);
@@ -960,5 +1058,119 @@ mod tests {
         assert_eq!(super::locale_fonts_xml_langs("ja"), &["ja"]);
         assert_eq!(super::locale_fonts_xml_langs("ko"), &["ko"]);
         assert!(super::locale_fonts_xml_langs("en-US").is_empty());
+    }
+
+    /// 宿主字体库与其中首个等宽面、首个比例面：主字体选择梯次测试的探针。
+    /// 依赖 dev shell 的字体（同 `probe_font_file`），缺字体时自然失败。
+    fn host_faces() -> (fontdb::Database, fontdb::ID, fontdb::ID) {
+        let mut font_database = fontdb::Database::new();
+        font_database.load_system_fonts();
+        let monospace = font_database
+            .faces()
+            .find(|face| face.monospaced)
+            .map(|face| face.id)
+            .expect("宿主字体库须有等宽面（run inside nix develop）");
+        let proportional = font_database
+            .faces()
+            .find(|face| !face.monospaced)
+            .map(|face| face.id)
+            .expect("宿主字体库须有比例面（run inside nix develop）");
+        (font_database, monospace, proportional)
+    }
+
+    /// 梯次第 1 级：声明词干命中时必须选回声明族（去空白比较覆盖
+    /// DroidSansMono.ttf 与 Droid Sans Mono 的差异），而不是其它等宽面。
+    #[test]
+    fn select_primary_face_prefers_declared_stem_match() {
+        let (font_database, monospace, _) = host_faces();
+        let family = font_database
+            .face(monospace)
+            .and_then(|face| face.families.first())
+            .map(|(name, _)| name.clone())
+            .expect("等宽面须有族名");
+        // 由族名构造必然命中「去空白」比较的文件名。
+        let target = format!(
+            "{}.ttf",
+            family
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>()
+        );
+        let selected = super::select_primary_face(&font_database, &target).expect("须选中面");
+        let selected_face = font_database.face(selected).expect("选中面须存在");
+        assert!(selected_face.monospaced, "词干匹配必须落在等宽面上");
+        assert_eq!(
+            selected_face.families.first().map(|(name, _)| name),
+            Some(&family),
+            "词干命中必须选回声明族，不得退到其它等宽面"
+        );
+    }
+
+    /// 梯次第 2 级：词干不匹配时退到库内任一等宽面（OEM 改包装/改名），不崩溃。
+    #[test]
+    fn select_primary_face_falls_back_to_any_monospaced_face() {
+        let (font_database, _, _) = host_faces();
+        let selected = super::select_primary_face(&font_database, "NoSuchDeclaredFont.ttf")
+            .expect("库内有等宽面时须选中");
+        assert!(
+            font_database
+                .face(selected)
+                .expect("选中面须存在")
+                .monospaced,
+            "词干不匹配时必须退到库内等宽面"
+        );
+    }
+
+    /// 梯次第 3 级：全库无等宽面时退到首个可用面——终端降级可用胜过启动即崩溃。
+    #[test]
+    fn select_primary_face_degrades_to_first_face_without_monospaced() {
+        let (host_database, _, proportional) = host_faces();
+        let source_path = match &host_database
+            .face(proportional)
+            .expect("比例面须存在")
+            .source
+        {
+            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path.clone(),
+            fontdb::Source::Binary(_) => panic!("探针面须来自字体文件"),
+        };
+        let mut font_database = fontdb::Database::new();
+        font_database
+            .load_font_file(&source_path)
+            .expect("探针字体须可装入");
+        assert!(
+            !super::db_has_monospaced(&font_database),
+            "探针文件须只含比例面，否则测不到首面降级"
+        );
+        let expected = font_database.faces().next().map(|face| face.id);
+        assert_eq!(
+            super::select_primary_face(&font_database, "NoSuchDeclaredFont.ttf"),
+            expected,
+            "无等宽面时必须退到库内首个可用面"
+        );
+    }
+
+    /// 梯次第 4 级：库为空返回 None，由调用方按「fonts.xml 不可用」abort。
+    #[test]
+    fn select_primary_face_returns_none_for_empty_database() {
+        let font_database = fontdb::Database::new();
+        assert_eq!(
+            super::select_primary_face(&font_database, "DroidSansMono.ttf"),
+            None,
+            "库为空必须返回 None"
+        );
+    }
+
+    /// 放宽装库的触发条件：库内是否存在等宽面。
+    #[test]
+    fn db_has_monospaced_reflects_face_flags() {
+        assert!(
+            !super::db_has_monospaced(&fontdb::Database::new()),
+            "空库必无等宽面"
+        );
+        let (font_database, _, _) = host_faces();
+        assert!(
+            super::db_has_monospaced(&font_database),
+            "宿主库含等宽面时必须为真"
+        );
     }
 }

@@ -64,8 +64,8 @@ pub struct FontPipeline {
 
 impl FontPipeline {
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
-        // 渲染侧只常驻 4 个族（主字体/用户字体 + 一个符号族 + 一个区域族），
-        // 用户投放目录由 load_font_database 内部一并处理。
+        // 渲染侧只常驻 3 个族（fonts.xml 等宽主字体 + 一个符号族 + 一个区域族），
+        // 用户投放字体选中时按需装入（见 font_db::load_font_database）。
         #[cfg(target_os = "android")]
         let font_database = super::font_db::load_font_database();
 
@@ -114,53 +114,19 @@ impl FontPipeline {
     ///
     /// 设备上 `fonts.xml` 是唯一来源（DESIGN 字体节：不得使用任何硬编码字体名）：
     /// 缺失或无法解析由 [`font_db::resolve_system_monospace_from_fonts_xml`] 直接
-    /// `abort`，`fonts.xml` 声明的字体未加载也视为解析失败并 `abort`。
+    /// `abort`；声明的等宽字体未加载或未匹配时按 [`font_db::select_primary_face`]
+    /// 的降级梯次选择，仅当库内没有任何可用面（等同 fonts.xml 不可用）才 `abort`。
     fn find_monospace_font(&mut self) {
         #[cfg(target_os = "android")]
         {
             let target_filename = font_db::resolve_system_monospace_from_fonts_xml();
-            let font_database = self.font_system.db();
-            let stem = std::path::Path::new(&target_filename)
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default();
-            // fonts.xml 给的是文件名，fontdb 给的是家族名：先用「分隔符归一 +
-            // 精确相等」匹配，再退到「去空白后精确相等」覆盖 Droid Sans Mono 这类
-            // 家族名带空格而文件名带下划线的差异。
-            let stem_lower = stem.to_lowercase().replace(['-', '_'], " ");
-            if let Some(face_id) = font_database
-                .faces()
-                .filter(|face| face.monospaced)
-                .find(|face| {
-                    let name = face
-                        .families
-                        .first()
-                        .map_or("", |(name, _)| name)
-                        .to_lowercase();
-                    name.replace(['-', '_'], " ") == stem_lower
-                })
-                .or_else(|| {
-                    let stem_nospace = stem_lower.replace(' ', "");
-                    font_database.faces().find(|face| {
-                        face.monospaced
-                            && face
-                                .families
-                                .first()
-                                .map_or(String::new(), |(name, _)| name.to_lowercase())
-                                .chars()
-                                .filter(|character| !character.is_whitespace())
-                                .collect::<String>()
-                                == stem_nospace
-                    })
-                })
-                .map(|face| face.id)
-            {
-                log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
-                self.font_id = Some(face_id);
-                return;
+            match font_db::select_primary_face(self.font_system.db(), &target_filename) {
+                Some(face_id) => self.font_id = Some(face_id),
+                None => {
+                    log::error!("FONT_SELECT: fonts.xml 未提供任何可用字体面");
+                    std::process::abort();
+                }
             }
-            log::error!("FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未加载");
-            std::process::abort();
         }
 
         // 宿主（单元测试与基准）没有系统 fonts.xml：取 fontdb 首个等宽面。
@@ -232,7 +198,7 @@ impl FontPipeline {
             self.rediscover_fallback_fonts();
             return true;
         }
-        // 库内没有该族时按需装入：渲染侧只常驻 4 个族（见 font_db::load_font_database），
+        // 库内没有该族时按需装入：渲染侧只常驻 3 个族（见 font_db::load_font_database），
         // 设置页选中的其余族要到这里才真正加载。
         #[cfg(target_os = "android")]
         if !Self::find_font_by_name(self.font_system.db(), family_name).is_some() {
