@@ -6,15 +6,18 @@
 # rustc 自 1.90 起在该目标默认用 rust-lld，而 lld 对 null 符号引用直接报
 # `undefined symbol:`（名字为空）并终止链接，于是**全新环境**（CI、
 # `cargo clean --package libghostty-vt-sys` 后的本地）的主机 cdylib、单测二进制与
-# bench 链接全数失败。
+# bench 链接全数失败。lld 的 `--unresolved-symbols=*` 与 `--warn-unresolved-symbols`
+# 都不覆盖这种「引用符号表第 0 项」的重定位。
 #
-# 口径：只对「对象文件里的未定义符号」放行（Zig 的空名引用即此类），缺失共享库
-# 仍照常报错；GNU ld 路线被排除：绕开 FDE 排序的 `--no-eh-frame-hdr` 会同时废掉
-# 展开器所需的 FDE 索引，实测 `catch_unwind(|| panic!())` 直接 abort
-# （`failed to initiate panic, error 5`），`#[should_panic]` 与 `jni_export_guard!`
-# 的 `catch_unwind` 都会失效。
+# 口径：宿主链接器改用 GNU gold —— 它按 null→0 的本义解析该引用，且不像
+# ld.bfd 那样在 Zig 合并 `.eh_frame`（机器码相同的 `__*_chk` 包装共用一段）后
+# 拒绝生成 `.eh_frame_hdr`（`overlapping FDEs` → `final link failed: bad value`）。
+# 两者都被排除的硬约束是**异常展开必须完好**：ld.bfd 绕开 FDE 排序要靠
+# `--no-eh-frame-hdr`，而那会抽掉展开器要的 FDE 索引，实测 `catch_unwind(|| panic!())`
+# 直接 abort（`failed to initiate panic, error 5`），`#[should_panic]` 与
+# `jni_export_guard!` 的 `catch_unwind` 都会失效——宁可换链接器也不静默废掉展开。
 #
 # Android 目标（aarch64/x86_64-linux-android）不经此处：cargo-ndk 自带 lld，
 # 且 Zig 对象不参与 Android 链接。
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-Wl,--unresolved-symbols=ignore-in-object-files"]
+rustflags = ["-C", "link-arg=-fuse-ld=gold"]
