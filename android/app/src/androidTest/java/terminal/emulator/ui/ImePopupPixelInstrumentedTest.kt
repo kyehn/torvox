@@ -47,6 +47,18 @@ class ImePopupPixelInstrumentedTest {
         /** 顶部条带高度：键盘永远够不到的高处，只随终端平移而动。 */
         private const val STRIP_HEIGHT_PX = 150
 
+        /**
+         * 稀疏内容的比对条带高度（状态栏之下、键盘之上）。
+         * 覆盖首行提示符与打印标记（行高 45px 实测），既含内容又远离键栏位移区。
+         */
+        private const val SPARSE_STRIP_HEIGHT_PX = 400
+
+        /** 稀疏内容弹出前后条带允许的差分像素（与闪烁断言同口径）。 */
+        private const val SPARSE_STRIP_MAX_DIFF = 5
+
+        /** 稀疏内容条带顶边相对状态栏底部的余量（避开状态栏圆角阴影）。 */
+        private const val SPARSE_STRIP_TOP_MARGIN_PX = 8
+
         /** 位移出现的轮询上限，与 contentMany 同一口径。 */
         private const val SETTLE_MOVE_TIMEOUT_MS = 15_000L
 
@@ -139,6 +151,17 @@ class ImePopupPixelInstrumentedTest {
         return height
     }
 
+    /** 状态栏高度（px）：稀疏内容的条带取在它之下，避开系统时钟等无关像素。 */
+    private fun statusBarHeightPx(): Int {
+        var height = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            height =
+                findTerminalSurface(composeTestRule.activity).rootWindowInsets
+                    ?.getInsets(WindowInsets.Type.statusBars())?.bottom ?: 0
+        }
+        return height
+    }
+
     /** 单像素 RGB 差分和（阈值由调用方判定）。 */
     private fun pixelDelta(first: Int, second: Int): Int = kotlin.math.abs(
         android.graphics.Color.red(first) -
@@ -215,6 +238,10 @@ class ImePopupPixelInstrumentedTest {
         // 返回值仍按整幅条带逐像素计分，使 STRIP_MATCH_MAX_DIFF 与旧口径一致。
         return bestShift to shiftDiff(first, second, stripTop, stripHeight, bestShift)
     }
+
+    /** 条带墨量总和：> 0 表示该条带确有内容像素（非纯背景）。 */
+    private fun stripInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): Int =
+        rowInk(bitmap, top, height).sum()
 
     /** 每行墨量：从 [top] 起连续 [height] 行，每行抽样像素的亮度之和。 */
     private fun rowInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): IntArray = IntArray(height) { row ->
@@ -308,23 +335,34 @@ class ImePopupPixelInstrumentedTest {
     }
 
     /**
-     * 内容较少时弹出输入法：终端与键栏同属一个位移容器，整体上移后必须稳定，
-     * 且键栏完整位于键盘上方、不被键盘遮挡（半透明/被吞）。
+     * 内容较少时弹出输入法：终端内容 MUST 每像素原位、且完整可见于键盘上方，
+     * 键栏 MUST 完整位于键盘上方不被遮挡。
      *
-     * 旧口径断言「内容较少时终端无变化」——那是双位移时代的光标最小平移契约，
-     * 已随单一位移容器一并作废：终端与键栏同属一个容器、只有一个位移值，
-     * 不可能只动键栏而终端不动。稀疏会话的内容上抬是该设计的已知代价
-     * （见 openspec ime-animation-smoothness「终端与修饰键栏同属一个位移容器」）。
+     * 位移量按内容下沿裁剪（`computeImeSurfaceShift`）：放得下的内容不动，
+     * 放不下的才上移。无条件按整块键盘高度上移会把首行提示符推出屏幕上边界
+     * ——终端区实测全空（提示符由 y=134 落到 y=−686），即本用例要钉住的回归。
      *
-     * 此处**不**度量位移像素：内容仅一行时顶部条带本就空白，位移搜索恒得 0，
-     * 量到的不是位移而是空白。可断言的实质是键栏位置与定居后的稳定性。
+     * 故此处度量「弹出前后同一像素条带是否完全一致」而非位移像素：稀疏会话
+     * 位移为 0，两帧条带必须逐像素相同（差分 ≤ 采样噪声）；同时条带在两帧
+     * 都必须有墨迹，否则「一致」只是两帧同样空白。
      */
     @Test
-    fun contentFewImePopupBarAboveKeyboardAndNoFlicker() {
+    fun contentFewImePopupTerminalStaysPutAndVisible() {
         val marker = "IME_FEW_${System.currentTimeMillis() % 100000}"
         printAndAwait("printf '$marker\\n'", marker)
         Thread.sleep(SETTLE_MILLIS)
         hideImeAndSettle()
+        val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        // 条带取在状态栏之下（避开系统时钟像素）、键盘之上（保证内容确实可见）。
+        val stripTop = statusBarHeightPx() + SPARSE_STRIP_TOP_MARGIN_PX
+        assertTrue(
+            "比对条带必须位于键盘上方 (条带底=${stripTop + SPARSE_STRIP_HEIGHT_PX} 键盘顶边=${device.displayHeight - imeHeightPx()})",
+            stripTop + SPARSE_STRIP_HEIGHT_PX <= device.displayHeight - imeHeightPx(),
+        )
+        assertTrue(
+            "弹出前条带必须有内容像素（否则「无变化」断言无意义）",
+            stripInk(before, stripTop, SPARSE_STRIP_HEIGHT_PX) > 0,
+        )
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
         assertTrue("输入法必须占据高度", imeHeight > 0)
@@ -337,12 +375,21 @@ class ImePopupPixelInstrumentedTest {
             "键栏必须完整位于输入法上方 (键栏底边=$barBottom 键盘顶边=$keyboardTop)",
             barBottom <= keyboardTop + BAR_SEAM_TOLERANCE_PX,
         )
+        val after = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        assertTrue(
+            "弹出后条带必须有内容像素（内容不得被键盘吞掉或推离屏幕）",
+            stripInk(after, stripTop, SPARSE_STRIP_HEIGHT_PX) > 0,
+        )
+        val stayedDiff =
+            countDifferingPixels(before, after, stripTop, stripTop + SPARSE_STRIP_HEIGHT_PX)
+        assertTrue(
+            "内容较少时弹出输入法终端必须无变化 (差分=$stayedDiff)",
+            stayedDiff <= SPARSE_STRIP_MAX_DIFF,
+        )
         // 定居后无闪烁：键盘上方整片区域连续两帧必须一致。
         Thread.sleep(SETTLE_MILLIS)
-        val first = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        Thread.sleep(SETTLE_MILLIS)
-        val second = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val band = countDifferingPixels(first, second, 0, first.height - imeHeight)
+        val settled = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        val band = countDifferingPixels(after, settled, 0, after.height - imeHeight)
         assertTrue("内容较少时弹出输入法必须无闪烁 (差分=$band)", band <= 5)
     }
 

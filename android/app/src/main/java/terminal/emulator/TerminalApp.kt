@@ -24,6 +24,7 @@ open class TerminalApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (isInstallProcess(Application.getProcessName())) return
         val stateDir = getDir("boot_state", MODE_PRIVATE)
         BootGuard(stateDir).check()
         // StrictMode 仅 debug：release 下每次 I/O 的 penaltyLog 拖慢冷启动。
@@ -135,5 +136,9 @@ open class TerminalApp : Application() {
         private const val MINUTES_TO_HEALTHY = 10L
         private const val MILLIS_PER_MINUTE = 60_000L
         private const val HEALTHY_UPTIME_MS = MINUTES_TO_HEALTHY * MILLIS_PER_MINUTE
+        private const val INSTALL_PROCESS_SUFFIX = ":install"
+
+        internal fun isInstallProcess(processName: String?): Boolean =
+            processName != null && processName.endsWith(INSTALL_PROCESS_SUFFIX)
     }
 }

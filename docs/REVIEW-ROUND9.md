@@ -14,122 +14,11 @@
 
 ## 二、新的 P0
 
-### N0-12 `:install` 进程会执行完整的 `Application.onCreate`，重置启动崩溃循环计数器
-
-`android/app/src/main/AndroidManifest.xml:11` 声明 `android:name=".TerminalApp"`，而 `:46-49` 声明：
-
-```xml
-<service
-    android:name=".installer.BootstrapInstallService"
-    android:exported="false"
-    android:process=":install" />
-```
-
-`Application.onCreate` 在**每一个**进程里都会执行。于是 `android/app/src/main/java/terminal/emulator/TerminalApp.kt:65-68`：
-
-```kotlin
-monitorScope.launch {
-    delay(HEALTHY_UPTIME_MS)
-    BootGuard(stateDir).markHealthy()
-}
-```
-
-会在安装进程里也跑一遍。`BootGuard.kt:43-48` 的 `markHealthy()` 把**按 UID 共享**的计数器（`stateDir = getDir("boot_state", MODE_PRIVATE)`）写回零。
-
-**故障场景**：主进程在 10 分钟内崩溃 3 次（`BootGuard.kt:19-26` 据此禁用自杀保护）→ 用户触发一次 bootstrap 安装 → `:install` 进程把共享计数器清零 → 循环检测器从头开始，`DESIGN.md:237`（应用启动时检查兼容性并清除应用数据）**永远不会触发**。崩溃循环的兜底被一个从不运行终端的进程静默拆掉。
-
-同一进程还继承了 `TerminalApp.kt:93-99` 的 `installThermalMonitor()`：
-
-```kotlin
-thermalMonitor = ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITICAL+") }.also { it.register() }
-```
-
-而 `BootGuard.kt:75` 是 `Process.killProcess(Process.myPid())`。**设备处于 thermal CRITICAL 时的任何一次 bootstrap 安装，会在 `BootstrapInstallService.kt:67-88` 的 `runBlocking` 中途被杀，留下半解压的 `usr-staging/`。**
-
-这两条都是 `DESIGN.md:237` 与「不干涉用户数据」的直接违反，且安装进程的存在本身就是 P2-20 记录的「测试后门进 release」的一部分。
-
-**修法**：`Application` 本身无法按进程跳过，但可以在 `TerminalApp.onCreate` 里用进程名判定（`getProcessName()`）跳过安装进程的监控安装；更彻底的做法是把 `BootstrapInstallService` 移出 release 源集（它本来就只在 debug 下可达）。
+> 维护注：N0-12（安装进程跳过监控安装）已修复并验证，对应小节删除。
 
 ---
 
 ## 三、新的 P1
-
-### N1-14 `Bridge.getTitle()` 是唯一没有异常护栏的查询，而它的 Rust 侧会抛异常
-
-`android/app/src/main/java/terminal/emulator/bridge/Bridge.kt:564`
-
-```kotlin
-override fun getTitle(): String? = queryPort.getTitle()
-```
-
-同文件 `:581-620` 的十四个兄弟方法全部包了 `runCatchingCancellable { … }.getOrNull()` / `.getOrDefault(…)`，**唯独这一个没有**。`NativeQueryPort.kt:13` 直接调 `NativeBridge.getTitle(sessionIdProvider())` —— 绕过了 `onSession` 的 catch。
-
-而 Rust 侧确实会抛：`native/src/android/ffi.rs:2021-2027`
-
-```rust
-let Some(entry) = registry.get(&id) else {
-    let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"),
-                          jni_str!("getTitle: session not found"));
-    return Ok(std::ptr::null_mut());
-};
-```
-
-`sessionIdProvider()` 每次调用都重新求值，所以「读取活动会话 id」与「实际 JNI 调用」之间发生会话关闭/切换，就会产生一个合法但无人处理的 `IllegalArgumentException`。
-
-**可达路径**：`NativeQueryPort.kt:15` 的 `getActiveSessionTitle() = getTitle() ?: ""` → `TerminalRuntime.kt:3290 updateState()`（在 `sessionLock` 内）→ 被 `MainActivity.kt:274 onDestroy`（**主线程**）调用。同一个 `updateState` 还被 `:525 / :2800 / :3217 / :3136 / :3147` 调用。
-
-若从组合中调用（会话抽屉标题），这是主线程进程终止。
-
-这与第 8 轮 N1-8（14 个**无日志**的 `getOrNull`）不是一回事：那里是护栏存在但无日志，这里是**护栏根本不存在**。
-
-**修法**：照兄弟方法包一层 `runCatchingCancellable { }.getOrNull()`。
-
-### N1-15 `scrollbackLine` 对负行号抛异常，而该行号在正常滚动中就会出现
-
-`native/src/android/ffi.rs:2127-2132`
-
-```rust
-let Ok(row) = u32::try_from(row) else {
-    let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"),
-                          jni_str!("scrollbackLine: row must be non-negative"));
-    return Ok(std::ptr::null_mut());
-};
-```
-
-而 `ffi.rs:2137-2140` 的注释说明了 Kotlin 侧传的是什么：
-
-```rust
-// Kotlin 传入的是绝对行号（回滚 + 视口偏移，经
-// `scrollbackLength - scrollOffset + row` 计算），故直接透传给期望绝对行号的
-```
-
-`scrollbackLength - scrollOffset + row` 在**视口被拖过缓冲区顶部**、或回滚缓冲区在滚动后缩短时会变成负数。此时 `Bridge.kt:581-585` 把 IAE 吞成 `null`，终端**静默不画那一行**。
-
-用户表现：向上拖动时回滚区突然出现空白行，且**不能选中、不能复制**（`N1-8` 的第 1 条后果）。`DESIGN.md:29`（TESTING 覆盖范围「旧行必须按顺序进入回滚」）、`DESIGN.md:170`。
-
-**修法**：负行号应返回 `null`（无数据），而不是抛异常 —— `NativeQueryPort.kt:9` 的契约「null/0/空表示引擎『无数据』，绝不可伪造」说的就是这个。
-
-### N1-16 `EXTRA_OPEN_SETTINGS` 在 `onNewIntent` 中被静默丢弃
-
-`android/app/src/main/java/terminal/emulator/MainActivity.kt:232-234`
-
-```kotlin
-if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
-    launchOpenSettings = true
-}
-```
-
-而 `:302`
-
-```kotlin
-var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
-```
-
-`remember` 只在首次组合时求值，而 `handleLaunchIntent` 运行在 `onNewIntent`（`:248`）里 —— 远晚于 `setContent`。
-
-**故障场景**：Activity 已在栈中时，第二次启动带 `terminal.emulator.open_settings`（通知点击、快捷方式、Tasker 自动化）→ **打开的是终端而不是设置页**，无任何提示。
-
-对照 `:230` 的 `runtime.requestFailsafeSession()`：它在每个 intent 上都被重新应用，`:209-212` 的注释也明确要求「必须在每个 intent 上重新应用」—— 同一要求没有在 `EXTRA_OPEN_SETTINGS` 上兑现。`launchOpenSettings` 本身是普通 `var` 而非 `State`，更不会触发重组。
 
 ### N1-17 `openDocumentThumbnail` 忽略 `sizeHint` 与 `CancellationSignal`，返回整个文件
 
@@ -153,23 +42,6 @@ var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
 2. 若进程在主 Looper 排空之前被切后台或被杀，**通知永久丢失** —— 选择器里的文件大小/mtime 保持陈旧，且没有任何重试路径。`Mutation.notifyWritten` 只由这一条路径可达，不存在兜底。
 
 违反 `DESIGN.md:22`（减少兜底，尽早抛出错误）、`DESIGN.md:80`（日志可见但不写文件，隐含的进程生命周期假设）。
-
-### N1-19 `setCursorColor` 文档声明的清除哨兵不存在，主题切换后光标色永久残留
-
-`android/app/src/main/java/terminal/emulator/bridge/NativeBridge.kt:243`
-
-```kotlin
-/**
- * 应用层光标颜色覆盖，线性 RGB（每通道 0..1）；0xFFFFFFFF 哨兵值表示清除覆盖（跟随终端）。
- */
-external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
-```
-
-而 `native/src/android/ffi.rs:2805-2812` 只收**三个 `f32`、没有哨兵**；`:2816` 无条件写 `render_state.cursor_color = Some([…])`，该字段仅在 `ffi.rs:191` 初始化为一次 `None`。
-
-**结论：根本不存在清除路径。** 从一个带自定义光标色的主题切到不带的主题时，`Bridge.kt:395` 仍会用 `argbToRgbFloats(theme.cursor)` 调用 `setCursorColor`，旧覆盖**持续到进程结束**。
-
-违反 `DESIGN.md:14`（「有 `a` `b` `c` 项」指有且只有，不可有未声明行为）。
 
 ---
 

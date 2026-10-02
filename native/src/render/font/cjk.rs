@@ -1,6 +1,6 @@
 //! CJK 回退字体：只取 `/system/etc/fonts.xml` 的 `lang` 回退条目。
 //!
-//! 字体库本身即 fonts.xml 声明的文件集（见 `font_db::load_font_database`），
+//! 字体库内容取自 fonts.xml 声明的文件集（见 `font_db::load_font_database`），
 //! 按文档顺序排列，因此「按库顺序找字形」天然就是平台给出的优先级，
 //! 不需要任何族名子串启发式或打分工。
 use super::{FontPipeline, GlyphInfo};
