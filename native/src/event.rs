@@ -77,7 +77,10 @@ impl EventQueue {
         // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
         if guard.len() >= MAX_QUEUED_EVENTS {
-            self.warn_overflow_once();
+            // 先记录**将被淘汰**的那个事件，push 之后它已不在队列里，取不到。
+            if let Some(victim) = guard.front() {
+                self.warn_overflow_once(victim);
+            }
             let evict_idx = guard
                 .iter()
                 .position(|existing_event| !matches!(existing_event, Event::Exit { .. }));
@@ -95,12 +98,22 @@ impl EventQueue {
         guard.push_back(event);
     }
 
-    /// 队列溢出告警每秒至多一次。
-    fn warn_overflow_once(&self) {
+    /// 队列溢出告警每秒至多一次。带事件种类与会话 ID：溢出日志若不指明丢的是哪种
+    /// 事件、从哪个会话来的，看到「队列满」也无从判断影响（退出事件绝不淘汰，故
+    /// 丢的只可能是剪贴板或振铃，而剪贴板丢失会静默丢失用户刚复制的内容）。
+    fn warn_overflow_once(&self, dropped: &Event) {
+        let (kind, session_id) = match dropped {
+            Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
+            Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
+            Event::Bell { session_id } => ("bell", *session_id),
+            Event::Exit { session_id, .. } => ("exit", *session_id),
+        };
         let now = Instant::now();
         let mut last = self.last_overflow_warn.lock();
         if last.is_none_or(|t| now.duration_since(t) >= OVERFLOW_WARN_INTERVAL) {
-            log::warn!("EventQueue: dropping oldest event (queue full at {MAX_QUEUED_EVENTS})");
+            log::warn!(
+                "EventQueue: dropping oldest {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
+            );
             *last = Some(now);
         }
     }
