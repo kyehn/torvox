@@ -1,53 +1,52 @@
+# 需求
+
 ## ADDED Requirements
 
-### Requirement: Surface 丢失后渲染自愈
+### Requirement: 渲染 surface 失效后自愈
 
-宿主交付的 `ANativeWindow` 一旦失效（BufferQueue 被遗弃、SurfaceFlinger 重启、
-屏幕热插拔等导致 `Surface::configure` / acquire 报 surface 级失败），渲染 MUST NOT
-在进程内永久失效：原生侧 MUST 把该 surface 标记为失效并上报，宿主 MUST 能据此
-获取新的 `ANativeWindow` 并恢复渲染。
+原生 surface MUST NOT 因其原生窗口的 BufferQueue 被遗弃而终身失效：连续 surface 级取
+纹理失败 MUST 使缓存的 surface 失效，使下一次挂载走重建慢路径而非原地 reconfigure；宿主
+MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间隔与次数上限约束。
 
-现状缺陷：`attach_surface` 在已有 surface 时只做原地 reconfigure
-（`render/context.rs:368`），acquire 的 `Lost | Outdated` 也只 reconfigure
-（`render/pass.rs:157`），死窗口无法被 reconfigure 复活；实测仪器化套件中一次
-`BufferQueue has been abandoned` 之后 3074 帧全部 `begin_frame failed`
-（`count=-1`），终端恒为空白，直到杀进程。
+#### Scenario: 死窗口连续失败后置失效
 
-#### Scenario: 一次 surface 失效后自动恢复
+- **WHEN** 连续两次取纹理返回 `Lost`/`Outdated`（`SURFACE_LOSS_STREAK_LIMIT`）
+- **THEN** `surface_invalidated` 置位，MUST 只记一条 error
 
-- **WHEN** 渲染过程中宿主 surface 被遗弃，`Surface::configure` 或 acquire 报
-      surface 级失败
-- **THEN** 原生标记该 surface 失效并上报状态位；宿主据此重建 surface 后，
-      下一帧经**重建路径**（而非原地 reconfigure）恢复渲染，画面重新出现内容
+#### Scenario: 慢机器超时不算失效
 
-#### Scenario: 失效期间不产生重建风暴
+- **WHEN** 取纹理因工作线程忙或超时而本帧跳过（`Skipped`）
+- **THEN** 连续计数 MUST 清零，MUST NOT 置失效
 
-- **WHEN** 宿主尚未交付新的 `ANativeWindow`，或重建后仍失败
-- **THEN** 状态位保持失效且每帧至多记一次失效；重建请求 MUST 受最小间隔与
-      连续次数上限约束，超过上限停止请求并记录 error
+#### Scenario: 单次 Outdated 不误判
 
-#### Scenario: 失效不与暂停/空帧混淆
+- **WHEN** 取纹理单次返回 `Outdated`（SurfaceFlinger 缩放竞态）且下一次取到纹理
+- **THEN** MUST NOT 置失效
 
-- **WHEN** 渲染处于 IME 暂停期，或本帧无新内容可画
-- **THEN** MUST NOT 置失效状态位，MUST NOT 触发 surface 重建
+#### Scenario: 失效后挂载走重建
 
-#### Scenario: 快路径不被破坏
+- **WHEN** surface 已失效且宿主送来 `ANativeWindow`
+- **THEN** `attach_surface` MUST 走重建慢路径（`attach_surface: configured`），
+      MUST NOT 记 `RECONFIGURE_SWAPCHAIN`
 
-- **WHEN** IME 收起、surface 尺寸不变且当前 surface 健康
-- **THEN** `attach_surface` 仍走原地 reconfigure 快路径，MUST NOT 因新增失效标记
-      而改为重建（SwiftShader 上重建会与渲染线程竞争报 `ERROR_NATIVE_WINDOW_IN_USE_KHR`）
+#### Scenario: 恢复即清零
 
-### Requirement: 像素类验收断言画面已呈现
+- **WHEN** 重建成功或 `detachWindow` 释放 surface
+- **THEN** 失效位与连续计数 MUST 清零，新 surface 重新接受判定
 
-凡以像素判定终端渲染结果的测试用例，MUST 在断言行为之前先断言画面确实存在
-被测对象（墨迹/手柄/字形差异），MUST NOT 让「一帧都没画出来」满足断言。
+#### Scenario: 失效位随打包返回上报
 
-现状缺陷：instrumentation 下 surface 失效导致整屏空白时，
-`位移=0 差异=0`、`差分=0`、`found 0` 之类的断言仍可被记录为可解释的失败，
-使「实现正确」与「什么都没渲染」无法区分（实测全量 161 例中 27 例失败，
-其中 8 例直接是「零像素 / 零手柄 / 位移=0」）。
+- **WHEN** 原生完成一帧渲染
+- **THEN** 失效位 MUST 置于打包返回的第 53 位，MUST NOT 挂在渲染计数门下
+      （空闲帧也会读取）
 
-#### Scenario: 空白画面不得满足像素断言
+#### Scenario: 宿主换视图而非重挂同一窗口
 
-- **WHEN** 被测区域没有任何墨迹
-- **THEN** 用例 MUST 以「画面未呈现」失败，MUST NOT 通过位移/差异为零的断言
+- **WHEN** 宿主观察到失效位为 1
+- **THEN** MUST 换掉整个 `SurfaceView` 以取得**新的**原生窗口；
+      MUST NOT 仅对同一窗口反复 detach/attach（唤不活被遗弃的 BufferQueue）
+
+#### Scenario: 重建请求限流
+
+- **WHEN** 失效位持续为 1（重建无望）
+- **THEN** 请求间隔 MUST ≥ 最小间隔，单会话请求次数 MUST ≤ 上限，超过后停止并告警一次
