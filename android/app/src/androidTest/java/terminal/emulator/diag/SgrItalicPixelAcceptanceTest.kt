@@ -56,8 +56,12 @@ class SgrItalicPixelAcceptanceTest {
     /**
      * 渲染当前隔离会话状态并截图：呈现是异步的（runtime 循环/VSync 节拍），
      * render 返回不等于新帧已上屏，沉降等待后截图才抓得到新帧。
+     * 落格（query 可见）不等于可呈现（CellData 推送滞后约一包）：先泵一次
+     * 把推送节拍顶上去，再呈现截图，否则抓到旧帧（斜体差分为零的误报）。
      */
     private fun renderAndScreenshot(sessionId: Long): Bitmap {
+        NativeBridge.render(sessionId, 0, 0)
+        Thread.sleep(PRESENT_SETTLE_MILLIS)
         NativeBridge.render(sessionId, 0, 0)
         Thread.sleep(PRESENT_SETTLE_MILLIS)
         return device.takeScreenshot() ?: throw AssertionError("截图失败")
