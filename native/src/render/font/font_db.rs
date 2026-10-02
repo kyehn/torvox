@@ -1204,4 +1204,19 @@ mod tests {
             "宿主库含等宽面时必须为真"
         );
     }
+
+    /// 拉丁探测：宿主文本字体（等宽与比例）都必须覆盖 'm'；梯次的第 2/3 级
+    /// 依赖它跳过 emoji 这类被标记为等宽却无拉丁字形的面。
+    #[test]
+    fn face_covers_latin_for_host_text_faces() {
+        let (font_database, monospace, proportional) = host_faces();
+        assert!(
+            super::face_covers_latin(&font_database, monospace),
+            "等宽文本面必须覆盖拉丁"
+        );
+        assert!(
+            super::face_covers_latin(&font_database, proportional),
+            "比例文本面必须覆盖拉丁"
+        );
+    }
 }
