@@ -3142,6 +3142,19 @@ constructor(
     fun resumeRendering() {
         surfaceTransitionExecutor.execute {
             synchronized(sessionLock) {
+                // 恢复即重置换视图预算：ON_RESUME 之后平台会重新交付 Surface，
+                // 这正是一次全新的机会。此前预算只在「渲染成功」时清零，而切后台
+                // 往返期间预算会在过渡抖动里被 5 次请求迅速耗尽（实测 2.5s 内耗尽，
+                // 随后每次都停在 exhausted），真正的换视图要等到 ~20s 后的
+                // surfaceCreated 才发生——于是终端长时间空白。
+                //
+                // 保留原有「恢复渲染时清零」也无妨，两处语义一致。
+                sessions.values.forEach { entry ->
+                    entry.surfaceInvalidated = false
+                    entry.surfaceRecreateAttempts = 0
+                    entry.surfaceRecreateLastRequestNanos = 0L
+                    entry.surfaceRecreateExhaustedLogged = false
+                }
                 // 只有活动会话渲染（见 switchSessionInternal）；
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
                 // 退出事件可能因此被错误的会话线程处理（关闭掉无辜的会话）。
