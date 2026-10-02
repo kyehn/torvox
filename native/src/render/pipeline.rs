@@ -226,16 +226,26 @@ impl Renderer {
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
 
-        let view = match self.kgp_texture.as_ref() {
-            Some(t) => t.create_view(&wgpu::TextureViewDescriptor::default()),
+        let texture = match self.kgp_texture.as_ref() {
+            Some(t) => t,
             None => return,
         };
-
         let pipeline = match self.kgp_pipeline.as_ref() {
             Some(p) => p,
             None => return,
         };
 
+        // 绑定组只在其依赖的图集纹理变化时重建。
+        //
+        // 三项依赖里 uniform 内容每帧变（但它是缓冲绑定，不影响绑定组本身），
+        // sampler 与 buffer 都在本函数里惰性创建一次；纹理则由 `set_kgp_atlas` 在
+        // 新图集到达时替换并把本字段置空。此前无条件重建，等于每帧多一次
+        // `create_view` 与 `create_bind_group`——终端图像常驻（ssh -t、htop、动画）
+        // 时这就是每帧两次 GPU 对象分配 + 一处驱动内对象表增长。
+        if self.kgp_bind_group.is_some() {
+            return;
+        }
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.kgp_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("KGP Bind Group"),
             layout: &pipeline.get_bind_group_layout(0),
