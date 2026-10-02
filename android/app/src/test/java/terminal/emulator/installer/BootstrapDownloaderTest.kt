@@ -12,6 +12,7 @@ import okhttp3.tls.HeldCertificate
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -43,6 +44,26 @@ class BootstrapDownloaderTest {
     private fun context(): Context = mockk {
         every { cacheDir } returns tempDir
     }
+
+    // / 回归护栏：`file://` 的返回值归调用方所有（装完即 `delete()`），故绝不能是
+    // / 用户自己的那个文件。原实现直接返回源文件，安装流程的 `finally { zipFile.delete() }`
+    // / 会把用户的 zip 删掉——构建产物被删不易察觉，真丢了用户的文件才发现。
+    @Test
+    fun `local file url returns a staged copy and never the source file`() = runBlocking {
+        val source = File(tempDir, "user-supplied.zip").apply { writeBytes(ByteArray(64) { 0x42 }) }
+        // 三斜杠形式，与仪器化用例的 `test.bootstrapUrl` 契约一致
+        // （`file.toURI()` 给的是单斜杠 `file:/...`，不匹配门控前缀）。
+        val result = downloader().download("file://${source.absolutePath}", "test").getOrThrow()
+        assertFalse(
+            "must not hand back the caller's own file: the orchestrator deletes it",
+            result.canonicalPath == source.canonicalPath,
+        )
+        assertTrue("staged copy must carry the payload", result.readBytes().contentEquals(source.readBytes()))
+        result.delete()
+        assertTrue("the user's file must survive", source.exists())
+    }
+
+    private fun downloader(): BootstrapDownloader = BootstrapDownloader(context())
 
     /** Configures httpsServer with an okhttp-tls HeldCertificate (2048-bit,
      *  SAN=localhost) and returns a client that trusts that exact certificate.
