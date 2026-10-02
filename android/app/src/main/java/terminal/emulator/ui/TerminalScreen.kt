@@ -511,6 +511,12 @@ fun TerminalScreen(
                 androidx.compose.runtime.mutableIntStateOf(Bridge.LAST_CONTENT_ROW_NONE)
             }
             val runtimeForContent = viewModel.runtime
+            // 换视图的触发值必须在此处（组合体自身）读取：读在 `Box` 的内容 lambda 里时，
+            // 该 lambda 的捕获未变会被 Compose 跳过，`key(...)` 也就不会被重新求值，
+            // 失效信号再真实也换不掉视图（实测信号已送达却无重组）。读在组合体里则
+            // 本组的重启作用域直接记录该读，信号一变即重组，并把新值作为捕获传给
+            // lambda，lambda 随之重跑。
+            val surfaceKey = runtimeForContent.surfaceRecreateSignal.intValue
             // 直接收集 StateFlow，不经 snapshotFlow：后者只跟踪组合快照的读，
             // 实测对 StateFlow 的后续更新不再触发（只发初值），内容下沿会永远停在
             // -1 → 网格填满时终端也不上移，末行被键栏吞掉。
@@ -522,10 +528,7 @@ fun TerminalScreen(
             // wgpu surface）、新视图重新 `surfaceCreated` 交付**新的**原生窗口，
             // 原生随之走重建慢路径。对同一窗口反复 detach/attach 唤不活被遗弃的
             // BufferQueue（实测此后每帧 `begin_frame failed`、终端永久黑屏）。
-            val surfaceGeneration = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            LaunchedEffect(runtimeForContent) {
-                runtimeForContent.surfaceRecreateRequests.collect { surfaceGeneration.intValue++ }
-            }
+
             // 位移容器不再整体平移：终端 Surface 与键栏各自持有自己的位移量，
             // 但两者都只读上面那一个合成 ime 状态、并在同一帧 placement 中求值——
             // 唯一位移来源不变（双位移源的历史振荡因此不会复现），而平移量可以
@@ -540,7 +543,7 @@ fun TerminalScreen(
             ) {
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
-                key(surfaceGeneration.intValue) {
+                key(surfaceKey) {
                     Box(
                         modifier =
                         Modifier.fillMaxSize().layout { measurable, constraints ->

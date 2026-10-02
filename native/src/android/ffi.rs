@@ -1921,49 +1921,49 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         session_id as u64
     ));
     let mut new_output: i64 = 0;
-    let mut cursor_bits: i64 = CURSOR_ROW_UNKNOWN_BITS;
-    let mut content_row_bits: i64 = LAST_CONTENT_ROW_NONE_BITS;
-    let mut surface_invalidated: i64 = 0;
     if count >= 0 {
         // 就地消费 `new_output` 标志（逻辑同 `consumeNewOutput` 但省一次 JNI 穿越），
         // 并读取本帧已渲染缓存的光标与内容下沿，使跟随输入法的位移看到本帧绘制的坐标；
         // 同时上报渲染器判死的 surface，让宿主换新的 `ANativeWindow`（死窗口的
         // BufferQueue 不可 reconfigure 复活，实测会永久黑屏）。
-        // 空闲帧（count == 0）同样采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
-        // 恰在空闲定居后最需要这些坐标——挂在 `count > 0` 门下会使它们恒为未知。这里不
-        // 调用 `render_cursor()`：它要走 VT 线程同步查询，缓存才是无阻塞且与绘制同源的
-        // 坐标。
+        // `new_output` 是破坏性消费：只在计数非负（帧未被判失败）时取，未呈现的新数据
+        // 必须留在通道里等下一帧，否则失败帧会吞掉它。
         // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE（`setSelection` 同款，
         // 不可跨作用域持有）。
+        let registry = rlock_session_registry();
+        if let Some(entry) = registry.get(&(session_id as u64))
+            && entry.session.lock().take_new_output()
         {
-            let registry = rlock_session_registry();
-            if let Some(entry) = registry.get(&(session_id as u64))
-                && entry.session.lock().take_new_output()
-            {
-                new_output = 1;
-            }
+            new_output = 1;
         }
+    }
+    // 三个采样**必须**在计数门控之外：死 surface 的每一帧都以 -1 失败，把它们挂在
+    // `count >= 0` 门下会让失效位永远送不到宿主（宿主因此永不换窗口，终端永久黑屏）。
+    // 空闲帧（count == 0）同样要采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
+    // 恰在空闲定居后最需要这些坐标。这里不调用 `render_cursor()`：它要走 VT 线程同步
+    // 查询，缓存才是无阻塞且与绘制同源的坐标。
+    {
         let render_state = render_state_mut();
         let last_frame = render_state
             .as_ref()
             .and_then(|render_state| render_state.last_frame.as_ref())
             .filter(|(.., cached_session)| *cached_session == session_id as u64);
-        cursor_bits = cursor_bits_for_rendered_cursor(last_frame.map(|frame| &frame.1));
-        content_row_bits = match last_frame {
+        let cursor_bits = cursor_bits_for_rendered_cursor(last_frame.map(|frame| &frame.1));
+        let content_row_bits = match last_frame {
             Some((cells, _, rows, _, _)) => last_content_row_bits_for_frame(cells, *rows),
             None => LAST_CONTENT_ROW_NONE_BITS,
         };
-        surface_invalidated = i64::from(
+        let surface_invalidated = i64::from(
             render_state
                 .as_ref()
                 .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
         ) * SURFACE_INVALIDATED_BIT;
+        (new_output << 32)
+            | (cursor_bits << 33)
+            | (content_row_bits << 43)
+            | surface_invalidated
+            | (count as i64 & 0xFFFF_FFFF)
     }
-    (new_output << 32)
-        | (cursor_bits << 33)
-        | (content_row_bits << 43)
-        | surface_invalidated
-        | (count as i64 & 0xFFFF_FFFF)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2853,6 +2853,31 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setThem
         log::info!(
             "setTheme: session {id} background={background:02X?} foreground={foreground:02X?}"
         );
+    })
+}
+
+/// 开启/关闭持续的 surface 级取纹理失败（见 `Renderer::set_surface_loss_injected_for_test`）。
+///
+/// 仅供仪器化用例复刻「BufferQueue 被遗弃」以验证自愈：无生产调用方；关闭后立刻
+/// 恢复真实取纹理。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSurfaceLossInjected<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    _session_id: jlong,
+    injected: jboolean,
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, false, |_env| {
+        let mut state = render_state_mut();
+        match state.as_mut() {
+            Some(render_state) => {
+                render_state
+                    .renderer
+                    .set_surface_loss_injected_for_test(injected);
+                true
+            }
+            None => false,
+        }
     })
 }
 
