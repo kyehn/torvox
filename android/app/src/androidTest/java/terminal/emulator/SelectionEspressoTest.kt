@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.getBridge
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
@@ -27,6 +28,12 @@ import terminal.emulator.waitForSession
  * real TextViews, so menu items are asserted via UiAutomator (By.text).
  */
 class SelectionEspressoTest {
+    companion object {
+        // 选择菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，
+        // 5s 等待偶发超时，提到与落格门控同量级的 15s。
+        private const val MENU_POPUP_TIMEOUT_MS = 15_000L
+    }
+
     @get:Rule
     val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
@@ -34,6 +41,17 @@ class SelectionEspressoTest {
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private fun startPartialSelection() {
+        // 确定性内容：shell 自然行的内容不可控（空行则 selectedText 为空、菜单无复制按钮），
+        // 直写长行到视口第 2 行并等落格，再选固定区间。
+        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            composeTestRule.getBridge() != null
+        }
+        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val fill = "P".repeat(40)
+        bridge.feedTerminal("\u001B[3;1H$fill".toByteArray(Charsets.UTF_8))
+        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+            composeTestRule.getBridge()?.getTerminalText()?.contains(fill) == true
+        }
         composeTestRule.activityRule.scenario.onActivity { activity ->
             activity.terminalViewModel.startSelection(2, 10)
             activity.terminalViewModel.updateSelection(2, 30)
@@ -55,10 +73,13 @@ class SelectionEspressoTest {
         // The selection menu is the app PopupWindow (platform text comes
         // from R.string.copy/share/select_all) — visible to UiAutomator.
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        assertTrue("复制 action must be in the selection menu", device.wait(Until.hasObject(By.text("复制")), 5000))
+        assertTrue(
+            "复制 action must be in the selection menu",
+            device.wait(Until.hasObject(By.text("复制")), MENU_POPUP_TIMEOUT_MS),
+        )
         assertTrue(
             "全选 action must be in the selection menu",
-            device.wait(Until.hasObject(By.text("全选")), 5000),
+            device.wait(Until.hasObject(By.text("全选")), MENU_POPUP_TIMEOUT_MS),
         )
     }
 
@@ -107,7 +128,10 @@ class SelectionEspressoTest {
             assertTrue("全选必须包含整缓冲区内容 [$marker], 实际=[$selectedText]", selectedText.contains(marker))
         }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        assertTrue("Selection menu must appear after Select All", device.wait(Until.hasObject(By.text("复制")), 5000))
+        assertTrue(
+            "Selection menu must appear after Select All",
+            device.wait(Until.hasObject(By.text("复制")), MENU_POPUP_TIMEOUT_MS),
+        )
         // 全选后重锚（design 决策 3）：选择自视口顶起时上方无位，菜单必须翻到
         // 选择底缘之下（窗口 y ≥ 选择底缘），任何时刻不遮挡选择。
         var popupY = Int.MIN_VALUE
@@ -165,18 +189,24 @@ class SelectionEspressoTest {
     @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun copyActionPlacesTextOnClipboard() {
         composeTestRule.waitForSession()
-        // Fill the screen with text so the copy extracts a non-empty payload.
+        // 确定性内容：经 shell 回显送显依赖回显链时序，慢机上 3s 裸睡不够；
+        // 直写解析器并等落格（与 selectAllShowsSelectionMenu 同口径）。
+        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            composeTestRule.getBridge() != null
+        }
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-        bridge.writeToPty("echo 'copy-me-selection-target'\n".toByteArray())
-        // Software-rendered emulator: give the PTY output time to render.
-        Thread.sleep(3000)
+        val marker = "copy-me-selection-target"
+        bridge.feedTerminal("$marker\r\n".toByteArray(Charsets.UTF_8))
+        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+            composeTestRule.getBridge()?.getTerminalText()?.contains(marker) == true
+        }
         composeTestRule.activityRule.scenario.onActivity { activity ->
             activity.terminalViewModel.selectAll()
         }
         composeTestRule.waitForIdle()
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val copy = device.wait(Until.findObject(By.text("复制")), 5000)
+        val copy = device.wait(Until.findObject(By.text("复制")), MENU_POPUP_TIMEOUT_MS)
         assertTrue("复制 action must be present", copy != null)
         requireNotNull(copy).click()
         // Clipboard write happens on the native side after the action callback
@@ -202,9 +232,11 @@ class SelectionEspressoTest {
             assertTrue("Selection should be active", sel.active)
             val start = requireNotNull(sel.start)
             val end = requireNotNull(sel.end)
+            // 选区按网格钳位（cols-1）：竖屏小列数设备上 30 会被钳制，期望必须跟随实际几何。
+            val maxCol = (activity.terminalViewModel.runtime.state.value.cols - 1).coerceAtLeast(0)
             assertEquals(2, start.row)
-            assertEquals(10, start.col)
-            assertEquals(30, end.col)
+            assertEquals(minOf(10, maxCol), start.col)
+            assertEquals(minOf(30, maxCol), end.col)
         }
     }
 }
