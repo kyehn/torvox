@@ -1854,12 +1854,14 @@ fn render_inner(session_id: u64) -> jint {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-const CURSOR_ROW_UNKNOWN_BITS: i64 = 0xFFFF;
-/// 「视口全空」哨兵：bit 49..63 只有 15 位，可表示的视口行号上限远大于实际行数。
-const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x7FFF;
+const CURSOR_ROW_UNKNOWN_BITS: i64 = 0x3FF;
+/// 「视口全空」哨兵：与光标行同宽（10 位）的全 1 模式。
+const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x3FF;
+/// 打包位偏移：光标行 33、内容下沿 43（各 10 位）、surface 失效位 53。
+const SURFACE_INVALIDATED_BIT: i64 = 1 << 53;
 
 /// 把已渲染帧缓存的光标映射为上报位：无缓存、隐藏或在视口外时回未知哨兵，
-/// 可见光标取视口行并截断到 16 位上报宽度。
+/// 可见光标取视口行并截断到 10 位上报宽度。
 fn cursor_bits_for_rendered_cursor(
     rendered_cursor: Option<&crate::terminal::ghostty_terminal::CursorInfo>,
 ) -> i64 {
@@ -1891,17 +1893,22 @@ fn last_content_row_bits_for_frame(
 /// `new_output` 标志，比分开两次调用每帧省约 0.1-0.3ms。
 ///
 /// 返回打包的 `jlong`：位 0..31 = 渲染计数（语义同 `render()`）；位 32 = `new_output`
-/// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..48 = 视口光标行（0xFFFF = 隐藏/
-/// 视口外）；位 49..63 = 视口最后一个有内容的行（0x7FFF = 视口全空）。
+/// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..42 = 视口光标行（0x3FF = 隐藏/
+/// 视口外）；位 43..52 = 视口最后一个有内容的行（0x3FF = 视口全空）；位 53 =
+/// surface 已判死（缓存的 `ANativeWindow` 对应被遗弃的 BufferQueue，需宿主换新的
+/// `ANativeWindow` 才能恢复；重建成功即回落为 0）。
 ///
-/// 光标行与内容下沿的采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner` 返回 0
-/// （无新单元数据，无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要
-/// 这些坐标；若随渲染一并跳过，`cursorRowFlow` 恒为未知、IME 位移恒按整块键盘高度
-/// 平移（内容少时把首行提示符推出屏幕）。采样复用本帧已渲染缓存，不新增发往 VT
-/// 线程的同步查询，故空闲帧无阻塞风险。
+/// 两个行字段各占 10 位：Android 网格行数上限远小于 1024（最小字号行高 ≥18px、
+/// 屏幕高 ≤4096px ⇒ ≤227 行），超出即按哨兵处理，光标未知退化为 IME 位移取整块
+/// 键盘高度、内容未知退化为不位移，二者都是保守方向。
+///
+/// 光标行、内容下沿与失效位的采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner`
+/// 返回 0（无新单元数据，无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要
+/// 这些坐标；而失效位只在失败帧翻转，空闲门控会把它永远压在 0。采样复用本帧已渲染缓存，
+/// 不新增发往 VT 线程的同步查询，故空闲帧无阻塞风险。
 ///
 /// Kotlin 必须分别掩码每个字段：裸读 `(packed shr 32) != 0` 会把光标位误当作输出。
-/// 出错时渲染计数为负、`new_output` 为 0、光标行为 0xFFFF、内容下沿为 0x7FFF。
+/// 出错时渲染计数为负、`new_output` 为 0、光标行为 0x3FF、内容下沿为 0x3FF、失效位为 0。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -1916,9 +1923,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     let mut new_output: i64 = 0;
     let mut cursor_bits: i64 = CURSOR_ROW_UNKNOWN_BITS;
     let mut content_row_bits: i64 = LAST_CONTENT_ROW_NONE_BITS;
+    let mut surface_invalidated: i64 = 0;
     if count >= 0 {
         // 就地消费 `new_output` 标志（逻辑同 `consumeNewOutput` 但省一次 JNI 穿越），
-        // 并读取本帧已渲染缓存的光标与内容下沿，使跟随输入法的位移看到本帧绘制的坐标。
+        // 并读取本帧已渲染缓存的光标与内容下沿，使跟随输入法的位移看到本帧绘制的坐标；
+        // 同时上报渲染器判死的 surface，让宿主换新的 `ANativeWindow`（死窗口的
+        // BufferQueue 不可 reconfigure 复活，实测会永久黑屏）。
         // 空闲帧（count == 0）同样采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
         // 恰在空闲定居后最需要这些坐标——挂在 `count > 0` 门下会使它们恒为未知。这里不
         // 调用 `render_cursor()`：它要走 VT 线程同步查询，缓存才是无阻塞且与绘制同源的
@@ -1943,10 +1953,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
             Some((cells, _, rows, _, _)) => last_content_row_bits_for_frame(cells, *rows),
             None => LAST_CONTENT_ROW_NONE_BITS,
         };
+        surface_invalidated = i64::from(
+            render_state
+                .as_ref()
+                .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
+        ) * SURFACE_INVALIDATED_BIT;
     }
     (new_output << 32)
         | (cursor_bits << 33)
-        | (content_row_bits << 49)
+        | (content_row_bits << 43)
+        | surface_invalidated
         | (count as i64 & 0xFFFF_FFFF)
 }
 

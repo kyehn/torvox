@@ -22,23 +22,27 @@
 
 ## 3. 原生侧失效缓存与状态位
 
-- [ ] 3.1 `Renderer`：新增 surface 失效标记；`attach_surface` 快路径条件收紧为
+- [x] 3.1 `Renderer`：新增 surface 失效标记；`attach_surface` 快路径条件收紧为
       「已配置且未失效」（`render/context.rs:368`）
-- [ ] 3.2 `begin_frame` / acquire 的 surface 级失败置失效（幂等、每帧最多记一次）；
+- [x] 3.2 `begin_frame` / acquire 的 surface 级失败置失效（幂等、每帧最多记一次）；
       `render_paused` 与「本帧无内容」不置失效（`render/pass.rs:339-349`、`context.rs:343-345`）
-- [ ] 3.3 `renderWithNewOutput` 打包返回新增失效状态位（复用既有返回通道，零额外 JNI）；
+- [x] 3.3 `renderWithNewOutput` 打包返回新增失效状态位（复用既有返回通道，零额外 JNI）；
       函数文档位段注释同步
-- [ ] 3.4 `detachWindow` 语义不变；失效位随 RenderState 清除
-- [ ] 3.5 Rust 单测：失效后 attach 走重建路径；暂停/空帧不置失效；失效位幂等
+- [x] 3.4 `detachWindow` 语义不变；失效位随 RenderState 清除
+- [x] 3.5 Rust 单测（`surface_loss_transition` 纯函数）：单次失败不置失效、连续置失效、
+      跳过帧清零计数、置位幂等；「失效后 attach 走重建路径」需真实窗口，由 2.2 的
+      仪器化注入用例覆盖
 
 ## 4. 宿主重建 surface
 
-- [ ] 4.1 `TerminalSurface` 渲染循环观察状态位 0→1：摘下再挂回 `SurfaceView`（或切换一次
-      visibility）强制 `SurfaceHolder` 交付新 `ANativeWindow`
-- [ ] 4.2 限流：状态位回落为 0（即开始出帧）或距上次请求 ≥ 最小间隔才允许再次请求；
+- [x] 4.1 观察方是 `TerminalRuntime`（不是 `TerminalSurface`：渲染循环在 runtime），
+      裁决后递增 `surfaceRecreateRequests`；`TerminalScreen` 以 `key(计数)` 换掉整个
+      `SurfaceView`（比切 visibility 更确定：旧视图必被拆除并 `surfaceDestroyed` 释放
+      wgpu surface），新视图的 `surfaceCreated` 交付新的 `ANativeWindow`
+- [x] 4.2 限流：状态位回落为 0（即开始出帧）或距上次请求 ≥ 最小间隔才允许再次请求；
       连续失败达上限后停止并打一条 error
-- [ ] 4.3 `RenderResult` 解包新增字段；不改 ime 位移裁剪与网格锚定
-- [ ] 4.4 Kotlin 单测：0→1 触发一次请求、回落前不重复、间隔与上限生效
+- [x] 4.3 `RenderResult` 解包新增字段；不改 ime 位移裁剪与网格锚定
+- [x] 4.4 Kotlin 单测：0→1 触发一次请求、回落前不重复、间隔与上限生效
 
 ## 5. 逐例跟踪：基线的 27 个失败用例
 

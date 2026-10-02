@@ -52,6 +52,29 @@ fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
     WORKER_TX.get_or_init(spawn_acquire_worker)
 }
 
+/// 单帧取纹理的结局。
+///
+/// `Lost`/`Outdated` 与「本帧跳过」必须分开：前者是 surface 级信号（连续出现即判
+/// 死窗口，见 [`Renderer::note_surface_acquire`]`），后者只是工作线程忙或超时，
+/// surface 仍然可用。合并成 `Option` 会让慢机器每帧误伤 surface。
+pub(crate) enum AcquireOutcome {
+    /// 拿到可呈现纹理。
+    Acquired(wgpu::SurfaceTexture),
+    /// 本帧跳过：工作线程忙/已死、取纹理超时或呈现缺失，下一帧重试。
+    Skipped,
+    /// surface 级失败：已原地 `reconfigure`，本帧丢弃。
+    SurfaceLost,
+}
+
+impl AcquireOutcome {
+    pub(crate) fn into_texture(self) -> Option<wgpu::SurfaceTexture> {
+        match self {
+            Self::Acquired(texture) => Some(texture),
+            Self::Skipped | Self::SurfaceLost => None,
+        }
+    }
+}
+
 /// 单颜色附件：整帧写入 `load` 指定的内容后保留。
 fn store_attachment(
     view: &wgpu::TextureView,
@@ -83,8 +106,9 @@ impl Renderer {
         let Some(config) = self.surface_config.as_ref() else {
             return;
         };
-        let Some(output) =
-            self.acquire_texture(surface, config.width, config.height, WARMUP_ACQUIRE_TIMEOUT)
+        let Some(output) = self
+            .acquire_texture(surface, config.width, config.height, WARMUP_ACQUIRE_TIMEOUT)
+            .into_texture()
         else {
             return;
         };
@@ -125,7 +149,7 @@ impl Renderer {
         _config_width: u32,
         _config_height: u32,
         deadline: std::time::Duration,
-    ) -> Option<wgpu::SurfaceTexture> {
+    ) -> AcquireOutcome {
         // Mali-G57（联发科/展锐 SoC）在缺 SURFACE_VIEW_FORMATS 时会永久卡在
         // vkAcquireNextImageKHR，故用常驻工作线程 + 超时，绝不让渲染线程无限阻塞。
         // Lost/Outdated 在工作线程内就地处理；卡死视为永久故障（Mali-G57 专有），
@@ -147,29 +171,29 @@ impl Renderer {
         // 会让渲染线程永久挂死。本帧跳过，下一帧重试。
         if let Err(error) = acquire_worker_tx().try_send(request) {
             log::warn!("acquire_texture: worker busy or dead ({error}); frame skipped");
-            return None;
+            return AcquireOutcome::Skipped;
         }
 
         match response_receiver.recv_timeout(deadline) {
             Ok(Ok(result)) => match result {
                 wgpu::CurrentSurfaceTexture::Success(tex)
-                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
+                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => AcquireOutcome::Acquired(tex),
                 wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                     Self::reconfigure_surface(surface, &self.surface_config, &self.device);
-                    None
+                    AcquireOutcome::SurfaceLost
                 }
-                _ => None,
+                _ => AcquireOutcome::Skipped,
             },
             Ok(Err(_)) => {
                 log::warn!("acquire_texture: get_current_texture panicked");
-                None
+                AcquireOutcome::Skipped
             }
             Err(_) => {
                 log::warn!(
                     "acquire_texture: get_current_texture timed out after {}ms (slow SurfaceFlinger/SwiftShader; frame skipped, retried next frame)",
                     deadline.as_millis()
                 );
-                None
+                AcquireOutcome::Skipped
             }
         }
     }

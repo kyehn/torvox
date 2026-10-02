@@ -32,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -516,6 +517,15 @@ fun TerminalScreen(
             LaunchedEffect(runtimeForContent) {
                 runtimeForContent.lastContentRowFlow.collect { lastContentRow.intValue = it }
             }
+            // 原生 surface 判死（其原生窗口的 BufferQueue 被遗弃）时换掉整个
+            // `SurfaceView`：`key` 变更使旧视图被拆除（`surfaceDestroyed` 释放
+            // wgpu surface）、新视图重新 `surfaceCreated` 交付**新的**原生窗口，
+            // 原生随之走重建慢路径。对同一窗口反复 detach/attach 唤不活被遗弃的
+            // BufferQueue（实测此后每帧 `begin_frame failed`、终端永久黑屏）。
+            val surfaceGeneration = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            LaunchedEffect(runtimeForContent) {
+                runtimeForContent.surfaceRecreateRequests.collect { surfaceGeneration.intValue++ }
+            }
             // 位移容器不再整体平移：终端 Surface 与键栏各自持有自己的位移量，
             // 但两者都只读上面那一个合成 ime 状态、并在同一帧 placement 中求值——
             // 唯一位移来源不变（双位移源的历史振荡因此不会复现），而平移量可以
@@ -530,265 +540,267 @@ fun TerminalScreen(
             ) {
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
-                Box(
-                    modifier =
-                    Modifier.fillMaxSize().layout { measurable, constraints ->
-                        val placeable = measurable.measure(constraints)
-                        val cellHeightPx = runtimeForContent.cellHeight
-                        val contentRow = lastContentRow.intValue
-                        val contentBottomPx =
-                            if (contentRow < 0) 0 else (contentRow + 1) * cellHeightPx.toInt()
-                        val shift =
-                            computeImeSurfaceShift(
-                                contentBottomPx = contentBottomPx,
-                                surfaceHeightPx = placeable.height,
-                                modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
-                                imeBottomPx = max(imeLeafPx.intValue, imeViewPx.intValue),
-                            )
-                        layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
-                    },
-                ) {
-                    AndroidView(
-                        factory = { context ->
-                            terminal.emulator.ui
-                                .TerminalSurface(context)
-                                .apply { setTag("TerminalSurfaceView") }
-                                .also { surface ->
-                                    surfaceRef.value = surface
-                                    surface.attachViewModel(viewModel)
-                                    surface.onScrollChanged = { offset ->
-                                        viewportScrollOffset.intValue = offset
-                                        viewModel.runtime.setScrollOffset(offset)
-                                    }
-                                    surface.onScrollingStateChanged = { isScrolling ->
-                                        viewModel.runtime.setScrollActive(isScrolling)
-                                    }
-                                }
-                                .apply {
-                                    setDimensions(runtimeState.rows, runtimeState.cols)
-                                    onCopyRequested = { text ->
-                                        scope.launch {
-                                            snackbarHostState.currentSnackbarData?.dismiss()
-                                            snackbarHostState.showSnackbar(
-                                                message =
-                                                context.resources.getQuantityString(
-                                                    R.plurals.copied_chars,
-                                                    text.length,
-                                                    text.length,
-                                                ),
-                                                duration = SnackbarDuration.Short,
-                                            )
+                key(surfaceGeneration.intValue) {
+                    Box(
+                        modifier =
+                        Modifier.fillMaxSize().layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val cellHeightPx = runtimeForContent.cellHeight
+                            val contentRow = lastContentRow.intValue
+                            val contentBottomPx =
+                                if (contentRow < 0) 0 else (contentRow + 1) * cellHeightPx.toInt()
+                            val shift =
+                                computeImeSurfaceShift(
+                                    contentBottomPx = contentBottomPx,
+                                    surfaceHeightPx = placeable.height,
+                                    modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
+                                    imeBottomPx = max(imeLeafPx.intValue, imeViewPx.intValue),
+                                )
+                            layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
+                        },
+                    ) {
+                        AndroidView(
+                            factory = { context ->
+                                terminal.emulator.ui
+                                    .TerminalSurface(context)
+                                    .apply { setTag("TerminalSurfaceView") }
+                                    .also { surface ->
+                                        surfaceRef.value = surface
+                                        surface.attachViewModel(viewModel)
+                                        surface.onScrollChanged = { offset ->
+                                            viewportScrollOffset.intValue = offset
+                                            viewModel.runtime.setScrollOffset(offset)
+                                        }
+                                        surface.onScrollingStateChanged = { isScrolling ->
+                                            viewModel.runtime.setScrollActive(isScrolling)
                                         }
                                     }
-                                    onPasteRequested = {
-                                        val count = viewModel.pasteFromClipboard()
-                                        if (count > 0) {
+                                    .apply {
+                                        setDimensions(runtimeState.rows, runtimeState.cols)
+                                        onCopyRequested = { text ->
                                             scope.launch {
                                                 snackbarHostState.currentSnackbarData?.dismiss()
                                                 snackbarHostState.showSnackbar(
                                                     message =
                                                     context.resources.getQuantityString(
-                                                        R.plurals.pasted_chars,
-                                                        count,
-                                                        count,
+                                                        R.plurals.copied_chars,
+                                                        text.length,
+                                                        text.length,
                                                     ),
                                                     duration = SnackbarDuration.Short,
                                                 )
                                             }
                                         }
+                                        onPasteRequested = {
+                                            val count = viewModel.pasteFromClipboard()
+                                            if (count > 0) {
+                                                scope.launch {
+                                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                                    snackbarHostState.showSnackbar(
+                                                        message =
+                                                        context.resources.getQuantityString(
+                                                            R.plurals.pasted_chars,
+                                                            count,
+                                                            count,
+                                                        ),
+                                                        duration = SnackbarDuration.Short,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        onZoomChanged = { sizeSp ->
+                                            // ⑥ 双指缩放终结：持久化稳定尺寸并执行完整应用
+                                            // （单次网格重排）。
+                                            viewModel.setFontSize(sizeSp.coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX))
+                                        }
+                                        onZoomPreview = { sizeSp ->
+                                            // 手势预览只推字形度量不重算网格，网格只在
+                                            // finalize 重算一次，避免手势期间中间态撕裂。
+                                            viewModel.runtime.setFontSizePreview(sizeSp)
+                                        }
+                                        post {
+                                            requestFocus()
+                                        }
                                     }
-                                    onZoomChanged = { sizeSp ->
-                                        // ⑥ 双指缩放终结：持久化稳定尺寸并执行完整应用
-                                        // （单次网格重排）。
-                                        viewModel.setFontSize(sizeSp.coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX))
-                                    }
-                                    onZoomPreview = { sizeSp ->
-                                        // 手势预览只推字形度量不重算网格，网格只在
-                                        // finalize 重算一次，避免手势期间中间态撕裂。
-                                        viewModel.runtime.setFontSizePreview(sizeSp)
-                                    }
-                                    post {
-                                        requestFocus()
-                                    }
+                            },
+                            update = { surface ->
+                                surface.touchEnabled = !isOverlayVisible
+                                // 仅在终端网格尺寸真正变化时（resize / 字体变化）才重新布局。
+                                // AndroidView 的 update 块在 TerminalScreen 的每次重组上都会运行，
+                                // 此处无条件 requestLayout() 会迫使每次选区拖动与滚动事件
+                                // 都走一遍完整的 View 布局流程——UI 卡顿的一个主要来源。
+                                if (
+                                    runtimeState.rows > 0 &&
+                                    runtimeState.cols > 0 &&
+                                    (
+                                        surface.getRows() != runtimeState.rows ||
+                                            surface.getCols() != runtimeState.cols
+                                        )
+                                ) {
+                                    surface.setDimensions(runtimeState.rows, runtimeState.cols)
+                                    surface.requestLayout()
                                 }
-                        },
-                        update = { surface ->
-                            surface.touchEnabled = !isOverlayVisible
-                            // 仅在终端网格尺寸真正变化时（resize / 字体变化）才重新布局。
-                            // AndroidView 的 update 块在 TerminalScreen 的每次重组上都会运行，
-                            // 此处无条件 requestLayout() 会迫使每次选区拖动与滚动事件
-                            // 都走一遍完整的 View 布局流程——UI 卡顿的一个主要来源。
-                            if (
-                                runtimeState.rows > 0 &&
-                                runtimeState.cols > 0 &&
-                                (
-                                    surface.getRows() != runtimeState.rows ||
-                                        surface.getCols() != runtimeState.cols
-                                    )
-                            ) {
-                                surface.setDimensions(runtimeState.rows, runtimeState.cols)
-                                surface.requestLayout()
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
 
-                    if (selectionActive) {
-                        val selStart = selection.start
-                        val selEnd = selection.end
-                        val loRow = min(selStart.row, selEnd.row)
-                        val hiRow = max(selStart.row, selEnd.row)
-                        val loCol: Int
-                        val hiCol: Int
-                        if (selStart.row <= selEnd.row) {
-                            loCol = selStart.col
-                            hiCol = selEnd.col
-                        } else {
-                            loCol = selEnd.col
-                            hiCol = selStart.col
-                        }
-                        val themeAccent =
-                            if (state.selectionAccent != 0) {
-                                Color(state.selectionAccent)
+                        if (selectionActive) {
+                            val selStart = selection.start
+                            val selEnd = selection.end
+                            val loRow = min(selStart.row, selEnd.row)
+                            val hiRow = max(selStart.row, selEnd.row)
+                            val loCol: Int
+                            val hiCol: Int
+                            if (selStart.row <= selEnd.row) {
+                                loCol = selStart.col
+                                hiCol = selEnd.col
                             } else {
-                                resolvedTerminalTheme.foreground
+                                loCol = selEnd.col
+                                hiCol = selStart.col
                             }
-
-                        val themeAccentArgb = themeAccent.toArgb()
-
-                        // 以整个选区状态为 key 的单一 effect：
-                        // key 变化时先取消正在运行的 effect，
-                        // 故未改变锚点单元格就结束的拖动不会把手柄留在隐藏状态
-                        // （此前拆分的显示/隐藏 effect 会在软件渲染器上乱序执行，
-                        // 在显示之后又隐藏）。
-                        LaunchedEffect(
-                            selectionActive,
-                            selection.dragging,
-                            loRow,
-                            loCol,
-                            hiRow,
-                            hiCol,
-                            themeAccentArgb,
-                        ) {
-                            // 手柄拖动进行中时，单一覆盖层拥有触摸事件流
-                            // 并在进程内重定位手柄
-                            // ——此处的 hideSelectionHandles() 会在手指底下
-                            // dismiss 窗口，从而在首次跨单元格移动后杀死手势。
-                            // 拖动期间刻意为空操作。菜单另行经 menuDismissed 隐藏。
-                            if (!selection.dragging) {
-                                surfaceRef.value?.showSelectionHandles(loRow, loCol, hiRow, hiCol, themeAccentArgb)
-                            }
-                        }
-                    } else {
-                        LaunchedEffect(selectionActive) {
-                            surfaceRef.value?.hideSelectionHandles()
-                        }
-                    }
-
-                    // ── 选区上下文菜单（PopupWindow） ──
-                    // 菜单必须是 PopupWindow 而非 Compose 覆盖层
-                    // ——终端是 SurfaceView，其 surface 在整个终端区域开了孔，
-                    // 会遮住任何窗口内的 Compose 绘制。
-                    // PopupWindow 是独立的系统窗口，渲染在其之上。
-                    val menuSurface = surfaceRef.value
-                    if (menuSurface != null && selectionActive && !selection.dragging) {
-                        val menuVisible = !selection.menuDismissed
-                        if (menuVisible) {
-                            val themeAccentArgb =
+                            val themeAccent =
                                 if (state.selectionAccent != 0) {
                                     Color(state.selectionAccent)
                                 } else {
                                     resolvedTerminalTheme.foreground
                                 }
-                                    .toArgb()
-                            // 选择菜单走 Surface 侧 PopupWindow 定位与绘制，不用系统 ActionMode。
-                            LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {
-                                if (selection.menuDismissed) {
-                                    menuSurface.hideSelectionMenu()
-                                } else {
-                                    menuSurface.showSelectionMenu(selection.pasteOnly)
+
+                            val themeAccentArgb = themeAccent.toArgb()
+
+                            // 以整个选区状态为 key 的单一 effect：
+                            // key 变化时先取消正在运行的 effect，
+                            // 故未改变锚点单元格就结束的拖动不会把手柄留在隐藏状态
+                            // （此前拆分的显示/隐藏 effect 会在软件渲染器上乱序执行，
+                            // 在显示之后又隐藏）。
+                            LaunchedEffect(
+                                selectionActive,
+                                selection.dragging,
+                                loRow,
+                                loCol,
+                                hiRow,
+                                hiCol,
+                                themeAccentArgb,
+                            ) {
+                                // 手柄拖动进行中时，单一覆盖层拥有触摸事件流
+                                // 并在进程内重定位手柄
+                                // ——此处的 hideSelectionHandles() 会在手指底下
+                                // dismiss 窗口，从而在首次跨单元格移动后杀死手势。
+                                // 拖动期间刻意为空操作。菜单另行经 menuDismissed 隐藏。
+                                if (!selection.dragging) {
+                                    surfaceRef.value?.showSelectionHandles(loRow, loCol, hiRow, hiCol, themeAccentArgb)
                                 }
                             }
                         } else {
-                            LaunchedEffect(Unit) { menuSurface.hideSelectionMenu() }
+                            LaunchedEffect(selectionActive) {
+                                surfaceRef.value?.hideSelectionHandles()
+                            }
                         }
-                    } else {
-                        LaunchedEffect(selectionActive) {
-                            menuSurface?.hideSelectionMenu()
-                        }
-                    }
 
-                    // 搜索高亮绘制必须作为副作用运行，而不能在组合期间内联：
-                    // 它会调入原生（bridge.render）并改写 searchState，
-                    // 否则会在每次重组时重复执行，并在组合期间触发状态写入。
-                    LaunchedEffect(
-                        showTextSearch,
-                        searchState.hasResults,
-                        searchState.resultCount,
-                        searchState.currentIndex,
-                        searchState.results,
-                        viewportScrollOffset.intValue,
-                        surfaceRef.value?.getMaxScrollOffset(),
-                        resolvedTerminalTheme.foreground,
-                        resolvedTerminalTheme.selectionBackground,
-                    ) {
-                        if (showTextSearch && searchState.hasResults) {
-                            val surface = surfaceRef.value
-                            if (surface != null) {
-                                val rows = surface.getRows()
-                                val scrollbackCount = surface.getMaxScrollOffset()
-                                val scrollOffset = viewportScrollOffset.intValue
-                                val themeForeground = resolvedTerminalTheme.foreground
-                                val themeSelectionBackground = resolvedTerminalTheme.selectionBackground
-
-                                val highlightBuffer = java.io.ByteArrayOutputStream()
-                                fun writeI32(value: Int) {
-                                    highlightBuffer.write(value and 0xFF)
-                                    highlightBuffer.write((value ushr 8) and 0xFF)
-                                    highlightBuffer.write((value ushr 16) and 0xFF)
-                                    highlightBuffer.write((value ushr 24) and 0xFF)
-                                }
-                                fun writeByte(value: Byte) {
-                                    highlightBuffer.write(value.toInt())
-                                }
-                                writeI32(searchState.resultCount)
-                                for ((index, match) in searchState.results.withIndex()) {
-                                    val gridRow = match.lineIndex - scrollbackCount + scrollOffset
-                                    if (gridRow < 0 || gridRow >= rows) continue
-                                    val isCurrent = index == searchState.currentIndex
-                                    writeI32(gridRow)
-                                    writeI32(match.startIndex)
-                                    writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
-                                    if (isCurrent) {
-                                        // 当前命中项：完全不透明的主题前景色。
-                                        // alpha >= 128 使 Rust 渲染器交换前景/背景
-                                        // （反色）并把不透明色混合到背景上，
-                                        // 使当前命中项毫无疑问地突出。
-                                        // 见 SearchHighlightColors.CURRENT_MATCH_ALPHA
-                                        // 与 native/src/render/tests.rs 的生产值测试。
-                                        writeByte((themeForeground.red * 255).toInt().toByte())
-                                        writeByte((themeForeground.green * 255).toInt().toByte())
-                                        writeByte((themeForeground.blue * 255).toInt().toByte())
-                                        writeByte(SearchHighlightColors.CURRENT_MATCH_ALPHA.toByte())
+                        // ── 选区上下文菜单（PopupWindow） ──
+                        // 菜单必须是 PopupWindow 而非 Compose 覆盖层
+                        // ——终端是 SurfaceView，其 surface 在整个终端区域开了孔，
+                        // 会遮住任何窗口内的 Compose 绘制。
+                        // PopupWindow 是独立的系统窗口，渲染在其之上。
+                        val menuSurface = surfaceRef.value
+                        if (menuSurface != null && selectionActive && !selection.dragging) {
+                            val menuVisible = !selection.menuDismissed
+                            if (menuVisible) {
+                                val themeAccentArgb =
+                                    if (state.selectionAccent != 0) {
+                                        Color(state.selectionAccent)
                                     } else {
-                                        // 其余命中项：低于 128 反色阈值的
-                                        // selection_background 着色——可见覆盖层，不反色。
-                                        // 见 SearchHighlightColors.OTHER_MATCH_ALPHA。
-                                        writeByte((themeSelectionBackground.red * 255).toInt().toByte())
-                                        writeByte((themeSelectionBackground.green * 255).toInt().toByte())
-                                        writeByte((themeSelectionBackground.blue * 255).toInt().toByte())
-                                        writeByte(SearchHighlightColors.OTHER_MATCH_ALPHA.toByte())
+                                        resolvedTerminalTheme.foreground
+                                    }
+                                        .toArgb()
+                                // 选择菜单走 Surface 侧 PopupWindow 定位与绘制，不用系统 ActionMode。
+                                LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {
+                                    if (selection.menuDismissed) {
+                                        menuSurface.hideSelectionMenu()
+                                    } else {
+                                        menuSurface.showSelectionMenu(selection.pasteOnly)
                                     }
                                 }
-                                val highlightBytes = highlightBuffer.toByteArray()
-                                // 单次调用：surface.setSearchHighlights 内部会调用
-                                // bridge.setSearchHighlights + bridge.render
-                                surface.setSearchHighlights(highlightBytes)
-                                searchState = searchState.copy(highlightsActive = true)
+                            } else {
+                                LaunchedEffect(Unit) { menuSurface.hideSelectionMenu() }
                             }
-                        } else if (searchState.highlightsActive) {
-                            surfaceRef.value?.clearSearchHighlights()
-                            searchState = searchState.copy(highlightsActive = false)
+                        } else {
+                            LaunchedEffect(selectionActive) {
+                                menuSurface?.hideSelectionMenu()
+                            }
+                        }
+
+                        // 搜索高亮绘制必须作为副作用运行，而不能在组合期间内联：
+                        // 它会调入原生（bridge.render）并改写 searchState，
+                        // 否则会在每次重组时重复执行，并在组合期间触发状态写入。
+                        LaunchedEffect(
+                            showTextSearch,
+                            searchState.hasResults,
+                            searchState.resultCount,
+                            searchState.currentIndex,
+                            searchState.results,
+                            viewportScrollOffset.intValue,
+                            surfaceRef.value?.getMaxScrollOffset(),
+                            resolvedTerminalTheme.foreground,
+                            resolvedTerminalTheme.selectionBackground,
+                        ) {
+                            if (showTextSearch && searchState.hasResults) {
+                                val surface = surfaceRef.value
+                                if (surface != null) {
+                                    val rows = surface.getRows()
+                                    val scrollbackCount = surface.getMaxScrollOffset()
+                                    val scrollOffset = viewportScrollOffset.intValue
+                                    val themeForeground = resolvedTerminalTheme.foreground
+                                    val themeSelectionBackground = resolvedTerminalTheme.selectionBackground
+
+                                    val highlightBuffer = java.io.ByteArrayOutputStream()
+                                    fun writeI32(value: Int) {
+                                        highlightBuffer.write(value and 0xFF)
+                                        highlightBuffer.write((value ushr 8) and 0xFF)
+                                        highlightBuffer.write((value ushr 16) and 0xFF)
+                                        highlightBuffer.write((value ushr 24) and 0xFF)
+                                    }
+                                    fun writeByte(value: Byte) {
+                                        highlightBuffer.write(value.toInt())
+                                    }
+                                    writeI32(searchState.resultCount)
+                                    for ((index, match) in searchState.results.withIndex()) {
+                                        val gridRow = match.lineIndex - scrollbackCount + scrollOffset
+                                        if (gridRow < 0 || gridRow >= rows) continue
+                                        val isCurrent = index == searchState.currentIndex
+                                        writeI32(gridRow)
+                                        writeI32(match.startIndex)
+                                        writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
+                                        if (isCurrent) {
+                                            // 当前命中项：完全不透明的主题前景色。
+                                            // alpha >= 128 使 Rust 渲染器交换前景/背景
+                                            // （反色）并把不透明色混合到背景上，
+                                            // 使当前命中项毫无疑问地突出。
+                                            // 见 SearchHighlightColors.CURRENT_MATCH_ALPHA
+                                            // 与 native/src/render/tests.rs 的生产值测试。
+                                            writeByte((themeForeground.red * 255).toInt().toByte())
+                                            writeByte((themeForeground.green * 255).toInt().toByte())
+                                            writeByte((themeForeground.blue * 255).toInt().toByte())
+                                            writeByte(SearchHighlightColors.CURRENT_MATCH_ALPHA.toByte())
+                                        } else {
+                                            // 其余命中项：低于 128 反色阈值的
+                                            // selection_background 着色——可见覆盖层，不反色。
+                                            // 见 SearchHighlightColors.OTHER_MATCH_ALPHA。
+                                            writeByte((themeSelectionBackground.red * 255).toInt().toByte())
+                                            writeByte((themeSelectionBackground.green * 255).toInt().toByte())
+                                            writeByte((themeSelectionBackground.blue * 255).toInt().toByte())
+                                            writeByte(SearchHighlightColors.OTHER_MATCH_ALPHA.toByte())
+                                        }
+                                    }
+                                    val highlightBytes = highlightBuffer.toByteArray()
+                                    // 单次调用：surface.setSearchHighlights 内部会调用
+                                    // bridge.setSearchHighlights + bridge.render
+                                    surface.setSearchHighlights(highlightBytes)
+                                    searchState = searchState.copy(highlightsActive = true)
+                                }
+                            } else if (searchState.highlightsActive) {
+                                surfaceRef.value?.clearSearchHighlights()
+                                searchState = searchState.copy(highlightsActive = false)
+                            }
                         }
                     }
                 }

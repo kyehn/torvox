@@ -3,7 +3,7 @@ use parking_lot::Mutex;
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
-use crate::render::pass::ACQUIRE_TIMEOUT;
+use crate::render::pass::{ACQUIRE_TIMEOUT, AcquireOutcome};
 use crate::render::pipeline::QUAD_CORNERS;
 use crate::render::{CATPPUCCIN_MOCHA_BACKGROUND, GpuError};
 
@@ -14,6 +14,30 @@ pub(crate) fn log_gpu_error(error: &wgpu::Error) {
 /// 排空挂起 GPU 工作时的单次 poll 等待量（一帧 60Hz 量级）：只求排空提交，
 /// 不阻塞帧循环。
 const GPU_DRAIN_POLL_QUANTUM: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// 连续多少次 surface 级取纹理失败即判死窗口（见 [`Renderer::note_surface_acquire`]）。
+///
+/// 取 2 而非 1：单次 `Outdated` 可由 SurfaceFlinger 缩放竞态引起并在下一次
+/// `reconfigure` 后自愈，死窗口则每帧必失败，连续两次足以区分且恢复延迟只有一帧。
+const SURFACE_LOSS_STREAK_LIMIT: u8 = 2;
+
+/// surface 失效判定的纯决策：给定（当前连续失败数、是否已失效、本帧是否 surface 级
+/// 失败），返回（新的连续失败数、新的失效标志）。抽成纯函数以便宿主单测覆盖，
+/// 不必构造 `Renderer`/GPU 设备。
+///
+/// 非 surface 级失败（拿到纹理或本帧跳过）一律清零计数——慢机器的连续超时不应被判死。
+/// 已失效时保持失效（幂等），计数仍饱和累加以便日志可读。
+pub(crate) fn surface_loss_transition(
+    streak: u8,
+    invalidated: bool,
+    surface_lost: bool,
+) -> (u8, bool) {
+    if !surface_lost {
+        return (0, invalidated);
+    }
+    let streak = streak.saturating_add(1);
+    (streak, invalidated || streak >= SURFACE_LOSS_STREAK_LIMIT)
+}
 
 /// 逐帧渲染上下文：打包 encoder、surface 纹理与 view，把短生命周期资源与长生命周期的
 /// `Renderer` 状态分开。由 `Renderer::begin_frame()` 创建。
@@ -84,6 +108,13 @@ pub struct Renderer {
     pub(crate) queue: wgpu::Queue,
     pub(crate) surface: Option<std::sync::Arc<wgpu::Surface<'static>>>,
     pub(crate) surface_config: Option<wgpu::SurfaceConfiguration>,
+    /// 连续 surface 级取纹理失败的计数（见 [Self::note_surface_acquire]）。
+    surface_loss_streak: u8,
+    /// surface 已判死：缓存的 `surface` 指向已废弃的 BufferQueue，reconfigure 永不
+    /// 复活（实测 abandoned BufferQueue 下每帧 `Lost` + `ERROR_SURFACE_LOST_KHR`，
+    /// 22 分钟零帧上屏）。置位后 `attach_surface` 改走重建慢路径，且由
+    /// `renderWithNewOutput` 的状态位上报宿主换新的 `ANativeWindow`。
+    surface_invalidated: bool,
     pub(crate) cell_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) quad_vertex_buffer: wgpu::Buffer,
     pub(crate) cell_bind_group: Option<wgpu::BindGroup>,
@@ -176,6 +207,10 @@ impl Renderer {
 
     /// 获取 surface 纹理并为本帧创建 `FrameContext`；获取失败（surface 丢失、超时、
     /// GPU 卡死）时返回 `None`。
+    ///
+    /// 取纹理结局（拿到纹理 / 本帧跳过 / surface 级失败）在此汇总并驱动
+    /// [Self::surface_invalidated]：连续 [SURFACE_LOSS_STREAK_LIMIT] 次 surface 级
+    /// 失败即判死窗口，使下一次 `attach_surface` 走重建慢路径。
     pub(crate) fn begin_frame(&mut self) -> Option<FrameContext> {
         if self.pending_gpu_drain {
             let _ = self.device.poll(wgpu::PollType::Wait {
@@ -196,8 +231,10 @@ impl Renderer {
         self.refresh_cell_uniforms(config_width as f32, config_height as f32);
         self.ensure_kgp_pipeline(config_width, config_height);
 
-        let surface = self.surface.as_ref()?;
-        let output = self.acquire_texture(surface, config_width, config_height, ACQUIRE_TIMEOUT)?;
+        let surface = std::sync::Arc::clone(self.surface.as_ref()?);
+        let outcome = self.acquire_texture(&surface, config_width, config_height, ACQUIRE_TIMEOUT);
+        self.note_surface_acquire(&outcome);
+        let output = outcome.into_texture()?;
 
         let tex_size = output.texture.size();
         let (config_width, config_height) =
@@ -280,6 +317,8 @@ impl Renderer {
             queue,
             surface: None,
             surface_config: None,
+            surface_loss_streak: 0,
+            surface_invalidated: false,
             cell_pipeline: None,
             quad_vertex_buffer,
             cell_bind_group: None,
@@ -365,10 +404,15 @@ impl Renderer {
         // 快速路径：已挂载 surface 时（输入法收起、HOME→recents 且 surface 保留）
         // 原地 reconfigure 而非丢弃重建。重建会与渲染线程竞争，在 SwiftShader 上
         // 报 ERROR_NATIVE_WINDOW_IN_USE_KHR；reconfigure 是零拷贝的。
-        if self.surface.is_some() && self.surface_config.is_some() {
+        if self.surface.is_some() && self.surface_config.is_some() && !self.surface_invalidated {
             self.reconfigure_swapchain(width, height);
             log::info!("attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)");
             return Ok(());
+        }
+        if self.surface_invalidated {
+            log::warn!(
+                "attach_surface: previous surface invalidated; rebuilding from ANativeWindow"
+            );
         }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
         // SAFETY:
@@ -401,6 +445,9 @@ impl Renderer {
         // （switchSession 会先停旧线程），故可安全丢弃。
         self.surface = None;
         self.surface_config = None;
+        // 重建即视为恢复：失效位与连续失败计数随之清零，新 surface 重新接受判定。
+        self.surface_invalidated = false;
+        self.surface_loss_streak = 0;
         // 累加器内容属于旧 surface，重挂载后强制全量重绘。
         self.frame_texture = None;
         self.frame_invalidated = true;
@@ -498,9 +545,42 @@ impl Renderer {
     pub fn release_surface(&mut self) {
         self.surface = None;
         self.surface_config = None;
+        self.surface_invalidated = false;
+        self.surface_loss_streak = 0;
         self.frame_texture = None;
         self.frame_invalidated = true;
         log::info!("release_surface: surface dropped");
+    }
+
+    /// 当前缓存的 surface 是否已判死（见 [Self::surface_invalidated]）。
+    pub fn surface_invalidated(&self) -> bool {
+        self.surface_invalidated
+    }
+
+    /// 按单帧取纹理结局推进失效判定：拿到纹理或仅本帧跳过都清零计数，
+    /// surface 级失败（`Lost`/`Outdated`）连续达 [SURFACE_LOSS_STREAK_LIMIT] 次即
+    /// 置失效——单次可由 SurfaceFlinger 缩放竞态引起（实测 `Outdated` 可自愈），
+    /// 而死窗口每帧必失败，故以连续次数区分二者。置位幂等：已失效时不再重复记日志。
+    fn note_surface_acquire(&mut self, outcome: &AcquireOutcome) {
+        let (streak, invalidated) = surface_loss_transition(
+            self.surface_loss_streak,
+            self.surface_invalidated,
+            matches!(outcome, AcquireOutcome::SurfaceLost),
+        );
+        self.surface_loss_streak = streak;
+        if invalidated && !self.surface_invalidated {
+            self.surface_invalidated = true;
+            log::error!(
+                "surface invalidated after {} consecutive acquire failures ({}x{})",
+                streak,
+                self.surface_config
+                    .as_ref()
+                    .map_or(0, |config| config.width),
+                self.surface_config
+                    .as_ref()
+                    .map_or(0, |config| config.height),
+            );
+        }
     }
 
     /// 设置无窗口/离屏测试所用的 surface 配置。
