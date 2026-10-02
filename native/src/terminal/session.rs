@@ -263,11 +263,9 @@ impl Session {
                         break;
                     }
                     Ok(bytes_read) => {
-                        // NUL 剥离：VT 解析前剔除 0x00 字节，避免 APC-NUL 渲染伪影。
-                        let mut data = read_buf[..bytes_read].to_vec();
-                        if data.contains(&0) {
-                            data.retain(|&byte| byte != 0);
-                        }
+                        // 原样投递：字节级清洗的唯一归属是 `pty_write`
+                        // （见 public_api 的说明），读取线程不再重复剥离。
+                        let data = read_buf[..bytes_read].to_vec();
                         if output_tx.send(data).is_err() {
                             log::info!("reader thread: output channel closed");
                             break;
