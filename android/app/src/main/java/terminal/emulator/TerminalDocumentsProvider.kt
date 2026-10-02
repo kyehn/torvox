@@ -21,6 +21,18 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 搜索结果上限，与 Termux 的 MAX_SEARCH_RESULTS 对齐。
         private const val MAX_SEARCH_RESULTS = 50
 
+        /**
+         * 搜索遍历的目录项上限（[querySearchDocuments] 的工作量上限）。
+         *
+         * 结果上限挡不住工作量：一个不含匹配项的 home 目录会被**完整**遍历——无深度上限、
+         * 无已访问集合、无取消检查，全程占用调用方的 binder 线程。已装满的 SDK 目录轻易
+         * 达到数十万项，于是文档选择器里的搜索既不返回也不响应关闭。
+         *
+         * 故结果与遍历量各自设限。触顶即停止并如实告知调用方（见 `truncated`），不谎称
+         * 「这就是全部结果」。
+         */
+        private const val MAX_SEARCH_VISITS = 20_000
+
         /** SAF mode 字符串的最大长度（`ParcelFileDescriptor.parseMode` 的上界）。 */
         private const val MAX_OPEN_MODE_LENGTH = 4
 
@@ -335,7 +347,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val needle = query.lowercase()
         val pending = ArrayDeque<File>()
         pending.addLast(decodeDocId(rootId, rootDir))
+        var visits = 0
+        var truncated = false
         while (pending.isNotEmpty() && cursor.count < MAX_SEARCH_RESULTS) {
+            if (visits >= MAX_SEARCH_VISITS) {
+                truncated = true
+                break
+            }
+            visits++
             val current = pending.removeFirst()
             val canonical = queries.canonicalOrNull(current) ?: continue
             if (!(canonical.startsWith(rootPath + File.separator) || canonical == rootPath)) {
@@ -349,6 +368,13 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             } else if (current.name.lowercase().contains(needle)) {
                 queries.addDocRow(cursor, current, rootDir, cols)
             }
+        }
+        if (truncated) {
+            // 静默截断会让用户以为「文件不存在」：只搜到部分目录时必须留证据。
+            LogUtil.i(
+                "DocumentsProvider",
+                "querySearchDocuments: traversal hit $MAX_SEARCH_VISITS entries; results truncated",
+            )
         }
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
