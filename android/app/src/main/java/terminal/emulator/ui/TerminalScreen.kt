@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -57,7 +58,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.bridge.Bridge
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -498,19 +501,51 @@ fun TerminalScreen(
                         }
                     }
             }
-            // 单一位移容器：终端 Surface 与键栏同处此容器，全树只有一次 offset 调用——
-            // 两者位移在结构上恒等，双位移差拍（内容重叠/持续闪烁/键栏被输入法遮住）物理消失。
+            // 内容下沿：视口最后一个有内容的行（渲染线程随每帧单元数据发布，
+            // 空闲帧同样更新，故输入法动画与定居后都不读到陈旧值）。
+            //
+            // 只被位移 lambda 在 placement 期读取，故内容变化/光标移动**不**触发
+            // 主组合重组（与 ime 状态同构的处理）。
+            val lastContentRow = remember {
+                androidx.compose.runtime.mutableIntStateOf(Bridge.LAST_CONTENT_ROW_NONE)
+            }
+            val runtimeForContent = viewModel.runtime
+            LaunchedEffect(runtimeForContent) {
+                snapshotFlow { runtimeForContent.lastContentRowFlow.value }
+                    .distinctUntilChanged()
+                    .collect { lastContentRow.intValue = it }
+            }
+            // 位移容器不再整体平移：终端 Surface 与键栏各自持有自己的位移量，
+            // 但两者都只读上面那一个合成 ime 状态、并在同一帧 placement 中求值——
+            // 唯一位移来源不变（双位移源的历史振荡因此不会复现），而平移量可以
+            // 按内容裁剪：网格自顶端锚定渲染，键盘遮住的是网格末尾行，
+            // 按整块键盘高度上移会把稀疏会话的提示符推出屏幕上边界（终端区全空）。
+            //
             // Surface 尺寸全程不变，故网格不重排、无 SIGWINCH。
             Box(
                 modifier =
                 Modifier.fillMaxSize()
-                    .testTag("TerminalContent")
-                    .offset { IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue)) },
+                    .testTag("TerminalContent"),
             ) {
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier =
+                    Modifier.fillMaxSize().layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        val cellHeightPx = runtimeForContent.cellHeight
+                        val contentRow = lastContentRow.intValue
+                        val contentBottomPx =
+                            if (contentRow < 0) 0 else (contentRow + 1) * cellHeightPx.toInt()
+                        val shift =
+                            computeImeSurfaceShift(
+                                contentBottomPx = contentBottomPx,
+                                surfaceHeightPx = placeable.height,
+                                modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
+                                imeBottomPx = max(imeLeafPx.intValue, imeViewPx.intValue),
+                            )
+                        layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
+                    },
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -757,12 +792,13 @@ fun TerminalScreen(
                     }
                 }
 
-                // 键栏覆盖在 Surface 底部（网格已预留其高度），且同处位移容器，
-                // 故随键盘同步上下移动，恒位于输入法上方而不被遮挡。
+                // 键栏覆盖在 Surface 底部（网格已预留其高度），按整块键盘高度上移——
+                // 恒位于输入法上方而不被遮挡（与 Surface 同一个 ime 状态、同一次 placement）。
                 Box(
                     modifier =
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        .offset { IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue)) }
                         .background(resolvedTerminalTheme.background)
                         .testTag("ModifierBarOverlay"),
                 ) {
@@ -861,7 +897,8 @@ fun TerminalScreen(
                         )
                     }
                 }
-            } // 关闭位移容器——终端 Surface 与键栏同容器，位移恒等，无差拍
+            } // 关闭内容盒——终端 Surface 与键栏的位移同源同帧（唯一 ime 状态），
+            // 但平移量按内容下沿裁剪，二者不同值是设计而非双位移源
         }
     }
 }

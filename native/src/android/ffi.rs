@@ -1850,6 +1850,8 @@ fn render_inner(session_id: u64) -> jint {
 
 // ══════════════════════════════════════════════════════════════════════════
 const CURSOR_ROW_UNKNOWN_BITS: i64 = 0xFFFF;
+/// 「视口全空」哨兵：bit 49..63 只有 15 位，可表示的视口行号上限远大于实际行数。
+const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x7FFF;
 
 /// 把已渲染帧缓存的光标映射为上报位：无缓存、隐藏或在视口外时回未知哨兵，
 /// 可见光标取视口行并截断到 16 位上报宽度。
@@ -1865,6 +1867,18 @@ fn cursor_bits_for_rendered_cursor(
     (rendered_cursor.row as i64) & CURSOR_ROW_UNKNOWN_BITS
 }
 
+/// 把已渲染帧缓存的单元数据映射为上报位：视口全空时回未知哨兵，否则取视口内
+/// 最后一个有内容的行（`cell_builder::last_content_row`）。
+fn last_content_row_bits_for_frame(
+    cells: &[crate::terminal::ghostty_terminal::CellData],
+    rows: u32,
+) -> i64 {
+    match crate::render::cell_builder::last_content_row(cells, rows) {
+        Some(row) => (row as i64) & LAST_CONTENT_ROW_NONE_BITS,
+        None => LAST_CONTENT_ROW_NONE_BITS,
+    }
+}
+
 // JNI 导出：renderWithNewOutput
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -1873,15 +1887,16 @@ fn cursor_bits_for_rendered_cursor(
 ///
 /// 返回打包的 `jlong`：位 0..31 = 渲染计数（语义同 `render()`）；位 32 = `new_output`
 /// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..48 = 视口光标行（0xFFFF = 隐藏/
-/// 视口外）；位 49..63 = 0（保留）。
+/// 视口外）；位 49..63 = 视口最后一个有内容的行（0x7FFF = 视口全空）。
 ///
-/// 光标行采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner` 返回 0（无新单元数据，
-/// 无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要光标坐标；若随渲染一并
-/// 跳过，`cursorRowFlow` 恒为未知，内容较多时终端不上移。采样复用本帧已渲染缓存，
-/// 不新增发往 VT 线程的同步查询，故空闲帧无阻塞风险。
+/// 光标行与内容下沿的采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner` 返回 0
+/// （无新单元数据，无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要
+/// 这些坐标；若随渲染一并跳过，`cursorRowFlow` 恒为未知、IME 位移恒按整块键盘高度
+/// 平移（内容少时把首行提示符推出屏幕）。采样复用本帧已渲染缓存，不新增发往 VT
+/// 线程的同步查询，故空闲帧无阻塞风险。
 ///
-/// Kotlin 必须分别掩码两个字段：裸读 `(packed shr 32) != 0` 会把光标位误当作输出。
-/// 出错时渲染计数为负、`new_output` 为 0、光标行为 0xFFFF。
+/// Kotlin 必须分别掩码每个字段：裸读 `(packed shr 32) != 0` 会把光标位误当作输出。
+/// 出错时渲染计数为负、`new_output` 为 0、光标行为 0xFFFF、内容下沿为 0x7FFF。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -1895,13 +1910,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     ));
     let mut new_output: i64 = 0;
     let mut cursor_bits: i64 = CURSOR_ROW_UNKNOWN_BITS;
+    let mut content_row_bits: i64 = LAST_CONTENT_ROW_NONE_BITS;
     if count >= 0 {
         // 就地消费 `new_output` 标志（逻辑同 `consumeNewOutput` 但省一次 JNI 穿越），
-        // 并读取本帧已渲染缓存的光标，使跟随输入法的平移看到本帧绘制的坐标。
-        // 空闲帧（count == 0）同样采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 跟随
-        // 平移恰在空闲定居后最需要光标坐标——挂在 `count > 0` 门下会使 `cursorRowFlow`
-        // 恒为未知。这里不调用 `render_cursor()`：它要走 VT 线程同步查询，
-        // 缓存才是无阻塞且与绘制同源的坐标。
+        // 并读取本帧已渲染缓存的光标与内容下沿，使跟随输入法的位移看到本帧绘制的坐标。
+        // 空闲帧（count == 0）同样采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
+        // 恰在空闲定居后最需要这些坐标——挂在 `count > 0` 门下会使它们恒为未知。这里不
+        // 调用 `render_cursor()`：它要走 VT 线程同步查询，缓存才是无阻塞且与绘制同源的
+        // 坐标。
         // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE（`setSelection` 同款，
         // 不可跨作用域持有）。
         {
@@ -1913,19 +1929,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
             }
         }
         let render_state = render_state_mut();
-        let rendered_cursor = render_state
+        let last_frame = render_state
             .as_ref()
             .and_then(|render_state| render_state.last_frame.as_ref())
-            .and_then(|(_, cursor_info, _, _, cached_session)| {
-                if *cached_session == session_id as u64 {
-                    Some(cursor_info)
-                } else {
-                    None
-                }
-            });
-        cursor_bits = cursor_bits_for_rendered_cursor(rendered_cursor);
+            .filter(|(.., cached_session)| *cached_session == session_id as u64);
+        cursor_bits = cursor_bits_for_rendered_cursor(last_frame.map(|frame| &frame.1));
+        content_row_bits = match last_frame {
+            Some((cells, _, rows, _, _)) => last_content_row_bits_for_frame(cells, *rows),
+            None => LAST_CONTENT_ROW_NONE_BITS,
+        };
     }
-    (new_output << 32) | (cursor_bits << 33) | (count as i64 & 0xFFFF_FFFF)
+    (new_output << 32)
+        | (cursor_bits << 33)
+        | (content_row_bits << 49)
+        | (count as i64 & 0xFFFF_FFFF)
 }
 
 // ══════════════════════════════════════════════════════════════════════════

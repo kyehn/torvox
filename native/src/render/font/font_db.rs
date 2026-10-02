@@ -483,15 +483,33 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
     std::process::abort();
 }
 
+/// 面是否覆盖基本拉丁（探测字符 'm'，与单元格度量所用字符一致）：终端主字体的
+/// 最低可用门槛——emoji 字体（如 Noto Color Emoji Flags）会被 fontdb 标记为等宽
+/// 却没有任何拉丁字形，选中它们主字体只剩豆腐块。判定用字形能力探测（charmap），
+/// 不是硬编码字体名。
+#[cfg(any(target_os = "android", test))]
+fn face_covers_latin(font_database: &fontdb::Database, face_id: fontdb::ID) -> bool {
+    font_database
+        .with_face_data(face_id, |font_data, face_index| {
+            swash::FontRef::from_index(font_data, face_index as usize)
+                .map(|font| font.charmap().map('m') != 0)
+        })
+        .flatten()
+        .unwrap_or(false)
+}
+
 /// 主字体面选择梯次（fonts.xml 是默认主字体的唯一来源）：
 /// 1. 声明的等宽文件按词干匹配——fonts.xml 给文件名、fontdb 给家族名，先用
 ///    「分隔符归一 + 精确相等」，再退「去空白后精确相等」，覆盖 Droid Sans Mono
 ///    这类家族名带空格而文件名不带的差异；
-/// 2. 库内任一等宽面：声明文件被 OEM 改包装（家族名与词干对不上）或放宽装库后
-///    声明文件本就不存在时，仍拿到等宽字体；
-/// 3. 库内首个可用面：全库无等宽面时的最后手段——单元格度量按该字体计算，
-///    终端降级可用胜过启动即崩溃；
-/// 4. 库为空返回 `None`，由调用方按「fonts.xml 不可用」输出日志并崩溃。
+/// 2. 库内首个覆盖拉丁的等宽面：声明文件被 OEM 改包装（家族名与词干对不上）或
+///    放宽装库后声明文件本就不存在时，仍拿到可用的等宽字体——emoji 这类无拉丁
+///    字形的「等宽」面必须跳过；
+/// 3. 库内首个覆盖拉丁的面：全库无可用等宽面时的最后手段——单元格度量按该字体
+///    计算，终端降级可用胜过启动即崩溃；
+/// 4. 库内首个面：连拉丁字体都没有（仅剩符号/emoji 字体）也先让终端与设置页
+///    可用，用户仍可在设置中改选字体；
+/// 5. 库为空返回 `None`，由调用方按「fonts.xml 不可用」输出日志并崩溃。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn select_primary_face(
     font_database: &fontdb::Database,
@@ -528,16 +546,29 @@ pub(crate) fn select_primary_face(
         log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
         return Some(face_id);
     }
-    if let Some(face) = font_database.faces().find(|face| face.monospaced) {
+    if let Some(face) = font_database
+        .faces()
+        .find(|face| face.monospaced && face_covers_latin(font_database, face.id))
+    {
         log::warn!(
             "FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未匹配，改用库内等宽面 '{}'",
             family_lower(face)
         );
         return Some(face.id);
     }
+    if let Some(face) = font_database
+        .faces()
+        .find(|face| face_covers_latin(font_database, face.id))
+    {
+        log::error!(
+            "FONT_SELECT: 库内无可用等宽面，降级使用首个拉丁面 '{}'",
+            family_lower(face)
+        );
+        return Some(face.id);
+    }
     if let Some(face) = font_database.faces().next() {
         log::error!(
-            "FONT_SELECT: 库内无等宽面，降级使用首个可用面 '{}'",
+            "FONT_SELECT: 库内无拉丁字体，降级使用首个可用面 '{}'",
             family_lower(face)
         );
         return Some(face.id);

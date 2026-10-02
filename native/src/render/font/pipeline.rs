@@ -203,7 +203,7 @@ impl FontPipeline {
         #[cfg(target_os = "android")]
         if !Self::find_font_by_name(self.font_system.db(), family_name).is_some() {
             let loaded = super::font_db::load_family(self.font_system.db_mut(), family_name);
-            log::debug!("FONT_SELECT: 按需装入族 '{family_name}' -> {loaded} 个文件");
+            log::debug!("FONT_SELECT: 按需装入族 '{family_name}': {loaded}");
         }
         let found = {
             let font_database = self.font_system.db_mut();
