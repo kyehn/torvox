@@ -3052,8 +3052,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
     })
 }
 
-/// 登记额外的字体目录/文件（应用私有字体目录）。渲染器管线在创建时读取这些路径；
-/// 若已存在则重建，使新字体可被选中。
+/// 登记额外的字体目录/文件（应用私有字体目录）：供字体列表枚举（`family_index`）
+/// 与选中时按需装入（`load_family`）使用；渲染常驻字体库不读这些路径
+/// （见 `load_font_database`）。若管线已存在则重建，保持与既有行为一致。
 ///
 /// # Safety
 /// 仅由 JVM 经 JNI 调用，`paths` 须为本次调用期间有效的 `String[]`。
