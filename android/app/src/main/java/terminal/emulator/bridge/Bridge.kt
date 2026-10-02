@@ -335,7 +335,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 try {
                     parseEvent(json)
                 } catch (exception: Exception) {
-                    LogUtil.w(TAG, "pollAll: bad JSON: ${exception.message}")
+                    // 只记异常类名与 JSON 长度，不记 `exception.message`（解析器会把出错的
+                    // 片段带进 message，而事件 JSON 可能含剪贴板文本或 URL——见 PollEvent
+                    // 的 `exceptionsWithDebugInfo = false` 脱敏约定）与 JSON 本身。
+                    // 长度足以区分「空/截断」与「结构不符」，且不泄露内容。
+                    LogUtil.w(
+                        TAG,
+                        "pollAll: undecodable event dropped (${exception.javaClass.simpleName}, ${json.length} chars)",
+                    )
                     continue
                 }
             result = result.merge(parsed)
