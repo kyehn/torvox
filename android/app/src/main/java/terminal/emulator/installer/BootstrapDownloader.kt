@@ -9,6 +9,7 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class BootstrapDownloader(
@@ -31,12 +32,30 @@ class BootstrapDownloader(
     suspend fun download(url: String, arch: String): Result<File> = withContext(TerminalDispatchers.inputOutput) {
         // 本地 file 链路：测试把已下载的 zip 推到设备，安装器直接用它。
         // 产品 UI 只提供 https URL（见下门控），file 永远到不了用户手里。
+        //
+        // 必须**复制**到 cacheDir 再返回，而不能把用户的文件本身交出去：本方法的返回值
+        // 归调用方所有，`BootstrapOrchestrator` 装完（无论成败）都会 `delete()` 它。
+        // 直接返回原文件等于让安装流程删掉用户的 zip——测试里恰好是构建产物，删了不易察觉。
         if (url.startsWith("file://", ignoreCase = true)) {
-            val localFile = File(url.removePrefix("file://").substringBefore("?"))
-            return@withContext if (localFile.isFile && localFile.canRead()) {
-                Result.success(localFile)
-            } else {
-                Result.failure(Exception("Local bootstrap file unreadable"))
+            val sourceFile = File(url.removePrefix("file://").substringBefore("?"))
+            if (!sourceFile.isFile || !sourceFile.canRead()) {
+                return@withContext Result.failure(Exception("Local bootstrap file unreadable"))
+            }
+            if (sourceFile.length() !in 1L..BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES) {
+                return@withContext Result.failure(
+                    Exception("File size out of range: ${sourceFile.length()} bytes"),
+                )
+            }
+            val staged = File(context.cacheDir, "bootstrap-local-$arch.zip")
+            return@withContext try {
+                staged.delete()
+                sourceFile.inputStream().use { input ->
+                    FileOutputStream(staged).use { output -> input.copyTo(output) }
+                }
+                Result.success(staged)
+            } catch (exception: IOException) {
+                staged.delete()
+                Result.failure(exception)
             }
         }
         // 完整性门控：引导 zip 会被解压并执行其 postinst 脚本，
