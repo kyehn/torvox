@@ -58,6 +58,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.ModifierState
+import terminal.emulator.runtime.LogUtil
 
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
@@ -480,7 +481,16 @@ private fun sendPlainOrModified(
             ctrlActive = ctrlActive,
             altActive = altActive,
             appCursorMode = actions.isAppCursorMode(),
-        ) ?: return
+        )
+    if (encoded == null) {
+        // 按下 CTRL/ALT 再点某个键却什么都没发生——用户只能以为设备卡了。
+        // 键栏的每个键都应可编码，故这是编码表的缺口，须留证据（键码 + 修饰态）。
+        LogUtil.w(
+            "ModifierBar",
+            "no encoding for $key (keyCode=$keyCode ctrl=$ctrlActive alt=$altActive); keystroke dropped",
+        )
+        return
+    }
     bytesClick(encoded)
     actions.onConsumeModifiers()
 }

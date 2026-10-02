@@ -242,7 +242,12 @@ pub(crate) const DISCONNECTED_ROWS: u32 = 24;
 pub(crate) const DISCONNECTED_COLS: u32 = 80;
 pub(crate) const DISCONNECTED_CURSOR_X: u32 = 0;
 pub(crate) const DISCONNECTED_CURSOR_Y: u32 = 0;
-pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = true;
+/// 查询通道断开时的光标可见性回退。
+///
+/// 取 `false`（隐藏）而非 `true`：`true` 会在会话已经失联时凭空画出一个块状光标，
+/// 让「会话没了」看起来像「光标闪了一下」；隐藏只是少画一块，帧仍照常呈现，
+/// 排查时看到的正是真正的情况。
+pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = false;
 pub(crate) const DISCONNECTED_TITLE: &str = "";
 pub(crate) const DISCONNECTED_SCROLLBACK: u32 = 0;
 pub(crate) const KGP_STORAGE_LIMIT: u64 = 64 * 1024 * 1024;

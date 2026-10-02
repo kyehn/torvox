@@ -154,9 +154,13 @@ impl super::GhosttyTerminal {
                 }
             }
             Query::CursorVisible(tx) => {
+                // 上游取不到光标状态时按「不可见」处理，与查询通道断开时的回退一致：
+                // 少画一个光标好过凭空显示一个，见 `DISCONNECTED_CURSOR_VISIBLE`。
                 try_send(
                     &tx,
-                    terminal.is_cursor_visible().unwrap_or(true),
+                    terminal
+                        .is_cursor_visible()
+                        .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
                     "query channel send failed",
                 );
             }
@@ -1654,7 +1658,9 @@ impl super::GhosttyTerminal {
             Ok(Some(cv)) => (
                 cv.y as u32,
                 cv.x as u32,
-                snapshot.cursor_visible().unwrap_or(true),
+                snapshot
+                    .cursor_visible()
+                    .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
             ),
             Ok(None) | Err(_) => (0, 0, false),
         };
@@ -1855,7 +1861,9 @@ impl super::GhosttyTerminal {
             Ok(Some(cv)) => (
                 cv.y as u32,
                 cv.x as u32,
-                snapshot.cursor_visible().unwrap_or(true),
+                snapshot
+                    .cursor_visible()
+                    .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
             ),
             Ok(None) | Err(_) => (0, 0, false),
         };
