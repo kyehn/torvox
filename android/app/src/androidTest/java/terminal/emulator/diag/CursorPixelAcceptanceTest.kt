@@ -11,6 +11,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.getBridge
@@ -28,6 +29,8 @@ import terminal.emulator.grantNotificationPermission
  * previous cursor cell must be dark (no stale block).
  */
 class CursorPixelAcceptanceTest {
+    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
+
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

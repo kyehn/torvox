@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
@@ -47,6 +48,8 @@ class SurfaceLossRecoveryInstrumentedTest {
         /** Catppuccin Mocha 背景（0x1E1E2E）：与应用默认主题一致，用作「无墨迹」基准。 */
         private const val BACKGROUND_COLOR = 0x1E1E2E
     }
+
+    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission =
