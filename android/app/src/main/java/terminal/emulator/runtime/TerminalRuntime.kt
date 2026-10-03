@@ -1899,6 +1899,7 @@ constructor(
         val dayTheme = settingsRepository.dayThemeName.first()
         val nightTheme = settingsRepository.nightThemeName.first()
         val singleTheme = settingsRepository.themeName.first()
+        clearUnknownThemeNames(dayTheme, nightTheme, singleTheme)
         val systemDark =
             (
                 context.resources.configuration.uiMode and
@@ -1917,6 +1918,17 @@ constructor(
             "fixed" -> singleTheme
             else -> if (effectiveDark) nightTheme else dayTheme
         }
+    }
+
+    /**
+     * 存有无法解析主题名的键即设置数据错误：记日志并清除该键，
+     * 下次读取回落默认值（DESIGN:16 设置数据错误 → 清除设置数据、:24 不做 Fallback）。
+     */
+    private suspend fun clearUnknownThemeNames(vararg names: String) {
+        val unknown = names.filter { BuiltInThemes.byNameOrNull(it) == null }.toSet()
+        if (unknown.isEmpty()) return
+        LogUtil.e("Runtime", "Unknown terminal theme, clearing setting: $unknown")
+        settingsRepository.clearUnknownThemeNames(unknown)
     }
 
     /** 空即默认入口（DESIGN :122 未设置时为空），其余原样透传，不特殊处理。 */
