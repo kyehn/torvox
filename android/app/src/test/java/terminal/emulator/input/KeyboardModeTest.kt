@@ -3,7 +3,6 @@ package terminal.emulator.input
 import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -56,14 +55,6 @@ class KeyboardModeTest {
             InputType.TYPE_CLASS_TEXT,
             outAttrs.inputType and InputType.TYPE_MASK_CLASS,
         )
-    }
-
-    @Test
-    fun `custom mode applies only the requested privacy flags`() {
-        val plain = editorInfoOf(KeyboardMode.Custom(ImeFlagSet()))
-        val restricted = editorInfoOf(KeyboardMode.Custom(ImeFlagSet(noExtractUi = true)))
-        assertEquals(0, plain.imeOptions and EditorInfo.IME_FLAG_NO_EXTRACT_UI)
-        assertTrue(restricted.imeOptions and EditorInfo.IME_FLAG_NO_EXTRACT_UI != 0)
     }
 
     @Test

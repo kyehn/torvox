@@ -3127,6 +3127,16 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
 }
 
 // ── 网格尺寸查询 ────────────────────────────────────────────────
+/// 字体单元格度量（`getCellWidth`/`getCellHeight` 共享）：无渲染状态时返回 0.0；
+/// `pick` 从 `(width, height)` 中取一维。
+fn cell_metric_dim(pick: impl FnOnce((f32, f32)) -> f32) -> f32 {
+    let state = render_state_mut();
+    let Some(render_state) = state.as_ref() else {
+        return 0.0;
+    };
+    pick(render_state.font_pipeline.cell_metrics())
+}
+
 /// 当前单元格宽度（像素，取自渲染器的字体管线）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
@@ -3135,11 +3145,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     _session_id: jlong,
 ) -> jfloat {
     jni_export_guard!(&mut unowned_env, 0.0, |_env| {
-        let state = render_state_mut();
-        let Some(render_state) = state.as_ref() else {
-            return Ok(0.0);
-        };
-        render_state.font_pipeline.cell_metrics().0
+        cell_metric_dim(|metrics| metrics.0)
     })
 }
 
@@ -3151,11 +3157,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
     _session_id: jlong,
 ) -> jfloat {
     jni_export_guard!(&mut unowned_env, 0.0, |_env| {
-        let state = render_state_mut();
-        let Some(render_state) = state.as_ref() else {
-            return Ok(0.0);
-        };
-        render_state.font_pipeline.cell_metrics().1
+        cell_metric_dim(|metrics| metrics.1)
     })
 }
 
