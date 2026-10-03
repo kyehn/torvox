@@ -140,6 +140,89 @@ class DocumentsProviderInstrumentedTest {
         assertTrue(DocumentsContract.deleteDocument(context.contentResolver, createdUri))
     }
 
+    /**
+     * 嵌套目录走 tree URI：SAF 的 tree URI 按路径段定位文档（`tree/<root>/document/<docId>`），
+     * 而本提供者的 docId 是含 `/` 的相对路径，因此「docId 能否在 tree URI 里原样往返」只有
+     * 走客户端真实路径才验得到——`DocumentsUI` 进入子目录后再新建文件正是这条路径。
+     * 直调 provider 的单测拿不到这一层（它绕过了 `DocumentsContract` 的 URI 编解码）。
+     *
+     * 建目录的 parent 用 `buildDocumentUri`（`DocumentsUI` 的真实做法：框架的
+     * `enforceTree` 对裸 `tree/<docId>` 会因 `getDocumentId` 抛 `IllegalArgumentException`，
+     * 客户端因此从不这样传）；在子目录里建文件则用 tree 形式的 children URI。
+     */
+    @Test
+    fun tree_uri_nested_create_and_write_back_round_trip() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val nestedDirName = "tree-uri-nested-dir"
+        File(home, nestedDirName).deleteRecursively()
+
+        val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
+        val rootTreeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
+        fun dirOnDisk(name: String): File = File(home, name)
+        val nestedDirUri =
+            DocumentsContract.createDocument(
+                context.contentResolver,
+                rootDocumentUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                nestedDirName,
+            )
+        requireNotNull(nestedDirUri) { "nested dir create must return a uri" }
+        assertTrue("created dir must land on disk", File(home, nestedDirName).isDirectory)
+
+        // 子目录的 docId 是相对路径，必须能原样取回，否则后续寻址全部指错。
+        val nestedDocId = DocumentsContract.getDocumentId(nestedDirUri)
+        assertEquals(nestedDirName, nestedDocId)
+
+        val childrenInNested =
+            DocumentsContract.buildChildDocumentsUriUsingTree(rootTreeUri, nestedDocId)
+        val createdFileUri =
+            DocumentsContract.createDocument(
+                context.contentResolver,
+                childrenInNested,
+                "text/plain",
+                "tree-uri-nested.txt",
+            )
+        requireNotNull(createdFileUri) { "tree URI create file must return a uri" }
+
+        context.contentResolver.openOutputStream(createdFileUri, "rwt").use { stream ->
+            requireNotNull(stream) { "nested created file must be writable" }
+            stream.write("nested write back".toByteArray())
+        }
+        assertEquals("nested write back", File(dirOnDisk(nestedDirName), "tree-uri-nested.txt").readText())
+
+        // 按 docId 经 tree 形式重新寻址必须还是同一个目录（子 docId 含 '/'，靠 URI 编解码往返）。
+        val nestedViaTree = DocumentsContract.buildDocumentUriUsingTree(rootTreeUri, nestedDocId)
+        assertEquals(
+            DocumentsContract.Document.MIME_TYPE_DIR,
+            context.contentResolver.getType(nestedViaTree),
+        )
+        // 子目录里的子文档 docId 是**相对根**的路径（客户端须原样回传）：
+        // 若这里只回文件名，客户端后续的 open/delete 就会打到根目录同名文件上。
+        val childrenCursor =
+            context.contentResolver.query(childrenInNested, null, null, null, null)
+        val nestedFileDocId =
+            requireNotNull(childrenCursor).use {
+                val idIndex = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val ids = mutableListOf<String>()
+                while (it.moveToNext()) ids.add(it.getString(idIndex))
+                ids.singleOrNull()
+            }
+        assertEquals("$nestedDirName/tree-uri-nested.txt", nestedFileDocId)
+
+        // 删「嵌套目录里的文件」：客户端用列举时拿到的 docId 原样删除。
+        val deleteByDocId =
+            DocumentsContract.buildDocumentUriUsingTree(rootTreeUri, nestedFileDocId!!)
+        assertTrue(DocumentsContract.deleteDocument(context.contentResolver, deleteByDocId))
+        assertTrue(
+            "delete must remove only the nested file",
+            !File(dirOnDisk(nestedDirName), "tree-uri-nested.txt").exists(),
+        )
+        assertTrue("nested dir must survive its child's deletion", dirOnDisk(nestedDirName).isDirectory)
+        assertTrue(DocumentsContract.deleteDocument(context.contentResolver, nestedDirUri))
+        assertTrue("cleanup must remove probe dir", !File(home, nestedDirName).exists())
+    }
+
     /** 读取通道对不持 `MANAGE_DOCUMENTS` 的进程开放（清单不得声明无效权限）。 */
     @Test
     fun external_process_read_succeeds_without_manage_documents() {
