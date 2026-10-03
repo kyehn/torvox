@@ -5,30 +5,8 @@
 ## 必须
 
 - 修改任何文件前阅读 `docs/specification/` 下的全部文档。
-- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，修改前编写对应的 changes（完成后进行归档和删除） 和 specs（修改验证后对文档进行更新实际情况和补充实现细节） 文档，openspec/specs 只是参考文档不是严格规范，置信度较 docs/specification/ 低，docs/specification/ 和用户提示为实际标准。
+- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，修改前编写对应的 changes（完成后进行归档和删除） 和 specs（修改验证后对文档进行更新实际情况和补充实现细节） 文档，openspec/specs 只是参考文档不是严格规范，置信度较 docs/specification/ 低，以 docs/specification/ 和用户提示为实际标准。
 - 用户提示和文档中使用的 “代码” 一词不包括 “注释”。而 “文档” 一词指的是如 Markdown 文件之类
-
-## 禁止
-
-- Java 文件
-- 逐单元格 `Canvas.drawText`、跨 FFI 传递原始字节、`/proc/self/exe`
-- 在库 crate 中使用 `anyhow` — 请使用 `thiserror 2`
-- 在核心终端数据路径中使用 `unsafe`
-- 基于反射的 JNA 绑定 — 如发现残留 JNA 代码请直接删除
-- bash / sh 脚本 — 仅可使用 Nushell
-
----
-
-## 编码规范
-
-- 编写任何文件前阅读 `docs/specification/`。
-- 禁止魔数：使用具名常量，并赋予描述性名称。
-- 禁止缩写：使用 `config` 而非 `cfg`、`background` 而非 `bg`、`terminal` 而非 `term`。
-- 生产代码中禁止 `#[allow]`（测试辅助代码除外）。
-- 禁止硬编码 `/data/.*/files` 形式的应用数据路径。
-- Nushell 脚本中禁止 `||`（无效语法）。
-- Rust：使用 `std::hint::black_box`，而非已弃用的 `criterion::black_box`。
-- Kotlin：使用 `SharingStarted.WhileSubscribed(TIMEOUT_MILLIS)`，并以具名常量提供超时时间。
 
 ## 受阻时
 
@@ -40,7 +18,7 @@
 
 只允许修正拼写 / 语法错误，或修正格式 / 排版，不可更改实际内容，未经询问不可修改错误或其他问题，修复错误或其他阻塞项必须询问用户且避免不必要的修改（修改后重新设置只读属性）。需用户明确同意后方可修改，禁止非法修改。
 
-- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc`
+- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc` `.semgrepignore` `.cargo/config.toml` `.gitignore`
 
 ## 不得轻易更改文件，必须确保符合 docs/specification/ 要求
 

@@ -1,7 +1,0 @@
-{
-  // CI 在仓库根额外 checkout 第二个仓库（result-kudzu），其中自带 Markdown 文档。
-  // `markdownlint-cli2 "**/*.md"` 会递归进去，用本仓规则判他仓文档：上游某份 README
-  // 缺尾换行就把本仓门禁判红。该目录只在 CI 工作区存在，本地永远看不到——
-  // 这正是它长期无人发现的原因。
-  "ignores": ["result-kudzu/**"]
-}

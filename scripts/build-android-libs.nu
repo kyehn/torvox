@@ -13,7 +13,7 @@ def abi-to-target-triple [abi: string] {
 def main [...abis: string] {
     mut abis = $abis
     if ($abis | is-empty) {
-        $abis = ["arm64-v8a", "x86_64"]
+        $abis = ["x86_64"]
     }
 
     for abi in $abis {
