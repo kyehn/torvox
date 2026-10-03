@@ -144,15 +144,7 @@ impl super::GhosttyTerminal {
     }
 
     pub fn vt_write(&mut self, data: &[u8]) {
-        // 清洗底层 C 库无法处理的字节。NUL 是 ECMA-48 忽略控制字符，必须在解析器看到前
-        // 剔除，否则一个游离 NUL（mpv --vo=kitty 每帧追加一个）就会毁掉整块载荷，
-        // 甚至让整张 Kitty 图像丢失。0xF8–0xFF 既非合法 UTF-8 首字节也非标准 VT100 C1
-        // 控制码，C 解析器遇到长串此类字节可能崩溃，故替换为空格以保长。
-        let sanitized: Vec<u8> = data
-            .iter()
-            .filter(|&&b| b != 0x00)
-            .map(|&b| if b > 0xF7 { b' ' } else { b })
-            .collect();
+        let sanitized = sanitize_vt_input(data);
         let mut buf = Vec::with_capacity(data.len() + 4);
         buf.extend_from_slice(&sanitized);
         // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，此处不得追加
@@ -572,4 +564,15 @@ impl super::GhosttyTerminal {
             "dump_grid",
         )
     }
+}
+
+/// `vt_write` 的输入清洗：只剔除 NUL。
+///
+/// NUL 是 ECMA-48 忽略控制字符，必须在解析器看到前剔除，否则一个游离 NUL
+///（mpv --vo=kitty 每帧追加一个）就会毁掉整块载荷，甚至让整张 Kitty 图像丢失。
+/// 0xF8–0xFF 不在此处理：合法 UTF-8 里本就不会出现（4 字节上限 F4），而原始二进制
+/// VT 载荷（如 Kitty `m=1` 直接 RGB）里它们是合法数据——静默替换为空格等于静默损坏
+/// 图像。此函数是 `vt_write` 承诺的二进制安全路径的兑现点。
+pub(crate) fn sanitize_vt_input(data: &[u8]) -> Vec<u8> {
+    data.iter().filter(|&&b| b != 0x00).copied().collect()
 }
