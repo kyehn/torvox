@@ -138,6 +138,20 @@ class ImePopupPixelInstrumentedTest {
                 shown
             }
         assertNotNull("输入法必须弹出", visible)
+        // 高度定居：Gboard 工具栏行后于按键弹出，键盘总高度动画可延续数秒。
+        // 高度未稳即测，应用内边距与截图键盘错位，位移比较必抖动。
+        // 连续 3 次采样一致才放行，15s 内不定居则失败（键盘真有问题，不是测试问题）。
+        var stableReads = 0
+        var lastHeight = -1
+        val stableDeadline = android.os.SystemClock.uptimeMillis() + 15_000L
+        while (android.os.SystemClock.uptimeMillis() < stableDeadline) {
+            val height = imeHeightPx()
+            stableReads = if (height == lastHeight && height > 0) stableReads + 1 else 1
+            lastHeight = height
+            if (stableReads >= 3) break
+            Thread.sleep(500)
+        }
+        assertTrue("输入法高度必须定居 (末次=$lastHeight)", stableReads >= 3)
         Thread.sleep(SETTLE_MILLIS)
     }
 

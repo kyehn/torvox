@@ -603,8 +603,8 @@ impl Renderer {
         self.surface_invalidated
     }
 
-    /// 测试钩子：让此后每帧 [Self::begin_frame] 都报 surface 级失败，直到传入 false
-    /// 关闭（见 [Self::surface_loss_injected]）。
+    /// 测试钩子：让此后每帧取纹理都按 surface 级失败处理（见 `surface_loss_injected` 字段），
+    /// 直到传入 false 关闭。
     pub fn set_surface_loss_injected_for_test(&mut self, enabled: bool) {
         self.surface_loss_injected = enabled;
     }
