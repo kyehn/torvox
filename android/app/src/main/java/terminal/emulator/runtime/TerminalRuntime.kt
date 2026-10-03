@@ -2836,13 +2836,22 @@ constructor(
                 }
                 target.bridge?.let { syncGridDimensions(it) }
                 // applySettings 已停止调整后台会话尺寸，
-                // 故新激活的会话必须在此对齐到当前窗口尺寸：
-                // syncGridDimensions 读取的是原生网格（一个返回 0 的桩），
-                // 无法告知真实尺寸，故无条件以最新 UI 状态 resize。
-                target.bridge?.resize(
-                    _state.value.rows.coerceAtLeast(1),
-                    _state.value.cols.coerceAtLeast(1),
-                )
+                // 故新激活的会话必须在此对齐到当前窗口尺寸。
+                // 但尺寸一致时跳过：无条件 resize 会发冗余 SIGWINCH，
+                // mksh 收到后清除提示符。原生网格查询可用即比对，
+                // 查不到（0/异常）则沿旧路无条件对齐（fail-open）。
+                val wantRows = _state.value.rows.coerceAtLeast(1)
+                val wantCols = _state.value.cols.coerceAtLeast(1)
+                val packed =
+                    try {
+                        target.bridge?.getGridRowsColsPacked() ?: 0L
+                    } catch (exception: Exception) {
+                        0L
+                    }
+                val sameGrid = packed != 0L && (packed shr 32).toInt() == wantRows && packed.toInt() == wantCols
+                if (!sameGrid) {
+                    target.bridge?.resize(wantRows, wantCols)
+                }
                 LogUtil.d("Runtime", "switched to session $id")
                 // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，

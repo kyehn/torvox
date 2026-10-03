@@ -17,6 +17,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use super::*;
+use crate::terminal::ghostty_terminal::public_api::sanitize_vt_input;
 use crate::terminal::test_helpers::assert_invariants;
 
 fn terminal() -> GhosttyTerminal {
@@ -2983,4 +2984,16 @@ fn combining_mark_reaches_grapheme_channel() {
         snap_cell.graphemes.contains(&0x301),
         "snapshot graphemes must contain U+0301"
     );
+}
+
+#[test]
+fn vt_write_sanitize_keeps_high_bytes_drops_nul() {
+    // NUL 必须剔除（mpv --vo=kitty 每帧追加一个游离 NUL）；0xF8–0xFF 必须原样保留
+    // （Kitty m=1 直接 RGB 载荷里的合法数据，旧写法静默替换为空格）。
+    assert_eq!(
+        sanitize_vt_input(&[0x41, 0x00, 0xF8, 0xFF, 0x42]),
+        vec![0x41, 0xF8, 0xFF, 0x42]
+    );
+    assert_eq!(sanitize_vt_input(b"ABC"), b"ABC");
+    assert!(sanitize_vt_input(&[0x00, 0x00]).is_empty());
 }
