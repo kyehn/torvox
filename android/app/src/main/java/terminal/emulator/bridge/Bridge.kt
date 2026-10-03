@@ -106,6 +106,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    /**
+     * 查询委托的失败记警告后回缺省：与 [onSession] 同理，会话竞态不是崩溃理由，
+     * 但真实异常必须可诊断——`getOrNull/getOrDefault` 静默吞掉后 VT 线程死亡
+     * 类问题在日志里无迹可寻。取消信号由 [runCatchingCancellable] 重抛，不记日志。
+     */
+    private inline fun <T> onQuery(name: String, onUnavailable: T, call: () -> T): T = runCatchingCancellable(call)
+        .onFailure {
+            LogUtil.w(TAG, "$name failed, returning default (${it.javaClass.simpleName})")
+        }.getOrDefault(onUnavailable)
+
     fun ping(): String {
         if (!NativeBridge.isNativeLoaded()) throw RuntimeException("native library not loaded")
         return "native library OK, sessions=${NativeBridge.getSessionCount()}"
@@ -599,10 +609,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── 终端查询（委托给 TerminalQueryPort 接缝） ──
-    override fun getTitle(): String? = runCatchingCancellable { queryPort.getTitle() }.getOrNull()
+    override fun getTitle(): String? = onQuery("getTitle", null) { queryPort.getTitle() }
 
     override fun getActiveSessionTitle(): String =
-        runCatchingCancellable { queryPort.getActiveSessionTitle() }.getOrDefault("")
+        onQuery("getActiveSessionTitle", "") { queryPort.getActiveSessionTitle() }
 
     // ── 选区 ──
     override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
@@ -617,30 +627,20 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
 
-    override fun scrollbackLine(row: Int): String? = runCatchingCancellable {
-        queryPort.scrollbackLine(
-            row,
-        )
-    }.getOrNull()
+    override fun scrollbackLine(row: Int): String? = onQuery("scrollbackLine", null) { queryPort.scrollbackLine(row) }
 
-    override fun scrollbackLength(): Int = runCatchingCancellable { queryPort.scrollbackLength() }.getOrDefault(0)
+    override fun scrollbackLength(): Int = onQuery("scrollbackLength", 0) { queryPort.scrollbackLength() }
 
-    override fun cursorViewportPacked(): Long = runCatchingCancellable {
+    override fun cursorViewportPacked(): Long = onQuery("cursorViewportPacked", -1L) {
         queryPort.cursorViewportPacked()
-    }.getOrDefault(
-        -1L,
-    )
+    }
 
-    override fun isCellEmpty(row: Int, col: Int): Boolean = runCatchingCancellable {
-        queryPort.isCellEmpty(
-            row,
-            col,
-        )
-    }.getOrDefault(true)
+    override fun isCellEmpty(row: Int, col: Int): Boolean = onQuery("isCellEmpty", true) {
+        queryPort.isCellEmpty(row, col)
+    }
 
     override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
-        runCatchingCancellable { queryPort.searchAllInScrollback(query, caseSensitive) }
-            .getOrNull()
+        onQuery("searchAllInScrollback", null) { queryPort.searchAllInScrollback(query, caseSensitive) }
 
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 

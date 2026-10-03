@@ -26,6 +26,10 @@ class SecondStageRunner(
     companion object {
         private const val THREAD_JOIN_TIMEOUT_MS = 5_000L
 
+        // postinst 单脚本最大执行轮次：首轮失败（首运崩溃/偶发超时）重试一次，
+        // 连挂两次即确定性失败，不再重试。
+        private const val POSTINST_MAX_ATTEMPTS = 2
+
         /** 执行 app-data ELF 的系统链接器（SELinux 绕过）。出货的两个 ABI 都是 64 位。 */
         internal const val SYSTEM_LINKER = "/system/bin/linker64"
     }
@@ -99,6 +103,23 @@ class SecondStageRunner(
     /** 在 DPKG_* 环境与经链接器包装的解释器下执行一个 dpkg postinst 脚本（从 runPostInstalls 抽出以满足 detekt LongMethod 限制）。 */
     private suspend fun runOnePostinst(script: File, dpkgVersion: String, arch: String, errors: MutableList<String>) {
         val packageName = script.name.removeSuffix(".postinst")
+        // termux dpkg 的 update-alternatives 在状态文件缺失的首次运行时，
+        // 正确写完链接与状态文件后 segfault（139，tombstone 落盘，本地 10/10 复现；
+        // 有状态后重跑退出 0 且幂等，3/3）。故失败重试一次：确定性失败连挂两次照常上报，
+        // 首运崩溃则自愈。首次失败记警告，不隐藏。
+        repeat(POSTINST_MAX_ATTEMPTS) { attempt ->
+            if (runOnePostinstAttempt(script, packageName, dpkgVersion, arch, errors, attempt)) return
+        }
+    }
+
+    private suspend fun runOnePostinstAttempt(
+        script: File,
+        packageName: String,
+        dpkgVersion: String,
+        arch: String,
+        errors: MutableList<String>,
+        attempt: Int,
+    ): Boolean {
         try {
             Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
             val environment =
@@ -159,22 +180,33 @@ class SecondStageRunner(
                 proc.waitFor(5, TimeUnit.SECONDS)
                 stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
                 stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
-                throw RuntimeException("$packageName postinst timed out after 30s")
+                val timeoutReport = "$packageName postinst timed out after 30s"
+                if (attempt + 1 >= POSTINST_MAX_ATTEMPTS) {
+                    errors.add(timeoutReport)
+                } else {
+                    LogUtil.w("SecondStageRunner", "$timeoutReport — retrying once")
+                }
+                return false
             }
             stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
             stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
             val exitCode = proc.exitValue()
-            if (exitCode != 0) {
-                val detail = stderrBox.toString().trim().take(400)
-                errors.add(
-                    "$packageName postinst exited with code $exitCode" +
-                        if (detail.isEmpty()) "" else " (stderr: $detail)",
-                )
+            if (exitCode == 0) return true
+            val detail = stderrBox.toString().trim().take(400)
+            val report =
+                "$packageName postinst exited with code $exitCode" +
+                    if (detail.isEmpty()) "" else " (stderr: $detail)"
+            if (attempt + 1 >= POSTINST_MAX_ATTEMPTS) {
+                errors.add(report)
+            } else {
+                LogUtil.w("SecondStageRunner", "$report — retrying once")
             }
+            return false
         } catch (exception: Exception) {
             errors.add(
                 "$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}",
             )
+            return false
         }
     }
 
