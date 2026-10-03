@@ -2835,23 +2835,9 @@ constructor(
                     )
                 }
                 target.bridge?.let { syncGridDimensions(it) }
-                // applySettings 已停止调整后台会话尺寸，
-                // 故新激活的会话必须在此对齐到当前窗口尺寸。
-                // 但尺寸一致时跳过：无条件 resize 会发冗余 SIGWINCH，
-                // mksh 收到后清除提示符。原生网格查询可用即比对，
-                // 查不到（0/异常）则沿旧路无条件对齐（fail-open）。
-                val wantRows = _state.value.rows.coerceAtLeast(1)
-                val wantCols = _state.value.cols.coerceAtLeast(1)
-                val packed =
-                    try {
-                        target.bridge?.getGridRowsColsPacked() ?: 0L
-                    } catch (exception: Exception) {
-                        0L
-                    }
-                val sameGrid = packed != 0L && (packed shr 32).toInt() == wantRows && packed.toInt() == wantCols
-                if (!sameGrid) {
-                    target.bridge?.resize(wantRows, wantCols)
-                }
+                // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
+                // 查不到原生网格则无条件对齐（fail-open）。
+                alignGridOnSwitch(target.bridge, _state.value.rows, _state.value.cols)
                 LogUtil.d("Runtime", "switched to session $id")
                 // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
@@ -3655,6 +3641,36 @@ private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
 internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
     if (contentRow < 0 || cellHeightPx <= 0f) return 0
     return kotlin.math.ceil((contentRow + 1) * cellHeightPx).toInt()
+}
+
+/**
+ * 切会话时是否需要对齐网格：目标会话原生网格与 UI 网格一致则跳过 `resize`
+ *（无冗余 SIGWINCH）；查不到（0/异常）则返回 true 沿旧路无条件对齐。
+ *
+ * 网格查询以 lambda 传入：纯判定可单测，无需伪造 Bridge。
+ */
+internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: () -> Long): Boolean {
+    val packed =
+        try {
+            gridQuery()
+        } catch (exception: Exception) {
+            0L
+        }
+    return packed == 0L || (packed shr 32).toInt() != wantRows || packed.toInt() != wantCols
+}
+
+/**
+ * 切会话的网格对齐执行：`[shouldAlignGridOnSwitch]` 为真才 `resize`。
+ *
+ * 单独成顶层函数只因 `TerminalRuntime` 已顶满 `LargeClass` 阈值（基线恰 1600，
+ * 类内多 1 个 token 行即挂）：调用点保持一行，判定逻辑可单测。
+ */
+internal fun alignGridOnSwitch(bridge: Bridge?, rows: Int, cols: Int) {
+    val wantRows = rows.coerceAtLeast(1)
+    val wantCols = cols.coerceAtLeast(1)
+    if (shouldAlignGridOnSwitch(wantRows, wantCols) { bridge?.getGridRowsColsPacked() ?: 0L }) {
+        bridge?.resize(wantRows, wantCols)
+    }
 }
 
 /**
