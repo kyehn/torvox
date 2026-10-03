@@ -98,17 +98,23 @@ class TermuxBootstrapRealTerminalTest {
         val url =
             InstrumentationRegistry.getArguments().getString("test.bootstrapUrl") ?: OFFICIAL_URL
         Log.i(TAG, "fetching bootstrap zip from $url")
-        val fetched =
-            runCatching {
+        // 不用 runCatching：失败原因必须原样出现在断言信息里（无网、404、
+        // 证书问题各自不同），不能被压成一个 isSuccess=false。
+        val failure =
+            try {
                 java.net.URL(url).openStream().use { input ->
                     staged.outputStream().use { output -> input.copyTo(output) }
                 }
-            }.isSuccess
+                null
+            } catch (exception: Exception) {
+                Log.w(TAG, "bootstrap zip fetch from $url failed", exception)
+                "${exception.javaClass.simpleName}: ${exception.message}"
+            }
         assertTrue(
-            "cannot fetch bootstrap zip from $url. With no network stage it manually: " +
+            "cannot fetch bootstrap zip from $url ($failure). With no network stage it manually: " +
                 "adb push termux-bootstrap-x86_64.zip /data/local/tmp/termux-bootstrap-x86_64.zip" +
                 " then rerun with -e test.bootstrapUrl=file:///data/local/tmp/$ZIP_NAME",
-            fetched && staged.length() > 0,
+            failure == null && staged.length() > 0,
         )
         return staged.path
     }
