@@ -1,7 +1,5 @@
 package terminal.emulator
 
-private const val DEFAULT_ARCH_FALLBACK = "aarch64"
-
 /** `.termux` dir under the Termux home (DESIGN 用户数据节): user fonts live here. */
 internal fun termuxDir(context: android.content.Context): java.io.File =
     java.io.File(java.io.File(context.filesDir, "home"), ".termux")
@@ -39,8 +37,10 @@ fun resolveEffectiveFontFamily(fontFamily: String): String {
     }
 }
 
-/** 仅支持 arm64-v8a 与 x86_64（见 docs/specification/BUILD.md），其余一律回退到 aarch64。 */
-fun detectArchFromAbi(): String = when (android.os.Build.SUPPORTED_ABIS.firstOrNull()) {
+/** 仅支持 arm64-v8a 与 x86_64（见 docs/specification/BUILD.md）：其余 ABI 直接抛，
+ * 使引导安装失败返回而非静默下载错误架构的 zip（后者再被安装成功态掩盖）。 */
+fun detectArchFromAbi(): String = when (val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull()) {
+    "arm64-v8a" -> "aarch64"
     "x86_64" -> "x86_64"
-    else -> DEFAULT_ARCH_FALLBACK
+    else -> error("不支持的 ABI（仅 arm64-v8a/x86_64）：$abi")
 }

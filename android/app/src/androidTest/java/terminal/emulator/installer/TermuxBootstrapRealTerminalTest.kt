@@ -78,7 +78,11 @@ class TermuxBootstrapRealTerminalTest {
     fun termuxBootstrap_shell_runs_real_commands_with_asserted_output() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val packageName = ctx.packageName
-        val zipPath = "/sdcard/Download/$ZIP_NAME"
+        // 经 /data/local/tmp 中转：adb push 到 /sdcard 的文件属主是其他 uid，
+        // 在作用域存储下 :install 进程打不开（EACCES，本地已复现）；
+        // 而 /data/local/tmp 是全局可读，安装服务可直接拷贝。模拟器无外网，
+        // 故 https 回退在此环境不可用，file 预置是唯一路径。
+        val zipPath = "/data/local/tmp/$ZIP_NAME"
         val bashPath = "/data/user/0/$packageName/files/usr/bin/bash"
         assertTrue(
             "bootstrap zip must be staged first: adb push <termux bootstrap-x86_64.zip> $zipPath",
@@ -94,11 +98,13 @@ class TermuxBootstrapRealTerminalTest {
             )
         Log.i(TAG, "am start output: $startOut")
 
-        // Bounded poll for the installed entry.
+        // Bounded poll for the installed entry. `run-as` is required: the shell uid
+        // cannot stat app-private files (plain `[ -f ]` is false forever and burns
+        // the whole timeout even on success).
         val deadline = System.currentTimeMillis() + INSTALL_TIMEOUT_MS
         var present = false
         while (System.currentTimeMillis() < deadline) {
-            present = shell("[ -f $bashPath ] && echo yes").contains("yes")
+            present = shell("run-as $packageName sh -c '[ -f $bashPath ] && echo yes'").contains("yes")
             if (present) break
             Thread.sleep(3_000L)
         }

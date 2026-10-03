@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -35,14 +36,26 @@ class FontUtilsArchTest {
     }
 
     @Test
-    fun `unsupported abi falls back to aarch64`() {
+    fun `unsupported abi fails fast instead of fetching the wrong arch`() {
         withAbis("riscv64") {
-            assertEquals("aarch64", detectArchFromAbi())
+            try {
+                detectArchFromAbi()
+                Assert.fail("riscv64 必须抛而非回退 aarch64")
+            } catch (exception: IllegalStateException) {
+                Assert.assertTrue(exception.message!!.contains("riscv64"))
+            }
         }
     }
 
     @Test
-    fun `empty abi list falls back to aarch64`() {
-        withAbis { assertEquals("aarch64", detectArchFromAbi()) }
+    fun `empty abi list fails fast`() {
+        withAbis {
+            try {
+                detectArchFromAbi()
+                Assert.fail("空 ABI 列表必须抛")
+            } catch (exception: IllegalStateException) {
+                // error() 即 IllegalStateException
+            }
+        }
     }
 }
