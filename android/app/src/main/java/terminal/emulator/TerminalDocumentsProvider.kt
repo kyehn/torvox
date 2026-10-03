@@ -165,11 +165,20 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
     /**
      * 写回通知的回调线程。`openDocument` 跑在 Binder 线程上，而
-     * `ParcelFileDescriptor.OnCloseListener` 需要一个带 Looper 的 Handler；
-     * 主 Looper 进程内恒在，是唯一不必在此判空的选择。
+     * `ParcelFileDescriptor.OnCloseListener` 需要一个带 Looper 的 Handler。
+     *
+     * 用专用线程而非主 Looper：回调要读盘（`rootDir()` 的 `mkdirs`/`isDirectory`）
+     * 并广播，写在主线程既触发 StrictMode 的磁盘写告警，也会让通知排在整帧
+     * 渲染之后；进程被切后台/回收时主 Looper 排空不完，通知就永久丢了。
+     * 专用线程只做这一次 I/O，不与渲染争主线程；provider 的生命周期等于进程，
+     * 线程随进程消亡，无需单独回收（`ContentProvider` 也没有可覆写的销毁钩子）。
      */
+    private val closeNotifyThread: android.os.HandlerThread by lazy {
+        android.os.HandlerThread("terminal-documents-writeback").apply { start() }
+    }
+
     private val closeNotifyHandler: android.os.Handler by lazy {
-        android.os.Handler(android.os.Looper.getMainLooper())
+        android.os.Handler(closeNotifyThread.looper)
     }
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
