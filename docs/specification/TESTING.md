@@ -23,7 +23,7 @@
 - 使用 `rapidocr cli` 进行 OCR 识别。
 - 使用 `npx aislop@latest scan` 和 `npm install -g jscpd` 检查代码
 - 使用 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 审查代码。
-- 如果需要在安卓模拟器上手动调试使用 release apk 而不是 debug apk
+- 如果需要在安卓模拟器上手动调试使用 release apk 而不是 debug apk，模拟器测试尽量使用 release apk
 
 ## 覆盖范围
 
