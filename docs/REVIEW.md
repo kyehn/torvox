@@ -7,7 +7,7 @@
 
 本轮只审查，未改动代码。
 
-> 维护注：P0-1（setTheme 锁序）、P0-2（renderWithNewOutput 持锁）、P0-3（acquire_texture 回落阻塞）、P0-4（二段安装假成功）、P1-6（CellData 丢帧基线）、P1-8（Dropped 忽略）、P1-9（退出码哨兵）、P1-10（请求注册表泄漏）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：P0-1（setTheme 锁序）、P0-2（renderWithNewOutput 持锁）、P0-3（acquire_texture 回落阻塞）、P0-4（二段安装假成功）、P1-6（CellData 丢帧基线）、P1-8（Dropped 忽略）、P1-9（退出码哨兵）、P1-10（请求注册表泄漏）、P1-13（surface 释放接线）、P2-18（send_signal 裸 kill，已删函数）、P2-22（键栏吞键日志）、P2-23（空 shell 拒绝）已修复并验证，对应小节删除；其余编号保持不变。
 
 ---
 
@@ -51,12 +51,6 @@
 
 **修法**：逻辑行内匹配后按物理行切分 `SearchMatch`，一次扫描完成。
 
-### 13. `surfaceDestroyed` 声称的 UAF 不变式未接线
-
-`ui/TerminalSurface.kt:2710-2713` 注释承诺「仅在渲染线程 join 之后才释放 Surface」，但代码只做 `currentSurface = null`；`pauseRendering()` 是异步投递。为该不变式专门写的 `TerminalRuntime.runAfterRenderThreadsStopped()`（`:3343-3349`）**全仓零调用点**——既是死代码，也证明不变式确实没接线。
-
-**违反** STYLE:63，并在 GPU 挂起场景留下 UAF 风险。
-
 ### 14. `RenderWatchDog.stop()` 在持全局 `sessionLock` 时 `runBlocking`
 
 `monitor/RenderWatchDog.kt:41-43`；`stopRenderThread()` 首行调用，`switchSessionInternal`（`:2487`）与 `startRenderThread`（`:1041`）都在 `synchronized(sessionLock)` 内调用。`sessionLock` 是所有会话操作的串行点 → 一次挂起把创建/切换/关闭全部拖到最长 2s。
@@ -91,14 +85,6 @@
 
 **修法**：统一为 `panic!`，删除 `DISCONNECTED_*` 与 `GridSnapshot::fallback`。
 
-### 18. `session.rs` 内裸调 `unsafe libc::kill`
-
-`session.rs:452-478` 的 `send_signal` 绕过同文件 `deliver_signal`（`:754-768` 已用 `nix::sys::signal::kill`）直接裸调。
-
-**违反** AGENTS「核心终端数据路径禁用 unsafe」（`session.rs:244` 的 `poll` 已论证可保留）。
-
-**修法**：改用 `nix::sys::signal::kill`，删除两处 `unsafe`。
-
 ### 19. 死代码清单（STYLE:63）
 
 | 位置 | 问题 |
@@ -130,18 +116,6 @@
 - `theme/TerminalTheme.kt:501` `byName(...) ?: draculaPlus` 静默替换未知主题名，既不报错也不清设置（DESIGN:16「设置数据错误 → 清除设置数据」）。
 - `SettingsRepository.kt:93` 的 `SettingsState.fontSize = DEFAULT_FONT_SIZE(14f)` 与 `:108` 的 `deviceDefaultFontSize` 不一致，而 `:88` 注释声称「字段默认值与上方按字段流保持一致」——文档与代码相反。
 - `TerminalViewModel.kt:679-683` `clearUnknownFontFamily` 只删 `font_family` 一个键，DESIGN:95 要求「重置应用数据」。
-
-### 22. `ModifierBar.sendPlainOrModified` 静默吞按键
-
-`ui/ModifierBar.kt:476-484` `encodeKeyEvent(...) ?: return`——CTRL/ALT 激活且编码器无映射时（Ctrl+PAGE_UP/END/HOME）按键完全无反馈。与 `Bridge.kt:536` 有意丢弃 Ctrl+9/0 的注释不同，这是无声明的静默丢弃（DESIGN:24）。
-
-### 23. 空 shell 路径静默回退
-
-`ffi.rs:398-401` 空 shell 回退 `/system/bin/sh`。DESIGN:188 的三段探测由 Kotlin 侧完成（`TerminalRuntime.kt:1682` 已实现），Rust 侧再兜一层把「入口失败不得 Fallback」（DESIGN:194）变成静默兜底，且掩盖 Kotlin 解析 bug。
-
----
-
-## 四、工具报告
 
 ### aislop scan（0.16.1，rust，40 文件）
 
