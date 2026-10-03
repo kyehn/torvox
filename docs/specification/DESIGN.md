@@ -105,7 +105,9 @@
 
 - **软件主题**：“日间”、“夜间”、“跟随系统”三种。
 
-- **终端主题**：作用于终端页面与修饰键栏，默认“Dracula Plus”主题，开启“跟随系统”开关后支持分别设置日/夜两种终端主题，并跟随“软件主题”在两者间切换。
+- **终端主题**：作用于终端页面与修饰键栏，默认 dracula_plus 主题，开启“跟随系统”开关后支持分别设置日/夜两种终端主题，并跟随“软件主题”在两者间切换。
+  - 从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码
+  - 主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light
   - 默认主题在第一次使用时即被应用。
   - 主题效果支持预览，主题名称不在预览框内，而是在其下方，长主题名称需要可以被正常显示。
 
