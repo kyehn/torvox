@@ -186,6 +186,15 @@ impl PtyPair {
             .map_err(|pty_error| PtyError::Open(std::io::Error::other(pty_error)))?;
         let master_fd = result.master;
         let slave_fd = result.slave;
+        // openpty 不保证 FD_CLOEXEC：exec 后泄漏的 pty 主 fd 会让 shell 子进程
+        // 继续持有终端，父进程退出的 EOF 永远到不了 shell。
+        for fd in [&master_fd, &slave_fd] {
+            nix::fcntl::fcntl(
+                fd,
+                nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+            )
+            .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
+        }
 
         // fork 之前构建好子进程的全部数据，避免子进程中分配
         // （多线程进程中 fork 可能破坏 malloc 堆）。
