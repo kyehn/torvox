@@ -27,11 +27,11 @@ jobs:
       - uses: actions/cache/restore@main
         with:
           path: |
-            ~/.gradle/caches/
-            ~/.gradle/wrapper/
-            ~/.cargo/registry
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-
@@ -39,14 +39,14 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: |
           scripts/check-rust.nu
-          scripts/build-android-libs.nu --profile dev x86_64
+          scripts/build-android-libs.nu x86_64
           scripts/check-gradle.nu
       - uses: actions/cache/save@main
         with:
           path: |
-            ~/.gradle/caches/
-            ~/.gradle/wrapper/
-            ~/.cargo/registry
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
