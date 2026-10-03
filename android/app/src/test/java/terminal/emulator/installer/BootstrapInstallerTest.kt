@@ -35,6 +35,11 @@ class BootstrapInstallerTest {
 
     @Before
     fun setup() {
+        // Robolectric 下 SUPPORTED_ABIS 为空：按宿主真实架构声明，
+        // 否则 detectArchFromAbi 按未知 ABI 抛错（生产期望行为）。
+        val field = android.os.Build::class.java.getDeclaredField("SUPPORTED_ABIS")
+        field.isAccessible = true
+        field.set(null, arrayOf("x86_64"))
         val id = UUID.randomUUID().toString().take(8)
         prefixDir = File(context.filesDir, "bstest-$id/usr")
         homeDir = File(context.filesDir, "bstest-$id/home")
@@ -252,6 +257,35 @@ class BootstrapInstallerTest {
 
         assertTrue("second stage should succeed: ${result.errors}", result.success)
         assertTrue("postinst script must have executed", marker.exists())
+    }
+
+    @Test
+    fun secondStageRunner_retriesOnceAfterPostinstCrash() {
+        // 首轮 139（复刻 update-alternatives 首运崩溃：活干完、进程崩），
+        // 次轮幂等成功：旧逻辑无重试直接失败，新逻辑自愈。
+        val infoDir = File(prefixDir, "var/lib/dpkg/info")
+        infoDir.mkdirs()
+        val flag = File(prefixDir, "first-run-crashed.flag")
+        val marker = File(prefixDir, "postinst-retried.marker")
+        val script = File(infoDir, "fake.postinst")
+        script.writeText(
+            """
+            #!/bin/sh
+            if [ -f "${flag.absolutePath}" ]; then
+                echo "configure" > "${marker.absolutePath}"
+                exit 0
+            fi
+            touch "${flag.absolutePath}"
+            exit 139
+            """
+                .trimIndent(),
+        )
+        script.setExecutable(true)
+
+        val result = runBlocking { SecondStageRunner(prefixDir, homeDir).run() }
+
+        assertTrue("retry must heal first-run crash: ${result.errors}", result.success)
+        assertTrue("postinst script must have completed on retry", marker.exists())
     }
 
     @Test
