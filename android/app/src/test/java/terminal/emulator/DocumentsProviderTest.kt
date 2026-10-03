@@ -274,6 +274,36 @@ class DocumentsProviderTest {
         assertEquals("start|more", target.readText())
     }
 
+    /**
+     * 客户端取消后不得再开句柄：本重写不走基类实现，取消检查得自己做，
+     * 否则选择器放弃缩略图/打开后我们仍在磁盘上做完 I/O。
+     */
+    @Test
+    fun cancelled_signal_stops_openDocument_and_thumbnail() {
+        val provider = ensureProvider()
+        provider.createDocument("terminal_home", "text/plain", "cancelled.txt")
+        val cancelled = android.os.CancellationSignal().apply { cancel() }
+        for (label in listOf("openDocument", "openDocumentThumbnail")) {
+            val thrown =
+                runCatching {
+                    when (label) {
+                        "openDocument" -> provider.openDocument("cancelled.txt", "r", cancelled)
+
+                        else ->
+                            provider.openDocumentThumbnail(
+                                "cancelled.txt",
+                                android.graphics.Point(64, 64),
+                                cancelled,
+                            )
+                    }
+                }.exceptionOrNull()
+            assertTrue(
+                "$label must report cancellation, got $thrown",
+                thrown is android.os.OperationCanceledException,
+            )
+        }
+    }
+
     @Test
     fun openDocument_unknown_mode_throws() {
         val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
