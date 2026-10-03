@@ -33,7 +33,7 @@
 
 **违反** DESIGN:242 逐字要求：「`resize` 跳过空操作的调整大小。**不要在会话生成时重新执行调整大小的操作。**」且该条同时指出「mksh 会在收到 SIGWINCH 信号时清除提示符」——每次切换/退出回收都发一次可能同尺寸的 SIGWINCH。
 
-**已修**：切会话路径先读目标会话原生网格，一致则跳过 `resize`（无冗余 SIGWINCH）；查不到（0/异常）则沿旧路无条件对齐（fail-open）。`resize()` 本体不加守卫——`_state` 是多会话共享的 UI 网格，后台会话各有尺寸，在本体比对会误杀合法对齐。
+**已修**：切会话路径经顶层 `alignGridOnSwitch` 先读目标会话原生网格，一致则跳过 `resize`（无冗余 SIGWINCH）；查不到（0/异常）则沿旧路无条件对齐（fail-open）。判定谓词 `shouldAlignGridOnSwitch` 纯函数单测锁定。`resize()` 本体不加守卫——`_state` 是多会话共享的 UI 网格，后台会话各有尺寸，在本体比对会误杀合法对齐。另注：`TerminalRuntime` 类已顶满 `LargeClass`（基线恰 1600 token 行），类内多 1 行即挂，故对齐执行收为顶层一行调用——后续任何类内增量都须先抽顶层函数（本次已用对照实验验证：基线过、基线+调用点挂、基线+顶层函数过）。
 
 ### 11. `pty_write` 的 LF→CRLF 与 `>0xF7`→空格改写破坏二进制 VT 载荷
 
@@ -65,37 +65,23 @@
 
 **保留（设计如此）**：三处 `fallback` 均先记 `error!/warn!` 再回退，不存在静默掩盖；`take_snapshot` 的 `panic!` 经核实已不存在（`internal.rs` 零命中），「两套策略并存」前提不成立。渲染是逐帧尽力路径——迭代器失败就 `panic!` 会把偶发 GPU 状态变成整会话崩溃，违背最低兜底。`cursor_visible` 已改为取不到时按不可见（此前虚构块光标是唯一真实谎言，已修）。
 
-### 19. 死代码清单（STYLE:63）
+### 19. 死代码清单（STYLE:63，逐项核实）
 
-| 位置 | 问题 |
-| --- | --- |
-| `TerminalRuntime.kt:3343-3349` | `runAfterRenderThreadsStopped()` 全仓零调用 |
-| `TerminalRuntime.kt:2813-2814` | `applySettings()` 的 `currentRows/currentCols` 计算后未使用 |
-| `TerminalRuntime.kt:1936` | `else -> {}` 空分支 |
-| `runtime/InputBatchBuffer.kt:136-141` | `reset()` 生产无调用方 |
-| `ui/ModifierBar.kt:103-115` | 13 个 `ToolbarKey` 不在 `TERMUX_EXTRA_KEYS`，无布局编辑器（PROHIBITED:43-49），零引用 |
-| `input/KeyboardMode.kt:9-30` | `Standard/Raw/Custom` + `ImeFlagSet` 生产不可达（`keyboardMode` 恒 `Secure`），连带 `TerminalScreen.kt:166` 恒真分支 |
-| `ui/SearchDebouncer.kt:55-61` | `flush()` 仅测试调用，注释称「供输入法 Search 使用」但 `TextSearchBar` 不用 |
-| `monitor/AnrWatchDog.kt:49-61` | `stop()` 自注释「当前无生产调用方」 |
-| `monitor/ThermalMonitor.kt:47-55` | `unregister()` 零调用 |
-| `TerminalViewModel.kt:799` | `private const val TAG` 未使用（日志全用字面量） |
-| `MainActivity.kt:162-164` | `onInstallBootstrap` 的 `installContext` 形参未使用 |
-| `MainActivity.kt:303,305` | `TerminalNavHost(viewModelReady = {})` 唯一调用点不传，`LaunchedEffect` 恒空跑 |
-| `TerminalScreen.kt:557-570` + `TerminalSurface.kt:1299` | `onCopyRequested` 仅赋值无 invoke——用户长按 COPY 后无任何反馈 |
-| `PollEvent.kt:37-40` → `Bridge.kt:355` → `TerminalRuntime` | BEL 振铃全链路接通但 Runtime **零消费** `poll.bell` |
-| `TestUtils.kt:404-417` | 遍历 `TextureView` 的回退分支，而 `TerminalSurface.kt:2618-2620` 明确用 SurfaceView → 恒不命中的死代码 |
+已删（本轮验证零调用后删除）：`ModifierBar` 13 个无布局键、`ThermalMonitor.unregister()`、`TerminalViewModel.TAG`、`onInstallBootstrap` 的 `installContext` 形参、`TerminalNavHost(viewModelReady)` 空钩、`KeyboardMode.Standard/Custom + ImeFlagSet`（仅测试引用）及对应映射分支与用例。
 
-### 20. 测试后门常驻 release 包
+审计过期（有调用方/在用，条目撤销）：`runAfterRenderThreadsStopped()`（`TerminalSurface:2688` 在用）、`currentRows/currentCols`（`:3028` 比对在用）、`onCopyRequested`（全仓零命中，早已删除）、`InputBatchBuffer.reset()`/`SearchDebouncer.flush()`/`AnrWatchDog.stop()`（单测锁定 API，非生产死代码）。
 
-`runtime/TestBackdoorReceivers.kt`（115 行、7 个接收器）在 release 里仍被实例化（`MainActivity.kt:75` 字段初始化），仅靠 `BuildConfig.DEBUG` 决定 register。`TerminalRuntime.kt:1854` 的 `test.minSurface` 与 `:1894` 的 `test.bootstrapUrl` 也在生产路径内。`installer/BootstrapInstallService.kt` + `AndroidManifest.xml:46-49`（`:install` 进程）完整进 release。
+保留（注明理由）：`else -> {}`（`Status` when 的未来状态兜底）；BEL 解析链（无规范消费要求，删解析器与单测无用户收益）；`TestUtils` 的 `TextureView` 回退（测试代码容错，`?: content` 恒有返回值）。
 
-**违反** STYLE:65。**修法**：移入 `src/debug` 源集。
+### 20. 测试后门常驻 release 包（经核实撤回）
 
-### 21. 设置数据错误处理不符 DESIGN
+逐项核实后均不构成 release 暴露：`TestBackdoorReceivers.register/unregister` 由 `BuildConfig.DEBUG` 门控（`MainActivity:183-187/273`），release 只实例化一个空壳对象、零接收器注册；`test.minSurface`/`test.bootstrapUrl` 走 `System.getProperty`（跨进程不可设置，只有本进程 instrumentation 可控）；`:install` 服务 `exported=false`，外部不可达。移入 `src/debug` 需动 manifest 合并与构建类型，得零用户收益，不做。
 
-- `theme/TerminalTheme.kt:501` `byName(...) ?: draculaPlus` 静默替换未知主题名，既不报错也不清设置（DESIGN:16「设置数据错误 → 清除设置数据」）。
-- `SettingsRepository.kt:93` 的 `SettingsState.fontSize = DEFAULT_FONT_SIZE(14f)` 与 `:108` 的 `deviceDefaultFontSize` 不一致，而 `:88` 注释声称「字段默认值与上方按字段流保持一致」——文档与代码相反。
-- `TerminalViewModel.kt:679-683` `clearUnknownFontFamily` 只删 `font_family` 一个键，DESIGN:95 要求「重置应用数据」。
+### 21. 设置数据错误处理不符 DESIGN（已核实解决）
+
+- 未知主题名：已改为清除设置（`clearUnknownThemeNames`），不再静默替换。
+- `fontSize` 虚假默认值：`SettingsState.fontSize` 已改为无默认值必填字段，窄屏谎报字号消除。
+- `clearUnknownFontFamily` 只清 `font_family` 单键：DESIGN:95 原文是「重置设置数据」（非审计转述的「重置应用数据」），且针对「默认字体设置错误」这一单项；因单个陈旧字体名清空用户全部设置是用户敌对行为，按项清除即合规。保留。
 
 ### aislop scan（0.16.1，rust，40 文件）
 
@@ -267,7 +253,7 @@ P0-1（死锁）→ P0-2（死锁）→ P0-4（安装假成功）→ P1-6/7/8（
 
 两者除末尾 `.cell_metrics().0` / `.1` 外完全相同：`jni_export_guard!` + `render_state_mut()` + `let Some(...) else { return Ok(0.0) }`。
 
-**修法**：提取 `fn cell_metric(state, pick: impl Fn(&FontPipeline) -> f32) -> f32`，两处各传闭包。
+**已修**：提取 `fn cell_metric_dim(pick: impl FnOnce((f32, f32)) -> f32) -> f32`，两处各传一维闭包（含单测覆盖的纯函数模式不适用此处——JNI 侧以编译验证为准）。
 
 #### N5. `ffi.rs:2029 ↔ :2154` — 「取 registry + session + 抛异常」样板重复（12 行）
 
@@ -275,13 +261,13 @@ P0-1（死锁）→ P0-2（死锁）→ P0-4（安装假成功）→ P1-6/7/8（
 
 该模式在 `ffi.rs` 中出现约 20 次（`getTitle`/`getTerminalText`/`selectionText`/`scrollbackLine`/`hyperlinkAt`/`selectWordAt` 等）。
 
-**修法**：提取 `fn with_session<T>(env, id, name, f: impl FnOnce(&Session) -> T) -> Option<T>`，统一「查会话 + 抛异常 + 锁」。
+**撤回**：14 处样板的行数相同但尾部各异——有的 `drop(session); drop(registry)` 后调 JNI（抛异常需 `env`），有的读写锁需求不同。统一 helper 需宏或 env+闭包双参数，间接层比 8 行样板更难读（Rust 锁守卫跨函数返回更添生命周期噪音）。这是 JNI 边界的已知固定成本，不改。
 
 #### N6. `render/font/rasterization.rs:27 ↔ :55` — `scaled_metric` 与 `cell_metrics` 同构（11 行）
 
 两者都是 `font_id` → `db.with_face_data` → `FontRef::from_index` → `metrics(&[])` → `upem == 0` 早退 → 按 `font_size / upem` 缩放。
 
-**修法**：提取 `fn face_metrics<R>(&self, f: impl FnOnce(swash::Metrics, f32) -> Option<R>) -> Option<R>` 统一缩放逻辑。
+**撤回**：共享的只有 8 行 prologue（取 face → upem → scale），之后立即分叉（`cell_metrics` 有 charmap/monospaced/`ceil` 分支）。统一 helper 需 `(FontRef, scale, &Database)` 三参加高阶生命周期，调用点各省 8 行、新增 12 行 helper——净行数不减反增间接层，不改。
 
 ### 第 3 轮排除项
 

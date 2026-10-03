@@ -100,11 +100,13 @@ class TermuxBootstrapRealTerminalTest {
 
         // Bounded poll for the installed entry. `run-as` is required: the shell uid
         // cannot stat app-private files (plain `[ -f ]` is false forever and burns
-        // the whole timeout even on success).
+        // the whole timeout even on success). Quote-free `ls`: the sibling
+        // BootstrapCompatibilityTest proves stderr is NOT merged into the returned
+        // stdout, so missing file ⇒ blank, present ⇒ path.
         val deadline = System.currentTimeMillis() + INSTALL_TIMEOUT_MS
         var present = false
         while (System.currentTimeMillis() < deadline) {
-            present = shell("run-as $packageName sh -c '[ -f $bashPath ] && echo yes'").contains("yes")
+            present = shell("run-as $packageName ls $bashPath").isNotBlank()
             if (present) break
             Thread.sleep(3_000L)
         }

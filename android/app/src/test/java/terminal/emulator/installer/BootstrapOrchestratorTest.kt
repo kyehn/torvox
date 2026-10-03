@@ -6,8 +6,10 @@ import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -25,6 +27,16 @@ class BootstrapOrchestratorTest {
     private val downloader = mockk<BootstrapDownloader>()
     private val installer = mockk<BootstrapInstaller>()
     private val secondStageRunner = mockk<SecondStageRunner>()
+
+    @Before
+    fun declareHostAbi() {
+        // Robolectric 下 SUPPORTED_ABIS 为空：按宿主真实架构声明，
+        // 否则 detectArchFromAbi 按未知 ABI 抛错，首个 async 在下载前夭折、
+        // `downloadEntered.await()` 永等（本次已挂住 20 分钟）。
+        val field = android.os.Build::class.java.getDeclaredField("SUPPORTED_ABIS")
+        field.isAccessible = true
+        field.set(null, arrayOf("x86_64"))
+    }
 
     private fun orchestrator() = BootstrapOrchestrator(downloader, installer, secondStageRunner)
 
@@ -102,7 +114,7 @@ class BootstrapOrchestratorTest {
         val orch = orchestrator()
         val first = async { orch.ensureBootstrap("https://example.com/x.zip") }
         // Wait (with timeout) for the first attempt to be inside download.
-        downloadEntered.await()
+        withTimeout(30_000) { downloadEntered.await() }
         val second = orch.ensureBootstrap("https://example.com/x.zip")
         assertTrue(second.isFailure)
         assertEquals(
