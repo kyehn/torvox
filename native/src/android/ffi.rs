@@ -2027,7 +2027,10 @@ fn clipboard_result_inner<'local>(
     let session_id = session_id as u64;
     let request_id = request_id as u64;
 
-    if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
+    // 先取出并立即释放 guard：`try_to_string` 可能触发 JVM GC safepoint，
+    // guard 若跨过 JNI 调用会把锁持有时间拉长。
+    let tx = REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
+    if let Some(tx) = tx {
         let text_str: String = text.try_to_string(env).unwrap_or_default();
         let _ = tx.send(text_str);
     }
