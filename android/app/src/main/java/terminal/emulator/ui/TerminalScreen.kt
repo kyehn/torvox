@@ -59,6 +59,7 @@ import kotlinx.coroutines.launch
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.computeContentBottomPx
 import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
@@ -551,7 +552,7 @@ fun TerminalScreen(
                             val cellHeightPx = runtimeForContent.cellHeight
                             val contentRow = lastContentRow.intValue
                             val contentBottomPx =
-                                if (contentRow < 0) 0 else (contentRow + 1) * cellHeightPx.toInt()
+                                computeContentBottomPx(contentRow, cellHeightPx)
                             val shift =
                                 computeImeSurfaceShift(
                                     contentBottomPx = contentBottomPx,
