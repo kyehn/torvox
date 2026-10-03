@@ -1,5 +1,4 @@
 //! GPU 上下文：把 wgpu 的 instance、adapter、device 与管线集中到单个 `Renderer` 结构。
-use parking_lot::Mutex;
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
@@ -10,10 +9,6 @@ use crate::render::{CATPPUCCIN_MOCHA_BACKGROUND, GpuError};
 pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
 }
-
-/// 排空挂起 GPU 工作时的单次 poll 等待量（一帧 60Hz 量级）：只求排空提交，
-/// 不阻塞帧循环。
-const GPU_DRAIN_POLL_QUANTUM: std::time::Duration = std::time::Duration::from_millis(16);
 
 /// 连续多少次 surface 级取纹理失败即判死窗口（见 [`Renderer::note_surface_acquire`]）。
 ///
@@ -187,7 +182,6 @@ pub struct Renderer {
     pub(crate) kgp_atlas_height: u32,
     pub(crate) raster_scale: f32,
     pub(crate) render_paused: bool,
-    pub(crate) pending_gpu_drain: bool,
     /// 持久离屏帧累加器：权威帧内容跨帧存活，使部分（脏带）帧可合成到上次输出上，
     /// 每帧一次 `copy_texture_to_texture` 呈现到交换链。
     pub(crate) frame_texture: Option<wgpu::Texture>,
@@ -246,13 +240,6 @@ impl Renderer {
     /// [Self::surface_invalidated]：连续 [SURFACE_LOSS_STREAK_LIMIT] 次 surface 级
     /// 失败即判死窗口，使下一次 `attach_surface` 走重建慢路径。
     pub(crate) fn begin_frame(&mut self) -> Option<FrameContext> {
-        if self.pending_gpu_drain {
-            let _ = self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(GPU_DRAIN_POLL_QUANTUM),
-            });
-            self.pending_gpu_drain = false;
-        }
         let config_width = self
             .surface_config
             .as_ref()
@@ -396,7 +383,6 @@ impl Renderer {
             kgp_atlas_height: 0,
             raster_scale: 1.0,
             render_paused: false,
-            pending_gpu_drain: false,
             frame_texture: None,
             frame_invalidated: true,
             swapchain_copy_supported: false,
@@ -994,15 +980,6 @@ impl Renderer {
     }
 }
 
-// ── 自 surface.rs 内联 ──────────────────────────────────────────
-type CachedSurface = (
-    std::sync::Arc<wgpu::Surface<'static>>,
-    wgpu::SurfaceConfiguration,
-);
-
-pub(crate) static GLOBAL_SURFACE: OnceLock<parking_lot::Mutex<Option<CachedSurface>>> =
-    std::sync::OnceLock::new();
-
 impl Renderer {
     /// 宿主构建排除了仅 Android 的 `attach_surface` 调用方，本函数在宿主上会成为死代码，
     /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
@@ -1023,32 +1000,6 @@ impl Renderer {
             wgpu::PresentMode::AutoVsync
         } else {
             wgpu::PresentMode::Immediate
-        }
-    }
-
-    /// 释放当前 GPU surface，并缓存以备复用。
-    pub fn release_gpu_surface(&mut self) {
-        if self.surface.is_some() {
-            let surface = self
-                .surface
-                .take()
-                .expect("surface confirmed Some by is_some guard");
-            let config = self.surface_config.take();
-            if let Some(config) = config
-                && let mut guard = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock()
-            {
-                *guard = Some((surface, config));
-            }
-        }
-        self.surface_config = None;
-        // 标记下一帧前需排空 GPU 工作；poll 延后以免阻塞会话切换。
-        self.pending_gpu_drain = true;
-    }
-
-    pub fn clear_global_surface() {
-        let mut guard = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock();
-        {
-            *guard = None;
         }
     }
 
