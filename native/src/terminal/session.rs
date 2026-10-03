@@ -1231,6 +1231,41 @@ mod tests {
     }
 
     #[test]
+    fn request_exit_kills_child_while_session_still_alive() {
+        // destroySession 从注册表摘下条目后即向宿主返回，此时剪贴板应答等异步
+        // 克隆仍持有 Arc<Mutex<Session>>，Drop 尚未执行——shell 必须在此时就死，
+        // 否则宿主已经认为会话销毁、shell 却在后台继续跑（生命周期契约破裂）。
+        let mut session = spawn_test_session();
+        session.write(b"echo alive\n").expect("write failed");
+        let pid = session.pty.child_pid();
+        assert!(pid.as_raw() > 0, "spawned session must have a child pid");
+
+        session.request_exit();
+
+        // 子进程必须在 request_exit 返回后即已消失（信号已投递）。
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut still_running = true;
+        while std::time::Instant::now() < deadline {
+            match nix::sys::signal::kill(pid, None) {
+                Err(nix::errno::Errno::ESRCH) => {
+                    still_running = false;
+                    break;
+                }
+                Ok(()) => std::thread::sleep(Duration::from_millis(10)),
+                Err(error) => panic!("unexpected kill probe error: {error}"),
+            }
+        }
+        assert!(
+            !still_running,
+            "request_exit returned but child {} is still alive — destroySession would \
+             report success while the shell keeps running",
+            pid.as_raw()
+        );
+        // 会话对象本身仍在（模拟异步克隆持有），清理交给 Drop。
+        assert!(session.is_exited());
+    }
+
+    #[test]
     fn session_write_after_exit_returns_error() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
