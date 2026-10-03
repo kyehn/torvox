@@ -106,6 +106,14 @@
 - [x] `initSession` 空 shell 改写为 `/system/bin/sh` —— 本轮已删除
 - [x] `external fun` 缺 `@JvmStatic` —— 本轮已补齐 58 个声明（依赖 receiver 与
       `jclass` 落在同一槽位的巧合，实测 CheckJNI 下报错）
+- [x] N2-6 / N2-40fork 子进程裸 `_exit` 不写 fd 2 —— **本轮否证**：
+      两处 `_exit` 之前都先 `write(2, reason)`（`child_exit_with_reason` 与 errno
+      分支），用户可见 `[Process completed (code N)]` 之前已有原因行
+- [x] `kgp_atlas_data` 只写不读的图集 CPU 全量副本 —— 本轮已删除
+- [x] `consumeNewOutput` 零调用且是唯一不挂 `jni_export_guard!` 的导出 —— 本轮已删除
+- [x] markdownlint 递归进 CI 的 `result-kudzu`（N9）—— 本轮已修
+      （改用 cli2 `ignores`，未动工作流与规则集）
+- [x] 搜索结果解码/序列化失败冒充「0 匹配」（N2-10）—— 本轮已补日志
 
 ## 7. 文档退役
 
