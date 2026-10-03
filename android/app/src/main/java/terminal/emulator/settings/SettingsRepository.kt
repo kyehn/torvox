@@ -4,9 +4,16 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -32,6 +39,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
+
+        /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
+        private const val DEBOUNCE_MILLIS = 300L
 
         /** Shell 启动入口默认空（DESIGN :122 未设置时为空），空即走默认回退链。 */
         const val DEFAULT_SHELL = ""
@@ -172,6 +182,35 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
 
     suspend fun setBootstrapUrl(url: String) = put(Keys.BOOTSTRAP_URL, url)
+
+    /**
+     * 记录一次引导 URL 编辑，由本单例的防抖写入落盘。
+     *
+     * 防抖必须活在本单例而不是 ViewModel 里：每次写入都是完整文件重写，逐击键
+     * 落盘不可接受；而放在 ViewModel 的收集器里，收集器随 ViewModel 一起被取消，
+     * 防抖窗口内（[DEBOUNCE_MILLIS]）的最后一次编辑会被静默丢弃。单例的收集器与
+     * 应用同寿，页面销毁带不走待写值。
+     */
+    fun recordBootstrapUrlEdit(url: String) {
+        bootstrapUrlEdits.tryEmit(url)
+    }
+
+    /** 最近一次编辑值（含尚未落盘的），供安装动作直接读取。 */
+    fun latestBootstrapUrlEdit(): String? = bootstrapUrlEdits.replayCache.lastOrNull()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val bootstrapUrlEdits = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 1)
+
+    init {
+        scope.launch {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            bootstrapUrlEdits
+                .debounce(DEBOUNCE_MILLIS)
+                .distinctUntilChanged()
+                .collect { value -> put(Keys.BOOTSTRAP_URL, value) }
+        }
+    }
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         provider.dataStore.edit { it[key] = value }
