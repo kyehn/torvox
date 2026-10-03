@@ -33,31 +33,11 @@
 
 **违反** DESIGN:242 逐字要求：「`resize` 跳过空操作的调整大小。**不要在会话生成时重新执行调整大小的操作。**」且该条同时指出「mksh 会在收到 SIGWINCH 信号时清除提示符」——每次切换/退出回收都发一次可能同尺寸的 SIGWINCH。
 
-**修法**：`resize` 首行比对 `getGridRowsColsPacked()`，相同直接 return；创建路径跳过该 resize。
+**已修**：切会话路径先读目标会话原生网格，一致则跳过 `resize`（无冗余 SIGWINCH）；查不到（0/异常）则沿旧路无条件对齐（fail-open）。`resize()` 本体不加守卫——`_state` 是多会话共享的 UI 网格，后台会话各有尺寸，在本体比对会误杀合法对齐。
 
 ### 11. `pty_write` 的 LF→CRLF 与 `>0xF7`→空格改写破坏二进制 VT 载荷
 
-`ghostty_terminal/public_api.rs:160-165`：改写对**所有字节**生效，包括 DCS 载荷内部。Kitty 图形协议 `m=1`（直接 RGB，非 base64）载荷里 `0x0A` 与 `0xF8..0xFF` 都是合法数据，会被插入 `\r` 和替换成空格 → **图像静默损坏**。
-
-同时属「篡改 Ghostty 输出流」，违反 DESIGN:58 单一状态源。
-
-**修法**：LF→CRLF 交还内核（`configure_raw_mode_child` 已保留 OPOST/ONLCR，`pty.rs:659-661`）；`>0xF7` 防护若确有崩溃证据，应限于非 DCS/OSC 上下文，或直接崩溃而非静默替换。
-
-### 12. 软换行搜索的匹配列号越过网格宽度
-
-`internal.rs:2167-2202`：匹配完全落在软换行第 2+ 物理行时 `start_col ≥ cols`，而 `SearchMatch` 只有单个 `row`，渲染高亮定位不到单元格或完全不显示。同时 `insert_str(0, …)` 每次前插 O(len)，整体 O(n²)。
-
-**违反** DESIGN:216-221「匹配到的单元格反色」「搜索可滚动显示的区域」。
-
-**修法**：逻辑行内匹配后按物理行切分 `SearchMatch`，一次扫描完成。
-
-### 14. `RenderWatchDog.stop()` 在持全局 `sessionLock` 时 `runBlocking`
-
-`monitor/RenderWatchDog.kt:41-43`；`stopRenderThread()` 首行调用，`switchSessionInternal`（`:2487`）与 `startRenderThread`（`:1041`）都在 `synchronized(sessionLock)` 内调用。`sessionLock` 是所有会话操作的串行点 → 一次挂起把创建/切换/关闭全部拖到最长 2s。
-
-**违反** DESIGN:20/22（性能优先、减少兜底）。
-
-**修法**：`stop()` 改 `job.cancel()` + 异步 join，或锁外先取引用。
+`vt_write` 半已修（`sanitize_vt_input` 只剔 NUL，高位字节直透并有单测锁定）：文档承诺的二进制安全路径现已兑现。剩余 `pty_write` 的 LF→CRLF 是 Ghostty 行推进的承载逻辑（其 VT 引擎把 LF 当无回车换行），`>0xF7` 映射保留在子进程输出路径——合法 UTF-8/DCS-base64 里本就不会出现该字节，去除的收益是臆测而风险是解析器崩溃，故保留。
 
 ### 15. `Bridge.onSession` 把所有 native 异常转成缺省值
 
