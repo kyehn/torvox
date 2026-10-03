@@ -138,15 +138,42 @@ class ImePopupPixelInstrumentedTest {
                 shown
             }
         assertNotNull("输入法必须弹出", visible)
+        // 高度定居：Gboard 工具栏行后于按键弹出，键盘总高度动画可延续数秒。
+        // 高度未稳即测，应用内边距与截图键盘错位，位移比较必抖动。
+        // 连续 3 次采样一致才放行，15s 内不定居则失败（键盘真有问题，不是测试问题）。
+        var stableReads = 0
+        var lastHeight = -1
+        val stableDeadline = android.os.SystemClock.uptimeMillis() + 15_000L
+        while (android.os.SystemClock.uptimeMillis() < stableDeadline) {
+            val height = imeHeightPx()
+            stableReads = if (height == lastHeight && height > 0) stableReads + 1 else 1
+            lastHeight = height
+            if (stableReads >= 3) break
+            Thread.sleep(500)
+        }
+        assertTrue("输入法高度必须定居 (末次=$lastHeight)", stableReads >= 3)
         Thread.sleep(SETTLE_MILLIS)
     }
 
     private fun imeHeightPx(): Int {
         var height = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            height =
-                findTerminalSurface(composeTestRule.activity).rootWindowInsets
+            val surface = findTerminalSurface(composeTestRule.activity)
+            val surfaceBottom =
+                surface.rootWindowInsets
                     ?.getInsets(WindowInsets.Type.ime())?.bottom ?: 0
+            val decorBottom =
+                composeTestRule.activity.window.decorView.rootWindowInsets
+                    ?.getInsets(WindowInsets.Type.ime())?.bottom ?: 0
+            // TODO_DIAG_IMETEST:确诊后删除。surface 与 decor 属同一窗口时两者必一致；
+            // 若长期分叉，说明焦点/窗口错位，位移比较的前提即不成立。
+            if (surfaceBottom != decorBottom) {
+                android.util.Log.w(
+                    "ImeTest",
+                    "DIAG_WINDOW surfaceIme=$surfaceBottom decorIme=$decorBottom",
+                )
+            }
+            height = surfaceBottom
         }
         return height
     }
@@ -350,6 +377,17 @@ class ImePopupPixelInstrumentedTest {
     fun contentFewImePopupTerminalStaysPutAndVisible() {
         val marker = "IME_FEW_${System.currentTimeMillis() % 100000}"
         printAndAwait("printf '$marker\\n'", marker)
+        // 光标闪烁是逐像素比对的噪声源（块光标约一格，差分数千像素）：
+        // 比对期间隐藏光标，测完恢复。try-finally 保证断言失败也不污染后继用例。
+        bridge().writeToPty("\u001b[?25l".toByteArray(Charsets.UTF_8))
+        try {
+            contentFewImePopupTerminalStaysPutAndVisibleBody(marker)
+        } finally {
+            bridge().writeToPty("\u001b[?25h".toByteArray(Charsets.UTF_8))
+        }
+    }
+
+    private fun contentFewImePopupTerminalStaysPutAndVisibleBody(marker: String) {
         Thread.sleep(SETTLE_MILLIS)
         hideImeAndSettle()
         val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
@@ -403,8 +441,22 @@ class ImePopupPixelInstrumentedTest {
         )
         Thread.sleep(SETTLE_MILLIS)
         // 启动期自动弹键盘与本用例竞态（实测 spawn 后 3s 才 show）：截图前一刻强制收起并确认，否则 before 即上移态差分为零。
-        hideImeAndSettle()
-        val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        // 收起与截图之间仍可能自动重弹（慢模拟器上见过验证通过后 1s 内重弹），
+        // 故 hide→shot→验前提包成整体重试：前提不过就重来，最多 3 轮。
+        var before: android.graphics.Bitmap? = null
+        for (attempt in 1..3) {
+            hideImeAndSettle()
+            before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+            if (!isImeVisible()) break
+            android.util.Log.w("ImeTest", "DIAG_RACE before 截图时键盘重弹，重试收起 ($attempt/3)")
+        }
+        val beforeShot = before ?: throw AssertionError("截图失败")
+        // 前提钉死：before 必须是无键盘态，否则「位移=0」是 before 已上移的假象
+        // 而非产品未动（自动弹键盘与收起竞态，见 hideImeAndSettle 注释）。
+        assertTrue(
+            "before 截图时输入法必须已收起，否则位移比较无意义",
+            !isImeVisible(),
+        )
         val beforeText = pumpAndText() ?: throw AssertionError("弹出前终端文本不可读")
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
@@ -413,11 +465,11 @@ class ImePopupPixelInstrumentedTest {
         // 位移在顶部条带里度量（键盘永远碰不到的高处）：旧的底部区域差分口径会被键盘
         // 扫过动画触发——扫过只改变底部像素，顶部条带只随终端平移而动。
         // 轮询至上移出现（15s 上限），成功帧留给闪烁/缝线检查。
-        val stripTop = before.height * 4 / 10
+        val stripTop = beforeShot.height * 4 / 10
         val stripHeight = 150
         val maxShift = minOf(imeHeight, stripTop)
         // before 逐像素基线在轮询中不变，预先算一次行墨量避免重复采样。
-        val beforeInk = rowInk(before, stripTop, stripHeight)
+        val beforeInk = rowInk(beforeShot, stripTop, stripHeight)
         var moved: android.graphics.Bitmap? = null
         var bestShift = 0
         var bestDiff = Int.MAX_VALUE
@@ -425,7 +477,7 @@ class ImePopupPixelInstrumentedTest {
         while (android.os.SystemClock.uptimeMillis() < moveDeadline) {
             val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
             val (shift, diff) =
-                bestUpwardShift(before, shot, stripTop, stripHeight, maxShift, beforeInk)
+                bestUpwardShift(beforeShot, shot, stripTop, stripHeight, maxShift, beforeInk)
             if (shift > bestShift || (shift == bestShift && diff < bestDiff)) {
                 bestShift = shift
                 bestDiff = diff
@@ -444,7 +496,7 @@ class ImePopupPixelInstrumentedTest {
         Thread.sleep(1_000)
         val movedFrame = device.takeScreenshot() ?: throw AssertionError("截图失败")
         val (settledShift, settledDiff) =
-            bestUpwardShift(before, movedFrame, stripTop, stripHeight, maxShift, beforeInk)
+            bestUpwardShift(beforeShot, movedFrame, stripTop, stripHeight, maxShift, beforeInk)
         assertTrue(
             "上移必须保持到动画定居 (位移=$settledShift 差异=$settledDiff)",
             settledShift > MOVE_MIN_SHIFT_PX && settledDiff <= STRIP_MATCH_MAX_DIFF,

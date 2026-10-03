@@ -102,6 +102,44 @@ class DocumentsProviderInstrumentedTest {
         assertEquals("edited by another app|more", probe.readText())
     }
 
+    @Test
+    fun resolver_create_then_modify_round_trip() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        File(home, "resolver-create-probe.txt").delete()
+        val parentUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
+        val createdUri = DocumentsContract.createDocument(
+            context.contentResolver,
+            parentUri,
+            "text/plain",
+            "resolver-create-probe.txt",
+        )
+        requireNotNull(createdUri) { "resolver create must return a uri" }
+        context.contentResolver.openOutputStream(createdUri, "rwt").use { stream ->
+            requireNotNull(stream) { "created file must be writable" }
+            stream.write("created then edited".toByteArray())
+        }
+        assertEquals("created then edited", File(home, "resolver-create-probe.txt").readText())
+        assertTrue(DocumentsContract.deleteDocument(context.contentResolver, createdUri))
+    }
+
+    @Test
+    fun resolver_create_directory_round_trip() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        File(home, "resolver-dir-probe").deleteRecursively()
+        val parentUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
+        val createdUri = DocumentsContract.createDocument(
+            context.contentResolver,
+            parentUri,
+            DocumentsContract.Document.MIME_TYPE_DIR,
+            "resolver-dir-probe",
+        )
+        requireNotNull(createdUri) { "resolver create dir must return a uri" }
+        assertTrue("created dir must land on disk", File(home, "resolver-dir-probe").isDirectory)
+        assertTrue(DocumentsContract.deleteDocument(context.contentResolver, createdUri))
+    }
+
     /** 读取通道对不持 `MANAGE_DOCUMENTS` 的进程开放（清单不得声明无效权限）。 */
     @Test
     fun external_process_read_succeeds_without_manage_documents() {
