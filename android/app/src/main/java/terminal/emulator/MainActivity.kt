@@ -159,7 +159,7 @@ class MainActivity : ComponentActivity() {
                 terminalViewModel.showPastePopup(row, col)
                 LogUtil.d("T", "showPaste: row=$row col=$col")
             },
-            onInstallBootstrap = { installContext, zipPath ->
+            onInstallBootstrap = { zipPath ->
                 installBootstrapFromPath(zipPath)
             },
         )
@@ -301,12 +301,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TerminalNavHost(
-    openSettingsRequests: Int = 0,
-    viewModel: TerminalViewModel = hiltViewModel(),
-    viewModelReady: (TerminalViewModel) -> Unit = {},
-) {
-    LaunchedEffect(viewModel) { viewModelReady(viewModel) }
+private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalViewModel = hiltViewModel()) {
     var showSettings by remember { mutableStateOf(openSettingsRequests > 0) }
     LaunchedEffect(openSettingsRequests) {
         if (openSettingsRequests > 0) showSettings = true
