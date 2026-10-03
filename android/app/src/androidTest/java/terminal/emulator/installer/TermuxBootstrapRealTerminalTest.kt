@@ -31,14 +31,17 @@ import terminal.emulator.waitForSession
  * install setup/observation (staging check, install trigger, completion poll), never for running
  * validation commands — every validated byte travels through the PTY.
  *
- * Hard fail (never skip) when the prerequisite zip is absent — an untested install path must stay
- * red, not silently green.
+ * Hard fail (never skip): the install path must stay red when the prerequisite zip can neither be
+ * downloaded nor found pre-staged — an untested install path must not go silently green.
  */
 @RunWith(JUnit4::class)
 class TermuxBootstrapRealTerminalTest {
     companion object {
         private const val TAG = "TermuxBootstrapTest"
         private const val ZIP_NAME = "termux-bootstrap-x86_64.zip"
+        private const val OFFICIAL_URL =
+            "https://github.com/termux/termux-packages/releases/download/" +
+                "bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"
         private const val MAIN_ACTIVITY = "terminal.emulator.MainActivity"
         private const val INSTALL_EXTRA = "terminal.emulator.install_bootstrap"
         private const val INSTALL_TIMEOUT_MS = 10 * 60_000L
@@ -74,20 +77,49 @@ class TermuxBootstrapRealTerminalTest {
         return bridge.getTerminalText().orEmpty()
     }
 
+    /**
+     * 把 bootstrap zip 取到应用私有 `cacheDir`，返回它的路径供安装入口使用。
+     *
+     * 为什么落在 cacheDir：`:install` 服务与主进程同 uid，能直接读应用私有目录；
+     * 而 `/data/local/tmp` 只有 shell uid 写得进去（0771），从 app 侧无法落位——
+     * 过去这个文件只能靠人 `adb push`，CI 与 `./gradlew connectedAndroidTest` 都没人推，
+     * 测试直接硬失败。这里让测试自己取文件，把「预置」从人工步骤变成测试自身的前置。
+     *
+     * 取不到就大声失败，并给出无外网时的人工预置办法（`-e test.bootstrapUrl=file://`）：
+     * 安装路径不允许被跳过。
+     */
+    private fun stageBootstrapZip(): String {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val staged = java.io.File(context.cacheDir, ZIP_NAME)
+        if (staged.length() > 0) {
+            Log.i(TAG, "reusing staged bootstrap zip ${staged.path} (${staged.length()} bytes)")
+            return staged.path
+        }
+        val url =
+            InstrumentationRegistry.getArguments().getString("test.bootstrapUrl") ?: OFFICIAL_URL
+        Log.i(TAG, "fetching bootstrap zip from $url")
+        val fetched =
+            runCatching {
+                java.net.URL(url).openStream().use { input ->
+                    staged.outputStream().use { output -> input.copyTo(output) }
+                }
+            }.isSuccess
+        assertTrue(
+            "cannot fetch bootstrap zip from $url. With no network stage it manually: " +
+                "adb push termux-bootstrap-x86_64.zip /data/local/tmp/termux-bootstrap-x86_64.zip" +
+                " then rerun with -e test.bootstrapUrl=file:///data/local/tmp/$ZIP_NAME",
+            fetched && staged.length() > 0,
+        )
+        return staged.path
+    }
+
     @Test
     fun termuxBootstrap_shell_runs_real_commands_with_asserted_output() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val packageName = ctx.packageName
-        // 经 /data/local/tmp 中转：adb push 到 /sdcard 的文件属主是其他 uid，
-        // 在作用域存储下 :install 进程打不开（EACCES，本地已复现）；
-        // 而 /data/local/tmp 是全局可读，安装服务可直接拷贝。模拟器无外网，
-        // 故 https 回退在此环境不可用，file 预置是唯一路径。
-        val zipPath = "/data/local/tmp/$ZIP_NAME"
+        // zip 已在应用私有 cacheDir 就位（:install 进程同 uid 可读），无需外部预置。
+        val zipPath = stageBootstrapZip()
         val bashPath = "/data/user/0/$packageName/files/usr/bin/bash"
-        assertTrue(
-            "bootstrap zip must be staged first: adb push <termux bootstrap-x86_64.zip> $zipPath",
-            shell("ls $zipPath").isNotBlank(),
-        )
 
         // Trigger the install in the real app process (shell-uid am start).
         // The installer atomically replaces usr/, so re-running over a
