@@ -17,6 +17,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.fail
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.installer.TerminalPrefix
 import terminal.emulator.util.runCatchingCancellable
 
 private const val DRAWER_BUTTON_DESCRIPTION = "打开会话抽屉"
@@ -42,6 +43,12 @@ internal inline fun probeAssertion(crossinline check: () -> Unit): Boolean = try
 }
 
 fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
+    // 「会话可用」包含「有 shell 可交互」：依赖真实 shell 的用例要往 PTY 里打标记并
+    // 等回显，而 `:app:connectedAndroidTest` 开跑前会全新安装（应用数据清空，prefix
+    // 一并消失）。prefix 只由 installer.* 的用例装回，字典序却排在后面——于是失败与否
+    // 取决于类名字母序。实测本地全量套件里 PasteButtonInstrumentedTest 等 8 个用例因此
+    // 报「标记未落格」，单跑即过。幂等，已装时只是一次文件存在性检查。
+    TerminalPrefix.ensureInstalled()
     System.setProperty("test.minSurface", "true")
     // MainActivity.onCreate() requests POST_NOTIFICATIONS on first run
     // (Android 13+); the permission dialog overlays the activity and
