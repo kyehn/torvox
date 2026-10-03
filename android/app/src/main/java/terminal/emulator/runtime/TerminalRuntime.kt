@@ -2598,8 +2598,14 @@ constructor(
                 // （handleSessionExit / closeSession）。构造上安全：
                 // Bridge.close() 凭其 sessionId!=0 守卫幂等，
                 // 原生 destroySession 凭注册表移除幂等。
-                hangGuardedEntry?.closeBridgeUnlessRenderThreadAlive("concurrent removal rollback")
-                    ?: bridge.close()
+                val concurrentRemovalEntry = hangGuardedEntry
+                if (concurrentRemovalEntry != null) {
+                    concurrentRemovalEntry.closeBridgeUnlessRenderThreadAlive(
+                        "concurrent removal rollback",
+                    )
+                } else {
+                    bridge.close()
+                }
                 return -1L
             }
             LogUtil.d("Runtime", "session $nextId created and activated")
