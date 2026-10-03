@@ -2,6 +2,9 @@ package terminal.emulator.bridge
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import terminal.emulator.runtime.LogUtil
+
+private const val TAG = "NativeQueryPort"
 
 /**
  * 原生支撑的 [TerminalQueryPort]：每个方法与 JNI 导出 1:1 对应，供 [Bridge] 查询活动会话。
@@ -92,7 +95,8 @@ internal data class SearchMatchDto(val row: Int = 0, val start_col: Int = 0, val
 
 /**
  * 解析原生 `searchAllInScrollback` 导出的 `{"row":int,"start_col":int,"end_col":int}` JSON 数组。
- * 输入非法时返回空列表而不抛异常，使搜索降级为「无结果」而非崩溃 UI；
+ * 输入非法时返回空列表而不抛异常，使搜索降级为「无结果」而非崩溃 UI——但必须记日志：
+ * 否则解码失败与「真的没有匹配」在 UI 上完全同形，日志里也无迹可寻。
  * 丢弃不可能的范围（负值、end <= start），否则缺失字段会静默产生 row=0 的伪命中而高亮错行。
  */
 private val searchJson = Json { ignoreUnknownKeys = true }
@@ -102,6 +106,8 @@ internal fun parseSearchMatches(json: String): List<Triple<Int, Int, Int>> = try
         .decodeFromString<List<SearchMatchDto>>(json)
         .filter { it.row >= 0 && it.start_col >= 0 && it.end_col > it.start_col }
         .map { Triple(it.row, it.start_col, it.end_col) }
-} catch (_: Exception) {
+} catch (error: Exception) {
+    // 不吞：解码失败必须与「无匹配」可区分，否则搜索坏掉时用户与维护者都无从判断。
+    LogUtil.w(TAG, "search result decode failed", error)
     emptyList()
 }

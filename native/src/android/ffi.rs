@@ -2460,7 +2460,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
                 })
                 .collect::<Vec<_>>(),
         )
-        .unwrap_or_else(|_| "[]".into());
+        .unwrap_or_else(|error| {
+            // 序列化成空数组会让「序列化失败」与「真的没有匹配」同形：
+            // 搜索看起来正常返回空结果，没有任何线索。错误必须出声。
+            log::error!("searchAllInScrollback: match serialization failed: {error}");
+            "[]".to_string()
+        });
         match env.new_string(&json) {
             Ok(s) => s.into_raw(),
             Err(_) => std::ptr::null_mut(),
