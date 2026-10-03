@@ -376,12 +376,13 @@ impl PtyPair {
                     // （fork 后不允许分配/记日志）。
                     let _ = e;
                 }
+                let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: `getsid(0)` 是返回调用进程会话 ID 的 POSIX 函数。传 0 始终
                 // 有效，在 fork 后的单线程子进程中安全。
                 let is_session_leader =
                     unsafe { libc::getsid(0) } == nix::unistd::getpid().as_raw();
                 if !is_session_leader && nix::unistd::setsid().is_err() {
-                    child_exit_with_reason("terminal: setsid() failed\n", 2);
+                    child_exit_with_reason(slave_raw, "terminal: setsid() failed\n", 2);
                 }
                 // 检测 fork 时的孤儿：若应用进程在 fork() 与本检查之间死亡，
                 // 子进程已被重新托管给 init（PPid == 1），此时退出而非泄漏永久孤儿。
@@ -396,16 +397,17 @@ impl PtyPair {
                 let orphaned = unsafe { libc::getppid() } == 1;
                 if orphaned {
                     child_exit_with_reason(
+                        slave_raw,
                         "terminal: app died during fork; child is orphaned\n",
                         1,
                     );
                 }
-                let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: 这些 libc 调用都是不分配的轻量系统调用包装。子进程是单线程的；
                 // fork 与 exec 之间不运行信号处理器（所有操作均为异步信号安全系统调用）。
                 let result = unsafe { libc::ioctl(slave_raw, libc::TIOCSCTTY, 0) };
                 if result < 0 {
                     child_exit_with_reason(
+                        slave_raw,
                         "terminal: TIOCSCTTY failed; no controlling terminal\n",
                         3,
                     );
@@ -767,18 +769,26 @@ fn child_note_fd2(message: &'static [u8]) {
     }
 }
 
-/// fork 后、exec 前的子进程失败诊断：把固定文本写到 fd 2 后按给定码退出。
+/// fork 后、exec 前的子进程失败诊断：把固定文本写到 PTY 从端（用户可见）与 fd 2
+/// （logcat）后按给定码退出。
 ///
 /// 异步信号安全：只调用 `write(2)` 与 `_exit`，不分配、不格式化、不记日志——调用点
 /// 都在 fork 之后的子进程里。
 ///
 /// 这三处失败发生在 `dup2` 把 fd 2 指向 PTY 从端**之前**，故 fd 2 仍是应用自身的
-/// stderr，Android 会把它送进 logcat。此前三处都是裸 `_exit(code)`，用户只看到
-/// `[Process completed (code 3)]` 这样的空会话，失败原因彻底丢失。
-fn child_exit_with_reason(reason: &str, code: i32) -> ! {
+/// stderr，Android 会把它送进 logcat。此前是裸 `_exit(code)`，用户只看到
+/// `[Process completed (code 3)]` 这样的空会话，失败原因彻底丢失（DESIGN 的 shell
+/// 崩溃保留现场要求原因对用户可见，故同时写从端）。
+fn child_exit_with_reason(slave_fd: std::os::unix::io::RawFd, reason: &str, code: i32) -> ! {
     // SAFETY: `write(2)` 在 POSIX 异步信号安全列表内；`reason` 是调用点传入的
-    // `&'static str` 字面量，fork 后不触碰堆。
+    // `&'static str` 字面量，fork 后不触碰堆。两个 fd 都是 fork 后仍有效的
+    // PTY 从端与应用 stderr；写失败不致命，随后立即 `_exit`。
     unsafe {
+        libc::write(
+            slave_fd,
+            reason.as_ptr() as *const libc::c_void,
+            reason.len(),
+        );
         libc::write(2, reason.as_ptr() as *const libc::c_void, reason.len());
         libc::_exit(code);
     }
