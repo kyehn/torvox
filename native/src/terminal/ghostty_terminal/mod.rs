@@ -46,22 +46,26 @@ pub struct GhosttyTerminal {
 /// 有界队列，短等待通常即可送达；超时后放弃，析构继续走限时 join。
 const TERMINATE_SEND_TIMEOUT: Duration = Duration::from_millis(50);
 
+/// 投递 `Command::Terminate` 并报告是否送达，`timeout` 为队列满时的等待上限。
+///
+/// 队列满是常态而非异常：VT 线程按批排空有界队列，一次 `try_send` 失败就放弃
+/// 等于把终止推迟到信道彻底断开，`join` 随后超时、线程被 detach，回滚缓冲与
+/// 终端存储的回收都被推到不确定的更晚时刻。故失败时给一次有界等待。
+fn deliver_terminate(cmd_tx: &Sender<Command>, timeout: Duration) -> bool {
+    match cmd_tx.try_send(Command::Terminate) {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!(
+                "ghostty_terminal: try_send Terminate failed ({error}), retrying with timeout"
+            );
+            cmd_tx.send_timeout(Command::Terminate, timeout).is_ok()
+        }
+    }
+}
+
 impl Drop for GhosttyTerminal {
     fn drop(&mut self) {
-        // 优先 try_send；队列满时额外给 VT 线程一个批次排空的机会。
-        // 两者失败才放弃（记日志），与全仓非阻塞析构策略一致。
-        let delivered = match self.cmd_tx.try_send(Command::Terminate) {
-            Ok(()) => true,
-            Err(error) => {
-                log::warn!(
-                    "ghostty_terminal: try_send Terminate failed ({error}), retrying with timeout"
-                );
-                self.cmd_tx
-                    .send_timeout(Command::Terminate, TERMINATE_SEND_TIMEOUT)
-                    .is_ok()
-            }
-        };
-        if !delivered {
+        if !deliver_terminate(&self.cmd_tx, TERMINATE_SEND_TIMEOUT) {
             log::error!("ghostty_terminal: failed to deliver Command::Terminate");
         }
         crate::terminal::session::join_with_timeout(&mut self.handle, TERMINAL_THREAD_JOIN_TIMEOUT);

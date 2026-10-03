@@ -2997,3 +2997,44 @@ fn vt_write_sanitize_keeps_high_bytes_drops_nul() {
     assert_eq!(sanitize_vt_input(b"ABC"), b"ABC");
     assert!(sanitize_vt_input(&[0x00, 0x00]).is_empty());
 }
+
+#[test]
+fn deliver_terminate_reaches_a_full_queue_once_the_consumer_drains() {
+    // 队列满是常态：VT 线程忙时命令堆积到上限，析构时的 Terminate 若只
+    // try_send 一次就被丢弃，线程只能等信道彻底排空才退出，join 随即超时。
+    //
+    // 消费端刻意延迟后再排空：只有「满队列 + 有界等待」才能送达，
+    // 单次 try_send 在此必失败——该用例因此能区分两种实现。
+    let (cmd_tx, cmd_rx) = flume::bounded::<Command>(1);
+    cmd_tx
+        .send(Command::FlushAck(flume::bounded::<()>(1).0))
+        .expect("queue not full");
+    let consumer = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let _ = cmd_rx.recv_timeout(std::time::Duration::from_secs(5));
+    });
+    assert!(
+        super::deliver_terminate(&cmd_tx, std::time::Duration::from_secs(5)),
+        "Terminate must reach the VT thread even when the queue was full at drop time"
+    );
+    consumer.join().expect("consumer thread panicked");
+}
+
+#[test]
+fn deliver_terminate_gives_up_instead_of_blocking_on_a_stuck_consumer() {
+    // 对端永不取：等待必须是有界的，否则卡死的 VT 线程会把析构一并卡住。
+    let (cmd_tx, _cmd_rx) = flume::bounded::<Command>(1);
+    cmd_tx
+        .send(Command::FlushAck(flume::bounded::<()>(1).0))
+        .expect("queue not full");
+    let start = std::time::Instant::now();
+    assert!(
+        !super::deliver_terminate(&cmd_tx, super::TERMINATE_SEND_TIMEOUT),
+        "a consumer that never drains must not make delivery succeed"
+    );
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(1),
+        "delivery waited {:?} — drop would block on a dead VT thread",
+        start.elapsed()
+    );
+}
