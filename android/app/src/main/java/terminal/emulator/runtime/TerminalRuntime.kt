@@ -2835,21 +2835,11 @@ constructor(
                     )
                 }
                 target.bridge?.let { syncGridDimensions(it) }
-                // applySettings 已停止调整后台会话尺寸，
-                // 故新激活的会话必须在此对齐到当前窗口尺寸。
-                // 但尺寸一致时跳过：无条件 resize 会发冗余 SIGWINCH，
-                // mksh 收到后清除提示符。原生网格查询可用即比对，
-                // 查不到（0/异常）则沿旧路无条件对齐（fail-open）。
+                // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
+                // 查不到原生网格则无条件对齐（fail-open）。
                 val wantRows = _state.value.rows.coerceAtLeast(1)
                 val wantCols = _state.value.cols.coerceAtLeast(1)
-                val packed =
-                    try {
-                        target.bridge?.getGridRowsColsPacked() ?: 0L
-                    } catch (exception: Exception) {
-                        0L
-                    }
-                val sameGrid = packed != 0L && (packed shr 32).toInt() == wantRows && packed.toInt() == wantCols
-                if (!sameGrid) {
+                if (shouldAlignGridOnSwitch(wantRows, wantCols) { target.bridge?.getGridRowsColsPacked() ?: 0L }) {
                     target.bridge?.resize(wantRows, wantCols)
                 }
                 LogUtil.d("Runtime", "switched to session $id")
@@ -3674,6 +3664,22 @@ internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
  * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
  */
+/**
+ * 切会话时是否需要对齐网格：目标会话原生网格与 UI 网格一致则跳过 `resize`
+ *（无冗余 SIGWINCH）；查不到（0/异常）则返回 true 沿旧路无条件对齐。
+ *
+ * 网格查询以 lambda 传入：纯判定可单测，无需伪造 Bridge。
+ */
+internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: () -> Long): Boolean {
+    val packed =
+        try {
+            gridQuery()
+        } catch (exception: Exception) {
+            0L
+        }
+    return packed == 0L || (packed shr 32).toInt() != wantRows || packed.toInt() != wantCols
+}
+
 internal fun computeImeSurfaceShift(
     contentBottomPx: Int,
     surfaceHeightPx: Int,
