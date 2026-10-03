@@ -309,9 +309,12 @@ class DocumentsProviderTest {
             provider.openDocument("watched.txt", "rwt", null).use { parcelFileDescriptor ->
                 java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("written".toByteArray())
             }
-            // OnCloseListener 是 post 到主 Looper 的回调，Robolectric 默认暂停主 Looper，
-            // 必须显式跑空队列它才会执行。
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            // OnCloseListener 是 post 出去的回调（写回专用线程，不占主 Looper），
+            // Robolectric 默认暂停 looper，必须显式跑空队列它才会执行；
+            // 断言只认「回调跑过并发了通知」，不绑死具体线程。
+            for (looper in org.robolectric.shadows.ShadowLooper.getAllLoopers()) {
+                org.robolectric.Shadows.shadowOf(looper).idle()
+            }
             assertEquals("written", java.io.File(rootDir(), "watched.txt").readText())
             assertTrue(
                 "external write-back must notify the document, got $notified",

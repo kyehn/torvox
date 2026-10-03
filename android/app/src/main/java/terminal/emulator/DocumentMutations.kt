@@ -325,6 +325,10 @@ internal class DocumentMutations(private val context: Context, private val rootD
      *
      * 提供者自身的变更操作各自已发通知；唯独经 [android.os.ParcelFileDescriptor]
      * 写回的外部修改不经过这里，缺了它文件选择器只在下一次手动刷新才看到变化。
+     *
+     * 广播只决定「什么时候刷新」，不决定「看到什么」：每次 `queryDocument` 与
+     * `queryChildDocuments` 都直读文件系统。所以即使某次广播随进程被杀而丢失，
+     * 数据依然正确，至多让选择器晚一次刷新——不值得为它加重试或落盘兜底。
      */
     fun notifyWritten(documentId: String, written: File) {
         notifyDocument(documentId)
