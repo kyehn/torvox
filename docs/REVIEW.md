@@ -7,45 +7,11 @@
 
 本轮只审查，未改动代码。
 
-> 维护注：P0-4（二段安装假成功）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：P0-1（setTheme 锁序）、P0-2（renderWithNewOutput 持锁）、P0-3（acquire_texture 回落阻塞）、P0-4（二段安装假成功）、P1-6（CellData 丢帧基线）、P1-8（Dropped 忽略）、P1-9（退出码哨兵）、P1-10（请求注册表泄漏）已修复并验证，对应小节删除；其余编号保持不变。
 
 ---
 
 ## 一、致命缺陷（P0）
-
-### 1. `setTheme` 与 `render_inner` 锁序反转 → 硬死锁
-
-- `native/src/android/ffi.rs:2747-2768`：`setTheme` 持 `SESSION_REGISTRY` 读锁 + `entry.session` 锁时调用 `render_state_mut()`（2761）。
-- `native/src/android/ffi.rs:1573-1580`、`:1606-1613`：`render_inner` 阶段 3 持 `RENDER_STATE` 时再取 `rlock_session_registry()` + `session.lock()`。
-
-```text
-渲染线程: RENDER_STATE ──等──▶ session 锁
-主题线程: registry读 → session锁 ──等──▶ RENDER_STATE
-```
-
-触发条件：终端画过任意 Kitty 图像（`kitty_generation != 0`）后切会话或网格变化。两线程互等 → JNI 全线冻结、永久 ANR。
-
-同一文件 `setSelection`（`ffi.rs:2694-2695`）已显式 `drop(session); drop(registry);` 后再取 `render_state_mut()`——规则已知，`setTheme` 漏改。
-
-**修法**：把 `{ render_state_mut() { … } }` 整体移到 guard 释放之后；并让 `render_inner` 在阶段 2（已持会话锁）一并采集 Kitty 所需数据，消除「RENDER_STATE → 会话锁」这条边。
-
-### 2. `renderWithNewOutput` 持注册表读锁取 `RENDER_STATE` → 三方死锁
-
-`ffi.rs:1876` 取 registry 读锁，直到 `:1889` 才析构，`:1883` 在其内取 `render_state_mut()`。
-
-与 `render_inner`（`1522 → 1573`）构成 `RENDER_STATE → registry读`；与 `setScrollOffset`（`ffi.rs:3124` 取**写**锁）构成 parking_lot 读写公平性死锁：写者排队后新读者阻塞，形成三方循环等待。
-
-**修法**：在 `:1882` 后提前 `drop(registry)`，或把 `:1883` 移到块外。
-
-### 3. `acquire_texture` 回落路径把无限阻塞搬回渲染线程 → 永久 ANR
-
-`render/pass.rs:154-159`：`try_send` 失败走 `texture_or_reconfigure`（`:116-130`），其中 `:121` 是**无超时**的 `surface.get_current_texture()`。
-
-设计意图（`:138-139` 注释「绝不让渲染线程无限阻塞」）正是为规避 Mali-G57 的 `vkAcquireNextImageKHR` 永久卡死。工作线程只有 1 个且 `sync_channel(1)`：一旦它卡死，第 2 帧 `try_send` 仍成功但 `recv_timeout` 必超时（每帧 2s，永不恢复），第 3 帧起走内联分支 → 把工作线程要规避的无限阻塞原样搬回渲染线程。
-
-**违反** DESIGN:24「不做任何未要求的 Fallback 机制」——注释与代码自相矛盾。
-
-**修法**：`try_send` 失败与超时只记 error 并返回 `None`；检测「工作线程已取请求未应答」直接 `panic!`（合 DESIGN:16）。
 
 ### 5. 前台服务/看门狗/热管理整块功能无规范声明
 
@@ -61,16 +27,6 @@
 
 ## 二、高危缺陷（P1）
 
-### 6. CellData 帧丢弃后永不补发 → 最后几行输出永久不显示
-
-`ghostty_terminal/internal.rs:1233-1234`：先 `*last_push = Some(data.clone())` 记账，再 `let _ = tx.try_send(data)`——失败即丢，**无 error、无重试**。通道容量 4（`types.rs:231`），渲染线程卡顿即触发。
-
-此后 50ms 空转分支重跑 `refresh_cell_data`，因 `unchanged` 命中（`:1230-1232`）**提前 return，永不重发**。用户看到「最后几行永远不显示」。
-
-**违反** DESIGN:24。
-
-**修法**：`try_send` 失败时不更新 `last_push`（或记 pending 标志），并对 `Err` 记 error。
-
 ### 7. `resize` 不跳过空操作，且会话创建时立即 resize → 直接违反 DESIGN:242
 
 `runtime/TerminalRuntime.kt:3029-3048`：`resize` 无 `(rows,cols)` 与当前网格比对；`switchSessionInternal`（`:2672-2675`）对刚 `spawnTerminal` 的新会话无条件 resize。
@@ -78,26 +34,6 @@
 **违反** DESIGN:242 逐字要求：「`resize` 跳过空操作的调整大小。**不要在会话生成时重新执行调整大小的操作。**」且该条同时指出「mksh 会在收到 SIGWINCH 信号时清除提示符」——每次切换/退出回收都发一次可能同尺寸的 SIGWINCH。
 
 **修法**：`resize` 首行比对 `getGridRowsColsPacked()`，相同直接 return；创建路径跳过该 resize。
-
-### 8. `ResizeOutcome::Dropped` 被完全忽略
-
-`ffi.rs:679`：`if let Err(e) = session.resize(...)`——`Ok(Dropped)` 既不抛异常也不记日志、不通知 Kotlin。PTY winsize 已变而 Ghostty 网格仍是旧尺寸，行折叠几何错乱，直到下次 resize 事件才自愈。
-
-`session.rs:74-77` 精心定义了 `Applied/Dropped` 并在 `Dropped` 置 `grid_dirty` 以重试，调用方却丢弃该信号。
-
-**修法**：`Dropped` 时 `throw_new` 或至少 `log::error!`。
-
-### 9. `wait_exit_code` 超时上报 `0`，把崩溃伪装成正常退出
-
-`ffi.rs:1065-1077`：超时返回 `0`，注释已自认「与正常退出无法区分」。DESIGN:192 要求崩溃保留现场（`[Process completed (code 255) - press Enter]`），而超时路径让上层按「正常退出」关闭会话；`mark_exit_reported` 已置位，事件不可重发 → 错误永久丢失。
-
-**修法**：等待线程先写 `exit_code` 再写 `exited`（`session.rs:314-325` 已是此顺序，可延长等待），超时上报 `-1` 哨兵而非 `0`。
-
-### 10. `REQUEST_REGISTRY` 条目泄漏
-
-`ffi.rs:293-298` `register_request` 插入全局 HashMap，只有 `clipboardResult`（`:1976`）或会话消失（`:1192`）才移除。`wait_for_clipboard_answer` 2s 超时返回空串后线程结束，`tx` 永久滞留。每次 OSC 52 读请求泄漏一个 `Sender`＋两个 u64，`tail` 可稳定触发。
-
-**修法**：应答线程结束无条件 `cancel_request`（幂等）。
 
 ### 11. `pty_write` 的 LF→CRLF 与 `>0xF7`→空格改写破坏二进制 VT 载荷
 
