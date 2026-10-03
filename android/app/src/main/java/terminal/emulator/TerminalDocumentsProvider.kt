@@ -251,6 +251,9 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     }
 
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+        // 本重写直接落地（基类对 openDocument 无实现），取消检查得自己做：
+        // 客户端取消后不再等句柄，此时继续开文件等于白做 I/O。
+        signal?.throwIfCanceled()
         val rootDir = queries.rootDir()
         val file = decodeDocId(documentId, rootDir)
         requireInsideRoot(file, rootDir)
@@ -298,7 +301,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         sizeHint: Point?,
         signal: CancellationSignal?,
     ): AssetFileDescriptor {
-        // 仅图片行声明 FLAG_SUPPORTS_THUMBNAIL，缩略图即原文件只读句柄。
+        // 仅图片行声明 FLAG_SUPPORTS_THUMBNAIL，缩略图即原文件只读句柄：
+        // 平台约定「不能生成缩略图的提供者直接交整档，由选择器缩放」，故不按
+        // sizeHint 另造小图；取消检查仍须自己做（本重写不走基类实现）。
+        signal?.throwIfCanceled()
         val rootDir = queries.rootDir()
         val file = queries.resolveLinkEntry(documentId, rootDir)
         val parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
