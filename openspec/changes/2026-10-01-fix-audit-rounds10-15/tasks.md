@@ -57,10 +57,11 @@
 - [x] 6.3 搜索用例prompt断言附终端尾部，定向下一轮build诊断
 - [x] 6.4 写回通知线程名合规（`terminal-documents-writeback`）
 
-## 7. 审计文档退役前的移交（`docs/REVIEW*.md` 全部删除后，此处是唯一记录）
+## 7. 审计文档退役前的移交
 
-已修复并验证的条目见上；以下条目**不属代码缺陷**，需要用户裁决或对保护文件的
-授权才能动，故不在本 change 内执行，也不随审计文档一并丢失：
+已修复并验证的条目见上。以下条目**不属代码缺陷**，需要用户裁决或对保护文件的
+授权才能动，故不在本 change 内执行；`docs/REVIEW*.md` 已删除，完整台账见
+[`audit-backlog-open-items`](../audit-backlog-open-items/tasks.md) 第 4、5 节：
 
 - D3 / P0-5：五个监控类（`AnrWatchDog`/`BootGuard`/`MemoryMonitor`/`ThermalMonitor`/
   `TerminalForegroundService`）与 `PROHIBITED.md:10` 字面冲突。`AnrWatchDog` 触发即
@@ -73,8 +74,8 @@
   APK 含 `.so`）在 `scripts/build-android-libs.nu` 中缺失（保护文件，需授权）。
 - D4：`BUILD.md:7`「`ANDROID_NDK_HOME` 已预设」与 `flake.nix` 未声明 NDK 不符；
   `BUILD.md:20` 要求 r30 而实测 r27d（保护文件，需授权）。
-- D1/D2/D5/D6/D7：规范之间或规范与实现的字面冲突，逐条需用户定口径（见
-  `docs/REVIEW-SUMMARY.md` 第四节——本次删除前请以本清单为准）。
+- D1/D2/D5/D6/D7：规范之间或规范与实现的字面冲突，逐条需用户定口径
+  （台账第 4 节逐条列出了具体问题）。
 - N2-64：`CellData.grapheme_extra` 仅 7 槽，超过 8 码点的组合字形被静默截断；
   扩大槽位会改变 `CellData` 布局与全部 FFI stride，需与渲染侧一并设计。
 - `2026-09-28-render-idle-cursor`：唯一未完成任务为环境受阻（新建 AVD 未启用
