@@ -406,13 +406,16 @@ fn init_session_inner(
             return 0;
         }
     };
-    // 生效 shell 由 Kotlin 侧解析（装了 bootstrap 时是 Termux bash，否则是系统 shell）。
-    // 此处仍防御空值：`execve("")` 会失败并使会话立即退出。
-    let shell_path = if shell_path.is_empty() {
-        "/system/bin/sh".to_string()
-    } else {
-        shell_path
-    };
+    // 生效 shell 由 Kotlin 侧按 DESIGN 的顺序解析（Termux bash → login → 系统 sh）。
+    // 空串在此直接报错：`pty.rs` 已经以 `EmptyShell` 拒绝空 shell，此处改写会让那个
+    // 错误永不可达，并把配置错误伪装成「能启动」（DESIGN 禁止未声明的回退）。
+    if shell_path.is_empty() {
+        let _ = env.throw_new(
+            jni_str!("java/lang/RuntimeException"),
+            jni_str!("initSession: shell path is empty"),
+        );
+        return 0;
+    }
 
     // 读取 Kotlin 侧从 bootstrap 解析出的环境（home / 工作目录 / prefix / mkshrc 路径）。
     // 空串表示“未知”，回退到进程环境。
