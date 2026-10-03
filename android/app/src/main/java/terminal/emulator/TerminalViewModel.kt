@@ -1259,7 +1259,6 @@ constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
         // 防抖窗口内（DEBOUNCE_MILLIS）未落盘的值在此冲刷：
         // 否则用户在输入后立即离开页面，最后一次编辑会被静默丢弃。
         val pending = bootstrapUrlEdits.replayCache.lastOrNull()
