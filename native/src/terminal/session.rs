@@ -568,7 +568,13 @@ impl Session {
     /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
     fn drain_callback_events(&self) {
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
-            *self.clipboard_text.lock() = Some(text);
+            // 单槽锁存：渲染暂停（pollEvent 停调）期间的连续写入会覆盖未消费的前值。
+            // 队列化改动太大（Kotlin 侧合并同样单值），此处至少记日志使覆盖可诊断。
+            let mut guard = self.clipboard_text.lock();
+            if guard.is_some() {
+                log::warn!("session: clipboard overwritten before poll (render paused?)");
+            }
+            *guard = Some(text);
         }
         while self.terminal.poll_bell_event().is_some() {
             *self.bell_pending.lock() = true;
