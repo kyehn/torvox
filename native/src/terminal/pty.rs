@@ -386,7 +386,10 @@ impl PtyPair {
                 // SAFETY: `getppid` 是普通系统调用，fork 后安全。
                 let orphaned = unsafe { libc::getppid() } == 1;
                 if orphaned {
-                    child_exit_with_reason("terminal: app died during fork; child is orphaned\n", 1);
+                    child_exit_with_reason(
+                        "terminal: app died during fork; child is orphaned\n",
+                        1,
+                    );
                 }
                 let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: 这些 libc 调用都是不分配的轻量系统调用包装。子进程是单线程的；
