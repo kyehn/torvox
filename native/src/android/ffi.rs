@@ -1240,37 +1240,6 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     }
 }
 
-// ── `new_output` 旁路标志 ──────────────────────────────────────
-// ══════════════════════════════════════════════════════════════════════════
-// JNI 导出：consumeNewOutput
-// ══════════════════════════════════════════════════════════════════════════
-
-/// 读取并清除每会话的 `new_output` 标志（滚动复位信号，见 docs/specification/REFERENCE.md）。
-///
-/// 标志由 PTY 摄入路径（`Session::process_output` / `poll_pty_output` →
-/// `OutputProcessor::process`）置位，渲染线程在此每帧作为**旁路**读清（与
-/// `pollAll()` 循环并行）——刻意不做成排队的 `Event` 变体：持续输出（`tail -f`）下
-/// 事件变体会抢占 `MAX_EVENTS_PER_POLL` 预算，饿死剪贴板/退出事件。
-/// 与 `dirty` 标志相互独立（选区/高亮/字号变化必须重绘但绝不复位视口）。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_consumeNewOutput(
-    _unowned: EnvUnowned<'_>,
-    _class: JClass,
-    session_id: jlong,
-) -> jboolean {
-    // 内部无 panic 风险（无 JNI 调用、无 unwrap）；仍保持与相邻导出点一致的守卫写法。
-    let registry = rlock_session_registry();
-    let Some(entry) = registry.get(&(session_id as u64)) else {
-        return JNI_FALSE;
-    };
-    let session = entry.session.lock();
-    if session.take_new_output() {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
-}
-
 // ── 日志与渲染生命周期 ──────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：initLogger
@@ -1916,7 +1885,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     ));
     let mut new_output: i64 = 0;
     if count >= 0 {
-        // 就地消费 `new_output` 标志（逻辑同 `consumeNewOutput` 但省一次 JNI 穿越），
+        // 就地消费 `new_output` 标志，省一次 JNI 穿越，
         // 并读取本帧已渲染缓存的光标与内容下沿，使跟随输入法的位移看到本帧绘制的坐标；
         // 同时上报渲染器判死的 surface，让宿主换新的 `ANativeWindow`（死窗口的
         // BufferQueue 不可 reconfigure 复活，实测会永久黑屏）。
