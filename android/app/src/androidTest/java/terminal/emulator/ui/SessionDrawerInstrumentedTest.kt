@@ -17,6 +17,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.R
+import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
@@ -36,6 +37,8 @@ class SessionDrawerInstrumentedTest {
         private const val STATE_TIMEOUT_MS = 10_000L
         private const val GRID_TIMEOUT_MS = 15_000L
     }
+
+    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission =
