@@ -498,7 +498,15 @@ object BuiltInThemes {
 
     val all: List<TerminalTheme> = darkThemes + lightThemes
 
-    fun byName(name: String): TerminalTheme = all.firstOrNull { it.name == name } ?: draculaPlus
+    /**
+     * 按名取主题。未知名返回 null：设置里存着无法解析的主题名即设置数据错误
+     * （DESIGN:16「设置数据错误 → 清除设置数据」、:24「不做未要求的 Fallback」），
+     * 静默替换成 draculaPlus 会让用户选了别的主题却看不出哪一环失配。
+     * 调用方负责清除出错的那个键。
+     */
+    fun byNameOrNull(name: String): TerminalTheme? = all.firstOrNull { it.name == name }
+
+    fun byName(name: String): TerminalTheme = byNameOrNull(name) ?: error("unknown terminal theme: $name")
 }
 
 /**
