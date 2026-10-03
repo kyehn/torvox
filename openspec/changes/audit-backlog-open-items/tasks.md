@@ -83,9 +83,16 @@
       与 `isShrinkResources` 自相矛盾
 - [ ] N7 / N8`scripts/test-emulator.nu` 先关动画再跑动画基准（恒测 0 并通过）、
       该脚本 `:9` 的 `try` 缺 `catch` 使后续宏基准永不执行
-- [ ] N9CI 的 `markdownlint-cli2 "**/*.md"` 递归进 `result-kudzu`，
-      用本仓规则判他仓文档（`.github/workflows/check.yml`）
+- [x] N9CI 的 markdownlint 递归进 `result-kudzu` —— 本轮已修：
+      改用 `.markdownlint-cli2.jsonc` 的 `ignores`（未动工作流与规则集）
 - [ ] N25 / N26workflow 无 push/PR 触发器；`check.yml` 30min 超时必然超时
+- [ ] **check 工作流收尾失败（本轮实测）**：`check.yml` 新增的 `rm -rf result-kudzu`
+      步骤中途删掉了第二个 checkout 目录，而该 job 使用的本地 action
+      （`result-kudzu/.github/actions/install-nix`）在收尾仍要跑 Post 步骤，于是报
+      `Can't find 'action.yml'`。真正的门禁（fmt/clippy/semgrep/test/rustdoc/
+      markdownlint/bench）全部通过，红的只是这一步。修法二选一：删掉 `rm -rf` 步骤，
+      或给该 Post 加 `continue-on-error`。两者都要改保护文件 `.github/workflows/check.yml`，
+      需用户授权后由用户执行。
 - [ ] N29～N36semgrep `fix:` 未绑定 `$SCOPE`、`no-prozu`-族规则口径、
       依赖源顺序、`.gitignore` 无差别忽略 `*.png/*.ttf`
 - [ ] N2-52 / N2-53`detekt.yml` 关闭 5 条吞异常/魔数规则；
