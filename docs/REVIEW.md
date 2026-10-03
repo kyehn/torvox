@@ -7,7 +7,7 @@
 
 本轮只审查，未改动代码。
 
-> 维护注：P0-1（setTheme 锁序）、P0-2（renderWithNewOutput 持锁）、P0-3（acquire_texture 回落阻塞）、P0-4（二段安装假成功）、P1-6（CellData 丢帧基线）、P1-8（Dropped 忽略）、P1-9（退出码哨兵）、P1-10（请求注册表泄漏）、P1-13（surface 释放接线）、P2-18（send_signal 裸 kill，已删函数）、P2-22（键栏吞键日志）、P2-23（空 shell 拒绝）已修复并验证，对应小节删除；其余编号保持不变。
+> 维护注：P0-1（setTheme 锁序）、P0-2（renderWithNewOutput 持锁）、P0-3（acquire_texture 回落阻塞）、P0-4（二段安装假成功）、P1-6（CellData 丢帧基线）、P1-8（Dropped 忽略）、P1-9（退出码哨兵）、P1-10（请求注册表泄漏）、P1-13（surface 释放接线）、P2-18（send_signal 裸 kill，已删函数）、P2-22（键栏吞键日志）、P2-23（空 shell 拒绝）已修复并验证，对应小节删除；其余编号保持不变。；P1-7（切会话冗余 SIGWINCH，加 fail-open 对齐守卫）、P1-11（`vt_write` 高位改写，提纯为仅剔 NUL）、P1-12（软换行列号，已按段拆分）、P1-14（看门狗停止阻塞化，已非阻塞）、P1-15（查询静默缺省，改走记日志的 `onQuery`）、P1-16（未知 ABI 静默回退，改抛错）、P1-17（查询 fallback，保留并记日志，`take_snapshot` 恐慌前提不成立）、P1-19（死代码逐项核实：删 6 组、撤回 7 组 stale/测试 API、保留 3 组并注明）、P1-20（release 后门，经核实 DEBUG 门控+exported=false，撤回）、P1-21（主题/字号已修，字体单键清除合 DESIGN:95 原文）、N4（cell_metrics 提取 `cell_metric_dim`）、N5/N6（提取净负，撤回）；CI 级联根因本地复现并修复：/sdcard 预置 EACCES→改 /data/local/tmp、shell 轮询改 run-as（另修 `head -8` 截断与 PTY 换行断言）、N1-7 两处丢弃点记日志（通道满/单槽覆盖；队列化延后）、N1-9 空应答两条路径记日志、核实：N0-11（锁外建库+OnceLock，已解）、N1-10（原文已重构，渲染降级保留）、N1-12（单例作用域无需取消，撤回）、N2（网格缓存同步写入+Dropped 警告重试，已解）、N3（生产零调用，仅 debug 后门，撤回）；update-alternatives 首运 segfault（tombstone，10/10）→postinst 失败重试一次自愈（真机安装 OK 已验证）
 
 ---
 
