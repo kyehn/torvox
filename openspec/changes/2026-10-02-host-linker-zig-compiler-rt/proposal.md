@@ -4,7 +4,7 @@
 
 `check` 与 `build` 两条工作流（run 36997793885 / 36999637081）均在链接阶段失败：
 
-```
+```text
 rust-lld: error: undefined symbol:
 >>> referenced by compiler_rt
 >>> compiler_rt.o:(.rodata.compiler_rt.sincos.sincosf+0x0) in archive .../liblibghostty_vt_sys-*.rlib
