@@ -562,7 +562,11 @@ impl super::GhosttyTerminal {
                         "OSC 52 clipboard payload truncated from {original_len} to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes"
                     );
                 }
-                let _ = clipboard_tx.try_send((selection, text));
+                // 通道满（`bounded(16)`）且消费侧（渲染暂停时停调）跟不上时丢弃——
+                // 阻塞 VT 线程更糟。丢则记日志，不静默。
+                if clipboard_tx.try_send((selection, text)).is_err() {
+                    log::warn!("OSC 52 clipboard dropped: channel full");
+                }
                 Ok(())
             }
         }) {
