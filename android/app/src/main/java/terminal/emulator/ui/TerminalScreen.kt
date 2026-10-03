@@ -545,20 +545,25 @@ fun TerminalScreen(
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 key(surfaceKey) {
+                    // 位移输入在组合期读取：`layout{}` measure 块不跟随输入法内边距
+                    // 变化重跑（实测满内容 15s 零求值、位移冻结），上提为组合状态后
+                    // 任一变化即重组并重测。Surface 尺寸全程不变，网格不重排。
+                    val imeShiftPx = max(imeLeafPx.intValue, imeViewPx.intValue)
+                    val contentRowNow = lastContentRow.intValue
                     Box(
                         modifier =
                         Modifier.fillMaxSize().layout { measurable, constraints ->
                             val placeable = measurable.measure(constraints)
-                            val cellHeightPx = runtimeForContent.cellHeight
-                            val contentRow = lastContentRow.intValue
-                            val contentBottomPx =
-                                computeContentBottomPx(contentRow, cellHeightPx)
                             val shift =
                                 computeImeSurfaceShift(
-                                    contentBottomPx = contentBottomPx,
+                                    contentBottomPx =
+                                    computeContentBottomPx(
+                                        contentRowNow,
+                                        runtimeForContent.cellHeight,
+                                    ),
                                     surfaceHeightPx = placeable.height,
                                     modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
-                                    imeBottomPx = max(imeLeafPx.intValue, imeViewPx.intValue),
+                                    imeBottomPx = imeShiftPx,
                                 )
                             layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
                         },

@@ -3636,11 +3636,13 @@ private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
  * 原生行顶为 `row * cellHeight`（浮点，见 `cell_builder.rs` 的 `quad_origin`），
  * 故此处必须先浮点乘后取整。先 `toInt` 再乘会每行丢掉小数并随行数累积
  * （N 行累积误差 = N × 小数部分），位移偏小、末行被键栏吞掉且随内容增多扩大。
- * `ceil` 保证下沿不被低估（至多多移 <1px，不可见）。
+ * 取最近整数：浮点乘自带表示误差（如 50×45.6 得 2279.9999），`round` 恰好回到
+ * 本意像素边界；`ceil` 会把 2279.9999 进成 2280 后在某些对齐下多移 1px，
+ * 整屏文字错开 1px 即产生数千边缘差异像素，违背稀疏会话「无变化」。
  */
 internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
     if (contentRow < 0 || cellHeightPx <= 0f) return 0
-    return kotlin.math.ceil((contentRow + 1) * cellHeightPx).toInt()
+    return kotlin.math.round((contentRow + 1) * cellHeightPx).toInt()
 }
 
 /**
