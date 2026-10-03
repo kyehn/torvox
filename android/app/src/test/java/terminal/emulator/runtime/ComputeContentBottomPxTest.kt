@@ -31,15 +31,15 @@ class ComputeContentBottomPxTest {
     @Test
     fun `fractional cell height does not accumulate truncation error`() {
         // 50 行 × 45.6px：旧写法先 toInt 再乘得 50×45=2250，少 30px（约一行被吞）；
-        // 正确值 ceil(50×45.6)=2280。
+        // 浮点乘得 2279.9999，round 回到本意边界 2280。
         assertEquals(2280, computeContentBottomPx(49, 45.6f))
-        // 10 行 × 44.4px：旧写法得 440，正确值 ceil(444.0)=444。
+        // 10 行 × 44.4px：旧写法得 440，正确值 444。
         assertEquals(444, computeContentBottomPx(9, 44.4f))
     }
 
     @Test
-    fun `fractional remainder rounds up not down`() {
-        // ceil(10.1)=11：下沿不被低估，至多多移 <1px。
-        assertEquals(11, computeContentBottomPx(0, 10.1f))
+    fun `fractional remainder rounds to nearest`() {
+        // round(10.1)=10：最近像素边界；半像素残留不可见，也不会触发整屏错位。
+        assertEquals(10, computeContentBottomPx(0, 10.1f))
     }
 }
