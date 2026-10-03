@@ -101,19 +101,6 @@ enum class ToolbarKey(
     ARROW_DOWN("\u2193", "\u001b[B", contentDescriptionRes = R.string.arrow_down, repeatable = true),
     ARROW_RIGHT("\u2192", "\u001b[C", contentDescriptionRes = R.string.arrow_right, repeatable = true),
     PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down),
-    PIPE("|", "|"),
-    SLASH("/", "/"),
-    DASH("-", "-"),
-    UNDERSCORE("_", "_"),
-    DOT(".", "."),
-    EQUALS("=", "="),
-    HASH("#", "#"),
-    AT("@", "@"),
-    AMPERSAND("&", "&"),
-    TILDE("~", "~"),
-    BACKTICK("`", "`"),
-    BANG("!", "!"),
-    QUESTION("?", "?"),
 }
 
 /**

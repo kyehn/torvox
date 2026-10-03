@@ -44,16 +44,6 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
         }
     }
 
-    fun unregister() {
-        val listener = thermalListener
-        if (listener != null) {
-            pm.removeThermalStatusListener(listener)
-        }
-        thermalExecutor?.shutdownNow()
-        thermalExecutor = null
-        thermalListener = null
-    }
-
     internal fun onThermalStatusChanged(status: Int) {
         if (status == lastStatus) return
         lastStatus = status
