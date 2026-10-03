@@ -71,10 +71,12 @@ impl EventQueue {
 
     /// 将事件推入队尾（FIFO）。
     ///
-    /// 队列满时绝不丢弃 `Exit`，而是淘汰最旧的非 `Exit` 事件：原生侧的
-    /// `exit_reported` 标志在推入时即置位且不会重发，丢失 `Exit` 会永久泄漏会话。
+    /// 队列满时绝不丢弃 `Exit` 与 `ClipboardRead`，而是淘汰最旧的其余事件：
+    /// `Exit` 的 `exit_reported` 标志在推入时即置位且不会重发，丢失会永久泄漏会话；
+    /// `ClipboardRead` 丢失则应答线程只能超时写回空串，远端会把「用户剪贴板为空」
+    /// 当成答案粘出空白，且该 RPC 永不重发。
     ///
-    /// 例外：满队列中只有 `Exit` 时改为丢弃新事件（淘汰任何 `Exit` 同样会遗弃会话）。
+    /// 例外：满队列中只剩受保护事件时改为丢弃新事件（淘汰它们的后果更糟）。
     pub fn push(&self, event: Event) {
         // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
@@ -83,15 +85,13 @@ impl EventQueue {
             if let Some(victim) = guard.front() {
                 self.warn_overflow_once(victim);
             }
-            let evict_idx = guard
-                .iter()
-                .position(|existing_event| !matches!(existing_event, Event::Exit { .. }));
+            let evict_idx = guard.iter().position(is_evictable);
             match evict_idx {
                 Some(idx) => {
                     guard.remove(idx);
                 }
                 None => {
-                    // 队列只有 Exit：淘汰任一都会遗弃其会话（标志已置位），
+                    // 队列只剩受保护事件：淘汰任一都会遗弃会话或让远端粘出空白，
                     // 故丢弃新事件。
                     return;
                 }
@@ -124,6 +124,11 @@ impl EventQueue {
     pub fn pop(&self) -> Option<Event> {
         self.inner.lock().pop_front()
     }
+}
+
+/// 队列满时允许被淘汰的事件（见 [EventQueue::push] 的不可淘汰理由）。
+fn is_evictable(event: &Event) -> bool {
+    !matches!(event, Event::Exit { .. } | Event::ClipboardRead { .. })
 }
 
 #[cfg(test)]
@@ -326,6 +331,58 @@ mod tests {
                 session_id: 1000,
                 text: String::new()
             }
+        );
+    }
+
+    #[test]
+    fn push_never_evicts_clipboard_read() {
+        let queue = EventQueue::new();
+        let pending_read = Event::ClipboardRead {
+            session_id: 42,
+            request_id: 7,
+            selection: "c".to_string(),
+        };
+        queue.push(pending_read.clone());
+        for session_sequence in 0..MAX_QUEUED_EVENTS {
+            queue.push(Event::Clipboard {
+                session_id: session_sequence as u64,
+                text: String::new(),
+            });
+        }
+        // 队列已满（1 个 ClipboardRead + 1024 个 Clipboard）。被淘汰的只能是 Clipboard。
+        queue.push(Event::Bell { session_id: 1000 });
+        assert_eq!(
+            queue.pop(),
+            Some(pending_read),
+            "ClipboardRead 被淘汰会让远端粘出空剪贴板"
+        );
+    }
+
+    #[test]
+    fn push_never_evicts_clipboard_read_when_mixed() {
+        let queue = EventQueue::new();
+        for session_sequence in 0..(MAX_QUEUED_EVENTS - 1) {
+            queue.push(Event::Clipboard {
+                session_id: session_sequence as u64,
+                text: String::new(),
+            });
+        }
+        queue.push(Event::ClipboardRead {
+            session_id: 42,
+            request_id: 7,
+            selection: "c".to_string(),
+        });
+        queue.push(Event::Bell { session_id: 1001 });
+        assert!(
+            (0..MAX_QUEUED_EVENTS)
+                .filter_map(|_| queue.pop())
+                .any(|event| event
+                    == Event::ClipboardRead {
+                        session_id: 42,
+                        request_id: 7,
+                        selection: "c".to_string(),
+                    }),
+            "混合队列中 ClipboardRead 必须存活"
         );
     }
 
