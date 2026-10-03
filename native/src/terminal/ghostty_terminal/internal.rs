@@ -689,6 +689,10 @@ impl super::GhosttyTerminal {
         // unacceptable"). Skip the send entirely when neither the cells nor
         // the cursor changed since the previous push.
         let mut last_cell_data_push: Option<(Vec<CellData>, CursorInfo)> = None;
+        // CellData 重建的开关：仅命令/查询导致状态变化后才重建。空闲 50ms tick
+        // 不再全幅重建（2400+ 次 Ghostty FFI 调用），重复重建s只靠 last_push 去重
+        // 抑制发送，CPU 清零。
+        let mut cell_data_dirty = true;
 
         'vt_loop: loop {
             // Wait for the next command from the bounded channel. Use a
@@ -715,15 +719,19 @@ impl super::GhosttyTerminal {
                         // 反白改变每行内容，帧必须重推。
                         last_cell_data_push = None;
                         grid_dirty = true;
+                        cell_data_dirty = true;
                     }
-                    // ── Auto-push CellData (also sent on each state change below) ──
-                    Self::refresh_cell_data(
-                        &config,
-                        &terminal,
-                        default_foreground,
-                        default_background,
-                        &mut last_cell_data_push,
-                    );
+                    // ── Auto-push CellData (only after a real state change) ──
+                    if cell_data_dirty {
+                        Self::refresh_cell_data(
+                            &config,
+                            &terminal,
+                            default_foreground,
+                            default_background,
+                            &mut last_cell_data_push,
+                        );
+                        cell_data_dirty = false;
+                    }
                     continue;
                 }
                 Err(flume::RecvTimeoutError::Disconnected) => break,
@@ -934,6 +942,7 @@ impl super::GhosttyTerminal {
                     default_background,
                     &mut last_cell_data_push,
                 );
+                cell_data_dirty = false;
             }
             // Flushers are released only after the build above, preserving
             // the original per-command ordering guarantee of `flush()`.
