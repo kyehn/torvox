@@ -2373,7 +2373,7 @@ constructor(
                 }
                 if (sessions.isEmpty()) {
                     activeSessionId = 0L
-                    _state.value = RuntimeState()
+                    _state.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
                     // 使通知与唤醒锁不活得比空会话映射更久
                     // （updateForegroundSessionCount 异常安全，且在 0 时清除运行标志）。

@@ -42,11 +42,27 @@ pub struct GhosttyTerminal {
     pub(crate) alt_screen_active: Arc<AtomicBool>,
 }
 
+/// Terminate 投递的短时等待：try_send 在队列满时失败，但 VT 线程按批排空
+/// 有界队列，短等待通常即可送达；超时后放弃，析构继续走限时 join。
+const TERMINATE_SEND_TIMEOUT: Duration = Duration::from_millis(50);
+
 impl Drop for GhosttyTerminal {
     fn drop(&mut self) {
-        // try_send：VT 线程卡住时不得阻塞析构（与全仓非阻塞策略一致），失败仅记日志后限时等待。
-        if let Err(error) = self.cmd_tx.try_send(Command::Terminate) {
-            log::error!("ghostty_terminal: cmd_tx send Terminate failed: {error}");
+        // 优先 try_send；队列满时额外给 VT 线程一个批次排空的机会。
+        // 两者失败才放弃（记日志），与全仓非阻塞析构策略一致。
+        let delivered = match self.cmd_tx.try_send(Command::Terminate) {
+            Ok(()) => true,
+            Err(error) => {
+                log::warn!(
+                    "ghostty_terminal: try_send Terminate failed ({error}), retrying with timeout"
+                );
+                self.cmd_tx
+                    .send_timeout(Command::Terminate, TERMINATE_SEND_TIMEOUT)
+                    .is_ok()
+            }
+        };
+        if !delivered {
+            log::error!("ghostty_terminal: failed to deliver Command::Terminate");
         }
         crate::terminal::session::join_with_timeout(&mut self.handle, TERMINAL_THREAD_JOIN_TIMEOUT);
     }
