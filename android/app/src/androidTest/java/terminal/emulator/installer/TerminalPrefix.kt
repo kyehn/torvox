@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 测试前置：保证 termux prefix（`files/usr`）就位。
@@ -18,6 +19,9 @@ import kotlinx.coroutines.runBlocking
  */
 object TerminalPrefix {
     private const val TAG = "TerminalPrefix"
+
+    /** 安装前置的单次上限，与安装器自身的下载/解压上限同量级。 */
+    private const val INSTALL_TIMEOUT_MS = 10 * 60_000L
     private const val OFFICIAL_URL =
         "https://github.com/termux/termux-packages/releases/download/" +
             "bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"
@@ -33,14 +37,19 @@ object TerminalPrefix {
         val url =
             InstrumentationRegistry.getArguments().getString("test.bootstrapUrl") ?: OFFICIAL_URL
         Log.i(TAG, "installing terminal prefix from $url")
+        // 有界等待：下载与安装都可能停在网络或子进程上，无上限的阻塞只会把
+        // 整轮仪器化套件挂死，届时无人知道卡在哪一步。
         val result =
             runBlocking {
-                BootstrapOrchestrator(
-                    BootstrapDownloader(context),
-                    BootstrapInstaller(prefixDir, java.io.File(context.filesDir, "home"), stagingDir(context)),
-                    SecondStageRunner(prefixDir, java.io.File(context.filesDir, "home")),
-                ).ensureBootstrap(url)
+                withTimeoutOrNull(INSTALL_TIMEOUT_MS) {
+                    BootstrapOrchestrator(
+                        BootstrapDownloader(context),
+                        BootstrapInstaller(prefixDir, java.io.File(context.filesDir, "home"), stagingDir(context)),
+                        SecondStageRunner(prefixDir, java.io.File(context.filesDir, "home")),
+                    ).ensureBootstrap(url)
+                }
             }
+        checkNotNull(result) { "terminal prefix install timed out after ${INSTALL_TIMEOUT_MS}ms (url=$url)" }
         check(result.isSuccess) { "terminal prefix install failed: $result" }
         check(bash.isFile) { "prefix installed but $bash is missing" }
     }

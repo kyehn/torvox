@@ -11,14 +11,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -1023,7 +1019,7 @@ constructor(
 
     fun setBootstrapUrl(url: String) {
         bootstrapUrlEdited = true
-        bootstrapUrlEdits.tryEmit(url)
+        settingsRepository.recordBootstrapUrlEdit(url)
     }
 
     private val _bootstrapRunning = MutableStateFlow(false)
@@ -1138,9 +1134,10 @@ constructor(
             // 直接读取防抖后的值：DataStore 写入有 500ms 防抖，
             // 故用户在输入后立刻点安装时 first() 仍可能返回旧 URL。
             // 已编辑的输入框（即使被清空）优先于已存储的 URL。
+            val edited = settingsRepository.latestBootstrapUrlEdit()
             val url =
-                if (bootstrapUrlEdited) {
-                    bootstrapUrlEdits.replayCache.last()
+                if (bootstrapUrlEdited && edited != null) {
+                    edited
                 } else {
                     settingsRepository.bootstrapUrl.first()
                 }
@@ -1230,44 +1227,9 @@ constructor(
         }
     }
 
-    /**
-     * 已编辑的引导 URL 文本。必须是 `MutableSharedFlow` 而非 `MutableStateFlow`：
-     * 后者的初值就是首次 emission，会在 ViewModel 创建后经防抖把空串写进 DataStore，
-     * 静默抹掉用户已保存的源。`replay = 1` 让安装按钮能读到最近一次编辑值。
-     */
-    private val bootstrapUrlEdits = MutableSharedFlow<String>(
-        replay = 1,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
     // 在 UI 线程写入、在 IO 协程读取；volatile 使可见性显式化，
     // 而不依赖隐式的 happens-before 关系。
     @Volatile private var bootstrapUrlEdited = false
-
-    @Volatile private var lastPersistedBootstrapUrl: String? = null
-
-    init {
-        // 对自由文本设置防抖，使输入不会每次击键都写 DataStore
-        // （每次写入都是完整的文件重写）。
-        @OptIn(kotlinx.coroutines.FlowPreview::class)
-        viewModelScope.launch {
-            bootstrapUrlEdits.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
-                settingsRepository.setBootstrapUrl(value)
-                lastPersistedBootstrapUrl = value
-            }
-        }
-    }
-
-    override fun onCleared() {
-        // 防抖窗口内（DEBOUNCE_MILLIS）未落盘的值在此冲刷：
-        // 否则用户在输入后立即离开页面，最后一次编辑会被静默丢弃。
-        val pending = bootstrapUrlEdits.replayCache.lastOrNull()
-        if (bootstrapUrlEdited && pending != null && pending != lastPersistedBootstrapUrl) {
-            kotlinx.coroutines.runBlocking {
-                settingsRepository.setBootstrapUrl(pending)
-            }
-        }
-    }
 
     /** Shell 启动入口经保存按钮直接写入（DESIGN :122 提供保存按钮），不检查文本。 */
     fun setShell(shell: String) {
