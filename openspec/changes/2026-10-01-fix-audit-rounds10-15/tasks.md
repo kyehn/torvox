@@ -29,3 +29,10 @@
 - [x] 5.1 默认字体名查询锁外分配（P1-3/N2-66）
 - [x] 5.2 Surface内绝对行换算收敛到唯一来源（N2-97）
 - [x] 5.3 缩放落定用未钳位值判定（N2-96）
+
+## 6. CI门禁与查询日志（本轮增量，已验证）
+
+- [x] 6.1 子进程诊断串去torvox标识（`pty.rs`三处），check门禁semgrep 32规则0发现
+- [x] 6.2 Bridge九个查询经onQuery记警告回缺省，kotlin semgrep 16规则0发现
+- [x] 6.3 搜索用例prompt断言附终端尾部，定向下一轮build诊断
+- [x] 6.4 写回通知线程名合规（`terminal-documents-writeback`）
