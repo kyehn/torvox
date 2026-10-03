@@ -177,6 +177,8 @@ pub struct Renderer {
     pub(crate) readback_buffer: Option<wgpu::Buffer>,
     pub(crate) background: wgpu::Color,
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
+    /// 创建 kgp_pipeline 时所用的表面格式；表面格式变更后必须重建管线。
+    pub(crate) kgp_pipeline_format: Option<wgpu::TextureFormat>,
     pub(crate) kgp_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
     pub(crate) kgp_uniform_buffer: Option<wgpu::Buffer>,
@@ -354,6 +356,7 @@ impl Drop for Renderer {
         self.kgp_uniform_buffer = None;
         self.kgp_bind_group_layout = None;
         self.kgp_pipeline = None;
+        self.kgp_pipeline_format = None;
         self.kgp_texture = None;
         self.surface = None;
     }
@@ -394,6 +397,7 @@ impl Renderer {
             readback_buffer: None,
             background: CATPPUCCIN_MOCHA_BACKGROUND,
             kgp_pipeline: None,
+            kgp_pipeline_format: None,
             kgp_bind_group_layout: None,
             kgp_bind_group: None,
             kgp_uniform_buffer: None,
@@ -570,6 +574,7 @@ impl Renderer {
             // Kitty 管线同样以 surface 格式为 color target：格式变化后若保留旧管线，
             // 绘制时附件格式与管线声明不符，每帧 wgpu 校验失败，Kitty 图像全部不可见。
             self.kgp_pipeline = None;
+            self.kgp_pipeline_format = None;
             self.kgp_bind_group = None;
             self.kgp_bind_group_layout = None;
             log::info!(

@@ -184,10 +184,13 @@ impl Renderer {
                 surface_config.format
             });
 
-        if self.kgp_pipeline.is_none() {
+        if self.kgp_pipeline.is_none() || self.kgp_pipeline_format != Some(format) {
             let (pipeline, layout) = Self::create_kgp_pipeline(&self.device, format);
             self.kgp_pipeline = Some(pipeline);
+            self.kgp_pipeline_format = Some(format);
             self.kgp_bind_group_layout = Some(layout);
+            // 旧管线/布局派生的绑定组不可复用。
+            self.kgp_bind_group = None;
         }
 
         if self.kgp_sampler.is_none() {
