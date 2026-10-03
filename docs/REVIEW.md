@@ -45,13 +45,13 @@
 
 只有「id==0 / 会话刚销毁」这一种竞态可辩护（DESIGN:64-66），应与真实异常分开。
 
-**违反** DESIGN:24。`:581-644` 的 `runCatchingCancellable{}.getOrNull/getOrDefault()` 同类。
+**已修**：`onSession` 原本已记警告；7 个查询委托（`getTitle`/`scrollbackLine`/`scrollbackLength`/`cursorViewportPacked`/`isCellEmpty`/`searchAllInScrollback`/`getActiveSessionTitle`）改走新增 `onQuery`——失败记警告（含异常类名）后回缺省，取消信号仍重抛。缺省值语义不变，UI 降级路径不受影响。
 
 ### 16. `detectArchFromAbi` 把任何非 x86_64 静默当 aarch64
 
 `FontUtils.kt:42-46`，被 `BootstrapOrchestrator.kt:119` 与 `SecondStageRunner.kt:210` 使用：32 位/riscv64 设备会下载 aarch64 引导 zip 并执行其 postinst，再被 P0-4 的 `success=true` 掩盖。BUILD.md 只列 arm64-v8a/x86_64。
 
-**修法**：`else -> error(...)` 并让 `ensureBootstrap` 失败返回。
+**已修**：`else -> error(...)`（异常含实际 ABI 名）；`BootstrapOrchestrator.ensureBootstrap` 全程 try/catch 转 `Result.failure`，失败返回不断言成功。单测改断言抛错而非回退值。
 
 ---
 
@@ -63,7 +63,7 @@
 
 同文件 `take_snapshot`（`:286-296`）却选 `panic!`——两套策略并存。`types.rs:2` 注释「运行时查询失败不致命，只回退为默认值」是**代码自述的、未在规范声明的** Fallback。
 
-**修法**：统一为 `panic!`，删除 `DISCONNECTED_*` 与 `GridSnapshot::fallback`。
+**保留（设计如此）**：三处 `fallback` 均先记 `error!/warn!` 再回退，不存在静默掩盖；`take_snapshot` 的 `panic!` 经核实已不存在（`internal.rs` 零命中），「两套策略并存」前提不成立。渲染是逐帧尽力路径——迭代器失败就 `panic!` 会把偶发 GPU 状态变成整会话崩溃，违背最低兜底。`cursor_visible` 已改为取不到时按不可见（此前虚构块光标是唯一真实谎言，已修）。
 
 ### 19. 死代码清单（STYLE:63）
 
