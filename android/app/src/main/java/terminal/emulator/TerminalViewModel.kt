@@ -1244,6 +1244,8 @@ constructor(
     // 而不依赖隐式的 happens-before 关系。
     @Volatile private var bootstrapUrlEdited = false
 
+    @Volatile private var lastPersistedBootstrapUrl: String? = null
+
     init {
         // 对自由文本设置防抖，使输入不会每次击键都写 DataStore
         // （每次写入都是完整的文件重写）。
@@ -1251,6 +1253,19 @@ constructor(
         viewModelScope.launch {
             bootstrapUrlEdits.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
                 settingsRepository.setBootstrapUrl(value)
+                lastPersistedBootstrapUrl = value
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // 防抖窗口内（DEBOUNCE_MILLIS）未落盘的值在此冲刷：
+        // 否则用户在输入后立即离开页面，最后一次编辑会被静默丢弃。
+        val pending = bootstrapUrlEdits.replayCache.lastOrNull()
+        if (bootstrapUrlEdited && pending != null && pending != lastPersistedBootstrapUrl) {
+            kotlinx.coroutines.runBlocking {
+                settingsRepository.setBootstrapUrl(pending)
             }
         }
     }
