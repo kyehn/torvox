@@ -237,40 +237,49 @@ object NativeBridge {
 
     external fun setTheme(sessionId: Long, data: ByteArray)
 
+    @JvmStatic
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
     /**
      * 测试钩子：开启/关闭持续的 surface 级取纹理失败（等价于 BufferQueue 被遗弃）。
      * 仅供仪器化用例验证自愈路径，无生产调用方；关闭后立刻恢复真实取纹理。
      */
+    @JvmStatic
     external fun setSurfaceLossInjected(sessionId: Long, injected: Boolean): Boolean
 
     /**
      * 应用层光标颜色覆盖，线性 RGB（每通道 0..1），总是覆盖，无清除路径。
      */
+    @JvmStatic
     external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
 
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 
+    @JvmStatic
     external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
 
     /** 设置字形光栅化缩放（设备像素密度），保证文字清晰。 */
+    @JvmStatic
     external fun setRasterScale(sessionId: Long, scale: Float)
 
     external fun loadFontFile(sessionId: Long, path: String): String?
 
+    @JvmStatic
     external fun setSystemLocale(sessionId: Long, locale: String)
 
     external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
 
+    @JvmStatic
     external fun getCellWidth(sessionId: Long): Float
 
     external fun getCellHeight(sessionId: Long): Float
 
+    @JvmStatic
     external fun getGridRowsColsPacked(sessionId: Long): Long
 
     external fun setScrollOffset(sessionId: Long, offset: Int)
 
+    @JvmStatic
     external fun setScrollYPx(sessionId: Long, offsetPx: Float)
 
     /** 后台预热渲染器与字体库（spawn 后、attach 前调用，不阻塞）。 */
