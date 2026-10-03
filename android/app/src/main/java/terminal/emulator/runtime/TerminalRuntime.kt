@@ -557,20 +557,16 @@ constructor(
                 }
                 entry.renderThreadPossiblyAlive
             }
-        try {
-            if (skipClose) {
-                // 渲染线程可能仍卡在原生渲染代码中（GPU 挂起、join 超时）。
-                // 在其下 destroySession 即 use-after-free；按与 closeSession 相同的规则，
-                // 泄漏的原生会话待进程消亡时回收。
-                LogUtil.e(
-                    "Runtime",
-                    "session ${entry.id} render thread possibly alive — skipping bridge close on exit",
-                )
-            } else {
-                entry.bridge?.close()
-            }
-        } catch (exception: Exception) {
-            LogUtil.e("Runtime", "session ${entry.id} bridge close on exit failed", exception)
+        if (skipClose) {
+            // 渲染线程可能仍卡在原生渲染代码中（GPU 挂起、join 超时）。
+            // 在其下 destroySession 即 use-after-free；按与 closeSession 相同的规则，
+            // 泄漏的原生会话待进程消亡时回收。
+            LogUtil.e(
+                "Runtime",
+                "session ${entry.id} render thread possibly alive — skipping bridge close on exit",
+            )
+        } else {
+            entry.closeBridgeUnlessRenderThreadAlive("shell exit")
         }
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
@@ -606,20 +602,7 @@ constructor(
         }
         // LogUtil.e 已写入 logcat，不重复输出。
         LogUtil.e("Runtime", "session ${entry.id} exceeded max restart attempts, closing session")
-        try {
-            if (entry.renderThreadPossiblyAlive) {
-                // 挂起线程可能仍在原生渲染代码中；在其下销毁会话即 use-after-free，
-                // 泄漏的原生会话待进程消亡时回收。
-                LogUtil.e(
-                    "Runtime",
-                    "session ${entry.id} render thread possibly alive — skipping bridge close",
-                )
-            } else {
-                entry.bridge?.close()
-            }
-        } catch (exception: Exception) {
-            LogUtil.e("Runtime", "session ${entry.id} bridge close during cleanup failed", exception)
-        }
+        entry.closeBridgeUnlessRenderThreadAlive("restart limit exceeded")
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
             sessions.remove(entry.id)
@@ -2555,24 +2538,21 @@ constructor(
                 synchronized(sessionLock) {
                     sessions.remove(nextId)
                 }
-                // 关闭原生 bridge，避免 Rust 侧会话及其 PTY 子进程泄漏。
-                // 但渲染线程可能已挂在原生代码里（GPU 挂起、join 超时）——
-                // 在它脚下销毁会话即 use-after-free，泄漏的原生会话待进程消亡回收。
-                try {
-                    if (hangGuardedEntry?.renderThreadPossiblyAlive == true) {
+                // 关闭原生 bridge，避免 Rust 侧会话及其 PTY 子进程泄漏；
+                // 渲染线程仍活着时由同一条守卫跳过（在其下销毁即 use-after-free）。
+                val rollbackEntry = hangGuardedEntry
+                if (rollbackEntry != null) {
+                    rollbackEntry.closeBridgeUnlessRenderThreadAlive("switch failed rollback")
+                } else {
+                    try {
+                        bridge.close()
+                    } catch (closeException: Exception) {
                         LogUtil.e(
                             "Runtime",
-                            "session $nextId render thread possibly alive — skipping bridge close on rollback",
+                            "Failed to close bridge during session $nextId rollback",
+                            closeException,
                         )
-                    } else {
-                        bridge.close()
                     }
-                } catch (closeException: Exception) {
-                    LogUtil.e(
-                        "Runtime",
-                        "Failed to close bridge during session $nextId rollback",
-                        closeException,
-                    )
                 }
                 throw exception
             }
@@ -2618,37 +2598,28 @@ constructor(
                 // （handleSessionExit / closeSession）。构造上安全：
                 // Bridge.close() 凭其 sessionId!=0 守卫幂等，
                 // 原生 destroySession 凭注册表移除幂等。
-                // 同 closeSession：渲染线程可能仍卡在原生代码中，此时绝不可在其下
-                // 销毁会话（use-after-free）；泄漏的原生会话待进程消亡回收。
-                try {
-                    if (hangGuardedEntry?.renderThreadPossiblyAlive == true) {
-                        LogUtil.e(
-                            "Runtime",
-                            "createSession: session $nextId render thread possibly alive — skipping rolled-back bridge close",
-                        )
-                    } else {
-                        bridge.close()
-                    }
-                } catch (closeException: Exception) {
-                    LogUtil.e("Runtime", "createSession: failed to close rolled-back bridge", closeException)
-                }
+                hangGuardedEntry?.closeBridgeUnlessRenderThreadAlive("concurrent removal rollback")
+                    ?: bridge.close()
                 return -1L
             }
             LogUtil.d("Runtime", "session $nextId created and activated")
             return nextId
         } catch (exception: Exception) {
             // 取消与失败统一先回滚未入库的 bridge，再按类型处理（与 start 同形）。
-            createdBridge?.let { leaked ->
-                if (leaked !== sessions[nextId]?.bridge && hangGuardedEntry?.renderThreadPossiblyAlive != true) {
-                    try {
-                        leaked.close()
-                    } catch (closeException: Exception) {
-                        LogUtil.e(
-                            "Runtime",
-                            "Failed to close leaked bridge during createSession rollback",
-                            closeException,
-                        )
-                    }
+            // 已入库的会话由并发关闭路径负责；未入库的桥接没有渲染线程，
+            // 只有条目已被并发移除且其渲染线程挂起时才跳过（UAF 守卫）。
+            val orphanEntry = hangGuardedEntry?.takeIf { sessions[nextId] == null }
+            if (orphanEntry != null) {
+                orphanEntry.closeBridgeUnlessRenderThreadAlive("createSession failed")
+            } else if (createdBridge != null && createdBridge !== sessions[nextId]?.bridge) {
+                try {
+                    createdBridge.close()
+                } catch (closeException: Exception) {
+                    LogUtil.e(
+                        "Runtime",
+                        "Failed to close leaked bridge during createSession rollback",
+                        closeException,
+                    )
                 }
             }
             if (exception is kotlinx.coroutines.CancellationException) {
