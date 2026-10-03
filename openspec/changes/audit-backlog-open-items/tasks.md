@@ -114,6 +114,8 @@
 - [x] markdownlint 递归进 CI 的 `result-kudzu`（N9）—— 本轮已修
       （改用 cli2 `ignores`，未动工作流与规则集）
 - [x] 搜索结果解码/序列化失败冒充「0 匹配」（N2-10）—— 本轮已补日志
+- [x] N2-15`RenderWatchDog` 魔数 —— **本轮否证**：轮询间隔与挂起阈值
+      已是具名常量（`CHECK_INTERVAL_MS` 与构造参数 `hangTimeoutNanos`）
 
 ## 7. 文档退役
 
