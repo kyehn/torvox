@@ -21,10 +21,6 @@ class TerminalForegroundService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
 
-        // 安全网：唤醒锁绝不能活得比它所保活的会话更久。
-        // 30 分钟覆盖可预期的最长交互运行；仍存活的会话会在下个 start 节拍重新获取。
-        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
-
         fun start(context: Context) {
             val intent = Intent(context, TerminalForegroundService::class.java)
             context.startForegroundService(intent)
@@ -144,9 +140,12 @@ class TerminalForegroundService : Service() {
                 .newWakeLock(
                     PowerManager.PARTIAL_WAKE_LOCK,
                     WAKE_LOCK_TAG,
+                // 无超时：持有期 == 服务存活期（onDestroy/releaseWakeLock 释放）。
+                // 若带超时，空闲 30 分钟后锁自动失效而服务仍运行，onStartCommand
+                // 不会被再次触发取回锁，灭屏期间的会话即被系统冻结。
                 ).apply {
                     setReferenceCounted(false)
-                    acquire(WAKE_LOCK_TIMEOUT_MS)
+                    acquire()
                 }
     }
 
