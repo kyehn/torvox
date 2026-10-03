@@ -243,12 +243,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val surfaceInvalidated: Boolean,
     )
 
-    /**
-     * 读取并清除本会话原生的 `new_output` 标志（滚动复位信号）。
-     * 渲染线程每帧调用一次；上次调用以来摄入过 PTY 输出则返回 true。会话未知/已销毁时返回 false。
-     */
-    fun consumeNewOutput(): Boolean = onSession("consumeNewOutput", false, NativeBridge::consumeNewOutput)
-
     /** 绑定 Android Surface 供 GPU 渲染。 */
     fun attachSurface(surface: Any, width: Int, height: Int) {
         lastSurfaceWidth = width
