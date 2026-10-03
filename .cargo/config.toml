@@ -1,2 +1,11 @@
+# rustc 会就 `-fuse-ld=gold` 打印「gold linker is deprecated」告警，该告警在
+# libghostty-vt-sys 停止把 Zig compiler_rt 合进静态库之前无法消除：
+#   - rust-lld（默认）：对 compiler_rt.o 里指向符号表第 0 项（空名）的重定位报
+#     `undefined symbol: `，lib/test/bench 全数链接失败（2026-10-03 复验）；
+#   - ld.bfd：Zig 合并 .eh_frame 后拒绝生成 .eh_frame_hdr（overlapping FDEs），
+#     绕开只能加 --no-eh-frame-hdr，那会抽掉展开器要的 FDE 索引，实测
+#     catch_unwind 直接 abort（failed to initiate panic, error 5），
+#     `#[should_panic]` 与 jni_export_guard! 的 catch_unwind 一并失效。
+# gold 按 null→0 本义解析该重定位且保住异常展开，故保留并接受这条告警。
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=gold"]

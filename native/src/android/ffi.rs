@@ -162,8 +162,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
     _class: JClass,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        drop(render_state_mut());
-        log::info!("render state prefetched");
+        // 预热是优化，失败可重试：GPU 初始化不可用时只记账，不致命。
+        // 渲染路径的 fatal 判定不变（见 render_state_mut），故真无 GPU 的设备仍在
+        // 首帧得到明确的 GPU initialization failed，而不会被一次瞬时失败提前 abort。
+        match crate::render::context::try_global_gpu() {
+            Ok(_) => {
+                drop(render_state_mut());
+                log::info!("render state prefetched");
+            }
+            Err(initialization_error) => {
+                log::error!("render state prefetch skipped: {initialization_error}");
+            }
+        }
     })
 }
 /// 确保渲染状态存在，首次使用时创建渲染器与字体管线。GPU 初始化失败时 panic
