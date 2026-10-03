@@ -3,9 +3,14 @@
 ### Requirement: 宿主链接器口径
 
 `x86_64-unknown-linux-gnu` 的主机链接 MUST 使用能正确解析 Zig `compiler_rt.o`
-中 null 符号引用的链接器（GNU ld），并 MUST NOT 依赖 lld 对该类引用的容忍。
+中 null 符号引用的链接器，并 MUST NOT 依赖 lld 对该类引用的容忍。
 链接参数 MUST 以 `[target.x86_64-unknown-linux-gnu] rustflags` 形式收敛在
 `.cargo/config.toml`，MUST NOT 写进构建脚本或 CI 步骤。
+
+实现口径：GNU gold。bfd 因 Zig 合并过的 `.eh_frame` 报 FDE 重叠而拒绝生成
+`.eh_frame_hdr`，绕过后异常展开失效（`snapshot_panics_when_terminal_disconnected`
+会暴露）；gold 既接受空名引用也保留展开表。`rust-lld` 今天仍报
+`undefined symbol:`（名字为空），故该选择经实测复验而非沿用结论。
 
 #### Scenario: 全新环境链接不失败
 
