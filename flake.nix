@@ -144,6 +144,9 @@
               chmod -R +x scripts/ android/gradlew
               nu scripts/download-aosp-testkey.nu
               nu scripts/download-rapidocr-models.nu
+              if [[ ! -d "/tmp/alacritty-theme" ]]; then
+                git clone --depth 1 --quiet https://github.com/alacritty/alacritty-theme.git /tmp/alacritty-theme
+              fi
             '';
           };
         };
