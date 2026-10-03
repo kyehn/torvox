@@ -34,12 +34,17 @@ class TerminalLogcatRule : TestRule {
     private fun logcatTail(): String {
         val dump =
             try {
+                // 读取必须在 use 块内完成：`use` 在块返回时就关闭描述符，
+                // 块外再读同一个 fd 只会拿到 EBADF（模拟器上实测 100% 失败，
+                // 失败信息退化成「logcat 抓取失败」，恰好丢掉本规则的全部价值）。
                 InstrumentationRegistry.getInstrumentation()
                     .uiAutomation
                     .executeShellCommand("logcat -d -t $LOG_LINES -v brief")
-                    .use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it) }
-                    .bufferedReader()
-                    .readText()
+                    .use { descriptor ->
+                        android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)
+                            .bufferedReader()
+                            .readText()
+                    }
             } catch (error: Exception) {
                 return "（logcat 抓取失败：$error）"
             }
