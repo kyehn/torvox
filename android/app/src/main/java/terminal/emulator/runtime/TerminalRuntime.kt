@@ -2425,6 +2425,9 @@ constructor(
         }
         var nextId = 0L
         var createdBridge: terminal.emulator.bridge.Bridge? = null
+        // 回滚路径可见的条目引用：并发 closeSession 可能把它标记为
+        // renderThreadPossiblyAlive，此时绝不可 bridge.close()。
+        var hangGuardedEntry: SessionEntry? = null
         try {
             val configStartNs = System.nanoTime()
             val config = buildConfig()
@@ -2513,6 +2516,7 @@ constructor(
                         )
                     sessions[nextId] = entry
                     abandonedByStart = false
+                    hangGuardedEntry = entry
                     bridge.onPtyWrite = { nanos ->
                         entry.latencyProbe.onInputWritten(nanos)
                         // 输入写入唤醒：每次 PTY 写入都把渲染循环推离空闲闭锁，
@@ -2552,8 +2556,17 @@ constructor(
                     sessions.remove(nextId)
                 }
                 // 关闭原生 bridge，避免 Rust 侧会话及其 PTY 子进程泄漏。
+                // 但渲染线程可能已挂在原生代码里（GPU 挂起、join 超时）——
+                // 在它脚下销毁会话即 use-after-free，泄漏的原生会话待进程消亡回收。
                 try {
-                    bridge.close()
+                    if (hangGuardedEntry?.renderThreadPossiblyAlive == true) {
+                        LogUtil.e(
+                            "Runtime",
+                            "session $nextId render thread possibly alive — skipping bridge close on rollback",
+                        )
+                    } else {
+                        bridge.close()
+                    }
                 } catch (closeException: Exception) {
                     LogUtil.e(
                         "Runtime",
@@ -2605,8 +2618,17 @@ constructor(
                 // （handleSessionExit / closeSession）。构造上安全：
                 // Bridge.close() 凭其 sessionId!=0 守卫幂等，
                 // 原生 destroySession 凭注册表移除幂等。
+                // 同 closeSession：渲染线程可能仍卡在原生代码中，此时绝不可在其下
+                // 销毁会话（use-after-free）；泄漏的原生会话待进程消亡回收。
                 try {
-                    bridge.close()
+                    if (hangGuardedEntry?.renderThreadPossiblyAlive == true) {
+                        LogUtil.e(
+                            "Runtime",
+                            "createSession: session $nextId render thread possibly alive — skipping rolled-back bridge close",
+                        )
+                    } else {
+                        bridge.close()
+                    }
                 } catch (closeException: Exception) {
                     LogUtil.e("Runtime", "createSession: failed to close rolled-back bridge", closeException)
                 }
@@ -2617,7 +2639,7 @@ constructor(
         } catch (exception: Exception) {
             // 取消与失败统一先回滚未入库的 bridge，再按类型处理（与 start 同形）。
             createdBridge?.let { leaked ->
-                if (leaked !== sessions[nextId]?.bridge) {
+                if (leaked !== sessions[nextId]?.bridge && hangGuardedEntry?.renderThreadPossiblyAlive != true) {
                     try {
                         leaked.close()
                     } catch (closeException: Exception) {
