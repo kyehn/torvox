@@ -3636,6 +3636,19 @@ private const val SURFACE_RECREATE_MIN_INTERVAL_NANOS = 500_000_000L
 private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
 
 /**
+ * 内容下沿像素：视口最后一个有内容的行的下沿（视口全空为 0）。
+ *
+ * 原生行顶为 `row * cellHeight`（浮点，见 `cell_builder.rs` 的 `quad_origin`），
+ * 故此处必须先浮点乘后取整。先 `toInt` 再乘会每行丢掉小数并随行数累积
+ * （N 行累积误差 = N × 小数部分），位移偏小、末行被键栏吞掉且随内容增多扩大。
+ * `ceil` 保证下沿不被低估（至多多移 <1px，不可见）。
+ */
+internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
+    if (contentRow < 0 || cellHeightPx <= 0f) return 0
+    return kotlin.math.ceil((contentRow + 1) * cellHeightPx).toInt()
+}
+
+/**
  * 输入法弹出时终端 Surface 的上移像素：只移「键盘遮住且上方放不下」的内容高度。
  *
  * 网格自顶端锚定渲染，键盘遮住的是网格**末尾**行，故无条件按整块键盘高度平移会把
@@ -3652,7 +3665,6 @@ private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
  * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
  */
-
 internal fun computeImeSurfaceShift(
     contentBottomPx: Int,
     surfaceHeightPx: Int,
