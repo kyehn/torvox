@@ -2837,11 +2837,7 @@ constructor(
                 target.bridge?.let { syncGridDimensions(it) }
                 // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
                 // 查不到原生网格则无条件对齐（fail-open）。
-                val wantRows = _state.value.rows.coerceAtLeast(1)
-                val wantCols = _state.value.cols.coerceAtLeast(1)
-                if (shouldAlignGridOnSwitch(wantRows, wantCols) { target.bridge?.getGridRowsColsPacked() ?: 0L }) {
-                    target.bridge?.resize(wantRows, wantCols)
-                }
+                alignGridOnSwitch(target.bridge, _state.value.rows, _state.value.cols)
                 LogUtil.d("Runtime", "switched to session $id")
                 // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
@@ -3648,6 +3644,36 @@ internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
 }
 
 /**
+ * 切会话时是否需要对齐网格：目标会话原生网格与 UI 网格一致则跳过 `resize`
+ *（无冗余 SIGWINCH）；查不到（0/异常）则返回 true 沿旧路无条件对齐。
+ *
+ * 网格查询以 lambda 传入：纯判定可单测，无需伪造 Bridge。
+ */
+internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: () -> Long): Boolean {
+    val packed =
+        try {
+            gridQuery()
+        } catch (exception: Exception) {
+            0L
+        }
+    return packed == 0L || (packed shr 32).toInt() != wantRows || packed.toInt() != wantCols
+}
+
+/**
+ * 切会话的网格对齐执行：`[shouldAlignGridOnSwitch]` 为真才 `resize`。
+ *
+ * 单独成顶层函数只因 `TerminalRuntime` 已顶满 `LargeClass` 阈值（基线恰 1600，
+ * 类内多 1 个 token 行即挂）：调用点保持一行，判定逻辑可单测。
+ */
+internal fun alignGridOnSwitch(bridge: Bridge?, rows: Int, cols: Int) {
+    val wantRows = rows.coerceAtLeast(1)
+    val wantCols = cols.coerceAtLeast(1)
+    if (shouldAlignGridOnSwitch(wantRows, wantCols) { bridge?.getGridRowsColsPacked() ?: 0L }) {
+        bridge?.resize(wantRows, wantCols)
+    }
+}
+
+/**
  * 输入法弹出时终端 Surface 的上移像素：只移「键盘遮住且上方放不下」的内容高度。
  *
  * 网格自顶端锚定渲染，键盘遮住的是网格**末尾**行，故无条件按整块键盘高度平移会把
@@ -3664,22 +3690,6 @@ internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
  * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
  */
-/**
- * 切会话时是否需要对齐网格：目标会话原生网格与 UI 网格一致则跳过 `resize`
- *（无冗余 SIGWINCH）；查不到（0/异常）则返回 true 沿旧路无条件对齐。
- *
- * 网格查询以 lambda 传入：纯判定可单测，无需伪造 Bridge。
- */
-internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: () -> Long): Boolean {
-    val packed =
-        try {
-            gridQuery()
-        } catch (exception: Exception) {
-            0L
-        }
-    return packed == 0L || (packed shr 32).toInt() != wantRows || packed.toInt() != wantCols
-}
-
 internal fun computeImeSurfaceShift(
     contentBottomPx: Int,
     surfaceHeightPx: Int,
