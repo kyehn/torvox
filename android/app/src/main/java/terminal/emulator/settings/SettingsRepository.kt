@@ -153,6 +153,18 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     suspend fun setNightThemeName(name: String) = put(Keys.NIGHT_THEME_NAME, name)
 
+    /**
+     * 清除存有未知主题名的键（DESIGN 主题节：设置错误重置应用数据）。
+     * 只删存错值的那个键，其余主题设置保持不变。
+     */
+    suspend fun clearUnknownThemeNames(unknown: Set<String>) {
+        provider.dataStore.edit { prefs ->
+            if (unknown.contains(prefs[Keys.THEME_NAME])) prefs.remove(Keys.THEME_NAME)
+            if (unknown.contains(prefs[Keys.DAY_THEME_NAME])) prefs.remove(Keys.DAY_THEME_NAME)
+            if (unknown.contains(prefs[Keys.NIGHT_THEME_NAME])) prefs.remove(Keys.NIGHT_THEME_NAME)
+        }
+    }
+
     suspend fun setThemeMode(mode: String) = put(Keys.THEME_MODE, mode)
 
     suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)

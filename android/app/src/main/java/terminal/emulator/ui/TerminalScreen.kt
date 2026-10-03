@@ -127,8 +127,10 @@ fun TerminalScreen(
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
     val isSettingsDark =
         resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
+    // 未知名已在 TerminalRuntime.clearUnknownThemeNames 清除对应键；此处取不到
+    // 说明该键刚被写入但尚未生效，用默认主题渲染本帧，不抛。
     val resolvedTerminalTheme =
-        BuiltInThemes.byName(
+        BuiltInThemes.byNameOrNull(
             resolveTerminalThemeName(
                 mode = viewModelThemeMode,
                 fixedName = viewModelThemeName,
@@ -136,7 +138,7 @@ fun TerminalScreen(
                 nightName = viewModelNightThemeName,
                 isDark = isSettingsDark,
             ),
-        )
+        ) ?: BuiltInThemes.draculaPlus
     val terminalBackground = resolvedTerminalTheme.background
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
