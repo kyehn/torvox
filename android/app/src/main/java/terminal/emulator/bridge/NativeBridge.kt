@@ -123,13 +123,6 @@ object NativeBridge {
      */
     @JvmStatic external fun pollEvent(): String?
 
-    /**
-     * 读取并清除每会话的 `new_output` 标志（滚动复位信号）。
-     * 由原生 PTY 摄入路径置位，渲染线程每帧与 [pollEvent] 一并旁路读取一次；
-     * 刻意不排队为事件，以免持续输出（tail -f）饿死剪贴板/退出事件。
-     */
-    @JvmStatic external fun consumeNewOutput(sessionId: Long): Boolean
-
     // ── Surface ──
 
     /** 绑定 Android Surface 供 GPU 渲染，原生侧据此 ANativeWindow 指针创建 wgpu surface。 */

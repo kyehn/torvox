@@ -1271,7 +1271,7 @@ constructor(
                                             lastScrollRemainderPx = currentRemainderPx
                                         }
                                         entry.lastRenderStart = System.nanoTime()
-                                        // 渲染与 consumeNewOutput 合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
+                                        // 渲染与 new_output 消费合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
                                         // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
                                         val renderResult = bridge.renderWithNewOutput()
                                         val count = renderResult.count

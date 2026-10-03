@@ -185,7 +185,6 @@ pub struct Renderer {
     pub(crate) kgp_sampler: Option<wgpu::Sampler>,
     pub(crate) kgp_instance_buffer: Option<wgpu::Buffer>,
     pub(crate) kgp_texture: Option<wgpu::Texture>,
-    pub(crate) kgp_atlas_data: Vec<u8>,
     pub(crate) kgp_atlas_width: u32,
     pub(crate) kgp_atlas_height: u32,
     pub(crate) raster_scale: f32,
@@ -404,7 +403,6 @@ impl Renderer {
             kgp_sampler: None,
             kgp_instance_buffer: None,
             kgp_texture: None,
-            kgp_atlas_data: Vec::new(),
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
             raster_scale: 1.0,
@@ -748,7 +746,6 @@ impl Renderer {
             size,
         );
         self.kgp_texture = Some(tex);
-        self.kgp_atlas_data = rgba_data.to_vec();
         self.kgp_atlas_width = width;
         self.kgp_atlas_height = height;
         self.kgp_bind_group = None;
