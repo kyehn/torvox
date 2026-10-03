@@ -5,7 +5,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -14,6 +13,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -198,7 +198,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
     /** 最近一次编辑值（含尚未落盘的），供安装动作直接读取。 */
     fun latestBootstrapUrlEdit(): String? = bootstrapUrlEdits.replayCache.lastOrNull()
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
 
     private val bootstrapUrlEdits = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 1)
 
