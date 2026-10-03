@@ -646,40 +646,37 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun setScrollYPx(offsetPx: Float) = queryPort.setScrollYPx(offsetPx)
 
-    override fun getTerminalText(): String? = runCatchingCancellable { queryPort.getTerminalText() }.getOrNull()
+    override fun getTerminalText(): String? = onQuery("getTerminalText", null) { queryPort.getTerminalText() }
 
     override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
-        runCatchingCancellable {
+        onQuery("selectionText", null) {
             queryPort.selectionText(startRow, startCol, endRow, endCol)
         }
-            .getOrNull()
 
-    override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
+    override fun listFontFamilies(): List<String>? = onQuery("listFontFamilies", null) { queryPort.listFontFamilies() }
 
-    override fun hyperlinkAt(row: Int, col: Int): String? = runCatchingCancellable {
+    override fun hyperlinkAt(row: Int, col: Int): String? = onQuery("hyperlinkAt", null) {
         queryPort.hyperlinkAt(
             row,
             col,
         )
-    }.getOrNull()
+    }
 
     // 上游选择派生：native 侧已安装选区并回传界限；unknown session 异常
     // 与其余查询方法一致转为缺省值（UI/触摸路径不崩）。
-    override fun selectWordAt(row: Int, col: Int): IntArray? = runCatchingCancellable {
+    override fun selectWordAt(row: Int, col: Int): IntArray? = onQuery("selectWordAt", null) {
         queryPort.selectWordAt(row, col)
-    }.getOrNull()
+    }
 
-    override fun selectLineAt(row: Int, col: Int): IntArray? = runCatchingCancellable {
+    override fun selectLineAt(row: Int, col: Int): IntArray? = onQuery("selectLineAt", null) {
         queryPort.selectLineAt(row, col)
-    }.getOrNull()
+    }
 
-    override fun selectAll(): IntArray? = runCatchingCancellable { queryPort.selectAll() }.getOrNull()
+    override fun selectAll(): IntArray? = onQuery("selectAll", null) { queryPort.selectAll() }
 
-    override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault(
-        "",
-    )
+    override fun getDefaultFontName(): String = onQuery("getDefaultFontName", "") { queryPort.getDefaultFontName() }
 
-    override fun getFontInfo(): String? = runCatchingCancellable { queryPort.getFontInfo() }.getOrNull()
+    override fun getFontInfo(): String? = onQuery("getFontInfo", null) { queryPort.getFontInfo() }
 
     companion object {
         private const val TAG = "Bridge"
