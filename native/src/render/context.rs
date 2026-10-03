@@ -70,32 +70,57 @@ pub(crate) fn global_gpu_for_tests() -> &'static GlobalGpu {
     global_gpu()
 }
 
-fn global_gpu() -> &'static GlobalGpu {
-    static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
-    INSTANCE.get_or_init(|| {
-        match futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
-            Ok((_inst, _adapt, device, queue)) => GlobalGpu {
-                #[cfg(target_os = "android")]
-                instance: _inst,
-                #[cfg(target_os = "android")]
-                adapter: _adapt,
-                device,
-                queue,
-            },
-            Err(initialization_error) => {
-                log::error!("GPU initialization failed: {initialization_error}");
-                log::error!("Solution: ensure a Vulkan-capable GPU is available.");
-                log::error!("  - Linux desktop: set VK_ICD_FILENAMES to a lavapipe or Mesa driver");
-                log::error!("  - Android emulator: use SwiftShader (default with GPU emulation)");
-                log::error!("  - Physical device: install Vulkan drivers for your hardware");
-                log::error!("This is a fatal error — the terminal cannot render without a GPU.");
-                panic!(
-                    "GPU initialization failed: {initialization_error}. \
-                     See log for details."
-                )
-            }
+/// 初始化 Vulkan 全局对象；失败时按可操作的指引记账（原因只有这一处需要讲清）。
+fn init_gpu() -> Result<GlobalGpu, GpuError> {
+    match futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
+        Ok((_inst, _adapt, device, queue)) => Ok(GlobalGpu {
+            #[cfg(target_os = "android")]
+            instance: _inst,
+            #[cfg(target_os = "android")]
+            adapter: _adapt,
+            device,
+            queue,
+        }),
+        Err(initialization_error) => {
+            log::error!("GPU initialization failed: {initialization_error}");
+            log::error!("Solution: ensure a Vulkan-capable GPU is available.");
+            log::error!("  - Linux desktop: set VK_ICD_FILENAMES to a lavapipe or Mesa driver");
+            log::error!("  - Android emulator: use SwiftShader (default with GPU emulation)");
+            log::error!("  - Physical device: install Vulkan drivers for your hardware");
+            Err(initialization_error)
         }
+    }
+}
+
+fn gpu_instance() -> &'static OnceLock<GlobalGpu> {
+    static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
+    &INSTANCE
+}
+
+/// 渲染路径取全局 GPU：不可用即致命（无法渲染的终端是坏的，不应跚行运转）。
+fn global_gpu() -> &'static GlobalGpu {
+    gpu_instance().get_or_init(|| match init_gpu() {
+        Ok(global) => global,
+        Err(initialization_error) => panic!(
+            "GPU initialization failed: {initialization_error}. \
+             See log for details."
+        ),
     })
+}
+
+/// 可失败取全局 GPU：失败不致命，供启动预热等非渲染路径使用（见
+/// `Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState`）。
+///
+/// 失败**不写入** `OnceLock`，故后续渲染路径仍会重试初始化：设备上的 Vulkan 初始化
+/// 在进程刚起来的数秒内可能失败（GPU 尚被别的应用占用），而同一设备稍后即可成功，
+/// 预热不该把一次瞬时失败固化成启动即崩。
+pub(crate) fn try_global_gpu() -> Result<&'static GlobalGpu, GpuError> {
+    if let Some(initialized) = gpu_instance().get() {
+        return Ok(initialized);
+    }
+    let global = init_gpu()?;
+    // 并发下可能已被另一个线程写入：取已缓存者，丢弃本次多余结果。
+    Ok(gpu_instance().get_or_init(|| global))
 }
 
 /// GPU 渲染器：持有 wgpu 资源与管线。字段按空行分组：核心资源、单元管线资源、图集资源、
@@ -578,8 +603,8 @@ impl Renderer {
         self.surface_invalidated
     }
 
-    /// 测试钩子：让此后每帧 [Self::begin_frame] 都报 surface 级失败，直到传入 false
-    /// 关闭（见 [Self::surface_loss_injected]）。
+    /// 测试钩子：让此后每帧取纹理都按 surface 级失败处理（见 `surface_loss_injected` 字段），
+    /// 直到传入 false 关闭。
     pub fn set_surface_loss_injected_for_test(&mut self, enabled: bool) {
         self.surface_loss_injected = enabled;
     }

@@ -789,7 +789,9 @@ fun TerminalScreen(
                     modifier =
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .offset { IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue)) }
+                        .offset {
+                            IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue))
+                        }
                         .background(resolvedTerminalTheme.background)
                         .testTag("ModifierBarOverlay"),
                 ) {
@@ -908,5 +910,7 @@ private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navigationBottom = WindowInsets.navigationBars.getBottom(density)
-    SideEffect { onChanged(max(imeBottom - navigationBottom, 0)) }
+    SideEffect {
+        onChanged(max(imeBottom - navigationBottom, 0))
+    }
 }
