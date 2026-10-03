@@ -723,11 +723,15 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
 /// 的字符能到达 shell（命令得以执行）却完全无回显——readline 继承的 termios 中 ECHO
 /// 已被清除时不会重新开启，且 ISIG 关闭时它会跳过信号设置。
 ///
-/// 异步信号安全：不分配、不调用 `log::warn!`。错误静默忽略（不致命）。
+/// 异步信号安全：不分配、不调用 `log::warn!`。失败时写 fd 2（此时 fd 2 仍是应用
+/// 的 stderr，送进 logcat），与 fork 子进程的 `child_exit_with_reason` 一致——错误
+/// 自述自理会静默吞掉 termios 配置失败，让"子进程拿到的不是预期模式"变成不可定位的
+/// 罕见会话问题。配置失败不致命，仅告知后继续。
 fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     // SAFETY: `tcgetattr` 是系统调用包装，在 fork 后的单线程子进程中安全。
     if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+        child_note_fd2(b"pty: child tcgetattr failed\n");
         return; // 不致命
     }
     // SAFETY: `tcgetattr` 成功后 `assume_init()` 安全。
@@ -737,7 +741,18 @@ fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
     termios.c_iflag |= libc::IUTF8;
     termios.c_iflag &= !(libc::IXON | libc::IXOFF);
     // SAFETY: `tcsetattr` 是系统调用包装，在子进程中安全。
-    let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) } != 0 {
+        child_note_fd2(b"pty: child tcsetattr failed\n");
+    }
+}
+
+/// 子进程内非致命诊断：写 fd 2 而不终止，调用点负责决定是否继续。
+fn child_note_fd2(message: &'static [u8]) {
+    // SAFETY: `write(2)` 在 POSIX 异步信号安全列表内；调用方传 `&'static` 文本，fork
+    // 后不触碰堆。
+    unsafe {
+        libc::write(2, message.as_ptr() as *const libc::c_void, message.len());
+    }
 }
 
 /// fork 后、exec 前的子进程失败诊断：把固定文本写到 fd 2 后按给定码退出。
