@@ -13,6 +13,7 @@ package terminal.emulator
 import android.provider.DocumentsContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -284,8 +285,10 @@ class DocumentsProviderTest {
         provider.createDocument("terminal_home", "text/plain", "cancelled.txt")
         val cancelled = android.os.CancellationSignal().apply { cancel() }
         for (label in listOf("openDocument", "openDocumentThumbnail")) {
+            // 不用 runCatching：它连 CancellationException 一并吞掉，而这里的被测
+            // 对象正是取消语义本身，任何其它异常必须原样冒泡而不是被改写成 null。
             val thrown =
-                runCatching {
+                assertThrows(android.os.OperationCanceledException::class.java) {
                     when (label) {
                         "openDocument" -> provider.openDocument("cancelled.txt", "r", cancelled)
 
@@ -296,11 +299,8 @@ class DocumentsProviderTest {
                                 cancelled,
                             )
                     }
-                }.exceptionOrNull()
-            assertTrue(
-                "$label must report cancellation, got $thrown",
-                thrown is android.os.OperationCanceledException,
-            )
+                }
+            assertTrue("$label must report cancellation", thrown != null)
         }
     }
 
