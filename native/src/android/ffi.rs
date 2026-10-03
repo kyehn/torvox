@@ -532,6 +532,19 @@ fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> j
         removed
     };
     let removed = removed_entry.is_some();
+    // 立即向子进程投递结束信号：注册表移除后，剪贴板应答等异步克隆仍可能短期持
+    // 有 Arc<Mutex<Session>>，延迟到 Drop 才杀子进程会让 shell 在 destroySession
+    // 返回后仍存活（生命周期契约被破坏）。request_exit 幂等，Drop 重复调用无害。
+    if let Some(entry) = &removed_entry {
+        match entry.session.try_lock() {
+            Some(mut session) => session.request_exit(),
+            None => {
+                log::warn!(
+                    "FFI: destroySession id={id}: session lock contended, exit signal deferred to Drop"
+                );
+            }
+        }
+    }
     // `removed_entry` 在**此处**、写锁之外丢弃（`Session::drop` 会杀死并 join 子进程线程）。
 
     if removed {

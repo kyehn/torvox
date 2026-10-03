@@ -753,19 +753,17 @@ fn join_finished(handle: std::thread::JoinHandle<()>) {
     }
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
+impl Session {
+    /// 立即让子进程所在进程组终止：置 exited、解除读线程的输出通道阻塞、
+    /// 投递 SIGHUP/SIGCONT/SIGKILL（带宽限）。幂等 —— `Drop` 会重复调用本体，
+    /// 信号重复与通道重换均无害。不 join 线程：join 由 `Drop` 统一负责，
+    /// 使「立即杀掉 shell」可从任何上下文（含 `destroySession` 与已 detach 的
+    /// Arc 克隆）幂等发起。
+    pub fn request_exit(&mut self) {
         self.exited.store(true, Ordering::Release);
-        // 先断开输出通道再 join。
-        //
-        // `Drop` 体运行时字段尚未析构，`output_rx` 仍存活；读取线程若正阻塞在
-        // `output_tx.send`（通道满 = 128 块未消费），它既看不到 `exited` 也等不到
-        // 接收方释放——于是下方四个 `wait_finished` 窗口全部超时：每次关闭会话都要
-        // 付满 ~350ms + 50ms 的等待，且线程句柄被分离（fd 与内存泄漏）。
-        //
-        // 换掉接收端即可立刻解除阻塞：flume 的旧接收端一析构，`send` 即返回
-        // Err（无接收方），读取线程随即走到 `output channel closed` 分支退出。
-        // 换入的是一个空的新通道，故本字段此后仍可用（`poll_pty_output` 不会 panic）。
+        // 先断开输出通道：flume 旧接收端一析构，阻塞的 `output_tx.send` 即返回
+        // Err 走到「output channel closed」退出分支，等待线程也随 exited 标志退出。
+        // 换入的是空通道，故 `poll_pty_output` 等后续调用仍安全。
         self.output_rx = flume::bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND).1;
         let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
@@ -784,7 +782,6 @@ impl Drop for Session {
                 if pgid_raw > 0 && pgid_raw != own_pgid {
                     let group = nix::unistd::Pid::from_raw(-pgid_raw);
                     if !deliver_signal(group, nix::sys::signal::Signal::SIGHUP, "SIGHUP to pgid") {
-                        // 组杀失败，退化为直杀子进程。
                         deliver_signal(pid, nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
                     }
                     deliver_signal(group, nix::sys::signal::Signal::SIGCONT, "SIGCONT to pgid");
@@ -793,9 +790,6 @@ impl Drop for Session {
                     {
                         deliver_signal(pid, nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
                     }
-                    // 等待组内进程退出。
-                    join_with_timeout(&mut self.reader_handle, TRAILING_EXIT_GRACE);
-                    join_with_timeout(&mut self.wait_handle, TRAILING_EXIT_GRACE);
                     return;
                 }
             }
@@ -805,6 +799,12 @@ impl Drop for Session {
             std::thread::sleep(TRAILING_EXIT_GRACE);
             deliver_signal(pid, nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
         }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.request_exit();
         join_with_timeout(&mut self.reader_handle, TRAILING_EXIT_GRACE);
         join_with_timeout(&mut self.wait_handle, TRAILING_EXIT_GRACE);
     }
