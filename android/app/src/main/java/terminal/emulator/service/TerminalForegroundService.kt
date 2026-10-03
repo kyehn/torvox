@@ -9,7 +9,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import terminal.emulator.MainActivity
 import terminal.emulator.R
@@ -20,6 +22,9 @@ class TerminalForegroundService : Service() {
         private const val CHANNEL_ID = "terminal"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
+
+        // 唤醒锁单次持有的上限：安全网，由 [scheduleWakeLockRenewal] 在半程续期。
+        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
 
         fun start(context: Context) {
             val intent = Intent(context, TerminalForegroundService::class.java)
@@ -53,6 +58,10 @@ class TerminalForegroundService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // 续期走主线程 Handler：唤醒锁的释放/重取必须在有 Looper 的线程上完成。
+    private val wakeLockRenewal = Handler(Looper.getMainLooper())
+
     private var sessionCount: Int = 0
 
     override fun onCreate() {
@@ -132,24 +141,52 @@ class TerminalForegroundService : Service() {
         }
     }
 
+    /**
+     * 获取唤醒锁并排定续期。
+     *
+     * 超时是安全网（进程崩溃或漏释放时不至于永久耗电），续期保证空闲会话不会
+     * 因超时而过早失锁：只带超时的旧实现在 30 分钟后锁自动失效，而服务仍在
+     * 运行、`onStartCommand` 不会再被触发取回锁，灭屏期间的会话被系统冻结。
+     * 续期间隔取超时的一半，主线程被长时间占用时仍留有一次完整补救窗口。
+     */
     private fun acquireWakeLockIfNeeded() {
-        if (wakeLock?.isHeld == true) return
+        if (wakeLock?.isHeld == true) {
+            scheduleWakeLockRenewal()
+            return
+        }
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock =
             powerManager
-                .newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK,
-                    WAKE_LOCK_TAG,
-                // 无超时：持有期 == 服务存活期（onDestroy/releaseWakeLock 释放）。
-                // 若带超时，空闲 30 分钟后锁自动失效而服务仍运行，onStartCommand
-                // 不会被再次触发取回锁，灭屏期间的会话即被系统冻结。
-                ).apply {
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
+                .apply {
                     setReferenceCounted(false)
-                    acquire()
+                    acquire(WAKE_LOCK_TIMEOUT_MS)
                 }
+        scheduleWakeLockRenewal()
+    }
+
+    private fun scheduleWakeLockRenewal() {
+        wakeLockRenewal.removeCallbacksAndMessages(null)
+        wakeLockRenewal.postDelayed(
+            { renewWakeLock() },
+            WAKE_LOCK_TIMEOUT_MS / 2,
+        )
+    }
+
+    private fun renewWakeLock() {
+        val lock = wakeLock
+        if (lock == null) return
+        if (!lock.isHeld) {
+            acquireWakeLockIfNeeded()
+            return
+        }
+        lock.release()
+        lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+        scheduleWakeLockRenewal()
     }
 
     private fun releaseWakeLock() {
+        wakeLockRenewal.removeCallbacksAndMessages(null)
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
     }
