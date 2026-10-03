@@ -543,31 +543,20 @@ constructor(
 
         // 锁内决定关闭资格，实际的 bridge.close() 放到锁外：Session::drop 会 kill 子进程
         // 并 join reader/wait 线程（可达 ~100ms+），持锁会阻塞所有会话操作（切换/创建/关闭）。
-        val skipClose =
-            synchronized(sessionLock) {
-                if (!sessions.containsKey(entry.id)) return
-                // 看门狗线程是每会话一个；在此停止（正常退出路径），
-                // 否则每个退出会话都会泄漏一个轮询线程。
-                entry.renderWatchDog?.stop()
-                entry.renderWatchDog = null
-                // 仅当已 join 的线程仍是记录的挂起线程时才清标志（期间无其他路径替换它）。
-                if (hungExited && entry.hungRenderThread === hungThreadToJoin) {
-                    entry.renderThreadPossiblyAlive = false
-                    entry.hungRenderThread = null
-                }
-                entry.renderThreadPossiblyAlive
+        synchronized(sessionLock) {
+            if (!sessions.containsKey(entry.id)) return
+            // 看门狗线程是每会话一个；在此停止（正常退出路径），
+            // 否则每个退出会话都会泄漏一个轮询线程。
+            entry.renderWatchDog?.stop()
+            entry.renderWatchDog = null
+            // 仅当已 join 的线程仍是记录的挂起线程时才清标志（期间无其他路径替换它）。
+            if (hungExited && entry.hungRenderThread === hungThreadToJoin) {
+                entry.renderThreadPossiblyAlive = false
+                entry.hungRenderThread = null
             }
-        if (skipClose) {
-            // 渲染线程可能仍卡在原生渲染代码中（GPU 挂起、join 超时）。
-            // 在其下 destroySession 即 use-after-free；按与 closeSession 相同的规则，
-            // 泄漏的原生会话待进程消亡时回收。
-            LogUtil.e(
-                "Runtime",
-                "session ${entry.id} render thread possibly alive — skipping bridge close on exit",
-            )
-        } else {
-            entry.closeBridgeUnlessRenderThreadAlive("shell exit")
         }
+        // 渲染线程仍卡在原生代码里时由同一条守卫跳过关闭（在其下销毁即 UAF）。
+        entry.closeBridgeUnlessRenderThreadAlive("shell exit")
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
             sessions.remove(entry.id)
