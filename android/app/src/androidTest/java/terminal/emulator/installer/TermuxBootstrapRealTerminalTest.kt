@@ -131,7 +131,9 @@ class TermuxBootstrapRealTerminalTest {
         assertNotNull("installed shell never echoed marker $marker", markerSeen)
 
         // Environment: SHELL under the prefix, PREFIX pointing at usr.
-        val envText = ptyLines("echo SHELL=\$SHELL PREFIX=\$PREFIX")
+        // PTY 文本按列宽换行：长路径会被切断（如 `.../com.termux/f` + `iles/usr`），
+        // 故断言前先去掉全部空白再包含匹配。
+        val envText = ptyLines("echo SHELL=\$SHELL PREFIX=\$PREFIX").filterNot { it.isWhitespace() }
         assertTrue(
             "SHELL must be the prefix shell, got: ${envText.takeLast(400)}",
             envText.contains("/files/usr/bin/"),
@@ -142,20 +144,21 @@ class TermuxBootstrapRealTerminalTest {
                 envText.contains("PREFIX=/data/user/0/$packageName/files/usr"),
         )
 
-        // Prefix binaries list and run.
-        val lsText = ptyLines("ls \$PREFIX/bin | head -8; echo LS_RC=\$?")
+        // Prefix binaries list and run (`head -8` 按字母截断会漏掉 bash，用 `command -v`)。
+        // 空白已在外层去不掉（`command -v` 输出短），此处不断言前不需再过滤。
+        val lsText = ptyLines("command -v bash; echo LS_RC=$?").filterNot { it.isWhitespace() }
         assertTrue(
             "bin listing must succeed, got: ${lsText.takeLast(400)}",
             lsText.contains("LS_RC=0"),
         )
         assertTrue(
             "bin listing must include bash, got: ${lsText.takeLast(400)}",
-            lsText.contains("bash"),
+            lsText.contains("/bin/bash"),
         )
-        val bashVersion = ptyLines("bash --version | head -1")
+        val bashVersion = ptyLines("bash --version | head -1").filterNot { it.isWhitespace() }
         assertTrue(
             "bash must report GNU version, got: ${bashVersion.takeLast(200)}",
-            bashVersion.contains("GNU bash"),
+            bashVersion.contains("GNUbash"),
         )
         Log.i(TAG, "termux bootstrap real-terminal verified: ${bashVersion.lines().lastOrNull()}")
     }
