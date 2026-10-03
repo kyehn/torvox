@@ -276,9 +276,15 @@ fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<String>) -> String {
     loop {
         match rx.try_recv() {
             Ok(text) => return text,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => return String::new(),
+            // 空串既可能是「用户剪贴板本为空」，也可能是宿主未作答——后者必须记日志，
+            // 否则超时与空剪贴板在终端侧不可区分（Kotlin 侧异常分支已有 LogUtil.e）。
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                log::warn!("osc52: clipboard answer channel disconnected, replying empty");
+                return String::new();
+            }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 if std::time::Instant::now() >= deadline {
+                    log::warn!("osc52: clipboard answer timed out, replying empty");
                     return String::new();
                 }
                 std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
