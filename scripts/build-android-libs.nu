@@ -10,18 +10,7 @@ def abi-to-target-triple [abi: string] {
     }
 }
 
-def profile-to-out-dir [name: string] {
-    match $name {
-        "release" => "release"
-        _ => "debug"
-    }
-}
-
-def main [--profile: string = "", ...abis: string] {
-    mut profiles = ["dev", "release"]
-    if $profile != "" {
-        $profiles = [$profile]
-    }
+def main [...abis: string] {
     mut abis = $abis
     if ($abis | is-empty) {
         $abis = ["arm64-v8a", "x86_64"]
@@ -34,21 +23,16 @@ def main [--profile: string = "", ...abis: string] {
         }
     }
 
-    cargo build --package native
     cargo build --package native --profile release
 
-    for profile in $profiles {
-        let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
-        cargo ndk ...$ndk_args --platform 33 build --package native --profile $profile
-    }
+    let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
+    cargo ndk ...$ndk_args --platform 33 build --package native --profile release
 
-    let deploy_profile = if "release" in $profiles { "release" } else { $profiles | first }
-    let deploy_outdir = profile-to-out-dir $deploy_profile
     for abi in $abis {
         let triple = abi-to-target-triple $abi
         let lib_dir = $env.PWD | path join $JNILIBS $abi
         mkdir $lib_dir
-        let so_path = $env.PWD | path join "target" $triple $deploy_outdir "libnative.so"
+        let so_path = $env.PWD | path join "target" $triple "release" "libnative.so"
         if not ($so_path | path exists) {
             print $"ERROR: libnative.so not found at ($so_path)"
             exit 1

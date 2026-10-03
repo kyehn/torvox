@@ -38,7 +38,10 @@ debug = "line-tables-only"
 strip = "debuginfo"
 lto = "thin"
 codegen-units = 16
-panic = "abort"
+# 刻意不设 panic="abort"：集成测试目标（tests/bdd.rs）由 cargo 以 unwind 编译，
+# 依赖却是本 profile 的 abort，链接时报 113 个「requires panic strategy abort which
+# is incompatible with this crate's strategy of unwind」，`cargo build --all-targets`
+# 直接不可用。发布件走 release（下面仍是 abort），宿主 dev 的展开语义无代价。
 [profile.release]
 opt-level = "z"
 lto = true
