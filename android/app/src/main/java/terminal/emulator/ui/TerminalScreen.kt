@@ -466,14 +466,18 @@ fun TerminalScreen(
             //
             // 值变化时按动画帧率轮询，稳定后退到空闲间隔，避免常驻高频唤醒。
             val imeViewPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            val windowRoot = LocalView.current.rootView
-            LaunchedEffect(Unit) {
+            // 只捕获 View（恒非空），rootView 每轮重新解析：首次组合时视图可能尚未
+            // attach，此刻 `rootView` 为 null，而组合体又只有在读到状态变化时才重算
+            // 这一行——值恒 0 恰好不触发重组，于是整条通道永久为 0、位移从未发生
+            // （实测键盘顶边 1517 而键栏底边仍停在 2337）。
+            val windowView = LocalView.current
+            LaunchedEffect(windowView) {
                 var lastSeen = -1
                 while (true) {
                     // 取窗口根视图而非 surfaceRef：AndroidView 可能重建视图，
                     // surfaceRef 里那一份会脱离窗口、rootWindowInsets 恒为 0
                     // （实测仪器化环境下轮询只读到一次 0，位移因此从未发生）。
-                    val insets = windowRoot?.rootWindowInsets
+                    val insets = windowView.rootView?.rootWindowInsets
                     val imeBottom = insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
                     val navigationBottom =
                         insets?.getInsets(android.view.WindowInsets.Type.navigationBars())?.bottom ?: 0
