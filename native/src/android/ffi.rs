@@ -477,7 +477,7 @@ fn init_session_inner(
             let _ = ACTIVE_SESSION_ID.compare_exchange(
                 0,
                 id,
-                std::sync::atomic::Ordering::Acquire,
+                std::sync::atomic::Ordering::Release,
                 std::sync::atomic::Ordering::Relaxed,
             );
 
@@ -524,7 +524,7 @@ fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> j
                 .compare_exchange(
                     id,
                     0,
-                    std::sync::atomic::Ordering::Acquire,
+                    std::sync::atomic::Ordering::Release,
                     std::sync::atomic::Ordering::Relaxed,
                 )
                 .ok();
