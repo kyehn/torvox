@@ -19,6 +19,7 @@ jobs:
           repository: ${{ github.actor }}/kudzu
           path: result-kudzu
       - uses: ./result-kudzu/.github/actions/install-nix
+      - run: rm -rf result-kudzu
       - uses: cachix/cachix-action@master
         continue-on-error: true
         with:
@@ -36,7 +37,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-
       - run: |
-          scripts/build-android-libs.nu
+          scripts/build-android-libs.nu arm64-v8a x86_64
           scripts/build-apk.nu --release
       - uses: actions/upload-artifact@main
         with:

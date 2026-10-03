@@ -18,6 +18,7 @@ jobs:
           repository: ${{ github.actor }}/kudzu
           path: result-kudzu
       - uses: ./result-kudzu/.github/actions/install-nix
+      - run: rm -rf result-kudzu
       - uses: cachix/cachix-action@master
         continue-on-error: true
         with:
