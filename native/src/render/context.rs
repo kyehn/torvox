@@ -10,6 +10,9 @@ pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
 }
 
+/// 连续跳帧达此数即把 worker 死亡从 warn 升级为 error（60fps 下约 5 秒）。
+const SKIP_FATAL_FRAME_LIMIT: u32 = 300;
+
 /// 连续多少次 surface 级取纹理失败即判死窗口（见 [`Renderer::note_surface_acquire`]）。
 ///
 /// 取 2 而非 1：单次 `Outdated` 可由 SurfaceFlinger 缩放竞态引起并在下一次
@@ -130,6 +133,9 @@ pub struct Renderer {
     pub(crate) surface_config: Option<wgpu::SurfaceConfiguration>,
     /// 连续 surface 级取纹理失败的计数（见 [Self::note_surface_acquire]）。
     surface_loss_streak: u8,
+    /// 连续「本帧跳过」计数：工作线程死亡或取纹理持续超时时，帧循环每帧
+    /// 只记 warn 不升级——累计到上限必须以 error 报出「屏幕冻结」这一事实。
+    consecutive_skip_frames: u32,
     /// surface 已判死：缓存的 `surface` 指向已废弃的 BufferQueue，reconfigure 永不
     /// 复活（实测 abandoned BufferQueue 下每帧 `Lost` + `ERROR_SURFACE_LOST_KHR`，
     /// 22 分钟零帧上屏）。置位后 `attach_surface` 改走重建慢路径，且由
@@ -171,6 +177,8 @@ pub struct Renderer {
     pub(crate) readback_buffer: Option<wgpu::Buffer>,
     pub(crate) background: wgpu::Color,
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
+    /// 创建 kgp_pipeline 时所用的表面格式；表面格式变更后必须重建管线。
+    pub(crate) kgp_pipeline_format: Option<wgpu::TextureFormat>,
     pub(crate) kgp_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
     pub(crate) kgp_uniform_buffer: Option<wgpu::Buffer>,
@@ -260,6 +268,21 @@ impl Renderer {
             outcome = AcquireOutcome::SurfaceLost;
         }
         self.note_surface_acquire(&outcome);
+        match &outcome {
+            AcquireOutcome::Skipped => {
+                self.consecutive_skip_frames = self.consecutive_skip_frames.saturating_add(1);
+                if self.consecutive_skip_frames == SKIP_FATAL_FRAME_LIMIT {
+                    log::error!(
+                        "begin_frame: {} consecutive frames skipped (acquire worker dead or repeatedly timing out); \
+                         screen frozen until the worker recovers",
+                        SKIP_FATAL_FRAME_LIMIT
+                    );
+                }
+            }
+            AcquireOutcome::Acquired(_) | AcquireOutcome::SurfaceLost => {
+                self.consecutive_skip_frames = 0;
+            }
+        }
         let output = outcome.into_texture()?;
 
         let tex_size = output.texture.size();
@@ -333,6 +356,7 @@ impl Drop for Renderer {
         self.kgp_uniform_buffer = None;
         self.kgp_bind_group_layout = None;
         self.kgp_pipeline = None;
+        self.kgp_pipeline_format = None;
         self.kgp_texture = None;
         self.surface = None;
     }
@@ -350,6 +374,7 @@ impl Renderer {
             surface: None,
             surface_config: None,
             surface_loss_streak: 0,
+            consecutive_skip_frames: 0,
             surface_invalidated: false,
             surface_loss_injected: false,
             cell_pipeline: None,
@@ -372,6 +397,7 @@ impl Renderer {
             readback_buffer: None,
             background: CATPPUCCIN_MOCHA_BACKGROUND,
             kgp_pipeline: None,
+            kgp_pipeline_format: None,
             kgp_bind_group_layout: None,
             kgp_bind_group: None,
             kgp_uniform_buffer: None,
@@ -548,6 +574,7 @@ impl Renderer {
             // Kitty 管线同样以 surface 格式为 color target：格式变化后若保留旧管线，
             // 绘制时附件格式与管线声明不符，每帧 wgpu 校验失败，Kitty 图像全部不可见。
             self.kgp_pipeline = None;
+            self.kgp_pipeline_format = None;
             self.kgp_bind_group = None;
             self.kgp_bind_group_layout = None;
             log::info!(
