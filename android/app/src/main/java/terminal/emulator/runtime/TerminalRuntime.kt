@@ -3050,7 +3050,11 @@ constructor(
 
     fun writeToPty(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId]
-        if (entry != null && entry.running) {
+        // 受理判据是「会话是否还活着」而不是 running（渲染意图标志）：Surface 销毁会经
+        // pauseRendering 把 running 置假，而 PTY 子进程此刻仍然活着。按 running 拒绝等于
+        // 在每次 surface 销毁→重建的空窗期静默吞掉击键，而恢复本身是异步的
+        // （surfaceTransitionExecutor）——切回前台立刻打字就会丢字。
+        if (entry != null && !entry.closing) {
             // shell 已退出且正在显示 [Process completed]
             // ——唯一被接受的输入是 Enter，它确认提示并让渲染循环执行关闭路径。
             if (entry.waitingForProcessCompleted) {
@@ -3072,7 +3076,7 @@ constructor(
             entry.notifyRender()
             return written
         }
-        LogUtil.w("Runtime", "writeToPty: no active running session to receive write")
+        LogUtil.w("Runtime", "writeToPty: no live session to receive write")
         return false
     }
 
