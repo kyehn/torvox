@@ -482,6 +482,8 @@ fun TerminalScreen(
                     if (changed) {
                         lastSeen = bottom
                         imeViewPx.intValue = bottom
+                        // TODO_DIAG_IME2:确诊后删除
+                        LogUtil.d("TerminalScreen", "DIAG_IME_VIEW bottom=$bottom")
                     }
                     kotlinx.coroutines.delay(
                         if (changed) IME_POLL_INTERVAL_MS else IME_IDLE_POLL_INTERVAL_MS,
@@ -789,7 +791,14 @@ fun TerminalScreen(
                     modifier =
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .offset { IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue)) }
+                        .offset {
+                            // TODO_DIAG_IME2:确诊后删除
+                            val barShift = max(imeLeafPx.intValue, imeViewPx.intValue)
+                            if (barShift > 0) {
+                                LogUtil.d("TerminalScreen", "DIAG_BAR shift=$barShift")
+                            }
+                            IntOffset(0, -barShift)
+                        }
                         .background(resolvedTerminalTheme.background)
                         .testTag("ModifierBarOverlay"),
                 ) {
@@ -908,5 +917,9 @@ private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navigationBottom = WindowInsets.navigationBars.getBottom(density)
-    SideEffect { onChanged(max(imeBottom - navigationBottom, 0)) }
+    // TODO_DIAG_IME2:确诊后删除
+    SideEffect {
+        LogUtil.d("TerminalScreen", "DIAG_IME_LEAF ime=$imeBottom nav=$navigationBottom")
+        onChanged(max(imeBottom - navigationBottom, 0))
+    }
 }
