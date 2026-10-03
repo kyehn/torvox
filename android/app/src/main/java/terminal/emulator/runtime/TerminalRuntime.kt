@@ -442,18 +442,20 @@ constructor(
     /**
      * 应答 OSC 52 剪贴板读取请求：读取系统剪贴板并经
      * [NativeBridge.clipboardResult] 回复。空文本是合法结果；
-     * 只有异常才会产生空的回退回复。
+     * 只有读取失败才回 null——回空串会被远端当成「用户清空了剪贴板」。
      */
     private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
         requests.forEach { request ->
-            try {
-                val text = clipboardAccess.clipboardText().orEmpty()
-                NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
-            } catch (exception: Exception) {
-                // 只记异常类名：异常消息可能嵌入剪贴板文本。
-                LogUtil.e("Runtime", "clipboard request dispatch failed: ${exception.javaClass.simpleName}")
-                NativeBridge.clipboardResult(request.sessionId, request.requestId, "")
-            }
+            clipboardAccess.clipboardText().fold(
+                onSuccess = { text ->
+                    NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
+                },
+                onFailure = {
+                    // 不作答（而非空串）：远端请求悬空好过粘出空白。
+                    // 失败详情已由 ClipboardAccess 记日志。
+                    NativeBridge.clipboardResult(request.sessionId, request.requestId, null)
+                },
+            )
         }
     }
 

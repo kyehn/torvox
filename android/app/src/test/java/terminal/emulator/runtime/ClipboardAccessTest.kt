@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,7 +14,8 @@ import org.robolectric.RobolectricTestRunner
 /**
  * ClipboardAccess write/read semantics: a plain-text write round-trips
  * through `clipboardText()`, the clip label survives, and an empty
- * clipboard reports null.
+ * clipboard reports `Ok(null)` — 空剪贴板是合法状态，必须与读取失败
+ * （`Result.failure`）可区分，否则 OSC 52 应答会把失败说成空剪贴板。
  */
 @RunWith(RobolectricTestRunner::class)
 class ClipboardAccessTest {
@@ -31,7 +33,7 @@ class ClipboardAccessTest {
         access.setClipboardText("osc-52-content")
         assertEquals(
             "osc-52-content",
-            access.clipboardText(),
+            access.clipboardText().getOrNull(),
         )
     }
 
@@ -46,8 +48,10 @@ class ClipboardAccessTest {
     }
 
     @Test
-    fun `empty clipboard reports null`() {
-        assertNull(access.clipboardText())
+    fun `empty clipboard reads as empty not failure`() {
+        val result = access.clipboardText()
+        assertTrue("空剪贴板不是读取失败", result.isSuccess)
+        assertNull(result.getOrNull())
     }
 
     @Test

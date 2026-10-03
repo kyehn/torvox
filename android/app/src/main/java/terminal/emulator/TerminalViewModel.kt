@@ -638,7 +638,11 @@ constructor(
         private fun extractSelectedText(selection: SelectionState): String {
             val start = selection.start ?: return ""
             val end = selection.end ?: return ""
-            val bridge = runtime.bridge() ?: return ""
+            val bridge = runtime.bridge()
+            if (bridge == null) {
+                LogUtil.e("TerminalViewModel", "extractSelectedText: 无活动会话，选区文本未提取")
+                return ""
+            }
             // 选区行以网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
             //
             // 换行感知的提取（termux TerminalBuffer.getSelectedText 语义）：
@@ -653,7 +657,14 @@ constructor(
                 } else {
                     end to start
                 }
-            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col) ?: ""
+            // 空选区返回 ""，查询失败返回 null——后者必须出声：合并成 "" 会让
+            // 复制按钮无声失败，用户只看到「选中了却看不出选中」（无高亮变化）。
+            val text = bridge.selectionText(lo.row, lo.col, hi.row, hi.col)
+            if (text == null) {
+                LogUtil.e("TerminalViewModel", "extractSelectedText: 原生选区查询失败，选区文本未提取")
+                return ""
+            }
+            return text
         }
 
         /** Paste clipboard content directly to the PTY (no confirmation dialog).
@@ -663,7 +674,7 @@ constructor(
          *（N1-26）。ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
          */
         fun pasteFromClipboard(): Int {
-            val text = clipboardAccess.clipboardText() ?: return 0
+            val text = clipboardAccess.clipboardText().getOrNull() ?: return 0
             return executePaste(text)
         }
 

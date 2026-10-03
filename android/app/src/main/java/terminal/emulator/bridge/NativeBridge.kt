@@ -109,8 +109,11 @@ object NativeBridge {
     /** 将窗口焦点变化转发给会话，使子进程收到 DECSET 1004 焦点上报（`\x1b[I` / `\x1b[O`）。 */
     @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
 
-    /** 回复 OSC 52 剪贴板读取请求。每个请求必须且只能回复一次，同一请求 ID 的重复回复是原生空操作。 */
-    @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
+    /**
+     * 回复 OSC 52 剪贴板读取请求。每个请求必须且只能回复一次，同一请求 ID 的重复回复是原生空操作。
+     * `text` 为 null 表示读取失败：原生据此不写回应答（空串会被远端当成用户清空了剪贴板）。
+     */
+    @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String?)
 
     // ── 事件 ──
 

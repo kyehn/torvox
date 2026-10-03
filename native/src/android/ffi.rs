@@ -269,33 +269,32 @@ static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// 待宿主应用作答的剪贴板应答通道发送端，按 (会话 id, 请求 id) 存入
 /// [`REQUEST_REGISTRY`]。
-type ClipboardAnswerTx = std::sync::mpsc::Sender<String>;
+type ClipboardAnswerTx = std::sync::mpsc::Sender<Option<String>>;
 
 static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), ClipboardAnswerTx>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// 有界超时地等待宿主应用作答剪贴板。Kotlin 总会应答 `clipboardResult`（失败时也回空串），
-/// 故只有进程死亡或客户端异常才会触及截止时间；空应答即兼容 xterm 的“空剪贴板”响应。
+/// 有界超时地等待宿主应用作答剪贴板。返回 `None` 表示读取失败或宿主未作答：
+/// 此时不写回 OSC 52 应答——空串等于告诉远端「用户剪贴板是空的」，
+/// tmux/ssh 会粘出空白且像是用户清空了剪贴板。
 const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// 剪贴板应答的轮询节奏：在上述 2s 应答截止时间内，应答方以此频率检查一次性槽位。
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 25;
 
-fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<String>) -> String {
+fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<Option<String>>) -> Option<String> {
     let deadline = std::time::Instant::now() + CLIPBOARD_ANSWER_TIMEOUT;
     loop {
         match rx.try_recv() {
-            Ok(text) => return text,
-            // 空串既可能是「用户剪贴板本为空」，也可能是宿主未作答——后者必须记日志，
-            // 否则超时与空剪贴板在终端侧不可区分（Kotlin 侧异常分支已有 LogUtil.e）。
+            Ok(answer) => return answer,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                log::warn!("osc52: clipboard answer channel disconnected, replying empty");
-                return String::new();
+                log::error!("osc52: clipboard answer channel disconnected");
+                return None;
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 if std::time::Instant::now() >= deadline {
-                    log::warn!("osc52: clipboard answer timed out, replying empty");
-                    return String::new();
+                    log::error!("osc52: clipboard answer timed out");
+                    return None;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
             }
@@ -303,7 +302,9 @@ fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<String>) -> String {
     }
 }
 
-pub(crate) fn register_request(session_id: u64) -> (u64, std::sync::mpsc::Receiver<String>) {
+pub(crate) fn register_request(
+    session_id: u64,
+) -> (u64, std::sync::mpsc::Receiver<Option<String>>) {
     let (tx, rx) = std::sync::mpsc::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     REQUEST_REGISTRY.lock().insert((session_id, request_id), tx);
@@ -1187,12 +1188,13 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         drop(registry);
         if let Some(session) = session {
             std::thread::spawn(move || {
-                let text = wait_for_clipboard_answer(rx);
+                let answer = wait_for_clipboard_answer(rx);
                 // 应答线程是槽位的唯一所有者：无论宿主是否作答（事件被队列淘汰、
                 // UI 未处理、答复晚于截止时间），槽位至多存活 CLIPBOARD_ANSWER_TIMEOUT。
                 // 否则远端反复 `\e]52;c;?` 会让本表无界增长。
                 // 迟到的 clipboardResult 在此之后到达即为无操作（见 clipboard_result_inner）。
                 cancel_request(session_id, request_id);
+                let Some(text) = answer else { return };
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, &text) {
                     log::warn!("osc52: clipboard read answer write-back failed: {error}");
@@ -2016,8 +2018,20 @@ fn clipboard_result_inner<'local>(
     // guard 若跨过 JNI 调用会把锁持有时间拉长。
     let tx = REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
     if let Some(tx) = tx {
-        let text_str: String = text.try_to_string(env).unwrap_or_default();
-        let _ = tx.send(text_str);
+        // null 是宿主读取失败，解码失败同理：都不能退化成空串，
+        // 否则远端把「读不到剪贴板」当成「用户清空了剪贴板」（见 wait_for_clipboard_answer）。
+        let answer = if text.is_null() {
+            None
+        } else {
+            match text.try_to_string(env) {
+                Ok(decoded) => Some(decoded),
+                Err(error) => {
+                    log::error!("osc52: clipboard answer decode failed: {error}");
+                    None
+                }
+            }
+        };
+        let _ = tx.send(answer);
     }
 }
 
