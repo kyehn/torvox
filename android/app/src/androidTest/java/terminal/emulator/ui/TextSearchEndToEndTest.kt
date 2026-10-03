@@ -79,7 +79,10 @@ class TextSearchEndToEndTest {
                 runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
                 runCatchingCancellable { bridge.getTerminalText() }.getOrNull().orEmpty().contains("$")
             }
-        assertNotNull("shell prompt 未就绪", promptReady)
+        assertNotNull(
+            "shell prompt 未就绪, 实际尾部: ${runCatchingCancellable { bridge.getTerminalText() }.getOrNull()?.takeLast(300)}",
+            promptReady,
+        )
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
         for (i in 1..linesToFill) {
