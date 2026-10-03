@@ -27,31 +27,9 @@
 
 ## 二、高危缺陷（P1）
 
-### 7. `resize` 不跳过空操作，且会话创建时立即 resize → 直接违反 DESIGN:242
-
-`runtime/TerminalRuntime.kt:3029-3048`：`resize` 无 `(rows,cols)` 与当前网格比对；`switchSessionInternal`（`:2672-2675`）对刚 `spawnTerminal` 的新会话无条件 resize。
-
-**违反** DESIGN:242 逐字要求：「`resize` 跳过空操作的调整大小。**不要在会话生成时重新执行调整大小的操作。**」且该条同时指出「mksh 会在收到 SIGWINCH 信号时清除提示符」——每次切换/退出回收都发一次可能同尺寸的 SIGWINCH。
-
-**已修**：切会话路径经顶层 `alignGridOnSwitch` 先读目标会话原生网格，一致则跳过 `resize`（无冗余 SIGWINCH）；查不到（0/异常）则沿旧路无条件对齐（fail-open）。判定谓词 `shouldAlignGridOnSwitch` 纯函数单测锁定。`resize()` 本体不加守卫——`_state` 是多会话共享的 UI 网格，后台会话各有尺寸，在本体比对会误杀合法对齐。另注：`TerminalRuntime` 类已顶满 `LargeClass`（基线恰 1600 token 行），类内多 1 行即挂，故对齐执行收为顶层一行调用——后续任何类内增量都须先抽顶层函数（本次已用对照实验验证：基线过、基线+调用点挂、基线+顶层函数过）。
-
 ### 11. `pty_write` 的 LF→CRLF 与 `>0xF7`→空格改写破坏二进制 VT 载荷
 
 `vt_write` 半已修（`sanitize_vt_input` 只剔 NUL，高位字节直透并有单测锁定）：文档承诺的二进制安全路径现已兑现。剩余 `pty_write` 的 LF→CRLF 是 Ghostty 行推进的承载逻辑（其 VT 引擎把 LF 当无回车换行），`>0xF7` 映射保留在子进程输出路径——合法 UTF-8/DCS-base64 里本就不会出现该字节，去除的收益是臆测而风险是解析器崩溃，故保留。
-
-### 15. `Bridge.onSession` 把所有 native 异常转成缺省值
-
-`bridge/Bridge.kt:98-107` catch `RuntimeException` → `onUnavailable`，覆盖 `writeToPty`→false（IME 提交静默丢弃）、`renderWithNewOutput`→`RenderResult(0,false,-1)`（会话丢失被当 idle）。
-
-只有「id==0 / 会话刚销毁」这一种竞态可辩护（DESIGN:64-66），应与真实异常分开。
-
-**已修**：`onSession` 原本已记警告；7 个查询委托（`getTitle`/`scrollbackLine`/`scrollbackLength`/`cursorViewportPacked`/`isCellEmpty`/`searchAllInScrollback`/`getActiveSessionTitle`）改走新增 `onQuery`——失败记警告（含异常类名）后回缺省，取消信号仍重抛。缺省值语义不变，UI 降级路径不受影响。
-
-### 16. `detectArchFromAbi` 把任何非 x86_64 静默当 aarch64
-
-`FontUtils.kt:42-46`，被 `BootstrapOrchestrator.kt:119` 与 `SecondStageRunner.kt:210` 使用：32 位/riscv64 设备会下载 aarch64 引导 zip 并执行其 postinst，再被 P0-4 的 `success=true` 掩盖。BUILD.md 只列 arm64-v8a/x86_64。
-
-**已修**：`else -> error(...)`（异常含实际 ABI 名）；`BootstrapOrchestrator.ensureBootstrap` 全程 try/catch 转 `Result.failure`，失败返回不断言成功。单测改断言抛错而非回退值。
 
 ---
 
@@ -72,16 +50,6 @@
 审计过期（有调用方/在用，条目撤销）：`runAfterRenderThreadsStopped()`（`TerminalSurface:2688` 在用）、`currentRows/currentCols`（`:3028` 比对在用）、`onCopyRequested`（全仓零命中，早已删除）、`InputBatchBuffer.reset()`/`SearchDebouncer.flush()`/`AnrWatchDog.stop()`（单测锁定 API，非生产死代码）。
 
 保留（注明理由）：`else -> {}`（`Status` when 的未来状态兜底）；BEL 解析链（无规范消费要求，删解析器与单测无用户收益）；`TestUtils` 的 `TextureView` 回退（测试代码容错，`?: content` 恒有返回值）。
-
-### 20. 测试后门常驻 release 包（经核实撤回）
-
-逐项核实后均不构成 release 暴露：`TestBackdoorReceivers.register/unregister` 由 `BuildConfig.DEBUG` 门控（`MainActivity:183-187/273`），release 只实例化一个空壳对象、零接收器注册；`test.minSurface`/`test.bootstrapUrl` 走 `System.getProperty`（跨进程不可设置，只有本进程 instrumentation 可控）；`:install` 服务 `exported=false`，外部不可达。移入 `src/debug` 需动 manifest 合并与构建类型，得零用户收益，不做。
-
-### 21. 设置数据错误处理不符 DESIGN（已核实解决）
-
-- 未知主题名：已改为清除设置（`clearUnknownThemeNames`），不再静默替换。
-- `fontSize` 虚假默认值：`SettingsState.fontSize` 已改为无默认值必填字段，窄屏谎报字号消除。
-- `clearUnknownFontFamily` 只清 `font_family` 单键：DESIGN:95 原文是「重置设置数据」（非审计转述的「重置应用数据」），且针对「默认字体设置错误」这一单项；因单个陈旧字体名清空用户全部设置是用户敌对行为，按项清除即合规。保留。
 
 ### aislop scan（0.16.1，rust，40 文件）
 
