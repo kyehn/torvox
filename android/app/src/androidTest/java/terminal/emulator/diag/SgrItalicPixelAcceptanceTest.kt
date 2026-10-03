@@ -13,6 +13,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.grantNotificationPermission
@@ -28,6 +29,8 @@ import terminal.emulator.util.runCatchingCancellable
  * 字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑器）。
  */
 class SgrItalicPixelAcceptanceTest {
+    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
+
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
