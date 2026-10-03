@@ -372,7 +372,7 @@ impl PtyPair {
                 let is_session_leader =
                     unsafe { libc::getsid(0) } == nix::unistd::getpid().as_raw();
                 if !is_session_leader && nix::unistd::setsid().is_err() {
-                    child_exit_with_reason("torvox: setsid() failed\n", 2);
+                    child_exit_with_reason("terminal: setsid() failed\n", 2);
                 }
                 // 检测 fork 时的孤儿：若应用进程在 fork() 与本检查之间死亡，
                 // 子进程已被重新托管给 init（PPid == 1），此时退出而非泄漏永久孤儿。
@@ -386,7 +386,7 @@ impl PtyPair {
                 // SAFETY: `getppid` 是普通系统调用，fork 后安全。
                 let orphaned = unsafe { libc::getppid() } == 1;
                 if orphaned {
-                    child_exit_with_reason("torvox: app died during fork; child is orphaned\n", 1);
+                    child_exit_with_reason("terminal: app died during fork; child is orphaned\n", 1);
                 }
                 let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: 这些 libc 调用都是不分配的轻量系统调用包装。子进程是单线程的；
@@ -394,7 +394,7 @@ impl PtyPair {
                 let result = unsafe { libc::ioctl(slave_raw, libc::TIOCSCTTY, 0) };
                 if result < 0 {
                     child_exit_with_reason(
-                        "torvox: TIOCSCTTY failed; no controlling terminal\n",
+                        "terminal: TIOCSCTTY failed; no controlling terminal\n",
                         3,
                     );
                 }
