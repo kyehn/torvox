@@ -133,6 +133,9 @@ pub enum Query {
         position: (f32, f32),
         action: u8,
         button: u8,
+        /// 上游 `key.Mods` 原始位（`Mods::from_bits_retain` 直接消费）：
+        /// Shift/Ctrl 点击到达 vim/tmux 时必须与普通左键可区分。
+        modifiers: u16,
         cell_width: f32,
         cell_height: f32,
         tx: Sender<Vec<u8>>,

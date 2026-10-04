@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 全应用唯一的剪贴板访问点，封装 ClipboardManager 查找、可空处理
@@ -19,16 +20,24 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
         return manager
     }
 
-    /** 当前主剪贴板文本，不可用或为空时为 null。 */
+    /**
+     * 当前主剪贴板文本：无文本内容为 `Ok(null)`（空剪贴板是合法状态）。
+     *
+     * 剪贴板服务不可用或读取抛异常为失败——必须与空剪贴板可区分：
+     * OSC 52 读取应答把两者都写成空串会让远端 tmux/ssh 粘出空白，
+     * 且看上去像是用户清空了剪贴板。
+     */
     @SuppressLint("DeprecatedCall")
-    fun clipboardText(): String? {
-        val clipboard = manager() ?: return null
+    fun clipboardText(): Result<String?> = runCatchingCancellable {
+        val clipboard = manager() ?: error("clipboard service unavailable")
         // hasPrimaryClip()/primaryClip：无替代方案的弃用 API（API 36），
         // 平台未提供其他同步存在性查询。slack-lint 在此也标记 getPrimaryClip，
         // 尽管它在 API 37 中没有 @Deprecated 注解（规则数据滞后）——保留同样的调用，
         // 以注释说明意图。
-        if (!clipboard.hasPrimaryClip()) return null
-        return clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        if (!clipboard.hasPrimaryClip()) null else clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+    }.onFailure { failure ->
+        // 只记异常类名：异常消息可能嵌入剪贴板文本。
+        LogUtil.e(tag, "剪贴板读取失败: ${failure.javaClass.simpleName}")
     }
 
     @SuppressLint("DeprecatedCall")

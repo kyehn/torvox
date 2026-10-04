@@ -34,4 +34,28 @@ object KeyModifiers {
         if (event.isMetaPressed) mask = mask or META
         return mask.toByte()
     }
+
+    /**
+     * 上游 `key.Mods` 原始位（`libghostty-vt` 的 `MODS_*`），供鼠标编码路径使用。
+     *
+     * 与本对象的 `SHIFT/ALT/CTRL/META` **位值不同**：后者是应用内部约定
+     * （Rust `encode_modifiers` 按此解读），此处是上游协议位，Rust 侧
+     * `Mods::from_bits_retain` 直接消费，两套不得混用。
+     */
+    object GhosttyMods {
+        const val SHIFT = 1
+        const val CTRL = 2
+        const val ALT = 4
+        const val SUPER = 8
+    }
+
+    /** Android [KeyEvent.metaState] → [GhosttyMods] 位值。 */
+    fun ghosttyMods(metaState: Int): Int {
+        var mods = 0
+        if (metaState and KeyEvent.META_SHIFT_ON != 0) mods = mods or GhosttyMods.SHIFT
+        if (metaState and KeyEvent.META_CTRL_ON != 0) mods = mods or GhosttyMods.CTRL
+        if (metaState and KeyEvent.META_ALT_ON != 0) mods = mods or GhosttyMods.ALT
+        if (metaState and KeyEvent.META_META_ON != 0) mods = mods or GhosttyMods.SUPER
+        return mods
+    }
 }

@@ -297,13 +297,13 @@ constructor(
         _state.update { it.copy(scrollEpoch = it.scrollEpoch + 1) }
     }
 
-    fun writeToPty(data: ByteArray) {
+    fun writeToPty(sessionId: Long, data: ByteArray) {
         val isCommit =
             shouldResetScrollOnInput(data, _state.value.selection.let { it.active || it.dragging })
         // hasSelectionOrDrag 在 onUserInputForScrollSnap 内部也会检查；
         // 此处透传，使共用的辅助函数拥有最终守卫权。
         onUserInputForScrollSnap(isCommit)
-        val written = runtime.writeToPty(data)
+        val written = runtime.writeToPty(sessionId, data)
         if (!written) {
             LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
         }
@@ -638,7 +638,11 @@ constructor(
         private fun extractSelectedText(selection: SelectionState): String {
             val start = selection.start ?: return ""
             val end = selection.end ?: return ""
-            val bridge = runtime.bridge() ?: return ""
+            val bridge = runtime.bridge()
+            if (bridge == null) {
+                LogUtil.e("TerminalViewModel", "extractSelectedText: 无活动会话，选区文本未提取")
+                return ""
+            }
             // 选区行以网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
             //
             // 换行感知的提取（termux TerminalBuffer.getSelectedText 语义）：
@@ -653,7 +657,14 @@ constructor(
                 } else {
                     end to start
                 }
-            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col) ?: ""
+            // 空选区返回 ""，查询失败返回 null——后者必须出声：合并成 "" 会让
+            // 复制按钮无声失败，用户只看到「选中了却看不出选中」（无高亮变化）。
+            val text = bridge.selectionText(lo.row, lo.col, hi.row, hi.col)
+            if (text == null) {
+                LogUtil.e("TerminalViewModel", "extractSelectedText: 原生选区查询失败，选区文本未提取")
+                return ""
+            }
+            return text
         }
 
         /** Paste clipboard content directly to the PTY (no confirmation dialog).
@@ -663,7 +674,7 @@ constructor(
          *（N1-26）。ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
          */
         fun pasteFromClipboard(): Int {
-            val text = clipboardAccess.clipboardText() ?: return 0
+            val text = clipboardAccess.clipboardText().getOrNull() ?: return 0
             return executePaste(text)
         }
 
@@ -675,8 +686,11 @@ constructor(
          */
         fun executePaste(text: String): Int {
             var offset = 0
+            // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
+            // 会让粘贴尾部写进新会话。
+            val sessionId = runtime.inputTargetSessionId
             for (chunk in PasteChunker().chunks(text)) {
-                pasteSink(chunk.toByteArray())
+                pasteSink(sessionId, chunk.toByteArray())
                 offset += chunk.length
             }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
@@ -684,8 +698,8 @@ constructor(
         }
     }
 
-    /** 粘贴字节出口：默认同步写，Surface 侧注入批缓冲后走异步合并写。 */
-    var pasteSink: (ByteArray) -> Unit = { data -> runtime.writeToPty(data) }
+    /** 粘贴字节出口：默认同步写，Surface 侧注入批缓冲后走异步合并写。会话 id 随块传入，不在刷写时解析。 */
+    var pasteSink: (Long, ByteArray) -> Unit = { sessionId, data -> runtime.writeToPty(sessionId, data) }
 
     // ══════════════════════════════════════════════════════════════════════
     // 二之二、字体管理

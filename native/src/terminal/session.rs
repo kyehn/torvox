@@ -1,5 +1,6 @@
 //! 会话编排器：串接 PTY 读取、VT 解析与进程等待。
 use parking_lot::Mutex;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
@@ -122,7 +123,12 @@ pub struct Session {
     /// 后台（非活跃）会话的 Exit 事件推入事件队列后置位，使 pollEvent 的逐帧扫描
     /// 只上报一次。
     exit_reported: Arc<AtomicBool>,
-    clipboard_text: Arc<Mutex<Option<String>>>,
+    /// 待上报的 OSC 52 剪贴板写入（FIFO）：`drain_callback_events` 收割，
+    /// `poll_clipboard` 取走队首。队列而非单槽——渲染暂停（设置页/输入法弹出）
+    /// 期间 `pollEvent` 停调，单槽会让后一次写入覆盖前一次，用户丢剪贴板内容。
+    /// 上游回调通道有界（`EVENT_CHANNEL_CAPACITY`）且满时记日志丢弃，
+    /// 故队列深度天然受其约束。
+    clipboard_text: Arc<Mutex<VecDeque<String>>>,
     /// 待上报的 BEL 振铃（上游 on_bell 回调经通道推送，drain_callback_events 收割）。
     /// 瞬时提示：单帧多响合并为一，poll_bell 取走并清零（get-and-clear）。
     bell_pending: Mutex<bool>,
@@ -373,7 +379,7 @@ impl Session {
         log::info!("Session::spawn_with_theme_inner: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));
-        let clipboard_text = Arc::new(Mutex::new(None));
+        let clipboard_text = Arc::new(Mutex::new(VecDeque::new()));
         let clipboard_read = Arc::new(Mutex::new(None));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND);
         // 管道分支：原始 PTY 输出的次要消费者（日志、追踪）。
@@ -564,17 +570,13 @@ impl Session {
         self.output_processor.take_new_output()
     }
 
-    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入 / BEL 振铃）到锁存槽。
+    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入 / BEL 振铃）到队列/标志位。
     /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
     fn drain_callback_events(&self) {
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
-            // 单槽锁存：渲染暂停（pollEvent 停调）期间的连续写入会覆盖未消费的前值。
-            // 队列化改动太大（Kotlin 侧合并同样单值），此处至少记日志使覆盖可诊断。
-            let mut guard = self.clipboard_text.lock();
-            if guard.is_some() {
-                log::warn!("session: clipboard overwritten before poll (render paused?)");
-            }
-            *guard = Some(text);
+            // FIFO 而非单槽：渲染暂停（pollEvent 停调）期间的连续写入必须全部保留，
+            // 单槽会让后一次覆盖前一次，用户丢剪贴板内容。
+            self.clipboard_text.lock().push_back(text);
         }
         while self.terminal.poll_bell_event().is_some() {
             *self.bell_pending.lock() = true;
@@ -587,10 +589,9 @@ impl Session {
         std::mem::replace(&mut *guard, false)
     }
 
-    /// 轮询 OSC 52 转义序列写入的剪贴板文本。
+    /// 轮询 OSC 52 转义序列写入的剪贴板文本：每次取走最早的一条。
     pub fn poll_clipboard(&self) -> Option<String> {
-        let mut guard = self.clipboard_text.lock();
-        guard.take()
+        self.clipboard_text.lock().pop_front()
     }
 
     /// 取走待处理的 OSC 52 剪贴板读取请求（selection 名）。
@@ -1107,6 +1108,36 @@ mod tests {
             harvested.as_deref(),
             Some(marker),
             "OSC 52 payload must reach the clipboard slot within a few render frames"
+        );
+    }
+
+    /// 渲染暂停（`pollEvent` 停调）期间的连续 OSC 52 写入必须全部保留：
+    /// 单槽锁存会让后一次覆盖前一次，用户丢剪贴板内容。
+    #[test]
+    fn osc52_writes_queue_in_order_when_not_polled() {
+        let mut session = spawn_test_session();
+        use base64::Engine;
+        let mut written = Vec::new();
+        for marker in ["first-copy", "second-copy"] {
+            let payload = base64::engine::general_purpose::STANDARD.encode(marker.as_bytes());
+            session
+                .terminal_mut()
+                .vt_write(format!("\u{1b}]52;c;{payload}\u{7}").as_bytes());
+            written.push(marker);
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut harvested = Vec::new();
+        while harvested.len() < written.len() && std::time::Instant::now() < deadline {
+            session.process_output();
+            if let Some(text) = session.poll_clipboard() {
+                harvested.push(text);
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert_eq!(
+            harvested, written,
+            "渲染暂停期间的 OSC 52 写入必须按序全部上报，不得互相覆盖"
         );
     }
 

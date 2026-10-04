@@ -85,6 +85,8 @@ object NativeBridge {
     /**
      * 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用的 DECSET 选择 SGR/X10/UTF-8）。
      * 坐标为 Surface 像素，cellWidth/cellHeight 为实时单元格尺寸；关闭鼠标上报或编码失败时返回空数组。
+     * `modifiers` 取上游 `key.Mods` 原始位（见 [terminal.emulator.input.KeyModifiers.ghosttyMods]），
+     * 原生以 `Mods::from_bits_retain` 直接消费：Shift/Ctrl 点击必须与普通左键可区分。
      */
     @JvmStatic
     external fun encodeMouseEvent(
@@ -93,6 +95,7 @@ object NativeBridge {
         yPx: Float,
         action: Int,
         button: Int,
+        modifiers: Int,
         cellWidth: Float,
         cellHeight: Float,
     ): ByteArray
@@ -109,8 +112,11 @@ object NativeBridge {
     /** 将窗口焦点变化转发给会话，使子进程收到 DECSET 1004 焦点上报（`\x1b[I` / `\x1b[O`）。 */
     @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
 
-    /** 回复 OSC 52 剪贴板读取请求。每个请求必须且只能回复一次，同一请求 ID 的重复回复是原生空操作。 */
-    @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
+    /**
+     * 回复 OSC 52 剪贴板读取请求。每个请求必须且只能回复一次，同一请求 ID 的重复回复是原生空操作。
+     * `text` 为 null 表示读取失败：原生据此不写回应答（空串会被远端当成用户清空了剪贴板）。
+     */
+    @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String?)
 
     // ── 事件 ──
 
@@ -228,6 +234,7 @@ object NativeBridge {
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
     @JvmStatic external fun resetTerminal(sessionId: Long)
 
+    @JvmStatic
     external fun setTheme(sessionId: Long, data: ByteArray)
 
     @JvmStatic
@@ -246,6 +253,7 @@ object NativeBridge {
     @JvmStatic
     external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
 
+    @JvmStatic
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 
     @JvmStatic
@@ -255,21 +263,25 @@ object NativeBridge {
     @JvmStatic
     external fun setRasterScale(sessionId: Long, scale: Float)
 
+    @JvmStatic
     external fun loadFontFile(sessionId: Long, path: String): String?
 
     @JvmStatic
     external fun setSystemLocale(sessionId: Long, locale: String)
 
+    @JvmStatic
     external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
 
     @JvmStatic
     external fun getCellWidth(sessionId: Long): Float
 
+    @JvmStatic
     external fun getCellHeight(sessionId: Long): Float
 
     @JvmStatic
     external fun getGridRowsColsPacked(sessionId: Long): Long
 
+    @JvmStatic
     external fun setScrollOffset(sessionId: Long, offset: Int)
 
     @JvmStatic

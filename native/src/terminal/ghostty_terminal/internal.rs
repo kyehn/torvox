@@ -368,6 +368,7 @@ impl super::GhosttyTerminal {
                 position,
                 action,
                 button,
+                modifiers,
                 cell_width,
                 cell_height,
                 tx,
@@ -422,6 +423,9 @@ impl super::GhosttyTerminal {
                     4 => Some(mouse::Button::Five),
                     _ => Some(mouse::Button::Left),
                 });
+                // 修饰键进编码器：Shift/Ctrl 点击在远端（vim/tmux/htop）必须与
+                // 普通左键可区分，否则无法粘贴选择、无法扩展选区。
+                mouse_event.set_mods(Mods::from_bits_retain(modifiers));
                 let mut response = Vec::new();
                 if let Err(error) = mouse_encoder.encode_to_vec(mouse_event, &mut response) {
                     log::warn!("ghostty_terminal: mouse encode failed: {error}");

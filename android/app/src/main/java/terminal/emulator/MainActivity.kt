@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
                             (if (rawInput) processed else processed + "\n")
                                 .byteInputStream()
                                 .readBytes()
-                        runtime.writeToPty(data)
+                        runtime.writeToPty(runtime.inputTargetSessionId, data)
                         LogUtil.d("T", "Input sent: ${data.size} bytes raw=$rawInput")
                     } catch (exception: Exception) {
                         LogUtil.e("T", "Input failed", exception)
