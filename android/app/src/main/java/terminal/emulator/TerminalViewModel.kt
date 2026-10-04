@@ -991,14 +991,20 @@ constructor(
             val undeletedWatchedDirs =
                 watchedDirs.filterNot { deletedOrAbsent(context.getDir(it, Context.MODE_PRIVATE)) }
             // listFiles() 返回 null 是 I/O 失败而非「目录为空」，不能当成无事发生。
+            // listFiles() 返回 null 是 I/O 失败而非「目录为空」：按未清除记账。
+            val cacheEntries = context.cacheDir.listFiles()
             val undeletedCacheEntries =
-                context.cacheDir.listFiles()?.filterNot { deletedOrAbsent(it) }?.map { it.name }.orEmpty()
+                cacheEntries?.filterNot { deletedOrAbsent(it) }?.map { it.name }
+                    ?: listOf("${context.cacheDir.name}(不可枚举)")
             val survivors = undeletedWatchedDirs + undeletedCacheEntries
+            // 重建必须无条件执行：删除是逐目录独立的，`prefs` 删成功而 `boot_state`
+            // 残留时若就此返回，进程级 DataStore 单例将因父目录消失而写不进去，
+            // 此后所有设置写入全失败——比不清除更糟。
+            watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
             if (survivors.isNotEmpty()) {
                 LogUtil.e("TerminalViewModel", "clear app data left undeleted: $survivors")
                 return@launch
             }
-            watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
             onComplete()
         }
     }
