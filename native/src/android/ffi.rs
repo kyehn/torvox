@@ -2576,15 +2576,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
         };
         // 注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让销毁会话的写锁饥饿。
         // 克隆的会话句柄使查询期间销毁仍安全，会话在查询结束前保持存活。
-        let session = session_handle.lock();
-        let matches = session
-            .terminal()
-            .search_all_in_scrollback(&query, case_sensitive);
+        // 会话锁只取查询通道：VT 查询本身在锁外跑，大回滚搜索不再冻结
+        // 按帧取锁的渲染（R21-T1）。查询期间会话被销毁则通道断开，回退空结果。
+        let query_tx = session_handle.lock().terminal().query_channel();
+        let matches =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
+                &query_tx,
+                &query,
+                case_sensitive,
+            );
         log::info!(
             "searchAllInScrollback: query={query:?} matches={}",
             matches.len(),
         );
-        drop(session);
 
         let json = serde_json::to_string(
             &matches
