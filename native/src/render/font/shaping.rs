@@ -25,8 +25,13 @@ impl FontPipeline {
             return cached.clone();
         }
 
+        // 布局单位必须是**光栅像素**：`x_offset`/`y_offset` 被 cell_builder 直接加到
+        // 四边形原点上，而原点是 `cell_metrics() * raster_scale` 得来的物理像素。
+        // 用逻辑字号整形会让高密度屏上的组合标记/ZWJ 叠加层偏移一个 raster_scale 倍。
+        // 缓存键本就含 raster_scale，键值语义与此处一致。
+        let raster_size = self.font_size * self.raster_scale;
         let metrics =
-            cosmic_text::Metrics::new(self.font_size, self.font_size * DEFAULT_LINE_HEIGHT_RATIO);
+            cosmic_text::Metrics::new(raster_size, raster_size * DEFAULT_LINE_HEIGHT_RATIO);
         let mut buffer = self.shaping_buffer.take().unwrap_or_else(|| {
             let mut b = cosmic_text::Buffer::new_empty(metrics);
             b.set_size(Some(INFINITE_BUFFER_WIDTH), None);
@@ -79,7 +84,11 @@ impl FontPipeline {
             if !cjk_ranges.is_empty() {
                 let font_database = self.font_system.db();
                 let mut list = cosmic_text::AttrsList::new(&attrs);
-                for &fallback_id in &self.cjk_fallback_ids {
+                // 倒序挂 span：AttrsList 的重叠区间后者覆盖前者，而光栅侧的回退链
+                // （pipeline.rs 的 FALLBACK_HIT）是首个命中即返回。正序会让整形挑中
+                // 优先级最低的那个族，与实际光栅的字体不同——叠加层于是按错误的
+                // 字形度量定位。倒序后整形侧同样是「首个命中」。
+                for &fallback_id in self.cjk_fallback_ids.iter().rev() {
                     if let Some(face) = font_database.face(fallback_id)
                         && let Some((fallback_name, _)) = face.families.first()
                     {
@@ -142,6 +151,25 @@ mod tests {
             assert!(glyph.x >= prev_x, "glyph x must not go backwards");
             prev_x = glyph.x;
         }
+    }
+
+    /// 整形输出（推进宽度与叠加层偏移）必须是**光栅像素**：cell_builder 把
+    /// `x_offset`/`y_offset` 直接加到 `cell_metrics() * raster_scale` 得来的
+    /// 物理像素原点上。用逻辑字号整形会让高密度屏上的组合标记/ZWJ 叠加层
+    /// 偏移一个 raster_scale 倍。缓存键含 raster_scale，键值语义与此处一致。
+    #[test]
+    fn shaping_advances_in_raster_pixels() {
+        let advance = |glyphs: &[ShapedGlyphInfo]| glyphs.iter().map(|g| g.w).sum::<f32>();
+        let mut pipeline = small_pipeline();
+        pipeline.set_raster_scale(1.0);
+        let at_one = advance(&pipeline.shape_run("Hello"));
+        pipeline.set_raster_scale(2.0);
+        let at_two = advance(&pipeline.shape_run("Hello"));
+        assert!(at_one > 0.0, "baseline advance must be non-zero");
+        assert!(
+            (at_two - 2.0 * at_one).abs() < 0.5 * at_one,
+            "advance must double with raster_scale (1x={at_one}, 2x={at_two})",
+        );
     }
 
     #[test]

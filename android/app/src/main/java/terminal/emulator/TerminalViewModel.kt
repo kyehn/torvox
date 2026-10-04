@@ -676,7 +676,14 @@ constructor(
          * ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
          */
         fun pasteFromClipboard(): Int {
-            val text = clipboardAccess.clipboardText().getOrNull() ?: return 0
+            // 空剪贴板与读取失败都返回 0，但两者都不许无声：失败已由
+            // ClipboardAccess 记日志，这里补的是「点粘贴却什么都不发生」的空剪贴板。
+            val text =
+                clipboardAccess.clipboardText().getOrNull()
+                    ?: run {
+                        LogUtil.w("TerminalViewModel", "粘贴跳过: 剪贴板无文本")
+                        return 0
+                    }
             return executePaste(text)
         }
 

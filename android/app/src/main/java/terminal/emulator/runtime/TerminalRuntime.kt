@@ -3157,6 +3157,9 @@ constructor(
                 // 延迟探针的输入打点（用 elapsed-realtime 时钟：它能跨深度睡眠存活，
                 // 而 nanoTime 的单调基准不能）。
                 entry.latencyProbe.onInputWritten(SystemClock.elapsedRealtimeNanos())
+            } else {
+                // 会话活着却没有 bridge：粘贴/击键就此消失且毫无症状，必须出声。
+                LogUtil.e("Runtime", "writeToPty: 会话 $sessionId 无 bridge，${data.size} 字节未写入")
             }
             entry.notifyRender()
             return written
