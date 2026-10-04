@@ -10,6 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -71,6 +72,41 @@ class TerminalForegroundServiceTest {
             "plural text with count",
             context.resources.getQuantityString(R.plurals.notification_active_plural, 2, 2),
             postedNotificationText(),
+        )
+    }
+
+    @Test
+    fun `bare start without count claims nothing and holds no wake lock`() {
+        ShadowPowerManager.clearWakeLocks()
+        Robolectric.buildService(
+            TerminalForegroundService::class.java,
+            Intent(context, TerminalForegroundService::class.java),
+        ).create()
+            .startCommand(0, 1)
+            .get()
+        assertEquals(
+            "zero sessions must not claim activity",
+            context.getString(R.string.notification_starting),
+            postedNotificationText(),
+        )
+        assertNull(
+            "no wake lock for zero sessions",
+            ShadowPowerManager.getLatestWakeLock(),
+        )
+    }
+
+    @Test
+    fun `explicit zero count claims nothing and holds no wake lock`() {
+        ShadowPowerManager.clearWakeLocks()
+        startWith(0)
+        assertEquals(
+            "zero sessions must not claim activity",
+            context.getString(R.string.notification_starting),
+            postedNotificationText(),
+        )
+        assertNull(
+            "no wake lock for zero sessions",
+            ShadowPowerManager.getLatestWakeLock(),
         )
     }
 
