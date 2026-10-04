@@ -21,8 +21,11 @@
       仪器化用例跑的是 release profile 库，`cfg(test)` 开关在设备上不存在
 - [x] 2.2 仪器化用例 `SurfaceLossRecoveryInstrumentedTest` 已落地：注入 → 宿主换
       `SurfaceView` → 恢复后画面有墨迹 → 新命令落格
-- [ ] 2.3 注入用例「先红后绿」的证据需模拟器复跑（本地无 AVD/system-image，
-      仪器化套件不可本地执行；证据以 build workflow 全量运行结果为准）
+- [x] 2.3 注入用例「先红后绿」的证据：2026-10-04 本机 AVD（API 35 x86_64）
+      实测 `persistentSurfaceLossTriggersHostRebuildAndKeepsRendering` 通过
+      （当前 main + 新编 x86_64 release 库）。红侧证据见 §5 基线（该用例在
+      run 以 `标记必须落格: PRE_INK_MARKER` 失败）；注入→宿主换
+      SurfaceView→恢复后有墨迹→新命令落格链路已通
 
 ## 3. 原生侧失效缓存与状态位
 
@@ -141,8 +144,11 @@
       lintVitalRelease assembleDebugAndroidTest testDebugUnitTest
       benchmark:compileBenchmarkReleaseKotlin
       baselineprofile:compileNonMinifiedReleaseKotlin`（506 例单测全过）
-- [ ] 6.2 真机/模拟器实测：人为制造 surface 失效（2.x 注入或系统回收）后自愈，
-      记录恢复耗时与日志 —— 需模拟器/真机（本机无 AVD）
+- [x] 6.2 真机/模拟器实测：2026-10-04 本机 AVD（API 35 x86_64）经
+      `setSurfaceLossInjectedForTest` 人为制造失效后自愈，logcat 实测：
+      原生连续 2 次 acquire 失败判死 → 首次请求即换视图（attempt 1/5）→
+      约 0.5s 后 `attach_surface` 用新 ANativeWindow 重建，注入用例 22.5s 通过
+      （含建会话、前后墨迹断言与清理）。未达次数上限，无 error 级残留
 - [ ] 6.3 全量 `:app:connectedDebugAndroidTest` 复跑，逐例回填第 5 节结论，
       失败数从 27 降到剩余未修项的真实数量，且 `abandoned` 之后不再持续 `count=-1`
       —— 第 5 节已按 run 逐条回填（27 例中 15 例通过、12 例仍失败），

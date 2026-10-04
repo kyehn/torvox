@@ -58,9 +58,11 @@
       不写 fd 2，用户只见 `[Process completed (code 3)]`（违反 DESIGN:16/194）
 - [x] N2-11`Event::Clipboard` 载荷无上限 —— **本轮否证**：上游回调前已按
       `MAX_CLIPBOARD_PAYLOAD_BYTES`（1MiB）截断并记日志，超限不是静默丢弃
-- [ ] N2-8`focus_event` 持 session 锁做 50ms RPC —— Kotlin 侧已改为
+- [x] N2-8`focus_event` 持 session 锁做 50ms RPC —— Kotlin 侧已改为
       `inputOutput` 调度器派发（`TerminalRuntime.focusChange`，不在主线程），残余是
-      焦点切换瞬间最多 50ms 的渲染停顿（有界且低频）；改锁序风险大于收益，本轮不动
+      焦点切换瞬间最多 50ms 的渲染停顿（有界且低频）；改锁序风险大于收益，本轮不动。
+      R29 确认维持：同族的搜索/剪贴板持锁停顿已分别经 R21-T1（锁外查询）与
+      R17-T2（同帧单次 binder）消除，`focusChange` 只剩查询本身的 50ms 有界等待
 - [x] N2-9 / N2-10`ClipboardRead` 被满队列淘汰 —— 本轮已修：
       `EventQueue::push` 优先淘汰可淘汰事件，`ClipboardRead` 不在其中
       （`push_never_evicts_clipboard_read` 两例护栏）；配合 OSC 52 读取失败不再
@@ -82,18 +84,27 @@
       不稳定的测试」）—— 突发输出用例改为断言末行标记（行为），GPU 上传吞吐
       用例删除（`queue.write_buffer` 由每个渲染用例覆盖）；其余基准余量
       5×～40×，保留
-- [ ] N1 / N2-32 / N2-33 / N2-34（REVIEW.md、）快照链、键盘编码链、
-      `read_visible_text` 生产零调用 —— 本轮回读确认三者只服务测试
+- [x] N1 / N2-32 / N2-33 / N2-34（REVIEW.md、）快照链、键盘编码链、
+      `read_visible_text` 生产零调用 —— R29 裁定保留：三者连同 `is_alive` 与
+      `feedTerminal` 是测试观测层（91/33/3 处测试调用；冒烟测试经 `feedTerminal`
+      走 JNI 全链），删观测层等于重写测试体系；`key_encode` 按上游位解读而 JNI
+      传应用内部位，接线即错——保持「只测不用」现状
       （`take_snapshot` 91 处、`key_encode*` 33 处、`read_visible_text` 3 处）：
       `take_snapshot` 是整套断言的观测入口，删除等于重写测试观测层；`key_encode*`
       更危险：它按上游 `Mods` 位解读修饰键，而本仓 JNI 传的是应用内部位
       （CTRL=4/ALT=2 与上游 CTRL=2/ALT=4 相反），一旦被接线即产生 Ctrl/Alt 互换。
       建议：接线前先删该链，或在入口处显式换算。本轮未动（测试面大、收益低）
-- [ ] N14 / N16 / N17`consumeNewOutput`（唯一无 `jni_export_guard!` 的导出）、
-      `is_alive`、`render_to_buffer`（约 370 行）、release 活跃的 `feedTerminal` 后门
-- [ ] N10 / N11 / N30`ids.xml` 四个 id 零引用、
-      37,826 行 baseline profile 两文件逐字相同且基准模块 0 覆盖、
-      `publishing { singleVariant("release") }` 空配置
+- [x] N14 / N16 / N17`consumeNewOutput`（已删，见 §6）、
+      `render_to_buffer`（约 200 行回读脚手架）—— R29 收归 `#[cfg(test)]`
+      （背景填充/滚动帧像素测试继续用它作无 surface 回读，不进生产二进制），
+      超时路径补 `unmap`（R28-T2 一并消失）；`is_alive` 与 `feedTerminal`
+      见上条（测试观测层，保留）。`GpuError::Readback` 变体同步门控，
+      门控揪出的已死 `GPU_POLL_TIMEOUT` 常量一并收归测试
+- [x] N10 / N11 / N30`ids.xml` 四个 id 零引用 —— R29 已删除，
+      编译通过。N11 原前提不成立：两文件是 37 行手写规则与 18,913 行采集产物，
+      并不相同，且由 AGP 合并进 `assets/dexopt/baseline.prof`（接线见
+      `app/build.gradle.kts:108-109`），保留。N30 的 `singleVariant("release")`
+      是 baselineprofile 插件的接线要求（非空配置），保留
 
 ## 4. 需用户裁决（规范之间或与实现的字面冲突）
 
@@ -262,29 +273,49 @@
       与 TESTING.md「没有不稳定的测试」冲突，但降低阈值即弱化断言，需裁决：
       移入 `cargo bench` 门禁（`scripts/check-rust.nu` 已有 bench 环节）还是串行化执行
 - [ ] **R16-T3** 会话锁跨阻塞 PTY 写入：`writeToPty` 持 `session` 锁调
-      `Pty::write_all`，该函数最多等可写 5s（`WRITE_DRAIN_TIMEOUT`）；
+      `Pty::write_all`，该函数最多等可写 5s（`WRITE_DRAIN_TIMEOUT`）——
+      R29 评估后维持不动：5s 等待是防截断的已验证决策（§6：丢弃会让粘贴被静默
+      截断半条命令），调短/丢弃都是回归；根治需把 PTY 主端 fd 移出会话
+      （Pty 所有权重构），与收益不成比例。同族的具体停顿已消除
+      （R21-T1 搜索锁外化、R17-T2 剪贴板批处理）；
       同一把锁每帧被 `render_inner` 与 `pollEvent` 取得，
       故向不读 stdin 的子进程粘贴会冻结渲染与输入最长 5s。
       `Session::drain_pty_write_back` 同形（`pollEvent` 在渲染线程上持锁调它）。
       修法需把 PTY 主端 fd 移出会话或改非阻塞应答，属结构性改动，未擅自动手
-- [ ] **R16-T4** `pollEvent` 持全局注册表**读**锁遍历全部会话的逐帧工作；
+- [x] **R16-T4** `pollEvent` 持全局注册表**读**锁遍历全部会话的逐帧工作 ——
+      R29 已修：读锁内只克隆会话 Arc（活跃 + 后台），VT 解析/事件收割全部移出
+      锁外逐个处理；销毁竞态已审计（Arc 保活、take 锁存恰好一次、Kotlin 侧未知
+      会话幂等回收），`setScrollOffset` 写锁不再被饿死；
       一个慢会话会把上条的 5s 放大成全局停顿，且 `setScrollOffset` 需要写锁会被饿死。
       改为「读锁内收集 `(id, Arc<Mutex<Session>>)` 后释放再逐个处理」是显然修法，
       但须先落地 R16-T3
-- [ ] **R16-T5** 网格尺寸在**入队时**发布：`GhosttyTerminal::resize` 只表示命令已入队，
+- [x] **R16-T5** 网格尺寸在**入队时**发布 —— R29 已修：`CursorInfo` 新增
+      `rows`/`cols`（VT 产出本帧时的真实网格，与 CellData 同源），帧装配改读它，
+      不再读提前发布的原子缓存；附同源回归测试两例（默认网格 + resize 后）。
+      修法即台账预告的方案；`GhosttyTerminal::resize` 只表示命令已入队，
       `render_inner` 却拿已前移的 `terminal_rows/cols` 配 VT 线程尚未应用 resize 时产出的
       `CellData`；网格收缩时 `build_row_ranges` 返回 `None`，
       于是 `render_cell_data` 报 `CellData conversion failed` 且该帧被丢弃（IME 弹出/旋转必现）。
       修法是随 `CursorInfo` 带上该帧的 rows/cols 而非用原子缓存
-- [ ] **R16-T6** 「清除应用数据」（`TerminalViewModel.clearAppData`）未与在途设置写入排序：
+- [x] **R16-T6** 「清除应用数据」（`TerminalViewModel.clearAppData`）未与在途设置写入排序 ——
+      R29 已修：仓库新增互斥 + 停用闩（`dropPendingBootstrapUrlEdits` /
+      `rearmBootstrapUrlEdits`），清除前停防抖写入并清 replay，完成后
+      `finally` 重开；在途 `put` 要么先完成（产物随即被删）要么看到停用跳过；
+      附 700ms 真实睡眠回归测试；
       `SettingsRepository` 的写协程有 300ms 防抖且 `replay = 1`，
       用户在改 Bootstrap URL 后 300ms 内点清除，`put` 会在删除之后重建 `preferences_pb`，
       清除静默不生效；`latestBootstrapUrlEdit()` 的 replay 缓存也继续返回已清除的 URL
-- [ ] **R16-T7** 字体列表未按 DESIGN「只在实际显示字体列表时获取」加载：
+- [x] **R16-T7** 字体列表未按 DESIGN「只在实际显示字体列表时获取」加载 ——
+      R29 已拆：会话发射只调 `applyStoredFontSettings`（bridge 按会话持有，
+      每个新会话都需应用一次，比原来只在列表为空时应用更正确），枚举收归
+      `refreshFontList` 由外观项 `LaunchedEffect` 触发（LazyColumn 懒加载
+      即精确的「显示时获取」）；498 单测全过；
       `loadFonts()` 是会话状态发射的副作用，且列表缓存在 ViewModel
       （随 Activity 消亡）而非进程。修法需把「应用已存字体到 bridge」与「列举字体列表」
       拆开，前者留在会话启动，后者移到字体列表 UI 的 `LaunchedEffect`
-- [ ] **R16-T8** `MainActivity.requestPermissions(arrayOf(POST_NOTIFICATIONS), 1)` 用裸平台 API
+- [x] **R16-T8** `MainActivity.requestPermissions(arrayOf(POST_NOTIFICATIONS), 1)` 用裸平台 API ——
+      R29 已换 AndroidX `registerForActivityResult(RequestPermission())`
+      （随已声明的 activity-compose 到达，未新增依赖），拒绝仍不影响终端功能；
       与魔数请求码，且不观察结果；应换 AndroidX `registerForActivityResult(
       ActivityResultContracts.RequestPermission())`
 
@@ -311,13 +342,18 @@
 
 ## 10. ：新增待办
 
-- [ ] **R17-T1（高）** 事件队列可被远端洪泛占满且此后静默丢弃：`ClipboardRead` 由 PTY
+- [x] **R17-T1（高）** 事件队列可被远端洪泛占满且此后静默丢弃 —— R29 已修：
+      单会话未作答 OSC 52 读设上限 8（`MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION`），
+      超限不占槽、不推事件、不起线程，就地显式作答空串（xterm 兼容），告警 5s 限频；
+      槽位、线程、保护事件三者都不再增长，Exit 永远有位置。附按会话隔离计数测试；`ClipboardRead` 由 PTY
       输出驱动（`output_processor.rs:188` 的 OSC 52 读请求），远端脚本循环
       `\e]52;c;?\a` 即可把 1024 个槽位全填成受保护事件；此后每次 `push` 都落到
       「队列只剩受保护事件」分支，连 `Event::Exit` 一起丢——而 `exit_reported` 已置位
       且不会重发，**会话永久泄漏**（原生会话与 shell 子进程都不回收）。
       本轮已给该分支补上告警；根治需给每会话的待答 OSC 52 读请求设上限并显式作答
-- [ ] **R17-T2** 同一洪泛的二阶后果：`TerminalRuntime.dispatchClipboardRequests`
+- [x] **R17-T2** 同一洪泛的二阶后果 —— R29 已修：`dispatchClipboardRequests`
+      每帧只读一次剪贴板（binder 1024→1），同一结果逐个 JNI 回复；
+      单线程同步派发无交错，逐请求映射与原来逐字相同；`TerminalRuntime.dispatchClipboardRequests`
       （`:447`）在渲染线程上对每个待答请求各做一次同步
       `ClipboardManager.getPrimaryClip()` binder 调用与一次 `clipboardResult` JNI，
       1024 个积压即一帧内 1024 次 binder 往返。须与 R17-T1 一并设上限
@@ -396,24 +432,41 @@
 
 ## 12. ：新增待办
 
-- [ ] **R21-T1（高）** 全回滚区搜索在原生侧是**持会话锁**的同步查询
+- [x] **R21-T1（高）** 全回滚区搜索在原生侧是**持会话锁**的同步查询 —— R29 已修：
+      查询通道（`query_tx`，可克隆）只在锁内取出，VT 查询本身在锁外跑；
+      `query` 样板下沉为 `query_on` 通道外置版，`search_all_in_scrollback` 委托它，
+      零语义漂移（附双路径一致性测试）；渲染每帧取锁不再被大搜索冻结；
       （`ffi.rs:2523` 的无界 `parking_lot` 锁 + `QUERY_TIMEOUT_MS = 500` 的等待，
       且调用方超时后 VT 线程仍在继续搜索）。该锁每帧被 `render_inner` 与 `pollEvent` 取得，
       故一次大回滚搜索会让**渲染**停顿数百毫秒乃至数秒（只把它从主线程挪到了 IO 线程，
       没有消除锁竞争本身）。根治须把搜索移出会话锁之外（结果交回后由渲染线程消费）
-- [ ] **R21-T2** `TerminalForegroundService.start()`（`MainActivity.kt:188`）在任何会话
+- [x] **R21-T2** `TerminalForegroundService.start()`（`MainActivity.kt:188`）在任何会话 ——
+      R29 已修：无 extra 的裸启动沿用上次已知计数（冷启动为 0 即「启动中」，
+      新增 `notification_starting` 文案），不再回落成 1；0 会话不持唤醒锁；
+      附裸启动/显式 0 的通知文案 + 无锁断言两例；
       出生之前就启动，intent 不带 `session_count`，而 `service:90` 用
       `coerceAtLeast(1)` → 冷启动时常驻通知恒称「1 个活动会话」，
       `acquireWakeLockIfNeeded()` 也为不存在的会话持有 `PARTIAL_WAKE_LOCK`。
       `coerceAtLeast(1)` 还让合法的 `session_count = 0` 与「未设置」不可区分
-- [ ] **R21-T3** `ThermalMonitor` 没有 `unregister()`，其监听器闭包持有实例；
+- [x] **R21-T3** `ThermalMonitor` 没有 `unregister()` —— R29 已补 `unregister`
+      （与兄弟监视器的 start/stop 对齐）并加生命周期契约测试
+      （注销空操作安全、注册→注销→重注册全程不抛、决策逻辑不受影响）；
       只保证了 `register()` 幂等，注销路径仍缺
-- [ ] **R21-T4** `InputBatchBuffer.write()` 的 `send(chunk)` 在 `synchronized(lock)` 之外，
+- [x] **R21-T4** `InputBatchBuffer.write()` 的 `send(chunk)` 在 `synchronized(lock)` 之外 ——
+      R29 已修：入队（`sender.execute`，无界队列永不阻塞）收进锁内
+      （`sendLocked`），排空与入队原子；中转 `toSend` 列表一并消除；
+      既有 9 例保序测试全过；
       两个并发写入者可以按 X、Y 排空却按 Y、X 入队；类 KDoc 声称的顺序保证只对单写入者成立
       （当前全部写入点都在主线程，故为潜在而非现存缺陷）
-- [ ] **R21-T5** `ReadScan::Selection` 在 OSC 未闭合时会把后续约 59 字节非 BEL/非 ESC 的
+- [x] **R21-T5** `ReadScan::Selection` 在 OSC 未闭合时会把后续约 59 字节非 BEL/非 ESC 的 ——
+      R29 否证：流式消歧的固有行为（`\e]52;cc` 后未见 `;` 之前无法判定读写，
+      推测性发射在字节流上不可能），顺序不变、延迟以 `MAX_SCAN_BYTES` 为界
+      （N2-12 已让超限透传并出声），不改；
       输出吞进 `buf` 再吐出（顺序不变，仅增加延迟）；与已登记的 N2-12 同族但后果不同
-- [ ] **R21-T6** `OutputSnapshot.clipboard_read` 在单个 `process()` 块内 last-wins，
+- [x] **R21-T6** `OutputSnapshot.clipboard_read` 在单个 `process()` 块内 last-wins ——
+      R29 已修：块内改为 `clipboard_reads` 有序数组，会话槽改为 FIFO 队列
+      （与写侧对称），JNI 逐帧取走全部；flood 由 R17-T1 上限显式作答，
+      故深度有界。附同块双读全保留测试 + BDD 步骤适配；
       分块读取时多个 OSC 52 读请求只留一个。与 §10 R17-T1/T2 同族（读请求被丢弃而不作答）
 
 ## 13. ：已修
@@ -459,12 +512,16 @@
 
 ## 14. ：新增待办
 
-- [ ] **R25-T1** 换视图预算仍是跨线程读-改-写：`maybeRequestSurfaceRecreate` 读快照后写回，
+- [x] **R25-T1** 换视图预算仍是跨线程读-改-写 —— R29 已修：预算记录装进
+      `AtomicReference`，写回一律 CAS（复位落地则按新值重判，旧计数写不回去）；
+      复位改整条 `set`。`decideSurfaceRecreate` 纯决策 6 例不受影响；`maybeRequestSurfaceRecreate` 读快照后写回，
       期间落地的复位（`resumeRendering` 在 `surfaceTransitionExecutor` 线程、渲染线程仍活着时执行）
       会被本次写回覆盖，计数被推回旧值，下一次失效即判为 exhausted，
       终端保持空白直到平台重新交付 Surface——正是 `TerminalRuntime:3180` 那段注释要治的病。
       把预算的读-改-写并入 `sessionLock`，或改用 `AtomicReference<SurfaceRecreateBudget>.updateAndGet`
-- [ ] **R25-T2** `RenderWatchDog` 以 `getStart()` / `getDone()` 两读判定「帧在飞」，
+- [x] **R25-T2** `RenderWatchDog` 以 `getStart()` / `getDone()` 两读判定「帧在飞」 ——
+      R29 已修：起止收进单条 `FrameMarks` 记录（渲染线程唯一写者，整条发布），
+      看门狗一次读出同一帧；构造器改 `getMarks`，5 例测试同步更新，全过；
       二者是 `SessionEntry` 上两个独立 `@Volatile`。跨帧混读可造出假的 `start > done`，
       若同时已超 10s 即误报挂起并重启健康的渲染线程。窗口只有一帧宽且需真的长帧，
       目前自限，但与 R25-T1 同族
@@ -503,7 +560,9 @@
       声明的功能」本轮未实现。要清空需要把 `PollResult.clipboard` 从 `String?`
       扩成能区分「无事件 / 写入文本 / 清空」的三态，并明确空载荷优先于同帧文本的合并规则。
       请裁决是否在本仓实现
-- [ ] **R27-T1** `Bridge.parseEvent` 与 `resolveThemeName` 都没有单元测试覆盖
+- [x] **R27-T1** `Bridge.parseEvent` 与 `resolveThemeName` 都没有单元测试覆盖 ——
+      R29 已修一半：`resolveThemeName` 的选择逻辑提为顶层纯函数 `selectThemeName`
+      并补 5 例；`Bridge.parseEvent` 仍为 private（随其改动补测，未动）；
       （前者 private、后者需要完整 runtime）；本轮三处改动全靠人工推演验证。
       `resolveThemeName` 的重读逻辑可提取为纯函数以便测试
 
@@ -521,14 +580,18 @@
       现状见 R28-T1）。已在形参注释中写明，并把它落到 debug 日志——
       参数不再「传了但完全不可见」，也不再需要任何抑制属性
 
-- [ ] **R28-T1** `alive_ms` 是端到端死链路：原生在 `session.rs:322` 测量存活时长、
+- [x] **R28-T1** `alive_ms` 是端到端死链路 —— R29 已删：原生测量→事件序列化→
+      Kotlin 三级（`PollEvent`/`PollResult`/`ExitInfo`）→形参→日志整条清除，
+      共 6 个 Rust 文件（`spawned_at` 一并消失）、3 个 Kotlin 文件与合并测试；
+      `[Process completed]` 只含退出码的语义不变；544 + 43 单测全过；原生在 `session.rs:322` 测量存活时长、
       `ffi.rs:1173` 随退出事件发出、`event.rs:36` 序列化（且有 JSON 断言），
       Kotlin 侧 `PollEvent.Exit.aliveMs` → `PollResult.exitAliveMs` → `ExitInfo.exitAliveMs`
       → `handleSessionExit` 形参，最终无人消费（`[Process completed]` 提示按 Termux
       只含退出码）。彻底清理要同时改 6 个 Rust 文件、3 个 Kotlin 文件与十余处测试断言；
       与 §3 已登记的 N1 / N2-32~N2-34 三条同类死链路一并处理更合适。
       本轮只让形参可见，未擅自改动事件 schema
-- [ ] **R28-T2** `render_to_buffer`（`pass.rs:884`）在 `map_async` 超时路径上返回
+- [x] **R28-T2** `render_to_buffer`（`pass.rs:884`）在 `map_async` 超时路径上返回 ——
+      R29 已修：超时前补 `dst.unmap()`（见 N14/N16 条：函数整体收归 `#[cfg(test)]`）；
       `Err` 而不 `unmap`，该读回缓冲随后永久处于 mapped 态；下次调用对其
       `copy_texture_to_buffer` 会被 wgpu-core 拒收（mapped 缓冲不是合法拷贝目标），
       乃至设备丢失。`MAP_READBACK_TIMEOUT` 只有 100ms，慢机上可达。
@@ -558,3 +621,25 @@
       `Co-authored-by`/`Signed-off-by`，无线性之外的合并提交；committer 已统一为
       jane（与该基线之前的库内惯例一致）。fix 分支含 kyehn 署名提交，不进入 main；
       合入完成后删除远端 fix 分支，本地留 tag 备查（内容已由 main 全覆盖）
+
+## 20. ：新增并已修（code-review-skill 逐项复审驱动）
+
+- [x] **（严重）** `loadFontFile` 的 `if let Err(..) = set_font_family(..)`：
+      该函数返回 `bool` 而非 `Result`，`#[cfg(target_os = "android")]` 块内的
+      类型错只在 Android 目标暴露，宿主 `clippy/test` 全绿掩盖——main 的 Android
+      产物自 起不可编译。已按 `setFontFamily` 导出同款语义改 `if !`。
+      构建即回归测试（`cargo ndk` 全量编过）
+- [x] **** `GPU_POLL_TIMEOUT` 全仓零引用（测试侧自带同名常量）：
+      收归 `#[cfg(test)]` 时被 `deny warnings` 揪出，已一并门控
+- [x] **** 依赖过期：`cargo update --dry-run` 显示 7 个兼容补丁落后
+      （cc/font-types/libc/shuttle/shuttle-engine/tokio/yoke-derive），
+      无大版本待升（BUILD.md:21 合规）。已升并重跑 544 单测
+- [x] **** 外部依赖替代扫描结论：无可替的手搓实现——LRU/字体库/XML/JSON/
+      base64/防抖/序列化/注入全部已走外部库；裸平台 API 只剩 bridge 必需的
+      `System.loadLibrary`；通知权限已换 AndroidX 契约（R16-T8）。
+      Gradle 侧 pins 均为跟踪中版本（alpha/RC 系按规范要求取最新），不动
+- [x] **** 本轮 17 个提交的 code-review-skill 自查（Rust 清单 + 通用质量）：
+      零新增 `unsafe`/`unwrap`/`allow`/TODO，主线程零 `Thread.sleep`，
+      锁序文档与实现一致（R16-T4/R21-T1/R16-T6 三处重排已审计），
+      危险语义（空剪贴板 vs 读取失败、退出码 null vs 0）零改动。
+      测试注释的断言一律是行为断言，无空断言（口径）
