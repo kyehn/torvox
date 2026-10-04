@@ -2427,6 +2427,50 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
     );
 }
 
+/// R16-T5：CursorInfo 必须携带产出本帧时的真实网格行列，与同批 CellData 同源。
+/// resize 入队时会话侧原子缓存提前发布新尺寸，而 VT 尚未应用；渲染线程若读缓存，
+/// 收缩帧会被 `build_row_ranges` 判空丢弃（IME 弹出/旋转必现）。
+/// 断言默认网格下推送的 CursorInfo 与单元数一致。
+#[test]
+fn cursor_info_carries_producing_frame_grid_dimensions() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"AB");
+    terminal_under_test.flush();
+
+    let (cells, cursor) = terminal_under_test
+        .receive_cell_data()
+        .expect("VT loop must auto-push cell data after writes");
+
+    assert_eq!((cursor.rows, cursor.cols), (24, 80));
+    assert_eq!(
+        cells.len() as u32,
+        cursor.rows * cursor.cols,
+        "cells and CursorInfo grid must come from the same frame"
+    );
+}
+
+/// R16-T5（resize 变体）：resize 应用后推送的帧必须携带新网格，
+/// 而不是入队瞬间缓存的尺寸与 VT 旧网格的混搭。
+#[test]
+fn cursor_info_carries_resized_grid_dimensions() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.resize(10, 40);
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"XY");
+    terminal_under_test.flush();
+
+    let (cells, cursor) = terminal_under_test
+        .receive_cell_data()
+        .expect("VT loop must auto-push cell data after resize");
+
+    assert_eq!((cursor.rows, cursor.cols), (10, 40));
+    assert_eq!(
+        cells.len() as u32,
+        cursor.rows * cursor.cols,
+        "cells and CursorInfo grid must come from the same frame"
+    );
+}
+
 /// SGR31 红色必须到达渲染 CellData 的前景（设备渲染通路的精确复刻）。
 /// 背景：设备像素验收曾报 SGR 无红色，后证实为测试 harness 自废武功
 ///（全局暂停与直接呈现互斥）；本测试在 host 复刻设备渲染输入

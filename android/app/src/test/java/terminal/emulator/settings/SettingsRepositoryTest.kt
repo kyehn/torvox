@@ -138,4 +138,29 @@ class SettingsRepositoryTest {
         repository.setShell("/data/data/com.termux/files/usr/bin/bash -l")
         assertEquals("/data/data/com.termux/files/usr/bin/bash -l", repository.shell.first())
     }
+
+    @Test
+    fun `dropped debounce edit never lands, rearmed edit does`() {
+        // R16-T6 回归：防抖窗口内（300ms）的编辑若在清除前被丢弃，
+        // 绝不能在删除之后落地重建 preferences_pb；清除完成后新编辑照常落盘。
+        // 仓库收集器跑在真实 IO 调度器上，故用真实睡眠（2 倍余量），非虚拟时间。
+        val droppedUrl = "https://example.invalid/dropped.zip"
+        val rearmedUrl = "https://example.invalid/rearmed.zip"
+        kotlinx.coroutines.runBlocking {
+            repository.recordBootstrapUrlEdit(droppedUrl)
+            repository.dropPendingBootstrapUrlEdits()
+            assertEquals(null, repository.latestBootstrapUrlEdit())
+            Thread.sleep(700)
+            assertEquals(
+                "dropped edit must not land after clear",
+                "",
+                repository.bootstrapUrl.first(),
+            )
+            repository.rearmBootstrapUrlEdits()
+            repository.recordBootstrapUrlEdit(rearmedUrl)
+            assertEquals(rearmedUrl, repository.latestBootstrapUrlEdit())
+            Thread.sleep(700)
+            assertEquals(rearmedUrl, repository.bootstrapUrl.first())
+        }
+    }
 }

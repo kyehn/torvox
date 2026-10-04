@@ -9,9 +9,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 
+/** 单帧起止时刻的不可变快照；看门狗每次只读一次，起止必定来自同一帧。 */
+data class FrameMarks(val startNanos: Long = 0L, val doneNanos: Long = 0L)
+
 class RenderWatchDog(
-    private val getStart: () -> Long,
-    private val getDone: () -> Long,
+    private val getMarks: () -> FrameMarks,
     private val isRunning: () -> Boolean,
     private val onHangDetected: () -> Unit,
     private val hangTimeoutNanos: Long = 10_000_000_000L,
@@ -57,10 +59,11 @@ class RenderWatchDog(
     private suspend fun watchLoop() {
         while (scope.coroutineContext.isActive) {
             delay(checkIntervalMs)
-            val start = getStart()
-            val done = getDone()
-            val elapsed = System.nanoTime() - start
-            if (start > done && elapsed > hangTimeoutNanos && isRunning()) {
+            // 一次读出整条记录：起止分两次读时，可能拿到新 start 配旧 done，
+            // 伪造出 `start > done` 并误杀健康的渲染线程（R25-T2）。
+            val marks = getMarks()
+            val elapsed = System.nanoTime() - marks.startNanos
+            if (marks.startNanos > marks.doneNanos && elapsed > hangTimeoutNanos && isRunning()) {
                 LogUtil.e(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
                 synchronized(fireLock) { if (!stopped) onHangDetected() }
             }

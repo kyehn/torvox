@@ -447,6 +447,9 @@ impl Session {
             return Ok(ResizeOutcome::Dropped);
         }
         self.grid_dirty.store(false, Ordering::Release);
+        // 入队即发布：VT 尚未应用新网格。帧装配不得读这组缓存
+        // （`CursorInfo.rows/cols` 与 CellData 同源，见 R16-T5）；
+        // 它们只服务像素换算、去重短路与 Kotlin 查询。
         self.terminal_rows.store(rows as u32, Ordering::Release);
         self.terminal_cols.store(cols as u32, Ordering::Release);
         Ok(ResizeOutcome::Applied)
