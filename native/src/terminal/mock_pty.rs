@@ -154,10 +154,6 @@ impl Pty for MockPty {
         nix::unistd::Pid::from_raw(4_194_305)
     }
 
-    fn foreground_pid(&self) -> Option<nix::unistd::Pid> {
-        None
-    }
-
     fn master_fd(&self) -> RawFd {
         -1
     }
@@ -166,18 +162,6 @@ impl Pty for MockPty {
         // Mock PTY output is delivered through the in-memory buffer, never a
         // real fd; return a throwaway read fd so the reader thread exits cleanly.
         std::fs::File::open("/dev/null").map(OwnedFd::from)
-    }
-
-    fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus> {
-        let inner = self.inner.lock().expect("mock mutex poisoned");
-        if inner.child_exited {
-            Ok(nix::sys::wait::WaitStatus::Exited(
-                nix::unistd::Pid::from_raw(-1),
-                0,
-            ))
-        } else {
-            Ok(nix::sys::wait::WaitStatus::StillAlive)
-        }
     }
 
     fn set_nonblocking(&self) -> Result<(), PtyError> {

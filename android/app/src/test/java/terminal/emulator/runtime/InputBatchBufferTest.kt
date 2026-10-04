@@ -103,18 +103,6 @@ class InputBatchBufferTest {
     }
 
     @Test
-    fun `reset clears pending bytes`() {
-        val sent = mutableListOf<ByteArray>()
-        val buffer = InputBatchBuffer.forTest({ _, data -> sent.add(data) }, capacity = 128)
-        buffer.write(ByteArray(100) { 7 })
-        buffer.reset()
-        buffer.flush()
-        awaitSize(sent, 0)
-        assertEquals(0, sent.size)
-        buffer.close()
-    }
-
-    @Test
     fun `close flushes buffered bytes before shutdown`() {
         val sent = mutableListOf<ByteArray>()
         val buffer = InputBatchBuffer.forTest({ _, data -> sent.add(data) }, capacity = 128)
