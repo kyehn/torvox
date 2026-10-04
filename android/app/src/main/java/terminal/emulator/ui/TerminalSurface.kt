@@ -1248,9 +1248,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         }
 
-    /** 为真时显示搜索栏并隐藏工具栏——触摸应抵达终端 Surface，而不是在底部被排除。 */
-    var searchActive: Boolean = false
-
     private var cachedCellWidth: Float = FALLBACK_CELL_WIDTH
     private var cachedCellHeight: Float = FALLBACK_CELL_HEIGHT
 
@@ -2809,24 +2806,34 @@ internal fun menuAnchor(
     return null
 }
 
-/** 把落在宽字符后半部分的选区列向左吸附（snapToWideCharBoundary 的纯内核，已给定取回的整行；bridge/行缓存部分留在 Surface 中）。 */
-internal fun snapColToWideChar(line: String, col: Int): Int {
-    if (col <= 0) return col
-    var cellCount = 0
+/**
+ * 单元格列号 → 该列所属的字符下标；列落在行尾之后返回 -1。
+ * 宽字符占两格，故 [cellColumnStart] 的遍历规则是「单元格列 ↔ 字符下标」的唯一
+ * 定义处：`snapColToWideChar` 与 `isWhitespaceCell` 共用它，
+ * 免得两处各走一遍而对 CJK 行给出不同答案。
+ */
+private fun charIndexAtCellColumn(line: String, col: Int): Int {
+    var cell = 0
     var charIndex = 0
     while (charIndex < line.length) {
         val codePoint = line.codePointAt(charIndex)
         val charWidth = if (isWideCodePoint(codePoint)) 2 else 1
-        if (cellCount + charWidth > col) {
-            // col 落在该字符内部：仅当处于宽字符后半部分时回退
-            // ——前半部分与 ASCII 保持原位。
-            if (charWidth == 2 && col == cellCount + 1) return col - 1
-            return col
-        }
-        cellCount += charWidth
+        // 宽字符的后半格同样归属该字符——两列都必须命中同一个下标。
+        if (col < cell + charWidth) return charIndex
+        cell += charWidth
         charIndex += Character.charCount(codePoint)
     }
-    return col
+    return -1
+}
+
+/** 把落在宽字符后半部分的选区列向左吸附（snapToWideCharBoundary 的纯内核，已给定取回的整行；bridge/行缓存部分留在 Surface 中）。 */
+internal fun snapColToWideChar(line: String, col: Int): Int {
+    if (col <= 0) return col
+    val charIndex = charIndexAtCellColumn(line, col)
+    if (charIndex < 0) return col // 行尾之后：两侧同为 -1，不得据此左移
+    // 宽字符的后半格：其前一格属于同一字符，故同下标即为后半格。
+    // ASCII 与宽字符前半格的前一格属于别的字符，保持原位。
+    return if (charIndexAtCellColumn(line, col - 1) == charIndex) col - 1 else col
 }
 
 /**
@@ -2888,11 +2895,15 @@ internal fun clampSelection(
  * 或行尾之后的任何列。termux 的 getSelectedText(x,y,x,y) 对三者都返回 ""，
  * 故它们都归类为空白——原先的 `col < line.length` 合取条件把行尾各列归类为文本，
  * 并在那里弹出带 PASTE 的完整菜单（根因 A1）。纯函数；支撑 handleLongPress。
+ *
+ * [col] 是**单元格列号**而非字符下标：宽字符占两格，故须按码点累加宽度走，
+ * 与 [snapColToWideChar] 同源。直接取 `line[col]` 会让每个宽字符的后半格
+ * 越界读进下一个码点——中日韩行上长按选词恒退化为仅粘贴菜单。
  */
-internal fun isWhitespaceCell(line: String?, col: Int): Boolean = when {
-    line == null -> true
-    col >= line.length -> true
-    else -> line[col].isWhitespace()
+internal fun isWhitespaceCell(line: String?, col: Int): Boolean {
+    if (line == null) return true
+    val charIndex = charIndexAtCellColumn(line, col)
+    return charIndex < 0 || line[charIndex].isWhitespace()
 }
 
 /** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */

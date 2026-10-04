@@ -288,7 +288,6 @@ fun TerminalScreen(
                     },
                     onSearch = {
                         showTextSearch = true
-                        surfaceRef.value?.searchActive = true
                     },
                     onKeyboardToggle = toggleKeyboard,
                     onResetTerminal = { viewModel.resetActiveTerminal() },
@@ -350,7 +349,6 @@ fun TerminalScreen(
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
                 searchState = SearchState()
-                surfaceRef.value?.searchActive = false
                 // Surface 持有一个用于选区坐标计算的私有 scrollOffset；
                 // 切换时它必须跟随会话自身的偏移，
                 // 否则切换后的首个手势会算出错误的网格行。
@@ -859,7 +857,6 @@ fun TerminalScreen(
                                 searchState = SearchState()
                                 searchDebouncer.cancel()
                                 searchJob?.cancel()
-                                surfaceRef.value?.searchActive = false
                                 surfaceRef.value?.clearSearchHighlights()
                             },
                             caseSensitive = searchState.caseSensitive,

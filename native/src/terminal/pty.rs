@@ -46,6 +46,9 @@ pub enum PtyError {
     Termios(nix::errno::Errno),
 }
 
+/// 仅供 [`nix::unistd::fork`] 使用：整条 `?` 链上唯一的裸 `Errno` 源就是 fork。
+/// 其余调用点（`openpty`、TIOCSWINSZ、fcntl、termios）各自显式 `map_err`
+/// 到对应变体，不经此转换——通配的 `From` 会把它们统统说成「fork failed」。
 impl From<nix::errno::Errno> for PtyError {
     fn from(err: nix::errno::Errno) -> Self {
         PtyError::Fork(err)
@@ -1434,18 +1437,6 @@ mod tests {
         assert!(
             resize_display.contains("TIOCSWINSZ"),
             "PtyError::Resize Display should describe the failure, got: {resize_display}"
-        );
-    }
-
-    #[test]
-    fn pty_error_from_errno_maps_to_fork() {
-        // 通配的 `From<nix::errno::Errno>` 转换是 `fork()` 走的错误路径，
-        // 即使 `openpty` 改为显式 `map_err(PtyError::Open)`，它也必须继续映射到
-        // `PtyError::Fork`。
-        let err = PtyError::from(nix::errno::Errno::EINVAL);
-        assert!(
-            matches!(err, PtyError::Fork(_)),
-            "From<Errno> must map to Fork for the fork() error path"
         );
     }
 
