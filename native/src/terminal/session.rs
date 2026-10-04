@@ -566,7 +566,8 @@ impl Session {
     }
 
     /// 收割 VT 线程经上游回调上报的事件（剪贴板写入 / BEL 振铃）到队列/标志位。
-    /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
+    /// 拉取式：每帧重复调用，VT 线程尚未处理完时取到空、下帧再取（见
+    /// `harvest_vt_side_effects` 的说明——本路径不 flush）。
     fn drain_callback_events(&self) {
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             // FIFO 而非单槽：渲染暂停（pollEvent 停调）期间的连续写入必须全部保留，
