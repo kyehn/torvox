@@ -3226,10 +3226,10 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
             let len = array.len(env).unwrap_or(0);
             for font_index in 0..len {
-                if let Ok(item) = array.get_element(env, font_index) {
-                    if let Ok(text) = item.try_to_string(env) {
-                        path_list.push(std::path::PathBuf::from(text));
-                    }
+                if let Ok(item) = array.get_element(env, font_index)
+                    && let Ok(text) = item.try_to_string(env)
+                {
+                    path_list.push(std::path::PathBuf::from(text));
                 }
             }
             crate::render::font::font_db::set_extra_font_paths(path_list);
