@@ -25,6 +25,9 @@ private const val DRAWER_BUTTON_TIMEOUT_MS = 5_000L
 private const val BRIDGE_READY_TIMEOUT_MS = 30_000L
 private const val BRIDGE_POLL_INTERVAL_MS = 200L
 private const val DRAWER_VISIBLE_TIMEOUT_MS = 10_000L
+private const val NOT_RESPONDING_DIALOG_WAIT_ID = "android:id/aerr_wait"
+private const val NOT_RESPONDING_DIALOG_CLOSE_ID = "android:id/aerr_close"
+private const val DIALOG_DISMISS_SETTLE_MS = 500L
 
 // ── Data model ──────────────────────────────────────
 
@@ -56,6 +59,10 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
     // and a pending request dialog is dismissed once the permission is
     // granted underneath it.
     grantNotificationPermission()
+    // 系统「无响应」对话框同理：它盖住整个窗口，UiAutomator 只看得见最顶层窗口，
+    // 于是按节点查找的用例全报「抽屉按钮必须存在」。软件渲染的模拟器被应用渲染压满
+    // 时会弹它——先按「等待」关掉再断言。
+    dismissNotRespondingDialog()
     // Use the standard assertion approach (same as search steps) instead of
     // allNodes + fetchSemanticsNodes, which may fail in merged-tree scenarios
     waitUntil(timeoutMillis = timeoutMs) {
@@ -68,6 +75,24 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
             false
         }
     }
+}
+
+/**
+ * 关掉系统「应用无响应」对话框（点「等待」）。
+ *
+ * 该对话框是系统级模态窗口：它一旦出现，UiAutomator 只能看到它，`By.desc(...)` /
+ * `By.text(...)` 全部查不到应用节点，于是与产品无关的用例成片报「抽屉按钮必须存在」。
+ * 软件渲染（swiftshader）的模拟器被应用渲染压满时必然触发——本地全量套件实测如此：
+ * 同批用例单跑全过、全量跑成片红。没有对话框时本函数为空操作。
+ */
+fun dismissNotRespondingDialog() {
+    val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    val dialogButton =
+        device.findObject(By.res(NOT_RESPONDING_DIALOG_WAIT_ID))
+            ?: device.findObject(By.res(NOT_RESPONDING_DIALOG_CLOSE_ID))
+            ?: return
+    runCatchingCancellable { dialogButton.click() }
+    Thread.sleep(DIALOG_DISMISS_SETTLE_MS)
 }
 
 fun grantNotificationPermission() {
