@@ -125,7 +125,11 @@
 - [ ] N1-25 粘滞 SCROLL 的产品语义（「再按一次解除」还是「任意输入解除」）
 - [ ] N2-48 `bracketedPaste = false` 硬编码，`\e[200~` 从不发出 ——
       是否在本仓范围内实现 bracketed paste
-- [ ] P1-4 / D12 被删的输入法跟随测试是否恢复
+- [x] P1-4 / D12 被删的输入法跟随测试是否恢复 —— R29 裁定不恢复旧文件：
+      被删的 `ImeLayoutStabilityTest`（366 行）意图（弹出位移/无闪烁/裁剪口径）现由
+      `ImePopupPixelInstrumentedTest`（contentFew/contentMany/中文提交，本轮实测
+      2/3 通过、剩余 1 例为 AVD 环境所限）与 `ComputeImeSurfaceShiftTest` 覆盖；
+      恢复旧文件等于重复锁定同一行为
 - [ ] D13（N2-44）DESIGN:153「内容横向溢出到右侧时左右键平移可见区域」的触发
       条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：是给规范
       补一句现状说明，还是删掉该条要求
