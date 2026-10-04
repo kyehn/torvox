@@ -151,7 +151,7 @@
 
 ## 6. 已否证（回读源码确认不成立，记录依据以免重复排查）
 
-- [x] 目录 `FLAG_SUPPORTS_DELETE` 与实现不符 —— `deleteWithoutFollowingSymlinks`
+- [x] 目录 `FLAG_DIR_SUPPORTS_DELETE` 与实现不符 —— `deleteWithoutFollowingSymlinks`
       先序收目录、逆序删除，目录删除确已实现
 - [x] `RenderWatchDog.stop()` 阻塞化 —— 现为非阻塞（`job.cancel()` + `fireLock` 互斥）
 - [x] 选区行钳位用错坐标系 —— 已改绝对空间，与 `cachedScrollbackLength` 同源
@@ -175,9 +175,121 @@
       而 VT 侧 `set_mode` 对 40 是空分支（上游 `stream_terminal.zig:717`），本仓与
       `libghostty-vt` 绑定均未调用 `setDeccolmSupported`；网格行列的唯一写者是
       `Session::resize`，而渲染帧读的正是它写的 `grid_size()`，两者恒等
+- [x] `SelectionBounds` / `clampSelection` 生产零调用 —— **本轮否证**：
+      `TerminalViewModel.dragSelection:478` 在拖动结果抵达原生 `setSelection`
+      之前调用它做保序 + 钳位，两者都是活的
+- [x] `acceptsDragPointer` 生产零调用 —— **本轮否证**：其规则此前被内联复制在
+      `TerminalSurface.onTouchEvent` 的 ACTION_MOVE 分支；本轮改为直接调用该函数，
+      消掉重复实现
 
-## 7. 文档退役
+## 7. （code-review-skill 复审）：本轮新增并已修
 
-- [x] 7.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
-- [x] 7.2 删除 `docs/REVIEW*.md` 全部 12 个文件
-- [x] 7.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
+依据 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 的
+`code-quality-universal` / `common-bugs-checklist` 逐文件复审，全部经回读源码确认。
+
+- [x] **（严重）** `jni_export_guard!` 的失败值形参从未被宏体使用，实际返回
+      恒为 `T::default()`：`render` / `renderWithNewOutput` 声明的 `-1` 变成 `0`，
+      而 `0` 在 Kotlin 侧意为「空闲帧」，panic 被伪装成一帧无输出。
+      本轮改为自实现 `ErrorPolicy`（`ThrowRuntimeExAndFailure`）真正返回调用点声明的失败值
+- [x] **（严重）** `renderWithNewOutput` 的采样段在守卫之外调用
+      `render_state_mut()`；`render_inner` 刚 panic（GPU 初始化失败）即在此二次 panic，
+      越过 `extern "system"` 边界 abort 进程。已并入守卫
+- [x] **** `EventQueue::push` 溢出告警记录的是队首而非真正被淘汰的事件，
+      而队首常是不可淘汰的 `Exit`/`ClipboardRead` —— 丢失剪贴板被报成从不丢弃的退出事件
+- [x] **** `attachWindow` 丢弃 `ANativeWindow_setBuffersGeometry` 的返回码，
+      且传给它的尺寸与 `attach_surface` 收到的钳位尺寸不是同一组
+- [x] **** `attach_surface` 先建新 surface 再丢弃旧的，与其自身注释声明的
+      顺序要求相反（注释记的是模拟器实测的黑屏根因）
+- [x] **** `copy_sub_rect` 在像素缓冲越界时静默 `break`，
+      图集留半截黑条且无任何日志
+- [x] **** `clipboardResult` 的 JNI 字符串解码失败回落到 `""`，被当作用户剪贴板
+      为空写回 PTY，远端 tmux/ssh 粘出空白（§1 N1-9 的原生侧孪生点）
+- [x] **** `switchSession` 的会话恢复块挂在 `try { target.running = true }`
+      上——赋 volatile 字段不抛异常，该 `catch` 不可达；真正会失败的
+      `startRenderThread` 反而无恢复，前一个会话永久留在无渲染线程的冻结态。
+      已把恢复块移到该 `catch`
+- [x] **** `TerminalRuntime` 残留 `android.util.Log.w("DbgRecreate", …)`，
+      `${'$'}` 转义使插值失效、打印字面量，且不经 `LogUtil` 不受 DEBUG 门控随 release 发布
+- [x] **** IME `commitText` 以「文本相等且 80ms 内」丢弃重复提交并返回 `true`，
+      吞掉快速连打同一字符；该守卫只在 `composingBuffer` 为空时生效，
+      而组字重复本就由 `composingBuffer` 相等检查处理，故它只可能吞合法输入
+- [x] **** 主字体为空时回落 `allFonts.first()`（字体库枚举顺序，与 DESIGN 要求的
+      fonts.xml monospace 家族无关）；`.orEmpty()` 使原生失败也触发该任意回落
+- [x] **** `FontInfoDto.placeholderJson` 合成 `cjkState="none"`、`0×0` 单元格、
+      `0sp` 的**有效** JSON，被 `SettingsScreen` 当实测值渲染（DESIGN 字体信息框要求实际值）
+- [x] **** `SettingsRepository.DEFAULT_FONT_SIZE`（14sp）与
+      `defaultFontSizeFor()`（14–24sp 自适应）分叉，`appliedFontSizeSp()` 在首次推送前
+      报 14sp —— 该类 `:103` 已记过一次同类分叉，此处在一层之下复现
+- [x] **** `openDocument` 不校验存在性，含 `MODE_CREATE` 的模式
+      （`w`/`rw`/`rws`/`rwd`）可经一份 SAF 授权在家目录凭空造文件，
+      含 shell 会 source 的 `.mkshrc` 等点文件，绕过 `createDocument` 的创建契约
+- [x] **** zip 滑移防护只对原始字符串判前缀，而 `File("foo/..").path` 仍是
+      `foo/..`，四个条件一个都不命中 → 该条目被当作普通文件写出，目标其实是 staging 目录本身。
+      三处（zip 条目名 / `EXECUTABLES.txt` / `SYMLINKS.txt`）改共用一个先消解点段的判定
+- [x] **** `DocumentQueries.resolveLinkEntry` 用词法 `Path.normalize()` 判根内包含性，
+      既不消解 `..`，也与既有的 `isHomeLink` 重复；且 `rootDir()` 交出词法路径形式时
+      `encodeDocId` 的规范前缀剥离失效，`~` 下每个符号链接都退化成不可打开的幻影条目
+- [x] **** `loadFonts()` 无重入门闩：会话状态在字体列表就绪前连续多次发射，
+      每次都并发启动一个 `loadFonts`，交错写 `setExtraFontPaths` / `setFontFamily`
+- [x] **** `resolveThemeName()` 对同一 `preferences_pb` 做 5 次独立读取与解析
+- [x] **（死代码）** Rust：`GpuError::Shader` / `Buffer`、`Session::exit_code_now`、
+      `Pty::foreground_pid`、`Pty::wait` / `PtyPair::wait`、`impl io::Read/Write for PtyPair`
+- [x] **（死代码）** Kotlin：`isCellEmpty` 整条链（4 个声明 + 1 个 JNI 导出 +
+      其仪器化测试）、`ClipboardPaster`（与 `PasteHelper.executePaste` 同形的重复实现，
+      中键粘贴还不关选区菜单）、`ConfigurableModifierBar` 纯转发壳、`ModifierBar` 的
+      `isActive`/`widthWeight`/`secondaryLabel`/`ToolbarKey.modifier`、
+      `TerminalSurface` 的 `codePointCount`/`lastImeBottom`/`resizeDebounceRunnable`、
+      `SearchDebouncer.flush`、`InputBatchBuffer.reset`、`BootstrapOrchestrator.processLock`、
+      `TerminalApp` 只写不读的 `anrWatchDog`/`thermalMonitor`、`FontUtils` 的 Context 重载、
+      `TextWidth` 的 `isWideChar`/`charCellWidth`/`charIndexToCellColumn`
+- [x] **** `log::trace!` 在唯一发布平台上恒不可达
+      （`logging.rs` 门限为 `Debug`，`Level::Trace > Level::Debug`）——
+      **本轮否证为「不改」**：`cell_builder.rs:452` 的注释说明该行选 trace 是为免淹没
+      logcat，门限下调会把噪声放回来。5 处调用点与门限保持现状，仅记录该矛盾
+
+## 8. ：新增待办
+
+- [ ] **R16-T1（需裁决）** 多击选择与规范冲突：`TerminalSurface` 完整实现双击/三击/四击
+      （选词/选行/全选，`multiTapAction` + `nextTapCount` + 刻意置空的
+      `setOnDoubleTapListener`），而 `DESIGN.md:177` 明文「不得支持 双击 三击 多击选择」；
+      低置信度的 `openspec/specs/text-selection/spec.md:30` 要求相反。
+      按 AGENTS.md 的优先级以 `docs/specification/` 为准，但删掉多击会移除已落地的功能，
+      故不擅自动手，请裁决改哪一边
+- [ ] **R16-T2（不稳定测试）** `bench_gpu_buffer_upload_throughput`（阈值 350 MB/s）与
+      `bench_bulk_output_throughput`（阈值 4000 cells/s）是墙钟吞吐断言，
+      536 个测试并行时在共享机器上必然跌破（实测 195 MB/s / 3295 cells/s），
+      单独运行恒通过；`sgr_tricolor_mocha_reaches_foreground` 同样只在满载时偶发失败。
+      与 TESTING.md「没有不稳定的测试」冲突，但降低阈值即弱化断言，需裁决：
+      移入 `cargo bench` 门禁（`scripts/check-rust.nu` 已有 bench 环节）还是串行化执行
+- [ ] **R16-T3** 会话锁跨阻塞 PTY 写入：`writeToPty` 持 `session` 锁调
+      `Pty::write_all`，该函数最多等可写 5s（`WRITE_DRAIN_TIMEOUT`）；
+      同一把锁每帧被 `render_inner` 与 `pollEvent` 取得，
+      故向不读 stdin 的子进程粘贴会冻结渲染与输入最长 5s。
+      `Session::drain_pty_write_back` 同形（`pollEvent` 在渲染线程上持锁调它）。
+      修法需把 PTY 主端 fd 移出会话或改非阻塞应答，属结构性改动，未擅自动手
+- [ ] **R16-T4** `pollEvent` 持全局注册表**读**锁遍历全部会话的逐帧工作；
+      一个慢会话会把上条的 5s 放大成全局停顿，且 `setScrollOffset` 需要写锁会被饿死。
+      改为「读锁内收集 `(id, Arc<Mutex<Session>>)` 后释放再逐个处理」是显然修法，
+      但须先落地 R16-T3
+- [ ] **R16-T5** 网格尺寸在**入队时**发布：`GhosttyTerminal::resize` 只表示命令已入队，
+      `render_inner` 却拿已前移的 `terminal_rows/cols` 配 VT 线程尚未应用 resize 时产出的
+      `CellData`；网格收缩时 `build_row_ranges` 返回 `None`，
+      于是 `render_cell_data` 报 `CellData conversion failed` 且该帧被丢弃（IME 弹出/旋转必现）。
+      修法是随 `CursorInfo` 带上该帧的 rows/cols 而非用原子缓存
+- [ ] **R16-T6** 「清除应用数据」（`TerminalViewModel.clearAppData`）未与在途设置写入排序：
+      `SettingsRepository` 的写协程有 300ms 防抖且 `replay = 1`，
+      用户在改 Bootstrap URL 后 300ms 内点清除，`put` 会在删除之后重建 `preferences_pb`，
+      清除静默不生效；`latestBootstrapUrlEdit()` 的 replay 缓存也继续返回已清除的 URL
+- [ ] **R16-T7** 字体列表未按 DESIGN「只在实际显示字体列表时获取」加载：
+      `loadFonts()` 是会话状态发射的副作用，且列表缓存在 ViewModel
+      （随 Activity 消亡）而非进程。修法需把「应用已存字体到 bridge」与「列举字体列表」
+      拆开，前者留在会话启动，后者移到字体列表 UI 的 `LaunchedEffect`
+- [ ] **R16-T8** `MainActivity.requestPermissions(arrayOf(POST_NOTIFICATIONS), 1)` 用裸平台 API
+      与魔数请求码，且不观察结果；应换 AndroidX `registerForActivityResult(
+      ActivityResultContracts.RequestPermission())`
+
+## 9. 文档退役
+
+- [x] 9.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
+- [x] 9.2 删除 `docs/REVIEW*.md` 全部 12 个文件
+- [x] 9.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
