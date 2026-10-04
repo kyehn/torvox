@@ -129,7 +129,7 @@ impl ReadScan {
                 if byte == b';' {
                     self.buf.push(byte);
                     self.state = ReadState::Question;
-                } else if byte == 0x07 || byte == 0x1B || self.buf.len() >= MAX_SCAN_BYTES {
+                } else if byte == 0x07 || byte == 0x1B {
                     self.drain(&mut snapshot.filtered);
                     if byte == 0x1B {
                         self.buf.push(byte);
@@ -137,6 +137,14 @@ impl ReadScan {
                     } else {
                         snapshot.filtered.push(byte);
                     }
+                } else if self.buf.len() >= MAX_SCAN_BYTES {
+                    // 选择器名超上限：序列原样透传给上游，本仓不再应答。
+                    // 必须出声——否则远端只看到「粘贴没反应」，无从定位。
+                    log::warn!(
+                        "osc52: selection name exceeds {MAX_SCAN_BYTES} bytes, read request passed through unanswered"
+                    );
+                    self.drain(&mut snapshot.filtered);
+                    snapshot.filtered.push(byte);
                 } else {
                     self.buf.push(byte);
                 }
@@ -285,6 +293,19 @@ mod tests {
         let snapshot = processor.process(input);
         assert!(snapshot.clipboard_read.is_none());
         assert_eq!(snapshot.filtered, input);
+    }
+
+    #[test]
+    fn osc52_oversized_selection_passes_through_unanswered() {
+        // 选择器名超上限：整段序列必须原样透传给上游（不吞字节），
+        // 但本仓不产生读取请求——远端的粘贴得不到应答。
+        let mut processor = OutputProcessor::new();
+        let mut input = Vec::from(&b"\x1b]52;"[..]);
+        input.extend(std::iter::repeat_n(b'x', MAX_SCAN_BYTES + 8));
+        input.extend_from_slice(b";?\x07");
+        let snapshot = processor.process(&input);
+        assert!(snapshot.clipboard_read.is_none());
+        assert_eq!(snapshot.filtered, input, "超限序列必须整段透传，不得丢字节");
     }
 
     #[test]

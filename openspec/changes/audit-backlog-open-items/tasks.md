@@ -24,7 +24,10 @@
       Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）——
       本轮已修：JNI 增 `modifiers`（上游 `key.Mods` 原始位），编码器 `set_mods`，
       Kotlin 侧由 `KeyModifiers.ghosttyMods(metaState)` 换算，并有编码差异回归测试
-- [ ] N2-44DESIGN:152 要求的修饰键栏左右移动可见区域完全未实现
+- [ ] N2-44DESIGN:153 要求的修饰键栏左右移动可见区域未实现 —— 触发
+      条件在本仓不存在：网格列数是 `floor(surfaceWidth / cellWidth)`，内容恒不
+      横向溢出（`computeGridDimensions`），左右键因而必须继续把箭头序列发给远端；
+      是否为规范补一句「内容永不溢出故无需平移」由用户裁决（D13）
 
 ## 2. 中危：资源与契约
 
@@ -44,14 +47,20 @@
 - [ ] N2-37`kgp_atlas_data` 是 KGP 图集的永久 CPU 全量副本且从不读取，
       64MiB 预算下等于内存翻倍
 - [ ] N2-42生产代码读 `System.getProperty("test.minSurface"/"test.bootstrapUrl")`
-- [ ] N2-68`Session::drop` 可阻塞 JNI 调用方约 1.1s
+- [x] N2-68`Session::drop` 可阻塞 JNI 调用方约 1.1s —— **本轮否证**：
+      `Drop` 只做 `request_exit` + 两次 `join_with_timeout(TRAILING_EXIT_GRACE)`，
+      宽限期 50ms（`session.rs:23`），上界 ~100ms；子进程收尾已由 N1-32 提前
+      投递 `request_exit`，不再等自然退出
 - [ ] N2-6 / N2-40fork 子进程 `setsid`/`TIOCSCTTY` 失败裸 `_exit(2/3)`，
       不写 fd 2，用户只见 `[Process completed (code 3)]`（违反 DESIGN:16/194）
 - [ ] N2-8 / N2-11`focus_event` 持 session 锁做 50ms RPC；
       `Event::Clipboard` 载荷无上限
-- [ ] N2-9 / N2-10`ClipboardRead` 被满队列淘汰，子应用收到**空剪贴板**
-      而非自己的答案，且该 RPC 永不重发
-- [ ] N2-12`MAX_SCAN_BYTES` 超限静默丢弃 OSC 52 请求
+- [x] N2-9 / N2-10`ClipboardRead` 被满队列淘汰 —— 本轮已修：
+      `EventQueue::push` 优先淘汰可淘汰事件，`ClipboardRead` 不在其中
+      （`push_never_evicts_clipboard_read` 两例护栏）；配合 OSC 52 读取失败不再
+      回空串（N1-9），远端不会再粘出空白
+- [x] N2-12`MAX_SCAN_BYTES` 超限静默丢弃 OSC 52 请求 —— 本轮已修：
+      超限时整段原样透传给上游（不吞字节）并记 warning，选择器名超限不再无声
 - [ ] 吞错批次 N2-1～N2-4、N2-5～N2-7、N2-10～N2-14：字体 JNI 失败仍返回字族名、
       高亮包格式错误使上一帧高亮永留屏、`ensure_frame_texture` 错误被丢弃、
       搜索 JSON 解码失败冒充 0 匹配、`InputBatchBuffer` 空 catch 丢击键、
@@ -89,6 +98,14 @@
 - [ ] N2-48 `bracketedPaste = false` 硬编码，`\e[200~` 从不发出 ——
       是否在本仓范围内实现 bracketed paste
 - [ ] P1-4 / D12 被删的输入法跟随测试是否恢复
+- [ ] D13（N2-44）DESIGN:153「内容横向溢出到右侧时左右键平移可见区域」的触发
+      条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：是给规范
+      补一句现状说明，还是删掉该条要求
+- [ ] D14（N9/N2-23）`themes.xml` 的窗口/状态栏/导航栏底色硬编码 `#1E1E2E` 且无
+      `values-night/`：应用内配色由 Compose 按「日间/夜间/跟随系统」解析（正确），
+      只有系统窗口与启动屏是夜色的。修法二选一——运行时按已解析配色设置系统栏，
+      或加 `values-night` 资源限定符（后者跟随系统而非应用设置）。两者都要动
+      `res/` 或窗口代码，需确认取哪条
 
 ## 5. 需授权（修复必然改动保护文件）
 
