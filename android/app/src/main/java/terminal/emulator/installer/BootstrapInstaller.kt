@@ -178,7 +178,9 @@ class BootstrapInstaller(
             // Zip 滑移防护：拒绝绝对路径与任何 ".." 段，
             // 使恶意/被篡改的引导归档无法写入 staging 目录之外
             // （例如覆盖 prefs/logs）。
-            if (escapesStagingDir(name)) {
+            // 消解后为空表示条目指向 staging 根：目录条目（`./`）只是无害空操作，
+            // 但作为普通文件写出时目标其实是 staging 目录自身，必须拒绝。
+            if (escapesStagingDir(name) || (!entry.isDirectory && normalizePath(name).isEmpty())) {
                 throw java.io.IOException("Unsafe zip entry name: $name")
             }
             if (name == "SYMLINKS.txt") {
@@ -272,12 +274,12 @@ class BootstrapInstaller(
      * 必须真正消解 `.`/`..` 段后再看结果。此前只对原始字符串判前缀，而
      * `File("foo/..").path` 仍是 `foo/..`，四个前缀条件一个都不命中——
      * 该条目随后被当作普通文件写出，目标其实是 staging 目录自身。
-     * 消解后为空串同样非法：那意味着条目解析回 staging 根。
+     * 解析回 staging 根（消解后为空）由调用方按条目种类单独判定，见 zip 条目处。
      */
     internal fun escapesStagingDir(path: String): Boolean {
         if (path.startsWith("/")) return true
         val normalized = normalizePath(path)
-        return normalized.isEmpty() || normalized == ".." || normalized.startsWith("../")
+        return normalized == ".." || normalized.startsWith("../")
     }
 
     internal fun parseSymlinks(content: String): List<Pair<String, String>> = content
