@@ -1555,9 +1555,13 @@ fn render_inner(session_id: u64) -> jint {
         // 它是发往 VT 线程的同步 RPC，VT 线程繁忙时会把渲染线程阻塞最多 500ms。
         // 回滚长度搭载在经单元数据通道传递的 `CursorInfo` 上
         // （见 `push_cell_data` → `CursorInfo.scrollback_length`）。
+        // 网格行列同理：`session.grid_size()` 在 resize 入队时提前发布，
+        // VT 尚未应用新网格时与本帧 CellData 不是同一套尺寸；
+        // `CursorInfo.rows/cols` 是产出本帧时的真实网格，与单元数据同源。
         match session.terminal().receive_cell_data() {
             Some((cells, cursor_info)) => {
-                let (rows, cols) = session.grid_size();
+                let rows = cursor_info.rows;
+                let cols = cursor_info.cols;
                 FrameData::New {
                     cells,
                     cursor_info,
@@ -3078,12 +3082,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                 // 提前返回会留下「新管线已装、旧实例缓存仍在、且没请求新帧」的三重不一致。
                 render_state.renderer.cell_cache = None;
                 render_state.dirty.store(true, Ordering::Relaxed);
-                if let Err(apply_error) = render_state.font_pipeline.set_font_family(&family) {
+                if !render_state.font_pipeline.set_font_family(&family) {
                     // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
                     // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
-                    log::error!(
-                        "loadFontFile: cannot apply family {family:?} from {path_str}: {apply_error}"
-                    );
+                    log::error!("loadFontFile: cannot apply family {family:?} from {path_str}");
                     return Ok(std::ptr::null_mut());
                 }
             }
@@ -3388,6 +3390,8 @@ mod rendered_cursor_tests {
             visible,
             style: CursorStyle::Block,
             scrollback_length: 0,
+            rows: 24,
+            cols: 80,
             kitty_generation: 0,
         }
     }

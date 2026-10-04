@@ -58,6 +58,8 @@ pub enum GpuError {
     DeviceRequest(String),
     #[error("surface creation failed: {0}")]
     Surface(String),
+    /// 仅测试回读脚手架（`render_to_buffer`）构造，生产路径不产生。
+    #[cfg(test)]
     #[error("buffer readback failed: {0}")]
     Readback(String),
 }

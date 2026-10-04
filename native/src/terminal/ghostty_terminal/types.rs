@@ -52,6 +52,11 @@ pub struct CursorInfo {
     pub style: CursorStyle,
     /// 回滚长度：搭载在单元格数据通道上，渲染线程无需同步 `scrollback_length()` RPC。
     pub scrollback_length: u32,
+    /// 产出本帧时 VT 网格的真实行列：与 CellData 同源，渲染线程不得再读会话侧
+    /// `terminal_rows/cols` 原子缓存——后者在 resize 入队时提前发布，
+    /// VT 尚未应用新网格时两者不一致，收缩帧会被 `build_row_ranges` 判空丢弃。
+    pub rows: u32,
+    pub cols: u32,
     /// Kitty 图像存储生成戳（上游 `Graphics::generation`；0 = 从未写入）。
     /// 生成戳不变时放置集合与图像像素相同，渲染线程跳过放置查询；
     /// 滚动/缩放仍需重算几何（上游语义），由滚动长度与网格尺寸门控。
