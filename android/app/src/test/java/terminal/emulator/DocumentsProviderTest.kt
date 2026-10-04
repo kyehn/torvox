@@ -305,6 +305,25 @@ class DocumentsProviderTest {
         }
     }
 
+    /**
+     * 跑空全部 Looper 队列直到 [expected] 里的通知全部到达。
+     *
+     * 写回通知跨两条队列：OnCloseListener 由写回线程 post（不占主 Looper），
+     * `notifyChange` 再经主 Looper 派发给 observer。`getAllLoopers()` 的顺序不保证，
+     * 主 Looper 一旦排在写回线程之前被 idle，写回线程随后投进主队列的通知就
+     * 没人跑——单遍扫描只是对调度顺序的假设，整类并行跑时必现。
+     * 每轮重取全部 Looper 再 idle，直到到齐；投递是同步的，故无需真实时间等待，
+     * 上限只防「通知根本不发」时无限空转（那仍由下方断言大声失败）。
+     */
+    private fun idleLoopersUntilNotified(notified: Set<String>, expected: List<String>, maxRounds: Int = 8) {
+        repeat(maxRounds) {
+            if (expected.all { label -> notified.contains(label) }) return
+            org.robolectric.shadows.ShadowLooper.getAllLoopers().forEach { looper ->
+                org.robolectric.Shadows.shadowOf(looper).idle()
+            }
+        }
+    }
+
     @Test
     fun openDocument_unknown_mode_throws() {
         val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
@@ -343,9 +362,7 @@ class DocumentsProviderTest {
             // OnCloseListener 是 post 出去的回调（写回专用线程，不占主 Looper），
             // Robolectric 默认暂停 looper，必须显式跑空队列它才会执行；
             // 断言只认「回调跑过并发了通知」，不绑死具体线程。
-            for (looper in org.robolectric.shadows.ShadowLooper.getAllLoopers()) {
-                org.robolectric.Shadows.shadowOf(looper).idle()
-            }
+            idleLoopersUntilNotified(notified, listOf("document", "children"))
             assertEquals("written", java.io.File(rootDir(), "watched.txt").readText())
             assertTrue(
                 "external write-back must notify the document, got $notified",
@@ -639,6 +656,27 @@ class DocumentsProviderTest {
             emptyList<String>(),
             java.io.File(rootDir(), "ctree/sub").list()?.toList() ?: emptyList<String>(),
         )
+    }
+
+    /**
+     * 符号链接复制进**其解析目标**的子目录必须放行：copyTreeInto 遇链接只复制
+     * inode 自身、不展开目标树，故不存在 a/b/a/b/… 打转；按 canonical 路径比对
+     * 反而把这条正常操作误判成「复制进自己的子孙」。
+     */
+    @Test
+    fun copyDocument_symlink_into_its_own_target_subtree_is_allowed() {
+        val provider = ensureProvider()
+        val tree = java.io.File(rootDir(), "symtree").apply { mkdirs() }
+        java.io.File(tree, "sub").mkdirs()
+        createSymlink("symlink", tree)
+        val newId = provider.copyDocument("symlink", "symtree/sub")
+        assertEquals("symtree/sub/symlink", newId)
+        val copied = java.io.File(rootDir(), newId)
+        assertTrue(
+            "copied entry must stay a symlink, not an expanded directory tree",
+            java.nio.file.Files.isSymbolicLink(copied.toPath()),
+        )
+        assertEquals(tree.canonicalPath, copied.canonicalPath)
     }
 
     @Test
