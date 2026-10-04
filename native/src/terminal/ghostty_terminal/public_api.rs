@@ -545,13 +545,13 @@ impl super::GhosttyTerminal {
         )
     }
 
-    /// 网格列 → 该列所属字符的起始列（宽字符尾格左移一格）。
-    /// 查询失败时返回 `col` 本身：保持原列而非猜测。
-    pub fn cell_char_start_col(&self, row: u32, col: u32) -> u32 {
+    /// 该行中作为宽字符后半格的列号，升序。查询失败时为空 vec（等价于无吸附）：
+    /// 保持原列，不猜。
+    pub fn wide_char_tail_cols(&self, row: u32) -> Vec<u32> {
         self.query(
-            |tx| Query::CellCharStartCol { row, col, tx },
-            col,
-            "cell_char_start_col",
+            |tx| Query::WideCharTailCols { row, tx },
+            Vec::new(),
+            "wide_char_tail_cols",
         )
     }
 

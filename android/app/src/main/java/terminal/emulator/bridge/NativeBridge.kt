@@ -197,10 +197,9 @@ object NativeBridge {
     @JvmStatic external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
 
     /**
-     * 网格列 → 该列所属字符的起始列：宽字符尾格左移一格，其余原样返回。
-     * 会话不存在或查询失败时返回传入的 [col]，不猜。
+     * 该行中作为宽字符后半格（`SpacerTail`）的列号，升序；无宽字符或查询失败时为空数组。
      */
-    @JvmStatic external fun cellCharStartCol(sessionId: Long, row: Int, col: Int): Int
+    @JvmStatic external fun wideCharTailCols(sessionId: Long, row: Int): IntArray
 
     /**
      * 搜索整个回滚缓冲，返回 `{"row":int,"start_col":int,"end_col":int}` 的 JSON 数组

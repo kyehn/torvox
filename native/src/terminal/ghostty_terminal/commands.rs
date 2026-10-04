@@ -102,13 +102,13 @@ pub enum Query {
         col: u32,
         tx: Sender<Option<String>>,
     },
-    /// 网格列 → 该列所属字符的起始列：宽字符尾格（SpacerTail）左移一格，其余原样返回。
-    /// 宽字符占几列只有网格知道——行文本里尾格与真空白同为 `' '`，故吸附判定不可
-    /// 由行文本反推（见 design 第 1 节）。
-    CellCharStartCol {
+    /// 该行中作为宽字符后半格（SpacerTail）的列号，升序。宽字符占几列只有网格知道
+    /// ——行文本里尾格与真空白同为 `' '`，故吸附判定不可由行文本反推（见 design 第 1 节）。
+    /// 一次取整行而非逐列查询：手柄拖动的每个 MOVE 都要吸附，逐列 RPC 会把发往 VT
+    /// 线程的同步查询压到每个触摸帧上。
+    WideCharTailCols {
         row: u32,
-        col: u32,
-        tx: Sender<u32>,
+        tx: Sender<Vec<u32>>,
     },
     SearchInScrollbackAll {
         query: String,

@@ -91,29 +91,41 @@ fn read_line_text_index_equals_grid_column_for_wide_chars() {
 }
 
 #[test]
-fn cell_char_start_col_snaps_wide_char_tail_left() {
+fn wide_char_tail_cols_marks_only_trailing_halves() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write("中文AB".as_bytes());
     terminal_under_test.flush();
-    // 起始格与窄字符原样返回。
-    assert_eq!(terminal_under_test.cell_char_start_col(0, 0), 0);
-    assert_eq!(terminal_under_test.cell_char_start_col(0, 4), 4);
-    assert_eq!(terminal_under_test.cell_char_start_col(0, 5), 5);
-    // 两个宽字符的尾格各自吸附到自己的起始列（行内第二个宽字符不被吸到更左的列）。
-    assert_eq!(terminal_under_test.cell_char_start_col(0, 1), 0);
-    assert_eq!(terminal_under_test.cell_char_start_col(0, 3), 2);
+    // 「中」占列 0..1、「文」占列 2..3：两个尾格都被标出，窄字符与起始格不标。
+    assert_eq!(terminal_under_test.wide_char_tail_cols(0), vec![1, 3]);
 }
 
-/// 软换行续行的行首是 `SpacerHead`：其前一列属于折行前的上一行，吸附不得跨行。
+/// 纯 ASCII 行没有尾格（无吸附），行文本的列映射因而与字符下标一致。
 #[test]
-fn cell_char_start_col_keeps_wrapped_row_head() {
-    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    terminal_under_test.vt_write(b"0123456789ABCDE");
+fn wide_char_tail_cols_is_empty_for_narrow_text() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello");
     terminal_under_test.flush();
-    assert_eq!(
-        terminal_under_test.cell_char_start_col(1, 0),
-        0,
-        "续行行首不得左移越过折行边界"
+    assert!(terminal_under_test.wide_char_tail_cols(0).is_empty());
+}
+
+/// 软换行续行的行首是 `SpacerHead`：它不是尾格，不得被标出——其前一列属于折行前
+/// 的上一行，把它当尾格会把选区跨过折行边界。
+#[test]
+fn wide_char_tail_cols_ignores_wrapped_row_head() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write("0123456789中".as_bytes());
+    terminal_under_test.flush();
+    // 10 列宽：首行是「0123456789」，宽字符折到续行的第 0..1 列。
+    let first_row_tails = terminal_under_test.wide_char_tail_cols(0);
+    let continuation_row_tails = terminal_under_test.wide_char_tail_cols(1);
+    assert!(first_row_tails.is_empty(), "首行全窄字符，不应有尾格");
+    assert!(
+        !continuation_row_tails.contains(&0),
+        "续行行首不得被当作尾格（会把选区吸过折行边界）"
+    );
+    assert!(
+        continuation_row_tails.contains(&1),
+        "续行里的宽字符尾格仍须标出"
     );
 }
 
