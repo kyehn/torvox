@@ -32,11 +32,13 @@ import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.bridge.createBridge
+import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -175,9 +177,12 @@ internal data class SessionEntry(
     // 永久阻塞了真正的渲染线程）。由渲染循环的唤醒门控消费。
     @Volatile var vsyncRequested: Boolean = false
 
-    @Volatile var lastRenderStart: Long = 0L
-
-    @Volatile var lastRenderDone: Long = 0L
+    /**
+     * 一帧的起止时刻（纳秒）：渲染线程是唯一写者，看门狗是读者。
+     * 两个独立 `@Volatile` 会被跨帧混读，伪造出 `start > done`（R25-T2）。
+     * 整条记录单次发布，读者拿到的必定是同一帧的起止。
+     */
+    @Volatile var frameMarks: FrameMarks = FrameMarks()
 
     @Volatile var renderWatchDog: RenderWatchDog? = null
 
@@ -230,12 +235,11 @@ internal data class SessionEntry(
      * 换视图预算：已请求次数、上次请求时刻（纳秒）与「上限已告警」标志。
      *
      * 三项是一条逻辑记录，由渲染线程与 `surfaceTransitionExecutor` 线程各自成组读写。
-     * 放进同一个 `@Volatile` 持有者，买到的是**一致读**：`attempts` 与 `lastRequestNanos`
-     * 必定来自同一次递增，不会出现「第 N 次的时刻配第 N+1 次的次数」。
-     * 注意读-改-写本身仍是跨线程的（`maybeRequestSurfaceRecreate` 读快照后写回），
-     * 期间落地的复位仍会被本次写回覆盖——那是 R22 记在案的独立待办。
+     * `AtomicReference` 装整条不可变记录：读到的必定是某一次完整写入；
+     * 写回一律 CAS——期间若有复位落地（整条替换），CAS 失败并按新值重判，
+     * 旧计数永远写不回去（R25-T1）。
      */
-    @Volatile var surfaceRecreateBudget: SurfaceRecreateBudget = SurfaceRecreateBudget()
+    val surfaceRecreateBudget = AtomicReference(SurfaceRecreateBudget())
 
     /** 不可变的换视图预算快照；替换整条记录即为原子复位。 */
     data class SurfaceRecreateBudget(
@@ -776,37 +780,48 @@ constructor(
      */
     private fun maybeRequestSurfaceRecreate(entry: SessionEntry) {
         val now = System.nanoTime()
-        // 一次取出整条预算：拆分字段时读到的次数与时刻可能来自两次不同的复位/递增。
-        val budget = entry.surfaceRecreateBudget
-        val decision = decideSurfaceRecreate(budget.attempts, budget.lastRequestNanos, now)
-        if (decision.exhausted) {
-            if (!budget.exhaustedLogged) {
-                entry.surfaceRecreateBudget = budget.copy(exhaustedLogged = true)
-                LogUtil.e(
-                    TAG,
-                    "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS recreate attempts exhausted; " +
-                        "terminal will stay blank until the surface is recreated by the platform",
-                )
+        val budgetRef = entry.surfaceRecreateBudget
+        while (true) {
+            // 每次重读：CAS 若因并发复位失败，重判必须用最新预算，
+            // 否则会把复位后的新预算又推回耗尽（R25-T1）。
+            val budget = budgetRef.get()
+            val decision = decideSurfaceRecreate(budget.attempts, budget.lastRequestNanos, now)
+            if (decision.exhausted) {
+                if (!budget.exhaustedLogged &&
+                    budgetRef.compareAndSet(budget, budget.copy(exhaustedLogged = true))
+                ) {
+                    LogUtil.e(
+                        TAG,
+                        "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS recreate attempts exhausted; " +
+                            "terminal will stay blank until the surface is recreated by the platform",
+                    )
+                }
+                return
             }
-            return
+            if (!decision.request) return
+            if (budgetRef.compareAndSet(
+                    budget,
+                    budget.copy(attempts = budget.attempts + 1, lastRequestNanos = now),
+                )
+            ) {
+                // 快照状态在主线程写：组合的重算调度与主线程一致，跨线程写只会让换视图延迟到
+                // 下一次读，且无法保证与界面重建同帧完成。
+                mainHandler.post {
+                    surfaceRecreateSignalState.intValue += 1
+                    // 走 LogUtil 而非裸 android.util.Log：仪器化失败时 TerminalLogcatRule
+                    // 只按终端相关标签过滤，独立标签的锚点会被整条丢掉。
+                    LogUtil.w(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
+                }
+                LogUtil.w(
+                    TAG,
+                    // 报刚才写下的那次计数，而不是重新读引用——并发复位会让日志
+                    // 印出一个从未请求过的次数。
+                    "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
+                        "requesting a fresh Android surface",
+                )
+                return
+            }
         }
-        if (!decision.request) return
-        entry.surfaceRecreateBudget = budget.copy(attempts = budget.attempts + 1, lastRequestNanos = now)
-        // 快照状态在主线程写：组合的重算调度与主线程一致，跨线程写只会让换视图延迟到
-        // 下一次读，且无法保证与界面重建同帧完成。
-        mainHandler.post {
-            surfaceRecreateSignalState.intValue += 1
-            // 走 LogUtil 而非裸 android.util.Log：仪器化失败时 TerminalLogcatRule
-            // 只按终端相关标签过滤，独立标签的锚点会被整条丢掉。
-            LogUtil.w(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
-        }
-        LogUtil.w(
-            TAG,
-            // 报刚才写下的那次计数，而不是重新读 volatile——并发复位会让日志
-            // 印出一个从未请求过的次数。
-            "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
-                "requesting a fresh Android surface",
-        )
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1297,7 +1312,7 @@ constructor(
                                             bridge.setScrollYPx(currentRemainderPx)
                                             lastScrollRemainderPx = currentRemainderPx
                                         }
-                                        entry.lastRenderStart = System.nanoTime()
+                                        entry.frameMarks = entry.frameMarks.copy(startNanos = System.nanoTime())
                                         // 渲染与 new_output 消费合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
                                         // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
                                         val renderResult = bridge.renderWithNewOutput()
@@ -1323,9 +1338,9 @@ constructor(
                                         } else if (entry.surfaceInvalidated) {
                                             // 恢复即清零预算：下一次判死仍从满额开始。
                                             entry.surfaceInvalidated = false
-                                            entry.surfaceRecreateBudget = SessionEntry.SurfaceRecreateBudget()
+                                            entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
                                         }
-                                        val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
+                                        val frameMs = (System.nanoTime() - entry.frameMarks.startNanos) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                             LogUtil.w(
                                                 "Runtime",
@@ -1418,7 +1433,7 @@ constructor(
                                             // 冻结在最后一帧成功处，10s 后看门狗把仍在循环的
                                             // 线程判为挂死，反复重启直至 `closeDeadSession`
                                             // 关掉用户的 shell。
-                                            entry.lastRenderDone = System.nanoTime()
+                                            entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
                                             // 自适应退避：前 10 次 50ms，之后 200ms
                                             val sleepMs =
                                                 if (consecutiveErrors > 10) {
@@ -1535,8 +1550,8 @@ constructor(
                                                     _state.update { current -> current.copy(title = title) }
                                                 }
                                             }
-                                            entry.lastRenderDone = System.nanoTime()
-                                            frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
+                                            entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
+                                            frameTiming.record(entry.frameMarks.doneNanos - entry.frameMarks.startNanos)
                                             frameTiming.takeReport()?.let { report ->
                                                 // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长
                                                 // 即表示历史无界。
@@ -1630,7 +1645,7 @@ constructor(
                                         // 一直成立，`RenderWatchDog` 在 10s 后把仍在循环的
                                         // 线程判为挂死。当前上限恰好（约 5s）小于超时，
                                         // 但那只是两个常量的巧合，任一改动即成误杀。
-                                        entry.lastRenderDone = System.nanoTime()
+                                        entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
                                         if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
                                             LogUtil.e(
                                                 "Runtime",
@@ -1666,8 +1681,7 @@ constructor(
             ensureVsyncChainStarted()
             entry.renderWatchDog =
                 RenderWatchDog(
-                    getStart = { entry.lastRenderStart },
-                    getDone = { entry.lastRenderDone },
+                    getMarks = { entry.frameMarks },
                     isRunning = {
                         entry.running && !entry.renderThreadExited && activeSessionId == entry.id
                     },
@@ -3222,7 +3236,7 @@ constructor(
                 // 保留原有「恢复渲染时清零」也无妨，两处语义一致。
                 sessions.values.forEach { entry ->
                     entry.surfaceInvalidated = false
-                    entry.surfaceRecreateBudget = SessionEntry.SurfaceRecreateBudget()
+                    entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
                 }
                 // 只有活动会话渲染（见 switchSessionInternal）；
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
