@@ -1615,7 +1615,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** 拖动开始时快照的备用屏标志（MOVE 帧绝不做 JNI 调用）。 */
     private var dragAltScreenSnapshot = false
 
-    /** 手柄拖动会话保持宽字符行缓存存活期间为真。 */
     private var longPressDragging = false
     private var longPressStartX = 0f
     private var longPressStartY = 0f
@@ -2856,28 +2855,19 @@ internal fun clampSelection(
 }
 
 /**
- * 长按目标单元格是否为仅粘贴（空白）目标：空行、空白单元格，
- * 或行尾之后的任何列。termux 的 getSelectedText(x,y,x,y) 对三者都返回 ""，
- * 故它们都归类为空白——原先的 `col < line.length` 合取条件把行尾各列归类为文本，
- * 并在那里弹出带 PASTE 的完整菜单（根因 A1）。纯函数；支撑 handleLongPress。
- *
- * [col] 是**单元格列号**而非字符下标：宽字符占两格，故须按码点累加宽度走，
- * 与 [snapColToWideChar] 同源。直接取 `line[col]` 会让每个宽字符的后半格
- * 越界读进下一个码点——中日韩行上长按选词恒退化为仅粘贴菜单。
- */
-/**
- * 单元格列是否为空白（长按仅弹出粘贴菜单）。
+ * 单元格列是否为空白（长按仅弹出粘贴菜单；支撑 handleLongPress）。
  *
  * [line] 是 [Bridge.scrollbackLine] 的原样结果：**每列恰好一个字符**，宽字符尾格是
  * 空格占位，故字符下标即列号，直接取 `line[col]` 即可——按宽度表反推列↔字符映射
- * 会在每个宽字符之后整体错位一格（该模型已删除，见 change design）。宽字符尾格的
- * 落点须先由 [Bridge.cellCharStartCol] 吸附到起始列再传入。
+ * 会在每个宽字符之后整体错位一格（该模型已删除，见归档变更 design 第 1 节）。
+ * 宽字符尾格的落点须先经 [snapToWideCharBoundary] 吸附到字符起始列再传入。
  *
  * 空行（null）、空白单元、或行尾之后的任何列都算空白：termux 的
- * `getSelectedText(x,y,x,y)` 对三者都返回 ""，故都必须归类为仅粘贴。
+ * `getSelectedText(x,y,x,y)` 对三者都返回 ""，故它们都必须归类为仅粘贴——
+ * 原先的 `col < line.length` 合取条件把行尾各列归类为文本，并在那里弹出带
+ * PASTE 的完整菜单（根因 A1）。
  */
-internal fun isWhitespaceCell(line: String?, col: Int): Boolean =
-    line?.getOrNull(col)?.isWhitespace() != false
+internal fun isWhitespaceCell(line: String?, col: Int): Boolean = line?.getOrNull(col)?.isWhitespace() != false
 
 /** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */
 internal const val SELECTION_MENU_RESHOW_GUARD_MS = 300L
