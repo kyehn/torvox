@@ -1360,8 +1360,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * 指针 id 锁定（多指针漂移）：在 ACTION_DOWN 时由锁定拖动的那根手指设定
-     * （手柄命中测试或手柄弹窗）；后续 ACTION_MOVE 只有携带该指针 id 时才更新选区。
-     * UP/CANCEL 时清除。见 [acceptsDragPointer]。
+     * （手柄命中测试或手柄弹窗）；后续 ACTION_MOVE 只取该指针在事件中的槽位，
+     * 该指针已不在事件里（抬起或被回收）时整帧吞掉。UP/CANCEL 时清除。
      */
     private var dragPointerId: Int? = null
 
@@ -2459,8 +2459,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 指针 id 锁定：只有锁定拖动的那根手指才能改变选区。
                     // 坐标取自该指针的槽位；由第二根手指携带的移动
                     // ——或它抬起之后的移动——一律吞掉。
+                    // 注意：指针 id 与槽位下标是两回事，不能直接比较——
+                    // Android 在 ACTION_POINTER_UP 后会回收并复用 id，
+                    // 同一手势里两者并不相等。
                     val lockedIdx = dragPointerId?.let { event.findPointerIndex(it) }
-                    if (acceptsDragPointer(dragPointerId, lockedIdx)) {
+                    val lockedMissing = dragPointerId != null && (lockedIdx == null || lockedIdx < 0)
+                    if (!lockedMissing) {
                         val touchX = if (lockedIdx != null && lockedIdx >= 0) event.getX(lockedIdx) else event.x
                         val touchY = if (lockedIdx != null && lockedIdx >= 0) event.getY(lockedIdx) else event.y
                         driveHandleDragMove(touchX, touchY)
@@ -2854,19 +2858,6 @@ internal fun isWhitespaceCell(line: String?, col: Int): Boolean = when {
     line == null -> true
     col >= line.length -> true
     else -> line[col].isWhitespace()
-}
-
-/**
- * 手柄拖动的指针 id 锁定（多指针漂移）：一旦拖动被 [ownerPointerId] 锁定，
- * 后续移动事件只有携带同一指针时才可改变选区。
- * owner 为 null 表示没有拖动经锁定路径接入——接受，保持既有行为；
- * candidate 为 null 表示事件不带可用指针 id——拒绝，第二根手指绝不能劫持已有拖动。
- * 纯函数；支撑 TerminalSurface 与手柄弹窗中的 ACTION_MOVE 守卫。
- */
-internal fun acceptsDragPointer(ownerPointerId: Int?, candidatePointerId: Int?): Boolean = when {
-    ownerPointerId == null -> true
-    candidatePointerId == null -> false
-    else -> ownerPointerId == candidatePointerId
 }
 
 /** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */

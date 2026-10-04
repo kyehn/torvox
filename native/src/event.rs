@@ -91,7 +91,21 @@ impl EventQueue {
                 }
                 None => {
                     // 队列只剩受保护事件：淘汰任一都会遗弃会话或让远端粘出空白，
-                    // 故丢弃新事件。
+                    // 故丢弃新事件。必须出声——`ClipboardRead` 由 PTY 输出驱动
+                    // （远端可无界地循环 OSC 52 读请求），一次洪泛就能把队列占满，
+                    // 之后连 `Exit` 都会无声无息地丢：而 `exit_reported` 已置位且
+                    // 不会重发，会话就此永久泄漏。
+                    let mut last_dropped_warn = self.last_overflow_warn.lock();
+                    let now = Instant::now();
+                    if last_dropped_warn
+                        .is_none_or(|last| now.duration_since(last) >= OVERFLOW_WARN_INTERVAL)
+                    {
+                        log::warn!(
+                            "EventQueue: dropping new event, queue holds only protected \
+                             events (full at {MAX_QUEUED_EVENTS})"
+                        );
+                        *last_dropped_warn = Some(now);
+                    }
                     return;
                 }
             }

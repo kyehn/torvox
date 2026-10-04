@@ -2780,8 +2780,44 @@ constructor(
                     }
                 }
             }
+            // 只有启动渲染线程需要「失败即恢复前一个会话」：此刻目标会话的线程尚未
+            // 起来，恢复不会撞上在跑的线程。其后的步骤（发布活动 id、native switchSession、
+            // 网格对齐、focus 转发）失败时目标线程已经在消费全局事件队列，
+            // 此时再拉起前一个会话会同时存在两个消费者——剪贴板事件会被错投。
             try {
                 renderSupervisor.startRenderThread(target)
+            } catch (exception: Exception) {
+                LogUtil.e(
+                    "Runtime",
+                    "switchSession: failed to start render thread for session $id",
+                    exception,
+                )
+                // 前一个活动会话已停止且其 GPU surface 已释放，恢复它，
+                // 使终端不会被留在冻结状态（无渲染线程，且监视器会永远跳过
+                // !running 的条目）。
+                val previous = sessions[previousActiveId]
+                if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
+                    LogUtil.w(
+                        "Runtime",
+                        "switchSession: restoring previous session ${previous.id} after failure",
+                    )
+                    previous.running = true
+                    previous.renderThreadExited = false
+                    previous.restartAttempts = 0
+                    try {
+                        renderSupervisor.startRenderThread(previous)
+                        activeSessionId = previous.id
+                    } catch (restoreException: Exception) {
+                        LogUtil.e(
+                            "Runtime",
+                            "switchSession: failed to restore previous session ${previous.id}",
+                            restoreException,
+                        )
+                    }
+                }
+                return@synchronized sessionLock
+            }
+            try {
                 activeSessionId = id
                 // 重新初始化光标/内容下沿滚动源：新会话的渲染线程从此刻起在变化时重新发布。
                 cursorRowFlowInternal.value = target.cursorRow
@@ -2814,34 +2850,14 @@ constructor(
                     target.bridge?.focusEvent(true)
                 }
             } catch (exception: Exception) {
+                // 目标会话的渲染线程此刻已在运行，故此处不做任何恢复：
+                // 拉起前一个会话会产生第二个事件队列消费者。目标会话继续以
+                // 刚发布的状态运行，网格对齐失败由上面的错误日志暴露。
                 LogUtil.e(
                     "Runtime",
-                    "switchSession: failed to start render thread for session $id",
+                    "switchSession: post-start step failed for session $id",
                     exception,
                 )
-                // 启动失败：前一个活动会话已停止且其 GPU surface 已释放。
-                // 恢复它，使终端不会被留在冻结状态（无渲染线程，且监视器会永远
-                // 跳过 !running 的条目）。这是切换过程中唯一真会失败的阶段。
-                val previous = sessions[previousActiveId]
-                if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
-                    LogUtil.w(
-                        "Runtime",
-                        "switchSession: restoring previous session ${previous.id} after failure",
-                    )
-                    previous.running = true
-                    previous.renderThreadExited = false
-                    previous.restartAttempts = 0
-                    try {
-                        renderSupervisor.startRenderThread(previous)
-                        activeSessionId = previous.id
-                    } catch (restoreException: Exception) {
-                        LogUtil.e(
-                            "Runtime",
-                            "switchSession: failed to restore previous session ${previous.id}",
-                            restoreException,
-                        )
-                    }
-                }
             }
         }
     }

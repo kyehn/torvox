@@ -193,25 +193,6 @@ class TerminalSurfaceLogicTest {
         )
     }
 
-    // ── pointer-id lock ──────────────────────────────────────────────────────
-
-    @Test
-    fun `moves without a latched lock keep legacy behavior`() {
-        assert(acceptsDragPointer(ownerPointerId = null, candidatePointerId = 3))
-        assert(acceptsDragPointer(ownerPointerId = null, candidatePointerId = null))
-    }
-
-    @Test
-    fun `only the dragging finger steers an existing drag`() {
-        assert(acceptsDragPointer(ownerPointerId = 5, candidatePointerId = 5))
-        assert(!acceptsDragPointer(ownerPointerId = 5, candidatePointerId = 6))
-    }
-
-    @Test
-    fun `an event with no usable pointer id never hijacks a locked drag`() {
-        assert(!acceptsDragPointer(ownerPointerId = 5, candidatePointerId = null))
-    }
-
     // ── 300ms menu re-show guard ─────────────────────────────────────────────
 
     @Test
