@@ -17,9 +17,7 @@ import terminal.emulator.runtime.LogUtil
 
 @HiltAndroidApp
 open class TerminalApp : Application() {
-    private var anrWatchDog: AnrWatchDog? = null
     private var memoryMonitor: MemoryMonitor? = null
-    private var thermalMonitor: ThermalMonitor? = null
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -81,8 +79,7 @@ open class TerminalApp : Application() {
         // （表现为无任何原生栈的「Process crashed」）。
         // debug 构建服务于开发/CI，那里不需要这个面向用户的自退保护。
         if (BuildConfig.DEBUG) return
-        val stateDir = getDir("boot_state", MODE_PRIVATE)
-        anrWatchDog = AnrWatchDog(stateDir, ANR_TIMEOUT_MILLIS).also { it.start() }
+        AnrWatchDog(getDir("boot_state", MODE_PRIVATE)).start()
     }
 
     private fun installMemoryMonitor() {
@@ -94,9 +91,7 @@ open class TerminalApp : Application() {
 
     private fun installThermalMonitor() {
         val stateDir = getDir("boot_state", MODE_PRIVATE)
-        thermalMonitor =
-            ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITICAL+") }
-                .also { it.register() }
+        ThermalMonitor(this) { BootGuard.exit(stateDir, "Thermal CRITICAL+") }.register()
     }
 
     private fun installCrashHandler() {
@@ -132,7 +127,6 @@ open class TerminalApp : Application() {
     }
 
     companion object {
-        private const val ANR_TIMEOUT_MILLIS = 5_000L
         private const val MINUTES_TO_HEALTHY = 10L
         private const val MILLIS_PER_MINUTE = 60_000L
         private const val HEALTHY_UPTIME_MS = MINUTES_TO_HEALTHY * MILLIS_PER_MINUTE

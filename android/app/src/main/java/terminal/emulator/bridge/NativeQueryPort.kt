@@ -45,8 +45,6 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun cursorViewportPacked(): Long = NativeBridge.getCursorViewportPacked(sessionIdProvider())
 
-    override fun isCellEmpty(row: Int, col: Int): Boolean = NativeBridge.isCellEmpty(sessionIdProvider(), row, col)
-
     override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
         NativeBridge.searchAllInScrollback(
             sessionIdProvider(),

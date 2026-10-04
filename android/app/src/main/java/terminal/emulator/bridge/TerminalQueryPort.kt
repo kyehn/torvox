@@ -6,7 +6,6 @@ package terminal.emulator.bridge
  * 对调用方的约定：
  * - `scrollbackLine`/`scrollbackLength`/`searchAllInScrollback` 返回 null/0/空列表即「无数据」，
  *   应视为不可用而非「内容为空」——伪造数据会损坏选区与搜索结果。
- * - `isCellEmpty` 返回 true 时长按弹出粘贴菜单（无原生数据时唯一可用的长按动作）。
  */
 // 查询面刻意保持宽接口：与原生导出一一对应，使接缝可替换而不牵动 UI。
 interface TerminalQueryPort {
@@ -22,7 +21,6 @@ interface TerminalQueryPort {
 
     /** 光标视口位置，打包为 `(y << 32) | x`，隐藏时为 -1。 */
     fun cursorViewportPacked(): Long
-    fun isCellEmpty(row: Int, col: Int): Boolean
     fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>?
     fun setScrollOffset(offset: Int)
 

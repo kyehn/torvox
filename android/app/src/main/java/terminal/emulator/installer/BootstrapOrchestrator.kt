@@ -2,6 +2,7 @@ package terminal.emulator.installer
 
 import kotlinx.coroutines.withContext
 import terminal.emulator.util.TerminalDispatchers
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class BootstrapOrchestrator(
@@ -21,7 +22,8 @@ class BootstrapOrchestrator(
 
     // 进程级互斥：TerminalRuntime.start() 与设置里的引导按钮各自构造
     // 自己的 BootstrapOrchestrator 实例，故实例字段无法阻止它们
-    // 并发地向同一 staging 目录下载/安装（互相破坏文件）。
+    // 并发地向同一 staging 目录下载/安装（互相破坏文件）——由
+    // [processInstalling] 的 CAS 独占，安装全程再无第二处共享状态。
     companion object {
         /** 由 UI 层本地化展示的机器可读失败键。 */
         const val ERROR_PRIMARY_USER_REQUIRED = "primary_user_required"
@@ -29,8 +31,7 @@ class BootstrapOrchestrator(
         const val ERROR_NO_URL = "no_bootstrap_url"
         const val ERROR_CANCELLED = "cancelled"
 
-        private val processLock = Any()
-        private val processInstalling = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val processInstalling = AtomicBoolean(false)
     }
 
     fun getInstallStatus(): Status = if (installer.isInstalled()) {
@@ -69,9 +70,7 @@ class BootstrapOrchestrator(
         if (installer.isInstalled()) {
             return Result.success("")
         }
-        synchronized(processLock) {
-            state.set(Status.INSTALLING)
-        }
+        state.set(Status.INSTALLING)
         val resolvedUrl = bootstrapUrl
         if (resolvedUrl.isBlank()) {
             state.set(Status.ERROR)

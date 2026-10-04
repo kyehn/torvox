@@ -200,9 +200,6 @@ object NativeBridge {
     @JvmStatic
     external fun searchAllInScrollback(sessionId: Long, query: String, caseSensitive: Boolean): String?
 
-    /** (row, col) 处单元格是否没有可打印码点。 */
-    @JvmStatic external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean
-
     /** 字体库族名列表（fonts.xml 声明的文件集 + 用户投放目录）。 */
     @JvmStatic external fun listFontFamilies(): Array<String>?
 

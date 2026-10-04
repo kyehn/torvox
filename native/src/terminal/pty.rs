@@ -66,15 +66,12 @@ pub trait Pty: Send {
     /// 经 TIOCGWINSZ 查询当前终端窗口尺寸（rows x cols），用于验证 24x80 spawn 种子。
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
     fn child_pid(&self) -> nix::unistd::Pid;
-    /// 返回前台进程组 pid（经 tcgetpgrp），出错时为 None；用于进程组 Kill。
-    fn foreground_pid(&self) -> Option<nix::unistd::Pid>;
     fn master_fd(&self) -> RawFd;
     /// 返回独立所有的主端 fd 副本供专用读取线程使用。副本与 `master_fd()` 共享同一
     /// 打开文件描述（故共享 O_NONBLOCK 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
     /// dup 在此处（允许 `unsafe` 的位置）完成，使调用方能经安全的 `std::fs::File`
     /// 读取而无需任何 `unsafe` 块。
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
-    fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus>;
     fn set_nonblocking(&self) -> Result<(), PtyError>;
     fn spawn(
         shell: &str,
@@ -502,10 +499,6 @@ impl PtyPair {
         self.child_pid
     }
 
-    pub fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus> {
-        nix::sys::wait::waitpid(self.child_pid, None)
-    }
-
     pub fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
@@ -618,21 +611,12 @@ impl Pty for PtyPair {
         PtyPair::child_pid(self)
     }
 
-    fn foreground_pid(&self) -> Option<nix::unistd::Pid> {
-        // SAFETY: `tcgetpgrp` 异步信号安全，并在 PTY 主端 fd 上返回前台进程组 ID。
-        nix::unistd::tcgetpgrp(&self.master).ok()
-    }
-
     fn master_fd(&self) -> RawFd {
         PtyPair::master_fd(self)
     }
 
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {
         self.master.try_clone()
-    }
-
-    fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus> {
-        PtyPair::wait(self)
     }
 
     fn set_nonblocking(&self) -> Result<(), PtyError> {
@@ -648,24 +632,6 @@ impl Pty for PtyPair {
     ) -> Result<Box<dyn Pty>, PtyError> {
         PtyPair::spawn(shell, rows, cols, env, cwd)
             .map(|pty_pair| Box::new(pty_pair) as Box<dyn Pty>)
-    }
-}
-
-impl std::io::Read for PtyPair {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        nix::unistd::read(&self.master, buf)
-            .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
-    }
-}
-
-impl std::io::Write for PtyPair {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        nix::unistd::write(&self.master, buf)
-            .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }
 
