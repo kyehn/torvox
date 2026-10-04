@@ -1385,7 +1385,8 @@ unsafe fn attach_window_inner(
         unsafe { ANativeWindow_setBuffersGeometry(ptr, surface_width, surface_height, 1) };
     if geometry_status != 0 {
         // 非 0 即失败。丢弃它会让几何错配在 dequeueBuffer 超时后才暴露，且无从归因，
-        // 故不挂载 surface：宿主据「未挂载」换新窗口重试，错误在此直接出声。
+        // 故不挂载 surface 并在此出声。宿主不观察挂载结果（返回 Unit），因此
+        // 「未挂载」不会被自动恢复：渲染线程照常跑，surface 失效位与看门狗照常记账。
         log::error!(
             "FFI: attachWindow — ANativeWindow_setBuffersGeometry failed: {geometry_status}"
         );
