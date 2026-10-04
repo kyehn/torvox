@@ -73,7 +73,7 @@
 | 5.13 | `TermuxBootstrapRealTerminalTest#…asserted_output` | D | **通过**（bootstrap 资产已就位） |
 | 5.14 | `FontSizeReflowInstrumentedTest#fontSizeChangeReflowsGridAndScalesCellHeight` | E | **通过**：列数随字号收缩正确 |
 | 5.15 | `ImePopupPixelInstrumentedTest#contentManyImePopupMovesUpBottomIdentical` | A | **通过** |
-| 5.16 | `ImePopupPixelInstrumentedTest#contentFewImePopupTerminalStaysPutAndVisible` | B | 仍失败：`内容较少时弹出输入法终端必须无变化 (差分=2426)` |
+| 5.16 | `ImePopupPixelInstrumentedTest#contentFewImePopupTerminalStaysPutAndVisible` | B | **已修并通过**（见下「输入法稀疏用例」） |
 | 5.17 | `ImePopupPixelInstrumentedTest#imeCommitChineseTextGridded` | B | **通过**（CI 模拟器装有中文输入法，基线的环境阻塞不成立） |
 | 5.18 | `MultiTapSelectionInstrumentedTest#doubleTapSelectsWordAndCopyFillsClipboard` | B | **通过** |
 | 5.19 | `MultiTapSelectionInstrumentedTest#tripleTapSelectsLine` | B | **通过** |
@@ -91,6 +91,27 @@
 `ui.SurfaceLossRecoveryInstrumentedTest#persistentSurfaceLossTriggersHostRebuildAndKeepsRendering`
 （`标记必须落格: PRE_INK_MARKER`）——三条与 B 类同族（注入/落格链路），归入第 5 节同一批
 定位。
+
+## 5a. 本地复现与修复（LatinIME 模拟器，18 失败 → 1）
+
+本地具备 AVD 后重跑了全量仪器化套件，两轮对比给出结论：
+
+- **系统「无响应」对话框是批量红灯的根因**：软件渲染的模拟器被应用渲染压满时弹该
+  模态框，UiAutomator 只看得见它，于是所有按节点查找的用例成片报「抽屉按钮必须存在」。
+  用例先关掉该对话框后，全量失败数 49 → 19（Behavior/FontSwitch/TextSearch/
+  SelectionEspresso/UiAutomator/Osc52/PasteButton 等整类转绿）。
+- **剩余 19 例逐个单跑几乎全过**（ShellResponseLatency、StickyCtrl、SessionDrawer、
+  CursorPixel、SgrColor、SgrItalic、VisualInline、ZoomPreview、SurfaceLoss 等），
+  即它们是全量跑时的设备饥饿，不是产品缺陷。
+- **真正需要修的用例只有输入法稀疏场景**：`contentFewImePopupTerminalStaysPutAndVisible`
+  的红灯来自三处测量/前提问题，逐条修掉后该用例通过——
+  1. 条带与闪烁比对把**系统状态栏带**算进比较（弹出输入法时状态栏图标与底色整体换色，
+     实测条带内 111 px 差异全部落在 y=64..79，而终端内容逐像素相同）：改用窗口可见
+     显示区上沿（`getWindowVisibleDisplayFrame`）与状态栏 inset 取大者；
+  2. 「内容较少」的前提不成立：类内前一用例在同一会话留下满屏 `IME_MANY_*`，
+     于是本用例量到的是满屏内容的位移（实测恰为一格行高）；用例改为先清屏再在首行
+     重打标记；
+  3. 定居后的闪烁比对从 y=0 起算，把状态栏像素算进来。
 
 仍失败 12 例的共同前置：多数用例靠「标记必须落格」判定，而失败信息里同一网格还留着
 **其他用例的残留输出**（StickyCtrl 的尾部含 `SELL_ALL_A_…`、`PPPPPP…`）——仪器化
