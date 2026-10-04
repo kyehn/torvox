@@ -178,7 +178,29 @@ class ImePopupPixelInstrumentedTest {
         return height
     }
 
-    /** 状态栏高度（px）：稀疏内容的条带取在它之下，避开系统时钟等无关像素。 */
+    /**
+     * 比对条带的上沿（px）：必须让开系统状态栏整条带，而不只是 inset。
+     *
+     * 实测（本地 1080×2400 模拟器，弹出输入法前后逐像素比对）：终端内容**逐像素
+     * 相同**（y≥85 无任何差异），全部差异落在 y=64..79 的 x≈933..965 —— 系统状态栏
+     * 的电量图标与其底色在输入法弹出时整体换色。而 `statusBars()` inset 只有 56px，
+     * 系统实际绘制的状态栏带到 y≈80，于是原条带把系统像素算了进来，稳定报
+     * 「必须无变化 (差分≈3000)」。
+     *
+     * `getWindowVisibleDisplayFrame` 给的正是「未被系统栏遮挡的窗口可见区」上沿，
+     * 与 inset 取较大者即可覆盖两种窗口模式（是否 edge-to-edge）。
+     */
+    private fun contentStripTopPx(): Int {
+        var visibleFrameTop = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val frame = android.graphics.Rect()
+            composeTestRule.activity.window.decorView.getWindowVisibleDisplayFrame(frame)
+            visibleFrameTop = frame.top
+        }
+        return maxOf(visibleFrameTop, statusBarHeightPx()) + SPARSE_STRIP_TOP_MARGIN_PX
+    }
+
+    /** 状态栏 inset（px）：与窗口可见区上沿取大者作为条带上沿。 */
     private fun statusBarHeightPx(): Int {
         var height = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -377,6 +399,10 @@ class ImePopupPixelInstrumentedTest {
     fun contentFewImePopupTerminalStaysPutAndVisible() {
         val marker = "IME_FEW_${System.currentTimeMillis() % 100000}"
         printAndAwait("printf '$marker\\n'", marker)
+        // 「内容较少」必须由用例自己保证：类内前一用例（内容较多）会在同一会话留下
+        // 满屏 IME_MANY_*，此时本用例测到的其实是满屏内容的位移（实测条带整行都在
+        // 变，位移恰为一格行高），断言前提根本不成立。清屏后在首行只留本标记。
+        clearScreenAndPrint(marker)
         // 光标闪烁是逐像素比对的噪声源（块光标约一格，差分数千像素）：
         // 比对期间隐藏光标，测完恢复。try-finally 保证断言失败也不污染后继用例。
         bridge().writeToPty("\u001b[?25l".toByteArray(Charsets.UTF_8))
@@ -387,12 +413,28 @@ class ImePopupPixelInstrumentedTest {
         }
     }
 
+    /**
+     * 清屏（`ED2` + `CUP home`）后在首行重打标记，使「内容较少」成为可验证前提。
+     *
+     * 仪器化套件跨用例共用同一会话，前一用例的输出仍在屏上；不清屏时本用例量到的
+     * 是满屏内容的位移，而断言却按稀疏内容写——前提与断言不一致，红灯不代表缺陷。
+     */
+    private fun clearScreenAndPrint(marker: String) {
+        bridge().feedTerminal("\u001b[2J\u001b[H$marker\r\n".toByteArray(Charsets.UTF_8))
+        val landed =
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                (bridge().getTerminalText() ?: "").contains(marker)
+            }
+        assertNotNull("清屏后标记必须落格", landed)
+        Thread.sleep(SETTLE_MILLIS)
+    }
+
     private fun contentFewImePopupTerminalStaysPutAndVisibleBody(marker: String) {
         Thread.sleep(SETTLE_MILLIS)
         hideImeAndSettle()
         val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
         // 条带取在状态栏之下（避开系统时钟像素）、键盘之上（保证内容确实可见）。
-        val stripTop = statusBarHeightPx() + SPARSE_STRIP_TOP_MARGIN_PX
+        val stripTop = contentStripTopPx()
         assertTrue(
             "比对条带必须位于键盘上方 (条带底=${stripTop + SPARSE_STRIP_HEIGHT_PX} 键盘顶边=${device.displayHeight - imeHeightPx()})",
             stripTop + SPARSE_STRIP_HEIGHT_PX <= device.displayHeight - imeHeightPx(),
@@ -424,10 +466,11 @@ class ImePopupPixelInstrumentedTest {
             "内容较少时弹出输入法终端必须无变化 (差分=$stayedDiff)",
             stayedDiff <= SPARSE_STRIP_MAX_DIFF,
         )
-        // 定居后无闪烁：键盘上方整片区域连续两帧必须一致。
+        // 定居后无闪烁：键盘上方整片区域连续两帧必须一致。上沿同样避开系统状态栏：
+        // 状态栏带（图标与底色）随输入法状态换色，计入后是系统像素噪声而非闪烁。
         Thread.sleep(SETTLE_MILLIS)
         val settled = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val band = countDifferingPixels(after, settled, 0, after.height - imeHeight)
+        val band = countDifferingPixels(after, settled, stripTop, after.height - imeHeight)
         assertTrue("内容较少时弹出输入法必须无闪烁 (差分=$band)", band <= 5)
     }
 
