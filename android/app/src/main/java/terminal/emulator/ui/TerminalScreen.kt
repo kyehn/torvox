@@ -440,6 +440,10 @@ fun TerminalScreen(
 
             LaunchedEffect(searchState.caseSensitive) {
                 if (searchState.query.isNotEmpty()) {
+                    // 必须一并取消待执行的防抖搜索：它带着**切换前**的大小写敏感度，
+                    // 在 150ms 后才启动并覆盖 searchState，于是界面显示大小写不敏感的
+                    // 开关状态却配着区分大小写的结果集。
+                    searchDebouncer.cancel()
                     searchJob?.cancel()
                     searchJob = scope.launch { performSearch() }
                 }

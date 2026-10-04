@@ -9,8 +9,6 @@ package terminal.emulator.runtime
  *
  * 纯 Kotlin（不依赖 Android），故窗口与分位数计算可在 JVM 上单元测试。
  * 线程约定：渲染线程是唯一写入者；读者（日志输出）在同一线程上运行，无需同步。
- * 调用方必须在记录更多帧之前经 [takeReport] 排空每个已完成的窗口，
- * 否则下一次 [record] 会在窗口内覆写（计数以 [windowSize] 为上限）。
  *
  * 窗口大小取舍：60 帧在真机 60 FPS 下约 1s 历史，在软件渲染模拟器（~1.8 FPS 基线）下约 33s
  * ——两种情况下每窗一行汇总都是低频诊断。
@@ -19,8 +17,17 @@ class FrameTimingStats(private val windowSize: Int = DEFAULT_WINDOW_SIZE) {
     private val samplesNanos = LongArray(windowSize)
     private var count = 0
 
-    /** 记录一帧的渲染时长（ns）。调用方必须经 [takeReport] 排空每个已完成的窗口。 */
+    /**
+     * 记录一帧的渲染时长（ns）。
+     *
+     * 窗口已满而调用方尚未 [takeReport] 时丢弃该帧并出声：越界写会在**渲染线程**上抛
+     * `ArrayIndexOutOfBoundsException`，整个终端随之消失，而丢一帧诊断数据无关紧要。
+     */
     fun record(durationNanos: Long) {
+        if (count >= windowSize) {
+            LogUtil.e("FrameTimingStats", "frame recorded beyond full window, dropping $durationNanos ns")
+            return
+        }
         samplesNanos[count] = durationNanos
         count++
     }
