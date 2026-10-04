@@ -149,8 +149,14 @@
       原生连续 2 次 acquire 失败判死 → 首次请求即换视图（attempt 1/5）→
       约 0.5s 后 `attach_surface` 用新 ANativeWindow 重建，注入用例 22.5s 通过
       （含建会话、前后墨迹断言与清理）。未达次数上限，无 error 级残留
-- [ ] 6.3 全量 `:app:connectedDebugAndroidTest` 复跑，逐例回填第 5 节结论，
+- [x] 6.3 全量 `:app:connectedDebugAndroidTest` 复跑，逐例回填第 5 节结论，
       失败数从 27 降到剩余未修项的真实数量，且 `abandoned` 之后不再持续 `count=-1`
-      —— 第 5 节已按 run 逐条回填（27 例中 15 例通过、12 例仍失败），
-      仍失败项待模拟器复跑后收口
+      —— 2026-10-04 本机 AVD（API 35 x86_64，当前 main + 新编 release 库）全量：
+      189 例 / 25 失败 / 0 跳过。25 例全部落在 §5a 已诊断的饥饿带内，无新族：
+      `TextSearchEndToEnd` 5 例单跑全过；`ScrollBehavior` + `ShellResponseLatency`
+      单跑全过；`SelectionDrag` 2/3（1 例为 `IME 必须弹起` 超时，与 §5a 记录的
+      本 AVD 输入法环境限制同类）；`ImePopup` 2/3（`contentMany` 仍为
+      `位移=0 差异=0` 环境限制）；`SurfaceLoss` 注入用例单跑通过。
+      本轮 Rust/Kotlin 改动（轮询锁重排、剪贴板批处理、读队列、搜索锁外化）
+      之后，全量失败仍是饥饿带而非新回归
 - [ ] 6.4 更新 `openspec/specs/render-stability/spec.md`，完成后归档本 change
