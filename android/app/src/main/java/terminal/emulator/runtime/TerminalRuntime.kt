@@ -220,8 +220,8 @@ internal data class SessionEntry(
 
     /**
      * 渲染线程最后见到的原生 surface 失效标志（缓存的原生窗口对应被遗弃的
-     * BufferQueue，reconfigure 不可复活）。失效时由 [maybeRequestSurfaceRecreate]
-     * 按间隔请求宿主换新的原生窗口。
+     * BufferQueue，reconfigure 不可复活）。失效时由 `maybeRequestSurfaceRecreate`
+     * 按间隔请求宿主换新的原生窗口（私有成员，dokka 无法解析链接，故不用方括号）。
      */
     @Volatile var surfaceInvalidated: Boolean = false
 
@@ -295,7 +295,7 @@ constructor(
 
     /**
      * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
-     * [maybeRequestSurfaceRecreate]），由持有 `SurfaceView` 的界面读取并换掉整个视图。
+     * `maybeRequestSurfaceRecreate`），由持有 `SurfaceView` 的界面读取并换掉整个视图。
      *
      * 原生 surface 判死（其原生窗口的 BufferQueue 被遗弃，实测此后每帧
      * `begin_frame failed`、终端永久黑屏）后，新视图的 `surfaceCreated` 会带来**新的**
@@ -748,7 +748,7 @@ constructor(
     }
 
     /**
-     * 原生 surface 判死后按间隔请求宿主换新的原生窗口（[surfaceRecreateGeneration] 递增）。
+     * 原生 surface 判死后按间隔请求宿主换新的原生窗口（[surfaceRecreateSignal] 递增）。
      *
      * 由渲染线程在每帧读到失效位时调用。失效位在重建成功后由原生回落为 0，
      * 故请求天然边沿触发；间隔限流与次数上限由 [decideSurfaceRecreate] 裁决，
@@ -775,7 +775,9 @@ constructor(
         // 下一次读，且无法保证与界面重建同帧完成。
         mainHandler.post {
             surfaceRecreateSignalState.intValue += 1
-            android.util.Log.w("DbgRecreate", "signal now ${'$'}{surfaceRecreateSignalState.intValue}")
+            // 走 LogUtil 而非裸 android.util.Log：仪器化失败时 TerminalLogcatRule
+            // 只按终端相关标签过滤，独立标签的锚点会被整条丢掉。
+            LogUtil.w(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
         }
         LogUtil.w(
             TAG,
