@@ -21,8 +21,11 @@
       仪器化用例跑的是 release profile 库，`cfg(test)` 开关在设备上不存在
 - [x] 2.2 仪器化用例 `SurfaceLossRecoveryInstrumentedTest` 已落地：注入 → 宿主换
       `SurfaceView` → 恢复后画面有墨迹 → 新命令落格
-- [ ] 2.3 注入用例「先红后绿」的证据需模拟器复跑（本地无 AVD/system-image，
-      仪器化套件不可本地执行；证据以 build workflow 全量运行结果为准）
+- [x] 2.3 注入用例「先红后绿」的证据：2026-10-04 本机 AVD（API 35 x86_64）
+      实测 `persistentSurfaceLossTriggersHostRebuildAndKeepsRendering` 通过
+      （当前 main + 新编 x86_64 release 库）。红侧证据见 §5 基线（该用例在
+      run 以 `标记必须落格: PRE_INK_MARKER` 失败）；注入→宿主换
+      SurfaceView→恢复后有墨迹→新命令落格链路已通
 
 ## 3. 原生侧失效缓存与状态位
 
