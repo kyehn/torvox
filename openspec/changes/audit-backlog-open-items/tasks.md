@@ -667,3 +667,73 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       锁序文档与实现一致（R16-T4/R21-T1/R16-T6 三处重排已审计），
       危险语义（空剪贴板 vs 读取失败、退出码 null vs 0）零改动。
       测试注释的断言一律是行为断言，无空断言（口径）
+
+## 21. ：已修
+
+- [x] **（CRITICAL）** `ffi.rs` 的 `loadFontFile` 写 `if let Err(..) = set_font_family(..)`，
+      而该函数返回 `bool`——**Android 目标根本不编译**（E0308）。此前所有门禁只跑宿主目标，
+      `#[cfg(target_os = "android")]` 分支从未被编译过。同批另有两处 Android-only
+      clippy 告警（`list_monospace_fonts` 的多余 `return`、`setExtraFontPaths` 的可折叠 if）。
+      三处全修，并把 `--target x86_64-linux-android` 纳入本轮验证
+- [x] **** `cell_builder` 的两遍发射循环之后无条件 `cache.update(..)`，
+      把**当前**代际盖在旧 UV 的实例上；末遍若再次驱逐，缓存即被污染，
+      下一帧增量判定误判为同代际→干净行照着已搬迁的 UV 采样。改为仅末遍代际稳定时写回
+- [x] **** `render_to_buffer` 的超时/通道断开/map 失败三条路径都不 `unmap`，
+      读回缓冲永久停在 mapped 态，后续 `copy_texture_to_buffer` 会被 wgpu 校验拒绝。
+      改为无论成败都 unmap（数据在闭包内已拷出）
+- [x] **** `TerminalRuntime.switchSession` 在运行期已中止切换时
+      （会话不存在、surface 失效、首帧期间被关、渲染线程起不来），
+      ViewModel 仍无条件发布 `activeSessionId`，与 `runtime.state`/`inputTargetSessionId` 分裂。
+      `switchSessionInternal` 改返回 Boolean，ViewModel 据此决定是否发状态，
+      并把 surface 读取移进协程（对齐 `createSession`）
+- [x] **** `TerminalForegroundService.onTaskRemoved` 无条件取唤醒锁，
+      裸 `start()` 冷启动（`sessionCount == 0`）会为不存在的会话持锁。补上与
+      `onStartCommand` 同一判据；`MainActivity` 里与之矛盾的注释一并纠正
+- [x] **** `DocumentMutations.copyDocument` 缺 `moveDocument` 已有的子孙守卫：
+      把目录复制进自己的子孙会 `a/b/a/b/…` 递归到 ENAMETOOLONG/磁盘写满才回滚。已补
+- [x] **** `BootstrapInstaller` 对 `EXECUTABLES.txt`/`SYMLINKS.txt` 只查
+      `escapesStagingDir`，未查「消解后为空」——`foo/..` 通过校验，
+      `Os.chmod`/`Os.symlink` 于是作用于 staging 目录自身。两处补齐该判据
+- [x] **** `SecondStageRunner.runOnePostinstAttempt` 的 catch 无条件往 `errors` 追加，
+      与超时/非零退出「只记末次」的判据不一致：首运异常、重试自愈仍被报成安装失败
+- [x] **** `TerminalSurface.isWhitespaceCell` 把**单元格列号**当下标取 `line[col]`，
+      而宽字符占两格——CJK 行上宽字符后半格恒越界，长按选词恒退化为仅粘贴菜单。
+      抽出 `charIndexAtCellColumn` 作为「单元格列↔字符下标」的唯一规则，
+      `snapColToWideChar` 与它共用
+- [x] **** `ModifierBar` 自动重复用墙钟，而同一文件的长按阈值明确改用单调 uptime
+      并写明理由（改系统时间会误判）。墙钟前跳会让 `remaining` 变负，
+      循环再不 await 事件而是空转连发。改用 `SystemClock.uptimeMillis()`
+- [x] **** `TerminalSurface.searchActive` 只被三处写、零处读，且其 KDoc
+      描述的「触摸应抵达 Surface」由 `touchEnabled` 实际承担。删除死状态与三处写入
+- [x] **** `render_inner` 在 `receive_cell_data()`（破坏性取数）**之后**才检查
+      `surface.is_none()` 并返回；而 VT 的去重基线在**入队**时就推进，
+      故换 Surface 空档期（releaseGpuSurface → attachSurface）取走的帧永不补发，
+      输出一直缺失到下次内容变化。守卫前移到取数之前，与 `paused` 同处
+- [x] **** `frameTiming` 记录的窗口从 `renderWithNewOutput()` 之前一直延伸到
+      `pollAll()`＋事件派发＋标题查询之后，与 `loopTiming` 测同一个量，
+      而注释声称它「只覆盖 bridge.render()」。渲染结束时刻改在 JNI 调用返回后立即取
+
+## 22. ：否证（回读源码/实测确认不成立，记录依据以免重复排查）
+
+- [ ] ~~Kitty `m=1` 直传 RGB 被 `pty_write` 的 `>0xF7` 清洗损坏~~：实测 `m=1` 无论载荷
+      字节高低都返回 `None`（上游未实现该传输方式），`base64` 路径正常。清洗与该协议无关
+- [ ] ~~图集重建无限递归~~：嵌套的 `rebuild_atlas` 携带的缓存严格递减，
+      递归深度有界；`8x8` 图集实测正常返回 `None`。加标志位属无缺陷支撑的防御性代码，已回退
+- [ ] ~~`RenderWatchDog.stop()` 与 `start()` 竞态~~：`start()` 只在
+      `RenderWatchDog(...).also { it.start() }` 构造期调用，早于字段发布，
+      不存在「拿到未 start 实例」的线程。改动无缺陷支撑，已回退
+- [ ] ~~`openDocumentThumbnail` 经站外符号链接泄漏读句柄~~：`isHomeLink` 用
+      `File(parentCanonical, name).canonicalPath` 解析**目标**，站外链接返回 false
+      并落到 `decodeDocId` + `requireInsideRoot`。实测抛「outside the terminal home directory」
+- [ ] ~~`copyDocument` 递归会让 CJK 之外的行为退化~~：实测无守卫时终态同样干净
+      （`copyTree` 的错误路径会整体回滚），代价是耗尽路径长度与磁盘。回归测试因此断言
+      **拒绝原因**而非终态
+
+## 23. ：待办
+
+- [ ] **R32-T1** `openDocument_write_notifies_document_and_parent` 在整类并行跑时
+      偶发判红（依赖写回线程 post 出 OnCloseListener 后显式 idle 全部 Looper）。
+      12 次单独运行全绿、整类连跑偶现。需给写回通知加确定性等待而非依赖调度
+- [ ] **R32-T2** `copyDocument` 的子孙守卫比对的是 canonical 路径，
+      故把符号链接复制进其**解析目标**下的目录会被拒——而 `copyTreeInto` 对链接不递归，
+      该拒绝并无对应风险。守卫应加在「是目录且非链接」上
