@@ -6,6 +6,8 @@ use crate::render::pipeline::QUAD_VERTEX_COUNT;
 use std::sync::OnceLock;
 use std::sync::mpsc::SyncSender;
 
+/// 设备轮询超时：仅测试回读脚手架使用（`render_to_buffer` 内），生产零引用。
+#[cfg(test)]
 const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// warmup 的取纹理期限：它跑在 `attach_surface` 内，即持有全局 `RENDER_STATE`，
@@ -14,8 +16,12 @@ pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::fro
 /// 失败也由随后的渲染帧补上，故用约 6 个 vsync 的短期限。
 const WARMUP_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 /// 回读 map 轮询步长：每次 poll 等待的分片，避免忙等。
+/// 仅测试使用（`render_to_buffer` 是无 surface 的回读测试脚手架，生产零调用）。
+#[cfg(test)]
 const MAP_POLL_STEP: std::time::Duration = std::time::Duration::from_millis(10);
 /// 回读 map 总超时：超时即报 Readback 错误，不无限等待。
+/// 仅测试使用（同上）。
+#[cfg(test)]
 const MAP_READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
 type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any + Send>>;
@@ -704,6 +710,9 @@ impl Renderer {
         result
     }
 
+    /// 无 surface 的像素回读：仅测试脚手架（背景填充/滚动帧像素断言），生产零调用。
+    /// `#[cfg(test)]` 使其不进生产二进制；删测试脚手架时随之删除。
+    #[cfg(test)]
     pub fn render_to_buffer(
         &mut self,
         instances: &[crate::render::CellInstance],
@@ -882,6 +891,9 @@ impl Renderer {
                 }
             }
             if poll_start.elapsed() > MAP_READBACK_TIMEOUT {
+                // 超时即 unmap：不断开映射直接返回会让该缓冲永久处于 mapped 态，
+                // 下次对其 copy 会被 wgpu-core 拒收乃至设备丢失（R28-T2）。
+                dst.unmap();
                 return Err(GpuError::Readback("map_async timed out".into()));
             }
         }
