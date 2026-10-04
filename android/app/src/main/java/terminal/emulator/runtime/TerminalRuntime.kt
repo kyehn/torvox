@@ -1604,6 +1604,12 @@ constructor(
                                                 exception,
                                             )
                                         }
+                                        // 异常帧同样是「渲染线程没挂」的证据：
+                                        // 不刷新完成时刻，连续异常会让 `start > done`
+                                        // 一直成立，`RenderWatchDog` 在 10s 后把仍在循环的
+                                        // 线程判为挂死。当前上限恰好（约 5s）小于超时，
+                                        // 但那只是两个常量的巧合，任一改动即成误杀。
+                                        entry.lastRenderDone = System.nanoTime()
                                         if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
                                             LogUtil.e(
                                                 "Runtime",
