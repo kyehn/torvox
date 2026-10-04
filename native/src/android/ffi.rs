@@ -3074,6 +3074,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                 let (aw, ah) = (aw as i32, ah as i32);
                 render_state.font_pipeline =
                     crate::render::font::FontPipeline::new(aw, ah, font_size);
+                // 管线整体替换：旧实例 UV 全部失效。这两步必须无条件执行——
+                // 提前返回会留下「新管线已装、旧实例缓存仍在、且没请求新帧」的三重不一致。
+                render_state.renderer.cell_cache = None;
+                render_state.dirty.store(true, Ordering::Relaxed);
                 if let Err(apply_error) = render_state.font_pipeline.set_font_family(&family) {
                     // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
                     // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
@@ -3082,9 +3086,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                     );
                     return Ok(std::ptr::null_mut());
                 }
-                // 管线整体替换：旧实例 UV 全部失效。
-                render_state.renderer.cell_cache = None;
-                render_state.dirty.store(true, Ordering::Relaxed);
             }
             family
         };
