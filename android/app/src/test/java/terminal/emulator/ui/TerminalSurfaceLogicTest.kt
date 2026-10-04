@@ -1,6 +1,8 @@
 package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -124,6 +126,20 @@ class TerminalSurfaceLogicTest {
     fun `col zero and empty line are passthrough`() {
         assertEquals(0, snapColToWideChar(line = "", col = 0))
         assertEquals(3, snapColToWideChar(line = "", col = 3))
+    }
+
+    @Test
+    fun `isWhitespaceCell walks cells not chars for wide glyphs`() {
+        // 「中」占两格，'a' 占一格：cell 0/1 = 中，cell 2 = a，cell 3 = 行尾。
+        val line = "中a"
+        assertFalse("first cell of a wide glyph is text", isWhitespaceCell(line, 0))
+        assertFalse("wide glyph's trailing cell is still that glyph", isWhitespaceCell(line, 1))
+        assertFalse("the narrow glyph after it is text", isWhitespaceCell(line, 2))
+        assertTrue("past end of line is blank", isWhitespaceCell(line, 3))
+        assertTrue("null line is blank", isWhitespaceCell(null, 0))
+        assertTrue("a space cell is blank", isWhitespaceCell("  ", 0))
+        // 旧实现取 line[col]：CJK 单字行的 col 1 越界读为空串前缀之外，长按恒退化为仅粘贴。
+        assertFalse("char-index lookup misreads the trailing half of a wide glyph", isWhitespaceCell("中", 1))
     }
 
     // ── clampSelection (order-preserving range clamp) ─────────────────────────

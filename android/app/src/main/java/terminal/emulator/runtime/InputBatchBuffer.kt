@@ -8,14 +8,16 @@ import java.util.concurrent.Executors
 /**
  * 把 PTY 写入按帧合并为一块，使输入法输入避开逐字节的原生调用路径。
  *
- * 原生 [flushSink] 写入永不阻塞：PTY 主 fd 是 O_NONBLOCK，
- * 故 PTY 缓冲满时（子进程未读取——前台应用挂起、超大粘贴）返回 EAGAIN 并丢弃字节，
- * 即 xterm 式背压丢失。下方单守护执行器把这些丢弃挡在输入法主线程
- * 与 Choreographer 帧回调之外（ANR 会被当作进程杀死）。
+ * 原生 [flushSink] 写入**可能阻塞**：PTY 主 fd 虽是 O_NONBLOCK，但原生
+ * `write_all` 在 WouldBlock 上 poll 到子进程消费（上限见 native 的
+ * `WRITE_DRAIN_TIMEOUT`，5s），绝不丢弃字节——丢弃会让粘贴被静默截断成半条命令。
+ * 下方单守护执行器正是为把这段等待挡在输入法主线程与 Choreographer 帧回调之外
+ * （ANR 会被当作进程杀死）。
  * 直接调用方（经 viewModel.writeToPty 的 TerminalSurface 按键/软键盘路径）
- * 在其自身线程上有同样的 EAGAIN 丢弃行为。
+ * 在其自身线程上承受同一等待。
  * 所有 sink 调用都跑在单个守护发送线程上：调用方永不阻塞，
- * 且单线程执行器在并发写入之间保持排空顺序。
+ * 且单线程执行器在并发写入之间保持排空顺序。代价是该线程被所有会话共享，
+ * 一个不读 stdin 的子进程会把其余会话的输入一并堵住。
  *
  * 每次 [write] 都在调用点捕获目标会话（[inputSessionId]），随字节一起送往下沉：
  * 刷写发生在别处（帧回调或 PtyWriter 线程），到那时再解析活动会话会把

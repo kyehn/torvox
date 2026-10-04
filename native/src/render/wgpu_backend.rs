@@ -30,7 +30,9 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
 /// 创建 wgpu [`Instance`]、[`Adapter`]、[`Device`] 与 [`Queue`]；debug 构建开启校验层。
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
-    // 仅支持 Vulkan；无实体 GPU 的模拟器上由 SwiftShader 提供软件实现。
+    // 仅支持 Vulkan，无 CPU/OpenGL 回退（DESIGN 渲染节）。
+    // 无实体 GPU 的环境由 Vulkan 软件实现顶上：CI 用 Mesa lavapipe（TESTING 环境节），
+    // 模拟器上的具体实现取决于其镜像提供的 Vulkan ICD。
     let backends = wgpu::Backends::VULKAN;
     #[cfg(debug_assertions)]
     let instance_flags = wgpu::InstanceFlags::VALIDATION
