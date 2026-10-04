@@ -158,8 +158,8 @@
 - [x] `row_cache` / `cached_scrollback` 只写字段 —— 全仓已无这两个字段
 - [x] `pty_write` 在非阻塞主端上丢弃剩余字节 —— `write_all` 已改为等可写、绝不丢弃
 - [x] `initSession` 空 shell 改写为 `/system/bin/sh` —— 本轮已删除
-- [x] `external fun` 缺 `@JvmStatic` —— 本轮已补齐 58 个声明（依赖 receiver 与
-      `jclass` 落在同一槽位的巧合，实测 CheckJNI 下报错）
+- [x] `external fun` 缺 `@JvmStatic` —— **本条原结论有误，见 **：
+      当时只补了部分声明，六个生产导出仍缺，且台账误记为「已补齐 58 个」。
 - [x] N2-6 / N2-40fork 子进程裸 `_exit` 不写 fd 2 —— **本轮否证**：
       两处 `_exit` 之前都先 `write(2, reason)`（`child_exit_with_reason` 与 errno
       分支），用户可见 `[Process completed (code N)]` 之前已有原因行
@@ -322,8 +322,102 @@
       `ClipboardManager.getPrimaryClip()` binder 调用与一次 `clipboardResult` JNI，
       1024 个积压即一帧内 1024 次 binder 往返。须与 R17-T1 一并设上限
 
-## 11. 文档退役
+## 11. ：新增并已修
 
-- [x] 11.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
-- [x] 11.2 删除 `docs/REVIEW*.md` 全部 12 个文件
-- [x] 11.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
+- [x] **** 宽字符的 `cell.style()` 失败路径按 1 列推进 `current_col`，绕过了
+      `raw.wide()`：该宽字符之后整行的 `col` 左移一格且行长不再等于 cols。
+      已抽出 `cell_columns` 并让失败占位也走真实宽度（`raw_cell()` 失败时宽度无从得知，
+      仍只能按 1 列，已在注释中写明这是该路径的固有上限）
+- [x] **** `cjk.rs` 的轮廓探测用 `raster_scale.max(1.0)`，而 `atlas.rs` 用
+      `raster_scale`：Kotlin 允许 0.5f..4f，故 `raster_scale < 1` 时探测尺寸与图集尺寸不同，
+      「是否内嵌 bitmap strike」的结论在两个尺寸间翻转，CJK 回退随之误判。已对齐
+- [x] **** `read_line_text_impl` 在 `grid_ref`/`cell` 失败时少产一个字符，
+      而 `search_in_scrollback_all_impl` 把段内字符下标直接当列号 →
+      该行之后所有搜索高亮左移一格，且偏移经软换行段累加继续放大。已改为每列必出一个字符
+- [x] **** `Surface.postDelayedSurfaceRecreate` 的重试链不挂字段，
+      `onDetachedFromWindow` 取消不了；它每次尝试都 `setRenderPaused(false)` +
+      `resumeRendering()`，跨越 ON_PAUSE 即撤销刚请求的暂停，
+      在已被系统回收的 BufferQueue 上继续出帧（永久黑屏）。已挂字段并新增
+      `cancelSurfaceRecreate()`，由 `TerminalScreen` 的 ON_PAUSE 调用
+- [x] **** `resetScrollOffset()` 只重置偏移，不失效回滚长度缓存，
+      切会话后 100ms 节流窗口内 `currentViewportTopGrid()` 用上一个会话的回滚长度算行号，
+      长按/拖手柄锚到无关的回滚区。已一并失效节流
+- [x] **** `onSingleTapUp` 先跑 `handleMultiTap` 再判 `isAfterLongPress`：
+      「轻击 → 长按拖动抬手」落在 400ms 窗口内会被计为第 2 击，
+      用抬手坐标选词覆盖长按选区，且 `isAfterLongPress` 滞留使下一次真正轻击被吞。
+      已把长按抬手提到计数之前
+- [x] **** `performClick()` 在抽屉遮罩/边缘手势的抬手上也被调用。
+      已移到抽屉早退之后（注释如实写明滚动与长按抬手仍会播报）
+- [x] **** `acceptsDragPointer` 把**指针 id** 与**槽位下标**比较
+      （Android 在 `ACTION_POINTER_UP` 后回收并复用 id）。已恢复内联判定并删除该死抽取
+- [x] **** `detectDpkgVersion` 在 `waitFor` 之后同步 `readText()`：
+      dpkg 的任何后代进程若继承并持有 stdout 管道，`readText()` 永不返回，
+      `finally` 的 `destroy()` 与其后的锁文件清理都执行不到。已改为守护线程并行排空
+- [x] **（严重）** **台账 §6 的「`external fun` 已补齐 58 个 `@JvmStatic`」与事实不符**：
+      `setTheme` / `setFontFamily` / `loadFontFile` / `setExtraFontPaths` /
+      `getCellHeight` / `setScrollOffset` 六个生产导出仍缺注解。原生侧全部是静态签名
+      （形参第二位 `_class: JClass`），缺注解时 JVM 绑定实例方法，
+      第 3 个 JNI 槽位传 `this` 而原生按 `jclass` 接收——两者都是 64 位且 `_class` 从不解引用，
+      故只有 debuggable 构建的 CheckJNI 会报参数类型错误。已补齐，
+      并新增 `NativeBridgeStaticExportsTest` 以反射断言全部导出都带注解
+- [x] **** `entry.lastRenderDone` 只在 `count >= 0` 分支刷新：
+      渲染器持续返回 -1（Surface 迟迟不就绪）时完成时刻冻结在最后一帧成功处，
+      10s 后 `RenderWatchDog` 把仍在循环的线程判为挂死，
+      反复重启直至 `closeDeadSession` 关掉用户的 shell。失败帧与异常帧现都刷新
+- [x] **** `currentScrollbackLength()` 在查询**之前**写节流时间戳：
+      bridge 缺席或 `scrollbackLength()` 抛错时白白烧掉一个 100ms 窗口。已改为成功后推进
+- [x] **** 全回滚区正则搜索是阻塞 JNI，却跑在 `Dispatchers.Main.immediate` 上：
+      5 万行回滚上以秒计，输入法与按键一起卡住，`AnrWatchDog` 还会 `killProcess` 掉所有 shell。
+      已移入 `TerminalDispatchers.inputOutput`
+- [x] **** 引导 URL 输入框被 `LaunchedEffect(bootstrapUrl)` 用回流值覆盖：
+      每次击键经 300ms 防抖落盘，回流带着**上一次**的值抵达，抹掉刚敲进去的字符。
+      已改为 `remember(bootstrapUrl)`（与 `ShellInput` 同款）
+- [x] **** `clearAppData` 丢弃 `deleteRecursively()` 的返回值却在 UI 上无条件
+      显示「已清除」：删除失败时 `settings.preferences_pb` 原封不动。已检查返回值，
+      有残留则记错误日志且不回调成功
+- [x] **** `clearAppData` 删除 `boot_state` 却不重建：`BootGuard.writeCounter`
+      无 `mkdirs()`，崩溃循环计数自此静默失效。已与其余监视目录一并重建
+- [x] **** 切换搜索大小写敏感度时只 `cancel()` 了在跑的协程，没取消待执行的防抖搜索：
+      后者带着**切换前**的敏感度在 150ms 后启动并覆盖 `searchState`，
+      界面显示「区分大小写」却配着不区分的结果集
+- [x] **** `RenderWatchDog.start()` 的「已在跑则返回」检查与启动不是原子的，
+      两个并发调用者可各起一个 2s 轮询循环。已并入同一临界区
+- [x] **** `FrameTimingStats.record` 无边界检查：调用方未先排空窗口就越界写，
+      `ArrayIndexOutOfBoundsException` 抛在**渲染线程**上，整个终端随之消失。
+      已改为窗口满时丢帧并记日志
+- [x] **** `ThermalMonitor.register()` 不幂等：重复调用多挂一个监听器与一个线程，
+      `onCritical` 触发两次
+- [x] **** `escapesStagingDir` 把消解后为空的路径一并拒绝，使合法的 `./` 目录条目
+      由无害空操作变成安装中止。已把「消解回 staging 根」移到 zip 条目处按条目种类判定
+- [x] **** `snapshot_needs_rebuild` 的注释称签名里有「滚动偏移」，实际没有；
+      视口偏移靠 `Command::ScrollViewport` 自行置脏。注释已按事实改写
+- [x] **** `attachWindow` / `clipboardResult` 两处注释与实际行为不符（声称存在
+      宿主重试 / 声称改变写回内容），已按事实改写
+
+## 12. ：新增待办
+
+- [ ] **R21-T1（高）** 全回滚区搜索在原生侧是**持会话锁**的同步查询
+      （`ffi.rs:2523` 的无界 `parking_lot` 锁 + `QUERY_TIMEOUT_MS = 500` 的等待，
+      且调用方超时后 VT 线程仍在继续搜索）。该锁每帧被 `render_inner` 与 `pollEvent` 取得，
+      故一次大回滚搜索会让**渲染**停顿数百毫秒乃至数秒（只把它从主线程挪到了 IO 线程，
+      没有消除锁竞争本身）。根治须把搜索移出会话锁之外（结果交回后由渲染线程消费）
+- [ ] **R21-T2** `TerminalForegroundService.start()`（`MainActivity.kt:188`）在任何会话
+      出生之前就启动，intent 不带 `session_count`，而 `service:90` 用
+      `coerceAtLeast(1)` → 冷启动时常驻通知恒称「1 个活动会话」，
+      `acquireWakeLockIfNeeded()` 也为不存在的会话持有 `PARTIAL_WAKE_LOCK`。
+      `coerceAtLeast(1)` 还让合法的 `session_count = 0` 与「未设置」不可区分
+- [ ] **R21-T3** `ThermalMonitor` 没有 `unregister()`，其监听器闭包持有实例；
+      只保证了 `register()` 幂等，注销路径仍缺
+- [ ] **R21-T4** `InputBatchBuffer.write()` 的 `send(chunk)` 在 `synchronized(lock)` 之外，
+      两个并发写入者可以按 X、Y 排空却按 Y、X 入队；类 KDoc 声称的顺序保证只对单写入者成立
+      （当前全部写入点都在主线程，故为潜在而非现存缺陷）
+- [ ] **R21-T5** `ReadScan::Selection` 在 OSC 未闭合时会把后续约 59 字节非 BEL/非 ESC 的
+      输出吞进 `buf` 再吐出（顺序不变，仅增加延迟）；与已登记的 N2-12 同族但后果不同
+- [ ] **R21-T6** `OutputSnapshot.clipboard_read` 在单个 `process()` 块内 last-wins，
+      分块读取时多个 OSC 52 读请求只留一个。与 §10 R17-T1/T2 同族（读请求被丢弃而不作答）
+
+## 13. 文档退役
+
+- [x] 13.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
+- [x] 13.2 删除 `docs/REVIEW*.md` 全部 12 个文件
+- [x] 13.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
