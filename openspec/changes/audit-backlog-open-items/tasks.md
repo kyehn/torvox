@@ -469,7 +469,45 @@
       若同时已超 10s 即误报挂起并重启健康的渲染线程。窗口只有一帧宽且需真的长帧，
       目前自限，但与 R25-T1 同族
 
-## 15. 文档退役
+## 15. ：已修
+
+- [x] **** `resolveThemeName()` 返回的是清除**之前**的快照，
+      而 `buildConfig` 随即用 `BuiltInThemes.byName`（未知名上 `error`）解析它：
+      存有未知名的那一次建会话直接失败，用户看不到终端，要等下一次 surface 分支才恢复。
+      UI 半边早已用 `byNameOrNull(...) ?: draculaPlus` 容忍同一情形，两半不一致。
+      已改为清除成功后重读快照（`clearUnknownThemeNames` 返回是否真的清除过）
+- [x] **** `TerminalState.sessionId` 是只写不读的死状态（5 处写、0 处读）。已删除
+- [x] **** `DocumentQueries.resolveLinkEntry` 在 `decodeDocId` 之后又做一次
+      根内校验，而 `decodeDocId` 内部已无条件校验并返回规范化 File：
+      同一次判定多两次文件系统往返。已删除重复
+- [x] **（自身回归）** 为「空载荷 OSC 52」加的告警落在 `EventDispatcher`，
+      而 `Bridge.parseEvent`（`Bridge.kt:365`）已把 `""` 映射成 `null`：
+      该分支不可达，序列仍被静默丢弃，注释还宣称可达。已删除该死分支，
+      改在台账登记（见 D13）
+- [x] **** `keymap.rs` 的测试注释拿 `KEYCODE_SYSRQ` 当「未映射」的反例，
+      而它其实映射为 `PrintScreen`（200 是 `KEYCODE_CAPTIONS`）。已更正
+- [x] **** `keymap.rs` 的 `every_android_code_has_unique_mapping` 实测不了唯一性
+      （两个 Android 码映射到同一 `Key` 也会通过），其真实价值只是「表与 match 分支同步」。
+      已按实际语义改名
+- [x] **** `glyph_cache.rs` 自述「独立于 FontPipeline 以便单独测试淘汰策略」，
+      但全仓没有任何用例跨越过容量，淘汰策略零覆盖。已补：
+      跨 `OUTLINE_CACHE_CAPACITY` 断言被淘汰的正是最久未用的一条，
+      且刚被 `get` 触碰的条目存活（`peek` 不刷新 LRU 次序，故必须用 `get`）
+
+## 16. ：新增待办
+
+- [ ] **D13（需用户裁决）** OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
+      「清空剪贴板」。当前 `Bridge.parseEvent` 把空串映射成 `null`（null = 本帧无剪贴板事件），
+      于是该序列被静默忽略。`DESIGN.md` 只声明「通过终端序列（OSC 52）与用户交互
+      读写系统剪贴板」，未声明清空语义；按「不允许实现任何未在 docs/specification/
+      声明的功能」本轮未实现。要清空需要把 `PollResult.clipboard` 从 `String?`
+      扩成能区分「无事件 / 写入文本 / 清空」的三态，并明确空载荷优先于同帧文本的合并规则。
+      请裁决是否在本仓实现
+- [ ] **R27-T1** `Bridge.parseEvent` 与 `resolveThemeName` 都没有单元测试覆盖
+      （前者 private、后者需要完整 runtime）；本轮三处改动全靠人工推演验证。
+      `resolveThemeName` 的重读逻辑可提取为纯函数以便测试
+
+## 17. 文档退役
 
 - [x] 15.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
 - [x] 15.2 删除 `docs/REVIEW*.md` 全部 12 个文件

@@ -235,13 +235,17 @@ mod tests {
         assert_eq!(map_android_key_code(0), Key::Unidentified);
         assert_eq!(map_android_key_code(1), Key::Unidentified);
         assert_eq!(map_android_key_code(999), Key::Unidentified);
-        // KEYCODE_SYSRQ 等未映射的键码
+        // 200 = KEYCODE_CAPTIONS，表中未映射。
+        // 注意 KEYCODE_SYSRQ(120) 是**已**映射的 PrintScreen，不能拿它当反例。
         assert_eq!(map_android_key_code(200), Key::Unidentified);
     }
 
+    /// 逐个断言下表里的键码确实有映射。
+    ///
+    /// 名为「无重复映射」但实测不了唯一性——两个 Android 码映射到同一 `Key` 仍会通过；
+    /// 它真正的价值是**表与 match 分支同步**：删改任一侧都会在这里暴露。
     #[test]
-    fn every_android_code_has_unique_mapping() {
-        // 已映射键码无重复映射：全部已定义码与总数一致
+    fn every_listed_android_code_has_a_mapping() {
         let mapped: Vec<u32> = vec![
             7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
             41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 68, 69, 70, 71, 72, 73,

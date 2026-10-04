@@ -1730,14 +1730,7 @@ constructor(
          */
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.clipboard != null) {
-                if (poll.clipboard.isEmpty()) {
-                    // `\e]52;c;\a`（空载荷）是「清空剪贴板」的合法写法。
-                    // DESIGN 只声明剪贴板集成、不声明清空语义，故此处不代为清除系统剪贴板，
-                    // 但必须出声：无声无息地丢弃一条合法序列会让用户无从判断。
-                    LogUtil.w(TAG, "OSC 52 write with empty payload ignored (clipboard clear not implemented)")
-                } else {
-                    clipboardAccess.setClipboardText(poll.clipboard)
-                }
+                clipboardAccess.setClipboardText(poll.clipboard)
             }
             dispatchClipboardRequests(poll.clipboardReads)
         }
