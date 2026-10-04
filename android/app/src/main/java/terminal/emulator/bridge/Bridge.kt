@@ -287,8 +287,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val exit: Boolean = false,
         /** 退出码；`null` 为「原生未能取得」（`waitpid` 失败），不是退出码 0。 */
         val exitCode: Int? = null,
-        // 首次退出时由原生测得的子进程存活时长。
-        val exitAliveMs: Long = 0,
         val sessionId: Long = 0L,
         val clipboardReads: List<ClipboardRequest> = emptyList(),
         // 本帧见到的全部退出事件，按序。上方单槽字段只描述首个退出；
@@ -303,8 +301,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             exit = exit || later.exit,
             // exitCode 与 sessionId 属于同一次（首次）退出。
             exitCode = if (later.exit && !exit) later.exitCode else exitCode,
-            // alive_ms 随其退出事件一同传递。
-            exitAliveMs = if (later.exit && !exit) later.exitAliveMs else exitAliveMs,
             // sessionId 只用于退出归属：本帧首个退出获胜，后续非退出事件不得覆盖
             // 正在退出会话的 id（否则会误回收仍存活的会话）。
             sessionId = if (later.exit && !exit) later.sessionId else sessionId,
@@ -320,8 +316,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val sessionId: Long,
         /** 同 [PollResult.exitCode]：`null` 表示码未知，不可当 0 用。 */
         val exitCode: Int?,
-        // 原生测得的子进程存活时长（毫秒），仅作诊断负载，不是 Kotlin 事件延迟。
-        val exitAliveMs: Long = 0,
     )
 
     data class ClipboardRequest(val sessionId: Long, val requestId: Long, val selection: String = "")
@@ -368,14 +362,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             PollResult(
                 exit = true,
                 exitCode = event.code,
-                exitAliveMs = event.aliveMs,
                 sessionId = event.sessionId,
                 exits =
                 listOf(
                     ExitInfo(
                         sessionId = event.sessionId,
                         exitCode = event.code,
-                        exitAliveMs = event.aliveMs,
                     ),
                 ),
             )
