@@ -2582,9 +2582,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamili
         let Ok(array) = array else {
             return Ok(std::ptr::null_mut());
         };
+        // 元素初值为 null：任一 `new_string` / `set_element` 失败都会留下 null，
+        // 而 Kotlin 侧声明是 `Array<String>`，null 元素会在字体选择器里变成 NPE。
+        // 故失败即整体作废，由 Kotlin 侧按「无数据」处理。
         for (index, family) in families.iter().enumerate() {
-            if let Ok(family) = env.new_string(family) {
-                let _ = array.set_element(env, index, &family);
+            let Ok(element) = env.new_string(family) else {
+                log::error!("listFontFamilies: cannot encode family {family:?}, aborting list");
+                return Ok(std::ptr::null_mut());
+            };
+            if let Err(error) = array.set_element(env, index, &element) {
+                log::error!(
+                    "listFontFamilies: cannot store family {family:?}, aborting list: {error}"
+                );
+                return Ok(std::ptr::null_mut());
             }
         }
         array.into_raw()
@@ -3064,7 +3074,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                 let (aw, ah) = (aw as i32, ah as i32);
                 render_state.font_pipeline =
                     crate::render::font::FontPipeline::new(aw, ah, font_size);
-                let _ = render_state.font_pipeline.set_font_family(&family);
+                if let Err(apply_error) = render_state.font_pipeline.set_font_family(&family) {
+                    // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
+                    // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
+                    log::error!(
+                        "loadFontFile: cannot apply family {family:?} from {path_str}: {apply_error}"
+                    );
+                    return Ok(std::ptr::null_mut());
+                }
                 // 管线整体替换：旧实例 UV 全部失效。
                 render_state.renderer.cell_cache = None;
                 render_state.dirty.store(true, Ordering::Relaxed);

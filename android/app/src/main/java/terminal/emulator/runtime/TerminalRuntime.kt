@@ -229,10 +229,11 @@ internal data class SessionEntry(
     /**
      * 换视图预算：已请求次数、上次请求时刻（纳秒）与「上限已告警」标志。
      *
-     * 三项是**一条**逻辑记录，却由渲染线程与 `surfaceTransitionExecutor` 线程
-     * 各自成组读写。拆成三个 `@Volatile` 字段时，一次落在读（`:maybeRequestSurfaceRecreate`）
-     * 与写之间的复位会把渲染线程手里的计数重新推高——限流预算被静默撤销，
-     * 正是这个计数器要防的反复拆装视图。
+     * 三项是一条逻辑记录，由渲染线程与 `surfaceTransitionExecutor` 线程各自成组读写。
+     * 放进同一个 `@Volatile` 持有者，买到的是**一致读**：`attempts` 与 `lastRequestNanos`
+     * 必定来自同一次递增，不会出现「第 N 次的时刻配第 N+1 次的次数」。
+     * 注意读-改-写本身仍是跨线程的（`maybeRequestSurfaceRecreate` 读快照后写回），
+     * 期间落地的复位仍会被本次写回覆盖——那是 R22 记在案的独立待办。
      */
     @Volatile var surfaceRecreateBudget: SurfaceRecreateBudget = SurfaceRecreateBudget()
 
@@ -798,8 +799,10 @@ constructor(
         }
         LogUtil.w(
             TAG,
-            "surface invalidated (attempt ${entry.surfaceRecreateBudget.attempts}/" +
-                "$SURFACE_RECREATE_MAX_ATTEMPTS): requesting a fresh Android surface",
+            // 报刚才写下的那次计数，而不是重新读 volatile——并发复位会让日志
+            // 印出一个从未请求过的次数。
+            "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
+                "requesting a fresh Android surface",
         )
     }
 
