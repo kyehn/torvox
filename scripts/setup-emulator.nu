@@ -91,7 +91,12 @@ def main [--boot_timeout: int = 360, --gpu: string = "swiftshader_indirect", --k
     rm -f ($avd_home | path join "emu-update-last-check.ini")
     let wipe_flag = (if $keep_data { [] } else { ["-wipe-data"] })
     $env.QT_QPA_PLATFORM = "offscreen"
-    ^setsid --fork ($emulator_path) -avd test_avd -no-window -gpu $gpu -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics ...$wipe_flag -memory 2048 o> $emulator_log e> $emulator_log_err
+    # -feature -Wifi：宿主缺 mac80211_hwsim 时（容器与 CI 常见），guest 的 wlan0
+    # 停在 NO-CARRIER，slirp 的 DHCP 拿不到地址，整机无网。关掉 guest wifi 后
+    # Android 改走 eth0（virtio-net + slirp），不再依赖宿主无线模块。
+    # -dns-server：宿主 resolv.conf 指向 127.0.0.53（systemd-resolved 桩），
+    # slirp 无法访问该桩，必须显式给 guest 一个真实解析器。
+    ^setsid --fork ($emulator_path) -avd test_avd -no-window -gpu $gpu -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics ...$wipe_flag -memory 2048 -feature -Wifi -dns-server 8.8.8.8 o> $emulator_log e> $emulator_log_err
     wait_for_boot --boot_timeout $boot_timeout
     let sdk = (^adb shell getprop ro.build.version.sdk | str trim)
     if $sdk != "35" {
