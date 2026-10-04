@@ -81,13 +81,12 @@ impl EventQueue {
         // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
         if guard.len() >= MAX_QUEUED_EVENTS {
-            // 先记录**将被淘汰**的那个事件，push 之后它已不在队列里，取不到。
-            if let Some(victim) = guard.front() {
-                self.warn_overflow_once(victim);
-            }
-            let evict_idx = guard.iter().position(is_evictable);
-            match evict_idx {
+            match guard.iter().position(is_evictable) {
                 Some(idx) => {
+                    // 先记录**将被淘汰**的那个事件，移除之后它已不在队列里，取不到。
+                    // 不能记队首：`Exit` 与 `ClipboardRead` 不可淘汰且常位于队首，
+                    // 照记队首会把「丢失剪贴板」报成从不淘汰的退出事件。
+                    self.warn_overflow_once(&guard[idx]);
                     guard.remove(idx);
                 }
                 None => {
@@ -114,7 +113,7 @@ impl EventQueue {
         let mut last = self.last_overflow_warn.lock();
         if last.is_none_or(|t| now.duration_since(t) >= OVERFLOW_WARN_INTERVAL) {
             log::warn!(
-                "EventQueue: dropping oldest {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
+                "EventQueue: dropping {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
             );
             *last = Some(now);
         }
