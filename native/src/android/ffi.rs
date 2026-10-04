@@ -1225,9 +1225,9 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             // 各类事件标志（剪贴板等）。缺少此调用则终端永远不处理输出，输出通道死锁。
             session.process_output();
             // 检查 OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）。此处（会话锁内）
-            // 收集 selection 名；一次性槽位与应答线程在注册表/会话锁释放后才建立
-            // （见下方），保持锁顺序单一方向。
-            if let Some(selection) = session.poll_clipboard_read() {
+            // 取走全部待答 selection；一次性槽位与应答线程在注册表/会话锁释放后才建立
+            // （见下方），保持锁顺序单一方向。超限由下方单会话上限显式作答（R17-T1）。
+            for selection in session.take_clipboard_reads() {
                 pending_clipboard_reads.push((active_id, selection));
             }
             collect_session_events(

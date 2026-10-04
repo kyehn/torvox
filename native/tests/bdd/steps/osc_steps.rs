@@ -22,7 +22,9 @@ pub async fn expect_clipboard(world: &mut TerminalWorld, expected: String) {
 pub async fn feed_session_layer(world: &mut TerminalWorld, raw: String) {
     let mut processor = OutputProcessor::new();
     let snapshot = processor.process(&unescape(&raw));
-    world.clipboard_read = snapshot.clipboard_read;
+    // BDD 场景每步只下一个读请求，取最后一个即该步的请求；
+    // 同块多读的保留语义由单测覆盖。
+    world.clipboard_read = snapshot.clipboard_reads.into_iter().last();
 }
 
 #[then("收到剪贴板读取请求")]

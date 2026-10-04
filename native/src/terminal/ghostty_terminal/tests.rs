@@ -2156,11 +2156,12 @@ fn search_via_bare_channel_matches_method() {
     terminal_under_test.vt_write(b"needle in haystack needle");
     terminal_under_test.flush();
     let via_method = terminal_under_test.search_all_in_scrollback("needle", true);
-    let via_channel = crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
-        &terminal_under_test.query_channel(),
-        "needle",
-        true,
-    );
+    let via_channel =
+        crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
+            &terminal_under_test.query_channel(),
+            "needle",
+            true,
+        );
     assert_eq!(via_method.len(), 2);
     assert_eq!(via_method, via_channel);
 }
