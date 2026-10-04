@@ -112,34 +112,47 @@
 
 ## 4. 需用户裁决（规范之间或与实现的字面冲突）
 
-- [ ] D1 `DESIGN.md:16/24` 禁止未声明回退 vs `TerminalForegroundService.startForeground`
+- [ ] D1【R29 建议补规范声明（N1-11 已按抛错收敛服务侧行为，只差一句话声明）】`DESIGN.md:16/24` 禁止未声明回退 vs `TerminalForegroundService.startForeground`
       失败后继续；N1-11 已按抛错收敛，余下是否补规范声明
-- [ ] D2 `STYLE.md:61` 禁止 `bash`/`sh` 字面 vs `fmt.yml:44` 在用 `bash -c`
-- [ ] D3 / P0-5 五个监控类（`AnrWatchDog`/`BootGuard`/`MemoryMonitor`/`ThermalMonitor`/
+- [ ] D2【R29 建议接受现状：STYLE 的禁令针对 `.nu` 脚本语言选择，工作流调 gradle
+      的宿壳不在此列；较真则改 STYLE 一词，需用户改保护文档】`STYLE.md:61` 禁止 `bash`/`sh` 字面 vs `fmt.yml:44` 在用 `bash -c`
+- [ ] D3 / P0-5【R29 建议补规范（五类全部已实现、有测试、有生产语义，删整块是功能倒退）】五个监控类（`AnrWatchDog`/`BootGuard`/`MemoryMonitor`/`ThermalMonitor`/
       `TerminalForegroundService`）与 `PROHIBITED.md:10` 字面冲突；
       `AnrWatchDog` 触发即 `Process.killProcess` 销毁全部 shell。删整块还是补规范？
-- [ ] D5 `public_api.rs` 文档称「二进制 VT 数据应改用 `vt_write`」vs 生产路径仍用 `pty_write`
-- [ ] D6 `PROHIBITED.md:19` 禁止内嵌 bootstrap vs `DESIGN.md:126-142` 下载式安装
+- [ ] D5【R29 实测：扫描器只拦截 OSC 52，其余（含 Kitty 直接 RGB 高字节）全经 `pty_write`
+      的 `>0xF7→空格` 整形，损坏是可能但尚未实证；建议保持现状或立项重构 VT 输入路径，
+      不建议小步碰】`public_api.rs` 文档称「二进制 VT 数据应改用 `vt_write`」vs 生产路径仍用 `pty_write`
+- [ ] D6【R29 建议记无冲突关闭：下载≠内嵌，APK 未预装发行版，实现与禁令一致】`PROHIBITED.md:19` 禁止内嵌 bootstrap vs `DESIGN.md:126-142` 下载式安装
 - [ ] D7 / N7 发布链路（打 tag 产出空 release）
-- [ ] N1-23 `BootstrapDownloader` 拒 `http://` vs `DESIGN.md:126`「支持 HTTP/HTTPS」
-- [ ] N1-25 粘滞 SCROLL 的产品语义（「再按一次解除」还是「任意输入解除」）
-- [ ] N2-48 `bracketedPaste = false` 硬编码，`\e[200~` 从不发出 ——
+- [ ] N1-23【R29 建议保持仅 HTTPS（明文下载引导 zip 是供应链风险）并把 DESIGN 改为
+      仅 HTTPS，需用户改保护文档或授权】`BootstrapDownloader` 拒 `http://` vs `DESIGN.md:126`「支持 HTTP/HTTPS」
+- [ ] N1-25【R29 建议保持现状混合语义（按钮切换 + 任意输入解除，DESIGN 无声明，
+      双行为互补且已有实现），如需收敛请指定】粘滞 SCROLL 的产品语义（「再按一次解除」还是「任意输入解除」）
+- [ ] N2-48【R29 建议不实现（无规范声明，STYLE:59 禁止擅加功能；要做需先立项声明语义）】`bracketedPaste = false` 硬编码，`\e[200~` 从不发出 ——
       是否在本仓范围内实现 bracketed paste
 - [x] P1-4 / D12 被删的输入法跟随测试是否恢复 —— R29 裁定不恢复旧文件：
       被删的 `ImeLayoutStabilityTest`（366 行）意图（弹出位移/无闪烁/裁剪口径）现由
       `ImePopupPixelInstrumentedTest`（contentFew/contentMany/中文提交，本轮实测
       2/3 通过、剩余 1 例为 AVD 环境所限）与 `ComputeImeSurfaceShiftTest` 覆盖；
       恢复旧文件等于重复锁定同一行为
-- [ ] D13（N2-44）DESIGN:153「内容横向溢出到右侧时左右键平移可见区域」的触发
+- [ ] D13（N2-44）【R29 建议给规范补一句现状说明（网格恒不溢出），触发条件不存在，
+      删条与实现条都不合适】DESIGN:153「内容横向溢出到右侧时左右键平移可见区域」的触发
       条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：是给规范
       补一句现状说明，还是删掉该条要求
-- [ ] D14（N9/N2-23）`themes.xml` 的窗口/状态栏/导航栏底色硬编码 `#1E1E2E` 且无
+- [ ] D14（N9/N2-23）【R29 建议运行时按已解析配色设置系统栏（跟随应用内日间/夜间开关），
+      `values-night` 只跟随系统，不合应用语义】`themes.xml` 的窗口/状态栏/导航栏底色硬编码 `#1E1E2E` 且无
       `values-night/`：应用内配色由 Compose 按「日间/夜间/跟随系统」解析（正确），
       只有系统窗口与启动屏是夜色的。修法二选一——运行时按已解析配色设置系统栏，
       或加 `values-night` 资源限定符（后者跟随系统而非应用设置）。两者都要动
       `res/` 或窗口代码，需确认取哪条
 
 ## 5. 需授权（修复必然改动保护文件）
+
+R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护文件
+（`.github/`、`scripts/`、`flake.nix`、`build.gradle.kts`、`detekt.yml`、
+ semgrep 规则、`docs/specification/`），按规范必须用户亲改或明确授权，
+ 故本轮只核对现状准确性（D8 缺失与 fmt.yml:44 原样属实），不动文件。
+ 待授权后按条修，每条独立小步提交。
 
 - [ ] N1-29 `ktlint`/`ktfmt` 插件已 apply 但无门禁请求（`android/build.gradle.kts`、
       `android/app/build.gradle.kts` 或 `scripts/check-gradle.nu`）
@@ -268,19 +281,21 @@
 
 ## 8. ：新增待办
 
-- [ ] **R16-T1（需裁决）** 多击选择与规范冲突：`TerminalSurface` 完整实现双击/三击/四击
+- [ ] **R16-T1（需裁决）**【R29 建议保留功能改规范：删已落地的双击/三击/四击是功能倒退，
+      以 `docs/specification/` 为准的另一条路是用户把 DESIGN:177 改为允许】多击选择与规范冲突：`TerminalSurface` 完整实现双击/三击/四击
       （选词/选行/全选，`multiTapAction` + `nextTapCount` + 刻意置空的
       `setOnDoubleTapListener`），而 `DESIGN.md:177` 明文「不得支持 双击 三击 多击选择」；
       低置信度的 `openspec/specs/text-selection/spec.md:30` 要求相反。
       按 AGENTS.md 的优先级以 `docs/specification/` 为准，但删掉多击会移除已落地的功能，
       故不擅自动手，请裁决改哪一边
-- [ ] **R16-T2（不稳定测试）** `bench_gpu_buffer_upload_throughput`（阈值 350 MB/s）与
+- [ ] **R16-T2（不稳定测试）**【R29 建议移入 `cargo bench` 门禁（`check-rust.nu` 已有
+      bench 环节，串行执行阈值即稳定），降低阈值等于弱化断言，不取】`bench_gpu_buffer_upload_throughput`（阈值 350 MB/s）与
       `bench_bulk_output_throughput`（阈值 4000 cells/s）是墙钟吞吐断言，
       536 个测试并行时在共享机器上必然跌破（实测 195 MB/s / 3295 cells/s），
       单独运行恒通过；`sgr_tricolor_mocha_reaches_foreground` 同样只在满载时偶发失败。
       与 TESTING.md「没有不稳定的测试」冲突，但降低阈值即弱化断言，需裁决：
       移入 `cargo bench` 门禁（`scripts/check-rust.nu` 已有 bench 环节）还是串行化执行
-- [ ] **R16-T3** 会话锁跨阻塞 PTY 写入：`writeToPty` 持 `session` 锁调
+- [ ] **R16-T3**【R29 建议维持 park：见本条内评估】会话锁跨阻塞 PTY 写入：`writeToPty` 持 `session` 锁调
       `Pty::write_all`，该函数最多等可写 5s（`WRITE_DRAIN_TIMEOUT`）——
       R29 评估后维持不动：5s 等待是防截断的已验证决策（§6：丢弃会让粘贴被静默
       截断半条命令），调短/丢弃都是回归；根治需把 PTY 主端 fd 移出会话
@@ -561,7 +576,7 @@
 
 ## 16. ：新增待办
 
-- [ ] **D13（需用户裁决）** OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
+- [ ] **D13（需用户裁决）**【R29 建议实现清空语义需先定三态合并规则，见条内】OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
       「清空剪贴板」。当前 `Bridge.parseEvent` 把空串映射成 `null`（null = 本帧无剪贴板事件），
       于是该序列被静默忽略。`DESIGN.md` 只声明「通过终端序列（OSC 52）与用户交互
       读写系统剪贴板」，未声明清空语义；按「不允许实现任何未在 docs/specification/
