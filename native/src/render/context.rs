@@ -471,6 +471,13 @@ impl Renderer {
             );
         }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
+        // 先释放旧 surface 再建新 surface：Android 上两个 wgpu surface 包裹同一个
+        // ANativeWindow，旧 surface 仍存活时无法为该窗口创建 Vulkan swapchain，
+        // 随后的 get_current_texture 永远报 “Surface is not configured for presentation”
+        // （模拟器实测：首次之后的每个会话都黑屏）。调用方保证此刻无渲染线程处于帧中
+        // （switchSession 会先停旧线程），故可安全丢弃。
+        self.surface = None;
+        self.surface_config = None;
         // SAFETY:
         // - `global_gpu().instance` 是有效的 wgpu Instance；
         // - 句柄包裹调用方保证存活的 ANativeWindow（JNI attachWindow 契约），
@@ -494,13 +501,6 @@ impl Renderer {
                 "attach_surface: wgpu create_surface failed: {error}"
             ))
         })?;
-        // 先释放旧 surface 再建新 surface：Android 上两个 wgpu surface 包裹同一个
-        // ANativeWindow，旧 surface 仍存活时无法为该窗口创建 Vulkan swapchain，
-        // 随后的 get_current_texture 永远报 “Surface is not configured for presentation”
-        // （模拟器实测：首次之后的每个会话都黑屏）。调用方保证此刻无渲染线程处于帧中
-        // （switchSession 会先停旧线程），故可安全丢弃。
-        self.surface = None;
-        self.surface_config = None;
         // 重建即视为恢复：失效位与连续失败计数随之清零，新 surface 重新接受判定。
         self.surface_invalidated = false;
         self.surface_loss_streak = 0;
