@@ -39,6 +39,15 @@ interface TerminalQueryPort {
     fun selectAll(): IntArray?
 
     fun hyperlinkAt(row: Int, col: Int): String?
+
+    /**
+     * 网格列 → 该列所属字符的起始列：宽字符尾格左移一格，其余原样返回。
+     *
+     * [scrollbackLine] 每列恰好一个字符（宽字符尾格为空格占位），行文本因此**无法**
+     * 区分尾格与真空白，吸附判定只能取自网格单元宽度这一事实。会话不存在或查询
+     * 失败时原生返回传入的列，不猜。
+     */
+    fun cellCharStartCol(row: Int, col: Int): Int
     fun getDefaultFontName(): String
     fun getFontInfo(): String?
 }
