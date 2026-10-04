@@ -392,6 +392,17 @@ class BootstrapInstallerNormalizePathTest {
     }
 
     @Test
+    fun escapesStagingDir_resolves_dot_segments_before_judging() {
+        // `File("foo/..").path` 仍是 "foo/.."，此前四个前缀条件一个都不命中。
+        assertTrue(installer.escapesStagingDir("foo/.."))
+        assertTrue(installer.escapesStagingDir("./"))
+        assertTrue(installer.escapesStagingDir("../etc/passwd"))
+        assertTrue(installer.escapesStagingDir("/etc/passwd"))
+        assertFalse(installer.escapesStagingDir("bin/sh"))
+        assertFalse(installer.escapesStagingDir("libexec/../bin/sh"))
+    }
+
+    @Test
     fun normalizePath_absolute_stays_absolute() {
         assertEquals("/etc/passwd", installer.normalizePath("/etc/passwd"))
         assertEquals("/etc/passwd", installer.normalizePath("/etc/../etc/passwd"))

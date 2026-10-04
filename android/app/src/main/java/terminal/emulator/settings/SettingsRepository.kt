@@ -34,7 +34,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
     }
 
     companion object {
-        const val DEFAULT_FONT_SIZE = 14f
         private const val DEFAULT_THEME = "Dracula Plus"
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
