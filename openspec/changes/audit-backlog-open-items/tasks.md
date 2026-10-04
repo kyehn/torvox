@@ -207,7 +207,7 @@
 - [x] **** `switchSession` 的会话恢复块挂在 `try { target.running = true }`
       上——赋 volatile 字段不抛异常，该 `catch` 不可达；真正会失败的
       `startRenderThread` 反而无恢复，前一个会话永久留在无渲染线程的冻结态。
-      已把恢复块移到该 `catch`
+      已把恢复块移到 `startRenderThread`（并按 收窄到只包它本身）
 - [x] **** `TerminalRuntime` 残留 `android.util.Log.w("DbgRecreate", …)`，
       `${'$'}` 转义使插值失效、打印字面量，且不经 `LogUtil` 不受 DEBUG 门控随 release 发布
 - [x] **** IME `commitText` 以「文本相等且 80ms 内」丢弃重复提交并返回 `true`，
@@ -288,8 +288,42 @@
       与魔数请求码，且不观察结果；应换 AndroidX `registerForActivityResult(
       ActivityResultContracts.RequestPermission())`
 
-## 9. 文档退役
+## 9. （对 改动的对抗复审）：本轮自查修掉的自身回归
 
-- [x] 9.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
-- [x] 9.2 删除 `docs/REVIEW*.md` 全部 12 个文件
-- [x] 9.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
+的改动经对抗复审后自行发现并修正三项，均为「修复本身引入或放大的问题」：
+
+- [x] **** 会话恢复块被放进包住 `startRenderThread` **及其后全部步骤**的 `try`：
+      其后 `NativeBridge.switchSession` / `syncGridDimensions` / `alignGridOnSwitch` 都是
+      会抛的裸 JNI 调用，一旦在其后失败，目标会话的渲染线程已在消费全局事件队列，
+      此时再拉起前一个会话就同时存在两个消费者（剪贴板事件错投），
+      且 Kotlin 的 `activeSessionId` 与原生 `ACTIVE_SESSION_ID` 会指向不同会话。
+      已把恢复块收窄到只包 `startRenderThread`，其余步骤的失败只记日志
+- [x] **** `acceptsDragPointer(dragPointerId, lockedIdx)` 比较的是**指针 id** 与
+      **槽位下标**——两者在同一手势内并不相等（Android 在 `ACTION_POINTER_UP` 后回收并复用 id）。
+      把内联判定换成该函数，等于把「锁定指针仍在事件里」误判成「槽位号恰好等于 id」。
+      已恢复内联判定并删除该函数与其测试（它原本是死抽取，契约与实际需求不符）
+- [x] **** `escapesStagingDir` 把消解后为空的路径一并拒绝，使合法的 `./` 目录条目
+      由无害空操作变成安装中止。已把「消解回 staging 根」从逃逸判定里移出，
+      只在 zip 条目处按「非目录条目」单独拒绝
+- [x] **** 三处注释与实际不符，已按事实改写：`clipboardResult` 不作答只是让等待方
+      立即走 Disconnected 分支回空串（改变的是可诊断性，不是写回内容）；
+      `attachWindow` 的宿主并不观察挂载结果，不存在「换新窗口重试」
+
+## 10. ：新增待办
+
+- [ ] **R17-T1（高）** 事件队列可被远端洪泛占满且此后静默丢弃：`ClipboardRead` 由 PTY
+      输出驱动（`output_processor.rs:188` 的 OSC 52 读请求），远端脚本循环
+      `\e]52;c;?\a` 即可把 1024 个槽位全填成受保护事件；此后每次 `push` 都落到
+      「队列只剩受保护事件」分支，连 `Event::Exit` 一起丢——而 `exit_reported` 已置位
+      且不会重发，**会话永久泄漏**（原生会话与 shell 子进程都不回收）。
+      本轮已给该分支补上告警；根治需给每会话的待答 OSC 52 读请求设上限并显式作答
+- [ ] **R17-T2** 同一洪泛的二阶后果：`TerminalRuntime.dispatchClipboardRequests`
+      （`:447`）在渲染线程上对每个待答请求各做一次同步
+      `ClipboardManager.getPrimaryClip()` binder 调用与一次 `clipboardResult` JNI，
+      1024 个积压即一帧内 1024 次 binder 往返。须与 R17-T1 一并设上限
+
+## 11. 文档退役
+
+- [x] 11.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
+- [x] 11.2 删除 `docs/REVIEW*.md` 全部 12 个文件
+- [x] 11.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
