@@ -34,9 +34,14 @@ class RenderWatchDog(
     private var stopped = false
 
     fun start() {
-        synchronized(fireLock) { stopped = false }
-        if (watchJob?.isActive == true) return
-        watchJob = scope.launch { watchLoop() }
+        // 检查与启动必须在同一个临界区内：分开写时两个并发调用者（切会话与
+        // checkSessions 的重启）都能通过 `isActive` 检查，各自跑一个 2s 轮询循环，
+        // onHangDetected 被触发两次。
+        synchronized(fireLock) {
+            stopped = false
+            if (watchJob?.isActive == true) return
+            watchJob = scope.launch { watchLoop() }
+        }
     }
 
     fun stop() {

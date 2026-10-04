@@ -15,7 +15,9 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
+    /** 重复注册会多挂一个监听器与一个线程，并让 onCritical 触发两次；这里只认首次。 */
     fun register() {
+        if (thermalListener != null) return
         thermalListener =
             PowerManager.OnThermalStatusChangedListener { status ->
                 onThermalStatusChanged(status)
