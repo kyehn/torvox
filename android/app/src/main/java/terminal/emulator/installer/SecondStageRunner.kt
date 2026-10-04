@@ -238,9 +238,10 @@ class SecondStageRunner(
             val stdoutThread =
                 Thread {
                     try {
-                        proc.inputStream.bufferedReader().use { reader ->
-                            synchronized(stdoutText) { stdoutText.append(reader.readText()) }
-                        }
+                        val drained = proc.inputStream.bufferedReader().use { it.readText() }
+                        // 先读完再入锁：读操作本身可能被永久阻塞（后代进程持有管道），
+                        // 持锁读会让主线程紧随其后的 join 超时形同虚设。
+                        synchronized(stdoutText) { stdoutText.append(drained) }
                     } catch (exception: Exception) {
                         LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
                     }

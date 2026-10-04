@@ -2147,9 +2147,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (now - lastScrollbackQueryNanos < SCROLLBACK_QUERY_THROTTLE_NANOS) {
             return cachedScrollbackLength
         }
-        lastScrollbackQueryNanos = now
         val viewModel = viewModel ?: return cachedScrollbackLength
         val bridge = viewModel.runtime.bridge() ?: return cachedScrollbackLength
+        // 时间戳在确认可用之后才写：否则 bridge 暂时缺席时白白烧掉一个节流窗口，
+        // 后续手势继续读到上一个会话的陈旧回滚长度。
+        lastScrollbackQueryNanos = now
         cachedScrollbackLength =
             try {
                 bridge.scrollbackLength()
@@ -2403,9 +2405,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (drawerOpen || event.x < drawerEdgePixels) {
             return false
         }
-        // 走到这里才说明这次抬手属于终端 Surface（未被抽屉遮罩或边缘手势取走）：
-        // 此时才播报点击。提前播报会让关闭抽屉的遮罩轻击、边缘滑动收尾、
-        // 滚动与拖动抬手统统被朗读成「已点击」。
+        // 走到这里才说明这次抬手属于终端 Surface（未被抽屉遮罩或边缘手势取走），
+        // 此时才播报点击。提前播报会让「轻点遮罩关闭抽屉」「抽屉边缘滑动收尾」
+        // 这两条根本不属于终端的抬手被朗读成「已点击」。
+        // （滚动与长按拖动的抬手仍在下游被消费，同样会走到这里。）
         if (isRelease) performClick()
 
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)

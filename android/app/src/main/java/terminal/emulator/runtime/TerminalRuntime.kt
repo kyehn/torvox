@@ -1390,6 +1390,14 @@ constructor(
                                                 )
                                             }
                                             consecutiveErrors++
+                                            // 帧已正常返回（只是渲染失败），渲染线程没有挂起。
+                                            // 必须刷新完成时刻：`RenderWatchDog` 以
+                                            // 「开始 > 完成」判定挂起，若此处不更新，
+                                            // 持续失败（Surface 迟迟不就绪）会让完成时刻
+                                            // 冻结在最后一帧成功处，10s 后看门狗把仍在循环的
+                                            // 线程判为挂死，反复重启直至 `closeDeadSession`
+                                            // 关掉用户的 shell。
+                                            entry.lastRenderDone = System.nanoTime()
                                             // 自适应退避：前 10 次 50ms，之后 200ms
                                             val sleepMs =
                                                 if (consecutiveErrors > 10) {
