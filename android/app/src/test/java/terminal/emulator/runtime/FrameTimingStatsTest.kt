@@ -52,6 +52,22 @@ class FrameTimingStatsTest {
     }
 
     @Test
+    fun `frames beyond a full window are dropped instead of overflowing the array`() {
+        // 越界写会在**渲染线程**上抛 ArrayIndexOutOfBoundsException，整个终端随之消失；
+        // 未先排空窗口就继续记录的那一帧必须被丢弃，且不能污染已满的窗口。
+        val stats = FrameTimingStats(windowSize = 2)
+        stats.record(4_000_000L)
+        stats.record(6_000_000L)
+        stats.record(999_000_000L)
+        val report = checkNotNull(stats.takeReport())
+        assertEquals(2, report.frameCount)
+        assertEquals(5_000_000L, report.averageNanos)
+        assertEquals(6_000_000L, report.maxNanos)
+        // 丢弃的那帧不得让窗口提前就绪。
+        assertNull(stats.takeReport())
+    }
+
+    @Test
     fun `p95 ignores rare slow frames above the 95th percentile`() {
         val stats = FrameTimingStats(windowSize = 100)
         // 95 fast frames of 4ms, then 5 slow frames of 1s.

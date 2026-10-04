@@ -416,8 +416,99 @@
 - [ ] **R21-T6** `OutputSnapshot.clipboard_read` 在单个 `process()` 块内 last-wins，
       分块读取时多个 OSC 52 读请求只留一个。与 §10 R17-T1/T2 同族（读请求被丢弃而不作答）
 
-## 13. 文档退役
+## 13. ：已修
 
-- [x] 13.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
-- [x] 13.2 删除 `docs/REVIEW*.md` 全部 12 个文件
-- [x] 13.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
+- [x] **（自身回归）** `clearAppData` 把「重建监视目录」放在「有残留则返回」之后：
+      删除是逐目录独立的，`prefs` 删成功而 `boot_state` 残留时就此返回，
+      进程级 DataStore 单例因父目录消失而此后所有设置写入全失败。已改为无条件重建
+- [x] **** `clearAppData` 的注释与代码相反（`.orEmpty()` 把 `listFiles()` 的
+      I/O 失败当成「目录为空」）。已改为按未清除记账，并让日志措辞覆盖两种情形
+- [x] **** 待挂载 Surface 的三元组（`pendingSurface` + 宽 + 高）是三个
+      `@Volatile` 字段：读者可能拿到新 Surface 配旧尺寸，而 `attachSurface` 的尺寸
+      必须与该 Surface 同源，否则交换链配置与 BufferQueue 几何各说各话。
+      已收进单个 `@Volatile private class PendingSurface`
+- [x] **** `SessionEntry.renderWatchDog` 是整条记录里唯一没有 `@Volatile` 的字段，
+      而它在 `stopDeadRenderThreadResources`（锁外）被写、在 `startRenderThread`（锁内）被读，
+      没有 happens-before 边：读到陈旧 null 就会漏停一个 2s 轮询循环。已加 `@Volatile`
+- [x] **** `recomputeGridFromFontMetrics` 分两次读 pending Surface：
+      可能把 1080x2400 与 1080x2340 拼成一个从未存在过的矩形，由此算出的网格会以
+      SIGWINCH 推给 PTY 却与任何 Surface 都不匹配。已一次取出三元组
+- [x] **** 换视图预算（次数 / 上次时刻 / 已告警）是三个 `@Volatile` 字段，
+      由渲染线程与 `surfaceTransitionExecutor` 各自成组读写。已收进
+      `SessionEntry.SurfaceRecreateBudget` 并整条替换
+- [x] **** `loadFontFile` 丢弃 `set_font_family` 的结果：设置页显示新字体名，
+      终端仍用管线默认字体渲染，且无任何日志（`setFontFamily` 导出对同一结果上报 false）。
+      已改为记错误并回 null（Kotlin 侧回落用户已存族名，不崩溃）
+- [x] **（自身回归）** 上一条的提前返回跳过了其后的
+      `cell_cache = None` 与 `dirty.store(true)`，留下「新管线已装、旧实例缓存仍在、
+      且没请求新帧」的三重不一致。已把两步提到检查之前
+- [x] **** `listFontFamilies` 的数组元素初值为 null，而任一 `new_string` /
+      `set_element` 失败都会留下 null；Kotlin 侧声明是 `Array<String>`，
+      null 元素会在字体选择器里变成 NPE。已改为失败即整体作废
+- [x] **** `SettingsRepositoryTest` 有一个空函数体测试：不断言任何行为，
+      把 `SettingsRepository.kt` 整个删掉它照样通过。已删除
+- [x] **** `FrameTimingStats` 的「窗口满则丢帧」分支无测试覆盖，
+      删掉守卫整套测试仍全绿。已补一个断言越界帧被丢弃且不污染窗口的用例
+- [x] **** 引导 URL 字段两轮改动的两次都不对：`LaunchedEffect` 无条件覆盖与
+      `remember(bootstrapUrl)` 重新播种都挡不住「回流带着更旧的文本抵达」
+      （用户在 300ms 写入窗口内继续打字 → 字符被静默删除且不经 `onValueChange`）。
+      已回到「编辑中不采纳外部值」的守卫，并确认四个方向（打字、预设按钮、
+      清除应用数据、重组）都成立
+- [x] **** `clearAppData` 的失败日志措辞写成「未删除」，而合成条目
+      `cache(不可枚举)` 表示的是 I/O 失败。措辞已覆盖两种情形
+
+## 14. ：新增待办
+
+- [ ] **R25-T1** 换视图预算仍是跨线程读-改-写：`maybeRequestSurfaceRecreate` 读快照后写回，
+      期间落地的复位（`resumeRendering` 在 `surfaceTransitionExecutor` 线程、渲染线程仍活着时执行）
+      会被本次写回覆盖，计数被推回旧值，下一次失效即判为 exhausted，
+      终端保持空白直到平台重新交付 Surface——正是 `TerminalRuntime:3180` 那段注释要治的病。
+      把预算的读-改-写并入 `sessionLock`，或改用 `AtomicReference<SurfaceRecreateBudget>.updateAndGet`
+- [ ] **R25-T2** `RenderWatchDog` 以 `getStart()` / `getDone()` 两读判定「帧在飞」，
+      二者是 `SessionEntry` 上两个独立 `@Volatile`。跨帧混读可造出假的 `start > done`，
+      若同时已超 10s 即误报挂起并重启健康的渲染线程。窗口只有一帧宽且需真的长帧，
+      目前自限，但与 R25-T1 同族
+
+## 15. ：已修
+
+- [x] **** `resolveThemeName()` 返回的是清除**之前**的快照，
+      而 `buildConfig` 随即用 `BuiltInThemes.byName`（未知名上 `error`）解析它：
+      存有未知名的那一次建会话直接失败，用户看不到终端，要等下一次 surface 分支才恢复。
+      UI 半边早已用 `byNameOrNull(...) ?: draculaPlus` 容忍同一情形，两半不一致。
+      已改为清除成功后重读快照（`clearUnknownThemeNames` 返回是否真的清除过）
+- [x] **** `TerminalState.sessionId` 是只写不读的死状态（5 处写、0 处读）。已删除
+- [x] **** `DocumentQueries.resolveLinkEntry` 在 `decodeDocId` 之后又做一次
+      根内校验，而 `decodeDocId` 内部已无条件校验并返回规范化 File：
+      同一次判定多两次文件系统往返。已删除重复
+- [x] **（自身回归）** 为「空载荷 OSC 52」加的告警落在 `EventDispatcher`，
+      而 `Bridge.parseEvent`（`Bridge.kt:365`）已把 `""` 映射成 `null`：
+      该分支不可达，序列仍被静默丢弃，注释还宣称可达。已删除该死分支，
+      改在台账登记（见 D13）
+- [x] **** `keymap.rs` 的测试注释拿 `KEYCODE_SYSRQ` 当「未映射」的反例，
+      而它其实映射为 `PrintScreen`（200 是 `KEYCODE_CAPTIONS`）。已更正
+- [x] **** `keymap.rs` 的 `every_android_code_has_unique_mapping` 实测不了唯一性
+      （两个 Android 码映射到同一 `Key` 也会通过），其真实价值只是「表与 match 分支同步」。
+      已按实际语义改名
+- [x] **** `glyph_cache.rs` 自述「独立于 FontPipeline 以便单独测试淘汰策略」，
+      但全仓没有任何用例跨越过容量，淘汰策略零覆盖。已补：
+      跨 `OUTLINE_CACHE_CAPACITY` 断言被淘汰的正是最久未用的一条，
+      且刚被 `get` 触碰的条目存活（`peek` 不刷新 LRU 次序，故必须用 `get`）
+
+## 16. ：新增待办
+
+- [ ] **D13（需用户裁决）** OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
+      「清空剪贴板」。当前 `Bridge.parseEvent` 把空串映射成 `null`（null = 本帧无剪贴板事件），
+      于是该序列被静默忽略。`DESIGN.md` 只声明「通过终端序列（OSC 52）与用户交互
+      读写系统剪贴板」，未声明清空语义；按「不允许实现任何未在 docs/specification/
+      声明的功能」本轮未实现。要清空需要把 `PollResult.clipboard` 从 `String?`
+      扩成能区分「无事件 / 写入文本 / 清空」的三态，并明确空载荷优先于同帧文本的合并规则。
+      请裁决是否在本仓实现
+- [ ] **R27-T1** `Bridge.parseEvent` 与 `resolveThemeName` 都没有单元测试覆盖
+      （前者 private、后者需要完整 runtime）；本轮三处改动全靠人工推演验证。
+      `resolveThemeName` 的重读逻辑可提取为纯函数以便测试
+
+## 17. 文档退役
+
+- [x] 15.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
+- [x] 15.2 删除 `docs/REVIEW*.md` 全部 12 个文件
+- [x] 15.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
