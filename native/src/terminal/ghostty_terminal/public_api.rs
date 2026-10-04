@@ -545,6 +545,16 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 网格列 → 该列所属字符的起始列（宽字符尾格左移一格）。
+    /// 查询失败时返回 `col` 本身：保持原列而非猜测。
+    pub fn cell_char_start_col(&self, row: u32, col: u32) -> u32 {
+        self.query(
+            |tx| Query::CellCharStartCol { row, col, tx },
+            col,
+            "cell_char_start_col",
+        )
+    }
+
     pub fn select_all(&self) -> Option<((u32, u32), (u32, u32))> {
         self.query(|tx| Query::SelectAll { tx }, None, "select_all")
     }

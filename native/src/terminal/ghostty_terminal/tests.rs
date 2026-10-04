@@ -74,6 +74,49 @@ fn read_line_text_empty_returns_none() {
     assert!(text.is_none());
 }
 
+/// 行文本的字符下标恒等于网格列（每列恰好一个字符），宽字符尾格是空格占位。
+/// Kotlin 侧据此按列直取字符，不再用宽度表反推。
+#[test]
+fn read_line_text_index_equals_grid_column_for_wide_chars() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write("中文AB".as_bytes());
+    terminal_under_test.flush();
+    let text = terminal_under_test.read_line_text(0).expect("row has text");
+    let columns: Vec<char> = text.chars().collect();
+    assert_eq!(
+        columns,
+        vec!['中', ' ', '文', ' ', 'A', 'B'],
+        "宽字符尾格占一列空格，字符下标即列号"
+    );
+}
+
+#[test]
+fn cell_char_start_col_snaps_wide_char_tail_left() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write("中文AB".as_bytes());
+    terminal_under_test.flush();
+    // 起始格与窄字符原样返回。
+    assert_eq!(terminal_under_test.cell_char_start_col(0, 0), 0);
+    assert_eq!(terminal_under_test.cell_char_start_col(0, 4), 4);
+    assert_eq!(terminal_under_test.cell_char_start_col(0, 5), 5);
+    // 两个宽字符的尾格各自吸附到自己的起始列（行内第二个宽字符不被吸到更左的列）。
+    assert_eq!(terminal_under_test.cell_char_start_col(0, 1), 0);
+    assert_eq!(terminal_under_test.cell_char_start_col(0, 3), 2);
+}
+
+/// 软换行续行的行首是 `SpacerHead`：其前一列属于折行前的上一行，吸附不得跨行。
+#[test]
+fn cell_char_start_col_keeps_wrapped_row_head() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write(b"0123456789ABCDE");
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.cell_char_start_col(1, 0),
+        0,
+        "续行行首不得左移越过折行边界"
+    );
+}
+
 #[test]
 fn reset_clears_grid_and_scrollback() {
     let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
