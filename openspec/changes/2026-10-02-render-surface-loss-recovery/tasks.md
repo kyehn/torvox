@@ -159,4 +159,5 @@
       `位移=0 差异=0` 环境限制）；`SurfaceLoss` 注入用例单跑通过。
       本轮 Rust/Kotlin 改动（轮询锁重排、剪贴板批处理、读队列、搜索锁外化）
       之后，全量失败仍是饥饿带而非新回归
-- [ ] 6.4 更新 `openspec/specs/render-stability/spec.md`，完成后归档本 change
+- [x] 6.4 更新 `openspec/specs/render-stability/spec.md`（自愈需求 8 场景已并入主 spec，
+      `openspec validate --specs` 21/21 通过），完成后归档本 change
