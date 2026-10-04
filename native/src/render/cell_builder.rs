@@ -442,12 +442,10 @@ fn build_row_instances_into(
         atlas_height,
         search_highlights,
     } = config;
-    // Quad geometry uses GRID cell dimensions (surface/rows, surface/cols),
-    // not font metrics: font cell height (~20px) is smaller than the grid
-    // row height (~92px on a 2209px surface / 24 rows), so quads sized by
-    // font metrics left visible gaps between rows. The shader positions
-    // glyphs inside the grid quad via bearing + ascent (glyph_h > cell_h
-    // is then never true, so glyphs use the raw bearing path).
+    // Quad geometry uses the caller-supplied grid cell dimensions, which are the
+    // FONT cell size (cell_metrics * raster_scale) — not surface/rows. Sizing
+    // quads by surface/rows left visible gaps between rows on tall surfaces
+    // (2209px / 24 rows = 92px vs a ~20px font cell).
     let (cell_width, cell_height) = (grid_cell_width, grid_cell_height);
     // trace-level: this fires on every dirty rebuild; at info it floods
     // logcat (binder IPC per line) and causes frame-time jitter.
@@ -502,6 +500,8 @@ fn build_row_instances_into(
     // 必须降级为全量重建（预热后为纯查表，代价低且正确）。
     let mut incremental = incremental && font_pipeline.atlas_generation() == generation_at_entry;
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
+    // 末遍是否在稳定代际下建完：只有稳定才允许把实例写回缓存。
+    let mut built_stable = false;
     for _ in 0..2 {
         instances.clear();
         row_ends.clear();
@@ -546,13 +546,20 @@ fn build_row_instances_into(
             row_ends.push(instances.len());
         }
         if font_pipeline.atlas_generation() == generation_before_emit {
+            built_stable = true;
             break;
         }
         // 发射中代际变更：已建实例与缓存 clean 行部分 stale，
         // 降级为全量再建一遍（缓存已热，收敛）。
         incremental = false;
     }
-    if let Some(c) = cache.as_mut() {
+    // 只有末遍全程未推进代际才写回缓存：否则实例里的 UV 属于被驱逐前的位置，
+    // 却会被打上推进后的代际——下一帧增量判定误判为「同代际」，
+    // 干净行于是照着已搬迁的 UV 采样（空白/错字）。
+    // 留空缓存让下一帧整体重建：代际不匹配本就会触发它。
+    if let Some(c) = cache.as_mut()
+        && built_stable
+    {
         c.update(
             rows,
             cols,

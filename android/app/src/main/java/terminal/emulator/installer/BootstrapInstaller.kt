@@ -152,7 +152,10 @@ class BootstrapInstaller(
         // EXECUTABLES.txt 是权威清单。路径校验与归档条目名同一规则，
         // 恶意条目不得逃出 staging 目录。
         for (executable in executables) {
-            if (escapesStagingDir(executable)) {
+            // 清单里没有「目录条目」形态，故与 zip 处的附加判据同形：
+            // 消解后为空（`foo/..`、`.`）意味着目标其实是 staging 目录自身，
+            // chmod 到目录上会让它带着 0755 进入 prefix。
+            if (escapesStagingDir(executable) || normalizePath(executable).isEmpty()) {
                 throw java.io.IOException("Unsafe executable path: $executable")
             }
             try {
@@ -293,8 +296,9 @@ class BootstrapInstaller(
     private fun createSymlinks(symlinks: List<Pair<String, String>>) {
         for ((target, linkPath) in symlinks) {
             // 符号链接路径逃逸防护（与 zip 条目名同一规则）：
-            // 恶意 SYMLINKS.txt 绝不能创建 staging 目录之外的链接。
-            if (escapesStagingDir(linkPath)) {
+            // 恶意 SYMLINKS.txt 绝不能创建 staging 目录之外的链接，
+            // 也不得让链接落在 staging 目录自身（`foo/..`）。
+            if (escapesStagingDir(linkPath) || normalizePath(linkPath).isEmpty()) {
                 throw java.io.IOException("Unsafe symlink path: $linkPath")
             }
             // 目标同样由攻击者控制。拒绝绝对路径与路径穿越，使链接不能指向

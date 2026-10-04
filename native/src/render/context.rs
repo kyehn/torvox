@@ -775,8 +775,9 @@ pub fn apply_scroll_px_offset(
     proj
 }
 
-// ── 自 atlas.rs 内联 ─────────────────────────────────────────────
-pub const MIN_ATLAS_BUFFER_SIZE: u64 = 64;
+/// 顶点缓冲的下限字节数。wgpu 拒绝 0 字节的缓冲，而调用方的空列表提前返回
+/// 并不构成该下限的来源——留一个最小值让契约与 wgpu 的要求对齐。
+pub const MIN_VERTEX_BUFFER_SIZE: u64 = 64;
 
 impl Renderer {
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {

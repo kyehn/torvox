@@ -195,9 +195,10 @@ class MainActivity : ComponentActivity() {
             testBackdoorReceivers.register()
         }
         terminal.emulator.service.TerminalForegroundService.start(this)
-        // TerminalForegroundService.start() 静态方法无条件启动服务（启动即获取
-        // PARTIAL_WAKE_LOCK）；onDestroy 经 runtime.stopForegroundServiceIfIdle()
-        // 在无会话时无条件停止服务，不设标志门控，因此离开应用后不会长期持锁。
+        // TerminalForegroundService.start() 无条件启动服务，但唤醒锁只在
+        // sessionCount>=1 时获取（冷启动的裸 start() 此时计数为 0）；
+        // onDestroy 经 runtime.stopForegroundServiceIfIdle() 在无会话时无条件
+        // 停止服务，因此离开应用后不会长期持锁。
         // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，缺失时每次 notify() 都抛
         // SecurityException 且会话通知不再出现。启动时申请一次；拒绝不影响终端功能。
         if (
