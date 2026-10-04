@@ -2031,7 +2031,10 @@ constructor(
             "displayMetrics: w=$displayW h=$displayH density=$density",
         )
 
-        val bypassMinSurface = System.getProperty("test.minSurface") != null
+        // 测试缝线仅调试构建可读：仪器化测试与应用同进程，
+        // `System.setProperty` 可达；release 进程无人设置，读了也恒为 null，
+        // 直接声明为调试专用，避免「生产代码读 test.* 属性」。
+        val bypassMinSurface = BuildConfig.DEBUG && System.getProperty("test.minSurface") != null
 
         if (!bypassMinSurface && (width <= 0 || height <= 0)) {
             LogUtil.e(
@@ -2070,8 +2073,9 @@ constructor(
         try {
             // 引导严格选择性启用：全新应用运行系统 shell 且不下载任何内容，
             // 除非用户在设置中显式配置了引导 URL。首启自动下载 Termux 引导
-            // （~150 MB）既侵入又无上限。测试可用系统属性覆盖（不依赖 DataStore）。
-            val testUrl = System.getProperty("test.bootstrapUrl")
+            // （~150 MB）既侵入又无上限。测试可用系统属性覆盖（不依赖 DataStore，
+            // 与应用同进程故可达；仅调试构建，避免生产代码读 test.* 属性）。
+            val testUrl = if (BuildConfig.DEBUG) System.getProperty("test.bootstrapUrl") else null
             val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
             if (bootstrapUrl.isNotEmpty()) {
                 // 仅记录来源（scheme://host），不记录完整 URL：
