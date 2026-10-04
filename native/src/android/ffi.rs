@@ -1596,14 +1596,22 @@ fn render_inner(session_id: u64) -> jint {
         },
         Idle {},
     }
-    let paused = {
+    // 无 ANativeWindow 时同样不得消费通道：receive 是破坏性取数，而 VT 的去重基线
+    // 在**入队**时就推进（见 push_cell_data），故被本函数取走又丢弃的帧不会被补发——
+    // 换 Surface 的空档期（releaseGpuSurface → attachSurface）产出的输出会一直缺失，
+    // 直到终端内容再次变化才重绘。与 paused 同一条判据，故同处提前返回。
+    //
+    // 只读一次 render_state 并立即释放：下方阶段 3 才取 RENDER_STATE，
+    // 此处不得跨 SESSION_REGISTRY/Session 两级锁持有它（见阶段 3 的锁序说明）。
+    {
         let state = render_state_mut();
-        state
-            .as_ref()
-            .is_some_and(|render_state| render_state.renderer.render_paused)
-    };
-    if paused {
-        return 0;
+        let Some(render_state) = state.as_ref() else {
+            log::error!("render: render state missing");
+            return -1;
+        };
+        if render_state.renderer.render_paused || render_state.renderer.surface.is_none() {
+            return 0;
+        }
     }
     let frame_data = {
         let registry = rlock_session_registry();
@@ -1644,9 +1652,6 @@ fn render_inner(session_id: u64) -> jint {
         log::error!("render: render state missing");
         return -1;
     };
-    if render_state.renderer.surface.is_none() {
-        return 0;
-    }
     // 单点读清内容脏标志。
     let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
 
