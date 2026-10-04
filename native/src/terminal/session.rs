@@ -627,16 +627,6 @@ impl Session {
         self.exited.load(Ordering::Acquire)
     }
 
-    /// 读取子进程退出码：`None` 表示等待线程尚未写入（子进程仍在运行或正在被等待）。
-    /// 非阻塞，调用方每帧轮询即可。
-    pub fn exit_code_now(&self) -> Option<i32> {
-        let guard = self.exit_code.lock();
-        match *guard {
-            ExitCodeSlot::Code(code) => Some(code),
-            ExitCodeSlot::Unknown | ExitCodeSlot::Pending => None,
-        }
-    }
-
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
         self.exited.clone()
     }

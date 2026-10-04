@@ -58,10 +58,6 @@ pub enum GpuError {
     DeviceRequest(String),
     #[error("surface creation failed: {0}")]
     Surface(String),
-    #[error("shader compilation failed: {0}")]
-    Shader(String),
-    #[error("buffer creation failed: {0}")]
-    Buffer(String),
     #[error("buffer readback failed: {0}")]
     Readback(String),
 }
