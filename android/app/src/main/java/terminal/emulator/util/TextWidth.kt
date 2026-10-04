@@ -28,18 +28,3 @@ fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // 区域指示�
 
 /** 码点是否占两个单元格。 */
 fun isWideCodePoint(cp: Int): Boolean = isWideBmp(cp) || isWideAstral(cp)
-
-/** 字符是否占两个单元格。 */
-fun isWideChar(ch: Char): Boolean = isWideCodePoint(ch.code)
-
-/** 字符的单元格宽度：1 或 2。 */
-fun charCellWidth(ch: Char): Int = if (isWideChar(ch)) 2 else 1
-
-/** [line] 上第 [charIndex] 个字符所在的单元格列号。 */
-fun charIndexToCellColumn(line: String, charIndex: Int): Int {
-    var column = 0
-    for (characterPosition in 0 until charIndex.coerceAtMost(line.length)) {
-        column += charCellWidth(line[characterPosition])
-    }
-    return column
-}

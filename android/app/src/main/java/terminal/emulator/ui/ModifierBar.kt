@@ -78,8 +78,6 @@ enum class ToolbarKey(
     @StringRes val contentDescriptionRes: Int? = null,
     /** 按住时重复发送按键序列（方向键）。 */
     val repeatable: Boolean = false,
-    /** 由 [ModifierState] 驱动的切换型修饰键。 */
-    val modifier: Boolean = false,
 ) {
     ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape),
     DRAWER(
@@ -95,8 +93,8 @@ enum class ToolbarKey(
     END("END", "\u001b[F", contentDescriptionRes = R.string.end_key),
     PGUP("PGUP", "\u001b[5~", contentDescriptionRes = R.string.page_up),
     TAB("TAB", "\t", contentDescriptionRes = R.string.tab_key),
-    CTRL("CTRL", "", contentDescriptionRes = R.string.control_toggle, modifier = true),
-    ALT("ALT", "", contentDescriptionRes = R.string.alt_toggle, modifier = true),
+    CTRL("CTRL", "", contentDescriptionRes = R.string.control_toggle),
+    ALT("ALT", "", contentDescriptionRes = R.string.alt_toggle),
     ARROW_LEFT("\u2190", "\u001b[D", contentDescriptionRes = R.string.arrow_left, repeatable = true),
     ARROW_DOWN("\u2193", "\u001b[B", contentDescriptionRes = R.string.arrow_down, repeatable = true),
     ARROW_RIGHT("\u2192", "\u001b[C", contentDescriptionRes = R.string.arrow_right, repeatable = true),
@@ -140,7 +138,6 @@ private const val AUTO_REPEAT_INTERVAL_MS = 80L
 private const val PRESS_BG_TWEEN_MS = 30
 private const val PRESS_SCALE_SPRING_DAMPING = 0.55f
 private const val PRESS_SCALE_SPRING_STIFFNESS = 5000f
-private const val SECONDARY_FONT_SIZE_SP = 8
 
 // 按下态的灰色遮罩（无主题色时的中性反馈）。
 private val PRESSED_SCRIM = Color(0xFF7F7F7F)
@@ -148,61 +145,6 @@ private val PRESSED_SCRIM = Color(0xFF7F7F7F)
 /** 横向分页：第 0 页按键，第 1 页文本输入。 */
 private const val TEXT_INPUT_PAGE_INDEX = 1
 private const val KEY_PAGE_COUNT = TEXT_INPUT_PAGE_INDEX + 1
-
-/**
- * Termux v0.119.0-beta.3 的 extra_keys 布局：第 1 行 ESC、DRAWER、SCROLL、HOME、↑、END、PGUP；
- * 第 2 行 TAB、CTRL、ALT、←、↓、→、PGDN。
- *
- * 会话按钮（DRAWER）位于左侧第二个位置，带 termux 默认的 `popup: 'PASTE'`
- * （长按粘贴剪贴板）。所有按钮无边框、背景透明，权重相等以保证尺寸一致。
- */
-@NonRestartableComposable
-@Composable
-fun ModifierBar(
-    onKeyClick: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    onDrawerClick: () -> Unit = {},
-    onScrollClick: () -> Unit = {},
-    /** SCROLL-button lock state — drives the button's selected/highlight. */
-    scrollActive: Boolean = false,
-    ctrlState: ModifierState = ModifierState.Off,
-    altState: ModifierState = ModifierState.Off,
-    onToggleCtrl: () -> Unit = {},
-    onToggleAlt: () -> Unit = {},
-    /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
-    onLockCtrl: () -> Unit = {},
-    onLockAlt: () -> Unit = {},
-    /** Termux `DRAWER` 键长按：粘贴剪贴板（`popup: 'PASTE'`）。 */
-    onPasteClick: () -> Unit = {},
-    textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-    backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
-    isAppCursorMode: () -> Boolean = { false },
-    /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
-    onKeyBytesClick: ((ByteArray) -> Unit)? = null,
-    /** Consumes Once sticky modifiers after a modified key is sent. */
-    onConsumeModifiers: () -> Unit = {},
-) {
-    ConfigurableModifierBar(
-        onKeyClick = onKeyClick,
-        onDrawerClick = onDrawerClick,
-        onScrollClick = onScrollClick,
-        scrollActive = scrollActive,
-        ctrlState = ctrlState,
-        altState = altState,
-        onToggleCtrl = onToggleCtrl,
-        onToggleAlt = onToggleAlt,
-        onLockCtrl = onLockCtrl,
-        onLockAlt = onLockAlt,
-        onPasteClick = onPasteClick,
-        isAppCursorMode = isAppCursorMode,
-        onKeyBytesClick = onKeyBytesClick,
-        onConsumeModifiers = onConsumeModifiers,
-        textColor = textColor,
-        backgroundColor = backgroundColor,
-        modifier = modifier,
-    )
-}
 
 @Composable
 private fun ModifierBarTextInputPage(
@@ -247,25 +189,38 @@ private fun ModifierBarTextInputPage(
     )
 }
 
+/**
+ * Termux v0.119.0-beta.3 的 extra_keys 布局：第 1 行 ESC、DRAWER、SCROLL、HOME、↑、END、PGUP；
+ * 第 2 行 TAB、CTRL、ALT、←、↓、→、PGDN。
+ *
+ * 会话按钮（DRAWER）位于左侧第二个位置，带 termux 默认的 `popup: 'PASTE'`
+ * （长按粘贴剪贴板）。所有按钮无边框、背景透明，权重相等以保证尺寸一致。
+ */
+@NonRestartableComposable
 @Composable
-private fun ConfigurableModifierBar(
+fun ModifierBar(
     onKeyClick: (String) -> Unit,
-    onDrawerClick: () -> Unit,
-    onScrollClick: () -> Unit,
-    scrollActive: Boolean,
-    ctrlState: ModifierState,
-    altState: ModifierState,
-    onToggleCtrl: () -> Unit,
-    onToggleAlt: () -> Unit,
-    textColor: Color,
-    backgroundColor: Color,
     modifier: Modifier = Modifier,
+    onDrawerClick: () -> Unit = {},
+    onScrollClick: () -> Unit = {},
+    /** SCROLL-button lock state — drives the button's selected/highlight. */
+    scrollActive: Boolean = false,
+    ctrlState: ModifierState = ModifierState.Off,
+    altState: ModifierState = ModifierState.Off,
+    onToggleCtrl: () -> Unit = {},
+    onToggleAlt: () -> Unit = {},
+    /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
     onLockCtrl: () -> Unit = {},
     onLockAlt: () -> Unit = {},
     /** Termux `DRAWER` 键长按：粘贴剪贴板（`popup: 'PASTE'`）。 */
     onPasteClick: () -> Unit = {},
+    textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+    backgroundColor: Color = MaterialTheme.colorScheme.surface,
+    /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
     isAppCursorMode: () -> Boolean = { false },
+    /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
     onKeyBytesClick: ((ByteArray) -> Unit)? = null,
+    /** Consumes Once sticky modifiers after a modified key is sent. */
     onConsumeModifiers: () -> Unit = {},
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -345,7 +300,6 @@ private data class ToolbarKeyPresentation(
     val testTag: String,
     val contentDescription: String?,
     val onRepeat: (() -> Unit)?,
-    val secondaryLabel: String?,
     val secondaryAction: (() -> Unit)?,
 )
 
@@ -419,7 +373,6 @@ private fun toolbarKeyPresentation(
         testTag = key.testTag ?: "Key_${key.defaultLabel}",
         contentDescription = contentDescriptionResolver(key),
         onRepeat = onRepeat,
-        secondaryLabel = null,
         secondaryAction = secondaryLongPressAction(key, actions),
     )
 }
@@ -547,7 +500,6 @@ private fun ModifierBarButtonRow(items: ImmutableList<ToolbarKeyPresentation>, b
                 testTag = item.testTag,
                 contentDescription = item.contentDescription,
                 onRepeat = item.onRepeat,
-                secondaryLabel = item.secondaryLabel,
                 secondaryAction = item.secondaryAction,
             )
         }
@@ -559,13 +511,10 @@ private fun RowScope.ExtraKeyButton(
     text: String,
     onClick: () -> Unit,
     textColor: androidx.compose.ui.graphics.Color,
-    isActive: Boolean = false,
     modifierState: ModifierState? = null,
     testTag: String = "",
     contentDescription: String? = null,
     onRepeat: (() -> Unit)? = null,
-    widthWeight: Int = 1,
-    secondaryLabel: String? = null,
     secondaryAction: (() -> Unit)? = null,
 ) {
     val isLocked = modifierState == ModifierState.Locked
@@ -588,7 +537,6 @@ private fun RowScope.ExtraKeyButton(
         when {
             isLocked -> MaterialTheme.colorScheme.primary
             isOnce -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-            isActive -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
             isPressed -> PRESSED_SCRIM
             else -> Color.Transparent
         }
@@ -602,14 +550,12 @@ private fun RowScope.ExtraKeyButton(
         when {
             isLocked -> MaterialTheme.colorScheme.onPrimary
             isOnce -> MaterialTheme.colorScheme.primary
-            isActive -> MaterialTheme.colorScheme.primary
             else -> textColor
         }
     val fontWeight =
         when {
             isLocked -> FontWeight.Bold
             isOnce -> FontWeight.Bold
-            isActive -> FontWeight.Bold
             else -> FontWeight.Normal
         }
 
@@ -781,7 +727,7 @@ private fun RowScope.ExtraKeyButton(
 
     Box(
         modifier =
-        Modifier.weight(weight = widthWeight.coerceAtLeast(1).toFloat())
+        Modifier.weight(1f)
             .height(BUTTON_HEIGHT_DP.dp)
             .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
             .then(
@@ -805,17 +751,6 @@ private fun RowScope.ExtraKeyButton(
             .then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
-        if (secondaryLabel != null) {
-            Text(
-                text = secondaryLabel,
-                color = activeFg.copy(alpha = 0.55f),
-                fontSize = SECONDARY_FONT_SIZE_SP.sp,
-                fontWeight = FontWeight.Normal,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp),
-            )
-        }
         Text(
             text = text,
             color = activeFg,

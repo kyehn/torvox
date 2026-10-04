@@ -2558,60 +2558,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
     })
 }
 
-/// 该单元没有可打印码点时返回 true。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    session_id: jlong,
-    row: jint,
-    col: jint,
-) -> jboolean {
-    jni_export_guard!(&mut unowned_env, JNI_TRUE, |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("isCellEmpty: session not found"),
-            );
-            return Ok(JNI_TRUE);
-        };
-        let Ok(row) = u32::try_from(row) else {
-            return Ok(JNI_TRUE);
-        };
-        let session = entry.session.lock();
-        // Kotlin 传入的 `gridRow` 已是绝对行号（回滚 + 可视偏移 - 滚动偏移）。
-        // **不要**再加一次回滚长度——那会重复计数。
-        let absolute = row as usize;
-        let visible_rows = session.terminal().rows();
-        let scrollback = session.terminal().scrollback_length();
-        let mut empty = true;
-        if (absolute as u32) < visible_rows + scrollback {
-            if let Some(line) = session.terminal().read_line_text(row) {
-                // `col` 是**字符**列，而原始行是 UTF-8——拿 `line.len()`（字节数）比较会
-                // 把多字节单元（CJK/emoji）误判为空。此处改为统计码点。
-                let char_col = col.max(0) as usize;
-                let char_len = line.chars().count();
-                log::debug!(
-                    "isCellEmpty({row},{col}): scrollback={scrollback} rows={visible_rows} absolute={absolute} line={line:?} char_len={char_len}"
-                );
-                empty = char_col >= char_len;
-            } else {
-                log::debug!(
-                    "isCellEmpty({row},{col}): read_line_text({absolute}) returned None (scrollback={scrollback})"
-                );
-            }
-        } else {
-            log::debug!(
-                "isCellEmpty({row},{col}): absolute={absolute} out of range rows+scrollback={}",
-                visible_rows + scrollback
-            );
-        }
-        if empty { JNI_TRUE } else { JNI_FALSE }
-    })
-}
-
 // ── 字体与主题 ──────────────────────────────────────────────────
 /// 返回字体库的族名列表（fonts.xml 声明的文件集 + 用户投放目录）。
 #[unsafe(no_mangle)]

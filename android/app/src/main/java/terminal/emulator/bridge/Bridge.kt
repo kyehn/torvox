@@ -630,10 +630,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         queryPort.cursorViewportPacked()
     }
 
-    override fun isCellEmpty(row: Int, col: Int): Boolean = onQuery("isCellEmpty", true) {
-        queryPort.isCellEmpty(row, col)
-    }
-
     override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
         onQuery("searchAllInScrollback", null) { queryPort.searchAllInScrollback(query, caseSensitive) }
 

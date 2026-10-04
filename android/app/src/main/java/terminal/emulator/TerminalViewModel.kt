@@ -669,9 +669,9 @@ constructor(
 
         /** Paste clipboard content directly to the PTY (no confirmation dialog).
          *
-         * 粘贴走 `pasteSink`（默认 `InputBatchBuffer.write`）：100 万字符剪贴板
-         * 产生 250 块，主线程逐块同步写 PTY 会阻塞在会话锁 + PTY 写入上
-         *（N1-26）。ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
+         * 粘贴走 `pasteSink`（Surface 侧注入 `InputBatchBuffer.write`）：100 万字符
+         * 剪贴板产生 250 块，主线程逐块同步写 PTY 会阻塞在会话锁 + PTY 写入上（N1-26）。
+         * ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
          */
         fun pasteFromClipboard(): Int {
             val text = clipboardAccess.clipboardText().getOrNull() ?: return 0
@@ -681,8 +681,7 @@ constructor(
         /** Actually send [text] to PTY via the chunker.
          *
          * 主线程禁直接写：100 万字符剪贴板产生 250 块 JNI 同步写，
-         * 阻塞在会话锁 + PTY 写入上。调用方须经 `InputBatchBuffer` 入队
-         *（见 `TerminalSurface.pasteFromClipboardDirect` 同形）。
+         * 阻塞在会话锁 + PTY 写入上。调用方须经 `InputBatchBuffer` 入队。
          */
         fun executePaste(text: String): Int {
             var offset = 0

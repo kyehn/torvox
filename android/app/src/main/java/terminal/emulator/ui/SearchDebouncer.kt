@@ -27,8 +27,7 @@ class HandlerDebounceScheduler(private val handler: android.os.Handler) : Deboun
 
 /**
  * 对快速连续的 [submit] 调用防抖：只有 [debounceMillis] 内最后提交的动作
- * 才会在静默期后真正运行一次。[flush] 取消待执行动作并立即运行它
- * ——供输入法 Search 动作使用，使按回车无需等完防抖即可搜索。
+ * 才会在静默期后真正运行一次。
  *
  * 纯 Kotlin（不依赖 Android）：在 JVM 上用假 [DebounceScheduler] 单元测试。
  */
@@ -46,18 +45,6 @@ class SearchDebouncer(private val debounceMillis: Long, private val scheduler: D
                 action()
             }
         }
-    }
-
-    /**
-     * 立即运行待执行动作（若有）。
-     * @return 刷出了动作时为 true，无待执行动作时为 false。
-     */
-    fun flush(): Boolean {
-        val action = pendingAction ?: return false
-        pendingAction = null
-        scheduler.cancelPending()
-        action()
-        return true
     }
 
     /** Drop the pending action without running it. */

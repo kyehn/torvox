@@ -1,7 +1,6 @@
 package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,42 +65,6 @@ class SearchDebouncerTest {
         scheduler.advance(150)
 
         assertEquals(listOf("a", "b", "c"), executed)
-    }
-
-    @Test
-    fun `flush runs the pending action immediately and cancels the timer`() {
-        val scheduler = FakeScheduler()
-        val debouncer = SearchDebouncer(debounceMillis, scheduler)
-        var executed = 0
-
-        debouncer.submit { executed++ }
-        assertTrue(debouncer.flush())
-        assertEquals(1, executed)
-
-        // Advancing past the debounce must not run the cancelled timer again.
-        scheduler.advance(1000)
-        assertEquals(1, executed)
-    }
-
-    @Test
-    fun `flush with nothing pending returns false`() {
-        val scheduler = FakeScheduler()
-        val debouncer = SearchDebouncer(debounceMillis, scheduler)
-        assertFalse(debouncer.flush())
-    }
-
-    @Test
-    fun `flush after a later submit runs the latest query only`() {
-        val scheduler = FakeScheduler()
-        val debouncer = SearchDebouncer(debounceMillis, scheduler)
-        val executed = mutableListOf<String>()
-
-        debouncer.submit { executed += "stale" }
-        debouncer.submit { executed += "latest" }
-        assertTrue(debouncer.flush())
-        assertEquals(listOf("latest"), executed)
-        scheduler.advance(1000)
-        assertEquals(listOf("latest"), executed)
     }
 
     @Test

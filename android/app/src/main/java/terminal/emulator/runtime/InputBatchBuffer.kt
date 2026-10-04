@@ -147,14 +147,6 @@ class InputBatchBuffer(
         )
     }
 
-    fun reset() {
-        synchronized(lock) {
-            buffer.clear()
-            bufferedSessionId = 0L
-            scheduled = false
-        }
-    }
-
     companion object {
         private const val BATCH_CAPACITY = 8192
         private const val FALLBACK_FLUSH_TIMEOUT_MS = 50L

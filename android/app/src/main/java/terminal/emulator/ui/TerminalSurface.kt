@@ -32,7 +32,6 @@ import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
-import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.computeGridDimensions
@@ -66,8 +65,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         stopFlingAnimation()
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable = null
-        resizeDebounceRunnable?.let { removeCallbacks(it) }
-        resizeDebounceRunnable = null
         // IME 防抖 resume 回调同样持有本视图：detach 恰在防抖窗内则
         // setRenderPaused(true) 后 resume 丢失，渲染永久暂停。
         // 直接取消会吞掉配对的 resume——先 resume 再取消。
@@ -1171,9 +1168,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // （半删除），同时仍限定了 PTY 写入大小。
         private const val MAX_SURROUNDING_DELETES = 4096
 
-        /** [text] 中的 Unicode 码点数（对代理对安全）。 */
-        private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
-
         /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
         private const val EDGE_SCROLL_STEP_UP = 1
         private const val EDGE_SCROLL_STEP_DOWN = -1
@@ -1200,14 +1194,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var scrollAccumulatorPx: Float = 0f
 
     @Volatile private var scrollOffset: Int = 0
-    private var lastImeBottom: Int = 0
     private var lastImeVisible: Boolean = false
-
-    // 输入法显示/隐藏动画每帧都以变化的 imeBottom 触发 onApplyWindowInsets；
-    // 此前每个不同的值都会立即触发一次 ghostty resize（完整网格重排）
-    // ——在软件 GPU 模拟器上明显卡顿（帧基线 41ms）。此处合并到最终 inset；
-    // 防抖 runnable 在每次 inset 变化时重新武装，只在动画稳定后触发一次。
-    private var resizeDebounceRunnable: Runnable? = null
 
     // 回滚长度缓存：`scrollbackLength()` 是同步 JNI 查询，
     // 当 VT 线程忙于解析大块写入时最多可阻塞 500ms。
@@ -1663,7 +1650,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val resizeManager = ResizeManager()
     private val imeConnection = ImeConnection()
     private val selectionHandles = SelectionHandles()
-    private val clipboardPaster = ClipboardPaster(clipboardAccess)
 
     val isSelectingText: Boolean
         get() = viewModel?.state?.value?.selection?.active == true
@@ -1964,9 +1950,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val row = (yPx / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
         val gridRow = currentViewportTopGrid() + row
 
-        // 长按时始终尝试智能选词。isCellEmpty 检查不可靠，
-        // 因为 GPU 渲染路径（CellData）与查询路径（grid_ref）使用不同的数据源。
-        // 若单元格确实为空，isWhitespaceCell 会把它归类为空白，
         // 我们则落到单格反色 + 粘贴菜单。
         val line = bridge?.scrollbackLine(gridRow)
         // 空白目标 = 空行、空白单元格，或行尾之后的任何列
@@ -2087,7 +2070,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
         val result = super.onApplyWindowInsets(insets)
-        val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
         // 只有键盘的显示/隐藏 FLIP 才关闭选区手柄与上下文菜单
         // ——显示时定位的弹窗绝不会相对滚动而陈旧。
         // 以 FLIP（而非每像素变化）为闸门很重要：显示/隐藏动画每帧都发出 insets，
@@ -2095,7 +2077,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // （例如轻击聚焦唤起键盘后紧接着双击选词）。此处不要 resize；
         // 「先平移后重排」的混合方案把唯一一次网格重排推迟到 onImeSettled(48ms)。
         val imeVisible = insets.isVisible(WindowInsets.Type.ime())
-        lastImeBottom = imeBottom
         if (imeVisible != lastImeVisible) {
             lastImeVisible = imeVisible
             viewModel?.clearSelection()
@@ -2112,7 +2093,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * ——放得下的内容保持每个像素原位。
      */
     fun onImeSettled(settledBottom: Int) {
-        lastImeBottom = settledBottom
         lastImeVisible = settledBottom > 0
         // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
         if (translationY != 0f) translationY = 0f
@@ -2224,10 +2204,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection = imeConnection.createInputConnection(
         outAttrs,
     )
-
-    fun pasteFromClipboardDirect() {
-        clipboardPaster.pasteTo { inputBatchBuffer.write(it) }
-    }
 
     /** 处理多击选择（ghostty-android 模式）。事件被消费（tapCount >= 2）时返回 true。 */
     private fun handleMultiTap(event: MotionEvent): Boolean {
@@ -2471,7 +2447,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                 event.isButtonPressed(MotionEvent.BUTTON_TERTIARY) -> {
                     if (event.action == MotionEvent.ACTION_DOWN) {
-                        pasteFromClipboardDirect()
+                        viewModel?.pasteFromClipboard()
                     }
                     return true
                 }
@@ -2500,8 +2476,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 坐标取自该指针的槽位；由第二根手指携带的移动
                     // ——或它抬起之后的移动——一律吞掉。
                     val lockedIdx = dragPointerId?.let { event.findPointerIndex(it) }
-                    val lockedMissing = dragPointerId != null && (lockedIdx == null || lockedIdx < 0)
-                    if (!lockedMissing) {
+                    if (acceptsDragPointer(dragPointerId, lockedIdx)) {
                         val touchX = if (lockedIdx != null && lockedIdx >= 0) event.getX(lockedIdx) else event.x
                         val touchY = if (lockedIdx != null && lockedIdx >= 0) event.getY(lockedIdx) else event.y
                         driveHandleDragMove(touchX, touchY)
