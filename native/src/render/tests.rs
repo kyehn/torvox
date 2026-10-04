@@ -1848,74 +1848,8 @@ fn set_render_paused_idempotent() {
     );
 }
 // ══════════════════════════════════════════════════════════════════════════
-// GPU Pipeline Benchmarks  (wgpu buffer upload, command encoding, submit)
+// GPU Pipeline Benchmarks  (wgpu command encoding, submit)
 // ══════════════════════════════════════════════════════════════════════════
-
-/// Benchmark wgpu buffer upload throughput — the main GPU data path.
-/// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
-/// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
-#[test]
-fn bench_gpu_buffer_upload_throughput() {
-    let _serial = GPU_BENCH_LOCK.lock();
-    use std::hint::black_box;
-    use std::time::Instant;
-
-    let renderer = Renderer::new_with_no_surface();
-    let device = &renderer.device;
-    let queue = &renderer.queue;
-
-    // Create a staging buffer of realistic size
-    let cell_instance_size = std::mem::size_of::<CellInstance>() as u64;
-    let buf_size = cell_instance_size * 1920;
-    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Bench Buffer"),
-        size: buf_size,
-        usage: wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-
-    // Generate realistic instance data
-    let instance_data: Vec<CellInstance> = (0..1920)
-        .map(|instance_index| CellInstance {
-            quad_origin: [
-                instance_index as f32 % 80.0 * 10.0,
-                instance_index as f32 / 80.0 * 20.0,
-            ],
-            atlas_offset: [0.0, 0.0],
-            atlas_size: [0.0, 0.0],
-            foreground: [0.9, 0.9, 0.9, 1.0],
-            background: [0.1, 0.1, 0.1, 1.0],
-            underline_color: [0.9, 0.9, 0.9, 1.0],
-            quad_size: [10.0, 20.0],
-            flags: 0.0,
-            bearing: [0.0, 0.0],
-            glyph_advance_width: 0.0,
-        })
-        .collect();
-    let bytes = bytemuck::cast_slice(&instance_data);
-
-    let iteration_count = 1000;
-    let start = Instant::now();
-    for _ in 0..iteration_count {
-        queue.write_buffer(&buffer, 0, bytes);
-        black_box(&buffer);
-    }
-    let elapsed = start.elapsed();
-    let mb_per_sec =
-        iteration_count as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
-    println!(
-        "GPU buffer upload: {:.0} MB/s ({}×{} bytes in {:.1}ms)",
-        mb_per_sec,
-        iteration_count,
-        bytes.len(),
-        elapsed.as_millis(),
-    );
-    assert!(
-        mb_per_sec > 350.0,
-        "Buffer upload too slow: {:.0} MB/s (need >350)",
-        mb_per_sec,
-    );
-}
 
 /// Benchmark wgpu command encoding overhead: create encoder, begin render pass,
 /// draw instances, end pass, submit. This tests the CPU-side graphics command

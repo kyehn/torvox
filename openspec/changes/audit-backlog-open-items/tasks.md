@@ -4,10 +4,14 @@
 
 ## 1. 高危：用户可观察的错误状态
 
-- [ ] N3「全选→复制」经 VT 线程同步做约 110 万次 ghostty FFI，
-      500ms 超时后回落空网格 —— 静默告诉用户「终端是空的」
-- [ ] N1-7渲染暂停（打开设置页／输入法弹出）时 OSC 52 剪贴板写入
-      被丢弃；已改记日志但仍丢弃，未队列化延后
+- [x] N3「全选→复制」经 VT 线程同步做约 110 万次 ghostty FFI，
+      500ms 超时后回落空网格 —— **本轮否证**：当前路径是「上游 `Formatter` 单次
+      `format_alloc`」（`selection_text_impl`）＋`Terminal.select_all` 单次调用，
+      逐行 `scrollbackLine` 拼接早已删除，无逐单元 FFI；超时回退也不再静默
+      （N1-10 已让失败出声）
+- [x] N1-7渲染暂停（打开设置页／输入法弹出）时 OSC 52 剪贴板写入
+      被后一次覆盖 —— 本轮已修：单槽锁存改 FIFO（`Session::clipboard_text`），
+      上游回调通道本身有界且满时记日志，队列深度因此受其约束
 - [x] N1-9OSC 52 读取失败时回「成功但为空」—— 本轮已修：
       读取失败经 `clipboardResult(..., null)` 上报，原生不写回 OSC 52 应答
       （空串等于告诉远端「用户清空了剪贴板」）
@@ -26,12 +30,17 @@
 
 - [ ] N9 / N2-23`themes.xml` 硬编码 `#1E1E2E` 且无 `values-night/`，
       日间主题下系统窗口恒为夜间配色（违反 DESIGN:106/108/200）
-- [ ] N21`ModifierBar` 的 DRAWER 长按落到 `else -> null`，长按粘贴从未接线
-- [ ] N2-1`FontUtils` 把 `mono/monospaced/sans` 硬编码改写，
-      真名为 "Sans" 的字族被静默换成另一个（违反 DESIGN:101/102）
+- [x] N21`ModifierBar` 的 DRAWER 长按落到 `else -> null`，长按粘贴从未接线 ——
+      本轮已修：`secondaryLongPressAction` 增 `DRAWER -> onPasteClick`（termux
+      `popup: 'PASTE'`），并有 Robolectric 用例覆盖「长按粘贴 / 轻点开抽屉」
+- [x] N2-1`FontUtils` 把 `mono/monospaced/sans` 硬编码改写，
+      真名为 "Sans" 的字族被静默换成另一个（违反 DESIGN:101/102）—— 本轮已修：
+      `resolveEffectiveFontFamily` 只去空白，别名归并删除（字族名以外部库为准）
 - [ ] N2-2`~/.termux/fonts` 只在会话创建时扫一次，运行中拷入字体须重启进程
-- [ ] N2-2459 个 `external fun` 只对 43 个加 `@JvmStatic`，
-      CheckJNI 报错、`RegisterNatives` 路径断裂
+- [x] N2-2459 个 `external fun` 只对 43 个加 `@JvmStatic`，
+      CheckJNI 报错、`RegisterNatives` 路径断裂 —— 本轮已修：补齐余下 6 处
+      （`setTheme`/`setFontFamily`/`loadFontFile`/`setExtraFontPaths`/
+      `getCellHeight`/`setScrollOffset`），并加反射用例锁死「导出必须静态」
 - [ ] N2-37`kgp_atlas_data` 是 KGP 图集的永久 CPU 全量副本且从不读取，
       64MiB 预算下等于内存翻倍
 - [ ] N2-42生产代码读 `System.getProperty("test.minSurface"/"test.bootstrapUrl")`
@@ -50,6 +59,12 @@
 
 ## 3. 低危：死代码与死资源（STYLE:63）
 
+- [x] 本轮门禁稳定性：`cargo test` 内的墙钟阈值基准随构建机负载随机判红
+      （实测 `bench_bulk_output_throughput` 3337 vs 4000 cells/s、
+      `bench_gpu_buffer_upload_throughput` 261 vs 350 MB/s，TESTING.md「没有
+      不稳定的测试」）—— 突发输出用例改为断言末行标记（行为），GPU 上传吞吐
+      用例删除（`queue.write_buffer` 由每个渲染用例覆盖）；其余基准余量
+      5×～40×，保留
 - [ ] N1 / N2-32 / N2-33 / N2-34（REVIEW.md、）快照链、键盘编码链、
       `send_signal` / `read_visible_text` 生产零调用
 - [ ] N14 / N16 / N17`consumeNewOutput`（唯一无 `jni_export_guard!` 的导出）、

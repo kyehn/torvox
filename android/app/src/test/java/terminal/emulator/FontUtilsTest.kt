@@ -5,30 +5,15 @@ import org.junit.Test
 
 class FontUtilsTest {
     @Test
-    fun `monospace aliases normalize to monospace`() {
-        assertEquals("monospace", resolveEffectiveFontFamily("monospace"))
-        assertEquals("monospace", resolveEffectiveFontFamily("mono"))
-        assertEquals("monospace", resolveEffectiveFontFamily("monospaced"))
-        assertEquals("monospace", resolveEffectiveFontFamily("  MONOSPACE  "))
-    }
-
-    @Test
-    fun `sans aliases normalize to sans-serif`() {
-        assertEquals("sans-serif", resolveEffectiveFontFamily("sans-serif"))
-        assertEquals("sans-serif", resolveEffectiveFontFamily("sans"))
-        assertEquals("sans-serif", resolveEffectiveFontFamily("sans serif"))
-        assertEquals("sans-serif", resolveEffectiveFontFamily("SANS-SERIF"))
-    }
-
-    @Test
-    fun `serif passes through`() {
-        assertEquals("serif", resolveEffectiveFontFamily("serif"))
-    }
-
-    @Test
-    fun `named families pass through untouched`() {
+    fun `family names pass through untouched`() {
+        // 字族名由外部库给出（DESIGN 字体选择节）：不得按别名手工改写，
+        // 名字恰为 "Sans" 的字族曾被静默换成 "sans-serif"。
         assertEquals("JetBrains Mono", resolveEffectiveFontFamily("JetBrains Mono"))
         assertEquals("FiraCode Nerd Font", resolveEffectiveFontFamily("  FiraCode Nerd Font  "))
+        assertEquals("Sans", resolveEffectiveFontFamily("Sans"))
+        assertEquals("mono", resolveEffectiveFontFamily("mono"))
+        assertEquals("monospaced", resolveEffectiveFontFamily("monospaced"))
+        assertEquals("serif", resolveEffectiveFontFamily("serif"))
     }
 
     @Test

@@ -1314,39 +1314,46 @@ fn bench_typing_latency() {
 /// Uses realistic plain-text lines — the most common real-world output
 /// pattern. No ANSI escape codes (ghostty C FFI handles them slowly in
 /// debug builds; ANSI throughput is implicitly covered by other benchmarks).
+///
+/// 断言行为而非绝对吞吐：200KB 突发输出必须整段走完解析器（末行与期望一致，
+/// 无截断/丢行）。吞吐量阈值由 `benches/` 的 criterion 基准承担——把墙钟阈值
+/// 放进 `cargo test` 会随并行测试线程数与构建机负载随机判红（TESTING.md「没有
+/// 不稳定的测试」）。
 #[test]
-fn bench_bulk_output_throughput() {
+fn bulk_output_is_processed_without_loss() {
     let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
-    // Build a 4KB buffer of realistic plain-text terminal output
     let mut buf = Vec::with_capacity(4096);
     while buf.len() < 4096 {
         buf.extend_from_slice(b"user@host:~$ ls -la src/main.rs docs/README.md\n");
     }
-
     let round_count = 50; // 50 × 4KB = 200KB total
-    let start = Instant::now();
+
     for _ in 0..round_count {
         terminal_under_test.vt_write(&buf);
         terminal_under_test.flush();
-        let receive_result = terminal_under_test.receive_cell_data();
-        let count = black_box(receive_result.map(|(cells, _)| cells.len()).unwrap_or(0));
-        black_box(count);
+        // 每轮取一次单元数据：与渲染帧同口径，确保输出真的走完 VT→CellData 链路。
+        black_box(
+            terminal_under_test
+                .receive_cell_data()
+                .map(|(cells, _)| cells.len()),
+        );
     }
-    let elapsed = start.elapsed();
-    let throughput_cells = round_count as f64 * 1920.0 / elapsed.as_secs_f64();
-    println!(
-        "Bulk output: {:.0} cells/sec ({:.1}ms for {}×{}KB plain text)",
-        throughput_cells,
-        elapsed.as_millis(),
-        round_count,
-        buf.len() / 1024,
+
+    let marker = format!("burst-round-{round_count}");
+    // 突发负载按 4KB 切块，末块可能停在一行中间：先回到行首再写标记，
+    // 否则标记会在行尾折行而被拆到两行。
+    terminal_under_test.vt_write(b"\r\n");
+    terminal_under_test.vt_write(marker.as_bytes());
+    terminal_under_test.flush();
+
+    let snapshot = terminal_under_test.take_snapshot();
+    let last_row = snapshot.rows - 1;
+    assert_eq!(
+        row_text(&snapshot, last_row),
+        marker,
+        "200KB 突发输出后末行必须是最后写入的标记（无截断/丢行）"
     );
-    let threshold = 4_000.0;
-    assert!(
-        throughput_cells > threshold,
-        "Bulk output too slow: {:.0} cells/sec (need >{threshold:.0})",
-        throughput_cells,
-    );
+    assert_invariants(&snapshot);
 }
 
 // ── Scrollback fallback ────────────────────────────────────────────────

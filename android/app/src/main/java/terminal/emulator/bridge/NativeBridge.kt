@@ -234,6 +234,7 @@ object NativeBridge {
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
     @JvmStatic external fun resetTerminal(sessionId: Long)
 
+    @JvmStatic
     external fun setTheme(sessionId: Long, data: ByteArray)
 
     @JvmStatic
@@ -252,6 +253,7 @@ object NativeBridge {
     @JvmStatic
     external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
 
+    @JvmStatic
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 
     @JvmStatic
@@ -261,21 +263,25 @@ object NativeBridge {
     @JvmStatic
     external fun setRasterScale(sessionId: Long, scale: Float)
 
+    @JvmStatic
     external fun loadFontFile(sessionId: Long, path: String): String?
 
     @JvmStatic
     external fun setSystemLocale(sessionId: Long, locale: String)
 
+    @JvmStatic
     external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
 
     @JvmStatic
     external fun getCellWidth(sessionId: Long): Float
 
+    @JvmStatic
     external fun getCellHeight(sessionId: Long): Float
 
     @JvmStatic
     external fun getGridRowsColsPacked(sessionId: Long): Long
 
+    @JvmStatic
     external fun setScrollOffset(sessionId: Long, offset: Int)
 
     @JvmStatic

@@ -237,4 +237,52 @@ class ModifierBarRobolectricTest {
         org.junit.Assert.assertEquals("\u001b[5;5~", sentBytes[0].toString(Charsets.UTF_8))
         org.junit.Assert.assertEquals(1, consumed)
     }
+
+    @Test
+    fun `drawer long press pastes clipboard`() {
+        // Termux `popup: 'PASTE'`：DRAWER 长按必须粘贴，轻点仍开抽屉。
+        var pastes = 0
+        var drawerOpens = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = {},
+                    onDrawerClick = { drawerOpens++ },
+                    onPasteClick = { pastes++ },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_DRAWER").performTouchInput {
+            down(center)
+            advanceEventTime(LONG_PRESS_HOLD_MS)
+            up()
+        }
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals("长按必须粘贴", 1, pastes)
+        org.junit.Assert.assertEquals("长按不得打开抽屉", 0, drawerOpens)
+    }
+
+    @Test
+    fun `drawer tap opens drawer without pasting`() {
+        var pastes = 0
+        var drawerOpens = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = {},
+                    onDrawerClick = { drawerOpens++ },
+                    onPasteClick = { pastes++ },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_DRAWER").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals("轻点必须打开抽屉", 1, drawerOpens)
+        org.junit.Assert.assertEquals("轻点不得粘贴", 0, pastes)
+    }
+
+    private companion object {
+        /** 长按阈值（LONG_PRESS_MS）之上留出余量。 */
+        const val LONG_PRESS_HOLD_MS = 700L
+    }
 }

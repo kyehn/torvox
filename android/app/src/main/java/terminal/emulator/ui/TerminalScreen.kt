@@ -870,6 +870,9 @@ fun TerminalScreen(
                             onDrawerClick = {
                                 scope.launch { drawerState.open() }
                             },
+                            onPasteClick = {
+                                viewModel.pasteFromClipboard()
+                            },
                             onScrollClick = {
                                 viewModel.toggleScrollMode()
                             },
