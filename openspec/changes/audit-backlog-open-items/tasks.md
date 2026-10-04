@@ -785,7 +785,25 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       判逃逸（字符串前缀会把 `..foo` 误判成 `..`）、空路径单例判「消解回 staging 根」。
       净减 20 行，同时消掉一整类前缀判定错误
 
-### 24.3 ：外部依赖替代扫描
+### 24.3 ：新增待办
+
+- [ ] **N33-5（实测新证据，指向 R16-T3）** 整类 `connectedDebugAndroidTest`
+      全量跑（189 例）本地 25 例判红；同一批类**单跑全绿**（10 类 0 失败）。
+      失败按执行序集中在第 38～62 例，其后 `BootstrapCompatibilityTest`
+      （连跑 18 条真实 shell 命令）反而全过——不是单调劣化。
+      取 `MultiTapSelectionInstrumentedTest#tripleTapSelectsLine` 的 logcat 定位：
+      `GoogleInputMethodService.onStartInput(com.termux)` **已经触发**，
+      但同一时刻 `session 4 loop timing window: avg=137ms p95=500ms max=582ms ≈7fps`
+      （空闲终端，`frame timing avg=0ms`，即渲染本身不耗时，耗时在循环里），
+      随后 `pauseRendering` 停线程，测试在 20s 处报「IME 必须弹起」。
+      即**渲染循环被阻塞到个位数帧率**，测试的 `runOnMainSync` 轮询排在饱和的主线程后面。
+      阻塞源与 R16-T3 同形：`feedPty` 持 `session` 锁调 `Pty::write_all`，
+      子进程不读 stdin 时最多等 `WRITE_DRAIN_TIMEOUT`（5s），
+      而同一把锁每帧被 `render_inner` 与 `poll_event` 取得。
+      根治仍需把 PTY 主端 fd 移出会话（结构性改动），本轮未擅自动手；
+      先把实测证据登记在此，避免下次重新排查。
+
+### 24.4 ：外部依赖替代扫描
 
 - [x] **** 逐处核对本仓手写实现：路径消解（已换 `java.nio.file`）、JSON/序列化
       （kotlinx.serialization）、base64（平台 `Base64`）、防抖（协程）、LRU（外部缓存）、
