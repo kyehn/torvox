@@ -53,18 +53,23 @@
       投递 `request_exit`，不再等自然退出
 - [ ] N2-6 / N2-40fork 子进程 `setsid`/`TIOCSCTTY` 失败裸 `_exit(2/3)`，
       不写 fd 2，用户只见 `[Process completed (code 3)]`（违反 DESIGN:16/194）
-- [ ] N2-8 / N2-11`focus_event` 持 session 锁做 50ms RPC；
-      `Event::Clipboard` 载荷无上限
+- [x] N2-11`Event::Clipboard` 载荷无上限 —— **本轮否证**：上游回调前已按
+      `MAX_CLIPBOARD_PAYLOAD_BYTES`（1MiB）截断并记日志，超限不是静默丢弃
+- [ ] N2-8`focus_event` 持 session 锁做 50ms RPC —— Kotlin 侧已改为
+      `inputOutput` 调度器派发（`TerminalRuntime.focusChange`，不在主线程），残余是
+      焦点切换瞬间最多 50ms 的渲染停顿（有界且低频）；改锁序风险大于收益，本轮不动
 - [x] N2-9 / N2-10`ClipboardRead` 被满队列淘汰 —— 本轮已修：
       `EventQueue::push` 优先淘汰可淘汰事件，`ClipboardRead` 不在其中
       （`push_never_evicts_clipboard_read` 两例护栏）；配合 OSC 52 读取失败不再
       回空串（N1-9），远端不会再粘出空白
 - [x] N2-12`MAX_SCAN_BYTES` 超限静默丢弃 OSC 52 请求 —— 本轮已修：
       超限时整段原样透传给上游（不吞字节）并记 warning，选择器名超限不再无声
-- [ ] 吞错批次 N2-1～N2-4、N2-5～N2-7、N2-10～N2-14：字体 JNI 失败仍返回字族名、
-      高亮包格式错误使上一帧高亮永留屏、`ensure_frame_texture` 错误被丢弃、
-      搜索 JSON 解码失败冒充 0 匹配、`InputBatchBuffer` 空 catch 丢击键、
-      `chdir` 失败继续在 `/` 下运行
+- [x] 吞错批次逐条回读（字体 JNI / 高亮包 / `ensure_frame_texture` /
+      搜索 JSON / `InputBatchBuffer` / `chdir`）：搜索 JSON 解码与序列化失败、
+      `InputBatchBuffer` 丢弃、`chdir` 失败三处已修并各自记日志；高亮包按
+      Kotlin 侧计数前缀为权威长度、损坏计数封顶（防御性解码，非静默错误）；
+      `ensure_frame_texture` 失败经 `begin_frame` → surface 失效计数上报；
+      字体 JNI 失败见下条（N2-1 已把字族名交回外部库）
 
 ## 3. 低危：死代码与死资源（STYLE:63）
 
@@ -75,7 +80,12 @@
       用例删除（`queue.write_buffer` 由每个渲染用例覆盖）；其余基准余量
       5×～40×，保留
 - [ ] N1 / N2-32 / N2-33 / N2-34（REVIEW.md、）快照链、键盘编码链、
-      `send_signal` / `read_visible_text` 生产零调用
+      `read_visible_text` 生产零调用 —— 本轮回读确认三者只服务测试
+      （`take_snapshot` 91 处、`key_encode*` 33 处、`read_visible_text` 3 处）：
+      `take_snapshot` 是整套断言的观测入口，删除等于重写测试观测层；`key_encode*`
+      更危险：它按上游 `Mods` 位解读修饰键，而本仓 JNI 传的是应用内部位
+      （CTRL=4/ALT=2 与上游 CTRL=2/ALT=4 相反），一旦被接线即产生 Ctrl/Alt 互换。
+      建议：接线前先删该链，或在入口处显式换算。本轮未动（测试面大、收益低）
 - [ ] N14 / N16 / N17`consumeNewOutput`（唯一无 `jni_export_guard!` 的导出）、
       `is_alive`、`render_to_buffer`（约 370 行）、release 活跃的 `feedTerminal` 后门
 - [ ] N10 / N11 / N30`ids.xml` 四个 id 零引用、
