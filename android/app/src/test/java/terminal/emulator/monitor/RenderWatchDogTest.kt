@@ -30,8 +30,7 @@ class RenderWatchDogTest {
         val stalledStart = System.nanoTime() - 10_000_000_000L
         val watchdog =
             RenderWatchDog(
-                getStart = { stalledStart },
-                getDone = { 0L },
+                getMarks = { FrameMarks(startNanos = stalledStart) },
                 isRunning = { true },
                 onHangDetected = { hangs++ },
                 hangTimeoutNanos = fastTimeout,
@@ -53,8 +52,10 @@ class RenderWatchDogTest {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getStart = { System.nanoTime() },
-                getDone = { System.nanoTime() },
+                getMarks = {
+                    val now = System.nanoTime()
+                    FrameMarks(startNanos = now, doneNanos = now)
+                },
                 isRunning = { true },
                 onHangDetected = { hangs++ },
                 hangTimeoutNanos = fastTimeout,
@@ -71,8 +72,7 @@ class RenderWatchDogTest {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getStart = { 0L },
-                getDone = { 0L },
+                getMarks = { FrameMarks() },
                 isRunning = { true },
                 onHangDetected = { hangs++ },
                 hangTimeoutNanos = fastTimeout,
@@ -98,12 +98,11 @@ class RenderWatchDogTest {
         val release = CountDownLatch(1)
         val watchdog =
             RenderWatchDog(
-                getStart = {
+                getMarks = {
                     probeEntered.countDown()
                     release.await()
-                    0L
+                    FrameMarks()
                 },
-                getDone = { 0L },
                 isRunning = { true },
                 onHangDetected = {},
                 hangTimeoutNanos = fastTimeout,
@@ -123,8 +122,7 @@ class RenderWatchDogTest {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getStart = { 0L },
-                getDone = { 0L },
+                getMarks = { FrameMarks() },
                 isRunning = { false },
                 onHangDetected = { hangs++ },
                 hangTimeoutNanos = fastTimeout,

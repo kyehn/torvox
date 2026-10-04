@@ -22,6 +22,7 @@ class TerminalForegroundService : Service() {
         private const val CHANNEL_ID = "terminal"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
+        private const val EXTRA_SESSION_COUNT = "session_count"
 
         // 唤醒锁单次持有的上限：安全网，由 [scheduleWakeLockRenewal] 在半程续期。
         private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
@@ -44,7 +45,7 @@ class TerminalForegroundService : Service() {
             }
             val intent =
                 Intent(context, TerminalForegroundService::class.java).apply {
-                    putExtra("session_count", count)
+                    putExtra(EXTRA_SESSION_COUNT, count)
                 }
             try {
                 context.startForegroundService(intent)
@@ -87,9 +88,16 @@ class TerminalForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        sessionCount = intent.getIntExtra("session_count", 1).coerceAtLeast(1)
+        sessionCount = if (intent.hasExtra(EXTRA_SESSION_COUNT)) {
+            intent.getIntExtra(EXTRA_SESSION_COUNT, 0).coerceAtLeast(0)
+        } else {
+            // 裸 start()（冷启动/首个会话）不带计数：不得回落成 1——此时可能尚无会话，
+            // 谎报「1 个活动会话」并为不存在的会话持有唤醒锁（R21-T2）。
+            // 沿用上次已知值（冷启动为 0，即「启动中」）。
+            sessionCount
+        }
         startForegroundWithSessionCount(sessionCount)
-        acquireWakeLockIfNeeded()
+        if (sessionCount >= 1) acquireWakeLockIfNeeded()
         return START_STICKY
     }
 
@@ -97,10 +105,10 @@ class TerminalForegroundService : Service() {
     @SuppressLint("ArgInFormattedQuantityStringRes")
     private fun startForegroundWithSessionCount(count: Int) {
         val text =
-            if (count <= 1) {
-                getString(R.string.notification_active_single)
-            } else {
-                resources.getQuantityString(R.plurals.notification_active_plural, count, count)
+            when {
+                count <= 0 -> getString(R.string.notification_starting)
+                count == 1 -> getString(R.string.notification_active_single)
+                else -> resources.getQuantityString(R.plurals.notification_active_plural, count, count)
             }
         val openIntent =
             Intent(this, MainActivity::class.java).apply {

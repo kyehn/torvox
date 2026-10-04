@@ -61,6 +61,7 @@
     <string name="notification_channel_name">终端会话</string>
     <string name="notification_channel_desc">用于活跃终端会话的持久通知</string>
     <string name="notification_active_single">终端会话活跃中</string>
+    <string name="notification_starting">终端启动中</string>
     <plurals name="notification_active_plural">
         <item quantity="one">%d 个终端会话活跃中</item>
         <item quantity="other">%d 个终端会话活跃中</item>

@@ -68,6 +68,15 @@ class MainActivity : ComponentActivity() {
     @Suppress("LateinitUsage") // Dagger injection
     lateinit var runtime: TerminalRuntime
 
+    /**
+     * 通知权限请求：AndroidX 契约替代裸 `requestPermissions` + 魔数请求码。
+     * 拒绝不影响终端功能（只是会话通知不再出现），故结果无需处理。
+     */
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+        ) { _ -> }
+
     private var previousNightMode: Int? = null
 
     internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
@@ -195,7 +204,7 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         handleLaunchIntent(intent)
         setContent {
