@@ -464,10 +464,16 @@ constructor(
      * 应答 OSC 52 剪贴板读取请求：读取系统剪贴板并经
      * [NativeBridge.clipboardResult] 回复。空文本是合法结果；
      * 只有读取失败才回 null——回空串会被远端当成「用户清空了剪贴板」。
+     *
+     * 剪贴板只读一次：同一帧内 N 个积压请求各做一次 binder 读取，
+     * 洪泛时一帧内上千次往返（R17-T2）。读取结果对本帧所有请求相同
+     * （单线程同步派发，中间无交错），逐个回复时复用即可。
      */
     private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
+        if (requests.isEmpty()) return
+        val answer = clipboardAccess.clipboardText()
         requests.forEach { request ->
-            clipboardAccess.clipboardText().fold(
+            answer.fold(
                 onSuccess = { text ->
                     NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
                 },

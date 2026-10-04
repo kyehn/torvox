@@ -362,6 +362,43 @@ pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
 }
 
+/// 单会话未作答 OSC 52 读取上限：远端循环 `\e]52;c;?\a` flood 时，
+/// 每个请求都在注册表占槽、spawn 应答线程并推一个不可淘汰的保护事件；
+/// 无上限则 1024 槽被读请求填满后连 Exit 一起丢，会话永久泄漏（R17-T1）。
+/// 超限的请求不占槽，就地显式作答空串（xterm 兼容的空剪贴板响应）。
+const MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION: usize = 8;
+
+/// 单会话当前未作答的读请求数（上段上限的判据）。
+pub(crate) fn unanswered_clipboard_reads(session_id: u64) -> usize {
+    REQUEST_REGISTRY
+        .lock()
+        .keys()
+        .filter(|key| key.0 == session_id)
+        .count()
+}
+
+/// 读请求洪泛削减告警的限频（毫秒）：超限每帧都发生，逐条记会淹没 logcat。
+static LAST_FLOOD_SHED_WARN_MS: AtomicU64 = AtomicU64::new(0);
+const FLOOD_SHED_WARN_INTERVAL_MS: u64 = 5_000;
+
+fn flood_shed_warn_throttled(session_id: u64, unanswered: usize) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_FLOOD_SHED_WARN_MS.load(Ordering::Relaxed);
+    if now_ms.saturating_sub(last) >= FLOOD_SHED_WARN_INTERVAL_MS
+        && LAST_FLOOD_SHED_WARN_MS
+            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    {
+        log::warn!(
+            "osc52: clipboard read flood from session {session_id}, \
+             answering empty past {unanswered} unanswered"
+        );
+    }
+}
+
 // ── 会话生命周期 ──────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：initSession
@@ -1222,6 +1259,22 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     // 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
     // VT 线程绝不能阻塞等待宿主应用，且 `clipboardResult` 可能在任意线程到达。
     for (session_id, selection) in pending_clipboard_reads {
+        let unanswered = unanswered_clipboard_reads(session_id);
+        if unanswered >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
+            // 洪泛削减：就地显式作答空串，不注册、不推事件、不起应答线程。
+            // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置（R17-T1）。
+            flood_shed_warn_throttled(session_id, unanswered);
+            let registry = wlock_session_registry();
+            let session = registry.get(&session_id).map(|entry| entry.session.clone());
+            drop(registry);
+            if let Some(session) = session {
+                let mut session = session.lock();
+                if let Err(error) = session.answer_clipboard_read(&selection, "") {
+                    log::warn!("osc52: flood-shed read answer write-back failed: {error}");
+                }
+            }
+            continue;
+        }
         let (request_id, rx) = register_request(session_id);
         pending_events.push(Event::ClipboardRead {
             session_id,
@@ -3372,6 +3425,28 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
             JNI_FALSE
         }
     })
+}
+
+#[cfg(test)]
+mod clipboard_read_flood_tests {
+    use super::{cancel_request, register_request, unanswered_clipboard_reads};
+
+    /// R17-T1：未作答计数按会话隔离，且只计入驻留槽位。
+    #[test]
+    fn unanswered_reads_count_is_per_session() {
+        let (first_a, _first_rx) = register_request(4101);
+        let (second_a, _second_rx) = register_request(4101);
+        let (only_b, _only_rx) = register_request(4102);
+        assert_eq!(unanswered_clipboard_reads(4101), 2);
+        assert_eq!(unanswered_clipboard_reads(4102), 1);
+        assert_eq!(unanswered_clipboard_reads(4103), 0);
+        cancel_request(4101, first_a);
+        assert_eq!(unanswered_clipboard_reads(4101), 1);
+        cancel_request(4101, second_a);
+        cancel_request(4102, only_b);
+        assert_eq!(unanswered_clipboard_reads(4101), 0);
+        assert_eq!(unanswered_clipboard_reads(4102), 0);
+    }
 }
 
 #[cfg(test)]
