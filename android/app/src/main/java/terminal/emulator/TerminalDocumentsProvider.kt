@@ -257,6 +257,13 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = queries.rootDir()
         val file = decodeDocId(documentId, rootDir)
         requireInsideRoot(file, rootDir)
+        // 只打开已存在的条目：含 MODE_CREATE 的模式（w/rw/rws/rwd…）若此处不查，
+        // 任何持有一份 SAF 授权的客户端都能经 openDocument 在家目录里凭空造出文件
+        // （含 shell 会 source 的 .mkshrc/.bashrc 等点文件），绕过 createDocument
+        // 与 FLAG_DIR_SUPPORTS_CREATE 的创建契约。创建只有 createDocument 一条路。
+        if (!file.exists()) {
+            throw java.io.FileNotFoundException("No such document: $documentId")
+        }
         // 显式映射而非委托 parseMode：实测本平台 parseMode("w") 不含
         // TRUNCATE，会破坏 SAF 的“w 截断”语义（单测已锁定）。
         // 已知模式走精确映射；未知但合法的组合（如编辑器偶发的 "rwa"）按语义派生，

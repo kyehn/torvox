@@ -152,13 +152,7 @@ class BootstrapInstaller(
         // EXECUTABLES.txt 是权威清单。路径校验与归档条目名同一规则，
         // 恶意条目不得逃出 staging 目录。
         for (executable in executables) {
-            val normalizedExecutable = File(executable).path
-            if (
-                executable.startsWith("/") ||
-                normalizedExecutable == ".." ||
-                normalizedExecutable.startsWith("../") ||
-                normalizedExecutable.contains("/../")
-            ) {
+            if (escapesStagingDir(executable)) {
                 throw java.io.IOException("Unsafe executable path: $executable")
             }
             try {
@@ -184,13 +178,7 @@ class BootstrapInstaller(
             // Zip 滑移防护：拒绝绝对路径与任何 ".." 段，
             // 使恶意/被篡改的引导归档无法写入 staging 目录之外
             // （例如覆盖 prefs/logs）。
-            val normalized = File(name).path
-            if (
-                name.startsWith("/") ||
-                normalized == ".." ||
-                normalized.startsWith("../") ||
-                normalized.contains("/../")
-            ) {
+            if (escapesStagingDir(name)) {
                 throw java.io.IOException("Unsafe zip entry name: $name")
             }
             if (name == "SYMLINKS.txt") {
@@ -277,6 +265,21 @@ class BootstrapInstaller(
         return if (absolute) "/$joined" else joined
     }
 
+    /**
+     * 归档内路径是否逃出 staging 目录：zip 条目名、`EXECUTABLES.txt` 的可执行文件、
+     * `SYMLINKS.txt` 的链接路径三处共用同一判定。
+     *
+     * 必须真正消解 `.`/`..` 段后再看结果。此前只对原始字符串判前缀，而
+     * `File("foo/..").path` 仍是 `foo/..`，四个前缀条件一个都不命中——
+     * 该条目随后被当作普通文件写出，目标其实是 staging 目录自身。
+     * 消解后为空串同样非法：那意味着条目解析回 staging 根。
+     */
+    internal fun escapesStagingDir(path: String): Boolean {
+        if (path.startsWith("/")) return true
+        val normalized = normalizePath(path)
+        return normalized.isEmpty() || normalized == ".." || normalized.startsWith("../")
+    }
+
     internal fun parseSymlinks(content: String): List<Pair<String, String>> = content
         .lines()
         .filter { it.isNotBlank() }
@@ -289,13 +292,7 @@ class BootstrapInstaller(
         for ((target, linkPath) in symlinks) {
             // 符号链接路径逃逸防护（与 zip 条目名同一规则）：
             // 恶意 SYMLINKS.txt 绝不能创建 staging 目录之外的链接。
-            val normalized = File(linkPath).path
-            if (
-                linkPath.startsWith("/") ||
-                normalized == ".." ||
-                normalized.startsWith("../") ||
-                normalized.contains("/../")
-            ) {
+            if (escapesStagingDir(linkPath)) {
                 throw java.io.IOException("Unsafe symlink path: $linkPath")
             }
             // 目标同样由攻击者控制。拒绝绝对路径与路径穿越，使链接不能指向
