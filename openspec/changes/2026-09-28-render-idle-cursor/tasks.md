@@ -16,8 +16,11 @@
       本机 AVD 稳定 `位移=0 差异=0`。本地具备 AVD 后复跑确认：输入法时序正确
       （`mIsInputViewShown=true`、高度稳定），120 行内容下位移量在本 AVD 上算不出，
       与 CI（该用例通过）的差异来自 AVD/输入法形态。需在启用中文输入法的 AVD 上复跑。
-- [ ] `imeCommitChineseTextGridded` —— **受阻，非产品缺陷**：本机 AVD 只装了
-      `LatinIME` 且未启用中文输入语言，无法提交中文（CI 的 AVD 装有 Gboard 中文，
-      该用例在 CI 通过）。
+      （2026-10-04 复核：当前 main + 新编 x86_64 release 库仍为 `位移=0 差异=0`，
+      同批另两例通过，排除产品回归；仍需中文输入法 AVD 或 CI 证据）
+- [x] `imeCommitChineseTextGridded` —— 原「受阻，需 Gboard 中文」结论有误：
+      该用例经 `onCreateInputConnection(...).commitText("中文\n", 1)` 程序化提交，
+      根本不依赖系统中文输入法。2026-10-04 在本机 AVD（仅 LatinIME）实测通过，
+      关闭本项
 - [x] 删临时诊断（`ImeDiagTest` 与 `dumpPanInputs` 引用均已不存在），
       `check-rust.nu` 零错误零警告，小步提交推送
