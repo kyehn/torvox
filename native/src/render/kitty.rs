@@ -162,12 +162,16 @@ fn copy_sub_rect(
         let source_offset = (source_y as usize + row) * source_stride + source_x as usize * 4;
         let destination_offset =
             (destination_y as usize + row) * destination_stride + destination_x as usize * 4;
-        let Some(source_row) = source.get(source_offset..source_offset + row_bytes) else {
-            break;
-        };
-        let Some(destination_row) =
-            destination.get_mut(destination_offset..destination_offset + row_bytes)
-        else {
+        // 越界即图像像素缓冲短于上游声明的尺寸（协议行为漂移）。静默 break 会把图集留成
+        // 半截黑条，用户只看到「kitty 协议坏了」而无从归因，故出声后再停。
+        let (Some(source_row), Some(destination_row)) = (
+            source.get(source_offset..source_offset + row_bytes),
+            destination.get_mut(destination_offset..destination_offset + row_bytes),
+        ) else {
+            log::error!(
+                "KGP blit out of range at row {row} (source len {} destination len {row_bytes})",
+                source.len(),
+            );
             break;
         };
         destination_row.copy_from_slice(source_row);

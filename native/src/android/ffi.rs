@@ -1374,10 +1374,24 @@ unsafe fn attach_window_inner(
     // 显式把交换链配置对齐到 BufferQueue：以 TextureView 为后端的 surface 否则可能
     // 停留在陈旧/默认几何，而模拟器上的 SwiftShader 会拒绝出队格式/几何与队列不符的
     // 缓冲（dequeueBuffer 超时）。WINDOW_FORMAT_RGBA_8888 = 1。
+    //
+    // 尺寸先钳位再两处共用：NDK 调用与 `attach_surface` 必须看到同一组尺寸，
+    // 否则队列几何与交换链几何各说各话，SwiftShader 仍会拒绝出队。
+    let surface_width = width.max(0);
+    let surface_height = height.max(0);
     // SAFETY: `ptr` 是有效的 `ANativeWindow*`（上方已检查非空）；
     // `ANativeWindow_setBuffersGeometry` 是有文档的 NDK 函数。
-    unsafe {
-        ANativeWindow_setBuffersGeometry(ptr, width, height, 1);
+    let geometry_status =
+        unsafe { ANativeWindow_setBuffersGeometry(ptr, surface_width, surface_height, 1) };
+    if geometry_status != 0 {
+        // 非 0 即失败。丢弃它会让几何错配在 dequeueBuffer 超时后才暴露，且无从归因，
+        // 故不挂载 surface：宿主据「未挂载」换新窗口重试，错误在此直接出声。
+        log::error!(
+            "FFI: attachWindow — ANativeWindow_setBuffersGeometry failed: {geometry_status}"
+        );
+        // SAFETY: 同下方的 `ANativeWindow_release`，此处无 surface 接管该引用。
+        unsafe { ANativeWindow_release(ptr) };
+        return;
     }
     let mut state = render_state_mut();
     let renderer = &mut state
@@ -1385,7 +1399,7 @@ unsafe fn attach_window_inner(
         .expect("render_state_mut always initializes")
         .renderer;
     let session_id = _session_id as u64;
-    match renderer.attach_surface(ptr.cast(), width.max(0) as u32, height.max(0) as u32) {
+    match renderer.attach_surface(ptr.cast(), surface_width as u32, surface_height as u32) {
         Ok(()) => {
             ATTACHED_SESSION_ID.store(session_id, std::sync::atomic::Ordering::Release);
             log::info!("FFI: attachWindow surface attached (session {session_id})");
