@@ -532,10 +532,7 @@ constructor(
      * `[Process completed]` 提示，也无从得知 shell 是怎么没的。码未知一律按「非正常
      * 退出」对待：保留现场、显示退出码未知的提示，等用户回车确认。
      */
-    private fun handleSessionExit(
-        entry: SessionEntry,
-        exitCode: Int?,
-    ) {
+    private fun handleSessionExit(entry: SessionEntry, exitCode: Int?) {
         // 启动入口失败不得回退：shell 退出即走 [Process completed] 提示，
         // 输出保留显示，由用户确认关闭。
         // 本函数既用于 shell 首次退出（poll.exit 分支），也用于用户在 [Process completed]
@@ -3798,10 +3795,7 @@ internal data class SurfaceRecreateDecision(val request: Boolean = false, val ex
  * `themeMode` 为 `day`/`night`/`fixed` 时直取对应键；其他值按 `appThemeMode`
  * （`day`/`night` 直定，否则跟随系统）决定用日间名还是夜间名。
  */
-internal fun selectThemeName(
-    stored: SettingsRepository.SettingsState,
-    systemDark: Boolean,
-): String {
+internal fun selectThemeName(stored: SettingsRepository.SettingsState, systemDark: Boolean): String {
     val effectiveDark =
         when (stored.appThemeMode) {
             "day" -> false
