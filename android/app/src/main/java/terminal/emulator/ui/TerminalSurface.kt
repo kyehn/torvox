@@ -557,12 +557,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             mode.toEditorInfo(outAttrs)
             val connection =
                 object : BaseInputConnection(this@TerminalSurface, true) {
-                    // 跟踪进行中的输入法组字，使增量得以校对而非被丢弃。
-                    // 另含 commitText 合成防抖（80ms），防重复发送。
+                    // 进行中的输入法组字：使增量得以校对而非被丢弃。
                     private var composingBuffer: String = ""
-                    private var lastCommitText: String = ""
-                    private var lastCommitMs: Long = 0L
-                    private val commitSynthDebounceMs = 80L
 
                     private fun encodeAndSend(text: String, ctrlActive: Boolean, altActive: Boolean) {
                         inputBatchBuffer.write(
@@ -638,16 +634,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val altActive =
                             state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once
 
-                        // 合成提交防抖：Gboard 可能在 80ms 内对同一文本触发两次 commitText；
-                        // 丢弃重复项以避免重复发送。
-                        val nowMs = android.os.SystemClock.uptimeMillis()
-                        if (
-                            composingBuffer.isEmpty() &&
-                            committedText == lastCommitText &&
-                            nowMs - lastCommitMs < commitSynthDebounceMs
-                        ) {
-                            return true
-                        }
                         if (composingBuffer.isNotEmpty()) {
                             if (committedText == composingBuffer) {
                                 // 已经组字增量转发；不再重发。
@@ -668,8 +654,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         if (ctrlActive || altActive) {
                             terminalViewModel.consumeOneShotModifiers()
                         }
-                        lastCommitText = committedText
-                        lastCommitMs = nowMs
                         return true
                     }
 
