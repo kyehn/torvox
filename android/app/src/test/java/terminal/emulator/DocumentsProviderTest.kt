@@ -641,6 +641,27 @@ class DocumentsProviderTest {
         )
     }
 
+    /**
+     * 符号链接复制进**其解析目标**的子目录必须放行：copyTreeInto 遇链接只复制
+     * inode 自身、不展开目标树，故不存在 a/b/a/b/… 打转；按 canonical 路径比对
+     * 反而把这条正常操作误判成「复制进自己的子孙」。
+     */
+    @Test
+    fun copyDocument_symlink_into_its_own_target_subtree_is_allowed() {
+        val provider = ensureProvider()
+        val tree = java.io.File(rootDir(), "symtree").apply { mkdirs() }
+        java.io.File(tree, "sub").mkdirs()
+        createSymlink("symlink", tree)
+        val newId = provider.copyDocument("symlink", "symtree/sub")
+        assertEquals("symtree/sub/symlink", newId)
+        val copied = java.io.File(rootDir(), newId)
+        assertTrue(
+            "copied entry must stay a symlink, not an expanded directory tree",
+            java.nio.file.Files.isSymbolicLink(copied.toPath()),
+        )
+        assertEquals(tree.canonicalPath, copied.canonicalPath)
+    }
+
     @Test
     fun querySearchDocuments_finds_matching_directories() {
         val provider = ensureProvider()

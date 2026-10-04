@@ -5,6 +5,7 @@ import android.provider.DocumentsContract
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.nio.file.LinkOption
 
 /**
@@ -125,13 +126,18 @@ internal class DocumentMutations(private val context: Context, private val rootD
             if (TerminalDocumentsProvider.isHomeLink(rawSource, root)) rawSource else source
         // 与 moveDocument 同一守卫：复制目录进自己的子孙时 copyTreeInto 会把刚
         // 复制的子树再当作源继续遍历，产出 a/b/a/b/… 直至 ENAMETOOLONG 或磁盘写满。
-        val effectiveSourceCanonical = effectiveSource.canonicalFile.path
-        val targetParentCanonical = targetParent.canonicalFile.path
-        if (
-            targetParentCanonical == effectiveSourceCanonical ||
-            targetParentCanonical.startsWith(effectiveSourceCanonical + File.separator)
-        ) {
-            throw IOException("Refusing to copy a directory into its own descendant")
+        // 守卫只认真目录：copyTreeInto 遇到符号链接只复制 inode 自身、不展开目标树，
+        // 故「链接的解析目标在源之下」并无风险；而 canonicalFile 正是把链接解析到
+        // 目标，据此拒绝会误伤「把链接拷进其目标子目录」这一正常操作。
+        if (effectiveSource.isDirectory && !Files.isSymbolicLink(effectiveSource.toPath())) {
+            val sourceCanonical = effectiveSource.canonicalFile.path
+            val targetParentCanonical = targetParent.canonicalFile.path
+            if (
+                targetParentCanonical == sourceCanonical ||
+                targetParentCanonical.startsWith(sourceCanonical + File.separator)
+            ) {
+                throw IOException("Refusing to copy a directory into its own descendant")
+            }
         }
         val target = copyTree(effectiveSource, targetParent)
         notifyChildren(targetParentDocumentId)
@@ -207,7 +213,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         stack.addLast(file)
         while (stack.isNotEmpty()) {
             val current = stack.removeLast()
-            if (!java.nio.file.Files.isSymbolicLink(current.toPath()) && current.isDirectory) {
+            if (!Files.isSymbolicLink(current.toPath()) && current.isDirectory) {
                 directories.add(current)
                 current.listFiles()?.forEach { stack.addLast(it) }
             } else {
@@ -236,9 +242,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
     }
 
     private fun copyTreeInto(source: File, target: File) {
-        if (java.nio.file.Files.isSymbolicLink(source.toPath())) {
+        if (Files.isSymbolicLink(source.toPath())) {
             // 只复制链接 inode：跟随会把站外目标整棵树吸入家目录。
-            java.nio.file.Files.copy(
+            Files.copy(
                 source.toPath(),
                 target.toPath(),
                 LinkOption.NOFOLLOW_LINKS,
@@ -256,8 +262,8 @@ internal class DocumentMutations(private val context: Context, private val rootD
         source.listFiles()?.forEach { stack.addLast(it to target) }
         while (stack.isNotEmpty()) {
             val (src, dstParent) = stack.removeLast()
-            if (java.nio.file.Files.isSymbolicLink(src.toPath())) {
-                java.nio.file.Files.copy(
+            if (Files.isSymbolicLink(src.toPath())) {
+                Files.copy(
                     src.toPath(),
                     File(dstParent, src.name).toPath(),
                     LinkOption.NOFOLLOW_LINKS,
@@ -278,7 +284,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         // 与 Termux 一致的冲突策略：已存在则追加 " (2)" 后缀，而非报错。
         var child = File(parent, baseName)
         var conflictId = 2
-        while (child.exists() || java.nio.file.Files.isSymbolicLink(child.toPath())) {
+        while (child.exists() || Files.isSymbolicLink(child.toPath())) {
             child = File(parent, "$baseName ($conflictId)")
             conflictId++
         }
