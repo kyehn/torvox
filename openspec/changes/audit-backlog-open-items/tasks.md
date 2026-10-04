@@ -731,9 +731,65 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
 
 ## 23. ：待办
 
-- [ ] **R32-T1** `openDocument_write_notifies_document_and_parent` 在整类并行跑时
+- [x] **R32-T1** `openDocument_write_notifies_document_and_parent` 在整类并行跑时
       偶发判红（依赖写回线程 post 出 OnCloseListener 后显式 idle 全部 Looper）。
       12 次单独运行全绿、整类连跑偶现。需给写回通知加确定性等待而非依赖调度
-- [ ] **R32-T2** `copyDocument` 的子孙守卫比对的是 canonical 路径，
+      ——**本轮已修**：根因是单遍 `getAllLoopers()` 隐含了 idle 顺序假设。写回线程的
+      `notifyChange` 是在它自己被 idle 之后才投进主 Looper 的；主 Looper 一旦排在
+      写回线程之前被扫过，这条通知就没人跑第二趟。改为按轮次重取全部 Looper 再 idle，
+      直到两个通知到齐（`idleLoopersUntilNotified`）：投递是同步的，故无需真实时间等待，
+      上限只防「通知根本不发」时空转，真不到仍由原断言大声失败
+- [x] **R32-T2** `copyDocument` 的子孙守卫比对的是 canonical 路径，
       故把符号链接复制进其**解析目标**下的目录会被拒——而 `copyTreeInto` 对链接不递归，
       该拒绝并无对应风险。守卫应加在「是目录且非链接」上
+      ——**本轮已修**：守卫改判「`isDirectory` 且非符号链接」。`canonicalFile` 正是把
+      链接解析到目标，故原判据会误伤「把链接拷进其目标子目录」这一正常操作；
+      回归用例 `copyDocument_symlink_into_its_own_target_subtree_is_allowed`
+      （断言复制产物仍是链接且指向不变，而非展开成目录树）
+
+## 24. ：CI 复现与本轮新增
+
+### 24.1 CI run 的复现结论
+
+- [x] **N33-1** 该 run（head `f4d4af8a`）红在 `:app:connectedDebugAndroidTest`，
+      14 个用例失败；`build` 工作流**有记录以来 10 次全部失败**，不是回归。
+      失败签名高度一致：`SelectionDragQuantifiedTest` 唯一不需要 shell 的
+      `whitespace_longpress_shows_paste_only_menu` 通过，其余「等 shell 回显/等 prompt」
+      的用例全灭。本机复现：把 AVD 网络修好后重跑这 14 个用例所在的 10 个类，
+      **本地全绿**。故产品侧无回归，红的是 CI 模拟器上没有可用的 shell。
+- [x] **N33-2** 仪器化套件的 shell 硬依赖引导包下载：`waitForSession()` →
+      `TerminalPrefix.ensureInstalled()` → `BootstrapOrchestrator` 拉 GitHub 上的
+      termux bootstrap（`TerminalPrefix.kt`）。本机无网时全部此类用例报
+      `terminal prefix install failed: Download failed: UnknownHostException`，
+      即依赖链本身；CI 上无此报错（下载成功）却仍无 shell 输出，
+      两种表现都指向同一处：**shell 在该环境下没就绪**。
+      CI 侧根因未复现（需在 2 核 + swiftshader 的 runner 上复跑），如实记录不猜测。
+- [x] **N33-3** 修好本机 AVD 的网络：`scripts/setup-emulator.nu` 启动参数加
+      `-feature -Wifi`（宿主缺 `mac80211_hwsim` 时 guest 的 `wlan0` 停在
+      `NO-CARRIER`，slirp 的 DHCP 拿不到地址）与 `-dns-server 8.8.8.8`
+      （宿主 `resolv.conf` 指向 `127.0.0.53`，slirp 访问不到该桩）。
+      修前本机 `ShellResponseLatencyTest` 两例均报引导包下载失败，
+      修后通过。这是本轮一切本地取证的**前置条件**。
+
+### 24.2 本轮新增并已修
+
+- [x] **** `pasteFromClipboard` 对空剪贴板 `return 0`、对读取失败同样
+      `return 0`，两处都不出声：用户点「粘贴」后什么都没发生，日志里也没有。
+      空剪贴板补 warning（读取失败已由 `ClipboardAccess` 记日志，不重复）
+- [x] **** `TerminalRuntime.writeToPty` 的 `entry.bridge?.writeToPty(data) ?: false`
+      在 bridge 缺失时返回 false，而调用方 `pasteSink`/`InputBatchBuffer` 的
+      `flushSink` 签名是 `(Long, ByteArray) -> Unit`，返回值被丢弃——
+      击键/粘贴就此消失且毫无症状。补 error 日志
+- [x] **** `BootstrapInstaller.normalizePath` 是手写的路径消解栈（22 行）。
+      改用平台 API：`Path.normalize()` 消解点段、`Path.startsWith("..")` 按**路径元素**
+      判逃逸（字符串前缀会把 `..foo` 误判成 `..`）、空路径单例判「消解回 staging 根」。
+      净减 20 行，同时消掉一整类前缀判定错误
+
+### 24.3 ：外部依赖替代扫描
+
+- [x] **** 逐处核对本仓手写实现：路径消解（已换 `java.nio.file`）、JSON/序列化
+      （kotlinx.serialization）、base64（平台 `Base64`）、防抖（协程）、LRU（外部缓存）、
+      字体（fontdb/cosmic-text）、VT（上游 ghostty 绑定）均已走外部库。
+      本轮新增的候选只有路径消解一项，已落地。其余手写代码（宽字符列↔字符下标映射、
+      粘贴分块、网格对齐）都是产品语义本身，无可替代的外部 API，
+      换库只会把语义藏进依赖。结论与 一致，无新增可替项。
