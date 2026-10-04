@@ -133,9 +133,12 @@ pub struct Session {
     /// 瞬时提示：单帧多响合并为一，poll_bell 取走并清零（get-and-clear）。
     bell_pending: Mutex<bool>,
     /// 待处理的 OSC 52 剪贴板读取请求：所请求的 selection 名。
-    /// 由 JNI 层（`poll_clipboard_read`）消费，转发给宿主应用后经
-    /// [`Session::answer_clipboard_read`] 写回应答。
-    clipboard_read: Arc<Mutex<Option<String>>>,
+    /// 待上报的 OSC 52 剪贴板读取（FIFO）：`poll_pty_output` 收割，
+    /// JNI 层逐帧取走全部并转发给宿主应用，经 [`Session::answer_clipboard_read`]
+    /// 写回应答。队列而非单槽——同帧/块内多个读请求必须全部作答，
+    /// 单槽 last-wins 会让被挤掉的请求永不作答（R21-T6）；
+    /// 上游 flood 由 JNI 侧单会话上限显式作答空串（R17-T1），故深度天然有界。
+    clipboard_read: Arc<Mutex<VecDeque<String>>>,
 
     // ── 线程生命周期 ─────────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
@@ -371,7 +374,7 @@ impl Session {
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));
         let clipboard_text = Arc::new(Mutex::new(VecDeque::new()));
-        let clipboard_read = Arc::new(Mutex::new(None));
+        let clipboard_read = Arc::new(Mutex::new(VecDeque::new()));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND);
         // 管道分支：原始 PTY 输出的次要消费者（日志、追踪）。
 
@@ -487,8 +490,8 @@ impl Session {
         while let Ok(data) = self.output_rx.try_recv() {
             let snap = self.output_processor.process(&data);
 
-            if let Some(selection) = snap.clipboard_read {
-                *self.clipboard_read.lock() = Some(selection);
+            for selection in snap.clipboard_reads {
+                self.clipboard_read.lock().push_back(selection);
             }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
@@ -586,11 +589,11 @@ impl Session {
         self.clipboard_text.lock().pop_front()
     }
 
-    /// 取走待处理的 OSC 52 剪贴板读取请求（selection 名）。
+    /// 取走全部待处理的 OSC 52 剪贴板读取请求（selection 名，按序）。
     /// JNI 层将其转发给宿主应用，并经 [`Session::answer_clipboard_read`] 回传结果。
-    pub fn poll_clipboard_read(&self) -> Option<String> {
+    pub fn take_clipboard_reads(&self) -> Vec<String> {
         let mut guard = self.clipboard_read.lock();
-        guard.take()
+        guard.drain(..).collect()
     }
 
     /// 向 PTY 写入 `ESC ] 52 ; <selection> ; <base64> ESC \\` 应答待处理的 OSC 52
