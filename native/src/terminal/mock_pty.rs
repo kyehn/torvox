@@ -9,7 +9,6 @@ use crate::terminal::shell_env::ShellEnv;
 
 struct MockPtyInner {
     input_buffer: VecDeque<Vec<u8>>,
-    output_buffer: VecDeque<Vec<u8>>,
     child_exited: bool,
     rows: u16,
     cols: u16,
@@ -33,7 +32,6 @@ impl MockPty {
         let inner = Arc::new(Mutex::new(MockPtyInner {
             input_buffer: VecDeque::new(),
             resize_count: 0,
-            output_buffer: VecDeque::new(),
             child_exited: false,
             rows,
             cols,
@@ -48,21 +46,6 @@ impl MockPty {
 }
 
 impl MockPtyHandle {
-    pub fn inject_output(&self, data: &[u8]) {
-        self.inner
-            .lock()
-            .expect("mock mutex poisoned")
-            .output_buffer
-            .push_back(data.to_vec());
-    }
-
-    pub fn drain_written(&self) -> Vec<Vec<u8>> {
-        let mut inner = self.inner.lock().expect("mock mutex poisoned");
-        std::mem::take(&mut inner.input_buffer)
-            .into_iter()
-            .collect()
-    }
-
     pub fn set_exited(&self) {
         self.inner.lock().expect("mock mutex poisoned").child_exited = true;
     }
@@ -78,12 +61,6 @@ impl MockPtyHandle {
             result.extend_from_slice(chunk);
         }
         result
-    }
-
-    pub fn resize(&self, rows: u16, cols: u16) {
-        let mut inner = self.inner.lock().expect("mock mutex poisoned");
-        inner.rows = rows;
-        inner.cols = cols;
     }
 
     pub fn rows(&self) -> u16 {
@@ -113,24 +90,17 @@ impl Pty for MockPty {
         Ok(buf.len())
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut inner = self.inner.lock().expect("mock mutex poisoned");
-        if inner.child_exited && inner.output_buffer.is_empty() {
+    /// 替身不承载输出侧：没有注入口，故 PTY 输出经 `try_clone_reader_fd`
+    /// 返回的 `/dev/null` 读取（见该方法），这里恒报「无数据」。
+    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+        let inner = self.inner.lock().expect("mock mutex poisoned");
+        if inner.child_exited {
             return Ok(0);
         }
-        if let Some(data) = inner.output_buffer.pop_front() {
-            let byte_count = data.len().min(buf.len());
-            buf[..byte_count].copy_from_slice(&data[..byte_count]);
-            if byte_count < data.len() {
-                inner.output_buffer.push_front(data[byte_count..].to_vec());
-            }
-            Ok(byte_count)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "no data available",
-            ))
-        }
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "no data available",
+        ))
     }
 
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
