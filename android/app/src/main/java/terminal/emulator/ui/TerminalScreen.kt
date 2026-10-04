@@ -209,6 +209,10 @@ fun TerminalScreen(
                 // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
                 // 故使用从 AndroidView 工厂捕获的 surfaceRef。
                 surfaceRef.value?.finishComposing()
+                // 取消在途的 surface 重建重试：它会 setRenderPaused(false) +
+                // resumeRendering()，跨过本次暂停就会在已被系统回收的 BufferQueue
+                // 上继续出帧（ERROR_SURFACE_LOST_KHR → 返回后永久黑屏）。
+                surfaceRef.value?.cancelSurfaceRecreate()
                 // 后台时停止渲染线程：切应用不会调用 surfaceDestroyed（Surface 被保留），
                 // 不做此步线程会继续在已被系统回收的 BufferQueue 上取帧
                 // → ERROR_SURFACE_LOST_KHR → 返回后永久黑屏（模拟器已验证）。
