@@ -1338,7 +1338,12 @@ constructor(
                                             entry.surfaceInvalidated = false
                                             entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
                                         }
-                                        val frameMs = (System.nanoTime() - entry.frameMarks.startNanos) / 1_000_000.0
+                                        // 渲染窗口到此为止：pollAll、事件派发与标题查询
+                                        // 属于循环而非渲染，计入 frameTiming 会让
+                                        // loopTiming 与它测同一个量、二者再也分不开。
+                                        val renderDoneNanos = System.nanoTime()
+                                        frameTiming.record(renderDoneNanos - entry.frameMarks.startNanos)
+                                        val frameMs = (renderDoneNanos - entry.frameMarks.startNanos) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                             LogUtil.w(
                                                 "Runtime",
@@ -1546,8 +1551,9 @@ constructor(
                                                     _state.update { current -> current.copy(title = title) }
                                                 }
                                             }
+                                            // 整循环的结束时刻（供 RenderWatchDog 判挂起）：
+                                            // 与上面的 renderDoneNanos 是两个窗口，勿合并。
                                             entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                            frameTiming.record(entry.frameMarks.doneNanos - entry.frameMarks.startNanos)
                                             frameTiming.takeReport()?.let { report ->
                                                 // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长
                                                 // 即表示历史无界。
