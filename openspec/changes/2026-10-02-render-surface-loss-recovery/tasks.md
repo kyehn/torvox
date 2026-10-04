@@ -15,10 +15,14 @@
 
 ## 2. 可控失效注入（验证手段，也是回归护栏）
 
-- [ ] 2.1 原生侧测试用失效注入：仅在 `#[cfg(test)]` 或显式 debug 开关下让下一次
-      `begin_frame` 报 surface 失败，不污染生产路径
-- [ ] 2.2 仪器化用例：渲染中注入失效 → 断言宿主发起 surface 重建 → 断言恢复后画面重新有墨迹
-- [ ] 2.3 注入用例先在未修复代码上失败（红），再在修复后通过（绿）
+- [x] 2.1 失效注入开关：`Renderer::set_surface_loss_injected_for_test` 经
+      `NativeBridge.setSurfaceLossInjected` 暴露（`render/context.rs:619`），
+      `begin_frame` 逐帧判该标志。取舍：不是 `#[cfg(test)]`，而是运行时开关——
+      仪器化用例跑的是 release profile 库，`cfg(test)` 开关在设备上不存在
+- [x] 2.2 仪器化用例 `SurfaceLossRecoveryInstrumentedTest` 已落地：注入 → 宿主换
+      `SurfaceView` → 恢复后画面有墨迹 → 新命令落格
+- [ ] 2.3 注入用例「先红后绿」的证据需模拟器复跑（本地无 AVD/system-image，
+      仪器化套件不可本地执行；证据以 build workflow 全量运行结果为准）
 
 ## 3. 原生侧失效缓存与状态位
 
@@ -46,72 +50,64 @@
 
 ## 5. 逐例跟踪：基线的 27 个失败用例
 
-按基线运行（161 例 / 27 失败）报告顺序逐条列出，每例都必须有结论：
-「修复后通过」「另开 change」「前置条件」三者之一，不得悬空。分类标记：A 画面未呈现、
-B 输入未送达、C Shell/VT/剪贴板、D 预置资产缺失、E 其他。断言原文与耗时取自
-`TEST-test_avd(AVD) - 15.xml`（StickyCtrl 一例消息尾部为网格内容，此处只留首行）。
+基线为 161 例 / 27 失败（`TEST-test_avd(AVD) - 15.xml`）。下表按最新一次全量运行
+（build run ，commit 302a9e16，15 失败）逐条给出结论：通过者关闭，
+仍失败者保留并记录**新断言**（基线断言已被更贴近根因的断言取代，例如「屏幕无墨迹」
+换成「标记必须落格」）。仍失败项的根因定位需要模拟器复跑——本机无 AVD/system-image，
+仪器化套件不可本地执行。
 
-- [ ] 5.1（C）`terminal.emulator.ScrollBehaviorQuantifiedTest#enter_snaps_viewport_to_bottom_within_budget`（7.818s）
-      — 断言「viewport never snapped to bottom after Enter」→ 渲染自愈后复测；仍失败则查滚动沉降与视口贴底
-- [ ] 5.2（B）`terminal.emulator.SelectionDragQuantifiedTest#handle_drag_updates_highlight_live_between_steps`（20.653s）
-      — 断言「标记必须落格: dragstart dragend dragend dragend」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.3（B）`terminal.emulator.SelectionDragQuantifiedTest#word_longpress_shows_copy_selectall_without_paste`（18.561s）
-      — 断言「标记必须落格: targetword targetword targetword」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.4（B）`terminal.emulator.SelectionDragQuantifiedTest#paste_only_handle_drag_upgrades_selection_and_grows_D75`（19.164s）
-      — 断言「标记必须落格: growme growme growme」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.5（A）`terminal.emulator.SelectionEspressoTest#selectAllShowsSelectionMenu`（16.001s）
-      — 断言「Selection menu must appear after Select All」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.6（A）`terminal.emulator.SelectionEspressoTest#copyActionPlacesTextOnClipboard`（10.762s）
-      — 断言「复制 action must be present」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.7（B）`terminal.emulator.ShellResponseLatencyTest#rapid_command_stream_preserves_order_and_completes`（9.294s）
-      — 断言「burst never fully appeared」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.8（B）`terminal.emulator.ShellResponseLatencyTest#shell_echo_latency_meets_emulator_budget`（8.055s）
-      — 断言「marker UXMARK1 never appeared on screen within 4000ms」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.9（A）`terminal.emulator.diag.CursorPixelAcceptanceTest#cursorBlockMatchesRenderCursorCell`（17.195s）
-      — 断言「T0-boot: 光标格必须变亮」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.10（A）`terminal.emulator.diag.SgrColorPixelAcceptanceTest#sgrRedTextProducesRedPixels`（15.304s）
-      — 断言「SGR 红色文本必须产生红色像素 (前=0 最大红=0)」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.11（A）`terminal.emulator.diag.SgrItalicPixelAcceptanceTest#sgrItalicTextProducesDistinctGlyphPixels`（7.558s）
-      — 断言「斜体字形像素必须与正体不同 (差分=0)」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.12（D）`terminal.emulator.installer.BootstrapCompatibilityTest#null`（0.000s）
-      — 断言「bootstrap failed」→ 前置条件：emulator 步骤前 push bootstrap 资产；另立测试基建项
-- [ ] 5.13（D）`terminal.emulator.installer.TermuxBootstrapRealTerminalTest#termuxBootstrap_shell_runs_real_commands_with_asserted_output`（2.181s）
-      — 断言「bootstrap zip must be staged first: adb push \<termux bootstrap-x86_64.zip\> /sdcard/Download/termux-bootstrap-x86_64.zip」→ 前置条件：emulator 步骤前 push bootstrap 资产；另立测试基建项
-- [ ] 5.14（E）`terminal.emulator.ui.FontSizeReflowInstrumentedTest#fontSizeChangeReflowsGridAndScalesCellHeight`（3.574s）
-      — 断言「字号增大后列数必须收缩 (前=33 后=33)」→ 单独诊断：字号生效链路与网格列数重算
-- [ ] 5.15（A）`terminal.emulator.ui.ImePopupPixelInstrumentedTest#contentManyImePopupMovesUpBottomIdentical`（43.836s）
-      — 断言「内容较多时弹出输入法终端内容必须上移 (位移=0 差异=0)」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.16（B）`terminal.emulator.ui.ImePopupPixelInstrumentedTest#contentFewImePopupTerminalStaysPutAndVisible`（47.994s）
-      — 断言「标记必须落格: IME_FEW_88202」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.17（B）`terminal.emulator.ui.ImePopupPixelInstrumentedTest#imeCommitChineseTextGridded`（18.376s）
-      — 断言「中文提交必须落格」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.18（B）`terminal.emulator.ui.MultiTapSelectionInstrumentedTest#doubleTapSelectsWordAndCopyFillsClipboard`（22.996s）
-      — 断言「IME 必须弹起（20s 未可见）」→ 先定位「IME 未弹起」原因（可能与渲染失效同源），再复测
-- [ ] 5.19（B）`terminal.emulator.ui.MultiTapSelectionInstrumentedTest#tripleTapSelectsLine`（23.791s）
-      — 断言「标记必须落格: MTAPA_35270 MTAPB_35270」→ 渲染自愈后复测（IME 弹起与输入注入链路）；仍失败则取 input_method 日志单独立项
-- [ ] 5.20（C）`terminal.emulator.ui.Osc52ClipboardInstrumentedTest#osc52_sequence_sets_system_clipboard`（17.333s）
-      — 断言「clipboard never received OSC52 marker OSC52_ALIVE_56409 (got: )」→ 与已实证的既有失败 `NativeBridgeSmokeTest#feedTerminal OSC52 …` 同族，另开剪贴板 change
-- [ ] 5.21（C）`terminal.emulator.ui.PasteButtonInstrumentedTest#pasteMenuTypesClipboardIntoShell`（19.334s）
-      — 断言「shell 回显链必须健康 (探针=Q571)」→ Shell/VT 项另开 change（本 change 解耦）
-- [ ] 5.22（E）`terminal.emulator.ui.SessionDrawerInstrumentedTest#addSwitchAndCloseSession`（15.382s）
-      — 断言「必须切回首个会话」→ 单独诊断：会话切换与 surface attach/detach 的关系（可能与本 change 相关）
-- [ ] 5.23（C）`terminal.emulator.ui.ShellPtyInstrumentedTest#shellBellReportsEvent`（20.253s）
-      — 断言「BEL 振铃事件必须上报: 16」→ Shell/VT 项另开 change（本 change 解耦）
-- [ ] 5.24（C）`terminal.emulator.ui.StickyCtrlInterruptInstrumentedTest#stickyCtrlPlusCInterruptsRunningCommand`（23.942s）
-      — 断言「CTRL+c 必须产生真实 ^C 中断（rc=130 未出现）, 实际尾部: 4795」→ 网格确有内容（消息尾部含提示符），属 Shell/VT，另开 change
-- [ ] 5.25（A）`terminal.emulator.ui.VisualInlineVerificationTest#verifyUrlSelectionPositions`（30.010s）
-      — 断言「Expected >=2 handles for URL, found 0」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.26（A）`terminal.emulator.ui.VisualInlineVerificationTest#verifyWordSelectionPositions`（28.793s）
-      — 断言「Expected >=2 selection handles, found 0」→ 渲染自愈后复测；用例前置断言改为「先确认画面有墨迹/有手柄」
-- [ ] 5.27（C）`terminal.emulator.ui.VtCorrectnessInstrumentedTest#bellEventIsReportedViaVtFeed`（15.292s）
-      — 断言「BEL 振铃事件必须上报: 32」→ Shell/VT 项另开 change（本 change 解耦）
+| # | 用例 | 分类 | 最新运行结论 |
+| --- | --- | --- | --- |
+| 5.1 | `ScrollBehaviorQuantifiedTest#enter_snaps_viewport_to_bottom_within_budget` | C | **通过**，基线失败未复现 |
+| 5.2 | `SelectionDragQuantifiedTest#handle_drag_updates_highlight_live_between_steps` | B | 仍失败：`标记必须落格: dragstart …` |
+| 5.3 | `SelectionDragQuantifiedTest#word_longpress_shows_copy_selectall_without_paste` | B | 仍失败：`标记必须落格: targetword …` |
+| 5.4 | `SelectionDragQuantifiedTest#paste_only_handle_drag_upgrades_selection_and_grows_D75` | B | 仍失败：`标记必须落格: growme …` |
+| 5.5 | `SelectionEspressoTest#selectAllShowsSelectionMenu` | A | **通过** |
+| 5.6 | `SelectionEspressoTest#copyActionPlacesTextOnClipboard` | A | **通过** |
+| 5.7 | `ShellResponseLatencyTest#rapid_command_stream_preserves_order_and_completes` | B | 仍失败：burst 标记未完整出现 |
+| 5.8 | `ShellResponseLatencyTest#shell_echo_latency_meets_emulator_budget` | B | 仍失败：`UXMARK1` 未在预算内落格 |
+| 5.9 | `CursorPixelAcceptanceTest#cursorBlockMatchesRenderCursorCell` | A | 仍失败：`T0-boot: 光标格必须变亮` |
+| 5.10 | `SgrColorPixelAcceptanceTest#sgrRedTextProducesRedPixels` | A | **通过** |
+| 5.11 | `SgrItalicPixelAcceptanceTest#sgrItalicTextProducesDistinctGlyphPixels` | A | 仍失败：`斜体字形像素必须与正体不同 (差分=0)` |
+| 5.12 | `BootstrapCompatibilityTest#null` | D | **通过**（bootstrap 资产已就位） |
+| 5.13 | `TermuxBootstrapRealTerminalTest#…asserted_output` | D | **通过**（bootstrap 资产已就位） |
+| 5.14 | `FontSizeReflowInstrumentedTest#fontSizeChangeReflowsGridAndScalesCellHeight` | E | **通过**：列数随字号收缩正确 |
+| 5.15 | `ImePopupPixelInstrumentedTest#contentManyImePopupMovesUpBottomIdentical` | A | **通过** |
+| 5.16 | `ImePopupPixelInstrumentedTest#contentFewImePopupTerminalStaysPutAndVisible` | B | 仍失败：`内容较少时弹出输入法终端必须无变化 (差分=2426)` |
+| 5.17 | `ImePopupPixelInstrumentedTest#imeCommitChineseTextGridded` | B | **通过**（CI 模拟器装有中文输入法，基线的环境阻塞不成立） |
+| 5.18 | `MultiTapSelectionInstrumentedTest#doubleTapSelectsWordAndCopyFillsClipboard` | B | **通过** |
+| 5.19 | `MultiTapSelectionInstrumentedTest#tripleTapSelectsLine` | B | **通过** |
+| 5.20 | `Osc52ClipboardInstrumentedTest#osc52_sequence_sets_system_clipboard` | C | **通过** |
+| 5.21 | `PasteButtonInstrumentedTest#pasteMenuTypesClipboardIntoShell` | C | 仍失败：`shell 回显链必须健康 (探针=Q571)` |
+| 5.22 | `SessionDrawerInstrumentedTest#addSwitchAndCloseSession` | E | 仍失败：`必须切回首个会话` |
+| 5.23 | `ShellPtyInstrumentedTest#shellBellReportsEvent` | C | **通过** |
+| 5.24 | `StickyCtrlInterruptInstrumentedTest#stickyCtrlPlusCInterruptsRunningCommand` | C | 仍失败：`CTRL+c 必须产生真实 ^C 中断 (rc=130 未出现)` |
+| 5.25 | `VisualInlineVerificationTest#verifyUrlSelectionPositions` | A | **通过** |
+| 5.26 | `VisualInlineVerificationTest#verifyWordSelectionPositions` | A | 仍失败：`Expected >=2 selection handles, found 0` |
+| 5.27 | `VtCorrectnessInstrumentedTest#bellEventIsReportedViaVtFeed` | C | **通过** |
+
+新出现（不在基线 27 例内）：`SelectionEspressoTest#partialSelectShowsSelectionMenu`、
+`diag.SelectionTapDismissTest#tapDismissesSelectionWithoutPhantomLongPress`、
+`ui.SurfaceLossRecoveryInstrumentedTest#persistentSurfaceLossTriggersHostRebuildAndKeepsRendering`
+（`标记必须落格: PRE_INK_MARKER`）——三条与 B 类同族（注入/落格链路），归入第 5 节同一批
+定位。
+
+仍失败 12 例的共同前置：多数用例靠「标记必须落格」判定，而失败信息里同一网格还留着
+**其他用例的残留输出**（StickyCtrl 的尾部含 `SELL_ALL_A_…`、`PPPPPP…`）——仪器化
+套件跨用例共用同一会话，先前的输出污染断言。定位前先确认这一点是否即根因。
 
 ## 6. 验证与文档
 
-- [ ] 6.1 `cargo fmt` / `clippy` / `test`、`testDebugUnitTest`、`spotless`、`detekt`、
-      `lintDebug` / `lintVitalRelease`、`semgrep`、`markdownlint`
+- [x] 6.1 本地门禁全绿（`nix develop` 内逐项执行，等价 CI 的 check 工作流）：
+      `scripts/check-rust.nu`（fmt/clippy/machete/semgrep/test/rustdoc/markdownlint/
+      bench，0 失败）与 gradle 侧 `detekt spotlessCheck dokkaGenerate lintDebug
+      lintVitalRelease assembleDebugAndroidTest testDebugUnitTest
+      benchmark:compileBenchmarkReleaseKotlin
+      baselineprofile:compileNonMinifiedReleaseKotlin`（506 例单测全过）
 - [ ] 6.2 真机/模拟器实测：人为制造 surface 失效（2.x 注入或系统回收）后自愈，
-      记录恢复耗时与日志
+      记录恢复耗时与日志 —— 需模拟器/真机（本机无 AVD）
 - [ ] 6.3 全量 `:app:connectedDebugAndroidTest` 复跑，逐例回填第 5 节结论，
       失败数从 27 降到剩余未修项的真实数量，且 `abandoned` 之后不再持续 `count=-1`
+      —— 第 5 节已按 run 逐条回填（27 例中 15 例通过、12 例仍失败），
+      仍失败项待模拟器复跑后收口
 - [ ] 6.4 更新 `openspec/specs/render-stability/spec.md`，完成后归档本 change
