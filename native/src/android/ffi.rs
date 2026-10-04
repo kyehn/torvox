@@ -21,7 +21,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use crate::event::Event;
-use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::JObject;
 use jni::objects::{JClass, JString};
 use jni::strings::JNIString;
@@ -38,14 +37,60 @@ use crate::terminal::session::Session;
 use std::sync::Arc;
 
 /// 捕获逸出 JNI 导出函数体的 panic。panic 越过 `extern "system"` 边界属未定义行为
-/// （进程 abort）——所有会话瞬间死亡且崩溃处理器不运行。本守卫把 panic 转为 Java
-/// RuntimeException 并向 Kotlin 返回默认值。
+/// （进程 abort）——所有会话瞬间死亡且崩溃处理器不运行。本守卫把 panic 与 Rust 错误
+/// 转为 Java RuntimeException，并向 Kotlin 返回**调用点声明**的失败值。
 macro_rules! jni_export_guard {
-    ($unowned:expr, $default:expr, |$env_param:ident| $call:expr) => {{
+    ($unowned:expr, $failure:expr, |$env_param:ident| $call:expr) => {{
         $unowned
             .with_env(|$env_param| -> jni::errors::Result<_> { Ok($call) })
-            .resolve::<ThrowRuntimeExAndDefault>()
+            .resolve_with::<ThrowRuntimeExAndFailure<_>, _>(|| $failure)
     }};
+}
+
+/// 把错误与 panic 转为 Java `RuntimeException` 并返回调用点声明的失败值。
+///
+/// 与 `jni::errors::ThrowRuntimeExAndDefault` 的唯一差别是缺省值来源：后者恒返回
+/// `T::default()`。若守卫照搬它，渲染导出声明的失败值 `-1` 会变成 `0`，而 `0` 在
+/// Kotlin 侧意为「空闲帧」——panic 就此被伪装成一帧无输出，渲染线程据此继续空转。
+struct ThrowRuntimeExAndFailure<T>(std::marker::PhantomData<T>);
+
+impl<T: Copy + Default, E: std::error::Error> jni::errors::ErrorPolicy<T, E>
+    for ThrowRuntimeExAndFailure<T>
+{
+    type Captures<'local: 'native_method, 'native_method> = T;
+
+    fn on_error<'local: 'native_method, 'native_method>(
+        env: &mut Env<'local>,
+        failure: &mut T,
+        error: E,
+    ) -> jni::errors::Result<T> {
+        if !env.exception_check() {
+            let _ = env.throw(format!("Rust error: {error}"));
+        }
+        Ok(*failure)
+    }
+
+    fn on_panic<'local: 'native_method, 'native_method>(
+        env: &mut Env<'local>,
+        failure: &mut T,
+        payload: Box<dyn std::any::Any + Send + 'static>,
+    ) -> jni::errors::Result<T> {
+        if !env.exception_check() {
+            let _ = env.throw(format!("Rust panic: {}", panic_text(&payload)));
+        }
+        Ok(*failure)
+    }
+}
+
+/// 取 panic 载荷的可读文本；销毁载荷本身可能 panic，销毁失败时原样泄漏而非二次 panic。
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&'static str>() {
+        return (*text).to_string();
+    }
+    if let Some(text) = payload.downcast_ref::<String>() {
+        return text.clone();
+    }
+    "non-string panic payload".to_string()
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1329,10 +1374,24 @@ unsafe fn attach_window_inner(
     // 显式把交换链配置对齐到 BufferQueue：以 TextureView 为后端的 surface 否则可能
     // 停留在陈旧/默认几何，而模拟器上的 SwiftShader 会拒绝出队格式/几何与队列不符的
     // 缓冲（dequeueBuffer 超时）。WINDOW_FORMAT_RGBA_8888 = 1。
+    //
+    // 尺寸先钳位再两处共用：NDK 调用与 `attach_surface` 必须看到同一组尺寸，
+    // 否则队列几何与交换链几何各说各话，SwiftShader 仍会拒绝出队。
+    let surface_width = width.max(0);
+    let surface_height = height.max(0);
     // SAFETY: `ptr` 是有效的 `ANativeWindow*`（上方已检查非空）；
     // `ANativeWindow_setBuffersGeometry` 是有文档的 NDK 函数。
-    unsafe {
-        ANativeWindow_setBuffersGeometry(ptr, width, height, 1);
+    let geometry_status =
+        unsafe { ANativeWindow_setBuffersGeometry(ptr, surface_width, surface_height, 1) };
+    if geometry_status != 0 {
+        // 非 0 即失败。丢弃它会让几何错配在 dequeueBuffer 超时后才暴露，且无从归因，
+        // 故不挂载 surface：宿主据「未挂载」换新窗口重试，错误在此直接出声。
+        log::error!(
+            "FFI: attachWindow — ANativeWindow_setBuffersGeometry failed: {geometry_status}"
+        );
+        // SAFETY: 同下方的 `ANativeWindow_release`，此处无 surface 接管该引用。
+        unsafe { ANativeWindow_release(ptr) };
+        return;
     }
     let mut state = render_state_mut();
     let renderer = &mut state
@@ -1340,7 +1399,7 @@ unsafe fn attach_window_inner(
         .expect("render_state_mut always initializes")
         .renderer;
     let session_id = _session_id as u64;
-    match renderer.attach_surface(ptr.cast(), width.max(0) as u32, height.max(0) as u32) {
+    match renderer.attach_surface(ptr.cast(), surface_width as u32, surface_height as u32) {
         Ok(()) => {
             ATTACHED_SESSION_ID.store(session_id, std::sync::atomic::Ordering::Release);
             log::info!("FFI: attachWindow surface attached (session {session_id})");
@@ -1828,6 +1887,10 @@ const CURSOR_ROW_UNKNOWN_BITS: i64 = 0x3FF;
 const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x3FF;
 /// 打包位偏移：光标行 33、内容下沿 43（各 10 位）、surface 失效位 53。
 const SURFACE_INVALIDATED_BIT: i64 = 1 << 53;
+/// 采样段 panic 时的上报值：渲染计数为负（-1）、`new_output` 为 0、光标行与内容下沿
+/// 取未知哨兵、失效位为 0——与本导出文档声明的出错位形一致。
+const RENDER_SAMPLE_FAILURE_BITS: i64 =
+    0xFFFF_FFFF | (CURSOR_ROW_UNKNOWN_BITS << 33) | (LAST_CONTENT_ROW_NONE_BITS << 43);
 
 /// 把已渲染帧缓存的光标映射为上报位：无缓存、隐藏或在视口外时回未知哨兵，
 /// 可见光标取视口行并截断到 10 位上报宽度。
@@ -1911,7 +1974,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     // 空闲帧（count == 0）同样要采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
     // 恰在空闲定居后最需要这些坐标。这里不调用 `render_cursor()`：它要走 VT 线程同步
     // 查询，缓存才是无阻塞且与绘制同源的坐标。
-    {
+    //
+    // 采样段同样须在守卫内：`render_state_mut()` 在 `RENDER_STATE` 仍为 `None` 时会
+    // 建渲染器并于 GPU 初始化失败时 panic，而 `render_inner` 刚失败（count == -1）的
+    // 正是同一条路径——守卫外再 panic 一次即越过 `extern "system"` 边界 abort 进程。
+    jni_export_guard!(&mut unowned_env, RENDER_SAMPLE_FAILURE_BITS, |_env| {
         let render_state = render_state_mut();
         let last_frame = render_state
             .as_ref()
@@ -1932,7 +1999,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
             | (content_row_bits << 43)
             | surface_invalidated
             | (count as i64 & 0xFFFF_FFFF)
-    }
+    })
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -3349,7 +3416,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
 mod rendered_cursor_tests {
     use super::cursor_bits_for_rendered_cursor;
     use crate::terminal::ghostty_terminal::{CursorInfo, CursorStyle};
-
     fn rendered_cursor(visible: bool, row: u32) -> CursorInfo {
         CursorInfo {
             row,
@@ -3391,5 +3457,35 @@ mod rendered_cursor_tests {
             cursor_bits_for_rendered_cursor(Some(&cursor)),
             70_000_i64 & super::CURSOR_ROW_UNKNOWN_BITS
         );
+    }
+
+    #[test]
+    fn sample_failure_bits_report_failure_count_and_unknown_rows() {
+        // 渲染计数位（0..31）全 1 即 Kotlin 侧读到的 -1；光标行与内容下沿取未知哨兵。
+        assert_eq!(
+            super::RENDER_SAMPLE_FAILURE_BITS & 0xFFFF_FFFF,
+            0xFFFF_FFFF,
+            "渲染计数必须为负，否则 panic 会被读成空闲帧",
+        );
+        assert_eq!(
+            (super::RENDER_SAMPLE_FAILURE_BITS >> 33) & 0x3FF,
+            super::CURSOR_ROW_UNKNOWN_BITS,
+        );
+        assert_eq!(
+            (super::RENDER_SAMPLE_FAILURE_BITS >> 43) & 0x3FF,
+            super::LAST_CONTENT_ROW_NONE_BITS,
+        );
+        assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 32 & 0x1, 0);
+        assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 53 & 0x1, 0);
+    }
+
+    #[test]
+    fn panic_text_reads_both_payload_shapes() {
+        assert_eq!(
+            super::panic_text(&"GPU initialization failed"),
+            "GPU initialization failed"
+        );
+        assert_eq!(super::panic_text(&String::from("索引越界")), "索引越界");
+        assert_eq!(super::panic_text(&42_u32), "non-string panic payload");
     }
 }
