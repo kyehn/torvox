@@ -1214,12 +1214,33 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         };
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
-    {
+    // 采集本帧要处理的会话句柄：读锁内只克隆 Arc，不做任何会话工作。
+    // 慢会话的 VT 解析/查询若顶着读锁跑，会把 setScrollOffset 等写锁饿死，
+    // 并把单个会话的停顿放大成全局停顿（R16-T4）。
+    // 句柄是 Arc：锁外处理期间会话被销毁，也只是对着已死的 Arc 做无害功——
+    // 事件都带 session_id（Kotlin 侧对未知会话本就是空操作/幂等回收），
+    // take 系调用是锁存式的（恰好一次），不存在双重上报。
+    let poll_batch: Vec<(u64, Arc<Mutex<Session>>, bool)> = {
         let registry = rlock_session_registry();
+        let mut batch = Vec::new();
         if active_id != 0
             && let Some(entry) = registry.get(&active_id)
         {
-            let mut session = entry.session.lock();
+            batch.push((active_id, entry.session.clone(), true));
+        }
+        // 后台会话同样先收句柄（跳过活跃者，避免一帧处理两次）。
+        for (id, entry) in registry.iter() {
+            if active_id != 0 && *id == active_id {
+                continue;
+            }
+            batch.push((*id, entry.session.clone(), false));
+        }
+        batch
+    };
+    // 锁外逐个处理：活跃会话全量，其余每帧 2 块保管道流动。
+    for (session_id, session_handle, is_active) in &poll_batch {
+        let mut session = session_handle.lock();
+        if *is_active {
             // 处理来自 PTY 读取线程的 VT 输出。这是驱动全部终端状态更新的关键路径：
             // 从 `output_rx` 读取数据送入 Ghostty 的 VT 解析器，并填充下方轮询的
             // 各类事件标志（剪贴板等）。缺少此调用则终端永远不处理输出，输出通道死锁。
@@ -1228,32 +1249,24 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             // 取走全部待答 selection；一次性槽位与应答线程在注册表/会话锁释放后才建立
             // （见下方），保持锁顺序单一方向。超限由下方单会话上限显式作答（R17-T1）。
             for selection in session.take_clipboard_reads() {
-                pending_clipboard_reads.push((active_id, selection));
+                pending_clipboard_reads.push((*session_id, selection));
             }
-            collect_session_events(
-                active_id,
-                &mut session,
-                &mut pending_events,
-                &mut pending_exits,
-            );
-            // 会话锁在此释放（if-let 块末尾）。
-        }
-        // 扫描后台会话：一次性上报退出（`exit_reported` 标志）**并**排空其 PTY 输出。
-        // 后台会话的输出通道一旦填满（读取线程阻塞在有界发送 → PTY 内核缓冲填满
-        // → 子进程写入阻塞）就会冻结后台作业；每帧排空若干块既保持管道流动，
-        // 又不饿死活跃会话的帧预算。
-        for (id, entry) in registry.iter() {
-            if active_id != 0 && *id == active_id {
-                continue;
-            }
-            let mut session = entry.session.lock();
+        } else {
             // 每个后台会话每帧 2 块：足以在持续输出下不让读取线程阻塞。
+            // 后台会话的输出通道一旦填满（读取线程阻塞在有界发送 → PTY 内核缓冲填满
+            // → 子进程写入阻塞）就会冻结后台作业；每帧排空若干块既保持管道流动，
+            // 又不饿死活跃会话的帧预算。
             session.poll_pty_output(PTY_POLL_CHUNKS_PER_FRAME);
-            // 立即消费陈旧的事件标志并带上正确的 `session_id` 推入。若留着不管，
-            // 它们会在数分钟后该会话重新活跃时被重放（陈旧重放）。
-            collect_session_events(*id, &mut session, &mut pending_events, &mut pending_exits);
         }
-        // 注册表读锁在此释放。
+        // 立即消费事件标志并带上正确的 `session_id` 推入。若留着不管，
+        // 它们会在数分钟后该会话重新活跃时被重放（陈旧重放）。
+        collect_session_events(
+            *session_id,
+            &mut session,
+            &mut pending_events,
+            &mut pending_exits,
+        );
+        // 会话锁在此释放（循环迭代末尾）。
     }
     // 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
     // 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
