@@ -212,7 +212,9 @@ class TerminalForegroundService : Service() {
         // 重新获取唤醒锁而不是丢弃它：否则在任务被划掉且屏幕关闭时，
         // 会话的 CPU 与网络访问会被冻结且无从恢复
         // （此后再无任何调用 acquireWakeLockIfNeeded）。
-        if (wakeLock?.isHeld != true) {
+        // 零会话时不取：裸 start() 冷启动会走到这里，此时 sessionCount 仍为 0，
+        // 为不存在的会话持唤醒锁（同 onStartCommand 的判据）。
+        if (sessionCount >= 1 && wakeLock?.isHeld != true) {
             acquireWakeLockIfNeeded()
         }
     }

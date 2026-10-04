@@ -1453,30 +1453,39 @@ constructor(
     }
 
     fun switchSession(id: Long) {
-        val surface = currentSurface
-        if (surface == null || !surface.isValid) {
-            LogUtil.e(
-                "TerminalViewModel",
-                "switchSession: surface null or invalid, currentSurface=$currentSurface",
-            )
-            return
-        }
-        val surfaceWidthPixels = surfaceWidth
-        val surfaceHeightPixels = surfaceHeight
-        if (surfaceWidthPixels == 0 || surfaceHeightPixels == 0) {
-            LogUtil.e(
-                "TerminalViewModel",
-                "switchSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
-            )
-            return
-        }
-
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            try {
-                runtime.switchSession(id, surface, surfaceWidthPixels, surfaceHeightPixels)
-            } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("TerminalViewModel", "switchSession failed for id=$id", exception)
+            // 协程内重读（同 createSession）：锁外捕获的 surface 在派发到 IO 调度器
+            // 期间可能已失效或被换掉。
+            val surface = currentSurface
+            if (surface == null || !surface.isValid) {
+                LogUtil.e(
+                    "TerminalViewModel",
+                    "switchSession: surface null or invalid, currentSurface=$currentSurface",
+                )
+                return@launch
+            }
+            val surfaceWidthPixels = surfaceWidth
+            val surfaceHeightPixels = surfaceHeight
+            if (surfaceWidthPixels == 0 || surfaceHeightPixels == 0) {
+                LogUtil.e(
+                    "TerminalViewModel",
+                    "switchSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
+                )
+                return@launch
+            }
+            val switched =
+                try {
+                    runtime.switchSession(id, surface, surfaceWidthPixels, surfaceHeightPixels)
+                } catch (exception: Exception) {
+                    if (exception is kotlinx.coroutines.CancellationException) throw exception
+                    LogUtil.e("TerminalViewModel", "switchSession failed for id=$id", exception)
+                    return@launch
+                }
+            // 运行期中止了切换（会话已关、surface 失效、渲染线程起不来）：
+            // 此时活动会话仍是别的 id，发布 activeSessionId=id 会让 UI 状态与
+            // runtime.state/inputTargetSessionId 分裂，敲键将送往未显示的会话。
+            if (!switched) {
+                LogUtil.w("TerminalViewModel", "switchSession aborted by runtime for id=$id")
                 return@launch
             }
             _state.update { current ->

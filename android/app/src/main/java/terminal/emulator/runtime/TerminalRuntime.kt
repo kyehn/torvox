@@ -2567,12 +2567,9 @@ constructor(
                 // 会冻结所有会话操作。needsSpawn=false：该会话已在上方 spawn
                 // ——在此再 spawn 会创建第二个原生会话，其 ID 与映射键分歧
                 // （输入/输出分裂 + 泄漏的 shell 进程）。
-                switchSessionInternal(
-                    nextId,
-                    surface,
-                    width,
-                    height,
-                )
+                check(switchSessionInternal(nextId, surface, width, height)) {
+                    "switchSessionInternal aborted for new session $nextId"
+                }
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "Failed to switch to new session $nextId, rolling back", exception)
                 // 结构性的映射变更在锁内完成（不变式）；
@@ -2680,12 +2677,18 @@ constructor(
         }
     }
 
-    suspend fun switchSession(id: Long, surface: Surface, width: Int, height: Int) {
-        switchSessionInternal(id, surface, width, height)
+    /**
+     * 返回 `id` 是否已成为活动会话。调用方据此决定是否发布 UI 状态——
+     * 任何一条中止路径（会话不存在、surface 失效、首帧期间被关闭、
+     * 渲染线程启动失败）都会让返回值为 false，此时活动会话仍是别的 id。
+     */
+    suspend fun switchSession(id: Long, surface: Surface, width: Int, height: Int): Boolean {
+        if (!switchSessionInternal(id, surface, width, height)) return false
         updateState()
+        return true
     }
 
-    private suspend fun switchSessionInternal(id: Long, surface: Surface, width: Int, height: Int) {
+    private suspend fun switchSessionInternal(id: Long, surface: Surface, width: Int, height: Int): Boolean {
         // 阶段 1（加锁）：校验、停止上一个渲染线程、（重）配置目标 bridge。
         // 阶段 2（不持锁）：同步的首帧渲染重试——bridge.render() 在挂起的 GPU 上
         // 可能永久阻塞，跨它持有 sessionLock 会冻结所有会话操作
@@ -2698,11 +2701,11 @@ constructor(
                 sessions[id]
                     ?: run {
                         LogUtil.e("Runtime", "switchSession: session $id not found")
-                        return
+                        return false
                     }
             // 在任何停止动作之前捕获；用于切换/spawn 失败时恢复前一个会话。
             previousActiveId = activeSessionId
-            if (id == activeSessionId) return
+            if (id == activeSessionId) return true
             // 把 Surface 交给渲染器（attachWindow JNI 在 Rust 内部提取 ANativeWindow）。
             // 这是惰性的：它只存储引用——wgpu surface 在首个渲染帧才创建，
             // 而那发生在旧会话线程停止、其 surface 在下方释放之后。
@@ -2712,7 +2715,7 @@ constructor(
 
             if (!surface.isValid) {
                 LogUtil.e("Runtime", "switchSession: surface is no longer valid, aborting")
-                return
+                return false
             }
 
             val current = sessions[activeSessionId]
@@ -2794,7 +2797,7 @@ constructor(
                     "Runtime",
                     "switchSession: session $id was closed during first frame, aborting switch",
                 )
-                return
+                return false
             }
             // 我们渲染首帧期间，并发的 switchSession 可能发布了另一个活动会话。
             // 它的渲染线程正在运行；在启动我们的之前先停掉它，
@@ -2860,7 +2863,7 @@ constructor(
                         )
                     }
                 }
-                return@synchronized sessionLock
+                return false
             }
             try {
                 activeSessionId = id
@@ -2905,6 +2908,7 @@ constructor(
                 )
             }
         }
+        return true
     }
 
     /**

@@ -607,9 +607,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── 搜索 / 回滚 ──
-    // 查询方法经 NativeQueryPort 转发到真实的原生 JNI 路径。native 对未知会话
-    // 抛 IllegalArgumentException（如 bridge.close() 到会话表移除之间的窗口），
-    // 在此转为缺省值返回，使 UI/触摸路径不崩。
+    // 取值类查询经 NativeQueryPort 转发到真实的原生 JNI 路径，并经 onQuery 把
+    // 会话竞态异常转为缺省值，使 UI/触摸路径不崩。下方五个写入类覆写不走 onQuery：
+    // 它们返回 Unit，吞掉异常等于让调用方以为写入成功——错误必须出声。
     override fun clearSearchHighlights() = queryPort.clearSearchHighlights()
 
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
