@@ -46,25 +46,29 @@ class InputBatchBuffer(
         // 帧等待按次累加即体感退格慢。仅超过组合提交量级的（粘贴、大批量、
         // 编程性写入）仍走批缓冲合并写。保序：先排空驻留字节再直发，避免后写先到。
         if (data.size <= COMPOSITION_COMMIT_MAX_BYTES) {
-            val pending = synchronized(lock) { drainLocked() }
-            if (pending.second.isNotEmpty()) send(pending.first, pending.second)
-            if (data.isNotEmpty()) send(sessionId, data)
+            synchronized(lock) {
+                val (pendingId, pending) = drainLocked()
+                sendLocked(pendingId, pending)
+                sendLocked(sessionId, data)
+            }
             return
         }
-        val toSend = ArrayList<Pair<Long, ByteArray>>(2)
         synchronized(lock) {
             if (data.size > capacity) {
                 // 先 flush 已缓冲的输入，使先前排队的字节写在大块之前
                 // ——否则顺序会颠倒（大块粘贴越过更早的击键）。
-                toSend.add(drainLocked())
-                toSend.add(sessionId to data)
+                val (pendingId, pending) = drainLocked()
+                sendLocked(pendingId, pending)
+                sendLocked(sessionId, data)
             } else {
                 if (buffer.position() != 0 && bufferedSessionId != sessionId) {
                     // 目标会话已变：旧会话的字节必须先走，绝不并入新会话。
-                    toSend.add(drainLocked())
+                    val (staleId, stale) = drainLocked()
+                    sendLocked(staleId, stale)
                 }
                 if (buffer.remaining() < data.size) {
-                    toSend.add(drainLocked())
+                    val (fullId, full) = drainLocked()
+                    sendLocked(fullId, full)
                 }
                 bufferedSessionId = sessionId
                 buffer.put(data)
@@ -73,15 +77,14 @@ class InputBatchBuffer(
                 }
             }
         }
-        for ((id, chunk) in toSend) {
-            if (chunk.isNotEmpty()) send(id, chunk)
-        }
     }
 
     fun flush() {
         fallbackHandler.removeCallbacks(fallbackFlush)
-        val pending = synchronized(lock) { drainLocked() }
-        if (pending.second.isNotEmpty()) send(pending.first, pending.second)
+        synchronized(lock) {
+            val (pendingId, pending) = drainLocked()
+            sendLocked(pendingId, pending)
+        }
     }
 
     /** 排空缓冲区，连同驻留字节的目标会话。必须在持有 [lock] 时调用。 */
@@ -94,8 +97,15 @@ class InputBatchBuffer(
         return bufferedSessionId to bytes
     }
 
-    /** 把 [bytes] 交给单个发送线程处理（绝不阻塞调用方）。 */
-    private fun send(sessionId: Long, bytes: ByteArray) {
+    /**
+     * 把 [bytes] 交给单个发送线程处理（绝不阻塞调用方：执行器队列无界，
+     * 入队永不阻塞，故可在持有 [lock] 时调用）。
+     *
+     * 必须在持有 [lock] 时调用：排空与入队原子，并发写入者不再可能
+     * 按 X、Y 排空却按 Y、X 入队（R21-T4）。
+     */
+    private fun sendLocked(sessionId: Long, bytes: ByteArray) {
+        if (bytes.isEmpty()) return
         try {
             sender.execute {
                 try {
@@ -118,13 +128,15 @@ class InputBatchBuffer(
     fun close() {
         // 在关闭前 flush 已缓冲的字节——否则 detach 前最后一帧输入的击键会被静默丢弃
         // （缓冲区只由帧回调或显式 flush 排空）。
-        val pending = synchronized(lock) { drainLocked() }
-        if (pending.second.isNotEmpty()) {
-            try {
-                sender.execute { flushSink(pending.first, pending.second) }
-            } catch (exception: java.util.concurrent.RejectedExecutionException) {
-                // shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）。
-                LogUtil.w("InputBatchBuffer", "final flush rejected during close", exception)
+        synchronized(lock) {
+            val (pendingId, pending) = drainLocked()
+            if (pending.isNotEmpty()) {
+                try {
+                    sender.execute { flushSink(pendingId, pending) }
+                } catch (exception: java.util.concurrent.RejectedExecutionException) {
+                    // shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）。
+                    LogUtil.w("InputBatchBuffer", "final flush rejected during close", exception)
+                }
             }
         }
         sender.shutdown()
