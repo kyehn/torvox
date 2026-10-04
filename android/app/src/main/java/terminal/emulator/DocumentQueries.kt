@@ -14,6 +14,12 @@ import java.io.File
  * TooManyFunctions 阈值内。变更操作见 [DocumentMutations]。
  */
 internal class DocumentQueries(private val context: Context) {
+    /**
+     * 暴露给系统文件选择器的家目录，返回**规范形式**：`encodeDocId` 以
+     * `rootDir.canonicalPath` 剥前缀，若这里交出词法路径形式（`/data/user/0/…` 之类
+     * 经符号链接祖先到达的 `filesDir`），前缀就剥不掉，链接条目的 docId 退化成整条
+     * 绝对路径，客户端回查时被重新拼到根目录下而永远打不开。
+     */
     fun rootDir(): File = java.io
         .File(
             requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
@@ -26,25 +32,21 @@ internal class DocumentQueries(private val context: Context) {
                 LogUtil.w("DocumentsProvider", "Failed to create home directory: $dir")
             }
         }
+        .canonicalFile
 
     // 链接条目返回链接自身而非目标：与 queryChildDocuments 给出的行
     // 保持同一 docId，否则客户端按浏览结果回查会拿到另一个 id。
     // Termux 无此区分（绝对路径即 id）；此处在 Termux 行为之上补齐
-    // 链接身份一致性。normalize 只做词法处理不跟随链接，配合根内
-    // 校验挡住 ".." 逃逸。
+    // 链接身份一致性。
     fun resolveLinkEntry(documentId: String, rootDir: File): File {
         val linkCandidate = File(rootDir, documentId)
-        if (!java.nio.file.Files.isSymbolicLink(linkCandidate.toPath())) {
+        // 包含性复用 isHomeLink（规范解析父目录 + 原名，既不跟随链接也真正消解 ".."）：
+        // 此处曾用词法 Path.normalize 自行判断，那既不消解 ".."，也与 isHomeLink
+        // 重复，同一条规则的两套实现迟早分叉。
+        if (!TerminalDocumentsProvider.isHomeLink(linkCandidate, rootDir)) {
             val decoded = TerminalDocumentsProvider.decodeDocId(documentId, rootDir)
             TerminalDocumentsProvider.requireInsideRoot(decoded, rootDir)
             return decoded
-        }
-        val rootPath = rootDir.toPath().normalize().toString()
-        val linkPath = linkCandidate.toPath().normalize().toString()
-        if (!(linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath)) {
-            throw java.io.FileNotFoundException(
-                "Access denied: $linkPath is outside the terminal home directory",
-            )
         }
         return linkCandidate
     }

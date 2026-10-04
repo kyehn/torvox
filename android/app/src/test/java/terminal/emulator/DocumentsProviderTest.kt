@@ -19,6 +19,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import terminal.emulator.util.runCatchingCancellable
 
 @RunWith(RobolectricTestRunner::class)
 class DocumentsProviderTest {
@@ -685,11 +686,18 @@ class DocumentsProviderTest {
     }
 
     @Test
-    fun openDocument_rw_creates_missing_file() {
+    fun openDocument_never_creates_a_missing_document() {
+        // 「rw」含 MODE_CREATE，但创建只有 createDocument 一条路：否则任何持有一份
+        // SAF 授权的客户端都能在 ~ 里凭空造文件（含 shell 会 source 的 .mkshrc 等点文件）。
         val provider = ensureProvider()
         val target = java.io.File(rootDir(), "fresh.txt")
         assertTrue(!target.exists())
-        provider.openDocument("fresh.txt", "rw", null).close()
-        assertTrue(target.exists())
+        val failure = runCatchingCancellable { provider.openDocument("fresh.txt", "rw", null) }
+        assertTrue("必须以 FileNotFoundException 失败", failure.isFailure)
+        assertTrue(
+            "失败原因须是文档不存在",
+            failure.exceptionOrNull() is java.io.FileNotFoundException,
+        )
+        assertTrue("openDocument 绝不能创建文件", !target.exists())
     }
 }
