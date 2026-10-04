@@ -305,6 +305,29 @@ class DocumentsProviderTest {
         }
     }
 
+    /**
+     * 跑空全部 Looper 队列直到 [expected] 里的通知全部到达。
+     *
+     * 写回通知跨两条队列：OnCloseListener 由写回线程 post（不占主 Looper），
+     * `notifyChange` 再经主 Looper 派发给 observer。`getAllLoopers()` 的顺序不保证，
+     * 主 Looper 一旦排在写回线程之前被 idle，写回线程随后投进主队列的通知就
+     * 没人跑——单遍扫描只是对调度顺序的假设，整类并行跑时必现。
+     * 每轮重取全部 Looper 再 idle，直到到齐；投递是同步的，故无需真实时间等待，
+     * 上限只防「通知根本不发」时无限空转（那仍由下方断言大声失败）。
+     */
+    private fun idleLoopersUntilNotified(
+        notified: Set<String>,
+        expected: List<String>,
+        maxRounds: Int = 8,
+    ) {
+        repeat(maxRounds) {
+            if (expected.all { label -> notified.contains(label) }) return
+            org.robolectric.shadows.ShadowLooper.getAllLoopers().forEach { looper ->
+                org.robolectric.Shadows.shadowOf(looper).idle()
+            }
+        }
+    }
+
     @Test
     fun openDocument_unknown_mode_throws() {
         val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
@@ -343,9 +366,7 @@ class DocumentsProviderTest {
             // OnCloseListener 是 post 出去的回调（写回专用线程，不占主 Looper），
             // Robolectric 默认暂停 looper，必须显式跑空队列它才会执行；
             // 断言只认「回调跑过并发了通知」，不绑死具体线程。
-            for (looper in org.robolectric.shadows.ShadowLooper.getAllLoopers()) {
-                org.robolectric.Shadows.shadowOf(looper).idle()
-            }
+            idleLoopersUntilNotified(notified, listOf("document", "children"))
             assertEquals("written", java.io.File(rootDir(), "watched.txt").readText())
             assertTrue(
                 "external write-back must notify the document, got $notified",
