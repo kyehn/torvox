@@ -156,7 +156,7 @@ impl FontPipeline {
         let key = (
             font_id,
             glyph_id,
-            super::raster_size_key(self.font_size * self.raster_scale.max(1.0)),
+            super::raster_size_key(self.font_size * self.raster_scale),
         );
         if let Some(&cached) = self.caches.outline_cache.get(&key) {
             return cached;
@@ -172,12 +172,15 @@ impl FontPipeline {
         glyph_id: swash::GlyphId,
     ) -> bool {
         let scaler_context = &mut self.scaler_context;
-        // 须与真实光栅路径（atlas.rs）一致：`raster_size = font_size * raster_scale`、
+        // 须与真实光栅路径（atlas.rs）逐项一致：`raster_size = font_size * raster_scale`、
         // 仅 1:1 时 hint、仅 `Source::Outline`。若改用 `font_size` + `hint(true)` 且不加
         // Source 过滤，NotoSansCJK TTC 在 14sp 会命中内嵌 bitmap strike（is_vector=false），
         // 而图集始终以 hint(false) 按 raster_size 光栅化矢量轮廓，导致高密度屏上
         // `try_cjk_outline_fallback` 跳过全部 CJK。
-        let raster_size = self.font_size * self.raster_scale.max(1.0);
+        // 此处曾额外 `.max(1.0)`，于是 `raster_scale < 1`（Kotlin 允许 0.5f..4f；
+        // 例如 mdpi 的 1.0 density 配系统小字号 0.85 fontScale）时探测尺寸与图集尺寸不同，
+        // 「是否内嵌 bitmap strike」的结论在两个尺寸之间翻转，CJK 回退随之误判。
+        let raster_size = self.font_size * self.raster_scale;
         let hint = self.raster_scale <= 1.01;
         let font_database = self.font_system.db();
         let result = font_database.with_face_data(font_id, |font_data, face_index| {
