@@ -178,7 +178,8 @@ internal data class SessionEntry(
     @Volatile var lastRenderStart: Long = 0L
 
     @Volatile var lastRenderDone: Long = 0L
-    var renderWatchDog: RenderWatchDog? = null
+
+    @Volatile var renderWatchDog: RenderWatchDog? = null
 
     @Volatile var lastSignalNanos: Long = System.nanoTime()
 
@@ -258,12 +259,18 @@ constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
 ) {
-    // 由 TerminalSurface 移交的 Surface；待会话的 Bridge 就绪后才绑定（attach 只能在 spawn 之后）。
-    @Volatile private var pendingSurface: android.view.Surface? = null
+    /**
+     * 由 TerminalSurface 移交的 Surface；待会话的 Bridge 就绪后才绑定（attach 只能在 spawn 之后）。
+     *
+     * 三元组必须放在**同一个** `@Volatile` 持有者里：三个独立字段只保证各自可见，
+     * 读者仍可能拿到新 Surface 配旧尺寸（或反之）——而 `attachSurface` 的尺寸必须与
+     * 该 Surface 同源（见 `ffi.rs` 的 BufferQueue 几何说明），否则交换链配置与队列几何
+     * 各说各话，模拟器上直接拒绝出队。
+     */
+    @Volatile private var pendingSurface: PendingSurface? = null
 
-    @Volatile private var pendingSurfaceWidth: Int = 0
-
-    @Volatile private var pendingSurfaceHeight: Int = 0
+    /** 一次移交的 Surface 与其尺寸；不可变，读一次即自洽。 */
+    private class PendingSurface(val surface: android.view.Surface, val width: Int, val height: Int)
 
     /** 渲染线程生命周期监管。 */
     val renderSupervisor = RenderSupervisor()
@@ -1970,9 +1977,7 @@ constructor(
         LogUtil.d("Runtime", "start() called: surface=$surface width=$width height=$height")
         // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
         if (surface != null) {
-            pendingSurface = surface
-            pendingSurfaceWidth = width
-            pendingSurfaceHeight = height
+            pendingSurface = PendingSurface(surface, width, height)
         }
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
@@ -3012,8 +3017,8 @@ constructor(
         val barHeightPx = modifierBarHeightPx
         // Surface 尺寸：在首次 attachSurface 落地之前，pendingSurface
         // （由 startRuntime 设置）是权威来源。
-        val surfaceW = pendingSurfaceWidth
-        val surfaceH = pendingSurfaceHeight
+        val surfaceW = pendingSurface?.width ?: 0
+        val surfaceH = pendingSurface?.height ?: 0
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
@@ -3289,9 +3294,7 @@ constructor(
      * 则保留为待绑定，会话启动后立即绑定。
      */
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
-        pendingSurface = surface
-        pendingSurfaceWidth = width
-        pendingSurfaceHeight = height
+        pendingSurface = PendingSurface(surface, width, height)
         val bridge = sessions[activeSessionId]?.bridge
         if (bridge != null) {
             bridge.attachSurface(surface, width, height)
@@ -3299,15 +3302,16 @@ constructor(
     }
 
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
-        val surface = pendingSurface ?: return
+        // 一次取出三元组：读两次之间可能有并发移交，尺寸必须与该 Surface 同源。
+        val pending = pendingSurface ?: return
         // bridge spawn 期间持有者可能已被销毁
         // （onSurfaceDestroyed 会清空该字段，但竞争的读取仍可能
         // 观察到陈旧值）——绝不绑定已死的 Surface。
-        if (!surface.isValid) {
+        if (!pending.surface.isValid) {
             pendingSurface = null
             return
         }
-        bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
+        bridge.attachSurface(pending.surface, pending.width, pending.height)
         // 网格必须以真实 Surface 为准匹配字体单元格度量。
         // attachSurface 使 Surface 尺寸成为权威；syncGridDimensions 取来原生字体单元格度量，
         // 随后 recomputeGridFromFontMetrics resize 网格，使渲染器的
@@ -3523,8 +3527,6 @@ constructor(
         // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
         // 并渲染出黑帧。尺寸字段一并清零，否则重算网格会沿用已销毁尺寸。
         pendingSurface = null
-        pendingSurfaceWidth = 0
-        pendingSurfaceHeight = 0
         setRenderPaused(true)
     }
 
