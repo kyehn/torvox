@@ -616,6 +616,32 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun copyDocument_into_own_descendant_is_refused() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "ctree/sub").apply { mkdirs() }
+        val failure =
+            try {
+                provider.copyDocument("ctree", "ctree/sub")
+                null
+            } catch (expected: java.io.IOException) {
+                expected
+            }
+        assertNotNull("copy into own descendant must fail", failure)
+        // 无守卫时会先递归复制 a/b/a/b/… 直到 ENAMETOOLONG 再整体回滚，
+        // 终态看似干净但耗尽路径长度与磁盘；守卫在动手前就拒绝。
+        assertEquals(
+            "must be refused before any copy runs, not after a runaway traversal",
+            "Refusing to copy a directory into its own descendant",
+            failure!!.message,
+        )
+        assertEquals(
+            "no runaway copy may be left behind",
+            emptyList<String>(),
+            java.io.File(rootDir(), "ctree/sub").list()?.toList() ?: emptyList<String>(),
+        )
+    }
+
+    @Test
     fun querySearchDocuments_finds_matching_directories() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "MyProjects").apply { mkdirs() }
