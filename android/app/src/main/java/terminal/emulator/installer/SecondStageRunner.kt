@@ -24,6 +24,8 @@ class SecondStageRunner(
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
     companion object {
+        /** 进程已退出后等待 stdout 排空线程收尾的上限；超时即放弃剩余输出（daemon 线程不会泄漏）。 */
+        private const val STDIO_DRAIN_JOIN_TIMEOUT_MS = 2_000L
         private const val THREAD_JOIN_TIMEOUT_MS = 5_000L
 
         // postinst 单脚本最大执行轮次：首轮失败（首运崩溃/偶发超时）重试一次，
@@ -229,12 +231,31 @@ class SecondStageRunner(
                         isDaemon = true
                     }
             stderrThread.start()
+            // stdout 同样在守护线程上排空，且与 waitFor 并行：dpkg 的任何后代进程若
+            // 继承了 stdout 并长期持有管道，waitFor 返回后再读会永远阻塞，
+            // finally 的 destroy() 与其后的锁文件清理都执行不到。
+            val stdoutText = StringBuilder()
+            val stdoutThread =
+                Thread {
+                    try {
+                        proc.inputStream.bufferedReader().use { reader ->
+                            synchronized(stdoutText) { stdoutText.append(reader.readText()) }
+                        }
+                    } catch (exception: Exception) {
+                        LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
+                    }
+                }
+                    .apply {
+                        isDaemon = true
+                    }
+            stdoutThread.start()
             if (!proc.waitFor(10, TimeUnit.SECONDS)) {
                 proc.destroyForcibly()
                 LogUtil.w("SecondStageRunner", "detectDpkgVersion timed out")
                 return null
             }
-            val text = proc.inputStream.bufferedReader().readText()
+            stdoutThread.join(STDIO_DRAIN_JOIN_TIMEOUT_MS)
+            val text = synchronized(stdoutText) { stdoutText.toString() }
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value
         } catch (exception: Exception) {

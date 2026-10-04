@@ -1066,10 +1066,11 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         row: u32,
         col: u32,
+        width: u32,
     ) {
         row_data.push(CellData {
             codepoint: 0,
-            width: 1,
+            width,
             grapheme_extra: [0; 7],
             foreground: default_foreground,
             background: default_background,
@@ -1078,6 +1079,19 @@ impl super::GhosttyTerminal {
             row,
             col,
         });
+    }
+
+    /// 单元占用的列数：`None` 表示 spacer 单元（宽字符的尾/头格），
+    /// 它不产出 `CellData`，两列已由宽字符本身消耗。
+    fn cell_columns(raw: &libghostty_vt::screen::Cell) -> Option<u32> {
+        match raw.wide() {
+            Ok(libghostty_vt::screen::CellWide::Wide) => Some(2),
+            Ok(
+                libghostty_vt::screen::CellWide::SpacerTail
+                | libghostty_vt::screen::CellWide::SpacerHead,
+            ) => None,
+            _ => Some(1),
+        }
     }
 
     /// Map a ghostty cursor visual style to the app-level cursor style.
@@ -1544,12 +1558,15 @@ impl super::GhosttyTerminal {
                 let raw = match cell.raw_cell() {
                     Ok(raw_cell) => raw_cell,
                     Err(_) => {
+                        // `raw_cell()` 失败则宽度无从得知（宽度只存在于 raw cell），
+                        // 只能按 1 列推进——这是该失败路径的固有上限。
                         Self::push_blank_cell(
                             &mut row_data,
                             default_foreground,
                             default_background,
                             current_row,
                             current_col,
+                            1,
                         );
                         current_col += 1;
                         continue;
@@ -1587,18 +1604,21 @@ impl super::GhosttyTerminal {
                             (Some(style), foreground, background, underline, style_flags)
                         }
                         Err(_) => {
-                            row_data.push(CellData {
-                                codepoint: 0,
-                                width: 1,
-                                grapheme_extra: [0; 7],
-                                foreground: default_foreground,
-                                background: default_background,
-                                underline_color: default_foreground,
-                                flags: 0,
-                                row: current_row,
-                                col: current_col,
-                            });
-                            current_col += 1;
+                            // 宽度仍可从 raw cell 读到，必须照真实宽度推进：
+                            // 宽字符（中日韩）按 1 列推进会让本行其后每一个单元的
+                            // `col` 左移一格，且行长度不再等于 cols。
+                            // spacer（None）：两列已由宽字符本身消耗，直接跳过。
+                            if let Some(width) = Self::cell_columns(&raw) {
+                                Self::push_blank_cell(
+                                    &mut row_data,
+                                    default_foreground,
+                                    default_background,
+                                    current_row,
+                                    current_col,
+                                    width,
+                                );
+                                current_col += width;
+                            }
                             continue;
                         }
                     }
@@ -1610,18 +1630,11 @@ impl super::GhosttyTerminal {
                 // emits for wide characters. These have no content and would
                 // advance `current_col` incorrectly, causing all subsequent
                 // cells to shift right by one column.
-                let width = match raw.wide() {
-                    Ok(libghostty_vt::screen::CellWide::Wide) => 2,
-                    Ok(
-                        libghostty_vt::screen::CellWide::SpacerTail
-                        | libghostty_vt::screen::CellWide::SpacerHead,
-                    ) => {
-                        // Spacer cells: do not produce a CellData entry.
-                        // current_col stays unchanged — the wide cell already
-                        // consumed both columns.
-                        continue;
-                    }
-                    _ => 1,
+                // Spacer cells: do not produce a CellData entry.
+                // current_col stays unchanged — the wide cell already
+                // consumed both columns.
+                let Some(width) = Self::cell_columns(&raw) else {
+                    continue;
                 };
 
                 let mut grapheme_extra = [0u32; 7];
@@ -1909,18 +1922,20 @@ impl super::GhosttyTerminal {
         let mut text = String::new();
         for col in 0..cols {
             // 行列 → Point 的空间解析统一走 absolute_point（列恒在界内，钳制恒等）。
-            let point = terminal.grid_ref(Self::absolute_point(terminal, row, col));
-            if let Ok(point) = point
-                && let Ok(cell) = point.cell()
-            {
-                let cp = cell.codepoint().unwrap_or(0);
-                if cp != 0 {
-                    if let Some(ch) = char::from_u32(cp) {
-                        text.push(ch);
-                    }
-                } else {
-                    text.push(' ');
-                }
+            //
+            // 每个网格列必须**恰好**产出一个字符：`search_in_scrollback_all_impl` 把段内
+            // 字符下标直接当作列号（`SearchMatch.start_col` 与 `CellData.col` 对齐）。
+            // 读不到单元时若少产一个字符，其后所有列号都会左移一格，且偏移会经
+            // 软换行段累加继续放大。故一律以空格占位，与 codepoint 为 0 的空单元同形。
+            let codepoint = terminal
+                .grid_ref(Self::absolute_point(terminal, row, col))
+                .ok()
+                .and_then(|point| point.cell().ok())
+                .and_then(|cell| cell.codepoint().ok())
+                .unwrap_or(0);
+            match char::from_u32(codepoint) {
+                Some(character) if codepoint != 0 => text.push(character),
+                _ => text.push(' '),
             }
         }
         let trimmed = text.trim_end().to_string();
