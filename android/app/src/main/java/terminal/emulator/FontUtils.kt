@@ -17,25 +17,14 @@ internal fun termuxDefaultFontFile(homePath: String): java.io.File? = listOf("fo
 internal fun termuxDefaultFontFile(context: android.content.Context): java.io.File? =
     termuxDefaultFontFile(java.io.File(context.filesDir, "home").absolutePath)
 
-fun resolveEffectiveFontFamily(fontFamily: String): String {
-    val normalized = fontFamily.trim()
-    if (normalized.isEmpty()) return ""
-    return when (normalized.lowercase()) {
-        "monospace",
-        "mono",
-        "monospaced",
-        -> "monospace"
-
-        "sans-serif",
-        "sans",
-        "sans serif",
-        -> "sans-serif"
-
-        "serif" -> "serif"
-
-        else -> normalized
-    }
-}
+/**
+ * 设置项里保存的字族名 → 原生字族名：仅去空白，空值表示「取 fonts.xml 的 monospace」。
+ *
+ * 不做别名归并（`mono`/`sans`/`monospaced` → `monospace`/`sans-serif`）：
+ * DESIGN 字体选择节要求字族列表由外部库给出且不得手工判断，名字恰为 "Sans" 的
+ * 字族会被静默换成另一个字体。
+ */
+fun resolveEffectiveFontFamily(fontFamily: String): String = fontFamily.trim()
 
 /** 仅支持 arm64-v8a 与 x86_64（见 docs/specification/BUILD.md）：其余 ABI 直接抛，
  * 使引导安装失败返回而非静默下载错误架构的 zip（后者再被安装成功态掩盖）。 */

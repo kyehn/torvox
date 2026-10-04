@@ -858,16 +858,20 @@ fun TerminalScreen(
                         ModifierBar(
                             modifier = Modifier.testTag("ModifierBar"),
                             onKeyClick = { data ->
-                                viewModel.writeToPty(data.toByteArray())
+                                val sessionId = viewModel.runtime.inputTargetSessionId
+                                viewModel.writeToPty(sessionId, data.toByteArray())
                             },
                             onKeyBytesClick = { bytes ->
-                                viewModel.writeToPty(bytes)
+                                viewModel.writeToPty(viewModel.runtime.inputTargetSessionId, bytes)
                             },
                             onConsumeModifiers = {
                                 viewModel.consumeOneShotModifiers()
                             },
                             onDrawerClick = {
                                 scope.launch { drawerState.open() }
+                            },
+                            onPasteClick = {
+                                viewModel.pasteFromClipboard()
                             },
                             onScrollClick = {
                                 viewModel.toggleScrollMode()

@@ -172,6 +172,8 @@ fun ModifierBar(
     /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
     onLockCtrl: () -> Unit = {},
     onLockAlt: () -> Unit = {},
+    /** Termux `DRAWER` 键长按：粘贴剪贴板（`popup: 'PASTE'`）。 */
+    onPasteClick: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
@@ -192,6 +194,7 @@ fun ModifierBar(
         onToggleAlt = onToggleAlt,
         onLockCtrl = onLockCtrl,
         onLockAlt = onLockAlt,
+        onPasteClick = onPasteClick,
         isAppCursorMode = isAppCursorMode,
         onKeyBytesClick = onKeyBytesClick,
         onConsumeModifiers = onConsumeModifiers,
@@ -259,6 +262,8 @@ private fun ConfigurableModifierBar(
     modifier: Modifier = Modifier,
     onLockCtrl: () -> Unit = {},
     onLockAlt: () -> Unit = {},
+    /** Termux `DRAWER` 键长按：粘贴剪贴板（`popup: 'PASTE'`）。 */
+    onPasteClick: () -> Unit = {},
     isAppCursorMode: () -> Boolean = { false },
     onKeyBytesClick: ((ByteArray) -> Unit)? = null,
     onConsumeModifiers: () -> Unit = {},
@@ -278,6 +283,7 @@ private fun ConfigurableModifierBar(
             onToggleAlt = onToggleAlt,
             onLockCtrl = onLockCtrl,
             onLockAlt = onLockAlt,
+            onPasteClick = onPasteClick,
             isAppCursorMode = isAppCursorMode,
             onKeyBytesClick = onKeyBytesClick,
             onConsumeModifiers = onConsumeModifiers,
@@ -353,6 +359,8 @@ private data class ModifierBarActions(
     /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
     val onLockCtrl: () -> Unit = {},
     val onLockAlt: () -> Unit = {},
+    /** Termux `DRAWER` 键的 `popup: 'PASTE'`：长按粘贴剪贴板。 */
+    val onPasteClick: () -> Unit = {},
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
     val isAppCursorMode: () -> Boolean = { false },
     /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
@@ -368,10 +376,11 @@ private data class ModifierBarStates(
     val scrollActive: Boolean,
 )
 
-/** 长按动作：CTRL/ALT 锁定（termux 长按）。其余按键无长按动作。 */
+/** 长按动作：CTRL/ALT 锁定、DRAWER 粘贴（termux 布局与长按语义）。其余按键无长按动作。 */
 private fun secondaryLongPressAction(key: ToolbarKey, actions: ModifierBarActions): (() -> Unit)? = when (key) {
     ToolbarKey.CTRL -> actions.onLockCtrl
     ToolbarKey.ALT -> actions.onLockAlt
+    ToolbarKey.DRAWER -> actions.onPasteClick
     else -> null
 }
 
@@ -615,8 +624,11 @@ private fun RowScope.ExtraKeyButton(
     val gestureModifier =
         Modifier.pointerInput(Unit) {
             awaitEachGesture {
-                awaitFirstDown()
-                val downPos = currentEvent.changes.first().position
+                val down = awaitFirstDown()
+                val downPos = down.position
+                // 长按阈值取手势事件时间（单调 uptime）而非墙钟：用户改系统时间
+                // 不会让长按误判，测试的虚拟时钟也推进同一条时间线。
+                val downEventTime = down.uptimeMillis
                 val slop = viewConfiguration.touchSlop
                 // ACTION_CANCEL 会被 MotionEventAdapter 直接丢弃，改由 processCancel 合成
                 // 无 MotionEvent 的全释放事件送达；真实抬手/移动始终携带原始 MotionEvent。
@@ -638,11 +650,10 @@ private fun RowScope.ExtraKeyButton(
                         // 只触发一次 secondaryAction。对应 Android 的
                         // onClick/onLongClick 划分。
                         var longPressTriggered = false
-                        val downTime = System.currentTimeMillis()
-                        fun maybeFireLongPress() {
+                        fun maybeFireLongPress(eventTimeMillis: Long) {
                             if (
                                 !longPressTriggered &&
-                                System.currentTimeMillis() - downTime >= LONG_PRESS_MS
+                                eventTimeMillis - downEventTime >= LONG_PRESS_MS
                             ) {
                                 longPressTriggered = true
                                 view.performHapticFeedback(
@@ -661,14 +672,14 @@ private fun RowScope.ExtraKeyButton(
                             // 完全静止的长按不产生任何 MOVE 事件，
                             // 故阈值已过时松手本身也必须计入——否则长按会被静默丢失。
                             if (!ch.pressed) {
-                                maybeFireLongPress()
+                                maybeFireLongPress(ch.uptimeMillis)
                                 break
                             }
                             if ((ch.position - downPos).getDistance() > slop) {
                                 gestureValid = false
                                 break
                             }
-                            maybeFireLongPress()
+                            maybeFireLongPress(ch.uptimeMillis)
                         }
                         if (!longPressTriggered && gestureValid) {
                             view.performHapticFeedback(

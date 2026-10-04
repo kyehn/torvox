@@ -19,6 +19,7 @@ use std::time::Instant;
 use super::*;
 use crate::terminal::ghostty_terminal::public_api::sanitize_vt_input;
 use crate::terminal::test_helpers::assert_invariants;
+use libghostty_vt::key::Mods;
 
 fn terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
@@ -264,7 +265,7 @@ fn dump_grid_scrollback_populated_after_scroll() {
 #[test]
 fn encode_mouse_event_gated_off_without_tracking_mode() {
     let terminal_under_test = terminal();
-    let encoded = terminal_under_test.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
+    let encoded = terminal_under_test.encode_mouse_event((50.0, 60.0), 0, 0, 0, 10.0, 20.0);
     let encoded = encoded.expect("encode_mouse_event should return Some");
     assert!(
         encoded.is_empty(),
@@ -281,7 +282,7 @@ fn encode_mouse_event_sgr_press() {
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
     let encoded = terminal_under_test
-        .encode_mouse_event((35.0, 45.0), 0, 0, 10.0, 20.0)
+        .encode_mouse_event((35.0, 45.0), 0, 0, 0, 10.0, 20.0)
         .expect("encode_mouse_event should return Some");
     // SGR: ESC [ < Cb ; Cx ; Cy M — Cb is the 0-based button (0 = left
     // press; X10's +32 offset does NOT apply to SGR mode).
@@ -292,6 +293,34 @@ fn encode_mouse_event_sgr_press() {
     );
 }
 
+/// Shift/Ctrl 点击必须与普通左键在编码结果上可区分（vim/tmux 依此扩展选区、
+/// 粘贴选择）。无修饰时 Cb=0，Shift 为 +4，Ctrl 为 +16（xterm SGR 口径）。
+#[test]
+fn encode_mouse_event_carries_modifiers() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let plain = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 0, 0, Mods::empty().bits(), 10.0, 20.0)
+        .expect("plain left-press encode");
+    let shift = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 0, 0, Mods::SHIFT.bits(), 10.0, 20.0)
+        .expect("shift left-press encode");
+    let ctrl = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 0, 0, Mods::CTRL.bits(), 10.0, 20.0)
+        .expect("ctrl left-press encode");
+    assert_eq!(plain, b"\x1b[<0;4;3M");
+    assert_ne!(
+        plain, shift,
+        "Shift+左键必须与普通左键编码不同（否则远端无法扩展选区）"
+    );
+    assert_ne!(
+        plain, ctrl,
+        "Ctrl+左键必须与普通左键编码不同（否则远端无法粘贴选择）"
+    );
+    assert_ne!(shift, ctrl, "Shift 与 Ctrl 组合不得互相混淆");
+}
+
 /// Wheel-up with DECSET 1000 + SGR → button 4 (wheel-up = button 64+4-32).
 /// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
 #[test]
@@ -300,14 +329,14 @@ fn encode_mouse_event_wheel() {
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
     let up = terminal_under_test
-        .encode_mouse_event((10.0, 10.0), 0, 3, 10.0, 20.0)
+        .encode_mouse_event((10.0, 10.0), 0, 3, 0, 10.0, 20.0)
         .expect("wheel-up encode");
     assert!(
         up.len() >= 6 && up.starts_with(b"\x1b[<"),
         "wheel-up must produce an SGR sequence (got {up:?})"
     );
     let down = terminal_under_test
-        .encode_mouse_event((10.0, 10.0), 0, 4, 10.0, 20.0)
+        .encode_mouse_event((10.0, 10.0), 0, 4, 0, 10.0, 20.0)
         .expect("wheel-down encode");
     assert!(
         down.len() >= 6 && down.starts_with(b"\x1b[<"),
@@ -324,7 +353,7 @@ fn encode_mouse_event_bounds_negative_clamp() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
-    let result = terminal_under_test.encode_mouse_event((-5.0, -10.0), 0, 0, 10.0, 20.0);
+    let result = terminal_under_test.encode_mouse_event((-5.0, -10.0), 0, 0, 0, 10.0, 20.0);
     // The encoder returns Some(empty) or Some(sgr) — it must not panic.
     assert!(
         result.is_some(),
@@ -351,7 +380,7 @@ fn encode_mouse_event_bounds_oversized_clamp() {
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
     // Position far beyond the grid: 9999x9999 with 10x20 cells.
-    let result = terminal_under_test.encode_mouse_event((9999.0, 9999.0), 0, 0, 10.0, 20.0);
+    let result = terminal_under_test.encode_mouse_event((9999.0, 9999.0), 0, 0, 0, 10.0, 20.0);
     assert!(result.is_some(), "oversized coords must return Some");
     let encoded = result.unwrap();
     if !encoded.is_empty() {
@@ -385,7 +414,7 @@ fn encode_mouse_event_drag_sequence() {
 
     // Press at (10, 20)
     let press = terminal_under_test
-        .encode_mouse_event((10.0, 20.0), 0, 0, cell_width, cell_height)
+        .encode_mouse_event((10.0, 20.0), 0, 0, 0, cell_width, cell_height)
         .expect("press encode");
     assert!(
         press.starts_with(b"\x1b[<"),
@@ -398,7 +427,7 @@ fn encode_mouse_event_drag_sequence() {
 
     // Drag (motion) at (30, 20) — action=2
     let drag = terminal_under_test
-        .encode_mouse_event((30.0, 20.0), 2, 0, cell_width, cell_height)
+        .encode_mouse_event((30.0, 20.0), 2, 0, 0, cell_width, cell_height)
         .expect("drag encode");
     assert!(
         drag.starts_with(b"\x1b[<"),
@@ -407,7 +436,7 @@ fn encode_mouse_event_drag_sequence() {
 
     // Release at (50, 20) — action=1
     let release = terminal_under_test
-        .encode_mouse_event((50.0, 20.0), 1, 0, cell_width, cell_height)
+        .encode_mouse_event((50.0, 20.0), 1, 0, 0, cell_width, cell_height)
         .expect("release encode");
     assert!(
         release.starts_with(b"\x1b[<"),
@@ -1285,39 +1314,46 @@ fn bench_typing_latency() {
 /// Uses realistic plain-text lines — the most common real-world output
 /// pattern. No ANSI escape codes (ghostty C FFI handles them slowly in
 /// debug builds; ANSI throughput is implicitly covered by other benchmarks).
+///
+/// 断言行为而非绝对吞吐：200KB 突发输出必须整段走完解析器（末行与期望一致，
+/// 无截断/丢行）。吞吐量阈值由 `benches/` 的 criterion 基准承担——把墙钟阈值
+/// 放进 `cargo test` 会随并行测试线程数与构建机负载随机判红（TESTING.md「没有
+/// 不稳定的测试」）。
 #[test]
-fn bench_bulk_output_throughput() {
+fn bulk_output_is_processed_without_loss() {
     let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
-    // Build a 4KB buffer of realistic plain-text terminal output
     let mut buf = Vec::with_capacity(4096);
     while buf.len() < 4096 {
         buf.extend_from_slice(b"user@host:~$ ls -la src/main.rs docs/README.md\n");
     }
-
     let round_count = 50; // 50 × 4KB = 200KB total
-    let start = Instant::now();
+
     for _ in 0..round_count {
         terminal_under_test.vt_write(&buf);
         terminal_under_test.flush();
-        let receive_result = terminal_under_test.receive_cell_data();
-        let count = black_box(receive_result.map(|(cells, _)| cells.len()).unwrap_or(0));
-        black_box(count);
+        // 每轮取一次单元数据：与渲染帧同口径，确保输出真的走完 VT→CellData 链路。
+        black_box(
+            terminal_under_test
+                .receive_cell_data()
+                .map(|(cells, _)| cells.len()),
+        );
     }
-    let elapsed = start.elapsed();
-    let throughput_cells = round_count as f64 * 1920.0 / elapsed.as_secs_f64();
-    println!(
-        "Bulk output: {:.0} cells/sec ({:.1}ms for {}×{}KB plain text)",
-        throughput_cells,
-        elapsed.as_millis(),
-        round_count,
-        buf.len() / 1024,
+
+    let marker = format!("burst-round-{round_count}");
+    // 突发负载按 4KB 切块，末块可能停在一行中间：先回到行首再写标记，
+    // 否则标记会在行尾折行而被拆到两行。
+    terminal_under_test.vt_write(b"\r\n");
+    terminal_under_test.vt_write(marker.as_bytes());
+    terminal_under_test.flush();
+
+    let snapshot = terminal_under_test.take_snapshot();
+    let last_row = snapshot.rows - 1;
+    assert_eq!(
+        row_text(&snapshot, last_row),
+        marker,
+        "200KB 突发输出后末行必须是最后写入的标记（无截断/丢行）"
     );
-    let threshold = 4_000.0;
-    assert!(
-        throughput_cells > threshold,
-        "Bulk output too slow: {:.0} cells/sec (need >{threshold:.0})",
-        throughput_cells,
-    );
+    assert_invariants(&snapshot);
 }
 
 // ── Scrollback fallback ────────────────────────────────────────────────

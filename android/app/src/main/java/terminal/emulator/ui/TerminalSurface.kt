@@ -1188,7 +1188,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         this.viewModel = viewModel
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
-        viewModel.pasteSink = { data -> inputBatchBuffer.write(data) }
+        viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
     }
 
     @Volatile private var rows: Int = DEFAULT_ROWS
@@ -1705,8 +1705,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     var forwarded = false
                     val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
                     repeat(cappedLines) {
-                        if (altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 0, button, cellWidth, cellHeight)) {
-                            altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 1, button, cellWidth, cellHeight)
+                        val wheelModifiers = KeyModifiers.ghosttyMods(e2.metaState)
+                        if (
+                            altBridge.encodeMouseEvent(
+                                pointerXPx,
+                                pointerYPx,
+                                0,
+                                button,
+                                wheelModifiers,
+                                cellWidth,
+                                cellHeight,
+                            )
+                        ) {
+                            altBridge.encodeMouseEvent(
+                                pointerXPx,
+                                pointerYPx,
+                                1,
+                                button,
+                                wheelModifiers,
+                                cellWidth,
+                                cellHeight,
+                            )
                             forwarded = true
                         }
                     }
@@ -2197,7 +2216,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // ——输入法输入与粘贴会在无任何症状的情况下永久失效。
     private var inputBatchBuffer = newInputBatchBuffer()
 
-    private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
+    private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
+        flushSink = { sessionId, data -> viewModel?.writeToPty(sessionId, data) },
+        inputSessionId = { viewModel?.runtime?.inputTargetSessionId ?: 0L },
+    )
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection = imeConnection.createInputConnection(
         outAttrs,
@@ -2423,7 +2445,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                         else -> 0
                     }
-                if (bridge.encodeMouseEvent(event.x, event.y, action, button, cellWidth, cellHeight)) {
+                if (
+                    bridge.encodeMouseEvent(
+                        event.x,
+                        event.y,
+                        action,
+                        button,
+                        KeyModifiers.ghosttyMods(event.metaState),
+                        cellWidth,
+                        cellHeight,
+                    )
+                ) {
                     return true
                 }
             }
@@ -2555,12 +2587,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (bridge != null) {
                 val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
+                val mods = KeyModifiers.ghosttyMods(event.metaState)
                 if (
                     bridge.encodeMouseEvent(
                         event.x,
                         event.y,
                         0,
                         button,
+                        mods,
                         runtime.cellWidth,
                         runtime.cellHeight,
                     )
@@ -2571,6 +2605,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         event.y,
                         1,
                         button,
+                        mods,
                         runtime.cellWidth,
                         runtime.cellHeight,
                     )
