@@ -200,8 +200,6 @@ impl<'a> TermTestCase<'a> {
         self.assert_foreground(row, col, expected)
     }
 
-    // Required: shared test helper — not all test binaries call every method.
-    #[allow(dead_code)]
     pub fn assert_background_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
         let expected = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
         self.assert_background(row, col, expected)

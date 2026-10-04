@@ -507,7 +507,34 @@
       （前者 private、后者需要完整 runtime）；本轮三处改动全靠人工推演验证。
       `resolveThemeName` 的重读逻辑可提取为纯函数以便测试
 
-## 17. 文档退役
+## 17. ：已修与待办
+
+- [x] **** `test_helpers.rs` 的 `assert_background_exact` 挂着
+      `#[allow(dead_code)]` 与「并非每个测试二进制都调用每个方法」的注释，
+      而它在本文件内就被调用两次——抑制什么都没守住，注释也与事实相反。
+      已删除抑制（AGENTS.md 禁止用 `#[allow]` 掩盖）
+- [x] **** `MockPtyHandle` 的 `inject_output` / `drain_written` / `resize`
+      全仓零调用；`output_buffer` 只由 `inject_output` 填充，故 `MockPty::read` 的
+      「部分拷贝 + 余量回推」分支永不可达。已删掉这三个方法与 `output_buffer` 字段，
+      `read` 改为直陈替身不承载输出侧（输出经 `try_clone_reader_fd` 的 `/dev/null`）
+- [x] **** `handleSessionExit` 的 `aliveMs` 形参无人消费（整条 alive_ms 链路的
+      现状见 R28-T1）。已在形参注释中写明，并把它落到 debug 日志——
+      参数不再「传了但完全不可见」，也不再需要任何抑制属性
+
+- [ ] **R28-T1** `alive_ms` 是端到端死链路：原生在 `session.rs:322` 测量存活时长、
+      `ffi.rs:1173` 随退出事件发出、`event.rs:36` 序列化（且有 JSON 断言），
+      Kotlin 侧 `PollEvent.Exit.aliveMs` → `PollResult.exitAliveMs` → `ExitInfo.exitAliveMs`
+      → `handleSessionExit` 形参，最终无人消费（`[Process completed]` 提示按 Termux
+      只含退出码）。彻底清理要同时改 6 个 Rust 文件、3 个 Kotlin 文件与十余处测试断言；
+      与 §3 已登记的 N1 / N2-32~N2-34 三条同类死链路一并处理更合适。
+      本轮只让形参可见，未擅自改动事件 schema
+- [ ] **R28-T2** `render_to_buffer`（`pass.rs:884`）在 `map_async` 超时路径上返回
+      `Err` 而不 `unmap`，该读回缓冲随后永久处于 mapped 态；下次调用对其
+      `copy_texture_to_buffer` 会被 wgpu-core 拒收（mapped 缓冲不是合法拷贝目标），
+      乃至设备丢失。`MAP_READBACK_TIMEOUT` 只有 100ms，慢机上可达。
+      该函数生产零调用（§3 N14/N16/N17 已登记待删），故本轮不修——随其删除一并消失
+
+## 18. 文档退役
 
 - [x] 15.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
 - [x] 15.2 删除 `docs/REVIEW*.md` 全部 12 个文件

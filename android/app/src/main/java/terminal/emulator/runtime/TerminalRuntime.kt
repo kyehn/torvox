@@ -525,9 +525,12 @@ constructor(
     private fun handleSessionExit(
         entry: SessionEntry,
         exitCode: Int?,
-        // 原生测得的子进程存活时长（毫秒）；事件早于该字段或为清扫时为 0。
+        // 原生测得的子进程存活时长（毫秒）。本函数不消费它：
+        // `[Process completed]` 提示按 Termux 只含退出码。整条 alive_ms 链路
+        // （原生测量 → 事件序列化 → 本形参）当前无人消费，已登记在台账待清理。
         aliveMs: Long,
     ) {
+        LogUtil.d("Runtime", "session ${entry.id} alive ${aliveMs}ms before exit")
         // 启动入口失败不得回退：shell 退出即走 [Process completed] 提示，
         // 输出保留显示，由用户确认关闭。
         // 本函数既用于 shell 首次退出（poll.exit 分支），也用于用户在 [Process completed]
