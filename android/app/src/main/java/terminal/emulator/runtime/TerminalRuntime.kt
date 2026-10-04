@@ -1940,18 +1940,7 @@ constructor(
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
                 ) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val effectiveDark =
-            when (stored.appThemeMode) {
-                "day" -> false
-                "night" -> true
-                else -> systemDark
-            }
-        return when (stored.themeMode) {
-            "day" -> stored.dayThemeName
-            "night" -> stored.nightThemeName
-            "fixed" -> stored.themeName
-            else -> if (effectiveDark) stored.nightThemeName else stored.dayThemeName
-        }
+        return selectThemeName(stored, systemDark)
     }
 
     /**
@@ -3798,3 +3787,28 @@ internal fun decideSurfaceRecreate(attempts: Int, lastRequestNanos: Long, nowNan
  * [exhausted] = 次数上限已用尽（调用方据此只告警一次）。
  */
 internal data class SurfaceRecreateDecision(val request: Boolean = false, val exhausted: Boolean = false)
+
+/**
+ * 按主题模式从设置快照选出终端主题名（纯函数：的重读选择逻辑可单元测试，
+ * R27-T1；`resolveThemeName` 只负责快照读取与未知清除）。
+ *
+ * `themeMode` 为 `day`/`night`/`fixed` 时直取对应键；其他值按 `appThemeMode`
+ * （`day`/`night` 直定，否则跟随系统）决定用日间名还是夜间名。
+ */
+internal fun selectThemeName(
+    stored: SettingsRepository.SettingsState,
+    systemDark: Boolean,
+): String {
+    val effectiveDark =
+        when (stored.appThemeMode) {
+            "day" -> false
+            "night" -> true
+            else -> systemDark
+        }
+    return when (stored.themeMode) {
+        "day" -> stored.dayThemeName
+        "night" -> stored.nightThemeName
+        "fixed" -> stored.themeName
+        else -> if (effectiveDark) stored.nightThemeName else stored.dayThemeName
+    }
+}
