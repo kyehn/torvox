@@ -3078,12 +3078,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                 // 提前返回会留下「新管线已装、旧实例缓存仍在、且没请求新帧」的三重不一致。
                 render_state.renderer.cell_cache = None;
                 render_state.dirty.store(true, Ordering::Relaxed);
-                if let Err(apply_error) = render_state.font_pipeline.set_font_family(&family) {
+                if !render_state.font_pipeline.set_font_family(&family) {
                     // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
                     // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
-                    log::error!(
-                        "loadFontFile: cannot apply family {family:?} from {path_str}: {apply_error}"
-                    );
+                    log::error!("loadFontFile: cannot apply family {family:?} from {path_str}");
                     return Ok(std::ptr::null_mut());
                 }
             }
