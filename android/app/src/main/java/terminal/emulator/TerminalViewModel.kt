@@ -990,7 +990,6 @@ constructor(
             val watchedDirs = listOf("prefs", "boot_state")
             val undeletedWatchedDirs =
                 watchedDirs.filterNot { deletedOrAbsent(context.getDir(it, Context.MODE_PRIVATE)) }
-            // listFiles() 返回 null 是 I/O 失败而非「目录为空」，不能当成无事发生。
             // listFiles() 返回 null 是 I/O 失败而非「目录为空」：按未清除记账。
             val cacheEntries = context.cacheDir.listFiles()
             val undeletedCacheEntries =
