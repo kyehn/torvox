@@ -102,6 +102,14 @@ pub enum Query {
         col: u32,
         tx: Sender<Option<String>>,
     },
+    /// 网格列 → 该列所属字符的起始列：宽字符尾格（SpacerTail）左移一格，其余原样返回。
+    /// 宽字符占几列只有网格知道——行文本里尾格与真空白同为 `' '`，故吸附判定不可
+    /// 由行文本反推（见 design 第 1 节）。
+    CellCharStartCol {
+        row: u32,
+        col: u32,
+        tx: Sender<u32>,
+    },
     SearchInScrollbackAll {
         query: String,
         case_sensitive: bool,
