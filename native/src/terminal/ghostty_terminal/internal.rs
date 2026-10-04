@@ -101,15 +101,14 @@ fn create_render_iterators() -> Option<(
     Some((render_state, row_iter, cell_iter))
 }
 
-/// Decide whether the VT thread must rebuild the grid snapshot from the
-/// terminal, as opposed to cloning the previously built (cached) snapshot.
+/// 决定 VT 线程是否必须从终端重建网格快照，而非克隆上一次建好的缓存快照。
 ///
-/// Rebuild only when the grid content changed (`grid_dirty`, set by
-/// `Command::Write` / `Resize` / `SetTheme`), the scroll offset changed, or
-/// there is no cached snapshot yet. When none of these hold the grid content
-/// is byte-for-byte identical to the cached snapshot, so reusing it cannot
-/// yield a stale frame while skipping ~1920 per-cell ghostty FFI calls.
-/// 回滚浏览走 CellData 通道，`TakeSnapshot` 只覆盖当前视口，故只看脏标记。
+/// 仅在网格内容变化（`grid_dirty`，由 `Command::Write` / `Resize` / `SetTheme`
+/// 与 `Command::ScrollViewport` 置位）或尚无缓存时重建。两者都不成立时网格内容与缓存
+/// 逐字节相同，复用它不会产出陈旧帧，同时省下约 1920 次逐单元 ghostty FFI 调用。
+///
+/// 注意签名里没有「滚动偏移」参数：`TakeSnapshot` 只覆盖当前视口，回滚浏览走 CellData
+/// 通道，故视口偏移变化由 `ScrollViewport` 自行置脏来覆盖，而不是在此比较。
 pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool {
     grid_dirty || !has_cache
 }
