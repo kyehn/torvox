@@ -2454,6 +2454,21 @@ fn bounds_to_int_array(env: &mut Env, bounds: Option<((u32, u32), (u32, u32))>) 
     array.into_raw()
 }
 
+/// `u32` 列号序列 → JNI `IntArray`（宽字符尾格查询回传）；分配失败返回 null。
+fn u32_vec_to_int_array(env: &mut Env, values: &[u32]) -> jintArray {
+    let clamped: Vec<jint> = values
+        .iter()
+        .map(|value| (*value).min(jint::MAX as u32) as jint)
+        .collect();
+    let Ok(array) = env.new_int_array(clamped.len()) else {
+        return std::ptr::null_mut();
+    };
+    if array.set_region(env, 0, &clamped).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
+}
+
 /// 以落点为锚在终端安装选区并回传界限。会话锁与注册表读锁都在构造界限
 /// 后立即释放：选区查询走 VT 线程，绝不能持锁跨越。
 fn select_bounds_export<'local>(
@@ -2507,30 +2522,27 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectLineAt<'
     })
 }
 
-/// 网格列 → 该列所属字符的起始列（宽字符尾格左移一格，其余原样返回）。
+/// 该行中作为宽字符后半格（`SpacerTail`）的列号，升序。
 ///
-/// 会话不存在或查询失败时返回传入的 `col`：保持原列，不猜。会话锁与注册表读锁在
-/// 取到结果后立即释放——查询走 VT 线程，绝不能持锁跨越。
+/// 会话不存在或查询失败时返回空数组（等价于无吸附）：保持原列，不猜。会话锁与
+/// 注册表读锁在取到结果后立即释放——查询走 VT 线程，绝不能持锁跨越。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_cellCharStartCol(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCols<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
     session_id: jlong,
     row: jint,
-    col: jint,
-) -> jint {
-    jni_export_guard!(&mut unowned_env, col, |_env| {
+) -> jintArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(col);
+            return Ok(u32_vec_to_int_array(env, &[]));
         };
         let session = entry.session.lock();
-        let start_col = session
-            .terminal()
-            .cell_char_start_col(row.max(0) as u32, col.max(0) as u32);
+        let tail_cols = session.terminal().wide_char_tail_cols(row.max(0) as u32);
         drop(session);
         drop(registry);
-        start_col as jint
+        u32_vec_to_int_array(env, &tail_cols)
     })
 }
 

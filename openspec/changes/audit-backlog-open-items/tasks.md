@@ -822,7 +822,7 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       宽字符之后整体错位一格：长按宽字符恒弹仅粘贴菜单（菜单分类与选词模型分家），
       且行内第二个宽字符的尾格不再吸附、选区把字切开——正是 想修的症状本身。
       既有单测用紧凑文本（`"中文AB"` / `"中a"`）构造用例，与实现互相背书，缺陷不可见。
-      现改为经 `cellCharStartCol`（原生 `grid_ref().cell().wide()`）取网格事实，
+      现改为经 `wideCharTailCols`（原生 `grid_ref().cell().wide()` 标出该行全部尾格列）取网格事实，
       删除 `charIndexAtCellColumn`、`snapColToWideChar` 与整份手写 wcwidth
       （`util/TextWidth.kt`：它还把组合记号、ZWJ、变体选择符一律按一格计）。
       详见归档变更 `2026-10-05-fix-wide-char-cell-mapping`

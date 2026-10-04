@@ -244,11 +244,11 @@ impl super::GhosttyTerminal {
                 let url = Self::hyperlink_at_impl(terminal, row, col);
                 try_send(&tx, url, "hyperlink_at response send failed");
             }
-            Query::CellCharStartCol { row, col, tx } => {
+            Query::WideCharTailCols { row, tx } => {
                 try_send(
                     &tx,
-                    Self::cell_char_start_col_impl(terminal, row, col),
-                    "cell_char_start_col response send failed",
+                    Self::wide_char_tail_cols_impl(terminal, row),
+                    "wide_char_tail_cols response send failed",
                 );
             }
             Query::SearchInScrollbackAll {
@@ -2003,22 +2003,22 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 网格列 → 该列所属字符的起始列：宽字符尾格（`SpacerTail`）左移一格，其余原样返回。
+    /// 该行中作为宽字符后半格（`SpacerTail`）的列号，升序。
     ///
     /// 宽字符占几列只有网格知道：行文本里尾格与真空白同为 `' '`，据此反推必然出错
-    /// （见 change design 第 1 节）。`SpacerHead` 不左移——它出现在软换行续行的行首，
-    /// 该行前一列属于折行前的上一行，左移会把选区跨过折行边界。
-    pub(crate) fn cell_char_start_col_impl(terminal: &Terminal, row: u32, col: u32) -> u32 {
-        if col == 0 {
-            return 0;
-        }
-        let Ok(point) = terminal.grid_ref(Self::absolute_point(terminal, row, col)) else {
-            return col;
-        };
-        let is_spacer_tail = point.cell().is_ok_and(|cell| {
-            matches!(cell.wide(), Ok(libghostty_vt::screen::CellWide::SpacerTail))
-        });
-        if is_spacer_tail { col - 1 } else { col }
+    /// （见 change design 第 1 节）。`SpacerHead` 不计入——它出现在软换行续行的行首，
+    /// 该行前一列属于折行前的上一行，把它当尾格会把选区跨过折行边界。
+    pub(crate) fn wide_char_tail_cols_impl(terminal: &Terminal, row: u32) -> Vec<u32> {
+        (0..grid_cols(terminal))
+            .filter(|&col| {
+                terminal
+                    .grid_ref(Self::absolute_point(terminal, row, col))
+                    .and_then(|point| point.cell())
+                    .is_ok_and(|cell| {
+                        matches!(cell.wide(), Ok(libghostty_vt::screen::CellWide::SpacerTail))
+                    })
+            })
+            .collect()
     }
 
     /// 绝对网格行（0 = 回滚顶部）→ Point：唯一前向映射规则，列钳制到网格宽度。
