@@ -1001,7 +1001,7 @@ constructor(
             // 此后所有设置写入全失败——比不清除更糟。
             watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
             if (survivors.isNotEmpty()) {
-                LogUtil.e("TerminalViewModel", "clear app data left undeleted: $survivors")
+                LogUtil.e("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
                 return@launch
             }
             onComplete()
