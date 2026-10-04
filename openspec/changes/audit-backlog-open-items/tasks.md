@@ -47,15 +47,19 @@
       CheckJNI 报错、`RegisterNatives` 路径断裂 —— 本轮已修：补齐余下 6 处
       （`setTheme`/`setFontFamily`/`loadFontFile`/`setExtraFontPaths`/
       `getCellHeight`/`setScrollOffset`），并加反射用例锁死「导出必须静态」
-- [ ] N2-37`kgp_atlas_data` 是 KGP 图集的永久 CPU 全量副本且从不读取，
-      64MiB 预算下等于内存翻倍
-- [ ] N2-42生产代码读 `System.getProperty("test.minSurface"/"test.bootstrapUrl")`
+- [x] N2-37`kgp_atlas_data` 是 KGP 图集的永久 CPU 全量副本 ——
+      R29 确认该字段已不存在（§6 同名条已登记删除），本条为过期重复，关闭
+- [x] N2-42生产代码读 `System.getProperty("test.minSurface"/"test.bootstrapUrl")` ——
+      R29 已收敛：两缝线确有调用方（仪器化与应用同进程，`setProperty` 可达），
+      但 release 进程无人设置；现仅调试构建读取（`BuildConfig.DEBUG` 门控），
+      release 语义零变；
 - [x] N2-68`Session::drop` 可阻塞 JNI 调用方约 1.1s —— **本轮否证**：
       `Drop` 只做 `request_exit` + 两次 `join_with_timeout(TRAILING_EXIT_GRACE)`，
       宽限期 50ms（`session.rs:23`），上界 ~100ms；子进程收尾已由 N1-32 提前
       投递 `request_exit`，不再等自然退出
-- [ ] N2-6 / N2-40fork 子进程 `setsid`/`TIOCSCTTY` 失败裸 `_exit(2/3)`，
-      不写 fd 2，用户只见 `[Process completed (code 3)]`（违反 DESIGN:16/194）
+- [x] N2-6 / N2-40fork 子进程 `setsid`/`TIOCSCTTY` 失败裸 `_exit(2/3)` ——
+      R29 确认与 §6 同名已否证条重复（两处 `_exit` 前均已 `write(2, reason)`），
+      本条为过期重复，关闭
 - [x] N2-11`Event::Clipboard` 载荷无上限 —— **本轮否证**：上游回调前已按
       `MAX_CLIPBOARD_PAYLOAD_BYTES`（1MiB）截断并记日志，超限不是静默丢弃
 - [x] N2-8`focus_event` 持 session 锁做 50ms RPC —— Kotlin 侧已改为
@@ -561,8 +565,9 @@
       扩成能区分「无事件 / 写入文本 / 清空」的三态，并明确空载荷优先于同帧文本的合并规则。
       请裁决是否在本仓实现
 - [x] **R27-T1** `Bridge.parseEvent` 与 `resolveThemeName` 都没有单元测试覆盖 ——
-      R29 已修一半：`resolveThemeName` 的选择逻辑提为顶层纯函数 `selectThemeName`
-      并补 5 例；`Bridge.parseEvent` 仍为 private（随其改动补测，未动）；
+      R29 已全修：`resolveThemeName` 的选择逻辑提为顶层纯函数 `selectThemeName`
+      并补 5 例；`Bridge.parseEvent`（私有实例方法）经反射补 6 例映射测试
+      （空剪贴板→null、未知退出码保持 null、读请求/振铃字段）；
       （前者 private、后者需要完整 runtime）；本轮三处改动全靠人工推演验证。
       `resolveThemeName` 的重读逻辑可提取为纯函数以便测试
 
