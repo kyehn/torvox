@@ -103,43 +103,36 @@ class TerminalSurfaceLogicTest {
         assertEquals(0, pixelToCell(px = 10_000f, cellSize = 20f, maxCells = 0))
     }
 
-    // ── wide-char snapping ────────────────────────────────────────────────────
+    // ── wide-char cell mapping ───────────────────────────────────────────────
 
     @Test
-    fun `trailing half of a wide char snaps left`() {
-        // '中' is wide (2 cells) starting at col 0, so col 1 (trailing half) → 0.
-        val line = "中文AB"
-        assertEquals(0, snapColToWideChar(line, col = 1))
-        // Second wide char occupies cols 2..3: col 3 → 2.
-        assertEquals(2, snapColToWideChar(line, col = 3))
-    }
-
-    @Test
-    fun `leading half and ascii columns stay put`() {
-        val line = "中文AB"
-        assertEquals(0, snapColToWideChar(line, col = 0))
-        assertEquals(4, snapColToWideChar(line, col = 4))
-        assertEquals(5, snapColToWideChar(line, col = 5))
-    }
-
-    @Test
-    fun `col zero and empty line are passthrough`() {
-        assertEquals(0, snapColToWideChar(line = "", col = 0))
-        assertEquals(3, snapColToWideChar(line = "", col = 3))
-    }
-
-    @Test
-    fun `isWhitespaceCell walks cells not chars for wide glyphs`() {
-        // 「中」占两格，'a' 占一格：cell 0/1 = 中，cell 2 = a，cell 3 = 行尾。
-        val line = "中a"
-        assertFalse("first cell of a wide glyph is text", isWhitespaceCell(line, 0))
-        assertFalse("wide glyph's trailing cell is still that glyph", isWhitespaceCell(line, 1))
-        assertFalse("the narrow glyph after it is text", isWhitespaceCell(line, 2))
+    fun `isWhitespaceCell indexes by grid column`() {
+        // scrollbackLine 每列恰好一个字符（原生不变式）：「中」占列 0..1，空格占列 2，
+        // 列 3 起为行尾。宽字符的吸附由 cellCharStartCol 在调用前完成，此处只按列取字符。
+        val line = "中 a"
+        assertFalse("wide glyph lead cell is text", isWhitespaceCell(line, 0))
+        assertTrue("a real space cell is blank", isWhitespaceCell(line, 1))
+        assertFalse("the narrow glyph after a wide one is text", isWhitespaceCell(line, 2))
         assertTrue("past end of line is blank", isWhitespaceCell(line, 3))
         assertTrue("null line is blank", isWhitespaceCell(null, 0))
         assertTrue("a space cell is blank", isWhitespaceCell("  ", 0))
-        // 旧实现取 line[col]：CJK 单字行的 col 1 越界读为空串前缀之外，长按恒退化为仅粘贴。
-        assertFalse("char-index lookup misreads the trailing half of a wide glyph", isWhitespaceCell("中", 1))
+    }
+
+    @Test
+    fun `isWhitespaceCell does not drift across wide glyphs`() {
+        // 旧的宽度累加模型把「宽字符之后的空格」读成前一个宽字符，判位每经一个
+        // 宽字符再左移一格：中日韩行上的空白长按恒弹完整菜单而非仅粘贴。
+        assertTrue("blank right after a wide glyph is still blank", isWhitespaceCell("中 a", 1))
+        assertFalse("narrow glyph right after a wide glyph is text", isWhitespaceCell("中 a", 2))
+        assertTrue("blank after two wide glyphs is still blank", isWhitespaceCell("中 文 a", 3))
+        assertFalse("narrow glyph after two wide glyphs is text", isWhitespaceCell("中 文 a", 4))
+    }
+
+    @Test
+    fun `isWhitespaceCell stays blank past the trimmed line end`() {
+        // 行文本经 trim_end 变短；行尾之后的列仍算空白。
+        assertTrue(isWhitespaceCell("中", 1))
+        assertTrue(isWhitespaceCell("中", 40))
     }
 
     // ── clampSelection (order-preserving range clamp) ─────────────────────────

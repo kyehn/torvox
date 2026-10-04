@@ -2507,6 +2507,33 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectLineAt<'
     })
 }
 
+/// 网格列 → 该列所属字符的起始列（宽字符尾格左移一格，其余原样返回）。
+///
+/// 会话不存在或查询失败时返回传入的 `col`：保持原列，不猜。会话锁与注册表读锁在
+/// 取到结果后立即释放——查询走 VT 线程，绝不能持锁跨越。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_cellCharStartCol(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+    row: jint,
+    col: jint,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, col, |_env| {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(session_id as u64)) else {
+            return Ok(col);
+        };
+        let session = entry.session.lock();
+        let start_col = session
+            .terminal()
+            .cell_char_start_col(row.max(0) as u32, col.max(0) as u32);
+        drop(session);
+        drop(registry);
+        start_col as jint
+    })
+}
+
 /// 上游 select_all：全部内容（回滚 + 视口，界限不含尾部空行/空列）派生
 /// 并安装，回传与失败语义同 selectWordAt。
 #[unsafe(no_mangle)]
