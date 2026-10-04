@@ -11,6 +11,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
@@ -720,8 +720,16 @@ constructor(
             settingsRepository.clearFontFamily()
         }
 
+        /**
+         * 在途加载的协程句柄。会话状态在字体列表就绪前可连续多次发射（建会话、切会话、
+         * 退出会话），若无此门闩每次发射都会再启一个 loadFonts 并发跑
+         * setExtraFontPaths/setFontFamily/_fontInfo 写入。
+         */
+        private var fontLoadJob: Job? = null
+
         fun loadFonts() {
-            viewModelScope.launch(TerminalDispatchers.inputOutput) {
+            if (fontLoadJob?.isActive == true) return
+            fontLoadJob = viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
                     if (bridge == null) {
@@ -741,8 +749,10 @@ constructor(
                             bridge.listFontFamilies().orEmpty(),
                         )
                     _availableFonts.value = allFonts
-                    val defaultName = bridge.getDefaultFontName().orEmpty()
-                    _defaultFontName.value = defaultName.ifEmpty { allFonts.first() }
+                    // 空即「原生未上报」，不得改用列表首项冒充：DESIGN 要求主字体为空时
+                    // 取 fonts.xml 的 monospace 家族，列表首项是字体库枚举顺序，与之无关。
+                    // 显示侧本就对空值有回落（FontFamilySelectors 取列表首项仅作标签）。
+                    _defaultFontName.value = bridge.getDefaultFontName().orEmpty()
                     val storedFamily = settingsRepository.fontFamily.first()
                     clearUnknownFontFamily(
                         storedFamily,
@@ -750,8 +760,9 @@ constructor(
                             terminal.emulator.resolveEffectiveFontFamily(storedFamily),
                         ),
                     )
-                    _fontInfo.value =
-                        bridge.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
+                    // 空串 = 原生尚未上报；SettingsScreen 据此用真实设置字号渲染，
+                    // 而非显示占位 DTO 里的 0×0 单元格与 0sp。
+                    _fontInfo.value = bridge.getFontInfo().orEmpty()
                 } catch (fatal: IllegalStateException) {
                     if (fatal is kotlinx.coroutines.CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
@@ -892,7 +903,7 @@ constructor(
     private val _defaultFontName = MutableStateFlow("")
     val defaultFontName: StateFlow<String> = _defaultFontName.asStateFlow()
 
-    private val _fontInfo = MutableStateFlow(FontInfoDto.placeholderJson(""))
+    private val _fontInfo = MutableStateFlow("")
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
@@ -947,9 +958,8 @@ constructor(
                             // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
                             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                                 val bridge = runtime.bridge()
-                                _defaultFontName.value = bridge?.getDefaultFontName() ?: ""
-                                _fontInfo.value =
-                                    bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                                _defaultFontName.value = bridge?.getDefaultFontName().orEmpty()
+                                _fontInfo.value = bridge?.getFontInfo().orEmpty()
                             }
                         }
                     }

@@ -1860,22 +1860,26 @@ constructor(
         if (newCellHeight > 0f) cellHeight = newCellHeight
     }
 
-    /** 原生管线当前渲染的字号（sp），即经 setFontSizeInPlace 最后一次推送的值；首次应用前回落为内置默认值。 */
+    /**
+     * 原生管线当前渲染的字号（sp），即经 setFontSizeInPlace 最后一次推送的值；
+     * 首次应用前回落为按设备自适应的缺省值。
+     *
+     * 回落必须走 [SettingsRepository.defaultFontSizeFor] 这唯一一处缺省策略：曾硬编码
+     * 14sp，于是宽屏设备（真实缺省可达 24sp）的「字体实际大小」恒报 14sp，
+     * 与设置页与渲染实际都矛盾。
+     */
     fun appliedFontSizeSp(): Float {
         val tenths = appliedFontSizeTenths
-        return if (tenths > 0) {
-            tenths / TENTHS_PER_UNIT.toFloat()
-        } else {
-            SettingsRepository.DEFAULT_FONT_SIZE
-        }
+        if (tenths > 0) return tenths / TENTHS_PER_UNIT.toFloat()
+        val metrics = context.resources.displayMetrics
+        return SettingsRepository.defaultFontSizeFor(metrics.widthPixels / metrics.density)
     }
 
     internal suspend fun resolveThemeName(): String {
-        val themeMode = settingsRepository.themeMode.first()
-        val dayTheme = settingsRepository.dayThemeName.first()
-        val nightTheme = settingsRepository.nightThemeName.first()
-        val singleTheme = settingsRepository.themeName.first()
-        clearUnknownThemeNames(dayTheme, nightTheme, singleTheme)
+        // 单次快照：按字段流逐个 first() 会把同一个 preferences_pb 读五遍并解析五次，
+        // 而一次读取已含全部字段（SettingsRepository.settings 是唯一合并快照）。
+        val stored = settingsRepository.settings.first()
+        clearUnknownThemeNames(stored.dayThemeName, stored.nightThemeName, stored.themeName)
         val systemDark =
             (
                 context.resources.configuration.uiMode and
@@ -1883,16 +1887,16 @@ constructor(
                 ) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
         val effectiveDark =
-            when (settingsRepository.appThemeMode.first()) {
+            when (stored.appThemeMode) {
                 "day" -> false
                 "night" -> true
                 else -> systemDark
             }
-        return when (themeMode) {
-            "day" -> dayTheme
-            "night" -> nightTheme
-            "fixed" -> singleTheme
-            else -> if (effectiveDark) nightTheme else dayTheme
+        return when (stored.themeMode) {
+            "day" -> stored.dayThemeName
+            "night" -> stored.nightThemeName
+            "fixed" -> stored.themeName
+            else -> if (effectiveDark) stored.nightThemeName else stored.dayThemeName
         }
     }
 

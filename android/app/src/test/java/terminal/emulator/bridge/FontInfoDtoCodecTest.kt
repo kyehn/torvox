@@ -55,11 +55,8 @@ class FontInfoDtoCodecTest {
     }
 
     @Test
-    fun `placeholder json round-trips`() {
-        val json = FontInfoDto.placeholderJson("monospace")
-        val dto = FontInfoDto.fromJson(json)
-        assertNotNull(dto)
-        assertEquals("monospace", requireNotNull(requireNotNull(dto).active).name)
-        assertEquals("none", dto.cjkState)
+    fun `empty string yields null so the UI shows the unreported state`() {
+        // 空串 = 原生尚未上报，绝不能被解析成一份「实测」DTO。
+        assertNull(FontInfoDto.fromJson(""))
     }
 }

@@ -3,7 +3,6 @@ package terminal.emulator.bridge
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 
 /** 原生字体管线经 [NativeBridge.getFontInfo] 上报的字体状态（由 Rust `FontInfo` 序列化）。 */
 @Serializable
@@ -29,11 +28,6 @@ data class FontInfoDto(
         } catch (_: Exception) {
             null
         }
-
-        /** 渲染器尚未上报真实数据前显示的占位 JSON。 */
-        fun placeholderJson(fontName: String): String = pollEventJson.encodeToString(
-            FontInfoDto(active = FontActiveDto(name = fontName, monospaced = false)),
-        )
     }
 }
 

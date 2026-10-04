@@ -30,6 +30,12 @@ class FontSizeReflowInstrumentedTest {
 
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
+    /** 设备宽度（dp）：字体缺省字号按它自适应，恢复设置时必须用同一口径。 */
+    private val widthDp: Float by lazy {
+        val metrics = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics
+        metrics.widthPixels / metrics.density
+    }
+
     private fun readRuntimeMetrics(): Triple<Float, Int, Float> {
         var sizeSp = 0f
         var cols = 0
@@ -113,7 +119,7 @@ class FontSizeReflowInstrumentedTest {
         } finally {
             // 恢复规范默认值（持久化在 SharedPreferences，防污染其他测试与后续复跑）。
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
-                activity.terminalViewModel.setFontSize(SettingsRepository.DEFAULT_FONT_SIZE)
+                activity.terminalViewModel.setFontSize(SettingsRepository.defaultFontSizeFor(widthDp))
             }
         }
     }
