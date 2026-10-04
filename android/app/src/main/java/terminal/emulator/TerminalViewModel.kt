@@ -978,18 +978,33 @@ constructor(
      * 并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
      *
      * [onComplete] 在 IO 调度器上回调（非主线程）；界面工作（如 Toast）需自行切回主线程
-     * 或使用 Android 自动投递的 Toast API。删除失败按 DESIGN 错误策略抛出，不回调成功。
+     * 或使用 Android 自动投递的 Toast API。有条目删不掉时记错误日志且**不**回调成功——
+     * 抛异常会经协程默认处理器杀掉整个进程，而吞掉返回值又会让用户被告知「已清除」
+     * 而 `settings.preferences_pb` 原封不动。
      */
     fun clearAppData(onComplete: () -> Unit) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
-            context.getDir("boot_state", Context.MODE_PRIVATE).deleteRecursively()
-            context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-            // 进程级 DataStore 单例仍在运行：重建 prefs 目录使下一次设置写入不会失败。
-            context.getDir("prefs", Context.MODE_PRIVATE)
+            // 进程级 DataStore 单例与两个监视器仍在运行：删后必须重建，
+            // 否则下一次设置写入失败，且 `BootGuard` 计数器将静默写不进去
+            // （崩溃循环保护就此失效）。
+            val watchedDirs = listOf("prefs", "boot_state")
+            val undeletedWatchedDirs =
+                watchedDirs.filterNot { deletedOrAbsent(context.getDir(it, Context.MODE_PRIVATE)) }
+            // listFiles() 返回 null 是 I/O 失败而非「目录为空」，不能当成无事发生。
+            val undeletedCacheEntries =
+                context.cacheDir.listFiles()?.filterNot { deletedOrAbsent(it) }?.map { it.name }.orEmpty()
+            val survivors = undeletedWatchedDirs + undeletedCacheEntries
+            if (survivors.isNotEmpty()) {
+                LogUtil.e("TerminalViewModel", "clear app data left undeleted: $survivors")
+                return@launch
+            }
+            watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
             onComplete()
         }
     }
+
+    /** 目录已删除或本就不存在返回 true；存在却删不掉返回 false。 */
+    private fun deletedOrAbsent(file: java.io.File): Boolean = !file.exists() || file.deleteRecursively()
 
     // ══════════════════════════════════════════════════════════════════════
     // 二、会话编排与设置 setter

@@ -238,9 +238,10 @@ class SecondStageRunner(
             val stdoutThread =
                 Thread {
                     try {
-                        proc.inputStream.bufferedReader().use { reader ->
-                            synchronized(stdoutText) { stdoutText.append(reader.readText()) }
-                        }
+                        val drained = proc.inputStream.bufferedReader().use { it.readText() }
+                        // 先读完再入锁：读操作本身可能被永久阻塞（后代进程持有管道），
+                        // 持锁读会让主线程紧随其后的 join 超时形同虚设。
+                        synchronized(stdoutText) { stdoutText.append(drained) }
                     } catch (exception: Exception) {
                         LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
                     }
@@ -255,6 +256,11 @@ class SecondStageRunner(
                 return null
             }
             stdoutThread.join(STDIO_DRAIN_JOIN_TIMEOUT_MS)
+            if (stdoutThread.isAlive) {
+                // 仍有后代进程持有 stdout 管道。`DPKG_RUNNING_VERSION` 会被导成空串，
+                // 依赖它的 postinst 分支将拿到空值而非真实版本——必须出声。
+                LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout still open after exit, version unavailable")
+            }
             val text = synchronized(stdoutText) { stdoutText.toString() }
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value

@@ -2147,12 +2147,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (now - lastScrollbackQueryNanos < SCROLLBACK_QUERY_THROTTLE_NANOS) {
             return cachedScrollbackLength
         }
-        lastScrollbackQueryNanos = now
         val viewModel = viewModel ?: return cachedScrollbackLength
         val bridge = viewModel.runtime.bridge() ?: return cachedScrollbackLength
+        // 时间戳只在**查询成功**之后才推进：bridge 缺席或查询抛错时都返回陈旧缓存，
+        // 此时若已消耗节流窗口，后续手势会继续锚到上一个会话的回滚长度长达 100ms。
         cachedScrollbackLength =
             try {
-                bridge.scrollbackLength()
+                bridge.scrollbackLength().also { lastScrollbackQueryNanos = now }
             } catch (error: Exception) {
                 LogUtil.e(TAG, "scrollbackLength query failed", error)
                 cachedScrollbackLength
@@ -2383,7 +2384,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // 派发约 15 种彼此不同的手势/意图，涵盖选区、滚动、长按与硬件按键交互。
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val isRelease = event.actionMasked == MotionEvent.ACTION_UP
-        if (isRelease && !touchEnabled) {
+        // 覆盖整条事件流，不只是抬手：叠加层可见时 Surface 必须把 DOWN/MOVE 一并让出，
+        // 否则它会消费 DOWN（连同 requestDisallowIntercept）把事件流从叠加层手里抢走，
+        // 且在叠加层底下启动选区拖动。
+        if (!touchEnabled) {
             scaleDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
             return false
@@ -2403,9 +2407,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (drawerOpen || event.x < drawerEdgePixels) {
             return false
         }
-        // 走到这里才说明这次抬手属于终端 Surface（未被抽屉遮罩或边缘手势取走）：
-        // 此时才播报点击。提前播报会让关闭抽屉的遮罩轻击、边缘滑动收尾、
-        // 滚动与拖动抬手统统被朗读成「已点击」。
+        // 走到这里才说明这次抬手属于终端 Surface（未被抽屉遮罩或边缘手势取走），
+        // 此时才播报点击。提前播报会让「轻点遮罩关闭抽屉」「抽屉边缘滑动收尾」
+        // 这两条根本不属于终端的抬手被朗读成「已点击」。
+        // （滚动与长按拖动的抬手仍在下游被消费，同样会走到这里。）
         if (isRelease) performClick()
 
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
