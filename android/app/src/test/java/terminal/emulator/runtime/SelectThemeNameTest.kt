@@ -11,17 +11,15 @@ import terminal.emulator.settings.SettingsRepository
  */
 class SelectThemeNameTest {
 
-    private fun stored(
-        themeMode: String = "follow",
-        appThemeMode: String = "follow",
-    ) = SettingsRepository.SettingsState(
-        fontSize = 14f,
-        themeName = "fixed-theme",
-        dayThemeName = "day-theme",
-        nightThemeName = "night-theme",
-        themeMode = themeMode,
-        appThemeMode = appThemeMode,
-    )
+    private fun stored(themeMode: String = "follow", appThemeMode: String = "follow") =
+        SettingsRepository.SettingsState(
+            fontSize = 14f,
+            themeName = "fixed-theme",
+            dayThemeName = "day-theme",
+            nightThemeName = "night-theme",
+            themeMode = themeMode,
+            appThemeMode = appThemeMode,
+        )
 
     @Test
     fun `fixed mode returns the fixed name`() {
