@@ -13,10 +13,9 @@
       （空串等于告诉远端「用户清空了剪贴板」）
 - [x] N1-10选区查询失败被合并为「无选区」—— 本轮已修：
       空选区 `""` 与查询失败 `null` 分开，失败记 error 不再静默
-- [ ] N2-26`CursorInfo` 不带 rows/cols，`CSI ?3h`(DECCOLM) 后
-      `CellData.col` 可达 159 而渲染器仍按 80 列排布
-- [ ] N2-50`writeToPty` 在**执行时**才解析 `sessions[activeSessionId]`，
-      跨会话切换时粘贴尾部写进新会话（同库 OSC 52 路径却在请求时捕获 `Arc<Session>`）
+- [x] N2-50`writeToPty` 在**执行时**才解析 `sessions[activeSessionId]`，
+      跨会话切换时粘贴尾部写进新会话 —— 本轮已修：入队时捕获会话 id 并随字节下沉
+      （`InputBatchBuffer` 驻留 id，目标会话变化时先按旧会话排空）
 - [ ] N2-45`Query::EncodeMouseEvent` 无 modifier 字段，
       Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）
 - [ ] N2-44DESIGN:152 要求的修饰键栏左右移动可见区域完全未实现
@@ -124,6 +123,11 @@
 - [x] 搜索结果解码/序列化失败冒充「0 匹配」（N2-10）—— 本轮已补日志
 - [x] N2-15`RenderWatchDog` 魔数 —— **本轮否证**：轮询间隔与挂起阈值
       已是具名常量（`CHECK_INTERVAL_MS` 与构造参数 `hangTimeoutNanos`）
+- [x] N2-26DECCOLM（`CSI ?3h`）后网格自变 132 列、渲染仍按旧列排布 ——
+      **本轮否证**：`Terminal.deccolm` 只在 DECSET 40（`enable_mode_3`）置位时才改网格，
+      而 VT 侧 `set_mode` 对 40 是空分支（上游 `stream_terminal.zig:717`），本仓与
+      `libghostty-vt` 绑定均未调用 `setDeccolmSupported`；网格行列的唯一写者是
+      `Session::resize`，而渲染帧读的正是它写的 `grid_size()`，两者恒等
 
 ## 7. 文档退役
 

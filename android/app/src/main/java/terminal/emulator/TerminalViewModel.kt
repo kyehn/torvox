@@ -297,13 +297,13 @@ constructor(
         _state.update { it.copy(scrollEpoch = it.scrollEpoch + 1) }
     }
 
-    fun writeToPty(data: ByteArray) {
+    fun writeToPty(sessionId: Long, data: ByteArray) {
         val isCommit =
             shouldResetScrollOnInput(data, _state.value.selection.let { it.active || it.dragging })
         // hasSelectionOrDrag 在 onUserInputForScrollSnap 内部也会检查；
         // 此处透传，使共用的辅助函数拥有最终守卫权。
         onUserInputForScrollSnap(isCommit)
-        val written = runtime.writeToPty(data)
+        val written = runtime.writeToPty(sessionId, data)
         if (!written) {
             LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
         }
@@ -686,8 +686,11 @@ constructor(
          */
         fun executePaste(text: String): Int {
             var offset = 0
+            // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
+            // 会让粘贴尾部写进新会话。
+            val sessionId = runtime.inputTargetSessionId
             for (chunk in PasteChunker().chunks(text)) {
-                pasteSink(chunk.toByteArray())
+                pasteSink(sessionId, chunk.toByteArray())
                 offset += chunk.length
             }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
@@ -695,8 +698,8 @@ constructor(
         }
     }
 
-    /** 粘贴字节出口：默认同步写，Surface 侧注入批缓冲后走异步合并写。 */
-    var pasteSink: (ByteArray) -> Unit = { data -> runtime.writeToPty(data) }
+    /** 粘贴字节出口：默认同步写，Surface 侧注入批缓冲后走异步合并写。会话 id 随块传入，不在刷写时解析。 */
+    var pasteSink: (Long, ByteArray) -> Unit = { sessionId, data -> runtime.writeToPty(sessionId, data) }
 
     // ══════════════════════════════════════════════════════════════════════
     // 二之二、字体管理

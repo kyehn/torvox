@@ -3050,8 +3050,16 @@ constructor(
         return applied
     }
 
-    fun writeToPty(data: ByteArray): Boolean {
-        val entry = sessions[activeSessionId]
+    /**
+     * 输入的目标会话 id：调用方在用户事件发生时取一次，随字节传到这里。
+     *
+     * 输入字节可能在别的线程刷写（输入法批缓冲的帧回调与 PtyWriter 线程），
+     * 那时再解析 `sessions[activeSessionId]` 会把粘贴尾部写进用户刚切换到的新会话。
+     */
+    val inputTargetSessionId: Long get() = activeSessionId
+
+    fun writeToPty(sessionId: Long, data: ByteArray): Boolean {
+        val entry = sessions[sessionId]
         // 受理判据是「会话是否还活着」而不是 running（渲染意图标志）：Surface 销毁会经
         // pauseRendering 把 running 置假，而 PTY 子进程此刻仍然活着。按 running 拒绝等于
         // 在每次 surface 销毁→重建的空窗期静默吞掉击键，而恢复本身是异步的
@@ -3078,7 +3086,7 @@ constructor(
             entry.notifyRender()
             return written
         }
-        LogUtil.w("Runtime", "writeToPty: no live session to receive write")
+        LogUtil.w("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭）")
         return false
     }
 

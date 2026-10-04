@@ -1188,7 +1188,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         this.viewModel = viewModel
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
-        viewModel.pasteSink = { data -> inputBatchBuffer.write(data) }
+        viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
     }
 
     @Volatile private var rows: Int = DEFAULT_ROWS
@@ -2197,7 +2197,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // ——输入法输入与粘贴会在无任何症状的情况下永久失效。
     private var inputBatchBuffer = newInputBatchBuffer()
 
-    private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
+    private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
+        flushSink = { sessionId, data -> viewModel?.writeToPty(sessionId, data) },
+        inputSessionId = { viewModel?.runtime?.inputTargetSessionId ?: 0L },
+    )
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection = imeConnection.createInputConnection(
         outAttrs,

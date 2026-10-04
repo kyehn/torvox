@@ -38,7 +38,12 @@ class RenderWatchDogTest {
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
-        Thread.sleep(200)
+        // 轮询而非固定睡眠：负载高时 Default 调度器会推迟首拍，
+        // 固定 200ms 会在构建机上偶发判红（回调本身只要一拍就会到达）。
+        val deadline = System.currentTimeMillis() + 5_000
+        while (hangs == 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+        }
         watchdog.stop()
         assertTrue("stalled renderer must trigger the callback", hangs > 0)
     }
