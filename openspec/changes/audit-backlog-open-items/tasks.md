@@ -539,3 +539,22 @@
 - [x] 15.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
 - [x] 15.2 删除 `docs/REVIEW*.md` 全部 12 个文件
 - [x] 15.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
+
+## 19. fix 分支合入审计（逐项核对无内容丢失）
+
+- [x] **M-1** 远端 fix 分支与 main 自 `48a0364e` 分叉后各走 36/48 个提交，
+      30 对提交 patch-id 相同；余下 6 对同名提交逐 patch 比对，fix 侧一律是旧变体
+      （单槽剪贴板、`Sender<String>` 应答、无修饰键鼠标、别名归并字族、
+      墙钟断言的性能测试），main 侧均为更新、已复审的改进——未从 fix 侧回灌任何旧代码
+- [x] **M-2** `main→fix` 整树 diff（38 文件）逐 hunk 核对：fix 侧的「新增」只有三类，
+      均不合入——① main 已故意删除（`bench_gpu_buffer_upload_throughput` 墙钟断言、
+      字族别名归并，违反 TESTING/DESIGN 且删除有据）；② fix 侧缺失的 main 改进
+      （FIFO 剪贴板队列、`clipboardResult(..., null)`、鼠标修饰键、会话下沉写、
+      仪器化加固），main 保留；③ fix 侧删除而 main 保留的回归测试予以保留
+- [x] **M-3** 唯一真正合入项：fix 侧已把 `NativeBridgeStaticTest` 合并为
+      `NativeBridgeStaticExportsTest`，main 侧两者并存属重复锁定同一不变量。
+      已删除前者，后者的注解扫描＋历史注记继续锁死「导出必须静态」
+- [x] **M-4** 作者核查：`21291bc..main` 全部提交作者均为 jane，无
+      `Co-authored-by`/`Signed-off-by`，无线性之外的合并提交；committer 已统一为
+      jane（与该基线之前的库内惯例一致）。fix 分支含 kyehn 署名提交，不进入 main；
+      合入完成后删除远端 fix 分支，本地留 tag 备查（内容已由 main 全覆盖）
