@@ -191,6 +191,9 @@ constructor(
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
 
+    /** 字体列表 UI 实际显示时枚举并发布列表（R16-T7），平时不触发。 */
+    fun refreshFontList() = fontManager.refreshFontList()
+
     // ── 选区转发（实现在 SelectionManager） ──
 
     fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) =
@@ -706,7 +709,8 @@ constructor(
     /**
      * 拥有字体加载、字号/家族设置与字体文件安装。内部类：
      * 经外层 ViewModel 访问字体 StateFlow、runtime、settingsRepository 与 context。
-     * loadFonts() 在安装后刷新这些流。
+     * 「应用已存字体」与「列举字体列表」是两条路径（R16-T7）：前者随会话启动，
+     * 后者只在字体列表 UI 实际显示时（`refreshFontList` 由设置页 `LaunchedEffect` 触发）。
      */
     inner class FontManager {
         /**
@@ -720,26 +724,57 @@ constructor(
         }
 
         /**
-         * 在途加载的协程句柄。会话状态在字体列表就绪前可连续多次发射（建会话、切会话、
-         * 退出会话），若无此门闩每次发射都会再启一个 loadFonts 并发跑
-         * setExtraFontPaths/setFontFamily/_fontInfo 写入。
+         * 在途加载的协程句柄。字体列表 UI 可在短时间内多次进入，
+         * 若无此门闩每次进入都会再启一个枚举并发跑
+         * setExtraFontPaths/listFontFamilies/_fontInfo 写入。
          */
         private var fontLoadJob: Job? = null
 
-        fun loadFonts() {
+        /**
+         * 会话启动路径：把已存字族应用到本会话的 bridge（bridge 按会话持有，
+         * 每个新会话都要应用一次）。只做应用，不列举——列表是 UI 的事。
+         */
+        fun applyStoredFontSettings() {
+            viewModelScope.launch(TerminalDispatchers.inputOutput) {
+                val bridge = runtime.bridge()
+                if (bridge == null) {
+                    // 会话已登记但 bridge 尚未就绪（spawn 前的瞬间）：跳过本轮，
+                    // 后续状态更新会再次触发本函数。
+                    return@launch
+                }
+                // 先注册用户投放目录再应用，使其字体在 bridge 上可见
+                // （重复注册为空操作）。
+                terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { dir ->
+                    bridge.setExtraFontPaths(listOf(dir.absolutePath))
+                }
+                val storedFamily = settingsRepository.fontFamily.first()
+                clearUnknownFontFamily(
+                    storedFamily,
+                    bridge.setFontFamily(
+                        terminal.emulator.resolveEffectiveFontFamily(storedFamily),
+                    ),
+                )
+            }
+        }
+
+        /**
+         * 字体列表 UI 路径：枚举并发布可用列表、默认字体名与字体信息。
+         * 只在字体列表实际显示时调用（设置页 `LaunchedEffect`），
+         * 不由会话状态发射触发（R16-T7）。
+         */
+        fun refreshFontList() {
             if (fontLoadJob?.isActive == true) return
             fontLoadJob = viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
                     if (bridge == null) {
                         // 会话已登记但 bridge 尚未就绪（spawn 前的瞬间）：跳过本轮。
-                        // _availableFonts 仍为空，后续状态更新会再次触发本函数——直接
-                        // 交给 availableFontFamilies 会因空列表抛致命异常，把「还没准备好」
-                        // 变成「进程崩溃」。
+                        // _availableFonts 仍为空，直接交给 availableFontFamilies
+                        // 会因空列表抛致命异常，把「还没准备好」变成「进程崩溃」。
                         return@launch
                     }
-                    // 先注册用户投放目录再列举，使其字体家族即使在 loadFonts
-                    // 早于 Runtime.start() 完成时也被纳入（重复注册为空操作）。
+                    // 先注册用户投放目录再列举，使其字体家族即使在早于
+                    // Runtime.start() 完成时也被纳入（重复注册为空操作）。
                     terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { dir ->
                         bridge.setExtraFontPaths(listOf(dir.absolutePath))
                     }
@@ -752,13 +787,6 @@ constructor(
                     // 取 fonts.xml 的 monospace 家族，列表首项是字体库枚举顺序，与之无关。
                     // 显示侧本就对空值有回落（FontFamilySelectors 取列表首项仅作标签）。
                     _defaultFontName.value = bridge.getDefaultFontName().orEmpty()
-                    val storedFamily = settingsRepository.fontFamily.first()
-                    clearUnknownFontFamily(
-                        storedFamily,
-                        bridge.setFontFamily(
-                            terminal.emulator.resolveEffectiveFontFamily(storedFamily),
-                        ),
-                    )
                     // 空串 = 原生尚未上报；SettingsScreen 据此用真实设置字号渲染，
                     // 而非显示占位 DTO 里的 0×0 单元格与 0sp。
                     _fontInfo.value = bridge.getFontInfo().orEmpty()
@@ -950,15 +978,14 @@ constructor(
                         )
                     }
                     if (runtime.state.value.sessionIds.isNotEmpty()) {
-                        if (_availableFonts.value.isEmpty()) {
-                            fontManager.loadFonts()
-                        } else {
-                            // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
-                            viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                                val bridge = runtime.bridge()
-                                _defaultFontName.value = bridge?.getDefaultFontName().orEmpty()
-                                _fontInfo.value = bridge?.getFontInfo().orEmpty()
-                            }
+                        // 会话启动只应用已存字体（bridge 按会话持有）；列表枚举是
+                        // 字体列表 UI 的事，不在此触发（R16-T7）。
+                        fontManager.applyStoredFontSettings()
+                        // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
+                        viewModelScope.launch(TerminalDispatchers.inputOutput) {
+                            val bridge = runtime.bridge()
+                            _defaultFontName.value = bridge?.getDefaultFontName().orEmpty()
+                            _fontInfo.value = bridge?.getFontInfo().orEmpty()
                         }
                     }
                 } else {
