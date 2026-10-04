@@ -362,6 +362,43 @@ pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
 }
 
+/// 单会话未作答 OSC 52 读取上限：远端循环 `\e]52;c;?\a` flood 时，
+/// 每个请求都在注册表占槽、spawn 应答线程并推一个不可淘汰的保护事件；
+/// 无上限则 1024 槽被读请求填满后连 Exit 一起丢，会话永久泄漏（R17-T1）。
+/// 超限的请求不占槽，就地显式作答空串（xterm 兼容的空剪贴板响应）。
+const MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION: usize = 8;
+
+/// 单会话当前未作答的读请求数（上段上限的判据）。
+pub(crate) fn unanswered_clipboard_reads(session_id: u64) -> usize {
+    REQUEST_REGISTRY
+        .lock()
+        .keys()
+        .filter(|key| key.0 == session_id)
+        .count()
+}
+
+/// 读请求洪泛削减告警的限频（毫秒）：超限每帧都发生，逐条记会淹没 logcat。
+static LAST_FLOOD_SHED_WARN_MS: AtomicU64 = AtomicU64::new(0);
+const FLOOD_SHED_WARN_INTERVAL_MS: u64 = 5_000;
+
+fn flood_shed_warn_throttled(session_id: u64, unanswered: usize) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_FLOOD_SHED_WARN_MS.load(Ordering::Relaxed);
+    if now_ms.saturating_sub(last) >= FLOOD_SHED_WARN_INTERVAL_MS
+        && LAST_FLOOD_SHED_WARN_MS
+            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    {
+        log::warn!(
+            "osc52: clipboard read flood from session {session_id}, \
+             answering empty past {unanswered} unanswered"
+        );
+    }
+}
+
 // ── 会话生命周期 ──────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：initSession
@@ -1177,51 +1214,80 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         };
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
-    {
+    // 采集本帧要处理的会话句柄：读锁内只克隆 Arc，不做任何会话工作。
+    // 慢会话的 VT 解析/查询若顶着读锁跑，会把 setScrollOffset 等写锁饿死，
+    // 并把单个会话的停顿放大成全局停顿（R16-T4）。
+    // 句柄是 Arc：锁外处理期间会话被销毁，也只是对着已死的 Arc 做无害功——
+    // 事件都带 session_id（Kotlin 侧对未知会话本就是空操作/幂等回收），
+    // take 系调用是锁存式的（恰好一次），不存在双重上报。
+    let poll_batch: Vec<(u64, Arc<Mutex<Session>>, bool)> = {
         let registry = rlock_session_registry();
+        let mut batch = Vec::new();
         if active_id != 0
             && let Some(entry) = registry.get(&active_id)
         {
-            let mut session = entry.session.lock();
+            batch.push((active_id, entry.session.clone(), true));
+        }
+        // 后台会话同样先收句柄（跳过活跃者，避免一帧处理两次）。
+        for (id, entry) in registry.iter() {
+            if active_id != 0 && *id == active_id {
+                continue;
+            }
+            batch.push((*id, entry.session.clone(), false));
+        }
+        batch
+    };
+    // 锁外逐个处理：活跃会话全量，其余每帧 2 块保管道流动。
+    for (session_id, session_handle, is_active) in &poll_batch {
+        let mut session = session_handle.lock();
+        if *is_active {
             // 处理来自 PTY 读取线程的 VT 输出。这是驱动全部终端状态更新的关键路径：
             // 从 `output_rx` 读取数据送入 Ghostty 的 VT 解析器，并填充下方轮询的
             // 各类事件标志（剪贴板等）。缺少此调用则终端永远不处理输出，输出通道死锁。
             session.process_output();
             // 检查 OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）。此处（会话锁内）
-            // 收集 selection 名；一次性槽位与应答线程在注册表/会话锁释放后才建立
-            // （见下方），保持锁顺序单一方向。
-            if let Some(selection) = session.poll_clipboard_read() {
-                pending_clipboard_reads.push((active_id, selection));
+            // 取走全部待答 selection；一次性槽位与应答线程在注册表/会话锁释放后才建立
+            // （见下方），保持锁顺序单一方向。超限由下方单会话上限显式作答（R17-T1）。
+            for selection in session.take_clipboard_reads() {
+                pending_clipboard_reads.push((*session_id, selection));
             }
-            collect_session_events(
-                active_id,
-                &mut session,
-                &mut pending_events,
-                &mut pending_exits,
-            );
-            // 会话锁在此释放（if-let 块末尾）。
-        }
-        // 扫描后台会话：一次性上报退出（`exit_reported` 标志）**并**排空其 PTY 输出。
-        // 后台会话的输出通道一旦填满（读取线程阻塞在有界发送 → PTY 内核缓冲填满
-        // → 子进程写入阻塞）就会冻结后台作业；每帧排空若干块既保持管道流动，
-        // 又不饿死活跃会话的帧预算。
-        for (id, entry) in registry.iter() {
-            if active_id != 0 && *id == active_id {
-                continue;
-            }
-            let mut session = entry.session.lock();
+        } else {
             // 每个后台会话每帧 2 块：足以在持续输出下不让读取线程阻塞。
+            // 后台会话的输出通道一旦填满（读取线程阻塞在有界发送 → PTY 内核缓冲填满
+            // → 子进程写入阻塞）就会冻结后台作业；每帧排空若干块既保持管道流动，
+            // 又不饿死活跃会话的帧预算。
             session.poll_pty_output(PTY_POLL_CHUNKS_PER_FRAME);
-            // 立即消费陈旧的事件标志并带上正确的 `session_id` 推入。若留着不管，
-            // 它们会在数分钟后该会话重新活跃时被重放（陈旧重放）。
-            collect_session_events(*id, &mut session, &mut pending_events, &mut pending_exits);
         }
-        // 注册表读锁在此释放。
+        // 立即消费事件标志并带上正确的 `session_id` 推入。若留着不管，
+        // 它们会在数分钟后该会话重新活跃时被重放（陈旧重放）。
+        collect_session_events(
+            *session_id,
+            &mut session,
+            &mut pending_events,
+            &mut pending_exits,
+        );
+        // 会话锁在此释放（循环迭代末尾）。
     }
     // 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
     // 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
     // VT 线程绝不能阻塞等待宿主应用，且 `clipboardResult` 可能在任意线程到达。
     for (session_id, selection) in pending_clipboard_reads {
+        let unanswered = unanswered_clipboard_reads(session_id);
+        if unanswered >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
+            // 洪泛削减：就地显式作答空串，不注册、不推事件、不起应答线程。
+            // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置（R17-T1）。
+            flood_shed_warn_throttled(session_id, unanswered);
+            let registry = wlock_session_registry();
+            let session = registry.get(&session_id).map(|entry| entry.session.clone());
+            drop(registry);
+            if let Some(session) = session {
+                let mut session = session.lock();
+                if let Err(error) = session.answer_clipboard_read(&selection, "") {
+                    log::warn!("osc52: flood-shed read answer write-back failed: {error}");
+                }
+            }
+            continue;
+        }
         let (request_id, rx) = register_request(session_id);
         pending_events.push(Event::ClipboardRead {
             session_id,
@@ -2523,15 +2589,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
         };
         // 注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让销毁会话的写锁饥饿。
         // 克隆的会话句柄使查询期间销毁仍安全，会话在查询结束前保持存活。
-        let session = session_handle.lock();
-        let matches = session
-            .terminal()
-            .search_all_in_scrollback(&query, case_sensitive);
+        // 会话锁只取查询通道：VT 查询本身在锁外跑，大回滚搜索不再冻结
+        // 按帧取锁的渲染（R21-T1）。查询期间会话被销毁则通道断开，回退空结果。
+        let query_tx = session_handle.lock().terminal().query_channel();
+        let matches =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
+                &query_tx,
+                &query,
+                case_sensitive,
+            );
         log::info!(
             "searchAllInScrollback: query={query:?} matches={}",
             matches.len(),
         );
-        drop(session);
 
         let json = serde_json::to_string(
             &matches
@@ -3372,6 +3442,28 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
             JNI_FALSE
         }
     })
+}
+
+#[cfg(test)]
+mod clipboard_read_flood_tests {
+    use super::{cancel_request, register_request, unanswered_clipboard_reads};
+
+    /// R17-T1：未作答计数按会话隔离，且只计入驻留槽位。
+    #[test]
+    fn unanswered_reads_count_is_per_session() {
+        let (first_a, _first_rx) = register_request(4101);
+        let (second_a, _second_rx) = register_request(4101);
+        let (only_b, _only_rx) = register_request(4102);
+        assert_eq!(unanswered_clipboard_reads(4101), 2);
+        assert_eq!(unanswered_clipboard_reads(4102), 1);
+        assert_eq!(unanswered_clipboard_reads(4103), 0);
+        cancel_request(4101, first_a);
+        assert_eq!(unanswered_clipboard_reads(4101), 1);
+        cancel_request(4101, second_a);
+        cancel_request(4102, only_b);
+        assert_eq!(unanswered_clipboard_reads(4101), 0);
+        assert_eq!(unanswered_clipboard_reads(4102), 0);
+    }
 }
 
 #[cfg(test)]

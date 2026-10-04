@@ -469,8 +469,19 @@ impl super::GhosttyTerminal {
     /// 向 VT 线程发送无状态 [`Query`] 并等待应答，发送失败或超时回退到 `fallback`；
     /// 全部查询方法共用这唯一一处有界通道 + 超时样板。
     fn query<T>(&self, build: impl FnOnce(Sender<T>) -> Query, fallback: T, method: &str) -> T {
+        Self::query_on(&self.query_tx, build, fallback, method)
+    }
+
+    /// [`Self::query`] 的通道外置版：调用方在会话锁内克隆查询通道，
+    /// 随后在锁外执行长查询，使大回滚搜索不冻结按帧取锁的渲染（R21-T1）。
+    fn query_on<T>(
+        query_tx: &Sender<Query>,
+        build: impl FnOnce(Sender<T>) -> Query,
+        fallback: T,
+        method: &str,
+    ) -> T {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(build(tx)) {
+        if let Err(error) = query_tx.try_send(build(tx)) {
             log::warn!("ghostty_terminal: query_tx full/dropped failed for {method}: {error}");
             return fallback;
         }
@@ -483,6 +494,11 @@ impl super::GhosttyTerminal {
                 fallback
             }
         }
+    }
+
+    /// 克隆 VT 查询通道（见 [`Self::query_on`]）。
+    pub(crate) fn query_channel(&self) -> Sender<Query> {
+        self.query_tx.clone()
     }
 
     pub fn title(&self) -> String {
@@ -544,7 +560,17 @@ impl super::GhosttyTerminal {
     }
 
     pub fn search_all_in_scrollback(&self, query: &str, case_sensitive: bool) -> Vec<SearchMatch> {
-        self.query(
+        Self::search_all_in_scrollback_on(&self.query_tx, query, case_sensitive)
+    }
+
+    /// [`Self::search_all_in_scrollback`] 的通道外置版（见 [`Self::query_on`]）。
+    pub(crate) fn search_all_in_scrollback_on(
+        query_tx: &Sender<Query>,
+        query: &str,
+        case_sensitive: bool,
+    ) -> Vec<SearchMatch> {
+        Self::query_on(
+            query_tx,
             |tx| Query::SearchInScrollbackAll {
                 query: query.to_string(),
                 case_sensitive,
