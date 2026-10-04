@@ -1701,6 +1701,8 @@ impl super::GhosttyTerminal {
                 visible: cursor_visible,
                 style: cursor_style,
                 scrollback_length: scrollback_len(terminal),
+                rows,
+                cols,
                 kitty_generation: terminal
                     .kitty_graphics()
                     .ok()
