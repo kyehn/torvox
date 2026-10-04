@@ -39,7 +39,7 @@ class TerminalLogcatRule : TestRule {
                 // 失败信息退化成「logcat 抓取失败」，恰好丢掉本规则的全部价值）。
                 InstrumentationRegistry.getInstrumentation()
                     .uiAutomation
-                    .executeShellCommand("logcat -d -t $LOG_LINES -v brief")
+                    .executeShellCommand("logcat -d -t $DUMP_LINES -v brief")
                     .use { descriptor ->
                         android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)
                             .bufferedReader()
@@ -61,8 +61,15 @@ class TerminalLogcatRule : TestRule {
     }
 
     private companion object {
-        /** 抓取行数上限：足够覆盖一次失败前后的关键锚点，又不至于淹没断言信息。 */
+        /** 附在失败信息里的行数上限：足够覆盖一次失败前后的关键锚点，又不至于淹没断言信息。 */
         const val LOG_LINES = 120
+
+        /**
+         * 过滤之前先取的 logcat 尾部行数：设备日志被系统与应用自身噪声淹没，
+         * 只取最后一百多行再按标签过滤，应用自己的锚点会整段落空（CI 实测失败
+         * 信息多为「logcat 中没有终端相关日志行」），本规则等于白装。
+         */
+        const val DUMP_LINES = 4000
 
         val WATCHED_TAGS =
             listOf("Runtime", "Runtime.D", "ghostty", "FFI", "TerminalSurface", "SessionBridgeCloser")

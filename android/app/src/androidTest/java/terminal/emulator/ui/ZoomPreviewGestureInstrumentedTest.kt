@@ -133,7 +133,10 @@ class ZoomPreviewGestureInstrumentedTest {
             // Shell 在缩放风暴后仍可交互（mksh 遇 SIGWINCH 清提示符，不得卡死会话）。
             val marker = "ZOOMALIVE_${System.currentTimeMillis() % 100000}"
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
-                activity.terminalViewModel.writeToPty("echo $marker\n".toByteArray(Charsets.UTF_8))
+                activity.terminalViewModel.writeToPty(
+                    activity.terminalViewModel.runtime.inputTargetSessionId,
+                    "echo $marker\n".toByteArray(Charsets.UTF_8),
+                )
             }
             val echoed =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
