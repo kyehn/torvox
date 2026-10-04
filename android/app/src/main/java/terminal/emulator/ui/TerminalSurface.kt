@@ -65,6 +65,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         stopFlingAnimation()
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable = null
+        cancelSurfaceRecreate()
         // IME 防抖 resume 回调同样持有本视图：detach 恰在防抖窗内则
         // setRenderPaused(true) 后 resume 丢失，渲染永久暂停。
         // 直接取消会吞掉配对的 resume——先 resume 再取消。
@@ -1781,6 +1782,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onSingleTapUp(event: MotionEvent): Boolean {
+                // 长按抬手不是轻击：必须先于计数与多击处理返回。
+                // 否则「轻击 → 长按拖动抬手」若落在 400ms 窗口内会被计为第 2 击，
+                // 用抬手坐标选词覆盖长按选区（长按空白处本应是仅粘贴单格选区）；
+                // 且 isAfterLongPress 滞留，下一次真正的轻击反被吞掉。
+                if (isAfterLongPress) {
+                    isAfterLongPress = false
+                    longPressDragging = false
+                    tapCount = 0
+                    lastTapTime = 0L
+                    return true
+                }
                 // 多击选择（ghostty-android 模式）：统计快速轻击次数，在第 2/3/4+ 次上处理词/行/全选。
                 // 用事件时间而非处理时间计数：慢设备/模拟器上主线程卡顿
                 // （软件渲染帧 1s+）会把处理间隔撑过 400ms 窗口，导致三击
@@ -1799,12 +1811,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
 
                 if (handleMultiTap(event)) return true
-
-                if (isAfterLongPress) {
-                    isAfterLongPress = false
-                    longPressDragging = false
-                    return true
-                }
                 // 抽屉关闭动画会让遮罩轻击穿透到 Surface；
                 // 不要把它当作终端轻击（那会清除选区）。
                 if (System.nanoTime() < suppressUntilNanos) {
@@ -2082,6 +2088,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (translationY != 0f) translationY = 0f
     }
 
+    /** 在途的 surface 重建重试；detach 与 ON_PAUSE 必须能取消它（见 [postDelayedSurfaceRecreate]）。 */
+    private var pendingSurfaceRecreate: Runnable? = null
+
+    /** 取消在途的 surface 重建重试。宿主切后台时必须调用，否则重试会撤销刚请求的渲染暂停。 */
+    fun cancelSurfaceRecreate() {
+        pendingSurfaceRecreate?.let { removeCallbacks(it) }
+        pendingSurfaceRecreate = null
+    }
+
     fun postDelayedUnpause(delayMillis: Long) {
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable =
@@ -2099,24 +2114,32 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * （系统在后台回收了 BufferQueue，且未送达 surfaceDestroyed）。
      * 持续重试 detach+attach 的交换链重建直到 holder 重新有效，
      * 然后解除暂停 + 恢复 + 强制渲染一帧。
+     *
+     * 重试链必须挂在字段上才能被取消：它每次尝试都会 `setRenderPaused(false)`
+     * + `resumeRendering()`，一旦跨越 ON_PAUSE 就会撤销宿主刚请求的暂停，
+     * 在已被回收的 BufferQueue 上继续渲染。且每次重试都是新 lambda，
+     * 即便有字段也要由本函数自己重排。
      */
     fun postDelayedSurfaceRecreate(viewModel: TerminalViewModel, attemptsLeft: Int = SURFACE_RECREATE_ATTEMPTS) {
-        postDelayed({
-            val holderSurface = holder?.surface
-            if (holderSurface != null && holderSurface.isValid && width > 0 && height > 0) {
-                val bridge = viewModel.runtime.bridge()
-                if (bridge != null) {
-                    viewModel.currentSurface = holderSurface
-                    bridge.releaseGpuSurface()
-                    bridge.attachSurface(holderSurface, width, height)
+        pendingSurfaceRecreate?.let { removeCallbacks(it) }
+        pendingSurfaceRecreate =
+            Runnable {
+                pendingSurfaceRecreate = null
+                val holderSurface = holder?.surface
+                if (holderSurface != null && holderSurface.isValid && width > 0 && height > 0) {
+                    val bridge = viewModel.runtime.bridge()
+                    if (bridge != null) {
+                        viewModel.currentSurface = holderSurface
+                        bridge.releaseGpuSurface()
+                        bridge.attachSurface(holderSurface, width, height)
+                    }
+                    viewModel.runtime.setRenderPaused(false)
+                    viewModel.runtime.resumeRendering()
+                    viewModel.runtime.forceRender()
+                } else if (attemptsLeft > 1) {
+                    postDelayedSurfaceRecreate(viewModel, attemptsLeft - 1)
                 }
-                viewModel.runtime.setRenderPaused(false)
-                viewModel.runtime.resumeRendering()
-                viewModel.runtime.forceRender()
-            } else if (attemptsLeft > 1) {
-                postDelayedSurfaceRecreate(viewModel, attemptsLeft - 1)
-            }
-        }, SURFACE_RECREATE_RETRY_DELAY_MS)
+            }.also { postDelayed(it, SURFACE_RECREATE_RETRY_DELAY_MS) }
     }
 
     private fun currentScrollbackLength(): Int {
@@ -2154,9 +2177,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /** 把本地滚动偏移重置为会话的偏移；会话切换时调用，使选区坐标计算不使用上一个会话的偏移。 */
+    /**
+     * 把本地滚动偏移重置为会话的偏移；会话切换时调用，使选区坐标计算不使用上一个会话的偏移。
+     *
+     * 回滚长度缓存必须一并失效：`currentViewportTopGrid()` = 回滚长度 - 偏移，
+     * 而 `currentScrollbackLength()` 有 100ms 节流，只重置偏移会让切会话后的首个手势
+     * 拿上一个会话的回滚长度算出绝对网格行（长按/拖手柄因此锚到无关的回滚区）。
+     */
     fun resetScrollOffset() {
         stopFlingAnimation()
+        lastScrollbackQueryNanos = 0L
         val sessionOffset = viewModel?.runtime?.activeSessionScrollOffset() ?: 0
         if (scrollOffset != sessionOffset) {
             scrollOffset = sessionOffset
@@ -2352,12 +2382,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     // 派发约 15 种彼此不同的手势/意图，涵盖选区、滚动、长按与硬件按键交互。
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_UP) {
-            // 覆写 onTouchEvent 的 View 必须在抬手时调用 performClick，
-            // 否则系统的点击动作收不到事件。
-            performClick()
-        }
-        if (!touchEnabled) {
+        val isRelease = event.actionMasked == MotionEvent.ACTION_UP
+        if (isRelease && !touchEnabled) {
             scaleDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
             return false
@@ -2377,6 +2403,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (drawerOpen || event.x < drawerEdgePixels) {
             return false
         }
+        // 走到这里才说明这次抬手属于终端 Surface（未被抽屉遮罩或边缘手势取走）：
+        // 此时才播报点击。提前播报会让关闭抽屉的遮罩轻击、边缘滑动收尾、
+        // 滚动与拖动抬手统统被朗读成「已点击」。
+        if (isRelease) performClick()
 
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
 
