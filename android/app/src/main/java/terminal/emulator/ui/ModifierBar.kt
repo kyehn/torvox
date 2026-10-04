@@ -663,12 +663,14 @@ private fun RowScope.ExtraKeyButton(
                                 }
                             }
                         } else {
+                            // 单调 uptime，与上方长按阈值同一时间线：墙钟前跳会让
+                            // remaining 变负，循环再不 await 事件而是空转连发。
                             var nextRepeatAt =
-                                System.currentTimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
+                                android.os.SystemClock.uptimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
                             var repeatFired = false
                             var repeatValid = true
                             while (currentOnRepeat != null) {
-                                val remaining = nextRepeatAt - System.currentTimeMillis()
+                                val remaining = nextRepeatAt - android.os.SystemClock.uptimeMillis()
                                 // withTimeout(0) 在 PointerEventHandlerCoroutine 内与事件送达竞态，
                                 // 触发重复恢复崩溃（Already resumed）；期限已过直接按超时走。
                                 val ev =
