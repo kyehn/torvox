@@ -15,6 +15,22 @@ class ThermalMonitor(private val context: Context, private val onCritical: (() -
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
+    /**
+     * 与 [register] 配对：移除系统监听并停掉回调线程。
+     * 未注册时为空操作。兄弟监视器都有 start/stop 对，热监听此前只有注册没有注销。
+     */
+    fun unregister() {
+        val listener = thermalListener ?: return
+        thermalListener = null
+        try {
+            pm.removeThermalStatusListener(listener)
+        } catch (exception: Exception) {
+            LogUtil.e(TAG, "Failed to remove thermal status listener", exception)
+        }
+        thermalExecutor?.shutdownNow()
+        thermalExecutor = null
+    }
+
     /** 重复注册会多挂一个监听器与一个线程，并让 onCritical 触发两次；这里只认首次。 */
     fun register() {
         if (thermalListener != null) return

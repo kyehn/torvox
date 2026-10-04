@@ -92,4 +92,23 @@ class ThermalMonitorTest {
 
         assertEquals(1, criticalCalls)
     }
+
+    @Test
+    fun `unregister is a safe no-op and the lifecycle never throws`() {
+        // JVM 的 shadow 只实现单参 listener 注册，本仓用的双参（executor）版本
+        // 走真实 Android 桩并抛「not mocked」——`register` 按设计在内部吞掉它。
+        // 此处锁死的是生命周期契约本身：未注册时注销为空操作，注册→注销→重注册
+        // 全程不抛，且决策逻辑在周期之后依然只触发一次。
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val (monitor, calls) = monitor()
+
+        monitor.unregister()
+        monitor.register()
+        monitor.unregister()
+        monitor.register()
+
+        monitor.onThermalStatusChanged(PowerManager.THERMAL_STATUS_CRITICAL)
+        assertEquals(1, calls())
+        monitor.unregister()
+    }
 }
