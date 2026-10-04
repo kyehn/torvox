@@ -1390,6 +1390,14 @@ constructor(
                                                 )
                                             }
                                             consecutiveErrors++
+                                            // 帧已正常返回（只是渲染失败），渲染线程没有挂起。
+                                            // 必须刷新完成时刻：`RenderWatchDog` 以
+                                            // 「开始 > 完成」判定挂起，若此处不更新，
+                                            // 持续失败（Surface 迟迟不就绪）会让完成时刻
+                                            // 冻结在最后一帧成功处，10s 后看门狗把仍在循环的
+                                            // 线程判为挂死，反复重启直至 `closeDeadSession`
+                                            // 关掉用户的 shell。
+                                            entry.lastRenderDone = System.nanoTime()
                                             // 自适应退避：前 10 次 50ms，之后 200ms
                                             val sleepMs =
                                                 if (consecutiveErrors > 10) {
@@ -1596,6 +1604,12 @@ constructor(
                                                 exception,
                                             )
                                         }
+                                        // 异常帧同样是「渲染线程没挂」的证据：
+                                        // 不刷新完成时刻，连续异常会让 `start > done`
+                                        // 一直成立，`RenderWatchDog` 在 10s 后把仍在循环的
+                                        // 线程判为挂死。当前上限恰好（约 5s）小于超时，
+                                        // 但那只是两个常量的巧合，任一改动即成误杀。
+                                        entry.lastRenderDone = System.nanoTime()
                                         if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
                                             LogUtil.e(
                                                 "Runtime",
