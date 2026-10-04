@@ -95,6 +95,37 @@ mod tests {
         assert!(glyph_cache.ascii_glyph_ids[65].is_none());
     }
 
+    /// 模块存在的理由就是淘汰策略：容量一满就必须真的丢掉最久未用的那条，
+    /// 否则字形缓存会随输入无界增长（终端内存的主要消耗方）。
+    #[test]
+    fn outline_cache_drops_the_least_recently_used_entry_at_capacity() {
+        let mut glyph_cache = GlyphCache::new();
+        let key_for = |raster_size_bits: u32| {
+            (
+                fontdb::ID::default(),
+                swash::GlyphId::from(42u16),
+                raster_size_bits,
+            )
+        };
+        for index in 0..OUTLINE_CACHE_CAPACITY {
+            glyph_cache.outline_cache.put(key_for(index as u32), true);
+            assert_eq!(glyph_cache.outline_cache.len(), index + 1);
+        }
+        // `get` 刷新最近使用次序（`peek` 不刷新）；压入新条目时被淘汰的应是
+        // 「上一步之前最旧」的那条，也就是 size 1（size 0 已被提到最新）。
+        assert!(glyph_cache.outline_cache.get(&key_for(0)).is_some());
+        glyph_cache.outline_cache.put(key_for(u32::MAX), true);
+        assert_eq!(glyph_cache.outline_cache.len(), OUTLINE_CACHE_CAPACITY);
+        assert!(
+            glyph_cache.outline_cache.peek(&key_for(0)).is_some(),
+            "刚被触碰的条目不得被淘汰"
+        );
+        assert!(
+            glyph_cache.outline_cache.peek(&key_for(1)).is_none(),
+            "最久未用的条目必须被淘汰"
+        );
+    }
+
     #[test]
     fn style_face_cache_evicts_with_clear() {
         let mut glyph_cache = GlyphCache::new();
