@@ -39,7 +39,10 @@
 - [x] N2-1`FontUtils` 把 `mono/monospaced/sans` 硬编码改写，
       真名为 "Sans" 的字族被静默换成另一个（违反 DESIGN:101/102）—— 本轮已修：
       `resolveEffectiveFontFamily` 只去空白，别名归并删除（字族名以外部库为准）
-- [ ] N2-2`~/.termux/fonts` 只在会话创建时扫一次，运行中拷入字体须重启进程
+- [x] N2-2`~/.termux/fonts` 只在会话创建时扫一次 —— **本轮否证**：
+      字体列表在每次会话就绪时先 `setExtraFontPaths(~/.termux/fonts)` 再列举
+      （`TerminalViewModel:737`），新建会话即重新扫描；DESIGN 字体节要求的是
+      「列表缓存直到应用关闭」，会话级刷新比之更及时，不构成缺陷
 - [x] N2-2459 个 `external fun` 只对 43 个加 `@JvmStatic`，
       CheckJNI 报错、`RegisterNatives` 路径断裂 —— 本轮已修：补齐余下 6 处
       （`setTheme`/`setFontFamily`/`loadFontFile`/`setExtraFontPaths`/

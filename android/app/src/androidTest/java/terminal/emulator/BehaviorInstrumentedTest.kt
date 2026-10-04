@@ -45,6 +45,9 @@ class BehaviorInstrumentedTest {
             initialized = true
             device.executeShellCommand("am start -n $PACKAGE/terminal.emulator.MainActivity")
             device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), WAIT_TIMEOUT)
+            // 软件渲染模拟器被渲染压满时系统会弹「无响应」，它盖住应用窗口，
+            // 之后所有节点查找都落空——先按「等待」关掉。
+            dismissNotRespondingDialog()
             Thread.sleep(10000)
         } catch (exception: Exception) {
             Log.e(TAG, "setUp failed", exception)
