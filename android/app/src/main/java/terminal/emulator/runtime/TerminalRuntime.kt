@@ -1730,7 +1730,14 @@ constructor(
          */
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.clipboard != null) {
-                clipboardAccess.setClipboardText(poll.clipboard)
+                if (poll.clipboard.isEmpty()) {
+                    // `\e]52;c;\a`（空载荷）是「清空剪贴板」的合法写法。
+                    // DESIGN 只声明剪贴板集成、不声明清空语义，故此处不代为清除系统剪贴板，
+                    // 但必须出声：无声无息地丢弃一条合法序列会让用户无从判断。
+                    LogUtil.w(TAG, "OSC 52 write with empty payload ignored (clipboard clear not implemented)")
+                } else {
+                    clipboardAccess.setClipboardText(poll.clipboard)
+                }
             }
             dispatchClipboardRequests(poll.clipboardReads)
         }
@@ -1910,8 +1917,13 @@ constructor(
     internal suspend fun resolveThemeName(): String {
         // 单次快照：按字段流逐个 first() 会把同一个 preferences_pb 读五遍并解析五次，
         // 而一次读取已含全部字段（SettingsRepository.settings 是唯一合并快照）。
-        val stored = settingsRepository.settings.first()
-        clearUnknownThemeNames(stored.dayThemeName, stored.nightThemeName, stored.themeName)
+        var stored = settingsRepository.settings.first()
+        // 清除是写操作（会 await dataStore.edit），故清除成功后必须重读：
+        // 否则返回的是刚被清除的未知名，`buildConfig` 的 `BuiltInThemes.byName` 在
+        // 未知名上抛异常，本次建会话直接失败，用户看不到终端。
+        if (clearUnknownThemeNames(stored.dayThemeName, stored.nightThemeName, stored.themeName)) {
+            stored = settingsRepository.settings.first()
+        }
         val systemDark =
             (
                 context.resources.configuration.uiMode and
@@ -1935,12 +1947,16 @@ constructor(
     /**
      * 存有无法解析主题名的键即设置数据错误：记日志并清除该键，
      * 下次读取回落默认值（DESIGN:16 设置数据错误 → 清除设置数据、:24 不做 Fallback）。
+     *
+     * 返回是否真的清除过：调用方据此决定要不要重读快照，否则会把刚清除的未知名
+     * 当作解析结果返回。
      */
-    private suspend fun clearUnknownThemeNames(vararg names: String) {
+    private suspend fun clearUnknownThemeNames(vararg names: String): Boolean {
         val unknown = names.filter { BuiltInThemes.byNameOrNull(it) == null }.toSet()
-        if (unknown.isEmpty()) return
+        if (unknown.isEmpty()) return false
         LogUtil.e("Runtime", "Unknown terminal theme, clearing setting: $unknown")
         settingsRepository.clearUnknownThemeNames(unknown)
+        return true
     }
 
     /** 空即默认入口（DESIGN :122 未设置时为空），其余原样透传，不特殊处理。 */

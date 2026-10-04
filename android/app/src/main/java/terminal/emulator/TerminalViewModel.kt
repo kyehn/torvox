@@ -108,7 +108,6 @@ data class SessionInfo(val id: Long, val title: String = "")
 internal const val SESSION_META_REFRESH_THROTTLE_MS = 2000L
 
 data class TerminalState(
-    val sessionId: Long = 0L,
     val isRunning: Boolean = false,
     val title: String = "Terminal",
     val selection: SelectionState = SelectionState(),
@@ -943,7 +942,6 @@ constructor(
                     // 此处非原子的写入会覆盖它们刚提交的会话列表。
                     _state.update { current ->
                         current.copy(
-                            sessionId = active,
                             isRunning = runtimeState.isRunning,
                             title = title,
                             sessions = sessions,
@@ -1398,7 +1396,6 @@ constructor(
                         val previousById = current.sessions.associateBy { it.id }
                         val sessions = sortedIds.map { id -> previousById[id] ?: SessionInfo(id = id) }
                         current.copy(
-                            sessionId = newId,
                             isRunning = true,
                             title = context.getString(R.string.session_number, displayIndex),
                             selection = SelectionState(),
@@ -1449,7 +1446,6 @@ constructor(
             }
             _state.update { current ->
                 current.copy(
-                    sessionId = id,
                     isRunning = true,
                     title =
                     runtime.state.value.title.ifEmpty {
@@ -1507,7 +1503,6 @@ constructor(
                         current.copy(
                             sessions = renumbered,
                             activeSessionId = newActive,
-                            sessionId = newActive,
                             title =
                             runtime.state.value.title.ifEmpty {
                                 context.getString(R.string.session_number, newActiveIndex + 1)
