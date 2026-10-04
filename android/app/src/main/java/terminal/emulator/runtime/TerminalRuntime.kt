@@ -2696,36 +2696,8 @@ constructor(
                 }
             }
 
-            try {
-                // Surface 已在上方经 attachSurface 交给渲染器；此处无需其他操作。
-                target.running = true
-            } catch (exception: Exception) {
-                LogUtil.e("Runtime", "switchSession: attachSurface failed for session $id", exception)
-                // 启动失败：前一个活动会话已停止且其 GPU surface 已释放。
-                // 恢复它，使终端不会被留在冻结状态（running=false、无渲染线程，
-                // 且监视器会永远跳过 !running 的条目）。
-                val previous = sessions[previousActiveId]
-                if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
-                    LogUtil.w(
-                        "Runtime",
-                        "switchSession: restoring previous session ${previous.id} after failure",
-                    )
-                    previous.running = true
-                    previous.renderThreadExited = false
-                    previous.restartAttempts = 0
-                    try {
-                        renderSupervisor.startRenderThread(previous)
-                        activeSessionId = previous.id
-                    } catch (restoreException: Exception) {
-                        LogUtil.e(
-                            "Runtime",
-                            "switchSession: failed to restore previous session ${previous.id}",
-                            restoreException,
-                        )
-                    }
-                }
-                return
-            }
+            // Surface 已在上方经 attachSurface 交给渲染器；此处无需其他操作。
+            target.running = true
         }
 
         // 阶段 2（不持锁）：在事件驱动的渲染线程启动前，同步渲染新会话的首帧，
@@ -2843,6 +2815,29 @@ constructor(
                     "switchSession: failed to start render thread for session $id",
                     exception,
                 )
+                // 启动失败：前一个活动会话已停止且其 GPU surface 已释放。
+                // 恢复它，使终端不会被留在冻结状态（无渲染线程，且监视器会永远
+                // 跳过 !running 的条目）。这是切换过程中唯一真会失败的阶段。
+                val previous = sessions[previousActiveId]
+                if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
+                    LogUtil.w(
+                        "Runtime",
+                        "switchSession: restoring previous session ${previous.id} after failure",
+                    )
+                    previous.running = true
+                    previous.renderThreadExited = false
+                    previous.restartAttempts = 0
+                    try {
+                        renderSupervisor.startRenderThread(previous)
+                        activeSessionId = previous.id
+                    } catch (restoreException: Exception) {
+                        LogUtil.e(
+                            "Runtime",
+                            "switchSession: failed to restore previous session ${previous.id}",
+                            restoreException,
+                        )
+                    }
+                }
             }
         }
     }

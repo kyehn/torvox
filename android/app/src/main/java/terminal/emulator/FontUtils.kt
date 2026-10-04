@@ -13,10 +13,6 @@ internal fun termuxDefaultFontFile(homePath: String): java.io.File? = listOf("fo
     .map { java.io.File(java.io.File(homePath, ".termux"), it) }
     .firstOrNull { it.isFile }
 
-/** [termuxDefaultFontFile] 的 Context 重载。 */
-internal fun termuxDefaultFontFile(context: android.content.Context): java.io.File? =
-    termuxDefaultFontFile(java.io.File(context.filesDir, "home").absolutePath)
-
 /**
  * 设置项里保存的字族名 → 原生字族名：仅去空白，空值表示「取 fonts.xml 的 monospace」。
  *
