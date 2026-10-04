@@ -315,11 +315,7 @@ class DocumentsProviderTest {
      * 每轮重取全部 Looper 再 idle，直到到齐；投递是同步的，故无需真实时间等待，
      * 上限只防「通知根本不发」时无限空转（那仍由下方断言大声失败）。
      */
-    private fun idleLoopersUntilNotified(
-        notified: Set<String>,
-        expected: List<String>,
-        maxRounds: Int = 8,
-    ) {
+    private fun idleLoopersUntilNotified(notified: Set<String>, expected: List<String>, maxRounds: Int = 8) {
         repeat(maxRounds) {
             if (expected.all { label -> notified.contains(label) }) return
             org.robolectric.shadows.ShadowLooper.getAllLoopers().forEach { looper ->
