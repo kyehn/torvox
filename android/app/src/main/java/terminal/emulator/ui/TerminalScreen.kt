@@ -56,6 +56,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.runtime.LogUtil
@@ -64,6 +65,7 @@ import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
+import terminal.emulator.util.TerminalDispatchers
 import kotlin.math.max
 import kotlin.math.min
 
@@ -401,12 +403,16 @@ fun TerminalScreen(
                         }
                 val effectiveCaseSensitive =
                     searchState.caseSensitive || query.any { it.isUpperCase() }
+                // 原生侧要逐回滚行拼串 + 跑正则（上限 5 万匹配），在 5 万行回滚上以秒计。
+                // 阻塞 JNI 必须离开主线程：否则输入法与按键一起卡住，
+                // AnrWatchDog 还会直接 killProcess 掉所有 shell。
                 val matches =
-                    bridge.searchAllInScrollback(query, effectiveCaseSensitive)
-                        ?: run {
-                            searchState = searchState.copy(results = emptyList())
-                            return
-                        }
+                    withContext(TerminalDispatchers.inputOutput) {
+                        bridge.searchAllInScrollback(query, effectiveCaseSensitive)
+                    } ?: run {
+                        searchState = searchState.copy(results = emptyList())
+                        return
+                    }
                 val results = matches.map { (row, startCol, endCol) ->
                     SearchResult(lineIndex = row, startIndex = startCol, endIndex = endCol)
                 }

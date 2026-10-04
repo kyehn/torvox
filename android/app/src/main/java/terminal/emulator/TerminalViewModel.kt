@@ -982,14 +982,31 @@ constructor(
      */
     fun clearAppData(onComplete: () -> Unit) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
-            context.getDir("boot_state", Context.MODE_PRIVATE).deleteRecursively()
-            context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            // 目录不存在时 deleteRecursively 返回 false，而「本来就不存在」正是期望状态，
+            // 故只对**确实存在却删不掉**的条目报错：吞掉返回值会让删除失败仍回调成功，
+            // 用户被告知「已清除」而 settings.preferences_pb 原封不动。
+            val survivors =
+                buildList {
+                    addAll(
+                        listOf("prefs", "boot_state").filterNot { name ->
+                            deletedOrAbsent(context.getDir(name, Context.MODE_PRIVATE))
+                        },
+                    )
+                    addAll(
+                        context.cacheDir.listFiles().orEmpty()
+                            .filterNot { deletedOrAbsent(it) }
+                            .map { it.name },
+                    )
+                }
+            require(survivors.isEmpty()) { "clear app data left undeleted: $survivors" }
             // 进程级 DataStore 单例仍在运行：重建 prefs 目录使下一次设置写入不会失败。
             context.getDir("prefs", Context.MODE_PRIVATE)
             onComplete()
         }
     }
+
+    /** 目录已删除或本就不存在返回 true；存在却删不掉返回 false。 */
+    private fun deletedOrAbsent(file: java.io.File): Boolean = !file.exists() || file.deleteRecursively()
 
     // ══════════════════════════════════════════════════════════════════════
     // 二、会话编排与设置 setter

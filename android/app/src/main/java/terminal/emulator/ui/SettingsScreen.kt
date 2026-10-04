@@ -983,14 +983,21 @@ private fun BootstrapSection(
     accentColor: Color,
     secondaryText: Color,
 ) {
+    // 用户正在编辑时不得用持久化值覆盖输入框：每次击键都会经 300ms 防抖落盘，
+    // 而 DataStore 回流带着**上一次**的值抵达，LaunchedEffect 会把刚敲进去的字符抹掉
+    // （输入框与设置从此静默分叉）。仅在外部值真的变化且输入框未处于编辑态时才采纳。
     var url by remember { mutableStateOf(bootstrapUrl) }
-    LaunchedEffect(bootstrapUrl) { url = bootstrapUrl }
+    var urlEdited by remember { mutableStateOf(false) }
+    LaunchedEffect(bootstrapUrl) {
+        if (!urlEdited) url = bootstrapUrl
+    }
 
     Column {
         OutlinedTextField(
             value = url,
             onValueChange = {
                 url = it
+                urlEdited = true
                 onUrlChanged(it)
             },
             label = { Text(stringResource(R.string.bootstrap_url_label)) },

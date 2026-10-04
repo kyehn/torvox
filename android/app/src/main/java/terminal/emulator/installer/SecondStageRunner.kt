@@ -256,6 +256,11 @@ class SecondStageRunner(
                 return null
             }
             stdoutThread.join(STDIO_DRAIN_JOIN_TIMEOUT_MS)
+            if (stdoutThread.isAlive) {
+                // 仍有后代进程持有 stdout 管道。`DPKG_RUNNING_VERSION` 会被导成空串，
+                // 依赖它的 postinst 分支将拿到空值而非真实版本——必须出声。
+                LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout still open after exit, version unavailable")
+            }
             val text = synchronized(stdoutText) { stdoutText.toString() }
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value
