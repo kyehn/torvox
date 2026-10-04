@@ -1922,18 +1922,20 @@ impl super::GhosttyTerminal {
         let mut text = String::new();
         for col in 0..cols {
             // 行列 → Point 的空间解析统一走 absolute_point（列恒在界内，钳制恒等）。
-            let point = terminal.grid_ref(Self::absolute_point(terminal, row, col));
-            if let Ok(point) = point
-                && let Ok(cell) = point.cell()
-            {
-                let cp = cell.codepoint().unwrap_or(0);
-                if cp != 0 {
-                    if let Some(ch) = char::from_u32(cp) {
-                        text.push(ch);
-                    }
-                } else {
-                    text.push(' ');
-                }
+            //
+            // 每个网格列必须**恰好**产出一个字符：`search_in_scrollback_all_impl` 把段内
+            // 字符下标直接当作列号（`SearchMatch.start_col` 与 `CellData.col` 对齐）。
+            // 读不到单元时若少产一个字符，其后所有列号都会左移一格，且偏移会经
+            // 软换行段累加继续放大。故一律以空格占位，与 codepoint 为 0 的空单元同形。
+            let codepoint = terminal
+                .grid_ref(Self::absolute_point(terminal, row, col))
+                .ok()
+                .and_then(|point| point.cell().ok())
+                .and_then(|cell| cell.codepoint().ok())
+                .unwrap_or(0);
+            match char::from_u32(codepoint) {
+                Some(character) if codepoint != 0 => text.push(character),
+                _ => text.push(' '),
             }
         }
         let trimmed = text.trim_end().to_string();
