@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -201,13 +203,43 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     private val bootstrapUrlEdits = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 1)
 
+    /**
+     * 防抖写入与清除的互斥：已在途的 `put` 要么先完成（其产物随即被删除），
+     * 要么看到停用而跳过——防抖窗口内（300ms）的编辑不可能在删除之后落地。
+     */
+    private val bootstrapUrlEditMutex = Mutex()
+
+    @Volatile private var bootstrapUrlEditsArmed = true
+
+    /**
+     * 丢弃尚未落盘的引导 URL 编辑并暂停防抖写入：清除应用数据前调用，
+     * 否则防抖写入会在删除之后重建 `preferences_pb`，清除静默不生效（R16-T6）。
+     * 连带清空 replay 缓存，故其后的 `latestBootstrapUrlEdit()` 不再返回已清除的值。
+     */
+    suspend fun dropPendingBootstrapUrlEdits() {
+        bootstrapUrlEditMutex.withLock {
+            bootstrapUrlEditsArmed = false
+            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+            bootstrapUrlEdits.resetReplayCache()
+        }
+    }
+
+    /** 重新接受引导 URL 编辑写入：清除完成后调用，此后用户的新编辑照常落盘。 */
+    suspend fun rearmBootstrapUrlEdits() {
+        bootstrapUrlEditMutex.withLock { bootstrapUrlEditsArmed = true }
+    }
+
     init {
         scope.launch {
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             bootstrapUrlEdits
                 .debounce(DEBOUNCE_MILLIS)
                 .distinctUntilChanged()
-                .collect { value -> put(Keys.BOOTSTRAP_URL, value) }
+                .collect { value ->
+                    bootstrapUrlEditMutex.withLock {
+                        if (bootstrapUrlEditsArmed) put(Keys.BOOTSTRAP_URL, value)
+                    }
+                }
         }
     }
 

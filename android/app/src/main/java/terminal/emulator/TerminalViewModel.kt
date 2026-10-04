@@ -982,27 +982,35 @@ constructor(
      */
     fun clearAppData(onComplete: () -> Unit) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            // 进程级 DataStore 单例与两个监视器仍在运行：删后必须重建，
-            // 否则下一次设置写入失败，且 `BootGuard` 计数器将静默写不进去
-            // （崩溃循环保护就此失效）。
-            val watchedDirs = listOf("prefs", "boot_state")
-            val undeletedWatchedDirs =
-                watchedDirs.filterNot { deletedOrAbsent(context.getDir(it, Context.MODE_PRIVATE)) }
-            // listFiles() 返回 null 是 I/O 失败而非「目录为空」：按未清除记账。
-            val cacheEntries = context.cacheDir.listFiles()
-            val undeletedCacheEntries =
-                cacheEntries?.filterNot { deletedOrAbsent(it) }?.map { it.name }
-                    ?: listOf("${context.cacheDir.name}(不可枚举)")
-            val survivors = undeletedWatchedDirs + undeletedCacheEntries
-            // 重建必须无条件执行：删除是逐目录独立的，`prefs` 删成功而 `boot_state`
-            // 残留时若就此返回，进程级 DataStore 单例将因父目录消失而写不进去，
-            // 此后所有设置写入全失败——比不清除更糟。
-            watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
-            if (survivors.isNotEmpty()) {
-                LogUtil.e("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
-                return@launch
+            // 先停掉防抖写入：用户在 300ms 窗口内改完 URL 就点清除，
+            // 落盘会发生在删除之后并重建 preferences_pb，清除静默不生效（R16-T6）。
+            settingsRepository.dropPendingBootstrapUrlEdits()
+            try {
+                // 进程级 DataStore 单例与两个监视器仍在运行：删后必须重建，
+                // 否则下一次设置写入失败，且 `BootGuard` 计数器将静默写不进去
+                // （崩溃循环保护就此失效）。
+                val watchedDirs = listOf("prefs", "boot_state")
+                val undeletedWatchedDirs =
+                    watchedDirs.filterNot { deletedOrAbsent(context.getDir(it, Context.MODE_PRIVATE)) }
+                // listFiles() 返回 null 是 I/O 失败而非「目录为空」：按未清除记账。
+                val cacheEntries = context.cacheDir.listFiles()
+                val undeletedCacheEntries =
+                    cacheEntries?.filterNot { deletedOrAbsent(it) }?.map { it.name }
+                        ?: listOf("${context.cacheDir.name}(不可枚举)")
+                val survivors = undeletedWatchedDirs + undeletedCacheEntries
+                // 重建必须无条件执行：删除是逐目录独立的，`prefs` 删成功而 `boot_state`
+                // 残留时若就此返回，进程级 DataStore 单例将因父目录消失而写不进去，
+                // 此后所有设置写入全失败——比不清除更糟。
+                watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
+                if (survivors.isNotEmpty()) {
+                    LogUtil.e("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
+                    return@launch
+                }
+                onComplete()
+            } finally {
+                // 无论成败都重新接受编辑：否则清除后用户再改 URL 永不落盘。
+                settingsRepository.rearmBootstrapUrlEdits()
             }
-            onComplete()
         }
     }
 
