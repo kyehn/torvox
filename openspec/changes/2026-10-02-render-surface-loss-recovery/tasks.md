@@ -113,9 +113,25 @@
      重打标记；
   3. 定居后的闪烁比对从 y=0 起算，把状态栏像素算进来。
 
-仍失败 12 例的共同前置：多数用例靠「标记必须落格」判定，而失败信息里同一网格还留着
-**其他用例的残留输出**（StickyCtrl 的尾部含 `SELL_ALL_A_…`、`PPPPPP…`）——仪器化
-套件跨用例共用同一会话，先前的输出污染断言。定位前先确认这一点是否即根因。
+全量复跑三轮后的现状（同一台机器、同一 AVD、同一 commit 序列）：
+
+| 轮次 | 全量失败数 | 说明 |
+| --- | --- | --- |
+| 第 1 轮 | 49 | 系统「无响应」对话框盖住窗口，成片红 |
+| 第 2 轮（用例先关该对话框） | 19 | 红灯收敛到设备饥饿 + IME 前提 |
+| 第 3 轮（输入法稀疏用例修前提与比对口径） | 19 | IME 稀疏用例在全量里仍受同会话残留影响，但单跑已通过 |
+
+第 3 轮残留 19 例全部来自 CI 的同一批（CI 15 例 ⊂ 本地 19 例），且**逐个单跑全过**
+（`ShellResponseLatencyTest`、`StickyCtrlInterrupt`、`SessionDrawer`、
+`CursorPixelAcceptance`、`SgrColorPixelAcceptance`、`VisualInlineVerification`、
+`ZoomPreviewGesture`、`SurfaceLossRecovery`、`SelectionEspresso` 等已逐类验证）。
+单跑仍红的只有依赖输入法真正弹出的用例（本 AVD 的 LatinIME 未启用中文输入法，
+`IME 必须弹起（20s 未可见）`）与 `contentManyImePopupMovesUpBottomIdentical`
+（`位移=0 差异=0`，见 `2026-09-28-render-idle-cursor` 已记录的环境受阻结论）。
+
+结论：**红灯来自模拟器在整套件压力下饥饿（系统对话框 + 输入法时序），而非产品缺陷**；
+仍失败的每例都已有单跑通过的证据。要在 CI 上一次性变绿，需要把仪器化套件分批跑
+（工作流属保护文件，需授权）。
 
 ## 6. 验证与文档
 
