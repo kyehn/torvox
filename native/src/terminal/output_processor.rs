@@ -9,9 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[derive(Debug, Default)]
 pub struct OutputSnapshot {
     pub filtered: Vec<u8>,
-    /// OSC 52 读取请求的选择器名，无请求为 None。
-    /// 同一块内多个请求为 last-wins：上游忽略读取且应用侧读取极低频，不设队列。
-    pub clipboard_read: Option<String>,
+    /// 本块内命中的 OSC 52 读取请求的选择器名（按序）。
+    /// 单槽 last-wins 会让被挤掉的请求永不作答、远端挂起直到超时（R21-T6），
+    /// 故保留全部；消费侧（会话队列 → 注册表上限）负责有界。
+    pub clipboard_reads: Vec<String>,
 }
 
 pub struct OutputProcessor {
@@ -206,7 +207,7 @@ impl ReadScan {
             );
         if let (Some(first), Some(second)) = (semis.next(), semis.next()) {
             let selection = String::from_utf8_lossy(&self.buf[first + 1..second]).into_owned();
-            snapshot.clipboard_read = Some(selection);
+            snapshot.clipboard_reads.push(selection);
         }
         self.buf.clear();
         self.state = ReadState::Ground;
@@ -260,7 +261,7 @@ mod tests {
     fn osc52_read_request_stripped_and_reported() {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"\x1b]52;c;?\x07");
-        assert_eq!(snapshot.clipboard_read.as_deref(), Some("c"));
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["c"]);
         assert!(
             snapshot.filtered.is_empty(),
             "read request must not reach the VT parser"
@@ -271,18 +272,28 @@ mod tests {
     fn osc52_read_request_st_terminator() {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"\x1b]52;p;?\x1b\\");
-        assert_eq!(snapshot.clipboard_read.as_deref(), Some("p"));
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["p"]);
         assert!(snapshot.filtered.is_empty());
+    }
+
+    /// R21-T6：同块内多个读请求必须全部保留（按序），单槽 last-wins 会让
+    /// 被挤掉的请求永不作答、远端挂起直到超时。
+    #[test]
+    fn osc52_multiple_read_requests_in_one_block_all_kept() {
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"\x1b]52;c;?\x07text\x1b]52;p;?\x07");
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["c", "p"]);
+        assert_eq!(snapshot.filtered, b"text");
     }
 
     #[test]
     fn osc52_read_request_split_across_chunks() {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"\x1b]52;c;");
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert!(snapshot.filtered.is_empty());
         let snapshot = processor.process(b"?\x07");
-        assert_eq!(snapshot.clipboard_read.as_deref(), Some("c"));
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["c"]);
         assert!(snapshot.filtered.is_empty());
     }
 
@@ -291,7 +302,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;c;SGVsbG8=\x07";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -304,7 +315,7 @@ mod tests {
         input.extend(std::iter::repeat_n(b'x', MAX_SCAN_BYTES + 8));
         input.extend_from_slice(b";?\x07");
         let snapshot = processor.process(&input);
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert_eq!(snapshot.filtered, input, "超限序列必须整段透传，不得丢字节");
     }
 
@@ -314,7 +325,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]7;file:///home/user\x07ab\x1b]8;;https://example.com\x07cd";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -324,7 +335,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;c;?abc\x07";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -333,7 +344,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;?\x07";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -342,7 +353,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"before\x1b]52;c;?\x07after");
         assert_eq!(snapshot.filtered, b"beforeafter");
-        assert_eq!(snapshot.clipboard_read.as_deref(), Some("c"));
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["c"]);
     }
 
     #[test]
@@ -351,7 +362,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b[31mred\x1b[0m";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_read.is_none());
+        assert!(snapshot.clipboard_reads.is_empty());
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -362,7 +373,7 @@ mod tests {
             let mut processor = OutputProcessor::new();
             let snapshot = processor.process(text.as_bytes());
             prop_assert_eq!(snapshot.filtered, text.as_bytes());
-            prop_assert!(snapshot.clipboard_read.is_none());
+            prop_assert!(snapshot.clipboard_reads.is_empty());
         }
     }
 }
