@@ -91,6 +91,36 @@ class BootstrapInstallerTest {
         return zipFile
     }
 
+    /**
+     * 清单类路径没有「目录条目」形态：`EXECUTABLES.txt` 的 `foo/..` 与
+     * `SYMLINKS.txt` 的同形项消解后都指向 staging 目录自身。只查
+     * [BootstrapInstaller.escapesStagingDir] 一个都不命中（它按契约把
+     * 消解为空判给调用方），故两处调用点必须另加该判据。
+     */
+    @Test
+    fun install_rejects_executable_and_symlink_paths_resolving_to_staging_itself() {
+        for (listing in listOf("EXECUTABLES.txt", "SYMLINKS.txt")) {
+            ZipOutputStream(zipFile.outputStream()).use { zos ->
+                zos.putNextEntry(ZipEntry("bin/bash"))
+                zos.write("#!/system/bin/sh\n".toByteArray())
+                zos.closeEntry()
+                zos.putNextEntry(ZipEntry(listing))
+                val body = if (listing == "EXECUTABLES.txt") "bin/..\n" else "bin/bash←bin/..\n"
+                zos.write(body.toByteArray())
+                zos.closeEntry()
+            }
+            val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+            val result = runBlocking { installer.install(zipFile) }
+
+            assertTrue("$listing must be refused", result.isFailure)
+            assertTrue(
+                "$listing rejection must name the unsafe path",
+                result.exceptionOrNull()?.message?.contains("..") == true,
+            )
+            assertFalse("no prefix may be published from $listing", prefixDir.exists())
+        }
+    }
+
     @Test
     fun install_extractsFilesAndCreatesSymlinksWithCorrectDirection() {
         val zip = buildFakeBootstrapZip(withSymlinks = true)

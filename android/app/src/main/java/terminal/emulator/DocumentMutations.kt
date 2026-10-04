@@ -123,6 +123,16 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val rawSource = File(root, sourceDocumentId)
         val effectiveSource =
             if (TerminalDocumentsProvider.isHomeLink(rawSource, root)) rawSource else source
+        // 与 moveDocument 同一守卫：复制目录进自己的子孙时 copyTreeInto 会把刚
+        // 复制的子树再当作源继续遍历，产出 a/b/a/b/… 直至 ENAMETOOLONG 或磁盘写满。
+        val effectiveSourceCanonical = effectiveSource.canonicalFile.path
+        val targetParentCanonical = targetParent.canonicalFile.path
+        if (
+            targetParentCanonical == effectiveSourceCanonical ||
+            targetParentCanonical.startsWith(effectiveSourceCanonical + File.separator)
+        ) {
+            throw IOException("Refusing to copy a directory into its own descendant")
+        }
         val target = copyTree(effectiveSource, targetParent)
         notifyChildren(targetParentDocumentId)
         val newId = TerminalDocumentsProvider.encodeDocId(target, root)
