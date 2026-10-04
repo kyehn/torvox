@@ -41,13 +41,13 @@ interface TerminalQueryPort {
     fun hyperlinkAt(row: Int, col: Int): String?
 
     /**
-     * 网格列 → 该列所属字符的起始列：宽字符尾格左移一格，其余原样返回。
+     * 该行中作为宽字符后半格的列号，升序；无宽字符或查询失败时为空数组（不吸附）。
      *
      * [scrollbackLine] 每列恰好一个字符（宽字符尾格为空格占位），行文本因此**无法**
-     * 区分尾格与真空白，吸附判定只能取自网格单元宽度这一事实。会话不存在或查询
-     * 失败时原生返回传入的列，不猜。
+     * 区分尾格与真空白，吸附判定只能取自网格单元宽度这一事实。一次取整行而非逐列
+     * 查询：手柄拖动的每个 MOVE 都要吸附。
      */
-    fun cellCharStartCol(row: Int, col: Int): Int
+    fun wideCharTailCols(row: Int): IntArray
     fun getDefaultFontName(): String
     fun getFontInfo(): String?
 }

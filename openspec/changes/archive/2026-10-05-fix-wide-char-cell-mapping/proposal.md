@@ -35,11 +35,13 @@ Kotlin 的累加模型在第一个宽字符之后就整体左移一格，用户�
 
 ## What Changes
 
-- 原生新增只读查询 `cell_char_start_col`：经 `grid_ref().cell().wide()` 判定
-  `SpacerTail`，返回该列所属字符的起始列。复用既有 `absolute_point` 空间解析，
-  无新逻辑、不新增状态。
+- 原生新增只读查询 `wide_char_tail_cols(row)`：经 `grid_ref().cell().wide()` 标出该行
+  全部 `SpacerTail` 列。复用既有 `absolute_point` 空间解析，无新逻辑、不新增状态。
+  按行而非按列：吸附在手柄拖动的每个 MOVE 都要做，按列查询会把一次发往 VT 线程的
+  同步往返压到每个触摸帧上（典型延迟 0–50ms，见 design 2.1）。
 - `TerminalSurface` 的宽字符吸附改走该查询；长按分类先把落点吸附到字符起始列再判空白。
-  手柄拖动不再需要为吸附取整行文本，跨 JNI 的整行拷贝与配套的行缓存/TTL 状态一并删除。
+  跨 JNI 的整行文本拷贝换成列号数组，TTL 一并删除（两个调用点都在拖动会话内，
+  旧 TTL 因会话标志恒真而从未生效）。
 - `isWhitespaceCell` 改为按列直接取字符（`line[col]`），并删除 `charIndexAtCellColumn`、
   `snapColToWideChar` 与整个 `util/TextWidth.kt`（含其单测）——手写 wcwidth 失去最后
   一个调用点。

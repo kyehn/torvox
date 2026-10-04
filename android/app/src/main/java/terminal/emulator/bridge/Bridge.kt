@@ -657,8 +657,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun selectAll(): IntArray? = onQuery("selectAll", null) { queryPort.selectAll() }
 
-    override fun cellCharStartCol(row: Int, col: Int): Int = onQuery("cellCharStartCol", col) {
-        queryPort.cellCharStartCol(row, col)
+    override fun wideCharTailCols(row: Int): IntArray = onQuery("wideCharTailCols", IntArray(0)) {
+        queryPort.wideCharTailCols(row)
     }
 
     override fun getDefaultFontName(): String = onQuery("getDefaultFontName", "") { queryPort.getDefaultFontName() }

@@ -1449,6 +1449,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     internal fun finishHandleDrag() {
         handleDragState = HandleDrag.NONE
         dragPointerId = null
+        wideCharDragSession = false
         viewModel?.commitDragBounds()
         viewModel?.endSelection()
         lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
@@ -1551,14 +1552,35 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 把列吸附到宽字符边界：当 `col` 落在宽字符的后半部分时回退一格，
      * 使选区手柄绝不把一个宽字符从中间切开。
      *
-     * 判定取自网格单元宽度（原生 `cellCharStartCol`）：[Bridge.scrollbackLine] 每列
-     * 恰好一个字符，宽字符尾格在该字符串里是空格占位，与真空白不可区分——按文本反推
-     * 必然出错。查询只传两个整数，不回传行文本，故无需行缓存。
+     * 判定取自网格单元宽度（原生 [Bridge.wideCharTailCols]）：[Bridge.scrollbackLine]
+     * 每列恰好一个字符，宽字符尾格在该字符串里是空格占位，与真空白不可区分——
+     * 按文本反推必然出错。
+     *
+     * 整行的尾格列在一次拖动会话内只查一次：吸附在每个 MOVE 帧都要做，而该查询是
+     * 发往 VT 线程的同步往返（空闲时最坏约一个 50ms 查询节拍）。行只经边缘滚动变化，
+     * 而那本身会换行号并重新取数。
      */
     private fun snapToWideCharBoundary(gridRow: Int, col: Int): Int {
-        val bridge = viewModel?.runtime?.bridge() ?: return col
-        return bridge.cellCharStartCol(gridRow, col)
+        if (col <= 0) return col
+        val tailCols = wideCharTailCols(gridRow)
+        return if (tailCols.contains(col)) col - 1 else col
     }
+
+    /** 拖动会话内 [snapToWideCharBoundary] 的单项缓存：一次取整行，逐帧复用。 */
+    private fun wideCharTailCols(gridRow: Int): IntArray {
+        val bridge = viewModel?.runtime?.bridge() ?: return IntArray(0)
+        if (wideCharDragSession && gridRow == cachedWideCharTailRow) return cachedWideCharTailCols
+        val tailCols = bridge.wideCharTailCols(gridRow)
+        cachedWideCharTailRow = gridRow
+        cachedWideCharTailCols = tailCols
+        return tailCols
+    }
+
+    private var cachedWideCharTailRow = -1
+    private var cachedWideCharTailCols: IntArray = IntArray(0)
+
+    /** 拖动会话进行中：期间只按行号复用缓存，抬手即失效（行内容可能已被新输出改写）。 */
+    private var wideCharDragSession = false
 
     private fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
         handleDragState = which
@@ -1572,6 +1594,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         dragAltScreenSnapshot =
             runCatchingCancellable { viewModel?.runtime?.bridge()?.isAltScreenActive() ?: false }
                 .getOrDefault(false)
+        wideCharDragSession = true
         // 在拖动开始时只调用一次 setSelectionDragging(true)，
         // 使渲染线程抑制新输出引起的滚动复位。原先在 dragSelection 内
         // 按每个 MOVE 调用——鉴于它是幂等的，那纯属浪费。
@@ -1907,7 +1930,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val gridRow = currentViewportTopGrid() + row
         // 落点先吸附到字符起始列：宽字符后半格在行文本里是空格占位，不吸附就会被
         // 当成空白而弹出仅粘贴菜单，长按整个字都选不中。
-        val col = bridge?.cellCharStartCol(gridRow, rawCol) ?: rawCol
+        val col = snapToWideCharBoundary(gridRow, rawCol)
 
         // 我们则落到单格反色 + 粘贴菜单。
         val line = bridge?.scrollbackLine(gridRow)
@@ -2528,6 +2551,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
                 handleDragState = HandleDrag.NONE
                 dragPointerId = null
+                wideCharDragSession = false
                 try {
                     magnifier?.dismiss()
                 } catch (exception: Exception) {
@@ -2673,6 +2697,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 覆盖层已消失故不会再有 UP 到达；陈旧的锁定只能靠下一次触摸自愈。
         handleDragState = HandleDrag.NONE
         dragPointerId = null
+        wideCharDragSession = false
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
         // 仅在渲染线程被 join 之后才释放 Android Surface。

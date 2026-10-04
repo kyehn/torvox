@@ -18,18 +18,28 @@
 
 ## 2. 查询契约
 
-`cell_char_start_col(row, col) -> u32`：
+`wide_char_tail_cols(row) -> Vec<u32>`：该行中作为宽字符后半格（`SpacerTail`）的列号，升序。
 
-- `col == 0` 或网格坐标不可解析 → 原样返回 `col`（列 0 无前驱，越界无从吸附）。
-- 单元为 `SpacerTail` → 返回 `col - 1`。
-- 其余（`Wide` 起始格、`Narrow`、`SpacerHead`、读取失败）→ 原样返回 `col`。
+- 单元为 `SpacerTail` → 收录该列。
+- 其余（`Wide` 起始格、`Narrow`、`SpacerHead`、读取失败）→ 不收录。
 
-`SpacerHead` 不左移：它出现在**续行**的行首，该行前一列属于软换行前的上一行，
-把它左移会把选区跨过折行边界。`cell_columns`（既有，`internal.rs`）只把
+调用方据此吸附：`tail.contains(col) ? col - 1 : col`。
+
+`SpacerHead` 不收录：它出现在**续行**的行首，该行前一列属于软换行前的上一行，
+把它当尾格会把选区跨过折行边界。`cell_columns`（既有，`internal.rs`）只把
 `SpacerHead`/`SpacerTail` 一并判为无列宽单元；本查询需要区分二者，故不复用它。
 
 失败路径（通道满/超时）沿用 `GhosttyTerminal::query` 既有的 `fallback` 参数，
-此处传 `col` 本身——查询失败时保持原列，不猜。
+此处传空 vec——等价于「无吸附」，保持原列，不猜。
+
+### 2.1 为什么按行而非按列
+
+初版是逐列的 `cell_char_start_col(row, col)`。自查发现它把一次发往 VT 线程的
+**同步**往返（`QUERY_TIMEOUT_MS = 500ms`，VT 循环空闲时每 50ms 才排一次查询，
+故典型延迟 0–50ms）压到了**手柄拖动的每个 MotionEvent MOVE** 上——而旧实现
+因拖动会话内命中行缓存，整个拖动只发一次 `scrollbackLine`。改按行后，一次查询
+覆盖整行，拖动内每个 MOVE 只是对 ≤ 列数个 int 的线性查找；缓存的生命周期
+（拖动会话标志 + 行号）不变，只是缓存对象由整行文本换成列号数组。
 
 ## 3. 删除项
 
@@ -39,9 +49,11 @@
 ZWJ（U+200D）、变体选择符（U+FE00..FE0F）一律按一格计，而 Ghostty 按零宽处理，
 只要网格是唯一来源就不会再出现这类分歧。
 
-## 4. 被删除的缓存状态
+## 4. 缓存状态的取舍
 
-现状为让吸附在拖动期间不发 JNI 请求，缓存整行文本 + 500ms TTL + 拖动会话标志
-（`cachedWideCharLineRow` / `cachedWideCharLine` / `cachedWideCharLineAtMs` /
-`dragWideCharCacheSession` / `WIDE_CHAR_CACHE_TTL_MS`，共 5 处状态）。新查询只传
-两个整数、不回传行文本，缓存失去存在理由，连同拖动会话的置位/清除一并删除。
+原状用 5 处状态（`cachedWideCharLineRow` / `cachedWideCharLine` /
+`cachedWideCharTimeMs` / `dragWideCharCacheSession` / `WIDE_CHAR_CACHE_TTL_MS`）
+缓存整行文本，让拖动期间零 JNI 调用。改按行查询后缓存的生命周期不变（拖动会话
+标志 + 行号），但缓存对象由整行 `String` 换成 `IntArray`，并删掉 TTL——两个调用点
+（`dragTargetFromTouch` / `updateDragHandleForCell`）都在拖动会话内，TTL 在旧实现
+里因 `dragWideCharCacheSession` 恒真而从未生效。
