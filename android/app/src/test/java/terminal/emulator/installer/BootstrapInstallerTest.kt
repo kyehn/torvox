@@ -404,24 +404,6 @@ class BootstrapInstallerNormalizePathTest {
         )
 
     @Test
-    fun normalizePath_removes_dot_segments() {
-        assertEquals(
-            "include/term_entry.h",
-            installer.normalizePath("./include/ncurses/../term_entry.h"),
-        )
-        assertEquals("bin/bash", installer.normalizePath("bin/./bash"))
-        assertEquals("a/b", installer.normalizePath("a//b"))
-    }
-
-    @Test
-    fun normalizePath_keeps_leading_escape() {
-        // Multiple leading ".." segments are preserved (they escape staging).
-        assertEquals("../../escape", installer.normalizePath("../../escape"))
-        // a/../../b resolves to../b (one level escapes after consuming a).
-        assertEquals("../b", installer.normalizePath("a/../../b"))
-    }
-
-    @Test
     fun escapesStagingDir_resolves_dot_segments_before_judging() {
         // `File("foo/..").path` 仍是 "foo/.."，此前四个前缀条件一个都不命中。
         assertTrue(installer.escapesStagingDir("../etc/passwd"))
@@ -430,19 +412,32 @@ class BootstrapInstallerNormalizePathTest {
         assertTrue(installer.escapesStagingDir("/etc/passwd"))
         assertFalse(installer.escapesStagingDir("bin/sh"))
         assertFalse(installer.escapesStagingDir("libexec/../bin/sh"))
+        // 段级比较：`..foo` 是普通文件名，不得被字符串前缀误判成 `..`。
+        assertFalse(installer.escapesStagingDir("..foo/bar"))
     }
 
     @Test
-    fun normalizePath_absolute_stays_absolute() {
-        assertEquals("/etc/passwd", installer.normalizePath("/etc/passwd"))
-        assertEquals("/etc/passwd", installer.normalizePath("/etc/../etc/passwd"))
+    fun escapesStagingDir_keeps_leading_escape_segments() {
+        assertTrue(installer.escapesStagingDir("../../escape"))
+        // a/../../b 消解后剩 ../b（吃掉 a 后仍逃出一层）。
+        assertTrue(installer.escapesStagingDir("a/../../b"))
+        assertFalse(installer.escapesStagingDir("a/../b"))
+    }
+
+    @Test
+    fun resolvesToStagingRoot_catches_paths_folding_back_to_staging() {
+        // 消解后无任何段：作用对象其实是 staging 目录自身。
+        assertTrue(installer.resolvesToStagingRoot("foo/.."))
+        assertTrue(installer.resolvesToStagingRoot("."))
+        assertFalse(installer.resolvesToStagingRoot("include/ncurses/term_entry.h"))
     }
 
     @Test
     fun termux_style_target_resolves_inside_staging() {
         // link=./include/ncurses/term_entry.h target=../term_entry.h
-        val resolved = installer.normalizePath("./include/ncurses/../term_entry.h")
-        assertEquals("include/term_entry.h", resolved)
-        assertFalse("resolved target escapes staging", resolved.startsWith("../"))
+        assertFalse(
+            "resolved target escapes staging",
+            installer.escapesStagingDir("./include/ncurses/../term_entry.h"),
+        )
     }
 }

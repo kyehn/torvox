@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.Paths
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
@@ -155,7 +156,7 @@ class BootstrapInstaller(
             // 清单里没有「目录条目」形态，故与 zip 处的附加判据同形：
             // 消解后为空（`foo/..`、`.`）意味着目标其实是 staging 目录自身，
             // chmod 到目录上会让它带着 0755 进入 prefix。
-            if (escapesStagingDir(executable) || normalizePath(executable).isEmpty()) {
+            if (escapesStagingDir(executable) || resolvesToStagingRoot(executable)) {
                 throw java.io.IOException("Unsafe executable path: $executable")
             }
             try {
@@ -183,7 +184,7 @@ class BootstrapInstaller(
             // （例如覆盖 prefs/logs）。
             // 消解后为空表示条目指向 staging 根：目录条目（`./`）只是无害空操作，
             // 但作为普通文件写出时目标其实是 staging 目录自身，必须拒绝。
-            if (escapesStagingDir(name) || (!entry.isDirectory && normalizePath(name).isEmpty())) {
+            if (escapesStagingDir(name) || (!entry.isDirectory && resolvesToStagingRoot(name))) {
                 throw java.io.IOException("Unsafe zip entry name: $name")
             }
             if (name == "SYMLINKS.txt") {
@@ -245,45 +246,30 @@ class BootstrapInstaller(
 
     internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
 
-    /** Resolve `.`/`..` segments without touching the filesystem. */
-    internal fun normalizePath(path: String): String {
-        val absolute = path.startsWith("/")
-        val stack = ArrayDeque<String>()
-        for (part in path.split('/')) {
-            when (part) {
-                "",
-                ".",
-                -> {}
-
-                ".." -> {
-                    if (stack.isNotEmpty() && stack.last() != "..") {
-                        stack.removeLast()
-                    } else {
-                        stack.addLast("..")
-                    }
-                }
-
-                else -> stack.addLast(part)
-            }
-        }
-        val joined = stack.joinToString("/")
-        return if (absolute) "/$joined" else joined
-    }
-
     /**
-     * 归档内路径是否逃出 staging 目录：zip 条目名、`EXECUTABLES.txt` 的可执行文件、
-     * `SYMLINKS.txt` 的链接路径三处共用同一判定。
+     * 归档内路径是否逃出 staging 目录：绝对路径，或消解 `.`/`..` 后以 `..` 段开头。
      *
-     * 必须真正消解 `.`/`..` 段后再看结果。此前只对原始字符串判前缀，而
+     * 必须真正消解点段后再看结果。此前只对原始字符串判前缀，而
      * `File("foo/..").path` 仍是 `foo/..`，四个前缀条件一个都不命中——
-     * 该条目随后被当作普通文件写出，目标其实是 staging 目录自身。
-     * 解析回 staging 根（消解后为空）由调用方按条目种类单独判定，见 zip 条目处。
+     * 该条目随后被当作普通文件写出，目标其实是 staging 目录自身（见
+     * [resolvesToStagingRoot]）。
+     *
+     * 用 [Path.normalize] 消解、[Path.startsWith] 按**路径元素**比较：
+     * 字符串前缀会把 `..foo` 误判成 `..`。
      */
     internal fun escapesStagingDir(path: String): Boolean {
         if (path.startsWith("/")) return true
-        val normalized = normalizePath(path)
-        return normalized == ".." || normalized.startsWith("../")
+        return Paths.get(path).normalize().startsWith("..")
     }
+
+    /**
+     * 消解 `.`/`..` 后是否正好落在 staging 目录自身（`foo/..`、`.`）。
+     * 落在自身时 chmod/symlink/文件写出都会作用于 staging 目录，必须拒绝。
+     *
+     * 消解到底的结果是 `Path` 的空路径单例；它自报 `nameCount == 1`，
+     * 故只能与 [Paths.get] 的空路径比较，不能数段。
+     */
+    internal fun resolvesToStagingRoot(path: String): Boolean = Paths.get(path).normalize() == Paths.get("")
 
     internal fun parseSymlinks(content: String): List<Pair<String, String>> = content
         .lines()
@@ -298,7 +284,7 @@ class BootstrapInstaller(
             // 符号链接路径逃逸防护（与 zip 条目名同一规则）：
             // 恶意 SYMLINKS.txt 绝不能创建 staging 目录之外的链接，
             // 也不得让链接落在 staging 目录自身（`foo/..`）。
-            if (escapesStagingDir(linkPath) || normalizePath(linkPath).isEmpty()) {
+            if (escapesStagingDir(linkPath) || resolvesToStagingRoot(linkPath)) {
                 throw java.io.IOException("Unsafe symlink path: $linkPath")
             }
             // 目标同样由攻击者控制。拒绝绝对路径与路径穿越，使链接不能指向
@@ -342,10 +328,9 @@ class BootstrapInstaller(
             } else {
                 val linkParent = File(linkPath).parent
                 val resolvedTarget = if (linkParent != null) File(linkParent, target).path else target
-                // Java 的 File.path 不会规范化 ".." 段
-                // （File("a/../b").path == "a/../b"），故在逃逸检查前手动解析。
-                val normalizedResolved = normalizePath(resolvedTarget)
-                if (normalizedResolved.startsWith("../") || normalizedResolved == "..") {
+                // File.path 不消解 ".." 段（File("a/../b").path == "a/../b"），
+                // 故先用 Path.normalize 消解，再按路径元素判是否逃出 staging。
+                if (Paths.get(resolvedTarget).normalize().startsWith("..")) {
                     throw java.io.IOException("Unsafe symlink target: $target")
                 }
             }
