@@ -776,10 +776,10 @@ impl FontPipeline {
     pub fn list_monospace_fonts(&self) -> Vec<String> {
         #[cfg(target_os = "android")]
         {
-            return super::font_db::family_index()
+            super::font_db::family_index()
                 .iter()
                 .map(|entry| entry.display_name.clone())
-                .collect();
+                .collect()
         }
         #[cfg(not(target_os = "android"))]
         {

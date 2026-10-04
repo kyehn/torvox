@@ -205,9 +205,15 @@ class SecondStageRunner(
             }
             return false
         } catch (exception: Exception) {
-            errors.add(
-                "$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}",
-            )
+            // 与超时/非零退出同一判据：只有末次尝试才记入 errors，
+            // 否则「首运异常、重试自愈」会被误报为安装失败。
+            val report =
+                "$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}"
+            if (attempt + 1 >= POSTINST_MAX_ATTEMPTS) {
+                errors.add(report)
+            } else {
+                LogUtil.w("SecondStageRunner", "$report — retrying once")
+            }
             return false
         }
     }
