@@ -529,12 +529,7 @@ constructor(
     private fun handleSessionExit(
         entry: SessionEntry,
         exitCode: Int?,
-        // 原生测得的子进程存活时长（毫秒）。本函数不消费它：
-        // `[Process completed]` 提示按 Termux 只含退出码。整条 alive_ms 链路
-        // （原生测量 → 事件序列化 → 本形参）当前无人消费，已登记在台账待清理。
-        aliveMs: Long,
     ) {
-        LogUtil.d("Runtime", "session ${entry.id} alive ${aliveMs}ms before exit")
         // 启动入口失败不得回退：shell 退出即走 [Process completed] 提示，
         // 输出保留显示，由用户确认关闭。
         // 本函数既用于 shell 首次退出（poll.exit 分支），也用于用户在 [Process completed]
@@ -1234,7 +1229,7 @@ constructor(
                                     // ——writeToPty 只发信号；关闭路径在此渲染线程上执行，
                                     // 避免在存活的渲染循环下销毁 bridge。
                                     if (entry.processCompletedConfirmed) {
-                                        handleSessionExit(entry, entry.processExitCode, 0L)
+                                        handleSessionExit(entry, entry.processExitCode)
                                         break
                                     }
                                     try {
@@ -1481,13 +1476,12 @@ constructor(
                                                         handleSessionExit(
                                                             exitedEntry,
                                                             poll.exitCode,
-                                                            poll.exitAliveMs,
                                                         )
                                                     }
                                                 } else {
                                                     // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；
                                                     // 渲染监视器跳过 !running 的条目，因而绝不会回收已退出会话。
-                                                    handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
+                                                    handleSessionExit(entry, poll.exitCode)
                                                 }
                                                 // 两个分支共用：回收同一帧内退出的其他会话
                                                 // （首个已在上方处理）。它们的原生 exit_reported
@@ -1510,7 +1504,6 @@ constructor(
                                                             handleSessionExit(
                                                                 extra,
                                                                 exitInfo.exitCode,
-                                                                exitInfo.exitAliveMs,
                                                             )
                                                         }
                                                     }

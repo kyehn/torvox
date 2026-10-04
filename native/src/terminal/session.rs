@@ -144,11 +144,6 @@ pub struct Session {
     // ── 运行态 ───────────────────────────────────────────────────────
     /// 来自 waitpid 的退出码；进程运行中为 [ExitCodeSlot::Pending]。
     exit_code: Arc<Mutex<ExitCodeSlot>>,
-    /// 子进程存活时长（毫秒，fork → waitpid），由等待线程在退出时写入，
-    /// 随 Exit 事件载荷作诊断用。
-    pub(crate) exit_alive_ms: Arc<Mutex<Option<u64>>>,
-    /// fork 时间戳，即 [Self::exit_alive_ms] 的起点。
-    spawned_at: std::time::Instant,
 
     // ── 缓存的网格尺寸 ───────────────────────────────────────────────
     /// 最近已知的终端网格尺寸，spawn 与成功 resize 时更新。`ffi::switch_session_inner`
@@ -318,14 +313,10 @@ impl Session {
         });
 
         let exit_code = session.exit_code.clone();
-        let exit_alive_ms = session.exit_alive_ms.clone();
-        let spawned_at = session.spawned_at;
         let exited_wait = exited.clone();
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
-            // 记录子进程真实存活时长（fork → waitpid）供 Exit 事件诊断载荷使用。
-            *exit_alive_ms.lock() = Some(spawned_at.elapsed().as_millis() as u64);
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
                 && code >= 100
             {
@@ -408,8 +399,6 @@ impl Session {
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(ExitCodeSlot::Pending)),
-            exit_alive_ms: Arc::new(Mutex::new(None)),
-            spawned_at: std::time::Instant::now(),
             terminal_rows: AtomicU32::new(rows),
             terminal_cols: AtomicU32::new(cols),
             grid_dirty: AtomicBool::new(false),

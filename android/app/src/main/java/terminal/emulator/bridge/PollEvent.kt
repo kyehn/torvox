@@ -28,8 +28,6 @@ sealed class PollEvent {
          * 序列化为显式 `null`，故真实事件永远带该字段。
          */
         val code: Int?,
-        // 原生测得的子进程存活时长（毫秒，fork → waitpid）。
-        @SerialName("alive_ms") val aliveMs: Long = 0,
     ) : PollEvent()
 
     @Serializable

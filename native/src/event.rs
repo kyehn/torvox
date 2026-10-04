@@ -31,9 +31,6 @@ pub enum Event {
         /// 退出码；`None` 表示子进程已退出但码无从取得（`waitpid` 失败），序列化为
         /// JSON `null`。绝不用 0 顶替——那会把一次原因不明的死亡说成正常退出。
         code: Option<i32>,
-        /// 子进程实际存活时长（毫秒，fork 到 waitpid），原生侧测量不受 Kotlin 事件
-        /// 处理延迟影响，仅作诊断载荷。
-        alive_ms: u64,
     },
     /// OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）：宿主读系统剪贴板后经
     /// `clipboardResult()` JNI 应答，Rust 写回 PTY。携带请求的 selection 名。
@@ -203,7 +200,6 @@ mod tests {
         queue.push(Event::Exit {
             session_id: 2,
             code: Some(0),
-            alive_ms: 10,
         });
         queue.push(Event::Clipboard {
             session_id: 3,
@@ -225,7 +221,6 @@ mod tests {
             Some(Event::Exit {
                 session_id: 2,
                 code: Some(0),
-                alive_ms: 10
             })
         );
         assert_eq!(
@@ -280,7 +275,6 @@ mod tests {
             queue.push(Event::Exit {
                 session_id: session_sequence as u64,
                 code: Some(0),
-                alive_ms: 10,
             });
         }
         queue.push(Event::Clipboard {
@@ -316,7 +310,6 @@ mod tests {
         queue.push(Event::Exit {
             session_id: 42,
             code: Some(7),
-            alive_ms: 10,
         });
         // 队列已满；新事件应淘汰最旧的（session 0），而非 Exit。
         queue.push(Event::Clipboard {
@@ -336,7 +329,6 @@ mod tests {
         assert!(popped.contains(&Event::Exit {
             session_id: 42,
             code: Some(7),
-            alive_ms: 10
         }));
         assert_eq!(
             popped[MAX_QUEUED_EVENTS - 1],
@@ -405,14 +397,12 @@ mod tests {
         queue.push(Event::Exit {
             session_id: 1,
             code: Some(0),
-            alive_ms: 10,
         });
         assert_eq!(
             queue.pop(),
             Some(Event::Exit {
                 session_id: 1,
                 code: Some(0),
-                alive_ms: 10
             })
         );
         assert_eq!(queue.pop(), None);
@@ -442,13 +432,9 @@ mod exit_tests {
         let json = serde_json::to_string(&Event::Exit {
             session_id: 3,
             code: Some(137),
-            alive_ms: 42,
         })
         .expect("exit serializes");
-        assert_eq!(
-            json,
-            r#"{"event":"exit","session_id":3,"code":137,"alive_ms":42}"#
-        );
+        assert_eq!(json, r#"{"event":"exit","session_id":3,"code":137}"#);
     }
 
     #[test]
@@ -459,12 +445,8 @@ mod exit_tests {
         let json = serde_json::to_string(&Event::Exit {
             session_id: 3,
             code: None,
-            alive_ms: 42,
         })
         .expect("exit serializes");
-        assert_eq!(
-            json,
-            r#"{"event":"exit","session_id":3,"code":null,"alive_ms":42}"#
-        );
+        assert_eq!(json, r#"{"event":"exit","session_id":3,"code":null}"#);
     }
 }

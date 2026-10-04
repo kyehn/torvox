@@ -1155,13 +1155,13 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     // 退出码在会话锁内就地判定：只读一次 Mutex，不再有原先「先锁存上报标志、再忙等
     // 最多 100ms 取码」的两段式——那会在渲染线程上引入可见停顿，且超时只能上报
     // 伪造的 0。改为每帧问一次「退出了吗」，未就绪就下一帧再问，零阻塞。
-    let mut pending_exits: Vec<(u64, crate::terminal::session::ReportedExit, u64)> = Vec::new();
+    let mut pending_exits: Vec<(u64, crate::terminal::session::ReportedExit)> = Vec::new();
     // 剪贴板/退出的轮询对活跃会话与所有后台会话完全相同，共用同一实现。
     let collect_session_events =
         |session_id: u64,
          session: &mut Session,
          events: &mut Vec<Event>,
-         exits: &mut Vec<(u64, crate::terminal::session::ReportedExit, u64)>| {
+         exits: &mut Vec<(u64, crate::terminal::session::ReportedExit)>| {
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
             }
@@ -1172,11 +1172,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             // 退出码就绪才上报（`take_reported_exit` 内部同时锁存「已上报」），后台扫描
             // 分支走同一判定：既保证退出事件恰好一次，也保证报出的是真实退出码。
             if let Some(reported) = session.take_reported_exit() {
-                exits.push((
-                    session_id,
-                    reported,
-                    session.exit_alive_ms.lock().unwrap_or(0),
-                ));
+                exits.push((session_id, reported));
             }
         };
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
@@ -1255,14 +1251,13 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         }
     }
 
-    for (id, reported, alive_ms) in pending_exits {
+    for (id, reported) in pending_exits {
         pending_events.push(Event::Exit {
             session_id: id,
             code: match reported {
                 crate::terminal::session::ReportedExit::Code(code) => Some(code),
                 crate::terminal::session::ReportedExit::Unknown => None,
             },
-            alive_ms,
         });
     }
     // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。

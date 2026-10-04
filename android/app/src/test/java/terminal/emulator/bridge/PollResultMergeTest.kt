@@ -16,7 +16,6 @@ class PollResultMergeTest {
     private fun exitResult(sessionId: Long, exitCode: Int) = Bridge.PollResult(
         exit = true,
         exitCode = exitCode,
-        exitAliveMs = 1234L,
         sessionId = sessionId,
     )
 
@@ -30,7 +29,6 @@ class PollResultMergeTest {
         assertTrue(merged.exit)
         assertEquals(7, merged.sessionId)
         assertEquals(0, merged.exitCode)
-        assertEquals(1234L, merged.exitAliveMs)
     }
 
     @Test
@@ -40,7 +38,6 @@ class PollResultMergeTest {
         val merged = first.merge(later)
         assertEquals(7, merged.sessionId)
         assertEquals(1, merged.exitCode)
-        assertEquals(1234L, merged.exitAliveMs)
     }
 
     @Test

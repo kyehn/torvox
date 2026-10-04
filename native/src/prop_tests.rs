@@ -93,7 +93,6 @@ fn event_queue_exit_survives_overflow() {
                     queue.push(Event::Exit {
                         session_id: t as u64,
                         code: Some(0),
-                        alive_ms: 0,
                     });
                 }));
             }
