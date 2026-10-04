@@ -43,10 +43,10 @@ internal class DocumentQueries(private val context: Context) {
         // 包含性复用 isHomeLink（规范解析父目录 + 原名，既不跟随链接也真正消解 ".."）：
         // 此处曾用词法 Path.normalize 自行判断，那既不消解 ".."，也与 isHomeLink
         // 重复，同一条规则的两套实现迟早分叉。
+        // 非链接：decodeDocId 内部已做根内校验并返回规范化的 File，
+        // 此处再判一次只是对同一个已规范化路径多两次文件系统往返。
         if (!TerminalDocumentsProvider.isHomeLink(linkCandidate, rootDir)) {
-            val decoded = TerminalDocumentsProvider.decodeDocId(documentId, rootDir)
-            TerminalDocumentsProvider.requireInsideRoot(decoded, rootDir)
-            return decoded
+            return TerminalDocumentsProvider.decodeDocId(documentId, rootDir)
         }
         return linkCandidate
     }

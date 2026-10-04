@@ -226,13 +226,23 @@ internal data class SessionEntry(
      */
     @Volatile var surfaceInvalidated: Boolean = false
 
-    /** 已发出的 surface 重建请求次数与上次请求时刻（纳秒），用于间隔限流与次数上限。 */
-    @Volatile var surfaceRecreateAttempts: Int = 0
+    /**
+     * 换视图预算：已请求次数、上次请求时刻（纳秒）与「上限已告警」标志。
+     *
+     * 三项是一条逻辑记录，由渲染线程与 `surfaceTransitionExecutor` 线程各自成组读写。
+     * 放进同一个 `@Volatile` 持有者，买到的是**一致读**：`attempts` 与 `lastRequestNanos`
+     * 必定来自同一次递增，不会出现「第 N 次的时刻配第 N+1 次的次数」。
+     * 注意读-改-写本身仍是跨线程的（`maybeRequestSurfaceRecreate` 读快照后写回），
+     * 期间落地的复位仍会被本次写回覆盖——那是 R22 记在案的独立待办。
+     */
+    @Volatile var surfaceRecreateBudget: SurfaceRecreateBudget = SurfaceRecreateBudget()
 
-    @Volatile var surfaceRecreateLastRequestNanos: Long = 0L
-
-    /** 次数上限已用尽且已告警——避免每帧重复打同一条日志。 */
-    @Volatile var surfaceRecreateExhaustedLogged: Boolean = false
+    /** 不可变的换视图预算快照；替换整条记录即为原子复位。 */
+    data class SurfaceRecreateBudget(
+        val attempts: Int = 0,
+        val lastRequestNanos: Long = 0L,
+        val exhaustedLogged: Boolean = false,
+    )
 
     /**
      * 逐像素滚动余量（px，正值 = 内容下移），由渲染线程与 [scrollOffset] 一同取用。
@@ -763,10 +773,12 @@ constructor(
      */
     private fun maybeRequestSurfaceRecreate(entry: SessionEntry) {
         val now = System.nanoTime()
-        val decision = decideSurfaceRecreate(entry.surfaceRecreateAttempts, entry.surfaceRecreateLastRequestNanos, now)
+        // 一次取出整条预算：拆分字段时读到的次数与时刻可能来自两次不同的复位/递增。
+        val budget = entry.surfaceRecreateBudget
+        val decision = decideSurfaceRecreate(budget.attempts, budget.lastRequestNanos, now)
         if (decision.exhausted) {
-            if (!entry.surfaceRecreateExhaustedLogged) {
-                entry.surfaceRecreateExhaustedLogged = true
+            if (!budget.exhaustedLogged) {
+                entry.surfaceRecreateBudget = budget.copy(exhaustedLogged = true)
                 LogUtil.e(
                     TAG,
                     "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS recreate attempts exhausted; " +
@@ -776,8 +788,7 @@ constructor(
             return
         }
         if (!decision.request) return
-        entry.surfaceRecreateAttempts += 1
-        entry.surfaceRecreateLastRequestNanos = now
+        entry.surfaceRecreateBudget = budget.copy(attempts = budget.attempts + 1, lastRequestNanos = now)
         // 快照状态在主线程写：组合的重算调度与主线程一致，跨线程写只会让换视图延迟到
         // 下一次读，且无法保证与界面重建同帧完成。
         mainHandler.post {
@@ -788,7 +799,9 @@ constructor(
         }
         LogUtil.w(
             TAG,
-            "surface invalidated (attempt ${entry.surfaceRecreateAttempts}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
+            // 报刚才写下的那次计数，而不是重新读 volatile——并发复位会让日志
+            // 印出一个从未请求过的次数。
+            "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
                 "requesting a fresh Android surface",
         )
     }
@@ -1307,9 +1320,7 @@ constructor(
                                         } else if (entry.surfaceInvalidated) {
                                             // 恢复即清零预算：下一次判死仍从满额开始。
                                             entry.surfaceInvalidated = false
-                                            entry.surfaceRecreateAttempts = 0
-                                            entry.surfaceRecreateLastRequestNanos = 0L
-                                            entry.surfaceRecreateExhaustedLogged = false
+                                            entry.surfaceRecreateBudget = SessionEntry.SurfaceRecreateBudget()
                                         }
                                         val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
@@ -1899,8 +1910,13 @@ constructor(
     internal suspend fun resolveThemeName(): String {
         // 单次快照：按字段流逐个 first() 会把同一个 preferences_pb 读五遍并解析五次，
         // 而一次读取已含全部字段（SettingsRepository.settings 是唯一合并快照）。
-        val stored = settingsRepository.settings.first()
-        clearUnknownThemeNames(stored.dayThemeName, stored.nightThemeName, stored.themeName)
+        var stored = settingsRepository.settings.first()
+        // 清除是写操作（会 await dataStore.edit），故清除成功后必须重读：
+        // 否则返回的是刚被清除的未知名，`buildConfig` 的 `BuiltInThemes.byName` 在
+        // 未知名上抛异常，本次建会话直接失败，用户看不到终端。
+        if (clearUnknownThemeNames(stored.dayThemeName, stored.nightThemeName, stored.themeName)) {
+            stored = settingsRepository.settings.first()
+        }
         val systemDark =
             (
                 context.resources.configuration.uiMode and
@@ -1924,12 +1940,16 @@ constructor(
     /**
      * 存有无法解析主题名的键即设置数据错误：记日志并清除该键，
      * 下次读取回落默认值（DESIGN:16 设置数据错误 → 清除设置数据、:24 不做 Fallback）。
+     *
+     * 返回是否真的清除过：调用方据此决定要不要重读快照，否则会把刚清除的未知名
+     * 当作解析结果返回。
      */
-    private suspend fun clearUnknownThemeNames(vararg names: String) {
+    private suspend fun clearUnknownThemeNames(vararg names: String): Boolean {
         val unknown = names.filter { BuiltInThemes.byNameOrNull(it) == null }.toSet()
-        if (unknown.isEmpty()) return
+        if (unknown.isEmpty()) return false
         LogUtil.e("Runtime", "Unknown terminal theme, clearing setting: $unknown")
         settingsRepository.clearUnknownThemeNames(unknown)
+        return true
     }
 
     /** 空即默认入口（DESIGN :122 未设置时为空），其余原样透传，不特殊处理。 */
@@ -3016,9 +3036,12 @@ constructor(
     private fun recomputeGridFromFontMetrics() {
         val barHeightPx = modifierBarHeightPx
         // Surface 尺寸：在首次 attachSurface 落地之前，pendingSurface
-        // （由 startRuntime 设置）是权威来源。
-        val surfaceW = pendingSurface?.width ?: 0
-        val surfaceH = pendingSurface?.height ?: 0
+        // （由 startRuntime 设置）是权威来源。一次取出三元组：分开两次读可能跨过
+        // 一次并发移交，把 1080x2400 与 1080x2340 拼成一个从未存在过的矩形，
+        // 由此算出的网格会以 SIGWINCH 推给 PTY，却与任何 Surface 都不匹配。
+        val pending = pendingSurface
+        val surfaceW = pending?.width ?: 0
+        val surfaceH = pending?.height ?: 0
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
@@ -3196,9 +3219,7 @@ constructor(
                 // 保留原有「恢复渲染时清零」也无妨，两处语义一致。
                 sessions.values.forEach { entry ->
                     entry.surfaceInvalidated = false
-                    entry.surfaceRecreateAttempts = 0
-                    entry.surfaceRecreateLastRequestNanos = 0L
-                    entry.surfaceRecreateExhaustedLogged = false
+                    entry.surfaceRecreateBudget = SessionEntry.SurfaceRecreateBudget()
                 }
                 // 只有活动会话渲染（见 switchSessionInternal）；
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，

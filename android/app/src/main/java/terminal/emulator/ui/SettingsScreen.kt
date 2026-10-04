@@ -44,6 +44,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -982,17 +983,23 @@ private fun BootstrapSection(
     accentColor: Color,
     secondaryText: Color,
 ) {
-    // 以持久化值为 key：与 `ShellInput` 同款。300ms 防抖期间 key 不变、输入框不动；
-    // 落盘回流后 key 变为刚敲入的完整文本，重新播种得到同一个值。
-    // 反之若用 LaunchedEffect 无条件覆盖，回流带着**上一次**的值抵达，
-    // 会把刚敲进去的字符抹掉，输入框与设置从此静默分叉。
-    var url by remember(bootstrapUrl) { mutableStateOf(bootstrapUrl) }
+    // 编辑中不采纳回流值：每次击键经 300ms 防抖落盘，回流带着**上一次**的值抵达；
+    // 无论用 `LaunchedEffect` 无条件覆盖还是 `remember(bootstrapUrl)` 重新播种，
+    // 都会把用户在写入窗口内继续敲进去的字符抹掉，且重新播种不经 `onValueChange`，
+    // 于是输入框与设置静默分叉，用户接着就把被截断的 URL 拿去安装。
+    // 该设置的唯一写入方就是本输入框，故「编辑过」期间无需再跟随外部值。
+    var url by remember { mutableStateOf(bootstrapUrl) }
+    var urlEdited by remember { mutableStateOf(false) }
+    LaunchedEffect(bootstrapUrl) {
+        if (!urlEdited) url = bootstrapUrl
+    }
 
     Column {
         OutlinedTextField(
             value = url,
             onValueChange = {
                 url = it
+                urlEdited = true
                 onUrlChanged(it)
             },
             label = { Text(stringResource(R.string.bootstrap_url_label)) },

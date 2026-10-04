@@ -84,11 +84,6 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `scrollback lines are fixed and not modifiable`() = runTest {
-        // 回滚行数固定，不提供修改入口：任何来源都只能读到固定值。
-    }
-
-    @Test
     fun `distinct keys do not clobber each other`() = runTest {
         repository.setFontSize(20f)
         repository.setThemeName("Solarized Dark")
