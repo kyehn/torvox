@@ -442,18 +442,20 @@ constructor(
     /**
      * 应答 OSC 52 剪贴板读取请求：读取系统剪贴板并经
      * [NativeBridge.clipboardResult] 回复。空文本是合法结果；
-     * 只有异常才会产生空的回退回复。
+     * 只有读取失败才回 null——回空串会被远端当成「用户清空了剪贴板」。
      */
     private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
         requests.forEach { request ->
-            try {
-                val text = clipboardAccess.clipboardText().orEmpty()
-                NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
-            } catch (exception: Exception) {
-                // 只记异常类名：异常消息可能嵌入剪贴板文本。
-                LogUtil.e("Runtime", "clipboard request dispatch failed: ${exception.javaClass.simpleName}")
-                NativeBridge.clipboardResult(request.sessionId, request.requestId, "")
-            }
+            clipboardAccess.clipboardText().fold(
+                onSuccess = { text ->
+                    NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
+                },
+                onFailure = {
+                    // 不作答（而非空串）：远端请求悬空好过粘出空白。
+                    // 失败详情已由 ClipboardAccess 记日志。
+                    NativeBridge.clipboardResult(request.sessionId, request.requestId, null)
+                },
+            )
         }
     }
 
@@ -3048,8 +3050,16 @@ constructor(
         return applied
     }
 
-    fun writeToPty(data: ByteArray): Boolean {
-        val entry = sessions[activeSessionId]
+    /**
+     * 输入的目标会话 id：调用方在用户事件发生时取一次，随字节传到这里。
+     *
+     * 输入字节可能在别的线程刷写（输入法批缓冲的帧回调与 PtyWriter 线程），
+     * 那时再解析 `sessions[activeSessionId]` 会把粘贴尾部写进用户刚切换到的新会话。
+     */
+    val inputTargetSessionId: Long get() = activeSessionId
+
+    fun writeToPty(sessionId: Long, data: ByteArray): Boolean {
+        val entry = sessions[sessionId]
         // 受理判据是「会话是否还活着」而不是 running（渲染意图标志）：Surface 销毁会经
         // pauseRendering 把 running 置假，而 PTY 子进程此刻仍然活着。按 running 拒绝等于
         // 在每次 surface 销毁→重建的空窗期静默吞掉击键，而恢复本身是异步的
@@ -3076,7 +3086,7 @@ constructor(
             entry.notifyRender()
             return written
         }
-        LogUtil.w("Runtime", "writeToPty: no live session to receive write")
+        LogUtil.w("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭）")
         return false
     }
 

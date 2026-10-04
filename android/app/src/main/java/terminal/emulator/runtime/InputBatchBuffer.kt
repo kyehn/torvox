@@ -16,9 +16,14 @@ import java.util.concurrent.Executors
  * 在其自身线程上有同样的 EAGAIN 丢弃行为。
  * 所有 sink 调用都跑在单个守护发送线程上：调用方永不阻塞，
  * 且单线程执行器在并发写入之间保持排空顺序。
+ *
+ * 每次 [write] 都在调用点捕获目标会话（[inputSessionId]），随字节一起送往下沉：
+ * 刷写发生在别处（帧回调或 PtyWriter 线程），到那时再解析活动会话会把
+ * 粘贴尾部写进用户刚切换到的新会话。会话变化时先按旧会话排空，保证顺序。
  */
 class InputBatchBuffer(
-    private val flushSink: (ByteArray) -> Unit,
+    private val flushSink: (Long, ByteArray) -> Unit,
+    private val inputSessionId: () -> Long,
     private val capacity: Int = BATCH_CAPACITY,
     private val useChoreographer: Boolean = true,
 ) {
@@ -26,6 +31,7 @@ class InputBatchBuffer(
     private var buffer: ByteBuffer = ByteBuffer.allocateDirect(capacity)
     private var frameCallback: Choreographer.FrameCallback? = null
     private var scheduled = false
+    private var bufferedSessionId = 0L
     private val fallbackHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val fallbackFlush = Runnable { flush() }
     private val sender: ExecutorService =
@@ -33,7 +39,7 @@ class InputBatchBuffer(
             Thread(runnable, "PtyWriter").apply { isDaemon = true }
         }
 
-    fun write(data: ByteArray) {
+    fun write(data: ByteArray, sessionId: Long = inputSessionId()) {
         // 组合提交直发：单次 IME 组合提交量级（UTF-8 多码点短语，含 3 字节/码点
         // 汉字与 4 字节 emoji）的 write 跳过帧同步，延迟与退格直连路径对齐；
         // 中文一次 commitText 常含多个码点，编码后超单码点上限即被帧调度钳制，
@@ -41,54 +47,59 @@ class InputBatchBuffer(
         // 编程性写入）仍走批缓冲合并写。保序：先排空驻留字节再直发，避免后写先到。
         if (data.size <= COMPOSITION_COMMIT_MAX_BYTES) {
             val pending = synchronized(lock) { drainLocked() }
-            if (pending.isNotEmpty()) send(pending)
-            if (data.isNotEmpty()) send(data)
+            if (pending.second.isNotEmpty()) send(pending.first, pending.second)
+            if (data.isNotEmpty()) send(sessionId, data)
             return
         }
-        val toSend = ArrayList<ByteArray>(2)
+        val toSend = ArrayList<Pair<Long, ByteArray>>(2)
         synchronized(lock) {
             if (data.size > capacity) {
                 // 先 flush 已缓冲的输入，使先前排队的字节写在大块之前
                 // ——否则顺序会颠倒（大块粘贴越过更早的击键）。
                 toSend.add(drainLocked())
-                toSend.add(data)
+                toSend.add(sessionId to data)
             } else {
+                if (buffer.position() != 0 && bufferedSessionId != sessionId) {
+                    // 目标会话已变：旧会话的字节必须先走，绝不并入新会话。
+                    toSend.add(drainLocked())
+                }
                 if (buffer.remaining() < data.size) {
                     toSend.add(drainLocked())
                 }
+                bufferedSessionId = sessionId
                 buffer.put(data)
                 if (!scheduled) {
                     scheduleFrame()
                 }
             }
         }
-        for (chunk in toSend) {
-            if (chunk.isNotEmpty()) send(chunk)
+        for ((id, chunk) in toSend) {
+            if (chunk.isNotEmpty()) send(id, chunk)
         }
     }
 
     fun flush() {
         fallbackHandler.removeCallbacks(fallbackFlush)
-        val bytes = synchronized(lock) { drainLocked() }
-        if (bytes.isNotEmpty()) send(bytes)
+        val pending = synchronized(lock) { drainLocked() }
+        if (pending.second.isNotEmpty()) send(pending.first, pending.second)
     }
 
-    /** 排空缓冲区。必须在持有 [lock] 时调用。 */
-    private fun drainLocked(): ByteArray {
+    /** 排空缓冲区，连同驻留字节的目标会话。必须在持有 [lock] 时调用。 */
+    private fun drainLocked(): Pair<Long, ByteArray> {
         buffer.flip()
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
         buffer.clear()
         scheduled = false
-        return bytes
+        return bufferedSessionId to bytes
     }
 
     /** 把 [bytes] 交给单个发送线程处理（绝不阻塞调用方）。 */
-    private fun send(bytes: ByteArray) {
+    private fun send(sessionId: Long, bytes: ByteArray) {
         try {
             sender.execute {
                 try {
-                    flushSink(bytes)
+                    flushSink(sessionId, bytes)
                 } catch (exception: Exception) {
                     LogUtil.e("InputBatchBuffer", "PTY write failed", exception)
                 }
@@ -108,9 +119,9 @@ class InputBatchBuffer(
         // 在关闭前 flush 已缓冲的字节——否则 detach 前最后一帧输入的击键会被静默丢弃
         // （缓冲区只由帧回调或显式 flush 排空）。
         val pending = synchronized(lock) { drainLocked() }
-        if (pending.isNotEmpty()) {
+        if (pending.second.isNotEmpty()) {
             try {
-                sender.execute { flushSink(pending) }
+                sender.execute { flushSink(pending.first, pending.second) }
             } catch (exception: java.util.concurrent.RejectedExecutionException) {
                 // shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）。
                 LogUtil.w("InputBatchBuffer", "final flush rejected during close", exception)
@@ -139,6 +150,7 @@ class InputBatchBuffer(
     fun reset() {
         synchronized(lock) {
             buffer.clear()
+            bufferedSessionId = 0L
             scheduled = false
         }
     }
@@ -152,7 +164,10 @@ class InputBatchBuffer(
         private const val COMPOSITION_COMMIT_MAX_BYTES = 64
 
         /** 供测试用的工厂——避免依赖 Choreographer。 */
-        fun forTest(flushSink: (ByteArray) -> Unit, capacity: Int = BATCH_CAPACITY): InputBatchBuffer =
-            InputBatchBuffer(flushSink, capacity, useChoreographer = false)
+        fun forTest(
+            flushSink: (Long, ByteArray) -> Unit,
+            capacity: Int = BATCH_CAPACITY,
+            inputSessionId: () -> Long = { 1L },
+        ): InputBatchBuffer = InputBatchBuffer(flushSink, inputSessionId, capacity, useChoreographer = false)
     }
 }

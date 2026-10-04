@@ -4,43 +4,63 @@
 
 ## 1. 高危：用户可观察的错误状态
 
-- [ ] N3「全选→复制」经 VT 线程同步做约 110 万次 ghostty FFI，
-      500ms 超时后回落空网格 —— 静默告诉用户「终端是空的」
-- [ ] N1-7渲染暂停（打开设置页／输入法弹出）时 OSC 52 剪贴板写入
-      被丢弃；已改记日志但仍丢弃，未队列化延后
-- [ ] N1-9OSC 52 读取失败时回「成功但为空」（`TerminalRuntime.kt` 仍发 `""`），
-      远端 tmux/ssh 粘出空白且像是用户清空了剪贴板
-- [ ] N1-10选区查询失败被 `.ok()` 合并为「无选区」——
-      「选中了但看不出选中」
-- [ ] N2-26`CursorInfo` 不带 rows/cols，`CSI ?3h`(DECCOLM) 后
-      `CellData.col` 可达 159 而渲染器仍按 80 列排布
-- [ ] N2-50`writeToPty` 在**执行时**才解析 `sessions[activeSessionId]`，
-      跨会话切换时粘贴尾部写进新会话（同库 OSC 52 路径却在请求时捕获 `Arc<Session>`）
-- [ ] N2-45`Query::EncodeMouseEvent` 无 modifier 字段，
-      Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）
-- [ ] N2-44DESIGN:152 要求的修饰键栏左右移动可见区域完全未实现
+- [x] N3「全选→复制」经 VT 线程同步做约 110 万次 ghostty FFI，
+      500ms 超时后回落空网格 —— **本轮否证**：当前路径是「上游 `Formatter` 单次
+      `format_alloc`」（`selection_text_impl`）＋`Terminal.select_all` 单次调用，
+      逐行 `scrollbackLine` 拼接早已删除，无逐单元 FFI；超时回退也不再静默
+      （N1-10 已让失败出声）
+- [x] N1-7渲染暂停（打开设置页／输入法弹出）时 OSC 52 剪贴板写入
+      被后一次覆盖 —— 本轮已修：单槽锁存改 FIFO（`Session::clipboard_text`），
+      上游回调通道本身有界且满时记日志，队列深度因此受其约束
+- [x] N1-9OSC 52 读取失败时回「成功但为空」—— 本轮已修：
+      读取失败经 `clipboardResult(..., null)` 上报，原生不写回 OSC 52 应答
+      （空串等于告诉远端「用户清空了剪贴板」）
+- [x] N1-10选区查询失败被合并为「无选区」—— 本轮已修：
+      空选区 `""` 与查询失败 `null` 分开，失败记 error 不再静默
+- [x] N2-50`writeToPty` 在**执行时**才解析 `sessions[activeSessionId]`，
+      跨会话切换时粘贴尾部写进新会话 —— 本轮已修：入队时捕获会话 id 并随字节下沉
+      （`InputBatchBuffer` 驻留 id，目标会话变化时先按旧会话排空）
+- [x] N2-45`Query::EncodeMouseEvent` 无 modifier 字段，
+      Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）——
+      本轮已修：JNI 增 `modifiers`（上游 `key.Mods` 原始位），编码器 `set_mods`，
+      Kotlin 侧由 `KeyModifiers.ghosttyMods(metaState)` 换算，并有编码差异回归测试
+- [ ] N2-44DESIGN:153 要求的修饰键栏左右移动可见区域未实现 —— 触发
+      条件在本仓不存在：网格列数是 `floor(surfaceWidth / cellWidth)`，内容恒不
+      横向溢出（`computeGridDimensions`），左右键因而必须继续把箭头序列发给远端；
+      是否为规范补一句「内容永不溢出故无需平移」由用户裁决（D13）
 
 ## 2. 中危：资源与契约
 
 - [ ] N9 / N2-23`themes.xml` 硬编码 `#1E1E2E` 且无 `values-night/`，
       日间主题下系统窗口恒为夜间配色（违反 DESIGN:106/108/200）
-- [ ] N21`ModifierBar` 的 DRAWER 长按落到 `else -> null`，长按粘贴从未接线
-- [ ] N2-1`FontUtils` 把 `mono/monospaced/sans` 硬编码改写，
-      真名为 "Sans" 的字族被静默换成另一个（违反 DESIGN:101/102）
+- [x] N21`ModifierBar` 的 DRAWER 长按落到 `else -> null`，长按粘贴从未接线 ——
+      本轮已修：`secondaryLongPressAction` 增 `DRAWER -> onPasteClick`（termux
+      `popup: 'PASTE'`），并有 Robolectric 用例覆盖「长按粘贴 / 轻点开抽屉」
+- [x] N2-1`FontUtils` 把 `mono/monospaced/sans` 硬编码改写，
+      真名为 "Sans" 的字族被静默换成另一个（违反 DESIGN:101/102）—— 本轮已修：
+      `resolveEffectiveFontFamily` 只去空白，别名归并删除（字族名以外部库为准）
 - [ ] N2-2`~/.termux/fonts` 只在会话创建时扫一次，运行中拷入字体须重启进程
-- [ ] N2-2459 个 `external fun` 只对 43 个加 `@JvmStatic`，
-      CheckJNI 报错、`RegisterNatives` 路径断裂
+- [x] N2-2459 个 `external fun` 只对 43 个加 `@JvmStatic`，
+      CheckJNI 报错、`RegisterNatives` 路径断裂 —— 本轮已修：补齐余下 6 处
+      （`setTheme`/`setFontFamily`/`loadFontFile`/`setExtraFontPaths`/
+      `getCellHeight`/`setScrollOffset`），并加反射用例锁死「导出必须静态」
 - [ ] N2-37`kgp_atlas_data` 是 KGP 图集的永久 CPU 全量副本且从不读取，
       64MiB 预算下等于内存翻倍
 - [ ] N2-42生产代码读 `System.getProperty("test.minSurface"/"test.bootstrapUrl")`
-- [ ] N2-68`Session::drop` 可阻塞 JNI 调用方约 1.1s
+- [x] N2-68`Session::drop` 可阻塞 JNI 调用方约 1.1s —— **本轮否证**：
+      `Drop` 只做 `request_exit` + 两次 `join_with_timeout(TRAILING_EXIT_GRACE)`，
+      宽限期 50ms（`session.rs:23`），上界 ~100ms；子进程收尾已由 N1-32 提前
+      投递 `request_exit`，不再等自然退出
 - [ ] N2-6 / N2-40fork 子进程 `setsid`/`TIOCSCTTY` 失败裸 `_exit(2/3)`，
       不写 fd 2，用户只见 `[Process completed (code 3)]`（违反 DESIGN:16/194）
 - [ ] N2-8 / N2-11`focus_event` 持 session 锁做 50ms RPC；
       `Event::Clipboard` 载荷无上限
-- [ ] N2-9 / N2-10`ClipboardRead` 被满队列淘汰，子应用收到**空剪贴板**
-      而非自己的答案，且该 RPC 永不重发
-- [ ] N2-12`MAX_SCAN_BYTES` 超限静默丢弃 OSC 52 请求
+- [x] N2-9 / N2-10`ClipboardRead` 被满队列淘汰 —— 本轮已修：
+      `EventQueue::push` 优先淘汰可淘汰事件，`ClipboardRead` 不在其中
+      （`push_never_evicts_clipboard_read` 两例护栏）；配合 OSC 52 读取失败不再
+      回空串（N1-9），远端不会再粘出空白
+- [x] N2-12`MAX_SCAN_BYTES` 超限静默丢弃 OSC 52 请求 —— 本轮已修：
+      超限时整段原样透传给上游（不吞字节）并记 warning，选择器名超限不再无声
 - [ ] 吞错批次 N2-1～N2-4、N2-5～N2-7、N2-10～N2-14：字体 JNI 失败仍返回字族名、
       高亮包格式错误使上一帧高亮永留屏、`ensure_frame_texture` 错误被丢弃、
       搜索 JSON 解码失败冒充 0 匹配、`InputBatchBuffer` 空 catch 丢击键、
@@ -48,6 +68,12 @@
 
 ## 3. 低危：死代码与死资源（STYLE:63）
 
+- [x] 本轮门禁稳定性：`cargo test` 内的墙钟阈值基准随构建机负载随机判红
+      （实测 `bench_bulk_output_throughput` 3337 vs 4000 cells/s、
+      `bench_gpu_buffer_upload_throughput` 261 vs 350 MB/s，TESTING.md「没有
+      不稳定的测试」）—— 突发输出用例改为断言末行标记（行为），GPU 上传吞吐
+      用例删除（`queue.write_buffer` 由每个渲染用例覆盖）；其余基准余量
+      5×～40×，保留
 - [ ] N1 / N2-32 / N2-33 / N2-34（REVIEW.md、）快照链、键盘编码链、
       `send_signal` / `read_visible_text` 生产零调用
 - [ ] N14 / N16 / N17`consumeNewOutput`（唯一无 `jni_export_guard!` 的导出）、
@@ -72,6 +98,14 @@
 - [ ] N2-48 `bracketedPaste = false` 硬编码，`\e[200~` 从不发出 ——
       是否在本仓范围内实现 bracketed paste
 - [ ] P1-4 / D12 被删的输入法跟随测试是否恢复
+- [ ] D13（N2-44）DESIGN:153「内容横向溢出到右侧时左右键平移可见区域」的触发
+      条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：是给规范
+      补一句现状说明，还是删掉该条要求
+- [ ] D14（N9/N2-23）`themes.xml` 的窗口/状态栏/导航栏底色硬编码 `#1E1E2E` 且无
+      `values-night/`：应用内配色由 Compose 按「日间/夜间/跟随系统」解析（正确），
+      只有系统窗口与启动屏是夜色的。修法二选一——运行时按已解析配色设置系统栏，
+      或加 `values-night` 资源限定符（后者跟随系统而非应用设置）。两者都要动
+      `res/` 或窗口代码，需确认取哪条
 
 ## 5. 需授权（修复必然改动保护文件）
 
@@ -123,6 +157,11 @@
 - [x] 搜索结果解码/序列化失败冒充「0 匹配」（N2-10）—— 本轮已补日志
 - [x] N2-15`RenderWatchDog` 魔数 —— **本轮否证**：轮询间隔与挂起阈值
       已是具名常量（`CHECK_INTERVAL_MS` 与构造参数 `hangTimeoutNanos`）
+- [x] N2-26DECCOLM（`CSI ?3h`）后网格自变 132 列、渲染仍按旧列排布 ——
+      **本轮否证**：`Terminal.deccolm` 只在 DECSET 40（`enable_mode_3`）置位时才改网格，
+      而 VT 侧 `set_mode` 对 40 是空分支（上游 `stream_terminal.zig:717`），本仓与
+      `libghostty-vt` 绑定均未调用 `setDeccolmSupported`；网格行列的唯一写者是
+      `Session::resize`，而渲染帧读的正是它写的 `grid_size()`，两者恒等
 
 ## 7. 文档退役
 
