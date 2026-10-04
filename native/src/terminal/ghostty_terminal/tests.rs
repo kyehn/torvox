@@ -19,6 +19,7 @@ use std::time::Instant;
 use super::*;
 use crate::terminal::ghostty_terminal::public_api::sanitize_vt_input;
 use crate::terminal::test_helpers::assert_invariants;
+use libghostty_vt::key::Mods;
 
 fn terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
@@ -264,7 +265,7 @@ fn dump_grid_scrollback_populated_after_scroll() {
 #[test]
 fn encode_mouse_event_gated_off_without_tracking_mode() {
     let terminal_under_test = terminal();
-    let encoded = terminal_under_test.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
+    let encoded = terminal_under_test.encode_mouse_event((50.0, 60.0), 0, 0, 0, 10.0, 20.0);
     let encoded = encoded.expect("encode_mouse_event should return Some");
     assert!(
         encoded.is_empty(),
@@ -281,7 +282,7 @@ fn encode_mouse_event_sgr_press() {
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
     let encoded = terminal_under_test
-        .encode_mouse_event((35.0, 45.0), 0, 0, 10.0, 20.0)
+        .encode_mouse_event((35.0, 45.0), 0, 0, 0, 10.0, 20.0)
         .expect("encode_mouse_event should return Some");
     // SGR: ESC [ < Cb ; Cx ; Cy M — Cb is the 0-based button (0 = left
     // press; X10's +32 offset does NOT apply to SGR mode).
@@ -292,6 +293,34 @@ fn encode_mouse_event_sgr_press() {
     );
 }
 
+/// Shift/Ctrl 点击必须与普通左键在编码结果上可区分（vim/tmux 依此扩展选区、
+/// 粘贴选择）。无修饰时 Cb=0，Shift 为 +4，Ctrl 为 +16（xterm SGR 口径）。
+#[test]
+fn encode_mouse_event_carries_modifiers() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let plain = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 0, 0, Mods::empty().bits(), 10.0, 20.0)
+        .expect("plain left-press encode");
+    let shift = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 0, 0, Mods::SHIFT.bits(), 10.0, 20.0)
+        .expect("shift left-press encode");
+    let ctrl = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 0, 0, Mods::CTRL.bits(), 10.0, 20.0)
+        .expect("ctrl left-press encode");
+    assert_eq!(plain, b"\x1b[<0;4;3M");
+    assert_ne!(
+        plain, shift,
+        "Shift+左键必须与普通左键编码不同（否则远端无法扩展选区）"
+    );
+    assert_ne!(
+        plain, ctrl,
+        "Ctrl+左键必须与普通左键编码不同（否则远端无法粘贴选择）"
+    );
+    assert_ne!(shift, ctrl, "Shift 与 Ctrl 组合不得互相混淆");
+}
+
 /// Wheel-up with DECSET 1000 + SGR → button 4 (wheel-up = button 64+4-32).
 /// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
 #[test]
@@ -300,14 +329,14 @@ fn encode_mouse_event_wheel() {
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
     let up = terminal_under_test
-        .encode_mouse_event((10.0, 10.0), 0, 3, 10.0, 20.0)
+        .encode_mouse_event((10.0, 10.0), 0, 3, 0, 10.0, 20.0)
         .expect("wheel-up encode");
     assert!(
         up.len() >= 6 && up.starts_with(b"\x1b[<"),
         "wheel-up must produce an SGR sequence (got {up:?})"
     );
     let down = terminal_under_test
-        .encode_mouse_event((10.0, 10.0), 0, 4, 10.0, 20.0)
+        .encode_mouse_event((10.0, 10.0), 0, 4, 0, 10.0, 20.0)
         .expect("wheel-down encode");
     assert!(
         down.len() >= 6 && down.starts_with(b"\x1b[<"),
@@ -324,7 +353,7 @@ fn encode_mouse_event_bounds_negative_clamp() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
-    let result = terminal_under_test.encode_mouse_event((-5.0, -10.0), 0, 0, 10.0, 20.0);
+    let result = terminal_under_test.encode_mouse_event((-5.0, -10.0), 0, 0, 0, 10.0, 20.0);
     // The encoder returns Some(empty) or Some(sgr) — it must not panic.
     assert!(
         result.is_some(),
@@ -351,7 +380,7 @@ fn encode_mouse_event_bounds_oversized_clamp() {
     terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
     terminal_under_test.flush();
     // Position far beyond the grid: 9999x9999 with 10x20 cells.
-    let result = terminal_under_test.encode_mouse_event((9999.0, 9999.0), 0, 0, 10.0, 20.0);
+    let result = terminal_under_test.encode_mouse_event((9999.0, 9999.0), 0, 0, 0, 10.0, 20.0);
     assert!(result.is_some(), "oversized coords must return Some");
     let encoded = result.unwrap();
     if !encoded.is_empty() {
@@ -385,7 +414,7 @@ fn encode_mouse_event_drag_sequence() {
 
     // Press at (10, 20)
     let press = terminal_under_test
-        .encode_mouse_event((10.0, 20.0), 0, 0, cell_width, cell_height)
+        .encode_mouse_event((10.0, 20.0), 0, 0, 0, cell_width, cell_height)
         .expect("press encode");
     assert!(
         press.starts_with(b"\x1b[<"),
@@ -398,7 +427,7 @@ fn encode_mouse_event_drag_sequence() {
 
     // Drag (motion) at (30, 20) — action=2
     let drag = terminal_under_test
-        .encode_mouse_event((30.0, 20.0), 2, 0, cell_width, cell_height)
+        .encode_mouse_event((30.0, 20.0), 2, 0, 0, cell_width, cell_height)
         .expect("drag encode");
     assert!(
         drag.starts_with(b"\x1b[<"),
@@ -407,7 +436,7 @@ fn encode_mouse_event_drag_sequence() {
 
     // Release at (50, 20) — action=1
     let release = terminal_under_test
-        .encode_mouse_event((50.0, 20.0), 1, 0, cell_width, cell_height)
+        .encode_mouse_event((50.0, 20.0), 1, 0, 0, cell_width, cell_height)
         .expect("release encode");
     assert!(
         release.starts_with(b"\x1b[<"),

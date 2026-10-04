@@ -1022,6 +1022,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
     y_px: jfloat,
     action: jint,
     button: jint,
+    modifiers: jint,
     cell_width: jfloat,
     cell_height: jfloat,
 ) -> jbyteArray {
@@ -1033,6 +1034,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
             y_px,
             action,
             button,
+            modifiers,
             cell_width,
             cell_height,
         )
@@ -1055,6 +1057,7 @@ fn encode_mouse_event_inner(
     y_px: jfloat,
     action: jint,
     button: jint,
+    modifiers: jint,
     cell_width: jfloat,
     cell_height: jfloat,
 ) -> jbyteArray {
@@ -1068,6 +1071,7 @@ fn encode_mouse_event_inner(
         (x_px, y_px),
         action as u8,
         button as u8,
+        modifiers as u16,
         cell_width,
         cell_height,
     ) else {

@@ -1705,8 +1705,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     var forwarded = false
                     val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
                     repeat(cappedLines) {
-                        if (altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 0, button, cellWidth, cellHeight)) {
-                            altBridge.encodeMouseEvent(pointerXPx, pointerYPx, 1, button, cellWidth, cellHeight)
+                        val wheelModifiers = KeyModifiers.ghosttyMods(e2.metaState)
+                        if (
+                            altBridge.encodeMouseEvent(
+                                pointerXPx,
+                                pointerYPx,
+                                0,
+                                button,
+                                wheelModifiers,
+                                cellWidth,
+                                cellHeight,
+                            )
+                        ) {
+                            altBridge.encodeMouseEvent(
+                                pointerXPx,
+                                pointerYPx,
+                                1,
+                                button,
+                                wheelModifiers,
+                                cellWidth,
+                                cellHeight,
+                            )
                             forwarded = true
                         }
                     }
@@ -2426,7 +2445,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                         else -> 0
                     }
-                if (bridge.encodeMouseEvent(event.x, event.y, action, button, cellWidth, cellHeight)) {
+                if (
+                    bridge.encodeMouseEvent(
+                        event.x,
+                        event.y,
+                        action,
+                        button,
+                        KeyModifiers.ghosttyMods(event.metaState),
+                        cellWidth,
+                        cellHeight,
+                    )
+                ) {
                     return true
                 }
             }
@@ -2558,12 +2587,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (bridge != null) {
                 val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
+                val mods = KeyModifiers.ghosttyMods(event.metaState)
                 if (
                     bridge.encodeMouseEvent(
                         event.x,
                         event.y,
                         0,
                         button,
+                        mods,
                         runtime.cellWidth,
                         runtime.cellHeight,
                     )
@@ -2574,6 +2605,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         event.y,
                         1,
                         button,
+                        mods,
                         runtime.cellWidth,
                         runtime.cellHeight,
                     )

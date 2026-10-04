@@ -52,4 +52,31 @@ class KeyModifiersTest {
         assertEquals(4, KeyModifiers.CTRL)
         assertEquals(8, KeyModifiers.META)
     }
+
+    @Test
+    fun `ghosttyMods maps metaState to upstream bits`() {
+        assertEquals(0, KeyModifiers.ghosttyMods(0))
+        assertEquals(
+            KeyModifiers.GhosttyMods.SHIFT,
+            KeyModifiers.ghosttyMods(android.view.KeyEvent.META_SHIFT_ON),
+        )
+        assertEquals(
+            KeyModifiers.GhosttyMods.CTRL,
+            KeyModifiers.ghosttyMods(android.view.KeyEvent.META_CTRL_ON),
+        )
+        assertEquals(
+            KeyModifiers.GhosttyMods.ALT,
+            KeyModifiers.ghosttyMods(android.view.KeyEvent.META_ALT_ON),
+        )
+        assertEquals(
+            KeyModifiers.GhosttyMods.SUPER,
+            KeyModifiers.ghosttyMods(android.view.KeyEvent.META_META_ON),
+        )
+        assertEquals(
+            KeyModifiers.GhosttyMods.SHIFT or KeyModifiers.GhosttyMods.CTRL,
+            KeyModifiers.ghosttyMods(
+                android.view.KeyEvent.META_SHIFT_ON or android.view.KeyEvent.META_CTRL_ON,
+            ),
+        )
+    }
 }

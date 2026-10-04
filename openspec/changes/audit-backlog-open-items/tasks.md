@@ -16,8 +16,10 @@
 - [x] N2-50`writeToPty` 在**执行时**才解析 `sessions[activeSessionId]`，
       跨会话切换时粘贴尾部写进新会话 —— 本轮已修：入队时捕获会话 id 并随字节下沉
       （`InputBatchBuffer` 驻留 id，目标会话变化时先按旧会话排空）
-- [ ] N2-45`Query::EncodeMouseEvent` 无 modifier 字段，
-      Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）
+- [x] N2-45`Query::EncodeMouseEvent` 无 modifier 字段，
+      Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）——
+      本轮已修：JNI 增 `modifiers`（上游 `key.Mods` 原始位），编码器 `set_mods`，
+      Kotlin 侧由 `KeyModifiers.ghosttyMods(metaState)` 换算，并有编码差异回归测试
 - [ ] N2-44DESIGN:152 要求的修饰键栏左右移动可见区域完全未实现
 
 ## 2. 中危：资源与契约

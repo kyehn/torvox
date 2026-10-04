@@ -517,12 +517,13 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         yPx: Float,
         action: Int,
         button: Int,
+        modifiers: Int,
         cellWidth: Float,
         cellHeight: Float,
     ): Boolean {
         val bytes =
             onSession("encodeMouseEvent", ByteArray(0)) {
-                NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, cellWidth, cellHeight)
+                NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, modifiers, cellWidth, cellHeight)
             }
         if (bytes.isEmpty()) return false
         return writeToPty(bytes)
