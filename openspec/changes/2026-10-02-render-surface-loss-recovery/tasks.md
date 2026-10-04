@@ -144,8 +144,11 @@
       lintVitalRelease assembleDebugAndroidTest testDebugUnitTest
       benchmark:compileBenchmarkReleaseKotlin
       baselineprofile:compileNonMinifiedReleaseKotlin`（506 例单测全过）
-- [ ] 6.2 真机/模拟器实测：人为制造 surface 失效（2.x 注入或系统回收）后自愈，
-      记录恢复耗时与日志 —— 需模拟器/真机（本机无 AVD）
+- [x] 6.2 真机/模拟器实测：2026-10-04 本机 AVD（API 35 x86_64）经
+      `setSurfaceLossInjectedForTest` 人为制造失效后自愈，logcat 实测：
+      原生连续 2 次 acquire 失败判死 → 首次请求即换视图（attempt 1/5）→
+      约 0.5s 后 `attach_surface` 用新 ANativeWindow 重建，注入用例 22.5s 通过
+      （含建会话、前后墨迹断言与清理）。未达次数上限，无 error 级残留
 - [ ] 6.3 全量 `:app:connectedDebugAndroidTest` 复跑，逐例回填第 5 节结论，
       失败数从 27 降到剩余未修项的真实数量，且 `abandoned` 之后不再持续 `count=-1`
       —— 第 5 节已按 run 逐条回填（27 例中 15 例通过、12 例仍失败），
