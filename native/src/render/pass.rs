@@ -1,7 +1,7 @@
 //! 渲染循环：帧提交、同步与错误恢复。
 use crate::render::GpuError;
 use crate::render::Renderer;
-use crate::render::context::MIN_ATLAS_BUFFER_SIZE;
+use crate::render::context::MIN_VERTEX_BUFFER_SIZE;
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
 use std::sync::OnceLock;
 use std::sync::mpsc::SyncSender;
@@ -162,8 +162,8 @@ impl Renderer {
         // Outdated 是瞬态（surface 被缩放或重建），reconfigure 后可恢复 —— 模拟器实测：
         // SwiftShader 的 dequeueBuffer 超时与 SurfaceFlinger 缩放竞态都会报 Outdated，
         // 不 reconfigure 的话切回应用后渲染线程会永久空转在 begin_frame 失败上。
-        // 图集格式必须等于 surface 格式，且 Android 的 view_formats 只能是
-        // vec![format]（不支持 downlevel SURFACE_VIEW_FORMATS）。
+        // 图集格式必须等于 surface 格式；Android 的 view_formats 故意置空
+        // （见 context.rs 的 surface.configure 处说明），故此处无需格式降级协商。
         // 工作线程经 OnceLock 只建一次并跨帧复用，避免每进程重复建线程；
         // 每帧仅一次同步通道分配。
         let (response_sender, response_receiver) =
@@ -225,7 +225,7 @@ impl Renderer {
         if resize_buffer {
             *instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
-                size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
+                size: needed_size.max(MIN_VERTEX_BUFFER_SIZE),
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
@@ -254,7 +254,7 @@ impl Renderer {
         if resize_buffer {
             *kgp_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
-                size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
+                size: needed_size.max(MIN_VERTEX_BUFFER_SIZE),
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
@@ -872,8 +872,7 @@ impl Renderer {
         });
         // 反复轮询直到 map 完成或超时。
         let poll_start = std::time::Instant::now();
-        let map_result;
-        loop {
+        let mapped: Result<(), GpuError> = loop {
             if let Err(error) = self.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
                 timeout: Some(MAP_POLL_STEP),
@@ -881,30 +880,31 @@ impl Renderer {
                 log::warn!("render_to_buffer (map wait): device poll error: {error}");
             }
             match map_rx.try_recv() {
+                // 向上传递 map_async 错误（如缓冲过大、设备丢失）。
                 Ok(result) => {
-                    map_result = result;
-                    break;
+                    break result.map_err(|map_error| {
+                        GpuError::Readback(format!("map_async failed: {map_error:?}"))
+                    });
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    return Err(GpuError::Readback("map channel disconnected".into()));
+                    break Err(GpuError::Readback("map channel disconnected".into()));
                 }
             }
             if poll_start.elapsed() > MAP_READBACK_TIMEOUT {
-                // 超时即 unmap：不断开映射直接返回会让该缓冲永久处于 mapped 态，
-                // 下次对其 copy 会被 wgpu-core 拒收乃至设备丢失（R28-T2）。
-                dst.unmap();
-                return Err(GpuError::Readback("map_async timed out".into()));
+                break Err(GpuError::Readback("map_async timed out".into()));
             }
-        }
-        // 向上传递 map_async 错误（如缓冲过大、设备丢失）。
-        map_result
-            .map_err(|map_error| GpuError::Readback(format!("map_async failed: {map_error:?}")))?;
-        let data = slice
-            .get_mapped_range()
-            .map_err(|map_error| GpuError::Readback(map_error.to_string()))?
-            .to_vec();
+        };
+        // 成功、超时、通道断开、map 失败都要 unmap：留在 mapped 态的缓冲不是合法的
+        // 拷贝目标，下次 copy_texture_to_buffer 会被 wgpu 校验拒绝（乃至设备丢失）。
+        let data = mapped.and_then(|()| {
+            slice
+                .get_mapped_range()
+                .map(|range| range.to_vec())
+                .map_err(|map_error| GpuError::Readback(map_error.to_string()))
+        });
         dst.unmap();
+        let data = data?;
 
         let pixel_bytes = (frame_width * frame_height * 4) as usize;
         let stride = bytes_per_row_padded as usize;
