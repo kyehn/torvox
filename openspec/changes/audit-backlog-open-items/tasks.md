@@ -1317,6 +1317,33 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       21/21 通过。归档目录里 10 处遗留 `- [ ]` 一并勾清（change 既已归档，
       其任务即视为完成）。
 
+### 28.7 CI / ：主线程同步读缺陷与模拟器退化的区分
+
+- [x] **（真实产品/测试缺陷，已修）** `TestUtils.getBridge()` 用
+      `Instrumentation.runOnMainSync` 读桥，而该 API **禁止在主线程上调用**（抛
+      `This method can not be called from the main application thread`）。CI 上
+      `SelectionEspressoTest#selectAllShowsSelectionMenu` 与
+      `SgrColorPixelAcceptanceTest#sgrRedTextProducesRedPixels` 双红，堆栈直指
+      `TestUtils.kt:126`。同一隐患在 `cleanUpTerminalState`/`activeSessionId`/
+      `sessionCount`/`sessionIndex` 四处重复。抽出单一
+      `runOnMainThread { }`（已在主线程则直接执行），五处统一走它。
+      **连带效应**：`@After` 曾在清场**之前**抛出，把共享会话的污染整轮留给后继
+      用例——`copyActionPlacesTextOnClipboard` 的「复制 action must be present」
+      即由此而来，修后消失。
+- [x] **（不是缺陷，是环境退化，勿记为产品问题）** 本地全量与
+      `BehaviorInstrumentedTest` 单类一度反复红，但报告里的失败是
+      `java.lang.RuntimeException: Test failed with status -1`（**进程崩溃**，非断言
+      失败），且 logcat 同时段可见
+      `E vulkan: dequeueBuffer failed: No such device (-19)`、
+      `E native::android::ffi: render: frame failed: surface creation failed`、
+      连续的 `pcmWrite: I/O error`。根因是本地 `test_avd` 已被连续压测 4h48m，
+      图形/音频子系统退化。**重启模拟器后同一批用例 0 失败**
+      （`BehaviorInstrumentedTest` 单类、`SelectionEspressoTest`+
+      `SgrColorPixelAcceptanceTest`+`SelectionDragQuantifiedTest`+
+      `BehaviorVerificationTest` 四类连跑均 0）。判据：`status -1` + Vulkan/音频
+      报错 = 环境退化；断言消息非空 = 真缺陷。本地长跑须定期重启模拟器，
+      否则会把环境噪声当成代码回归。
+
 ### 28.6 CI （build @ `177a8bf6`）四失败的处置
 
 - [x] **（我的断言引入了 3 例新红，立即改正）** 在
