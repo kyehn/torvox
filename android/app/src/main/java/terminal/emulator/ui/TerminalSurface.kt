@@ -2199,8 +2199,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /** 手势完成点同步亮出当前选择的菜单（控制柄同模式），Compose 侧作为同步备份。 */
     private fun showSelectionMenuForCurrentSelection() {
-        val selection = viewModel?.state?.value?.selection ?: return
-        if (!selection.active || selection.start == null || selection.end == null) return
+        val selection = viewModel?.state?.value?.selection
+        if (selection == null) {
+            LogUtil.d(TAG, "同步备份跳过：视图模型为空")
+            return
+        }
+        if (!selection.active || selection.start == null || selection.end == null) {
+            LogUtil.d(TAG, "同步备份跳过：选区未就绪")
+            return
+        }
         showSelectionMenu(selection.pasteOnly)
     }
 
