@@ -1,10 +1,7 @@
 package terminal.emulator.diag
 
 import android.graphics.Bitmap
-import android.graphics.Color
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
@@ -14,24 +11,30 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
-import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.countBluishPixels
+import terminal.emulator.countGreenishPixels
+import terminal.emulator.countReddishPixels
 import terminal.emulator.getBridge
-import terminal.emulator.grantNotificationPermission
-import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.placeTextAtRow
+import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalScreen
 
 /**
- * 颜色像素验收：SGR 红色文本必须在屏幕上产生红色主导像素，
+ * 颜色像素验收：SGR 彩色文本必须在屏幕上产生对应色相的主导像素，
  * 而非只显示背景（回归“颜色文本只显示背景”类缺失）。
  *
- * 隔离会话 + 直写 VT（feedTerminal）：静止门等启动风暴过后，
- * shell 空闲无竞争。绝不经 shell 键入转义——shell 行编辑器把 ESC
- * 当元键前缀吃掉，命令不成形、无输出，网格断言只能匹配到自己的
- * 回显（空断言）。差分法：喂色块前后截图计数比较，不依赖光标行列定位，
- * 避开共享 shell 会话滚动带来的行号漂移。
+ * 标记写进**运行时正在呈现的会话**：渲染循环与截图同源，无需任何跨会话
+ * 呈现技巧。隔离会话 + 原生直绘不可行——`render_inner` 的空闲分支按
+ * `last_frame` 所属会话决定是否重绘，运行时会话一旦产出新输出即覆盖隔离帧，
+ * 且此后隔离会话在空闲分支恒被判为“会话不一致”而永不重绘，标记永久丢失
+ * （实测红/蓝像素恒为 0）。字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑）。
  */
 class SgrColorPixelAcceptanceTest {
+    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
+
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -43,18 +46,8 @@ class SgrColorPixelAcceptanceTest {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        grantNotificationPermission()
-        composeTestRule.waitUntil(timeoutMillis = 60_000) {
-            try {
-                composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
-                true
-            } catch (_: AssertionError) {
-                false
-            } catch (_: Exception) {
-                false
-            }
-        }
-        Thread.sleep(1_500)
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalScreen()
     }
 
     private fun awaitBridge(): Bridge {
@@ -69,127 +62,56 @@ class SgrColorPixelAcceptanceTest {
         return requireNotNull(ready) { "运行时桥必须就绪" }
     }
 
-    private fun isReddish(pixel: Int): Boolean {
-        val red = Color.red(pixel)
-        val green = Color.green(pixel)
-        val blue = Color.blue(pixel)
-        return red > 110 && red - blue > 50 && red - green > 30
-    }
-
-    private fun isGreenish(pixel: Int): Boolean {
-        val red = Color.red(pixel)
-        val green = Color.green(pixel)
-        val blue = Color.blue(pixel)
-        return green > 110 && green - red > 50 && green - blue > 30
-    }
-
-    private fun isBluish(pixel: Int): Boolean {
-        val red = Color.red(pixel)
-        val green = Color.green(pixel)
-        val blue = Color.blue(pixel)
-        return blue > 110 && blue - red > 50 && blue - green > 30
-    }
-
-    private fun countPixels(shot: Bitmap, predicate: (Int) -> Boolean): Int {
-        var count = 0
-        // 步长 2 采样：步长 3 在阈值边缘（实测信号 16 vs 阈值 20），加密采样增强信号，
-        // 不降低阈值。背景纯色区加密后仍为 0，不引入噪声。
-        for (y in 0 until shot.height step 2) {
-            for (x in 0 until shot.width step 2) {
-                if (predicate(shot.getPixel(x, y))) count++
-            }
-        }
-        return count
-    }
-
-    private fun countRedPixels(shot: Bitmap): Int = countPixels(shot, ::isReddish)
-
-    /**
-     * 直绘验收：隔离会话 + 直接 render()，与运行时共享 surface。
-     *
-     * 渲染暂停与直接呈现互斥（render_frame_with_plan 在 paused 时直接
-     * 返回 Ok 且不呈现），因此本测试全程不暂停：运行时线程约每 500ms
-     * 重绘其自有会话，可能覆盖本会话帧；每次迭代先呈现再立即截图，
-     * 取多轮最大红色计数判决——只要管线能呈现红色，必有一帧命中。
-     * 字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑器）。
-     */
     @Test
     fun sgrRedTextProducesRedPixels() {
-        awaitBridge() // 运行时就绪（surface 已挂载）即可；本测试不用其会话。
-        // 固定 24x80（与 VtCorrectness 同口径）：getGridRowsColsPacked 的行数
-        // 含回滚、列数是内容区折算值，不可直接用作新会话视口几何。
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val home = context.filesDir.resolve("sgr-test-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "")
-        assertTrue("隔离会话创建失败", sessionId != 0L)
-        try {
-            val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
-            val beforeRed = countRedPixels(before)
-            val beforeGreen = countPixels(before, ::isGreenish)
-            val beforeBlue = countPixels(before, ::isBluish)
-            // 逐包呈现：落格（实时网格）不等于可呈现（CellData 推送滞后约一包），
-            // 每包落格后立即呈现一次，把推送节拍泵起来，尾部最大采样才采得全。
-            val markers = listOf("EEE_RED" to 31, "EEE_GREEN" to 32, "EEE_BLUE" to 34)
-            for ((marker, code) in markers) {
-                NativeBridge.feedTerminal(
-                    sessionId,
-                    "\u001B[${code}m$marker\u001B[0m\r\n".toByteArray(Charsets.UTF_8),
-                )
-                val gridded =
-                    UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-                        NativeBridge.getTerminalText(sessionId)?.replace("\n", "")?.contains(marker) == true
-                    }
-                assertNotNull(
-                    "颜色块必须落格, 实际尾部: ${NativeBridge.getTerminalText(sessionId)?.takeLast(200)}",
-                    gridded,
-                )
-                val presented = NativeBridge.render(sessionId, 0, 0)
-                val packetShot = device.takeScreenshot() ?: throw AssertionError("截图失败")
-                android.util.Log.i(
-                    "SgrDiag",
-                    "packet code=$code rc=$presented red=${countRedPixels(packetShot)} " +
-                        "green=${countPixels(packetShot, ::isGreenish)} " +
-                        "blue=${countPixels(packetShot, ::isBluish)}",
-                )
-            }
-            // 运行时线程会重绘其自有会话帧：每轮先呈现本会话再立即截图，
-            // 取最大红色计数——呈现成功即有一轮命中红色。
-            var maxRed = 0
-            var maxGreen = 0
-            var maxBlue = 0
-            repeat(SAMPLING_ROUND_COUNT) {
-                val rendered = NativeBridge.render(sessionId, 0, 0)
-                val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
-                maxRed = maxOf(maxRed, countRedPixels(shot))
-                maxGreen = maxOf(maxGreen, countPixels(shot, ::isGreenish))
-                maxBlue = maxOf(maxBlue, countPixels(shot, ::isBluish))
-                android.util.Log.i("SgrDiag", "render rc=$rendered red=$maxRed green=$maxGreen blue=$maxBlue")
-                Thread.sleep(SAMPLING_INTERVAL_MILLIS)
-            }
-            android.util.Log.i(
-                "SgrDiag",
-                "maxRed=$maxRed maxGreen=$maxGreen maxBlue=$maxBlue (before=$beforeRed/$beforeGreen/$beforeBlue)",
-            )
-            assertTrue(
-                "SGR 红色文本必须产生红色像素 (前=$beforeRed 最大红=$maxRed)",
-                maxRed > beforeRed + PIXEL_GAIN_THRESHOLD,
-            )
-            assertTrue(
-                "SGR 绿色文本必须产生绿色像素 (前=$beforeGreen 最大绿=$maxGreen)",
-                maxGreen > beforeGreen + PIXEL_GAIN_THRESHOLD,
-            )
-            assertTrue(
-                "SGR 蓝色文本必须产生蓝色像素 (前=$beforeBlue 最大蓝=$maxBlue)",
-                maxBlue > beforeBlue + PIXEL_GAIN_THRESHOLD,
-            )
-        } finally {
-            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
+        val bridge = awaitBridge()
+        val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        val beforeRed = countReddishPixels(before)
+        val beforeGreen = countGreenishPixels(before)
+        val beforeBlue = countBluishPixels(before)
+        // 三色各占一行：同行的三段在小网格（CI 模拟器仅 25 列）上必折行，
+        // 折行后行内位置随网格变化。行号取视口上部，任何后续输出滚动视口都
+        // 不会把它们推出可见区。
+        val markers = listOf(
+            Triple(2, "EEE_RED", "\u001B[31m"),
+            Triple(4, "EEE_GREEN", "\u001B[32m"),
+            Triple(6, "EEE_BLUE", "\u001B[34m"),
+        )
+        for ((row, text, sgr) in markers) {
+            placeTextAtRow(bridge, row, "$sgr$text\u001B[0m")
         }
+        // 呈现是异步的（运行时循环节拍）：落格不等于已上屏，盲等固定时长在慢机上
+        // 不可靠；改为轮询截图直到三色增益出现，超时大声失败。运行时循环持续呈现
+        // 同一网格，每轮截图都是有效采样，不存在覆盖竞态。
+        var red = 0
+        var green = 0
+        var blue = 0
+        val gained =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 500) {
+                val shot = device.takeScreenshot() ?: return@pollUntilTrue false
+                red = countReddishPixels(shot)
+                green = countGreenishPixels(shot)
+                blue = countBluishPixels(shot)
+                red > beforeRed + PIXEL_GAIN_THRESHOLD &&
+                    green > beforeGreen + PIXEL_GAIN_THRESHOLD &&
+                    blue > beforeBlue + PIXEL_GAIN_THRESHOLD
+            }
+        assertNotNull("SGR 三色必须呈现 (红=$red 绿=$green 蓝=$blue 前=$beforeRed/$beforeGreen/$beforeBlue)", gained)
+        assertTrue(
+            "SGR 红色文本必须产生红色像素 (前=$beforeRed 现=$red)",
+            red > beforeRed + PIXEL_GAIN_THRESHOLD,
+        )
+        assertTrue(
+            "SGR 绿色文本必须产生绿色像素 (前=$beforeGreen 现=$green)",
+            green > beforeGreen + PIXEL_GAIN_THRESHOLD,
+        )
+        assertTrue(
+            "SGR 蓝色文本必须产生蓝色像素 (前=$beforeBlue 现=$blue)",
+            blue > beforeBlue + PIXEL_GAIN_THRESHOLD,
+        )
     }
 
     companion object {
-        private const val SAMPLING_ROUND_COUNT = 10
-        private const val SAMPLING_INTERVAL_MILLIS = 400L
         private const val PIXEL_GAIN_THRESHOLD = 20
     }
 }
