@@ -681,9 +681,9 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
 
 ## 18. 文档退役
 
-- [x] 15.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
-- [x] 15.2 删除 `docs/REVIEW*.md` 全部 12 个文件
-- [x] 15.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
+- [x] 18.1 本台账成文（含真实缺陷、裁决项、授权项、否证项四类）
+- [x] 18.2 删除 `docs/REVIEW*.md` 全部 12 个文件
+- [x] 18.3 确认无残留引用（`.semgrep/*.yml` 的排除项指向空集，无副作用）
 
 ## 19. fix 分支合入审计（逐项核对无内容丢失）
 
@@ -1207,7 +1207,7 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       `wm density 160`）下按类复跑确认全绿。几何前提是本轮的关键：同批代码在
       本地默认 1080×2400@420 下恒绿，只在 CI 几何下暴露，故后续验证一律先对齐
       几何再判红绿。
-- [ ] **（同几何下新暴露的三例，本轮已修待 CI）** 对齐几何后
+- [x] **（CI 已核销）** 对齐几何后
       `BehaviorInstrumentedTest` 红三例，根因是该类仍用自造 UiAutomator 滚动：
       `scrollTo` 只做**纵向** `UiScrollable.scrollForward`，而主题列表是**横向**
       `LazyRow`（`ThemeSelector` 内），窄屏一次只容两三张卡，纵向滚永远够不到
@@ -1215,7 +1215,10 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       自造重置亦无谓。修法：接入 `createAndroidComposeRule`（规则自带 Activity
       启动与干净状态），滚动改用 Compose 语义 API
       （`performScrollToNode`，本仓 7 个类已是该房规写法），删掉整段自造
-      `openSettings`/`scrollTo`/`goBack`（净减 83 行）。三例改判：
+      `openSettings`/`scrollTo`/`goBack`（净减 83 行）。三例改判（CI 侧 `connected-failures: 0`，
+      `verifyWordSelectionPositions`/`verifyUrlSelectionPositions`/
+      `searchOpensFromDrawerButton`/`cursorBlockMatchesRenderCursorCell` 四个签名在该
+      run 失败清单中零出现）：
       主题名改按 `theme_preview_*` 卡片横滚后断言可见；
       Bootstrap 预设/安装按钮改按既有 tag 断言；
       `behavior_shell_path_correct` **断言本身违反规范**（`shell-entry` 要求
