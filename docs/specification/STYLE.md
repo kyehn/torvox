@@ -33,10 +33,6 @@
 
 - 使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
 
-## Nix
-
-- 始终使用 `nix develop`。
-
 ## GitHub Actions
 
 - Action 版本：使用默认分支（`@main` 或 `@master`），而非标签，例外：`reactivecircus/android-emulator-runner@v2` — `@main` 未包含已编译的 `node_modules`。
