@@ -24,10 +24,13 @@
       Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）——
       本轮已修：JNI 增 `modifiers`（上游 `key.Mods` 原始位），编码器 `set_mods`，
       Kotlin 侧由 `KeyModifiers.ghosttyMods(metaState)` 换算，并有编码差异回归测试
-- [ ] N2-44DESIGN:153 要求的修饰键栏左右移动可见区域未实现 —— 触发
-      条件在本仓不存在：网格列数是 `floor(surfaceWidth / cellWidth)`，内容恒不
-      横向溢出（`computeGridDimensions`），左右键因而必须继续把箭头序列发给远端；
-      是否为规范补一句「内容永不溢出故无需平移」由用户裁决（D13）
+- [ ] N2-44DESIGN 要求的修饰键栏左右移动可见区域未实现 —— **行号已随
+      用户的 `81053beb` 变更（旧 :153 → 新 :145）**。触发条件在本仓不存在：网格列数是
+      `floor(surfaceWidth / cellWidth)`，内容恒不横向溢出（`computeGridDimensions`），
+      左右键因而必须继续把箭头序列发给远端；是否为规范补一句「内容永不溢出故无需平移」
+      由用户裁决（D13）。**同一条新加的「向上和向下按键也应该工作」已落地并被锁定**：
+      ↑↓←→ 四键 × 普通/应用光标模式共 8 条序列由 `ModifierBarRobolectricTest`
+      的表驱动用例一次性断言（`123a4b55`）
 
 ## 2. 中危：资源与契约
 
@@ -120,14 +123,21 @@
       不使用 `bash` 或 `sh`」——约束对象是脚本语言，不是「命令里不得出现 bash 字样」。
       `fmt.yml:44` 的 `bash -c` 是工作流里的一行宿主命令，不是仓内 Shell 脚本文件，
       不违反该条。关闭
-- [ ] D3 / P0-5【R29 结论仍成立；**本轮订正一处事实错误**：台账称
-      「`AnrWatchDog` 触发即 `Process.killProcess`」，实测 `killProcess` 只在
-      `BootGuard.exit()`（`BootGuard.kt:76`），`AnrWatchDog` 内无此调用；五类
+- [x] D3 / P0-5【**R38 全量排查后前提不成立，关闭**】台账称五类看门狗/监控组件
       （`AnrWatchDog`/`BootGuard`/`MemoryMonitor`/`ThermalMonitor`/
-      `TerminalForegroundService`）确实都已实现、接线于 `TerminalApp`/`MainActivity`
-      且有测试，与 `PROHIBITED.md:10`「会话数据持久化 / 恢复」的字面禁令冲突成立。
-      删整块是功能倒退，故按 R29 建议**补规范声明**——需改保护文件
-      `docs/specification/PROHIBITED.md`，等用户授权】
+      `TerminalForegroundService`）「与 `PROHIBITED.md:10`『会话数据持久化 / 恢复』
+      的字面禁令冲突」。逐条核实持久化面后**证否**——全仓持久化只有两处，都不是
+      会话数据：① `SettingsRepository` 的 9 个 DataStore 键，全是设置项
+      （`font_size`/`font_family`/`theme_name`/`day_theme_name`/`night_theme_name`/
+      `theme_mode`/`shell`/`app_theme_mode`/`bootstrap_url`），`grep -niE
+      "session|scrollback|grid|cell|pty"` 在该文件零命中；② `BootGuard` 的
+      `boot_state/boot_counter.txt`，内容是 `退出次数:上次重置时刻`
+      （`BootGuard.kt:80` `ExitCounter`）。另核实无 `onSaveInstanceState`、
+      无 `SavedStateHandle`、无会话序列化（`TerminalRuntime` 零命中），native 侧
+      7 处 `fs::write` 全在测试代码里（`pty.rs:1081/1091/1101`、
+      `snapshot_test.rs:238`、`font/mod.rs:1473/1486`）。终端网格、回滚、PTY 从不落盘，
+      `PROHIBITED.md:10` 被严格遵守。删整块确属功能倒退，但补规范声明也无必要——
+      没有冲突可解。关闭
 - [x] D5【前提不成立（回读调用链证否）】台账称「二进制 VT 数据走 `pty_write` 的
       `>0xF7→空格` 整形会损坏输入」。实测输入路径不经该整形：
       `Bridge.writeToPty` → `NativeBridge.feedPty`（`ffi.rs:947`）直接
@@ -158,9 +168,12 @@
       2/3 通过、剩余 1 例为 AVD 环境所限）与 `ComputeImeSurfaceShiftTest` 覆盖；
       恢复旧文件等于重复锁定同一行为
 - [ ] D13（N2-44）【R29 建议给规范补一句现状说明（网格恒不溢出），触发条件不存在，
-      删条与实现条都不合适】DESIGN:153「内容横向溢出到右侧时左右键平移可见区域」的触发
-      条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：是给规范
-      补一句现状说明，还是删掉该条要求
+      删条与实现条都不合适】`DESIGN.md:145`（旧 :153）「内容横向溢出到右侧时左右键平移
+      可见区域」的触发条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：
+      是给规范补一句现状说明，还是删掉该条要求。**用户在 `81053beb` 里重写了这句并加了
+      `nix --help` 举例与「向上和向下按键也应该工作」——新增半句已实现且由
+      `ModifierBarRobolectricTest` 表驱动用例锁定 8 条序列；横向平移半句依旧无法在不
+      与 Termux 语义冲突的前提下实现，仍等裁决**
 - [x] D14（N9/N2-23）【已取「运行时设置」并修完，删净失效硬编码】
       应用内配色由 Compose 按「日间/夜间/跟随系统」解析；系统栏在边到边下只决定
       图标明暗，已按已解析的终端主题背景亮度显式写 insets controller 的两枚开关。
@@ -199,7 +212,7 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `assembleDebugAndroidTest` 与 `lintVitalRelease`，从不真正 `assembleRelease`。
       补冒烟要改 `scripts/` 或 `.github/workflows/`（均属 AGENTS.md 明列的保护
       文件），需用户授权
-- [x] N7 / N8**两处前提均不成立**。①「先关动画再跑动画基准（恒测 0 并通过）」：
+- [x] N37 / N38（，原编号 N7 / N8 与上文「N8：release 变体零冒烟」那一条重号，此处改用未占用号）**两处前提均不成立**
       `scripts/*.nu`、`android/benchmark/` 与 `.github/workflows/build.yml` 里基准
       路径**无**任何关动画调用（`recoverEmulator` 只 `am force-stop` + `waitForIdle`）；
       且 `InteractionAnimationBenchmark` 类注释明写「只输出指标、**不设阈值**」，
@@ -631,7 +644,7 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
 - [x] **（自身回归）** 为「空载荷 OSC 52」加的告警落在 `EventDispatcher`，
       而 `Bridge.parseEvent`（`Bridge.kt:365`）已把 `""` 映射成 `null`：
       该分支不可达，序列仍被静默丢弃，注释还宣称可达。已删除该死分支，
-      改在台账登记（见 D13）
+      改在台账登记（见 D19）
 - [x] **** `keymap.rs` 的测试注释拿 `KEYCODE_SYSRQ` 当「未映射」的反例，
       而它其实映射为 `PrintScreen`（200 是 `KEYCODE_CAPTIONS`）。已更正
 - [x] **** `keymap.rs` 的 `every_android_code_has_unique_mapping` 实测不了唯一性
@@ -644,7 +657,7 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
 
 ## 16. ：新增待办
 
-- [ ] **D13（需用户裁决）**【R29 建议实现清空语义需先定三态合并规则，见条内】OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
+- [ ] **D19（需用户裁决；原编号 D13 与第 163 行同号，此处改用未占用号）**【R29 建议实现清空语义需先定三态合并规则，见条内】OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
       「清空剪贴板」。当前 `Bridge.parseEvent` 把空串映射成 `null`（null = 本帧无剪贴板事件），
       于是该序列被静默忽略。`DESIGN.md` 只声明「通过终端序列（OSC 52）与用户交互
       读写系统剪贴板」，未声明清空语义；按「不允许实现任何未在 docs/specification/
@@ -961,7 +974,7 @@ CI 模拟器用 `avdmanager create avd` 的默认设备，屏幕 **320×640 @ 16
       Spec 轴指出的 4/8 未覆盖项经 logcat 证据复核不成立：
       CI 的 8 条失败签名（回滚 800+ 行、回显超时、快照超时）同源于 的
       洪流污染 + 的 PTY 锁（7fps 现场），不是 4 个独立缺陷；
-      DESIGN:153 横向平移触发条件不存在（D13 待裁决），DESIGN:171 其余款早有实现，
+      DESIGN:145 横向平移触发条件不存在（D13 待裁决），DESIGN:171 其余款早有实现，
       主题硬编码与 splash 系 D15 待裁决。`SystemBarIconThemeTest` 去掉 4 主题点名，
       改断言全清单亮度自洽（D15 裁决后无需改测试）。
 - [x] **（去重）** `ScrollBehavior` 的 `@After` 清场内联体与既有注释收归
