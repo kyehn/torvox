@@ -84,7 +84,7 @@ internal class DocumentQueries(private val context: Context) {
     }
 
     fun getMimeType(fileName: String): String {
-        val ext = fileName.substringAfterLast('.', "").lowercase()
+        val ext = fileName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
         if (ext.isEmpty()) return "application/octet-stream"
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }

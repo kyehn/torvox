@@ -244,7 +244,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } catch (_: IllegalArgumentException) {
             return
         }
-        val scheme = uri.scheme?.lowercase()
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
         if (scheme != "http" && scheme != "https") return
         try {
             val intent =
@@ -1400,7 +1400,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         // 协议白名单：终端输出不可信，故只允许打开 http(s)
         // （阻止 OSC 8 中的 intent:/file:/javascript:）。
-        val scheme = uri.scheme?.lowercase()
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
         if (scheme != "http" && scheme != "https") {
             LogUtil.w(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
             return false
