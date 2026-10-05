@@ -151,16 +151,14 @@ class PasteButtonInstrumentedTest {
         injectLongPress(findTerminalSurface(composeTestRule.activity), tapX, tapY)
         composeTestRule.waitForIdle()
 
-        // 分段断言：手势/选择 vs 菜单/粘贴。
-        var active = false
-        var pasteOnly = false
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            val selection = activity.terminalViewModel.state.value.selection
-            active = selection.active
-            pasteOnly = selection.pasteOnly
-        }
-        assertTrue("长按空白后选择必须激活 (active=$active pasteOnly=$pasteOnly)", active)
-        assertTrue("长按空白必须为纯粘贴选择 (pasteOnly=$pasteOnly)", pasteOnly)
+        // 分段断言：手势/选择 vs 菜单/粘贴。选择经桥接与状态流异步落地，
+        // 慢模拟器上单次直读会把「还没来得及」判成「未激活」，与弹窗等待同口径轮询。
+        val selectionReady =
+            UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 200) {
+                val selection = composeTestRule.activity.terminalViewModel.state.value.selection
+                selection.active && selection.pasteOnly
+            }
+        assertNotNull("长按空白后选择必须激活为纯粘贴", selectionReady)
 
         // 与应用 ClipboardAccess.clipboardText() 同逻辑预读：切分“剪贴板”与“粘贴写入”。
         var clipRead: String? = "<unread>"
