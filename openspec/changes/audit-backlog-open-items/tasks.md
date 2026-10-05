@@ -1468,3 +1468,14 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       **取证**：`scripts/test-emulator.nu` 在 `:app:connectedDebugAndroidTest`
       失败时不 dump logcat，补上即需改保护文件 `scripts/`，已并入待授权清单。
       在拿到该 logcat 前不臆测改产品行为
+
+## 30. CI run 定位与收口
+
+- [ ] **（已改测试待 CI 验证）`PasteButtonInstrumentedTest#pasteMenuTypesClipboardIntoShell` 的用例竞态**。
+      失败为 `AssertionError: No views ... with text is "粘贴"`（`PasteButtonInstrumentedTest.kt:180`），
+      即 Espresso 对平台弹窗单次直查返回缺席。同仓其余菜单断言（`SelectionEspressoTest:101/105`、
+      `SelectionDragQuantifiedTest:287`）全用 `device.wait(Until.hasObject(...), 15000)`，
+      唯独此处直查——与 同类（用户动作之后才出现的节点）。已改与既有口径一致的轮询等待
+      （`3cd6b5fb`），判红与被测行为无关。另补 `showSelectionMenu` 系 7 处静默返回的 `logcat`
+      （`75a4d71d/146fd86b`，`ClipboardAccess/TerminalViewModel` 空块各一），使下次缺席可判别分支，
+      无需改保护文件。待下次 build run 绿后勾清。
