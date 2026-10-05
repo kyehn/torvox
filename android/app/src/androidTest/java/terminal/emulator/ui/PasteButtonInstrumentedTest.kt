@@ -149,7 +149,6 @@ class PasteButtonInstrumentedTest {
         )
         val tapY = (5 + 0.5f) * cellHeight
         injectLongPress(findTerminalSurface(composeTestRule.activity), tapX, tapY)
-        composeTestRule.waitForIdle()
 
         // 分段断言：手势/选择 vs 菜单/粘贴。选择经桥接与状态流异步落地，
         // 慢模拟器上单次直读会把「还没来得及」判成「未激活」，与弹窗等待同口径轮询。
