@@ -4,22 +4,30 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Bitmap
-import android.util.Log
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiScrollable
-import androidx.test.uiautomator.UiSelector
-import androidx.test.uiautomator.Until
 import org.junit.After
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.ui.theme.BuiltInThemes
 
 class BehaviorInstrumentedTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
@@ -28,54 +36,32 @@ class BehaviorInstrumentedTest {
     @get:Rule
     val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
+    // Compose 规则自带 Activity 启动：设置是 Activity 内的浮层，每例重建规则即从
+    // 干净状态起步，无需 `am start --activity-clear-task` 之类的自造重置。
+    @get:Rule
+    val composeTestRule = createAndroidComposeRule<MainActivity>()
+
     companion object {
-        private const val TAG = "BehaviorTest"
         private const val PACKAGE = "com.termux"
         private const val WAIT_TIMEOUT = 60_000L
         private const val SELECTION_PIXEL_GAIN_THRESHOLD = 300
     }
 
     private lateinit var device: UiDevice
-    private var initialized = false
 
     @Before
     fun setUp() {
-        try {
-            device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-            initialized = true
-            // --activity-clear-task：设置是 Activity 内的 Compose 浮层，
-            // 普通 `am start` 只把停在设置页的状态带到前台，浮层就此留存并盖住
-            // 终端——其后所有像素用例量到的都是设置界面。
-            device.executeShellCommand("am start --activity-clear-task -n $PACKAGE/terminal.emulator.MainActivity")
-            device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), WAIT_TIMEOUT)
-            // 软件渲染模拟器被渲染压满时系统会弹「无响应」，它盖住应用窗口，
-            // 之后所有节点查找都落空——先按「等待」关掉。
-            dismissNotRespondingDialog()
-            Thread.sleep(10000)
-        } catch (exception: Exception) {
-            Log.e(TAG, "setUp failed", exception)
-            throw exception
-        }
+        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        // 软件渲染模拟器被渲染压满时系统会弹「无响应」，它盖住应用窗口，
+        // 之后所有节点查找都落空——先按「等待」关掉。
+        dismissNotRespondingDialog()
+        composeTestRule.waitForTerminalScreen()
     }
 
-
-    private fun openSettings() {
-        val drawerBtn =
-            device.findObject(By.desc("打开会话抽屉"))
-                ?: device.findObject(By.text("☰"))
-                ?: throw AssertionError("抽屉按钮必须存在")
-        // 旧英文定位（Open session drawer/Settings）永远找不到，
-        // ?.click 静默吞失败，改为找不到直接抛。
-        drawerBtn.click()
-        // 无响应对话框在软件渲染过载时随时弹出并盖住抽屉（见 TestUtils 说明）：
-        // 先关掉再等抽屉内容落定，否则等待看到的只是系统弹窗。
-        dismissNotRespondingDialog()
-        val drawerSettled = device.wait(Until.hasObject(By.text("设置")), 30_000)
-        val settingsEntry =
-            device.findObject(By.text("设置"))
-                ?: throw AssertionError("设置入口必须存在 (等待=$drawerSettled)")
-        settingsEntry.click()
-        Thread.sleep(3000)
+    /** 设置浮层是 Compose 覆盖层，不关闭就留存给后继用例并盖住终端（见 closeSettingsOverlay）。 */
+    @After
+    fun tearDown() {
+        composeTestRule.closeSettingsOverlay()
     }
 
     // 长按前后截图采样差分：选择高亮/手柄/菜单必改数千采样像素，
@@ -96,24 +82,9 @@ class BehaviorInstrumentedTest {
         return changed
     }
 
-    private fun scrollTo(text: String, maxSwipes: Int = 30) {
-        for (i in 0 until maxSwipes) {
-            Thread.sleep(500)
-            if (device.findObject(By.textContains(text)) != null) return
-            try {
-                val scrollable = UiScrollable(UiSelector().scrollable(true))
-                scrollable.scrollForward()
-            } catch (_: Exception) {
-                val cx = device.displayWidth / 2
-                device.swipe(cx, device.displayHeight * 6 / 10, cx, device.displayHeight / 4, 10)
-            }
-            Thread.sleep(800)
-        }
-    }
-
-    private fun goBack() {
-        device.pressBack()
-        Thread.sleep(1000)
+    /** 纵向滚到设置页目标节点（Compose 语义滚动，不自造滑动循环）。 */
+    private fun scrollSettingsTo(matcher: SemanticsMatcher) {
+        composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(matcher)
     }
 
     @Test
@@ -132,24 +103,12 @@ class BehaviorInstrumentedTest {
 
     @Test
     fun behavior_font_picker_opens_with_change_button() {
-        openSettings()
-        // 字体区文案均为中文：标题“字体”，按钮“更改”，对话框标题“选择字体”。
-        val fontReady = device.wait(Until.hasObject(By.text("更改")), WAIT_TIMEOUT)
-        if (!fontReady) {
-            scrollTo("字体")
-        }
-        val changeBtn =
-            device.findObject(By.text("更改"))
-                ?: throw AssertionError("更改按钮必须存在")
-        changeBtn.click()
-        Thread.sleep(2000)
-        val dialog =
-            device.findObject(By.text("选择字体"))
-                ?: device.findObject(By.textContains("monospace"))
-                ?: device.findObject(By.textContains("Mono"))
-                ?: device.findObject(By.textContains("Noto"))
-        assertTrue("Font picker dialog should appear", dialog != null)
-        goBack()
+        composeTestRule.openSettings()
+        // 字体区：标题“字体”，按钮“更改”，对话框标题“选择字体”。
+        scrollSettingsTo(hasTestTag("FontFamilySelector"))
+        composeTestRule.onNodeWithText("更改").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("选择字体").assertIsDisplayed()
     }
 
     @SuppressLint("DeprecatedCall")
@@ -206,103 +165,63 @@ class BehaviorInstrumentedTest {
 
     @Test
     fun behavior_settings_theme_names_visible() {
-        openSettings()
-        val themeReady = device.wait(Until.hasObject(By.text("Dracula Plus")), WAIT_TIMEOUT)
-        if (!themeReady) {
-            scrollTo("Dracula Plus")
+        composeTestRule.openSettings()
+        scrollSettingsTo(hasTestTag("ThemeSelector"))
+        // 主题是横向列表：窄屏（CI 320×640）一次只容得下两三张卡，纵向滚动够不到
+        // 右侧主题——必须横向滚到目标卡片再断言其可见（主题名在预览卡下方）。
+        val themeList = composeTestRule.onAllNodes(hasTestTag("ThemeList"))[0]
+        for (themeName in listOf(BuiltInThemes.draculaPlus.name, "Catppuccin Mocha", "Monokai")) {
+            themeList.performScrollToNode(hasTestTag("theme_preview_$themeName"))
+            composeTestRule.onNodeWithTag("theme_preview_$themeName").assertIsDisplayed()
         }
-        val dracula = device.findObject(By.text("Dracula Plus"))
-        val catppuccin = device.findObject(By.text("Catppuccin Mocha"))
-        val monokai = device.findObject(By.text("Monokai"))
-        assertTrue("Dracula Plus should be visible", dracula != null)
-        assertTrue("Catppuccin Mocha should be visible", catppuccin != null)
-        assertTrue("Monokai should be visible", monokai != null)
-        goBack()
     }
 
     @Test
     fun behavior_settings_bootstrap_action_buttons() {
-        openSettings()
-        // 预设行在 Install 按钮上方：先滚到预设断言，再继续下滚到按钮断言
-        // （一次只保证一项在视口内，同时断言两项在窄屏上恒失败）。
-        scrollTo("Termux 默认", maxSwipes = 60)
-        val termuxDefault = device.findObject(By.text("Termux 默认"))
-        assertTrue("Termux 默认 should be visible", termuxDefault != null)
-        scrollTo("安装", maxSwipes = 60)
-        val installBtn = device.findObject(By.text("安装"))
-        assertTrue("Install button should be visible", installBtn != null)
-        goBack()
+        composeTestRule.openSettings()
+        // 预设行在安装按钮上方：先滚到预设断言，再滚到按钮断言（一次只保证一项在
+        // 视口内，同时断言两项在窄屏上恒失败）。
+        scrollSettingsTo(hasTestTag("BootstrapPreset_TermuxDefault"))
+        composeTestRule.onNodeWithTag("BootstrapPreset_TermuxDefault").assertIsDisplayed()
+        scrollSettingsTo(hasTestTag("BootstrapInstallButton"))
+        composeTestRule.onNodeWithTag("BootstrapInstallButton").assertIsDisplayed()
     }
 
     @Test
     fun behavior_settings_no_nerd_osc133_toggles() {
-        openSettings()
-        assertFalse(
-            "Nerd toggle should NOT exist",
-            device.findObject(By.textContains("Nerd")) != null,
-        )
-        assertFalse(
-            "OSC133 toggle should NOT exist",
-            device.findObject(By.textContains("OSC")) != null,
-        )
-        goBack()
+        composeTestRule.openSettings()
+        composeTestRule.onAllNodesWithText("Nerd", substring = true).assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("OSC", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun behavior_settings_shell_entry_empty_until_saved() {
+        composeTestRule.openSettings()
+        scrollSettingsTo(hasTestTag("ShellEntryInput"))
+        // 规范要求未设置时显示空文本、不预填任何路径（shell-entry：
+        // 「未设置时显示空文本」）；预填 `/system/bin/sh` 即违规。空输入框的语义树里
+        // 根本没有 EditableText 条目，故按「有文本则必须为空」判。
+        val shellSemantics =
+            composeTestRule.onNodeWithTag("ShellEntryInput").fetchSemanticsNode().config
+        val shellText = shellSemantics.getOrNull(SemanticsProperties.EditableText)?.text
+        assertTrue("shell 设置框未设置时必须为空（实际=$shellText）", shellText.isNullOrEmpty())
+        composeTestRule.onNodeWithTag("ShellSaveButton").assertIsDisplayed()
     }
 
     @Test
     fun behavior_modifier_bar_visible() {
-        val modifierBarReady =
-            device.wait(Until.hasObject(By.text("ESC")), WAIT_TIMEOUT)
-        assertTrue("Modifier bar should load with ESC key", modifierBarReady)
-        // 单用例运行时无前序污染：CTRL 必须在 ESC 就绪后短时间内出现，
-        // 否则说明键栏组合/渲染有问题，直接失败而非逐级返回掩盖。
-        val ctrlDeadline = System.currentTimeMillis() + 15_000
-        while (device.findObject(By.text("CTRL")) == null &&
-            System.currentTimeMillis() < ctrlDeadline
-        ) {
-            Thread.sleep(500)
+        // 键栏是 Compose 覆盖层：四个主键同屏可见，逐个断言而非「ESC 出现即通过」。
+        for (keyLabel in listOf("ESC", "CTRL", "ALT", "HOME")) {
+            composeTestRule.onNodeWithText(keyLabel).assertIsDisplayed()
         }
-        val esc = device.findObject(By.text("ESC"))
-        val ctrl = device.findObject(By.text("CTRL"))
-        val alt = device.findObject(By.text("ALT"))
-        val home = device.findObject(By.text("HOME"))
-        assertTrue("ESC should be visible", esc != null)
-        assertTrue("CTRL should be visible", ctrl != null)
-        assertTrue("ALT should be visible", alt != null)
-        assertTrue("HOME should be visible", home != null)
     }
 
     @Test
     fun behavior_drawer_shows_sessions_and_settings() {
-        // 抽屉内文案均为中文：设置入口“设置”，会话项标题“会话 N”。
-        val drawerBtn =
-            device.findObject(By.desc("打开会话抽屉"))
-                ?: device.findObject(By.text("☰"))
-                ?: throw AssertionError("抽屉按钮必须存在")
-        drawerBtn.click()
-        Thread.sleep(2000)
-        val drawerReady = device.wait(Until.hasObject(By.text("设置")), WAIT_TIMEOUT)
-        assertTrue("Drawer should load with Settings option", drawerReady)
-        val settings =
-            device.findObject(By.text("设置"))
-                ?: throw AssertionError("Settings should be in drawer")
-        val sessions =
-            device.findObject(By.textContains("会话"))
-                ?: throw AssertionError("Session should be in drawer")
-        assertTrue("Session row must be enabled", sessions.isEnabled || sessions.isClickable)
-        settings.click()
-        Thread.sleep(2000)
-        goBack()
-    }
-
-    @Test
-    fun behavior_shell_path_correct() {
-        openSettings()
-        val shellReady = device.wait(Until.hasObject(By.text("/system/bin/sh")), WAIT_TIMEOUT)
-        if (!shellReady) {
-            scrollTo("/system/bin/sh")
-        }
-        val shell = device.findObject(By.text("/system/bin/sh"))
-        assertTrue("Shell path should be /system/bin/sh", shell != null)
-        goBack()
+        composeTestRule.openDrawer()
+        composeTestRule.onNodeWithTag("SettingsButton", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("会话", substring = true)
+            .onFirst()
+            .assertIsDisplayed()
     }
 }
