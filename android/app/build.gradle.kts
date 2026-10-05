@@ -205,7 +205,7 @@ tasks
     jvmArgs("-Djava.library.path=")
   }
 
-val reportConnectedFailures by tasks.registering {
+val reportConnectedFailures = tasks.register("reportConnectedFailures") {
   description = "Prints connected-test failure names and messages from UTP XML results."
   doLast {
     val resultsDir =
