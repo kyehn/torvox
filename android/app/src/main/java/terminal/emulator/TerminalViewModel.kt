@@ -694,7 +694,11 @@ constructor(
             // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
             // 会让粘贴尾部写进新会话。
             val sessionId = runtime.inputTargetSessionId
-            for (chunk in PasteChunker().chunks(text)) {
+            val chunks = PasteChunker().chunks(text)
+            if (chunks.isEmpty()) {
+                LogUtil.d("TerminalViewModel", "粘贴跳过：切分后无块")
+            }
+            for (chunk in chunks) {
                 pasteSink(sessionId, chunk.toByteArray())
                 offset += chunk.length
             }
