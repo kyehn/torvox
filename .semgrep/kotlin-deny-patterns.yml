@@ -31,8 +31,9 @@ rules:
     message: "`GlobalScope.launch` creates a fire-and-forget coroutine with no lifecycle management. Use `viewModelScope`, `lifecycleScope`, or a custom `CoroutineScope` tied to the component lifecycle."
     severity: ERROR
     languages: [kotlin]
-    fix: |
-      $SCOPE.launch { ... }
+    # 无 `fix:`：目标协程作用域随组件而异（viewModelScope / lifecycleScope / 自建），
+    # 规则无从判定；此前写的 `$SCOPE.launch { ... }` 里 `$SCOPE` 并未被 pattern 绑定，
+    # `semgrep --fix` 会把它替换成空串，直接吃掉整段协程。
   - id: no-runblocking-production
     patterns:
       - pattern: runBlocking { ... }
