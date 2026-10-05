@@ -38,8 +38,11 @@ class ImePopupPixelInstrumentedTest {
         private const val MOVE_MIN_SHIFT_PX = 20
         private const val STRIP_MATCH_MAX_DIFF = 300
 
-        /** 像素采样步长（x 与 y 同用）：只影响差异统计速度。 */
+        /** 差分抽样步长：只影响统计速度。 */
         private const val PIXEL_SAMPLE_STEP_PX = 3
+
+        /** 单像素三通道差和阈值：低于视为同一内容。 */
+        private const val PIXEL_DELTA_THRESHOLD = 40
 
         /** 行墨量的横向抽样步长：放宽到 12px 仍能精确命中（见 bestUpwardShift）。 */
         private const val ROW_INK_SAMPLE_STEP_PX = 12
@@ -48,10 +51,11 @@ class ImePopupPixelInstrumentedTest {
         private const val STRIP_HEIGHT_PX = 150
 
         /**
-         * 稀疏内容的比对条带高度（状态栏之下、键盘之上）。
-         * 覆盖首行提示符与打印标记（行高 45px 实测），既含内容又远离键栏位移区。
+         * 稀疏条带覆盖的网格行数：首行标记与提示符所在，且恒在底部键栏行程区之上。
+         * 固定 400px 在小屏上会伸进键栏位移区，把键栏抬升误判成内容变化
+         * （CI 稳定差分约 370 即此形状）；按实际行高只取内容行。
          */
-        private const val SPARSE_STRIP_HEIGHT_PX = 400
+        private const val SPARSE_STRIP_ROWS = 4
 
         /** 稀疏内容弹出前后条带允许的差分像素（与闪烁断言同口径）。 */
         private const val SPARSE_STRIP_MAX_DIFF = 5
@@ -99,6 +103,9 @@ class ImePopupPixelInstrumentedTest {
 
     /** 等 shell 提示符就绪后经 shell 打印输出（writeToPty 口径），回显重发防冷 stdin 丢失。 */
     private fun printAndAwait(command: String, needle: String) {
+        // 共用会话的行编辑状态跨用例残留（见 PasteButton 同因说明）：
+        // 先送 ETX 中止再等 prompt，否则门控把 shell 污染误判成未就绪。
+        bridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
                 val text = pumpAndText().orEmpty()
@@ -179,36 +186,27 @@ class ImePopupPixelInstrumentedTest {
     }
 
     /**
-     * 比对条带的上沿（px）：必须让开系统状态栏整条带，而不只是 inset。
+     * 比对条带的上沿（px）：终端内容起点即表面顶部，其下即无系统像素。
      *
-     * 实测（本地 1080×2400 模拟器，弹出输入法前后逐像素比对）：终端内容**逐像素
-     * 相同**（y≥85 无任何差异），全部差异落在 y=64..79 的 x≈933..965 —— 系统状态栏
-     * 的电量图标与其底色在输入法弹出时整体换色。而 `statusBars()` inset 只有 56px，
-     * 系统实际绘制的状态栏带到 y≈80，于是原条带把系统像素算了进来，稳定报
-     * 「必须无变化 (差分≈3000)」。
-     *
-     * `getWindowVisibleDisplayFrame` 给的正是「未被系统栏遮挡的窗口可见区」上沿，
-     * 与 inset 取较大者即可覆盖两种窗口模式（是否 edge-to-edge）。
+     * 窗口可见区上沿在边到边下为 0，状态栏内边距又小于实际绘制带，
+     * 两者取大仍会把状态栏图标算进来。用表面屏幕坐标直接避开整条系统栏。
      */
     private fun contentStripTopPx(): Int {
-        var visibleFrameTop = 0
+        var surfaceTop = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            val frame = android.graphics.Rect()
-            composeTestRule.activity.window.decorView.getWindowVisibleDisplayFrame(frame)
-            visibleFrameTop = frame.top
+            val location = IntArray(2)
+            findTerminalSurface(composeTestRule.activity).getLocationOnScreen(location)
+            surfaceTop = location[1]
         }
-        return maxOf(visibleFrameTop, statusBarHeightPx()) + SPARSE_STRIP_TOP_MARGIN_PX
+        return surfaceTop + SPARSE_STRIP_TOP_MARGIN_PX
     }
 
-    /** 状态栏 inset（px）：与窗口可见区上沿取大者作为条带上沿。 */
-    private fun statusBarHeightPx(): Int {
-        var height = 0
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            height =
-                findTerminalSurface(composeTestRule.activity).rootWindowInsets
-                    ?.getInsets(WindowInsets.Type.statusBars())?.bottom ?: 0
-        }
-        return height
+    /** 稀疏条带高度（px）：首 [SPARSE_STRIP_ROWS] 行网格的实际像素高度。 */
+    private fun sparseStripHeightPx(): Int {
+        val density = composeTestRule.activity.resources.displayMetrics.density
+        val cellHeight = bridge().getCellHeight() * density
+        assertTrue("单元格高度不可用 ($cellHeight)", cellHeight > 0f)
+        return (SPARSE_STRIP_ROWS * cellHeight).toInt()
     }
 
     /** 单像素 RGB 差分和（阈值由调用方判定）。 */
@@ -231,15 +229,15 @@ class ImePopupPixelInstrumentedTest {
         second: android.graphics.Bitmap,
         top: Int,
         bottom: Int,
-    ): Int {
-        var count = 0
-        for (y in top until bottom step 3) {
-            for (x in 0 until first.width step 3) {
-                if (pixelDelta(first.getPixel(x, y), second.getPixel(x, y)) > 40) count++
-            }
-        }
-        return count
-    }
+    ): Int =
+        UxTestUtils.countDiffInBand(
+            first,
+            second,
+            top,
+            bottom,
+            PIXEL_SAMPLE_STEP_PX,
+            PIXEL_DELTA_THRESHOLD,
+        )
 
     /**
      * 在顶部条带里搜索终端内容的上移量，返回（位移像素，匹配差异）。
@@ -435,13 +433,14 @@ class ImePopupPixelInstrumentedTest {
         val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
         // 条带取在状态栏之下（避开系统时钟像素）、键盘之上（保证内容确实可见）。
         val stripTop = contentStripTopPx()
+        val stripHeight = sparseStripHeightPx()
         assertTrue(
-            "比对条带必须位于键盘上方 (条带底=${stripTop + SPARSE_STRIP_HEIGHT_PX} 键盘顶边=${device.displayHeight - imeHeightPx()})",
-            stripTop + SPARSE_STRIP_HEIGHT_PX <= device.displayHeight - imeHeightPx(),
+            "比对条带必须位于键盘上方 (条带底=${stripTop + stripHeight} 键盘顶边=${device.displayHeight - imeHeightPx()})",
+            stripTop + stripHeight <= device.displayHeight - imeHeightPx(),
         )
         assertTrue(
             "弹出前条带必须有内容像素（否则「无变化」断言无意义）",
-            stripInk(before, stripTop, SPARSE_STRIP_HEIGHT_PX) > 0,
+            stripInk(before, stripTop, stripHeight) > 0,
         )
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
@@ -458,10 +457,10 @@ class ImePopupPixelInstrumentedTest {
         val after = device.takeScreenshot() ?: throw AssertionError("截图失败")
         assertTrue(
             "弹出后条带必须有内容像素（内容不得被键盘吞掉或推离屏幕）",
-            stripInk(after, stripTop, SPARSE_STRIP_HEIGHT_PX) > 0,
+            stripInk(after, stripTop, stripHeight) > 0,
         )
         val stayedDiff =
-            countDifferingPixels(before, after, stripTop, stripTop + SPARSE_STRIP_HEIGHT_PX)
+            countDifferingPixels(before, after, stripTop, stripTop + stripHeight)
         assertTrue(
             "内容较少时弹出输入法终端必须无变化 (差分=$stayedDiff)",
             stayedDiff <= SPARSE_STRIP_MAX_DIFF,

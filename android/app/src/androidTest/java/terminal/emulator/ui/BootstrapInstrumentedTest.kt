@@ -11,9 +11,11 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.MainActivity
 
 @RunWith(AndroidJUnit4::class)
@@ -44,6 +46,9 @@ class BootstrapInstrumentedTest {
             .onNodeWithTag("BootstrapSection", useUnmergedTree = true)
             .assertExists()
     }
+
+    @After
+    fun resetScreen() = composeTestRule.closeSettingsOverlay()
 
     @Test
     fun bootstrap_section_exists_in_settings() {

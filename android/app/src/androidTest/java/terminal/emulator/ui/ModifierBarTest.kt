@@ -16,11 +16,13 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.probeAssertion
 
 class ModifierBarTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
@@ -30,6 +32,24 @@ class ModifierBarTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    /**
+     * 粘滞键复位：全键点击把 CTRL/ALT/SCROLL 逐个置为 armed 并残留，
+     * 后继用例（含本类内次序在后者）的首断言会被误伤。仅对仍 armed 者点灭，
+     * 已恢复的不碰；点灭若被吞则与今天一致（残留），不新增失败面。
+     */
+    @After
+    fun cleanUpStickyKeys() {
+        if (!probeAssertion { composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected() }) {
+            composeTestRule.onNodeWithTag("Key_CTRL").performClick()
+        }
+        if (!probeAssertion { composeTestRule.onNodeWithTag("Key_ALT").assertIsNotSelected() }) {
+            composeTestRule.onNodeWithTag("Key_ALT").performClick()
+        }
+        if (!probeAssertion { composeTestRule.onNodeWithTag("Key_SCROLL").assertIsNotSelected() }) {
+            composeTestRule.onNodeWithTag("Key_SCROLL").performClick()
+        }
+    }
 
     @Test
     fun modifier_bar_renders_all_keys() {

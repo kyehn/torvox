@@ -122,14 +122,17 @@ class ZoomPreviewGestureInstrumentedTest {
                     kotlin.math.abs(readGridState().first - targetSize) < SIZE_EPSILON_SP
                 }
             composeTestRule.waitForIdle()
-            val (_, finalRows, finalCols) = readGridState()
             assertNotNull("定稿字号必须落地: $targetSize", finalized)
+            // 全量应用经 IO 协程互斥异步重排网格：字号落地不等于重排完成，单次读列在过载机上
+            // 恒采到旧值。轮询至列数按方向变化，超时才大声失败，不放宽方向断言。
+            val reflowed =
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                    val cols = readGridState().third
+                    if (growing) cols < baselineCols else cols > baselineCols
+                }
+            val (_, finalRows, finalCols) = readGridState()
             assertTrue("定稿后网格行数必须为正, 实际: $finalRows", finalRows > 0)
-            if (growing) {
-                assertTrue("字号增大后列数必须收缩 (前=$baselineCols 后=$finalCols)", finalCols < baselineCols)
-            } else {
-                assertTrue("字号减小后列数必须扩张 (前=$baselineCols 后=$finalCols)", finalCols > baselineCols)
-            }
+            assertNotNull("定稿后网格必须按方向重排 (前=$baselineCols 后=$finalCols)", reflowed)
             // Shell 在缩放风暴后仍可交互（mksh 遇 SIGWINCH 清提示符，不得卡死会话）。
             val marker = "ZOOMALIVE_${System.currentTimeMillis() % 100000}"
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->

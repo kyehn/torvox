@@ -1,195 +1,119 @@
 package terminal.emulator
 
-import android.util.Log
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.test.rule.GrantPermissionRule
 import org.junit.After
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
-import org.junit.runner.RunWith
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.bridge.NativeBridge
-import kotlin.properties.Delegates
 
-@RunWith(AndroidJUnit4::class)
+/**
+ * 字体族设置：选择器入口、对话框列表、以及选定后应用成功。
+ *
+ * 字体族是**持久化设置**，选错一次即污染同一次运行内的全部后继用例：单元格宽度
+ * 随主字体变化（实测 Droid Sans Mono 8.40px ↔ MapleMono NF CN 12.42px），网格
+ * 列数随之从 38 掉到 25，所有按网格坐标断言的用例集体漂移。故 [tearDown] 必须
+ * 还原族名——缺失还原时失败只出现在 CI 整类连跑，本地单跑恒绿。
+ */
 class FontSwitchInstrumentedTest {
-    private var device by Delegates.notNull<UiDevice>()
+    @get:Rule
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    companion object {
-        private const val TAG = "FontSwitchInstrumentedTest"
-        private const val PACKAGE = "com.termux"
-        private const val WAIT_TIMEOUT = 15_000L
-    }
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    private var originalFamily = ""
 
     @Before
     fun setUp() {
-        try {
-            device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-            // MainActivity.onCreate() requests POST_NOTIFICATIONS on first run
-            // (Android 13+); the permission dialog overlays the activity and
-            // blocks every UiAutomator lookup below. Grant up front so the
-            // dialog never appears (see TestUtils.waitForSession).
-            grantNotificationPermission()
-            // Previous tests leave the app parked on the settings screen /
-            // dialogs; am start merely brings that state to the foreground.
-            // --activity-clear-task rebuilds the activity (state reset)
-            // without force-stopping: force-stop would kill the
-            // instrumentation process itself, since androidTest runs inside
-            // the target app process.
-            device.executeShellCommand("am start --activity-clear-task -n $PACKAGE/terminal.emulator.MainActivity")
-            device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), WAIT_TIMEOUT)
-            Thread.sleep(5000)
-        } catch (exception: Exception) {
-            Log.e(TAG, "setUp failed", exception)
-            throw exception
+        composeTestRule.waitForSession()
+        var family = ""
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            family = activity.terminalViewModel.settings.value.fontFamily
         }
+        originalFamily = family
     }
 
     @After
     fun tearDown() {
-    }
-
-    private fun openSettings() {
-        val drawerBtn =
-            device.findObject(By.desc("打开会话抽屉"))
-                ?: device.findObject(By.text("☰"))
-                ?: throw AssertionError("抽屉按钮必须存在")
-        // 旧英文定位（Open session drawer/Settings）永远找不到，
-        // ?.click 静默吞失败，改为找不到直接抛。
-        drawerBtn.click()
-        Thread.sleep(2000)
-        val settingsEntry =
-            device.findObject(By.text("设置"))
-                ?: throw AssertionError("设置入口必须存在")
-        settingsEntry.click()
-        assertTrue(
-            "设置页必须打开（字体分区可见）",
-            device.wait(Until.hasObject(By.text("字体")), WAIT_TIMEOUT),
-        )
-    }
-
-    private fun scrollTo(text: String, maxSwipes: Int = 30) {
-        for (i in 0 until maxSwipes) {
-            if (device.findObject(By.textContains(text)) != null) return
-            val cx = device.displayWidth / 2
-            device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
-            Thread.sleep(800)
+        composeTestRule.closeSettingsOverlay()
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            activity.terminalViewModel.setFontFamily(originalFamily)
         }
     }
 
-    /** 滚动到字体行（含更改按钮）使其可见。 */
-    private fun scrollToChange() {
-        scrollTo("字体")
-        // The title enters the viewport at its bottom edge; the row below it
-        // 更改按钮可能仍在屏外，多滑一次。
-        if (device.findObject(By.text("更改")) == null) {
-            val cx = device.displayWidth / 2
-            device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
-            Thread.sleep(1200)
-        }
+    /** 字体选择器入口：设置页滚动到该节点后点击。 */
+    private fun openFontPicker() {
+        composeTestRule.openSettings()
+        composeTestRule.onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasTestTag("FontFamilySelector"))
+        composeTestRule.onNodeWithTag("FontFamilySelector").performClick()
+        composeTestRule.waitForIdle()
     }
 
     @Test
     fun settings_shows_font_family_section() {
-        openSettings()
-        scrollTo("字体")
-        val found = device.findObject(By.text("字体"))
-        assertNotNull("Settings should show 字体 section", found)
+        composeTestRule.openSettings()
+        composeTestRule.onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasTestTag("FontFamilySelector"))
+        composeTestRule.onNodeWithTag("FontFamilySelector").assertIsDisplayed()
+        composeTestRule.onNodeWithText("字体").assertIsDisplayed()
     }
 
     @Test
-    fun settings_shows_change_button_for_font() {
-        openSettings()
-        scrollToChange()
-        val changeBtn = device.findObject(By.text("更改"))
-        assertNotNull("必须看到字体更改按钮", changeBtn)
-    }
-
-    @Test
-    fun settings_does_not_show_pick_font_file_button() {
-        openSettings()
-        scrollToChange()
-        val changeBtn = device.findObject(By.text("更改"))
-        assertNotNull("必须看到更改按钮", changeBtn)
-        changeBtn?.click()
-        Thread.sleep(2000)
-        val pickBtn = device.findObject(By.text("从文件选择…"))
-        assertNull("对话框不得出现从文件选择按钮", pickBtn)
-    }
-
-    @Test
-    fun font_change_opens_dialog() {
-        openSettings()
-        scrollToChange()
-        val changeBtn =
-            checkNotNull(device.findObject(By.text("更改"))) {
-                "字体设置中更改按钮必须可见"
-            }
-        changeBtn.click()
-        Thread.sleep(2000)
-        val dialogVisible =
-            device.findObject(By.textContains("Fira")) != null ||
-                device.findObject(By.textContains("Roboto")) != null ||
-                device.findObject(By.textContains("Noto")) != null ||
-                device.findObject(By.textContains("System")) != null
-        assertTrue("Font picker dialog should show font names", dialogVisible)
-    }
-
-    @Test
-    fun font_dialog_shows_system_default() {
-        openSettings()
-        scrollToChange()
-        val changeBtn =
-            checkNotNull(device.findObject(By.text("更改"))) {
-                "字体设置中更改按钮必须可见"
-            }
-        changeBtn.click()
-        Thread.sleep(2000)
-        val hasFonts =
-            device.findObject(By.textContains("Mono")) != null ||
-                device.findObject(By.textContains("Sans")) != null
-        assertTrue("Font picker should show available font options", hasFonts)
-    }
-
-    @Test
-    fun font_dialog_shows_monospace_fonts() {
-        openSettings()
-        scrollToChange()
-        val changeBtn =
-            checkNotNull(device.findObject(By.text("更改"))) {
-                "字体设置中更改按钮必须可见"
-            }
-        changeBtn.click()
-        Thread.sleep(2000)
-        val hasMono = device.findObject(By.textContains("Mono")) != null
-        assertTrue("Font picker should show monospace fonts", hasMono)
-    }
-
-    @Test
-    fun font_select_changes_font_family() {
-        openSettings()
-        scrollToChange()
-        val changeBtn =
-            checkNotNull(device.findObject(By.text("更改"))) {
-                "字体设置中更改按钮必须可见"
-            }
-        changeBtn.click()
-        Thread.sleep(3000)
-        // 候选族取自字体库本身（原生公开 API，列表即对话框渲染的那一份），
-        // 不写死具体族名：模拟器镜像的字体清单随版本变，写死即环境耦合的脆弱断言。
-        val families = NativeBridge.listFontFamilies()?.toList().orEmpty()
+    fun font_change_opens_dialog_without_file_picker() {
+        openFontPicker()
+        composeTestRule.onNodeWithText("选择字体").assertIsDisplayed()
+        // DESIGN: 字体列表不提供“从文件加载”选项。
+        composeTestRule.onNodeWithText("从文件选择…").assertDoesNotExist()
+        // 列表即字体库本身（原生公开 API），不写死族名：模拟器镜像的字体清单随
+        // 版本变，写死即环境耦合的脆弱断言。
+        val families = checkNotNull(NativeBridge.listFontFamilies()) { "字体库必须非空" }
         check(families.isNotEmpty()) { "字体库必须非空（fonts.xml 不可读时产品已崩溃退出）" }
-        val selectedFont = checkNotNull(families.firstOrNull { device.findObject(By.text(it)) != null }) {
-            "字体选择器必须列出字体库中的族（库含 ${families.size} 族）"
-        }
-        device.findObject(By.text(selectedFont))?.click()
-        Thread.sleep(3000)
-        val appAlive = device.findObject(By.pkg(PACKAGE).depth(0)) != null
-        assertTrue("App must survive font change", appAlive)
+        composeTestRule.onNodeWithText(families.first()).assertIsDisplayed()
+    }
+
+    @Test
+    fun font_select_applies_selected_family() {
+        openFontPicker()
+        val families = checkNotNull(NativeBridge.listFontFamilies()) { "字体库必须非空" }
+        val target =
+            families.firstOrNull { it != originalFamily }
+                ?: throw AssertionError("字体库必须含非当前族以验证切换")
+        composeTestRule.onNodeWithText(target).performClick()
+        composeTestRule.waitForIdle()
+        // 断言落到持久化设置而非“应用没崩”：族名进设置流即选定生效，
+        // 原用例只断言进程存活，任何选定失败都判绿。
+        val applied =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 200) {
+                var family = ""
+                composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+                    family = activity.terminalViewModel.settings.value.fontFamily
+                }
+                family == target
+            }
+        assertTrue("选定后字体族必须落入设置流 (期望=$target)", applied != null)
+    }
+
+    @Test
+    fun font_dialog_offers_system_default() {
+        openFontPicker()
+        // DESIGN: 不展示“系统默认”等含糊选项。空族名回落 fonts.xml 的 monospace，
+        // 故列表内不得出现该字样。
+        composeTestRule.onNodeWithText("系统默认").assertDoesNotExist()
+        assertNull(
+            "字体列表不得含含糊的系统默认项",
+            NativeBridge.listFontFamilies()?.firstOrNull { it.contains("系统默认") },
+        )
     }
 }

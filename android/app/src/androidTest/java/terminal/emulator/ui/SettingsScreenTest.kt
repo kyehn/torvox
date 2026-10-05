@@ -11,10 +11,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.MainActivity
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
@@ -33,6 +35,9 @@ class SettingsScreenTest {
         composeTestRule.waitForSession()
         composeTestRule.openSettings()
     }
+
+    @After
+    fun resetScreen() = composeTestRule.closeSettingsOverlay()
 
     @Test
     fun settings_screen_renders_back_button() {

@@ -43,7 +43,10 @@ class BehaviorInstrumentedTest {
         try {
             device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
             initialized = true
-            device.executeShellCommand("am start -n $PACKAGE/terminal.emulator.MainActivity")
+            // --activity-clear-task：设置是 Activity 内的 Compose 浮层，
+            // 普通 `am start` 只把停在设置页的状态带到前台，浮层就此留存并盖住
+            // 终端——其后所有像素用例量到的都是设置界面。
+            device.executeShellCommand("am start --activity-clear-task -n $PACKAGE/terminal.emulator.MainActivity")
             device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), WAIT_TIMEOUT)
             // 软件渲染模拟器被渲染压满时系统会弹「无响应」，它盖住应用窗口，
             // 之后所有节点查找都落空——先按「等待」关掉。
@@ -55,9 +58,6 @@ class BehaviorInstrumentedTest {
         }
     }
 
-    @After
-    fun tearDown() {
-    }
 
     private fun openSettings() {
         val drawerBtn =
@@ -67,10 +67,13 @@ class BehaviorInstrumentedTest {
         // 旧英文定位（Open session drawer/Settings）永远找不到，
         // ?.click 静默吞失败，改为找不到直接抛。
         drawerBtn.click()
-        Thread.sleep(2000)
+        // 无响应对话框在软件渲染过载时随时弹出并盖住抽屉（见 TestUtils 说明）：
+        // 先关掉再等抽屉内容落定，否则等待看到的只是系统弹窗。
+        dismissNotRespondingDialog()
+        val drawerSettled = device.wait(Until.hasObject(By.text("设置")), 30_000)
         val settingsEntry =
             device.findObject(By.text("设置"))
-                ?: throw AssertionError("设置入口必须存在")
+                ?: throw AssertionError("设置入口必须存在 (等待=$drawerSettled)")
         settingsEntry.click()
         Thread.sleep(3000)
     }
@@ -174,7 +177,13 @@ class BehaviorInstrumentedTest {
         // UiDevice.swipe 把 DOWN/UP 发进同一主线程批处理，常被当点按吃掉
         // （TestUtils.injectLongPress 有述）；经 input flinger 按真实时长
         // 下发事件，保证长按定时器能触发。
-        device.executeShellCommand("input touchscreen swipe 200 1850 200 1850 1000")
+        // 长按点按显示尺寸取：屏幕尺寸随设备而变（CI 模拟器仅 320×640），
+        // 硬编码坐标在窄屏上直接越界，手势根本没进终端。
+        val pressX = device.displayWidth / 4
+        val pressY = device.displayHeight / 4
+        device.executeShellCommand(
+            "input touchscreen swipe $pressX $pressY $pressX $pressY 1000",
+        )
         Thread.sleep(1500)
         val copy = device.findObject(By.text("复制"))
         val paste = device.findObject(By.text("粘贴"))
@@ -204,10 +213,10 @@ class BehaviorInstrumentedTest {
         }
         val dracula = device.findObject(By.text("Dracula Plus"))
         val catppuccin = device.findObject(By.text("Catppuccin Mocha"))
-        val nord = device.findObject(By.text("Nord"))
+        val monokai = device.findObject(By.text("Monokai"))
         assertTrue("Dracula Plus should be visible", dracula != null)
         assertTrue("Catppuccin Mocha should be visible", catppuccin != null)
-        assertTrue("Nord should be visible", nord != null)
+        assertTrue("Monokai should be visible", monokai != null)
         goBack()
     }
 

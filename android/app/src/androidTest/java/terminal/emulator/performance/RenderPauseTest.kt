@@ -6,8 +6,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Before
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.MainActivity
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
@@ -20,6 +22,9 @@ class RenderPauseTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    @After
+    fun resetScreen() = composeTestRule.closeSettingsOverlay()
 
     @Before
     fun setUp() {
