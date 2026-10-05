@@ -78,6 +78,25 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
 }
 
 /**
+ * 等待终端页面节点可断言。
+ *
+ * 像素/选择类用例的公共就绪门槛：Activity 已起但 Compose 尚未组合出节点时，
+ * 任何 `onNodeWithTag(...).assert*` 都会抛断言错误，而那只是「还没好」。
+ */
+fun AndroidComposeTestRule<*, *>.waitForTerminalScreen(timeoutMs: Long = 60_000) {
+    waitUntil(timeoutMillis = timeoutMs) {
+        try {
+            onNodeWithTag("TerminalScreen").assertIsDisplayed()
+            true
+        } catch (_: AssertionError) {
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
+
+/**
  * 关掉系统「应用无响应」对话框（点「等待」）。
  *
  * 该对话框是系统级模态窗口：它一旦出现，UiAutomator 只能看到它，`By.desc(...)` /
@@ -147,6 +166,51 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
         probeAssertion {
             onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
         } || device.hasObject(By.text("Sessions")) || device.hasObject(By.res("SessionDrawer"))
+    }
+}
+
+/** 当前活跃会话 id（主线程同步读）：会话增删断言的共享读口。 */
+fun AndroidComposeTestRule<*, *>.activeSessionId(): Long {
+    var id = -1L
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        id = (activity as MainActivity).terminalViewModel.state.value.activeSessionId
+    }
+    return id
+}
+
+/** 会话总数（主线程同步读）：与 [activeSessionId] 同口径。 */
+fun AndroidComposeTestRule<*, *>.sessionCount(): Int {
+    var count = -1
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        count = (activity as MainActivity).terminalViewModel.state.value.sessions.size
+    }
+    return count
+}
+
+/** 会话在抽屉列表中的位置（0 起）：按 id 定位，避免硬编码“会话 N”文本。 */
+fun AndroidComposeTestRule<*, *>.sessionIndex(id: Long): Int {
+    var index = -1
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        index = (activity as MainActivity).terminalViewModel.state.value.sessions.indexOfFirst { it.id == id }
+    }
+    return index
+}
+
+/**
+ * 关掉可能盖住终端的设置浮层，回到终端页面。设置未打开时为空操作。
+ *
+ * 设置是 `MainActivity` 内的 Compose 浮层：`TerminalScreen(isOverlayVisible=…)`
+ * 始终保持组合、其上再盖一层 `SettingsScreen`。于是**只 `openSettings()` 不返回**
+ * 的用例会留下两个后果，且都不报错：终端节点仍在语义树里（`assertIsDisplayed`
+ * 照样通过），而截图量到的已是设置界面——其后每一个像素用例的断言都在测设置页
+ * （实测光标反差与红/绿/蓝像素同时为 0）。这是「本地单跑全绿、整类连跑成片红」
+ * 的又一例同类根因。
+ */
+fun AndroidComposeTestRule<*, *>.closeSettingsOverlay() {
+    if (!probeAssertion { onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed() }) return
+    onNodeWithTag("SettingsBackButton").performClick()
+    waitUntil(timeoutMillis = 10_000) {
+        probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() }
     }
 }
 
@@ -319,6 +383,63 @@ fun AndroidComposeTestRule<*, *>.waitForSettingsScreen(timeoutMs: Long = 60_000)
     }
 }
 
+// ── 单元格坐标 ───────────────────────────────────────
+
+/**
+ * 单元格物理尺寸（px）：桥给的是逻辑值，必须乘 `density`——直接当 px 用会小 2~3 倍，
+ * 触摸数学与渲染都是这个口径。
+ */
+fun terminalCellSizePx(activity: Activity, bridge: Bridge): Pair<Float, Float> {
+    val density = activity.resources.displayMetrics.density
+    return Pair(bridge.getCellWidth() * density, bridge.getCellHeight() * density)
+}
+
+/**
+ * 视口内第 [col] 列、第 [row] 行单元格中心的**屏幕**坐标。
+ *
+ * 屏幕尺寸随设备而变（CI 模拟器 320×640、真机 1080×2400），硬编码坐标在这些尺寸上
+ * 直接越界，手势根本没进终端——外部表现是「长按没建选择」「点击没关选择」，与产品无关。
+ */
+fun terminalCellCenterOnScreen(activity: Activity, bridge: Bridge, col: Int, row: Int): Pair<Int, Int> {
+    val (cellWidth, cellHeight) = terminalCellSizePx(activity, bridge)
+    val location = IntArray(2)
+    findTerminalSurface(activity).getLocationOnScreen(location)
+    return (location[0] + (col + 0.5f) * cellWidth).toInt() to
+        (location[1] + (row + 0.5f) * cellHeight).toInt()
+}
+
+/**
+ * 视口列数（表面实际宽度 ÷ 单元格宽度）。网格列数随屏幕宽度变化，依赖固定列数的
+ * 用例必须先量出列数：超出即折行，文本查询按整串匹配时恒不成立。
+ */
+fun terminalGridColumns(activity: Activity, bridge: Bridge): Int {
+    val (cellWidth, _) = terminalCellSizePx(activity, bridge)
+    return (findTerminalSurface(activity).width / cellWidth).toInt()
+}
+
+/** 抽屉边缘手势区宽度（dp），与 `TerminalSurface.onTouchEvent` 的判据同值。 */
+private const val DRAWER_EDGE_WIDTH_DP = 32
+
+/**
+ * 终端表面**不吃触摸**的最左列号：中心点仍在边缘区内的列一律被丢弃
+ * （`TerminalSurface.onTouchEvent` 对 `event.x < 32dp` 直接返回 false，
+ * 手势交给抽屉边缘滑动手势）。
+ *
+ * 必须用本函数而非写死列号：边缘区是 dp 而列是设备相关的
+ * （1080×2400@420dpi 时约占前 4 列，320×640@160dpi 时约占前 3 列），
+ * 写死的列号在这两种尺寸上会分别落在区内与区外。
+ */
+fun firstColumnBeyondDrawerEdge(activity: Activity, bridge: Bridge): Int {
+    val (cellWidth, _) = terminalCellSizePx(activity, bridge)
+    val edgePixels = DRAWER_EDGE_WIDTH_DP * activity.resources.displayMetrics.density
+    val columns = terminalGridColumns(activity, bridge)
+    var column = 0
+    while (column < columns && (column + 0.5f) * cellWidth <= edgePixels) {
+        column++
+    }
+    return column
+}
+
 // ── GPU frame helpers ───────────────────────────────
 
 fun getDisplayWidth(): Int {
@@ -379,11 +500,9 @@ fun injectLongPress(view: View, x: Float, y: Float) {
 }
 
 // 点击时序（实测根因：DOWN→UP 100ms 恰压在框架 TAP_TIMEOUT 边界上，
-// GestureDetector 不认 tap，onSingleTapUp 永不触发，多击选择整体无日志；
-// 真实触摸 DOWN→UP 约 50ms。DOWN→UP 取 50ms、击间隙 150ms：
-// DOWN1→DOWN2 ≈ 200ms < 300ms 双击超时，处理间隔 < 400ms 自计数窗口。）
+// GestureDetector 不认 tap，onSingleTapUp 永不触发；
+// 真实触摸 DOWN→UP 约 50ms，取 50ms。）
 private const val TAP_DOWN_UP_MILLIS = 50L
-private const val MULTI_TAP_GAP_MILLIS = 150L
 
 fun injectTap(view: View, x: Float, y: Float) {
     val dt = SystemClock.uptimeMillis()
@@ -402,33 +521,37 @@ fun injectTap(view: View, x: Float, y: Float) {
     }
 }
 
-fun injectDoubleTap(view: View, x: Float, y: Float) {
-    injectTap(view, x, y)
-    try {
-        Thread.sleep(MULTI_TAP_GAP_MILLIS)
-    } catch (_: InterruptedException) {
-        Thread.currentThread().interrupt()
-    }
-    injectTap(view, x, y)
-}
-
-fun injectTripleTap(view: View, x: Float, y: Float) {
-    injectTap(view, x, y)
-    try {
-        Thread.sleep(MULTI_TAP_GAP_MILLIS)
-    } catch (_: InterruptedException) {
-        Thread.currentThread().interrupt()
-    }
-    injectTap(view, x, y)
-    try {
-        Thread.sleep(MULTI_TAP_GAP_MILLIS)
-    } catch (_: InterruptedException) {
-        Thread.currentThread().interrupt()
-    }
-    injectTap(view, x, y)
-}
-
 // ── Selection assertion helpers ─────────────────────
+
+/**
+ * 用例收尾：把**共用会话**恢复干净——选区与浮动菜单、滚动偏移、屏幕内容、回滚。
+ *
+ * `TerminalRuntime` 是 `@Singleton`，`:app:connectedDebugAndroidTest` 全部用例
+ * 同进程：选区/菜单/滚动偏移都跨用例存活。不清场的用例会把上千行回滚、悬着的
+ * 选区菜单留给后继用例，全量文本查询越过原生 `QUERY_TIMEOUT_MS` 即返回空串，
+ * 渲染快照也可能超时——外部表现是与被测行为无关的成片红灯。ED3 后回滚必须真的
+ * 归零，不归零就大声失败：静默失效会把污染继续往后传。
+ */
+fun AndroidComposeTestRule<*, *>.cleanUpTerminalState() {
+    closeSettingsOverlay()
+    // 选区与其浮动菜单同为跨用例存活的状态：不清掉，下一个用例的「全选后必须
+    // 出现复制」会对着上一个用例留下的菜单判空——判红原因与全选无关。
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        (activity as MainActivity).terminalViewModel.clearSelection()
+    }
+    val bridge = getBridge() ?: return
+    bridge.setScrollOffset(0)
+    if (!bridge.feedTerminal("\u001B[2J\u001B[3J\u001B[H".toByteArray(Charsets.UTF_8))) {
+        throw AssertionError("清屏送显失败")
+    }
+    val cleared =
+        UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
+            bridge.scrollbackLength() == 0
+        }
+    if (cleared == null) {
+        throw AssertionError("ED3 必须真的清空回滚（残留 ${bridge.scrollbackLength()} 行）")
+    }
+}
 
 fun findTerminalSurface(activity: Activity): View {
     val content = activity.findViewById<View>(android.R.id.content) as ViewGroup
@@ -448,5 +571,3 @@ fun findTerminalSurface(activity: Activity): View {
             traverse(content) ?: content
         }
 }
-
-// ── Private helpers ─────────────────────────────────
