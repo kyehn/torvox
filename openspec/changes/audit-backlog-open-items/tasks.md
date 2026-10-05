@@ -1364,3 +1364,20 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       `UiAutomation.takeScreenshot()`（外部 API，取真实合成结果）。附带修正：该
       `draw` 本就采不到 Surface/TextureView 里的终端像素，OCR 输入恒空。
       该类整类本地 0 失败。
+
+### 28.8 R38 重复度收敛与「刻意不改」清单
+
+- [x] **`ffi.rs` 13 处会话查找样板不改（刻意保留）** `ffi.rs` 有 13 处
+      「取会话注册表 → 未注册则抛 `<caller>: session not found`」（`:693`/`:768`/`:848`/
+      `:943`/`:1003`/`:1091`/`:2243`/`:2269`/`:2294`/`:2324`/`:2365`/`:2597`/`:2916`），
+      是全仓最大的一处重复。逐处比对形态后**判定抽象收益为负**：① `:693` 用写锁 +
+      `get_mut`，其余用读锁 + `get`；② 失败返回四样（`Ok(())` / `Ok(0)` / `Ok(-1)` /
+      `Ok(null_mut())`）；③ 异常类型已漂移成 6 处 `RuntimeException`
+      （`resetTerminal`/`resize`/`setPixelSize`/`feedPty`/`feedTerminal`/`writeKey`）
+      对 7 处 `IllegalArgumentException`；④ `:1091` 是「校验通过后再抛」，不是提前返回。
+      统一成宏需 5 个以上参数且只覆盖 10/13，剩下的还得留旁路——按 KISS「避免不必要的
+      抽象」不合并。此结论记档，免得后续轮次重复推导。
+- [x] **重复度实测基线** 12 行窗口扫描：`native/src` 115 组 → **89 组**
+      （`render/tests.rs` 的 `CellInstanceConfig` 字面量收敛掉 26 组）；
+      `android/app/src/main` 8 行窗口仅 5 组、且都在同文件内相邻（`SettingsComponents`
+      2 组、`TerminalSurface` 2 组、`TestBackdoorReceivers` 2 组），跨模块重复为 0。
