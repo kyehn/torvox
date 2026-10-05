@@ -134,9 +134,8 @@ class PasteButtonInstrumentedTest {
 
         val marker = "PASTEA${System.currentTimeMillis() % 100000}"
         // 与下方轮询直读同式：ClipboardManager 为 binder IPC，测试线程直调即可，无需经 onActivity 跳转。
-        val clipboardSetter =
-            composeTestRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboardSetter.setPrimaryClip(ClipData.newPlainText("test", marker))
+        (composeTestRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText("test", marker))
 
         val density = composeTestRule.activity.resources.displayMetrics.density
         val cellWidth = bridge().getCellWidth() * density
