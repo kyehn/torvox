@@ -1352,28 +1352,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     }
 }
 
-// ── 日志与渲染生命周期 ──────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════════════════
-// JNI 导出：initLogger
-// ══════════════════════════════════════════════════════════════════════════
-/// 初始化 Rust 侧日志（logcat + 可选文件）；应用启动时由 Kotlin 调用一次。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initLogger(
-    mut _unowned: EnvUnowned<'_>,
-    _class: JClass,
-) {
-    jni_export_guard!(&mut _unowned, (), |env| init_logger_inner(env, _class))
-}
-
-fn init_logger_inner(_env: &mut Env, _class: JClass) {
-    // 本 crate 没有 `JNI_OnLoad` 钩子，故这是唯一能初始化日志的地方。缺了它，生产
-    // 环境中的每次 `log::*` 调用（含 GPU 错误、锁中毒、VT 线程 panic）都会被静默
-    // 丢弃，使崩溃诊断不可能。
-    #[cfg(target_os = "android")]
-    crate::android::logging::init();
-    log::info!("NativeBridge::initLogger called");
-}
-
+// ── 渲染生命周期 ──────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：attachWindow
 // ══════════════════════════════════════════════════════════════════════════
