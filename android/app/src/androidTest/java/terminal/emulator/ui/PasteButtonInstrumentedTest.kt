@@ -133,10 +133,10 @@ class PasteButtonInstrumentedTest {
         assertTrue("长按行必须空白 (行=$blankIndex 内容=[$blankLine])", blankLine.isBlank())
 
         val marker = "PASTEA${System.currentTimeMillis() % 100000}"
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("test", marker))
-        }
+        // 与下方轮询直读同式：ClipboardManager 为 binder IPC，测试线程直调即可，无需经 onActivity 跳转。
+        val clipboardSetter =
+            composeTestRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboardSetter.setPrimaryClip(ClipData.newPlainText("test", marker))
 
         val density = composeTestRule.activity.resources.displayMetrics.density
         val cellWidth = bridge().getCellWidth() * density
