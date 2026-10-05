@@ -265,6 +265,33 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `android/baselineprofile/src/main/java/.../BaselineProfileGenerator.kt:42`
       用 `BaselineProfileRule` 真实驱动。仓内另有 `src/main/baselineProfiles/` 手写
       规则由插件一并合并。关闭
+- [ ] **N40`build.yml` 的 release 步骤结构性失败——流水线从未成功过一次**。
+      run `` 红在 `softprops/action-gh-release@master`：报
+      `⚠️ GitHub Releases requires a tag`。根因是触发方式而非代码：
+      `build.yml:2-5` 的 `on:` 只有 `workflow_dispatch` 与 `schedule`、**没有
+      `push: tags`**，而该 action 未传 `tag_name`，默认取 `github.ref`——在
+      `workflow_dispatch` 下恒为 `refs/heads/main`，故必然非 tag。同工作流
+      `build.yml:74-75` 的 `git tag --force 0.1.0` + `git push origin 0.1.0 --force`
+      是成功的，但推 tag 不改变当前 run 的 `github.ref`。
+      **实测：所有走到该步骤的 build run 全红**（``、``、
+      ``、``），而同期显示 success 的 run 全是 `check`
+      工作流、根本没执行该步骤——即 release 从未产出过一次。
+      修法（改保护文件 `.github/workflows/build.yml`，需授权）：
+      在 `:77-80` 的 `with:` 下加一行 `tag_name: 0.1.0`，与硬编码的 tag 对齐
+      （tag 被 force-push，release 每次原处更新，即该步骤的既有意图）。
+      未采纳「改由 `push: tags` 触发」：那会让 `schedule` 自动构建不再产出 release
+- [ ] **N41仪器化失败时不导出 logcat，UI 偶发失败不可诊断**。
+      `scripts/test-emulator.nu:8` 直接 `./gradlew ":app:connectedDebugAndroidTest"`，
+      失败即中断，**没有 logcat 落盘**。后果实测于 run ``：run 日志里
+      除 SwiftShader 的 `UNSUPPORTED: curExtension->sType` 噪音外**零应用日志**，
+      `reportConnectedFailures` 只给断言消息，于是
+      `SelectionEspressoTest#partialSelectShowsSelectionMenu`（见 ）无从判别
+      `showSelectionMenu` 走了哪条提前返回——那三处（`TerminalSurface.kt:125`/`:130`/`:147`）
+      本身就都没有日志，属双重缺口。
+      修法（改保护文件 `scripts/`，需授权）：把该 gradle 调用包在
+      `try { ... } catch { ^adb logcat -d -v threadtime | save --force logcat.txt ; null }`
+      形态里（`save` 与现有脚本同族），使 run 日志或上传产物至少带上应用侧现场。
+      这是取证能力修复，不改被测行为
 
 ## 6. 已否证（回读源码确认不成立，记录依据以免重复排查）
 
@@ -1406,3 +1433,38 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       「e + 组合尖音符成形为一个预组字形，故替换主四边形而非叠加 overlay」，
       都是非显然决策的「为什么」，符合 `STYLE.md` 注释条款；`aislop` 的 `[auto]`
       是启发式，不构成依据。
+
+## 29. CI runs / 定位与收口
+
+两个 run 红在不同位置，根因无关。release 步骤那一条已并入 §5（N40，需授权）。
+
+- [x] **（已修）`UiAutomatorTest#typingViaSystemKeyboardReacts` 的用例竞态**。
+      失败为 `IllegalArgumentException: Search result count should become
+      visible after typing`（`UiAutomatorTest.kt:107`），即 `device.findObject`
+      直读返回 null。该节点由「点击按键 → IME 提交 → query 更新 → 重组」产生
+      （`TextSearchBar.kt:133` 只在 `query.isNotEmpty()` 时挂它），而其上方的
+      `device.waitForIdle(1000)` 只等设备空闲、**不保证应用侧重组已落地**；
+      同文件其余 5 处查找（`:51`、`:64`、`:74`、`:90`、`:95`）全用 `device.wait`，
+      唯独此处是「用户动作之后才出现」的节点却直读。改为
+      `device.wait(Until.findObject(...), 15000)`，与该文件既有口径一致。
+      判红与被测行为无关，属 `TESTING.md:6`「没有不稳定的测试」要求修掉的形态
+- [ ] **（未定因，按 `TESTING.md:16` 如实停手）**
+      `SelectionEspressoTest#partialSelectShowsSelectionMenu` 红在
+      `SelectionEspressoTest.kt:99`：`By.text("复制")` 15s 未出现。
+      **已排除**：① N33-5 登记的 `feedPty` 持会话锁写 PTY 致渲染循环掉到 7fps
+      ——该根因已由 `0a6d38f9` 修掉（`ffi.rs:947-949` 写入在会话锁之外），且经
+      `git merge-base --is-ancestor` 确认在 run 1 的 head `07057419` 祖先链上，
+      对本次 run 不再成立；② 「`menuAnchor` 两侧无空间故隐藏」是 spec 规定行为
+      （`openspec/specs/text-selection/spec.md` 「两侧均无空间时 MUST 隐藏」），
+      而本用例只选视口第 2 行、上下均有余量；③ `pasteOnly` 为假——
+      `startSelection` 构造的 `SelectionState` 未带该参、默认 false，故菜单必含复制。
+      run 1（`07057419`）与 run 2（`82d3dcf1`）之间生产代码与本测试文件**字节相同**
+      （`git diff --stat` 仅 `TestUtils.kt` 可见性 + 一个 Robolectric 用例），
+      run 1 两红、run 2 全绿。
+      **缺口**：CI 未导出 logcat，run 日志内除 SwiftShader 噪音外零应用日志，
+      故无法判别 `showSelectionMenu` 走了哪条提前返回
+      （`TerminalSurface.kt:125` 未 attach / `:130` 动作集为空 / `:147` `menuAnchor`
+      为 null）——三处**均无日志**，这是该失败当前不可诊断的直接原因。
+      **取证**：`scripts/test-emulator.nu` 在 `:app:connectedDebugAndroidTest`
+      失败时不 dump logcat，补上即需改保护文件 `scripts/`，已并入待授权清单。
+      在拿到该 logcat 前不臆测改产品行为

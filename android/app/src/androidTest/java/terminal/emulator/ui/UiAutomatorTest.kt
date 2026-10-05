@@ -103,10 +103,14 @@ class UiAutomatorTest {
         requireNotNull(keyE) { "System keyboard key 'e' should be visible" }.click()
         device.waitForIdle(1000)
 
+        // 计数节点由「点击按键 → IME 提交 → query 状态更新 → 重组」这条链产生
+        // （TextSearchBar 只在 query 非空时挂它），而 waitForIdle 只等设备空闲、
+        // 不保证应用侧重组已落地，故这里必须等而不是直读：本文件其余 5 处查找
+        // 全用 wait，唯独此处按用户动作之后的出现直读——在 2 核 swiftshader
+        // 模拟器上会把「重组还没来得及」判成「计数没出现」。
         val resultCount =
-            requireNotNull(device.findObject(By.res("SearchResultCount"))) {
-                "Search result count should become visible after typing"
-            }
+            device.wait(Until.findObject(By.res("SearchResultCount")), 15000)
+        assertNotNull("Search result count should become visible after typing", resultCount)
         assertTrue(
             "Search result count text should be non-empty after typing",
             requireNotNull(resultCount).text.isNotEmpty(),
