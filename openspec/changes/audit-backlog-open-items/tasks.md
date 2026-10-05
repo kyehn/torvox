@@ -1492,3 +1492,5 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       本用例（`BehaviorInstrumentedTest.kt:213`）直查 `ESC/CTRL/ALT/HOME` 四键可见，
       与该 run 内唯一相关改动（`UiAutomatorTest` 键盘等待，另一测试类）无调用关系；
       无 logcat（N41）且信息为空，按 `TESTING.md:16` 先如实记录，待复跑/取证后再判。
+      复跑 `` 未执行即被取消（`cancelled`：runner 长时间未获取，
+      非测试结论），本条仍待一次有效复跑。
