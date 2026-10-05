@@ -108,12 +108,48 @@ impl SessionError {
     }
 }
 
+/// PTY 主端：可克隆的写入面，与 [Session] 解耦。
+///
+/// 为什么必须能脱离会话锁使用：`Pty::write_all` 在子进程不读 stdin 时最多等
+/// `pty::WRITE_DRAIN_TIMEOUT`（5s），而会话锁每帧都被渲染与事件收割取得——
+/// 持锁写入会把整台终端（渲染、事件、输入）冻住同样长的时间。
+/// 写入只需主端 fd，故句柄单独克隆、锁外完成；写入之间仍由本互斥量串行
+/// （同一 PTY 的字节序要求）。
+#[derive(Clone)]
+pub struct PtyMaster {
+    inner: Arc<Mutex<Box<dyn Pty>>>,
+    exited: Arc<AtomicBool>,
+}
+
+impl PtyMaster {
+    fn new(pty: Box<dyn Pty>, exited: Arc<AtomicBool>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(pty)),
+            exited,
+        }
+    }
+
+    fn with<R>(&self, action: impl FnOnce(&mut dyn Pty) -> R) -> R {
+        action(&mut **self.inner.lock())
+    }
+
+    /// 写入子进程 stdin。会话已退出即拒绝（`SessionError::Closed`）——
+    /// 退出后写入只会得到 EIO，读起来像「写失败」而非「会话已关」。
+    pub fn write(&self, data: &[u8]) -> Result<(), SessionError> {
+        if self.exited.load(Ordering::Acquire) {
+            return Err(SessionError::Closed);
+        }
+        self.with(|pty| pty.write_all(data))
+            .map_err(SessionError::Io)
+    }
+}
+
 /// 终端会话：串接 PTY 读取、VT 解析与进程等待。
 ///
 /// 生命周期：`Spawned`（PTY 建立、线程启动）→ `Running` ⇄ `Idle`/`Paused`（有输出即回到
 /// `Running`）→ `Exited`（EOF/退出）→ `Cleaned`（`cleanup_resources`）。
 pub struct Session {
-    pty: Box<dyn Pty>,
+    pty: PtyMaster,
     terminal: GhosttyTerminal,
     output_processor: OutputProcessor,
     output_tx: flume::Sender<Vec<u8>>,
@@ -389,7 +425,7 @@ impl Session {
         .map_err(SessionError::Terminal)?;
 
         Ok(Self {
-            pty,
+            pty: PtyMaster::new(pty, exited.clone()),
             terminal,
             output_processor: OutputProcessor::new(),
             output_tx,
@@ -409,11 +445,14 @@ impl Session {
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
-        if self.is_exited() {
-            return Err(SessionError::Closed);
-        }
-        self.pty.write_all(data).map_err(SessionError::Io)?;
-        Ok(())
+        self.pty.write(data)
+    }
+
+    /// 克隆 PTY 写入面，供调用方在**释放会话锁之后**写入（见 [PtyMaster]）。
+    ///
+    /// 退出判定与写入都在 [PtyMaster::write] 内，调用方无须为此单持一次会话锁。
+    pub fn pty_master(&self) -> PtyMaster {
+        self.pty.clone()
     }
 
     /// 把终端缩放到给定行列数，超出 PTY ioctl 的 u16 范围时拒绝。网格命令被丢弃时
@@ -428,7 +467,7 @@ impl Session {
         if !dirty && (rows as u32, cols as u32) == self.grid_size() {
             return Ok(ResizeOutcome::Applied);
         }
-        self.pty.resize(rows, cols)?;
+        self.pty.with(|pty| pty.resize(rows, cols))?;
         if !self.terminal.resize(rows as u32, cols as u32) {
             // PTY winsize 已变但 Ghostty 网格未变（命令被丢弃）。缓存保留旧尺寸并置
             // `grid_dirty`，使下次 resize 事件（即使尺寸相同）重试而非短路。
@@ -451,7 +490,7 @@ impl Session {
     /// 像素感知的程序（`icat`、全屏 TUI）从 TIOCGWINSZ 读像素尺寸，为 0 时会回退到错误的
     /// 默认单元格尺寸。行列必须保留，因为 TIOCSWINSZ 会替换整个结构体。
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), SessionError> {
-        self.pty.set_pixel_size(width, height)?;
+        self.pty.with(|pty| pty.set_pixel_size(width, height))?;
         // 同步单元格像素几何到终端（Kitty 放置几何依赖它；失败仅日志，不阻断 PTY）。
         let (rows, cols) = self.grid_size();
         if rows > 0 && cols > 0 && width > 0 && height > 0 {
@@ -543,7 +582,7 @@ impl Session {
     fn drain_pty_write_back(&mut self) {
         for response in self.terminal.drain_pty_write_responses() {
             log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
-            if let Err(error) = self.pty.write_all(&response) {
+            if let Err(error) = self.pty.with(|pty| pty.write_all(&response)) {
                 log::error!(
                     "session: PTY write-back failed ({} bytes): {}",
                     response.len(),
@@ -615,7 +654,9 @@ impl Session {
         if self.is_exited() {
             return Err(SessionError::Closed);
         }
-        self.pty.write_all(&response).map_err(SessionError::Io)?;
+        self.pty
+            .with(|pty| pty.write_all(&response))
+            .map_err(SessionError::Io)?;
         Ok(())
     }
 
@@ -688,7 +729,7 @@ impl Session {
             return;
         }
         let data = if focused { b"\x1b[I" } else { b"\x1b[O" };
-        if let Err(error) = self.pty.write_all(data) {
+        if let Err(error) = self.pty.with(|pty| pty.write_all(data)) {
             log::warn!("session: focus_event write failed: {error}");
         }
     }
@@ -752,7 +793,7 @@ impl Session {
         // Err 走到「output channel closed」退出分支，等待线程也随 exited 标志退出。
         // 换入的是空通道，故 `poll_pty_output` 等后续调用仍安全。
         self.output_rx = flume::bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND).1;
-        let pid = self.pty.child_pid();
+        let pid = self.pty.with(|pty| pty.child_pid());
         if pid.as_raw() > 0 {
             // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
             // （管道、前台组内的后台作业）一并退出。
@@ -883,6 +924,110 @@ mod tests {
         session.resize(40, 120).expect("resize failed");
         assert_eq!(session.terminal().rows(), 40);
         assert_eq!(session.terminal().cols(), 120);
+    }
+
+    /// 回归护栏：PTY 写入不得在会话锁内阻塞。
+    ///
+    /// 子进程长时间不读 stdin 时 `write_all` 最多等 `WRITE_DRAIN_TIMEOUT`（5s），
+    /// 而会话锁每帧都被 `render_inner` 与 `poll_event` 取得——写入一旦持锁，
+    /// 整台终端（渲染、事件收割、其它会话）就一起停摆。本测试用只到第一个字节就
+    /// 让写入线程挂起的替身（真实 `write_all` 到此返回 `Ok(1)`，不进入等待分支），
+    /// 断言会话锁在这段时间内仍可取得。
+    #[test]
+    fn pty_write_does_not_hold_the_session_lock() {
+        use std::io;
+        use std::os::unix::io::{OwnedFd, RawFd};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Instant;
+
+        /// 写入挂起直到本测试放行：模拟真实 `write_all` 在主端缓冲满时的等待分支。
+        struct BlockingPty {
+            entered: Arc<AtomicBool>,
+            released: Arc<AtomicBool>,
+        }
+
+        impl Pty for BlockingPty {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.entered.store(true, Ordering::Release);
+                while !self.released.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Ok(buf.len())
+            }
+            fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::WouldBlock, "no data"))
+            }
+            fn resize(&self, _rows: u16, _cols: u16) -> Result<(), PtyError> {
+                Ok(())
+            }
+            fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
+                Ok((24, 80))
+            }
+            fn child_pid(&self) -> nix::unistd::Pid {
+                nix::unistd::Pid::from_raw(4_194_305)
+            }
+            fn master_fd(&self) -> RawFd {
+                -1
+            }
+            fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {
+                std::fs::File::open("/dev/null").map(OwnedFd::from)
+            }
+            fn set_nonblocking(&self) -> Result<(), PtyError> {
+                Ok(())
+            }
+            fn spawn(
+                _shell: &str,
+                _rows: u16,
+                _cols: u16,
+                _env: &ShellEnv,
+                _cwd: Option<&Path>,
+            ) -> Result<Box<dyn Pty>, PtyError> {
+                unreachable!("本替身只经 with_pty 构造")
+            }
+        }
+
+        let entered = Arc::new(AtomicBool::new(false));
+        let released = Arc::new(AtomicBool::new(false));
+        let session = Arc::new(std::sync::Mutex::new(
+            Session::with_pty(
+                Box::new(BlockingPty {
+                    entered: entered.clone(),
+                    released: released.clone(),
+                }) as Box<dyn Pty>,
+                24,
+                80,
+            )
+            .expect("with_pty must succeed"),
+        ));
+        let writer = session.lock().expect("session lock").pty_master();
+
+        let writer_thread = std::thread::spawn(move || writer.write(b"x"));
+        // 写入线程已进入 `Pty::write` 并挂起在等待分支。
+        let entered_deadline = Instant::now() + Duration::from_secs(5);
+        while !entered.load(Ordering::Acquire) && Instant::now() < entered_deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            entered.load(Ordering::Acquire),
+            "写入线程必须已挂起在 PTY 写入内，否则本测试无判别力"
+        );
+
+        // 关键断言：写入挂起期间会话锁仍可取得。锁被占用即代表写入持锁——
+        // 渲染与事件收割每帧都取这把锁，阻塞写入会把整台终端冻住。
+        {
+            let locked = session
+                .try_lock()
+                .expect("PTY 写入不得持有会话锁：渲染与事件收割每帧都取这把锁");
+            assert_eq!(locked.terminal().rows(), 24, "取得的必须是本会话");
+        }
+
+        // 放行后写入照常完成（锁外写入的字节序与结果语义不变）。
+        released.store(true, Ordering::Release);
+        writer_thread
+            .join()
+            .expect("writer thread panicked")
+            .expect("放行后写入必须成功");
+        assert_eq!(session.lock().expect("session lock").terminal().rows(), 24);
     }
 
     #[test]
@@ -1254,7 +1399,7 @@ mod tests {
         // 否则宿主已经认为会话销毁、shell 却在后台继续跑（生命周期契约破裂）。
         let mut session = spawn_test_session();
         session.write(b"echo alive\n").expect("write failed");
-        let pid = session.pty.child_pid();
+        let pid = session.pty.with(|pty| pty.child_pid());
         assert!(pid.as_raw() > 0, "spawned session must have a child pid");
 
         session.request_exit();

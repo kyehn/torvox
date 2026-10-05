@@ -521,6 +521,11 @@ impl super::GhosttyTerminal {
         self.query(Query::ReadVisibleText, String::new(), "read_visible_text")
     }
 
+    /// 视口 + 回滚区全量文本。`dump_grid` 的等价替代：调用方只需字符，无需样式。
+    pub fn read_all_text(&self) -> String {
+        self.query(Query::ReadAllText, String::new(), "read_all_text")
+    }
+
     pub fn selection_text(&self, start: (u32, u32), end: (u32, u32)) -> String {
         self.query(
             |tx| Query::SelectionText { start, end, tx },
