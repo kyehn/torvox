@@ -532,19 +532,9 @@ constructor(
             // （某些回滚状态下原生 selection_text 为 null），
             // 会出现「复制按钮毫无反应」的反馈。
             // 按需提取保证菜单动作总是复制当前选区。
-            val rawText =
-                if (selection.selectedText.isNotEmpty()) {
-                    selection.selectedText
-                } else {
-                    extractSelectedText(selection)
-                }
+            val rawText = selection.selectedText.ifEmpty { extractSelectedText(selection) }
             if (rawText.isEmpty()) return
-            val clipped =
-                if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) {
-                    rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH)
-                } else {
-                    rawText
-                }
+            val clipped = rawText.take(CLIPBOARD_TEXT_MAX_LENGTH)
             clipboardAccess.setClipboardText(clipped, label = "terminal selection")
             // 动作完成后关闭浮动菜单；保留高亮。
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
