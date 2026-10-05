@@ -126,11 +126,11 @@ fun grantNotificationPermission() {
  * 其异常保持外抛：它只在 activity 缺失这类真实故障上出现，吞掉会把故障
  * 伪装成「桥为 null」或孵化超时。
  */
-fun runOnMainThread(block: () -> Unit) {
+private fun runOnMainThread(block: () -> Unit) {
     if (Looper.myLooper() == Looper.getMainLooper()) {
         block()
     } else {
-        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
     }
 }
 
