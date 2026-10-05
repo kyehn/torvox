@@ -1461,10 +1461,10 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       run 1（`07057419`）与 run 2（`82d3dcf1`）之间生产代码与本测试文件**字节相同**
       （`git diff --stat` 仅 `TestUtils.kt` 可见性 + 一个 Robolectric 用例），
       run 1 两红、run 2 全绿。
-      **缺口**：CI 未导出 logcat，run 日志内除 SwiftShader 噪音外零应用日志，
-      故无法判别 `showSelectionMenu` 走了哪条提前返回
-      （`TerminalSurface.kt:125` 未 attach / `:130` 动作集为空 / `:147` `menuAnchor`
-      为 null）——三处**均无日志**，这是该失败当前不可诊断的直接原因。
+      **缺口**：CI 未导出 logcat，run 日志内除 SwiftShader 噪音外零应用日志。
+      应用侧缺席分支现已有日志（`TerminalSurface.kt:126/131/135/141/162/172`，
+      同步备份 `:2204/:2208`，另有 `ClipboardAccess/TerminalViewModel` 空块日志），
+      下次同类缺席若能拿到 logcat 即可判别分支；在此之前仍不臆测改产品行为。
       **取证**：`scripts/test-emulator.nu` 在 `:app:connectedDebugAndroidTest`
       失败时不 dump logcat，补上即需改保护文件 `scripts/`，已并入待授权清单。
       在拿到该 logcat 前不臆测改产品行为
