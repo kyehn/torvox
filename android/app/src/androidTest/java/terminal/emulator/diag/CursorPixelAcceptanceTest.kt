@@ -59,17 +59,6 @@ class CursorPixelAcceptanceTest {
         return row to col
     }
 
-    private fun cellCenterLuminance(row: Int, col: Int): Int {
-        val shot = device.takeScreenshot() ?: return -1
-        val activity = composeTestRule.activity
-        val (cellWidth, cellHeight) = terminalCellSizePx(activity, bridge())
-        val location = IntArray(2)
-        findTerminalSurface(activity).getLocationOnScreen(location)
-        val cx = (location[0] + (col + 0.5) * cellWidth).toInt()
-        val cy = (location[1] + (row + 0.55) * cellHeight).toInt()
-        return pixelLuminance(shot, cx, cy)
-    }
-
     /**
      * 光标格与**同行空白格**的亮度差。
      *
@@ -82,12 +71,12 @@ class CursorPixelAcceptanceTest {
         val (cellWidth, cellHeight) = terminalCellSizePx(activity, bridge())
         val location = IntArray(2)
         findTerminalSurface(activity).getLocationOnScreen(location)
-        val y = (location[1] + (row + 0.55) * cellHeight).toInt()
+        val rowY = (location[1] + (row + 0.55) * cellHeight).toInt()
         val cursorX = (location[0] + (col + 0.5) * cellWidth).toInt()
         // 参照格取同一行最右侧：该行只有光标格有内容，其余皆背景。
         val backgroundX = (location[0] + (terminalGridColumns(activity, bridge()) - 1.5) * cellWidth).toInt()
-        val cursor = pixelLuminance(shot, cursorX, y)
-        val background = pixelLuminance(shot, backgroundX, y)
+        val cursor = pixelLuminance(shot, cursorX, rowY)
+        val background = pixelLuminance(shot, backgroundX, rowY)
         if (cursor < 0 || background < 0) return 0
         return kotlin.math.abs(cursor - background)
     }
