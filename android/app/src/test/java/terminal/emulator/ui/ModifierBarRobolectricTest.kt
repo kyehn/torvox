@@ -13,6 +13,8 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -131,65 +133,68 @@ class ModifierBarRobolectricTest {
         composeRule.onNodeWithTag("Key_CTRL").assertIsSelected()
     }
 
-    @Test
-    fun `arrow sends CSI in normal cursor mode`() {
+    /** 表驱动断言：四个方向键在给定光标模式下必须各发一条期望序列。 */
+    private fun assertArrowSequences(appCursorMode: Boolean, expected: List<Pair<String, String>>) {
         val sent = mutableListOf<String>()
         composeRule.setContent {
             MaterialTheme {
-                ModifierBar(onKeyClick = { sent.add(it) })
+                ModifierBar(
+                    onKeyClick = { sent.add(it) },
+                    isAppCursorMode = { appCursorMode },
+                )
             }
         }
-        composeRule.onNodeWithTag("Key_\u2192").performClick()
-        composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(listOf("\u001b[C"), sent)
+        expected.forEach { (tag, sequence) ->
+            sent.clear()
+            composeRule.onNodeWithTag(tag).performClick()
+            composeRule.waitForIdle()
+            org.junit.Assert.assertEquals("$tag 应发 $sequence", listOf(sequence), sent)
+        }
     }
 
     @Test
-    fun `arrow sends SS3 in application cursor mode`() {
+    fun `four arrows send CSI in normal cursor mode`() {
+        assertArrowSequences(
+            appCursorMode = false,
+            expected =
+            listOf(
+                "Key_↑" to "\u001b[A",
+                "Key_↓" to "\u001b[B",
+                "Key_←" to "\u001b[D",
+                "Key_→" to "\u001b[C",
+            ),
+        )
+    }
+
+    @Test
+    fun `four arrows send SS3 in application cursor mode`() {
         // DECCKM 回归：vim/less 等应用光标模式下辅助键栏方向键须发 SS3，
         // 与物理键盘路径（TerminalInputEncoder.arrowSequence）一致。
-        val sent = mutableListOf<String>()
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(onKeyClick = { sent.add(it) }, isAppCursorMode = { true })
-            }
-        }
-        composeRule.onNodeWithTag("Key_\u2192").performClick()
-        composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(listOf("\u001bOC"), sent)
+        assertArrowSequences(
+            appCursorMode = true,
+            expected =
+            listOf(
+                "Key_↑" to "\u001bOA",
+                "Key_↓" to "\u001bOB",
+                "Key_←" to "\u001bOD",
+                "Key_→" to "\u001bOC",
+            ),
+        )
     }
 
     @Test
-    fun `configurable arrow sends CSI in normal cursor mode`() {
-        // 生产路径恒走可配置键栏：方向键须同样跟随光标模式，普通模式发 CSI。
-        val sent = mutableListOf<String>()
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(
-                    onKeyClick = { sent.add(it) },
-                )
-            }
-        }
-        composeRule.onNodeWithTag("Key_↑").performClick()
+    fun `swipe left enters text input page and swipe right returns`() {
+        // DESIGN.md:207「修饰键栏支持向左滑动进入文本输入框和返回」：分页器两页
+        // （按键页 → 文本输入页），此前两向滑动都没有覆盖。
+        setModifierBar()
+        composeRule.onNodeWithTag("TextInputPage").assertDoesNotExist()
+        composeRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeLeft() }
         composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(listOf("\u001b[A"), sent)
-    }
-
-    @Test
-    fun `configurable arrow sends SS3 in application cursor mode`() {
-        // 应用光标模式（less/vim）下可配置键栏方向键须发 SS3，否则分页器无反应。
-        val sent = mutableListOf<String>()
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(
-                    onKeyClick = { sent.add(it) },
-                    isAppCursorMode = { true },
-                )
-            }
-        }
-        composeRule.onNodeWithTag("Key_↑").performClick()
+        composeRule.onNodeWithTag("TextInputPage").assertIsDisplayed()
+        composeRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeRight() }
         composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(listOf("\u001bOA"), sent)
+        composeRule.onNodeWithTag("TextInputPage").assertDoesNotExist()
+        composeRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
     }
 
     @Test
