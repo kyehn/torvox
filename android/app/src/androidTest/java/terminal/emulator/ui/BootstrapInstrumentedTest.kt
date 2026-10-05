@@ -15,8 +15,8 @@ import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.MainActivity
+import terminal.emulator.closeSettingsOverlay
 
 @RunWith(AndroidJUnit4::class)
 class BootstrapInstrumentedTest {

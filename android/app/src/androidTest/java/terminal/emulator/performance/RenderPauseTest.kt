@@ -5,12 +5,12 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.rule.GrantPermissionRule
-import org.junit.Before
 import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.MainActivity
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
 
