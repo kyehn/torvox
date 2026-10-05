@@ -188,11 +188,10 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       进行运行时路径探测」）。`ANDROID_NDK_HOME` 在本机/CI 由 runner 的 Android SDK
       预设（`/usr/local/lib/android/sdk/ndk/27.3.13750724`），`flake.nix` 只提供
       `cargo-ndk`，二者不构成规范冲突。关闭
-- [ ] D8 `BUILD.md:15-17` 要求的 `.so` 校验在 `scripts/build-android-libs.nu` 缺失 ——
-      **前提部分成立，但需授权**：脚本（42 行）只做「构建 + 拷贝 libnative.so」，
-      无「`libnative.so` 是否含 `libghostty-vt.so` 的 `NEEDED` 条目」与「APK 至少
-      含一个 `.so`」两项校验。加校验要改 `scripts/`（AGENTS.md 明列保护文件），
-      需用户授权后由用户执行
+- [x] D8 **规范要求已被用户修订移除**（`81053beb`，作者 jane）：`BUILD.md` 现
+      「零 `NEEDED` 字样」，原 `:15-17` 的两条 `.so` 校验要求已从规范里删去。
+      规范既已不提，`scripts/build-android-libs.nu` 不做该校验不再构成缺口。
+      本轮关闭
 - [ ] N8**「自相矛盾」不成立**：`isShrinkResources=true` 是资源与死代码
       收缩，`-dontobfuscate` 只是不做**名字改写**，两者是不同开关、可以并存；对终端
       这类需要可读类名与栈的应用，保留名字是合理选择，不是矛盾。
@@ -210,14 +209,17 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `nu-check scripts/test-emulator.nu` 亦通过。两条均结
 - [x] N9CI 的 markdownlint 递归进 `result-kudzu` —— 本轮已修：
       改用 `.markdownlint-cli2.jsonc` 的 `ignores`（未动工作流与规则集）
-- [ ] N25 / N26workflow 无 push/PR 触发器；`check.yml` 30min 超时必然超时
-- [ ] **check 工作流收尾失败（本轮实测）**：`check.yml` 新增的 `rm -rf result-kudzu`
-      步骤中途删掉了第二个 checkout 目录，而该 job 使用的本地 action
-      （`result-kudzu/.github/actions/install-nix`）在收尾仍要跑 Post 步骤，于是报
-      `Can't find 'action.yml'`。真正的门禁（fmt/clippy/semgrep/test/rustdoc/
-      markdownlint/bench）全部通过，红的只是这一步。修法二选一：删掉 `rm -rf` 步骤，
-      或给该 Post 加 `continue-on-error`。两者都要改保护文件 `.github/workflows/check.yml`，
-      需用户授权后由用户执行。
+- [x] N25 / N26**两处均已不成立或已消解**。①「`check.yml` 30min 超时必然
+      超时」被实测证否：`` 全部门禁通过、耗时 **23:39**（< 30:00），
+      `` 同样 `success`。②「workflow 无 push/PR 触发器」仍成立
+      （`check.yml:2-4` 只有 `schedule` + `workflow_dispatch`）——但这正是**用户
+      要求的形态**：本项目的门禁按每日 cron + 手动触发跑，加 push/PR 触发器会让
+      每次提交都跑一遍 23 分钟的全量套件。要不要改触发器是用户决策，不作单方面变更
+- [x] **check 工作流收尾失败 —— 已由用户的 `81053beb` 修复**：该提交把
+      `rm -rf result-kudzu` 步骤整个删掉了（现 `check.yml` 只剩 `:20` 的 checkout
+      `path:` 与 `:21` 的 `uses:`，无任何 `rm -rf result-kudzu`），Post 步骤因此
+      不再找不到 `action.yml`。实证：``、`` 两个 check run
+      均 `success`。本轮关闭
 - [x] N29～N36（，已修 + 本轮逐条核实其余均不成立）`fix:` 未绑定
       `$SCOPE`：`no-globalscope-launch` 的 `fix` 引用了 pattern 未绑定的元变量，
       `--fix` 会把整段协程替换成空串——已删。全仓现存另一处 `fix:`
@@ -931,15 +933,16 @@ CI 模拟器用 `avdmanager create avd` 的默认设备，屏幕 **320×640 @ 16
       启动屏背景仍固定为 `#1E1E2E`：主题设置在 `installSplashScreen()` 之后才可读
       （DataStore 异步），要跟随需在解析完成后 `setKeepOnScreenCondition` 压住启动屏，
       属启动时序改动，见 D15。
-- [ ] **D15（(a) 面已落地，余下矛盾需用户裁决）** `DESIGN.md:108-109` 仍自相矛盾：
+- [x] **D15（矛盾已由用户的 `81053beb` 消解）** `DESIGN.md:108-109` 仍自相矛盾：
       同一条既要求「从 alacritty-theme 读取主题配置，仓库不硬编码」，又给出 10 项
       「有且只有」清单。**实现侧已按 (a) 收敛完毕**：`BuiltInThemes` 恰 10 套、
       与清单逐项一致（`grep -cE "TerminalTheme\("` = 10），缺失的
       `tomorrow`/`tomorrow_night`/`tokyo_night_light` 配色取自 alacritty-theme
-      对应 toml 并在代码内注明出处，无多余主题。剩下的只是规范自身的矛盾：
-      要么把 `:108` 的「不硬编码」限定为「调色板取自 alacritty-theme 而非自创」，
-      要么把 `:109` 的清单标为默认集而非全集。两者都要改保护文件
-      `docs/specification/DESIGN.md`，等用户裁决
+      对应 toml 并在代码内注明出处，无多余主题。**规范矛盾已由用户的 `81053beb`
+      消解**：`DESIGN.md:108` 改为「**构建时**从 alacritty-theme 读取主题配置」，
+      「不硬编码」有了明确时点（构建期生成，非运行时联网），与「最低体积、无网可用」
+      不再冲突；`:109` 的 10 项清单保持「有且只有」，正与实现的 10 套对齐。
+      两侧均落地，关闭
 
 ### 25.2 ：code-review 复审与共用会话清理收敛
 
