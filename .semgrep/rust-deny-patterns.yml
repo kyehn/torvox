@@ -5,7 +5,6 @@ rules:
     message: "`dbg!()` is for debugging only. Remove before committing."
     severity: ERROR
     languages: [rust]
-    fix: ""
   - id: no-todo-unimplemented
     patterns:
       - pattern-either:
