@@ -229,8 +229,16 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       字母序。`.gitignore` 无差别忽略 `*.png`/`*.ttf`：仓内**零** png、
       30 个 ttf 全在 `target/`（构建产物），实际无需跟踪的产物，忽略无副作用。
       四小项均结
-- [ ] N2-52 / N2-53`detekt.yml` 关闭 5 条吞异常/魔数规则；
-      `isReturnDefaultValues = true` + 恒返回 0 的 `Log` 桩
+- [x] N2-52 / N2-53（，N2-53 已由 `5fffd23f` 解决）**N2-53 关闭**：那个恒
+      返回 0 的 `android/util/Log.kt` 测试阴影类（53 行）已删——JVM 单元测试本就用
+      `isReturnDefaultValues = true`（框架内建桩），删掉自造影子类后同一批测试仍绿。
+      **N2-52 仍成立**：实点 `android/detekt.yml` 零 `MagicNumber` 条目（原文
+      「魔数规则」有误），真实关闭的是 complexity 组的 `CognitiveComplexMethod`、
+      `CyclomaticComplexMethod`、`LongMethod`、`LongParameterList`、
+      `NestedBlockDepth`、`TooManyFunctions` 六条与 `SwallowedException`。它们关掉
+      不代表可以不吞异常——本仓另有 `no-allow-in-prod`、AGENTS.md 的禁止清单与
+      「去掉掩盖真实故障的宽泛 catch」在管。要不要重新打开这六条复杂度规则
+      属用户决策（`android/detekt.yml` 属 AGENTS.md 明列的保护文件）
 - [ ] N2-47 / N31（/）`cjk_resolve` bench 不进门禁（`scripts/check-rust.nu`）
 - [x] N2-59 / N2-60测试注释声称脚本调 `rapidocr` 但脚本内零调用 ——
       已按事实改写注释（`rapidocr` 只在 `flake.nix` 与
