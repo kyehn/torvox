@@ -8,5 +8,5 @@ def main [] {
     cargo test --workspace --no-fail-fast
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
     markdownlint-cli2 "**/*.md" "#target/**" "#android/**/build/**"
-    cargo bench -p native --bench cell_builder --bench vt_typing -- --quick
+    cargo bench -p native --bench cell_builder --bench vt_typing --bench cjk_resolve -- --quick
 }

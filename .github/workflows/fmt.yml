@@ -27,10 +27,15 @@ jobs:
         with:
           path: |
             ~/.gradle/caches/modules-2
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/caches/*/kotlin-dsl
+            ~/.gradle/caches/*/javaCompile
+            ~/.gradle/caches/*/transforms
             ~/.gradle/wrapper/dists
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
+            target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-
@@ -41,7 +46,7 @@ jobs:
           nix develop --command markdownlint-cli2 --fix "**/*.md"
           nix develop --command cargo fmt --all -v
           nix develop --command cargo clippy --workspace --all-targets --fix --allow-dirty
-          nix develop --command bash -c "pushd android && ./gradlew spotlessApply && ./gradlew detekt --auto-correct && popd"
+          nix develop --command bash -c "pushd android && ./gradlew :wrapper --gradle-version latest && ./gradlew spotlessApply && ./gradlew detekt --auto-correct && popd"
           nix fmt
           git add .
           git commit --amend --no-edit
@@ -54,8 +59,13 @@ jobs:
         with:
           path: |
             ~/.gradle/caches/modules-2
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/caches/*/kotlin-dsl
+            ~/.gradle/caches/*/javaCompile
+            ~/.gradle/caches/*/transforms
             ~/.gradle/wrapper/dists
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
+            target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}

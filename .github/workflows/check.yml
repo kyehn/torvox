@@ -28,10 +28,15 @@ jobs:
         with:
           path: |
             ~/.gradle/caches/modules-2
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/caches/*/kotlin-dsl
+            ~/.gradle/caches/*/javaCompile
+            ~/.gradle/caches/*/transforms
             ~/.gradle/wrapper/dists
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
+            target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-
@@ -40,13 +45,19 @@ jobs:
         run: |
           scripts/check-rust.nu
           scripts/build-android-libs.nu x86_64
+          nix develop --command cargo build --package native --profile release
           scripts/check-gradle.nu
       - uses: actions/cache/save@main
         with:
           path: |
             ~/.gradle/caches/modules-2
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/caches/*/kotlin-dsl
+            ~/.gradle/caches/*/javaCompile
+            ~/.gradle/caches/*/transforms
             ~/.gradle/wrapper/dists
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
+            target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
