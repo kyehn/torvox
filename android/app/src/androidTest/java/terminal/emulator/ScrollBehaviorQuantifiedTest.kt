@@ -5,12 +5,14 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
+import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.ui.TerminalSurface
 
 /**
@@ -26,6 +28,17 @@ import terminal.emulator.ui.TerminalSurface
  * Every measured value is logged as `UX_METRIC ...` for trend tracking.
  */
 class ScrollBehaviorQuantifiedTest {
+    companion object {
+        /** 洪流行数上限：400 行 × 约 35ms ≈ 14s，远长于手势时长（约 3.5s）。 */
+        private const val FLOOD_LINE_LIMIT = 400
+
+        /** 洪流停止判定的上限（自限流循环到点即停，Ctrl+C 通常让它更早结束）。 */
+        private const val FLOOD_SETTLE_TIMEOUT_MS = 30_000L
+
+        /** 连续多少轮回滚长度不变即认定洪流已停。 */
+        private const val FLOOD_SETTLE_STABLE_SAMPLES = 3
+    }
+
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -39,6 +52,9 @@ class ScrollBehaviorQuantifiedTest {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
     }
+
+    @After
+    fun resetSession() = composeTestRule.cleanUpTerminalState()
 
     private fun surface(): TerminalSurface {
         val content =
@@ -113,9 +129,12 @@ class ScrollBehaviorQuantifiedTest {
             scrolledUpOffset > 0,
         )
 
-        // The reported bug: pressing Enter leaves the viewport pinned in
-        // history. Measure how long until it reaches the bottom instead.
-        activeBridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
+        // 回车经输入路径（ViewModel）即时贴底，不等 PTY 回显：直接调桥会绕过该路径，
+        // 在过载机上靠输出回路贴底必然漂移。按产品真实路径送回车。
+        val enterSessionId = composeTestRule.activeSessionId()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            composeTestRule.activity.terminalViewModel.writeToPty(enterSessionId, "\n".toByteArray(Charsets.UTF_8))
+        }
         val elapsed = UxTestUtils.pollUntilTrue(timeoutMs = 2_000) { view.getScrollOffset() == 0 }
         assertNotNull("viewport never snapped to bottom after Enter", elapsed)
         val elapsedMs = requireNotNull(elapsed)
@@ -137,9 +156,15 @@ class ScrollBehaviorQuantifiedTest {
         val view = surface()
         val centerX = device.displayWidth / 2
 
-        // Continuous output flood — the trigger of the reported flicker.
+        // 持续输出洪流 —— 被报闪烁的触发条件。循环自带行数上限：`while true` +
+        // Ctrl+C 停流并不可靠，SIGINT 送到前台进程组时循环可能已 fork 出新的
+        // `sleep`，随即再跑一轮，流一直打到整个测试进程结束。上限取手势时长
+        // （4 轮 × 14 步 × 30ms + 落定）的一个数量级以上，保证手势期间流仍在。
         bridge.writeToPty(
-            "while true; do echo FLOOD_$(date +%s%N); sleep 0.03; done\n".toByteArray(Charsets.UTF_8),
+            (
+                "i=0; while [ \$i -lt $FLOOD_LINE_LIMIT ]; do echo FLOOD_\$(date +%s%N); " +
+                    "sleep 0.03; i=\$((i+1)); done\n"
+                ).toByteArray(Charsets.UTF_8),
         )
         Thread.sleep(500)
 
@@ -192,8 +217,23 @@ class ScrollBehaviorQuantifiedTest {
             Thread.sleep(400)
         }
 
-        // Stop the flood.
+        // 到点自停；Ctrl+C 只作提前结束的补充手段。
         bridge.writeToPty("\u0003".toByteArray(Charsets.UTF_8))
+        // 等回滚停止增长：确认洪流真的停了，@After 的清屏才不会与在途输出竞态。
+        var settledLength = bridge.scrollbackLength()
+        var stableSamples = 0
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = FLOOD_SETTLE_TIMEOUT_MS, intervalMs = 300) {
+                val current = bridge.scrollbackLength()
+                if (current == settledLength) {
+                    stableSamples++
+                } else {
+                    settledLength = current
+                    stableSamples = 0
+                }
+                stableSamples >= FLOOD_SETTLE_STABLE_SAMPLES
+            }
+        assertNotNull("洪流未在 ${FLOOD_SETTLE_TIMEOUT_MS}ms 内停止增长", settled)
         Thread.sleep(400)
 
         assertTrue("no gesture produced scroll movement (max=$maxOffsetSeen)", maxOffsetSeen > 0)

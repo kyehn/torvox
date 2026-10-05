@@ -1,12 +1,11 @@
 package terminal.emulator.diag
 
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -14,19 +13,24 @@ import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
+import terminal.emulator.bridge.Bridge
+import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
-import terminal.emulator.grantNotificationPermission
+import terminal.emulator.pixelLuminance
+import terminal.emulator.terminalCellSizePx
+import terminal.emulator.terminalGridColumns
+import terminal.emulator.waitForTerminalScreen
 
 /**
- * acceptance: the cursor block visible in the screenshot must sit at the render-source cursor cell,
- * and moving the cursor must not leave stale blocks at previous positions.
+ * 光标块验收：截图里的块光标必须落在渲染源报告的光标格上，
+ * 光标移走后原格必须无残留块。
  *
- * Root causes fixed:
- * - empty-cell Block origin pushed one row down (pass.rs Y math)
- * - band redraws over LoadOp::Load never erased old blocks (clear_instances)
- *
- * Evidence: sample center pixel of cell rect for render-source cursor — must be bright (block on);
- * previous cursor cell must be dark (no stale block).
+ * 光标经 VT 直写定位（CUP）而非经 shell 回显：块光标在**空白格**上与「格内
+ * 有文字」在亮度上不可区分。原先用「写入 abc 再回车」造位移，回车前一格正好
+ * 压着 shell 回显的文字，测到 `lum=240` 便判「残留块」——判红与擦除逻辑无关，
+ * 且随前序用例留下的行内容漂移（同一用例单跑恒绿、整类连跑偶红）。
+ * 清屏后把光标移到**空行**再下移一行，原格必为纯背景，亮度不降即唯一地
+ * 只能是残留块。
  */
 class CursorPixelAcceptanceTest {
     @get:Rule val terminalLogcatRule = TerminalLogcatRule()
@@ -42,25 +46,11 @@ class CursorPixelAcceptanceTest {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        grantNotificationPermission()
-        composeTestRule.waitUntil(timeoutMillis = 60_000) {
-            try {
-                composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
-                true
-            } catch (_: AssertionError) {
-                false
-            } catch (_: Exception) {
-                false
-            }
-        }
+        composeTestRule.waitForTerminalScreen()
         composeTestRule.awaitBridge()
-        UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {
-            bridge().getTerminalText()?.isNotBlank() == true
-        }
-        Thread.sleep(1_500)
     }
 
-    private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     private fun renderCursorRowCol(): Pair<Int, Int> {
         val packed = bridge().cursorViewportPacked()
@@ -71,67 +61,83 @@ class CursorPixelAcceptanceTest {
 
     private fun cellCenterLuminance(row: Int, col: Int): Int {
         val shot = device.takeScreenshot() ?: return -1
-        val b = bridge()
-        val density =
-            InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
-        val cw = b.getCellWidth() * density
-        val ch = b.getCellHeight() * density
-        val surfaceTop = 122
-        val cx = ((col + 0.5) * cw).toInt()
-        val cy = (surfaceTop + ((row + 0.55) * ch)).toInt()
-        if (cx < 0 || cx >= shot.width || cy < 0 || cy >= shot.height) return -1
-        val p = shot.getPixel(cx, cy)
-        return ((p shr 16 and 0xFF) * 299 + (p shr 8 and 0xFF) * 587 + (p and 0xFF) * 114) / 1000
+        val activity = composeTestRule.activity
+        val (cellWidth, cellHeight) = terminalCellSizePx(activity, bridge())
+        val location = IntArray(2)
+        findTerminalSurface(activity).getLocationOnScreen(location)
+        val cx = (location[0] + (col + 0.5) * cellWidth).toInt()
+        val cy = (location[1] + (row + 0.55) * cellHeight).toInt()
+        return pixelLuminance(shot, cx, cy)
+    }
+
+    /**
+     * 光标格与**同行空白格**的亮度差。
+     *
+     * 块光标是实心块，与所在主题的背景必然反差明显；反过来「绝对亮度够亮」
+     * 只能对深色主题成立——浅色主题里块光标恰是深色的，判据随即失效
+     * （实测读数 0）。取差值即与主题无关。
+     */
+    private fun cursorContrast(shot: android.graphics.Bitmap, row: Int, col: Int): Int {
+        val activity = composeTestRule.activity
+        val (cellWidth, cellHeight) = terminalCellSizePx(activity, bridge())
+        val location = IntArray(2)
+        findTerminalSurface(activity).getLocationOnScreen(location)
+        val y = (location[1] + (row + 0.55) * cellHeight).toInt()
+        val cursorX = (location[0] + (col + 0.5) * cellWidth).toInt()
+        // 参照格取同一行最右侧：该行只有光标格有内容，其余皆背景。
+        val backgroundX = (location[0] + (terminalGridColumns(activity, bridge()) - 1.5) * cellWidth).toInt()
+        val cursor = pixelLuminance(shot, cursorX, y)
+        val background = pixelLuminance(shot, backgroundX, y)
+        if (cursor < 0 || background < 0) return 0
+        return kotlin.math.abs(cursor - background)
+    }
+
+    /** 清屏后把光标放到 [row] 行首列，并轮询至渲染源确认落点。 */
+    private fun moveCursorToEmptyRow(row: Int) {
+        val bridge = bridge()
+        assertTrue("清屏送显失败", bridge.feedTerminal("\u001B[2J\u001B[H".toByteArray(Charsets.UTF_8)))
+        assertTrue("光标定位送显失败", bridge.feedTerminal("\u001B[${row + 1};1H".toByteArray(Charsets.UTF_8)))
+        assertNotNull(
+            "渲染源光标必须落在 ($row,0), 实际 ${renderCursorRowCol()}",
+            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 200) {
+                renderCursorRowCol() == row to 0
+            },
+        )
+    }
+
+    private fun awaitCursorContrast(row: Int, col: Int, stage: String) {
+        assertNotNull(
+            "$stage: 光标格 ($row,$col) 必须与背景反差, 实测反差=" +
+                device.takeScreenshot()?.let { cursorContrast(it, row, col) },
+            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 300) {
+                val shot = device.takeScreenshot() ?: return@pollUntilTrue false
+                cursorContrast(shot, row, col) > CURSOR_CONTRAST_MINIMUM
+            },
+        )
     }
 
     @Test
     fun cursorBlockMatchesRenderCursorCell() {
-        val b = bridge()
-        Thread.sleep(250)
+        val previousRow = 5
+        moveCursorToEmptyRow(previousRow)
+        awaitCursorContrast(previousRow, 0, "T0-定位")
 
-        fun cursorBrightAtItsCell(): Pair<Int, Int>? {
-            val (row, col) = renderCursorRowCol()
-            if (row < 0 || col < 0) return null
-            if (cellCenterLuminance(row, col) <= 140) return null
-            return row to col
-        }
+        val currentRow = previousRow + 2
+        moveCursorToEmptyRow(currentRow)
+        awaitCursorContrast(currentRow, 0, "T1-移动")
 
-        fun assertCursorAtItsCell(stage: String): Pair<Int, Int> {
-            // 首帧 CellData 推送滞后约一包：T0 即判隐藏是时序误报，轮询至光标格变亮。
-            val ready =
-                UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 500) {
-                    cursorBrightAtItsCell() != null
-                }
-            assertNotNull("$stage: 光标格必须变亮", ready)
-            return cursorBrightAtItsCell()
-                ?: throw AssertionError("$stage: render cursor hidden (-1)")
-        }
+        // 块光标是不闪烁的实心块，移走后原格必须与背景同色。
+        assertNotNull(
+            "T2: 旧光标格 ($previousRow,0) 必须无残留块",
+            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 300) {
+                val shot = device.takeScreenshot() ?: return@pollUntilTrue false
+                cursorContrast(shot, previousRow, 0) <= CURSOR_CONTRAST_MINIMUM
+            },
+        )
+    }
 
-        var previous = assertCursorAtItsCell("T0-boot")
-        bridge().writeToPty("abc".toByteArray())
-        // 冷机首帧慢：固定睡眠不可靠，轮询至光标格变亮（超时仍按原断言失败）。
-        val t1ready =
-            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 500) {
-                val (row, col) = renderCursorRowCol()
-                row >= 0 && col >= 0 && cellCenterLuminance(row, col) > 140
-            }
-        assertNotNull("T1-after-abc: 光标格必须变亮", t1ready)
-        val t1 = assertCursorAtItsCell("T1-after-abc")
-        previous = t1
-        bridge().writeToPty("\n".toByteArray())
-        val t3ready =
-            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 500) {
-                val (row, col) = renderCursorRowCol()
-                row >= 0 && col >= 0 && cellCenterLuminance(row, col) > 140
-            }
-        assertNotNull("T3-after-enter: 光标格必须变亮", t3ready)
-        val t3 = assertCursorAtItsCell("T3-after-enter")
-        if (t3.first != previous.first) {
-            val staleLum = cellCenterLuminance(previous.first, previous.second)
-            org.junit.Assert.assertTrue(
-                "T3: stale block at (${previous.first},${previous.second}) lum=$staleLum must be <140",
-                staleLum < 140,
-            )
-        }
+    companion object {
+        /** 块光标与背景的最小亮度差（低于此即认为该格只剩背景）。 */
+        private const val CURSOR_CONTRAST_MINIMUM = 60
     }
 }
