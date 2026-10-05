@@ -1364,3 +1364,45 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       `UiAutomation.takeScreenshot()`（外部 API，取真实合成结果）。附带修正：该
       `draw` 本就采不到 Surface/TextureView 里的终端像素，OCR 输入恒空。
       该类整类本地 0 失败。
+
+### 28.8 R38 重复度收敛与「刻意不改」清单
+
+- [x] **`ffi.rs` 13 处会话查找样板不改（刻意保留）** `ffi.rs` 有 13 处
+      「取会话注册表 → 未注册则抛 `<caller>: session not found`」（`:693`/`:768`/`:848`/
+      `:943`/`:1003`/`:1091`/`:2243`/`:2269`/`:2294`/`:2324`/`:2365`/`:2597`/`:2916`），
+      是全仓最大的一处重复。逐处比对形态后**判定抽象收益为负**：① `:693` 用写锁 +
+      `get_mut`，其余用读锁 + `get`；② 失败返回四样（`Ok(())` / `Ok(0)` / `Ok(-1)` /
+      `Ok(null_mut())`）；③ 异常类型已漂移成 6 处 `RuntimeException`
+      （`resetTerminal`/`resize`/`setPixelSize`/`feedPty`/`feedTerminal`/`writeKey`）
+      对 7 处 `IllegalArgumentException`；④ `:1091` 是「校验通过后再抛」，不是提前返回。
+      统一成宏需 5 个以上参数且只覆盖 10/13，剩下的还得留旁路——按 KISS「避免不必要的
+      抽象」不合并。此结论记档，免得后续轮次重复推导。
+- [x] **重复度实测基线** 12 行窗口扫描：`native/src` 115 组 → **89 组**
+      （`render/tests.rs` 的 `CellInstanceConfig` 字面量收敛掉 26 组）；
+      `android/app/src/main` 8 行窗口仅 5 组、且都在同文件内相邻（`SettingsComponents`
+      2 组、`TerminalSurface` 2 组、`TestBackdoorReceivers` 2 组），跨模块重复为 0。
+- [x] **重复度按规范工具实测（`TESTING.md:24` 指定的 jscpd）**
+      `npx jscpd@latest --min-lines 8 --min-tokens 60`，范围
+      `android/app/src/main` + `native/src`（排除 `build`/`target`/md）：
+      **总计 543/49405 行 = 1.10%，1.12% token；Kotlin 56 文件 18819 行仅 2 处克隆
+      共 18 行 = 0.10%；Rust 39 文件 30008 行 40 处 525 行 = 1.75%**。Rust 侧集中在
+      `render/tests.rs`（295 行）、`android/ffi.rs`（59）、`ghostty_terminal/tests.rs`（52）、
+      `render/cell_builder.rs`（40）。最大单块是 `cell_builder.rs:1288` 与 `:1354` 的
+      27 行——**实为该文件内嵌 `#[cfg(test)] mod tests` 的两个用例**，非生产重复。
+      核实内嵌 `#[test]` 是本仓主流写法（24 个文件如此，独立 `tests.rs` 只有
+      `render/tests.rs` 与 `ghostty_terminal/tests.rs` 两个），故不迁移。
+      `scripts/check-rust.nu` 目前**不跑 jscpd**，规范要求的这道门禁实际缺席——
+      要接进门禁需改保护文件 `scripts/`，已并入待授权清单。
+- [x] **`aislop` 的两条告警不改（规范已授权）** `npx aislop@latest scan`
+      报出 10 个文件超 1000 行、2 个函数超 120 行
+      （`ffi.rs:1538 render_inner` 416 行、`ghostty_terminal/internal.rs:534 run_inner`
+      482 行）与 2 处 `[auto]` 叙述式注释块。逐条核过：
+      ① 超长函数**不违规**——`STYLE.md:69` 明确「detekt 和 clippy 及其他类似工具
+      只允许抑制必要的规则，如参数数量、**行数**、嵌套层数（这些仅风格问题可全局
+      设置规则）」，`detekt.yml` 关掉 `LongMethod`/`CognitiveComplexMethod` 是被
+      明文授权的；把 PTY 读循环与渲染循环拆开是对已记录决策的反向改动，风险高于收益。
+      ② 两处注释**保留**——`cell_builder.rs:815` 解释「簇成形为单字形（ZWJ emoji）
+      时替换基础四边形、定位标记交给下方 overlay 循环」，`tests.rs:762` 说明
+      「e + 组合尖音符成形为一个预组字形，故替换主四边形而非叠加 overlay」，
+      都是非显然决策的「为什么」，符合 `STYLE.md` 注释条款；`aislop` 的 `[auto]`
+      是启发式，不构成依据。
