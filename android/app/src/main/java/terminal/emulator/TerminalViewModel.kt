@@ -523,9 +523,7 @@ constructor(
                 if (state.selection != current) return
                 if (_state.compareAndSet(state, state.copy(selection = updated))) break
             }
-            val start = current.start
-            val end = current.end
-            publishNormalizedSelectionBounds(start, end)
+            publishNormalizedSelectionBounds(current.start, current.end)
         }
 
         fun copySelectionToClipboard() {
