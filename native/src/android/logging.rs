@@ -1,8 +1,8 @@
-//! 自定义 `log::Log` 实现，写入 logcat，由 Kotlin 经 JNI 初始化。
+//! 自定义 `log::Log` 实现，写入 logcat，由 `JNI_OnLoad` 初始化。
 
 #![cfg(target_os = "android")]
 
-use core::ffi::c_char;
+use core::ffi::{c_char, c_void};
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use std::ffi::CString;
 
@@ -31,6 +31,22 @@ fn level_to_android(level: Level) -> i32 {
         Level::Trace => ANDROID_LOG_VERBOSE,
     }
 }
+
+/// 错误策略的「输出日志并崩溃退出」的日志安装保证：`JNI_OnLoad` 由 VM 在加载本库时
+/// 调用，早于任何 JNI 方法，因此 logger 在第一个 `log::*` 调用之前即已就位。
+///
+/// 曾经的 `NativeBridge.initLogger` 由 Kotlin 的独立线程异步调用，启动数秒内的致命
+/// 退出会抢在该线程之前，经 `log` 门面的原因被静默丢弃，现场只剩无符号 tombstone
+/// （2026-10-02 真机启动崩溃即为此）。`#[unsafe(no_mangle)]` 是 JNI 的 ABI 约定。
+#[unsafe(no_mangle)]
+pub extern "system" fn JNI_OnLoad(_vm: *mut c_void, _reserved: *mut c_void) -> i32 {
+    init();
+    JNI_VERSION_1_6
+}
+
+/// `JNI_OnLoad` 返回的 JNI 版本（`jni.h` 的 `JNI_VERSION_1_6`）：返回任何有效版本即
+/// 使 VM 为本库缓存 JNIEnv，不得返回 `JNI_ERR`，那会拒绝加载本库。
+const JNI_VERSION_1_6: i32 = 0x0001_0006;
 
 // ── Logger ─────────────────────────────────────────────────────────────
 

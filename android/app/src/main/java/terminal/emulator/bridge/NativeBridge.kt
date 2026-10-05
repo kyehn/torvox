@@ -151,11 +151,6 @@ object NativeBridge {
 
     // ── 用户输入回调 ──
 
-    // ── 日志 ──
-
-    /** 初始化原生日志，启动时调用一次。 */
-    @JvmStatic external fun initLogger()
-
     // ── TerminalQueryPort（原生查询导出） ──
 
     /** 会话的终端标题（OSC 0/2），会话未知时为 null。 */

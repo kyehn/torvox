@@ -1567,13 +1567,13 @@ constructor(
                                                 val summary =
                                                     "session ${entry.id} frame timing window " +
                                                         "(${report.frameCount} frames): " +
-                                                        "avg=${report.averageNanos / 1_000_000L}ms " +
-                                                        "p95=${report.p95Nanos / 1_000_000L}ms " +
-                                                        "max=${report.maxNanos / 1_000_000L}ms " +
+                                                        "avg=${report.averageNanos / NANOS_PER_MILLI}ms " +
+                                                        "p95=${report.p95Nanos / NANOS_PER_MILLI}ms " +
+                                                        "max=${report.maxNanos / NANOS_PER_MILLI}ms " +
                                                         "scrollback=$scrollbackRows rows"
                                                 val trendDegraded = frameTimingTrend.observe(report.averageNanos)
                                                 val baselineNanos = frameTimingTrend.currentBaselineNanos()
-                                                val baselineMs = baselineNanos?.div(1_000_000L)
+                                                val baselineMs = baselineNanos?.div(NANOS_PER_MILLI)
                                                 when {
                                                     // 绝对病态：超出任何设备预期的停滞
                                                     // （模拟器基线 ~555ms/帧；真机 ~17ms）。
@@ -1612,14 +1612,21 @@ constructor(
                                         // 说明时间花在循环的其他环节，而非原生渲染路径。
                                         loopTiming.record(System.nanoTime() - loopFrameStart)
                                         loopTiming.takeReport()?.let { loopReport ->
-                                            val loopAvgMs = loopReport.averageNanos / 1_000_000L
-                                            val fps = if (loopAvgMs > 0) 1_000L / loopAvgMs else 0L
+                                            val loopAvgMs = loopReport.averageNanos / NANOS_PER_MILLI
+                                            val loopP95Ms = loopReport.p95Nanos / NANOS_PER_MILLI
+                                            val loopMaxMs = loopReport.maxNanos / NANOS_PER_MILLI
+                                            val fps =
+                                                if (loopReport.averageNanos > 0) {
+                                                    (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
+                                                } else {
+                                                    0
+                                                }
                                             LogUtil.i(
                                                 "Runtime",
                                                 "session ${entry.id} loop timing window " +
                                                     "(${loopReport.frameCount} frames): " +
-                                                    "avg=${loopAvgMs}ms p95=${loopReport.p95Nanos / 1_000_000L}ms " +
-                                                    "max=${loopReport.maxNanos / 1_000_000L}ms ≈${fps}fps",
+                                                    "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
+                                                    "max=${loopMaxMs}ms ≈${fps}fps",
                                             )
                                         }
                                     } catch (exception: InterruptedException) {
@@ -1814,6 +1821,12 @@ constructor(
 
         // 慢帧诊断：超过此值的帧输出一行 SLOW_FRAME（渲染阶段墙钟时间）供离线拆解。
         private const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
+
+        // 计时报告的换算基数用 Double：真机帧时长集中在 0–2ms，以 Long 整除换算会让
+        // 健康窗口一律报出 `avg=0ms p95=0ms`，且由截断均值换算的 fps 会把同一台设备
+        // 报成 55/58/62/66/71/76 六个值（全部是舍入产物，不含帧率信息）。
+        private const val NANOS_PER_MILLI = 1_000_000.0
+        private const val NANOS_PER_SECOND = 1_000_000_000.0
         private const val RENDER_LATCH_IDLE_TIMEOUT_NANOS = 500_000_000L // 500ms for idle (~2 FPS)
         private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60

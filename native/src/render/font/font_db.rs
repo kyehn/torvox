@@ -63,9 +63,9 @@ pub(crate) fn load_font_database() -> fontdb::Database {
     let font_database = CACHED_FONT_DB.get_or_init(|| {
         let mut font_database = fontdb::Database::new();
 
-        // 主字体：fonts.xml 的 monospace 族（`resolve_system_monospace_from_fonts_xml`
-        // 负责 fonts.xml 缺失或不可解析时 abort）。
-        let target = resolve_system_monospace_from_fonts_xml();
+        // 主字体：fonts.xml 的 monospace 族（`resolve_system_monospace` 负责
+        // fonts.xml 缺失或不可解析时崩溃退出）。
+        let target = resolve_system_monospace();
         let mut loaded = load_files(
             &mut font_database,
             &resolve_font_files(std::slice::from_ref(&target)),
@@ -402,10 +402,10 @@ fn user_font_files() -> Vec<std::path::PathBuf> {
 
 /// `fonts.xml` 只给文件名，路径由平台字体目录表解析；解析不到的文件丢弃。
 #[cfg(target_os = "android")]
-fn resolve_font_files(filenames: &[String]) -> Vec<std::path::PathBuf> {
+fn resolve_font_files(filenames: &[impl AsRef<str>]) -> Vec<std::path::PathBuf> {
     filenames
         .iter()
-        .filter_map(|filename| resolve_font_entry(filename))
+        .filter_map(|filename| resolve_font_entry(filename.as_ref()))
         .collect()
 }
 
@@ -455,14 +455,40 @@ fn resolve_font_path(filename: &str) -> Option<std::path::PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// 字体致命退出的唯一出口（`DESIGN.md:16` 的「输出日志并崩溃退出」）：先输出一行
+/// `FONT_FATAL` 错误日志，再 `abort`。
+///
+/// 用 `log` 门面而非直写 `__android_log_write`：层方向禁止 `render` 依赖 `android`
+/// （semgrep `no-android-in-render`），而 Android logger 已由 `JNI_OnLoad` 安装
+/// （早于任何 JNI 方法），故该行必然落 logcat。`reason` MUST 陈述真实原因，不得归因
+/// 到别处——现场通常只剩 strip 过的 tombstone，这一行是唯一的诊断入口。
+#[cfg(target_os = "android")]
+pub(crate) fn fatal(reason: &str) -> ! {
+    log::error!(target: "FONT_FATAL", "{reason}");
+    std::process::abort()
+}
+
+/// 等宽字体文件名，进程内解析一次：建库与 `find_monospace_font` 共用同一结果。
+///
+/// `fonts.xml` 在进程生命周期内不变，而 `set_font_family("")` 会反复进入
+/// `find_monospace_font`，每次重读重解析整份 XML 都落在渲染线程上。
+#[cfg(target_os = "android")]
+static MONOSPACE_XML_FILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 缓存的等宽字体文件名。
+#[cfg(target_os = "android")]
+pub(crate) fn resolve_system_monospace() -> &'static str {
+    MONOSPACE_XML_FILE.get_or_init(resolve_system_monospace_from_fonts_xml)
+}
+
 /// 系统等宽字体文件名，取自 `fonts.xml`（DESIGN 字体节：fonts.xml 是唯一来源，
 /// 不得使用任何硬编码字体名）。
 ///
 /// 规范要求「系统不存在 fonts.xml 或其内容无法解析，输出日志并崩溃退出」：
-/// 候选文件都读不到、都无法解析、或都没给出等宽字体时直接 `abort`。
-/// 宿主（非 Android）不参与：那里没有 fonts.xml，见下方 `#[cfg]` 版本。
+/// 候选文件都读不到、都无法解析、或都没给出等宽字体时经 [`fatal`] 退出。
+/// 宿主（非 Android）不参与：那里没有 fonts.xml。
 #[cfg(target_os = "android")]
-pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
+fn resolve_system_monospace_from_fonts_xml() -> String {
     let mut last_error = String::new();
     for xml_path in FONTS_XML_CANDIDATES {
         let content = match std::fs::read_to_string(xml_path) {
@@ -479,8 +505,9 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> String {
         }
         last_error = format!("{xml_path} 未声明等宽字体");
     }
-    log::error!("FONT_XML: 无法从系统 fonts.xml 解析等宽字体（{last_error}）");
-    std::process::abort();
+    fatal(&format!(
+        "无法从系统 fonts.xml 解析等宽字体（{last_error}）"
+    ))
 }
 
 /// 面是否覆盖基本拉丁（探测字符 'm'，与单元格度量所用字符一致）：终端主字体的
@@ -1009,6 +1036,24 @@ mod tests {
             lang_fallbacks[1].1,
             vec![("NotoSansCJK-Regular.ttc".to_string(), 0)]
         );
+    }
+
+    /// 未声明等宽族的 `fonts.xml` 不产出主字体候选：`resolve_system_monospace` 据此
+    /// 崩溃退出。把该触发条件钉在单测里，任何放宽解析的改动都会立刻暴露。
+    #[test]
+    fn parse_fonts_xml_without_monospace_family_yields_no_candidate() {
+        let xml = FONTS_XML_SNIPPET.replace(
+            r#"<family name="monospace">
+        <font weight="400" style="normal">DroidSansMono.ttf</font>
+    </family>"#,
+            "",
+        );
+        let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(&xml);
+        assert!(
+            monospace.is_empty(),
+            "只含 lang 族与无名族时不得产出等宽候选，否则崩溃退出条件被静默绕过"
+        );
+        assert_eq!(lang_fallbacks.len(), 2, "其余解析不受影响");
     }
 
     #[test]
