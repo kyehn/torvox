@@ -25,17 +25,17 @@
 - [x] 门禁两处 `runCatching` 改显式 try/catch / assertThrows（check 工作流恢复绿）
 - [x] 渲染线程存活守卫收敛为 `closeBridgeUnlessRenderThreadAlive` 单一入口
 
-## 2. Kotlin小步修复
+## 2. Kotlin 小步修复
 
 - [x] 2.1 主题应用切后台调度（N1-21）
 - [x] 2.2 点选计数复位与拖尾守卫前移（N1-22）
 - [x] 2.3 表面销毁清尺寸字段（N1-24）
 - [x] 2.4 清除缓存递归与安装包残留删除（N2-27/N2-28）
 
-## 3. Rust小步修复
+## 3. Rust 小步修复
 
 - [x] 3.1 删除`cached_scrollback`并更正超时注释（N1-36）
-- [x] 3.2 批量更正成本数字注释（N2-79~N2-84，已修Rust三处）
+- [x] 3.2 批量更正成本数字注释（N2-79~N2-84，已修 Rust 三处）
 
 ## 4. 高危项（需调试定位后动）
 
