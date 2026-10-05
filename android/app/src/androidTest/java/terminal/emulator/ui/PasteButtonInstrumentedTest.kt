@@ -97,6 +97,10 @@ class PasteButtonInstrumentedTest {
     @SuppressLint("DeprecatedCall")
     @Test
     fun pasteMenuTypesClipboardIntoShell() {
+        // 共用会话的行编辑状态（补全等待 `y or n?`、未回车半行）跨用例残留：
+        // 先送 ETX 中止再等 prompt，否则门控把 shell 污染误判成未就绪。
+        // 空行上的 ETX 仅另起一 prompt，无害。
+        bridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
         // 参考实现首步即等 prompt：静默等待在空屏（shell 未就绪）也会通过，
         // 而 shell 就绪前的粘贴字节去向不明，必须门控 prompt 存在。
         val promptSeen =

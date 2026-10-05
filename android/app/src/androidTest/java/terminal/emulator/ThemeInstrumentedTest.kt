@@ -12,10 +12,12 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.ui.theme.BuiltInThemes
 
 class ThemeInstrumentedTest {
@@ -27,10 +29,36 @@ class ThemeInstrumentedTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
+    private var themeState: terminal.emulator.settings.SettingsRepository.SettingsState? = null
+
     @Before
     fun setUp() {
         composeTestRule.waitForSession()
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            themeState = activity.terminalViewModel.settings.value
+        }
         composeTestRule.openSettings()
+    }
+
+    /**
+     * 还原主题设置。
+     *
+     * 主题名与跟随开关都持久化在 DataStore，且 `:app:connectedDebugAndroidTest`
+     * 全部用例同进程。不还原即把**后续所有**用例留在本类选中的主题下：浅色主题
+     * 里块光标是深色的，按绝对亮度判「光标格变亮」的像素用例会整片判红
+     * （实测亮度 0），而判红原因与光标渲染无关。
+     */
+    @After
+    fun tearDown() {
+        composeTestRule.closeSettingsOverlay()
+        val before = themeState ?: return
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            val viewModel = activity.terminalViewModel
+            viewModel.setThemeMode(before.themeMode)
+            viewModel.setThemeName(before.themeName)
+            viewModel.setDayThemeName(before.dayThemeName)
+            viewModel.setNightThemeName(before.nightThemeName)
+        }
     }
 
     /**

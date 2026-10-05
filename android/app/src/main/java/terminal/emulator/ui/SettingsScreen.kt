@@ -849,7 +849,7 @@ private fun ShellInput(shellPath: String, onShellSaved: (String) -> Unit, textCo
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("ShellEntryInput"),
             singleLine = true,
             placeholder = {
                 Text(stringResource(R.string.shell_placeholder), color = textColor.copy(alpha = 0.5f))
@@ -893,7 +893,10 @@ internal fun ThemeSelector(
             Text(label, style = labelStyle, color = textColor)
             Spacer(modifier = Modifier.height(4.dp))
         }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(if (isSmallScreen) 6.dp else 8.dp)) {
+        LazyRow(
+            modifier = Modifier.testTag("ThemeList"),
+            horizontalArrangement = Arrangement.spacedBy(if (isSmallScreen) 6.dp else 8.dp),
+        ) {
             items(themes) { theme ->
                 ThemePreview(
                     theme = theme,
