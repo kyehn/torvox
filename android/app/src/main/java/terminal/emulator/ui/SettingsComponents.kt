@@ -115,7 +115,7 @@ fun SettingsSliderRow(
     colors: SettingsColors,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    valueFormatter: (Float) -> String = { "%.0f".format(it) },
+    valueFormatter: (Float) -> String = { "%.0f".format(java.util.Locale.US, it) },
     testTag: String? = null,
     enabled: Boolean = true,
     onValueChangeFinished: () -> Unit = {},
