@@ -13,6 +13,9 @@ import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -174,6 +177,13 @@ class PasteButtonInstrumentedTest {
         assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipRead == marker)
 
         val pasteText = composeTestRule.activity.getString(R.string.paste)
+        // 菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，单次直查会把
+        // 「重组还没来得及」判成「菜单没出现」（与 SelectionEspressoTest 同口径）。
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        assertTrue(
+            "粘贴 action 必须出现在选择菜单中",
+            device.wait(Until.hasObject(By.text(pasteText)), PASTE_TIMEOUT_MS),
+        )
         // 参考实现同款：Espresso 点击 popup 内“粘贴”（UiAutomator 按 accessibility
         // 坐标点击曾出现“清选择但未粘贴”——疑似点中 surface 而非按钮；Espresso 直点
         // 活视图，缺席则大声失败，不会误清选择）。
