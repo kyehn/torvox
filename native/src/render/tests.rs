@@ -630,8 +630,8 @@ fn reverse_video_applied_to_blank_cell() {
 
 const TEST_ATLAS_SIZE: f32 = 1024.0;
 
-/// 单元实例构建的测试配置：图集尺寸固定为 TEST_ATLAS_SIZE（与 `ascii_font()`
-/// 配套），其余参数由调用方给出，14 处字面量不再重复同一份字段清单。
+/// 单元实例构建的测试配置：图集尺寸固定为 TEST_ATLAS_SIZE（本文件的 FontPipeline
+/// 一律 1024×1024），其余参数由调用方给出——调用点不再重复同一份字段清单。
 fn test_config<'a>(
     rows: u32,
     cols: u32,
