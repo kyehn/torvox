@@ -169,10 +169,11 @@ class BehaviorInstrumentedTest {
         scrollSettingsTo(hasTestTag("ThemeSelector"))
         // 主题是横向列表：窄屏（CI 320×640）一次只容得下两三张卡，纵向滚动够不到
         // 右侧主题——必须横向滚到目标卡片再断言其可见（主题名在预览卡下方）。
+        // 主题清单取自 BuiltInThemes（唯一来源），不点名字面量：清单变了本用例自动跟随。
         val themeList = composeTestRule.onAllNodes(hasTestTag("ThemeList"))[0]
-        for (themeName in listOf(BuiltInThemes.draculaPlus.name, "Catppuccin Mocha", "Monokai")) {
-            themeList.performScrollToNode(hasTestTag("theme_preview_$themeName"))
-            composeTestRule.onNodeWithTag("theme_preview_$themeName").assertIsDisplayed()
+        for (theme in BuiltInThemes.all) {
+            themeList.performScrollToNode(hasTestTag("theme_preview_${theme.name}"))
+            composeTestRule.onNodeWithTag("theme_preview_${theme.name}").assertIsDisplayed()
         }
     }
 
