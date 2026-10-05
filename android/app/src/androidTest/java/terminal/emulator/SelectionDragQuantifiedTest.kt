@@ -122,16 +122,8 @@ class SelectionDragQuantifiedTest {
         warmKeyboard: Boolean = false,
         targetViewportRow: Int = 7,
     ): Triple<Float, Float, Int> {
-        // 视口先归位：坐标换算 `viewportRow = index - depth` 只在偏移为 0 时成立，
-        // 而 `currentViewportTopGrid() = 回滚长度 - 偏移`。共用会话里任何翻阅/搜索
-        // 留下的非零偏移都让长按落到另一行——行是空白即退化为仅粘贴菜单，
-        // 外部表现是「长按未打开选择菜单」，与长按本身无关。
-        composeTestRule.activity.terminalViewModel.runtime.setScrollOffset(0)
-        val viewportAtBottom =
-            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) {
-                composeTestRule.activity.terminalViewModel.runtime.activeSessionScrollOffset() == 0
-            }
-        assertNotNull("视口必须归位到底部", viewportAtBottom)
+        // 视口先归位：坐标换算只在滚动偏移为 0 时成立（见 scrollViewportToBottom）。
+        scrollViewportToBottom(bridge(), composeTestRule.activity.terminalViewModel.runtime)
         // 标记必须单行放得下：网格列数随屏幕宽度与主字体变化（实测 25～38 列），
         // 超宽即折行，文本查询按整串匹配时恒不成立——外部表现是「标记不落格」，
         // 与送显、与查询超时都无关。前提不成立时在此直接失败，不留到后面误判。

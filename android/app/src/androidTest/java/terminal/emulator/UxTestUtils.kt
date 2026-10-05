@@ -3,11 +3,12 @@ package terminal.emulator
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
+import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import androidx.test.uiautomator.UiDevice
-import java.io.File
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.runtime.TerminalRuntime
+import java.io.File
 
 /**
  * Shared helpers for the UX-quantified verification suite.
@@ -106,31 +107,11 @@ object UxTestUtils {
      * 三通道差和超 [threshold] 记为差异（步长只影响统计速度，不放宽判定）。
      * 稀疏条带比对与 SGR 斜体裁剪区同款口径，故收归此处一处实现。
      */
-    fun countDiffInBand(
-        first: Bitmap,
-        second: Bitmap,
-        top: Int,
-        bottom: Int,
-        step: Int,
-        threshold: Int,
-    ): Int {
+    fun countDiffInBand(first: Bitmap, second: Bitmap, top: Int, bottom: Int, step: Int, threshold: Int): Int {
         var count = 0
         for (y in top until bottom step step) {
             for (x in 0 until first.width step step) {
-                val delta =
-                    kotlin.math.abs(
-                        android.graphics.Color.red(first.getPixel(x, y)) -
-                            android.graphics.Color.red(second.getPixel(x, y)),
-                    ) +
-                        kotlin.math.abs(
-                            android.graphics.Color.green(first.getPixel(x, y)) -
-                                android.graphics.Color.green(second.getPixel(x, y)),
-                        ) +
-                        kotlin.math.abs(
-                            android.graphics.Color.blue(first.getPixel(x, y)) -
-                                android.graphics.Color.blue(second.getPixel(x, y)),
-                        )
-                if (delta > threshold) count++
+                if (pixelChannelDelta(first.getPixel(x, y), second.getPixel(x, y)) > threshold) count++
             }
         }
         return count
@@ -209,7 +190,14 @@ private fun countHuePixels(shot: Bitmap, hue: (red: Int, green: Int, blue: Int) 
     for (y in 0 until shot.height step 2) {
         for (x in 0 until shot.width step 2) {
             val pixel = shot.getPixel(x, y)
-            if (hue(android.graphics.Color.red(pixel), android.graphics.Color.green(pixel), android.graphics.Color.blue(pixel))) count++
+            if (hue(
+                    android.graphics.Color.red(pixel),
+                    android.graphics.Color.green(pixel),
+                    android.graphics.Color.blue(pixel),
+                )
+            ) {
+                count++
+            }
         }
     }
     return count
@@ -245,6 +233,30 @@ fun pixelLuminance(shot: Bitmap, x: Int, y: Int): Int {
 }
 
 // ── 网格定位写入 ─────────────────────────────────────
+
+/**
+ * 视口归位到底部并按**渲染真相**确认归位。
+ *
+ * 屏幕行号与绝对网格行的换算 `视口行 = 绝对行 - (回滚长度 - 偏移)` 只在偏移为 0
+ * 时成立；共用会话里任何翻阅/搜索留下的非零偏移都让按行号算出的点击/长按落到
+ * 另一行——落到空行即退化为仅粘贴菜单，外部表现是「长按未打开选择菜单」，
+ * 与长按本身无关。
+ *
+ * 判据取「渲染光标行 == 回滚长度」而非 `TerminalRuntime.activeSessionScrollOffset()`：
+ * 后者是渲染线程尚未消费的命令槽（`setScrollOffset` 只写槽并通知，Surface 的触摸
+ * 滚动还会把它改回去），拿它轮询等于等一个转瞬即逝的中间态——实测 CI 恒读 943。
+ * 光标行由渲染帧产出，与偏移同源，是稳定判据。
+ */
+fun scrollViewportToBottom(bridge: Bridge, runtime: TerminalRuntime, timeoutMs: Long = 5_000) {
+    runtime.setScrollOffset(0)
+    val scrollbackRows = bridge.scrollbackLength()
+    val atBottom =
+        UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 50) {
+            val packed = bridge.cursorViewportPacked()
+            packed >= 0 && (packed shr 32).toInt() == scrollbackRows
+        }
+    assertNotNull("视口必须归位到底部（光标行未达回滚末行 $scrollbackRows）", atBottom)
+}
 
 /** SGR 转义序列：`ESC [ … m`。不占列，故落格判据须先剥除。 */
 private val SGR_SEQUENCE = Regex("\u001B\\[[0-9;]*m")

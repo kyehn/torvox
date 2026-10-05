@@ -85,14 +85,7 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
  */
 fun AndroidComposeTestRule<*, *>.waitForTerminalScreen(timeoutMs: Long = 60_000) {
     waitUntil(timeoutMillis = timeoutMs) {
-        try {
-            onNodeWithTag("TerminalScreen").assertIsDisplayed()
-            true
-        } catch (_: AssertionError) {
-            false
-        } catch (_: Exception) {
-            false
-        }
+        probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() }
     }
 }
 
