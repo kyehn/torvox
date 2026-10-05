@@ -108,34 +108,6 @@ object BuiltInThemes {
             ),
         )
 
-    val nord =
-        TerminalTheme(
-            name = "Nord",
-            background = Color(0xFF2E3440),
-            foreground = Color(0xFFD8DEE9),
-            cursor = Color(0xFFD8DEE9),
-            selectionBackground = Color(0xFF434C5E),
-            ansi =
-            listOf(
-                Color(0xFF3B4252),
-                Color(0xFFBF616A),
-                Color(0xFFA3BE8C),
-                Color(0xFFEBCB8B),
-                Color(0xFF81A1C1),
-                Color(0xFFB48EAD),
-                Color(0xFF88C0D0),
-                Color(0xFFE5E9F0),
-                Color(0xFF4C566A),
-                Color(0xFFBF616A),
-                Color(0xFFA3BE8C),
-                Color(0xFFEBCB8B),
-                Color(0xFF81A1C1),
-                Color(0xFFB48EAD),
-                Color(0xFF8FBCBB),
-                Color(0xFFECEFF4),
-            ),
-        )
-
     val tokyoNight =
         TerminalTheme(
             name = "Tokyo Night",
@@ -161,34 +133,6 @@ object BuiltInThemes {
                 Color(0xFFBB9AF7),
                 Color(0xFF0DB9D7),
                 Color(0xFFACB0D0),
-            ),
-        )
-
-    val rosePine =
-        TerminalTheme(
-            name = "Rose Pine",
-            background = Color(0xFF191724),
-            foreground = Color(0xFFE0DEF4),
-            cursor = Color(0xFF524F67),
-            selectionBackground = Color(0xFF2A273F),
-            ansi =
-            listOf(
-                Color(0xFF26233A),
-                Color(0xFFEB6F92),
-                Color(0xFF31748F),
-                Color(0xFFF6C177),
-                Color(0xFF9CCFD8),
-                Color(0xFFC4A7E7),
-                Color(0xFFEBBCBA),
-                Color(0xFFE0DEF4),
-                Color(0xFF6E6A86),
-                Color(0xFFEB6F92),
-                Color(0xFF31748F),
-                Color(0xFFF6C177),
-                Color(0xFF9CCFD8),
-                Color(0xFFC4A7E7),
-                Color(0xFFEBBCBA),
-                Color(0xFFE0DEF4),
             ),
         )
 
@@ -248,90 +192,6 @@ object BuiltInThemes {
             ),
         )
 
-    val everforestDark =
-        TerminalTheme(
-            name = "Everforest Dark",
-            background = Color(0xFF2D353B),
-            foreground = Color(0xFFD3C6AA),
-            cursor = Color(0xFFD3C6AA),
-            selectionBackground = Color(0xFF3D484D),
-            ansi =
-            listOf(
-                Color(0xFF475258),
-                Color(0xFFE67E80),
-                Color(0xFFA7C080),
-                Color(0xFFDBBC7F),
-                Color(0xFF7FBBB3),
-                Color(0xFFD699B6),
-                Color(0xFF83C092),
-                Color(0xFFD3C6AA),
-                Color(0xFF475258),
-                Color(0xFFE67E80),
-                Color(0xFFA7C080),
-                Color(0xFFDBBC7F),
-                Color(0xFF7FBBB3),
-                Color(0xFFD699B6),
-                Color(0xFF83C092),
-                Color(0xFFD3C6AA),
-            ),
-        )
-
-    val oneDark =
-        TerminalTheme(
-            name = "One Dark",
-            background = Color(0xFF282C34),
-            foreground = Color(0xFFABB2BF),
-            cursor = Color(0xFFABB2BF),
-            selectionBackground = Color(0xFF3E4451),
-            ansi =
-            listOf(
-                Color(0xFF1E2127),
-                Color(0xFFE06C75),
-                Color(0xFF98C379),
-                Color(0xFFD19A66),
-                Color(0xFF61AFEF),
-                Color(0xFFC678DD),
-                Color(0xFF56B6C2),
-                Color(0xFFABB2BF),
-                Color(0xFF5C6370),
-                Color(0xFFE06C75),
-                Color(0xFF98C379),
-                Color(0xFFD19A66),
-                Color(0xFF61AFEF),
-                Color(0xFFC678DD),
-                Color(0xFF56B6C2),
-                Color(0xFFFFFFFF),
-            ),
-        )
-
-    val oneLight =
-        TerminalTheme(
-            name = "One Light",
-            background = Color(0xFFF8F8F8),
-            foreground = Color(0xFF2A2B33),
-            cursor = Color(0xFF2A2B33),
-            selectionBackground = Color(0xFFE0E0E0),
-            ansi =
-            listOf(
-                Color(0xFF000000),
-                Color(0xFFDE3D35),
-                Color(0xFF3E953A),
-                Color(0xFFD2B67B),
-                Color(0xFF2F5AF3),
-                Color(0xFFA00095),
-                Color(0xFF3E953A),
-                Color(0xFFBBBBBB),
-                Color(0xFF000000),
-                Color(0xFFDE3D35),
-                Color(0xFF3E953A),
-                Color(0xFFD2B67B),
-                Color(0xFF2F5AF3),
-                Color(0xFFA00095),
-                Color(0xFF3E953A),
-                Color(0xFFFFFFFF),
-            ),
-        )
-
     val monokai =
         TerminalTheme(
             name = "Monokai",
@@ -360,140 +220,108 @@ object BuiltInThemes {
             ),
         )
 
-    val ayuDark =
+    // 取自 alacritty-theme 的 tomorrow.toml；源主题无 selection 段，按前景/背景 3:7 混合取选区底色。
+    val tomorrow =
         TerminalTheme(
-            name = "Ayu Dark",
-            background = Color(0xFF0A0E14),
-            foreground = Color(0xFFB3B1AD),
-            cursor = Color(0xFFB3B1AD),
-            selectionBackground = Color(0xFF1A1F29),
+            name = "Tomorrow",
+            background = Color(0xFFFFFFFF),
+            foreground = Color(0xFF4D4D4C),
+            cursor = Color(0xFFD6D6D6),
+            selectionBackground = Color(0xFFCACAC9),
             ansi =
             listOf(
-                Color(0xFF01060E),
-                Color(0xFFEA6C73),
-                Color(0xFF91B362),
-                Color(0xFFF9AF4F),
-                Color(0xFF53BDFA),
-                Color(0xFFFAE994),
-                Color(0xFF90E1C6),
-                Color(0xFFC7C7C7),
-                Color(0xFF686868),
-                Color(0xFFF07178),
-                Color(0xFFC2D94C),
-                Color(0xFFFFB454),
-                Color(0xFF59C2FF),
-                Color(0xFFFFEE99),
-                Color(0xFF95E6CB),
-                Color(0xFFFFFFFF),
+                Color(0xFF1D1F21),
+                Color(0xFFC82829),
+                Color(0xFF718C00),
+                Color(0xFFF5871F),
+                Color(0xFF4271AE),
+                Color(0xFF8959A8),
+                Color(0xFF3E999F),
+                Color(0xFFD6D6D6),
+                Color(0xFF8E908C),
+                Color(0xFFFF3334),
+                Color(0xFF89AA00),
+                Color(0xFFEAB700),
+                Color(0xFF5795E6),
+                Color(0xFFB777E0),
+                Color(0xFF66BDC3),
+                Color(0xFFEFEFEF),
             ),
         )
 
-    val ayuLight =
+    // 取自 alacritty-theme 的 tomorrow_night.toml；源主题无 selection 段，按前景/背景 3:7 混合取选区底色。
+    val tomorrowNight =
         TerminalTheme(
-            name = "Ayu Light",
-            background = Color(0xFFFCFCFC),
-            foreground = Color(0xFF5C6166),
-            cursor = Color(0xFF5C6166),
-            selectionBackground = Color(0xFFE8E8E8),
+            name = "Tomorrow Night",
+            background = Color(0xFF1D1F21),
+            foreground = Color(0xFFC5C8C6),
+            cursor = Color(0xFFFFFFFF),
+            selectionBackground = Color(0xFF4F5252),
             ansi =
             listOf(
-                Color(0xFF010101),
-                Color(0xFFE7666A),
-                Color(0xFF80AB24),
-                Color(0xFFEBA54D),
-                Color(0xFF4196DF),
-                Color(0xFF9870C3),
-                Color(0xFF51B891),
-                Color(0xFFC1C1C1),
-                Color(0xFF343434),
-                Color(0xFFEE9295),
-                Color(0xFF9FD32F),
-                Color(0xFFF0BC7B),
-                Color(0xFF6DAEE6),
-                Color(0xFFB294D2),
-                Color(0xFF75C7A8),
-                Color(0xFFDBDBDB),
+                Color(0xFF1D1F21),
+                Color(0xFFCC6666),
+                Color(0xFFB5BD68),
+                Color(0xFFE6C547),
+                Color(0xFF81A2BE),
+                Color(0xFFB294BB),
+                Color(0xFF70C0BA),
+                Color(0xFF373B41),
+                Color(0xFF666666),
+                Color(0xFFFF3334),
+                Color(0xFF9EC400),
+                Color(0xFFF0C674),
+                Color(0xFF81A2BE),
+                Color(0xFFB77EE0),
+                Color(0xFF54CED6),
+                Color(0xFF282A2E),
             ),
         )
 
-    val kanagawaWave =
+    // 取自 alacritty-theme 的 tokyo_night_light.toml。
+    val tokyoNightLight =
         TerminalTheme(
-            name = "Kanagawa Wave",
-            background = Color(0xFF1F1F28),
-            foreground = Color(0xFFDCD7BA),
-            cursor = Color(0xFFDCD7BA),
-            selectionBackground = Color(0xFF2D2D3F),
+            name = "Tokyo Night Light",
+            background = Color(0xFFD6D8DF),
+            foreground = Color(0xFF343B58),
+            cursor = Color(0xFF707280),
+            selectionBackground = Color(0xFFACB0BF),
             ansi =
             listOf(
-                Color(0xFF090618),
-                Color(0xFFC34043),
-                Color(0xFF76946A),
-                Color(0xFFC0A36E),
-                Color(0xFF7E9CD8),
-                Color(0xFF957FB8),
-                Color(0xFF6A9589),
-                Color(0xFFC8C093),
-                Color(0xFF727169),
-                Color(0xFFE82424),
-                Color(0xFF98BB6C),
-                Color(0xFFE6C384),
-                Color(0xFF7FB4CA),
-                Color(0xFF938AA9),
-                Color(0xFF7AA89F),
-                Color(0xFFDCD7BA),
+                Color(0xFF343B58),
+                Color(0xFFC24242),
+                Color(0xFF41A6B5),
+                Color(0xFF8F5E15),
+                Color(0xFF2959AA),
+                Color(0xFF7B43BA),
+                Color(0xFF006C86),
+                Color(0xFF707280),
+                Color(0xFF343B58),
+                Color(0xFFC24242),
+                Color(0xFF41A6B5),
+                Color(0xFF8F5E15),
+                Color(0xFF2959AA),
+                Color(0xFF7B43BA),
+                Color(0xFF006C86),
+                Color(0xFF707280),
             ),
         )
-
-    val nightOwl =
-        TerminalTheme(
-            name = "Night Owl",
-            background = Color(0xFF011627),
-            foreground = Color(0xFFD6DEEB),
-            cursor = Color(0xFFD6DEEB),
-            selectionBackground = Color(0xFF0B2D4A),
-            ansi =
-            listOf(
-                Color(0xFF011627),
-                Color(0xFFEF5350),
-                Color(0xFF22DA6E),
-                Color(0xFFC5E478),
-                Color(0xFF82AAFF),
-                Color(0xFFC792EA),
-                Color(0xFF21C7A8),
-                Color(0xFFFFFFFF),
-                Color(0xFF575656),
-                Color(0xFFEF5350),
-                Color(0xFF22DA6E),
-                Color(0xFFFFEB95),
-                Color(0xFF82AAFF),
-                Color(0xFFC792EA),
-                Color(0xFF7FDBCA),
-                Color(0xFFFFFFFF),
-            ),
-        )
-
     val darkThemes: List<TerminalTheme> =
         listOf(
             draculaPlus,
             catppuccinMocha,
-            nord,
-            tokyoNight,
-            rosePine,
-            gruvboxDark,
-            everforestDark,
-            oneDark,
             monokai,
-            ayuDark,
-            kanagawaWave,
-            nightOwl,
+            gruvboxDark,
+            tokyoNight,
+            tomorrowNight,
         )
 
     val lightThemes: List<TerminalTheme> =
         listOf(
             catppuccinLatte,
             gruvboxLight,
-            oneLight,
-            ayuLight,
+            tomorrow,
+            tokyoNightLight,
         )
 
     val all: List<TerminalTheme> = darkThemes + lightThemes

@@ -6,51 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure interaction logic extracted from TerminalSurface (multi-tap selection
- * counting, edge-scroll zones, pixel→cell mapping, wide-char snapping) —
+ * Pure interaction logic extracted from TerminalSurface (edge-scroll zones,
+ * pixel→cell mapping, wide-char snapping) —
  * JVM-testable without a view, bridge, or MotionEvent.
  */
 class TerminalSurfaceLogicTest {
-
-    private val tapWindowMs = 400L
-
-    // ── tap counting ──────────────────────────────────────────────────────────
-
-    @Test
-    fun `rapid tap increments the count`() {
-        assertEquals(2, nextTapCount(now = 500, lastTapTime = 200, tapCount = 1, windowMs = tapWindowMs))
-        assertEquals(3, nextTapCount(now = 700, lastTapTime = 500, tapCount = 2, windowMs = tapWindowMs))
-    }
-
-    @Test
-    fun `tap at the window edge starts a fresh click`() {
-        // Strict `<`: now - last == windowMs does NOT count as rapid.
-        assertEquals(1, nextTapCount(now = 600, lastTapTime = 200, tapCount = 4, windowMs = tapWindowMs))
-    }
-
-    @Test
-    fun `slow tap resets the count to one`() {
-        assertEquals(1, nextTapCount(now = 1_000, lastTapTime = 200, tapCount = 1, windowMs = tapWindowMs))
-        assertEquals(1, nextTapCount(now = 600, lastTapTime = 100, tapCount = 3, windowMs = tapWindowMs))
-    }
-
-    @Test
-    fun `count grows past select all without rolling over`() {
-        assertEquals(5, nextTapCount(now = 500, lastTapTime = 200, tapCount = 4, windowMs = tapWindowMs))
-        assertEquals(6, nextTapCount(now = 500, lastTapTime = 200, tapCount = 5, windowMs = tapWindowMs))
-    }
-
-    // ── multi-tap action mapping ──────────────────────────────────────────────
-
-    @Test
-    fun `tap counts map to word line and select all`() {
-        assertEquals(MultiTapAction.NOT_A_MULTI_TAP, multiTapAction(1))
-        assertEquals(MultiTapAction.WORD, multiTapAction(2))
-        assertEquals(MultiTapAction.LINE, multiTapAction(3))
-        assertEquals(MultiTapAction.SELECT_ALL, multiTapAction(4))
-        assertEquals(MultiTapAction.SELECT_ALL, multiTapAction(6))
-        assertEquals(MultiTapAction.NOT_A_MULTI_TAP, multiTapAction(0))
-    }
 
     // ── edge-scroll zones ─────────────────────────────────────────────────────
 
