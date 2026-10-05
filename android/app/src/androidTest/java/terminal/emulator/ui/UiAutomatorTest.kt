@@ -99,7 +99,10 @@ class UiAutomatorTest {
         requireNotNull(searchField) { "Search text field should appear" }.click()
         device.waitForIdle(1000)
 
-        val keyE = device.findObject(By.text("e")) ?: device.findObject(By.desc("e"))
+        // 系统键盘经 IME 异步弹出，单次直查会把「还没来得及」判成「按键缺席」，与计数节点同口径轮询。
+        val keyE =
+            device.wait(Until.findObject(By.text("e")), 15000)
+                ?: device.wait(Until.findObject(By.desc("e")), 5000)
         requireNotNull(keyE) { "System keyboard key 'e' should be visible" }.click()
         device.waitForIdle(1000)
 
