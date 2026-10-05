@@ -173,7 +173,7 @@ class PasteButtonInstrumentedTest {
                     }
                 clipRead == marker
             }
-        assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipReady != null)
+        assertNotNull("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipReady)
 
         val pasteText = composeTestRule.activity.getString(R.string.paste)
         // 菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，单次直查会把
