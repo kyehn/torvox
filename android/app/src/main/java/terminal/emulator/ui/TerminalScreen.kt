@@ -872,7 +872,7 @@ fun TerminalScreen(
                             modifier = Modifier.testTag("ModifierBar"),
                             onKeyClick = { data ->
                                 val sessionId = viewModel.runtime.inputTargetSessionId
-                                viewModel.writeToPty(sessionId, data.toByteArray())
+                                viewModel.writeToPty(sessionId, data.toByteArray(Charsets.UTF_8))
                             },
                             onKeyBytesClick = { bytes ->
                                 viewModel.writeToPty(viewModel.runtime.inputTargetSessionId, bytes)
