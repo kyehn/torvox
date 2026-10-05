@@ -958,11 +958,7 @@ constructor(
                 if (active != 0L) {
                     val displayIndex = sortedIds.indexOf(active) + 1
                     val title =
-                        if (runtimeState.title.isNotEmpty()) {
-                            runtimeState.title
-                        } else {
-                            context.getString(R.string.session_number, displayIndex)
-                        }
+                        runtimeState.title.ifEmpty { context.getString(R.string.session_number, displayIndex) }
                     // 用 _state.update（CAS）而非读-改-写：
                     // IO 调度器上的 createSession/switchSession 也会更新 _state，
                     // 此处非原子的写入会覆盖它们刚提交的会话列表。
