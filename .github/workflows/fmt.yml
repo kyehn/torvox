@@ -59,4 +59,3 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/git
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
-  
