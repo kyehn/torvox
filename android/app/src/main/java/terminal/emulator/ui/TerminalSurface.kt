@@ -122,12 +122,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
         hideSelectionMenu()
-        if (!isAttachedToWindow) return
-        val selection = viewModel?.state?.value?.selection ?: return
-        if (selection.start == null || selection.end == null) return
+        if (!isAttachedToWindow) {
+            LogUtil.w(TAG, "菜单跳过：未附着")
+            return
+        }
+        val selection = viewModel?.state?.value?.selection
+        if (selection == null) {
+            LogUtil.w(TAG, "菜单跳过：视图模型为空")
+            return
+        }
+        if (selection.start == null || selection.end == null) {
+            LogUtil.w(TAG, "菜单跳过：选区无界")
+            return
+        }
         val pasteEnabled = clipboardAccess.hasClipboardText()
         val actions = menuActionsForSelection(pasteOnly, pasteEnabled)
-        if (actions.isEmpty()) return
+        if (actions.isEmpty()) {
+            LogUtil.d(TAG, "菜单跳过：无动作")
+            return
+        }
         val bar = buildMenuBar(actions)
         val popup =
             PopupWindow(
@@ -144,7 +157,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
                     )
                 }
-        val anchor = menuAnchor(selection) ?: return
+        val anchor = menuAnchor(selection)
+        if (anchor == null) {
+            LogUtil.d(TAG, "菜单跳过：无处安放")
+            return
+        }
         val loc = IntArray(2)
         getLocationInWindow(loc)
         try {
