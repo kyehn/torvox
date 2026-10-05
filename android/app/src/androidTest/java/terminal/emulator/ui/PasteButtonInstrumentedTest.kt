@@ -160,18 +160,21 @@ class PasteButtonInstrumentedTest {
         assertNotNull("长按空白后选择必须激活为纯粘贴", selectionReady)
 
         // 与应用 ClipboardAccess.clipboardText() 同逻辑预读：切分“剪贴板”与“粘贴写入”。
+        // 剪贴板经 binder 异步落地，单次直读会把「还没来得及」判成「未写入」，与选择/弹窗同口径轮询。
         var clipRead: String? = "<unread>"
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            val clipboard =
-                activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipRead =
-                if (!clipboard.hasPrimaryClip()) {
-                    "<no-primary-clip>"
-                } else {
-                    clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-                }
-        }
-        assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipRead == marker)
+        val clipReady =
+            UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 200) {
+                val clipboard =
+                    composeTestRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipRead =
+                    if (!clipboard.hasPrimaryClip()) {
+                        "<no-primary-clip>"
+                    } else {
+                        clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                    }
+                clipRead == marker
+            }
+        assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipReady != null)
 
         val pasteText = composeTestRule.activity.getString(R.string.paste)
         // 菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，单次直查会把
