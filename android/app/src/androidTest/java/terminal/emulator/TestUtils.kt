@@ -2,6 +2,7 @@ package terminal.emulator
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -115,19 +116,31 @@ fun grantNotificationPermission() {
     )
 }
 
+/**
+ * 在主线程同步执行 [block]，已身处主线程时直接执行。
+ *
+ * `Instrumentation.runOnMainSync` 禁止在主线程上调用（抛
+ * "This method can not be called from the main application thread"），
+ * 而用例体、`@After` 与 `runOnUiThread` 回调都可能已在主线程上——这些调用点
+ * 必须直接跑，否则 `@After` 会在清场前抛出，把共享会话的污染整轮留给后继用例。
+ * 其异常保持外抛：它只在 activity 缺失这类真实故障上出现，吞掉会把故障
+ * 伪装成「桥为 null」或孵化超时。
+ */
+fun runOnMainThread(block: () -> Unit) {
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+        block()
+    } else {
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
+    }
+}
+
 fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
     var bridge: Bridge? = null
     // v2 createAndroidComposeRule 没有 activityRule 字段（v1 API）：
-    // 用 activity 直接进主线程读桥。必须用 runOnMainSync 同步等待：
-    // runOnUiThread 仅在本线程即主线程时同步执行，测试线程调用时只投递
-    // 就立即返回，读到的恒为 null；桥为 null（会话孵化中）则由调用方重试。
-    try {
-        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            bridge = (activity as MainActivity).runtime.bridge()
-        }
-    } catch (_: Exception) {
-        bridge = null
-    }
+    // 用 activity 直接进主线程读桥。必须同步等待：runOnUiThread 仅在本线程
+    // 即主线程时同步执行，测试线程调用时只投递就立即返回，读到的恒为 null；
+    // 桥为 null（会话孵化中）则由调用方重试。
+    runOnMainThread { bridge = (activity as MainActivity).runtime.bridge() }
     return bridge
 }
 
@@ -165,25 +178,21 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
 /** 当前活跃会话 id（主线程同步读）：会话增删断言的共享读口。 */
 fun AndroidComposeTestRule<*, *>.activeSessionId(): Long {
     var id = -1L
-    InstrumentationRegistry.getInstrumentation().runOnMainSync {
-        id = (activity as MainActivity).terminalViewModel.state.value.activeSessionId
-    }
+    runOnMainThread { id = (activity as MainActivity).terminalViewModel.state.value.activeSessionId }
     return id
 }
 
 /** 会话总数（主线程同步读）：与 [activeSessionId] 同口径。 */
 fun AndroidComposeTestRule<*, *>.sessionCount(): Int {
     var count = -1
-    InstrumentationRegistry.getInstrumentation().runOnMainSync {
-        count = (activity as MainActivity).terminalViewModel.state.value.sessions.size
-    }
+    runOnMainThread { count = (activity as MainActivity).terminalViewModel.state.value.sessions.size }
     return count
 }
 
 /** 会话在抽屉列表中的位置（0 起）：按 id 定位，避免硬编码“会话 N”文本。 */
 fun AndroidComposeTestRule<*, *>.sessionIndex(id: Long): Int {
     var index = -1
-    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+    runOnMainThread {
         index = (activity as MainActivity).terminalViewModel.state.value.sessions.indexOfFirst { it.id == id }
     }
     return index
@@ -361,18 +370,12 @@ fun AndroidComposeTestRule<*, *>.waitForSettingsScreen(timeoutMs: Long = 60_000)
     // 30s still timed out in  (8 failures). Use 60s and poll both Compose tag and
     // UiDevice resource/text so we succeed even when Compose idle is delayed or semantics are merged.
     waitUntil(timeoutMillis = timeoutMs) {
-        try {
-            onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
-            true
-        } catch (_: AssertionError) {
+        probeAssertion { onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed() } ||
             device.hasObject(By.res("SettingsScreen")) ||
-                device.hasObject(By.text("Font Family")) ||
-                device.hasObject(By.text("Appearance")) ||
-                device.hasObject(By.text("Font Size")) ||
-                device.hasObject(By.text("Cursor style"))
-        } catch (_: Exception) {
-            device.hasObject(By.res("SettingsScreen")) || device.hasObject(By.text("Font Family"))
-        }
+            device.hasObject(By.text("Font Family")) ||
+            device.hasObject(By.text("Appearance")) ||
+            device.hasObject(By.text("Font Size")) ||
+            device.hasObject(By.text("Cursor style"))
     }
 }
 
@@ -529,9 +532,7 @@ fun AndroidComposeTestRule<*, *>.cleanUpTerminalState() {
     closeSettingsOverlay()
     // 选区与其浮动菜单同为跨用例存活的状态：不清掉，下一个用例的「全选后必须
     // 出现复制」会对着上一个用例留下的菜单判空——判红原因与全选无关。
-    InstrumentationRegistry.getInstrumentation().runOnMainSync {
-        (activity as MainActivity).terminalViewModel.clearSelection()
-    }
+    runOnMainThread { (activity as MainActivity).terminalViewModel.clearSelection() }
     val bridge = getBridge() ?: return
     bridge.setScrollOffset(0)
     if (!bridge.feedTerminal("\u001B[2J\u001B[3J\u001B[H".toByteArray(Charsets.UTF_8))) {
