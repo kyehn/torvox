@@ -689,7 +689,7 @@ constructor(
                 LogUtil.d("TerminalViewModel", "粘贴跳过：切分后无块")
             }
             for (chunk in chunks) {
-                pasteSink(sessionId, chunk.toByteArray())
+                pasteSink(sessionId, chunk.toByteArray(Charsets.UTF_8))
                 offset += chunk.length
             }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
