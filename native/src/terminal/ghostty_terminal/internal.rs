@@ -70,6 +70,25 @@ fn scrollback_len(terminal: &Terminal) -> u32 {
     terminal.scrollback_rows().unwrap_or(0) as u32
 }
 
+/// 单格码点直读：调用方保证列在界内，不逐格查网格宽度。
+fn cell_codepoint(terminal: &Terminal, row: u32, col: u32) -> u32 {
+    terminal
+        .grid_ref(Point::Screen(PointCoordinate {
+            x: col as u16,
+            y: row,
+        }))
+        .ok()
+        .and_then(|point| point.cell().ok())
+        .and_then(|cell| cell.codepoint().ok())
+        .unwrap_or(0)
+}
+
+/// 内容变脏：网格与全量文本缓存同源失效，调用方再按需置批量脏。
+fn mark_grid_dirty(grid_dirty: &mut bool, cached_all_text: &mut Option<String>) {
+    *grid_dirty = true;
+    *cached_all_text = None;
+}
+
 /// Helper to create the three per-frame render iterators.
 /// Returns `None` and logs on any creation failure.
 fn create_render_iterators() -> Option<(
@@ -121,6 +140,7 @@ impl super::GhosttyTerminal {
         query: Query,
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
+        all_text: &mut Option<String>,
         encoder: &mut Option<key::Encoder>,
         event: &mut Option<key::Event>,
         mouse_encoder: &mut Option<mouse::Encoder>,
@@ -129,28 +149,32 @@ impl super::GhosttyTerminal {
         let mut selection_installed = false;
         match query {
             Query::Rows(tx) => {
-                if let Err(error) = tx.send(grid_rows(terminal)) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    grid_rows(terminal),
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::Cols(tx) => {
-                if let Err(error) = tx.send(grid_cols(terminal)) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    grid_cols(terminal),
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::CursorX(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.cursor_x().unwrap_or(DISCONNECTED_CURSOR_X as u16) as u32)
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    terminal.cursor_x().unwrap_or(DISCONNECTED_CURSOR_X as u16) as u32,
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::CursorY(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.cursor_y().unwrap_or(DISCONNECTED_CURSOR_Y as u16) as u32)
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    terminal.cursor_y().unwrap_or(DISCONNECTED_CURSOR_Y as u16) as u32,
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::CursorVisible(tx) => {
                 // 上游取不到光标状态时按「不可见」处理，与查询通道断开时的回退一致：
@@ -175,11 +199,11 @@ impl super::GhosttyTerminal {
                     0 => ModeKind::Dec,
                     _ => ModeKind::Ansi,
                 };
-                if let Err(error) =
-                    tx.send(terminal.mode(Mode::new(num, mode_kind)).unwrap_or(false))
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    terminal.mode(Mode::new(num, mode_kind)).unwrap_or(false),
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::ScrollbackLength(tx) => {
                 let len = scrollback_len(terminal);
@@ -215,6 +239,25 @@ impl super::GhosttyTerminal {
                     }
                 }
                 try_send(&tx, text, "ghostty_terminal: query channel send failed");
+            }
+            // 行域与 DumpGrid 相同（回滚顶部起连到视口末行），每格只读 codepoint。
+            // 网格未变时复用上次产出：回滚填满时逐格 FFI 单趟即可越过
+            // QUERY_TIMEOUT_MS，轮询方会读超时后的空值（表现为「内容不见了」）。
+            Query::ReadAllText(tx) => {
+                if all_text.is_none() {
+                    let total_rows = scrollback_len(terminal) + grid_rows(terminal);
+                    let mut text = String::new();
+                    for row in 0..total_rows {
+                        text.push_str(&Self::read_all_text_row_impl(terminal, row));
+                        text.push('\n');
+                    }
+                    *all_text = Some(text);
+                }
+                try_send(
+                    &tx,
+                    all_text.clone().unwrap_or_default(),
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::SelectionText { start, end, tx } => {
                 // Ghostty-native wrap-aware selection extraction (termux
@@ -303,7 +346,7 @@ impl super::GhosttyTerminal {
                         log::warn!(
                             "ghostty_terminal: key encoder/event unavailable — dropping key"
                         );
-                        let _ = tx.send(Vec::new());
+                        try_send(&tx, Vec::new(), "key_encode response send failed");
                         return false;
                     }
                 };
@@ -395,7 +438,7 @@ impl super::GhosttyTerminal {
                         log::warn!(
                             "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
                         );
-                        let _ = tx.send(Vec::new());
+                        try_send(&tx, Vec::new(), "mouse_encode response send failed");
                         return false;
                     }
                 };
@@ -444,10 +487,12 @@ impl super::GhosttyTerminal {
 
     /// 排空查询通道，使查询看到最新终端状态。返回真表示本批中有查询安装了选区，
     /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
+    /// [all_text] 跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
     pub(crate) fn drain_queries(
         query_receiver: &flume::Receiver<Query>,
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
+        all_text: &mut Option<String>,
         encoder: &mut Option<key::Encoder>,
         event: &mut Option<key::Event>,
         mouse_encoder: &mut Option<mouse::Encoder>,
@@ -461,6 +506,7 @@ impl super::GhosttyTerminal {
                 query,
                 terminal,
                 alt_screen_active,
+                all_text,
                 encoder,
                 event,
                 mouse_encoder,
@@ -690,6 +736,10 @@ impl super::GhosttyTerminal {
         // set together on Write/Resize/SetTheme, but cleared
         // grid_dirty after TakeSnapshot.
         let mut grid_dirty = true;
+        // 全量文本（`Query::ReadAllText`）缓存。网格一变即失效，与 `grid_dirty` 同源：
+        // 逐格走 ghostty FFI 的重建在回滚填满时单趟就会越过 QUERY_TIMEOUT_MS，
+        // 未缓存时每次轮询都重建，查询方反复读到超时后的空值。
+        let mut cached_all_text: Option<String> = None;
         // Content dedup for the auto-push path: `push_cell_data` builds the
         // full grid on every loop iteration (including the 50ms idle
         // timeout), and the render thread treats every received batch as
@@ -720,6 +770,7 @@ impl super::GhosttyTerminal {
                         &query_receiver,
                         &mut terminal,
                         &config.alt_screen_active,
+                        &mut cached_all_text,
                         &mut encoder,
                         &mut event,
                         &mut mouse_encoder,
@@ -765,7 +816,7 @@ impl super::GhosttyTerminal {
                 match command {
                     Command::Write(data) => {
                         terminal.vt_write(&data);
-                        grid_dirty = true;
+                        mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
                     }
                     Command::FlushAck(tx) => {
@@ -799,7 +850,7 @@ impl super::GhosttyTerminal {
                         // the default colors that upstream cell color queries
                         // resolve against.
                         Self::apply_theme(&mut terminal, background, foreground, &ansi);
-                        grid_dirty = true;
+                        mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
                     }
                     Command::Resize { rows, cols } => {
@@ -828,7 +879,7 @@ impl super::GhosttyTerminal {
                                 .1
                                 .store(DEFAULT_CELL_HEIGHT, Ordering::Release);
                         }
-                        grid_dirty = true;
+                        mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
                     }
                     Command::SetCellPixelSize {
@@ -869,7 +920,7 @@ impl super::GhosttyTerminal {
                         let _ = terminal.set_selection(None);
                         cached_snapshot = None;
                         last_cell_data_push = None;
-                        grid_dirty = true;
+                        mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
                     }
                     Command::SetSelection { start, end } => {
@@ -928,6 +979,7 @@ impl super::GhosttyTerminal {
                 &query_receiver,
                 &mut terminal,
                 &config.alt_screen_active,
+                &mut cached_all_text,
                 &mut encoder,
                 &mut event,
                 &mut mouse_encoder,
@@ -1925,22 +1977,33 @@ impl super::GhosttyTerminal {
             sync_active,
         }
     }
+
+    /// 纯文本单行：跳过 codepoint 0（宽字符尾格与空格），行尾去空白。
+    ///
+    /// 与 [`Self::read_line_text_impl`] 的区别是空单元不占位。搜索按字符下标当列号用
+    /// （见 [`Self::read_line_text_impl`] 的说明），故那里必须空格占位；而全量文本
+    /// 面向「这一行写了什么」，语义与 [`Self::build_dumped_grid`] 的消费侧一致。
+    pub(crate) fn read_all_text_row_impl(terminal: &Terminal, row: u32) -> String {
+        let cols = grid_cols(terminal);
+        let mut text = String::new();
+        for col in 0..cols {
+            let codepoint = cell_codepoint(terminal, row, col);
+            if let Some(character) = char::from_u32(codepoint).filter(|&c| c != '\0') {
+                text.push(character);
+            }
+        }
+        text.trim_end().to_string()
+    }
+
     pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
         let cols = grid_cols(terminal);
         let mut text = String::new();
         for col in 0..cols {
-            // 行列 → Point 的空间解析统一走 absolute_point（列恒在界内，钳制恒等）。
-            //
             // 每个网格列必须**恰好**产出一个字符：`search_in_scrollback_all_impl` 把段内
             // 字符下标直接当作列号（`SearchMatch.start_col` 与 `CellData.col` 对齐）。
             // 读不到单元时若少产一个字符，其后所有列号都会左移一格，且偏移会经
             // 软换行段累加继续放大。故一律以空格占位，与 codepoint 为 0 的空单元同形。
-            let codepoint = terminal
-                .grid_ref(Self::absolute_point(terminal, row, col))
-                .ok()
-                .and_then(|point| point.cell().ok())
-                .and_then(|cell| cell.codepoint().ok())
-                .unwrap_or(0);
+            let codepoint = cell_codepoint(terminal, row, col);
             match char::from_u32(codepoint) {
                 Some(character) if codepoint != 0 => text.push(character),
                 _ => text.push(' '),
@@ -2035,6 +2098,14 @@ impl super::GhosttyTerminal {
         })
     }
 
+    /// 绝对网格坐标 → gref：三处选择派生与超链接查询的公共读口，
+    /// 越界/无效坐标一律 None（调用方据此返回"无该格"）。
+    fn grid_ref_at<'a>(terminal: &'a Terminal, row: u32, col: u32) -> Option<GridRef<'a>> {
+        terminal
+            .grid_ref(Self::absolute_point(terminal, row, col))
+            .ok()
+    }
+
     /// gref → 绝对网格坐标：absolute_point 的逆，单次 Screen 空间回读
     /// （`.screen` 原点与 `absolute_point` 同一），无法表达该格时返回 None。
     fn absolute_coordinate(terminal: &Terminal, grid_ref: &GridRef) -> Option<(u32, u32)> {
@@ -2068,9 +2139,7 @@ impl super::GhosttyTerminal {
         row: u32,
         col: u32,
     ) -> Option<((u32, u32), (u32, u32))> {
-        let grid_ref = terminal
-            .grid_ref(Self::absolute_point(terminal, row, col))
-            .ok()?;
+        let grid_ref = Self::grid_ref_at(terminal, row, col)?;
         let selection = terminal
             .select_word(SelectWordOptions::new(grid_ref))
             .ok()??;
@@ -2084,9 +2153,7 @@ impl super::GhosttyTerminal {
         row: u32,
         col: u32,
     ) -> Option<((u32, u32), (u32, u32))> {
-        let grid_ref = terminal
-            .grid_ref(Self::absolute_point(terminal, row, col))
-            .ok()?;
+        let grid_ref = Self::grid_ref_at(terminal, row, col)?;
         let selection = terminal
             .select_line(SelectLineOptions::new(grid_ref))
             .ok()??;
@@ -2125,9 +2192,7 @@ impl super::GhosttyTerminal {
         if col >= cols || row >= total_rows {
             return None;
         }
-        // 绝对行 → Point 的空间解析统一走 absolute_point（列已验界，钳制恒等）。
-        let point = Self::absolute_point(terminal, row, col);
-        let grid_ref = terminal.grid_ref(point).ok()?;
+        let grid_ref = Self::grid_ref_at(terminal, row, col)?;
         let cell = grid_ref.cell().ok()?;
         if !cell.has_hyperlink().unwrap_or(false) {
             return None;
