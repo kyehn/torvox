@@ -1,5 +1,4 @@
 schema: spec-driven
-
 context: |
   Language: zh
   All artifacts must be written in zh.
