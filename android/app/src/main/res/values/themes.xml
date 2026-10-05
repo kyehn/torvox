@@ -5,10 +5,12 @@
          选择菜单等按主题取色，禁止字面颜色值。 -->
     <attr name="colorSurface" format="color" />
     <attr name="colorOnSurface" format="color" />
-        <style name="Theme.Terminal" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <style name="Theme.Terminal" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <!-- 启动期窗口底色：onCreate 随即换成 TRANSPARENT（边到边），此处只为
+             冷启动首帧不白闪。不跟日/夜：主题设置在 DataStore 里异步才可读，
+             资源限定符拿不到它。系统栏底色不声明：API 29+ 边到边下不生效，
+             真正可见的是图标明暗，由 MainActivity 按终端主题亮度运行时设置。 -->
         <item name="android:windowBackground">#1E1E2E</item>
-        <item name="android:statusBarColor">#1E1E2E</item>
-        <item name="android:navigationBarColor">#1E1E2E</item>
         <!-- Pin the ActionMode toolbar (selection context menu)
              to the terminal panel color instead of the system dynamic
              accent. User requirement: the menu must look like a system
