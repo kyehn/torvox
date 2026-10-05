@@ -113,18 +113,18 @@ impl FontPipeline {
     /// 选定主字体。
     ///
     /// 设备上 `fonts.xml` 是唯一来源（DESIGN 字体节：不得使用任何硬编码字体名）：
-    /// 缺失或无法解析由 [`font_db::resolve_system_monospace_from_fonts_xml`] 直接
-    /// `abort`；声明的等宽字体未加载或未匹配时按 [`font_db::select_primary_face`]
-    /// 的降级梯次选择，仅当库内没有任何可用面（等同 fonts.xml 不可用）才 `abort`。
+    /// 缺失或无法解析由 [`font_db::resolve_system_monospace`] 崩溃退出；声明的等宽
+    /// 字体未加载或未匹配时按 [`font_db::select_primary_face`] 的降级梯次选择，
+    /// 仅当库内没有任何可用面才崩溃退出——该情形是字体文件装入失败，不是
+    /// `fonts.xml` 的问题，故原因文案不得归因 `fonts.xml`。
     fn find_monospace_font(&mut self) {
         #[cfg(target_os = "android")]
         {
-            let target_filename = font_db::resolve_system_monospace_from_fonts_xml();
-            match font_db::select_primary_face(self.font_system.db(), &target_filename) {
+            let target_filename = font_db::resolve_system_monospace();
+            match font_db::select_primary_face(self.font_system.db(), target_filename) {
                 Some(face_id) => self.font_id = Some(face_id),
                 None => {
-                    log::error!("FONT_SELECT: fonts.xml 未提供任何可用字体面");
-                    std::process::abort();
+                    font_db::fatal("fonts.xml 声明的字体文件无一能装入字体库（缺失、损坏或不可读）")
                 }
             }
         }
