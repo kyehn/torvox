@@ -54,7 +54,9 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
         return try {
             // hasPrimaryClip()：无替代方案的弃用 API（API 36）。
             clipboard.hasPrimaryClip()
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            // 只记异常类名：异常消息可能嵌入剪贴板文本。
+            LogUtil.w(tag, "剪贴板存在性查询失败: ${failure.javaClass.simpleName}")
             false
         }
     }
