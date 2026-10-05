@@ -70,6 +70,9 @@ pub enum Query {
     /// 可断言与 GPU 绘制一致的坐标。光标隐藏或构建失败时为 None。
     RenderCursor(Sender<Option<(u32, u32)>>),
     ReadVisibleText(Sender<String>),
+    /// 视口 + 回滚区以换行拼接的全量文本。仅读 codepoint，不构建前景/背景/下划线
+    /// 等样式，故与 [`Query::DumpGrid`] 相比每格少三次跨语言调用。
+    ReadAllText(Sender<String>),
     /// 用 Ghostty 原生格式化器提取选中文本：软换行行被合并（不加 '\n'）并去尾随空白。
     /// 列端点是网格列，格式化器内部自行映射到字符下标（宽字符安全）。
     SelectionText {

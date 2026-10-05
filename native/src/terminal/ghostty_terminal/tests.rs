@@ -312,6 +312,119 @@ fn dump_grid_scrollback_populated_after_scroll() {
     assert_invariants(&_snap);
 }
 
+/// `read_all_text` 取代 `getTerminalText` 的 `dump_grid` 路径：文本必须逐行等价。
+///
+/// `dump_grid` 丢弃 codepoint 0（宽字符尾格不计字符）而 `read_line_text_impl` 以空格
+/// 占位，两者在行尾 `trim_end` 后同形；行内宽字符尾格处 `dump_grid` 少一个字符，
+/// 故此处的等价性以「行尾去空白后的行文本」为准。
+#[test]
+fn read_all_text_matches_dump_grid_lines() {
+    let mut terminal_under_test = GhosttyTerminal::new(6, 20, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("行{line_number}tail\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    let dumped = terminal_under_test.dump_grid();
+    let from_grid: Vec<String> = dumped
+        .scrollback
+        .iter()
+        .map(|row| {
+            row.iter()
+                .filter_map(|cell| char::from_u32(cell.codepoint).filter(|&c| c != '\0'))
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .chain((0..dumped.rows as usize).map(|row| {
+            let start = row * dumped.cols as usize;
+            let end = (start + dumped.cols as usize).min(dumped.visible.len());
+            dumped.visible[start..end]
+                .iter()
+                .filter_map(|cell| char::from_u32(cell.codepoint).filter(|&c| c != '\0'))
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        }))
+        .collect();
+    let from_text: Vec<String> = terminal_under_test
+        .read_all_text()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(
+        from_text.len(),
+        from_grid.len(),
+        "行数必须一致（read_all_text={} dump_grid={}）",
+        from_text.len(),
+        from_grid.len()
+    );
+    assert_eq!(from_text, from_grid, "逐行文本必须一致");
+    assert!(
+        from_text.iter().any(|line| line.contains("行0tail")),
+        "回滚内容必须可读：{from_text:?}"
+    );
+}
+
+/// 回归护栏：回滚填满时单次 `read_all_text` 必须留在查询超时之内。
+///
+/// `read_all_text` 逐格走 ghostty FFI；回滚填到上限（2000 行 × 80 列）时一次重建
+/// 曾逼近 `QUERY_TIMEOUT_MS`，调用方读到的却是超时后的空值——外部表现为「标记不落格」。
+/// 网格不变时 VT 线程直接复用缓存，故重复查询必须是微秒级。
+#[test]
+fn read_all_text_answers_repeated_queries_within_query_timeout() {
+    use super::types::QUERY_TIMEOUT_MS;
+    const COLUMNS: u32 = 80;
+    const ROWS: u32 = 24;
+    const MAX_SCROLLBACK: u32 = 500;
+    let mut terminal_under_test =
+        GhosttyTerminal::new(ROWS, COLUMNS, MAX_SCROLLBACK).expect("terminal");
+    for line_number in 0..MAX_SCROLLBACK + ROWS {
+        terminal_under_test.vt_write(format!("line{line_number}\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    // ghostty 会自行裁剪回滚，故只断言「已大幅填满」而非精确上限。
+    let filled = terminal_under_test.scrollback_length();
+    assert!(
+        filled > MAX_SCROLLBACK / 2,
+        "回滚必须大幅填满，护栏才覆盖最坏情况（实际={filled}）"
+    );
+
+    let first = terminal_under_test.read_all_text();
+    assert!(
+        first.contains("line0"),
+        "首次查询必须拿到内容而非超时空值（长度={}）",
+        first.len()
+    );
+
+    // 网格未变：内容必须逐轮一致（缓存复用而非陈旧重建）。
+    for round in 0..5 {
+        assert_eq!(
+            terminal_under_test.read_all_text(),
+            first,
+            "第 {round} 轮内容必须与首轮一致"
+        );
+    }
+    // 缓存命中时单轮必须留在查询期限内。VT 循环以 recv_timeout(50ms) 的粒度
+    // 轮转查询通道，故每轮延迟上限即该节拍（约 50ms）；越过 500ms 说明查询排不上
+    // VT 线程——回滚填满时的全量重建正是这条路。
+    let started = Instant::now();
+    let cached = terminal_under_test.read_all_text();
+    let elapsed = started.elapsed();
+    assert_eq!(cached, first, "缓存命中时内容必须一致");
+    assert!(
+        elapsed < std::time::Duration::from_millis(QUERY_TIMEOUT_MS),
+        "缓存命中的单轮耗时 {elapsed:?}，越过查询期限 {QUERY_TIMEOUT_MS}ms"
+    );
+
+    // 网格一变缓存必须失效，否则调用方会读到陈旧内容。
+    terminal_under_test.vt_write(b"fresh-marker\n");
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.read_all_text().contains("fresh-marker"),
+        "网格变动后缓存必须失效"
+    );
+}
+
 // ── DECSET/DECRST ──────────────────────────────────────────────────────
 
 /// EncodeMouseEvent with no tracking mode enabled must return empty (the
@@ -2018,6 +2131,22 @@ fn select_all_via_range_covers_scrollback() {
         "must include scrolled-off first line"
     );
     assert!(text.contains("filler7"), "must include the latest line");
+}
+
+/// 空白格没有词：长按空白只出仅粘贴菜单，Kotlin 侧据此分菜单，故此处钉死该语义。
+/// 若上游对空白格也派生出一个"词"，Kotlin 的空白判定会整体失效（空白格弹出
+/// 带复制的完整菜单）。
+#[test]
+fn select_word_at_yields_nothing_on_blank_cell() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"ab");
+    terminal_under_test.flush();
+    let row0 = terminal_under_test.take_snapshot().scrollback_length;
+    // 第 8 列在 80 列网格上必为空白：行内既无文字也无尾格。
+    assert!(
+        terminal_under_test.select_word_at(row0, 8).is_none(),
+        "空白格不得派生出词界"
+    );
 }
 
 /// 上游词选接入（design 决策 1）：select_word_at 派生词界限、取序、反解为
