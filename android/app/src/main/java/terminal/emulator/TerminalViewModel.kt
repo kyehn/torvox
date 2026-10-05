@@ -525,11 +525,7 @@ constructor(
             }
             val start = current.start
             val end = current.end
-            val loRow = minOf(start.row, end.row)
-            val hiRow = maxOf(start.row, end.row)
-            val loCol = minOf(start.col, end.col)
-            val hiCol = maxOf(start.col, end.col)
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
+            publishNormalizedSelectionBounds(start, end)
         }
 
         fun copySelectionToClipboard() {
@@ -586,16 +582,19 @@ constructor(
         private fun syncSelectionToNative() {
             val selection = _state.value.selection
             if (selection.active && selection.start != null && selection.end != null) {
-                val start = selection.start
-                val end = selection.end
-                val loRow = minOf(start.row, end.row)
-                val hiRow = maxOf(start.row, end.row)
-                val loCol = minOf(start.col, end.col)
-                val hiCol = maxOf(start.col, end.col)
-                runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
+                publishNormalizedSelectionBounds(selection.start, selection.end)
             } else {
                 runtime.setSelection(0, 0, 0, 0, false)
             }
+        }
+
+        /** 选区边界归一化后同步到原生：起止倒置时取最小/最大行列，调用方保证非空。 */
+        private fun publishNormalizedSelectionBounds(start: SelectionAnchor, end: SelectionAnchor) {
+            val loRow = minOf(start.row, end.row)
+            val hiRow = maxOf(start.row, end.row)
+            val loCol = minOf(start.col, end.col)
+            val hiCol = maxOf(start.col, end.col)
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
         }
 
         fun shareSelection() {
