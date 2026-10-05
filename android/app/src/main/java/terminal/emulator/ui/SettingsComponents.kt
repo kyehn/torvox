@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
@@ -46,6 +47,17 @@ fun rememberIsSmallScreen(): Boolean {
     val screenWidthDp =
         with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
     return screenWidthDp < SMALL_SCREEN_WIDTH_DP
+}
+
+/** 设置行标题/数值文本样式：小屏各降一档，与两处行骨架共用。 */
+@Composable
+private fun rememberSettingsLabelValueStyles(): Pair<TextStyle, TextStyle> {
+    val isSmallScreen = rememberIsSmallScreen()
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val valueStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
+    return labelStyle to valueStyle
 }
 
 /** Color bundle threaded into settings rows; replaces 5-parameter threading. */
@@ -66,11 +78,7 @@ fun SettingsRow(
     testTag: String? = null,
     control: @Composable () -> Unit,
 ) {
-    val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    val valueStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
+    val (labelStyle, valueStyle) = rememberSettingsLabelValueStyles()
     Row(
         modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -112,11 +120,7 @@ fun SettingsSliderRow(
     enabled: Boolean = true,
     onValueChangeFinished: () -> Unit = {},
 ) {
-    val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    val valueStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
+    val (labelStyle, valueStyle) = rememberSettingsLabelValueStyles()
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
