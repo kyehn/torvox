@@ -49,15 +49,15 @@ fun rememberIsSmallScreen(): Boolean {
     return screenWidthDp < SMALL_SCREEN_WIDTH_DP
 }
 
-/** 设置行标题/数值文本样式：小屏各降一档，与两处行骨架共用。 */
+/** 设置响应式样式：小屏标记与标题/数值文本样式，三处行骨架共用。 */
 @Composable
-private fun rememberSettingsLabelValueStyles(): Pair<TextStyle, TextStyle> {
+private fun rememberSettingsResponsiveStyles(): Triple<Boolean, TextStyle, TextStyle> {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
         if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     val valueStyle =
         if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
-    return labelStyle to valueStyle
+    return Triple(isSmallScreen, labelStyle, valueStyle)
 }
 
 /** Color bundle threaded into settings rows; replaces 5-parameter threading. */
@@ -78,7 +78,7 @@ fun SettingsRow(
     testTag: String? = null,
     control: @Composable () -> Unit,
 ) {
-    val (labelStyle, valueStyle) = rememberSettingsLabelValueStyles()
+    val (_, labelStyle, valueStyle) = rememberSettingsResponsiveStyles()
     Row(
         modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -120,7 +120,7 @@ fun SettingsSliderRow(
     enabled: Boolean = true,
     onValueChangeFinished: () -> Unit = {},
 ) {
-    val (labelStyle, valueStyle) = rememberSettingsLabelValueStyles()
+    val (_, labelStyle, valueStyle) = rememberSettingsResponsiveStyles()
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -213,9 +213,7 @@ fun SettingsSelectorRow(
     optionTestTagPrefix: String? = null,
     enabled: Boolean = true,
 ) {
-    val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val (isSmallScreen, labelStyle, _) = rememberSettingsResponsiveStyles()
     Column(modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier)) {
         Text(
             text = title,
