@@ -7,9 +7,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -105,9 +105,14 @@ class SessionDrawerInstrumentedTest {
         assertNotNull("新建后会话数+1 且切到新会话", switchedToB)
         val idB = composeTestRule.activeSessionId()
 
-        // 在 B 网格直写标记（经 parser，不依赖 shell 就绪）。
+        // 在 B 网格直写标记（经 parser，不依赖 shell 就绪）。必须一次写入并带行结束：
+        // B 的 shell 仍在跑，它的提示符（以 `\r` 起头）随时可能抵达；标记不换行时
+        // 提示符回到标记所在行首把整行覆盖掉，表现为「切回后标记消失」。
         val markerB = "SESSB${System.currentTimeMillis() % 100000}"
-        assertTrue("标记送显失败", bridge().feedTerminal(markerB.toByteArray(Charsets.UTF_8)))
+        assertTrue(
+            "标记送显失败",
+            bridge().feedTerminal("$markerB\r\n".toByteArray(Charsets.UTF_8)),
+        )
         val markerSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
                 currentText()?.contains(markerB) == true

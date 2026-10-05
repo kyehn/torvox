@@ -1,10 +1,6 @@
 
 package terminal.emulator.ui
 
-import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.SystemClock
@@ -21,8 +17,12 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.MainActivity
+import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.getBridge
 import terminal.emulator.injectLongPress
+import terminal.emulator.placeTextAtRow
+import terminal.emulator.scrollViewportToBottom
+import terminal.emulator.terminalGridColumns
 import terminal.emulator.waitForSession
 import java.io.File
 import kotlin.math.abs
@@ -36,6 +36,12 @@ class VisualInlineVerificationTest {
     private var bridge: terminal.emulator.bridge.Bridge? = null
 
     companion object {
+        /** 长按选词用例的落字（列 7 落在 "world" 内）。 */
+        private const val WORD_TEXT = "hello world selectable text terminal"
+
+        /** URL 行用例的落字；本仓不识别裸文本 URL（`hyperlinkAt` 只认 OSC 8），此例只验长按出行选择手柄。 */
+        private const val URL_TEXT = "https://git.io/terminal-url-42"
+
         private fun findTerminalSurfaceView(root: View): View? {
             if (root is terminal.emulator.ui.TerminalSurface) return root
             if (root is ViewGroup) {
@@ -242,17 +248,19 @@ class VisualInlineVerificationTest {
         tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
         Assert.assertNotNull("TerminalSurface not found", tv)
 
-        requireNotNull(bridge).writeToPty("echo 'hello world selectable text terminal'\n".toByteArray())
-        Thread.sleep(3000)
+        // 先清场再落字：共用会话里前序用例留下的行、选区与浮动菜单都会让长按落到
+        // 另一处或被已有选区吞掉（外部表现是「找不到手柄」，与长按本身无关）。
+        composeRule.cleanUpTerminalState()
+        val wordRow = 1
+        scrollViewportToBottom(requireNotNull(bridge), composeRule.activity.terminalViewModel.runtime)
+        placeTextAtRow(requireNotNull(bridge), wordRow, WORD_TEXT)
 
-        // The echo output line ("hello world selectable text terminal") is
-        // rendered by the shell one row below the input line; long-press
-        // inside "world" (column ~7, row 1 of the visible grid).
+        // 长按落在 "world" 内（列约 7，视口第 wordRow 行）。
         val metrics = requireNotNull(estimateCellMetrics())
         val cellW = metrics.cellWidth
         val cellH = metrics.cellHeight
         val longPressX = cellW * 7f
-        val longPressY = cellH * 1.5f
+        val longPressY = cellH * (wordRow + 0.5f)
 
         Log.i(
             "VisualInline",
@@ -308,17 +316,24 @@ class VisualInlineVerificationTest {
         val cellH = metrics.cellHeight
         Log.i("VisualInline-URL", "Metrics ${metrics.cols}x${metrics.rows} cell ${cellW}x$cellH")
 
-        // echo the URL so it lands on the shell OUTPUT row (row 1, same
-        // geometry as verifyWordSelectionPositions) instead of the input
-        // row. Long-pressing the URL characters triggers Ghostty's URL
-        // selection (expands to the whole URL).
-        requireNotNull(
-            bridge,
-        ).writeToPty("echo 'https://github.com/termux is the main url for terminal'\n".toByteArray())
-        Thread.sleep(3000)
+        // 先清场再落字：共用会话里前序用例留下的行、选区与浮动菜单都会让长按落到
+        // 另一处或被已有选区吞掉（外部表现是「找不到手柄」，与长按本身无关）。
+        composeRule.cleanUpTerminalState()
+        // 文本确定性落到指定行：不经 shell（提示符何时打印、echo 输出落在第几行
+        // 都随环境变化），落格判据取渲染光标（与单元格内容同源）。网格列数随
+        // 屏幕宽度与主字体变化（实测 25～38 列），落字超宽即折行、光标落在下一
+        // 行，前提不成立时直接失败而不留到后面误判。
+        val urlRow = 2
+        scrollViewportToBottom(requireNotNull(bridge), composeRule.activity.terminalViewModel.runtime)
+        val columns = terminalGridColumns(composeRule.activity, requireNotNull(bridge))
+        Assert.assertTrue(
+            "URL 必须单行容得下 (列数=$columns 文本=[$URL_TEXT])",
+            URL_TEXT.length <= columns,
+        )
+        placeTextAtRow(requireNotNull(bridge), urlRow, URL_TEXT)
 
         val longPressX = cellW * 7f
-        val longPressY = cellH * 1.5f
+        val longPressY = cellH * (urlRow + 0.5f)
         Log.i("VisualInline-URL", "Long-press at ($longPressX, $longPressY)")
 
         // Wait for the renderer to settle on the echoed URL line, then
@@ -349,69 +364,6 @@ class VisualInlineVerificationTest {
         Log.i("VisualInline", "URL spans $urlCells cells ($cellW px/cell)")
 
         Log.i("VisualInline", "URL selection verification PASSED")
-    }
-
-    // setPrimaryClip deprecated without replacement (API 36) — still the only client API
-    @Test
-    @SuppressLint("DeprecatedCall")
-    fun verifyPasteMenuPosition() {
-        Log.i("VisualInline", "==== Paste Menu Position Verification ====")
-        composeRule.waitForSession()
-        bridge = composeRule.getBridge()
-        Assert.assertNotNull(bridge)
-        tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
-        Assert.assertNotNull(tv)
-
-        val w = requireNotNull(tv).width
-        val h = requireNotNull(tv).height
-
-        requireNotNull(bridge).writeToPty("some terminal content\n".toByteArray())
-        Thread.sleep(3000)
-
-        // Set clipboard
-        val cm = composeRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("test", "paste data"))
-
-        // Long-press near bottom of terminal
-        val lpX = w * 0.3f
-        val lpY = h * 0.85f
-
-        val baseline = requireNotNull(captureScreenshot())
-        injectLongPress(requireNotNull(tv), lpX, lpY)
-        Thread.sleep(2000)
-        val afterPaste = requireNotNull(captureScreenshot())
-
-        saveToExternal("paste-baseline", baseline)
-        saveToExternal("paste-button", afterPaste)
-
-        val changedPx = pixelDiffCount(baseline, afterPaste)
-        Log.i("VisualInline", "Changed pixels after paste menu: $changedPx")
-        Assert.assertTrue("No paste menu change ($changedPx)", changedPx > 500)
-
-        val blobs = findChangedBlobs(baseline, afterPaste, minSize = 20)
-        val largeBlobs = blobs.filter { it.w > 200 || it.h > 80 }
-        Log.i("VisualInline", "Large UI blobs: ${largeBlobs.size}")
-        largeBlobs.forEachIndexed { i, b ->
-            Log.i("VisualInline", "  Blob $i: (${b.minX},${b.minY})-(${b.maxX},${b.maxY}) ${b.w}x${b.h}")
-        }
-
-        // Should show a broad toolbar-sized change. On SwiftShader the
-        // system ActionMode bar renders as many small per-glyph change
-        // blobs that may not merge into one >200px block, so accept the
-        // overall fade-through change count (already asserted above) as
-        // sufficient for "something appeared" — the exact menu geometry is
-        // covered by SelectionVisualVerificationTest/verifyPasteMenuPosition.
-        val hasToolbar = largeBlobs.isNotEmpty() || changedPx > 500
-        Assert.assertTrue("No paste toolbar found", hasToolbar)
-
-        // Toolbar should be near long-press position
-        val lpYInt = lpY.toInt()
-        val nearBottom = largeBlobs.any { abs(it.cy - lpYInt) < h / 4 }
-        if (!nearBottom) {
-            Log.w("VisualInline", "Toolbar not near long-press: long-press Y=$lpYInt")
-        }
-
-        Log.i("VisualInline", "Paste menu verification PASSED")
     }
 
     private fun saveToExternal(name: String, bitmap: Bitmap) {

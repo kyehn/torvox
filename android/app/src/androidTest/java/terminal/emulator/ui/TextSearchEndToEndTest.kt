@@ -2,7 +2,6 @@
 package terminal.emulator.ui
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.ui.test.hasTestTag
@@ -14,6 +13,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -137,10 +137,14 @@ class TextSearchEndToEndTest {
         dir.mkdirs()
         val file = File(dir, "$name.png")
         try {
-            val rootView = composeTestRule.activity.window.decorView
-            val bitmap = Bitmap.createBitmap(rootView.width, rootView.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            rootView.draw(canvas)
+            // 必须走 UiAutomation.takeScreenshot：它取的是真实屏幕合成结果。
+            // 自造 `decorView.draw(canvas)` 有两个问题——测试体不在主线程，
+            // 离线程 draw 会被 Compose 的 SnapshotStateObserver 判为跨线程访问
+            // （CI 崩在 `LookaheadCapablePlaceable.captureRulers`）；且该 draw
+            // 根本采不到 Surface/TextureView 里的终端像素，OCR 拿到的输入是空的。
+            val bitmap =
+                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                    ?: throw AssertionError("takeScreenshot returned null")
             FileOutputStream(file).use { fos ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
             }
@@ -223,13 +227,12 @@ class TextSearchEndToEndTest {
         // Take screenshot for host-side OCR verification
         saveScreenshot("02_search_highlights")
 
-        // NOTE: OCR verification runs on the HOST (maestro flows /
-        // scripts/test-emulator.nu invoke `rapidocr` against pulled
-        // screenshots). A device-side ProcessBuilder("rapidocr") can
-        // never work — the binary lives in the host development shell, not on the
-        // device — so this test asserts the UI behavior (result count +
-        // screenshot artifact) and the host pipeline does the pixel
-        // verification. Screenshot must exist so the host step has input.
+        // NOTE: OCR verification runs on the HOST: the dev shell carries `rapidocr`
+        // and its models (`scripts/download-rapidocr-models.nu` fetches them),
+        // a device-side ProcessBuilder("rapidocr") can never work — the binary
+        // lives in the host development shell, not on the device. So this test
+        // asserts the UI behavior (result count + screenshot artifact) and leaves
+        // the pixel verdict to the host step. Screenshot must exist as its input.
         val screenshotFile =
             File(
                 File(composeTestRule.activity.filesDir, SCREENSHOT_DIR),
