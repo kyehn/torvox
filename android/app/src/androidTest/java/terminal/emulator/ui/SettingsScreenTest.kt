@@ -16,8 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.MainActivity
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
 
