@@ -15,9 +15,8 @@ import javax.inject.Inject
 class SessionSteps
 @Inject
 constructor(private val composeRuleHolder: ComposeRuleHolder) {
-    @假如("^应用已启动并创建了多个会话$")
-    fun appHasLaunchedWithMultipleSessions() {
-        composeRuleHolder.composeRule.waitForSession()
+    /** 经抽屉新增会话并等列表出现至少两项（两个步骤共用的同一段动作）。 */
+    private fun addSessionViaDrawer() {
         composeRuleHolder.composeRule.onNodeWithTag("Key_DRAWER").performClick()
         composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
             composeRuleHolder.composeRule
@@ -39,27 +38,15 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
+    @假如("^应用已启动并创建了多个会话$")
+    fun appHasLaunchedWithMultipleSessions() {
+        composeRuleHolder.composeRule.waitForSession()
+        addSessionViaDrawer()
+    }
+
     @当("^新增会话$")
     fun userAddsNewSession() {
-        composeRuleHolder.composeRule.onNodeWithTag("Key_DRAWER").performClick()
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("AddSessionButton"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("AddSessionButton", useUnmergedTree = true)
-            .performClick()
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 12000) {
-            val count =
-                composeRuleHolder.composeRule
-                    .onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
-                    .fetchSemanticsNodes()
-                    .size
-            count >= 2
-        }
-        composeRuleHolder.composeRule.waitForIdle()
+        addSessionViaDrawer()
     }
 
     @当("^切换到其他会话$")

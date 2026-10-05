@@ -57,6 +57,9 @@ class StickyCtrlInterruptInstrumentedTest {
         }
         val bridge =
             bridgeReady ?: throw AssertionError("运行时桥必须就绪（30s 未孵化）")
+        // 共用会话的行编辑残留会挡住 prompt 门控（见 PasteButton 同因说明）：
+        // 先送 ETX 中止再等空闲，空行 ETX 无害。
+        bridge.writeToPty("\u0003".toByteArray(Charsets.UTF_8))
         // 等 prompt 就绪（shell 空闲后方可启动长命令）。
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
@@ -64,8 +67,14 @@ class StickyCtrlInterruptInstrumentedTest {
                 text.contains("$") || text.contains("#")
             }
         assertNotNull("shell prompt 未出现", promptSeen)
-        // 启动长命令（真实 shell 进程）。
+        // 启动长命令（真实 shell 进程）：等行回显落格再送 ^C，否则粘滞键打在空提示符上，长命令随后才起，超时误报。
         bridge.writeToPty("sleep 100\n".toByteArray(Charsets.UTF_8))
+        val sleepEchoed =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                pumpAndText()?.contains("sleep 100") == true
+            }
+        assertNotNull("sleep 命令未回显", sleepEchoed)
+        Thread.sleep(1_500)
         // CTRL 粘滞置位（一次性，下一键消费）。
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
         composeTestRule.waitForIdle()

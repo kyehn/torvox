@@ -15,6 +15,7 @@ import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
@@ -32,6 +33,10 @@ class SelectionEspressoTest {
         // 选择菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，
         // 5s 等待偶发超时，提到与落格门控同量级的 15s。
         private const val MENU_POPUP_TIMEOUT_MS = 15_000L
+
+        /** 选区所在视口行（0 基）与起始列：与网格列数无关的固定量。 */
+        private const val SELECTION_ROW = 2
+        private const val SELECTION_START_COL = 10
     }
 
     @get:Rule
@@ -40,24 +45,42 @@ class SelectionEspressoTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    private fun startPartialSelection() {
+    /** 共用会话跨全部用例留存：本类直写网格，不清场即污染后继。 */
+    @After
+    fun resetSession() = composeTestRule.cleanUpTerminalState()
+
+    /**
+     * 建一段确定的部分选区，返回选区**实际**末列。
+     *
+     * 末列由网格列数派生而非写死：网格宽度随设备与主字体变化（实测 25～38 列），
+     * 写死值只在其余设备上偶然相符——主字体一变，选区被钳到 `cols-1`，
+     * 断言却仍按旧列数比对，判红的原因与选区功能无关。
+     */
+    private fun startPartialSelection(): Int {
         // 确定性内容：shell 自然行的内容不可控（空行则 selectedText 为空、菜单无复制按钮），
         // 直写长行到视口第 2 行并等落格，再选固定区间。
         terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
             composeTestRule.getBridge() != null
         }
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-        val fill = "P".repeat(40)
-        bridge.feedTerminal("\u001B[3;1H$fill".toByteArray(Charsets.UTF_8))
-        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-            composeTestRule.getBridge()?.getTerminalText()?.contains(fill) == true
-        }
+        // 填满整行：行长恰为网格列数，故在任何列数下都不折行，整串 contains 恒成立。
+        val maxCol =
+            (composeTestRule.activity.terminalViewModel.runtime.state.value.cols - 1)
+                .coerceAtLeast(SELECTION_START_COL + 1)
+        val fill = "P".repeat(maxCol + 1)
+        bridge.feedTerminal("\u001B[${SELECTION_ROW + 1};1H$fill".toByteArray(Charsets.UTF_8))
+        checkNotNull(
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+                composeTestRule.getBridge()?.getTerminalText()?.contains(fill) == true
+            },
+        ) { "填充行必须落格: [${fill.length} 字]" }
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            activity.terminalViewModel.startSelection(2, 10)
-            activity.terminalViewModel.updateSelection(2, 30)
+            activity.terminalViewModel.startSelection(SELECTION_ROW, SELECTION_START_COL)
+            activity.terminalViewModel.updateSelection(SELECTION_ROW, maxCol)
             activity.terminalViewModel.endSelection()
         }
         composeTestRule.waitForIdle()
+        return maxCol
     }
 
     @Test
@@ -226,17 +249,15 @@ class SelectionEspressoTest {
     @Test
     fun selectionStateIsActiveAfterPartialSelect() {
         composeTestRule.waitForSession()
-        startPartialSelection()
+        val expectedEndCol = startPartialSelection()
         composeTestRule.activityRule.scenario.onActivity { activity ->
             val sel = activity.terminalViewModel.state.value.selection
             assertTrue("Selection should be active", sel.active)
             val start = requireNotNull(sel.start)
             val end = requireNotNull(sel.end)
-            // 选区按网格钳位（cols-1）：竖屏小列数设备上 30 会被钳制，期望必须跟随实际几何。
-            val maxCol = (activity.terminalViewModel.runtime.state.value.cols - 1).coerceAtLeast(0)
-            assertEquals(2, start.row)
-            assertEquals(minOf(10, maxCol), start.col)
-            assertEquals(minOf(30, maxCol), end.col)
+            assertEquals(SELECTION_ROW, start.row)
+            assertEquals(SELECTION_START_COL, start.col)
+            assertEquals(expectedEndCol, end.col)
         }
     }
 }

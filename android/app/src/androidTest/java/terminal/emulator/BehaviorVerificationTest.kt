@@ -16,9 +16,11 @@ import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
@@ -32,6 +34,9 @@ class BehaviorVerificationTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     private lateinit var device: UiDevice
+
+    @After
+    fun resetScreen() = composeRule.closeSettingsOverlay()
 
     @Before
     fun setUp() {
