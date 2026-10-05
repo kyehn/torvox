@@ -304,11 +304,13 @@ private fun AppearanceSectionContent(
             accentColor = accentColor,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        FontFamilySelectors(
-            regularFamily = fontFamily,
-            onFamilySelected = { family -> onFontFamilySelected(family) },
-            colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
-            availableFonts = availableFonts.toImmutableList(),
+        SystemFontSelector(
+            selectedFamily = fontFamily,
+            onFamilySelected = onFontFamilySelected,
+            textColor = textColor,
+            cardBackground = backgroundColor,
+            accentColor = accentColor,
+            fonts = availableFonts.toImmutableList(),
             defaultFontName = defaultFontName,
             fontInfo = fontInfo,
         )
@@ -597,27 +599,6 @@ private fun FontInfoSectionIfAvailable(
             }
         }
     }
-}
-
-@Composable
-private fun FontFamilySelectors(
-    regularFamily: String,
-    onFamilySelected: (String) -> Unit,
-    colors: SettingsColors,
-    availableFonts: ImmutableList<String>,
-    defaultFontName: String,
-    fontInfo: String,
-) {
-    SystemFontSelector(
-        selectedFamily = regularFamily,
-        onFamilySelected = { onFamilySelected(it) },
-        textColor = colors.textColor,
-        cardBackground = colors.cardBackground,
-        accentColor = colors.accentColor,
-        fonts = availableFonts,
-        defaultFontName = defaultFontName,
-        fontInfo = fontInfo,
-    )
 }
 
 @Composable

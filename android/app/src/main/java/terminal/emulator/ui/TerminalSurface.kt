@@ -1118,7 +1118,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
         private const val DEFAULT_ROWS = 24
         private const val DEFAULT_COLS = 80
-        private const val DOUBLE_TAP_WINDOW_MS = 400L
         private const val ZOOM_THRESHOLD_LOW = 0.9f
         private const val ZOOM_THRESHOLD_HIGH = 1.1f
 
@@ -1325,9 +1324,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     @JvmField var isAfterLongPress = false
-
-    var lastTapTime = 0L
-    private var tapCount = 0
 
     @JvmField var scaleFactor = 1.0f
 
@@ -1770,35 +1766,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
 
             override fun onSingleTapUp(event: MotionEvent): Boolean {
-                // 长按抬手不是轻击：必须先于计数与多击处理返回。
-                // 否则「轻击 → 长按拖动抬手」若落在 400ms 窗口内会被计为第 2 击，
-                // 用抬手坐标选词覆盖长按选区（长按空白处本应是仅粘贴单格选区）；
-                // 且 isAfterLongPress 滞留，下一次真正的轻击反被吞掉。
+                // 长按抬手不是轻击：直接返回，不触碰选区。
                 if (isAfterLongPress) {
                     isAfterLongPress = false
                     longPressDragging = false
-                    tapCount = 0
-                    lastTapTime = 0L
                     return true
                 }
-                // 多击选择（ghostty-android 模式）：统计快速轻击次数，在第 2/3/4+ 次上处理词/行/全选。
-                // 用事件时间而非处理时间计数：慢设备/模拟器上主线程卡顿
-                // （软件渲染帧 1s+）会把处理间隔撑过 400ms 窗口，导致三击
-                // 的第 3 击被重置为单击并清掉选词；事件时间是用户真实点速。
                 val now = SystemClock.uptimeMillis()
-                val tapTime = event.eventTime
-                tapCount = nextTapCount(tapTime, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
-                lastTapTime = tapTime
-
                 // 300ms 隐藏保护：手柄拖动松手后的首次轻击属于拖动手势的收尾，
-                // 而非多击选择。先于多击判定拦截，避免拖尾被计为第3击选整行。
+                // 而非新的轻击。先于其他判定拦截，避免拖尾关闭刚重显的菜单。
                 if (shouldSuppressTapAfterDragEnd(now, lastHandleDragEndUptimeMs)) {
-                    tapCount = 0
-                    lastTapTime = 0L
                     return true
                 }
-
-                if (handleMultiTap(event)) return true
                 // 抽屉关闭动画会让遮罩轻击穿透到 Surface；
                 // 不要把它当作终端轻击（那会清除选区）。
                 if (System.nanoTime() < suppressUntilNanos) {
@@ -1823,8 +1802,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 if (isSelectingText) {
                     selectionHandles.hideSelectionHandles()
                     viewModel?.clearSelection()
-                    tapCount = 0
-                    lastTapTime = 0L
                     post {
                         // minSdk 33：可直接使用平台的 WindowInsetsController；ViewCompat 的辅助方法已弃用。
                         val controller = windowInsetsController
@@ -1859,10 +1836,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private val gestureDetector =
         GestureDetector(context, gestureListener).also {
-            // ghostty-android 模式：禁用框架双击检测，使每次点击都触发
-            // onSingleTapUp，由 tapCount 自计数驱动 选词/选行/全选。检测开启时
-            // 框架把第 2 击的 onSingleTapUp 吞入 onDoubleTap（此处无操作），
-            // tapCount 永不到 2，多击选择整体失效。
+            // 不支持双击/多击选择：禁用框架双击检测，使每次点击都触发 onSingleTapUp。
             it.setOnDoubleTapListener(null)
         }
 
@@ -1911,11 +1885,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         )
 
     fun handleLongPress(xPx: Float, yPx: Float) {
-        // 参照 ghostty-android TerminalView.java:1085-1100：它用 tapCount
-        // （双击 = 词、三击 = 行）而非长按做词选择；此处的「长按 → 词选择」
-        // 等效但交互不同。ghostty-android 还禁用了 GestureDetector 内置的
-        // 双击检测（setOnDoubleTapListener(null)），使 onSingleTapUp 对每次轻击都触发
-        // 而由 handleTap() 计数——比默认 300ms+ 的双击超时更跟手。
+        // 长按 → 词选择。不支持双击/多击选择，词选择只走长按一条路径。
         if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
         isAfterLongPress = true
 
@@ -1956,7 +1926,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             )
         } else {
             // 上游 select_word 派生词界（ghostty 默认边界：空白与
-            // `'"\`│|:;,()[]{}<>$`），长按与双击共用 native 同一实现；
+            // `'"\`│|:;,()[]{}<>$`），长按走 native 派生；
             // native 侧已安装选区，回传的有序界限驱动状态与控制柄。
             val wordBounds = bridge?.selectWordAt(gridRow, col)
 
@@ -2054,8 +2024,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 只有键盘的显示/隐藏 FLIP 才关闭选区手柄与上下文菜单
         // ——显示时定位的弹窗绝不会相对滚动而陈旧。
         // 以 FLIP（而非每像素变化）为闸门很重要：显示/隐藏动画每帧都发出 insets，
-        // 逐帧清除会抹掉动画期间做出的选择
-        // （例如轻击聚焦唤起键盘后紧接着双击选词）。此处不要 resize；
+        // 逐帧清除会抹掉动画期间做出的选择。此处不要 resize；
         // 「先平移后重排」的混合方案把唯一一次网格重排推迟到 onImeSettled(48ms)。
         val imeVisible = insets.isVisible(WindowInsets.Type.ime())
         if (imeVisible != lastImeVisible) {
@@ -2211,36 +2180,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         outAttrs,
     )
 
-    /** 处理多击选择（ghostty-android 模式）。事件被消费（tapCount >= 2）时返回 true。 */
-    private fun handleMultiTap(event: MotionEvent): Boolean {
-        val consumed =
-            when (multiTapAction(tapCount)) {
-                MultiTapAction.SELECT_ALL -> {
-                    viewModel?.selectAll()
-                    showHandlesIfActive()
-                    true
-                }
-
-                MultiTapAction.LINE -> {
-                    startSelectionAt(event, selectLine = true)
-                    showHandlesIfActive()
-                    true
-                }
-
-                MultiTapAction.WORD -> {
-                    startSelectionAt(event, expandToWord = true)
-                    showHandlesIfActive()
-                    true
-                }
-
-                MultiTapAction.NOT_A_MULTI_TAP -> false
-            }
-        // 手势完成点同步亮出菜单（控制柄同模式）：只靠 Compose LaunchedEffect
-        // 会漏掉短促手势的单次重组，菜单永不出现；它是幂等的同步备份。
-        if (consumed) showSelectionMenuForCurrentSelection()
-        return consumed
-    }
-
     /** 手势完成点同步亮出当前选择的菜单（控制柄同模式），Compose 侧作为同步备份。 */
     private fun showSelectionMenuForCurrentSelection() {
         val selection = viewModel?.state?.value?.selection ?: return
@@ -2248,66 +2187,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         showSelectionMenu(selection.pasteOnly)
     }
 
-    private fun showHandlesIfActive() {
-        val sel = viewModel?.state?.value?.selection ?: return
-        if (sel.active && sel.start != null && sel.end != null) {
-            selectionHandles.showSelectionHandles(
-                sel.start.row,
-                sel.start.col,
-                sel.end.row,
-                sel.end.col,
-                getAccentColor(),
-            )
-        }
-    }
-
-    private fun startSelectionAt(event: MotionEvent, expandToWord: Boolean = false, selectLine: Boolean = false) {
+    private fun startWordSelectionAt(event: MotionEvent) {
         val col = pixelToCell(event.x, cellWidth, cols)
         val row = pixelToCell(event.y, cellHeight, rows)
-
-        if (selectLine) {
-            // 上游 select_line 整行派生（语义提示边界关）：界限一次派生
-            // 并由 native 安装，Kotlin 只消费回传值（旧实现自读行拼界限）。
-            val gridRow = currentViewportTopGrid() + row
-            val bridge = viewModel?.runtime?.bridge()
-            val lineBounds = bridge?.selectLineAt(gridRow, col)
-            if (lineBounds != null && lineBounds.size == SELECTION_BOUNDS_LENGTH) {
-                viewModel?.startSelection(lineBounds[0], lineBounds[1])
-                viewModel?.updateSelection(lineBounds[2], lineBounds[3])
-                viewModel?.endSelection()
-                LogUtil.d(
-                    "Selection",
-                    "TRIPLE_TAP line: tapRow=$row gridRow=$gridRow " +
-                        "start=(${lineBounds[0]},${lineBounds[1]}) " +
-                        "end=(${lineBounds[2]},${lineBounds[3]})",
-                )
-            } else {
-                // 空行/查询失败：退化为落点单格，选择仍激活（菜单可见）。
-                viewModel?.startSelection(gridRow, col)
-                viewModel?.endSelection()
-            }
-        } else if (expandToWord) {
-            // 上游 select_word 词界 — 与长按完全同一 native 派生，无两侧分叉。
-            val bridge = viewModel?.runtime?.bridge()
-            val gridRow = currentViewportTopGrid() + row
-            val wordBounds = bridge?.selectWordAt(gridRow, col)
-            if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
-                viewModel?.startSelection(wordBounds[0], wordBounds[1])
-                viewModel?.updateSelection(wordBounds[2], wordBounds[3])
-                viewModel?.endSelection()
-                LogUtil.d(
-                    "Selection",
-                    "DOUBLE_TAP word: tapRow=$row tapCol=$col " +
-                        "expanded start=(${wordBounds[0]},${wordBounds[1]}) " +
-                        "end=(${wordBounds[2]},${wordBounds[3]})",
-                )
-            } else {
-                // 无可选词：单格回退。选区状态用网格行（0 = 回滚顶部），
-                // 此处已换算为 gridRow，抽取与控柄渲染一致。
-                viewModel?.startSelection(gridRow, col)
-            }
+        // 上游 select_word 词界 — 与长按完全同一 native 派生，无两侧分叉。
+        val bridge = viewModel?.runtime?.bridge()
+        val gridRow = currentViewportTopGrid() + row
+        val wordBounds = bridge?.selectWordAt(gridRow, col)
+        if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
+            viewModel?.startSelection(wordBounds[0], wordBounds[1])
+            viewModel?.updateSelection(wordBounds[2], wordBounds[3])
+            viewModel?.endSelection()
+            LogUtil.d(
+                "Selection",
+                "RIGHT_CLICK word: tapRow=$row tapCol=$col " +
+                    "expanded start=(${wordBounds[0]},${wordBounds[1]}) " +
+                    "end=(${wordBounds[2]},${wordBounds[3]})",
+            )
         } else {
-            viewModel?.startSelection(currentViewportTopGrid() + row, col)
+            // 无可选词：单格回退。选区状态用网格行（0 = 回滚顶部），
+            // 此处已换算为 gridRow，抽取与控柄渲染一致。
+            viewModel?.startSelection(gridRow, col)
         }
 
         try {
@@ -2450,7 +2350,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> {
                     if (event.action == MotionEvent.ACTION_DOWN) {
                         viewModel?.clearSelection()
-                        startSelectionAt(event, expandToWord = true)
+                        startWordSelectionAt(event)
                     }
                     return true
                 }
@@ -2718,31 +2618,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 // ─────────────────────────────────────────────────────────────────────────────
 // 纯辅助函数（顶层，无需视图/bridge 即可单元测试）
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** 下一个多击计数：[windowMs] 内的快速轻击则递增，更早的则重置为 1（严格 `<`——恰好落在窗口边界的轻击开启新的一次点击）。 */
-
-internal fun nextTapCount(now: Long, lastTapTime: Long, tapCount: Int, windowMs: Long): Int = if (now - lastTapTime <
-    windowMs
-) {
-    tapCount + 1
-} else {
-    1
-}
-
-/** 轻击次数对应的选择动作（ghostty-android 模式）：2 → 词，3 → 行，4+ → 全选；1 不消费。 */
-internal enum class MultiTapAction {
-    NOT_A_MULTI_TAP,
-    WORD,
-    LINE,
-    SELECT_ALL,
-}
-
-internal fun multiTapAction(tapCount: Int): MultiTapAction = when {
-    tapCount >= 4 -> MultiTapAction.SELECT_ALL
-    tapCount == 3 -> MultiTapAction.LINE
-    tapCount == 2 -> MultiTapAction.WORD
-    else -> MultiTapAction.NOT_A_MULTI_TAP
-}
 
 /**
  * 拖动 y 所在的边缘滚动区：上半格 → 上滚，下半格 → 下滚，中间 → 停止。
