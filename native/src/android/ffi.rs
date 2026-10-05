@@ -944,12 +944,14 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
         );
         return;
     };
-    let mut session = entry.session.lock();
-    if let Err(e) = session.write(&input) {
+    // 写入在会话锁之外：主端满时 `write_all` 最多等 `pty::WRITE_DRAIN_TIMEOUT`，
+    // 而会话锁每帧被渲染与事件收割取得——持锁写入会把整台终端冻住同样长的时间。
+    let pty_master = entry.session.lock().pty_master();
+    if let Err(write_error) = pty_master.write(&input) {
         // 主端 fd 是 O_NONBLOCK：`write_all` 已为缓冲排空等待过（见 pty::WRITE_DRAIN_TIMEOUT），
         // 到此仍失败说明子进程长时间不读 stdin。此处记日志——静默返回等于让用户
         // 丢输入却毫无痕迹，xterm 亦不会截断。
-        if e.is_would_block() {
+        if write_error.is_would_block() {
             log::error!(
                 "feedPty: 子进程未在期限内消费输入，丢弃 {} 字节",
                 input.len()
@@ -958,7 +960,7 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
         }
         let _ = env.throw_new(
             jni_str!("java/lang/RuntimeException"),
-            JNIString::from(format!("feedPty: write failed: {e}")),
+            JNIString::from(format!("feedPty: write failed: {write_error}")),
         );
     }
 }
@@ -1047,10 +1049,11 @@ fn write_key_inner(
 
     let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
-        let mut session = entry.session.lock();
+        // 会话锁只用来取 PTY 写入面；真正的写入在其之外（理由同 `feed_pty_inner`）。
+        let pty_master = entry.session.lock().pty_master();
         let result = if has_text {
             match text.try_to_string(env) {
-                Ok(t) => session.write(t.as_bytes()),
+                Ok(decoded) => pty_master.write(decoded.as_bytes()),
                 Err(_) => {
                     let _ = env.throw_new(
                         jni_str!("java/lang/RuntimeException"),
@@ -1066,7 +1069,7 @@ fn write_key_inner(
             // key::Encoder 经 Query::KeyEncode 承担（需数字 keyCode，本入口仅有
             // 字符故不适用），本函数不做 Kitty CSI-u 编码。
             let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
-            session.write(&bytes)
+            pty_master.write(&bytes)
         };
         if let Err(e) = result {
             // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
@@ -1343,10 +1346,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
                     return std::ptr::null_mut();
                 }
             };
-            match env.new_string(&json) {
-                Ok(s) => s.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            }
+            string_to_jstring(env, &json)
         }
         None => std::ptr::null_mut(),
     }
@@ -2192,14 +2192,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'
     })
 }
 
+/// Rust 字符串 → JNI `jstring`：编码失败返回 null，不抛异常、不吞错（调用方按 null 处理）。
+fn string_to_jstring(env: &mut Env, text: &str) -> jstring {
+    match env.new_string(text) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 fn list_sessions_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jstring {
     let ids: Vec<u64> = rlock_session_registry().keys().copied().collect();
 
     let json = serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into());
-    match env.new_string(&json) {
-        Ok(s) => s.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    string_to_jstring(env, &json)
 }
 
 /// 字体管线默认的图集单元尺寸（像素）。
@@ -2243,10 +2248,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
         let title = session.terminal().title();
         drop(session);
         drop(registry);
-        match env.new_string(&title) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+        string_to_jstring(env, &title)
     })
 }
 
@@ -2336,16 +2338,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
         drop(session);
         drop(registry);
         match text {
-            Some(text) => match env.new_string(&text) {
-                Ok(s) => s.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            },
+            Some(text) => string_to_jstring(env, &text),
             None => std::ptr::null_mut(),
         }
     })
 }
 
-/// 返回可见区与回滚区以换行拼接的文本（`dump_grid` 路径）。
+/// 返回可见区与回滚区以换行拼接的文本。
+///
+/// 只需字符，故走 `read_all_text`（每格一次 codepoint 读取）而非 `dump_grid`：
+/// 后者每格还要取样式、解析颜色与 flags，回滚区填满时（上限 2000 行）单次查询
+/// 会把 VT 线程按在数十万次跨语言调用上，挤占命令通道——测试与 UI 的查询突发
+/// 随即双双超时回退，表现为「标记不落格」与渲染掉帧。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalText<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2363,39 +2367,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
             return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
-        let grid = session.terminal().dump_grid();
+        let text = session.terminal().read_all_text();
         drop(session);
         drop(registry);
 
-        let mut lines: Vec<String> = Vec::with_capacity(grid.scrollback.len() + grid.rows as usize);
-        for row_cells in &grid.scrollback {
-            let line: String = row_cells
-                .iter()
-                .filter_map(|c| char::from_u32(c.codepoint).filter(|ch| *ch != '\0'))
-                .collect();
-            lines.push(line.trim_end().to_string());
-        }
-        for row in 0..grid.rows as usize {
-            let start = row * grid.cols as usize;
-            let end = start
-                .saturating_add(grid.cols as usize)
-                .min(grid.visible.len());
-            if start >= end {
-                continue;
-            }
-            let line: String = grid.visible[start..end]
-                .iter()
-                .filter_map(|c| char::from_u32(c.codepoint).filter(|&c| c != '\0'))
-                .collect::<String>()
-                .trim_end()
-                .to_string();
-            lines.push(line);
-        }
-        let text = lines.join("\n");
-        match env.new_string(&text) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+        string_to_jstring(env, &text)
     })
 }
 
@@ -2426,11 +2402,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
         );
         drop(session);
         drop(registry);
-        match env.new_string(&text) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+        string_to_jstring(env, &text)
     })
+}
+
+/// `jint` 切片 → JNI `IntArray`；分配失败返回 null。
+fn jint_slice_to_int_array(env: &mut Env, values: &[jint]) -> jintArray {
+    let Ok(array) = env.new_int_array(values.len()) else {
+        return std::ptr::null_mut();
+    };
+    if array.set_region(env, 0, values).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
 }
 
 /// 有序选区界限（绝对网格坐标，0 = 回滚顶部）→ JNI `IntArray
@@ -2445,13 +2429,7 @@ fn bounds_to_int_array(env: &mut Env, bounds: Option<((u32, u32), (u32, u32))>) 
         end_row.min(jint::MAX as u32) as jint,
         end_col.min(jint::MAX as u32) as jint,
     ];
-    let Ok(array) = env.new_int_array(values.len()) else {
-        return std::ptr::null_mut();
-    };
-    if array.set_region(env, 0, &values).is_err() {
-        return std::ptr::null_mut();
-    }
-    array.into_raw()
+    jint_slice_to_int_array(env, &values)
 }
 
 /// `u32` 列号序列 → JNI `IntArray`（宽字符尾格查询回传）；分配失败返回 null。
@@ -2460,13 +2438,7 @@ fn u32_vec_to_int_array(env: &mut Env, values: &[u32]) -> jintArray {
         .iter()
         .map(|value| (*value).min(jint::MAX as u32) as jint)
         .collect();
-    let Ok(array) = env.new_int_array(clamped.len()) else {
-        return std::ptr::null_mut();
-    };
-    if array.set_region(env, 0, &clamped).is_err() {
-        return std::ptr::null_mut();
-    }
-    array.into_raw()
+    jint_slice_to_int_array(env, &clamped)
 }
 
 /// 以落点为锚在终端安装选区并回传界限。会话锁与注册表读锁都在构造界限
@@ -2591,10 +2563,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
         drop(session);
         drop(registry);
         match url {
-            Some(url) => match env.new_string(&url) {
-                Ok(s) => s.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            },
+            Some(url) => string_to_jstring(env, &url),
             None => std::ptr::null_mut(),
         }
     })
@@ -2665,10 +2634,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
             log::error!("searchAllInScrollback: match serialization failed: {error}");
             "[]".to_string()
         });
-        match env.new_string(&json) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+        string_to_jstring(env, &json)
     })
 }
 
@@ -2727,10 +2693,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFont
         };
         let name = render_state.font_pipeline.default_font_name();
         drop(state);
-        match env.new_string(&name) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+        string_to_jstring(env, &name)
     })
 }
 
@@ -2748,10 +2711,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'l
         let info = render_state.font_pipeline.font_info();
         drop(state);
         match serde_json::to_string(&info) {
-            Ok(json) => match env.new_string(&json) {
-                Ok(s) => s.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            },
+            Ok(json) => string_to_jstring(env, &json),
             Err(_) => std::ptr::null_mut(),
         }
     })
@@ -3209,10 +3169,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
             return Ok(std::ptr::null_mut());
         }
         log::info!("loadFontFile: {} -> family {family}", path_str);
-        match env.new_string(&family) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+        string_to_jstring(env, &family)
     })
 }
 
