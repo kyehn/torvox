@@ -14,8 +14,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.closeSettingsOverlay
 
 /**
  * 字体族设置：选择器入口、对话框列表、以及选定后应用成功。

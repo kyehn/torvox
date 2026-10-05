@@ -229,15 +229,14 @@ class ImePopupPixelInstrumentedTest {
         second: android.graphics.Bitmap,
         top: Int,
         bottom: Int,
-    ): Int =
-        UxTestUtils.countDiffInBand(
-            first,
-            second,
-            top,
-            bottom,
-            PIXEL_SAMPLE_STEP_PX,
-            PIXEL_DELTA_THRESHOLD,
-        )
+    ): Int = UxTestUtils.countDiffInBand(
+        first,
+        second,
+        top,
+        bottom,
+        PIXEL_SAMPLE_STEP_PX,
+        PIXEL_DELTA_THRESHOLD,
+    )
 
     /**
      * 在顶部条带里搜索终端内容的上移量，返回（位移像素，匹配差异）。

@@ -63,15 +63,14 @@ class SgrItalicPixelAcceptanceTest {
      * 裁剪区差分：两截图逐像素比较（步长 3 采样），只统计中带区域——
      * 裁掉状态栏（时钟跳动）与修饰键栏（按键噪声）。口径收归 [UxTestUtils.countDiffInBand]。
      */
-    private fun countDifferingPixels(first: Bitmap, second: Bitmap): Int =
-        UxTestUtils.countDiffInBand(
-            first,
-            second,
-            first.height / 6,
-            first.height * 4 / 5,
-            SAMPLE_STEP_PX,
-            PIXEL_DELTA_THRESHOLD,
-        )
+    private fun countDifferingPixels(first: Bitmap, second: Bitmap): Int = UxTestUtils.countDiffInBand(
+        first,
+        second,
+        first.height / 6,
+        first.height * 4 / 5,
+        SAMPLE_STEP_PX,
+        PIXEL_DELTA_THRESHOLD,
+    )
 
     @Test
     fun sgrItalicTextProducesDistinctGlyphPixels() {
