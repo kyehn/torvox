@@ -556,16 +556,7 @@ fn cursor_rendering_on_visible_cursor() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 2,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &[],
-        },
+        test_config(1, 2, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -639,6 +630,28 @@ fn reverse_video_applied_to_blank_cell() {
 
 const TEST_ATLAS_SIZE: f32 = 1024.0;
 
+/// 单元实例构建的测试配置：图集尺寸固定为 TEST_ATLAS_SIZE（与 `ascii_font()`
+/// 配套），其余参数由调用方给出，14 处字面量不再重复同一份字段清单。
+fn test_config<'a>(
+    rows: u32,
+    cols: u32,
+    grid_cell_width: f32,
+    grid_cell_height: f32,
+    cursor: CellCursor,
+    search_highlights: &'a [gpu::SearchHighlight],
+) -> gpu::CellInstanceConfig<'a> {
+    gpu::CellInstanceConfig {
+        rows,
+        cols,
+        grid_cell_width,
+        grid_cell_height,
+        cursor,
+        atlas_width: TEST_ATLAS_SIZE,
+        atlas_height: TEST_ATLAS_SIZE,
+        search_highlights,
+    }
+}
+
 /// Build production instances for one configured cell (shared by cursor
 /// and reverse-video tests): caller supplies the cell contents, cursor
 /// state and grid metrics, unit grid otherwise.
@@ -652,16 +665,14 @@ fn build_configured_cell_instance(
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: cell_data.len() as u32,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
+        test_config(
+            1,
+            cell_data.len() as u32,
+            cell_width,
+            cell_height,
             cursor,
-            atlas_width: TEST_ATLAS_SIZE,
-            atlas_height: TEST_ATLAS_SIZE,
-            search_highlights: &[],
-        },
+            &[],
+        ),
         font_pipeline,
         &mut instances,
     );
@@ -736,16 +747,7 @@ fn build_single_cell_instance(
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &[],
-        },
+        test_config(1, 1, cell_width, cell_height, cursor, &[]),
         font_pipeline,
         &mut instances,
     );
@@ -857,16 +859,7 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 2,
-            cols: 4,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: TEST_ATLAS_SIZE,
-            atlas_height: TEST_ATLAS_SIZE,
-            search_highlights: &[],
-        },
+        test_config(2, 4, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -1051,16 +1044,7 @@ fn all_chars_share_same_baseline_y() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: chars.len() as u32,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &[],
-        },
+        test_config(1, chars.len() as u32, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -1126,16 +1110,7 @@ fn cjk_bearing_y_not_centered() {
             let mut instances = Vec::new();
             let built = crate::render::build_instances_from_cell_data(
                 &cell_data,
-                crate::render::gpu::CellInstanceConfig {
-                    rows: 1,
-                    cols: 2,
-                    grid_cell_width: cell_width,
-                    grid_cell_height: cell_height,
-                    cursor,
-                    atlas_width: 1024.0,
-                    atlas_height: 1024.0,
-                    search_highlights: &[],
-                },
+                test_config(1, 2, cell_width, cell_height, cursor, &[]),
                 &mut font_pipeline,
                 &mut instances,
             );
@@ -1274,16 +1249,7 @@ fn search_highlight_blends_on_non_cursor_cell() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &highlights,
-        },
+        test_config(1, 1, cell_width, cell_height, cursor, &highlights),
         &mut font_pipeline,
         &mut instances,
     );
@@ -1329,16 +1295,7 @@ fn cursor_cell_not_affected_by_search_highlight() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &highlights,
-        },
+        test_config(1, 1, cell_width, cell_height, cursor, &highlights),
         &mut font_pipeline,
         &mut instances,
     );
@@ -1599,16 +1556,7 @@ fn selection_intersect_current_match_double_swap() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &highlights,
-        },
+        test_config(1, 1, cell_width, cell_height, cursor, &highlights),
         &mut font_pipeline,
         &mut instances,
     );
@@ -1762,16 +1710,7 @@ fn cursor_color_custom_values() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            search_highlights: &[],
-        },
+        test_config(1, 1, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -2416,16 +2355,7 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         let mut instances = Vec::new();
         super::build_instances_from_cell_data(
             &cells,
-            super::cell_builder::CellInstanceConfig {
-                rows: 24,
-                cols: 80,
-                grid_cell_width: 1024.0 / 80.0,
-                grid_cell_height: 1024.0 / 24.0,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                search_highlights: &[],
-            },
+            test_config(24, 80, 1024.0 / 80.0, 1024.0 / 24.0, cursor, &[]),
             &mut font_pipeline,
             &mut instances,
         );
@@ -2533,16 +2463,7 @@ fn same_glyph_at_different_cells_samples_identical_atlas_region() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 6,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: TEST_ATLAS_SIZE,
-            atlas_height: TEST_ATLAS_SIZE,
-            search_highlights: &[],
-        },
+        test_config(1, 6, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -2591,16 +2512,7 @@ fn distinct_glyphs_sample_distinct_atlas_regions() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 2,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: TEST_ATLAS_SIZE,
-            atlas_height: TEST_ATLAS_SIZE,
-            search_highlights: &[],
-        },
+        test_config(1, 2, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -2723,16 +2635,7 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: text.len() as u32,
-            grid_cell_width: cell_width,
-            grid_cell_height: cell_height,
-            cursor,
-            atlas_width: TEST_ATLAS_SIZE,
-            atlas_height: TEST_ATLAS_SIZE,
-            search_highlights: &[],
-        },
+        test_config(1, text.len() as u32, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
         &mut instances,
     );
@@ -2800,16 +2703,7 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
         style: CursorStyle::Block,
         color: None,
     };
-    let config = crate::render::gpu::CellInstanceConfig {
-        rows: 1,
-        cols: text.len() as u32,
-        grid_cell_width: cell_width,
-        grid_cell_height: cell_height,
-        cursor,
-        atlas_width: TEST_ATLAS_SIZE,
-        atlas_height: TEST_ATLAS_SIZE,
-        search_highlights: &[],
-    };
+    let config = test_config(1, text.len() as u32, cell_width, cell_height, cursor, &[]);
     let mut first = Vec::new();
     assert!(
         crate::render::build_instances_from_cell_data(

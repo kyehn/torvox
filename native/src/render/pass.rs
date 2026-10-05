@@ -598,6 +598,18 @@ impl Renderer {
         let scale = font_pipeline.get_raster_scale();
         let grid_cell_width = if font_w > 0.0 { font_w * scale } else { 0.0 };
         let grid_cell_height = if font_h > 0.0 { font_h * scale } else { 0.0 };
+        // 两条分支的配置完全相同且 `CellInstanceConfig` 是 Copy，构造一次即可，
+        // 避免全量/增量两条路径的参数各自演化。
+        let config = crate::render::cell_builder::CellInstanceConfig {
+            rows,
+            cols,
+            grid_cell_width,
+            grid_cell_height,
+            cursor,
+            atlas_width,
+            atlas_height,
+            search_highlights,
+        };
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
         // `None`（调用方无基线，如首帧）强制全量重建。
         let converted = match dirty_rows {
@@ -616,16 +628,7 @@ impl Renderer {
                 };
                 crate::render::cell_builder::build_instances_cached(
                     cell_data,
-                    crate::render::cell_builder::CellInstanceConfig {
-                        rows,
-                        cols,
-                        grid_cell_width,
-                        grid_cell_height,
-                        cursor,
-                        atlas_width,
-                        atlas_height,
-                        search_highlights,
-                    },
+                    config,
                     font_pipeline,
                     effective_mask,
                     cache,
@@ -637,16 +640,7 @@ impl Renderer {
                 self.cell_cache = None;
                 crate::render::build_instances_from_cell_data(
                     cell_data,
-                    crate::render::cell_builder::CellInstanceConfig {
-                        rows,
-                        cols,
-                        grid_cell_width,
-                        grid_cell_height,
-                        cursor,
-                        atlas_width,
-                        atlas_height,
-                        search_highlights,
-                    },
+                    config,
                     font_pipeline,
                     &mut self.cpu_instances,
                 )
