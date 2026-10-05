@@ -1481,3 +1481,14 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       （`75a4d71d/146fd86b`，`ClipboardAccess/TerminalViewModel` 空块各一），使下次缺席可判别分支，
       无需改保护文件。验证：``（含本修，`385e356f`）`build` 全绿 16m38s，
       `connectedDebugAndroidTest` 零失败（此前三连红同步骤），关闭。
+
+## 31. CI run 新失败签名（待取证，不臆测）
+
+- [ ] **`BehaviorInstrumentedTest#behavior_modifier_bar_visible` 红且断言信息为空**。
+      该 run 基线 `fd695e93`（含键盘等待 `41ca4dbb`，不含后继字符集/区域两提交）
+      `connectedDebugAndroidTest`
+      约 17s 即失败（`BUILD FAILED in 1m 17s`），`reportConnectedFailures`
+      报 `1 failed in 1 report files` 且 `connected-failure-message` 为空。
+      本用例（`BehaviorInstrumentedTest.kt:213`）直查 `ESC/CTRL/ALT/HOME` 四键可见，
+      与该 run 内唯一相关改动（`UiAutomatorTest` 键盘等待，另一测试类）无调用关系；
+      无 logcat（N41）且信息为空，按 `TESTING.md:16` 先如实记录，待复跑/取证后再判。
