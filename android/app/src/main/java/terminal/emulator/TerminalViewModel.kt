@@ -26,7 +26,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.input.KeyModifiers
-import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
 import terminal.emulator.runtime.ClipboardAccess
@@ -117,8 +116,6 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
 
-    /** IME 编辑器类型固定为 Secure（DESIGN.md 要求全功能输入法，不提供切换入口）。 */
-    val keyboardMode: KeyboardMode = KeyboardMode.Secure,
     val selectionAccent: Int = 0,
     // 每次程序化滚动复位（由输入驱动的贴底）时递增；TerminalScreen 观察它
     // 并重同步 Surface 的本地选区计算偏移。
