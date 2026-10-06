@@ -438,13 +438,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
 // JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge` 声明
 // 决定，而非设计选择。参数个数由 ABI 固定，不可能在不配套修改 Kotlin 的情况下减少。
 /// 读取 initSession 的 JNI 字符串参数，失败时抛 Java 异常并返回 None。
-fn read_jni_string(env: &mut Env, value: &JString, name: &str) -> Option<String> {
+/// 解码一个 JNI 字符串参数。解码失败即抛 `RuntimeException` 并返回 `None`，
+/// 由调用方按各自的返回类型提前退出。
+///
+/// 绝不把解码失败折成「参数不合法」或「未找到」那类正常空结果：前者会让
+/// `Bridge.onSession` 记一条警告后继续，后者则零日志——而解码失败
+/// 是 Kotlin 传了非法字符串的编程错误，静默返回会让它伪装成配置正常。
+fn read_jni_string(env: &mut Env, value: &JString, caller: &str, name: &str) -> Option<String> {
     match value.try_to_string(env) {
         Ok(text) => Some(text),
-        Err(_) => {
+        Err(error) => {
             let _ = env.throw_new(
                 jni_str!("java/lang/RuntimeException"),
-                JNIString::from(format!("initSession: failed to read {name}")),
+                JNIString::from(format!("{caller}: failed to read {name}: {error}")),
             );
             None
         }
@@ -483,15 +489,8 @@ fn init_session_inner(
         }
     };
 
-    let shell_path: String = match shell.try_to_string(env) {
-        Ok(s) => s,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("initSession: failed to read shell path"),
-            );
-            return 0;
-        }
+    let Some(shell_path) = read_jni_string(env, &shell, "initSession", "shell path") else {
+        return 0;
     };
     // 生效 shell 由 Kotlin 侧按 DESIGN 的顺序解析（Termux bash → login → 系统 sh）。
     // 空串在此直接报错：`pty.rs` 已经以 `EmptyShell` 拒绝空 shell，此处改写会让那个
@@ -506,21 +505,19 @@ fn init_session_inner(
 
     // 读取 Kotlin 侧从 bootstrap 解析出的环境（home / 工作目录 / prefix / mkshrc 路径）。
     // 空串表示“未知”，回退到进程环境。
-    let home = match read_jni_string(env, &home, "home") {
-        Some(value) => value,
-        None => return 0,
+    let Some(home) = read_jni_string(env, &home, "initSession", "home") else {
+        return 0;
     };
-    let working_directory = match read_jni_string(env, &working_directory, "workingDirectory") {
-        Some(value) => value,
-        None => return 0,
+    let Some(working_directory) =
+        read_jni_string(env, &working_directory, "initSession", "workingDirectory")
+    else {
+        return 0;
     };
-    let prefix = match read_jni_string(env, &prefix, "prefix") {
-        Some(value) => value,
-        None => return 0,
+    let Some(prefix) = read_jni_string(env, &prefix, "initSession", "prefix") else {
+        return 0;
     };
-    let mkshrc_path = match read_jni_string(env, &mkshrc_path, "mkshrcPath") {
-        Some(value) => value,
-        None => return 0,
+    let Some(mkshrc_path) = read_jni_string(env, &mkshrc_path, "initSession", "mkshrcPath") else {
+        return 0;
     };
 
     let default = ShellEnv::default();
@@ -1039,15 +1036,8 @@ fn write_key_inner(
 ) {
     let id = session_id as u64;
 
-    let key_str: String = match key.try_to_string(env) {
-        Ok(s) => s,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("writeKey: failed to read key string"),
-            );
-            return;
-        }
+    let Some(key_str) = read_jni_string(env, &key, "writeKey", "key string") else {
+        return;
     };
     let has_text = !text.is_null();
 
@@ -1056,15 +1046,9 @@ fn write_key_inner(
         // 会话锁只用来取 PTY 写入面；真正的写入在其之外（理由同 `feed_pty_inner`）。
         let pty_master = entry.session.lock().pty_master();
         let result = if has_text {
-            match text.try_to_string(env) {
-                Ok(decoded) => pty_master.write(decoded.as_bytes()),
-                Err(_) => {
-                    let _ = env.throw_new(
-                        jni_str!("java/lang/RuntimeException"),
-                        jni_str!("writeKey: failed to read text string"),
-                    );
-                    return;
-                }
+            match read_jni_string(env, &text, "writeKey", "text string") {
+                Some(decoded) => pty_master.write(decoded.as_bytes()),
+                None => return,
             }
         } else {
             // IME 可打印字符回退入口：Kotlin 侧已过滤 Ctrl（特殊键/组合键经
@@ -3019,9 +3003,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
     family: JString,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
-        let family_str = match family.try_to_string(env) {
-            Ok(s) => s,
-            Err(_) => return Ok(JNI_FALSE),
+        let Some(family_str) = read_jni_string(env, &family, "setFontFamily", "family") else {
+            return Ok(JNI_FALSE);
         };
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
@@ -3107,9 +3090,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
     path: JString<'local>,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let path_str = match path.try_to_string(env) {
-            Ok(s) => s,
-            Err(_) => return Ok(std::ptr::null_mut()),
+        let Some(path_str) = read_jni_string(env, &path, "setExtraFontPaths", "path") else {
+            return Ok(std::ptr::null_mut());
         };
         // 自定义字体加载是 Android 专属特性（带额外路径的字体库仅 Android 有；
         // 桌面构建使用系统字体）。其他目标上拒绝加载。
@@ -3177,9 +3159,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
     locale: JString,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        let locale_str = match locale.try_to_string(env) {
-            Ok(s) => s,
-            Err(_) => return Ok(()),
+        let Some(locale_str) = read_jni_string(env, &locale, "setSystemLocale", "locale") else {
+            return Ok(());
         };
         log::info!("setSystemLocale: {locale_str}");
         // 管线创建前的区域决策读渲染层静态（与 setExtraFontPaths 同一门控惯例）。
@@ -3218,10 +3199,14 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
             let count = array.len(env).unwrap_or(0);
             for font_index in 0..count {
-                if let Ok(item) = array.get_element(env, font_index)
-                    && let Ok(text) = item.try_to_string(env)
-                {
-                    path_list.push(std::path::PathBuf::from(text));
+                // 单个路径解码失败不该让其余字体全部失效，故跳过并记明位置。
+                let Some(item) = array.get_element(env, font_index).ok() else {
+                    log::warn!("setExtraFontPaths: 读不到第 {font_index} 个元素，跳过");
+                    continue;
+                };
+                match read_jni_string(env, &item, "setExtraFontPaths", "paths[]") {
+                    Some(text) => path_list.push(std::path::PathBuf::from(text)),
+                    None => continue,
                 }
             }
             crate::render::font::font_db::set_extra_font_paths(path_list);
