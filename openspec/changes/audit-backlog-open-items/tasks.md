@@ -2021,3 +2021,87 @@ Kotlin 侧点明 `catch` 只接得住 JNI 抛回的 `RuntimeException`。
 每次 `setTextSize`/`setExtraFontPaths` 都打。该设备的 locale 无 CJK 回退，属正常
 警告，但同一条诊断重复七次会淹没真正的新告警。属日志噪音，不属崩溃链路，
 本轮不单独改动。
+
+## 37. 真机三件套交叉验证（`kyehn-patch-1:{t,s,f}`）
+
+`t` 是 logcat，`s` 是 `/system/etc/fonts.xml`，`f` 是 `/system/fonts/` 的目录清单，
+三者来自同一台机器（ZTE P720S20 / Android 13 / arm64）。
+
+### 37.1 交叉验证：崩溃不是字体缺失
+
+`s` 声明 186 个字体文件，`f` 实存 227 个，**仅 6 个声明项在磁盘上缺失**：
+
+```text
+ICNDigit-{Bold,Light,Medium,Regular,Thin}.ttc   RedMagicDigit.ttf
+```
+
+六个全是 ZTE/努比亚自研数字字体。崩溃路径真正依赖的
+`DroidSansMono.ttf` 与 `NotoSansCJK-Regular.ttc` **都在磁盘上**，
+且 `/system/fonts/` 正是 `FONT_DIRS` 的第一项。
+
+即：当前系统状态下该崩溃路径不可能触发。§36.3 的「装整族」改动因此**不是
+这台设备崩溃的成因**（它对声明多字体的 ROM 仍是对的健壮性改进，已保留），
+崩溃属开机初期的瞬时状态。要坐实成因需要**崩溃前 5 秒的 logcat**——
+`E/FONT_FATAL` 与 `W/font: failed to load font file …` 两行就足以定位，
+而本份 `t` 从 `Fatal signal` 开始，此前内容缺失。按 `TESTING.md:16` 到此停手。
+
+### 37.2 修掉的两处解析缺陷（有 `s` 的直接证据）
+
+**① `fallbackFor` 族被并入本族候选。** `s:1345` 的 `zh-Hans` 族里，
+`NotoSerifCJK-Regular.ttc` 与正体**同名同权重**并列，仅靠 `fallbackFor="serif"`
+区分；解析器此前完全无视该属性，Serif 面会与正体竞争同一字符。
+`cjk-rendering` spec 明写「MUST NOT 回退到 Serif/JP」。已按属性跳过。
+
+**② 等宽族名用空格匹配。** 代码匹配 `"sans-serif mono"`/`"serif mono"`，
+而 `s` 里 AOSP 的族名是 `serif-monospace`（连字符）——该族从未被识别为等宽族。
+两种写法现在都收。
+
+附带修正：`zh-Hans` 候选按文档序取前 3 个，而 `s` 把 Thin/Light/DemiLight
+排在 Regular 之前，于是取到三个超细字重而非 spec 要求的常规字重面。
+现按 weight 归一，常规字重排在族内最前。
+
+三条各有回归用例，Rust 全量 **556 例**通过。
+
+### 37.3 未改、需用户裁决：CJK 回退被系统语言门控
+
+`t` 里有 7 条
+
+```text
+W/native::render::font::cjk CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体
+```
+
+而同一份 `t` 的后半段，终端正在渲染
+
+```text
+▶ 请输入中/英文测试内容（包括 emoji 🚀🀄️ 和常用符号 ▶⏵♥★）
+```
+
+即：**系统语言非中文，终端里却有中文**，回退族为空 ⇒ CJK 全是豆腐块。
+`s` 里 `lang="zh-Hans"` 族齐全，`f` 里 `NotoSansCJK-Regular.ttc` 也在。
+
+成因在 `cjk.rs:14`：locale 非 CJK 即早退，候选列表恒空。
+（`locale_fonts_xml_langs` 的 `und-Hani` 兜底也无效——`s` 里没有 `und-Hani` 族，
+AOSP 自 Android 13 起改为按语言分片。）
+
+**已试改并回退**：让非 CJK locale 也返回 `["zh-Hans","zh-Hant","ja","ko"]`
+确实能让中文正常渲染，但它会**无条件加载** CJK 字体，而
+`DESIGN.md:155` 要求「只加载…**不加载未使用字体**」，
+`DESIGN.md:157` 又无条件要求「支持 CJK」。两条的取舍是规范层的决策，
+且三条既有单测正锁定旧行为，故按规矩回退并上交裁决。
+
+三条可选路径：**(a)** 维持现状（英文系统 + 中文内容 = 豆腐块）；
+**(b)** 放宽 155，非 CJK locale 也预装 CJK 族（改动最小，牺牲一点内存）；
+**(c)** 按渲染需要懒加载（最贴合 155+157，但要给字体库加运行时装载路径）。
+
+### 37.4 其余告警分类（均为环境噪音，不改）
+
+| 来源 | 计数 | 性质 |
+| --- | --- | --- |
+| `W/Runtime SLOW_FRAME` | 29 | 自有帧耗时诊断，50.9–106.0ms（Mali-G57 集显真机），非错误 |
+| `E/mali_gralloc` R8 格式不支持 | 8 | GPU 驱动限制，wgpu 自行规避 |
+| `W/wgpu_core` `SURFACE_VIEW_FORMATS` 缺失 | 4 | 同上，downlevel 能力通告 |
+| `E/SurfaceSyncer` / `W/Parcel` / `W/RemoteInputConnectionImpl` | 9 | 系统框架 |
+| `W/libc` 属性访问被拒 | 4 | SELinux |
+| `W/ziparchive` / `W/proot` / `W/bash` / `W/login` | 21 | bootstrap 内 procfs/audit 痕迹 |
+| `W/MemoryMonitor` `TRIM_MEMORY_RUNNING_MODERATE` | 1 | 系统内存提示 |
+| `W/TerminalSurface` `surface not valid yet, deferring` | 1 | 设计内的延迟处理 |
