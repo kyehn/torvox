@@ -291,4 +291,44 @@ class TerminalSurfaceLogicTest {
         )
         assertEquals(null, anchor)
     }
+
+    @Test
+    fun `menu hides when the selection is scrolled out of the viewport`() {
+        // 选区整体在视口之上（翻阅回滚后选中区仍留在旧处）：上方落点越顶、下方落点
+        // 虽然「不越底」却在视口外，两侧都不可用 → 隐藏，不返回屏外锚点。
+        val anchor = menuAnchor(
+            selection = PixelRect(0, -400, 400, -200),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(null, anchor)
+    }
+
+    @Test
+    fun `menu hides when the selection is below the viewport`() {
+        // 选区整体在视口之下：上方落点不越顶却落在视口外，同样隐藏。
+        val anchor = menuAnchor(
+            selection = PixelRect(0, 900, 400, 1000),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(null, anchor)
+    }
+
+    @Test
+    fun `menu stays inside the viewport for a selection clipped at the bottom`() {
+        // 选区下缘越过视口底：上方落点整体在视口内（600-44-40=516，516+44=560 ≤ 800）。
+        val anchor = menuAnchor(
+            selection = PixelRect(0, 600, 400, 900),
+            viewport = viewport,
+            menuWidth = 180,
+            menuHeight = 44,
+            handleHeight = 40,
+        )
+        assertEquals(110 to 516, anchor)
+    }
 }
