@@ -2673,6 +2673,7 @@ internal data class PixelRect(val left: Int, val top: Int, val right: Int, val b
  * 菜单锚定纯函数（design 决策 3）：返回菜单左上角 (x, y)；无处可放返回 null（调用方隐藏菜单）。规则：
  * - 上方优先：菜单底缘高出选择顶缘一个手柄高（锚隙）；贴顶（越出视口上缘）则翻到选择底缘之下；
  * - 贴右钳制：水平居中于选择后夹进视口左右缘；
+ * - 菜单必须整体落在视口内：任一落点越出视口即不可用（选区完全滚出视口时两处都越界）；
  * - 选择盖满视口 —— 上下两处落点都放不进选区外的剩余空间（等价于两处都会与选择相交）
  *   —— 返回 null：菜单任何时刻不遮挡选择。
  */
@@ -2688,12 +2689,16 @@ internal fun menuAnchor(
     val menuLeft = (
         (selection.left + selection.right) / 2 - width / 2
         ).coerceIn(viewport.left, (viewport.right - width).coerceAtLeast(viewport.left))
+
+    // 两处落点共用同一条「整体在视口内」判据：只判单侧会让选区滚出视口时
+    // 返回一个视口外的 y（PopupWindow 被添加到屏幕外，菜单不可见且不报错）。
+    fun fits(top: Int) = top >= viewport.top && top + menuHeight <= viewport.bottom
     val aboveTop = selection.top - menuHeight - handleHeight
-    if (aboveTop >= viewport.top) {
+    if (fits(aboveTop)) {
         return menuLeft to aboveTop
     }
     val belowTop = selection.bottom + handleHeight
-    if (belowTop + menuHeight <= viewport.bottom) {
+    if (fits(belowTop)) {
         return menuLeft to belowTop
     }
     return null
