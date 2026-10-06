@@ -154,7 +154,7 @@ impl DirtyBand {
 pub struct FramePatch {
     /// 需重绘的脏行带（`load: Load`，保留原有内容）。
     pub bands: Vec<DirtyBand>,
-    /// Rendered pixel height of one grid row（脏带清除实例的几何）。
+    /// 一个网格行的渲染像素高度（脏带清除实例的几何）。
     pub cell_height_px: f32,
 }
 
