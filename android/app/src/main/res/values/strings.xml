@@ -109,8 +109,8 @@
     <string name="byte_unit_mb">%1$d MB</string>
     <string name="clear_app_data">清除应用数据</string>
     <string name="clear_app_data_action">清除</string>
-    <string name="clear_app_data_confirm">确定要清除所有应用数据吗？此操作无法撤销。设置、会话历史记录和日志将被永久删除。引导程序文件和主目录不受影响。</string>
-    <string name="clear_app_data_desc">重置所有设置、会话和日志。不会删除引导程序文件或主目录。</string>
+    <string name="clear_app_data_confirm">确定要清除所有应用数据吗？此操作无法撤销。设置将被永久删除，运行中的会话会结束。引导程序文件和主目录不受影响。</string>
+    <string name="clear_app_data_desc">重置所有设置并结束运行中的会话。不会删除引导程序文件或主目录。</string>
     <string name="clear_app_data_done">应用数据已清除。请重新启动应用以完成完全重置。</string>
     <string name="control_toggle">Ctrl 切换</string>
     <string name="end_key">End</string>

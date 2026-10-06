@@ -379,9 +379,3 @@ fun resolveMaterialColorScheme(appThemeMode: String, forceDark: Boolean, isDarkT
         else -> lightColorScheme()
     }
 }
-
-enum class ThemeMode(val label: String) {
-    DAY("Day"),
-    NIGHT("Night"),
-    FOLLOW_SYSTEM("Follow System"),
-}

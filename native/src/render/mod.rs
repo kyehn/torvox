@@ -12,7 +12,7 @@ pub(crate) mod cell_builder;
 pub mod context;
 mod pass;
 mod pipeline;
-// 离屏渲染验证路径（见 docs/specification/REFERENCE.md）：程序化几何与带深度附件的
+// 离屏渲染验证路径：程序化几何与带深度附件的
 // LOD 网格仅供 crate 内测试，2D 终端渲染不需要深度附件，故不进正常构建，
 // 也不泄漏到启用了 `test-util` 的原生集成测试。
 pub(crate) mod wgpu_backend;

@@ -91,7 +91,7 @@ object TerminalInputEncoder {
     /**
      * xterm/zed 的 `CSI 27` 修饰键编码：`ESC [ 27 ; modifier ; code ~`。
      * 修饰键位：Shift=1，Alt=2，Ctrl=4。用于没有传统脱字符映射的
-     * Ctrl+数字（见 docs/specification/REFERENCE.md：Ctrl+数字/标点 → CSI 27;5;n~）。
+     * Ctrl+数字（Ctrl+数字/标点 → `CSI 27;5;n~`）。
      */
     private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
@@ -215,7 +215,7 @@ object TerminalInputEncoder {
     }
 
     /**
-     * 遵循 DECCKM 的方向键序列（见 docs/specification/REFERENCE.md）：
+     * 遵循 DECCKM 的方向键序列（见 `openspec/specs/modifier-bar-arrow-encoding/spec.md`）：
      * 在应用光标模式下方向键须用 SS3（`ESC O A`）而非 CSI（`ESC [ A`），
      * 否则 app 模式下的 vim/less/mutt 会误读。
      * 带修饰键的方向键不会到达此辅助函数——它们由 [csiSequenceWithModifier] 处理。
