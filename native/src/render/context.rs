@@ -646,13 +646,6 @@ impl Renderer {
         }
     }
 
-    /// 设置无窗口/离屏测试所用的 surface 配置。
-    ///
-    /// 未挂载真实窗口 surface 时，渲染通道以 `surface_config` 作为帧尺寸与格式。
-    pub fn set_surface_config(&mut self, config: wgpu::SurfaceConfiguration) {
-        self.surface_config = Some(config);
-    }
-
     pub fn set_background_color(&mut self, background: [u8; 3]) {
         self.background = wgpu::Color {
             r: background[0] as f64 / 255.0,
@@ -1030,10 +1023,6 @@ impl Renderer {
 
     pub fn has_surface(&self) -> bool {
         self.surface.is_some()
-    }
-
-    pub fn has_pipeline(&self) -> bool {
-        self.cell_pipeline.is_some()
     }
 
     #[cfg(target_os = "android")]
