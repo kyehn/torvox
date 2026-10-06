@@ -54,7 +54,7 @@ class BootstrapInstallService : Service() {
 
     private fun install(zipPath: String): String {
         val dirs = bootstrapDirs(this)
-        // 安装前把 zip 移到安全位置——它可能位于 homeDir 之下。
+        // 安装前把 zip 移到安全位置——它可能位于 home 目录之下。
         val preserved = File(filesDir, "bootstrap-preserved.zip")
         File(zipPath).copyTo(preserved, overwrite = true)
         // 不得预删 prefix/home/staging：原子换入路径负责旧目录随机备份、失败回滚与 staging

@@ -2107,18 +2107,18 @@ constructor(
                     }
                         .getOrNull() ?: "<unparsable>"
                 LogUtil.d("Runtime", "Bootstrap URL set: $origin")
-                val bootstrapDirs = terminal.emulator.installer.bootstrapDirs(context)
+                val dirs = terminal.emulator.installer.bootstrapDirs(context)
                 val installOrchestrator =
                     terminal.emulator.installer.BootstrapOrchestrator(
                         terminal.emulator.installer.BootstrapDownloader(context),
                         terminal.emulator.installer.BootstrapInstaller(
-                            prefixDir = bootstrapDirs.prefix,
-                            homeDir = bootstrapDirs.home,
-                            stagingDir = bootstrapDirs.staging,
+                            prefixDir = dirs.prefix,
+                            homeDir = dirs.home,
+                            stagingDir = dirs.staging,
                         ),
                         terminal.emulator.installer.SecondStageRunner(
-                            prefixDir = bootstrapDirs.prefix,
-                            homeDir = bootstrapDirs.home,
+                            prefixDir = dirs.prefix,
+                            homeDir = dirs.home,
                         ),
                     )
                 when (installOrchestrator.getInstallStatus()) {
