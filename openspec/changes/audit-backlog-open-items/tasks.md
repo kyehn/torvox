@@ -2205,3 +2205,44 @@ connected-failures: 0 failed in 1 report files      ← Gradle 报绿
 这正是 §31「报告通过但实际没跑」的可复现机制，不是推测。修它要动 `scripts/`
 （保护文件），故只记录；本地验证必须**逐类单跑并核对 XML 里的 `<testcase>` 计数**，
 不能只看 Gradle 的 `connected-failures`。
+
+### 38.3 真正的根因：就绪门槛不等 Surface 挂载
+
+CI 全量跑红、逐类单跑绿、本地全量（184 例）绿——差异只在 **surface 挂载时机**。
+CI 日志给出了决定性证据：
+
+```text
+GPU_UNCAPTURED_ERROR: Validation {
+    fn_ident: "Surface::get_current_texture_view",
+    source: NotConfigured,
+    description: "Surface is not configured for presentation"
+}
+```
+
+`NotConfigured` 意味着 wgpu surface **从未 configure 成功**。而
+`TestUtils.waitForTerminalScreen` 的判据只有一条：
+
+```kotlin
+waitUntil { probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() } }
+```
+
+终端节点在 Compose 组合完成时**就已存在**，那早于 SurfaceView 拿到有效 Surface：
+`surfaceCreated` 在 `width/height <= 0` 或 `!surface.isValid` 时会**直接 return 并
+推迟到 `surfaceChanged`**。于是像素类用例在那个窗口内采样，量到的必然全是零。
+
+CI 与本地的差别是资源：CI 是 `ram-size: 1536M, cores: 2`，surface 创建更容易被拖慢，
+窗口更大；本地默认配置窗口小到碰不到。这也解释了为何**逐类单跑必绿**
+（前面只有一两个用例，surface 早已挂载）。
+
+修法：门槛补一条判据——`TerminalViewModel.currentSurface` 只在 `surfaceCreated`
+通过尺寸与有效性守卫后才赋值，非空且 `isValid` 即等价于「可出帧」。
+门槛从「等得到节点」扩到「等得到像素」，与该函数原有注释的意图一致
+（「那只是还没好」，而不是「产品坏了」）。
+
+**这不是掩盖**：surface 真的挂不上时，用例改为在 60s 门槛上超时并报
+`waitForTerminalScreen` 失败，而不是伪装成像素断言失败——失败原因更贴近真实。
+
+### 38.4 §31 两条的现状
+
+`partialSelectShowsSelectionMenu` 与 `behavior_modifier_bar_visible` 共用的就是这条门槛，
+故本条修复对二者同样生效。下次真出现时，日志里会有 surface 挂载时序可查。
