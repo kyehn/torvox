@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub struct OutputSnapshot {
     pub filtered: Vec<u8>,
     /// 本块内命中的 OSC 52 读取请求的选择器名（按序）。
-    /// 单槽 last-wins 会让被挤掉的请求永不作答、远端挂起直到超时（R21-T6），
+    /// 单槽 last-wins 会让被挤掉的请求永不作答、远端挂起直到超时，
     /// 故保留全部；消费侧（会话队列 → 注册表上限）负责有界。
     pub clipboard_reads: Vec<String>,
 }
@@ -276,7 +276,7 @@ mod tests {
         assert!(snapshot.filtered.is_empty());
     }
 
-    /// R21-T6：同块内多个读请求必须全部保留（按序），单槽 last-wins 会让
+    /// 同块内多个读请求必须全部保留（按序），单槽 last-wins 会让
     /// 被挤掉的请求永不作答、远端挂起直到超时。
     #[test]
     fn osc52_multiple_read_requests_in_one_block_all_kept() {

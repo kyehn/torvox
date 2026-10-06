@@ -104,7 +104,7 @@ class InputBatchBuffer(
      * 入队永不阻塞，故可在持有 [lock] 时调用）。
      *
      * 必须在持有 [lock] 时调用：排空与入队原子，并发写入者不再可能
-     * 按 X、Y 排空却按 Y、X 入队（R21-T4）。
+     * 按 X、Y 排空却按 Y、X 入队。
      */
     private fun sendLocked(sessionId: Long, bytes: ByteArray) {
         if (bytes.isEmpty()) return

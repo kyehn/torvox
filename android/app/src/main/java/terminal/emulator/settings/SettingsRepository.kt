@@ -241,7 +241,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     /**
      * 丢弃尚未落盘的引导 URL 编辑并暂停防抖写入：清除应用数据前调用，
-     * 否则防抖写入会在删除之后重建 `preferences_pb`，清除静默不生效（R16-T6）。
+     * 否则防抖写入会在删除之后重建 `preferences_pb`，清除静默不生效。
      * 连带清空 replay 缓存，故其后的 `latestBootstrapUrlEdit()` 不再返回已清除的值。
      */
     suspend fun dropPendingBootstrapUrlEdits() {

@@ -191,7 +191,7 @@ constructor(
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
 
-    /** 字体列表 UI 实际显示时枚举并发布列表（R16-T7），平时不触发。 */
+    /** 字体列表 UI 实际显示时枚举并发布列表，平时不触发。 */
     fun refreshFontList() = fontManager.refreshFontList()
 
     // ── 选区转发（实现在 SelectionManager） ──
@@ -707,7 +707,7 @@ constructor(
     /**
      * 拥有字体加载、字号/家族设置与字体文件安装。内部类：
      * 经外层 ViewModel 访问字体 StateFlow、runtime、settingsRepository 与 context。
-     * 「应用已存字体」与「列举字体列表」是两条路径（R16-T7）：前者随会话启动，
+     * 「应用已存字体」与「列举字体列表」是两条路径：前者随会话启动，
      * 后者只在字体列表 UI 实际显示时（`refreshFontList` 由设置页 `LaunchedEffect` 触发）。
      */
     inner class FontManager {
@@ -758,7 +758,7 @@ constructor(
         /**
          * 字体列表 UI 路径：枚举并发布可用列表、默认字体名与字体信息。
          * 只在字体列表实际显示时调用（设置页 `LaunchedEffect`），
-         * 不由会话状态发射触发（R16-T7）。
+         * 不由会话状态发射触发。
          */
         fun refreshFontList() {
             if (fontLoadJob?.isActive == true) return
@@ -973,7 +973,7 @@ constructor(
                     }
                     if (runtime.state.value.sessionIds.isNotEmpty()) {
                         // 会话启动只应用已存字体（bridge 按会话持有）；列表枚举是
-                        // 字体列表 UI 的事，不在此触发（R16-T7）。
+                        // 字体列表 UI 的事，不在此触发。
                         fontManager.applyStoredFontSettings()
                         // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
                         viewModelScope.launch(TerminalDispatchers.inputOutput) {
@@ -1004,7 +1004,7 @@ constructor(
     fun clearAppData(onComplete: () -> Unit) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             // 先停掉防抖写入：用户在 300ms 窗口内改完 URL 就点清除，
-            // 落盘会发生在删除之后并重建 preferences_pb，清除静默不生效（R16-T6）。
+            // 落盘会发生在删除之后并重建 preferences_pb，清除静默不生效。
             settingsRepository.dropPendingBootstrapUrlEdits()
             try {
                 // 进程级 DataStore 单例仍在运行：删后必须重建，
