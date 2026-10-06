@@ -31,8 +31,8 @@ import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
+import terminal.emulator.runtime.pasteChunks
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.util.TerminalDispatchers
@@ -684,7 +684,7 @@ constructor(
             // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
             // 会让粘贴尾部写进新会话。
             val sessionId = runtime.inputTargetSessionId
-            val chunks = PasteChunker().chunks(text)
+            val chunks = pasteChunks(text)
             if (chunks.isEmpty()) {
                 LogUtil.d("TerminalViewModel", "粘贴跳过：切分后无块")
             }
