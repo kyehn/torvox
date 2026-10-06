@@ -11,6 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.ui.TerminalSurface
@@ -27,7 +28,7 @@ import terminal.emulator.ui.TerminalSurface
  *
  * Every measured value is logged as `UX_METRIC ...` for trend tracking.
  */
-class ScrollBehaviorQuantifiedTest {
+class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
     companion object {
         /** 洪流行数上限：400 行 × 约 35ms ≈ 14s，远长于手势时长（约 3.5s）。 */
         private const val FLOOD_LINE_LIMIT = 400

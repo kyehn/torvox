@@ -11,7 +11,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.Bridge
@@ -34,9 +34,7 @@ import terminal.emulator.waitForTerminalScreen
  * 清屏后把光标移到**空行**再下移一行，原格必为纯背景，亮度不降即唯一地
  * 只能是残留块。
  */
-class CursorPixelAcceptanceTest {
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
-
+class CursorPixelAcceptanceTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

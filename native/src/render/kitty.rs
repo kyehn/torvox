@@ -57,17 +57,20 @@ fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
 }
 
 /// 打包产物：（图集 RGBA，宽，高，与 frames 等长的条目表）。
-type PackedAtlas = (Vec<u8>, u32, u32, Vec<Option<AtlasEntry>>);
+///
+/// 单图全图时图集即该帧的像素本身，零拷贝借用即可；横条带布局才需新分配。
+/// 调用方只读（见 [`pack_and_build`] 与 `repack_kitty_atlas`），故借用可行。
+type PackedAtlas<'a> = (Cow<'a, [u8]>, u32, u32, Vec<Option<AtlasEntry>>);
 
 /// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
 /// 输入总量由上游存储上限约束（KGP_STORAGE_LIMIT=64MiB，见 types.rs）；
 /// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
 /// 计算并在超限时明确记日志后放弃该图集。
-fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas> {
+fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
     if frames.is_empty() {
         return None;
     }
-    // 单图且全图显示：单拷贝直传（借用下无法真正零拷贝）。
+    // 单图且全图显示：图集与帧像素同一份，借用即可（KGP 上限 64MiB，克隆即翻倍峰值）。
     if frames.len() == 1 {
         let frame = &frames[0];
         let (clamped_x, clamped_y, clamped_width, clamped_height) =
@@ -81,7 +84,7 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas> {
             && clamped_height == frame.image_height
         {
             return Some((
-                frame.image_rgba.clone(),
+                Cow::Borrowed(&frame.image_rgba),
                 frame.image_width,
                 frame.image_height,
                 vec![Some(AtlasEntry {

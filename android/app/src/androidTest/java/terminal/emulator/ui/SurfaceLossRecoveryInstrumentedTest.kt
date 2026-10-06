@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
@@ -29,7 +29,7 @@ import terminal.emulator.waitForSession
  * 废弃后 22 分钟 3074 帧全败，27 个用例退化为「零像素」断言）。
  */
 @RunWith(JUnit4::class)
-class SurfaceLossRecoveryInstrumentedTest {
+class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
     companion object {
         /** 注入后等待自愈的轮询上限：换视图 + 新窗口交付 + 首帧，模拟器上给足余量。 */
         private const val RECOVERY_TIMEOUT_MS = 30_000L
@@ -53,8 +53,6 @@ class SurfaceLossRecoveryInstrumentedTest {
         private const val SELECTION_ROW = 0
         private const val SELECTION_START_COL = 2
     }
-
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission =

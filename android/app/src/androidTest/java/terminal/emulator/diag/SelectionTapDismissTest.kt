@@ -10,7 +10,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.firstColumnBeyondDrawerEdge
@@ -33,9 +33,7 @@ import terminal.emulator.waitForTerminalScreen
  * 手势坐标一律由单元格度量算出（[terminalCellCenterOnScreen]）：屏幕尺寸随设备而变，
  * 硬编码坐标在 CI 的 320×640 模拟器上越界，手势根本没进终端，断言却报「幽灵选择」。
  */
-class SelectionTapDismissTest {
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
-
+class SelectionTapDismissTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

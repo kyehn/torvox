@@ -146,6 +146,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /**
      * 后台预热渲染器与字体库：PTY 已 spawn（shell 并行启动），attach 前把 wgpu 初始化与
      * 200+ 系统字体加载移到后台线程，不阻塞首帧链。
+     *
+     * 下方 [catch] 只接得住 JNI 层抛回的 `RuntimeException`；字体库无任何可用面时
+     * `font_db::fatal` 走 `process::abort`，是进程级终止，此处接不到。
      */
     fun prefetchRenderStateAsync(scope: kotlinx.coroutines.CoroutineScope) {
         scope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {

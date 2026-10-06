@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.util.runCatchingCancellable
@@ -15,7 +16,7 @@ import terminal.emulator.util.runCatchingCancellable
  * 无截图：只断言网格落格与 render 返回码。
  */
 @RunWith(JUnit4::class)
-class RenderPauseSemanticsTest {
+class RenderPauseSemanticsTest : TerminalLogcatTest() {
     @Test
     fun pausedWritesArePresentedAfterResume() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
