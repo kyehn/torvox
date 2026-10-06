@@ -20,7 +20,7 @@ import terminal.emulator.countReddishPixels
 import terminal.emulator.getBridge
 import terminal.emulator.placeTextAtRow
 import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalScreen
+import terminal.emulator.waitForTerminalPixels
 
 /**
  * 颜色像素验收：SGR 彩色文本必须在屏幕上产生对应色相的主导像素，
@@ -45,7 +45,8 @@ class SgrColorPixelAcceptanceTest : TerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalScreen()
+        composeTestRule.waitForTerminalPixels()
+        composeTestRule.waitForTerminalPixels()
     }
 
     private fun awaitBridge(): Bridge {

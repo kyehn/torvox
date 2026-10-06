@@ -22,6 +22,7 @@ import terminal.emulator.getBridge
 import terminal.emulator.injectTap
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalPixels
 
 /**
  * 输入法弹出像素验收（TESTING.md 输入法两条）。
@@ -89,6 +90,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
         UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
             composeTestRule.getBridge() != null
         }

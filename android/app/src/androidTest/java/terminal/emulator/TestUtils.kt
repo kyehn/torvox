@@ -82,22 +82,23 @@ fun AndroidComposeTestRule<*, *>.waitForTerminalScreen(timeoutMs: Long = 60_000)
     waitUntil(timeoutMillis = timeoutMs) {
         probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() }
     }
-    waitForAttachedSurface(timeoutMs)
 }
 
 /**
- * 等待原生 Surface 真正 attach。
+ * 像素类用例的就绪门槛：在 [waitForTerminalScreen] 之上再等原生 Surface 挂载。
  *
  * 终端节点在 Compose 组合完成时**就已存在**，那早于 SurfaceView 拿到有效
  * Surface（`surfaceCreated` 在 0 尺寸或无效 Surface 时会推迟到 `surfaceChanged`）。
- * 门槛只等节点时，像素类用例会在 `Surface::get_current_texture_view` 报
+ * 只等节点时，像素类用例会在 `Surface::get_current_texture_view` 报
  * `NotConfigured` 的窗口内采样，量到的全是零——判红原因与被测行为无关。
- * CI 实测：run 的日志里该 Validation Error 与像素用例判红同批出现。
+ * CI 实测：run 的日志里该 Validation Error 与像素用例判红同批出现，
+ * 且资源越紧（CI 为 1536M/2 核）窗口越大。
  *
- * [TerminalViewModel.currentSurface] 只在 `surfaceCreated` 通过尺寸与有效性
- * 守卫后才赋值，故非空即等价于「Surface 已 attach、可以出帧」。
+ * 只对**确实采样像素**的用例是必需的：不采样像素的用例（会话、抽屉、安装）
+ * 不该被 surface 时序绑住，故不并入 [waitForTerminalScreen]。
  */
-private fun AndroidComposeTestRule<*, *>.waitForAttachedSurface(timeoutMs: Long) {
+fun AndroidComposeTestRule<*, *>.waitForTerminalPixels(timeoutMs: Long = 60_000) {
+    waitForTerminalScreen(timeoutMs)
     waitUntil(timeoutMillis = timeoutMs) { isTerminalSurfaceAttached() }
 }
 

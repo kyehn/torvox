@@ -21,7 +21,7 @@ import terminal.emulator.getBridge
 import terminal.emulator.pixelLuminance
 import terminal.emulator.terminalCellSizePx
 import terminal.emulator.terminalGridColumns
-import terminal.emulator.waitForTerminalScreen
+import terminal.emulator.waitForTerminalPixels
 
 /**
  * 光标块验收：截图里的块光标必须落在渲染源报告的光标格上，
@@ -46,7 +46,7 @@ class CursorPixelAcceptanceTest : TerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForTerminalScreen()
+        composeTestRule.waitForTerminalPixels()
         composeTestRule.awaitBridge()
     }
 
