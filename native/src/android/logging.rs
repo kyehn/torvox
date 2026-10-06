@@ -59,19 +59,19 @@ impl Log for AndroidLogger {
 
     fn log(&self, record: &Record) {
         let tag = record.target();
-        let msg = format!("{}", record.args());
+        let message = format!("{}", record.args());
         let prio = level_to_android(record.level());
         let tag_c = CString::new(tag).unwrap_or_else(|_| {
             // SAFETY: "Rust" 不含内部 NUL 字节
             CString::new("Rust").expect("hardcoded string without NUL")
         });
-        let msg_c = CString::new(msg).unwrap_or_else(|_| {
+        let message_c = CString::new(message).unwrap_or_else(|_| {
             // SAFETY: `Vec::<u8>::new()` 不含 NUL 字节
             CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
         });
         // SAFETY: `__android_log_write` 是公开 NDK 函数，指针指向有效的 NUL 结尾 C 字符串。
         unsafe {
-            __android_log_write(prio, tag_c.as_ptr(), msg_c.as_ptr());
+            __android_log_write(prio, tag_c.as_ptr(), message_c.as_ptr());
         }
     }
 

@@ -829,7 +829,7 @@ impl Renderer {
             }
         }
 
-        let dst = self
+        let destination = self
             .readback_buffer
             .as_ref()
             .ok_or_else(|| GpuError::Surface("readback_buffer creation failed".to_string()))?;
@@ -841,7 +841,7 @@ impl Renderer {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: dst,
+                buffer: destination,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row_padded),
@@ -860,7 +860,7 @@ impl Renderer {
             log::warn!("render_to_buffer: device poll error: {error}");
         }
 
-        let slice = dst.slice(..);
+        let slice = destination.slice(..);
         // 用 oneshot 通道可靠地判定 map 完成。
         let (map_tx, map_rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -899,7 +899,7 @@ impl Renderer {
                 .map(|range| range.to_vec())
                 .map_err(|map_error| GpuError::Readback(map_error.to_string()))
         });
-        dst.unmap();
+        destination.unmap();
         let data = data?;
 
         let pixel_bytes = (frame_width * frame_height * 4) as usize;
