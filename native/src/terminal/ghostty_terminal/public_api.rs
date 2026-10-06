@@ -56,7 +56,6 @@ impl super::GhosttyTerminal {
         let (cell_data_tx, cell_data_rx) =
             flume::bounded::<(Vec<CellData>, CursorInfo)>(CELL_DATA_CHANNEL_CAPACITY);
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
-        let (bell_tx, bell_rx) = bounded::<()>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
         let panicked = Arc::new(AtomicBool::new(false));
@@ -92,7 +91,6 @@ impl super::GhosttyTerminal {
                         cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
                         clipboard_tx,
-                        bell_tx,
                     })
                 }));
                 if let Err(panic) = result {
@@ -126,7 +124,6 @@ impl super::GhosttyTerminal {
             query_tx,
             cell_data_rx: Some(cell_data_rx),
             clipboard_rx,
-            bell_rx,
             handle: Some(handle),
             pty_write_responses,
             panicked,
@@ -145,10 +142,6 @@ impl super::GhosttyTerminal {
 
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
         self.clipboard_rx.try_recv().ok()
-    }
-
-    pub fn poll_bell_event(&self) -> Option<()> {
-        self.bell_rx.try_recv().ok()
     }
 
     pub fn vt_write(&mut self, data: &[u8]) {

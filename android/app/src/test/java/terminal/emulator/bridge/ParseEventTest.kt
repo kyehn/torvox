@@ -97,11 +97,4 @@ class ParseEventTest {
             parse("""{"event":"clipboard_read","session_id":7,"request_id":9,"selection":"c"}""")
         assertEquals(listOf(Bridge.ClipboardRequest(7L, 9L, "c")), result.clipboardReads)
     }
-
-    @Test
-    fun `bell maps with session`() {
-        val result = parse("""{"event":"bell","session_id":7}""")
-        assertTrue(result.bell)
-        assertEquals(7L, result.sessionId)
-    }
 }

@@ -165,9 +165,6 @@ pub struct Session {
     /// 上游回调通道有界（`EVENT_CHANNEL_CAPACITY`）且满时记日志丢弃，
     /// 故队列深度天然受其约束。
     clipboard_text: Arc<Mutex<VecDeque<String>>>,
-    /// 待上报的 BEL 振铃（上游 on_bell 回调经通道推送，drain_callback_events 收割）。
-    /// 瞬时提示：单帧多响合并为一，poll_bell 取走并清零（get-and-clear）。
-    bell_pending: Mutex<bool>,
     /// 待处理的 OSC 52 剪贴板读取请求：所请求的 selection 名。
     /// 待上报的 OSC 52 剪贴板读取（FIFO）：`poll_pty_output` 收割，
     /// JNI 层逐帧取走全部并转发给宿主应用，经 [`Session::answer_clipboard_read`]
@@ -434,7 +431,6 @@ impl Session {
             exit_reported,
             clipboard_text,
             clipboard_read,
-            bell_pending: Mutex::new(false),
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(ExitCodeSlot::Pending)),
@@ -613,15 +609,6 @@ impl Session {
             // 单槽会让后一次覆盖前一次，用户丢剪贴板内容。
             self.clipboard_text.lock().push_back(text);
         }
-        while self.terminal.poll_bell_event().is_some() {
-            *self.bell_pending.lock() = true;
-        }
-    }
-
-    /// 取走待上报的 BEL 振铃并清零（get-and-clear，无振铃为 false）。
-    pub fn poll_bell(&self) -> bool {
-        let mut guard = self.bell_pending.lock();
-        std::mem::replace(&mut *guard, false)
     }
 
     /// 轮询 OSC 52 转义序列写入的剪贴板文本：每次取走最早的一条。

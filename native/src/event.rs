@@ -12,7 +12,7 @@ const MAX_QUEUED_EVENTS: usize = 1024;
 const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Rust 发往 Kotlin UI 层的事件。触发来源：`Clipboard` = OSC 52 写入，
-/// `ClipboardRead` = OSC 52 读取请求，`Bell` = BEL，`Exit` = `session.is_exited()`；
+/// `ClipboardRead` = OSC 52 读取请求，`Exit` = `session.is_exited()`；
 /// 均由 `session` 产生（`Exit` 亦可经 `pollEvent` 上报）。
 ///
 /// 跨 JNI 边界前统一序列化为 JSON，用内部标签（`#[serde(tag = "event")]`）供 Kotlin 匹配。
@@ -21,10 +21,6 @@ const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_se
 pub enum Event {
     /// 剪贴板写入内容：OSC 52 set 交由 Kotlin 经 `setPrimaryClip` 写入系统剪贴板。
     Clipboard { session_id: u64, text: String },
-    /// 终端收到 BEL（0x07）：上游 `on_bell` 回调经有界通道上报，
-    /// 会话锁存后由 `pollEvent` 逐帧上报一次（单帧多响合并为一，
-    /// 与对标实现的事件位置位/清零语义等价）。
-    Bell { session_id: u64 },
     /// 子进程已退出。
     Exit {
         session_id: u64,
@@ -112,12 +108,11 @@ impl EventQueue {
 
     /// 队列溢出告警每秒至多一次。带事件种类与会话 ID：溢出日志若不指明丢的是哪种
     /// 事件、从哪个会话来的，看到「队列满」也无从判断影响（退出事件绝不淘汰，故
-    /// 丢的只可能是剪贴板或振铃，而剪贴板丢失会静默丢失用户刚复制的内容）。
+    /// 丢的只可能是剪贴板，而剪贴板丢失会静默丢失用户刚复制的内容）。
     fn warn_overflow_once(&self, dropped: &Event) {
         let (kind, session_id) = match dropped {
             Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
             Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
-            Event::Bell { session_id } => ("bell", *session_id),
             Event::Exit { session_id, .. } => ("exit", *session_id),
         };
         let now = Instant::now();
@@ -276,7 +271,6 @@ mod tests {
             queue.push(clip(session_sequence as u64));
         }
         // 队列已满（1 个 ClipboardRead + 1024 个 Clipboard）。被淘汰的只能是 Clipboard。
-        queue.push(Event::Bell { session_id: 1000 });
         assert_eq!(
             queue.pop(),
             Some(pending_read),
@@ -295,7 +289,6 @@ mod tests {
             request_id: 7,
             selection: "c".to_string(),
         });
-        queue.push(Event::Bell { session_id: 1001 });
         assert!(
             (0..MAX_QUEUED_EVENTS)
                 .filter_map(|_| queue.pop())
@@ -324,18 +317,6 @@ mod tests {
             })
         );
         assert_eq!(queue.pop(), None);
-    }
-}
-
-#[cfg(test)]
-mod bell_tests {
-    use super::*;
-
-    #[test]
-    fn bell_serializes_with_snake_case_discriminator() {
-        // Kotlin PollEvent.Bell 解码的契约：discriminator 必须为 "bell"。
-        let json = serde_json::to_string(&Event::Bell { session_id: 7 }).expect("bell serializes");
-        assert_eq!(json, r#"{"event":"bell","session_id":7}"#);
     }
 }
 
