@@ -1617,3 +1617,33 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 强调标记），全仓 158 个 Markdown 文件 0 违规。教训：**`check` 只按日跑，
 提交本身不带触发器，故门禁失效可以静默数日**；本轮靠 `markdownlint-cli2` 本地
 逐文件复核才暴露。
+
+### 32.6 code-review-skill 双轴复审（`27145192..6fab0679`）
+
+依据 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 的
+`code-quality-universal` 通用清单（复用审查 / 参数膨胀 / 抽象边界 / 条件深度 /
+DRY / 空操作 / TOCTOU / 冗余状态）逐项核对 diff。
+
+**Standards 轴：无阻塞项。**
+
+- 复用：`waitForSession` 原先与 `waitForTerminalScreen` 重复同一段
+  `waitUntil + try/catch` 轮询，本轮改为直接委托，**减**一处重复。
+- 条件深度：`menuAnchor` 由「两处各判单侧」改为共用 `fits(top)`，嵌套层数不变。
+- 参数：`menuAnchor` 的 5 个参数是既有签名，本轮未增；改形状会波及全部既有用例。
+- TOCTOU / 空操作 / 冗余状态：本轮无相关代码。
+- STYLE:47/51/56：`fits`、`WATCHED_TAGS` 命名完整，无单字母变量；注释只写
+  「为什么」（标签大小写陷阱、就绪门槛为何收口），与相邻代码同款。
+- `nit`（不改）：`WATCHED_TAGS` 新增两个原生标签后，故障窗口内的相关行数上升，
+  `takeLast(120)` 会更偏向最近 2 秒。两枚锚点都会重复出现，取尾部仍能命中；
+  若将来需要更宽的窗口，应调 `LOG_LINES` 而不是调标签表。
+
+**Spec 轴：无缺口、无越界、无弱化。**
+
+- delta「菜单 MUST 整体落在视口内」逐条落到 `fits`；四个既有场景
+  （上方优先 / 贴顶翻转 / 贴右钳制 / 盖满视口隐藏）行为不变，5 条既有用例未改动。
+- 三个新增用例断言具体值（`null` / `null` / `110 to 516`），
+  符合 TESTING:7「每个测试必须断言具体行为」。
+- 取证与用例卫生三项属 change `tasks.md` 第 2 节已声明的范围，非 scope creep；
+  未放宽任何超时或阈值，未新增任何跳过/忽略，未把失败改写成通过。
+- 未引入任何 `catch` 吞错新入口；`waitForSession` 的 `catch (e: Exception)`
+  被替换为 `probeAssertion`（只捕 `AssertionError`），是**收紧**。
