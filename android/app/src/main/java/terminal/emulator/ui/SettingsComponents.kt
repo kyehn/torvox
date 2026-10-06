@@ -20,8 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -70,43 +68,6 @@ data class SettingsColors(
     val cardBackground: Color,
 )
 
-/** Row skeleton shared by every setting: label + value + control. */
-@Composable
-fun SettingsRow(
-    title: String,
-    valueText: String?,
-    colors: SettingsColors,
-    modifier: Modifier = Modifier,
-    testTag: String? = null,
-    control: @Composable () -> Unit,
-) {
-    val (_, labelStyle, valueStyle) = rememberSettingsResponsiveStyles()
-    Row(
-        modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = labelStyle,
-                color = colors.textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (valueText != null) {
-                Text(
-                    text = valueText,
-                    style = valueStyle,
-                    color = colors.secondaryText,
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        control()
-    }
-}
-
 /** 滑块行：标题 + 格式化数值 + 带强调色的滑块。[enabled] 为假时滑块置灰、数值文本暗淡 50% 且忽略改动。 */
 @Composable
 fun SettingsSliderRow(
@@ -152,52 +113,6 @@ fun SettingsSliderRow(
             valueRange = valueRange,
             steps = steps,
             colors = SliderDefaults.colors(thumbColor = colors.accentColor, activeTrackColor = colors.accentColor),
-        )
-    }
-}
-
-/** 开关行：标题 + 可选描述 + 带强调色的开关。[enabled] 为假时开关置灰、文本暗淡 50% 且忽略切换。 */
-@Composable
-fun SettingsSwitchRow(
-    title: String,
-    checked: Boolean,
-    onToggle: (Boolean) -> Unit,
-    colors: SettingsColors,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    testTag: String? = null,
-    enabled: Boolean = true,
-) {
-    Row(
-        modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.textColor.copy(alpha = if (enabled) 1f else 0.5f),
-            )
-            if (description != null) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textColor.copy(alpha = if (enabled) 0.6f else 0.5f),
-                )
-            }
-        }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = { newChecked: Boolean -> if (enabled) onToggle(newChecked) },
-            colors =
-            SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = colors.accentColor,
-                uncheckedThumbColor = colors.textColor.copy(alpha = 0.6f),
-                uncheckedTrackColor = colors.cardBackground,
-            ),
         )
     }
 }
