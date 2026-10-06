@@ -32,10 +32,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
+import terminal.emulator.R
 
 /** Screen-width threshold below which settings render in compact mode. */
 val SMALL_SCREEN_WIDTH_DP = 400.dp
@@ -281,4 +283,18 @@ private fun RowScope.SettingsSelectorPill(
             if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
         )
     }
+}
+
+/** 字体缺 CJK 回退时的警示橙，与 [CjkFallbackMissingWarning] 配套。 */
+internal val WARNING_ORANGE = Color(0xFFFF9800)
+
+/** 字体缺 CJK 回退的警告行。「无任何 CJK 回退」与「有回退但不覆盖当前字体」共用同一句提示。 */
+@Composable
+internal fun CjkFallbackMissingWarning() {
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = stringResource(R.string.cjk_fallback_missing_warning),
+        style = MaterialTheme.typography.bodySmall,
+        color = WARNING_ORANGE,
+    )
 }

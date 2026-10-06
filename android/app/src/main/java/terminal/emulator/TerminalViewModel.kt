@@ -1132,30 +1132,24 @@ constructor(
         },
     )
 
-    /**
-     * 在线与离线安装路径共用的 [terminal.emulator.installer.BootstrapInstaller] 与 [terminal.emulator.installer.SecondStageRunner] 配对。
-     * 文件位于 `filesDir` 之下，故操作系统只能经应用数据管理回收它们，绝不会因缓存压力而清理。
-     */
+    /** 在线与离线安装路径共用的安装器与二阶段执行器配对；目录取自三处入口共用的 [terminal.emulator.installer.bootstrapDirs]。 */
     private fun bootstrapComponents(
         onProgress: terminal.emulator.installer.BootstrapProgressCallback,
     ): Pair<
         terminal.emulator.installer.BootstrapInstaller,
         terminal.emulator.installer.SecondStageRunner,
         > {
-        val installer =
-            terminal.emulator.installer.BootstrapInstaller(
-                prefixDir = java.io.File(context.filesDir, "usr"),
-                homeDir = java.io.File(context.filesDir, "home"),
-                stagingDir = java.io.File(context.filesDir, "usr-staging"),
-                onProgress = onProgress,
-            )
-        val secondStage =
-            terminal.emulator.installer.SecondStageRunner(
-                prefixDir = java.io.File(context.filesDir, "usr"),
-                homeDir = java.io.File(context.filesDir, "home"),
-                onProgress = onProgress,
-            )
-        return installer to secondStage
+        val dirs = terminal.emulator.installer.bootstrapDirs(context)
+        return terminal.emulator.installer.BootstrapInstaller(
+            prefixDir = dirs.prefix,
+            homeDir = dirs.home,
+            stagingDir = dirs.staging,
+            onProgress = onProgress,
+        ) to terminal.emulator.installer.SecondStageRunner(
+            prefixDir = dirs.prefix,
+            homeDir = dirs.home,
+            onProgress = onProgress,
+        )
     }
 
     /**

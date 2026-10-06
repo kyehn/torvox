@@ -88,8 +88,6 @@ private const val TERMUX_PACKAGE_VARIANT = "apt.android-7"
 /** 引导程序版本，取自 termux-app app/build.gradle 的 downloadBootstraps 任务。 */
 private const val TERMUX_BOOTSTRAP_RELEASE = "2026.02.12-r1"
 
-private val WARNING_ORANGE = Color(0xFFFF9800)
-
 /** 危险操作（清除应用数据）的警示红色。 */
 private val DANGER_RED = Color.Red
 
@@ -676,12 +674,7 @@ private fun SystemFontSelector(
 
         val fontInfoDto = FontInfoDto.fromJson(fontInfo)
         if (fontInfoDto?.cjkState == "none") {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.cjk_fallback_missing_warning),
-                style = MaterialTheme.typography.bodySmall,
-                color = WARNING_ORANGE,
-            )
+            CjkFallbackMissingWarning()
         }
     }
 }
@@ -1308,12 +1301,7 @@ private fun FontInfoSection(fontInfo: FontInfoDto, pixelPerSp: Float, textColor:
             color = cjkDisplayColor,
         )
         if (!hasCjk && !cjkCoveredByPrimary) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.cjk_fallback_missing_warning),
-                style = MaterialTheme.typography.bodySmall,
-                color = WARNING_ORANGE,
-            )
+            CjkFallbackMissingWarning()
         }
         if (fontInfo.cellWidthPx > 0f && fontInfo.cellHeightPx > 0f) {
             Text(
