@@ -54,10 +54,10 @@ impl FontPipeline {
             // 部分也走回退整形（多花开销且 IME 命中不了缓存）。
             let mut cjk_ranges: Vec<std::ops::Range<usize>> = Vec::new();
             let mut start: Option<usize> = None;
-            for (idx, ch) in text.char_indices() {
-                let cp = ch as u32;
+            for (byte_index, character) in text.char_indices() {
+                let codepoint = character as u32;
                 let is_cjk = matches!(
-                    cp,
+                    codepoint,
                     0x1100..=0x11FF
                         | 0x3000..=0x303F
                         | 0x3040..=0x309F
@@ -72,10 +72,10 @@ impl FontPipeline {
                 );
                 if is_cjk {
                     if start.is_none() {
-                        start = Some(idx);
+                        start = Some(byte_index);
                     }
                 } else if let Some(s) = start.take() {
-                    cjk_ranges.push(s..idx);
+                    cjk_ranges.push(s..byte_index);
                 }
             }
             if let Some(s) = start {

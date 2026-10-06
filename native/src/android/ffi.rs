@@ -3209,8 +3209,8 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             // SAFETY: `paths` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效
             // （与 `feed_pty_inner` 同一模式）。
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
-            let len = array.len(env).unwrap_or(0);
-            for font_index in 0..len {
+            let count = array.len(env).unwrap_or(0);
+            for font_index in 0..count {
                 if let Ok(item) = array.get_element(env, font_index)
                     && let Ok(text) = item.try_to_string(env)
                 {

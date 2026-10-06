@@ -206,8 +206,8 @@ impl PtyPair {
         }
         let (shell_executable, shell_argument_texts) = split_shell_entry(shell);
         let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|null_error| {
-            let msg = format!("shell path contains null byte: {null_error}");
-            log::error!("{msg}");
+            let message = format!("shell path contains null byte: {null_error}");
+            log::error!("{message}");
             PtyError::Fork(nix::errno::Errno::EINVAL)
         })?;
         let shell_argument_cstrs: Vec<std::ffi::CString> = shell_argument_texts
@@ -223,8 +223,8 @@ impl PtyPair {
             .into_iter()
             .map(|(key, value)| {
                 std::ffi::CString::new(format!("{key}={value}")).map_err(|null_error| {
-                    let msg = format!("env var contains null byte: {null_error}");
-                    log::error!("{msg}");
+                    let message = format!("env var contains null byte: {null_error}");
+                    log::error!("{message}");
                     PtyError::Fork(nix::errno::Errno::EINVAL)
                 })
             })
@@ -234,8 +234,8 @@ impl PtyPair {
         });
         let working_directory_cstr =
             std::ffi::CString::new(chdir_target).map_err(|null_error| {
-                let msg = format!("working directory contains null byte: {null_error}");
-                log::error!("{msg}");
+                let message = format!("working directory contains null byte: {null_error}");
+                log::error!("{message}");
                 PtyError::Fork(nix::errno::Errno::EINVAL)
             })?;
 
