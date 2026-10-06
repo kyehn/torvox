@@ -2156,3 +2156,52 @@ AOSP 自 Android 13 起改为按语言分片。）
 | `W/ziparchive` / `W/proot` / `W/bash` / `W/login` | 21 | bootstrap 内 procfs/audit 痕迹 |
 | `W/MemoryMonitor` `TRIM_MEMORY_RUNNING_MODERATE` | 1 | 系统内存提示 |
 | `W/TerminalSurface` `surface not valid yet, deferring` | 1 | 设计内的延迟处理 |
+
+## 38. CI 红例的归因验证 + 一个真实的假绿机制
+
+### 38.1 CI build 失败的是模拟器，不是本轮改动
+
+run（head 含 §37 的全部字体改动）红 5 例，全是「终端没有像素」类。但这次
+`SgrColorPixelAcceptanceTest` 报的是 `前=0/0/182` 而非 `0/0/0`——**前景色有值**，
+与此前「完全空白」不同，故不能沿用旧结论。
+
+两级验证：
+
+**① 静态：用真机 `fonts.xml` 直接跑解析**（该文件即 `s`）。
+
+```text
+monospace 全部 = ["DroidSansMono.ttf", "CutiveMono.ttf"]
+zh-Hans 候选   = ["NotoSansCJK-Regular.ttc", "NotoSansCJK-Thin.ttc", ...]
+```
+
+主字体仍是 `DroidSansMono.ttf` 打头（stem 匹配命中），**像素测试走的渲染路径
+不受任何改动影响**；`zh-Hans` 候选则是 §37.2 三处修复的直接体现（常规字重首位、
+Serif 已消失）。已把真机结构固化为 `real_device_fonts_xml_keeps_primary_first_and_drops_serif`。
+
+**② 端到端：全新模拟器（冷启、无历史 surface 失效）逐类实跑**，
+几何对齐 CI（320×640 @160dpi）：
+
+| 类 | 实际执行 | 失败 |
+| --- | --- | --- |
+| `diag.CursorPixelAcceptanceTest` | 1 | 0 |
+| `diag.SgrColorPixelAcceptanceTest` | 1 | 0 |
+| `diag.SgrItalicPixelAcceptanceTest` | 1 | 0 |
+| `ui.ImePopupPixelInstrumentedTest` | 3 | 0 |
+
+**CI 红的 5 例在全新模拟器上全绿** ⇒ 环境退化，与 §32.2 一致。
+
+### 38.2 顺带撞见一个真实的假绿机制（§31 那条的根因）
+
+`-Pandroid.testInstrumentationRunnerArguments.class=A,B,C,D` **多类过滤不生效**：
+
+```text
+connected-failures: 0 failed in 1 report files      ← Gradle 报绿
+实际执行用例数 = 1                                   ← 只有第一个类跑了
+```
+
+加 `--rerun-tasks` 仍然如此。逐类单跑则正常（1/1/3 例都真实执行且全绿）。
+
+即：**按 AGENTS.md「只跑相关测试」的方式筛选时，未运行的类会被报成通过。**
+这正是 §31「报告通过但实际没跑」的可复现机制，不是推测。修它要动 `scripts/`
+（保护文件），故只记录；本地验证必须**逐类单跑并核对 XML 里的 `<testcase>` 计数**，
+不能只看 Gradle 的 `connected-failures`。
