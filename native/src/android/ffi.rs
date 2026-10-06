@@ -207,11 +207,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
     _class: JClass,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        // 预热是优化，失败可重试：GPU 初始化不可用时只记账，不致命。
+        // GPU 初始化是预热，失败可重试：不可用时只记账，不致命。
         // 渲染路径的 fatal 判定不变（见 render_state_mut），故真无 GPU 的设备仍在
         // 首帧得到明确的 GPU initialization failed，而不会被一次瞬时失败提前 abort。
         match crate::render::context::try_global_gpu() {
             Ok(_) => {
+                // 但**字体**部分不享有该豁免：render_state_mut 里的
+                // font_db::fatal 是 process::abort —— 进程级终止，jni_export_guard
+                // 与 Kotlin 的 try/catch 都接不住（真机 SIGABRT 即由此而来，见
+                // DESIGN 字体节「输出日志并崩溃退出，不做复杂处理」）。
                 drop(render_state_mut());
                 log::info!("render state prefetched");
             }

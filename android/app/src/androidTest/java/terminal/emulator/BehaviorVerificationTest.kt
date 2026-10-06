@@ -20,11 +20,12 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
-class BehaviorVerificationTest {
+class BehaviorVerificationTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule

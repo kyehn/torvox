@@ -13,6 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
@@ -35,7 +36,7 @@ import terminal.emulator.waitForSession
  * downloaded nor found pre-staged — an untested install path must not go silently green.
  */
 @RunWith(JUnit4::class)
-class TermuxBootstrapRealTerminalTest {
+class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
     companion object {
         private const val TAG = "TermuxBootstrapTest"
         private const val ZIP_NAME = "termux-bootstrap-x86_64.zip"

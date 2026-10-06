@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.PollEvent
@@ -19,7 +20,7 @@ import terminal.emulator.util.runCatchingCancellable
  * 不依赖共享运行时与 Activity 生命周期；每个用例断言具体行为。
  */
 @RunWith(JUnit4::class)
-class VtCorrectnessInstrumentedTest {
+class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 15_000L
         private const val ROWS = 24

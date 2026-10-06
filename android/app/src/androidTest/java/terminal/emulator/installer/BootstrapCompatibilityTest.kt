@@ -9,10 +9,11 @@ import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import java.io.File
 
 @RunWith(JUnit4::class)
-class BootstrapCompatibilityTest {
+class BootstrapCompatibilityTest : TerminalLogcatTest() {
     companion object {
         private const val PREFIX_SUFFIX = "files/usr"
         private val BOOTSTRAP_URL by lazy {

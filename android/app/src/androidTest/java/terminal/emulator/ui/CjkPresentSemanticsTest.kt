@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.util.runCatchingCancellable
@@ -15,7 +16,7 @@ import terminal.emulator.util.runCatchingCancellable
  * 网格必须包含中文。无截图（截图杀模拟器），只断言网格与返回码。
  */
 @RunWith(JUnit4::class)
-class CjkPresentSemanticsTest {
+class CjkPresentSemanticsTest : TerminalLogcatTest() {
     @Test
     fun chinese_text_gridded_and_renderable() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
