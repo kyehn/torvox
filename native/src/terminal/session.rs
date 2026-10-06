@@ -171,8 +171,8 @@ pub struct Session {
     /// 待上报的 OSC 52 剪贴板读取（FIFO）：`poll_pty_output` 收割，
     /// JNI 层逐帧取走全部并转发给宿主应用，经 [`Session::answer_clipboard_read`]
     /// 写回应答。队列而非单槽——同帧/块内多个读请求必须全部作答，
-    /// 单槽 last-wins 会让被挤掉的请求永不作答（R21-T6）；
-    /// 上游 flood 由 JNI 侧单会话上限显式作答空串（R17-T1），故深度天然有界。
+    /// 单槽 last-wins 会让被挤掉的请求永不作答；
+    /// 上游 flood 由 JNI 侧单会话上限显式作答空串，故深度天然有界。
     clipboard_read: Arc<Mutex<VecDeque<String>>>,
 
     // ── 线程生命周期 ─────────────────────────────────────────────────
@@ -477,7 +477,7 @@ impl Session {
         }
         self.grid_dirty.store(false, Ordering::Release);
         // 入队即发布：VT 尚未应用新网格。帧装配不得读这组缓存
-        // （`CursorInfo.rows/cols` 与 CellData 同源，见 R16-T5）；
+        // （`CursorInfo.rows/cols` 与 CellData 同源，）；
         // 它们只服务像素换算、去重短路与 Kotlin 查询。
         self.terminal_rows.store(rows as u32, Ordering::Release);
         self.terminal_cols.store(cols as u32, Ordering::Release);

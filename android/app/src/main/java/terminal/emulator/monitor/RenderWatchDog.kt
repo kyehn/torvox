@@ -60,7 +60,7 @@ class RenderWatchDog(
         while (scope.coroutineContext.isActive) {
             delay(checkIntervalMs)
             // 一次读出整条记录：起止分两次读时，可能拿到新 start 配旧 done，
-            // 伪造出 `start > done` 并误杀健康的渲染线程（R25-T2）。
+            // 伪造出 `start > done` 并误杀健康的渲染线程。
             val marks = getMarks()
             val elapsed = System.nanoTime() - marks.startNanos
             if (marks.startNanos > marks.doneNanos && elapsed > hangTimeoutNanos && isRunning()) {
