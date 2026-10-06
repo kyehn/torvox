@@ -154,7 +154,11 @@
       「内嵌 bootstrap，预装发行版」，两条都禁**随包携带**；`DESIGN.md:127`
       要求的是运行时**下载**并原子替换 `usr/`。实现走 `BootstrapDownloader`，
       APK 不预装任何发行版，与禁令一致。关闭
-- [ ] D7 / N7 发布链路（打 tag 产出空 release）
+- [x] **D7 / N7（前提证伪，与 §5 N40 同源，关闭）** 「打 tag 产出空 release」。
+      复核：release `0.1.0` 的 `publishedAt` 为 `2026-10-05T13:04:02Z`，
+      由成功 run `37314088435` 产出、`37360342338` 与 `37392123755` 原处更新，
+      资产 `app-release.apk` 在列；失败 run 里该步骤是 **skipped** 而非报错。
+      详见 §5 N40 条。关闭
 - [x] N1-23【前提不成立】台账称 `DESIGN.md:126` 写「支持 HTTP/HTTPS」，实测该行
       原文为「**Bootstrap**：支持 URL 与本地文件安装。」——规范从未声明明文 HTTP，
       `BootstrapDownloader.kt:64` 只放行 `https://` 不构成规范冲突。关闭
@@ -278,21 +282,21 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `android/baselineprofile/src/main/java/.../BaselineProfileGenerator.kt:42`
       用 `BaselineProfileRule` 真实驱动。仓内另有 `src/main/baselineProfiles/` 手写
       规则由插件一并合并。关闭
-- [ ] **N40`build.yml` 的 release 步骤结构性失败——流水线从未成功过一次**。
-      红在 `softprops/action-gh-release@master` 报
-      `⚠️ GitHub Releases requires a tag`。根因是触发方式而非代码：
-      `build.yml:2-5` 的 `on:` 只有 `workflow_dispatch` 与 `schedule`、**没有
-      `push: tags`**，而该 action 未传 `tag_name`，默认取 `github.ref`——在
-      `workflow_dispatch` 下恒为 `refs/heads/main`，故必然非 tag。同工作流
-      `build.yml:74-75` 的 `git tag --force 0.1.0` + `git push origin 0.1.0 --force`
-      是成功的，但推 tag 不改变当前 run 的 `github.ref`。
-      **实测：所有走到该步骤的 build run 全红**（``、``、
-      ``、``），而同期显示 success 的 run 全是 `check`
-      工作流、根本没执行该步骤——即 release 从未产出过一次。
-      修法（改保护文件 `.github/workflows/build.yml`，需授权）：
-      在 `:77-80` 的 `with:` 下加一行 `tag_name: 0.1.0`，与硬编码的 tag 对齐
-      （tag 被 force-push，release 每次原处更新，即该步骤的既有意图）。
-      未采纳「改由 `push: tags` 触发」：那会让 `schedule` 自动构建不再产出 release
+- [x] **N40（前提证伪，关闭：不改 `build.yml`）**`build.yml` 的 release 步骤
+      「结构性失败、流水线从未成功过一次」。R41 复核 GitHub API 与 run 日志：
+      `gh release view 0.1.0` 的 `publishedAt` 为 `2026-10-05T13:04:02Z`，
+      由 run `37314088435`（`d023ae38`，conclusion=success）产出
+      （该 run 日志含 `🎉 Release ready at …/releases/tag/0.1.0`），
+      并被其后的成功 run `37360342338`、`37392123755` 原处更新
+      （`Found release 0.1.0 (with id=403720590)` → `Uploading app-release.apk`）。
+      **失败 run 里该步骤根本没有执行**：`emulator-runner` 步骤红在
+      `connectedDebugAndroidTest`，工作流脚本是 `set -e`，其后的
+      `git tag`/`action-gh-release` 在 job 视图里标 `-`（skipped）。
+      原结论把「skipped」读成了「执行了并报错」。结论：release 链路正常，
+      台账提议的「在 `with:` 下加 `tag_name: 0.1.0`」是建立在错误前提上的
+      保护文件改动，**不做**。另据 R41 的 run 清单，`build` 工作流最近 20 次里
+      成功 7 次（`37308896734`/`37313627998`/`37313632938`/`37314088435`/
+      `37318309396`/`37360342338`/`37392123755`），并非「有记录以来全红」。
 - [ ] **N41仪器化失败时不导出 logcat，UI 偶发失败不可诊断**。
       `scripts/test-emulator.nu:8` 直接 `./gradlew ":app:connectedDebugAndroidTest"`，
       失败即中断，**没有 logcat 落盘**。后果实测于 run ``：run 日志里
@@ -305,6 +309,12 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `try { ... } catch { ^adb logcat -d -v threadtime | save --force logcat.txt ; null }`
       形态里（`save` 与现有脚本同族），使 run 日志或上传产物至少带上应用侧现场。
       这是取证能力修复，不改被测行为
+      **R41 部分消解**：仓内已有不需改保护文件的取证通道 `TerminalLogcatRule`
+      （失败时把应用日志尾部附在断言消息上），本轮把它接到 `SelectionEspressoTest`
+      与 `BehaviorInstrumentedTest`（§32.3），并修好它自身的标签过滤缺陷——
+      此前 `render: frame failed:` / `surface invalidated after …` 这两条唯一锚点
+      根本不在过滤结果里。13 个测试类已接入。余下「把整份 logcat 落盘为产物」
+      仍需改 `scripts/test-emulator.nu`（保护文件），是否要做请裁决
 
 ## 6. 已否证（回读源码确认不成立，记录依据以免重复排查）
 
