@@ -13,26 +13,34 @@ impl super::GhosttyTerminal {
         Self::new_with_theme(rows, cols, scrollback_lines, background, foreground, ansi)
     }
 
+    /// Catppuccin Mocha 调色板（alacritty-theme `catppuccin_mocha.toml`）。
+    ///
+    /// 取值必须与 alacritty-theme 逐字一致：该主题的 ANSI 十六色并非 Catppuccin
+    /// 原始调色板值——例如 normal.black 是 surface1 `#45475A` 而非 base `#181825`，
+    /// magenta 是 pink `#F5C2E7` 而非 mauve `#CBA6F7`。此处曾误用原始调色板值，
+    /// 令走本函数的终端渲染出与主题预览不同的颜色。
+    /// 颜色定义的真源在 Kotlin `BuiltInThemes.catppuccinMocha`（UI 侧随选中主题
+    /// 推给 native），本函数仅提供 setTheme 到达前的初态。
     pub fn catppuccin_mocha_palette() -> ([[u8; 3]; 16], [u8; 3], [u8; 3]) {
         let ansi = [
-            [24, 24, 37],
-            [243, 139, 168],
-            [166, 227, 161],
-            [249, 226, 175],
-            [137, 180, 250],
-            [203, 166, 247],
-            [148, 226, 213],
-            [205, 214, 244],
-            [108, 112, 134],
-            [243, 139, 168],
-            [166, 227, 161],
-            [249, 226, 175],
-            [137, 180, 250],
-            [203, 166, 247],
-            [148, 226, 213],
-            [187, 194, 222],
+            [0x45, 0x47, 0x5A], // normal.black   surface1
+            [0xF3, 0x8B, 0xA8], // normal.red     red
+            [0xA6, 0xE3, 0xA1], // normal.green   green
+            [0xF9, 0xE2, 0xAF], // normal.yellow  yellow
+            [0x89, 0xB4, 0xFA], // normal.blue    blue
+            [0xF5, 0xC2, 0xE7], // normal.magenta pink
+            [0x94, 0xE2, 0xD5], // normal.cyan    teal
+            [0xBA, 0xC2, 0xDE], // normal.white   subtext1
+            [0x58, 0x5B, 0x70], // bright.black   surface2
+            [0xF3, 0x8B, 0xA8], // bright.red     red
+            [0xA6, 0xE3, 0xA1], // bright.green   green
+            [0xF9, 0xE2, 0xAF], // bright.yellow  yellow
+            [0x89, 0xB4, 0xFA], // bright.blue    blue
+            [0xF5, 0xC2, 0xE7], // bright.magenta pink
+            [0x94, 0xE2, 0xD5], // bright.cyan    teal
+            [0xA6, 0xAD, 0xC8], // bright.white   subtext0
         ];
-        (ansi, [30, 30, 46], [205, 214, 244])
+        (ansi, [0x1E, 0x1E, 0x2E], [0xCD, 0xD6, 0xF4])
     }
 
     pub fn new_with_theme(
