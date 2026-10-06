@@ -59,7 +59,8 @@ import terminal.emulator.R
 import terminal.emulator.input.ModifierState
 import terminal.emulator.runtime.LogUtil
 
-private const val BUTTON_HEIGHT_DP = 36
+/** 单个修饰键按钮高度（dp）。网格预留高度按行数由它派生（见 TerminalRuntime 的 MODIFIER_BAR_HEIGHT_DP）。 */
+internal const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
 /**

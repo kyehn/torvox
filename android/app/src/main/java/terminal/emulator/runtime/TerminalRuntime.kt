@@ -34,6 +34,7 @@ import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.ui.BUTTON_HEIGHT_DP
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
@@ -1771,10 +1772,13 @@ constructor(
         private const val MIN_FONT_SIZE_TENTHS = 40
         private const val MAX_FONT_SIZE_TENTHS = 1000
 
-        /** 按字体度量重算网格时为 ModifierBar 预留的覆盖层高度，
-         *  等于两行按钮（BUTTON_HEIGHT_DP 36 × 2，零间距），
-         *  使网格预留与输入法跟随滚动对工具栏遮盖哪些行保持一致。 */
-        private const val MODIFIER_BAR_HEIGHT_DP = 72f
+        /**
+         * 按字体度量重算网格时为 ModifierBar 预留的覆盖层高度：修饰键栏恒为两行、
+         * 零间距，故由单行按钮高度派生而非另写一份数值——spec
+         * `modifier-bar-height-reservation` 要求此处与实际总高严格相等，
+         * 派生才使「改了按钮高度」不可能漏改预留。
+         */
+        private const val MODIFIER_BAR_HEIGHT_DP = BUTTON_HEIGHT_DP * 2
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
         private const val FONT_SIZE_MAX_PX = 600
