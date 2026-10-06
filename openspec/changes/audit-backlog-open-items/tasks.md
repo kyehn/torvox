@@ -154,7 +154,11 @@
       「内嵌 bootstrap，预装发行版」，两条都禁**随包携带**；`DESIGN.md:127`
       要求的是运行时**下载**并原子替换 `usr/`。实现走 `BootstrapDownloader`，
       APK 不预装任何发行版，与禁令一致。关闭
-- [ ] D7 / N7 发布链路（打 tag 产出空 release）
+- [x] **D7 / N7（前提证伪，与 §5 N40 同源，关闭）** 「打 tag 产出空 release」。
+      复核：release `0.1.0` 的 `publishedAt` 为 `2026-10-05T13:04:02Z`，
+      由成功 run `37314088435` 产出、`37360342338` 与 `37392123755` 原处更新，
+      资产 `app-release.apk` 在列；失败 run 里该步骤是 **skipped** 而非报错。
+      详见 §5 N40 条。关闭
 - [x] N1-23【前提不成立】台账称 `DESIGN.md:126` 写「支持 HTTP/HTTPS」，实测该行
       原文为「**Bootstrap**：支持 URL 与本地文件安装。」——规范从未声明明文 HTTP，
       `BootstrapDownloader.kt:64` 只放行 `https://` 不构成规范冲突。关闭
@@ -218,13 +222,19 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       「零 `NEEDED` 字样」，原 `:15-17` 的两条 `.so` 校验要求已从规范里删去。
       规范既已不提，`scripts/build-android-libs.nu` 不做该校验不再构成缺口。
       本轮关闭
-- [ ] N8**「自相矛盾」不成立**：`isShrinkResources=true` 是资源与死代码
-      收缩，`-dontobfuscate` 只是不做**名字改写**，两者是不同开关、可以并存；对终端
-      这类需要可读类名与栈的应用，保留名字是合理选择，不是矛盾。
-      余下「release 变体零冒烟」成立：`check-gradle.nu` 只请求
-      `assembleDebugAndroidTest` 与 `lintVitalRelease`，从不真正 `assembleRelease`。
-      补冒烟要改 `scripts/` 或 `.github/workflows/`（均属 AGENTS.md 明列的保护
-      文件），需用户授权
+- [x] **N8（前半已否证、后半前提证伪，关闭：不需要改保护文件）**
+      `isShrinkResources=true` 与 `-dontobfuscate` 是不同开关、可以并存，原结论已否证。
+      余下「release 变体零冒烟」同样不成立：
+      ① `build.yml:45` 与 `:76` 两次 `scripts/build-apk.nu --release` 真正
+      `assembleRelease`，产物上传为 `release-apk` 并随 release 发布
+      （run `37392123755` 的产物与 `🎉 Release ready` 两处均可证）；
+      ② `scripts/test-emulator.nu:11` 的 `:benchmark:connectedBenchmarkReleaseAndroidTest`
+      会在设备上装**并驱动** release 变体——`android/benchmark/build.gradle.kts:9`
+      的 `targetProjectPath = ":app"`，macrobenchmark 只能跑在不可调试的 release 变体上。
+      即 release 变体每日既被构建也被冒烟。
+      `check-gradle.nu` 里的 `lintVitalRelease` 是静态检查，与 `build` 的职责分工正常；
+      再加一次 `assembleRelease` 只是重复构建，按 DESIGN:18「不做任何多余或
+      不必要功能」不加。关闭
 - [x] N37 / N38（，原编号 N7 / N8 与上文「N8：release 变体零冒烟」那一条重号，此处改用未占用号）**两处前提均不成立**
       `scripts/*.nu`、`android/benchmark/` 与 `.github/workflows/build.yml` 里基准
       路径**无**任何关动画调用（`recoverEmulator` 只 `am force-stop` + `waitForIdle`）；
@@ -265,7 +275,12 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       不代表可以不吞异常——本仓另有 `no-allow-in-prod`、AGENTS.md 的禁止清单与
       「去掉掩盖真实故障的宽泛 catch」在管。要不要重新打开这六条复杂度规则
       属用户决策（`android/detekt.yml` 属 AGENTS.md 明列的保护文件）
-- [ ] N2-47 / N31（/）`cjk_resolve` bench 不进门禁（`scripts/check-rust.nu`）
+- [x] **N2-47 / N31（前提证伪，关闭：不需要改 `scripts/`）** 「`cjk_resolve`
+      bench 不进门禁」。`scripts/check-rust.nu` 末行即
+      `cargo bench -p native --bench cell_builder --bench vt_typing --bench cjk_resolve -- --quick`，
+      三个 bench 都在列。R41 本地实跑 `scripts/check-rust.nu` 复核：
+      日志含 `Running benches/cjk_resolve.rs` 与
+      `Benchmarking cjk_resolve_warm_per_line: Analyzing`。关闭
 - [x] N2-59 / N2-60测试注释声称脚本调 `rapidocr` 但脚本内零调用 ——
       已按事实改写注释（`rapidocr` 只在 `flake.nix` 与
       `scripts/download-rapidocr-models.nu`，`scripts/test-emulator.nu` 里零调用）。
@@ -278,21 +293,25 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `android/baselineprofile/src/main/java/.../BaselineProfileGenerator.kt:42`
       用 `BaselineProfileRule` 真实驱动。仓内另有 `src/main/baselineProfiles/` 手写
       规则由插件一并合并。关闭
-- [ ] **N40`build.yml` 的 release 步骤结构性失败——流水线从未成功过一次**。
-      红在 `softprops/action-gh-release@master` 报
-      `⚠️ GitHub Releases requires a tag`。根因是触发方式而非代码：
-      `build.yml:2-5` 的 `on:` 只有 `workflow_dispatch` 与 `schedule`、**没有
-      `push: tags`**，而该 action 未传 `tag_name`，默认取 `github.ref`——在
-      `workflow_dispatch` 下恒为 `refs/heads/main`，故必然非 tag。同工作流
-      `build.yml:74-75` 的 `git tag --force 0.1.0` + `git push origin 0.1.0 --force`
-      是成功的，但推 tag 不改变当前 run 的 `github.ref`。
-      **实测：所有走到该步骤的 build run 全红**（``、``、
-      ``、``），而同期显示 success 的 run 全是 `check`
-      工作流、根本没执行该步骤——即 release 从未产出过一次。
-      修法（改保护文件 `.github/workflows/build.yml`，需授权）：
-      在 `:77-80` 的 `with:` 下加一行 `tag_name: 0.1.0`，与硬编码的 tag 对齐
-      （tag 被 force-push，release 每次原处更新，即该步骤的既有意图）。
-      未采纳「改由 `push: tags` 触发」：那会让 `schedule` 自动构建不再产出 release
+- [x] **N40（前提证伪，关闭：不改 `build.yml`）**`build.yml` 的 release 步骤
+      「结构性失败、流水线从未成功过一次」。R41 复核 GitHub API 与 run 日志：
+      `gh release view 0.1.0` 的 `publishedAt` 为 `2026-10-05T13:04:02Z`，
+      由 run `37314088435`（`d023ae38`，conclusion=success）产出
+      （该 run 日志含 `🎉 Release ready at …/releases/tag/0.1.0`），
+      并被其后的成功 run `37360342338`、`37392123755` 原处更新
+      （`Found release 0.1.0 (with id=403720590)` → `Uploading app-release.apk`）。
+      **失败 run 里该步骤根本没有执行**：`emulator-runner` 步骤红在
+      `connectedDebugAndroidTest`，工作流脚本是 `set -e`，其后的
+      `git tag`/`action-gh-release` 在 job 视图里标 `-`（skipped）。
+      **修法其实早已落地**：用户的 `04754f0c` 已把
+      `if: startsWith(github.ref, 'refs/tags/')`（这才是「从未产出」的真正原因：
+      `workflow_dispatch` 下 `github.ref` 是分支，该条件恒假，步骤从未执行）
+      换成无条件步骤并补上 `tag_name: 0.1.0`。
+      原结论把「skipped」读成了「执行了并报错」。结论：release 链路正常，
+      台账提议的「在 `with:` 下加 `tag_name: 0.1.0`」是建立在错误前提上的
+      保护文件改动，**不做**。另据 R41 的 run 清单，`build` 工作流最近 20 次里
+      成功 7 次（`37308896734`/`37313627998`/`37313632938`/`37314088435`/
+      `37318309396`/`37360342338`/`37392123755`），并非「有记录以来全红」。
 - [ ] **N41仪器化失败时不导出 logcat，UI 偶发失败不可诊断**。
       `scripts/test-emulator.nu:8` 直接 `./gradlew ":app:connectedDebugAndroidTest"`，
       失败即中断，**没有 logcat 落盘**。后果实测于 run ``：run 日志里
@@ -305,6 +324,12 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       `try { ... } catch { ^adb logcat -d -v threadtime | save --force logcat.txt ; null }`
       形态里（`save` 与现有脚本同族），使 run 日志或上传产物至少带上应用侧现场。
       这是取证能力修复，不改被测行为
+      **R41 部分消解**：仓内已有不需改保护文件的取证通道 `TerminalLogcatRule`
+      （失败时把应用日志尾部附在断言消息上），本轮把它接到 `SelectionEspressoTest`
+      与 `BehaviorInstrumentedTest`（§32.3），并修好它自身的标签过滤缺陷——
+      此前 `render: frame failed:` / `surface invalidated after …` 这两条唯一锚点
+      根本不在过滤结果里。13 个测试类已接入。余下「把整份 logcat 落盘为产物」
+      仍需改 `scripts/test-emulator.nu`（保护文件），是否要做请裁决
 
 ## 6. 已否证（回读源码确认不成立，记录依据以免重复排查）
 
@@ -1549,6 +1574,16 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 §28.6、§28.7 的既往结论一致，本轮只是第一次把退化链路逐行落到日志上。
 第二次全量跑（同代码）183 例全绿，可作对照。
 
+### 32.2.1 CI 三连绿（本仓既定口径）
+
+| run | head | 结论 |
+| --- | --- | --- |
+| `37392123755` | `443e1726` | success，`connectedDebugAndroidTest` 零失败，release 原处更新 |
+| `37394262189`（`check`） | `6fab0679` | success，markdownlint 162 文件 0 违规，cargo test 553 例 |
+| `37395585913` | `c62f2463` | success，`connected-failures: 0 failed in 1 report files`，`🎉 Release ready` |
+
+即本轮改动后的三次连续运行全绿，达到台账自设的「三连绿为准」口径。
+
 ### 32.3 本轮已修（产品缺陷 + 取证能力，均不改动保护文件）
 
 - [x] **（产品，严重）`menuAnchor` 会返回视口外的锚点**：两处落点各只判单侧边界，
@@ -1583,9 +1618,10 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 - §5 **N41**（仪器化失败不导出 logcat）的取证意图，本轮已由仓内
   `TerminalLogcatRule` 覆盖到 10 个失败率最高的类、并修好了它自身的标签过滤，
   `scripts/test-emulator.nu` 是否仍需改 → 保护文件，请裁决。
-- §4 **D13 / N2-44**、§4 **D7 / N7**、§5 **N8 / N40 / N2-47**：本轮无新证据，
-  均需改保护文件（`docs/specification/`、`.github/workflows/build.yml`、
-  `scripts/check-rust.nu`），按 AGENTS.md 不擅动。
+- §4 **D13 / N2-44**：仍需改 `docs/specification/`（保护文件），按 AGENTS.md 不擅动。
+- §4 **D7 / N7**、§5 **N8 / N40 / N2-47**：**本轮证伪并关闭**，三条的前提都已不成立
+  （release 由 `04754f0c` 落地且实测产出；`cjk_resolve` 已在门禁内；
+  release 变体既被构建也被 macrobenchmark 冒烟），不再需要改任何保护文件。
 - §31 **（未定因）`partialSelectShowsSelectionMenu`**：本轮全量跑两次均未复现
   （同一份代码一红一绿），仍无根因；但 `SelectionEspressoTest` 本轮已接入
   `TerminalLogcatRule`，下次缺席会直接带上 `showSelectionMenu` 的缺席分支日志。
@@ -1604,6 +1640,38 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 改写时 run 号被清空留下的残渣**，不是新代码。
 
 已全部修正（正文语义不变：补回被清空的引用目标、去掉行尾空格、改写被截断的
-强调标记），全仓 158 个 Markdown 文件 0 违规。教训：**`check` 只按日跑，
+强调标记），本地全仓 158 个 Markdown 文件 0 违规，CI 复核：run `37394262189`
+（`check`）全绿，日志含 `Linting: 162 files / Summary: 0 issues in 0 files`，
+同一次 run 的 `cargo test` 553 例、rust/kotlin semgrep 32+16 条规则均 0 findings。教训：**`check` 只按日跑，
 提交本身不带触发器，故门禁失效可以静默数日**；本轮靠 `markdownlint-cli2` 本地
 逐文件复核才暴露。
+
+### 32.6 code-review-skill 双轴复审（`27145192..6fab0679`）
+
+依据 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 的
+`code-quality-universal` 通用清单（复用审查 / 参数膨胀 / 抽象边界 / 条件深度 /
+DRY / 空操作 / TOCTOU / 冗余状态）逐项核对 diff。
+
+**Standards 轴：无阻塞项。**
+
+- 复用：`waitForSession` 原先与 `waitForTerminalScreen` 重复同一段
+  `waitUntil + try/catch` 轮询，本轮改为直接委托，**减**一处重复。
+- 条件深度：`menuAnchor` 由「两处各判单侧」改为共用 `fits(top)`，嵌套层数不变。
+- 参数：`menuAnchor` 的 5 个参数是既有签名，本轮未增；改形状会波及全部既有用例。
+- TOCTOU / 空操作 / 冗余状态：本轮无相关代码。
+- STYLE:47/51/56：`fits`、`WATCHED_TAGS` 命名完整，无单字母变量；注释只写
+  「为什么」（标签大小写陷阱、就绪门槛为何收口），与相邻代码同款。
+- `nit`（不改）：`WATCHED_TAGS` 新增两个原生标签后，故障窗口内的相关行数上升，
+  `takeLast(120)` 会更偏向最近 2 秒。两枚锚点都会重复出现，取尾部仍能命中；
+  若将来需要更宽的窗口，应调 `LOG_LINES` 而不是调标签表。
+
+**Spec 轴：无缺口、无越界、无弱化。**
+
+- delta「菜单 MUST 整体落在视口内」逐条落到 `fits`；四个既有场景
+  （上方优先 / 贴顶翻转 / 贴右钳制 / 盖满视口隐藏）行为不变，5 条既有用例未改动。
+- 三个新增用例断言具体值（`null` / `null` / `110 to 516`），
+  符合 TESTING:7「每个测试必须断言具体行为」。
+- 取证与用例卫生三项属 change `tasks.md` 第 2 节已声明的范围，非 scope creep；
+  未放宽任何超时或阈值，未新增任何跳过/忽略，未把失败改写成通过。
+- 未引入任何 `catch` 吞错新入口；`waitForSession` 的 `catch (e: Exception)`
+  被替换为 `probeAssertion`（只捕 `AssertionError`），是**收紧**。

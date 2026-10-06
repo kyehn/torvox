@@ -27,4 +27,6 @@
       作为「未引入回归」的基线）。
 - [x] `testDebugUnitTest`（含新增三条 `menuAnchor` 用例）全绿。
 - [x] `detekt` + `spotlessCheck` 门禁通过。
-- [ ] CI 复跑确认（build 工作流）——需三连绿为准，见 `audit-backlog-open-items` §33。
+- [x] CI 复跑确认：run `37392123755`（head `443e1726`，含全部本 change 的代码改动）
+      `build` 全绿 20m10s，`connectedDebugAndroidTest` 零失败，
+      release 步骤亦正常（`🎉 Release ready at …/releases/tag/0.1.0`）
