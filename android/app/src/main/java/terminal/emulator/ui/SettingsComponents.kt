@@ -37,10 +37,10 @@ import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
 import terminal.emulator.R
 
-/** Screen-width threshold below which settings render in compact mode. */
+/** 设置界面进入紧凑模式的屏幕宽度阈值。 */
 val SMALL_SCREEN_WIDTH_DP = 400.dp
 
-/** Convenience: whether the current screen is narrow (compact layout). */
+/** 便捷方法：当前屏幕是否偏窄（紧凑布局）。 */
 @Composable
 @ReadOnlyComposable
 fun rememberIsSmallScreen(): Boolean {
@@ -60,7 +60,7 @@ private fun rememberSettingsResponsiveStyles(): Triple<Boolean, TextStyle, TextS
     return Triple(isSmallScreen, labelStyle, valueStyle)
 }
 
-/** Color bundle threaded into settings rows; replaces 5-parameter threading. */
+/** 传递到设置各行的颜色集合，取代 5 个参数的层层传递。 */
 data class SettingsColors(
     val textColor: Color,
     val secondaryText: Color,

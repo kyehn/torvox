@@ -41,7 +41,7 @@ import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 
-/** Mirror of selection::TouchClass. */
+/** 与 `selection::TouchClass` 对应。 */
 enum class TouchClass {
     Text,
     Whitespace,
@@ -311,7 +311,7 @@ constructor(
         }
     }
 
-    /** Feed bytes directly to the VT parser (test path for escape sequences). */
+    /** 把字节直接送入 VT 解析器（供转义序列测试使用）。 */
     fun feedTerminal(data: ByteArray) {
         runtime.feedTerminal(data)
     }
@@ -656,7 +656,7 @@ constructor(
             return text
         }
 
-        /** Paste clipboard content directly to the PTY (no confirmation dialog).
+        /** 把剪贴板内容直接粘贴到 PTY（无确认对话框）。
          *
          * 粘贴走 `pasteSink`（Surface 侧注入 `InputBatchBuffer.write`）：100 万字符
          * 剪贴板产生 250 块，主线程逐块同步写 PTY 会阻塞在会话锁 + PTY 写入上（N1-26）。
@@ -674,7 +674,7 @@ constructor(
             return executePaste(text)
         }
 
-        /** Actually send [text] to PTY via the chunker.
+        /** 经分块器把 [text] 真正写入 PTY。
          *
          * 主线程禁直接写：100 万字符剪贴板产生 250 块 JNI 同步写，
          * 阻塞在会话锁 + PTY 写入上。调用方须经 `InputBatchBuffer` 入队。
