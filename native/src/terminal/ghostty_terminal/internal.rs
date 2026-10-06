@@ -1455,10 +1455,12 @@ impl super::GhosttyTerminal {
                 continue;
             };
             let Some(image) = graphics.image(image_id) else {
+                log::debug!("kitty: 图像 {image_id} 已从 graphics 存储中消失，跳过");
                 continue;
             };
             let Some((image_width, image_height, image_rgba)) = Self::kitty_image_to_rgba(&image)
             else {
+                log::debug!("kitty: 图像 {image_id} 解码失败（格式或像素长度不支持），跳过");
                 continue;
             };
             let Ok(info) = placement.placement_render_info(&image, terminal) else {
