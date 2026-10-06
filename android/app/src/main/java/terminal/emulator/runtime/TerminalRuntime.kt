@@ -2141,12 +2141,8 @@ constructor(
                 "bridge created: ${bridge.ping()} elapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
             )
 
-            val fontDropDir = terminal.emulator.termuxFontDir(context)
-            fontDropDir.apply {
-                if (!exists() && !mkdirs()) {
-                    LogUtil.w("Runtime", "Failed to create font drop-in directory: $this")
-                }
-            }
+            // 字体投放目录 `~/.termux/fonts` 由用户自己创建：DESIGN 明令软件不得创建它，
+            // 字体路径按「存在才并入」处理，缺失即缺失。
             // 字体路径与区域设置都由 spawn 之后的 [applyRenderSettings] 一并下发：
             // Bridge 在 sessionId == 0（spawnTerminal 之前）会跳过每项设置，
             // 此处调用只会静默丢弃。
