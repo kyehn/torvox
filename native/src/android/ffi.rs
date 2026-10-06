@@ -1209,10 +1209,6 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
             }
-            // BEL 振铃与剪贴板同一优先级：锁存取走即上报（单帧多响已合并为一）。
-            if session.poll_bell() {
-                events.push(Event::Bell { session_id });
-            }
             // 退出码就绪才上报（`take_reported_exit` 内部同时锁存「已上报」），后台扫描
             // 分支走同一判定：既保证退出事件恰好一次，也保证报出的是真实退出码。
             if let Some(reported) = session.take_reported_exit() {
