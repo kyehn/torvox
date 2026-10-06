@@ -58,8 +58,6 @@ impl super::GhosttyTerminal {
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
-        let panicked = Arc::new(AtomicBool::new(false));
-        let panicked_for_run = panicked.clone();
         let alt_screen_active = Arc::new(AtomicBool::new(false));
         let alt_screen_active_for_run = alt_screen_active.clone();
         let cell_size_px_for_run = Arc::new((
@@ -99,9 +97,9 @@ impl super::GhosttyTerminal {
                         .map(|s| s.as_str())
                         .or_else(|| panic.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown panic payload");
+                    // 接收端随 run 的栈帧一同析构，命令/查询通道随即断开，
+                    // 后续操作在入队处显式失败——无需另设标志位。
                     log::error!("ghostty_terminal thread panicked: {panic_message}");
-                    // 标记后续所有操作失败，避免调用方向死信道静默发命令。
-                    panicked_for_run.store(true, Ordering::Release);
                 }
             })
             .map_err(TerminalError::Spawn)?;
@@ -126,7 +124,6 @@ impl super::GhosttyTerminal {
             clipboard_rx,
             handle: Some(handle),
             pty_write_responses,
-            panicked,
             last_pty_write_byte: 0,
             alt_screen_active,
         })
@@ -190,8 +187,10 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// VT 线程是否仍在：命令通道断开（含线程 panic 后接收端析构）即视为已死。
+    #[cfg(test)]
     pub fn is_alive(&self) -> bool {
-        !self.panicked.load(Ordering::Acquire) && !self.cmd_tx.is_disconnected()
+        !self.cmd_tx.is_disconnected()
     }
 
     #[cfg(test)]

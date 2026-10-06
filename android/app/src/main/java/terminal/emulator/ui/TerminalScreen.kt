@@ -69,9 +69,6 @@ import terminal.emulator.util.TerminalDispatchers
 import kotlin.math.max
 import kotlin.math.min
 
-private const val FONT_SIZE_MIN = 14f
-private const val FONT_SIZE_MAX = 48f
-
 // toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
 // 抽屉打开时，50ms 足以让遮罩轻击在输入法与关闭动画竞争前生效。
 // 原先的 250ms 会被感知为输入延迟。
@@ -605,7 +602,8 @@ fun TerminalScreen(
                                         onZoomChanged = { sizeSp ->
                                             // ⑥ 双指缩放终结：持久化稳定尺寸并执行完整应用
                                             // （单次网格重排）。
-                                            viewModel.setFontSize(sizeSp.coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX))
+                                            // 尺寸已由 zoomFontSize 钳到设置调节条同范围，此处不再重钳。
+                                            viewModel.setFontSize(sizeSp)
                                         }
                                         onZoomPreview = { sizeSp ->
                                             // 手势预览只推字形度量不重算网格，网格只在

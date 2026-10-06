@@ -82,7 +82,7 @@ class Bridge(private val config: TerminalConfig) {
      * TerminalRuntime.writeToPty 的硬件按键也能为输入→回显延迟探针打点。
      * 同时是渲染唤醒接缝：空闲 >5s 后的退格不再需要等满 500ms 空闲闭锁才能看到回显。
      */
-    @Volatile var onPtyWrite: ((Long) -> Unit)? = null
+    @Volatile var onPtyWrite: (() -> Unit)? = null
 
     /**
      * 统一转发一次 JNI 调用。
@@ -489,7 +489,7 @@ class Bridge(private val config: TerminalConfig) {
         // 原始字节端到端：此处解码为 Java String 会把非 UTF-8 序列
         // （粘贴的 GBK/ISO-8859-1、二进制协议）替换为 U+FFFD 并破坏子进程收到的内容。
         NativeBridge.feedPty(it, data)
-        onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
+        onPtyWrite?.invoke()
         true
     }
 
@@ -527,7 +527,7 @@ class Bridge(private val config: TerminalConfig) {
     fun isAppCursorMode(): Boolean =
         onSession("getMode", false) { NativeBridge.getMode(it, DEC_PRIVATE_MODE_APP_CURSOR, 0) }
 
-    fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
+    fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int): Boolean {
         LogUtil.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
         // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
@@ -555,7 +555,7 @@ class Bridge(private val config: TerminalConfig) {
                 )
             if (encoded != null) {
                 NativeBridge.feedPty(id, encoded)
-                onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
+                onPtyWrite?.invoke()
                 return@onSession true
             }
             // 编码器未覆盖的按键走原始可打印 unicode（补全平面安全）。按 Ctrl 时
