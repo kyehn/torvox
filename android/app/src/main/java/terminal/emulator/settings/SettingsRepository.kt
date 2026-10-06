@@ -18,6 +18,8 @@ import kotlinx.coroutines.sync.withLock
 import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.floor
+import kotlin.math.roundToInt
 
 @Singleton
 class SettingsRepository
@@ -50,7 +52,10 @@ constructor(private val provider: SettingsDataStoreProvider) {
         /**
          * 首次启动的按设备自适应字号（sp）：全新安装得到的尺寸能显示约
          * [DEFAULT_FONT_COLUMNS_TARGET] 个可见列（等宽字形约 0.6em 宽：sp = widthDp / (0.6 * target)），
-         * 并钳位到 [MIN_FONT_SP, MAX_FONT_SP]。下限为 14sp，使小屏手机绝不会低于可读范围。
+         * 并钳位到 [ADAPTIVE_DEFAULT_MIN_SP, ADAPTIVE_DEFAULT_MAX_SP]。
+         * 该区间约束的是「自适应算出的默认值落在哪」，与用户可选的
+         * [FONT_SIZE_MIN_SP]..[FONT_SIZE_MAX_PX] 是两件事：此处的下限使小屏手机
+         * 的初始字号不低于可读范围，上限使超大屏不会一启动就只有几列字。
          * 已在同一模拟器上与真 termux 0.118.3 标定（1080x2400@420dpi）：
          * termux 字形带 27px / 字距 ~21.2px / ~51 列，本应用 27px / 21.8px / ~49 列
          * ——在 ±10% 容差内，无需再改。
@@ -59,16 +64,39 @@ constructor(private val provider: SettingsDataStoreProvider) {
             screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET /
                 MONOSPACE_CHAR_ASPECT
             ).coerceIn(
-            MIN_FONT_SP,
-            MAX_FONT_SP,
+            ADAPTIVE_DEFAULT_MIN_SP,
+            ADAPTIVE_DEFAULT_MAX_SP,
         )
 
         private const val DEFAULT_FONT_COLUMNS_TARGET = 52f
         private const val MONOSPACE_CHAR_ASPECT = 0.6f
 
-        /** termux default_font_size parity: never launch below 14sp. */
-        const val MIN_FONT_SP = 14f
-        private const val MAX_FONT_SP = 24f
+        /** 自适应默认值的下限/上限，与用户可选范围无关（见 [defaultFontSizeFor]）。 */
+        const val ADAPTIVE_DEFAULT_MIN_SP = 14f
+        const val ADAPTIVE_DEFAULT_MAX_SP = 24f
+
+        /**
+         * 用户可选的字号范围与精度，取自 Termux
+         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:89
+         * 「默认大小与可选范围/精度须参考 Termux」）：下限 4dip；默认值 12dip 且取偶，
+         * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以密度。
+         */
+        const val FONT_SIZE_MIN_SP = 4f
+        const val FONT_SIZE_MAX_PX = 256f
+        const val FONT_SIZE_STEP_SP = 2f
+
+        /**
+         * 调节条上界（sp）：把 Termux 的像素上限换算到 sp 后按步长向下取整，
+         * 使 Material 调节条分出的每一档恰好相差 [FONT_SIZE_STEP_SP]，且不越过
+         * Termux 的像素上限。
+         */
+        fun fontSizeRangeMaxSp(density: Float): Float = floor(FONT_SIZE_MAX_PX / density / FONT_SIZE_STEP_SP)
+            .times(FONT_SIZE_STEP_SP)
+            .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
+
+        /** 调节条档数（Material `steps` 语义：两端点之间的中间档数）。 */
+        fun fontSizeRangeSteps(density: Float): Int =
+            ((fontSizeRangeMaxSp(density) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
     }
 
     val appThemeMode: Flow<String> =
