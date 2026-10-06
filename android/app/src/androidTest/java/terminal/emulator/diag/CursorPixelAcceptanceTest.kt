@@ -4,6 +4,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
+import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -14,6 +15,7 @@ import terminal.emulator.TerminalLogcatRule
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.pixelLuminance
@@ -49,6 +51,10 @@ class CursorPixelAcceptanceTest {
         composeTestRule.waitForTerminalScreen()
         composeTestRule.awaitBridge()
     }
+
+    /** 共用会话跨全部用例留存：不收尾即把选区、滚动偏移与回滚留给后继用例。 */
+    @After
+    fun resetSession() = composeTestRule.cleanUpTerminalState()
 
     private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
