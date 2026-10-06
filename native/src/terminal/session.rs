@@ -94,7 +94,9 @@ pub enum SessionError {
 
 /// resize 结果：Ghostty 网格是否接受了命令。
 /// `Applied` = PTY 与网格都已缩放；`Dropped` = PTY winsize 已变但网格命令被丢弃
-/// （通道满 / VT 线程卡住），此时调用方不得把新尺寸作为权威值发布。
+/// （通道满 / VT 线程卡住）。`Dropped` 期间本会话缓存的网格尺寸仍是旧值，
+/// 且已置 `grid_dirty` 使下一次 resize（即使尺寸相同）重试修复；因此调用方
+/// 可以照常发布新尺寸，但不得把 `self.grid_size()` 当作已生效的权威值。
 pub enum ResizeOutcome {
     Applied,
     Dropped,

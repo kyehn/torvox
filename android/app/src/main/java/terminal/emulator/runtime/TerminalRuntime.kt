@@ -3708,6 +3708,9 @@ internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: ()
         try {
             gridQuery()
         } catch (exception: Exception) {
+            // 查询失败与「查到 0」同解（都走无条件对齐），但必须留痕：
+            // 静默吞掉会让「切会话后网格错位」无从追溯。
+            LogUtil.e("Runtime", "grid query failed while switching session", exception)
             0L
         }
     return packed == 0L || (packed shr 32).toInt() != wantRows || packed.toInt() != wantCols
