@@ -1,0 +1,20 @@
+// markdownlint-cli2 自身配置，与 `.markdownlint.jsonc`（规则集）并列生效：
+// cli2 读本文件的 `ignores`，markdownlint 读 `.markdownlint.jsonc` 的规则。
+//
+// 存在的理由：三个工作流（`check`/`build`/`fmt`）都把 `"**/*.md"` 交给
+// markdownlint-cli2，而该工具**不读 `.gitignore`**（实测：`target/` 已在
+// `.gitignore` 中，`target/**/*.md` 仍被逐个检查）。于是三处都不是本仓内容
+// 的目录进了检查范围：
+//
+// - `target/`：Cargo 构建产物，内含 `libghostty-vt-sys` 拉下来的 ghostty
+//   源码树（`out/ghostty-src/`）。它带 970 处 markdown 违规，且 `fmt`
+//   带 `--fix` 会去改别人的源码——本轮 run `37414906808` 即红在此处。
+// - `result*/**`：`actions/checkout` 把 `kudzu` 检出到 `result-kudzu`，
+//   是另一个仓的副本。
+// - `android/**/build/**`：Gradle 构建产物。
+//
+// 放在配置里而不是各工作流的命令行 glob，是因为 `.github/` 是保护文件；
+// 配置对三条工作流同时生效，新增工作流也不会漏。
+{
+  "ignores": ["target/**", "result*/**", "android/**/build/**"]
+}
