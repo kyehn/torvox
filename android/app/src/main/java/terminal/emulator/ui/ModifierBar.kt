@@ -77,8 +77,13 @@ enum class ToolbarKey(
     @StringRes val contentDescriptionRes: Int? = null,
     /** 按住时重复发送按键序列（方向键）。 */
     val repeatable: Boolean = false,
+    /**
+     * 对应的 Android 键码，无对应时为 `null`（修饰键/功能键不参与组合编码）。
+     * 方向键的键码还决定无修饰时走 DECCKM 感知序列，见 [TerminalInputEncoder.arrowSequence]。
+     */
+    val androidKeyCode: Int? = null,
 ) {
-    ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape),
+    ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape, androidKeyCode = KeyEvent.KEYCODE_ESCAPE),
     DRAWER(
         "\u2261",
         "",
@@ -87,17 +92,41 @@ enum class ToolbarKey(
         contentDescriptionRes = R.string.open_session_drawer,
     ),
     SCROLL("SCROLL", "", contentDescriptionRes = R.string.toggle_scroll),
-    HOME("HOME", "\u001b[H", contentDescriptionRes = R.string.home_key),
-    ARROW_UP("\u2191", "\u001b[A", contentDescriptionRes = R.string.arrow_up, repeatable = true),
-    END("END", "\u001b[F", contentDescriptionRes = R.string.end_key),
-    PGUP("PGUP", "\u001b[5~", contentDescriptionRes = R.string.page_up),
-    TAB("TAB", "\t", contentDescriptionRes = R.string.tab_key),
+    HOME("HOME", "\u001b[H", contentDescriptionRes = R.string.home_key, androidKeyCode = KeyEvent.KEYCODE_MOVE_HOME),
+    ARROW_UP(
+        "\u2191",
+        "\u001b[A",
+        contentDescriptionRes = R.string.arrow_up,
+        repeatable = true,
+        androidKeyCode = KeyEvent.KEYCODE_DPAD_UP,
+    ),
+    END("END", "\u001b[F", contentDescriptionRes = R.string.end_key, androidKeyCode = KeyEvent.KEYCODE_MOVE_END),
+    PGUP("PGUP", "\u001b[5~", contentDescriptionRes = R.string.page_up, androidKeyCode = KeyEvent.KEYCODE_PAGE_UP),
+    TAB("TAB", "\t", contentDescriptionRes = R.string.tab_key, androidKeyCode = KeyEvent.KEYCODE_TAB),
     CTRL("CTRL", "", contentDescriptionRes = R.string.control_toggle),
     ALT("ALT", "", contentDescriptionRes = R.string.alt_toggle),
-    ARROW_LEFT("\u2190", "\u001b[D", contentDescriptionRes = R.string.arrow_left, repeatable = true),
-    ARROW_DOWN("\u2193", "\u001b[B", contentDescriptionRes = R.string.arrow_down, repeatable = true),
-    ARROW_RIGHT("\u2192", "\u001b[C", contentDescriptionRes = R.string.arrow_right, repeatable = true),
-    PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down),
+    ARROW_LEFT(
+        "\u2190",
+        "\u001b[D",
+        contentDescriptionRes = R.string.arrow_left,
+        repeatable = true,
+        androidKeyCode = KeyEvent.KEYCODE_DPAD_LEFT,
+    ),
+    ARROW_DOWN(
+        "\u2193",
+        "\u001b[B",
+        contentDescriptionRes = R.string.arrow_down,
+        repeatable = true,
+        androidKeyCode = KeyEvent.KEYCODE_DPAD_DOWN,
+    ),
+    ARROW_RIGHT(
+        "\u2192",
+        "\u001b[C",
+        contentDescriptionRes = R.string.arrow_right,
+        repeatable = true,
+        androidKeyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
+    ),
+    PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down, androidKeyCode = KeyEvent.KEYCODE_PAGE_DOWN),
 }
 
 /**
@@ -357,7 +386,7 @@ private fun toolbarKeyPresentation(
             {
                 sendPlainOrModified(
                     key,
-                    arrowOrPlainSequence(arrowKeyCode(key), key.sequence, actions.isAppCursorMode),
+                    arrowOrPlainSequence(key.androidKeyCode, key.sequence, actions.isAppCursorMode),
                     actions,
                     modifierStates,
                 )
@@ -376,30 +405,10 @@ private fun toolbarKeyPresentation(
     )
 }
 
-/** DECCKM 感知的方向键码，无对应返回空。 */
-private fun arrowKeyCode(key: ToolbarKey): Int? = when (key) {
-    ToolbarKey.ARROW_UP -> KeyEvent.KEYCODE_DPAD_UP
-    ToolbarKey.ARROW_DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
-    ToolbarKey.ARROW_LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
-    ToolbarKey.ARROW_RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
-    else -> null
-}
-
 /** 方向键按应用光标模式编码，其余键保持原序列。 */
 private fun arrowOrPlainSequence(keyCode: Int?, fallbackSequence: String, isAppCursorMode: () -> Boolean): String {
     if (keyCode == null) return fallbackSequence
     return TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode())
-}
-
-/** 可配置键栏普通按键的键码，无对应返回空（修饰键/功能键不参与组合编码）。 */
-private fun plainKeyCode(key: ToolbarKey): Int? = when (key) {
-    ToolbarKey.ESC -> KeyEvent.KEYCODE_ESCAPE
-    ToolbarKey.TAB -> KeyEvent.KEYCODE_TAB
-    ToolbarKey.HOME -> KeyEvent.KEYCODE_MOVE_HOME
-    ToolbarKey.END -> KeyEvent.KEYCODE_MOVE_END
-    ToolbarKey.PGUP -> KeyEvent.KEYCODE_PAGE_UP
-    ToolbarKey.PGDN -> KeyEvent.KEYCODE_PAGE_DOWN
-    else -> arrowKeyCode(key)
 }
 
 /**
@@ -416,7 +425,7 @@ private fun sendPlainOrModified(
         modifierStates.ctrlState == ModifierState.Locked || modifierStates.ctrlState == ModifierState.Once
     val altActive =
         modifierStates.altState == ModifierState.Locked || modifierStates.altState == ModifierState.Once
-    val keyCode = plainKeyCode(key)
+    val keyCode = key.androidKeyCode
     val bytesClick = actions.onKeyBytesClick
     if ((!ctrlActive && !altActive) || keyCode == null || bytesClick == null) {
         actions.onKeyClick(sequence)
@@ -463,7 +472,7 @@ private fun toolbarKeyClickHandler(
     ToolbarKey.ARROW_RIGHT,
     -> {
         // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
-        val keyCode = arrowKeyCode(key) ?: return { }
+        val keyCode = key.androidKeyCode ?: return { }
         {
             sendPlainOrModified(
                 key,
