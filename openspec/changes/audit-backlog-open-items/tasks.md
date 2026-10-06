@@ -1630,7 +1630,9 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 改写时 run 号被清空留下的残渣**，不是新代码。
 
 已全部修正（正文语义不变：补回被清空的引用目标、去掉行尾空格、改写被截断的
-强调标记），全仓 158 个 Markdown 文件 0 违规。教训：**`check` 只按日跑，
+强调标记），本地全仓 158 个 Markdown 文件 0 违规，CI 复核：run `37394262189`
+（`check`）全绿，日志含 `Linting: 162 files / Summary: 0 issues in 0 files`，
+同一次 run 的 `cargo test` 553 例、rust/kotlin semgrep 32+16 条规则均 0 findings。教训：**`check` 只按日跑，
 提交本身不带触发器，故门禁失效可以静默数日**；本轮靠 `markdownlint-cli2` 本地
 逐文件复核才暴露。
 
