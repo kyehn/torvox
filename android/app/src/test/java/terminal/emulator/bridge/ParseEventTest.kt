@@ -17,42 +17,7 @@ class ParseEventTest {
 
     // `parseEvent` 是 `Bridge` 的私有实例方法（Bridge 按会话持有配置）；
     // 反射调用它需要一个实例——构造只存配置，无 JNI 副作用。
-    private val bridge =
-        Bridge(
-            TerminalConfig(
-                shell = Shell.SystemDefault,
-                rows = 24,
-                cols = 80,
-                theme =
-                BridgeTheme(
-                    name = "test",
-                    background = 0,
-                    foreground = 0,
-                    cursor = 0,
-                    ansi0 = 0,
-                    ansi1 = 0,
-                    ansi2 = 0,
-                    ansi3 = 0,
-                    ansi4 = 0,
-                    ansi5 = 0,
-                    ansi6 = 0,
-                    ansi7 = 0,
-                    ansi8 = 0,
-                    ansi9 = 0,
-                    ansi10 = 0,
-                    ansi11 = 0,
-                    ansi12 = 0,
-                    ansi13 = 0,
-                    ansi14 = 0,
-                    ansi15 = 0,
-                ),
-                home = "",
-                workingDirectory = "",
-                prefix = "",
-                mkshrcPath = "",
-                fontSizeTenths = 140,
-            ),
-        )
+    private val bridge = TestBridges.create()
 
     private fun parse(json: String): Bridge.PollResult {
         val method =

@@ -7,17 +7,17 @@ import terminal.emulator.runtime.LogUtil
 private const val TAG = "NativeQueryPort"
 
 /**
- * 原生支撑的 [TerminalQueryPort]：每个方法与 JNI 导出 1:1 对应，供 [Bridge] 查询活动会话。
+ * 原生查询路径：每个方法与 JNI 导出 1:1 对应，供 [Bridge] 查询活动会话。
  *
  * 对调用方的约定：null/0/空表示引擎「无数据」，绝不可伪造。
  * 单行/字体查询开销小，批量查询（[getTerminalText]、[searchAllInScrollback]）由 UI 负责防抖。
  */
-class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQueryPort {
-    override fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
+class NativeQueryPort(private val sessionIdProvider: () -> Long) {
+    fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
 
-    override fun getActiveSessionTitle(): String = getTitle() ?: ""
+    fun getActiveSessionTitle(): String = getTitle() ?: ""
 
-    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
         // 选区由终端侧持有（引用跟踪，经 NativeBridge.setSelection 安装）：
         // VT 线程把反色烘焙进 CellData，视图侧无需维护单元格簿记。
         val active = hasSelection ?: true
@@ -31,21 +31,21 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         )
     }
 
-    override fun clearSearchHighlights() {
+    fun clearSearchHighlights() {
         NativeBridge.clearSearchHighlights(sessionIdProvider())
     }
 
-    override fun setSearchHighlights(data: ByteArray) {
+    fun setSearchHighlights(data: ByteArray) {
         NativeBridge.setSearchHighlights(sessionIdProvider(), data)
     }
 
-    override fun scrollbackLine(row: Int): String? = NativeBridge.scrollbackLine(sessionIdProvider(), row)
+    fun scrollbackLine(row: Int): String? = NativeBridge.scrollbackLine(sessionIdProvider(), row)
 
-    override fun scrollbackLength(): Int = NativeBridge.scrollbackLength(sessionIdProvider())
+    fun scrollbackLength(): Int = NativeBridge.scrollbackLength(sessionIdProvider())
 
-    override fun cursorViewportPacked(): Long = NativeBridge.getCursorViewportPacked(sessionIdProvider())
+    fun cursorViewportPacked(): Long = NativeBridge.getCursorViewportPacked(sessionIdProvider())
 
-    override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
+    fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
         NativeBridge.searchAllInScrollback(
             sessionIdProvider(),
             query,
@@ -53,39 +53,38 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         )
             ?.let { parseSearchMatches(it) }
 
-    override fun setScrollOffset(offset: Int) {
+    fun setScrollOffset(offset: Int) {
         // 原生侧在 VT 线程经 scroll_viewport 应用增量，下一次 CellData 推送即带上滚动后的视图。
         NativeBridge.setScrollOffset(sessionIdProvider(), offset)
     }
 
-    override fun setScrollYPx(offsetPx: Float) {
+    fun setScrollYPx(offsetPx: Float) {
         NativeBridge.setScrollYPx(sessionIdProvider(), offsetPx)
     }
 
-    override fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())
+    fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())
 
-    override fun listFontFamilies(): List<String>? = NativeBridge.listFontFamilies()?.toList()
+    fun listFontFamilies(): List<String>? = NativeBridge.listFontFamilies()?.toList()
 
-    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
-        NativeBridge.selectionText(
-            sessionIdProvider(),
-            startRow,
-            startCol,
-            endRow,
-            endCol,
-        )
+    fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? = NativeBridge.selectionText(
+        sessionIdProvider(),
+        startRow,
+        startCol,
+        endRow,
+        endCol,
+    )
 
-    override fun hyperlinkAt(row: Int, col: Int): String? = NativeBridge.hyperlinkAt(sessionIdProvider(), row, col)
+    fun hyperlinkAt(row: Int, col: Int): String? = NativeBridge.hyperlinkAt(sessionIdProvider(), row, col)
 
-    override fun wideCharTailCols(row: Int): IntArray = NativeBridge.wideCharTailCols(sessionIdProvider(), row)
+    fun wideCharTailCols(row: Int): IntArray = NativeBridge.wideCharTailCols(sessionIdProvider(), row)
 
-    override fun selectWordAt(row: Int, col: Int): IntArray? = NativeBridge.selectWordAt(sessionIdProvider(), row, col)
+    fun selectWordAt(row: Int, col: Int): IntArray? = NativeBridge.selectWordAt(sessionIdProvider(), row, col)
 
-    override fun selectAll(): IntArray? = NativeBridge.selectAll(sessionIdProvider())
+    fun selectAll(): IntArray? = NativeBridge.selectAll(sessionIdProvider())
 
-    override fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: ""
+    fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: ""
 
-    override fun getFontInfo(): String? = NativeBridge.getFontInfo()
+    fun getFontInfo(): String? = NativeBridge.getFontInfo()
 }
 
 @Serializable

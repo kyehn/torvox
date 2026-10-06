@@ -2677,6 +2677,17 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFont
     })
 }
 
+/// 搜索查询串长度上限（原生为唯一真源，UI 侧据此截断输入）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMaxChars<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jint {
+    jni_export_guard!(unowned_env, -1, |_env| {
+        GhosttyTerminal::MAX_SEARCH_QUERY_CHARS as jint
+    })
+}
+
 /// 返回字体信息字符串（当前字体 + CJK 回退）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'local>(
