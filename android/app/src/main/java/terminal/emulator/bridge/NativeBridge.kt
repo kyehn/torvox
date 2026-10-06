@@ -206,6 +206,9 @@ object NativeBridge {
     /** 默认字体家族名。 */
     @JvmStatic external fun getDefaultFontName(): String?
 
+    /** 搜索查询串长度上限：原生为唯一真源，UI 据此截断输入。 */
+    @JvmStatic external fun searchQueryMaxChars(): Int
+
     /** 结构化字体信息 JSON（见 [FontInfoDto]），渲染器未初始化时为 null。 */
     @JvmStatic external fun getFontInfo(): String?
 

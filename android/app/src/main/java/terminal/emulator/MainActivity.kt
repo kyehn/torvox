@@ -39,19 +39,6 @@ import javax.inject.Inject
 private const val BRIDGE_READY_POLL_INTERVAL_MS = 50L
 private const val BRIDGE_READY_POLL_ATTEMPTS = 50
 
-/**
- * 起一个守护线程跑 [block] 并立即返回。
- *
- * native 回调自自己的线程进入，主线程不能被它们阻塞；三处（终端转储、VT 写入、
- * 输入投递）共用这一个入口，省去三份 `Thread{}.apply{isDaemon=true;start()}` 样板。
- */
-private fun startDaemonThread(block: () -> Unit) {
-    Thread(block).apply {
-        isDaemon = true
-        start()
-    }
-}
-
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
