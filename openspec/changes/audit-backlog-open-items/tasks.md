@@ -1903,3 +1903,26 @@ LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {   // ← key 里�
   有反向对照（撤回 key 即红在「换 SurfaceView 后选区菜单必须重现」）与
   `connected-failures: 0` 的 CI 佐证。
 - 无未声明功能、无吞错新增、无跳过/忽略、无断言弱化；测试全部断言具体值。
+
+### 35.5 CI 抓到本地漏检项：`ComposeMultipleContentEmitters`
+
+`check` 门禁的 `lintDebug` 在 `c4fa86e0` 之前红在
+`SettingsComponents.kt:291`——**§35.2 新加的 `CjkFallbackMissingWarning`**：
+
+```
+Error: Composable functions should only be emitting content into the composition
+from one source at their top level.
+[ComposeMultipleContentEmitters from com.slack.lint:compose-lints]
+```
+
+`Spacer` 与 `Text` 是函数的两个顶层发射点。已收进单个 `Column`：本函数随即成为
+单一发射源，调用处的重组粒度恢复。布局不变——Column 默认 wrap 内容，嵌套进原本
+就直接列放两者的父 Column 后，宽高测量结果完全相同。
+
+**根因是我自己的验证疏漏，不是 CI 的问题**：本轮本地只跑了
+`compileDebugKotlin` + `detekt` + `spotlessCheck` + `testDebugUnitTest` 这个子集，
+**没有跑 `scripts/check-gradle.nu` 全量**，而 `lintDebug` 正是全量里的环节。
+detekt 与 ktlint 都不管 Compose 语义，只有 compose-lints 拦得住。
+
+结论：改动生产 UI 代码后必须跑 `scripts/check-gradle.nu` 全量，
+用子集代替等于把门禁当成没跑。CI 的价值正在于此——它跑的是全量。
