@@ -78,7 +78,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
         // 但 detach 可以不伴随 Surface 销毁发生（重组时 Compose 替换视图）。
         selectionHandles.hideSelectionHandles()
-        hideSelectionMenu()
+        hideSelectionMenu("detach")
         try {
             magnifier?.dismiss()
         } catch (exception: Exception) {
@@ -121,7 +121,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * TerminalScreen 的 LaunchedEffect 随即调用 [hideSelectionMenu]。
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
-        hideSelectionMenu()
+        hideSelectionMenu("showSelectionMenu")
         if (!isAttachedToWindow) {
             LogUtil.w(TAG, "菜单跳过：未附着")
             return
@@ -165,6 +165,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val loc = IntArray(2)
         getLocationInWindow(loc)
         try {
+            // 本回调只在**我们**调用 dismiss() 时触发。平台直接移除弹窗窗口
+            // （父视图窗口令牌变化/销毁）不会走到这里——两者是否成对出现，
+            // 是区分「应用主动关菜单」与「平台把窗口收走」的唯一依据。
+            popup.setOnDismissListener { LogUtil.d(TAG, "选区菜单 dismiss() 已执行（应用侧主动关闭）") }
             popup.showAtLocation(this@TerminalSurface, 0, loc[0] + anchor.first, loc[1] + anchor.second)
         } catch (exception: Exception) {
             // Activity 在检查与显示之间被 detach——与选区手柄同一守卫；
@@ -350,11 +354,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         return if (content > 0) content.toFloat() else cellHeight
     }
 
-    /** Dismiss the selection menu popup. */
-    fun hideSelectionMenu() {
+    /**
+     * Dismiss the selection menu popup.
+     *
+     * [reason] 必填：关闭完全由外部驱动（detach／抓柄／IME 切换／非手柄轻击／
+     * 状态流重锚），无此参数时菜单意外消失只能靠猜。
+     */
+    fun hideSelectionMenu(reason: String) {
         val popup = selectionMenuPopup
         selectionMenuPopup = null
         if (popup == null) return
+        // 记下消失瞬间的选区状态：菜单的关闭完全由选区状态流驱动，
+        // 而 dismiss 的调用点有四条（detach／抓柄／IME 切换／非手柄轻击），
+        // 无此日志时菜单意外消失只能靠猜——PasteButtonInstrumentedTest 在
+        // CI 同款几何下曾整段丢失粘贴动作而日志里查不到是谁关的。
+        val selection = viewModel?.state?.value?.selection
+        LogUtil.d(
+            TAG,
+            "hideSelectionMenu($reason): pasteOnly=${selection?.pasteOnly} " +
+                "menuDismissed=${selection?.menuDismissed} touchClass=${selection?.touchClass}",
+        )
         try {
             popup.dismiss()
         } catch (exception: Exception) {
@@ -1593,7 +1612,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         handleDragState = which
         // 抓柄即隐藏（design 决策 3）：拖动中菜单不遮挡选择；抬手由
         // finishHandleDrag 按新几何重锚重显。
-        hideSelectionMenu()
+        hideSelectionMenu("latchDragAnchor")
         // 锁定到发起拖动的那根手指：来自其他指针的后续 MOVE 事件
         // 绝不能改变选区。
         dragPointerId = pointerId
@@ -2031,7 +2050,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             lastImeVisible = imeVisible
             viewModel?.clearSelection()
             selectionHandles.hideSelectionHandles()
-            hideSelectionMenu()
+            hideSelectionMenu("imeVisibilityChanged")
         }
         return result
     }
@@ -2383,7 +2402,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 与之前一样清除选区。
                     viewModel?.clearSelection()
                     selectionHandles.hideSelectionHandles()
-                    hideSelectionMenu()
+                    hideSelectionMenu("nonHandleTap")
                 }
             }
 
