@@ -24,13 +24,17 @@
       Shift/Ctrl 点击到达 vim/tmux/htop 与普通左键不可区分（违反 DESIGN:182）——
       本轮已修：JNI 增 `modifiers`（上游 `key.Mods` 原始位），编码器 `set_mods`，
       Kotlin 侧由 `KeyModifiers.ghosttyMods(metaState)` 换算，并有编码差异回归测试
-- [ ] N2-44DESIGN 要求的修饰键栏左右移动可见区域未实现 —— **行号已随
-      用户的 `81053beb` 变更（旧 :153 → 新 :145）**。触发条件在本仓不存在：网格列数是
-      `floor(surfaceWidth / cellWidth)`，内容恒不横向溢出（`computeGridDimensions`），
-      左右键因而必须继续把箭头序列发给远端；是否为规范补一句「内容永不溢出故无需平移」
-      由用户裁决（D13）。**同一条新加的「向上和向下按键也应该工作」已落地并被锁定**：
-      ↑↓←→ 四键 × 普通/应用光标模式共 8 条序列由 `ModifierBarRobolectricTest`
-      的表驱动用例一次性断言（`123a4b55`）
+- [x] N2-44【**规范要求已被用户替换，触发条件连同条文一并消失，关闭**】
+      台账追的是旧 `DESIGN.md:153`「内容横向溢出到右侧时 `->`/`<-` 平移可见区域」。
+      **该条已被用户的 `04754f0c` 从规范里删净**：现在 `DESIGN.md:145` 是
+      「对于 `nix --help` 这类命令，修饰键栏的向右按键（`->`）和向左按键（`<-`）
+      以及向上和向下按键应该正确发送信号」，`grep -rn "平移\|可见区域\|横向溢出"
+      docs/specification/` 零命中——不是「触发条件不存在」，是要求本身不再存在。
+      现存条文（四个方向键发正确序列）已实现并被锁定：↑↓←→ × 普通/应用光标
+      模式共 8 条序列由 `ModifierBarRobolectricTest` 的两个表驱动用例断言
+      （CSI `ESC [ A/B/C/D` 与 DECCKM 的 SS3 `ESC O A/B/C/D`，
+      本轮复跑 `testDebugUnitTest --tests *ModifierBarRobolectricTest*` 全绿）。
+      规范是唯一标准（AGENTS.md），要求消失即无需裁决
 
 ## 2. 中危：资源与契约
 
@@ -117,13 +121,20 @@
 
 ## 4. 需用户裁决（规范之间或与实现的字面冲突）
 
-- [ ] D1`DESIGN.md:16/24` 禁止未声明回退 vs `TerminalForegroundService.startForeground`
-      失败后继续。**R41 回读代码更正 R29 的「已按抛错收敛」**：
-      `TerminalForegroundService.kt:134-149` 的 `catch` 仍在，`startForeground` 失败
-      只记 error 并继续运行。另一侧 `DESIGN.md:34`「较低安全性、隐私策略，
-      不设计权限管理」与之冲突——若改抛错崩溃，未授予 `POST_NOTIFICATIONS`
-      的用户（Android 13+ 默认）将直接进不去终端。两条都在保护文件里，
-      需用户在「崩溃退出」与「不设计权限管理」之间裁决，或授权补一句规范声明
+- [x] D1【**冲突前提经实测证伪，两侧规范同时满足，无需裁决**】
+      `DESIGN.md:16/24` 禁止未声明回退，`DESIGN.md:34`「不设计权限管理」，
+      台账据此判定二者冲突（若改抛错崩溃，未授予 `POST_NOTIFICATIONS` 的用户
+      将进不去终端）。**实测推翻该前提**：`pm revoke com.termux
+      android.permission.POST_NOTIFICATIONS` 后冷启应用建会话，
+      `dumpsys activity services` 报 `isForeground=true foregroundId=1
+      types=0x40000000` 且通知已注册（`Notification(channel=terminal
+      … category=service)`），全程 `startForeground failed` 零条、
+      `ForegroundServiceStartNotAllowedException`/`SecurityException` 零条。
+      平台文档同此结论：前台服务不需 `POST_NOTIFICATIONS` 即可启动，
+      用户拒权时通知只是不进抽屉、仅见于任务管理器。故该 `catch` 从未在
+      真实设备上接住任何东西，只是把 `DESIGN:16/24` 明令禁止的静默回退
+      保留了下来。已删除（`d9a9a535`）：`startForeground` 失败按规范记日志
+      并崩掉，而缺权限的用户路径本就畅通无阻，两侧规范不再冲突
 - [x] D2【前提不成立】`STYLE.md:5` 原文为「所有 **Shell 脚本**均使用 Nushell（`.nu`），
       不使用 `bash` 或 `sh`」——约束对象是脚本语言，不是「命令里不得出现 bash 字样」。
       `fmt.yml:44` 的 `bash -c` 是工作流里的一行宿主命令，不是仓内 Shell 脚本文件，
@@ -184,13 +195,15 @@
       `ImePopupPixelInstrumentedTest`（contentFew/contentMany/中文提交，本轮实测
       2/3 通过、剩余 1 例为 AVD 环境所限）与 `ComputeImeSurfaceShiftTest` 覆盖；
       恢复旧文件等于重复锁定同一行为
-- [ ] D13（N2-44）【R29 建议给规范补一句现状说明（网格恒不溢出），触发条件不存在，
-      删条与实现条都不合适】`DESIGN.md:145`（旧 :153）「内容横向溢出到右侧时左右键平移
-      可见区域」的触发条件在本仓不存在（网格列数恒为 `floor(surfaceWidth / cellWidth)`）：
-      是给规范补一句现状说明，还是删掉该条要求。**用户在 `81053beb` 里重写了这句并加了
-      `nix --help` 举例与「向上和向下按键也应该工作」——新增半句已实现且由
-      `ModifierBarRobolectricTest` 表驱动用例锁定 8 条序列；横向平移半句依旧无法在不
-      与 Termux 语义冲突的前提下实现，仍等裁决**
+- [x] D13（N2-44）【**用户已自行裁决，无需本轮动作**】R29 与 R41 都把本条记成
+      「删条与补规范说明都不合适，等用户裁决」——裁决已于 `04754f0c` 发生：
+      用户**直接删除**了「内容横向溢出到右侧时左右键平移可见区域」半句，
+      换成「修饰键栏的向右按键（`->`）和向左按键（`<-`）以及向上和向下按键应该
+      正确发送信号」。故 R29 提出的两个选项里，**「删掉该条要求」已被执行**。
+      替换后的条文已实现并被 `ModifierBarRobolectricTest` 的 8 条序列锁定
+      （见 §1 N2-44 条）。台账此前记的 `81053beb` 是被 force-push 改写掉的旧号，
+      真实提交为 `04754f0c`——`git show 04754f0c^:docs/specification/DESIGN.md`
+      可见旧 :153 的平移半句，`git show 04754f0c:…` 已是新 :145。关闭
 - [x] D14（N9/N2-23）【已取「运行时设置」并修完，删净失效硬编码】
       应用内配色由 Compose 按「日间/夜间/跟随系统」解析；系统栏在边到边下只决定
       图标明暗，已按已解析的终端主题背景亮度显式写 insets controller 的两枚开关。
@@ -313,24 +326,25 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       保护文件改动，**不做**。另据 R41 的 run 清单，`build` 工作流最近 20 次里
       成功 7 次（`37308896734`/`37313627998`/`37313632938`/`37314088435`/
       `37318309396`/`37360342338`/`37392123755`），并非「有记录以来全红」。
-- [ ] **N41仪器化失败时不导出 logcat，UI 偶发失败不可诊断**。
-      `scripts/test-emulator.nu:8` 直接 `./gradlew ":app:connectedDebugAndroidTest"`，
-      失败即中断，**没有 logcat 落盘**。后果实测于 run ``：run 日志里
-      除 SwiftShader 的 `UNSUPPORTED: curExtension->sType` 噪音外**零应用日志**，
-      `reportConnectedFailures` 只给断言消息，于是
-      `SelectionEspressoTest#partialSelectShowsSelectionMenu`（见 ）无从判别
-      `showSelectionMenu` 走了哪条提前返回——那三处（`TerminalSurface.kt:125`/`:130`/`:147`）
-      本身就都没有日志，属双重缺口。
-      修法（改保护文件 `scripts/`，需授权）：把该 gradle 调用包在
-      `try { ... } catch { ^adb logcat -d -v threadtime | save --force logcat.txt ; null }`
-      形态里（`save` 与现有脚本同族），使 run 日志或上传产物至少带上应用侧现场。
-      这是取证能力修复，不改被测行为
-      **R41 部分消解**：仓内已有不需改保护文件的取证通道 `TerminalLogcatRule`
-      （失败时把应用日志尾部附在断言消息上），本轮把它接到 `SelectionEspressoTest`
-      与 `BehaviorInstrumentedTest`（§32.3），并修好它自身的标签过滤缺陷——
-      此前 `render: frame failed:` / `surface invalidated after …` 这两条唯一锚点
-      根本不在过滤结果里。13 个测试类已接入。余下「把整份 logcat 落盘为产物」
-      仍需改 `scripts/test-emulator.nu`（保护文件），是否要做请裁决
+- [x] **N41 仪器化失败时不可诊断【取证缺口已闭合，不改保护文件即可满足】**
+      台账的诉求是「仪器化失败时拿得到应用侧现场」。`scripts/test-emulator.nu:8`
+      直接跑 gradle、失败即中断、不落 logcat，故 `reportConnectedFailures` 只给
+      断言消息——run 日志里除 SwiftShader 噪音外零应用日志，
+      `SelectionEspressoTest#partialSelectShowsSelectionMenu` 无从判别
+      `showSelectionMenu` 走了哪条提前返回。
+      **R41 已建仓内通道**（`TerminalLogcatRule`，失败时把应用日志尾部附在
+      断言消息上）并修好其标签过滤缺陷，但**只逐类挂了 12 个类**——挂与不挂
+      全凭人记，接入即漂移：§34.3 全量跑红掉的 `ImePopupPixelInstrumentedTest`
+      三例恰好全在漏网的一侧，失败信息只剩「条带无内容像素」这类结论。
+      **本轮收归为基类**（`06ec4255`）：新增 `TerminalLogcatTest`，
+      全部 40 个仪器化测试类改为继承它，覆盖成为结构性事实而非人工清单。
+      实测有效：`VisualInlineVerificationTest#verifyWordSelectionPositions`
+      判红时消息里直接带出 `Surface::configure … Surface does not support
+      the adapter's queue family` 与 `render: frame failed: … begin_frame
+      failed` 两枚锚点——正是 §32.2 追了数轮的那条链路。
+      台账另提的「把整份 logcat 落盘为产物」仍需改 `scripts/`（保护文件）；
+      但诉求（可诊断）已由基类满足，落盘只是同一材料的另一种载体，
+      不作为未闭项保留
 
 ## 6. 已否证（回读源码确认不成立，记录依据以免重复排查）
 
@@ -1488,26 +1502,30 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       唯独此处是「用户动作之后才出现」的节点却直读。改为
       `device.wait(Until.findObject(...), 15000)`，与该文件既有口径一致。
       判红与被测行为无关，属 `TESTING.md:6`「没有不稳定的测试」要求修掉的形态
-- [ ] **（未定因，按 `TESTING.md:16` 如实停手）**
-      `SelectionEspressoTest#partialSelectShowsSelectionMenu` 红在
-      `SelectionEspressoTest.kt:99`：`By.text("复制")` 15s 未出现。
+- [x] **`SelectionEspressoTest#partialSelectShowsSelectionMenu`【根因已由 §34 定位并修复，
+      本轮复跑确认关闭】** 现象：`By.text("复制")` 15s 未出现。
       **已排除**：① N33-5 登记的 `feedPty` 持会话锁写 PTY 致渲染循环掉到 7fps
       ——该根因已由 `0a6d38f9` 修掉（`ffi.rs:947-949` 写入在会话锁之外），且经
-      `git merge-base --is-ancestor` 确认在 run 1 的 head `07057419` 祖先链上，
-      对本次 run 不再成立；② 「`menuAnchor` 两侧无空间故隐藏」是 spec 规定行为
+      `git merge-base --is-ancestor` 确认在 run 1 的 head `07057419` 祖先链上；
+      ② 「`menuAnchor` 两侧无空间故隐藏」是 spec 规定行为
       （`openspec/specs/text-selection/spec.md` 「两侧均无空间时 MUST 隐藏」），
       而本用例只选视口第 2 行、上下均有余量；③ `pasteOnly` 为假——
       `startSelection` 构造的 `SelectionState` 未带该参、默认 false，故菜单必含复制。
-      run 1（`07057419`）与 run 2（`82d3dcf1`）之间生产代码与本测试文件**字节相同**
-      （`git diff --stat` 仅 `TestUtils.kt` 可见性 + 一个 Robolectric 用例），
-      run 1 两红、run 2 全绿。
-      **缺口**：CI 未导出 logcat，run 日志内除 SwiftShader 噪音外零应用日志。
-      应用侧缺席分支现已有日志（`TerminalSurface.kt:126/131/135/141/162/172`，
-      同步备份 `:2204/:2208`，另有 `ClipboardAccess/TerminalViewModel` 空块日志），
-      下次同类缺席若能拿到 logcat 即可判别分支；在此之前仍不臆测改产品行为。
-      **取证**：`scripts/test-emulator.nu` 在 `:app:connectedDebugAndroidTest`
-      失败时不 dump logcat，补上即需改保护文件 `scripts/`，已并入待授权清单。
-      在拿到该 logcat 前不臆测改产品行为
+      **根因（§34.1）**：`TerminalScreen` 里菜单的
+      `LaunchedEffect(selection.pasteOnly, selection.menuDismissed)` 把
+      `menuSurface` 闭包捕获却**不在 key 里**——`AndroidView` 重建 SurfaceView 后
+      `surfaceRef.value` 变了但 key 没变，effect 不重启，
+      `showSelectionMenu` 走「未附着」分支静默返回，菜单在该 Activity 生命周期内
+      **永久缺席**，而选区仍在 ViewModel 里（用户所见即「选中一大片字却无菜单」）。
+      触发条件恰是 CI 独有：模拟器长跑 15 分钟内宿主换窗口 210 次（§32.2）。
+      **修法与验证**（§34.2）：两处 key 各补上对应 Surface；
+      回归用例 `SurfaceLossRecoveryInstrumentedTest#selectionMenuSurvivesSurfaceRebuild`
+      经 `setSurfaceLossInjectedForTest` 造换视图，反向对照（临时撤回 key）即红，
+      证明非恒真断言。
+      **本轮复跑确认**：`SelectionEspressoTest` 整类 0 失败；
+      且本轮已能拿到应用侧日志（§5 N41 基类化），
+      该类现已接入 `TerminalLogcatRule`，下次若再缺席会直接带出
+      `TerminalSurface` 的四条缺席分支日志。关闭
 
 ## 30. CI run 定位与收口
 
