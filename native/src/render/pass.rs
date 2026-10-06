@@ -471,10 +471,10 @@ impl Renderer {
             None => &swapchain_view,
         };
 
-        // ── Main merged pass: background → cells → KGP ──────
-        // Load rules:
-        // - partial: always Load (bands composite over previous output)
-        // - plain background: Clear(background)
+        // ── 合并主通道：背景 → 单元 → KGP ──────
+        // Load 规则：
+        // - 部分帧：一律 Load（各脏带叠在上一帧输出之上）
+        // - 纯背景：Clear(background)
         let load = if partial {
             wgpu::LoadOp::Load
         } else {
@@ -496,7 +496,7 @@ impl Renderer {
         );
         render_pass.set_scissor_rect(0, 0, config_width, config_height);
 
-        // Cells: either just the dirty bands or everything.
+        // 单元：只画脏带或全画。
         {
             if let Some(bind_group) = &self.cell_bind_group {
                 render_pass.set_pipeline(pipeline);
@@ -525,7 +525,7 @@ impl Renderer {
             }
         }
 
-        // Kitty graphics (full frames only — overlays arbitrary regions).
+        // Kitty 图像（仅全量帧——可叠加任意区域）。
         if kgp_present
             && let (Some(kgp_pipeline), Some(kgp_bind_group)) =
                 (&self.kgp_pipeline, &self.kgp_bind_group)
@@ -541,7 +541,7 @@ impl Renderer {
 
         drop(render_pass);
 
-        // ── Present: one copy accumulator → swapchain ─────────────
+        // ── 呈现：一次拷贝（累加器 → 交换链） ─────────────
         if let Some(acc_texture) = self.frame_texture.as_ref() {
             encoder.copy_texture_to_texture(
                 acc_texture.as_image_copy(),
@@ -553,14 +553,14 @@ impl Renderer {
                 },
             );
         }
-        // A completed frame leaves the accumulator coherent.
+        // 帧已完成，累加器内容保持自洽。
         if accumulator_view.is_some() {
             self.frame_invalidated = false;
         }
         // 本帧已按当前偏移呈现：作为下一帧滚动变化判定基准。
         self.last_drawn_viewport_scroll_px = self.viewport_scroll_px;
 
-        // Submit + present
+        // 提交 + 呈现
         let encoder = frame_ctx.encoder;
         let texture = frame_ctx.texture;
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -733,11 +733,9 @@ impl Renderer {
             height: frame_height,
             depth_or_array_layers: 1,
         };
-        // the readback texture must match the pipeline
-        // format (the cell/kgp pipelines are created against the surface
-        // format, which is usually Bgra8Unorm on Android) — a hardcoded
-        // Rgba8Unorm triggered a wgpu validation error when used as the
-        // render attachment for those pipelines.
+        // 回读纹理格式必须与管线格式一致（cell/kgp 管线按 surface 格式创建，
+        // Android 上通常是 Bgra8Unorm）——硬编码 Rgba8Unorm 会让这些管线
+        // 以它作渲染附件时触发 wgpu 校验错误。
         let pipeline_format = self.pipeline_format;
         let needs_new = match &self.readback_texture {
             Some(texture) => {
@@ -945,7 +943,7 @@ mod tests {
         Renderer::should_render_partial(args.0, args.1, args.2, args.3)
     }
 
-    // ── scroll-coherence gate (fix-scroll-residual-tearing) ──────────────
+    // ── 滚动一致性门控（fix-scroll-residual-tearing） ──────────────
 
     /// 滚动一致性门控决策表：偏移非零或相对上一呈现帧变化 → 强制全量。
     #[test]

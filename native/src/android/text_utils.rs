@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn encode_modifiers_ctrl_printable_uses_mask() {
-        // Ctrl+A → 0x01, Ctrl+Z → 0x1A.
+        // Ctrl+A → 0x01，Ctrl+Z → 0x1A。
         assert_eq!(encode_modifiers(b"a", 4), b"\x01");
         assert_eq!(encode_modifiers(b"z", 4), b"\x1a");
     }
@@ -62,13 +62,13 @@ mod tests {
     #[test]
     fn encode_modifiers_alt_prefixes_esc() {
         assert_eq!(encode_modifiers(b"a", 2), b"\x1ba");
-        // Meta (8) behaves like Alt.
+        // Meta (8) 行为与 Alt 相同。
         assert_eq!(encode_modifiers(b"a", 8), b"\x1ba");
     }
 
     #[test]
     fn encode_modifiers_ctrl_alt_combined() {
-        // Alt+Ctrl+A → ESC + Ctrl+A.
+        // Alt+Ctrl+A → ESC + Ctrl+A。
         assert_eq!(encode_modifiers(b"a", 2 | 4), b"\x1b\x01");
     }
 

@@ -650,7 +650,7 @@ impl Session {
         response.extend_from_slice(selection.as_bytes());
         response.push(b';');
         response.extend_from_slice(encoded.as_bytes());
-        response.push(0x07); // BEL terminator (xterm-compatible)
+        response.push(0x07); // BEL 终止符（兼容 xterm）
         if self.is_exited() {
             return Err(SessionError::Closed);
         }

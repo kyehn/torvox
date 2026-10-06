@@ -5,18 +5,18 @@ use serde::{Deserialize, Serialize};
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::ghostty_terminal::{CellSnapshot, DumpedGrid};
 
-/// Version of the snapshot format. Bump when making breaking changes.
+/// 快照格式版本，出现破坏性改动时递增。
 const SNAPSHOT_VERSION: u32 = 1;
 
-/// Human-readable cell representation for JSON snapshots.
+/// JSON 快照中单元的可读表示。
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CellJson {
-    /// The cell content (character or empty string).
+    /// 单元内容（字符或空串）。
     pub content: String,
-    /// Foreground color as hex "RRGGBB" or empty for default.
+    /// 前景色，十六进制 "RRGGBB"，空串表示默认。
     #[serde(default)]
     pub foreground: String,
-    /// Background color as hex "RRGGBB" or empty for default.
+    /// 背景色，十六进制 "RRGGBB"，空串表示默认。
     #[serde(default)]
     pub background: String,
     #[serde(default)]
@@ -29,8 +29,8 @@ pub struct CellJson {
     pub reverse: bool,
 }
 
-/// Serializable snapshot of terminal state for regression testing.
-/// Stored as JSON files alongside `.seq` input files.
+/// 供回归测试使用的终端状态快照。
+/// 与 `.seq` 输入文件并排存为 JSON 文件。
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TestSnapshot {
     pub version: u32,
@@ -39,14 +39,14 @@ pub struct TestSnapshot {
     pub cursor_row: u32,
     pub cursor_col: u32,
     pub cursor_visible: bool,
-    /// Number of scrollback rows.
+    /// 回滚行数。
     pub scrollback_rows: u32,
-    /// Visible grid cells in row-major order.
+    /// 可见网格单元，按行优先排列。
     pub cells: Vec<CellJson>,
-    /// Scrollback cells, each inner Vec is one row.
+    /// 回滚区单元，内层 Vec 为一行。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scrollback: Vec<Vec<CellJson>>,
-    /// Optional theme name that this snapshot was generated with.
+    /// 生成该快照时所用的主题名（可选）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_name: Option<String>,
 }
@@ -87,7 +87,7 @@ fn cell_to_json(cell: &CellSnapshot) -> CellJson {
     }
 }
 
-/// Capture a `TestSnapshot` from the current terminal state.
+/// 从当前终端状态采集 `TestSnapshot`。
 pub fn capture_snapshot(terminal: &GhosttyTerminal) -> TestSnapshot {
     let dumped = terminal.dump_grid();
     let cursor_x = terminal.cursor_x();
@@ -122,16 +122,16 @@ fn from_dumped_grid(
     }
 }
 
-/// Result of comparing two snapshots.
+/// 两个快照的比较结果。
 #[derive(Debug, Default)]
 pub struct DiffResult {
-    /// Map: "R:C" -> description of mismatch at that cell.
+    /// 映射："R:C" -> 该单元处的差异描述。
     pub cell_diffs: HashMap<(u32, u32), String>,
-    /// Cursor position mismatch.
+    /// 光标位置差异。
     pub cursor_diff: Option<String>,
-    /// Scrollback length mismatch.
+    /// 回滚区长度差异。
     pub scrollback_diff: Option<String>,
-    /// Dimension mismatch.
+    /// 尺寸差异。
     pub dimension_diff: Option<String>,
 }
 
@@ -144,7 +144,7 @@ impl DiffResult {
     }
 }
 
-/// Compare two snapshots and return the differences.
+/// 比较两个快照并返回差异。
 pub fn diff(expected: &TestSnapshot, actual: &TestSnapshot) -> DiffResult {
     let mut result = DiffResult::default();
 

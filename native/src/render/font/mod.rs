@@ -17,8 +17,7 @@ pub(crate) const STYLE_FACE_CACHE_CAPACITY: usize = 64;
 /// 轮廓来源探测缓存容量：键带光栅尺寸，覆盖常用字号×字形组合。
 pub(crate) const OUTLINE_CACHE_CAPACITY: usize = 10_000;
 
-/// Unicode code point where CJK Ideographic characters begin (U+2E80).
-/// Used to decide whether to attempt CJK fallback font lookup.
+/// CJK 表意文字的起始码位（U+2E80），用于判定是否尝试 CJK 回退字体查询。
 pub(crate) const CJK_IDEOGRAPHIC_START: u32 = 0x2E80;
 
 /// Nerd Font 私用区（U+E000–U+F8FF）：这些码位只在加载 Nerd Font 后才有字形，
@@ -29,9 +28,8 @@ pub(crate) const NERD_FONT_PRIVATE_USE_END: u32 = 0xF8FF;
 /// ASCII 上界（不含）：`ascii_glyph_ids` 定长表按下标直查，表长即此值。
 pub(crate) const ASCII_UPPER_BOUND: u32 = 0x80;
 
-/// Glyph synthesis mode: how a glyph is styled when the
-/// font has no matching bold/italic face. Pixels are post-processed on the
-/// rasterized alpha mask — bold emboldens, italic shears.
+/// 字形合成模式：字体缺少匹配的粗/斜体字面时如何呈现字形。
+/// 在光栅化后的 alpha 遮罩上后处理像素——粗体加粗，斜体剪切。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum GlyphSynthesis {
     #[default]
@@ -42,7 +40,7 @@ pub enum GlyphSynthesis {
 }
 
 impl GlyphSynthesis {
-    /// Bit values packed into the glyph cache key (3 bits are enough).
+    /// 打包进字形缓存键的位值（3 位足够）。
     pub(crate) fn bits(self) -> u8 {
         match self {
             GlyphSynthesis::None => 0,
@@ -52,9 +50,8 @@ impl GlyphSynthesis {
         }
     }
 
-    /// Inverse of [`GlyphSynthesis::bits`]: restore the synthesis mode
-    /// stored in a cache key. Unknown bit patterns fall back to no
-    /// synthesis rather than inventing a style.
+    /// [`GlyphSynthesis::bits`] 的逆运算：从缓存键还原合成模式。
+    /// 未知位模式退回无合成，而不是臆造样式。
     pub(crate) fn from_bits(bits: u8) -> Self {
         match bits {
             1 => GlyphSynthesis::Bold,
@@ -676,9 +673,8 @@ mod tests {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.rasterize_ascii();
         assert!(pipeline.cache_length() > 0);
-        // Include a non-ASCII glyph in the baseline: after the switch the
-        // cache is cleared and re-filled only with the new font's ASCII
-        // rasterization, so the length must drop below this value.
+        // 基线纳入一个非 ASCII 字形：换字体后缓存清空，仅以新字体的
+        // ASCII 光栅结果重新填充，故长度必然降到该值以下。
         pipeline.glyph_information('好');
         let before = pipeline.cache_length();
         let names = pipeline.list_monospace_fonts();
@@ -1013,8 +1009,7 @@ mod tests {
         if has_cjk {
             return true;
         }
-        // System fonts only (fontconfig resolves the dev-shell fonts):
-        // never scan hardcoded store paths.
+        // 只加载系统字体（开发 shell 的字体由 fontconfig 解析），绝不扫描硬编码的 store 路径。
         font_database.load_system_fonts();
         font_database.faces().any(|face| {
             face.families
@@ -1051,14 +1046,13 @@ mod tests {
         assert!(parsed["cjk_families"].is_array());
     }
 
-    // ──: layered fallback ─────────────
+    // ──: 分层回退 ─────────────
 
     #[test]
     fn symbol_glyph_resolves_via_database_scan() {
-        // U+25B6 (▶) is absent from Liberation Mono but present in
-        // DejaVu Sans on the host. With Liberation Mono as the primary
-        // the layered chain ends with a whole-database scan (spec d7),
-        // which must resolve the glyph in a non-primary font.
+        // U+25B6 (▶) 不在 Liberation Mono 中，却在宿主的 DejaVu Sans 中。
+        // 以 Liberation Mono 为主字体时，分层链末端是全数据库扫描（spec d7），
+        // 必须在非主字体中解析出该字形。
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let names = pipeline.list_monospace_fonts();
         assert!(
@@ -1101,8 +1095,8 @@ mod tests {
 
     #[test]
     fn private_use_glyph_renders_notdef_without_panic() {
-        // U+E0A0 (powerline separator PUA) exists in no host font: the
-        // chain must end at.notdef without panicking (spec d7 scenario 3).
+        // U+E0A0（powerline 分隔符 PUA）在宿主任何字体中都不存在：回退链必须
+        // 止于 .notdef 而不 panic（spec d7 场景 3）。
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let info = pipeline.glyph_information('\u{e0a0}');
         assert!(info.is_some(), ".notdef fallback must return a glyph");
@@ -1110,18 +1104,16 @@ mod tests {
 
     #[test]
     fn emoji_glyph_no_panic_when_color_font_cannot_outline() {
-        // Noto Color Emoji covers 😀 but swash cannot outline color
-        // glyphs; the emoji layer and the database scan must skip it
-        // without panicking (moke: emoji via system chain).
+        // Noto Color Emoji 覆盖 😀，但 swash 无法为彩色字形生成轮廓；
+        // emoji 层与数据库扫描必须跳过它且不 panic（moke：emoji 走系统链）。
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let _ = pipeline.glyph_information('😀');
-        // Reaching here without panic is the assertion.
+        // 能走到这里而不 panic 就是断言本身。
     }
 
     #[test]
     fn fallback_names_report_all_layers() {
-        // cjk_fallback_names is the CJK-only view; the layered fields are
-        // all populated by construction.
+        // cjk_fallback_names 是仅含 CJK 的视图；分层字段由构造保证全部填充。
         let pipeline = FontPipeline::new(512, 512, 14.0);
         let cjk = pipeline.cjk_fallback_names();
         assert!(
@@ -1189,7 +1181,7 @@ mod tests {
             try_load_cjk_fonts(&mut font_database),
             "CJK fonts must load (run inside nix develop)"
         );
-        // Pick a TTC face so (filename, index) mapping is exercised.
+        // 选一个 TTC 字面以覆盖 (filename, index) 映射路径。
         let (filename, index) = font_database
             .faces()
             .filter_map(|face| {
@@ -1224,7 +1216,7 @@ mod tests {
 
     #[test]
     fn fonts_xml_missing_file_falls_back_to_scan() {
-        // Unknown filename: no exact hit, caller fills from the scan.
+        // 文件名未知：无精确命中，调用方改由扫描结果填充。
         let mut font_database = fontdb::Database::new();
         assert!(
             try_load_cjk_fonts(&mut font_database),
@@ -1331,8 +1323,8 @@ mod tests {
         );
     }
 
-    /// Locate the Maple Mono font through the system font database
-    /// (fontconfig resolves the dev-shell fonts; no paths are hardcoded).
+    /// 经系统字体库定位 Maple Mono 字体（开发 shell 的字体由 fontconfig
+    /// 解析，未硬编码任何路径）。
     fn find_maple_mono_font(font_database: &mut fontdb::Database) -> Option<std::path::PathBuf> {
         font_database.load_system_fonts();
         font_database
@@ -1352,10 +1344,9 @@ mod tests {
 
     #[test]
     fn maple_mono_primary_skips_cjk_fallback() {
-        // Maple Mono NF CN ships CJK glyphs: as the primary font it must
-        // cover CJK directly with no fallback layer (spec: skip path).
-        // CJK + Latin resolve through the same cache, keeping CJK render
-        // speed on par with Latin (no per-glyph fallback scan).
+        // Maple Mono NF CN 自带 CJK 字形：作为主字体时必须直接覆盖 CJK，
+        // 不产生回退层（spec：跳过路径）。CJK 与拉丁文走同一缓存，
+        // CJK 渲染速度与拉丁文持平（无逐字形回退扫描）。
         let mut maple_db = fontdb::Database::new();
         let font_path = find_maple_mono_font(&mut maple_db)
             .expect("Maple Mono must be present (run inside nix develop)");
@@ -1376,7 +1367,7 @@ mod tests {
         let latin = pipeline.glyph_information('A').expect("latin resolves");
         let cjk = pipeline.glyph_information('中').expect("CJK resolves");
         assert!(latin.width > 0 && cjk.width > 0);
-        // Second pass must hit the caches (no repeated fallback scans).
+        // 第二遍必须命中缓存（不再重复回退扫描）。
         let latin_again = pipeline.glyph_information('A').expect("latin cached");
         let cjk_again = pipeline.glyph_information('中').expect("CJK cached");
         assert_eq!(latin.width, latin_again.width);
@@ -1478,7 +1469,7 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt_path);
     }
 
-    // ──: bold/italic glyph synthesis ─────────────────────────
+    // ──: 粗/斜体字形合成 ─────────────────────────
 
     /// 提取字形在图集区域的覆盖度字节（RGBA 图集的红色通道）。
     fn glyph_region_alpha(info: &GlyphInfo, bitmap: &[u8], atlas_width: usize) -> Vec<u8> {
@@ -1598,8 +1589,8 @@ mod tests {
             .glyph_information_styled('A', true, false)
             .expect("bold A");
         assert!(bold.width > 0 && bold.height > 0, "bold bitmap must exist");
-        // The styled bitmap must actually differ from the regular one —
-        // either a real bold face was resolved or synthesis emboldened it.
+        // 样式位图必须与常规位图实际不同——要么解析到真实粗体字面，
+        // 要么由合成做了加粗。
         assert_ne!(
             bold.atlas_x, regular.atlas_x,
             "bold and regular glyphs must not share a cache entry"
@@ -1665,8 +1656,7 @@ mod tests {
         let italic = pipeline
             .glyph_information_styled('A', false, true)
             .expect("italic A");
-        // Re-lookup returns the cached styled glyphs (same atlas slot) and
-        // never the regular one.
+        // 再次查询返回缓存中的样式字形（同一图集槽位），绝不返回常规字形。
         let bold_again = pipeline
             .glyph_information_styled('A', true, false)
             .expect("bold A again");
@@ -1772,10 +1762,9 @@ mod tests {
                 .first()
                 .map(|(family_name, _)| family_name.clone())
         });
-        // With system fonts loaded, the family may or may not have a bold
-        // face on this host. Either way the contract must hold: a resolved
-        // face belongs to the same family and differs from the base; no
-        // face at all means the caller falls back to synthesis.
+        // 加载系统字体后，该族在本宿主上可能有也可能没有粗体字面。
+        // 无论哪种情况契约都成立：解析到的字面同族且不同于基础字面；
+        // 完全没有字面时调用方退回合成。
         if let Some(style_id) = pipeline.resolve_style_face(base_id, true, false) {
             assert_ne!(style_id, base_id, "bold face must differ from regular");
             let style_family = pipeline.font_system.db().face(style_id).and_then(|face| {
@@ -1788,10 +1777,9 @@ mod tests {
                 "style face must share the base family"
             );
         }
-        // Resolving the plain style yields a face of the same family
-        // (fontdb's query returns the closest match, which is the base
-        // itself unless another normal face of the family exists — e.g.
-        // DejaVuSansCondensed — so only the family invariant is asserted).
+        // 解析常规样式得到同族字面（fontdb 查询返回最接近者，除非族内另有
+        // 常规字面（如 DejaVuSansCondensed），否则就是基础字面本身——
+        // 故此处只断言族不变式）。
         if let Some(plain) = pipeline.resolve_style_face(base_id, false, false) {
             let plain_family = pipeline.font_system.db().face(plain).and_then(|face| {
                 face.families
