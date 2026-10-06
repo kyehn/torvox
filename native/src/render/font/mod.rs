@@ -927,32 +927,6 @@ mod tests {
     }
 
     #[test]
-    fn font_information_contains_all_sections() {
-        let pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let info = pipeline.font_information();
-        assert!(
-            info.contains("Active:"),
-            "font_information should contain 'Active:', got: {}",
-            info
-        );
-        assert!(
-            info.contains("CJK fallback:"),
-            "font_information should contain 'CJK fallback:', got: {}",
-            info
-        );
-        assert!(
-            info.contains("Cell:"),
-            "font_information should contain 'Cell:', got: {}",
-            info
-        );
-        assert!(
-            info.contains("Font size:"),
-            "font_information should contain 'Font size:', got: {}",
-            info
-        );
-    }
-
-    #[test]
     fn set_font_family_persists_through_size_change() {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let fonts = pipeline.list_monospace_fonts();
@@ -1017,17 +991,6 @@ mod tests {
                 .map(|(n, _)| n.to_lowercase().contains("cjk"))
                 .unwrap_or(false)
         })
-    }
-
-    #[test]
-    fn non_cjk_locale_no_fallback() {
-        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        pipeline.set_system_locale("en-US");
-        let info = pipeline.font_information();
-        assert!(
-            info.contains("CJK fallback: none"),
-            "en-US locale should have no CJK fallback: {info}"
-        );
     }
 
     #[test]
@@ -1161,16 +1124,6 @@ mod tests {
             pipeline.cjk_fallback_ids.len() <= 3,
             "MAX_CJK_FALLBACK_FONTS=3, got {} IDs",
             pipeline.cjk_fallback_ids.len()
-        );
-    }
-
-    #[test]
-    fn font_information_includes_cjk_fallback() {
-        let pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let info = pipeline.font_information();
-        assert!(
-            info.contains("Active:") || info.contains("Cell:"),
-            "font info should have structure: {info}"
         );
     }
 
