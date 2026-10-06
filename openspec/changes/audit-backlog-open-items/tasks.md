@@ -2246,3 +2246,62 @@ CI 与本地的差别是资源：CI 是 `ram-size: 1536M, cores: 2`，surface �
 
 `partialSelectShowsSelectionMenu` 与 `behavior_modifier_bar_visible` 共用的就是这条门槛，
 故本条修复对二者同样生效。下次真出现时，日志里会有 surface 挂载时序可查。
+
+## 39. `VisualInlineVerificationTest` 两例判红：取证后如实停手
+
+### 39.1 现象与复现
+
+本轮为核 §5 N41 的取证能力，单独跑该类，得到两条稳定判红（模拟器重启后仍在）：
+
+- `verifyWordSelectionPositions` → `Expected >=2 selection handles, found 0`
+- `verifyUrlSelectionPositions` → `Expected >=2 handles for URL, found 0`
+
+同一次运行的另一轮判红形态是 `Handles not on same row (diff=107)` /
+`URL handle rows differ (107)`，即手柄找到了但行高比对不过。
+
+**与本轮改动无关**：`git checkout` 到 `4a202ea9`（早于本轮全部提交）复跑，
+判红形态逐字相同。另 `git diff 7f68ae0c..HEAD` 对
+`VisualInlineVerificationTest.kt` 与 `TerminalSurface.kt` 零改动。
+
+### 39.2 产品无缺陷，取证证据
+
+logcat 显示选区**确实建立**：`setSelection: start=(1,6) end=(1,10) active=true`，
+随后逐帧 SLOW_FRAME 与 `≈57fps` 循环正常。选区菜单路径另有
+`SelectionEspressoTest`/`SelectionDragQuantifiedTest` 绿跑（均用 UiAutomator
+无障碍树，不依赖像素）。故被测行为存在，判红在**断言的取证手段**上。
+
+### 39.3 取证：像素连通块无法识别手柄
+
+测试用「baseline 与选后截图的差分连通块」当手柄。实测（重启后的干净模拟器）
+差分块共 7 个：
+
+```text
+Blob 0: (47,70)  39x39
+Blob 1: (78,78)  21x22
+Blob 2: (22,111) 14x14
+Blob 3: (35,111) 11x14
+Blob 4: (82,111) 14x14
+Blob 5: (96,111) 14x14
+Blob 6: (149,111) 28x14
+```
+
+同一轮的另一次采样里，最大块是 `160x102`（放大镜），其余 5 个 `34x34`/`35x34`/`22x34`
+同处一行。**「两块同行」的假设都不成立**：放大镜与逐字高亮碎片都进得来。
+
+按「平台手柄固有尺寸」筛（取与生产侧 `resolveSelectionHandleDrawable` 同一个
+主题属性 `android.R.attr.textSelectHandleLeft`，避免硬编码）也不成立：
+平台固有尺寸实测 **(44, 22)**，而渲染出的墨迹连通块是 **21x22**——
+差分阈值（`colorDiff > 50`）只计入高对比核心，墨迹外缘的渐变部分不计入，
+故连通块包围盒恒小于绘制包围盒。两个尺寸无从对齐。
+
+该实验已回退（`git checkout` 复原），不留在仓里。
+
+### 39.4 结论
+
+判红是**测试手段的局限**，不是产品缺陷，也不是本轮改动引入。
+像素差分连通块无法把两个手柄与放大镜、选区高亮、逐字碎片区分开；
+改用无障碍树定位手柄需要给 `HandleView` 加 contentDescription，
+属新增对外可访问性契约（DESIGN 未声明），不在本轮范围内。
+按 `TESTING.md:16`「无法解决且找不到继续路径时如实报告」停手，
+并把上述实测尺寸（44x22 与 21x22）与差分块清单留在案，
+避免下一个人重复试错。
