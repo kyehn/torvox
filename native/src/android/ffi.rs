@@ -368,7 +368,7 @@ pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
 
 /// 单会话未作答 OSC 52 读取上限：远端循环 `\e]52;c;?\a` flood 时，
 /// 每个请求都在注册表占槽、spawn 应答线程并推一个不可淘汰的保护事件；
-/// 无上限则 1024 槽被读请求填满后连 Exit 一起丢，会话永久泄漏（R17-T1）。
+/// 无上限则 1024 槽被读请求填满后连 Exit 一起丢，会话永久泄漏。
 /// 超限的请求不占槽，就地显式作答空串（xterm 兼容的空剪贴板响应）。
 const MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION: usize = 8;
 
@@ -1219,7 +1219,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     // 采集本帧要处理的会话句柄：读锁内只克隆 Arc，不做任何会话工作。
     // 慢会话的 VT 解析/查询若顶着读锁跑，会把 setScrollOffset 等写锁饿死，
-    // 并把单个会话的停顿放大成全局停顿（R16-T4）。
+    // 并把单个会话的停顿放大成全局停顿。
     // 句柄是 Arc：锁外处理期间会话被销毁，也只是对着已死的 Arc 做无害功——
     // 事件都带 session_id（Kotlin 侧对未知会话本就是空操作/幂等回收），
     // take 系调用是锁存式的（恰好一次），不存在双重上报。
@@ -1250,7 +1250,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             session.process_output();
             // 检查 OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）。此处（会话锁内）
             // 取走全部待答 selection；一次性槽位与应答线程在注册表/会话锁释放后才建立
-            // （见下方），保持锁顺序单一方向。超限由下方单会话上限显式作答（R17-T1）。
+            // （见下方），保持锁顺序单一方向。超限由下方单会话上限显式作答。
             for selection in session.take_clipboard_reads() {
                 pending_clipboard_reads.push((*session_id, selection));
             }
@@ -1278,7 +1278,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
         let unanswered = unanswered_clipboard_reads(session_id);
         if unanswered >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
             // 洪泛削减：就地显式作答空串，不注册、不推事件、不起应答线程。
-            // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置（R17-T1）。
+            // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置。
             flood_shed_warn_throttled(session_id, unanswered);
             let registry = wlock_session_registry();
             let session = registry.get(&session_id).map(|entry| entry.session.clone());
@@ -2583,7 +2583,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
         // 注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让销毁会话的写锁饥饿。
         // 克隆的会话句柄使查询期间销毁仍安全，会话在查询结束前保持存活。
         // 会话锁只取查询通道：VT 查询本身在锁外跑，大回滚搜索不再冻结
-        // 按帧取锁的渲染（R21-T1）。查询期间会话被销毁则通道断开，回退空结果。
+        // 按帧取锁的渲染。查询期间会话被销毁则通道断开，回退空结果。
         let query_tx = session_handle.lock().terminal().query_channel();
         let matches =
             crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
@@ -3440,7 +3440,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
 mod clipboard_read_flood_tests {
     use super::{cancel_request, register_request, unanswered_clipboard_reads};
 
-    /// R17-T1：未作答计数按会话隔离，且只计入驻留槽位。
+    /// 未作答计数按会话隔离，且只计入驻留槽位。
     #[test]
     fn unanswered_reads_count_is_per_session() {
         let (first_a, _first_rx) = register_request(4101);

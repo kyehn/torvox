@@ -277,7 +277,7 @@ private fun AppearanceSectionContent(
     backgroundColor: Color,
 ) {
     // 字体列表只在此外观项实际组合（即用户能看到字体选择器）时枚举一次：
-    // 会话启动不再触发列举（R16-T7）。LazyColumn 懒加载，故滚到此处才计入显示。
+    // 会话启动不再触发列举。LazyColumn 懒加载，故滚到此处才计入显示。
     LaunchedEffect(Unit) { onFontsVisible() }
     // 拖动过程只走轻量路径做预览（setFontSizeInPlace + 单元格度量刷新，
     // 不写 DataStore、不重排网格）；数值在松手时一次性提交。

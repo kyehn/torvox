@@ -474,7 +474,7 @@ impl super::GhosttyTerminal {
     }
 
     /// [`Self::query`] 的通道外置版：调用方在会话锁内克隆查询通道，
-    /// 随后在锁外执行长查询，使大回滚搜索不冻结按帧取锁的渲染（R21-T1）。
+    /// 随后在锁外执行长查询，使大回滚搜索不冻结按帧取锁的渲染。
     fn query_on<T>(
         query_tx: &Sender<Query>,
         build: impl FnOnce(Sender<T>) -> Query,
