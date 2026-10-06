@@ -26,9 +26,6 @@ class BootstrapInstallService : Service() {
     companion object {
         private const val TAG = "BootstrapInstallService"
         const val EXTRA_ZIP_PATH = "zipPath"
-        private const val PREFIX_DIR_NAME = "usr"
-        private const val HOME_DIR_NAME = "home"
-        private const val STAGING_DIR_NAME = "usr-staging"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -56,27 +53,25 @@ class BootstrapInstallService : Service() {
     }
 
     private fun install(zipPath: String): String {
-        val prefixDir = File(filesDir, PREFIX_DIR_NAME)
-        val homeDir = File(filesDir, HOME_DIR_NAME)
-        val stagingDir = File(filesDir, STAGING_DIR_NAME)
+        val dirs = bootstrapDirs(this)
         // 安装前把 zip 移到安全位置——它可能位于 homeDir 之下。
         val preserved = File(filesDir, "bootstrap-preserved.zip")
         File(zipPath).copyTo(preserved, overwrite = true)
         // 不得预删 prefix/home/staging：原子换入路径负责旧目录随机备份、失败回滚与 staging
         // 安全清理（含符号链接守卫），预删会绕过安全机制并丢失用户数据（服务侧 deleteRecursively 无符号链接守卫）。
         return runBlocking {
-            val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+            val installer = BootstrapInstaller(dirs.prefix, dirs.home, dirs.staging)
             try {
                 val install = installer.install(preserved)
                 if (install.isFailure) {
                     install.exceptionOrNull()?.message ?: "install failed"
                 } else {
-                    val stage = SecondStageRunner(prefixDir, homeDir).run()
+                    val stage = SecondStageRunner(dirs.prefix, dirs.home).run()
                     if (stage.success) {
-                        "OK prefix=$prefixDir shell=" +
+                        "OK prefix=${dirs.prefix} shell=" +
                             (
                                 listOf("bin/login", "bin/bash").firstOrNull {
-                                    val entry = File(prefixDir, it)
+                                    val entry = File(dirs.prefix, it)
                                     entry.isFile && (isElf(entry) || isSystemShellScript(entry))
                                 } ?: "none"
                                 ) +

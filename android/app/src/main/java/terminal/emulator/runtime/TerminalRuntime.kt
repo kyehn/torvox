@@ -2107,20 +2107,20 @@ constructor(
                     }
                         .getOrNull() ?: "<unparsable>"
                 LogUtil.d("Runtime", "Bootstrap URL set: $origin")
-                val downloader = terminal.emulator.installer.BootstrapDownloader(context)
-                val installer =
-                    terminal.emulator.installer.BootstrapInstaller(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
-                    )
-                val secondStage =
-                    terminal.emulator.installer.SecondStageRunner(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                    )
+                val bootstrapDirs = terminal.emulator.installer.bootstrapDirs(context)
                 val installOrchestrator =
-                    terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
+                    terminal.emulator.installer.BootstrapOrchestrator(
+                        terminal.emulator.installer.BootstrapDownloader(context),
+                        terminal.emulator.installer.BootstrapInstaller(
+                            prefixDir = bootstrapDirs.prefix,
+                            homeDir = bootstrapDirs.home,
+                            stagingDir = bootstrapDirs.staging,
+                        ),
+                        terminal.emulator.installer.SecondStageRunner(
+                            prefixDir = bootstrapDirs.prefix,
+                            homeDir = bootstrapDirs.home,
+                        ),
+                    )
                 when (installOrchestrator.getInstallStatus()) {
                     terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
                         // 绝不自动下载：Termux 引导（~150 MB）必须从设置显式安装，

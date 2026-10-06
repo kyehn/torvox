@@ -1,5 +1,6 @@
 package terminal.emulator.installer
 
+import android.content.Context
 import android.system.Os
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
@@ -13,6 +14,21 @@ import java.io.OutputStream
 import java.nio.file.Paths
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+
+/**
+ * 引导安装用到的三个目录，恒在应用数据之下：操作系统只能经应用数据管理回收它们，
+ * 绝不会因缓存压力清理（故不落 cacheDir）。
+ *
+ * 三者必须同源——目录名只此一处声明，应用内在线安装（`TerminalRuntime`）、
+ * 设置页安装（`TerminalViewModel`）与 SAF 离线安装服务三条入口都经它构造。
+ */
+internal data class BootstrapDirs(val prefix: File, val home: File, val staging: File)
+
+/** [Context.getFilesDir] 之下的引导目录；`staging` 由原子换入路径负责失败回滚与安全清理。 */
+internal fun bootstrapDirs(context: Context): BootstrapDirs {
+    val filesDir = context.filesDir
+    return BootstrapDirs(File(filesDir, "usr"), File(filesDir, "home"), File(filesDir, "usr-staging"))
+}
 
 /**
  * 带硬上限的归档流复制：累计超过 [BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES] 即抛错。
