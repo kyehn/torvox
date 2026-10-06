@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -219,90 +217,6 @@ pub fn diff(expected: &TestSnapshot, actual: &TestSnapshot) -> DiffResult {
     }
 
     result
-}
-
-/// Load expected snapshot from a `.json` file.
-pub fn load_expected(path: &Path) -> TestSnapshot {
-    let data = fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("failed to read expected snapshot {path:?}: {e}"));
-    serde_json::from_str(&data).unwrap_or_else(|e| panic!("invalid JSON in {path:?}: {e}"))
-}
-
-/// Manual reference tool (not called by automated tests): save a snapshot
-/// to a `.json` file for eyeball/ref comparison.
-// 手动回归基线工具：按 tests/ref 工作流手工执行，不随自动化测试调用。
-#[allow(dead_code)]
-pub fn save_snapshot(path: &Path, snap: &TestSnapshot) {
-    let data = serde_json::to_string_pretty(snap)
-        .unwrap_or_else(|e| panic!("failed to serialize snapshot: {e}"));
-    fs::write(path, &data).unwrap_or_else(|e| panic!("failed to write {path:?}: {e}"));
-}
-
-/// Manual reference tool (not called by automated tests): run a ref test
-/// from a `.seq` file and compare against the expected `.json`. Returns
-/// `true` if the test passed. Regenerate stale expectations with the
-/// `save_snapshot` manual tool, never from inside a test.
-// 手动回归基线工具：按 tests/ref 工作流手工执行，不随自动化测试调用。
-#[allow(dead_code)]
-pub fn run_ref_test(
-    seq_path: &Path,
-    json_path: &Path,
-    rows: u32,
-    cols: u32,
-    scrollback: u32,
-) -> bool {
-    let seq_bytes =
-        fs::read(seq_path).unwrap_or_else(|e| panic!("failed to read seq {seq_path:?}: {e}"));
-
-    let mut terminal = GhosttyTerminal::new(rows, cols, scrollback)
-        .unwrap_or_else(|e| panic!("failed to create terminal ({rows}x{cols}): {e}"));
-
-    // Use pty_write so that \n in the seq test files is converted to \r\n,
-    // matching the expected behavior for text output. Raw VT sequences
-    // in the test files do not contain bare \n data bytes.
-    terminal.pty_write(&seq_bytes);
-    terminal.flush();
-
-    let actual = capture_snapshot(&terminal);
-
-    assert!(
-        json_path.exists(),
-        "expected snapshot {} not found. Regenerate it with the save_snapshot manual tool",
-        json_path.display()
-    );
-
-    let expected = load_expected(json_path);
-    let result = diff(&expected, &actual);
-
-    if !result.is_empty() {
-        let mut msg = format!("REGRESSION: {}\n", seq_path.display());
-        if let Some(d) = &result.dimension_diff {
-            msg.push_str(&format!("  dimension: {d}\n"));
-        }
-        if let Some(d) = &result.cursor_diff {
-            msg.push_str(&format!("  cursor: {d}\n"));
-        }
-        if let Some(d) = &result.scrollback_diff {
-            msg.push_str(&format!("  scrollback: {d}\n"));
-        }
-        let mut sorted: Vec<_> = result.cell_diffs.keys().copied().collect();
-        sorted.sort_unstable();
-        let max_reported = 20;
-        for (idx, (row, col)) in sorted.iter().enumerate() {
-            if idx >= max_reported {
-                msg.push_str(&format!(
-                    "  ... and {} more cell diffs\n",
-                    sorted.len() - max_reported
-                ));
-                break;
-            }
-            let detail = &result.cell_diffs[&(*row, *col)];
-            msg.push_str(&format!("  ({row},{col}): {detail}\n"));
-        }
-        panic!("{msg}");
-    }
-
-    true
 }
 
 #[cfg(test)]
