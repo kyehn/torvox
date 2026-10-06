@@ -47,7 +47,7 @@ class SearchDebouncer(private val debounceMillis: Long, private val scheduler: D
         }
     }
 
-    /** Drop the pending action without running it. */
+    /** 丢弃待执行动作，不运行它。 */
     fun cancel() {
         pendingAction = null
         scheduler.cancelPending()

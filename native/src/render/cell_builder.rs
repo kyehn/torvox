@@ -1,7 +1,7 @@
-//! Cell instance builder — converts terminal grid state into GPU instance data.
+//! 单元格实例构建器——把终端网格状态转换为 GPU 实例数据。
 //!
-//! # Requirements
-//! - FR-050 — surface lifecycle: cell instances rebuilt on resize/surface recreation
+//! 要求：
+//! - FR-050——surface 生命周期：resize / surface 重建时重建单元格实例
 use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;
@@ -9,9 +9,9 @@ use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
 
-/// Alpha threshold above which search highlights swap foreground/background colors
-/// (high-alpha = opaque highlight, swap is visually clearer).
-/// Below this threshold, only blending is applied (subtle tint).
+/// 搜索高亮 alpha 超过该阈值时交换前景/背景色
+/// （高 alpha = 不透明高亮，交换后视觉更清晰）。
+/// 低于该阈值只做混合（淡着色）。
 const SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD: u8 = 128;
 /// 竖线光标宽度占单元格宽度比例（DECSCUSR 竖线样式）。
 const BAR_CURSOR_WIDTH_FRACTION: f32 = 0.25;
@@ -25,7 +25,7 @@ const BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE: f32 = 0.7;
 const DEFAULT_CURSOR_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 use std::collections::HashMap;
 
-/// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
+/// 供 build_instances_from_cell_data() 渲染光标用的光标状态。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CellCursor {
     pub row: u32,
@@ -53,12 +53,12 @@ impl CellCursor {
     }
 }
 
-/// Configuration for a cell-instance build pass.
+/// 一次单元格实例构建所需的配置。
 ///
-/// Shared by the full ([`build_instances_from_cell_data`]) and incremental
-/// (`build_instances_cached`) builders. Bulk data stays as separate
-/// arguments: the cell buffer, the mutable font pipeline, and the output
-/// instance buffer.
+/// 全量构建（[`build_instances_from_cell_data`]）与增量构建
+/// （`build_instances_cached`）共用；大块数据仍作独立参数传入：
+/// 单元缓冲、可变的字体管线以及输出
+/// 实例缓冲。
 #[derive(Debug, Clone, Copy)]
 pub struct CellInstanceConfig<'a> {
     pub rows: u32,
@@ -72,7 +72,7 @@ pub struct CellInstanceConfig<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-/// A single row range for search result highlighting.
+/// 搜索结果高亮的一段行范围。
 pub struct SearchHighlight {
     pub row: i32,
     pub start_col: i32,
@@ -80,7 +80,7 @@ pub struct SearchHighlight {
     pub color: [u8; 4],
 }
 
-/// Check whether one cell falls inside a search highlight.
+/// 判断某单元格是否落在搜索高亮区间内。
 pub(crate) fn cell_highlight<'a>(
     row: u32,
     col: u32,
@@ -93,7 +93,7 @@ pub(crate) fn cell_highlight<'a>(
     Some(&highlight.color)
 }
 
-/// Blend a highlight RGBA into a float color.
+/// 把高亮 RGBA 混合进浮点颜色。
 pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
     let alpha = hl_rgba[3] as f32 / 255.0;
     if alpha <= 0.0 {
@@ -111,7 +111,7 @@ pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
 }
 
 #[inline]
-/// Apply a search-highlight RGBA to a cell foreground/background.
+/// 把搜索高亮 RGBA 施加到单元格前景/背景。
 pub(crate) fn apply_search_highlight(
     foreground: &mut [f32; 4],
     background: &mut [f32; 4],
@@ -123,43 +123,43 @@ pub(crate) fn apply_search_highlight(
     *background = blend_highlight(*background, hl);
 }
 
-/// Contiguous run of dirty grid rows, resolved to its instance slice.
+/// 连续的一段脏网格行，并解析出其实例切片。
 ///
-/// Produced by [`compute_dirty_bands`] + [`CachedInstances::band_slice`];
-/// consumed by the GPU dirty-band render path (render-vulkan-performance):
-/// only the band's instances are submitted and only the accumulator's
-/// band region is touched — clean rows keep their previous pixels.
+/// 由 [`compute_dirty_bands`] + [`CachedInstances::band_slice`] 产出，
+/// 供 GPU 脏带渲染路径消费（render-vulkan-performance）：
+/// 只提交该带的实例，也只触碰累加器的带区域，
+/// 干净行保留上一帧像素。
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirtyBand {
-    /// First dirty row of the band (grid index).
+    /// 该带首个脏行（网格索引）。
     pub start_row: usize,
-    /// One past the last dirty row of the band.
+    /// 该带最后一个脏行的后一行。
     pub end_row_exclusive: usize,
-    /// `[instance_start, instance_end)` slice in the frame's instance list
-    /// (row-major, contiguous because a band is a row run).
+    /// 本帧实例列表中的 `[instance_start, instance_end)` 切片
+    /// （行主序；带就是一段行，故连续）。
     pub instance_start: usize,
     pub instance_end: usize,
 }
 
 impl DirtyBand {
-    /// Whether this band covers every row of a `rows`-high grid — i.e. it
-    /// is indistinguishable from a full redraw.
+    /// 该带是否覆盖 `rows` 高网格的全部行——即
+    /// 与整帧重绘无从区分。
     pub fn covers_all_rows(&self, rows: u32) -> bool {
         self.start_row == 0 && self.end_row_exclusive >= rows as usize
     }
 }
 
-/// Per-frame presentation plan for the accumulator architecture.
+/// 累加器架构下每帧的呈现计划。
 #[derive(Debug, Default, Clone)]
 pub struct FramePatch {
-    /// Dirty row bands to redraw (`load: Load` over previous content).
+    /// 需重绘的脏行带（`load: Load`，保留原有内容）。
     pub bands: Vec<DirtyBand>,
     /// Rendered pixel height of one grid row（脏带清除实例的几何）。
     pub cell_height_px: f32,
 }
 
-/// Merge a row dirty mask into minimal contiguous `[start, end)` row runs.
-/// Pure function — table-driven unit tested (compute_dirty_bands_tests).
+/// 把行脏标记合并成最少的连续 `[start, end)` 行段。
+/// 纯函数——表驱动单测（compute_dirty_bands_tests）。
 pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
     let mut bands: Vec<(usize, usize)> = Vec::new();
     let mut start: Option<usize> = None;
@@ -214,28 +214,28 @@ fn is_content_codepoint(codepoint: u32) -> bool {
     )
 }
 
-/// Row-level instance cache for incremental rendering (FR-013 / NFR-010).
+/// 增量渲染的行级实例缓存（FR-013 / NFR-010）。
 ///
-/// Mirrors the test-only reference in `snapshot_reference::build_cell_instances_into`
-/// (row_ends + per-row instance slices): after a build, `row_ends[r]` is the
-/// exclusive end index of row `r`'s instances in `instances`. Clean rows can
-/// then be copied from the previous frame instead of re-walking their cells
-/// through the font atlas (NFR-010: only repaint dirty rows).
+/// 与测试专用参照实现 `snapshot_reference::build_cell_instances_into`
+/// （row_ends + 每行的实例切片）保持一致：构建后 `row_ends[r]` 即
+/// 行 `r` 的实例在 `instances` 中的结束下标（不含）。干净行可
+/// 直接从上一帧复制，不必再经字体图集
+/// 遍历其单元格（NFR-010：只重绘脏行）。
 #[derive(Debug)]
 pub struct CachedInstances {
     row_ends: Vec<usize>,
     instances: Vec<CellInstance>,
     rows: u32,
     cols: u32,
-    /// Whether a build has ever populated this cache. A freshly created
-    /// cache (e.g. right after a resize) is dimensionally "compatible"
-    /// with the new grid but holds NO row data: serving "clean" rows from
-    /// it would copy 0 instances and drop rows regression).
+    /// 是否有构建填充过本缓存。新建的缓存
+    /// （如 resize 刚结束时）在尺寸上「兼容」新网格，
+    /// 却不含任何行数据：从中提供「干净」行会
+    /// 复制 0 个实例，导致丢行回归）。
     built: bool,
-    /// Font atlas generation the cached instances were built against.
-    /// Atlas rebuilds and glyph evictions relocate UVs, so a generation
-    /// mismatch forces a full rebuild (stale UVs would render wrong or
-    /// blank glyphs until each row happened to re-dirty).
+    /// 缓存实例构建时所依据的字体图集代际。
+    /// 图集重建与字形驱逐会搬迁 UV，故代际不匹配时
+    /// 强制全量重建（陈旧 UV 会渲染出错或
+    /// 空白，直到各行碰巧重新变脏）。
     atlas_generation: u64,
 }
 
@@ -251,36 +251,36 @@ impl CachedInstances {
         }
     }
 
-    /// The full instance list of the last build (row-major, per `row_ends`).
+    /// 上次构建的完整实例列表（行主序，见 `row_ends`）。
     pub fn instances(&self) -> &[CellInstance] {
         &self.instances
     }
 
-    /// Whether the cache still matches the current grid size (a resize
-    /// invalidates the row layout and forces a full rebuild) AND holds row
-    /// data from a previous build. An empty, never-built cache must not be
-    /// trusted for incremental serving.
+    /// 缓存是否仍匹配当前网格尺寸（resize 会
+    /// 使行布局失效并强制全量重建）且持有上次构建的行
+    /// 数据。空的、从未构建过的缓存不可用于
+    /// 增量提供。
     pub fn is_compatible(&self, rows: u32, cols: u32) -> bool {
         self.built && self.rows == rows && self.cols == cols && self.row_ends.len() == rows as usize
     }
 
-    /// Atlas generation the cached instances were built against.
-    /// Dirty-band slicing must additionally require generation equality:
-    /// rebuilds/evictions relocate UVs, and a stale-generation sparse band
-    /// leaves clean rows sampling relocated regions (blank/wrong glyphs).
+    /// 缓存实例构建时所依据的图集代际。
+    /// 脏带切片还额外要求代际相等：
+    /// 重建/驱逐会搬迁 UV，陈旧代际下的稀疏带会让
+    /// 干净行采样到已搬迁的区域（空白/错字）。
     pub fn built_atlas_generation(&self) -> u64 {
         self.atlas_generation
     }
 
-    /// `[start, end)` instance slice belonging to `row`.
+    /// `row` 所属的 `[start, end)` 实例切片。
     pub(crate) fn row_slice(&self, row: usize) -> (usize, usize) {
         let start = if row == 0 { 0 } else { self.row_ends[row - 1] };
         (start, self.row_ends[row])
     }
 
-    /// `[start, end)` instance slice covering rows `start_row..end_row`
-    /// (contiguous: instances are row-major). Caller must ensure
-    /// `end_row <= self.row_ends.len()`.
+    /// 覆盖行 `start_row..end_row` 的 `[start, end)` 实例切片
+    /// （连续：实例为行主序）。调用方须保证
+    /// `end_row <= self.row_ends.len()`。
     pub(crate) fn band_slice(&self, start_row: usize, end_row: usize) -> (usize, usize) {
         debug_assert!(end_row >= start_row && end_row <= self.row_ends.len());
         let start = self.row_slice(start_row).0;
@@ -288,8 +288,8 @@ impl CachedInstances {
         (start, end)
     }
 
-    /// Replace the cache contents after a build, stamping the atlas
-    /// generation the instances were built against.
+    /// 构建后替换缓存内容，并盖上实例构建所依据的
+    /// 图集代际。
     fn update(
         &mut self,
         rows: u32,
@@ -307,8 +307,8 @@ impl CachedInstances {
         self.built = true;
     }
 
-    /// Test-only: seed row ends directly (band_slice resolution tests do
-    /// not need real instance data, just the cumulative layout).
+    /// 仅测试：直接写入 row_ends（band_slice 解析测试无需
+    /// 真实实例数据，只要累计布局）。
     #[cfg(test)]
     pub(crate) fn update_for_test(&mut self, row_ends_cumulative: &[usize]) {
         self.row_ends = row_ends_cumulative.to_vec();
@@ -319,11 +319,11 @@ impl CachedInstances {
     }
 }
 
-/// Partition a flat, row-major `cell_data` slice into per-row ranges using
-/// the `CellData.row` field. Row lengths vary because wide/spacer cells are
-/// elided by the terminal; rows without cells map to empty ranges. Returns
-/// `None` when cells exist beyond `rows` (or the input is not row-major) —
-/// stale/mismatched data that must not be trusted for incremental builds.
+/// 依 `CellData.row` 把扁平行主序的 `cell_data` 切片划分为每行范围。
+/// 宽字符/间隔单元被终端省略，故各行长度不同；
+/// 无单元的行映射为空范围。存在超出 `rows` 的
+/// 单元（或输入非行主序）时返回 `None`——
+/// 属陈旧/失配数据，不可用于增量构建。
 pub(crate) fn build_row_ranges(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     rows: u32,
@@ -343,8 +343,8 @@ pub(crate) fn build_row_ranges(
     Some(ranges)
 }
 
-/// Bytewise comparison of two per-row cell slices. `CellData` is a POD
-/// bytemuck struct, so this is valid and faster than a field-by-field diff.
+/// 按字节比较两段行内单元切片。`CellData` 是 POD
+/// bytemuck 结构，故这样做有效且快于逐字段比对。
 fn rows_equal(
     old: &[crate::terminal::ghostty_terminal::CellData],
     new: &[crate::terminal::ghostty_terminal::CellData],
@@ -354,9 +354,9 @@ fn rows_equal(
     old_bytes == new_bytes
 }
 
-/// Zero-allocation per-row dirty mask: writes into a pre-allocated buffer
-/// (must have length ≥ `rows`). Avoids a per-frame `Vec<bool>` allocation
-/// at 120fps (~300 bytes × 120 = 36KB/s).
+/// 零分配的逐行脏标记：写入预分配缓冲
+/// （长度须 ≥ `rows`）。避免 120fps 下每帧分配
+/// `Vec<bool>`（约 300 字节 × 120 = 36KB/s）。
 pub(crate) fn diff_dirty_rows_into(
     old: &[crate::terminal::ghostty_terminal::CellData],
     new: &[crate::terminal::ghostty_terminal::CellData],
@@ -377,15 +377,15 @@ pub(crate) fn diff_dirty_rows_into(
     }
 }
 
-/// Convert pre-built `CellData` slices into GPU instance data.
+/// 把预构建的 `CellData` 切片转换为 GPU 实例数据。
 ///
-/// Takes search highlight parameters so the renderer can apply visual
-/// feedback (search highlight overlay) without requiring a full GridSnapshot.
-/// Selection highlight is owned by the terminal: the VT thread bakes the
-/// tracked-selection inverse video into `CellData` colors, so the builder
-/// applies no selection of its own.
+/// 携带搜索高亮参数，使渲染器无需完整 GridSnapshot
+/// 即可给出视觉反馈（搜索高亮叠加）。
+/// 选区高亮归终端所有：VT 线程把受跟踪选区的反显
+/// 烘焙进 `CellData` 颜色，故本构建器
+/// 自身不做选区处理。
 ///
-/// Returns `None` if conversion fails (font atlas unavailable, etc.).
+/// 转换失败（如字体图集不可用）时返回 `None`。
 pub fn build_instances_from_cell_data(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     config: CellInstanceConfig<'_>,
@@ -395,12 +395,12 @@ pub fn build_instances_from_cell_data(
     build_row_instances_into(cell_data, config, font_pipeline, None, None, instances)
 }
 
-/// Incremental variant of [`build_instances_from_cell_data`] (row-level
-/// dirty caching, FR-013 / NFR-010): only rows flagged in `dirty_rows` are
-/// rebuilt; clean rows are copied verbatim from `cache`. `cache` is updated
-/// in place so the next frame can reuse it. A dirty mask shorter than
-/// `rows`, or a cache incompatible with the grid size, degrades to a full
-/// rebuild of every row.
+/// [`build_instances_from_cell_data`] 的增量变体（行级脏缓存，
+/// FR-013 / NFR-010）：只重建 `dirty_rows` 中标记的行，
+/// 干净行原样从 `cache` 复制；`cache` 就地更新，
+/// 下一帧即可复用。脏标记短于 `rows`，
+/// 或缓存与网格尺寸不兼容时，降级为全部行的
+/// 完整重建。
 pub fn build_instances_cached(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     config: CellInstanceConfig<'_>,
@@ -419,11 +419,11 @@ pub fn build_instances_cached(
     )
 }
 
-/// Shared implementation behind the full and incremental builders.
+/// 全量与增量构建器背后的共用实现。
 ///
-/// Builds quad instances for every grid row. When `dirty_rows` and `cache`
-/// are supplied and coherent, clean rows copy their cached instances
-/// instead of re-walking their cells through the font atlas.
+/// 为每个网格行构建四边形实例。提供了 `dirty_rows` 与 `cache`
+/// 且二者一致时，干净行直接复制其缓存实例，
+/// 而不再经字体图集遍历其单元格。
 fn build_row_instances_into(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     config: CellInstanceConfig<'_>,
@@ -442,31 +442,31 @@ fn build_row_instances_into(
         atlas_height,
         search_highlights,
     } = config;
-    // Quad geometry uses the caller-supplied grid cell dimensions, which are the
-    // FONT cell size (cell_metrics * raster_scale) — not surface/rows. Sizing
-    // quads by surface/rows left visible gaps between rows on tall surfaces
-    // (2209px / 24 rows = 92px vs a ~20px font cell).
+    // 四边形几何用调用方给的网格单元尺寸，即 FONT 单元
+    // 大小（cell_metrics * raster_scale），而不是 surface/rows。
+    // 按 surface/rows 定尺寸会在高屏幕上留下行间空隙
+    // （2209px / 24 行 = 92px，而字体单元约 20px）。
     let (cell_width, cell_height) = (grid_cell_width, grid_cell_height);
-    // trace-level: this fires on every dirty rebuild; at info it floods
-    // logcat (binder IPC per line) and causes frame-time jitter.
+    // 用 trace 级别：每次脏重建都会触发；info 级别会淹没
+    // logcat（逐行 binder IPC）并引发帧时间抖动。
     log::trace!(
         "cell_builder: grid {rows}x{cols} cell {cell_width:.1}x{cell_height:.1} cells={}",
         cell_data.len()
     );
-    let _ = (rows, cols); // used by callers for projection; quad grid covers all
+    let _ = (rows, cols); // 调用方用于投影；四边形网格覆盖全部
     let ascent_pixels = font_pipeline.ascent_pixels();
     let raster_scale = font_pipeline.get_raster_scale();
-    // Cross-frame buffer reuse: the caller (Renderer) owns the Vec and
-    // clears it here, avoiding a ~100KB allocation per frame at 60fps
-    // (~6MB/s allocation traffic).
+    // 跨帧复用缓冲：Vec 由调用方（Renderer）持有，
+    // 在此清空，避免 60fps 下每帧约 100KB 的分配
+    // （约 6MB/s 分配流量）。
     instances.clear();
     instances.reserve(cell_data.len());
 
-    // foldhash (0.2, already in the dependency tree) instead of the std
-    // SipHash13 default: this map is rebuilt and queried every frame
-    // (~1920 hashes/frame @60fps); foldhash is ~5-10x faster on i32 keys.
-    // skip the per-frame HashMap rebuild when there are
-    // no highlights (the common case) — ~1920 hashes/frame saved.
+    // 用 foldhash（0.2，已在依赖树中）而非 std 默认的
+    // SipHash13：该 map 每帧重建并查询
+    // （60fps 约 1920 次哈希/帧）；foldhash 在 i32 键上快约 5-10 倍。
+    // 无高亮时（常见情形）跳过每帧 HashMap 重建，
+    // 每帧省下约 1920 次哈希。
     let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>, RandomState> =
         HashMap::with_hasher(RandomState::default());
     if !search_highlights.is_empty() {
@@ -478,12 +478,12 @@ fn build_row_instances_into(
         }
     }
 
-    // Partition into per-row ranges once; used for both the incremental
-    // dirty-row decision and the per-row iteration below.
+    // 一次性划分为每行范围；同时用于增量
+    // 脏行判定与下面的逐行迭代。
     let row_ranges = build_row_ranges(cell_data, rows)?;
-    // Incremental serving requires dimensional compatibility AND a current
-    // atlas generation: rebuilds/evictions relocate glyph UVs, so instances
-    // cached against an older generation would render wrong or blank glyphs.
+    // 增量提供要求尺寸兼容**且**图集代际为当前值：
+    // 重建/驱逐会搬迁字形 UV，故按更旧代际缓存的实例
+    // 会渲染出错或空白。
     let incremental = dirty_rows.is_some_and(|dirty_flags| dirty_flags.len() >= rows as usize)
         && cache.as_ref().is_some_and(|instance_cache| {
             instance_cache.is_compatible(rows, cols)
@@ -509,7 +509,7 @@ fn build_row_instances_into(
         for (row, range) in row_ranges.iter().enumerate() {
             let is_clean = incremental && dirty_rows.is_some_and(|dirty| !dirty[row]);
             if is_clean {
-                // Clean row: reuse the instances built last frame (NFR-010).
+                // 干净行：复用上一帧构建的实例（NFR-010）。
                 // `incremental` 已蕴含 `cache.is_some()`，故这里必命中。
                 let cache_ref = cache.as_ref().expect("incremental 蕴含缓存存在");
                 let (cs, ce) = cache_ref.row_slice(row);
@@ -628,8 +628,8 @@ fn warm_frame_glyphs(
     }
 }
 
-/// Build instances for one grid row. Shared by the full and incremental
-/// builders so the cell-level logic stays identical in both paths.
+/// 构建单个网格行的实例。全量与增量构建器共用，
+/// 使两条路径的单元级逻辑保持一致。
 // 渲染热路径：参数由双构建路径共享调用，成组改结构体只增间接无收益。
 fn append_row_instances(
     cell_width: f32,
@@ -645,8 +645,8 @@ fn append_row_instances(
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
 ) {
     for cd in cell_row {
-        // Validate codepoint before conversion — invalid values should be
-        // caught in debug builds so terminal-content bugs don't hide.
+        // 转换前校验码点——非法值应当
+        // 在 debug 构建中被捕获，避免终端内容缺陷被掩盖。
         debug_assert!(
             char::from_u32(cd.codepoint).is_some(),
             "cell_builder: invalid codepoint: {}",
@@ -657,37 +657,37 @@ fn append_row_instances(
         let quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         let mut foreground = cd.foreground;
         let mut background = cd.background;
-        // SGR 7 reverse video: swap foreground and background colors
-        // Check reverse attribute (bit 2 in new layout matching old path's
-        // `cell.reverse` bit position used by pack_style_flags → shader).
-        // Matches termux TerminalRenderer.java:182-187 (selection &
-        // reverseVideo fold into the same foreground/background swap) and Ghostty's
-        // renderer inverse-video handling.
+        // SGR 7 反显：交换前景与背景色
+        // 检查反显属性（新布局中为第 2 位，与旧路径
+        // pack_style_flags → shader 所用的 `cell.reverse` 位位置一致）。
+        // 与 termux TerminalRenderer.java:182-187 一致（选区与
+        // reverseVideo 归入同一处前景/背景交换），也与 Ghostty 的
+        // 渲染器反显处理一致。
         if (cd.flags >> cell_flags::REVERSE) & 1 == 1 {
             std::mem::swap(&mut foreground, &mut background);
         }
 
-        // Search highlight overlay (applied on top of the terminal-baked
-        // selection inverse video).
+        // 搜索高亮叠加（施加在终端烘焙的
+        // 选区反显之上）。
         if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
             apply_search_highlight(&mut foreground, &mut background, *hl);
         }
-        // (spec cursor-rendering "宽字符光标几何"): wide-char
-        // cursors must cover the FULL glyph. build_cell_data emits ONE CellData
-        // per wide char with width=2 (the trailing grid column has no CellData
-        // of its own — review-1 verified internal.rs consumes both columns), so
-        // the lead entry's `cell_span` already spans the whole glyph: scaling
-        // the Bar marker by cell_span is exactly what makes the cursor cover
-        // both columns. There is no separate spacer row entry to mark.
+        // (spec cursor-rendering "宽字符光标几何"): 宽字符
+        // 光标必须覆盖整个字形。build_cell_data 为每个宽字符只发出一条
+        // width=2 的 CellData（尾部网格列没有自己的
+        // CellData——review-1 已验证 internal.rs 会消费两列），故
+        // 首条记录的 `cell_span` 已跨整个字形：Bar 标记按 cell_span
+        // 缩放正是让光标覆盖两列的手段。
+        // 不存在需要另行标记的间隔单元记录。
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
         let effective_foreground = foreground;
         let mut effective_background = background;
-        // Default quad size (used for Block cursor and empty cells)
+        // 默认四边形尺寸（方块光标与空单元格共用）
         let quad_size = [cell_width * cell_span, cell_height];
-        // Block cursor height tracks the glyph (ascent+descent in
-        // physical pixels), not the full grid cell — a cell-high block at
-        // 420dpi looks like a giant filled rectangle around a ~66px glyph in
-        // a 79px cell.
+        // 方块光标高度跟随字形（ascent+descent 以物理
+        // 像素计），而非整个网格单元——420dpi 下整格高的光标块
+        // 看着就是包住 ~66px 字形的巨大实心矩形，而单元只有
+        // 79px 高。
 
         if is_cursor && matches!(cursor.style, CursorStyle::Block) {
             // 方块光标（独占样式）：保留原文前景保证可读，仅把背景
@@ -695,24 +695,24 @@ fn append_row_instances(
             effective_background = cursor.marker_background();
         }
 
-        // Full-size glyph quad dimensions (so combining marks etc. aren't clipped
-        // by Bar/Underline cursor marker size).
+        // 整尺寸字形四边形（避免组合记号等被 Bar/Underline
+        // 光标标记尺寸裁掉）。
         let glyph_quad_size = [cell_width * cell_span, cell_height];
         let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
-            // Empty cell: no background quad, only the cursor block below.
+            // 空单元格：不发背景四边形，只有下面的光标块。
             {
                 let mut origin = quad_origin;
                 let mut size = quad_size;
-                // Block cursor on an empty cell: align the block with the
-                // glyph box exactly like the non-empty path below — top =
-                // baseline − reference placement.top, height = the reference
-                // bitmap height. quad_origin is the CELL TOP (the shader
-                // occupies [origin, origin+size] verbatim; bearing only
-                // shifts the bitmap INSIDE the quad), so adding the full
-                // ascent here pushed the block one row down — the "cursor
-                // block one row below the text" report (, verified
-                // on the emulator: VT cursor (0,38), block pixels at row 1).
+                // 空单元格上的方块光标：像下面的非空路径那样，
+                // 让光标块与字形盒精确对齐——顶边 = 基线 −
+                // 参考字形的 placement.top，高度 = 该参考字形的
+                // 位图高度。quad_origin 是单元顶边（shader
+                // 原样占据 [origin, origin+size]；bearing 只在框内
+                // 移动位图），故在此加上完整 ascent 会把光标块
+                // 压低一行——即「光标块比文字低一行」
+                // 的报告（，模拟器实测：
+                // VT 光标 (0,38)，光标块像素落在第 1 行）。
                 if is_cursor {
                     let marker_background = cursor.marker_background();
                     let reference = font_pipeline
@@ -770,17 +770,17 @@ fn append_row_instances(
             continue;
         }
 
-        // Non-empty cell: emit glyph quad first, then cursor marker
-        // (if any; for Bar/Underline) on top so the thin bar/underline
-        // is visible over the glyph.
-        // Primary glyph — styled when the cell carries bold/italic flags
-        // same-family styled face preferred, else synthesis).
+        // 非空单元格：先发字形四边形，再在其上追加光标标记
+        // （Bar/Underline 时才有），使细竖线/下划线
+        // 在字形之上可见。
+        // 主体字形——单元带 bold/italic 标志时使用同族
+        // styled 字面，否则合成）。
         let cell_bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
         let cell_italic = (cd.flags >> cell_flags::ITALIC) & 1 == 1;
-        // Cluster shaping for grapheme continuations (combining marks,
-        // emoji ZWJ sequences): shape the whole cluster once so each mark
-        // lands per font positioning. Cells without extras skip shaping
-        // entirely, so the common case pays nothing.
+        // 组合字形延续符的簇整形（组合记号、emoji ZWJ
+        // 序列）：整簇只整形一次，使每个记号落到字体
+        // 指定的位置。无附加符的单元完全跳过整形，
+        // 常见情形零开销。
         let has_cluster = cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0);
         let mut cluster_text = String::new();
         if has_cluster {
@@ -800,9 +800,9 @@ fn append_row_instances(
             } else {
                 Vec::new()
             };
-        // A cluster shaping to a single glyph (ZWJ emoji) replaces the
-        // base glyph as the primary quad; positioned marks are handled
-        // in the overlay loop below.
+        // 整簇整形成单个字形（ZWJ emoji）时，它取代主体字形
+        // 成为主体四边形；带位置的记号交由下面的 overlay
+        // 循环处理。
         let merged_cluster_glyph = if cluster_shaped.len() == 1 {
             let glyph = &cluster_shaped[0];
             font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
@@ -818,10 +818,10 @@ fn append_row_instances(
             let uv_w = info.width as f32 / atlas_width;
             let uv_h = info.height as f32 / atlas_height;
             let bearing_x = info.placement.left as f32;
-            // info.height is the rasterized bitmap height in PHYSICAL pixels
-            // (already × raster_scale). Compare against the physical grid
-            // cell height; the centering fallback is then in physical
-            // pixels too: units must not mix).
+            // info.height 是光栅化位图高度，单位为物理像素
+            // （已乘 raster_scale）。与之比较的是物理网格单元高度；
+            // 居中回退同样按物理像素给出——
+            // 单位不可混用）。
             let glyph_h_px = info.height as f32;
             let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
             let bearing_y = if glyph_h_px > cell_height {
@@ -893,10 +893,10 @@ fn append_row_instances(
                 });
             }
 
-            // Grapheme continuation codepoints (combining marks, emoji ZWJ, etc.)
-            // Rendered as overlay instances on top of the base glyph, positioned
-            // by the cluster shaping above; unshaped per-codepoint fallback
-            // when shaping produced nothing usable.
+            // 组合字形延续码点（组合记号、emoji ZWJ 等），
+            // 作为 overlay 实例渲染在主体字形之上，位置由上面的
+            // 簇整形给出；整形无可用结果时按码点回退
+            // 渲染。
             if cluster_shaped.len() > 1 {
                 for glyph in cluster_shaped.iter().skip(1) {
                     if let Some(info) =
@@ -944,9 +944,9 @@ fn append_row_instances(
                 }
             }
         } else {
-            // Glyph not found in atlas – push a blank background quad so
-            // the cell background (including selection/highlight) is visible.
-            // The glyph will appear once font atlas is rebuilt.
+            // 图集中找不到字形——推入一个空背景四边形，使
+            // 单元格背景（含选区/高亮）可见。
+            // 字体图集重建后字形即出现。
             instances.push(CellInstance {
                 quad_origin,
                 atlas_offset: [0.0; 2],
@@ -963,7 +963,7 @@ fn append_row_instances(
     }
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────
+// ── 测试 ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -1020,7 +1020,7 @@ mod tests {
         instances
     }
 
-    /// Without reverse/highlight, a plain cell keeps its colors.
+    /// 无反显/高亮时，普通单元保持自身颜色。
     #[test]
     fn plain_cell_keeps_colors() {
         let cells = vec![cell_data(
@@ -1038,7 +1038,7 @@ mod tests {
         assert_eq!(instances[0].flags, 0.0);
     }
 
-    /// SGR 7 reverse swaps foreground and background.
+    /// SGR 7 反显交换前景与背景。
     #[test]
     fn reverse_swaps_foreground_background() {
         let cells = vec![cell_data(
@@ -1054,7 +1054,7 @@ mod tests {
         assert_eq!(instances[0].background, [1.0, 0.0, 0.0, 1.0]);
     }
 
-    /// SGR 1/3 bold+italic flags reach the GPU instance (shader style bits).
+    /// SGR 1/3 bold+italic 标志传到 GPU 实例（shader 样式位）。
     #[test]
     fn bold_italic_flags_reach_instance() {
         let flags = (1 << cell_flags::BOLD) | (1 << cell_flags::ITALIC);
@@ -1077,7 +1077,7 @@ mod tests {
         );
     }
 
-    /// SGR 58 underline color reaches the GPU instance for the shader deco pass.
+    /// SGR 58 下划线颜色传到 GPU 实例，供 shader 装饰遍使用。
     #[test]
     fn underline_color_reaches_instance() {
         let mut decorated = cell_data(
@@ -1097,7 +1097,7 @@ mod tests {
         );
     }
 
-    /// Search highlight with alpha >= 128 swaps foreground/background then blends background.
+    /// alpha >= 128 的搜索高亮先交换前景/背景，再混合背景。
     #[test]
     fn search_highlight_swaps_and_blends() {
         let cells = vec![cell_data(
@@ -1112,10 +1112,10 @@ mod tests {
             row: 2,
             start_col: 3,
             end_col_exclusive: 4,
-            color: [0xFF, 0xFF, 0x00, 0xFF], // opaque yellow
+            color: [0xFF, 0xFF, 0x00, 0xFF], // 不透明黄
         };
         let instances = build(&cells, CellCursor::default(), &[hl]);
-        // Alpha >= 128 → swap foreground/background, then background = blend(background, yellow, alpha=1) = yellow.
+        // alpha >= 128 → 交换前景/背景，随后 background = blend(background, yellow, alpha=1) = yellow。
         assert_eq!(
             instances[0].foreground,
             [0.0, 0.0, 1.0, 1.0],
@@ -1128,7 +1128,7 @@ mod tests {
         );
     }
 
-    /// Highlight alpha below 128 blends without swapping.
+    /// alpha 低于 128 的高亮只混合、不交换。
     #[test]
     fn search_highlight_blends_without_swap() {
         let cells = vec![cell_data(
@@ -1143,7 +1143,7 @@ mod tests {
             row: 0,
             start_col: 0,
             end_col_exclusive: 1,
-            color: [0xFF, 0x00, 0x00, 0x7F], // alpha ~0.5 red (below the 128 swap threshold)
+            color: [0xFF, 0x00, 0x00, 0x7F], // alpha ~0.5 的红（低于 128 交换阈值）
         };
         let instances = build(&cells, CellCursor::default(), &[hl]);
         assert_eq!(
@@ -1151,7 +1151,7 @@ mod tests {
             [0.0, 0.0, 0.0, 1.0],
             "foreground unchanged below alpha 128"
         );
-        // background = white * (1-a) + red * a with a = 0x7F/255
+        // background = white * (1-a) + red * a，其中 a = 0x7F/255
         let alpha = 0x7F as f32 / 255.0;
         let expected = 1.0 - alpha;
         assert!(
@@ -1162,8 +1162,8 @@ mod tests {
         assert!((instances[0].background[2] - expected).abs() < 1e-5);
     }
 
-    /// Block cursor replaces background with cursor color (semi-transparent) and
-    /// keeps the original foreground so the glyph stays readable.
+    /// 方块光标把背景换成光标色（半透明），
+    /// 并保留原前景色，使字形仍可读。
     #[test]
     fn block_cursor_paints_background_keeps_foreground() {
         let cells = vec![cell_data(
@@ -1194,7 +1194,7 @@ mod tests {
         );
     }
 
-    /// Empty cells (space) emit a background quad, never a glyph instance.
+    /// 空单元格（空格）只发背景四边形，绝不发字形实例。
     #[test]
     fn empty_cell_emits_background_quad() {
         let cells = vec![cell_data(
@@ -1214,12 +1214,12 @@ mod tests {
         assert_eq!(instances[0].background, [0.1, 0.1, 0.1, 1.0]);
     }
 
-    // Field-by-field comparison (CellInstance does not derive PartialEq).
+    // 逐字段比较（CellInstance 未派生 PartialEq）。
 
     const TEST_GRID_ROWS: u32 = 24;
     const TEST_GRID_COLS: u32 = 80;
 
-    /// Standard 24x80 configuration used by the cached-build tests.
+    /// 缓存构建测试所用的标准 24x80 配置。
     fn test_config(cursor: CellCursor) -> CellInstanceConfig<'static> {
         CellInstanceConfig {
             rows: TEST_GRID_ROWS,
@@ -1233,7 +1233,7 @@ mod tests {
         }
     }
 
-    /// Run a cached build with the standard test configuration.
+    /// 以标准测试配置执行一次缓存构建。
     fn run_cached_build(
         cells: &[CellData],
         cursor: CellCursor,
@@ -1267,9 +1267,9 @@ mod tests {
             })
     }
 
-    /// Incremental path (build_instances_cached): a frame that only dirties
-    /// row 2 must produce exactly the instances of a full rebuild, with the
-    /// clean rows served from the cache (NFR-010: only repaint dirty rows).
+    /// 增量路径（build_instances_cached）：只让第 2 行变脏的一帧
+    /// 必须产出与完整重建完全一致的实例，其中干净行
+    /// 从缓存提供（NFR-010：只重绘脏行）。
     #[test]
     fn cached_incremental_rebuild_matches_full_build() {
         let mk = |row: u32, ch: char| {
@@ -1284,7 +1284,7 @@ mod tests {
             color: None,
         };
 
-        // Frame 1: full dirty pass seeds the cache.
+        // 第 1 帧：全脏一遍以播种缓存。
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let mut instances = Vec::new();
         let mut cache = CachedInstances::new(24, 80);
@@ -1304,8 +1304,8 @@ mod tests {
             "initial build equals a full build"
         );
 
-        // Frame 2: only row 2 changes; all other rows must be served from
-        // the cache and the result must still equal a full rebuild.
+        // 第 2 帧：仅第 2 行变化；其余各行必须从
+        // 缓存提供，结果仍须等于完整重建。
         let mut cells2 = cells.clone();
         cells2[2] = mk(2, 'z');
         let mut dirty = vec![false; 24];
@@ -1325,17 +1325,17 @@ mod tests {
             instances_equal(&instances, &full_frame2),
             "incremental result must match a full rebuild"
         );
-        // The cache now holds frame 2's instances for the next frame.
+        // 缓存此刻保存第 2 帧的实例供下一帧复用。
         assert!(
             instances_equal(cache.instances(), &instances),
             "cache must be refreshed with the latest instances"
         );
     }
 
-    /// Atlas staleness (rebuild or glyph eviction relocates UVs): a cache
-    /// built against an older atlas generation must NOT serve clean rows —
-    /// the frame must equal a full rebuild, since stale UVs would render
-    /// wrong or blank glyphs until each row happened to re-dirty.
+    /// 图集陈旧（重建或字形驱逐会搬迁 UV）：按更旧图集代际
+    /// 构建的缓存绝不可提供干净行——该帧必须等于完整
+    /// 重建，否则陈旧 UV 会渲染出错或空白，
+    /// 直到各行碰巧重新变脏。
     #[test]
     fn cached_stale_atlas_generation_forces_full_rebuild() {
         let mk = |row: u32, ch: char| {
@@ -1350,7 +1350,7 @@ mod tests {
             color: None,
         };
 
-        // Frame 1: full dirty pass seeds the cache.
+        // 第 1 帧：全脏一遍以播种缓存。
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let mut instances = Vec::new();
         let mut cache = CachedInstances::new(24, 80);
@@ -1365,12 +1365,12 @@ mod tests {
         );
         assert!(ok.is_some(), "initial full build should succeed");
 
-        // Simulate an atlas rebuild/eviction after the cache was populated.
+        // 模拟缓存填充之后的图集重建/驱逐。
         cache.atlas_generation = cache.atlas_generation.wrapping_add(1);
 
-        // Frame 2 changes row 2 but claims nothing is dirty: with a current
-        // generation the stale row would be served from cache; with a stale
-        // generation the whole frame must rebuild instead.
+        // 第 2 帧改了第 2 行却声称无脏行：代际为当前时那行陈旧
+        // 内容会从缓存被提供；代际陈旧时则必须整帧
+        // 改为重建。
         let mut cells2 = cells.clone();
         cells2[2] = mk(2, 'z');
         let clean = vec![false; 24];
@@ -1536,9 +1536,9 @@ mod tests {
         );
     }
 
-    /// Degenerate incremental inputs (stale cache grid size or a dirty mask
-    /// shorter than the grid) must fall back to a full rebuild instead of
-    /// serving stale rows.
+    /// 退化输入（缓存网格尺寸陈旧，或脏标记短于网格）
+    /// 必须回退为完整重建，而不是
+    /// 提供陈旧行。
     #[test]
     fn cached_degraded_input_falls_back_to_full_rebuild() {
         let cells: Vec<CellData> = (0..24)
@@ -1554,7 +1554,7 @@ mod tests {
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let full = build(&cells, cursor, &[]);
 
-        // Stale cache: built for a 12-row grid while the grid has 24 rows.
+        // 陈旧缓存：按 12 行网格构建，而网格已有 24 行。
         let mut cache = CachedInstances::new(12, 80);
         let mut instances = Vec::new();
         let ok = run_cached_build(
@@ -1571,7 +1571,7 @@ mod tests {
             "stale cache must force a full rebuild"
         );
 
-        // Dirty mask shorter than the grid (only 10 rows).
+        // 脏标记短于网格（仅 10 行）。
         let mut cache2 = CachedInstances::new(24, 80);
         instances.clear();
         let ok = run_cached_build(
@@ -1589,14 +1589,12 @@ mod tests {
         );
     }
 
-    /// regression: a cache that no longer matches the grid
-    /// (e.g. a cols-only resize keeps rows identical) combined with a
-    /// PARTIAL dirty mask must still produce a full rebuild. A freshly
-    /// re-created empty cache looks "compatible" (same rows/cols fields),
-    /// so serving "clean" rows from it would copy 0 instances and drop
-    /// those rows from the frame. The caller (pass.rs) is responsible for
-    /// substituting an all-true mask when it rebuilds the cache; this test
-    /// pins the degenerate combination so it can never silently pass.
+    /// 回归：与网格不再匹配的缓存（如仅列数变化的 resize，行数
+    /// 不变）叠加部分脏标记时，仍须产出完整重建。新建的空缓存
+    /// 看起来「兼容」（rows/cols 字段相同），从中提供「干净」行
+    /// 会复制 0 个实例，于是把这些行从本帧丢掉。调用方
+    /// （pass.rs）负责在重建缓存时换成全 true 的脏标记；本测试
+    /// 钉住这一退化组合，使其永远不会静默通过。
     #[test]
     fn stale_cache_with_partial_mask_must_not_drop_rows() {
         let cells: Vec<CellData> = (0..24)
@@ -1612,13 +1610,13 @@ mod tests {
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let full = build(&cells, cursor, &[]);
 
-        // Simulate the resize frame: cache was built for 24x40 but the grid
-        // is now 24x80 (cols-only change). A re-created empty cache for
-        // 24x80 is "compatible" by dimensions, yet holds no row data.
+        // 模拟 resize 帧：缓存按 24x40 构建，而网格
+        // 现为 24x80（仅列数变化）。为 24x80 重建的空缓存
+        // 在尺寸上「兼容」，却不含任何行数据。
         let mut cache = CachedInstances::new(24, 80);
         let mut instances = Vec::new();
-        // Partial mask: only row 2 is dirty (as produced by the cell diff
-        // path when only one row's bytes changed).
+        // 部分标记：只有第 2 行脏（仅一行字节变化时单元 diff
+        // 路径的产出）。
         let mut mask = vec![false; 24];
         mask[2] = true;
         let ok = run_cached_build(
@@ -1630,8 +1628,8 @@ mod tests {
             &mut instances,
         );
         assert!(ok.is_some());
-        // Every row must be present: an empty cache serving "clean" rows
-        // would produce 0 instances for the 23 clean rows.
+        // 每一行都必须在场：空缓存提供「干净」行时
+        // 23 个干净行只会产出 0 个实例。
         assert_eq!(
             instances.len(),
             full.len(),
@@ -1644,11 +1642,11 @@ mod tests {
             "result must equal a full rebuild on cache mismatch"
         );
     }
-    /// The block cursor on an EMPTY cell must stay inside the cursor's own row:
-    /// quad_origin is the cell top (the shader occupies [origin, origin+size]
-    /// verbatim), so the origin must never be shifted by the full ascent — that
-    /// pushed the block one row below the text ( emulator evidence:
-    /// VT cursor (0,38), block pixels at row 1).
+    /// 空单元格上的方块光标必须留在光标自身所在行内：
+    /// quad_origin 是单元顶边（shader 原样占据
+    /// [origin, origin+size]），故顶边绝不可按完整 ascent
+    /// 平移——那会把光标块压到文字下一行（模拟器实测：
+    /// VT 光标 (0,38)，光标块像素落在第 1 行）。
     #[test]
     fn block_cursor_on_empty_cell_stays_in_its_row() {
         let cursor = CellCursor {
@@ -1658,7 +1656,7 @@ mod tests {
             style: crate::terminal::ghostty_terminal::CursorStyle::Block,
             color: Some([1.0, 1.0, 1.0, 1.0]),
         };
-        // A single empty cell under the cursor (codepoint 0).
+        // 光标下仅一个空单元格（码点 0）。
         let cells = vec![cell_data(0, 38, '\0', [1.0; 4], [0.0; 4], 0)];
         let instances = build(&cells, cursor, &[]);
         assert_eq!(instances.len(), 1, "empty cursor cell emits one quad");
@@ -1669,8 +1667,8 @@ mod tests {
             origin_y >= 0.0 && bottom_y <= cell_height + 0.5,
             "block quad spans y [{origin_y}, {bottom_y}] but row 0 ends at {cell_height}"
         );
-        // The block must align with the glyph box of a reference glyph, matching
-        // the non-empty path (top = baseline − placement.top).
+        // 光标块必须与参考字形的字形盒对齐，与非空
+        // 路径一致（顶边 = 基线 − placement.top）。
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         if let Some(reference) = font_pipeline.glyph_information('M') {
             let expected_top = font_pipeline.ascent_pixels() * font_pipeline.get_raster_scale()
