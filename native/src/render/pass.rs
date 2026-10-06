@@ -592,8 +592,7 @@ impl Renderer {
         kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
         // 图集尺寸由字形管线自身持有（UV 归一化的唯一权威），不再由调用方并传一份。
-        let (atlas_pixels_width, atlas_pixels_height) = font_pipeline.atlas_dimensions();
-        let (atlas_width, atlas_height) = (atlas_pixels_width as f32, atlas_pixels_height as f32);
+        let (atlas_px_width, atlas_px_height) = font_pipeline.atlas_dimensions();
         // 四边形几何必须用字体单元格尺寸（逻辑单元格度量 × raster_scale，即 Kotlin
         // 侧算出的 cellWidth/cellHeight），不能用 surface/rows：Kotlin 的网格行数来自
         // 内容区（surface 减去输入法与修饰键栏），故 IME 打开时 surface/rows 会把每个
@@ -611,8 +610,8 @@ impl Renderer {
             grid_cell_width,
             grid_cell_height,
             cursor,
-            atlas_width,
-            atlas_height,
+            atlas_width: atlas_px_width as f32,
+            atlas_height: atlas_px_height as f32,
             search_highlights,
         };
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
