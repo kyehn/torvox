@@ -1574,6 +1574,16 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 §28.6、§28.7 的既往结论一致，本轮只是第一次把退化链路逐行落到日志上。
 第二次全量跑（同代码）183 例全绿，可作对照。
 
+### 32.2.1 CI 三连绿（本仓既定口径）
+
+| run | head | 结论 |
+| --- | --- | --- |
+| `37392123755` | `443e1726` | success，`connectedDebugAndroidTest` 零失败，release 原处更新 |
+| `37394262189`（`check`） | `6fab0679` | success，markdownlint 162 文件 0 违规，cargo test 553 例 |
+| `37395585913` | `c62f2463` | success，`connected-failures: 0 failed in 1 report files`，`🎉 Release ready` |
+
+即本轮改动后的三次连续运行全绿，达到台账自设的「三连绿为准」口径。
+
 ### 32.3 本轮已修（产品缺陷 + 取证能力，均不改动保护文件）
 
 - [x] **（产品，严重）`menuAnchor` 会返回视口外的锚点**：两处落点各只判单侧边界，
