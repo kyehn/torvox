@@ -117,8 +117,13 @@
 
 ## 4. 需用户裁决（规范之间或与实现的字面冲突）
 
-- [ ] D1【R29 建议补规范声明（N1-11 已按抛错收敛服务侧行为，只差一句话声明）】`DESIGN.md:16/24` 禁止未声明回退 vs `TerminalForegroundService.startForeground`
-      失败后继续；N1-11 已按抛错收敛，余下是否补规范声明
+- [ ] D1`DESIGN.md:16/24` 禁止未声明回退 vs `TerminalForegroundService.startForeground`
+      失败后继续。**R41 回读代码更正 R29 的「已按抛错收敛」**：
+      `TerminalForegroundService.kt:134-149` 的 `catch` 仍在，`startForeground` 失败
+      只记 error 并继续运行。另一侧 `DESIGN.md:34`「较低安全性、隐私策略，
+      不设计权限管理」与之冲突——若改抛错崩溃，未授予 `POST_NOTIFICATIONS`
+      的用户（Android 13+ 默认）将直接进不去终端。两条都在保护文件里，
+      需用户在「崩溃退出」与「不设计权限管理」之间裁决，或授权补一句规范声明
 - [x] D2【前提不成立】`STYLE.md:5` 原文为「所有 **Shell 脚本**均使用 Nushell（`.nu`），
       不使用 `bash` 或 `sh`」——约束对象是脚本语言，不是「命令里不得出现 bash 字样」。
       `fmt.yml:44` 的 `bash -c` 是工作流里的一行宿主命令，不是仓内 Shell 脚本文件，
@@ -187,8 +192,8 @@
       图标明暗，已按已解析的终端主题背景亮度显式写 insets controller 的两枚开关。
       `themes.xml` 里 API 29+ 不生效的 `statusBarColor`/`navigationBarColor`
       已删；`values-night` 路线不取（它跟随系统而非应用开关，与语义不合）。
-      余下 `windowBackground`/`windowSplashScreenBackground` 是启动期底色，
-      理由见 
+      余下 `windowBackground`/`windowSplashScreenBackground` 是启动期底色（防冷启动白闪），
+      理由与处置见 §28.3
 
 ## 5. 需授权（修复必然改动保护文件）
 
@@ -274,7 +279,7 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       用 `BaselineProfileRule` 真实驱动。仓内另有 `src/main/baselineProfiles/` 手写
       规则由插件一并合并。关闭
 - [ ] **N40`build.yml` 的 release 步骤结构性失败——流水线从未成功过一次**。
-      run `` 红在 `softprops/action-gh-release@master`：报
+      红在 `softprops/action-gh-release@master` 报
       `⚠️ GitHub Releases requires a tag`。根因是触发方式而非代码：
       `build.yml:2-5` 的 `on:` 只有 `workflow_dispatch` 与 `schedule`、**没有
       `push: tags`**，而该 action 未传 `tag_name`，默认取 `github.ref`——在
@@ -310,7 +315,7 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
 - [x] `row_cache` / `cached_scrollback` 只写字段 —— 全仓已无这两个字段
 - [x] `pty_write` 在非阻塞主端上丢弃剩余字节 —— `write_all` 已改为等可写、绝不丢弃
 - [x] `initSession` 空 shell 改写为 `/system/bin/sh` —— 本轮已删除
-- [x] `external fun` 缺 `@JvmStatic` —— **本条原结论有误，见 **：
+- [x] `external fun` 缺 `@JvmStatic` —— **本条原结论有误，详见 §11**：
       当时只补了部分声明，六个生产导出仍缺，且台账误记为「已补齐 58 个」。
 - [x] N2-6 / N2-40fork 子进程裸 `_exit` 不写 fd 2 —— **本轮否证**：
       两处 `_exit` 之前都先 `write(2, reason)`（`child_exit_with_reason` 与 errno
@@ -1553,7 +1558,7 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
       补单测 3 条，既有 5 条不变。见归档前的 change `fix-selection-menu-anchor-viewport`
 - [x] **（取证缺口）`TerminalLogcatRule` 的标签清单漏掉了唯一的那条锚点**：
       清单里写的是大写 `FFI`，而 logcat 的实际标签是小写模块名 `native::android::ffi`，
-      `contains` 只命中消息前缀恰为 `FFI: ` 的几行——于是 `render: frame failed: …`
+      `contains` 只命中消息前缀恰为 `FFI:` 的几行——于是 `render: frame failed: …`
       与 `surface invalidated after …` 被整段过滤（§32.2 的证据在仓内一直取不到）。
       改为按实际标签匹配，并补上 `native::render::context`
 - [x] **（取证缺口）`SelectionEspressoTest` / `BehaviorInstrumentedTest` 未接
@@ -1569,19 +1574,36 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
       它是唯一没有收尾的像素类，选区、滚动偏移与回滚跨类留存会给后继像素用例
       留下错误前提（§27 同族根因）
 
-### 32.4 仍需用户裁决 / 授权（本轮不动）
+### 32.4 本轮未动的在案条目
 
-- [ ] **D1** `TerminalForegroundService.startForeground` 失败后记日志继续运行，
-      与 `DESIGN.md:16/24`「错误 → 崩溃退出、不做未声明 Fallback」字面冲突。
-      复核代码：`TerminalForegroundService.kt:134-149` 的 `catch` 仍在外抛之外。
-      与 `DESIGN.md:34`「较低安全性、隐私策略，不设计权限管理」也冲突——崩溃会让
-      未授予 `POST_NOTIFICATIONS` 的用户直接进不去终端。**补一句规范声明**需要改
-      `docs/specification/`（保护文件），请裁决取哪一侧
-- [ ] **D13 / N2-44** `DESIGN.md:145` 的「左右键平移可见区域」触发条件在本仓不存在
-      （网格列数恒为 `floor(surfaceWidth / cellWidth)`）。同一条的后半句「↑↓←→
-      四个方向键应正确发送信号」已实现并被表驱动用例锁定。补一句现状说明 / 删掉该半句，
-      两者都需要改 `docs/specification/`（保护文件）
-- [ ] **D7 / N7 与 §5 的 N8、N40、N41、N2-47** 全部要改保护文件
-      （`.github/workflows/build.yml`、`scripts/check-rust.nu`），按 AGENTS.md 不擅动。
-      其中 N41 的取证意图已由本轮 `TerminalLogcatRule` 的覆盖面补足大半，
-      是否仍需改 `scripts/test-emulator.nu` 导出 logcat 请裁决
+未新增条目，只把既有条目的状态补到本轮证据上（内容不在此重复）：
+
+- §4 **D1**：R29「已按抛错收敛」的结论经本轮回读**证伪**，改为记录真实代码位置
+  与两侧规范冲突；裁决点不变。
+- §5 **N41**（仪器化失败不导出 logcat）的取证意图，本轮已由仓内
+  `TerminalLogcatRule` 覆盖到 10 个失败率最高的类、并修好了它自身的标签过滤，
+  `scripts/test-emulator.nu` 是否仍需改 → 保护文件，请裁决。
+- §4 **D13 / N2-44**、§4 **D7 / N7**、§5 **N8 / N40 / N2-47**：本轮无新证据，
+  均需改保护文件（`docs/specification/`、`.github/workflows/build.yml`、
+  `scripts/check-rust.nu`），按 AGENTS.md 不擅动。
+- §31 **（未定因）`partialSelectShowsSelectionMenu`**：本轮全量跑两次均未复现
+  （同一份代码一红一绿），仍无根因；但 `SelectionEspressoTest` 本轮已接入
+  `TerminalLogcatRule`，下次缺席会直接带上 `showSelectionMenu` 的缺席分支日志。
+- §31 **`behavior_modifier_bar_visible`**：同样未复现；该类本轮也接入
+  `TerminalLogcatRule`，空信息判红将不再出现。
+
+### 32.5 门禁失效：`check` 的 markdownlint 环节当前判红
+
+`check.yml` 只在 `schedule`（每日 05:00）与手动触发时跑，最近一次绿色是
+`ed2733e8`（台账 1339 行）。此后台账继续增补，本轮复核发现当前版本
+（1592 行）`markdownlint-cli2 "**/*.md" "#target/**" "#android/**/build/**"`
+报 **7 处**违规，`check-rust.nu` 的最后一句即该命令 → `check` 的下一步
+必红。三处是旧账自身（「理由见」后的行尾空格、run 号被改写后残留的空代码跨、
+被截断的强调标记），另四处是本轮新增（3 个新 change 文件缺文件末换行 +
+台账里一处尾随空格代码跨）。**成因是历史被 force-push
+改写时 run 号被清空留下的残渣**，不是新代码。
+
+已全部修正（正文语义不变：补回被清空的引用目标、去掉行尾空格、改写被截断的
+强调标记），全仓 158 个 Markdown 文件 0 违规。教训：**`check` 只按日跑，
+提交本身不带触发器，故门禁失效可以静默数日**；本轮靠 `markdownlint-cli2` 本地
+逐文件复核才暴露。
