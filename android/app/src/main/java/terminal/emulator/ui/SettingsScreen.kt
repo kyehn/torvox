@@ -76,11 +76,8 @@ import terminal.emulator.bridge.FontActiveDto
 import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
+import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.TerminalTheme
-
-private const val FONT_SIZE_RANGE_MIN = 8f
-private const val FONT_SIZE_RANGE_MAX = 48f
-private const val FONT_SIZE_RANGE_STEPS = 23
 
 /** 引导程序包变体（DESIGN Bootstrap 节：只用 apt-android-7）。 */
 private const val TERMUX_PACKAGE_VARIANT = "apt.android-7"
@@ -542,11 +539,13 @@ private fun FontSizeSlider(
     modifier: Modifier = Modifier,
     onValueChangeFinished: () -> Unit = {},
 ) {
+    val density = LocalDensity.current.density
     SettingsSliderRow(
         title = stringResource(R.string.font_size),
         value = value,
-        valueRange = FONT_SIZE_RANGE_MIN..FONT_SIZE_RANGE_MAX,
-        steps = FONT_SIZE_RANGE_STEPS,
+        valueRange =
+        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.fontSizeRangeMaxSp(density),
+        steps = SettingsRepository.fontSizeRangeSteps(density),
         colors =
         SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,
