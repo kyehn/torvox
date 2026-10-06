@@ -522,7 +522,7 @@ class Bridge(private val config: TerminalConfig) {
 
     /**
      * 终端是否处于应用光标模式（DECCKM，DEC 私有模式 1）。此时方向键须编码为 SS3（`ESC OA`）
-     * 而非 CSI（`ESC [ A`），见 docs/specification/REFERENCE.md。仅在方向键事件时查询。
+     * 而非 CSI（`ESC [ A`），见 `openspec/specs/modifier-bar-arrow-encoding/spec.md`。仅在方向键事件时查询。
      */
     fun isAppCursorMode(): Boolean =
         onSession("getMode", false) { NativeBridge.getMode(it, DEC_PRIVATE_MODE_APP_CURSOR, 0) }
@@ -538,7 +538,7 @@ class Bridge(private val config: TerminalConfig) {
             val ctrlActive = modifierBits and 4 != 0
             val altActive = modifierBits and 2 != 0
             // DECCKM：终端处于应用光标模式（DEC 私有模式 1）时方向键须编码为 SS3
-            // （`ESC OA`）而非 CSI（`ESC [ A`），见 docs/specification/REFERENCE.md。
+            // （`ESC OA`）而非 CSI（`ESC [ A`），见 `openspec/specs/modifier-bar-arrow-encoding/spec.md`。
             // 仅方向键查询，避免每次击键都做一次 mode_get 往返。
             val appCursorMode = keyCode in APP_CURSOR_KEY_CODES && isAppCursorMode()
             // 所有硬件按键都走输入法同一条编码路径。直接发送键名

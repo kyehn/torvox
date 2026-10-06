@@ -331,9 +331,8 @@ class SecondStageRunner(
         val canonicalInterpreter = File(interpreterPath).canonicalPath
         val canonicalPrefix = prefixDir.canonicalPath
         return if (canonicalInterpreter.startsWith(canonicalPrefix)) {
-            // 脚本已被 patch（patchPostinstForLinker）以把 prefix 内的
-            // ELF 调用导向 /system/bin/linker64。解释器本身也经链接器调用，
-            // 使脚本能正确加载。
+            // 解释器落在 prefix 内（其 ELF 调用已指向 /system/bin/linker64），
+            // 故解释器本身也必须经链接器调用，脚本才能正确加载。
             arrayOf(SYSTEM_LINKER, canonicalInterpreter, script.absolutePath, "configure")
         } else {
             arrayOf(canonicalInterpreter, script.absolutePath, "configure")
