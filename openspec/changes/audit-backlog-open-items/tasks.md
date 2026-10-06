@@ -222,13 +222,19 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       「零 `NEEDED` 字样」，原 `:15-17` 的两条 `.so` 校验要求已从规范里删去。
       规范既已不提，`scripts/build-android-libs.nu` 不做该校验不再构成缺口。
       本轮关闭
-- [ ] N8**「自相矛盾」不成立**：`isShrinkResources=true` 是资源与死代码
-      收缩，`-dontobfuscate` 只是不做**名字改写**，两者是不同开关、可以并存；对终端
-      这类需要可读类名与栈的应用，保留名字是合理选择，不是矛盾。
-      余下「release 变体零冒烟」成立：`check-gradle.nu` 只请求
-      `assembleDebugAndroidTest` 与 `lintVitalRelease`，从不真正 `assembleRelease`。
-      补冒烟要改 `scripts/` 或 `.github/workflows/`（均属 AGENTS.md 明列的保护
-      文件），需用户授权
+- [x] **N8（前半已否证、后半前提证伪，关闭：不需要改保护文件）**
+      `isShrinkResources=true` 与 `-dontobfuscate` 是不同开关、可以并存，原结论已否证。
+      余下「release 变体零冒烟」同样不成立：
+      ① `build.yml:45` 与 `:76` 两次 `scripts/build-apk.nu --release` 真正
+      `assembleRelease`，产物上传为 `release-apk` 并随 release 发布
+      （run `37392123755` 的产物与 `🎉 Release ready` 两处均可证）；
+      ② `scripts/test-emulator.nu:11` 的 `:benchmark:connectedBenchmarkReleaseAndroidTest`
+      会在设备上装**并驱动** release 变体——`android/benchmark/build.gradle.kts:9`
+      的 `targetProjectPath = ":app"`，macrobenchmark 只能跑在不可调试的 release 变体上。
+      即 release 变体每日既被构建也被冒烟。
+      `check-gradle.nu` 里的 `lintVitalRelease` 是静态检查，与 `build` 的职责分工正常；
+      再加一次 `assembleRelease` 只是重复构建，按 DESIGN:18「不做任何多余或
+      不必要功能」不加。关闭
 - [x] N37 / N38（，原编号 N7 / N8 与上文「N8：release 变体零冒烟」那一条重号，此处改用未占用号）**两处前提均不成立**
       `scripts/*.nu`、`android/benchmark/` 与 `.github/workflows/build.yml` 里基准
       路径**无**任何关动画调用（`recoverEmulator` 只 `am force-stop` + `waitForIdle`）；
@@ -269,7 +275,12 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       不代表可以不吞异常——本仓另有 `no-allow-in-prod`、AGENTS.md 的禁止清单与
       「去掉掩盖真实故障的宽泛 catch」在管。要不要重新打开这六条复杂度规则
       属用户决策（`android/detekt.yml` 属 AGENTS.md 明列的保护文件）
-- [ ] N2-47 / N31（/）`cjk_resolve` bench 不进门禁（`scripts/check-rust.nu`）
+- [x] **N2-47 / N31（前提证伪，关闭：不需要改 `scripts/`）** 「`cjk_resolve`
+      bench 不进门禁」。`scripts/check-rust.nu` 末行即
+      `cargo bench -p native --bench cell_builder --bench vt_typing --bench cjk_resolve -- --quick`，
+      三个 bench 都在列。R41 本地实跑 `scripts/check-rust.nu` 复核：
+      日志含 `Running benches/cjk_resolve.rs` 与
+      `Benchmarking cjk_resolve_warm_per_line: Analyzing`。关闭
 - [x] N2-59 / N2-60测试注释声称脚本调 `rapidocr` 但脚本内零调用 ——
       已按事实改写注释（`rapidocr` 只在 `flake.nix` 与
       `scripts/download-rapidocr-models.nu`，`scripts/test-emulator.nu` 里零调用）。
@@ -292,6 +303,10 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       **失败 run 里该步骤根本没有执行**：`emulator-runner` 步骤红在
       `connectedDebugAndroidTest`，工作流脚本是 `set -e`，其后的
       `git tag`/`action-gh-release` 在 job 视图里标 `-`（skipped）。
+      **修法其实早已落地**：用户的 `04754f0c` 已把
+      `if: startsWith(github.ref, 'refs/tags/')`（这才是「从未产出」的真正原因：
+      `workflow_dispatch` 下 `github.ref` 是分支，该条件恒假，步骤从未执行）
+      换成无条件步骤并补上 `tag_name: 0.1.0`。
       原结论把「skipped」读成了「执行了并报错」。结论：release 链路正常，
       台账提议的「在 `with:` 下加 `tag_name: 0.1.0`」是建立在错误前提上的
       保护文件改动，**不做**。另据 R41 的 run 清单，`build` 工作流最近 20 次里
