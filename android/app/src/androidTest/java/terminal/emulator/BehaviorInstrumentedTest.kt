@@ -209,6 +209,9 @@ class BehaviorInstrumentedTest {
             composeTestRule.onNodeWithTag("ShellEntryInput").fetchSemanticsNode().config
         val shellText = shellSemantics.getOrNull(SemanticsProperties.EditableText)?.text
         assertTrue("shell 设置框未设置时必须为空（实际=$shellText）", shellText.isNullOrEmpty())
+        // 保存按钮在输入框下方 8dp：`performScrollToNode` 只滚到目标刚好可见
+        // （贴视口下沿），按钮仍在视口外。与 bootstrap 用例同一口径，逐个滚逐个断言。
+        scrollSettingsTo(hasTestTag("ShellSaveButton"))
         composeTestRule.onNodeWithTag("ShellSaveButton").assertIsDisplayed()
     }
 
