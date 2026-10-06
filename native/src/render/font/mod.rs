@@ -6,8 +6,6 @@ pub mod pipeline;
 pub mod rasterization;
 pub mod shaping;
 
-use thiserror::Error;
-
 pub const GLYPH_CACHE_CAPACITY: usize = 10_000;
 
 /// 整形跨度缓存容量：整簇字形按 (文本, 字号, 面) 缓存，一屏通常远少于此。
@@ -30,16 +28,6 @@ pub(crate) const NERD_FONT_PRIVATE_USE_END: u32 = 0xF8FF;
 
 /// ASCII 上界（不含）：`ascii_glyph_ids` 定长表按下标直查，表长即此值。
 pub(crate) const ASCII_UPPER_BOUND: u32 = 0x80;
-
-#[derive(Debug, Error)]
-pub enum FontError {
-    #[error("no monospace font found")]
-    NoMonospaceFont,
-    #[error("font loading failed: {0}")]
-    FontLoad(String),
-    #[error("atlas allocation failed")]
-    AtlasAllocationFailed,
-}
 
 /// Glyph synthesis mode: how a glyph is styled when the
 /// font has no matching bold/italic face. Pixels are post-processed on the

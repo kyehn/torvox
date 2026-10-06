@@ -510,24 +510,10 @@ fn build_row_instances_into(
             let is_clean = incremental && dirty_rows.is_some_and(|dirty| !dirty[row]);
             if is_clean {
                 // Clean row: reuse the instances built last frame (NFR-010).
-                if let Some(cache_ref) = cache.as_ref() {
-                    let (cs, ce) = cache_ref.row_slice(row);
-                    instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
-                } else {
-                    append_row_instances(
-                        cell_width,
-                        cell_height,
-                        ascent_pixels,
-                        raster_scale,
-                        atlas_width,
-                        atlas_height,
-                        cursor,
-                        &highlights_by_row,
-                        font_pipeline,
-                        instances,
-                        &cell_data[range.clone()],
-                    );
-                }
+                // `incremental` 已蕴含 `cache.is_some()`，故这里必命中。
+                let cache_ref = cache.as_ref().expect("incremental 蕴含缓存存在");
+                let (cs, ce) = cache_ref.row_slice(row);
+                instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
             } else {
                 append_row_instances(
                     cell_width,

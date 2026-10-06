@@ -128,7 +128,12 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             source_height,
         );
     }
-    Some((Cow::Owned(atlas), layout.width, layout.height, layout.entries))
+    Some((
+        Cow::Owned(atlas),
+        layout.width,
+        layout.height,
+        layout.entries,
+    ))
 }
 
 /// 源矩形钳制到图像边界（防御上游行为漂移，避免越界 panic）。

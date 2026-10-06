@@ -214,10 +214,43 @@ impl Renderer {
         instances: &[crate::render::CellInstance],
         label: &str,
     ) {
-        if instances.is_empty() {
+        Self::upload_instances(
+            device,
+            queue,
+            instance_buffer,
+            bytemuck::cast_slice(instances),
+            label,
+        );
+    }
+
+    /// 按需扩容并上传 KGP 实例数据，同 [`Self::upload_cell_instances`]。
+    fn upload_kgp_instances(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        kgp_instance_buffer: &mut Option<wgpu::Buffer>,
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
+        label: &str,
+    ) {
+        Self::upload_instances(
+            device,
+            queue,
+            kgp_instance_buffer,
+            bytemuck::cast_slice(kgp_instances),
+            label,
+        );
+    }
+
+    /// 两类实例共用的上传：容量不足时按需重建，否则原地覆写。
+    fn upload_instances(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        instance_buffer: &mut Option<wgpu::Buffer>,
+        instance_data: &[u8],
+        label: &str,
+    ) {
+        if instance_data.is_empty() {
             return;
         }
-        let instance_data = bytemuck::cast_slice(instances);
         let needed_size = instance_data.len() as u64;
         let resize_buffer = instance_buffer
             .as_ref()
@@ -232,35 +265,6 @@ impl Renderer {
         }
         if let Some(buf) = instance_buffer.as_ref() {
             queue.write_buffer(buf, 0, instance_data);
-        }
-    }
-
-    /// 按需扩容并上传 KGP 实例数据，同 [`Self::upload_cell_instances`]。
-    fn upload_kgp_instances(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        kgp_instance_buffer: &mut Option<wgpu::Buffer>,
-        kgp_instances: &[crate::render::KittyGraphicsInstance],
-        label: &str,
-    ) {
-        if kgp_instances.is_empty() {
-            return;
-        }
-        let kgp_instance_data = bytemuck::cast_slice(kgp_instances);
-        let needed_size = kgp_instance_data.len() as u64;
-        let resize_buffer = kgp_instance_buffer
-            .as_ref()
-            .is_none_or(|buf| buf.size() < needed_size);
-        if resize_buffer {
-            *kgp_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: needed_size.max(MIN_VERTEX_BUFFER_SIZE),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-        }
-        if let Some(buf) = kgp_instance_buffer.as_ref() {
-            queue.write_buffer(buf, 0, kgp_instance_data);
         }
     }
 

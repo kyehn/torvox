@@ -63,12 +63,12 @@ pub(crate) fn load_font_database() -> fontdb::Database {
     let font_database = CACHED_FONT_DB.get_or_init(|| {
         let mut font_database = fontdb::Database::new();
 
-        // 主字体：fonts.xml 的 monospace 族（`resolve_system_monospace` 负责
-        // fonts.xml 缺失或不可解析时崩溃退出）。
-        let target = resolve_system_monospace();
+        // 主字体：fonts.xml 的 monospace 族**整族**（`resolve_system_monospace_files`
+        // 负责 fonts.xml 缺失或不可解析时崩溃退出）。只装族内首个时，该文件一旦不可用
+        // 就再无任何面可降级，等于把「某个字体文件缺失」升级成崩溃。
         let mut loaded = load_files(
             &mut font_database,
-            &resolve_font_files(std::slice::from_ref(&target)),
+            &resolve_font_files(resolve_system_monospace_files()),
         );
 
         // 一个符号族 + 一个区域族。fonts.xml 缺失时这两项为空：符号缺失只是
@@ -468,27 +468,31 @@ pub(crate) fn fatal(reason: &str) -> ! {
     std::process::abort()
 }
 
-/// 等宽字体文件名，进程内解析一次：建库与 `find_monospace_font` 共用同一结果。
+/// 等宽字体文件名列表，进程内解析一次：建库与 `find_monospace_font` 共用同一结果。
 ///
 /// `fonts.xml` 在进程生命周期内不变，而 `set_font_family("")` 会反复进入
 /// `find_monospace_font`，每次重读重解析整份 XML 都落在渲染线程上。
 #[cfg(target_os = "android")]
-static MONOSPACE_XML_FILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static MONOSPACE_XML_FILES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
-/// 缓存的等宽字体文件名。
+/// 缓存的等宽字体文件名，按 `fonts.xml` 声明顺序。
+///
+/// 整族而非首个：族内通常声明多个 `<font>`，只装第一个时它一旦不可用（OEM 改名、
+/// 分区迁移、`FONT_DIRS` 未覆盖），库里便没有任何面而崩溃——那不是 fonts.xml
+/// 「无法解析」，不该走 [`fatal`]。首个仍是 `find_monospace_font` 的匹配目标。
 #[cfg(target_os = "android")]
-pub(crate) fn resolve_system_monospace() -> &'static str {
-    MONOSPACE_XML_FILE.get_or_init(resolve_system_monospace_from_fonts_xml)
+pub(crate) fn resolve_system_monospace_files() -> &'static [String] {
+    MONOSPACE_XML_FILES.get_or_init(resolve_system_monospace_from_fonts_xml)
 }
 
-/// 系统等宽字体文件名，取自 `fonts.xml`（DESIGN 字体节：fonts.xml 是唯一来源，
+/// 系统等宽字体文件名列表，取自 `fonts.xml`（DESIGN 字体节：fonts.xml 是唯一来源，
 /// 不得使用任何硬编码字体名）。
 ///
 /// 规范要求「系统不存在 fonts.xml 或其内容无法解析，输出日志并崩溃退出」：
 /// 候选文件都读不到、都无法解析、或都没给出等宽字体时经 [`fatal`] 退出。
 /// 宿主（非 Android）不参与：那里没有 fonts.xml。
 #[cfg(target_os = "android")]
-fn resolve_system_monospace_from_fonts_xml() -> String {
+fn resolve_system_monospace_from_fonts_xml() -> Vec<String> {
     let mut last_error = String::new();
     for xml_path in FONTS_XML_CANDIDATES {
         let content = match std::fs::read_to_string(xml_path) {
@@ -499,9 +503,9 @@ fn resolve_system_monospace_from_fonts_xml() -> String {
             }
         };
         let (monospace, _) = parse_fonts_xml_families(&content);
-        if let Some(filename) = monospace.into_iter().next() {
-            log::debug!("FONT_XML: monospace target='{filename}'");
-            return filename;
+        if !monospace.is_empty() {
+            log::debug!("FONT_XML: monospace targets={monospace:?}");
+            return monospace;
         }
         last_error = format!("{xml_path} 未声明等宽字体");
     }
@@ -1038,8 +1042,29 @@ mod tests {
         );
     }
 
-    /// 未声明等宽族的 `fonts.xml` 不产出主字体候选：`resolve_system_monospace` 据此
-    /// 崩溃退出。把该触发条件钉在单测里，任何放宽解析的改动都会立刻暴露。
+    /// monospace 族声明多个字体时必须**全部**留下。建库若只装族内首个，该文件一旦
+    /// 不可用（OEM 改名、分区迁移、`FONT_DIRS` 未覆盖）就再无任何面可降级，
+    /// 直接走 `find_monospace_font` 的 `fatal` —— 真机 SIGABRT 即由此而来。
+    #[test]
+    fn parse_fonts_xml_monospace_family_keeps_every_declared_font() {
+        let xml = FONTS_XML_SNIPPET.replace(
+            r#"<family name="monospace">
+        <font weight="400" style="normal">DroidSansMono.ttf</font>
+    </family>"#,
+            r#"<family name="monospace">
+        <font weight="400" style="normal">DroidSansMono.ttf</font>
+        <font weight="700" style="normal">DroidSansMonoBold.ttf</font>
+    </family>"#,
+        );
+        assert_ne!(xml, FONTS_XML_SNIPPET, "片段替换未命中，测试会恒真");
+        assert_eq!(
+            super::parse_fonts_xml_families(&xml).0,
+            vec!["DroidSansMono.ttf", "DroidSansMonoBold.ttf"]
+        );
+    }
+
+    /// 未声明等宽族的 `fonts.xml` 不产出主字体候选：`resolve_system_monospace_files`
+    /// 据此崩溃退出。把该触发条件钉在单测里，任何放宽解析的改动都会立刻暴露。
     #[test]
     fn parse_fonts_xml_without_monospace_family_yields_no_candidate() {
         let xml = FONTS_XML_SNIPPET.replace(
