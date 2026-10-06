@@ -2062,6 +2062,23 @@ ICNDigit-{Bold,Light,Medium,Regular,Thin}.ttc   RedMagicDigit.ttf
 
 三条各有回归用例，Rust 全量 **556 例**通过。
 
+### 37.2b 逐条追查「其余告警」，能修的都修了，不能修的说清依据
+
+不按「环境噪音」一刀切，逐条追到代码：
+
+| 告警 | 追查结论 |
+| --- | --- |
+| `W/InputEventReceiver` 已释放仍 finish 事件 | **不是我们造成的**：`setComposingText`/`finishComposingText`/`commitText` 三个方法全部在 `TerminalSurface.kt` 内就地重写为本地实现（清 `composingBuffer` + `encodeAndSend`），一个 binder 调用都不发；框架层 `BaseInputConnection.finishComposingText` 的跨进程路径根本没走到。该序列由窗口拆除时 IME 侧发起 |
+| `W/RemoteInputConnectionImpl` inactive | 同上：我们在窗口失焦（`onWindowFocusChanged(false)`）与 `ON_PAUSE` 各调一次 `finishComposing()`，第二次是重复的空操作（组字已清空），但两次都不跨进程，警告由 IME 进程侧记录。**无证据支撑的改动不做** |
+| `W/Parcel` Expecting binder but got null | 渲染线程（tid 27697）上出现，与上述 IME 窗口同一时刻；我们无 binder 使用 |
+| `E/mali_gralloc` R8/AIDL 格式 | 驱动分配器内部消息。我们已显式挑非 sRGB surface 格式（`context.rs` 的 `.find(\|c\| !c.is_srgb())`）且 `view_formats: vec![]`；`0x38`(A2B10G10R10_SRGB) 由驱动在换屏时自选，非应用指定 |
+| `W/wgpu_core` 缺 `SURFACE_VIEW_FORMATS` | 已在 `context.rs` 注释里写明：Android 上该降级标志缺失，`view_formats` 必须置空否则 `configure` 失败（API 35 模拟器实测）。这是**已知且必需的取舍**，非缺陷 |
+| `W/Runtime SLOW_FRAME` ×29 | 循环本体健康：日志 `loop timing window (60 frames): avg=16ms p95=17ms max=84ms ≈62fps`。尖峰 34–106ms 与 `mali_gralloc` 的 register/unregister 密集交错（113ms 内 16 次），即 GPU 缓冲重建期的抖动。真机（Mali-G57 集显）复现需要物理设备，**不在 CI 能力内**；不凭单份日志改渲染路径 |
+| `W/libc` 属性被拒 / `W/ziparchive` / `W/proot` / `W/bash` / `W/login` | SELinux 与 procfs/audit 痕迹，bootstrap 内正常现象 |
+| `W/MemoryMonitor` `TRIM_MEMORY_RUNNING_MODERATE` | 系统内存提示；日志中字体库与两会话（约 40MB 字体 TTC）已按需装入，无泄漏迹象 |
+| `E/SurfaceSyncer` `Failed to find sync for id=0` | 系统合成器，与 `W/TerminalSurface applySurfaceResize: surface not valid yet, deferring` 同一窗口，是 §32 自愈路径的**触发侧**，应用侧行为已是设计内的延迟处理 |
+| `CJK_FALLBACK` ×7 | 见 §37.3 |
+
 ### 37.3 未改、需用户裁决：CJK 回退被系统语言门控
 
 `t` 里有 7 条
@@ -2089,9 +2106,25 @@ AOSP 自 Android 13 起改为按语言分片。）
 `DESIGN.md:157` 又无条件要求「支持 CJK」。两条的取舍是规范层的决策，
 且三条既有单测正锁定旧行为，故按规矩回退并上交裁决。
 
-三条可选路径：**(a)** 维持现状（英文系统 + 中文内容 = 豆腐块）；
-**(b)** 放宽 155，非 CJK locale 也预装 CJK 族（改动最小，牺牲一点内存）；
-**(c)** 按渲染需要懒加载（最贴合 155+157，但要给字体库加运行时装载路径）。
+**本轮已实测后回退**：非 CJK locale 也返回 `["zh-Hans","zh-Hant","ja","ko"]`
+确实能让中文正常渲染（`find_cjk_fallback_fonts` 另有 `primary_supports_cjk`
+前置判断，主字体已覆盖 CJK 时本就不装），但它违反 `DESIGN.md:155` 明写的
+「区域字体（**本区域**）…**不加载未使用字体**」——英文系统预装 zh-Hans 正是
+「未使用」。三条既有单测（`region_family_not_missing_for_non_cjk_locale`、
+`locale_fonts_xml_langs_matches_aosp_tags`、`locale_family_follows_system_language`）
+也正锁定该行为。回退后 556 例全绿，代码里就地留下约束来源注释，
+避免下一个人再犯同样的越权。
+
+**只有改 `DESIGN.md:155` 才能解**（保护文件，需用户同意）。三个方向：
+
+- **(a) 维持现状**：英文系统 + 中文内容 = 豆腐块。与 155 一致，与 157 的
+  无条件「支持 CJK」有张力。
+- **(b) 放宽 155**：把「本区域」改为「终端实际需要的区域」，非 CJK locale 也
+  预装 CJK 族。改动 3 行，但违背该条的省内存初衷。
+- **(c) 重新定义 155 的「未使用」**：保留按需语义，但要求渲染时遇到主字体
+  不覆盖的 CJK 字形才从 fonts.xml 装入（字体库运行时可变）。最贴合 155+157，
+  代价是给字体库加运行时装载路径，且首次遇到会有一次加载停顿
+  （与 157「CJK 渲染速度应与西文基本一致」相抵）。
 
 ### 37.4 其余告警分类（均为环境噪音，不改）
 
