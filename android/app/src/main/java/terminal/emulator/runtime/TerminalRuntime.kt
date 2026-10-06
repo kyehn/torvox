@@ -911,7 +911,7 @@ constructor(
                 mkshrcPath = mkshrcPath,
             )
         }
-        // 默认入口依次探测 bash 与 login（DESIGN :188 文件存在即启动，不检查权限）。
+        // 默认入口依次探测 bash 与 login（DESIGN :187 文件存在即启动，不检查权限）。
         val prefixShell = findPrefixShell(prefixDir)
         LogUtil.d(
             "Runtime",
@@ -920,7 +920,7 @@ constructor(
         val effectivePrefix = if (prefixShell != null) prefixDir else ""
         val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
         ensureMkshPromptRc()
-        // 无启动目录设置（DESIGN :126）：工作目录恒为家目录。
+        // 无启动目录设置（DESIGN :117）：工作目录恒为家目录。
         return TerminalConfig(
             shell = effectiveShell,
             rows = rows,
@@ -1861,7 +1861,7 @@ constructor(
     private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int, val themeName: String)
 
     /**
-     * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN :188），不检查权限。
+     * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN :187），不检查权限。
      */
     private fun findPrefixShell(prefixDir: String): String? = listOf("bin/bash", "bin/login").firstOrNull { candidate ->
         java.io.File("$prefixDir/$candidate").isFile
@@ -1973,7 +1973,7 @@ constructor(
         return true
     }
 
-    /** 空即默认入口（DESIGN :122 未设置时为空），其余原样透传，不特殊处理。 */
+    /** 空即默认入口（DESIGN :113 未设置时为空），其余原样透传，不特殊处理。 */
     private fun resolveShell(shellPath: String): Shell = if (shellPath.isEmpty()) {
         Shell.SystemDefault
     } else {
@@ -2081,7 +2081,7 @@ constructor(
         if (surface != null) {
             // 原生侧经 attachWindow(JNI) 接收 Surface，Kotlin 绝不跨桥传递裸 ANativeWindow 指针；
             // 指针为 0 时不得中止启动，否则终端根本无法启动。
-            LogUtil.d("Runtime", "surface present — render integration pending (ADR-0007)")
+            LogUtil.d("Runtime", "surface present — 渲染接线尚未就绪")
         } else {
             LogUtil.d("Runtime", "no surface — using GPU offscreen rendering path")
         }
@@ -2329,8 +2329,6 @@ constructor(
             // 留下巨大的垂直空隙（92px 行高对 36px 字形）。
             try {
                 startedEntry.bridge?.let { syncGridDimensions(it) }
-                // 网格保持初始 24x80——字体度量不决定网格尺寸；
-                // 内容溢出时终端自行滚动。
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "initial grid recompute failed", exception)
             }
@@ -3718,8 +3716,7 @@ internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: ()
 /**
  * 切会话的网格对齐执行：`[shouldAlignGridOnSwitch]` 为真才 `resize`。
  *
- * 单独成顶层函数只因 `TerminalRuntime` 已顶满 `LargeClass` 阈值（基线恰 1600，
- * 类内多 1 个 token 行即挂）：调用点保持一行，判定逻辑可单测。
+ * 独立成顶层函数是为了让判定逻辑可单测（`shouldAlignGridOnSwitch` 有同名单测）。
  */
 internal fun alignGridOnSwitch(bridge: Bridge?, rows: Int, cols: Int) {
     val wantRows = rows.coerceAtLeast(1)
