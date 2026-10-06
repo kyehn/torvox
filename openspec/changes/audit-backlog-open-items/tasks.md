@@ -243,8 +243,9 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
       Nushell 的无 `catch` `try` 只吸收错误并继续——实测
       `nu -c "try { ^false }; print reached"` 打印 `reached`、退出码 0，
       `nu-check scripts/test-emulator.nu` 亦通过。两条均结
-- [x] N9CI 的 markdownlint 递归进 `result-kudzu` —— 本轮已修：
-      改用 `.markdownlint-cli2.jsonc` 的 `ignores`（未动工作流与规则集）
+- [x] **N9CI 的 markdownlint 递归进 `result-kudzu`**。**原结论「已修」不成立**：
+      本轮复核时仓内**没有** `.markdownlint-cli2.jsonc`（`ls` 零命中），
+      记录与仓库状态不符。R42 实测确认根因并落地修法，详见 §33
 - [x] N25 / N26**两处均已不成立或已消解**。①「`check.yml` 30min 超时必然
       超时」被实测证否：`` 全部门禁通过、耗时 **23:39**（< 30:00），
       `` 同样 `success`。②「workflow 无 push/PR 触发器」仍成立
@@ -1675,3 +1676,45 @@ DRY / 空操作 / TOCTOU / 冗余状态）逐项核对 diff。
   未放宽任何超时或阈值，未新增任何跳过/忽略，未把失败改写成通过。
 - 未引入任何 `catch` 吞错新入口；`waitForSession` 的 `catch (e: Exception)`
   被替换为 `probeAssertion`（只捕 `AssertionError`），是**收紧**。
+
+## 33. CI run 的 `fmt` 失败：markdownlint 递归进 `target/`
+
+### 33.1 定位
+
+run（head `e50fcf73`）红在 `fmt.yml` 的 `Run set -e` 一步，日志里
+`markdownlint-cli2 --fix "**/*.md"` 报 `Linting: 324 files / Summary: 970 issues
+in 42 files`，全部 970 处来自
+`target/{aarch64,x86_64}-linux-android/release/build/libghostty-vt-sys-*/out/ghostty-src/`
+——即 `libghostty-vt-sys` 的 build.rs 拉下来的 ghostty 源码树。
+带 `--fix` 时工具还会去改这份外部源码。
+
+**根因**：三条工作流都把 `"**/*.md"` 交给 markdownlint-cli2，而该工具
+**不读 `.gitignore`**（R42 实测：`target/` 已在 `.gitignore` 里，
+`target/**/*.md` 仍被逐个检查；`result*/**` 同理）。`check-rust.nu` 用命令行
+显式否定 `target/**` 绕过了这一点，但 `fmt.yml` 没有——而 `.github/` 是保护文件。
+
+### 33.2 修法（不碰保护文件）
+
+新增 `.markdownlint-cli2.jsonc`，用工具自身的 `ignores` 排除三处非本仓内容：
+`target/**`、`result*/**`、`android/**/build/**`。该文件由 markdownlint-cli2 在
+当前目录自动发现，**对命令行传入的 glob 同样生效**（实测 `Finding: **/*.md
+!target/** !result*/** !android/**/build/**`），故三条工作流同时受益，
+新增工作流也不会漏。规则集仍在 `.markdownlint.jsonc`（保护文件，未动），
+实测两份配置并存时 `MD013`/`MD041`/`MD024` 的既有设置仍然生效。
+
+本地对照（同一条 `target/` 已由 `cargo build -p native` 真实生成）：
+
+| 配置 | 结果 |
+| --- | --- |
+| 无 `.markdownlint-cli2.jsonc` | `Linting: 320 files / 2578 issues in 52 files`（红） |
+| 有 | `Linting: 158 files / 0 issues in 0 files`，`--fix` 亦为 0 |
+
+### 33.3 对台账自身的更正
+
+§5 N9 早已把本条记成「本轮已修：改用 `.markdownlint-cli2.jsonc` 的 `ignores`」，
+但该文件在本轮之前**并不存在**——记录与仓库状态不符。R42 按实测重写该条：
+症状不同（`result-kudzu` 未复现，`target/` 必现），根因相同（工具不读
+`.gitignore`），修法一致。
+
+教训与 §32.5 同源：**`fmt` 只在手动触发时跑，`check` 只按日跑**，
+门禁与配置都可能与仓库脱节而无人察觉。
