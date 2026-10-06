@@ -24,7 +24,6 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -109,9 +108,6 @@ private data class SearchState(
 
     val resultCount: Int
         get() = results.size
-
-    val currentMatch: SearchResult?
-        get() = results.getOrNull(currentIndex)
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -306,8 +302,6 @@ fun TerminalScreen(
         },
         modifier = modifier,
     ) {
-        val snackbarHostState = remember { SnackbarHostState() }
-
         Box(
             modifier =
             Modifier.fillMaxSize()
