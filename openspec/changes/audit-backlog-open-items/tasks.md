@@ -1964,7 +1964,45 @@ handler —— 全仓唯一的 `std::process::abort()` 在
 `clearFontCache: Droid Sans Mono found=true`），说明 10-02 那次是该机 fonts.xml
 或字体文件的一次性不可用，不是稳定复现的缺陷。**按 `TESTING.md:16` 不臆断成因。**
 
-### 36.3 实际修的一处：注释与行为不符
+### 36.3 根因：建库只装等宽族的首个字体文件
+
+§36.2 的「崩溃符合规范」只解释了**为什么可以崩**，没解释**为什么这台机器会崩**。
+继续下钻后找到可修的根因。
+
+`font_db::select_primary_face` 有完整的三级降级梯次——fonts.xml 声明的字体 →
+库内任意等宽面 → 库内任意拉丁面 → 库内任意面。**梯次全部在「已装入库的面」里选。**
+
+而建库 `load_font_database` 只装入一个文件：
+
+```rust
+let target = resolve_system_monospace();                      // 单个文件名
+let mut loaded = load_files(&mut font_database,
+    &resolve_font_files(std::slice::from_ref(&target)));       // ← from_ref：只要这一个
+```
+
+`parse_fonts_xml_families` 其实用 `monospace.extend(filenames...)` 把**整族**都收集了
+（`font_db.rs:652`），`resolve_system_monospace_from_fonts_xml` 却用 `.next()`
+把除首个以外的全部丢弃——**数据被正确解析出来，然后扔掉。**
+
+于是崩溃条件是三件事同时成立：族内首个字体文件不可用（OEM 改名、分区迁移、
+`FONT_DIRS` 那七个硬编码目录未覆盖）、符号族与区域族都没提供可用面、
+`widen_to_declared_set` 也没救回来。任一成立都会让降级梯次全部落空，直接 fatal。
+
+对照 `DESIGN.md:93`：规范要求崩溃的条件是「系统不存在 `fonts.xml` 或其内容
+**无法解析**」。「声明的某个字体文件在设备上不可用」根本不在崩溃条件里，
+实现却把它升级成了进程级终止——那正是 `t` 里那次 SIGABRT 的由来。
+
+修法（消除不致命情况的致命化，不是加 fallback）：建库装入**整族**。
+`resolve_system_monospace` 改名 `resolve_system_monospace_files` 返回
+`&'static [String]`；`find_monospace_font` 仍以族内首个作 stem 匹配目标，
+首个缺失时由既有降级梯次接管并留下 `FONT_SELECT` 警告；整族都装不上时
+仍然 `fatal`——响亮行为分毫未减。
+
+回归用例 `parse_fonts_xml_monospace_family_keeps_every_declared_font` 钉住
+「多字体族必须全部留下」，任何退回 `.next()` 的改动都会让它立刻红。
+Rust 全量 **554 例**通过（新增 1 例）。
+
+### 36.4 实际修的第二处：注释与行为不符
 
 `ffi.rs:210` 原文声称整条预热路径「失败可重试……不致命」——这只对
 `try_global_gpu()` 的 `Err` 分支成立。`Ok` 分支调用的 `render_state_mut()`
@@ -1977,7 +2015,7 @@ Kotlin 侧点明 `catch` 只接得住 JNI 抛回的 `RuntimeException`。
 这不是给错误加注释掩盖，而是**移除一处会误导维护者的错误断言**——按
 `STYLE.md:56`，这正是「只在绝对必要时编写注释」所指的那类注释。
 
-### 36.4 顺带记录（不改）
+### 36.5 顺带记录（不改）
 
 `CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体` 在同一进程内重复 7 次，
 每次 `setTextSize`/`setExtraFontPaths` 都打。该设备的 locale 无 CJK 回退，属正常
