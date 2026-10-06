@@ -1542,16 +1542,28 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
 
 ## 31. CI run 新失败签名（待取证，不臆测）
 
-- [ ] **`BehaviorInstrumentedTest#behavior_modifier_bar_visible` 红且断言信息为空**。
+- [x] **`BehaviorInstrumentedTest#behavior_modifier_bar_visible` 红且断言信息为空
+      【「信息为空」的成因已复现并根除，关闭】**
       该 run 基线 `fd695e93`（含键盘等待 `41ca4dbb`，不含后继字符集/区域两提交）
-      `connectedDebugAndroidTest`
-      约 17s 即失败（`BUILD FAILED in 1m 17s`），`reportConnectedFailures`
-      报 `1 failed in 1 report files` 且 `connected-failure-message` 为空。
-      本用例（`BehaviorInstrumentedTest.kt:213`）直查 `ESC/CTRL/ALT/HOME` 四键可见，
-      与该 run 内唯一相关改动（`UiAutomatorTest` 键盘等待，另一测试类）无调用关系；
-      无 logcat（N41）且信息为空，按 `TESTING.md:16` 先如实记录，待复跑/取证后再判。
-      复跑 `` 未执行即被取消（`cancelled`：runner 长时间未获取，
-      非测试结论），本条仍待一次有效复跑。
+      `connectedDebugAndroidTest` 约 17s 即失败（`BUILD FAILED in 1m 17s`），
+      `reportConnectedFailures` 报 `1 failed in 1 report files` 且
+      `connected-failure-message` 为空。
+      **「信息为空」有确切机制，本轮已复现并根除**：`androidTest` 里的裸
+      `requireNotNull(x)`（不带说明）抛的是 `IllegalArgumentException(null)`——
+      message 为 null，UTP 便记出**空**的 `<failure></failure>`，
+      `reportConnectedFailures` 打印其 `textContent.trim()` 即得空串。
+      本轮在 `VisualInlineVerificationTest#verifyWordSelectionPositions` 上
+      实测复现了完全相同的空消息形态（XML 里确为 `<failure></failure>`）。
+      根除方式改**单一真源**而非逐处补文案：`TerminalLogcatRule` 改用
+      `failure.message ?: failure.javaClass.name`（`0aac566a`）。该规则现已覆盖
+      全部 40 个仪器化类（§5 N41），且 `logcatTail()` 恒返回非空串，
+      故 `connected-failure-message` **结构上不可能再为空**。
+      该用例本身直查 `ESC/CTRL/ALT/HOME` 四键可见，与 run 内唯一相关改动
+      （另一测试类的键盘等待）无调用关系；本轮本地复跑两轮
+      `BehaviorInstrumentedTest` 全类 0 失败。
+      原 run 的具体触发条件无法复现（CI 侧证据已随 run 消失），按
+      `TESTING.md:16` 不臆断成因——但它赖以「不可诊断」的那个形态已被消除，
+      同类再发必然带上下文
 
 ## 32. CI run ：本地复现、取证与处置
 
@@ -2205,3 +2217,103 @@ connected-failures: 0 failed in 1 report files      ← Gradle 报绿
 这正是 §31「报告通过但实际没跑」的可复现机制，不是推测。修它要动 `scripts/`
 （保护文件），故只记录；本地验证必须**逐类单跑并核对 XML 里的 `<testcase>` 计数**，
 不能只看 Gradle 的 `connected-failures`。
+
+### 38.3 真正的根因：就绪门槛不等 Surface 挂载
+
+CI 全量跑红、逐类单跑绿、本地全量（184 例）绿——差异只在 **surface 挂载时机**。
+CI 日志给出了决定性证据：
+
+```text
+GPU_UNCAPTURED_ERROR: Validation {
+    fn_ident: "Surface::get_current_texture_view",
+    source: NotConfigured,
+    description: "Surface is not configured for presentation"
+}
+```
+
+`NotConfigured` 意味着 wgpu surface **从未 configure 成功**。而
+`TestUtils.waitForTerminalScreen` 的判据只有一条：
+
+```kotlin
+waitUntil { probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() } }
+```
+
+终端节点在 Compose 组合完成时**就已存在**，那早于 SurfaceView 拿到有效 Surface：
+`surfaceCreated` 在 `width/height <= 0` 或 `!surface.isValid` 时会**直接 return 并
+推迟到 `surfaceChanged`**。于是像素类用例在那个窗口内采样，量到的必然全是零。
+
+CI 与本地的差别是资源：CI 是 `ram-size: 1536M, cores: 2`，surface 创建更容易被拖慢，
+窗口更大；本地默认配置窗口小到碰不到。这也解释了为何**逐类单跑必绿**
+（前面只有一两个用例，surface 早已挂载）。
+
+修法：门槛补一条判据——`TerminalViewModel.currentSurface` 只在 `surfaceCreated`
+通过尺寸与有效性守卫后才赋值，非空且 `isValid` 即等价于「可出帧」。
+门槛从「等得到节点」扩到「等得到像素」，与该函数原有注释的意图一致
+（「那只是还没好」，而不是「产品坏了」）。
+
+**这不是掩盖**：surface 真的挂不上时，用例改为在 60s 门槛上超时并报
+`waitForTerminalScreen` 失败，而不是伪装成像素断言失败——失败原因更贴近真实。
+
+### 38.4 §31 两条的现状
+
+`partialSelectShowsSelectionMenu` 与 `behavior_modifier_bar_visible` 共用的就是这条门槛，
+故本条修复对二者同样生效。下次真出现时，日志里会有 surface 挂载时序可查。
+
+## 39. `VisualInlineVerificationTest` 两例判红：取证后如实停手
+
+### 39.1 现象与复现
+
+本轮为核 §5 N41 的取证能力，单独跑该类，得到两条稳定判红（模拟器重启后仍在）：
+
+- `verifyWordSelectionPositions` → `Expected >=2 selection handles, found 0`
+- `verifyUrlSelectionPositions` → `Expected >=2 handles for URL, found 0`
+
+同一次运行的另一轮判红形态是 `Handles not on same row (diff=107)` /
+`URL handle rows differ (107)`，即手柄找到了但行高比对不过。
+
+**与本轮改动无关**：`git checkout` 到 `4a202ea9`（早于本轮全部提交）复跑，
+判红形态逐字相同。另 `git diff 7f68ae0c..HEAD` 对
+`VisualInlineVerificationTest.kt` 与 `TerminalSurface.kt` 零改动。
+
+### 39.2 产品无缺陷，取证证据
+
+logcat 显示选区**确实建立**：`setSelection: start=(1,6) end=(1,10) active=true`，
+随后逐帧 SLOW_FRAME 与 `≈57fps` 循环正常。选区菜单路径另有
+`SelectionEspressoTest`/`SelectionDragQuantifiedTest` 绿跑（均用 UiAutomator
+无障碍树，不依赖像素）。故被测行为存在，判红在**断言的取证手段**上。
+
+### 39.3 取证：像素连通块无法识别手柄
+
+测试用「baseline 与选后截图的差分连通块」当手柄。实测（重启后的干净模拟器）
+差分块共 7 个：
+
+```text
+Blob 0: (47,70)  39x39
+Blob 1: (78,78)  21x22
+Blob 2: (22,111) 14x14
+Blob 3: (35,111) 11x14
+Blob 4: (82,111) 14x14
+Blob 5: (96,111) 14x14
+Blob 6: (149,111) 28x14
+```
+
+同一轮的另一次采样里，最大块是 `160x102`（放大镜），其余 5 个 `34x34`/`35x34`/`22x34`
+同处一行。**「两块同行」的假设都不成立**：放大镜与逐字高亮碎片都进得来。
+
+按「平台手柄固有尺寸」筛（取与生产侧 `resolveSelectionHandleDrawable` 同一个
+主题属性 `android.R.attr.textSelectHandleLeft`，避免硬编码）也不成立：
+平台固有尺寸实测 **(44, 22)**，而渲染出的墨迹连通块是 **21x22**——
+差分阈值（`colorDiff > 50`）只计入高对比核心，墨迹外缘的渐变部分不计入，
+故连通块包围盒恒小于绘制包围盒。两个尺寸无从对齐。
+
+该实验已回退（`git checkout` 复原），不留在仓里。
+
+### 39.4 结论
+
+判红是**测试手段的局限**，不是产品缺陷，也不是本轮改动引入。
+像素差分连通块无法把两个手柄与放大镜、选区高亮、逐字碎片区分开；
+改用无障碍树定位手柄需要给 `HandleView` 加 contentDescription，
+属新增对外可访问性契约（DESIGN 未声明），不在本轮范围内。
+按 `TESTING.md:16`「无法解决且找不到继续路径时如实报告」停手，
+并把上述实测尺寸（44x22 与 21x22）与差分块清单留在案，
+避免下一个人重复试错。
