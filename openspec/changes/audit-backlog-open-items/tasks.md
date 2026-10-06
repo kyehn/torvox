@@ -1926,3 +1926,60 @@ detekt 与 ktlint 都不管 Compose 语义，只有 compose-lints 拦得住。
 
 结论：改动生产 UI 代码后必须跑 `scripts/check-gradle.nu` 全量，
 用子集代替等于把门禁当成没跑。CI 的价值正在于此——它跑的是全量。
+
+## 36. 真机崩溃证据（`kyehn-patch-1:t`）
+
+### 36.1 定位
+
+用户提供的真机 logcat（ZTE P720S20 / Android 13 / arm64）首段是：
+
+```text
+Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 18310 (DefaultDispatch), pid 18216 (com.termux)
+Process uptime: 2s
+backtrace:
+  #00 abort+164 (libc.so)
+  #01-#06  libnative.so
+  #07 Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState+16
+  #10 Bridge$prefetchRenderStateAsync$1.invokeSuspend+20
+```
+
+`Session::spawn` 已在崩溃前成功（`PtyPair::spawn OK`），即 PTY 正常、**崩溃在渲染预热**。
+`Cargo.toml:45` 是 `panic = "abort"`，所以栈顶直接是 libc `abort` 而非 panic
+handler —— 全仓唯一的 `std::process::abort()` 在
+`native/src/render/font/font_db.rs:468`，即 `font_db::fatal()`。
+
+调用链形态与源码完全吻合：`prefetchRenderState` → `render_state_mut`
+（`ffi.rs:226`，`guard.is_none()` 时构造 `FontPipeline`）→
+`FontPipeline::new`（`pipeline.rs:66`）→ `find_monospace_font`
+（`None` 分支调 `fatal`）→ `process::abort`。四层 Rust 帧 + 栈顶 abort，与
+回溯的 #01–#06 数量一致。
+
+### 36.2 结论：崩溃本身是规范要求的行为，不改
+
+`docs/specification/DESIGN.md:93`：「系统不存在 `fonts.xml` 或其内容无法解析，
+软件输出日志并崩溃退出，不做复杂处理」；`:16`/`:24` 同样要求错误响亮、不掩盖。
+所以 `fatal()` → `abort()` 是「最低兜底、不隐藏错误」的正确实现。
+
+同一台设备 2026-10-06 的日志里字体链路完全正常（`render state initialized`、
+`clearFontCache: Droid Sans Mono found=true`），说明 10-02 那次是该机 fonts.xml
+或字体文件的一次性不可用，不是稳定复现的缺陷。**按 `TESTING.md:16` 不臆断成因。**
+
+### 36.3 实际修的一处：注释与行为不符
+
+`ffi.rs:210` 原文声称整条预热路径「失败可重试……不致命」——这只对
+`try_global_gpu()` 的 `Err` 分支成立。`Ok` 分支调用的 `render_state_mut()`
+里包含**致命的**字体检查，而 `abort()` 既绕过 `jni_export_guard!`，也绕过
+`Bridge.prefetchRenderStateAsync` 的 `catch (exception: Exception)`。
+
+两处注释已改为如实描述边界：Rust 侧点明字体分支 `process::abort` 进程级终止，
+Kotlin 侧点明 `catch` 只接得住 JNI 抛回的 `RuntimeException`。
+
+这不是给错误加注释掩盖，而是**移除一处会误导维护者的错误断言**——按
+`STYLE.md:56`，这正是「只在绝对必要时编写注释」所指的那类注释。
+
+### 36.4 顺带记录（不改）
+
+`CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体` 在同一进程内重复 7 次，
+每次 `setTextSize`/`setExtraFontPaths` 都打。该设备的 locale 无 CJK 回退，属正常
+警告，但同一条诊断重复七次会淹没真正的新告警。属日志噪音，不属崩溃链路，
+本轮不单独改动。
