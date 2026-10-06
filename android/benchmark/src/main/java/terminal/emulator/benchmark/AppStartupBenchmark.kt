@@ -16,7 +16,7 @@ private const val MEASURE_ITERATION_COUNT = 10
  *
  * 命名为 AppStartupBenchmark 而非 Bridge*，因为测量对象是应用生命周期阶段，
  * 不是 JNI bridge 的单次调用开销；后者由 Rust bench 与 JNI 集成测试覆盖，
- * 详见 docs/rejected-technologies.md §7c D22。
+ * 详见 `DESIGN.md` 的性能条款。
  *
  * 默认 `CompilationMode.Partial(baselineProfileMode = Require)`，即带
  * `assets/dexopt/baseline.prof` 测量；若 profile 未安装会直接报错，

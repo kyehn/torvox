@@ -163,8 +163,8 @@ fun TerminalScreen(
     val view = LocalView.current
     SystemBarsFollowTerminalBackground(view, terminalBackground)
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
-    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮
-    // 与自定义工具栏布局中的 KEYBOARD 附加键使用。
+    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用
+    // （修饰键栏布局不可配置，故没有 KEYBOARD 附加键，见 PROHIBITED 的布局编辑器禁令）。
     // 在 Raw 键盘模式下为空操作（无可显示/隐藏的输入法）。
     // 可见性在轻点时从已挂载的 window insets 同步读取
     // ——绝不用 TerminalSurface.lastImeBottom：对于托管在 Compose AndroidView 中的
