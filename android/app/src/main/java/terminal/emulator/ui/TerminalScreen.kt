@@ -404,8 +404,7 @@ fun TerminalScreen(
                 val effectiveCaseSensitive =
                     searchState.caseSensitive || query.any { it.isUpperCase() }
                 // 原生侧要逐回滚行拼串 + 跑正则（上限 5 万匹配），在 5 万行回滚上以秒计。
-                // 阻塞 JNI 必须离开主线程：否则输入法与按键一起卡住，
-                // AnrWatchDog 还会直接 killProcess 掉所有 shell。
+                // 阻塞 JNI 必须离开主线程：否则输入法与按键一起卡住。
                 val matches =
                     withContext(TerminalDispatchers.inputOutput) {
                         bridge.searchAllInScrollback(query, effectiveCaseSensitive)
