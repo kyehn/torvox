@@ -46,7 +46,6 @@ class SgrColorPixelAcceptanceTest : TerminalLogcatTest() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
         composeTestRule.waitForTerminalPixels()
-        composeTestRule.waitForTerminalPixels()
     }
 
     private fun awaitBridge(): Bridge {

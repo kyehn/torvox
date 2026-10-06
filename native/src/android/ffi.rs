@@ -1499,6 +1499,19 @@ fn build_cursor(
 /// 选区无需叠加处理：VT 线程把跟踪选区的反显烘焙进 `CellData`，选区变化经正常的
 /// 脏路径作为新单元内容到达。
 ///
+/// 脏带标记需覆盖的高亮行：当前高亮 ∪ 上次绘制的高亮。
+///
+/// 取并集是因为高亮被清除或移动时，陈旧高亮像素仍留在累加器里，漏掉任何一侧都会让
+/// 那些行不再被重绘。两条渲染路径（VT 新帧与空闲同步）各需一次，故收在此处作单一真源。
+/// 收两个切片而非 `&RenderState`：调用点已持有 `dirty_mask` 的可变借用，
+/// 方法调用会连带借出整个结构体，与之冲突；字段级不相交借用则可用。
+fn highlight_rows_to_mark<'a>(
+    current: &'a [crate::render::cell_builder::SearchHighlight],
+    last_drawn: &'a [crate::render::cell_builder::SearchHighlight],
+) -> impl Iterator<Item = &'a crate::render::cell_builder::SearchHighlight> {
+    current.iter().chain(last_drawn.iter())
+}
+
 /// 搜索高亮行，当前与上次绘制的都要算：高亮是逐行叠加，增删移动会改变像素而
 /// 不改变单元内容。直接遍历两段切片，不为每帧的这次调用分配中间 `Vec<i32>`。
 fn mark_overlay_dirty_rows<'a>(
@@ -1809,10 +1822,10 @@ fn render_inner(session_id: u64) -> jint {
             mark_overlay_dirty_rows(
                 dirty_mask,
                 rows_usize,
-                render_state
-                    .search_highlights
-                    .iter()
-                    .chain(render_state.last_drawn_search_highlights.iter()),
+                highlight_rows_to_mark(
+                    &render_state.search_highlights,
+                    &render_state.last_drawn_search_highlights,
+                ),
             );
             let result = render_state.renderer.render_cell_data(
                 &cells,
@@ -1874,10 +1887,10 @@ fn render_inner(session_id: u64) -> jint {
             mark_overlay_dirty_rows(
                 dirty_mask,
                 rows_usize,
-                render_state
-                    .search_highlights
-                    .iter()
-                    .chain(render_state.last_drawn_search_highlights.iter()),
+                highlight_rows_to_mark(
+                    &render_state.search_highlights,
+                    &render_state.last_drawn_search_highlights,
+                ),
             );
             // Idle Kitty 同步：字体/缩放变化不经过 VT（无 New 帧），缓存实例
             // 会按旧单元格尺寸错位。纯本地经布局重建（无 RPC，图集未变不重传）。

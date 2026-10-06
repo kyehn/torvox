@@ -43,7 +43,6 @@ class SgrItalicPixelAcceptanceTest : TerminalLogcatTest() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
         composeTestRule.waitForTerminalPixels()
-        composeTestRule.waitForTerminalPixels()
     }
 
     /** 呈现是异步的（运行时循环/VSync 节拍）：轮询截图直到与 [plain] 出现差异。 */

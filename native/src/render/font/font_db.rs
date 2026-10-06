@@ -672,17 +672,9 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
             continue;
         }
         if let Some(name) = family.attribute("name") {
-            // AOSP 的族名是 `sans-serif-monospace`/`serif-monospace`（连字符）；
-            // 空格写法只在本仓的历史测试片段里出现过，两种都收。
-            if [
-                "monospace",
-                "sans-serif-mono",
-                "serif-monospace",
-                "sans-serif mono",
-                "serif mono",
-            ]
-            .contains(&name)
-            {
+            // AOSP 的族名是 `sans-serif-monospace`/`serif-monospace`（连字符），
+            // 与真机 fonts.xml 一致（见本文件测试里逐条摘录的片段）。
+            if ["monospace", "sans-serif-monospace", "serif-monospace"].contains(&name) {
                 monospace.extend(filenames.into_iter().map(|(filename, _)| filename));
             }
         } else if let Some(lang) = family.attribute("lang") {
@@ -1102,7 +1094,8 @@ mod tests {
 
     /// `fallbackFor` 标记的字体属于**另一条** fallback 链，不得并入本族候选：
     /// zh-Hans 里 `NotoSerifCJK-Regular.ttc` 与正体同名同权重并列，收进来会让
-    /// serif 面与正体竞争同一字符（spec 明令 MUST NOT 回退到 Serif）。
+    /// serif 面与正体竞争同一字符（`DESIGN.md:159` 要求中文用 Noto Sans CJK SC
+    /// 而非 Noto Serif）。
     #[test]
     fn parse_fonts_xml_skips_fallback_for_fonts() {
         let xml = FONTS_XML_SNIPPET.replace(

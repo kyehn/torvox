@@ -54,7 +54,10 @@ class BehaviorInstrumentedTest : TerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         // 就绪门槛内含「关掉系统无响应对话框」，它盖住应用窗口时节点查找全部落空。
-        composeTestRule.waitForTerminalScreen()
+        // 本类有像素采样用例（sampling 计数），故用像素门槛而非仅节点门槛：
+        // 节点在组合完成时就存在，早于 SurfaceView 拿到有效 Surface，采样会落在
+        // `get_current_texture_view` 报 NotConfigured 的窗口里，量到全零。
+        composeTestRule.waitForTerminalPixels()
     }
 
     /** 设置浮层是 Compose 覆盖层，不关闭就留存给后继用例并盖住终端（见 closeSettingsOverlay）。 */

@@ -3439,32 +3439,31 @@ constructor(
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
         bridge.setTheme(config.theme)
-        try {
-            val effectiveFont =
-                terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
-            bridge.setFontFamily(effectiveFont)
-            // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
-            // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
-            bridge.setFontSizeInPlace(config.fontSizeTenths)
-            // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
-            // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
-            // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
-            // 着色器随后放大图集位图——即「文字模糊」问题的来源。
-            bridge.setRasterScale(
-                (
-                    context.resources.displayMetrics.density *
-                        context.resources.configuration.fontScale
-                    ).coerceIn(0.5f, 4f),
-            )
-            appliedFontSizeTenths = config.fontSizeTenths
-            LogUtil.d(
-                "Runtime",
-                "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.theme.name}",
-            )
-        } catch (exception: Exception) {
-            if (exception is kotlinx.coroutines.CancellationException) throw exception
-            LogUtil.e("Runtime", "$caller: failed to apply settings", exception)
-        }
+        val effectiveFont =
+            terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+        bridge.setFontFamily(effectiveFont)
+        // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
+        // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
+        bridge.setFontSizeInPlace(config.fontSizeTenths)
+        // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
+        // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
+        // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
+        // 着色器随后放大图集位图——即「文字模糊」问题的来源。
+        bridge.setRasterScale(
+            (
+                context.resources.displayMetrics.density *
+                    context.resources.configuration.fontScale
+                ).coerceIn(0.5f, 4f),
+        )
+        appliedFontSizeTenths = config.fontSizeTenths
+        LogUtil.d(
+            "Runtime",
+            "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.theme.name}",
+        )
+        // 不设 catch：此前「记日志后继续」是 DESIGN.md:24 禁止的未声明 Fallback——
+        // 它带着半套设置（字体已换而字号/光栅未换）继续渲染，用户只看到字形忽大忽小，
+        // 日志里那条 error 又被吞在半路。上抛后由 start() 的 catch 完整回滚
+        // （关 bridge、移除会话条目、重置 UI）并带完整堆栈落 logcat，错误不掩盖。
         if (!syncGrid) return
         // 从新字体度量刷新 cellWidth/cellHeight 并重算网格，使首个渲染帧与配置的字号
         // 一致。不做此步，渲染器会在 spawn 时的旧网格上绘制新尺寸的单元格——

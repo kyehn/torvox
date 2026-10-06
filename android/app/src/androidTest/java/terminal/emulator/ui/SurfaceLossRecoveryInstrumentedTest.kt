@@ -19,6 +19,7 @@ import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalPixels
 
 /**
  * 原生 surface 失效后的自愈：持续注入 surface 级失败 → 原生判死并上报 →
@@ -66,6 +67,9 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
+        // 本类量像素墨迹（`ink` 采样），须再等原生 Surface 挂上，否则量到全零——
+        // 判红原因与被测的 Surface 丢失恢复行为无关。见 waitForTerminalPixels。
+        composeTestRule.waitForTerminalPixels()
         assertNotNull(
             "运行时桥必须就绪",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
