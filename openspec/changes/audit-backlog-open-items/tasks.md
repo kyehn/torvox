@@ -1837,3 +1837,69 @@ LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {   // ← key 里�
 但本缺陷给出了「选区激活 + 菜单缺席」在 CI 独有条件下的一条**已验证**成因与
 已验证修法；`behavior_modifier_bar_visible` 查的是修饰键栏节点、与本缺陷无关，
 仍按 `TESTING.md:16` 保持未闭。
+
+## 35. 简化收归（`d049f604..cdaecd59`）
+
+按 `TESTING.md:24` 与 `TESTING.md:23` 指定的工具复测后再动手，两处都是
+「同一段逻辑散在多处」的收归，无行为变更。
+
+### 35.1 引导目录收归单一真源
+
+改动前三条安装入口各写一遍路径，且**不一致**：`BootstrapInstallService` 用
+私有常量 `PREFIX_DIR_NAME`/`HOME_DIR_NAME`/`STAGING_DIR_NAME`，而
+`TerminalViewModel.bootstrapComponents` 与 `TerminalRuntime` 写裸字面量
+`File(context.filesDir, "usr")` 等——同一组目录名共 9 处、两种写法。
+改目录名必然漏改，漏改的后果是安装器写 prefix 而二阶段读 home。
+
+收归为 `installer` 包里的 `BootstrapDirs` + `bootstrapDirs(context)`，
+三处改为调用它。路径字面量只剩 3 处（同一条语句内），删掉 3 个私有常量。
+行为等价：Service 侧 `filesDir` 即 `this.filesDir`。
+
+### 35.2 CJK 缺回退警告收敛为共享构件
+
+`SettingsScreen.kt` 两处（系统字体选择器、字体信息区）逐字相同的
+`Spacer + Text(cjk_fallback_missing_warning, WARNING_ORANGE)` 渲染块，
+连字面量与排版都一致，只有外层触发条件不同。抽为
+`SettingsComponents.CjkFallbackMissingWarning()`（该文件本就声明为
+「设置界面的共享构件，收敛重复的行骨架」），`WARNING_ORANGE` 一并迁入，
+`SettingsScreen` 中仅剩一处语义引用。净减 5 行，渲染结果逐像素不变。
+
+### 35.3 复审后未改动的两处（judgement call）
+
+- `TerminalSurface.kt:389/424` 两处网格计算重复 6 行
+  （`availableHeight` + `computeGridDimensions` + 退化判空）。抽函数需 5 个参数，
+  且两处各自携带**不同**的「为什么」注释（一个解释变更推送，一个解释 Compose
+  镜像），抽走后注释无处安放；净减 6 行、净增约 8 行。属过度抽象，不改。
+- `TerminalTheme.kt` 被 jscpd 报出的 5 处 8 行「重复」是 16 色调色板的
+  **数据表**，相邻两套主题的字面量被误判为克隆；抽成 `ansi(vararg)` 只省 3 字符
+  每行却丢失 `Color()` 语义。数据不是重复代码，不改。
+
+### 35.4 code-review-skill 双轴复审（`e50fcf73..cdaecd59`）
+
+`subagent` 在本环境不可用（工具白名单引用了不存在的 `ask_user_question`，
+属基础设施 bug，两轴均改为按 skill 的 prompt 内联执行）。
+
+#### Standards 轴
+
+- （硬）无。未触碰任何保护文件；新增的 `.markdownlint-cli2.jsonc` 不在
+  AGENTS.md 清单内，`.markdownlint.jsonc` 一行未改。
+- （已修）`TerminalRuntime` 里局部变量 `bootstrapDirs` **遮蔽同名顶层函数**，
+  且与另两处的 `dirs` 不一致——同一句话里 `bootstrapDirs(context)` 是函数、
+  `bootstrapDirs.prefix` 是变量。已统一为 `dirs`。
+- （已修）`BootstrapInstallService` 的注释「它可能位于 homeDir 之下」引用的
+  标识符已随重构消失，改为「home 目录」。
+- （judgement call）`selectionMenuSurvivesSurfaceRebuild` 放在
+  `SurfaceLossRecoveryInstrumentedTest` 而非 `SelectionEspressoTest`：测的正是
+  「换 SurfaceView 之后」的后果，与该类既有用例同缝子同判据，视为紧密；
+  若归到 selection 类则要在那边复制一遍失效注入与轮询样板。
+- （judgement call）`TerminalScreen.kt` 两处注释各增 3 行说明 surface 为何要在
+  key 里——是代码无法表达的「为什么」，符合 `STYLE.md:56` 的例外。
+
+#### Spec 轴
+
+- §35.1/§35.2 均声明「无行为变更」，已逐项核对：目录名与构造参数不变；
+  警告块的文案、排版、颜色、间距逐字照搬。渲染与安装行为完全一致。
+- `TerminalScreen` 的 key 变更是**唯一的行为变更**，属修缺陷而非范围外新增：
+  有反向对照（撤回 key 即红在「换 SurfaceView 后选区菜单必须重现」）与
+  `connected-failures: 0` 的 CI 佐证。
+- 无未声明功能、无吞错新增、无跳过/忽略、无断言弱化；测试全部断言具体值。
