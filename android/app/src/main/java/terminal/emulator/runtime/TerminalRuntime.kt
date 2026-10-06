@@ -31,7 +31,6 @@ import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
-import terminal.emulator.bridge.createBridge
 import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
@@ -110,9 +109,9 @@ internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleT
  */
 internal data class SessionEntry(
     val id: Long,
-    // 不变式：条目存活期间 bridge 从不为 null（createSession 中以非 null 创建且不再重新赋值），
-    // 各处 `entry.bridge == null` 检查纯属防御，恒为假。
-    var bridge: Bridge?,
+    // 构造时即绑定、此后不再重新赋值：非空类型让「会话已建而 bridge 未就绪」这一
+    // 假想状态在类型上不可表达，故不存在恒假的 null 检查。
+    val bridge: Bridge,
     // 无锁读取（notifyRender/pokeVsync 在锁外解引用唤醒），与相邻字段同为易变。
     @Volatile var renderThreadRef: Thread?,
     @Volatile var running: Boolean,
@@ -495,7 +494,7 @@ constructor(
         val rendered = exitCode?.toString() ?: PROCESS_EXIT_CODE_UNKNOWN_TEXT
         val text = PROCESS_COMPLETED_PROMPT_PREFIX + rendered + PROCESS_COMPLETED_PROMPT_SUFFIX
         try {
-            entry.bridge?.feedTerminal(text.encodeToByteArray())
+            entry.bridge.feedTerminal(text.encodeToByteArray())
         } catch (exception: Exception) {
             LogUtil.w("Runtime", "feedTerminal failed for [Process completed] prompt", exception)
         }
@@ -984,7 +983,6 @@ constructor(
         ) {
             for (entry in sessions.values) {
                 if (!entry.running) continue
-                if (entry.bridge == null) continue
                 if (entry.renderThreadExited) {
                     deadSessions.add(entry)
                 } else {
@@ -1027,11 +1025,6 @@ constructor(
                     if (thread != null && thread.isAlive) return
                     entry.renderThreadExited = true
                 }
-                if (entry.bridge == null) {
-                    entry.running = false
-                    entry.renderThreadExited = false
-                    return
-                }
             }
 
             // 阶段 2（不持锁）：下方 join 在渲染线程卡死于原生 GPU 代码时
@@ -1044,7 +1037,7 @@ constructor(
                 // 在此重查，使在阶段 1 与此刻之间运行的并发 pauseRendering()
                 // 能取消重启，而非在已销毁的 Surface 上启动渲染线程。
                 if (!entry.running) return
-                if (entry.bridge == null || !sessions.containsKey(entry.id)) return
+                if (!sessions.containsKey(entry.id)) return
                 if (entry.restartScheduled) return
                 entry.restartScheduled = true
                 entry.restartAttempts++
@@ -1118,7 +1111,6 @@ constructor(
                 if (!entry.running) return
                 // 其他线程可能已启动（例如恢复与延迟重启竞争）；不要启动第二个。
                 if (entry.renderThreadRef?.isAlive == true) return
-                if (entry.bridge == null) return
                 entry.renderThreadExited = false
                 startRenderThread(entry)
                 LogUtil.d(
@@ -1237,7 +1229,7 @@ constructor(
                                     }
                                     try {
                                         val loopFrameStart = System.nanoTime()
-                                        val bridge = entry.bridge ?: break
+                                        val bridge = entry.bridge
                                         // ── vsync 唤醒门控 ──
                                         // 循环仅在有唤醒源触发时才渲染：
                                         //   ① vsyncRequested — Choreographer 帧回调
@@ -1900,11 +1892,10 @@ constructor(
         // 与 native 侧跳过配合，缩放期间不抖动。
         if (tenths == appliedFontSizeTenths) return
         val entry = sessions[activeSessionId] ?: return
-        val bridge = entry.bridge ?: return
-        bridge.setFontSizeInPlace(tenths)
+        entry.bridge.setFontSizeInPlace(tenths)
         // 只同步触摸/渲染度量，不重算网格不 resize：触摸映射跟上新字形，
         // 网格行列保持到 finalize，避免手势期间中间态错位。
-        syncCellMetricsOnly(bridge)
+        syncCellMetricsOnly(entry.bridge)
         appliedFontSizeTenths = tenths
     }
 
@@ -2076,7 +2067,7 @@ constructor(
             return
         }
 
-        // 提到外层以便失败路径能关闭它；start() 在 createBridge() 之前提前返回时保持为 null。
+        // 提到外层以便失败路径能关闭它；start() 在构造 Bridge 之前提前返回时保持为 null。
         var startedBridge: terminal.emulator.bridge.Bridge? = null
         if (surface != null) {
             // 原生侧经 attachWindow(JNI) 接收 Surface，Kotlin 绝不跨桥传递裸 ANativeWindow 指针；
@@ -2143,7 +2134,7 @@ constructor(
                 "buildConfig: fontSizeTenths=${config.fontSizeTenths} rows=${config.rows} cols=${config.cols} theme=${config.theme.name} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
             )
             val bridgeStartNs = System.nanoTime()
-            val bridge = createBridge(config)
+            val bridge = Bridge(config)
             startedBridge = bridge
             LogUtil.d(
                 "Runtime",
@@ -2328,7 +2319,7 @@ constructor(
             // 于是 24x80 的启动网格留存，尽管原生字体是 47px，
             // 留下巨大的垂直空隙（92px 行高对 36px 字形）。
             try {
-                startedEntry.bridge?.let { syncGridDimensions(it) }
+                syncGridDimensions(startedEntry.bridge)
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "initial grid recompute failed", exception)
             }
@@ -2348,7 +2339,7 @@ constructor(
             }
             LogUtil.e("Runtime", "Failed to start terminal", exception)
             // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
-            // createBridge() 之后的任何失败（设置、attachSurface、spawnTerminal 抛异常而非返回 0）
+            // 构造 Bridge 之后的任何失败（设置、attachSurface、spawnTerminal 抛异常而非返回 0）
             // 否则会永久泄漏原生会话及其 PTY 子进程。
             // 若失败发生在条目插入之后（例如 startRenderThread 在锁内抛异常），
             // 映射中仍持有 renderThreadRef 为 null 的条目：checkSessions 的存活逻辑
@@ -2421,7 +2412,7 @@ constructor(
             val configStartNs = System.nanoTime()
             val config = buildConfig()
             val bridgeStartNs = System.nanoTime()
-            val bridge = createBridge(config).also { createdBridge = it }
+            val bridge = Bridge(config).also { createdBridge = it }
             LogUtil.d(
                 "Runtime",
                 "createSession bridgeElapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
@@ -2645,7 +2636,7 @@ constructor(
             // 而那发生在旧会话线程停止、其 surface 在下方释放之后。
             // 因此释放顺序为：attach 存储 → 停止旧线程 → 释放旧 surface →
             // 首帧时创建新 surface；同一 ANativeWindow 绝不会被两个存活的 wgpu surface 持有。
-            target.bridge?.attachSurface(surface, width, height)
+            target.bridge.attachSurface(surface, width, height)
 
             if (!surface.isValid) {
                 LogUtil.e("Runtime", "switchSession: surface is no longer valid, aborting")
@@ -2670,7 +2661,7 @@ constructor(
                         // 共享同一 ANativeWindow 时 Vulkan 驱动报
                         // VK_ERROR_NATIVE_WINDOW_IN_USE_KHR。
                         // 渲染线程挂起时（join 超时）跳过——线程恢复后释放即是 use-after-free。
-                        current.bridge?.releaseGpuSurface()
+                        current.bridge.releaseGpuSurface()
                     } else {
                         LogUtil.e(
                             "Runtime",
@@ -2701,11 +2692,11 @@ constructor(
             // （共享 ANativeWindow 上的一瞬竞争）。以短暂延迟重试几次首次同步渲染，
             // 以便呈现真实内容，而不是在尚未就绪的 Surface 上启动渲染线程
             // （那会阻塞并触发挂起看门狗）。
-            var initialRender = target.bridge?.render() ?: 0
+            var initialRender = target.bridge.render()
             var attempts = 1
             while (initialRenderRetryNeeded(initialRender, attempts, RENDER_INITIAL_RETRY_MAX)) {
                 delay(RENDER_INITIAL_RETRY_DELAY_MS)
-                initialRender = target.bridge?.render() ?: 0
+                initialRender = target.bridge.render()
                 attempts++
             }
             LogUtil.d(
@@ -2820,7 +2811,7 @@ constructor(
                         exception,
                     )
                 }
-                target.bridge?.let { syncGridDimensions(it) }
+                syncGridDimensions(target.bridge)
                 // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
                 // 查不到原生网格则无条件对齐（fail-open）。
                 alignGridOnSwitch(target.bridge, _state.value.rows, _state.value.cols)
@@ -2829,7 +2820,7 @@ constructor(
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
                 // 使获得焦点的 TUI（vim/fzf）恢复其 FocusGained 行为。
                 if (lastWindowFocus) {
-                    target.bridge?.focusEvent(true)
+                    target.bridge.focusEvent(true)
                 }
             } catch (exception: Exception) {
                 // 目标会话的渲染线程此刻已在运行，故此处不做任何恢复：
@@ -2915,11 +2906,11 @@ constructor(
             // 而更早挂起（来自先前 join 超时、记录在 hungRenderThread 中）的线程
             // 仍在原生代码中存活——renderThreadPossiblyAlive 覆盖该情形。
             // 在此释放/关闭会在该线程恢复时构成 use-after-free。
-            entry.bridge?.releaseGpuSurface()
+            entry.bridge.releaseGpuSurface()
             // 同样的道理适用于 close()：destroySession 会拆除挂起线程
             // 可能仍在触碰的原生会话/PTY/wgpu 上下文。
             // 原生会话待进程消亡时回收；在此销毁会在该线程恢复的瞬间构成 use-after-free。
-            entry.bridge?.close()
+            entry.bridge.close()
         } else {
             LogUtil.e(
                 "Runtime",
@@ -2963,9 +2954,9 @@ constructor(
         // 只换字体/字号/主题，不 resize 各会话网格：buildConfig() 的默认 24x80 会
         // 缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
         sessions.values.forEach { entry ->
-            entry.bridge?.setFontSizeInPlace(config.fontSizeTenths)
-            entry.bridge?.setFontFamily(effectiveFontFamily)
-            entry.bridge?.setTheme(config.theme)
+            entry.bridge.setFontSizeInPlace(config.fontSizeTenths)
+            entry.bridge.setFontFamily(effectiveFontFamily)
+            entry.bridge.setTheme(config.theme)
             entry.notifyRender()
         }
         // 字体度量已变——但网格尺寸保持不变。
@@ -3032,13 +3023,11 @@ constructor(
         var applied: Boolean? = null
         sessions.values.forEach { entry ->
             try {
-                val familyResult = entry.bridge?.setFontFamily(effectiveFontFamily)
+                val familyResult = entry.bridge.setFontFamily(effectiveFontFamily)
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
-                if (familyResult != null) {
-                    applied = (applied ?: true) && familyResult
-                }
-                entry.bridge?.setFontSizeInPlace(fontSizeTenths)
-                entry.bridge?.let { syncGridDimensions(it) }
+                applied = (applied ?: true) && familyResult
+                entry.bridge.setFontSizeInPlace(fontSizeTenths)
+                syncGridDimensions(entry.bridge)
                 // 网格必须随字体变化。syncGridDimensions 只读取既有的原生网格
                 // （重启后仍是默认的 80x24）；若不按 Surface 与新字体度量重算 rows/cols，
                 // 渲染器会按 surface/80 x surface/24（13.5x92）布置网格，
@@ -3080,7 +3069,7 @@ constructor(
                 }
                 return true
             }
-            val written = entry.bridge?.writeToPty(data) ?: false
+            val written = entry.bridge.writeToPty(data)
             if (written) {
                 // 延迟探针的输入打点（用 elapsed-realtime 时钟：它能跨深度睡眠存活，
                 // 而 nanoTime 的单调基准不能）。
@@ -3099,7 +3088,7 @@ constructor(
     /** 字节直接送入 VT 解析器（注入转义序列的测试路径）。 */
     fun feedTerminal(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId] ?: return false
-        return entry.bridge?.feedTerminal(data) ?: false
+        return entry.bridge.feedTerminal(data)
     }
 
     fun bridge(): Bridge? = sessions[activeSessionId]?.bridge
@@ -3111,7 +3100,7 @@ constructor(
         // 焦点上报（DECSET 1004）按窗口生效：只有活动会话会收到。
         // 向每个会话广播会让单次窗口焦点变化执行 N 次同步 JNI RPC。
         val entry = sessions[activeSessionId] ?: return
-        val bridge = entry.bridge ?: return
+        val bridge = entry.bridge
         // 不在主线程做：原生 focus_event 先经 VT 线程做 1004 模式查询（最长 50ms）
         // 再写 PTY，两者都在会话锁内。此前在 UI 线程同步调用，VT 线程一旦卡住
         // （大输出、GC）每次窗口焦点变化都会把主线程堵满 50ms——正是掉帧的形状。
@@ -3166,7 +3155,7 @@ constructor(
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
                 // 退出事件可能因此被错误的会话线程处理（关闭掉无辜的会话）。
                 val activeEntry = sessions[activeSessionId]
-                if (activeEntry != null && !activeEntry.running && activeEntry.bridge != null) {
+                if (activeEntry != null && !activeEntry.running) {
                     try {
                         activeEntry.running = true
                         renderSupervisor.startRenderThread(activeEntry)
@@ -3220,7 +3209,7 @@ constructor(
         // 故 65535×65535 的网格只可能由直接 API 调用者请求；原生会尝试分配。
         val clampedRows = rows.coerceIn(1, U16_MAX)
         val clampedCols = cols.coerceIn(1, U16_MAX)
-        entry.bridge?.resize(clampedRows, clampedCols)
+        entry.bridge.resize(clampedRows, clampedCols)
         // CAS：普通 copy 会覆盖渲染线程在读与写之间发布的 title 更新。
         _state.update { it.copy(rows = clampedRows, cols = clampedCols) }
         entry.notifyRender()
@@ -3235,7 +3224,7 @@ constructor(
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
         val entry = sessions[activeSessionId] ?: return
-        entry.bridge?.setPixelSize(widthPx.coerceIn(0, U16_MAX), heightPx.coerceIn(0, U16_MAX))
+        entry.bridge.setPixelSize(widthPx.coerceIn(0, U16_MAX), heightPx.coerceIn(0, U16_MAX))
     }
 
     /**
@@ -3257,10 +3246,7 @@ constructor(
      */
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
         pendingSurface = PendingSurface(surface, width, height)
-        val bridge = sessions[activeSessionId]?.bridge
-        if (bridge != null) {
-            bridge.attachSurface(surface, width, height)
-        }
+        sessions[activeSessionId]?.bridge?.attachSurface(surface, width, height)
     }
 
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
@@ -3317,14 +3303,7 @@ constructor(
         if (markRunning) {
             replacement.running = true
         }
-        val bridge =
-            replacement.bridge
-                ?: run {
-                    LogUtil.w("Runtime", "$caller: new active session $newId has no bridge")
-                    activeSessionId = 0L
-                    updateState()
-                    return
-                }
+        val bridge = replacement.bridge
         // 挂起线程的最终 join：若它在此期间已退出，就清标志，
         // 使后续 close() 能销毁原生会话（不泄漏）。
         // 防止 join 自身：退出路径在渲染线程上运行（poll.exit），
@@ -3557,7 +3536,7 @@ constructor(
      */
     fun setRenderPaused(paused: Boolean) {
         for (entry in sessions.values) {
-            entry.bridge?.setRenderPaused(paused)
+            entry.bridge.setRenderPaused(paused)
         }
     }
 
@@ -3721,11 +3700,11 @@ internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: ()
  *
  * 独立成顶层函数是为了让判定逻辑可单测（`shouldAlignGridOnSwitch` 有同名单测）。
  */
-internal fun alignGridOnSwitch(bridge: Bridge?, rows: Int, cols: Int) {
+internal fun alignGridOnSwitch(bridge: Bridge, rows: Int, cols: Int) {
     val wantRows = rows.coerceAtLeast(1)
     val wantCols = cols.coerceAtLeast(1)
-    if (shouldAlignGridOnSwitch(wantRows, wantCols) { bridge?.getGridRowsColsPacked() ?: 0L }) {
-        bridge?.resize(wantRows, wantCols)
+    if (shouldAlignGridOnSwitch(wantRows, wantCols) { bridge.getGridRowsColsPacked() }) {
+        bridge.resize(wantRows, wantCols)
     }
 }
 

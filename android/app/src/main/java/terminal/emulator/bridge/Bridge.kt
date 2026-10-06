@@ -47,7 +47,7 @@ data class BridgeTheme(
     val ansi15: Int,
 )
 
-/** 传给 [createBridge] 的配置。 */
+/** 构造 [Bridge] 时传入的配置。 */
 data class TerminalConfig(
     val shell: Shell,
     val rows: Int,
@@ -59,9 +59,6 @@ data class TerminalConfig(
     val mkshrcPath: String,
     val fontSizeTenths: Int,
 )
-
-/** 创建包裹 [NativeBridge] JNI 导出的 Bridge 实例。 */
-fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
 
 /**
  * 包裹 [NativeBridge] 静态 JNI 导出的实例桥接。每个 Bridge 持有会话 ID 并管理生命周期，

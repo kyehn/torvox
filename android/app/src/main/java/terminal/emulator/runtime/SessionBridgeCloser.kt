@@ -21,7 +21,7 @@ internal fun SessionEntry.closeBridgeUnlessRenderThreadAlive(reason: String) {
         return
     }
     try {
-        bridge?.close()
+        bridge.close()
     } catch (exception: Exception) {
         LogUtil.e("Runtime", "session $id bridge close failed ($reason)", exception)
     }

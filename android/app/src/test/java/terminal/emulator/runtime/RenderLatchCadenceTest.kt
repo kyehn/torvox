@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import terminal.emulator.bridge.TestBridges
 
 /**
  * T3 backspace-latency cadence tests: the render loop must leave the 500ms idle latch (and stay on
@@ -79,7 +80,8 @@ class RenderLatchCadenceTest {
      */
     @Test
     fun notifyRenderRefreshesIdleClockAndRaisesSignal() {
-        val entry = SessionEntry(id = 1L, bridge = null, renderThreadRef = null, running = false)
+        val entry =
+            SessionEntry(id = 1L, bridge = TestBridges.create(), renderThreadRef = null, running = false)
         val staleClock = System.nanoTime() - IDLE_THRESHOLD_NANOS - 1L
         entry.lastSignalNanos = staleClock
         entry.renderSignaled.set(false)
