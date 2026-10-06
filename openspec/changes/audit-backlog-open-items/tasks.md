@@ -1739,7 +1739,7 @@ detekt `--auto-correct`、`nix fmt` 全部通过，产出仅 `flake.lock` 的
 
 ### 33.5 code-review-skill 双轴复审（`e50fcf73..633d89cb`）
 
-**Standards 轴**
+#### Standards 轴
 
 - （硬）无。`.markdownlint-cli2.jsonc` 不在 AGENTS.md 保护清单内，
   `.markdownlint.jsonc`（保护文件）未改一行；新文件只含 `ignores`，
@@ -1752,7 +1752,7 @@ detekt `--auto-correct`、`nix fmt` 全部通过，产出仅 `flake.lock` 的
   配置侧会让 `fmt`/`build` 重新变红——两份都在是刻意的冗余，记此以免后续
   「清理重复」时只删一边。
 
-**Spec 轴**
+#### Spec 轴
 
 - §33 声称的修法（只加配置文件、不动工作流与规则集）与 diff 一致，无 scope creep。
 - 无弱化断言、无新增跳过/忽略、无吞错入口；本次改动不触及任何被测行为
