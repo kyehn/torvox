@@ -1909,7 +1909,7 @@ LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {   // ← key 里�
 `check` 门禁的 `lintDebug` 在 `c4fa86e0` 之前红在
 `SettingsComponents.kt:291`——**§35.2 新加的 `CjkFallbackMissingWarning`**：
 
-```
+```text
 Error: Composable functions should only be emitting content into the composition
 from one source at their top level.
 [ComposeMultipleContentEmitters from com.slack.lint:compose-lints]
