@@ -1759,3 +1759,53 @@ detekt `--auto-correct`、`nix fmt` 全部通过，产出仅 `flake.lock` 的
   （纯工具配置）。
 - 台账 §5 N9 的更正是事实核对：改动前仓内确无该文件（`ls` 零命中），
   「已修」与仓库状态不符，已按实测改写。
+
+## 34. §31「菜单未出现」的根因：effect 的 key 漏了 Surface
+
+### 34.1 缺陷
+
+`TerminalScreen` 里选区菜单与手柄各自挂在一个 `LaunchedEffect` 上：
+
+```kotlin
+val menuSurface = surfaceRef.value          // 当前那一个 SurfaceView
+LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {   // ← key 里没有 menuSurface
+    menuSurface.showSelectionMenu(selection.pasteOnly)
+}
+```
+
+`menuSurface` 被闭包捕获但**不在 key 里**。`AndroidView` 重建 SurfaceView 时
+（宿主换窗口自愈、配置变更、进程内 view 复用失效）`surfaceRef.value` 变了：
+重组会发生，`menuSurface` 拿到新实例，但 **key 没变 → effect 不重启**，
+上一次执行时用的旧 Surface 早已 `detachFromWindow`。于是
+`showSelectionMenu` 走第一条早退分支「菜单跳过：未附着」并返回，
+菜单在本次 Activity 生命周期内**永久缺席**——选区还在（状态在 ViewModel），
+用户看到的是「选中了一大片字，却什么菜单都没有」。
+
+手柄的 effect 同病（`surfaceRef.value?.showSelectionHandles(...)` 虽然每次
+读当前值，但同样不随 Surface 变化重启）。
+
+触发条件恰好是 CI 独有：模拟器长跑时宿主换窗口极其频繁——
+本轮实测全量套件 15 分钟内 `surface invalidated` 出现 **210 次**、
+`render: frame failed` 542 次（§32.2）。
+
+### 34.2 修法与验证
+
+两处 key 各补上对应 Surface（`menuSurface` / `surfaceRef.value`），语义即
+「承载者变了就重显」。回归用例
+`SurfaceLossRecoveryInstrumentedTest#selectionMenuSurvivesSurfaceRebuild`
+沿用同类既有的失效注入缝子（`setSurfaceLossInjectedForTest`）造出换视图：
+
+| 版本 | 结果 |
+| --- | --- |
+| 补 key 后 | 两例全绿（`connected-failures: 0`） |
+| 临时撤回 key（反向对照） | 红在 `换 SurfaceView 后选区菜单必须重现` |
+
+反向对照证明用例确实锁住该缺陷，不是恒真断言。
+
+### 34.3 与 §31 的关系
+
+§31 两条（`partialSelectShowsSelectionMenu`、`behavior_modifier_bar_visible`）
+的 run **没有 logcat**，无法据证回溯归因到本缺陷，故不作改写。
+但本缺陷给出了「选区激活 + 菜单缺席」在 CI 独有条件下的一条**已验证**成因与
+已验证修法；`behavior_modifier_bar_visible` 查的是修饰键栏节点、与本缺陷无关，
+仍按 `TESTING.md:16` 保持未闭。
