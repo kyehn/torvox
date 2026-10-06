@@ -144,6 +144,7 @@ pub struct DirtyBand {
 impl DirtyBand {
     /// 该带是否覆盖 `rows` 高网格的全部行——即
     /// 与整帧重绘无从区分。
+    #[cfg(test)]
     pub fn covers_all_rows(&self, rows: u32) -> bool {
         self.start_row == 0 && self.end_row_exclusive >= rows as usize
     }

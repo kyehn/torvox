@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
-import android.os.SystemClock
 import android.view.Surface
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
@@ -141,9 +140,6 @@ internal data class SessionEntry(
     // 最近一次 UI 线程滚动手势的时间戳（System.nanoTime，在 setScrollOffset 中写入），
     // 渲染线程据此计算 recentlyScrolled 保护；0L 表示从未滚动过。
     @Volatile var lastScrollNanos: Long = 0L,
-    // 输入→回显延迟探针：输入打点落在 writeToPty 与 Bridge.onPtyWrite（硬件按键绕过 writeToPty），
-    // 回显配对发生在渲染循环消费原生 new_output 标志时。
-    val latencyProbe: LatencyProbe = LatencyProbe(),
     // shell 已退出且 [Process completed (code X)] 提示已送入终端（见 feedProcessCompletedPrompt）。
     // 会话保持可见与运行，直到用户按 Enter。
     @Volatile var waitingForProcessCompleted: Boolean = false,
@@ -1344,32 +1340,6 @@ constructor(
                                             )
                                         }
                                         if (newOutput) {
-                                            // 延迟探针的回显配对：本帧消费了 PTY 输出；
-                                            // 若有待配对的输入打点，就落下一个输入→回显样本。
-                                            entry.latencyProbe
-                                                .onEchoFrame(
-                                                    SystemClock.elapsedRealtimeNanos(),
-                                                )
-                                                ?.let { latencyNanos ->
-                                                    if (BuildConfig.DEBUG) {
-                                                        LogUtil.d(
-                                                            "Runtime",
-                                                            "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
-                                                        )
-                                                    }
-                                                    // 周期性 p50/p95 汇总写入 logcat
-                                                    // （LATENCY_REPORT 标记便于 grep，
-                                                    // 供离线采集分位数）。
-                                                    val sampleCount = entry.latencyProbe.sampleCount
-                                                    if (sampleCount % LATENCY_REPORT_EVERY == 0) {
-                                                        LogUtil.i(
-                                                            "Runtime",
-                                                            "LATENCY_REPORT session=${entry.id} ${entry.latencyProbe.report()}",
-                                                        )
-                                                    }
-                                                }
-                                        }
-                                        if (newOutput) {
                                             // 只有真实的 PTY 摄入才刷新空闲时钟：count 同样统计静态网格的
                                             // 空闲重绘，会使 lastSignalNanos 永远处于空闲阈值内，
                                             // 500ms 空闲闭锁因而永不生效。持续输出流
@@ -1802,9 +1772,6 @@ constructor(
         private const val RENDER_ERROR_BACKOFF_MS =
             200L // 连续 10 次瞬时错误后延长睡眠
 
-        // logcat 中 LATENCY_REPORT 汇总的输出节奏（样本数）。
-        private const val LATENCY_REPORT_EVERY = 50
-
         // 17ms active latch = 单个 vsync 周期（60Hz 显示 ~16.7ms）：
         // waitOutput 是纯 park（PTY 到达无法提前唤醒，见 gate 注释），
         // 8ms 的旧值让 active 态在每次 vsync 之外再多落一次兜底渲染，
@@ -2219,8 +2186,7 @@ constructor(
                         )
                     sessions[finalSessionId] = entry
                     activeSessionId = finalSessionId
-                    bridge.onPtyWrite = { nanos ->
-                        entry.latencyProbe.onInputWritten(nanos)
+                    bridge.onPtyWrite = {
                         // 输入写入唤醒：每次 PTY 写入（经 processKeyEvent/writeKey 的硬件按键、
                         // IME sendKeyEvent 退格、鼠标）都必须离开空闲驻留。
                         // 空闲 >5s 后循环驻留在 500ms 闭锁上且 vsync 泵已停
@@ -2467,8 +2433,7 @@ constructor(
                     sessions[nextId] = entry
                     abandonedByStart = false
                     hangGuardedEntry = entry
-                    bridge.onPtyWrite = { nanos ->
-                        entry.latencyProbe.onInputWritten(nanos)
+                    bridge.onPtyWrite = {
                         // 输入写入唤醒：每次 PTY 写入都把渲染循环推离空闲闭锁，
                         // 使输入回显按 17ms 活跃节奏渲染（而非 500ms 空闲闭锁节拍）。
                         entry.notifyRender()
@@ -3070,11 +3035,7 @@ constructor(
                 return true
             }
             val written = entry.bridge.writeToPty(data)
-            if (written) {
-                // 延迟探针的输入打点（用 elapsed-realtime 时钟：它能跨深度睡眠存活，
-                // 而 nanoTime 的单调基准不能）。
-                entry.latencyProbe.onInputWritten(SystemClock.elapsedRealtimeNanos())
-            } else {
+            if (!written) {
                 // 会话活着却没有 bridge：粘贴/击键就此消失且毫无症状，必须出声。
                 LogUtil.e("Runtime", "writeToPty: 会话 $sessionId 无 bridge，${data.size} 字节未写入")
             }

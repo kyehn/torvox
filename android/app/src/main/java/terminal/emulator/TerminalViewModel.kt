@@ -1345,11 +1345,7 @@ constructor(
         val state = _state.value
         val mask = KeyModifiers.fromStickyStates(state.ctrlState, state.altState)
 
-        // 未上档码点是未施加任何修饰键的基准键：
-        // 去掉 SHIFT 后重算字符，使编码器能侦测纯 Shift 变化
-        // （如 Shift+; -> :）并避免多余的 Kitty shift。
-        val unshiftedChar = event.getUnicodeChar(meta and KeyEvent.META_SHIFT_MASK.inv())
-        val success = bridge.processKeyEvent(keyCode, mask.toByte(), 0, unicodeChar, unshiftedChar)
+        val success = bridge.processKeyEvent(keyCode, mask.toByte(), 0, unicodeChar)
         if (success) {
             // 硬件输入同样经过共用的贴底点，否则粘滞 SCROLL 永不被物理键盘解除。
             onUserInputForScrollSnap(

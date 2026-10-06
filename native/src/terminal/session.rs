@@ -213,9 +213,14 @@ impl Default for ThemeConfig {
 }
 
 impl Session {
-    /// 以已构造的 PTY 创建会话，不启动读取/等待线程（PTY I/O 由调用方驱动），
-    /// 主要用于配合 `MockPty` 的测试。
-    pub fn with_pty(pty: Box<dyn Pty>, rows: u32, cols: u32) -> Result<Self, SessionError> {
+    /// 以已构造的 PTY 创建会话，不启动读取/等待线程（PTY I/O 由调用方驱动）。
+    /// 仅供测试配合 `MockPty` 使用；生产构造入口是 [`Session::spawn`]。
+    #[cfg(test)]
+    pub fn with_pty_for_test(
+        pty: Box<dyn Pty>,
+        rows: u32,
+        cols: u32,
+    ) -> Result<Self, SessionError> {
         Self::spawn_with_theme_inner(pty, rows, cols, ThemeConfig::default())
     }
 
@@ -971,14 +976,14 @@ mod tests {
                 _env: &ShellEnv,
                 _cwd: Option<&Path>,
             ) -> Result<Box<dyn Pty>, PtyError> {
-                unreachable!("本替身只经 with_pty 构造")
+                unreachable!("本替身只经 with_pty_for_test 构造")
             }
         }
 
         let entered = Arc::new(AtomicBool::new(false));
         let released = Arc::new(AtomicBool::new(false));
         let session = Arc::new(std::sync::Mutex::new(
-            Session::with_pty(
+            Session::with_pty_for_test(
                 Box::new(BlockingPty {
                     entered: entered.clone(),
                     released: released.clone(),
@@ -1022,7 +1027,7 @@ mod tests {
     #[test]
     fn session_resize_same_size_is_applied_noop() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         let before = handle.resize_count();
         // 干净状态：同尺寸 resize 短路并报告 Applied。
@@ -1044,7 +1049,7 @@ mod tests {
     #[test]
     fn answer_clipboard_read_writes_esc52_reply() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         session
             .answer_clipboard_read("c", "Hello, 世界")
@@ -1060,7 +1065,7 @@ mod tests {
     #[test]
     fn answer_clipboard_read_empty_text() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         session
             .answer_clipboard_read("c", "")
@@ -1072,7 +1077,7 @@ mod tests {
     #[test]
     fn answer_clipboard_read_after_exit_fails() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         session.exited_flag().store(true, Ordering::Release);
         let result = session.answer_clipboard_read("c", "text");
@@ -1116,7 +1121,7 @@ mod tests {
     #[test]
     fn session_new_creates_pty() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         assert_eq!(
             session.terminal().rows(),
@@ -1137,7 +1142,7 @@ mod tests {
     #[test]
     fn session_resize_sends_signal() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         session.resize(40, 120).expect("resize must succeed");
         assert_eq!(
@@ -1157,7 +1162,7 @@ mod tests {
     #[test]
     fn session_write_input() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         session.write(b"hello world").expect("write must succeed");
         let written = handle.written();
@@ -1274,7 +1279,7 @@ mod tests {
         // `waitpid` 失败时代码槽为 Unknown。必须照常上报（`ReportedExit::Unknown`），
         // 否则退出事件永不到达、会话表泄漏——比报出错误的码更糟。
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         *session.exit_code.lock() = ExitCodeSlot::Unknown;
         session.exited.store(true, Ordering::Release);
@@ -1284,7 +1289,7 @@ mod tests {
     #[test]
     fn mark_exit_reported_is_idempotent_under_concurrency() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // 上报竞态中只能有一个调用者胜出；其余（并发的 pollEvent 线程）都须看到 false，
         // 使 Exit 事件永不重复。`Arc<Mutex<..>>` 镜像生产 SESSION_REGISTRY 的形状
@@ -1310,7 +1315,7 @@ mod tests {
     #[test]
     fn session_title_default_is_empty() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         assert_eq!(session.title(), "");
     }
@@ -1318,7 +1323,7 @@ mod tests {
     #[test]
     fn session_mode_get_default_false() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // 模式 2004（bracketed paste）默认应关闭。
         assert!(!session.mode_get(2004, 0));
@@ -1327,7 +1332,7 @@ mod tests {
     #[test]
     fn session_focus_event_writes_to_terminal() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // `focus_event` 向终端写 CSI 序列，不应 panic。
         session.focus_event(true);
@@ -1337,7 +1342,7 @@ mod tests {
     #[test]
     fn session_exited_flag() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         assert!(!session.is_exited(), "fresh session must not be exited");
         let flag = session.exited_flag();
@@ -1419,7 +1424,7 @@ mod tests {
     #[test]
     fn session_write_after_exit_returns_error() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // 置会话的退出标志，使 `write()` 在调用 PTY 前先检查它。
         session.exited_flag().store(true, Ordering::Release);

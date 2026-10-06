@@ -2273,9 +2273,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (bridge != null) {
             val modifiers = modifierBitmask(event)
             val action: Int = 0 // KeyEvent.ACTION_DOWN = 0
-            val unicodeChar = event.unicodeChar
-            val unshiftedChar = event.getUnicodeChar(event.metaState and KeyEvent.META_SHIFT_MASK.inv())
-            val success = bridge.processKeyEvent(keyCode, modifiers, action, unicodeChar, unshiftedChar)
+            val success = bridge.processKeyEvent(keyCode, modifiers, action, event.unicodeChar)
             if (success) {
                 terminalViewModel.consumeOneShotModifiers()
                 return true

@@ -347,6 +347,7 @@ impl FontPipeline {
         })
     }
 
+    #[cfg(test)]
     pub fn current_font_family_name(&self) -> Option<String> {
         let font_id = self.font_id?;
         let font_database = self.font_system.db();
@@ -431,34 +432,6 @@ impl FontPipeline {
                 || lower.contains(" jp")
                 || lower.contains(" kr")
         })
-    }
-
-    pub fn font_information(&self) -> String {
-        let font_database = self.font_system.db();
-        let mut parts = Vec::new();
-        if let Some(id) = self.font_id
-            && let Some(face) = font_database.face(id)
-        {
-            let name = face.families.first().map_or("unknown", |(n, _)| n.as_str());
-            let mono = if face.monospaced {
-                "monospaced"
-            } else {
-                "proportional"
-            };
-            parts.push(format!("Active: {} ({})", name, mono));
-        }
-        let cjk = self.cjk_fallback_names();
-        if !cjk.is_empty() {
-            parts.push(format!("CJK fallback: {}", cjk.join(", ")));
-        } else if self.primary_supports_cjk() {
-            parts.push("CJK fallback: skipped (primary font supports CJK)".to_string());
-        } else {
-            parts.push("CJK fallback: none".to_string());
-        }
-        let (cw, ch) = self.cell_metrics();
-        parts.push(format!("Cell: {:.1}x{:.1}px", cw, ch));
-        parts.push(format!("Font size: {:.1}px", self.font_size));
-        parts.join("\n")
     }
 
     /// 供 UI 层（JNI）使用的结构化字体信息，仅承载数据，
@@ -896,6 +869,7 @@ impl FontPipeline {
         face.families.first().map(|(name, _)| name.clone())
     }
 
+    #[cfg(test)]
     pub fn has_font(&self) -> bool {
         self.font_id.is_some()
     }

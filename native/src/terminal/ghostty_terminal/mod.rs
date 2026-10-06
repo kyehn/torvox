@@ -30,8 +30,6 @@ pub struct GhosttyTerminal {
     pub(crate) clipboard_rx: flume::Receiver<(String, String)>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
-    /// 终端线程 panic 后置真：后续操作一律返回错误，不再向死信道静默发命令。
-    pub(crate) panicked: Arc<AtomicBool>,
     /// `pty_write()` 末次写入的字节，用于识别 `\r`/`\n` 跨写入块拆分，避免多余的 `\r\r\n`。
     pub(crate) last_pty_write_byte: u8,
     /// `Terminal::active_screen() == Alternate` 的无锁镜像，由 VT 线程每帧更新。
