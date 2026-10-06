@@ -17,7 +17,7 @@ pub struct OutputSnapshot {
 
 pub struct OutputProcessor {
     scan: ReadScan,
-    /// `new_output` 标志（见 docs/specification/REFERENCE.md）：[`Self::process`] 摄入
+    /// `new_output` 标志：[`Self::process`] 摄入
     /// 非空 PTY 块时置位，渲染线程经 [`Self::take_new_output`] 读取并清除。
     /// 与 `dirty` 标志相互独立：新输出可把视口复位到底部，而 dirty（选区/高亮/字号
     /// 变化）只能触发重绘，绝不滚动复位。

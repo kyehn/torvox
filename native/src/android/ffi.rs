@@ -189,7 +189,7 @@ struct RenderState {
     kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
     kitty_instances: Vec<crate::render::KittyGraphicsInstance>,
     kitty_uploaded_generation: u64,
-    /// 内容脏标志（见 docs/specification/REFERENCE.md）：由改动延迟渲染输入的 JNI 入口
+    /// 内容脏标志：由改动延迟渲染输入的 JNI 入口
     /// （`setSearchHighlights`/`clearSearchHighlights`、`setFontSizeInPlace`）置位，
     /// 渲染线程在 `render_inner` 中用一次 `getAndSet(false)` 交换消费。与每会话的
     /// `new_output` 标志（PTY 摄入）独立：高亮/字号变化必须重绘但绝不复位视口。
