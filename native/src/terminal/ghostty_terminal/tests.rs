@@ -2186,27 +2186,6 @@ fn select_word_at_derives_installs_and_returns_bounds() {
     terminal_under_test.flush();
 }
 
-/// 上游行选接入：select_line_at 取整行界限、安装并回传；返回界限提取
-/// 整行文本。
-#[test]
-fn select_line_at_returns_whole_line_bounds() {
-    let mut terminal_under_test = terminal();
-    terminal_under_test.vt_write(b"hello world");
-    terminal_under_test.flush();
-    let snap = terminal_under_test.take_snapshot();
-    let row0 = snap.scrollback_length;
-    let ((start_row, start_col), (end_row, end_col)) = terminal_under_test
-        .select_line_at(row0, 4)
-        .expect("line bounds");
-    assert_eq!((start_row, start_col), (row0, 0), "line starts at col 0");
-    assert_eq!(end_row, row0, "single unwrapped line stays on its row");
-    assert_eq!(
-        terminal_under_test.selection_text((start_row, start_col), (end_row, end_col)),
-        "hello world",
-        "returned bounds must extract the whole line"
-    );
-}
-
 /// 上游全选接入（design 决策 2 钉住）：两行内容之后，select_all 界限落在
 /// 最后一行的最后内容列，不含尾部空行与空列。
 #[test]

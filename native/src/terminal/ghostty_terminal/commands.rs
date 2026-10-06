@@ -88,12 +88,6 @@ pub enum Query {
         col: u32,
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
-    /// 用上游 `Terminal::select_line` 导出整行选区并安装，返回有序边界。
-    SelectLineAt {
-        row: u32,
-        col: u32,
-        tx: Sender<Option<((u32, u32), (u32, u32))>>,
-    },
     /// 用上游 `Terminal::select_all` 导出全部可选内容并安装，返回有序边界
     /// （上游语义：边界不含尾部空白行列）。
     SelectAll {

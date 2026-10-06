@@ -6,7 +6,7 @@ use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
 use libghostty_vt::screen::GridRef;
-use libghostty_vt::selection::{Order, SelectLineOptions, SelectWordOptions, Selection};
+use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
 use libghostty_vt::style::PaletteIndex;
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate, PointSpace};
 
@@ -272,11 +272,6 @@ impl super::GhosttyTerminal {
                 let bounds = Self::select_word_at_impl(terminal, row, col);
                 selection_installed = bounds.is_some();
                 try_send(&tx, bounds, "select word response send failed");
-            }
-            Query::SelectLineAt { row, col, tx } => {
-                let bounds = Self::select_line_at_impl(terminal, row, col);
-                selection_installed = bounds.is_some();
-                try_send(&tx, bounds, "select line response send failed");
             }
             Query::SelectAll { tx } => {
                 let bounds = Self::select_all_impl(terminal);
@@ -2142,20 +2137,6 @@ impl super::GhosttyTerminal {
         let grid_ref = Self::grid_ref_at(terminal, row, col)?;
         let selection = terminal
             .select_word(SelectWordOptions::new(grid_ref))
-            .ok()??;
-        Self::installed_bounds(terminal, selection)
-    }
-
-    /// 上游行选语义（`Terminal::select_line`，默认不按语义提示截断）：
-    /// 派生该格所在行的选区、安装并回传有序绝对界限。
-    pub(crate) fn select_line_at_impl(
-        terminal: &Terminal,
-        row: u32,
-        col: u32,
-    ) -> Option<((u32, u32), (u32, u32))> {
-        let grid_ref = Self::grid_ref_at(terminal, row, col)?;
-        let selection = terminal
-            .select_line(SelectLineOptions::new(grid_ref))
             .ok()??;
         Self::installed_bounds(terminal, selection)
     }

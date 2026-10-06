@@ -2465,21 +2465,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'
     })
 }
 
-/// 上游 select_line：落点所在整行派生并安装（语义提示边界关），回传与
-/// 失败语义同 selectWordAt。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectLineAt<'local>(
-    unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    row: jint,
-    col: jint,
-) -> jintArray {
-    select_bounds_export(unowned_env, session_id, row, col, |terminal, row, col| {
-        terminal.select_line_at(row, col)
-    })
-}
-
 /// 该行中作为宽字符后半格（`SpacerTail`）的列号，升序。
 ///
 /// 会话不存在或查询失败时返回空数组（等价于无吸附）：保持原列，不猜。会话锁与
