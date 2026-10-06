@@ -71,7 +71,24 @@ class TerminalLogcatRule : TestRule {
          */
         const val DUMP_LINES = 4000
 
+        /**
+         * 过滤用的标签清单。必须写 **logcat 里的实际标签**：`-v brief` 的格式是
+         * `级别/标签 ( PID): 消息`，而 `native::android::ffi` 这类模块标签全小写，
+         * 按大写 `FFI` 匹配只能命中消息前缀恰为 `FFI: ` 的那几行——于是
+         * `render: frame failed: …`（屏幕无墨迹的唯一锚点）与
+         * `surface invalidated after …`（surface 判死的唯一锚点）被整段过滤掉，
+         * 失败报告里只剩滚动与帧计数噪声。
+         */
         val WATCHED_TAGS =
-            listOf("Runtime", "Runtime.D", "ghostty", "FFI", "TerminalSurface", "SessionBridgeCloser")
+            listOf(
+                "Runtime",
+                "TerminalSurface",
+                "TerminalViewModel",
+                "ClipboardAccess",
+                "SessionBridgeCloser",
+                "native::android::ffi",
+                "native::render::context",
+                "native::terminal::ghostty_terminal",
+            )
     }
 }
