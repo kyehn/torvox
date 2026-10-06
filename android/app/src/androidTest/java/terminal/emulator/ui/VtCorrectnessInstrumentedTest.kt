@@ -128,28 +128,6 @@ class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
     }
 
     @Test
-    fun bellEventIsReportedViaVtFeed() {
-        withSession { sessionId ->
-            // 对标 sylirre EmulatorVtTest.bellEventIsReported：BEL 直写 VT
-            // 解析器（不经 shell），振铃事件必须经事件通道上报。
-            // 事件泵仅服务活跃会话：先切活跃再送显（ShellPty 同口径）。
-            NativeBridge.switchSession(sessionId)
-            feedText(sessionId, "\u0007")
-            val seen =
-                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                    // 事件通道单次消费：一次 poll 即解码，重复 poll 会丢事件。
-                    val json = runCatchingCancellable { NativeBridge.pollEvent() }.getOrNull()
-                    val event =
-                        json?.let {
-                            runCatchingCancellable { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
-                        }
-                    event is PollEvent.Bell && event.sessionId == sessionId
-                }
-            assertNotNull("BEL 振铃事件必须上报: $sessionId", seen)
-        }
-    }
-
-    @Test
     fun wideCharacterOccupiesTwoCells() {
         withSession { sessionId ->
             // 对标 sylirre EmulatorVtTest.wideCharacterOccupiesTwoCells +

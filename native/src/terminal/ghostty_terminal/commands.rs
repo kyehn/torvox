@@ -163,8 +163,6 @@ pub(crate) struct RunConfig {
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,
     /// 上游 BEL 回调事件通道（VT 线程推送，调用方轮询）：每次振铃一个空消息。
-    /// 有界丢弃——VT 线程永不阻塞；单帧多响在会话锁存处合并为一。
-    pub(crate) bell_tx: flume::Sender<()>,
     /// 当前单元格像素几何（XTWINOPS 14/16t 应答用）：Resize 回填默认值，
     /// SetCellPixelSize 回填真实字形度量；回调经此共享，无锁读取。
     pub(crate) cell_size_px: Arc<(AtomicU32, AtomicU32)>,
