@@ -336,7 +336,7 @@ fun TerminalScreen(
             // 抽屉打开时的返回键关闭抽屉，绝不能清除选区）。
             BackHandler(enabled = selectionActive && !drawerState.isOpen) {
                 viewModel.clearSelection()
-                surfaceRef.value?.hideSelectionMenu()
+                surfaceRef.value?.hideSelectionMenu("backHandler")
             }
 
             // 合并的文本搜索状态
@@ -718,17 +718,17 @@ fun TerminalScreen(
                                 // 静默返回；key 不含它则 effect 不重启，菜单就此永久缺席。
                                 LaunchedEffect(selection.pasteOnly, selection.menuDismissed, menuSurface) {
                                     if (selection.menuDismissed) {
-                                        menuSurface.hideSelectionMenu()
+                                        menuSurface.hideSelectionMenu("selectionFlowDismissed")
                                     } else {
                                         menuSurface.showSelectionMenu(selection.pasteOnly)
                                     }
                                 }
                             } else {
-                                LaunchedEffect(Unit) { menuSurface.hideSelectionMenu() }
+                                LaunchedEffect(Unit) { menuSurface.hideSelectionMenu("noMenuSurface") }
                             }
                         } else {
                             LaunchedEffect(selectionActive) {
-                                menuSurface?.hideSelectionMenu()
+                                menuSurface?.hideSelectionMenu("selectionInactive")
                             }
                         }
 
