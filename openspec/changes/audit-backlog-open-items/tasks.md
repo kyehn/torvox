@@ -1825,6 +1825,11 @@ LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {   // ← key 里�
 **全新 GitHub runner** 上的 `build` run 作更强对照——它同时具备全新模拟器与
 全新依赖缓存。
 
+对照结果：run（head `28a30304`，含 §34 的修复与回归用例）
+`connected-failures: 0 failed in 1 report files`，release 正常发布。
+**同一份代码在全新 runner 上零失败、在连跑多小时的本地模拟器上 7 例红**，
+即 §34.3 的 7 例属环境退化，本轮修复无回归。
+
 ### 34.4 与 §31 的关系
 
 §31 两条（`partialSelectShowsSelectionMenu`、`behavior_modifier_bar_visible`）
