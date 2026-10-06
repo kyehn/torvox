@@ -1498,24 +1498,19 @@ fn build_cursor(
 /// 在掩码中把叠加行（搜索高亮）标脏。此类逐行视觉叠加的增删会改变像素而不触及单元内容。
 /// 选区无需叠加处理：VT 线程把跟踪选区的反显烘焙进 `CellData`，选区变化经正常的
 /// 脏路径作为新单元内容到达。
-fn mark_overlay_dirty_rows(dirty_mask: &mut [bool], rows_usize: usize, highlight_rows: &[i32]) {
-    // 搜索高亮行，当前与上次绘制的都要算：高亮是逐行叠加，增删移动会改变像素而
-    // 不改变单元内容。
-    for highlight_row in highlight_rows {
-        if *highlight_row >= 0 && (*highlight_row as usize) < rows_usize {
-            dirty_mask[*highlight_row as usize] = true;
+///
+/// 搜索高亮行，当前与上次绘制的都要算：高亮是逐行叠加，增删移动会改变像素而
+/// 不改变单元内容。直接遍历两段切片，不为每帧的这次调用分配中间 `Vec<i32>`。
+fn mark_overlay_dirty_rows<'a>(
+    dirty_mask: &mut [bool],
+    rows_usize: usize,
+    highlights: impl Iterator<Item = &'a crate::render::cell_builder::SearchHighlight>,
+) {
+    for highlight_row in highlights.map(|highlight| highlight.row) {
+        if highlight_row >= 0 && (highlight_row as usize) < rows_usize {
+            dirty_mask[highlight_row as usize] = true;
         }
     }
-}
-
-/// 从当前与上次绘制的高亮中收集高亮行号。
-fn collect_highlight_rows(render_state: &RenderState) -> Vec<i32> {
-    render_state
-        .search_highlights
-        .iter()
-        .chain(render_state.last_drawn_search_highlights.iter())
-        .map(|hl| hl.row)
-        .collect()
 }
 
 fn render_inner(session_id: u64) -> jint {
@@ -1782,7 +1777,6 @@ fn render_inner(session_id: u64) -> jint {
                     }
                 },
             );
-            let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
             dirty_mask.resize(rows_usize, false);
@@ -1812,15 +1806,20 @@ fn render_inner(session_id: u64) -> jint {
             {
                 dirty_mask[prev_row as usize] = true;
             }
-            mark_overlay_dirty_rows(dirty_mask, rows_usize, &highlight_rows);
+            mark_overlay_dirty_rows(
+                dirty_mask,
+                rows_usize,
+                render_state
+                    .search_highlights
+                    .iter()
+                    .chain(render_state.last_drawn_search_highlights.iter()),
+            );
             let result = render_state.renderer.render_cell_data(
                 &cells,
                 rows,
                 cols,
                 cursor,
                 &mut render_state.font_pipeline,
-                ATLAS_SIZE as f32,
-                ATLAS_SIZE as f32,
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
                 &render_state.kitty_instances,
@@ -1865,7 +1864,6 @@ fn render_inner(session_id: u64) -> jint {
                 return 0;
             }
             let rows_usize = cached_rows as usize;
-            let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
             dirty_mask.resize(rows_usize, false);
@@ -1873,7 +1871,14 @@ fn render_inner(session_id: u64) -> jint {
             if (cursor.row as usize) < rows_usize {
                 dirty_mask[cursor.row as usize] = true;
             }
-            mark_overlay_dirty_rows(dirty_mask, rows_usize, &highlight_rows);
+            mark_overlay_dirty_rows(
+                dirty_mask,
+                rows_usize,
+                render_state
+                    .search_highlights
+                    .iter()
+                    .chain(render_state.last_drawn_search_highlights.iter()),
+            );
             // Idle Kitty 同步：字体/缩放变化不经过 VT（无 New 帧），缓存实例
             // 会按旧单元格尺寸错位。纯本地经布局重建（无 RPC，图集未变不重传）。
             if !render_state.kitty_frames.is_empty() {
@@ -1913,8 +1918,6 @@ fn render_inner(session_id: u64) -> jint {
                 cached_cols,
                 cursor,
                 &mut render_state.font_pipeline,
-                ATLAS_SIZE as f32,
-                ATLAS_SIZE as f32,
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
                 &render_state.kitty_instances,
@@ -2193,8 +2196,8 @@ fn list_sessions_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) ->
 /// 字体管线默认的图集单元尺寸（像素）。
 const DEFAULT_FONT_CELL_SIZE: f32 = 14.0;
 
-/// 管线初始化、render_cell_data 与字体管线共用的图集尺寸，集中一处：改动需三处
-/// 调用点一致，否则字形 UV 会错位。
+/// 字形管线初始化用的图集尺寸。UV 归一化的尺寸由管线自身持有并对外提供，
+/// 渲染侧不再并传第二份，故此处是唯一声明点。
 ///
 /// 取 2048²（原为 1024²）：真机约 3x 显示密度下 14sp 字形光栅化后约 40px，
 /// 原图集只能容纳约 700 个字形——几百个不同字符的滚动日志屏会持续冲刷 LRU，

@@ -713,16 +713,7 @@ impl Renderer {
             height,
             depth_or_array_layers: 1,
         };
-        let tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("kgp_atlas"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let tex = create_rgba_texture(device, "kgp_atlas", size);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &tex,
@@ -743,6 +734,20 @@ impl Renderer {
         self.kgp_atlas_height = height;
         self.kgp_bind_group = None;
     }
+}
+
+/// 单层 RGBA8 采样纹理：字形图集与 KGP 图集共用同一采样约定。
+fn create_rgba_texture(device: &wgpu::Device, label: &str, size: wgpu::Extent3d) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
 }
 
 /// 为给定视口尺寸创建正交投影矩阵。
@@ -777,20 +782,15 @@ impl Renderer {
         // 注意：图集尺寸必须钳制到 adapter 的 `max_texture_dimension_2d` 上限
         // （部分 GPU 只报 2048）。当前调用方固定传 1024x1024，安全；
         // 若日后调大，须在此处钳制。
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Atlas Texture"),
-            size: wgpu::Extent3d {
+        let texture = create_rgba_texture(
+            &self.device,
+            "Atlas Texture",
+            wgpu::Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         // 文本图集按 1:1 采样（字形光栅像素 = 屏幕像素，`raster_scale = 密度 * fontScale`）。
