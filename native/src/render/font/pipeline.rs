@@ -757,7 +757,7 @@ impl FontPipeline {
             }
         }
 
-        // ── Fallback to primary font ────────────────────────────────────────
+        // ── 回退到主字体 ────────────────────────────────────────────────────
         let result =
             self.glyph_information_from_font_with_synthesis(primary_font_id, glyph_id, synthesis)?;
         if !synthesized && code_point >= CJK_IDEOGRAPHIC_START {

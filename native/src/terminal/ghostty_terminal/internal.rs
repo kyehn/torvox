@@ -15,14 +15,14 @@ use super::keymap::map_android_key_code;
 use super::types::*;
 use flume::Sender;
 
-/// Send a value over a channel, logging on failure.
+/// 经通道发送值，失败时记日志。
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
     if let Err(e) = sender.send(value) {
         log::error!("ghostty_terminal: {context}: channel send failed: {e}");
     }
 }
 
-// ── Free functions ──────────────────────────────────────────────
+// ── 自由函数 ────────────────────────────────────────────────────
 
 /// OSC 8 超链接内联缓冲（4KiB）：常见 URI 一次取回，超长按需增长。
 const HYPERLINK_INLINE_BUFFER_SIZE: usize = 4096;
@@ -32,9 +32,9 @@ const MAX_HYPERLINK_URI_BYTES: usize = 64 * 1024;
 /// 拖垮进程内存（负载经 `String` 事件 → 事件队列 → Kotlin 剪贴板逐层复制）。
 const MAX_CLIPBOARD_PAYLOAD_BYTES: usize = 1024 * 1024;
 
-/// The 16 standard ANSI palette indices, in xterm order (normal colors
-/// followed by bright variants). `libghostty_vt::Palette` only exposes named
-/// `PaletteIndex` constants, so map theme colors onto them explicitly.
+/// 16 个标准 ANSI 调色板索引，按 xterm 顺序（常规色在前，亮色在后）。
+/// `libghostty_vt::Palette` 只暴露具名的 `PaletteIndex` 常量，
+/// 故须显式把主题色映射到这些索引上。
 const ANSI_PALETTE_INDICES: [PaletteIndex; 16] = [
     PaletteIndex::BLACK,
     PaletteIndex::RED,
@@ -89,8 +89,8 @@ fn mark_grid_dirty(grid_dirty: &mut bool, cached_all_text: &mut Option<String>) 
     *cached_all_text = None;
 }
 
-/// Helper to create the three per-frame render iterators.
-/// Returns `None` and logs on any creation failure.
+/// 创建三个逐帧渲染迭代器的辅助函数。
+/// 任一创建失败即记日志并返回 `None`。
 fn create_render_iterators() -> Option<(
     RenderState<'static>,
     RowIterator<'static>,
@@ -132,7 +132,7 @@ pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool 
     grid_dirty || !has_cache
 }
 
-// ── impl GhosttyTerminal ──────────────────────────────────────
+// ── GhosttyTerminal 的 impl 块 ────────────────────────────────
 impl super::GhosttyTerminal {
     /// 处理单条查询。上游 `select_*` 查询会在查询路径内安装选区；成功安装时返回
     /// true，由 run 循环按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
@@ -232,7 +232,7 @@ impl super::GhosttyTerminal {
                 let scrollback_rows = scrollback_len(terminal);
                 let mut text = String::new();
                 for row in 0..rows {
-                    // read_line_text_impl expects an absolute row (history + viewport).
+                    // read_line_text_impl 要求绝对行号（回滚 + 视口）。
                     if let Some(line) = Self::read_line_text_impl(terminal, scrollback_rows + row) {
                         text.push_str(&line);
                         text.push('\n');
@@ -260,11 +260,10 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SelectionText { start, end, tx } => {
-                // Ghostty-native wrap-aware selection extraction (termux
-                // TerminalBuffer.getSelectedText semantics): unwrap joins
-                // soft-wrapped lines without '\n', trim drops trailing
-                // whitespace, and the formatter maps grid columns to char
-                // indices internally so CJK wide glyphs are never split.
+                // Ghostty 原生的换行感知选区文本提取（termux
+                // TerminalBuffer.getSelectedText 语义）：unwrap 拼接软换行行且
+                // 不带 '\n'，trim 去掉尾部空白，格式化器内部把网格列映射为
+                // 字符下标，故 CJK 宽字符不会被拆开。
                 let text = Self::selection_text_impl(terminal, start, end);
                 try_send(&tx, text, "selection text response send failed");
             }
@@ -358,18 +357,17 @@ impl super::GhosttyTerminal {
                 event.set_action(encoder_action);
                 event.set_key(ghostty_key);
                 event.set_consumed_mods(Mods::empty());
-                // Clear text state left over from the previous keystroke.
+                // 清除上一次按键残留的文本状态。
                 event.set_utf8(None::<&str>);
                 event.set_unshifted_codepoint('\0');
 
-                // Per libghostty-vt key/event.h:
-                // - `utf8` is the produced text WITHOUT Ctrl/Alt
-                //   transformations. C0 control characters
-                //   (U+0000..U+001F, U+007F) must NOT be passed; pass NULL
-                //   so the encoder uses the logical key instead.
-                // - `unshifted_codepoint` is the base key with NO modifiers.
-                // The Kotlin bridge supplies `unshifted_char`; when absent we
-                // fall back to `unicode_char` for both fields.
+                // 参见 libghostty-vt key/event.h：
+                // - `utf8` 是未经 Ctrl/Alt 变换的产出文本。C0 控制字符
+                //   （U+0000..U+001F、U+007F）不得传入；须传 NULL，
+                //   让编码器改用逻辑键。
+                // - `unshifted_codepoint` 是无修饰键时的基础键。
+                // Kotlin 桥提供 `unshifted_char`；缺失时两个字段都退回
+                // `unicode_char`。
                 let is_c0 = unicode_char <= 0x1F || unicode_char == 0x7F;
                 if !is_c0 {
                     if let Some(character) = char::from_u32(unicode_char) {
@@ -384,11 +382,10 @@ impl super::GhosttyTerminal {
                     if let Some(cp) = unshifted_cp {
                         event.set_unshifted_codepoint(cp);
                     }
-                    // RK2: when SHIFT only changed the printed character
-                    // (e.g. Shift+; ->:), strip SHIFT so the Kitty
-                    // keyboard protocol does not emit a spurious
-                    // `\033[59;2u` for plain printable input. Requires the
-                    // unshifted codepoint to detect the shift-only change.
+                    // RK2：SHIFT 仅改变了打印字符时（如 Shift+; ->:），去掉 SHIFT，
+                    // 免得 Kitty 键盘协议为普通可打印输入多发一个
+                    // `\033[59;2u`。识别这种「仅差 Shift」的情形
+                    // 需要 unshifted 码点。
                     let final_mods = if mods.contains(Mods::SHIFT)
                         && unshifted_char > 0
                         && unicode_char != unshifted_char
@@ -417,13 +414,11 @@ impl super::GhosttyTerminal {
                 cell_height,
                 tx,
             } => {
-                // Reference: zelland src-tauri/src/terminal.rs
-                // `encode_mouse_event` — uses the Ghostty mouse encoder
-                // with the renderer's live cell size, and drops the
-                // event when mouse reporting is off. The encoder takes
-                // options from the terminal (tracking mode + format) so
-                // SGR/X10/UTF-8 output follows the application's
-                // DECSET selection.
+                // 参考：zelland src-tauri/src/terminal.rs 的
+                // `encode_mouse_event`——用 Ghostty 鼠标编码器配合渲染器的
+                // 实时单元格尺寸，并在鼠标上报关闭时丢弃事件。编码器的选项
+                // 取自终端（跟踪模式 + 格式），故 SGR/X10/UTF-8 输出遵循应用
+                // 的 DECSET 选择。
                 let (mouse_encoder, mouse_event) = match (
                     mouse_encoder.as_mut(),
                     mouse_event.as_mut(),
@@ -512,12 +507,12 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn run(config: RunConfig) {
-        // Wrap the entire body in `catch_unwind` so that any unexpected FFI
-        // panic (e.g. from Ghostty's C code) is logged instead of silently
-        // killing the thread. `AssertUnwindSafe` is safe here because:
-        // - Terminal is `!UnwindSafe` due to internal C pointers, but its
-        //   Drop implementation will call `ghostty_terminal_free` on unwind.
-        // - We always exit the thread after a panic, so no double-use occurs.
+        // 把整个函数体包进 `catch_unwind`，任何意外的 FFI panic
+        // （例如来自 Ghostty 的 C 代码）只记日志，不会静默杀掉线程。
+        // 此处用 `AssertUnwindSafe` 是安全的，因为：
+        // - Terminal 因内部 C 指针而是 `!UnwindSafe`，但其 Drop
+        //   实现会在 unwind 时调用 `ghostty_terminal_free`。
+        // - panic 后线程总是退出，不存在二次使用。
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Self::run_inner(config)));
         if let Err(panic) = result {
@@ -525,16 +520,15 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// The inner run loop (separated so `catch_unwind` can call it).
+    /// 内层 run 循环（拆出来供 `catch_unwind` 调用）。
     fn run_inner(config: RunConfig) {
         let Ok(mut terminal) = Terminal::new(config.cols as u16, config.rows as u16) else {
             log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
             return;
         };
-        // Upstream (git master) no longer takes options in `Terminal::new`;
-        // scrollback is configured with the `set_scrollback_max_lines` setter.
-        // A non-zero value enables scrollback (scrollback_rows query returned
-        // 0 when scrollback was disabled).
+        // 上游（git master）的 `Terminal::new` 已不再接收 options，
+        // 回滚改用 `set_scrollback_max_lines` setter 配置。
+        // 非零值即启用回滚（回滚关闭时 scrollback_rows 查询返回 0）。
         // 字节预算必须同步解除：上游默认字节上限先于行数触发，回滚
         // （DEFAULT_SCROLLBACK_LINES 行）会被拦腰截断到几百行。行数是唯一约束。
         if let Err(error) = terminal.set_scrollback_max_bytes(None) {
@@ -546,7 +540,7 @@ impl super::GhosttyTerminal {
             log::error!("ghostty_terminal: set_scrollback_max_lines failed: {error}");
         }
 
-        // Initialize Kitty Graphics Protocol (KGP) support
+        // 初始化 Kitty Graphics Protocol（KGP）支持
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
             log::error!("ghostty_terminal: set_kitty_image_storage_limit failed: {error}");
         }
@@ -558,8 +552,8 @@ impl super::GhosttyTerminal {
             log::error!("ghostty_terminal: set_png_decoder failed: {error}");
         }
 
-        // Register PTY write-back callback for terminal responses
-        // (DECRPM mode reports, DSR, DA, etc.)
+        // 注册终端应答的 PTY 回写回调
+        // （DECRPM 模式报告、DSR、DA 等）
         if let Err(error) = terminal.on_pty_write({
             let response_buffer = config.response_buffer.clone();
             move |_terminal, data| {
@@ -658,10 +652,9 @@ impl super::GhosttyTerminal {
         let mut default_background = Self::byte_color_to_float(config.background_color);
         let mut default_foreground = Self::byte_color_to_float(config.foreground_color);
 
-        // Reused per-keystroke encoder/event. Allocating these once per
-        // terminal (instead of per keystroke) matches the reference
-        // implementation and avoids losing per-encoder state between keys.
-        // `set_options_from_terminal` still re-syncs encoder modes each key.
+        // 逐次按键复用的 encoder/event。每个终端只分配一次（而非每次按键），
+        // 既贴合参考实现，也避免按键之间丢失 encoder 状态。
+        // `set_options_from_terminal` 每次按键仍会重新同步 encoder 模式。
         let mut encoder = match key::Encoder::new() {
             Ok(enc) => Some(enc),
             Err(error) => {
@@ -681,9 +674,9 @@ impl super::GhosttyTerminal {
             }
         };
 
-        // Reused per-mouse-event encoder/event, same lifetime pattern as the
-        // key encoder above. `set_options_from_terminal` re-syncs tracking
-        // mode and output format before each event (zelland pattern).
+        // 逐次鼠标事件复用的 encoder/event，生命周期与上面的按键 encoder
+        // 相同。`set_options_from_terminal` 在每个事件前重新同步跟踪模式
+        // 与输出格式（zelland 做法）。
         let mut mouse_encoder = match mouse::Encoder::new() {
             Ok(enc) => Some(enc),
             Err(error) => {
@@ -703,11 +696,9 @@ impl super::GhosttyTerminal {
             }
         };
 
-        // Initial theme: libghostty-vt does not process OSC 10/11
-        // default-color escapes (the embedder owns the defaults; OSC 4
-        // palette overrides are processed upstream), so use
-        // the native setters. Without this the terminal keeps the built-in
-        // xterm palette and the theme colors never reach the grid.
+        // 初始主题：libghostty-vt 不处理 OSC 10/11 默认色转义（默认值归内嵌方所有，
+        // OSC 4 调色板覆盖由上游处理），故走原生 setter。否则终端会保留内置的
+        // xterm 调色板，主题颜色永远进不到网格里。
         Self::apply_theme(
             &mut terminal,
             config.background_color,
@@ -715,34 +706,29 @@ impl super::GhosttyTerminal {
             &config.ansi_colors,
         );
 
-        // Clone (flume receivers are Arc-handles): keeps `config`
-        // borrowable for the command loop below without partial moves.
+        // 克隆（flume receiver 是 Arc 句柄）：使下面的命令循环仍能借用
+        // `config`，无需部分移动。
         let query_receiver = config.query_receiver.clone();
 
-        // Cache the last built grid snapshot so we skip the expensive
-        // per-cell ghostty FFI rebuild when neither the grid content nor the
-        // scroll offset changed since the previous frame. The VT thread is
-        // single-threaded and processes commands sequentially, so there is no
-        // race between marking `grid_dirty` and rebuilding.
+        // 缓存上次构建的网格快照：当网格内容与滚动偏移自上一帧以来都没变时，
+        // 跳过昂贵的逐格 ghostty FFI 重建。VT 线程单线程且顺序处理命令，
+        // 标记 `grid_dirty` 与重建之间不存在竞争。
         let mut cached_snapshot: Option<Arc<GridSnapshot>> = None;
-        // ── Auto-push CellData ──
-        // Use a separate dirty flag to avoid coupling with the
-        // legacy GridSnapshot grid_dirty tracker. Both flags are
-        // set together on Write/Resize/SetTheme, but cleared
-        // grid_dirty after TakeSnapshot.
+        // ── 自动推送 CellData ──
+        // 用独立的脏标志，避免与旧的 GridSnapshot grid_dirty 追踪耦合。
+        // 两个标志在 Write/Resize/SetTheme 时一起置位，但 grid_dirty 会在
+        // TakeSnapshot 之后清除。
         let mut grid_dirty = true;
         // 全量文本（`Query::ReadAllText`）缓存。网格一变即失效，与 `grid_dirty` 同源：
         // 逐格走 ghostty FFI 的重建在回滚填满时单趟就会越过 QUERY_TIMEOUT_MS，
         // 未缓存时每次轮询都重建，查询方反复读到超时后的空值。
         let mut cached_all_text: Option<String> = None;
-        // Content dedup for the auto-push path: `push_cell_data` builds the
-        // full grid on every loop iteration (including the 50ms idle
-        // timeout), and the render thread treats every received batch as
-        // `is_new_data` → a full repaint per frame. On an idle terminal
-        // that kept the renderer busy at full rate (measured ~5 fps on the
-        // SwiftShader emulator, burned CPU on real GPUs too: "20fps is
-        // unacceptable"). Skip the send entirely when neither the cells nor
-        // the cursor changed since the previous push.
+        // 自动推送路径的内容去重：`push_cell_data` 每轮循环（包括 50ms 空闲
+        // 超时）都会构建整个网格，而渲染线程把收到的每批都当作
+        // `is_new_data` → 每帧全量重绘。空闲终端会让渲染器满速空转
+        // （SwiftShader 模拟器上实测 ~5 fps，真实 GPU 上也烧 CPU：
+        // 「20fps 不可接受」）。当单元与光标自上次推送以来都没变时，
+        // 直接跳过发送。
         let mut last_cell_data_push: Option<(Vec<CellData>, CursorInfo)> = None;
         // CellData 重建的开关：仅命令/查询导致状态变化后才重建。空闲 50ms tick
         // 不再全幅重建（2400+ 次 Ghostty FFI 调用），重复重建s只靠 last_push 去重
@@ -750,17 +736,16 @@ impl super::GhosttyTerminal {
         let mut cell_data_dirty = true;
 
         'vt_loop: loop {
-            // Wait for the next command from the bounded channel. Use a
-            // timeout so we periodically check the query channel even when
-            // no commands are pending (e.g., queries sent between writes).
+            // 等待有界通道里的下一条命令。用超时，以便在没有命令待处理时
+            // （例如两次写入之间的查询）也周期性检查查询通道。
             let mut pending = match config
                 .command_receiver
                 .recv_timeout(std::time::Duration::from_millis(50))
             {
                 Ok(command) => Some(command),
                 Err(flume::RecvTimeoutError::Timeout) => {
-                    // No bounded commands pending — drain query channel so
-                    // queries sent between commands don't wait indefinitely.
+                    // 没有待处理的有界命令——排空查询通道，让命令之间的查询
+                    // 不必无限期等待。
                     if Self::drain_queries(
                         &query_receiver,
                         &mut terminal,
@@ -777,7 +762,7 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         cell_data_dirty = true;
                     }
-                    // ── Auto-push CellData (only after a real state change) ──
+                    // ── 自动推送 CellData（仅在真实状态变化后）──
                     if cell_data_dirty {
                         Self::refresh_cell_data(
                             &config,
@@ -792,19 +777,15 @@ impl super::GhosttyTerminal {
                 }
                 Err(flume::RecvTimeoutError::Disconnected) => break,
             };
-            // Process the ENTIRE command backlog with ONE cell-data build at
-            // the end. poll_pty_output feeds up to MAX_CHUNKS_PER_FRAME Write
-            // commands per render frame; rebuilding the full grid after every
-            // single Write (~2444 Ghostty FFI calls per walk) throttled
-            // sustained-output rendering to ~6 fps on SwiftShader because
-            // N−1 of the N builds were overwritten before the renderer ever
-            // saw them. Intermediate states are intentionally coalesced —
-            // the renderer only ever consumes the newest state.
+            // 整批命令处理完只做一次 cell-data 构建。poll_pty_output 每个渲染帧
+            // 最多喂入 MAX_CHUNKS_PER_FRAME 条 Write 命令；若每条 Write 之后
+            // 都重建整个网格（每次遍历 ~2444 次 Ghostty FFI 调用），SwiftShader
+            // 上持续输出的渲染会被压到 ~6 fps——N 次构建里有 N−1 次在渲染线程
+            // 看到之前就被覆盖了。中间状态有意合并——渲染线程只会消费最新状态。
             //
-            // `grid_dirty` is still raised INLINE by each mutating command
-            // (not deferred to the end of the batch): a TakeSnapshot arriving
-            // in the same batch must observe the writes that preceded it in
-            // FIFO order and rebuild rather than serve a stale cache.
+            // `grid_dirty` 仍由每条改动型命令就地置位（而非推迟到批尾）：
+            // 同批到达的 TakeSnapshot 必须能观察到 FIFO 序上排在它之前的写入，
+            // 并重建而不是提供陈旧缓存。
             let mut batch_dirty = false;
             let mut batch_acks: Vec<flume::Sender<()>> = Vec::new();
             while let Some(command) = pending.take() {
@@ -815,12 +796,10 @@ impl super::GhosttyTerminal {
                         batch_dirty = true;
                     }
                     Command::FlushAck(tx) => {
-                        // Held until the end-of-batch build completes: the
-                        // `flush()` contract is that when it returns, every
-                        // command before it — INCLUDING the CellData push —
-                        // has been processed. Tests call flush() and then
-                        // receive_cell_data(); an early ack would race the
-                        // build and hand them an empty channel.
+                        // 扣到批尾构建完成才释放：`flush()` 的契约是返回时其前的每条命令
+                        // ——包括 CellData 推送——都已处理完。测试会调用 flush()
+                        // 再 receive_cell_data()；提前 ack 会与构建竞争，
+                        // 把空通道交给它们。
                         batch_acks.push(tx);
                     }
                     Command::SetTheme {
@@ -837,21 +816,17 @@ impl super::GhosttyTerminal {
                             default_background,
                             default_foreground
                         );
-                        // Use the native theme API instead of hand-written
-                        // OSC 10/11 sequences: libghostty-vt does not process
-                        // OSC default-color escapes (the embedder owns the
-                        // defaults; OSC 4 overrides are processed upstream), so the OSC approach silently
-                        // kept the built-in xterm palette. These setters store
-                        // the default colors that upstream cell color queries
-                        // resolve against.
+                        // 用原生主题 API，而不是手写 OSC 10/11 序列：libghostty-vt 不处理
+                        // OSC 默认色转义（默认值归内嵌方所有，OSC 4 覆盖由上游
+                        // 处理），所以 OSC 方案会静默保留内置的 xterm 调色板。
+                        // 这些 setter 写入的默认色正是上游单元颜色查询的解析基准。
                         Self::apply_theme(&mut terminal, background, foreground, &ansi);
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
                     }
                     Command::Resize { rows, cols } => {
-                        // Ghostty's C API takes u16 dimensions; reject out-of-
-                        // range values instead of silently truncating (a
-                        // hostile Kotlin caller could pass >65535 and wrap).
+                        // Ghostty 的 C API 取 u16 尺寸；越界值直接拒绝而非静默截断
+                        // （恶意 Kotlin 调用方可能传入 >65535 而回绕）。
                         let (Ok(cols), Ok(rows)) = (u16::try_from(cols), u16::try_from(rows))
                         else {
                             log::error!(
@@ -897,9 +872,8 @@ impl super::GhosttyTerminal {
                         }
                     }
                     Command::ScrollViewport(delta) => {
-                        // C ABI returns void; viewport failures surface as a
-                        // no-op (grid unchanged) and the retry logic in
-                        // setScrollOffset re-sends on the next offset change.
+                        // C ABI 返回 void；视口滚动失败只表现为无操作（网格不变），
+                        // setScrollOffset 里的重试逻辑会在下次偏移变化时重发。
                         terminal
                             .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
                         // 显式滚动强制重推：视口内容可能逐字节相同（如已在底部），
@@ -968,8 +942,7 @@ impl super::GhosttyTerminal {
                 }
                 pending = config.command_receiver.try_recv().ok();
             }
-            // After processing the batch, drain any pending queries so they
-            // see the fully-updated terminal state.
+            // 整批处理完后排空待处理查询，让它们看到完全更新后的终端状态。
             if Self::drain_queries(
                 &query_receiver,
                 &mut terminal,
@@ -985,12 +958,10 @@ impl super::GhosttyTerminal {
                 grid_dirty = true;
                 batch_dirty = true;
             }
-            // ONE cell-data build for the whole batch — every state mutation
-            // above has completed, so this reflects the final backlog state.
-            // `grid_dirty` was raised inline by each mutating command and
-            // stays set until a TakeSnapshot consumes it (snapshot
-            // cache-invalidation semantics, unchanged from the per-command
-            // version).
+            // 整批只做一次 cell-data 构建——上面的每次状态改动都已完成，
+            // 故这里反映的是积压队列的最终状态。`grid_dirty` 由每条改动型
+            // 命令就地置位，并保持置位直到 TakeSnapshot 消费它为止
+            // （快照缓存失效语义，与逐命令版本相同）。
             if batch_dirty {
                 Self::refresh_cell_data(
                     &config,
@@ -1001,8 +972,8 @@ impl super::GhosttyTerminal {
                 );
                 cell_data_dirty = false;
             }
-            // Flushers are released only after the build above, preserving
-            // the original per-command ordering guarantee of `flush()`.
+            // flush 应答只在上面的构建之后释放，保持 `flush()` 原有的
+            // 逐命令顺序保证。
             for ack in batch_acks {
                 try_send(&ack, (), "command channel send failed");
             }
@@ -1111,8 +1082,8 @@ impl super::GhosttyTerminal {
         value as f32 / 255.0
     }
 
-    /// Push a blank (codepoint 0) cell into the row data. Used for cells
-    /// whose raw ghostty data or style cannot be resolved.
+    /// 向行数据推入空白（码点 0）单元。用于原始 ghostty 数据或样式
+    /// 无法解析的单元。
     fn push_blank_cell(
         row_data: &mut Vec<CellData>,
         default_foreground: [f32; 4],
@@ -1147,10 +1118,10 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Map a ghostty cursor visual style to the app-level cursor style.
-    /// Hollow block renders as solid block for now (shape subdivision later).
-    /// Unknown future upstream styles fall back to block: the cursor must
-    /// always paint something (DESIGN 极端崩溃不适用于每帧可见元素）。
+    /// 把 ghostty 光标可视样式映射为应用层光标样式。
+    /// 空心块暂时按实心块渲染（细分形状留待以后）。
+    /// 上游将来新增的未知样式回退为块：光标必须始终画出点什么
+    /// （DESIGN 的极端崩溃不适用于每帧可见元素）。
     fn cursor_style_from_snapshot(
         snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
     ) -> CursorStyle {
@@ -1162,8 +1133,8 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Resolve a cell color to `[r, g, b, 1.0]` floats, falling back to the
-    /// cell default when the FFI returns an error or transparent color.
+    /// 把单元颜色解析为 `[r, g, b, 1.0]` 浮点值；FFI 报错或颜色透明时
+    /// 回退到单元默认值。
     fn cell_color(
         color: Result<Option<libghostty_vt::style::RgbColor>, libghostty_vt::error::Error>,
         default: [f32; 4],
@@ -1179,12 +1150,10 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Apply default background/foreground colors and the 16-color ANSI palette via the
-    /// native theme API. libghostty-vt does not process OSC 10/11
-    /// default-color escapes (the embedder owns the defaults; OSC 4 palette
-    /// overrides are processed upstream), so the
-    /// embedder must push theme colors directly; without this the terminal
-    /// keeps the built-in xterm palette.
+    /// 用原生主题 API 设置默认背景/前景色与 16 色 ANSI 调色板。
+    /// libghostty-vt 不处理 OSC 10/11 默认色转义（默认值归内嵌方所有，
+    /// OSC 4 调色板覆盖由上游处理），故内嵌方必须直接推送主题色；
+    /// 否则终端会保留内置的 xterm 调色板。
     fn apply_theme(
         terminal: &mut libghostty_vt::terminal::Terminal,
         background: [u8; 3],
@@ -1233,10 +1202,9 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Resolve a `StyleColor` against the terminal's EFFECTIVE 256-color
-    /// palette (default colors plus OSC 4 overrides), falling back to
-    /// `default` when unset or unreadable. Replaces the historic static
-    /// 16-color table + xterm formula, which silently ignored OSC 4 recolors.
+    /// 把 `StyleColor` 解析到终端**生效的** 256 色调色板（默认色加上 OSC 4
+    /// 覆盖）；未设置或读不到时回退到 `default`。取代了历史上的静态
+    /// 16 色表 + xterm 公式，后者会静默忽略 OSC 4 改色。
     pub(crate) fn resolve_style_color(
         terminal: &Terminal,
         color: &libghostty_vt::style::StyleColor,
@@ -1264,13 +1232,12 @@ impl super::GhosttyTerminal {
         ]
     }
 
-    /// Rebuild CellData from current terminal state and push it to the render
-    /// thread's channel (no-op when no consumer is attached). Single call
-    /// site for the frame-emission block shared by Write/SetTheme/Resize/
-    /// ScrollViewport.
-    /// Push a fresh cell-data snapshot after the terminal grid changed.
-    /// A thin wrapper over [`Self::push_cell_data`] that supplies the
-    /// standard config/state plumbing shared by every command handler.
+    /// 按当前终端状态重建 CellData 并推给渲染线程的通道（未挂消费者时
+    /// 为空操作）。Write/SetTheme/Resize/ScrollViewport 共用的帧推送块
+    /// 只有这一个调用点。
+    /// 终端网格变化后推送一份新的 cell-data 快照。
+    /// [`Self::push_cell_data`] 的薄封装，补齐各命令处理器共用的
+    /// 标准 config/状态接线。
     fn refresh_cell_data(
         config: &RunConfig,
         terminal: &libghostty_vt::terminal::Terminal,
@@ -1304,13 +1271,11 @@ impl super::GhosttyTerminal {
                 alt_screen_active,
             )
         {
-            // Skip the send when nothing changed since the last push: the
-            // loop timer (50ms idle wakeup) re-runs this path with no
-            // terminal activity, and the render thread treats any received
-            // batch as new data → a full repaint every frame. Comparing the
-            // bytemuck Pod cells as raw bytes (plus the cursor) is ~150KB
-            // memcmp on a 24x80 grid — microseconds, dwarfed by the
-            // full-render cost it avoids.
+            // 自上次推送以来什么都没变时跳过发送：循环定时器（50ms 空闲唤醒）
+            // 会在终端毫无活动时重跑这条路径，而渲染线程把收到的每批都当作
+            // 新数据 → 每帧全量重绘。把 bytemuck Pod 单元按原始字节（外加光标）
+            // 比较，在 24x80 网格上约 150KB memcmp——微秒级，与它避免的
+            // 全量渲染开销相比可忽略。
             let unchanged = match last_push {
                 Some((last_cells, last_cursor)) => {
                     *last_cursor == data.1
@@ -1525,7 +1490,7 @@ impl super::GhosttyTerminal {
         out
     }
 
-    /// Builds the full flat `CellData` grid for rendering.
+    /// 构建用于渲染的扁平全量 `CellData` 网格。
     ///
     /// 上游的 `row.dirty()` 依赖跨帧复用的 `RenderState`：本函数每帧新建
     /// `RenderState`，其 `rows = 0` 初值使 `update` 走「维度变化 → 全量重建」分支，
@@ -1538,10 +1503,9 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         alt_screen_active: &Arc<AtomicBool>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
-        // Keep the lock-free alternate-screen mirror in sync on every frame
-        // the VT thread emits. The Android input path reads this mirror
-        // lock-free on every touch-scroll to decide whether to forward the
-        // gesture to the remote (Haven research: altScreen wheel consumption).
+        // VT 线程每推一帧就同步这个无锁的备用屏镜像。Android 输入路径在每次
+        // 触摸滚动时无锁读取它，以决定手势是否转发给远端
+        // （Haven 研究：altScreen 滚轮消费）。
         alt_screen_active.store(
             terminal
                 .active_screen()
@@ -1596,11 +1560,9 @@ impl super::GhosttyTerminal {
             };
 
             let mut current_col = 0u32;
-            // CellRun-style per-row style cache (termlib CellRun.kt):
-            // consecutive cells sharing a style_id resolve their
-            // style/foreground/background once; the flat CellData output is unchanged but
-            // the per-cell FFI calls (style/foreground/background) are skipped
-            // for the run.
+            // CellRun 式逐行样式缓存（termlib CellRun.kt）：共享同一 style_id 的
+            // 连续单元只解析一次 style/前景/背景；扁平 CellData 输出不变，
+            // 但该 run 内跳过了逐单元的 FFI 调用（style/前景/背景）。
             let mut cached_style_id: Option<libghostty_vt::style::Id> = None;
             let mut cached_foreground = default_foreground;
             let mut cached_background = default_background;
@@ -1630,7 +1592,7 @@ impl super::GhosttyTerminal {
                 let (_style, foreground, background, underline_color, flags) = if style_id.is_some()
                     && style_id == cached_style_id
                 {
-                    // Same style run: reuse the cached resolved colors.
+                    // 同一样式 run：复用已缓存的解析颜色。
                     (
                         None,
                         cached_foreground,
@@ -1679,13 +1641,11 @@ impl super::GhosttyTerminal {
 
                 let codepoint = raw.codepoint().unwrap_or(0);
 
-                // Skip spacer cells (SpacerTail, SpacerHead) that Ghostty
-                // emits for wide characters. These have no content and would
-                // advance `current_col` incorrectly, causing all subsequent
-                // cells to shift right by one column.
-                // Spacer cells: do not produce a CellData entry.
-                // current_col stays unchanged — the wide cell already
-                // consumed both columns.
+                // 跳过 Ghostty 为宽字符发出的 spacer 单元（SpacerTail、SpacerHead）。
+                // 它们没有内容，若照常推进会让 `current_col` 错位，
+                // 导致其后所有单元右移一列。
+                // spacer 单元不产出 CellData 条目。
+                // `current_col` 保持不变——两列已由宽字符本身消耗。
                 let Some(width) = Self::cell_columns(&raw) else {
                     continue;
                 };
@@ -1727,16 +1687,12 @@ impl super::GhosttyTerminal {
             current_row += 1;
         }
         let cursor_style = Self::cursor_style_from_snapshot(&snapshot);
-        // Cursor position must come from the render-state VIEWPORT
-        // coordinates, not the active-screen query: `cursor_y()` returns
-        // the row within the ACTIVE area, while CellData rows are viewport
-        // rows (0..rows-1 of the currently scrolled viewport). Once the
-        // user scrolls scrollback into view the two diverge and the cursor
-        // would be matched against the wrong grid row — rendered as the
-        // cursor "block" jumping down-right by the scroll amount (reported
-        // on real devices as cursor offset of ~1 cell). `cursor_viewport()`
-        // returns None when the cursor page is not in the visible viewport
-        // (e.g. large scrolls); the cursor must then not be drawn at all.
+        // 光标位置必须取自 render-state 的**视口**坐标，而非活动屏查询：
+        // `cursor_y()` 返回的是**活动区**内的行号，而 CellData 的行是视口行
+        // （当前滚动视口的 0..rows-1）。用户把回滚滚进视口后两者即分叉，
+        // 光标会匹配到错误的网格行——表现为光标「块」按滚动量向右下跳
+        // （真机上报告为光标偏移约 1 格）。`cursor_viewport()` 在光标所在页
+        // 不在可见视口内时返回 None（如大幅滚动），此时干脆不该画光标。
         let (cursor_row, cursor_col, cursor_visible) = match snapshot.cursor_viewport() {
             Ok(Some(cv)) => (
                 cv.y as u32,
@@ -1766,10 +1722,10 @@ impl super::GhosttyTerminal {
         ))
     }
 
-    /// Pack style attributes into a bitmask matching `cell.wgsl` shader layout:
-    /// Bit 0=bold, 1=italic, 2=reverse, 3=underline,
-    /// 4=blink, 5=strikethrough, 6=overline, 7=dim, 8=double_underline
-    /// (blink is carried, the shader ignores it; reserved for future use).
+    /// 把样式属性打包成与 `cell.wgsl` 着色器布局一致的位掩码：
+    /// 第 0 位=bold、1=italic、2=reverse、3=underline、
+    /// 4=blink、5=strikethrough、6=overline、7=dim、8=double_underline
+    /// （blink 会带上，着色器忽略它；留待将来使用）。
     fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
         use crate::terminal::ghostty_terminal::cell_flags;
         let mut flags = 0u32;
@@ -1821,8 +1777,8 @@ impl super::GhosttyTerminal {
         let size = (rows * cols) as usize;
         let mut cells = Vec::with_capacity(size);
 
-        // Local RenderState+iterators — created per-call to avoid lifetime
-        // issues with the invariant-param Terminal type.
+        // 局部 RenderState+迭代器——每次调用新建，以避开
+        // invariant-param Terminal 类型带来的生命周期问题。
         let (mut render_state, mut row_iter, mut cell_iter) = match create_render_iterators() {
             Some(iterator_bundle) => iterator_bundle,
             None => return GridSnapshot::fallback(rows, cols),
@@ -1844,9 +1800,9 @@ impl super::GhosttyTerminal {
             }
         };
 
-        // ── CellIterator loop ──
-        // Iterate over all visible rows via RowIterator, then all cells
-        // per row via CellIterator. This replaces per-cell grid_ref.
+        // ── CellIterator 循环 ──
+        // 先用 RowIterator 遍历全部可见行，再用 CellIterator 遍历每行的
+        // 全部单元。取代了逐单元的 grid_ref。
         while let Some(row) = row_iter_impl.next() {
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(cell_iterator) => cell_iterator,
@@ -1939,9 +1895,8 @@ impl super::GhosttyTerminal {
             }
         }
 
-        // Viewport-relative cursor coordinates (matches the cell rows above,
-        // which are viewport rows): the active-screen `cursor_y` diverges
-        // from the viewport once scrollback is scrolled into view.
+        // 视口相对的光标坐标（与上面按视口行存放的单元行一致）：回滚被滚进
+        // 视口后，活动屏的 `cursor_y` 就与视口分叉了。
         let (cursor_row, cursor_col, cursor_visible) = match snapshot.cursor_viewport() {
             Ok(Some(cv)) => (
                 cv.y as u32,
@@ -2012,18 +1967,16 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Wrap-aware selection text extraction via Ghostty's native formatter.
+    /// 经 Ghostty 原生格式化器做换行感知的选区文本提取。
     ///
-    /// Reference: termux-app TerminalBuffer.getSelectedText (joinBackLines)
-    /// plus TerminalRow.findStartOfColumn. The formatter's `unwrap` joins
-    /// soft-wrapped lines without '\n' and `trim` removes trailing
-    /// whitespace; grid columns map to char indices internally so CJK wide
-    /// glyphs are never split (no column-to-char drift on surrogate pairs).
+    /// 参考：termux-app TerminalBuffer.getSelectedText（joinBackLines）加
+    /// TerminalRow.findStartOfColumn。格式化器的 `unwrap` 拼接软换行行且不带
+    /// '\n'，`trim` 去掉尾部空白；网格列内部映射为字符下标，故 CJK 宽字符
+    /// 不会被拆开（代理对不产生列到字符的漂移）。
     ///
-    /// Coordinates are absolute grid rows (0 = top of history; the viewport
-    /// starts at `scrollback_rows`). History rows resolve via Point::History
-    /// and viewport rows via Point::Viewport (equivalent to Point::Screen
-    /// with an absolute y). Returns an empty string for an invalid selection.
+    /// 坐标是绝对网格行（0 = 回滚顶部；视口自 `scrollback_rows` 起）。
+    /// 回移行经 Point::History 解析，视口行经 Point::Viewport（等价于带绝对
+    /// y 的 Point::Screen）。选区无效时返回空串。
     pub(crate) fn selection_text_impl(
         terminal: &Terminal,
         start: (u32, u32),
@@ -2165,8 +2118,8 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
-    /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
+    /// 查询某网格单元处的 OSC 8 超链接 URI（等价 termux TerminalView 的
+    /// openLinkAt；ghostty 侧用 cell.has_hyperlink + hyperlink_uri）。
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
         let cols = grid_cols(terminal);
         let total_rows = terminal.total_rows().unwrap_or(0) as u32;
@@ -2498,8 +2451,8 @@ mod tests {
 
     #[test]
     fn pack_style_flags_double_underline_sets_underline_too() {
-        // Double underline must also set the plain underline bit so the
-        // shader's highlight path treats the cell as underlined.
+        // 双下划线必须同时置上普通下划线位，着色器的高亮路径才会
+        // 把该单元当作带下划线处理。
         let flags = GhosttyTerminal::pack_style_flags(&style_with_flags());
         let both = (1 << cell_flags::UNDERLINE) | (1 << cell_flags::DOUBLE_UNDERLINE);
         assert_eq!(flags & both, both);

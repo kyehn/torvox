@@ -172,7 +172,7 @@ private fun SearchNavButtons(resultCount: Int, onPrevious: () -> Unit, onNext: (
     }
 }
 
-/** Arrow step button for the search bar, dimmed when there are no results. */
+/** 搜索栏的步进箭头按钮；无结果时置灰。 */
 @Composable
 private fun SearchNavButton(
     imageVector: androidx.compose.ui.graphics.vector.ImageVector,

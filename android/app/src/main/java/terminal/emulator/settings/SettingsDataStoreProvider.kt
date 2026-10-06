@@ -33,7 +33,7 @@ constructor(@ApplicationContext private val context: Context) {
             File(prefsDir, "settings.preferences_pb")
         }
 
-    /** Screen width in dp, used for the device-adaptive default font size. */
+    /** 屏幕宽度（dp），用于按设备自适应计算默认字号。 */
     internal val screenWidthDp: Float
         get() {
             val metrics = context.resources.displayMetrics
