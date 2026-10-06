@@ -30,6 +30,11 @@ import org.junit.Test
 import terminal.emulator.ui.theme.BuiltInThemes
 
 class BehaviorInstrumentedTest {
+    // 判红时把应用日志尾部附在失败信息上：本类多在慢模拟器上以「节点查不到」判红，
+    // 无日志时无法区分「应用没起」「被系统弹窗盖住」「功能真的缺席」。
+    @get:Rule
+    val terminalLogcatRule = TerminalLogcatRule()
+
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // without pre-granting it the system permission dialog covers the UI
     // and none of the drawer/settings nodes appear.
@@ -52,9 +57,7 @@ class BehaviorInstrumentedTest {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        // 软件渲染模拟器被渲染压满时系统会弹「无响应」，它盖住应用窗口，
-        // 之后所有节点查找都落空——先按「等待」关掉。
-        dismissNotRespondingDialog()
+        // 就绪门槛内含「关掉系统无响应对话框」，它盖住应用窗口时节点查找全部落空。
         composeTestRule.waitForTerminalScreen()
     }
 
