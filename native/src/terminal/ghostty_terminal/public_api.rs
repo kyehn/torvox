@@ -542,14 +542,6 @@ impl super::GhosttyTerminal {
         )
     }
 
-    pub fn select_line_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
-        self.query(
-            |tx| Query::SelectLineAt { row, col, tx },
-            None,
-            "select_line_at",
-        )
-    }
-
     /// 该行中作为宽字符后半格的列号，升序。查询失败时为空 vec（等价于无吸附）：
     /// 保持原列，不猜。
     pub fn wide_char_tail_cols(&self, row: u32) -> Vec<u32> {

@@ -654,10 +654,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         queryPort.selectWordAt(row, col)
     }
 
-    override fun selectLineAt(row: Int, col: Int): IntArray? = onQuery("selectLineAt", null) {
-        queryPort.selectLineAt(row, col)
-    }
-
     override fun selectAll(): IntArray? = onQuery("selectAll", null) { queryPort.selectAll() }
 
     override fun wideCharTailCols(row: Int): IntArray = onQuery("wideCharTailCols", IntArray(0)) {
