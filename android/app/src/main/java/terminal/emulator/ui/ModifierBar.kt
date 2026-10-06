@@ -613,18 +613,18 @@ private fun RowScope.ExtraKeyButton(
                                 gestureValid = false
                                 break
                             }
-                            val ch = ev.changes.first()
+                            val pointerInput = ev.changes.first()
                             // 完全静止的长按不产生任何 MOVE 事件，
                             // 故阈值已过时松手本身也必须计入——否则长按会被静默丢失。
-                            if (!ch.pressed) {
-                                maybeFireLongPress(ch.uptimeMillis)
+                            if (!pointerInput.pressed) {
+                                maybeFireLongPress(pointerInput.uptimeMillis)
                                 break
                             }
-                            if ((ch.position - downPos).getDistance() > slop) {
+                            if ((pointerInput.position - downPos).getDistance() > slop) {
                                 gestureValid = false
                                 break
                             }
-                            maybeFireLongPress(ch.uptimeMillis)
+                            maybeFireLongPress(pointerInput.uptimeMillis)
                         }
                         if (!longPressTriggered && gestureValid) {
                             view.performHapticFeedback(
@@ -643,9 +643,9 @@ private fun RowScope.ExtraKeyButton(
                                     tapValid = false
                                     break
                                 }
-                                val ch = ev.changes.first()
-                                if (!ch.pressed) break
-                                if ((ch.position - downPos).getDistance() > slop) {
+                                val pointerInput = ev.changes.first()
+                                if (!pointerInput.pressed) break
+                                if ((pointerInput.position - downPos).getDistance() > slop) {
                                     tapValid = false
                                     break
                                 }
@@ -700,9 +700,9 @@ private fun RowScope.ExtraKeyButton(
                                     repeatValid = false
                                     break
                                 }
-                                val ch = ev.changes.first()
-                                if (!ch.pressed) break
-                                if ((ch.position - downPos).getDistance() > slop) {
+                                val pointerInput = ev.changes.first()
+                                if (!pointerInput.pressed) break
+                                if ((pointerInput.position - downPos).getDistance() > slop) {
                                     repeatValid = false
                                     break
                                 }
