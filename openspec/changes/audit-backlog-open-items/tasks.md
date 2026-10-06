@@ -1802,7 +1802,30 @@ LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {   // ← key 里�
 
 反向对照证明用例确实锁住该缺陷，不是恒真断言。
 
-### 34.3 与 §31 的关系
+### 34.3 本地全量复跑（同一台连跑多小时的模拟器）
+
+184 例中 7 例红，全部是 §32.2 那一类「终端没有像素 / 节点不在」：
+
+| 用例 | 失败信息 |
+| --- | --- |
+| `BehaviorInstrumentedTest#behavior_settings_shell_entry_empty_until_saved` | `ShellSaveButton` 未显示 |
+| `diag.CursorPixelAcceptanceTest` | 光标反差=0 |
+| `diag.SgrColorPixelAcceptanceTest` | 红=0 绿=0 蓝=0 |
+| `diag.SgrItalicPixelAcceptanceTest` | 斜体差分=0 |
+| `ui.ImePopupPixelInstrumentedTest` ×3 | 条带无内容像素 / 位移=0 / 中文提交未落格 |
+
+**选区与 surface 相关的 15 例全绿**，含新增的
+`selectionMenuSurvivesSurfaceRebuild` 与全部 `SelectionEspressoTest` /
+`SelectionDragQuantifiedTest` / `SelectionTapDismissTest` /
+`VisualInlineVerificationTest`——即本轮改动所触及的行为无一回归。
+
+同一次运行的设备日志里退化签名与 §32.2 同量级：
+`BufferQueue has been abandoned` 860 次、`surface invalidated` 553 次、
+`pcmWrite` I/O 错误 1998 次。按 §28.7 的判据本应冷启复测；此处以
+**全新 GitHub runner** 上的 `build` run 作更强对照——它同时具备全新模拟器与
+全新依赖缓存。
+
+### 34.4 与 §31 的关系
 
 §31 两条（`partialSelectShowsSelectionMenu`、`behavior_modifier_bar_visible`）
 的 run **没有 logcat**，无法据证回溯归因到本缺陷，故不作改写。
