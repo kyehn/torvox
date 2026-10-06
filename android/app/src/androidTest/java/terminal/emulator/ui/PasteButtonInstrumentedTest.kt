@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.R
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
@@ -44,7 +44,7 @@ import terminal.emulator.waitForSession
  * pasteFromClipboard → InputBatchBuffer → writeToPty），不用 showPastePopup 直调后门。
  */
 @RunWith(JUnit4::class)
-class PasteButtonInstrumentedTest {
+class PasteButtonInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val QUIET_WINDOW_MS = 2_000L
@@ -53,8 +53,6 @@ class PasteButtonInstrumentedTest {
         /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
         private const val TAP_COL = 6
     }
-
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission =

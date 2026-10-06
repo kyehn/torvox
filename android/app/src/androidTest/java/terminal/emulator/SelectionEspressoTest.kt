@@ -19,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.getBridge
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
@@ -28,7 +29,7 @@ import terminal.emulator.waitForSession
  * (复制/分享/全选/粘贴） — not the system ActionMode toolbar. The popup hosts
  * real TextViews, so menu items are asserted via UiAutomator (By.text).
  */
-class SelectionEspressoTest {
+class SelectionEspressoTest : TerminalLogcatTest() {
     companion object {
         // 选择菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，
         // 5s 等待偶发超时，提到与落格门控同量级的 15s。
@@ -38,11 +39,6 @@ class SelectionEspressoTest {
         private const val SELECTION_ROW = 2
         private const val SELECTION_START_COL = 10
     }
-
-    // 菜单缺席时应用侧的缺席分支都有日志，附在失败信息上才能判别是哪一条
-    // （未附着 / 无界 / 无处安放 / 弹窗添加失败），否则只剩一句「菜单未出现」。
-    @get:Rule
-    val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

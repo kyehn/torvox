@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.util.runCatchingCancellable
@@ -16,7 +17,7 @@ import terminal.emulator.util.runCatchingCancellable
  * 故在此用公共 JNI 会话锁定，防 shell 行为漂移导致多删/半字残留。只覆盖本仓会话行为，
  * 不断言上游解析细节。 */
 @RunWith(JUnit4::class)
-class CjkBackspaceSemanticsTest {
+class CjkBackspaceSemanticsTest : TerminalLogcatTest() {
     @Test
     fun probe_single_bs_deletes_one_hanzi() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

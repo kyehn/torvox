@@ -17,10 +17,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.ui.theme.BuiltInThemes
 
-class ThemeInstrumentedTest {
+class ThemeInstrumentedTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule

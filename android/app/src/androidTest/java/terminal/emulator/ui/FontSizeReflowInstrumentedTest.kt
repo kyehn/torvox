@@ -10,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.waitForSession
@@ -23,7 +24,7 @@ import terminal.emulator.waitForSession
  * finally 恢复原值防污染其他测试。
  */
 @RunWith(JUnit4::class)
-class FontSizeReflowInstrumentedTest {
+class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

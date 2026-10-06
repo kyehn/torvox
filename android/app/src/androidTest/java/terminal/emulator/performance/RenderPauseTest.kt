@@ -10,11 +10,12 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
 
-class RenderPauseTest {
+class RenderPauseTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule

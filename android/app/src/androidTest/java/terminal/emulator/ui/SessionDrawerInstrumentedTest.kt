@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.R
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.activeSessionId
 import terminal.emulator.bridge.Bridge
@@ -36,14 +36,12 @@ import terminal.emulator.waitForSession
  * 关闭当前会话回落到剩余会话。切换走 UI（抽屉项点击），内容隔离走网格断言。
  */
 @RunWith(JUnit4::class)
-class SessionDrawerInstrumentedTest {
+class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
     companion object {
         // 状态轮询上限：CI 软件渲染过载时切换含渲染线程启停，10s 在满载套件下不够。
         private const val STATE_TIMEOUT_MS = 30_000L
         private const val GRID_TIMEOUT_MS = 15_000L
     }
-
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission =

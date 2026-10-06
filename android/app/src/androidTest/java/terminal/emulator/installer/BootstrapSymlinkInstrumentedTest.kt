@@ -10,6 +10,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import java.io.File
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -25,7 +26,7 @@ import java.util.zip.ZipOutputStream
  * a real device where rename(2) preserves them.
  */
 @RunWith(JUnit4::class)
-class BootstrapSymlinkInstrumentedTest {
+class BootstrapSymlinkInstrumentedTest : TerminalLogcatTest() {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var prefixDir: File
     private lateinit var homeDir: File

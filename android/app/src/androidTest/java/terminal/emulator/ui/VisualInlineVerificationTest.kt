@@ -17,6 +17,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.getBridge
 import terminal.emulator.injectLongPress
@@ -29,7 +30,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 @RunWith(AndroidJUnit4::class)
-class VisualInlineVerificationTest {
+class VisualInlineVerificationTest : TerminalLogcatTest() {
     @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
 
     private var tv: View? = null

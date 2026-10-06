@@ -12,6 +12,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.sessionCount
 
@@ -25,7 +26,7 @@ import terminal.emulator.sessionCount
  * 断言一律用 JUnit 而非 Kotlin `assert`：ART 默认不带 `-ea`，`assert` 在
  * 仪器化进程里恒为静默空操作——原实现的两处 `assert` 实际什么都没断言。
  */
-class SessionCreationInstrumentedTest {
+class SessionCreationInstrumentedTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule

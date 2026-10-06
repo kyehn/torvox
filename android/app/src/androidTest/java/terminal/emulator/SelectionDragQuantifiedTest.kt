@@ -16,7 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.terminalCellSizePx
@@ -39,9 +39,7 @@ import terminal.emulator.util.runCatchingCancellable
  *
  * All measured values log as `UX_METRIC ...` lines for trend tracking.
  */
-class SelectionDragQuantifiedTest {
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
-
+class SelectionDragQuantifiedTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

@@ -14,6 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.closeSettingsOverlay
 
@@ -25,7 +26,7 @@ import terminal.emulator.closeSettingsOverlay
  * 列数随之从 38 掉到 25，所有按网格坐标断言的用例集体漂移。故 [tearDown] 必须
  * 还原族名——缺失还原时失败只出现在 CI 整类连跑，本地单跑恒绿。
  */
-class FontSwitchInstrumentedTest {
+class FontSwitchInstrumentedTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

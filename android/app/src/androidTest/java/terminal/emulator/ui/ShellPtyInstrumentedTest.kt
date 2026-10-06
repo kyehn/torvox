@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.PollEvent
@@ -22,7 +23,7 @@ import terminal.emulator.util.runCatchingCancellable
  * 不在此关闭会话。
  */
 @RunWith(JUnit4::class)
-class ShellPtyInstrumentedTest {
+class ShellPtyInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 20_000L
 

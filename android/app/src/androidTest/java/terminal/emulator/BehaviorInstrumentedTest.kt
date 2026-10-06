@@ -27,14 +27,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.ui.theme.BuiltInThemes
 
-class BehaviorInstrumentedTest {
-    // 判红时把应用日志尾部附在失败信息上：本类多在慢模拟器上以「节点查不到」判红，
-    // 无日志时无法区分「应用没起」「被系统弹窗盖住」「功能真的缺席」。
-    @get:Rule
-    val terminalLogcatRule = TerminalLogcatRule()
-
+class BehaviorInstrumentedTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // without pre-granting it the system permission dialog covers the UI
     // and none of the drawer/settings nodes appear.

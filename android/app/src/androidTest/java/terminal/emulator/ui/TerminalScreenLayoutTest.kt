@@ -9,8 +9,9 @@ import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 
-class TerminalScreenLayoutTest {
+class TerminalScreenLayoutTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule

@@ -1,6 +1,7 @@
 package terminal.emulator
 
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Rule
 import org.junit.rules.TestRule
 import org.junit.runner.Description
 import org.junit.runners.model.Statement
@@ -91,4 +92,17 @@ class TerminalLogcatRule : TestRule {
                 "native::terminal::ghostty_terminal",
             )
     }
+}
+
+/**
+ * 仪器化用例基类：失败时附上应用日志尾部（见 [TerminalLogcatRule] 的必要性说明）。
+ *
+ * 收归为基类而不是让每类各自声明规则：逐类挂规则已经漏过一次，接入的那批之外，
+ * 全量跑里红掉的 `ImePopupPixelInstrumentedTest` 三例恰好全在漏网的一侧，
+ * 失败信息只剩「条带无内容像素」这类结论，取不到 `surface invalidated` 与
+ * `render: frame failed` 两枚锚点。基类让覆盖成为结构性的：新用例默认带取证。
+ */
+abstract class TerminalLogcatTest {
+    @get:Rule
+    val terminalLogcatRule = TerminalLogcatRule()
 }

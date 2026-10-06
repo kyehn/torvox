@@ -9,6 +9,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
@@ -22,7 +23,7 @@ import terminal.emulator.waitForSession
  * SIGWINCH 风暴后仍可交互。只覆盖已声明行为，不锁定预览是否重排网格。
  */
 @RunWith(JUnit4::class)
-class ZoomPreviewGestureInstrumentedTest {
+class ZoomPreviewGestureInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val GRID_TIMEOUT_MS = 30_000L
         private const val OUTPUT_TIMEOUT_MS = 20_000L

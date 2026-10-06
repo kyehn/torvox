@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
@@ -28,12 +28,10 @@ import terminal.emulator.waitForSession
  * sleep 中断 → echo rc=$? 必须 130（128+SIGINT）。证明折叠出的是真实 ^C。
  */
 @RunWith(JUnit4::class)
-class StickyCtrlInterruptInstrumentedTest {
+class StickyCtrlInterruptInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 20_000L
     }
-
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
 
     @get:Rule
     val notificationPermission =

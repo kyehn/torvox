@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
@@ -48,7 +49,7 @@ import java.io.FileOutputStream
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-class TextSearchEndToEndTest {
+class TextSearchEndToEndTest : TerminalLogcatTest() {
     companion object {
         private const val TAG = "SearchE2ETest"
         private const val SCREENSHOT_DIR = "search_e2e_screenshots"

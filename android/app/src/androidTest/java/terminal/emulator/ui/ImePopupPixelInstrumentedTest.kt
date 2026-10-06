@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
@@ -30,7 +31,7 @@ import terminal.emulator.waitForSession
  * 输入法经真实点击手势弹出（与用户点击终端同路径），文本经输入连接提交。
  */
 @RunWith(JUnit4::class)
-class ImePopupPixelInstrumentedTest {
+class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val IME_TIMEOUT_MS = 10_000L
