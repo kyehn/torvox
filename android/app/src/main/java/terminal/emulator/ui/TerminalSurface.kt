@@ -35,6 +35,7 @@ import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.computeGridDimensions
+import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.roundToInt
 
@@ -1885,7 +1886,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
-                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
+                    val sizeSp =
+                        zoomFontSize(zoomBaseFontSizeSp, scaleFactor, resources.displayMetrics.density)
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
                         lastZoomPreviewNanos = now
@@ -1900,7 +1902,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
                     // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
                     val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
-                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
+                    val sizeSp =
+                        zoomFontSize(zoomBaseFontSizeSp, scaleFactor, resources.displayMetrics.density)
                     scaleFactor = 1.0f
                     if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
@@ -2839,10 +2842,6 @@ internal fun applyScrollDistance(
 internal fun flingRowsPerSecond(velocityYPxPerSecond: Float, cellHeightPx: Float): Int =
     (velocityYPxPerSecond / cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)).toInt()
 
-/** 缩放手势字号上下限（与 TerminalScreen 最终钳制一致）。 */
-internal const val ZOOM_FONT_SIZE_MIN_SP = 14f
-internal const val ZOOM_FONT_SIZE_MAX_SP = 48f
-
 /** 缩放手势收敛阈值：小于此差值视为回到锚点，只撤销预览不持久化。 */
 internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
 
@@ -2850,8 +2849,11 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
  * 缩放手势字号换算（onScale 可测核心）。
  * 基准字号乘以累计缩放因子后钳制到字号上下限。
  */
-internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float): Float =
-    (baseFontSizeSp * scaleFactor).coerceIn(ZOOM_FONT_SIZE_MIN_SP, ZOOM_FONT_SIZE_MAX_SP)
+internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, density: Float): Float =
+    (baseFontSizeSp * scaleFactor).coerceIn(
+        SettingsRepository.FONT_SIZE_MIN_SP,
+        SettingsRepository.fontSizeRangeMaxSp(density),
+    )
 
 /**
  * 缩放手势是否收敛到新字号（onScaleEnd 可测核心）。

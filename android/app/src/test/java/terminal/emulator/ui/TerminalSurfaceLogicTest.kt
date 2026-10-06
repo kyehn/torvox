@@ -4,11 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import terminal.emulator.settings.SettingsRepository
 
 /**
- * Pure interaction logic extracted from TerminalSurface (edge-scroll zones,
- * pixel→cell mapping, wide-char snapping) —
- * JVM-testable without a view, bridge, or MotionEvent.
+ * 从 TerminalSurface 抽出的纯交互逻辑（边缘滚动区、像素→格映射、宽字符对齐、
+ * 捏合缩放映射）——不依赖 View、Bridge 或 MotionEvent 即可在 JVM 上测试。
  */
 class TerminalSurfaceLogicTest {
 
@@ -186,16 +186,26 @@ class TerminalSurfaceLogicTest {
 
     // ── pinch zoom mapping ───────────────────────────────────────────────────
 
+    // 密度 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 170sp，下限 4sp。
+    private val zoomDensity = 3.0f
+
     @Test
     fun `zoom scales around the gesture base size`() {
-        assertEquals(25f, zoomFontSize(20f, 1.25f))
-        assertEquals(15f, zoomFontSize(20f, 0.75f))
+        assertEquals(25f, zoomFontSize(20f, 1.25f, zoomDensity))
+        assertEquals(15f, zoomFontSize(20f, 0.75f, zoomDensity))
     }
 
     @Test
-    fun `zoom clamps to the same bounds as the settings screen`() {
-        assertEquals(48f, zoomFontSize(16f, 5f))
-        assertEquals(14f, zoomFontSize(16f, 0.1f))
+    fun `zoom clamps to the same bounds as the settings slider`() {
+        // 捏合与调节条改的是同一个字号设置，共用 SettingsRepository 的范围。
+        assertEquals(
+            SettingsRepository.fontSizeRangeMaxSp(zoomDensity),
+            zoomFontSize(16f, 100f, zoomDensity),
+        )
+        assertEquals(
+            SettingsRepository.FONT_SIZE_MIN_SP,
+            zoomFontSize(16f, 0.01f, zoomDensity),
+        )
     }
 
     @Test
@@ -203,16 +213,16 @@ class TerminalSurfaceLogicTest {
         // Begin(16sp) → previews → end: cumulative factor decides one outcome.
         var factor = 1.0f
         factor *= 1.1f
-        assertEquals(17.6f, zoomFontSize(16f, factor))
+        assertEquals(17.6f, zoomFontSize(16f, factor, zoomDensity))
         factor *= 1.1f
-        val finalSize = zoomFontSize(16f, factor)
+        val finalSize = zoomFontSize(16f, factor, zoomDensity)
         assert(zoomSettledOnNewSize(16f, finalSize))
     }
 
     @Test
     fun `pinch returning to base only reverts the preview`() {
         // Tiny drift under epsilon: no persist, just revert to the base size.
-        val finalSize = zoomFontSize(16f, 1.001f)
+        val finalSize = zoomFontSize(16f, 1.001f, zoomDensity)
         assert(!zoomSettledOnNewSize(16f, finalSize))
     }
 
