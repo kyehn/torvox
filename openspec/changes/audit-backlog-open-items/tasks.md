@@ -153,8 +153,16 @@
 - [x] N1-23【前提不成立】台账称 `DESIGN.md:126` 写「支持 HTTP/HTTPS」，实测该行
       原文为「**Bootstrap**：支持 URL 与本地文件安装。」——规范从未声明明文 HTTP，
       `BootstrapDownloader.kt:64` 只放行 `https://` 不构成规范冲突。关闭
-- [ ] N1-25【R29 建议保持现状混合语义（按钮切换 + 任意输入解除，DESIGN 无声明，
-      双行为互补且已有实现），如需收敛请指定】粘滞 SCROLL 的产品语义（「再按一次解除」还是「任意输入解除」）
+- [x] **N1-25（对齐 termux 即可关闭，不需要裁决）** 粘滞 SCROLL 的产品语义。
+      `docs/specification/` 未声明，但 `DESIGN.md:6`「未声明的细节参考 termux-app」，
+      故按参考实现核对而非投票：termux 的 `ExtraKeysView.readSpecialButton(button,
+      autoSetInActive=true)` 在**读取修饰键时即清除激活态**（除非长按锁定），
+      `onAnyExtraKeyButtonClick` 同时提供「再按一次切换」。本仓 `ModifierBarState`
+      正是这一对语义：`ModifierState.Once` 随下一个键被 `sendPlainOrModified` 的
+      `actions.onConsumeModifiers()` 消费，`Locked`（长按）不受影响，点按则切换——
+      两种行为兼有且与 termux 逐条对应（用例：`modifier_bar_ctrl_toggle_cycles`、
+      `modifier_bar_ctrl_long_press_locks`）。`DESIGN.md:216` 又明令「无 双击持久
+      及其他复杂操作」，与 termux 的单次长按锁定不冲突。现状即规格，关闭
 - [x] N2-48【按 R29 结论关闭：不实现】`bracketedPaste = false` 硬编码于
       `TerminalSurface.encodeAndSend`，`\e[200~` 在生产路径从不发出。核实
       `docs/specification/` 与 `openspec/specs/` 全文均未声明 bracketed paste
@@ -684,13 +692,14 @@ R29 说明：本节 13 项的修法都已在条内写明，全部要求改保护
 
 ## 16. ：新增待办
 
-- [ ] **D19（需用户裁决；原编号 D13 与第 163 行同号，此处改用未占用号）**【R29 建议实现清空语义需先定三态合并规则，见条内】OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
+- [x] **D19（按 N2-48 先例关闭：不实现）** OSC 52 的空载荷（`\e]52;c;\a`）在 xterm 语义里是
       「清空剪贴板」。当前 `Bridge.parseEvent` 把空串映射成 `null`（null = 本帧无剪贴板事件），
-      于是该序列被静默忽略。`DESIGN.md` 只声明「通过终端序列（OSC 52）与用户交互
-      读写系统剪贴板」，未声明清空语义；按「不允许实现任何未在 docs/specification/
-      声明的功能」本轮未实现。要清空需要把 `PollResult.clipboard` 从 `String?`
-      扩成能区分「无事件 / 写入文本 / 清空」的三态，并明确空载荷优先于同帧文本的合并规则。
-      请裁决是否在本仓实现
+      于是该序列被静默忽略。复核规范：`grep -rniE "OSC ?52|osc52" docs/specification/
+      openspec/specs/` 全库**只有** `DESIGN.md:71`「剪贴板集成：通过终端序列（OSC 52）
+      与用户交互**读写**系统剪贴板」——声明的是读写，未声明清空语义。故与 §4 N2-48
+      （`bracketedPaste = false` 硬编码）同一判据：按 `STYLE.md:59`「不允许实现任何未在
+      `docs/specification/` 声明的功能」，本仓不实现；要做须先立项声明语义与三态合并规则。
+      该条此前挂「需用户裁决」是把它当成规范缺口，实为**未声明功能**，不需要裁决。关闭
 - [x] **R27-T1** `Bridge.parseEvent` 与 `resolveThemeName` 都没有单元测试覆盖 ——
       R29 已全修：`resolveThemeName` 的选择逻辑提为顶层纯函数 `selectThemeName`
       并补 5 例；`Bridge.parseEvent`（私有实例方法）经反射补 6 例映射测试
@@ -1494,3 +1503,85 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
       无 logcat（N41）且信息为空，按 `TESTING.md:16` 先如实记录，待复跑/取证后再判。
       复跑 `` 未执行即被取消（`cancelled`：runner 长时间未获取，
       非测试结论），本条仍待一次有效复跑。
+
+## 32. CI run ：本地复现、取证与处置
+
+### 32.1 复现
+
+把本机 AVD 调到 CI 同款几何（`wm size 320x640` + `wm density 160`，CI
+`avdmanager create avd` 默认设备）后跑全量 `:app:connectedDebugAndroidTest`，
+**复现出该 run 的同一条签名**（`diag.CursorPixelAcceptanceTest#cursorBlockMatchesRenderCursorCell`，
+失败信息逐字相同：`T0-定位: 光标格 (5,0) 必须与背景反差, 实测反差=0`），
+同批另有 5 例（`SgrColorPixelAcceptanceTest` 红绿蓝全 0、`SgrItalicPixelAcceptanceTest`
+差分=0、`ImePopupPixelInstrumentedTest` 条带无内容像素 + 中文提交未落格、
+`PasteButtonInstrumentedTest` 剪贴板未到达 shell）。同类单跑（3 个像素类自成一组、
+或 `ThemeInstrumentedTest` + 3 个像素类）全绿——与 §25「整类连跑才红」同一形态。
+
+### 32.2 根因（设备日志实测）
+
+失败点不是断言而是**那一帧终端根本没有墨迹**。全量跑期间落盘的 logcat 里，
+每条像素用例的空屏幕都对应同一串已存在的证据：
+
+```text
+E BufferQueueProducer: [SurfaceView[com.termux/…]#1(BLAST Consumer)1] dequeueBuffer: BufferQueue has been abandoned
+E vulkan: dequeueBuffer failed: No such device (-19)
+E wgpu_hal::vulkan::swapchain::native: get_physical_device_surface_capabilities: ERROR_SURFACE_LOST_KHR
+E native::render::context: GPU_UNCAPTURED_ERROR: Validation { … Surface::configure … UnsupportedQueueFamily }
+E native::render::context: surface invalidated after 2 consecutive acquire failures (320x582)
+E native::android::ffi: render: frame failed: surface creation failed: begin_frame failed
+W Runtime: surface invalidated (attempt 1/5): requesting a fresh Android surface
+W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
+```
+
+即：上一个用例的 Activity 销毁 → SurfaceView 的 BufferQueue 被遗弃 → 本仓按
+`render-stability` spec 声明的自愈路径（连续 2 次 surface 级取纹理失败即失效 →
+宿主换新的 `SurfaceView`）执行。**自愈窗口内屏幕是空的**，而像素用例的 12～15s
+窗口偶尔正好落在这个窗口里：全量跑 15 分钟内 `surface invalidated` 出现 210 次、
+`render: frame failed` 542 次。同一次全量跑里设备还在持续刷
+`pcmWrite: I/O error`（§28.7 已记的图形/音频子系统退化的同一形态）。
+
+结论：**CI 的红是软件渲染模拟器在长跑下的退化，不是产品回归**；这与 §26、
+§28.6、§28.7 的既往结论一致，本轮只是第一次把退化链路逐行落到日志上。
+第二次全量跑（同代码）183 例全绿，可作对照。
+
+### 32.3 本轮已修（产品缺陷 + 取证能力，均不改动保护文件）
+
+- [x] **（产品，严重）`menuAnchor` 会返回视口外的锚点**：两处落点各只判单侧边界，
+      选区整体滚出视口时另一侧判据对远离视口的 y 恒真，于是 `PopupWindow` 被添加到
+      屏幕之外——不抛错、不记日志、用户与 UiAutomator 都看不到菜单。
+      两处落点改共用「整体落在视口内」判据，越界即隐藏（与「两侧均无空间」同等）。
+      补单测 3 条，既有 5 条不变。见归档前的 change `fix-selection-menu-anchor-viewport`
+- [x] **（取证缺口）`TerminalLogcatRule` 的标签清单漏掉了唯一的那条锚点**：
+      清单里写的是大写 `FFI`，而 logcat 的实际标签是小写模块名 `native::android::ffi`，
+      `contains` 只命中消息前缀恰为 `FFI: ` 的几行——于是 `render: frame failed: …`
+      与 `surface invalidated after …` 被整段过滤（§32.2 的证据在仓内一直取不到）。
+      改为按实际标签匹配，并补上 `native::render::context`
+- [x] **（取证缺口）`SelectionEspressoTest` / `BehaviorInstrumentedTest` 未接
+      `TerminalLogcatRule`**：前者失败只留一句「菜单未出现」（应用侧四条缺席分支
+      都有日志却取不到），后者在 CI 上以空信息判红（§31 条）。两者接入后，
+      下次同类失败即带现场
+- [x] **（用例卫生）`waitForTerminalScreen()` 收口「系统无响应对话框」关闭**：
+      设置浮层与该对话框之下终端节点照常组合（`assertIsDisplayed` 照样通过），
+      节点查找与像素采样却全落在它们身上。原实现只有 `waitForSession()` 关对话框，
+      于是同等的就绪门槛 `diag.CursorPixelAcceptanceTest`、
+      `diag.SelectionTapDismissTest` 漏关（正是本 run 失败的两类）
+- [x] **（用例卫生）`diag.CursorPixelAcceptanceTest` 补 `@After cleanUpTerminalState()`**：
+      它是唯一没有收尾的像素类，选区、滚动偏移与回滚跨类留存会给后继像素用例
+      留下错误前提（§27 同族根因）
+
+### 32.4 仍需用户裁决 / 授权（本轮不动）
+
+- [ ] **D1** `TerminalForegroundService.startForeground` 失败后记日志继续运行，
+      与 `DESIGN.md:16/24`「错误 → 崩溃退出、不做未声明 Fallback」字面冲突。
+      复核代码：`TerminalForegroundService.kt:134-149` 的 `catch` 仍在外抛之外。
+      与 `DESIGN.md:34`「较低安全性、隐私策略，不设计权限管理」也冲突——崩溃会让
+      未授予 `POST_NOTIFICATIONS` 的用户直接进不去终端。**补一句规范声明**需要改
+      `docs/specification/`（保护文件），请裁决取哪一侧
+- [ ] **D13 / N2-44** `DESIGN.md:145` 的「左右键平移可见区域」触发条件在本仓不存在
+      （网格列数恒为 `floor(surfaceWidth / cellWidth)`）。同一条的后半句「↑↓←→
+      四个方向键应正确发送信号」已实现并被表驱动用例锁定。补一句现状说明 / 删掉该半句，
+      两者都需要改 `docs/specification/`（保护文件）
+- [ ] **D7 / N7 与 §5 的 N8、N40、N41、N2-47** 全部要改保护文件
+      （`.github/workflows/build.yml`、`scripts/check-rust.nu`），按 AGENTS.md 不擅动。
+      其中 N41 的取证意图已由本轮 `TerminalLogcatRule` 的覆盖面补足大半，
+      是否仍需改 `scripts/test-emulator.nu` 导出 logcat 请裁决
