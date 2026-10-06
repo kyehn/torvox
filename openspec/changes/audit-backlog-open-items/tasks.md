@@ -1542,16 +1542,28 @@ CI 1/3 的十失败此前被逐条归因为「过载漂移 / 呈现竞态 / 需 
 
 ## 31. CI run 新失败签名（待取证，不臆测）
 
-- [ ] **`BehaviorInstrumentedTest#behavior_modifier_bar_visible` 红且断言信息为空**。
+- [x] **`BehaviorInstrumentedTest#behavior_modifier_bar_visible` 红且断言信息为空
+      【「信息为空」的成因已复现并根除，关闭】**
       该 run 基线 `fd695e93`（含键盘等待 `41ca4dbb`，不含后继字符集/区域两提交）
-      `connectedDebugAndroidTest`
-      约 17s 即失败（`BUILD FAILED in 1m 17s`），`reportConnectedFailures`
-      报 `1 failed in 1 report files` 且 `connected-failure-message` 为空。
-      本用例（`BehaviorInstrumentedTest.kt:213`）直查 `ESC/CTRL/ALT/HOME` 四键可见，
-      与该 run 内唯一相关改动（`UiAutomatorTest` 键盘等待，另一测试类）无调用关系；
-      无 logcat（N41）且信息为空，按 `TESTING.md:16` 先如实记录，待复跑/取证后再判。
-      复跑 `` 未执行即被取消（`cancelled`：runner 长时间未获取，
-      非测试结论），本条仍待一次有效复跑。
+      `connectedDebugAndroidTest` 约 17s 即失败（`BUILD FAILED in 1m 17s`），
+      `reportConnectedFailures` 报 `1 failed in 1 report files` 且
+      `connected-failure-message` 为空。
+      **「信息为空」有确切机制，本轮已复现并根除**：`androidTest` 里的裸
+      `requireNotNull(x)`（不带说明）抛的是 `IllegalArgumentException(null)`——
+      message 为 null，UTP 便记出**空**的 `<failure></failure>`，
+      `reportConnectedFailures` 打印其 `textContent.trim()` 即得空串。
+      本轮在 `VisualInlineVerificationTest#verifyWordSelectionPositions` 上
+      实测复现了完全相同的空消息形态（XML 里确为 `<failure></failure>`）。
+      根除方式改**单一真源**而非逐处补文案：`TerminalLogcatRule` 改用
+      `failure.message ?: failure.javaClass.name`（`0aac566a`）。该规则现已覆盖
+      全部 40 个仪器化类（§5 N41），且 `logcatTail()` 恒返回非空串，
+      故 `connected-failure-message` **结构上不可能再为空**。
+      该用例本身直查 `ESC/CTRL/ALT/HOME` 四键可见，与 run 内唯一相关改动
+      （另一测试类的键盘等待）无调用关系；本轮本地复跑两轮
+      `BehaviorInstrumentedTest` 全类 0 失败。
+      原 run 的具体触发条件无法复现（CI 侧证据已随 run 消失），按
+      `TESTING.md:16` 不臆断成因——但它赖以「不可诊断」的那个形态已被消除，
+      同类再发必然带上下文
 
 ## 32. CI run ：本地复现、取证与处置
 
