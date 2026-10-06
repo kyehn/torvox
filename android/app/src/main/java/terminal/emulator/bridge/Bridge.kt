@@ -63,12 +63,12 @@ data class TerminalConfig(
 /**
  * 包裹 [NativeBridge] 静态 JNI 导出的实例桥接。每个 Bridge 持有会话 ID 并管理生命周期，
  * 使调用方不直接接触会话 ID；所有按会话的 JNI 调用都经 [onSession]，集中处理「拿不到结果」的情况。
- * Bridge 按设计就是通往原生的网关，函数数量对应 JNI 表面而非接口异味。
+ * 函数数量对应 JNI 表面而非接口异味。
  */
 // 对 PollEvent 密封类做 when 分派，每个变体一个分支。
-class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
+class Bridge(private val config: TerminalConfig) {
     /** 原生查询路径：所有查询委托给 [NativeQueryPort]，它与 ffi.rs 的 JNI 查询导出 1:1 对应。 */
-    private val queryPort: TerminalQueryPort = NativeQueryPort { sessionId }
+    private val queryPort = NativeQueryPort { sessionId }
 
     @Volatile private var sessionId: Long = 0L
 
@@ -589,13 +589,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── 终端查询（委托给 TerminalQueryPort 接缝） ──
-    override fun getTitle(): String? = onQuery("getTitle", null) { queryPort.getTitle() }
+    fun getTitle(): String? = onQuery("getTitle", null) { queryPort.getTitle() }
 
-    override fun getActiveSessionTitle(): String =
-        onQuery("getActiveSessionTitle", "") { queryPort.getActiveSessionTitle() }
+    fun getActiveSessionTitle(): String = onQuery("getActiveSessionTitle", "") { queryPort.getActiveSessionTitle() }
 
     // ── 选区 ──
-    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
         queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection)
     }
 
@@ -603,35 +602,35 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // 取值类查询经 NativeQueryPort 转发到真实的原生 JNI 路径，并经 onQuery 把
     // 会话竞态异常转为缺省值，使 UI/触摸路径不崩。下方五个写入类覆写不走 onQuery：
     // 它们返回 Unit，吞掉异常等于让调用方以为写入成功——错误必须出声。
-    override fun clearSearchHighlights() = queryPort.clearSearchHighlights()
+    fun clearSearchHighlights() = queryPort.clearSearchHighlights()
 
-    override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
+    fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
 
-    override fun scrollbackLine(row: Int): String? = onQuery("scrollbackLine", null) { queryPort.scrollbackLine(row) }
+    fun scrollbackLine(row: Int): String? = onQuery("scrollbackLine", null) { queryPort.scrollbackLine(row) }
 
-    override fun scrollbackLength(): Int = onQuery("scrollbackLength", 0) { queryPort.scrollbackLength() }
+    fun scrollbackLength(): Int = onQuery("scrollbackLength", 0) { queryPort.scrollbackLength() }
 
-    override fun cursorViewportPacked(): Long = onQuery("cursorViewportPacked", -1L) {
+    fun cursorViewportPacked(): Long = onQuery("cursorViewportPacked", -1L) {
         queryPort.cursorViewportPacked()
     }
 
-    override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
+    fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
         onQuery("searchAllInScrollback", null) { queryPort.searchAllInScrollback(query, caseSensitive) }
 
-    override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
+    fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
-    override fun setScrollYPx(offsetPx: Float) = queryPort.setScrollYPx(offsetPx)
+    fun setScrollYPx(offsetPx: Float) = queryPort.setScrollYPx(offsetPx)
 
-    override fun getTerminalText(): String? = onQuery("getTerminalText", null) { queryPort.getTerminalText() }
+    fun getTerminalText(): String? = onQuery("getTerminalText", null) { queryPort.getTerminalText() }
 
-    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
+    fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
         onQuery("selectionText", null) {
             queryPort.selectionText(startRow, startCol, endRow, endCol)
         }
 
-    override fun listFontFamilies(): List<String>? = onQuery("listFontFamilies", null) { queryPort.listFontFamilies() }
+    fun listFontFamilies(): List<String>? = onQuery("listFontFamilies", null) { queryPort.listFontFamilies() }
 
-    override fun hyperlinkAt(row: Int, col: Int): String? = onQuery("hyperlinkAt", null) {
+    fun hyperlinkAt(row: Int, col: Int): String? = onQuery("hyperlinkAt", null) {
         queryPort.hyperlinkAt(
             row,
             col,
@@ -640,19 +639,19 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     // 上游选择派生：native 侧已安装选区并回传界限；unknown session 异常
     // 与其余查询方法一致转为缺省值（UI/触摸路径不崩）。
-    override fun selectWordAt(row: Int, col: Int): IntArray? = onQuery("selectWordAt", null) {
+    fun selectWordAt(row: Int, col: Int): IntArray? = onQuery("selectWordAt", null) {
         queryPort.selectWordAt(row, col)
     }
 
-    override fun selectAll(): IntArray? = onQuery("selectAll", null) { queryPort.selectAll() }
+    fun selectAll(): IntArray? = onQuery("selectAll", null) { queryPort.selectAll() }
 
-    override fun wideCharTailCols(row: Int): IntArray = onQuery("wideCharTailCols", IntArray(0)) {
+    fun wideCharTailCols(row: Int): IntArray = onQuery("wideCharTailCols", IntArray(0)) {
         queryPort.wideCharTailCols(row)
     }
 
-    override fun getDefaultFontName(): String = onQuery("getDefaultFontName", "") { queryPort.getDefaultFontName() }
+    fun getDefaultFontName(): String = onQuery("getDefaultFontName", "") { queryPort.getDefaultFontName() }
 
-    override fun getFontInfo(): String? = onQuery("getFontInfo", null) { queryPort.getFontInfo() }
+    fun getFontInfo(): String? = onQuery("getFontInfo", null) { queryPort.getFontInfo() }
 
     companion object {
         private const val TAG = "Bridge"
