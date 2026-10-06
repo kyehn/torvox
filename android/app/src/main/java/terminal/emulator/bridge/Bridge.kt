@@ -295,8 +295,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         // 本帧见到的全部退出事件，按序。上方单槽字段只描述首个退出；
         // 同帧多余退出必须从该列表回收，否则会泄漏（原生 exit_reported 在推送时置位且不重发）。
         val exits: List<ExitInfo> = emptyList(),
-        // BEL 振铃到达（同帧 sticky；提示动作待定行为后另起一步）。
-        val bell: Boolean = false,
     ) {
         /** 把后续轮询到的事件并入本结果，标量字段以后者为准。 */
         fun merge(later: PollResult): PollResult = PollResult(
@@ -310,8 +308,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // 请求事件累加：每个都带不同的 request_id，必须且只能分发一次。
             clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
-            // Bell 与 exit 同为 sticky：本帧一旦置起就保持。
-            bell = bell || later.bell,
         )
     }
 
@@ -386,9 +382,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                     ),
                 ),
             )
-
-        is PollEvent.Bell ->
-            PollResult(bell = true, sessionId = event.sessionId)
     }
 
     // ── 主题 / 外观 ──
