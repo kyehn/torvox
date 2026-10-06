@@ -1167,6 +1167,52 @@ mod tests {
         );
     }
 
+    /// 真机 ZTE P720S20 / Android 13 的 `fonts.xml` 结构：等宽族必须仍以
+    /// DroidSansMono 打头（主字体选择据此 stem 匹配，改动顺序即改渲染字形），
+    /// 而 zh-Hans 必须以常规字重的 Sans 面打头且不含 `fallbackFor="serif"` 的 Serif 面。
+    ///
+    /// 片段逐条摘自真机 `fonts.xml`：等宽族只一个 `DroidSansMono.ttf`，`serif-monospace`
+    /// 是**独立**的具名族（不是别名），zh-Hans 里 Sans 与 Serif 同名同权重并列、
+    /// 且 Thin/Light/DemiLight 排在 Regular 之前。
+    #[test]
+    fn real_device_fonts_xml_keeps_primary_first_and_drops_serif() {
+        const REAL_DEVICE_FONTS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+    <family name="monospace">
+        <font weight="400" style="normal">DroidSansMono.ttf</font>
+    </family>
+    <alias name="sans-serif-monospace" to="monospace" />
+    <family name="serif-monospace">
+        <font weight="400" style="normal" postScriptName="CutiveMono-Regular">CutiveMono.ttf</font>
+    </family>
+    <family lang="zh-Hans">
+        <font weight="100" style="normal" index="2">NotoSansCJK-Thin.ttc</font>
+        <font weight="300" style="normal" index="2">NotoSansCJK-DemiLight.ttc</font>
+        <font weight="400" style="normal" index="2">NotoSansCJK-Regular.ttc</font>
+        <font weight="400" style="normal" index="2" fallbackFor="serif">NotoSerifCJK-Regular.ttc</font>
+    </family>
+</familyset>"#;
+        let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(REAL_DEVICE_FONTS_XML);
+        assert_eq!(
+            monospace,
+            vec!["DroidSansMono.ttf", "CutiveMono.ttf"],
+            "主字体必须仍是 DroidSansMono.ttf 打头，否则渲染字形改变"
+        );
+        let zh_hans = lang_fallbacks
+            .iter()
+            .find(|(lang, _)| lang == "zh-Hans")
+            .expect("真机声明 zh-Hans 族");
+        let names: Vec<&str> = zh_hans.1.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names[0], "NotoSansCJK-Regular.ttc",
+            "常规字重必须排族内首位（真机把 Thin/DemiLight 排在它之前）"
+        );
+        assert!(
+            !names.iter().any(|name| name.contains("Serif")),
+            "fallbackFor=\"serif\" 的面泄漏进 zh-Hans 候选: {names:?}"
+        );
+    }
+
     /// 未声明等宽族的 `fonts.xml` 不产出主字体候选：`resolve_system_monospace_files`
     /// 据此崩溃退出。把该触发条件钉在单测里，任何放宽解析的改动都会立刻暴露。
     #[test]
