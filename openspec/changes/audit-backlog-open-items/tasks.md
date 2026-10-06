@@ -1608,9 +1608,10 @@ W Runtime: SLOW_FRAME session=1 render=128.258792 count=-1 newOutput=false
 - §5 **N41**（仪器化失败不导出 logcat）的取证意图，本轮已由仓内
   `TerminalLogcatRule` 覆盖到 10 个失败率最高的类、并修好了它自身的标签过滤，
   `scripts/test-emulator.nu` 是否仍需改 → 保护文件，请裁决。
-- §4 **D13 / N2-44**、§4 **D7 / N7**、§5 **N8 / N40 / N2-47**：本轮无新证据，
-  均需改保护文件（`docs/specification/`、`.github/workflows/build.yml`、
-  `scripts/check-rust.nu`），按 AGENTS.md 不擅动。
+- §4 **D13 / N2-44**：仍需改 `docs/specification/`（保护文件），按 AGENTS.md 不擅动。
+- §4 **D7 / N7**、§5 **N8 / N40 / N2-47**：**本轮证伪并关闭**，三条的前提都已不成立
+  （release 由 `04754f0c` 落地且实测产出；`cjk_resolve` 已在门禁内；
+  release 变体既被构建也被 macrobenchmark 冒烟），不再需要改任何保护文件。
 - §31 **（未定因）`partialSelectShowsSelectionMenu`**：本轮全量跑两次均未复现
   （同一份代码一红一绿），仍无根因；但 `SelectionEspressoTest` 本轮已接入
   `TerminalLogcatRule`，下次缺席会直接带上 `showSelectionMenu` 的缺席分支日志。
