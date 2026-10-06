@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -47,6 +48,10 @@ class SurfaceLossRecoveryInstrumentedTest {
 
         /** Catppuccin Mocha 背景（0x1E1E2E）：与应用默认主题一致，用作「无墨迹」基准。 */
         private const val BACKGROUND_COLOR = 0x1E1E2E
+
+        /** 选区所在视口行与起始列：与网格列数无关的固定量。 */
+        private const val SELECTION_ROW = 0
+        private const val SELECTION_START_COL = 2
     }
 
     @get:Rule val terminalLogcatRule = TerminalLogcatRule()
@@ -179,4 +184,41 @@ class SurfaceLossRecoveryInstrumentedTest {
         printAndAwait("echo POST_RECOVERY_MARKER", "POST_RECOVERY_MARKER")
         awaitInk("恢复后再输出：")
     }
+
+    @Test
+    fun selectionMenuSurvivesSurfaceRebuild() {
+        // 选区菜单是**独立系统窗口**，由当前那一个 Surface 定位。宿主换 SurfaceView 后
+        // 旧 Surface 已脱离窗口，若菜单不随新 Surface 重显，用户看到的是
+        // 「已选中文字却没有任何菜单」——选区状态仍在 ViewModel 里，不会自愈。
+        printAndAwait("echo SEL_MENU_MARKER", "SEL_MENU_MARKER")
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            activity.terminalViewModel.startSelection(SELECTION_ROW, SELECTION_START_COL)
+            activity.terminalViewModel.updateSelection(SELECTION_ROW, SELECTION_START_COL + 3)
+            activity.terminalViewModel.endSelection()
+        }
+        composeTestRule.waitForIdle()
+        assertNotNull("选区菜单必须先出现", awaitCopyAction())
+
+        val surfaceBefore = findTerminalSurface(composeTestRule.activity)
+        assertTrue("失效注入必须被原生接受", bridge().setSurfaceLossInjectedForTest(true))
+        val rebuilt =
+            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                bridge().writeToPty("echo TICK\n".toByteArray(Charsets.UTF_8))
+                pumpAndText()
+                composeTestRule.waitForIdle()
+                val current =
+                    runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
+                current != null && current !== surfaceBefore
+            }
+        assertNotNull("注入 surface 失效后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView", rebuilt)
+        assertTrue("关闭失效注入必须被原生接受", bridge().setSurfaceLossInjectedForTest(false))
+
+        assertNotNull("换 SurfaceView 后选区菜单必须重现", awaitCopyAction())
+    }
+
+    /** 轮询至选择菜单的「复制」项出现在无障碍树中（返回耗时，null 表示超时）。 */
+    private fun awaitCopyAction(): Long? =
+        UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+            device.hasObject(By.text("复制"))
+        }
 }
