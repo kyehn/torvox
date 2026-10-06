@@ -623,10 +623,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
                         val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
-                        // 供自动化输入法验证的 trace 级锚点——日志序列必须与
-                        // 注入的组字文本一一对应。仅在 DEBUG 下输出：
-                        // 规范要求 release 构建零输出（R8 的 -dontoptimize 不会剔除它）。
-                        if (terminal.emulator.BuildConfig.DEBUG) {
+                        // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
+                        // 门控在调用处而非只靠 LogUtil.d：release 下可省掉整条消息串的拼接。
+                        if (BuildConfig.DEBUG) {
                             LogUtil.d(
                                 "ComposingDiff",
                                 "reconcile prev=${composingBuffer.length}ch next=$newComposing " +
