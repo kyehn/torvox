@@ -6,10 +6,10 @@ import org.junit.Test
 import java.io.File
 
 /**
- * isElf — the linker-wrapper gate: only real ELF binaries may be execve'd
- * through the prefix-shell path; shebang scripts and corrupt files must be
- * excluded. BootstrapInstallerTest reuses ELF magic when faking anchors,
- * but this function itself had no direct coverage.
+ * `isElf` 的直接覆盖：它用于安装结果校验——只有真实 ELF 锚点
+ * （`usr/bin/login`、`usr/bin/bash`）才算引导成功，`isSystemShellScript`
+ * 的解释器脚本与损坏文件都必须被排除。此前只有 `BootstrapInstallerTest`
+ * 在伪造锚点时顺带用到 ELF magic，本函数自身无覆盖。
  */
 class IsElfTest {
     private fun fileWith(vararg bytes: Byte): File = File.createTempFile("elf-magic-test", ".bin").apply {

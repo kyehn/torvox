@@ -601,7 +601,7 @@ impl Session {
         self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
-    /// 读取并清除 `new_output` 标志（见 docs/specification/REFERENCE.md）。由 PTY 摄入
+    /// 读取并清除 `new_output` 标志。由 PTY 摄入
     /// 路径置位，渲染线程是唯一的读清消费者；与 `dirty` 标志相互独立。
     pub fn take_new_output(&self) -> bool {
         self.output_processor.take_new_output()
