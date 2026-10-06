@@ -145,42 +145,23 @@ fn is_evictable(event: &Event) -> bool {
 mod tests {
     use super::*;
 
+    /// 本模块的断言全围绕会话 id 与事件顺序，空剪贴板内容是常量。
+    fn clip(session_id: u64) -> Event {
+        Event::Clipboard {
+            session_id,
+            text: String::new(),
+        }
+    }
+
     #[test]
     fn push_pop_fifo_order() {
         let queue = EventQueue::new();
-        queue.push(Event::Clipboard {
-            session_id: 1,
-            text: String::new(),
-        });
-        queue.push(Event::Clipboard {
-            session_id: 2,
-            text: String::new(),
-        });
-        queue.push(Event::Clipboard {
-            session_id: 3,
-            text: String::new(),
-        });
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 1,
-                text: String::new()
-            })
-        );
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 2,
-                text: String::new()
-            })
-        );
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 3,
-                text: String::new()
-            })
-        );
+        queue.push(clip(1));
+        queue.push(clip(2));
+        queue.push(clip(3));
+        assert_eq!(queue.pop(), Some(clip(1)));
+        assert_eq!(queue.pop(), Some(clip(2)));
+        assert_eq!(queue.pop(), Some(clip(3)));
         assert_eq!(queue.pop(), None);
     }
 
@@ -193,25 +174,13 @@ mod tests {
     #[test]
     fn multiple_events_interleaved() {
         let queue = EventQueue::new();
-        queue.push(Event::Clipboard {
-            session_id: 1,
-            text: String::new(),
-        });
+        queue.push(clip(1));
         queue.push(Event::Exit {
             session_id: 2,
             code: Some(0),
         });
-        queue.push(Event::Clipboard {
-            session_id: 3,
-            text: String::new(),
-        });
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 1,
-                text: String::new()
-            })
-        );
+        queue.push(clip(3));
+        assert_eq!(queue.pop(), Some(clip(1)));
         queue.push(Event::Clipboard {
             session_id: 4,
             text: "hello".into(),
@@ -223,13 +192,7 @@ mod tests {
                 code: Some(0),
             })
         );
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 3,
-                text: String::new()
-            })
-        );
+        assert_eq!(queue.pop(), Some(clip(3)));
         assert_eq!(
             queue.pop(),
             Some(Event::Clipboard {
@@ -244,26 +207,11 @@ mod tests {
     fn push_drops_oldest_when_full() {
         let queue = EventQueue::new();
         for session_sequence in 0..(MAX_QUEUED_EVENTS + 8) {
-            queue.push(Event::Clipboard {
-                session_id: session_sequence as u64,
-                text: String::new(),
-            });
+            queue.push(clip(session_sequence as u64));
         }
         // 最旧事件须被丢弃，最新事件保留。
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 8,
-                text: String::new()
-            })
-        );
-        assert_eq!(
-            queue.pop(),
-            Some(Event::Clipboard {
-                session_id: 9,
-                text: String::new()
-            })
-        );
+        assert_eq!(queue.pop(), Some(clip(8)));
+        assert_eq!(queue.pop(), Some(clip(9)));
     }
 
     #[test]
@@ -277,14 +225,8 @@ mod tests {
                 code: Some(0),
             });
         }
-        queue.push(Event::Clipboard {
-            session_id: 999,
-            text: String::new(),
-        });
-        queue.push(Event::Clipboard {
-            session_id: 1000,
-            text: String::new(),
-        });
+        queue.push(clip(999));
+        queue.push(clip(1000));
         // 全部 Exit 存活，其余事件被丢弃。
         let mut exits = 0;
         while let Some(event) = queue.pop() {
@@ -302,41 +244,23 @@ mod tests {
         let queue = EventQueue::new();
         // 先填事件，末尾补一个 Exit 至满。
         for session_sequence in 0..(MAX_QUEUED_EVENTS - 1) {
-            queue.push(Event::Clipboard {
-                session_id: session_sequence as u64,
-                text: String::new(),
-            });
+            queue.push(clip(session_sequence as u64));
         }
         queue.push(Event::Exit {
             session_id: 42,
             code: Some(7),
         });
         // 队列已满；新事件应淘汰最旧的（session 0），而非 Exit。
-        queue.push(Event::Clipboard {
-            session_id: 1000,
-            text: String::new(),
-        });
+        queue.push(clip(1000));
         let popped = (0..MAX_QUEUED_EVENTS)
             .filter_map(|_| queue.pop())
             .collect::<Vec<_>>();
-        assert_eq!(
-            popped[0],
-            Event::Clipboard {
-                session_id: 1,
-                text: String::new()
-            }
-        );
+        assert_eq!(popped[0], clip(1));
         assert!(popped.contains(&Event::Exit {
             session_id: 42,
             code: Some(7),
         }));
-        assert_eq!(
-            popped[MAX_QUEUED_EVENTS - 1],
-            Event::Clipboard {
-                session_id: 1000,
-                text: String::new()
-            }
-        );
+        assert_eq!(popped[MAX_QUEUED_EVENTS - 1], clip(1000));
     }
 
     #[test]
@@ -349,10 +273,7 @@ mod tests {
         };
         queue.push(pending_read.clone());
         for session_sequence in 0..MAX_QUEUED_EVENTS {
-            queue.push(Event::Clipboard {
-                session_id: session_sequence as u64,
-                text: String::new(),
-            });
+            queue.push(clip(session_sequence as u64));
         }
         // 队列已满（1 个 ClipboardRead + 1024 个 Clipboard）。被淘汰的只能是 Clipboard。
         queue.push(Event::Bell { session_id: 1000 });
@@ -367,10 +288,7 @@ mod tests {
     fn push_never_evicts_clipboard_read_when_mixed() {
         let queue = EventQueue::new();
         for session_sequence in 0..(MAX_QUEUED_EVENTS - 1) {
-            queue.push(Event::Clipboard {
-                session_id: session_sequence as u64,
-                text: String::new(),
-            });
+            queue.push(clip(session_sequence as u64));
         }
         queue.push(Event::ClipboardRead {
             session_id: 42,
