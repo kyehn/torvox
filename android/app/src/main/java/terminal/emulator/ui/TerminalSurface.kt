@@ -634,14 +634,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         return true
                     }
 
-                    // 基类的实现会把请求跨进程转发给 IME（`mIMM.requestCursorUpdates`），
-                    // 而终端的光标与选区由我们自己绘制，锚点对 IME 无用。窗口拆除期间
-                    // IME 已把连接置为 inactive，那次转发只会换来
-                    // `RemoteInputConnectionImpl: requestCursorAnchorInfo on inactive
-                    // InputConnection` 并让本方法抛 RemoteException。终端从不需要
-                    // 光标锚点，故直接声明不支持。
-                    override fun requestCursorUpdates(mode: Int): Boolean = false
-
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused) {
                             composingBuffer = ""
@@ -770,11 +762,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private var overlayContent: HandleOverlayLayout? = null
         private val startHandleRect = Rect()
         private val endHandleRect = Rect()
-
-        /** Hit-test rects for the drag handles (surface coordinates). */
-        internal fun startHandleHitRect() = startHandleRect
-
-        internal fun endHandleHitRect() = endHandleRect
 
         /**
          * 系统 Material 选区手柄：解析平台主题属性
