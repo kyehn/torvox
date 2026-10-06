@@ -92,7 +92,7 @@ class TerminalForegroundService : Service() {
             intent.getIntExtra(EXTRA_SESSION_COUNT, 0).coerceAtLeast(0)
         } else {
             // 裸 start()（冷启动/首个会话）不带计数：不得回落成 1——此时可能尚无会话，
-            // 谎报「1 个活动会话」并为不存在的会话持有唤醒锁（R21-T2）。
+            // 谎报「1 个活动会话」并为不存在的会话持有唤醒锁。
             // 沿用上次已知值（冷启动为 0，即「启动中」）。
             sessionCount
         }

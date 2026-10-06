@@ -2311,7 +2311,7 @@ fn search_all_no_matches_returns_empty() {
     );
 }
 
-/// R21-T1：锁外查询通道与方法版同结果——JNI 侧只将会话锁删减到取通道，
+/// 锁外查询通道与方法版同结果——JNI 侧只将会话锁删减到取通道，
 /// 查询语义必须零漂移。
 #[test]
 fn search_via_bare_channel_matches_method() {
@@ -2608,7 +2608,7 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
     );
 }
 
-/// R16-T5：CursorInfo 必须携带产出本帧时的真实网格行列，与同批 CellData 同源。
+/// CursorInfo 必须携带产出本帧时的真实网格行列，与同批 CellData 同源。
 /// resize 入队时会话侧原子缓存提前发布新尺寸，而 VT 尚未应用；渲染线程若读缓存，
 /// 收缩帧会被 `build_row_ranges` 判空丢弃（IME 弹出/旋转必现）。
 /// 断言默认网格下推送的 CursorInfo 与单元数一致。
@@ -2630,7 +2630,7 @@ fn cursor_info_carries_producing_frame_grid_dimensions() {
     );
 }
 
-/// R16-T5（resize 变体）：resize 应用后推送的帧必须携带新网格，
+/// resize 变体：resize 应用后推送的帧必须携带新网格，
 /// 而不是入队瞬间缓存的尺寸与 VT 旧网格的混搭。
 #[test]
 fn cursor_info_carries_resized_grid_dimensions() {

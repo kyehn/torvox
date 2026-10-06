@@ -178,7 +178,7 @@ internal data class SessionEntry(
 
     /**
      * 一帧的起止时刻（纳秒）：渲染线程是唯一写者，看门狗是读者。
-     * 两个独立 `@Volatile` 会被跨帧混读，伪造出 `start > done`（R25-T2）。
+     * 两个独立 `@Volatile` 会被跨帧混读，伪造出 `start > done`。
      * 整条记录单次发布，读者拿到的必定是同一帧的起止。
      */
     @Volatile var frameMarks: FrameMarks = FrameMarks()
@@ -236,7 +236,7 @@ internal data class SessionEntry(
      * 三项是一条逻辑记录，由渲染线程与 `surfaceTransitionExecutor` 线程各自成组读写。
      * `AtomicReference` 装整条不可变记录：读到的必定是某一次完整写入；
      * 写回一律 CAS——期间若有复位落地（整条替换），CAS 失败并按新值重判，
-     * 旧计数永远写不回去（R25-T1）。
+     * 旧计数永远写不回去。
      */
     val surfaceRecreateBudget = AtomicReference(SurfaceRecreateBudget())
 
@@ -465,7 +465,7 @@ constructor(
      * 只有读取失败才回 null——回空串会被远端当成「用户清空了剪贴板」。
      *
      * 剪贴板只读一次：同一帧内 N 个积压请求各做一次 binder 读取，
-     * 洪泛时一帧内上千次往返（R17-T2）。读取结果对本帧所有请求相同
+     * 洪泛时一帧内上千次往返。读取结果对本帧所有请求相同
      * （单线程同步派发，中间无交错），逐个回复时复用即可。
      */
     private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
@@ -780,7 +780,7 @@ constructor(
         val budgetRef = entry.surfaceRecreateBudget
         while (true) {
             // 每次重读：CAS 若因并发复位失败，重判必须用最新预算，
-            // 否则会把复位后的新预算又推回耗尽（R25-T1）。
+            // 否则会把复位后的新预算又推回耗尽。
             val budget = budgetRef.get()
             val decision = decideSurfaceRecreate(budget.attempts, budget.lastRequestNanos, now)
             if (decision.exhausted) {
@@ -3760,8 +3760,8 @@ internal fun decideSurfaceRecreate(attempts: Int, lastRequestNanos: Long, nowNan
 internal data class SurfaceRecreateDecision(val request: Boolean = false, val exhausted: Boolean = false)
 
 /**
- * 按主题模式从设置快照选出终端主题名（纯函数：的重读选择逻辑可单元测试，
- * R27-T1；`resolveThemeName` 只负责快照读取与未知清除）。
+ * 按主题模式从设置快照选出终端主题名（纯函数，重读选择逻辑可单元测试；
+ * `resolveThemeName` 只负责快照读取与未知清除）。
  *
  * `themeMode` 为 `day`/`night`/`fixed` 时直取对应键；其他值按 `appThemeMode`
  * （`day`/`night` 直定，否则跟随系统）决定用日间名还是夜间名。
