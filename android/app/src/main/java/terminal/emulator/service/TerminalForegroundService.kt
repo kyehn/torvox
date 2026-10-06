@@ -131,22 +131,12 @@ class TerminalForegroundService : Service() {
                 .setContentIntent(pending)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build()
-        try {
-            startForeground(NOTIFICATION_ID, notification)
-        } catch (exception: Exception) {
-            // minSdk 33 下缺少 POST_NOTIFICATIONS 权限（以及部分厂商 ROM）
-            // 会使主 onStartCommand 路径上的 startForeground 抛 SecurityException
-            // ——静态的 updateSessionCount 路径已有守卫；此路径绝不能使进程崩溃。
-            //
-            // 已知局限：运行期的 foregroundServiceRunning 标志
-            // 在此调用之前已被 startForegroundServiceIfNeeded 置真，
-            // 且没有任何失败信号回传——后续的 startForegroundServiceIfNeeded
-            // 会因（陈旧的）标志而跳过启动，直到计数经 updateForegroundSessionCount
-            // 归零或 stopForegroundService 运行。服务本身仍由运行期的 startService
-            // 调用所绑定，故唤醒锁与前台进程保证仍然成立；只是缺少通知。
-            // 关闭所有会话即可自愈。
-            LogUtil.e("TerminalForegroundService", "startForeground failed", exception)
-        }
+        // 缺失 POST_NOTIFICATIONS 不会使这里抛异常（平台文档：前台服务照常启动，
+        // 只是通知不进抽屉、仅见于任务管理器）；实测 API 35 上拒绝该权限后
+        // startForeground 仍成功（dumpsys 报 isForeground=true）。
+        // 真正的失败（缺 FOREGROUND_SERVICE 权限、被判为后台启动）按 DESIGN:16
+        // 记日志并让进程崩掉，不在此静默吞掉。
+        startForeground(NOTIFICATION_ID, notification)
     }
 
     /**
