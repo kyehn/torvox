@@ -288,13 +288,21 @@ private fun RowScope.SettingsSelectorPill(
 /** 字体缺 CJK 回退时的警示橙，与 [CjkFallbackMissingWarning] 配套。 */
 internal val WARNING_ORANGE = Color(0xFFFF9800)
 
-/** 字体缺 CJK 回退的警告行。「无任何 CJK 回退」与「有回退但不覆盖当前字体」共用同一句提示。 */
+/**
+ * 字体缺 CJK 回退的警告行。「无任何 CJK 回退」与「有回退但不覆盖当前字体」共用同一句提示。
+ *
+ * 两块内容必须挂在同一个 [Column] 下：本函数要作为**单一发射源**被重组跟踪
+ * （compose-lints 的 `ComposeMultipleContentEmitters`），顶层散开发射会让
+ * 调用处的重组粒度变粗。Column 默认 wrap 内容，故列入父容器后的测量结果不变。
+ */
 @Composable
 internal fun CjkFallbackMissingWarning() {
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = stringResource(R.string.cjk_fallback_missing_warning),
-        style = MaterialTheme.typography.bodySmall,
-        color = WARNING_ORANGE,
-    )
+    Column {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.cjk_fallback_missing_warning),
+            style = MaterialTheme.typography.bodySmall,
+            color = WARNING_ORANGE,
+        )
+    }
 }
