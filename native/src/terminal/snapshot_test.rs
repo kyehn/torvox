@@ -305,43 +305,6 @@ pub fn run_ref_test(
     true
 }
 
-/// Run all ref tests in a directory. Tests are `.seq` files with matching `.json`.
-/// Panics on the first failure.
-// 手动回归基线工具：按 tests/ref 工作流手工执行，不随自动化测试调用。
-#[allow(dead_code)]
-pub fn run_ref_test_dir(dir: &str, rows: u32, cols: u32, scrollback: u32) {
-    let test_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("ref")
-        .join(dir);
-
-    assert!(
-        test_dir.exists(),
-        "test directory {test_dir:?} does not exist"
-    );
-
-    let mut entries: Vec<_> = fs::read_dir(&test_dir)
-        .unwrap_or_else(|e| panic!("failed to read {test_dir:?}: {e}"))
-        .filter_map(|e| e.ok())
-        .collect();
-    entries.sort_by_key(|e| e.file_name());
-
-    for entry in entries {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("seq") {
-            continue;
-        }
-        let json_path = path.with_extension("json");
-        eprintln!(
-            "  ref {dir}/{}",
-            path.file_stem()
-                .expect("snapshot path must have a file stem")
-                .to_string_lossy()
-        );
-        run_ref_test(&path, &json_path, rows, cols, scrollback);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
