@@ -1007,10 +1007,9 @@ constructor(
             // 落盘会发生在删除之后并重建 preferences_pb，清除静默不生效（R16-T6）。
             settingsRepository.dropPendingBootstrapUrlEdits()
             try {
-                // 进程级 DataStore 单例与两个监视器仍在运行：删后必须重建，
-                // 否则下一次设置写入失败，且 `BootGuard` 计数器将静默写不进去
-                // （崩溃循环保护就此失效）。
-                val watchedDirs = listOf("prefs", "boot_state")
+                // 进程级 DataStore 单例仍在运行：删后必须重建，
+                // 否则下一次设置写入失败。
+                val watchedDirs = listOf("prefs")
                 val undeletedWatchedDirs =
                     watchedDirs.filterNot { deletedOrAbsent(context.getDir(it, Context.MODE_PRIVATE)) }
                 // listFiles() 返回 null 是 I/O 失败而非「目录为空」：按未清除记账。
@@ -1507,7 +1506,7 @@ constructor(
                 runtime.closeSession(id)
             } catch (exception: Exception) {
                 // closeSession 绝不能逃逸到主线程的未捕获处理器：
-                // BootGuard 会视其为崩溃并杀掉进程。
+                // 崩溃会让整个会话进程不可用。
                 // 原生侧能容忍未知/已死的会话。
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e("TerminalViewModel", "closeSession failed for id=$id", exception)
