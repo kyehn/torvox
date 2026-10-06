@@ -287,14 +287,9 @@ impl Renderer {
         let tex_size = output.texture.size();
         if tex_size.width != config_width || tex_size.height != config_height {
             // 尺寸不一致：surface 已被 SurfaceFlinger 缩放，而当前配置仍是旧尺寸。
-            //
-            // 旧实现在这里就地重配，然后**继续用刚取到的旧尺寸纹理**建 FrameContext
-            // 渲染——那一帧画进一个尺寸已不合脚的 swapchain，且 `surface_config.take()?`
-            // 那条返回 `None` 的路上，刚取得的 SurfaceTexture 被丢弃且从不 present，
-            // 交换链因此丢掉一次缓冲区。
-            //
-            // 改为：按纹理实际尺寸重配，丢弃本次纹理并跳过本帧。下一帧取得的纹理
-            // 尺寸即与配置一致，于是渲染的是正确的目标，且没有缓冲区泄漏。
+            // 按纹理实际尺寸重配并丢弃本次纹理、跳过本帧——绝不拿旧尺寸纹理渲染，
+            // 那会把帧画进尺寸已不合脚的 swapchain；跳过也保证刚取得的 SurfaceTexture
+            // 不被丢弃而不 present，交换链不丢缓冲区。下一帧取得的纹理尺寸即与配置一致。
             log::warn!(
                 "begin_frame: size mismatch! config={}x{} texture={}x{}; reconfiguring and skipping frame",
                 config_width,
