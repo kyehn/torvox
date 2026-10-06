@@ -1778,8 +1778,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 viewModel?.runtime?.setScrollRemainderPx(0f)
                 isScrolling = true
                 onScrollingStateChanged?.invoke(true)
-                // velocityY 为像素/秒,下移为正:直接除以行高换算为行/秒,与 onScroll 同向(下移 older)。
-                // 旧代码取反导致惯性方向与拖动方向相反,已修正。
+                // 与 onScroll 同向：velocityY 为像素/秒、下移为正，除以行高得行/秒。
                 val rowVelocity = flingRowsPerSecond(velocityY, cellHeight)
                 flingScroller.fling(
                     0,
