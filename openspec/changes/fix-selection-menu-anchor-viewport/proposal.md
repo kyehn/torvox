@@ -24,6 +24,10 @@
 - `menuAnchor` 的两处落点共用「整体落在视口内」判据，越界即视为无处可放。
 - `text-selection` spec 增补一条 Requirement：菜单 MUST 整体位于视口内，
   选区滚出视口时 MUST 隐藏。
+- 取证能力（不改被测行为、不改保护文件）：`TerminalLogcatRule` 的标签清单改为
+  匹配 logcat 里的**实际标签**，取回此前被过滤掉的渲染失效锚点；`SelectionEspressoTest`
+  与 `BehaviorInstrumentedTest` 接入该规则；终端页面就绪门槛收口「系统无响应对话框」
+  关闭；`diag.CursorPixelAcceptanceTest` 补用例收尾。详见 `tasks.md` 第 2 节。
 
 ## Non-goals
 
