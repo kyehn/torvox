@@ -269,11 +269,11 @@ internal class DocumentMutations(private val context: Context, private val rootD
                     LinkOption.NOFOLLOW_LINKS,
                 )
             } else if (src.isDirectory) {
-                val dst = File(dstParent, src.name)
-                if (!dst.mkdirs() && !dst.isDirectory) {
-                    throw IOException("Failed to create directory '${dst.path}'")
+                val destination = File(dstParent, src.name)
+                if (!destination.mkdirs() && !destination.isDirectory) {
+                    throw IOException("Failed to create directory '${destination.path}'")
                 }
-                src.listFiles()?.forEach { stack.addLast(it to dst) }
+                src.listFiles()?.forEach { stack.addLast(it to destination) }
             } else {
                 src.copyTo(File(dstParent, src.name))
             }

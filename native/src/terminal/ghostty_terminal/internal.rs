@@ -206,9 +206,13 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::ScrollbackLength(tx) => {
-                let len = scrollback_len(terminal);
-                log::debug!("ghostty_terminal: scrollback_rows query returned {len}");
-                try_send(&tx, len, "ghostty_terminal: query channel send failed");
+                let scrollback_rows = scrollback_len(terminal);
+                log::debug!("ghostty_terminal: scrollback_rows query returned {scrollback_rows}");
+                try_send(
+                    &tx,
+                    scrollback_rows,
+                    "ghostty_terminal: query channel send failed",
+                );
             }
             Query::ReadLineText { row, tx } => {
                 try_send(
@@ -379,8 +383,8 @@ impl super::GhosttyTerminal {
                     } else {
                         unicode_char
                     });
-                    if let Some(cp) = unshifted_cp {
-                        event.set_unshifted_codepoint(cp);
+                    if let Some(unshifted) = unshifted_cp {
+                        event.set_unshifted_codepoint(unshifted);
                     }
                     // RK2：SHIFT 仅改变了打印字符时（如 Shift+; ->:），去掉 SHIFT，
                     // 免得 Kitty 键盘协议为普通可打印输入多发一个

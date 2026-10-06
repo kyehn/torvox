@@ -215,7 +215,7 @@ impl Renderer {
                 mapped_at_creation: false,
             }));
         }
-        let buf = match self.kgp_uniform_buffer.as_ref() {
+        let uniform_buffer = match self.kgp_uniform_buffer.as_ref() {
             Some(b) => b,
             None => return,
         };
@@ -227,7 +227,7 @@ impl Renderer {
             self.kgp_atlas_height as f32,
         );
         self.queue
-            .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+            .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
         let texture = match self.kgp_texture.as_ref() {
             Some(t) => t,
@@ -255,7 +255,7 @@ impl Renderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: buf.as_entire_binding(),
+                    resource: uniform_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,

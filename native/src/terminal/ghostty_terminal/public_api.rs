@@ -96,12 +96,12 @@ impl super::GhosttyTerminal {
                     })
                 }));
                 if let Err(panic) = result {
-                    let msg = panic
+                    let panic_message = panic
                         .downcast_ref::<String>()
                         .map(|s| s.as_str())
                         .or_else(|| panic.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown panic payload");
-                    log::error!("ghostty_terminal thread panicked: {msg}");
+                    log::error!("ghostty_terminal thread panicked: {panic_message}");
                     // 标记后续所有操作失败，避免调用方向死信道静默发命令。
                     panicked_for_run.store(true, Ordering::Release);
                 }
@@ -153,12 +153,12 @@ impl super::GhosttyTerminal {
 
     pub fn vt_write(&mut self, data: &[u8]) {
         let sanitized = sanitize_vt_input(data);
-        let mut buf = Vec::with_capacity(data.len() + 4);
-        buf.extend_from_slice(&sanitized);
+        let mut buffer = Vec::with_capacity(data.len() + 4);
+        buffer.extend_from_slice(&sanitized);
         // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，此处不得追加
         // ST/SGR 提前闭合（会截断合法跨块 OSC 并洗掉颜色）。用 try_send：VT 线程卡住时
         // 不得无限期阻塞调用方（与 pty_write 同策略）。
-        if let Err(error) = self.cmd_tx.try_send(Command::Write(buf)) {
+        if let Err(error) = self.cmd_tx.try_send(Command::Write(buffer)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
@@ -169,7 +169,7 @@ impl super::GhosttyTerminal {
     /// 适用于 PTY 输出的文本级 `\n`→`\r\n` 转换；VT 控制序列、DEC 矩形操作与二进制
     /// VT 数据应改用 [`Self::vt_write`]。
     pub fn pty_write(&mut self, data: &[u8]) {
-        let mut buf = Vec::with_capacity(data.len() + 4);
+        let mut buffer = Vec::with_capacity(data.len() + 4);
         // 用上次调用的末字节识别跨块拆分的 `\r`/`\n`（Linux PTY 输出常见）；否则
         // LF→CRLF 转换会多插入一个 `\r`，产生 `\r\r\n`。
         let mut prev: u8 = self.last_pty_write_byte;
@@ -181,9 +181,9 @@ impl super::GhosttyTerminal {
             // 裸 LF 转成 CRLF，但仅当其前一个字节不是 CR；否则本已含 CRLF 的输入
             // （PTY 输出常见）会变成 CRCRLF，多出一个回车。
             if sanitized == b'\n' && prev != b'\r' {
-                buf.push(b'\r');
+                buffer.push(b'\r');
             }
-            buf.push(sanitized);
+            buffer.push(sanitized);
             prev = sanitized;
         }
         // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，
@@ -192,7 +192,7 @@ impl super::GhosttyTerminal {
         self.last_pty_write_byte = prev;
         // 用 try_send：本方法在持有会话锁的会话/渲染路径上运行，命令通道满（VT 线程
         // 忙于长命令）时不得无限期阻塞调用方；丢弃一块可接受——VT 引擎是帧式的。
-        if let Err(error) = self.cmd_tx.try_send(Command::Write(buf)) {
+        if let Err(error) = self.cmd_tx.try_send(Command::Write(buffer)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
