@@ -24,7 +24,12 @@ class TerminalLogcatRule : TestRule {
                 base.evaluate()
             } catch (failure: Throwable) {
                 throw AssertionError(
-                    "${failure.message}${System.lineSeparator()}" +
+                    // 无消息的抛出（`requireNotNull(x)` 不带说明即抛
+                    // `IllegalArgumentException(null)`）会让 UTP 记出空的
+                    // `<failure></failure>`，`connected-failure-message` 也就
+                    // 打印空串——这正是 §31「红且断言信息为空」的形态。
+                    // 补上异常类型名，失败报告恒有可读内容。
+                    "${failure.message ?: failure.javaClass.name}${System.lineSeparator()}" +
                         logcatTail(),
                     failure,
                 )
