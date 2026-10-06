@@ -5,9 +5,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import terminal.emulator.TerminalLogcatTest
 import java.io.File
 
-class DocumentsProviderInstrumentedTest {
+class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     private val authority = "com.termux.documents"
 
     @Test

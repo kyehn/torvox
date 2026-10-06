@@ -16,10 +16,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.closeSettingsOverlay
 
 @RunWith(AndroidJUnit4::class)
-class BootstrapInstrumentedTest {
+class BootstrapInstrumentedTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule

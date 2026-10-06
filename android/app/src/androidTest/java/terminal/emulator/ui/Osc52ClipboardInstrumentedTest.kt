@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
@@ -25,7 +26,7 @@ import terminal.emulator.waitForSession
  * screenshots, no OCR.
  */
 @RunWith(JUnit4::class)
-class Osc52ClipboardInstrumentedTest {
+class Osc52ClipboardInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 15_000L
     }

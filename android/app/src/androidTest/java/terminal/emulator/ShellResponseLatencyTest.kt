@@ -11,7 +11,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 
@@ -26,9 +26,7 @@ import terminal.emulator.awaitBridge
  * deliberately generous — they exist to catch ORDER-OF-MAGNITUDE regressions, while the logged
  * UX_METRIC samples carry the real trend for human review.
  */
-class ShellResponseLatencyTest {
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
-
+class ShellResponseLatencyTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)

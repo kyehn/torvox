@@ -11,7 +11,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatRule
+import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.countBluishPixels
@@ -32,9 +32,7 @@ import terminal.emulator.waitForTerminalScreen
  * 且此后隔离会话在空闲分支恒被判为“会话不一致”而永不重绘，标记永久丢失
  * （实测红/蓝像素恒为 0）。字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑）。
  */
-class SgrColorPixelAcceptanceTest {
-    @get:Rule val terminalLogcatRule = TerminalLogcatRule()
-
+class SgrColorPixelAcceptanceTest : TerminalLogcatTest() {
     @get:Rule
     val notificationPermission =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
