@@ -1573,7 +1573,4 @@ constructor(
         }
     }
 
-    fun setSessionTitle(title: String) {
-        _state.update { it.copy(title = title) }
     }
-}
