@@ -1736,3 +1736,26 @@ detekt `--auto-correct`、`nix fmt` 全部通过，产出仅 `flake.lock` 的
 
 这不是仓库缺陷，是两个改写同一分支的进程相撞。规避办法只有一条：
 **`fmt` 触发后不要推送，等它结束再推**。
+
+### 33.5 code-review-skill 双轴复审（`e50fcf73..633d89cb`）
+
+**Standards 轴**
+
+- （硬）无。`.markdownlint-cli2.jsonc` 不在 AGENTS.md 保护清单内，
+  `.markdownlint.jsonc`（保护文件）未改一行；新文件只含 `ignores`，
+  与 `.markdownlint.jsonc` 的规则集职责不重叠，不构成重复配置。
+- （已修）首版配置注释 20 行、叙述有重叠，违反 `STYLE.md:56`「注释保持极简、
+  只在绝对必要时编写」。已压缩到 12 行且不丢任何一条可复用的「为什么」
+  （工具不读 `.gitignore` 的实测、`--fix` 会改外部源码、`.github/` 是保护文件）。
+- （judgement call，按 KISS 不改）`ignores` 与 `check-rust.nu:12` 命令行里的
+  `"#target/**" "#android/**/build/**"` 重复。脚本属保护文件不能改，而删掉
+  配置侧会让 `fmt`/`build` 重新变红——两份都在是刻意的冗余，记此以免后续
+  「清理重复」时只删一边。
+
+**Spec 轴**
+
+- §33 声称的修法（只加配置文件、不动工作流与规则集）与 diff 一致，无 scope creep。
+- 无弱化断言、无新增跳过/忽略、无吞错入口；本次改动不触及任何被测行为
+  （纯工具配置）。
+- 台账 §5 N9 的更正是事实核对：改动前仓内确无该文件（`ls` 零命中），
+  「已修」与仓库状态不符，已按实测改写。
