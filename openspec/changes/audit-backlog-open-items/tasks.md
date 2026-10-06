@@ -1709,6 +1709,13 @@ in 42 files`，全部 970 处来自
 | 无 `.markdownlint-cli2.jsonc` | `Linting: 320 files / 2578 issues in 52 files`（红） |
 | 有 | `Linting: 158 files / 0 issues in 0 files`，`--fix` 亦为 0 |
 
+CI 复核：run（head `69524c71`）的 `Run set -e` 一步**整步转绿**——
+markdownlint、`cargo fmt`、`cargo clippy --fix`、gradle wrapper/spotlessApply/
+detekt `--auto-correct`、`nix fmt` 全部通过，产出仅 `flake.lock` 的
+`nix flake update` 增量（`cargo fmt`/`spotlessApply`/`nix fmt` 均无改动可做，
+说明树本身已是格式化状态）。随后 run（head `3201a034`）`fmt` **全绿 5m25s**，
+`ad-m/github-push-action` 以 `force_with_lease` 推送成功。
+
 ### 33.3 对台账自身的更正
 
 §5 N9 早已把本条记成「本轮已修：改用 `.markdownlint-cli2.jsonc` 的 `ignores`」，
@@ -1718,3 +1725,14 @@ in 42 files`，全部 970 处来自
 
 教训与 §32.5 同源：**`fmt` 只在手动触发时跑，`check` 只按日跑**，
 门禁与配置都可能与仓库脱节而无人察觉。
+
+### 33.4 操作纪律：`fmt` 与本地推送互斥
+
+`fmt.yml:53-59` 的 `ad-m/github-push-action@master` 用 `force_with_lease: true`
+推送 `git commit --amend` 后的提交——它改写 `main` 的**头部**提交。因此
+**`fmt` 运行期间任何本地推送都会让 lease 过期**，报
+`! [rejected] main -> main (stale info)`。本轮第一次复跑正是这样红的
+（我在它跑到一半时推了台账提交）；停手不再推送后立即全绿。
+
+这不是仓库缺陷，是两个改写同一分支的进程相撞。规避办法只有一条：
+**`fmt` 触发后不要推送，等它结束再推**。
