@@ -25,6 +25,7 @@ import terminal.emulator.placeTextAtRow
 import terminal.emulator.scrollViewportToBottom
 import terminal.emulator.terminalGridColumns
 import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalPixels
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -243,6 +244,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     fun verifyWordSelectionPositions() {
         Log.i("VisualInline", "==== Word Selection Position Verification ====")
         composeRule.waitForSession()
+        // 本用例采样像素（截图差分找手柄），须再等原生 Surface 挂上，否则量到全零。
+        composeRule.waitForTerminalPixels()
         bridge = composeRule.getBridge()
         Assert.assertNotNull("Bridge not ready", bridge)
 
@@ -305,6 +308,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     fun verifyUrlSelectionPositions() {
         Log.i("VisualInline", "==== URL Selection Position Verification ====")
         composeRule.waitForSession()
+        composeRule.waitForTerminalPixels()
         bridge = composeRule.getBridge()
         Assert.assertNotNull(bridge)
         tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
