@@ -625,7 +625,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
                         // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
                         // 门控在调用处而非只靠 LogUtil.d：release 下可省掉整条消息串的拼接。
-                        if (BuildConfig.DEBUG) {
+                        if (terminal.emulator.BuildConfig.DEBUG) {
                             LogUtil.d(
                                 "ComposingDiff",
                                 "reconcile prev=${composingBuffer.length}ch next=$newComposing " +
