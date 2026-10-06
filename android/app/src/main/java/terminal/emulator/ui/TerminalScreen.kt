@@ -663,11 +663,13 @@ fun TerminalScreen(
 
                             val themeAccentArgb = themeAccent.toArgb()
 
-                            // 以整个选区状态为 key 的单一 effect：
+                            // 以整个选区状态与承载它的 Surface 为 key 的单一 effect：
                             // key 变化时先取消正在运行的 effect，
                             // 故未改变锚点单元格就结束的拖动不会把手柄留在隐藏状态
                             // （此前拆分的显示/隐藏 effect 会在软件渲染器上乱序执行，
                             // 在显示之后又隐藏）。
+                            // surfaceRef 必须在 key 里：AndroidView 重建 SurfaceView 时
+                            // 旧的已脱离窗口，不重启 effect 就再无手柄（选区仍在）。
                             LaunchedEffect(
                                 selectionActive,
                                 selection.dragging,
@@ -676,6 +678,7 @@ fun TerminalScreen(
                                 hiRow,
                                 hiCol,
                                 themeAccentArgb,
+                                surfaceRef.value,
                             ) {
                                 // 手柄拖动进行中时，单一覆盖层拥有触摸事件流
                                 // 并在进程内重定位手柄
@@ -709,7 +712,11 @@ fun TerminalScreen(
                                     }
                                         .toArgb()
                                 // 选择菜单走 Surface 侧 PopupWindow 定位与绘制，不用系统 ActionMode。
-                                LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {
+                                // surfaceRef 必须在 key 里：PopupWindow 是由**那一个**
+                                // Surface 承载的独立系统窗口，AndroidView 重建 SurfaceView 后
+                                // 旧 Surface 已脱离窗口，`showSelectionMenu` 会走「未附着」分支
+                                // 静默返回；key 不含它则 effect 不重启，菜单就此永久缺席。
+                                LaunchedEffect(selection.pasteOnly, selection.menuDismissed, menuSurface) {
                                     if (selection.menuDismissed) {
                                         menuSurface.hideSelectionMenu()
                                     } else {
