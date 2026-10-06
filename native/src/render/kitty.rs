@@ -1,9 +1,11 @@
 //! Kitty 图像放置的图集组装与 GPU 实例构建。
 //!
 //! VT 线程采集[`KittyPlacementFrame`]（含 RGBA8 像素与视口几何），本模块在渲染线程完成两步：
-//! 1. 横条带图集打包：各源子矩形并排写入单张 RGBA 图集（单图全图常见情形单拷贝直传）。
+//! 1. 横条带图集打包：各源子矩形并排写入单张 RGBA 图集（单图全图常见情形零拷贝借用）。
 //! 2. 实例构建：视口网格坐标映射为像素 quad（与单元格 quad 同约定：左上原点，Y 向下），
 //!    UV 归一化到图集尺寸（KGP 着色器直接采样 UV，不做像素换算）。
+
+use std::borrow::Cow;
 
 use crate::render::KittyGraphicsInstance;
 use crate::terminal::ghostty_terminal::KittyPlacementFrame;
@@ -126,7 +128,7 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             source_height,
         );
     }
-    Some((atlas, layout.width, layout.height, layout.entries))
+    Some((Cow::Owned(atlas), layout.width, layout.height, layout.entries))
 }
 
 /// 源矩形钳制到图像边界（防御上游行为漂移，避免越界 panic）。
@@ -242,15 +244,15 @@ pub(crate) fn layout_entries(
 }
 
 /// 打包产物：（图集 RGBA，宽，高，实例）。
-type AtlasInstances = (Vec<u8>, u32, u32, Vec<KittyGraphicsInstance>);
+type AtlasInstances<'a> = (Cow<'a, [u8]>, u32, u32, Vec<KittyGraphicsInstance>);
 
 /// 一站式：打包图集 + 构建实例（FFI 渲染线程入口）。
 /// 无可见放置时返回 None（调用方清空实例与图集）。
-pub fn pack_and_build(
-    frames: &[KittyPlacementFrame],
+pub fn pack_and_build<'a>(
+    frames: &'a [KittyPlacementFrame],
     grid_cell_width: f32,
     grid_cell_height: f32,
-) -> Option<AtlasInstances> {
+) -> Option<AtlasInstances<'a>> {
     let (atlas, atlas_width, atlas_height, entries) = pack_atlas(frames)?;
     let instances = build_kitty_instances(
         frames,
