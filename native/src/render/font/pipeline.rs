@@ -120,7 +120,13 @@ impl FontPipeline {
     fn find_monospace_font(&mut self) {
         #[cfg(target_os = "android")]
         {
-            let target_filename = font_db::resolve_system_monospace();
+            // 取族内首个作匹配目标：库已装入整族，首个缺失时由下面的降级梯次接管。
+            let target_filename = font_db::resolve_system_monospace_files()
+                .first()
+                .map_or_else(
+                    || font_db::fatal("fonts.xml 等宽族解析为空（解析阶段已退出，此处不可达）"),
+                    String::as_str,
+                );
             match font_db::select_primary_face(self.font_system.db(), target_filename) {
                 Some(face_id) => self.font_id = Some(face_id),
                 None => {
