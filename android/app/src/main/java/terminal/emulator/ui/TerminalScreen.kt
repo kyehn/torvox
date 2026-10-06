@@ -87,8 +87,13 @@ private const val IME_POLL_INTERVAL_MS = 16L
 /** 位移稳定后的空闲轮询间隔：动画结束后无需逐帧跟随，降低常驻唤醒。 */
 private const val IME_IDLE_POLL_INTERVAL_MS = 200L
 
-/** 搜索查询串长度上限：与原生 `MAX_SEARCH_QUERY_CHARS` 同值，超长查询原生直接无命中。 */
-private const val SEARCH_QUERY_MAX_LENGTH = 128
+/**
+ * 搜索查询串长度上限：向原生取真实值（原生为唯一真源，不在此处自带副本）。
+ * 超长查询会被原生直接判为无命中，故 UI 必须先截断。
+ */
+private val searchQueryMaxLength: Int by lazy {
+    terminal.emulator.bridge.NativeBridge.searchQueryMaxChars()
+}
 
 /** 终端内文本搜索的合并状态，取代原先 6 个独立的 remember 变量。 */
 private data class SearchState(
@@ -826,7 +831,7 @@ fun TerminalScreen(
                             onQueryChange = { newQuery ->
                                 // 匹配文本长度须受限（DESIGN 修饰键栏节）：查询串直接送入
                                 // 原生全回滚区扫描，过长会使单次搜索耗时不可预测。
-                                searchState = searchState.copy(query = newQuery.take(SEARCH_QUERY_MAX_LENGTH))
+                                searchState = searchState.copy(query = newQuery.take(searchQueryMaxLength))
                                 searchJob?.cancel()
                                 // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
                                 // （termlib / ghostty-android 做法）。待执行的搜索由

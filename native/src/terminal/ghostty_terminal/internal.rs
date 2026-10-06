@@ -2148,8 +2148,9 @@ impl super::GhosttyTerminal {
     }
 
     /// 文本搜索匹配长度上限：超长查询直接无命中，避免正则引擎与全回滚扫描浪费资源。
-    /// 与 UI 侧 `SEARCH_QUERY_MAX_LENGTH` 同值，两侧必须一起改。
-    const MAX_SEARCH_QUERY_CHARS: usize = 128;
+    /// 搜索查询串长度上限：唯一真源，Kotlin 侧经 `NativeBridge.searchQueryMaxChars()` 取值，
+    /// 不再自带副本（改这里即两侧同步生效）。
+    pub(crate) const MAX_SEARCH_QUERY_CHARS: usize = 128;
 
     /// 用外部 `regex` 库编译字面搜索模式（大小写开关由库承载，不手写折叠循环）。
     fn compile_search_pattern(query: &str, case_sensitive: bool) -> Option<regex::Regex> {
