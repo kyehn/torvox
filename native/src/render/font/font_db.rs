@@ -631,6 +631,10 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
         .filter(|node| node.is_element() && node.tag_name().name() == "family")
     {
         let mut filenames = Vec::new();
+        // 常规字重（weight=400 或不写）排在族内最前：调用方按序取前若干个，
+        // AOSP 把 Thin/Light/DemiLight 排在 Regular 之前，直接按文档序取会先拿到
+        // 超细字重——spec 要求的却是常规字重的那个面。
+        let mut regular_filenames = Vec::new();
         for font in family
             .children()
             .filter(|node| node.is_element() && node.tag_name().name() == "font")
@@ -642,13 +646,43 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
                 .attribute("index")
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(0);
-            filenames.push((filename.to_string(), index));
+            // `fallbackFor="serif"` 之类是**另一条** fallback 链专用的字体：同一族里
+            // 常与正文字体同名同权重并列（如 zh-Hans 的 NotoSerifCJK-Regular.ttc）。
+            // 终端主链按字体文件取面，收进来就会让 serif 面与正体竞争同一字符。
+            if font.attribute("fallbackFor").is_some() {
+                log::debug!(
+                    "FONT_XML: skip fallbackFor={} font='{filename}'",
+                    font.attribute("fallbackFor").unwrap_or_default()
+                );
+                continue;
+            }
+            let is_regular = font
+                .attribute("weight")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(400)
+                == 400;
+            if is_regular {
+                regular_filenames.push((filename.to_string(), index));
+            } else {
+                filenames.push((filename.to_string(), index));
+            }
         }
+        filenames.splice(0..0, regular_filenames);
         if filenames.is_empty() {
             continue;
         }
         if let Some(name) = family.attribute("name") {
-            if ["monospace", "sans-serif mono", "serif mono"].contains(&name) {
+            // AOSP 的族名是 `sans-serif-monospace`/`serif-monospace`（连字符）；
+            // 空格写法只在本仓的历史测试片段里出现过，两种都收。
+            if [
+                "monospace",
+                "sans-serif-mono",
+                "serif-monospace",
+                "sans-serif mono",
+                "serif mono",
+            ]
+            .contains(&name)
+            {
                 monospace.extend(filenames.into_iter().map(|(filename, _)| filename));
             }
         } else if let Some(lang) = family.attribute("lang") {
@@ -1060,6 +1094,73 @@ mod tests {
         assert_eq!(
             super::parse_fonts_xml_families(&xml).0,
             vec!["DroidSansMono.ttf", "DroidSansMonoBold.ttf"]
+        );
+    }
+
+    /// `fallbackFor` 标记的字体属于**另一条** fallback 链，不得并入本族候选：
+    /// zh-Hans 里 `NotoSerifCJK-Regular.ttc` 与正体同名同权重并列，收进来会让
+    /// serif 面与正体竞争同一字符（spec 明令 MUST NOT 回退到 Serif）。
+    #[test]
+    fn parse_fonts_xml_skips_fallback_for_fonts() {
+        let xml = FONTS_XML_SNIPPET.replace(
+            r#"<font weight="400" style="normal" index="2" postScriptName="NotoSansCJKJP-Regular">
+            NotoSansCJK-Regular.ttc
+        </font>"#,
+            r#"<font weight="400" style="normal" index="2" postScriptName="NotoSansCJKJP-Regular">
+            NotoSansCJK-Regular.ttc
+        </font>
+        <font weight="400" style="normal" index="2" fallbackFor="serif"
+              postScriptName="NotoSerifCJKJP-Regular">NotoSerifCJK-Regular.ttc
+        </font>"#,
+        );
+        assert_ne!(xml, FONTS_XML_SNIPPET, "片段替换未命中，测试会恒真");
+        let (_, lang_fallbacks) = super::parse_fonts_xml_families(&xml);
+        let zh_hans = lang_fallbacks
+            .iter()
+            .find(|(lang, _)| lang == "zh-Hans")
+            .unwrap();
+        assert!(
+            !zh_hans.1.iter().any(|(name, _)| name.contains("Serif")),
+            "fallbackFor=serif 的字体泄漏进 zh-Hans 候选: {:?}",
+            zh_hans.1
+        );
+    }
+
+    /// 常规字重排在族内最前：调用方按序取前若干个，AOSP 把 Thin/Light/DemiLight
+    /// 排在 Regular 之前，按文档序取会先拿到超细字重而非 spec 要求的常规字重面。
+    #[test]
+    fn parse_fonts_xml_orders_regular_weight_first() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+    <family lang="zh-Hans">
+        <font weight="100" style="normal" index="2">NotoSansCJK-Thin.ttc</font>
+        <font weight="400" style="normal" index="2">NotoSansCJK-Regular.ttc</font>
+    </family>
+</familyset>"#;
+        let (_, lang_fallbacks) = super::parse_fonts_xml_families(xml);
+        let names: Vec<&str> = lang_fallbacks[0]
+            .1
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["NotoSansCJK-Regular.ttc", "NotoSansCJK-Thin.ttc"]
+        );
+    }
+
+    /// AOSP 的等宽族名用连字符；只认空格写法会漏掉 `serif-monospace`。
+    #[test]
+    fn parse_fonts_xml_accepts_hyphenated_monospace_family_names() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+    <family name="serif-monospace">
+        <font weight="400" style="normal">CutiveMono.ttf</font>
+    </family>
+</familyset>"#;
+        assert_eq!(
+            super::parse_fonts_xml_families(xml).0,
+            vec!["CutiveMono.ttf"]
         );
     }
 
