@@ -864,7 +864,7 @@ constructor(
         }
     }
 
-    /** Absolute path of the mksh rc file written by [ensureMkshPromptRc]. */
+    /** [ensureMkshPromptRc] 写入的 mksh rc 文件绝对路径。 */
     private val mkshrcPath: String
         get() = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME).absolutePath
 

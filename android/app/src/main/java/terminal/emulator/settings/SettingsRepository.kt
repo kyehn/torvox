@@ -107,7 +107,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
     val fontSize: Flow<Float> =
         provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: deviceDefaultFontSize }
 
-    /** True once the user has explicitly picked a font size; false on a fresh install. */
+    /** 用户是否已显式选定字号；全新安装时为 false。 */
     val fontSizeExplicitlySet: Flow<Boolean> =
         provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
     val fontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "" }

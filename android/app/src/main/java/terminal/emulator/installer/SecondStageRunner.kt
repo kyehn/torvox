@@ -280,7 +280,7 @@ class SecondStageRunner(
 
     private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()
 
-    /** Base env for prefix executables: spec-whitelist variables only. */
+    /** prefix 下可执行文件的基础环境变量：仅含规范白名单内的变量。 */
     internal fun prefixEnvironment(): Map<String, String> = mapOf(
         "HOME" to homeDir.absolutePath,
         "TERMUX_HOME_DIR_PATH" to homeDir.absolutePath,
@@ -340,7 +340,7 @@ class SecondStageRunner(
         }
     }
 
-    /** Read the `#!` interpreter from a script, or null if absent. */
+    /** 读取脚本的 `#!` 解释器；没有时返回 `null`。 */
     private fun readShebang(script: File): String? = script.bufferedReader().use { reader ->
         val firstLine = reader.readLine() ?: return null
         if (firstLine.startsWith("#!")) {

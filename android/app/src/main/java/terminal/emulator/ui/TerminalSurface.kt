@@ -99,11 +99,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
 
-    /** Forward: selection handle popups live in [SelectionHandles]. */
+    /** 直接转发：选区手柄弹窗由 [SelectionHandles] 实现。 */
     fun showSelectionHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int, themeFgColor: Int) =
         selectionHandles.showSelectionHandles(startRow, startCol, endRow, endCol, themeFgColor)
 
-    /** Forward: selection handle popups live in [SelectionHandles]. */
+    /** 直接转发：选区手柄弹窗由 [SelectionHandles] 实现。 */
     fun hideSelectionHandles() = selectionHandles.hideSelectionHandles()
 
     private var selectionMenuPopup: PopupWindow? = null
@@ -179,7 +179,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         selectionMenuPopup = popup
     }
 
-    /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK / PASTE-if-clipboard). */
+    /** 选区可用菜单项：对标 termux 语义（COPY | SHARE | SELECT ALL | OPEN LINK，剪贴板有文本时提供 PASTE）。 */
     internal fun menuActionsForSelection(pasteOnly: Boolean, pasteEnabled: Boolean): List<Pair<String, () -> Unit>> =
         buildList {
             if (pasteOnly) {
@@ -260,7 +260,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /** Dark pill toolbar hosting one clickable label per action. */
+    /** 深色胶囊工具栏，每个动作用一个可点击标签承载。 */
     private fun buildMenuBar(actions: List<Pair<String, () -> Unit>>): android.widget.LinearLayout {
         val density = resources.displayMetrics.density
         fun densityPixels(value: Int): Int = (value * density + HALF_PIXEL_OFFSET).toInt()
@@ -355,7 +355,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * Dismiss the selection menu popup.
+     * 关闭选区菜单弹窗。
      *
      * [reason] 必填：关闭完全由外部驱动（detach／抓柄／IME 切换／非手柄轻击／
      * 状态流重锚），无此参数时菜单意外消失只能靠猜。
@@ -990,7 +990,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             private val startView = HandleView(leftDrawable)
             private val endView = HandleView(rightDrawable)
 
-            /** Which handle this layout's active drag belongs to, if any. */
+            /** 该布局当前拖拽所属的手柄；无拖拽时为 `null`。 */
             var dragOwner: HandleDrag? = null
             private var dragPointerLocked: Int? = null
             var streamForwarding: Boolean = false
@@ -1075,7 +1075,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 )
             } ?: -1
 
-            /** MOVE: drive the owned drag; swallow stray pointers; else forward. */
+            /** MOVE：由本布局拥有的拖拽驱动；吞掉无关指针；否则转发。 */
             private fun routeMove(event: MotionEvent): Boolean {
                 if (dragOwner != null) {
                     val lockedIdx = lockedIndex(event)

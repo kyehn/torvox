@@ -202,7 +202,7 @@ fun ModifierBar(
     modifier: Modifier = Modifier,
     onDrawerClick: () -> Unit = {},
     onScrollClick: () -> Unit = {},
-    /** SCROLL-button lock state — drives the button's selected/highlight. */
+    /** SCROLL 键锁定状态：决定按钮的选中与高亮。 */
     scrollActive: Boolean = false,
     ctrlState: ModifierState = ModifierState.Off,
     altState: ModifierState = ModifierState.Off,
@@ -215,11 +215,11 @@ fun ModifierBar(
     onPasteClick: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
+    /** DECCKM 应用光标模式状态：每次点击方向键时查询，以支持 vim/less 的方向键。 */
     isAppCursorMode: () -> Boolean = { false },
-    /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
+    /** 修饰键组合的原始字节通道（避免 `String` 字符集往返转换）。 */
     onKeyBytesClick: ((ByteArray) -> Unit)? = null,
-    /** Consumes Once sticky modifiers after a modified key is sent. */
+    /** 发送带修饰键的按键后，消耗一次性（`Once`）粘滞修饰键。 */
     onConsumeModifiers: () -> Unit = {},
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -314,15 +314,15 @@ private data class ModifierBarActions(
     val onLockAlt: () -> Unit = {},
     /** Termux `DRAWER` 键的 `popup: 'PASTE'`：长按粘贴剪贴板。 */
     val onPasteClick: () -> Unit = {},
-    /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
+    /** DECCKM 应用光标模式状态：每次点击方向键时查询，以支持 vim/less 的方向键。 */
     val isAppCursorMode: () -> Boolean = { false },
-    /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
+    /** 修饰键组合的原始字节通道（避免 `String` 字符集往返转换）。 */
     val onKeyBytesClick: ((ByteArray) -> Unit)? = null,
-    /** Consumes Once sticky modifiers after a modified key is sent. */
+    /** 发送带修饰键的按键后，消耗一次性（`Once`）粘滞修饰键。 */
     val onConsumeModifiers: () -> Unit = {},
 )
 
-/** The live toggle states of the modifier keys. */
+/** 修饰键的实时切换状态。 */
 private data class ModifierBarStates(
     val ctrlState: ModifierState,
     val altState: ModifierState,
@@ -337,7 +337,7 @@ private fun secondaryLongPressAction(key: ToolbarKey, actions: ModifierBarAction
     else -> null
 }
 
-/** The live toggle state for one [ToolbarKey], or null for non-toggle keys. */
+/** 单个 [ToolbarKey] 的实时切换状态；非切换类按键为 `null`。 */
 private fun modifierStateFor(key: ToolbarKey?, states: ModifierBarStates): ModifierState? = when (key) {
     ToolbarKey.CTRL -> states.ctrlState
     ToolbarKey.ALT -> states.altState
@@ -482,7 +482,7 @@ private fun toolbarKeyClickHandler(
         }
 }
 
-/** One full-width row of extra-key buttons from pre-computed presentations. */
+/** 由预计算的呈现结果组成的一整行附加键按钮。 */
 @Composable
 private fun ModifierBarButtonRow(items: ImmutableList<ToolbarKeyPresentation>, buttonHeight: Dp, textColor: Color) {
     Row(

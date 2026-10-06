@@ -95,7 +95,7 @@ object TerminalInputEncoder {
      */
     private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
-    /** Prefixes ESC when Alt is held, matching xterm (Alt+X → ESC x). */
+    /** 按住 Alt 时前置 ESC，与 xterm 一致（Alt+X → ESC x）。 */
     private fun withAltPrefix(altActive: Boolean, bytes: ByteArray): ByteArray = if (altActive) {
         byteArrayOf(
             0x1B,
