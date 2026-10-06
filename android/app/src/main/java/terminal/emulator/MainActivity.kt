@@ -29,12 +29,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.runtime.TestBackdoorReceivers
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveMaterialColorScheme
-import java.io.File
 import javax.inject.Inject
 
 /** 冷启动后，设置覆盖层的暂停逻辑为等待 bridge 出现而放弃的时长（50ms × 50 = 2.5s）。 */
@@ -93,87 +91,6 @@ class MainActivity : ComponentActivity() {
     private var previousNightMode: Int? = null
 
     internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
-
-    private val testBackdoorReceivers =
-        TestBackdoorReceivers(
-            context = this,
-            onDumpTerminal = { dumpContext ->
-                startDaemonThread {
-                    try {
-                        val bridge = runtime.bridge()
-                        val text =
-                            if (bridge != null) {
-                                bridge.getTerminalText() ?: "(empty)"
-                            } else {
-                                "(no active session)"
-                            }
-                        val file = java.io.File(dumpContext.cacheDir, "terminal_dump.txt")
-                        file.writeText(text)
-                        LogUtil.d("T", "Terminal dump: ${file.absolutePath} (${text.length} chars)")
-                    } catch (exception: Exception) {
-                        LogUtil.e("T", "Terminal dump failed", exception)
-                    }
-                }
-            },
-            onVtWrite = { text ->
-                startDaemonThread {
-                    try {
-                        LogUtil.d("T", "VT_WRITE received (len=${text.length})")
-                        val processed = text.replace("\\x1b", "\u001b").replace("\\033", "\u001b")
-                        terminalViewModel.feedTerminal(processed.toByteArray(Charsets.ISO_8859_1))
-                    } catch (exception: Exception) {
-                        LogUtil.e("T", "VT_WRITE failed", exception)
-                    }
-                }
-            },
-            onInput = { text, rawInput ->
-                terminalViewModel.clearSelection()
-                startDaemonThread {
-                    try {
-                        // 绝不记录输入内容：可能含密码/token，logcat 无差别记录。仅记长度。
-                        LogUtil.d("T", "Input received (len=${text.length})")
-                        val processed =
-                            text
-                                .replace("\\n", "\n")
-                                .replace("\\r", "\r")
-                                .replace("\\t", "\t")
-                                .replace("\\x1b", "\u001b")
-                                .replace("\\033", "\u001b")
-                        // RAW 模式（rawInput）：逐字节原样写入、不追加换行，供测试注入
-                        // 转义序列（OSC 8 链接、DECSET），避免被当作 shell 命令行解释。
-                        val data =
-                            (if (rawInput) processed else processed + "\n")
-                                .byteInputStream()
-                                .readBytes()
-                        runtime.writeToPty(runtime.inputTargetSessionId, data)
-                        LogUtil.d("T", "Input sent: ${data.size} bytes raw=$rawInput")
-                    } catch (exception: Exception) {
-                        LogUtil.e("T", "Input failed", exception)
-                    }
-                }
-            },
-            onSelectAll = {
-                terminalViewModel.selectAll()
-                LogUtil.d(
-                    "T",
-                    "selectAll called via broadcast, active=${terminalViewModel.state.value.selection.active}",
-                )
-            },
-            onPartialSelect = { startRow, startCol, endRow, endCol ->
-                terminalViewModel.startSelection(startRow, startCol)
-                terminalViewModel.updateSelection(endRow, endCol)
-                terminalViewModel.endSelection()
-                LogUtil.d("T", "partialSelect: ($startRow,$startCol)->($endRow,$endCol)")
-            },
-            onShowPaste = { row, col ->
-                terminalViewModel.showPastePopup(row, col)
-                LogUtil.d("T", "showPaste: row=$row col=$col")
-            },
-            onInstallBootstrap = { zipPath ->
-                installBootstrapFromPath(zipPath)
-            },
-        )
-
     override fun onCreate(savedInstanceState: Bundle?) {
         // 系统启动屏：冷启动首帧前显示主题背景，与 windowBackground 同色，
         // 首帧就绪后自动切回 Theme.Terminal。
@@ -189,12 +106,6 @@ class MainActivity : ComponentActivity() {
         @SuppressLint("UseKtx")
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
-        // 测试后门广播仅用于 instrumentation：非 debug 构建一律不注册
-        // （release APK 不得暴露 DUMP_TERMINAL/INPUT/SELECT_ALL/VT_WRITE/
-        // INSTALL_BOOTSTRAP 钩子）。
-        if (BuildConfig.DEBUG) {
-            testBackdoorReceivers.register()
-        }
         terminal.emulator.service.TerminalForegroundService.start(this)
         // TerminalForegroundService.start() 无条件启动服务，但唤醒锁只在
         // sessionCount>=1 时获取（冷启动的裸 start() 此时计数为 0）；
@@ -280,9 +191,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         LogUtil.d(TAG, "onDestroy")
         super.onDestroy()
-        if (BuildConfig.DEBUG) {
-            testBackdoorReceivers.unregister()
-        }
         // 无会话时停止前台服务：否则用户离开应用后服务（及其 PARTIAL_WAKE_LOCK）
         // 永久存活，持续耗电并常驻通知。有活跃会话时必须继续运行。运行时在会话锁内
         // 重新核对：IO 线程上新建的后台会话可能已越过（较旧的）状态快照。
