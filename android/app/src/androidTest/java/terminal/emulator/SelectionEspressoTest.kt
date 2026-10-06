@@ -39,6 +39,11 @@ class SelectionEspressoTest {
         private const val SELECTION_START_COL = 10
     }
 
+    // 菜单缺席时应用侧的缺席分支都有日志，附在失败信息上才能判别是哪一条
+    // （未附着 / 无界 / 无处安放 / 弹窗添加失败），否则只剩一句「菜单未出现」。
+    @get:Rule
+    val terminalLogcatRule = TerminalLogcatRule()
+
     @get:Rule
     val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 

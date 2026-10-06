@@ -60,22 +60,9 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
     // and a pending request dialog is dismissed once the permission is
     // granted underneath it.
     grantNotificationPermission()
-    // 系统「无响应」对话框同理：它盖住整个窗口，UiAutomator 只看得见最顶层窗口，
-    // 于是按节点查找的用例全报「抽屉按钮必须存在」。软件渲染的模拟器被应用渲染压满
-    // 时会弹它——先按「等待」关掉再断言。
-    dismissNotRespondingDialog()
     // Use the standard assertion approach (same as search steps) instead of
     // allNodes + fetchSemanticsNodes, which may fail in merged-tree scenarios
-    waitUntil(timeoutMillis = timeoutMs) {
-        try {
-            onNodeWithTag("TerminalScreen").assertIsDisplayed()
-            true
-        } catch (e: AssertionError) {
-            false
-        } catch (e: Exception) {
-            false
-        }
-    }
+    waitForTerminalScreen(timeoutMs)
 }
 
 /**
@@ -83,8 +70,15 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
  *
  * 像素/选择类用例的公共就绪门槛：Activity 已起但 Compose 尚未组合出节点时，
  * 任何 `onNodeWithTag(...).assert*` 都会抛断言错误，而那只是「还没好」。
+ *
+ * 就绪门槛同时包含「系统弹窗不在挡路」：终端节点在设置浮层与无响应对话框之下
+ * 仍照常组合（`assertIsDisplayed` 照样通过），而后两者一旦出现，节点查找与像素
+ * 采样量到的全是它们——判红原因与被测行为无关。放在这里而非各调用点，是因为
+ * 两者都等同一个节点，而只有部分调用点记得关对话框（漏关者即本仓的
+ * `diag.CursorPixelAcceptanceTest`）。
  */
 fun AndroidComposeTestRule<*, *>.waitForTerminalScreen(timeoutMs: Long = 60_000) {
+    dismissNotRespondingDialog()
     waitUntil(timeoutMillis = timeoutMs) {
         probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() }
     }
