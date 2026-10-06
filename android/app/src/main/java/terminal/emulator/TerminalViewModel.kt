@@ -1572,5 +1572,4 @@ constructor(
             runtime.forceRender()
         }
     }
-
-    }
+}

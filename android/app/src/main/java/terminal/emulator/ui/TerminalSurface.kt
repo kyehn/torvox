@@ -634,6 +634,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         return true
                     }
 
+                    // 基类的实现会把请求跨进程转发给 IME（`mIMM.requestCursorUpdates`），
+                    // 而终端的光标与选区由我们自己绘制，锚点对 IME 无用。窗口拆除期间
+                    // IME 已把连接置为 inactive，那次转发只会换来
+                    // `RemoteInputConnectionImpl: requestCursorAnchorInfo on inactive
+                    // InputConnection` 并让本方法抛 RemoteException。终端从不需要
+                    // 光标锚点，故直接声明不支持。
+                    override fun requestCursorUpdates(mode: Int): Boolean = false
+
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused) {
                             composingBuffer = ""
