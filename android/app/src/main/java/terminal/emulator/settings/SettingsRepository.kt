@@ -46,7 +46,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
         /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
         private const val DEBOUNCE_MILLIS = 300L
 
-        /** Shell 启动入口默认空（DESIGN :122 未设置时为空），空即走默认回退链。 */
+        /** Shell 启动入口默认空（DESIGN :113 未设置时为空），空即走默认回退链。 */
         const val DEFAULT_SHELL = ""
 
         /**
@@ -179,7 +179,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     suspend fun setFontFamily(family: String) = put(Keys.FONT_FAMILY, family)
 
-    /** Clears an invalid font family setting (DESIGN 字体选择节: 设置错误重置应用数据). */
+    /** 清除无效的字体族设置（DESIGN 字体选择节：设置数据错误 → 清除设置数据）。 */
     suspend fun clearFontFamily() {
         provider.dataStore.edit { prefs ->
             prefs.remove(Keys.FONT_FAMILY)

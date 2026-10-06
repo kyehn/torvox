@@ -1294,7 +1294,7 @@ constructor(
     // 而不依赖隐式的 happens-before 关系。
     @Volatile private var bootstrapUrlEdited = false
 
-    /** Shell 启动入口经保存按钮直接写入（DESIGN :122 提供保存按钮），不检查文本。 */
+    /** Shell 启动入口经保存按钮直接写入（DESIGN :113 提供保存按钮），不检查文本。 */
     fun setShell(shell: String) {
         viewModelScope.launch { settingsRepository.setShell(shell) }
     }

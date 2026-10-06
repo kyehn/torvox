@@ -1,6 +1,6 @@
 package terminal.emulator
 
-/** `.termux` dir under the Termux home (DESIGN 用户数据节): user fonts live here. */
+/** Termux 家目录下的 `.termux` 目录（DESIGN 用户数据节）：用户字体存放于此。 */
 internal fun termuxDir(context: android.content.Context): java.io.File =
     java.io.File(java.io.File(context.filesDir, "home"), ".termux")
 
