@@ -28,9 +28,8 @@ import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.TouchClass
 import terminal.emulator.input.KeyModifiers
-import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
-import terminal.emulator.input.toEditorInfo
+import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
@@ -583,14 +582,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * 拥有输入法 InputConnection：组字跟踪、提交/删除处理
-     * 以及 keyboardMode 到 EditorInfo 的映射。外层以轻量转发暴露 finishComposing。
+     * 以及 EditorInfo 属性。外层以轻量转发暴露 finishComposing。
      */
     inner class ImeConnection {
         var currentInputConnection: InputConnection? = null
 
         fun createInputConnection(outAttrs: EditorInfo): InputConnection {
-            val mode = viewModel?.state?.value?.keyboardMode ?: KeyboardMode.Raw
-            mode.toEditorInfo(outAttrs)
+            applyTerminalEditorInfo(outAttrs)
             val connection =
                 object : BaseInputConnection(this@TerminalSurface, true) {
                     // 进行中的输入法组字：使增量得以校对而非被丢弃。

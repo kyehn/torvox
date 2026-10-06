@@ -163,45 +163,42 @@ fun TerminalScreen(
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
     // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用
     // （修饰键栏布局不可配置，故没有 KEYBOARD 附加键，见 PROHIBITED 的布局编辑器禁令）。
-    // 在 Raw 键盘模式下为空操作（无可显示/隐藏的输入法）。
     // 可见性在轻点时从已挂载的 window insets 同步读取
     // ——绝不用 TerminalSurface.lastImeBottom：对于托管在 Compose AndroidView 中的
     // SurfaceView，其 SurfaceView.onApplyWindowInsets 回调不可靠，
     // 会使 imeVisible 永远陈旧（false），把切换退化为只能显示。
     val toggleKeyboard: () -> Unit = {
-        if (state.keyboardMode != terminal.emulator.input.KeyboardMode.Raw) {
-            val inputMethodManager =
-                context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                    as android.view.inputmethod.InputMethodManager
-            val imeCurrentlyVisible =
-                view.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
-            if (imeCurrentlyVisible) {
-                inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+        val inputMethodManager =
+            context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+        val imeCurrentlyVisible =
+            view.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+        if (imeCurrentlyVisible) {
+            inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+        } else {
+            view.requestFocus()
+            // 此延迟只为让会话抽屉的关闭动画稳定下来
+            // ——在遮罩仍在动画时触发会与之竞争。
+            // 抽屉完全关闭时无可等待，立即显示。
+            val deferForDrawer = drawerState.isOpen || drawerState.isAnimationRunning
+            if (!deferForDrawer) {
+                view.windowInsetsController?.show(
+                    android.view.WindowInsets.Type.ime(),
+                )
             } else {
-                view.requestFocus()
-                // 此延迟只为让会话抽屉的关闭动画稳定下来
-                // ——在遮罩仍在动画时触发会与之竞争。
-                // 抽屉完全关闭时无可等待，立即显示。
-                val deferForDrawer = drawerState.isOpen || drawerState.isAnimationRunning
-                if (!deferForDrawer) {
-                    view.windowInsetsController?.show(
-                        android.view.WindowInsets.Type.ime(),
-                    )
-                } else {
-                    // 用户手势之外的 SHOW_IMPLICIT 在 Android 12+ 上会被静默拒绝
-                    // （输入法可见性需要受信任的手势或窗口焦点信任），
-                    // 这使抽屉的键盘按钮在显示方向形同虚设。
-                    // 改用与终端轻点相同的 WindowInsetsController 路径（已证实能显示）；
-                    // 它不受手势限制。
-                    view.postDelayed(
-                        {
-                            view.windowInsetsController?.show(
-                                android.view.WindowInsets.Type.ime(),
-                            )
-                        },
-                        IME_TOGGLE_DELAY_MS,
-                    )
-                }
+                // 用户手势之外的 SHOW_IMPLICIT 在 Android 12+ 上会被静默拒绝
+                // （输入法可见性需要受信任的手势或窗口焦点信任），
+                // 这使抽屉的键盘按钮在显示方向形同虚设。
+                // 改用与终端轻点相同的 WindowInsetsController 路径（已证实能显示）；
+                // 它不受手势限制。
+                view.postDelayed(
+                    {
+                        view.windowInsetsController?.show(
+                            android.view.WindowInsets.Type.ime(),
+                        )
+                    },
+                    IME_TOGGLE_DELAY_MS,
+                )
             }
         }
     }
