@@ -182,9 +182,6 @@ object NativeBridge {
      */
     @JvmStatic external fun selectWordAt(sessionId: Long, row: Int, col: Int): IntArray?
 
-    /** 上游 select_line：整行派生并安装（语义提示边界关），回传与失败语义同 [selectWordAt]。 */
-    @JvmStatic external fun selectLineAt(sessionId: Long, row: Int, col: Int): IntArray?
-
     /** 上游 select_all：全部内容派生并安装（界限不含尾部空行/空列），回传与失败语义同 [selectWordAt]。 */
     @JvmStatic external fun selectAll(sessionId: Long): IntArray?
 

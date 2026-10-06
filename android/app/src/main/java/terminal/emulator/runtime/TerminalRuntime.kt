@@ -2150,21 +2150,15 @@ constructor(
                 "bridge created: ${bridge.ping()} elapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
             )
 
-            bridge.setSystemLocale(
-                java.util.Locale.getDefault().toLanguageTag(),
-            )
-            LogUtil.d("Runtime", "setSystemLocale: ${java.util.Locale.getDefault().toLanguageTag()}")
-
             val fontDropDir = terminal.emulator.termuxFontDir(context)
             fontDropDir.apply {
                 if (!exists() && !mkdirs()) {
                     LogUtil.w("Runtime", "Failed to create font drop-in directory: $this")
                 }
             }
-            // 注意：此处刻意不调用 bridge.setExtraFontPaths
-            // ——Bridge 在 sessionId == 0（spawnTerminal 之前）会跳过它，
-            // 那会静默丢弃额外的字体路径（用户字体永远不加载，回退找到 0 个）。
-            // 它在下方 spawnTerminal 之后被再次调用。
+            // 字体路径与区域设置都由 spawn 之后的 [applyRenderSettings] 一并下发：
+            // Bridge 在 sessionId == 0（spawnTerminal 之前）会跳过每项设置，
+            // 此处调用只会静默丢弃。
 
             // 上方的引导下载/安装可能耗时数分钟。传入 start() 的 Surface
             // 可能已在此期间被销毁（旋转、分屏）；其 ANativeWindow 指针已悬空。
@@ -2207,54 +2201,7 @@ constructor(
             // 渲染预热与 shell 启动并行：wgpu 初始化 + 字体库加载移出 attach→首帧链。
             bridge.prefetchRenderStateAsync(scope)
 
-            // sessionId 此时已非零——用户字体目录（home/.termux/font）此刻才真正到达原生字体库。
-            // 在 spawnTerminal 之前调用则是静默空操作。
-            bridge.setExtraFontPaths(listOf(fontDropDir.absolutePath))
-            // 同样的 sessionId 门控也适用于系统区域设置：上方的 spawn 前 setSystemLocale
-            // 被 Bridge.setSystemLocale 的 sessionId == 0 守卫丢弃，使原生管线停留在
-            // locale ""（无 CJK locale 增强）。在此重新应用，使 CJK 回退顺序与系统区域设置一致。
-            bridge.setSystemLocale(
-                java.util.Locale.getDefault().toLanguageTag(),
-            )
-
-            try {
-                val initialFontFamily = settingsRepository.fontFamily.first()
-                val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
-                bridge.setFontFamily(effectiveFont)
-                // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
-                // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
-                bridge.setFontSizeInPlace(config.fontSizeTenths)
-                // 按设备密度光栅化字形，使高密度屏上文字清晰
-                // （swash 位图按 raster_scale 缩放，着色器按该尺度采样图集）。
-                val density = context.resources.displayMetrics.density
-                // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
-                // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
-                // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
-                // 着色器随后放大图集位图——即「文字模糊」问题的来源。
-                bridge.setRasterScale(
-                    (density * context.resources.configuration.fontScale).coerceIn(0.5f, 4f),
-                )
-                // 从新字体度量刷新 cellWidth/cellHeight 并重算网格，
-                // 使首个渲染帧与配置的字号一致。不做此步，渲染器会在 spawn 时的旧网格上
-                // 绘制新尺寸的单元格——日志中「字号设置与实际不符」的闪烁
-                // （cell_builder 会在 ~60-160ms 内用新单元格度量配旧网格记录，
-                // 直到下一次 insets/surface 事件）。
-                syncGridDimensions(bridge)
-                recomputeGridFromFontMetrics()
-                appliedFontSizeTenths = config.fontSizeTenths
-                bridge.setTheme(config.theme)
-                LogUtil.d(
-                    "Runtime",
-                    "settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.theme.name}",
-                )
-            } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e(
-                    "Runtime",
-                    "Failed to apply initial settings (continuing with defaults)",
-                    exception,
-                )
-            }
+            applyRenderSettings(bridge, config, caller = "start", syncGrid = true)
 
             // 原生 spawn 结果是权威会话 ID（当 createSession 与这条较慢的引导路径
             // 并发运行时，原生与 Kotlin 两侧的序列可能漂移）。在锁内以该 ID 插入。
@@ -2503,41 +2450,11 @@ constructor(
             bridge.prefetchRenderStateAsync(scope)
             nextId = spawnResult
 
-            // spawn 之后才应用渲染设置：Bridge 的每项设置在 sessionId == 0 时都是空操作，
-            // spawnTerminal 之前调用会静默丢弃（用户主题被丢、渲染器停在默认调色板）。
             // 原生渲染状态是进程级单例，而 start() 会在 surface 过小/无效时提前返回
             // （见上方 bypassMinSurface 分支），此时 createSession 是首个建会话的入口；
             // 不在此补齐整组设置，本进程余下所有会话都会用硬编码的默认字号、
             // 默认光栅尺度渲染，且用户字体目录永不注册。
-            bridge.setTheme(config.theme)
-            bridge.setSystemLocale(
-                java.util.Locale.getDefault().toLanguageTag(),
-            )
-            bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
-            try {
-                val effectiveFont =
-                    terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
-                bridge.setFontFamily(effectiveFont)
-                bridge.setFontSizeInPlace(config.fontSizeTenths)
-                bridge.setRasterScale(
-                    (
-                        context.resources.displayMetrics.density *
-                            context.resources.configuration.fontScale
-                        ).coerceIn(0.5f, 4f),
-                )
-                appliedFontSizeTenths = config.fontSizeTenths
-                LogUtil.d(
-                    "Runtime",
-                    "createSession settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths}",
-                )
-            } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e(
-                    "Runtime",
-                    "Failed to apply settings to new session (continuing with defaults)",
-                    exception,
-                )
-            }
+            applyRenderSettings(bridge, config, caller = "createSession", syncGrid = false)
 
             val entry: SessionEntry
             val abandonedByStart: Boolean
@@ -3189,12 +3106,6 @@ constructor(
 
     fun bridge(): Bridge? = sessions[activeSessionId]?.bridge
 
-    /**
-     * 活动会话的输入→回显延迟汇总。样本数 N<30 时为 `NOT MEASURED`
-     * ——调用方必须原样呈现，而不得编造数字。
-     */
-    fun latencyReport(): String = sessions[activeSessionId]?.latencyProbe?.report() ?: "latency NOT MEASURED n=0"
-
     @Volatile private var lastWindowFocus: Boolean = false
 
     fun focusChange(focused: Boolean) {
@@ -3505,6 +3416,62 @@ constructor(
         } else {
             LogUtil.d("Runtime", "$caller: restarted render for new active session $newId")
         }
+    }
+
+    /**
+     * spawn 成功之后把整组渲染设置下发到该会话。
+     *
+     * Bridge 的每项设置在 sessionId == 0（spawnTerminal 之前）都是空操作，故本函数
+     * 只在拿到真实会话 id 后调用。两条建会话入口共用同一组设置，缺一即产生
+     * 「首个会话字号/主题与后续会话不同」的分裂。
+     *
+     * @param syncGrid 是否顺带从原生字体度量重算网格（冷启动需要；已 attach 的会话
+     *   改字号只更新度量，网格随 surface 事件收敛）。
+     */
+    private suspend fun applyRenderSettings(
+        bridge: Bridge,
+        config: terminal.emulator.bridge.TerminalConfig,
+        caller: String,
+        syncGrid: Boolean,
+    ) {
+        // 用户字体目录（home/.termux/font）此刻才真正到达原生字体库。
+        bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
+        // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
+        bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
+        bridge.setTheme(config.theme)
+        try {
+            val effectiveFont =
+                terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+            bridge.setFontFamily(effectiveFont)
+            // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
+            // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
+            bridge.setFontSizeInPlace(config.fontSizeTenths)
+            // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
+            // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
+            // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
+            // 着色器随后放大图集位图——即「文字模糊」问题的来源。
+            bridge.setRasterScale(
+                (
+                    context.resources.displayMetrics.density *
+                        context.resources.configuration.fontScale
+                    ).coerceIn(0.5f, 4f),
+            )
+            appliedFontSizeTenths = config.fontSizeTenths
+            LogUtil.d(
+                "Runtime",
+                "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.theme.name}",
+            )
+        } catch (exception: Exception) {
+            if (exception is kotlinx.coroutines.CancellationException) throw exception
+            LogUtil.e("Runtime", "$caller: failed to apply settings", exception)
+        }
+        if (!syncGrid) return
+        // 从新字体度量刷新 cellWidth/cellHeight 并重算网格，使首个渲染帧与配置的字号
+        // 一致。不做此步，渲染器会在 spawn 时的旧网格上绘制新尺寸的单元格——
+        // 日志中「字号设置与实际不符」的闪烁（cell_builder 会在 ~60-160ms 内用新单元格
+        // 度量配旧网格记录，直到下一次 insets/surface 事件）。
+        syncGridDimensions(bridge)
+        recomputeGridFromFontMetrics()
     }
 
     private fun syncGridDimensions(bridge: Bridge) {

@@ -563,8 +563,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * 拥有输入法 InputConnection：组字跟踪、提交/删除处理
-     * 以及 keyboardMode 到 EditorInfo 的映射。内部类：
-     * 外层以轻量转发暴露 finishComposing/restoreKeyboardFocus。
+     * 以及 keyboardMode 到 EditorInfo 的映射。外层以轻量转发暴露 finishComposing。
      */
     inner class ImeConnection {
         var currentInputConnection: InputConnection? = null
@@ -1999,17 +1998,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     fun finishComposing() {
         imeConnection.currentInputConnection?.let { ic ->
             ic.finishComposingText()
-        }
-    }
-
-    fun restoreKeyboardFocus() {
-        keyboardRequested = true
-        requestFocus()
-        post {
-            val controller = windowInsetsController
-            controller?.show(
-                android.view.WindowInsets.Type.ime(),
-            )
         }
     }
 

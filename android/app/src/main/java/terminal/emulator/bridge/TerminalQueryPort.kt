@@ -35,7 +35,6 @@ interface TerminalQueryPort {
     // 已把选区安装为终端状态，回传有序界限 [startRow, startCol, endRow,
     // endCol]（绝对网格坐标）。null = 无可选内容，按“无数据”处理，勿伪造。
     fun selectWordAt(row: Int, col: Int): IntArray?
-    fun selectLineAt(row: Int, col: Int): IntArray?
     fun selectAll(): IntArray?
 
     fun hyperlinkAt(row: Int, col: Int): String?
