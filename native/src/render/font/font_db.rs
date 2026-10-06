@@ -789,6 +789,9 @@ pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
     } else if locale.starts_with("ko") {
         &["ko"]
     } else {
+        // `DESIGN.md:155` 限定区域字体取「本区域」，故非 CJK 系统语言下候选必须为空：
+        // 放开会让英文系统也预装 CJK 族，违反该条。终端里出现非本区域文字即无回退，
+        // 属规范现状而非缺陷——改它要先改 155（保护文件）。
         &[]
     }
 }
