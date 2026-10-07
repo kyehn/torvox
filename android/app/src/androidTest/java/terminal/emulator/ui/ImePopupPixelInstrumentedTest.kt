@@ -49,9 +49,6 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         /** 行墨量的横向抽样步长：放宽到 12px 仍能精确命中（见 bestUpwardShift）。 */
         private const val ROW_INK_SAMPLE_STEP_PX = 12
 
-        /** 顶部条带高度：键盘永远够不到的高处，只随终端平移而动。 */
-        private const val STRIP_HEIGHT_PX = 150
-
         /**
          * 稀疏条带覆盖的网格行数：首行标记与提示符所在，且恒在底部键栏行程区之上。
          * 固定 400px 在小屏上会伸进键栏位移区，把键栏抬升误判成内容变化
@@ -65,17 +62,8 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         /** 稀疏内容条带顶边相对状态栏底部的余量（避开状态栏圆角阴影）。 */
         private const val SPARSE_STRIP_TOP_MARGIN_PX = 8
 
-        /** 位移出现的轮询上限，与 contentMany 同一口径。 */
-        private const val SETTLE_MOVE_TIMEOUT_MS = 15_000L
-
-        /** 位移轮询间隔。 */
-        private const val SETTLE_POLL_MILLIS = 500L
-
         /** 键栏底边相对键盘顶边的容差：亚像素取整误差。 */
         private const val BAR_SEAM_TOLERANCE_PX = 8
-
-        /** 行指纹在每个箱内的抽样步长。 */
-        private const val ROW_BIN_SAMPLE_STEP_PX = 2
     }
 
     @get:Rule

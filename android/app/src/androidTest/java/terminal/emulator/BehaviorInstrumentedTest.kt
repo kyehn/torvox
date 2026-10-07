@@ -44,7 +44,6 @@ class BehaviorInstrumentedTest : TerminalLogcatTest() {
 
     companion object {
         private const val PACKAGE = "com.termux"
-        private const val WAIT_TIMEOUT = 60_000L
         private const val SELECTION_PIXEL_GAIN_THRESHOLD = 300
     }
 

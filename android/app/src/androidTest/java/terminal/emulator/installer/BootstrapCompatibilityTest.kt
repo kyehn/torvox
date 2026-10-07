@@ -15,7 +15,6 @@ import java.io.File
 @RunWith(JUnit4::class)
 class BootstrapCompatibilityTest : TerminalLogcatTest() {
     companion object {
-        private const val PREFIX_SUFFIX = "files/usr"
         private val BOOTSTRAP_URL by lazy {
             // 模拟器无外网：CI/本地先 adb push 官方 zip 到 Download 目录，测试经
             // Instrumentation arguments 以 test.bootstrapUrl 传入 file:// 路径
