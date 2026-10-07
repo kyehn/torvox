@@ -457,11 +457,13 @@ class Bridge(private val config: TerminalConfig) {
         return family
     }
 
-    fun setFontFamily(family: String): Boolean {
+    // null = 会话在调用间隙未建立/已销毁，无从验证（调用方不得清除设置）；
+    // false = 原生明确未找到该字族。
+    fun setFontFamily(family: String): Boolean? {
         LogUtil.d(TAG, "setFontFamily($family)")
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
-        return onSession("setFontFamily", false) { NativeBridge.setFontFamily(it, override ?: family) }
+        return onSession("setFontFamily", null) { NativeBridge.setFontFamily(it, override ?: family) }
     }
 
     fun setFontSizeInPlace(sizeTenths: Int) {
