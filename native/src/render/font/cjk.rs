@@ -10,8 +10,12 @@ const MAX_CJK_FALLBACK_FONTS: usize = 3;
 
 impl FontPipeline {
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
+        if system_locale.is_empty() {
+            log::debug!("CJK_FALLBACK: skipped (locale not yet known)");
+            return;
+        }
         let locale_tag = locale_tag(system_locale);
-        if !system_locale.is_empty() && locale_tag.is_empty() {
+        if locale_tag.is_empty() {
             log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
             return;
         }
