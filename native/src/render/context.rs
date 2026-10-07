@@ -889,7 +889,7 @@ impl Renderer {
 
     /// 写入 uniforms 并重建单元绑定组。
     ///
-    /// 由 [`update_bind_group`] 与 [`initialize_pipeline_and_bind_group`] 共用，
+    /// 由 [`Renderer::update_bind_group`] 与 [`Renderer::initialize_pipeline_and_bind_group`] 共用，
     /// 避免约 40 行重复的 uniform 构建 + 缓冲写入 + 绑定组创建。
     fn write_uniforms(
         &mut self,
