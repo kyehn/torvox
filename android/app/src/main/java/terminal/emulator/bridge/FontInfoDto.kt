@@ -3,6 +3,7 @@ package terminal.emulator.bridge
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import terminal.emulator.runtime.LogUtil
 
 /** 原生字体管线经 [NativeBridge.getFontInfo] 上报的字体状态（由 Rust `FontInfo` 序列化）。 */
 @Serializable
@@ -23,9 +24,16 @@ data class FontInfoDto(
     fun cjkFallbackText(): String? = cjkFamilies.takeIf { it.isNotEmpty() }?.joinToString(", ")
 
     companion object {
+        /**
+         * 解析原生上报的字体状态；失败返回 `null`（面板按「信息不可用」呈现）。
+         *
+         * 失败必须留痕：Rust 与 Kotlin 的字段一旦漂移，表现只是设置页字体区空白，
+         * 没有日志就无法区分「原生尚未初始化」与「契约不一致」。
+         */
         fun fromJson(json: String): FontInfoDto? = try {
             pollEventJson.decodeFromString<FontInfoDto>(json)
-        } catch (_: Exception) {
+        } catch (exception: Exception) {
+            LogUtil.w("FontInfoDto", "decode failed [${exception.javaClass.simpleName}]: ${json.take(120)}")
             null
         }
     }
