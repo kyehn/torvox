@@ -521,8 +521,9 @@ impl Session {
     /// 每会话帧处理的最大 VT 输出块数，用于 PTY 输出洪水时限制渲染线程延迟。
     const MAX_CHUNKS_PER_FRAME: u32 = 10;
 
-    /// [`Self::focus_event`] 中 DECSET 1004 模式查询的超时。`focus_event` 运行在 UI
-    /// 线程（窗口焦点变化），故 VT 线程卡住时必须快速失败而非按完整查询超时拖住 UI。
+    /// [`Self::focus_event`] 中 DECSET 1004 模式查询的超时。调用方持会话锁，
+    /// 而该锁每帧都被渲染与事件收割取得，故 VT 线程卡住时必须快速失败。
+    /// PTY 写入在同一把锁内，其排空上限是 `pty::WRITE_DRAIN_TIMEOUT`。
     const FOCUS_MODE_QUERY_TIMEOUT_MS: u64 = 50;
 
     /// 处理来自 PTY 读取线程的终端输出：读取 VT 输出、更新终端状态并排空回写应答。
@@ -714,7 +715,8 @@ impl Session {
         // DECSET 1004 焦点上报：序列必须**直接**写入子 PTY 而非进入 VT 引擎——引擎的
         // 输出流解析器把 `CSI I` 当作 CHT（光标水平制表）、`CSI O` 当作非法 CSI，送入
         // 引擎只会把光标移到下一个制表位而非通知应用。仅当子进程确实启用了 1004 时才发送
-        // （xterm 语义）。超时很短：本调用在 UI 线程运行，VT 线程卡住时不得拖满查询超时。
+        // （xterm 语义）。超时很短：调用方持会话锁而该锁每帧都被渲染与事件收割取得，
+        // VT 线程卡住时不得拖满通用查询超时。
         if !self.terminal.mode_get_with_timeout(
             1004,
             0,
