@@ -1,0 +1,606 @@
+[2026-10-02 17:31:11.166 Uid(value=10327):18216:18310 F/libc]
+Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 18310 (DefaultDispatch), pid 18216 (com.termux)
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Build fingerprint: 'ZTE/CN_P720S20/P720S20:13/TP1A.220624.014/20240920.145249:user/release-keys'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Revision: '0'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+ABI: 'arm64'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Timestamp: 2026-10-02 17:31:11.257862593+0800
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Process uptime: 2s
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Cmdline: com.termux
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+pid: 18216, tid: 18310, name: DefaultDispatch  >>> com.termux <<<
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+uid: 10327
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x0  0000000000000000  x1  0000000000004786  x2  0000000000000006  x3  0000006ce69f21e0
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x4  8399e68d97e5afa2  x5  8399e68d97e5afa2  x6  8399e68d97e5afa2  x7  ffffffffffffffff
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x8  00000000000000f0  x9  0000007031ecca30  x10 0000000000000001  x11 0000007031f0d5e0
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x12 00000000000083ee  x13 0000000000000049  x14 0000006de4684410  x15 0000000026762762
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x16 0000007031f7ad58  x17 0000007031f56280  x18 0000006ce2732000  x19 0000000000004728
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x20 0000000000004786  x21 00000000ffffffff  x22 0000000000000000  x23 0000006ce69f2678
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x24 0000006d7fe00880  x25 0000006ce69f41c8  x26 0000006ce69f41d8  x27 0000006ce69f41c8
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x28 0000006ce69f40c0  x29 0000006ce69f2260
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    lr  0000007031efe0c8  sp  0000006ce69f21c0  pc  0000007031efe0f4  pst 0000000000001000
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+backtrace:
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #00 pc 00000000000530f4  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #01 pc 00000000006c2754  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #02 pc 00000000006bf3b8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #03 pc 000000000032e070  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #04 pc 000000000032efb8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #05 pc 00000000003489a4  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #06 pc 000000000031142c  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #07 pc 000000000030be38  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so (Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState+16)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #08 pc 000000000021a354  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+148) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #09 pc 0000000000209398  /apex/com.android.art/lib64/libart.so (nterp_helper+152) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #10 pc 00000000001ad950  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (terminal.emulator.bridge.Bridge$prefetchRenderStateAsync$1.invokeSuspend+20)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #11 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #12 pc 000000000016d7c8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith+20)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #13 pc 000000000020b120  /apex/com.android.art/lib64/libart.so (nterp_helper+7712) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #14 pc 0000000000171e38  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.DispatchedTask.run+252)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #15 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #16 pc 000000000017ea1a  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.internal.LimitedDispatcher$Worker.run+6)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #17 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #18 pc 0000000000181670  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.TaskImpl.run+4)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #19 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #20 pc 00000000001809e0  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely+0)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #21 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #22 pc 0000000000180d2a  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask+66)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #23 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #24 pc 0000000000181018  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker+56)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #25 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #26 pc 0000000000180fc8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run+0)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #27 pc 000000000021096c  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+556) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #28 pc 0000000000279de8  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+184) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #29 pc 000000000062276c  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithJValues<art::ArtMethod*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, art::ArtMethod*, jvalue const*)+460) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #30 pc 000000000066b020  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+1296) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #31 pc 00000000000c167c  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+204) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #32 pc 0000000000054930  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-07 11:08:56.857 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=33.699154 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:08:57.215 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.6404ms p95=10.719154ms max=33.699154ms scrollback=1 rows
+
+[2026-10-07 11:08:57.215 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.833996ms p95=27.853192ms max=134.848192ms ≈59fps
+
+[2026-10-07 11:08:58.220 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.06995ms p95=0.120193ms max=0.28677ms scrollback=1 rows
+
+[2026-10-07 11:08:58.220 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.752782ms p95=17.325192ms max=105.512654ms ≈59fps
+
+[2026-10-07 11:08:59.176 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.146323ms p95=0.224461ms max=5.592615ms scrollback=1 rows
+
+[2026-10-07 11:08:59.176 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.927472ms p95=17.364346ms max=75.981154ms ≈62fps
+
+[2026-10-07 11:09:00.033 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=30.485807 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:00.211 Uid(value=10327):30074:30074 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 11:09:00.233 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.477569ms p95=0.862769ms max=30.485807ms scrollback=1 rows
+
+[2026-10-07 11:09:00.233 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.615351ms p95=34.588269ms max=96.020231ms ≈56fps
+
+[2026-10-07 11:09:00.284 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=50.346 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:01.225 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.521207ms p95=0.206462ms max=50.346ms scrollback=1 rows
+
+[2026-10-07 11:09:01.225 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.524595ms p95=36.325461ms max=80.258461ms ≈60fps
+
+[2026-10-07 11:09:02.230 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.057883ms p95=0.086423ms max=0.215847ms scrollback=1 rows
+
+[2026-10-07 11:09:02.231 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.754572ms p95=17.633615ms max=72.138154ms ≈59fps
+
+[2026-10-07 11:09:03.239 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.075378ms p95=0.121846ms max=0.282193ms scrollback=1 rows
+
+[2026-10-07 11:09:03.239 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.804102ms p95=17.28723ms max=95.231654ms ≈59fps
+
+[2026-10-07 11:09:03.724 Uid(value=10327):30074:30227 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:04.296 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.334074ms p95=0.239269ms max=16.006769ms scrollback=1 rows
+
+[2026-10-07 11:09:04.296 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.606364ms p95=18.064192ms max=116.365269ms ≈56fps
+
+[2026-10-07 11:09:05.014 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 240 -> cell 14.4x29.0
+
+[2026-10-07 11:09:05.042 Uid(value=10327):30074:30227 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:05.131 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:05.151 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=102.130615 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:05.404 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.469637ms p95=0.111231ms max=102.130615ms scrollback=26 rows
+
+[2026-10-07 11:09:05.404 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=18.465176ms p95=17.459884ms max=102.30523ms ≈54fps
+
+[2026-10-07 11:09:06.460 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.051246ms p95=0.224654ms max=0.247077ms scrollback=26 rows
+
+[2026-10-07 11:09:06.460 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.609432ms p95=17.306423ms max=109.627808ms ≈56fps
+
+[2026-10-07 11:09:06.962 Uid(value=10327):30074:30158 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:07.517 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.487314ms p95=0.125692ms max=26.732846ms scrollback=26 rows
+
+[2026-10-07 11:09:07.517 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.609232ms p95=17.739462ms max=97.616577ms ≈56fps
+
+[2026-10-07 11:09:07.870 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=32.448423 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:07.903 Uid(value=10327):30074:30074 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 11:09:08.471 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.709798ms p95=0.173461ms max=32.448423ms scrollback=26 rows
+
+[2026-10-07 11:09:08.471 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.894539ms p95=17.574462ms max=82.341269ms ≈62fps
+
+[2026-10-07 11:09:09.475 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.081007ms p95=0.192769ms max=0.3025ms scrollback=26 rows
+
+[2026-10-07 11:09:09.475 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.726639ms p95=17.307616ms max=67.529846ms ≈59fps
+
+[2026-10-07 11:09:09.877 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=33.680539 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:09.927 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=34.485423 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:10.175 Uid(value=10327):30074:30074 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 11:09:11.038 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:13.395 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:14.171 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 560 -> cell 33.6x66.0
+
+[2026-10-07 11:09:14.192 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:14.267 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:14.987 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.547621ms p95=16.973923ms max=34.485423ms scrollback=75 rows
+
+[2026-10-07 11:09:14.987 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=91.873023ms p95=515.579769ms max=517.371115ms ≈10fps
+
+[2026-10-07 11:09:15.568 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:15.725 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=169.746576 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:16.143 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.88675ms p95=0.205346ms max=169.746576ms scrollback=75 rows
+
+[2026-10-07 11:09:16.143 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=19.257657ms p95=17.609346ms max=186.685962ms ≈51fps
+
+[2026-10-07 11:09:16.378 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 800 -> cell 48.0x94.0
+
+[2026-10-07 11:09:16.426 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:16.445 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=38.759692 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:16.504 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:16.521 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=30.193961 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:17.124 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:17.217 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.806282ms p95=15.440616ms max=38.759692ms scrollback=99 rows
+
+[2026-10-07 11:09:17.218 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.906061ms p95=39.228808ms max=109.413923ms ≈55fps
+
+[2026-10-07 11:09:18.059 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:18.076 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=31.623731 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:18.224 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.561692ms p95=0.097846ms max=31.623731ms scrollback=99 rows
+
+[2026-10-07 11:09:18.224 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.77571ms p95=17.688269ms max=96.211961ms ≈59fps
+
+[2026-10-07 11:09:19.231 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.035876ms p95=0.090269ms max=0.200923ms scrollback=99 rows
+
+[2026-10-07 11:09:19.231 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.767421ms p95=17.618731ms max=100.735346ms ≈59fps
+
+[2026-10-07 11:09:19.447 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:19.482 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=50.261153 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:20.235 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.876515ms p95=0.213077ms max=50.261153ms scrollback=99 rows
+
+[2026-10-07 11:09:20.235 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.731655ms p95=17.5145ms max=102.008115ms ≈59fps
+
+[2026-10-07 11:09:20.618 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 520 -> cell 31.2x61.0
+
+[2026-10-07 11:09:20.647 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:20.831 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:20.831 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=179.456769 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:20.845 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:20.932 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=98.652154 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:20.933 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:21.152 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 360 -> cell 21.6x43.0
+
+[2026-10-07 11:09:21.188 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:21.234 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=50.292077 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:21.236 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:21.252 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:21.287 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:21.454 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=6.582137ms p95=29.770307ms max=179.456769ms scrollback=50 rows
+
+[2026-10-07 11:09:21.454 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=20.318073ms p95=65.306808ms max=196.659192ms ≈49fps
+
+[2026-10-07 11:09:21.819 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 240 -> cell 14.4x29.0
+
+[2026-10-07 11:09:21.847 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:21.859 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:21.874 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:21.910 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:22.428 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.179216ms p95=0.29927ms max=28.194384ms scrollback=37 rows
+
+[2026-10-07 11:09:22.428 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.224137ms p95=17.718115ms max=73.525846ms ≈61fps
+
+[2026-10-07 11:09:22.758 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 600 -> cell 36.0x71.0
+
+[2026-10-07 11:09:22.861 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=105.895769 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:22.886 Uid(value=10327):30074:30101 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:22.902 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=30.334461 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:22.902 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:22.909 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:22.939 Uid(value=10327):30074:30227 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:22.960 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=37.271461 count=0 newOutput=true scrollOffset=0
+
+[2026-10-07 11:09:23.563 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=3.186049ms p95=15.879231ms max=105.895769ms scrollback=79 rows
+
+[2026-10-07 11:09:23.563 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=18.918928ms p95=38.9695ms max=123.13073ms ≈52fps
+
+[2026-10-07 11:09:23.674 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 320 -> cell 19.2x38.0
+
+[2026-10-07 11:09:23.702 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:23.715 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:23.731 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:23.766 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:24.313 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 800 -> cell 48.0x94.0
+
+[2026-10-07 11:09:24.352 Uid(value=10327):30074:30102 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:24.389 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=47.108885 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:24.389 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:24.406 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:24.442 Uid(value=10327):30074:30143 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:24.586 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=159.668038 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:24.759 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=4.990409ms p95=25.398385ms max=159.668038ms scrollback=103 rows
+
+[2026-10-07 11:09:24.759 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=19.927529ms p95=57.620692ms max=172.261769ms ≈50fps
+
+[2026-10-07 11:09:25.125 Uid(value=10327):30074:30143 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:25.161 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=51.150961 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:25.763 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.898555ms p95=0.205039ms max=51.150961ms scrollback=103 rows
+
+[2026-10-07 11:09:25.763 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.736859ms p95=17.343885ms max=67.981885ms ≈59fps
+
+[2026-10-07 11:09:26.548 Uid(value=10327):30074:30074 I/native::android::ffi]
+setFontSizeInPlace: 300 -> cell 18.0x36.0
+
+[2026-10-07 11:09:26.584 Uid(value=10327):30074:30143 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:26.619 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=39.254961 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:26.620 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:26.637 Uid(value=10327):30074:30162 W/native::terminal::ghostty_terminal::internal]
+ghostty_terminal: cell frame dropped: sending on a full channel
+
+[2026-10-07 11:09:26.667 Uid(value=10327):30074:30143 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-07 11:09:26.687 Uid(value=10327):30074:30248 W/Runtime]
+SLOW_FRAME session=1 render=31.849846 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 11:09:26.788 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.50888ms p95=0.183308ms max=39.254961ms scrollback=39 rows
+
+[2026-10-07 11:09:26.788 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.081653ms p95=34.166616ms max=91.319539ms ≈58fps
+
+[2026-10-07 11:09:27.745 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.032582ms p95=0.084231ms max=0.198539ms scrollback=39 rows
+
+[2026-10-07 11:09:27.745 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.942687ms p95=17.423077ms max=78.565808ms ≈62fps
+
+[2026-10-07 11:09:28.750 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.063585ms p95=0.133307ms max=0.246692ms scrollback=39 rows
+
+[2026-10-07 11:09:28.750 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.749142ms p95=17.283346ms max=80.254ms ≈59fps
+
+[2026-10-07 11:09:29.705 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.042488ms p95=0.087846ms max=0.244615ms scrollback=39 rows
+
+[2026-10-07 11:09:29.705 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.908432ms p95=17.479308ms max=116.479385ms ≈62fps
+
+[2026-10-07 11:09:30.708 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.034853ms p95=0.066539ms max=0.097307ms scrollback=39 rows
+
+[2026-10-07 11:09:30.708 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.728408ms p95=17.245577ms max=85.424616ms ≈59fps
+
+[2026-10-07 11:09:31.612 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.036207ms p95=0.138039ms max=0.199923ms scrollback=39 rows
+
+[2026-10-07 11:09:31.612 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.061626ms p95=17.210423ms max=70.062ms ≈66fps
+
+[2026-10-07 11:09:33.095 Uid(value=10327):30074:30074 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 11:09:38.315 Uid(value=10327):30074:30143 W/native::terminal::ghostty_terminal::public_api]
+ghostty_terminal: mode_get(1004, 0) timed out or disconnected — returning false
+
+[2026-10-07 11:09:38.366 Uid(value=10327):30074:30248 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.742683ms p95=7.417346ms max=17.180885ms scrollback=39 rows
+
+[2026-10-07 11:09:38.366 Uid(value=10327):30074:30248 I/Runtime]
+session 1 loop timing window (60 frames): avg=112.552631ms p95=500.448731ms max=508.153654ms ≈8fps
+
+[2026-10-07 11:09:38.866 Uid(value=10327):30074:30074 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 11:09:38.884 Uid(value=10327):30074:30074 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 11:09:38.893 Uid(value=10327):30074:30096 I/mali_gralloc]
+unregister: id=0x29900024958, base=0x0, importpid=30074
+
+[2026-10-07 11:09:38.893 Uid(value=10327):30074:30096 I/mali_gralloc]
+unregister: id=0x29900024961, base=0x0, importpid=30074
+
+[2026-10-07 11:09:38.893 Uid(value=10327):30074:30096 I/mali_gralloc]
+unregister: id=0x29900024957, base=0x0, importpid=30074
+
