@@ -113,7 +113,7 @@ pub trait Pty: Send {
     }
 }
 
-/// 等待主端变为可写直至 [deadline]。
+/// 等待主端变为可写直至 `deadline`。
 ///
 /// `unsafe`：仅调用 `poll`，其输入是本方法内构造的 `pollfd` 与调用方持有的有效
 /// 主端 fd（`Pty` 契约保证 `master_fd` 在对象存活期间有效），`poll` 只写 `revents`。
