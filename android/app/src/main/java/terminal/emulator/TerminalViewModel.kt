@@ -876,10 +876,6 @@ constructor(
         // 实时高亮节奏（termux 对等）与逐帧 JNI + 重渲染开销之间的取舍。
         private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 50L
         private const val TIMEOUT_MILLIS = 5_000L
-        private const val DEBOUNCE_MILLIS = 300L
-
-        // 剪贴板粘贴的上界（主线程字符串拷贝），也是流式发送它所用的块大小
-        // （必须远低于 PTY 缓冲）。
     }
 
     private val _state = MutableStateFlow(TerminalState())

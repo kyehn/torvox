@@ -46,7 +46,6 @@ import terminal.emulator.waitForSession
 @RunWith(JUnit4::class)
 class PasteButtonInstrumentedTest : TerminalLogcatTest() {
     companion object {
-        private const val GRID_TIMEOUT_MS = 15_000L
         private const val QUIET_WINDOW_MS = 2_000L
         private const val PASTE_TIMEOUT_MS = 15_000L
 
