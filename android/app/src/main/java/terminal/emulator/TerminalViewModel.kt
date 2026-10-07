@@ -157,7 +157,7 @@ constructor(
     private val settingsRepository: SettingsRepository,
     val runtime: TerminalRuntime,
 ) : ViewModel() {
-    private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
+    private val clipboardAccess = ClipboardAccess(context, tag = "TerminalViewModel")
 
     private val selectionManager = SelectionManager()
 
@@ -1163,7 +1163,7 @@ constructor(
                 block(onProgress)
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("ViewModel", "Bootstrap failed", exception)
+                LogUtil.e("TerminalViewModel", "Bootstrap failed", exception)
                 _bootstrapResult.value =
                     context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
             } finally {
