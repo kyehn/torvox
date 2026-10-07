@@ -394,7 +394,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         if (truncated) {
             // 静默截断会让用户以为「文件不存在」：只搜到部分目录时必须留证据。
             LogUtil.i(
-                "DocumentsProvider",
+                "TerminalDocumentsProvider",
                 "querySearchDocuments: traversal hit $MAX_SEARCH_VISITS entries; results truncated",
             )
         }

@@ -29,7 +29,7 @@ internal class DocumentQueries(private val context: Context) {
             // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
             dir.mkdirs()
             if (!dir.isDirectory) {
-                LogUtil.w("DocumentsProvider", "Failed to create home directory: $dir")
+                LogUtil.w("TerminalDocumentsProvider", "Failed to create home directory: $dir")
             }
         }
         .canonicalFile
