@@ -2990,7 +2990,11 @@ constructor(
             try {
                 val familyResult = entry.bridge.setFontFamily(effectiveFontFamily)
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
-                applied = (applied ?: true) && familyResult
+                // null = 该会话在调用间隙销毁，无从验证：不计入聚合，
+                // 否则一次并发关闭会把有效的字体设置误判为“未知字族”并清除。
+                if (familyResult != null) {
+                    applied = (applied ?: true) && familyResult
+                }
                 entry.bridge.setFontSizeInPlace(fontSizeTenths)
                 syncGridDimensions(entry.bridge)
                 // 网格必须随字体变化。syncGridDimensions 只读取既有的原生网格
