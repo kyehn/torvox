@@ -1824,6 +1824,36 @@ mod tests {
         );
     }
 
+    /// 真机日志：每次改字号后 Kotlin 侧会对**同一**字族再调两次 `setFontFamily`
+    /// （设置应用与会话状态发射两条路径），而每次都清图集、重光栅、重探回退层，
+    /// 渲染帧被拖到 100–180ms，VT 线程的单元帧通道随之溢出丢帧。重设为当前字面
+    /// 必须是空操作：图集代际不变、已光栅的字形仍在。
+    #[test]
+    fn set_font_family_to_current_face_keeps_atlas() {
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let family = pipeline
+            .list_monospace_fonts()
+            .into_iter()
+            .next()
+            .expect("宿主须有等宽字体");
+        assert!(pipeline.set_font_family(&family), "首次选中 {family}");
+        assert!(pipeline.glyph_information('A').is_some());
+        let generation = pipeline.atlas_generation();
+        let cached = pipeline.caches.glyph_cache.len();
+
+        assert!(pipeline.set_font_family(&family), "重设同一字族仍报告找到");
+        assert_eq!(
+            pipeline.atlas_generation(),
+            generation,
+            "重设同一字面不得重建图集"
+        );
+        assert_eq!(
+            pipeline.caches.glyph_cache.len(),
+            cached,
+            "重设同一字面不得丢弃已光栅的字形"
+        );
+    }
+
     #[test]
     fn glyph_cache_key_distinguishes_subpixel_raster_sizes() {
         // 36.75px 与 36.22px 截断同为 36：旧 `as u16` 键共用同一条目，
