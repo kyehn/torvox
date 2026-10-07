@@ -194,50 +194,37 @@ impl FontPipeline {
         self.find_cjk_fallback_fonts(&system_locale);
     }
 
+    /// 选定主字面；字族不在库中返回 false。
+    ///
+    /// 解析结果与当前字面相同时是空操作：Kotlin 的设置应用、字体应用与会话
+    /// 状态发射三条路径都会对同一字族反复调用（真机每次改字号后紧跟两次），
+    /// 无条件清图集会让每次调用都整库重光栅并重探回退层。
     pub fn set_font_family(&mut self, family_name: &str) -> bool {
-        self.clear_identity_caches();
+        let previous = self.font_id;
         if family_name.is_empty() {
-            self.font_id = None;
             self.find_monospace_font();
-            self.caches.glyph_cache.clear();
-            self.reset_atlas();
-            self.rediscover_fallback_fonts();
-            return true;
-        }
-        // 库内没有该族时按需装入：渲染侧只常驻 3 个族（见 font_db::load_font_database），
-        // 设置页选中的其余族要到这里才真正加载。
-        #[cfg(target_os = "android")]
-        if !Self::find_font_by_name(self.font_system.db(), family_name).is_some() {
-            let loaded = super::font_db::load_family(self.font_system.db_mut(), family_name);
-            log::debug!("FONT_SELECT: 按需装入族 '{family_name}': {loaded}");
-        }
-        let found = {
-            let font_database = self.font_system.db_mut();
-            Self::find_font_by_name(font_database, family_name)
-        };
-        if let Some(id) = found {
-            let font_database = self.font_system.db();
-            let name = font_database
-                .face(id)
-                .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
-                .unwrap_or_default();
-            log::debug!(
-                "FONT_DIAG: set_font_family('{}') found id={:?} name='{}'",
-                family_name,
-                id,
-                name
-            );
+        } else {
+            // 库内没有该族时按需装入：渲染侧只常驻 3 个族（见 font_db::load_font_database），
+            // 设置页选中的其余族要到这里才真正加载。
+            #[cfg(target_os = "android")]
+            if Self::find_font_by_name(self.font_system.db(), family_name).is_none() {
+                let loaded = super::font_db::load_family(self.font_system.db_mut(), family_name);
+                log::debug!("FONT_SELECT: 按需装入族 '{family_name}': {loaded}");
+            }
+            let Some(id) = Self::find_font_by_name(self.font_system.db(), family_name) else {
+                log::warn!("FONT_DIAG: set_font_family('{family_name}') NOT FOUND in fontdb");
+                return false;
+            };
+            log::debug!("FONT_DIAG: set_font_family('{family_name}') found id={id:?}");
             self.font_id = Some(id);
+        }
+        if self.font_id != previous {
+            self.clear_identity_caches();
             self.caches.glyph_cache.clear();
             self.reset_atlas();
             self.rediscover_fallback_fonts();
-            return true;
         }
-        log::warn!(
-            "FONT_DIAG: set_font_family('{}') NOT FOUND in fontdb",
-            family_name
-        );
-        false
+        true
     }
 
     pub fn set_system_locale(&mut self, locale: &str) {
