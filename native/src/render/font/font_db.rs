@@ -882,7 +882,7 @@ mod tests {
 
     /// 非 CJK locale 不补装任何 `lang` 族：否则 en-US 设备会被塞入整本 CJK 字体。
     #[test]
-    fn region_family_not_missing_for_non_cjk_locale() {
+    fn non_cjk_locale_requests_no_region_fallback() {
         let font_database = fontdb::Database::new();
         let xml = probe_fonts_xml("NotoSansCJK-Regular.ttc");
         assert!(
@@ -891,7 +891,7 @@ mod tests {
         );
         assert!(
             super::missing_region_fallback_faces(&font_database, &xml, "ja").is_empty(),
-            "CJK locale 才补装"
+            "CJK locale 须报出待补装的区域族，与上方 en-US 构成对照"
         );
     }
 
