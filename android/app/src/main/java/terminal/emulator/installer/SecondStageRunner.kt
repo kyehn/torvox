@@ -183,12 +183,7 @@ class SecondStageRunner(
                 stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
                 stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
                 val timeoutReport = "$packageName postinst timed out after 30s"
-                if (attempt + 1 >= POSTINST_MAX_ATTEMPTS) {
-                    errors.add(timeoutReport)
-                } else {
-                    LogUtil.w("SecondStageRunner", "$timeoutReport — retrying once")
-                }
-                return false
+                return recordPostinstFailure(errors, timeoutReport, attempt, POSTINST_MAX_ATTEMPTS)
             }
             stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
             stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
@@ -198,23 +193,11 @@ class SecondStageRunner(
             val report =
                 "$packageName postinst exited with code $exitCode" +
                     if (detail.isEmpty()) "" else " (stderr: $detail)"
-            if (attempt + 1 >= POSTINST_MAX_ATTEMPTS) {
-                errors.add(report)
-            } else {
-                LogUtil.w("SecondStageRunner", "$report — retrying once")
-            }
-            return false
+            return recordPostinstFailure(errors, report, attempt, POSTINST_MAX_ATTEMPTS)
         } catch (exception: Exception) {
-            // 与超时/非零退出同一判据：只有末次尝试才记入 errors，
-            // 否则「首运异常、重试自愈」会被误报为安装失败。
             val report =
                 "$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}"
-            if (attempt + 1 >= POSTINST_MAX_ATTEMPTS) {
-                errors.add(report)
-            } else {
-                LogUtil.w("SecondStageRunner", "$report — retrying once")
-            }
-            return false
+            return recordPostinstFailure(errors, report, attempt, POSTINST_MAX_ATTEMPTS)
         }
     }
 
@@ -348,4 +331,24 @@ class SecondStageRunner(
             null
         }
     }
+}
+
+/**
+ * postinst 三条失败路径（超时 / 非零退出 / 抛异常）共用的处置：只有末次尝试才记入
+ * [errors]，否则「首运异常、重试自愈」会被误报为安装失败。恒返回 false，调用方直接
+ * 返回即可——三条路径的差别只在 [report] 的措辞，判据必须同源。[maxAttempts] 由调用方
+ * 传入：上限是类的私有 companion 常量，顶层函数取不到。
+ */
+private fun recordPostinstFailure(
+    errors: MutableList<String>,
+    report: String,
+    attempt: Int,
+    maxAttempts: Int,
+): Boolean {
+    if (attempt + 1 >= maxAttempts) {
+        errors.add(report)
+    } else {
+        LogUtil.w("SecondStageRunner", "$report — retrying once")
+    }
+    return false
 }
