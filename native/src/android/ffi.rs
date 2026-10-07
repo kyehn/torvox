@@ -3017,8 +3017,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
             // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，必须整库丢弃并重绘。
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
+            log::info!("setFontFamily: {family_str} found={found} changed={changed}");
+        } else {
+            log::debug!("setFontFamily: {family_str} found={found} changed={changed}");
         }
-        log::info!("setFontFamily: {family_str} found={found} changed={changed}");
         if found { JNI_TRUE } else { JNI_FALSE }
     })
 }
