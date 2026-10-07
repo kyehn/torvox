@@ -2,11 +2,14 @@
 //! `Java_terminal_emulator_bridge_NativeBridge_<方法名>`。会话经 `initSession` 注册、
 //! `destroySession` 注销、`switchSession` 切换；事件推入全局队列由 `pollEvent` 排空。
 //!
-//! 线程模型：生命周期调用（`initSession`/`destroySession`/`switchSession`/`resize`/
-//! `feedPty`/`writeKey`）来自 `Dispatchers.IO`，绝不在主 UI 线程且不得无限阻塞
-//! （VT 命令通道用 `try_send`，查询 RPC 用有界超时）。例外：`focusEvent` 在主线程运行，
-//! 其模式查询限时 50ms 且仅在该窗口内持锁；`dialogResult`/`clipboardResult` 只短暂持
-//! `REQUEST_REGISTRY` 锁。`pollEvent` 由每会话单个渲染线程按帧率调用。
+//! 线程模型：各导出的调用线程随触发源而异（生命周期与焦点多在 `Dispatchers.IO`，
+//! 硬件按键在 UI 线程，渲染线程也会发起会话拆卸、切换与焦点重发）。
+//! 无界等待只有两类：`initSession` 的 fork/execve（不在锁内调用），以及 GPU 初始化
+//! （`render` 首次调用、`attachWindow` 与 `prefetchRenderState` 共用同一条路径，
+//! GPU 故障时可挂起；其中 `attachWindow` 在 `sessionLock` 内调用，
+//! 与该处锁内 join 同一取舍）。
+//! 其余等待皆有限额（网格命令 `try_send`、查询 RPC 有界超时、PTY 排空限时，
+//! 线程 join 限时，取纹理另有时限）。`pollEvent` 由活动会话的渲染线程按帧率调用。
 //!
 //! 并发：`SESSION_REGISTRY` 是 `RwLock`（读多于写），`EVENT_QUEUE` 是 `Mutex`，
 //! `ACTIVE_SESSION_ID` 是 `AtomicU64`（`Acquire`/`Release`，0 = 无活跃会话）。
