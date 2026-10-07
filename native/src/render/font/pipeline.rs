@@ -113,8 +113,8 @@ impl FontPipeline {
     /// 选定主字体。
     ///
     /// 设备上 `fonts.xml` 是唯一来源（DESIGN 字体节：不得使用任何硬编码字体名）：
-    /// 缺失或无法解析由 [`font_db::resolve_system_monospace`] 崩溃退出；声明的等宽
-    /// 字体未加载或未匹配时按 [`font_db::select_primary_face`] 的降级梯次选择，
+    /// 缺失或无法解析由 [`super::font_db::resolve_system_monospace_files`] 崩溃退出；声明的等宽
+    /// 字体未加载或未匹配时按 [`super::font_db::select_primary_face`] 的降级梯次选择，
     /// 仅当库内没有任何可用面才崩溃退出——该情形是字体文件装入失败，不是
     /// `fonts.xml` 的问题，故原因文案不得归因 `fonts.xml`。
     fn find_monospace_font(&mut self) {

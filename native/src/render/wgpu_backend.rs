@@ -27,7 +27,8 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
     }
 }
 
-/// 创建 wgpu [`Instance`]、[`Adapter`]、[`Device`] 与 [`Queue`]；debug 构建开启校验层。
+/// 创建 wgpu [`Instance`](wgpu::Instance)、[`Adapter`](wgpu::Adapter)、
+/// [`Device`](wgpu::Device) 与 [`Queue`](wgpu::Queue)；debug 构建开启校验层。
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
     // 仅支持 Vulkan，无 CPU/OpenGL 回退（DESIGN 渲染节）。
