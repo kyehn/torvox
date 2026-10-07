@@ -42,7 +42,7 @@ name 表里，只有读完 `fonts.xml` 声明的全部文件才能得到。渲�
 - **WHEN** 只启动终端不做字体设置
 - **THEN** 族索引日志 `FONT_INDEX` 不出现
 
-#### Scenario: 列表顺序等于文档顺序
+#### Scenario: 按需构建不改变列表顺序
 
 - **WHEN** 打开字体列表
 - **THEN** 前若干项与 `fonts.xml` 的 family 声明顺序一致
@@ -73,7 +73,7 @@ MUST NOT 做名称归一（不把 `DroidSans` 与 `Droid Sans` 视为同一）�
 - **WHEN** 打开字体选择对话框
 - **THEN** 列表中任一 family 都能被 `setFontFamily` 成功应用
 
-#### Scenario: 列表顺序等于文档顺序
+#### Scenario: 列表顺序等于 fonts.xml 文档顺序
 
 - **WHEN** 打开字体列表
 - **THEN** 顺序与 `fonts.xml` 的 family 声明顺序一致，无排序痕迹
