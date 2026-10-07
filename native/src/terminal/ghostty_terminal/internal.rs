@@ -481,7 +481,7 @@ impl super::GhosttyTerminal {
 
     /// 排空查询通道，使查询看到最新终端状态。返回真表示本批中有查询安装了选区，
     /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
-    /// [all_text] 跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
+    /// `all_text` 跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
     pub(crate) fn drain_queries(
         query_receiver: &flume::Receiver<Query>,
         terminal: &mut Terminal,
