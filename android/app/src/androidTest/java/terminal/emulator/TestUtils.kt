@@ -401,12 +401,17 @@ fun AndroidComposeTestRule<*, *>.waitForSettingsScreen(timeoutMs: Long = 60_000)
 // ── 单元格坐标 ───────────────────────────────────────
 
 /**
- * 单元格物理尺寸（px）：桥给的是逻辑值，必须乘 `density`——直接当 px 用会小 2~3 倍，
- * 触摸数学与渲染都是这个口径。
+ * 单元格物理尺寸（px）：桥给的是逻辑值，必须乘光栅缩放——直接当 px 用会小 2~3 倍。
+ *
+ * 缩放系数须与运行时同口径（`TerminalRuntime.spToPxScale` = 密度 × 系统字体缩放，
+ * 亦即推给原生 `setRasterScale` 的值）：渲染的四边形尺寸是 `cell_metrics × raster_scale`
+ * （`native/src/render/pass.rs`），只乘密度会在系统字体缩放 ≠ 1 时与渲染相差
+ * 一个 fontScale 倍，触摸数学随之错位。
  */
 fun terminalCellSizePx(activity: Activity, bridge: Bridge): Pair<Float, Float> {
-    val density = activity.resources.displayMetrics.density
-    return Pair(bridge.getCellWidth() * density, bridge.getCellHeight() * density)
+    val spToPxScale =
+        activity.resources.displayMetrics.density * activity.resources.configuration.fontScale
+    return Pair(bridge.getCellWidth() * spToPxScale, bridge.getCellHeight() * spToPxScale)
 }
 
 /**
