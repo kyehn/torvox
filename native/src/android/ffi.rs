@@ -1938,8 +1938,11 @@ fn render_inner(session_id: u64) -> jint {
 const CURSOR_ROW_UNKNOWN_BITS: i64 = 0x3FF;
 /// 「视口全空」哨兵：与光标行同宽（10 位）的全 1 模式。
 const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x3FF;
-/// 打包位偏移：光标行 33、内容下沿 43（各 10 位）、surface 失效位 53。
+/// 打包位偏移：光标行 33、内容下沿 43（各 10 位）、surface 失效位 53、备用屏 54。
 const SURFACE_INVALIDATED_BIT: i64 = 1 << 53;
+/// 备用屏（helix/vim 等全屏 TUI）激活标志。随每帧渲染结果上报，与光标行、内容下沿
+/// 同批采样，宿主据此让输入法跟随位移归零。
+const ALT_SCREEN_ACTIVE_BIT: i64 = 1 << 54;
 /// 采样段 panic 时的上报值：渲染计数为负（-1）、`new_output` 为 0、光标行与内容下沿
 /// 取未知哨兵、失效位为 0——与本导出文档声明的出错位形一致。
 const RENDER_SAMPLE_FAILURE_BITS: i64 =
@@ -1981,7 +1984,7 @@ fn last_content_row_bits_for_frame(
 /// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..42 = 视口光标行（0x3FF = 隐藏/
 /// 视口外）；位 43..52 = 视口最后一个有内容的行（0x3FF = 视口全空）；位 53 =
 /// surface 已判死（缓存的 `ANativeWindow` 对应被遗弃的 BufferQueue，需宿主换新的
-/// `ANativeWindow` 才能恢复；重建成功即回落为 0）。
+/// `ANativeWindow` 才能恢复；重建成功即回落为 0）；位 54 = 备用屏激活（全屏 TUI）。
 ///
 /// 两个行字段各占 10 位：Android 网格行数上限远小于 1024（最小字号行高 ≥18px、
 /// 屏幕高 ≤4096px ⇒ ≤227 行），超出即按哨兵处理，光标未知退化为 IME 位移取整块
@@ -2032,6 +2035,17 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     // 建渲染器并于 GPU 初始化失败时 panic，而 `render_inner` 刚失败（count == -1）的
     // 正是同一条路径——守卫外再 panic 一次即越过 `extern "system"` 边界 abort 进程。
     jni_export_guard!(&mut unowned_env, RENDER_SAMPLE_FAILURE_BITS, |_env| {
+        // 备用屏标志与光标行、内容下沿同批上报：宿主据此让输入法跟随位移归零
+        // （helix/vim 等全屏 TUI 占满视口，任何位移都把应用顶部推出屏幕）。
+        // 读取的是 VT 线程写入的原子量，无同步查询，故与另两个采样同样无阻塞。
+        //
+        // 必须在 `render_state_mut()` 之前取：全局锁序为 注册表 → 会话 → RENDER_STATE，
+        // 反向嵌套即死锁。取完即释放，与上方 `new_output` 采样同款。
+        let alt_screen_active = i64::from(
+            rlock_session_registry()
+                .get(&(session_id as u64))
+                .is_some_and(|entry| entry.session.lock().terminal().alt_screen_active_atomic()),
+        ) * ALT_SCREEN_ACTIVE_BIT;
         let render_state = render_state_mut();
         let last_frame = render_state
             .as_ref()
@@ -2051,6 +2065,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
             | (cursor_bits << 33)
             | (content_row_bits << 43)
             | surface_invalidated
+            | alt_screen_active
             | (count as i64 & 0xFFFF_FFFF)
     })
 }
@@ -3519,6 +3534,19 @@ mod rendered_cursor_tests {
         );
         assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 32 & 0x1, 0);
         assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 53 & 0x1, 0);
+    }
+
+    #[test]
+    fn alt_screen_bit_is_distinct_and_outside_the_other_fields() {
+        // 备用屏位必须落在所有既有字段之外，否则会被任一掩码读成别的含义
+        // （例如被内容下沿的 10 位掩码读成行号，或让失败位形带上脏位）。
+        assert_eq!(super::ALT_SCREEN_ACTIVE_BIT, 1 << 54);
+        assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 54 & 0x1, 0);
+        // 与光标行（33..42）、内容下沿（43..52）、失效位（53）、输出位（32）均不重叠。
+        assert_eq!(super::ALT_SCREEN_ACTIVE_BIT >> 32 & 0x1, 0);
+        assert_eq!((super::ALT_SCREEN_ACTIVE_BIT >> 33) & 0x3FF, 0);
+        assert_eq!((super::ALT_SCREEN_ACTIVE_BIT >> 43) & 0x3FF, 0);
+        assert_eq!(super::ALT_SCREEN_ACTIVE_BIT >> 53 & 0x1, 0);
     }
 
     #[test]

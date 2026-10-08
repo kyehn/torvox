@@ -205,12 +205,22 @@ class Bridge(private val config: TerminalConfig) {
     /**
      * 渲染与 new_output 读取合并为单次 JNI 穿越（比两次单独调用每帧省约 0.1-0.3ms）。
      * 返回渲染计数、输出标志、视口光标行（隐藏或在视口外时为 -1）、视口最后一个
-     * 有内容的行（视口全空时为 -1）与 surface 失效标志（true = 缓存的原生窗口已被
-     * 遗弃，宿主须换新的原生窗口才能恢复渲染）。
+     * 有内容的行（视口全空时为 -1）、surface 失效标志（true = 缓存的原生窗口已被
+     * 遗弃，宿主须换新的原生窗口才能恢复渲染）与备用屏激活标志。
+     *
+     * 备用屏随每帧上报而非另发阻塞查询：输入法弹出动画期间它会翻转（用户启动
+     * helix 的同时键盘正收起），查询得到的缓存必然滞后于该帧的位移计算。
      */
     fun renderWithNewOutput(): RenderResult = onSession(
         "renderWithNewOutput",
-        RenderResult(RENDER_IDLE, false, CURSOR_ROW_UNKNOWN, LAST_CONTENT_ROW_NONE, false),
+        RenderResult(
+            RENDER_IDLE,
+            false,
+            CURSOR_ROW_UNKNOWN,
+            LAST_CONTENT_ROW_NONE,
+            false,
+            false,
+        ),
     ) {
         val packed = NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight)
         val count = packed.toInt()
@@ -231,6 +241,7 @@ class Bridge(private val config: TerminalConfig) {
             cursorRow,
             lastContentRow,
             (packed and SURFACE_INVALIDATED_BIT) != 0L,
+            (packed and ALT_SCREEN_ACTIVE_BIT) != 0L,
         )
     }
 
@@ -240,6 +251,8 @@ class Bridge(private val config: TerminalConfig) {
         val cursorRow: Int,
         val lastContentRow: Int,
         val surfaceInvalidated: Boolean,
+        /** 备用屏（helix/vim 等全屏 TUI）激活：输入法跟随位移须为 0，否则应用顶部被推出屏幕。 */
+        val altScreenActive: Boolean,
     )
 
     /** 绑定 Android Surface 供 GPU 渲染。 */
@@ -665,6 +678,9 @@ class Bridge(private val config: TerminalConfig) {
 
         /** renderWithNewOutput 打包：bit 53 = 原生 surface 已判死，须换新的原生窗口。 */
         const val SURFACE_INVALIDATED_BIT = 1L shl 53
+
+        /** renderWithNewOutput 打包：bit 54 = 备用屏（helix/vim 等全屏 TUI）激活。 */
+        const val ALT_SCREEN_ACTIVE_BIT = 1L shl 54
 
         /** 视口全空（或无会话）时解码出的内容下沿行。 */
         const val LAST_CONTENT_ROW_NONE = -1
