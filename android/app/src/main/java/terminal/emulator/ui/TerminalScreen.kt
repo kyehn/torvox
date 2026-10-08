@@ -501,9 +501,10 @@ fun TerminalScreen(
             val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             // 备用屏跟随开关：helix/vim 等全屏 TUI 占满视口，位移只会把应用顶部推出
             // 屏幕（且视觉行与触摸换算行错位），故备用屏下位移恒 0；主屏公式不变。
-            // 状态在键盘定居与会话切换时于 IO 线程刷新——JNI 查询最坏阻塞约 500ms，
-            // 绝不在布局求值或主线程上直接查。
-            val altScreenForIme = remember { androidx.compose.runtime.mutableStateOf(false) }
+            // 状态随渲染线程每帧发布（与光标行、内容下沿同批上报），故动画期间的
+            // 切换即刻生效——此前只在键盘定居后另发一次阻塞查询，动画中途翻转的
+            // 状态必然滞后于当帧的位移计算。
+            val altScreenForIme by viewModel.runtime.altScreenActiveFlow.collectAsStateWithLifecycle()
             // 定居节流：值停止变化 IME_SETTLE_FRAMES×轮询间隔后锁定 settled 值。
             // 位移本身直接读合成值（每帧即跟随 live 值），不被此节流阻塞——
             // 否则动画期间终端与键栏冻结、定居后跳变（违反逐帧跟随）。
@@ -515,14 +516,8 @@ fun TerminalScreen(
                         if (imeBottom != settledImePx.intValue) {
                             settledImePx.intValue = imeBottom
                             surfaceRef.value?.onImeSettled(imeBottom)
-                            altScreenForIme.value = queryAltScreenForIme { viewModel.runtime.bridge() }
                         }
                     }
-            }
-            // 会话切换时备用屏状态可能翻转（键盘开着时切进/切出 helix）：
-            // 定居收集器此时无新值可收，缓存会陈旧，故跟随活动会话刷新一次。
-            LaunchedEffect(runtimeState.activeSessionId) {
-                altScreenForIme.value = queryAltScreenForIme { viewModel.runtime.bridge() }
             }
             // 内容下沿：视口最后一个有内容的行（渲染线程随每帧单元数据发布，
             // 空闲帧同样更新，故输入法动画与定居后都不读到陈旧值）。
@@ -585,7 +580,7 @@ fun TerminalScreen(
                                     surfaceHeightPx = placeable.height,
                                     modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
                                     imeBottomPx = imeShiftPx,
-                                    isAltScreenActive = altScreenForIme.value,
+                                    isAltScreenActive = altScreenForIme,
                                 )
                             layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
                         },
@@ -968,22 +963,6 @@ internal fun usesLightSystemBarIcons(background: Color): Boolean =
 
 /** 背景亮度高于此值即按浅色背景处理（图标取深色）。取 WCAG 相对亮度中点。 */
 private const val LIGHT_BACKGROUND_LUMINANCE_THRESHOLD = 0.5f
-
-/**
- * 备用屏状态查询（键盘定居/会话切换时刷新，供输入法位移决策）：
- * JNI 查询最坏阻塞约 500ms，故一律走 IO 线程、结果进组合状态。
- * 失败或无会话一律按主屏处理（位移公式原行为），不抛错。
- */
-private suspend fun queryAltScreenForIme(bridgeProvider: () -> Bridge?): Boolean =
-    withContext(TerminalDispatchers.inputOutput) {
-        try {
-            bridgeProvider()?.isAltScreenActive() == true
-        } catch (exception: Exception) {
-            if (exception is kotlinx.coroutines.CancellationException) throw exception
-            LogUtil.w("TerminalScreen", "alt-screen query failed, assuming primary screen", exception)
-            false
-        }
-    }
 
 /**
  * IME insets 叶节点观察器：键盘动画期间 insets 逐帧变化只重组本节点——

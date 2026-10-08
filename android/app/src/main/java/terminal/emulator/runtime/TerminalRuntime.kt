@@ -221,6 +221,13 @@ internal data class SessionEntry(
     @Volatile var lastContentRow: Int = Bridge.LAST_CONTENT_ROW_NONE
 
     /**
+     * 本会话渲染线程最后见到的备用屏激活状态（helix/vim 等全屏 TUI）。
+     * 备用屏恒占满视口，输入法跟随位移必须为 0，否则应用顶部被推出屏幕。
+     * 与活动会话的 [altScreenActiveFlow] 对应，会话切换时随之重新初始化。
+     */
+    @Volatile var altScreenActive: Boolean = false
+
+    /**
      * 渲染线程最后见到的原生 surface 失效标志（缓存的原生窗口对应被遗弃的
      * BufferQueue，reconfigure 不可复活）。失效时由 `maybeRequestSurfaceRecreate`
      * 按间隔请求宿主换新的原生窗口（私有成员，dokka 无法解析链接，故不用方括号）。
@@ -309,6 +316,13 @@ constructor(
      */
     private val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
+
+    /**
+     * 活动会话的备用屏激活状态。仅在变化时由渲染线程发布（随每帧渲染结果一并上报）。
+     * 与 [state] 分开，使备用屏切换不触发 state 订阅者重组。
+     */
+    private val altScreenActiveFlowInternal = MutableStateFlow(false)
+    val altScreenActiveFlow: StateFlow<Boolean> = altScreenActiveFlowInternal.asStateFlow()
 
     /**
      * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
@@ -1332,6 +1346,16 @@ constructor(
                                             entry.lastContentRow = lastContentRow
                                             if (entry.id == activeSessionId) {
                                                 lastContentRowFlowInternal.value = lastContentRow
+                                            }
+                                        }
+                                        // 备用屏同样只随每帧上报：输入法弹出动画期间它会翻转
+                                        // （启动 helix 的同时键盘正收起），另发查询得到的缓存
+                                        // 必然滞后于当帧的位移计算，表现为顶部被推出屏幕。
+                                        val altScreenActive = renderResult.altScreenActive
+                                        if (altScreenActive != entry.altScreenActive) {
+                                            entry.altScreenActive = altScreenActive
+                                            if (entry.id == activeSessionId) {
+                                                altScreenActiveFlowInternal.value = altScreenActive
                                             }
                                         }
                                         if (renderResult.surfaceInvalidated) {
@@ -2790,6 +2814,7 @@ constructor(
                 // 重新初始化光标/内容下沿滚动源：新会话的渲染线程从此刻起在变化时重新发布。
                 cursorRowFlowInternal.value = target.cursorRow
                 lastContentRowFlowInternal.value = target.lastContentRow
+                altScreenActiveFlowInternal.value = target.altScreenActive
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
