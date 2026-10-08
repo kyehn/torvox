@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use super::*;
 use crate::terminal::ghostty_terminal::public_api::sanitize_vt_input;
-use crate::terminal::test_helpers::assert_invariants;
+use crate::terminal::test_helpers::{assert_invariants, row_text};
 use libghostty_vt::key::Mods;
 
 fn terminal() -> GhosttyTerminal {
@@ -36,27 +36,6 @@ fn small_terminal() -> GhosttyTerminal {
 }
 
 /// Get the cell at a given row and column from the snapshot
-fn cell_at(snap: &GridSnapshot, row: u32, col: u32) -> Option<&CellSnapshot> {
-    if row >= snap.rows || col >= snap.cols {
-        return None;
-    }
-    let idx = (row * snap.cols + col) as usize;
-    snap.cells.get(idx)
-}
-
-fn row_text(snap: &GridSnapshot, row: u32) -> String {
-    let mut text = String::new();
-    for col in 0..snap.cols {
-        if let Some(cell) = cell_at(snap, row, col)
-            && cell.codepoint != 0
-            && let Some(character) = char::from_u32(cell.codepoint)
-        {
-            text.push(character);
-        }
-    }
-    text.trim_end().to_string()
-}
-
 #[test]
 fn create_terminal_zero_scrollback() {
     let terminal_under_test = GhosttyTerminal::new(5, 10, 0).expect("terminal");
