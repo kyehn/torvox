@@ -1872,10 +1872,13 @@ impl super::GhosttyTerminal {
                     Err(_) => vec![codepoint],
                 };
 
-                let foreground_is_default = cell.fg_color().is_ok_and(|color| color.is_none());
-                let background_is_default = cell.bg_color().is_ok_and(|color| color.is_none());
-                let foreground = Self::cell_color(cell.fg_color(), default_foreground);
-                let background = Self::cell_color(cell.bg_color(), default_background);
+                // 取色与「是否显式指定」必须同源，否则 FFI 失败时颜色回退默认而标记仍为显式。
+                let cell_foreground = cell.fg_color();
+                let cell_background = cell.bg_color();
+                let foreground_is_default = !matches!(cell_foreground, Ok(Some(_)));
+                let background_is_default = !matches!(cell_background, Ok(Some(_)));
+                let foreground = Self::cell_color(cell_foreground, default_foreground);
+                let background = Self::cell_color(cell_background, default_background);
                 let underline_color =
                     Self::resolve_style_color(terminal, &style.underline_color, foreground);
 

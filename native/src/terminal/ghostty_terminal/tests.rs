@@ -275,6 +275,37 @@ fn dump_grid_dimensions_match() {
     assert_invariants(&_snap);
 }
 
+/// 滚出屏幕的单元必须保留其显式样式，回滚区复制与高亮依赖这一点。
+#[test]
+fn scrollback_retains_explicit_cell_style() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[38;2;255;0;0mred\x1b[0m\r\n");
+    for index in 0..26 {
+        terminal_under_test.vt_write(format!("line{index}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+
+    let start = Instant::now();
+    let dumped = loop {
+        let dumped = terminal_under_test.dump_grid();
+        if !dumped.scrollback.is_empty() {
+            break dumped;
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "回滚区未在超时内产生内容"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+
+    let first = dumped.scrollback.first().expect("回滚区首行");
+    let red = first
+        .iter()
+        .find(|cell| cell.codepoint == 'r' as u32)
+        .expect("回滚区首行应含写入的字符");
+    assert_eq!(red.foreground, [1.0, 0.0, 0.0, 1.0]);
+}
+
 #[test]
 fn dump_grid_visible_populated() {
     let mut terminal_under_test = terminal();
