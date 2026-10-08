@@ -1786,11 +1786,12 @@ constructor(
         private const val MODIFIER_BAR_HEIGHT_DP = BUTTON_HEIGHT_DP * 2
 
         /**
-         * sp→px 系数（光栅缩放）的合法区间：原生 `set_raster_scale` 对非正
-         * 或非有限输入回落 1.0，故传入区间外的值等于静默丢弃缩放。
+         * sp→px 系数（光栅缩放）的合法区间，与原生 `setRasterScale` 的接受区间一致
+         * （`if !(0.5..=8.0).contains(&scale)`）：区间外的值被原生静默丢弃，
+         * 故超界必须在此钳住，否则字号上界与实际渲染脱节。
          */
         private const val MIN_RASTER_SCALE = 0.5f
-        private const val MAX_RASTER_SCALE = 4f
+        private const val MAX_RASTER_SCALE = 8f
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
         private const val FONT_SIZE_MAX_PX = 600

@@ -2260,11 +2260,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 共用输入驱动的贴底逻辑，使任意回车都立即贴底，
         // 且任意硬件输入都会清除 SCROLL 锁。
         if (terminalViewModel != null) {
-            val isEnter =
-                keyCode == KeyEvent.KEYCODE_ENTER ||
-                    keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
-                    keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-            terminalViewModel.onUserInputForScrollSnap(isEnter)
+            terminalViewModel.onUserInputForScrollSnap(keyCode in TerminalInputEncoder.enterKeyCodes)
         }
         val bridge = terminalViewModel?.runtime?.bridge()
         if (bridge != null) {

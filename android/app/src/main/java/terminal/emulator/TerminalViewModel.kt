@@ -1342,10 +1342,7 @@ constructor(
         if (success) {
             // 硬件输入同样经过共用的贴底点，否则粘滞 SCROLL 永不被物理键盘解除。
             onUserInputForScrollSnap(
-                isCommit =
-                keyCode == KeyEvent.KEYCODE_ENTER ||
-                    keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
-                    keyCode == KeyEvent.KEYCODE_DPAD_CENTER,
+                isCommit = keyCode in terminal.emulator.ui.TerminalInputEncoder.enterKeyCodes,
             )
             // 清除一次性（轻点）粘滞修饰键，使其不会延续到下一次击键。
             // 上方编码器已看到本次击键的激活修饰键；消费发生在编码之后。
