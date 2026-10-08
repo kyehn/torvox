@@ -8,6 +8,19 @@ object TerminalInputEncoder {
     private const val LOWERCASE_CONTROL_OFFSET = 96
     private const val UPPERCASE_CONTROL_OFFSET = 64
 
+    /**
+     * 回车键的全部键码，含导航键中心（`KEYCODE_DPAD_CENTER`，部分输入法与遥控器
+     * 以它代替 Enter 提交）。
+     *
+     * 单一来源：编码、贴底判定与粘贴回滚都经此集合。缺失任一键码都会让它落到
+     * [terminal.emulator.bridge.Bridge.processKeyEvent] 的 `KeyCharacterMap` 猜测
+     * 分支——该分支对导航键无定义，会回退成任意字符（实测 DPAD_CENTER 提交后
+     * 无换行，文本与下一条命令被粘连）。回车被当作普通可打印键送出时，
+     * 即表现为「回车变成某个字母」。
+     */
+    val enterKeyCodes: Set<Int> =
+        setOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER)
+
     fun encodeCommittedText(
         text: String,
         ctrlActive: Boolean,
@@ -81,7 +94,6 @@ object TerminalInputEncoder {
         }
         val escapeSequence = escapeSequenceForKeyCode(keyCode, ctrlActive, altActive, appCursorMode)
         if (escapeSequence != null) return escapeSequence.toByteArray(Charsets.UTF_8)
-        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return byteArrayOf(0x0A)
         if (keyCode == KeyEvent.KEYCODE_DEL) return byteArrayOf(0x7F)
         if (unicodeChar <= 0) return null
         val encoded = String(Character.toChars(unicodeChar)).toByteArray(Charsets.UTF_8)
@@ -128,7 +140,7 @@ object TerminalInputEncoder {
                     else -> "\t"
                 }
 
-            KeyEvent.KEYCODE_ENTER ->
+            in enterKeyCodes ->
                 if (ctrlActive || altActive) {
                     // 带修饰键的回车：xterm 经 CSI 13;mod~ 上报。
                     val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
