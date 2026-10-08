@@ -11,7 +11,7 @@
 - 「未设置样式」由 `CellSnapshot` 的 `foreground_is_default`/`background_is_default` 判定，不做浮点比较：显式颜色恰好与默认色数值相同时仍记入 `styled`。语料经 `dump_grid` → `build_dumped_grid` → `apply_style_to_snapshot`，标记取 `StyleColor::None`（未指定）。`build_snapshot`（`take_snapshot` 路径，仅测试使用）取 `render::Cell::fg_color()/bg_color()` 是否返回 `Ok(Some(_))`，与取色复用同一次读取，FFI 失败时颜色与标记同为默认。默认前景/背景色因此不会进入期望文件；宽字符按其占据的每个列各记一条。
 - 颜色记录为解算后的 RGB：未指定色按 `StyleColor::None` 排除；ANSI 调色板索引色（如 SGR 32）会被解析为 `catppuccin_mocha_palette()` 的对应分量后写入期望文件。语料终端为未经 `apply_theme` 的新实例，故该调色板是项目内常量，结果确定可复现；改动该常量会使语料失败，属预期信号。
 - 期望文件重生成不设开关：期望缺失或不一致时测试直接失败并打印应写入的完整 JSON，人工据此写入，不提供静默重写。
-- 样式条目只记录屏幕内单元；回滚区只按行记录文本，其样式不进入期望文件。回滚区样式的渲染相关行为由选区与搜索的针对性用例覆盖，此处为刻意边界而非遗漏。
+- 样式条目只记录屏幕内单元；回滚区只按行记录文本，其样式不进入期望文件。回滚区样式由 `ghostty_terminal::tests::scrollback_retains_explicit_cell_style` 直接覆盖；选区与搜索只消费文本行，不读取单元样式。此处为语料表示的刻意边界而非行为缺口。
 - `corpus_pairs_are_complete` 校验 `.seq` 与 `.json` 成对存在，防止新增语料漏写期望文件。
 - 非空断言在语料运行器自身（`assert!(!inputs.is_empty())`），使按名字单独过滤运行时也不会空跑通过。
 - 语料写入后以 `flush_with_timeout` 确认刷新；`dump_grid` 的查询超时是独立预算且会回退空网格，故仍须轮询到网格尺寸就绪，两者缺一都会让未发生的差异被报成内容不符。
