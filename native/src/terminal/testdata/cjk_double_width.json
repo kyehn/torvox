@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "rows": 6,
+  "cols": 20,
+  "cursor_row": 1,
+  "cursor_col": 0,
+  "cursor_visible": true,
+  "screen": [
+    "错误：中文宽度测试"
+  ],
+  "styled": [
+    {
+      "row": 0,
+      "col": 0,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 1,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 2,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 3,
+      "foreground": "A6E3A1"
+    }
+  ]
+}

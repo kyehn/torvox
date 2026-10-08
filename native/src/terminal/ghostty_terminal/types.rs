@@ -205,6 +205,10 @@ pub struct DumpedGrid {
     pub cols: u32,
     pub visible: Vec<CellSnapshot>,
     pub scrollback: Vec<Vec<CellSnapshot>>,
+    /// 未设置前景色的单元解算所得颜色，用于判定单元是否带显式样式。
+    pub default_foreground: [f32; 4],
+    /// 未设置背景色的单元解算所得颜色。
+    pub default_background: [f32; 4],
 }
 
 /// 单个终端单元的快照，用于跨 FFI 序列化。

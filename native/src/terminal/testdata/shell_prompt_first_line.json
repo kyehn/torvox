@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "rows": 6,
+  "cols": 20,
+  "cursor_row": 2,
+  "cursor_col": 13,
+  "cursor_visible": true,
+  "screen": [
+    "user@host:~$ ls",
+    "README  bin",
+    "user@host:~$"
+  ],
+  "styled": [
+    {
+      "row": 0,
+      "col": 0,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 1,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 2,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 3,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 4,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 5,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 6,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 7,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 8,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 10,
+      "foreground": "89B4FA"
+    },
+    {
+      "row": 0,
+      "col": 0,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 1,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 2,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 3,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 4,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 5,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 6,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 7,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 8,
+      "foreground": "A6E3A1"
+    },
+    {
+      "row": 0,
+      "col": 10,
+      "foreground": "89B4FA"
+    }
+  ]
+}

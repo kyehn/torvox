@@ -1068,6 +1068,8 @@ impl super::GhosttyTerminal {
             cols,
             visible,
             scrollback,
+            default_foreground,
+            default_background,
         }
     }
 
