@@ -9,9 +9,11 @@
 //!    键盘/鼠标编码（含钳制）；
 //! 4. 会话与生命周期 tc_sm_ / tc_al_ / tc_lifecycle_，性能基准 bench_*。
 //!
-//! 删除集合（上游 libghostty-vt 的职责，由上游自有测试覆盖）：光标移动与钳制、
-//! 擦除/插入/删除、制表位、滚动区域、复位、尺寸重排、DECSET 模式矩阵、标题读写
-//! 语义、纯 VT 一致性用例（原 vt_conformance.rs 与文末回归 mod 已删）。
+//! 删除集合（上游 libghostty-vt 的职责，由上游自己的测试覆盖；依赖内的测试
+//! 不随 `cargo test` 运行，故本仓任何包装改动都必须在上面四类里留下断言）：
+//! 光标移动与钳制、擦除/插入/删除、制表位、滚动区域、复位、尺寸重排、
+//! DECSET 模式矩阵、标题读写语义、纯 VT 一致性用例
+//! （原 vt_conformance.rs 与文末回归 mod 已删）。
 
 use std::hint::black_box;
 use std::time::Instant;
