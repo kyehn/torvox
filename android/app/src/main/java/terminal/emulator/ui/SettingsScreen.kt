@@ -58,7 +58,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -142,6 +141,7 @@ fun SettingsScreen(
                     SettingsCard(cardBackground) {
                         AppearanceSectionContent(
                             fontSize = settings.fontSize,
+                            spToPxScale = viewModel.runtime.spToPxScale,
                             fontFamily = settings.fontFamily,
                             availableFonts = availableFonts,
                             defaultFontName = defaultFontName,
@@ -263,6 +263,7 @@ private fun SettingsHeader(onBack: () -> Unit, textColor: Color, isSmallScreen: 
 @Composable
 private fun AppearanceSectionContent(
     fontSize: Float,
+    spToPxScale: Float,
     fontFamily: String,
     availableFonts: List<String>,
     defaultFontName: String,
@@ -285,7 +286,7 @@ private fun AppearanceSectionContent(
     // 使 JNI setFontSizeInPlace 调用乱序交错（实测 96..280）并逐步重排网格
     // ——即「滑块跳动/布局错乱」的来源。预览让拖动保持廉价且单线程。
     // 初值钳到有效区间：历史版本存过的超限值只影响本次显示，不回写覆盖用户数据。
-    val fontSizeUpperBound = SettingsRepository.effectiveFontSizeMaxSp(LocalDensity.current.density)
+    val fontSizeUpperBound = SettingsRepository.effectiveFontSizeMaxSp(spToPxScale)
     var sliderFontSize by rememberSaveable {
         mutableFloatStateOf(
             fontSize.coerceIn(SettingsRepository.FONT_SIZE_MIN_SP, fontSizeUpperBound),
@@ -300,6 +301,7 @@ private fun AppearanceSectionContent(
                 onFontSizePreview(it)
             },
             onValueChangeFinished = { onFontSizeCommitted(sliderFontSize) },
+            spToPxScale = spToPxScale,
             textColor = textColor,
             secondaryText = secondaryText,
             accentColor = accentColor,
@@ -319,6 +321,7 @@ private fun AppearanceSectionContent(
             fontInfo = fontInfo,
             defaultFontName = defaultFontName,
             fontSize = fontSize,
+            spToPxScale = spToPxScale,
             textColor = textColor,
             secondaryText = secondaryText,
         )
@@ -539,19 +542,19 @@ private fun SectionHeader(title: String, textColor: Color) {
 private fun FontSizeSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
+    spToPxScale: Float,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
     modifier: Modifier = Modifier,
     onValueChangeFinished: () -> Unit = {},
 ) {
-    val density = LocalDensity.current.density
     SettingsSliderRow(
         title = stringResource(R.string.font_size),
         value = value,
         valueRange =
-        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.effectiveFontSizeMaxSp(density),
-        steps = SettingsRepository.effectiveFontSizeRangeSteps(density),
+        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+        steps = SettingsRepository.effectiveFontSizeRangeSteps(spToPxScale),
         colors =
         SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,
@@ -565,18 +568,18 @@ private fun FontInfoSectionIfAvailable(
     fontInfo: String,
     defaultFontName: String,
     fontSize: Float,
+    spToPxScale: Float,
     textColor: Color,
     secondaryText: Color,
 ) {
     if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
         Spacer(modifier = Modifier.height(8.dp))
-        val densityDpi = LocalDensity.current.density
         val dto = FontInfoDto.fromJson(fontInfo)
         when {
             dto != null ->
                 FontInfoSection(
                     fontInfo = dto,
-                    pixelPerSp = densityDpi,
+                    pixelPerSp = spToPxScale,
                     textColor = textColor,
                     secondaryText = secondaryText,
                 )
@@ -588,7 +591,7 @@ private fun FontInfoSectionIfAvailable(
                         active = FontActiveDto(name = defaultFontName, monospaced = false),
                         fontSize = fontSize,
                     ),
-                    pixelPerSp = densityDpi,
+                    pixelPerSp = spToPxScale,
                     textColor = textColor,
                     secondaryText = secondaryText,
                 )

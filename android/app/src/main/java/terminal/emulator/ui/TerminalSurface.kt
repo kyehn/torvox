@@ -1883,8 +1883,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
-                    val sizeSp =
-                        zoomFontSize(zoomBaseFontSizeSp, scaleFactor, resources.displayMetrics.density)
+                    val spToPxScale = viewModel?.runtime?.spToPxScale ?: return false
+                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor, spToPxScale)
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
                         lastZoomPreviewNanos = now
@@ -1896,11 +1896,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
+                    val spToPxScale = viewModel?.runtime?.spToPxScale ?: return
                     // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
                     // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
                     val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
-                    val sizeSp =
-                        zoomFontSize(zoomBaseFontSizeSp, scaleFactor, resources.displayMetrics.density)
+                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor, spToPxScale)
                     scaleFactor = 1.0f
                     if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
@@ -2843,11 +2843,14 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
 /**
  * 缩放手势字号换算（onScale 可测核心）。
  * 基准字号乘以累计缩放因子后钳制到字号上下限。
+ *
+ * @param spToPxScale sp→像素系数（见 `TerminalRuntime.spToPxScale`），非仅显示密度：
+ *   调节条上限与之同源，两者用不同系数会让手势越出调节条允许的区间。
  */
-internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, density: Float): Float =
+internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float): Float =
     (baseFontSizeSp * scaleFactor).coerceIn(
         SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.effectiveFontSizeMaxSp(density),
+        SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
     )
 
 /**
