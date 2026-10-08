@@ -185,8 +185,10 @@ class SelectionEspressoTest : TerminalLogcatTest() {
             val endRow = selection.end?.row ?: -1
             val bridge = composeTestRule.getBridge()
             val depth = bridge?.scrollbackLength() ?: -1
-            val density = activity.resources.displayMetrics.density
-            val cellHeightPx = (bridge?.getCellHeight() ?: 0f) * density
+            // 缩放须与运行时同口径（密度 × 系统字体缩放，见 terminalCellSizePx）。
+            val spToPxScale =
+                activity.resources.displayMetrics.density * activity.resources.configuration.fontScale
+            val cellHeightPx = (bridge?.getCellHeight() ?: 0f) * spToPxScale
             val scrollOffset = activity.terminalViewModel.runtime.activeSessionScrollOffset()
             val visibleBottomRow = endRow - (depth - scrollOffset)
             selectionBottomWindowY = location[1] + ((visibleBottomRow + 1) * cellHeightPx).toInt()
