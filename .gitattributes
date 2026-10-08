@@ -1,0 +1,2 @@
+# 回归语料为原始字节序列，禁止换行规范化，否则送入解析器的字节会被静默改写。
+native/src/terminal/testdata/*.seq -text
