@@ -3,6 +3,12 @@ use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
 
+/// 终端单元着色器源码，管线创建与着色器校验测试共用。
+pub(crate) const CELL_SHADER: &str = include_str!("../../shaders/cell.wgsl");
+
+/// Kitty 图形协议着色器源码。
+pub(crate) const KGP_SHADER: &str = include_str!("../../shaders/kitty_graphics.wgsl");
+
 pub(crate) const QUAD_CORNERS: &[[f32; 2]; 6] = &[
     [-1.0, -1.0],
     [1.0, -1.0],
@@ -132,9 +138,7 @@ impl Renderer {
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Cell Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "../../shaders/cell.wgsl"
-            ))),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(CELL_SHADER)),
         });
         let bind_group_layout = Self::text_bind_group_layout(device, "Cell Bind Group Layout");
         Self::create_text_pipeline(
@@ -155,9 +159,7 @@ impl Renderer {
     ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("KGP Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "../../shaders/kitty_graphics.wgsl"
-            ))),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(KGP_SHADER)),
         });
         let bind_group_layout = Self::text_bind_group_layout(device, "KGP Bind Group Layout");
         let pipeline = Self::create_text_pipeline(
@@ -267,5 +269,43 @@ impl Renderer {
                 },
             ],
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wgpu::naga::front::wgsl;
+    use wgpu::naga::valid::{Capabilities, ValidationFlags, Validator};
+
+    /// 着色器若无法解析，错误信息即 naga 诊断。
+    fn parse_error(source: &str) -> Option<String> {
+        wgsl::parse_str(source)
+            .err()
+            .map(|error| error.emit_to_string(source))
+    }
+
+    #[test]
+    fn cell_shader_parses_and_validates() {
+        let module = wgsl::parse_str(CELL_SHADER)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(CELL_SHADER)));
+        Validator::new(ValidationFlags::all(), Capabilities::default())
+            .validate(&module)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(CELL_SHADER)));
+    }
+
+    #[test]
+    fn kgp_shader_parses_and_validates() {
+        let module = wgsl::parse_str(KGP_SHADER)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(KGP_SHADER)));
+        Validator::new(ValidationFlags::all(), Capabilities::default())
+            .validate(&module)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(KGP_SHADER)));
+    }
+
+    #[test]
+    fn malformed_wgsl_reports_naga_diagnostic() {
+        let diagnostic = parse_error("@compute fn broken(").expect("非法 WGSL 必须解析失败");
+        assert!(diagnostic.contains("error"), "{diagnostic}");
     }
 }
