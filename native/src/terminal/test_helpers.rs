@@ -21,7 +21,7 @@ pub fn colors_approx_eq(a: &[f32; 4], b: &[f32; 4]) -> bool {
 }
 
 /// Get a cell from a snapshot by row/col.
-fn cell_at(
+pub(crate) fn cell_at(
     snap: &GridSnapshot,
     row: u32,
     col: u32,
@@ -33,8 +33,8 @@ fn cell_at(
     snap.cells.get(idx)
 }
 
-/// Row text with trailing nulls/spaces trimmed.
-fn row_text(snap: &GridSnapshot, row: u32) -> String {
+/// 行文本，去除行尾空单元。
+pub(crate) fn row_text(snap: &GridSnapshot, row: u32) -> String {
     let mut text = String::new();
     for col in 0..snap.cols {
         if let Some(cell) = cell_at(snap, row, col)
