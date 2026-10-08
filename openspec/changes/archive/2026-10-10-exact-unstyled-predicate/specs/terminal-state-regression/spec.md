@@ -1,19 +1,4 @@
-# terminal-state-regression Specification
-
-## Purpose
-
-终端网格整体状态的回归锁定方式。原有 `snapshot_test.rs` 具备采集与逐格比对能力，但无任何调用者与语料，等价于未使用的脚手架；`docs/specification/TESTING.md` 列出的回滚行序、输入回显与光标、中文显示宽度、字重与颜色等条目此前只有逐字段手写断言，无整体对照。
-
-实现细节：
-
-- 语料位于 `native/src/terminal/testdata/`，`.seq` 为原始字节输入，经 `vt_write` 写入（不经 `pty_write`，避免 LF→CRLF 转换改变语料语义），统一使用 6×20 网格与 20 行回滚区。
-- 快照屏幕与回滚区按行存文本并去除行尾空白，屏幕末尾空行一并裁掉；行数与列数单独记录，裁剪不丢失信息。
-- 「未设置样式」由 `CellSnapshot` 的 `foreground_is_default`/`background_is_default` 判定，该标记在样式套用处按 `StyleColor::None`（未指定）直接得出，与调色板取值无关，也不做浮点比较：显式颜色恰好与默认色数值相同时仍记入 `styled`。默认前景/背景色因此不会进入期望文件；宽字符按其占据的每个列各记一条。
-- 颜色记录为解算后的 RGB：默认色因等于上述默认值而被排除，但 ANSI 调色板索引色（如 SGR 32）会被解析为 `catppuccin_mocha_palette()` 的对应分量后写入期望文件。语料终端为未经 `apply_theme` 的新实例，故该调色板是项目内常量，结果确定可复现；改动该常量会使语料失败，属预期信号。
-- 期望文件重生成不设开关：期望缺失或不一致时测试直接失败并打印应写入的完整 JSON，人工据此写入，不提供静默重写。
-- `corpus_pairs_are_complete` 校验 `.seq` 与 `.json` 成对存在且语料非空，避免语料目录整体缺失时测试空跑通过。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 终端状态由语料快照整体回归锁定
 

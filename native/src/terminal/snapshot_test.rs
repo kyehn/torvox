@@ -101,17 +101,9 @@ fn styled_color(channel: [f32; 4], is_default: bool) -> String {
     )
 }
 
-fn cell_styled(
-    row: u32,
-    col: u32,
-    cell: &CellSnapshot,
-    default_foreground: [f32; 4],
-    default_background: [f32; 4],
-) -> Option<StyledCell> {
-    let foreground_is_default = cell.foreground == default_foreground;
-    let background_is_default = cell.background == default_background;
-    if foreground_is_default
-        && background_is_default
+fn cell_styled(row: u32, col: u32, cell: &CellSnapshot) -> Option<StyledCell> {
+    if cell.foreground_is_default
+        && cell.background_is_default
         && !cell.bold
         && !cell.italic
         && !cell.underline
@@ -122,8 +114,8 @@ fn cell_styled(
     Some(StyledCell {
         row,
         col,
-        foreground: styled_color(cell.foreground, foreground_is_default),
-        background: styled_color(cell.background, background_is_default),
+        foreground: styled_color(cell.foreground, cell.foreground_is_default),
+        background: styled_color(cell.background, cell.background_is_default),
         bold: cell.bold,
         italic: cell.italic,
         underline: cell.underline,
@@ -136,17 +128,9 @@ fn row_text(cells: &[CellSnapshot]) -> String {
     text.trim_end().to_string()
 }
 
-fn collect_styled(
-    row: u32,
-    cells: &[CellSnapshot],
-    default_foreground: [f32; 4],
-    default_background: [f32; 4],
-    styled: &mut Vec<StyledCell>,
-) {
+fn collect_styled(row: u32, cells: &[CellSnapshot], styled: &mut Vec<StyledCell>) {
     for (col, cell) in cells.iter().enumerate() {
-        if let Some(entry) =
-            cell_styled(row, col as u32, cell, default_foreground, default_background)
-        {
+        if let Some(entry) = cell_styled(row, col as u32, cell) {
             styled.push(entry);
         }
     }
@@ -173,13 +157,7 @@ fn from_dumped_grid(
         let start = row * dumped.cols as usize;
         let end = start + dumped.cols as usize;
         screen.push(row_text(&dumped.visible[start..end]));
-        collect_styled(
-            row as u32,
-            &dumped.visible[start..end],
-            dumped.default_foreground,
-            dumped.default_background,
-            &mut styled,
-        );
+        collect_styled(row as u32, &dumped.visible[start..end], &mut styled);
     }
     while screen.last().is_some_and(|line| line.is_empty()) {
         screen.pop();

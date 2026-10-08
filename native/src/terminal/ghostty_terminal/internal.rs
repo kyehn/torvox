@@ -982,6 +982,8 @@ impl super::GhosttyTerminal {
     ) {
         data.foreground = Self::resolve_style_color(terminal, &style.fg_color, default_foreground);
         data.background = Self::resolve_style_color(terminal, &style.bg_color, default_background);
+        data.foreground_is_default = matches!(style.fg_color, libghostty_vt::style::StyleColor::None);
+        data.background_is_default = matches!(style.bg_color, libghostty_vt::style::StyleColor::None);
         // SGR 58 下划线色：未设置时回退到解析后的前景（着色器旧 `deco = foreground` 语义）。
         data.underline_color =
             Self::resolve_style_color(terminal, &style.underline_color, data.foreground);
@@ -1068,8 +1070,6 @@ impl super::GhosttyTerminal {
             cols,
             visible,
             scrollback,
-            default_foreground,
-            default_background,
         }
     }
 
@@ -1870,6 +1870,14 @@ impl super::GhosttyTerminal {
                     foreground,
                     background,
                     underline_color,
+                    foreground_is_default: matches!(
+                        style.fg_color,
+                        libghostty_vt::style::StyleColor::None
+                    ),
+                    background_is_default: matches!(
+                        style.bg_color,
+                        libghostty_vt::style::StyleColor::None
+                    ),
                     bold: style.bold,
                     dim: style.faint,
                     italic: style.italic,
