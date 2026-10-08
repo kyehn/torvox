@@ -78,8 +78,7 @@ class Bridge(private val config: TerminalConfig) {
 
     /**
      * 每次 PTY 写入的钩子：在所有 PTY 写路径（[Bridge.writeToPty]、[processKeyEvent]、
-     * [encodeMouseEvent]）上以 `SystemClock.elapsedRealtimeNanos()` 调用，使绕过
-     * TerminalRuntime.writeToPty 的硬件按键也能为输入→回显延迟探针打点。
+     * [encodeMouseEvent]）上调用，使绕过 TerminalRuntime.writeToPty 的硬件按键也能唤醒渲染。
      * 同时是渲染唤醒接缝：空闲 >5s 后的退格不再需要等满 500ms 空闲闭锁才能看到回显。
      */
     @Volatile var onPtyWrite: (() -> Unit)? = null
