@@ -28,5 +28,5 @@
 - `ui/TerminalSurface.kt`：`zoomFontSize` 改用有效上界。
 - `runtime/TerminalRuntime.kt`：预览门限与存储值应用钳到有效区间；移除被替代的 tenths 常量。
 - `runtime/TerminalRuntime.kt`：`computeImeSurfaceShift` 新增备用屏参数。
-- `ui/TerminalScreen.kt`：备用屏状态缓存与位移调用。
+- `ui/TerminalScreen.kt`：订阅逐帧发布的备用屏状态并传入位移计算。
 - 对应单测随之增补；插桩语义（主屏）不变。
