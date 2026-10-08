@@ -14,7 +14,7 @@ impl FontPipeline {
             log::debug!("CJK_FALLBACK: skipped (locale not yet known)");
             return;
         }
-        let Some(locale_tag) = super::font_db::locale_cjk_variant(system_locale) else {
+        let Some(cjk_variant) = super::font_db::locale_cjk_variant(system_locale) else {
             log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
             return;
         };
@@ -23,7 +23,7 @@ impl FontPipeline {
             let font_database = self.font_system.db();
             // 探测 locale 的代表字符：CJK 字体按 locale 分片（CN 字体未必覆盖
             // 谚文音节），故不要求中/日/가同时存在，否则会拒绝匹配的主字体。
-            let probe = if locale_tag == "kr" { '가' } else { '中' };
+            let probe = if cjk_variant == "kr" { '가' } else { '中' };
             let primary_supports_cjk = font_database
                 .with_face_data(primary_id, |font_data, face_index| {
                     let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
