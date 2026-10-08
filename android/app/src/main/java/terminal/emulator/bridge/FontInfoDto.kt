@@ -42,5 +42,12 @@ data class FontInfoDto(
 @Serializable
 data class FontActiveDto(val name: String = "", val monospaced: Boolean = false)
 
-/** sp 字号按设备密度换算为像素，仅用于显示（原生管线内部自行按 raster_scale × density 换算）。 */
-fun fontSpToPx(fontSizeSp: Float, density: Float): Float = fontSizeSp * density
+/**
+ * sp 字号换算为设备像素，仅用于显示。
+ *
+ * @param spToPxScale sp→像素的完整系数（`TerminalRuntime.spToPxScale`：显示密度 ×
+ *   系统字体缩放）。字形的实际光栅尺度正是 `sp * 该系数`（原生 `setRasterScale`），
+ *   故展示值必须用同一个系数——只乘显示密度会在系统「字体大小」> 1 时报出
+ *   小于真实渲染的像素值。
+ */
+fun fontSpToPx(fontSizeSp: Float, spToPxScale: Float): Float = fontSizeSp * spToPxScale
