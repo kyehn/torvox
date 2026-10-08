@@ -79,7 +79,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
          * 用户可选的字号范围与精度，取自 Termux
          * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:89
          * 「默认大小与可选范围/精度须参考 Termux」）：下限 4dip；默认值 12dip 且取偶，
-         * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以密度。
+         * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
          */
         const val FONT_SIZE_MIN_SP = 4f
         const val FONT_SIZE_MAX_PX = 256f
@@ -89,10 +89,17 @@ constructor(private val provider: SettingsDataStoreProvider) {
          * 调节条上界（sp）：把 Termux 的像素上限换算到 sp 后按步长向下取整，
          * 使 Material 调节条分出的每一档恰好相差 [FONT_SIZE_STEP_SP]，且不越过
          * Termux 的像素上限。
+         *
+         * @param spToPxScale sp→像素的完整系数（显示密度 × 系统字体缩放，见
+         *   [TerminalRuntime.spToPxScale]）。必须用完整系数而非仅密度：字形实际
+         *   光栅尺度即 `sp * spToPxScale`，只用密度会在系统「字体大小」大于 1 时
+         *   放行超出 Termux 像素上限的字号（实测 fontScale=1.3 时 96sp 实际
+         *   327px > 256px）。
          */
-        fun fontSizeRangeMaxSp(density: Float): Float = floor(FONT_SIZE_MAX_PX / density / FONT_SIZE_STEP_SP)
-            .times(FONT_SIZE_STEP_SP)
-            .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
+        fun fontSizeRangeMaxSp(spToPxScale: Float): Float =
+            floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
+                .times(FONT_SIZE_STEP_SP)
+                .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
 
         /**
          * 原生字号钳位上界（sp）：`NativeBridge.setFontSizeInPlace` 只接受
@@ -106,16 +113,16 @@ constructor(private val provider: SettingsDataStoreProvider) {
          * 调节条、手势、预览、存储值应用四处共用此单一来源——任一上游
          * 变动只需改这里。两候选均为偶数、下限亦为偶数，故跨度恒被步长整除。
          */
-        fun effectiveFontSizeMaxSp(density: Float): Float =
-            fontSizeRangeMaxSp(density).coerceAtMost(NATIVE_FONT_SIZE_MAX_SP)
+        fun effectiveFontSizeMaxSp(spToPxScale: Float): Float =
+            fontSizeRangeMaxSp(spToPxScale).coerceAtMost(NATIVE_FONT_SIZE_MAX_SP)
 
         /** 调节条档数（Material `steps` 语义：两端点之间的中间档数）。 */
-        fun fontSizeRangeSteps(density: Float): Int =
-            ((fontSizeRangeMaxSp(density) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
+        fun fontSizeRangeSteps(spToPxScale: Float): Int =
+            ((fontSizeRangeMaxSp(spToPxScale) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
 
         /** 有效区间的档数，与 [fontSizeRangeSteps] 同式，跨度恒被步长整除。 */
-        fun effectiveFontSizeRangeSteps(density: Float): Int =
-            ((effectiveFontSizeMaxSp(density) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
+        fun effectiveFontSizeRangeSteps(spToPxScale: Float): Int =
+            ((effectiveFontSizeMaxSp(spToPxScale) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
     }
 
     val appThemeMode: Flow<String> =

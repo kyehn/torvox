@@ -186,7 +186,7 @@ class TerminalSurfaceLogicTest {
 
     // ── pinch zoom mapping ───────────────────────────────────────────────────
 
-    // 密度 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 84sp，下限 4sp。
+    // 系数 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 84sp，下限 4sp。
     private val zoomDensity = 3.0f
 
     @Test
@@ -219,6 +219,24 @@ class TerminalSurfaceLogicTest {
         assertEquals(
             SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
             SettingsRepository.effectiveFontSizeMaxSp(1.0f),
+        )
+    }
+
+    @Test
+    fun `zoom clamp tightens with the system font scaling`() {
+        // 系统「字体大小」放大时同一手势能给出的字号上界必须同步收紧：
+        // 上界由 spToPxScale 决定，而 spToPxScale 含系统字体缩放。
+        // 密度 2.625 时上界 96sp；系数放大到 3.412（fontScale=1.3）后为 74sp。
+        val spToPxScale = 2.625f
+        assertEquals(96f, zoomFontSize(16f, 100f, spToPxScale), 0.001f)
+        assertEquals(
+            SettingsRepository.fontSizeRangeMaxSp(spToPxScale * 1.3f),
+            zoomFontSize(16f, 100f, spToPxScale * 1.3f),
+            0.001f,
+        )
+        assert(
+            zoomFontSize(16f, 100f, spToPxScale * 1.3f) <
+                zoomFontSize(16f, 100f, spToPxScale),
         )
     }
 
