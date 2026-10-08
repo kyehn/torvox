@@ -413,9 +413,7 @@ mod tests {
     #[test]
     fn test_case_sgr_color() {
         let mut t = terminal();
-        // Use 24-bit color (SGR 38;2) because palette-indexed colors (SGR 31)
-        // resolve to StyleColor::PaletteIndex, which build_snapshot maps to
-        // default_foreground rather than the palette entry.
+        // 断言 24 位色（SGR 38;2）的字面量分量；调色板索引色的取值随主题而定，不在此断言。
         let red = [1.0, 0.0, 0.0, 1.0];
         TermTestCase::new(&mut t)
             .write(b"\x1b[38;2;255;0;0mX")
