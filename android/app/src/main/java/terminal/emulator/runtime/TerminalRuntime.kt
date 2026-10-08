@@ -2193,12 +2193,10 @@ constructor(
                 return
             }
 
-            val spawnStartNs = System.nanoTime()
-            val spawnResult = bridge.spawnTerminal(config.rows, config.cols, bridge.shellPath())
-            val spawnElapsedMs = (System.nanoTime() - spawnStartNs) / 1_000_000
+            val spawnResult = spawnTerminalTimed(bridge, config, "start")
             LogUtil.d(
                 "Runtime",
-                "spawnTerminal: rows=${config.rows} cols=${config.cols} result=$spawnResult elapsed=${spawnElapsedMs}ms",
+                "spawnTerminal: rows=${config.rows} cols=${config.cols} result=$spawnResult",
             )
             if (spawnResult <= 0L) {
                 LogUtil.e(
@@ -2443,13 +2441,7 @@ constructor(
             // 当 start()（较慢的引导路径，同样在其锁外 spawn）与 createSession 并发时，
             // Kotlin 的 max+1 序列与原生序列可能漂移；
             // 以原生 ID 路由 switchSession/handleSessionExit 可保持同步。
-            val spawnStartNs = System.nanoTime()
-            val spawnResult = bridge.spawnTerminal(config.rows, config.cols, bridge.shellPath())
-            val spawnElapsedMs = (System.nanoTime() - spawnStartNs) / 1_000_000
-            LogUtil.d(
-                "Runtime",
-                "createSession spawnTerminal result=$spawnResult elapsed=${spawnElapsedMs}ms",
-            )
+            val spawnResult = spawnTerminalTimed(bridge, config, "createSession")
             if (spawnResult <= 0L) {
                 // 无回退：启动入口失败不尝试其他 shell；已有会话原样保留显示，失败经 logcat 输出。
                 throw RuntimeException("native spawn failed (result=$spawnResult)")
@@ -3411,6 +3403,24 @@ constructor(
         } else {
             LogUtil.d("Runtime", "$caller: restarted render for new active session $newId")
         }
+    }
+
+    /**
+     * 计时调用原生建会话并记录耗时。
+     *
+     * 调用方各自决定失败后的动作（[start] 优雅收尾，[createSession] 按无回退策略抛出），
+     * 故此处只做计时与日志。
+     */
+    private fun spawnTerminalTimed(
+        bridge: Bridge,
+        config: terminal.emulator.bridge.TerminalConfig,
+        caller: String,
+    ): Long {
+        val startNs = System.nanoTime()
+        val result = bridge.spawnTerminal(config.rows, config.cols, bridge.shellPath())
+        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
+        LogUtil.d("Runtime", "$caller spawnTerminal result=$result elapsed=${elapsedMs}ms")
+        return result
     }
 
     /**
