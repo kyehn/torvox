@@ -222,26 +222,8 @@ class Bridge(private val config: TerminalConfig) {
             false,
         ),
     ) {
-        val packed = NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight)
-        val count = packed.toInt()
-        // 仅屏蔽第 32 位：第 33..53 位承载光标行/内容下沿/surface 失效位，
-        // 不得泄漏到输出标志（空闲闭锁依赖该标志）。
-        val newOutput = ((packed shr 32) and 0x1L) != 0L
-        val cursorRow =
-            ((packed shr 33) and CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
-                if (raw == CURSOR_ROW_HIDDEN_BITS) CURSOR_ROW_UNKNOWN else raw
-            }
-        val lastContentRow =
-            ((packed shr 43) and LAST_CONTENT_ROW_NONE_BITS.toLong()).toInt().let { raw ->
-                if (raw == LAST_CONTENT_ROW_NONE_BITS) LAST_CONTENT_ROW_NONE else raw
-            }
-        RenderResult(
-            count,
-            newOutput,
-            cursorRow,
-            lastContentRow,
-            (packed and SURFACE_INVALIDATED_BIT) != 0L,
-            (packed and ALT_SCREEN_ACTIVE_BIT) != 0L,
+        decodeRenderResult(
+            NativeBridge.renderWithNewOutput(it, lastSurfaceWidth, lastSurfaceHeight),
         )
     }
 
@@ -709,4 +691,33 @@ class Bridge(private val config: TerminalConfig) {
                 android.view.KeyEvent.KEYCODE_DPAD_LEFT,
             )
     }
+}
+
+/**
+ * `renderWithNewOutput` 打包值 → [Bridge.RenderResult] 的纯解码。
+ *
+ * 顶层而非 [Bridge] 成员：解码只依赖位形，不依赖会话，故可脱离 JNI 直接以字面量
+ * 测试。留在回调内联时，测试只能复述常量而测不到真实解码路径。
+ */
+internal fun decodeRenderResult(packed: Long): Bridge.RenderResult {
+    val count = packed.toInt()
+    // 仅屏蔽第 32 位：第 33..54 位承载光标行/内容下沿/失效位/备用屏位，
+    // 不得泄漏到输出标志（空闲闭锁依赖该标志）。
+    val newOutput = ((packed shr 32) and 0x1L) != 0L
+    val cursorRow =
+        ((packed shr 33) and Bridge.CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
+            if (raw == Bridge.CURSOR_ROW_HIDDEN_BITS) Bridge.CURSOR_ROW_UNKNOWN else raw
+        }
+    val lastContentRow =
+        ((packed shr 43) and Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong()).toInt().let { raw ->
+            if (raw == Bridge.LAST_CONTENT_ROW_NONE_BITS) Bridge.LAST_CONTENT_ROW_NONE else raw
+        }
+    return Bridge.RenderResult(
+        count,
+        newOutput,
+        cursorRow,
+        lastContentRow,
+        (packed and Bridge.SURFACE_INVALIDATED_BIT) != 0L,
+        (packed and Bridge.ALT_SCREEN_ACTIVE_BIT) != 0L,
+    )
 }

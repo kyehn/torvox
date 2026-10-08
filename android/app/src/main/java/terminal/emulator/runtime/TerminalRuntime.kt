@@ -414,19 +414,31 @@ constructor(
         get() = (MODIFIER_BAR_HEIGHT_DP * context.resources.displayMetrics.density + 0.5f).toInt()
 
     /**
-     * sp→设备像素的完整系数：显示密度 × 系统字体缩放，与推给原生的
-     * `setRasterScale` 取值同源（后者即字形实际光栅尺度，`sp * 该系数`）。
-     *
-     * 单一口径来源：字号的每一次 sp↔px 换算（调节条上限、缩放钳位、设置页
-     * 展示的像素值）都必须经此系数。只用 `displayMetrics.density` 会在系统
-     * 「字体大小」> 1 时系统性低估实际像素尺寸——实测 fontScale=1.3 时
-     * 原生 `RASTER_SCALE` 为 3.412（2.625×1.3），而仅按密度的换算给出
-     * 2.625，字号上界因此越过 Termux 的 256px 像素上限。
-     */
-    internal val spToPxScale: Float
-        get() =
-            (context.resources.displayMetrics.density * context.resources.configuration.fontScale)
-                .coerceIn(MIN_RASTER_SCALE, MAX_RASTER_SCALE)
+ * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
+ *
+ * 独立成纯函数以便测试：字号的每一次 sp↔px 换算（调节条上限、缩放钳位、设置页
+ * 展示的像素值）都必须经此系数，钳位区间与原生 `setRasterScale` 一致
+ * （`if !(0.5..=8.0).contains(&scale)`）——区间外的值被原生静默丢弃，
+ * 会使字号上界与实际渲染脱节。
+ */
+internal fun coerceSpToPxScale(density: Float, fontScale: Float): Float =
+    (density * fontScale).coerceIn(MIN_RASTER_SCALE, MAX_RASTER_SCALE)
+
+/**
+ * sp→设备像素的完整系数，与推给原生的 `setRasterScale` 取值同源
+ * （后者即字形实际光栅尺度，`sp * 该系数`）。
+ *
+ * 单一口径来源：字号的每一次 sp↔px 换算（调节条上限、缩放钳位、设置页
+ * 展示的像素值）都必须经此系数。只用 `displayMetrics.density` 会在系统
+ * 「字体大小」> 1 时系统性低估实际像素尺寸——实测 fontScale=1.3 时
+ * 原生 `RASTER_SCALE` 为 3.412（2.625×1.3），而仅按密度的换算给出
+ * 2.625，字号上界因此越过 Termux 的 256px 像素上限。
+ */
+internal val spToPxScale: Float
+    get() = coerceSpToPxScale(
+        context.resources.displayMetrics.density,
+        context.resources.configuration.fontScale,
+    )
 
     // 最近一次推给原生的字号（十分之一单位）。缩放手势以其为锚点，使预览/确定从实际渲染尺寸
     // 而非原始设置值出发（后者在字号从未显式设置时可能不同）。
