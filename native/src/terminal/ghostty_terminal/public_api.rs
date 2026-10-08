@@ -596,8 +596,6 @@ impl super::GhosttyTerminal {
                 cols: 0,
                 visible: Vec::new(),
                 scrollback: Vec::new(),
-                default_foreground: [0.0; 4],
-                default_background: [0.0; 4],
             },
             "dump_grid",
         )

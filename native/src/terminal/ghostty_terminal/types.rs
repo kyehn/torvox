@@ -205,10 +205,6 @@ pub struct DumpedGrid {
     pub cols: u32,
     pub visible: Vec<CellSnapshot>,
     pub scrollback: Vec<Vec<CellSnapshot>>,
-    /// 未设置前景色的单元解算所得颜色，用于判定单元是否带显式样式。
-    pub default_foreground: [f32; 4],
-    /// 未设置背景色的单元解算所得颜色。
-    pub default_background: [f32; 4],
 }
 
 /// 单个终端单元的快照，用于跨 FFI 序列化。
@@ -220,6 +216,10 @@ pub struct CellSnapshot {
     pub background: [f32; 4],
     /// 解算后的 SGR 58 下划线色（回退到 `foreground`）。
     pub underline_color: [f32; 4],
+    /// 前景色是否为终端默认色；显式颜色与默认色数值相同时据此区分。
+    pub foreground_is_default: bool,
+    /// 背景色是否为终端默认色。
+    pub background_is_default: bool,
     pub bold: bool,
     pub dim: bool,
     pub italic: bool,

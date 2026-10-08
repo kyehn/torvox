@@ -13,7 +13,7 @@ const CORPUS_COLS: u32 = 20;
 const CORPUS_SCROLLBACK: u32 = 20;
 
 /// 非默认样式的单元；默认样式不出现在期望文件中。
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct StyledCell {
     pub row: u32,
     pub col: u32,
@@ -62,7 +62,7 @@ impl StyledCell {
 
 /// 供回归测试使用的终端状态快照。
 /// 与 `.seq` 输入文件并排存为 JSON 文件。
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TestSnapshot {
     pub version: u32,
     pub rows: u32,
@@ -101,17 +101,11 @@ fn styled_color(channel: [f32; 4], is_default: bool) -> String {
     )
 }
 
-fn cell_styled(
-    row: u32,
-    col: u32,
-    cell: &CellSnapshot,
-    default_foreground: [f32; 4],
-    default_background: [f32; 4],
-) -> Option<StyledCell> {
-    let foreground_is_default = cell.foreground == default_foreground;
-    let background_is_default = cell.background == default_background;
-    if foreground_is_default
-        && background_is_default
+/// 语料锁定前景色、背景色、粗体、斜体、下划线与反显；其余属性（SGR 2/5/8/9/53）
+/// 由 `ghostty_terminal` 的针对性用例覆盖。
+fn cell_styled(row: u32, col: u32, cell: &CellSnapshot) -> Option<StyledCell> {
+    if cell.foreground_is_default
+        && cell.background_is_default
         && !cell.bold
         && !cell.italic
         && !cell.underline
@@ -122,8 +116,8 @@ fn cell_styled(
     Some(StyledCell {
         row,
         col,
-        foreground: styled_color(cell.foreground, foreground_is_default),
-        background: styled_color(cell.background, background_is_default),
+        foreground: styled_color(cell.foreground, cell.foreground_is_default),
+        background: styled_color(cell.background, cell.background_is_default),
         bold: cell.bold,
         italic: cell.italic,
         underline: cell.underline,
@@ -136,17 +130,9 @@ fn row_text(cells: &[CellSnapshot]) -> String {
     text.trim_end().to_string()
 }
 
-fn collect_styled(
-    row: u32,
-    cells: &[CellSnapshot],
-    default_foreground: [f32; 4],
-    default_background: [f32; 4],
-    styled: &mut Vec<StyledCell>,
-) {
+fn collect_styled(row: u32, cells: &[CellSnapshot], styled: &mut Vec<StyledCell>) {
     for (col, cell) in cells.iter().enumerate() {
-        if let Some(entry) =
-            cell_styled(row, col as u32, cell, default_foreground, default_background)
-        {
+        if let Some(entry) = cell_styled(row, col as u32, cell) {
             styled.push(entry);
         }
     }
@@ -173,13 +159,7 @@ fn from_dumped_grid(
         let start = row * dumped.cols as usize;
         let end = start + dumped.cols as usize;
         screen.push(row_text(&dumped.visible[start..end]));
-        collect_styled(
-            row as u32,
-            &dumped.visible[start..end],
-            dumped.default_foreground,
-            dumped.default_background,
-            &mut styled,
-        );
+        collect_styled(row as u32, &dumped.visible[start..end], &mut styled);
     }
     while screen.last().is_some_and(|line| line.is_empty()) {
         screen.pop();
@@ -224,7 +204,12 @@ fn compare_lines(expected: &[String], actual: &[String], label: &str, difference
 fn index_styled(cells: &[StyledCell]) -> BTreeMap<(u32, u32), &StyledCell> {
     let mut map = BTreeMap::new();
     for cell in cells {
-        map.insert((cell.row, cell.col), cell);
+        assert!(
+            map.insert((cell.row, cell.col), cell).is_none(),
+            "样式坐标重复：({},{})",
+            cell.row,
+            cell.col
+        );
     }
     map
 }
