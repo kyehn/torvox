@@ -116,7 +116,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
         fun effectiveFontSizeMaxSp(spToPxScale: Float): Float =
             fontSizeRangeMaxSp(spToPxScale).coerceAtMost(NATIVE_FONT_SIZE_MAX_SP)
 
-        /** 调节条档数（Material `steps` 语义：两端点之间的中间档数）。 */
+        /**
+         * 调节条档数（Material `steps` 语义：两端点之间的中间档数），对应
+         * [fontSizeRangeMaxSp] 给出的**未钳位**区间。与
+         * [effectiveFontSizeRangeSteps] 只差原生钳位这一步，故两者在低密度设备
+         * （Termux 像素上限高于原生 100sp 钳位）给出不同档数，各有其断言对象。
+         */
         fun fontSizeRangeSteps(spToPxScale: Float): Int =
             ((fontSizeRangeMaxSp(spToPxScale) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
 
