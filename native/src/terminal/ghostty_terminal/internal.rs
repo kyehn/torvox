@@ -1872,6 +1872,8 @@ impl super::GhosttyTerminal {
                     Err(_) => vec![codepoint],
                 };
 
+                let foreground_is_default = cell.fg_color().is_ok_and(|color| color.is_none());
+                let background_is_default = cell.bg_color().is_ok_and(|color| color.is_none());
                 let foreground = Self::cell_color(cell.fg_color(), default_foreground);
                 let background = Self::cell_color(cell.bg_color(), default_background);
                 let underline_color =
@@ -1883,8 +1885,8 @@ impl super::GhosttyTerminal {
                     foreground,
                     background,
                     underline_color,
-                    foreground_is_default: Self::style_color_is_default(style.fg_color),
-                    background_is_default: Self::style_color_is_default(style.bg_color),
+                    foreground_is_default,
+                    background_is_default,
                     bold: style.bold,
                     dim: style.faint,
                     italic: style.italic,
