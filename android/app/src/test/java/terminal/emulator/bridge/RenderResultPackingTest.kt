@@ -1,71 +1,100 @@
 package terminal.emulator.bridge
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * `renderWithNewOutput` 的打包位解码：备用屏位（bit 54）必须独立于既有的输出位、
- * 光标行、内容下沿与 surface 失效位。
+ * `renderWithNewOutput` 打包位的**真实解码**（[Bridge.decodeRenderResult]）。
  *
- * 位形与 Rust `renderWithNewOutput` 的打包一一对应。断言一律作用于**掩码后的原始位**：
- * 哨兵位（0x3FF）映射为 -1 属解码层职责，直接比对 -1 会把语义与位形混为一谈。
+ * 断言一律用字面量位形而非 `Bridge` 的常量：两侧同步改名的常量会恒真，
+ * 测不到解码路径。位形与 Rust `renderWithNewOutput` 的打包一一对应：
+ * 计数 0..31、`new_output` 32、光标行 33..42、内容下沿 43..52、失效位 53、备用屏 54。
  */
 class RenderResultPackingTest {
 
+    private fun decode(packed: Long) = decodeRenderResult(packed)
+
+    private fun cursorBits(row: Int) = row.toLong() shl 33
+
+    private fun contentBits(row: Int) = row.toLong() shl 43
+
     @Test
-    fun `alt screen bit is bit 54 and disjoint from every other field`() {
-        val altScreen = Bridge.ALT_SCREEN_ACTIVE_BIT
-        assertEquals(54, java.lang.Long.numberOfTrailingZeros(altScreen))
-        assertTrue("备用屏位与失效位重叠", altScreen and Bridge.SURFACE_INVALIDATED_BIT == 0L)
-        assertTrue(
-            "备用屏位落进光标行的 10 位掩码",
-            altScreen and Bridge.CURSOR_ROW_HIDDEN_BITS.toLong() == 0L,
-        )
-        assertTrue(
-            "备用屏位落进内容下沿的 10 位掩码",
-            altScreen and Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong() == 0L,
-        )
-        // 输出位（bit 32）：污染它会击穿空闲闭锁。
-        assertTrue("备用屏位落进输出位", altScreen shr 32 and 0x1L == 0L)
+    fun `count and new output come from the low 32 bits`() {
+        val result = decode(7L or (1L shl 32))
+        assertEquals(7, result.count)
+        assertTrue(result.newOutput)
     }
 
     @Test
-    fun `alt screen bit alone leaves the other fields zero`() {
-        // 只置 bit 54：备用屏读出为 1，而输出标志、光标行、内容下沿、失效位
-        // 的掩码结果必须全为 0——位宽越界（如内容下沿掩码写成 12 位）会读出行号。
-        val packed = Bridge.ALT_SCREEN_ACTIVE_BIT
-        assertEquals("备用屏位必须被读出", 1L, (packed shr 54) and 0x1L)
-        assertEquals(0L, (packed shr 32) and 0x1L)
-        assertEquals(0L, (packed shr 33) and Bridge.CURSOR_ROW_HIDDEN_BITS.toLong())
-        assertEquals(0L, (packed shr 43) and Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong())
-        assertEquals(0L, packed and Bridge.SURFACE_INVALIDATED_BIT)
+    fun `a negative count is preserved as the render failure value`() {
+        // 原生出错时返回 -1（计数位全 1），Kotlin 侧据此判失败而非空闲帧。
+        assertEquals(-1, decode(-1L).count)
     }
 
     @Test
-    fun `sentinel rows survive alongside the alt screen bit`() {
-        // 真实帧里光标行与内容下沿常取哨兵（0x3FF，空闲/隐藏时）。哨兵与备用屏
-        // 同时出现时各自仍读回哨兵：否则备用屏会让空闲会话误报行号。
-        val sentinel = (Bridge.CURSOR_ROW_HIDDEN_BITS.toLong() shl 33) or
-            (Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong() shl 43) or
-            Bridge.ALT_SCREEN_ACTIVE_BIT
-        assertEquals(
-            Bridge.CURSOR_ROW_HIDDEN_BITS.toLong(),
-            (sentinel shr 33) and Bridge.CURSOR_ROW_HIDDEN_BITS.toLong(),
-        )
-        assertEquals(
-            Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong(),
-            (sentinel shr 43) and Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong(),
-        )
-        assertEquals(1L, (sentinel shr 54) and 0x1L)
+    fun `idle frame with row sentinels decodes to unknown rows`() {
+        // 原生在无帧缓存时写入的正是两个哨兵（0x3FF），故空闲帧的打包值带哨兵；
+        // 解码须把它们映射为 -1 而非行号 1023。
+        val result = decode(cursorBits(0x3FF) or contentBits(0x3FF))
+        assertFalse(result.newOutput)
+        assertEquals(Bridge.CURSOR_ROW_UNKNOWN, result.cursorRow)
+        assertEquals(Bridge.LAST_CONTENT_ROW_NONE, result.lastContentRow)
+        assertFalse(result.surfaceInvalidated)
+        assertFalse(result.altScreenActive)
     }
 
     @Test
-    fun `primary screen leaves the alt screen bit clear`() {
-        // 主屏（不置 bit 54）解码为 false，输入法位移公式原行为不变。
-        val packed = (3L shl 33) or (5L shl 43)
-        assertEquals(0L, packed and Bridge.ALT_SCREEN_ACTIVE_BIT)
-        assertEquals(3L, (packed shr 33) and Bridge.CURSOR_ROW_HIDDEN_BITS.toLong())
-        assertEquals(5L, (packed shr 43) and Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong())
+    fun `a row field never reads the neighbouring field's bits`() {
+        // 光标行用 10 位掩码：内容下沿位（43..52）右移 33 后整体落在掩码之外，
+        // 只能贡献 0，绝不会把内容下沿的 0x2A 读成光标行号。
+        val result = decode(contentBits(0x2A))
+        assertEquals(0, result.cursorRow)
+        assertEquals(0x2A, result.lastContentRow)
+        assertFalse(result.altScreenActive)
+    }
+
+    @Test
+    fun `cursor and content rows decode from their own fields`() {
+        val result = decode(cursorBits(7) or contentBits(5))
+        assertEquals(7, result.cursorRow)
+        assertEquals(5, result.lastContentRow)
+    }
+
+    @Test
+    fun `row sentinels decode to the unknown constants`() {
+        // 0x3FF 是「光标隐藏/视口外」与「视口全空」两个哨兵，解码须映射为 -1。
+        val result = decode(cursorBits(0x3FF) or contentBits(0x3FF))
+        assertEquals(Bridge.CURSOR_ROW_UNKNOWN, result.cursorRow)
+        assertEquals(Bridge.LAST_CONTENT_ROW_NONE, result.lastContentRow)
+    }
+
+    @Test
+    fun `alt screen bit 54 decodes without touching the other fields`() {
+        // 备用屏置位时，输出标志/光标行/内容下沿/失效位必须仍是原值：
+        // 位宽越界（例如内容下沿掩码写成 12 位）会让它被读成行号。
+        val result = decode((1L shl 54) or cursorBits(9) or contentBits(11))
+        assertTrue(result.altScreenActive)
+        assertFalse(result.newOutput)
+        assertEquals(9, result.cursorRow)
+        assertEquals(11, result.lastContentRow)
+        assertFalse(result.surfaceInvalidated)
+    }
+
+    @Test
+    fun `surface invalidated bit 53 decodes without touching the other fields`() {
+        val result = decode((1L shl 53) or cursorBits(3))
+        assertTrue(result.surfaceInvalidated)
+        assertFalse(result.altScreenActive)
+        assertEquals(3, result.cursorRow)
+    }
+
+    @Test
+    fun `alt screen and surface invalidated are independent`() {
+        // 两个布尔标志可同时为真，宿主据此换窗口的同时置零位移。
+        val result = decode((1L shl 54) or (1L shl 53))
+        assertTrue(result.surfaceInvalidated)
+        assertTrue(result.altScreenActive)
     }
 }
