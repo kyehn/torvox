@@ -191,7 +191,7 @@ impl FontPipeline {
         // Source 过滤，NotoSansCJK TTC 在 14sp 会命中内嵌 bitmap strike（is_vector=false），
         // 而图集始终以 hint(false) 按 raster_size 光栅化矢量轮廓，导致高密度屏上
         // `try_cjk_outline_fallback` 跳过全部 CJK。
-        // 此处曾额外 `.max(1.0)`，于是 `raster_scale < 1`（Kotlin 允许 0.5f..4f；
+        // 此处曾额外 `.max(1.0)`，于是 `raster_scale < 1`（Kotlin 允许 0.5f..8f；
         // 例如 mdpi 的 1.0 density 配系统小字号 0.85 fontScale）时探测尺寸与图集尺寸不同，
         // 「是否内嵌 bitmap strike」的结论在两个尺寸之间翻转，CJK 回退随之误判。
         let raster_size = self.font_size * self.raster_scale;

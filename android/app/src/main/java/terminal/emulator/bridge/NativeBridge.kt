@@ -144,7 +144,7 @@ object NativeBridge {
      * 渲染与 new_output 读取合并为单次 JNI 穿越，返回打包的 `Long`：
      * bit 0..31 为渲染计数，bit 32 为 new_output 标志，bit 33..42 为视口光标行
      * （0x3FF 表示隐藏或在视口外），bit 43..52 为视口最后一个有内容的行
-     * （0x3FF 表示视口全空），bit 53 为 surface 已判死。
+     * （0x3FF 表示视口全空），bit 53 为 surface 已判死，bit 54 为备用屏激活。
      * 解码见 `Bridge.renderWithNewOutput`。
      */
     @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
