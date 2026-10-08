@@ -6,7 +6,7 @@
 
 实现细节：
 
-- 语料位于 `native/src/terminal/testdata/`，`.seq` 为原始字节输入，以 `.gitattributes` 的 `-text` 固定为不做换行规范化，否则 `autocrlf` 环境会把内嵌的 `\r\n` 改写。语料末尾不补换行——那会改变送入解析器的字节。，经 `vt_write` 写入（不经 `pty_write`，避免 LF→CRLF 转换改变语料语义），统一使用 6×20 网格与 20 行回滚区。
+- 语料位于 `native/src/terminal/testdata/`，`.seq` 为原始字节输入，以 `.gitattributes` 的 `-text` 固定为不做换行规范化，否则 `autocrlf` 环境会把内嵌的 `\r\n` 改写。语料末尾不补换行——那会改变送入解析器的字节，经 `vt_write` 写入（不经 `pty_write`，避免 LF→CRLF 转换改变语料语义），统一使用 6×20 网格与 20 行回滚区。
 - 快照屏幕与回滚区按行存文本并去除行尾空白，屏幕末尾空行一并裁掉；行数与列数单独记录，裁剪不丢失信息。
 - 「未设置样式」由 `CellSnapshot` 的 `foreground_is_default`/`background_is_default` 判定，不做浮点比较：显式颜色恰好与默认色数值相同时仍记入 `styled`。语料经 `dump_grid` → `build_dumped_grid` → `apply_style_to_snapshot`，标记取 `StyleColor::None`（未指定）。`build_snapshot`（`take_snapshot` 路径，仅测试使用）取 `render::Cell::fg_color()/bg_color()` 是否返回 `Ok(Some(_))`，与取色复用同一次读取，FFI 失败时颜色与标记同为默认。默认前景/背景色因此不会进入期望文件；宽字符按其占据的每个列各记一条。
 - 颜色记录为解算后的 RGB：未指定色按 `StyleColor::None` 排除；ANSI 调色板索引色（如 SGR 32）会被解析为 `catppuccin_mocha_palette()` 的对应分量后写入期望文件。语料终端由 `GhosttyTerminal::new` 创建，该构造函数以 `catppuccin_mocha_palette()` 的取值调用 `apply_theme`，故该调色板是项目内常量，结果确定可复现；改动该常量会使语料失败，属预期信号。
