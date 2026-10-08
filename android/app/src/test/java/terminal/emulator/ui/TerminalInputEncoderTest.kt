@@ -617,4 +617,38 @@ class TerminalInputEncoderTest {
         val expected = bytes(0x1B) + "中".toByteArray(Charsets.UTF_8)
         assertArrayEquals(expected, enc("中", alt = true))
     }
+
+    @Test
+    fun `every enter keycode produces newline`() {
+        // 三个回车键码必须同义。DPAD_CENTER 缺失时它会落到 Bridge 的
+        // KeyCharacterMap 猜测分支，被当成某个字母送出（实测提交后无换行、
+        // 文本与下一条命令粘连），即「回车变成 j」。
+        listOf(
+            android.view.KeyEvent.KEYCODE_ENTER,
+            android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+        ).forEach { keyCode ->
+            assertArrayEquals(
+                "keyCode=$keyCode 必须产生换行",
+                bytes(0x0A),
+                TerminalInputEncoder.encodeKeyEvent(keyCode, 0, false, false),
+            )
+        }
+    }
+
+    @Test
+    fun `every enter keycode with ctrl reports csi 13`() {
+        // 带修饰键时同样按回车族统一上报（xterm 的 CSI 13;mod~）。
+        listOf(
+            android.view.KeyEvent.KEYCODE_ENTER,
+            android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+        ).forEach { keyCode ->
+            assertArrayEquals(
+                "keyCode=$keyCode 必须上报 CSI 13;5~",
+                "\u001b[13;5~".toByteArray(Charsets.UTF_8),
+                TerminalInputEncoder.encodeKeyEvent(keyCode, 0, ctrlActive = true, altActive = false),
+            )
+        }
+    }
 }
