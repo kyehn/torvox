@@ -228,6 +228,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
         }
     })
 }
+
+/// 重建字体管线，并失效一切由旧管线派生的状态。
+///
+/// 管线整体替换会重新分配图集，旧实例携带的 UV 指向旧图集；缓存失效与重绘请求
+/// 必须与替换同处一个函数，否则某入口漏掉时既无日志也不重绘。
+#[cfg(target_os = "android")]
+fn rebuild_font_pipeline(render_state: &mut RenderState) {
+    let (atlas_width, atlas_height) = render_state.font_pipeline.atlas_dimensions();
+    let font_size = render_state.font_pipeline.font_size();
+    render_state.font_pipeline = crate::render::font::FontPipeline::new(
+        atlas_width as i32,
+        atlas_height as i32,
+        font_size,
+    );
+    render_state.renderer.cell_cache = None;
+    render_state.dirty.store(true, Ordering::Relaxed);
+}
+
 /// 确保渲染状态存在，首次使用时创建渲染器与字体管线。GPU 初始化失败时 panic
 /// （致命——按项目策略不做优雅降级：无法渲染的终端是坏的，不应跚行运转）。
 fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
@@ -3139,15 +3157,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
             crate::render::font::font_db::add_extra_font_path(std::path::PathBuf::from(&path_str));
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
-                let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
-                let font_size = render_state.font_pipeline.font_size();
-                let (aw, ah) = (aw as i32, ah as i32);
-                render_state.font_pipeline =
-                    crate::render::font::FontPipeline::new(aw, ah, font_size);
-                // 管线整体替换：旧实例 UV 全部失效。这两步必须无条件执行——
-                // 提前返回会留下「新管线已装、旧实例缓存仍在、且没请求新帧」的三重不一致。
-                render_state.renderer.cell_cache = None;
-                render_state.dirty.store(true, Ordering::Relaxed);
+                rebuild_font_pipeline(render_state);
                 if !render_state.font_pipeline.set_font_family(&family) {
                     // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
                     // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
@@ -3237,11 +3247,7 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             // 若管线已存在则重建，使新字体立即可选。
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
-                let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
-                let font_size = render_state.font_pipeline.font_size();
-                let (aw, ah) = (aw as i32, ah as i32);
-                render_state.font_pipeline =
-                    crate::render::font::FontPipeline::new(aw, ah, font_size);
+                rebuild_font_pipeline(render_state);
             }
             log::info!("setExtraFontPaths: registered extra font paths");
         }

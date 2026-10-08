@@ -4,6 +4,8 @@
 
 CJK 字形在终端中的渲染质量与输入链路要求。记录设备取证结论、根因与已验证的实现细节，作为后续渲染/输入工作的参考（置信度低于 docs/specification/DESIGN.md）。
 
+实现细节：重建逻辑为 `native/src/android/ffi.rs` 的 `rebuild_font_pipeline`，与调用点同受 `#[cfg(target_os = "android")]` 约束（两个调用点都在 JNI 导出的安卓分支内，主机构建不编译该函数）；`loadFontFile` 在重建后再设字体族，`setExtraFontPaths` 不设。
+
 ## Requirements
 
 ### Requirement: CJK 回退字体遵循系统 fonts.xml
@@ -71,3 +73,16 @@ CJK 回退层的发现 MUST NOT 依赖 locale 早于字体库构建这一调用�
 
 - **WHEN** locale 为 `en-US`
 - **THEN** 不补装任何 `lang` 族，CJK 回退层保持为空
+
+### Requirement: 字体管线重建统一失效实例缓存并请求新帧
+
+任何重建字体管线的入口 MUST 在替换管线后无条件失效字形实例缓存并请求新帧：新管线
+重新分配图集，旧实例携带的 UV 指向旧图集，混用会导致字形错乱且不会主动重绘。
+
+重建入口 MUST 共用同一实现，MUST NOT 各自复制序列——复制会使某入口遗漏上述两步，
+且遗漏处不会产生任何日志。
+
+#### Scenario: 通过字体目录重建后字形立即正确
+
+- **WHEN** Termux 字体目录存在并注册到字体数据库后重建管线
+- **THEN** 实例缓存失效且请求新帧，终端以新字体渲染
