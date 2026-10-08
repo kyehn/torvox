@@ -375,6 +375,20 @@ mod tests {
         assert_eq!(coordinates, vec![(0, 0), (1, 0)]);
     }
 
+    /// 显式色恰好等于默认色取值时仍须记入 `styled`。
+    /// 判据是颜色来源而非数值相等；此用例是该区别的唯一守卫。
+    #[test]
+    fn capture_keeps_explicit_color_equal_to_default() {
+        let mut terminal = make_terminal(3, 10);
+        // 205,214,244 即 Catppuccin Mocha 默认前景，与未设置色解算结果相同。
+        terminal.vt_write(b"\x1b[38;2;205;214;244mX");
+        terminal.flush();
+        let snapshot = capture_snapshot(&terminal);
+        assert_eq!(snapshot.styled.len(), 1);
+        assert_eq!((snapshot.styled[0].row, snapshot.styled[0].col), (0, 0));
+        assert_eq!(snapshot.styled[0].foreground, "CDD6F4");
+    }
+
     /// 重复坐标必须成为差异项而非中断，且不掩盖同一次比对中的其它差异。
     #[test]
     fn diff_reports_duplicate_coordinates_without_masking_other_differences() {
