@@ -12,7 +12,7 @@ object TerminalInputEncoder {
      * 回车键的全部键码，含导航键中心（`KEYCODE_DPAD_CENTER`，部分输入法与遥控器
      * 以它代替 Enter 提交）。
      *
-     * 单一来源：编码、贴底判定与粘贴回滚都经此集合。缺失任一键码都会让它落到
+     * 单一来源：编码与贴底判定都经此集合。缺失任一键码都会让它落到
      * [terminal.emulator.bridge.Bridge.processKeyEvent] 的 `KeyCharacterMap` 猜测
      * 分支——该分支对导航键无定义，会回退成任意字符（实测 DPAD_CENTER 提交后
      * 无换行，文本与下一条命令被粘连）。回车被当作普通可打印键送出时，

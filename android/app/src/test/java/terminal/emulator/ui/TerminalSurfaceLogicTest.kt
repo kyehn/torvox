@@ -187,24 +187,24 @@ class TerminalSurfaceLogicTest {
     // ── pinch zoom mapping ───────────────────────────────────────────────────
 
     // 系数 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 84sp，下限 4sp。
-    private val zoomDensity = 3.0f
+    private val zoomSpToPxScale = 3.0f
 
     @Test
     fun `zoom scales around the gesture base size`() {
-        assertEquals(25f, zoomFontSize(20f, 1.25f, zoomDensity))
-        assertEquals(15f, zoomFontSize(20f, 0.75f, zoomDensity))
+        assertEquals(25f, zoomFontSize(20f, 1.25f, zoomSpToPxScale))
+        assertEquals(15f, zoomFontSize(20f, 0.75f, zoomSpToPxScale))
     }
 
     @Test
     fun `zoom clamps to the same bounds as the settings slider`() {
         // 捏合与调节条改的是同一个字号设置，共用 SettingsRepository 的范围。
         assertEquals(
-            SettingsRepository.fontSizeRangeMaxSp(zoomDensity),
-            zoomFontSize(16f, 100f, zoomDensity),
+            SettingsRepository.fontSizeRangeMaxSp(zoomSpToPxScale),
+            zoomFontSize(16f, 100f, zoomSpToPxScale),
         )
         assertEquals(
             SettingsRepository.FONT_SIZE_MIN_SP,
-            zoomFontSize(16f, 0.01f, zoomDensity),
+            zoomFontSize(16f, 0.01f, zoomSpToPxScale),
         )
     }
 
@@ -226,7 +226,7 @@ class TerminalSurfaceLogicTest {
     fun `zoom clamp tightens with the system font scaling`() {
         // 系统「字体大小」放大时同一手势能给出的字号上界必须同步收紧：
         // 上界由 spToPxScale 决定，而 spToPxScale 含系统字体缩放。
-        // 密度 2.625 时上界 96sp；系数放大到 3.412（fontScale=1.3）后为 74sp。
+        // 系数放大到 2.625×1.3 = 3.4125（fontScale=1.3）后为 74sp。
         val spToPxScale = 2.625f
         assertEquals(96f, zoomFontSize(16f, 100f, spToPxScale), 0.001f)
         assertEquals(
@@ -245,16 +245,16 @@ class TerminalSurfaceLogicTest {
         // Begin(16sp) → previews → end: cumulative factor decides one outcome.
         var factor = 1.0f
         factor *= 1.1f
-        assertEquals(17.6f, zoomFontSize(16f, factor, zoomDensity))
+        assertEquals(17.6f, zoomFontSize(16f, factor, zoomSpToPxScale))
         factor *= 1.1f
-        val finalSize = zoomFontSize(16f, factor, zoomDensity)
+        val finalSize = zoomFontSize(16f, factor, zoomSpToPxScale)
         assert(zoomSettledOnNewSize(16f, finalSize))
     }
 
     @Test
     fun `pinch returning to base only reverts the preview`() {
         // Tiny drift under epsilon: no persist, just revert to the base size.
-        val finalSize = zoomFontSize(16f, 1.001f, zoomDensity)
+        val finalSize = zoomFontSize(16f, 1.001f, zoomSpToPxScale)
         assert(!zoomSettledOnNewSize(16f, finalSize))
     }
 
