@@ -2847,7 +2847,7 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
 internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, density: Float): Float =
     (baseFontSizeSp * scaleFactor).coerceIn(
         SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.fontSizeRangeMaxSp(density),
+        SettingsRepository.effectiveFontSizeMaxSp(density),
     )
 
 /**

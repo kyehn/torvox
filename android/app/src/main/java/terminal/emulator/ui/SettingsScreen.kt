@@ -284,7 +284,13 @@ private fun AppearanceSectionContent(
     // 每一步拖动都提交会并发运行完整的 applyFontSettings 链（IO 调度器），
     // 使 JNI setFontSizeInPlace 调用乱序交错（实测 96..280）并逐步重排网格
     // ——即「滑块跳动/布局错乱」的来源。预览让拖动保持廉价且单线程。
-    var sliderFontSize by rememberSaveable { mutableFloatStateOf(fontSize) }
+    // 初值钳到有效区间：历史版本存过的超限值只影响本次显示，不回写覆盖用户数据。
+    val fontSizeUpperBound = SettingsRepository.effectiveFontSizeMaxSp(LocalDensity.current.density)
+    var sliderFontSize by rememberSaveable {
+        mutableFloatStateOf(
+            fontSize.coerceIn(SettingsRepository.FONT_SIZE_MIN_SP, fontSizeUpperBound),
+        )
+    }
     Column {
         FontSizeSlider(
             modifier = Modifier.testTag("FontSizeSlider"),
@@ -544,8 +550,8 @@ private fun FontSizeSlider(
         title = stringResource(R.string.font_size),
         value = value,
         valueRange =
-        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.fontSizeRangeMaxSp(density),
-        steps = SettingsRepository.fontSizeRangeSteps(density),
+        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.effectiveFontSizeMaxSp(density),
+        steps = SettingsRepository.effectiveFontSizeRangeSteps(density),
         colors =
         SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,
