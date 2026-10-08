@@ -41,7 +41,22 @@ impl FontPipeline {
         self.cjk_fallback_ids =
             self.fonts_xml_cjk_fallback_ids(system_locale, MAX_CJK_FALLBACK_FONTS);
         if self.cjk_fallback_ids.is_empty() {
-            log::warn!("CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体");
+            #[cfg(any(target_os = "android", test))]
+            let has_pending_region = super::font_db::read_fonts_xml().is_some_and(|xml| {
+                !super::font_db::missing_region_fallback_faces(
+                    self.font_system.db(),
+                    &xml,
+                    system_locale,
+                )
+                .is_empty()
+            });
+            #[cfg(not(any(target_os = "android", test)))]
+            let has_pending_region = false;
+            if has_pending_region {
+                log::debug!("CJK_FALLBACK: 区域回退族尚未补装，等待 locale 补装");
+            } else {
+                log::warn!("CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体");
+            }
         }
         log::debug!(
             "CJK_FALLBACK: found {} fallback fonts",

@@ -218,13 +218,22 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 current.listFiles()?.forEach { stack.addLast(it) }
             } else {
                 if (!current.delete()) {
-                    throw IOException("Failed to delete '${current.path}'")
+                    throw IOException(
+                        "Failed to delete '${current.path}' " +
+                            "(exists=${current.exists()}, isDirectory=${current.isDirectory}, " +
+                            "canWrite=${current.canWrite()}, isSymlink=${Files.isSymbolicLink(current.toPath())})",
+                    )
                 }
             }
         }
         for (directoryIndex in directories.indices.reversed()) {
             if (!directories[directoryIndex].delete()) {
-                throw IOException("Failed to delete directory '${directories[directoryIndex].path}'")
+                val failedDirectory = directories[directoryIndex]
+                throw IOException(
+                    "Failed to delete directory '${failedDirectory.path}' " +
+                        "(exists=${failedDirectory.exists()}, canWrite=${failedDirectory.canWrite()}, " +
+                        "isSymlink=${Files.isSymbolicLink(failedDirectory.toPath())})",
+                )
             }
         }
     }
