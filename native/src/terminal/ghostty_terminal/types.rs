@@ -186,7 +186,14 @@ impl GridSnapshot {
         Self {
             rows,
             cols,
-            cells: vec![CellSnapshot::default(); count],
+            cells: vec![
+                CellSnapshot {
+                    foreground_is_default: true,
+                    background_is_default: true,
+                    ..CellSnapshot::default()
+                };
+                count
+            ],
             dirty: vec![true; count],
             cursor_row: DISCONNECTED_CURSOR_Y,
             cursor_col: DISCONNECTED_CURSOR_X,

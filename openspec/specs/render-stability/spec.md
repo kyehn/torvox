@@ -163,5 +163,3 @@ MUST NOT 仅依赖设备上创建管线时才暴露错误。校验 MUST 只用 C
 - 校验分两步且分别断言：先 `wgsl::parse_str` 解析，再以
   `Validator::new(ValidationFlags::all(), Capabilities::default())` 校验 IR；两步失败
   均以 `emit_to_string` 的 naga 诊断作为断言信息。
-- 另有畸形输入用例断言 `parse_str` 对非法 WGSL 返回含 `error` 的诊断，使校验路径本身
-  可验证，避免出现「测试恒通过」的空断言。

@@ -11,6 +11,8 @@ const SNAPSHOT_VERSION: u32 = 1;
 const CORPUS_ROWS: u32 = 6;
 const CORPUS_COLS: u32 = 20;
 const CORPUS_SCROLLBACK: u32 = 20;
+/// 单个语料的刷新确认时限。
+const CORPUS_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// 非默认样式的单元；默认样式不出现在期望文件中。
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -201,22 +203,24 @@ fn compare_lines(expected: &[String], actual: &[String], label: &str, difference
     }
 }
 
-fn index_styled(cells: &[StyledCell]) -> BTreeMap<(u32, u32), &StyledCell> {
+/// 按坐标索引；重复坐标记入 `differences` 而非中断，使其与其余语料一并报告。
+fn index_styled<'a>(
+    cells: &'a [StyledCell],
+    differences: &mut Vec<String>,
+) -> BTreeMap<(u32, u32), &'a StyledCell> {
     let mut map = BTreeMap::new();
     for cell in cells {
-        assert!(
-            map.insert((cell.row, cell.col), cell).is_none(),
-            "样式坐标重复：({},{})",
-            cell.row,
-            cell.col
-        );
+        let coordinate = (cell.row, cell.col);
+        if map.insert(coordinate, cell).is_some() {
+            differences.push(format!("styled {coordinate:?}: 期望文件含重复坐标"));
+        }
     }
     map
 }
 
 fn compare_styled(expected: &[StyledCell], actual: &[StyledCell], differences: &mut Vec<String>) {
-    let left = index_styled(expected);
-    let right = index_styled(actual);
+    let left = index_styled(expected, differences);
+    let right = index_styled(actual, differences);
     let coordinates: BTreeSet<(u32, u32)> = left.keys().chain(right.keys()).copied().collect();
     for coordinate in coordinates {
         match (left.get(&coordinate), right.get(&coordinate)) {
@@ -489,21 +493,29 @@ mod tests {
                     }
                 };
             terminal.vt_write(&bytes);
-            terminal.flush();
+            if !terminal.flush_with_timeout(CORPUS_FLUSH_TIMEOUT) {
+                failures.push(format!("{name}: flush 未在超时内确认"));
+                continue;
+            }
             let actual = capture_snapshot(&terminal);
-            let rendered = serde_json::to_string_pretty(&actual).expect("序列化快照");
 
             let expected_json = match fs::read_to_string(&expectation_path) {
                 Ok(json) => json,
                 Err(error) => {
-                    failures.push(format!("{name}: 读取期望文件失败 {error}\n{rendered}"));
+                    failures.push(format!(
+                        "{name}: 读取期望文件失败 {error}\n{}",
+                        serde_json::to_string_pretty(&actual).expect("序列化快照")
+                    ));
                     continue;
                 }
             };
             let expected: TestSnapshot = match serde_json::from_str(&expected_json) {
                 Ok(expected) => expected,
                 Err(error) => {
-                    failures.push(format!("{name}: 解析期望文件失败 {error}\n{rendered}"));
+                    failures.push(format!(
+                        "{name}: 解析期望文件失败 {error}\n{}",
+                        serde_json::to_string_pretty(&actual).expect("序列化快照")
+                    ));
                     continue;
                 }
             };
@@ -511,8 +523,9 @@ mod tests {
             let result = diff(&expected, &actual);
             if !result.is_empty() {
                 failures.push(format!(
-                    "{name}:\n{}\n{rendered}",
-                    result.differences.join("\n")
+                    "{name}:\n{}\n{}",
+                    result.differences.join("\n"),
+                    serde_json::to_string_pretty(&actual).expect("序列化快照")
                 ));
             }
         }
