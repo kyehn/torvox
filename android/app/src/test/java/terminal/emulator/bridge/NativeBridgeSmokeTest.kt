@@ -11,9 +11,9 @@ import kotlin.system.measureTimeMillis
 /**
  * JVM-side JNI round-trip tests — no emulator, no Android device.
  *
- * Loads the HOST-built `libnative.so` (same Rust code as the Android target, produced by
- * `scripts/build-host-lib.nu`) and drives the real JNI bridge: initSession → feedTerminal →
- * getTitle/getTerminalText → destroySession.
+ * Loads the HOST-built `libnative.so` (same Rust code as the Android target, built with
+ * `nix develop --command cargo build --package native --profile release`) and drives the real JNI
+ * bridge: initSession → feedTerminal → getTitle/getTerminalText → destroySession.
  *
  * ## Why this exists (what pure-Rust tests cannot cover)
  *
@@ -33,7 +33,8 @@ import kotlin.system.measureTimeMillis
  *
  * Locating the library: unit tests run with cwd = `android/app/`, so the path is the fixed
  * `../../target/release/libnative.so`. No candidate probing and no environment override — the
- * library must already be there, produced by `scripts/build-host-lib.nu`, or the load fails loudly.
+ * library must already be there (built as above, the step the `check` workflow runs before
+ * `check-gradle.nu`), or the load fails loudly.
  */
 class NativeBridgeSmokeTest {
     private companion object {
