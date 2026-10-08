@@ -27,6 +27,10 @@ fn terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
 }
 
+/// 查询就绪轮询的上界与间隔。
+const READY_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const READY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+
 fn small_terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(3, 3, 100).expect("terminal")
 }
@@ -292,10 +296,10 @@ fn scrollback_retains_explicit_cell_style() {
             break dumped;
         }
         assert!(
-            start.elapsed() < std::time::Duration::from_secs(5),
+            start.elapsed() < READY_POLL_TIMEOUT,
             "回滚区未在超时内产生内容"
         );
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(READY_POLL_INTERVAL);
     };
 
     let first = dumped.scrollback.first().expect("回滚区首行");
