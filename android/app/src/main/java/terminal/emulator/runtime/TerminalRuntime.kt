@@ -1924,13 +1924,16 @@ constructor(
      * 手势 preview 路径专用；finalize/设置路径仍走全量同步 + 重算。
      */
     private fun syncCellMetricsOnly(bridge: Bridge) {
-        val density = context.resources.displayMetrics.density
         val rawCellWidth = bridge.getCellWidth()
         val rawCellHeight = bridge.getCellHeight()
         if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
         if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
-        val newCellWidth = rawCellWidth * density
-        val newCellHeight = rawCellHeight * density
+        // 与渲染器同口径：渲染的四边形尺寸是 `cell_metrics × raster_scale`
+        // （native/render/pass.rs），而 `raster_scale` 就是 spToPxScale。
+        // 只乘 density 会在系统字体缩放 ≠ 1 时与渲染相差一个 fontScale 倍，
+        // 触摸命中与网格计算随之错位。
+        val newCellWidth = rawCellWidth * spToPxScale
+        val newCellHeight = rawCellHeight * spToPxScale
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
     }
@@ -3468,17 +3471,17 @@ constructor(
         // 写入这些值会覆盖按 Surface 计算出的真实度量。
         // 原生度量以逻辑像素（字体管线单位）给出；
         // 而 TerminalSurface 中的触摸/锚点计算以物理像素进行，
-        // 故在此按密度缩放——这修掉了长按命中测试落到错误单元格
-        // 以及字号不匹配的反馈。
-        val density = context.resources.displayMetrics.density
+        // 故在此按光栅缩放——这修掉了长按命中测试落到错误单元格
+        // 以及字号不匹配的反馈。缩放系数须与渲染器同口径（spToPxScale），
+        // 否则系统字体缩放 ≠ 1 时触摸命中与渲染相差一个 fontScale 倍。
         val rawCellWidth = bridge.getCellWidth()
         val rawCellHeight = bridge.getCellHeight()
         // 逻辑像素尺寸（用于网格计算）：原生原始值
         if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
         if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
-        // 物理像素尺寸（用于渲染/触摸）：已按密度缩放
-        val newCellWidth = rawCellWidth * density
-        val newCellHeight = rawCellHeight * density
+        // 物理像素尺寸（用于渲染/触摸）：已按光栅缩放
+        val newCellWidth = rawCellWidth * spToPxScale
+        val newCellHeight = rawCellHeight * spToPxScale
         val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
