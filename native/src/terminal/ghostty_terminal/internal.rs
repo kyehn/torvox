@@ -973,6 +973,11 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 颜色未指定（而非取值恰好等于默认色）。
+    pub(crate) fn style_color_is_default(color: libghostty_vt::style::StyleColor) -> bool {
+        matches!(color, libghostty_vt::style::StyleColor::None)
+    }
+
     pub(crate) fn apply_style_to_snapshot(
         data: &mut CellSnapshot,
         style: &libghostty_vt::style::Style,
@@ -982,8 +987,8 @@ impl super::GhosttyTerminal {
     ) {
         data.foreground = Self::resolve_style_color(terminal, &style.fg_color, default_foreground);
         data.background = Self::resolve_style_color(terminal, &style.bg_color, default_background);
-        data.foreground_is_default = matches!(style.fg_color, libghostty_vt::style::StyleColor::None);
-        data.background_is_default = matches!(style.bg_color, libghostty_vt::style::StyleColor::None);
+        data.foreground_is_default = Self::style_color_is_default(style.fg_color);
+        data.background_is_default = Self::style_color_is_default(style.bg_color);
         // SGR 58 下划线色：未设置时回退到解析后的前景（着色器旧 `deco = foreground` 语义）。
         data.underline_color =
             Self::resolve_style_color(terminal, &style.underline_color, data.foreground);
@@ -1025,7 +1030,11 @@ impl super::GhosttyTerminal {
             .unwrap_or_else(|| Self::byte_color_to_float(fallback_background));
 
         let snapshot_at = |point: Point| {
-            let mut data = CellSnapshot::default();
+            let mut data = CellSnapshot {
+                foreground_is_default: true,
+                background_is_default: true,
+                ..CellSnapshot::default()
+            };
             if let Ok(point) = terminal.grid_ref(point) {
                 if let Ok(cell) = point.cell() {
                     data.codepoint = cell.codepoint().unwrap_or(0);
@@ -1817,6 +1826,8 @@ impl super::GhosttyTerminal {
                         cells.push(CellSnapshot {
                             foreground: default_foreground,
                             background: default_background,
+                            foreground_is_default: true,
+                            background_is_default: true,
                             ..CellSnapshot::default()
                         });
                         continue;
@@ -1830,6 +1841,8 @@ impl super::GhosttyTerminal {
                         cells.push(CellSnapshot {
                             foreground: default_foreground,
                             background: default_background,
+                            foreground_is_default: true,
+                            background_is_default: true,
                             ..CellSnapshot::default()
                         });
                         continue;
@@ -1870,14 +1883,8 @@ impl super::GhosttyTerminal {
                     foreground,
                     background,
                     underline_color,
-                    foreground_is_default: matches!(
-                        style.fg_color,
-                        libghostty_vt::style::StyleColor::None
-                    ),
-                    background_is_default: matches!(
-                        style.bg_color,
-                        libghostty_vt::style::StyleColor::None
-                    ),
+                    foreground_is_default: Self::style_color_is_default(style.fg_color),
+                    background_is_default: Self::style_color_is_default(style.bg_color),
                     bold: style.bold,
                     dim: style.faint,
                     italic: style.italic,

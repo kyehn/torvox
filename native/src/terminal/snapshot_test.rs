@@ -13,7 +13,7 @@ const CORPUS_COLS: u32 = 20;
 const CORPUS_SCROLLBACK: u32 = 20;
 
 /// 非默认样式的单元；默认样式不出现在期望文件中。
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct StyledCell {
     pub row: u32,
     pub col: u32,
@@ -62,7 +62,7 @@ impl StyledCell {
 
 /// 供回归测试使用的终端状态快照。
 /// 与 `.seq` 输入文件并排存为 JSON 文件。
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TestSnapshot {
     pub version: u32,
     pub rows: u32,
@@ -101,6 +101,8 @@ fn styled_color(channel: [f32; 4], is_default: bool) -> String {
     )
 }
 
+/// 语料锁定前景色、背景色、粗体、斜体、下划线与反显；其余属性（SGR 2/5/8/9/53）
+/// 由 `ghostty_terminal` 的针对性用例覆盖。
 fn cell_styled(row: u32, col: u32, cell: &CellSnapshot) -> Option<StyledCell> {
     if cell.foreground_is_default
         && cell.background_is_default
@@ -202,7 +204,12 @@ fn compare_lines(expected: &[String], actual: &[String], label: &str, difference
 fn index_styled(cells: &[StyledCell]) -> BTreeMap<(u32, u32), &StyledCell> {
     let mut map = BTreeMap::new();
     for cell in cells {
-        map.insert((cell.row, cell.col), cell);
+        assert!(
+            map.insert((cell.row, cell.col), cell).is_none(),
+            "样式坐标重复：({},{})",
+            cell.row,
+            cell.col
+        );
     }
     map
 }
