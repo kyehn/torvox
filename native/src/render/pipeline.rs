@@ -6,7 +6,7 @@ pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
 /// 终端单元着色器源码，管线创建与着色器校验测试共用。
 pub(crate) const CELL_SHADER: &str = include_str!("../../shaders/cell.wgsl");
 
-/// Kitty 图形协议着色器源码。
+/// Kitty 图形协议着色器源码，管线创建与着色器校验测试共用。
 pub(crate) const KGP_SHADER: &str = include_str!("../../shaders/kitty_graphics.wgsl");
 
 pub(crate) const QUAD_CORNERS: &[[f32; 2]; 6] = &[

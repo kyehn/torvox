@@ -11,10 +11,12 @@ const SNAPSHOT_VERSION: u32 = 1;
 const CORPUS_ROWS: u32 = 6;
 const CORPUS_COLS: u32 = 20;
 const CORPUS_SCROLLBACK: u32 = 20;
-/// 语料的刷新与查询就绪时限，与 crate 内既有查询/刷新超时一致。
-const CORPUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
-    crate::terminal::ghostty_terminal::FLUSH_TIMEOUT_SECS,
-);
+/// 语料的刷新确认与查询就绪时限。
+/// `dump_grid` 的单次查询预算为 `QUERY_TIMEOUT_MS`，繁忙时回退空网格；
+/// 刷新确认与查询就绪是彼此独立的两个预算，故在此统一给出上界。
+const CORPUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// 就绪轮询间隔。
+const CORPUS_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// 非默认样式的单元；默认样式不出现在期望文件中。
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -560,7 +562,7 @@ mod tests {
                     failures.push(format!("{name}: 网格快照未在超时内就绪"));
                     continue 'cases;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                std::thread::sleep(CORPUS_POLL_INTERVAL);
             };
 
             let expected_json = match fs::read_to_string(&expectation_path) {
