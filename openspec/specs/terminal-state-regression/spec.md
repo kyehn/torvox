@@ -8,7 +8,8 @@
 
 - 语料位于 `native/src/terminal/testdata/`，`.seq` 为原始字节输入，经 `vt_write` 写入（不经 `pty_write`，避免 LF→CRLF 转换改变语料语义），统一使用 6×20 网格与 20 行回滚区。
 - 快照屏幕与回滚区按行存文本并去除行尾空白，屏幕末尾空行一并裁掉；行数与列数单独记录，裁剪不丢失信息。
-- 「未设置样式」的判据是单元解算后的颜色等于 `DumpedGrid` 导出的 `default_foreground`/`default_background`，该两值由 `build_dumped_grid` 从终端默认色计算。因此主题默认色不会进入期望文件，只有显式 SGR 的单元出现在 `styled` 中；宽字符按其占据的每个列各记一条。
+- 「未设置样式」的判据是单元解算后的颜色等于 `DumpedGrid` 导出的 `default_foreground`/`default_background`，该两值由 `build_dumped_grid` 从终端默认色计算。因此默认前景/背景色不会进入期望文件，只有带显式 SGR 的单元出现在 `styled` 中；宽字符按其占据的每个列各记一条。
+- 颜色记录为解算后的 RGB：默认色因等于上述默认值而被排除，但 ANSI 调色板索引色（如 SGR 32）会被解析为 `catppuccin_mocha_palette()` 的对应分量后写入期望文件。语料终端为未经 `apply_theme` 的新实例，故该调色板是项目内常量，结果确定可复现；改动该常量会使语料失败，属预期信号。
 - 期望文件重生成不设开关：期望缺失或不一致时测试直接失败并打印应写入的完整 JSON，人工据此写入，不提供静默重写。
 - `corpus_pairs_are_complete` 校验 `.seq` 与 `.json` 成对存在且语料非空，避免语料目录整体缺失时测试空跑通过。
 
