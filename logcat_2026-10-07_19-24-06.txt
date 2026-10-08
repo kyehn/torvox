@@ -1,0 +1,1493 @@
+[2026-10-02 17:31:11.166 Uid(value=10327):18216:18310 F/libc]
+Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 18310 (DefaultDispatch), pid 18216 (com.termux)
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Build fingerprint: 'ZTE/CN_P720S20/P720S20:13/TP1A.220624.014/20240920.145249:user/release-keys'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Revision: '0'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+ABI: 'arm64'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Timestamp: 2026-10-02 17:31:11.257862593+0800
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Process uptime: 2s
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Cmdline: com.termux
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+pid: 18216, tid: 18310, name: DefaultDispatch  >>> com.termux <<<
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+uid: 10327
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x0  0000000000000000  x1  0000000000004786  x2  0000000000000006  x3  0000006ce69f21e0
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x4  8399e68d97e5afa2  x5  8399e68d97e5afa2  x6  8399e68d97e5afa2  x7  ffffffffffffffff
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x8  00000000000000f0  x9  0000007031ecca30  x10 0000000000000001  x11 0000007031f0d5e0
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x12 00000000000083ee  x13 0000000000000049  x14 0000006de4684410  x15 0000000026762762
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x16 0000007031f7ad58  x17 0000007031f56280  x18 0000006ce2732000  x19 0000000000004728
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x20 0000000000004786  x21 00000000ffffffff  x22 0000000000000000  x23 0000006ce69f2678
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x24 0000006d7fe00880  x25 0000006ce69f41c8  x26 0000006ce69f41d8  x27 0000006ce69f41c8
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x28 0000006ce69f40c0  x29 0000006ce69f2260
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    lr  0000007031efe0c8  sp  0000006ce69f21c0  pc  0000007031efe0f4  pst 0000000000001000
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+backtrace:
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #00 pc 00000000000530f4  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #01 pc 00000000006c2754  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #02 pc 00000000006bf3b8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #03 pc 000000000032e070  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #04 pc 000000000032efb8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #05 pc 00000000003489a4  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #06 pc 000000000031142c  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #07 pc 000000000030be38  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so (Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState+16)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #08 pc 000000000021a354  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+148) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #09 pc 0000000000209398  /apex/com.android.art/lib64/libart.so (nterp_helper+152) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #10 pc 00000000001ad950  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (terminal.emulator.bridge.Bridge$prefetchRenderStateAsync$1.invokeSuspend+20)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #11 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #12 pc 000000000016d7c8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith+20)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #13 pc 000000000020b120  /apex/com.android.art/lib64/libart.so (nterp_helper+7712) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #14 pc 0000000000171e38  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.DispatchedTask.run+252)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #15 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #16 pc 000000000017ea1a  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.internal.LimitedDispatcher$Worker.run+6)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #17 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #18 pc 0000000000181670  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.TaskImpl.run+4)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #19 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #20 pc 00000000001809e0  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely+0)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #21 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #22 pc 0000000000180d2a  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask+66)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #23 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #24 pc 0000000000181018  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker+56)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #25 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #26 pc 0000000000180fc8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run+0)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #27 pc 000000000021096c  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+556) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #28 pc 0000000000279de8  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+184) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #29 pc 000000000062276c  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithJValues<art::ArtMethod*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, art::ArtMethod*, jvalue const*)+460) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #30 pc 000000000066b020  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+1296) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #31 pc 00000000000c167c  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+204) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #32 pc 0000000000054930  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-07 19:09:45.191 Uid(value=10327):7789:7789 W/proot]
+type=1400 audit(0.0:3491009): avc: denied { nlmsg_readpriv } for scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tclass=netlink_route_socket permissive=0 app=com.termux
+
+[2026-10-07 19:09:45.227 Uid(value=10327):7789:7789 W/proot]
+type=1400 audit(0.0:3491010): avc: denied { nlmsg_readpriv } for scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tclass=netlink_route_socket permissive=0 app=com.termux
+
+[2026-10-07 19:09:47.142 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f04677860 480x819
+
+[2026-10-07 19:09:47.142 Uid(value=10327):7743:7743 I/native::render::context]
+attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)
+
+[2026-10-07 19:09:47.142 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-07 19:09:47.142 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:7743 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:7743 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#25(BLAST Consumer)25](id:1e3f00000019,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:10619 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#25(BLAST Consumer)25](id:1e3f00000019,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:10619 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:10619 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:10619 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:10619 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:09:47.144 Uid(value=10327):7743:10619 W/Runtime]
+session 1 transient render error code=-1 (consecutive=0, surviving)
+
+[2026-10-07 19:09:47.148 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e12, importpid=-1
+
+[2026-10-07 19:09:47.154 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e13, importpid=-1
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#25(BLAST Consumer)25](id:1e3f00000019,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#25(BLAST Consumer)25](id:1e3f00000019,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 E/native::render::context]
+surface invalidated after 2 consecutive acquire failures (480x819)
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:09:47.207 Uid(value=10327):7743:10619 W/Runtime]
+surface invalidated (attempt 1/5): requesting a fresh Android surface
+
+[2026-10-07 19:09:47.208 Uid(value=10327):7743:7743 W/Runtime]
+surface recreate signal -> 9
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#25(BLAST Consumer)25](id:1e3f00000019,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:10619 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#25(BLAST Consumer)25](id:1e3f00000019,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:10619 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:10619 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:10619 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:09:47.261 Uid(value=10327):7743:10619 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:09:47.265 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:09:47.275 Uid(value=10327):7743:7743 W/TerminalSurface]
+applySurfaceResize: surface not valid yet, deferring
+
+[2026-10-07 19:09:47.320 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f04677860 480x819
+
+[2026-10-07 19:09:47.320 Uid(value=10327):7743:7743 W/native::render::context]
+attach_surface: previous surface invalidated; rebuilding from ANativeWindow
+
+[2026-10-07 19:09:47.320 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026dc5, base=0x0, importpid=7743
+
+[2026-10-07 19:09:47.321 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026dc6, base=0x0, importpid=7743
+
+[2026-10-07 19:09:47.321 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026dc7, base=0x0, importpid=7743
+
+[2026-10-07 19:09:47.321 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026dc8, base=0x0, importpid=7743
+
+[2026-10-07 19:09:47.321 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026dc9, base=0x0, importpid=7743
+
+[2026-10-07 19:09:47.322 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:09:47.322 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:09:47.323 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:09:47.323 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:09:47.324 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:09:47.324 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:09:47.324 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:09:47.324 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:09:47.326 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e14, importpid=-1
+
+[2026-10-07 19:09:47.327 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e15, importpid=-1
+
+[2026-10-07 19:09:47.328 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e16, importpid=-1
+
+[2026-10-07 19:09:47.329 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e17, importpid=-1
+
+[2026-10-07 19:09:47.331 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e18, importpid=-1
+
+[2026-10-07 19:09:47.331 Uid(value=10327):7743:7743 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-07 19:09:47.335 Uid(value=10327):7743:7743 I/native::render::context]
+attach_surface: configured 480x819
+
+[2026-10-07 19:09:47.335 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-07 19:09:47.336 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 19:09:47.355 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e19, importpid=-1
+
+[2026-10-07 19:09:48.341 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.343917ms p95=5.315769ms max=13.873654ms scrollback=169 rows
+
+[2026-10-07 19:09:48.341 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.714197ms p95=22.205116ms max=68.76223ms ≈59fps
+
+[2026-10-07 19:09:49.393 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.487257ms p95=5.481115ms max=5.880462ms scrollback=169 rows
+
+[2026-10-07 19:09:49.393 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.533191ms p95=22.258539ms max=101.983769ms ≈57fps
+
+[2026-10-07 19:09:50.412 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.411059ms p95=5.371038ms max=6.906ms scrollback=169 rows
+
+[2026-10-07 19:09:50.412 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.980038ms p95=22.3235ms max=101.939038ms ≈58fps
+
+[2026-10-07 19:09:51.464 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.446233ms p95=5.528346ms max=7.006577ms scrollback=169 rows
+
+[2026-10-07 19:09:51.464 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.533176ms p95=22.4565ms max=101.736192ms ≈57fps
+
+[2026-10-07 19:09:52.517 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.493994ms p95=5.441692ms max=6.113615ms scrollback=169 rows
+
+[2026-10-07 19:09:52.517 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.53877ms p95=22.3405ms max=101.846423ms ≈57fps
+
+[2026-10-07 19:09:53.587 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.360289ms p95=10.966077ms max=11.827885ms scrollback=169 rows
+
+[2026-10-07 19:09:53.588 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.838862ms p95=28.032539ms max=119.673885ms ≈56fps
+
+[2026-10-07 19:09:54.508 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.257885ms p95=9.634846ms max=12.104731ms scrollback=169 rows
+
+[2026-10-07 19:09:54.508 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.340944ms p95=27.366423ms max=88.332769ms ≈65fps
+
+[2026-10-07 19:09:55.494 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.406896ms p95=12.400846ms max=14.476577ms scrollback=169 rows
+
+[2026-10-07 19:09:55.494 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.418142ms p95=29.490769ms max=105.385115ms ≈60fps
+
+[2026-10-07 19:09:56.513 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.422522ms p95=11.512654ms max=16.216577ms scrollback=169 rows
+
+[2026-10-07 19:09:56.513 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.977494ms p95=28.904ms max=76.114462ms ≈58fps
+
+[2026-10-07 19:09:57.529 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.412084ms p95=10.646423ms max=14.481038ms scrollback=169 rows
+
+[2026-10-07 19:09:57.529 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.934656ms p95=27.215ms max=102.469615ms ≈59fps
+
+[2026-10-07 19:09:58.565 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.04866ms p95=10.082307ms max=12.933731ms scrollback=169 rows
+
+[2026-10-07 19:09:58.565 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.263817ms p95=26.919538ms max=76.563846ms ≈57fps
+
+[2026-10-07 19:09:59.587 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.146883ms p95=9.9385ms max=10.658615ms scrollback=169 rows
+
+[2026-10-07 19:09:59.587 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.013911ms p95=26.747923ms max=71.876384ms ≈58fps
+
+[2026-10-07 19:10:00.622 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.163705ms p95=9.957654ms max=11.076616ms scrollback=169 rows
+
+[2026-10-07 19:10:00.622 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.242873ms p95=26.801884ms max=77.109385ms ≈57fps
+
+[2026-10-07 19:10:01.642 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.519542ms p95=10.647538ms max=14.670769ms scrollback=169 rows
+
+[2026-10-07 19:10:01.642 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.998368ms p95=28.033308ms max=72.580038ms ≈58fps
+
+[2026-10-07 19:10:02.660 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.002492ms p95=9.777423ms max=12.932192ms scrollback=169 rows
+
+[2026-10-07 19:10:02.660 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.959008ms p95=27.709115ms max=71.613192ms ≈58fps
+
+[2026-10-07 19:10:03.631 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.859746ms p95=13.147462ms max=15.264846ms scrollback=169 rows
+
+[2026-10-07 19:10:03.631 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.172768ms p95=29.635231ms max=72.371538ms ≈61fps
+
+[2026-10-07 19:10:04.664 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.451461ms p95=11.151269ms max=13.682884ms scrollback=169 rows
+
+[2026-10-07 19:10:04.664 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.207856ms p95=28.09627ms max=81.502423ms ≈58fps
+
+[2026-10-07 19:10:05.686 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.53154ms p95=9.575731ms max=13.307731ms scrollback=169 rows
+
+[2026-10-07 19:10:05.686 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.024549ms p95=26.513461ms max=73.727ms ≈58fps
+
+[2026-10-07 19:10:06.655 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.638542ms p95=11.081693ms max=12.957808ms scrollback=169 rows
+
+[2026-10-07 19:10:06.655 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.138322ms p95=27.747769ms max=28.622731ms ≈61fps
+
+[2026-10-07 19:10:07.690 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.889105ms p95=10.580923ms max=12.196769ms scrollback=169 rows
+
+[2026-10-07 19:10:07.690 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.243582ms p95=27.59077ms max=79.435653ms ≈57fps
+
+[2026-10-07 19:10:08.707 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.905859ms p95=10.417077ms max=10.982116ms scrollback=169 rows
+
+[2026-10-07 19:10:08.707 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.947278ms p95=27.388654ms max=71.690154ms ≈59fps
+
+[2026-10-07 19:10:09.727 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.039879ms p95=9.912462ms max=10.373307ms scrollback=169 rows
+
+[2026-10-07 19:10:09.727 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.985023ms p95=26.462923ms max=71.866ms ≈58fps
+
+[2026-10-07 19:10:10.745 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.308551ms p95=10.621885ms max=12.2075ms scrollback=169 rows
+
+[2026-10-07 19:10:10.745 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.970412ms p95=27.233ms max=71.322654ms ≈58fps
+
+[2026-10-07 19:10:11.731 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.013505ms p95=9.650923ms max=11.29427ms scrollback=169 rows
+
+[2026-10-07 19:10:11.731 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.422759ms p95=26.448115ms max=71.610115ms ≈60fps
+
+[2026-10-07 19:10:12.749 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.130592ms p95=9.68527ms max=15.628577ms scrollback=169 rows
+
+[2026-10-07 19:10:12.749 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.963268ms p95=26.744923ms max=70.478231ms ≈58fps
+
+[2026-10-07 19:10:13.768 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.997446ms p95=10.546ms max=10.971923ms scrollback=169 rows
+
+[2026-10-07 19:10:13.768 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.985616ms p95=27.505731ms max=70.830461ms ≈58fps
+
+[2026-10-07 19:10:14.806 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.54381ms p95=11.216ms max=12.920346ms scrollback=169 rows
+
+[2026-10-07 19:10:14.806 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.284123ms p95=28.341653ms max=78.001885ms ≈57fps
+
+[2026-10-07 19:10:15.823 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.74712ms p95=11.055231ms max=12.792231ms scrollback=169 rows
+
+[2026-10-07 19:10:15.823 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.943016ms p95=28.2045ms max=119.819423ms ≈59fps
+
+[2026-10-07 19:10:16.842 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=3.203564ms p95=12.529384ms max=13.788346ms scrollback=169 rows
+
+[2026-10-07 19:10:16.842 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.976364ms p95=29.514ms max=81.900192ms ≈58fps
+
+[2026-10-07 19:10:17.860 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.255651ms p95=10.091308ms max=11.138423ms scrollback=169 rows
+
+[2026-10-07 19:10:17.860 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.968902ms p95=26.84677ms max=70.162693ms ≈58fps
+
+[2026-10-07 19:10:18.899 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.974999ms p95=11.398731ms max=14.783538ms scrollback=169 rows
+
+[2026-10-07 19:10:18.899 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.304907ms p95=28.442038ms max=106.6125ms ≈57fps
+
+[2026-10-07 19:10:19.917 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.651982ms p95=9.755538ms max=10.843385ms scrollback=169 rows
+
+[2026-10-07 19:10:19.917 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.967999ms p95=26.269846ms max=72.586115ms ≈58fps
+
+[2026-10-07 19:10:20.935 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.506937ms p95=10.023846ms max=12.902423ms scrollback=169 rows
+
+[2026-10-07 19:10:20.936 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.964978ms p95=26.607807ms max=70.839577ms ≈58fps
+
+[2026-10-07 19:10:21.955 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.083914ms p95=11.870461ms max=14.503039ms scrollback=169 rows
+
+[2026-10-07 19:10:21.955 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.984489ms p95=29.126923ms max=72.143923ms ≈58fps
+
+[2026-10-07 19:10:22.975 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.437205ms p95=9.741154ms max=10.9935ms scrollback=169 rows
+
+[2026-10-07 19:10:22.975 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.995341ms p95=26.707538ms max=73.410153ms ≈58fps
+
+[2026-10-07 19:10:23.991 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.886556ms p95=10.720808ms max=13.012461ms scrollback=169 rows
+
+[2026-10-07 19:10:23.992 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.93622ms p95=27.720346ms max=104.516231ms ≈59fps
+
+[2026-10-07 19:10:25.027 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.58516ms p95=10.286ms max=12.653615ms scrollback=169 rows
+
+[2026-10-07 19:10:25.027 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.255373ms p95=26.992846ms max=87.713539ms ≈57fps
+
+[2026-10-07 19:10:26.046 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.833553ms p95=10.146616ms max=11.121346ms scrollback=169 rows
+
+[2026-10-07 19:10:26.047 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.981458ms p95=27.149923ms max=71.433962ms ≈58fps
+
+[2026-10-07 19:10:27.066 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.698774ms p95=10.3635ms max=11.264423ms scrollback=169 rows
+
+[2026-10-07 19:10:27.066 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.986162ms p95=27.313962ms max=71.765077ms ≈58fps
+
+[2026-10-07 19:10:28.085 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.688333ms p95=10.427154ms max=11.628577ms scrollback=169 rows
+
+[2026-10-07 19:10:28.086 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.980505ms p95=27.715423ms max=71.763499ms ≈58fps
+
+[2026-10-07 19:10:29.055 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.986927ms p95=10.782384ms max=16.105654ms scrollback=169 rows
+
+[2026-10-07 19:10:29.055 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.146612ms p95=27.976539ms max=72.327923ms ≈61fps
+
+[2026-10-07 19:10:30.090 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.520262ms p95=10.1475ms max=19.203462ms scrollback=169 rows
+
+[2026-10-07 19:10:30.090 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.242959ms p95=26.958269ms max=105.130615ms ≈57fps
+
+[2026-10-07 19:10:31.109 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.706289ms p95=10.327808ms max=10.695346ms scrollback=169 rows
+
+[2026-10-07 19:10:31.109 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.979723ms p95=27.098538ms max=71.130385ms ≈58fps
+
+[2026-10-07 19:10:32.145 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.489968ms p95=10.523846ms max=10.735692ms scrollback=169 rows
+
+[2026-10-07 19:10:32.145 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.255864ms p95=27.303807ms max=77.946461ms ≈57fps
+
+[2026-10-07 19:10:33.164 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.55231ms p95=10.335115ms max=10.577807ms scrollback=169 rows
+
+[2026-10-07 19:10:33.164 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.99086ms p95=26.761884ms max=72.211423ms ≈58fps
+
+[2026-10-07 19:10:34.185 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.690458ms p95=10.654615ms max=14.655884ms scrollback=169 rows
+
+[2026-10-07 19:10:34.186 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.012817ms p95=27.707769ms max=73.458577ms ≈58fps
+
+[2026-10-07 19:10:35.201 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.468912ms p95=12.581153ms max=17.603077ms scrollback=169 rows
+
+[2026-10-07 19:10:35.202 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.92254ms p95=29.239769ms max=105.322038ms ≈59fps
+
+[2026-10-07 19:10:36.238 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.668789ms p95=10.833539ms max=16.271308ms scrollback=169 rows
+
+[2026-10-07 19:10:36.238 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.267913ms p95=27.588423ms max=78.737692ms ≈57fps
+
+[2026-10-07 19:10:37.256 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.470383ms p95=9.323077ms max=11.972692ms scrollback=169 rows
+
+[2026-10-07 19:10:37.256 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.963217ms p95=26.191692ms max=72.031577ms ≈58fps
+
+[2026-10-07 19:10:38.275 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.975821ms p95=10.426461ms max=12.190385ms scrollback=169 rows
+
+[2026-10-07 19:10:38.275 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.968331ms p95=28.340192ms max=71.623154ms ≈58fps
+
+[2026-10-07 19:10:39.261 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.581717ms p95=9.896307ms max=13.2065ms scrollback=169 rows
+
+[2026-10-07 19:10:39.261 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.424497ms p95=27.535154ms max=71.723538ms ≈60fps
+
+[2026-10-07 19:10:40.279 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.321443ms p95=10.463077ms max=12.065346ms scrollback=169 rows
+
+[2026-10-07 19:10:40.279 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.968063ms p95=27.221154ms max=70.374884ms ≈58fps
+
+[2026-10-07 19:10:41.300 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.336549ms p95=8.718192ms max=10.695885ms scrollback=169 rows
+
+[2026-10-07 19:10:41.300 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.015446ms p95=25.560308ms max=73.139269ms ≈58fps
+
+[2026-10-07 19:10:42.354 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.059254ms p95=0.136923ms max=0.217ms scrollback=169 rows
+
+[2026-10-07 19:10:42.354 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.549639ms p95=17.171307ms max=107.662615ms ≈56fps
+
+[2026-10-07 19:10:43.407 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.037899ms p95=0.048192ms max=0.058731ms scrollback=169 rows
+
+[2026-10-07 19:10:43.407 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.551282ms p95=17.042461ms max=108.690808ms ≈56fps
+
+[2026-10-07 19:10:44.460 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.043252ms p95=0.073231ms max=0.135385ms scrollback=169 rows
+
+[2026-10-07 19:10:44.460 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.543773ms p95=17.046077ms max=108.995038ms ≈57fps
+
+[2026-10-07 19:10:45.513 Uid(value=10327):7743:10623 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.039085ms p95=0.05573ms max=0.132192ms scrollback=169 rows
+
+[2026-10-07 19:10:45.513 Uid(value=10327):7743:10623 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.543114ms p95=17.049269ms max=109.159461ms ≈57fps
+
+[2026-10-07 19:10:59.765 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:10:59.776 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:10:59.787 Uid(value=10327):7743:7764 I/mali_gralloc]
+unregister: id=0x29900026e12, base=0x0, importpid=7743
+
+[2026-10-07 19:10:59.787 Uid(value=10327):7743:7764 I/mali_gralloc]
+unregister: id=0x29900026e13, base=0x0, importpid=7743
+
+[2026-10-07 19:10:59.788 Uid(value=10327):7743:7764 I/mali_gralloc]
+unregister: id=0x29900026e19, base=0x0, importpid=7743
+
+[2026-10-07 19:11:14.849 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f04719520 480x819
+
+[2026-10-07 19:11:14.849 Uid(value=10327):7743:7743 I/native::render::context]
+attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)
+
+[2026-10-07 19:11:14.849 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-07 19:11:14.850 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 19:11:14.851 Uid(value=10327):7743:7743 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-07 19:11:14.851 Uid(value=10327):7743:7743 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-10-07 19:11:14.851 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#28(BLAST Consumer)28](id:1e3f0000001c,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:11:14.851 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:11:14.854 Uid(value=10327):7743:11030 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#28(BLAST Consumer)28](id:1e3f0000001c,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:11:14.854 Uid(value=10327):7743:11030 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:11:14.854 Uid(value=10327):7743:11030 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:11:14.855 Uid(value=10327):7743:11030 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:11:14.855 Uid(value=10327):7743:11030 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:11:14.855 Uid(value=10327):7743:11030 W/Runtime]
+session 1 transient render error code=-1 (consecutive=0, surviving)
+
+[2026-10-07 19:11:14.858 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e31, importpid=-1
+
+[2026-10-07 19:11:14.873 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e32, importpid=-1
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#28(BLAST Consumer)28](id:1e3f0000001c,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:11030 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#28(BLAST Consumer)28](id:1e3f0000001c,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:11030 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:11030 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:11030 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:11030 E/native::render::context]
+surface invalidated after 2 consecutive acquire failures (480x819)
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:11030 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:11:14.907 Uid(value=10327):7743:7743 W/Runtime]
+surface recreate signal -> 10
+
+[2026-10-07 19:11:14.908 Uid(value=10327):7743:11030 W/Runtime]
+surface invalidated (attempt 1/5): requesting a fresh Android surface
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#28(BLAST Consumer)28](id:1e3f0000001c,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:11030 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#28(BLAST Consumer)28](id:1e3f0000001c,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:11030 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:11030 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:11030 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:11:14.959 Uid(value=10327):7743:11030 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:11:14.961 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:11:14.966 Uid(value=10327):7743:7743 W/TerminalSurface]
+applySurfaceResize: surface not valid yet, deferring
+
+[2026-10-07 19:11:15.010 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f04719520 480x819
+
+[2026-10-07 19:11:15.010 Uid(value=10327):7743:7743 W/native::render::context]
+attach_surface: previous surface invalidated; rebuilding from ANativeWindow
+
+[2026-10-07 19:11:15.010 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e14, base=0x0, importpid=7743
+
+[2026-10-07 19:11:15.010 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e15, base=0x0, importpid=7743
+
+[2026-10-07 19:11:15.011 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e16, base=0x0, importpid=7743
+
+[2026-10-07 19:11:15.011 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e17, base=0x0, importpid=7743
+
+[2026-10-07 19:11:15.011 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e18, base=0x0, importpid=7743
+
+[2026-10-07 19:11:15.011 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:15.011 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:15.012 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:15.012 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:15.012 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:15.012 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:15.013 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:15.013 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:15.014 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e33, importpid=-1
+
+[2026-10-07 19:11:15.015 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e34, importpid=-1
+
+[2026-10-07 19:11:15.017 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e35, importpid=-1
+
+[2026-10-07 19:11:15.019 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e36, importpid=-1
+
+[2026-10-07 19:11:15.020 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e37, importpid=-1
+
+[2026-10-07 19:11:15.020 Uid(value=10327):7743:7743 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-07 19:11:15.024 Uid(value=10327):7743:7743 I/native::render::context]
+attach_surface: configured 480x819
+
+[2026-10-07 19:11:15.024 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-07 19:11:15.024 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 19:11:15.040 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e38, importpid=-1
+
+[2026-10-07 19:11:16.057 Uid(value=10327):7743:11035 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.132278ms p95=0.110731ms max=3.727308ms scrollback=169 rows
+
+[2026-10-07 19:11:16.057 Uid(value=10327):7743:11035 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.192549ms p95=17.149038ms max=100.2955ms ≈58fps
+
+[2026-10-07 19:11:17.109 Uid(value=10327):7743:11035 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.044415ms p95=0.068116ms max=0.113038ms scrollback=169 rows
+
+[2026-10-07 19:11:17.109 Uid(value=10327):7743:11035 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.530933ms p95=17.107884ms max=100.102423ms ≈57fps
+
+[2026-10-07 19:11:18.162 Uid(value=10327):7743:11035 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.039004ms p95=0.049769ms max=0.058038ms scrollback=169 rows
+
+[2026-10-07 19:11:18.162 Uid(value=10327):7743:11035 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.540335ms p95=17.048923ms max=101.139077ms ≈57fps
+
+[2026-10-07 19:11:19.214 Uid(value=10327):7743:11035 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.038621ms p95=0.053346ms max=0.075193ms scrollback=169 rows
+
+[2026-10-07 19:11:19.214 Uid(value=10327):7743:11035 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.541855ms p95=17.003731ms max=102.176884ms ≈57fps
+
+[2026-10-07 19:11:24.628 Uid(value=10327):7743:11035 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.04998ms p95=0.07473ms max=0.140385ms scrollback=169 rows
+
+[2026-10-07 19:11:24.629 Uid(value=10327):7743:11035 I/Runtime]
+session 1 loop timing window (60 frames): avg=90.231164ms p95=500.243346ms max=595.639692ms ≈11fps
+
+[2026-10-07 19:11:26.927 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:11:26.935 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:11:26.949 Uid(value=10327):7743:7764 I/mali_gralloc]
+unregister: id=0x29900026e31, base=0x0, importpid=7743
+
+[2026-10-07 19:11:26.950 Uid(value=10327):7743:7764 I/mali_gralloc]
+unregister: id=0x29900026e38, base=0x0, importpid=7743
+
+[2026-10-07 19:11:26.950 Uid(value=10327):7743:7764 I/mali_gralloc]
+unregister: id=0x29900026e32, base=0x0, importpid=7743
+
+[2026-10-07 19:11:40.445 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f0470c8c0 480x819
+
+[2026-10-07 19:11:40.445 Uid(value=10327):7743:7743 I/native::render::context]
+attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)
+
+[2026-10-07 19:11:40.445 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-07 19:11:40.445 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 19:11:40.449 Uid(value=10327):7743:7743 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-07 19:11:40.449 Uid(value=10327):7743:7743 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-10-07 19:11:40.454 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e44, importpid=-1
+
+[2026-10-07 19:11:40.459 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#31(BLAST Consumer)31](id:1e3f0000001f,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:11:40.459 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:11:40.460 Uid(value=10327):7743:11094 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#31(BLAST Consumer)31](id:1e3f0000001f,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:11:40.460 Uid(value=10327):7743:11094 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:11:40.460 Uid(value=10327):7743:11094 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:11:40.460 Uid(value=10327):7743:11094 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:11:40.460 Uid(value=10327):7743:11094 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:11:40.460 Uid(value=10327):7743:11094 W/Runtime]
+session 1 transient render error code=-1 (consecutive=0, surviving)
+
+[2026-10-07 19:11:40.464 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e45, importpid=-1
+
+[2026-10-07 19:11:40.511 Uid(value=10327):7743:7834 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#31(BLAST Consumer)31](id:1e3f0000001f,api:0,p:-1,c:7743) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-07 19:11:40.511 Uid(value=10327):7743:7834 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#31(BLAST Consumer)31](id:1e3f0000001f,api:0,p:-1,c:7743) query: BufferQueue has been abandoned
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 E/native::render::context]
+surface invalidated after 2 consecutive acquire failures (480x819)
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:11094 W/Runtime]
+surface invalidated (attempt 1/5): requesting a fresh Android surface
+
+[2026-10-07 19:11:40.512 Uid(value=10327):7743:7743 W/Runtime]
+surface recreate signal -> 11
+
+[2026-10-07 19:11:40.533 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-07 19:11:40.539 Uid(value=10327):7743:7743 W/TerminalSurface]
+applySurfaceResize: surface not valid yet, deferring
+
+[2026-10-07 19:11:40.589 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f0470c8c0 480x819
+
+[2026-10-07 19:11:40.589 Uid(value=10327):7743:7743 W/native::render::context]
+attach_surface: previous surface invalidated; rebuilding from ANativeWindow
+
+[2026-10-07 19:11:40.589 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e33, base=0x0, importpid=7743
+
+[2026-10-07 19:11:40.589 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e34, base=0x0, importpid=7743
+
+[2026-10-07 19:11:40.589 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e35, base=0x0, importpid=7743
+
+[2026-10-07 19:11:40.590 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e36, base=0x0, importpid=7743
+
+[2026-10-07 19:11:40.590 Uid(value=10327):7743:7743 I/mali_gralloc]
+unregister: id=0x29900026e37, base=0x0, importpid=7743
+
+[2026-10-07 19:11:40.590 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:40.590 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:40.591 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:40.591 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:40.591 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:40.591 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:40.591 Uid(value=10327):7743:7743 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-07 19:11:40.591 Uid(value=10327):7743:7743 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-07 19:11:40.593 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e46, importpid=-1
+
+[2026-10-07 19:11:40.594 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e47, importpid=-1
+
+[2026-10-07 19:11:40.595 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e48, importpid=-1
+
+[2026-10-07 19:11:40.595 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e49, importpid=-1
+
+[2026-10-07 19:11:40.597 Uid(value=10327):7743:7743 I/mali_gralloc]
+register: id=0x29900026e4a, importpid=-1
+
+[2026-10-07 19:11:40.597 Uid(value=10327):7743:7743 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-07 19:11:40.600 Uid(value=10327):7743:7743 I/native::render::context]
+attach_surface: configured 480x819
+
+[2026-10-07 19:11:40.600 Uid(value=10327):7743:7743 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-07 19:11:40.600 Uid(value=10327):7743:7743 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-07 19:11:40.616 Uid(value=10327):7743:7764 I/mali_gralloc]
+register: id=0x29900026e4b, importpid=-1
+
+[2026-10-07 19:11:41.630 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.104878ms p95=0.129538ms max=2.988615ms scrollback=169 rows
+
+[2026-10-07 19:11:41.631 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.158064ms p95=17.011423ms max=98.476615ms ≈58fps
+
+[2026-10-07 19:11:42.684 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.049924ms p95=0.183ms max=0.253231ms scrollback=169 rows
+
+[2026-10-07 19:11:42.684 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.553063ms p95=17.097ms max=116.179846ms ≈56fps
+
+[2026-10-07 19:11:43.737 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.047069ms p95=0.119615ms max=0.202692ms scrollback=169 rows
+
+[2026-10-07 19:11:43.737 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.545715ms p95=17.068884ms max=116.66277ms ≈56fps
+
+[2026-10-07 19:11:44.439 Uid(value=10327):7743:11098 W/Runtime]
+SLOW_FRAME session=1 render=33.478577 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 19:11:44.740 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.611756ms p95=0.110462ms max=33.478577ms scrollback=169 rows
+
+[2026-10-07 19:11:44.740 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.708262ms p95=17.648961ms max=100.808346ms ≈59fps
+
+[2026-10-07 19:11:48.700 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.326267ms p95=0.101923ms max=16.665153ms scrollback=169 rows
+
+[2026-10-07 19:11:48.700 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=65.997849ms p95=500.228115ms max=590.178153ms ≈15fps
+
+[2026-10-07 19:11:58.975 Uid(value=10327):7743:11098 W/Runtime]
+SLOW_FRAME session=1 render=35.882846 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 19:11:59.076 Uid(value=10327):7743:11098 W/Runtime]
+SLOW_FRAME session=1 render=33.319538 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 19:11:59.176 Uid(value=10327):7743:11098 W/Runtime]
+SLOW_FRAME session=1 render=33.280731 count=0 newOutput=false scrollOffset=0
+
+[2026-10-07 19:11:59.179 Uid(value=10327):7743:7743 I/Z##OverScrollerMifavor]
+fling, set Frame Rate For Scene Change to START.
+
+[2026-10-07 19:11:59.180 Uid(value=10327):7743:7743 W/Z##OverScrollerMifavor]
+[cfaf] fling, adjust Duration, min to mFinal, mDuration=0, mFinal = 0
+
+[2026-10-07 19:11:59.327 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.186614ms p95=7.123154ms max=35.882846ms scrollback=169 rows
+
+[2026-10-07 19:11:59.327 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=177.108787ms p95=500.319577ms max=500.427615ms ≈5fps
+
+[2026-10-07 19:12:00.379 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.031307ms p95=0.069577ms max=0.090193ms scrollback=169 rows
+
+[2026-10-07 19:12:00.379 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.53028ms p95=16.947654ms max=103.793884ms ≈57fps
+
+[2026-10-07 19:12:01.431 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.024418ms p95=0.048307ms max=0.086885ms scrollback=169 rows
+
+[2026-10-07 19:12:01.431 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.532414ms p95=16.90623ms max=103.354231ms ≈57fps
+
+[2026-10-07 19:12:02.482 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.026748ms p95=0.059116ms max=0.073923ms scrollback=169 rows
+
+[2026-10-07 19:12:02.482 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.528966ms p95=16.880923ms max=102.656385ms ≈57fps
+
+[2026-10-07 19:12:03.535 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.030022ms p95=0.054384ms max=0.120808ms scrollback=169 rows
+
+[2026-10-07 19:12:03.535 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.542284ms p95=17.037423ms max=102.961346ms ≈57fps
+
+[2026-10-07 19:12:13.263 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.044914ms p95=0.076807ms max=0.196192ms scrollback=169 rows
+
+[2026-10-07 19:12:13.264 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=162.13644ms p95=500.272577ms max=557.855423ms ≈6fps
+
+[2026-10-07 19:12:43.344 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.061379ms p95=0.107769ms max=0.246654ms scrollback=169 rows
+
+[2026-10-07 19:12:43.345 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=501.346546ms p95=500.492231ms max=566.121577ms ≈1fps
+
+[2026-10-07 19:13:13.423 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.058317ms p95=0.070962ms max=0.249808ms scrollback=169 rows
+
+[2026-10-07 19:13:13.423 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=501.30736ms p95=500.506346ms max=563.226691ms ≈1fps
+
+[2026-10-07 19:13:43.502 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.063118ms p95=0.120192ms max=0.223346ms scrollback=169 rows
+
+[2026-10-07 19:13:43.502 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=501.312703ms p95=500.431077ms max=563.286076ms ≈1fps
+
+[2026-10-07 19:13:56.134 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.255613ms p95=2.897962ms max=27.239192ms scrollback=169 rows
+
+[2026-10-07 19:13:56.134 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=210.530606ms p95=500.263423ms max=500.473538ms ≈4fps
+
+[2026-10-07 19:13:57.187 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.121676ms p95=0.137385ms max=4.973692ms scrollback=169 rows
+
+[2026-10-07 19:13:57.188 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.548919ms p95=17.156269ms max=111.616654ms ≈56fps
+
+[2026-10-07 19:13:58.190 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.032755ms p95=0.064846ms max=0.11123ms scrollback=169 rows
+
+[2026-10-07 19:13:58.190 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.706033ms p95=17.028462ms max=79.341038ms ≈59fps
+
+[2026-10-07 19:13:59.243 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.028334ms p95=0.0445ms max=0.051731ms scrollback=169 rows
+
+[2026-10-07 19:13:59.243 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.537107ms p95=16.967807ms max=112.874808ms ≈57fps
+
+[2026-10-07 19:14:00.245 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.036948ms p95=0.069769ms max=0.231423ms scrollback=169 rows
+
+[2026-10-07 19:14:00.246 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.709386ms p95=16.970038ms max=78.820269ms ≈59fps
+
+[2026-10-07 19:14:05.158 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.028867ms p95=0.050192ms max=0.0535ms scrollback=169 rows
+
+[2026-10-07 19:14:05.158 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=81.869717ms p95=500.219269ms max=586.784384ms ≈12fps
+
+[2026-10-07 19:14:13.972 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.225721ms p95=0.147693ms max=10.43623ms scrollback=169 rows
+
+[2026-10-07 19:14:13.972 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=146.900337ms p95=500.391846ms max=510.621384ms ≈6fps
+
+[2026-10-07 19:14:15.025 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.036462ms p95=0.080731ms max=0.082731ms scrollback=169 rows
+
+[2026-10-07 19:14:15.025 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.545922ms p95=17.009654ms max=109.180731ms ≈56fps
+
+[2026-10-07 19:14:16.024 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.403593ms p95=0.142846ms max=12.945538ms scrollback=169 rows
+
+[2026-10-07 19:14:16.025 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.648426ms p95=17.337116ms max=88.482307ms ≈60fps
+
+[2026-10-07 19:14:17.078 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.052883ms p95=0.117654ms max=0.229808ms scrollback=169 rows
+
+[2026-10-07 19:14:17.078 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.551972ms p95=17.270423ms max=106.062346ms ≈56fps
+
+[2026-10-07 19:14:18.131 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.067924ms p95=0.174ms max=0.300385ms scrollback=169 rows
+
+[2026-10-07 19:14:18.132 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.555154ms p95=17.263347ms max=107.474962ms ≈56fps
+
+[2026-10-07 19:14:19.150 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.390724ms p95=0.345461ms max=10.880884ms scrollback=169 rows
+
+[2026-10-07 19:14:19.150 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.968382ms p95=17.291115ms max=73.658115ms ≈58fps
+
+[2026-10-07 19:14:20.167 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.42778ms p95=0.206923ms max=11.384807ms scrollback=169 rows
+
+[2026-10-07 19:14:20.167 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.944864ms p95=17.093192ms max=71.1575ms ≈59fps
+
+[2026-10-07 19:14:21.220 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.062277ms p95=0.124769ms max=0.411193ms scrollback=169 rows
+
+[2026-10-07 19:14:21.221 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.548364ms p95=17.086461ms max=105.601346ms ≈56fps
+
+[2026-10-07 19:14:22.225 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.0549ms p95=0.084ms max=0.227ms scrollback=169 rows
+
+[2026-10-07 19:14:22.225 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.732561ms p95=17.108577ms max=73.848077ms ≈59fps
+
+[2026-10-07 19:14:23.279 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.05276ms p95=0.065846ms max=0.221769ms scrollback=169 rows
+
+[2026-10-07 19:14:23.279 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.562064ms p95=17.02027ms max=108.798077ms ≈56fps
+
+[2026-10-07 19:14:24.333 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.049311ms p95=0.064385ms max=0.217653ms scrollback=169 rows
+
+[2026-10-07 19:14:24.333 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.569123ms p95=16.974153ms max=111.063654ms ≈56fps
+
+[2026-10-07 19:14:25.331 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.415885ms p95=0.187154ms max=12.594192ms scrollback=169 rows
+
+[2026-10-07 19:14:25.331 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.632581ms p95=17.212ms max=73.233923ms ≈60fps
+
+[2026-10-07 19:14:26.335 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.074093ms p95=0.151039ms max=0.250885ms scrollback=169 rows
+
+[2026-10-07 19:14:26.335 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.721002ms p95=17.293115ms max=72.177038ms ≈59fps
+
+[2026-10-07 19:14:27.339 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.070369ms p95=0.194846ms max=0.21027ms scrollback=169 rows
+
+[2026-10-07 19:14:27.339 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.732594ms p95=17.415115ms max=91.794077ms ≈59fps
+
+[2026-10-07 19:14:28.353 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.413831ms p95=0.111846ms max=11.7905ms scrollback=169 rows
+
+[2026-10-07 19:14:28.353 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.89561ms p95=17.772654ms max=72.126923ms ≈59fps
+
+[2026-10-07 19:14:29.408 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.223236ms p95=0.187462ms max=10.328077ms scrollback=169 rows
+
+[2026-10-07 19:14:29.408 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.565058ms p95=17.3565ms max=107.478192ms ≈56fps
+
+[2026-10-07 19:14:30.411 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.035128ms p95=0.055076ms max=0.148193ms scrollback=169 rows
+
+[2026-10-07 19:14:30.411 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.713351ms p95=17.115231ms max=90.729077ms ≈59fps
+
+[2026-10-07 19:14:31.427 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.882608ms p95=7.870576ms max=13.043961ms scrollback=169 rows
+
+[2026-10-07 19:14:31.428 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.943241ms p95=27.176385ms max=72.479423ms ≈59fps
+
+[2026-10-07 19:14:32.480 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.096658ms p95=0.23927ms max=0.409654ms scrollback=169 rows
+
+[2026-10-07 19:14:32.480 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.54114ms p95=17.103731ms max=106.277077ms ≈57fps
+
+[2026-10-07 19:14:33.534 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.076818ms p95=0.163461ms max=0.240846ms scrollback=169 rows
+
+[2026-10-07 19:14:33.534 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.559637ms p95=17.113538ms max=107.500038ms ≈56fps
+
+[2026-10-07 19:14:34.570 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.385169ms p95=0.251961ms max=10.166192ms scrollback=169 rows
+
+[2026-10-07 19:14:34.570 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.251149ms p95=17.452616ms max=90.671962ms ≈57fps
+
+[2026-10-07 19:14:35.624 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.066199ms p95=0.164193ms max=0.274307ms scrollback=169 rows
+
+[2026-10-07 19:14:35.624 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.565921ms p95=17.452693ms max=109.147731ms ≈56fps
+
+[2026-10-07 19:14:36.674 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.413812ms p95=0.203ms max=11.792192ms scrollback=169 rows
+
+[2026-10-07 19:14:36.676 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.519303ms p95=17.312462ms max=107.986384ms ≈57fps
+
+[2026-10-07 19:14:37.692 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.383594ms p95=0.271423ms max=10.730269ms scrollback=169 rows
+
+[2026-10-07 19:14:37.692 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.936777ms p95=17.215ms max=89.234923ms ≈59fps
+
+[2026-10-07 19:14:38.727 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.62238ms p95=0.134577ms max=13.492769ms scrollback=169 rows
+
+[2026-10-07 19:14:38.728 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.252302ms p95=26.654654ms max=89.087384ms ≈57fps
+
+[2026-10-07 19:14:39.780 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.063638ms p95=0.233ms max=0.266846ms scrollback=169 rows
+
+[2026-10-07 19:14:39.780 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.542521ms p95=17.016577ms max=106.257692ms ≈57fps
+
+[2026-10-07 19:14:40.817 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.259144ms p95=0.250462ms max=10.724346ms scrollback=169 rows
+
+[2026-10-07 19:14:40.817 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.266166ms p95=17.241154ms max=89.566808ms ≈57fps
+
+[2026-10-07 19:14:41.854 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.42684ms p95=0.299077ms max=11.607962ms scrollback=169 rows
+
+[2026-10-07 19:14:41.855 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.289383ms p95=17.151346ms max=92.321807ms ≈57fps
+
+[2026-10-07 19:14:42.857 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.08827ms p95=0.271961ms max=0.418885ms scrollback=169 rows
+
+[2026-10-07 19:14:42.858 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.704467ms p95=17.367577ms max=76.647192ms ≈59fps
+
+[2026-10-07 19:14:43.910 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.065122ms p95=0.147654ms max=0.248961ms scrollback=169 rows
+
+[2026-10-07 19:14:43.910 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.536132ms p95=17.272577ms max=110.026423ms ≈57fps
+
+[2026-10-07 19:14:44.942 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.167912ms p95=0.09973ms max=7.219923ms scrollback=169 rows
+
+[2026-10-07 19:14:44.942 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.193941ms p95=17.284577ms max=89.199154ms ≈58fps
+
+[2026-10-07 19:14:45.995 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.053215ms p95=0.116307ms max=0.157654ms scrollback=169 rows
+
+[2026-10-07 19:14:45.995 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.543621ms p95=17.151885ms max=106.370115ms ≈57fps
+
+[2026-10-07 19:14:47.012 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.82094ms p95=8.708962ms max=11.134115ms scrollback=169 rows
+
+[2026-10-07 19:14:47.012 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.946731ms p95=25.870231ms max=71.484423ms ≈59fps
+
+[2026-10-07 19:14:48.032 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.465853ms p95=0.199654ms max=14.263808ms scrollback=169 rows
+
+[2026-10-07 19:14:48.032 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.996819ms p95=17.074192ms max=72.445615ms ≈58fps
+
+[2026-10-07 19:14:49.068 Uid(value=10327):7743:11098 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.979525ms p95=9.947039ms max=16.062846ms scrollback=169 rows
+
+[2026-10-07 19:14:49.068 Uid(value=10327):7743:11098 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.256603ms p95=26.617885ms max=89.432885ms ≈57fps
+

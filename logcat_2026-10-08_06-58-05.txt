@@ -1,0 +1,448 @@
+[2026-10-02 17:31:11.166 Uid(value=10327):18216:18310 F/libc]
+Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) in tid 18310 (DefaultDispatch), pid 18216 (com.termux)
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Build fingerprint: 'ZTE/CN_P720S20/P720S20:13/TP1A.220624.014/20240920.145249:user/release-keys'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Revision: '0'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+ABI: 'arm64'
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Timestamp: 2026-10-02 17:31:11.257862593+0800
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Process uptime: 2s
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+Cmdline: com.termux
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+pid: 18216, tid: 18310, name: DefaultDispatch  >>> com.termux <<<
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+uid: 10327
+
+[2026-10-02 17:31:11.877 Uid(value=10327):18351:18351 F/DEBUG]
+signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x0  0000000000000000  x1  0000000000004786  x2  0000000000000006  x3  0000006ce69f21e0
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x4  8399e68d97e5afa2  x5  8399e68d97e5afa2  x6  8399e68d97e5afa2  x7  ffffffffffffffff
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x8  00000000000000f0  x9  0000007031ecca30  x10 0000000000000001  x11 0000007031f0d5e0
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x12 00000000000083ee  x13 0000000000000049  x14 0000006de4684410  x15 0000000026762762
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x16 0000007031f7ad58  x17 0000007031f56280  x18 0000006ce2732000  x19 0000000000004728
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x20 0000000000004786  x21 00000000ffffffff  x22 0000000000000000  x23 0000006ce69f2678
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x24 0000006d7fe00880  x25 0000006ce69f41c8  x26 0000006ce69f41d8  x27 0000006ce69f41c8
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    x28 0000006ce69f40c0  x29 0000006ce69f2260
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+    lr  0000007031efe0c8  sp  0000006ce69f21c0  pc  0000007031efe0f4  pst 0000000000001000
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+backtrace:
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #00 pc 00000000000530f4  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #01 pc 00000000006c2754  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #02 pc 00000000006bf3b8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #03 pc 000000000032e070  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #04 pc 000000000032efb8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #05 pc 00000000003489a4  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #06 pc 000000000031142c  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #07 pc 000000000030be38  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/lib/arm64/libnative.so (Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState+16)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #08 pc 000000000021a354  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+148) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #09 pc 0000000000209398  /apex/com.android.art/lib64/libart.so (nterp_helper+152) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #10 pc 00000000001ad950  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (terminal.emulator.bridge.Bridge$prefetchRenderStateAsync$1.invokeSuspend+20)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #11 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #12 pc 000000000016d7c8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith+20)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #13 pc 000000000020b120  /apex/com.android.art/lib64/libart.so (nterp_helper+7712) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #14 pc 0000000000171e38  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.DispatchedTask.run+252)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #15 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #16 pc 000000000017ea1a  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.internal.LimitedDispatcher$Worker.run+6)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #17 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #18 pc 0000000000181670  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.TaskImpl.run+4)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #19 pc 000000000020b074  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #20 pc 00000000001809e0  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely+0)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #21 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #22 pc 0000000000180d2a  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask+66)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #23 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #24 pc 0000000000181018  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker+56)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #25 pc 000000000020a254  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #26 pc 0000000000180fc8  /data/app/~~tRoYObju6IODbj4tAo22oQ==/com.termux-g7lTKsLe6czDb8cSpXn-_A==/base.apk (kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run+0)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #27 pc 000000000021096c  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+556) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #28 pc 0000000000279de8  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+184) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #29 pc 000000000062276c  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithJValues<art::ArtMethod*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, art::ArtMethod*, jvalue const*)+460) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #30 pc 000000000066b020  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+1296) (BuildId: 7458ec6a59ee4a6b19a11231d4da3377)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #31 pc 00000000000c167c  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+204) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-02 17:31:11.878 Uid(value=10327):18351:18351 F/DEBUG]
+      #32 pc 0000000000054930  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64) (BuildId: b9cb81d165e4db3d2928d44d46481889)
+
+[2026-10-08 06:56:02.979 Uid(value=10327):11223:11223 I/libc]
+SetHeapTaggingLevel: tag level set to 0
+
+[2026-10-08 06:56:02.984 Uid(value=10327):11223:11223 E/com.termux]
+Not starting debugger since process cannot load the jdwp agent.
+
+[2026-10-08 06:56:03.009 Uid(value=10327):11223:11223 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-10-08 06:56:03.009 Uid(value=10327):11223:11223 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-10-08 06:56:03.015 Uid(value=10327):11223:11223 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-10-08 06:56:03.018 Uid(value=10327):11223:11238 W/libc]
+Access denied finding property "vendor.MB.running"
+
+[2026-10-08 06:56:03.052 Uid(value=10327):11223:11223 I/LoadedApk]
+No resource references to update in package androidzte
+
+[2026-10-08 06:56:03.057 Uid(value=10327):11223:11223 I/ZteBinderProxy]
+initLastBindTime: USE_CACHE = true
+
+[2026-10-08 06:56:03.110 Uid(value=10327):11223:11223 E/Typeface]
+updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)
+
+[2026-10-08 06:56:03.114 Uid(value=10327):11223:11223 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-10-08 06:56:03.209 Uid(value=10327):11223:11223 W/Z##ZSSOSConfig]
+parseXml, xmlResourceId invalid !!! xmlResourceId=0
+
+[2026-10-08 06:56:03.209 Uid(value=10327):11223:11223 W/libc]
+Access denied finding property "persist.vendor.smartslide.default_value_threshold"
+
+[2026-10-08 06:56:03.315 Uid(value=10327):11223:11223 W/TerminalSurface]
+applySurfaceResize: surface not valid yet, deferring
+
+[2026-10-08 06:56:03.331 Uid(value=10327):11223:11223 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-08 06:56:03.339 Uid(value=10327):11223:11247 I/NativeBridge]
+Native library loaded: native
+
+[2026-10-08 06:56:03.354 Uid(value=10327):11223:11266 I/native::terminal::session]
+Session::spawn: shell='/data/user/0/com.termux/files/usr/bin/login', rows=24, cols=80, cwd=None
+
+[2026-10-08 06:56:03.355 Uid(value=10327):11223:11266 I/native::terminal::pty]
+SPAWN_DIRECT_ET_EXEC: shell=/data/user/0/com.termux/files/usr/bin/login (non-PIE, skip linker)
+
+[2026-10-08 06:56:03.363 Uid(value=10327):11223:11266 I/native::terminal::session]
+Session::spawn: PtyPair::spawn OK
+
+[2026-10-08 06:56:03.363 Uid(value=10327):11223:11266 I/native::terminal::session]
+Session::spawn: set_nonblocking OK
+
+[2026-10-08 06:56:03.363 Uid(value=10327):11223:11266 I/native::terminal::session]
+Session::spawn: cloning master fd for reader
+
+[2026-10-08 06:56:03.363 Uid(value=10327):11223:11266 I/native::terminal::session]
+Session::spawn_with_theme_inner: creating Arc/Channel
+
+[2026-10-08 06:56:03.365 Uid(value=10327):11223:11244 I/mali_gralloc]
+register: id=0x299000285b4, importpid=-1
+
+[2026-10-08 06:56:03.365 Uid(value=10327):11223:11266 I/native::terminal::session]
+Session::spawn: spawning reader thread
+
+[2026-10-08 06:56:03.365 Uid(value=10327):11223:11266 I/native::android::ffi]
+FFI: initSession -> id=1
+
+[2026-10-08 06:56:03.365 Uid(value=10327):11223:11278 I/native::terminal::session]
+wait thread: waiting for child pid=11274
+
+[2026-10-08 06:56:03.367 Uid(value=10327):11274:11274 W/DefaultDispatch]
+type=1400 audit(0.0:3673258): avc: granted { execute } for name="login" dev="dm-38" ino=6573816 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-08 06:56:03.367 Uid(value=10327):11274:11274 W/DefaultDispatch]
+type=1400 audit(0.0:3673259): avc: granted { execute_no_trans } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6573816 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-08 06:56:03.376 Uid(value=10327):11223:11244 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-08 06:56:03.371 Uid(value=10327):11274:11274 W/login]
+type=1400 audit(0.0:3673260): avc: granted { execute } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6573816 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-08 06:56:03.415 Uid(value=10327):11274:11274 W/login]
+type=1400 audit(0.0:3673261): avc: denied { getattr } for path="/proc/modules" dev="proc" ino=4026532130 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc_modules:s0 tclass=file permissive=0 app=com.termux
+
+[2026-10-08 06:56:03.415 Uid(value=10327):11274:11274 W/login]
+type=1400 audit(0.0:3673262): avc: denied { getattr } for path="/proc/bus/pci/devices" dev="proc" ino=4026532146 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc:s0 tclass=file permissive=0 app=com.termux
+
+[2026-10-08 06:56:03.435 Uid(value=10327):11223:11268 I/native::render::wgpu_backend]
+GPU adapter: Mali-G57 (backend=Vulkan, type=IntegratedGpu)
+
+[2026-10-08 06:56:03.435 Uid(value=10327):11223:11268 W/wgpu_core::instance]
+Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)
+The underlying API or device in use does not support enough features to be a fully compliant implementation of WebGPU. A subset of the features can still be used. If you are running this program on native and not in a browser and wish to limit the features you use to the supported subset, call Adapter::downlevel_properties or Device::downlevel_properties to get a listing of the features the current platform supports.
+
+[2026-10-08 06:56:03.435 Uid(value=10327):11223:11268 W/wgpu_core::instance]
+DownlevelCapabilities {
+    flags: DownlevelFlags(
+        COMPUTE_SHADERS | FRAGMENT_WRITABLE_STORAGE | INDIRECT_EXECUTION | BASE_VERTEX | READ_ONLY_DEPTH_STENCIL | NON_POWER_OF_TWO_MIPMAPPED_TEXTURES | CUBE_ARRAY_TEXTURES | COMPARISON_SAMPLERS | INDEPENDENT_BLEND | VERTEX_STORAGE | ANISOTROPIC_FILTERING | FRAGMENT_STORAGE | MULTISAMPLED_SHADING | DEPTH_TEXTURE_AND_BUFFER_COPIES | WEBGPU_TEXTURE_FORMAT_SUPPORT | BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED | UNRESTRICTED_INDEX_BUFFER | FULL_DRAW_INDEX_UINT32 | DEPTH_BIAS_CLAMP | VIEW_FORMATS | UNRESTRICTED_EXTERNAL_TEXTURE_COPIES | NONBLOCKING_QUERY_RESOLVE | SHADER_F16_IN_F32 | MSL2_1 | TEXTURE_COMPRESSION,
+    ),
+    limits: DownlevelLimits,
+    shader_model: Sm5,
+}
+
+[2026-10-08 06:56:03.436 Uid(value=10327):11223:11266 I/native::render::wgpu_backend]
+GPU adapter: Mali-G57 (backend=Vulkan, type=IntegratedGpu)
+
+[2026-10-08 06:56:03.436 Uid(value=10327):11223:11266 W/wgpu_core::instance]
+Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)
+The underlying API or device in use does not support enough features to be a fully compliant implementation of WebGPU. A subset of the features can still be used. If you are running this program on native and not in a browser and wish to limit the features you use to the supported subset, call Adapter::downlevel_properties or Device::downlevel_properties to get a listing of the features the current platform supports.
+
+[2026-10-08 06:56:03.436 Uid(value=10327):11223:11266 W/wgpu_core::instance]
+DownlevelCapabilities {
+    flags: DownlevelFlags(
+        COMPUTE_SHADERS | FRAGMENT_WRITABLE_STORAGE | INDIRECT_EXECUTION | BASE_VERTEX | READ_ONLY_DEPTH_STENCIL | NON_POWER_OF_TWO_MIPMAPPED_TEXTURES | CUBE_ARRAY_TEXTURES | COMPARISON_SAMPLERS | INDEPENDENT_BLEND | VERTEX_STORAGE | ANISOTROPIC_FILTERING | FRAGMENT_STORAGE | MULTISAMPLED_SHADING | DEPTH_TEXTURE_AND_BUFFER_COPIES | WEBGPU_TEXTURE_FORMAT_SUPPORT | BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED | UNRESTRICTED_INDEX_BUFFER | FULL_DRAW_INDEX_UINT32 | DEPTH_BIAS_CLAMP | VIEW_FORMATS | UNRESTRICTED_EXTERNAL_TEXTURE_COPIES | NONBLOCKING_QUERY_RESOLVE | SHADER_F16_IN_F32 | MSL2_1 | TEXTURE_COMPRESSION,
+    ),
+    limits: DownlevelLimits,
+    shader_model: Sm5,
+}
+
+[2026-10-08 06:56:03.482 Uid(value=10327):11223:11266 I/native::render::wgpu_backend]
+GPU device created, queue ok
+
+[2026-10-08 06:56:03.515 Uid(value=10327):11223:11268 I/native::render::wgpu_backend]
+GPU device created, queue ok
+
+[2026-10-08 06:56:03.519 Uid(value=10327):11223:11266 W/native::render::font::cjk]
+CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体
+
+[2026-10-08 06:56:03.523 Uid(value=10327):11223:11244 I/mali_gralloc]
+register: id=0x299000285b5, importpid=-1
+
+[2026-10-08 06:56:03.524 Uid(value=10327):11223:11223 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-10-08 06:56:03.524 Uid(value=10327):11223:11223 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-10-08 06:56:03.524 Uid(value=10327):11223:11223 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-10-08 06:56:03.524 Uid(value=10327):11223:11223 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-10-08 06:56:03.547 Uid(value=10327):11223:11244 I/mali_gralloc]
+register: id=0x299000285b6, importpid=-1
+
+[2026-10-08 06:56:03.563 Uid(value=10327):11223:11266 I/native::android::ffi]
+render state initialized (renderer + font pipeline)
+
+[2026-10-08 06:56:03.566 Uid(value=10327):11223:11266 W/native::render::font::cjk]
+CJK_FALLBACK: fonts.xml 未提供匹配当前语言的回退字体
+
+[2026-10-08 06:56:03.582 Uid(value=10327):11223:11266 I/native::android::ffi]
+setExtraFontPaths: registered extra font paths
+
+[2026-10-08 06:56:03.582 Uid(value=10327):11223:11268 I/native::android::ffi]
+render state prefetched
+
+[2026-10-08 06:56:03.582 Uid(value=10327):11223:11266 I/native::android::ffi]
+setSystemLocale: zh-CN
+
+[2026-10-08 06:56:03.589 Uid(value=10327):11223:11266 I/native::android::ffi]
+setTheme: session 1 background=[1E, 1E, 2E] foreground=[CD, D6, F4]
+
+[2026-10-08 06:56:03.589 Uid(value=10327):11223:11266 I/native::android::ffi]
+setCursorColor: (0.9607843, 0.8784314, 0.8627451)
+
+[2026-10-08 06:56:03.619 Uid(value=10327):11223:11266 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-08 06:56:03.636 Uid(value=10327):11223:11266 I/native::android::ffi]
+setFontSizeInPlace: 141 -> cell 8.5x17.0
+
+[2026-10-08 06:56:03.647 Uid(value=10327):11223:11266 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f046acbf0 480x819
+
+[2026-10-08 06:56:03.652 Uid(value=10327):11223:11266 W/libc]
+Access denied finding property "persist.vendor.gpu.fbc"
+
+[2026-10-08 06:56:03.652 Uid(value=10327):11223:11266 I/mali_gralloc]
+SPRD: get persist.vendor.gpu.fbc 1
+
+[2026-10-08 06:56:03.652 Uid(value=10327):11223:11266 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-08 06:56:03.652 Uid(value=10327):11223:11266 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-08 06:56:03.652 Uid(value=10327):11223:11266 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-08 06:56:03.652 Uid(value=10327):11223:11266 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-08 06:56:03.653 Uid(value=10327):11223:11266 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-08 06:56:03.653 Uid(value=10327):11223:11266 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-08 06:56:03.653 Uid(value=10327):11223:11266 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-08 06:56:03.653 Uid(value=10327):11223:11266 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-08 06:56:03.654 Uid(value=10327):11223:11266 I/mali_gralloc]
+register: id=0x299000285b7, importpid=-1
+
+[2026-10-08 06:56:03.654 Uid(value=10327):11223:11266 I/mali_gralloc]
+register: id=0x299000285b8, importpid=-1
+
+[2026-10-08 06:56:03.666 Uid(value=10327):11223:11266 I/mali_gralloc]
+register: id=0x299000285b9, importpid=-1
+
+[2026-10-08 06:56:03.667 Uid(value=10327):11223:11266 I/mali_gralloc]
+register: id=0x299000285ba, importpid=-1
+
+[2026-10-08 06:56:03.668 Uid(value=10327):11223:11266 I/mali_gralloc]
+register: id=0x299000285bb, importpid=-1
+
+[2026-10-08 06:56:03.668 Uid(value=10327):11223:11266 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-08 06:56:03.673 Uid(value=10327):11223:11266 I/native::render::context]
+attach_surface: configured 480x819
+
+[2026-10-08 06:56:03.673 Uid(value=10327):11223:11266 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-08 06:56:03.732 Uid(value=10327):11223:11322 I/native::render::context]
+initialize_pipeline_and_bind_group: pipeline=true atlas=2048x2048 surface=480x819
+
+[2026-10-08 06:56:03.762 Uid(value=10327):11223:11271 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-08 06:56:03.802 Uid(value=10327):11223:11266 I/native::android::ffi]
+setFontFamily: Droid Sans Mono found=true
+
+[2026-10-08 06:56:03.802 Uid(value=10327):11223:11322 W/Runtime]
+SLOW_FRAME session=1 render=100.605577 count=1 newOutput=false scrollOffset=0
+
+[2026-10-08 06:56:03.862 Uid(value=10327):11223:11322 W/Runtime]
+SLOW_FRAME session=1 render=59.286731 count=1 newOutput=true scrollOffset=0
+
+[2026-10-08 06:56:04.698 Uid(value=10327):11223:11223 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-08 06:56:04.707 Uid(value=10327):11223:11223 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-08 06:56:04.718 Uid(value=10327):11223:11244 I/mali_gralloc]
+unregister: id=0x299000285b4, base=0x0, importpid=11223
+
+[2026-10-08 06:56:04.719 Uid(value=10327):11223:11244 I/mali_gralloc]
+unregister: id=0x299000285b5, base=0x0, importpid=11223
+
+[2026-10-08 06:56:04.719 Uid(value=10327):11223:11244 I/mali_gralloc]
+unregister: id=0x299000285b6, base=0x0, importpid=11223
+
+[2026-10-08 06:56:47.496 Uid(value=10327):11223:11506 E/JavaBinder]
+*** Uncaught remote exception!  (Exceptions are not yet supported across processes.)
+java.lang.RuntimeException: java.io.IOException: Failed to delete '/data/user/0/com.termux/files/home/terminal_home/logcat_2026-10-07_19-24-06.txt'
+	at android.os.Parcel.writeException(Parcel.java:2802)
+	at android.database.DatabaseUtils.writeExceptionToParcel(DatabaseUtils.java:117)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:425)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+Caused by: java.io.IOException: Failed to delete '/data/user/0/com.termux/files/home/terminal_home/logcat_2026-10-07_19-24-06.txt'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.DocumentMutations.deleteWithoutFollowingSymlinks(SourceFile:221)
+	at terminal.emulator.DocumentMutations.deleteDocument(SourceFile:105)
+	at terminal.emulator.TerminalDocumentsProvider.deleteDocument(SourceFile:337)
+	at android.provider.DocumentsProvider.callUnchecked(DocumentsProvider.java:1182)
+	at android.provider.DocumentsProvider.call(DocumentsProvider.java:1078)
+	at android.content.ContentProvider.call(ContentProvider.java:2721)
+	at android.content.ContentProvider$Transport.call(ContentProvider.java:592)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:295)
+	... 2 more
+
