@@ -1334,16 +1334,14 @@ mod tests {
         }
     }
 
-    /// 非 CJK 系统语言无区域字体候选，简繁（含 `zh-SG`）必有候选。
+    /// `zh-SG` 等其余简中子标签曾取不到区域候选：变体判定与候选表此前各写一份。
     #[test]
     fn locale_fonts_xml_langs_follows_cjk_variant() {
-        assert!(!super::locale_fonts_xml_langs("zh-SG").is_empty());
-        for locale in ["", "en-US", "und"] {
-            assert!(
-                super::locale_fonts_xml_langs(locale).is_empty(),
-                "locale={locale} 不得有区域候选"
-            );
-        }
+        assert_eq!(
+            super::locale_fonts_xml_langs("zh-SG"),
+            &["zh-Hans", "zh-CN", "zh", "und-Hani"]
+        );
+        assert!(super::locale_fonts_xml_langs("").is_empty());
     }
 
     /// 宿主字体库与其中首个等宽面、首个比例面：主字体选择梯次测试的探针。
