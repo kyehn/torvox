@@ -399,6 +399,21 @@ constructor(
     internal val modifierBarHeightPx: Int
         get() = (MODIFIER_BAR_HEIGHT_DP * context.resources.displayMetrics.density + 0.5f).toInt()
 
+    /**
+     * sp→设备像素的完整系数：显示密度 × 系统字体缩放，与推给原生的
+     * `setRasterScale` 取值同源（后者即字形实际光栅尺度，`sp * 该系数`）。
+     *
+     * 单一口径来源：字号的每一次 sp↔px 换算（调节条上限、缩放钳位、设置页
+     * 展示的像素值）都必须经此系数。只用 `displayMetrics.density` 会在系统
+     * 「字体大小」> 1 时系统性低估实际像素尺寸——实测 fontScale=1.3 时
+     * 原生 `RASTER_SCALE` 为 3.412（2.625×1.3），而仅按密度的换算给出
+     * 2.625，字号上界因此越过 Termux 的 256px 像素上限。
+     */
+    internal val spToPxScale: Float
+        get() =
+            (context.resources.displayMetrics.density * context.resources.configuration.fontScale)
+                .coerceIn(MIN_RASTER_SCALE, MAX_RASTER_SCALE)
+
     // 最近一次推给原生的字号（十分之一单位）。缩放手势以其为锚点，使预览/确定从实际渲染尺寸
     // 而非原始设置值出发（后者在字号从未显式设置时可能不同）。
     @Volatile internal var appliedFontSizeTenths: Int = 0
@@ -1745,6 +1760,13 @@ constructor(
          * 派生才使「改了按钮高度」不可能漏改预留。
          */
         private const val MODIFIER_BAR_HEIGHT_DP = BUTTON_HEIGHT_DP * 2
+
+        /**
+         * sp→px 系数（光栅缩放）的合法区间：原生 `set_raster_scale` 对非正
+         * 或非有限输入回落 1.0，故传入区间外的值等于静默丢弃缩放。
+         */
+        private const val MIN_RASTER_SCALE = 0.5f
+        private const val MAX_RASTER_SCALE = 4f
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
         private const val FONT_SIZE_MAX_PX = 600
@@ -1827,13 +1849,12 @@ constructor(
     }
 
     internal suspend fun computeFontSizeTenths(): Int {
-        val density = context.resources.displayMetrics.density
         // 落盘值与自适应值统一钳到有效区间：历史超限存量不再让原生静默丢弃，
         // 渲染、下发记录与调节条三方恒一致。
         val userFontSize =
             settingsRepository.fontSize.first().coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.effectiveFontSizeMaxSp(density),
+                SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
@@ -1862,11 +1883,10 @@ constructor(
     fun setFontSizePreview(sizeSp: Float) {
         // 与调节条/手势同一有效区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
         // 调用方传的本就是区间内值时行为不变。
-        val density = context.resources.displayMetrics.density
         val clampedSp =
             sizeSp.coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.effectiveFontSizeMaxSp(density),
+                SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
             )
         val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
@@ -3401,12 +3421,7 @@ constructor(
         // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
         // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
         // 着色器随后放大图集位图——即「文字模糊」问题的来源。
-        bridge.setRasterScale(
-            (
-                context.resources.displayMetrics.density *
-                    context.resources.configuration.fontScale
-                ).coerceIn(0.5f, 4f),
-        )
+        bridge.setRasterScale(spToPxScale)
         appliedFontSizeTenths = config.fontSizeTenths
         LogUtil.d(
             "Runtime",

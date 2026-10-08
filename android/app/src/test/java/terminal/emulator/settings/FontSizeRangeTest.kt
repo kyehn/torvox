@@ -20,12 +20,12 @@ class FontSizeRangeTest {
     @Test
     fun everyDetentIsExactlyOneStep() {
         // 档数必须让跨度恰好被步长整除，否则调节条会出现半档。
-        listOf(1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { density ->
-            val maxSp = SettingsRepository.fontSizeRangeMaxSp(density)
-            val steps = SettingsRepository.fontSizeRangeSteps(density)
+        listOf(1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { spToPxScale ->
+            val maxSp = SettingsRepository.fontSizeRangeMaxSp(spToPxScale)
+            val steps = SettingsRepository.fontSizeRangeSteps(spToPxScale)
             val span = maxSp - SettingsRepository.FONT_SIZE_MIN_SP
             assertEquals(
-                "density=$density 的跨度未被步长整除",
+                "spToPxScale=$spToPxScale 的跨度未被步长整除",
                 SettingsRepository.FONT_SIZE_STEP_SP,
                 span / (steps + 1),
                 0.001f,
@@ -36,17 +36,35 @@ class FontSizeRangeTest {
     @Test
     fun rangeRespectsTermuxPixelCeiling() {
         // 换算后的 sp 上界不得越过 Termux 的像素上限，否则比 Termux 允许的还大。
-        listOf(1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { density ->
-            val maxSp = SettingsRepository.fontSizeRangeMaxSp(density)
+        listOf(1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { spToPxScale ->
+            val maxSp = SettingsRepository.fontSizeRangeMaxSp(spToPxScale)
             assertTrue(
-                "density=$density 时上界 ${maxSp * density}px 越过 Termux 的 ${SettingsRepository.FONT_SIZE_MAX_PX}px",
-                maxSp * density <= SettingsRepository.FONT_SIZE_MAX_PX,
+                "spToPxScale=$spToPxScale 时上界 ${maxSp * spToPxScale}px 越过 Termux 的 ${SettingsRepository.FONT_SIZE_MAX_PX}px",
+                maxSp * spToPxScale <= SettingsRepository.FONT_SIZE_MAX_PX,
             )
             assertTrue(
-                "density=$density 时上界必须高于下限，否则调节条退化",
+                "spToPxScale=$spToPxScale 时上界必须高于下限，否则调节条退化",
                 maxSp > SettingsRepository.FONT_SIZE_MIN_SP,
             )
         }
+    }
+
+    @Test
+    fun systemFontScalingShrinksTheCeiling() {
+        // 系统「字体大小」> 1 时字形的实际像素尺寸随之上浮，若上限仍按仅显示密度
+        // 计算，用户就能调到远超 Termux 像素上限的字号：实测 fontScale=1.3
+        // （系数 2.625→3.412）时上界须从 96sp 降到 74sp。
+        val density = 2.625f
+        assertEquals(96f, SettingsRepository.fontSizeRangeMaxSp(density), 0.001f)
+        assertEquals(
+            74f,
+            SettingsRepository.fontSizeRangeMaxSp(density * 1.3f),
+            0.001f,
+        )
+        assertTrue(
+            SettingsRepository.fontSizeRangeMaxSp(density * 1.3f) <
+                SettingsRepository.fontSizeRangeMaxSp(density),
+        )
     }
 
     @Test
