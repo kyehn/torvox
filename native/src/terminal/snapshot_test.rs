@@ -196,7 +196,12 @@ impl DiffResult {
     }
 }
 
-fn compare_lines(expected: &[String], actual: &[String], label: &str, differences: &mut Vec<String>) {
+fn compare_lines(
+    expected: &[String],
+    actual: &[String],
+    label: &str,
+    differences: &mut Vec<String>,
+) {
     let count = expected.len().max(actual.len());
     for index in 0..count {
         let left = expected.get(index).map(String::as_str).unwrap_or("");
@@ -316,7 +321,12 @@ mod tests {
         names.sort();
         names
             .iter()
-            .map(|path| path.file_stem().expect("corpus stem").to_string_lossy().into_owned())
+            .map(|path| {
+                path.file_stem()
+                    .expect("corpus stem")
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect()
     }
 
@@ -362,7 +372,10 @@ mod tests {
         terminal.vt_write(b"a\r\n\r\nb\r\n");
         terminal.flush();
         let snapshot = capture_snapshot(&terminal);
-        assert_eq!(snapshot.screen, vec!["a".to_string(), String::new(), "b".to_string()]);
+        assert_eq!(
+            snapshot.screen,
+            vec!["a".to_string(), String::new(), "b".to_string()]
+        );
     }
 
     #[test]
@@ -371,7 +384,11 @@ mod tests {
         terminal.vt_write(b"\x1b[1mA\r\nB");
         terminal.flush();
         let snapshot = capture_snapshot(&terminal);
-        let coordinates: Vec<(u32, u32)> = snapshot.styled.iter().map(|entry| (entry.row, entry.col)).collect();
+        let coordinates: Vec<(u32, u32)> = snapshot
+            .styled
+            .iter()
+            .map(|entry| (entry.row, entry.col))
+            .collect();
         assert_eq!(coordinates, vec![(0, 0), (1, 0)]);
     }
 
@@ -507,7 +524,11 @@ mod tests {
         let snapshot = capture_snapshot(&terminal);
         let json = serde_json::to_string_pretty(&snapshot).expect("serialize snapshot");
         let restored: TestSnapshot = serde_json::from_str(&json).expect("deserialize snapshot");
-        assert!(diff(&snapshot, &restored).is_empty(), "{:?}", diff(&snapshot, &restored));
+        assert!(
+            diff(&snapshot, &restored).is_empty(),
+            "{:?}",
+            diff(&snapshot, &restored)
+        );
     }
 
     #[test]
@@ -533,7 +554,11 @@ mod tests {
 
     #[test]
     fn corpus_pairs_are_complete() {
-        assert_eq!(corpus_files("seq"), corpus_files("json"), "回归语料输入与期望文件不成对");
+        assert_eq!(
+            corpus_files("seq"),
+            corpus_files("json"),
+            "回归语料输入与期望文件不成对"
+        );
     }
 
     #[test]
