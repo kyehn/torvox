@@ -11,8 +11,10 @@ const SNAPSHOT_VERSION: u32 = 1;
 const CORPUS_ROWS: u32 = 6;
 const CORPUS_COLS: u32 = 20;
 const CORPUS_SCROLLBACK: u32 = 20;
-/// 单个语料的刷新确认时限。
-const CORPUS_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// 语料的刷新与查询就绪时限，与 crate 内既有查询/刷新超时一致。
+const CORPUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
+    crate::terminal::ghostty_terminal::FLUSH_TIMEOUT_SECS,
+);
 
 /// 非默认样式的单元；默认样式不出现在期望文件中。
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -206,21 +208,22 @@ fn compare_lines(expected: &[String], actual: &[String], label: &str, difference
 /// 按坐标索引；重复坐标记入 `differences` 而非中断，使其与其余语料一并报告。
 fn index_styled<'a>(
     cells: &'a [StyledCell],
+    origin: &str,
     differences: &mut Vec<String>,
 ) -> BTreeMap<(u32, u32), &'a StyledCell> {
     let mut map = BTreeMap::new();
     for cell in cells {
         let coordinate = (cell.row, cell.col);
         if map.insert(coordinate, cell).is_some() {
-            differences.push(format!("styled {coordinate:?}: 期望文件含重复坐标"));
+            differences.push(format!("styled {coordinate:?}: {origin}含重复坐标"));
         }
     }
     map
 }
 
 fn compare_styled(expected: &[StyledCell], actual: &[StyledCell], differences: &mut Vec<String>) {
-    let left = index_styled(expected, differences);
-    let right = index_styled(actual, differences);
+    let left = index_styled(expected, "期望", differences);
+    let right = index_styled(actual, "实际", differences);
     let coordinates: BTreeSet<(u32, u32)> = left.keys().chain(right.keys()).copied().collect();
     for coordinate in coordinates {
         match (left.get(&coordinate), right.get(&coordinate)) {
@@ -370,6 +373,55 @@ mod tests {
         assert_eq!(coordinates, vec![(0, 0), (1, 0)]);
     }
 
+    /// 重复坐标必须成为差异项而非中断，且不掩盖同一次比对中的其它差异。
+    #[test]
+    fn diff_reports_duplicate_coordinates_without_masking_other_differences() {
+        let terminal = make_terminal(3, 5);
+        let expected = capture_snapshot(&terminal);
+        let mut actual = expected.clone();
+        actual.styled = vec![
+            StyledCell {
+                row: 1,
+                col: 2,
+                foreground: String::new(),
+                background: String::new(),
+                bold: true,
+                italic: false,
+                underline: false,
+                reverse: false,
+            },
+            StyledCell {
+                row: 1,
+                col: 2,
+                foreground: String::new(),
+                background: String::new(),
+                bold: false,
+                italic: false,
+                underline: false,
+                reverse: false,
+            },
+        ];
+        actual.screen = vec!["X".to_string()];
+
+        let result = diff(&expected, &actual);
+        assert!(
+            result
+                .differences
+                .iter()
+                .any(|difference| difference.contains("重复坐标")),
+            "{:?}",
+            result.differences
+        );
+        assert!(
+            result
+                .differences
+                .iter()
+                .any(|difference| difference.starts_with("screen 0:")),
+            "{:?}",
+            result.differences
+        );
+    }
+
     #[test]
     fn diff_identical_is_empty() {
         let terminal = make_terminal(3, 5);
@@ -473,7 +525,7 @@ mod tests {
         let inputs = corpus_files("seq");
         assert!(!inputs.is_empty(), "回归语料为空");
         let mut failures = Vec::new();
-        for name in inputs {
+        'cases: for name in inputs {
             let input_path = corpus_dir().join(format!("{name}.seq"));
             let expectation_path = corpus_dir().join(format!("{name}.json"));
             let bytes = match fs::read(&input_path) {
@@ -493,11 +545,23 @@ mod tests {
                     }
                 };
             terminal.vt_write(&bytes);
-            if !terminal.flush_with_timeout(CORPUS_FLUSH_TIMEOUT) {
+            if !terminal.flush_with_timeout(CORPUS_TIMEOUT) {
                 failures.push(format!("{name}: flush 未在超时内确认"));
                 continue;
             }
-            let actual = capture_snapshot(&terminal);
+            // `dump_grid` 自带回退空网格，查询超时独立于 flush 预算；轮询到就绪杜绝 flaky。
+            let deadline = std::time::Instant::now() + CORPUS_TIMEOUT;
+            let actual = loop {
+                let snapshot = capture_snapshot(&terminal);
+                if snapshot.rows == CORPUS_ROWS && snapshot.cols == CORPUS_COLS {
+                    break snapshot;
+                }
+                if std::time::Instant::now() >= deadline {
+                    failures.push(format!("{name}: 网格快照未在超时内就绪"));
+                    continue 'cases;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            };
 
             let expected_json = match fs::read_to_string(&expectation_path) {
                 Ok(json) => json,
