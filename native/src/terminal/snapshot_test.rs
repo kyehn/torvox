@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ impl StyledCell {
 
 /// 供回归测试使用的终端状态快照。
 /// 与 `.seq` 输入文件并排存为 JSON 文件。
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TestSnapshot {
     pub version: u32,
     pub rows: u32,
@@ -137,17 +137,15 @@ fn row_text(cells: &[CellSnapshot]) -> String {
 }
 
 fn collect_styled(
+    row: u32,
     cells: &[CellSnapshot],
-    cols: u32,
     default_foreground: [f32; 4],
     default_background: [f32; 4],
     styled: &mut Vec<StyledCell>,
 ) {
-    for (index, cell) in cells.iter().enumerate() {
-        let row = index as u32 / cols;
-        let col = index as u32 % cols;
+    for (col, cell) in cells.iter().enumerate() {
         if let Some(entry) =
-            cell_styled(row, col, cell, default_foreground, default_background)
+            cell_styled(row, col as u32, cell, default_foreground, default_background)
         {
             styled.push(entry);
         }
@@ -176,8 +174,8 @@ fn from_dumped_grid(
         let end = start + dumped.cols as usize;
         screen.push(row_text(&dumped.visible[start..end]));
         collect_styled(
+            row as u32,
             &dumped.visible[start..end],
-            dumped.cols,
             dumped.default_foreground,
             dumped.default_background,
             &mut styled,
@@ -201,7 +199,7 @@ fn from_dumped_grid(
 }
 
 /// 两个快照的比较结果，每项为一条可读差异。
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DiffResult {
     pub differences: Vec<String>,
 }
@@ -219,6 +217,39 @@ fn compare_lines(expected: &[String], actual: &[String], label: &str, difference
         let right = actual.get(index).map(String::as_str).unwrap_or("");
         if left != right {
             differences.push(format!("{label} {index}: expected {left:?} got {right:?}"));
+        }
+    }
+}
+
+fn index_styled(cells: &[StyledCell]) -> BTreeMap<(u32, u32), &StyledCell> {
+    let mut map = BTreeMap::new();
+    for cell in cells {
+        map.insert((cell.row, cell.col), cell);
+    }
+    map
+}
+
+fn compare_styled(expected: &[StyledCell], actual: &[StyledCell], differences: &mut Vec<String>) {
+    let left = index_styled(expected);
+    let right = index_styled(actual);
+    let coordinates: BTreeSet<(u32, u32)> = left.keys().chain(right.keys()).copied().collect();
+    for coordinate in coordinates {
+        match (left.get(&coordinate), right.get(&coordinate)) {
+            (Some(expected_cell), Some(actual_cell)) if expected_cell == actual_cell => {}
+            (Some(expected_cell), Some(actual_cell)) => differences.push(format!(
+                "styled {coordinate:?}: expected [{}] got [{}]",
+                expected_cell.describe(),
+                actual_cell.describe()
+            )),
+            (Some(expected_cell), None) => differences.push(format!(
+                "styled {coordinate:?}: expected [{}] got [none]",
+                expected_cell.describe()
+            )),
+            (None, Some(actual_cell)) => differences.push(format!(
+                "styled {coordinate:?}: expected [none] got [{}]",
+                actual_cell.describe()
+            )),
+            (None, None) => {}
         }
     }
 }
@@ -263,24 +294,7 @@ pub fn diff(expected: &TestSnapshot, actual: &TestSnapshot) -> DiffResult {
         ));
     }
 
-    if expected.styled.len() != actual.styled.len() {
-        differences.push(format!(
-            "styled {} cells expected, {} actual",
-            expected.styled.len(),
-            actual.styled.len()
-        ));
-    }
-    for (left, right) in expected.styled.iter().zip(actual.styled.iter()) {
-        if left != right {
-            differences.push(format!(
-                "styled ({},{}): expected [{}] got [{}]",
-                left.row,
-                left.col,
-                left.describe(),
-                right.describe()
-            ));
-        }
-    }
+    compare_styled(&expected.styled, &actual.styled, &mut differences);
 
     DiffResult { differences }
 }
@@ -355,6 +369,16 @@ mod tests {
         terminal.flush();
         let snapshot = capture_snapshot(&terminal);
         assert_eq!(snapshot.screen, vec!["a".to_string(), String::new(), "b".to_string()]);
+    }
+
+    #[test]
+    fn styled_cells_locate_rows_and_columns() {
+        let mut terminal = make_terminal(2, 10);
+        terminal.vt_write(b"\x1b[1mA\r\nB");
+        terminal.flush();
+        let snapshot = capture_snapshot(&terminal);
+        let coordinates: Vec<(u32, u32)> = snapshot.styled.iter().map(|entry| (entry.row, entry.col)).collect();
+        assert_eq!(coordinates, vec![(0, 0), (1, 0)]);
     }
 
     #[test]
@@ -452,27 +476,37 @@ mod tests {
 
     #[test]
     fn corpus_pairs_are_complete() {
-        let inputs = corpus_files("seq");
-        let expectations = corpus_files("json");
-        assert!(!inputs.is_empty(), "回归语料为空");
-        assert_eq!(inputs, expectations, "回归语料输入与期望文件不成对");
+        assert_eq!(corpus_files("seq"), corpus_files("json"), "回归语料输入与期望文件不成对");
     }
 
     #[test]
     fn corpus_matches_expectation() {
+        let inputs = corpus_files("seq");
+        assert!(!inputs.is_empty(), "回归语料为空");
         let mut failures = Vec::new();
-        for name in corpus_files("seq") {
+        for name in inputs {
             let input_path = corpus_dir().join(format!("{name}.seq"));
             let expectation_path = corpus_dir().join(format!("{name}.json"));
-            let bytes = fs::read(&input_path).expect("read corpus input");
+            let bytes = match fs::read(&input_path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    failures.push(format!("{name}: 读取语料输入失败 {error}"));
+                    continue;
+                }
+            };
 
             let mut terminal =
-                GhosttyTerminal::new(CORPUS_ROWS, CORPUS_COLS, CORPUS_SCROLLBACK)
-                    .expect("corpus terminal");
+                match GhosttyTerminal::new(CORPUS_ROWS, CORPUS_COLS, CORPUS_SCROLLBACK) {
+                    Ok(terminal) => terminal,
+                    Err(error) => {
+                        failures.push(format!("{name}: 创建终端失败 {error}"));
+                        continue;
+                    }
+                };
             terminal.vt_write(&bytes);
             terminal.flush();
             let actual = capture_snapshot(&terminal);
-            let rendered = serde_json::to_string_pretty(&actual).expect("serialize snapshot");
+            let rendered = serde_json::to_string_pretty(&actual).expect("序列化快照");
 
             let expected_json = match fs::read_to_string(&expectation_path) {
                 Ok(json) => json,

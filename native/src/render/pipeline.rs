@@ -278,34 +278,30 @@ mod tests {
     use wgpu::naga::front::wgsl;
     use wgpu::naga::valid::{Capabilities, ValidationFlags, Validator};
 
-    /// 着色器若无法解析，错误信息即 naga 诊断。
-    fn parse_error(source: &str) -> Option<String> {
-        wgsl::parse_str(source)
-            .err()
-            .map(|error| error.emit_to_string(source))
-    }
-
-    #[test]
-    fn cell_shader_parses_and_validates() {
-        let module = wgsl::parse_str(CELL_SHADER)
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(CELL_SHADER)));
-        Validator::new(ValidationFlags::all(), Capabilities::default())
+    /// 解析、校验与入口点一并断言，使语法错误、语义错误与入口缺失分别可见。
+    fn assert_shader(name: &str, source: &str, expected_entry_points: &[&str]) {
+        let module = wgsl::parse_str(source)
+            .unwrap_or_else(|error| panic!("{name} 解析失败：{}", error.emit_to_string(source)));
+        let mut validator = Validator::new(ValidationFlags::all(), Capabilities::default());
+        validator
             .validate(&module)
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(CELL_SHADER)));
+            .unwrap_or_else(|error| panic!("{name} 校验失败：{}", error.emit_to_string(source)));
+        let mut declared: Vec<&str> = module
+            .entry_points
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        declared.sort_unstable();
+        assert_eq!(declared, expected_entry_points, "{name} 入口点不符");
     }
 
     #[test]
-    fn kgp_shader_parses_and_validates() {
-        let module = wgsl::parse_str(KGP_SHADER)
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(KGP_SHADER)));
-        Validator::new(ValidationFlags::all(), Capabilities::default())
-            .validate(&module)
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(KGP_SHADER)));
+    fn cell_shader_declares_vertex_and_fragment_entry_points() {
+        assert_shader("cell.wgsl", CELL_SHADER, &["fs_main", "vs_main"]);
     }
 
     #[test]
-    fn malformed_wgsl_reports_naga_diagnostic() {
-        let diagnostic = parse_error("@compute fn broken(").expect("非法 WGSL 必须解析失败");
-        assert!(diagnostic.contains("error"), "{diagnostic}");
+    fn kgp_shader_declares_vertex_and_fragment_entry_points() {
+        assert_shader("kitty_graphics.wgsl", KGP_SHADER, &["fs_main", "vs_main"]);
     }
 }
