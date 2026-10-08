@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "rows": 6,
+  "cols": 20,
+  "cursor_row": 2,
+  "cursor_col": 0,
+  "cursor_visible": true,
+  "screen": [
+    "primary",
+    "back"
+  ]
+}
