@@ -134,14 +134,16 @@ class PasteButtonInstrumentedTest : TerminalLogcatTest() {
         (composeTestRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             .setPrimaryClip(ClipData.newPlainText("test", marker))
 
-        val density = composeTestRule.activity.resources.displayMetrics.density
-        val cellWidth = bridge().getCellWidth() * density
-        val cellHeight = bridge().getCellHeight() * density
+        // 缩放须与运行时同口径（密度 × 系统字体缩放，见 terminalCellSizePx）。
+        val metrics = composeTestRule.activity.resources
+        val spToPxScale = metrics.displayMetrics.density * metrics.configuration.fontScale
+        val cellWidth = bridge().getCellWidth() * spToPxScale
+        val cellHeight = bridge().getCellHeight() * spToPxScale
         assertTrue("单元格度量不可用 ($cellWidth x $cellHeight)", cellWidth > 0f && cellHeight > 0f)
         val tapX = (TAP_COL + 0.5f) * cellWidth
         assertTrue(
             "点击必须在抽屉边缘区外 (x=$tapX)",
-            tapX > 32f * composeTestRule.activity.resources.displayMetrics.density,
+            tapX > 32f * metrics.displayMetrics.density,
         )
         val tapY = (5 + 0.5f) * cellHeight
         injectLongPress(findTerminalSurface(composeTestRule.activity), tapX, tapY)

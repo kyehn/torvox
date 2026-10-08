@@ -193,9 +193,11 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
     }
 
     /** 稀疏条带高度（px）：首 [SPARSE_STRIP_ROWS] 行网格的实际像素高度。 */
+    // 缩放须与运行时同口径（密度 × 系统字体缩放，见 terminalCellSizePx）。
     private fun sparseStripHeightPx(): Int {
-        val density = composeTestRule.activity.resources.displayMetrics.density
-        val cellHeight = bridge().getCellHeight() * density
+        val metrics = composeTestRule.activity.resources
+        val spToPxScale = metrics.displayMetrics.density * metrics.configuration.fontScale
+        val cellHeight = bridge().getCellHeight() * spToPxScale
         assertTrue("单元格高度不可用 ($cellHeight)", cellHeight > 0f)
         return (SPARSE_STRIP_ROWS * cellHeight).toInt()
     }
