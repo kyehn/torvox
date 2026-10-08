@@ -186,7 +186,7 @@ class TerminalSurfaceLogicTest {
 
     // ── pinch zoom mapping ───────────────────────────────────────────────────
 
-    // 密度 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 170sp，下限 4sp。
+    // 密度 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 84sp，下限 4sp。
     private val zoomDensity = 3.0f
 
     @Test
@@ -205,6 +205,20 @@ class TerminalSurfaceLogicTest {
         assertEquals(
             SettingsRepository.FONT_SIZE_MIN_SP,
             zoomFontSize(16f, 0.01f, zoomDensity),
+        )
+    }
+
+    @Test
+    fun `zoom on low density clamps to the native ceiling not the termux ceiling`() {
+        // 低密度下 Termux 像素上限换算值超过原生 100sp 钳位：手势不得给出
+        // 原生会静默丢弃的值，否则视觉字号与手势位置脱节。
+        assertEquals(
+            SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
+            zoomFontSize(16f, 100f, 1.0f),
+        )
+        assertEquals(
+            SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
+            SettingsRepository.effectiveFontSizeMaxSp(1.0f),
         )
     }
 

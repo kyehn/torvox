@@ -1738,10 +1738,6 @@ constructor(
         /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */
         private const val U16_MAX = 0xFFFF
 
-        /** 缩放预览的字号上下界（十分之一单位），对齐原生 setFontSizeInPlace 的钳位（4.0..100.0）。 */
-        private const val MIN_FONT_SIZE_TENTHS = 40
-        private const val MAX_FONT_SIZE_TENTHS = 1000
-
         /**
          * 按字体度量重算网格时为 ModifierBar 预留的覆盖层高度：修饰键栏恒为两行、
          * 零间距，故由单行按钮高度派生而非另写一份数值——spec
@@ -1831,7 +1827,14 @@ constructor(
     }
 
     internal suspend fun computeFontSizeTenths(): Int {
-        val userFontSize = settingsRepository.fontSize.first()
+        val density = context.resources.displayMetrics.density
+        // 落盘值与自适应值统一钳到有效区间：历史超限存量不再让原生静默丢弃，
+        // 渲染、下发记录与调节条三方恒一致。
+        val userFontSize =
+            settingsRepository.fontSize.first().coerceIn(
+                SettingsRepository.FONT_SIZE_MIN_SP,
+                SettingsRepository.effectiveFontSizeMaxSp(density),
+            )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
             // 十分之一 sp 形式（原生字体管线直接消费 sp，光栅缩放会施加密度）。
@@ -1857,8 +1860,15 @@ constructor(
      * 中间态（布局混乱/撕裂）。网格只在手势结束 finalize 时重算一次。
      */
     fun setFontSizePreview(sizeSp: Float) {
-        val tenths = (sizeSp * TENTHS_PER_UNIT.toFloat()).toInt()
-        if (tenths < MIN_FONT_SIZE_TENTHS || tenths > MAX_FONT_SIZE_TENTHS) return
+        // 与调节条/手势同一有效区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
+        // 调用方传的本就是区间内值时行为不变。
+        val density = context.resources.displayMetrics.density
+        val clampedSp =
+            sizeSp.coerceIn(
+                SettingsRepository.FONT_SIZE_MIN_SP,
+                SettingsRepository.effectiveFontSizeMaxSp(density),
+            )
+        val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
         // 与 native 侧跳过配合，缩放期间不抖动。
         if (tenths == appliedFontSizeTenths) return
@@ -3681,10 +3691,15 @@ internal fun alignGridOnSwitch(bridge: Bridge, rows: Int, cols: Int) {
  * y=134 落到 y=−686）。本函数返回的量等价于 Termux `adjustResize` 会砍掉的那些行高：
  * 放得下的内容每个像素都留在原处，放不下的才上移，且上移后末行恰好贴在键栏顶边。
  *
+ * 备用屏（helix/vim 等全屏 TUI）恒占满视口，任何位移都会把应用顶部推出屏幕，
+ * 且位移后的视觉行与触摸换算行错位；此时位移恒为 0（顶部保持可见，触摸对齐恢复）。
+ * 主屏公式与行为不变。
+ *
  * @param contentBottomPx 内容下沿像素（视口最后一个有内容的行的下沿，视口全空为 0）
  * @param surfaceHeightPx Surface 布局高度（容器高度，键栏覆盖其底部）
  * @param modifierBarHeightPx 键栏高度（网格已按同一口径预留）
  * @param imeBottomPx 键盘遮挡高度（已扣除被 `navigationBarsPadding` 消费的系统导航条）
+ * @param isAltScreenActive 备用屏是否激活（全屏 TUI 应用）
  *
  * 上界取 `imeBottomPx`：位移超过键盘高度会在键盘上方留下一段终端背景空隙。
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
@@ -3695,7 +3710,9 @@ internal fun computeImeSurfaceShift(
     surfaceHeightPx: Int,
     modifierBarHeightPx: Int,
     imeBottomPx: Int,
+    isAltScreenActive: Boolean = false,
 ): Int {
+    if (isAltScreenActive) return 0
     val visibleContentPx = surfaceHeightPx - modifierBarHeightPx - imeBottomPx
     return (contentBottomPx - visibleContentPx).coerceIn(0, imeBottomPx)
 }

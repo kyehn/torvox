@@ -61,4 +61,59 @@ class FontSizeRangeTest {
             )
         }
     }
+
+    @Test
+    fun effectiveMaxNeverExceedsNativeClamp() {
+        // 有效上界是“可实际设置”的上界：不得超过原生 4.0..100.0 钳位，
+        // 否则调节条位置与实际渲染脱节（低密度设备上滑块可拖到被静默丢弃的值）。
+        listOf(0.75f, 1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { density ->
+            val effective = SettingsRepository.effectiveFontSizeMaxSp(density)
+            assertTrue(
+                "density=$density 的有效上界 $effective 越过原生钳位",
+                effective <= SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
+            )
+            assertTrue(
+                "density=$density 的有效上界 $effective 必须高于下限",
+                effective > SettingsRepository.FONT_SIZE_MIN_SP,
+            )
+            assertEquals(
+                "density=$density 的有效上界必须取小者",
+                minOf(
+                    SettingsRepository.fontSizeRangeMaxSp(density),
+                    SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
+                ),
+                effective,
+                0.001f,
+            )
+        }
+    }
+
+    @Test
+    fun effectiveDetentsStayExact() {
+        // 有效区间替换调节条区间后，每档仍须恰好相差一个步长，否则出现半档。
+        listOf(0.75f, 1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { density ->
+            val maxSp = SettingsRepository.effectiveFontSizeMaxSp(density)
+            val steps = SettingsRepository.effectiveFontSizeRangeSteps(density)
+            val span = maxSp - SettingsRepository.FONT_SIZE_MIN_SP
+            assertEquals(
+                "density=$density 的有效跨度未被步长整除",
+                SettingsRepository.FONT_SIZE_STEP_SP,
+                span / (steps + 1),
+                0.001f,
+            )
+        }
+    }
+
+    @Test
+    fun adaptiveDefaultStaysInsideEffectiveRange() {
+        // 自适应默认值必须落在有效区间内，否则首次渲染字号越界。
+        listOf(0f, 320f, 360f, 411f, 600f, 900f, 2000f).forEach { widthDp ->
+            val size = SettingsRepository.defaultFontSizeFor(widthDp)
+            assertTrue(
+                "widthDp=$widthDp 的默认值 $size 越出有效区间",
+                size >= SettingsRepository.FONT_SIZE_MIN_SP &&
+                    size <= SettingsRepository.effectiveFontSizeMaxSp(2.625f),
+            )
+        }
+    }
 }

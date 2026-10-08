@@ -97,4 +97,41 @@ class ComputeImeSurfaceShiftTest {
             shiftFor(contentBottomPx = cellHeightPx, imeBottomPx = containerHeightPx),
         )
     }
+
+    // ── alternate screen (fullscreen TUI) never shifts ───────────────────────
+
+    /** 备用屏恒占满视口：任何位移都会把应用顶部推出屏幕，故恒为 0。 */
+    @Test
+    fun `alt screen never shifts even with full content`() {
+        assertEquals(
+            0,
+            computeImeSurfaceShift(
+                contentBottomPx = gridHeightPx,
+                surfaceHeightPx = containerHeightPx,
+                modifierBarHeightPx = modifierBarHeightPx,
+                imeBottomPx = keyboardPx,
+                isAltScreenActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `alt screen never shifts even when keyboard covers everything`() {
+        assertEquals(
+            0,
+            computeImeSurfaceShift(
+                contentBottomPx = gridHeightPx * 4,
+                surfaceHeightPx = containerHeightPx,
+                modifierBarHeightPx = modifierBarHeightPx,
+                imeBottomPx = containerHeightPx,
+                isAltScreenActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `primary screen keeps shifting after alt-screen overload added`() {
+        // 默认参数必须保持主屏旧行为，否则现有壳场景回归。
+        assertEquals(keyboardPx, shiftFor(contentBottomPx = gridHeightPx))
+    }
 }

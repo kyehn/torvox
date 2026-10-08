@@ -94,9 +94,28 @@ constructor(private val provider: SettingsDataStoreProvider) {
             .times(FONT_SIZE_STEP_SP)
             .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
 
+        /**
+         * 原生字号钳位上界（sp）：`NativeBridge.setFontSizeInPlace` 只接受
+         * 4.0..100.0，超限静默丢弃。Kotlin 侧不得给出此界之外的值，
+         * 否则调节条/手势位置与实际渲染脱节。
+         */
+        const val NATIVE_FONT_SIZE_MAX_SP = 100f
+
+        /**
+         * 实际可设置的字号上界（sp）：Termux 像素上限与原生钳位的较小者。
+         * 调节条、手势、预览、存储值应用四处共用此单一来源——任一上游
+         * 变动只需改这里。两候选均为偶数、下限亦为偶数，故跨度恒被步长整除。
+         */
+        fun effectiveFontSizeMaxSp(density: Float): Float =
+            fontSizeRangeMaxSp(density).coerceAtMost(NATIVE_FONT_SIZE_MAX_SP)
+
         /** 调节条档数（Material `steps` 语义：两端点之间的中间档数）。 */
         fun fontSizeRangeSteps(density: Float): Int =
             ((fontSizeRangeMaxSp(density) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
+
+        /** 有效区间的档数，与 [fontSizeRangeSteps] 同式，跨度恒被步长整除。 */
+        fun effectiveFontSizeRangeSteps(density: Float): Int =
+            ((effectiveFontSizeMaxSp(density) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
     }
 
     val appThemeMode: Flow<String> =
