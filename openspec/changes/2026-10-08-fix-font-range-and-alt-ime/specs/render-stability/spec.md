@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: 备用屏下输入法弹出不位移终端 Surface
 
