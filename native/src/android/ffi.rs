@@ -237,11 +237,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
 fn rebuild_font_pipeline(render_state: &mut RenderState) {
     let (atlas_width, atlas_height) = render_state.font_pipeline.atlas_dimensions();
     let font_size = render_state.font_pipeline.font_size();
-    render_state.font_pipeline = crate::render::font::FontPipeline::new(
-        atlas_width as i32,
-        atlas_height as i32,
-        font_size,
-    );
+    render_state.font_pipeline =
+        crate::render::font::FontPipeline::new(atlas_width as i32, atlas_height as i32, font_size);
     render_state.renderer.cell_cache = None;
     render_state.dirty.store(true, Ordering::Relaxed);
 }
