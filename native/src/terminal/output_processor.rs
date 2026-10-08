@@ -375,5 +375,43 @@ mod tests {
             prop_assert_eq!(snapshot.filtered, text.as_bytes());
             prop_assert!(snapshot.clipboard_reads.is_empty());
         }
+
+        /// 扫描器只延迟、不销毁：无读取请求时已吐出的字节必须是输入的前缀，
+        /// 其余至多是一段仍待定性的尾部转义（悬挂的 ESC 本就该等后续字节）。
+        #[test]
+        fn passthrough_keeps_input_prefix_without_reads(bytes in any::<Vec<u8>>()) {
+            let mut processor = OutputProcessor::new();
+            let snapshot = processor.process(&bytes);
+            if snapshot.clipboard_reads.is_empty() {
+                prop_assert!(bytes.starts_with(&snapshot.filtered));
+                // 待定性上限：`ESC ] 5 2 ;` + 选择器 + `; ?` + 终止符。
+                prop_assert!(bytes.len() - snapshot.filtered.len() <= MAX_SCAN_BYTES + 3);
+            }
+        }
+
+        /// 分块边界不得改变结果：PTY 输出按任意大小切块到达，
+        /// 跨块序列的识别与吞字节行为必须与整块一致（扫描器跨 `process` 保持状态）。
+        #[test]
+        fn chunk_split_does_not_change_scan_result(
+            bytes in any::<Vec<u8>>(),
+            first_split in 0usize..48,
+            second_split in 0usize..48,
+        ) {
+            let mut whole_processor = OutputProcessor::new();
+            let whole = whole_processor.process(&bytes);
+
+            let first = first_split.min(bytes.len());
+            let second = second_split.clamp(first, bytes.len());
+            let mut chunked_processor = OutputProcessor::new();
+            let mut filtered = Vec::new();
+            let mut clipboard_reads = Vec::new();
+            for chunk in [&bytes[..first], &bytes[first..second], &bytes[second..]] {
+                let snapshot = chunked_processor.process(chunk);
+                filtered.extend_from_slice(&snapshot.filtered);
+                clipboard_reads.extend(snapshot.clipboard_reads);
+            }
+            prop_assert_eq!(filtered, whole.filtered);
+            prop_assert_eq!(clipboard_reads, whole.clipboard_reads);
+        }
     }
 }
