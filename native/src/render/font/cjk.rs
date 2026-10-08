@@ -14,11 +14,10 @@ impl FontPipeline {
             log::debug!("CJK_FALLBACK: skipped (locale not yet known)");
             return;
         }
-        let locale_tag = locale_tag(system_locale);
-        if locale_tag.is_empty() {
+        let Some(locale_tag) = super::font_db::locale_cjk_variant(system_locale) else {
             log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
             return;
-        }
+        };
 
         if let Some(primary_id) = self.font_id {
             let font_database = self.font_system.db();
@@ -252,17 +251,5 @@ impl FontPipeline {
             }
         }
         None
-    }
-}
-
-/// 系统 locale → CJK 变体标记（`sc`/`tc`/`jp`/`kr`，非 CJK locale 为空）。
-fn locale_tag(system_locale: &str) -> &'static str {
-    match system_locale {
-        s if s.starts_with("zh-CN") || s.starts_with("zh-Hans") => "sc",
-        s if s.starts_with("zh-TW") || s.starts_with("zh-Hant") || s.starts_with("zh-HK") => "tc",
-        s if s.starts_with("zh") => "sc",
-        s if s.starts_with("ja") => "jp",
-        s if s.starts_with("ko") => "kr",
-        _ => "",
     }
 }

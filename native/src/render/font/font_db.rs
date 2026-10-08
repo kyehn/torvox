@@ -766,25 +766,39 @@ pub(crate) fn fonts_xml_aliases() -> &'static [(String, Vec<String>)] {
     })
 }
 
-/// 把系统 locale 标签映射为按优先级排列的 `fonts.xml` `lang` 候选。
-/// AOSP 用 `zh-Hans`/`zh-Hant`，旧版本可能用 `zh-CN`。
-pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
-    if locale.starts_with("zh-CN") || locale.starts_with("zh-Hans") || locale == "zh" {
-        &["zh-Hans", "zh-CN", "zh", "und-Hani"]
+/// 系统 locale → CJK 变体标记（`sc`/`tc`/`jp`/`kr`，非 CJK 为 `None`）。
+/// 区域字体只有简繁之分，故其余 `zh` 子标签（如 `zh-SG`）归简中。
+pub(crate) fn locale_cjk_variant(locale: &str) -> Option<&'static str> {
+    if locale.starts_with("zh-CN") || locale.starts_with("zh-Hans") {
+        Some("sc")
     } else if locale.starts_with("zh-TW")
         || locale.starts_with("zh-Hant")
         || locale.starts_with("zh-HK")
     {
-        &["zh-Hant", "zh-TW", "zh-HK", "zh", "und-Hani"]
+        Some("tc")
+    } else if locale.starts_with("zh") {
+        Some("sc")
     } else if locale.starts_with("ja") {
-        &["ja"]
+        Some("jp")
     } else if locale.starts_with("ko") {
-        &["ko"]
+        Some("kr")
     } else {
+        None
+    }
+}
+
+/// 把系统 locale 标签映射为按优先级排列的 `fonts.xml` `lang` 候选。
+/// AOSP 用 `zh-Hans`/`zh-Hant`，旧版本可能用 `zh-CN`。
+pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
+    match locale_cjk_variant(locale) {
+        Some("sc") => &["zh-Hans", "zh-CN", "zh", "und-Hani"],
+        Some("tc") => &["zh-Hant", "zh-TW", "zh-HK", "zh", "und-Hani"],
+        Some("jp") => &["ja"],
+        Some("kr") => &["ko"],
         // `DESIGN.md:155` 限定区域字体取「本区域」，故非 CJK 系统语言下候选必须为空：
         // 放开会让英文系统也预装 CJK 族，违反该条。终端里出现非本区域文字即无回退，
         // 属规范现状而非缺陷——改它要先改 155（保护文件）。
-        &[]
+        _ => &[],
     }
 }
 
@@ -1302,6 +1316,34 @@ mod tests {
         assert_eq!(super::locale_fonts_xml_langs("ja"), &["ja"]);
         assert_eq!(super::locale_fonts_xml_langs("ko"), &["ko"]);
         assert!(super::locale_fonts_xml_langs("en-US").is_empty());
+    }
+
+    /// 变体判定是 CJK 回退探针与区域字体候选的共同来源：任一侧单独改动都会
+    /// 让二者对同一 locale 得出不同结论（`zh-SG` 曾被判为非 CJK 而取不到候选）。
+    #[test]
+    fn locale_cjk_variant_matches_aosp_locale_shapes() {
+        assert_eq!(super::locale_cjk_variant("zh-CN"), Some("sc"));
+        assert_eq!(super::locale_cjk_variant("zh-Hans-CN"), Some("sc"));
+        assert_eq!(super::locale_cjk_variant("zh-SG"), Some("sc"));
+        assert_eq!(super::locale_cjk_variant("zh-TW"), Some("tc"));
+        assert_eq!(super::locale_cjk_variant("zh-Hant-HK"), Some("tc"));
+        assert_eq!(super::locale_cjk_variant("ja-JP"), Some("jp"));
+        assert_eq!(super::locale_cjk_variant("ko-KR"), Some("kr"));
+        for locale in ["", "en-US", "und", "ZH-CN"] {
+            assert_eq!(super::locale_cjk_variant(locale), None, "locale={locale}");
+        }
+    }
+
+    /// 非 CJK 系统语言无区域字体候选，简繁（含 `zh-SG`）必有候选。
+    #[test]
+    fn locale_fonts_xml_langs_follows_cjk_variant() {
+        assert!(!super::locale_fonts_xml_langs("zh-SG").is_empty());
+        for locale in ["", "en-US", "und"] {
+            assert!(
+                super::locale_fonts_xml_langs(locale).is_empty(),
+                "locale={locale} 不得有区域候选"
+            );
+        }
     }
 
     /// 宿主字体库与其中首个等宽面、首个比例面：主字体选择梯次测试的探针。
