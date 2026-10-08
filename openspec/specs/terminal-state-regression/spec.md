@@ -8,7 +8,7 @@
 
 - 语料位于 `native/src/terminal/testdata/`，`.seq` 为原始字节输入，经 `vt_write` 写入（不经 `pty_write`，避免 LF→CRLF 转换改变语料语义），统一使用 6×20 网格与 20 行回滚区。
 - 快照屏幕与回滚区按行存文本并去除行尾空白，屏幕末尾空行一并裁掉；行数与列数单独记录，裁剪不丢失信息。
-- 「未设置样式」由 `CellSnapshot` 的 `foreground_is_default`/`background_is_default` 判定，不做浮点比较：显式颜色恰好与默认色数值相同时仍记入 `styled`。两个生产点各按其取色来源导出标记——`apply_style_to_snapshot` 取 `StyleColor::None`（未指定）；`build_snapshot`（语料经 `dump_grid` 走的路径）取 `render::Cell::fg_color()/bg_color()` 是否返回 `Ok(Some(_))`，且与取色复用同一次读取，FFI 失败时颜色与标记同为默认。默认前景/背景色因此不会进入期望文件；宽字符按其占据的每个列各记一条。
+- 「未设置样式」由 `CellSnapshot` 的 `foreground_is_default`/`background_is_default` 判定，不做浮点比较：显式颜色恰好与默认色数值相同时仍记入 `styled`。语料经 `dump_grid` → `build_dumped_grid` → `apply_style_to_snapshot`，标记取 `StyleColor::None`（未指定）。`build_snapshot`（`take_snapshot` 路径，仅测试使用）取 `render::Cell::fg_color()/bg_color()` 是否返回 `Ok(Some(_))`，与取色复用同一次读取，FFI 失败时颜色与标记同为默认。默认前景/背景色因此不会进入期望文件；宽字符按其占据的每个列各记一条。
 - 颜色记录为解算后的 RGB：未指定色按 `StyleColor::None` 排除；ANSI 调色板索引色（如 SGR 32）会被解析为 `catppuccin_mocha_palette()` 的对应分量后写入期望文件。语料终端为未经 `apply_theme` 的新实例，故该调色板是项目内常量，结果确定可复现；改动该常量会使语料失败，属预期信号。
 - 期望文件重生成不设开关：期望缺失或不一致时测试直接失败并打印应写入的完整 JSON，人工据此写入，不提供静默重写。
 - 样式条目只记录屏幕内单元；回滚区只按行记录文本，其样式不进入期望文件。回滚区样式的渲染相关行为由选区与搜索的针对性用例覆盖，此处为刻意边界而非遗漏。
