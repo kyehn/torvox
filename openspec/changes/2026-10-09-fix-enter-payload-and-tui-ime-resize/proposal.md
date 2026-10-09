@@ -46,9 +46,15 @@
   `WindowInsets.ime` 叶节点取最大值，二者在仪器化环境下均恒为 0（实测键盘高 883px
   时 DecorView 仍报 0），导致既有输入法跟随位移整体失效——仓库自带
   `ImePopupPixelInstrumentedTest` 三个用例在该环境下即以此判红（位移=0）。
+- 输入法跟随位移改由终端 Surface 自身的 `translationY` 承担，不再经组合容器平移：
+  组合平移要经「重组 → 重新测量 → 重新布局」，而重组只在 Choreographer 帧回调里跑；
+  主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染线程时重组滞后可达十几秒（实测每
+  300ms 写一次组合状态，20 次才换来一次重组），期间键盘已弹出而终端内容与键栏
+  纹丝不动。键栏是组合覆盖层，读同一个 `imeInsetFlow` 上移。
 - 字号可选区间只留 `SettingsRepository.fontSizeMaxSp`（Termux 256px 换算）一处定义，
   删除与原生守卫重复的 `NATIVE_FONT_SIZE_MAX_SP`；原生守卫上界改由图集边长推导
-  （字形位图必须放进图集是唯一真实约束），越界改记错误日志而非静默丢弃。
+  （字形位图必须放进图集是唯一真实约束），越界改记错误日志而非静默丢弃；上界推导
+  抽为纯函数并由测试钉住「原生上界不小于可选上界」。
 
 ## Capabilities
 
@@ -71,10 +77,28 @@
   bracketed paste 分支。
 - `input/TerminalEditorInfo.kt`：`inputType` / `imeOptions`。
 - `ui/TerminalSurface.kt`、`ui/TerminalScreen.kt`：平台 insets 派发维护输入法遮挡高度、
-  备用屏据此重排网格。
+  备用屏据此重排网格，主屏位移改由 Surface 的 `translationY` 承担。
 - `settings/SettingsRepository.kt`：删除重复常量与被替代的换算函数。
-- `native/src/android/ffi.rs`：字号与光栅缩放守卫改记错误日志、字号上界改由图集推导。
+- `native/src/android/ffi.rs`：字号与光栅缩放守卫改记错误日志、字号上界改由图集推导
+  并抽为纯函数。
 - 测试：`TerminalInputEncoderTest`、`FontSizeRangeTest`、`TerminalSurfaceLogicTest`、
   `CoerceSpToPxScaleTest` 改为对照 Termux 的具体取值而非复述公式；
   `FontSizeReflowInstrumentedTest` 增加端点验收；新增
-  `AltScreenImeReflowInstrumentedTest`。
+  `AltScreenImeReflowInstrumentedTest` 与 `font_size_cap_tests`。
+
+## 上游测试资产调研结论
+
+对比 kitty / rio / wezterm / alacritty / ghostty / xterm / foot / contour / esctest2
+九项，结论是**不引入任何上游测试资产**：
+
+- 唯一在设计上不可能自验证的体系是 esctest2（559 用例，测试方法自带断言，期望值
+  来自 DEC 手册而非任何实现）。但它被 torvox 固定的 ghostty `22d13172`（2026-08-06）
+  硬阻塞：`DECRQCRA` 支持于 2026-10-01 的 `9272a2f7`，不是该 tag 的祖先，而
+  esctest 的 `--xterm-checksum=411` 强依赖它。直接接入会产出大面积假阳性，需要一份
+  50+ 条的已知失败白名单。
+- 其余上游语料均已被消费或清理：alacritty `ref/` 期望值由 alacritty 自己的
+  `--ref-test` 生成（自验证），`be2e3a9e` 逐条记录 14/45 的差异且全部落在
+  libghostty-vt 与 alacritty 之间；wezterm 的 556K `test-data/` 无任何程序消费者。
+- 可低成本采纳的两项已落地：`keymap` 由抽样 5~13 个 Android 键码改为全表断言；
+  `FontSizeRangeTest` 与新增的 `font_size_cap_tests` 都改为对照外部常量（Termux 的
+  4dip/256px/步长 2、图集边长）而非复述实现公式。

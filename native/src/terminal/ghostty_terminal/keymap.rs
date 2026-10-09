@@ -131,103 +131,150 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
 mod tests {
     use super::*;
 
+    /// Android `KeyEvent` 的权威键码 → ghostty `Key` 全表。
+    ///
+    /// 逐条取自 `android.view.KeyEvent` 的常量值（`javap -constants` 取自 SDK
+    /// `android.jar`，非本仓复述），故任一条写错都会指向另一个物理键。断言覆盖
+    /// **全部**已映射键码：抽样断言漏掉的正是这种错配——漏映射由
+    /// [every_listed_android_code_has_a_mapping] 兜底，错配由本表兜底。
     #[test]
-    fn alphabet_keys_map_correctly() {
-        // KEYCODE_A=29 … KEYCODE_Z=54
-        let expected = [('A', 29), ('B', 30), ('C', 31), ('M', 41), ('Z', 54)];
-        for (ch, code) in expected {
-            let want = match ch {
-                'A' => Key::A,
-                'B' => Key::B,
-                'C' => Key::C,
-                'M' => Key::M,
-                'Z' => Key::Z,
-                _ => unreachable!(),
-            };
+    fn every_mapped_android_code_maps_to_its_own_key() {
+        // (KeyEvent 常量名, 键码值, ghostty Key)
+        let table: &[(&str, u32, Key)] = &[
+            ("0", 7, Key::Digit0),
+            ("1", 8, Key::Digit1),
+            ("9", 16, Key::Digit9),
+            ("A", 29, Key::A),
+            ("B", 30, Key::B),
+            ("C", 31, Key::C),
+            ("D", 32, Key::D),
+            ("E", 33, Key::E),
+            ("F", 34, Key::F),
+            ("G", 35, Key::G),
+            ("H", 36, Key::H),
+            ("I", 37, Key::I),
+            ("J", 38, Key::J),
+            ("K", 39, Key::K),
+            ("L", 40, Key::L),
+            ("M", 41, Key::M),
+            ("N", 42, Key::N),
+            ("O", 43, Key::O),
+            ("P", 44, Key::P),
+            ("Q", 45, Key::Q),
+            ("R", 46, Key::R),
+            ("S", 47, Key::S),
+            ("T", 48, Key::T),
+            ("U", 49, Key::U),
+            ("V", 50, Key::V),
+            ("W", 51, Key::W),
+            ("X", 52, Key::X),
+            ("Y", 53, Key::Y),
+            ("Z", 54, Key::Z),
+            ("COMMA", 55, Key::Comma),
+            ("PERIOD", 56, Key::Period),
+            ("ALT_LEFT", 57, Key::AltLeft),
+            ("ALT_RIGHT", 58, Key::AltRight),
+            ("SHIFT_LEFT", 59, Key::ShiftLeft),
+            ("SHIFT_RIGHT", 60, Key::ShiftRight),
+            ("TAB", 61, Key::Tab),
+            ("SPACE", 62, Key::Space),
+            ("ENTER", 66, Key::Enter),
+            ("DEL", 67, Key::Backspace),
+            ("GRAVE", 68, Key::Backquote),
+            ("MINUS", 69, Key::Minus),
+            ("EQUALS", 70, Key::Equal),
+            ("LEFT_BRACKET", 71, Key::BracketLeft),
+            ("RIGHT_BRACKET", 72, Key::BracketRight),
+            ("BACKSLASH", 73, Key::Backslash),
+            ("SEMICOLON", 74, Key::Semicolon),
+            ("APOSTROPHE", 75, Key::Quote),
+            ("SLASH", 76, Key::Slash),
+            ("MEDIA_PLAY_PAUSE", 85, Key::MediaPlayPause),
+            ("MEDIA_STOP", 86, Key::MediaStop),
+            ("MEDIA_NEXT", 87, Key::MediaTrackNext),
+            ("MEDIA_PREVIOUS", 88, Key::MediaTrackPrevious),
+            ("PAGE_UP", 92, Key::PageUp),
+            ("PAGE_DOWN", 93, Key::PageDown),
+            ("DPAD_UP", 19, Key::ArrowUp),
+            ("DPAD_DOWN", 20, Key::ArrowDown),
+            ("DPAD_LEFT", 21, Key::ArrowLeft),
+            ("DPAD_RIGHT", 22, Key::ArrowRight),
+            ("ESCAPE", 111, Key::Escape),
+            ("FORWARD_DEL", 112, Key::Delete),
+            ("CTRL_LEFT", 113, Key::ControlLeft),
+            ("CTRL_RIGHT", 114, Key::ControlRight),
+            ("CAPS_LOCK", 115, Key::CapsLock),
+            ("SCROLL_LOCK", 116, Key::ScrollLock),
+            ("META_LEFT", 117, Key::MetaLeft),
+            ("META_RIGHT", 118, Key::MetaRight),
+            ("FUNCTION", 119, Key::Fn),
+            ("SYSRQ", 120, Key::PrintScreen),
+            ("BREAK", 121, Key::Pause),
+            ("MOVE_HOME", 122, Key::Home),
+            ("MOVE_END", 123, Key::End),
+            ("INSERT", 124, Key::Insert),
+            ("F1", 131, Key::F1),
+            ("F2", 132, Key::F2),
+            ("F3", 133, Key::F3),
+            ("F4", 134, Key::F4),
+            ("F5", 135, Key::F5),
+            ("F6", 136, Key::F6),
+            ("F7", 137, Key::F7),
+            ("F8", 138, Key::F8),
+            ("F9", 139, Key::F9),
+            ("F10", 140, Key::F10),
+            ("F11", 141, Key::F11),
+            ("F12", 142, Key::F12),
+            ("NUM_LOCK", 143, Key::NumLock),
+            ("NUMPAD_0", 144, Key::Numpad0),
+            ("NUMPAD_1", 145, Key::Numpad1),
+            ("NUMPAD_2", 146, Key::Numpad2),
+            ("NUMPAD_3", 147, Key::Numpad3),
+            ("NUMPAD_4", 148, Key::Numpad4),
+            ("NUMPAD_5", 149, Key::Numpad5),
+            ("NUMPAD_6", 150, Key::Numpad6),
+            ("NUMPAD_7", 151, Key::Numpad7),
+            ("NUMPAD_8", 152, Key::Numpad8),
+            ("NUMPAD_9", 153, Key::Numpad9),
+            ("NUMPAD_DIVIDE", 154, Key::NumpadDivide),
+            ("NUMPAD_MULTIPLY", 155, Key::NumpadMultiply),
+            ("NUMPAD_SUBTRACT", 156, Key::NumpadSubtract),
+            ("NUMPAD_ADD", 157, Key::NumpadAdd),
+            ("NUMPAD_DOT", 158, Key::NumpadDecimal),
+            ("NUMPAD_COMMA", 159, Key::NumpadComma),
+            ("NUMPAD_ENTER", 160, Key::NumpadEnter),
+            ("NUMPAD_EQUALS", 161, Key::NumpadEqual),
+        ];
+        for (name, code, want) in table {
             assert_eq!(
-                map_android_key_code(code),
-                want,
-                "code {code} should be {ch}"
+                map_android_key_code(*code),
+                *want,
+                "KEYCODE_{name}({code}) 映射错误"
             );
         }
     }
 
+    /// Android 的字母与数字键码是连续段；整段逐个断言，故任何漏映射或错位都会暴露。
     #[test]
-    fn digit_keys_map_correctly() {
-        assert_eq!(map_android_key_code(7), Key::Digit0);
-        assert_eq!(map_android_key_code(9), Key::Digit2);
-        assert_eq!(map_android_key_code(16), Key::Digit9);
-    }
-
-    #[test]
-    fn symbol_keys_map_correctly() {
-        assert_eq!(map_android_key_code(68), Key::Backquote);
-        assert_eq!(map_android_key_code(69), Key::Minus);
-        assert_eq!(map_android_key_code(70), Key::Equal);
-        assert_eq!(map_android_key_code(71), Key::BracketLeft);
-        assert_eq!(map_android_key_code(72), Key::BracketRight);
-        assert_eq!(map_android_key_code(73), Key::Backslash);
-        assert_eq!(map_android_key_code(74), Key::Semicolon);
-        assert_eq!(map_android_key_code(75), Key::Quote);
-        assert_eq!(map_android_key_code(76), Key::Slash);
-        assert_eq!(map_android_key_code(55), Key::Comma);
-        assert_eq!(map_android_key_code(56), Key::Period);
-    }
-
-    #[test]
-    fn navigation_keys_map_correctly() {
-        assert_eq!(map_android_key_code(19), Key::ArrowUp);
-        assert_eq!(map_android_key_code(20), Key::ArrowDown);
-        assert_eq!(map_android_key_code(21), Key::ArrowLeft);
-        assert_eq!(map_android_key_code(22), Key::ArrowRight);
-        assert_eq!(map_android_key_code(66), Key::Enter);
-        assert_eq!(map_android_key_code(67), Key::Backspace);
-        assert_eq!(map_android_key_code(112), Key::Delete);
-        assert_eq!(map_android_key_code(61), Key::Tab);
-        assert_eq!(map_android_key_code(62), Key::Space);
-        assert_eq!(map_android_key_code(111), Key::Escape);
-        assert_eq!(map_android_key_code(122), Key::Home);
-        assert_eq!(map_android_key_code(123), Key::End);
-        assert_eq!(map_android_key_code(92), Key::PageUp);
-        assert_eq!(map_android_key_code(93), Key::PageDown);
-        assert_eq!(map_android_key_code(124), Key::Insert);
-    }
-
-    #[test]
-    fn modifier_keys_map_correctly() {
-        assert_eq!(map_android_key_code(57), Key::AltLeft);
-        assert_eq!(map_android_key_code(58), Key::AltRight);
-        assert_eq!(map_android_key_code(59), Key::ShiftLeft);
-        assert_eq!(map_android_key_code(60), Key::ShiftRight);
-        assert_eq!(map_android_key_code(113), Key::ControlLeft);
-        assert_eq!(map_android_key_code(114), Key::ControlRight);
-        assert_eq!(map_android_key_code(115), Key::CapsLock);
-        assert_eq!(map_android_key_code(116), Key::ScrollLock);
-        assert_eq!(map_android_key_code(143), Key::NumLock);
-        assert_eq!(map_android_key_code(119), Key::Fn);
-    }
-
-    #[test]
-    fn function_and_media_keys_map_correctly() {
-        assert_eq!(map_android_key_code(131), Key::F1);
-        assert_eq!(map_android_key_code(142), Key::F12);
-        assert_eq!(map_android_key_code(85), Key::MediaPlayPause);
-        assert_eq!(map_android_key_code(86), Key::MediaStop);
-        assert_eq!(map_android_key_code(87), Key::MediaTrackNext);
-        assert_eq!(map_android_key_code(88), Key::MediaTrackPrevious);
-    }
-
-    #[test]
-    fn numpad_keys_map_correctly() {
-        assert_eq!(map_android_key_code(144), Key::Numpad0);
-        assert_eq!(map_android_key_code(153), Key::Numpad9);
-        assert_eq!(map_android_key_code(154), Key::NumpadDivide);
-        assert_eq!(map_android_key_code(155), Key::NumpadMultiply);
-        assert_eq!(map_android_key_code(156), Key::NumpadSubtract);
-        assert_eq!(map_android_key_code(157), Key::NumpadAdd);
-        assert_eq!(map_android_key_code(158), Key::NumpadDecimal);
-        assert_eq!(map_android_key_code(160), Key::NumpadEnter);
-        assert_eq!(map_android_key_code(161), Key::NumpadEqual);
+    fn contiguous_letter_and_digit_ranges_are_complete() {
+        // KEYCODE_A(29) … KEYCODE_Z(54)
+        for offset in 0..26u32 {
+            let code = 29 + offset;
+            let want = letter_key(offset);
+            assert_eq!(
+                map_android_key_code(code),
+                want,
+                "KEYCODE_A+{offset} 映射错误"
+            );
+        }
+        // KEYCODE_0(7) … KEYCODE_9(16)
+        for digit in 0..10u32 {
+            assert_eq!(
+                map_android_key_code(7 + digit),
+                digit_key(digit),
+                "KEYCODE_{digit} 映射错误"
+            );
+        }
     }
 
     #[test]
@@ -261,5 +308,52 @@ mod tests {
                 "code {code} unmapped"
             );
         }
+    }
+
+    /// `KEYCODE_A` 起第 `offset` 个字母键对应的 ghostty `Key`。
+    fn letter_key(offset: u32) -> Key {
+        [
+            Key::A,
+            Key::B,
+            Key::C,
+            Key::D,
+            Key::E,
+            Key::F,
+            Key::G,
+            Key::H,
+            Key::I,
+            Key::J,
+            Key::K,
+            Key::L,
+            Key::M,
+            Key::N,
+            Key::O,
+            Key::P,
+            Key::Q,
+            Key::R,
+            Key::S,
+            Key::T,
+            Key::U,
+            Key::V,
+            Key::W,
+            Key::X,
+            Key::Y,
+            Key::Z,
+        ][offset as usize]
+    }
+
+    fn digit_key(digit: u32) -> Key {
+        [
+            Key::Digit0,
+            Key::Digit1,
+            Key::Digit2,
+            Key::Digit3,
+            Key::Digit4,
+            Key::Digit5,
+            Key::Digit6,
+            Key::Digit7,
+            Key::Digit8,
+            Key::Digit9,
+        ][digit as usize]
     }
 }
