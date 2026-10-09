@@ -1950,32 +1950,16 @@ fn render_inner(session_id: u64) -> jint {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-const CURSOR_ROW_UNKNOWN_BITS: i64 = 0x3FF;
-/// 「视口全空」哨兵：与光标行同宽（10 位）的全 1 模式。
+/// 「视口全空」哨兵：10 位全 1 模式。
 const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x3FF;
-/// 打包位偏移：光标行 33、内容下沿 43（各 10 位）、surface 失效位 53、备用屏 54。
+/// 打包位偏移：内容下沿 43（10 位）、surface 失效位 53、备用屏 54。
 const SURFACE_INVALIDATED_BIT: i64 = 1 << 53;
 /// 备用屏（helix/vim 等全屏 TUI）激活标志。随每帧渲染结果上报，与光标行、内容下沿
 /// 同批采样，宿主据此让输入法跟随位移归零。
 const ALT_SCREEN_ACTIVE_BIT: i64 = 1 << 54;
-/// 采样段 panic 时的上报值：渲染计数为负（-1）、`new_output` 为 0、光标行与内容下沿
-/// 取未知哨兵、失效位为 0——与本导出文档声明的出错位形一致。
-const RENDER_SAMPLE_FAILURE_BITS: i64 =
-    0xFFFF_FFFF | (CURSOR_ROW_UNKNOWN_BITS << 33) | (LAST_CONTENT_ROW_NONE_BITS << 43);
-
-/// 把已渲染帧缓存的光标映射为上报位：无缓存、隐藏或在视口外时回未知哨兵，
-/// 可见光标取视口行并截断到 10 位上报宽度。
-fn cursor_bits_for_rendered_cursor(
-    rendered_cursor: Option<&crate::terminal::ghostty_terminal::CursorInfo>,
-) -> i64 {
-    let Some(rendered_cursor) = rendered_cursor else {
-        return CURSOR_ROW_UNKNOWN_BITS;
-    };
-    if !rendered_cursor.visible {
-        return CURSOR_ROW_UNKNOWN_BITS;
-    }
-    (rendered_cursor.row as i64) & CURSOR_ROW_UNKNOWN_BITS
-}
+/// 采样段 panic 时的上报值：渲染计数为负（-1）、`new_output` 为 0、内容下沿取
+/// 未知哨兵、失效位为 0——与本导出文档声明的出错位形一致。
+const RENDER_SAMPLE_FAILURE_BITS: i64 = 0xFFFF_FFFF | (LAST_CONTENT_ROW_NONE_BITS << 43);
 
 /// 把已渲染帧缓存的单元数据映射为上报位：视口全空时回未知哨兵，否则取视口内
 /// 最后一个有内容的行（`cell_builder::last_content_row`）。
@@ -2066,7 +2050,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
             .as_ref()
             .and_then(|render_state| render_state.last_frame.as_ref())
             .filter(|(.., cached_session)| *cached_session == session_id as u64);
-        let cursor_bits = cursor_bits_for_rendered_cursor(last_frame.map(|frame| &frame.1));
         let content_row_bits = match last_frame {
             Some((cells, _, rows, _, _)) => last_content_row_bits_for_frame(cells, *rows),
             None => LAST_CONTENT_ROW_NONE_BITS,
@@ -2077,7 +2060,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
                 .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
         ) * SURFACE_INVALIDATED_BIT;
         (new_output << 32)
-            | (cursor_bits << 33)
             | (content_row_bits << 43)
             | surface_invalidated
             | alt_screen_active
@@ -3601,65 +3583,14 @@ mod font_size_cap_tests {
 }
 
 #[cfg(test)]
-mod rendered_cursor_tests {
-    use super::cursor_bits_for_rendered_cursor;
-    use crate::terminal::ghostty_terminal::{CursorInfo, CursorStyle};
-    fn rendered_cursor(visible: bool, row: u32) -> CursorInfo {
-        CursorInfo {
-            row,
-            col: 7,
-            visible,
-            style: CursorStyle::Block,
-            scrollback_length: 0,
-            rows: 24,
-            cols: 80,
-            kitty_generation: 0,
-        }
-    }
-
-    #[test]
-    fn missing_cursor_reports_unknown() {
-        assert_eq!(
-            cursor_bits_for_rendered_cursor(None),
-            super::CURSOR_ROW_UNKNOWN_BITS
-        );
-    }
-
-    #[test]
-    fn hidden_cursor_reports_unknown() {
-        let cursor = rendered_cursor(false, 44);
-        assert_eq!(
-            cursor_bits_for_rendered_cursor(Some(&cursor)),
-            super::CURSOR_ROW_UNKNOWN_BITS
-        );
-    }
-
-    #[test]
-    fn visible_cursor_reports_viewport_row() {
-        let cursor = rendered_cursor(true, 44);
-        assert_eq!(cursor_bits_for_rendered_cursor(Some(&cursor)), 44);
-    }
-
-    #[test]
-    fn visible_cursor_row_is_truncated_to_sixteen_bits() {
-        let cursor = rendered_cursor(true, 70_000);
-        assert_eq!(
-            cursor_bits_for_rendered_cursor(Some(&cursor)),
-            70_000_i64 & super::CURSOR_ROW_UNKNOWN_BITS
-        );
-    }
-
+mod render_sample_bits_tests {
     #[test]
     fn sample_failure_bits_report_failure_count_and_unknown_rows() {
-        // 渲染计数位（0..31）全 1 即 Kotlin 侧读到的 -1；光标行与内容下沿取未知哨兵。
+        // 渲染计数位（0..31）全 1 即 Kotlin 侧读到的 -1；内容下沿取未知哨兵。
         assert_eq!(
             super::RENDER_SAMPLE_FAILURE_BITS & 0xFFFF_FFFF,
             0xFFFF_FFFF,
             "渲染计数必须为负，否则 panic 会被读成空闲帧",
-        );
-        assert_eq!(
-            (super::RENDER_SAMPLE_FAILURE_BITS >> 33) & 0x3FF,
-            super::CURSOR_ROW_UNKNOWN_BITS,
         );
         assert_eq!(
             (super::RENDER_SAMPLE_FAILURE_BITS >> 43) & 0x3FF,
@@ -3675,9 +3606,8 @@ mod rendered_cursor_tests {
         // （例如被内容下沿的 10 位掩码读成行号，或让失败位形带上脏位）。
         assert_eq!(super::ALT_SCREEN_ACTIVE_BIT, 1 << 54);
         assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 54 & 0x1, 0);
-        // 与光标行（33..42）、内容下沿（43..52）、失效位（53）、输出位（32）均不重叠。
+        // 与内容下沿（43..52）、失效位（53）、输出位（32）均不重叠。
         assert_eq!(super::ALT_SCREEN_ACTIVE_BIT >> 32 & 0x1, 0);
-        assert_eq!((super::ALT_SCREEN_ACTIVE_BIT >> 33) & 0x3FF, 0);
         assert_eq!((super::ALT_SCREEN_ACTIVE_BIT >> 43) & 0x3FF, 0);
         assert_eq!(super::ALT_SCREEN_ACTIVE_BIT >> 53 & 0x1, 0);
     }
