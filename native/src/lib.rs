@@ -2,7 +2,8 @@
 //!
 //! `terminal/` 为 Ghostty VT 解析、PTY 管理与 Session；`render/` 为 wgpu 管线与
 //! 字形渲染；`android/` 为 JNI FFI 导出、NDK 桥接与日志。单元测试就近存放于
-//! `#[cfg(test)]`，集成行为由 `tests/bdd/`（Cucumber + Gherkin）统一管理。
+//! `#[cfg(test)]`，集成行为由 `tests/bdd/`（Cucumber + Gherkin）统一管理，
+//! 并发不变量由 `tests/concurrency.rs`（shuttle）单独承载。
 
 pub mod event;
 
@@ -14,6 +15,3 @@ pub mod render;
 
 // ── Android JNI 桥接 ────────────────────────────────────────────────────
 pub mod android;
-
-#[cfg(test)]
-mod prop_tests;
