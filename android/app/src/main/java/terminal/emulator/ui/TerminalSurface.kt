@@ -15,6 +15,8 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowInsets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -398,9 +400,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     inner class ResizeManager {
         /**
          * 单一网格公式，与 `recomputeGridFromFontMetrics` 共用：
-         * rows = (surface − ModifierBar − 输入法遮挡) / cell，cols = surface / cell。
+         * rows = (surface − ModifierBar − 备用屏输入法遮挡) / cell，cols = surface / cell。
          *
-         * 输入法遮挡**只在备用屏扣除**（见 [setImeInsetPx]）：主屏靠纯平移跟随键盘
+         * 输入法遮挡**只在备用屏扣除**（见 [imeInsetPx]）：主屏靠纯平移跟随键盘
          *（TESTING.md 要求上移后底部像素与上移前完全相同），其显示/隐藏绝不能改变
          * rows/cols，否则会有重排闪烁、换行错乱、底部行丢失。
          */
@@ -409,10 +411,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val cellWidth = runtime.cellWidth
             val cellHeight = runtime.cellHeight
             if (cellWidth <= 0f || cellHeight <= 0f) return
+            // 备用屏按可见高度重排（SIGWINCH），主屏恒为 0。状态直接读运行期的
+            // 逐帧发布值——它是网格决策的唯一权威，且不依赖组合是否重跑。
+            val imeReserve =
+                if (runtime.altScreenActiveFlow.value) imeInsetPx else 0
             // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
             // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
             val availableHeight =
-                (height - runtime.modifierBarHeightPx - imeInsetPx).coerceAtLeast(1)
+                (height - runtime.modifierBarHeightPx - imeReserve).coerceAtLeast(1)
             val (newRows, newCols) =
                 computeGridDimensions(
                     surfaceWidth = width,
@@ -1249,8 +1255,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var pendingSurfaceResize: Runnable? = null
 
     /**
-     * 输入法遮挡高度（px，已扣除系统导航条）。**非零只发生在备用屏**
-     * （全屏 TUI 应用，调用方 [TerminalScreen] 只在备用屏时传入键盘高度）。
+     * 输入法遮挡高度（px，已扣除系统导航条），由平台 insets 派发维护
+     * （[installImeInsetListener]），**只在备用屏参与网格高度**。
      *
      * 备用屏应用按整屏行数布局（helix/vim/less 都进备用屏并占满视口），键盘遮挡
      * 的下半屏永远不可见：状态行消失、光标可能落在被遮住的几行里，而应用收不到
@@ -1258,23 +1264,43 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 正确匹配窗口大小」不成立。扣除遮挡高度即让网格缩到可见高度，触发一次
      * resize/SIGWINCH，全屏 TUI 随之按新窗口重绘；网格顶对齐渲染，末行紧贴键栏
      * 顶边，与 Termux `adjustResize` 的观感一致。
-     *
-     * 主屏仍传 0：它走「平移」路径（TESTING.md 要求上移后底部像素完全相同），
-     * 而平移不能改变网格，故两者必须分开。
      */
     private var imeInsetPx: Int = 0
     private var pendingImeGridResize: Runnable? = null
 
     /**
-     * 设置输入法遮挡高度并按需重排网格。Surface 尺寸本身不变（窗口是
-     * `adjustNothing`），故只重算网格、不重配交换链。
+     * 订阅平台 insets 派发，维护 [imeInsetPx]。
      *
-     * 防抖到稳定高度：键盘动画期间 [TerminalScreen] 每帧给出新高度，逐帧
-     * resize 会连续发 SIGWINCH 让全屏 TUI 反复重排（掉帧、撕裂、耗电）。
+     * 为什么不用轮询 `rootView.rootWindowInsets`（`TerminalScreen` 的旧做法）：
+     * 仪器化环境下 DecorView 的 `rootWindowInsets` 恒不报 IME（实测键盘高 883px
+     * 时该值仍为 0），Compose 的 `WindowInsets.ime` 叶节点同样恒为 0，于是
+     * 既有输入法跟随位移整体失效（`ImePopupPixelInstrumentedTest` 三个用例在
+     * 该环境下判红：位移=0）。insets 派发是平台自己的分发路径，每个已挂载视图
+     * 必然收到，是这里唯一可靠的来源。
      */
-    fun setImeInsetPx(pixels: Int) {
-        if (pixels == imeInsetPx) return
-        imeInsetPx = pixels
+    private fun installImeInsetListener() {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val navigationBottom =
+                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            val reserved = maxOf(imeBottom - navigationBottom, 0)
+            if (reserved != imeInsetPx) {
+                imeInsetPx = reserved
+                LogUtil.d(TAG, "setImeInsetPx: $reserved")
+                scheduleImeGridResize()
+            }
+            insets
+        }
+    }
+
+    /**
+     * 输入法遮挡或备用屏状态变化后按可见高度重排网格。Surface 尺寸本身不变
+     * （窗口是 `adjustNothing`），故只重算网格、不重配交换链。
+     *
+     * 防抖到稳定高度：键盘动画期间平台逐帧派发 insets，逐帧 resize 会连续发
+     * SIGWINCH 让全屏 TUI 反复重排（掉帧、撕裂、耗电）。
+     */
+    private fun scheduleImeGridResize() {
         if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) return
         val runtime = viewModel?.runtime ?: return
         // 与 [ResizeManager.applySurfaceResize] 同样在防抖期间暂停渲染：
@@ -1287,6 +1313,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
                 runtime.setRenderPaused(false)
             }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+    }
+
+    /**
+     * 备用屏状态翻转后重排网格：键盘已展开时启动 helix 一类的 TUI 也必须按可见
+     * 高度重排，而此时输入法高度没变、平台不会再次派发 insets。
+     */
+    fun onAltScreenChanged() {
+        if (viewModel?.runtime?.altScreenActiveFlow?.value != true) return
+        scheduleImeGridResize()
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
@@ -2051,6 +2086,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         isFocusableInTouchMode = true
         setWillNotDraw(false)
         scaleDetector.isQuickScaleEnabled = false
+        // 输入法遮挡高度的唯一来源：平台 insets 派发（见 installImeInsetListener）。
+        installImeInsetListener()
     }
 
     private var keyboardRequested = false

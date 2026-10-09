@@ -570,8 +570,12 @@ fun TerminalScreen(
                     // （SIGWINCH）才能真正「适应窗口大小」，否则下半屏与状态行被
                     // 键盘永久遮住且应用不重绘。主屏传 0，仍走纯平移。
                     // 见 TerminalSurface.setImeInsetPx。
-                    LaunchedEffect(surfaceKey, imeShiftPx, altScreenForIme) {
-                        surfaceRef.value?.setImeInsetPx(if (altScreenForIme) imeShiftPx else 0)
+                    LaunchedEffect(surfaceKey, altScreenForIme) {
+                        // 键盘已展开时启动 helix 一类的 TUI 也要按可见高度重排，
+                        // 而此时输入法高度未变、平台不再派发 insets，故在此补一次触发。
+                        // 高度本身由 TerminalSurface 的平台 insets 回调持有（见其
+                        // installImeInsetListener），这里只传「备用屏翻转了」。
+                        surfaceRef.value?.onAltScreenChanged()
                     }
                     Box(
                         modifier =

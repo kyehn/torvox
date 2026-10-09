@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -71,7 +72,7 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 kotlin.math.abs(sizeSp - targetSizeSp) < 0.01f
             }
         val (landedSizeSp, _, _) = readRuntimeMetrics()
-        assertTrue(
+        assertNotNull(
             "调节条可划到的字号 $targetSizeSp 必须被原生接受并生效，实际生效 $landedSizeSp",
             landed,
         )
