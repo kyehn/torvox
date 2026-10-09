@@ -317,10 +317,29 @@ constructor(
     private val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
 
+    /**
+     * 网格重排时 MUST 从可用高度里扣除的输入法遮挡（px）。
+     *
+     * 只有 `TerminalSurface` 的 insets 派发回调会写它，其余全读：网格公式有三条路径
+     * （[recomputeGridFromFontMetrics]、`TerminalSurface.ResizeManager.applyGridResize`、
+     * `recomputeRowsColsImmediate`），任何一条漏扣都会让备用屏按整屏高度重排、把被
+     * 键盘遮住的行又放回去（helix 状态行随之消失且不会自愈）。故它 MUST 是运行期的
+     * 单一值，MUST NOT 各路径自带一份。
+     *
+     * 只在备用屏生效：主屏靠纯平移跟随键盘，改网格会带来重排闪烁与底部行丢失。
+     */
+    @Volatile
+    var imeGridReservePx: Int = 0
+        private set
+
     /** 发布输入法遮挡高度（px，已扣除系统导航条）。唯一调用方是 `TerminalSurface` 的 insets 派发回调。 */
     fun publishImeInsetPx(imeInsetPx: Int) {
         imeInsetFlowInternal.value = imeInsetPx
+        imeGridReservePx = imeInsetPx
     }
+
+    /** 网格重排实际扣除的遮挡高度：仅备用屏计入，主屏恒为 0。 */
+    fun imeGridReserve(): Int = if (altScreenActiveFlowInternal.value) imeGridReservePx else 0
 
     /**
      * 活动会话的备用屏激活状态。仅在变化时由渲染线程发布（随每帧渲染结果一并上报）。
@@ -340,6 +359,9 @@ constructor(
      */
     private val imeInsetFlowInternal = MutableStateFlow(0)
     val imeInsetFlow: StateFlow<Int> = imeInsetFlowInternal.asStateFlow()
+
+    /** 单元格度量（物理像素）。见 [publishCellMetrics]。 */
+    private val cellMetricsFlowInternal = MutableStateFlow(0f to 0f)
 
     /**
      * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
@@ -1954,7 +1976,22 @@ constructor(
         val newCellHeight = rawCellHeight * spToPxScale
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
+        publishCellMetrics()
     }
+
+    /**
+     * 发布单元格度量（物理像素）。
+     *
+     * 订阅者只有输入法跟随平移：行高变了而内容下沿行号没变时，
+     * `lastContentRowFlow` 因 StateFlow 去重不会发射，平移量就停在旧行高的结果上。
+     * 合并为单值发布而非两个流：两者总是同批写入。
+     */
+    fun publishCellMetrics() {
+        cellMetricsFlowInternal.value = cellWidth to cellHeight
+    }
+
+    /** 单元格度量（宽, 高），物理像素。仅在变化时发布。 */
+    val cellMetricsFlow: StateFlow<Pair<Float, Float>> = cellMetricsFlowInternal.asStateFlow()
 
     /**
      * 原生管线当前渲染的字号（sp），即经 setFontSizeInPlace 最后一次推送的值；
@@ -3014,7 +3051,7 @@ constructor(
         val (newRows, newCols) =
             computeGridDimensions(
                 surfaceWidth = surfaceW,
-                surfaceHeight = surfaceH - barHeightPx,
+                surfaceHeight = surfaceH - barHeightPx - imeGridReserve(),
                 cellWidth = cellWidth,
                 cellHeight = cellHeight,
             )
@@ -3513,6 +3550,10 @@ constructor(
         val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
+        // 单元格度量是输入法跟随平移量的输入（`computeContentBottomPx` 按行号×行高
+        // 算内容下沿）。字号或捏合缩放改掉它后必须重发，否则内容下沿行号未变时
+        // （`lastContentRowFlow` 去重不发射）平移量停留在旧行高算出的值。
+        publishCellMetrics()
         // 单元格度量首次可用时必须重算网格：启动序列里 [attachPendingSurface] 的这次
         // 同步可能早于 native 字体度量就绪，[recomputeGridFromFontMetrics] 会因
         // cellWidth/cellHeight == 0 提前返回，而此后没有任何路径重试——网格会永久停在

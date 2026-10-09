@@ -29,9 +29,11 @@
 ## What Changes
 
 - 回车族的无修饰载荷由 LF 改为 CR(0x0D)，`Alt+回车` 由 `"\n"` 前缀 ESC 改为
-  `ESC CR`（ghostty `modifyKeysNormal` / termux `"\033\r"`）；带 Ctrl/Alt 的
-  `CSI 13;mod~` 不变。输入法唯一换行提交 `"\n"` 归一为 CR，多字符提交内的换行
-  逐字保留（那是内容本身，改成 CR 会把多行粘贴粘成一行）。
+  `ESC CR`（ghostty `modifyKeysNormal` / termux `"\033\r"`）；带 Ctrl/Alt 的编码
+  改为 `CSI 27;mod;13~`（ghostty 的 modifyOtherKeys 形式；此前写的 `CSI 13;mod~`
+  是 xterm 的 `modifyFunctionKeys`，与 ghostty 实现不符）。输入法唯一换行提交 `"\n"`
+  归一为 CR，多字符提交内的换行逐字保留——只归一孤立换行，多行提交在 helix 里
+  仍是 Ctrl+J，直到粘贴路径真正实现 bracketed paste。
 - 编辑器属性补 `TYPE_TEXT_FLAG_MULTI_LINE`，并把 `IME_ACTION_NONE` 换成 termux
   同款的 `IME_FLAG_NO_FULLSCREEN`：termux 在该行注明 `IME_ACTION_NONE` 会让屏幕
   键盘无法输入换行（termux-app#221）。MULTI_LINE 是输入法回车走换行键而非编辑器

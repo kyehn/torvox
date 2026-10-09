@@ -117,7 +117,7 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 - **WHEN** 同一台设备循环周期稳定在 16ms 上下
 - **THEN** 各窗口的 `fps` 取值一致，不出现 55/58/62/66 之间由整除产生的跳变
 
-### Requirement: 备用屏下输入法随窗口自适应（不位移且网格收缩到可见高度）
+### Requirement: 备用屏下输入法随窗口自适应（备用屏激活时输入法不位移终端 Surface）
 
 备用屏（helix/vim 等全屏 TUI）激活时，输入法跟随位移 MUST 为 0：此类应用恒占满
 视口，任何位移都会把应用顶部推出屏幕并使视觉行与触摸换算行错位。主屏的位移公式
@@ -133,12 +133,20 @@ Surface 尺寸全程不变，故备用屏下 MUST 把输入法遮挡计入网格
 （MUST NOT 逐帧发 SIGWINCH），MUST 只重算网格，MUST NOT 重配交换链。主屏 MUST
 不扣输入法遮挡：它靠位移跟随，改网格会带来重排闪烁与底部行丢失。
 
+该扣减 MUST 是运行期的单一值（`TerminalRuntime.imeGridReserve`），三条网格重算路径
+——字号/字族变化触发的 `recomputeGridFromFontMetrics`、视图尺寸变化触发的
+`recomputeRowsColsImmediate` 与 `applyGridResize`——MUST 共用它。任一条漏扣都会让
+备用屏在改字号或捏合缩放后被撑回被键盘遮住的高度，且此后无触发点自愈。
+网格重排 MUST 只在备用屏发生；主屏上 MUST NOT 因此暂停渲染，否则键盘动画期间
+逐帧派发的 insets 会把暂停一直续到动画结束，终端停止上帧。
+
 输入法遮挡高度 MUST 取自平台 insets 派发（`ViewCompat.setOnApplyWindowInsetsListener`
 装在终端 Surface 上），MUST NOT 取自轮询 `rootView.rootWindowInsets` 或 Compose 的
 `WindowInsets.ime` 叶节点：这两处在仪器化环境下均恒为 0（实测键盘高 883px 时
 `DecorView.rootWindowInsets` 仍报 0），据此驱动的输入法跟随位移整体失效。
-备用屏状态 MUST 用运行期逐帧发布的流值，且键盘已展开时启动 TUI MUST 触发一次重排
-（输入法高度未变、平台不会再次派发 insets）。
+键盘可见性翻转时关闭选区手柄与菜单的逻辑 MUST 放在该监听器内，MUST NOT 放在
+`onApplyWindowInsets` 重写里：框架在视图装了 `OnApplyWindowInsetsListener` 后
+只调它而不再调用重写方法，放在重写里即静默失效。
 
 **终端 Surface 的跟随位移 MUST 由视图自身的 `translationY` 承担，MUST NOT 经组合容器
 平移**：组合平移要经「重组 → 重新测量 → 重新布局」，而重组只在 Choreographer 帧回调
@@ -147,10 +155,27 @@ Surface 尺寸全程不变，故备用屏下 MUST 把输入法遮挡计入网格
 不动。`translationY` 在 insets 派发的同一拍内生效。键栏是组合覆盖层，只能读同一个
 `imeInsetFlow` 上移——它 MUST NOT 另取来源，也 MUST NOT 与终端 Surface 平移两次。
 
+平移量的每个输入变化 MUST 触发重算：输入法遮挡、视口尺寸（旋转）、单元格度量
+（字号与捏合缩放）、内容下沿、备用屏状态。视图 detach MUST 取消上述订阅并复位
+平移量与遮挡值：订阅跑在 `viewModelScope` 上（跟宿主而非视图），保留会让旧视图被
+协程钉住，且 detach 后的备用屏翻转仍会命中网格重排——此时 `View.postDelayed`
+落进 `mRunQueue`、只在重新 attach 时被 drain，被丢弃的旧视图永不 attach，
+配对的「恢复渲染」永不执行，共享渲染器被永久暂停（终端全黑）。
+
 #### Scenario: 主线程被渲染阻塞时位移仍即时
 
 - **WHEN** 每帧绘制都阻塞在等待渲染线程，且输入法在弹出
 - **THEN** 终端 Surface 的平移量在 insets 派发的同一拍内生效，不等组合重组
+
+#### Scenario: 旋转后平移量按新视口高度重算
+
+- **WHEN** 输入法已展开时旋转设备（Activity 不重建，同一视图实例尺寸改变）
+- **THEN** 平移量按新的视口高度重算，不停留在旧高度的结果上
+
+#### Scenario: 备用屏改字号后仍按可见高度排
+
+- **WHEN** 备用屏下输入法已展开，随后改变字号
+- **THEN** 网格仍等于可见高度容纳的行数，不被撑回被键盘遮住的高度
 
 #### Scenario: 备用屏弹出输入法后网格收缩并触发重排
 

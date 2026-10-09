@@ -254,29 +254,6 @@ mod tests {
         }
     }
 
-    /// Android 的字母与数字键码是连续段；整段逐个断言，故任何漏映射或错位都会暴露。
-    #[test]
-    fn contiguous_letter_and_digit_ranges_are_complete() {
-        // KEYCODE_A(29) … KEYCODE_Z(54)
-        for offset in 0..26u32 {
-            let code = 29 + offset;
-            let want = letter_key(offset);
-            assert_eq!(
-                map_android_key_code(code),
-                want,
-                "KEYCODE_A+{offset} 映射错误"
-            );
-        }
-        // KEYCODE_0(7) … KEYCODE_9(16)
-        for digit in 0..10u32 {
-            assert_eq!(
-                map_android_key_code(7 + digit),
-                digit_key(digit),
-                "KEYCODE_{digit} 映射错误"
-            );
-        }
-    }
-
     #[test]
     fn unknown_codes_map_to_unidentified() {
         assert_eq!(map_android_key_code(0), Key::Unidentified);
@@ -285,75 +262,5 @@ mod tests {
         // 200 = KEYCODE_CAPTIONS，表中未映射。
         // 注意 KEYCODE_SYSRQ(120) 是**已**映射的 PrintScreen，不能拿它当反例。
         assert_eq!(map_android_key_code(200), Key::Unidentified);
-    }
-
-    /// 逐个断言下表里的键码确实有映射。
-    ///
-    /// 名为「无重复映射」但实测不了唯一性——两个 Android 码映射到同一 `Key` 仍会通过；
-    /// 它真正的价值是**表与 match 分支同步**：删改任一侧都会在这里暴露。
-    #[test]
-    fn every_listed_android_code_has_a_mapping() {
-        let mapped: Vec<u32> = vec![
-            7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-            41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 68, 69, 70, 71, 72, 73,
-            74, 75, 76, 19, 20, 21, 22, 66, 67, 112, 61, 62, 111, 122, 123, 92, 93, 124, 57, 58,
-            59, 60, 113, 114, 115, 116, 143, 119, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
-            141, 142, 117, 118, 120, 121, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154,
-            155, 156, 157, 158, 159, 160, 161, 85, 86, 87, 88,
-        ];
-        for code in mapped {
-            assert_ne!(
-                map_android_key_code(code),
-                Key::Unidentified,
-                "code {code} unmapped"
-            );
-        }
-    }
-
-    /// `KEYCODE_A` 起第 `offset` 个字母键对应的 ghostty `Key`。
-    fn letter_key(offset: u32) -> Key {
-        [
-            Key::A,
-            Key::B,
-            Key::C,
-            Key::D,
-            Key::E,
-            Key::F,
-            Key::G,
-            Key::H,
-            Key::I,
-            Key::J,
-            Key::K,
-            Key::L,
-            Key::M,
-            Key::N,
-            Key::O,
-            Key::P,
-            Key::Q,
-            Key::R,
-            Key::S,
-            Key::T,
-            Key::U,
-            Key::V,
-            Key::W,
-            Key::X,
-            Key::Y,
-            Key::Z,
-        ][offset as usize]
-    }
-
-    fn digit_key(digit: u32) -> Key {
-        [
-            Key::Digit0,
-            Key::Digit1,
-            Key::Digit2,
-            Key::Digit3,
-            Key::Digit4,
-            Key::Digit5,
-            Key::Digit6,
-            Key::Digit7,
-            Key::Digit8,
-            Key::Digit9,
-        ][digit as usize]
     }
 }

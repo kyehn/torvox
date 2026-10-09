@@ -47,8 +47,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
@@ -64,11 +62,6 @@ import kotlin.math.min
 // 抽屉打开时，50ms 足以让遮罩轻击在输入法与关闭动画竞争前生效。
 // 原先的 250ms 会被感知为输入延迟。
 private const val IME_TOGGLE_DELAY_MS = 50L
-
-// 「先平移后重排」的输入法混合方案（零重组）：布置阶段的偏移直接读取 insets，
-// 无需 Compose 弹簧——系统的 WindowInsetsAnimation 已能平滑插值。
-// 稳定判定为 3 个稳定帧 × 16ms = 48ms，与 TerminalSurface 的防抖一致。
-private const val IME_SETTLE_WINDOW_MS = 48L
 
 /**
  * 搜索查询串长度上限：向原生取真实值（原生为唯一真源，不在此处自带副本）。
@@ -450,20 +443,6 @@ fun TerminalScreen(
             // 状态随渲染线程每帧发布（与光标行、内容下沿同批上报），故动画期间的
             // 切换即刻生效——此前只在键盘定居后另发一次阻塞查询，动画中途翻转的
             // 状态必然滞后于当帧的位移计算。
-            val altScreenForIme by viewModel.runtime.altScreenActiveFlow.collectAsStateWithLifecycle()
-            // 定居节流：高度停止变化 IME_SETTLE_WINDOW_MS 后才上报「已定居」。
-            // 位移本身直接读合成值（每帧即跟随 live 值），不被此节流阻塞——
-            // 否则动画期间终端与键栏冻结、定居后跳变（违反逐帧跟随）。
-            //
-            // 直接收集运行期流而非 snapshotFlow：位移值已是 collectAsState 的产物，
-            // snapshotFlow 只会再包一层快照读取，拿不到流的后续更新。
-            LaunchedEffect(Unit) {
-                viewModel.runtime.imeInsetFlow
-                    .collectLatest { imeBottom ->
-                        delay(IME_SETTLE_WINDOW_MS)
-                        surfaceRef.value?.onImeSettled(imeBottom)
-                    }
-            }
             val runtimeForContent = viewModel.runtime
             // 换视图的触发值必须在此处（组合体自身）读取：读在 `Box` 的内容 lambda 里时，
             // 该 lambda 的捕获未变会被 Compose 跳过，`key(...)` 也就不会被重新求值，
@@ -477,13 +456,17 @@ fun TerminalScreen(
             // 原生随之走重建慢路径。对同一窗口反复 detach/attach 唤不活被遗弃的
             // BufferQueue（实测此后每帧 `begin_frame failed`、终端永久黑屏）。
 
-            // 位移容器不再整体平移：终端 Surface 与键栏各自持有自己的位移量，
-            // 但两者都只读上面那一个合成 ime 状态、并在同一帧 placement 中求值——
-            // 唯一位移来源不变（双位移源的历史振荡因此不会复现），而平移量可以
-            // 按内容裁剪：网格自顶端锚定渲染，键盘遮住的是网格末尾行，
-            // 按整块键盘高度上移会把稀疏会话的提示符推出屏幕上边界（终端区全空）。
+            // 本容器是终端 Surface 与键栏的共同父级，但**不**承担输入法位移：
+            // 平移量按内容下沿裁剪（网格自顶端锚定渲染，键盘遮住的是末尾行，按整块
+            // 键盘高度上移会把稀疏会话的提示符推出屏幕上边界），而网格尺寸在主屏全程
+            // 不变（改网格会带来重排闪烁与底部行丢失）。
             //
-            // Surface 尺寸全程不变，故网格不重排、无 SIGWINCH。
+            // 终端 Surface 在 insets 派发回调里直接改自身 `translationY`（见其
+            // `applyImeShift`）：走组合要经「重组 → 重新测量 → 重新布局」，而重组只在
+            // Choreographer 帧回调里跑，主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染
+            // 线程时滞后可达十几秒（实测每 300ms 写一次组合状态，20 次才换来一次重组），
+            // 期间键盘已弹出而内容纹丝不动。键栏是组合覆盖层，读同一个 `imeInsetFlow`
+            // 上移——两者同源，不会出现一个跟上一个不跟的差拍。
             Box(
                 modifier =
                 Modifier.fillMaxSize()
@@ -492,21 +475,6 @@ fun TerminalScreen(
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 key(surfaceKey) {
-                    // 备用屏下键盘遮挡计入网格高度：全屏 TUI 必须按可见高度重排
-                    // （SIGWINCH）才能真正「适应窗口大小」，否则下半屏与状态行被
-                    // 键盘永久遮住且应用不重绘。主屏传 0，仍走纯平移。
-                    // 见 TerminalSurface.setImeInsetPx。
-                    LaunchedEffect(surfaceKey, altScreenForIme) {
-                        // 键盘已展开时启动 helix 一类的 TUI 也要按可见高度重排，
-                        // 而此时输入法高度未变、平台不再派发 insets，故在此补一次触发。
-                        // 高度本身由 TerminalSurface 的平台 insets 回调持有（见其
-                        // installImeInsetListener），这里只传「备用屏翻转了」。
-                        surfaceRef.value?.onAltScreenChanged()
-                    }
-                    // 输入法跟随位移由 TerminalSurface 施加到自身的 translationY（见其 applyImeShift）：
-                    // 平移走组合要经「重组 → 重新测量 → 重新布局」，而重组只在帧回调里跑，
-                    // 主线程被渲染阻塞时滞后十几秒（实测每 300ms 写状态，20 次才换来一次重组），
-                    // 键盘已弹出而内容不动。此处不再重复平移。
                     Box(modifier = Modifier.fillMaxSize()) {
                         AndroidView(
                             factory = { context ->
