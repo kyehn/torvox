@@ -49,6 +49,6 @@
 - [x] `cargo fmt --check` 与 `cargo clippy --all-targets -- -D warnings` 无告警
 - [x] `cargo test --workspace --no-fail-fast` 全量通过
 - [x] `markdownlint-cli2` 无问题
-- [ ] 运行 `scripts/check-rust.nu` 全量门禁
+- [x] 运行 `scripts/check-rust.nu` 全量门禁（fmt、clippy、machete、semgrep 32 规则 430 文件 0 发现、574+2 测试、`cargo doc -D warnings`、markdownlint 194 文件 0 问题、3 个 bench）
 - [ ] 更新 `openspec/specs/` 下的正式 spec
 - [ ] 归档本 change
