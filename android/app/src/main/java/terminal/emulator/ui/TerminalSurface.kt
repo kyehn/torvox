@@ -15,8 +15,6 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowInsets
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -25,6 +23,11 @@ import android.widget.OverScroller
 import android.widget.PopupWindow
 import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
@@ -35,7 +38,9 @@ import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.computeContentBottomPx
 import terminal.emulator.runtime.computeGridDimensions
+import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.roundToInt
@@ -1205,6 +1210,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
         viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
+        observeImeShiftInputs(viewModel)
+    }
+
+    /**
+     * 订阅决定平移量的两项输入：内容下沿（按内容裁剪平移量）与备用屏状态
+     * （备用屏恒 0）。两者都由渲染线程逐帧发布，故平移量随内容增长即时跟进。
+     */
+    private fun observeImeShiftInputs(viewModel: TerminalViewModel) {
+        imeShiftJob?.cancel()
+        imeShiftJob =
+            viewModel.viewModelScope.launch {
+                launch { viewModel.runtime.lastContentRowFlow.collect { applyImeShift() } }
+                launch {
+                    viewModel.runtime.altScreenActiveFlow.collect {
+                        applyImeShift()
+                        scheduleImeGridResize()
+                    }
+                }
+            }
     }
 
     @Volatile private var rows: Int = DEFAULT_ROWS
@@ -1256,7 +1280,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * 输入法遮挡高度（px，已扣除系统导航条），由平台 insets 派发维护
-     * （[installImeInsetListener]），**只在备用屏参与网格高度**。
+     * （[installImeInsetListener]）。两处消费者：备用屏的网格高度与本视图的平移量。
      *
      * 备用屏应用按整屏行数布局（helix/vim/less 都进备用屏并占满视口），键盘遮挡
      * 的下半屏永远不可见：状态行消失、光标可能落在被遮住的几行里，而应用收不到
@@ -1267,6 +1291,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     private var imeInsetPx: Int = 0
     private var pendingImeGridResize: Runnable? = null
+    private var imeShiftJob: Job? = null
+
+    /** 已应用的本视图平移量，避免重复赋值触发无谓的重绘失效。 */
+    private var appliedImeShiftPx: Int = 0
 
     /**
      * 订阅平台 insets 派发，维护 [imeInsetPx]。
@@ -1287,10 +1315,47 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (reserved != imeInsetPx) {
                 imeInsetPx = reserved
                 LogUtil.d(TAG, "setImeInsetPx: $reserved")
+                applyImeShift()
+                // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
+                // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
+                viewModel?.runtime?.publishImeInsetPx(reserved)
+                // 备用屏按可见高度重排网格。与平移不同，它必须等输入法高度稳定
+                // （见 [scheduleImeGridResize]），否则逐帧 SIGWINCH 会让全屏 TUI 反复重排。
                 scheduleImeGridResize()
             }
             insets
         }
+    }
+
+    /**
+     * 把输入法跟随位移直接施加到本视图的 `translationY`。
+     *
+     * 为什么不平移 Compose 容器（历史做法）：位移要走「组合重组 → 重新测量 →
+     * 重新布局」才生效，而重组只在 Choreographer 帧回调里跑。主线程每帧阻塞在
+     * `syncAndDrawFrame` 等待渲染线程时，重组会滞后十几秒（实测每 300ms 写一次
+     * 组合状态，20 次才换来一次重组），期间键盘已经弹出而内容一动不动
+     * ——`ImePopupPixelInstrumentedTest` 三个用例即以此判红（位移=0）。
+     * `translationY` 是视图自身的属性，在 insets 回调里同步生效，不依赖任何
+     * 组合往返。
+     *
+     * 位移量仍是 [computeImeSurfaceShift] 的判定结果（按内容下沿裁剪、备用屏恒 0），
+     * 口径与单测一致；输入只有 insets 派发这一个来源。
+     */
+    private fun applyImeShift() {
+        val runtime = viewModel?.runtime ?: return
+        if (height <= 0) return
+        val shift =
+            computeImeSurfaceShift(
+                contentBottomPx =
+                computeContentBottomPx(runtime.lastContentRowFlow.value, runtime.cellHeight),
+                surfaceHeightPx = height,
+                modifierBarHeightPx = runtime.modifierBarHeightPx,
+                imeBottomPx = imeInsetPx,
+                isAltScreenActive = runtime.altScreenActiveFlow.value,
+            )
+        if (shift == appliedImeShiftPx) return
+        appliedImeShiftPx = shift
+        translationY = -shift.toFloat()
     }
 
     /**
@@ -2146,8 +2211,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     fun onImeSettled(settledBottom: Int) {
         lastImeVisible = settledBottom > 0
-        // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
-        if (translationY != 0f) translationY = 0f
     }
 
     /** 在途的 surface 重建重试；detach 与 ON_PAUSE 必须能取消它（见 [postDelayedSurfaceRecreate]）。 */

@@ -34,11 +34,7 @@ object TerminalInputEncoder {
      * 输入法内部粘贴）里的换行是**内容本身**，逐字保留——那是 bracketed paste
      * 的语义，把回车替换成 LF 会让多行粘贴粘到一行。
      */
-    fun encodeCommittedText(
-        text: String,
-        ctrlActive: Boolean,
-        altActive: Boolean,
-    ): ByteArray {
+    fun encodeCommittedText(text: String, ctrlActive: Boolean, altActive: Boolean): ByteArray {
         val bytes = mutableListOf<Byte>()
         if (text == "\n") return byteArrayOf(CARRIAGE_RETURN_BYTE)
         // Ctrl 转换只适用于单个字符（即真实的 Ctrl+X 按键）。
@@ -158,9 +154,11 @@ object TerminalInputEncoder {
                     // 字节为 0a。termux KeyHandler、ghostty function_keys.zig、
                     // kitty key_encoding.c、wezterm termwiz 全部发 CR。
                     !ctrlActive && !altActive -> "\r"
+
                     // Alt+回车：ESC 前缀 + CR（ghostty function_keys.zig 的
                     // modifyKeysNormal 项；termux KeyHandler 同样返回 "\033\r"）。
                     !ctrlActive -> "\u001b\r"
+
                     // Ctrl/Alt+Ctrl+回车：CSI u 修饰键编码 `CSI 27 ; mod ; 13 ~`
                     // （ghostty function_keys.zig），非 `CSI 13;mod~`。
                     else -> "\u001b[27;${1 + (if (altActive) 2 else 0) + 4};13~"

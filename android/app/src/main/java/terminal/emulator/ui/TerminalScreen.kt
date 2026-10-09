@@ -10,12 +10,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -35,15 +33,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
@@ -54,14 +49,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.bridge.Bridge
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.computeContentBottomPx
-import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -74,14 +65,10 @@ import kotlin.math.min
 // 原先的 250ms 会被感知为输入延迟。
 private const val IME_TOGGLE_DELAY_MS = 50L
 
-// 「先平移后重排」的输入法混合方案（零重组）：布置阶段的偏移直接读取 WindowInsets，
+// 「先平移后重排」的输入法混合方案（零重组）：布置阶段的偏移直接读取 insets，
 // 无需 Compose 弹簧——系统的 WindowInsetsAnimation 已能平滑插值。
 // 稳定判定为 3 个稳定帧 × 16ms = 48ms，与 TerminalSurface 的防抖一致。
-private const val IME_SETTLE_FRAMES = 3
-private const val IME_POLL_INTERVAL_MS = 16L
-
-/** 位移稳定后的空闲轮询间隔：动画结束后无需逐帧跟随，降低常驻唤醒。 */
-private const val IME_IDLE_POLL_INTERVAL_MS = 200L
+private const val IME_SETTLE_WINDOW_MS = 48L
 
 /**
  * 搜索查询串长度上限：向原生取真实值（原生为唯一真源，不在此处自带副本）。
@@ -441,91 +428,41 @@ fun TerminalScreen(
                 }
             }
 
-            // IME 跟随：单一位移不重排。
-            // 终端 Surface 与键栏同处一个平移容器（TerminalContent），整容器按键盘高度
-            // 平移，双位移差拍（内容重叠/持续闪烁/键栏被输入法遮住）在结构上不可能发生。
+            // IME 跟随：位移由两处各自承担，二者读同一个 insets 来源（`imeInsetFlow`）。
+            // 终端 Surface 在 insets 派发回调里直接改自身 `translationY`；键栏是
+            // 组合覆盖层，只能读流。不再平移 `TerminalContent` 容器：那要经
+            // 「重组 → 重新测量 → 重新布局」，而重组只在 Choreographer 帧回调里跑，
+            // 主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染线程时滞后十几秒（实测每
+            // 300ms 写一次组合状态，20 次才换来一次重组），键盘已弹出而内容不动
+            // ——`ImePopupPixelInstrumentedTest` 三个用例即以此判红。
             // Surface 尺寸永不变化，故不触发交换链重建与网格重排。
             //
-            // insets 有两个来源，**按较大者合成**而非后写覆盖：
-            //  1) [WindowImeBottomPx] 叶节点——动画期间逐帧给出真实键盘高度
-            //     （实测 0→772→818→820 后静止）。
-            //  2) 轮询 rootWindowInsets——视图系统通道。Compose 订阅并非在所有环境都
-            //     收到更新（实测仪器化运行中叶节点恒为 0，而 rootWindowInsets 已报出
-            //     真实键盘高度），故此路必须保留。
-            //
-            // 早期实现让两路**后写覆盖**同一状态，视图通道在 insets dispatch 遍历中
-            // 读到尚未更新的 ime=0，写入布局状态又触发新一轮 dispatch，实测自激振荡
-            // 506 次，键栏在「键盘上方」与「键盘后方」之间来回跳，即持续闪烁的根因。
-            // 取较大者后任一方的 0 都压不掉对方的真实值，振荡在结构上不可能复现；
-            // 两侧同时归零（键盘收起）时位移同样归零。
-            val imeLeafPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            WindowImeBottomPx { imeLeafPx.intValue = it }
-            // 视图通道：轮询 rootWindowInsets，不监听 dispatch。
-            //
-            // 监听 dispatch 两次踩坑：其一，在 dispatch 遍历内写布局状态会触发新一轮
-            // dispatch，读到的 ime 在 0 与真实高度间往复，形成自激回路（实测常驻 46% CPU，
-            // 并使 UiAutomation.takeScreenshot() 永不稳定）；其二，改为「静止后才采纳」
-            // 后又被连续 dispatch 反复取消计时而饿死，位移时有时无。
-            // 轮询只读框架已算好的 insets，不回灌 dispatch，两条问题都不成立；
-            // 且 rootWindowInsets 本身可靠——实测仪器化环境下 Compose 叶节点恒为 0，
-            // rootWindowInsets 仍给出真实键盘高度。
-            //
-            // 值变化时按动画帧率轮询，稳定后退到空闲间隔，避免常驻高频唤醒。
-            val imeViewPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            // 只捕获 View（恒非空），rootView 每轮重新解析：首次组合时视图可能尚未
-            // attach，此刻 `rootView` 为 null，而组合体又只有在读到状态变化时才重算
-            // 这一行——值恒 0 恰好不触发重组，于是整条通道永久为 0、位移从未发生
-            // （实测键盘顶边 1517 而键栏底边仍停在 2337）。
-            val windowView = LocalView.current
-            LaunchedEffect(windowView) {
-                var lastSeen = -1
-                while (true) {
-                    // 取窗口根视图而非 surfaceRef：AndroidView 可能重建视图，
-                    // surfaceRef 里那一份会脱离窗口、rootWindowInsets 恒为 0
-                    // （实测仪器化环境下轮询只读到一次 0，位移因此从未发生）。
-                    val insets = windowView.rootView?.rootWindowInsets
-                    val imeBottom = insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
-                    val navigationBottom =
-                        insets?.getInsets(android.view.WindowInsets.Type.navigationBars())?.bottom ?: 0
-                    val bottom = max(imeBottom - navigationBottom, 0)
-                    val changed = bottom != lastSeen
-                    if (changed) {
-                        lastSeen = bottom
-                        imeViewPx.intValue = bottom
-                    }
-                    kotlinx.coroutines.delay(
-                        if (changed) IME_POLL_INTERVAL_MS else IME_IDLE_POLL_INTERVAL_MS,
-                    )
-                }
-            }
-            val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            // 高度只有一个来源：终端 Surface 上的平台 insets 派发回调，经运行期
+            // `imeInsetFlow` 汇入组合（`TerminalSurface.installImeInsetListener`
+            // → `TerminalRuntime.publishImeInsetPx`）。
+            // 此前是两条合成通道——Compose `WindowInsets.ime` 叶节点 + 轮询
+            // `rootWindowInsets`——二者在**同一个**仪器化环境里都恒为 0（实测键盘高
+            // 820px 时两者均为 0），位移因此从未发生。派发是平台自己的分发路径，
+            // 已挂载视图必然收到，且不依赖窗口根视图是否已 attach。
+            val imeInsetPx by viewModel.runtime.imeInsetFlow.collectAsStateWithLifecycle()
             // 备用屏跟随开关：helix/vim 等全屏 TUI 占满视口，位移只会把应用顶部推出
             // 屏幕（且视觉行与触摸换算行错位），故备用屏下位移恒 0；主屏公式不变。
             // 状态随渲染线程每帧发布（与光标行、内容下沿同批上报），故动画期间的
             // 切换即刻生效——此前只在键盘定居后另发一次阻塞查询，动画中途翻转的
             // 状态必然滞后于当帧的位移计算。
             val altScreenForIme by viewModel.runtime.altScreenActiveFlow.collectAsStateWithLifecycle()
-            // 定居节流：值停止变化 IME_SETTLE_FRAMES×轮询间隔后锁定 settled 值。
+            // 定居节流：高度停止变化 IME_SETTLE_WINDOW_MS 后才上报「已定居」。
             // 位移本身直接读合成值（每帧即跟随 live 值），不被此节流阻塞——
             // 否则动画期间终端与键栏冻结、定居后跳变（违反逐帧跟随）。
-            LaunchedEffect(Unit) {
-                snapshotFlow { max(imeLeafPx.intValue, imeViewPx.intValue) }
-                    .distinctUntilChanged()
-                    .collectLatest { imeBottom ->
-                        delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
-                        if (imeBottom != settledImePx.intValue) {
-                            settledImePx.intValue = imeBottom
-                            surfaceRef.value?.onImeSettled(imeBottom)
-                        }
-                    }
-            }
-            // 内容下沿：视口最后一个有内容的行（渲染线程随每帧单元数据发布，
-            // 空闲帧同样更新，故输入法动画与定居后都不读到陈旧值）。
             //
-            // 只被位移 lambda 在 placement 期读取，故内容变化/光标移动**不**触发
-            // 主组合重组（与 ime 状态同构的处理）。
-            val lastContentRow = remember {
-                androidx.compose.runtime.mutableIntStateOf(Bridge.LAST_CONTENT_ROW_NONE)
+            // 直接收集运行期流而非 snapshotFlow：位移值已是 collectAsState 的产物，
+            // snapshotFlow 只会再包一层快照读取，拿不到流的后续更新。
+            LaunchedEffect(Unit) {
+                viewModel.runtime.imeInsetFlow
+                    .collectLatest { imeBottom ->
+                        delay(IME_SETTLE_WINDOW_MS)
+                        surfaceRef.value?.onImeSettled(imeBottom)
+                    }
             }
             val runtimeForContent = viewModel.runtime
             // 换视图的触发值必须在此处（组合体自身）读取：读在 `Box` 的内容 lambda 里时，
@@ -534,12 +471,6 @@ fun TerminalScreen(
             // 本组的重启作用域直接记录该读，信号一变即重组，并把新值作为捕获传给
             // lambda，lambda 随之重跑。
             val surfaceKey = runtimeForContent.surfaceRecreateSignal.intValue
-            // 直接收集 StateFlow，不经 snapshotFlow：后者只跟踪组合快照的读，
-            // 实测对 StateFlow 的后续更新不再触发（只发初值），内容下沿会永远停在
-            // -1 → 网格填满时终端也不上移，末行被键栏吞掉。
-            LaunchedEffect(runtimeForContent) {
-                runtimeForContent.lastContentRowFlow.collect { lastContentRow.intValue = it }
-            }
             // 原生 surface 判死（其原生窗口的 BufferQueue 被遗弃）时换掉整个
             // `SurfaceView`：`key` 变更使旧视图被拆除（`surfaceDestroyed` 释放
             // wgpu surface）、新视图重新 `surfaceCreated` 交付**新的**原生窗口，
@@ -561,11 +492,6 @@ fun TerminalScreen(
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 key(surfaceKey) {
-                    // 位移输入在组合期读取：`layout{}` measure 块不跟随输入法内边距
-                    // 变化重跑（实测满内容 15s 零求值、位移冻结），上提为组合状态后
-                    // 任一变化即重组并重测。Surface 尺寸全程不变，网格不重排。
-                    val imeShiftPx = max(imeLeafPx.intValue, imeViewPx.intValue)
-                    val contentRowNow = lastContentRow.intValue
                     // 备用屏下键盘遮挡计入网格高度：全屏 TUI 必须按可见高度重排
                     // （SIGWINCH）才能真正「适应窗口大小」，否则下半屏与状态行被
                     // 键盘永久遮住且应用不重绘。主屏传 0，仍走纯平移。
@@ -577,25 +503,11 @@ fun TerminalScreen(
                         // installImeInsetListener），这里只传「备用屏翻转了」。
                         surfaceRef.value?.onAltScreenChanged()
                     }
-                    Box(
-                        modifier =
-                        Modifier.fillMaxSize().layout { measurable, constraints ->
-                            val placeable = measurable.measure(constraints)
-                            val shift =
-                                computeImeSurfaceShift(
-                                    contentBottomPx =
-                                    computeContentBottomPx(
-                                        contentRowNow,
-                                        runtimeForContent.cellHeight,
-                                    ),
-                                    surfaceHeightPx = placeable.height,
-                                    modifierBarHeightPx = runtimeForContent.modifierBarHeightPx,
-                                    imeBottomPx = imeShiftPx,
-                                    isAltScreenActive = altScreenForIme,
-                                )
-                            layout(placeable.width, placeable.height) { placeable.placeRelative(0, -shift) }
-                        },
-                    ) {
+                    // 输入法跟随位移由 TerminalSurface 施加到自身的 translationY（见其 applyImeShift）：
+                    // 平移走组合要经「重组 → 重新测量 → 重新布局」，而重组只在帧回调里跑，
+                    // 主线程被渲染阻塞时滞后十几秒（实测每 300ms 写状态，20 次才换来一次重组），
+                    // 键盘已弹出而内容不动。此处不再重复平移。
+                    Box(modifier = Modifier.fillMaxSize()) {
                         AndroidView(
                             factory = { context ->
                                 terminal.emulator.ui
@@ -826,7 +738,7 @@ fun TerminalScreen(
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .offset {
-                            IntOffset(0, -max(imeLeafPx.intValue, imeViewPx.intValue))
+                            IntOffset(0, -imeInsetPx)
                         }
                         .background(resolvedTerminalTheme.background)
                         .testTag("ModifierBarOverlay"),
@@ -974,22 +886,3 @@ internal fun usesLightSystemBarIcons(background: Color): Boolean =
 
 /** 背景亮度高于此值即按浅色背景处理（图标取深色）。取 WCAG 相对亮度中点。 */
 private const val LIGHT_BACKGROUND_LUMINANCE_THRESHOLD = 0.5f
-
-/**
- * IME insets 叶节点观察器：键盘动画期间 insets 逐帧变化只重组本节点——
- * 读取发生在 composition，写入 [onChanged] 的状态后，终端区/修饰键栏位移经布局期
- * offset lambda 应用，主组合（位移容器/键栏/搜索层）不随之逐帧重组。
- *
- * 后备扣除：`WindowInsets.ime` 在手势导航下包含底部系统导航条高度，
- * `navigationBarsPadding` 已在根 Box 消费同一高度。不扣除会导致位移恒大一个
- * 导航条高度（约 3 行）：内容较少时终端被顶起约 3 行，内容较多时底部约 3 行被键盘遮挡。
- */
-@Composable
-private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
-    val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
-    SideEffect {
-        onChanged(max(imeBottom - navigationBottom, 0))
-    }
-}

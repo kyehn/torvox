@@ -114,10 +114,9 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
     }
 
     /** 失败诊断：把重排依赖的三个状态源一并带出（备用屏流、IME 内边距、网格）。 */
-    private fun diagnostics(): String {
-        return "备用屏流=${altScreenPublished()} 原生备用屏=${NativeBridge.getAltScreenState(sessionId())} " +
+    private fun diagnostics(): String =
+        "备用屏流=${altScreenPublished()} 原生备用屏=${NativeBridge.getAltScreenState(sessionId())} " +
             "imeInsets=${imeHeightPx()} navInsets=${navigationHeightPx()} 网格=${gridRowsCols()}"
-    }
 
     /** 运行期逐帧发布的备用屏状态（网格重排读的就是它）。 */
     private fun altScreenPublished(): Boolean {
@@ -223,8 +222,10 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
             // 容差 ±1 行来自减去导航条后的亚像素取整。
             val navigationBottom = navigationHeightPx()
             val expectedRows =
-                ((surfaceHeight - barPx - (imeHeight - navigationBottom).coerceAtLeast(0)) /
-                    cellHeight).toInt()
+                (
+                    (surfaceHeight - barPx - (imeHeight - navigationBottom).coerceAtLeast(0)) /
+                        cellHeight
+                    ).toInt()
             assertTrue(
                 "行数必须等于可见高度容纳的行数（期望≈$expectedRows 实际 $rowsWithIme；" +
                     "cellH=$cellHeight bar=$barPx ime=$imeHeight nav=$navigationBottom surface=$surfaceHeight）",
