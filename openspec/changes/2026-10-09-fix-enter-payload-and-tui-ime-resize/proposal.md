@@ -99,6 +99,9 @@
   主屏位移语义不变。
 - `font-selection`：用户可选字号上界 MUST 只有一处定义（Termux 像素上限换算），
   MUST NOT 与原生守卫重复；原生越界 MUST 留痕。
+- `ime-animation-smoothness`：位移来源 MUST 是平台 insets 派发（组合叶节点与
+  `rootWindowInsets` 轮询两条通道一并删除），终端 Surface 的位移 MUST 由视图属性
+  承担，内容下沿 MUST 取自渲染帧的视口内容而非光标行。
 
 ## Impact
 
@@ -109,11 +112,15 @@
   备用屏据此重排网格，主屏位移改由 Surface 的 `translationY` 承担。
 - `settings/SettingsRepository.kt`：删除重复常量与被替代的换算函数。
 - `native/src/android/ffi.rs`：字号与光栅缩放守卫改记错误日志、字号上界改由图集推导
-  并抽为纯函数。
+  并抽为纯函数；删除跨 JNI 的 `cursor_row` 打包字段——输入法位移改按**内容下沿**裁剪
+  后它失去唯一消费方，留着只是每帧多算一次位形。
+- `runtime/TerminalRuntime.kt`、`bridge/Bridge.kt`：随之删除 `cursorRowFlow` /
+  `RenderResult.cursorRow` 及其解码分支。
 - 测试：`TerminalInputEncoderTest`、`FontSizeRangeTest`、`TerminalSurfaceLogicTest`、
   `CoerceSpToPxScaleTest` 改为对照 Termux 的具体取值而非复述公式；
-  `FontSizeReflowInstrumentedTest` 增加端点验收；新增
-  `AltScreenImeReflowInstrumentedTest` 与 `font_size_cap_tests`。
+  `FontSizeReflowInstrumentedTest` 增加端点验收；
+  `RenderResultPackingTest` 按新位形重写（仍用字面量位形，不引用两侧常量）；
+  新增 `AltScreenImeReflowInstrumentedTest` 与 `font_size_cap_tests`。
 
 ## 上游测试资产调研结论
 

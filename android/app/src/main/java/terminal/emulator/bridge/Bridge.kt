@@ -216,7 +216,6 @@ class Bridge(private val config: TerminalConfig) {
         RenderResult(
             RENDER_IDLE,
             false,
-            CURSOR_ROW_UNKNOWN,
             LAST_CONTENT_ROW_NONE,
             false,
             false,
@@ -230,7 +229,6 @@ class Bridge(private val config: TerminalConfig) {
     data class RenderResult(
         val count: Int,
         val newOutput: Boolean,
-        val cursorRow: Int,
         val lastContentRow: Int,
         val surfaceInvalidated: Boolean,
         /** 备用屏（helix/vim 等全屏 TUI）激活：输入法跟随位移须为 0，否则应用顶部被推出屏幕。 */
@@ -652,9 +650,6 @@ class Bridge(private val config: TerminalConfig) {
     companion object {
         private const val TAG = "Bridge"
 
-        /** renderWithNewOutput 打包：光标行占 bit 33..42，该值表示隐藏或在视口外。 */
-        const val CURSOR_ROW_HIDDEN_BITS = 0x3FF
-
         /** renderWithNewOutput 打包：内容下沿行占 bit 43..52，该值表示视口全空。 */
         const val LAST_CONTENT_ROW_NONE_BITS = 0x3FF
 
@@ -669,9 +664,6 @@ class Bridge(private val config: TerminalConfig) {
 
         /** render 缺省返回值：无可渲染的会话（未建立或已销毁），按 idle 处理。 */
         private const val RENDER_IDLE = 0
-
-        /** 隐藏/在视口外（或无会话）时解码出的光标行。 */
-        const val CURSOR_ROW_UNKNOWN = -1
 
         /** pollAll() 每帧最多排空的事件数，限定渲染线程开销。 */
         private const val MAX_EVENTS_PER_POLL = 32
@@ -701,13 +693,9 @@ class Bridge(private val config: TerminalConfig) {
  */
 internal fun decodeRenderResult(packed: Long): Bridge.RenderResult {
     val count = packed.toInt()
-    // 仅屏蔽第 32 位：第 33..54 位承载光标行/内容下沿/失效位/备用屏位，
+    // 仅屏蔽第 32 位：第 33..54 位承载内容下沿/失效位/备用屏位，
     // 不得泄漏到输出标志（空闲闭锁依赖该标志）。
     val newOutput = ((packed shr 32) and 0x1L) != 0L
-    val cursorRow =
-        ((packed shr 33) and Bridge.CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
-            if (raw == Bridge.CURSOR_ROW_HIDDEN_BITS) Bridge.CURSOR_ROW_UNKNOWN else raw
-        }
     val lastContentRow =
         ((packed shr 43) and Bridge.LAST_CONTENT_ROW_NONE_BITS.toLong()).toInt().let { raw ->
             if (raw == Bridge.LAST_CONTENT_ROW_NONE_BITS) Bridge.LAST_CONTENT_ROW_NONE else raw
@@ -715,7 +703,6 @@ internal fun decodeRenderResult(packed: Long): Bridge.RenderResult {
     return Bridge.RenderResult(
         count,
         newOutput,
-        cursorRow,
         lastContentRow,
         (packed and Bridge.SURFACE_INVALIDATED_BIT) != 0L,
         (packed and Bridge.ALT_SCREEN_ACTIVE_BIT) != 0L,

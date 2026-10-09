@@ -207,12 +207,6 @@ internal data class SessionEntry(
     @Volatile var scrollOffset: Int = 0
 
     /**
-     * 本会话渲染线程最后见到的视口光标行（0 起，Bridge.CURSOR_ROW_UNKNOWN = 隐藏/在视口外）。
-     * 与活动会话的 cursorRowFlow 对应，使会话切换无需 JNI 查询即可重新初始化它。
-     */
-    @Volatile var cursorRow: Int = Bridge.CURSOR_ROW_UNKNOWN
-
-    /**
      * 本会话渲染线程最后见到的视口最后一个有内容的行（0 起，
      * [Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。输入法跟随位移按它裁剪平移量：
      * 稀疏会话不下移（内容原位），内容占满网格时按整块键盘高度上移。
@@ -300,14 +294,6 @@ constructor(
 
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
-
-    /**
-     * 活动会话的视口光标行（0 起，[Bridge.CURSOR_ROW_UNKNOWN] = 隐藏/在视口外）。
-     * 仅在变化时由渲染线程发布；键盘打开时输入法跟随滚动订阅它。
-     * 与 [state] 分开，使键盘关闭时光标移动不触发 state 订阅者重组。
-     */
-    private val cursorRowFlowInternal = MutableStateFlow(Bridge.CURSOR_ROW_UNKNOWN)
-    val cursorRowFlow: StateFlow<Int> = cursorRowFlowInternal.asStateFlow()
 
     /**
      * 活动会话的视口最后一个有内容的行（0 起，[Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。
@@ -1396,13 +1382,6 @@ constructor(
                                         val renderResult = bridge.renderWithNewOutput()
                                         val count = renderResult.count
                                         val newOutput = renderResult.newOutput
-                                        val cursorRow = renderResult.cursorRow
-                                        if (cursorRow != entry.cursorRow) {
-                                            entry.cursorRow = cursorRow
-                                            if (entry.id == activeSessionId) {
-                                                cursorRowFlowInternal.value = cursorRow
-                                            }
-                                        }
                                         val lastContentRow = renderResult.lastContentRow
                                         if (lastContentRow != entry.lastContentRow) {
                                             entry.lastContentRow = lastContentRow
@@ -2878,8 +2857,7 @@ constructor(
             }
             try {
                 activeSessionId = id
-                // 重新初始化光标/内容下沿滚动源：新会话的渲染线程从此刻起在变化时重新发布。
-                cursorRowFlowInternal.value = target.cursorRow
+                // 重新初始化内容下沿：新会话的渲染线程从此刻起在变化时重新发布。
                 lastContentRowFlowInternal.value = target.lastContentRow
                 altScreenActiveFlowInternal.value = target.altScreenActive
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
