@@ -1429,6 +1429,7 @@ dependencies = [
  "swash",
  "thiserror",
  "tokio",
+ "unicode-width",
  "wgpu",
  "wgpu-types",
 ]

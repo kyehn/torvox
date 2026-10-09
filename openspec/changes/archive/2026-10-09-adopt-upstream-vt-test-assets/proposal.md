@@ -4,7 +4,7 @@
 字重与颜色文本等终端整体状态。当前这些断言由 `native/src/terminal/testdata/` 的 10 份手写语料
 （`snapshot_test.rs` 的语料运行器驱动）完成，输入全部由本项目作者自行构造：
 
-- 语料输入的覆盖面等同于作者当场想到的转义序列，与真实应用输出（vim、tmux、zsh、fish、vttest）
+- 语料输入的覆盖面等同于作者当场想到的转义序列，与真实应用输出（vim、tmux、交互式 shell、ll）
   以及上游对解析器的边界构造没有交集。
 - 终端把哪些码位当双宽、哪些区段的中日韩字符会被识别成宽字符，没有任何一处与权威数据对照。
 - 手写区间表（`render/font/shaping.rs` 的 CJK span 判据）缺少哪些区段无法被发现。
@@ -23,7 +23,7 @@ Alacritty 各自维护着可直接复用的测试资产：前者为 libghostty-v
 - 导入 ghostty `test/fuzz-libghostty/corpus/` 下手写的三组种子语料（`parser-initial`
   `stream-initial` `osc-initial`，共 94 份、实际内容 5.2KB，MIT）：作为「分块写入不变性」
   测试的输入集。上游各 fuzz 目标的首字节是目标选择器而非 VT 输入，导入时去除并在文档中记录。
-- 导入 alacritty `alacritty_terminal/tests/ref/` 下通过实验比对的 27 份真实应用录音
+- 导入 alacritty `alacritty_terminal/tests/ref/` 下通过实验比对的 31 份真实应用录音
   （`alacritty.recording`，Apache-2.0）及其由本引擎产生的期望屏幕，纳入语料运行器，
   作为跨引擎一致性锁定。跨引擎语料只断言屏幕文本、光标与尺寸；样式与回滚区另行说明。
 - 语料运行器改为从期望文件读取终端尺寸与回滚上限，移除 `CORPUS_ROWS`/`CORPUS_COLS`

@@ -1,4 +1,11 @@
-## ADDED Requirements
+# upstream-vt-test-assets Specification
+
+## Purpose
+
+把上游终端项目已验证的测试资产以数据形式纳入本项目既有测试体系，使终端状态的分块写入不变性、
+跨引擎屏幕一致性与字符宽度分类三处，由上游语料与权威数据而非本地手写构造锁定。
+
+## Requirements
 
 ### Requirement: 上游手写种子语料以分块写入不变性锁定解析器
 
@@ -20,7 +27,7 @@
 
 ### Requirement: 真实应用录音以跨引擎一致性锁定屏幕文本
 
-上游 Alacritty 的真实应用输出录音（vim、tmux、zsh、fish、ll、vttest 等）MUST 作为语料输入纳入 `cargo test`，并与独立引擎产生的期望屏幕逐行比对，以屏幕文本、行序、光标位置与网格尺寸四项为断言对象。
+上游 Alacritty 的真实应用输出录音（vim、tmux、交互式 shell、ll 等）MUST 作为语料输入纳入 `cargo test`，并与独立引擎产生的期望屏幕逐行比对，以屏幕文本、行序、光标位置与网格尺寸四项为断言对象。
 
 跨引擎语料 MUST NOT 断言单元样式与回滚区行数：独立引擎与本项目使用不同调色板解算颜色，且两者在回滚上限上的修剪粒度不同，断言这些字段会把解算差异当成终端缺陷。
 
