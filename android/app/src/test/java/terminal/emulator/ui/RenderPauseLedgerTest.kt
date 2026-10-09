@@ -70,17 +70,26 @@ class RenderPauseLedgerTest {
     }
 
     @Test
-    fun `inheriting the cancelled hold keeps the count unchanged`() {
-        // 「旧防抖持有、新防抖继承」是连拍调用的实际形态：注销旧的同时不新领，
-        // 计数保持 1。本仓两条防抖都走这条。
+    fun `replacing a hold emits no pause change`() {
+        // 连拍调用的实际形态：领新的 → 归还旧的。持有者数走 1 → 2 → 1，全程不落到
+        // 0，故 MUST NOT 发出任何恢复/暂停回调。顺序若反过来（先归还后领取），
+        // 持有者数会经过 0，每个替换帧都多出一对 setRenderPaused 调用。
+        val first = ledger.acquire()
+        val second = ledger.acquire()
+        ledger.releaseAndCancel(first)
+        assertEquals(listOf(true), pauseChanges)
+        ledger.release(second)
+        assertEquals(listOf(true, false), pauseChanges)
+    }
+
+    @Test
+    fun `replacing the only hold with an unpaused one resumes exactly once`() {
+        // 防抖窗内备用屏状态翻转：旧的持一次而新的不持，持有者数 1 → 1 → 0，
+        // 恰好发一次恢复。
         val first = ledger.acquire()
         ledger.releaseAndCancel(first)
-        // 继承：把注销与领取合成一步时，计数不应出现 0 也不应出现 2。
-        val second = ledger.acquire()
-        assertEquals(1, ledger.holderCount)
-        ledger.release(second)
+        assertEquals(listOf(true, false), pauseChanges)
         assertEquals(0, ledger.holderCount)
-        assertFalse(pauseChanges.last())
     }
 
     @Test
@@ -127,10 +136,11 @@ class RenderPauseLedgerTest {
     }
 
     @Test
-    fun `reset with no holders still forces rendering`() {
-        // Surface 重建成功的入口必须无条件出一帧，即便此刻没有防抖在等。
+    fun `reset with no holders changes nothing`() {
+        // 本类只对自己的持有负责：`setRenderPaused` 是全局单布尔，切后台等别的持有者
+        // 也会写它。此处若无条件回调 false，就会把它们的暂停顶掉。
         ledger.reset()
         assertEquals(0, ledger.holderCount)
-        assertFalse(pauseChanges.last())
+        assertEquals(emptyList<Boolean>(), pauseChanges)
     }
 }

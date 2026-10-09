@@ -112,8 +112,9 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
      * 超限字号静默 `return Ok(())`，该值照样变成请求值，拿它当判据的用例对本次缺陷
      * 完全无感。原生真被拒收时单元格宽高都不变，故宽度比例是最直接的判别量。
      *
-     * @param expectWidthFromMin 由调用方按 min→target 的线性关系算出的期望宽度；
-     *   为 null 时只要求宽度真的变了（单调同向即可）。
+     * @param expectWidthFromMin 由调用方按「本次调用前的单元格宽 → 目标宽度」的线性
+     *   关系算出的期望宽度函数，入参是调用前的 `cellWidth`；为 null 时只要求宽度真的
+     *   变了（单调同向即可）。
      */
     private fun applyAndAwait(targetSizeSp: Float, expectWidthFromMin: ((Float) -> Float)? = null): GridMetrics {
         val before = readRuntimeMetrics()
@@ -141,11 +142,13 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 widthOk && (expectedCols == null || metrics.cols == expectedCols)
             }
         val settled = readRuntimeMetrics()
+        // `pollUntilTrue` 返回「条件成立时的耗时」（毫秒），null 即超时。
         assertNotNull(
             "调节条可划到的字号 $targetSizeSp 必须被原生接受并生效：原生单元格宽仍是 " +
                 "${before.cellWidth}，期望 ${expectedWidth ?: "变化"}",
             landed,
         )
+        android.util.Log.i("FontSizeReflow", "landed after ${landed}ms")
         composeTestRule.waitForIdle()
         return settled
     }
@@ -276,8 +279,9 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 landed.cellWidth,
                 kotlin.math.max(0.5f, expectedWidthTarget * 0.02f),
             )
-            // 单元格高按比例断言，容差给到 ±1 个行高（`cell_metrics` 对高度做了 `ceil`，
-            // 故它只是近似线性；宽度才是严格线性的）。
+            // 单元格高按比例断言，容差 = max(1.5 行高, 期望值的 6%)：`cell_metrics` 对
+            // 高度做了 `ceil`，跨量级时偏差累积成百分之几，故给到 6%（宽度只需 2%，
+            // 因为它严格线性）。
             val expectedHeightTarget = cellHeightBefore * ratio
             assertEquals(
                 "原生单元格高必须随字号按比例变化（原生回读 $cellHeightAfter，" +
