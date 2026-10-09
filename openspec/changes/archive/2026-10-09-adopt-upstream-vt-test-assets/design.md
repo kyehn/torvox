@@ -11,38 +11,55 @@
 
 ## 调研范围与结论
 
-调研 kitty、rio、wezterm、alacritty、ghostty、xterm、foot、vttest、esctest2 九个项目。
+调研 kitty、rio、wezterm、alacritty、ghostty、xterm、foot、vttest、esctest2、contour 十个项目。
+表内数字为逐仓库克隆后实测所得（`git clone --depth 1` 后按内容统计命令核对）。
 
 | 项目 | 主要测试资产 | 结论 |
 | --- | --- | --- |
-| ghostty | 3 241 个 Zig 内联用例；`test/fuzz-libghostty/corpus/` 4 014 份原始字节；`test/esctest/` | 采纳手写种子语料 |
+| ghostty | `src/terminal` 下 3 239 个 Zig 内联用例；`test/fuzz-libghostty/corpus/` 4 001 份原始字节；`src/terminal/kitty/testdata/` 5 份图像载荷；`test/esctest/` | 采纳手写种子语料与图像载荷 |
 | alacritty | `alacritty_terminal/tests/ref/` 45 份录音 + 网格期望 | 采纳 31 份录音 |
 | rio | `rio-vt` 566 个用例，全部 crate 内 `#[cfg(test)]` | 不可达，否决 |
-| wezterm | `term`/`termwiz` 119 个用例，全部 crate 内 `#[cfg(test)]`；`test-data/` 为人工目检素材 | 不可达且引入第二套 VT，否决 |
-| kitty | `kitty_tests/` 577 个用例，期望值为内联 Python 断言 | GPLv3 且无数据化期望，否决 |
-| foot | 仅 `tests/test-config.c`（INI 解析） | 无 VT 资产，否决 |
-| xterm | `vttests/` 为人眼观察脚本；`test/` 三个 C 自检驱动 | 无机器可比对数据，否决 |
-| vttest | 交互式 curses 程序 | 不可无头驱动，否决 |
-| esctest2 | 80 模块 559 用例，pty 反转向下驱动 libghostty-vt | 见下 |
+| wezterm | `term` 58 个、`termwiz` 53 个用例，全部 crate 内 `#[cfg(test)]`；`test-data/` 21 份零引用的人工目检素材 | 不可达且引入第二套 VT，否决 |
+| kitty | `kitty_tests/` 596 个用例，期望值为内联 Python 断言；数据文件仅 `GraphemeBreakTest.json` 带期望值 | GPLv3，改取 Unicode 官方 UCD 数据 |
+| foot | 仅 `tests/test-config.c`（56 045 字节，161 个内联用例，零文件读取） | 无 VT 资产，否决 |
+| xterm | **无 `test/` 目录**；自检为 `charclass.c` `ptydata.c` `wcwidth.c` 内的 `-DTEST_DRIVER` 块；`vttests/` 61 个脚本为人眼观察 | 无机器可比对数据，否决 |
+| contour | `src` 下 3 471 个 `TEST_CASE`，其中 `vtbackend` 1 670 个；143 份 golden dump **只有期望屏没有输入字节** | 期望值不可用，否决 |
+| vttest | 交互式全屏 TUI；唯一数据文件 `tech.set` 无任何代码读取 | 不可无头驱动，否决 |
+| esctest2 | 79 个测试模块 559 用例，期望值全内联，零数据文件；pty 反转向下驱动外部终端进程并用 DECRQCRA 核对 | 见下 |
 
 ### 否决 esctest2 的理由
 
 esctest2 是覆盖最广的 VT 一致性套件，且 ghostty 已用 `test/esctest/` 证明它可以无头驱动
 libghostty-vt。不可采纳有三重独立原因，任一都足以否决：
 
-1. `flake.nix` 不可修改：esctest2 是 Python 程序，没有任何 crate 形式可以依赖，宿主上也没有预装。
+1. 零数据文件：esctest2 仓库除 `LICENSE` 与 `README.txt` 外全是 `.py`，559 个期望值内联在
+   用例方法体里，没有可复用的数据；且许可为 GPL-2.0（无「or later」）。
 2. 上游 pinned rev 的 FFI 未导出其必需能力：esctest2 靠 DECRQCRA 校验和核对屏幕，而
-   `libghostty-rs` pinned rev 的 `TerminalOption` 只到 34，没有 ghostty master 才有的
-   `xt_checksum_report`（44）。没有该校验和，esctest2 无法核对任何屏幕状态。
-3. 文档化的失败面：libghostty-vt 未实现 DECSTR，esctest 每个用例前依赖它复位；终端不响应
+   `libghostty-rs` pinned rev（`8953a74`）的 `TerminalOption` 枚举逐项枚举核实后上限为
+   `34 = MODE`，既无 ghostty master 才有的 `xt_checksum_report`（44）也无
+   `xt_checksum_extension`（45）。没有该校验和，esctest2 无法核对任何屏幕状态。
+3. 非无头：esctest2 经 `tty.setraw(stdin)` 直接驱动 `/dev/tty`，每个用例都要求 pty 另一端
+   是**已在运行的终端进程**，并依赖 X11（`xwininfo -window-id`），`cargo test` 两者皆无。
+4. 文档化的失败面：libghostty-vt 未实现 DECSTR，esctest 每个用例前依赖它复位；终端不响应
    XTWINOPS/DECCOLM 缩放，相关用例必然失败。ghostty 自己的 CI 对该步骤 `continue-on-error`，
    即以「不失败」的方式运行；这与 `TESTING.md`「不存在跳过，不得隐藏错误」冲突。
+
+结论：即使将来允许引入 Python 宿主工具并放宽许可，缺 44/45 两项 FFI 能力这一条仍足以否决。
 
 ### 否决 rio 与 wezterm 的共同理由
 
 两者的 VT 测试都写成 crate 内 `#[cfg(test)] mod test;`，发布物不含这些模块，外部无法引用其
 测试辅助。同时二者各自带一套 VT 实现（`vtparse` + `wezterm-escape-parser`、rio 的 `Crosswords`），
 引入即违反「不重复实现 Ghostty 已有功能」，并带来约 30 个传递依赖。
+
+wezterm 的 `test-data/`（21 份、499KB）另有独立否决理由：逐份核对后无任何 `.rs` 引用，
+是供人工目检的素材，且其断言值内联在 `termwiz` 的 Rust 测试体里，数据文件不含期望值。
+
+### 否决 contour 的理由
+
+contour 是本轮新增调研项目，golden dump 数量可观（143 份、Apache-2.0），但每份 dump 只序列化
+**期望**终端屏幕，不含产生该屏幕的 VT 输入字节。没有输入就无法在本项目里重放，也无法与
+`libghostty-vt` 的实际输出比对；其 `TEST_CASE` 本身全部是 C++ 源码内的 `CHECK` 断言。
 
 ## Decisions
 
@@ -101,11 +118,14 @@ IME 提交按小写入到达，两种路径都走同一通道。
 
 `unicode-width` 已在 `Cargo.lock`（`cosmic-text` 的传递依赖），声明为开发依赖不增加编译单元。
 自造期望表等于把权威数据抄一份进仓库，与「低硬编码」相反。比对区段取已分配且上下界稳定的
-CJK 表意、扩展、音节、兼容、彝文等区段，共 180 915 个码位，实测仅 3 个偏离
-（U+115E、U+115F 及 0x2E80 段 2 个，均为未分配码位的版本差异）。
+CJK 表意、扩展、音节、兼容、彝文等区段，共 180 374 个码位，全部与权威分类一致。
 
 测量方法：每行写「候选字符 + `#`」，`#` 所在列即占用列数；末行不能再写 `\r\n`，否则末行滚动
 使该行读数为 0（曾据此产生每批一个假偏离）。
+
+> 后续修正：本节原记「180 915 个码位、实测仅 3 个偏离」，两处数字均有误。3 个偏离实为
+> 笔误——按上段方法实测 CJK 区段零偏离；180 915 是把未分配码位一并计入所致，逐段求和
+> 应为 180 374。
 
 ## Consequences
 

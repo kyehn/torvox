@@ -23,5 +23,5 @@
 - [x] `cargo test` 全量通过，`cargo clippy` 与 `cargo fmt --check` 无告警
 - [x] 语义抖动自检：临时改动 `.seq` 输入、删除期望文件、改动期望文本各一次，确认对应测试失败
 - [x] 确认 `native/src/terminal/testdata/` 下的 `.seq` 与 `.json` 仍严格成对
-- [ ] 更新 `openspec/specs/terminal-state-regression/spec.md` 与新增 `openspec/specs/upstream-vt-test-assets/spec.md`
-- [ ] 归档本 change
+- [x] 更新 `openspec/specs/terminal-state-regression/spec.md` 与新增 `openspec/specs/upstream-vt-test-assets/spec.md`
+- [x] 归档本 change
