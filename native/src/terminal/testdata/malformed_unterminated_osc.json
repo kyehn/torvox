@@ -1,9 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "rows": 6,
   "cols": 20,
   "cursor_row": 0,
   "cursor_col": 0,
   "cursor_visible": true,
-  "screen": []
+  "screen": [],
+  "scrollback_limit": 20
 }

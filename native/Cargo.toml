@@ -39,6 +39,8 @@ wgpu = { workspace = true, default-features = false, features = [
 ] }
 wgpu-types = { workspace = true }
 [dev-dependencies]
+# 宽度分类的权威来源：与引擎的单元宽度互相独立地判定同一码位。
+unicode-width = "0.2"
 criterion = { version = "0.8", default-features = false, features = [
   "cargo_bench_support",
 ] }

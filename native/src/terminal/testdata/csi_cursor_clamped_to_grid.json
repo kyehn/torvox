@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "rows": 6,
   "cols": 20,
   "cursor_row": 5,
@@ -12,5 +12,6 @@
     "",
     "",
     "X"
-  ]
+  ],
+  "scrollback_limit": 20
 }

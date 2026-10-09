@@ -1,0 +1,10 @@
+{
+  "rows": 30,
+  "cols": 106,
+  "scrollback_limit": 0,
+  "screen": [
+    "[kchibisov@NightLord alacritty]$ printf \"\\e[31;1;7;4;9md\\n\"",
+    "d",
+    "[kchibisov@NightLord alacritty]$ printf \"\\ed\\n\""
+  ]
+}

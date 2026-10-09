@@ -1,0 +1,9 @@
+{
+  "rows": 30,
+  "cols": 106,
+  "scrollback_limit": 0,
+  "screen": [
+    "[kchibisov@NightLord alacritty]$",
+    "exit"
+  ]
+}

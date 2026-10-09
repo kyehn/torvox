@@ -1,0 +1,13 @@
+{
+  "rows": 29,
+  "cols": 105,
+  "scrollback_limit": 0,
+  "screen": [
+    "Welcome to fish, the friendly interactive shell",
+    "Type help for instructions on how to use fish",
+    "[I] ➜  alacritty git:(master) ✗ a^C",
+    "[I] ➜  alacritty git:(master) ✗ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^C",
+    "[I] ➜  alacritty git:(master) ✗ aaaaaaaaaaaaaaaaaaaaaaaaaaa^C",
+    "[I] ➜  alacritty git:(master) ✗"
+  ]
+}

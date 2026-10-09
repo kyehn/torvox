@@ -1,0 +1,12 @@
+{
+  "rows": 30,
+  "cols": 106,
+  "scrollback_limit": 0,
+  "screen": [
+    "[kchibisov@NightLord alacritty]$ printf \"\\e[31;1;4;9mTEST asd\\n\"",
+    "TEST asd",
+    "[kchibisov@NightLord alacritty]$ echo -e \"hello        world\" \"\\033[10;D\"  \"\\033[4;X\"",
+    "hello         orld",
+    "[kchibisov@NightLord alacritty]$"
+  ]
+}

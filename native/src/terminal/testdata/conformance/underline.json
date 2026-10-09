@@ -1,0 +1,20 @@
+{
+  "rows": 64,
+  "cols": 134,
+  "scrollback_limit": 0,
+  "screen": [
+    "[undeadleech@undeadlap underline]$ echo -e \"\\e[4mUNDERLINED\\e[0m\"",
+    "UNDERLINED",
+    "[undeadleech@undeadlap underline]$ echo -e \"\\e[4:1mUNDERLINED\\e[4:0m\"",
+    "UNDERLINED",
+    "[undeadleech@undeadlap underline]$ echo -e \"\\e[4:2mUNDERLINED\\e[24m\"",
+    "UNDERLINED",
+    "[undeadleech@undeadlap underline]$ echo -e \"\\e[4:3;21mUNDERLINED\\e[0m\"",
+    "UNDERLINED",
+    "[undeadleech@undeadlap underline]$ echo -e \"\\e[4;4:2mUNDERLINED\\e[0m\"",
+    "UNDERLINED",
+    "[undeadleech@undeadlap underline]$ echo -e \"\\e[4:2;4:1mUNDERLINED\\e[0m\"",
+    "UNDERLINED",
+    "[undeadleech@undeadlap underline]$"
+  ]
+}

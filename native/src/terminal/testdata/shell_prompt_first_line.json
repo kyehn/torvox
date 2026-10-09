@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "rows": 6,
   "cols": 20,
   "cursor_row": 2,
@@ -111,5 +111,6 @@
       "col": 10,
       "foreground": "89B4FA"
     }
-  ]
+  ],
+  "scrollback_limit": 20
 }

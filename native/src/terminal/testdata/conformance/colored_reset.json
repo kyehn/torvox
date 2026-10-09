@@ -1,0 +1,9 @@
+{
+  "rows": 63,
+  "cols": 116,
+  "scrollback_limit": 0,
+  "screen": [
+    "[undeadleech@archhq colored_reset]$ printf \"\\e[0m\"",
+    "[undeadleech@archhq colored_reset]$ ls"
+  ]
+}

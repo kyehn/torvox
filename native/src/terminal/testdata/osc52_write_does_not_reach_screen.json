@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "rows": 6,
   "cols": 20,
   "cursor_row": 0,
@@ -7,5 +7,6 @@
   "cursor_visible": true,
   "screen": [
     "visible"
-  ]
+  ],
+  "scrollback_limit": 20
 }

@@ -1,22 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::terminal::ghostty_terminal::{CellSnapshot, DumpedGrid, GhosttyTerminal};
 
 /// 快照格式版本，出现破坏性改动时递增。
-const SNAPSHOT_VERSION: u32 = 1;
-
-/// 语料统一使用的网格尺寸。
-const CORPUS_ROWS: u32 = 6;
-const CORPUS_COLS: u32 = 20;
-const CORPUS_SCROLLBACK: u32 = 20;
+const SNAPSHOT_VERSION: u32 = 2;
 /// 语料的刷新确认与查询就绪时限。
 /// `dump_grid` 的单次查询预算为 `QUERY_TIMEOUT_MS`，繁忙时回退空网格；
 /// 刷新确认与查询就绪是彼此独立的两个预算，故在此统一给出上界。
-const CORPUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub(crate) const CORPUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// 就绪轮询间隔。
-const CORPUS_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+pub(crate) const CORPUS_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// 非默认样式的单元；默认样式不出现在期望文件中。
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -84,6 +81,8 @@ pub struct TestSnapshot {
     /// 回滚区每行文本，已去除行尾空白。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scrollback: Vec<String>,
+    /// 语料终端声明的回滚上限；同一份语料的尺寸与上限一起决定解析行为。
+    pub scrollback_limit: u32,
 }
 
 fn cell_char(cell: &CellSnapshot) -> String {
@@ -136,6 +135,36 @@ fn row_text(cells: &[CellSnapshot]) -> String {
     text.trim_end().to_string()
 }
 
+/// 空白单元渲染成空格的一行文本，只裁行尾空白。
+///
+/// `row_text` 把未写入单元表示为空串（码位 0），那是本项目快照的存储约定；
+/// 此处保持单元的空格形状，供按字节比对上游语料——上游把未写入单元序列化为
+/// 空格。两者互补，不可互相替代。
+pub(crate) fn row_text_spaced(cells: &[CellSnapshot]) -> String {
+    cells
+        .iter()
+        .map(|cell| {
+            if cell.codepoint == 0 {
+                ' '
+            } else {
+                char::from_u32(cell.codepoint).unwrap_or('?')
+            }
+        })
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
+/// 可见屏各行的 `row_text_spaced` 取值。
+pub(crate) fn screen_rows_spaced(dumped: &DumpedGrid) -> Vec<String> {
+    (0..dumped.rows as usize)
+        .map(|row| {
+            let start = row * dumped.cols as usize;
+            row_text_spaced(&dumped.visible[start..start + dumped.cols as usize])
+        })
+        .collect()
+}
+
 fn collect_styled(row: u32, cells: &[CellSnapshot], styled: &mut Vec<StyledCell>) {
     for (col, cell) in cells.iter().enumerate() {
         if let Some(entry) = cell_styled(row, col as u32, cell) {
@@ -181,7 +210,141 @@ fn from_dumped_grid(
         screen,
         styled,
         scrollback: dumped.scrollback.iter().map(|row| row_text(row)).collect(),
+        scrollback_limit: 0,
     }
+}
+
+/// 一条语料：`.seq` 原始字节输入与同名 `.json` 期望快照。
+pub(crate) struct CorpusCase {
+    /// 诊断标识：语料目录名 + 词干，使多份语料的报告可辨来源。
+    pub name: String,
+    pub input: std::path::PathBuf,
+    pub expectation: std::path::PathBuf,
+}
+
+/// 扫描语料目录下成对的 `.seq` 与 `.json`，返回用例与未成对文件的问题描述。
+/// 子目录不参与扫描，使 `seeds/` `conformance/` 等独立语料与顶层语料互不干扰。
+pub(crate) fn corpus_cases(directory: &std::path::Path) -> (Vec<CorpusCase>, Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return (Vec::new(), Vec::new());
+    };
+    let source = directory
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let label = |stem: &str| format!("{source}/{stem}");
+    let mut inputs = BTreeSet::new();
+    let mut expectations = BTreeSet::new();
+    for entry in entries {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let Some(stem) = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        match path.extension().and_then(|extension| extension.to_str()) {
+            Some("seq") => {
+                inputs.insert(stem);
+            }
+            Some("json") => {
+                expectations.insert(stem);
+            }
+            _ => {}
+        }
+    }
+    let mut problems = Vec::new();
+    for name in inputs.difference(&expectations) {
+        problems.push(format!("{}: 缺少同名 .json 期望文件", label(name)));
+    }
+    for name in expectations.difference(&inputs) {
+        problems.push(format!("{}: 缺少同名 .seq 输入文件", label(name)));
+    }
+    let cases = inputs
+        .intersection(&expectations)
+        .map(|name| CorpusCase {
+            name: label(name),
+            input: directory.join(format!("{name}.seq")),
+            expectation: directory.join(format!("{name}.json")),
+        })
+        .collect();
+    (cases, problems)
+}
+
+/// 等到终端可以交付比对的状态：刷新已确认、网格尺寸就绪。
+///
+/// `dump_grid` 的查询超时是独立预算且会回退空网格，直接采集会把未就绪的网格
+/// 报成内容不符，故须轮询到尺寸匹配为止。返回一条可读问题描述而非跳过语料。
+pub(crate) fn settle_grid(
+    terminal: &GhosttyTerminal,
+    case: &str,
+    rows: u32,
+    cols: u32,
+) -> Result<DumpedGrid, String> {
+    if !terminal.flush_with_timeout(CORPUS_TIMEOUT) {
+        return Err(format!("{case}: flush 未在超时内确认"));
+    }
+    let deadline = std::time::Instant::now() + CORPUS_TIMEOUT;
+    loop {
+        let dumped = terminal.dump_grid();
+        if dumped.rows == rows && dumped.cols == cols {
+            return Ok(dumped);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!("{case}: 网格快照未在超时内就绪"));
+        }
+        std::thread::sleep(CORPUS_POLL_INTERVAL);
+    }
+}
+
+/// 运行单条语料：按期望声明创建终端、写入输入、确认刷新与网格就绪、逐项比对。
+/// 期望文件缺失或损坏时返回差异项而非跳过该语料。
+pub(crate) fn run_corpus_case(case: &CorpusCase) -> Vec<String> {
+    let Ok(bytes) = std::fs::read(&case.input) else {
+        return vec![format!("{}: 读取语料输入失败", case.name)];
+    };
+    let expectation_text = match std::fs::read_to_string(&case.expectation) {
+        Ok(text) => text,
+        Err(error) => return vec![format!("{}: 读取期望文件失败 {error}", case.name)],
+    };
+    let expected: TestSnapshot = match serde_json::from_str(&expectation_text) {
+        Ok(expected) => expected,
+        Err(error) => {
+            return vec![format!(
+                "{}: 解析期望文件失败 {error}\n{expectation_text}",
+                case.name
+            )];
+        }
+    };
+
+    let mut terminal =
+        match GhosttyTerminal::new(expected.rows, expected.cols, expected.scrollback_limit) {
+            Ok(terminal) => terminal,
+            Err(error) => return vec![format!("{}: 创建终端失败 {error}", case.name)],
+        };
+    terminal.vt_write(&bytes);
+    let dumped = match settle_grid(&terminal, &case.name, expected.rows, expected.cols) {
+        Ok(dumped) => dumped,
+        Err(problem) => return vec![problem],
+    };
+    let actual = from_dumped_grid(
+        &dumped,
+        terminal.cursor_x(),
+        terminal.cursor_y(),
+        terminal.cursor_visible(),
+    );
+
+    let result = diff(&expected, &actual);
+    if result.is_empty() {
+        return Vec::new();
+    }
+    vec![format!(
+        "{}:\n{}\n{}",
+        case.name,
+        result.differences.join("\n"),
+        serde_json::to_string_pretty(&actual).expect("序列化快照")
+    )]
 }
 
 /// 两个快照的比较结果，每项为一条可读差异。
@@ -196,7 +359,8 @@ impl DiffResult {
     }
 }
 
-fn compare_lines(
+/// 逐行比对两段文本，缺失的行按空串计。每项差异带 `label` 与行号。
+pub(crate) fn compare_lines(
     expected: &[String],
     actual: &[String],
     label: &str,
@@ -301,8 +465,6 @@ pub fn diff(expected: &TestSnapshot, actual: &TestSnapshot) -> DiffResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::{Path, PathBuf};
 
     fn make_terminal(rows: u32, cols: u32) -> GhosttyTerminal {
         GhosttyTerminal::new(rows, cols, 1000).expect("terminal")
@@ -310,24 +472,6 @@ mod tests {
 
     fn corpus_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src/terminal/testdata")
-    }
-
-    fn corpus_files(extension: &str) -> BTreeSet<String> {
-        let mut names: Vec<PathBuf> = fs::read_dir(corpus_dir())
-            .expect("read corpus directory")
-            .map(|entry| entry.expect("corpus entry").path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == extension))
-            .collect();
-        names.sort();
-        names
-            .iter()
-            .map(|path| {
-                path.file_stem()
-                    .expect("corpus stem")
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect()
     }
 
     #[test]
@@ -531,108 +675,25 @@ mod tests {
         );
     }
 
-    #[test]
-    fn scrollback_captured_in_order() {
-        let mut terminal = GhosttyTerminal::new(2, 10, 100).expect("terminal");
-        for index in 0..6 {
-            terminal.vt_write(format!("line{index}\r\n").as_bytes());
-        }
-        terminal.flush();
-        let snapshot = capture_snapshot(&terminal);
-        assert_eq!(
-            snapshot.scrollback,
-            vec![
-                "line0".to_string(),
-                "line1".to_string(),
-                "line2".to_string(),
-                "line3".to_string(),
-                "line4".to_string()
-            ]
-        );
-        assert_eq!(snapshot.screen, vec!["line5".to_string()]);
-    }
-
+    /// 顶层语料的输入与期望文件必须成对：未成对即失败，不静默跳过。
     #[test]
     fn corpus_pairs_are_complete() {
-        assert_eq!(
-            corpus_files("seq"),
-            corpus_files("json"),
-            "回归语料输入与期望文件不成对"
+        let (_, problems) = corpus_cases(&corpus_dir());
+        assert!(
+            problems.is_empty(),
+            "回归语料输入与期望文件不成对：\n{}",
+            problems.join("\n")
         );
     }
 
+    /// 顶层语料的整体快照比对；非空断言在运行器内，使按名字单独过滤也不会空跑通过。
     #[test]
     fn corpus_matches_expectation() {
-        let inputs = corpus_files("seq");
-        assert!(!inputs.is_empty(), "回归语料为空");
-        let mut failures = Vec::new();
-        'cases: for name in inputs {
-            let input_path = corpus_dir().join(format!("{name}.seq"));
-            let expectation_path = corpus_dir().join(format!("{name}.json"));
-            let bytes = match fs::read(&input_path) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    failures.push(format!("{name}: 读取语料输入失败 {error}"));
-                    continue;
-                }
-            };
-
-            let mut terminal =
-                match GhosttyTerminal::new(CORPUS_ROWS, CORPUS_COLS, CORPUS_SCROLLBACK) {
-                    Ok(terminal) => terminal,
-                    Err(error) => {
-                        failures.push(format!("{name}: 创建终端失败 {error}"));
-                        continue;
-                    }
-                };
-            terminal.vt_write(&bytes);
-            if !terminal.flush_with_timeout(CORPUS_TIMEOUT) {
-                failures.push(format!("{name}: flush 未在超时内确认"));
-                continue;
-            }
-            // `dump_grid` 自带回退空网格，查询超时独立于 flush 预算；轮询到就绪杜绝 flaky。
-            let deadline = std::time::Instant::now() + CORPUS_TIMEOUT;
-            let actual = loop {
-                let snapshot = capture_snapshot(&terminal);
-                if snapshot.rows == CORPUS_ROWS && snapshot.cols == CORPUS_COLS {
-                    break snapshot;
-                }
-                if std::time::Instant::now() >= deadline {
-                    failures.push(format!("{name}: 网格快照未在超时内就绪"));
-                    continue 'cases;
-                }
-                std::thread::sleep(CORPUS_POLL_INTERVAL);
-            };
-
-            let expected_json = match fs::read_to_string(&expectation_path) {
-                Ok(json) => json,
-                Err(error) => {
-                    failures.push(format!(
-                        "{name}: 读取期望文件失败 {error}\n{}",
-                        serde_json::to_string_pretty(&actual).expect("序列化快照")
-                    ));
-                    continue;
-                }
-            };
-            let expected: TestSnapshot = match serde_json::from_str(&expected_json) {
-                Ok(expected) => expected,
-                Err(error) => {
-                    failures.push(format!(
-                        "{name}: 解析期望文件失败 {error}\n{}",
-                        serde_json::to_string_pretty(&actual).expect("序列化快照")
-                    ));
-                    continue;
-                }
-            };
-
-            let result = diff(&expected, &actual);
-            if !result.is_empty() {
-                failures.push(format!(
-                    "{name}:\n{}\n{}",
-                    result.differences.join("\n"),
-                    serde_json::to_string_pretty(&actual).expect("序列化快照")
-                ));
-            }
+        let (cases, problems) = corpus_cases(&corpus_dir());
+        let mut failures = problems;
+        assert!(!cases.is_empty(), "回归语料为空");
+        for case in &cases {
+            failures.extend(run_corpus_case(case));
         }
 
         assert!(

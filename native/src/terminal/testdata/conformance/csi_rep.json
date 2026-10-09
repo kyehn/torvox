@@ -1,0 +1,9 @@
+{
+  "rows": 29,
+  "cols": 105,
+  "scrollback_limit": 0,
+  "screen": [
+    "jwilm@jwilm-desk ➜  ~/code/alacritty  printf \"f\\e[10b\"",
+    "jwilm@jwilm-desk ➜  ~/code/alacritty"
+  ]
+}

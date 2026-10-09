@@ -1,0 +1,10 @@
+{
+  "rows": 35,
+  "cols": 139,
+  "scrollback_limit": 0,
+  "screen": [
+    " UL  ~/…/tests/ref/zerowidth  zerowidth-slice  echo \"( <0361>° <035c>ʖ <0361>°)\"",
+    "( ° ʖ °)",
+    " UL  ~/…/tests/ref/zerowidth  zerowidth-slice"
+  ]
+}
