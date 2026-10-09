@@ -3064,9 +3064,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
 /// （对标 Termux 的 256px 上限）给出，本值必须始终不小于它，否则滑块能划到的字号会被
 /// 原生拒绝，用户看到的就是「设置条范围与实际可设置范围不一致」。
 /// `font_size_cap_tests` 钉住这一关系。
-fn font_size_cap_sp(raster_scale: f32) -> f32 {
+///
+/// 边长取自**管线自身**（[FontPipeline::atlas_width]，即实际分配的那张图集）而非本模块
+/// 的 `ATLAS_SIZE` 常量：后者只是初始化时的入参，两者一旦不同步，「由图集推导」就成了
+/// 假话，上界会悄悄偏到另一个尺寸上。
+fn font_size_cap_sp(atlas_edge_px: f32, raster_scale: f32) -> f32 {
     // 系数已由 `FontPipeline::get_raster_scale` 钳到 ≥ EPSILON，此处不再重复。
-    ATLAS_SIZE as f32 / raster_scale
+    atlas_edge_px / raster_scale
 }
 
 /// 字号是否落在原生可接受区间内。
@@ -3093,7 +3097,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         // **静默丢弃**——Kotlin 侧那份重复常量一旦漂移，用户拖到的字号就被原生悄悄
         // 丢掉，表现正是「设置条范围和实际可设置范围不一致」。守卫上界改由图集边长
         // 推导（唯一真实约束），越界记错误日志而非无声忽略。
-        let max_size = font_size_cap_sp(render_state.font_pipeline.get_raster_scale());
+        let max_size = font_size_cap_sp(
+            render_state.font_pipeline.atlas_width as f32,
+            render_state.font_pipeline.get_raster_scale(),
+        );
         if !is_font_size_selectable(size, max_size) {
             // warn 而非 error：捏合缩放的 preview 路径以动画帧率调用本函数，
             // 一次越界会刷出每帧一条 error，把真正的错误日志淹掉。
@@ -3539,7 +3546,7 @@ mod font_size_cap_tests {
         // 图集一旦缩小到接近 256px，这条即失效——那正是「范围与实际可设置范围不一致」。
         for i in 0..=RASTER_SCALE_SAMPLES {
             let scale = sampled_scale(i);
-            let cap = font_size_cap_sp(scale);
+            let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
             let selectable_max = termux_selectable_max_sp(scale);
             assert!(
                 is_font_size_selectable(selectable_max, cap),
@@ -3552,13 +3559,27 @@ mod font_size_cap_tests {
         }
     }
 
+    /// 余量断言：图集边长在**最大**合法系数下仍须显著高于 Termux 的像素上限。
+    ///
+    /// 与 `cap_never_rejects_a_selectable_font_size` 互补：那条只要求「上界不低于可选
+    /// 上界」，把 `ATLAS_SIZE` 砍到 300 它仍全绿（300/8 = 37.5 ≥ 32），但那时字形位图
+    /// 只剩 Termux 上限的四倍余量，容错已经很小——这条守住余量本身。
+    #[test]
+    fn atlas_edge_keeps_headroom_over_the_termux_ceiling() {
+        let cap = font_size_cap_sp(ATLAS_SIZE as f32, RASTER_SCALE_MAX);
+        assert!(
+            cap * RASTER_SCALE_MAX > TERMUX_MAX_PX * 2.0,
+            "图集 {ATLAS_SIZE}px 在最大系数 {RASTER_SCALE_MAX} 下换算出的字号上限 {cap}sp 未留出两倍余量"
+        );
+    }
+
     #[test]
     fn cap_is_the_atlas_edge_expressed_in_sp() {
         // 上界的定义式：cap_sp × raster_scale 恰为图集边长。改 ATLAS_SIZE 或改推导
         // 方式（例如退回某个魔数）都会让这条失败——它是「上界来自图集」这一说法的检验。
         for i in 0..=RASTER_SCALE_SAMPLES {
             let scale = sampled_scale(i);
-            let cap = font_size_cap_sp(scale);
+            let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
             assert!(
                 (cap * scale - ATLAS_SIZE as f32).abs() < 0.5,
                 "raster_scale={scale}：上界换回像素应等于图集边长 {ATLAS_SIZE}，实得 {}",
@@ -3569,7 +3590,7 @@ mod font_size_cap_tests {
 
     #[test]
     fn non_finite_and_non_positive_sizes_are_rejected() {
-        let cap = font_size_cap_sp(1.0);
+        let cap = font_size_cap_sp(ATLAS_SIZE as f32, 1.0);
         for bad in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             assert!(
                 !is_font_size_selectable(bad, cap),

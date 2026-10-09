@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libghostty_vt::Terminal;
-use libghostty_vt::key::{self, Mods};
+use libghostty_vt::key::Mods;
 use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
 use libghostty_vt::screen::GridRef;
@@ -11,7 +11,6 @@ use libghostty_vt::style::PaletteIndex;
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate, PointSpace};
 
 use super::commands::{Command, Query, RunConfig};
-use super::keymap::map_android_key_code;
 use super::types::*;
 use flume::Sender;
 
@@ -141,8 +140,6 @@ impl super::GhosttyTerminal {
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
-        encoder: &mut Option<key::Encoder>,
-        event: &mut Option<key::Event>,
         mouse_encoder: &mut Option<mouse::Encoder>,
         mouse_event: &mut Option<mouse::Event>,
     ) -> bool {
@@ -330,85 +327,6 @@ impl super::GhosttyTerminal {
                     "ghostty_terminal: query channel send failed",
                 );
             }
-            Query::KeyEncode {
-                key_code,
-                modifiers,
-                action,
-                unicode_char,
-                unshifted_char,
-                tx,
-            } => {
-                let (encoder, event) = match (encoder.as_mut(), event.as_mut()) {
-                    (Some(enc), Some(evt)) => (enc, evt),
-                    _ => {
-                        log::warn!(
-                            "ghostty_terminal: key encoder/event unavailable — dropping key"
-                        );
-                        try_send(&tx, Vec::new(), "key_encode response send failed");
-                        return false;
-                    }
-                };
-
-                let ghostty_key = map_android_key_code(key_code);
-                let mods = Mods::from_bits_retain(modifiers);
-                let encoder_action = match action {
-                    1 => key::Action::Release,
-                    2 => key::Action::Repeat,
-                    _ => key::Action::Press,
-                };
-
-                encoder.set_options_from_terminal(terminal);
-                event.set_action(encoder_action);
-                event.set_key(ghostty_key);
-                event.set_consumed_mods(Mods::empty());
-                // 清除上一次按键残留的文本状态。
-                event.set_utf8(None::<&str>);
-                event.set_unshifted_codepoint('\0');
-
-                // 参见 libghostty-vt key/event.h：
-                // - `utf8` 是未经 Ctrl/Alt 变换的产出文本。C0 控制字符
-                //   （U+0000..U+001F、U+007F）不得传入；须传 NULL，
-                //   让编码器改用逻辑键。
-                // - `unshifted_codepoint` 是无修饰键时的基础键。
-                // Kotlin 桥提供 `unshifted_char`；缺失时两个字段都退回
-                // `unicode_char`。
-                let is_c0 = unicode_char <= 0x1F || unicode_char == 0x7F;
-                if !is_c0 {
-                    if let Some(character) = char::from_u32(unicode_char) {
-                        let mut utf8_buf = [0u8; 4];
-                        event.set_utf8(Some(character.encode_utf8(&mut utf8_buf)));
-                    }
-                    let unshifted_cp = char::from_u32(if unshifted_char > 0 {
-                        unshifted_char
-                    } else {
-                        unicode_char
-                    });
-                    if let Some(unshifted) = unshifted_cp {
-                        event.set_unshifted_codepoint(unshifted);
-                    }
-                    // RK2：SHIFT 仅改变了打印字符时（如 Shift+; ->:），去掉 SHIFT，
-                    // 免得 Kitty 键盘协议为普通可打印输入多发一个
-                    // `\033[59;2u`。识别这种「仅差 Shift」的情形
-                    // 需要 unshifted 码点。
-                    let final_mods = if mods.contains(Mods::SHIFT)
-                        && unshifted_char > 0
-                        && unicode_char != unshifted_char
-                    {
-                        mods & !Mods::SHIFT
-                    } else {
-                        mods
-                    };
-                    event.set_mods(final_mods);
-                } else {
-                    event.set_mods(mods);
-                }
-
-                let mut response = Vec::new();
-                if let Err(error) = encoder.encode_to_vec(event, &mut response) {
-                    log::warn!("ghostty_terminal: encoder.encode_to_vec failed: {error}");
-                }
-                try_send(&tx, response, "key_encode response send failed");
-            }
             Query::EncodeMouseEvent {
                 position,
                 action,
@@ -487,8 +405,6 @@ impl super::GhosttyTerminal {
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
-        encoder: &mut Option<key::Encoder>,
-        event: &mut Option<key::Event>,
         mouse_encoder: &mut Option<mouse::Encoder>,
         mouse_event: &mut Option<mouse::Event>,
     ) -> bool {
@@ -501,8 +417,6 @@ impl super::GhosttyTerminal {
                 terminal,
                 alt_screen_active,
                 all_text,
-                encoder,
-                event,
                 mouse_encoder,
                 mouse_event,
             );
@@ -645,31 +559,10 @@ impl super::GhosttyTerminal {
         let mut default_background = Self::byte_color_to_float(config.background_color);
         let mut default_foreground = Self::byte_color_to_float(config.foreground_color);
 
-        // 逐次按键复用的 encoder/event。每个终端只分配一次（而非每次按键），
-        // 既贴合参考实现，也避免按键之间丢失 encoder 状态。
-        // `set_options_from_terminal` 每次按键仍会重新同步 encoder 模式。
-        let mut encoder = match key::Encoder::new() {
-            Ok(enc) => Some(enc),
-            Err(error) => {
-                log::warn!(
-                    "ghostty_terminal: key::Encoder::new() failed: {error} — keyboard protocol disabled"
-                );
-                None
-            }
-        };
-        let mut event = match key::Event::new() {
-            Ok(evt) => Some(evt),
-            Err(error) => {
-                log::warn!(
-                    "ghostty_terminal: key::Event::new() failed: {error} — keyboard protocol disabled"
-                );
-                None
-            }
-        };
-
-        // 逐次鼠标事件复用的 encoder/event，生命周期与上面的按键 encoder
-        // 相同。`set_options_from_terminal` 在每个事件前重新同步跟踪模式
-        // 与输出格式（zelland 做法）。
+        // 逐次鼠标事件复用的 encoder/event，每个终端只分配一次（而非每次事件），
+        // 既贴合参考实现，也避免事件之间丢失 encoder 状态。
+        // `set_options_from_terminal` 在每个事件前重新同步跟踪模式与输出格式
+        // （zelland 做法）。
         let mut mouse_encoder = match mouse::Encoder::new() {
             Ok(enc) => Some(enc),
             Err(error) => {
@@ -744,8 +637,6 @@ impl super::GhosttyTerminal {
                         &mut terminal,
                         &config.alt_screen_active,
                         &mut cached_all_text,
-                        &mut encoder,
-                        &mut event,
                         &mut mouse_encoder,
                         &mut mouse_event,
                     ) {
@@ -941,8 +832,6 @@ impl super::GhosttyTerminal {
                 &mut terminal,
                 &config.alt_screen_active,
                 &mut cached_all_text,
-                &mut encoder,
-                &mut event,
                 &mut mouse_encoder,
                 &mut mouse_event,
             ) {
