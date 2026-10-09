@@ -67,15 +67,22 @@ contour 是本轮新增调研项目，golden dump 数量可观（143 份、Apach
 
 `corpus/parser-cmin`（616 份）与 `stream-cmin`（3 271 份）共 26MB，是 AFL++ minimizer 生成的
 中间产物，其内容等价性依赖 minimizer 实现，可读性为零。三组 `-initial` 共 94 份、实际内容
-5.2KB，是上游手写并按解析特性命名（如 `13-csi-sgr-256`、`26-osc-color`、`46-line-drawing`），
+5.2KB，是上游手写并按解析特性命名（如 `14-csi-sgr-256`、`26-osc-color`、`46-line-drawing`），
 作为输入集的信噪比高得多。`du` 显示的 384KB 是 96 个 4KB 块的块开销，不是内容体积。
 
-### 去掉种子首字节
+### 只对有选择器的两组去首字节
 
-三个 fuzz 目标各自用输入首字节选择目标内部路径：`fuzz_stream.zig` 取 `input[0]` 的奇偶在
-`nextSlice` 与 `next` 之间切换，`fuzz_osc.zig` 取 `input[0] % 3` 选择 BEL/ST/无终止符。
-这些选择器是给上游 harness 的，不是给终端的。导入时去除，否则 `stream-initial` 里的 `\x00`
-等字节会改变终端输入语义，且「与上游同一份字节」的意义丢失。
+> 后续修正：本节原写「三个 fuzz 目标各自用输入首字节选择目标内部路径」，并对三组一律去
+> 首字节。经复核 `fuzz_parser.zig` 全程不使用 `input[0]`，`parser-initial` 的首字节是真实 VT
+> 输入（50 份中 38 份以 `1b` 开头，是转义序列的引入符）。去掉它会让 `14-csi-sgr-256` 之类
+> 的种子失去 ESC，解析器根本收不到 CSI。已改为该组逐字节保持与上游一致，仅 `stream-initial`
+> 与 `osc-initial` 去首字节。
+
+两个 fuzz 目标用输入首字节选择目标内部路径：`fuzz_stream.zig` 取 `input[0]` 的奇偶在
+`nextSlice` 与逐字节 `next` 之间切换（该组首字节因此只有 `00` 与 `01`），`fuzz_osc.zig` 取
+`% 3` 选择 BEL/ST/无终止符（首字节因此只有 `00` `01` `02`）。这些选择器是给上游 harness 的，
+不是给终端的。导入时去除，否则 `stream-initial` 里的 `\x00` 等字节会改变终端输入语义，且
+「与上游同一份字节」的意义丢失。`fuzz_parser.zig` 不参与该机制，故 `parser-initial` 不做处理。
 
 ### 分块写入不变性是本项目自己的属性，不是上游属性
 
