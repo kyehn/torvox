@@ -318,30 +318,6 @@ constructor(
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
 
     /**
-     * 网格重排时 MUST 从可用高度里扣除的输入法遮挡（px）。
-     *
-     * 只有 `TerminalSurface` 的 insets 派发回调会写它，其余全读：网格公式有三条路径
-     * （[recomputeGridFromFontMetrics]、`TerminalSurface.ResizeManager.applyGridResize`、
-     * `recomputeRowsColsImmediate`），任何一条漏扣都会让备用屏按整屏高度重排、把被
-     * 键盘遮住的行又放回去（helix 状态行随之消失且不会自愈）。故它 MUST 是运行期的
-     * 单一值，MUST NOT 各路径自带一份。
-     *
-     * 只在备用屏生效：主屏靠纯平移跟随键盘，改网格会带来重排闪烁与底部行丢失。
-     */
-    @Volatile
-    var imeGridReservePx: Int = 0
-        private set
-
-    /** 发布输入法遮挡高度（px，已扣除系统导航条）。唯一调用方是 `TerminalSurface` 的 insets 派发回调。 */
-    fun publishImeInsetPx(imeInsetPx: Int) {
-        imeInsetFlowInternal.value = imeInsetPx
-        imeGridReservePx = imeInsetPx
-    }
-
-    /** 网格重排实际扣除的遮挡高度：仅备用屏计入，主屏恒为 0。 */
-    fun imeGridReserve(): Int = if (altScreenActiveFlowInternal.value) imeGridReservePx else 0
-
-    /**
      * 活动会话的备用屏激活状态。仅在变化时由渲染线程发布（随每帧渲染结果一并上报）。
      * 与 [state] 分开，使备用屏切换不触发 state 订阅者重组。
      */
@@ -362,6 +338,32 @@ constructor(
 
     /** 单元格度量（物理像素）。见 [publishCellMetrics]。 */
     private val cellMetricsFlowInternal = MutableStateFlow(0f to 0f)
+
+    /**
+     * 发布输入法遮挡高度（px，已扣除系统导航条）。唯一调用方是 `TerminalSurface`
+     * 的 insets 派发回调，以及它 detach 时的归零。
+     *
+     * 它同时是键栏位移的来源（组合经 `imeInsetFlow` 读）与网格扣减量
+     * （[imeGridReserve]）。两者 MUST NOT 存成两个可独立修改的副本：detach 只清
+     * 视图内那份时，运行期会永久保留旧键盘高度——新视图的首次派发算出 0，与它自身
+     * 的字段相等而被门控挡下，永远不再发布。
+     */
+    fun publishImeInsetPx(imeInsetPx: Int) {
+        imeInsetFlowInternal.value = imeInsetPx
+    }
+
+    /**
+     * 网格重排实际扣除的输入法遮挡（px）。
+     *
+     * 网格公式有三条路径（[recomputeGridFromFontMetrics]、
+     * `TerminalSurface.ResizeManager.applyGridResize`、`recomputeRowsColsImmediate`），
+     * 任何一条漏扣都会让备用屏按整屏高度重排、把被键盘遮住的行又放回去
+     * （helix 状态行随之消失且不会自愈）。故扣减 MUST 只有这一个来源，
+     * MUST NOT 各路径自带一份。
+     *
+     * 只在备用屏计入：主屏靠纯平移跟随键盘，改它的网格会带来重排闪烁与底部行丢失。
+     */
+    fun imeGridReserve(): Int = if (altScreenActiveFlowInternal.value) imeInsetFlowInternal.value else 0
 
     /**
      * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
@@ -3029,8 +3031,10 @@ constructor(
     }
 
     /**
-     * 按当前原生字体度量重算活动会话的网格：rows = (surface - ModifierBar) / cell_height，
-     * cols = surface / cell_width。Surface 尺寸或度量尚未知时为空操作
+     * 按当前原生字体度量重算活动会话的网格：
+     * rows = (surface - ModifierBar - 备用屏输入法遮挡) / cell_height，
+     * cols = surface / cell_width（扣减量的唯一来源见 [imeGridReserve]）。
+     * Surface 尺寸或度量尚未知时为空操作
      * （attach 之前就应用了字体）。每次字号变更与初始字体应用后调用。
      */
     private fun recomputeGridFromFontMetrics() {

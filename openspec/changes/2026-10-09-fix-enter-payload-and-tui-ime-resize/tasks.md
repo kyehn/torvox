@@ -22,7 +22,8 @@
       `IME_ACTION_NONE` 换 termux 同款的 `IME_FLAG_NO_FULLSCREEN`。
 - [x] 备用屏把输入法遮挡计入网格高度并防抖重排：遮挡高度由平台 insets 派发维护
       （`TerminalSurface.installImeInsetListener`），备用屏状态取运行期逐帧发布的流值，
-      键盘已展开时启动 TUI 由 `onAltScreenChanged` 补一次触发；主屏不扣遮挡、仍走纯平移。
+      键盘已展开时启动 TUI 与离开备用屏各由备用屏状态翻转补一次触发；
+      主屏不扣遮挡、仍走纯平移，且不因重排暂停渲染。
 - [x] 删除 `NATIVE_FONT_SIZE_MAX_SP` 与被替代的 `effectiveFontSizeMaxSp`/
       `effectiveFontSizeRangeSteps`，`fontSizeRangeMaxSp` 更名 `fontSizeMaxSp`。
 - [x] 原生 `setFontSizeInPlace` 守卫上界改由图集边长推导，越界记错误日志；

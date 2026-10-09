@@ -14,7 +14,6 @@ import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
-import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -97,6 +96,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         appliedImeShiftPx = 0
         imeInsetPx = 0
         if (translationY != 0f) translationY = 0f
+        // 运行期那两个值也必须归零：它们只由本视图的 insets 派发写入，而新视图的
+        // 首次派发若发生在键盘已收起时，算出的 `reserved` 就是 0，与它自身的
+        // `imeInsetPx` 相等 → 被 `!=` 门控挡下、不再发布，运行期就永久保留旧的
+        // 键盘高度（键栏错位、备用屏网格塌缩且不自愈）。
+        viewModel?.runtime?.publishImeInsetPx(0)
         // 关闭浮动的选区 UI：action mode、选区手柄弹窗与放大镜都持有系统窗口，
         // 会在视图 detach 后继续让本视图（及整条 viewModel 链）存活
         // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
@@ -486,11 +490,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     return
                 }
             }
+            // 度量尚未就绪（原生字体还没回读）时的兜底：由上次配置的像素尺寸反推
+            // 单元格尺寸。同样扣掉键栏与输入法遮挡——`lastConfigured*` 是整块 Surface
+            // 尺寸，而 `rows` 是扣减后算出的行数，两者口径必须一致，否则这里算出的
+            // 行数会与随后由真度量算出的结果跳变。
             if (lastConfiguredWidth > 0 && lastConfiguredHeight > 0 && rows > 0 && cols > 0) {
+                val reserve =
+                    viewModel?.runtime?.let {
+                        it.modifierBarHeightPx + it.imeGridReserve()
+                    } ?: 0
                 val cellWidthPx = lastConfiguredWidth.toFloat() / cols
-                val cellHeightPx = lastConfiguredHeight.toFloat() / rows
+                val cellHeightPx = (lastConfiguredHeight - reserve).toFloat() / rows
                 cols = (width.toFloat() / cellWidthPx).toInt().coerceAtLeast(1)
-                rows = (height.toFloat() / cellHeightPx).toInt().coerceAtLeast(1)
+                rows = ((height - reserve).toFloat() / cellHeightPx).toInt().coerceAtLeast(1)
             }
         }
 
@@ -594,11 +606,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.runtime.resumeRendering()
             terminalViewModel.runtime.forceRender()
             // 旋转/窗口尺寸变化（无输入法事件时）永远不会到达 runtime.resize：
-            // 另一个触发点只有 onApplyWindowInsets。
+            // 另一个触发点只有 insets 派发回调。
             // 使用共享公式使两条路径对网格的认知一致。
             // 仅在真实单元格度量到达后生效（此前为空操作）。
-            // 输入法 inset 永不影响网格：键盘靠纯滚动跟随，
-            // 故其显示/隐藏期间 rows/cols 保持不变。
+            // 输入法 inset 只在备用屏影响网格（见 imeGridReserve）：主屏靠纯平移
+            // 跟随键盘，改它的 rows/cols 会有重排闪烁与底部行丢失。
             applyGridResize(width, height)
         }
 
@@ -1228,8 +1240,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * 订阅决定平移量的两项输入：内容下沿（按内容裁剪平移量）与备用屏状态
-     * （备用屏恒 0）。两者都由渲染线程逐帧发布，故平移量随内容增长即时跟进。
+     * 订阅决定平移量与网格的输入：内容下沿（按内容裁剪平移量）、单元格度量
+     * （字号与捏合缩放改行高）、备用屏状态（平移恒 0 且需要一次网格重排）。
+     * 前两者由渲染线程逐帧发布，故平移量随内容增长即时跟进。
      */
     private fun observeImeShiftInputs(viewModel: TerminalViewModel) {
         imeShiftJob?.cancel()
@@ -1401,13 +1414,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private fun scheduleImeGridResize() {
         if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) return
         val runtime = viewModel?.runtime ?: return
-        // 只有备用屏会重排：主屏的遮挡计为 0，此处 `applyGridResize` 不会 resize，
-        // 暂停渲染纯属无谓——且键盘动画期间平台逐帧派发 insets，每次都重新起算防抖，
-        // 暂停会一直挂到动画结束，终端停止上帧（TESTING.md 要求弹/收键盘不卡顿无闪烁）。
-        if (!runtime.altScreenActiveFlow.value) return
-        // 与 [ResizeManager.applySurfaceResize] 同样在防抖期间暂停渲染：
-        // 否则新旧行数交替渲染，用户看到的是逐帧跳变的网格。
-        runtime.setRenderPaused(true)
+        // 主屏 MUST NOT 暂停渲染：那里的遮挡计为 0，`applyGridResize` 算出的行数与
+        // 当前相同，是个 no-op——而键盘动画期间平台逐帧派发 insets，每次都重新起算
+        // 防抖，暂停会一直挂到动画结束，终端停止上帧（TESTING.md 要求弹/收键盘不卡顿
+        // 无闪烁）。但重排本身 MUST 仍然发生：离开备用屏时（键盘可能仍展开）网格要
+        // 按整屏高度复原，此时 `imeGridReserve()` 自然为 0。若在这里一并跳过，
+        // PTY 会停留在被输入法缩小后的行数，且此后无任何自愈触发点。
+        val resizes = runtime.altScreenActiveFlow.value
+        // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
+        if (resizes) runtime.setRenderPaused(true)
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize =
             Runnable {
@@ -2213,8 +2228,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
         }
     }
-
-    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets = insets
 
     /** 在途的 surface 重建重试；detach 与 ON_PAUSE 必须能取消它（见 [postDelayedSurfaceRecreate]）。 */
     private var pendingSurfaceRecreate: Runnable? = null

@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -46,41 +47,83 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
         return resources.displayMetrics.density * resources.configuration.fontScale
     }
 
-    private fun readRuntimeMetrics(): Triple<Float, Int, Float> {
-        var sizeSp = 0f
-        var cols = 0
-        var cellHeight = 0f
+    /**
+     * 原生侧的网格读数：请求字号、列数、单元格宽/高（后两者取自渲染器的字体管线）。
+     *
+     * 比例判据 MUST 用 `cellWidth`：它是字号的**严格线性**量（实测 4sp → 2.4px、
+     * 96sp → 57.6px，正好 24 倍）。`cellHeight` 不线性——同一组数据是 5.0 → 113.0
+     * （22.6 倍），因为行高经过取整与最小值钳制，拿它算预期会得到一个永远对不上的数。
+     */
+    private data class GridMetrics(val sizeSp: Float, val cols: Int, val cellHeight: Float, val cellWidth: Float)
+
+    private fun readRuntimeMetrics(): GridMetrics {
+        var metrics = GridMetrics(0f, 0, 0f, 0f)
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
             val runtime = activity.runtime
-            sizeSp = runtime.appliedFontSizeSp()
-            val bridge = runtime.bridge()
-            val packed = requireNotNull(bridge).getGridRowsColsPacked()
-            cols = (packed and 0xffffffffL).toInt()
-            cellHeight = requireNotNull(bridge).getCellHeight()
+            val bridge = requireNotNull(runtime.bridge())
+            val packed = bridge.getGridRowsColsPacked()
+            metrics =
+                GridMetrics(
+                    sizeSp = runtime.appliedFontSizeSp(),
+                    cols = (packed and 0xffffffffL).toInt(),
+                    cellHeight = bridge.getCellHeight(),
+                    cellWidth = bridge.getCellWidth(),
+                )
         }
-        return Triple(sizeSp, cols, cellHeight)
+        return metrics
     }
 
-    /** 提交目标字号并等待原生回读落地，返回 (请求值, 生效值, 列数, 单元格高)。 */
-    private fun applyAndAwait(targetSizeSp: Float): Triple<Float, Int, Float> {
+    /**
+     * 提交目标字号并等待**原生回读**落地，返回落地后的读数。
+     *
+     * 判据 MUST 是原生侧 `getCellWidth()` 的线性比例（见 [GridMetrics]）：Kotlin 的
+     * `appliedFontSizeSp()` 只是自己刚推送的值，与原生是否接受无关——修复前原生对
+     * 超限字号静默 `return Ok(())`，该值照样变成请求值，拿它当判据的用例对本次缺陷
+     * 完全无感。原生真被拒收时单元格宽高都不变，故宽度比例是最直接的判别量。
+     *
+     * @param expectWidthFromMin 由调用方按 min→target 的线性关系算出的期望宽度；
+     *   为 null 时只要求宽度真的变了（单调同向即可）。
+     */
+    private fun applyAndAwait(targetSizeSp: Float, expectWidthFromMin: ((Float) -> Float)? = null): GridMetrics {
+        val before = readRuntimeMetrics()
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
             activity.terminalViewModel.setFontSize(targetSizeSp)
         }
+        val expectedWidth = expectWidthFromMin?.invoke(before.cellWidth)
         val landed =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                val (sizeSp, _, _) = readRuntimeMetrics()
-                kotlin.math.abs(sizeSp - targetSizeSp) < 0.01f
+                val width = readRuntimeMetrics().cellWidth
+                if (expectedWidth != null) {
+                    kotlin.math.abs(width - expectedWidth) <= kotlin.math.max(0.5f, expectedWidth * 0.02f)
+                } else {
+                    kotlin.math.abs(width - before.cellWidth) > 0.1f
+                }
             }
-        val (landedSizeSp, _, _) = readRuntimeMetrics()
+        val settled = readRuntimeMetrics()
         assertNotNull(
-            "调节条可划到的字号 $targetSizeSp 必须被原生接受并生效，实际生效 $landedSizeSp",
+            "调节条可划到的字号 $targetSizeSp 必须被原生接受并生效：原生单元格宽仍是 " +
+                "${before.cellWidth}，期望 ${expectedWidth ?: "变化"}",
             landed,
         )
+        assertEquals(
+            "原生落地后的请求字号必须与提交值一致",
+            targetSizeSp,
+            settled.sizeSp,
+            0.01f,
+        )
         composeTestRule.waitForIdle()
-        val (_, cols, cellHeight) = readRuntimeMetrics()
-        return Triple(landedSizeSp, cols, cellHeight)
+        return settled
     }
 
+    /**
+     * 调节条两端点都必须真的被原生接受。
+     *
+     * 覆盖面说明：本用例验证的是**本设备**上的端点落地；跨密度的上界不变量
+     * （原生上界 ≥ 任一系数下由 Termux 换算出的可选上界）由 Rust 侧
+     * `font_size_cap_tests::cap_never_rejects_a_selectable_font_size` 覆盖——它才能
+     * 遍历 0.5..=8.0 的全系数区间。真机上若把原生上界退回旧的 100sp 魔数，本设备
+     * （density 2.625 ⇒ 上界 96sp）仍会通过该用例，所以两端都必须保留。
+     */
     @Test
     fun sliderEndpointsAreActuallyApplied() {
         composeTestRule.waitForSession()
@@ -95,20 +138,44 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             val scale = spToPxScale()
             val minSizeSp = SettingsRepository.FONT_SIZE_MIN_SP
             val maxSizeSp = SettingsRepository.fontSizeMaxSp(scale)
-            val (_, colsAtMin, cellHeightAtMin) = applyAndAwait(minSizeSp)
+            // 先落到下端量出原生单元格宽，再以「字号比 × 该宽度」预测上端的宽度。
+            // 判据完全落在原生回读量上：上端被原生拒收时宽度不会按比例变大。
+            val min = applyAndAwait(minSizeSp)
+            val colsAtMin = min.cols
             assertTrue("最小字号下列数必须为正，实际 $colsAtMin", colsAtMin > 0)
-            assertTrue("最小字号下单元格高必须为正，实际 $cellHeightAtMin", cellHeightAtMin > 0)
-            val (_, colsAtMax, cellHeightAtMax) = applyAndAwait(maxSizeSp)
+            assertTrue("最小字号下单元格宽必须为正，实际 ${min.cellWidth}", min.cellWidth > 0f)
+            val expectedWidthAtMax = min.cellWidth * (maxSizeSp / minSizeSp)
+            val max = applyAndAwait(maxSizeSp) { expectedWidthAtMax }
+            val colsAtMax = max.cols
             assertTrue("最大字号下列数必须为正，实际 $colsAtMax", colsAtMax > 0)
-            assertTrue("最大字号下单元格高必须为正，实际 $cellHeightAtMax", cellHeightAtMax > 0)
+            assertTrue("最大字号下单元格宽必须为正，实际 ${max.cellWidth}", max.cellWidth > 0f)
+            // 调节条末端必须真的划得到原生接受的上界：被原生静默丢弃时，
+            // 宽度会停在当前字号的值，而不是按比例放大到 $expectedWidthAtMax。
+            assertEquals(
+                "调节条上端 ${maxSizeSp}sp 必须被原生接受：原生单元格宽 ${max.cellWidth}，" +
+                    "按 min→max 比例应为 $expectedWidthAtMax",
+                expectedWidthAtMax,
+                max.cellWidth,
+                kotlin.math.max(0.5f, expectedWidthAtMax * 0.02f),
+            )
             assertTrue(
-                "字号由 ${minSizeSp}sp 升到 ${maxSizeSp}sp，单元格高必须变大（前 $cellHeightAtMin 后 $cellHeightAtMax）",
-                cellHeightAtMax > cellHeightAtMin,
+                "字号由 ${minSizeSp}sp 升到 ${maxSizeSp}sp，单元格宽必须变大" +
+                    "（前 ${min.cellWidth} 后 ${max.cellWidth}）",
+                max.cellWidth > min.cellWidth,
+            )
+            assertTrue(
+                "字号由 ${minSizeSp}sp 升到 ${maxSizeSp}sp，单元格高必须变大" +
+                    "（前 ${min.cellHeight} 后 ${max.cellHeight}）",
+                max.cellHeight > min.cellHeight,
+            )
+            assertTrue(
+                "字号放大后列数必须收缩（$colsAtMin → $colsAtMax）",
+                colsAtMax < colsAtMin,
             )
             android.util.Log.i(
                 "FontSizeReflow",
-                "scale=$scale min=$minSizeSp cols=$colsAtMin cellH=$cellHeightAtMin " +
-                    "max=$maxSizeSp cols=$colsAtMax cellH=$cellHeightAtMax",
+                "scale=$scale min=$minSizeSp cols=$colsAtMin cell=${min.cellWidth}x${min.cellHeight} " +
+                    "max=$maxSizeSp cols=$colsAtMax cell=${max.cellWidth}x${max.cellHeight}",
             )
         } finally {
             // 恢复规范默认值（持久化在 SharedPreferences，防污染其他测试与后续复跑）。
@@ -129,7 +196,11 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             ready
         }
         try {
-            val (originalSizeSp, colsBefore, cellHeightBefore) = readRuntimeMetrics()
+            val before = readRuntimeMetrics()
+            val originalSizeSp = before.sizeSp
+            val colsBefore = before.cols
+            val cellHeightBefore = before.cellHeight
+            val cellWidthBefore = before.cellWidth
             android.util.Log.i(
                 "FontSizeReflow",
                 "before sizeSp=$originalSizeSp cols=$colsBefore cellH=$cellHeightBefore",
@@ -137,6 +208,7 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             assertTrue("应用字号必须为正, 实际: $originalSizeSp", originalSizeSp > 0)
             assertTrue("网格列数必须为正, 实际: $colsBefore", colsBefore > 0)
             assertTrue("单元格高必须为正, 实际: $cellHeightBefore", cellHeightBefore > 0)
+            assertTrue("单元格宽必须为正, 实际: $cellWidthBefore", cellWidthBefore > 0)
 
             // 目标字号取调节条区间内的相邻档：翻倍越界会被钳制导致「未落地」误报；
             // 若已处上限则改走减半，保证尺寸真实变化（变化本身是后续断言的前提）。
@@ -153,10 +225,27 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                         SettingsRepository.fontSizeMaxSp(spToPxScale()),
                     )
                 }
-            val (landedSizeSp, colsAfter, cellHeightAfter) = applyAndAwait(targetSizeSp)
+            // 落地判据为原生单元格宽按字号比缩放（±2%，宽度是严格线性的）。
+            val expectedWidthTarget = cellWidthBefore * (targetSizeSp / originalSizeSp)
+            val landed = applyAndAwait(targetSizeSp) { expectedWidthTarget }
+            val landedSizeSp = landed.sizeSp
+            val colsAfter = landed.cols
+            val cellHeightAfter = landed.cellHeight
             android.util.Log.i("FontSizeReflow", "landed sizeSp=$landedSizeSp expected=$targetSizeSp")
             // 实测比例断言而非假设翻倍：钳制/减半路径同样覆盖。
             val ratio = landedSizeSp / originalSizeSp
+            assertEquals(
+                "原生单元格宽必须随字号按比例变化（原生回读 ${landed.cellWidth}，" +
+                    "期望≈$expectedWidthTarget）",
+                expectedWidthTarget,
+                landed.cellWidth,
+                kotlin.math.max(0.5f, expectedWidthTarget * 0.02f),
+            )
+            // 单元格高只是单调随字号变化，不按线性比例断言（行高经取整）。
+            assertTrue(
+                "单元格高必须随字号同向变化（前 $cellHeightBefore 后 $cellHeightAfter）",
+                if (ratio > 1f) cellHeightAfter > cellHeightBefore else cellHeightAfter < cellHeightBefore,
+            )
             assertTrue("字号必须真实变化 (前=$originalSizeSp 后=$landedSizeSp)", kotlin.math.abs(ratio - 1f) > 0.01f)
             if (ratio > 1f) {
                 assertTrue(
@@ -169,12 +258,6 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                     colsAfter > colsBefore,
                 )
             }
-            // 字体设置值与实际渲染尺寸的对照：单元格高按实测比例缩放（±10% 度量方差）。
-            val expectedCellHeight = cellHeightBefore * ratio
-            assertTrue(
-                "单元格高必须按比例缩放 (前=$cellHeightBefore 后=$cellHeightAfter 期望≈$expectedCellHeight)",
-                cellHeightAfter > expectedCellHeight * 0.9f && cellHeightAfter < expectedCellHeight * 1.1f,
-            )
         } finally {
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
                 activity.terminalViewModel.setFontSize(SettingsRepository.defaultFontSizeFor(widthDp))

@@ -41,13 +41,14 @@
 - 备用屏激活时把输入法遮挡高度计入网格高度：遮挡高度改由**平台 insets 派发**
   （`ViewCompat.setOnApplyWindowInsetsListener` 装在终端 Surface 上）维护，
   备用屏状态取运行期逐帧发布的流值，触发一次防抖 resize/SIGWINCH，
-  全屏 TUI 按可见高度重绘；键盘已展开时启动 TUI 另有一次触发
-  （`onAltScreenChanged`）。主屏不扣遮挡，仍走纯平移
-  （TESTING.md 要求上移后底部像素完全相同）。
+  全屏 TUI 按可见高度重绘；键盘已展开时启动 TUI 由备用屏状态翻转这条订阅补一次
+  触发，离开备用屏时同样补一次（否则网格停留在被输入法缩小后的行数）。主屏不扣
+  遮挡，仍走纯平移（TESTING.md 要求上移后底部像素完全相同）。
 - 顺带修正输入法高度来源：原实现轮询 `DecorView.rootWindowInsets` 并与 Compose 的
-  `WindowInsets.ime` 叶节点取最大值，二者在仪器化环境下均恒为 0（实测键盘高 883px
-  时 DecorView 仍报 0），导致既有输入法跟随位移整体失效——仓库自带
-  `ImePopupPixelInstrumentedTest` 三个用例在该环境下即以此判红（位移=0）。
+  `WindowInsets.ime` 叶节点取最大值，而这条合成通道的写入发生在 insets 遍历内，
+  不保证被组合观察到（实测每 300ms 写一次组合状态，20 次才换来一次重组），
+  位移因此从未发生——仓库自带 `ImePopupPixelInstrumentedTest` 三个用例即以此判红
+  （位移=0）。
 - 输入法跟随位移改由终端 Surface 自身的 `translationY` 承担，不再经组合容器平移：
   组合平移要经「重组 → 重新测量 → 重新布局」，而重组只在 Choreographer 帧回调里跑；
   主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染线程时重组滞后可达十几秒（实测每

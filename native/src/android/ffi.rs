@@ -3519,27 +3519,36 @@ mod font_size_cap_tests {
         stepped.max(SLIDER_MIN_SP + TERMUX_STEP_SP)
     }
 
-    /// `coerceSpToPxScale` 允许的全区间，两端各取样一点。
-    const RASTER_SCALE_RANGE: [f32; 2] = [0.5, 8.0];
+    /// `coerceSpToPxScale` 允许的全系数区间（对应 Kotlin 的
+    /// `TerminalRuntime.MIN/MAX_RASTER_SCALE`）。写死字面量而非引用 Kotlin：
+    /// Rust 侧看不到那个常量，而复刻它的计算只会让两边一起漂移——这里要的就是
+    /// 「区间端点变了，本测试立刻失败」。
+    const RASTER_SCALE_MIN: f32 = 0.5;
+    const RASTER_SCALE_MAX: f32 = 8.0;
+    const RASTER_SCALE_SAMPLES: usize = 64;
+
+    /// 在合法区间内取第 `i` 个采样系数（含两端）。
+    fn sampled_scale(i: usize) -> f32 {
+        RASTER_SCALE_MIN
+            + (RASTER_SCALE_MAX - RASTER_SCALE_MIN) * i as f32 / RASTER_SCALE_SAMPLES as f32
+    }
 
     #[test]
     fn cap_never_rejects_a_selectable_font_size() {
         // 核心不变量：滑块能划到的每个字号，原生都必须接受。
         // 图集一旦缩小到接近 256px，这条即失效——那正是「范围与实际可设置范围不一致」。
-        for raster_scale in RASTER_SCALE_RANGE {
-            for step in 0..=64 {
-                let scale = raster_scale * (1.0 + step as f32 * 0.12);
-                let cap = font_size_cap_sp(scale);
-                let selectable_max = termux_selectable_max_sp(scale);
-                assert!(
-                    is_font_size_selectable(selectable_max, cap),
-                    "raster_scale={scale}：滑块上界 {selectable_max}sp 超过原生上界 {cap}sp"
-                );
-                assert!(
-                    is_font_size_selectable(SLIDER_MIN_SP, cap),
-                    "raster_scale={scale}：原生拒绝滑块下界 {SLIDER_MIN_SP}sp"
-                );
-            }
+        for i in 0..=RASTER_SCALE_SAMPLES {
+            let scale = sampled_scale(i);
+            let cap = font_size_cap_sp(scale);
+            let selectable_max = termux_selectable_max_sp(scale);
+            assert!(
+                is_font_size_selectable(selectable_max, cap),
+                "raster_scale={scale}：滑块上界 {selectable_max}sp 超过原生上界 {cap}sp"
+            );
+            assert!(
+                is_font_size_selectable(SLIDER_MIN_SP, cap),
+                "raster_scale={scale}：原生拒绝滑块下界 {SLIDER_MIN_SP}sp"
+            );
         }
     }
 
@@ -3547,11 +3556,10 @@ mod font_size_cap_tests {
     fn atlas_edge_is_far_above_the_selectable_ceiling() {
         // 上界的来源是图集边长：换回像素必须仍是图集边长，且在最大系数下
         // 仍远高于 Termux 的像素上限（这正是上一条不变量成立的原因）。
-        let raster_scale = RASTER_SCALE_RANGE[1];
-        let cap = font_size_cap_sp(raster_scale);
+        let cap = font_size_cap_sp(RASTER_SCALE_MAX);
         assert!(
-            cap * raster_scale > TERMUX_MAX_PX * 2.0,
-            "图集 {ATLAS_SIZE}px 在最大系数下换算出的字号上限 {cap}sp 未留出两倍余量"
+            cap * RASTER_SCALE_MAX > TERMUX_MAX_PX * 2.0,
+            "图集 {ATLAS_SIZE}px 在最大系数 {RASTER_SCALE_MAX} 下换算出的字号上限 {cap}sp 未留出两倍余量"
         );
     }
 

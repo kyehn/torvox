@@ -428,7 +428,8 @@ fun TerminalScreen(
             // 主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染线程时滞后十几秒（实测每
             // 300ms 写一次组合状态，20 次才换来一次重组），键盘已弹出而内容不动
             // ——`ImePopupPixelInstrumentedTest` 三个用例即以此判红。
-            // Surface 尺寸永不变化，故不触发交换链重建与网格重排。
+            // 两者同源，取值必然一致；生效时刻不同（键栏要等一次重组），键盘动画
+            // 期间会看到终端先上移、键栏随后跟上。
             //
             // 高度只有一个来源：终端 Surface 上的平台 insets 派发回调，经运行期
             // `imeInsetFlow` 汇入组合（`TerminalSurface.installImeInsetListener`
@@ -438,11 +439,6 @@ fun TerminalScreen(
             // 820px 时两者均为 0），位移因此从未发生。派发是平台自己的分发路径，
             // 已挂载视图必然收到，且不依赖窗口根视图是否已 attach。
             val imeInsetPx by viewModel.runtime.imeInsetFlow.collectAsStateWithLifecycle()
-            // 备用屏跟随开关：helix/vim 等全屏 TUI 占满视口，位移只会把应用顶部推出
-            // 屏幕（且视觉行与触摸换算行错位），故备用屏下位移恒 0；主屏公式不变。
-            // 状态随渲染线程每帧发布（与光标行、内容下沿同批上报），故动画期间的
-            // 切换即刻生效——此前只在键盘定居后另发一次阻塞查询，动画中途翻转的
-            // 状态必然滞后于当帧的位移计算。
             val runtimeForContent = viewModel.runtime
             // 换视图的触发值必须在此处（组合体自身）读取：读在 `Box` 的内容 lambda 里时，
             // 该 lambda 的捕获未变会被 Compose 跳过，`key(...)` 也就不会被重新求值，

@@ -135,14 +135,22 @@ mod tests {
     ///
     /// 逐条取自 `android.view.KeyEvent` 的常量值（`javap -constants` 取自 SDK
     /// `android.jar`，非本仓复述），故任一条写错都会指向另一个物理键。断言覆盖
-    /// **全部**已映射键码：抽样断言漏掉的正是这种错配——漏映射由
-    /// [every_listed_android_code_has_a_mapping] 兜底，错配由本表兜底。
+    /// **全部**已映射键码（本表即实现的全集，两者必须一一对应）：
+    /// 抽样断言漏掉的正是这种错配——把 `10 => Key::Digit3` 写成 `Digit4` 时，
+    /// 任何「抽样几个键看看对不对」的测试都会通过。
     #[test]
     fn every_mapped_android_code_maps_to_its_own_key() {
         // (KeyEvent 常量名, 键码值, ghostty Key)
         let table: &[(&str, u32, Key)] = &[
             ("0", 7, Key::Digit0),
             ("1", 8, Key::Digit1),
+            ("2", 9, Key::Digit2),
+            ("3", 10, Key::Digit3),
+            ("4", 11, Key::Digit4),
+            ("5", 12, Key::Digit5),
+            ("6", 13, Key::Digit6),
+            ("7", 14, Key::Digit7),
+            ("8", 15, Key::Digit8),
             ("9", 16, Key::Digit9),
             ("A", 29, Key::A),
             ("B", 30, Key::B),
@@ -252,6 +260,28 @@ mod tests {
                 "KEYCODE_{name}({code}) 映射错误"
             );
         }
+    }
+
+    /// 表与实现双向同步：遍历平台可能的全部键码，凡映射出非 `Unidentified` 的
+    /// MUST 都在表里，且表里每个码都映射出非 `Unidentified`。
+    /// 删一个 match 分支、或往表里加一个实现没有的码，这里立刻暴露。
+    #[test]
+    fn table_and_match_branches_are_in_sync() {
+        let table: Vec<u32> = vec![
+            7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+            41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+            66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 85, 86, 87, 88, 19, 20, 21, 22, 92, 93,
+            111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 131, 132, 133,
+            134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150,
+            151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+        ];
+        // 平台公开键码的最大值（KEYCODE_MAX = 287）。
+        let mapped: Vec<u32> = (0..=287u32)
+            .filter(|code| map_android_key_code(*code) != Key::Unidentified)
+            .collect();
+        let mut expected = table.clone();
+        expected.sort_unstable();
+        assert_eq!(expected, mapped, "实现有映射但表里没有（或反之）的键码");
     }
 
     #[test]
