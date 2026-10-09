@@ -186,14 +186,7 @@ impl GridSnapshot {
         Self {
             rows,
             cols,
-            cells: vec![
-                CellSnapshot {
-                    foreground_is_default: true,
-                    background_is_default: true,
-                    ..CellSnapshot::default()
-                };
-                count
-            ],
+            cells: vec![CellSnapshot::default(); count],
             dirty: vec![true; count],
             cursor_row: DISCONNECTED_CURSOR_Y,
             cursor_col: DISCONNECTED_CURSOR_X,
@@ -223,10 +216,6 @@ pub struct CellSnapshot {
     pub background: [f32; 4],
     /// 解算后的 SGR 58 下划线色（回退到 `foreground`）。
     pub underline_color: [f32; 4],
-    /// 前景色是否为终端默认色；显式颜色与默认色数值相同时据此区分。
-    pub foreground_is_default: bool,
-    /// 背景色是否为终端默认色。
-    pub background_is_default: bool,
     pub bold: bool,
     pub dim: bool,
     pub italic: bool,

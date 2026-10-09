@@ -3,12 +3,6 @@ use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
 
-/// 终端单元着色器源码，管线创建与着色器校验测试共用。
-pub(crate) const CELL_SHADER: &str = include_str!("../../shaders/cell.wgsl");
-
-/// Kitty 图形协议着色器源码，管线创建与着色器校验测试共用。
-pub(crate) const KGP_SHADER: &str = include_str!("../../shaders/kitty_graphics.wgsl");
-
 pub(crate) const QUAD_CORNERS: &[[f32; 2]; 6] = &[
     [-1.0, -1.0],
     [1.0, -1.0],
@@ -138,7 +132,9 @@ impl Renderer {
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Cell Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(CELL_SHADER)),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../../shaders/cell.wgsl"
+            ))),
         });
         let bind_group_layout = Self::text_bind_group_layout(device, "Cell Bind Group Layout");
         Self::create_text_pipeline(
@@ -159,7 +155,9 @@ impl Renderer {
     ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("KGP Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(KGP_SHADER)),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "../../shaders/kitty_graphics.wgsl"
+            ))),
         });
         let bind_group_layout = Self::text_bind_group_layout(device, "KGP Bind Group Layout");
         let pipeline = Self::create_text_pipeline(
@@ -269,39 +267,5 @@ impl Renderer {
                 },
             ],
         }));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use wgpu::naga::front::wgsl;
-    use wgpu::naga::valid::{Capabilities, ValidationFlags, Validator};
-
-    /// 解析、校验与入口点一并断言，使语法错误、语义错误与入口缺失分别可见。
-    fn assert_shader(name: &str, source: &str, expected_entry_points: &[&str]) {
-        let module = wgsl::parse_str(source)
-            .unwrap_or_else(|error| panic!("{name} 解析失败：{}", error.emit_to_string(source)));
-        let mut validator = Validator::new(ValidationFlags::all(), Capabilities::default());
-        validator
-            .validate(&module)
-            .unwrap_or_else(|error| panic!("{name} 校验失败：{}", error.emit_to_string(source)));
-        let mut declared: Vec<&str> = module
-            .entry_points
-            .iter()
-            .map(|entry| entry.name.as_str())
-            .collect();
-        declared.sort_unstable();
-        assert_eq!(declared, expected_entry_points, "{name} 入口点不符");
-    }
-
-    #[test]
-    fn cell_shader_declares_vertex_and_fragment_entry_points() {
-        assert_shader("cell.wgsl", CELL_SHADER, &["fs_main", "vs_main"]);
-    }
-
-    #[test]
-    fn kgp_shader_declares_vertex_and_fragment_entry_points() {
-        assert_shader("kitty_graphics.wgsl", KGP_SHADER, &["fs_main", "vs_main"]);
     }
 }

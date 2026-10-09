@@ -2,85 +2,20 @@
 
 ## Purpose
 
-终端网格整体状态的回归锁定方式。原有 `snapshot_test.rs` 具备采集与逐格比对能力，但无任何调用者与语料，等价于未使用的脚手架；`docs/specification/TESTING.md` 列出的回滚行序、输入回显与光标、中文显示宽度、字重与颜色等条目此前只有逐字段手写断言，无整体对照。
+终端网格整体状态的测试覆盖方式。`docs/specification/TESTING.md` 明确不进行回归测试，故不设
+金标语料与快照比对装置；终端状态行为由 `ghostty_terminal::tests` 中针对具体行为的断言覆盖，
+其中回滚区旧行顺序、输入回显与光标、显示宽度、字重与颜色等均逐项直接断言网格输出。
 
 实现细节：
 
-- 语料位于 `native/src/terminal/testdata/`，`.seq` 为原始字节输入，以 `.gitattributes` 的 `-text` 固定为不做换行规范化，否则 `autocrlf` 环境会把内嵌的 `\r\n` 改写。语料字节即内容本身：是否以 `CR LF` 结尾属于该语料语义的一部分（例如回到新提示符行），不做统一规约，唯一要求是这些字节不得被工具链规范化。经 `vt_write` 写入（不经 `pty_write`，避免 LF→CRLF 转换改变语料语义），统一使用 6×20 网格与 20 行回滚区。
-- 快照屏幕与回滚区按行存文本并去除行尾空白，屏幕末尾空行一并裁掉；行数与列数单独记录，裁剪不丢失信息。
-- 「未设置样式」由 `CellSnapshot` 的 `foreground_is_default`/`background_is_default` 判定，不做浮点比较：显式颜色恰好与默认色数值相同时仍记入 `styled`。语料经 `dump_grid` → `build_dumped_grid` → `apply_style_to_snapshot`，标记取 `StyleColor::None`（未指定）。`build_snapshot`（`take_snapshot` 路径，仅测试使用）取 `render::Cell::fg_color()/bg_color()` 是否返回 `Ok(Some(_))`，与取色复用同一次读取，FFI 失败时颜色与标记同为默认。默认前景/背景色因此不会进入期望文件；宽字符按其占据的每个列各记一条。
-- 颜色记录为解算后的 RGB：未指定色按 `StyleColor::None` 排除；ANSI 调色板索引色（如 SGR 32）会被解析为 `catppuccin_mocha_palette()` 的对应分量后写入期望文件。语料终端由 `GhosttyTerminal::new` 创建，该构造函数以 `catppuccin_mocha_palette()` 的取值调用 `apply_theme`，故该调色板是项目内常量，结果确定可复现；改动该常量会使语料失败，属预期信号。
-- 期望文件重生成不设开关：期望缺失或不一致时测试直接失败并打印应写入的完整 JSON，人工据此写入，不提供静默重写。
-- 样式条目只记录屏幕内单元；回滚区只按行记录文本，其样式不进入期望文件。回滚区样式由 `ghostty_terminal::tests::scrollback_retains_explicit_cell_style` 直接覆盖；选区与搜索只消费文本行，不读取单元样式。此处为语料表示的刻意边界而非行为缺口。
-- `corpus_pairs_are_complete` 校验 `.seq` 与 `.json` 成对存在，防止新增语料漏写期望文件。
-- 非空断言在语料运行器自身（`assert!(!inputs.is_empty())`），使按名字单独过滤运行时也不会空跑通过。
-- 语料写入后以 `flush_with_timeout` 确认刷新；`dump_grid` 的查询超时是独立预算且会回退空网格，故仍须轮询到网格尺寸就绪，两者缺一都会让未发生的差异被报成内容不符。
-- 期望文件中的重复样式坐标记为差异项而非中断，保证全部语料一次性报告。
+- 网格状态经 `dump_grid`（`Query::DumpGrid` → `build_dumped_grid`）与 `take_snapshot`
+  （`build_snapshot`）两条路径采集，两者均以 `CellSnapshot` 承载逐格 codepoint 与样式。
+- `getTerminalText` 只消费单元文本，不读取样式；`CellSnapshot` 不跨 FFI 传往 Kotlin。
+- 回滚区样式保留由 `ghostty_terminal::tests::scrollback_retains_explicit_cell_style` 覆盖；
+  选区与搜索只消费文本行。
+- `docs/specification/TESTING.md` 的「不进行回归测试」为本能力不引入金标语料与期望文件的依据。
 
 ## Requirements
-
-### Requirement: 终端状态由语料快照整体回归锁定
-
-终端网格整体状态（尺寸、各行文本与顺序、光标位置与可见性、回滚区行序、非默认样式）MUST 由语料驱动测试整体锁定：每个语料为一对 `.seq` 输入与 `.json` 期望文件，测试写入输入后采集快照并逐项比对。
-
-语料尺寸与回滚上限由期望文件给出，运行器 MUST NOT 以常量规定。语料来源包含本项目手写构造、上游手写种子与真实应用录音三类；三类语料共用同一采集与比对路径，差异报告 MUST 标明语料名。
-
-语料缺失、期望文件缺失或任一字段不符 MUST 判定为失败并输出逐单元差异与应写入的完整期望内容；MUST NOT 跳过、忽略或静默重写期望文件。语料 MUST 由目录扫描自动纳入执行，MUST NOT 使用手工维护的用例名单。
-
-快照表示 MUST 为紧凑形态：屏幕与回滚区按行存文本并去除行尾空白，非默认属性单独列出，以使期望文件可被人在代码评审中直接阅读。
-
-样式单元的 `row`/`col` MUST 为该单元在网格中的真实坐标，MUST NOT 因按行切片遍历而退化为行内序号。同一列在不同行的样式单元 MUST 记为不同坐标。语料运行器 MUST 自身拒绝空语料，MUST NOT 依赖另一条用例来保证语料非空。
-
-「未设置样式」MUST 由原始样式的颜色来源判定（未指定），MUST NOT 以解算后颜色与默认色的数值相等作为判据：当显式颜色恰好与默认色取值相同时，MUST 仍判定为带样式。
-
-单条语料的任何问题（含期望文件中的重复坐标）MUST 记为差异项，MUST NOT 中断语料循环，以保证全部语料一次性报告。语料写入后 MUST 确认刷新完成，MUST NOT 在刷新未确认时采集快照。
-
-由开发环境拉取的语料（UCD 字素簇语料、kitty 图像载荷）MUST NOT 入库，MUST 落在 `/tmp` 下的固定路径并由 `flake.nix` 的 shellHook 按固定版本获取；这些语料读取时缺失 MUST 判定失败并提示来源，MUST NOT 跳过或按环境条件裁剪。
-
-#### Scenario: 期望文件缺失时失败并给出应写入内容
-
-- **WHEN** `testdata/` 下存在 `.seq` 但缺少同名 `.json`
-- **THEN** 测试失败，输出该语料应写入的完整期望内容
-
-#### Scenario: 网格状态变化时报告逐单元差异
-
-- **WHEN** 语料输入产生的网格与期望不一致
-- **THEN** 测试失败，输出行列位置、期望值与实际值的逐单元差异
-
-#### Scenario: 同列不同行的样式单元各自定位
-
-- **WHEN** 两行同一列各有一个带样式的单元
-- **THEN** 快照记录两条 `col` 相同而 `row` 不同的条目
-
-#### Scenario: 语料目录为空时判定失败
-
-- **WHEN** `testdata/` 下没有任何 `.seq`
-- **THEN** 语料运行器判定失败，MUST NOT 报告通过
-
-#### Scenario: 显式颜色与默认色取值相同时仍记为带样式
-
-- **WHEN** 单元的显式颜色解算后与终端默认色数值相同
-- **THEN** 快照 MUST 仍将其记入 `styled`
-
-#### Scenario: 期望文件含重复坐标时仍报告其余语料
-
-- **WHEN** 某份期望文件含重复的样式坐标
-- **THEN** 该语料报为差异项，其余语料的诊断 MUST NOT 因此丢失
-
-#### Scenario: 期望文件声明尺寸时按声明创建终端
-
-- **WHEN** 期望文件声明的行列数与回滚上限不同于其它语料
-- **THEN** 运行器按该声明创建终端并完成比对
-
-#### Scenario: 差异报告标明语料来源目录
-
-- **WHEN** `testdata/` 下两个子目录各有一份语料不一致
-- **THEN** 报告同时标明两份语料的名称与各自差异
-
-#### Scenario: 拉取的语料缺失时判定失败
-
-- **WHEN** 测试读取 shellHook 拉取的语料时文件不存在
-- **THEN** 测试失败并提示该文件的来源，MUST NOT 跳过
 
 ### Requirement: 并发不变量测试与单元测试进程隔离
 
@@ -100,21 +35,3 @@ shuttle 在安装全局 panic 钩子时会先访问自身的调度状态，在�
 
 - **WHEN** 运行并发不变量用例
 - **THEN** 两个用例均在独立测试目标中运行并通过，穷举交错的能力保持不变
-
-### Requirement: 引擎在 UAX #29 分簇上的已知偏离
-
-引擎在**单元层面**不遵循 UAX #29 的簇边界分组，本项目按 `DESIGN.md` 不给上游打本地补丁，
-故不修正、只记录，供上游 rev 升级时复查。实测对 630 条可排布用例的偏离如下：
-
-- 42 条：零宽码位被并入前一单元，即使 UAX #29 在此判定断开。例 `÷ 1F1E6 ÷ 1160 ÷` 排为
-  单元 `1F1E6+1160`。
-- 79 条：簇内首个零宽码位被丢弃。例 `÷ 094D+0903 ÷` 排为单元 `0903`。
-- 4 条：Balinese/Sundanese spacing mark 的单元划分与权威分类不同。
-
-字素簇测试 MUST NOT 以簇边界分组为断言对象，也 MUST NOT 因分组不同而将该用例标为已知失败；
-这些用例 MUST 继续参与与分组无关的排布不变式比对。
-
-#### Scenario: 分组偏离不被当作通过依据
-
-- **WHEN** 某用例的簇边界分组与 UCD 期望不同
-- **THEN** 测试不因此判定失败，也不因此跳过；该用例仍参与守恒、保序与列布局三条不变式的比对
