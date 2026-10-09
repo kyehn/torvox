@@ -2,7 +2,7 @@
 
 ## 环境
 
-- 使用 `nix print-dev-env > result-dev.sh` 创建开发环境，使用 `source result-dev.sh` 进入开发环境，工具由 `flake.nix` 声明。
+- 使用 `nix develop` 进入开发环境，工具由 `flake.nix` 声明。
 - 禁止使用 `apt` 等包管理器安装工具。
 - 禁止使用 `which` 进行运行时路径探测。
 - 环境是确定性的：Zig 版本以 `flake.nix` 中声明的为准，禁止进行 Zig 版本检查。

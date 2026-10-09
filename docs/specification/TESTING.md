@@ -4,6 +4,7 @@
 
 - 只测试本项目功能
 - 没有不稳定的测试，测试不依赖状态，无需手动辅助
+- 不进行回归测试
 - 每个测试必须断言具体行为，“不崩溃”不是有效断言。
 - 不存在跳过，不得隐藏错误。无 `#[ignore = "requires GPU adapter"]`，缺少 Mesa lavapipe 时 Vulkan 测试失败而不是跳过或忽略，依赖 rust 的 kotlin 测试在缺少 rust 产物时应该失败而不是跳过或忽略。
 - 不检查环境，如不得检查 rust 产物是否存在，不存在则自然失败。
@@ -23,7 +24,6 @@
 - 使用 `rapidocr cli` 进行 OCR 识别。
 - 使用 `npx aislop@latest scan` 和 `npm install -g jscpd` 检查代码
 - 使用 [code-review-skill](https://github.com/awesome-skills/code-review-skill) 审查代码。
-- 如果需要在安卓模拟器上手动调试使用 release apk 而不是 debug apk，模拟器测试尽量使用 release apk
 
 ## 覆盖范围
 
