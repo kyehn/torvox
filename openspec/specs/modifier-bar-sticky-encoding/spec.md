@@ -24,7 +24,6 @@ HOME、END、PGUP、PGDN 等）此前走裸序列直写 PTY，不读粘滞态：
 - **WHEN** CTRL 为 Once 且点击可编码按键
 - **THEN** 按编码器输出发送组合序列，且 CTRL 回到 Off
 
-
 ### Requirement: 回车族载荷必须是 CR 而非 LF
 
 回车键族（`KEYCODE_ENTER` / `KEYCODE_NUMPAD_ENTER` / `KEYCODE_DPAD_CENTER`）在
