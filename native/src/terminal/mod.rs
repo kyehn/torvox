@@ -24,6 +24,8 @@ pub(crate) mod test_helpers;
 #[cfg(test)]
 pub(crate) mod vt_conformance;
 #[cfg(test)]
+pub(crate) mod vt_grapheme_cluster;
+#[cfg(test)]
 pub(crate) mod vt_seed_chunking;
 #[cfg(test)]
 pub(crate) mod vt_width_classification;
