@@ -77,7 +77,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
         /**
          * 用户可选的字号范围与精度，取自 Termux
-         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:89
+         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:67
          * 「默认大小与可选范围/精度须参考 Termux」）：下限 4dip；默认值 12dip 且取偶，
          * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
          *
@@ -85,7 +85,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
          * `setFontSizeInPlace` 守卫（`4.0..=100.0`）重复的 `NATIVE_FONT_SIZE_MAX_SP`，
          * 两份常量一旦漂移，调节条上界就与原生实际接受的区间脱节，而原生对超限值
          * 是静默丢弃——用户看到的正是「设置条范围和实际可设置范围不一致」。
-         * 原生侧的合法区间改由图集边长推导（见 `FontPipeline`），不再有第二份魔数。
+         * 原生侧的上界改由图集边长推导（`native/src/android/ffi.rs::font_size_cap_sp`，
+         * `FontPipeline::get_raster_scale` 提供系数），不再有第二份魔数；下界则由本处的
+         * [FONT_SIZE_MIN_SP] 独占，原生不重复表达。
          */
         const val FONT_SIZE_MIN_SP = 4f
         const val FONT_SIZE_MAX_PX = 256f

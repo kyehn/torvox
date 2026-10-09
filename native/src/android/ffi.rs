@@ -3065,7 +3065,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
 /// 原生拒绝，用户看到的就是「设置条范围与实际可设置范围不一致」。
 /// `font_size_cap_tests` 钉住这一关系。
 fn font_size_cap_sp(raster_scale: f32) -> f32 {
-    ATLAS_SIZE as f32 / raster_scale.max(f32::EPSILON)
+    // 系数已由 `FontPipeline::get_raster_scale` 钳到 ≥ EPSILON，此处不再重复。
+    ATLAS_SIZE as f32 / raster_scale
 }
 
 /// 字号是否落在原生可接受区间内。
@@ -3094,7 +3095,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         // 推导（唯一真实约束），越界记错误日志而非无声忽略。
         let max_size = font_size_cap_sp(render_state.font_pipeline.get_raster_scale());
         if !is_font_size_selectable(size, max_size) {
-            log::error!(
+            // warn 而非 error：捏合缩放的 preview 路径以动画帧率调用本函数，
+            // 一次越界会刷出每帧一条 error，把真正的错误日志淹掉。
+            log::warn!(
                 "setFontSizeInPlace: 字号 {size} 越界（合法区间 (0, {max_size}] sp，字形位图必须放进图集）"
             );
             return Ok(());
@@ -3295,7 +3298,7 @@ fn cell_metric_dim(pick: impl FnOnce((f32, f32)) -> f32) -> f32 {
     pick(render_state.font_pipeline.cell_metrics())
 }
 
-/// 当前单元格宽度（像素，取自渲染器的字体管线）。
+/// 当前单元格宽度（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     mut unowned_env: EnvUnowned<'_>,
@@ -3307,7 +3310,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     })
 }
 
-/// 当前单元格高度（像素，取自渲染器的字体管线）。
+/// 当前单元格高度（字号单位，同 [getCellWidth]；行高经过 `.ceil()`，对字号非线性）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
     mut unowned_env: EnvUnowned<'_>,
@@ -3502,39 +3505,64 @@ mod clipboard_read_flood_tests {
 mod font_size_cap_tests {
     use super::{ATLAS_SIZE, font_size_cap_sp, is_font_size_selectable};
 
-    /// Kotlin `SettingsRepository.fontSizeMaxSp`：Termux 的 256px 上限按 sp 步长 2 向下取整。
+    /// Kotlin `SettingsRepository.fontSizeMaxSp` 的**权威取值**，即 Termux 自身的
+    /// 公开常量：像素上限 256、调整步长 2sp、下限 4sp。这里刻意写死外部数值而非
+    /// 复刻 Kotlin 公式——后者会随 Kotlin 侧一起漂移，就等于没测。
+    const TERMUX_MAX_PX: f32 = 256.0;
+    const TERMUX_STEP_SP: f32 = 2.0;
+    const SLIDER_MIN_SP: f32 = 4.0;
+
+    /// Termux 的可选上界（sp）：256px 换算后按步长向下取整。
     fn termux_selectable_max_sp(raster_scale: f32) -> f32 {
-        ((256.0 / raster_scale / 2.0).floor() * 2.0).max(6.0)
+        let raw = TERMUX_MAX_PX / raster_scale;
+        let stepped = (raw / TERMUX_STEP_SP).floor() * TERMUX_STEP_SP;
+        stepped.max(SLIDER_MIN_SP + TERMUX_STEP_SP)
     }
 
-    #[test]
-    fn cap_is_the_atlas_edge_expressed_in_sp() {
-        // 上界的来源是图集边长本身：cap_sp × raster_scale 恰好等于图集边长。
-        for raster_scale in [1.0, 2.0, 2.625, 3.0, 3.4125, 4.0] {
-            let cap = font_size_cap_sp(raster_scale);
-            assert!(
-                (cap * raster_scale - ATLAS_SIZE as f32).abs() < 0.5,
-                "raster_scale={raster_scale} 的上界换回像素应等于图集边长 {ATLAS_SIZE}，实得 {}",
-                cap * raster_scale
-            );
-        }
+    /// `coerceSpToPxScale` 允许的全系数区间（对应 Kotlin 的
+    /// `TerminalRuntime.MIN/MAX_RASTER_SCALE`）。写死字面量而非引用 Kotlin：
+    /// Rust 侧看不到那个常量，而复刻它的计算只会让两边一起漂移——这里要的就是
+    /// 「区间端点变了，本测试立刻失败」。
+    const RASTER_SCALE_MIN: f32 = 0.5;
+    const RASTER_SCALE_MAX: f32 = 8.0;
+    const RASTER_SCALE_SAMPLES: usize = 64;
+
+    /// 在合法区间内取第 `i` 个采样系数（含两端）。
+    fn sampled_scale(i: usize) -> f32 {
+        RASTER_SCALE_MIN
+            + (RASTER_SCALE_MAX - RASTER_SCALE_MIN) * i as f32 / RASTER_SCALE_SAMPLES as f32
     }
 
     #[test]
     fn cap_never_rejects_a_selectable_font_size() {
         // 核心不变量：滑块能划到的每个字号，原生都必须接受。
         // 图集一旦缩小到接近 256px，这条即失效——那正是「范围与实际可设置范围不一致」。
-        for raster_scale in [0.75, 1.0, 1.5, 2.0, 2.625, 3.0, 4.0] {
-            let cap = font_size_cap_sp(raster_scale);
-            let selectable_max = termux_selectable_max_sp(raster_scale);
+        for i in 0..=RASTER_SCALE_SAMPLES {
+            let scale = sampled_scale(i);
+            let cap = font_size_cap_sp(scale);
+            let selectable_max = termux_selectable_max_sp(scale);
             assert!(
                 is_font_size_selectable(selectable_max, cap),
-                "raster_scale={raster_scale}：滑块上界 {selectable_max}sp 超过原生上界 {cap}sp"
+                "raster_scale={scale}：滑块上界 {selectable_max}sp 超过原生上界 {cap}sp"
             );
-            // 滑块下界 4sp 也必须被接受。
             assert!(
-                is_font_size_selectable(4.0, cap),
-                "raster_scale={raster_scale}：原生拒绝滑块下界 4sp"
+                is_font_size_selectable(SLIDER_MIN_SP, cap),
+                "raster_scale={scale}：原生拒绝滑块下界 {SLIDER_MIN_SP}sp"
+            );
+        }
+    }
+
+    #[test]
+    fn cap_is_the_atlas_edge_expressed_in_sp() {
+        // 上界的定义式：cap_sp × raster_scale 恰为图集边长。改 ATLAS_SIZE 或改推导
+        // 方式（例如退回某个魔数）都会让这条失败——它是「上界来自图集」这一说法的检验。
+        for i in 0..=RASTER_SCALE_SAMPLES {
+            let scale = sampled_scale(i);
+            let cap = font_size_cap_sp(scale);
+            assert!(
+                (cap * scale - ATLAS_SIZE as f32).abs() < 0.5,
+                "raster_scale={scale}：上界换回像素应等于图集边长 {ATLAS_SIZE}，实得 {}",
+                cap * scale
             );
         }
     }
@@ -3542,7 +3570,7 @@ mod font_size_cap_tests {
     #[test]
     fn non_finite_and_non_positive_sizes_are_rejected() {
         let cap = font_size_cap_sp(1.0);
-        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             assert!(
                 !is_font_size_selectable(bad, cap),
                 "非法字号 {bad} 竟被接受"

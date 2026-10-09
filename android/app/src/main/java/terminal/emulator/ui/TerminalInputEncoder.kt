@@ -21,6 +21,9 @@ object TerminalInputEncoder {
      * 分支——该分支对导航键无定义，会回退成任意字符（实测提交后无换行，
      * 文本与下一条命令粘连）。
      */
+    // 这三个是全部表示回车的公开码：主回车、小键盘回车、方向键中心。
+    // （`KEYCODE_ISO_ENTER` 是 SDK 隐藏常量，编译期不可用；它只在 ISO 键盘
+    // 硬件上出现，Android 自带的虚拟键盘不发。）
     val enterKeyCodes: Set<Int> =
         setOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER)
 
@@ -30,12 +33,18 @@ object TerminalInputEncoder {
      * 输入法的回车键走 `commitText("\n")`（多行字段）或 `sendKeyEvent(ENTER)`
      * 两条路径，前者必须在此归一为 CR(0x0D)：终端的回车是 CR，LF 在 raw 模式的
      * TUI 应用（helix/vim/less）里被读成 Ctrl+J 即字母 j（见
-     * [escapeSequenceForKeyCode] 的同一说明）。多字符提交（拼音候选、滑行输入、
-     * 输入法内部粘贴）里的换行是**内容本身**，逐字保留——那是 bracketed paste
-     * 的语义，把回车替换成 LF 会让多行粘贴粘到一行。
+     * [escapeSequenceForKeyCode] 的同一说明）。
+     *
+     * 只归一**孤立**的 `"\n"`：多字符提交（拼音候选、滑行输入、输入法内部粘贴）
+     * 里的换行逐字保留，否则多行粘贴会粘成一行。注意这不是 bracketed paste——
+     * 本仓从不发 `ESC[200~`，故多行提交在 helix 里**仍是 Ctrl+J**；真正该由粘贴
+     * 路径解决的 bracketed paste 尚未实现，此处不假装覆盖。
      */
     fun encodeCommittedText(text: String, ctrlActive: Boolean, altActive: Boolean): ByteArray {
         val bytes = mutableListOf<Byte>()
+        // 修饰键状态不参与归一：输入法提交的换行没有可用的修饰语义（IME 只给出
+        // 一个 `"\n"`，无从得知按了 Ctrl+Alt），故只能按裸回车发出。这与硬件回车
+        // 路径按修饰键发 CSI 序列不同，但后者拿得到修饰信息，不构成同一手势的分叉。
         if (text == "\n") return byteArrayOf(CARRIAGE_RETURN_BYTE)
         // Ctrl 转换只适用于单个字符（即真实的 Ctrl+X 按键）。
         // 多字符输入法提交——拼音候选、滑行输入、输入法内部粘贴、自动补全
