@@ -1961,6 +1961,22 @@ const ALT_SCREEN_ACTIVE_BIT: i64 = 1 << 54;
 /// 未知哨兵、失效位为 0——与本导出文档声明的出错位形一致。
 const RENDER_SAMPLE_FAILURE_BITS: i64 = 0xFFFF_FFFF | (LAST_CONTENT_ROW_NONE_BITS << 43);
 
+/// 把一帧的采样拼成上报位。
+///
+/// 抽成纯函数是为了让「保留位 33..42 MUST 为 0」这条不变量可测：直接在导出里写
+/// `| (a << 32) | (b << 43) | …` 时，任何人加进一个新字段都可能悄悄落进保留位，
+/// 而 Kotlin 侧不读那 10 位，于是没有任何一侧的测试会红。
+#[must_use]
+fn pack_render_sample(
+    count: i64,
+    new_output: i64,
+    content_row_bits: i64,
+    surface_invalidated: i64,
+    alt_screen_active: i64,
+) -> i64 {
+    count | (new_output << 32) | (content_row_bits << 43) | surface_invalidated | alt_screen_active
+}
+
 /// 把已渲染帧缓存的单元数据映射为上报位：视口全空时回未知哨兵，否则取视口内
 /// 最后一个有内容的行（`cell_builder::last_content_row`）。
 fn last_content_row_bits_for_frame(
@@ -2059,11 +2075,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
                 .as_ref()
                 .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
         ) * SURFACE_INVALIDATED_BIT;
-        (new_output << 32)
-            | (content_row_bits << 43)
-            | surface_invalidated
-            | alt_screen_active
-            | (count as i64 & 0xFFFF_FFFF)
+        pack_render_sample(
+            count as i64 & 0xFFFF_FFFF,
+            new_output,
+            content_row_bits,
+            surface_invalidated,
+            alt_screen_active,
+        )
     })
 }
 
@@ -3588,25 +3606,72 @@ mod font_size_cap_tests {
 
 #[cfg(test)]
 mod render_sample_bits_tests {
+    use super::pack_render_sample;
+
+    /// 位 33..42：已删除的光标行位形，保留 MUST 恒为 0。
+    const RESERVED_ROW_BITS: i64 = 0x3FF << 33;
+
+    /// 位 33..42 之外全部在用的位（计数 0..31、输出 32、内容下沿 43..52、
+    /// 失效 53、备用屏 54）。它与保留位相交为空即证明没有任何字段占用 33..42。
+    const ALLOCATED_SAMPLE_BITS: i64 = 0xFFFF_FFFF
+        | (1 << 32)
+        | (super::LAST_CONTENT_ROW_NONE_BITS << 43)
+        | super::SURFACE_INVALIDATED_BIT
+        | super::ALT_SCREEN_ACTIVE_BIT;
+
     #[test]
-    fn reserved_bit_33_to_42_stays_zero() {
-        // 33..42 是已删除的光标行位形，保留 MUST 恒为 0：有人重新启用该字段时，
-        // Kotlin 侧不读它，也没有任何测试会判红——这里就是那道闸。
+    fn no_allocated_field_overlaps_the_reserved_row_bits() {
+        // 位 33..42 是已删除的光标行位形。Kotlin 侧不读它，故一旦有字段落进去，
+        // 两侧都不会判红——这里是唯一的闸。
         assert_eq!(
-            super::RENDER_SAMPLE_FAILURE_BITS >> 33 & 0x3FF,
+            ALLOCATED_SAMPLE_BITS & RESERVED_ROW_BITS,
             0,
-            "保留位 33..42 不得带上任何值",
+            "已分配字段与保留位 33..42 重叠",
         );
-        assert_eq!(
-            super::ALT_SCREEN_ACTIVE_BIT >> 33 & 0x3FF,
-            0,
-            "备用屏位不得落进保留位",
+    }
+
+    #[test]
+    fn packing_never_sets_the_reserved_row_bits() {
+        // 直接对**打包表达式**取值，而不是对常量：逐字段取遍有标志与哨兵的组合。
+        for count in [0i64, -1, 7] {
+            for new_output in [0i64, 1] {
+                for content in [0i64, 5, super::LAST_CONTENT_ROW_NONE_BITS] {
+                    for surface in [0i64, super::SURFACE_INVALIDATED_BIT] {
+                        for alt in [0i64, super::ALT_SCREEN_ACTIVE_BIT] {
+                            let packed = pack_render_sample(
+                                count & 0xFFFF_FFFF,
+                                new_output,
+                                content,
+                                surface,
+                                alt,
+                            );
+                            assert_eq!(
+                                packed & RESERVED_ROW_BITS,
+                                0,
+                                "保留位 33..42 被污染：count={count} new_output={new_output} content={content} surface={surface} alt={alt}",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn packed_fields_reach_their_own_bits() {
+        // 反向：每个字段确实出现在自己的位上（纯 0 打包恒真，故要非 0 输入）。
+        let packed = pack_render_sample(
+            7,
+            1,
+            5,
+            super::SURFACE_INVALIDATED_BIT,
+            super::ALT_SCREEN_ACTIVE_BIT,
         );
-        assert_eq!(
-            super::SURFACE_INVALIDATED_BIT >> 33 & 0x3FF,
-            0,
-            "失效位不得落进保留位",
-        );
+        assert_eq!(packed & 0xFFFF_FFFF, 7);
+        assert_eq!(packed >> 32 & 0x1, 1);
+        assert_eq!(packed >> 43 & 0x3FF, 5);
+        assert_eq!(packed >> 53 & 0x1, 1);
+        assert_eq!(packed >> 54 & 0x1, 1);
     }
 
     #[test]

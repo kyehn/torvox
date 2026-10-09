@@ -525,14 +525,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 applySurfaceResizeNow(width, height)
                 return
             }
-            // 防抖窗内被替换的 runnable 永不执行，它领到的那次暂停也就永不归还，
-            // 故取消时必须先归还（见 [RenderPauseLedger.releaseAndCancel]）。
-            // `onSizeChanged` 与 `surfaceChanged` 常在同一帧用同一尺寸各调一次本方法，
-            // 正是这条替换路径的常见触发。
+            // 顺序 MUST 是「先领新的、再归还旧的」：两者都持有时 ledger 的持有者数
+            // 走 1 → 2 → 1，全程不落到 0，因而不发出任何恢复/暂停回调。反过来
+            // （先归还再领）会让它经过 0，每个替换帧都产生一对多余的
+            // `setRenderPaused(false)`/`(true)`，与「备用屏重排期间不出帧」冲突，
+            // 还多出两次 JNI 往返。
+            //
+            // 被 `removeCallbacks` 丢弃的 runnable 永不执行，它领到的那次暂停必须在此
+            // 归还（见 [RenderPauseLedger.releaseAndCancel]）；`onSizeChanged` 与
+            // `surfaceChanged` 常在同一帧用同一尺寸各调一次本方法，正是这条替换路径的
+            // 常见触发。
+            val token = pauseLedger.acquire()
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize = null
             pendingSurfaceResizeToken?.let { pauseLedger.releaseAndCancel(it) }
-            pendingSurfaceResizeToken = pauseLedger.acquire()
+            pendingSurfaceResizeToken = token
             pendingSurfaceResize =
                 Runnable {
                     pendingSurfaceResize = null
@@ -1207,8 +1214,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L
 
-        // 350ms 关闭动画
-        private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms 稳定窗
+        /**
+         * 稳定窗：输入法动画或 Surface 尺寸抖动期间逐帧到达的事件，攒够 3 帧（≈48ms）
+         * 无变化才认为到达稳定。
+         *
+         * 同时用于两处：交换链重配置的防抖（防抖窗内暂停渲染）与输入法网格重排的防抖。
+         * 3 帧是取舍：更短则在候选栏闪烁时会漏掉最终的稳定高度，更长则键盘弹出后
+         * 全屏 TUI 多等几帧才重排。
+         */
+        private const val IME_RESIZE_DEBOUNCE_MS = 48L
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
 
         // 单次触摸手势转发的滚轮行数上限：无界 repeat 会在主线程逐行同步
@@ -1435,19 +1449,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 无闪烁）。但重排本身 MUST 仍然发生：离开备用屏时（键盘可能仍展开）网格要
         // 按整屏高度复原，此时 `imeGridReserve()` 自然为 0。若在这里一并跳过，
         // PTY 会停留在被输入法缩小后的行数，且此后无任何自愈触发点。
-        // 取消旧的 runnable MUST 在决定是否领新的暂停**之前**（见 applySurfaceResize
-        // 的说明）：这里两者并不总相等——防抖窗内备用屏状态可能翻转，旧的持一次而新的
-        // 不持，差值必须先归还。
+        // 先领新的、再归还旧的（理由见 applySurfaceResize）：两者都持有时持有者数
+        // 走 1 → 2 → 1，全程不落到 0，不发出多余的恢复/暂停回调。防抖窗内备用屏状态
+        // 可能翻转，旧的持一次而新的不持——那种情况下持有者数 1 → 1 → 0，恰好发一次
+        // 恢复，是正确的。
+        //
+        // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
+        val token = if (runtime.altScreenActiveFlow.value) pauseLedger.acquire() else null
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize = null
         pendingImeGridResizeToken?.let { pauseLedger.releaseAndCancel(it) }
-        // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
-        pendingImeGridResizeToken = if (runtime.altScreenActiveFlow.value) {
-            pauseLedger.acquire()
-        } else {
-            null
-        }
-        val token = pendingImeGridResizeToken
+        pendingImeGridResizeToken = token
         pendingImeGridResize =
             Runnable {
                 pendingImeGridResize = null
@@ -1479,22 +1491,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 无条件恢复渲染，并作废两个在途防抖持有的暂停。
      *
      * 用于「我们等的那件事已经发生，不必再等」的入口：Surface 重建成功
-     * （[postDelayedSurfaceRecreate]）、交换链重配置完成（[ResizeManager.applySurfaceResizeNow]）、
+     * （[postDelayedSurfaceRecreate]）、交换链重配置完成（[ResizeManager.applyResizeNormal]）、
      * Surface 重新交付（[surfaceCreated]）。这些入口本就必须立刻出一帧（否则黑屏），
      * 此时继续挂着防抖暂停只会让本已就绪的缓冲不显示。
      *
-     * MUST 同时取消在途防抖：它们闭包里各自持着「归还一次」的凭证，留着就会在
-     * 作废之后新暂停被领起时把**别人的**那一次减掉（陈旧防抖归还别人的暂停 = 提前
-     * 放开仍在等稳定尺寸的那个）。
+     * 交换链防抖 MUST 一并取消：它等的正是「尺寸稳定」，而本函数的前提就是稳定已达成。
+     * 输入法网格防抖 MUST NOT 取消——它的动作（[ResizeManager.applyGridResize]）不碰
+     * 交换链，且 [postDelayedSurfaceRecreate] 那条路径后面没有 `applyGridResize` 补做，
+     * 取消了就只剩等下一次 insets 变化才自愈；改为只作废它的凭证，让 runnable 照常
+     * 执行（陈旧归还已是空操作）。
      */
     private fun forceResumeRendering() {
         pendingSurfaceResize?.let { removeCallbacks(it) }
         pendingSurfaceResize = null
-        pendingImeGridResize?.let { removeCallbacks(it) }
-        pendingImeGridResize = null
         pendingSurfaceResizeToken = null
         pendingImeGridResizeToken = null
         pauseLedger.reset()
+        // 无条件出一帧：本函数的所有调用点都刚拿到可用 Surface。直接写运行期而不走
+        // ledger ——ledger 只对自己的持有负责，而这里要覆盖的是别的持有者
+        // （切后台等）留下的全局暂停标志。
+        viewModel?.runtime?.setRenderPaused(false)
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
@@ -2321,8 +2337,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 持续重试 detach+attach 的交换链重建直到 holder 重新有效，
      * 然后解除暂停 + 恢复 + 强制渲染一帧。
      *
-     * 重试链必须挂在字段上才能被取消：它每次尝试都会 `setRenderPaused(false)`
-     * + `resumeRendering()`，一旦跨越 ON_PAUSE 就会撤销宿主刚请求的暂停，
+     * 重试链必须挂在字段上才能被取消：它每次尝试都会 `forceResumeRendering()`
+     * （内含 `setRenderPaused(false)`）+ `resumeRendering()`，一旦跨越 ON_PAUSE 就会撤销宿主刚请求的暂停，
      * 在已被回收的 BufferQueue 上继续渲染。且每次重试都是新 lambda，
      * 即便有字段也要由本函数自己重排。
      */

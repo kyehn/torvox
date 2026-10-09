@@ -28,29 +28,6 @@ Column + 修饰键栏 + 搜索层），主线程动画帧成本随 UI 树规模�
 - **WHEN** BACK 隐藏输入法
 - **THEN** 修饰键栏随动画逐帧下移回到底部，不出现滞留或迟跳
 
-### Requirement: 终端与修饰键栏位移同源同帧
-
-输入法弹出时终端 Surface 与修饰键栏 MUST 只以**同一个**合成 ime 状态为唯一位移来源，
-且两个位移值 MUST 在**同一帧 placement** 中求值。两者 MUST NOT 各自持有独立位移来源
-（叶节点 vs view 监听、后写覆盖）：两个位移源取值不一致（如一个跟随 live insets、
-另一个跟随 settled 值）即表现为持续闪烁；写入布局状态位于 insets dispatch 遍历内
-即构成自激振荡。键栏覆盖在 Surface 底部，其高度已由网格按同一口径预留，故位移
-不改变 Surface 尺寸，网格不重排、无 SIGWINCH。
-
-#### Scenario: 键栏底边恒等于键盘顶边
-
-- **WHEN** 键盘弹出完成定居
-- **THEN** 修饰键栏底边像素与键盘顶边像素相等（同屏实测 `y=1516/1517` 相接），
-      无空隙无重叠
-
-#### Scenario: 位移源唯一
-
-- **WHEN** 键盘动画期间
-- **THEN** insets 仅由 `WindowImeBottomPx` 叶节点与 `rootWindowInsets` 轮询取大者写入
-      `imeBottomPx`，位移经 placement 期 offset/布局 lambda 应用；MUST NOT 再挂
-      SurfaceView 的 `OnApplyWindowInsetsListener`——它在 insets dispatch 遍历中读到
-      尚未更新的 `ime=0`，写入布局状态又触发新一轮 dispatch，形成自激振荡
-
 ### Requirement: 终端位移按内容下沿裁剪
 
 输入法弹出时终端 Surface 的位移量 MUST 等于「键盘遮住且放不下的内容高度」，
@@ -80,17 +57,6 @@ MUST 取「视口内最后一个有内容的行」下沿（空格/制表/NUL 不
 - **THEN** 内容下沿仍取自渲染帧的视口内容（有内容时 shift = imeBottom），
       MUST NOT 因无光标坐标而退化为整体平移或零位移
 
-### Requirement: 位移源不得自激振荡
-
-键入/隐藏动画期间位移值 MUST 收敛静止。写入布局状态 MUST NOT 位于会反过来触发
-该写入的回调内（insets dispatch 遍历），否则构成反馈环。
-
-#### Scenario: 定居后位移静止
-
-- **WHEN** 键盘保持打开并持续输出
-- **THEN** 连续 8 帧截图中，修饰键栏所在条带逐帧一致；差异只允许出现在系统状态栏
-      时钟等无关区域（MUST NOT 出现键栏条带整块跳变）
-
 ### Requirement: 位移不经组合往返
 
 键盘动画逐帧 insets 变化 MUST NOT 触发主组合整屏重组，且终端 Surface 的位移 MUST NOT
@@ -103,6 +69,51 @@ MUST 取「视口内最后一个有内容的行」下沿（空格/制表/NUL 不
 
 遮挡高度 MUST 按每一帧派发的最新值更新，MUST NOT 存在「静置 N 帧后冻结」的节流：
 冻结会让隐藏动画在静置瞬间跳变。
+
+#### Scenario: 主线程被渲染阻塞时位移仍即时
+
+- **WHEN** 每帧绘制都阻塞在等待渲染线程，且输入法在弹出
+- **THEN** 终端 Surface 的平移量在 insets 派发的同一拍内生效，不等组合重组
+
+### Requirement: 位移来源唯一且生效时刻可不同
+
+输入法弹出时终端 Surface 与修饰键栏 MUST 只以**同一个**输入法遮挡高度为唯一位移
+来源（`imeInsetFlow`：由 `TerminalSurface` 的平台 insets 派发发布，两者都读它）。
+两者 MUST NOT 各自持有独立位移来源（叶节点 vs view 监听、后写覆盖）：两个位移源
+取值不一致（如一个跟随 live insets、另一个跟随 settled 值）即表现为持续闪烁。
+
+生效时刻 MUST NOT 要求相同：终端 Surface 由视图属性承担，在 insets 回调内同一拍
+生效；键栏由组合 `offset` 承担，要等一次重组。键栏覆盖在 Surface 底部，其高度已由
+网格按同一口径预留，故位移不改变 Surface 尺寸，主屏网格不重排。
+
+#### Scenario: 键栏底边恒等于键盘顶边
+
+- **WHEN** 键盘弹出完成定居
+- **THEN** 修饰键栏底边像素与键盘顶边像素相等（同屏实测 `y=1516/1517` 相接），
+      无空隙无重叠
+
+#### Scenario: 位移源唯一
+
+- **WHEN** 键盘动画期间
+- **THEN** insets 仅由 `TerminalSurface` 上的 `OnApplyWindowInsetsListener` 读取并
+      发布到 `imeInsetFlow`，终端 Surface 的位移直接写 `translationY`；MUST NOT
+      另有组合叶节点读取或 `rootWindowInsets` 轮询
+
+### Requirement: 位移写入不得触发新的 insets 派发
+
+键入/隐藏动画期间位移值 MUST 收敛静止。insets 派发回调内 MUST NOT 写入会反过来
+触发该派发的状态（组合/布局状态会经重组再触发一轮派发，构成反馈环）；写**视图属性**
+与运行期的 StateFlow 不触发派发，是该回调内允许的写入。
+
+#### Scenario: 定居后位移静止
+
+- **WHEN** 键盘保持打开并持续输出
+- **THEN** 连续 8 帧截图中，修饰键栏所在条带逐帧一致；差异只允许出现在系统状态栏
+      时钟等无关区域（MUST NOT 出现键栏条带整块跳变）
+
+### Requirement: 动画期间键栏逐帧跟随
+
+键盘动画逐帧 insets 变化 MUST NOT 触发主组合整屏重组，位移 MUST 随每一帧派发更新。
 
 #### Scenario: 动画帧只有键栏重组
 
