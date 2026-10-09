@@ -1,3 +1,0 @@
-# 语料是字节内容本身：行尾 CR 与残缺转义序列属于语料语义，
-# 不得被换行规范化改写。
-native/src/terminal/testdata/** -text

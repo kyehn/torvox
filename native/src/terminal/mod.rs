@@ -18,8 +18,6 @@ pub use session::ThemeConfig;
 pub mod shell_env;
 
 #[cfg(test)]
-pub(crate) mod snapshot_test;
-#[cfg(test)]
 pub(crate) mod test_helpers;
 
 #[cfg(test)]

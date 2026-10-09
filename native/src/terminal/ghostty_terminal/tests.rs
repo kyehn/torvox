@@ -848,8 +848,6 @@ fn cell_snapshot_clone() {
         foreground: [1.0, 0.0, 0.0, 1.0],
         background: [0.0, 0.0, 0.0, 1.0],
         underline_color: [1.0, 0.0, 0.0, 1.0],
-        foreground_is_default: false,
-        background_is_default: false,
         bold: true,
         dim: false,
         italic: false,
