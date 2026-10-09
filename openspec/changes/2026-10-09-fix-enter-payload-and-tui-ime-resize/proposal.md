@@ -135,5 +135,7 @@
   `Query::KeyEncode` / `key_encode` 通道没有任何生产调用方——按键编码早已全部由 Kotlin
   的 `TerminalInputEncoder` 完成（`Bridge.processKeyEvent` 不查该通道）。它带着 300 行
   键码映射与 130 行断言，等于用高成本测试守护不可达路径。故连同该通道一起删除
-  （净减 671 行），而非继续加固。真正需要全表断言的是 Kotlin 侧的 `escapeSequenceForKeyCode`
-  与 `enterKeyCodes`，它们有生产调用方且由 `TerminalInputEncoderTest` 覆盖。
+  （净减 671 行），而非继续加固。真正有生产调用方的按键编码路径是 Kotlin 侧的
+  `TerminalInputEncoder`，它已由 `TerminalInputEncoderTest` 的 49 个用例覆盖到全表
+  （F1–F12、回车三键码、四方向键在 DECCKM 两种模式下的 CSI/SS3、Home/End/PageUp/
+  PageDown/Del/Insert 的带修饰形式），不需要再补。
