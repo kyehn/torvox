@@ -328,10 +328,10 @@ constructor(
      * 输入法遮挡高度（px，已扣除系统导航条），由持有 `SurfaceView` 的
      * `TerminalSurface` 在平台 insets 派发回调里发布（见其 `installImeInsetListener`）。
      *
-     * 走 StateFlow 而非回调/轮询：派发回调里的直接状态写入不触发重组（实测
-     * `ImePopupPixelInstrumentedTest` 环境里回调已执行、状态已变，组合却再未求值），
-     * 而本运行期的其他流（如 `altScreenActiveFlow`）发布后重组可靠。备用屏网格
-     * 重排仍在回调里同步发起——它不依赖组合。
+     * 走 StateFlow 而非回调：重组在主线程被渲染阻塞时不可靠（实测每 300ms 写一次
+     * 组合状态，20 次才换来一次重组），故终端 Surface 的位移改走自身 `translationY`；
+     * 本流只服务键栏——它是纯组合覆盖层，没有别的办法。备用屏网格重排不读组合，
+     * 直接调 [imeGridReserve]。
      */
     private val imeInsetFlowInternal = MutableStateFlow(0)
     val imeInsetFlow: StateFlow<Int> = imeInsetFlowInternal.asStateFlow()

@@ -28,8 +28,8 @@ import terminal.emulator.waitForTerminalPixels
  * 下半屏永远不可见——状态行消失、光标可能落在被遮住的几行里，而应用收不到
  * SIGWINCH 也不会重排。历史上只断言「不位移」，等于替「保持不可见」背书。
  *
- * 断言读的是 PTY 网格（`getGridRowsColsPacked`）与原生单元格度量：失败必然指向
- * 本仓的网格公式或输入路径，而不是复述被测函数。
+ * 网格断言读的是 PTY 网格（`getGridRowsColsPacked`），预期值则由平台量得的输入法
+ * 高度、导航条高度、Surface 高度与单元格高按网格公式独立算出——不是复述被测函数。
  */
 @RunWith(JUnit4::class)
 class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
@@ -342,9 +342,9 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                 "AltScreenIme",
                 "rows $rowsBefore -> $rowsWithIme (cellH=$cellHeight bar=$barPx ime=$imeHeight)",
             )
-
-            hideImeAndAwaitRows(rowsBefore)
         } finally {
+            // 顺序与另两个用例一致：先收起键盘（并确认网格真的复原），再离开备用屏。
+            hideImeAndAwaitRows(rowsBefore)
             NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
         }
     }

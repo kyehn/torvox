@@ -3298,7 +3298,7 @@ fn cell_metric_dim(pick: impl FnOnce((f32, f32)) -> f32) -> f32 {
     pick(render_state.font_pipeline.cell_metrics())
 }
 
-/// 当前单元格宽度（像素，取自渲染器的字体管线）。
+/// 当前单元格宽度（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     mut unowned_env: EnvUnowned<'_>,
@@ -3310,7 +3310,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     })
 }
 
-/// 当前单元格高度（像素，取自渲染器的字体管线）。
+/// 当前单元格高度（字号单位，同 [getCellWidth]；行高经过 `.ceil()`，对字号非线性）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
     mut unowned_env: EnvUnowned<'_>,
@@ -3553,14 +3553,18 @@ mod font_size_cap_tests {
     }
 
     #[test]
-    fn atlas_edge_is_far_above_the_selectable_ceiling() {
-        // 上界的来源是图集边长：换回像素必须仍是图集边长，且在最大系数下
-        // 仍远高于 Termux 的像素上限（这正是上一条不变量成立的原因）。
-        let cap = font_size_cap_sp(RASTER_SCALE_MAX);
-        assert!(
-            cap * RASTER_SCALE_MAX > TERMUX_MAX_PX * 2.0,
-            "图集 {ATLAS_SIZE}px 在最大系数 {RASTER_SCALE_MAX} 下换算出的字号上限 {cap}sp 未留出两倍余量"
-        );
+    fn cap_is_the_atlas_edge_expressed_in_sp() {
+        // 上界的定义式：cap_sp × raster_scale 恰为图集边长。改 ATLAS_SIZE 或改推导
+        // 方式（例如退回某个魔数）都会让这条失败——它是「上界来自图集」这一说法的检验。
+        for i in 0..=RASTER_SCALE_SAMPLES {
+            let scale = sampled_scale(i);
+            let cap = font_size_cap_sp(scale);
+            assert!(
+                (cap * scale - ATLAS_SIZE as f32).abs() < 0.5,
+                "raster_scale={scale}：上界换回像素应等于图集边长 {ATLAS_SIZE}，实得 {}",
+                cap * scale
+            );
+        }
     }
 
     #[test]

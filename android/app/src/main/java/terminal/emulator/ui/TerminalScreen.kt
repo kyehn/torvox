@@ -143,10 +143,9 @@ fun TerminalScreen(
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
     // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用
     // （修饰键栏布局不可配置，故没有 KEYBOARD 附加键，见 PROHIBITED 的布局编辑器禁令）。
-    // 可见性在轻点时从已挂载的 window insets 同步读取
-    // ——绝不用 TerminalSurface.lastImeBottom：对于托管在 Compose AndroidView 中的
-    // SurfaceView，其 SurfaceView.onApplyWindowInsets 回调不可靠，
-    // 会使 imeVisible 永远陈旧（false），把切换退化为只能显示。
+    // 可见性在轻点时从已挂载的 window insets 同步读取：这里是用户手势，
+    // 允许同步读一次平台状态；而 IME 高度那条链路不行——它必须靠持续派发，
+    // 因为回调里写组合状态不保证被观察到（见 imeInsetFlow 的说明）。
     val toggleKeyboard: () -> Unit = {
         val inputMethodManager =
             context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
@@ -434,10 +433,9 @@ fun TerminalScreen(
             // 高度只有一个来源：终端 Surface 上的平台 insets 派发回调，经运行期
             // `imeInsetFlow` 汇入组合（`TerminalSurface.installImeInsetListener`
             // → `TerminalRuntime.publishImeInsetPx`）。
-            // 此前是两条合成通道——Compose `WindowInsets.ime` 叶节点 + 轮询
-            // `rootWindowInsets`——二者在**同一个**仪器化环境里都恒为 0（实测键盘高
-            // 820px 时两者均为 0），位移因此从未发生。派发是平台自己的分发路径，
-            // 已挂载视图必然收到，且不依赖窗口根视图是否已 attach。
+            // 此前读 Compose `WindowInsets.ime` 叶节点与轮询 `rootWindowInsets` 取
+            // 最大值——两者**取值**都对，失效的是生效时机：那条链路的终点是 insets
+            // 遍历内的组合状态写入，不保证被观察到，故位移从未发生。
             val imeInsetPx by viewModel.runtime.imeInsetFlow.collectAsStateWithLifecycle()
             val runtimeForContent = viewModel.runtime
             // 换视图的触发值必须在此处（组合体自身）读取：读在 `Box` 的内容 lambda 里时，
@@ -696,7 +694,9 @@ fun TerminalScreen(
                 }
 
                 // 键栏覆盖在 Surface 底部（网格已预留其高度），按整块键盘高度上移——
-                // 恒位于输入法上方而不被遮挡（与 Surface 同一个 ime 状态、同一次 placement）。
+                // 恒位于输入法上方而不被遮挡。它与终端 Surface 取同一个 ime 高度
+                // （`imeInsetFlow`），但生效时刻不同：本偏移要等一次重组，
+                // Surface 的 `translationY` 在 insets 派发的同一拍内生效。
                 Box(
                     modifier =
                     Modifier.align(Alignment.BottomCenter)
@@ -805,8 +805,8 @@ fun TerminalScreen(
                         )
                     }
                 }
-            } // 关闭内容盒——终端 Surface 与键栏的位移同源同帧（唯一 ime 状态），
-            // 但平移量按内容下沿裁剪，二者不同值是设计而非双位移源
+            } // 关闭内容盒——终端 Surface 与键栏读同一个 ime 高度，但平移量按内容
+            // 下沿各自裁剪（键栏恒为整块键盘高度），故两者位移值不同是设计而非双位移源
         }
     }
 }

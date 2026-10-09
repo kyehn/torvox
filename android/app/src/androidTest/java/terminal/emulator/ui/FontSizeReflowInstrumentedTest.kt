@@ -13,6 +13,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.runtime.coerceSpToPxScale
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.waitForSession
 
@@ -42,17 +43,30 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
         metrics.widthPixels / metrics.density
     }
 
+    /**
+     * sp→px 系数：走生产用的同一个函数，不自己乘一遍。
+     *
+     * `TerminalRuntime.coerceSpToPxScale` 会把乘积钳到原生接受的区间（0.5..=8.0）；
+     * 测试直接用 `density * fontScale` 时，落在区间外的设备会去测一个调节条
+     * 根本划不到的字号。资源取 activity 的：`fontScale` 可被 Activity 的
+     * configuration 覆写，target context 上读到的未必是屏幕上生效的那个。
+     */
     private fun spToPxScale(): Float {
-        val resources = InstrumentationRegistry.getInstrumentation().targetContext.resources
-        return resources.displayMetrics.density * resources.configuration.fontScale
+        val resources = composeTestRule.activity.resources
+        return coerceSpToPxScale(
+            resources.displayMetrics.density,
+            resources.configuration.fontScale,
+        )
     }
 
     /**
      * 原生侧的网格读数：请求字号、列数、单元格宽/高（后两者取自渲染器的字体管线）。
      *
-     * 比例判据 MUST 用 `cellWidth`：它是字号的**严格线性**量（实测 4sp → 2.4px、
-     * 96sp → 57.6px，正好 24 倍）。`cellHeight` 不线性——同一组数据是 5.0 → 113.0
-     * （22.6 倍），因为行高经过取整与最小值钳制，拿它算预期会得到一个永远对不上的数。
+     * 比例判据 MUST 用 `cellWidth`：它是字号的**严格线性**量
+     * （`cell_width = advance × font_size / upem`，等宽分支无取整；原生日志实测
+     * 4sp → 2.4、96sp → 57.6，正好 24 倍）。`cellHeight` 不线性——同一组数据是
+     * 5.0 → 113.0（22.6 倍），因为行高做了 `.ceil()`，跨量级时偏差累积成百分之几。
+     * 注意这两个读数的量纲是**字号单位**，物理像素还要乘 `spToPxScale`。
      */
     private data class GridMetrics(val sizeSp: Float, val cols: Int, val cellHeight: Float, val cellWidth: Float)
 
@@ -96,7 +110,10 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 if (expectedWidth != null) {
                     kotlin.math.abs(width - expectedWidth) <= kotlin.math.max(0.5f, expectedWidth * 0.02f)
                 } else {
-                    kotlin.math.abs(width - before.cellWidth) > 0.1f
+                    // 已经在目标字号上时不要求宽度变化——否则轮询会空等满超时，
+                    // 把「环境本来就设成该字号」误报成「原生拒收」。
+                    kotlin.math.abs(width - before.cellWidth) > 0.1f ||
+                        kotlin.math.abs(before.sizeSp - targetSizeSp) < 0.01f
                 }
             }
         val settled = readRuntimeMetrics()

@@ -71,20 +71,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable = null
         cancelSurfaceRecreate()
-        // IME 防抖 resume 回调同样持有本视图：detach 恰在防抖窗内则
-        // setRenderPaused(true) 后 resume 丢失，渲染永久暂停。
-        // 直接取消会吞掉配对的 resume——先 resume 再取消。
-        if (pendingSurfaceResize != null) {
-            pendingSurfaceResize?.let { removeCallbacks(it) }
-            pendingSurfaceResize = null
+        // 两个防抖的 resume 回调同样持有本视图：detach 恰在防抖窗内则
+        // pause 之后 resume 丢失，渲染永久暂停。直接取消会吞掉配对的 resume
+        // ——先把持有的暂停全部归还（计数归零），再取消回调。
+        pendingSurfaceResize?.let { removeCallbacks(it) }
+        pendingSurfaceResize = null
+        pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize = null
+        if (resizeRenderPauses > 0) {
+            resizeRenderPauses = 0
             viewModel?.runtime?.setRenderPaused(false)
         }
-        if (pendingImeGridResize != null) {
-            pendingImeGridResize?.let { removeCallbacks(it) }
-            pendingImeGridResize = null
-            viewModel?.runtime?.setRenderPaused(false)
-        }
-        // 同理必须停掉平移量的两个订阅源：它们跑在 viewModelScope 上（跟着宿主而非视图），
+        // 同理必须停掉平移量的订阅源：它们跑在 viewModelScope 上（跟着宿主而非视图），
         // 保留会让旧视图被协程钉住，且 detach 后的备用屏翻转仍会命中
         // scheduleImeGridResize —— 此时 View.postDelayed 落进 mRunQueue，只有重新
         // attach 才被 drain，被丢弃的旧视图永不 attach，于是配对的 setRenderPaused(false)
@@ -94,13 +92,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 位移量与扣减量归零：新视图的首次 insets 派发之前不得保留旧值，
         // 否则 rotation / 换视图后终端会被上一份键盘高度上移。
         appliedImeShiftPx = 0
-        imeInsetPx = 0
         if (translationY != 0f) translationY = 0f
-        // 运行期那两个值也必须归零：它们只由本视图的 insets 派发写入，而新视图的
-        // 首次派发若发生在键盘已收起时，算出的 `reserved` 就是 0，与它自身的
-        // `imeInsetPx` 相等 → 被 `!=` 门控挡下、不再发布，运行期就永久保留旧的
-        // 键盘高度（键栏错位、备用屏网格塌缩且不自愈）。
-        viewModel?.runtime?.publishImeInsetPx(0)
+        // 运行期那份也必须归零：它只由本视图的 insets 派发写入，而新视图（或复用后
+        // 的本视图）的首次派发若发生在键盘已收起时，算出的 `reserved` 就是 0、与它
+        // 自身的 `imeInsetPx` 相等 → 被 `!=` 门控挡下、不再发布，运行期就永久保留
+        // 旧的键盘高度（键栏错位、备用屏网格塌缩且不自愈）。
+        //
+        // 但只在本视图仍是最后一个发布者时才归零：`key(surfaceKey)` 换视图时新旧
+        // 的 detach/attach 先后没有保证，若新视图已发布真实高度 H 而这里再写 0，
+        // 值就停在 0 且门控此后永不触发（键栏下移、备用屏网格恢复整屏行数）。
+        val publishedImeInsetPx = imeInsetPx
+        imeInsetPx = 0
+        viewModel?.runtime?.let { runtime ->
+            if (runtime.imeInsetFlow.value == publishedImeInsetPx) runtime.publishImeInsetPx(0)
+        }
         // 关闭浮动的选区 UI：action mode、选区手柄弹窗与放大镜都持有系统窗口，
         // 会在视图 detach 后继续让本视图（及整条 viewModel 链）存活
         // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
@@ -123,6 +128,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         super.onAttachedToWindow()
         // 同一实例可被重新 attach（见 inputBatchBuffer 注释）：重建已关闭的批缓冲。
         inputBatchBuffer = newInputBatchBuffer()
+        // 订阅必须随 attach 恢复，不能只在 attachViewModel 里建一次：detach 会停掉它们
+        // （见 onDetachedFromWindow 的清理），而视图复用时不会重新走 AndroidView.factory，
+        // 于是 altScreenActiveFlow / lastContentRowFlow / cellMetricsFlow 三条输入全部失联
+        // ——网格再也不重排、主屏位移不再跟随内容。
+        viewModel?.let { observeImeShiftInputs(it) }
     }
 
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
@@ -524,7 +534,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 applySurfaceResizeNow(width, height)
                 return
             }
-            viewModel?.runtime?.setRenderPaused(true)
+            pauseRenderForResize()
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize =
                 Runnable {
@@ -534,7 +544,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 稳定触发可能恰好落在已配置的尺寸上而提前返回、
                     // 来不及执行自身的恢复——故始终在此恢复
                     // （在成功路径上幂等）。
-                    viewModel?.runtime?.setRenderPaused(false)
+                    resumeRenderAfterResize()
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
@@ -1330,12 +1340,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 订阅平台 insets 派发，维护 [imeInsetPx]。
      *
-     * 为什么不用轮询 `rootView.rootWindowInsets`（`TerminalScreen` 的旧做法）：
-     * 仪器化环境下 DecorView 的 `rootWindowInsets` 恒不报 IME（实测键盘高 883px
-     * 时该值仍为 0），Compose 的 `WindowInsets.ime` 叶节点同样恒为 0，于是
-     * 既有输入法跟随位移整体失效（`ImePopupPixelInstrumentedTest` 三个用例在
-     * 该环境下判红：位移=0）。insets 派发是平台自己的分发路径，每个已挂载视图
-     * 必然收到，是这里唯一可靠的来源。
+     * 为什么是派发而非轮询或组合读取：既有实现读 Compose 的 `WindowInsets.ime`
+     * 叶节点并与轮询的 `rootView.rootWindowInsets` 取最大值——两者的**取值**都是
+     * 正确的（`ImePopupPixelInstrumentedTest` 就靠后者读到非零高度），失效的是
+     * **生效时机**：那条链路的终点是 insets 遍历内的组合状态写入，而这样的写入
+     * 不保证被观察到（实测每 300ms 写一次组合状态，20 次才换来一次重组），
+     * 位移因此从未发生（`ImePopupPixelInstrumentedTest` 三个用例即以此判红：
+     * 位移=0）。派发是平台自己的分发路径，已挂载视图必然收到，且回调直接改视图
+     * 属性时在同一拍内生效。
      */
     private fun installImeInsetListener() {
         ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
@@ -1422,14 +1434,37 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // PTY 会停留在被输入法缩小后的行数，且此后无任何自愈触发点。
         val resizes = runtime.altScreenActiveFlow.value
         // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
-        if (resizes) runtime.setRenderPaused(true)
+        if (resizes) pauseRenderForResize()
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize =
             Runnable {
                 pendingImeGridResize = null
                 resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
-                runtime.setRenderPaused(false)
+                if (resizes) resumeRenderAfterResize()
             }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+    }
+
+    /**
+     * 防抖期间持有的渲染暂停**计数**。
+     *
+     * 交换链重配置（[ResizeManager.applySurfaceResize]）与输入法网格重排
+     * （[scheduleImeGridResize]）是两个独立的防抖，各自 pause/resume 一次；而运行期的
+     * `setRenderPaused` 是**非计数**布尔（共享的单一 GPU 渲染器）。两者防抖窗重叠时，
+     * 先结束的那一个会把暂停清掉，另一个仍在等稳定尺寸——陈旧缓冲被拉伸，或
+     * 动画期间终端继续上帧。故必须计数：全部持有者归还后才真正恢复。
+     */
+    private var resizeRenderPauses: Int = 0
+
+    private fun pauseRenderForResize() {
+        viewModel?.runtime?.let {
+            if (resizeRenderPauses++ == 0) it.setRenderPaused(true)
+        }
+    }
+
+    private fun resumeRenderAfterResize() {
+        val runtime = viewModel?.runtime ?: return
+        if (resizeRenderPauses == 0) return
+        if (--resizeRenderPauses == 0) runtime.setRenderPaused(false)
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
