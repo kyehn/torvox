@@ -1181,6 +1181,13 @@ mod tests {
     /// 片段逐条摘自真机 `fonts.xml`：等宽族只一个 `DroidSansMono.ttf`，`serif-monospace`
     /// 是**独立**的具名族（不是别名），zh-Hans 里 Sans 与 Serif 同名同权重并列、
     /// 且 Thin/Light/DemiLight 排在 Regular 之前。
+    ///
+    /// 这份结构还决定真机 SIGABRT 会不会发生：真机 14 个族共声明 37 个文件，其中 7 个
+    /// 在 `/system/fonts/` 里并不存在（`DancingScript-Regular.ttf` 与 OEM 的
+    /// RedMagic/ICN ZDigit 系列）。但等宽族声明非空，所以
+    /// `resolve_system_monospace_files` 绝不会走「fonts.xml 不可用」的 fatal；
+    /// 历史崩溃来自「声明的文件装不进库就按 fonts.xml 解析失败处理」的旧口径，
+    /// 已由 2026-10-01 的降级梯次变更修掉。本用例把「等宽目标非空」这个前置条件钉住。
     #[test]
     fn real_device_fonts_xml_keeps_primary_first_and_drops_serif() {
         const REAL_DEVICE_FONTS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -1197,6 +1204,12 @@ mod tests {
         <font weight="300" style="normal" index="2">NotoSansCJK-DemiLight.ttc</font>
         <font weight="400" style="normal" index="2">NotoSansCJK-Regular.ttc</font>
         <font weight="400" style="normal" index="2" fallbackFor="serif">NotoSerifCJK-Regular.ttc</font>
+    </family>
+    <family lang="und-Zsym">
+        <font weight="400" style="normal">NotoSansSymbols-Regular-Subsetted2.ttf</font>
+    </family>
+    <family>
+        <font weight="400" style="normal">NotoSansSymbols-Regular-Subsetted.ttf</font>
     </family>
 </familyset>"#;
         let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(REAL_DEVICE_FONTS_XML);
@@ -1217,6 +1230,11 @@ mod tests {
         assert!(
             !names.iter().any(|name| name.contains("Serif")),
             "fallbackFor=\"serif\" 的面泄漏进 zh-Hans 候选: {names:?}"
+        );
+        assert_eq!(
+            super::symbol_family_files(REAL_DEVICE_FONTS_XML),
+            vec!["NotoSansSymbols-Regular-Subsetted.ttf"],
+            "真机的符号层同样声明在无 name/lang 的族里"
         );
     }
 

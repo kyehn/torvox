@@ -65,7 +65,32 @@
 
 无。
 
-### Modified Capabilities
+## 用户提供的 logcat 资料结论
+
+对 `logcat_2026-10-07_19-24-06.txt`、`logcat_2026-10-08_06-58-05.txt`、
+`logcat_2026-10-09_00-28-52.txt` 与同批的 `t`/`log`（tombstone）、`f`（字体清单）、
+`s`（fonts.xml）逐份核对：
+
+- **启动 SIGABRT 已定性、且已被既有变更消除。** 栈底是
+  `prefetchRenderState → render_state_mut() → process::abort`——字体库是进程级退出，
+  `jni_export_guard` 与 Kotlin 的 try/catch 都接不住。触发条件是当时的
+  「fonts.xml 声明的字体没装上就按 fonts.xml 不可解析 abort」口径；2026-10-01 的
+  `16484d10` 已把它换成 `select_primary_face` 的降级梯次，只有库内连一个可用面都没有
+  才退出。用用户给的那份真机 `fonts.xml` 复核：该文件 14 个族声明 37 个字体，其中 7 个
+  在 `/system/fonts/` 里并不存在（`DancingScript-Regular.ttf` 与 OEM 的
+  RedMagic/ICN ZDigit 系列），而 monospace 族声明非空，故当前实现不会走 fatal。
+  `font_db.rs` 的 `real_device_fonts_xml_keeps_primary_first_and_drops_serif` 已用这份
+  真实结构钉住该前置条件。
+- **`ERROR_SURFACE_LOST_KHR` 是可自愈的瞬态，不是缺陷。** 三份日志共 8 处，
+  每处都是 `BufferQueue has been abandoned` 之后连续 2 帧取纹理失败，
+  随即打出 `surface invalidated after 2 consecutive acquire failures (480x819)`，
+  下一步 `attach_surface: configured 480x819` 成功重配。现有实现的连续失败阈值
+  （`SURFACE_LOSS_STREAK_LIMIT`）与「单次可自愈、死窗口每帧必失败」的判定一致，
+  恢复路径也已生效，无需改动。
+- **`session 1 transient render error code=-1 (consecutive=0, surviving)`** 是上述
+  判定的记录行：连续数为 0 表示会话存活，渲染线程随后正常恢复。
+
+## Modified Capabilities
 
 - `modifier-bar-sticky-encoding`：回车族载荷 MUST 为 CR，输入法唯一换行提交 MUST
   归一为 CR，多字符提交内的换行 MUST 保留。
