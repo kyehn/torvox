@@ -15,7 +15,8 @@
 2. **全屏 TUI 在输入法弹出时下部永久不可见。** 网格尺寸此前
    `applyGridResize` 刻意不减输入法 inset（`adjustNothing` 下 Surface 尺寸不变），
    备用屏的位移又被 `computeImeSurfaceShift` 强制为 0（防顶部被推出屏幕），
-   于是 helix 仍按整屏行数布局、收不到 SIGWINCH：键盘遮住的 26 行里包含状态行。
+   于是 helix 仍按整屏行数布局、收不到 SIGWINCH：按 45 行的整屏网格算，键盘遮住
+   下方 19 行，状态行正在其中（正确重排后网格缩到 26 行）。
    这是「位移方案」在备用屏上的结构性失配——它只防遮挡，不产生 resize。
    真机日志：键盘弹出前 `45x48`，弹出后本应变为 `26x48`。
 
@@ -127,6 +128,12 @@
 - 其余上游语料均已被消费或清理：alacritty `ref/` 期望值由 alacritty 自己的
   `--ref-test` 生成（自验证），`be2e3a9e` 逐条记录 14/45 的差异且全部落在
   libghostty-vt 与 alacritty 之间；wezterm 的 556K `test-data/` 无任何程序消费者。
-- 可低成本采纳的两项已落地：`keymap` 由抽样 5~13 个 Android 键码改为全表断言；
-  `FontSizeRangeTest` 与新增的 `font_size_cap_tests` 都改为对照外部常量（Termux 的
-  4dip/256px/步长 2、图集边长）而非复述实现公式。
+- 可低成本采纳的两项已落地：`FontSizeRangeTest` 与 `font_size_cap_tests` 都改为
+  对照外部常量（Termux 的 4dip/256px/步长 2、图集边长）而非复述实现公式；实测把
+  原生上界退回旧的 `100.0` 魔数时，`cap_never_rejects_a_selectable_font_size` 判红。
+- 复核中反而发现一处应**删**的资产：原生侧的 `map_android_key_code` /
+  `Query::KeyEncode` / `key_encode` 通道没有任何生产调用方——按键编码早已全部由 Kotlin
+  的 `TerminalInputEncoder` 完成（`Bridge.processKeyEvent` 不查该通道）。它带着 300 行
+  键码映射与 130 行断言，等于用高成本测试守护不可达路径。故连同该通道一起删除
+  （净减 671 行），而非继续加固。真正需要全表断言的是 Kotlin 侧的 `escapeSequenceForKeyCode`
+  与 `enterKeyCodes`，它们有生产调用方且由 `TerminalInputEncoderTest` 覆盖。

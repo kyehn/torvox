@@ -346,10 +346,30 @@ constructor(
      * 它同时是键栏位移的来源（组合经 `imeInsetFlow` 读）与网格扣减量
      * （[imeGridReserve]）。两者 MUST NOT 存成两个可独立修改的副本：detach 只清
      * 视图内那份时，运行期会永久保留旧键盘高度——新视图的首次派发算出 0，与它自身
-     * 的字段相等而被门控挡下，永远不再发布。
+     * 的字段相等而被门控挡下，永远不再发布。故离场方 MUST 经
+     * [clearImeInsetPxIfOwnedBy] 归零，且必须核对发布者而非数值。
      */
-    fun publishImeInsetPx(imeInsetPx: Int) {
+    fun publishImeInsetPx(imeInsetPx: Int, owner: Any) {
         imeInsetFlowInternal.value = imeInsetPx
+        imeInsetOwner = owner
+    }
+
+    /**
+     * 当前输入法遮挡高度的**发布者**（`TerminalSurface` 实例）。
+     *
+     * 同一窗口里的新旧 Surface 看到的是同一个输入法高度，值天然相同，故按值判断
+     * 「我还是不是最后一个发布者」是不可靠的——旧视图 detach 时会把新视图刚发布的
+     * 真实高度覆盖成 0，而新视图的 `reserved != imeInsetPx` 门控此后永不触发，
+     * 键栏错位与备用屏网格塌缩都不自愈。只有记住发布者才能判对。
+     */
+    @Volatile
+    private var imeInsetOwner: Any? = null
+
+    /** 仅当 [owner] 正是最后发布者时归零（该 Surface 正在离场）。 */
+    fun clearImeInsetPxIfOwnedBy(owner: Any) {
+        if (imeInsetOwner !== owner) return
+        imeInsetFlowInternal.value = 0
+        imeInsetOwner = null
     }
 
     /**
