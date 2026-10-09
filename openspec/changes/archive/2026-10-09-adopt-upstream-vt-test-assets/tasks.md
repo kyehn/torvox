@@ -2,7 +2,7 @@
 
 ## 准备
 
-- [x] 导入 ghostty `parser-initial` `stream-initial` `osc-initial` 到 `native/src/terminal/testdata/seeds/`，去除各文件首字节，附带来源与许可说明
+- [x] 导入 ghostty `parser-initial` `stream-initial` `osc-initial` 到 `native/src/terminal/testdata/seeds/`，仅对有选择器的两组去除首字节，附带来源与许可说明
 - [x] 导入 31 份一致的 alacritty 录音到 `native/src/terminal/testdata/conformance/`，附带来源、许可与 14 份差异逐份记录
 - [x] 新增 `.gitattributes`，语料目录整体标记为不做换行规范化
 

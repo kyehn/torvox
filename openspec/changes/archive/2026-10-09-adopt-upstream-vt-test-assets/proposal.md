@@ -22,7 +22,9 @@ Alacritty 各自维护着可直接复用的测试资产：前者为 libghostty-v
 
 - 导入 ghostty `test/fuzz-libghostty/corpus/` 下手写的三组种子语料（`parser-initial`
   `stream-initial` `osc-initial`，共 94 份、实际内容 5.2KB，MIT）：作为「分块写入不变性」
-  测试的输入集。上游各 fuzz 目标的首字节是目标选择器而非 VT 输入，导入时去除并在文档中记录。
+  测试的输入集。其中 `stream-initial` 与 `osc-initial` 的首字节是 fuzz 目标的选择器而非 VT
+  输入，导入时去除；`parser-initial` 的首字节是真实输入（`fuzz_parser.zig` 不使用
+  `input[0]`），逐字节保留。判定依据记录在资产说明中。
 - 导入 alacritty `alacritty_terminal/tests/ref/` 下通过实验比对的 31 份真实应用录音
   （`alacritty.recording`，Apache-2.0）及其由本引擎产生的期望屏幕，纳入语料运行器，
   作为跨引擎一致性锁定。跨引擎语料只断言屏幕文本、光标与尺寸；样式与回滚区另行说明。
