@@ -1,9 +1,0 @@
-{
-  "rows": 29,
-  "cols": 105,
-  "scrollback_limit": 0,
-  "screen": [
-    "jwilm@kurast.local ➜  ~/code/alacritty  cat c",
-    "Cargo.lock  Cargo.toml  colors.pl*  copypasta/"
-  ]
-}

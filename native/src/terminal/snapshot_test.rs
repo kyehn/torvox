@@ -135,36 +135,6 @@ fn row_text(cells: &[CellSnapshot]) -> String {
     text.trim_end().to_string()
 }
 
-/// 空白单元渲染成空格的一行文本，只裁行尾空白。
-///
-/// `row_text` 把未写入单元表示为空串（码位 0），那是本项目快照的存储约定；
-/// 此处保持单元的空格形状，供按字节比对上游语料——上游把未写入单元序列化为
-/// 空格。两者互补，不可互相替代。
-pub(crate) fn row_text_spaced(cells: &[CellSnapshot]) -> String {
-    cells
-        .iter()
-        .map(|cell| {
-            if cell.codepoint == 0 {
-                ' '
-            } else {
-                char::from_u32(cell.codepoint).unwrap_or('?')
-            }
-        })
-        .collect::<String>()
-        .trim_end()
-        .to_string()
-}
-
-/// 可见屏各行的 `row_text_spaced` 取值。
-pub(crate) fn screen_rows_spaced(dumped: &DumpedGrid) -> Vec<String> {
-    (0..dumped.rows as usize)
-        .map(|row| {
-            let start = row * dumped.cols as usize;
-            row_text_spaced(&dumped.visible[start..start + dumped.cols as usize])
-        })
-        .collect()
-}
-
 fn collect_styled(row: u32, cells: &[CellSnapshot], styled: &mut Vec<StyledCell>) {
     for (col, cell) in cells.iter().enumerate() {
         if let Some(entry) = cell_styled(row, col as u32, cell) {
@@ -222,8 +192,7 @@ pub(crate) struct CorpusCase {
     pub expectation: std::path::PathBuf,
 }
 
-/// 扫描语料目录下成对的 `.seq` 与 `.json`，返回用例与未成对文件的问题描述。
-/// 子目录不参与扫描，使 `seeds/` `conformance/` 等独立语料与顶层语料互不干扰。
+/// 扫描给定目录顶层的 `.seq` 与 `.json`，返回用例与未成对文件的问题描述。
 pub(crate) fn corpus_cases(directory: &std::path::Path) -> (Vec<CorpusCase>, Vec<String>) {
     let Ok(entries) = std::fs::read_dir(directory) else {
         return (Vec::new(), Vec::new());

@@ -1,9 +1,0 @@
-{
-  "rows": 32,
-  "cols": 66,
-  "scrollback_limit": 0,
-  "screen": [
-    "[undeadleech@undeadlap alacritty]$ exit",
-    "exit"
-  ]
-}
