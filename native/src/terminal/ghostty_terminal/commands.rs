@@ -123,14 +123,6 @@ pub enum Query {
     TakeKittyPlacements {
         tx: Sender<Vec<KittyPlacementFrame>>,
     },
-    KeyEncode {
-        key_code: u32,
-        modifiers: u16,
-        action: u8,
-        unicode_char: u32,
-        unshifted_char: u32,
-        tx: Sender<Vec<u8>>,
-    },
     /// 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按终端状态选 SGR/X10/UTF-8）。
     /// `position` 为表面像素，`cell_width`/`cell_height` 为实时单元格像素尺寸以便像素→单元映射。
     /// 鼠标上报关闭或编码失败时返回空 Vec。

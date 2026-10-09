@@ -1,14 +1,5 @@
 use super::*;
 use crate::terminal::test_helpers::assert_invariants;
-use libghostty_vt::key::{self};
-
-/// 启用 Kitty 键盘协议，使编码器显式上报修饰键（否则观察不到 SHIFT 被剥离）。
-fn enable_kitty(terminal_under_test: &mut GhosttyTerminal) {
-    terminal_under_test.vt_write(b"\x1b[?u"); // query supported flags
-    terminal_under_test.flush();
-    terminal_under_test.vt_write(b"\x1b[>1u"); // enable progressive enhancement (level 1+)
-    terminal_under_test.flush();
-}
 
 // ── R3: pty_write LF→CRLF idempotency ──────────────────
 
@@ -132,119 +123,6 @@ fn take_snapshot_returns_dims_when_alive() {
     assert_invariants(&snap);
 }
 
-#[test]
-fn key_encode_shift_a_uses_utf8_char() {
-    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    enable_kitty(&mut terminal_under_test);
-    let shift = key::Mods::SHIFT.bits();
-    let out = terminal_under_test
-        .key_encode(29, shift, 0, 0x41, 0x61)
-        .expect("encode");
-    assert!(
-        out.contains(&0x41),
-        "output must contain 'A' (utf8): {out:?}"
-    );
-    assert!(
-        !out.contains(&0x61),
-        "output must NOT contain 'a' (unshifted): {out:?}"
-    );
-    assert_eq!(
-        out,
-        vec![0x41],
-        "Shift+A with stripped shift emits bare 'A': {out:?}"
-    );
-}
-
-/// SHIFT is only stripped when it changed the printed char.
-/// For Enter, the shifted and unshifted char are both 0x0d, so
-/// SHIFT is RETAINED and the Kitty encoder emits a CSI sequence
-/// (proving the strip is conditional, not blanket).
-#[test]
-fn key_encode_shift_enter_keeps_shift() {
-    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    enable_kitty(&mut terminal_under_test);
-    let shift = key::Mods::SHIFT.bits();
-    let out = terminal_under_test
-        .key_encode(66, shift, 0, 0x0d, 0x0d)
-        .expect("encode");
-    assert!(
-        out.starts_with(b"\x1b["),
-        "Shift+Enter must emit a CSI sequence (shift retained): {out:?}"
-    );
-}
-
-/// pure control keys must pass `utf8 = NULL` so the encoder
-/// uses the logical key. The base behaviour (Kitty progressive
-/// enhancement intentionally NOT enabled here) is that Ctrl+A still
-/// reaches the PTY as the control byte 0x01 — the encoder must NOT
-/// silently drop the key, and must NOT embed the C0 byte as a utf8
-/// codepoint (the malformed `1;5u` form).
-#[test]
-fn key_encode_ctrl_a_passes_null_utf8() {
-    let terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    let ctrl = key::Mods::CTRL.bits();
-    let out = terminal_under_test
-        .key_encode(29, ctrl, 0, 0x01, 0)
-        .expect("encode");
-    assert!(
-        !out.is_empty(),
-        "Ctrl+A must produce output (control byte 0x01), not be dropped: {out:?}"
-    );
-    assert!(
-        out.contains(&0x01),
-        "Ctrl+A must emit the control byte 0x01: {out:?}"
-    );
-    let rendered = String::from_utf8_lossy(&out);
-    assert!(
-        !rendered.contains("1;5u"),
-        "Ctrl+A must NOT pass the C0 byte (1) as a utf8 codepoint: {out:?}"
-    );
-}
-
-/// the encoder/event are stored once on `GhosttyTerminal`
-/// and reused. Repeated encodes of the same key must produce
-/// identical output (no per-call state loss from re-allocation).
-#[test]
-fn key_encode_encoder_reused_stable() {
-    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    enable_kitty(&mut terminal_under_test);
-    let shift = key::Mods::SHIFT.bits();
-    let first = terminal_under_test
-        .key_encode(29, shift, 0, 0x41, 0x61)
-        .expect("encode");
-    let second = terminal_under_test
-        .key_encode(29, shift, 0, 0x41, 0x61)
-        .expect("encode");
-    let third = terminal_under_test
-        .key_encode(29, shift, 0, 0x41, 0x61)
-        .expect("encode");
-    assert_eq!(first, second, "encoder reuse must be stable (1st vs 2nd)");
-    assert_eq!(second, third, "encoder reuse must be stable (2nd vs 3rd)");
-}
-
-/// 对标上游 ctrlKeyEncoding/escapeAndEnterEncoding：Ctrl+C 发 0x03，
-/// ESC 发 0x1B，回车发 0x0D。
-#[test]
-fn key_encode_ctrl_c_escape_enter_basics() {
-    let terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    let ctrl = key::Mods::CTRL.bits();
-    // Android C 键码 31，unicode 0x03（C0 控制字符走逻辑键路径）。
-    let ctrl_c = terminal_under_test
-        .key_encode(31, ctrl, 0, 0x03, 0)
-        .expect("encode");
-    assert_eq!(ctrl_c, vec![0x03], "Ctrl+C must emit 0x03 (got {ctrl_c:?})");
-    // ESC 键码 111。
-    let esc = terminal_under_test
-        .key_encode(111, 0, 0, 0x1B, 0)
-        .expect("encode");
-    assert_eq!(esc, vec![0x1B], "ESC must emit 0x1B (got {esc:?})");
-    // 回车键码 66。
-    let enter = terminal_under_test
-        .key_encode(66, 0, 0, 0x0D, 0x0D)
-        .expect("encode");
-    assert_eq!(enter, vec![0x0D], "Enter must emit 0x0D (got {enter:?})");
-}
-
 /// search_all_in_scrollback returns all occurrences of a query
 #[test]
 fn search_all_in_scrollback_finds_all_matches() {
@@ -355,63 +233,6 @@ fn search_all_in_scrollback_keeps_newest_order() {
     let mut sorted = rows.clone();
     sorted.sort_unstable();
     assert_eq!(rows, sorted, "results must stay oldest-first");
-}
-
-/// key_encode_submit returns a Some(receiver) for a valid key and the
-/// receiver produces the expected encoded bytes (same semantic as key_encode).
-#[test]
-fn key_encode_submit_returns_receiver() {
-    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    enable_kitty(&mut terminal_under_test);
-    let shift = key::Mods::SHIFT.bits();
-    let rx = terminal_under_test.key_encode_submit(29, shift, 0, 0x41, 0x61);
-    assert!(rx.is_some(), "key_encode_submit must return Some receiver");
-    let result = rx.unwrap().recv().expect("receiver must produce result");
-    assert!(
-        result.contains(&0x41),
-        "output must contain 'A' (utf8): {result:?}"
-    );
-    assert!(
-        !result.contains(&0x61),
-        "output must NOT contain 'a' (unshifted): {result:?}"
-    );
-}
-
-/// key_encode_submit + waiting on receiver produces the same result as
-/// the synchronous key_encode for the same input.
-#[test]
-fn key_encode_submit_and_key_encode_produce_same_result() {
-    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    enable_kitty(&mut terminal_under_test);
-    let shift = key::Mods::SHIFT.bits();
-    let rx = terminal_under_test
-        .key_encode_submit(29, shift, 0, 0x41, 0x61)
-        .expect("key_encode_submit must return receiver");
-    let submit_result = rx.recv().expect("receiver must produce result");
-    let direct_result = terminal_under_test
-        .key_encode(29, shift, 0, 0x41, 0x61)
-        .expect("key_encode must produce result");
-    assert_eq!(
-        submit_result, direct_result,
-        "key_encode_submit and key_encode must produce identical output"
-    );
-}
-
-/// Dropping the receiver before the ghostty thread responds does not
-/// cause a panic — ghostty handles the send error gracefully and the
-/// terminal remains usable for subsequent requests.
-#[test]
-fn key_encode_submit_dropped_receiver_does_not_panic() {
-    let terminal_under_test = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
-    let rx = terminal_under_test.key_encode_submit(29, 0, 0, 0x61, 0x61);
-    drop(rx);
-    let result = terminal_under_test
-        .key_encode(29, 0, 0, 0x62, 0x62)
-        .expect("terminal must remain functional after dropped receiver");
-    assert!(
-        !result.is_empty(),
-        "key_encode after dropped receiver must produce output: {result:?}"
-    );
 }
 
 /// Regression: search must not panic on multi-byte (CJK) lines — byte

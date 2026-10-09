@@ -10,7 +10,6 @@ use flume::Sender;
 
 mod commands;
 mod internal;
-mod keymap;
 mod public_api;
 mod types;
 

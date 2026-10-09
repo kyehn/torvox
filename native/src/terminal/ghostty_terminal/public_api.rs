@@ -361,21 +361,6 @@ impl super::GhosttyTerminal {
         Some(latest)
     }
 
-    pub fn key_encode(
-        &self,
-        key_code: u32,
-        modifiers: u16,
-        action: u8,
-        unicode_char: u32,
-        unshifted_char: u32,
-    ) -> Option<Vec<u8>> {
-        let rx =
-            self.key_encode_submit(key_code, modifiers, action, unicode_char, unshifted_char)?;
-        // 有界等待：VT 线程卡住时不得永久阻塞调用方（可能是 UI 线程）。
-        rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
-            .ok()
-    }
-
     /// 用 Ghostty 鼠标编码器把鼠标事件（像素位置、动作、按键）编码为终端转义序列。
     /// `cell_width`/`cell_height` 取渲染器的实时单元格尺寸，使像素→单元映射与实际显示一致。
     /// `modifiers` 是上游 `key.Mods` 原始位（Shift/Ctrl/Alt/Super）。
@@ -405,29 +390,6 @@ impl super::GhosttyTerminal {
             "encode_mouse_event",
         )
         .into()
-    }
-
-    pub fn key_encode_submit(
-        &self,
-        key_code: u32,
-        modifiers: u16,
-        action: u8,
-        unicode_char: u32,
-        unshifted_char: u32,
-    ) -> Option<flume::Receiver<Vec<u8>>> {
-        let (tx, rx) = flume::bounded(1);
-        if let Err(error) = self.query_tx.try_send(Query::KeyEncode {
-            key_code,
-            modifiers,
-            action,
-            unicode_char,
-            unshifted_char,
-            tx,
-        }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed for key_encode: {error}");
-            return None;
-        }
-        Some(rx)
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {

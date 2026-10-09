@@ -78,10 +78,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         pendingSurfaceResize = null
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize = null
-        if (resizeRenderPauses > 0) {
-            resizeRenderPauses = 0
-            viewModel?.runtime?.setRenderPaused(false)
-        }
+        pendingImeGridResizeHoldsPause = false
+        if (resizeRenderPauses > 0) forceResumeRendering()
         // 同理必须停掉平移量的订阅源：它们跑在 viewModelScope 上（跟着宿主而非视图），
         // 保留会让旧视图被协程钉住，且 detach 后的备用屏翻转仍会命中
         // scheduleImeGridResize —— 此时 View.postDelayed 落进 mRunQueue，只有重新
@@ -98,14 +96,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 自身的 `imeInsetPx` 相等 → 被 `!=` 门控挡下、不再发布，运行期就永久保留
         // 旧的键盘高度（键栏错位、备用屏网格塌缩且不自愈）。
         //
-        // 但只在本视图仍是最后一个发布者时才归零：`key(surfaceKey)` 换视图时新旧
-        // 的 detach/attach 先后没有保证，若新视图已发布真实高度 H 而这里再写 0，
-        // 值就停在 0 且门控此后永不触发（键栏下移、备用屏网格恢复整屏行数）。
-        val publishedImeInsetPx = imeInsetPx
+        // 归零 MUST 核对发布者而不是数值：`key(surfaceKey)` 换视图时新旧 detach/attach
+        // 的先后没有保证，而同一窗口里两个视图看到的输入法高度相同、按值判断会误判成
+        // 「我还是最后发布者」，把新视图刚发布的真实高度覆盖成 0 且此后永不修复。
         imeInsetPx = 0
-        viewModel?.runtime?.let { runtime ->
-            if (runtime.imeInsetFlow.value == publishedImeInsetPx) runtime.publishImeInsetPx(0)
-        }
+        viewModel?.runtime?.clearImeInsetPxIfOwnedBy(this)
         // 关闭浮动的选区 UI：action mode、选区手柄弹窗与放大镜都持有系统窗口，
         // 会在视图 detach 后继续让本视图（及整条 viewModel 链）存活
         // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
@@ -534,16 +529,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 applySurfaceResizeNow(width, height)
                 return
             }
-            pauseRenderForResize()
+            // 取消旧的 runnable MUST 在领取新的暂停**之前**：被 removeCallbacks 丢掉的
+            // runnable 永不执行，它领到的那次暂停也就永不归还——计数单调增长到不为 0，
+            // `setRenderPaused(false)` 再不被调用，共享渲染器永久暂停（终端全黑）。
+            // 本处每个 runnable 必定持一次暂停，故「旧的被丢弃、新的领同样一次」
+            // 之后计数不变，不需要额外记账。
             pendingSurfaceResize?.let { removeCallbacks(it) }
+            pendingSurfaceResize = null
+            pauseRenderForResize()
             pendingSurfaceResize =
                 Runnable {
                     pendingSurfaceResize = null
                     // 以最新尺寸为准：onSizeChanged 已存储了它。
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
-                    // 稳定触发可能恰好落在已配置的尺寸上而提前返回、
-                    // 来不及执行自身的恢复——故始终在此恢复
-                    // （在成功路径上幂等）。
+                    // 稳定触发可能恰好落在已配置的尺寸上而提前返回、来不及执行自身的
+                    // 恢复——故始终在此恢复。只归还自己领到的那一次，绝不多减：
+                    // 计数是共享的，多减一次就等于提前放开了另一个防抖仍持有的暂停。
                     resumeRenderAfterResize()
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
@@ -612,7 +613,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             lastConfiguredWidth = width
             lastConfiguredHeight = height
             // 切后台返回经 surfaceChanged 重建交换链后强制一帧：闲时无新输出也呈现，避免黑屏。
-            terminalViewModel.runtime.setRenderPaused(false)
+            forceResumeRendering()
             terminalViewModel.runtime.resumeRendering()
             terminalViewModel.runtime.forceRender()
             // 旋转/窗口尺寸变化（无输入法事件时）永远不会到达 runtime.resize：
@@ -1253,6 +1254,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 订阅决定平移量与网格的输入：内容下沿（按内容裁剪平移量）、单元格度量
      * （字号与捏合缩放改行高）、备用屏状态（平移恒 0 且需要一次网格重排）。
      * 前两者由渲染线程逐帧发布，故平移量随内容增长即时跟进。
+     *
+     * 必须在每次 attach 时重建（见 [onAttachedToWindow]）：detach 会停掉它们，
+     * 而视图复用不重走 [attachViewModel]。
      */
     private fun observeImeShiftInputs(viewModel: TerminalViewModel) {
         imeShiftJob?.cancel()
@@ -1321,7 +1325,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * 输入法遮挡高度（px，已扣除系统导航条），由平台 insets 派发维护
-     * （[installImeInsetListener]）。两处消费者：备用屏的网格高度与本视图的平移量。
+     * （[installImeInsetListener]）。本视图用它算平移量（[applyImeShift]）；
+     * 网格高度不读这个字段，而是读运行期的 [TerminalRuntime.imeGridReserve]——
+     * 那是网格扣减的唯一来源，与本字段同源但不可独立修改。
      *
      * 备用屏应用按整屏行数布局（helix/vim/less 都进备用屏并占满视口），键盘遮挡
      * 的下半屏永远不可见：状态行消失、光标可能落在被遮住的几行里，而应用收不到
@@ -1362,7 +1368,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
                 // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
                 // 同一次发布也更新网格扣减量（三条网格路径共用，见 imeGridReserve）。
-                viewModel?.runtime?.publishImeInsetPx(reserved)
+                viewModel?.runtime?.publishImeInsetPx(reserved, this)
                 // 备用屏按可见高度重排网格。与平移不同，它必须等输入法高度稳定
                 // （见 [scheduleImeGridResize]），否则逐帧 SIGWINCH 会让全屏 TUI 反复重排。
                 scheduleImeGridResize()
@@ -1397,7 +1403,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 组合往返。
      *
      * 位移量仍是 [computeImeSurfaceShift] 的判定结果（按内容下沿裁剪、备用屏恒 0），
-     * 口径与单测一致；输入只有 insets 派发这一个来源。
+     * 口径与单测一致。五个触发点各自覆盖它的一个输入：输入法遮挡（insets 派发）、
+     * 内容下沿、单元格度量、备用屏状态（后三者由 [observeImeShiftInputs] 订阅）、
+     * 视口尺寸（[onSizeChanged]，旋转时 Activity 不重建）。
      */
     private fun applyImeShift() {
         val runtime = viewModel?.runtime ?: return
@@ -1432,15 +1440,29 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 无闪烁）。但重排本身 MUST 仍然发生：离开备用屏时（键盘可能仍展开）网格要
         // 按整屏高度复原，此时 `imeGridReserve()` 自然为 0。若在这里一并跳过，
         // PTY 会停留在被输入法缩小后的行数，且此后无任何自愈触发点。
-        val resizes = runtime.altScreenActiveFlow.value
-        // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
-        if (resizes) pauseRenderForResize()
+        // 取消旧的 runnable MUST 在决定是否领新的暂停**之前**（见 applySurfaceResize
+        // 的说明）：这里两者并不总相等——防抖窗内备用屏状态可能翻转，旧的持一次而新的
+        // 不持，差值必须由 `pendingImeGridResizeHoldsPause` 归还。
         pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize = null
+        if (pendingImeGridResizeHoldsPause) {
+            pendingImeGridResizeHoldsPause = false
+            resumeRenderAfterResize()
+        }
+        // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
+        val holdsPause = runtime.altScreenActiveFlow.value
+        if (holdsPause) {
+            pauseRenderForResize()
+            pendingImeGridResizeHoldsPause = true
+        }
         pendingImeGridResize =
             Runnable {
                 pendingImeGridResize = null
                 resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
-                if (resizes) resumeRenderAfterResize()
+                if (holdsPause) {
+                    pendingImeGridResizeHoldsPause = false
+                    resumeRenderAfterResize()
+                }
             }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
     }
 
@@ -1455,6 +1477,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     private var resizeRenderPauses: Int = 0
 
+    /** 在途的 [pendingImeGridResize] 是否持有一次暂停；取消它时 MUST 先归还。 */
+    private var pendingImeGridResizeHoldsPause: Boolean = false
+
     private fun pauseRenderForResize() {
         viewModel?.runtime?.let {
             if (resizeRenderPauses++ == 0) it.setRenderPaused(true)
@@ -1465,6 +1490,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val runtime = viewModel?.runtime ?: return
         if (resizeRenderPauses == 0) return
         if (--resizeRenderPauses == 0) runtime.setRenderPaused(false)
+    }
+
+    /**
+     * 无条件恢复渲染，并把防抖计数一并归零。
+     *
+     * 用于「我们等的那件事已经发生，不必再等」的入口：surface 重建成功
+     * （[postDelayedSurfaceRecreate]）、交换链重配置完成（[ResizeManager.applySurfaceResizeNow]）、
+     * Surface 重新交付（[surfaceCreated]）。这些入口本就必须立刻出一帧（否则黑屏），
+     * 此时继续挂着防抖暂停只会让本已就绪的缓冲不显示。
+     *
+     * 归零计数而非只清标志，是为了让标志的状态始终是计数的函数：在途 runnable 之后
+     * 归还时会因计数已为 0 而空转，不会把标志反手再放开一次。
+     */
+    private fun forceResumeRendering() {
+        resizeRenderPauses = 0
+        pendingImeGridResizeHoldsPause = false
+        viewModel?.runtime?.setRenderPaused(false)
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
@@ -2309,7 +2351,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         bridge.releaseGpuSurface()
                         bridge.attachSurface(holderSurface, width, height)
                     }
-                    viewModel.runtime.setRenderPaused(false)
+                    forceResumeRendering()
                     viewModel.runtime.resumeRendering()
                     viewModel.runtime.forceRender()
                 } else if (attemptsLeft > 1) {
@@ -2774,7 +2816,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 故普通的后台/恢复循环会让该标志保持置位，
                 // 使重启的渲染线程输出黑帧（暂停时 render_frame 会短路）。
                 // 在线程重启前清除它。
-                terminalViewModel.runtime.setRenderPaused(false)
+                forceResumeRendering()
                 terminalViewModel.runtime.resumeRendering()
                 terminalViewModel.runtime.forceRender()
                 val runtimeState = terminalViewModel.runtime.state.value
