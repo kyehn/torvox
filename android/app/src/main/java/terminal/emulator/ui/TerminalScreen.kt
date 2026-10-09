@@ -423,10 +423,8 @@ fun TerminalScreen(
             // IME 跟随：位移由两处各自承担，二者读同一个 insets 来源（`imeInsetFlow`）。
             // 终端 Surface 在 insets 派发回调里直接改自身 `translationY`；键栏是
             // 组合覆盖层，只能读流。不再平移 `TerminalContent` 容器：那要经
-            // 「重组 → 重新测量 → 重新布局」，而重组只在 Choreographer 帧回调里跑，
-            // 主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染线程时滞后十几秒（实测每
-            // 300ms 写一次组合状态，20 次才换来一次重组），键盘已弹出而内容不动
-            // ——`ImePopupPixelInstrumentedTest` 三个用例即以此判红。
+            // 「重组 → 重新测量 → 重新布局」，在主线程被渲染阻塞时会滞后十几秒
+            // （实测见 `TerminalRuntime.imeInsetFlow`），键盘已弹出而内容不动。
             // 两者同源，取值必然一致；生效时刻不同（键栏要等一次重组），键盘动画
             // 期间会看到终端先上移、键栏随后跟上。
             //
@@ -456,11 +454,9 @@ fun TerminalScreen(
             // 不变（改网格会带来重排闪烁与底部行丢失）。
             //
             // 终端 Surface 在 insets 派发回调里直接改自身 `translationY`（见其
-            // `applyImeShift`）：走组合要经「重组 → 重新测量 → 重新布局」，而重组只在
-            // Choreographer 帧回调里跑，主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染
-            // 线程时滞后可达十几秒（实测每 300ms 写一次组合状态，20 次才换来一次重组），
-            // 期间键盘已弹出而内容纹丝不动。键栏是组合覆盖层，读同一个 `imeInsetFlow`
-            // 上移——两者同源，不会出现一个跟上一个不跟的差拍。
+            // `applyImeShift`）：走组合会滞后（依据见 `TerminalRuntime.imeInsetFlow`）。
+            // 键栏是组合覆盖层，读同一个 `imeInsetFlow` 上移——取值同源故必然一致，
+            // 但生效时刻不同：Surface 同一拍内生效，键栏要等一次重组。
             Box(
                 modifier =
                 Modifier.fillMaxSize()

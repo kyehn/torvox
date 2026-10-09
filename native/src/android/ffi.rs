@@ -1071,9 +1071,9 @@ fn write_key_inner(
         } else {
             // IME 可打印字符回退入口：Kotlin 侧已过滤 Ctrl（特殊键/组合键经
             // TerminalInputEncoder 编码后走 feedPty），到达此处的仅为无 Ctrl 的
-            // 可打印字符（含 Alt 前缀处理）。完整 Kitty 键盘协议编码由上游
-            // key::Encoder 经 Query::KeyEncode 承担（需数字 keyCode，本入口仅有
-            // 字符故不适用），本函数不做 Kitty CSI-u 编码。
+            // 可打印字符（含 Alt 前缀处理）。按键到转义序列的编码全部由 Kotlin 的
+            // `TerminalInputEncoder` 完成（见 openspec/specs/modifier-bar-sticky-encoding），
+            // 本函数只处理可打印字符的字节流，不做 CSI-u 编码。
             let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
             pty_master.write(&bytes)
         };
@@ -1954,8 +1954,8 @@ fn render_inner(session_id: u64) -> jint {
 const LAST_CONTENT_ROW_NONE_BITS: i64 = 0x3FF;
 /// 打包位偏移：内容下沿 43（10 位）、surface 失效位 53、备用屏 54。
 const SURFACE_INVALIDATED_BIT: i64 = 1 << 53;
-/// 备用屏（helix/vim 等全屏 TUI）激活标志。随每帧渲染结果上报，与光标行、内容下沿
-/// 同批采样，宿主据此让输入法跟随位移归零。
+/// 备用屏（helix/vim 等全屏 TUI）激活标志。随每帧渲染结果上报，与内容下沿同批采样，
+/// 宿主据此让输入法跟随位移归零。
 const ALT_SCREEN_ACTIVE_BIT: i64 = 1 << 54;
 /// 采样段 panic 时的上报值：渲染计数为负（-1）、`new_output` 为 0、内容下沿取
 /// 未知哨兵、失效位为 0——与本导出文档声明的出错位形一致。
@@ -1980,22 +1980,22 @@ fn last_content_row_bits_for_frame(
 /// `new_output` 标志，比分开两次调用每帧省约 0.1-0.3ms。
 ///
 /// 返回打包的 `jlong`：位 0..31 = 渲染计数（语义同 `render()`）；位 32 = `new_output`
-/// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..42 = 视口光标行（0x3FF = 隐藏/
-/// 视口外）；位 43..52 = 视口最后一个有内容的行（0x3FF = 视口全空）；位 53 =
-/// surface 已判死（缓存的 `ANativeWindow` 对应被遗弃的 BufferQueue，需宿主换新的
-/// `ANativeWindow` 才能恢复；重建成功即回落为 0）；位 54 = 备用屏激活（全屏 TUI）。
+/// 标志（1 = 已摄入 PTY 输出，0 = 空闲）；位 33..42 = **保留，必须为 0**（历史光标行
+/// 位形：该字段已无消费方，随输入法位移改按内容下沿裁剪而删除）；位 43..52 = 视口最后
+/// 一个有内容的行（0x3FF = 视口全空）；位 53 = surface 已判死（缓存的 `ANativeWindow`
+/// 对应被遗弃的 BufferQueue，需宿主换新的 `ANativeWindow` 才能恢复；重建成功即回落
+/// 为 0）；位 54 = 备用屏激活（全屏 TUI）。
 ///
-/// 两个行字段各占 10 位：Android 网格行数上限远小于 1024（最小字号行高 ≥18px、
-/// 屏幕高 ≤4096px ⇒ ≤227 行），超出即按哨兵处理，光标未知退化为 IME 位移取整块
-/// 键盘高度、内容未知退化为不位移，二者都是保守方向。
+/// 行字段占 10 位：Android 网格行数上限远小于 1024（最小字号行高 ≥18px、
+/// 屏幕高 ≤4096px ⇒ ≤227 行），超出即按哨兵处理，内容未知退化为不位移，是保守方向。
 ///
-/// 光标行、内容下沿与失效位的采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner`
+/// 内容下沿与失效位的采样刻意**不**挂在渲染计数门下：空闲帧 `render_inner`
 /// 返回 0（无新单元数据，无需 GPU 呈现——正确），但 IME 跟随平移恰在空闲定居后最需要
 /// 这些坐标；而失效位只在失败帧翻转，空闲门控会把它永远压在 0。采样复用本帧已渲染缓存，
 /// 不新增发往 VT 线程的同步查询，故空闲帧无阻塞风险。
 ///
-/// Kotlin 必须分别掩码每个字段：裸读 `(packed shr 32) != 0` 会把光标位误当作输出。
-/// 出错时渲染计数为负、`new_output` 为 0、光标行为 0x3FF、内容下沿为 0x3FF、失效位为 0。
+/// Kotlin 必须分别掩码每个字段：裸读 `(packed shr 32) != 0` 会把更高的位误当作输出。
+/// 出错时渲染计数为负、`new_output` 为 0、内容下沿为 0x3FF、失效位为 0。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2034,7 +2034,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     // 建渲染器并于 GPU 初始化失败时 panic，而 `render_inner` 刚失败（count == -1）的
     // 正是同一条路径——守卫外再 panic 一次即越过 `extern "system"` 边界 abort 进程。
     jni_export_guard!(&mut unowned_env, RENDER_SAMPLE_FAILURE_BITS, |_env| {
-        // 备用屏标志与光标行、内容下沿同批上报：宿主据此让输入法跟随位移归零
+        // 备用屏标志与内容下沿同批上报：宿主据此让输入法跟随位移归零
         // （helix/vim 等全屏 TUI 占满视口，任何位移都把应用顶部推出屏幕）。
         // 读取的是 VT 线程写入的原子量，无同步查询，故与另两个采样同样无阻塞。
         //
@@ -3288,6 +3288,10 @@ fn cell_metric_dim(pick: impl FnOnce((f32, f32)) -> f32) -> f32 {
 }
 
 /// 当前单元格宽度（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`）。
+///
+/// 供 `Bridge.getCellWidth` 使用。宽度对字号**严格线性**（`advance × size / upem`，
+/// 等宽分支无取整），故它是「原生是否真的接受了该字号」最可靠的判据：原生拒收时
+/// 单元格度量不变。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     mut unowned_env: EnvUnowned<'_>,
@@ -3299,7 +3303,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
     })
 }
 
-/// 当前单元格高度（字号单位，同 [getCellWidth]；行高经过 `.ceil()`，对字号非线性）。
+/// 当前单元格高度（字号单位，同 `getCellWidth`；行高经过 `.ceil()`，对字号非线性）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
     mut unowned_env: EnvUnowned<'_>,
@@ -3557,17 +3561,17 @@ mod font_size_cap_tests {
 
     #[test]
     fn cap_is_the_atlas_edge_expressed_in_sp() {
-        // 上界的定义式：cap_sp × raster_scale 恰为图集边长。改 ATLAS_SIZE 或改推导
-        // 方式（例如退回某个魔数）都会让这条失败——它是「上界来自图集」这一说法的检验。
-        for i in 0..=RASTER_SCALE_SAMPLES {
-            let scale = sampled_scale(i);
-            let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
-            assert!(
-                (cap * scale - ATLAS_SIZE as f32).abs() < 0.5,
-                "raster_scale={scale}：上界换回像素应等于图集边长 {ATLAS_SIZE}，实得 {}",
-                cap * scale
-            );
-        }
+        // 对照**字面量**而非「cap × scale == ATLAS_SIZE」这个定义式：后者只是把除法
+        // 还原，边长取错或系数取错都照样通过。2048 是图集边长的具体取值，
+        // 2048 / 0.5 = 4096 是它在最小系数下的具体上界。
+        assert_eq!(font_size_cap_sp(2048.0, 0.5), 4096.0);
+        assert_eq!(font_size_cap_sp(2048.0, 8.0), 256.0);
+        // 而生产路径用的边长必须就是 2048：cap 是 `atlas_width / raster_scale`，
+        // 图集边长一旦不是 2048，上面的字面量与真实行为就分家了。
+        assert_eq!(
+            ATLAS_SIZE, 2048,
+            "图集边长改变时须同步更新本模块的字面量断言"
+        );
     }
 
     #[test]
@@ -3585,6 +3589,27 @@ mod font_size_cap_tests {
 #[cfg(test)]
 mod render_sample_bits_tests {
     #[test]
+    fn reserved_bit_33_to_42_stays_zero() {
+        // 33..42 是已删除的光标行位形，保留 MUST 恒为 0：有人重新启用该字段时，
+        // Kotlin 侧不读它，也没有任何测试会判红——这里就是那道闸。
+        assert_eq!(
+            super::RENDER_SAMPLE_FAILURE_BITS >> 33 & 0x3FF,
+            0,
+            "保留位 33..42 不得带上任何值",
+        );
+        assert_eq!(
+            super::ALT_SCREEN_ACTIVE_BIT >> 33 & 0x3FF,
+            0,
+            "备用屏位不得落进保留位",
+        );
+        assert_eq!(
+            super::SURFACE_INVALIDATED_BIT >> 33 & 0x3FF,
+            0,
+            "失效位不得落进保留位",
+        );
+    }
+
+    #[test]
     fn sample_failure_bits_report_failure_count_and_unknown_rows() {
         // 渲染计数位（0..31）全 1 即 Kotlin 侧读到的 -1；内容下沿取未知哨兵。
         assert_eq!(
@@ -3598,6 +3623,7 @@ mod render_sample_bits_tests {
         );
         assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 32 & 0x1, 0);
         assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 53 & 0x1, 0);
+        assert_eq!(super::RENDER_SAMPLE_FAILURE_BITS >> 54 & 0x1, 0);
     }
 
     #[test]
