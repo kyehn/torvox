@@ -96,10 +96,10 @@ constructor(private val provider: SettingsDataStoreProvider) {
          *   放行超出 Termux 像素上限的字号（实测 fontScale=1.3 时 96sp 实际
          *   327px > 256px）。
          */
-        fun fontSizeRangeMaxSp(spToPxScale: Float): Float {
-            val steps = floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
-            return steps.times(FONT_SIZE_STEP_SP).coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
-        }
+        fun fontSizeRangeMaxSp(spToPxScale: Float): Float =
+            floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
+                .times(FONT_SIZE_STEP_SP)
+                .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
 
         /**
          * 原生字号钳位上界（sp）：`NativeBridge.setFontSizeInPlace` 只接受

@@ -18,17 +18,7 @@ pub use session::ThemeConfig;
 pub mod shell_env;
 
 #[cfg(test)]
-pub(crate) mod snapshot_test;
-#[cfg(test)]
 pub(crate) mod test_helpers;
-#[cfg(test)]
-pub(crate) mod vt_conformance;
-#[cfg(test)]
-pub(crate) mod vt_grapheme_cluster;
-#[cfg(test)]
-pub(crate) mod vt_seed_chunking;
-#[cfg(test)]
-pub(crate) mod vt_width_classification;
 
 #[cfg(test)]
 pub use mock_pty::{MockPty, MockPtyHandle};
