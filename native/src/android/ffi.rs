@@ -3058,6 +3058,21 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
     })
 }
 
+/// 原生接受的最大字号（sp）：字形位图必须放得进图集，故上界由图集边长推导。
+///
+/// 这是**唯一**的真实约束；用户可选区间由 Kotlin 侧 `SettingsRepository.fontSizeMaxSp`
+/// （对标 Termux 的 256px 上限）给出，本值必须始终不小于它，否则滑块能划到的字号会被
+/// 原生拒绝，用户看到的就是「设置条范围与实际可设置范围不一致」。
+/// `font_size_cap_tests` 钉住这一关系。
+fn font_size_cap_sp(raster_scale: f32) -> f32 {
+    ATLAS_SIZE as f32 / raster_scale.max(f32::EPSILON)
+}
+
+/// 字号是否落在原生可接受区间内。
+fn is_font_size_selectable(size_sp: f32, cap_sp: f32) -> bool {
+    size_sp.is_finite() && size_sp > 0.0 && size_sp <= cap_sp
+}
+
 /// 设置字号（单位为十分之一 sp，与 Kotlin 滑块一致）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInPlace(
@@ -3077,8 +3092,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         // **静默丢弃**——Kotlin 侧那份重复常量一旦漂移，用户拖到的字号就被原生悄悄
         // 丢掉，表现正是「设置条范围和实际可设置范围不一致」。守卫上界改由图集边长
         // 推导（唯一真实约束），越界记错误日志而非无声忽略。
-        let max_size = ATLAS_SIZE as f32 / render_state.font_pipeline.get_raster_scale();
-        if !(size.is_finite() && size > 0.0 && size <= max_size) {
+        let max_size = font_size_cap_sp(render_state.font_pipeline.get_raster_scale());
+        if !is_font_size_selectable(size, max_size) {
             log::error!(
                 "setFontSizeInPlace: 字号 {size} 越界（合法区间 (0, {max_size}] sp，字形位图必须放进图集）"
             );
@@ -3095,7 +3110,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
         render_state.renderer.cell_cache = None;
         render_state.dirty.store(true, Ordering::Relaxed);
-        log::info!("setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}", size_tenths);
+        log::info!(
+            "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
+            size_tenths
+        );
     })
 }
 
@@ -3477,6 +3495,59 @@ mod clipboard_read_flood_tests {
         cancel_request(4102, only_b);
         assert_eq!(unanswered_clipboard_reads(4101), 0);
         assert_eq!(unanswered_clipboard_reads(4102), 0);
+    }
+}
+
+#[cfg(test)]
+mod font_size_cap_tests {
+    use super::{ATLAS_SIZE, font_size_cap_sp, is_font_size_selectable};
+
+    /// Kotlin `SettingsRepository.fontSizeMaxSp`：Termux 的 256px 上限按 sp 步长 2 向下取整。
+    fn termux_selectable_max_sp(raster_scale: f32) -> f32 {
+        ((256.0 / raster_scale / 2.0).floor() * 2.0).max(6.0)
+    }
+
+    #[test]
+    fn cap_is_the_atlas_edge_expressed_in_sp() {
+        // 上界的来源是图集边长本身：cap_sp × raster_scale 恰好等于图集边长。
+        for raster_scale in [1.0, 2.0, 2.625, 3.0, 3.4125, 4.0] {
+            let cap = font_size_cap_sp(raster_scale);
+            assert!(
+                (cap * raster_scale - ATLAS_SIZE as f32).abs() < 0.5,
+                "raster_scale={raster_scale} 的上界换回像素应等于图集边长 {ATLAS_SIZE}，实得 {}",
+                cap * raster_scale
+            );
+        }
+    }
+
+    #[test]
+    fn cap_never_rejects_a_selectable_font_size() {
+        // 核心不变量：滑块能划到的每个字号，原生都必须接受。
+        // 图集一旦缩小到接近 256px，这条即失效——那正是「范围与实际可设置范围不一致」。
+        for raster_scale in [0.75, 1.0, 1.5, 2.0, 2.625, 3.0, 4.0] {
+            let cap = font_size_cap_sp(raster_scale);
+            let selectable_max = termux_selectable_max_sp(raster_scale);
+            assert!(
+                is_font_size_selectable(selectable_max, cap),
+                "raster_scale={raster_scale}：滑块上界 {selectable_max}sp 超过原生上界 {cap}sp"
+            );
+            // 滑块下界 4sp 也必须被接受。
+            assert!(
+                is_font_size_selectable(4.0, cap),
+                "raster_scale={raster_scale}：原生拒绝滑块下界 4sp"
+            );
+        }
+    }
+
+    #[test]
+    fn non_finite_and_non_positive_sizes_are_rejected() {
+        let cap = font_size_cap_sp(1.0);
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(
+                !is_font_size_selectable(bad, cap),
+                "非法字号 {bad} 竟被接受"
+            );
+        }
     }
 }
 
