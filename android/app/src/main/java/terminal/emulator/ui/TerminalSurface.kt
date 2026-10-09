@@ -74,12 +74,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 两个防抖的 resume 回调同样持有本视图：detach 恰在防抖窗内则
         // pause 之后 resume 丢失，渲染永久暂停。直接取消会吞掉配对的 resume
         // ——先把持有的暂停全部归还（计数归零），再取消回调。
-        pendingSurfaceResize?.let { removeCallbacks(it) }
-        pendingSurfaceResize = null
-        pendingImeGridResize?.let { removeCallbacks(it) }
-        pendingImeGridResize = null
-        pendingImeGridResizeHoldsPause = false
-        if (resizeRenderPauses > 0) forceResumeRendering()
+        forceResumeRendering()
         // 同理必须停掉平移量的订阅源：它们跑在 viewModelScope 上（跟着宿主而非视图），
         // 保留会让旧视图被协程钉住，且 detach 后的备用屏翻转仍会命中
         // scheduleImeGridResize —— 此时 View.postDelayed 落进 mRunQueue，只有重新
@@ -88,7 +83,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         imeShiftJob?.cancel()
         imeShiftJob = null
         // 位移量与扣减量归零：新视图的首次 insets 派发之前不得保留旧值，
-        // 否则 rotation / 换视图后终端会被上一份键盘高度上移。
+        // 否则换视图 / Activity 重建后终端会被上一份键盘高度上移（旋转不重建 Activity，
+        // 由 `onSizeChanged` → `applyImeShift` 按新视口高度覆盖，不走这条路径）。
         appliedImeShiftPx = 0
         if (translationY != 0f) translationY = 0f
         // 运行期那份也必须归零：它只由本视图的 insets 派发写入，而新视图（或复用后
@@ -529,23 +525,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 applySurfaceResizeNow(width, height)
                 return
             }
-            // 取消旧的 runnable MUST 在领取新的暂停**之前**：被 removeCallbacks 丢掉的
-            // runnable 永不执行，它领到的那次暂停也就永不归还——计数单调增长到不为 0，
-            // `setRenderPaused(false)` 再不被调用，共享渲染器永久暂停（终端全黑）。
-            // 本处每个 runnable 必定持一次暂停，故「旧的被丢弃、新的领同样一次」
-            // 之后计数不变，不需要额外记账。
+            // 防抖窗内被替换的 runnable 永不执行，它领到的那次暂停也就永不归还，
+            // 故取消时必须先归还（见 [RenderPauseLedger.releaseAndCancel]）。
+            // `onSizeChanged` 与 `surfaceChanged` 常在同一帧用同一尺寸各调一次本方法，
+            // 正是这条替换路径的常见触发。
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize = null
-            pauseRenderForResize()
+            pendingSurfaceResizeToken?.let { pauseLedger.releaseAndCancel(it) }
+            pendingSurfaceResizeToken = pauseLedger.acquire()
             pendingSurfaceResize =
                 Runnable {
                     pendingSurfaceResize = null
                     // 以最新尺寸为准：onSizeChanged 已存储了它。
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
                     // 稳定触发可能恰好落在已配置的尺寸上而提前返回、来不及执行自身的
-                    // 恢复——故始终在此恢复。只归还自己领到的那一次，绝不多减：
-                    // 计数是共享的，多减一次就等于提前放开了另一个防抖仍持有的暂停。
-                    resumeRenderAfterResize()
+                    // 恢复——故始终在此归还。
+                    pendingSurfaceResizeToken?.let { pauseLedger.release(it) }
+                    pendingSurfaceResizeToken = null
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
@@ -1395,9 +1391,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 把输入法跟随位移直接施加到本视图的 `translationY`。
      *
      * 为什么不平移 Compose 容器（历史做法）：位移要走「组合重组 → 重新测量 →
-     * 重新布局」才生效，而重组只在 Choreographer 帧回调里跑。主线程每帧阻塞在
-     * `syncAndDrawFrame` 等待渲染线程时，重组会滞后十几秒（实测每 300ms 写一次
-     * 组合状态，20 次才换来一次重组），期间键盘已经弹出而内容一动不动
+     * 重新布局」才生效，而在主线程被渲染阻塞时会滞后十几秒（实测见
+     * `TerminalRuntime.imeInsetFlow`），期间键盘已经弹出而内容一动不动
      * ——`ImePopupPixelInstrumentedTest` 三个用例即以此判红（位移=0）。
      * `translationY` 是视图自身的属性，在 insets 回调里同步生效，不依赖任何
      * 组合往返。
@@ -1442,71 +1437,64 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // PTY 会停留在被输入法缩小后的行数，且此后无任何自愈触发点。
         // 取消旧的 runnable MUST 在决定是否领新的暂停**之前**（见 applySurfaceResize
         // 的说明）：这里两者并不总相等——防抖窗内备用屏状态可能翻转，旧的持一次而新的
-        // 不持，差值必须由 `pendingImeGridResizeHoldsPause` 归还。
+        // 不持，差值必须先归还。
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize = null
-        if (pendingImeGridResizeHoldsPause) {
-            pendingImeGridResizeHoldsPause = false
-            resumeRenderAfterResize()
-        }
+        pendingImeGridResizeToken?.let { pauseLedger.releaseAndCancel(it) }
         // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
-        val holdsPause = runtime.altScreenActiveFlow.value
-        if (holdsPause) {
-            pauseRenderForResize()
-            pendingImeGridResizeHoldsPause = true
+        pendingImeGridResizeToken = if (runtime.altScreenActiveFlow.value) {
+            pauseLedger.acquire()
+        } else {
+            null
         }
+        val token = pendingImeGridResizeToken
         pendingImeGridResize =
             Runnable {
                 pendingImeGridResize = null
                 resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
-                if (holdsPause) {
-                    pendingImeGridResizeHoldsPause = false
-                    resumeRenderAfterResize()
-                }
+                // 凭证已陈旧时（视图 detach 后的 `mRunQueue` 延迟派发）ledger 会把它当
+                // 空操作，故这里只清仍属于本次的那一个。
+                token?.let { pauseLedger.release(it) }
+                if (pendingImeGridResizeToken == token) pendingImeGridResizeToken = null
             }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
     }
 
     /**
-     * 防抖期间持有的渲染暂停**计数**。
+     * 两个防抖（交换链重配、输入法网格重排）共用的渲染暂停记账。
      *
-     * 交换链重配置（[ResizeManager.applySurfaceResize]）与输入法网格重排
-     * （[scheduleImeGridResize]）是两个独立的防抖，各自 pause/resume 一次；而运行期的
-     * `setRenderPaused` 是**非计数**布尔（共享的单一 GPU 渲染器）。两者防抖窗重叠时，
-     * 先结束的那一个会把暂停清掉，另一个仍在等稳定尺寸——陈旧缓冲被拉伸，或
-     * 动画期间终端继续上帧。故必须计数：全部持有者归还后才真正恢复。
+     * 运行期的 `setRenderPaused` 是**非计数**布尔（共享的单一 GPU 渲染器），而两个
+     * 防抖窗可能重叠：先结束的那一个会把暂停清掉，另一个仍在等稳定尺寸——陈旧缓冲被
+     * 拉伸。记账与它的三个不变量见 [RenderPauseLedger]。
      */
-    private var resizeRenderPauses: Int = 0
+    private val pauseLedger =
+        RenderPauseLedger { paused -> viewModel?.runtime?.setRenderPaused(paused) }
 
-    /** 在途的 [pendingImeGridResize] 是否持有一次暂停；取消它时 MUST 先归还。 */
-    private var pendingImeGridResizeHoldsPause: Boolean = false
+    /** 在途 [pendingSurfaceResize] 的暂停凭证；取消或执行后 MUST 归还并清空。 */
+    private var pendingSurfaceResizeToken: Long? = null
 
-    private fun pauseRenderForResize() {
-        viewModel?.runtime?.let {
-            if (resizeRenderPauses++ == 0) it.setRenderPaused(true)
-        }
-    }
-
-    private fun resumeRenderAfterResize() {
-        val runtime = viewModel?.runtime ?: return
-        if (resizeRenderPauses == 0) return
-        if (--resizeRenderPauses == 0) runtime.setRenderPaused(false)
-    }
+    /** 在途 [pendingImeGridResize] 的暂停凭证（主屏不暂停，故可为空）。 */
+    private var pendingImeGridResizeToken: Long? = null
 
     /**
-     * 无条件恢复渲染，并把防抖计数一并归零。
+     * 无条件恢复渲染，并作废两个在途防抖持有的暂停。
      *
-     * 用于「我们等的那件事已经发生，不必再等」的入口：surface 重建成功
+     * 用于「我们等的那件事已经发生，不必再等」的入口：Surface 重建成功
      * （[postDelayedSurfaceRecreate]）、交换链重配置完成（[ResizeManager.applySurfaceResizeNow]）、
      * Surface 重新交付（[surfaceCreated]）。这些入口本就必须立刻出一帧（否则黑屏），
      * 此时继续挂着防抖暂停只会让本已就绪的缓冲不显示。
      *
-     * 归零计数而非只清标志，是为了让标志的状态始终是计数的函数：在途 runnable 之后
-     * 归还时会因计数已为 0 而空转，不会把标志反手再放开一次。
+     * MUST 同时取消在途防抖：它们闭包里各自持着「归还一次」的凭证，留着就会在
+     * 作废之后新暂停被领起时把**别人的**那一次减掉（陈旧防抖归还别人的暂停 = 提前
+     * 放开仍在等稳定尺寸的那个）。
      */
     private fun forceResumeRendering() {
-        resizeRenderPauses = 0
-        pendingImeGridResizeHoldsPause = false
-        viewModel?.runtime?.setRenderPaused(false)
+        pendingSurfaceResize?.let { removeCallbacks(it) }
+        pendingSurfaceResize = null
+        pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize = null
+        pendingSurfaceResizeToken = null
+        pendingImeGridResizeToken = null
+        pauseLedger.reset()
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
