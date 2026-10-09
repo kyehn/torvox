@@ -77,6 +77,7 @@
               gradle
               jdk
               android-tools
+              curl
               git
               nushell
               taplo
@@ -146,6 +147,23 @@
               nu scripts/download-rapidocr-models.nu
               if [[ ! -d "/tmp/alacritty-theme" ]]; then
                 git clone --depth 1 --quiet https://github.com/alacritty/alacritty-theme.git /tmp/alacritty-theme
+              fi
+              # UAX #29 字素簇语料：固定 Unicode 18.0.0，不跟随 latest，
+              # 否则 UCD 每年发版会让测试在无人审阅时变红。
+              if [[ ! -f "/tmp/unicode-ucd/GraphemeBreakTest.txt" ]]; then
+                curl --fail --silent --show-error --location --create-dirs \
+                  --output /tmp/unicode-ucd/GraphemeBreakTest.txt \
+                  https://www.unicode.org/Public/18.0.0/ucd/auxiliary/GraphemeBreakTest.txt
+              fi
+              # Kitty 图像载荷：取自 libghostty-vt-sys 构建时所用的 ghostty 版本，
+              # 使载荷与实际链接的引擎一致；该 rev 由该依赖的 build.rs 固定。
+              if [[ ! -d "/tmp/ghostty-kitty-testdata" ]]; then
+                curl --fail --silent --show-error --location --create-dirs \
+                  --output /tmp/ghostty-kitty-testdata/image-rgb-none-20x15-2147483647-raw.data \
+                  https://raw.githubusercontent.com/ghostty-org/ghostty/22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018/src/terminal/kitty/testdata/image-rgb-none-20x15-2147483647-raw.data
+                curl --fail --silent --show-error --location --create-dirs \
+                  --output /tmp/ghostty-kitty-testdata/image-rgb-zlib_deflate-128x96-2147483647-raw.data \
+                  https://raw.githubusercontent.com/ghostty-org/ghostty/22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018/src/terminal/kitty/testdata/image-rgb-zlib_deflate-128x96-2147483647-raw.data
               fi
             '';
           };
