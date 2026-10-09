@@ -3,6 +3,7 @@ package terminal.emulator.settings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.roundToInt
 
 /**
  * 用户可选字号范围与精度，对标 Termux
@@ -31,35 +32,49 @@ class FontSizeRangeTest {
     fun lowerBoundMatchesTermuxMinimum() {
         // Termux 下限是 4dip；本仓必须至少给到同样小的字号，否则用户无法再缩小。
         assertEquals(4f, SettingsRepository.FONT_SIZE_MIN_SP, 0f)
-        listOf(1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { spToPxScale ->
-            assertEquals(
-                "spToPxScale=$spToPxScale 的调节条下端必须等于 Termux 的 4dip",
-                4f,
-                detents(spToPxScale).first(),
-                0.001f,
-            )
-        }
     }
 
     @Test
     fun detentsAreTermuxStepGrid() {
-        // 每档恰好一个 Termux 步长（2sp），首尾分别等于下限与换算后的像素上限档。
-        listOf(1f, 1.5f, 2f, 2.625f, 3f, 4f).forEach { spToPxScale ->
-            val values = detents(spToPxScale)
-            values.zipWithNext().forEachIndexed { index, (lower, upper) ->
+        // 逐点对照 Termux 的字面档位表（4dip 起、步长 2sp、止于像素上限档）。
+        // 不用「步长恒等于 FONT_SIZE_STEP_SP」当断言：档数按 span/STEP 反推，
+        // 该断言可由构造本身恒真，检不出任何缺陷。
+        // 系数 1.0：256px → 4,6,…,256（127 档）
+        val full = detents(1f)
+        assertEquals(4f, full.first(), 0.001f)
+        assertEquals(256f, full.last(), 0.001f)
+        assertEquals(127, full.size)
+        assertEquals(
+            listOf(4f, 6f, 8f, 254f, 256f),
+            listOf(full[0], full[1], full[2], full[full.size - 2], full.last()),
+        )
+        // 系数 2.625：256px → 96sp 止（47 档）
+        assertEquals(
+            listOf(4f, 6f, 94f, 96f),
+            detents(2.625f).let {
+                listOf(it.first(), it[1], it[it.size - 2], it.last())
+            },
+        )
+        assertEquals(47, detents(2.625f).size)
+        // 系数 3.4125（density 2.625 × fontScale 1.3）：256px → 74sp 止（36 档）
+        assertEquals(
+            listOf(4f, 6f, 72f, 74f),
+            detents(2.625f * 1.3f).let {
+                listOf(it.first(), it[1], it[it.size - 2], it.last())
+            },
+        )
+        assertEquals(36, detents(2.625f * 1.3f).size)
+        // 每档都落在 Termux 的步长网格上：任一档偏离 2sp 的整数倍即为错位。
+        listOf(0.75f, 1.5f, 2f, 3f, 4f).forEach { spToPxScale ->
+            detents(spToPxScale).forEach { sp ->
+                val steps = (sp - SettingsRepository.FONT_SIZE_MIN_SP) / 2f
                 assertEquals(
-                    "spToPxScale=$spToPxScale 第 $index 档步长必须是 ${SettingsRepository.FONT_SIZE_STEP_SP}sp",
-                    SettingsRepository.FONT_SIZE_STEP_SP,
-                    upper - lower,
+                    "spToPxScale=$spToPxScale 的档位 $sp 不在 4dip 起、步长 2sp 的网格上",
+                    steps,
+                    steps.roundToInt().toFloat(),
                     0.001f,
                 )
             }
-            assertEquals(
-                "spToPxScale=$spToPxScale 的上端必须等于 fontSizeMaxSp",
-                SettingsRepository.fontSizeMaxSp(spToPxScale),
-                values.last(),
-                0.001f,
-            )
         }
     }
 
@@ -110,16 +125,19 @@ class FontSizeRangeTest {
 
     @Test
     fun adaptiveDefaultStaysInsideSelectableRange() {
-        // 自适应默认值必须落在调节条两端之内，否则初始位置越界。
+        // 自适应默认值只取决于屏宽，与 sp→px 系数无关；故取系数域的最紧上界
+        // （4，即 density 4.0 设备）一次判定，不逐个系数重复同一条断言。
+        val tightestCeiling = SettingsRepository.fontSizeMaxSp(4f)
         listOf(0f, 320f, 360f, 411f, 600f, 900f, 2000f).forEach { widthDp ->
-            listOf(1f, 2f, 2.625f, 3f).forEach { spToPxScale ->
-                val size = SettingsRepository.defaultFontSizeFor(widthDp)
-                assertTrue(
-                    "widthDp=$widthDp scale=$spToPxScale 的默认值 $size 越出可选范围",
-                    size >= SettingsRepository.FONT_SIZE_MIN_SP &&
-                        size <= SettingsRepository.fontSizeMaxSp(spToPxScale),
-                )
-            }
+            val size = SettingsRepository.defaultFontSizeFor(widthDp)
+            assertTrue(
+                "widthDp=$widthDp 的默认值 $size 低于下限 ${SettingsRepository.FONT_SIZE_MIN_SP}",
+                size >= SettingsRepository.FONT_SIZE_MIN_SP,
+            )
+            assertTrue(
+                "widthDp=$widthDp 的默认值 $size 越出最紧可选上界 $tightestCeiling",
+                size <= tightestCeiling,
+            )
         }
     }
 }
