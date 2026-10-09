@@ -24,14 +24,9 @@ class TerminalEditorInfoTest {
         )
         // 回车键形态由 MULTI_LINE 决定（否则触发 performEditorAction，终端无动作可执行），
         // 动作位一律留 UNSPECIFIED；IME_ACTION_NONE 会让屏幕键盘无法输入换行（termux-app#221）。
-        assertEquals(
-            EditorInfo.IME_FLAG_NO_FULLSCREEN,
-            outAttrs.imeOptions and EditorInfo.IME_FLAG_NO_FULLSCREEN,
-        )
-        assertEquals(
-            EditorInfo.IME_ACTION_UNSPECIFIED,
-            outAttrs.imeOptions and EditorInfo.IME_MASK_ACTION,
-        )
+        // 全值相等而非掩码：modifier-bar-sticky-encoding 规范写的是「只取
+        // IME_FLAG_NO_FULLSCREEN」，掩码断言会把 NO_HIDE_UI 等其余位放行。
+        assertEquals(EditorInfo.IME_FLAG_NO_FULLSCREEN, outAttrs.imeOptions)
     }
 
     @Test

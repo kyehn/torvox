@@ -46,23 +46,28 @@ internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) 
     /**
      * 注销一个被取消的防抖所持有的暂停。
      *
-     * 取消必须在重新领取**之前**调用：被 `removeCallbacks` 丢弃的防抖永不执行，
-     * 它的 `release` 也永不发生，持有就永久留在集合里（渲染器永不恢复）。
+     * 被 `removeCallbacks` 丢弃的防抖永不执行，它的 `release` 也永不发生，持有就永久
+     * 留在集合里（渲染器永不恢复），故取消方 MUST 调用本方法归还。
+     *
+     * 调用顺序无约束：先归还后领取会让持有者数经过 0，多发一对恢复/暂停；先领取后
+     * 归还则全程非空。推荐后者。
      */
     fun releaseAndCancel(token: Long) = release(token)
 
     /**
-     * 作废全部持有并无条件恢复渲染。
+     * 作废全部持有，把账清零；持有者非空时恢复渲染。
      *
-     * 用于「我们等的那件事已经发生，不必再等」的入口（Surface 重建成功、交换链
-     * 重配完成）。这些入口本就必须立刻出一帧，此时继续挂着防抖暂停只会让已就绪的
-     * 缓冲不显示；而清空集合让之后到达的陈旧 `release` 自动成为空操作。
+     * 用于「我们等的那件事已经发生，不必再等」的入口（Surface 重建成功、交换链重配
+     * 完成）。这些入口本就必须立刻出一帧，此时继续挂着防抖暂停只会让已就绪的缓冲不
+     * 显示；清空集合让之后到达的陈旧 `release` 自动成为空操作。
+     *
+     * 持有者本就为空时 MUST NOT 回调：本类只对**自己的**持有负责，`setRenderPaused`
+     * 是全局单布尔，切后台（ON_PAUSE）等其他持有者也会写它，无条件写 false 会把
+     * 它们的暂停顶掉。调用方若确需无条件出一帧，直接调运行期的
+     * `setRenderPaused(false)`。
      */
     fun reset() {
-        if (holders.isEmpty()) {
-            onPauseChanged(false)
-            return
-        }
+        if (holders.isEmpty()) return
         holders.clear()
         onPauseChanged(false)
     }

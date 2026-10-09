@@ -125,9 +125,10 @@ class FontSizeRangeTest {
 
     @Test
     fun adaptiveDefaultStaysInsideSelectableRange() {
-        // 自适应默认值只取决于屏宽，与 sp→px 系数无关；故取系数域的最紧上界
-        // （4，即 density 4.0 设备）一次判定，不逐个系数重复同一条断言。
-        val tightestCeiling = SettingsRepository.fontSizeMaxSp(4f)
+        // 自适应默认值只取决于屏宽，与 sp→px 系数无关；故对整个系数域取最紧上界
+        // 一次判定，不逐个系数重复同一条断言。`fontSizeMaxSp` 随系数单调不增，
+        // 最紧处在系数域上端 8.0（→ 32sp）。
+        val tightestCeiling = SettingsRepository.fontSizeMaxSp(8f)
         listOf(0f, 320f, 360f, 411f, 600f, 900f, 2000f).forEach { widthDp ->
             val size = SettingsRepository.defaultFontSizeFor(widthDp)
             assertTrue(
