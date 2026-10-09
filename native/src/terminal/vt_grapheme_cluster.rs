@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::ghostty_terminal::CellData;
+use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
 /// UCD 官方用例；由 `flake.nix` 的 shellHook 拉取到固定路径。
 const GRAPHEME_BREAK_TEST: &str = "/tmp/unicode-ucd/GraphemeBreakTest.txt";
@@ -108,7 +108,11 @@ fn load_cases() -> Vec<GraphemeCase> {
         }
         all += 1;
         let case = parse_case(line);
-        if case.codepoints().iter().any(|&codepoint| is_control_codepoint(codepoint)) {
+        if case
+            .codepoints()
+            .iter()
+            .any(|&codepoint| is_control_codepoint(codepoint))
+        {
             continue;
         }
         cases.push(case);
@@ -220,9 +224,7 @@ mod tests {
             cases.len()
         );
         assert!(
-            cases
-                .iter()
-                .any(|case| case.clusters.len() > 1),
+            cases.iter().any(|case| case.clusters.len() > 1),
             "用例不含多簇样本，分簇维度未被覆盖"
         );
     }

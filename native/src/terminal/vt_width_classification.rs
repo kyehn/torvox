@@ -59,8 +59,9 @@ const RECENT_SCRIPT_RANGES: &[(u32, u32)] = &[
 ///
 /// 这是精确期望值而非跳过名单：集合外的码位必须与权威分类一致，集合内的码位必须
 /// 恰好偏离；新出现的分歧与已被修复的分歧都会使测试失败。
-const UPSTREAM_WIDTH_DIVERGENCES: &[u32] =
-    &[0x1B35, 0x1B3B, 0x1B3D, 0x1B43, 0x1B44, 0x1BAA, 0x11F02, 0x11F41];
+const UPSTREAM_WIDTH_DIVERGENCES: &[u32] = &[
+    0x1B35, 0x1B3B, 0x1B3D, 0x1B43, 0x1B44, 0x1BAA, 0x11F02, 0x11F41,
+];
 
 /// 引擎对这些码位给出的列数；与权威分类恒差 1 列，且当前全部为 1。
 const UPSTREAM_DIVERGENCE_ENGINE_WIDTH: u32 = 1;
