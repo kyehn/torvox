@@ -11,7 +11,7 @@ import terminal.emulator.settings.SettingsRepository
  * 该系数同时是字号的换算基准与推给原生 `setRasterScale` 的值，两者 MUST 同源：
  * 字形实际光栅尺度即 `sp × 系数`。钳位区间 MUST 与原生接受区间一致
  * （Rust `setRasterScale`：`if !(0.5..=8.0).contains(&scale)`，见
- * `native/src/android/ffi.rs`）——区间外的值被原生静默丢弃，会使字号上界与
+ * `native/src/android/ffi.rs`）——区间外的值被原生拒收并记错误日志，会使字号上界与
  * 实际渲染脱节。
  */
 class CoerceSpToPxScaleTest {
@@ -36,8 +36,8 @@ class CoerceSpToPxScaleTest {
         assertEquals(2.625f, densityOnly, 0.001f)
         assertEquals(3.4125f, withFontScaling, 0.001f)
 
-        val sliderMaxSpDensityOnly = SettingsRepository.fontSizeRangeMaxSp(densityOnly)
-        val sliderMaxSpWithFontScaling = SettingsRepository.fontSizeRangeMaxSp(withFontScaling)
+        val sliderMaxSpDensityOnly = SettingsRepository.fontSizeMaxSp(densityOnly)
+        val sliderMaxSpWithFontScaling = SettingsRepository.fontSizeMaxSp(withFontScaling)
         // 只按密度算出的上界在真实系数下越界。
         assertEquals(96f, sliderMaxSpDensityOnly, 0.001f)
         assertTrue(
@@ -66,7 +66,7 @@ class CoerceSpToPxScaleTest {
 
     @Test
     fun `the result is always inside the native accepted range`() {
-        // 无论如何组合密度与系统字体缩放，结果都不得落在原生会静默丢弃的区间外。
+        // 无论如何组合密度与系统字体缩放，结果都不得落在原生会拒收的区间外。
         listOf(0.1f, 0.25f, 0.5f, 1f, 2.625f, 3f, 4f, 8f, 16f, 100f).forEach { density ->
             listOf(0.1f, 0.5f, 1f, 1.3f, 2f, 4f, 10f).forEach { fontScale ->
                 val scale = coerceSpToPxScale(density, fontScale)
@@ -81,7 +81,7 @@ class CoerceSpToPxScaleTest {
     @Test
     fun `oversized densities are clamped up to the native ceiling`() {
         // 高密度 + 大系统字体缩放会远超原生上界：须钳到上界而非原样送出
-        // （原样送出即被原生静默丢弃，字号上界与实际渲染脱节）。
+        // （原样送出即被原生拒收，字号上界与实际渲染脱节）。
         assertEquals(8f, coerceSpToPxScale(density = 4f, fontScale = 2f), 0.001f)
         assertEquals(8f, coerceSpToPxScale(density = 100f, fontScale = 100f), 0.001f)
     }

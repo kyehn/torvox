@@ -317,12 +317,29 @@ constructor(
     private val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
 
+    /** 发布输入法遮挡高度（px，已扣除系统导航条）。唯一调用方是 `TerminalSurface` 的 insets 派发回调。 */
+    fun publishImeInsetPx(imeInsetPx: Int) {
+        imeInsetFlowInternal.value = imeInsetPx
+    }
+
     /**
      * 活动会话的备用屏激活状态。仅在变化时由渲染线程发布（随每帧渲染结果一并上报）。
      * 与 [state] 分开，使备用屏切换不触发 state 订阅者重组。
      */
     private val altScreenActiveFlowInternal = MutableStateFlow(false)
     val altScreenActiveFlow: StateFlow<Boolean> = altScreenActiveFlowInternal.asStateFlow()
+
+    /**
+     * 输入法遮挡高度（px，已扣除系统导航条），由持有 `SurfaceView` 的
+     * `TerminalSurface` 在平台 insets 派发回调里发布（见其 `installImeInsetListener`）。
+     *
+     * 走 StateFlow 而非回调/轮询：派发回调里的直接状态写入不触发重组（实测
+     * `ImePopupPixelInstrumentedTest` 环境里回调已执行、状态已变，组合却再未求值），
+     * 而本运行期的其他流（如 `altScreenActiveFlow`）发布后重组可靠。备用屏网格
+     * 重排仍在回调里同步发起——它不依赖组合。
+     */
+    private val imeInsetFlowInternal = MutableStateFlow(0)
+    val imeInsetFlow: StateFlow<Int> = imeInsetFlowInternal.asStateFlow()
 
     /**
      * 自愈请求信号：原生 surface 判死并判定需要换新原生窗口时递增（见
@@ -1868,12 +1885,13 @@ constructor(
     }
 
     internal suspend fun computeFontSizeTenths(): Int {
-        // 落盘值与自适应值统一钳到有效区间：历史超限存量不再让原生静默丢弃，
-        // 渲染、下发记录与调节条三方恒一致。
+        // 落盘值与自适应值统一钳到可选区间（SettingsRepository 的唯一定义）：
+        // 历史超限存量与跨设备搬来的值都不再让原生拒收，渲染、下发记录与
+        // 调节条三方恒一致。
         val userFontSize =
             settingsRepository.fontSize.first().coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
@@ -1900,12 +1918,12 @@ constructor(
      * 中间态（布局混乱/撕裂）。网格只在手势结束 finalize 时重算一次。
      */
     fun setFontSizePreview(sizeSp: Float) {
-        // 与调节条/手势同一有效区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
+        // 与调节条/手势同一可选区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
         // 调用方传的本就是区间内值时行为不变。
         val clampedSp =
             sizeSp.coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale),
             )
         val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
@@ -3659,7 +3677,7 @@ internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Lon
 
 /**
  * sp→px 系数（光栅缩放）的合法区间，与原生 `setRasterScale` 的接受区间一致
- * （Rust `if !(0.5..=8.0).contains(&scale)`）：区间外的值被原生静默丢弃，
+ * （Rust `if !(0.5..=8.0).contains(&scale)`）：区间外的值被原生拒收并记错误日志，
  * 故超界必须在此钳住，否则字号上界与实际渲染脱节。
  */
 private const val MIN_RASTER_SCALE = 0.5f
@@ -3669,8 +3687,8 @@ private const val MAX_RASTER_SCALE = 8f
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
  *
  * 顶层纯函数以便测试：字号的每一次 sp↔px 换算都经此系数，钳位区间 MUST 与
- * 原生 `setRasterScale` 一致——区间外的值被原生静默丢弃，会使字号上界与
- * 实际渲染脱节。
+ * 原生 `setRasterScale` 一致——区间外的值被原生拒收并记错误日志，会使字号上界
+ * 与实际渲染脱节。
  */
 internal fun coerceSpToPxScale(density: Float, fontScale: Float): Float =
     (density * fontScale).coerceIn(MIN_RASTER_SCALE, MAX_RASTER_SCALE)

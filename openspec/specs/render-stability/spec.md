@@ -117,7 +117,7 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 - **WHEN** 同一台设备循环周期稳定在 16ms 上下
 - **THEN** 各窗口的 `fps` 取值一致，不出现 55/58/62/66 之间由整除产生的跳变
 
-### Requirement: 备用屏下输入法弹出不位移终端 Surface
+### Requirement: 备用屏下输入法随窗口自适应（不位移且网格收缩到可见高度）
 
 备用屏（helix/vim 等全屏 TUI）激活时，输入法跟随位移 MUST 为 0：此类应用恒占满
 视口，任何位移都会把应用顶部推出屏幕并使视觉行与触摸换算行错位。主屏的位移公式
@@ -125,12 +125,43 @@ MUST NOT 因此改变。备用屏状态 MUST 随每帧渲染结果一并上报�
 同批），MUST NOT 由输入法定居后的独立查询提供：输入法弹出动画期间该状态会翻转
 （启动 helix 的同时键盘正收起），查询所得缓存必然滞后于当帧的位移计算。
 
+**位移为 0 MUST 同时以网格收缩兑现「适应窗口大小」**：窗口是 `adjustNothing`，
+Surface 尺寸全程不变，故备用屏下 MUST 把输入法遮挡计入网格高度
+（`rows = floor((surface − ModifierBar − 输入法遮挡) / cellHeight)`），使全屏 TUI
+收到 SIGWINCH 并按可见高度重绘。仅位移为 0 而网格不变会让键盘遮住的末行
+（helix/vim 的状态行即在其中）永久不可见。该重排 MUST 防抖到输入法高度稳定后执行
+（MUST NOT 逐帧发 SIGWINCH），MUST 只重算网格，MUST NOT 重配交换链。主屏 MUST
+不扣输入法遮挡：它靠位移跟随，改网格会带来重排闪烁与底部行丢失。
+
+输入法遮挡高度 MUST 取自平台 insets 派发（`ViewCompat.setOnApplyWindowInsetsListener`
+装在终端 Surface 上），MUST NOT 取自轮询 `rootView.rootWindowInsets` 或 Compose 的
+`WindowInsets.ime` 叶节点：这两处在仪器化环境下均恒为 0（实测键盘高 883px 时
+`DecorView.rootWindowInsets` 仍报 0），据此驱动的输入法跟随位移整体失效。
+备用屏状态 MUST 用运行期逐帧发布的流值，且键盘已展开时启动 TUI MUST 触发一次重排
+（输入法高度未变、平台不会再次派发 insets）。
+
+#### Scenario: 备用屏弹出输入法后网格收缩并触发重排
+
+- **WHEN** helix 处于备用屏且输入法弹出并稳定
+- **THEN** 网格行数收缩到可见高度能容纳的行数、列数不变，helix 重绘后状态行可见
+
 #### Scenario: 备用屏弹出输入法不隐藏顶部
 
 - **WHEN** helix 处于备用屏且输入法弹出，网格内容填满视口
 - **THEN** 终端 Surface 位移为 0，helix 首行仍在屏幕内可见
 
+#### Scenario: 键盘已展开时启动 TUI 也重排
+
+- **WHEN** 主屏 shell 会话中输入法已展开，随后启动 helix
+- **THEN** 网格立即收缩到可见高度，helix 按新行数布局
+
+#### Scenario: 收起输入法后网格复原
+
+- **WHEN** 输入法收起
+- **THEN** 网格行数回到弹出前的值
+
 #### Scenario: 主屏位移公式不变
 
 - **WHEN** 终端处于主屏且内容填满网格
-- **THEN** 位移仍为整块键盘高度，与备用屏判定无关
+- **THEN** 位移仍为整块键盘高度，与备用屏判定无关；`rows`/`cols` 不变，
+      上移后底部像素与上移前完全相同
