@@ -13,6 +13,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.findTerminalSurface
 import terminal.emulator.runtime.coerceSpToPxScale
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.waitForSession
@@ -26,8 +27,8 @@ import terminal.emulator.waitForSession
  * 被原生拒收——历史缺陷正是如此（Kotlin 侧 100sp 与原生 `4.0..=100.0` 两份魔数，
  * 低密度设备上 Termux 允许的 256sp 被截断）。只测中间档的用例对该缺陷完全无感。
  *
- * 断言读到的是原生回读的生效字号（`appliedFontSizeSp`）与单元格度量，
- * 故失败必然指向本仓代码，而不是复述被测函数自身。
+ * 判据一律取**原生回读**的单元格度量（`getCellWidth` / `getCellHeight`），不是 Kotlin
+ * 自己刚推送的 `appliedFontSizeSp()`——后者对本次缺陷完全无感（见 [applyAndAwait]）。
  */
 @RunWith(JUnit4::class)
 class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
@@ -70,6 +71,22 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
      */
     private data class GridMetrics(val sizeSp: Float, val cols: Int, val cellHeight: Float, val cellWidth: Float)
 
+    /**
+     * 该单元格宽度下应有的列数（`floor(视图宽 / 单元格像素宽)`）。
+     *
+     * 网格宽度是终端 Surface 的宽度而非整屏，故取自视图实测值；查不到时返回 null，
+     * 退化为只等宽度。
+     */
+    private fun expectedColsFor(cellWidth: Float): Int? {
+        if (cellWidth <= 0f) return null
+        var surfaceWidthPx = 0
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            surfaceWidthPx = findTerminalSurface(activity).width
+        }
+        if (surfaceWidthPx <= 0) return null
+        return (surfaceWidthPx / (cellWidth * spToPxScale())).toInt().coerceAtLeast(1)
+    }
+
     private fun readRuntimeMetrics(): GridMetrics {
         var metrics = GridMetrics(0f, 0, 0f, 0f)
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
@@ -104,29 +121,30 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             activity.terminalViewModel.setFontSize(targetSizeSp)
         }
         val expectedWidth = expectWidthFromMin?.invoke(before.cellWidth)
+        // 列数必须一并等：字号推送后单元格度量立刻变，而网格列数要等 resize 经
+        // PTY 往返才反映到运行期状态。只等宽度会在两者之间取样，把「尚未重排」
+        // 读成「重排后列数没变」。
         val landed =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                val width = readRuntimeMetrics().cellWidth
-                if (expectedWidth != null) {
-                    kotlin.math.abs(width - expectedWidth) <= kotlin.math.max(0.5f, expectedWidth * 0.02f)
-                } else {
-                    // 已经在目标字号上时不要求宽度变化——否则轮询会空等满超时，
-                    // 把「环境本来就设成该字号」误报成「原生拒收」。
-                    kotlin.math.abs(width - before.cellWidth) > 0.1f ||
-                        kotlin.math.abs(before.sizeSp - targetSizeSp) < 0.01f
-                }
+                val metrics = readRuntimeMetrics()
+                val widthOk =
+                    if (expectedWidth != null) {
+                        kotlin.math.abs(metrics.cellWidth - expectedWidth) <=
+                            kotlin.math.max(0.5f, expectedWidth * 0.02f)
+                    } else {
+                        // 已经在目标字号上时不要求宽度变化——否则轮询会空等满超时，
+                        // 把「环境本来就设成该字号」误报成「原生拒收」。
+                        kotlin.math.abs(metrics.cellWidth - before.cellWidth) > 0.1f ||
+                            kotlin.math.abs(before.sizeSp - targetSizeSp) < 0.01f
+                    }
+                val expectedCols = expectedColsFor(metrics.cellWidth)
+                widthOk && (expectedCols == null || metrics.cols == expectedCols)
             }
         val settled = readRuntimeMetrics()
         assertNotNull(
             "调节条可划到的字号 $targetSizeSp 必须被原生接受并生效：原生单元格宽仍是 " +
                 "${before.cellWidth}，期望 ${expectedWidth ?: "变化"}",
             landed,
-        )
-        assertEquals(
-            "原生落地后的请求字号必须与提交值一致",
-            targetSizeSp,
-            settled.sizeSp,
-            0.01f,
         )
         composeTestRule.waitForIdle()
         return settled
@@ -258,10 +276,15 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 landed.cellWidth,
                 kotlin.math.max(0.5f, expectedWidthTarget * 0.02f),
             )
-            // 单元格高只是单调随字号变化，不按线性比例断言（行高经取整）。
-            assertTrue(
-                "单元格高必须随字号同向变化（前 $cellHeightBefore 后 $cellHeightAfter）",
-                if (ratio > 1f) cellHeightAfter > cellHeightBefore else cellHeightAfter < cellHeightBefore,
+            // 单元格高按比例断言，容差给到 ±1 个行高（`cell_metrics` 对高度做了 `ceil`，
+            // 故它只是近似线性；宽度才是严格线性的）。
+            val expectedHeightTarget = cellHeightBefore * ratio
+            assertEquals(
+                "原生单元格高必须随字号按比例变化（原生回读 $cellHeightAfter，" +
+                    "期望≈$expectedHeightTarget）",
+                expectedHeightTarget,
+                cellHeightAfter,
+                kotlin.math.max(1.5f, expectedHeightTarget * 0.06f),
             )
             assertTrue("字号必须真实变化 (前=$originalSizeSp 后=$landedSizeSp)", kotlin.math.abs(ratio - 1f) > 0.01f)
             if (ratio > 1f) {
