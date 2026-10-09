@@ -140,6 +140,18 @@ Surface 尺寸全程不变，故备用屏下 MUST 把输入法遮挡计入网格
 备用屏状态 MUST 用运行期逐帧发布的流值，且键盘已展开时启动 TUI MUST 触发一次重排
 （输入法高度未变、平台不会再次派发 insets）。
 
+**终端 Surface 的跟随位移 MUST 由视图自身的 `translationY` 承担，MUST NOT 经组合容器
+平移**：组合平移要经「重组 → 重新测量 → 重新布局」，而重组只在 Choreographer 帧回调
+里跑；主线程每帧阻塞在 `syncAndDrawFrame` 等待渲染线程时，重组滞后可达十几秒（实测
+每 300ms 写一次组合状态，20 次才换来一次重组），期间键盘已弹出而终端内容与键栏纹丝
+不动。`translationY` 在 insets 派发的同一拍内生效。键栏是组合覆盖层，只能读同一个
+`imeInsetFlow` 上移——它 MUST NOT 另取来源，也 MUST NOT 与终端 Surface 平移两次。
+
+#### Scenario: 主线程被渲染阻塞时位移仍即时
+
+- **WHEN** 每帧绘制都阻塞在等待渲染线程，且输入法在弹出
+- **THEN** 终端 Surface 的平移量在 insets 派发的同一拍内生效，不等组合重组
+
 #### Scenario: 备用屏弹出输入法后网格收缩并触发重排
 
 - **WHEN** helix 处于备用屏且输入法弹出并稳定
