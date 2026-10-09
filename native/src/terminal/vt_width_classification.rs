@@ -117,6 +117,21 @@ mod tests {
     /// 否则该区段会被跳过而无人察觉。
     #[test]
     fn recent_script_ranges_cover_whole_blocks() {
+        // 逐段断言而非只断言总数：某段被截短而另一段被扩长时总数不变，
+        // 只有逐段比对才能发现区段划分被改动。
+        const EXPECTED: &[(u32, u32)] = &[
+            (0x1B00, 0x1B4C),
+            (0x1B4E, 0x1B7F),
+            (0x1B80, 0x1BBF),
+            (0x11F00, 0x11F10),
+            (0x11F12, 0x11F3A),
+            (0x11F3E, 0x11F5A),
+            (0x1E4D0, 0x1E4F9),
+        ];
+        assert_eq!(
+            RECENT_SCRIPT_RANGES, EXPECTED,
+            "较新文种区段划分变动，需复核区段边界与码位数"
+        );
         let total: usize = RECENT_SCRIPT_RANGES
             .iter()
             .map(|(start, end)| (end - start + 1) as usize)
@@ -152,6 +167,7 @@ mod tests {
         let mut repaired = Vec::new();
         let mut compared = 0usize;
         for (start, end) in WIDE_RANGES.iter().chain(RECENT_SCRIPT_RANGES) {
+            // 上界闭区间：漏掉 `*end` 会让该区段最后一个码位静默退出比对。
             let codepoints: Vec<u32> = (*start..=*end)
                 .filter(|codepoint| char::from_u32(*codepoint).is_some())
                 .collect();
