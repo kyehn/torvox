@@ -5,8 +5,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TerminalInputEncoderTest {
-    private fun enc(text: String, ctrl: Boolean = false, alt: Boolean = false, bracketed: Boolean = false): ByteArray =
-        TerminalInputEncoder.encodeCommittedText(text, ctrl, alt, bracketed)
+    private fun enc(text: String, ctrl: Boolean = false, alt: Boolean = false): ByteArray =
+        TerminalInputEncoder.encodeCommittedText(text, ctrl, alt)
 
     private fun bytes(vararg values: Int): ByteArray = ByteArray(values.size) { values[it].toByte() }
 
@@ -52,17 +52,19 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `bracketed paste wraps multi char text`() {
-        val wrapped = enc("hello", bracketed = true)
-        val expected = bytes(0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E) +
-            "hello".toByteArray(Charsets.UTF_8) +
-            bytes(0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E)
-        assertArrayEquals(expected, wrapped)
+    fun `ime newline commit becomes carriage return`() {
+        // 多行字段的输入法回车走 commitText("\n")；终端回车是 CR，
+        // 直接送 LF 会让 raw 模式的 TUI 应用（helix）把它读成 Ctrl+J 即字母 j。
+        assertArrayEquals(bytes(0x0D), enc("\n"))
+        assertArrayEquals(bytes(0x0D), enc("\n", ctrl = true))
+        assertArrayEquals(bytes(0x0D), enc("\n", alt = true))
     }
 
     @Test
-    fun `bracketed paste single char not wrapped`() {
-        assertArrayEquals(bytes(0x61), enc("a", bracketed = true))
+    fun `multi char commit keeps its own newlines`() {
+        // 多字符提交（多行粘贴、输入法内部粘贴）里的换行是内容本身，
+        // 不得被归一为 CR，否则多行文本会粘成一行。
+        assertArrayEquals("a\nb".toByteArray(Charsets.UTF_8), enc("a\nb"))
     }
 
     @Test
@@ -71,9 +73,13 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `encodeKeyEvent enter produces newline`() {
+    fun `encodeKeyEvent enter produces carriage return`() {
+        // 回车载荷是 CR(0x0D)。断言的是 VT 输入约定（termux KeyHandler、
+        // ghostty function_keys.zig、kitty key_encoding.c、wezterm termwiz 一致），
+        // 不是本实现的内部表示：写成 LF 会让 raw 模式下的 TUI 应用
+        // （helix/vim/less）把回车读成 Ctrl+J 即字母 j。
         assertArrayEquals(
-            bytes(0x0A),
+            bytes(0x0D),
             TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_ENTER, 0, false, false),
         )
     }
@@ -95,9 +101,11 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `encodeKeyEvent numpad enter produces newline`() {
+    fun `encodeKeyEvent numpad enter produces carriage return`() {
+        // 数字小键盘回车与主回车同义（ghostty function_keys.zig 的
+        // numpad_enter 非应用模式项即 "\r"）。
         assertArrayEquals(
-            bytes(0x0A),
+            bytes(0x0D),
             TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_NUMPAD_ENTER, 0, false, false),
         )
     }
@@ -237,9 +245,11 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `encodeKeyEvent alt enter produces csi 13 mod`() {
+    fun `encodeKeyEvent alt enter produces esc carriage return`() {
+        // ghostty function_keys.zig：Alt+回车在 modifyKeysNormal 下为 ESC + CR；
+        // termux KeyHandler 同款返回值 "\033\r"。
         assertArrayEquals(
-            bytes(0x1B, 0x5B, 0x31, 0x33, 0x3B, 0x33, 0x7E), // ESC [ 1 3 ; 3 ~
+            bytes(0x1B, 0x0D),
             TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_ENTER, 0, false, true),
         )
     }
@@ -403,9 +413,11 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `encodeKeyEvent ctrl enter produces csi 13 mod`() {
+    fun `encodeKeyEvent ctrl enter produces csi 27 codepoint encoding`() {
+        // ghostty function_keys.zig：带 Ctrl 的回车走 CSI u 编码
+        // `CSI 27 ; mod ; 13 ~`（Ctrl=5，Ctrl+Alt=7），而非 `CSI 13;mod~`。
         assertArrayEquals(
-            "\u001b[13;5~".toByteArray(Charsets.UTF_8),
+            "\u001b[27;5;13~".toByteArray(Charsets.UTF_8),
             TerminalInputEncoder.encodeKeyEvent(
                 android.view.KeyEvent.KEYCODE_ENTER,
                 0,
@@ -414,7 +426,7 @@ class TerminalInputEncoderTest {
             ),
         )
         assertArrayEquals(
-            "\u001b[13;7~".toByteArray(Charsets.UTF_8),
+            "\u001b[27;7;13~".toByteArray(Charsets.UTF_8),
             TerminalInputEncoder.encodeKeyEvent(
                 android.view.KeyEvent.KEYCODE_ENTER,
                 0,
@@ -619,36 +631,46 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `every enter keycode produces newline`() {
-        // 三个回车键码必须同义。DPAD_CENTER 缺失时它会落到 Bridge 的
-        // KeyCharacterMap 猜测分支，被当成某个字母送出（实测提交后无换行、
-        // 文本与下一条命令粘连），即「回车变成 j」。
+    fun `every enter keycode produces carriage return`() {
+        // 三个回车键码必须同义且都是 CR(0x0D)。载荷写 LF 时，raw 模式下的
+        // TUI 应用会把 0x0A 读成 Ctrl+J 即字母 j；键码缺失时则落到 Bridge 的
+        // KeyCharacterMap 猜测分支，同样表现为「回车变成某个字母」。
         listOf(
             android.view.KeyEvent.KEYCODE_ENTER,
             android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
             android.view.KeyEvent.KEYCODE_DPAD_CENTER,
         ).forEach { keyCode ->
             assertArrayEquals(
-                "keyCode=$keyCode 必须产生换行",
-                bytes(0x0A),
+                "keyCode=$keyCode 必须产生 CR",
+                bytes(0x0D),
                 TerminalInputEncoder.encodeKeyEvent(keyCode, 0, false, false),
             )
         }
     }
 
     @Test
-    fun `every enter keycode with ctrl reports csi 13`() {
-        // 带修饰键时同样按回车族统一上报（xterm 的 CSI 13;mod~）。
+    fun `every enter keycode with ctrl reports csi 27 codepoint encoding`() {
+        // 带 Ctrl 时同样按回车族统一上报 CSI u 编码。
         listOf(
             android.view.KeyEvent.KEYCODE_ENTER,
             android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
             android.view.KeyEvent.KEYCODE_DPAD_CENTER,
         ).forEach { keyCode ->
             assertArrayEquals(
-                "keyCode=$keyCode 必须上报 CSI 13;5~",
-                "\u001b[13;5~".toByteArray(Charsets.UTF_8),
+                "keyCode=$keyCode 必须上报 CSI 27;5;13~",
+                "\u001b[27;5;13~".toByteArray(Charsets.UTF_8),
                 TerminalInputEncoder.encodeKeyEvent(keyCode, 0, ctrlActive = true, altActive = false),
             )
         }
+    }
+
+    @Test
+    fun `ctrl j stays line feed`() {
+        // Ctrl+J 语义上就是 LF，与回车无关：它必须仍是 0x0A，
+        // 否则 Ctrl+J/Ctrl+Enter 在 shell 中将无法区分（POSIX 惯例）。
+        assertArrayEquals(
+            bytes(0x0A),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_J, 'j'.code, true, false),
+        )
     }
 }

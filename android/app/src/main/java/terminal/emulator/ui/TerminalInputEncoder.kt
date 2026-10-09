@@ -3,8 +3,12 @@ package terminal.emulator.ui
 import android.view.KeyEvent
 
 object TerminalInputEncoder {
-    private const val BRACKETED_PASTE_START = "\u001b[200~"
-    private const val BRACKETED_PASTE_END = "\u001b[201~"
+    /**
+     * 回车字节（CR，0x0D）。终端的回车**不是** LF：raw 模式下的 TUI 应用
+     * 按控制字符把 0x0A 解成 Ctrl+J，即字母 j。
+     */
+    private const val CARRIAGE_RETURN_BYTE: Byte = 0x0D
+
     private const val LOWERCASE_CONTROL_OFFSET = 96
     private const val UPPERCASE_CONTROL_OFFSET = 64
 
@@ -14,30 +18,32 @@ object TerminalInputEncoder {
      *
      * 单一来源：编码与贴底判定都经此集合。缺失任一键码都会让它落到
      * [terminal.emulator.bridge.Bridge.processKeyEvent] 的 `KeyCharacterMap` 猜测
-     * 分支——该分支对导航键无定义，会回退成任意字符（实测 DPAD_CENTER 提交后
-     * 无换行，文本与下一条命令被粘连）。回车被当作普通可打印键送出时，
-     * 即表现为「回车变成某个字母」。
+     * 分支——该分支对导航键无定义，会回退成任意字符（实测提交后无换行，
+     * 文本与下一条命令粘连）。
      */
     val enterKeyCodes: Set<Int> =
         setOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER)
 
+    /**
+     * 输入法提交文本 → PTY 字节。
+     *
+     * 输入法的回车键走 `commitText("\n")`（多行字段）或 `sendKeyEvent(ENTER)`
+     * 两条路径，前者必须在此归一为 CR(0x0D)：终端的回车是 CR，LF 在 raw 模式的
+     * TUI 应用（helix/vim/less）里被读成 Ctrl+J 即字母 j（见
+     * [escapeSequenceForKeyCode] 的同一说明）。多字符提交（拼音候选、滑行输入、
+     * 输入法内部粘贴）里的换行是**内容本身**，逐字保留——那是 bracketed paste
+     * 的语义，把回车替换成 LF 会让多行粘贴粘到一行。
+     */
     fun encodeCommittedText(
         text: String,
         ctrlActive: Boolean,
         altActive: Boolean,
-        bracketedPaste: Boolean = false,
     ): ByteArray {
         val bytes = mutableListOf<Byte>()
-        if (bracketedPaste && text.length > 1) {
-            bytes.addAll(BRACKETED_PASTE_START.toByteArray(Charsets.UTF_8).toList())
-            bytes.addAll(text.toByteArray(Charsets.UTF_8).toList())
-            bytes.addAll(BRACKETED_PASTE_END.toByteArray(Charsets.UTF_8).toList())
-            return bytes.toByteArray()
-        }
+        if (text == "\n") return byteArrayOf(CARRIAGE_RETURN_BYTE)
         // Ctrl 转换只适用于单个字符（即真实的 Ctrl+X 按键）。
         // 多字符输入法提交——拼音候选、滑行输入、输入法内部粘贴、自动补全
-        // ——绝不能逐字符折叠为控制字节（"abc" → 0x01 0x02 0x03）。
-        // 正确形态是由 bracketed-paste 包裹的多字符提交。
+        // ——绝不能逐字符折叠为控制字节（"abc" → 0x01 0x02 0x03），原样逐码点送出。
         if (ctrlActive && text.length == 1) {
             val codePoint = text[0].code
             // 数字 1/9/0 没有传统的 Ctrl 映射（c & 0x1F 会与
@@ -141,12 +147,23 @@ object TerminalInputEncoder {
                 }
 
             in enterKeyCodes ->
-                if (ctrlActive || altActive) {
-                    // 带修饰键的回车：xterm 经 CSI 13;mod~ 上报。
-                    val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
-                    "\u001b[13;$modParam~"
-                } else {
-                    "\n"
+                when {
+                    // 无修饰的回车是 CR(0x0D)，不是 LF(0x0A)。LF 在行规程的
+                    // canonical 模式下也能提交命令行，故 shell 看似正常；
+                    // 但 raw 模式（TUI 应用，helix/vim/less 全在其中）下，
+                    // 解析库按控制字符把 0x0A 解成 Ctrl+J，即字母 j
+                    // （crossterm `src/event/sys/unix/parse.rs`：raw 模式
+                    // 下 0x0A 落入 `b'\x01'..=b'\x1a'` → `Char('j')`）。
+                    // 这正是「回车变成 j」的真机表现：rawtest.sh 读到的
+                    // 字节为 0a。termux KeyHandler、ghostty function_keys.zig、
+                    // kitty key_encoding.c、wezterm termwiz 全部发 CR。
+                    !ctrlActive && !altActive -> "\r"
+                    // Alt+回车：ESC 前缀 + CR（ghostty function_keys.zig 的
+                    // modifyKeysNormal 项；termux KeyHandler 同样返回 "\033\r"）。
+                    !ctrlActive -> "\u001b\r"
+                    // Ctrl/Alt+Ctrl+回车：CSI u 修饰键编码 `CSI 27 ; mod ; 13 ~`
+                    // （ghostty function_keys.zig），非 `CSI 13;mod~`。
+                    else -> "\u001b[27;${1 + (if (altActive) 2 else 0) + 4};13~"
                 }
 
             KeyEvent.KEYCODE_ESCAPE -> "\u001b"

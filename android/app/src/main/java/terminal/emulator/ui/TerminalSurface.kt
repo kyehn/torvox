@@ -600,7 +600,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 text = text,
                                 ctrlActive = ctrlActive,
                                 altActive = altActive,
-                                bracketedPaste = false,
                             ),
                         )
                     }
