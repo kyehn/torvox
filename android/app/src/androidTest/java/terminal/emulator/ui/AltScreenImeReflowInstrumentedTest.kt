@@ -28,8 +28,8 @@ import terminal.emulator.waitForTerminalPixels
  * 下半屏永远不可见——状态行消失、光标可能落在被遮住的几行里，而应用收不到
  * SIGWINCH 也不会重排。历史上只断言「不位移」，等于替「保持不可见」背书。
  *
- * 断言读的是 PTY 网格（`getGridRowsColsPacked`）与原生单元格度量：失败必然指向
- * 本仓的网格公式或输入路径，而不是复述被测函数。
+ * 网格断言读的是 PTY 网格（`getGridRowsColsPacked`），预期值则由平台量得的输入法
+ * 高度、导航条高度、Surface 高度与单元格高按网格公式独立算出——不是复述被测函数。
  */
 @RunWith(JUnit4::class)
 class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
@@ -94,13 +94,7 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         return height
     }
 
-    /**
-     * 弹出输入法并等高度定居。
-     *
-     * 走 `WindowInsetsController.show(Type.ime())`——与终端轻点、抽屉键盘按钮同一条
-     * 路径（见 `TerminalScreen.toggleKeyboard` 的注释）：`InputMethodManager`
-     * 的 `SHOW_IMPLICIT` 在 Android 12+ 会被静默拒绝（输入法可见性需要受信任手势）。
-     */
+    /** 底部导航条高度（px）：输入法遮挡高度会扣除它，两者重叠不重复计入。 */
     private fun navigationHeightPx(): Int {
         var height = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -127,6 +121,13 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         return published
     }
 
+    /**
+     * 弹出输入法并等高度定居。
+     *
+     * 走 `WindowInsetsController.show(Type.ime())`——与终端轻点、抽屉键盘按钮同一条
+     * 路径（见 `TerminalScreen.toggleKeyboard` 的注释）：`InputMethodManager`
+     * 的 `SHOW_IMPLICIT` 在 Android 12+ 会被静默拒绝（输入法可见性需要受信任手势）。
+     */
     private fun showImeAndSettle() {
         val surface = findTerminalSurface(composeTestRule.activity)
         composeTestRule.activity.runOnUiThread {
@@ -173,6 +174,112 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                 gridRowsCols().first == rows
             }
         assertNotNull("输入法收起后网格必须恢复到 $rows 行，实际 ${gridRowsCols().first}", restored)
+    }
+
+    /**
+     * 键盘已展开时启动 helix 也必须重排：此时输入法高度未变、平台不会再次派发
+     * insets，故只有备用屏状态翻转这一个触发点——漏掉它，TUI 会按整屏行数布局，
+     * 状态行留在键盘底下。
+     */
+    @Test
+    fun startingTuiWhileImeIsUpStillShrinksGrid() {
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
+        composeTestRule.awaitBridge()
+        val (rowsBefore, _) = gridRowsCols()
+        try {
+            showImeAndSettle()
+            val rowsWithImeOnPrimary = gridRowsCols().first
+            assertTrue(
+                "主屏下输入法不得改变行数（前 $rowsBefore，键盘展开后 $rowsWithImeOnPrimary）",
+                rowsWithImeOnPrimary == rowsBefore,
+            )
+
+            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            assertNotNull(
+                "必须进入备用屏",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    NativeBridge.getAltScreenState(sessionId())
+                },
+            )
+            assertNotNull(
+                "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    altScreenPublished()
+                },
+            )
+            assertNotNull(
+                "键盘已展开时进入备用屏，网格必须收缩（$rowsBefore → ${gridRowsCols().first}；${diagnostics()}）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                    gridRowsCols().first < rowsBefore
+                },
+            )
+        } finally {
+            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            hideImeAndAwaitRows(rowsBefore)
+        }
+    }
+
+    /**
+     * 键盘保持展开时离开备用屏：网格必须按整屏高度复原。
+     *
+     * 反向路径同样要钉住——它与「进入时收缩」共用一次防抖重排，但扣减量来自运行期的
+     * 单一值；漏掉离开这一侧时，PTY 会停留在被输入法缩小后的行数，且此后没有任何
+     * 自愈触发点（要等下一次旋转或改字号才复原）。
+     */
+    @Test
+    fun leavingAltScreenWhileImeIsUpRestoresFullHeightRows() {
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
+        composeTestRule.awaitBridge()
+        val (rowsBefore, colsBefore) = gridRowsCols()
+        try {
+            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            assertNotNull(
+                "必须进入备用屏",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    NativeBridge.getAltScreenState(sessionId())
+                },
+            )
+            assertNotNull(
+                "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    altScreenPublished()
+                },
+            )
+            showImeAndSettle()
+            assertNotNull(
+                "备用屏下弹出输入法后网格必须收缩（$rowsBefore → ${gridRowsCols().first}；${diagnostics()}）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                    gridRowsCols().first < rowsBefore
+                },
+            )
+            val rowsInAltScreen = gridRowsCols().first
+
+            // 键盘仍展开，直接离开备用屏。
+            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            assertNotNull(
+                "必须离开备用屏",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    !NativeBridge.getAltScreenState(sessionId()) &&
+                        !altScreenPublished()
+                },
+            )
+            assertNotNull(
+                "键盘仍展开时离开备用屏，网格必须复原到 $rowsBefore 行（仍为 $rowsInAltScreen；" +
+                    diagnostics() + "）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                    gridRowsCols().first == rowsBefore
+                },
+            )
+            assertTrue(
+                "列数不得变化（前 $colsBefore，后 ${gridRowsCols().second}）",
+                gridRowsCols().second == colsBefore,
+            )
+        } finally {
+            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            hideImeAndAwaitRows(rowsBefore)
+        }
     }
 
     @Test
@@ -235,9 +342,9 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                 "AltScreenIme",
                 "rows $rowsBefore -> $rowsWithIme (cellH=$cellHeight bar=$barPx ime=$imeHeight)",
             )
-
-            hideImeAndAwaitRows(rowsBefore)
         } finally {
+            // 顺序与另两个用例一致：先收起键盘（并确认网格真的复原），再离开备用屏。
+            hideImeAndAwaitRows(rowsBefore)
             NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
         }
     }
