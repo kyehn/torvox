@@ -3,7 +3,6 @@ package terminal.emulator.ui
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -16,12 +15,16 @@ import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.waitForSession
 
 /**
- * 字号设置值与实际渲染尺寸的对照（对标 sylirre TerminalUiTest.fontSizeChangeReflowsGridAndSession）。
+ * 调节条可划到的**每一个端点**都必须是真正生效的字号（对标 sylirre
+ * TerminalUiTest.fontSizeChangeReflowsGridAndSession）。
  *
- * 驱动与 pinch 收尾相同的路径（onZoomChanged → viewModel.setFontSize → 全量应用 +
- * 单次网格重排）；手势数学本身是框架代码，此处驱动落地路径：字号翻倍后列数收缩、
- * 单元格高按比例增长、应用字号与设置值一致。字号持久化在 SharedPreferences，
- * finally 恢复原值防污染其他测试。
+ * 为什么必须跨端点：调节条范围在 Kotlin 定义，字号是否真的落地由原生
+ * `setFontSizeInPlace` 决定。两端各有一份上限常量时，中间档全部正常、只有上端
+ * 被原生拒收——历史缺陷正是如此（Kotlin 侧 100sp 与原生 `4.0..=100.0` 两份魔数，
+ * 低密度设备上 Termux 允许的 256sp 被截断）。只测中间档的用例对该缺陷完全无感。
+ *
+ * 断言读到的是原生回读的生效字号（`appliedFontSizeSp`）与单元格度量，
+ * 故失败必然指向本仓代码，而不是复述被测函数自身。
  */
 @RunWith(JUnit4::class)
 class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
@@ -35,6 +38,11 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
     private val widthDp: Float by lazy {
         val metrics = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics
         metrics.widthPixels / metrics.density
+    }
+
+    private fun spToPxScale(): Float {
+        val resources = InstrumentationRegistry.getInstrumentation().targetContext.resources
+        return resources.displayMetrics.density * resources.configuration.fontScale
     }
 
     private fun readRuntimeMetrics(): Triple<Float, Int, Float> {
@@ -52,10 +60,66 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
         return Triple(sizeSp, cols, cellHeight)
     }
 
+    /** 提交目标字号并等待原生回读落地，返回 (请求值, 生效值, 列数, 单元格高)。 */
+    private fun applyAndAwait(targetSizeSp: Float): Triple<Float, Int, Float> {
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            activity.terminalViewModel.setFontSize(targetSizeSp)
+        }
+        val landed =
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                val (sizeSp, _, _) = readRuntimeMetrics()
+                kotlin.math.abs(sizeSp - targetSizeSp) < 0.01f
+            }
+        val (landedSizeSp, _, _) = readRuntimeMetrics()
+        assertTrue(
+            "调节条可划到的字号 $targetSizeSp 必须被原生接受并生效，实际生效 $landedSizeSp",
+            landed,
+        )
+        composeTestRule.waitForIdle()
+        val (_, cols, cellHeight) = readRuntimeMetrics()
+        return Triple(landedSizeSp, cols, cellHeight)
+    }
+
+    @Test
+    fun sliderEndpointsAreActuallyApplied() {
+        composeTestRule.waitForSession()
+        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            var ready = false
+            composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+                ready = activity.runtime.bridge() != null
+            }
+            ready
+        }
+        try {
+            val scale = spToPxScale()
+            val minSizeSp = SettingsRepository.FONT_SIZE_MIN_SP
+            val maxSizeSp = SettingsRepository.fontSizeMaxSp(scale)
+            val (_, colsAtMin, cellHeightAtMin) = applyAndAwait(minSizeSp)
+            assertTrue("最小字号下列数必须为正，实际 $colsAtMin", colsAtMin > 0)
+            assertTrue("最小字号下单元格高必须为正，实际 $cellHeightAtMin", cellHeightAtMin > 0)
+            val (_, colsAtMax, cellHeightAtMax) = applyAndAwait(maxSizeSp)
+            assertTrue("最大字号下列数必须为正，实际 $colsAtMax", colsAtMax > 0)
+            assertTrue("最大字号下单元格高必须为正，实际 $cellHeightAtMax", cellHeightAtMax > 0)
+            assertTrue(
+                "字号由 ${minSizeSp}sp 升到 ${maxSizeSp}sp，单元格高必须变大（前 $cellHeightAtMin 后 $cellHeightAtMax）",
+                cellHeightAtMax > cellHeightAtMin,
+            )
+            android.util.Log.i(
+                "FontSizeReflow",
+                "scale=$scale min=$minSizeSp cols=$colsAtMin cellH=$cellHeightAtMin " +
+                    "max=$maxSizeSp cols=$colsAtMax cellH=$cellHeightAtMax",
+            )
+        } finally {
+            // 恢复规范默认值（持久化在 SharedPreferences，防污染其他测试与后续复跑）。
+            composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+                activity.terminalViewModel.setFontSize(SettingsRepository.defaultFontSizeFor(widthDp))
+            }
+        }
+    }
+
     @Test
     fun fontSizeChangeReflowsGridAndScalesCellHeight() {
         composeTestRule.waitForSession()
-        // 桥单次读取：会话孵化中为 null，由调用方轮询重试（getBridge 契约）。
         UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
             var ready = false
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
@@ -73,30 +137,23 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             assertTrue("网格列数必须为正, 实际: $colsBefore", colsBefore > 0)
             assertTrue("单元格高必须为正, 实际: $cellHeightBefore", cellHeightBefore > 0)
 
-            // 目标字号钳制到手势路径同界 (14..48)：翻倍越界会被钳制导致“未落地”误报；
+            // 目标字号取调节条区间内的相邻档：翻倍越界会被钳制导致「未落地」误报；
             // 若已处上限则改走减半，保证尺寸真实变化（变化本身是后续断言的前提）。
-            val doubled = (originalSizeSp * 2f).coerceIn(14f, 48f)
+            val doubled = (originalSizeSp * 2f).coerceIn(
+                SettingsRepository.FONT_SIZE_MIN_SP,
+                SettingsRepository.fontSizeMaxSp(spToPxScale()),
+            )
             val targetSizeSp =
                 if (doubled > originalSizeSp + 0.01f) {
                     doubled
                 } else {
-                    (originalSizeSp / 2f).coerceIn(14f, 48f)
+                    (originalSizeSp / 2f).coerceIn(
+                        SettingsRepository.FONT_SIZE_MIN_SP,
+                        SettingsRepository.fontSizeMaxSp(spToPxScale()),
+                    )
                 }
-            // 与 pinch 收尾同路径：onZoomChanged → viewModel.setFontSize（协程异步全量应用）。
-            composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
-                activity.terminalViewModel.setFontSize(targetSizeSp)
-            }
-            val applied =
-                UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                    val (sizeSp, _, _) = readRuntimeMetrics()
-                    kotlin.math.abs(sizeSp - targetSizeSp) < 0.01f
-                }
-            val (landedSizeSp, _, _) = readRuntimeMetrics()
+            val (landedSizeSp, colsAfter, cellHeightAfter) = applyAndAwait(targetSizeSp)
             android.util.Log.i("FontSizeReflow", "landed sizeSp=$landedSizeSp expected=$targetSizeSp")
-            assertNotNull("设置字号必须落地: $targetSizeSp, 实际: $landedSizeSp", applied)
-            composeTestRule.waitForIdle()
-            val (_, colsAfter, cellHeightAfter) = readRuntimeMetrics()
-            android.util.Log.i("FontSizeReflow", "after cols=$colsAfter cellH=$cellHeightAfter")
             // 实测比例断言而非假设翻倍：钳制/减半路径同样覆盖。
             val ratio = landedSizeSp / originalSizeSp
             assertTrue("字号必须真实变化 (前=$originalSizeSp 后=$landedSizeSp)", kotlin.math.abs(ratio - 1f) > 0.01f)
@@ -118,7 +175,6 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 cellHeightAfter > expectedCellHeight * 0.9f && cellHeightAfter < expectedCellHeight * 1.1f,
             )
         } finally {
-            // 恢复规范默认值（持久化在 SharedPreferences，防污染其他测试与后续复跑）。
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
                 activity.terminalViewModel.setFontSize(SettingsRepository.defaultFontSizeFor(widthDp))
             }

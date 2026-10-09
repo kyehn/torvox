@@ -1868,12 +1868,13 @@ constructor(
     }
 
     internal suspend fun computeFontSizeTenths(): Int {
-        // 落盘值与自适应值统一钳到有效区间：历史超限存量不再让原生静默丢弃，
-        // 渲染、下发记录与调节条三方恒一致。
+        // 落盘值与自适应值统一钳到可选区间（SettingsRepository 的唯一定义）：
+        // 历史超限存量与跨设备搬来的值都不再让原生拒收，渲染、下发记录与
+        // 调节条三方恒一致。
         val userFontSize =
             settingsRepository.fontSize.first().coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
@@ -1900,12 +1901,12 @@ constructor(
      * 中间态（布局混乱/撕裂）。网格只在手势结束 finalize 时重算一次。
      */
     fun setFontSizePreview(sizeSp: Float) {
-        // 与调节条/手势同一有效区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
+        // 与调节条/手势同一可选区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
         // 调用方传的本就是区间内值时行为不变。
         val clampedSp =
             sizeSp.coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale),
             )
         val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
@@ -3659,7 +3660,7 @@ internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Lon
 
 /**
  * sp→px 系数（光栅缩放）的合法区间，与原生 `setRasterScale` 的接受区间一致
- * （Rust `if !(0.5..=8.0).contains(&scale)`）：区间外的值被原生静默丢弃，
+ * （Rust `if !(0.5..=8.0).contains(&scale)`）：区间外的值被原生拒收并记错误日志，
  * 故超界必须在此钳住，否则字号上界与实际渲染脱节。
  */
 private const val MIN_RASTER_SCALE = 0.5f
@@ -3669,8 +3670,8 @@ private const val MAX_RASTER_SCALE = 8f
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
  *
  * 顶层纯函数以便测试：字号的每一次 sp↔px 换算都经此系数，钳位区间 MUST 与
- * 原生 `setRasterScale` 一致——区间外的值被原生静默丢弃，会使字号上界与
- * 实际渲染脱节。
+ * 原生 `setRasterScale` 一致——区间外的值被原生拒收并记错误日志，会使字号上界
+ * 与实际渲染脱节。
  */
 internal fun coerceSpToPxScale(density: Float, fontScale: Float): Float =
     (density * fontScale).coerceIn(MIN_RASTER_SCALE, MAX_RASTER_SCALE)

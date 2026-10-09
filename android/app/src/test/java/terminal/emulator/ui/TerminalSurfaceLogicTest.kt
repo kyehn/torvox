@@ -199,7 +199,7 @@ class TerminalSurfaceLogicTest {
     fun `zoom clamps to the same bounds as the settings slider`() {
         // 捏合与调节条改的是同一个字号设置，共用 SettingsRepository 的范围。
         assertEquals(
-            SettingsRepository.fontSizeRangeMaxSp(zoomSpToPxScale),
+            SettingsRepository.fontSizeMaxSp(zoomSpToPxScale),
             zoomFontSize(16f, 100f, zoomSpToPxScale),
         )
         assertEquals(
@@ -209,17 +209,11 @@ class TerminalSurfaceLogicTest {
     }
 
     @Test
-    fun `zoom on low density clamps to the native ceiling not the termux ceiling`() {
-        // 低密度下 Termux 像素上限换算值超过原生 100sp 钳位：手势不得给出
-        // 原生会静默丢弃的值，否则视觉字号与手势位置脱节。
-        assertEquals(
-            SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
-            zoomFontSize(16f, 100f, 1.0f),
-        )
-        assertEquals(
-            SettingsRepository.NATIVE_FONT_SIZE_MAX_SP,
-            SettingsRepository.effectiveFontSizeMaxSp(1.0f),
-        )
+    fun `zoom on low density reaches the termux ceiling`() {
+        // 低密度（系数 1.0）下 Termux 的 256px 就是 256sp：手势必须能划到该上界。
+        // 此前这里被与原生重复的 100sp 常量截断，手势给不出 Termux 允许的字号。
+        assertEquals(256f, zoomFontSize(16f, 100f, 1.0f), 0.001f)
+        assertEquals(256f, SettingsRepository.fontSizeMaxSp(1.0f), 0.001f)
     }
 
     @Test
@@ -230,7 +224,7 @@ class TerminalSurfaceLogicTest {
         val spToPxScale = 2.625f
         assertEquals(96f, zoomFontSize(16f, 100f, spToPxScale), 0.001f)
         assertEquals(
-            SettingsRepository.fontSizeRangeMaxSp(spToPxScale * 1.3f),
+            SettingsRepository.fontSizeMaxSp(spToPxScale * 1.3f),
             zoomFontSize(16f, 100f, spToPxScale * 1.3f),
             0.001f,
         )

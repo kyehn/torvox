@@ -3058,7 +3058,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
     })
 }
 
-/// 设置字号（单位为十分之一像素，与 Kotlin 滑块一致）。
+/// 设置字号（单位为十分之一 sp，与 Kotlin 滑块一致）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInPlace(
     mut unowned_env: EnvUnowned<'_>,
@@ -3068,27 +3068,34 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let size = (size_tenths as f32) / 10.0;
-        if !(4.0..=100.0).contains(&size) {
+        let mut state = render_state_mut();
+        let Some(render_state) = state.as_mut() else {
+            return Ok(());
+        };
+        // 用户可选区间只有一处定义：`SettingsRepository.fontSizeMaxSp`（Termux 的
+        // 256px 上限换算）。此前这里另有一份 `4.0..=100.0` 的魔数守卫，且对超限值
+        // **静默丢弃**——Kotlin 侧那份重复常量一旦漂移，用户拖到的字号就被原生悄悄
+        // 丢掉，表现正是「设置条范围和实际可设置范围不一致」。守卫上界改由图集边长
+        // 推导（唯一真实约束），越界记错误日志而非无声忽略。
+        let max_size = ATLAS_SIZE as f32 / render_state.font_pipeline.get_raster_scale();
+        if !(size.is_finite() && size > 0.0 && size <= max_size) {
+            log::error!(
+                "setFontSizeInPlace: 字号 {size} 越界（合法区间 (0, {max_size}] sp，字形位图必须放进图集）"
+            );
             return Ok(());
         }
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            // 同值跳过：手势 preview 高频推送同一字号时不清图集，
-            // 避免每帧重光栅 ASCII + 丢实例缓存（缩放撕裂/卡顿）。
-            if (render_state.font_pipeline.font_size - size).abs() < f32::EPSILON {
-                return Ok(());
-            }
-            let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
-            // 置脏标志：字号变化必须重绘，即便终端空闲（字形度量已变 → 缓存帧过期）。
-            // 同时丢弃实例缓存：干净行存的是旧图集 UV 与旧行高，同网格尺寸仍判兼容，
-            // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
-            render_state.renderer.cell_cache = None;
-            render_state.dirty.store(true, Ordering::Relaxed);
-            log::info!(
-                "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
-                size_tenths
-            );
+        // 同值跳过：手势 preview 高频推送同一字号时不清图集，
+        // 避免每帧重光栅 ASCII + 丢实例缓存（缩放撕裂/卡顿）。
+        if (render_state.font_pipeline.font_size - size).abs() < f32::EPSILON {
+            return Ok(());
         }
+        let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
+        // 置脏标志：字号变化必须重绘，即便终端空闲（字形度量已变 → 缓存帧过期）。
+        // 同时丢弃实例缓存：干净行存的是旧图集 UV 与旧行高，同网格尺寸仍判兼容，
+        // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
+        render_state.renderer.cell_cache = None;
+        render_state.dirty.store(true, Ordering::Relaxed);
+        log::info!("setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}", size_tenths);
     })
 }
 
@@ -3102,7 +3109,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
     scale: jfloat,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
+        // 越界记错误日志而非静默丢弃：Kotlin 侧 `coerceSpToPxScale` 已钳到同区间，
+        // 两份常量漂移时必须在此留痕，否则字号上限换算与实际光栅尺度悄悄脱节。
         if !(0.5..=8.0).contains(&scale) {
+            log::error!("setRasterScale: 缩放 {scale} 越界（合法区间 0.5..=8.0）");
             return Ok(());
         }
         let mut state = render_state_mut();

@@ -80,6 +80,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
          * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:89
          * 「默认大小与可选范围/精度须参考 Termux」）：下限 4dip；默认值 12dip 且取偶，
          * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
+         *
+         * 这是用户可选区间的**唯一**定义处。此前另有一份与原生
+         * `setFontSizeInPlace` 守卫（`4.0..=100.0`）重复的 `NATIVE_FONT_SIZE_MAX_SP`，
+         * 两份常量一旦漂移，调节条上界就与原生实际接受的区间脱节，而原生对超限值
+         * 是静默丢弃——用户看到的正是「设置条范围和实际可设置范围不一致」。
+         * 原生侧的合法区间改由图集边长推导（见 `FontPipeline`），不再有第二份魔数。
          */
         const val FONT_SIZE_MIN_SP = 4f
         const val FONT_SIZE_MAX_PX = 256f
@@ -96,32 +102,17 @@ constructor(private val provider: SettingsDataStoreProvider) {
          *   放行超出 Termux 像素上限的字号（实测 fontScale=1.3 时 96sp 实际
          *   327px > 256px）。
          */
-        fun fontSizeRangeMaxSp(spToPxScale: Float): Float =
+        fun fontSizeMaxSp(spToPxScale: Float): Float =
             floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
                 .times(FONT_SIZE_STEP_SP)
                 .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
 
         /**
-         * 原生字号钳位上界（sp）：`NativeBridge.setFontSizeInPlace` 只接受
-         * 4.0..100.0，超限静默丢弃。Kotlin 侧不得给出此界之外的值，
-         * 否则调节条/手势位置与实际渲染脱节。
-         */
-        const val NATIVE_FONT_SIZE_MAX_SP = 100f
-
-        /**
-         * 实际可设置的字号上界（sp）：Termux 像素上限与原生钳位的较小者。
-         * 调节条、手势、预览、存储值应用四处共用此单一来源——任一上游
-         * 变动只需改这里。两候选均为偶数、下限亦为偶数，故跨度恒被步长整除。
-         */
-        fun effectiveFontSizeMaxSp(spToPxScale: Float): Float =
-            fontSizeRangeMaxSp(spToPxScale).coerceAtMost(NATIVE_FONT_SIZE_MAX_SP)
-
-        /**
          * 调节条档数（Material `steps` 语义：两端点之间的中间档数）。
          * 跨度恒被步长整除，故不会出现半档。
          */
-        fun effectiveFontSizeRangeSteps(spToPxScale: Float): Int =
-            ((effectiveFontSizeMaxSp(spToPxScale) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
+        fun fontSizeRangeSteps(spToPxScale: Float): Int =
+            ((fontSizeMaxSp(spToPxScale) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
     }
 
     val appThemeMode: Flow<String> =

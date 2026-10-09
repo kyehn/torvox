@@ -566,6 +566,13 @@ fun TerminalScreen(
                     // 任一变化即重组并重测。Surface 尺寸全程不变，网格不重排。
                     val imeShiftPx = max(imeLeafPx.intValue, imeViewPx.intValue)
                     val contentRowNow = lastContentRow.intValue
+                    // 备用屏下键盘遮挡计入网格高度：全屏 TUI 必须按可见高度重排
+                    // （SIGWINCH）才能真正「适应窗口大小」，否则下半屏与状态行被
+                    // 键盘永久遮住且应用不重绘。主屏传 0，仍走纯平移。
+                    // 见 TerminalSurface.setImeInsetPx。
+                    LaunchedEffect(surfaceKey, imeShiftPx, altScreenForIme) {
+                        surfaceRef.value?.setImeInsetPx(if (altScreenForIme) imeShiftPx else 0)
+                    }
                     Box(
                         modifier =
                         Modifier.fillMaxSize().layout { measurable, constraints ->

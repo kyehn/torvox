@@ -73,6 +73,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             pendingSurfaceResize = null
             viewModel?.runtime?.setRenderPaused(false)
         }
+        if (pendingImeGridResize != null) {
+            pendingImeGridResize?.let { removeCallbacks(it) }
+            pendingImeGridResize = null
+            viewModel?.runtime?.setRenderPaused(false)
+        }
         // 关闭浮动的选区 UI：action mode、选区手柄弹窗与放大镜都持有系统窗口，
         // 会在视图 detach 后继续让本视图（及整条 viewModel 链）存活
         // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
@@ -393,10 +398,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     inner class ResizeManager {
         /**
          * 单一网格公式，与 `recomputeGridFromFontMetrics` 共用：
-         * rows = (surface − ModifierBar) / cell，cols = surface / cell。
-         * 刻意不减去输入法 inset——键盘靠纯滚动跟随（[TerminalScreen] 光标跟随），
-         * 从不触发网格重排，故其显示/隐藏绝不能改变 rows/cols
-         * （否则会有重排闪烁、换行错乱、底部行丢失）。
+         * rows = (surface − ModifierBar − 输入法遮挡) / cell，cols = surface / cell。
+         *
+         * 输入法遮挡**只在备用屏扣除**（见 [setImeInsetPx]）：主屏靠纯平移跟随键盘
+         *（TESTING.md 要求上移后底部像素与上移前完全相同），其显示/隐藏绝不能改变
+         * rows/cols，否则会有重排闪烁、换行错乱、底部行丢失。
          */
         internal fun applyGridResize(width: Int, height: Int) {
             val runtime = viewModel?.runtime ?: return
@@ -405,7 +411,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (cellWidth <= 0f || cellHeight <= 0f) return
             // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
             // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
-            val availableHeight = (height - runtime.modifierBarHeightPx).coerceAtLeast(1)
+            val availableHeight =
+                (height - runtime.modifierBarHeightPx - imeInsetPx).coerceAtLeast(1)
             val (newRows, newCols) =
                 computeGridDimensions(
                     surfaceWidth = width,
@@ -1240,6 +1247,47 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
     private var pendingSurfaceResize: Runnable? = null
+
+    /**
+     * 输入法遮挡高度（px，已扣除系统导航条）。**非零只发生在备用屏**
+     * （全屏 TUI 应用，调用方 [TerminalScreen] 只在备用屏时传入键盘高度）。
+     *
+     * 备用屏应用按整屏行数布局（helix/vim/less 都进备用屏并占满视口），键盘遮挡
+     * 的下半屏永远不可见：状态行消失、光标可能落在被遮住的几行里，而应用收不到
+     * SIGWINCH 也不会重排——即 DESIGN「输入法弹出时终端（包括 helix 等 tui 应用）
+     * 正确匹配窗口大小」不成立。扣除遮挡高度即让网格缩到可见高度，触发一次
+     * resize/SIGWINCH，全屏 TUI 随之按新窗口重绘；网格顶对齐渲染，末行紧贴键栏
+     * 顶边，与 Termux `adjustResize` 的观感一致。
+     *
+     * 主屏仍传 0：它走「平移」路径（TESTING.md 要求上移后底部像素完全相同），
+     * 而平移不能改变网格，故两者必须分开。
+     */
+    private var imeInsetPx: Int = 0
+    private var pendingImeGridResize: Runnable? = null
+
+    /**
+     * 设置输入法遮挡高度并按需重排网格。Surface 尺寸本身不变（窗口是
+     * `adjustNothing`），故只重算网格、不重配交换链。
+     *
+     * 防抖到稳定高度：键盘动画期间 [TerminalScreen] 每帧给出新高度，逐帧
+     * resize 会连续发 SIGWINCH 让全屏 TUI 反复重排（掉帧、撕裂、耗电）。
+     */
+    fun setImeInsetPx(pixels: Int) {
+        if (pixels == imeInsetPx) return
+        imeInsetPx = pixels
+        if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) return
+        val runtime = viewModel?.runtime ?: return
+        // 与 [ResizeManager.applySurfaceResize] 同样在防抖期间暂停渲染：
+        // 否则新旧行数交替渲染，用户看到的是逐帧跳变的网格。
+        runtime.setRenderPaused(true)
+        pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize =
+            Runnable {
+                pendingImeGridResize = null
+                resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
+                runtime.setRenderPaused(false)
+            }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+    }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
@@ -2845,7 +2893,7 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
 internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float): Float =
     (baseFontSizeSp * scaleFactor).coerceIn(
         SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+        SettingsRepository.fontSizeMaxSp(spToPxScale),
     )
 
 /**
