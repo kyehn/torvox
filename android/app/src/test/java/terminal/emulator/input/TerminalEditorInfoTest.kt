@@ -14,13 +14,24 @@ class TerminalEditorInfoTest {
     private fun editorInfo(): EditorInfo = EditorInfo().also(::applyTerminalEditorInfo)
 
     @Test
-    fun `编辑器属性为不受限纯文本`() {
+    fun `编辑器属性为不受限多行纯文本`() {
         val outAttrs = editorInfo()
         assertEquals(
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+            InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
             outAttrs.inputType,
         )
-        assertEquals(EditorInfo.IME_ACTION_NONE, outAttrs.imeOptions)
+        // 回车键形态由 MULTI_LINE 决定（否则触发 performEditorAction，终端无动作可执行），
+        // 动作位一律留 UNSPECIFIED；IME_ACTION_NONE 会让屏幕键盘无法输入换行（termux-app#221）。
+        assertEquals(
+            EditorInfo.IME_FLAG_NO_FULLSCREEN,
+            outAttrs.imeOptions and EditorInfo.IME_FLAG_NO_FULLSCREEN,
+        )
+        assertEquals(
+            EditorInfo.IME_ACTION_UNSPECIFIED,
+            outAttrs.imeOptions and EditorInfo.IME_MASK_ACTION,
+        )
     }
 
     @Test

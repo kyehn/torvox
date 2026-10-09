@@ -23,6 +23,11 @@ import android.widget.OverScroller
 import android.widget.PopupWindow
 import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
@@ -33,7 +38,9 @@ import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.computeContentBottomPx
 import terminal.emulator.runtime.computeGridDimensions
+import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.roundToInt
@@ -71,6 +78,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (pendingSurfaceResize != null) {
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize = null
+            viewModel?.runtime?.setRenderPaused(false)
+        }
+        if (pendingImeGridResize != null) {
+            pendingImeGridResize?.let { removeCallbacks(it) }
+            pendingImeGridResize = null
             viewModel?.runtime?.setRenderPaused(false)
         }
         // 关闭浮动的选区 UI：action mode、选区手柄弹窗与放大镜都持有系统窗口，
@@ -393,19 +405,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     inner class ResizeManager {
         /**
          * 单一网格公式，与 `recomputeGridFromFontMetrics` 共用：
-         * rows = (surface − ModifierBar) / cell，cols = surface / cell。
-         * 刻意不减去输入法 inset——键盘靠纯滚动跟随（[TerminalScreen] 光标跟随），
-         * 从不触发网格重排，故其显示/隐藏绝不能改变 rows/cols
-         * （否则会有重排闪烁、换行错乱、底部行丢失）。
+         * rows = (surface − ModifierBar − 备用屏输入法遮挡) / cell，cols = surface / cell。
+         *
+         * 输入法遮挡**只在备用屏扣除**（见 [imeInsetPx]）：主屏靠纯平移跟随键盘
+         *（TESTING.md 要求上移后底部像素与上移前完全相同），其显示/隐藏绝不能改变
+         * rows/cols，否则会有重排闪烁、换行错乱、底部行丢失。
          */
         internal fun applyGridResize(width: Int, height: Int) {
             val runtime = viewModel?.runtime ?: return
             val cellWidth = runtime.cellWidth
             val cellHeight = runtime.cellHeight
             if (cellWidth <= 0f || cellHeight <= 0f) return
+            // 备用屏按可见高度重排（SIGWINCH），主屏恒为 0。状态直接读运行期的
+            // 逐帧发布值——它是网格决策的唯一权威，且不依赖组合是否重跑。
+            val imeReserve =
+                if (runtime.altScreenActiveFlow.value) imeInsetPx else 0
             // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
             // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
-            val availableHeight = (height - runtime.modifierBarHeightPx).coerceAtLeast(1)
+            val availableHeight =
+                (height - runtime.modifierBarHeightPx - imeReserve).coerceAtLeast(1)
             val (newRows, newCols) =
                 computeGridDimensions(
                     surfaceWidth = width,
@@ -600,7 +618,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 text = text,
                                 ctrlActive = ctrlActive,
                                 altActive = altActive,
-                                bracketedPaste = false,
                             ),
                         )
                     }
@@ -1193,6 +1210,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
         viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
+        observeImeShiftInputs(viewModel)
+    }
+
+    /**
+     * 订阅决定平移量的两项输入：内容下沿（按内容裁剪平移量）与备用屏状态
+     * （备用屏恒 0）。两者都由渲染线程逐帧发布，故平移量随内容增长即时跟进。
+     */
+    private fun observeImeShiftInputs(viewModel: TerminalViewModel) {
+        imeShiftJob?.cancel()
+        imeShiftJob =
+            viewModel.viewModelScope.launch {
+                launch { viewModel.runtime.lastContentRowFlow.collect { applyImeShift() } }
+                launch {
+                    viewModel.runtime.altScreenActiveFlow.collect {
+                        applyImeShift()
+                        scheduleImeGridResize()
+                    }
+                }
+            }
     }
 
     @Volatile private var rows: Int = DEFAULT_ROWS
@@ -1241,6 +1277,117 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
     private var pendingSurfaceResize: Runnable? = null
+
+    /**
+     * 输入法遮挡高度（px，已扣除系统导航条），由平台 insets 派发维护
+     * （[installImeInsetListener]）。两处消费者：备用屏的网格高度与本视图的平移量。
+     *
+     * 备用屏应用按整屏行数布局（helix/vim/less 都进备用屏并占满视口），键盘遮挡
+     * 的下半屏永远不可见：状态行消失、光标可能落在被遮住的几行里，而应用收不到
+     * SIGWINCH 也不会重排——即 DESIGN「输入法弹出时终端（包括 helix 等 tui 应用）
+     * 正确匹配窗口大小」不成立。扣除遮挡高度即让网格缩到可见高度，触发一次
+     * resize/SIGWINCH，全屏 TUI 随之按新窗口重绘；网格顶对齐渲染，末行紧贴键栏
+     * 顶边，与 Termux `adjustResize` 的观感一致。
+     */
+    private var imeInsetPx: Int = 0
+    private var pendingImeGridResize: Runnable? = null
+    private var imeShiftJob: Job? = null
+
+    /** 已应用的本视图平移量，避免重复赋值触发无谓的重绘失效。 */
+    private var appliedImeShiftPx: Int = 0
+
+    /**
+     * 订阅平台 insets 派发，维护 [imeInsetPx]。
+     *
+     * 为什么不用轮询 `rootView.rootWindowInsets`（`TerminalScreen` 的旧做法）：
+     * 仪器化环境下 DecorView 的 `rootWindowInsets` 恒不报 IME（实测键盘高 883px
+     * 时该值仍为 0），Compose 的 `WindowInsets.ime` 叶节点同样恒为 0，于是
+     * 既有输入法跟随位移整体失效（`ImePopupPixelInstrumentedTest` 三个用例在
+     * 该环境下判红：位移=0）。insets 派发是平台自己的分发路径，每个已挂载视图
+     * 必然收到，是这里唯一可靠的来源。
+     */
+    private fun installImeInsetListener() {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val navigationBottom =
+                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            val reserved = maxOf(imeBottom - navigationBottom, 0)
+            if (reserved != imeInsetPx) {
+                imeInsetPx = reserved
+                LogUtil.d(TAG, "setImeInsetPx: $reserved")
+                applyImeShift()
+                // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
+                // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
+                viewModel?.runtime?.publishImeInsetPx(reserved)
+                // 备用屏按可见高度重排网格。与平移不同，它必须等输入法高度稳定
+                // （见 [scheduleImeGridResize]），否则逐帧 SIGWINCH 会让全屏 TUI 反复重排。
+                scheduleImeGridResize()
+            }
+            insets
+        }
+    }
+
+    /**
+     * 把输入法跟随位移直接施加到本视图的 `translationY`。
+     *
+     * 为什么不平移 Compose 容器（历史做法）：位移要走「组合重组 → 重新测量 →
+     * 重新布局」才生效，而重组只在 Choreographer 帧回调里跑。主线程每帧阻塞在
+     * `syncAndDrawFrame` 等待渲染线程时，重组会滞后十几秒（实测每 300ms 写一次
+     * 组合状态，20 次才换来一次重组），期间键盘已经弹出而内容一动不动
+     * ——`ImePopupPixelInstrumentedTest` 三个用例即以此判红（位移=0）。
+     * `translationY` 是视图自身的属性，在 insets 回调里同步生效，不依赖任何
+     * 组合往返。
+     *
+     * 位移量仍是 [computeImeSurfaceShift] 的判定结果（按内容下沿裁剪、备用屏恒 0），
+     * 口径与单测一致；输入只有 insets 派发这一个来源。
+     */
+    private fun applyImeShift() {
+        val runtime = viewModel?.runtime ?: return
+        if (height <= 0) return
+        val shift =
+            computeImeSurfaceShift(
+                contentBottomPx =
+                computeContentBottomPx(runtime.lastContentRowFlow.value, runtime.cellHeight),
+                surfaceHeightPx = height,
+                modifierBarHeightPx = runtime.modifierBarHeightPx,
+                imeBottomPx = imeInsetPx,
+                isAltScreenActive = runtime.altScreenActiveFlow.value,
+            )
+        if (shift == appliedImeShiftPx) return
+        appliedImeShiftPx = shift
+        translationY = -shift.toFloat()
+    }
+
+    /**
+     * 输入法遮挡或备用屏状态变化后按可见高度重排网格。Surface 尺寸本身不变
+     * （窗口是 `adjustNothing`），故只重算网格、不重配交换链。
+     *
+     * 防抖到稳定高度：键盘动画期间平台逐帧派发 insets，逐帧 resize 会连续发
+     * SIGWINCH 让全屏 TUI 反复重排（掉帧、撕裂、耗电）。
+     */
+    private fun scheduleImeGridResize() {
+        if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) return
+        val runtime = viewModel?.runtime ?: return
+        // 与 [ResizeManager.applySurfaceResize] 同样在防抖期间暂停渲染：
+        // 否则新旧行数交替渲染，用户看到的是逐帧跳变的网格。
+        runtime.setRenderPaused(true)
+        pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize =
+            Runnable {
+                pendingImeGridResize = null
+                resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
+                runtime.setRenderPaused(false)
+            }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+    }
+
+    /**
+     * 备用屏状态翻转后重排网格：键盘已展开时启动 helix 一类的 TUI 也必须按可见
+     * 高度重排，而此时输入法高度没变、平台不会再次派发 insets。
+     */
+    fun onAltScreenChanged() {
+        if (viewModel?.runtime?.altScreenActiveFlow?.value != true) return
+        scheduleImeGridResize()
+    }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
@@ -2004,6 +2151,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         isFocusableInTouchMode = true
         setWillNotDraw(false)
         scaleDetector.isQuickScaleEnabled = false
+        // 输入法遮挡高度的唯一来源：平台 insets 派发（见 installImeInsetListener）。
+        installImeInsetListener()
     }
 
     private var keyboardRequested = false
@@ -2062,8 +2211,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     fun onImeSettled(settledBottom: Int) {
         lastImeVisible = settledBottom > 0
-        // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
-        if (translationY != 0f) translationY = 0f
     }
 
     /** 在途的 surface 重建重试；detach 与 ON_PAUSE 必须能取消它（见 [postDelayedSurfaceRecreate]）。 */
@@ -2846,7 +2993,7 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
 internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float): Float =
     (baseFontSizeSp * scaleFactor).coerceIn(
         SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.effectiveFontSizeMaxSp(spToPxScale),
+        SettingsRepository.fontSizeMaxSp(spToPxScale),
     )
 
 /**
