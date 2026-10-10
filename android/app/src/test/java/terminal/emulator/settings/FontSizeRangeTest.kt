@@ -82,19 +82,33 @@ class FontSizeRangeTest {
         // 上界必须仍容纳得下 MIN_USABLE_COLUMNS 列——这是「范围过大」那条反馈的根因：
         // 此前上界只受 Termux 的 256px 约束，360dp 手机在系数 1.0 时上界 256sp，
         // 一屏只剩 3 列，调节条一路拖到的尽头并不可用。
-        // 列数 = 屏宽 dp ÷ (字号 sp × 字形宽高比)（密度相约，与 defaultFontSizeFor 同口径）。
-        listOf(320f, 360f, 411f, 600f, 900f, 2000f).forEach { widthDp ->
-            listOf(0.75f, 1f, 2f, 2.625f, 4f).forEach { spToPxScale ->
-                val maxSp = SettingsRepository.fontSizeMaxSp(spToPxScale, widthDp)
-                val columns = widthDp / (maxSp * SettingsRepository.MONOSPACE_CHAR_ASPECT)
-                // 容一个步长：上界按步长向下取整，最多损失一个步长的字号，
-                // 对应列数只会略高于语义下限而不是低于一个步长的量。
-                assertTrue(
-                    "widthDp=$widthDp 系数=$spToPxScale 时上界 $maxSp 只剩 $columns 列，" +
-                        "低于 ${SettingsRepository.MIN_USABLE_COLUMNS} 列一个步长以上",
-                    columns >= SettingsRepository.MIN_USABLE_COLUMNS - SettingsRepository.FONT_SIZE_STEP_SP,
-                )
-            }
+        //
+        // 判据取**具体设备的字面列数**而不是「列数 >= 列数下限」这个与被验公式同款的
+        // 构造式——后者恒真，检不出任何缺陷。做法：按上界与该屏宽手算出应显示的列数
+        // （等宽字形宽高比 0.6 是字体的外部事实，与实现共用但此处当作已知常量），
+        // 与实现给出的上界逐台对照。
+        data class Device(val widthDp: Float, val spToPxScale: Float, val expectedColumns: Int)
+        listOf(
+            // 360dp / 系数 1.0：上界 floor(360/(0.6*20)/2)*2 = 30sp → 360/(30*0.6) = 20 列
+            Device(360f, 1f, 20),
+            // 411dp / 系数 2.625：Termux 那条 floor(256/2.625/2)*2 = 96sp，列数那条 34sp，
+            // 取紧者 34sp → 411/(34*0.6) = 20.1 列
+            Device(411f, 2.625f, 20),
+            // 800dp 平板 / 系数 2.0：列数那条 floor(800/12/2)*2 = 66sp → 800/(66*0.6) = 20.2 列
+            Device(800f, 2f, 20),
+            // 1200dp 大屏 / 系数 1.5：列数那条 100sp，Termux 那条 170sp →
+            // 100sp → 1200/(100*0.6) = 20 列
+            Device(1200f, 1.5f, 20),
+        ).forEach { device ->
+            val maxSp = SettingsRepository.fontSizeMaxSp(device.spToPxScale, device.widthDp)
+            val columns = device.widthDp / (maxSp * SettingsRepository.MONOSPACE_CHAR_ASPECT)
+            assertEquals(
+                "${device.widthDp}dp / 系数 ${device.spToPxScale} 时上界 $maxSp 应给出 " +
+                    "${device.expectedColumns} 列（等宽字形宽高比 ${SettingsRepository.MONOSPACE_CHAR_ASPECT}）",
+                device.expectedColumns.toFloat(),
+                columns,
+                0.55f,
+            )
         }
     }
 
