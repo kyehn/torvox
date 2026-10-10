@@ -180,9 +180,22 @@ constructor(
     // 钳位上界必须是绝对空间最后一行（回滚长度 + 视口行数 - 1），不得用视口行数。
     @Volatile private var cachedScrollbackLength = 0
 
+    /**
+     * 回滚长度的组合可观察镜像。
+     *
+     * 视图侧每次**成功**查询后回写（[updateScrollbackLength]），组合侧据此订阅，
+     * 不在重组期间自己发起同步 JNI 查询——那是一次最长可阻塞 500ms 的调用
+     * （VT 线程忙于解析大块写入时），而重组在输入法动画帧与拖动 MOVE 上都会发生。
+     */
+    private val scrollbackLengthState = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /** 见 [scrollbackLengthState]。 */
+    val scrollbackLength: kotlinx.coroutines.flow.StateFlow<Int> = scrollbackLengthState.asStateFlow()
+
     /** 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。 */
     internal fun updateScrollbackLength(length: Int) {
         cachedScrollbackLength = length
+        scrollbackLengthState.value = length
     }
 
     /** 绝对空间的最后一行：两处选区钳位的唯一来源，避免各自计算再次漂移。 */
@@ -898,8 +911,7 @@ constructor(
             SettingsRepository.SettingsState(
                 fontSize =
                 SettingsRepository.defaultFontSizeFor(
-                    context.resources.displayMetrics.widthPixels /
-                        context.resources.displayMetrics.density,
+                    runtime.screenWidthDp,
                 ),
             ),
         )
@@ -916,8 +928,10 @@ constructor(
     init {
         // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
         viewModelScope.launch {
-            val metrics = context.resources.displayMetrics
-            settingsRepository.applyFirstLaunchDefaultFontSize(metrics.widthPixels / metrics.density)
+            // 屏幕宽与字号上界同源（runtime.screenWidthDp → resources.configuration）：
+            // 自建 widthPixels/density 换算是窗口物理宽，与上界用的 configuration
+            // 在系统字体缩放/多窗口下不同值，自适应默认字号会按另一个宽度推导。
+            settingsRepository.applyFirstLaunchDefaultFontSize(runtime.screenWidthDp)
         }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->

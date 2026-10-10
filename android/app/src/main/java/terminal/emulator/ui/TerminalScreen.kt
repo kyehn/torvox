@@ -319,6 +319,7 @@ fun TerminalScreen(
             // 高亮会整体停在旧行；此处由所有改变可见偏移的路径（手势、程序化滚动、
             // 会话切换与输出引起的贴底复位）同步。
             val viewportScrollOffset = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            val scrollbackLength by viewModel.scrollbackLength.collectAsStateWithLifecycle()
 
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
@@ -623,7 +624,11 @@ fun TerminalScreen(
                             searchState.currentIndex,
                             searchState.results,
                             viewportScrollOffset.intValue,
-                            surfaceRef.value?.getMaxScrollOffset(),
+                            // 回滚长度取组合可观察镜像，不在重组期间发起同步 JNI 查询
+                            // （scrollbackLength 是一次最长可阻塞 500ms 的 VT 线程
+                            // 往返，而输入法动画帧与拖动 MOVE 都会触发重组）。
+                            // 真实值在 effect 体内现取，键只需感知「它变了」。
+                            scrollbackLength,
                             resolvedTerminalTheme.foreground,
                             resolvedTerminalTheme.selectionBackground,
                         ) {

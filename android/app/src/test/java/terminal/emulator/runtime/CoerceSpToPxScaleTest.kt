@@ -48,9 +48,13 @@ class CoerceSpToPxScaleTest {
         assertEquals(2.625f, densityOnly, 0.001f)
         assertEquals(3.4125f, withFontScaling, 0.001f)
 
-        val sliderMaxSpDensityOnly = SettingsRepository.fontSizeMaxSp(densityOnly)
-        val sliderMaxSpWithFontScaling = SettingsRepository.fontSizeMaxSp(withFontScaling)
-        // 只按密度算出的上界在真实系数下越界。
+        // 取一块够宽的屏幕（1200dp，可用性上界 100sp），使 Termux 的像素上限在两种
+        // 系数下都仍是更紧的那条约束，于是这里度量的就是「系统字体缩放是否进入了上界」。
+        val screenWidthDp = 1200f
+        val sliderMaxSpDensityOnly = SettingsRepository.fontSizeMaxSp(densityOnly, screenWidthDp)
+        val sliderMaxSpWithFontScaling =
+            SettingsRepository.fontSizeMaxSp(withFontScaling, screenWidthDp)
+        // 只按密度算出的上界在真实系数下越界：96sp × 3.4125 = 327.6px > 256px。
         assertEquals(96f, sliderMaxSpDensityOnly, 0.001f)
         assertTrue(
             "按密度算出的上界 ${sliderMaxSpDensityOnly}sp 在真实系数下越界",
@@ -58,6 +62,10 @@ class CoerceSpToPxScaleTest {
         )
         // 计入系统字体缩放后收紧，且实际像素回到 Termux 上限内。
         assertEquals(74f, sliderMaxSpWithFontScaling, 0.001f)
+        assertTrue(
+            "收紧后的上界 ${sliderMaxSpWithFontScaling}sp 仍越界",
+            sliderMaxSpWithFontScaling * withFontScaling <= SettingsRepository.FONT_SIZE_MAX_PX,
+        )
         assertTrue(
             "计入系统字体缩放后实际像素必须不超过 Termux 上限",
             sliderMaxSpWithFontScaling * withFontScaling <= SettingsRepository.FONT_SIZE_MAX_PX,

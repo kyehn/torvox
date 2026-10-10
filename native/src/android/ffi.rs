@@ -3608,6 +3608,16 @@ mod font_size_cap_tests {
     fn cap_never_rejects_a_selectable_font_size() {
         // 核心不变量：滑块能划到的每个字号，原生都必须接受。
         // 图集一旦缩小到接近 256px，这条即失效——那正是「范围与实际可设置范围不一致」。
+        //
+        // Kotlin 侧的上界实际是两条约束取紧后再兜底：
+        //   min(Termux 像素上限, 「至少放得下 MIN_USABLE_COLUMNS 列」)
+        //   .coerceAtLeast(自适应默认值)
+        // 于是真正需要覆盖的不是 Termux 上界本身，而是它的**上包界**。
+        // Termux 上界恒不小于那條兜底值（故此处仍是全覆盖）由 JVM 侧断言
+        // `NativeBridgeSmokeTest` 的用例钉住——那边能直接读 Kotlin 的
+        // `ADAPTIVE_DEFAULT_MAX_SP` 与经 `getRasterScaleRange` 导出的原生端点，
+        // 不需要在本文件再抄一份 Kotlin 私有策略值。抄一份的后果：Kotlin 改 24→28
+        // 时本文件仍全绿，覆盖面证明静默失效。
         for i in 0..=RASTER_SCALE_SAMPLES {
             let scale = sampled_scale(i);
             let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
