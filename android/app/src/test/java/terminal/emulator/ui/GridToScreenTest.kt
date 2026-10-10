@@ -133,49 +133,39 @@ class GridToScreenTest {
 
     @Test
     fun `font size change rescales both axes linearly`() {
-        val row = 130
-        val col = 41
-        val viewportTopGrid = 118 // fixed scroll position while zooming
-        // Small → large font: same grid point, proportionally larger pixels.
-        for (cell in listOf(6f to 12f, 10f to 20f, 14f to 28f, 24f to 48f)) {
-            val (cw, ch) = cell
-            val p = gridToScreen(row, col, viewportTopGrid, cw, ch)
-            assertEquals(col * cw, p.first, epsilon)
-            assertEquals((row - viewportTopGrid) * ch, p.second, epsilon)
-        }
+        // 外部真相：缩放只改两轴的像素比例，不改网格点之间的关系。
+        // 断言具体像素值（换算结果），而不是把生产表达式原样写一遍——后者对任何
+        // 保持输出的结构改动都照样通过，等于没测。网格点换算本身已由本文件前面的
+        // 非平凡视口偏移用例钉住。
+        val (row, col, viewportTopGrid) = Triple(130, 41, 118)
+        // 小 → 大字号：同一个网格点，(x, y) 必须按同一倍率放大。
+        val (small, large) = (10f to 20f) to (24f to 48f)
+        val pSmall = gridToScreen(row, col, viewportTopGrid, small.first, small.second)
+        val pLarge = gridToScreen(row, col, viewportTopGrid, large.first, large.second)
+        assertEquals(410f, pSmall.first, epsilon)
+        assertEquals(240f, pSmall.second, epsilon)
+        assertEquals(984f, pLarge.first, epsilon)
+        assertEquals(576f, pLarge.second, epsilon)
+        // 两轴比例相同：字号变化不引入非等比缩放（压扁/拉伸的直接来源）。
+        assertEquals(pLarge.first / pSmall.first, pLarge.second / pSmall.second, 0.001f)
     }
 
     @Test
-    fun `scroll x font-size combination stays consistent with hand math`() {
-        // Cross product of scroll states and font sizes: the conversion must
-        // stay a pure affine map in both axes.
-        for (viewportTopGrid in listOf(0, 7, 250)) {
-            for (cell in listOf(8f to 16f, 13f to 26f)) {
-                val (cw, ch) = cell
-                val expectedX = 12 * cw
-                val expectedY = (31 - viewportTopGrid) * ch
-                assertPoint(gridToScreen(31, 12, viewportTopGrid, cw, ch), expectedX, expectedY)
-            }
-        }
-    }
-
-    // ── negative-offset clamping ──────────────────────────────────────────
-
-    @Test
-    fun `negative scroll offset is clamped before conversion`() {
-        // A stale offset > scrollbackLength would make viewportTopGrid
-        // negative; callers clamp it (same coercion family as scrollToRow's
-        // coerceIn). After clamping the conversion is the zero-scroll case.
+    fun `an offset past the end of the scrollback clamps instead of going negative`() {
+        // 钳位由生产函数 scrollOffsetForRow 完成，不在测试里重做一遍：
+        // 此前本用例自己写 `staleOffset.coerceIn(...)`，把生产里的钳位删掉也判不了红。
         val scrollbackLength = 100
-        val staleOffset = 150
-        val clampedOffset = staleOffset.coerceIn(0, scrollbackLength)
-        val viewportTopGrid = (scrollbackLength - clampedOffset).coerceAtLeast(0)
+        // 请求滚到回滚顶部之上（行号 -50）：偏移被钳到上限 100，视口顶行因此是 0，
+        // 即显示最早的一行而不是负的视口顶行号。
+        val viewportTopGrid = scrollbackLength - scrollOffsetForRow(-50, scrollbackLength)
         assertEquals(0, viewportTopGrid)
         assertPoint(
             gridToScreen(row = 5, col = 2, viewportTopGrid = viewportTopGrid, cellWidth = 8f, cellHeight = 16f),
             16f,
-            80f,
+            5 * 16f,
         )
+        // 反向：请求滚到末行之下时偏移被钳到 0，视口顶行是回滚长度。
+        assertEquals(100, scrollbackLength - scrollOffsetForRow(scrollbackLength + 500, scrollbackLength))
     }
 
     @Test
