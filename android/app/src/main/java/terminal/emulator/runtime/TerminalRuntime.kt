@@ -1970,10 +1970,17 @@ constructor(
     }
 
     /**
-     * 屏幕宽（dp）：字号可选区间与自适应默认字号都以它推导列数，
-     * 故两处必须读同一个值。
+     * 屏幕宽（dp）：字号可选区间与自适应默认字号都以它推导列数。
+     *
+     * 与 [spToPxScale] 同样从 **Activity 的 resources.configuration** 读取，而不让
+     * 各调用点自己取：分屏/多窗口下 Compose 的 `LocalConfiguration` 与 Activity 的
+     * configuration 并非同一个对象，两套 API 各读一次就可能给不同的宽，上界随之在
+     * 「调节条」与「捏合/落盘」之间分叉——那正是「设置条范围与实际可设范围不一致」
+     * 的同型缺陷，只是这次错在两套取值 API 而不是两份常量。
+     * 设为属性而非函数：与 `spToPxScale` 同为随配置变化的派生量。
      */
-    private fun screenWidthDp(): Float = context.resources.configuration.screenWidthDp.toFloat()
+    internal val screenWidthDp: Float
+        get() = context.resources.configuration.screenWidthDp.toFloat()
 
     internal suspend fun computeFontSizeTenths(): Int {
         // 落盘值与自适应值统一钳到可选区间（SettingsRepository 的唯一定义）：
@@ -1982,7 +1989,7 @@ constructor(
         val userFontSize =
             settingsRepository.fontSize.first().coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp()),
+                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
@@ -1995,7 +2002,7 @@ constructor(
         // （唯一来源：SettingsRepository.defaultFontSizeFor），
         // 使手机（~360dp）和平板（~600dp）显示相同的列数。
         return (
-            SettingsRepository.defaultFontSizeFor(screenWidthDp()) *
+            SettingsRepository.defaultFontSizeFor(screenWidthDp) *
                 TENTHS_PER_UNIT.toFloat()
             ).toInt()
     }
@@ -2016,7 +2023,7 @@ constructor(
         val clampedSp =
             sizeSp.coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp()),
+                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
             )
         val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
