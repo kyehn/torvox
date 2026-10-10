@@ -137,6 +137,7 @@ fun SettingsScreen(
                         AppearanceSectionContent(
                             fontSize = settings.fontSize,
                             spToPxScale = viewModel.runtime.spToPxScale,
+                            screenWidthDp = viewModel.runtime.screenWidthDp,
                             fontFamily = settings.fontFamily,
                             availableFonts = availableFonts,
                             defaultFontName = defaultFontName,
@@ -259,6 +260,7 @@ private fun SettingsHeader(onBack: () -> Unit, textColor: Color, isSmallScreen: 
 private fun AppearanceSectionContent(
     fontSize: Float,
     spToPxScale: Float,
+    screenWidthDp: Float,
     fontFamily: String,
     availableFonts: List<String>,
     defaultFontName: String,
@@ -281,7 +283,7 @@ private fun AppearanceSectionContent(
     // 使 JNI setFontSizeInPlace 调用乱序交错（实测 96..280）并逐步重排网格
     // ——即「滑块跳动/布局错乱」的来源。预览让拖动保持廉价且单线程。
     // 初值钳到可选区间：历史版本存过的超限值只影响本次显示，不回写覆盖用户数据。
-    val fontSizeUpperBound = SettingsRepository.fontSizeMaxSp(spToPxScale)
+    val fontSizeUpperBound = SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp)
     var sliderFontSize by rememberSaveable {
         mutableFloatStateOf(
             fontSize.coerceIn(SettingsRepository.FONT_SIZE_MIN_SP, fontSizeUpperBound),
@@ -297,6 +299,7 @@ private fun AppearanceSectionContent(
             },
             onValueChangeFinished = { onFontSizeCommitted(sliderFontSize) },
             spToPxScale = spToPxScale,
+            screenWidthDp = screenWidthDp,
             textColor = textColor,
             secondaryText = secondaryText,
             accentColor = accentColor,
@@ -538,6 +541,7 @@ private fun FontSizeSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     spToPxScale: Float,
+    screenWidthDp: Float,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -548,8 +552,8 @@ private fun FontSizeSlider(
         title = stringResource(R.string.font_size),
         value = value,
         valueRange =
-        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.fontSizeMaxSp(spToPxScale),
-        steps = SettingsRepository.fontSizeRangeSteps(spToPxScale),
+        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
+        steps = SettingsRepository.fontSizeRangeSteps(spToPxScale, screenWidthDp),
         colors =
         SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,

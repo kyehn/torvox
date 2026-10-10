@@ -186,34 +186,46 @@ class TerminalSurfaceLogicTest {
 
     // ── pinch zoom mapping ───────────────────────────────────────────────────
 
-    // 系数 3.0 时调节条上界为 floor(256 / 3 / 2) * 2 = 84sp，下限 4sp。
+    // 系数 3.0 时 Termux 那条上界为 floor(256 / 3 / 2) * 2 = 84sp，下限 4sp。
+    // 屏宽取 1200dp：可用性上界 100sp 比它宽松，故这里度量的就是 Termux 那条约束。
     private val zoomSpToPxScale = 3.0f
+    private val zoomScreenWidthDp = 1200f
 
     @Test
     fun `zoom scales around the gesture base size`() {
-        assertEquals(25f, zoomFontSize(20f, 1.25f, zoomSpToPxScale))
-        assertEquals(15f, zoomFontSize(20f, 0.75f, zoomSpToPxScale))
+        assertEquals(25f, zoomFontSize(20f, 1.25f, zoomSpToPxScale, zoomScreenWidthDp))
+        assertEquals(15f, zoomFontSize(20f, 0.75f, zoomSpToPxScale, zoomScreenWidthDp))
     }
 
     @Test
     fun `zoom clamps to the same bounds as the settings slider`() {
         // 捏合与调节条改的是同一个字号设置，共用 SettingsRepository 的范围。
         assertEquals(
-            SettingsRepository.fontSizeMaxSp(zoomSpToPxScale),
-            zoomFontSize(16f, 100f, zoomSpToPxScale),
+            SettingsRepository.fontSizeMaxSp(zoomSpToPxScale, zoomScreenWidthDp),
+            zoomFontSize(16f, 100f, zoomSpToPxScale, zoomScreenWidthDp),
         )
         assertEquals(
             SettingsRepository.FONT_SIZE_MIN_SP,
-            zoomFontSize(16f, 0.01f, zoomSpToPxScale),
+            zoomFontSize(16f, 0.01f, zoomSpToPxScale, zoomScreenWidthDp),
         )
     }
 
     @Test
-    fun `zoom on low density reaches the termux ceiling`() {
-        // 低密度（系数 1.0）下 Termux 的 256px 就是 256sp：手势必须能划到该上界。
-        // 此前这里被与原生重复的 100sp 常量截断，手势给不出 Termux 允许的字号。
-        assertEquals(256f, zoomFontSize(16f, 100f, 1.0f), 0.001f)
-        assertEquals(256f, SettingsRepository.fontSizeMaxSp(1.0f), 0.001f)
+    fun `zoom on low density stops where the grid is still usable`() {
+        // 低密度（系数 1.0）下 Termux 的 256px 虽允许 256sp，但 360dp 的手机在 256sp
+        // 下一屏只剩 3 列——调节条与捏合都不该把用户送到那里。上界由「至少
+        // MIN_USABLE_COLUMNS 列」决定：360 ÷ (0.6 × 20) = 30sp。
+        val phoneWidthDp = 360f
+        assertEquals(30f, zoomFontSize(16f, 100f, 1.0f, phoneWidthDp), 0.001f)
+        assertEquals(30f, SettingsRepository.fontSizeMaxSp(1.0f, phoneWidthDp), 0.001f)
+        assertTrue(
+            "停下的字号必须仍放得下最少列数",
+            phoneWidthDp /
+                (
+                    zoomFontSize(16f, 100f, 1.0f, phoneWidthDp) *
+                        SettingsRepository.MONOSPACE_CHAR_ASPECT
+                    ) >= SettingsRepository.MIN_USABLE_COLUMNS,
+        )
     }
 
     @Test
@@ -222,15 +234,16 @@ class TerminalSurfaceLogicTest {
         // 上界由 spToPxScale 决定，而 spToPxScale 含系统字体缩放。
         // 系数放大到 2.625×1.3 = 3.4125（fontScale=1.3）后为 74sp。
         val spToPxScale = 2.625f
-        assertEquals(96f, zoomFontSize(16f, 100f, spToPxScale), 0.001f)
+        assertEquals(96f, zoomFontSize(16f, 100f, spToPxScale, zoomScreenWidthDp), 0.001f)
         assertEquals(
-            SettingsRepository.fontSizeMaxSp(spToPxScale * 1.3f),
-            zoomFontSize(16f, 100f, spToPxScale * 1.3f),
+            SettingsRepository.fontSizeMaxSp(spToPxScale * 1.3f, zoomScreenWidthDp),
+            zoomFontSize(16f, 100f, spToPxScale * 1.3f, zoomScreenWidthDp),
             0.001f,
         )
         assertTrue(
             "系数变大时同一手势的换算字号必须更小",
-            zoomFontSize(16f, 100f, spToPxScale * 1.3f) < zoomFontSize(16f, 100f, spToPxScale),
+            zoomFontSize(16f, 100f, spToPxScale * 1.3f, zoomScreenWidthDp) <
+                zoomFontSize(16f, 100f, spToPxScale, zoomScreenWidthDp),
         )
     }
 
@@ -239,16 +252,16 @@ class TerminalSurfaceLogicTest {
         // Begin(16sp) → previews → end: cumulative factor decides one outcome.
         var factor = 1.0f
         factor *= 1.1f
-        assertEquals(17.6f, zoomFontSize(16f, factor, zoomSpToPxScale))
+        assertEquals(17.6f, zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp))
         factor *= 1.1f
-        val finalSize = zoomFontSize(16f, factor, zoomSpToPxScale)
+        val finalSize = zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp)
         assertTrue(zoomSettledOnNewSize(16f, finalSize))
     }
 
     @Test
     fun `pinch returning to base only reverts the preview`() {
         // Tiny drift under epsilon: no persist, just revert to the base size.
-        val finalSize = zoomFontSize(16f, 1.001f, zoomSpToPxScale)
+        val finalSize = zoomFontSize(16f, 1.001f, zoomSpToPxScale, zoomScreenWidthDp)
         assertFalse(zoomSettledOnNewSize(16f, finalSize))
     }
 

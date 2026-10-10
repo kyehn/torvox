@@ -202,15 +202,46 @@ MUST NOT 保留已无用途的日志初始化导出与调用方。
 
 ### Requirement: 字号上下限按完整 sp→px 系数换算
 
-用户可选字号上界 MUST **只有一处定义**：Termux 像素上限（256px）按完整
-sp→像素系数（显示密度 × 系统字体缩放，即推给原生 `setRasterScale` 的同一值）
-换算后按 Termux 的调整步长向下取整。Kotlin 侧 MUST NOT 另存一份与原生字号守卫
+用户可选字号上界 MUST **只有一处定义**，且 MUST 同时满足两条约束：
+
+1. Termux 像素上限（256px）按完整 sp→像素系数（显示密度 × 系统字体缩放，即推给
+   原生 `setRasterScale` 的同一值）换算后按 Termux 的调整步长向下取整；
+2. 「至少放得下 `MIN_USABLE_COLUMNS` 列」——字号与该列数成反比，按同一个列↔字号
+   比例（`fontSizeForColumns`）反推。低于该列数时一条常见命令
+   （`ls -la /usr/local/bin`、`systemctl status nginx` 各 21 列）都放不下，
+   终端失去可用性。
+
+两条约束取紧者。约束 2 与自适应默认字号（同样列目标）共用同一个列↔字号比例，
+两条边界不可能分别漂移；约束 1 在大屏/高密度设备上仍是更紧的那条，MUST 保留。
+
+上界 MUST additionally 不小于自适应默认值：窄屏上约束 2 可能低于
+`ADAPTIVE_DEFAULT_MIN_SP`（设该下限正是为了让小屏初始字号仍可读），此时若不抬上界，
+全新安装得到的默认字号将落在调节条之外——同一类「范围与实际可设范围不一致」，
+只是换到了另一端。
+
+只有约束 1 时，低密度设备的上界可达 256sp 量级——等宽字形宽约 0.6em，256sp 的
+单元格宽逾 150px，一屏只剩 3 列。调节条一路拖到的尽头并不可用，正是用户反馈的
+「设置条范围过大、与实际可用范围不一致」。Kotlin 侧 MUST NOT 另存一份与原生字号守卫
 重复的上界常量——两份魔数漂移时用户拖到的字号会被原生静默丢弃，
 表现为「设置条范围与实际可设置范围不一致」。
 
 像素上限换算 MUST 使用完整系数，MUST NOT 只按显示密度：字形的实际光栅尺度即为
 `sp × 该系数`，只用密度会在系统「字体大小」> 1 时放行实际超出 Termux 像素上限的
 字号。调节条、缩放手势、预览、落盘值应用与设置页展示的像素值 MUST 共用该单一来源。
+
+字号上界的**两个输入**都 MUST 单一来源，MUST NOT 让各调用点自行取值：
+
+- sp→px 系数：全仓从 `TerminalRuntime.spToPxScale` 取；
+- 屏幕宽：全仓从 `TerminalRuntime.screenWidthDp`（= `resources.configuration
+  .screenWidthDp`）取，MUST NOT 用 `displayMetrics.widthPixels / density` 自算
+  ——那是**应用窗口**的物理宽换算，与 `configuration.screenWidthDp` 在系统字体
+  缩放、display cutout、多窗口下都给不出同一个值。
+
+公式一致而输入分叉比两份常量更难发现：两边的算式完全相同，偏差只藏在输入里，
+实测曾出现五处取值源（Compose `LocalConfiguration`、View 的 `resources`、
+`displayMetrics.widthPixels / density` 出现三次），使调节条上界、捏合上界、
+自适应默认字号与首次启动落盘值按三四个不同的宽度推导——而它们本该是同一条
+列↔字号比例的几种问法。
 该系数的钳位区间 MUST 取自原生（MUST NOT 由 Kotlin 另存一份字面量）：它与原生
 `setRasterScale` 守卫是同一个事实，两端各写一份时，漂移的后果与字号上界那次同型
 ——Kotlin 把原生会拒收的系数当作合法值，上界随之用错系数算出。守卫与对外查询
@@ -229,10 +260,12 @@ Kotlin 侧的 `FONT_SIZE_MIN_SP` 独占（用户界面层的下限，原生不�
 - **WHEN** 设备显示密度为 2.625 且系统字体缩放由 1.0 改为 1.3（系数 3.412）
 - **THEN** 可选字号上界由 96sp 收紧为 74sp，实际像素不超过 Termux 的 256px
 
-#### Scenario: 低密度设备不被截到重复常量的上界
+#### Scenario: 低密度设备的上界由可用列数决定
 
-- **WHEN** sp→px 系数为 1.0（Termux 的 256px 对应 256sp）
-- **THEN** 可选字号上界为 256sp，调节条末端与手势末端均能给出该值
+- **WHEN** sp→px 系数为 1.0、屏宽 360dp，而 Termux 的 256px 对应 256sp
+- **THEN** 可选字号上界为 30sp（360 ÷ (0.6 × 20) 后按步长向下取整），
+      调节条末端、捏合末端与落盘值三者给出一致结果；NOT 256sp——该值下一屏
+      只剩 3 列，落在可用范围之外
 
 #### Scenario: 原生上界不小于可选上界
 

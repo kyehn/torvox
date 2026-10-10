@@ -44,8 +44,8 @@ import javax.inject.Singleton
 data class RuntimeState(
     val isRunning: Boolean = false,
     val title: String = "Terminal",
-    val rows: Int = 24,
-    val cols: Int = 80,
+    val rows: Int = DEFAULT_GRID_ROWS,
+    val cols: Int = DEFAULT_GRID_COLS,
     val activeSessionId: Long = 0L,
     val sessionIds: List<Long> = emptyList(),
     val scrollResetEpoch: Long = 0L,
@@ -1861,8 +1861,6 @@ constructor(
         /** mksh 交互 shell 经 `$ENV` 加载的启动文件名（DESIGN Shell 节）。 */
         const val MKSHRC_FILENAME = ".mkshrc"
 
-        const val DEFAULT_GRID_ROWS = 24
-        const val DEFAULT_GRID_COLS = 80
         private const val TENTHS_PER_UNIT = 10
 
         /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */
@@ -1971,6 +1969,19 @@ constructor(
         java.io.File("$prefixDir/$candidate").isFile
     }
 
+    /**
+     * 屏幕宽（dp）：字号可选区间与自适应默认字号都以它推导列数。
+     *
+     * 与 [spToPxScale] 同样从 **Activity 的 resources.configuration** 读取，而不让
+     * 各调用点自己取：分屏/多窗口下 Compose 的 `LocalConfiguration` 与 Activity 的
+     * configuration 并非同一个对象，两套 API 各读一次就可能给不同的宽，上界随之在
+     * 「调节条」与「捏合/落盘」之间分叉——那正是「设置条范围与实际可设范围不一致」
+     * 的同型缺陷，只是这次错在两套取值 API 而不是两份常量。
+     * 设为属性而非函数：与 `spToPxScale` 同为随配置变化的派生量。
+     */
+    internal val screenWidthDp: Float
+        get() = context.resources.configuration.screenWidthDp.toFloat()
+
     internal suspend fun computeFontSizeTenths(): Int {
         // 落盘值与自适应值统一钳到可选区间（SettingsRepository 的唯一定义）：
         // 历史超限存量与跨设备搬来的值都不再让原生拒收，渲染、下发记录与
@@ -1978,7 +1989,7 @@ constructor(
         val userFontSize =
             settingsRepository.fontSize.first().coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
@@ -1990,8 +2001,10 @@ constructor(
         // 全新安装：按屏幕宽度推导合理默认值
         // （唯一来源：SettingsRepository.defaultFontSizeFor），
         // 使手机（~360dp）和平板（~600dp）显示相同的列数。
-        val widthDp = context.resources.configuration.screenWidthDp.toFloat()
-        return (SettingsRepository.defaultFontSizeFor(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
+        return (
+            SettingsRepository.defaultFontSizeFor(screenWidthDp) *
+                TENTHS_PER_UNIT.toFloat()
+            ).toInt()
     }
 
     /**
@@ -2010,7 +2023,7 @@ constructor(
         val clampedSp =
             sizeSp.coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
             )
         val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
@@ -2067,8 +2080,7 @@ constructor(
     fun appliedFontSizeSp(): Float {
         val tenths = appliedFontSizeTenths
         if (tenths > 0) return tenths / TENTHS_PER_UNIT.toFloat()
-        val metrics = context.resources.displayMetrics
-        return SettingsRepository.defaultFontSizeFor(metrics.widthPixels / metrics.density)
+        return SettingsRepository.defaultFontSizeFor(screenWidthDp)
     }
 
     internal suspend fun resolveThemeName(): String {
@@ -2964,6 +2976,21 @@ constructor(
                 updateForegroundSessionCount(sessions.size)
             }
         }
+    }
+
+    /**
+     * 关闭全部会话（通知的「退出」按钮）：DESIGN 要求常驻通知提供退出入口，
+     * 否则用户只能从最近任务里划掉整个应用。
+     *
+     * 关闭走与侧边面板关闭按钮同一条路径（[closeSession]），故会话的清理、
+     * 前台服务计数与通知的撤销都是既有语义，不另开一套。
+     */
+    fun closeAllSessions() {
+        synchronized(sessionLock) { sessions.keys.sorted().toList() }
+            .forEach { id -> closeSession(id) }
+        // 最后一个会话关闭时计数已归零并停掉服务；此处再确认一次，覆盖
+        // 关闭过程中又新建了会话的情况（那时服务应继续存活）。
+        stopForegroundServiceIfIdle()
     }
 
     fun closeSession(id: Long) {
@@ -3885,6 +3912,16 @@ private data class RenderContract(
     val theme: BridgeTheme,
     val rasterScale: Float,
 )
+
+/**
+ * 引导前的占位网格尺寸（xterm 的经典 24×80）。
+ *
+ * 单一来源：[RuntimeState] 的默认值、视图侧的初始镜像与 [buildConfig] 都取这里。
+ * 三处各写一份时，改一处不会影响另两处——「首个会话的网格」与「视图在拿到真实
+ * 尺寸前显示的网格」会分家，表现为启动瞬间的行列跳变。
+ */
+const val DEFAULT_GRID_ROWS = 24
+const val DEFAULT_GRID_COLS = 80
 
 /**
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。

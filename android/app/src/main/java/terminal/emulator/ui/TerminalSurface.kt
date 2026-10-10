@@ -35,6 +35,8 @@ import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
+import terminal.emulator.runtime.DEFAULT_GRID_COLS
+import terminal.emulator.runtime.DEFAULT_GRID_ROWS
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.computeContentBottomPx
@@ -1233,8 +1235,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val MENU_HEIGHT_DP = 44
         private const val HALF_PIXEL_OFFSET = 0.5f
 
-        private const val DEFAULT_ROWS = 24
-        private const val DEFAULT_COLS = 80
         private const val ZOOM_THRESHOLD_LOW = 0.9f
         private const val ZOOM_THRESHOLD_HIGH = 1.1f
 
@@ -1327,9 +1327,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
     }
 
-    @Volatile private var rows: Int = DEFAULT_ROWS
+    @Volatile private var rows: Int = DEFAULT_GRID_ROWS
 
-    @Volatile private var cols: Int = DEFAULT_COLS
+    @Volatile private var cols: Int = DEFAULT_GRID_COLS
     private var surfaceWidthPixels: Int = 0
     private var surfaceHeightPixels: Int = 0
     private var isScrolling: Boolean = false
@@ -2221,8 +2221,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
-                    val spToPxScale = viewModel?.runtime?.spToPxScale ?: return false
-                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor, spToPxScale)
+                    val runtime = viewModel?.runtime ?: return false
+                    val sizeSp =
+                        zoomFontSize(
+                            zoomBaseFontSizeSp,
+                            scaleFactor,
+                            runtime.spToPxScale,
+                            runtime.screenWidthDp,
+                        )
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
                         lastZoomPreviewNanos = now
@@ -2234,11 +2240,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
-                    val spToPxScale = viewModel?.runtime?.spToPxScale ?: return
+                    val runtime = viewModel?.runtime ?: return
                     // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
                     // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
                     val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
-                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor, spToPxScale)
+                    val sizeSp =
+                        zoomFontSize(
+                            zoomBaseFontSizeSp,
+                            scaleFactor,
+                            runtime.spToPxScale,
+                            runtime.screenWidthDp,
+                        )
                     scaleFactor = 1.0f
                     if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
@@ -3172,11 +3184,13 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
  *
  * @param spToPxScale sp→像素系数（见 `TerminalRuntime.spToPxScale`），非仅显示密度：
  *   调节条上限与之同源，两者用不同系数会让手势越出调节条允许的区间。
+ * @param screenWidthDp 屏幕宽（dp）：上界须与调节条按同一个屏幕推导，否则捏合能捏到
+ *   调节条给不出的字号——用户反馈的「设置条与实际可设范围不一致」正是这个分叉。
  */
-internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float): Float =
+internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float, screenWidthDp: Float): Float =
     (baseFontSizeSp * scaleFactor).coerceIn(
         SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.fontSizeMaxSp(spToPxScale),
+        SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
     )
 
 /**
