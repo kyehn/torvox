@@ -41,7 +41,7 @@ import terminal.emulator.waitForSession
  * 标记出现在 shell 输入回显中。
  *
  * 路径与真实用户一致（空白长按 → paste-only 选择 → PopupWindow 粘贴项 →
- * pasteFromClipboard → InputBatchBuffer → writeToPty），不用 showPastePopup 直调后门。
+ * pasteFromClipboard → InputBatchBuffer → writeToPty），全程不直调内部入口。
  */
 @RunWith(JUnit4::class)
 class PasteButtonInstrumentedTest : TerminalLogcatTest() {
