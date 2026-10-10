@@ -180,9 +180,22 @@ constructor(
     // 钳位上界必须是绝对空间最后一行（回滚长度 + 视口行数 - 1），不得用视口行数。
     @Volatile private var cachedScrollbackLength = 0
 
+    /**
+     * 回滚长度的组合可观察镜像。
+     *
+     * 视图侧每次**成功**查询后回写（[updateScrollbackLength]），组合侧据此订阅，
+     * 不在重组期间自己发起同步 JNI 查询——那是一次最长可阻塞 500ms 的调用
+     * （VT 线程忙于解析大块写入时），而重组在输入法动画帧与拖动 MOVE 上都会发生。
+     */
+    private val scrollbackLengthState = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /** 见 [scrollbackLengthState]。 */
+    val scrollbackLength: kotlinx.coroutines.flow.StateFlow<Int> = scrollbackLengthState.asStateFlow()
+
     /** 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。 */
     internal fun updateScrollbackLength(length: Int) {
         cachedScrollbackLength = length
+        scrollbackLengthState.value = length
     }
 
     /** 绝对空间的最后一行：两处选区钳位的唯一来源，避免各自计算再次漂移。 */
