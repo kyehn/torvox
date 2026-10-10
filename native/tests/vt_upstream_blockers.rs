@@ -55,6 +55,11 @@ fn cursor_after(input: &[u8], rows: u32, cols: u32) -> (u32, u32) {
 
 /// `CSI g`（无参数）丢弃整条 TBC。
 ///
+/// 语料 t0081 只用带参形式（`CSI 2 g` / `CSI 3 g`），其差异另有根因（见
+/// `cursor_forward_with_extra_parameter_is_dropped_whole_sequence` 同款守卫）；
+/// 本用例用无参形式是最小化复现，因为要断定的正是「缺省 Ps=0」这一具体缺口，
+/// 而不是 t0081 能否整体采纳。
+///
 /// 标准：ECMA-48 TBC 的 Ps 缺省为 0 = 清除活动位置的制表位。
 /// 上游：`stream.zig` 的 `'g'` 分发只接受 `params.len == 1`，无参数走
 /// `log.warn("invalid tab clear command")` 后 return。
@@ -175,6 +180,10 @@ fn scroll_right_and_left_are_unimplemented_upstream() {
 
 /// DECSC/DECRC 正确还原光标行列；差异只在 pending wrap 标志。
 ///
+/// 输入是 t0060 尾部的最小化复现（同一形态：末列打印 → DECSC → 换行 → 内容 →
+/// SU → DECRC → 落笔）。完整语料还含更早的滚动历史，会掩盖「落点是否正确」
+/// 这一件事本身，故此处只取尾部。
+///
 /// 该断言钉住的是「无末列折行挂起时落点与 xterm 一致」这一半，
 /// 使上面那半偏差（见 vt_conformance 的 t0060/t0061）不会掩盖一个真实的落点缺陷。
 #[test]
@@ -185,6 +194,9 @@ fn decsc_decrc_restore_the_saved_row_and_column() {
 }
 
 /// DECSC/DECRC 会连同 pending wrap 标志一起还原；xterm 只还原行列。
+///
+/// 同上：输入是 t0060/t0061 尾部的最小化复现，把「打印落在原列还是先折行」
+/// 从更早的滚动历史里分离出来。
 ///
 /// 这条不是缺口本身，而是缺口的确切位置：末列打印后进入 pending wrap，
 /// 此时 DECSC → DECRC → 打印一个字符，上游先折行再打印，xterm 直接落在原列。
