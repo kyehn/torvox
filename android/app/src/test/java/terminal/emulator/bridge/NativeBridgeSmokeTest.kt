@@ -215,7 +215,7 @@ class NativeBridgeSmokeTest {
      */
     @Test
     fun `the raster scale range reported by the native side is usable and contains every clamped scale`() {
-        val bounds = NativeBridge.getRasterScaleRange()
+        val bounds = requireNotNull(NativeBridge.getRasterScaleRange()) { "原生未返回光栅缩放区间" }
         assertEquals("原生必须报告两个端点", 2, bounds.size)
         val range = bounds[0]..bounds[1]
         assertTrue("下界必须为正且有限，实际 ${bounds[0]}", bounds[0].isFinite() && bounds[0] > 0f)
