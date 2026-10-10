@@ -75,6 +75,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // pause 之后 resume 丢失，渲染永久暂停。直接取消会吞掉配对的 resume
         // ——先把持有的暂停全部归还（计数归零），再取消回调。
         forceResumeRendering()
+        // 输入法网格防抖也必须取消，而不只是作废凭证（`forceResumeRendering` 对它
+        // 刻意只清凭证，因为它的 `postDelayedSurfaceRecreate` 调用方还要靠 runnable
+        // 执行）。detach 场景不同：insets 派发已经停摆、遮挡高度刚被归零，
+        // 那个 runnable 若在 48ms 后照常跑，就会拿**旧视图**的 surfaceWidth/Height
+        // 配**已归零**的扣减量向运行期下发一次 resize，把 PTY 撑回被键盘遮住的高度；
+        // 视图已被丢弃（Compose 换 key）时它甚至永不 attach，等于凭空改写网格。
+        pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize = null
         // 同理必须停掉平移量的订阅源：它们跑在 viewModelScope 上（跟着宿主而非视图），
         // 保留会让旧视图被协程钉住，且 detach 后的备用屏翻转仍会命中
         // scheduleImeGridResize —— 此时 View.postDelayed 落进 mRunQueue，只有重新

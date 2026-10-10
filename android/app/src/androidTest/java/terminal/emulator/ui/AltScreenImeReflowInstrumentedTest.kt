@@ -354,4 +354,69 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
             hideImeAndAwaitRows(rowsBefore)
         }
     }
+
+    /**
+     * 收起输入法（仍在备用屏）后网格必须复原。
+     *
+     * 为何这条必须独立成例：另三个用例的 `finally` 都把「收起键盘」当收尾，
+     * 而 `hideImeAndAwaitRows` 只记日志不报错——于是「输入法收起 → 遮挡归零 → 重排
+     * 复原整屏」这条链路上一次断言都没有。漏掉它时 PTY 会停在被输入法缩小后的
+     * 行数，而备用屏 TUI 仍按旧行数布局：状态行回到键盘底下，且没有任何自愈
+     * 触发点（要等下一次旋转或改字号才复原）。
+     */
+    @Test
+    fun hidingImeWhileOnAltScreenRestoresFullHeightRows() {
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
+        composeTestRule.awaitBridge()
+        val (rowsBefore, colsBefore) = gridRowsCols()
+        try {
+            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            assertNotNull(
+                "必须进入备用屏",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    NativeBridge.getAltScreenState(sessionId())
+                },
+            )
+            assertNotNull(
+                "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    altScreenPublished()
+                },
+            )
+            showImeAndSettle()
+            assertNotNull(
+                "前置条件：备用屏下弹出输入法后网格必须收缩（$rowsBefore → ${gridRowsCols().first}；" +
+                    diagnostics() + "）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                    gridRowsCols().first < rowsBefore
+                },
+            )
+
+            // 仍在备用屏，只收起键盘：唯一的触发点是 insets 派发把遮挡归零。
+            composeTestRule.activity.runOnUiThread {
+                val imm =
+                    composeTestRule.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                        as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(
+                    findTerminalSurface(composeTestRule.activity).windowToken,
+                    0,
+                )
+            }
+            assertNotNull(
+                "收起输入法后网格必须复原到 $rowsBefore 行（仍为 ${gridRowsCols().first}；" +
+                    diagnostics() + "）",
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                    gridRowsCols().first == rowsBefore
+                },
+            )
+            assertTrue(
+                "列数不得变化（前 $colsBefore，后 ${gridRowsCols().second}）",
+                gridRowsCols().second == colsBefore,
+            )
+        } finally {
+            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+            hideImeAndAwaitRows(rowsBefore)
+        }
+    }
 }
