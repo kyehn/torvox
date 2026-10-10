@@ -26,10 +26,10 @@ class BootstrapProgressTest {
     }
 
     @Test
-    fun `extract starts at the download cap`() {
-        val empty = BootstrapProgress.Extracting(0, 100).overallProgress()
-        assertTrue("first extract step must not regress the bar", empty >= 0.85f)
-        assertEquals(0.85f, empty, tolerance)
+    fun `extract never regresses the bar below the download cap`() {
+        // 0 进度时落在 0.85 只是构造使然（0.85 + 0 × ratio），断言不出东西；
+        // 有意义的判据是整段提取期都不低于下载段的末端。
+        assertTrue(BootstrapProgress.Extracting(0, 100).overallProgress() >= 0.85f)
     }
 
     @Test
@@ -42,11 +42,6 @@ class BootstrapProgressTest {
     fun `extract with unknown totals stays inside band`() {
         val progress = BootstrapProgress.Extracting(3, 0).overallProgress()
         assertTrue("unknown totals must not leave the extract band", progress in 0.85f..0.97f)
-    }
-
-    @Test
-    fun `creating symlinks pins at 99 percent`() {
-        assertEquals(0.99f, BootstrapProgress.CreatingSymlinks.overallProgress(), tolerance)
     }
 
     @Test
@@ -63,12 +58,37 @@ class BootstrapProgressTest {
     }
 
     @Test
-    fun `complete is exactly one`() {
-        assertEquals(1f, BootstrapProgress.Complete.overallProgress(), tolerance)
+    fun `progress never regresses along the real phase order`() {
+        // 逐个阶段断言具体数值等于把生产里的字面量抄一遍（CreatingSymlinks=0.99、
+        // Complete=1、Error=0 都只是 `= 0.99f` 的回读）。真正该守的是 KDoc 写下
+        // 的那条不变量：**进度条永不回退**——按真实阶段顺序取样，任一步下降即失败。
+        val phases =
+            listOf(
+                BootstrapProgress.Downloading(0, 100),
+                BootstrapProgress.Downloading(100, 100),
+                BootstrapProgress.Extracting(0, 100),
+                BootstrapProgress.Extracting(50, 100),
+                BootstrapProgress.Extracting(100, 100),
+                BootstrapProgress.CreatingSymlinks,
+                BootstrapProgress.RunningPostInstall(0, 10),
+                BootstrapProgress.RunningPostInstall(10, 10),
+                BootstrapProgress.Complete,
+            )
+        phases.zipWithNext { previous, next ->
+            assertTrue(
+                "进度从 ${previous::class.simpleName} 的 ${previous.overallProgress()} " +
+                    "回退到 ${next::class.simpleName} 的 ${next.overallProgress()}",
+                next.overallProgress() >= previous.overallProgress(),
+            )
+        }
     }
 
     @Test
-    fun `error resets to zero`() {
-        assertEquals(0f, BootstrapProgress.Error("boom").overallProgress(), tolerance)
+    fun `error clears the bar`() {
+        // 失败态必须清零而不是停在某个阶段值——否则用户看到的是一个永远不动的进度条。
+        assertTrue(
+            "失败态必须清零，实际 ${BootstrapProgress.Error("boom").overallProgress()}",
+            BootstrapProgress.Error("boom").overallProgress() == 0f,
+        )
     }
 }

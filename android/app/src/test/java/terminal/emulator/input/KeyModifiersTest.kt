@@ -1,7 +1,6 @@
 package terminal.emulator.input
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class KeyModifiersTest {
@@ -43,10 +42,9 @@ class KeyModifiersTest {
     }
 
     @Test
-    fun `mask constants are distinct powers of two`() {
-        assertNotEquals(KeyModifiers.SHIFT, KeyModifiers.ALT)
-        assertNotEquals(KeyModifiers.ALT, KeyModifiers.CTRL)
-        assertNotEquals(KeyModifiers.CTRL, KeyModifiers.META)
+    fun `mask constants are the bits the native side decodes`() {
+        // 掩码要跨 JNI 送到原生去解码，故位序本身是对外契约：改成别的位即红。
+        // 「互不相同」由下面四条具体取值蕴含，不再另立断言。
         assertEquals(1, KeyModifiers.SHIFT)
         assertEquals(2, KeyModifiers.ALT)
         assertEquals(4, KeyModifiers.CTRL)
