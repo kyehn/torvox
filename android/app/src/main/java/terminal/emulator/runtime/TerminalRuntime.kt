@@ -487,7 +487,28 @@ constructor(
 
     private val renderGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
-    @Volatile private var activeSessionId: Long = 0L
+    /**
+     * 活动会话 id。**唯一写入口**：赋值时同步对齐运行期镜像
+     * （见 [publishActiveSessionState]）。
+     *
+     * 为什么做成 setter 而不是各调用点自己记得调用：渲染循环只在**变化时**发布备用屏
+     * 标记与内容下沿，而新 [SessionEntry] 的这两个字段都从 `false`/`哨兵` 起步——
+     * 首帧上报的值与自身字段相同，循环不会发布，运行期便一直保留**上一个**会话的值。
+     * 备用屏标记陈旧为真时，键盘弹出后终端不再随之上移、网格还按旧高度扣减，且没有
+     * 任何自愈触发点。这个缺陷已经因为漏掉调用点出现过三次（新建/切换/接替各一次，
+     * 外加两条「最后一个会话关闭」路径），故让「忘记」在结构上不可能。
+     */
+    @Volatile
+    private var activeSessionIdValue: Long = 0L
+
+    /** 活动会话 id。所有读取经 [activeSessionId]。 */
+    val activeSessionId: Long
+        get() = activeSessionIdValue
+
+    private fun setActiveSessionId(value: Long) {
+        activeSessionIdValue = value
+        publishActiveSessionState(sessions[value])
+    }
 
     @Volatile private var starting = false
     private val sessionLock = Any()
@@ -673,7 +694,7 @@ constructor(
             if (entry.id == activeSessionId) {
                 // 前台会话刚刚消失；接替会话没有渲染线程（只有活动会话渲染），
                 // 其输出/事件永远不会被轮询，终端将看似卡死。此刻立即激活它。
-                activeSessionId = sessions.keys.sorted().lastOrNull() ?: 0L
+                setActiveSessionId(sessions.keys.sorted().lastOrNull() ?: 0L)
                 if (activeSessionId != 0L) {
                     activateReplacementSession(
                         activeSessionId,
@@ -712,7 +733,7 @@ constructor(
                 // 同 handleSessionExit：接替会话需要渲染线程，
                 // 否则其输出/事件永远不会被轮询，终端将看似卡死。
                 val remaining = sessions.keys.sorted()
-                activeSessionId = remaining.lastOrNull() ?: 0L
+                setActiveSessionId(remaining.lastOrNull() ?: 0L)
                 if (activeSessionId != 0L) {
                     activateReplacementSession(
                         activeSessionId,
@@ -2308,7 +2329,7 @@ constructor(
                             running = true,
                         )
                     sessions[finalSessionId] = entry
-                    activeSessionId = finalSessionId
+                    setActiveSessionId(finalSessionId)
                     bridge.onPtyWrite = {
                         // 输入写入唤醒：每次 PTY 写入（经 processKeyEvent/writeKey 的硬件按键、
                         // IME sendKeyEvent 退格、鼠标）都必须离开空闲驻留。
@@ -2441,8 +2462,7 @@ constructor(
                     sessions.entries.removeIf { it.value.bridge === bridgeToRemove }
                 }
                 if (sessions.isEmpty()) {
-                    activeSessionId = 0L
-                    publishActiveSessionState(null)
+                    setActiveSessionId(0L)
                     _state.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
                     // 使通知与唤醒锁不活得比空会话映射更久
@@ -2868,7 +2888,7 @@ constructor(
                     previous.restartAttempts = 0
                     try {
                         renderSupervisor.startRenderThread(previous)
-                        activeSessionId = previous.id
+                        setActiveSessionId(previous.id)
                     } catch (restoreException: Exception) {
                         LogUtil.e(
                             "Runtime",
@@ -2880,7 +2900,7 @@ constructor(
                 return false
             }
             try {
-                activeSessionId = id
+                setActiveSessionId(id)
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3017,7 +3037,7 @@ constructor(
                 val remaining = sessions.keys.sorted()
                 if (remaining.isNotEmpty()) {
                     val newId = remaining.last()
-                    activeSessionId = newId
+                    setActiveSessionId(newId)
                     activateReplacementSession(
                         newId,
                         "closeSession",
@@ -3026,8 +3046,7 @@ constructor(
                         syncGrid = true,
                     )
                 } else {
-                    activeSessionId = 0L
-                    publishActiveSessionState(null)
+                    setActiveSessionId(0L)
                 }
             }
             updateState()
@@ -3434,8 +3453,7 @@ constructor(
             sessions[newId]
                 ?: run {
                     LogUtil.w("Runtime", "$caller: new active session $newId already removed")
-                    activeSessionId = 0L
-                    publishActiveSessionState(null)
+                    setActiveSessionId(0L)
                     updateState()
                     return
                 }
@@ -3513,14 +3531,12 @@ constructor(
             // 该条目永不会再渲染，故「无活动会话」才是真实状态：沿用被移除会话的
             // 备用屏标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，
             // 主屏位移恒为 0，且没有任何线程会再来重新发布这些值。
-            publishActiveSessionState(null)
+            // （由 activeSessionId 的 setter 完成对齐。）
             updateState()
             return
         }
         // 无条件重启：仍存活的旧线程正在退出；
         // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
-        // 先复位再起线程：见 switchSessionInternal 的同款说明。
-        publishActiveSessionState(replacement)
         renderSupervisor.startRenderThread(replacement)
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
