@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
         ) { _ -> }
 
     private var previousNightMode: Int? = null
+    private var previousFontScale: Float = 0f
 
     internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
         androidx.core.view.WindowCompat.enableEdgeToEdge(window)
         previousNightMode =
             resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        previousFontScale = resources.configuration.fontScale
         // Color.TRANSPARENT 是 ARGB 整数而非资源 id —— lint 建议的 KTX
         // Int.toDrawable() 会把它当作资源 id (0) 并解析到错误的 drawable。
         @SuppressLint("UseKtx")
@@ -187,12 +189,19 @@ class MainActivity : ComponentActivity() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         val currentNightMode = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-        if (currentNightMode != previousNightMode) {
+        // 系统「字体大小」变化必须一并响应：它改变 sp→px 系数，而原生
+        // setRasterScale 只在建会话与本回调里下发一次。系数漂移后 Kotlin 按新系数
+        // 算字号与网格、原生仍按旧值光栅，字形被拉伸、度量与网格整体偏掉。
+        // 故 manifest 声明了 fontScale（否则 Activity 重建，本回调根本不会到达，
+        // 而 TerminalRuntime 作为 @Singleton 仍会活下来）。
+        val currentFontScale = newConfig.fontScale
+        if (currentNightMode != previousNightMode || currentFontScale != previousFontScale) {
             lifecycleScope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
                 runtime.applySettings()
             }
         }
         previousNightMode = currentNightMode
+        previousFontScale = currentFontScale
     }
 
     @SuppressLint("RestrictedApi")

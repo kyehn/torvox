@@ -764,4 +764,125 @@ class DocumentsProviderTest {
         )
         assertTrue("openDocument 绝不能创建文件", !target.exists())
     }
+
+    /**
+     * 复制**目录树**：子目录、孙目录、文件与符号链接都要各就各位。
+     * 文件管理器的「复制」对文件夹同样生效，故这条不是边角料。
+     */
+    @Test
+    fun copyDocument_duplicates_a_directory_tree() {
+        val provider = ensureProvider()
+        val source = java.io.File(rootDir(), "proj").apply { mkdirs() }
+        java.io.File(source, "src").mkdirs()
+        java.io.File(source, "build.log").writeText("built")
+        java.io.File(java.io.File(source, "src"), "main.rs").writeText("fn main() {}")
+        val nestedOutside = java.io.File(rootDir(), "outside.txt").apply { writeText("outside") }
+        java.nio.file.Files.createSymbolicLink(
+            java.io.File(source, "alias.txt").toPath(),
+            nestedOutside.toPath(),
+        )
+        val targetParent = java.io.File(rootDir(), "backup").apply { mkdirs() }
+
+        val newId = provider.copyDocument("proj", "backup")
+
+        assertEquals("backup/proj", newId)
+        val copy = java.io.File(rootDir(), "backup/proj")
+        assertEquals("built", java.io.File(copy, "build.log").readText())
+        assertEquals("fn main() {}", java.io.File(copy, "src/main.rs").readText())
+        assertTrue("孙目录必须一并复制", java.io.File(copy, "src").isDirectory)
+        assertTrue(
+            "链接只复制 inode 自身，不展开成目标目录树",
+            java.nio.file.Files.isSymbolicLink(java.io.File(copy, "alias.txt").toPath()),
+        )
+        assertTrue("源目录树必须原样保留", java.io.File(source, "src/main.rs").exists())
+    }
+
+    /** 移动**目录树**：整棵树改换父目录，源处不得有残留。 */
+    @Test
+    fun moveDocument_relocates_a_directory_tree() {
+        val provider = ensureProvider()
+        val tree = java.io.File(rootDir(), "workspace").apply { mkdirs() }
+        java.io.File(tree, "deep").mkdirs()
+        java.io.File(tree, "deep/leaf.txt").writeText("leaf")
+        java.io.File(rootDir(), "archive").apply { mkdirs() }
+
+        val newId = provider.moveDocument("workspace", "terminal_home", "archive")
+
+        assertEquals("archive/workspace", newId)
+        assertEquals("leaf", java.io.File(rootDir(), "archive/workspace/deep/leaf.txt").readText())
+        assertTrue("源目录树必须整体搬走", !java.io.File(rootDir(), "workspace").exists())
+    }
+
+    /** 复制到已占用同名时取唯一名，且返回的 docId 与实际落盘一致。 */
+    @Test
+    fun copyDocument_conflict_gets_unique_name_matching_returned_id() {
+        val provider = ensureProvider()
+        val root = rootDir()
+        java.io.File(root, "dup.txt").writeText("first")
+        java.io.File(root, "dest").mkdirs()
+        java.io.File(root, "dest/dup.txt").writeText("already here")
+
+        val newId = provider.copyDocument("dup.txt", "dest")
+
+        assertTrue(
+            "返回的 docId 必须指向真实落盘文件，否则客户端回查询不到",
+            newId == "dest/dup.txt (2)" && java.io.File(root, newId).isFile,
+        )
+        assertEquals("first", java.io.File(root, newId).readText())
+        assertEquals("原有文件不得被覆盖", "already here", java.io.File(root, "dest/dup.txt").readText())
+    }
+
+    /**
+     * 复制指向**家目录内**的符号链接：只复制链接 inode，不展开成目标目录树。
+     *
+     * 站外链接（指向 home 之外）本就不在列举结果里——`encodeDocId` 对站外目标返回
+     * null，客户端无从从浏览得到它的 docId；寻址到它时拒绝是正确的收缩，不是缺口。
+     */
+    @Test
+    fun copyDocument_of_symlink_inside_home_keeps_it_a_link() {
+        val provider = ensureProvider()
+        val root = rootDir()
+        val target = java.io.File(root, "real.txt").apply { writeText("secret") }
+        createSymlink("portal", target)
+        java.io.File(root, "landing").mkdirs()
+
+        val newId = provider.copyDocument("portal", "landing")
+
+        assertEquals("landing/portal", newId)
+        val copied = java.io.File(root, newId)
+        assertTrue(
+            "复制出的条目必须仍是符号链接，而不是展开成目标内容",
+            java.nio.file.Files.isSymbolicLink(copied.toPath()),
+        )
+        assertEquals(
+            "链接仍指向原目标",
+            target.canonicalPath,
+            copied.canonicalPath,
+        )
+        assertEquals("secret", copied.readText())
+        assertTrue("目标本身不得被搬走或改名", target.exists())
+    }
+
+    /** 站外链接不可寻址：复制它必须拒绝，而不是把目标整棵树吸入家目录。 */
+    @Test
+    fun copyDocument_refuses_symlink_pointing_outside_home() {
+        val provider = ensureProvider()
+        val root = rootDir()
+        val outside = java.io.File(requireNotNull(provider.context).filesDir, "outside-secret.txt")
+            .apply { writeText("secret") }
+        createSymlink("portal", outside)
+        java.io.File(root, "landing").mkdirs()
+
+        try {
+            provider.copyDocument("portal", "landing")
+            fail("复制站外链接必须被拒绝")
+        } catch (expected: java.io.FileNotFoundException) {
+            // 站外目标不得进入家目录——这正是 encodeDocId 对站外链接返回 null 的原因。
+        }
+        assertTrue("站外目标不得被搬走", outside.exists())
+        assertTrue(
+            "家目录内不得留下任何复制产物",
+            java.io.File(root, "landing").list().isNullOrEmpty(),
+        )
+    }
 }

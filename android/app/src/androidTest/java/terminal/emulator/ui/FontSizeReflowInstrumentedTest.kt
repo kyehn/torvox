@@ -54,6 +54,11 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
      * 根本划不到的字号。资源取 activity 的：`fontScale` 可被 Activity 的
      * configuration 覆写，target context 上读到的未必是屏幕上生效的那个。
      */
+    // 设备屏幕宽（dp）：与 SettingsRepository 的两条边界同源。
+    private fun screenWidthDp(): Float = androidx.test.core.app.ApplicationProvider
+        .getApplicationContext<android.content.Context>()
+        .resources.configuration.screenWidthDp.toFloat()
+
     private fun spToPxScale(): Float {
         val resources = composeTestRule.activity.resources
         return coerceSpToPxScale(
@@ -178,7 +183,7 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
         try {
             val scale = spToPxScale()
             val minSizeSp = SettingsRepository.FONT_SIZE_MIN_SP
-            val maxSizeSp = SettingsRepository.fontSizeMaxSp(scale)
+            val maxSizeSp = SettingsRepository.fontSizeMaxSp(scale, screenWidthDp())
             // 先落到下端量出原生单元格宽，再以「字号比 × 该宽度」预测上端的宽度。
             // 判据完全落在原生回读量上：上端被原生拒收时宽度不会按比例变大。
             val min = applyAndAwait(minSizeSp)
@@ -253,9 +258,10 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
 
             // 目标字号取调节条区间内的相邻档：翻倍越界会被钳制导致「未落地」误报；
             // 若已处上限则改走减半，保证尺寸真实变化（变化本身是后续断言的前提）。
+            val screenWidth = screenWidthDp()
             val doubled = (originalSizeSp * 2f).coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale()),
+                SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth),
             )
             val targetSizeSp =
                 if (doubled > originalSizeSp + 0.01f) {
@@ -263,7 +269,7 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
                 } else {
                     (originalSizeSp / 2f).coerceIn(
                         SettingsRepository.FONT_SIZE_MIN_SP,
-                        SettingsRepository.fontSizeMaxSp(spToPxScale()),
+                        SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth),
                     )
                 }
             // 落地判据为原生单元格宽按字号比缩放（±2%，宽度是严格线性的）。
