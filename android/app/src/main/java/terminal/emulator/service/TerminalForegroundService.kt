@@ -23,6 +23,7 @@ class TerminalForegroundService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
         private const val EXTRA_SESSION_COUNT = "session_count"
+        private const val ACTION_EXIT = "terminal.emulator.action.EXIT"
 
         // 唤醒锁单次持有的上限：安全网，由 [scheduleWakeLockRenewal] 在半程续期。
         private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
@@ -81,6 +82,16 @@ class TerminalForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 通知的「退出」按钮（DESIGN：常驻通知提供退出按钮）：关闭全部会话后
+        // 前台服务计数归零并自行停掉——与侧边面板关闭会话是同一条既有路径。
+        if (intent?.action == ACTION_EXIT) {
+            dagger.hilt.android.EntryPointAccessors
+                .fromApplication(applicationContext, terminal.emulator.runtime.TerminalRuntimeEntryPoint::class.java)
+                .terminalRuntime()
+                .closeAllSessions()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // 进程被杀后 START_STICKY 重启：没有会话能在进程死亡后存活，
         // 故服务（及其 PARTIAL_WAKE_LOCK）已无保活对象。
         // 改为停止，而不是带着永久唤醒锁无休止地重新固定通知。
@@ -121,6 +132,13 @@ class TerminalForegroundService : Service() {
                 openIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+        val exitPending =
+            PendingIntent.getService(
+                this,
+                1,
+                Intent(this, TerminalForegroundService::class.java).setAction(ACTION_EXIT),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
         val notification =
             Notification
                 .Builder(this, CHANNEL_ID)
@@ -130,6 +148,13 @@ class TerminalForegroundService : Service() {
                 .setOngoing(true)
                 .setContentIntent(pending)
                 .setCategory(Notification.CATEGORY_SERVICE)
+                .addAction(
+                    Notification.Action.Builder(
+                        null,
+                        getString(R.string.notification_exit),
+                        exitPending,
+                    ).build(),
+                )
                 .build()
         // 缺失 POST_NOTIFICATIONS 不会使这里抛异常（平台文档：前台服务照常启动，
         // 只是通知不进抽屉、仅见于任务管理器）；实测 API 35 上拒绝该权限后

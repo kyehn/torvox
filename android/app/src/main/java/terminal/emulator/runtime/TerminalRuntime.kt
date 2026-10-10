@@ -2966,6 +2966,21 @@ constructor(
         }
     }
 
+    /**
+     * 关闭全部会话（通知的「退出」按钮）：DESIGN 要求常驻通知提供退出入口，
+     * 否则用户只能从最近任务里划掉整个应用。
+     *
+     * 关闭走与侧边面板关闭按钮同一条路径（[closeSession]），故会话的清理、
+     * 前台服务计数与通知的撤销都是既有语义，不另开一套。
+     */
+    fun closeAllSessions() {
+        synchronized(sessionLock) { sessions.keys.sorted().toList() }
+            .forEach { id -> closeSession(id) }
+        // 最后一个会话关闭时计数已归零并停掉服务；此处再确认一次，覆盖
+        // 关闭过程中又新建了会话的情况（那时服务应继续存活）。
+        stopForegroundServiceIfIdle()
+    }
+
     fun closeSession(id: Long) {
         // 阶段 1（加锁）：立即捕获关闭资格并清除运行意图标志，与 handleSessionExit 对称
         // ——延迟重启（restartRenderThreadAfterDelay）在锁内检查 running，
