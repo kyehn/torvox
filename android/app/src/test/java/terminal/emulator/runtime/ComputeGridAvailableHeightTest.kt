@@ -21,11 +21,12 @@ class ComputeGridAvailableHeightTest {
     }
 
     @Test
-    fun `the bar and the keyboard reserve are both subtracted`() {
-        // 备用屏的键盘遮挡叠加在键栏**之下**，不是二者的较大者：2400 − 200 − 1000 = 1200。
-        // 取「较大者」会得 1400，只扣键栏会得 2200——两者都让键盘少扣或根本没扣。
-        assertEquals(1200, computeGridAvailableHeight(2400, 200, 1000))
+    fun `a larger bar and a smaller reserve give the same height`() {
+        // 同一 1200px 结果的两种来源，证明两者是**相加**而非取较大者：
+        // 2400 − 200 − 1000 与 2400 − 1200 − 0。取「较大者」会得 1400 或 2200，
+        // 两种都让键盘少扣或根本没扣（具体数值见同文件上一条用例）。
         assertEquals(1200, computeGridAvailableHeight(2400, 1200, 0))
+        assertEquals(1200, computeGridAvailableHeight(2400, 200, 1000))
     }
 
     @Test
