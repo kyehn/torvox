@@ -236,4 +236,103 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             assertEquals("readable", text)
         }
     }
+
+    /**
+     * 外部文件管理器走**树 URI** 的修改/复制/移动。
+     *
+     * 这三个动作都在真机上被反馈为「无法修改/无法复制/无法移动」。它们与列举、
+     * 新建的差别只在寻址形式：客户端持有的是 `content://…/tree/<root>/document/<docId>`
+     * 形式的 URI，docId 含 '/' 且需经 URI 编解码往返；平台对本形式的每次访问都会先跑
+     * `DocumentsProvider.enforceTree`（即 `isChildDocument`），再经 `call()` 路由到本提供者
+     * 的 copyDocument / moveDocument。以下按客户端真实序列逐段断言落盘结果，
+     * 任一环节不通都会在这里失败，而不是在用户的文件管理器里表现为无声无响应。
+     */
+    @Test
+    fun tree_uri_modify_copy_move_round_trip() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val probeDir = File(home, "tree-mutations").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val targetDir = File(home, "tree-mutations-target").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val rootTreeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
+            val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
+
+            // 客户端经树 URI 在子目录里建文件（与上面那个用例同一条路）。
+            val childDirUri = DocumentsContract.createDocument(
+                context.contentResolver,
+                rootDocumentUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "tree-mutations",
+            )
+            requireNotNull(childDirUri)
+            val childDirDocId = DocumentsContract.getDocumentId(childDirUri)
+            assertEquals("tree-mutations", childDirDocId)
+            val childrenInDir = DocumentsContract.buildChildDocumentsUriUsingTree(rootTreeUri, childDirDocId)
+            val sourceUri = DocumentsContract.createDocument(
+                context.contentResolver,
+                childrenInDir,
+                "text/plain",
+                "source.txt",
+            )
+            requireNotNull(sourceUri) { "tree URI create must return a uri" }
+            context.contentResolver.openOutputStream(sourceUri, "rwt").use { stream ->
+                requireNotNull(stream).write("original body".toByteArray())
+            }
+            assertEquals("original body", File(probeDir, "source.txt").readText())
+
+            val sourceDocId = DocumentsContract.getDocumentId(sourceUri)
+            assertEquals("tree-mutations/source.txt", sourceDocId)
+            val sourceViaTree = DocumentsContract.buildDocumentUriUsingTree(rootTreeUri, sourceDocId)
+
+            // ① 修改：以树 URI 打开已存在文件并覆写（"w" 截断语义）。
+            context.contentResolver.openOutputStream(sourceViaTree, "w").use { stream ->
+                requireNotNull(stream) { "existing file must be writable through a tree uri" }
+                stream.write("edited body".toByteArray())
+            }
+            assertEquals("edited body", File(probeDir, "source.txt").readText())
+
+            // ② 复制：树 URI 之间复制，源必须保留，副本必须落盘。
+            val targetChildren =
+                DocumentsContract.buildChildDocumentsUriUsingTree(
+                    rootTreeUri,
+                    "tree-mutations-target",
+                )
+            val copiedUri = DocumentsContract.copyDocument(context.contentResolver, sourceViaTree, targetChildren)
+            requireNotNull(copiedUri) { "copyDocument must return the new document uri" }
+            val copiedDocId = DocumentsContract.getDocumentId(copiedUri)
+            assertEquals("tree-mutations-target/source.txt", copiedDocId)
+            assertEquals("edited body", File(targetDir, "source.txt").readText())
+            assertTrue("copy must leave the source in place", File(probeDir, "source.txt").exists())
+            assertTrue(
+                "copied document must be addressable through the tree",
+                "text/plain" == context.contentResolver.getType(copiedUri),
+            )
+
+            // ③ 移动：把副本移回子目录，原名冲突时按唯一名落在磁盘上（不抛错）。
+            val movedUri = DocumentsContract.moveDocument(
+                context.contentResolver,
+                copiedUri,
+                targetChildren,
+                childrenInDir,
+            )
+            requireNotNull(movedUri) { "moveDocument must return the new document uri" }
+            val movedDocId = DocumentsContract.getDocumentId(movedUri)
+            assertEquals("tree-mutations/source (2).txt", movedDocId)
+            assertTrue(File(probeDir, "source (2).txt").exists())
+            assertTrue(
+                "move must remove the document from its old parent",
+                !File(targetDir, "source.txt").exists(),
+            )
+            assertEquals("edited body", File(probeDir, "source (2).txt").readText())
+        } finally {
+            probeDir.deleteRecursively()
+            targetDir.deleteRecursively()
+        }
+    }
 }
