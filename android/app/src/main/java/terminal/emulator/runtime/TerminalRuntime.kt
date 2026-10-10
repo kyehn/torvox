@@ -2077,35 +2077,6 @@ constructor(
         Shell.Custom(shellPath)
     }
 
-    private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
-        val backgroundColor = resolvedTheme.background.toArgb()
-        val foregroundColor = resolvedTheme.foreground.toArgb()
-        val cursor = resolvedTheme.cursor.toArgb()
-        val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
-        return BridgeTheme(
-            name = resolvedTheme.name,
-            background = backgroundColor,
-            foreground = foregroundColor,
-            cursor = cursor,
-            ansi0 = ansiInts[0],
-            ansi1 = ansiInts[1],
-            ansi2 = ansiInts[2],
-            ansi3 = ansiInts[3],
-            ansi4 = ansiInts[4],
-            ansi5 = ansiInts[5],
-            ansi6 = ansiInts[6],
-            ansi7 = ansiInts[7],
-            ansi8 = ansiInts[8],
-            ansi9 = ansiInts[9],
-            ansi10 = ansiInts[10],
-            ansi11 = ansiInts[11],
-            ansi12 = ansiInts[12],
-            ansi13 = ansiInts[13],
-            ansi14 = ansiInts[14],
-            ansi15 = ansiInts[15],
-        )
-    }
-
     suspend fun start(surface: Surface?, width: Int, height: Int) {
         synchronized(sessionLock) {
             if (sessions.isNotEmpty() || starting) return
@@ -3047,18 +3018,25 @@ constructor(
 
     suspend fun applySettings() {
         val config = buildConfig()
-        val fontFamily = settingsRepository.fontFamily.first()
-        val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
-        // 只换字体/字号/主题，不 resize 各会话网格：buildConfig() 的默认 24x80 会
-        // 缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
+        val effectiveFontFamily =
+            terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+        // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：buildConfig() 的默认
+        // 24x80 会缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
+        // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
+        // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
+        // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
+        val contract =
+            RenderContract(config.fontSizeTenths, effectiveFontFamily, config.theme, spToPxScale)
         sessions.values.forEach { entry ->
-            entry.bridge.setFontSizeInPlace(config.fontSizeTenths)
-            entry.bridge.setFontFamily(effectiveFontFamily)
-            entry.bridge.setTheme(config.theme)
+            entry.bridge.applyRenderContract(contract)
             entry.notifyRender()
         }
-        // 字体度量已变——但网格尺寸保持不变。
-        // 内容超出可视区域时终端自行滚动。
+        // 光栅尺度变了，逻辑单元格度量随之改变：按新度量刷新并重算网格，否则
+        // 渲染仍按旧单元格尺寸画字形。只对活动会话做，各会话的网格不变。
+        sessions[activeSessionId]?.let { active ->
+            syncGridDimensions(active.bridge)
+            recomputeGridFromFontMetrics()
+        }
     }
 
     /**
@@ -3582,18 +3560,17 @@ constructor(
         bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
-        bridge.setTheme(config.theme)
         val effectiveFont =
             terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
-        bridge.setFontFamily(effectiveFont)
-        // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
-        // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
-        bridge.setFontSizeInPlace(config.fontSizeTenths)
         // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
         // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
         // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
         // 着色器随后放大图集位图——即「文字模糊」问题的来源。
-        bridge.setRasterScale(spToPxScale)
+        // 字号同理：原生渲染器以硬编码的 14.0px 启动，不下发则用户的设置永远到不了
+        // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
+        bridge.applyRenderContract(
+            RenderContract(config.fontSizeTenths, effectiveFont, config.theme, spToPxScale),
+        )
         appliedFontSizeTenths = config.fontSizeTenths
         LogUtil.d(
             "Runtime",
@@ -3819,6 +3796,61 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
     }
     bounds[0]..bounds[1]
 }
+
+/**
+ * 主题调色板 → 桥接层位形：16 色 ANSI 槽位按索引展开成具名字段。
+ *
+ * 纯函数（只读入参与 `Color.toArgb`），故提到类外——它既不碰会话状态也不碰
+ * Context，却是 `TerminalRuntime` 里最长的一段与运行时无关的样板。
+ */
+private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
+    val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
+    return BridgeTheme(
+        name = resolvedTheme.name,
+        background = resolvedTheme.background.toArgb(),
+        foreground = resolvedTheme.foreground.toArgb(),
+        cursor = resolvedTheme.cursor.toArgb(),
+        ansi0 = ansiInts[0],
+        ansi1 = ansiInts[1],
+        ansi2 = ansiInts[2],
+        ansi3 = ansiInts[3],
+        ansi4 = ansiInts[4],
+        ansi5 = ansiInts[5],
+        ansi6 = ansiInts[6],
+        ansi7 = ansiInts[7],
+        ansi8 = ansiInts[8],
+        ansi9 = ansiInts[9],
+        ansi10 = ansiInts[10],
+        ansi11 = ansiInts[11],
+        ansi12 = ansiInts[12],
+        ansi13 = ansiInts[13],
+        ansi14 = ansiInts[14],
+        ansi15 = ansiInts[15],
+    )
+}
+
+/**
+ * 一条会话的完整渲染契约：主题 + 字体族 + 字号 + 光栅尺度。
+ *
+ * 两条下发路径（建会话后的 `applyRenderSettings`、配置变化后的 `applySettings`）
+ * 共用本函数：漏掉 `setRasterScale` 的那一条既不编译失败也不影响字号本身，
+ * 症状只是系统「字体大小」变化后 Kotlin 按新系数算、原生仍按旧值光栅——
+ * 字形被拉伸，单元格度量与网格整体偏掉一个 fontScale 倍。
+ */
+private fun Bridge.applyRenderContract(contract: RenderContract) {
+    setTheme(contract.theme)
+    setFontFamily(contract.fontFamily)
+    setFontSizeInPlace(contract.fontSizeTenths)
+    setRasterScale(contract.rasterScale)
+}
+
+/** 一条会话的渲染设置快照（见 [applyRenderContract]）。 */
+private data class RenderContract(
+    val fontSizeTenths: Int,
+    val fontFamily: String,
+    val theme: BridgeTheme,
+    val rasterScale: Float,
+)
 
 /**
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
