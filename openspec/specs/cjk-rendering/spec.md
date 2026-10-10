@@ -86,3 +86,16 @@ CJK 回退层的发现 MUST NOT 依赖 locale 早于字体库构建这一调用�
 
 - **WHEN** Termux 字体目录存在并注册到字体数据库后重建管线
 - **THEN** 实例缓存失效且请求新帧，终端以新字体渲染
+
+### Requirement: CJK 回退段判定走 Unicode 文字属性
+
+整形侧 `needs_cjk_fallback` MUST 走 UAX #24 `Script` 属性（`unicode-script`
+直接依赖，随 Unicode 版本跟进）判定 Han/Hiragana/Katakana/Hangul/Bopomofo/
+Yi/Tangut/Khitan_Small_Script/Nushu，MUST NOT 硬编码码点区间：硬编码漏掉
+扩展 G/H 等新区且随版本漂移。兼容符号区（U+3000..U+303F、U+FF00..U+FFEF）
+的 `Script` 多为 `Common`，沿用旧区间语义保留。
+
+#### Scenario: 扩展区字符同样挂回退
+
+- **WHEN** 整形文本含扩展 G 区汉字（如 U+3000B）
+- **THEN** 该段挂 CJK 回退族，拉丁与空格不挂

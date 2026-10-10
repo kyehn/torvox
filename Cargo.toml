@@ -29,6 +29,7 @@ serde = { version = "1", default-features = false, features = [
 ] }
 swash = "0.2"
 thiserror = { version = "2", default-features = false }
+unicode-script = "0.5"
 wgpu = { version = "30", default-features = false }
 wgpu-types = "30"
 [profile.dev]
