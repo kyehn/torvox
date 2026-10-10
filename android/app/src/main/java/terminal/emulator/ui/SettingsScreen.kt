@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -281,7 +282,8 @@ private fun AppearanceSectionContent(
     // 使 JNI setFontSizeInPlace 调用乱序交错（实测 96..280）并逐步重排网格
     // ——即「滑块跳动/布局错乱」的来源。预览让拖动保持廉价且单线程。
     // 初值钳到可选区间：历史版本存过的超限值只影响本次显示，不回写覆盖用户数据。
-    val fontSizeUpperBound = SettingsRepository.fontSizeMaxSp(spToPxScale)
+    val fontSizeUpperBound =
+        SettingsRepository.fontSizeMaxSp(spToPxScale, LocalConfiguration.current.screenWidthDp.toFloat())
     var sliderFontSize by rememberSaveable {
         mutableFloatStateOf(
             fontSize.coerceIn(SettingsRepository.FONT_SIZE_MIN_SP, fontSizeUpperBound),
@@ -548,8 +550,15 @@ private fun FontSizeSlider(
         title = stringResource(R.string.font_size),
         value = value,
         valueRange =
-        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.fontSizeMaxSp(spToPxScale),
-        steps = SettingsRepository.fontSizeRangeSteps(spToPxScale),
+        SettingsRepository.FONT_SIZE_MIN_SP..SettingsRepository.fontSizeMaxSp(
+            spToPxScale,
+            LocalConfiguration.current.screenWidthDp.toFloat(),
+        ),
+        steps =
+        SettingsRepository.fontSizeRangeSteps(
+            spToPxScale,
+            LocalConfiguration.current.screenWidthDp.toFloat(),
+        ),
         colors =
         SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,

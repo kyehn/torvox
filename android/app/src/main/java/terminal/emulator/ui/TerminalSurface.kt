@@ -2222,7 +2222,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
                     val spToPxScale = viewModel?.runtime?.spToPxScale ?: return false
-                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor, spToPxScale)
+                    val sizeSp =
+                        zoomFontSize(
+                            zoomBaseFontSizeSp,
+                            scaleFactor,
+                            spToPxScale,
+                            resources.configuration.screenWidthDp.toFloat(),
+                        )
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
                         lastZoomPreviewNanos = now
@@ -2238,7 +2244,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
                     // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
                     val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
-                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor, spToPxScale)
+                    val sizeSp =
+                        zoomFontSize(
+                            zoomBaseFontSizeSp,
+                            scaleFactor,
+                            spToPxScale,
+                            resources.configuration.screenWidthDp.toFloat(),
+                        )
                     scaleFactor = 1.0f
                     if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
@@ -3172,11 +3184,13 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
  *
  * @param spToPxScale sp→像素系数（见 `TerminalRuntime.spToPxScale`），非仅显示密度：
  *   调节条上限与之同源，两者用不同系数会让手势越出调节条允许的区间。
+ * @param screenWidthDp 屏幕宽（dp）：上界须与调节条按同一个屏幕推导，否则捏合能捏到
+ *   调节条给不出的字号——用户反馈的「设置条与实际可设范围不一致」正是这个分叉。
  */
-internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float): Float =
+internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float, screenWidthDp: Float): Float =
     (baseFontSizeSp * scaleFactor).coerceIn(
         SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.fontSizeMaxSp(spToPxScale),
+        SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
     )
 
 /**

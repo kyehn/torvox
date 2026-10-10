@@ -147,38 +147,44 @@ const ADOPTED: &[&str] = &[
 /// 不是标准，采纳会让本仓与 xterm 的历史行为对齐——与「测试必须是正确性测试」的要求
 /// 方向相反。`openspec/specs/upstream-alignment` 要求把本表收敛到空。
 const NOT_ADOPTED: &[(&str, &str)] = &[
-    // ── 输入畸形：单参数序列给了多个参数，标准未规定 ──
+    // ── 输入畸形：单参数序列给了多个参数，实现未定义 ──
+    // 实测（vt_upstream_blockers.rs 逐个钉住）：本仓对超参序列是**整条丢弃**——
+    // 上游 stream.zig 的 `CSI Pn C` 分发写死 `params.len == 1`，多一个参数就走
+    // `log.warn("invalid cursor right command")` 后 return，光标一动不动。
+    // xterm 则取首参数照常移动，故快照与实得不同。
+    // ECMA-48 §5.4.3 只说「参数个数由控制函数定」，未规定多参时的处置，
+    // 两种做法都不违反标准；这是**上游引擎缺口**，不是本仓可本地修复的选择。
     (
         "t0020-CUF",
-        "输入含 CSI 10;3 C：CUF 按标准只取一个参数，多参处标准未规定，快照记的是 xterm 的解读",
+        "输入含 CSI 10;3 C：多参时上游整条丢弃该序列（stream.zig `params.len == 1` 守卫），xterm 取首参数移动 10 列",
     ),
     (
         "t0021-CUB",
-        "输入含 CSI 2;3 D：CUB 只取一个参数，xterm 把第二个参数当行移动，本仓按标准取首参数",
+        "输入含 CSI 2;3 D：同上，上游丢弃整条 CSI 2;3 D，光标未动；xterm 取首参数",
     ),
     (
         "t0022-CUU",
-        "输入含 CSI 3;5 A：CUU 只取一个参数，多参处标准未规定",
+        "输入含 CSI 3;5 A：同上，上游丢弃；xterm 取首参数上移 3 行",
     ),
     (
         "t0024-CUD",
-        "输入含 CSI 3;5 B：CUD 只取一个参数，多参处标准未规定",
+        "输入含 CSI 3;5 B：同上，上游丢弃；xterm 取首参数下移 3 行",
     ),
     (
         "t0030-HPR",
-        "输入含 CSI 10;3 a：HPR 只取一个参数，多参处标准未规定",
+        "输入含 CSI 10;3 a：同上，上游丢弃；xterm 取首参数右移 10 列",
     ),
     (
         "t0032-VPB",
-        "输入含 CSI 3;5 k：VPB 只取一个参数，多参处标准未规定",
+        "输入含 CSI 3;5 k：同上，上游丢弃；xterm 取首参数上移 3 行",
     ),
     (
         "t0034-VPR",
-        "输入含 CSI 3;5 e：VPR 只取一个参数，多参处标准未规定",
+        "输入含 CSI 3;5 e：同上，上游丢弃；xterm 取首参数下移 3 行",
     ),
     (
         "t0077-DECSTBM_quirks",
-        "输入含 CSI 6;7;8 r 与 CSI 15;0 r：三参数 DECSTBM 与下边距取 0 都是 xterm 的历史怪癖，非标准",
+        "输入含 CSI 6;7;8 r 与 CSI 15;0 r：DECSTBM 按 DEC STD 070 只取两个参数、下边距不得小于上边距，三参与 0 都是 xterm 的历史怪癖",
     ),
     // ── 快照成文时该序列尚未实现，快照缺的是实现而不是期望 ──
     (
@@ -189,35 +195,40 @@ const NOT_ADOPTED: &[(&str, &str)] = &[
         "t0103-reverse_wrap",
         "CSI ? 45 h（reverse wraparound）xterm 快照成文时未实现，属 DEC 扩展，无可比对象",
     ),
-    // ── 输入格式合规，但语义尚未按标准裁定 ──
+    // ── 上游引擎缺口：输入合规、标准有定义，但 libghostty-vt 未实现 ──
+    // 下列每一项都由 vt_upstream_blockers.rs 以「当前行为」钉住并附上游出处，
+    // 上游补齐后该断言随即失败，从而回到本表逐例重新裁定。
     (
         "t0033-VPB_scroll",
-        "VPB 删除计数超过滚动区域高度时的边界行为，尚未按 DEC STD 070 裁定；快照记的是 xterm 的处理",
+        "CSI Ps k：上游把 k 与 A 同等映射到 cursor_up（stream.zig `'A','k'`），光标触顶即停；DEC STD 070 的 VPB 规定此时应滚动区域内容",
     ),
     (
         "t0060-DECSC",
-        "DECSC 存光标后经 DECSU 滚动再 DECRC 恢复，落点语义尚未按标准裁定",
+        "DECSC/DECRC 本身已实现；差异只在「光标处于 pending wrap 时保存/恢复了 wrap 标志」，末列打印后 DECRC 会让下一个字符先折行，xterm 不恢复该标志",
     ),
     (
         "t0061-CSI_s",
-        "CSI s 与 DECSC 同义，恢复落点语义尚未按标准裁定",
-    ),
-    (
-        "t0081-TBC",
-        "TBC 清制表位与后续 VPA/VPD 混排时的纵向下标行为尚未按标准裁定",
+        "CSI s/CSI u 与 DECSC/DECRC 同义，同上：差异只在 pending wrap 标志的保存与恢复",
     ),
     (
         "t600-DECSTBM_SR",
-        "在滚动区域内写满行宽触发滚动时的区域边界行为，尚未按标准裁定",
+        "CSI Pn SP A（SR 右滚）：上游对带中间字符的 CSI A 直接 warn 后丢弃，未实现；xterm 在滚动区域内逐行右移",
     ),
-    ("t601-DECSTBM_SL", "同上，行内滚动方向一侧"),
+    (
+        "t601-DECSTBM_SL",
+        "CSI Pn SP @（SL 左滚）：上游未实现，同上",
+    ),
     (
         "t602-DECSTBM_DECIC",
-        "同上，左右边距插入列在滚动区域内的交互",
+        "CSI Pn ' }（DECIC 插列）：上游未实现 DEC 左右边距族（DECLRMM/DECSLRM/DECIC/DECDC），整条序列无分发",
     ),
     (
         "t603-DECSTBM_DECDC",
-        "同上，左右边距删除列在滚动区域内的交互",
+        "CSI Pn ' ~（DECDC 删列）：上游未实现 DEC 左右边距族，同上",
+    ),
+    (
+        "t0081-TBC",
+        "输入用 `CSI g`（无参数）清当前列制表位：上游 stream.zig 的 'g' 分发写死 `params.len == 1`，无参数即整条丢弃；ECMA-48 规定 TBC 的 Ps 缺省为 0（清当前列）。显式 `CSI 0 g` 本仓正确生效",
     ),
 ];
 

@@ -50,23 +50,32 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val DEFAULT_SHELL = ""
 
         /**
+         * 「在宽 [screenWidthDp] 的屏幕上显示 [columns] 列所需的字号（sp）」。
+         *
+         * 单一来源：自适应默认字号（[defaultFontSizeFor] 按
+         * [DEFAULT_FONT_COLUMNS_TARGET] 列）与可用性上界（按 [MIN_USABLE_COLUMNS] 列）
+         * 是同一件事的两种问法，故共用本比例而不各写一式。
+         *
+         * 在 dp 空间度量：列数 = 屏宽 dp ÷ (字号 sp × 0.6)（密度与 fontScale 在分子
+         * 分母相约），故只需屏宽，不需要另传密度。
+         */
+        private fun fontSizeForColumns(screenWidthDp: Float, columns: Int): Float =
+            screenWidthDp / (columns * MONOSPACE_CHAR_ASPECT)
+
+        /**
          * 首次启动的按设备自适应字号（sp）：全新安装得到的尺寸能显示约
          * [DEFAULT_FONT_COLUMNS_TARGET] 个可见列（等宽字形约 0.6em 宽：sp = widthDp / (0.6 * target)），
          * 并钳位到 [ADAPTIVE_DEFAULT_MIN_SP, ADAPTIVE_DEFAULT_MAX_SP]。
          * 该区间约束的是「自适应算出的默认值落在哪」，与用户可选的
-         * [FONT_SIZE_MIN_SP]..[FONT_SIZE_MAX_PX] 是两件事：此处的下限使小屏手机
+         * [FONT_SIZE_MIN_SP]..[fontSizeMaxSp] 是两件事：此处的下限使小屏手机
          * 的初始字号不低于可读范围，上限使超大屏不会一启动就只有几列字。
          * 已在同一模拟器上与真 termux 0.118.3 标定（1080x2400@420dpi）：
          * termux 字形带 27px / 字距 ~21.2px / ~51 列，本应用 27px / 21.8px / ~49 列
          * ——在 ±10% 容差内，无需再改。
          */
-        fun defaultFontSizeFor(screenWidthDp: Float): Float = (
-            screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET /
-                MONOSPACE_CHAR_ASPECT
-            ).coerceIn(
-            ADAPTIVE_DEFAULT_MIN_SP,
-            ADAPTIVE_DEFAULT_MAX_SP,
-        )
+        fun defaultFontSizeFor(screenWidthDp: Float): Float =
+            fontSizeForColumns(screenWidthDp, DEFAULT_FONT_COLUMNS_TARGET.toInt())
+                .coerceIn(ADAPTIVE_DEFAULT_MIN_SP, ADAPTIVE_DEFAULT_MAX_SP)
 
         private const val DEFAULT_FONT_COLUMNS_TARGET = 52f
 
@@ -103,26 +112,53 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val FONT_SIZE_STEP_SP = 2f
 
         /**
-         * 调节条上界（sp）：把 Termux 的像素上限换算到 sp 后按步长向下取整，
-         * 使 Material 调节条分出的每一档恰好相差 [FONT_SIZE_STEP_SP]，且不越过
-         * Termux 的像素上限。
+         * 调节条能拖到的最大字号仍须容纳得下一行可用输出：低于这个列数，
+         * 连一条常见命令（`ls -la /usr/local/bin` 21 列、
+         * `systemctl status nginx` 21 列）都放不下，终端失去可用性。
+         * 这是**语义**下限而不是魔法数：取「命令放不下」这个事实作为边界。
+         */
+        const val MIN_USABLE_COLUMNS = 20
+
+        /**
+         * 调节条上界（sp）：两个约束取紧者，按步长向下取整使每一档恰好相差
+         * [FONT_SIZE_STEP_SP]。
+         *
+         * ① Termux 的像素上限（[FONT_SIZE_MAX_PX]）按完整系数换算——DESIGN 要求
+         *    参考 Termux，而它给出的上限是**像素**。
+         * ② 「至少放得下 [MIN_USABLE_COLUMNS] 列」——按 [fontSizeForColumns] 的同一
+         *    比例反推。与自适应默认字号共用同一个列↔字号比例，于是「默认字号能显示
+         *    多少列」与「最大字号至少能显示多少列」恒为同一条事实，不会分别漂移。
+         *
+         * 为什么必须有②：①单独存在时，低密度设备的上界会推到 256sp 量级——等宽
+         * 字形 0.6em 宽，256sp 的单元格宽逾 150px，一屏只剩 3 列。Slider 一路拖到底
+         * 得到的正是这种不可用状态，用户反馈即「设置条范围过大、与实际可用范围不一致」。
+         * ①仍是必要的：高密度或大屏设备上②往往比①宽松，Termux 的像素上限此时是更紧的那条。
          *
          * @param spToPxScale sp→像素的完整系数（显示密度 × 系统字体缩放，见
          *   [TerminalRuntime.spToPxScale]）。必须用完整系数而非仅密度：字形实际
          *   光栅尺度即 `sp * spToPxScale`，只用密度会在系统「字体大小」大于 1 时
          *   放行超出 Termux 像素上限的字号（实测 fontScale=1.3 时 96sp 实际
          *   327px > 256px）。
+         * @param screenWidthDp 屏幕宽（dp），与 [defaultFontSizeFor] 读同一个值，
+         *   使两条边界对同一设备给出一致的列数口径。
          */
-        fun fontSizeMaxSp(spToPxScale: Float): Float = floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
-            .times(FONT_SIZE_STEP_SP)
-            .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
+        fun fontSizeMaxSp(spToPxScale: Float, screenWidthDp: Float): Float {
+            val termuxCeiling = floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
+                .times(FONT_SIZE_STEP_SP)
+            val usableCeiling =
+                floor(
+                    fontSizeForColumns(screenWidthDp, MIN_USABLE_COLUMNS) / FONT_SIZE_STEP_SP,
+                ).times(FONT_SIZE_STEP_SP)
+            return minOf(termuxCeiling, usableCeiling)
+                .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
+        }
 
         /**
          * 调节条档数（Material `steps` 语义：两端点之间的中间档数）。
          * 跨度恒被步长整除，故不会出现半档。
          */
-        fun fontSizeRangeSteps(spToPxScale: Float): Int =
-            ((fontSizeMaxSp(spToPxScale) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
+        fun fontSizeRangeSteps(spToPxScale: Float, screenWidthDp: Float): Int =
+            ((fontSizeMaxSp(spToPxScale, screenWidthDp) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
     }
 
     val appThemeMode: Flow<String> =

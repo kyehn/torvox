@@ -1969,6 +1969,12 @@ constructor(
         java.io.File("$prefixDir/$candidate").isFile
     }
 
+    /**
+     * 屏幕宽（dp）：字号可选区间与自适应默认字号都以它推导列数，
+     * 故两处必须读同一个值。
+     */
+    private fun screenWidthDp(): Float = context.resources.configuration.screenWidthDp.toFloat()
+
     internal suspend fun computeFontSizeTenths(): Int {
         // 落盘值与自适应值统一钳到可选区间（SettingsRepository 的唯一定义）：
         // 历史超限存量与跨设备搬来的值都不再让原生拒收，渲染、下发记录与
@@ -1976,7 +1982,7 @@ constructor(
         val userFontSize =
             settingsRepository.fontSize.first().coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp()),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
             // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
@@ -1988,8 +1994,10 @@ constructor(
         // 全新安装：按屏幕宽度推导合理默认值
         // （唯一来源：SettingsRepository.defaultFontSizeFor），
         // 使手机（~360dp）和平板（~600dp）显示相同的列数。
-        val widthDp = context.resources.configuration.screenWidthDp.toFloat()
-        return (SettingsRepository.defaultFontSizeFor(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
+        return (
+            SettingsRepository.defaultFontSizeFor(screenWidthDp()) *
+                TENTHS_PER_UNIT.toFloat()
+            ).toInt()
     }
 
     /**
@@ -2008,7 +2016,7 @@ constructor(
         val clampedSp =
             sizeSp.coerceIn(
                 SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale),
+                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp()),
             )
         val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
