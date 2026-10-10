@@ -28,8 +28,8 @@ use jni::objects::JObject;
 use jni::objects::{JClass, JString};
 use jni::strings::JNIString;
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jint, jintArray, jlong, jobjectArray, jsize,
-    jstring,
+    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jfloatArray, jint, jintArray, jlong,
+    jobjectArray, jsize, jstring,
 };
 use jni::{Env, EnvUnowned, jni_str};
 
@@ -3058,6 +3058,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
     })
 }
 
+/// 原生接受的光栅缩放（sp→px 系数）区间。**唯一真源**。
+///
+/// 同一区间此前在两端各存一份字面量——Rust 的 `setRasterScale` 守卫与 Kotlin 的
+/// `coerceSpToPxScale` 钳位——互相只由注释绑定。它们漂移的后果与字号上界那次
+/// 完全同型：Kotlin 用被原生拒收的系数算出 `FONT_SIZE_MAX_PX / 系数` 的字号上界，
+/// 而原生静默拒收该系数（记 error），滑块上界与实际渲染重新脱节。故守卫与对外
+/// 查询（[Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange]）同取此值。
+const RASTER_SCALE_MIN: f32 = 0.5;
+const RASTER_SCALE_MAX: f32 = 8.0;
+
+/// 缩放是否落在原生接受区间内。守卫与对外查询同走这一处判定，故「Kotlin 钳到的
+/// 区间」与「原生接受的区间」在结构上就是同一个区间，不依赖两处字面量对齐。
+fn is_raster_scale_acceptable(scale: f32) -> bool {
+    (RASTER_SCALE_MIN..=RASTER_SCALE_MAX).contains(&scale)
+}
+
 /// 原生接受的最大字号（sp）：字形位图必须放得进图集，故上界由图集边长推导。
 ///
 /// 这是**唯一**的真实约束；用户可选区间由 Kotlin 侧 `SettingsRepository.fontSizeMaxSp`
@@ -3127,6 +3143,30 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
     })
 }
 
+/// 原生接受的光栅缩放区间 `[min, max]` → JNI `FloatArray`（原生为唯一真源）。
+///
+/// Kotlin 侧的 `coerceSpToPxScale` 必须钳到本区间：字号的 sp→px 换算
+/// （`SettingsRepository.fontSizeMaxSp`）以该系数为分母，系数一旦落在区间外，
+/// 算出的字号上界就不再对应原生真实的光栅尺度。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jfloatArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let bounds = [RASTER_SCALE_MIN, RASTER_SCALE_MAX];
+        let Ok(array) = env.new_float_array(bounds.len()) else {
+            return Ok(std::ptr::null_mut());
+        };
+        if array.set_region(env, 0, &bounds).is_err() {
+            return Ok(std::ptr::null_mut());
+        }
+        array.into_raw()
+    })
+}
+
 /// 设置字体光栅化缩放（设备像素密度）。字形位图按 `font_size * raster_scale`
 /// 光栅化，使高密度屏上的文字保持锐利。
 #[unsafe(no_mangle)]
@@ -3137,10 +3177,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
     scale: jfloat,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        // 越界记错误日志而非静默丢弃：Kotlin 侧 `coerceSpToPxScale` 已钳到同区间，
-        // 两份常量漂移时必须在此留痕，否则字号上限换算与实际光栅尺度悄悄脱节。
-        if !(0.5..=8.0).contains(&scale) {
-            log::error!("setRasterScale: 缩放 {scale} 越界（合法区间 0.5..=8.0）");
+        // 越界记错误日志而非静默丢弃：Kotlin 侧 `coerceSpToPxScale` 已钳到同区间
+        // （该区间经 `getRasterScaleRange` 从这里取，二者是同一常量），两端常量
+        // 漂移时必须在此留痕，否则字号上限换算与实际光栅尺度悄悄脱节。
+        if !is_raster_scale_acceptable(scale) {
+            log::error!(
+                "setRasterScale: 缩放 {scale} 越界（合法区间 {RASTER_SCALE_MIN}..={RASTER_SCALE_MAX}）"
+            );
             return Ok(());
         }
         let mut state = render_state_mut();
@@ -3514,7 +3557,7 @@ mod clipboard_read_flood_tests {
 
 #[cfg(test)]
 mod font_size_cap_tests {
-    use super::{ATLAS_SIZE, font_size_cap_sp, is_font_size_selectable};
+    use super::{ATLAS_SIZE, RASTER_SCALE_MAX, RASTER_SCALE_MIN, font_size_cap_sp, is_font_size_selectable};
 
     /// Kotlin `SettingsRepository.fontSizeMaxSp` 的**权威取值**，即 Termux 自身的
     /// 公开常量：像素上限 256、调整步长 2sp、下限 4sp。这里刻意写死外部数值而非
@@ -3530,18 +3573,32 @@ mod font_size_cap_tests {
         stepped.max(SLIDER_MIN_SP + TERMUX_STEP_SP)
     }
 
-    /// `coerceSpToPxScale` 允许的全系数区间（对应 Kotlin 的
-    /// `TerminalRuntime.MIN/MAX_RASTER_SCALE`）。写死字面量而非引用 Kotlin：
-    /// Rust 侧看不到那个常量，而复刻它的计算只会让两边一起漂移——这里要的就是
-    /// 「区间端点变了，本测试立刻失败」。
-    const RASTER_SCALE_MIN: f32 = 0.5;
-    const RASTER_SCALE_MAX: f32 = 8.0;
+    /// `coerceSpToPxScale` 允许的全系数区间，即 `ffi.rs` 的唯一真源
+    /// `RASTER_SCALE_MIN/MAX`：Kotlin 侧的钳位区间经 `getRasterScaleRange` 取同一
+    /// 常量，两端不再各存一份字面量，测试再抄一份只会掩盖漂移。
+    use super::is_raster_scale_acceptable;
     const RASTER_SCALE_SAMPLES: usize = 64;
 
     /// 在合法区间内取第 `i` 个采样系数（含两端）。
     fn sampled_scale(i: usize) -> f32 {
         RASTER_SCALE_MIN
             + (RASTER_SCALE_MAX - RASTER_SCALE_MIN) * i as f32 / RASTER_SCALE_SAMPLES as f32
+    }
+
+    /// 守卫（`setRasterScale`）实际调用的那个判定：区间外的相邻可表示值必须被拒收。
+    ///
+    /// 断言取具体边界而非「判定 == 区间包含」这个定义式——后者只复刻实现。
+    #[test]
+    fn the_guard_accepts_the_whole_interval_and_rejects_just_outside() {
+        assert!(is_raster_scale_acceptable(RASTER_SCALE_MIN));
+        assert!(is_raster_scale_acceptable(RASTER_SCALE_MAX));
+        let just_below = f32::from_bits(RASTER_SCALE_MIN.to_bits() - 1);
+        let just_above = f32::from_bits(RASTER_SCALE_MAX.to_bits() + 1);
+        assert!(!is_raster_scale_acceptable(just_below));
+        assert!(!is_raster_scale_acceptable(just_above));
+        // 非有限值不得落进区间：NaN 的 `contains` 为 false，但 Kotlin 侧
+        // `coerceIn` 会把 NaN 原样送出，故此处只保证原生拒收。
+        assert!(!is_raster_scale_acceptable(f32::NAN));
     }
 
     #[test]
