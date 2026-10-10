@@ -96,10 +96,14 @@ class BehaviorInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun behavior_app_stays_in_foreground() {
-        // Smoke check only: no color/rendering assertion is possible while
-        // Bridge.setTheme is a log-only implemented (native query path is wired).
-        val output = device.executeShellCommand("dumpsys activity top | grep -i $PACKAGE")
-        assertTrue("App should be in foreground", output.isNotEmpty())
+        // 断言真正的「前台」事实而不是 grep 到包名：dumpsys activity top 无论应用
+        // 是否 resumed 都会列出历史 Activity，只 grep 包名等于没断言。
+        // mResumedActivity 只在 Activity 处于前台时才是本应用。
+        val output = device.executeShellCommand("dumpsys activity activities | grep -i mResumedActivity")
+        assertTrue(
+            "前台 Activity 应是本应用，实际 dumpsys 输出：$output",
+            output.contains(PACKAGE) && output.contains("MainActivity"),
+        )
     }
 
     @Test

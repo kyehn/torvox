@@ -125,10 +125,8 @@ class ComputeGridDimensionsTest {
     @Test
     fun `sentinel is distinguishable from a real one-cell grid`() {
         // A 1x1 px surface is a legitimate (if useless) grid: rows/cols = 1.
-        val realOneCell = computeGridDimensions(1, 1, 30f, 60f)
-        val degenerate = computeGridDimensions(0, 0, 30f, 60f)
-        assertEquals(Pair(1, 1), realOneCell)
-        assertEquals(Pair(0, 0), degenerate)
-        assertTrue(degenerate.first != realOneCell.first || degenerate.second != realOneCell.second)
+        // 调用方据 (0,0) 区分「几何无效」与「真的只有一行一列」，故两者必须不同值。
+        assertEquals(Pair(1, 1), computeGridDimensions(1, 1, 30f, 60f))
+        assertEquals(Pair(0, 0), computeGridDimensions(0, 0, 30f, 60f))
     }
 }

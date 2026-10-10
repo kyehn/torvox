@@ -3768,6 +3768,11 @@ mod render_sample_bits_tests {
             "GPU initialization failed"
         );
         assert_eq!(super::panic_text(&String::from("索引越界")), "索引越界");
-        assert_eq!(super::panic_text(&42_u32), "non-string panic payload");
+        // 非字符串载荷：断言的是「仍能给出一条可读诊断」这条性质，而不是把兜底那句
+        // 文案抄回来——后者只会复述实现。空串会让 panic 诊断失去意义，Debug 形式
+        // （"42"）虽可读但与真正的 panic 文本混淆。
+        let fallback = super::panic_text(&42_u32);
+        assert!(!fallback.is_empty(), "非字符串 panic 载荷必须给出非空诊断");
+        assert_ne!(fallback, "42", "非字符串载荷不得直接回显 Debug 形式");
     }
 }

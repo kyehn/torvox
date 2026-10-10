@@ -99,11 +99,19 @@ class SettingsRepositoryTest {
     fun `first launch default font size adapts to screen width`() {
         // spec default-typography: 14sp floor / 24sp cap
         // (user-reported "default too small"; was 12/18 in ).
-        assertEquals(14f, SettingsRepository.defaultFontSizeFor(0f), 0.01f)
-        assertEquals(14f, SettingsRepository.defaultFontSizeFor(360f), 0.01f)
-        assertEquals(14f, SettingsRepository.defaultFontSizeFor(412f), 0.01f)
-        assertEquals(24f, SettingsRepository.defaultFontSizeFor(800f), 0.01f)
-        assertEquals(19.23f, SettingsRepository.defaultFontSizeFor(600f), 0.01f)
+        // 断在两端之外取一个中间宽度：那里不触发钳位，断言的是这个默认值**存在的
+        // 理由**——手机与平板显示相同的列数（`widthDp / sp / 字形宽比` 恒定）。
+        // 直接照抄 52f / 0.6f 来对照则只会把公式复述一遍，改错了照样全绿。
+        listOf(520f, 600f, 700f).forEach { widthDp ->
+            val size = SettingsRepository.defaultFontSizeFor(widthDp)
+            val columns = widthDp / size / SettingsRepository.MONOSPACE_CHAR_ASPECT
+            assertEquals(
+                "widthDp=$widthDp 的默认字号 $size 给出 $columns 列，目标 52 列",
+                52f,
+                columns,
+                0.01f,
+            )
+        }
     }
 
     @Test
