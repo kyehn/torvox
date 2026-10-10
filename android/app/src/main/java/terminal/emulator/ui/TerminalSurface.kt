@@ -35,6 +35,8 @@ import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
+import terminal.emulator.runtime.DEFAULT_GRID_COLS
+import terminal.emulator.runtime.DEFAULT_GRID_ROWS
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.computeContentBottomPx
@@ -1233,8 +1235,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val MENU_HEIGHT_DP = 44
         private const val HALF_PIXEL_OFFSET = 0.5f
 
-        private const val DEFAULT_ROWS = 24
-        private const val DEFAULT_COLS = 80
         private const val ZOOM_THRESHOLD_LOW = 0.9f
         private const val ZOOM_THRESHOLD_HIGH = 1.1f
 
@@ -1327,9 +1327,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
     }
 
-    @Volatile private var rows: Int = DEFAULT_ROWS
+    @Volatile private var rows: Int = DEFAULT_GRID_ROWS
 
-    @Volatile private var cols: Int = DEFAULT_COLS
+    @Volatile private var cols: Int = DEFAULT_GRID_COLS
     private var surfaceWidthPixels: Int = 0
     private var surfaceHeightPixels: Int = 0
     private var isScrolling: Boolean = false

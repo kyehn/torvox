@@ -44,8 +44,8 @@ import javax.inject.Singleton
 data class RuntimeState(
     val isRunning: Boolean = false,
     val title: String = "Terminal",
-    val rows: Int = 24,
-    val cols: Int = 80,
+    val rows: Int = DEFAULT_GRID_ROWS,
+    val cols: Int = DEFAULT_GRID_COLS,
     val activeSessionId: Long = 0L,
     val sessionIds: List<Long> = emptyList(),
     val scrollResetEpoch: Long = 0L,
@@ -1861,8 +1861,6 @@ constructor(
         /** mksh 交互 shell 经 `$ENV` 加载的启动文件名（DESIGN Shell 节）。 */
         const val MKSHRC_FILENAME = ".mkshrc"
 
-        const val DEFAULT_GRID_ROWS = 24
-        const val DEFAULT_GRID_COLS = 80
         private const val TENTHS_PER_UNIT = 10
 
         /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */
@@ -3900,6 +3898,16 @@ private data class RenderContract(
     val theme: BridgeTheme,
     val rasterScale: Float,
 )
+
+/**
+ * 引导前的占位网格尺寸（xterm 的经典 24×80）。
+ *
+ * 单一来源：[RuntimeState] 的默认值、视图侧的初始镜像与 [buildConfig] 都取这里。
+ * 三处各写一份时，改一处不会影响另两处——「首个会话的网格」与「视图在拿到真实
+ * 尺寸前显示的网格」会分家，表现为启动瞬间的行列跳变。
+ */
+const val DEFAULT_GRID_ROWS = 24
+const val DEFAULT_GRID_COLS = 80
 
 /**
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
