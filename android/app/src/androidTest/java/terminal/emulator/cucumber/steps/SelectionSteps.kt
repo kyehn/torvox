@@ -191,7 +191,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @那么("^粘贴菜单已出现$")
     fun pastePopupAppears() {
         composeRuleHolder.composeRule.waitForIdle()
-        // 空白处长按产生纯粘贴选区（SelectionManager.showPastePopup），带悬浮粘贴菜单。
+        // 空白处长按产生纯粘贴选区（startSelection(…, TouchClass.Whitespace) + endSelection），带悬浮粘贴菜单。
         var pasteOnly = false
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
             pasteOnly = (activity as MainActivity).terminalViewModel.state.value.selection.pasteOnly
