@@ -70,13 +70,10 @@ class GridToScreenTest {
 
     @Test
     fun `max scroll puts first visible grid row at viewport top`() {
-        // scrollbackLength=1000, 24 visible rows, scrolled fully back:
-        // offset = 1000 - 24 ⇒ viewportTopGrid = 1000 - offset = 24.
+        // scrollbackLength=1000, 24 visible rows, scrolled fully back to row 24.
         val scrollbackLength = 1000
         val visibleRows = 24
-        val offset = scrollbackLength - visibleRows
-        val viewportTopGrid = scrollbackLength - offset
-        assertEquals(visibleRows, viewportTopGrid)
+        val viewportTopGrid = scrollbackLength - scrollOffsetForRow(visibleRows, scrollbackLength)
         assertPoint(gridToScreen(viewportTopGrid, 0, viewportTopGrid, 10f, 20f), 0f, 0f)
         // The oldest line sits one full viewport above the top row.
         assertPoint(
@@ -107,12 +104,12 @@ class GridToScreenTest {
 
     @Test
     fun `search jump lands the hit row at the viewport top`() {
-        // scrollToRow(hitRow): targetOffset = (len - row).coerceIn(0, len)
-        // ⇒ offset = len - hitRow ⇒ viewportTopGrid = hitRow ⇒ y = 0.
+        // 外部真相是 TESTING.md 的「上一个/下一个把命中行滚到对应位置」：跳转后
+        // 命中行的顶边必须落在视口顶（y = 0）。偏移走生产用的 scrollOffsetForRow，
+        // 不再在测试里复刻一遍公式——复刻时该断言恒成立，删掉 scrollToRow 也判不了红。
         val scrollbackLength = 5000
         val hitRow = 4321
-        val offset = (scrollbackLength - hitRow).coerceIn(0, scrollbackLength)
-        val viewportTopGrid = scrollbackLength - offset
+        val viewportTopGrid = scrollbackLength - scrollOffsetForRow(hitRow, scrollbackLength)
         assertPoint(
             gridToScreen(row = hitRow, col = 17, viewportTopGrid = viewportTopGrid, cellWidth = 9f, cellHeight = 19f),
             17 * 9f,
