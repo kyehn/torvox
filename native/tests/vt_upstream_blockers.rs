@@ -85,8 +85,12 @@ fn tbc_without_parameter_is_dropped_by_upstream_parser() {
 /// `CSI 3g`（全清）本周起仍然生效——制表位走默认区间时的另一端也一并受控。
 #[test]
 fn tbc_clear_all_takes_effect() {
-    let rows = screen_text(b"AB\x1b[3g\tY\n", 4, 40);
+    // 对照基线：不清表位时，制表从列 2 落到列 8。
+    let baseline = screen_text(b"AB\tY\n", 4, 40);
+    assert_eq!(baseline[0].find('Y'), Some(8), "默认制表位应在列 8");
+
     // 全清后无制表位，制表落到最后一列（上游 Terminal.tabClear(.all) → tabstops.reset(0)）。
+    let rows = screen_text(b"AB\x1b[3g\tY\n", 4, 40);
     assert_eq!(rows[0].find('Y'), Some(39));
 }
 
