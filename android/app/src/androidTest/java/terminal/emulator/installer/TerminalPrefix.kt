@@ -22,6 +22,12 @@ object TerminalPrefix {
 
     /** 安装前置的单次上限，与安装器自身的下载/解压上限同量级。 */
     private const val INSTALL_TIMEOUT_MS = 10 * 60_000L
+
+    /**
+     * 夹具刻意用一份已知可下载的归档，与产品预设指向的版本
+     * （[terminal.emulator.installer.TermuxBootstrap.RELEASE]）无关：安装器测试
+     * 要验证的是「装得起来」，不是「预设指向哪个版本」。
+     */
     private const val OFFICIAL_URL =
         "https://github.com/termux/termux-packages/releases/download/" +
             "bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"

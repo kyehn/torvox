@@ -75,14 +75,9 @@ import terminal.emulator.bridge.FontActiveDto
 import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
+import terminal.emulator.installer.TermuxBootstrap
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.TerminalTheme
-
-/** 引导程序包变体（DESIGN Bootstrap 节：只用 apt-android-7）。 */
-private const val TERMUX_PACKAGE_VARIANT = "apt.android-7"
-
-/** 引导程序版本，取自 termux-app app/build.gradle 的 downloadBootstraps 任务。 */
-private const val TERMUX_BOOTSTRAP_RELEASE = "2026.02.12-r1"
 
 /** 危险操作（清除应用数据）的警示红色。 */
 private val DANGER_RED = Color.Red
@@ -1019,9 +1014,7 @@ private fun BootstrapSection(
         Spacer(modifier = Modifier.height(4.dp))
 
         val arch = terminal.emulator.detectArchFromAbi()
-        val termuxUrl =
-            "https://github.com/termux/termux-packages/releases/download/" +
-                "bootstrap-$TERMUX_BOOTSTRAP_RELEASE%2B$TERMUX_PACKAGE_VARIANT/bootstrap-$arch.zip"
+        val termuxUrl = TermuxBootstrap.downloadUrl(arch)
         val presetLabel = stringResource(R.string.bootstrap_preset_termux)
         val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
         BootstrapPresetItem(
