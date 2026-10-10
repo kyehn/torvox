@@ -93,3 +93,45 @@ MUST 只写请求投影包含的列，缺失列跳过而非填 `null`。对请�
 
 - **WHEN** 以 `null` 投影查询文档
 - **THEN** 返回全部六个文档列
+
+### Requirement: 变更操作按树 URI 客户端契约覆盖
+
+`copyDocument` / `moveDocument` / 写回 MUST 按**外部文件管理器的真实寻址形式**覆盖，
+即客户端持有 `content://<authority>/tree/<root>/document/<docId>` 形式的 URI：
+docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `enforceTree`
+（即 `isChildDocument`）再经 `call()` 路由到本提供者。
+
+只覆盖 plain document URI 会在真实使用中留下无声失败：客户端列表能列出、能新建、
+能删除，而复制/移动/覆写正是走树 URI 的那几个动作。覆盖 MUST 断言落盘结果与
+返回 docId 一致，MUST NOT 只断言「没抛异常」——docId 与实际落盘不符时客户端下一轮
+回查会指到别的文件上。
+
+目录**树**的复制与移动 MUST 一并覆盖：递归复制、孙目录、符号链接 inode 各自就位；
+链接只复制 inode 自身，MUST NOT 展开成目标目录树，也不得把 home 之外的目标吸入家目录。
+
+#### Scenario: 树 URI 覆写已存在文件
+
+- **WHEN** 客户端以树 URI 形式打开已存在文件并以 `w` 覆写
+- **THEN** 新内容落盘，旧内容被截断
+
+#### Scenario: 树 URI 之间复制
+
+- **WHEN** 客户端在两棵树的子文档 URI 之间 `copyDocument`
+- **THEN** 副本落盘于目标父目录，源原样保留，返回的 docId 指向真实落盘文件
+
+#### Scenario: 树 URI 之间移动
+
+- **WHEN** 客户端在两棵树的子文档 URI 之间 `moveDocument`
+- **THEN** 文档整体改换父目录，源父目录中不再有该文档，返回的 docId 与实际落盘一致
+
+#### Scenario: 复制目录树
+
+- **WHEN** 客户端复制一个含子目录、孙目录与符号链接的目录
+- **THEN** 子目录与孙目录一并落盘，符号链接仍是符号链接且不展开成目标目录树，
+      源目录树原样保留
+
+#### Scenario: 站外符号链接不可寻址
+
+- **WHEN** 客户端寻址一个指向 home 之外的符号链接
+- **THEN** 以 `FileNotFoundException` 拒绝，且 home 内不留下任何复制产物，
+      home 之外的目标不被搬走或改名
