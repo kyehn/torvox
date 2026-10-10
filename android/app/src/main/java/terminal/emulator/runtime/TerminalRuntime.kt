@@ -1847,9 +1847,6 @@ constructor(
 
         private const val MIN_SURFACE_HEIGHT_PX = 250
         private const val MAX_SURFACE_HEIGHT_PX = 500
-        private const val FONT_SIZE_HEIGHT_RATIO = 0.5f
-        private const val FONT_SIZE_HEIGHT_MIN_PX = 250
-        private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
 
         // 前台会话的 shell 退出时送入终端的 [Process completed] 提示（保持可见直到按 Enter）。
@@ -2445,6 +2442,7 @@ constructor(
                 }
                 if (sessions.isEmpty()) {
                     activeSessionId = 0L
+                    publishSessionViewState(null)
                     _state.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
                     // 使通知与唤醒锁不活得比空会话映射更久
@@ -3025,6 +3023,7 @@ constructor(
                     )
                 } else {
                     activeSessionId = 0L
+                    publishSessionViewState(null)
                 }
             }
             updateState()
@@ -3097,7 +3096,8 @@ constructor(
         )
         // 只 resize 活动会话：后台会话保留各自的网格尺寸；
         // 用活动会话的尺寸 resize 所有会话会对它们触发多余的 SIGWINCH 与重排。
-        sessions[activeSessionId]?.bridge?.resize(newRows, newCols)
+        val bridge = sessions[activeSessionId]?.bridge ?: return
+        bridge.resize(newRows, newCols)
         // 随网格 resize 一同推入像素尺寸，使 PTY winsize 携带真实的
         // ws_xpixel/ws_ypixel（契约见 `NativeBridge.setPixelSize`：「每次网格 resize
         // 时随 surface 的像素尺寸一并调用」）。此前只有视图侧 `applyGridResize` 会推，
@@ -3383,9 +3383,12 @@ constructor(
      * 备用屏分支恒返回 0（主屏不再随键盘上移），而 [TerminalSurface] 的输入法
      * 网格防抖会在主屏上白白领走渲染暂停。
      */
-    private fun publishSessionViewState(entry: SessionEntry) {
-        lastContentRowFlowInternal.value = entry.lastContentRow
-        altScreenActiveFlowInternal.value = entry.altScreenActive
+    private fun publishSessionViewState(entry: SessionEntry?) {
+        // entry 为 null = 活动会话归零：无会话即无备用屏、也没有内容下沿。沿用上一个
+        // 会话的标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，并把据此
+        // 算出的幻影网格写进 _state，随后由 alignGridOnSwitch 套到下一个会话上。
+        lastContentRowFlowInternal.value = entry?.lastContentRow ?: Bridge.LAST_CONTENT_ROW_NONE
+        altScreenActiveFlowInternal.value = entry?.altScreenActive ?: false
     }
 
     /**
@@ -3415,6 +3418,7 @@ constructor(
                 ?: run {
                     LogUtil.w("Runtime", "$caller: new active session $newId already removed")
                     activeSessionId = 0L
+                    publishSessionViewState(null)
                     updateState()
                     return
                 }
@@ -3779,9 +3783,14 @@ internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Lon
  * 随之用错系数算，重新出现「设置条范围与实际可设置范围不一致」。
  */
 internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
-    val bounds = terminal.emulator.bridge.NativeBridge.getRasterScaleRange()
-    // 不设默认值：区间拿不到就说明 JNI 侧出了错，钳到一个猜测值只会让字号上界
-    // 与原生实际接受区间悄悄脱节——正是本函数存在的理由。带原文抛出，诊断可读。
+    // 可空签名与 `listFontFamilies` 同款：原生的失败值是 null，让它以 null 到达
+    // 调用方并在此处被指名道姓地拒绝，好过在 `bounds.size` 上抛一个无来由的 NPE。
+    // 不设兜底默认值：钳到一个猜测值只会让字号上界与原生实际接受区间悄悄脱节，
+    // 正是本属性存在的理由所反对的。
+    val bounds =
+        requireNotNull(terminal.emulator.bridge.NativeBridge.getRasterScaleRange()) {
+            "原生未返回光栅缩放区间（JNI 调用失败）"
+        }
     require(bounds.size == 2 && bounds.all { it.isFinite() && it > 0f } && bounds[0] <= bounds[1]) {
         "原生未给出合法的光栅缩放区间: ${bounds.contentToString()}"
     }

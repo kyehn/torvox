@@ -514,14 +514,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 尺寸，而 `rows` 是扣减后算出的行数，两者口径必须一致，否则这里算出的
             // 行数会与随后由真度量算出的结果跳变。
             if (lastConfiguredWidth > 0 && lastConfiguredHeight > 0 && rows > 0 && cols > 0) {
-                val reserve =
-                    viewModel?.runtime?.let {
-                        it.modifierBarHeightPx + it.imeGridReserve()
-                    } ?: 0
+                val runtime = viewModel?.runtime
                 val cellWidthPx = lastConfiguredWidth.toFloat() / cols
-                val cellHeightPx = (lastConfiguredHeight - reserve).toFloat() / rows
+                // 扣减走同一个算式（与上方度量就绪分支逐字一致）：此前此处把
+                // 「键栏 + 输入法遮挡」手工相加且没有下限钳位，只是碰巧在
+                // Surface 被完全遮住时与另一条分支算出同一个结果。
+                val cellHeightPx =
+                    computeGridAvailableHeight(
+                        surfaceHeight = lastConfiguredHeight,
+                        modifierBarHeightPx = runtime?.modifierBarHeightPx ?: 0,
+                        imeReserve = runtime?.imeGridReserve() ?: 0,
+                    ).toFloat() / rows
                 cols = (width.toFloat() / cellWidthPx).toInt().coerceAtLeast(1)
-                rows = ((height - reserve).toFloat() / cellHeightPx).toInt().coerceAtLeast(1)
+                rows =
+                    (
+                        computeGridAvailableHeight(
+                            surfaceHeight = height,
+                            modifierBarHeightPx = runtime?.modifierBarHeightPx ?: 0,
+                            imeReserve = runtime?.imeGridReserve() ?: 0,
+                        ).toFloat() / cellHeightPx
+                        ).toInt().coerceAtLeast(1)
             }
         }
 

@@ -3573,10 +3573,11 @@ mod font_size_cap_tests {
         stepped.max(SLIDER_MIN_SP + TERMUX_STEP_SP)
     }
 
-    /// `coerceSpToPxScale` 允许的全系数区间，即 `ffi.rs` 的唯一真源
+    use super::is_raster_scale_acceptable;
+
+    /// `coerceSpToPxScale` 允许的全系数区间即 `ffi.rs` 的唯一真源
     /// `RASTER_SCALE_MIN/MAX`：Kotlin 侧的钳位区间经 `getRasterScaleRange` 取同一
     /// 常量，两端不再各存一份字面量，测试再抄一份只会掩盖漂移。
-    use super::is_raster_scale_acceptable;
     const RASTER_SCALE_SAMPLES: usize = 64;
 
     /// 在合法区间内取第 `i` 个采样系数（含两端）。
