@@ -157,21 +157,9 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         var height = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val surface = findTerminalSurface(composeTestRule.activity)
-            val surfaceBottom =
+            height =
                 surface.rootWindowInsets
                     ?.getInsets(WindowInsets.Type.ime())?.bottom ?: 0
-            val decorBottom =
-                composeTestRule.activity.window.decorView.rootWindowInsets
-                    ?.getInsets(WindowInsets.Type.ime())?.bottom ?: 0
-            // TODO_DIAG_IMETEST:确诊后删除。surface 与 decor 属同一窗口时两者必一致；
-            // 若长期分叉，说明焦点/窗口错位，位移比较的前提即不成立。
-            if (surfaceBottom != decorBottom) {
-                android.util.Log.w(
-                    "ImeTest",
-                    "DIAG_WINDOW surfaceIme=$surfaceBottom decorIme=$decorBottom",
-                )
-            }
-            height = surfaceBottom
         }
         return height
     }
