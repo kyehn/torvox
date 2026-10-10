@@ -44,7 +44,6 @@ private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 enum class TouchClass {
     Text,
     Whitespace,
-    EmptyArea,
     Unknown,
 }
 
@@ -64,8 +63,15 @@ data class SelectionState(
     // 下次长按或拖动手柄移动时重置。
     val menuDismissed: Boolean = false,
 ) {
+    /**
+     * 仅粘贴选区：落点是空白单元格（空行、空白格、行尾之后的列）。
+     *
+     * 三者在 termux 的 `getSelectedText(x,y,x,y)` 下同归此类，故只有一个取值；
+     * 此前另有一个 `EmptyArea` 与 `Whitespace` 并列，只服务于已经删掉的
+     * 「无高亮粘贴小片」路径，实际长按一律走 `Whitespace`。
+     */
     val pasteOnly: Boolean
-        get() = touchClass == TouchClass.EmptyArea || touchClass == TouchClass.Whitespace
+        get() = touchClass == TouchClass.Whitespace
 
     val hasSelection: Boolean
         get() = active && start != null && end != null
@@ -252,8 +258,6 @@ constructor(
     fun copySelectionToClipboard() = selectionManager.copySelectionToClipboard()
 
     fun clearSelection() = selectionManager.clearSelection()
-
-    fun showPastePopup(row: Int, col: Int) = selectionManager.showPastePopup(row, col)
 
     fun shareSelection() = selectionManager.shareSelection()
 
@@ -547,25 +551,6 @@ constructor(
             // 强制立即重绘：否则原生侧的脏标志要等下一个 vsync 节拍，
             // 使陈旧的选区高亮在屏幕上残留长达一帧周期。
             runtime.forceRender()
-        }
-
-        fun showPastePopup(row: Int, col: Int) {
-            // 空单元格处长按现在会创建一个单格选区
-            // （经 GPU 路径反色背景）并配仅粘贴的浮动菜单
-            // ——与文本选区的交互一致，而非无高亮的孤立小片。
-            _state.update { state ->
-                state.copy(
-                    selection =
-                    SelectionState(
-                        active = true,
-                        dragging = false,
-                        start = SelectionAnchor(row, col),
-                        end = SelectionAnchor(row, col),
-                        touchClass = TouchClass.EmptyArea,
-                    ),
-                )
-            }
-            syncSelectionToNative()
         }
 
         private fun syncSelectionToNative() {

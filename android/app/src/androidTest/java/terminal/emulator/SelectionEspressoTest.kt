@@ -20,6 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.TouchClass
 import terminal.emulator.getBridge
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
@@ -216,7 +217,12 @@ class SelectionEspressoTest : TerminalLogcatTest() {
     fun emptyAreaLongPressShowsPasteSelection() {
         composeTestRule.waitForSession()
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            activity.terminalViewModel.showPastePopup(10, 0)
+            // 走生产长按对空白单元格使用的同一条序列
+            // （TerminalSurface.handleLongPress → startSelection + endSelection）：
+            // 此前此处直调 showPastePopup 后门，于是那个方法在生产代码里已无调用方，
+            // 一旦真实路径改判（例如 whitespace 分类变化）测试仍然全绿。
+            activity.terminalViewModel.startSelection(10, 0, TouchClass.Whitespace)
+            activity.terminalViewModel.endSelection()
         }
         composeTestRule.waitForIdle()
         // A paste-only selection state (the PasteChipOverlay was removed; an
