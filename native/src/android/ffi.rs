@@ -3568,6 +3568,10 @@ mod font_size_cap_tests {
     const TERMUX_STEP_SP: f32 = 2.0;
     const SLIDER_MIN_SP: f32 = 4.0;
 
+    /// Kotlin 自适应默认字号的上限（`ADAPTIVE_DEFAULT_MAX_SP`）。同 Termux 常量一样
+    /// 取外部字面量：它是 Kotlin 侧唯一的「上界兜底」来源，改变它时必须同步这里。
+    const ADAPTIVE_DEFAULT_MAX_SP: f32 = 24.0;
+
     /// Termux 的可选上界（sp）：256px 换算后按步长向下取整。
     fn termux_selectable_max_sp(raster_scale: f32) -> f32 {
         let raw = TERMUX_MAX_PX / raster_scale;
@@ -3608,6 +3612,13 @@ mod font_size_cap_tests {
     fn cap_never_rejects_a_selectable_font_size() {
         // 核心不变量：滑块能划到的每个字号，原生都必须接受。
         // 图集一旦缩小到接近 256px，这条即失效——那正是「范围与实际可设置范围不一致」。
+        //
+        // Kotlin 侧的上界实际是两条约束取紧后再兜底：
+        //   min(Termux 像素上限, 「至少放得下 MIN_USABLE_COLUMNS 列」)
+        //   .coerceAtLeast(自适应默认值)
+        // 于是真正需要覆盖的不是 Termux 上界本身，而是它的**上包界**。
+        // `termux_ceiling_dominates_the_kotlin_fallback` 逐采样证明 Termux 上界
+        // 恒不小于那条兜底值，故此处用 Termux 上界做判定仍是全覆盖而非抽样乐观。
         for i in 0..=RASTER_SCALE_SAMPLES {
             let scale = sampled_scale(i);
             let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
@@ -3619,6 +3630,30 @@ mod font_size_cap_tests {
             assert!(
                 is_font_size_selectable(SLIDER_MIN_SP, cap),
                 "raster_scale={scale}：原生拒绝滑块下界 {SLIDER_MIN_SP}sp"
+            );
+        }
+    }
+
+    /// `cap_never_rejects_a_selectable_font_size` 的覆盖面证明。
+    ///
+    /// Kotlin 的上界含一条 `.coerceAtLeast(自适应默认值)` 兜底（窄屏上「至少 N 列」
+    /// 可能低于 `ADAPTIVE_DEFAULT_MIN_SP`，若不抬上界，全新安装的默认字号就落在
+    /// 调节条外——同一类「范围不一致」换到另一端）。该兜底最多把上界抬到
+    /// `ADAPTIVE_DEFAULT_MAX_SP`，故只要 Termux 换算上界在全系数区间恒不小于它，
+    /// 上一条用 Termux 上界做的判定就是全覆盖。
+    ///
+    /// 这条一旦失败，说明 `coerceAtLeast` 可能把上界抬过 Termux 换算值，
+    /// 上一条测试随之从「全覆盖」退化为「可能漏掉真实越界」。
+    #[test]
+    fn termux_ceiling_dominates_the_kotlin_fallback() {
+        for i in 0..=RASTER_SCALE_SAMPLES {
+            let scale = sampled_scale(i);
+            assert!(
+                termux_selectable_max_sp(scale) >= ADAPTIVE_DEFAULT_MAX_SP,
+                "raster_scale={scale}：Termux 换算上界 {}sp 低于 Kotlin 兜底值 \
+                 {ADAPTIVE_DEFAULT_MAX_SP}sp，cap_never_rejects_a_selectable_font_size \
+                 不再覆盖真实可选上界",
+                termux_selectable_max_sp(scale)
             );
         }
     }
