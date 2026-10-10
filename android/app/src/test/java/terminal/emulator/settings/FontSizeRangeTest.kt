@@ -163,17 +163,37 @@ class FontSizeRangeTest {
     }
 
     @Test
-    fun usableCeilingGrowsWithScreenWidth() {
-        // 上界必须随屏宽单调不减：更宽的屏幕本就放得下更多列，若上界不随之放宽，
-        // 大屏用户会在小字号上被无谓地卡住（调节条上界比屏幕允许的更小）。
-        var previous = 0f
-        listOf(320f, 360f, 411f, 480f, 600f, 720f, 900f, 1200f, 2000f).forEach { widthDp ->
-            val ceiling = SettingsRepository.fontSizeMaxSp(1f, widthDp)
-            assertTrue(
-                "widthDp=$widthDp 的上界 $ceiling 小于更窄屏幕的上界 $previous",
-                ceiling >= previous,
+    fun usableCeilingTracksTheScreenWidth() {
+        // 逐宽度断**具体上界值**，不是「单调不减」：单调性对恒值同样成立，
+        // 列数约束被整条删掉后（上界退化为 Termux 的 256px 恒值）它仍全绿，
+        // 检不出这条约束是否还在。字面值表才是外部锚点。
+        // 取系数 1.0 使 Termux 那条恒为 256sp（比列数那条宽松），于是测的就是列数约束。
+        listOf(
+            // 320dp → floor(320/12/2)*2 = 26sp
+            320f to 26f,
+            // 360dp → floor(360/12/2)*2 = 30sp
+            360f to 30f,
+            // 411dp → floor(411/12/2)*2 = 34sp
+            411f to 34f,
+            // 480dp → floor(480/12/2)*2 = 40sp
+            480f to 40f,
+            // 600dp → floor(600/12/2)*2 = 50sp
+            600f to 50f,
+            // 900dp → floor(900/12/2)*2 = 74sp
+            900f to 74f,
+            // 1200dp → floor(1200/12/2)*2 = 100sp
+            1200f to 100f,
+            // 2000dp → floor(2000/12/2)*2 = 166sp
+            2000f to 166f,
+        ).forEach { (widthDp, expectedCeiling) ->
+            assertEquals(
+                "widthDp=$widthDp 的上界（系数 1.0，等宽字形宽高比 " +
+                    "${SettingsRepository.MONOSPACE_CHAR_ASPECT}，至少 " +
+                    "${SettingsRepository.MIN_USABLE_COLUMNS} 列）",
+                expectedCeiling,
+                SettingsRepository.fontSizeMaxSp(1f, widthDp),
+                0.001f,
             )
-            previous = ceiling
         }
     }
 }
