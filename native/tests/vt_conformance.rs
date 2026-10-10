@@ -200,7 +200,7 @@ const NOT_ADOPTED: &[(&str, &str)] = &[
     // 上游补齐后该断言随即失败，从而回到本表逐例重新裁定。
     (
         "t0033-VPB_scroll",
-        "CSI Ps k：上游把 k 与 A 同等映射到 cursor_up（stream.zig `'A','k'`），光标触顶即停；DEC STD 070 的 VPB 规定此时应滚动区域内容",
+        "CSI Ps k：上游把 k 与 A 同等映射到 cursor_up（stream.zig `'A','k'`），光标触顶即停，区域内容一行不动；实测连本该被推出可见区的三行也原样残留。DEC STD 070 的 VPB 规定此时应滚动区域内容",
     ),
     (
         "t0060-DECSC",

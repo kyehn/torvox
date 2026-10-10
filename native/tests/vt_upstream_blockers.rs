@@ -12,6 +12,16 @@
 //! 相关语料用例见 `native/tests/vt_conformance.rs` 的 `NOT_ADOPTED`。
 
 use native::terminal::ghostty_terminal::GhosttyTerminal;
+use std::path::{Path, PathBuf};
+
+fn corpus_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/xterm-escape-sequence")
+}
+
+/// 语料原始输入字节（保持原样：任何改写都意味着期望值不再是外部真相）。
+fn corpus_input(stem: &str) -> Vec<u8> {
+    std::fs::read(corpus_dir().join(format!("{stem}.in"))).expect("read corpus .in")
+}
 
 fn screen_text(input: &[u8], rows: u32, cols: u32) -> Vec<String> {
     let mut terminal = GhosttyTerminal::new(rows, cols, 100).expect("terminal");
@@ -99,18 +109,36 @@ fn cursor_forward_with_extra_parameter_is_dropped_whole_sequence() {
 ///
 /// 标准：DEC STD 070 的 VPB 要求光标越过区域上边距时**下滚**区域内容。
 /// 上游：`stream.zig` 的 `'A','k'` 合并分发到 `cursor_up`，滚动语义缺失。
+/// 驱动**语料本身**：`CSI Ps k`（VPB）与 `CSI Ps A`（CUU）同路，触顶即停。
+///
+/// 标准：DEC STD 070 的 VPB 要求光标越过区域上边距时**下滚**区域内容。
+/// 上游：`stream.zig` 的 `'A','k'` 合并分发到 `cursor_up`，滚动语义缺失。
+///
+/// 刻意直接喂 `t0033-VPB_scroll` 的 `.in` 而不是自造等价输入：触发器要判定的是
+/// 「该语料用例能否转为采纳」，只有喂同一份输入才有意义。此前这里是自造的
+/// 10x40 输入，上游即便补齐 VPB 滚动语义，也完全可能因为输入形态不同而依旧恒真
+/// ——触发器随之失效，那比缺口本身更难发现。
 #[test]
 fn vpb_alias_to_cursor_up_does_not_scroll_at_region_top() {
-    // 区域第 2..3 行，光标置于区域末行并请求越过上边距的 VPB。
-    let rows = screen_text(
-        b"L1\r\nL2\r\nL3\r\nL4\r\n\x1b[2;3r\x1b[3;1H\x1b[99k",
-        10,
-        40,
+    let rows = screen_text(&corpus_input("t0033-VPB_scroll"), 25, 80);
+    // 当前实得：VPB 被当作 cursor_up，光标止步于区域上边距，区域内容一行不动，
+    // 本该被推出可见区的三行原样残留（xterm 只留滚上来的一行）。
+    // 这里断言的是**当前行为**而非标准期望——标准期望写在语料 t0033 里，
+    // 上游补齐 VPB 滚动语义后此断言失败，届时把 t0033 从 NOT_ADOPTED 转采纳。
+    assert_eq!(
+        rows.iter()
+            .filter(|row| !row.is_empty())
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec![
+            "I have gone up all the way...",
+            "This line should be deleted.",
+            "Penultimate line.",
+            "This should be the last line.",
+        ],
+        "VPB 越过区域上边距时的实得行为改变：核对是否已可按 DEC STD 070 滚动，\
+         若然则把语料 t0033 从 NOT_ADOPTED 转为采纳"
     );
-    assert_eq!(rows[0], "L1", "VPB 越过区域上边距时上游不滚动区域内容");
-    assert_eq!(rows[1], "L2");
-    assert_eq!(rows[2], "L3");
-    assert_eq!(rows[3], "L4");
 }
 
 /// `CSI Pn SP A`（SR）与 `CSI Pn SP @`（SL）均未实现。
