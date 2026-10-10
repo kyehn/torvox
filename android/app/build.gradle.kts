@@ -167,9 +167,9 @@ dependencies {
   testImplementation("androidx.compose.ui:ui-test-manifest")
   testImplementation("androidx.test:core:1.7.0")
 
-  debugImplementation("com.ms-square:debugoverlay:2.7.0")
+  debugImplementation("com.ms-square:debugoverlay:2.7.1")
 
-  lintChecks("com.slack.lint.compose:compose-lint-checks:1.6.0")
+  lintChecks("com.slack.lint.compose:compose-lint-checks:1.6.1")
   lintChecks("com.slack.lint:slack-lint-checks:0.11.1")
 
   androidTestImplementation("androidx.test.ext:junit:1.3.0")

@@ -1,17 +1,17 @@
 plugins {
-  id("com.android.application") version "9.5.0-alpha07" apply false
-  id("com.android.library") version "9.5.0-alpha07" apply false
-  id("com.android.test") version "9.5.0-alpha07" apply false
+  id("com.android.application") version "9.5.0-alpha09" apply false
+  id("com.android.library") version "9.5.0-alpha09" apply false
+  id("com.android.test") version "9.5.0-alpha09" apply false
   id("org.jetbrains.dokka") version "2.3.0-Beta" apply false
   id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
   id("org.jetbrains.kotlin.plugin.serialization") version "2.4.20" apply false
   id("com.google.dagger.hilt.android") version "2.60.1" apply false
   id("com.google.devtools.ksp") version "2.3.12" apply false
-  id("com.diffplug.spotless") version "8.10.3" apply false
+  id("com.diffplug.spotless") version "8.10.4" apply false
   id("dev.detekt") version "2.0.0-alpha.6" apply false
   id("androidx.benchmark") version "1.5.0" apply false
   id("androidx.baselineprofile") version "1.5.0" apply false
-  id("io.github.ben-manes.versions") version "0.64.0" apply false
+  id("io.github.ben-manes.versions") version "0.65.0" apply false
   id("com.ncorti.ktfmt.gradle") version "0.27.0" apply false
   id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
 }
