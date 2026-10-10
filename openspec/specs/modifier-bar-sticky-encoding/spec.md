@@ -44,6 +44,12 @@ ESC 前缀加 CR。
 - **WHEN** 用户按回车（硬件键、`KEYCODE_DPAD_CENTER` 或输入法回车）
 - **THEN** PTY 收到的字节是 0x0D，在 raw 模式下被应用读作 Enter
 
+#### Scenario: 平台报告 LF 时仍下发 CR
+
+- **WHEN** 硬件回车事件的 `unicodeChar` 是 `\n`（小键盘回车与部分输入法的常见取值）
+- **THEN** PTY 仍收到 0x0D：转义序列的优先级 MUST 高于 `unicodeChar`，
+      否则可打印字符分支先执行就会把 LF 写进 PTY，raw 模式读作 Ctrl+J 即字母 j
+
 #### Scenario: Alt 加回车是 ESC 前缀加 CR
 
 - **WHEN** Alt 粘滞状态下按回车
