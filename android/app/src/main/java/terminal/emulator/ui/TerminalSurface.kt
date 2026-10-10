@@ -1247,8 +1247,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 等待原生查询（VT 忙时每行最长 500ms），大幅滑动即冻结 UI。
         // 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。
         private const val MAX_WHEEL_LINES_PER_GESTURE = 8
-        private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
-        private const val SURFACE_RECREATE_ATTEMPTS = 10
+
+        /**
+         * 本视图侧 detach+attach 重试链的参数（换 GPU surface 后等 holder 重新有效）。
+         *
+         * 与运行期的 `TerminalRuntime.SURFACE_RECREATE_MAX_ATTEMPTS` 是同一条恢复链的
+         * **两个阶段**，不是同一个上限：运行期数的是「请求换 surface 的次数」，
+         * 这里数的是「请求被接受后重新挂上 surface 的尝试次数」。刻意取不同的名字，
+         * 否则两处 5 与 10 会被读成同一件事的重复定义。
+         */
+        private const val SURFACE_RETRY_ATTACH_DELAY_MS = 500L
+        private const val SURFACE_RETRY_ATTACH_MAX_ATTEMPTS = 10
 
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
@@ -2360,7 +2369,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 在已被回收的 BufferQueue 上继续渲染。且每次重试都是新 lambda，
      * 即便有字段也要由本函数自己重排。
      */
-    fun postDelayedSurfaceRecreate(viewModel: TerminalViewModel, attemptsLeft: Int = SURFACE_RECREATE_ATTEMPTS) {
+    fun postDelayedSurfaceRecreate(
+        viewModel: TerminalViewModel,
+        attemptsLeft: Int = SURFACE_RETRY_ATTACH_MAX_ATTEMPTS,
+    ) {
         pendingSurfaceRecreate?.let { removeCallbacks(it) }
         pendingSurfaceRecreate =
             Runnable {
@@ -2379,7 +2391,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 } else if (attemptsLeft > 1) {
                     postDelayedSurfaceRecreate(viewModel, attemptsLeft - 1)
                 }
-            }.also { postDelayed(it, SURFACE_RECREATE_RETRY_DELAY_MS) }
+            }.also { postDelayed(it, SURFACE_RETRY_ATTACH_DELAY_MS) }
     }
 
     private fun currentScrollbackLength(): Int {

@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 手指滚动增量换算单元测试：方向、亚行累积、边缘钳制（无撕裂空白）。 */
@@ -95,10 +96,16 @@ class ScrollDistanceTest {
         // 同一物理方向：拖动增量符号与惯性速度符号一致，锁定方向错误回归。
         val dragDown = applyScrollDistance(0f, -60f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         val flingDown = flingRowsPerSecond(600f, CELL_HEIGHT)
-        assert(dragDown.newOffset > MIDDLE_OFFSET && flingDown > 0)
+        assertTrue(
+            "下滑后内容必须上移且惯性方向向上（offset=${dragDown.newOffset} fling=$flingDown）",
+            dragDown.newOffset > MIDDLE_OFFSET && flingDown > 0,
+        )
         val dragUp = applyScrollDistance(0f, 60f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         val flingUp = flingRowsPerSecond(-600f, CELL_HEIGHT)
-        assert(dragUp.newOffset < MIDDLE_OFFSET && flingUp < 0)
+        assertTrue(
+            "上滑后内容必须下移且惯性方向向下（offset=${dragUp.newOffset} fling=$flingUp）",
+            dragUp.newOffset < MIDDLE_OFFSET && flingUp < 0,
+        )
     }
 
     // ── R3: 截断趋向零对称性 ─────────────────────────────────────────────

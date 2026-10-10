@@ -167,21 +167,21 @@ class TerminalSurfaceLogicTest {
     @Test
     fun `tap inside the guard window is suppressed after a drag ends`() {
         // Release instant and just under the window boundary are suppressed.
-        assert(shouldSuppressTapAfterDragEnd(nowMs = 1_000, lastDragEndMs = 1_000))
-        assert(shouldSuppressTapAfterDragEnd(nowMs = 1_299, lastDragEndMs = 1_000))
+        assertTrue(shouldSuppressTapAfterDragEnd(nowMs = 1_000, lastDragEndMs = 1_000))
+        assertTrue(shouldSuppressTapAfterDragEnd(nowMs = 1_299, lastDragEndMs = 1_000))
     }
 
     @Test
     fun `tap at or past the guard boundary is a real tap`() {
         // Strict `<` at the boundary: exactly 300ms after release is NOT
         // suppressed.
-        assert(!shouldSuppressTapAfterDragEnd(nowMs = 1_300, lastDragEndMs = 1_000))
-        assert(!shouldSuppressTapAfterDragEnd(nowMs = 2_500, lastDragEndMs = 1_000))
+        assertFalse(shouldSuppressTapAfterDragEnd(nowMs = 1_300, lastDragEndMs = 1_000))
+        assertFalse(shouldSuppressTapAfterDragEnd(nowMs = 2_500, lastDragEndMs = 1_000))
     }
 
     @Test
     fun `no prior drag end means the guard is inactive`() {
-        assert(!shouldSuppressTapAfterDragEnd(nowMs = 100, lastDragEndMs = 0L))
+        assertFalse(shouldSuppressTapAfterDragEnd(nowMs = 100, lastDragEndMs = 0L))
     }
 
     // ── pinch zoom mapping ───────────────────────────────────────────────────
@@ -228,9 +228,9 @@ class TerminalSurfaceLogicTest {
             zoomFontSize(16f, 100f, spToPxScale * 1.3f),
             0.001f,
         )
-        assert(
-            zoomFontSize(16f, 100f, spToPxScale * 1.3f) <
-                zoomFontSize(16f, 100f, spToPxScale),
+        assertTrue(
+            "系数变大时同一手势的换算字号必须更小",
+            zoomFontSize(16f, 100f, spToPxScale * 1.3f) < zoomFontSize(16f, 100f, spToPxScale),
         )
     }
 
@@ -242,14 +242,14 @@ class TerminalSurfaceLogicTest {
         assertEquals(17.6f, zoomFontSize(16f, factor, zoomSpToPxScale))
         factor *= 1.1f
         val finalSize = zoomFontSize(16f, factor, zoomSpToPxScale)
-        assert(zoomSettledOnNewSize(16f, finalSize))
+        assertTrue(zoomSettledOnNewSize(16f, finalSize))
     }
 
     @Test
     fun `pinch returning to base only reverts the preview`() {
         // Tiny drift under epsilon: no persist, just revert to the base size.
         val finalSize = zoomFontSize(16f, 1.001f, zoomSpToPxScale)
-        assert(!zoomSettledOnNewSize(16f, finalSize))
+        assertFalse(zoomSettledOnNewSize(16f, finalSize))
     }
 
     @Test
@@ -257,7 +257,7 @@ class TerminalSurfaceLogicTest {
         // N2-96: settings allows 8sp but zoom clamps to 14sp; onScaleEnd must judge
         // the unclamped product so a net-1.0 gesture never persists a new size.
         val rawSizeSp = 8f * 1.0f
-        assert(!zoomSettledOnNewSize(8f, rawSizeSp))
+        assertFalse(zoomSettledOnNewSize(8f, rawSizeSp))
     }
 
     // ── menu anchoring (design decision 3) ────────────────────────────────────

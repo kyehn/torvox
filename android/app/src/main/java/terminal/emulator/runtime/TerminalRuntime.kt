@@ -3825,6 +3825,8 @@ internal fun computeGridAvailableHeight(surfaceHeight: Int, modifierBarHeightPx:
 private const val SURFACE_RECREATE_MIN_INTERVAL_NANOS = 500_000_000L
 
 // 单会话连续重建请求上限：超过即停止并告警（重建无望时避免无限拆装视图）。
+// 它管的是「请求换 surface」这一个阶段；视图侧 detach+attach 重试链的次数是
+// `TerminalSurface.SURFACE_RETRY_ATTACH_MAX_ATTEMPTS`，两者是同一恢复链的不同阶段。
 private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
 
 /**
