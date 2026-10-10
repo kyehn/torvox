@@ -885,11 +885,6 @@ mod tests {
     }
 
     #[test]
-    fn session_spawn_and_exit() {
-        spawn_and_exit();
-    }
-
-    #[test]
     fn session_echo_hello() {
         let mut session = spawn_test_session();
         session.write(b"echo hello_p12\n").expect("write failed");

@@ -53,7 +53,7 @@
 | esctest2 | GPL-2.0 | 548 | 手写自 xterm ctlseqs 与 DEC 标准 | **阻塞**：屏幕断言全部经 `AssertScreenCharsInRectEqual` → `GetChecksumOfRect` → DECRQCRA，而本仓所钉的 ghostty `3425025e` 没有 DECRQCRA（ghostty `main` 已有）。宿主已备好可移植的 MIT harness（ghostty `test/esctest`，约 150 行 Zig，forkpty + 回填 DA/DSR/checksum），前提具备后照抄即可 |
 | xterm.js | MIT | 76 | vttest 派生，从 xterm 手抄 80×25 屏幕 | **有条件采纳**：见上，54 例起步 |
 | ghostty | MIT | — | 自带上述 esctest harness | 采纳其 harness 模式（而非其用例） |
-| rio | MIT | — | `rio-vt/tests/sixel/` 三个由**三种不同外部编码器**产出的 `.sixel` 与对应 `.rgba` 像素（66.9 KB） | 不采纳：torvox 不实现 sixel，采纳即先实现一个 DESIGN 未要求的功能 |
+| rio | MIT | — | `rio-vt/tests/sixel/` 三个由**三种不同外部编码器**产出的 `.sixel` 与对应 `.rgba` 像素（66.9 KB） | 不采纳：本仓不实现 sixel，采纳即先实现一个 DESIGN 未要求的功能 |
 | kitty | GPL-3.0 | 879 | `GraphemeBreakTest.json`（Unicode UCD，159 KB）；`screen.py` 内联的 vttest 屏幕态 | 不采纳：许可证排除；且唯一可机器消费的语料是字素分割，与 VT 无关 |
 | wezterm | MIT | 409 | 48 处 `k9::snapshot!`，`K9_UPDATE_SNAPSHOTS=1` 自动改写期望值；`BidiTest.txt` 来自 Unicode UCD 但属 bidi 非 VT | 不采纳：VT 部分是教科书式自验证 |
 | alacritty | MIT | 255 | `grid.json` / `alacritty.recording` 由 `--ref-test` 从运行中的 `Grid<Cell>` 序列化而来（47 MB） | 不采纳：全部自生成 |
