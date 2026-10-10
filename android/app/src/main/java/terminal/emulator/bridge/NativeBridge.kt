@@ -216,7 +216,7 @@ object NativeBridge {
      * 字号上界（`SettingsRepository.fontSizeMaxSp` 以该系数为分母）就会用被原生
      * 拒收的系数算出，重新出现「设置条范围与实际可设置范围不一致」。
      */
-    @JvmStatic external fun getRasterScaleRange(): FloatArray
+    @JvmStatic external fun getRasterScaleRange(): FloatArray?
 
     /** 结构化字体信息 JSON（见 [FontInfoDto]），渲染器未初始化时为 null。 */
     @JvmStatic external fun getFontInfo(): String?
