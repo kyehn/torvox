@@ -1828,16 +1828,25 @@ constructor(
         private const val MODIFIER_BAR_HEIGHT_DP = BUTTON_HEIGHT_DP * 2
 
         /**
-         * 等宽字形宽高比（em），只用于估算「放得下至少 N 列」的最小 Surface 宽度。
+         * 「至少放得下若干行/列」的 Surface 像素下界。
          *
-         * 命名刻意不含 FONT_SIZE：这三个常量度的是**表面像素**，与
+         * 命名刻意不含 FONT_SIZE：这些常量度的是**表面像素**，与
          * `SettingsRepository.FONT_SIZE_*`（字号）无关，而后者正是「设置条范围与
          * 实际可设置范围不一致」那次要求全仓搜索字号的依据——同名不同义会让搜索
          * 落到与字号无关的数值上。
+         *
+         * 列方向的等宽字形宽高比取 [SettingsRepository.MONOSPACE_CHAR_ASPECT]（单一
+         * 来源，与自适应默认字号用的是同一个比例）；行方向的行高比 0.5em 是另一个量，
+         * 不与它共用。
          */
-        private const val MONOSPACE_CHAR_ASPECT = 0.6f
         private const val MIN_SURFACE_WIDTH_PX = 300
         private const val MAX_SURFACE_WIDTH_PX = 600
+
+        /** 行高比：等宽字体行距约 0.5em，故最小 Surface 高度按它折算。 */
+        private const val SURFACE_HEIGHT_ROW_ASPECT = 0.5f
+
+        private const val MIN_SURFACE_HEIGHT_PX = 250
+        private const val MAX_SURFACE_HEIGHT_PX = 500
         private const val FONT_SIZE_HEIGHT_RATIO = 0.5f
         private const val FONT_SIZE_HEIGHT_MIN_PX = 250
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
@@ -2141,11 +2150,13 @@ constructor(
         }
 
         val minWidth =
-            (displayW * MONOSPACE_CHAR_ASPECT).toInt().coerceIn(MIN_SURFACE_WIDTH_PX, MAX_SURFACE_WIDTH_PX)
-        val minHeight =
-            (displayH * FONT_SIZE_HEIGHT_RATIO)
+            (displayW * SettingsRepository.MONOSPACE_CHAR_ASPECT)
                 .toInt()
-                .coerceIn(FONT_SIZE_HEIGHT_MIN_PX, FONT_SIZE_HEIGHT_MAX_PX)
+                .coerceIn(MIN_SURFACE_WIDTH_PX, MAX_SURFACE_WIDTH_PX)
+        val minHeight =
+            (displayH * SURFACE_HEIGHT_ROW_ASPECT)
+                .toInt()
+                .coerceIn(MIN_SURFACE_HEIGHT_PX, MAX_SURFACE_HEIGHT_PX)
         if (!bypassMinSurface && (width < minWidth || height < minHeight)) {
             LogUtil.w(
                 "Runtime",
