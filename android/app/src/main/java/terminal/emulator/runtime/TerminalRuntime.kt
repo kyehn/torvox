@@ -2858,9 +2858,8 @@ constructor(
             }
             try {
                 activeSessionId = id
-                // 重新初始化内容下沿：新会话的渲染线程从此刻起在变化时重新发布。
-                lastContentRowFlowInternal.value = target.lastContentRow
-                altScreenActiveFlowInternal.value = target.altScreenActive
+                // 重新初始化内容下沿与备用屏状态：新会话的渲染线程从此刻起在变化时重新发布。
+                publishSessionViewState(target)
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3339,6 +3338,24 @@ constructor(
     }
 
     /**
+     * 把活动会话的「视口状态」重置为 [entry] 当前持有的值：内容下沿与备用屏状态。
+     *
+     * 渲染循环只在**变化时**发布这两项（`if (value != entry.<field>)`），故每个
+     * 换活动会话的入口都必须先把流对齐到新会话的现值，否则新会话的首帧若与它自身
+     * 的字段相同（如备用屏的初始 `false`）就不会发布，运行期会一直保留**上一个**
+     * 会话的值。
+     *
+     * 该残留不是显示瑕疵：备用屏陈旧为真时 [imeGridReserve] 会一直扣着一份早已
+     * 撤走的键盘高度（备用屏网格永久塌缩且不自愈），`computeImeSurfaceShift` 的
+     * 备用屏分支恒返回 0（主屏不再随键盘上移），而 [TerminalSurface] 的输入法
+     * 网格防抖会在主屏上白白领走渲染暂停。
+     */
+    private fun publishSessionViewState(entry: SessionEntry) {
+        lastContentRowFlowInternal.value = entry.lastContentRow
+        altScreenActiveFlowInternal.value = entry.altScreenActive
+    }
+
+    /**
      * 在前一个会话关闭后把 [newId] 激活为前台会话：挂起线程的最终 join、
      * 原生 ACTIVE_SESSION_ID 同步（switchSession）、渲染线程重启与焦点重发。
      *
@@ -3445,6 +3462,7 @@ constructor(
         // 无条件重启：仍存活的旧线程正在退出；
         // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
         renderSupervisor.startRenderThread(replacement)
+        publishSessionViewState(replacement)
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
         }
