@@ -479,7 +479,7 @@ fun TerminalScreen(
                                             viewModel.runtime.setScrollOffset(offset)
                                         }
                                         surface.onScrollingStateChanged = { isScrolling ->
-                                            viewModel.runtime.setScrollActive(isScrolling)
+                                            viewModel.runtime.setScrollGestureActive(isScrolling)
                                         }
                                     }
                                     .apply {

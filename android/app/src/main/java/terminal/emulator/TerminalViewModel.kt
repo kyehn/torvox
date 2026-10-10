@@ -161,6 +161,10 @@ constructor(
 
     private val selectionManager = SelectionManager()
 
+    // SCROLL 按钮锁最后同步到的会话 id：只在活动会话换人时才需要重新同步（见
+    // runtime.state 收集器）。同会话内的普通状态更新不必重复推。
+    private var lastScrollLockSyncedSessionId = 0L
+
     // 从运行期见到的最近网格尺寸；缩小时会钳位活跃选区（见 runtime.state 收集器）。
     @Volatile private var lastGridRows = 0
 
@@ -948,6 +952,16 @@ constructor(
                 val previousById = _state.value.sessions.associateBy { it.id }
                 val sessions = sortedIds.map { id -> previousById[id] ?: SessionInfo(id = id) }
                 val active = runtimeState.activeSessionId
+                // SCROLL 按钮锁是 Compose 状态，每个 SessionEntry 各存一份镜像。
+                // 活动会话一换就把它对齐：新建会话的条目以 scrollActive=false 起步，
+                // 而前一个会话关闭后接替上来的条目带着**它自己**的锁——任一方向不
+                // 同步，按钮都会显示锁定而渲染线程并不抑制新输出引起的滚动复位。
+                // 放在这里而不是各切换入口：三处入口（switchSession / createSession /
+                // 接替）共用这一条，少一份就漏一处。
+                if (active != 0L && active != lastScrollLockSyncedSessionId) {
+                    lastScrollLockSyncedSessionId = active
+                    runtime.setScrollActive(_state.value.scrollActive)
+                }
                 if (active != 0L) {
                     val displayIndex = sortedIds.indexOf(active) + 1
                     val title =
@@ -1474,11 +1488,6 @@ constructor(
                     selectionAccent = runtime.accentColor,
                 )
             }
-            // 把 SCROLL 按钮锁重新同步到新的活动 SessionEntry：
-            // 每个条目都以 scrollActive=false 起步，故不做此步，
-            // 任何会话切换后该开关都会静默失去对新输出滚动复位的抑制
-            // （状态说开，渲染线程说关）。
-            runtime.setScrollActive(_state.value.scrollActive)
         }
     }
 

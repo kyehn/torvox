@@ -136,7 +136,11 @@ internal data class SessionEntry(
     // bridge.close() 之前启动新渲染线程，留下轮询已销毁会话的孤儿线程（全局事件队列双重消费、原生 UAF 风险）。
     @Volatile var closing: Boolean = false,
     // 为真时（SCROLL 按钮激活），新输出不应自动复位滚动——用户有意停留在回浏览位置。
+    // 手指滚动手势**不**写这里：那是一次性意图，抬手即失效；写这里会清掉用户仍然
+    // 点亮的 SCROLL 按钮锁（按钮仍在渲染为锁定，新输出却已经把视口拽到底）。
     @Volatile var scrollActive: Boolean = false,
+    // 手指滚动进行中：同样抑制新输出引起的滚动复位，但抬手即失效，与按钮锁互不干扰。
+    @Volatile var scrollGestureActive: Boolean = false,
     // 最近一次 UI 线程滚动手势的时间戳（System.nanoTime，在 setScrollOffset 中写入），
     // 渲染线程据此计算 recentlyScrolled 保护；0L 表示从未滚动过。
     @Volatile var lastScrollNanos: Long = 0L,
@@ -813,10 +817,25 @@ constructor(
         entry.notifyRender()
     }
 
-    /** 从 TerminalViewModel 同步滚动激活状态，使渲染线程知道新输出时是否自动复位滚动。 */
+    /** 从 TerminalViewModel 同步 SCROLL 按钮锁，使渲染线程知道新输出时是否自动复位滚动。 */
     fun setScrollActive(active: Boolean) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollActive = active
+        entry.notifyRender()
+    }
+
+    /**
+     * 手指滚动手势期间的抑制标记，抬手即清除。
+     *
+     * 与 [setScrollActive] 分开是必须的：两者都是「新输出不要复位滚动」，但寿命不同。
+     * 合并时，一次手势的抬手会把用户仍然点亮的 SCROLL 按钮锁一并清掉——按钮继续
+     * 渲染为锁定，下一行输出却已把视口拽到底，正是该开关要防的情况。
+     */
+    fun setScrollGestureActive(active: Boolean) {
+        val entry = sessions[activeSessionId] ?: return
+        if (entry.scrollGestureActive == active) return
+        entry.scrollGestureActive = active
+        entry.notifyRender()
     }
 
     /**
@@ -1430,7 +1449,7 @@ constructor(
                                             if (
                                                 entry.scrollOffset != 0 &&
                                                 shouldResetScroll(
-                                                    scrollActive = entry.scrollActive,
+                                                    scrollActive = entry.scrollActive || entry.scrollGestureActive,
                                                     hasSelectionOrDrag =
                                                     selectionSnapshot.hasSelection ||
                                                         selectionSnapshot.dragging,
@@ -2833,6 +2852,11 @@ constructor(
             // 起来，恢复不会撞上在跑的线程。其后的步骤（发布活动 id、native switchSession、
             // 网格对齐、focus 转发）失败时目标线程已经在消费全局事件队列，
             // 此时再拉起前一个会话会同时存在两个消费者——剪贴板事件会被错投。
+            // MUST 先复位再起线程：新会话的渲染线程把 lastSelection 初始化成空
+            // 选区，首帧就读全局 selectionState——晚一拍就会把上一个会话的选区
+            // 推给它一帧（在属于前一个回滚缓冲区的行号上）。放在 try 之外：
+            // 起线程失败时下方会把活动会话还给前一个，此时此处不做任何改动。
+            publishActiveSessionState(target)
             try {
                 renderSupervisor.startRenderThread(target)
             } catch (exception: Exception) {
@@ -2868,8 +2892,6 @@ constructor(
             }
             try {
                 activeSessionId = id
-                // 重新初始化内容下沿与备用屏状态：新会话的渲染线程从此刻起在变化时重新发布。
-                publishActiveSessionState(target)
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3492,13 +3514,18 @@ constructor(
             )
             replacement.running = false
             replacement.closing = true
+            // 该条目永不会再渲染，故「无活动会话」才是真实状态：沿用被移除会话的
+            // 备用屏标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，
+            // 主屏位移恒为 0，且没有任何线程会再来重新发布这些值。
+            publishActiveSessionState(null)
             updateState()
             return
         }
         // 无条件重启：仍存活的旧线程正在退出；
         // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
-        renderSupervisor.startRenderThread(replacement)
+        // 先复位再起线程：见 switchSessionInternal 的同款说明。
         publishActiveSessionState(replacement)
+        renderSupervisor.startRenderThread(replacement)
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
         }
