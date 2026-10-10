@@ -486,6 +486,8 @@ impl super::GhosttyTerminal {
         // 由调用方在 flush 后收割。本仓不再自建 OSC 解析器；try_send 永不阻塞
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
         // 的最小扫描器拦截（FR-036）。
+        // 上游签名：回调返回 `()`（旧版曾返回 `Result`，用于把错误回传给 VT 线程；
+        // 新版不再回传——本回调本就只做「尽力投递 + 记日志」，没有可回传的错误）。
         if let Err(error) = terminal.on_clipboard_write({
             let clipboard_tx = config.clipboard_tx.clone();
             move |_terminal, write| {
@@ -530,7 +532,6 @@ impl super::GhosttyTerminal {
                 if clipboard_tx.try_send((selection, text)).is_err() {
                     log::warn!("OSC 52 clipboard dropped: channel full");
                 }
-                Ok(())
             }
         }) {
             log::error!(
