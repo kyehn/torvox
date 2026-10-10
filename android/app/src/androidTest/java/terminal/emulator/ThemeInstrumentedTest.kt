@@ -128,14 +128,15 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
     }
 
     @Test
-    fun dayThemeShowsDefaultNameInDayNightSection() {
+    fun themeModeFollowSystemShowsDayAndNightSelectors() {
         setTerminalThemeFollowSystem(enabled = true)
         scrollToNode("DayNightThemeSection")
+        composeTestRule.onNodeWithTag("DayNightThemeSection").assertIsDisplayed()
+        // 两个选择器各自的标签必须都在树里：只断言 section isDisplayed 时，标签缺失
+        // 仍会让用例通过（合并语义下 section 存在即可显示）。
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
-            composeTestRule.onAllNodes(hasText("日间主题")).fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.waitUntil(timeoutMillis = 10_000) {
-            composeTestRule.onAllNodes(hasText("夜间主题")).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasText("日间主题")).fetchSemanticsNodes().isNotEmpty() &&
+                composeTestRule.onAllNodes(hasText("夜间主题")).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
@@ -154,12 +155,5 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
         scrollToNode("ThemeSelector")
         composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
         composeTestRule.onAllNodes(hasTestTag("DayNightThemeSection")).assertCountEquals(0)
-    }
-
-    @Test
-    fun themeModeFollowSystemShowsDayAndNightSelectors() {
-        setTerminalThemeFollowSystem(enabled = true)
-        scrollToNode("DayNightThemeSection")
-        composeTestRule.onNodeWithTag("DayNightThemeSection").assertIsDisplayed()
     }
 }

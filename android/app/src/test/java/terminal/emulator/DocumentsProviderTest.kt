@@ -19,7 +19,6 @@ import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import terminal.emulator.util.runCatchingCancellable
 
 @RunWith(RobolectricTestRunner::class)
 class DocumentsProviderTest {
@@ -274,6 +273,77 @@ class DocumentsProviderTest {
             java.io.FileOutputStream(fd.fileDescriptor).write("more".toByteArray())
         }
         assertEquals("start|more", target.readText())
+    }
+
+    /**
+     * 平台创建惯例：客户端按 `FLAG_DIR_SUPPORTS_CREATE` 的承诺经 openDocument 落盘
+     * （编辑器 SAVE、文件管理器覆盖写都走这条）。此前 openDocument 要求条目已存在，
+     * 这类客户端于是拿到 FileNotFoundException——「无法修改文件」的直接成因。
+     */
+    @Test
+    fun openDocument_mode_w_creates_missing_file() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val target = java.io.File(home, "fresh.txt")
+        // docId 取相对根路径，与 SAF 客户端从列举里拿到的一致。
+        provider.openDocument("fresh.txt", "w", null).use { fd ->
+            java.io.FileOutputStream(fd.fileDescriptor).write("saved".toByteArray())
+        }
+        assertTrue("openDocument(\"w\") must create the document it addresses", target.exists())
+        assertEquals("saved", target.readText())
+    }
+
+    /**
+     * 创建只由模式位决定：只读模式不含 CREATE，文件不存在时仍必须是可处理的失败。
+     * 移除存在性检查后这条是唯一还拦着「打开不存在的文档」的东西，故必须钉住。
+     */
+    @Test
+    fun openDocument_mode_r_still_rejects_missing_file() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val thrown =
+            assertThrows(java.io.FileNotFoundException::class.java) {
+                provider.openDocument("absent.txt", "r", null)
+            }
+        assertTrue(
+            "read-only open must report the missing document, got: ${thrown.message}",
+            thrown.message?.contains("absent.txt") == true,
+        )
+    }
+
+    /**
+     * 移除存在性检查不得打开穿越口：docId 必须仍在根内解析，越界照样拒绝。
+     * 位运算里 MODE_CREATE 能造文件，故这条守卫的优先级高于一切模式。
+     */
+    @Test
+    fun openDocument_cannot_create_outside_root() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val outside = java.io.File(requireNotNull(provider.context).filesDir, "escaped.txt")
+        val thrown =
+            assertThrows(java.io.FileNotFoundException::class.java) {
+                // "../escaped.txt" 解析到 filesDir，越出 filesDir/home 根。
+                provider.openDocument("../escaped.txt", "w", null)
+            }
+        assertTrue(
+            "escape must be refused, got: ${thrown.message}",
+            thrown.message?.contains("escaped.txt") == true,
+        )
+        assertTrue("no file may be created outside the root", !outside.exists())
+    }
+
+    /**
+     * 钉住「createDocument 不拦点文件」这一事实：它正是 openDocument 原先那条
+     * 「只打开已存在条目」的安全前提为何不成立的原因——客户端一次 createDocument
+     * 就能造出 .mkshrc，那道检查拦得住的情形另一条路同样放行。
+     *
+     * 若哪天 createDocument 开始拒绝点文件，本用例失败，届时必须重新裁定
+     * openDocument 要不要恢复存在性检查（安全前提才会真正成立）。
+     */
+    @Test
+    fun createDocument_does_not_filter_dotfiles() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val created = provider.createDocument("terminal_home", "text/plain", ".mkshrc")
+        val expected = java.io.File(home, ".mkshrc")
+        assertTrue("dotfile names must be creatable as documented", expected.exists())
+        assertEquals(".mkshrc", created)
     }
 
     /**
@@ -750,19 +820,20 @@ class DocumentsProviderTest {
     }
 
     @Test
-    fun openDocument_never_creates_a_missing_document() {
-        // 「rw」含 MODE_CREATE，但创建只有 createDocument 一条路：否则任何持有一份
-        // SAF 授权的客户端都能在 ~ 里凭空造文件（含 shell 会 source 的 .mkshrc 等点文件）。
+    fun openDocument_creates_a_missing_document_for_create_capable_modes() {
+        // 「rw」含 MODE_CREATE，而目录已声明 FLAG_DIR_SUPPORTS_CREATE：平台据此允许
+        // 客户端经 openDocument 落盘。原先本条断的是「绝不创建」，理由是防止客户端
+        // 凭空造出 .mkshrc——该前提不成立（createDocument 并不拦点文件，见
+        // createDocument_does_not_filter_dotfiles），只把按平台惯例保存的编辑器与
+        // 文件管理器挡在门外，正是「无法修改文件」的成因。
         val provider = ensureProvider()
         val target = java.io.File(rootDir(), "fresh.txt")
         assertTrue(!target.exists())
-        val failure = runCatchingCancellable { provider.openDocument("fresh.txt", "rw", null) }
-        assertTrue("必须以 FileNotFoundException 失败", failure.isFailure)
-        assertTrue(
-            "失败原因须是文档不存在",
-            failure.exceptionOrNull() is java.io.FileNotFoundException,
-        )
-        assertTrue("openDocument 绝不能创建文件", !target.exists())
+        provider.openDocument("fresh.txt", "rw", null).use { fd ->
+            java.io.FileOutputStream(fd.fileDescriptor).write("rw".toByteArray())
+        }
+        assertTrue("openDocument(\"rw\") must create the document it addresses", target.exists())
+        assertEquals("rw", target.readText())
     }
 
     /**

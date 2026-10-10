@@ -1066,12 +1066,34 @@ mod tests {
     }
 
     #[test]
-    fn emoji_glyph_no_panic_when_color_font_cannot_outline() {
-        // Noto Color Emoji 覆盖 😀，但 swash 无法为彩色字形生成轮廓；
-        // emoji 层与数据库扫描必须跳过它且不 panic（moke：emoji 走系统链）。
+    fn emoji_glyph_gets_an_outline_when_color_font_cannot_outline() {
+        // Noto Color Emoji 覆盖 😀，而 swash 无法为彩色字形生成轮廓；本仓经系统链
+        // 兜出可用度量。断言的是「确实拿到非空度量 + 垂直不越格 + 后续普通字形
+        // 不受污染」，而不是「没有 panic」——后者不构成行为断言（TESTING：「不崩溃」
+        // 不是有效断言）。
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        let _ = pipeline.glyph_information('😀');
-        // 能走到这里而不 panic 就是断言本身。
+        let emoji = pipeline
+            .glyph_information('😀')
+            .expect("彩色 emoji 必须经系统链兜出可用度量，而不是被静默跳过");
+        assert!(
+            emoji.placement.width > 0 && emoji.placement.height > 0,
+            "彩色 emoji 的轮廓不得为空：{:?}",
+            emoji.placement
+        );
+        let (_cell_width, cell_height) = pipeline.cell_metrics();
+        let ascent = pipeline.ascent_pixels();
+        let bearing_y = ascent - emoji.placement.top as f32;
+        assert!(
+            bearing_y >= -cell_height,
+            "彩色 emoji 越出格子上沿：bearing_y={} < -cell_height={}",
+            bearing_y,
+            cell_height
+        );
+        let after = pipeline.glyph_information('A');
+        assert!(
+            after.is_some(),
+            "彩色 emoji 的查询不得污染同一 pipeline 上的后续字形"
+        );
     }
 
     #[test]

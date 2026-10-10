@@ -601,11 +601,47 @@ class TerminalInputEncoderTest {
     }
 
     @Test
+    fun `ctrl upper symbol row folds to the c0 controls`() {
+        // 数字行的上档符号是 US 键盘上的另一排键，Ctrl 折叠必须落在各自的 C0 码上
+        // 而不是各键的 `c & 0x1F`（那会把它们全折成 ESC）。
+        // 期望取自 Android-Terminal-Emulator 谱系的既有字面断言
+        // （jackpal/androidterm 的 TermKeyListenerTest，ThothTerm 沿用同一份）：
+        // Ctrl+2→NUL、Ctrl+3→ESC、Ctrl+4→0x1C、Ctrl+5→0x1D、Ctrl+6→0x1E、
+        // Ctrl+7→0x1F、Ctrl+8→DEL，以及 Ctrl+Space→NUL。
+        val upperRow =
+            mapOf(
+                '2' to 0x00,
+                '3' to 0x1B,
+                '4' to 0x1C,
+                '5' to 0x1D,
+                '6' to 0x1E,
+                '7' to 0x1F,
+                '8' to 0x7F,
+                ' ' to 0x00,
+            )
+        for ((char, expected) in upperRow) {
+            assertArrayEquals("Ctrl+$char", bytes(expected), enc(char.toString(), ctrl = true))
+        }
+    }
+
+    @Test
     fun `ctrl punctuation folds via c and 1f`() {
-        // Ctrl+/ → 0x0F, Ctrl+[ → ESC, Ctrl+2 → NUL (ANSI/VT100 tradition).
-        assertArrayEquals(bytes(0x0F), enc("/", ctrl = true))
-        assertArrayEquals(bytes(0x1B), enc("[", ctrl = true))
-        assertArrayEquals(bytes(0x00), enc("2", ctrl = true))
+        // 标点行的折叠没有专用分支，走 `c & 0x1F`。逐键钉住，否则删掉或改写
+        // 那个公式时不会有任何用例变红（上面的数字行有专用分支，不经过它）。
+        // Ctrl+[→ESC、Ctrl+\→0x1C、Ctrl+]→0x1D、Ctrl+^→0x1E、Ctrl+_→0x1F、
+        // Ctrl+/→0x0F。
+        val punctuation =
+            mapOf(
+                '[' to 0x1B,
+                '\\' to 0x1C,
+                ']' to 0x1D,
+                '^' to 0x1E,
+                '_' to 0x1F,
+                '/' to 0x0F,
+            )
+        for ((char, expected) in punctuation) {
+            assertArrayEquals("Ctrl+$char", bytes(expected), enc(char.toString(), ctrl = true))
+        }
     }
 
     @Test
