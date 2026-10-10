@@ -495,11 +495,24 @@ constructor(
     /**
      * 应急会话请求（兼容 termux 的应用快捷方式 extra `com.termux.app.failsafe_session`）：
      * 下个会话以系统 shell 启动且不做 prefix 引导，避免引导损坏导致终端不可用。
-     * 由 buildConfig 消费一次；已有会话时重复点击为空操作（见 start() 的 `sessions.isNotEmpty()` 守卫）。
+     *
+     * 由**成功建出会话**的入口（[start] / [createSession]）消费一次，不是在
+     * [buildConfig] 里：后者也被配置变化路径 [applySettings] 调用，而那条路径并不建
+     * 会话——在那里消费会让一次主题或配置变化把应急请求静默吞掉，随后建出来的仍是
+     * 普通 prefix-shell 会话，正是 failsafe 要防的结果。已有会话时重复点击为空操作
+     * （见 start() 的 `sessions.isNotEmpty()` 守卫）。
      */
     @Volatile
     var failsafeRequested: Boolean = false
         private set
+
+    /** 会话已按 failsafe 请求建出，清掉请求使其只生效一次。 */
+    private fun consumeFailsafeRequest() {
+        if (failsafeRequested) {
+            failsafeRequested = false
+            LogUtil.d("Runtime", "failsafe request consumed by the newly created session")
+        }
+    }
 
     fun requestFailsafeSession() {
         failsafeRequested = true
@@ -984,8 +997,9 @@ constructor(
         // Failsafe（termux 应用快捷方式 “New session (Failsafe)”）：完全绕开引导程序——
         // 系统 shell、系统 PATH、无 PREFIX——避免引导程序损坏后终端彻底不可用
         // （对应 termux-app TermuxSession.java:95-113 的 isFailsafe 路径）。
+        // 只读不消费：消费由建会话成功后的 [consumeFailsafeRequest] 完成——
+        // 在此清空会被 applySettings 的 buildConfig() 调用抢走（它不建会话）。
         if (failsafeRequested) {
-            failsafeRequested = false
             ensureMkshPromptRc()
             return TerminalConfig(
                 shell = Shell.SystemDefault,
@@ -2262,6 +2276,9 @@ constructor(
                 bridge.close()
                 return
             }
+            // 会话已按（可能的）failsafe 请求建出：清掉请求，使其只对这一次生效。
+            // spawn 失败时**不**清——请求仍在，下一次尝试仍应是应急会话。
+            consumeFailsafeRequest()
             // 渲染预热与 shell 启动并行：wgpu 初始化 + 字体库加载移出 attach→首帧链。
             bridge.prefetchRenderStateAsync(scope)
 
@@ -2505,6 +2522,7 @@ constructor(
             }
             bridge.prefetchRenderStateAsync(scope)
             nextId = spawnResult
+            consumeFailsafeRequest()
 
             // 原生渲染状态是进程级单例，而 start() 会在 surface 过小/无效时提前返回
             // （见上方 bypassMinSurface 分支），此时 createSession 是首个建会话的入口；
