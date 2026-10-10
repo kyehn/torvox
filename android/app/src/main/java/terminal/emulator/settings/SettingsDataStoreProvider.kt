@@ -33,10 +33,15 @@ constructor(@ApplicationContext private val context: Context) {
             File(prefsDir, "settings.preferences_pb")
         }
 
-    /** 屏幕宽度（dp），用于按设备自适应计算默认字号。 */
+    /**
+     * 屏幕宽度（dp），用于按设备自适应计算默认字号。
+     *
+     * 与 `TerminalRuntime.screenWidthDp` 取同一个来源：`resources.configuration`。
+     * 此处曾自行用 `displayMetrics.widthPixels / density` 换算，那是**应用窗口**的
+     * 物理宽换算，与 `configuration.screenWidthDp` 在系统字体缩放、display cutout、
+     * 多窗口下都给不出同一个值。同一个「屏幕宽」三处三种算法时，自适应默认字号与
+     * 字号上界会按不同宽度推导——两者本应是同一条列↔字号比例。
+     */
     internal val screenWidthDp: Float
-        get() {
-            val metrics = context.resources.displayMetrics
-            return metrics.widthPixels / metrics.density
-        }
+        get() = context.resources.configuration.screenWidthDp.toFloat()
 }

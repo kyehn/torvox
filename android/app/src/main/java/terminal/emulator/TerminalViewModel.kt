@@ -929,8 +929,10 @@ constructor(
     init {
         // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
         viewModelScope.launch {
-            val metrics = context.resources.displayMetrics
-            settingsRepository.applyFirstLaunchDefaultFontSize(metrics.widthPixels / metrics.density)
+            // 屏幕宽与字号上界同源（runtime.screenWidthDp → resources.configuration）：
+            // 自建 widthPixels/density 换算是窗口物理宽，与上界用的 configuration
+            // 在系统字体缩放/多窗口下不同值，自适应默认字号会按另一个宽度推导。
+            settingsRepository.applyFirstLaunchDefaultFontSize(runtime.screenWidthDp)
         }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
