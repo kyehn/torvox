@@ -141,9 +141,10 @@
             };
             shellHook = ''
               set -e
-              chmod -R +x scripts/ android/gradlew
-              nu scripts/download-aosp-testkey.nu
-              nu scripts/download-rapidocr-models.nu
+              repository_root=$(git rev-parse --show-toplevel)
+              chmod -R +x "$repository_root/scripts" "$repository_root/android/gradlew"
+              (cd "$repository_root" && nu scripts/download-aosp-testkey.nu)
+              nu "$repository_root/scripts/download-rapidocr-models.nu"
               if [[ ! -d "/tmp/alacritty-theme" ]]; then
                 git clone --depth 1 --quiet https://github.com/alacritty/alacritty-theme.git /tmp/alacritty-theme
               fi
