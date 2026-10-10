@@ -209,6 +209,15 @@ object NativeBridge {
     /** 搜索查询串长度上限：原生为唯一真源，UI 据此截断输入。 */
     @JvmStatic external fun searchQueryMaxChars(): Int
 
+    /**
+     * 原生接受的光栅缩放（sp→px 系数）区间 `[min, max]`：原生为唯一真源。
+     *
+     * Kotlin MUST NOT 自带一份副本——它与原生 `setRasterScale` 的守卫一旦漂移，
+     * 字号上界（`SettingsRepository.fontSizeMaxSp` 以该系数为分母）就会用被原生
+     * 拒收的系数算出，重新出现「设置条范围与实际可设置范围不一致」。
+     */
+    @JvmStatic external fun getRasterScaleRange(): FloatArray
+
     /** 结构化字体信息 JSON（见 [FontInfoDto]），渲染器未初始化时为 null。 */
     @JvmStatic external fun getFontInfo(): String?
 
