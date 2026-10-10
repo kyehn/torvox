@@ -2420,7 +2420,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     fun scrollToRow(row: Int) {
         stopFlingAnimation()
         val scrollbackLen = currentScrollbackLength()
-        val targetOffset = (scrollbackLen - row).coerceIn(0, scrollbackLen)
+        val targetOffset = scrollOffsetForRow(row, scrollbackLen)
         if (targetOffset != scrollOffset) {
             scrollOffset = targetOffset
             onScrollChanged?.invoke(scrollOffset)
@@ -2976,6 +2976,18 @@ internal fun menuAnchor(
     }
     return null
 }
+
+/**
+ * 滚动到绝对网格行 [row] 时的目标偏移（单位：回滚行数）。
+ *
+ * 偏移把该行顶推到视口顶，故 `视口顶行 = scrollbackLength - 偏移 = row`；钳到
+ * 0..scrollbackLength 使越界的行（低于回滚顶或高于末行）落到能显示的最远处而不
+ * 产生负偏移。抽出为纯函数供 JVM 测试——`scrollToRow` 经它计算，测试也经它，
+ * 测试里不再自带一份公式（自带时断言恒成立：把 [TerminalSurface.scrollToRow]
+ * 整个删掉也判不了红）。
+ */
+internal fun scrollOffsetForRow(row: Int, scrollbackLength: Int): Int =
+    (scrollbackLength - row).coerceIn(0, scrollbackLength)
 
 /**
  * 把绝对回滚网格坐标 (row, col) 映射为视口像素坐标。
