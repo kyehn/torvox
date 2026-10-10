@@ -109,6 +109,26 @@ class FontSizeRangeTest {
     }
 
     @Test
+    fun termuxCeilingIsTheTermuxConstantConverted() {
+        // 取 4080dp（usable=340sp，恰为全系数域内 Termux 那条的最大值），
+        // 于是列数约束在任
+        // 何系数下都更宽松，Kotlin 的上界就等于 Termux 像素上限的换算值。
+        // 这条把 `FONT_SIZE_MAX_PX` 这个 Kotlin 私有常量与 Rust 侧
+        // `font_size_cap_tests` 用 Termux 真值（256px / 2sp）算出的上界绑在一起：
+        // 任一侧改动都会让本用例与 Rust 用例谈的不是同一个 Termux，从而暴露漂移。
+        listOf(0.75f, 1f, 2f, 2.625f, 3f, 4f).forEach { spToPxScale ->
+            val ceiling = SettingsRepository.fontSizeMaxSp(spToPxScale, 4080f)
+            val expected = kotlin.math.floor(256f / spToPxScale / 2f) * 2f
+            assertEquals(
+                "系数 $spToPxScale 时 Kotlin 上界应为 Termux 256px 的换算值 $expected",
+                expected,
+                ceiling,
+                0.001f,
+            )
+        }
+    }
+
+    @Test
     fun systemFontScalingShrinksTheCeiling() {
         // 系统「字体大小」> 1 时字形的实际像素尺寸随之上浮，若上限仍按仅显示密度
         // 计算，用户就能调到远超 Termux 像素上限的字号：fontScale=1.3
