@@ -149,7 +149,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 floor(
                     fontSizeForColumns(screenWidthDp, MIN_USABLE_COLUMNS) / FONT_SIZE_STEP_SP,
                 ).times(FONT_SIZE_STEP_SP)
+            // 自适应默认值必须恒在可选区间内：窄屏上列数上界可能低于
+            // ADAPTIVE_DEFAULT_MIN_SP（设这个下限正是为了让小屏初始仍可读），
+            // 此时调节条给不出默认字号——那是同一类「范围与实际可设范围不一致」，
+            // 只是换到了另一端。默认值优先，列数上界让位。
             return minOf(termuxCeiling, usableCeiling)
+                .coerceAtLeast(defaultFontSizeFor(screenWidthDp))
                 .coerceAtLeast(FONT_SIZE_MIN_SP + FONT_SIZE_STEP_SP)
         }
 

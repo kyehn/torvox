@@ -131,6 +131,24 @@ class FontSizeRangeTest {
     }
 
     @Test
+    fun adaptiveDefaultIsAlwaysReachableOnTheSlider() {
+        // 窄屏上「至少 MIN_USABLE_COLUMNS 列」可能低于 ADAPTIVE_DEFAULT_MIN_SP
+        // （那个下限的存在正是为了让小屏初始字号仍可读）。若上界不跟着抬，
+        // 全新安装得到的默认字号就落在调节条之外——同一类「范围与实际可设范围
+        // 不一致」，只是换到了另一端。
+        listOf(0f, 120f, 150f, 200f, 320f, 360f, 480f, 900f, 2000f).forEach { widthDp ->
+            listOf(0.75f, 1f, 2.625f, 4f).forEach { spToPxScale ->
+                val maxSp = SettingsRepository.fontSizeMaxSp(spToPxScale, widthDp)
+                val defaultSp = SettingsRepository.defaultFontSizeFor(widthDp)
+                assertTrue(
+                    "widthDp=$widthDp 系数=$spToPxScale 时上界 $maxSp 低于默认值 $defaultSp",
+                    maxSp >= defaultSp,
+                )
+            }
+        }
+    }
+
+    @Test
     fun usableCeilingGrowsWithScreenWidth() {
         // 上界必须随屏宽单调不减：更宽的屏幕本就放得下更多列，若上界不随之放宽，
         // 大屏用户会在小字号上被无谓地卡住（调节条上界比屏幕允许的更小）。
