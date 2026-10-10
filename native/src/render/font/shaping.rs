@@ -1,5 +1,28 @@
 //! 文本整形：接入 cosmic-text 以支持连字与复杂文种。
 use super::{FontPipeline, ShapedGlyphInfo, glyph_cache::ShapeKey};
+use unicode_script::{Script, UnicodeScript};
+
+/// 需要挂 CJK 回退族的文字：判定走 UAX #24 `Script` 属性而非硬编码码点区间，
+/// 随 `unicode-script` 的 Unicode 版本更新自动跟进（如扩展 G/H 区）。
+/// 兼容/半角符号区（U+3000..U+303F CJK 符号标点、U+FF00..U+FFEF 半角全角形）
+/// 的 `Script` 多为 `Common` 而非 `Han`，仍沿用旧区间语义保留。
+fn needs_cjk_fallback(character: char) -> bool {
+    matches!(
+        character.script(),
+        Script::Han
+            | Script::Hiragana
+            | Script::Katakana
+            | Script::Hangul
+            | Script::Bopomofo
+            | Script::Yi
+            | Script::Tangut
+            | Script::Khitan_Small_Script
+            | Script::Nushu
+    ) || matches!(
+        character as u32,
+        0x3000..=0x303F | 0xFF00..=0xFFEF
+    )
+}
 
 /// cosmic-text Metrics 的行高倍数。
 const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
@@ -55,21 +78,7 @@ impl FontPipeline {
             let mut cjk_ranges: Vec<std::ops::Range<usize>> = Vec::new();
             let mut start: Option<usize> = None;
             for (byte_index, character) in text.char_indices() {
-                let codepoint = character as u32;
-                let is_cjk = matches!(
-                    codepoint,
-                    0x1100..=0x11FF
-                        | 0x3000..=0x303F
-                        | 0x3040..=0x309F
-                        | 0x30A0..=0x30FF
-                        | 0x3100..=0x312F
-                        | 0x3400..=0x4DBF
-                        | 0x4E00..=0x9FFF
-                        | 0xAC00..=0xD7AF
-                        | 0xF900..=0xFAFF
-                        | 0xFE30..=0xFE4F
-                        | 0xFF00..=0xFFEF
-                );
+                let is_cjk = needs_cjk_fallback(character);
                 if is_cjk {
                     if start.is_none() {
                         start = Some(byte_index);
@@ -197,6 +206,25 @@ mod tests {
         let mut pipeline = small_pipeline();
         let glyphs = pipeline.shape_run("A中B");
         assert!(!glyphs.is_empty(), "mixed text must produce glyphs");
+    }
+
+    #[test]
+    fn cjk_fallback_covers_cjk_scripts_not_just_legacy_ranges() {
+        // 旧硬编码区间漏掉扩展区：库判定须覆盖，拉丁须排除，
+        // 兼容符号区沿用旧语义保留。
+        for character in ['中', 'あ', 'ア', '한', 'ㄅ', 'ꆈ', '𠀋', '𗀀', '𘬀', '𛅰', '々', 'Ａ'] {
+            assert!(
+                needs_cjk_fallback(character),
+                "{character:?} (U+{:04X}) must need CJK fallback",
+                character as u32
+            );
+        }
+        for character in ['A', 'é', ' ', 'α'] {
+            assert!(
+                !needs_cjk_fallback(character),
+                "{character:?} must not need CJK fallback"
+            );
+        }
     }
 
     #[test]
