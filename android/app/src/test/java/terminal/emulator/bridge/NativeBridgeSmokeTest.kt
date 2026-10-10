@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import terminal.emulator.settings.SettingsRepository
 import java.io.File
 import kotlin.system.measureTimeMillis
 
@@ -229,6 +230,46 @@ class NativeBridgeSmokeTest {
                     scale in range,
                 )
             }
+        }
+    }
+
+    /**
+     * 跨层覆盖面证明：原生字号上界 MUST 覆盖 Kotlin 的可选上界。
+     *
+     * Rust 侧 `cap_never_rejects_a_selectable_font_size` 用 **Termux 上界**
+     * （256px 换算）代表滑块上界，而 Kotlin 的上界实际是
+     * `min(Termux 上界, 「至少 MIN_USABLE_COLUMNS 列」).coerceAtLeast(自适应默认值)`。
+     * 只要 Termux 上界在原生全系数区间恒不小于 `ADAPTIVE_DEFAULT_MAX_SP`，那次判定
+     * 就是全覆盖而非抽样乐观——这正是本用例逐采样钉住的事实。
+     *
+     * 放在这里而不是 Rust 侧：这需要同时读 Kotlin 的私有策略常量与经
+     * [NativeBridge.getRasterScaleRange] 导出的原生区间端点。Rust 侧原先抄了一份
+     * `ADAPTIVE_DEFAULT_MAX_SP = 24.0`，Kotlin 改 24→28 时那边仍全绿，
+     * 覆盖面证明静默失效——与本仓要消除的「两份副本」同型。
+     *
+     * 原生上界 = 图集边长 ÷ 系数，图集边长经原生导出不可得，故用 Rust 侧已钉住的
+     * 字面值关系 `cap = ATLAS_SIZE / scale`（`ATLAS_SIZE = 2048`，见
+     * `font_size_cap_is_the_atlas_edge_expressed_in_sp` 的断言）反推。
+     */
+    @Test
+    fun `the native font size cap covers every selectable size over the whole scale range`() {
+        val bounds = requireNotNull(NativeBridge.getRasterScaleRange()) { "原生未返回光栅缩放区间" }
+        val atlasSize = 2048f
+        val samples = 64
+        for (index in 0..samples) {
+            val scale = bounds[0] + (bounds[1] - bounds[0]) * index / samples
+            val nativeCapSp = atlasSize / scale
+            val kotlinSelectableMaxSp =
+                SettingsRepository.fontSizeMaxSp(
+                    scale,
+                    // 屏宽取 0：列数那条给不出任何上界，正是测试兜底路径的极端情形
+                    0f,
+                )
+            assertTrue(
+                "系数=$scale 时原生上界 ${nativeCapSp}sp 覆盖不了 Kotlin 可选上界 " +
+                    "${kotlinSelectableMaxSp}sp",
+                kotlinSelectableMaxSp <= nativeCapSp,
+            )
         }
     }
 }
