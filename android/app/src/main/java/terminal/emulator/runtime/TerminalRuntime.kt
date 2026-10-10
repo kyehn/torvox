@@ -481,11 +481,6 @@ constructor(
     // 而非原始设置值出发（后者在字号从未显式设置时可能不同）。
     @Volatile internal var appliedFontSizeTenths: Int = 0
 
-    // 逻辑像素单元格尺寸（用于网格行列计算），是未经密度缩放的原生原始值。
-    @Volatile var logicalCellWidth: Float = 0f
-
-    @Volatile var logicalCellHeight: Float = 0f
-
     private val renderGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
     @Volatile private var activeSessionId: Long = 0L
@@ -1982,8 +1977,6 @@ constructor(
     private fun syncCellMetricsOnly(bridge: Bridge) {
         val rawCellWidth = bridge.getCellWidth()
         val rawCellHeight = bridge.getCellHeight()
-        if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
-        if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
         // 与渲染器同口径：渲染的四边形尺寸是 `cell_metrics × raster_scale`
         // （native/render/pass.rs），而 `raster_scale` 就是 spToPxScale。
         // 只乘 density 会在系统字体缩放 ≠ 1 时与渲染相差一个 fontScale 倍，
@@ -3605,10 +3598,7 @@ constructor(
         // 否则系统字体缩放 ≠ 1 时触摸命中与渲染相差一个 fontScale 倍。
         val rawCellWidth = bridge.getCellWidth()
         val rawCellHeight = bridge.getCellHeight()
-        // 逻辑像素尺寸（用于网格计算）：原生原始值
-        if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
-        if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
-        // 物理像素尺寸（用于渲染/触摸）：已按光栅缩放
+        // 物理像素尺寸（用于渲染/触摸/网格）：已按光栅缩放
         val newCellWidth = rawCellWidth * spToPxScale
         val newCellHeight = rawCellHeight * spToPxScale
         val hadCellMetrics = cellWidth > 0f && cellHeight > 0f

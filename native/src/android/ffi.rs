@@ -1983,9 +1983,11 @@ fn last_content_row_bits_for_frame(
     cells: &[crate::terminal::ghostty_terminal::CellData],
     rows: u32,
 ) -> i64 {
+    // 超出 10 位即按哨兵处理（而非截断）：截断会把 1024 报成 0、1025 报成 1，
+    // 让 Kotlin 按一个**貌似合理**的错误行号去算位移；哨兵则让调用方保守地不位移。
     match crate::render::cell_builder::last_content_row(cells, rows) {
-        Some(row) => (row as i64) & LAST_CONTENT_ROW_NONE_BITS,
-        None => LAST_CONTENT_ROW_NONE_BITS,
+        Some(row) if (row as i64) < LAST_CONTENT_ROW_NONE_BITS => row as i64,
+        _ => LAST_CONTENT_ROW_NONE_BITS,
     }
 }
 

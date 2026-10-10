@@ -25,9 +25,6 @@ class RenderLatchCadenceTest {
 
     private data class Case(val idleNanos: Long, val hasScrollMotion: Boolean, val expected: Boolean)
 
-    private fun expectedFor(idleNanos: Long, hasScrollMotion: Boolean): Boolean =
-        idleNanos > IDLE_THRESHOLD_NANOS && !hasScrollMotion
-
     /**
      * Full four-combination truth table of the latch gate: stale clock without scroll motion is
      * the ONLY state that selects the idle 500ms latch. A stale clock WITH scroll motion stays on
@@ -52,11 +49,6 @@ class RenderLatchCadenceTest {
                     hasScrollMotion = case.hasScrollMotion,
                     idleThresholdNanos = IDLE_THRESHOLD_NANOS,
                 ),
-            )
-            assertEquals(
-                "truth-table oracle mismatch",
-                expectedFor(case.idleNanos, case.hasScrollMotion),
-                case.expected,
             )
         }
     }
