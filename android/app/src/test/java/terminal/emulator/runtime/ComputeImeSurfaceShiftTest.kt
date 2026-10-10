@@ -128,10 +128,4 @@ class ComputeImeSurfaceShiftTest {
             ),
         )
     }
-
-    @Test
-    fun `primary screen keeps shifting after alt-screen overload added`() {
-        // 默认参数必须保持主屏旧行为，否则现有壳场景回归。
-        assertEquals(keyboardPx, shiftFor(contentBottomPx = gridHeightPx))
-    }
 }

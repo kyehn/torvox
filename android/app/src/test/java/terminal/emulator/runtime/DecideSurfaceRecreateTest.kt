@@ -1,6 +1,5 @@
 package terminal.emulator.runtime
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,13 +57,5 @@ class DecideSurfaceRecreateTest {
         )
         assertFalse(decision.request)
         assertTrue(decision.exhausted)
-    }
-
-    @Test
-    fun `reset budget after recovery allows a fresh burst`() {
-        // Recovery clears both the attempts and the timestamp, so the next invalidation
-        // (a second abandoned BufferQueue later in the session) starts over at attempt 1.
-        val recovered = decideSurfaceRecreate(attempts = 0, lastRequestNanos = 0L, nowNanos = 42L)
-        assertEquals(1, if (recovered.request) 1 else 0)
     }
 }

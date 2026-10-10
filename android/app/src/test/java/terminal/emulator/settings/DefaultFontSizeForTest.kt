@@ -14,11 +14,6 @@ import org.junit.Test
  */
 class DefaultFontSizeForTest {
 
-    private fun expected(widthDp: Float): Float = (widthDp / 52f / 0.6f).coerceIn(
-        SettingsRepository.ADAPTIVE_DEFAULT_MIN_SP,
-        SettingsRepository.ADAPTIVE_DEFAULT_MAX_SP,
-    )
-
     @Test
     fun smallPhoneNeverBelowFloor() {
         // 360dp：公式原值 11.5sp 低于下限 14sp，须被抬到下限。
@@ -33,7 +28,6 @@ class DefaultFontSizeForTest {
     @Test
     fun emulatorWidthHitsFloor() {
         // 411dp（1080px @420dpi）：公式原值 13.17sp 同样低于下限 14sp，落在下限上。
-        assertEquals(expected(411f), SettingsRepository.defaultFontSizeFor(411f), 0.001f)
         assertEquals(SettingsRepository.ADAPTIVE_DEFAULT_MIN_SP, SettingsRepository.defaultFontSizeFor(411f), 0.001f)
     }
 
