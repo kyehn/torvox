@@ -1827,9 +1827,17 @@ constructor(
          */
         private const val MODIFIER_BAR_HEIGHT_DP = BUTTON_HEIGHT_DP * 2
 
-        private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
-        private const val FONT_SIZE_MIN_PX = 300
-        private const val FONT_SIZE_MAX_PX = 600
+        /**
+         * 等宽字形宽高比（em），只用于估算「放得下至少 N 列」的最小 Surface 宽度。
+         *
+         * 命名刻意不含 FONT_SIZE：这三个常量度的是**表面像素**，与
+         * `SettingsRepository.FONT_SIZE_*`（字号）无关，而后者正是「设置条范围与
+         * 实际可设置范围不一致」那次要求全仓搜索字号的依据——同名不同义会让搜索
+         * 落到与字号无关的数值上。
+         */
+        private const val MONOSPACE_CHAR_ASPECT = 0.6f
+        private const val MIN_SURFACE_WIDTH_PX = 300
+        private const val MAX_SURFACE_WIDTH_PX = 600
         private const val FONT_SIZE_HEIGHT_RATIO = 0.5f
         private const val FONT_SIZE_HEIGHT_MIN_PX = 250
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
@@ -2133,7 +2141,7 @@ constructor(
         }
 
         val minWidth =
-            (displayW * FONT_SIZE_DISPLAY_RATIO).toInt().coerceIn(FONT_SIZE_MIN_PX, FONT_SIZE_MAX_PX)
+            (displayW * MONOSPACE_CHAR_ASPECT).toInt().coerceIn(MIN_SURFACE_WIDTH_PX, MAX_SURFACE_WIDTH_PX)
         val minHeight =
             (displayH * FONT_SIZE_HEIGHT_RATIO)
                 .toInt()
