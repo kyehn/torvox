@@ -3149,9 +3149,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
 /// （`SettingsRepository.fontSizeMaxSp`）以该系数为分母，系数一旦落在区间外，
 /// 算出的字号上界就不再对应原生真实的光栅尺度。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange<
-    'local,
->(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jfloatArray {
@@ -3557,7 +3555,9 @@ mod clipboard_read_flood_tests {
 
 #[cfg(test)]
 mod font_size_cap_tests {
-    use super::{ATLAS_SIZE, RASTER_SCALE_MAX, RASTER_SCALE_MIN, font_size_cap_sp, is_font_size_selectable};
+    use super::{
+        ATLAS_SIZE, RASTER_SCALE_MAX, RASTER_SCALE_MIN, font_size_cap_sp, is_font_size_selectable,
+    };
 
     /// Kotlin `SettingsRepository.fontSizeMaxSp` 的**权威取值**，即 Termux 自身的
     /// 公开常量：像素上限 256、调整步长 2sp、下限 4sp。这里刻意写死外部数值而非
