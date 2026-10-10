@@ -13,6 +13,17 @@ object TerminalInputEncoder {
     private const val UPPERCASE_CONTROL_OFFSET = 64
 
     /**
+     * xterm 的 `modifier_code`（ghostty `modifier_code`、kitty、wezterm termwiz 一致）：
+     * 位 1 = Shift，位 2 = Alt，位 4 = Ctrl，无修饰为 1。
+     *
+     * 五处修饰编码（Ctrl 数字的 `CSI 27`、Tab、Enter 族与 F 键/方向键/编辑键的
+     * `CSI 1;mod`）此前各自展开这行算式：改一处而漏一处既不编译失败也不被测试
+     * 察觉，只会安静地发出错误的修饰值。改由本函数一处定义。
+     */
+    private fun modifierParam(ctrlActive: Boolean, altActive: Boolean): Int =
+        1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
+
+    /**
      * 回车键的全部键码，含导航键中心（`KEYCODE_DPAD_CENTER`，部分输入法与遥控器
      * 以它代替 Enter 提交）。
      *
@@ -56,8 +67,7 @@ object TerminalInputEncoder {
             // 它们改以 `CSI 27;5;code~` 发出而非被丢弃，
             // 与硬件按键路径一致。
             if (codePoint == '1'.code || codePoint == '9'.code || codePoint == '0'.code) {
-                val modifier = 1 + (if (altActive) 2 else 0) + 4
-                return csi27(modifier, codePoint)
+                return csi27(modifierParam(ctrlActive = true, altActive = altActive), codePoint)
             }
             val controlByte = controlByteForCodePoint(codePoint)
             if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
@@ -96,8 +106,7 @@ object TerminalInputEncoder {
             // （Ctrl+Alt+A → ESC 0x01）。
             if (unicodeChar in 0x20..0x7E) {
                 if (unicodeChar == '1'.code || unicodeChar == '9'.code || unicodeChar == '0'.code) {
-                    val modifier = 1 + (if (altActive) 2 else 0) + 4
-                    return csi27(modifier, unicodeChar)
+                    return csi27(modifierParam(ctrlActive = true, altActive = altActive), unicodeChar)
                 }
                 val folded = controlByteForCodePoint(unicodeChar)
                 if (folded != null) return withAltPrefix(altActive, byteArrayOf(folded))
@@ -144,7 +153,7 @@ object TerminalInputEncoder {
                     // 按住 Alt 时，xterm 发送 ESC TAB（Meta 前缀）而非裸制表符；
                     // 按住 Ctrl 时发送 CSI 9;mod~（xterm/kitty 约定）。
                     ctrlActive || altActive -> {
-                        val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
+                        val modParam = modifierParam(ctrlActive, altActive)
                         "\u001b[9;$modParam~"
                     }
 
@@ -170,7 +179,7 @@ object TerminalInputEncoder {
 
                     // Ctrl/Alt+Ctrl+回车：CSI u 修饰键编码 `CSI 27 ; mod ; 13 ~`
                     // （ghostty function_keys.zig），非 `CSI 13;mod~`。
-                    else -> "\u001b[27;${1 + (if (altActive) 2 else 0) + 4};13~"
+                    else -> "\u001b[27;${modifierParam(ctrlActive = true, altActive = altActive)};13~"
                 }
 
             KeyEvent.KEYCODE_ESCAPE -> "\u001b"
@@ -221,31 +230,31 @@ object TerminalInputEncoder {
     }
 
     private fun csiSequenceWithModifier(keyCode: Int, ctrlActive: Boolean, altActive: Boolean): String? {
-        val modifierParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
+        val modifier = modifierParam(ctrlActive, altActive)
         return when (keyCode) {
-            KeyEvent.KEYCODE_F1 -> "\u001b[1;${modifierParam}P"
-            KeyEvent.KEYCODE_F2 -> "\u001b[1;${modifierParam}Q"
-            KeyEvent.KEYCODE_F3 -> "\u001b[1;${modifierParam}R"
-            KeyEvent.KEYCODE_F4 -> "\u001b[1;${modifierParam}S"
-            KeyEvent.KEYCODE_F5 -> "\u001b[15;$modifierParam~"
-            KeyEvent.KEYCODE_F6 -> "\u001b[17;$modifierParam~"
-            KeyEvent.KEYCODE_F7 -> "\u001b[18;$modifierParam~"
-            KeyEvent.KEYCODE_F8 -> "\u001b[19;$modifierParam~"
-            KeyEvent.KEYCODE_F9 -> "\u001b[20;$modifierParam~"
-            KeyEvent.KEYCODE_F10 -> "\u001b[21;$modifierParam~"
-            KeyEvent.KEYCODE_F11 -> "\u001b[23;$modifierParam~"
-            KeyEvent.KEYCODE_F12 -> "\u001b[24;$modifierParam~"
-            KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3;$modifierParam~"
-            KeyEvent.KEYCODE_INSERT -> "\u001b[2;$modifierParam~"
-            KeyEvent.KEYCODE_DPAD_UP -> "\u001b[1;${modifierParam}A"
-            KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[1;${modifierParam}B"
-            KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[1;${modifierParam}C"
-            KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[1;${modifierParam}D"
-            KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[1;${modifierParam}H"
-            KeyEvent.KEYCODE_MOVE_END -> "\u001b[1;${modifierParam}F"
-            KeyEvent.KEYCODE_PAGE_UP -> "\u001b[5;$modifierParam~"
-            KeyEvent.KEYCODE_PAGE_DOWN -> "\u001b[6;$modifierParam~"
-            KeyEvent.KEYCODE_DEL -> "\u001b[3;$modifierParam~"
+            KeyEvent.KEYCODE_F1 -> "\u001b[1;${modifier}P"
+            KeyEvent.KEYCODE_F2 -> "\u001b[1;${modifier}Q"
+            KeyEvent.KEYCODE_F3 -> "\u001b[1;${modifier}R"
+            KeyEvent.KEYCODE_F4 -> "\u001b[1;${modifier}S"
+            KeyEvent.KEYCODE_F5 -> "\u001b[15;$modifier~"
+            KeyEvent.KEYCODE_F6 -> "\u001b[17;$modifier~"
+            KeyEvent.KEYCODE_F7 -> "\u001b[18;$modifier~"
+            KeyEvent.KEYCODE_F8 -> "\u001b[19;$modifier~"
+            KeyEvent.KEYCODE_F9 -> "\u001b[20;$modifier~"
+            KeyEvent.KEYCODE_F10 -> "\u001b[21;$modifier~"
+            KeyEvent.KEYCODE_F11 -> "\u001b[23;$modifier~"
+            KeyEvent.KEYCODE_F12 -> "\u001b[24;$modifier~"
+            KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3;$modifier~"
+            KeyEvent.KEYCODE_INSERT -> "\u001b[2;$modifier~"
+            KeyEvent.KEYCODE_DPAD_UP -> "\u001b[1;${modifier}A"
+            KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[1;${modifier}B"
+            KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[1;${modifier}C"
+            KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[1;${modifier}D"
+            KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[1;${modifier}H"
+            KeyEvent.KEYCODE_MOVE_END -> "\u001b[1;${modifier}F"
+            KeyEvent.KEYCODE_PAGE_UP -> "\u001b[5;$modifier~"
+            KeyEvent.KEYCODE_PAGE_DOWN -> "\u001b[6;$modifier~"
+            KeyEvent.KEYCODE_DEL -> "\u001b[3;$modifier~"
             else -> null
         }
     }
