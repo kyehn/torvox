@@ -3083,8 +3083,10 @@ constructor(
                 cellHeight = cellHeight,
             )
         if (newRows == 0 || newCols == 0) {
-            // 退化几何（可用高度 ≤ 0，例如 Surface 不高于 ModifierBar）：
-            // 保持当前网格，而不是把它塌缩为一行。
+            // 哨兵只可能来自单元度量：上方的守卫与本次调用读的是两个不同的
+            // @Volatile 取值，中间渲染线程写回 0 即命中。可用高度本身已在
+            // computeGridAvailableHeight 里钳到 ≥ 1，不会再产生退化几何。
+            // 命中即保持当前网格，而不是塌缩成一行。
             return
         }
         if (newRows == currentRows && newCols == currentCols) return
