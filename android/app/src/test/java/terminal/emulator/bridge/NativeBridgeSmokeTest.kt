@@ -201,4 +201,34 @@ class NativeBridgeSmokeTest {
             )
         }
     }
+
+    /**
+     * 跨语言真值测试：Kotlin 的 sp→px 钳位区间 MUST 就是原生 `setRasterScale` 守卫
+     * 用的那个区间。
+     *
+     * 为什么必须经 JNI 读回而不是各写一份字面量：这两份字面量（Kotlin 0.5f..8f、
+     * Rust 0.5..=8.0）此前只由注释互相绑定，测试又抄了第三份，于是改任何一处都
+     * 不会让任何用例变红——而漂移的后果与字号上界那次同型：钳位点落在原生会拒收的
+     * 区间外，字号上界随之用错系数算出。现在区间由 [NativeBridge.getRasterScaleRange]
+     * 从原生常量导出，两端共用一份，本用例钉住导出值本身可用、且生产用的换算函数
+     * 在任何密度/系统字体缩放组合下都落进它。
+     */
+    @Test
+    fun `the raster scale range reported by the native side is usable and contains every clamped scale`() {
+        val bounds = NativeBridge.getRasterScaleRange()
+        assertEquals("原生必须报告两个端点", 2, bounds.size)
+        val range = bounds[0]..bounds[1]
+        assertTrue("下界必须为正且有限，实际 ${bounds[0]}", bounds[0].isFinite() && bounds[0] > 0f)
+        assertTrue("上界必须不小于下界，实际 $bounds", bounds[1].isFinite() && bounds[1] >= bounds[0])
+
+        listOf(0.1f, 0.5f, 1f, 2.625f, 3f, 4f, 8f, 16f, 100f).forEach { density ->
+            listOf(0.1f, 0.5f, 1f, 1.3f, 2f, 4f, 10f).forEach { fontScale ->
+                val scale = terminal.emulator.runtime.coerceSpToPxScale(density, fontScale, range)
+                assertTrue(
+                    "density=$density fontScale=$fontScale 得到 $scale，超出原生区间 $range",
+                    scale in range,
+                )
+            }
+        }
+    }
 }

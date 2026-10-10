@@ -15,6 +15,7 @@ import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.runtime.coerceSpToPxScale
+import terminal.emulator.runtime.rasterScaleRange
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.waitForSession
 
@@ -47,7 +48,8 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
     /**
      * sp→px 系数：走生产用的同一个函数，不自己乘一遍。
      *
-     * `TerminalRuntime.coerceSpToPxScale` 会把乘积钳到原生接受的区间（0.5..=8.0）；
+     * `coerceSpToPxScale` 会把乘积钳到原生接受的区间（区间经
+     * `NativeBridge.getRasterScaleRange` 从原生取，与 `setRasterScale` 的守卫同一常量）；
      * 测试直接用 `density * fontScale` 时，落在区间外的设备会去测一个调节条
      * 根本划不到的字号。资源取 activity 的：`fontScale` 可被 Activity 的
      * configuration 覆写，target context 上读到的未必是屏幕上生效的那个。
@@ -57,6 +59,7 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
         return coerceSpToPxScale(
             resources.displayMetrics.density,
             resources.configuration.fontScale,
+            rasterScaleRange,
         )
     }
 

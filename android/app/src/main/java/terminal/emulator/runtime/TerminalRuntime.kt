@@ -474,6 +474,7 @@ constructor(
         get() = coerceSpToPxScale(
             context.resources.displayMetrics.density,
             context.resources.configuration.fontScale,
+            rasterScaleRange,
         )
 
     // 最近一次推给原生的字号（十分之一单位）。缩放手势以其为锚点，使预览/确定从实际渲染尺寸
@@ -3719,22 +3720,32 @@ internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Lon
     previousId != null && previousId != failedTargetId
 
 /**
- * sp→px 系数（光栅缩放）的合法区间，与原生 `setRasterScale` 的接受区间一致
- * （Rust `if !(0.5..=8.0).contains(&scale)`）：区间外的值被原生拒收并记错误日志，
- * 故超界必须在此钳住，否则字号上界与实际渲染脱节。
+ * 原生接受的光栅缩放（sp→px 系数）区间：原生为唯一真源（`NativeBridge.getRasterScaleRange`）。
+ *
+ * 此前此处另存一份 `0.5f..8f` 字面量，与 Rust `setRasterScale` 的守卫只由注释绑定——
+ * 与字号上界那次同型的第二处重复：两端一旦漂移，`coerceSpToPxScale` 会把原生会拒收的
+ * 系数当作合法值，而字号上界（`SettingsRepository.fontSizeMaxSp` 以系数为分母）
+ * 随之用错系数算，重新出现「设置条范围与实际可设置范围不一致」。
  */
-private const val MIN_RASTER_SCALE = 0.5f
-private const val MAX_RASTER_SCALE = 8f
+internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
+    val bounds = terminal.emulator.bridge.NativeBridge.getRasterScaleRange()
+    // 不设默认值：区间拿不到就说明 JNI 侧出了错，钳到一个猜测值只会让字号上界
+    // 与原生实际接受区间悄悄脱节——正是本函数存在的理由。带原文抛出，诊断可读。
+    require(bounds.size == 2 && bounds.all { it.isFinite() && it > 0f } && bounds[0] <= bounds[1]) {
+        "原生未给出合法的光栅缩放区间: ${bounds.contentToString()}"
+    }
+    bounds[0]..bounds[1]
+}
 
 /**
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
  *
  * 顶层纯函数以便测试：字号的每一次 sp↔px 换算都经此系数，钳位区间 MUST 与
  * 原生 `setRasterScale` 一致——区间外的值被原生拒收并记错误日志，会使字号上界
- * 与实际渲染脱节。
+ * 与实际渲染脱节。区间由 [rasterScaleRange] 提供，故纯函数不直接碰 JNI。
  */
-internal fun coerceSpToPxScale(density: Float, fontScale: Float): Float =
-    (density * fontScale).coerceIn(MIN_RASTER_SCALE, MAX_RASTER_SCALE)
+internal fun coerceSpToPxScale(density: Float, fontScale: Float, range: ClosedFloatingPointRange<Float>): Float =
+    (density * fontScale).coerceIn(range.start, range.endInclusive)
 
 /**
  * recomputeGridFromFontMetrics 背后的纯网格尺寸计算：cols = floor(surfaceWidth / cellWidth)，
