@@ -649,6 +649,25 @@ class TerminalInputEncoderTest {
     }
 
     @Test
+    fun `enter stays a carriage return even when the platform reports a line feed`() {
+        // KeyEvent.getUnicodeChar() 对小键盘回车与部分输入法返回 '\n'(0x0A)。
+        // 编码器的优先级 MUST 是「转义序列优先于 unicodeChar」：一旦可打印字符分支
+        // 先执行，硬件回车就会把 LF 写进 PTY，raw 模式的 TUI 应用读到的是 Ctrl+J
+        // 即字母 j——与「回车变成 j」完全同一症状，只是触发点从编码表换成了顺序。
+        listOf(
+            android.view.KeyEvent.KEYCODE_ENTER,
+            android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+        ).forEach { keyCode ->
+            assertArrayEquals(
+                "keyCode=$keyCode 携带 unicodeChar=0x0A 时仍必须是 CR",
+                bytes(0x0D),
+                TerminalInputEncoder.encodeKeyEvent(keyCode, 0x0A, false, false),
+            )
+        }
+    }
+
+    @Test
     fun `every enter keycode with ctrl reports csi 27 codepoint encoding`() {
         // 带 Ctrl 时同样按回车族统一上报 CSI u 编码。
         listOf(
