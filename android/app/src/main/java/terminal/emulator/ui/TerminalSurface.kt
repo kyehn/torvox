@@ -38,6 +38,7 @@ import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.computeContentBottomPx
+import terminal.emulator.runtime.computeGridAvailableHeight
 import terminal.emulator.runtime.computeGridDimensions
 import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.settings.SettingsRepository
@@ -449,7 +450,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
             // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
             val availableHeight =
-                (height - runtime.modifierBarHeightPx - imeReserve).coerceAtLeast(1)
+                computeGridAvailableHeight(
+                    surfaceHeight = height,
+                    modifierBarHeightPx = runtime.modifierBarHeightPx,
+                    imeReserve = imeReserve,
+                )
             val (newRows, newCols) =
                 computeGridDimensions(
                     surfaceWidth = width,
@@ -465,14 +470,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             )
             if (newRows != rows || newCols != cols) {
                 runtime.resize(newRows, newCols)
-                // 随网格 resize 一同推入像素尺寸，使 PTY winsize 携带真实的
-                // ws_xpixel/ws_ypixel：感知像素的程序（icat、全屏 TUI）
-                // 经 TIOCGWINSZ 读取它们，为 0 时会渲染错误。
-                // availableHeight 已排除工具栏——正是 rows 覆盖的网格区域。
-                runtime.setPixelSize(width, availableHeight)
                 rows = newRows
                 cols = newCols
             }
+            // 推入像素尺寸与网格变化解耦：输入法遮挡变化后行数可能恰好不变
+            // （矮键盘 + 大单元格），但 ws_ypixel 描述的网格区域已经变了。
+            // 契约见 NativeBridge.setPixelSize：每次网格 resize 都随 surface 的
+            // 像素尺寸一并下发。availableHeight 已排除键栏与输入法遮挡——
+            // 正是 rows 覆盖的网格区域。
+            runtime.setPixelSize(width, availableHeight)
         }
 
         internal fun recomputeRowsColsImmediate(width: Int, height: Int) {
@@ -485,7 +491,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 此镜像会相差工具栏那几行，并在每次重组时被迫 requestLayout()。
                     val barPx = viewModel.runtime.modifierBarHeightPx
                     val availableHeight =
-                        (height - barPx - viewModel.runtime.imeGridReserve()).coerceAtLeast(1)
+                        computeGridAvailableHeight(
+                            surfaceHeight = height,
+                            modifierBarHeightPx = barPx,
+                            imeReserve = viewModel.runtime.imeGridReserve(),
+                        )
                     val (newRows, newCols) =
                         computeGridDimensions(
                             surfaceWidth = width,

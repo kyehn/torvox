@@ -3058,10 +3058,16 @@ constructor(
         // 由物理 surface / 物理单元格度量计算网格尺寸。
         // 两者都是物理像素（已按密度缩放）。ModifierBar 覆盖 Surface 底部，
         // 故计算 rows 之前先减去其高度。
+        val availableHeight =
+            computeGridAvailableHeight(
+                surfaceHeight = surfaceH,
+                modifierBarHeightPx = barHeightPx,
+                imeReserve = imeGridReserve(),
+            )
         val (newRows, newCols) =
             computeGridDimensions(
                 surfaceWidth = surfaceW,
-                surfaceHeight = surfaceH - barHeightPx - imeGridReserve(),
+                surfaceHeight = availableHeight,
                 cellWidth = cellWidth,
                 cellHeight = cellHeight,
             )
@@ -3079,6 +3085,12 @@ constructor(
         // 只 resize 活动会话：后台会话保留各自的网格尺寸；
         // 用活动会话的尺寸 resize 所有会话会对它们触发多余的 SIGWINCH 与重排。
         sessions[activeSessionId]?.bridge?.resize(newRows, newCols)
+        // 随网格 resize 一同推入像素尺寸，使 PTY winsize 携带真实的
+        // ws_xpixel/ws_ypixel（契约见 `NativeBridge.setPixelSize`：「每次网格 resize
+        // 时随 surface 的像素尺寸一并调用」）。此前只有视图侧 `applyGridResize` 会推，
+        // 于是旋转 / 改字号走本条路径时像素字段停在旧值——像素感知的程序
+        // （kitty 图像协议、icat）经 TIOCGWINSZ 读到过期的窗口像素尺寸。
+        setPixelSize(surfaceW, availableHeight)
         _state.update { it.copy(rows = newRows, cols = newCols) }
     }
 
@@ -3792,6 +3804,21 @@ internal fun computeGridDimensions(
     val rows = (surfaceHeight / cellHeight).toInt().coerceAtLeast(1)
     return Pair(rows, cols)
 }
+
+/**
+ * 网格的可用高度：Surface 高度扣掉修饰键栏覆盖层与输入法遮挡。
+ *
+ * 三条网格重算路径（运行期的 `recomputeGridFromFontMetrics`、
+ * `TerminalSurface.ResizeManager.applyGridResize` 与 `recomputeRowsColsImmediate`）
+ * MUST 共用本函数：它们此前各自展开这行算式，其中运行期那条还漏了 `coerceAtLeast`，
+ * 于是「Surface 不高于键栏 + 输入法」这一几何下它返回 (0,0) 并**静默保持旧网格**
+ * （输入法扣减被丢掉），另两条却收敛到一行——同一几何两种网格，正是
+ * 「扣减量单一来源」要防的分叉。
+ *
+ * @param imeReserve [imeGridReserve]：只在备用屏非零，主屏恒 0。
+ */
+internal fun computeGridAvailableHeight(surfaceHeight: Int, modifierBarHeightPx: Int, imeReserve: Int): Int =
+    (surfaceHeight - modifierBarHeightPx - imeReserve).coerceAtLeast(1)
 
 // surface 重建请求的最小间隔（纳秒）：一次重建含拆装视图 + 新 surface 交付 + 首帧，
 // 短于此的重试只会连累在途的重建。
