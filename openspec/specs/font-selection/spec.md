@@ -228,6 +228,20 @@ MUST NOT 保留已无用途的日志初始化导出与调用方。
 像素上限换算 MUST 使用完整系数，MUST NOT 只按显示密度：字形的实际光栅尺度即为
 `sp × 该系数`，只用密度会在系统「字体大小」> 1 时放行实际超出 Termux 像素上限的
 字号。调节条、缩放手势、预览、落盘值应用与设置页展示的像素值 MUST 共用该单一来源。
+
+字号上界的**两个输入**都 MUST 单一来源，MUST NOT 让各调用点自行取值：
+
+- sp→px 系数：全仓从 `TerminalRuntime.spToPxScale` 取；
+- 屏幕宽：全仓从 `TerminalRuntime.screenWidthDp`（= `resources.configuration
+  .screenWidthDp`）取，MUST NOT 用 `displayMetrics.widthPixels / density` 自算
+  ——那是**应用窗口**的物理宽换算，与 `configuration.screenWidthDp` 在系统字体
+  缩放、display cutout、多窗口下都给不出同一个值。
+
+公式一致而输入分叉比两份常量更难发现：两边的算式完全相同，偏差只藏在输入里，
+实测曾出现五处取值源（Compose `LocalConfiguration`、View 的 `resources`、
+`displayMetrics.widthPixels / density` 出现三次），使调节条上界、捏合上界、
+自适应默认字号与首次启动落盘值按三四个不同的宽度推导——而它们本该是同一条
+列↔字号比例的几种问法。
 该系数的钳位区间 MUST 取自原生（MUST NOT 由 Kotlin 另存一份字面量）：它与原生
 `setRasterScale` 守卫是同一个事实，两端各写一份时，漂移的后果与字号上界那次同型
 ——Kotlin 把原生会拒收的系数当作合法值，上界随之用错系数算出。守卫与对外查询
