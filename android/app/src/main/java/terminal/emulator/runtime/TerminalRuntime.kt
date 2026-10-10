@@ -2442,7 +2442,7 @@ constructor(
                 }
                 if (sessions.isEmpty()) {
                     activeSessionId = 0L
-                    publishSessionViewState(null)
+                    publishActiveSessionState(null)
                     _state.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
                     // 使通知与唤醒锁不活得比空会话映射更久
@@ -2876,7 +2876,7 @@ constructor(
             try {
                 activeSessionId = id
                 // 重新初始化内容下沿与备用屏状态：新会话的渲染线程从此刻起在变化时重新发布。
-                publishSessionViewState(target)
+                publishActiveSessionState(target)
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3023,7 +3023,7 @@ constructor(
                     )
                 } else {
                     activeSessionId = 0L
-                    publishSessionViewState(null)
+                    publishActiveSessionState(null)
                 }
             }
             updateState()
@@ -3283,11 +3283,11 @@ constructor(
         selectionState.set(
             SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection),
         )
-        val entry = sessions[activeSessionId]
-        entry
-            ?.bridge
-            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection)
-        entry?.notifyRender()
+        // 只更新全局快照并唤醒渲染线程：由渲染循环作为**唯一**写者在
+        // renderWithNewOutput 之前下发（见渲染循环的 lastSelection 比对）。
+        // 此处再直推一次是重复的同步 JNI 往返（拖手柄时每次节流都发生，且在 UI
+        // 线程上持会话锁）；更糟的是切换会话的间隙里两次会写进**不同的**会话。
+        sessions[activeSessionId]?.notifyRender()
     }
 
     /**
@@ -3371,24 +3371,30 @@ constructor(
     }
 
     /**
-     * 把活动会话的「视口状态」重置为 [entry] 当前持有的值：内容下沿与备用屏状态。
+     * 把活动会话的运行期镜像重置为 [entry] 当前持有的值：内容下沿、备用屏状态与
+     * 选区。
      *
-     * 渲染循环只在**变化时**发布这两项（`if (value != entry.<field>)`），故每个
+     * 渲染循环只在**变化时**发布前两项（`if (value != entry.<field>)`），故每个
      * 换活动会话的入口都必须先把流对齐到新会话的现值，否则新会话的首帧若与它自身
      * 的字段相同（如备用屏的初始 `false`）就不会发布，运行期会一直保留**上一个**
-     * 会话的值。
+     * 会话的值。选区没有按会话保存，它只有这一份全局快照，故只能直接复位。
      *
      * 该残留不是显示瑕疵：备用屏陈旧为真时 [imeGridReserve] 会一直扣着一份早已
      * 撤走的键盘高度（备用屏网格永久塌缩且不自愈），`computeImeSurfaceShift` 的
      * 备用屏分支恒返回 0（主屏不再随键盘上移），而 [TerminalSurface] 的输入法
      * 网格防抖会在主屏上白白领走渲染暂停。
      */
-    private fun publishSessionViewState(entry: SessionEntry?) {
+    private fun publishActiveSessionState(entry: SessionEntry?) {
         // entry 为 null = 活动会话归零：无会话即无备用屏、也没有内容下沿。沿用上一个
         // 会话的标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，并把据此
         // 算出的幻影网格写进 _state，随后由 alignGridOnSwitch 套到下一个会话上。
         lastContentRowFlowInternal.value = entry?.lastContentRow ?: Bridge.LAST_CONTENT_ROW_NONE
         altScreenActiveFlowInternal.value = entry?.altScreenActive ?: false
+        // 选区同样必须复位：它是**进程级**的单一快照（渲染循环逐帧转发给活动会话），
+        // 而新会话的渲染线程把 lastSelection 初始化成空选区，首帧就会把上一个会话
+        // 的选区推给新会话——在属于前一个回滚缓冲区的绝对行号上烘出反色块，
+        // 而手柄并不会出现，用户无从解释这块高亮。
+        selectionState.set(SelectionStateSnapshot(0, 0, 0, 0, false))
     }
 
     /**
@@ -3418,7 +3424,7 @@ constructor(
                 ?: run {
                     LogUtil.w("Runtime", "$caller: new active session $newId already removed")
                     activeSessionId = 0L
-                    publishSessionViewState(null)
+                    publishActiveSessionState(null)
                     updateState()
                     return
                 }
@@ -3499,7 +3505,7 @@ constructor(
         // 无条件重启：仍存活的旧线程正在退出；
         // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
         renderSupervisor.startRenderThread(replacement)
-        publishSessionViewState(replacement)
+        publishActiveSessionState(replacement)
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
         }
