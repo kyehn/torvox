@@ -75,7 +75,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 两个防抖的 resume 回调同样持有本视图：detach 恰在防抖窗内则
         // pause 之后 resume 丢失，渲染永久暂停。直接取消会吞掉配对的 resume
         // ——先把持有的暂停全部归还（计数归零），再取消回调。
-        forceResumeRendering()
+        // 只归还自己持有的，不碰全局暂停标志：surfaceDestroyed 刚装上的暂停
+        // 与设置页的暂停都不是本视图的，见 cancelDebounceHolds 的说明。
+        cancelDebounceHolds()
         // 输入法网格防抖也必须取消，而不只是作废凭证（`forceResumeRendering` 对它
         // 刻意只清凭证，因为它的 `postDelayedSurfaceRecreate` 调用方还要靠 runnable
         // 执行）。detach 场景不同：insets 派发已经停摆、遮挡高度刚被归零，
@@ -1541,15 +1543,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 执行（陈旧归还已是空操作）。
      */
     private fun forceResumeRendering() {
+        cancelDebounceHolds()
+        // 无条件出一帧：本函数的所有调用点都刚拿到可用 Surface。直接写运行期而不走
+        // ledger ——ledger 只对自己的持有负责，而这里要覆盖的是别的持有者
+        // （切后台等）留下的全局暂停标志。
+        viewModel?.runtime?.setRenderPaused(false)
+    }
+
+    /**
+     * 取消两个在途防抖并归还它们持有的渲染暂停，**不**动全局暂停标志本身。
+     *
+     * 视图 detach 必须走这里而不是 [forceResumeRendering]：`SurfaceView` 的
+     * `dispatchDetachedFromWindow` 先销毁硬件层（投递 `surfaceDestroyed`，据此
+     * `setRenderPaused(true)`）才投递 `onDetachedFromWindow`。全局暂停是**非计数**
+     * 的单一布尔，无条件写 false 等于把刚刚装上的暂停、以及设置页那条暂停一起顶掉，
+     * 渲染线程便对着已死的 `ANativeWindow` 空跑到下一条恢复路径为止。
+     */
+    private fun cancelDebounceHolds() {
         pendingSurfaceResize?.let { removeCallbacks(it) }
         pendingSurfaceResize = null
         pendingSurfaceResizeToken = null
         pendingImeGridResizeToken = null
         pauseLedger.reset()
-        // 无条件出一帧：本函数的所有调用点都刚拿到可用 Surface。直接写运行期而不走
-        // ledger ——ledger 只对自己的持有负责，而这里要覆盖的是别的持有者
-        // （切后台等）留下的全局暂停标志。
-        viewModel?.runtime?.setRenderPaused(false)
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
