@@ -1783,7 +1783,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     internal fun finishHandleDrag() {
         handleDragState = HandleDrag.NONE
         dragPointerId = null
-        wideCharDragSession = false
+        invalidateWideCharTailCache()
         viewModel?.commitDragBounds()
         viewModel?.endSelection()
         lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
@@ -1913,8 +1913,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var cachedWideCharTailRow = -1
     private var cachedWideCharTailCols: IntArray = IntArray(0)
 
-    /** 拖动会话进行中：期间只按行号复用缓存，抬手即失效（行内容可能已被新输出改写）。 */
+    /**
+     * 拖动会话进行中：期间只按行号复用缓存。
+     *
+     * 抬起与开新拖动都必须让缓存失效——行内容在这两次之间可能被新输出改写，
+     * 而宽字符吸附依赖的正是该行当前的尾格列。只清标志而保留缓存时，下一次拖动
+     * 在同一行号上直接命中上一次拖动的尾格，吸附到早已不存在的边界。
+     */
     private var wideCharDragSession = false
+
+    private fun invalidateWideCharTailCache() {
+        cachedWideCharTailRow = -1
+        cachedWideCharTailCols = IntArray(0)
+        wideCharDragSession = false
+    }
 
     private fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
         handleDragState = which
@@ -1928,6 +1940,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         dragAltScreenSnapshot =
             runCatchingCancellable { viewModel?.runtime?.bridge()?.isAltScreenActive() ?: false }
                 .getOrDefault(false)
+        invalidateWideCharTailCache()
         wideCharDragSession = true
         // 在拖动开始时只调用一次 setSelectionDragging(true)，
         // 使渲染线程抑制新输出引起的滚动复位。原先在 dragSelection 内
@@ -2755,7 +2768,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
                 handleDragState = HandleDrag.NONE
                 dragPointerId = null
-                wideCharDragSession = false
+                invalidateWideCharTailCache()
                 try {
                     magnifier?.dismiss()
                 } catch (exception: Exception) {
@@ -2905,7 +2918,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 覆盖层已消失故不会再有 UP 到达；陈旧的锁定只能靠下一次触摸自愈。
         handleDragState = HandleDrag.NONE
         dragPointerId = null
-        wideCharDragSession = false
+        invalidateWideCharTailCache()
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
         // 仅在渲染线程被 join 之后才释放 Android Surface。
