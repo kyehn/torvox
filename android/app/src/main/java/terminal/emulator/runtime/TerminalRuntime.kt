@@ -2080,8 +2080,7 @@ constructor(
     fun appliedFontSizeSp(): Float {
         val tenths = appliedFontSizeTenths
         if (tenths > 0) return tenths / TENTHS_PER_UNIT.toFloat()
-        val metrics = context.resources.displayMetrics
-        return SettingsRepository.defaultFontSizeFor(metrics.widthPixels / metrics.density)
+        return SettingsRepository.defaultFontSizeFor(screenWidthDp)
     }
 
     internal suspend fun resolveThemeName(): String {

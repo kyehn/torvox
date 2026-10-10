@@ -911,8 +911,7 @@ constructor(
             SettingsRepository.SettingsState(
                 fontSize =
                 SettingsRepository.defaultFontSizeFor(
-                    context.resources.displayMetrics.widthPixels /
-                        context.resources.displayMetrics.density,
+                    runtime.screenWidthDp,
                 ),
             ),
         )
