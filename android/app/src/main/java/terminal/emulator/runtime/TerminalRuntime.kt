@@ -136,7 +136,11 @@ internal data class SessionEntry(
     // bridge.close() 之前启动新渲染线程，留下轮询已销毁会话的孤儿线程（全局事件队列双重消费、原生 UAF 风险）。
     @Volatile var closing: Boolean = false,
     // 为真时（SCROLL 按钮激活），新输出不应自动复位滚动——用户有意停留在回浏览位置。
+    // 手指滚动手势**不**写这里：那是一次性意图，抬手即失效；写这里会清掉用户仍然
+    // 点亮的 SCROLL 按钮锁（按钮仍在渲染为锁定，新输出却已经把视口拽到底）。
     @Volatile var scrollActive: Boolean = false,
+    // 手指滚动进行中：同样抑制新输出引起的滚动复位，但抬手即失效，与按钮锁互不干扰。
+    @Volatile var scrollGestureActive: Boolean = false,
     // 最近一次 UI 线程滚动手势的时间戳（System.nanoTime，在 setScrollOffset 中写入），
     // 渲染线程据此计算 recentlyScrolled 保护；0L 表示从未滚动过。
     @Volatile var lastScrollNanos: Long = 0L,
@@ -813,10 +817,25 @@ constructor(
         entry.notifyRender()
     }
 
-    /** 从 TerminalViewModel 同步滚动激活状态，使渲染线程知道新输出时是否自动复位滚动。 */
+    /** 从 TerminalViewModel 同步 SCROLL 按钮锁，使渲染线程知道新输出时是否自动复位滚动。 */
     fun setScrollActive(active: Boolean) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollActive = active
+        entry.notifyRender()
+    }
+
+    /**
+     * 手指滚动手势期间的抑制标记，抬手即清除。
+     *
+     * 与 [setScrollActive] 分开是必须的：两者都是「新输出不要复位滚动」，但寿命不同。
+     * 合并时，一次手势的抬手会把用户仍然点亮的 SCROLL 按钮锁一并清掉——按钮继续
+     * 渲染为锁定，下一行输出却已把视口拽到底，正是该开关要防的情况。
+     */
+    fun setScrollGestureActive(active: Boolean) {
+        val entry = sessions[activeSessionId] ?: return
+        if (entry.scrollGestureActive == active) return
+        entry.scrollGestureActive = active
+        entry.notifyRender()
     }
 
     /**
@@ -1430,7 +1449,7 @@ constructor(
                                             if (
                                                 entry.scrollOffset != 0 &&
                                                 shouldResetScroll(
-                                                    scrollActive = entry.scrollActive,
+                                                    scrollActive = entry.scrollActive || entry.scrollGestureActive,
                                                     hasSelectionOrDrag =
                                                     selectionSnapshot.hasSelection ||
                                                         selectionSnapshot.dragging,
@@ -2056,35 +2075,6 @@ constructor(
         Shell.SystemDefault
     } else {
         Shell.Custom(shellPath)
-    }
-
-    private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
-        val backgroundColor = resolvedTheme.background.toArgb()
-        val foregroundColor = resolvedTheme.foreground.toArgb()
-        val cursor = resolvedTheme.cursor.toArgb()
-        val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
-        return BridgeTheme(
-            name = resolvedTheme.name,
-            background = backgroundColor,
-            foreground = foregroundColor,
-            cursor = cursor,
-            ansi0 = ansiInts[0],
-            ansi1 = ansiInts[1],
-            ansi2 = ansiInts[2],
-            ansi3 = ansiInts[3],
-            ansi4 = ansiInts[4],
-            ansi5 = ansiInts[5],
-            ansi6 = ansiInts[6],
-            ansi7 = ansiInts[7],
-            ansi8 = ansiInts[8],
-            ansi9 = ansiInts[9],
-            ansi10 = ansiInts[10],
-            ansi11 = ansiInts[11],
-            ansi12 = ansiInts[12],
-            ansi13 = ansiInts[13],
-            ansi14 = ansiInts[14],
-            ansi15 = ansiInts[15],
-        )
     }
 
     suspend fun start(surface: Surface?, width: Int, height: Int) {
@@ -2833,6 +2823,11 @@ constructor(
             // 起来，恢复不会撞上在跑的线程。其后的步骤（发布活动 id、native switchSession、
             // 网格对齐、focus 转发）失败时目标线程已经在消费全局事件队列，
             // 此时再拉起前一个会话会同时存在两个消费者——剪贴板事件会被错投。
+            // MUST 先复位再起线程：新会话的渲染线程把 lastSelection 初始化成空
+            // 选区，首帧就读全局 selectionState——晚一拍就会把上一个会话的选区
+            // 推给它一帧（在属于前一个回滚缓冲区的行号上）。放在 try 之外：
+            // 起线程失败时下方会把活动会话还给前一个，此时此处不做任何改动。
+            publishActiveSessionState(target)
             try {
                 renderSupervisor.startRenderThread(target)
             } catch (exception: Exception) {
@@ -2868,8 +2863,6 @@ constructor(
             }
             try {
                 activeSessionId = id
-                // 重新初始化内容下沿与备用屏状态：新会话的渲染线程从此刻起在变化时重新发布。
-                publishActiveSessionState(target)
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3025,18 +3018,25 @@ constructor(
 
     suspend fun applySettings() {
         val config = buildConfig()
-        val fontFamily = settingsRepository.fontFamily.first()
-        val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
-        // 只换字体/字号/主题，不 resize 各会话网格：buildConfig() 的默认 24x80 会
-        // 缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
+        val effectiveFontFamily =
+            terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+        // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：buildConfig() 的默认
+        // 24x80 会缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
+        // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
+        // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
+        // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
+        val contract =
+            RenderContract(config.fontSizeTenths, effectiveFontFamily, config.theme, spToPxScale)
         sessions.values.forEach { entry ->
-            entry.bridge.setFontSizeInPlace(config.fontSizeTenths)
-            entry.bridge.setFontFamily(effectiveFontFamily)
-            entry.bridge.setTheme(config.theme)
+            entry.bridge.applyRenderContract(contract)
             entry.notifyRender()
         }
-        // 字体度量已变——但网格尺寸保持不变。
-        // 内容超出可视区域时终端自行滚动。
+        // 光栅尺度变了，逻辑单元格度量随之改变：按新度量刷新并重算网格，否则
+        // 渲染仍按旧单元格尺寸画字形。只对活动会话做，各会话的网格不变。
+        sessions[activeSessionId]?.let { active ->
+            syncGridDimensions(active.bridge)
+            recomputeGridFromFontMetrics()
+        }
     }
 
     /**
@@ -3492,13 +3492,18 @@ constructor(
             )
             replacement.running = false
             replacement.closing = true
+            // 该条目永不会再渲染，故「无活动会话」才是真实状态：沿用被移除会话的
+            // 备用屏标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，
+            // 主屏位移恒为 0，且没有任何线程会再来重新发布这些值。
+            publishActiveSessionState(null)
             updateState()
             return
         }
         // 无条件重启：仍存活的旧线程正在退出；
         // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
-        renderSupervisor.startRenderThread(replacement)
+        // 先复位再起线程：见 switchSessionInternal 的同款说明。
         publishActiveSessionState(replacement)
+        renderSupervisor.startRenderThread(replacement)
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
         }
@@ -3555,18 +3560,17 @@ constructor(
         bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
-        bridge.setTheme(config.theme)
         val effectiveFont =
             terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
-        bridge.setFontFamily(effectiveFont)
-        // 原生渲染器以硬编码的 14.0px 字体启动；不设此项则用户的字号设置永远到不了
-        // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
-        bridge.setFontSizeInPlace(config.fontSizeTenths)
         // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
         // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
         // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
         // 着色器随后放大图集位图——即「文字模糊」问题的来源。
-        bridge.setRasterScale(spToPxScale)
+        // 字号同理：原生渲染器以硬编码的 14.0px 启动，不下发则用户的设置永远到不了
+        // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
+        bridge.applyRenderContract(
+            RenderContract(config.fontSizeTenths, effectiveFont, config.theme, spToPxScale),
+        )
         appliedFontSizeTenths = config.fontSizeTenths
         LogUtil.d(
             "Runtime",
@@ -3792,6 +3796,61 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
     }
     bounds[0]..bounds[1]
 }
+
+/**
+ * 主题调色板 → 桥接层位形：16 色 ANSI 槽位按索引展开成具名字段。
+ *
+ * 纯函数（只读入参与 `Color.toArgb`），故提到类外——它既不碰会话状态也不碰
+ * Context，却是 `TerminalRuntime` 里最长的一段与运行时无关的样板。
+ */
+private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
+    val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
+    return BridgeTheme(
+        name = resolvedTheme.name,
+        background = resolvedTheme.background.toArgb(),
+        foreground = resolvedTheme.foreground.toArgb(),
+        cursor = resolvedTheme.cursor.toArgb(),
+        ansi0 = ansiInts[0],
+        ansi1 = ansiInts[1],
+        ansi2 = ansiInts[2],
+        ansi3 = ansiInts[3],
+        ansi4 = ansiInts[4],
+        ansi5 = ansiInts[5],
+        ansi6 = ansiInts[6],
+        ansi7 = ansiInts[7],
+        ansi8 = ansiInts[8],
+        ansi9 = ansiInts[9],
+        ansi10 = ansiInts[10],
+        ansi11 = ansiInts[11],
+        ansi12 = ansiInts[12],
+        ansi13 = ansiInts[13],
+        ansi14 = ansiInts[14],
+        ansi15 = ansiInts[15],
+    )
+}
+
+/**
+ * 一条会话的完整渲染契约：主题 + 字体族 + 字号 + 光栅尺度。
+ *
+ * 两条下发路径（建会话后的 `applyRenderSettings`、配置变化后的 `applySettings`）
+ * 共用本函数：漏掉 `setRasterScale` 的那一条既不编译失败也不影响字号本身，
+ * 症状只是系统「字体大小」变化后 Kotlin 按新系数算、原生仍按旧值光栅——
+ * 字形被拉伸，单元格度量与网格整体偏掉一个 fontScale 倍。
+ */
+private fun Bridge.applyRenderContract(contract: RenderContract) {
+    setTheme(contract.theme)
+    setFontFamily(contract.fontFamily)
+    setFontSizeInPlace(contract.fontSizeTenths)
+    setRasterScale(contract.rasterScale)
+}
+
+/** 一条会话的渲染设置快照（见 [applyRenderContract]）。 */
+private data class RenderContract(
+    val fontSizeTenths: Int,
+    val fontFamily: String,
+    val theme: BridgeTheme,
+    val rasterScale: Float,
+)
 
 /**
  * sp→设备像素的完整系数 = 显示密度 × 系统字体缩放，钳到原生接受的区间。
