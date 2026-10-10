@@ -69,7 +69,16 @@ constructor(private val provider: SettingsDataStoreProvider) {
         )
 
         private const val DEFAULT_FONT_COLUMNS_TARGET = 52f
-        private const val MONOSPACE_CHAR_ASPECT = 0.6f
+
+        /**
+         * 等宽字形的宽高 em 比（列方向的宽 ÷ em）：字形宽约 0.6em。
+         *
+         * 单一来源：自适应默认字号按屏宽推算列数（[defaultFontSizeFor]），
+         * 运行期按同样的比例估算「至少放得下若干列」的最小 Surface 宽度
+         * （`TerminalRuntime.MIN_SURFACE_WIDTH_PX` 一侧）——同一事实，故只此一处。
+         * 行方向的行高比是另一个量（0.5em，见运行期的 Surface 高度下界），不共用此值。
+         */
+        const val MONOSPACE_CHAR_ASPECT = 0.6f
 
         /** 自适应默认值的下限/上限，与用户可选范围无关（见 [defaultFontSizeFor]）。 */
         const val ADAPTIVE_DEFAULT_MIN_SP = 14f
