@@ -78,7 +78,8 @@ MUST 取「视口内最后一个有内容的行」下沿（空格/制表/NUL 不
 ### Requirement: 位移来源唯一且生效时刻可不同
 
 输入法弹出时终端 Surface 与修饰键栏 MUST 只以**同一个**输入法遮挡高度为唯一位移
-来源（`imeInsetFlow`：由 `TerminalSurface` 的平台 insets 派发发布，两者都读它）。
+来源（同一 insets 派发回调里算出的 `reserved`：Surface 把它写进自身字段并在回调
+同一拍生效，键栏经 `imeInsetFlow` 生效）。两者 MUST NOT 各取来源。
 两者 MUST NOT 各自持有独立位移来源（叶节点 vs view 监听、后写覆盖）：两个位移源
 取值不一致（如一个跟随 live insets、另一个跟随 settled 值）即表现为持续闪烁。
 
