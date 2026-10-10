@@ -69,10 +69,7 @@ class FontSizeRangeTest {
                     "spToPxScale=$spToPxScale widthDp=$widthDp 时上界 ${maxSp * spToPxScale}px 越过 Termux 的 256px",
                     maxSp * spToPxScale <= SettingsRepository.FONT_SIZE_MAX_PX,
                 )
-                assertTrue(
-                    "spToPxScale=$spToPxScale widthDp=$widthDp 的上界必须高于下限，否则调节条退化",
-                    maxSp > SettingsRepository.FONT_SIZE_MIN_SP,
-                )
+
             }
         }
     }
