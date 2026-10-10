@@ -2221,13 +2221,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
-                    val spToPxScale = viewModel?.runtime?.spToPxScale ?: return false
+                    val runtime = viewModel?.runtime ?: return false
                     val sizeSp =
                         zoomFontSize(
                             zoomBaseFontSizeSp,
                             scaleFactor,
-                            spToPxScale,
-                            resources.configuration.screenWidthDp.toFloat(),
+                            runtime.spToPxScale,
+                            runtime.screenWidthDp,
                         )
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
@@ -2240,7 +2240,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
-                    val spToPxScale = viewModel?.runtime?.spToPxScale ?: return
+                    val runtime = viewModel?.runtime ?: return
                     // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
                     // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
                     val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
@@ -2248,8 +2248,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         zoomFontSize(
                             zoomBaseFontSizeSp,
                             scaleFactor,
-                            spToPxScale,
-                            resources.configuration.screenWidthDp.toFloat(),
+                            runtime.spToPxScale,
+                            runtime.screenWidthDp,
                         )
                     scaleFactor = 1.0f
                     if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
