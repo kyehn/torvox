@@ -187,3 +187,4 @@
 - 软件不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` 目录，`/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为 重命名 目标
 - 适配 Android 软件启动屏动画
 - 遵循 Material Design 3
+- 申请 通知 文件 权限

@@ -294,7 +294,6 @@ rules:
     paths:
       include:
         - "**/.github/workflows/*.yml"
-
   # ---------------------------------------------------------------- 许可证文件
   # 仓库不放任何上游许可证文件。血统与出处记在 openspec 规范里（指向标签与仓库地址），
   # 而不是把别人的法律文本复制进来：复制件会随上游改版失效，且没有任何构建步骤读它。
@@ -312,7 +311,6 @@ rules:
         - "**/COPYING.txt"
         - "**/NOTICE"
         - "**/NOTICE.txt"
-
   # 标准许可证头标记：文件不叫 LICENSE 但带这类开头的，同样是复制的法律文本。
   - id: no-license-text
     pattern-regex: '(?im)^\s*(Permission is hereby granted, free of charge|GNU GENERAL PUBLIC LICENSE|Apache License, Version 2\.0|MIT License)'
@@ -333,7 +331,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-
   # ------------------------------------------------- git/cargo 等外部构建命令
   # 产物只能来自 nix develop。源码里起 git/cargo 进程意味着构建绕过工具链，
   # 且把「仓库处于某个 git 状态」这一隐式依赖塞进运行时。
@@ -347,7 +344,6 @@ rules:
         - "**/*.rs"
         - "**/*.kt"
         - "**/*.kts"
-
   # 整条命令行内联进字符串（sh -c "git ..."）同样算。
   - id: no-git-command-string-in-source
     pattern-regex: '(?m)^\s*(git|cargo|gradle|\./gradlew)\s+(clone|checkout|fetch|pull|build|test|install|-{1,2}\w)'
@@ -359,7 +355,6 @@ rules:
         - "**/*.rs"
         - "**/*.kt"
         - "**/*.kts"
-
   # ------------------------------------------------------------ git 提交号
   # 40 位十六进制几乎只可能是 sha-1 提交号；英文词不可能凑满 40 个十六进制字符。
   - id: no-git-hash-in-source-and-docs
@@ -384,7 +379,6 @@ rules:
         # 改写它等于伪造记录（台账里已有条目记着某次 force-push 把旧号作废）。
         # 现存全部 114 处集中在此，见汇报。
         - "openspec/changes/archive/**"
-
   # 短提交号：要求至少一位数字且至少一个 a-f 字母，否则纯字母词会被误判
   # （defaced 这类 7 字母词恰好全落在十六进制字符集里）。7~39 位覆盖 git 短号。
   - id: no-git-short-hash-in-source-and-docs
