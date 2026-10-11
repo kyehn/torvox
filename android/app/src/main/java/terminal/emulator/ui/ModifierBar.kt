@@ -224,6 +224,13 @@ private fun ModifierBarTextInputPage(
 @Composable
 fun ModifierBar(
     onSubmit: (String) -> Unit,
+    /**
+     * 发送一个会产生终端输入的按键。`modifiers` 取上游 `key.Mods` 原始位。
+     *
+     * 返回 false 表示该键未被发送（无对应键码或终端的当前模式决定它不产生字节）：
+     * 调用方据此保留证据并消耗一次性粘滞态。
+     */
+    onKey: (keyCode: Int, modifiers: Int) -> Boolean,
     modifier: Modifier = Modifier,
     onDrawerClick: () -> Unit = {},
     onScrollClick: () -> Unit = {},
@@ -240,13 +247,6 @@ fun ModifierBar(
     onPasteClick: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    /**
-     * 发送一个会产生终端输入的按键。`modifiers` 取上游 `key.Mods` 原始位。
-     *
-     * 返回 false 表示该键未被发送（无对应键码或终端的当前模式决定它不产生字节）：
-     * 调用方据此保留证据并消耗一次性粘滞态。
-     */
-    onKey: (keyCode: Int, modifiers: Int) -> Boolean,
     /** 发送带修饰键的按键后，消耗一次性（`Once`）粘滞修饰键。 */
     onConsumeModifiers: () -> Unit = {},
 ) {
@@ -378,7 +378,7 @@ private fun toolbarKeyPresentation(
     val onRepeat =
         if (key.repeatable) {
             {
-                sendPlainOrModified(key, actions, modifierStates)
+                sendKeyThroughEncoder(key, actions, modifierStates)
             }
         } else {
             null
@@ -402,7 +402,7 @@ private fun toolbarKeyPresentation(
  * modifyOtherKeys 下须走 `CSI 27;mod;code~`，这些形态只有编码器知道，写死在
  * Kotlin 的串在对应模式下就是错的。
  */
-private fun sendPlainOrModified(key: ToolbarKey, actions: ModifierBarActions, modifierStates: ModifierBarStates) {
+private fun sendKeyThroughEncoder(key: ToolbarKey, actions: ModifierBarActions, modifierStates: ModifierBarStates) {
     val keyCode = key.androidKeyCode ?: return
     val modifiers = KeyModifiers.fromStickyStates(modifierStates.ctrlState, modifierStates.altState)
     if (actions.onKey(keyCode, modifiers)) {
@@ -431,7 +431,7 @@ private fun toolbarKeyClickHandler(
         if (key.androidKeyCode == null) {
             { }
         } else {
-            { sendPlainOrModified(key, actions, modifierStates) }
+            { sendKeyThroughEncoder(key, actions, modifierStates) }
         }
 }
 

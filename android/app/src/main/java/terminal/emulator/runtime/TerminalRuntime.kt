@@ -34,7 +34,7 @@ import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.BUTTON_HEIGHT_DP
-import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -1001,7 +1001,7 @@ constructor(
                 themeName = themeDeferred.await(),
             )
         }
-        val resolvedTheme = BuiltInThemes.byName(configReads.themeName)
+        val resolvedTheme = ThemeRepository.byName(configReads.themeName)
         val shell = resolveShell(configReads.shellPath)
         val bridgeTheme = makeBridgeTheme(resolvedTheme)
         accentColor = bridgeTheme.ansi5
@@ -2088,7 +2088,7 @@ constructor(
         // 而一次读取已含全部字段（SettingsRepository.settings 是唯一合并快照）。
         var stored = settingsRepository.settings.first()
         // 清除是写操作（会 await dataStore.edit），故清除成功后必须重读：
-        // 否则返回的是刚被清除的未知名，`buildConfig` 的 `BuiltInThemes.byName` 在
+        // 否则返回的是刚被清除的未知名，`buildConfig` 的 `ThemeRepository.byName` 在
         // 未知名上抛异常，本次建会话直接失败，用户看不到终端。
         if (clearUnknownThemeNames(stored.dayThemeName, stored.nightThemeName, stored.themeName)) {
             stored = settingsRepository.settings.first()
@@ -2110,7 +2110,7 @@ constructor(
      * 当作解析结果返回。
      */
     private suspend fun clearUnknownThemeNames(vararg names: String): Boolean {
-        val unknown = names.filter { BuiltInThemes.byNameOrNull(it) == null }.toSet()
+        val unknown = names.filter { ThemeRepository.byNameOrNull(it) == null }.toSet()
         if (unknown.isEmpty()) return false
         LogUtil.e("Runtime", "Unknown terminal theme, clearing setting: $unknown")
         settingsRepository.clearUnknownThemeNames(unknown)

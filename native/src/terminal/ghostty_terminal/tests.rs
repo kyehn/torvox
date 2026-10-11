@@ -35,6 +35,19 @@ fn small_terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(3, 3, 100).expect("terminal")
 }
 
+/// 默认主题前景（浮点）：断言锚定当前默认调色板而不手写色值，
+/// 换默认主题时用例不随之漂移失效。
+fn default_foreground() -> [f32; 4] {
+    let (_, _, foreground) = GhosttyTerminal::default_palette();
+    GhosttyTerminal::byte_color_to_float(foreground)
+}
+
+/// 默认主题背景（浮点）：同上，不手写色值。
+fn default_background() -> [f32; 4] {
+    let (_, background, _) = GhosttyTerminal::default_palette();
+    GhosttyTerminal::byte_color_to_float(background)
+}
+
 /// 从快照中取出指定行列的单元
 #[test]
 fn create_terminal_zero_scrollback() {
@@ -145,7 +158,7 @@ fn reset_clears_selection() {
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
         .expect("row 0 col 0 present");
-    let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
+    let theme_foreground = default_foreground();
     assert_eq!(
         picked.foreground, theme_foreground,
         "重置后选区反白必须清除"
@@ -644,6 +657,24 @@ fn encode_mouse_event_drag_sequence() {
     assert!(
         col_press < col_drag && col_drag < col_release,
         "columns must increase across drag: press={col_press}, drag={col_drag}, release={col_release}"
+    );
+}
+
+/// 滑出视口的拖动必须上报：上游 mouse_encode 只在有键按下时报告
+/// 视口外 motion（1003 全事件跟踪），标志缺省 false 会静默丢弃，
+/// 手指滑出终端边缘的拖动在远端看来直接中断。
+#[test]
+fn encode_mouse_event_out_of_viewport_drag_is_reported() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.vt_write(b"\x1b[?1003h"); // any-event tracking
+    terminal_under_test.flush();
+    let drag = terminal_under_test
+        .encode_mouse_event((-5.0, -10.0), 2, 0, 0, 10.0, 20.0)
+        .expect("drag encode");
+    assert!(
+        drag.starts_with(b"\x1b[<"),
+        "视口外拖动必须上报 SGR（got {drag:?}）"
     );
 }
 
@@ -1986,7 +2017,7 @@ fn selection_text_blank_cell_selects_itself() {
     let (selected, _) = terminal_under_test
         .receive_cell_data()
         .expect("selected cell data");
-    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    let theme_background = default_background();
     let picked = selected
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 1)
@@ -2012,7 +2043,7 @@ fn selection_clear_restores_baseline_colors() {
     let (selected, _) = terminal_under_test
         .receive_cell_data()
         .expect("selected cell data");
-    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    let theme_background = default_background();
     let picked = selected
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
@@ -2023,7 +2054,7 @@ fn selection_clear_restores_baseline_colors() {
     let (cleared, _) = terminal_under_test
         .receive_cell_data()
         .expect("cleared cell data");
-    let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
+    let theme_foreground = default_foreground();
     let restored = cleared
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
@@ -2181,7 +2212,7 @@ fn select_word_at_derives_installs_and_returns_bounds() {
     let (selected, _) = terminal_under_test
         .receive_cell_data()
         .expect("selected cell data");
-    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    let theme_background = default_background();
     let picked = selected
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 1)
@@ -2262,6 +2293,50 @@ fn encode_paste_text(text: &str, bracketed: bool) -> Vec<u8> {
         libghostty_vt::paste::encode(&mut data, bracketed, &mut output).expect("paste encode");
     output.truncate(written);
     output
+}
+
+/// 粘贴编码端到端：bracketed 标志取活体 2004，非括号换行转回车，
+/// 括号包裹且换行保留（对标上游 `paste` 口径）。
+#[test]
+fn encode_paste_follows_live_bracketed_mode() {
+    let mut terminal_under_test = terminal();
+    let plain = terminal_under_test
+        .encode_paste(b"a\nb")
+        .expect("paste encode");
+    assert_eq!(plain, b"a\rb");
+    terminal_under_test.vt_write(b"\x1b[?2004h");
+    terminal_under_test.flush();
+    let bracketed = terminal_under_test
+        .encode_paste(b"a\nb")
+        .expect("paste encode");
+    assert_eq!(bracketed, b"\x1b[200~a\nb\x1b[201~");
+    let single = terminal_under_test
+        .encode_paste(b"hello")
+        .expect("paste encode");
+    assert_eq!(single, b"\x1b[200~hello\x1b[201~");
+}
+
+/// 控制字节中化为空格，终止序列不可逃逸；多字节文本逐字节保留。
+#[test]
+fn encode_paste_sanitizes_control_bytes() {
+    let mut terminal_under_test = terminal();
+    let sanitized = terminal_under_test
+        .encode_paste(b"a\x00b\x1bc\x7fd")
+        .expect("paste encode");
+    assert_eq!(sanitized, b"a b c d");
+    terminal_under_test.vt_write(b"\x1b[?2004h");
+    terminal_under_test.flush();
+    let bracketed = terminal_under_test
+        .encode_paste(b"a\x1b[201~b")
+        .expect("paste encode");
+    assert_eq!(bracketed, b"\x1b[200~a [201~b\x1b[201~");
+    let chinese = terminal_under_test
+        .encode_paste("中文😀".as_bytes())
+        .expect("paste encode");
+    assert_eq!(
+        chinese,
+        b"\x1b[200~\xe4\xb8\xad\xe6\x96\x87\xf0\x9f\x98\x80\x1b[201~"
+    );
 }
 
 /// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史
@@ -2359,9 +2434,9 @@ fn terminal_owned_selection_inverts_cell_data() {
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
         .expect("row 0 col 0 present");
-    // Catppuccin Mocha 默认：前景 #CDD6F4，背景 #1E1E2E；选中后互换。
-    let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
-    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    // 默认主题的前景/背景；选中后互换。
+    let theme_foreground = default_foreground();
+    let theme_background = default_background();
     assert_eq!(
         picked.foreground, theme_background,
         "selected foreground must be theme background"
@@ -2414,6 +2489,36 @@ fn hyperlink_at_returns_uri_inside_link() {
     assert!(
         terminal_under_test.hyperlink_at(row0, 4).is_none(),
         "col 4 is past the link"
+    );
+}
+
+/// 超长 URI 行为：实测上游约 2KB 以上即不建链接，本仓读路径
+/// 只须保证不崩溃、返回 None（丢弃出声由日志承担）；上限内超长的
+/// 重读分支是上游契约的防御性处理，随上游行为变化而生效。
+/// 截断的链接指向错误地址，比没有链接更糟，故超限只丢不截。
+#[test]
+fn hyperlink_at_long_and_oversized_uris() {
+    let mut terminal_under_test = terminal();
+    // 1.5KiB：上游建链上限内的长 URI，必须完整返回。
+    let long_uri = format!("https://example.com/{}", "a".repeat(1500));
+    terminal_under_test.vt_write(format!("\x1b]8;;{long_uri}\x1b\\Link\x1b]8;;\x1b\\").as_bytes());
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    let row0 = snap.scrollback_length;
+    assert_eq!(
+        terminal_under_test.hyperlink_at(row0, 0).as_deref(),
+        Some(long_uri.as_str()),
+        "within-cap URI must come back whole"
+    );
+    // 100KiB：上游不建链，直接丢弃（None）而非截断，不崩溃。
+    // 先换行，使 "More" 落在绝对行 1，避免命中上一段遗留的链接。
+    let huge_uri = format!("https://example.com/{}", "b".repeat(100 * 1024));
+    terminal_under_test.vt_write(b"\r\n");
+    terminal_under_test.vt_write(format!("\x1b]8;;{huge_uri}\x1b\\More\x1b]8;;\x1b\\").as_bytes());
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.hyperlink_at(1, 0).is_none(),
+        "over-cap URI must be dropped, not truncated"
     );
 }
 
@@ -2643,7 +2748,7 @@ fn cursor_info_carries_resized_grid_dimensions() {
 ///（receive_cell_data），锁定颜色通路。
 #[test]
 fn sgr31_red_reaches_cell_data_foreground() {
-    // 1) 默认配置：基线。
+    // 1) 默认配置：基线（默认主题）。
     let mut plain = terminal();
     plain.vt_write(b"\x1b[31mRED\x1b[0m");
     plain.flush();
@@ -2653,16 +2758,15 @@ fn sgr31_red_reaches_cell_data_foreground() {
         .find(|cell| cell.codepoint == 'R' as u32)
         .expect("R cell present");
     assert!(
-        red_cell.foreground[0] > 0.9
-            && (red_cell.foreground[1] - 0.545).abs() < 0.05
-            && (red_cell.foreground[2] - 0.659).abs() < 0.05,
-        "默认配置 SGR31 前景须为内置红（粉调），实际 {:?}",
+        (red_cell.foreground[0] - 1.0).abs() < 0.02
+            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
+            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
+        "默认配置 SGR31 前景须为 #FF5555，实际 {:?}",
         red_cell.foreground
     );
 
-    // 2) Dracula 主题配置：复刻设备 apply_theme 后的精确状态。
-    let (dracula_ansi, dracula_background, dracula_foreground) =
-        GhosttyTerminal::dracula_plus_palette();
+    // 2) 默认主题配置：复刻设备 apply_theme 后的精确状态。
+    let (dracula_ansi, dracula_background, dracula_foreground) = GhosttyTerminal::default_palette();
     let mut dracula = GhosttyTerminal::new_with_theme(
         24,
         80,
@@ -2688,26 +2792,27 @@ fn sgr31_red_reaches_cell_data_foreground() {
     );
 }
 
-/// FFI 默认主题（Catppuccin Mocha）下 SGR31 必须到达 CellData 前景。
+/// FFI 默认主题下 SGR31 必须到达 CellData 前景。
 /// 背景：设备像素验收曾报 SGR 无显色，后证实为 harness 问题；
 /// 复刻其精确主题与几何，锁定颜色通路。
 #[test]
-fn sgr31_mocha_default_theme_reaches_foreground() {
-    let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
-    let mut mocha = GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
-        .expect("mocha terminal");
-    mocha.vt_write(b"\x1b[31mRED\x1b[0m");
-    mocha.flush();
-    let (cells, _) = mocha.receive_cell_data().expect("cell data");
+fn sgr31_default_theme_reaches_foreground() {
+    let (ansi, background, foreground) = GhosttyTerminal::default_palette();
+    let mut terminal_under_test =
+        GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
+            .expect("default terminal");
+    terminal_under_test.vt_write(b"\x1b[31mRED\x1b[0m");
+    terminal_under_test.flush();
+    let (cells, _) = terminal_under_test.receive_cell_data().expect("cell data");
     let red_cell = cells
         .iter()
         .find(|cell| cell.codepoint == 'R' as u32)
         .expect("R cell present");
     assert!(
-        (red_cell.foreground[0] - 243.0 / 255.0).abs() < 0.02
-            && (red_cell.foreground[1] - 139.0 / 255.0).abs() < 0.05
-            && (red_cell.foreground[2] - 168.0 / 255.0).abs() < 0.05,
-        "Mocha 主题 SGR31 前景须为 #F38BA8，实际 {:?}",
+        (red_cell.foreground[0] - 1.0).abs() < 0.02
+            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
+            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
+        "默认主题 SGR31 前景须为 #FF5555，实际 {:?}",
         red_cell.foreground
     );
 }
@@ -2717,19 +2822,19 @@ fn sgr31_mocha_default_theme_reaches_foreground() {
 /// 第三包系统性缺席；先在 host 判定是构建层去重还是设备推送时序。
 #[test]
 fn sgr_same_text_tricolor_rows_all_present() {
-    let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
+    let (ansi, background, foreground) = GhosttyTerminal::default_palette();
     let mut terminal = GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
-        .expect("mocha terminal");
+        .expect("default terminal");
     for code in [34u8, 31, 32] {
         terminal.vt_write(format!("\x1b[{code}mEEEEEEEE\x1b[0m\r\n").as_bytes());
     }
     terminal.flush();
     let (cells, _) = terminal.receive_cell_data().expect("cell data");
-    // 三行 E 首字符：行0蓝、行1红、行2绿。
+    // 三行 E 首字符：行0蓝、行1红、行2绿（默认主题槽位色）。
     let expected: [(u32, [u8; 3]); 3] = [
-        (0, [137, 180, 250]),
-        (1, [243, 139, 168]),
-        (2, [166, 227, 161]),
+        (0, [0x82, 0xAA, 0xFF]),
+        (1, [0xFF, 0x55, 0x55]),
+        (2, [0x50, 0xFA, 0x7B]),
     ];
     for (row, expected_rgb) in expected {
         let cell = cells
@@ -2750,22 +2855,22 @@ fn sgr_same_text_tricolor_rows_all_present() {
         );
     }
 }
-/// Mocha 主题下 SGR31/32/34 三色必须各自到达 CellData 前景。
+/// 默认主题下 SGR31/32/34 三色必须各自到达 CellData 前景。
 /// 背景：设备像素验收红绿显色而蓝计数为 0；先在 host 判定蓝是映射问题
 /// 还是设备侧问题（计数/呈现），再定跟进方向。
 #[test]
-fn sgr_tricolor_mocha_reaches_foreground() {
-    let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
+fn sgr_tricolor_default_theme_reaches_foreground() {
+    let (ansi, background, foreground) = GhosttyTerminal::default_palette();
     // （码，标记字符，期望槽位色）
     let cases: [(u8, u8, [u8; 3]); 3] = [
-        (31, b'R', [243, 139, 168]),
-        (32, b'G', [166, 227, 161]),
-        (34, b'B', [137, 180, 250]),
+        (31, b'R', [0xFF, 0x55, 0x55]),
+        (32, b'G', [0x50, 0xFA, 0x7B]),
+        (34, b'B', [0x82, 0xAA, 0xFF]),
     ];
     for (code, marker, expected) in cases {
         let mut terminal =
             GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
-                .expect("mocha terminal");
+                .expect("default terminal");
         terminal.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
         terminal.flush();
         let (cells, _) = terminal.receive_cell_data().expect("cell data");

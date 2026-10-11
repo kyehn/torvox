@@ -86,8 +86,9 @@ zed `("enter", Shift) => "\x0a"` 只适用于前台编辑器语义，终端下�
 多字符提交（拼音候选、滑行输入、输入法内部粘贴）内的换行 MUST 逐字保留：
 那是内容本身，逐字换成 CR 会把多行文本粘成一行。
 
-该归一只覆盖**孤立**换行提交。多字符提交在 helix 里仍是 Ctrl+J，直到粘贴路径
-真正实现 bracketed paste；本 MUST NOT 被解读为多行提交已修复。
+该归一只覆盖**孤立**换行提交。多字符提交在 helix 里仍是 Ctrl+J；粘贴路径
+已实现 bracketed 包裹（`paste-encoding`），输入法提交路径不受影响，
+本 MUST NOT 被解读为多行提交已修复。
 
 编辑器属性 MUST 声明 `TYPE_TEXT_FLAG_MULTI_LINE`（回车键形态由此决定），
 MUST NOT 使用 `IME_ACTION_NONE`：termux 在该处注明它会让屏幕键盘无法输入换行

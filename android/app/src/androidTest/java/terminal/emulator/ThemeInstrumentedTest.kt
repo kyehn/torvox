@@ -19,7 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.closeSettingsOverlay
-import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.ui.theme.ThemeRepository
 
 class ThemeInstrumentedTest : TerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
@@ -114,7 +114,7 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
         composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
         // The preview row is virtualized: only the visible themes are
         // composed, so assert on any preview cards that are on screen
-        // instead of demanding every BuiltInThemes entry at once.
+        // instead of demanding every catalogue entry at once.
         val previewMatcher =
             SemanticsMatcher("has theme_preview_ tag") { node ->
                 node.config.contains(SemanticsProperties.TestTag) &&
@@ -124,7 +124,7 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
             composeTestRule.onAllNodes(previewMatcher).fetchSemanticsNodes().size >= 3
         }
         // Every theme name must exist in the catalogue backing the picker.
-        assertTrue("BuiltInThemes catalogue must not be empty", BuiltInThemes.all.isNotEmpty())
+        assertTrue("Theme catalogue must not be empty", ThemeRepository.all().isNotEmpty())
     }
 
     @Test
@@ -144,8 +144,9 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
     fun nightThemeShowsDefaultNameInDayNightSection() {
         setTerminalThemeFollowSystem(enabled = true)
         scrollToNode("DayNightThemeSection")
+        val defaultNightName = ThemeRepository.defaultDarkName()
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
-            composeTestRule.onAllNodes(hasText("Dracula Plus")).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasText(defaultNightName)).fetchSemanticsNodes().isNotEmpty()
         }
     }
 

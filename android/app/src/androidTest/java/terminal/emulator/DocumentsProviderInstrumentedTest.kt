@@ -251,14 +251,14 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun tree_uri_modify_copy_move_round_trip() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val probeDir = File(home, "tree-mutations").apply {
-            deleteRecursively()
-            mkdirs()
-        }
         val targetDir = File(home, "tree-mutations-target").apply {
             deleteRecursively()
             mkdirs()
         }
+        // 只清残留、不预建：`tree-mutations` 由本用例经提供者创建。预建会让提供者
+        // 按与 Termux 一致的冲突命名（已存在则追加 " (2)"）返回 `tree-mutations (2)`，
+        // 下面的 docId 断言随之对不上。这里它只是事后读盘的参照，无需先存在。
+        val probeDir = File(home, "tree-mutations").apply { deleteRecursively() }
         try {
             val rootTreeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
             val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
