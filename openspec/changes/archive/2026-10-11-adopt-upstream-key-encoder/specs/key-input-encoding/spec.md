@@ -20,6 +20,10 @@ MUST NOT 用 Kotlin 侧的模式查询结果替代上游的模式读取。
 编码 MUST 与既有鼠标编码同构地落在 VT 线程：编码器与事件对象由 VT 线程持有，
 `Query` 携带键码、修饰位与文本，编码字节经通道回传后写入 PTY。
 
+`NativeBridge.getMode` 模式查询通道 MUST NOT 出现在按键编码路径上。经核实它仍有
+仪器化测试消费者（`VtCorrectnessInstrumentedTest` 断言 DECCKM 经该通道可见），
+故该通道为测试与诊断用途而保留，MUST NOT 据「已无人调用」将其删除。
+
 #### Scenario: 无修饰字母按 xterm 传统编码
 
 - **WHEN** 按下 `A`，终端处于默认状态
@@ -59,6 +63,11 @@ MUST NOT 用 Kotlin 侧的模式查询结果替代上游的模式读取。
 
 - **WHEN** 单独按下 Shift、Ctrl 或 CapsLock
 - **THEN** 不向 PTY 写入任何字节
+
+#### Scenario: 模式查询通道不在编码路径上
+
+- **WHEN** 检查 `NativeBridge.getMode` 的调用点
+- **THEN** 按键编码路径上不存在该调用；其消费者只有仪器化测试
 
 ### Requirement: Android 键码到上游 Key 的映射单一且无行为判断
 

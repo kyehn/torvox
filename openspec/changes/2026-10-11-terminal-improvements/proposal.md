@@ -1,5 +1,22 @@
 # Terminal Improvements Proposal
 
+> **状态：阻塞（2026-10-11 二轮核验）。** 本提案的两项核心目标与仓库现行规则正面冲突，
+> 任何一项都不能按提案原样实施，不得据此开工：
+>
+> 1. **自定义主题**：`PROHIBITED.md:50` 明禁「自定义终端主题」，且
+>    `openspec/specs/theme-configuration` 已声明 "Custom themes are a prohibited
+>    implementation"。提案 §1.1 的 configurable themes + custom builder 直接违禁。
+> 2. **JSON 配置导出/导入**：任务 1.4/2.4 要求 JSON 格式的设置存取，而
+>    `upstream-alignment`「跨 JNI 扁平数据 MUST 用直接量而非 JSON」与「保留 JSON
+>    的边界登记」已把 JSON 限定在事件与字体两个边界；且用户明确要求「不生成 JSON」。
+>
+> 另有提案 §1 节「Update DESIGN.md」的任务，而 `docs/specification/` 是禁止修改目录
+> （AGENTS.md），该节无法执行。
+>
+> 可继续的部分是 §1.2（字号缩放到渲染分辨率）、§1.7（粘滞修饰键，实现在
+> `modifier-bar-sticky-encoding` 变更中已推进）等不违禁项——需另立不违禁的提案
+> 重新提出，本提案整体保留原状不归档。
+
 ## Summary
 
 Enhance this Android terminal emulator with reference implementations from leading terminal apps (ghostty-android-terminal, termux-app, RedTerm), focusing on theme system, font handling, bootstrap onboarding, and backup/restore capabilities.

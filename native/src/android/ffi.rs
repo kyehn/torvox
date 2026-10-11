@@ -29,7 +29,7 @@ use jni::objects::{JClass, JString};
 use jni::strings::JNIString;
 use jni::sys::{
     JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jfloatArray, jint, jintArray, jlong,
-    jobjectArray, jsize, jstring,
+    jlongArray, jobjectArray, jsize, jstring,
 };
 use jni::{Env, EnvUnowned, jni_str};
 
@@ -2335,7 +2335,7 @@ fn clipboard_result_inner<'local>(
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
-) -> jstring {
+) -> jlongArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         list_sessions_inner(env, _class)
     })
@@ -2349,11 +2349,10 @@ fn string_to_jstring(env: &mut Env, text: &str) -> jstring {
     }
 }
 
-fn list_sessions_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jstring {
+/// 会话标识列表 → JNI `LongArray`；注册表为空时返回空数组。
+fn list_sessions_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jlongArray {
     let ids: Vec<u64> = rlock_session_registry().keys().copied().collect();
-
-    let json = serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into());
-    string_to_jstring(env, &json)
+    u64_vec_to_long_array(env, &ids)
 }
 
 /// 字体管线默认的图集单元尺寸（像素）。
@@ -2566,6 +2565,18 @@ fn jint_slice_to_int_array(env: &mut Env, values: &[jint]) -> jintArray {
     array.into_raw()
 }
 
+/// 会话标识 → JNI `LongArray`（空表即无会话）；分配失败返回 null。
+fn u64_vec_to_long_array(env: &mut Env, values: &[u64]) -> jlongArray {
+    let wide: Vec<jlong> = values.iter().map(|value| *value as jlong).collect();
+    let Ok(array) = env.new_long_array(wide.len()) else {
+        return std::ptr::null_mut();
+    };
+    if array.set_region(env, 0, &wide).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
+}
+
 /// 有序选区界限（绝对网格坐标，0 = 回滚顶部）→ JNI `IntArray
 /// [startRow, startCol, endRow, endCol]`；`None`（无可选内容）→ null。
 fn bounds_to_int_array(env: &mut Env, bounds: Option<((u32, u32), (u32, u32))>) -> jintArray {
@@ -2704,8 +2715,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
 }
 
 // ── 搜索与选择 ──────────────────────────────────────────────────
-/// 返回 `{row,start_col,end_col}` 搜索匹配的 JSON 数组，超时/断连时返回 `[]`。
-/// 列下标为字符列。
+/// 返回搜索匹配的扁平 `IntArray`：每项三个 `Int`，依次为 `row`、`start_col`、
+/// `end_col`，列下标为字符列。会话不存在、查询超时或断连时返回 null。
+///
+/// 扁平数组而非对象数组：JNI 已用 `IntArray` 传选区界限（见 [`bounds_to_int_array`]），
+/// 同形状的数据没有理由再引入一层编解码与一份跨语言 schema 镜像。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScrollback<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2713,7 +2727,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
     session_id: jlong,
     query: JString<'local>,
     case_sensitive: jboolean,
-) -> jstring {
+) -> jintArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let Ok(query) = query.try_to_string(env) else {
@@ -2750,25 +2764,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
             matches.len(),
         );
 
-        let json = serde_json::to_string(
-            &matches
-                .iter()
-                .map(|m| {
-                    serde_json::json!({
-                        "row": m.row,
-                        "start_col": m.start_col,
-                        "end_col": m.end_col,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
-        .unwrap_or_else(|error| {
-            // 序列化成空数组会让「序列化失败」与「真的没有匹配」同形：
-            // 搜索看起来正常返回空结果，没有任何线索。错误必须出声。
-            log::error!("searchAllInScrollback: match serialization failed: {error}");
-            "[]".to_string()
-        });
-        string_to_jstring(env, &json)
+        let mut values = Vec::with_capacity(matches.len() * 3);
+        for m in &matches {
+            values.push(m.row.min(jint::MAX as u32) as jint);
+            values.push(m.start_col.min(jint::MAX as u32) as jint);
+            values.push(m.end_col.min(jint::MAX as u32) as jint);
+        }
+        jint_slice_to_int_array(env, &values)
     })
 }
 

@@ -25,6 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.input.DeadKeyState
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
@@ -859,7 +860,10 @@ constructor(
                     runtime.applyFontSettings()
                     val bridge = runtime.bridge()
                     if (bridge != null) {
-                        _fontInfo.value = bridge.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                        // 空串即「原生尚未上报」：SettingsScreen 据此回落到当前设置值。
+                        // 不写本地化文案占位——该通道下游必过 JSON 解析，占位串只会
+                        // 解析失败后落入兜底分支，把「没数据」伪装成「加载失败」。
+                        _fontInfo.value = bridge.getFontInfo().orEmpty()
                     }
                 }
             }
@@ -874,7 +878,7 @@ constructor(
                     val bridge = runtime.bridge()
                     val fontName = bridge?.getDefaultFontName()
                     clearUnknownFontFamily(family, applied)
-                    val fontInfo = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                    val fontInfo = bridge?.getFontInfo().orEmpty()
                     _defaultFontName.value = fontName ?: ""
                     _fontInfo.value = fontInfo
                     LogUtil.d("Font", "Font applied: ${_defaultFontName.value}")
@@ -1335,6 +1339,9 @@ constructor(
     // 而不依赖隐式的 happens-before 关系。
     @Volatile private var bootstrapUrlEdited = false
 
+    /** 死键（组合符）状态：组合键本身不产生输出，等下一次击键合成。 */
+    private val deadKeys = terminal.emulator.input.DeadKeyState()
+
     /** Shell 启动入口经保存按钮直接写入（DESIGN :113 提供保存按钮），不检查文本。 */
     fun setShell(shell: String) {
         viewModelScope.launch { settingsRepository.setShell(shell) }
@@ -1378,7 +1385,23 @@ constructor(
         if ((meta and KeyEvent.META_ALT_ON) != 0 && !hasAltGr) return false
 
         val unicodeChar = event.getUnicodeChar(meta)
-        if (unicodeChar <= 0) return false
+        if (unicodeChar == 0) return false
+
+        // 死键（组合符）本身不产生字符：先记下，等下一次击键合成。丢掉它会让
+        // AZERTY / US-International / Nordic 等布局只能打出裸字母。
+        if (deadKeys.isDead(unicodeChar)) {
+            deadKeys.hold(unicodeChar)
+            return true
+        }
+
+        // AltGr 的组合字符已由键位表合成完毕，与待合成的组合键无关。
+        val accent = if (hasAltGr) 0 else deadKeys.take()
+        val composed = deadKeys.composeWith(accent, unicodeChar)
+        if (accent != 0 && composed == 0) {
+            LogUtil.w("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
+        }
+        val outChar = if (composed != 0) composed else unicodeChar
+        if (outChar <= 0) return false
 
         val bridge = runtime.bridge() ?: return false
 
@@ -1391,8 +1414,8 @@ constructor(
                 keyCode,
                 mask,
                 0,
-                unicodeChar,
-                // 无修饰码点：Shift 已并入 unicodeChar，把它单独给出供上游编码器
+                outChar,
+                // 无修饰码点：Shift 已并入 outChar，把它单独给出供上游编码器
                 // 识别该键的档位。
                 event.getUnicodeChar(0),
             )
