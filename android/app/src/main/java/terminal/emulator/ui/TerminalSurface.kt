@@ -16,7 +16,11 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.SurroundingText
+import android.view.inputmethod.TextAttribute
 import android.widget.Magnifier
 import android.widget.OverScroller
 import android.widget.PopupWindow
@@ -31,8 +35,11 @@ import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.TouchClass
+import terminal.emulator.input.BatchEditDepth
+import terminal.emulator.input.ComposingBaseline
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
+import terminal.emulator.input.SelectionMover
 import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.DEFAULT_GRID_COLS
@@ -684,7 +691,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val connection =
                 object : BaseInputConnection(this@TerminalSurface, true) {
                     // 进行中的输入法组字：使增量得以校对而非被丢弃。
-                    private var composingBuffer: String = ""
+                    // 基线下沉为可单测的持有者：取文接口与组字光标必须同源，
+                    // 否则输入法读到的与自己写下的不一致。
+                    private val composing = ComposingBaseline()
+
+                    // 批量编辑嵌套与选区折算都是与 Android 生命周期无关的纯状态，
+                    // 故下沉为可单测类型（ImeCursorContract）。
+                    private val batchEdits = BatchEditDepth()
+                    private val selectionMover = SelectionMover(maxMagnitude = MAX_SELECTION_MOVE)
 
                     private fun encodeAndSend(text: String, ctrlActive: Boolean, altActive: Boolean) {
                         inputBatchBuffer.write(
@@ -704,7 +718,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused) {
-                            composingBuffer = ""
+                            composing.clear()
                             return true
                         }
                         // 触摸抑制窗口内不清组字基线、不吞输入：返回 false 让输入法重试，
@@ -713,13 +727,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val newComposing = text?.toString() ?: ""
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
-                        val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
+                        val edit = ComposingDiff.reconcile(composing.text, newComposing)
                         // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
                         // 门控在调用处而非只靠 LogUtil.d：release 下可省掉整条消息串的拼接。
                         if (terminal.emulator.BuildConfig.DEBUG) {
                             LogUtil.d(
                                 "ComposingDiff",
-                                "reconcile prev=${composingBuffer.length}ch next=$newComposing " +
+                                "reconcile prev=${composing.text.length}ch next=$newComposing " +
                                     "bs=${edit.backspaces} app=${edit.append.length}ch",
                             )
                         }
@@ -733,18 +747,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 altActive = false,
                             )
                         }
-                        composingBuffer = newComposing
+                        composing.compose(newComposing, newCursorPosition)
                         return true
                     }
 
                     override fun finishComposingText(): Boolean {
-                        composingBuffer = ""
+                        composing.clear()
                         return true
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused) {
-                            composingBuffer = ""
+                            composing.clear()
                             return true
                         }
                         // 同上：抑制窗口内返回 false 让输入法重发该提交，
@@ -758,15 +772,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val altActive =
                             state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once
 
-                        if (composingBuffer.isNotEmpty()) {
-                            if (committedText == composingBuffer) {
+                        if (composing.isComposing) {
+                            if (committedText == composing.text) {
                                 // 已经组字增量转发；不再重发。
                             } else {
-                                val clear = ComposingDiff.reconcile(composingBuffer, "")
+                                val clear = ComposingDiff.reconcile(composing.text, "")
                                 sendBackspaces(clear.backspaces)
                                 encodeAndSend(committedText, ctrlActive, altActive)
                             }
-                            composingBuffer = ""
+                            composing.clear()
                         } else {
                             encodeAndSend(committedText, ctrlActive, altActive)
                         }
@@ -781,14 +795,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         return true
                     }
 
+                    /**
+                     * 平台已弃用 `ACTION_MULTIPLE` 与 `KeyEvent.characters`，但
+                     * compileSdk 37 仍无公开替代面（`InputConnection` 只有
+                     * `commitText`，没有 `commitMultipleText`），而硬键盘的多字符
+                     * 输入（如蓝牙键盘的粘贴键）**只**经这条通道送达——丢弃它
+                     * 等于砍掉该硬件输入。故在此处最小范围抑制并按码点直接提交。
+                     */
+                    @Suppress("DEPRECATION")
                     override fun sendKeyEvent(event: KeyEvent): Boolean {
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
                             return true
                         }
-                        return if (event.action == KeyEvent.ACTION_DOWN) {
-                            handleKeyEvent(event)
-                        } else {
-                            true
+                        return when (event.action) {
+                            // 多字符事件只给 characters，没有可映射的键码：
+                            // 按码点直接提交，绕开键码映射。
+                            KeyEvent.ACTION_MULTIPLE ->
+                                commitEventCharacters(event.characters)
+
+                            KeyEvent.ACTION_DOWN -> handleKeyEvent(event)
+
+                            else -> true
                         }
                     }
 
@@ -804,27 +831,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // （shell 行编辑按字符删除，一个 0x08 删掉整个汉字，
                         // 真机实测锁定：见 CjkBackspaceSemanticsTest）。
                         // 不得按终端列宽加倍（CJK 发 2 个只会多删一个字符）。
-                        val maxDeletes = composingBuffer.length.coerceAtLeast(MAX_SURROUNDING_DELETES)
+                        val maxDeletes = composing.text.length.coerceAtLeast(MAX_SURROUNDING_DELETES)
                         val safeBefore = beforeLength.coerceIn(0, maxDeletes)
                         val safeAfter = afterLength.coerceIn(0, maxDeletes)
                         if (safeBefore > 0) {
-                            // 保持 composingBuffer 与 PTY 将要持有的内容同步：
+                            // 保持组字基线与 PTY 将要持有的内容同步：
                             // setComposingText 的增量逻辑（startsWith/追加/退格分支）
                             // 假定该缓冲区镜像「已提交 + 组字」文本。
                             // 否则组字期间的输入法退格会在此删一次，
                             // 又在 setComposingText 的退格分支再删一次，多吃一个字符。
-                            if (composingBuffer.isNotEmpty()) {
+                            if (composing.isComposing) {
                                 // beforeLength 按码点计数（API 33+）；
-                                // 从末尾丢弃同样数量的码点，遍历时跨过代理对，
-                                // 使 emoji 与 PTY 内容保持对齐。退格数与移除码点数 1:1。
-                                var removed = 0
-                                var end = composingBuffer.length
-                                while (removed < safeBefore && end > 0) {
-                                    val codePoint = composingBuffer.codePointBefore(end)
-                                    end -= Character.charCount(codePoint)
-                                    removed++
-                                }
-                                composingBuffer = composingBuffer.substring(0, end)
+                                // 删去整个码点（含代理对），使 emoji 与 PTY
+                                // 内容保持对齐。退格数与移除码点数 1:1。
+                                val removed = composing.dropTrailingCodePoints(safeBefore)
                                 val removedBs = ByteArray(removed) { BACKSPACE_BYTE }
                                 inputBatchBuffer.write(removedBs)
                             } else {
@@ -839,6 +859,157 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             inputBatchBuffer.write(del)
                         }
                         return true
+                    }
+
+                    // ── 取文接口：只反映组字基线 ──────────────────────
+                    //
+                    // `BaseInputConnection` 的默认取自持 editable，而本仓从不读它。
+                    // 不覆写这些接口，输入法读到的是空 editable：据此判定字段没有
+                    // 内容，于是提交后看不到自己刚写的字，随即整词重发——终端里
+                    // 出现重复文本。这是输入法能力「静默缺失」的主因。
+                    //
+                    // 一律只回答组字基线，绝不掺入屏幕或回滚文本：否则输入法
+                    // 会把终端任意位置的字符当成自己的候选区去改写。
+                    override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence =
+                        composing.textBefore(length.coerceAtMost(MAX_SURROUNDING_QUERY))
+
+                    override fun getTextAfterCursor(length: Int, flags: Int): CharSequence =
+                        composing.textAfter(length.coerceAtMost(MAX_SURROUNDING_QUERY))
+
+                    /**
+                     * 提取的文本同样只反映组字基线；选区按当前组字光标给出，
+                     * 输入法据此显示候选窗口与光标位置。
+                     *
+                     * `partialEndOffset = -1` 是平台「未选择」的同口径值；填 0 会
+                     * 声称选区在文本开头，使输入法把后续编辑当作整段替换。
+                     */
+                    override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText {
+                        val extracted = ExtractedText()
+                        extracted.text = composing.text
+                        extracted.partialStartOffset = 0
+                        extracted.partialEndOffset = if (composing.isComposing) -1 else 0
+                        extracted.selectionStart = composing.cursor
+                        extracted.selectionEnd = composing.cursor
+                        extracted.flags = flags
+                        return extracted
+                    }
+
+                    /**
+                     * 周边文本：`SurroundingText` 是「一段文本 + 选区」的结构，
+                     * 故返回整条组字基线并把当前组字光标标为选区。
+                     *
+                     * 只报基线本身（不掺屏幕文本）：输入法据此在自己写下的范围内
+                     * 做上下文判断，而不会把终端任意位置的字符当作自己的内容。
+                     */
+                    override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText =
+                        SurroundingText(composing.text, composing.cursor, composing.cursor, 0)
+
+                    // ── 替换与改写区域 ──────────────────────────────
+                    //
+                    // 两者都只允许改写**输入法自己写下的组字基线**：
+                    // 输入法可能给出越界下标，而终端里没有可寻址的文本编辑模型，
+                    // 越界猜测会让已提交内容被错误删改。故范围不落在基线内即
+                    // 返回 false（拒绝）且**发出零字节**，让输入法重试。
+
+                    /**
+                     * 把 `[start, end)` 替换为 [text] 并重设光标（API 34+）。
+                     *
+                     * 目标组字串按「头 + 新文本 + 尾」拼出，再交既有
+                     * [ComposingDiff.reconcile] 出口送达，与组字增量同一条路径。
+                     */
+                    override fun replaceText(
+                        start: Int,
+                        end: Int,
+                        text: CharSequence,
+                        newCursorPosition: Int,
+                        attrs: TextAttribute?,
+                    ): Boolean {
+                        if (isPaused) return true
+                        // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
+                        val target =
+                            composing.replaceRange(start, end, text.toString())
+                                ?: return false
+                        val edit = ComposingDiff.reconcile(composing.text, target)
+                        sendBackspaces(edit.backspaces)
+                        encodeAndSend(edit.append, ctrlActive = false, altActive = false)
+                        composing.compose(target, newCursorPosition)
+                        return true
+                    }
+
+                    /**
+                     * 把组字区域重锚到 `[start, end)`：只重标定「哪一段正在组字」，
+                     * 不引入新文本，区间外的已提交内容必须原样保留。
+                     */
+                    override fun setComposingRegion(start: Int, end: Int): Boolean {
+                        if (isPaused) return true
+                        if (System.nanoTime() < suppressUntilNanos) return false
+                        val target = composing.reanchorRegion(start, end) ?: return false
+                        val edit = ComposingDiff.reconcile(composing.text, target)
+                        sendBackspaces(edit.backspaces)
+                        if (edit.append.isNotEmpty()) {
+                            encodeAndSend(edit.append, ctrlActive = false, altActive = false)
+                        }
+                        // 重锚后光标落在新区间末尾。
+                        composing.compose(target, newCursorPosition = 1)
+                        return true
+                    }
+
+                    /**
+                     * 按 [KeyEvent.characters] 的码点直接提交，不经键码映射。
+                     *
+                     * 与 `commitText` 的区别只在于修饰键来源：`ACTION_MULTIPLE`
+                     * 是硬键盘发来的，输入法无法给出粘滞修饰键状态，故按裸文本提交。
+                     */
+                    private fun commitEventCharacters(characters: CharSequence?): Boolean {
+                        val text = characters?.toString().orEmpty()
+                        if (text.isEmpty()) return true
+                        val terminalViewModel = viewModel
+                        val state = terminalViewModel?.state?.value
+                        val ctrlActive =
+                            state?.ctrlState == ModifierState.Locked ||
+                                state?.ctrlState == ModifierState.Once
+                        val altActive =
+                            state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once
+                        encodeAndSend(text, ctrlActive, altActive)
+                        if (ctrlActive || altActive) {
+                            terminalViewModel.consumeOneShotModifiers()
+                        }
+                        return true
+                    }
+
+                    // ── 批量编辑与选区折算 ──────────────────────
+
+                    override fun beginBatchEdit(): Boolean {
+                        batchEdits.begin()
+                        return true
+                    }
+
+                    override fun endBatchEdit(): Boolean {
+                        batchEdits.end()
+                        return true
+                    }
+
+                    /**
+                     * 把输入法给出的**绝对**选区折成终端可发送的左右移动。
+                     *
+                     * 只移动光标而不改写组字文本：读回的文本必须逐字符不变，
+                     * 否则输入法会把自己的移动误认为内容变更而重发整段。
+                     */
+                    override fun setSelection(start: Int, end: Int): Boolean {
+                        if (isPaused) return true
+                        if (System.nanoTime() < suppressUntilNanos) return false
+                        val delta = selectionMover.moveTo(end)
+                        if (delta.isEmpty) return true
+                        repeat(delta.rightward()) { sendCursorMove(KeyEvent.KEYCODE_DPAD_RIGHT) }
+                        repeat(delta.leftward()) { sendCursorMove(KeyEvent.KEYCODE_DPAD_LEFT) }
+                        return true
+                    }
+
+                    /** 合成一次方向键按下并走既有键事件路径（`setSelection` 折算用）。 */
+                    private fun sendCursorMove(keyCode: Int) {
+                        val now = SystemClock.uptimeMillis()
+                        handleKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
                     }
                 }
             imeConnection.currentInputConnection = connection
@@ -1282,6 +1453,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 4096 足以覆盖「全选删除大块已提交内容」：256 左 > 256 字符的选区
         // （半删除），同时仍限定了 PTY 写入大小。
         private const val MAX_SURROUNDING_DELETES = 4096
+
+        /**
+         * 取文类接口的查询长度上界（与 [MAX_SURROUNDING_DELETES] 同量级）。
+         *
+         * 输入法给出的 length 不可信；组字基线本身只是一条候选区，
+         * 超出的部分按截断返回而非构造超长字符串。
+         */
+        private const val MAX_SURROUNDING_QUERY = 4096
+
+        /**
+         * `setSelection` 单次折算的最大位移（码点）。
+         *
+         * 输入法给的是它自己整段文本里的绝对下标，与终端内容毫无关系；
+         * 不钳位会按一个荒谬的距离向 PTY 灌入海量方向键。
+         */
+        private const val MAX_SELECTION_MOVE = 4096
 
         /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
         private const val EDGE_SCROLL_STEP_UP = 1

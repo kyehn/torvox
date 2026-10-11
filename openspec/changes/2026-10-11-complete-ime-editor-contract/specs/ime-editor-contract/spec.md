@@ -80,6 +80,16 @@ MUST 确实到达终端；凡本仓未受理的，MUST 如实回报拒绝，MUST
 
 ### Requirement: 组字光标位置回报给输入法
 
+> **尚未实施（公开 SDK 不可达）。** 本条依赖把 `CursorAnchorInfo` 投递给输入法，
+> 而唯一的投递方法 `InputConnection.updateCursorAnchorInfo` 是框架 `@hide` 方法：
+> 对 compileSdk 37 的公共 stub jar 扫描，`View`、`InputConnection`、
+> `BaseInputConnection` 三个类均无该符号，仅 `InputMethodManager`、
+> `InputMethodSession`、`InputMethodService$InputMethodSessionImpl` 等 **IME 侧**类
+> 含之，说明它只供 IME 侧调用。本仓 MUST NOT 以反射绕过 SDK 投递，也 MUST NOT
+> 在无法投递时声称受理（否则输入法以为锚点已生效）。待平台提供公共替代面
+> （`commitMultipleText` 在 compileSdk 37 亦不存在）后再实现本条。
+> 已实现并单测过的锚点构造逻辑随之撤回，以免留下只被自身测试调用的死代码。
+
 输入法请求光标位置更新后，本仓 MUST 受理隐式更新，并在组字光标移动时回报光标锚点，
 其屏幕坐标 MUST 由终端网格单元格给出，使输入法把候选窗口落在真实光标格。无组字时
 MUST NOT 回报虚假的光标位置。

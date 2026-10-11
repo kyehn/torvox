@@ -429,3 +429,44 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `color_scheme` 回调 | 不采用 | 注册 None 等价于未注册；无 OS 级来源，不猜 |
 | `set_terminfo_name` | 不采用 | 未设置则 TN 查询不报告；声称值需先审计能力一致性，暂无消费者要求 |
 | Kitty 文件/共享内存介质 | 不采用 | 直传已覆盖主路径；文件介质是新能力面（沙箱路径裁决），需产品确认，另立变更 |
+
+### Requirement: 跨 JNI 扁平数据 MUST 用直接量而非 JSON
+
+数据在 JNI 边界上的形状 MUST 由其自身决定，不因「顺手」而套用 JSON。判别标准是
+**Kotlin 侧是否会形成一份与 Rust 结构同形的 schema 镜像**：
+
+- 扁平原语集合（三个整数、整数序列、标识序列）MUST 用既有直接量约定回传：
+  `IntArray`（`jint_slice_to_int_array`）或 `LongArray`（`u64_vec_to_long_array`）。
+- 具名多字段结构、多态判别、可变长字符串集合 MAY 用一次 JSON 编解码，
+  但 MUST 在下方登记保留理由，MUST NOT 出现「把失败静默改写为空集合」的回退。
+
+#### Scenario: 扁平集合不得经 JSON
+
+- **WHEN** 新增一项回传 N 个同类型原语的 JNI 查询
+- **THEN** 该查询 MUST 返回 `IntArray`/`LongArray` 等直接量，MUST NOT 引入
+  `serde_json::to_string` 与 Kotlin 侧可解析该结构的 DTO
+
+#### Scenario: 保留的 JSON 必须写明理由
+
+- **WHEN** 某项回传因字段数量、多态或可变长结构而保留 JSON
+- **THEN** 下表 MUST 有对应行，给出字段数/判别方式与「为何直接量会更复杂」的实测对照
+
+### Requirement: 保留 JSON 的边界登记
+
+以下两处经实测对照后保留 JSON，逐项记录理由与替代方案的规模，避免后来者重复调研；
+保留项的字段一经变更 MUST 同步其单测，MUST NOT 把解码失败改写为空值：
+
+| 边界 | 形状 | 保留理由 | 直接量替代方案的实测规模 |
+| --- | --- | --- | --- |
+| `pollEvent` / `pollResult`（`event.rs`、`ffi.rs`） | 单次调用返回一个事件，3 种变体各自 2–3 个字段，`exit.code` 需表达 `null` 与 0 之别 | 变体判别 + 「一次取出后即消费」的语义由一次 JSON 解码天然保证；拆成标量需跨调用保存槽位，而槽位要引入并发可见性与「取用顺序」两个新失败面 | 至少 1（判别）+ 4（文本/标识/码点/选择区）次调用，外加一处会话级槽位与其线程安全 |
+| `getFontInfo`（`ffi.rs`） | 单次调用返回 7 个字段，含 `Option` 与 `Vec<String>` | 一次调用取得完整快照；渲染状态锁只在调用期间持有 | 拆为 5 次调用即 5 次获取渲染状态锁；返回 `Any[]` 需 Kotlin 侧按下标装箱解箱，并把「字段顺序」变成隐式契约 |
+
+#### Scenario: 保留项不得腐化
+
+- **WHEN** 修改上述任一 JSON 边界的字段
+- **THEN** 对应单测（`PollEventTest`、`ParseEventTest`、`FontInfoDtoCodecTest`）MUST 同步更新，
+  且 MUST NOT 把反序列化失败改写为空值——空值与「真的没有」必须可区分
+
+已按本标准收敛的形状（供对照，勿回流 JSON）：主题清单
+（`theme-configuration`：数量/标识/深浅/60 字节颜色/序号查询/默认名）、搜索结果
+（`searchAllInScrollback` 扁平 `IntArray`）、会话列表（`listSessions` 扁平 `LongArray`）。
