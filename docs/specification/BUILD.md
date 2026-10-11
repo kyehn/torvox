@@ -2,10 +2,11 @@
 
 ## 环境
 
-- 使用 `nix develop` 进入开发环境，工具由 `flake.nix` 声明。
+- 使用 `nix develop && nix print-dev-env > result-dev.sh` 创建开发环境，使用 `source result-dev.sh` 进入开发环境，工具由 `flake.nix` 声明。
 - 禁止使用 `apt` 等包管理器安装工具。
 - 禁止使用 `which` 进行运行时路径探测。
 - 环境是确定性的：Zig 版本以 `flake.nix` 中声明的为准，禁止进行 Zig 版本检查。
+- 可以从外部下载可以自动处理的文件不得 vendor，亦不得作为代码片段或文档段落等引入
 
 ## 构建
 
@@ -17,5 +18,5 @@
 - `versionCode` 为 2000，`versionName` 为 0.1.0。
 - Rust 版本最低为 1.99，`edition` 最低为 2024。
 - 不得保留未使用依赖，所有依赖使用最新稳定版本，如果目前已使用不稳定版本且无更高版本的稳定版本则使用最新不稳定版本，不得降级依赖。处理破坏性更新，不跳过，不放弃。
-- rust/kotlin/gradle 代码中绝不能出现使用 `cargo build` `cargo test` `./gradlew ":app:assembleDebug"` 或其他进行构建的情况，禁止不受管理的构建。
+- rust/kotlin/gradle 代码中绝不能出现使用 `cargo build` `cargo test` `./gradlew ":app:assembleDebug"` `git clone` 或其他进行构建的情况，禁止不受管理的构建。
 - 只支持 `arm64-v8a`、`x86_64` 架构，`x86_64` 在构建/测试/模拟器测试时使用。
