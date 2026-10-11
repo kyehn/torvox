@@ -635,55 +635,18 @@ fun TerminalScreen(
                             if (showTextSearch && searchState.hasResults) {
                                 val surface = surfaceRef.value
                                 if (surface != null) {
-                                    val rows = surface.getRows()
-                                    val scrollbackCount = surface.getMaxScrollOffset()
-                                    val scrollOffset = viewportScrollOffset.intValue
-                                    val themeForeground = resolvedTerminalTheme.foreground
-                                    val themeSelectionBackground = resolvedTerminalTheme.selectionBackground
-
-                                    val highlightBuffer = java.io.ByteArrayOutputStream()
-                                    fun writeI32(value: Int) {
-                                        highlightBuffer.write(value and 0xFF)
-                                        highlightBuffer.write((value ushr 8) and 0xFF)
-                                        highlightBuffer.write((value ushr 16) and 0xFF)
-                                        highlightBuffer.write((value ushr 24) and 0xFF)
-                                    }
-                                    fun writeByte(value: Byte) {
-                                        highlightBuffer.write(value.toInt())
-                                    }
-                                    writeI32(searchState.resultCount)
-                                    for ((index, match) in searchState.results.withIndex()) {
-                                        val gridRow = match.lineIndex - scrollbackCount + scrollOffset
-                                        if (gridRow < 0 || gridRow >= rows) continue
-                                        val isCurrent = index == searchState.currentIndex
-                                        writeI32(gridRow)
-                                        writeI32(match.startIndex)
-                                        writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
-                                        if (isCurrent) {
-                                            // 当前命中项：完全不透明的主题前景色。
-                                            // alpha >= 128 使 Rust 渲染器交换前景/背景
-                                            // （反色）并把不透明色混合到背景上，
-                                            // 使当前命中项毫无疑问地突出。
-                                            // 见 SearchHighlightColors.CURRENT_MATCH_ALPHA
-                                            // 与 native/src/render/tests.rs 的生产值测试。
-                                            writeByte((themeForeground.red * 255).toInt().toByte())
-                                            writeByte((themeForeground.green * 255).toInt().toByte())
-                                            writeByte((themeForeground.blue * 255).toInt().toByte())
-                                            writeByte(SearchHighlightColors.CURRENT_MATCH_ALPHA.toByte())
-                                        } else {
-                                            // 其余命中项：alpha = 160，仍 ≥ Rust 侧
-                                            // SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD(128)，
-                                            // 故同样交换前景/背景，只靠降低不透明度与
-                                            // 当前项区分。
-                                            // 见 SearchHighlightColors.OTHER_MATCH_ALPHA
-                                            // 与 native/src/render/tests.rs 的生产值测试。
-                                            writeByte((themeSelectionBackground.red * 255).toInt().toByte())
-                                            writeByte((themeSelectionBackground.green * 255).toInt().toByte())
-                                            writeByte((themeSelectionBackground.blue * 255).toInt().toByte())
-                                            writeByte(SearchHighlightColors.OTHER_MATCH_ALPHA.toByte())
-                                        }
-                                    }
-                                    val highlightBytes = highlightBuffer.toByteArray()
+                                    val highlightBytes = SearchHighlightPacker.pack(
+                                        results = searchState.results,
+                                        currentIndex = searchState.currentIndex,
+                                        rows = surface.getRows(),
+                                        scrollbackCount = surface.getMaxScrollOffset(),
+                                        scrollOffset = viewportScrollOffset.intValue,
+                                        // 当前命中项完全不透明的主题前景色，其余为降低
+                                        // 不透明度的主题选区色，两者 alpha 见
+                                        // SearchHighlightColors。
+                                        foreground = resolvedTerminalTheme.foreground,
+                                        selectionBackground = resolvedTerminalTheme.selectionBackground,
+                                    )
                                     // 单次调用：surface.setSearchHighlights 内部会调用
                                     // bridge.setSearchHighlights + bridge.render
                                     surface.setSearchHighlights(highlightBytes)
