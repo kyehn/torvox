@@ -31,7 +31,8 @@ import terminal.emulator.input.toggled
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.runtime.pasteChunks
+import terminal.emulator.runtime.pasteByteChunks
+import terminal.emulator.runtime.truncatePasteText
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.util.TerminalDispatchers
@@ -691,26 +692,42 @@ constructor(
             return executePaste(text)
         }
 
-        /** 经分块器把 [text] 真正写入 PTY。
+        /** 把 [text] 编码后真正写入 PTY。
          *
          * 主线程禁直接写：100 万字符剪贴板产生 250 块 JNI 同步写，
          * 阻塞在会话锁 + PTY 写入上。调用方须经 `InputBatchBuffer` 入队。
+         *
+         * 编码经上游 `paste::encode`（原生 `encodePaste`）：bracketed 包裹与否
+         * 取自终端模式 2004 的活体状态，控制字节由上游中化，本处不解释内容。
+         * 编码失败（会话已消失等）记警告后跳过：后续写入同样落空。
          */
         fun executePaste(text: String): Int {
-            var offset = 0
             // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
             // 会让粘贴尾部写进新会话。
             val sessionId = runtime.inputTargetSessionId
-            val chunks = pasteChunks(text)
-            if (chunks.isEmpty()) {
-                LogUtil.d("TerminalViewModel", "粘贴跳过：切分后无块")
+            val truncated = truncatePasteText(text)
+            if (truncated.isEmpty()) {
+                LogUtil.d("TerminalViewModel", "粘贴跳过：空白或截断后无内容")
+                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
+                return 0
             }
-            for (chunk in chunks) {
-                pasteSink(sessionId, chunk.toByteArray(Charsets.UTF_8))
-                offset += chunk.length
+            val encoded =
+                try {
+                    NativeBridge.encodePaste(sessionId, truncated.toByteArray(Charsets.UTF_8))
+                } catch (exception: Exception) {
+                    LogUtil.w("TerminalViewModel", "粘贴编码失败", exception)
+                    null
+                }
+            if (encoded == null || encoded.isEmpty()) {
+                LogUtil.w("TerminalViewModel", "粘贴跳过：编码无输出")
+                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
+                return 0
+            }
+            for (chunk in pasteByteChunks(encoded)) {
+                pasteSink(sessionId, chunk)
             }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-            return offset
+            return truncated.length
         }
     }
 

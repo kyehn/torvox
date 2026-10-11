@@ -1157,13 +1157,24 @@ fn gpu_background_plain_color_fill() {
         .render_to_buffer(&[], &[])
         .expect("wgpu render must succeed");
 
+    // 清屏色即默认主题背景（单源，不手写色值）。
+    let (_, default_background, _) =
+        crate::terminal::ghostty_terminal::GhosttyTerminal::default_palette();
     let idx = (25 * 50 + 25) * 4;
     assert_eq!(
-        result[idx], 30,
-        "center R should be 30 (Catppuccin Mocha background)"
+        result[idx], default_background[0],
+        "center R should be default theme background R"
     );
-    assert_eq!(result[idx + 1], 30, "center G should be 30");
-    assert_eq!(result[idx + 2], 46, "center B should be 46");
+    assert_eq!(
+        result[idx + 1],
+        default_background[1],
+        "center G should be default theme background G"
+    );
+    assert_eq!(
+        result[idx + 2],
+        default_background[2],
+        "center B should be default theme background B"
+    );
     assert_eq!(result[idx + 3], 255, "center A should be 255");
 }
 
@@ -2805,7 +2816,15 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
             }
         })
         .collect();
-    let background = [30u8, 30, 46, 255];
+    // 清屏背景即默认主题背景（单源，不手写色值）。
+    let (_, default_background, _) =
+        crate::terminal::ghostty_terminal::GhosttyTerminal::default_palette();
+    let background = [
+        default_background[0],
+        default_background[1],
+        default_background[2],
+        255,
+    ];
 
     // 帧 A：偏移 0 的全量重绘（滚动前基线）。
     let frame_at_rest = context.render_to_buffer(&instances, &[]).unwrap();

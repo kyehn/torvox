@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
+use libghostty_vt::paste;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
 use libghostty_vt::screen::GridRef;
 use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
@@ -18,6 +19,32 @@ use flume::Sender;
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
     if let Err(e) = sender.send(value) {
         log::error!("ghostty_terminal: {context}: channel send failed: {e}");
+    }
+}
+
+/// 上游 `paste::encode` 的输出缓冲管理：输出恒比输入长（bracketed 包裹与
+/// 控制字节替换），先按输入长度加裕量一次成形；不足时按上游回告的 `required`
+/// 精确扩容。`required` 为 0 是上游未填值，此时翻倍避免原地空转。
+/// 其他错误记日志后返回空（调用方丢弃本次粘贴）。
+fn encode_paste_data(data: &[u8], bracketed: bool) -> Vec<u8> {
+    let mut working = data.to_vec();
+    let mut output = vec![0u8; data.len() + 16];
+    loop {
+        match paste::encode(&mut working, bracketed, &mut output) {
+            Ok(written) => return output[..written].to_vec(),
+            Err(libghostty_vt::Error::OutOfSpace { required }) => {
+                let grown = if required > output.len() {
+                    required
+                } else {
+                    output.len().saturating_mul(2)
+                };
+                output.resize(grown, 0);
+            }
+            Err(error) => {
+                log::warn!("ghostty_terminal: paste encode failed: {error}");
+                return Vec::new();
+            }
+        }
     }
 }
 
@@ -400,6 +427,16 @@ impl super::GhosttyTerminal {
                     }
                 };
                 mouse_encoder.set_options_from_terminal(terminal);
+                // 视口外 motion 只在有键按下时上报（上游 mouse_encode 口径）：
+                // 按下/移动恒有接触（触摸 onTouchEvent 与持键鼠标移动），
+                // 释放后无接触。缺省 false 会把滑出视口的拖动静默丢弃。
+                let mapped_action = match action {
+                    1 => mouse::Action::Release,
+                    2 => mouse::Action::Motion,
+                    _ => mouse::Action::Press,
+                };
+                mouse_encoder
+                    .set_any_button_pressed(!matches!(mapped_action, mouse::Action::Release));
                 let cols = grid_cols(terminal);
                 let rows = grid_rows(terminal);
                 let size = mouse::EncoderSize {
@@ -417,11 +454,7 @@ impl super::GhosttyTerminal {
                     x: position.0,
                     y: position.1,
                 });
-                mouse_event.set_action(match action {
-                    1 => mouse::Action::Release,
-                    2 => mouse::Action::Motion,
-                    _ => mouse::Action::Press,
-                });
+                mouse_event.set_action(mapped_action);
                 mouse_event.set_button(match button {
                     1 => Some(mouse::Button::Right),
                     2 => Some(mouse::Button::Middle),
@@ -471,6 +504,17 @@ impl super::GhosttyTerminal {
                     log::warn!("ghostty_terminal: key encode failed: {error}");
                 }
                 try_send(&tx, response, "key encode response send failed");
+            }
+            Query::EncodePaste { data, tx } => {
+                // 括号标志取活体模式 2004（DECSET 私有模式），与按键/鼠标编码
+                // 同属终端状态感知路径；查不到按未启用处理（与 `ModeGet`
+                // 查询的回退口径一致）。
+                let bracketed = terminal.mode(Mode::BRACKETED_PASTE).unwrap_or(false);
+                try_send(
+                    &tx,
+                    encode_paste_data(&data, bracketed),
+                    "paste encode response send failed",
+                );
             }
         }
         selection_installed
@@ -2072,18 +2116,30 @@ impl super::GhosttyTerminal {
             Ok(0) => None,
             Ok(len) => Some(String::from_utf8_lossy(&buf[..len]).into_owned()),
             Err(libghostty_vt::error::Error::OutOfSpace { required }) => {
-                let capped = required.min(MAX_HYPERLINK_URI_BYTES);
-                if capped == 0 {
+                // 超过上限的 URI 直接丢弃并出声：截断的链接指向错误地址，
+                // 比没有链接更糟；上限内才值得第二次精确读取。
+                if required == 0 || required > MAX_HYPERLINK_URI_BYTES {
+                    log::warn!(
+                        "ghostty_terminal: hyperlink URI unusable (required {required} bytes), dropping link"
+                    );
                     return None;
                 }
-                let mut grown = vec![0u8; capped];
-                let grown_len = grid_ref.hyperlink_uri(&mut grown).ok()?;
-                if grown_len == 0 {
-                    return None;
+                let mut grown = vec![0u8; required];
+                match grid_ref.hyperlink_uri(&mut grown) {
+                    Ok(0) => None,
+                    Ok(grown_len) => {
+                        Some(String::from_utf8_lossy(&grown[..grown_len]).into_owned())
+                    }
+                    Err(error) => {
+                        log::warn!("ghostty_terminal: hyperlink URI reread failed: {error}");
+                        None
+                    }
                 }
-                Some(String::from_utf8_lossy(&grown[..grown_len]).into_owned())
             }
-            Err(_) => None,
+            Err(error) => {
+                log::warn!("ghostty_terminal: hyperlink URI read failed: {error}");
+                None
+            }
         }
     }
 
@@ -2339,10 +2395,12 @@ mod tests {
         let dumped = terminal.dump_grid();
         let cell = &dumped.visible[0];
         assert_eq!(cell.codepoint, 'R' as u32);
-        // 默认主题调色板索引 1 为 Catppuccin 红，非纯红：断言有效调色板色即证明链路。
+        // 默认主题调色板索引 1，非纯红：断言有效调色板色即证明链路。
+        // 色值取自默认调色板单源，不手写。
+        let (default_ansi, _, _) = GhosttyTerminal::default_palette();
         assert_eq!(
             cell.foreground,
-            GhosttyTerminal::byte_color_to_float([243, 139, 168]),
+            GhosttyTerminal::byte_color_to_float(default_ansi[1]),
             "SGR 31 must resolve to palette index 1"
         );
     }

@@ -566,6 +566,32 @@ mod tests {
     }
 
     #[test]
+    fn test_output_capture_da() {
+        // DA 查询必须有应答。实测：缺省 trampoline 已按默认属性应答
+        // （DA1=`?62;22c`），故不注册自定义回调——自定义属性需先验证
+        // 132 列等能力，无消费者要求时不认领。此处只钉住“有应答”。
+        let mut t = terminal();
+        t.vt_write(b"\x1b[c");
+        t.flush();
+        let responses = t.drain_pty_write_responses();
+        let last = responses.last().expect("DA1 must produce a response");
+        let text = String::from_utf8_lossy(last);
+        assert!(
+            text.starts_with("\x1b[?62") && text.ends_with('c'),
+            "DA1 must report VT220 primary, got: {text}"
+        );
+        t.vt_write(b"\x1b[>c");
+        t.flush();
+        let responses = t.drain_pty_write_responses();
+        let last = responses.last().expect("DA2 must produce a response");
+        let text = String::from_utf8_lossy(last);
+        assert!(
+            text.starts_with("\x1b[>") && text.ends_with('c'),
+            "DA2 must report secondary attributes, got: {text}"
+        );
+    }
+
+    #[test]
     fn test_xtwinops_size_reports() {
         // 对标 sylirre xtwinopsSizeReports：CSI 18t 回 CSI 8;行;列 t，
         // CSI 14t 回像素区尺寸，CSI 16t 回单元格像素尺寸。

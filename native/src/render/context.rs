@@ -7,10 +7,10 @@ use crate::render::pass::{ACQUIRE_TIMEOUT, AcquireOutcome};
 use crate::render::pipeline::QUAD_CORNERS;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-/// 初始清除色：与终端初态同源（`catppuccin_mocha_palette` 背景），避免首帧黑闪。
+/// 初始清除色：与终端初态同源（默认主题背景），避免首帧黑闪。
 /// 运行时主题经 `set_background_color` 更新，此处只覆盖到达前的窗口。
 fn initial_background_color() -> wgpu::Color {
-    let (_, background, _) = GhosttyTerminal::catppuccin_mocha_palette();
+    let (_, background, _) = GhosttyTerminal::default_palette();
     background_color_from_bytes(background)
 }
 

@@ -10,65 +10,21 @@ use super::types::*;
 
 impl super::GhosttyTerminal {
     pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, TerminalError> {
-        let (ansi, background, foreground) = Self::catppuccin_mocha_palette();
+        let (ansi, background, foreground) = Self::default_palette();
         Self::new_with_theme(rows, cols, scrollback_lines, background, foreground, ansi)
     }
 
-    /// Catppuccin Mocha 调色板（alacritty-theme `catppuccin_mocha.toml`）。
+    /// 默认主题调色板：DESIGN 默认终端主题，经 [`crate::terminal::theme`] 单源读取。
     ///
-    /// 取值必须与 alacritty-theme 逐字一致：该主题的 ANSI 十六色并非 Catppuccin
-    /// 原始调色板值——例如 normal.black 是 surface1 `#45475A` 而非 base `#181825`，
-    /// magenta 是 pink `#F5C2E7` 而非 mauve `#CBA6F7`。此处曾误用原始调色板值，
-    /// 令走本函数的终端渲染出与主题预览不同的颜色。
-    /// 颜色定义的真源在 Kotlin `BuiltInThemes.catppuccinMocha`（UI 侧随选中主题
-    /// 推给 native），本函数仅提供 setTheme 到达前的初态。
-    pub fn catppuccin_mocha_palette() -> ([[u8; 3]; 16], [u8; 3], [u8; 3]) {
-        let ansi = [
-            [0x45, 0x47, 0x5A], // normal.black   surface1
-            [0xF3, 0x8B, 0xA8], // normal.red     red
-            [0xA6, 0xE3, 0xA1], // normal.green   green
-            [0xF9, 0xE2, 0xAF], // normal.yellow  yellow
-            [0x89, 0xB4, 0xFA], // normal.blue    blue
-            [0xF5, 0xC2, 0xE7], // normal.magenta pink
-            [0x94, 0xE2, 0xD5], // normal.cyan    teal
-            [0xBA, 0xC2, 0xDE], // normal.white   subtext1
-            [0x58, 0x5B, 0x70], // bright.black   surface2
-            [0xF3, 0x8B, 0xA8], // bright.red     red
-            [0xA6, 0xE3, 0xA1], // bright.green   green
-            [0xF9, 0xE2, 0xAF], // bright.yellow  yellow
-            [0x89, 0xB4, 0xFA], // bright.blue    blue
-            [0xF5, 0xC2, 0xE7], // bright.magenta pink
-            [0x94, 0xE2, 0xD5], // bright.cyan    teal
-            [0xA6, 0xAD, 0xC8], // bright.white   subtext0
-        ];
-        (ansi, [0x1E, 0x1E, 0x2E], [0xCD, 0xD6, 0xF4])
-    }
-
-    /// Dracula Plus 调色板（alacritty-theme `dracula_plus.toml`）。
-    ///
-    /// 取值必须与 alacritty-theme 逐字一致，与 Kotlin `BuiltInThemes.draculaPlus`
-    /// 的背景/前景/十六色同源。DESIGN 默认主题为 dracula_plus，本函数供测试复刻
-    /// 设备 `apply_theme` 后的精确状态，避免各用例手写十六色数组造成分叉。
-    pub fn dracula_plus_palette() -> ([[u8; 3]; 16], [u8; 3], [u8; 3]) {
-        let ansi = [
-            [0x21, 0x22, 0x2C],
-            [0xFF, 0x55, 0x55],
-            [0x50, 0xFA, 0x7B],
-            [0xFF, 0xCB, 0x6B],
-            [0x82, 0xAA, 0xFF],
-            [0xC7, 0x92, 0xEA],
-            [0x8B, 0xE9, 0xFD],
-            [0xF8, 0xF9, 0xF2],
-            [0x54, 0x54, 0x54],
-            [0xFF, 0x6E, 0x6E],
-            [0x69, 0xFF, 0x94],
-            [0xFF, 0xCB, 0x6B],
-            [0xD6, 0xAC, 0xFF],
-            [0xFF, 0x92, 0xDF],
-            [0xA4, 0xFF, 0xFF],
-            [0xF8, 0xF8, 0xF2],
-        ];
-        (ansi, [0x21, 0x21, 0x21], [0xF8, 0xF8, 0xF2])
+    /// 初态与会话默认及渲染首帧清除色均经此取得，不在仓库内另存颜色副本。
+    pub fn default_palette() -> ([[u8; 3]; 16], [u8; 3], [u8; 3]) {
+        let theme = crate::terminal::theme::by_name(crate::terminal::theme::default_dark_name())
+            .expect("默认主题须在清单中");
+        (
+            theme.palette.ansi,
+            theme.palette.background,
+            theme.palette.foreground,
+        )
     }
 
     pub fn new_with_theme(
@@ -451,6 +407,26 @@ impl super::GhosttyTerminal {
             },
             Vec::new(),
             "encode_key_event",
+        )
+        .into()
+    }
+
+    /// 用上游 `paste::encode` 把剪贴板文本编码为 PTY 写入字节。
+    ///
+    /// bracketed 标志取自终端模式 2004 的活体状态：启用时包裹并保留换行，
+    /// 未启用时换行转回车；控制字节由上游中化。不取 `Terminal::paste`
+    /// （其拒绝流程要求确认对话框，PROHIBITED 明禁）。
+    ///
+    /// 编码失败返回 `Some(空)`，由调用方丢弃本次粘贴；
+    /// 仅查询通道卡死时返回 `None`。
+    pub fn encode_paste(&self, data: &[u8]) -> Option<Vec<u8>> {
+        self.query(
+            |tx| Query::EncodePaste {
+                data: data.to_vec(),
+                tx,
+            },
+            Vec::new(),
+            "encode_paste",
         )
         .into()
     }

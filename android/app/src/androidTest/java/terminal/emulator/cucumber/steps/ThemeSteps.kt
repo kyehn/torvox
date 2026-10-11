@@ -11,7 +11,7 @@ import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import org.junit.Assert.assertTrue
 import terminal.emulator.cucumber.ComposeRuleHolder
-import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.waitForSession
 import javax.inject.Inject
 
@@ -83,7 +83,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @那么("^终端应用的是有效内置主题$")
     fun appliedThemeIsValidBuiltIn() {
         composeRuleHolder.composeRule.waitForSession()
-        val validNames = BuiltInThemes.all.map { it.name }.toSet()
+        val validNames = ThemeRepository.all().map { it.name }.toSet()
         val current = currentThemeNames()
         assertTrue(
             "当前主题应为有效内置主题，实际 $current",

@@ -1,40 +1,57 @@
 package terminal.emulator.ui.theme
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
- * BuiltInThemes theme-name resolution. Unknown names must surface as errors, not
- * be silently swapped for a default: an unresolvable stored name is corrupt
- * settings data, which DESIGN:16 requires clearing rather than papering over.
+ * 主题名解析的纯逻辑：模式切换只做字符串选择，不碰 JNI、不读硬编码表。
+ * 未知名是否报错由调用方（ThemeRepository.byName / 设置清理）裁决，
+ * 此处只锁定“同名输入得到同名输出”的透传语义。
  */
 class TerminalThemePaletteTest {
 
     @Test
-    fun `byNameOrNull resolves a known theme`() {
+    fun `fixed mode passes through the stored name`() {
         assertEquals(
-            BuiltInThemes.catppuccinMocha,
-            BuiltInThemes.byNameOrNull(BuiltInThemes.catppuccinMocha.name),
+            "test_theme",
+            resolveTerminalThemeName(
+                mode = "fixed",
+                fixedName = "test_theme",
+                dayName = "test_day",
+                nightName = "test_night",
+                isDark = true,
+            ),
         )
     }
 
     @Test
-    fun `byNameOrNull returns null for unknown and empty names`() {
-        assertNull(BuiltInThemes.byNameOrNull("no-such-theme"))
-        assertNull(BuiltInThemes.byNameOrNull(""))
+    fun `follow system picks night or day by darkness`() {
+        assertEquals(
+            "test_night",
+            resolveTerminalThemeName(
+                mode = "follow_system",
+                fixedName = "test_theme",
+                dayName = "test_day",
+                nightName = "test_night",
+                isDark = true,
+            ),
+        )
+        assertEquals(
+            "test_day",
+            resolveTerminalThemeName(
+                mode = "follow_system",
+                fixedName = "test_theme",
+                dayName = "test_day",
+                nightName = "test_night",
+                isDark = false,
+            ),
+        )
     }
 
     @Test
-    fun `byName throws for an unknown name instead of silently substituting dracula plus`() {
-        assertThrows(IllegalStateException::class.java) { BuiltInThemes.byName("no-such-theme") }
-    }
-
-    @Test
-    fun `every built-in theme is reachable by its own name`() {
-        for (theme in BuiltInThemes.all) {
-            assertEquals(theme, BuiltInThemes.byNameOrNull(theme.name))
-        }
+    fun `packed theme keeps its own name`() {
+        val packedColors = ByteArray(ThemeRepository.PACKED_THEME_BYTES) { 0x01 }
+        val theme = ThemeRepository.themeFromPacked("test_theme", true, packedColors)
+        assertEquals("test_theme", theme.name)
     }
 }

@@ -1,32 +1,23 @@
 package terminal.emulator.runtime
 
-/** 上界：避免在超大剪贴板上让字符串拷贝（toString/replace/toByteArray）把调用线程 OOM。 */
+/** 上界：避免在超大剪贴板上让字符串拷贝（toString/toByteArray）把调用线程 OOM。 */
 const val MAX_PASTE_CHARS = 1_000_000
 
-/** 必须远低于 PTY 内核缓冲（~64KB）。 */
-const val PASTE_CHUNK_CHARS = 4_000
+/** 编码流单块字节上界：必须远低于 PTY 内核缓冲（~64KB）。 */
+const val PASTE_CHUNK_BYTES = 12_000
 
 /**
- * 为 PTY 粘贴切分剪贴板文本。
+ * 截断剪贴板文本到 [maxChars]（并告警；截断点落在代理对中间时多取一字符
+ * 保住完整码点）。空白文本返回空串，由调用方跳过。
  *
- * 一次同步 `feedPty` 调用携带完整的多兆字节负载必然超出 PTY 内核缓冲（~64KB），
- * 并在 EAGAIN 时被整块丢弃。经逐帧 flush 路径切分可给子 shell 块间排空的时间。
- * 切分点落在码点边界（绝不在代理对内部）。
+ * 只做截断，不解释内容：换行归一与括号包裹是上游 `paste::encode` 的协议语义，
+ * 由编码后的字节流承担，本处不得提前改写原文（两次不同模式的粘贴必须
+ * 一致地来自同一原文）。
  *
- * 归一化 [text] 并切分为可直接写入 PTY 的块。
- *
- * [text] 为空白时返回空列表。截断到 [maxChars]（并告警；截断点落在代理对
- * 中间时多取一字符保住完整码点），并把换行转成 `\r`（xterm 粘贴语义；
- * 先折叠 `\r\n`，否则回车换行会被展开成两个回车）。
- *
- * [maxChars] 与 [chunkChars] 只供单测缩小规模；生产只用默认值。
+ * [maxChars] 只供单测缩小规模；生产只用默认值。
  */
-internal fun pasteChunks(
-    text: String,
-    maxChars: Int = MAX_PASTE_CHARS,
-    chunkChars: Int = PASTE_CHUNK_CHARS,
-): List<String> {
-    if (text.isBlank()) return emptyList()
+internal fun truncatePasteText(text: String, maxChars: Int = MAX_PASTE_CHARS): String {
+    if (text.isBlank()) return ""
     if (text.length > maxChars) {
         LogUtil.w("PasteChunker", "clipboard too large (${text.length} chars), truncating to $maxChars")
     }
@@ -37,17 +28,39 @@ internal fun pasteChunks(
     ) {
         truncated += text[maxChars]
     }
-    val normalized = truncated.replace("\r\n", "\r").replace("\n", "\r")
-    val chunks = mutableListOf<String>()
+    return truncated
+}
+
+/**
+ * 把已编码的粘贴字节流切分为可直接写入 PTY 的块。
+ *
+ * 只切分不解释：上游编码产出的括号标记位于流首尾，中间切分天然不拆标记；
+ * 切分点落在 UTF-8 字符边界（绝不在多字节字符内部）。
+ */
+internal fun pasteByteChunks(stream: ByteArray, chunkBytes: Int = PASTE_CHUNK_BYTES): List<ByteArray> {
+    if (stream.isEmpty()) return emptyList()
+    val chunks = mutableListOf<ByteArray>()
     var offset = 0
-    while (offset < normalized.length) {
-        var end = minOf(offset + chunkChars, normalized.length)
-        if (end < normalized.length && Character.isHighSurrogate(normalized[end - 1])) {
-            end -= 1
+    while (offset < stream.size) {
+        var end = minOf(offset + chunkBytes, stream.size)
+        if (end < stream.size) {
+            // 回退到字符边界：尾部连续字节（10xxxxxx）属于被切半的字符，
+            // 连同其起始字节一并留给下一块。
+            while (end > offset && isUtf8Continuation(stream[end - 1])) end--
+            if (end > offset && isUtf8Lead(stream[end - 1])) end--
+            if (end <= offset) {
+                // 块小于一个完整字符（调用方传的 chunkBytes 过小）：向前吞完整字符。
+                var next = offset + 1
+                while (next < stream.size && isUtf8Continuation(stream[next])) next++
+                end = next
+            }
         }
-        if (end <= offset) break
-        chunks.add(normalized.substring(offset, end))
+        chunks.add(stream.copyOfRange(offset, end))
         offset = end
     }
     return chunks
 }
+
+private fun isUtf8Continuation(byte: Byte): Boolean = byte.toInt() and 0xC0 == 0x80
+
+private fun isUtf8Lead(byte: Byte): Boolean = byte.toInt() and 0xC0 == 0xC0
