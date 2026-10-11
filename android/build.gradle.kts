@@ -17,8 +17,7 @@ plugins {
 }
 
 if (
-    System.getenv("NIX_GCROOT").isNullOrEmpty() ||
-        System.getenv("IN_NIX_SHELL").isNullOrEmpty() ||
+    System.getenv("IN_NIX_SHELL").isNullOrEmpty() ||
         System.getenv("NIX_BUILD_TOP").isNullOrEmpty() ||
         System.getenv("nativeBuildInputs").isNullOrEmpty()
 ) {
