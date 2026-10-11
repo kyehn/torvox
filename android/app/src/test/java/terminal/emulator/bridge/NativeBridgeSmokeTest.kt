@@ -92,7 +92,7 @@ class NativeBridgeSmokeTest {
         withSession { sessionId ->
             assertTrue(
                 "registry must now contain the session",
-                requireNotNull(NativeBridge.listSessions()).contains(sessionId.toString()),
+                NativeBridge.listSessions().contains(sessionId),
             )
         }
         assertEquals("session must be removed again", before, NativeBridge.getSessionCount())
@@ -185,7 +185,7 @@ class NativeBridgeSmokeTest {
             "unknown session must throw IllegalArgumentException, got silent return",
             exception,
         )
-        assertNotNull("bridge must remain usable after the failed call", NativeBridge.listSessions())
+        assertNotNull("bridge must remain usable after the failed call", NativeBridge.listSessions().isEmpty())
     }
 
     @Test

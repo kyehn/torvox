@@ -53,8 +53,8 @@ object NativeBridge {
      */
     @JvmStatic external fun getScrollbackRows(sessionId: Long): Int
 
-    /** 活跃会话 ID 的 JSON 数组，如 "[1, 2, 3]"。 */
-    @JvmStatic external fun listSessions(): String?
+    /** 活跃会话 ID；数组为空即无会话。 */
+    @JvmStatic external fun listSessions(): LongArray
 
     // ── 终端输入输出 ──
 
@@ -223,11 +223,12 @@ object NativeBridge {
     @JvmStatic external fun wideCharTailCols(sessionId: Long, row: Int): IntArray
 
     /**
-     * 搜索整个回滚缓冲，返回 `{"row":int,"start_col":int,"end_col":int}` 的 JSON 数组
-     * （列号为字节偏移），超时返回 `[]`。调用方需在 UI 线程做防抖。
+     * 搜索整个回滚缓冲，返回扁平 `IntArray`：每项三个 `Int`，依次为 `row`、
+     * `start_col`、`end_col`（列号为字符列）。超时、断连或会话不存在返回 null。
+     * 调用方需在 UI 线程做防抖。
      */
     @JvmStatic
-    external fun searchAllInScrollback(sessionId: Long, query: String, caseSensitive: Boolean): String?
+    external fun searchAllInScrollback(sessionId: Long, query: String, caseSensitive: Boolean): IntArray?
 
     /** 字体库族名列表（fonts.xml 声明的文件集 + 用户投放目录）。 */
     @JvmStatic external fun listFontFamilies(): Array<String>?
