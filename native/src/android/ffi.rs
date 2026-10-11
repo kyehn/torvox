@@ -34,9 +34,11 @@ use jni::sys::{
 use jni::{Env, EnvUnowned, jni_str};
 
 use super::text_utils::encode_modifiers;
+use crate::render::cell_builder::SearchHighlight;
 use crate::terminal::ShellEnv;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::session::Session;
+use libghostty_vt::key;
 use std::sync::Arc;
 
 /// 捕获逸出 JNI 导出函数体的 panic。panic 越过 `extern "system"` 边界属未定义行为
@@ -1037,46 +1039,37 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
     session_id: jlong,
     key: JString,
     modifiers: jint,
-    text: JString,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        write_key_inner(env, _class, session_id, key, modifiers, text)
+        write_key_inner(env, _class, session_id, key, modifiers)
     })
 }
 
+/// 把单个按键的可打印字符写入 PTY，并按修饰位套 ESC 前缀与 Ctrl 折叠。
+///
+/// 只在**按键编码器不覆盖该键码**时调用：上游 `key::Key` 没有对应键的键码
+/// （如 `KEYCODE_AT` 的 `@` 实为 Shift+2）落到此处，取平台给出的码点直写。
+/// `modifiers` 取上游 `key.Mods` 原始位，与 Kotlin `KeyModifiers` 同一套。
+/// 这里的 Ctrl 折叠是回退入口的兜底，正常键入路径由 `encodeKeyEvent` 编码。
 fn write_key_inner(
     env: &mut Env,
     _class: JClass,
     session_id: jlong,
     key: JString,
     modifiers: jint,
-    text: JString,
 ) {
     let id = session_id as u64;
 
     let Some(key_str) = read_jni_string(env, &key, "writeKey", "key string") else {
         return;
     };
-    let has_text = !text.is_null();
 
     let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
         // 会话锁只用来取 PTY 写入面；真正的写入在其之外（理由同 `feed_pty_inner`）。
         let pty_master = entry.session.lock().pty_master();
-        let result = if has_text {
-            match read_jni_string(env, &text, "writeKey", "text string") {
-                Some(decoded) => pty_master.write(decoded.as_bytes()),
-                None => return,
-            }
-        } else {
-            // IME 可打印字符回退入口：Kotlin 侧已过滤 Ctrl（特殊键/组合键经
-            // TerminalInputEncoder 编码后走 feedPty），到达此处的仅为无 Ctrl 的
-            // 可打印字符（含 Alt 前缀处理）。按键到转义序列的编码全部由 Kotlin 的
-            // `TerminalInputEncoder` 完成（见 openspec/specs/modifier-bar-sticky-encoding），
-            // 本函数只处理可打印字符的字节流，不做 CSI-u 编码。
-            let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
-            pty_master.write(&bytes)
-        };
+        let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
+        let result = pty_master.write(&bytes);
         if let Err(e) = result {
             // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
             if e.is_would_block() {
@@ -1174,6 +1167,91 @@ fn encode_mouse_event_inner(
     env.byte_array_from_slice(&bytes)
         .map(|arr| arr.into_raw())
         .unwrap_or(std::ptr::null_mut())
+}
+
+// ── 按键编码 ────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// JNI 导出：encodeKeyEvent
+// ══════════════════════════════════════════════════════════════════════════
+// 用 Ghostty 键编码器把按键事件编码为终端转义序列。DECCKM、modifyOtherKeys、
+// kitty 键盘协议等模式全部由编码器从终端状态读取，Kotlin 不再自行查询模式。
+// `keyCode`/`unicodeChar`/`unshiftedChar` 为 Android 键事件字段，`modifiers`
+// 为上游 `key.Mods` 原始位。未收录的键码、不产生序列的键（单独的修饰键）与
+// 编码失败都返回空字节数组，由 Kotlin 决定是否回退到按键文本。
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyEvent(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+    key_code: jint,
+    unicode_char: jint,
+    unshifted_char: jint,
+    modifiers: jint,
+    action: jint,
+) -> jbyteArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        encode_key_event_inner(
+            env,
+            session_id,
+            key_code,
+            unicode_char,
+            unshifted_char,
+            modifiers,
+            action,
+        )
+    })
+}
+
+fn encode_key_event_inner(
+    env: &mut Env,
+    session_id: jlong,
+    key_code: jint,
+    unicode_char: jint,
+    unshifted_char: jint,
+    modifiers: jint,
+    action: jint,
+) -> jbyteArray {
+    let Some(key) = crate::android::keymap::key_for_android_keycode(key_code) else {
+        return empty_java_byte_array(env);
+    };
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&(session_id as u64)) else {
+        return empty_java_byte_array(env);
+    };
+    let session = entry.session.lock();
+    let Some(bytes) = session.terminal().encode_key_event(
+        key,
+        match action {
+            1 => key::Action::Release,
+            2 => key::Action::Repeat,
+            _ => key::Action::Press,
+        },
+        modifiers as u16,
+        key_event_text(unicode_char),
+        key_event_text(unshifted_char),
+    ) else {
+        return empty_java_byte_array(env);
+    };
+    if bytes.is_empty() {
+        return empty_java_byte_array(env);
+    }
+    env.byte_array_from_slice(&bytes)
+        .map(|arr| arr.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Android 的码点转上游键事件的文本。
+///
+/// `KeyEvent.getUnicodeChar` 对回车/方向键/退格一类非文本键给出 C0 控制字符
+/// （Enter→`\n`、Backspace→DEL），对 Ctrl 组合也给出控制字节。上游文档明确要求
+/// 这些一律以「无文本」表达——编码器据逻辑键推导字节，收到控制字符反而会把它
+/// 当作该键的真实文本发出去。macOS 私有功能键区（U+F700..U+F8FF）同理：那是
+/// 平台约定的功能键代号而非字面量。
+fn key_event_text(code_point: jint) -> Option<char> {
+    let code_point = u32::try_from(code_point).ok()?;
+    let character = char::from_u32(code_point)?;
+    (!character.is_control() && !(0xF700..=0xF8FF).contains(&code_point)).then_some(character)
 }
 
 // ── 事件轮询 ────────────────────────────────────────────────────
@@ -2745,14 +2823,126 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
     })
 }
 
-/// 搜索高亮线格式：匹配数前缀字节数（i32 LE）。
+/// 搜索高亮线格式：匹配数前缀字节数（i32 LE）。前缀本身就是一个整数字段。
 const SEARCH_HIGHLIGHT_COUNT_BYTES: usize = 4;
-/// 搜索高亮线格式：单条记录字节数（row/start/end 各 i32 + RGBA）。
-const SEARCH_HIGHLIGHT_RECORD_BYTES: usize = 16;
+/// 搜索高亮线格式：记录内单个整数字段（row/start/end 各占这么多）。
+const SEARCH_HIGHLIGHT_FIELD_BYTES: usize = 4;
+/// 搜索高亮线格式：记录末尾 RGBA 四通道的字节数。
+const SEARCH_HIGHLIGHT_COLOR_BYTES: usize = 4;
+/// 记录内整数字段的个数（row/start/end 各一个）。
+const SEARCH_HIGHLIGHT_FIELD_COUNT: usize = 3;
+/// 搜索高亮线格式：单条记录字节数（整数字段 + RGBA）。
+const SEARCH_HIGHLIGHT_RECORD_BYTES: usize =
+    SEARCH_HIGHLIGHT_FIELD_COUNT * SEARCH_HIGHLIGHT_FIELD_BYTES + SEARCH_HIGHLIGHT_COLOR_BYTES;
+/// 记录内 `row` 字段的序号。
+const SEARCH_HIGHLIGHT_ROW_FIELD: usize = 0;
+/// 记录内 `start_col` 字段的序号。
+const SEARCH_HIGHLIGHT_START_COL_FIELD: usize = 1;
+/// 记录内 `end_col_exclusive` 字段的序号。
+const SEARCH_HIGHLIGHT_END_COL_FIELD: usize = 2;
+
+/// 搜索高亮线格式的畸形类别。每一类对应一个具体故障面（Kotlin 打包侧写错、
+/// 两侧口径不一致、载荷传输截断），归因与排查路径不同，故不折叠为单一错误。
+#[derive(Debug)]
+enum SearchHighlightError {
+    /// 载荷短于计数前缀，读不出权威长度。
+    TooShort { length: usize },
+    /// 计数前缀按 i32 LE 解释为负数。
+    NegativeCount { count: i32 },
+    /// 前缀声明的条数多于负载中实际存在的完整记录数（两侧口径不一致）。
+    CountExceedsRecords { declared: usize, available: usize },
+    /// 完整记录数够声明的条数，但尾部仍剩不足一条记录的残缺字节（传输截断）。
+    TruncatedTail { remaining: usize },
+}
+
+impl std::fmt::Display for SearchHighlightError {
+    /// 面向 logcat 的可读诊断：每类给出实测值，让「两侧口径不一致」与「传输截断」
+    /// 在日志里一眼可分，而非退化成同一个 `Debug` 串。
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooShort { length } => {
+                write!(formatter, "载荷 {length} 字节短于 4 字节计数前缀")
+            }
+            Self::NegativeCount { count } => write!(formatter, "计数前缀为负数 {count}"),
+            Self::CountExceedsRecords {
+                declared,
+                available,
+            } => write!(
+                formatter,
+                "计数前缀声明 {declared} 条而负载只有 {available} 条完整记录"
+            ),
+            Self::TruncatedTail { remaining } => write!(
+                formatter,
+                "负载尾部多出 {remaining} 字节，不足一条 16 字节记录"
+            ),
+        }
+    }
+}
+
+/// 读一条记录内指定序号的整数字段（`row`/`start_col`/`end_col_exclusive` 依次为
+/// `SEARCH_HIGHLIGHT_ROW_FIELD`/`START_COL`/`END_COL`）。切片来自
+/// `chunks_exact(SEARCH_HIGHLIGHT_RECORD_BYTES)`，长度已被协议保证，越界切片不可能发生。
+fn read_highlight_field(record: &[u8], field_index: usize) -> i32 {
+    let start = field_index * SEARCH_HIGHLIGHT_FIELD_BYTES;
+    i32::from_le_bytes(
+        record[start..start + SEARCH_HIGHLIGHT_FIELD_BYTES]
+            .try_into()
+            .expect("i32 field"),
+    )
+}
+
+/// 解析搜索高亮线格式载荷：`[计数(i32 LE)][定长记录…]`，每条记录为
+/// `row(i32) start(i32) end(i32) RGBA(u8x4)`。计数为零是合法的空载荷
+/// （清除高亮、搜索无结果都走这条路径），不是畸形输入。
+///
+/// 四类畸形一律返回 `Err` 出声，不静默截断也不静默当作零条——现状的静默容错
+/// 会把「两侧格式口径不一致」伪装成「搜索没高亮」。
+fn parse_search_highlights(bytes: &[u8]) -> Result<Vec<SearchHighlight>, SearchHighlightError> {
+    let Some(prefix) = bytes.get(..SEARCH_HIGHLIGHT_COUNT_BYTES) else {
+        return Err(SearchHighlightError::TooShort {
+            length: bytes.len(),
+        });
+    };
+    let declared_count = i32::from_le_bytes(
+        prefix
+            .try_into()
+            .expect("count field is SEARCH_HIGHLIGHT_COUNT_BYTES long"),
+    );
+    if declared_count < 0 {
+        return Err(SearchHighlightError::NegativeCount {
+            count: declared_count,
+        });
+    }
+    let payload = &bytes[SEARCH_HIGHLIGHT_COUNT_BYTES..];
+    let available_records = payload.len() / SEARCH_HIGHLIGHT_RECORD_BYTES;
+    if declared_count as usize > available_records {
+        return Err(SearchHighlightError::CountExceedsRecords {
+            declared: declared_count as usize,
+            available: available_records,
+        });
+    }
+    if !payload.len().is_multiple_of(SEARCH_HIGHLIGHT_RECORD_BYTES) {
+        return Err(SearchHighlightError::TruncatedTail {
+            remaining: payload.len() % SEARCH_HIGHLIGHT_RECORD_BYTES,
+        });
+    }
+    let (records, _) = payload.as_chunks::<SEARCH_HIGHLIGHT_RECORD_BYTES>();
+    Ok(records
+        .iter()
+        .map(|record| SearchHighlight {
+            row: read_highlight_field(record, SEARCH_HIGHLIGHT_ROW_FIELD),
+            start_col: read_highlight_field(record, SEARCH_HIGHLIGHT_START_COL_FIELD),
+            end_col_exclusive: read_highlight_field(record, SEARCH_HIGHLIGHT_END_COL_FIELD),
+            color: record[SEARCH_HIGHLIGHT_FIELD_COUNT * SEARCH_HIGHLIGHT_FIELD_BYTES..]
+                .try_into()
+                .expect("rgba is SEARCH_HIGHLIGHT_COLOR_BYTES long"),
+        })
+        .collect())
+}
 
 /// 设置搜索高亮区间。`data` 按字节打包：先是 4 字节的匹配数（i32 LE，权威长度），
 /// 随后是同样数量的 16 字节记录：row(i32) start(i32) end(i32) RGBA(u8x4)。
-/// Kotlin 的 `TerminalSurface` 按此格式打包并调用
+/// Kotlin 的 `TerminalScreen` 按此格式打包并调用
 /// `bridge.setSearchHighlights(data.copyOf())`；渲染循环在下一帧消费解析出的列表。
 ///
 /// # Safety
@@ -2770,59 +2960,23 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSear
         // （与 `feed_pty_inner` 同一模式）。
         let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
         let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
+            // JVM 侧拷贝失败（多为 OOM）：出声，否则调用方只看到高亮不更新。
+            log::error!("setSearchHighlights: JVM failed to copy the highlight byte array");
             return Ok(());
         };
-        // 线格式（对应 Kotlin `TerminalScreen` 的搜索结果打包）：
-        //   [0..COUNT]   匹配数 (i32 LE)——该计数前缀**就是**权威长度；尾部残留字节
-        //                （最后一条不完整的记录）防御性地忽略。
-        //   [COUNT..]    定长记录：row(i32) start(i32) end(i32) RGBA(u8x4)
-        let Some(prefix) = bytes.get(0..SEARCH_HIGHLIGHT_COUNT_BYTES) else {
-            return Ok(());
-        };
-        let count =
-            i32::from_le_bytes([prefix[0], prefix[1], prefix[2], prefix[3]]).max(0) as usize;
-        // 把声称的匹配数封顶为实际存在的完整记录数：损坏/巨大的计数不得导致
-        // 无界的 `Vec::with_capacity` 分配。
-        let count = count.min(
-            bytes.len().saturating_sub(SEARCH_HIGHLIGHT_COUNT_BYTES)
-                / SEARCH_HIGHLIGHT_RECORD_BYTES,
-        );
-        let mut highlights = Vec::with_capacity(count);
-        let payload = &bytes[SEARCH_HIGHLIGHT_COUNT_BYTES..];
-        let mut offset = 0;
-        for _ in 0..count {
-            if offset + SEARCH_HIGHLIGHT_RECORD_BYTES > payload.len() {
-                break;
+        let highlights = match parse_search_highlights(&bytes) {
+            Ok(highlights) => highlights,
+            // 出声但不中断：panic 会经 release profile 的 `panic = "abort"` 杀掉宿主
+            // 应用，用户只看到闪退而非「高亮没画出来」。保持上一帧高亮而非清空——
+            // 清空会让已有高亮突然消失，反而掩盖问题。
+            Err(error) => {
+                log::error!(
+                    "setSearchHighlights: {error}（载荷共 {} 字节）；保持上一帧高亮",
+                    bytes.len()
+                );
+                return Ok(());
             }
-            let row = i32::from_le_bytes(
-                payload[offset..offset + 4]
-                    .try_into()
-                    .expect("4-byte slice"),
-            );
-            let start_col = i32::from_le_bytes(
-                payload[offset + 4..offset + 8]
-                    .try_into()
-                    .expect("4-byte slice"),
-            );
-            let end_col_exclusive = i32::from_le_bytes(
-                payload[offset + 8..offset + 12]
-                    .try_into()
-                    .expect("4-byte slice"),
-            );
-            let color = [
-                payload[offset + 12],
-                payload[offset + 13],
-                payload[offset + 14],
-                payload[offset + 15],
-            ];
-            highlights.push(crate::render::cell_builder::SearchHighlight {
-                row,
-                start_col,
-                end_col_exclusive,
-                color,
-            });
-            offset += SEARCH_HIGHLIGHT_RECORD_BYTES;
-        }
+        };
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights = highlights;
@@ -3786,5 +3940,202 @@ mod render_sample_bits_tests {
         let fallback = super::panic_text(&42_u32);
         assert!(!fallback.is_empty(), "非字符串 panic 载荷必须给出非空诊断");
         assert_ne!(fallback, "42", "非字符串载荷不得直接回显 Debug 形式");
+    }
+}
+
+#[cfg(test)]
+mod search_highlight_wire_format_tests {
+    use super::{
+        SEARCH_HIGHLIGHT_COLOR_BYTES, SEARCH_HIGHLIGHT_FIELD_BYTES, SEARCH_HIGHLIGHT_RECORD_BYTES,
+        SearchHighlightError, parse_search_highlights,
+    };
+
+    /// 按线格式拼一条记录：`row`/`start_col`/`end_col` 各一个 i32 LE，加 RGBA。
+    fn highlight_record(
+        row: i32,
+        start_col: i32,
+        end_col_exclusive: i32,
+        color: [u8; 4],
+    ) -> Vec<u8> {
+        let mut record = Vec::with_capacity(SEARCH_HIGHLIGHT_RECORD_BYTES);
+        for field in [row, start_col, end_col_exclusive] {
+            record.extend_from_slice(&field.to_le_bytes());
+        }
+        record.extend_from_slice(&color);
+        record
+    }
+
+    /// 按线格式拼载荷：计数前缀 + 记录序列。
+    fn highlight_payload(declared_count: i32, records: &[Vec<u8>]) -> Vec<u8> {
+        let mut payload = declared_count.to_le_bytes().to_vec();
+        for record in records {
+            payload.extend_from_slice(record);
+        }
+        payload
+    }
+
+    /// 载荷短于计数前缀：连权威长度都读不出，不能当作「零条高亮」静默返回。
+    #[test]
+    fn payload_shorter_than_count_prefix_is_rejected() {
+        for length in 0..SEARCH_HIGHLIGHT_FIELD_BYTES {
+            let bytes = vec![0xA5_u8; length];
+            assert!(
+                matches!(
+                    parse_search_highlights(&bytes),
+                    Err(SearchHighlightError::TooShort { length: reported })
+                        if reported == length
+                ),
+                "{length} 字节载荷必须判为前缀不足（并带上实测长度），实际 {:?}",
+                parse_search_highlights(&bytes),
+            );
+        }
+    }
+
+    /// 计数为负不得被 `max(0)` 抹平为「无高亮」——那是 Kotlin 侧写错了 i32，
+    /// 静默抹平会把打包缺陷伪装成搜索行为。
+    #[test]
+    fn negative_count_is_rejected_with_its_value() {
+        for count in [-1, -2, i32::MIN] {
+            let bytes = count.to_le_bytes().to_vec();
+            assert!(
+                matches!(
+                    parse_search_highlights(&bytes),
+                    Err(SearchHighlightError::NegativeCount { count: reported })
+                        if reported == count
+                ),
+                "计数 {count} 必须判为负计数并带上该值",
+            );
+        }
+    }
+
+    /// 声明条数多于实际完整记录数：两侧口径不一致，必须出声而不是静默截断。
+    #[test]
+    fn declared_count_above_available_records_is_rejected() {
+        let records = [
+            highlight_record(0, 1, 4, [10, 20, 30, 255]),
+            highlight_record(5, 2, 6, [40, 50, 60, 160]),
+        ];
+        // 声明 5 条而只有 2 条完整记录。
+        let bytes = highlight_payload(5, &records);
+        assert!(
+            matches!(
+                parse_search_highlights(&bytes),
+                Err(SearchHighlightError::CountExceedsRecords {
+                    declared: 5,
+                    available: 2
+                })
+            ),
+            "声明 5 条实有 2 条必须判为计数超出记录数，实际 {:?}",
+            parse_search_highlights(&bytes),
+        );
+        // 声明数仅比实有多数 1 条同样是口径不一致（少了最后一条记录）。
+        let bytes = highlight_payload(3, &records);
+        assert!(
+            matches!(
+                parse_search_highlights(&bytes),
+                Err(SearchHighlightError::CountExceedsRecords {
+                    declared: 3,
+                    available: 2
+                })
+            ),
+            "声明 3 条实有 2 条必须判为计数超出记录数",
+        );
+    }
+
+    /// 声明条数都凑满了，但负载长度不是记录长的整数倍：传输截断的残缺尾巴。
+    #[test]
+    fn trailing_partial_record_is_rejected_with_remainder() {
+        let records = [highlight_record(0, 1, 4, [10, 20, 30, 255])];
+        for remainder in 1..SEARCH_HIGHLIGHT_RECORD_BYTES {
+            let mut bytes = highlight_payload(1, &records);
+            bytes.extend(std::iter::repeat_n(0x7Fu8, remainder));
+            assert!(
+                matches!(
+                    parse_search_highlights(&bytes),
+                    Err(SearchHighlightError::TruncatedTail { remaining: reported })
+                        if reported == remainder
+                ),
+                "尾部多出 {remainder} 字节必须判为残缺尾巴并带上实测余量，实际 {:?}",
+                parse_search_highlights(&bytes),
+            );
+        }
+    }
+
+    /// 判定顺序：声明数超出实有条数时，「计数超出」先于「尾部残缺」命中。
+    /// 两者同时成立不是二选一——更根本的口径不一致先报，残缺只是它的表征。
+    #[test]
+    fn count_exceeds_takes_precedence_over_truncated_tail() {
+        // 声明 2 条，实有 1 条完整记录 + 7 字节残缺尾巴：两类判据同时成立。
+        let mut bytes = highlight_payload(2, &[highlight_record(0, 1, 4, [10, 20, 30, 255])]);
+        bytes.extend(std::iter::repeat_n(0x7Fu8, 7));
+        assert!(
+            matches!(
+                parse_search_highlights(&bytes),
+                Err(SearchHighlightError::CountExceedsRecords {
+                    declared: 2,
+                    available: 1
+                })
+            ),
+            "计数超出必须先于尾部残缺被判定，实际 {:?}",
+            parse_search_highlights(&bytes),
+        );
+    }
+
+    /// 合法载荷逐字段解析：字段值不得串位、不得补零，含负数 row（回滚坐标）。
+    #[test]
+    fn well_formed_payload_parses_field_by_field() {
+        let records = [
+            highlight_record(0, 1, 4, [10, 20, 30, 255]),
+            highlight_record(-3, 7, 9, [40, 50, 60, 160]),
+        ];
+        let highlights =
+            parse_search_highlights(&highlight_payload(2, &records)).expect("载荷合法");
+        assert_eq!(highlights.len(), 2);
+        assert_eq!(highlights[0].row, 0);
+        assert_eq!(highlights[0].start_col, 1);
+        assert_eq!(highlights[0].end_col_exclusive, 4);
+        assert_eq!(highlights[0].color, [10, 20, 30, 255]);
+        // 负 row：回滚区坐标为负，解析不得因符号位而串到相邻字段。
+        assert_eq!(highlights[1].row, -3);
+        assert_eq!(highlights[1].start_col, 7);
+        assert_eq!(highlights[1].end_col_exclusive, 9);
+        assert_eq!(highlights[1].color, [40, 50, 60, 160]);
+    }
+
+    /// alpha 落在反色阈值两侧时字节必须原样保留（阈值判定属渲染侧，不在解析层）。
+    #[test]
+    fn alpha_around_swap_threshold_survives_parsing() {
+        for alpha in [0, 127, 128, 160, 255] {
+            let bytes = highlight_payload(1, &[highlight_record(0, 0, 1, [1, 2, 3, alpha])]);
+            let highlights = parse_search_highlights(&bytes).expect("载荷合法");
+            assert_eq!(
+                highlights[0].color,
+                [1, 2, 3, alpha],
+                "alpha={alpha} 必须原样进入 SearchHighlight",
+            );
+        }
+    }
+
+    /// 零计数是合法空载荷：清除高亮与「搜索无结果」都走这条路径，不是畸形输入。
+    #[test]
+    fn zero_count_payload_is_legal_and_empty() {
+        let highlights = parse_search_highlights(&0_i32.to_le_bytes()).expect("零计数是合法空载荷");
+        assert!(
+            highlights.is_empty(),
+            "零计数必须解析为空列表，实际 {} 条",
+            highlights.len(),
+        );
+        // 前缀恰好 4 字节、无任何负载字节，同样合法。
+        let highlights = parse_search_highlights(&[0, 0, 0, 0]).expect("仅前缀的零计数");
+        assert!(highlights.is_empty());
+    }
+
+    /// 线格式常量必须与 Kotlin `TerminalScreen` 的打包口径一致：前缀 4 字节、
+    /// 每条 16 字节、其中末尾 4 字节是 RGBA。若 Kotlin 侧加字段，此处须同步。
+    #[test]
+    fn wire_format_constants_match_the_kotlin_packing() {
+        assert_eq!(SEARCH_HIGHLIGHT_FIELD_BYTES, 4);
+        assert_eq!(SEARCH_HIGHLIGHT_COLOR_BYTES, 4);
+        assert_eq!(SEARCH_HIGHLIGHT_RECORD_BYTES, 16);
     }
 }

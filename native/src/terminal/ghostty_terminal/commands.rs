@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, Mutex};
 
 use flume::{Receiver, Sender};
+use libghostty_vt::key;
 
 use super::types::*;
 
@@ -135,6 +136,25 @@ pub enum Query {
         modifiers: u16,
         cell_width: f32,
         cell_height: f32,
+        tx: Sender<Vec<u8>>,
+    },
+    /// 用上游 `key::Encoder` 把按键事件编码为终端转义序列。DECCKM、keypad 应用
+    /// 模式、modifyOtherKeys、kitty 键盘协议与 backarrow key mode 全部由
+    /// `set_options_from_terminal` 从终端状态接管，调用方无需查询任何模式。
+    ///
+    /// 编码必须在 VT 线程完成：`set_options_from_terminal` 需要 `&Terminal`，
+    /// 而 `Terminal` 只存在于该线程。
+    EncodeKeyEvent {
+        key: key::Key,
+        action: key::Action,
+        /// 上游 `key::Mods` 原始位（`Mods::from_bits_retain` 直接消费）。
+        modifiers: u16,
+        /// 平台按当前布局与修饰状态生成的文本（如 Shift+A 的 `A`）。无文本的键
+        /// （方向键、回车、单独的修饰键）传 `None`——上游文档要求 C0 控制字符与
+        /// U+007F 一律以 `None` 表达，由编码器按逻辑键推导。
+        text: Option<char>,
+        /// 该键无修饰时的码点；kitty 键盘协议据此区分 Shift 前后的大小写档位。
+        unshifted: Option<char>,
         tx: Sender<Vec<u8>>,
     },
 }

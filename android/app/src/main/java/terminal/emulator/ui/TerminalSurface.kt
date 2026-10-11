@@ -1708,9 +1708,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // 拖动锚点：拖动开始时被抓住手柄所固定的单元格边界（网格坐标）。
     // 拖动增量相对该锚点计算，因为手柄窗口悬于其锚定单元格之下
     // ——直接用触摸像素会解析到边界下方的那一行。
-    // 锚点语义对标 termux 的 applyHandleDrag（Terminal.kt:1899-1935）；
+    // 锚点语义对标 termlib 的 applyHandleDrag（Terminal.kt:2294 起）；
     // 交叉翻转由 [SelectionState.applyHandleDrag] 实现并经 SelectionStateTest 覆盖
-    // （拖动手柄越过静止手柄时归属权交换），此处只负责把触点换算成网格目标。
+    // （拖动手柄越过静止手柄时归属权交换，调用方依返回更新被拖柄），此处只负责把触点换算成网格目标。
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
@@ -1840,7 +1840,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 快速拖动路径：直接计算边界并重定位手柄，
                 // 避开 Compose _state.update → 重组 → 回读的往返
                 // ——那正是每次 MOVE 的主要帧瓶颈。
-                val bounds =
+                val result =
                     viewModel?.dragMove(
                         draggingStart = handleDragState == HandleDrag.START,
                         row = gridRow,
@@ -1848,9 +1848,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         cachedMaxRow = (currentScrollbackLength() + rows - 1).coerceAtLeast(0),
                         cachedMaxCol = (cols - 1).coerceAtLeast(0),
                     )
-                if (bounds != null) {
-                    selectionHandles.repositionHandle(HandleDrag.START, bounds[0], bounds[1])
-                    selectionHandles.repositionHandle(HandleDrag.END, bounds[2], bounds[3])
+                if (result != null) {
+                    handleDragState = if (result.draggingStart) HandleDrag.START else HandleDrag.END
+                    selectionHandles.repositionHandle(HandleDrag.START, result.startRow, result.startCol)
+                    selectionHandles.repositionHandle(HandleDrag.END, result.endRow, result.endCol)
                 }
             }
         }
@@ -1887,10 +1888,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private fun updateDragHandleForCell(gridRow: Int) {
         val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
         val snappedCol = snapToWideCharBoundary(gridRow, curCol)
-        if (handleDragState == HandleDrag.START) {
-            viewModel?.updateSelectionStart(gridRow, snappedCol)
-        } else if (handleDragState == HandleDrag.END) {
-            viewModel?.updateSelection(gridRow, snappedCol)
+        val flippedSide =
+            if (handleDragState == HandleDrag.START) {
+                viewModel?.updateSelectionStart(gridRow, snappedCol)
+            } else if (handleDragState == HandleDrag.END) {
+                viewModel?.updateSelection(gridRow, snappedCol)
+            } else {
+                null
+            }
+        if (flippedSide != null) {
+            handleDragState = if (flippedSide) HandleDrag.START else HandleDrag.END
         }
         // 节流的原生推送使单元格反色高亮在边缘滚动拖动期间保持实时
         // （与快速 MOVE 路径同一节奏）。
@@ -2569,7 +2576,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    private fun modifierBitmask(event: KeyEvent): Byte {
+    private fun modifierBitmask(event: KeyEvent): Int {
         val state = viewModel?.state?.value
         return KeyModifiers.fromKeyEvent(
             event,
@@ -2592,7 +2599,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (bridge != null) {
             val modifiers = modifierBitmask(event)
             val action: Int = 0 // KeyEvent.ACTION_DOWN = 0
-            val success = bridge.processKeyEvent(keyCode, modifiers, action, event.unicodeChar)
+            val success =
+                bridge.processKeyEvent(
+                    keyCode,
+                    modifiers,
+                    action,
+                    event.unicodeChar,
+                    // 无修饰码点：kitty 键盘协议据此区分 Shift 前后的大小写档位，
+                    // Alt 组合在上游拿不到文本时也由它推导字面量。
+                    event.getUnicodeChar(0),
+                )
             if (success) {
                 terminalViewModel.consumeOneShotModifiers()
                 return true

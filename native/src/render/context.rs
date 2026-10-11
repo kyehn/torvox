@@ -2,9 +2,27 @@
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
+use crate::render::GpuError;
 use crate::render::pass::{ACQUIRE_TIMEOUT, AcquireOutcome};
 use crate::render::pipeline::QUAD_CORNERS;
-use crate::render::{CATPPUCCIN_MOCHA_BACKGROUND, GpuError};
+use crate::terminal::ghostty_terminal::GhosttyTerminal;
+
+/// 初始清除色：与终端初态同源（`catppuccin_mocha_palette` 背景），避免首帧黑闪。
+/// 运行时主题经 `set_background_color` 更新，此处只覆盖到达前的窗口。
+fn initial_background_color() -> wgpu::Color {
+    let (_, background, _) = GhosttyTerminal::catppuccin_mocha_palette();
+    background_color_from_bytes(background)
+}
+
+/// 主题背景字节转清除色：与终端侧字节转浮点同源，避免两处手写除法。
+fn background_color_from_bytes(background: [u8; 3]) -> wgpu::Color {
+    wgpu::Color {
+        r: f64::from(GhosttyTerminal::byte_to_float(background[0])),
+        g: f64::from(GhosttyTerminal::byte_to_float(background[1])),
+        b: f64::from(GhosttyTerminal::byte_to_float(background[2])),
+        a: 1.0,
+    }
+}
 
 pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
@@ -389,7 +407,7 @@ impl Renderer {
             projection_height: 0,
             readback_texture: None,
             readback_buffer: None,
-            background: CATPPUCCIN_MOCHA_BACKGROUND,
+            background: initial_background_color(),
             kgp_pipeline: None,
             kgp_pipeline_format: None,
             kgp_bind_group_layout: None,
@@ -642,12 +660,7 @@ impl Renderer {
     }
 
     pub fn set_background_color(&mut self, background: [u8; 3]) {
-        self.background = wgpu::Color {
-            r: background[0] as f64 / 255.0,
-            g: background[1] as f64 / 255.0,
-            b: background[2] as f64 / 255.0,
-            a: 1.0,
-        };
+        self.background = background_color_from_bytes(background);
         // 清除色只在全量帧上生效（部分帧从不再绘网格四边形之外的边距），
         // 故强制下一帧全量，使主题切换能重绘到每一处。
         self.frame_invalidated = true;

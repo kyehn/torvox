@@ -42,7 +42,8 @@ class ModifierBarRobolectricTest {
                 var ctrl by remember { mutableStateOf(ModifierState.Off) }
                 var alt by remember { mutableStateOf(ModifierState.Off) }
                 ModifierBar(
-                    onKeyClick = {},
+                    onSubmit = {},
+                    onKey = { _, _ -> false },
                     ctrlState = ctrl,
                     altState = alt,
                     onToggleCtrl = { ctrl = ctrl.next() },
@@ -70,10 +71,10 @@ class ModifierBarRobolectricTest {
         composeRule.onNodeWithTag("Key_TAB").assertIsDisplayed()
     }
 
-    private fun setClickCountingBar(onKeyClick: (String) -> Unit) {
+    private fun setClickCountingBar(onKey: (Int, Int) -> Boolean) {
         composeRule.setContent {
             MaterialTheme {
-                ModifierBar(onKeyClick = onKeyClick)
+                ModifierBar(onSubmit = {}, onKey = onKey)
             }
         }
     }
@@ -83,7 +84,10 @@ class ModifierBarRobolectricTest {
         // spec modifier-bar-interaction 松手确认：单击在抬手时触发一次；
         // 任一阶段滑出触摸容差即取消，底部上滑不再误触按键。
         var clicks = 0
-        setClickCountingBar { clicks++ }
+        setClickCountingBar { _, _ ->
+            clicks++
+            true
+        }
         composeRule.onNodeWithTag("Key_ESC").performTouchInput {
             down(center)
             up()
@@ -100,7 +104,10 @@ class ModifierBarRobolectricTest {
     fun `slide off key cancels the tap without firing`() {
         // 底部上滑误触回归：按下后滑出按键再松手，不得触发。
         var clicks = 0
-        setClickCountingBar { clicks++ }
+        setClickCountingBar { _, _ ->
+            clicks++
+            true
+        }
         composeRule.onNodeWithTag("Key_ESC").performTouchInput {
             down(center)
             moveBy(Offset(0f, -300f))
@@ -122,7 +129,8 @@ class ModifierBarRobolectricTest {
         composeRule.setContent {
             MaterialTheme {
                 ModifierBar(
-                    onKeyClick = {},
+                    onSubmit = {},
+                    onKey = { _, _ -> false },
                     ctrlState = ctrl,
                     onToggleCtrl = { ctrl = ctrl.next() },
                 )
@@ -133,53 +141,76 @@ class ModifierBarRobolectricTest {
         composeRule.onNodeWithTag("Key_CTRL").assertIsSelected()
     }
 
-    /** 表驱动断言：四个方向键在给定光标模式下必须各发一条期望序列。 */
-    private fun assertArrowSequences(appCursorMode: Boolean, expected: List<Pair<String, String>>) {
-        val sent = mutableListOf<String>()
+    @Test
+    fun `plain extra keys route through the encoder with the android keycode`() {
+        // 键栏不再自带转义序列表（ToolbarKey.sequence 已删）：每次点击只允许
+        // 上送 Android 键码，字节由原生编码器产出。
+        val sent = mutableListOf<Pair<Int, Int>>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(onSubmit = {}, onKey = { keyCode, modifiers ->
+                    sent.add(keyCode to modifiers)
+                    true
+                })
+            }
+        }
+        composeRule.onNodeWithTag("Key_PGUP").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(
+            listOf(android.view.KeyEvent.KEYCODE_PAGE_UP to 0),
+            sent,
+        )
+    }
+
+    @Test
+    fun `ctrl sticky key routes upstream modifier bits to the encoder`() {
+        // 粘滞 CTRL 点亮后点 PGUP：上送的必须是上游 key.Mods 的 CTRL 位（2），
+        // 且 Once 态被消费。
+        val sent = mutableListOf<Pair<Int, Int>>()
+        var consumed = 0
         composeRule.setContent {
             MaterialTheme {
                 ModifierBar(
-                    onKeyClick = { sent.add(it) },
-                    isAppCursorMode = { appCursorMode },
+                    onSubmit = {},
+                    onKey = { keyCode, modifiers ->
+                        sent.add(keyCode to modifiers)
+                        true
+                    },
+                    onConsumeModifiers = { consumed++ },
+                    ctrlState = ModifierState.Once,
                 )
             }
         }
-        expected.forEach { (tag, sequence) ->
-            sent.clear()
-            composeRule.onNodeWithTag(tag).performClick()
-            composeRule.waitForIdle()
-            org.junit.Assert.assertEquals("$tag 应发 $sequence", listOf(sequence), sent)
+        composeRule.onNodeWithTag("Key_PGUP").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(
+            listOf(android.view.KeyEvent.KEYCODE_PAGE_UP to terminal.emulator.input.KeyModifiers.CTRL),
+            sent,
+        )
+        org.junit.Assert.assertEquals(1, consumed)
+    }
+
+    @Test
+    fun `keys without a keycode are not sent`() {
+        // DRAWER/SCROLL 必须走自己的回调，不得进入按键编码通道。
+        val sent = mutableListOf<Pair<Int, Int>>()
+        var drawerOpens = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = {},
+                    onKey = { keyCode, modifiers ->
+                        sent.add(keyCode to modifiers)
+                        true
+                    },
+                    onDrawerClick = { drawerOpens++ },
+                )
+            }
         }
-    }
-
-    @Test
-    fun `four arrows send CSI in normal cursor mode`() {
-        assertArrowSequences(
-            appCursorMode = false,
-            expected =
-            listOf(
-                "Key_↑" to "\u001b[A",
-                "Key_↓" to "\u001b[B",
-                "Key_←" to "\u001b[D",
-                "Key_→" to "\u001b[C",
-            ),
-        )
-    }
-
-    @Test
-    fun `four arrows send SS3 in application cursor mode`() {
-        // DECCKM 回归：vim/less 等应用光标模式下辅助键栏方向键须发 SS3，
-        // 与物理键盘路径（TerminalInputEncoder.arrowSequence）一致。
-        assertArrowSequences(
-            appCursorMode = true,
-            expected =
-            listOf(
-                "Key_↑" to "\u001bOA",
-                "Key_↓" to "\u001bOB",
-                "Key_←" to "\u001bOD",
-                "Key_→" to "\u001bOC",
-            ),
-        )
+        composeRule.onNodeWithTag("Key_DRAWER").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertTrue("DRAWER 不得进入按键编码通道", sent.isEmpty())
+        org.junit.Assert.assertEquals(1, drawerOpens)
     }
 
     @Test
@@ -198,52 +229,6 @@ class ModifierBarRobolectricTest {
     }
 
     @Test
-    fun `configurable plain key sends raw sequence without modifiers`() {
-        // 无修饰时行为零变化：PGUP 原序列直发，不走字节通道，不消费。
-        val sent = mutableListOf<String>()
-        val sentBytes = mutableListOf<ByteArray>()
-        var consumed = 0
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(
-                    onKeyClick = { sent.add(it) },
-                    onKeyBytesClick = { sentBytes.add(it) },
-                    onConsumeModifiers = { consumed++ },
-                )
-            }
-        }
-        composeRule.onNodeWithTag("Key_PGUP").performClick()
-        composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(listOf("\u001b[5~"), sent)
-        org.junit.Assert.assertEquals(0, sentBytes.size)
-        org.junit.Assert.assertEquals(0, consumed)
-    }
-
-    @Test
-    fun `configurable key with ctrl active encodes CSI modifier and consumes once`() {
-        // CTRL 点亮后点 PGUP：发 CSI 5;5~ 走字节通道，并消费 Once。
-        val sent = mutableListOf<String>()
-        val sentBytes = mutableListOf<ByteArray>()
-        var consumed = 0
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(
-                    onKeyClick = { sent.add(it) },
-                    onKeyBytesClick = { sentBytes.add(it) },
-                    onConsumeModifiers = { consumed++ },
-                    ctrlState = ModifierState.Once,
-                )
-            }
-        }
-        composeRule.onNodeWithTag("Key_PGUP").performClick()
-        composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(0, sent.size)
-        org.junit.Assert.assertEquals(1, sentBytes.size)
-        org.junit.Assert.assertEquals("\u001b[5;5~", sentBytes[0].toString(Charsets.UTF_8))
-        org.junit.Assert.assertEquals(1, consumed)
-    }
-
-    @Test
     fun `drawer long press pastes clipboard`() {
         // Termux `popup: 'PASTE'`：DRAWER 长按必须粘贴，轻点仍开抽屉。
         var pastes = 0
@@ -251,7 +236,8 @@ class ModifierBarRobolectricTest {
         composeRule.setContent {
             MaterialTheme {
                 ModifierBar(
-                    onKeyClick = {},
+                    onSubmit = {},
+                    onKey = { _, _ -> false },
                     onDrawerClick = { drawerOpens++ },
                     onPasteClick = { pastes++ },
                 )
@@ -274,7 +260,8 @@ class ModifierBarRobolectricTest {
         composeRule.setContent {
             MaterialTheme {
                 ModifierBar(
-                    onKeyClick = {},
+                    onSubmit = {},
+                    onKey = { _, _ -> false },
                     onDrawerClick = { drawerOpens++ },
                     onPasteClick = { pastes++ },
                 )

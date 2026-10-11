@@ -212,7 +212,9 @@ mod tests {
     fn cjk_fallback_covers_cjk_scripts_not_just_legacy_ranges() {
         // 旧硬编码区间漏掉扩展区：库判定须覆盖，拉丁须排除，
         // 兼容符号区沿用旧语义保留。
-        for character in ['中', 'あ', 'ア', '한', 'ㄅ', 'ꆈ', '𠀋', '𗀀', '𘬀', '𛅰', '々', 'Ａ'] {
+        for character in [
+            '中', 'あ', 'ア', '한', 'ㄅ', 'ꆈ', '𠀋', '𗀀', '𘬀', '𛅰', '々', 'Ａ',
+        ] {
             assert!(
                 needs_cjk_fallback(character),
                 "{character:?} (U+{:04X}) must need CJK fallback",

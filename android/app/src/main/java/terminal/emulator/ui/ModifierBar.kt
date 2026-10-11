@@ -56,6 +56,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
+import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.runtime.LogUtil
 
@@ -69,65 +70,59 @@ private const val BUTTON_FONT_SIZE_SP = 10
  */
 enum class ToolbarKey(
     val defaultLabel: String,
-    val sequence: String,
     /** 显示符号覆盖（抽屉图标与标签不同）。 */
     val symbol: String? = null,
     /** 测试标签覆盖，缺省为 "Key_<defaultLabel>"。 */
     val testTag: String? = null,
     /** 无障碍描述资源，缺省取 defaultLabel。 */
     @StringRes val contentDescriptionRes: Int? = null,
-    /** 按住时重复发送按键序列（方向键）。 */
+    /** 按住时重复发送按键（方向键）。 */
     val repeatable: Boolean = false,
     /**
-     * 对应的 Android 键码，无对应时为 `null`（修饰键/功能键不参与组合编码）。
-     * 方向键的键码还决定无修饰时走 DECCKM 感知序列，见 [TerminalInputEncoder.arrowSequence]。
+     * 对应的 Android 键码，`null` 表示该键不产生终端输入（修饰键/抽屉/滚动）。
+     * 键到 PTY 字节的编码由原生 `key::Encoder` 完成，此处只提供键码。
      */
     val androidKeyCode: Int? = null,
 ) {
-    ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape, androidKeyCode = KeyEvent.KEYCODE_ESCAPE),
+    ESC("ESC", contentDescriptionRes = R.string.escape, androidKeyCode = KeyEvent.KEYCODE_ESCAPE),
     DRAWER(
         "\u2261",
-        "",
         symbol = "\u2630",
         testTag = "Key_DRAWER",
         contentDescriptionRes = R.string.open_session_drawer,
     ),
-    SCROLL("SCROLL", "", contentDescriptionRes = R.string.toggle_scroll),
-    HOME("HOME", "\u001b[H", contentDescriptionRes = R.string.home_key, androidKeyCode = KeyEvent.KEYCODE_MOVE_HOME),
+    SCROLL("SCROLL", contentDescriptionRes = R.string.toggle_scroll),
+    HOME("HOME", contentDescriptionRes = R.string.home_key, androidKeyCode = KeyEvent.KEYCODE_MOVE_HOME),
     ARROW_UP(
         "\u2191",
-        "\u001b[A",
         contentDescriptionRes = R.string.arrow_up,
         repeatable = true,
         androidKeyCode = KeyEvent.KEYCODE_DPAD_UP,
     ),
-    END("END", "\u001b[F", contentDescriptionRes = R.string.end_key, androidKeyCode = KeyEvent.KEYCODE_MOVE_END),
-    PGUP("PGUP", "\u001b[5~", contentDescriptionRes = R.string.page_up, androidKeyCode = KeyEvent.KEYCODE_PAGE_UP),
-    TAB("TAB", "\t", contentDescriptionRes = R.string.tab_key, androidKeyCode = KeyEvent.KEYCODE_TAB),
-    CTRL("CTRL", "", contentDescriptionRes = R.string.control_toggle),
-    ALT("ALT", "", contentDescriptionRes = R.string.alt_toggle),
+    END("END", contentDescriptionRes = R.string.end_key, androidKeyCode = KeyEvent.KEYCODE_MOVE_END),
+    PGUP("PGUP", contentDescriptionRes = R.string.page_up, androidKeyCode = KeyEvent.KEYCODE_PAGE_UP),
+    TAB("TAB", contentDescriptionRes = R.string.tab_key, androidKeyCode = KeyEvent.KEYCODE_TAB),
+    CTRL("CTRL", contentDescriptionRes = R.string.control_toggle),
+    ALT("ALT", contentDescriptionRes = R.string.alt_toggle),
     ARROW_LEFT(
         "\u2190",
-        "\u001b[D",
         contentDescriptionRes = R.string.arrow_left,
         repeatable = true,
         androidKeyCode = KeyEvent.KEYCODE_DPAD_LEFT,
     ),
     ARROW_DOWN(
         "\u2193",
-        "\u001b[B",
         contentDescriptionRes = R.string.arrow_down,
         repeatable = true,
         androidKeyCode = KeyEvent.KEYCODE_DPAD_DOWN,
     ),
     ARROW_RIGHT(
         "\u2192",
-        "\u001b[C",
         contentDescriptionRes = R.string.arrow_right,
         repeatable = true,
         androidKeyCode = KeyEvent.KEYCODE_DPAD_RIGHT,
     ),
-    PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down, androidKeyCode = KeyEvent.KEYCODE_PAGE_DOWN),
+    PGDN("PGDN", contentDescriptionRes = R.string.page_down, androidKeyCode = KeyEvent.KEYCODE_PAGE_DOWN),
 }
 
 /**
@@ -228,7 +223,7 @@ private fun ModifierBarTextInputPage(
 @NonRestartableComposable
 @Composable
 fun ModifierBar(
-    onKeyClick: (String) -> Unit,
+    onSubmit: (String) -> Unit,
     modifier: Modifier = Modifier,
     onDrawerClick: () -> Unit = {},
     onScrollClick: () -> Unit = {},
@@ -245,10 +240,13 @@ fun ModifierBar(
     onPasteClick: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    /** DECCKM 应用光标模式状态：每次点击方向键时查询，以支持 vim/less 的方向键。 */
-    isAppCursorMode: () -> Boolean = { false },
-    /** 修饰键组合的原始字节通道（避免 `String` 字符集往返转换）。 */
-    onKeyBytesClick: ((ByteArray) -> Unit)? = null,
+    /**
+     * 发送一个会产生终端输入的按键。`modifiers` 取上游 `key.Mods` 原始位。
+     *
+     * 返回 false 表示该键未被发送（无对应键码或终端的当前模式决定它不产生字节）：
+     * 调用方据此保留证据并消耗一次性粘滞态。
+     */
+    onKey: (keyCode: Int, modifiers: Int) -> Boolean,
     /** 发送带修饰键的按键后，消耗一次性（`Once`）粘滞修饰键。 */
     onConsumeModifiers: () -> Unit = {},
 ) {
@@ -260,7 +258,7 @@ fun ModifierBar(
     val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
     val actions =
         ModifierBarActions(
-            onKeyClick = onKeyClick,
+            onSubmit = onSubmit,
             onDrawerClick = onDrawerClick,
             onScrollClick = onScrollClick,
             onToggleCtrl = onToggleCtrl,
@@ -268,8 +266,7 @@ fun ModifierBar(
             onLockCtrl = onLockCtrl,
             onLockAlt = onLockAlt,
             onPasteClick = onPasteClick,
-            isAppCursorMode = isAppCursorMode,
-            onKeyBytesClick = onKeyBytesClick,
+            onKey = onKey,
             onConsumeModifiers = onConsumeModifiers,
         )
     val modifierStates =
@@ -290,7 +287,6 @@ fun ModifierBar(
             contentDescriptionResolver = { key ->
                 defaultContentDescriptions[key] ?: key.defaultLabel
             },
-            isAppCursorMode = isAppCursorMode,
         )
     }
 
@@ -309,7 +305,7 @@ fun ModifierBar(
                     buttonHeight = buttonHeight,
                     textColor = textColor,
                     backgroundColor = backgroundColor,
-                    onSubmit = onKeyClick,
+                    onSubmit = onSubmit,
                 )
                 return@HorizontalPager
             }
@@ -334,7 +330,7 @@ private data class ToolbarKeyPresentation(
 
 /** 修饰键栏可触发的回调集合。 */
 private data class ModifierBarActions(
-    val onKeyClick: (String) -> Unit,
+    val onSubmit: (String) -> Unit,
     val onDrawerClick: () -> Unit,
     val onScrollClick: () -> Unit,
     val onToggleCtrl: () -> Unit,
@@ -344,10 +340,8 @@ private data class ModifierBarActions(
     val onLockAlt: () -> Unit = {},
     /** Termux `DRAWER` 键的 `popup: 'PASTE'`：长按粘贴剪贴板。 */
     val onPasteClick: () -> Unit = {},
-    /** DECCKM 应用光标模式状态：每次点击方向键时查询，以支持 vim/less 的方向键。 */
-    val isAppCursorMode: () -> Boolean = { false },
-    /** 修饰键组合的原始字节通道（避免 `String` 字符集往返转换）。 */
-    val onKeyBytesClick: ((ByteArray) -> Unit)? = null,
+    /** 发送会产生终端输入的按键；返回 false 表示未被发送。 */
+    val onKey: (keyCode: Int, modifiers: Int) -> Boolean = { _, _ -> false },
     /** 发送带修饰键的按键后，消耗一次性（`Once`）粘滞修饰键。 */
     val onConsumeModifiers: () -> Unit = {},
 )
@@ -380,24 +374,18 @@ private fun toolbarKeyPresentation(
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
     contentDescriptionResolver: (ToolbarKey) -> String,
-    isAppCursorMode: () -> Boolean = { false },
 ): ToolbarKeyPresentation {
     val onRepeat =
         if (key.repeatable) {
             {
-                sendPlainOrModified(
-                    key,
-                    arrowOrPlainSequence(key.androidKeyCode, key.sequence, actions.isAppCursorMode),
-                    actions,
-                    modifierStates,
-                )
+                sendPlainOrModified(key, actions, modifierStates)
             }
         } else {
             null
         }
     return ToolbarKeyPresentation(
         label = key.symbol ?: key.defaultLabel,
-        onClick = toolbarKeyClickHandler(key, actions, modifierStates, isAppCursorMode),
+        onClick = toolbarKeyClickHandler(key, actions, modifierStates),
         modifierState = modifierStateFor(key, modifierStates),
         testTag = key.testTag ?: "Key_${key.defaultLabel}",
         contentDescription = contentDescriptionResolver(key),
@@ -406,58 +394,30 @@ private fun toolbarKeyPresentation(
     )
 }
 
-/** 方向键按应用光标模式编码，其余键保持原序列。 */
-private fun arrowOrPlainSequence(keyCode: Int?, fallbackSequence: String, isAppCursorMode: () -> Boolean): String {
-    if (keyCode == null) return fallbackSequence
-    return TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode())
-}
-
 /**
- * 普通按键发送：无修饰时原序列直发（零行为变化）；CTRL/ALT 激活时经编码器
- * 组合编码后走字节通道，并消费 Once 粘滞态（Locked 不受影响）。
+ * 按键发送：一律经上游键编码器（`onKey` → `Bridge.processKeyEvent` → 原生
+ * `key::Encoder`），修饰键由编码器与终端状态共同决定形态。
+ *
+ * 键栏不再自带转义序列字面量：方向键在 DECCKM 下须走 SS3、Ctrl 组合在
+ * modifyOtherKeys 下须走 `CSI 27;mod;code~`，这些形态只有编码器知道，写死在
+ * Kotlin 的串在对应模式下就是错的。
  */
-private fun sendPlainOrModified(
-    key: ToolbarKey,
-    sequence: String,
-    actions: ModifierBarActions,
-    modifierStates: ModifierBarStates,
-) {
-    val ctrlActive =
-        modifierStates.ctrlState == ModifierState.Locked || modifierStates.ctrlState == ModifierState.Once
-    val altActive =
-        modifierStates.altState == ModifierState.Locked || modifierStates.altState == ModifierState.Once
-    val keyCode = key.androidKeyCode
-    val bytesClick = actions.onKeyBytesClick
-    if ((!ctrlActive && !altActive) || keyCode == null || bytesClick == null) {
-        actions.onKeyClick(sequence)
+private fun sendPlainOrModified(key: ToolbarKey, actions: ModifierBarActions, modifierStates: ModifierBarStates) {
+    val keyCode = key.androidKeyCode ?: return
+    val modifiers = KeyModifiers.fromStickyStates(modifierStates.ctrlState, modifierStates.altState)
+    if (actions.onKey(keyCode, modifiers)) {
+        actions.onConsumeModifiers()
         return
     }
-    val encoded =
-        TerminalInputEncoder.encodeKeyEvent(
-            keyCode = keyCode,
-            unicodeChar = 0,
-            ctrlActive = ctrlActive,
-            altActive = altActive,
-            appCursorMode = actions.isAppCursorMode(),
-        )
-    if (encoded == null) {
-        // 按下 CTRL/ALT 再点某个键却什么都没发生——用户只能以为设备卡了。
-        // 键栏的每个键都应可编码，故这是编码表的缺口，须留证据（键码 + 修饰态）。
-        LogUtil.w(
-            "ModifierBar",
-            "no encoding for $key (keyCode=$keyCode ctrl=$ctrlActive alt=$altActive); keystroke dropped",
-        )
-        return
-    }
-    bytesClick(encoded)
-    actions.onConsumeModifiers()
+    // 按下 CTRL/ALT 再点某个键却什么都没发生——用户只能以为设备卡了。
+    // 键栏的每个键都应可编码，故这是编码缺口，须留证据（键码 + 修饰态）。
+    LogUtil.w("ModifierBar", "no encoding for $key (keyCode=$keyCode modifiers=$modifiers); keystroke dropped")
 }
 
 private fun toolbarKeyClickHandler(
     key: ToolbarKey,
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
-    isAppCursorMode: () -> Boolean = { false },
 ): () -> Unit = when (key) {
     ToolbarKey.CTRL -> actions.onToggleCtrl
 
@@ -467,28 +427,11 @@ private fun toolbarKeyClickHandler(
 
     ToolbarKey.SCROLL -> actions.onScrollClick
 
-    ToolbarKey.ARROW_UP,
-    ToolbarKey.ARROW_DOWN,
-    ToolbarKey.ARROW_LEFT,
-    ToolbarKey.ARROW_RIGHT,
-    -> {
-        // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
-        val keyCode = key.androidKeyCode ?: return { }
-        {
-            sendPlainOrModified(
-                key,
-                arrowOrPlainSequence(keyCode, key.sequence, isAppCursorMode),
-                actions,
-                modifierStates,
-            )
-        }
-    }
-
     else ->
-        if (key.sequence.isEmpty()) {
+        if (key.androidKeyCode == null) {
             { }
         } else {
-            { sendPlainOrModified(key, key.sequence, actions, modifierStates) }
+            { sendPlainOrModified(key, actions, modifierStates) }
         }
 }
 

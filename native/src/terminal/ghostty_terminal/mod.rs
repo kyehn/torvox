@@ -75,3 +75,6 @@ mod input_output_tests;
 
 #[cfg(test)]
 mod snapshot_cache_unit_tests;
+
+#[cfg(test)]
+mod key_encoding_tests;

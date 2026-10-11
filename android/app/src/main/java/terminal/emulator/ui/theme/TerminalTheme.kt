@@ -58,7 +58,8 @@ object BuiltInThemes {
             background = Color(0xFF1E1E2E),
             foreground = Color(0xFFCDD6F4),
             cursor = Color(0xFFF5E0DC),
-            selectionBackground = Color(0xFF45475A),
+            // 取自 alacritty-theme 的 catppuccin_mocha.toml [colors.selection] background。
+            selectionBackground = Color(0xFFF5E0DC),
             ansi =
             listOf(
                 Color(0xFF45475A),
@@ -86,7 +87,8 @@ object BuiltInThemes {
             background = Color(0xFFEFF1F5),
             foreground = Color(0xFF4C4F69),
             cursor = Color(0xFFDC8A78),
-            selectionBackground = Color(0xFFCCD0DA),
+            // 取自 alacritty-theme 的 catppuccin_latte.toml [colors.selection] background。
+            selectionBackground = Color(0xFFDC8A78),
             ansi =
             listOf(
                 Color(0xFF5C5F77),

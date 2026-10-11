@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use flume::{Sender, bounded};
+use libghostty_vt::key;
 
 use super::commands::{Command, Query, RunConfig};
 use super::types::*;
@@ -41,6 +42,33 @@ impl super::GhosttyTerminal {
             [0xA6, 0xAD, 0xC8], // bright.white   subtext0
         ];
         (ansi, [0x1E, 0x1E, 0x2E], [0xCD, 0xD6, 0xF4])
+    }
+
+    /// Dracula Plus 调色板（alacritty-theme `dracula_plus.toml`）。
+    ///
+    /// 取值必须与 alacritty-theme 逐字一致，与 Kotlin `BuiltInThemes.draculaPlus`
+    /// 的背景/前景/十六色同源。DESIGN 默认主题为 dracula_plus，本函数供测试复刻
+    /// 设备 `apply_theme` 后的精确状态，避免各用例手写十六色数组造成分叉。
+    pub fn dracula_plus_palette() -> ([[u8; 3]; 16], [u8; 3], [u8; 3]) {
+        let ansi = [
+            [0x21, 0x22, 0x2C],
+            [0xFF, 0x55, 0x55],
+            [0x50, 0xFA, 0x7B],
+            [0xFF, 0xCB, 0x6B],
+            [0x82, 0xAA, 0xFF],
+            [0xC7, 0x92, 0xEA],
+            [0x8B, 0xE9, 0xFD],
+            [0xF8, 0xF9, 0xF2],
+            [0x54, 0x54, 0x54],
+            [0xFF, 0x6E, 0x6E],
+            [0x69, 0xFF, 0x94],
+            [0xFF, 0xCB, 0x6B],
+            [0xD6, 0xAC, 0xFF],
+            [0xFF, 0x92, 0xDF],
+            [0xA4, 0xFF, 0xFF],
+            [0xF8, 0xF8, 0xF2],
+        ];
+        (ansi, [0x21, 0x21, 0x21], [0xF8, 0xF8, 0xF2])
     }
 
     pub fn new_with_theme(
@@ -164,17 +192,19 @@ impl super::GhosttyTerminal {
         // LF→CRLF 转换会多插入一个 `\r`，产生 `\r\r\n`。
         let mut prev: u8 = self.last_pty_write_byte;
         for &raw in data {
+            // 仅剔除 NUL（与 `vt_write` 同策略，二进制安全）：0xF8 以上字节在合法
+            // UTF-8 中不会出现，但在 Kitty 直接 RGB 等二进制载荷中合法，改为空格
+            // 等于静默损坏图像，此处直透交由上游解析器处理。
             if raw == 0x00 {
                 continue;
             }
-            let sanitized = if raw > 0xF7 { b' ' } else { raw };
             // 裸 LF 转成 CRLF，但仅当其前一个字节不是 CR；否则本已含 CRLF 的输入
             // （PTY 输出常见）会变成 CRCRLF，多出一个回车。
-            if sanitized == b'\n' && prev != b'\r' {
+            if raw == b'\n' && prev != b'\r' {
                 buffer.push(b'\r');
             }
-            buffer.push(sanitized);
-            prev = sanitized;
+            buffer.push(raw);
+            prev = raw;
         }
         // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，
         // CSI/OSC/DCS 分片由上游增量重组，此处不得提前闭合（ST 自动闭合
@@ -388,6 +418,39 @@ impl super::GhosttyTerminal {
             },
             Vec::new(),
             "encode_mouse_event",
+        )
+        .into()
+    }
+
+    /// 用上游 `key::Encoder` 把按键事件编码为终端转义序列。
+    ///
+    /// 编码器的全部选项（DECCKM、keypad 应用模式、modifyOtherKeys、kitty 键盘
+    /// 协议、backarrow key mode）在每次按键前从终端状态重取，故调用方无需查询
+    /// 任何模式：应用改了 DECSET，本函数下一次调用即按新模式编码。
+    ///
+    /// `text` 是平台按当前布局与修饰生成的文本（Shift+A 的 `A`），无文本的键传
+    /// `None`；`unshifted` 是该键无修饰时的码点，kitty 键盘协议据此区分档位。
+    /// 单独的修饰键等不产生序列的键返回 `Some(空)`，由调用方丢弃。
+    /// 仅查询通道卡死时返回 `None`。
+    pub fn encode_key_event(
+        &self,
+        key: key::Key,
+        action: key::Action,
+        modifiers: u16,
+        text: Option<char>,
+        unshifted: Option<char>,
+    ) -> Option<Vec<u8>> {
+        self.query(
+            |tx| Query::EncodeKeyEvent {
+                key,
+                action,
+                modifiers,
+                text,
+                unshifted,
+                tx,
+            },
+            Vec::new(),
+            "encode_key_event",
         )
         .into()
     }
