@@ -671,9 +671,12 @@ fun TerminalScreen(
                                             writeByte((themeForeground.blue * 255).toInt().toByte())
                                             writeByte(SearchHighlightColors.CURRENT_MATCH_ALPHA.toByte())
                                         } else {
-                                            // 其余命中项：低于 128 反色阈值的
-                                            // selection_background 着色——可见覆盖层，不反色。
-                                            // 见 SearchHighlightColors.OTHER_MATCH_ALPHA。
+                                            // 其余命中项：alpha = 160，仍 ≥ Rust 侧
+                                            // SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD(128)，
+                                            // 故同样交换前景/背景，只靠降低不透明度与
+                                            // 当前项区分。
+                                            // 见 SearchHighlightColors.OTHER_MATCH_ALPHA
+                                            // 与 native/src/render/tests.rs 的生产值测试。
                                             writeByte((themeSelectionBackground.red * 255).toInt().toByte())
                                             writeByte((themeSelectionBackground.green * 255).toInt().toByte())
                                             writeByte((themeSelectionBackground.blue * 255).toInt().toByte())
@@ -765,12 +768,16 @@ fun TerminalScreen(
                     } else {
                         ModifierBar(
                             modifier = Modifier.testTag("ModifierBar"),
-                            onKeyClick = { data ->
+                            // 文本输入页：输入法文本不经按键编码器，原样直写。
+                            onSubmit = { data ->
                                 val sessionId = viewModel.runtime.inputTargetSessionId
                                 viewModel.writeToPty(sessionId, data.toByteArray(Charsets.UTF_8))
                             },
-                            onKeyBytesClick = { bytes ->
-                                viewModel.writeToPty(viewModel.runtime.inputTargetSessionId, bytes)
+                            // 按键页：统一走原生键编码器，模式（DECCKM、modifyOtherKeys、
+                            // kitty 键盘协议）由终端状态决定，Kotlin 不再自带序列。
+                            onKey = { keyCode, modifiers ->
+                                viewModel.runtime.bridge()
+                                    ?.processKeyEvent(keyCode, modifiers, 0, 0, 0) == true
                             },
                             onConsumeModifiers = {
                                 viewModel.consumeOneShotModifiers()
@@ -801,8 +808,6 @@ fun TerminalScreen(
                             },
                             textColor = resolvedTerminalTheme.foreground,
                             backgroundColor = resolvedTerminalTheme.background,
-
-                            isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
                         )
                     }
                 }

@@ -73,8 +73,8 @@ pub struct CellData {
     pub codepoint: u32,
     /// 单元宽度：1 = 常规，2 = 宽（CJK、emoji）。
     pub width: u32,
-    /// 字素簇续接码点（预留 7 个），多数单元为空；ASCII 只需 `codepoint`。
-    pub grapheme_extra: [u32; 7],
+    /// 字素簇续接码点，多数单元为空；ASCII 只需 `codepoint`。
+    pub grapheme_extra: [u32; MAX_GRAPHEME_EXTRA],
     /// 前景色 [R, G, B, A]，取值 0..1。
     pub foreground: [f32; 4],
     /// 背景色 [R, G, B, A]，取值 0..1。
@@ -256,6 +256,9 @@ pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = false;
 pub(crate) const DISCONNECTED_TITLE: &str = "";
 pub(crate) const DISCONNECTED_SCROLLBACK: u32 = 0;
 pub(crate) const KGP_STORAGE_LIMIT: u64 = 64 * 1024 * 1024;
+/// 单格字素簇的码位上限：主码位与续接码位合计。
 pub(crate) const MAX_GRAPHEME_CLUSTERS: usize = 8;
+/// 续接码位槽数：主码位已由 `CellData::codepoint` 携带，故比整簇少一。
+pub(crate) const MAX_GRAPHEME_EXTRA: usize = MAX_GRAPHEME_CLUSTERS - 1;
 pub(crate) const DEFAULT_CELL_WIDTH: u32 = 8;
 pub(crate) const DEFAULT_CELL_HEIGHT: u32 = 16;

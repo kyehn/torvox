@@ -196,12 +196,22 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert foreground color of the cell at (row, col) using exact u8 RGB values.
     pub fn assert_foreground_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
-        let expected = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
+        let expected = [
+            GhosttyTerminal::byte_to_float(r),
+            GhosttyTerminal::byte_to_float(g),
+            GhosttyTerminal::byte_to_float(b),
+            1.0,
+        ];
         self.assert_foreground(row, col, expected)
     }
 
     pub fn assert_background_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
-        let expected = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
+        let expected = [
+            GhosttyTerminal::byte_to_float(r),
+            GhosttyTerminal::byte_to_float(g),
+            GhosttyTerminal::byte_to_float(b),
+            1.0,
+        ];
         self.assert_background(row, col, expected)
     }
 

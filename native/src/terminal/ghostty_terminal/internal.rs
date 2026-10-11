@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libghostty_vt::Terminal;
-use libghostty_vt::key::Mods;
+use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
 use libghostty_vt::screen::GridRef;
@@ -88,6 +88,23 @@ fn mark_grid_dirty(grid_dirty: &mut bool, cached_all_text: &mut Option<String>) 
     *cached_all_text = None;
 }
 
+/// 下划线是否需要绘制：除无下划线外五种形状均绘制。
+fn has_visible_underline(underline: libghostty_vt::style::Underline) -> bool {
+    matches!(
+        underline,
+        libghostty_vt::style::Underline::Single
+            | libghostty_vt::style::Underline::Double
+            | libghostty_vt::style::Underline::Curly
+            | libghostty_vt::style::Underline::Dashed
+            | libghostty_vt::style::Underline::Dotted
+    )
+}
+
+/// 是否为双下划线：单独成函数，与绘制判定同源，避免三处散落比较。
+fn is_double_underline(underline: libghostty_vt::style::Underline) -> bool {
+    underline == libghostty_vt::style::Underline::Double
+}
+
 /// 创建三个逐帧渲染迭代器的辅助函数。
 /// 任一创建失败即记日志并返回 `None`。
 fn create_render_iterators() -> Option<(
@@ -131,6 +148,35 @@ pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool 
     grid_dirty || !has_cache
 }
 
+/// 逐事件复用的上游编码器（每个终端一份）。`Encoder` 在事件之间保留状态，
+/// `Event` 复用使热路径不再每次分配。编码器的选项每个事件前经
+/// `set_options_from_terminal` 从终端重新同步；`Event` 的字段没有回溯入口，
+/// 故 [`Query::EncodeKeyEvent`] 的每个字段都必须无条件覆写，漏写即以上一键的值
+/// 充当本次输入。
+///
+/// 鼠标协议是可选特性：编码器分配失败只记日志并置 `None`（事件被丢弃）。
+/// 键盘不是——没有键编码器就等于收不到任何按键，属不可降级，故键编码器分配
+/// 失败由 [`Encoders::new`] 返回错误并终止 VT 线程，不静默降级。
+pub(crate) struct Encoders<'alloc> {
+    mouse: Option<(mouse::Encoder<'alloc>, mouse::Event<'alloc>)>,
+    key: (key::Encoder<'alloc>, key::Event<'alloc>),
+}
+
+impl Encoders<'_> {
+    fn new() -> Result<Self, libghostty_vt::Error> {
+        Ok(Self {
+            mouse: match (mouse::Encoder::new(), mouse::Event::new()) {
+                (Ok(encoder), Ok(event)) => Some((encoder, event)),
+                (Err(error), _) | (_, Err(error)) => {
+                    log::warn!("ghostty_terminal: mouse encoder unavailable: {error}");
+                    None
+                }
+            },
+            key: (key::Encoder::new()?, key::Event::new()?),
+        })
+    }
+}
+
 // ── GhosttyTerminal 的 impl 块 ────────────────────────────────
 impl super::GhosttyTerminal {
     /// 处理单条查询。上游 `select_*` 查询会在查询路径内安装选区；成功安装时返回
@@ -140,8 +186,9 @@ impl super::GhosttyTerminal {
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
-        mouse_encoder: &mut Option<mouse::Encoder>,
-        mouse_event: &mut Option<mouse::Event>,
+        encoders: &mut Encoders,
+        default_foreground: [f32; 4],
+        default_background: [f32; 4],
     ) -> bool {
         let mut selection_installed = false;
         match query {
@@ -298,7 +345,8 @@ impl super::GhosttyTerminal {
                 try_send(&tx, results, "ghostty_terminal: query channel send failed");
             }
             Query::DumpGrid { tx } => {
-                let dumped = Self::build_dumped_grid(terminal);
+                let dumped =
+                    Self::build_dumped_grid(terminal, default_foreground, default_background);
                 try_send(&tx, dumped, "ghostty_terminal: query channel send failed");
             }
             Query::TakeKittyGraphicsImage { id, tx } => {
@@ -341,12 +389,9 @@ impl super::GhosttyTerminal {
                 // 实时单元格尺寸，并在鼠标上报关闭时丢弃事件。编码器的选项
                 // 取自终端（跟踪模式 + 格式），故 SGR/X10/UTF-8 输出遵循应用
                 // 的 DECSET 选择。
-                let (mouse_encoder, mouse_event) = match (
-                    mouse_encoder.as_mut(),
-                    mouse_event.as_mut(),
-                ) {
-                    (Some(encoder), Some(event)) => (encoder, event),
-                    _ => {
+                let (mouse_encoder, mouse_event) = match encoders.mouse.as_mut() {
+                    Some(pair) => pair,
+                    None => {
                         log::warn!(
                             "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
                         );
@@ -393,6 +438,40 @@ impl super::GhosttyTerminal {
                 }
                 try_send(&tx, response, "mouse encode response send failed");
             }
+            Query::EncodeKeyEvent {
+                key,
+                action,
+                modifiers,
+                text,
+                unshifted,
+                tx,
+            } => {
+                let (key_encoder, key_event) = &mut encoders.key;
+                let mods = Mods::from_bits_retain(modifiers);
+                key_encoder.set_options_from_terminal(terminal);
+                key_event
+                    .set_action(action)
+                    .set_key(key)
+                    .set_mods(mods)
+                    // Shift 已体现在文本里（如 Shift+A 的 `A`）：不标为已消费，
+                    // 编码器会再叠一层 Shift 修饰序列，终端收到的是两次 Shift+A。
+                    .set_consumed_mods(if text.is_some() {
+                        mods & Mods::SHIFT
+                    } else {
+                        Mods::empty()
+                    })
+                    .set_utf8(text.map(String::from))
+                    // `key::Event` 跨事件复用而 `set_unshifted_codepoint` 没有清零入口：
+                    // 只在有值时设置，上一键的码位会残留到本次。上游以 0 表示「未提供」
+                    // （kitty 表格未命中时不猜码位、Ctrl 折叠不套用大写字母的基字母），
+                    // 故缺省时显式写 0。
+                    .set_unshifted_codepoint(unshifted.unwrap_or('\0'));
+                let mut response = Vec::new();
+                if let Err(error) = key_encoder.encode_to_vec(key_event, &mut response) {
+                    log::warn!("ghostty_terminal: key encode failed: {error}");
+                }
+                try_send(&tx, response, "key encode response send failed");
+            }
         }
         selection_installed
     }
@@ -405,8 +484,9 @@ impl super::GhosttyTerminal {
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
-        mouse_encoder: &mut Option<mouse::Encoder>,
-        mouse_event: &mut Option<mouse::Event>,
+        encoders: &mut Encoders,
+        default_foreground: [f32; 4],
+        default_background: [f32; 4],
     ) -> bool {
         let mut selection_installed = false;
         while let Ok(query) = query_receiver.try_recv() {
@@ -417,8 +497,9 @@ impl super::GhosttyTerminal {
                 terminal,
                 alt_screen_active,
                 all_text,
-                mouse_encoder,
-                mouse_event,
+                encoders,
+                default_foreground,
+                default_background,
             );
         }
         selection_installed
@@ -486,8 +567,8 @@ impl super::GhosttyTerminal {
         // 由调用方在 flush 后收割。本仓不再自建 OSC 解析器；try_send 永不阻塞
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
         // 的最小扫描器拦截（FR-036）。
-        // 上游签名：回调返回 `()`（旧版曾返回 `Result`，用于把错误回传给 VT 线程；
-        // 新版不再回传——本回调本就只做「尽力投递 + 记日志」，没有可回传的错误）。
+        // 上游要求回调返回前必须 `reply`，否则视为拒绝写入并暂停 VT 流。
+        // OSC 52 无应答时取值被丢弃，但调用本身不可省略。
         if let Err(error) = terminal.on_clipboard_write({
             let clipboard_tx = config.clipboard_tx.clone();
             move |_terminal, write| {
@@ -528,9 +609,15 @@ impl super::GhosttyTerminal {
                     );
                 }
                 // 通道满（`bounded(16)`）且消费侧（渲染暂停时停调）跟不上时丢弃——
-                // 阻塞 VT 线程更糟。丢则记日志，不静默。
+                // 阻塞 VT 线程更糟。丢则记日志并回 `Busy`，不静默。
                 if clipboard_tx.try_send((selection, text)).is_err() {
                     log::warn!("OSC 52 clipboard dropped: channel full");
+                    write.reply(
+                        Err(libghostty_vt::terminal::ClipboardWriteError::Busy),
+                        false,
+                    );
+                } else {
+                    write.reply(Ok(()), false);
                 }
             }
         }) {
@@ -560,26 +647,13 @@ impl super::GhosttyTerminal {
         let mut default_background = Self::byte_color_to_float(config.background_color);
         let mut default_foreground = Self::byte_color_to_float(config.foreground_color);
 
-        // 逐次鼠标事件复用的 encoder/event，每个终端只分配一次（而非每次事件），
-        // 既贴合参考实现，也避免事件之间丢失 encoder 状态。
-        // `set_options_from_terminal` 在每个事件前重新同步跟踪模式与输出格式
-        // （zelland 做法）。
-        let mut mouse_encoder = match mouse::Encoder::new() {
-            Ok(enc) => Some(enc),
+        // 逐事件复用的上游编码器（见 `Encoders`）：每个终端只分配一次，编码器
+        // 选项在每个事件前经 `set_options_from_terminal` 从终端重新同步。
+        let mut encoders = match Encoders::new() {
+            Ok(encoders) => encoders,
             Err(error) => {
-                log::warn!(
-                    "ghostty_terminal: mouse::Encoder::new() failed: {error} — mouse protocol disabled"
-                );
-                None
-            }
-        };
-        let mut mouse_event = match mouse::Event::new() {
-            Ok(evt) => Some(evt),
-            Err(error) => {
-                log::warn!(
-                    "ghostty_terminal: mouse::Event::new() failed: {error} — mouse protocol disabled"
-                );
-                None
+                log::error!("ghostty_terminal: key encoder unavailable: {error} — thread exiting");
+                return;
             }
         };
 
@@ -638,8 +712,9 @@ impl super::GhosttyTerminal {
                         &mut terminal,
                         &config.alt_screen_active,
                         &mut cached_all_text,
-                        &mut mouse_encoder,
-                        &mut mouse_event,
+                        &mut encoders,
+                        default_foreground,
+                        default_background,
                     ) {
                         // 查询内安装与 Command::SetSelection 同款失效：
                         // 反白改变每行内容，帧必须重推。
@@ -833,8 +908,9 @@ impl super::GhosttyTerminal {
                 &mut terminal,
                 &config.alt_screen_active,
                 &mut cached_all_text,
-                &mut mouse_encoder,
-                &mut mouse_event,
+                &mut encoders,
+                default_foreground,
+                default_background,
             ) {
                 // 同上：查询内安装的选区需要纳入本批重推。
                 last_cell_data_push = None;
@@ -882,35 +958,24 @@ impl super::GhosttyTerminal {
         data.overline = style.overline;
         data.blink = style.blink;
         data.hidden = style.invisible;
-        data.underline = matches!(
-            style.underline,
-            libghostty_vt::style::Underline::Single
-                | libghostty_vt::style::Underline::Double
-                | libghostty_vt::style::Underline::Curly
-                | libghostty_vt::style::Underline::Dashed
-                | libghostty_vt::style::Underline::Dotted
-        );
-        data.double_underline = style.underline == libghostty_vt::style::Underline::Double;
+        data.underline = has_visible_underline(style.underline);
+        data.double_underline = is_double_underline(style.underline);
         data.reverse = style.inverse;
     }
 
-    pub(crate) fn build_dumped_grid(terminal: &Terminal) -> DumpedGrid {
+    /// `default_foreground`/`default_background` 必须与渲染路径
+    /// [`Self::build_cell_data`] 收到的是同一对值（由 run 循环经 [`RunConfig`] 初始化、
+    /// 经 `SetTheme` 更新）。转储是渲染的对照物：若这里另行从终端反查默认色，两条路径
+    /// 一旦分歧，测试就会对着与 GPU 不同的颜色下断言。不设兜底——主题由构造参数给定，
+    /// 不存在"查不到"。
+    pub(crate) fn build_dumped_grid(
+        terminal: &Terminal,
+        default_foreground: [f32; 4],
+        default_background: [f32; 4],
+    ) -> DumpedGrid {
         let rows = grid_rows(terminal);
         let cols = grid_cols(terminal);
         let scrollback_rows = scrollback_len(terminal);
-        let (_, fallback_background, fallback_foreground) = Self::catppuccin_mocha_palette();
-        let default_foreground = terminal
-            .default_fg_color()
-            .ok()
-            .flatten()
-            .map(|color| Self::byte_color_to_float([color.r, color.g, color.b]))
-            .unwrap_or_else(|| Self::byte_color_to_float(fallback_foreground));
-        let default_background = terminal
-            .default_bg_color()
-            .ok()
-            .flatten()
-            .map(|color| Self::byte_color_to_float([color.r, color.g, color.b]))
-            .unwrap_or_else(|| Self::byte_color_to_float(fallback_background));
 
         let snapshot_at = |point: Point| {
             let mut data = CellSnapshot::default();
@@ -978,7 +1043,7 @@ impl super::GhosttyTerminal {
         row_data.push(CellData {
             codepoint: 0,
             width,
-            grapheme_extra: [0; 7],
+            grapheme_extra: [0; MAX_GRAPHEME_EXTRA],
             foreground: default_foreground,
             background: default_background,
             underline_color: default_foreground,
@@ -1023,12 +1088,7 @@ impl super::GhosttyTerminal {
         default: [f32; 4],
     ) -> [f32; 4] {
         match color {
-            Ok(Some(rgb)) => [
-                rgb.r as f32 / 255.0,
-                rgb.g as f32 / 255.0,
-                rgb.b as f32 / 255.0,
-                1.0,
-            ],
+            Ok(Some(rgb)) => Self::byte_color_to_float([rgb.r, rgb.g, rgb.b]),
             _ => default,
         }
     }
@@ -1535,9 +1595,13 @@ impl super::GhosttyTerminal {
                     continue;
                 };
 
-                let mut grapheme_extra = [0u32; 7];
+                let mut grapheme_extra = [0u32; MAX_GRAPHEME_EXTRA];
                 if let Ok(graphemes) = cell.graphemes() {
-                    for (grapheme_index, &codepoint) in graphemes.iter().enumerate().skip(1).take(7)
+                    for (grapheme_index, &codepoint) in graphemes
+                        .iter()
+                        .enumerate()
+                        .skip(1)
+                        .take(MAX_GRAPHEME_EXTRA)
                     {
                         grapheme_extra[grapheme_index - 1] = codepoint as u32;
                     }
@@ -1626,14 +1690,7 @@ impl super::GhosttyTerminal {
         if style.blink {
             flags |= 1 << cell_flags::BLINK;
         }
-        if matches!(
-            style.underline,
-            libghostty_vt::style::Underline::Single
-                | libghostty_vt::style::Underline::Double
-                | libghostty_vt::style::Underline::Curly
-                | libghostty_vt::style::Underline::Dashed
-                | libghostty_vt::style::Underline::Dotted
-        ) {
+        if has_visible_underline(style.underline) {
             flags |= 1 << cell_flags::UNDERLINE;
         }
         if style.strikethrough {
@@ -1645,7 +1702,7 @@ impl super::GhosttyTerminal {
         if style.faint {
             flags |= 1 << cell_flags::FAINT;
         }
-        if style.underline == libghostty_vt::style::Underline::Double {
+        if is_double_underline(style.underline) {
             flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
         }
         flags
@@ -1761,20 +1818,13 @@ impl super::GhosttyTerminal {
                     bold: style.bold,
                     dim: style.faint,
                     italic: style.italic,
-                    underline: matches!(
-                        style.underline,
-                        libghostty_vt::style::Underline::Single
-                            | libghostty_vt::style::Underline::Double
-                            | libghostty_vt::style::Underline::Curly
-                            | libghostty_vt::style::Underline::Dashed
-                            | libghostty_vt::style::Underline::Dotted
-                    ),
+                    underline: has_visible_underline(style.underline),
                     reverse: style.inverse,
                     strikethrough: style.strikethrough,
                     blink: style.blink,
                     hidden: style.invisible,
                     overline: style.overline,
-                    double_underline: style.underline == libghostty_vt::style::Underline::Double,
+                    double_underline: is_double_underline(style.underline),
                     width,
                 });
             }

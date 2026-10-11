@@ -77,10 +77,11 @@ object NativeBridge {
      * 编码并提交按键事件。
      *
      * @param key 按键名，如 "a"、"Enter"、"Escape"、"Space"
-     * @param mods 修饰键位掩码（1=shift，2=alt，4=ctrl，8=meta，16=super）
+     * @param mods 上游 `key.Mods` 原始位（1=shift，2=ctrl，4=alt，8=super），
+     *             与 [terminal.emulator.input.KeyModifiers] 同一套位
      * @param text 输入法合成的文本，非输入法按键传 null
      */
-    @JvmStatic external fun writeKey(sessionId: Long, key: String, mods: Int, text: String?)
+    @JvmStatic external fun writeKey(sessionId: Long, key: String, mods: Int)
 
     /**
      * 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用的 DECSET 选择 SGR/X10/UTF-8）。
@@ -101,12 +102,40 @@ object NativeBridge {
     ): ByteArray
 
     /**
+     * 用 Ghostty 键编码器把按键事件编码为终端转义序列。
+     *
+     * DECCKM、modifyOtherKeys、kitty 键盘协议、backarrow key mode 等模式全部由编码器
+     * 从终端状态读取，调用方不再查询任何模式。`keyCode` 是 Android 键码，
+     * `unicodeChar`/`unshiftedChar` 是 KeyEvent 的码点（0 = 无字符）；
+     * `modifiers` 取上游 `key.Mods` 原始位（见 [terminal.emulator.input.KeyModifiers]）。
+     *
+     * 未收录的键码、不产生序列的键（单独的修饰键）与编码失败都返回空数组；
+     * 调用方据此回退到按键文本，不静默丢弃按键。
+     */
+    @JvmStatic
+    external fun encodeKeyEvent(
+        sessionId: Long,
+        keyCode: Int,
+        unicodeChar: Int,
+        unshiftedChar: Int,
+        modifiers: Int,
+        action: Int,
+    ): ByteArray
+
+    /**
      * 远端是否处于备用屏幕缓冲（vim/less/htop）。由 Rust VT 线程维护的无锁镜像，
      * 可在每次触摸滚动时安全调用：备用屏下滚动以滚轮转义转发给远端而非本地回滚。
      */
     @JvmStatic external fun getAltScreenState(sessionId: Long): Boolean
 
-    /** 查询终端模式（ghostty `mode_get`）；`kind` 为 0 是 DEC 私有模式，非 0 是 ANSI 模式。用于查 DECCKM（应用光标键，DEC 私有模式 1）以在 SS3（`ESC OA`）与 CSI（`ESC [ A`）之间切换方向键。 */
+    /**
+     * 查询终端模式（ghostty `mode_get`）；`kind` 为 0 是 DEC 私有模式，非 0 是 ANSI 模式。
+     *
+     * 按键编码不再经此通道：DECCKM 等模式由原生 `key::Encoder` 在编码时从终端状态
+     * 读取（`set_options_from_terminal`）。保留它是因为真机 VT 正确性用例需要一条
+     * 可直接观察终端模式状态的通道（`VtCorrectnessInstrumentedTest.cursorKeyModeSwitchesViaDecPrivateMode`），
+     * 否则「终端真的切了模式」只能间接推断。
+     */
     @JvmStatic external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
 
     /** 将窗口焦点变化转发给会话，使子进程收到 DECSET 1004 焦点上报（`\x1b[I` / `\x1b[O`）。 */

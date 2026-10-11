@@ -53,6 +53,8 @@ DESIGN 不支持双击/三击/多击选择：多次快速轻击 MUST NOT 触发�
 
 拖动控制柄 MUST 实时更新选区，宽字符单元格 MUST 吸附不被拆分，该吸附 MUST 由网格单元宽度事实给出而非由行文本字符位置推算；一端越过对侧端点 MUST 交换两端归属；拖动期间选择菜单 MUST 隐藏，抬手 MUST 按新选区几何重显菜单。
 
+实现：`SelectionState.applyHandleDrag` 返回五元组（含翻转后的被拖柄归属），越界判据为严格不等（落点恰为锚点时不翻转）；快速路径 `dragMove` 与慢速路径 `dragSelection` 均回传新归属，调用方据此更新 `handleDragState`，连续回拖不再按旧柄解释。
+
 #### Scenario: 宽字符吸附
 
 - **WHEN** 手柄停在双宽字符的后半格

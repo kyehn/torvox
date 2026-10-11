@@ -18,7 +18,7 @@
 
 允许修正拼写 / 语法错误，或修正格式 / 排版。需用户明确同意后方可修改实际内容。
 
-- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc` `.semgrepignore` `.cargo/config.toml` `.gitignore`
+- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc` `.semgrepignore` `.cargo/config.toml` `.gitignore` `native/build.rs`
 
 ## 不得轻易更改文件，必须确保符合 docs/specification/ 要求
 

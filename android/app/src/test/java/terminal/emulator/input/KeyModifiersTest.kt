@@ -44,34 +44,35 @@ class KeyModifiersTest {
     @Test
     fun `mask constants are the bits the native side decodes`() {
         // 掩码要跨 JNI 送到原生去解码，故位序本身是对外契约：改成别的位即红。
+        // 位值即上游 `key.Mods` 的原始位——全仓唯一一种修饰表示。
         // 「互不相同」由下面四条具体取值蕴含，不再另立断言。
         assertEquals(1, KeyModifiers.SHIFT)
-        assertEquals(2, KeyModifiers.ALT)
-        assertEquals(4, KeyModifiers.CTRL)
-        assertEquals(8, KeyModifiers.META)
+        assertEquals(2, KeyModifiers.CTRL)
+        assertEquals(4, KeyModifiers.ALT)
+        assertEquals(8, KeyModifiers.SUPER)
     }
 
     @Test
-    fun `ghosttyMods maps metaState to upstream bits`() {
+    fun `ghosttyMods maps metaState to the same bits`() {
         assertEquals(0, KeyModifiers.ghosttyMods(0))
         assertEquals(
-            KeyModifiers.GhosttyMods.SHIFT,
+            KeyModifiers.SHIFT,
             KeyModifiers.ghosttyMods(android.view.KeyEvent.META_SHIFT_ON),
         )
         assertEquals(
-            KeyModifiers.GhosttyMods.CTRL,
+            KeyModifiers.CTRL,
             KeyModifiers.ghosttyMods(android.view.KeyEvent.META_CTRL_ON),
         )
         assertEquals(
-            KeyModifiers.GhosttyMods.ALT,
+            KeyModifiers.ALT,
             KeyModifiers.ghosttyMods(android.view.KeyEvent.META_ALT_ON),
         )
         assertEquals(
-            KeyModifiers.GhosttyMods.SUPER,
+            KeyModifiers.SUPER,
             KeyModifiers.ghosttyMods(android.view.KeyEvent.META_META_ON),
         )
         assertEquals(
-            KeyModifiers.GhosttyMods.SHIFT or KeyModifiers.GhosttyMods.CTRL,
+            KeyModifiers.SHIFT or KeyModifiers.CTRL,
             KeyModifiers.ghosttyMods(
                 android.view.KeyEvent.META_SHIFT_ON or android.view.KeyEvent.META_CTRL_ON,
             ),

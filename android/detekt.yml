@@ -4,14 +4,12 @@ comments:
   DeprecatedBlockTag:
     active: true
 complexity:
-  CognitiveComplexMethod:
-    active: false
   ComplexCondition:
-    allowedConditions: 12
+    active: false
   CyclomaticComplexMethod:
     active: false
   LargeClass:
-    allowedLines: 1600
+    active: false
   LongMethod:
     active: false
   LongParameterList:

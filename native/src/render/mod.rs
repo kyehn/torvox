@@ -40,13 +40,6 @@ pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::n
 // ── 公开常量 ────────────────────────────────────────────────────────────
 pub const RENDER_SCALE: f32 = 1.0;
 
-pub const CATPPUCCIN_MOCHA_BACKGROUND: wgpu::Color = wgpu::Color {
-    r: 30.0 / 255.0,
-    g: 30.0 / 255.0,
-    b: 46.0 / 255.0,
-    a: 1.0,
-};
-
 // ── 错误类型 ────────────────────────────────────────────────────────────
 use thiserror::Error;
 
@@ -158,7 +151,5 @@ pub mod gpu {
     };
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::GpuUniforms;
-    pub use super::{
-        CATPPUCCIN_MOCHA_BACKGROUND, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
-    };
+    pub use super::{CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE};
 }

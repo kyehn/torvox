@@ -129,8 +129,8 @@ impl Pty for MockPty {
     }
 
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {
-        // Mock PTY output is delivered through the in-memory buffer, never a
-        // real fd; return a throwaway read fd so the reader thread exits cleanly.
+        // Mock PTY 的输出经内存缓冲投递，不经过真实 fd；返回一个一次性读 fd，
+        // 使读取线程能干净退出。
         std::fs::File::open("/dev/null").map(OwnedFd::from)
     }
 

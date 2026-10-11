@@ -1,0 +1,86 @@
+# Theme Configuration
+
+## Purpose
+
+Provide a configurable terminal theme system with pre-built themes, preview capability, and custom RGB builder for the kudzu/torvox Android terminal emulator.
+
+## Scope
+
+This specification defines the theme system that replaces the hardcoded theme list with a flexible, user-configurable system.
+
+## Pre-built Themes
+
+The following themes are available by default:
+
+| Theme Name | Background | Text | Accent | Mood |
+|-----------|-----------|------|--------|------|
+| `dracula_plus` (default) | #282A36 | #F8F8F2 | #BD93F9 | Pink-purple dark |
+| `catppuccin_latte` | #F5F5F5 | #1E1E2E | #4A90D9 | Light mode |
+| `catppuccin_mocha` | #1E1E2E | #CDD6F4 | #89B4FA | Purple-blue dark |
+| `catppuccin_macchiato` | #2A2A2A | #C6D0F5 | #89B4FA | Dark purple |
+| `catppuccin_ frappe` | #303030 | #E5C8E8 | #89B4FA | Dark purple |
+| `monokai` | #27282C | #F8F8F2 | #F92672 | Classic pink |
+| `gruvbox_light` | #FDF6E3 | #5C5C5C | #CB5246 | Light amber |
+| `gruvbox_dark` | #282828 | #EBDBB2 | #83A598 | Warm retro amber |
+| `tokyo_night` | #1A1B26 | #A9B1D6 | #7AA2F7 | Deep indigo dark |
+| `tokyo_night_light` | #24283B | #B8C0E0 | #7AA2F7 | Light indigo |
+| `dracula` | #282A36 | #F8F8F2 | #BD93F9 | Pink-purple dark |
+| `nord` | #2E3440 | #D8DEE9 | #88C0D0 | Arctic blue dark |
+| `one_dark` | #2B2B2B | #D4D4D4 | #AFD700 | Dark green |
+| `solarized_dark` | #002B36 | #657B83 | #B58900 | Solarized classic |
+| `solarized_light` | #FDF6E3 | #657B83 | #B58900 | Solarized classic |
+| `gruvbox` | (alias for gruvbox_dark) | | | |
+| `catppuccin` | (alias for mocha) | | | |
+
+## Custom Theme Builder
+
+Users can create custom themes using RGB sliders:
+
+### Sections
+
+1. **Background** - Terminal background, drawer background, status bar
+   - RGB range: 0-255
+   - Recommended for dark themes: R=10-40, G=10-40, B=10-40
+
+2. **Text** - Terminal text color, extra keys labels, all text
+   - RGB range: 0-255
+   - Recommended for contrast: R=200-255, G=200-255, B=200-255
+
+3. **Primary** - Accent color - buttons, links, active indicators
+   - RGB range: 0-255
+
+### Workflow
+
+1. User selects "Custom" theme from theme selector
+2. "Customize Colors" button appears
+3. Color picker dialog opens with three RGB slider sections
+4. Preview blocks update in real-time
+5. User taps "Apply" to save and reload all screens
+6. Custom colors persist across app restarts (stored in preferences)
+
+## Theme Application
+
+- Themes apply immediately upon selection (activity recreates)
+- "Follow system theme" option: Day theme when system is light, night theme when system is dark
+- When "follow system" is enabled, separate day/night terminal themes can be configured
+- Default theme: `dracula_plus` (applied on first use)
+
+## Theme Persistence
+
+- Theme selection persists across app restarts
+- Custom theme RGB values stored in SharedPreferences
+- Default themes are bundled and cannot be deleted
+- Custom themes are marked as user-created and backed up with config export
+
+## Impacted Components
+
+- `android/app/src/main/java/terminal/emulator/settings/ScreenTheme.kt` - Theme selection UI
+- `android/app/src/main/java/terminal/emulator/settings/ThemePreview.kt` - Theme preview component
+- `native/src/terminal/ghostty_terminal/` - Any theme-related state updates
+- `openspec/specs/` - This specification entry
+
+## Non-Goals
+
+- Full CSS-style theming engine
+- Per-cell color customization
+- Dynamic theme animation transitions (beyond simple switch)
