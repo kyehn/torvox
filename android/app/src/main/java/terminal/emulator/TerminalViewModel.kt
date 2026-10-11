@@ -77,34 +77,42 @@ data class SelectionState(
         get() = active && start != null && end != null
 
     fun applyHandleDrag(draggingStart: Boolean, targetRow: Int, targetCol: Int): HandleDragResult {
-        val currentEnd = end ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol)
-        val currentStart = start ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol)
+        val currentEnd = end ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol, draggingStart)
+        val currentStart = start ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol, draggingStart)
+        // 严格不等：落点恰为锚点时不翻转（对标 termlib applyHandleDrag），等值翻转只会让
+        // 下一帧按错柄解释，连续回拖时语义跳变。
         if (
             draggingStart &&
             (
                 targetRow > currentEnd.row ||
-                    (targetRow == currentEnd.row && targetCol >= currentEnd.col)
+                    (targetRow == currentEnd.row && targetCol > currentEnd.col)
                 )
         ) {
-            return HandleDragResult(currentEnd.row, currentEnd.col, targetRow, targetCol)
+            return HandleDragResult(currentEnd.row, currentEnd.col, targetRow, targetCol, false)
         }
         if (
             !draggingStart &&
             (
                 targetRow < currentStart.row ||
-                    (targetRow == currentStart.row && targetCol <= currentStart.col)
+                    (targetRow == currentStart.row && targetCol < currentStart.col)
                 )
         ) {
-            return HandleDragResult(targetRow, targetCol, currentStart.row, currentStart.col)
+            return HandleDragResult(targetRow, targetCol, currentStart.row, currentStart.col, true)
         }
         if (draggingStart) {
-            return HandleDragResult(targetRow, targetCol, currentEnd.row, currentEnd.col)
+            return HandleDragResult(targetRow, targetCol, currentEnd.row, currentEnd.col, true)
         }
-        return HandleDragResult(currentStart.row, currentStart.col, targetRow, targetCol)
+        return HandleDragResult(currentStart.row, currentStart.col, targetRow, targetCol, false)
     }
 }
 
-data class HandleDragResult(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
+data class HandleDragResult(
+    val startRow: Int,
+    val startCol: Int,
+    val endRow: Int,
+    val endCol: Int,
+    val draggingStart: Boolean,
+)
 
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
 data class SessionInfo(val id: Long, val title: String = "")
@@ -226,7 +234,7 @@ constructor(
     fun endSelection() = selectionManager.endSelection()
 
     /** 快速拖动路径：计算选区边界而不写 Compose 状态；见 [SelectionManager.dragMove]。 */
-    fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): IntArray? =
+    fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): HandleDragResult? =
         selectionManager.dragMove(draggingStart, row, col, cachedMaxRow, cachedMaxCol)
 
     /** 把最后一次快速路径的拖动边界提交到 Compose 状态；见 [SelectionManager.commitDragBounds]。 */
@@ -390,23 +398,28 @@ constructor(
             }
         }
 
-        fun updateSelection(row: Int, col: Int) {
-            dragSelection(draggingStart = false, row = row, col = col)
-        }
+        fun updateSelection(row: Int, col: Int): Boolean = dragSelection(draggingStart = false, row = row, col = col)
 
-        fun updateSelectionStart(row: Int, col: Int) {
+        fun updateSelectionStart(row: Int, col: Int): Boolean =
             dragSelection(draggingStart = true, row = row, col = col)
-        }
 
         /**
          * 快速拖动路径：不触碰 Compose 状态地计算选区边界。
-         * 返回 intArrayOf(startRow, startCol, endRow, endCol) 供直接重定位手柄；
+         * 返回归一化后的拖动结果（含翻转后的归属柄）供直接重定位手柄；
          * 拖动未激活或仅粘贴时返回 null。
          *
+         * 调用方必须依返回的 `draggingStart` 更新被拖柄归属，否则越过锚点后的
+         * 连续回拖会按旧柄解释（对标 termlib applyHandleDrag 五元组语义）。
          * 调用方直接依返回的边界重定位手柄，避开 Compose _state
          * → 重组 → 回读的往返，而这正是每次 MOVE 的主要帧瓶颈。
          */
-        fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): IntArray? {
+        fun dragMove(
+            draggingStart: Boolean,
+            row: Int,
+            col: Int,
+            cachedMaxRow: Int,
+            cachedMaxCol: Int,
+        ): HandleDragResult? {
             val current = _state.value.selection
             if (!current.active || current.pasteOnly) return null
             val result =
@@ -424,10 +437,12 @@ constructor(
                     cachedMaxRow,
                     cachedMaxCol,
                 )
+            val flipped =
+                HandleDragResult(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol, result.draggingStart)
+            lastDragBounds = flipped
             val boundsArray = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
-            lastDragBounds = boundsArray
             syncDragBoundsToNativeThrottled(boundsArray)
-            return boundsArray
+            return flipped
         }
 
         /**
@@ -453,29 +468,30 @@ constructor(
          * 必须由 finishHandleDrag 调用，使 endSelection 读到正确的边界。
          */
         fun commitDragBounds() {
-            val boundsArray = lastDragBounds ?: return
+            val bounds = lastDragBounds ?: return
             _state.update { state ->
                 val cur = state.selection
                 if (!cur.active) return@update state
                 state.copy(
                     selection =
                     cur.copy(
-                        start = SelectionAnchor(boundsArray[0], boundsArray[1]),
-                        end = SelectionAnchor(boundsArray[2], boundsArray[3]),
+                        start = SelectionAnchor(bounds.startRow, bounds.startCol),
+                        end = SelectionAnchor(bounds.endRow, bounds.endCol),
                     ),
                 )
             }
             lastDragBounds = null
         }
 
-        private var lastDragBounds: IntArray? = null
+        private var lastDragBounds: HandleDragResult? = null
 
-        private fun dragSelection(draggingStart: Boolean, row: Int, col: Int) {
+        private fun dragSelection(draggingStart: Boolean, row: Int, col: Int): Boolean {
             // 拖动路径钳位所用的绝对网格边界（见下）；只读一次——
             // 并发的 resize 最多使该边界陈旧一帧。
             val runtimeState = runtime.state.value
             val maxRow = absoluteMaxRow(runtimeState.rows)
             val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
+            var flippedSide = draggingStart
             // CAS，活跃性检查置于 lambda 内部：选区读取与写入相对并发的
             // _state 更新是原子的。仅粘贴的选区（空单元格/空白处长按）不可变
             // ——长按期间手指的微小移动绝不能使该单格漂移。
@@ -490,6 +506,7 @@ constructor(
                             targetRow = row,
                             targetCol = col,
                         )
+                    flippedSide = result.draggingStart
                     // 纵深防御：在拖动结果抵达原生 setSelection 之前先规范化
                     // ——保序的 start ≤ end + 范围钳位到网格。
                     // applyHandleDrag 本身已正确排序；clampSelection
@@ -522,6 +539,7 @@ constructor(
             if (_state.value.selection.dragging) {
                 runtime.setSelectionDragging(true)
             }
+            return flippedSide
         }
 
         fun endSelection() {
@@ -1351,7 +1369,16 @@ constructor(
         val state = _state.value
         val mask = KeyModifiers.fromStickyStates(state.ctrlState, state.altState)
 
-        val success = bridge.processKeyEvent(keyCode, mask.toByte(), 0, unicodeChar)
+        val success =
+            bridge.processKeyEvent(
+                keyCode,
+                mask,
+                0,
+                unicodeChar,
+                // 无修饰码点：Shift 已并入 unicodeChar，把它单独给出供上游编码器
+                // 识别该键的档位。
+                event.getUnicodeChar(0),
+            )
         if (success) {
             // 硬件输入同样经过共用的贴底点，否则粘滞 SCROLL 永不被物理键盘解除。
             onUserInputForScrollSnap(

@@ -363,7 +363,7 @@ fn run_compute_and_capture(
         cpass.dispatch_workgroups(1, 1, 1);
     }
 
-    // Copy storage to staging
+    // 把 storage 拷入 staging
     encoder.copy_buffer_to_buffer(&storage_buffer, 0, &staging_buffer, 0, 16);
 
     queue.submit(Some(encoder.finish()));
@@ -505,7 +505,7 @@ fn orthographic_projection_resize_gpu_uniforms() {
         std::mem::size_of_val(&uniforms_800),
         std::mem::size_of_val(&uniforms_400)
     );
-    // Projection matrix Y-scale differs
+    // 投影矩阵的 Y 缩放不同
     assert!(
         (uniforms_800.projection[1][1] - uniforms_400.projection[1][1]).abs() > 0.001,
         "Y-scale should differ: 800={} 400={}",
@@ -760,8 +760,6 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    // e + combining acute shapes to one precomposed glyph: it replaces
-    // the primary quad instead of stacking an overlay.
     let mut extras = [0u32; 7];
     extras[0] = 0x301;
     let cell_data = vec![CellData {
@@ -837,8 +835,7 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         row,
         col,
     };
-    // Clusters at non-zero column and row prove the overlay origin
-    // includes the full grid origin, not just the shaper offset.
+    // 位于非零列与行的字素簇证明叠加层原点含完整网格原点，而非仅整形偏移。
     let cell_data = vec![
         cluster_cell(0, 0),
         blank_cell(0, 1),
@@ -870,9 +867,8 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         "cluster cell must emit primary plus overlay, got {}",
         instances.len()
     );
-    // The overlay origin carries the shaper offset: recompute the
-    // expected offset from the same cluster shaping and require an
-    // instance at exactly that position (base cell is col 0).
+    // 叠加层原点带有整形偏移：用同一次簇整形重算期望偏移，
+    // 并要求恰在该位置出现实例（基准格位于第 0 列）。
     let shaped = font_pipeline.shape_run("a\u{301}\u{302}");
     assert!(
         shaped.len() > 1,
@@ -1009,10 +1005,9 @@ fn bearing_x_uses_font_natural_bearing() {
     }
 }
 
-/// Verify all non-descending characters in a row share the same baseline
-/// (bitmap bottom edge). Bitmap tops legitimately differ per glyph
-/// (cap height vs x-height) — equal tops would misalign the text.
-/// This ensures no vertical misalignment between characters.
+/// 断言一行内所有非降部字符共用同一基线（位图底边）。位图顶边本就
+/// 因字形而异（大写高度与小写高度不同），顶边相等反而会让文字错位。
+/// 本用例保证字符之间没有纵向错位。
 #[test]
 fn all_chars_share_same_baseline_y() {
     let mut font_pipeline = ascii_font();
@@ -1434,15 +1429,14 @@ fn search_highlight_multiple_matches_same_row() {
 
 // ── Production-value alpha tests (P1-2) ──────────────────────────
 //
-// The Kotlin side packs search-highlight RGBA bytes with the constants in
-// `SearchHighlightColors.kt` (single cross-language anchor):
-//   - current match → SearchHighlightColors.CURRENT_MATCH_ALPHA = 255
-//   - other matches → SearchHighlightColors.OTHER_MATCH_ALPHA = 160
-//     (: raised from 96 so every match inverts, per spec
-//     text-search-highlight "all matches visible inversion")
-// These tests pin the renderer's behavior at exactly those production
-// values. Changing either side requires changing the other in the same PR
-// (see the doc comment on SearchHighlightColors).
+// Kotlin 侧用 `SearchHighlightColors.kt` 中的常量打包搜索高亮 RGBA 字节
+// （跨语言唯一锚点）：
+//   - 当前命中 → SearchHighlightColors.CURRENT_MATCH_ALPHA = 255
+//   - 其余命中 → SearchHighlightColors.OTHER_MATCH_ALPHA = 160
+//     （自 96 上调，使每处命中都反色，见规范 text-search-highlight
+//     「所有命中可见且反色」）
+// 以下用例把渲染器行为钉在这些生产值上。改动任一侧都必须在同一个 PR 内
+// 改动另一侧（另见 SearchHighlightColors 的文档注释）。
 
 #[test]
 fn search_highlight_current_match_alpha_matches_production() {
@@ -1624,7 +1618,7 @@ fn cursor_not_rendered_when_visible_false() {
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
-    // Non-cursor blank cell uses default background, not cursor color
+    // 非光标位置的空白格用默认背景色，而非光标色
     assert!(
         !f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
         "cursor cell should not have block alpha background when cursor_visible=false"
@@ -1727,7 +1721,7 @@ fn cursor_color_custom_values() {
 fn render_paused_skips_frame() {
     let mut context = Renderer::new_with_no_surface();
     assert!(!context.render_paused, "should start unpaused");
-    // Without a surface config, render should fail when not paused
+    // 未配置 surface 时，未暂停状态下渲染必须失败
     assert!(
         context.render_frame(&[], &[]).is_err(),
         "expected error when not paused and no surface"
@@ -1803,7 +1797,7 @@ fn bench_gpu_command_encoding_overhead() {
     let device = &renderer.device;
     let queue = &renderer.queue;
 
-    // Create minimal off-screen render target
+    // 构造最小的离屏渲染目标
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Bench Texture"),
         size: wgpu::Extent3d {
@@ -1943,7 +1937,7 @@ fn bench_gpu_full_submit_throughput() {
         }
         queue.submit(black_box([encoder.finish()]));
     }
-    // Drain all submitted work
+    // 排空已提交的全部工作
     let _ = device.poll(wgpu::PollType::Wait {
         submission_index: None,
         timeout: Some(std::time::Duration::from_secs(2)),
@@ -2035,11 +2029,10 @@ fn bench_gpu_atlas_texture_upload() {
 }
 #[test]
 fn all_static_pipelines_create_without_validation_errors() {
-    // Every production shader pipeline must compile against the wgpu
-    // backend available in the dev shell (Mesa Lavapipe software Vulkan).
-    // Pipeline creation is where WGSL compile errors surface; rendering
-    // tests below already exercise cell paths, this guards the
-    // less-travelled KGP pipeline.
+    // 每条生产用着色器管线都必须在开发环境提供的 wgpu 后端
+    // （Mesa Lavapipe 软件 Vulkan）上编译通过。WGSL 编译错误正是在管线
+    // 创建时暴露；下方的渲染用例已覆盖单元路径，本用例守护较少被走到的
+    // KGP 管线。
     let Some((_instance, _adapter, device, _queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
     };
@@ -2164,8 +2157,8 @@ mod dirty_band_tests {
     fn band_slice_matches_row_slices() {
         use crate::render::cell_builder::CachedInstances;
         let mut cache = CachedInstances::new(4, 2);
-        // Simulate a build with 2 instances in row 0, 1 in row 1,
-        // 0 in row 2, 3 in row 3.
+        // 模拟一次构建：第 0 行 2 个实例、第 1 行 1 个、第 2 行 0 个、
+        // 第 3 行 3 个。
         cache.update_for_test(
             &[2usize, 3, 3, 6], // row_ends (cumulative)
         );

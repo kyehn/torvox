@@ -86,6 +86,11 @@ pub(crate) fn init() {
     INIT.call_once(|| {
         log::set_logger(&LOGGER).expect("Logger already set");
         log::set_max_level(LevelFilter::Debug);
+        // 未安装时上游把内部日志全部静默丢弃：VT 解析错误、分配失败、状态机异常
+        // 一律无从查证，而 Ghostty 是本项目终端状态的单一来源。装上后这些消息经
+        // `log` 门面进同一个 logcat sink，scope 作为 target，与本 crate 日志同源。
+        libghostty_vt::set_logger(Some(Box::new(log::logger())))
+            .expect("libghostty-vt logger already set");
         install_panic_hook();
     });
 }

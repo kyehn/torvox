@@ -28,8 +28,7 @@
 - Rust crate 结构：
 
   ```text
-  root workspace/
-  ├── Cargo.toml
+  root/
   ├── native/
   │   ├── Cargo.toml
   │   └── src/
@@ -50,7 +49,7 @@
 
 - GPU Vulkan 渲染（无 CPU/OpenGL 回退）。
 
-- 上游 `libghostty-vt` / `libghostty-vt-sys` 跟踪 git master rev，无本地补丁。
+- `libghostty-vt` / `libghostty-vt-sys` 跟踪 git master rev，无本地补丁。
 
 ### Kotlin
 
@@ -83,6 +82,7 @@
 
 - **终端主题**：作用于终端页面与修饰键栏，默认 dracula_plus 主题，开启“跟随系统”开关后可以分别设置日/夜两种终端主题，并跟随“软件主题”在两者间切换。
   - 构建时从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码颜色，硬编码主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light
+  - `catppuccin_mocha` 等文本在代码中应该只出现一次
   - 默认主题在第一次使用时即被应用。
   - 主题效果支持预览，主题名称不在预览框内，而是在其下方，长主题名称可以被正常显示。
 

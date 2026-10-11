@@ -514,51 +514,44 @@ class Bridge(private val config: TerminalConfig) {
      */
     fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
-    /**
-     * 终端是否处于应用光标模式（DECCKM，DEC 私有模式 1）。此时方向键须编码为 SS3（`ESC OA`）
-     * 而非 CSI（`ESC [ A`），见 `openspec/specs/modifier-bar-arrow-encoding/spec.md`。仅在方向键事件时查询。
-     */
-    fun isAppCursorMode(): Boolean =
-        onSession("getMode", false) { NativeBridge.getMode(it, DEC_PRIVATE_MODE_APP_CURSOR, 0) }
-
-    fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int): Boolean {
+    fun processKeyEvent(keyCode: Int, modifiers: Int, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
         LogUtil.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
         // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
         // false，交由平台默认实现（空操作）处理。
         if (action != android.view.KeyEvent.ACTION_DOWN) return false
+        // 修饰位取上游 `key.Mods` 原始位（1=shift，2=ctrl，4=alt，8=super），
+        // 由编码器直接消费，应用不再自行解读。
+        val ctrlActive = modifiers and terminal.emulator.input.KeyModifiers.CTRL != 0
         return onSession("processKeyEvent", false) { id ->
-            val modifierBits = modifiers.toInt()
-            val ctrlActive = modifierBits and 4 != 0
-            val altActive = modifierBits and 2 != 0
-            // DECCKM：终端处于应用光标模式（DEC 私有模式 1）时方向键须编码为 SS3
-            // （`ESC OA`）而非 CSI（`ESC [ A`），见 `openspec/specs/modifier-bar-arrow-encoding/spec.md`。
-            // 仅方向键查询，避免每次击键都做一次 mode_get 往返。
-            val appCursorMode = keyCode in APP_CURSOR_KEY_CODES && isAppCursorMode()
-            // 所有硬件按键都走输入法同一条编码路径。直接发送键名
-            // （keyCodeToName："Up"、"Home"…）会把这些字面文本写进 PTY —— 原生
-            // writeKey 不解析键名，vim/less 的方向键、Home/End、PageUp/Down、
+            // 编码器按终端状态选择形态：DECCKM 下方向键走 SS3、modifyOtherKeys
+            // 下 Ctrl+字母走 `CSI 27;mod;code~`、backarrow key mode 下退格发 BS
+            // 而非 DEL。应用不再查询任何模式，也不再维护转义序列表。
+            // 直接发送键名（keyCodeToName："Up"、"Home"…）会把这些字面文本写进
+            // PTY —— 原生不解析键名，vim/less 的方向键、Home/End、PageUp/Down、
             // Delete 都会失效。
             val encoded =
-                terminal.emulator.ui.TerminalInputEncoder.encodeKeyEvent(
-                    keyCode,
-                    unicodeChar,
-                    ctrlActive,
-                    altActive,
-                    appCursorMode,
+                NativeBridge.encodeKeyEvent(
+                    sessionId = id,
+                    keyCode = keyCode,
+                    unicodeChar = unicodeChar,
+                    unshiftedChar = unshiftedChar,
+                    modifiers = modifiers,
+                    action = action,
                 )
-            if (encoded != null) {
+            if (encoded.isNotEmpty()) {
                 NativeBridge.feedPty(id, encoded)
                 onPtyWrite?.invoke()
                 return@onSession true
             }
-            // 编码器未覆盖的按键走原始可打印 unicode（补全平面安全）。按 Ctrl 时
-            // 绝不走此路：原生 writeKey 会把单字节 ASCII 折叠为 c & 0x1F，把
-            // Ctrl+9/Ctrl+0 变成 Ctrl+Y/Ctrl+P。Ctrl+可打印键要么在上面已编码，
-            // 要么被有意丢弃（Ctrl+9/0 无传统映射）。
+            // 编码器未覆盖的键码（上游没有对应的 Key，如 `KEYCODE_AT` 的 `@`
+            // 实为 Shift+2）或该键不产生字节的（单独修饰键），回退到平台给出的
+            // 码点直写。按 Ctrl 时绝不走此路：折叠在回退入口按 c & 0x1F 进行，
+            // 会把 Ctrl+9/Ctrl+0 变成 Ctrl+Y/Ctrl+P。Ctrl+可打印键已由编码器
+            // 编码或按上游规则丢弃。
             if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
                 if (!Character.isValidCodePoint(unicodeChar)) return@onSession false
-                NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), modifierBits, null)
+                NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), modifiers)
                 return@onSession true
             }
             // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
@@ -570,7 +563,7 @@ class Bridge(private val config: TerminalConfig) {
                     android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
                         .get(keyCode, 0)
                 if (derived > 0 && Character.isValidCodePoint(derived)) {
-                    NativeBridge.writeKey(id, String(Character.toChars(derived)), modifierBits, null)
+                    NativeBridge.writeKey(id, String(Character.toChars(derived)), modifiers)
                     return@onSession true
                 }
             }
@@ -670,18 +663,6 @@ class Bridge(private val config: TerminalConfig) {
 
         /** setTheme 打包长度：背景 3 + 前景 3 + 16 色 × 3 = 54 字节，ffi.rs 校验精确长度。 */
         private const val THEME_PACKED_BYTES = 54
-
-        /** DEC 私有模式 1 = 应用光标键（DECCKM）。 */
-        private const val DEC_PRIVATE_MODE_APP_CURSOR = 1
-
-        /** 编码结果依赖 DECCKM 的按键码。 */
-        private val APP_CURSOR_KEY_CODES =
-            setOf(
-                android.view.KeyEvent.KEYCODE_DPAD_UP,
-                android.view.KeyEvent.KEYCODE_DPAD_DOWN,
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
-            )
     }
 }
 

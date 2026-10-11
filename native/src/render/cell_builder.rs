@@ -5,6 +5,7 @@
 use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;
+use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
@@ -93,15 +94,15 @@ pub(crate) fn cell_highlight<'a>(
     Some(&highlight.color)
 }
 
-/// 把高亮 RGBA 混合进浮点颜色。
+/// 把高亮 RGBA 混合进浮点颜色（字节通道经终端侧同源函数归一）。
 pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
-    let alpha = hl_rgba[3] as f32 / 255.0;
+    let alpha = GhosttyTerminal::byte_to_float(hl_rgba[3]);
     if alpha <= 0.0 {
         return base;
     }
-    let hr = hl_rgba[0] as f32 / 255.0;
-    let hg = hl_rgba[1] as f32 / 255.0;
-    let hb = hl_rgba[2] as f32 / 255.0;
+    let hr = GhosttyTerminal::byte_to_float(hl_rgba[0]);
+    let hg = GhosttyTerminal::byte_to_float(hl_rgba[1]);
+    let hb = GhosttyTerminal::byte_to_float(hl_rgba[2]);
     [
         base[0] * (1.0 - alpha) + hr * alpha,
         base[1] * (1.0 - alpha) + hg * alpha,
@@ -1153,7 +1154,7 @@ mod tests {
             "foreground unchanged below alpha 128"
         );
         // background = white * (1-a) + red * a，其中 a = 0x7F/255
-        let alpha = 0x7F as f32 / 255.0;
+        let alpha = GhosttyTerminal::byte_to_float(0x7F);
         let expected = 1.0 - alpha;
         assert!(
             (instances[0].background[0] - 1.0).abs() < 1e-5,

@@ -2,6 +2,16 @@ package terminal.emulator.ui
 
 import android.view.KeyEvent
 
+/**
+ * 按键到 PTY 字节的编码入口。
+ *
+ * **硬件按键与工具栏按键不走此处**：它们经 `Bridge.processKeyEvent` →
+ * 原生 `key::Encoder` 编码，DECCKM、modifyOtherKeys、kitty 键盘协议、
+ * backarrow key mode 一律由终端状态决定。
+ *
+ * 此处只保留输入法提交路径：输入法给出的是**文本**而非按键，没有可编码的
+ * 逻辑键，只能按文本本身处理。
+ */
 object TerminalInputEncoder {
     /**
      * 回车字节（CR，0x0D）。终端的回车**不是** LF：raw 模式下的 TUI 应用
@@ -14,20 +24,21 @@ object TerminalInputEncoder {
 
     /**
      * xterm 的 `modifier_code`（ghostty `modifier_code`、kitty、wezterm termwiz 一致）：
-     * 位 1 = Shift，位 2 = Alt，位 4 = Ctrl，无修饰为 1。
+     * 无修饰为 1，Shift 加 1，Alt 加 2，Ctrl 加 4。
      *
-     * 五处修饰编码（Ctrl 数字的 `CSI 27`、Tab、Enter 族与 F 键/方向键/编辑键的
-     * `CSI 1;mod`）此前各自展开这行算式：改一处而漏一处既不编译失败也不被测试
-     * 察觉，只会安静地发出错误的修饰值。改由本函数一处定义。
+     * 只有输入法提交路径经此算式：它拿不到按键的 Shift 位（Shift 已在提交文本里），
+     * 故参数只有 Ctrl 与 Alt。
      */
+    private const val UNMODIFIED_MODIFIER_PARAM = 1
+
     private fun modifierParam(ctrlActive: Boolean, altActive: Boolean): Int =
-        1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
+        UNMODIFIED_MODIFIER_PARAM + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
 
     /**
      * 回车键的全部键码，含导航键中心（`KEYCODE_DPAD_CENTER`，部分输入法与遥控器
      * 以它代替 Enter 提交）。
      *
-     * 单一来源：编码与贴底判定都经此集合。缺失任一键码都会让它落到
+     * 单一来源：贴底判定经此集合。缺失任一键码都会让它落到
      * [terminal.emulator.bridge.Bridge.processKeyEvent] 的 `KeyCharacterMap` 猜测
      * 分支——该分支对导航键无定义，会回退成任意字符（实测提交后无换行，
      * 文本与下一条命令粘连）。
@@ -43,13 +54,12 @@ object TerminalInputEncoder {
      *
      * 输入法的回车键走 `commitText("\n")`（多行字段）或 `sendKeyEvent(ENTER)`
      * 两条路径，前者必须在此归一为 CR(0x0D)：终端的回车是 CR，LF 在 raw 模式的
-     * TUI 应用（helix/vim/less）里被读成 Ctrl+J 即字母 j（见
-     * [escapeSequenceForKeyCode] 的同一说明）。
+     * TUI 应用（helix/vim/less）里被读成 Ctrl+J 即字母 j。
      *
      * 只归一**孤立**的 `"\n"`：多字符提交（拼音候选、滑行输入、输入法内部粘贴）
      * 里的换行逐字保留，否则多行粘贴会粘成一行。注意这不是 bracketed paste——
-     * 本仓从不发 `ESC[200~`，故多行提交在 helix 里**仍是 Ctrl+J**；真正该由粘贴
-     * 路径解决的 bracketed paste 尚未实现，此处不假装覆盖。
+     * 输入法提交路径不经按键编码器，多行提交在 helix 里**仍是 Ctrl+J**；真正该由
+     * 粘贴路径解决的 bracketed paste 尚未实现，此处不假装覆盖。
      */
     fun encodeCommittedText(text: String, ctrlActive: Boolean, altActive: Boolean): ByteArray {
         val bytes = mutableListOf<Byte>()
@@ -64,8 +74,7 @@ object TerminalInputEncoder {
             val codePoint = text[0].code
             // 数字 1/9/0 没有传统的 Ctrl 映射（c & 0x1F 会与
             // Ctrl+Q / Ctrl+Y / Ctrl+P 冲突）；按 zed 的 mappings/keys.rs，
-            // 它们改以 `CSI 27;5;code~` 发出而非被丢弃，
-            // 与硬件按键路径一致。
+            // 它们改以 `CSI 27;5;code~` 发出而非被丢弃。
             if (codePoint == '1'.code || codePoint == '9'.code || codePoint == '0'.code) {
                 return csi27(modifierParam(ctrlActive = true, altActive = altActive), codePoint)
             }
@@ -85,41 +94,6 @@ object TerminalInputEncoder {
         return bytes.toByteArray()
     }
 
-    fun encodeKeyEvent(
-        keyCode: Int,
-        unicodeChar: Int,
-        ctrlActive: Boolean,
-        altActive: Boolean,
-        appCursorMode: Boolean = false,
-    ): ByteArray? {
-        if (ctrlActive) {
-            val controlByte = controlByteForKeyCode(keyCode)
-            if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
-            // Ctrl+Space——部分设备在此报告 unicodeChar=0，部分报告 0x20。
-            if (keyCode == KeyEvent.KEYCODE_SPACE) {
-                return withAltPrefix(altActive, byteArrayOf(0x00))
-            }
-            // 把 Ctrl+可打印 ASCII 折叠为控制字节（与 encodeCommittedText 共用表）。
-            // 数字 1/9/0 没有传统映射（c & 0x1F 会与 Ctrl+Q / Ctrl+Y / Ctrl+P 冲突），
-            // 故按 zed 的 mappings/keys.rs 改以 `CSI 27;5;code~` 发出而非丢弃。
-            // 同时按住 Alt 时折叠字节前加 ESC 前缀，对应 xterm
-            // （Ctrl+Alt+A → ESC 0x01）。
-            if (unicodeChar in 0x20..0x7E) {
-                if (unicodeChar == '1'.code || unicodeChar == '9'.code || unicodeChar == '0'.code) {
-                    return csi27(modifierParam(ctrlActive = true, altActive = altActive), unicodeChar)
-                }
-                val folded = controlByteForCodePoint(unicodeChar)
-                if (folded != null) return withAltPrefix(altActive, byteArrayOf(folded))
-            }
-        }
-        val escapeSequence = escapeSequenceForKeyCode(keyCode, ctrlActive, altActive, appCursorMode)
-        if (escapeSequence != null) return escapeSequence.toByteArray(Charsets.UTF_8)
-        if (keyCode == KeyEvent.KEYCODE_DEL) return byteArrayOf(0x7F)
-        if (unicodeChar <= 0) return null
-        val encoded = String(Character.toChars(unicodeChar)).toByteArray(Charsets.UTF_8)
-        return if (altActive) byteArrayOf(0x1B) + encoded else encoded
-    }
-
     /**
      * xterm/zed 的 `CSI 27` 修饰键编码：`ESC [ 27 ; modifier ; code ~`。
      * 修饰键位：Shift=1，Alt=2，Ctrl=4。用于没有传统脱字符映射的
@@ -134,147 +108,6 @@ object TerminalInputEncoder {
         ) + bytes
     } else {
         bytes
-    }
-
-    private fun escapeSequenceForKeyCode(
-        keyCode: Int,
-        ctrlActive: Boolean,
-        altActive: Boolean,
-        appCursorMode: Boolean,
-    ): String? {
-        val hasModifier = ctrlActive || altActive
-        if (hasModifier) {
-            val csiSeq = csiSequenceWithModifier(keyCode, ctrlActive, altActive)
-            if (csiSeq != null) return csiSeq
-        }
-        return when (keyCode) {
-            KeyEvent.KEYCODE_TAB ->
-                when {
-                    // 按住 Alt 时，xterm 发送 ESC TAB（Meta 前缀）而非裸制表符；
-                    // 按住 Ctrl 时发送 CSI 9;mod~（xterm/kitty 约定）。
-                    ctrlActive || altActive -> {
-                        val modParam = modifierParam(ctrlActive, altActive)
-                        "\u001b[9;$modParam~"
-                    }
-
-                    else -> "\t"
-                }
-
-            in enterKeyCodes ->
-                when {
-                    // 无修饰的回车是 CR(0x0D)，不是 LF(0x0A)。LF 在行规程的
-                    // canonical 模式下也能提交命令行，故 shell 看似正常；
-                    // 但 raw 模式（TUI 应用，helix/vim/less 全在其中）下，
-                    // 解析库按控制字符把 0x0A 解成 Ctrl+J，即字母 j
-                    // （crossterm `src/event/sys/unix/parse.rs`：raw 模式
-                    // 下 0x0A 落入 `b'\x01'..=b'\x1a'` → `Char('j')`）。
-                    // 这正是「回车变成 j」的真机表现：rawtest.sh 读到的
-                    // 字节为 0a。termux KeyHandler、ghostty function_keys.zig、
-                    // kitty key_encoding.c、wezterm termwiz 全部发 CR。
-                    !ctrlActive && !altActive -> "\r"
-
-                    // Alt+回车：ESC 前缀 + CR（ghostty function_keys.zig 的
-                    // modifyKeysNormal 项；termux KeyHandler 同样返回 "\033\r"）。
-                    !ctrlActive -> "\u001b\r"
-
-                    // Ctrl/Alt+Ctrl+回车：CSI u 修饰键编码 `CSI 27 ; mod ; 13 ~`
-                    // （ghostty function_keys.zig），非 `CSI 13;mod~`。
-                    else -> "\u001b[27;${modifierParam(ctrlActive = true, altActive = altActive)};13~"
-                }
-
-            KeyEvent.KEYCODE_ESCAPE -> "\u001b"
-
-            KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3~"
-
-            KeyEvent.KEYCODE_INSERT -> "\u001b[2~"
-
-            KeyEvent.KEYCODE_F1 -> "\u001bOP"
-
-            KeyEvent.KEYCODE_F2 -> "\u001bOQ"
-
-            KeyEvent.KEYCODE_F3 -> "\u001bOR"
-
-            KeyEvent.KEYCODE_F4 -> "\u001bOS"
-
-            KeyEvent.KEYCODE_F5 -> "\u001b[15~"
-
-            KeyEvent.KEYCODE_F6 -> "\u001b[17~"
-
-            KeyEvent.KEYCODE_F7 -> "\u001b[18~"
-
-            KeyEvent.KEYCODE_F8 -> "\u001b[19~"
-
-            KeyEvent.KEYCODE_F9 -> "\u001b[20~"
-
-            KeyEvent.KEYCODE_F10 -> "\u001b[21~"
-
-            KeyEvent.KEYCODE_F11 -> "\u001b[23~"
-
-            KeyEvent.KEYCODE_F12 -> "\u001b[24~"
-
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_LEFT,
-            ->
-                arrowSequence(keyCode, appCursorMode)
-
-            KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[H"
-
-            KeyEvent.KEYCODE_MOVE_END -> "\u001b[F"
-
-            KeyEvent.KEYCODE_PAGE_UP -> "\u001b[5~"
-
-            KeyEvent.KEYCODE_PAGE_DOWN -> "\u001b[6~"
-
-            else -> null
-        }
-    }
-
-    private fun csiSequenceWithModifier(keyCode: Int, ctrlActive: Boolean, altActive: Boolean): String? {
-        val modifier = modifierParam(ctrlActive, altActive)
-        return when (keyCode) {
-            KeyEvent.KEYCODE_F1 -> "\u001b[1;${modifier}P"
-            KeyEvent.KEYCODE_F2 -> "\u001b[1;${modifier}Q"
-            KeyEvent.KEYCODE_F3 -> "\u001b[1;${modifier}R"
-            KeyEvent.KEYCODE_F4 -> "\u001b[1;${modifier}S"
-            KeyEvent.KEYCODE_F5 -> "\u001b[15;$modifier~"
-            KeyEvent.KEYCODE_F6 -> "\u001b[17;$modifier~"
-            KeyEvent.KEYCODE_F7 -> "\u001b[18;$modifier~"
-            KeyEvent.KEYCODE_F8 -> "\u001b[19;$modifier~"
-            KeyEvent.KEYCODE_F9 -> "\u001b[20;$modifier~"
-            KeyEvent.KEYCODE_F10 -> "\u001b[21;$modifier~"
-            KeyEvent.KEYCODE_F11 -> "\u001b[23;$modifier~"
-            KeyEvent.KEYCODE_F12 -> "\u001b[24;$modifier~"
-            KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3;$modifier~"
-            KeyEvent.KEYCODE_INSERT -> "\u001b[2;$modifier~"
-            KeyEvent.KEYCODE_DPAD_UP -> "\u001b[1;${modifier}A"
-            KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[1;${modifier}B"
-            KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[1;${modifier}C"
-            KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[1;${modifier}D"
-            KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[1;${modifier}H"
-            KeyEvent.KEYCODE_MOVE_END -> "\u001b[1;${modifier}F"
-            KeyEvent.KEYCODE_PAGE_UP -> "\u001b[5;$modifier~"
-            KeyEvent.KEYCODE_PAGE_DOWN -> "\u001b[6;$modifier~"
-            KeyEvent.KEYCODE_DEL -> "\u001b[3;$modifier~"
-            else -> null
-        }
-    }
-
-    /**
-     * 遵循 DECCKM 的方向键序列（见 `openspec/specs/modifier-bar-arrow-encoding/spec.md`）：
-     * 在应用光标模式下方向键须用 SS3（`ESC O A`）而非 CSI（`ESC [ A`），
-     * 否则 app 模式下的 vim/less/mutt 会误读。
-     * 带修饰键的方向键不会到达此辅助函数——它们由 [csiSequenceWithModifier] 处理。
-     * 与 [ModifierBar] 共用，其方向键按钮必须遵循相同模式。
-     */
-    internal fun arrowSequence(keyCode: Int, appCursorMode: Boolean): String = when {
-        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_UP -> "\u001bOA"
-        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> "\u001bOB"
-        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001bOC"
-        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> "\u001bOD"
-        keyCode == KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"
-        keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"
-        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C"
-        else -> "\u001b[D"
     }
 
     /**
@@ -307,36 +140,6 @@ object TerminalInputEncoder {
         // Ctrl+_ → 0x1F，Ctrl+/ → 0x0F，其他标点经 c & 0x1F 处理。
         in 0x20..0x7E -> (codePoint and 0x1F).toByte()
 
-        else -> null
-    }
-
-    private fun controlByteForKeyCode(keyCode: Int): Byte? = when (keyCode) {
-        KeyEvent.KEYCODE_A -> 0x01
-        KeyEvent.KEYCODE_B -> 0x02
-        KeyEvent.KEYCODE_C -> 0x03
-        KeyEvent.KEYCODE_D -> 0x04
-        KeyEvent.KEYCODE_E -> 0x05
-        KeyEvent.KEYCODE_F -> 0x06
-        KeyEvent.KEYCODE_G -> 0x07
-        KeyEvent.KEYCODE_H -> 0x08
-        KeyEvent.KEYCODE_I -> 0x09
-        KeyEvent.KEYCODE_J -> 0x0A
-        KeyEvent.KEYCODE_K -> 0x0B
-        KeyEvent.KEYCODE_L -> 0x0C
-        KeyEvent.KEYCODE_M -> 0x0D
-        KeyEvent.KEYCODE_N -> 0x0E
-        KeyEvent.KEYCODE_O -> 0x0F
-        KeyEvent.KEYCODE_P -> 0x10
-        KeyEvent.KEYCODE_Q -> 0x11
-        KeyEvent.KEYCODE_R -> 0x12
-        KeyEvent.KEYCODE_S -> 0x13
-        KeyEvent.KEYCODE_T -> 0x14
-        KeyEvent.KEYCODE_U -> 0x15
-        KeyEvent.KEYCODE_V -> 0x16
-        KeyEvent.KEYCODE_W -> 0x17
-        KeyEvent.KEYCODE_X -> 0x18
-        KeyEvent.KEYCODE_Y -> 0x19
-        KeyEvent.KEYCODE_Z -> 0x1A
         else -> null
     }
 }

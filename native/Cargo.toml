@@ -19,7 +19,7 @@ futures = { workspace = true }
 guillotiere = { workspace = true }
 jni = { workspace = true }
 libc = { workspace = true }
-libghostty-vt = { workspace = true, features = ["png"] }
+libghostty-vt = { workspace = true, features = ["log", "png"] }
 log = { workspace = true }
 lru = { workspace = true }
 nix = { workspace = true }

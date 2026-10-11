@@ -87,16 +87,14 @@ fn pty_write_split_osc_reassembled_across_chunks() {
     assert_invariants(&snap);
 }
 
-/// A chunk that ends with a complete ST-terminated OSC must not leave the
-/// next chunk inside string mode.
+/// 以完整 ST 结尾的 OSC 分块 MUST NOT 让下一分块仍处于字符串模式。
 #[test]
 fn pty_write_complete_st_resets_string_mode() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     terminal_under_test.flush();
     terminal_under_test.pty_write(b"\x1b]0;title\x1b\\");
     terminal_under_test.flush();
-    // If chunk 1 had wrongly ended in string mode, 'hello' would be
-    // swallowed as OSC payload and never render.
+    // 若分块 1 错误地停在字符串模式，`hello` 会被当作 OSC 负载吞掉且永不渲染。
     terminal_under_test.pty_write(b"hello");
     terminal_under_test.flush();
     let snap = terminal_under_test.take_snapshot();
@@ -268,9 +266,8 @@ fn search_returns_character_columns_not_byte_offsets() {
     let results = terminal_under_test.search_all_in_scrollback("hello", true);
     assert_eq!(results.len(), 1, "must find ASCII query after CJK char");
     let search_match = &results[0];
-    // Ghostty reads wide-char rows with an interleaved fill space
-    // ("你 hello"), so character-column counting ("你"=1 char + 1 fill
-    // space = 2) matches the grid column where 'h' starts.
+    // Ghostty 读取宽字符行时会带上交错的填充空格（"你 hello"），
+    // 故按字符列计数（"你" = 1 字符 + 1 填充空格 = 2）正好等于 `h` 所在的网格列。
     assert_eq!(
         search_match.start_col, 2,
         "start_col must be char column, got {}",

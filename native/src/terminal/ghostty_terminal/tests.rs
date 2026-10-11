@@ -35,7 +35,7 @@ fn small_terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(3, 3, 100).expect("terminal")
 }
 
-/// Get the cell at a given row and column from the snapshot
+/// 从快照中取出指定行列的单元
 #[test]
 fn create_terminal_zero_scrollback() {
     let terminal_under_test = GhosttyTerminal::new(5, 10, 0).expect("terminal");
@@ -584,9 +584,8 @@ fn encode_mouse_event_bounds_oversized_clamp() {
     }
 }
 
-/// Full press → drag → release sequence: three events with increasing x
-/// must all produce valid SGR output and the action byte must change
-/// (0=press, 2=motion, 1=release).
+/// 完整的按下 → 拖动 → 释放序列：三个 x 递增的事件都须产出合法 SGR，
+/// 且动作字节必须变化（0=按下、2=移动、1=释放）。
 #[test]
 fn encode_mouse_event_drag_sequence() {
     let mut terminal_under_test = terminal();
@@ -655,13 +654,13 @@ fn encode_mouse_event_drag_sequence() {
 #[test]
 fn osc_title_split_buffer() {
     let mut terminal_under_test = terminal();
-    // Send the first and second parts of OSC 0 sequence
+    // 依次写入 OSC 0 序列的第一段与第二段
     terminal_under_test.vt_write(b"\x1b]0;My ");
     terminal_under_test.flush();
     terminal_under_test.vt_write(b"QQQ\x07");
     terminal_under_test.flush();
     let _snap = terminal_under_test.take_snapshot();
-    // After setting the title, terminal should not crash, text should still be writable
+    // 设置标题后终端不得崩溃，文本仍须可写
     terminal_under_test.vt_write(b"AfterTitle");
     terminal_under_test.flush();
     let snap2 = terminal_under_test.take_snapshot();
@@ -692,7 +691,7 @@ fn osc_clipboard_split_buffer() {
         Some(("c".to_string(), "Hello".to_string())),
         "OSC 52 split: payload must reassemble into clipboard event"
     );
-    // Terminal should not crash, text should still be writable
+    // 终端不得崩溃，文本仍须可写
     terminal_under_test.vt_write(b"PostClip");
     terminal_under_test.flush();
     let snap = terminal_under_test.take_snapshot();
@@ -737,10 +736,10 @@ fn osc_color_reset_split_buffer() {
 #[test]
 fn osc_aborted_after_partial_feed() {
     let mut terminal_under_test = terminal();
-    // Send partial OSC sequence, then BEL to terminate it
+    // 先写残缺的 OSC 序列，再用 BEL 终止它
     terminal_under_test.vt_write(b"H\x1b]0;Partial\x07");
     terminal_under_test.flush();
-    // Then write normally, should not be consumed by OSC
+    // 随后正常写入，不得被 OSC 吞掉
     terminal_under_test.vt_write(b"Normal");
     terminal_under_test.flush();
     let snap = terminal_under_test.take_snapshot();
@@ -808,7 +807,7 @@ fn resize_stress_100_cycles_with_scroll() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for cycle in 0..50 {
         terminal_under_test.vt_write(format!("cycle{cycle}\n").as_bytes());
-        // Alternate row and column counts
+        // 行列数交替变化
         let row_count = if cycle % 2 == 0 { 5 } else { 8 };
         let column_count = if cycle % 3 == 0 { 10 } else { 15 };
         terminal_under_test.resize(row_count, column_count);
@@ -894,13 +893,13 @@ fn cell_iterator_matches_legacy_grid_ref() {
 
     let snap = terminal_under_test.take_snapshot();
 
-    // Basic invariants that validate CellIterator correctness
+    // 校验 CellIterator 正确性的基本不变式
     assert!(
         snap.cells.len() >= 240,
         "snapshot should have at least 240 cells (3 rows × 80 cols)"
     );
 
-    // Verify specific content via string extraction
+    // 按行取文本以核对具体内容
     let row0_text = row_text(&snap, 0);
     assert!(
         row0_text.contains("Red"),
@@ -922,7 +921,7 @@ fn cell_iterator_matches_legacy_grid_ref() {
         "Row 2 should contain 'Third line'"
     );
 
-    // Verify colors on specific cells
+    // 核对指定单元的颜色
     let first_red = snap
         .cells
         .iter()
@@ -939,7 +938,7 @@ fn cell_iterator_matches_legacy_grid_ref() {
             cell.foreground[1],
             cell.foreground
         );
-        // Red foreground should not be purely white
+        // 红色前景不得退化为纯白
         assert!(
             cell.foreground[0] > 0.5,
             "Red foreground: R channel should be significant, got {}",
@@ -947,7 +946,7 @@ fn cell_iterator_matches_legacy_grid_ref() {
         );
     }
 
-    // Verify bold flag on Bold word
+    // 核对 Bold 单词上的加粗标记
     let first_bold_position = snap
         .cells
         .iter()
@@ -961,8 +960,7 @@ fn cell_iterator_matches_legacy_grid_ref() {
     assert_invariants(&snap);
 }
 
-/// Verify that the CellIterator path correctly handles CJK double-width
-/// characters in the snapshot (width=2).
+/// 断言 CellIterator 路径能正确处理快照中的 CJK 双宽字符（width=2）。
 #[test]
 fn cell_iterator_cjk_double_width() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
@@ -1003,7 +1001,7 @@ fn build_cell_data_matches_grid_snapshot() {
         "snapshot should have 24 rows × 80 cols"
     );
 
-    // Check ASCII content via CellIterator path
+    // 经 CellIterator 路径核对 ASCII 内容
     let row0_text = row_text(&snap, 0);
     assert!(row0_text.contains("AB"), "Row 0 should start with 'AB'");
     assert!(row0_text.contains("Red"), "Row 0 should contain 'Red'");
@@ -1014,7 +1012,7 @@ fn build_cell_data_matches_grid_snapshot() {
         "Row 1 should contain CJK character"
     );
 
-    // Verify codepoints on specific cells
+    // 核对指定单元的码位
     let cell_0_0 = &snap.cells[0];
     assert_eq!(cell_0_0.codepoint, 'A' as u32, "Cell[0,0] should be 'A'");
     assert_eq!(cell_0_0.width, 1, "'A' width should be 1");
@@ -1031,8 +1029,7 @@ fn build_cell_data_matches_grid_snapshot() {
     assert_invariants(&snap);
 }
 
-/// Verify that the overall grid dimensions are correct through the
-/// CellIterator snapshot path.
+/// 断言经 CellIterator 快照路径得到的网格总尺寸正确。
 #[test]
 fn cell_iterator_grid_dimensions() {
     let mut terminal_under_test = terminal();
@@ -1095,8 +1092,7 @@ fn cell_iterator_grid_dimensions() {
 // ── NEL with origin mode margin (from Termux) ────────────────────────
 
 /// LF (\\n) implies CR+LF: session restore and normal PTY output depend on this.
-/// If ghostty's VT parser treats LF as LF-only, each line would start at the
-/// previous line's end column instead of column 0.
+/// 若 ghostty 的 VT 解析器把 LF 当作纯 LF，每行都会停在上行末尾的列号而非第 0 列。
 #[test]
 fn newline_lf_implies_crlf() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
@@ -1111,7 +1107,7 @@ fn newline_lf_implies_crlf() {
         row1_col0, 'C' as u32,
         "LF→CR+LF: 'C' should be at column 0 of row 1"
     );
-    // Row 0 should have 'A','B' then empty space
+    // 第 0 行应是 'A'、'B'，其后为空白
     assert_eq!(dumped.visible[0].codepoint, 'A' as u32, "row0 col0 = A");
     assert_eq!(dumped.visible[1].codepoint, 'B' as u32, "row0 col1 = B");
     assert_eq!(
@@ -1177,7 +1173,7 @@ fn tc_iv_002_alt_buffer_no_history() {
     terminal_under_test.flush();
     terminal_under_test.vt_write(b"\x1b[?1049h");
     terminal_under_test.flush();
-    // Alt buffer should have no scrollback
+    // 备用缓冲不得带回滚内容
     assert_eq!(
         terminal_under_test.scrollback_length(),
         0,
@@ -1239,7 +1235,7 @@ fn tc_sm_002_independent_sessions() {
     let b_in_2 = snap2.cells.iter().any(|cell| cell.codepoint == 'B' as u32);
     assert!(a_in_1, "SM-002: session 1 has 'A'");
     assert!(b_in_2, "SM-002: session 2 has 'B'");
-    // Session 1 should NOT have B
+    // 会话 1 中 MUST NOT 出现 B
     let a_in_2 = snap2.cells.iter().any(|cell| cell.codepoint == 'A' as u32);
     assert!(!a_in_2, "SM-002: session 2 should not have 'A'");
     let snap = t1.take_snapshot();
@@ -1254,7 +1250,7 @@ fn tc_sm_003_drop_cleans_up() {
     let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
     drop(terminal_under_test);
-    // If we reach here, no panic
+    // 走到这里即说明没有 panic
 }
 
 /// TC-SM-004: Double drop is safe (handled by Drop impl)
@@ -1262,8 +1258,7 @@ fn tc_sm_003_drop_cleans_up() {
 fn tc_sm_004_double_drop_safe() {
     let terminal_under_test = GhosttyTerminal::new(3, 3, 100).expect("terminal");
     terminal_under_test.flush();
-    // Can't explicitly double-drop in safe Rust, but we can verify
-    // that a normal drop completes without panic
+    // 安全 Rust 下无法显式重复 drop，但可以验证正常 drop 不会 panic
     let snap = terminal_under_test.take_snapshot();
     assert_invariants(&snap);
     drop(terminal_under_test);
@@ -1431,13 +1426,12 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 
 // ── Stage 3: Bug Regression Tests ──────────────────────────────────
 //
-// B3 (White Screen on Activity Recreate):
-// Root cause: releaseSurface() in pauseRendering was destroying the
-// SurfaceView's ANativeWindow. When the Activity recreated, the
-// bridge silently skipped updateNativeWindow because the surface
-// was already released.
-// Fix: pauseRendering() no longer calls releaseSurface(). Instead it
-// sets a rendering flag to false, preserving the surface for recreation.
+// B3（Activity 重建导致白屏）：
+// 根因：pauseRendering 里的 releaseSurface() 销毁了 SurfaceView 的
+// ANativeWindow。Activity 重建时 bridge 会因 surface 已释放而静默跳过
+// updateNativeWindow。
+// 修复：pauseRendering() 不再调用 releaseSurface()，改为把渲染标志置为
+// false，把 surface 留给重建复用。
 // This fix is Kotlin-side only and cannot be tested in Rust.
 // Kotlin commit: (referenced in git history)
 
@@ -1448,14 +1442,13 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 /// Simulate user typing latency: small writes (1-10 chars) followed by flush.
 /// Measures wall-clock time per iteration — the user-visible metric.
 /// Single anti-flake threshold (no environment checks per TESTING.md):
-/// parallel execution and software Vulkan contention make wall time noisy,
-/// so this floor catches order-of-magnitude regressions only.
+/// 并行执行与软件 Vulkan 的争用使墙钟时间噪声较大，故该下限只拦数量级级别的回归。
 /// 细粒度跟踪由基准测试覆盖，见 scripts/check-rust.nu。
 
 #[test]
 fn bench_typing_latency() {
     let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
-    // Pre-fill with some content to avoid empty-terminal optimizations
+    // 先填入一些内容，避免命中空终端的优化路径
     for _ in 0..10 {
         terminal_under_test.vt_write(b"A line to fill the screen with some realistic content\n");
     }
@@ -1961,9 +1954,8 @@ fn selection_text_unwraps_soft_wrapped_lines() {
     );
 }
 
-/// Wide-char (CJK) column mapping: selecting a range that includes a wide
-/// glyph must not split it and the extracted text must match the visible
-/// content (TerminalRow.findStartOfColumn equivalent).
+/// 宽字符（CJK）列映射：选区若含宽字符字形，MUST NOT 把它拆开，且抽取出的
+/// 文本必须与可见内容一致（等价于 TerminalRow.findStartOfColumn）。
 #[test]
 fn selection_text_wide_char_columns() {
     let mut terminal_under_test = terminal();
@@ -2532,10 +2524,9 @@ fn kitty_graphics_absent_when_no_images() {
 
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
-/// The shell-echo path (prompt text + typed chars, no newline) must report a
-/// cursor that sits ON the last printed row at the column right after the
-/// text — the same row the CellData rows occupy. A mismatch here renders the
-/// cursor one row below the text ("输入指针出现在当前文本的正下",
+/// shell 回显路径（提示文本 + 已键入字符，无换行）上报的光标 MUST 落在最后
+/// 打印行的文本之后一列——即 CellData 各行所占据的同一行。此处一旦不符，
+/// 光标会渲染在文本下方一行 ("输入指针出现在当前文本的正下",
 /// emulator evidence). Mirrors the exact production path: VT loop auto-push →
 /// build_cell_data → (cells, CursorInfo).
 #[test]
@@ -2670,30 +2661,14 @@ fn sgr31_red_reaches_cell_data_foreground() {
     );
 
     // 2) Dracula 主题配置：复刻设备 apply_theme 后的精确状态。
-    let dracula_ansi: [[u8; 3]; 16] = [
-        [0x21, 0x22, 0x2C],
-        [0xFF, 0x55, 0x55],
-        [0x50, 0xFA, 0x7B],
-        [0xFF, 0xCB, 0x6B],
-        [0x82, 0xAA, 0xFF],
-        [0xC7, 0x92, 0xEA],
-        [0x8B, 0xE9, 0xFD],
-        [0xF8, 0xF9, 0xF2],
-        [0x54, 0x54, 0x54],
-        [0xFF, 0x6E, 0x6E],
-        [0x69, 0xFF, 0x94],
-        [0xFF, 0xCB, 0x6B],
-        [0xD6, 0xAC, 0xFF],
-        [0xFF, 0x92, 0xDF],
-        [0xA4, 0xFF, 0xFF],
-        [0xF8, 0xF8, 0xF2],
-    ];
+    let (dracula_ansi, dracula_background, dracula_foreground) =
+        GhosttyTerminal::dracula_plus_palette();
     let mut dracula = GhosttyTerminal::new_with_theme(
         24,
         80,
         1000,
-        [0x21, 0x21, 0x21],
-        [0xF8, 0xF8, 0xF2],
+        dracula_background,
+        dracula_foreground,
         dracula_ansi,
     )
     .expect("dracula terminal");

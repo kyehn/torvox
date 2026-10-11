@@ -1,6 +1,7 @@
 //! Android JNI 桥接与 NDK 集成。
 
 pub mod ffi;
+pub(crate) mod keymap;
 pub(crate) mod text_utils;
 
 #[cfg(target_os = "android")]
