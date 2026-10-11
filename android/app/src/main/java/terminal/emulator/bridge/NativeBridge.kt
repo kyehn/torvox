@@ -275,6 +275,38 @@ object NativeBridge {
     @JvmStatic
     external fun setTheme(sessionId: Long, data: ByteArray)
 
+    /**
+     * 用上游 `paste::encode` 把剪贴板字节编码为 PTY 写入字节（bracketed 包裹与否
+     * 取自终端模式 2004 的活体状态）。会话未知或编码失败返回空数组（本次粘贴
+     * 被丢弃）；JVM 拷贝失败抛异常并返回 null。
+     */
+    @JvmStatic
+    external fun encodePaste(sessionId: Long, data: ByteArray): ByteArray?
+
+    /** 内置终端主题数量，单源在 Rust 侧（构建期嵌入的 alacritty 主题）。 */
+    @JvmStatic external fun getThemeCount(): Int
+
+    /** 按序号取主题标识（即设置落盘键值），越界返回 null。 */
+    @JvmStatic external fun getThemeName(index: Int): String?
+
+    /** 按序号取深底标记。 */
+    @JvmStatic external fun isThemeDark(index: Int): Boolean
+
+    /**
+     * 按序号取主题颜色：60 字节 = 背景 3 + 前景 3 + 光标 3 + 选区 3 + 十六色 48。
+     * 越界或分配失败返回 null。
+     */
+    @JvmStatic external fun getThemeColors(index: Int): ByteArray?
+
+    /** 按标识取序号，未知返回 -1。 */
+    @JvmStatic external fun getThemeIndexByName(name: String): Int
+
+    /** 默认夜间主题标识，对应默认终端主题，分配失败返回 null。 */
+    @JvmStatic external fun getDefaultDarkName(): String?
+
+    /** 默认日间主题标识，分配失败返回 null。 */
+    @JvmStatic external fun getDefaultLightName(): String?
+
     @JvmStatic
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 

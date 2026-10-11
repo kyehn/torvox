@@ -475,6 +475,37 @@ class DocumentsProviderTest {
         assertTrue("first file must be untouched", java.io.File(rootDir(), first).exists())
     }
 
+    /**
+     * 目录同享冲突命名：客户端若已把目录建在磁盘上再让提供者建同名目录，
+     * 拿回的 docId 带 " (2)" 后缀（与文件路径同一条策略）。
+     *
+     * 这条断言是 `DocumentsProviderInstrumentedTest#tree_uri_modify_copy_move_round_trip`
+     * 踩过坑后的守栏：那个用例曾先 `mkdirs()` 预建目录，再经 `ContentResolver`
+     * 让提供者创建同名目录，于是断言 `docId == "tree-mutations"` 拿到的是
+     * `tree-mutations (2)`。设备预置状态与自建状态都必须走这条策略，调用方
+     * 不得假定「我请求什么名字就拿回什么 docId」。
+     */
+    @Test
+    fun createDocument_directory_conflict_appends_suffix_like_termux() {
+        val provider = ensureProvider()
+        val first =
+            provider.createDocument(
+                "terminal_home",
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "dupdir",
+            )
+        val second =
+            provider.createDocument(
+                "terminal_home",
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "dupdir",
+            )
+        assertEquals("dupdir", first)
+        assertEquals("dupdir (2)", second)
+        assertTrue("second directory must exist", java.io.File(rootDir(), second).isDirectory)
+        assertTrue("first directory must be untouched", java.io.File(rootDir(), first).isDirectory)
+    }
+
     @Test
     fun querySearchDocuments_finds_by_name_case_insensitive() {
         val provider = ensureProvider()

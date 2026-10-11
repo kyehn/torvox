@@ -366,9 +366,9 @@ private fun TerminalThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    // 主题来自内置集合；自定义主题为禁止实现。
+    // 主题单源在 Rust 侧，经仓库取回；自定义主题为禁止实现。
     val allThemes = remember {
-        terminal.emulator.ui.theme.BuiltInThemes.all.toImmutableList()
+        terminal.emulator.ui.theme.ThemeRepository.all().toImmutableList()
     }
 
     Column {
@@ -900,10 +900,9 @@ internal fun ThemeSelector(
             items(themes) { theme ->
                 ThemePreview(
                     theme = theme,
-                    // `selectedTheme` 始终是主题*名*（内置或用户创建）；
-                    // 此处绝不要经 byName() 回退
-                    // ——其默认值会返回 Dracula Plus，
-                    // 导致选中任意用户主题时都高亮那张卡片。
+                    // `selectedTheme` 始终是主题名；此处只做字符串相等比较，
+                    // 绝不要回退成默认主题——否则选中任一未知主题时
+                    // 都会高亮默认那张卡片。
                     isSelected = theme.name == selectedTheme,
                     onClick = { onThemeSelected(theme.name) },
                     isSmallScreen = isSmallScreen,

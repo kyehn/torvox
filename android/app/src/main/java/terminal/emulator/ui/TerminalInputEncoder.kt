@@ -58,8 +58,8 @@ object TerminalInputEncoder {
      *
      * 只归一**孤立**的 `"\n"`：多字符提交（拼音候选、滑行输入、输入法内部粘贴）
      * 里的换行逐字保留，否则多行粘贴会粘成一行。注意这不是 bracketed paste——
-     * 输入法提交路径不经按键编码器，多行提交在 helix 里**仍是 Ctrl+J**；真正该由
-     * 粘贴路径解决的 bracketed paste 尚未实现，此处不假装覆盖。
+     * 输入法提交路径不经按键编码器，多行提交在 helix 里**仍是 Ctrl+J**；
+     * 剪贴板粘贴路径（`executePaste`）已按 2004 模式包裹，此处不假装覆盖。
      */
     fun encodeCommittedText(text: String, ctrlActive: Boolean, altActive: Boolean): ByteArray {
         val bytes = mutableListOf<Byte>()

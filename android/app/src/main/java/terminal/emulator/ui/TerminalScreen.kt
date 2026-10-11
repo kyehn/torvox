@@ -51,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
@@ -112,7 +112,7 @@ fun TerminalScreen(
     // 未知名已在 TerminalRuntime.clearUnknownThemeNames 清除对应键；此处取不到
     // 说明该键刚被写入但尚未生效，用默认主题渲染本帧，不抛。
     val resolvedTerminalTheme =
-        BuiltInThemes.byNameOrNull(
+        ThemeRepository.byNameOrNull(
             resolveTerminalThemeName(
                 mode = viewModelThemeMode,
                 fixedName = viewModelThemeName,
@@ -120,7 +120,7 @@ fun TerminalScreen(
                 nightName = viewModelNightThemeName,
                 isDark = isSettingsDark,
             ),
-        ) ?: BuiltInThemes.draculaPlus
+        ) ?: ThemeRepository.byName(ThemeRepository.defaultDarkName())
     val terminalBackground = resolvedTerminalTheme.background
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()

@@ -38,6 +38,7 @@ use crate::render::cell_builder::SearchHighlight;
 use crate::terminal::ShellEnv;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::session::Session;
+use crate::terminal::theme;
 use libghostty_vt::key;
 use std::sync::Arc;
 
@@ -1231,6 +1232,62 @@ fn encode_key_event_inner(
         key_event_text(unicode_char),
         key_event_text(unshifted_char),
     ) else {
+        return empty_java_byte_array(env);
+    };
+    if bytes.is_empty() {
+        return empty_java_byte_array(env);
+    }
+    env.byte_array_from_slice(&bytes)
+        .map(|arr| arr.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+// ── 粘贴编码 ────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// JNI 导出：encodePaste
+// ══════════════════════════════════════════════════════════════════════════
+// 用上游 `paste::encode` 把剪贴板字节编码为 PTY 写入字节（bracketed 包裹与否
+// 取自终端模式 2004 的活体状态）。传原始字节而非 String：经 Java String 会把
+// 非法 UTF-8 序列替换为 U+FFFD，静默破坏编码器看到的内容。
+// 会话未知或编码失败返回空字节数组（本次粘贴被丢弃）；JVM 拷贝失败抛异常。
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodePaste(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+    data: jbyteArray,
+) -> jbyteArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        encode_paste_inner(env, _class, session_id, data)
+    })
+}
+
+fn encode_paste_inner(
+    env: &mut Env,
+    _class: JClass,
+    session_id: jlong,
+    data: jbyteArray,
+) -> jbyteArray {
+    // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
+    // `from_raw` 只包装指针而不取得所有权；局部引用由 JVM 在本 native 方法返回时释放。
+    let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
+    let input: Vec<u8> = match env.convert_byte_array(&byte_array) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let _ = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("encodePaste: failed to read input bytes"),
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&(session_id as u64)) else {
+        return empty_java_byte_array(env);
+    };
+    let session = entry.session.lock();
+    let Some(bytes) = session.terminal().encode_paste(&input) else {
         return empty_java_byte_array(env);
     };
     if bytes.is_empty() {
@@ -2782,6 +2839,153 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMax
 ) -> jint {
     jni_export_guard!(unowned_env, -1, |_env| {
         GhosttyTerminal::MAX_SEARCH_QUERY_CHARS as jint
+    })
+}
+
+/// 内置终端主题数量。颜色真源在构建期嵌入的 alacritty 主题文件
+/// （见 [`crate::terminal::theme`]），Kotlin 经本组直接量逐项取回，不经 JSON。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeCount(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, 0, |_env| theme::all().len() as jint)
+}
+
+/// 按序号取主题标识（即 alacritty 文件名，也是设置落盘键值）。
+/// 越界抛异常并返回 null，不回退默认主题。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeName<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    theme_index: jint,
+) -> jstring {
+    jni_export_guard!(unowned_env, std::ptr::null_mut(), |env| {
+        let themes = theme::all();
+        let Ok(index) = usize::try_from(theme_index) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("getThemeName: index must be non-negative"),
+            );
+            return Ok(std::ptr::null_mut());
+        };
+        let Some(entry) = themes.get(index) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                JNIString::from(format!("getThemeName: index {theme_index} out of range")),
+            );
+            return Ok(std::ptr::null_mut());
+        };
+        string_to_jstring(env, entry.name)
+    })
+}
+
+/// 按序号取深底标记。越界抛异常并返回 false。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isThemeDark(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    theme_index: jint,
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
+        let themes = theme::all();
+        let Ok(index) = usize::try_from(theme_index) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("isThemeDark: index must be non-negative"),
+            );
+            return Ok(JNI_FALSE);
+        };
+        let Some(entry) = themes.get(index) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                JNIString::from(format!("isThemeDark: index {theme_index} out of range")),
+            );
+            return Ok(JNI_FALSE);
+        };
+        if entry.dark { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+/// 按序号取主题颜色：60 字节 = 背景 3 + 前景 3 + 光标 3 + 选区 3 + 十六色 48。
+/// 越界或分配失败返回 null（不回退默认主题）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeColors(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    theme_index: jint,
+) -> jbyteArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let themes = theme::all();
+        let Ok(index) = usize::try_from(theme_index) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("getThemeColors: index must be non-negative"),
+            );
+            return Ok(std::ptr::null_mut());
+        };
+        let Some(entry) = themes.get(index) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                JNIString::from(format!("getThemeColors: index {theme_index} out of range")),
+            );
+            return Ok(std::ptr::null_mut());
+        };
+        let palette = &entry.palette;
+        let mut packed = Vec::with_capacity(60);
+        packed.extend_from_slice(&palette.background);
+        packed.extend_from_slice(&palette.foreground);
+        packed.extend_from_slice(&palette.cursor);
+        packed.extend_from_slice(&palette.selection_background);
+        for ansi_color in palette.ansi {
+            packed.extend_from_slice(&ansi_color);
+        }
+        match env.byte_array_from_slice(&packed) {
+            Ok(array) => array.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// 按标识取序号，未知返回 -1（设置数据错误，由调用方清除该键，不抛异常）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeIndexByName(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    theme_name: JString,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, -1, |env| {
+        let Some(name) = read_jni_string(env, &theme_name, "getThemeIndexByName", "theme name")
+        else {
+            return Ok(-1);
+        };
+        let themes = theme::all();
+        themes
+            .iter()
+            .position(|entry| entry.name == name)
+            .map_or(-1, |index| index as jint)
+    })
+}
+
+/// 默认夜间主题标识，对应 DESIGN 默认终端主题。分配失败返回 null。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultDarkName<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    jni_export_guard!(unowned_env, std::ptr::null_mut(), |env| {
+        string_to_jstring(env, theme::default_dark_name())
+    })
+}
+
+/// 默认日间主题标识。分配失败返回 null。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultLightName<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    jni_export_guard!(unowned_env, std::ptr::null_mut(), |env| {
+        string_to_jstring(env, theme::default_light_name())
     })
 }
 

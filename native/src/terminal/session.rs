@@ -203,7 +203,7 @@ pub struct ThemeConfig {
 
 impl Default for ThemeConfig {
     fn default() -> Self {
-        let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
+        let (ansi, background, foreground) = GhosttyTerminal::default_palette();
         Self {
             background,
             foreground,
@@ -224,7 +224,7 @@ impl Session {
         Self::spawn_with_theme_inner(pty, rows, cols, ThemeConfig::default())
     }
 
-    /// 以默认 Catppuccin Mocha 主题创建会话。`cwd` 可选，覆盖子进程初始工作目录；
+    /// 以默认主题创建会话。`cwd` 可选，覆盖子进程初始工作目录；
     /// `None` 则 chdir 到 `env.working_directory`。cwd 不存在或非目录时由子进程记 stderr
     /// 但不使启动失败（与 shell 行为一致）。
     pub fn spawn(

@@ -157,6 +157,17 @@ pub enum Query {
         unshifted: Option<char>,
         tx: Sender<Vec<u8>>,
     },
+    /// 用上游 `paste::encode` 把剪贴板文本编码为 PTY 写入字节。bracketed 标志
+    /// 取自终端模式 2004 的活体状态：启用时包裹 `ESC[200~`/`ESC[201~` 并保留换行，
+    /// 未启用时换行转回车；控制字节一律由上游中化为空格。
+    ///
+    /// 编码必须在 VT 线程完成：模式状态只存在于该线程的终端里。
+    /// 不取 `Terminal::paste`：其拒绝流程要求确认对话框（PROHIBITED 明禁）。
+    EncodePaste {
+        /// 剪贴板 UTF-8 字节（调用方已截断）。
+        data: Vec<u8>,
+        tx: Sender<Vec<u8>>,
+    },
 }
 
 pub(crate) struct RunConfig {

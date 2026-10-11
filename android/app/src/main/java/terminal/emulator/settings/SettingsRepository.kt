@@ -38,8 +38,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
     }
 
     companion object {
-        private const val DEFAULT_THEME = "Dracula Plus"
-        const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
+        /** 默认夜间主题：单源在 Rust 侧，不在 Kotlin 侧另存名字面量。 */
+        private fun defaultTheme(): String = terminal.emulator.ui.theme.ThemeRepository.defaultDarkName()
+
+        /** 默认日间主题：单源在 Rust 侧。 */
+        private fun defaultDayTheme(): String = terminal.emulator.ui.theme.ThemeRepository.defaultLightName()
+
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
 
@@ -178,11 +182,11 @@ constructor(private val provider: SettingsDataStoreProvider) {
     val fontSizeExplicitlySet: Flow<Boolean> =
         provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
     val fontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "" }
-    val themeName: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_NAME] ?: DEFAULT_THEME }
+    val themeName: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_NAME] ?: defaultTheme() }
     val dayThemeName: Flow<String> =
-        provider.dataStore.data.map { it[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME }
+        provider.dataStore.data.map { it[Keys.DAY_THEME_NAME] ?: defaultDayTheme() }
     val nightThemeName: Flow<String> =
-        provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME }
+        provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: defaultTheme() }
     val themeMode: Flow<String> =
         provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
@@ -205,9 +209,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
          */
         val fontSize: Float,
         val fontFamily: String = "",
-        val themeName: String = DEFAULT_THEME,
-        val dayThemeName: String = DEFAULT_DAY_THEME_NAME,
-        val nightThemeName: String = DEFAULT_THEME,
+        val themeName: String = defaultTheme(),
+        val dayThemeName: String = defaultDayTheme(),
+        val nightThemeName: String = defaultTheme(),
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
         val bootstrapUrl: String = "",
@@ -219,9 +223,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
                 fontSize = prefs[Keys.FONT_SIZE] ?: deviceDefaultFontSize,
                 fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
-                themeName = prefs[Keys.THEME_NAME] ?: DEFAULT_THEME,
-                dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME,
-                nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
+                themeName = prefs[Keys.THEME_NAME] ?: defaultTheme(),
+                dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: defaultDayTheme(),
+                nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: defaultTheme(),
                 themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",

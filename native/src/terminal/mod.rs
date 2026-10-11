@@ -16,6 +16,7 @@ pub mod pty;
 pub mod session;
 pub use session::ThemeConfig;
 pub mod shell_env;
+pub mod theme;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;
