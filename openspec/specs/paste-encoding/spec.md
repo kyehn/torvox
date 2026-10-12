@@ -1,6 +1,7 @@
 # paste-encoding Specification
 
 ## Purpose
+
 剪贴板文本到 PTY 字节的编码。以 Ghostty 为终端状态的单一来源，粘贴编码 MUST 取用
 上游 `paste::encode`：安全控制字节中化与 bracketed 包裹是协议语义，本仓 MUST NOT
 自实现。多行粘贴在 bracketed 与非 bracketed 两种终端模式下行为相反，包裹与否 MUST

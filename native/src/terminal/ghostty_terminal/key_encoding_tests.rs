@@ -225,7 +225,13 @@ fn arrows_follow_cursor_key_application_mode() {
     );
 
     set_dec_mode(&mut terminal, b"1");
-    assert!(terminal.mode_get(1, 0), "DECCKM must be set");
+    assert!(
+        terminal.mode_get(libghostty_vt::terminal::Mode::new(
+            1,
+            libghostty_vt::terminal::ModeKind::Dec
+        )),
+        "DECCKM must be set"
+    );
     assert_eq!(
         encode(&terminal, key::Key::ArrowUp, Mods::empty()),
         b"\x1bOA"
@@ -242,10 +248,22 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     // DEC 私有模式 1035 默认开启，含义是「忽略 numlock，即永远数值小键盘」。
     // 上游以该默认值为准，故应用小键盘模式（66）在默认状态下不生效。
     let mut terminal = terminal();
-    assert!(terminal.mode_get(1035, 0), "mode 1035 defaults on");
+    assert!(
+        terminal.mode_get(libghostty_vt::terminal::Mode::new(
+            1035,
+            libghostty_vt::terminal::ModeKind::Dec
+        )),
+        "mode 1035 defaults on"
+    );
 
     set_dec_mode(&mut terminal, b"66");
-    assert!(terminal.mode_get(66, 0), "DECKPAM must be set");
+    assert!(
+        terminal.mode_get(libghostty_vt::terminal::Mode::new(
+            66,
+            libghostty_vt::terminal::ModeKind::Dec
+        )),
+        "DECKPAM must be set"
+    );
     assert_eq!(
         encode_text(&terminal, key::Key::Numpad1, Mods::empty(), '1', '1'),
         b"1"
@@ -257,7 +275,13 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
 
     // 关掉 1035 后应用小键盘才真正接管：kp_1 / kp_enter 走 SS3 形态。
     reset_dec_mode(&mut terminal, b"1035");
-    assert!(!terminal.mode_get(1035, 0), "mode 1035 must be off");
+    assert!(
+        !terminal.mode_get(libghostty_vt::terminal::Mode::new(
+            1035,
+            libghostty_vt::terminal::ModeKind::Dec
+        )),
+        "mode 1035 must be off"
+    );
     assert_eq!(
         encode_text(&terminal, key::Key::Numpad1, Mods::empty(), '1', '1'),
         b"\x1bOq"
@@ -279,7 +303,13 @@ fn backspace_follows_backarrow_key_mode() {
     );
 
     set_dec_mode(&mut terminal, b"67");
-    assert!(terminal.mode_get(67, 0), "DECBKM must be set");
+    assert!(
+        terminal.mode_get(libghostty_vt::terminal::Mode::new(
+            67,
+            libghostty_vt::terminal::ModeKind::Dec
+        )),
+        "DECBKM must be set"
+    );
     assert_eq!(
         encode(&terminal, key::Key::Backspace, Mods::empty()),
         b"\x08"

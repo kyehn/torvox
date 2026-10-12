@@ -1,51 +1,56 @@
 [package]
 name = "native"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
 description = "Terminal engine"
-[lints]
-workspace = true
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
 [lib]
 crate-type = ["cdylib", "lib"]
 [dependencies]
-base64 = { workspace = true }
-bytemuck = { workspace = true }
-cosmic-text = { workspace = true }
-flume = { workspace = true }
+base64 = "0.23"
+bytemuck = { version = "1", features = ["derive"] }
+cosmic-text = "0.19"
+flume = "0.12"
 foldhash = "0.2"
-fontdb = { workspace = true }
-futures = { workspace = true }
-guillotiere = { workspace = true }
-jni = { workspace = true }
-libc = { workspace = true }
-libghostty-vt = { workspace = true, features = ["log", "png"] }
-log = { workspace = true }
-lru = { workspace = true }
-nix = { workspace = true }
+fontdb = "0.23"
+futures = "0.3"
+guillotiere = "0.7"
+jni = { version = "0.22", default-features = false }
+libc = "0.2"
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "d2036baeb605d31d09a9e2ba6d0c923e04c34d54", features = [
+  "log",
+  "png",
+] }
+log = "0.4"
+lru = "0.18"
+nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
 parking_lot = "0.12"
-png = { workspace = true }
-raw-window-handle = { workspace = true }
-regex = { workspace = true }
+raw-window-handle = "0.6"
 roxmltree = "0.21"
-serde = { workspace = true }
+serde = { version = "1", default-features = false, features = [
+  "derive",
+  "alloc",
+] }
 serde_json = "1"
-swash = { workspace = true }
-thiserror = { workspace = true }
+swash = "0.2"
+thiserror = { version = "2", default-features = false }
 toml = "1"
-unicode-script = { workspace = true }
-wgpu = { workspace = true, default-features = false, features = [
+unicode-script = "0.5"
+wgpu = { version = "30", default-features = false, features = [
   "std",
   "wgsl",
   "vulkan",
 ] }
-wgpu-types = { workspace = true }
+wgpu-types = "30"
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = [
   "cargo_bench_support",
 ] }
 cucumber = "0.23"
-proptest = { workspace = true }
+proptest = "1.11"
 shuttle = "0.9"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 [[test]]

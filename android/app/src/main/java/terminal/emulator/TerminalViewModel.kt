@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import terminal.emulator.bridge.Bridge
+import terminal.emulator.bridge.FontInfo
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.input.DeadKeyState
 import terminal.emulator.input.KeyModifiers
@@ -819,10 +821,7 @@ constructor(
                     // 空即「原生未上报」，不得改用列表首项冒充：DESIGN 要求主字体为空时
                     // 取 fonts.xml 的 monospace 家族，列表首项是字体库枚举顺序，与之无关。
                     // 显示侧本就对空值有回落（FontFamilySelectors 取列表首项仅作标签）。
-                    _defaultFontName.value = bridge.getDefaultFontName().orEmpty()
-                    // 空串 = 原生尚未上报；SettingsScreen 据此用真实设置字号渲染，
-                    // 而非显示占位 DTO 里的 0×0 单元格与 0sp。
-                    _fontInfo.value = bridge.getFontInfo().orEmpty()
+                    publishFontState(bridge)
                 } catch (fatal: IllegalStateException) {
                     if (fatal is kotlinx.coroutines.CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
@@ -859,12 +858,7 @@ constructor(
                     settingsRepository.setFontSize(size)
                     runtime.applyFontSettings()
                     val bridge = runtime.bridge()
-                    if (bridge != null) {
-                        // 空串即「原生尚未上报」：SettingsScreen 据此回落到当前设置值。
-                        // 不写本地化文案占位——该通道下游必过 JSON 解析，占位串只会
-                        // 解析失败后落入兜底分支，把「没数据」伪装成「加载失败」。
-                        _fontInfo.value = bridge.getFontInfo().orEmpty()
-                    }
+                    publishFontState(bridge)
                 }
             }
         }
@@ -876,11 +870,8 @@ constructor(
                     settingsRepository.setFontFamily(family)
                     val applied = runtime.applyFontSettings()
                     val bridge = runtime.bridge()
-                    val fontName = bridge?.getDefaultFontName()
                     clearUnknownFontFamily(family, applied)
-                    val fontInfo = bridge?.getFontInfo().orEmpty()
-                    _defaultFontName.value = fontName ?: ""
-                    _fontInfo.value = fontInfo
+                    publishFontState(bridge)
                     LogUtil.d("Font", "Font applied: ${_defaultFontName.value}")
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         val message =
@@ -961,8 +952,18 @@ constructor(
     private val _defaultFontName = MutableStateFlow("")
     val defaultFontName: StateFlow<String> = _defaultFontName.asStateFlow()
 
-    private val _fontInfo = MutableStateFlow("")
-    val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
+    private val _fontInfo = MutableStateFlow<FontInfo?>(null)
+    val fontInfo: StateFlow<FontInfo?> = _fontInfo.asStateFlow()
+
+    /**
+     * 从原生发布字体族名与字体信息，两个字段总是同批写入。
+     *
+     * null 即「原生尚未上报」：设置页据此只显示族名与字号，不伪造单元格尺寸。
+     */
+    private fun publishFontState(bridge: Bridge?) {
+        _defaultFontName.value = bridge?.getDefaultFontName().orEmpty()
+        _fontInfo.value = bridge?.getFontInfo()
+    }
 
     init {
         // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
@@ -1022,9 +1023,7 @@ constructor(
                         fontManager.applyStoredFontSettings()
                         // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
                         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                            val bridge = runtime.bridge()
-                            _defaultFontName.value = bridge?.getDefaultFontName().orEmpty()
-                            _fontInfo.value = bridge?.getFontInfo().orEmpty()
+                            publishFontState(runtime.bridge())
                         }
                     }
                 } else {

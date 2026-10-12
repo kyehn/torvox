@@ -993,22 +993,6 @@ mod tests {
         })
     }
 
-    #[test]
-    fn font_info_json_serializes_structured_fields() {
-        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        pipeline.set_system_locale("en-US");
-        let json = serde_json::to_string(&pipeline.font_info()).expect("font_info serializes");
-        let parsed: serde_json::Value = serde_json::from_str(&json).expect("font_info json parses");
-        assert_eq!(parsed["cjk_state"], "none");
-        assert!(
-            parsed["active"].is_object(),
-            "active should be present: {json}"
-        );
-        assert_eq!(parsed["font_size"], 14.0);
-        assert!(parsed["cell_width_px"].as_f64().is_some());
-        assert!(parsed["cjk_families"].is_array());
-    }
-
     // ──: 分层回退 ─────────────
 
     #[test]

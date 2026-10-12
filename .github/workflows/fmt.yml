@@ -35,7 +35,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
-            target/
+            native/target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-
@@ -44,8 +44,8 @@ jobs:
           rm -f ~/.config/nix/nix.conf
           nix flake update
           nix develop --command markdownlint-cli2 --fix "**/*.md"
-          nix develop --command cargo fmt --all -v
-          nix develop --command cargo clippy --workspace --all-targets --fix --allow-dirty
+          nix develop --command cargo fmt --manifest-path native/Cargo.toml --all -v
+          nix develop --command cargo clippy --manifest-path native/Cargo.toml --all-targets --fix --allow-dirty
           nix develop --command bash -c "pushd android && ./gradlew :wrapper --gradle-version latest && ./gradlew spotlessApply && ./gradlew detekt --auto-correct && popd"
           nix fmt
           git add .
@@ -67,5 +67,5 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
-            target/
+            native/target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}

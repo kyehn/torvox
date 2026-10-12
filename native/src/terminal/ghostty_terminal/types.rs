@@ -6,13 +6,33 @@ pub enum TerminalError {
     Spawn(#[from] std::io::Error),
 }
 
-/// `search_all_in_scrollback` 的单个匹配。`row` 为回滚行号；`start_col`/`end_col`
-/// 是行内字符列（**非**字节偏移），与渲染高亮所用的 `CellData.col` 对齐。
+/// 搜索的单个匹配。`row` 为绝对网格行（0 = 回滚顶部）；`start_col`/`end_col`
+/// 是网格列区间，`end_col` 为开区间上界，与渲染高亮所用的 `CellData.col` 对齐。
+/// 跨软换行行的命中按行拆成多条，故同一命中的多行各占一条。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchMatch {
     pub row: u32,
     pub start_col: u32,
     pub end_col: u32,
+}
+
+/// 搜索选中态：命中序号（上游口径，0 = 最新命中）、命中总数与选中命中的区间。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchSelection {
+    pub index: usize,
+    pub total: usize,
+    pub matched: SearchMatch,
+}
+
+/// 绘制视口高亮所需的全部输入：视口命中、当前选中命中与回滚长度。
+///
+/// 行号均为绝对网格行（0 = 回滚顶部）；视口折算由渲染侧用 `scrollback_lines`
+/// 与视图的滚动偏移完成，故终端侧不必知道视口位置。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchViewportHighlights {
+    pub matches: Vec<SearchMatch>,
+    pub selected: Option<SearchMatch>,
+    pub scrollback_lines: u32,
 }
 
 /// 光标样式。以 Ghostty（DECSCUSR）为单一来源，快照转换 1:1 映射上游视觉样式，

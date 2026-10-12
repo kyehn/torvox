@@ -276,34 +276,22 @@ class TextSearchEndToEndTest : TerminalLogcatTest() {
         )
     }
 
-    // ── Test 4: Smart case toggle ──
+    // ── Test 4: 大小写按上游口径（ASCII 字母不区分大小写）──
 
     @Test
-    fun smartCaseToggle() {
+    fun lowercaseQueryMatchesUppercaseContent() {
         composeTestRule.waitForSession()
         val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
-        // Open search with lowercase version of marker
-        val lowerMarker = uniqueMarker.lowercase()
-        openSearchAndType(lowerMarker)
+        // 小写查询命中大写内容：搜索由上游 search::Search 承担，仅 ASCII 字母折叠大小写，
+        // 因此不提供（也不需要）区分大小写开关。
+        openSearchAndType(uniqueMarker.lowercase())
         waitForSearchStable()
 
-        // Verify results shown
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("Results must be shown for lowercase search")
+        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("小写查询必须命中大写内容")
 
-        // Toggle case sensitive on
-        composeTestRule.onNodeWithTag("SearchCaseSensitive").performClick()
-        waitForSearchStable()
-
-        // Search with original case
-        composeTestRule.onNodeWithTag("SearchTextField").performTextReplacement(uniqueMarker)
-        waitForSearchStable()
-        composeTestRule.onNodeWithTag(
-            "SearchResultCount",
-        ).assertExists("Results must be shown for case-sensitive search")
-
-        saveScreenshot("05_case_sensitive_search")
+        saveScreenshot("05_case_insensitive_search")
     }
 
     // ── Test 5: Close search restores modifier bar ──

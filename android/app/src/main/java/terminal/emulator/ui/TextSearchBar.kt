@@ -52,9 +52,6 @@ fun TextSearchBar(
     onNext: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    caseSensitive: Boolean = false,
-    onCaseSensitiveToggle: (Boolean) -> Unit = {},
-    autoCaseSensitive: Boolean = false,
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -88,41 +85,9 @@ fun TextSearchBar(
             modifier = Modifier.weight(1f),
         )
 
-        SearchToggleButtons(
-            caseSensitive = caseSensitive,
-            autoCaseSensitive = autoCaseSensitive,
-            onCaseSensitiveToggle = onCaseSensitiveToggle,
-        )
-
         SearchResultCounter(query, resultCount, currentResultIndex)
         SearchNavButtons(resultCount, onPrevious, onNext)
         SearchCloseButton(onClose, keyboardController)
-    }
-}
-
-@Composable
-private fun SearchToggleButtons(
-    caseSensitive: Boolean,
-    autoCaseSensitive: Boolean,
-    onCaseSensitiveToggle: (Boolean) -> Unit,
-) {
-    val aaColor =
-        when {
-            caseSensitive -> MaterialTheme.colorScheme.primary
-            autoCaseSensitive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(
-            onClick = { onCaseSensitiveToggle(!caseSensitive) },
-            modifier = Modifier.size(32.dp).testTag("SearchCaseSensitive"),
-        ) {
-            Text(
-                text = "Aa",
-                fontSize = 13.sp,
-                color = aaColor,
-            )
-        }
     }
 }
 

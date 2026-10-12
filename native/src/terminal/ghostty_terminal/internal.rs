@@ -6,10 +6,11 @@ use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::paste;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
-use libghostty_vt::screen::GridRef;
+use libghostty_vt::screen::{CellWide, GridRef};
+use libghostty_vt::search::{MatchBuffer, Search};
 use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
 use libghostty_vt::style::PaletteIndex;
-use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate, PointSpace};
+use libghostty_vt::terminal::{Mode, Point, PointCoordinate, PointSpace};
 
 use super::commands::{Command, Query, RunConfig};
 use super::types::*;
@@ -208,14 +209,16 @@ impl Encoders<'_> {
 impl super::GhosttyTerminal {
     /// 处理单条查询。上游 `select_*` 查询会在查询路径内安装选区；成功安装时返回
     /// true，由 run 循环按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
-    pub(crate) fn process_query(
+    pub(crate) fn process_query<'term>(
         query: Query,
-        terminal: &mut Terminal,
+        terminal: &mut Terminal<'term, '_>,
         alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
         encoders: &mut Encoders,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
+        search: &mut Option<Search<'_, 'term>>,
+        match_buffer: &mut MatchBuffer,
     ) -> bool {
         let mut selection_installed = false;
         match query {
@@ -265,16 +268,17 @@ impl super::GhosttyTerminal {
                     "query channel send failed",
                 );
             }
-            Query::ModeGet(num, kind, tx) => {
-                let mode_kind = match kind {
-                    0 => ModeKind::Dec,
-                    _ => ModeKind::Ansi,
+            Query::ModeGet(mode, tx) => {
+                // 模式查询失败按「未启用」作答，但必须出声：静默 false 会让调用方
+                // 把「读不到」当成「应用没开」，焦点上报与粘贴包装都会走错分支。
+                let enabled = match terminal.mode(mode) {
+                    Ok(enabled) => enabled,
+                    Err(error) => {
+                        log::error!("ghostty_terminal: mode query failed: {error}");
+                        false
+                    }
                 };
-                try_send(
-                    &tx,
-                    terminal.mode(Mode::new(num, mode_kind)).unwrap_or(false),
-                    "ghostty_terminal: query channel send failed",
-                );
+                try_send(&tx, enabled, "ghostty_terminal: query channel send failed");
             }
             Query::ScrollbackLength(tx) => {
                 let scrollback_rows = scrollback_len(terminal);
@@ -363,13 +367,30 @@ impl super::GhosttyTerminal {
                     "wide_char_tail_cols response send failed",
                 );
             }
-            Query::SearchInScrollbackAll {
-                query,
-                case_sensitive,
-                tx,
-            } => {
-                let results = Self::search_in_scrollback_all_impl(terminal, &query, case_sensitive);
-                try_send(&tx, results, "ghostty_terminal: query channel send failed");
+            Query::SearchSetNeedle { needle, tx } => {
+                let total = Self::search_set_needle_impl(search, terminal, &needle);
+                try_send(
+                    &tx,
+                    total,
+                    "ghostty_terminal: search needle response send failed",
+                );
+            }
+            Query::SearchSelect { forward, tx } => {
+                let selection = Self::search_select_impl(search, terminal, forward);
+                try_send(
+                    &tx,
+                    selection,
+                    "ghostty_terminal: search select response send failed",
+                );
+            }
+            Query::SearchViewportHighlights { tx } => {
+                let highlights =
+                    Self::search_viewport_highlights_impl(search, match_buffer, terminal);
+                try_send(
+                    &tx,
+                    highlights,
+                    "ghostty_terminal: search viewport highlights response send failed",
+                );
             }
             Query::DumpGrid { tx } => {
                 let dumped =
@@ -507,9 +528,15 @@ impl super::GhosttyTerminal {
             }
             Query::EncodePaste { data, tx } => {
                 // 括号标志取活体模式 2004（DECSET 私有模式），与按键/鼠标编码
-                // 同属终端状态感知路径；查不到按未启用处理（与 `ModeGet`
-                // 查询的回退口径一致）。
-                let bracketed = terminal.mode(Mode::BRACKETED_PASTE).unwrap_or(false);
+                // 同属终端状态感知路径。查不到按未启用作答（即不包裹），但记 error：
+                // 这是粘贴注入的防线，失效必须是可诊断的，而不是一次静默降级。
+                let bracketed = match terminal.mode(Mode::BRACKETED_PASTE) {
+                    Ok(bracketed) => bracketed,
+                    Err(error) => {
+                        log::error!("ghostty_terminal: bracketed paste mode query failed: {error}");
+                        false
+                    }
+                };
                 try_send(
                     &tx,
                     encode_paste_data(&data, bracketed),
@@ -523,14 +550,16 @@ impl super::GhosttyTerminal {
     /// 排空查询通道，使查询看到最新终端状态。返回真表示本批中有查询安装了选区，
     /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
     /// `all_text` 跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
-    pub(crate) fn drain_queries(
+    pub(crate) fn drain_queries<'term>(
         query_receiver: &flume::Receiver<Query>,
-        terminal: &mut Terminal,
+        terminal: &mut Terminal<'term, '_>,
         alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
         encoders: &mut Encoders,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
+        search: &mut Option<Search<'_, 'term>>,
+        match_buffer: &mut MatchBuffer,
     ) -> bool {
         let mut selection_installed = false;
         while let Ok(query) = query_receiver.try_recv() {
@@ -544,6 +573,8 @@ impl super::GhosttyTerminal {
                 encoders,
                 default_foreground,
                 default_background,
+                search,
+                match_buffer,
             );
         }
         selection_installed
@@ -587,10 +618,11 @@ impl super::GhosttyTerminal {
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
             log::error!("ghostty_terminal: set_kitty_image_storage_limit failed: {error}");
         }
-        // PNG 载荷在进程内解码为 RGBA8（线程局部回调，须在 VT 线程注册；
-        // 上游 RustPngDecoder 无公开构造器，自实现等价解码器）。
+        // PNG 载荷在进程内解码为 RGBA8（线程局部回调，须在 VT 线程注册）。
+        // 用上游解码器：它按 libghostty 的分配器上限先取缓冲区再解码，
+        // 未经该上限的尺寸不会被 PNG 头放大成巨额分配。
         if let Err(error) = libghostty_vt::kitty::graphics::set_png_decoder(Some(Box::new(
-            KittyPngDecoder::default(),
+            libghostty_vt::kitty::graphics::RustPngDecoder::new(),
         ))) {
             log::error!("ghostty_terminal: set_png_decoder failed: {error}");
         }
@@ -688,8 +720,8 @@ impl super::GhosttyTerminal {
         }) {
             log::error!("ghostty_terminal: on_size callback registration failed: {error}");
         }
-        let mut default_background = Self::byte_color_to_float(config.background_color);
-        let mut default_foreground = Self::byte_color_to_float(config.foreground_color);
+        let mut default_background = Self::color_to_float(config.theme.palette.background);
+        let mut default_foreground = Self::color_to_float(config.theme.palette.foreground);
 
         // 逐事件复用的上游编码器（见 `Encoders`）：每个终端只分配一次，编码器
         // 选项在每个事件前经 `set_options_from_terminal` 从终端重新同步。
@@ -701,15 +733,17 @@ impl super::GhosttyTerminal {
             }
         };
 
+        // 上游 `search::Search` 的宿主：与终端同生命周期的局部变量，故搜索对象
+        // 不必与终端自引用（`Search` 的生命周期挂在 `Terminal` 的分配器生命周期上，
+        // 不占用借用）。首次搜索时惰性创建，此后复用同一份索引状态。
+        let mut search: Option<Search<'_, '_>> = None;
+        // 命中读出用的存储，跨查询复用（上游按需扩容）。
+        let mut match_buffer = MatchBuffer::new();
+
         // 初始主题：libghostty-vt 不处理 OSC 10/11 默认色转义（默认值归内嵌方所有，
         // OSC 4 调色板覆盖由上游处理），故走原生 setter。否则终端会保留内置的
         // xterm 调色板，主题颜色永远进不到网格里。
-        Self::apply_theme(
-            &mut terminal,
-            config.background_color,
-            config.foreground_color,
-            &config.ansi_colors,
-        );
+        Self::apply_theme(&mut terminal, &config.theme.palette);
 
         // 克隆（flume receiver 是 Arc 句柄）：使下面的命令循环仍能借用
         // `config`，无需部分移动。
@@ -759,6 +793,8 @@ impl super::GhosttyTerminal {
                         &mut encoders,
                         default_foreground,
                         default_background,
+                        &mut search,
+                        &mut match_buffer,
                     ) {
                         // 查询内安装与 Command::SetSelection 同款失效：
                         // 反白改变每行内容，帧必须重推。
@@ -806,17 +842,12 @@ impl super::GhosttyTerminal {
                         // 把空通道交给它们。
                         batch_acks.push(tx);
                     }
-                    Command::SetTheme {
-                        background,
-                        foreground,
-                        ansi,
-                    } => {
-                        default_background = Self::byte_color_to_float(background);
-                        default_foreground = Self::byte_color_to_float(foreground);
+                    Command::SetTheme(theme) => {
+                        default_background = Self::color_to_float(theme.palette.background);
+                        default_foreground = Self::color_to_float(theme.palette.foreground);
                         log::debug!(
-                            "SetTheme: background={:?} foreground={:?} -> default_background={:?} default_foreground={:?}",
-                            background,
-                            foreground,
+                            "SetTheme: {} -> default_background={:?} default_foreground={:?}",
+                            theme.name,
                             default_background,
                             default_foreground
                         );
@@ -824,7 +855,7 @@ impl super::GhosttyTerminal {
                         // OSC 默认色转义（默认值归内嵌方所有，OSC 4 覆盖由上游
                         // 处理），所以 OSC 方案会静默保留内置的 xterm 调色板。
                         // 这些 setter 写入的默认色正是上游单元颜色查询的解析基准。
-                        Self::apply_theme(&mut terminal, background, foreground, &ansi);
+                        Self::apply_theme(&mut terminal, &theme.palette);
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
                     }
@@ -921,7 +952,6 @@ impl super::GhosttyTerminal {
                                 &terminal,
                                 default_foreground,
                                 default_background,
-                                &config.ansi_colors,
                             );
                             let cached = Arc::new(snap);
                             cached_snapshot = Some(Arc::clone(&cached));
@@ -955,6 +985,8 @@ impl super::GhosttyTerminal {
                 &mut encoders,
                 default_foreground,
                 default_background,
+                &mut search,
+                &mut match_buffer,
             ) {
                 // 同上：查询内安装的选区需要纳入本批重推。
                 last_cell_data_push = None;
@@ -1132,7 +1164,7 @@ impl super::GhosttyTerminal {
         default: [f32; 4],
     ) -> [f32; 4] {
         match color {
-            Ok(Some(rgb)) => Self::byte_color_to_float([rgb.r, rgb.g, rgb.b]),
+            Ok(Some(rgb)) => Self::color_to_float(rgb),
             _ => default,
         }
     }
@@ -1143,43 +1175,26 @@ impl super::GhosttyTerminal {
     /// 否则终端会保留内置的 xterm 调色板。
     fn apply_theme(
         terminal: &mut libghostty_vt::terminal::Terminal,
-        background: [u8; 3],
-        foreground: [u8; 3],
-        ansi: &[[u8; 3]],
+        palette: &crate::terminal::theme::Palette,
     ) {
         if terminal
-            .set_default_bg_color(Some(libghostty_vt::style::RgbColor {
-                r: background[0],
-                g: background[1],
-                b: background[2],
-            }))
+            .set_default_bg_color(Some(palette.background))
             .is_err()
         {
             log::error!("ghostty_terminal: apply_theme failed to set background color");
         }
         if terminal
-            .set_default_fg_color(Some(libghostty_vt::style::RgbColor {
-                r: foreground[0],
-                g: foreground[1],
-                b: foreground[2],
-            }))
+            .set_default_fg_color(Some(palette.foreground))
             .is_err()
         {
             log::error!("ghostty_terminal: apply_theme failed to set foreground color");
         }
         match terminal.default_color_palette() {
-            Ok(mut palette) => {
-                for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
-                    palette.set(
-                        *index,
-                        libghostty_vt::style::RgbColor {
-                            r: color[0],
-                            g: color[1],
-                            b: color[2],
-                        },
-                    );
+            Ok(mut colors) => {
+                for (index, color) in ANSI_PALETTE_INDICES.iter().zip(palette.ansi.iter()) {
+                    colors.set(*index, *color);
                 }
-                if terminal.set_default_color_palette(Some(palette)).is_err() {
+                if terminal.set_default_color_palette(Some(colors)).is_err() {
                     log::error!("ghostty_terminal: apply_theme failed to set ANSI palette");
                 }
             }
@@ -1198,23 +1213,20 @@ impl super::GhosttyTerminal {
         default: [f32; 4],
     ) -> [f32; 4] {
         match color {
-            libghostty_vt::style::StyleColor::Rgb(c) => Self::byte_color_to_float([c.r, c.g, c.b]),
+            libghostty_vt::style::StyleColor::Rgb(c) => Self::color_to_float(*c),
             libghostty_vt::style::StyleColor::Palette(idx) => terminal
                 .color_palette()
-                .map(|palette| {
-                    let rgb = palette.get(*idx);
-                    Self::byte_color_to_float([rgb.r, rgb.g, rgb.b])
-                })
+                .map(|palette| Self::color_to_float(palette.get(*idx)))
                 .unwrap_or(default),
             _ => default,
         }
     }
 
-    pub(crate) fn byte_color_to_float(color: [u8; 3]) -> [f32; 4] {
+    pub(crate) fn color_to_float(color: libghostty_vt::style::RgbColor) -> [f32; 4] {
         [
-            Self::byte_to_float(color[0]),
-            Self::byte_to_float(color[1]),
-            Self::byte_to_float(color[2]),
+            Self::byte_to_float(color.r),
+            Self::byte_to_float(color.g),
+            Self::byte_to_float(color.b),
             1.0,
         ]
     }
@@ -1281,68 +1293,6 @@ impl super::GhosttyTerminal {
                 Err(error) => log::warn!("ghostty_terminal: cell frame dropped: {error}"),
             }
         }
-    }
-}
-
-/// PNG 解码器（上游 `DecodePng` 实现，等价于缺构造器的 RustPngDecoder）。
-#[derive(Default)]
-struct KittyPngDecoder {
-    scratch: Vec<u8>,
-}
-
-impl libghostty_vt::kitty::graphics::DecodePng for KittyPngDecoder {
-    fn decode_png<'alloc>(
-        &mut self,
-        alloc: &'alloc libghostty_vt::alloc::Allocator<'_>,
-        data: &[u8],
-    ) -> Option<libghostty_vt::kitty::graphics::DecodedImage<'alloc>> {
-        use png::{ColorType, Decoder, Transformations};
-        use std::io::Cursor;
-        let mut decoder = Decoder::new(Cursor::new(data));
-        // 与上游 RustPngDecoder 一致：ALPHA 把调色板展开为 RGBA 并保留透明，
-        // STRIP_16 把 16 位截断为 8 位。png crate 不支持灰度转 RGB，
-        // 剩余灰度/RGB 输出在下面手动展开为 RGBA8。
-        decoder.set_transformations(Transformations::ALPHA | Transformations::STRIP_16);
-        let mut reader = decoder.read_info().ok()?;
-        let mut raw = vec![0u8; reader.output_buffer_size()?];
-        let info = reader.next_frame(&mut raw).ok()?;
-        let frame_bytes = raw.get(..info.buffer_size())?;
-        self.scratch.clear();
-        let rgba: &[u8] = match info.color_type {
-            ColorType::Rgba => frame_bytes,
-            ColorType::Rgb => {
-                self.scratch.reserve(frame_bytes.len() / 3 * 4);
-                for triple in frame_bytes.as_chunks::<3>().0 {
-                    self.scratch
-                        .extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
-                }
-                &self.scratch
-            }
-            ColorType::Grayscale => {
-                self.scratch.reserve(frame_bytes.len() * 4);
-                for gray in frame_bytes {
-                    self.scratch.extend_from_slice(&[*gray, *gray, *gray, 255]);
-                }
-                &self.scratch
-            }
-            ColorType::GrayscaleAlpha => {
-                self.scratch.reserve(frame_bytes.len() / 2 * 4);
-                for pair in frame_bytes.as_chunks::<2>().0 {
-                    self.scratch
-                        .extend_from_slice(&[pair[0], pair[0], pair[0], pair[1]]);
-                }
-                &self.scratch
-            }
-            _ => return None,
-        };
-        let mut bytes = libghostty_vt::alloc::Bytes::new_with_alloc(alloc, rgba.len()).ok()?;
-        bytes.copy_from_slice(rgba);
-        reader.finish().ok()?;
-        Some(libghostty_vt::kitty::graphics::DecodedImage {
-            width: info.width,
-            height: info.height,
-            data: bytes,
-        })
     }
 }
 
@@ -1431,8 +1381,14 @@ impl super::GhosttyTerminal {
         };
         let mut out = Vec::new();
         while let Some(placement) = placements.next() {
-            if placement.is_virtual().unwrap_or(true) {
-                continue;
+            match placement.is_virtual() {
+                Ok(true) => continue,
+                Ok(false) => {}
+                // 读不到即按虚拟放置跳过：宁可少画一幅图，也不把不可见的放置画出来。
+                Err(error) => {
+                    log::warn!("kitty: is_virtual failed, skipping placement: {error}");
+                    continue;
+                }
             }
             let Ok(image_id) = placement.image_id() else {
                 continue;
@@ -1467,9 +1423,29 @@ impl super::GhosttyTerminal {
                 source_y: info.source_y,
                 source_width: info.source_width,
                 source_height: info.source_height,
-                cell_offset_x: placement.x_offset().unwrap_or(0),
-                cell_offset_y: placement.y_offset().unwrap_or(0),
-                z: placement.z().unwrap_or(0),
+                // 偏移与 z 读不到即丢弃该放置：留 0 会把图像画到错误位置并
+                // 破坏叠加次序，而那与「没画」同样不可接受，只是更难察觉。
+                cell_offset_x: match placement.x_offset() {
+                    Ok(offset) => offset,
+                    Err(error) => {
+                        log::warn!("kitty: x_offset failed, skipping placement: {error}");
+                        continue;
+                    }
+                },
+                cell_offset_y: match placement.y_offset() {
+                    Ok(offset) => offset,
+                    Err(error) => {
+                        log::warn!("kitty: y_offset failed, skipping placement: {error}");
+                        continue;
+                    }
+                },
+                z: match placement.z() {
+                    Ok(z) => z,
+                    Err(error) => {
+                        log::warn!("kitty: z failed, skipping placement: {error}");
+                        continue;
+                    }
+                },
                 image_width,
                 image_height,
                 image_rgba,
@@ -1525,11 +1501,15 @@ impl super::GhosttyTerminal {
 
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
-        // 无选区时跳过每行一次 selection FFI。
-        let selection_active = terminal
-            .selection()
-            .map(|selected| selected.is_some())
-            .unwrap_or(false);
+        // 无选区时跳过每行一次 selection FFI。读失败按「无选区」作答并出声：
+        // 若真读成 false 而终端确有选区，本帧的反白会整帧消失且无处可查。
+        let selection_active = match terminal.selection() {
+            Ok(selected) => selected.is_some(),
+            Err(error) => {
+                log::error!("build_cell_data: selection query failed: {error}");
+                false
+            }
+        };
 
         while let Some(row) = row_iter_impl.next() {
             // 行级选区范围（无选区时为 None）：每行一次 FFI，避免逐单元格查询。
@@ -1756,7 +1736,6 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        _palette: &[[u8; 3]; 16],
     ) -> GridSnapshot {
         let rows = grid_rows(terminal);
         let cols = grid_cols(terminal);
@@ -1889,7 +1868,13 @@ impl super::GhosttyTerminal {
 
         let dirty = vec![true; (rows as usize) * (cols as usize)];
 
-        let sync_active = terminal.mode(Mode::SYNC_OUTPUT).unwrap_or(false);
+        let sync_active = match terminal.mode(Mode::SYNC_OUTPUT) {
+            Ok(sync_active) => sync_active,
+            Err(error) => {
+                log::error!("ghostty_terminal: sync output mode query failed: {error}");
+                false
+            }
+        };
 
         GridSnapshot {
             rows,
@@ -1901,7 +1886,15 @@ impl super::GhosttyTerminal {
             cells,
             dirty,
 
-            title: terminal.title().unwrap_or_default().to_string(),
+            // 标题读失败不静默留空：会话列表会把该会话显示成无名，而空标题与
+            // 「应用本来就没设标题」不可区分。
+            title: match terminal.title() {
+                Ok(title) => title.to_string(),
+                Err(error) => {
+                    log::error!("ghostty_terminal: title query failed: {error}");
+                    String::new()
+                }
+            },
             scrollback_length: scrollback_len(terminal),
             sync_active,
         }
@@ -1909,9 +1902,8 @@ impl super::GhosttyTerminal {
 
     /// 纯文本单行：跳过 codepoint 0（宽字符尾格与空格），行尾去空白。
     ///
-    /// 与 [`Self::read_line_text_impl`] 的区别是空单元不占位。搜索按字符下标当列号用
-    /// （见 [`Self::read_line_text_impl`] 的说明），故那里必须空格占位；而全量文本
-    /// 面向「这一行写了什么」，语义与 [`Self::build_dumped_grid`] 的消费侧一致。
+    /// 与 [`Self::read_line_text_impl`] 的区别是空单元不占位。全量文本面向
+    /// 「这一行写了什么」，语义与 [`Self::build_dumped_grid`] 的消费侧一致。
     pub(crate) fn read_all_text_row_impl(terminal: &Terminal, row: u32) -> String {
         let cols = grid_cols(terminal);
         let mut text = String::new();
@@ -1924,14 +1916,18 @@ impl super::GhosttyTerminal {
         text.trim_end().to_string()
     }
 
+    /// 单行文本，**每个网格列恰好一个字符**：codepoint 为 0 的空单元与宽字符尾格
+    /// 都以空格占位。
+    ///
+    /// 字符下标即列号，故供需要按列寻址的消费方使用（选区拖动经 JNI 的
+    /// `scrollbackLine` 取行文本后按列换算）。搜索高亮不用此读口：它按列填充会把宽字符拆成「字 + 空格」，
+    /// CJK 多字命中因而无法定位到整字，见 [`Self::selection_endpoint_columns`]。
     pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
         let cols = grid_cols(terminal);
         let mut text = String::new();
         for col in 0..cols {
-            // 每个网格列必须**恰好**产出一个字符：`search_in_scrollback_all_impl` 把段内
-            // 字符下标直接当作列号（`SearchMatch.start_col` 与 `CellData.col` 对齐）。
-            // 读不到单元时若少产一个字符，其后所有列号都会左移一格，且偏移会经
-            // 软换行段累加继续放大。故一律以空格占位，与 codepoint 为 0 的空单元同形。
+            // 每个网格列必须**恰好**产出一个字符：读不到单元时若少产一个字符，
+            // 其后所有列号都会左移一格，且偏移会经软换行段累加继续放大。
             let codepoint = cell_codepoint(terminal, row, col);
             match char::from_u32(codepoint) {
                 Some(character) if codepoint != 0 => text.push(character),
@@ -2101,14 +2097,24 @@ impl super::GhosttyTerminal {
     /// openLinkAt；ghostty 侧用 cell.has_hyperlink + hyperlink_uri）。
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
         let cols = grid_cols(terminal);
-        let total_rows = terminal.total_rows().unwrap_or(0) as u32;
-        if col >= cols || row >= total_rows {
+        let Ok(total_rows) = terminal.total_rows() else {
+            log::error!("ghostty_terminal: total_rows failed during hyperlink hit test");
+            return None;
+        };
+        if col >= cols || row >= total_rows as u32 {
             return None;
         }
         let grid_ref = Self::grid_ref_at(terminal, row, col)?;
         let cell = grid_ref.cell().ok()?;
-        if !cell.has_hyperlink().unwrap_or(false) {
-            return None;
+        match cell.has_hyperlink() {
+            Ok(true) => {}
+            Ok(false) => return None,
+            // 读不到时当「无链接」，但必须出声：静默 false 会让用户点不动链接
+            // 且无从判断是坐标没落在链接上还是读取失败。
+            Err(error) => {
+                log::warn!("ghostty_terminal: has_hyperlink failed: {error}");
+                return None;
+            }
         }
         // 超长 URI（>4KiB）按上游 OutOfSpace{required} 重试，避免截断长链接。
         let mut buf = [0u8; HYPERLINK_INLINE_BUFFER_SIZE];
@@ -2143,154 +2149,258 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 文本搜索匹配长度上限：超长查询直接无命中，避免正则引擎与全回滚扫描浪费资源。
-    /// 搜索查询串长度上限：唯一真源，Kotlin 侧经 `NativeBridge.searchQueryMaxChars()` 取值，
-    /// 不再自带副本（改这里即两侧同步生效）。
+    /// 搜索 needle 长度上限：超长 needle 判为无命中，避免上游搜索器为不可能命中的
+    /// 长串付出代价。唯一真源，Kotlin 侧经 `NativeBridge.searchQueryMaxChars()` 取值
+    /// 截断输入，不再自带副本（改这里即两侧同步生效）。
     pub(crate) const MAX_SEARCH_QUERY_CHARS: usize = 128;
 
-    /// 用外部 `regex` 库编译字面搜索模式（大小写开关由库承载，不手写折叠循环）。
-    fn compile_search_pattern(query: &str, case_sensitive: bool) -> Option<regex::Regex> {
-        if query.is_empty() || query.chars().count() > Self::MAX_SEARCH_QUERY_CHARS {
-            return None;
-        }
-        regex::RegexBuilder::new(&regex::escape(query))
-            .case_insensitive(!case_sensitive)
-            .unicode(true)
-            .build()
-            .map_err(|error| {
-                log::warn!("search: invalid query: {error}");
-            })
-            .ok()
-    }
-
-    /// 单行内全部非重叠命中的字符列区间（库给出字节偏移，此处转字符列）。
-    /// 字节游标与字符游标单遍推进：逐命中从行首重数字符是 O(命中×行长)。
-    fn search_line_columns(line: &str, pattern: &regex::Regex) -> Vec<(u32, u32)> {
-        let mut columns = Vec::new();
-        let mut byte_cursor = 0;
-        let mut char_cursor: u32 = 0;
-        for matched in pattern.find_iter(line) {
-            char_cursor += line[byte_cursor..matched.start()].chars().count() as u32;
-            let start_col = char_cursor;
-            char_cursor += line[matched.start()..matched.end()].chars().count() as u32;
-            columns.push((start_col, char_cursor));
-            byte_cursor = matched.end();
-        }
-        columns
-    }
-
-    /// 物理行的软换行标志（是否为续接段、本行是否折行），取自上游
-    /// `WRAP_CONTINUATION` / `WRAP`——软换行判定以 Ghostty 为单一来源，
-    /// 不再用「上一行长度是否等于列宽」猜测（被 trim 过的行尾空格会判错）。
-    /// 网格引用无法表达该行时返回 None，调用方跳过而非猜测。
-    fn row_wrap_flags(terminal: &Terminal, row: u32) -> Option<(bool, bool)> {
-        let grid_ref = terminal
-            .grid_ref(Self::absolute_point(terminal, row, 0))
-            .ok()?;
-        let row_ref = grid_ref.row().ok()?;
-        Some((
-            row_ref.is_wrapped().ok()?,
-            row_ref.is_wrap_continuation().ok()?,
-        ))
-    }
-
-    pub(crate) fn search_in_scrollback_all_impl(
-        terminal: &Terminal,
-        query: &str,
-        case_sensitive: bool,
-    ) -> Vec<SearchMatch> {
-        if query.is_empty() {
-            return vec![];
-        }
-        // 可导航上限（对标上游 50k 窗口）：超长回滚全匹配会卡死 UI，
-        // 保留最新的 MAX 命中（用户最可能要看的是最新输出）。
-        const MAX_NAVIGABLE_MATCHES: usize = 50_000;
-        let Some(pattern) = Self::compile_search_pattern(query, case_sensitive) else {
-            return vec![];
-        };
-        let total = terminal.total_rows().unwrap_or(0) as u32;
-        let mut results = Vec::new();
-
-        // 倒序遍历**逻辑行**（对标上游 searchSpansSoftWrap）：续接段跳过——它归入
-        // 行首所在的逻辑行，倒序下先被处理；行首向下按 WRAP 拼接。只保留当前逻辑行，
-        // 不整块缓存回滚区。
-        for row in (0..total).rev() {
-            let Some((_, is_wrap_continuation)) = Self::row_wrap_flags(terminal, row) else {
+    /// 行内最后一个有内容的列的开区间上界：行尾未写下的填充不计，高亮不越过它。
+    ///
+    /// 自右向左扫。宽字符的尾格自身无 codepoint，故命中尾格即以 `col + 1` 收尾
+    /// （它与前一格的首列同属一个宽字符）。
+    fn row_content_columns(terminal: &Terminal, row: u32) -> u32 {
+        for col in (0..grid_cols(terminal)).rev() {
+            let Ok(grid_ref) = terminal.grid_ref(Self::absolute_point(terminal, row, col)) else {
                 continue;
             };
-            if is_wrap_continuation {
-                continue;
+            let Ok(cell) = grid_ref.cell() else { continue };
+            if matches!(cell.wide(), Ok(CellWide::SpacerTail)) {
+                return col + 1;
             }
-            // 逻辑行拼接文本，以及每个物理行在其中的（行号，起始字符下标，字符数）。
-            // read_line_text_impl 每网格列产出一个字符，故段内字符下标即列号。
-            // 起始下标用运行计数累加：逐段重数拼接串字符是 O(段×行长)。
-            let mut segments: Vec<(u32, u32, u32)> = Vec::new();
-            let mut logical_text = String::new();
-            let mut logical_char_len: u32 = 0;
-            let mut physical_row = row;
-            loop {
-                let text = Self::read_line_text_impl(terminal, physical_row).unwrap_or_default();
-                let text_char_len = text.chars().count() as u32;
-                segments.push((physical_row, logical_char_len, text_char_len));
-                logical_text.push_str(&text);
-                logical_char_len += text_char_len;
-                let Some((is_wrapped, _)) = Self::row_wrap_flags(terminal, physical_row) else {
-                    break;
-                };
-                if !is_wrapped || physical_row + 1 >= total {
-                    break;
-                }
-                physical_row += 1;
-            }
-            // 命中跨物理行时按段拆分，逐段给出该行内的列区间：
-            // 高亮必须落在真实所在行，且列号不得越过网格宽度。
-            // 匹配与段都按起始下标有序，游标单遍推进即得全部重叠段，
-            // 总计线性而非每命中扫描全部段。
-            let mut segment_cursor: usize = 0;
-            for (match_start, match_end) in Self::search_line_columns(&logical_text, &pattern) {
-                while segment_cursor < segments.len() {
-                    let (_, cursor_start, cursor_len) = segments[segment_cursor];
-                    if cursor_start + cursor_len > match_start {
-                        break;
-                    }
-                    segment_cursor += 1;
-                }
-                let mut overlap_cursor = segment_cursor;
-                while overlap_cursor < segments.len() {
-                    let (segment_row, segment_start, segment_len) = segments[overlap_cursor];
-                    if segment_start >= match_end {
-                        break;
-                    }
-                    let segment_end = segment_start + segment_len;
-                    let start = match_start.max(segment_start);
-                    let end = match_end.min(segment_end);
-                    if start < end {
-                        results.push(SearchMatch {
-                            row: segment_row,
-                            start_col: start - segment_start,
-                            end_col: end - segment_start,
-                        });
-                        if results.len() >= MAX_NAVIGABLE_MATCHES {
-                            break;
-                        }
-                    }
-                    if segment_end >= match_end {
-                        break;
-                    }
-                    overlap_cursor += 1;
-                }
-                if results.len() >= MAX_NAVIGABLE_MATCHES {
-                    break;
-                }
-            }
-            if results.len() >= MAX_NAVIGABLE_MATCHES {
-                break;
+            if cell_codepoint(terminal, row, col) != 0 {
+                return col + Self::cell_columns(&cell).unwrap_or(1);
             }
         }
-        // 倒序扫描 + 上限截断：结果已是最新窗口内的命中，按
-        // (row, start_col) 恢复旧→新稳定顺序（同行内匹配保持正序）。
-        results.sort_by_key(|matched| (matched.row, matched.start_col));
-        results
+        0
+    }
+
+    /// 选区端点单元的 `(行, 首列, 开区间上界)`：宽字符覆盖两列，端点落在它的头/尾格
+    /// 时起点回退到该宽字符的首列。端点格读不出时返回 None。
+    fn selection_endpoint_columns(
+        terminal: &Terminal,
+        grid_ref: &GridRef,
+    ) -> Option<(u32, u32, u32)> {
+        let (row, col) = Self::absolute_coordinate(terminal, grid_ref)?;
+        let cell = grid_ref.cell().ok()?;
+        let start_col = match cell.wide() {
+            Ok(CellWide::SpacerTail | CellWide::SpacerHead) => col.saturating_sub(1),
+            _ => col,
+        };
+        let columns = match cell.wide() {
+            Ok(CellWide::Wide | CellWide::SpacerTail | CellWide::SpacerHead) => 2,
+            _ => 1,
+        };
+        Some((row, start_col, start_col + columns))
+    }
+
+    /// 上游命中的 [`Selection`] → 按物理行拆分的绝对网格区间。
+    ///
+    /// 上游按软换行把跨行命中表达为一条选区，本仓的高亮按行表达：首行自命中起点到
+    /// 行内容末尾，末行自 0 到命中终点，中间整行覆盖，且每行末尾按行内容裁剪。
+    /// 端点可能反向（上游保留选择方向），按行优先序对调即得正向区间。
+    fn search_matches_from_selection(
+        terminal: &Terminal,
+        selection: &Selection,
+        matches: &mut Vec<SearchMatch>,
+    ) {
+        let Some((start_row, start_col, start_limit)) =
+            Self::selection_endpoint_columns(terminal, &selection.start())
+        else {
+            return;
+        };
+        let Some((end_row, end_col, end_limit)) =
+            Self::selection_endpoint_columns(terminal, &selection.end())
+        else {
+            return;
+        };
+        let ((first_row, first_col), (last_row, last_limit)) =
+            if (start_row, start_col) <= (end_row, end_col) {
+                ((start_row, start_col), (end_row, end_limit))
+            } else {
+                ((end_row, end_col), (start_row, start_limit))
+            };
+        for row in first_row..=last_row {
+            let content_columns = Self::row_content_columns(terminal, row);
+            let row_start = if row == first_row { first_col } else { 0 };
+            let row_end = if row == last_row {
+                last_limit
+            } else {
+                content_columns
+            };
+            let start_col = row_start.min(content_columns);
+            let end_col = row_end.min(content_columns);
+            if start_col < end_col {
+                matches.push(SearchMatch {
+                    row,
+                    start_col,
+                    end_col,
+                });
+            }
+        }
+    }
+
+    /// 设置 needle 并同步跑完搜索（`feed` + `tick` 至 `Complete`），返回命中总数。
+    ///
+    /// 搜索对象随 VT 线程存活：首次调用时创建，之后复用同一份索引状态，故连续
+    /// 查询不必重建。needle 超上限不截断而是判为无命中——截断会让用户搜到另一个
+    /// 串的结果。
+    fn search_set_needle_impl<'term>(
+        search: &mut Option<Search<'_, 'term>>,
+        terminal: &mut Terminal<'term, '_>,
+        needle: &str,
+    ) -> usize {
+        if search.is_none() {
+            match Search::new(terminal) {
+                Ok(created) => *search = Some(created),
+                Err(error) => {
+                    log::error!("ghostty_terminal: search::Search::new failed: {error}");
+                    return 0;
+                }
+            }
+        }
+        let Some(active) = search.as_mut() else {
+            return 0;
+        };
+        let needle = if needle.chars().count() > Self::MAX_SEARCH_QUERY_CHARS {
+            log::warn!(
+                "ghostty_terminal: search needle over {} chars ignored",
+                Self::MAX_SEARCH_QUERY_CHARS
+            );
+            ""
+        } else {
+            needle
+        };
+        if let Err(error) = active.set_needle(terminal, needle.as_bytes()) {
+            log::error!("ghostty_terminal: search set_needle failed: {error}");
+            return 0;
+        }
+        if let Err(error) = active.run(terminal) {
+            log::error!("ghostty_terminal: search run failed: {error}");
+            return 0;
+        }
+        match active.total_matches() {
+            Ok(total) => total,
+            Err(error) => {
+                log::error!("ghostty_terminal: search total_matches failed: {error}");
+                0
+            }
+        }
+    }
+
+    /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态。
+    ///
+    /// 视口滚动由上游按滚动策略完成（`Scroll::IfNeeded`），本仓不重复实现定位。
+    fn search_select_impl<'term>(
+        search: &mut Option<Search<'_, 'term>>,
+        terminal: &mut Terminal<'term, '_>,
+        forward: bool,
+    ) -> Option<SearchSelection> {
+        let active = search.as_mut()?;
+        let selected = if forward {
+            active.select_next(terminal)
+        } else {
+            active.select_prev(terminal)
+        };
+        match selected {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(error) => {
+                log::error!("ghostty_terminal: search select failed: {error}");
+                return None;
+            }
+        }
+        let total = match active.total_matches() {
+            Ok(total) => total,
+            Err(error) => {
+                log::error!("ghostty_terminal: search total_matches failed: {error}");
+                return None;
+            }
+        };
+        let index = active.selected_index().ok().flatten()?;
+        let snapshot = match active.snapshot(terminal) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                log::error!("ghostty_terminal: search snapshot failed: {error}");
+                return None;
+            }
+        };
+        let selected_match = match snapshot.selected_match() {
+            Ok(Some(selected_match)) => selected_match,
+            Ok(None) => return None,
+            Err(error) => {
+                log::error!("ghostty_terminal: search selected_match failed: {error}");
+                return None;
+            }
+        };
+        let mut matches = Vec::new();
+        Self::search_matches_from_selection(snapshot.terminal(), &selected_match, &mut matches);
+        Some(SearchSelection {
+            index,
+            total,
+            matched: matches.first()?.clone(),
+        })
+    }
+
+    /// 视口高亮输入：一次 `snapshot` 同时取视口命中与选中命中（同一快照内一致，
+    /// 避免两次读取之间输出到达导致选中态与命中集不同源），回滚长度供渲染侧折算
+    /// 绝对行到网格行。
+    fn search_viewport_highlights_impl<'term>(
+        search: &mut Option<Search<'_, 'term>>,
+        match_buffer: &mut MatchBuffer,
+        terminal: &mut Terminal<'term, '_>,
+    ) -> SearchViewportHighlights {
+        let scrollback_lines = scrollback_len(terminal);
+        let Some(active) = search.as_mut() else {
+            return SearchViewportHighlights {
+                matches: Vec::new(),
+                selected: None,
+                scrollback_lines,
+            };
+        };
+        let snapshot = match active.snapshot(terminal) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                log::error!("ghostty_terminal: search snapshot failed: {error}");
+                return SearchViewportHighlights {
+                    matches: Vec::new(),
+                    selected: None,
+                    scrollback_lines,
+                };
+            }
+        };
+        let selected = match snapshot.selected_match() {
+            Ok(Some(selected_match)) => {
+                let mut selected_matches = Vec::new();
+                Self::search_matches_from_selection(
+                    snapshot.terminal(),
+                    &selected_match,
+                    &mut selected_matches,
+                );
+                selected_matches.first().cloned()
+            }
+            Ok(None) => None,
+            Err(error) => {
+                log::error!("ghostty_terminal: search selected_match failed: {error}");
+                None
+            }
+        };
+        let Ok(viewport_matches) = snapshot.viewport_matches(match_buffer) else {
+            log::error!("ghostty_terminal: search viewport_matches failed");
+            return SearchViewportHighlights {
+                matches: Vec::new(),
+                selected,
+                scrollback_lines,
+            };
+        };
+        let mut matches = Vec::new();
+        for selection in viewport_matches {
+            Self::search_matches_from_selection(snapshot.terminal(), &selection, &mut matches);
+        }
+        SearchViewportHighlights {
+            matches,
+            selected,
+            scrollback_lines,
+        }
     }
 }
 
@@ -2309,7 +2419,11 @@ mod tests {
 
     #[test]
     fn byte_color_to_float_includes_opaque_alpha() {
-        let color = GhosttyTerminal::byte_color_to_float([13, 188, 121]);
+        let color = GhosttyTerminal::color_to_float(libghostty_vt::style::RgbColor {
+            r: 13,
+            g: 188,
+            b: 121,
+        });
         assert!((color[0] - 13.0 / 255.0).abs() < 1e-6);
         assert!((color[1] - 188.0 / 255.0).abs() < 1e-6);
         assert!((color[2] - 121.0 / 255.0).abs() < 1e-6);
@@ -2328,7 +2442,7 @@ mod tests {
         assert_eq!(cell.codepoint, 'X' as u32);
         assert_eq!(
             cell.foreground,
-            GhosttyTerminal::byte_color_to_float([0, 255, 0]),
+            GhosttyTerminal::color_to_float(libghostty_vt::style::RgbColor { r: 0, g: 255, b: 0 }),
             "OSC 4 override must win over the static palette"
         );
     }
@@ -2344,7 +2458,7 @@ mod tests {
         assert!(cell.underline, "SGR 4 must set underline");
         assert_eq!(
             cell.underline_color,
-            GhosttyTerminal::byte_color_to_float([255, 0, 0]),
+            GhosttyTerminal::color_to_float(libghostty_vt::style::RgbColor { r: 255, g: 0, b: 0 }),
             "SGR 58 must set the underline color"
         );
     }
@@ -2397,10 +2511,9 @@ mod tests {
         assert_eq!(cell.codepoint, 'R' as u32);
         // 默认主题调色板索引 1，非纯红：断言有效调色板色即证明链路。
         // 色值取自默认调色板单源，不手写。
-        let (default_ansi, _, _) = GhosttyTerminal::default_palette();
         assert_eq!(
             cell.foreground,
-            GhosttyTerminal::byte_color_to_float(default_ansi[1]),
+            GhosttyTerminal::color_to_float(crate::terminal::theme::default_dark().palette.ansi[1]),
             "SGR 31 must resolve to palette index 1"
         );
     }

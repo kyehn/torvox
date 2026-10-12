@@ -26,7 +26,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import terminal.emulator.BuildConfig
 import terminal.emulator.bridge.Bridge
-import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
@@ -35,6 +34,8 @@ import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.BUTTON_HEIGHT_DP
 import terminal.emulator.ui.theme.ThemeRepository
+import terminal.emulator.ui.theme.resolveAppDarkMode
+import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -1003,8 +1004,8 @@ constructor(
         }
         val resolvedTheme = ThemeRepository.byName(configReads.themeName)
         val shell = resolveShell(configReads.shellPath)
-        val bridgeTheme = makeBridgeTheme(resolvedTheme)
-        accentColor = bridgeTheme.ansi5
+        // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
+        accentColor = resolvedTheme.ansi[5].toArgb()
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
         val homeDir =
             java.io
@@ -1027,7 +1028,7 @@ constructor(
                 rows = rows,
                 cols = cols,
                 fontSizeTenths = configReads.fontSizeTenths,
-                theme = bridgeTheme,
+                themeName = resolvedTheme.name,
                 home = homeDir,
                 workingDirectory = homeDir,
                 prefix = "",
@@ -1049,7 +1050,7 @@ constructor(
             rows = rows,
             cols = cols,
             fontSizeTenths = configReads.fontSizeTenths,
-            theme = bridgeTheme,
+            themeName = resolvedTheme.name,
             home = homeDir,
             workingDirectory = homeDir,
             prefix = effectivePrefix,
@@ -1650,13 +1651,7 @@ constructor(
                                             frameTiming.takeReport()?.let { report ->
                                                 // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长
                                                 // 即表示历史无界。
-                                                val scrollbackRows =
-                                                    try {
-                                                        NativeBridge.getScrollbackRows(entry.id)
-                                                    } catch (exception: Exception) {
-                                                        LogUtil.w("Runtime", "scrollback query failed", exception)
-                                                        -1
-                                                    }
+                                                val scrollbackRows = entry.bridge.scrollbackLength()
                                                 val summary =
                                                     "session ${entry.id} frame timing window " +
                                                         "(${report.frameCount} frames): " +
@@ -1947,6 +1942,9 @@ constructor(
 
         // 渲染监视器 —— 主动死亡检测
         private const val RENDER_MONITOR_INTERVAL_MS = 500L
+
+        /** 渲染暂停期间会话推进泵的节拍（毫秒），对标上游读侧 16ms 合并投递。 */
+        private const val SESSION_PUMP_INTERVAL_MS = 16L
         private const val RENDER_MAX_RESTART_ATTEMPTS = 5
         private const val INITIAL_RESTART_DELAY_MS = 100L
         private const val MAX_RESTART_DELAY_MS = 1000L
@@ -2033,26 +2031,33 @@ constructor(
         entry.bridge.setFontSizeInPlace(tenths)
         // 只同步触摸/渲染度量，不重算网格不 resize：触摸映射跟上新字形，
         // 网格行列保持到 finalize，避免手势期间中间态错位。
-        syncCellMetricsOnly(entry.bridge)
+        refreshCellMetricsFrom(entry.bridge)
         appliedFontSizeTenths = tenths
     }
 
     /**
-     * 只同步单元格度量（触摸/渲染用），不碰网格行列、不 resize。
-     * 手势 preview 路径专用；finalize/设置路径仍走全量同步 + 重算。
+     * 读原生单元格度量并按光栅缩放换算成物理像素，随后发布。
+     *
+     * 与渲染器同口径：渲染的四边形尺寸是 `cell_metrics × raster_scale`
+     * （native/render/pass.rs），而 `raster_scale` 就是 spToPxScale。
+     * 只乘 density 会在系统字体缩放 ≠ 1 时与渲染相差一个 fontScale 倍，
+     * 触摸命中与网格计算随之错位。0 值（原生尚未就绪或桩实现）保留旧值。
+     *
+     * 返回 true 表示「本轮才首次拿到有效度量」：启动序列里 [attachPendingSurface]
+     * 的同步可能早于原生字体度量就绪，此时必须重算网格——否则此后没有任何路径
+     * 重试，网格会永久停在 spawn 默认 24×80（屏幕下半部空白）。
      */
-    private fun syncCellMetricsOnly(bridge: Bridge) {
-        val rawCellWidth = bridge.getCellWidth()
-        val rawCellHeight = bridge.getCellHeight()
-        // 与渲染器同口径：渲染的四边形尺寸是 `cell_metrics × raster_scale`
-        // （native/render/pass.rs），而 `raster_scale` 就是 spToPxScale。
-        // 只乘 density 会在系统字体缩放 ≠ 1 时与渲染相差一个 fontScale 倍，
-        // 触摸命中与网格计算随之错位。
-        val newCellWidth = rawCellWidth * spToPxScale
-        val newCellHeight = rawCellHeight * spToPxScale
+    private fun refreshCellMetricsFrom(bridge: Bridge): Boolean {
+        val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
+        val newCellWidth = bridge.getCellWidth() * spToPxScale
+        val newCellHeight = bridge.getCellHeight() * spToPxScale
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
+        // 单元格度量是输入法跟随平移量的输入（`computeContentBottomPx` 按行号×行高
+        // 算内容下沿）。字号或捏合缩放改掉它后必须重发，否则内容下沿行号未变时
+        // （`lastContentRowFlow` 去重不发射）平移量停留在旧行高算出的值。
         publishCellMetrics()
+        return !hadCellMetrics && cellWidth > 0f && cellHeight > 0f
     }
 
     /**
@@ -2099,7 +2104,13 @@ constructor(
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
                 ) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
-        return selectThemeName(stored, systemDark)
+        return resolveTerminalThemeName(
+            mode = stored.themeMode,
+            fixedName = stored.themeName,
+            dayName = stored.dayThemeName,
+            nightName = stored.nightThemeName,
+            isDark = resolveAppDarkMode(stored.appThemeMode, systemDark),
+        )
     }
 
     /**
@@ -2257,7 +2268,7 @@ constructor(
             val config = buildConfig()
             LogUtil.d(
                 "Runtime",
-                "buildConfig: fontSizeTenths=${config.fontSizeTenths} rows=${config.rows} cols=${config.cols} theme=${config.theme.name} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
+                "buildConfig: fontSizeTenths=${config.fontSizeTenths} rows=${config.rows} cols=${config.cols} theme=${config.themeName} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
             )
             val bridgeStartNs = System.nanoTime()
             val bridge = Bridge(config)
@@ -3090,7 +3101,7 @@ constructor(
         // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
         // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
         val contract =
-            RenderContract(config.fontSizeTenths, effectiveFontFamily, config.theme, spToPxScale)
+            RenderContract(config.fontSizeTenths, effectiveFontFamily, config.themeName, spToPxScale)
         sessions.values.forEach { entry ->
             entry.bridge.applyRenderContract(contract)
             entry.notifyRender()
@@ -3268,6 +3279,17 @@ constructor(
         }
     }
 
+    /**
+     * 渲染暂停期间的会话推进泵线程；无会话推进需求时为 null。
+     *
+     * 渲染线程同时承担「渲染」与「推进会话（pollAll）」两件事（见渲染循环内
+     * 「输出泵与渲染解耦」注释）。暂停渲染即停掉渲染线程，输出泵随之消失：无人
+     * 调用 `pollEvent` 时有界输出通道会填满，读线程阻塞、PTY 内核缓冲填满，后台
+     * 作业就此停摆。故暂停期间另起本线程只推进会话，不消费事件——事件留在原生
+     * 队列，渲染恢复后照常派发。
+     */
+    @Volatile private var sessionPumpThread: Thread? = null
+
     fun pauseRendering() {
         // stopRenderThread 会 join 渲染线程（每会话最长 THREAD_JOIN_TIMEOUT_MS）；
         // 在主线程上（Surface 销毁）且有 3 个以上会话时可能超出 5s 的 ANR 阈值，
@@ -3291,10 +3313,59 @@ constructor(
                     }
                 }
             }
+            startSessionPump()
         }
     }
 
+    /**
+     * 启动会话推进泵（幂等）：渲染已停时维持终端状态前进。
+     *
+     * 节拍取 16ms（对标上游读侧合并投递）：推进是「有输出才做事」的拉取，无输出时
+     * 每次只走一遍有界通道的 `try_recv`，代价可忽略；而间隔过大又会拖慢后台作业的
+     * 可见进度。线程在 [resumeRendering] 或无会话时退出，不留常驻线程。
+     */
+    private fun startSessionPump() {
+        if (sessionPumpThread != null) return
+        val pump =
+            Thread({
+                while (true) {
+                    val bridge =
+                        synchronized(sessionLock) {
+                            val active = activeSessionId
+                            if (active == 0L || !sessions.containsKey(active)) return@Thread
+                            sessions[active]?.bridge
+                        } ?: return@Thread
+                    try {
+                        NativeBridge.pumpSessions()
+                    } catch (exception: Exception) {
+                        // 单次失败不终止泵：会话已销毁或原生桥异常时，下一拍自然收敛。
+                        LogUtil.w("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
+                        return@Thread
+                    }
+                    try {
+                        Thread.sleep(SESSION_PUMP_INTERVAL_MS)
+                    } catch (interrupted: InterruptedException) {
+                        // stopSessionPump 的中断即退出信号，不吞异常。
+                        Thread.currentThread().interrupt()
+                        return@Thread
+                    }
+                }
+            }, "terminal-session-pump")
+        pump.isDaemon = true
+        sessionPumpThread = pump
+        pump.start()
+    }
+
+    /** 停止会话推进泵：渲染恢复后由渲染线程接管推进（幂等）。 */
+    private fun stopSessionPump() {
+        sessionPumpThread?.interrupt()
+        sessionPumpThread = null
+    }
+
     fun resumeRendering() {
+        // 渲染线程接管推进后立即停泵：两个泵同时推进同一批会话只是重复劳动
+        // （推进是幂等的拉取，但白白多占一次通道遍历）。
+        stopSessionPump()
         surfaceTransitionExecutor.execute {
             synchronized(sessionLock) {
                 // 恢复即重置换视图预算：ON_RESUME 之后平台会重新交付 Surface，
@@ -3630,12 +3701,12 @@ constructor(
         // 字号同理：原生渲染器以硬编码的 14.0px 启动，不下发则用户的设置永远到不了
         // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
         bridge.applyRenderContract(
-            RenderContract(config.fontSizeTenths, effectiveFont, config.theme, spToPxScale),
+            RenderContract(config.fontSizeTenths, effectiveFont, config.themeName, spToPxScale),
         )
         appliedFontSizeTenths = config.fontSizeTenths
         LogUtil.d(
             "Runtime",
-            "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.theme.name}",
+            "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName}",
         )
         // 不设 catch：此前「记日志后继续」是 DESIGN.md:24 禁止的未声明 Fallback——
         // 它带着半套设置（字体已换而字号/光栅未换）继续渲染，用户只看到字形忽大忽小，
@@ -3654,30 +3725,9 @@ constructor(
         val packed = bridge.getGridRowsColsPacked()
         val rows = (packed shr 32).toInt()
         val cols = packed.toInt()
-        // 只用有效值覆写单元格度量：当前 bridge 返回 0f/0（桩），
-        // 写入这些值会覆盖按 Surface 计算出的真实度量。
-        // 原生度量以逻辑像素（字体管线单位）给出；
-        // 而 TerminalSurface 中的触摸/锚点计算以物理像素进行，
-        // 故在此按光栅缩放——这修掉了长按命中测试落到错误单元格
-        // 以及字号不匹配的反馈。缩放系数须与渲染器同口径（spToPxScale），
-        // 否则系统字体缩放 ≠ 1 时触摸命中与渲染相差一个 fontScale 倍。
-        val rawCellWidth = bridge.getCellWidth()
-        val rawCellHeight = bridge.getCellHeight()
-        // 物理像素尺寸（用于渲染/触摸/网格）：已按光栅缩放
-        val newCellWidth = rawCellWidth * spToPxScale
-        val newCellHeight = rawCellHeight * spToPxScale
-        val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
-        if (newCellWidth > 0f) cellWidth = newCellWidth
-        if (newCellHeight > 0f) cellHeight = newCellHeight
-        // 单元格度量是输入法跟随平移量的输入（`computeContentBottomPx` 按行号×行高
-        // 算内容下沿）。字号或捏合缩放改掉它后必须重发，否则内容下沿行号未变时
-        // （`lastContentRowFlow` 去重不发射）平移量停留在旧行高算出的值。
-        publishCellMetrics()
-        // 单元格度量首次可用时必须重算网格：启动序列里 [attachPendingSurface] 的这次
-        // 同步可能早于 native 字体度量就绪，[recomputeGridFromFontMetrics] 会因
-        // cellWidth/cellHeight == 0 提前返回，而此后没有任何路径重试——网格会永久停在
-        // spawn 默认 24×80（屏幕下半部空白），直到旋转等外部尺寸事件。
-        if (!hadCellMetrics && cellWidth > 0f && cellHeight > 0f) {
+        // 单元格度量经 refreshCellMetricsFrom 按光栅缩放换算（修掉长按命中落到
+        // 错误单元格与字号不匹配）；首次拿到有效度量时重算网格。
+        if (refreshCellMetricsFrom(bridge)) {
             recomputeGridFromFontMetrics()
         }
         // CAS，尺寸检查置于 lambda 内部：旧代码在 update 之外读 rows/cols，
@@ -3859,38 +3909,6 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
 }
 
 /**
- * 主题调色板 → 桥接层位形：16 色 ANSI 槽位按索引展开成具名字段。
- *
- * 纯函数（只读入参与 `Color.toArgb`），故提到类外——它既不碰会话状态也不碰
- * Context，却是 `TerminalRuntime` 里最长的一段与运行时无关的样板。
- */
-private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
-    val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
-    return BridgeTheme(
-        name = resolvedTheme.name,
-        background = resolvedTheme.background.toArgb(),
-        foreground = resolvedTheme.foreground.toArgb(),
-        cursor = resolvedTheme.cursor.toArgb(),
-        ansi0 = ansiInts[0],
-        ansi1 = ansiInts[1],
-        ansi2 = ansiInts[2],
-        ansi3 = ansiInts[3],
-        ansi4 = ansiInts[4],
-        ansi5 = ansiInts[5],
-        ansi6 = ansiInts[6],
-        ansi7 = ansiInts[7],
-        ansi8 = ansiInts[8],
-        ansi9 = ansiInts[9],
-        ansi10 = ansiInts[10],
-        ansi11 = ansiInts[11],
-        ansi12 = ansiInts[12],
-        ansi13 = ansiInts[13],
-        ansi14 = ansiInts[14],
-        ansi15 = ansiInts[15],
-    )
-}
-
-/**
  * 一条会话的完整渲染契约：主题 + 字体族 + 字号 + 光栅尺度。
  *
  * 两条下发路径（建会话后的 `applyRenderSettings`、配置变化后的 `applySettings`）
@@ -3899,7 +3917,7 @@ private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTh
  * 字形被拉伸，单元格度量与网格整体偏掉一个 fontScale 倍。
  */
 private fun Bridge.applyRenderContract(contract: RenderContract) {
-    setTheme(contract.theme)
+    setTheme(contract.themeName)
     setFontFamily(contract.fontFamily)
     setFontSizeInPlace(contract.fontSizeTenths)
     setRasterScale(contract.rasterScale)
@@ -3909,7 +3927,7 @@ private fun Bridge.applyRenderContract(contract: RenderContract) {
 private data class RenderContract(
     val fontSizeTenths: Int,
     val fontFamily: String,
-    val theme: BridgeTheme,
+    val themeName: String,
     val rasterScale: Float,
 )
 
@@ -4081,25 +4099,3 @@ internal fun decideSurfaceRecreate(attempts: Int, lastRequestNanos: Long, nowNan
  * [exhausted] = 次数上限已用尽（调用方据此只告警一次）。
  */
 internal data class SurfaceRecreateDecision(val request: Boolean = false, val exhausted: Boolean = false)
-
-/**
- * 按主题模式从设置快照选出终端主题名（纯函数，重读选择逻辑可单元测试；
- * `resolveThemeName` 只负责快照读取与未知清除）。
- *
- * `themeMode` 为 `day`/`night`/`fixed` 时直取对应键；其他值按 `appThemeMode`
- * （`day`/`night` 直定，否则跟随系统）决定用日间名还是夜间名。
- */
-internal fun selectThemeName(stored: SettingsRepository.SettingsState, systemDark: Boolean): String {
-    val effectiveDark =
-        when (stored.appThemeMode) {
-            "day" -> false
-            "night" -> true
-            else -> systemDark
-        }
-    return when (stored.themeMode) {
-        "day" -> stored.dayThemeName
-        "night" -> stored.nightThemeName
-        "fixed" -> stored.themeName
-        else -> if (effectiveDark) stored.nightThemeName else stored.dayThemeName
-    }
-}

@@ -6,26 +6,13 @@
 
 use super::*;
 
-/// 最小主题：只给 `primary`，其余段全部缺失，用于钉住上游默认回退。
-const MINIMAL: &str = r"
+use libghostty_vt::style::RgbColor;
+
+/// 只给主色与十六色、两个反色段全缺的主题：钉住缺段回退到前景色。
+const INVERTED_SECTIONS_MISSING: &str = r"
 [colors.primary]
 background = '#101020'
 foreground = '#c0c0d0'
-";
-
-/// 完整主题：两个反色段各用其别名键，十六色两色组齐全。
-const COMPLETE: &str = r"
-[colors.primary]
-background = '#101020'
-foreground = '#c0c0d0'
-
-[colors.cursor]
-text = '#101020'
-cursor = '#0a0a0b'
-
-[colors.selection]
-text = 'CellBackground'
-background = '#1a1a2c'
 
 [colors.normal]
 black = '#010101'
@@ -52,60 +39,145 @@ fn parse(text: &str) -> Palette {
     Palette::parse("test", text).expect("内联夹具应可解析")
 }
 
-/// 缺段时按上游默认回退：反色底色取前景色，十六色取 alacritty 的
-/// `NormalColors`/`BrightColors` 默认值。回退值取自上游而非本仓库另造。
+/// 十六色缺失即解析失败：清单内各主题都写全两组十六色，回退到任何默认调色板
+/// 都只会让损坏的源被悄悄渲染成另一种配色。
 #[test]
-fn missing_sections_fall_back_to_alacritty_defaults() {
-    let palette = parse(MINIMAL);
-    assert_eq!(palette.background, [0x10, 0x10, 0x20]);
-    assert_eq!(palette.foreground, [0xc0, 0xc0, 0xd0]);
-    assert_eq!(palette.cursor, palette.foreground);
-    assert_eq!(palette.selection_background, palette.foreground);
-    assert_eq!(&palette.ansi[..8], &default_normal());
-    assert_eq!(&palette.ansi[8..], &default_bright());
+fn missing_ansi_group_is_a_parse_error() {
+    let only_primary = r"
+[colors.primary]
+background = '#101020'
+foreground = '#c0c0d0'
+";
+    assert!(
+        Palette::parse("test", only_primary).is_err(),
+        "缺十六色段必须报错而非回退"
+    );
+}
+
+/// 色值不是 ghostty 颜色语法时报错，错误信息含主题标识与出错的色值原文。
+#[test]
+fn malformed_color_names_the_offending_value() {
+    let broken = INVERTED_SECTIONS_MISSING.replace("red = '#020202'", "red = '#02020'");
+    let error = Palette::parse("broken", &broken).expect_err("残缺色值必须报错");
+    assert!(
+        error.contains("broken") && error.contains("#02020"),
+        "错误信息须含主题标识与出错色值: {error}"
+    );
+}
+
+/// 缺反色段时取前景色（同上游 `InvertedCellColors::default`）；`CellForeground`
+/// 同义，`CellBackground` 依赖单元格实际背景、解析期无从得知，故报错。
+#[test]
+fn inverted_sections_default_to_foreground() {
+    let missing = parse(INVERTED_SECTIONS_MISSING);
+    assert_eq!(missing.cursor, missing.foreground);
+    assert_eq!(missing.selection_background, missing.foreground);
+
+    let symbolic = parse(&format!(
+        "{INVERTED_SECTIONS_MISSING}
+[colors.selection]
+background = '{CELL_FOREGROUND}'
+"
+    ));
+    assert_eq!(symbolic.selection_background, symbolic.foreground);
+
+    let cell_background = format!(
+        "{INVERTED_SECTIONS_MISSING}
+[colors.cursor]
+cursor = 'CellBackground'
+"
+    );
+    assert!(
+        Palette::parse("test", &cell_background).is_err(),
+        "CellBackground 在解析期无从定值，必须报错"
+    );
 }
 
 /// 反色段的两处键名都是上游别名，须都接受；十六色按 `normal` 在前、`bright` 在后
 /// 的槽位顺序展开。
 #[test]
 fn aliases_and_ansi_slot_order_follow_the_source_layout() {
-    let palette = parse(COMPLETE);
-    assert_eq!(palette.cursor, [0x0a, 0x0a, 0x0b]);
-    assert_eq!(palette.selection_background, [0x1a, 0x1a, 0x2c]);
-    assert_eq!(palette.ansi[0], [0x01, 0x01, 0x01]);
-    assert_eq!(palette.ansi[7], [0x08, 0x08, 0x08]);
-    assert_eq!(palette.ansi[8], [0x09, 0x09, 0x09]);
-    assert_eq!(palette.ansi[15], [0x10, 0x10, 0x10]);
-}
-
-/// `CellForeground` 取前景色；`CellBackground` 依赖单元格实际背景、解析期无从得知，
-/// 故退回前景色而非误用别处的值。
-#[test]
-fn symbolic_colors_resolve_or_fall_back_to_foreground() {
-    let symbolic = parse(
-        r"
-[colors.primary]
-background = '#101020'
-foreground = '#c0c0d0'
+    let palette = parse(&format!(
+        "{INVERTED_SECTIONS_MISSING}
+[colors.cursor]
+text = '#101020'
+cursor = '#0a0a0b'
 
 [colors.selection]
-background = 'CellForeground'
-
-[colors.cursor]
-cursor = 'CellBackground'
-",
+text = 'CellBackground'
+background = '#1a1a2c'
+"
+    ));
+    assert_eq!(
+        palette.cursor,
+        RgbColor {
+            r: 0x0a,
+            g: 0x0a,
+            b: 0x0b
+        }
     );
-    assert_eq!(symbolic.selection_background, symbolic.foreground);
-    assert_eq!(symbolic.cursor, symbolic.foreground);
+    assert_eq!(
+        palette.selection_background,
+        RgbColor {
+            r: 0x1a,
+            g: 0x1a,
+            b: 0x2c
+        }
+    );
+    assert_eq!(
+        palette.ansi[0],
+        RgbColor {
+            r: 0x01,
+            g: 0x01,
+            b: 0x01
+        }
+    );
+    assert_eq!(
+        palette.ansi[7],
+        RgbColor {
+            r: 0x08,
+            g: 0x08,
+            b: 0x08
+        }
+    );
+    assert_eq!(
+        palette.ansi[8],
+        RgbColor {
+            r: 0x09,
+            g: 0x09,
+            b: 0x09
+        }
+    );
+    assert_eq!(
+        palette.ansi[15],
+        RgbColor {
+            r: 0x10,
+            g: 0x10,
+            b: 0x10
+        }
+    );
 }
 
-/// 三字符缩写每位加倍，与 alacritty 的 `#RGB` 展开一致；位数非 6/3 则无法解析。
+/// 三字符缩写由上游 ghostty 颜色语法展开，与 alacritty 的 `#RGB` 一致；
+/// `#RRGGBB` 同样被接受。
 #[test]
-fn hex_shorthand_expands_and_rejects_other_lengths() {
-    assert_eq!(parse_hex("#abc"), Some([0xaa, 0xbb, 0xcc]));
-    assert_eq!(parse_hex("#AABBCC"), Some([0xaa, 0xbb, 0xcc]));
-    assert_eq!(parse_hex("#abcd"), None);
-    assert_eq!(parse_hex("abc"), None);
+fn upstream_color_syntax_expands_hex_shorthand() {
+    assert_eq!(
+        RgbColor::parse("#abc").expect("缩写色值"),
+        RgbColor {
+            r: 0xaa,
+            g: 0xbb,
+            b: 0xcc
+        }
+    );
+    assert_eq!(
+        RgbColor::parse("#AABBCC").expect("六位色值"),
+        RgbColor {
+            r: 0xaa,
+            g: 0xbb,
+            b: 0xcc
+        }
+    );
 }
 
 /// 每个源都能解析出调色板，且标识与 alacritty 文件名逐字相同——标识同时是构建期
@@ -114,7 +186,7 @@ fn hex_shorthand_expands_and_rejects_other_lengths() {
 fn every_source_parses_and_keeps_its_identifier() {
     let themes = all();
     assert_eq!(themes.len(), SOURCES.len());
-    for theme in &themes {
+    for theme in themes {
         assert_eq!(
             theme.palette.background,
             Palette::parse(theme.name, source_of(theme.name))
@@ -123,7 +195,13 @@ fn every_source_parses_and_keeps_its_identifier() {
             "{} 的标识与清单不一致",
             theme.name,
         );
-        assert!(theme.palette.ansi.iter().all(|color| *color != [0, 0, 0]));
+        assert!(
+            theme
+                .palette
+                .ansi
+                .iter()
+                .all(|color| *color != RgbColor::default())
+        );
     }
     let unique: std::collections::BTreeSet<&str> = themes.iter().map(|theme| theme.name).collect();
     assert_eq!(unique.len(), themes.len(), "主题标识重复：{unique:?}");
@@ -140,17 +218,8 @@ fn dark_and_light_groups_are_separated() {
             && themes[first_light..].iter().all(|theme| !theme.dark),
         "深底与日间主题在 all() 中交错"
     );
-    // 默认主题以清单下标声明，故下标越界或错组都会在此暴露。
-    assert!(by_name(default_dark_name()).expect("默认夜间主题").dark);
+    // 默认主题以清单下标声明，故下标越界（在此 panic）或错组都会在此暴露。
+    assert!(default_dark().dark);
     assert!(!by_name(default_light_name()).expect("默认日间主题").dark);
-    assert_eq!(default_dark_name(), SOURCES[DEFAULT_DARK_INDEX].0);
-    assert_eq!(default_light_name(), SOURCES[DEFAULT_LIGHT_INDEX].0);
     assert_ne!(DEFAULT_DARK_INDEX, DEFAULT_LIGHT_INDEX);
-}
-
-/// 深浅阈值对两端主题都留有余量：贴近中灰的背景不会被误判。
-#[test]
-fn dark_threshold_separates_luminance_extremes() {
-    assert!(is_dark([0x21, 0x21, 0x21]));
-    assert!(!is_dark([0xfb, 0xf1, 0xc7]));
 }

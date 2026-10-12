@@ -88,7 +88,7 @@ pub enum SessionError {
     Terminal(#[from] crate::terminal::ghostty_terminal::TerminalError),
     #[error("session closed")]
     Closed,
-    #[error("invalid dimensions (out of u16 range)")]
+    #[error("invalid dimensions (zero or out of u16 range)")]
     InvalidDimensions,
 }
 
@@ -195,23 +195,6 @@ pub struct Session {
     grid_dirty: AtomicBool,
 }
 
-pub struct ThemeConfig {
-    pub background: [u8; 3],
-    pub foreground: [u8; 3],
-    pub ansi: [[u8; 3]; 16],
-}
-
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        let (ansi, background, foreground) = GhosttyTerminal::default_palette();
-        Self {
-            background,
-            foreground,
-            ansi,
-        }
-    }
-}
-
 impl Session {
     /// 以已构造的 PTY 创建会话，不启动读取/等待线程（PTY I/O 由调用方驱动）。
     /// 仅供测试配合 `MockPty` 使用；生产构造入口是 [`Session::spawn`]。
@@ -221,7 +204,7 @@ impl Session {
         rows: u32,
         cols: u32,
     ) -> Result<Self, SessionError> {
-        Self::spawn_with_theme_inner(pty, rows, cols, ThemeConfig::default())
+        Self::spawn_with_pty(pty, rows, cols)
     }
 
     /// 以默认主题创建会话。`cwd` 可选，覆盖子进程初始工作目录；
@@ -234,21 +217,11 @@ impl Session {
         env: &ShellEnv,
         cwd: Option<&Path>,
     ) -> Result<Self, SessionError> {
-        Self::spawn_with_theme(shell, rows, cols, env, cwd, ThemeConfig::default())
-    }
-
-    pub fn spawn_with_theme(
-        shell: &str,
-        rows: u32,
-        cols: u32,
-        env: &ShellEnv,
-        cwd: Option<&Path>,
-        theme: ThemeConfig,
-    ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}, cwd={cwd:?}");
-        // 预先拒绝越界尺寸（对齐 `resize` 的 `InvalidDimensions` 检查）：下方的
-        // `as u16` 会静默截断，导致缓存的 grid_size 与 PTY 不一致。
-        if !(u16::try_from(rows).is_ok() && u16::try_from(cols).is_ok()) {
+        // 预先拒绝非法尺寸（与 `resize` 同一判据）：0 行/0 列会让 Ghostty 网格与 PTY
+        // winsize 同时变成无意义值，下方的 `as u16` 还会静默截断越界尺寸，
+        // 导致缓存的 grid_size 与 PTY 不一致。
+        if rows == 0 || cols == 0 || u16::try_from(rows).is_err() || u16::try_from(cols).is_err() {
             return Err(SessionError::InvalidDimensions);
         }
         let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env, cwd) {
@@ -277,14 +250,13 @@ impl Session {
 
         let child_pid = pty.child_pid();
 
-        let mut session =
-            match Self::spawn_with_theme_inner(Box::new(pty) as Box<dyn Pty>, rows, cols, theme) {
-                Ok(session) => session,
-                Err(inner_error) => {
-                    // `read_file` 在此被丢弃，其 fd 随之安全关闭。
-                    return Err(inner_error);
-                }
-            };
+        let mut session = match Self::spawn_with_pty(Box::new(pty) as Box<dyn Pty>, rows, cols) {
+            Ok(session) => session,
+            Err(inner_error) => {
+                // `read_file` 在此被丢弃，其 fd 随之安全关闭。
+                return Err(inner_error);
+            }
+        };
 
         let exited = session.exited.clone();
         let output_tx = session.output_tx.clone();
@@ -404,13 +376,8 @@ impl Session {
         Ok(session)
     }
 
-    fn spawn_with_theme_inner(
-        pty: Box<dyn Pty>,
-        rows: u32,
-        cols: u32,
-        theme: ThemeConfig,
-    ) -> Result<Self, SessionError> {
-        log::info!("Session::spawn_with_theme_inner: creating Arc/Channel");
+    fn spawn_with_pty(pty: Box<dyn Pty>, rows: u32, cols: u32) -> Result<Self, SessionError> {
+        log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));
         let clipboard_text = Arc::new(Mutex::new(VecDeque::new()));
@@ -418,15 +385,8 @@ impl Session {
         let (output_tx, output_rx) = bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND);
         // 管道分支：原始 PTY 输出的次要消费者（日志、追踪）。
 
-        let terminal = GhosttyTerminal::new_with_theme(
-            rows,
-            cols,
-            DEFAULT_SCROLLBACK_LINES,
-            theme.background,
-            theme.foreground,
-            theme.ansi,
-        )
-        .map_err(SessionError::Terminal)?;
+        let terminal = GhosttyTerminal::new(rows, cols, DEFAULT_SCROLLBACK_LINES)
+            .map_err(SessionError::Terminal)?;
 
         Ok(Self {
             pty: PtyMaster::new(pty, exited.clone()),
@@ -461,9 +421,13 @@ impl Session {
     /// 把终端缩放到给定行列数，超出 PTY ioctl 的 u16 范围时拒绝。网格命令被丢弃时
     /// PTY winsize 仍已更新（ioctl 已成功），但调用方不得把新尺寸作为权威值发布。
     pub fn resize(&mut self, rows: u32, cols: u32) -> Result<ResizeOutcome, SessionError> {
+        // 0 行/0 列不是合法网格：与越界同判据拒绝，不把无意义尺寸递给 PTY 与 Ghostty。
         let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
             return Err(SessionError::InvalidDimensions);
         };
+        if rows == 0 || cols == 0 {
+            return Err(SessionError::InvalidDimensions);
+        }
         // 相同尺寸直接短路，**除非**上一次网格 resize 被丢弃——此时缓存尺寸已与网格
         // 不符，必须重发相同尺寸以修复分歧。
         let dirty = self.grid_dirty.load(Ordering::Acquire);
@@ -707,8 +671,8 @@ impl Session {
         self.terminal.title()
     }
 
-    pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
-        self.terminal.mode_get(mode_num, kind)
+    pub fn mode_get(&self, mode: libghostty_vt::terminal::Mode) -> bool {
+        self.terminal.mode_get(mode)
     }
 
     pub fn focus_event(&mut self, focused: bool) {
@@ -718,8 +682,7 @@ impl Session {
         // （xterm 语义）。超时很短：调用方持会话锁而该锁每帧都被渲染与事件收割取得，
         // VT 线程卡住时不得拖满通用查询超时。
         if !self.terminal.mode_get_with_timeout(
-            1004,
-            0,
+            libghostty_vt::terminal::Mode::FOCUS_EVENT,
             std::time::Duration::from_millis(Self::FOCUS_MODE_QUERY_TIMEOUT_MS),
         ) {
             return;
@@ -1019,6 +982,26 @@ mod tests {
             .expect("writer thread panicked")
             .expect("放行后写入必须成功");
         assert_eq!(session.lock().expect("session lock").terminal().rows(), 24);
+    }
+
+    /// 零行/零列不是合法网格：必须在触及 PTY 与 Ghostty 之前被拒绝，
+    /// 且不消耗一次 resize 计数（PTY 未被改动）。
+    #[test]
+    fn session_resize_rejects_zero_dimensions() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        let before = handle.resize_count();
+        for (rows, cols) in [(0, 80), (24, 0), (0, 0)] {
+            assert!(
+                matches!(
+                    session.resize(rows, cols),
+                    Err(SessionError::InvalidDimensions)
+                ),
+                "{rows}x{cols} 必须被判为非法尺寸"
+            );
+        }
+        assert_eq!(handle.resize_count(), before, "非法尺寸不得下发到 PTY");
     }
 
     #[test]
@@ -1323,7 +1306,7 @@ mod tests {
         let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // 模式 2004（bracketed paste）默认应关闭。
-        assert!(!session.mode_get(2004, 0));
+        assert!(!session.mode_get(libghostty_vt::terminal::Mode::BRACKETED_PASTE));
     }
 
     #[test]

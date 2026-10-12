@@ -24,7 +24,8 @@ cdylib、单测与 bench 在干净环境下全部链接失败（既有绿灯来�
 
 #### Scenario: 全新环境链接不失败
 
-- **WHEN** 清空 `libghostty-vt-sys` 构建产物后执行 `cargo build --package native`
+- **WHEN** 清空 `libghostty-vt-sys` 构建产物后执行
+      `cargo build --manifest-path native/Cargo.toml`
 - **THEN** 主机 cdylib、单测二进制与 bench 链接成功，MUST NOT 出现
       `rust-lld: error: undefined symbol:`（名字为空）
 

@@ -14,6 +14,15 @@ use foldhash::fast::RandomState;
 /// （高 alpha = 不透明高亮，交换后视觉更清晰）。
 /// 低于该阈值只做混合（淡着色）。
 const SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD: u8 = 128;
+
+/// 当前选中命中的高亮 alpha：完全不透明。
+pub const SEARCH_HIGHLIGHT_CURRENT_ALPHA: u8 = 255;
+
+/// 其余命中的高亮 alpha：同样反色但降低不透明度，使当前项仍能突出。
+///
+/// 取 160 是因为它仍 ≥ [`SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD`]（128），故与当前项
+/// 走同一条「交换前景/背景再混合」的分支，只是不透明度不同。
+pub const SEARCH_HIGHLIGHT_OTHER_ALPHA: u8 = 160;
 /// 竖线光标宽度占单元格宽度比例（DECSCUSR 竖线样式）。
 const BAR_CURSOR_WIDTH_FRACTION: f32 = 0.25;
 /// 下划线光标高度占单元格高度比例（DECSCUSR 下划线样式）。
@@ -22,8 +31,7 @@ const UNDERLINE_CURSOR_HEIGHT_FRACTION: f32 = 0.15;
 const CURSOR_MARKER_MINIMUM_THICKNESS: f32 = 1.0;
 /// 方块光标背景透明度系数（半透明覆盖保证原文可读）。
 const BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE: f32 = 0.7;
-/// 未指定光标颜色时的默认光标颜色（不透明白色）。
-const DEFAULT_CURSOR_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+
 use std::collections::HashMap;
 
 /// 供 build_instances_from_cell_data() 渲染光标用的光标状态。
@@ -33,18 +41,14 @@ pub struct CellCursor {
     pub col: u32,
     pub visible: bool,
     pub style: CursorStyle,
-    pub color: Option<[f32; 4]>,
+    /// 当前主题的光标色，由调用方从 [`crate::terminal::theme`] 解析后传入。
+    pub color: [f32; 4],
 }
 
 impl CellCursor {
-    /// 解析后的光标颜色，未指定时使用默认白色。
-    fn resolved_color(self) -> [f32; 4] {
-        self.color.unwrap_or(DEFAULT_CURSOR_COLOR)
-    }
-
     /// 半透明光标标记背景，保证原文可读。
     fn marker_background(self) -> [f32; 4] {
-        let cursor_color = self.resolved_color();
+        let cursor_color = self.color;
         [
             cursor_color[0],
             cursor_color[1],
@@ -1181,7 +1185,7 @@ mod tests {
             col: 5,
             visible: true,
             style: CursorStyle::Block,
-            color: Some([0.0, 1.0, 0.0, 1.0]),
+            color: [0.0, 1.0, 0.0, 1.0],
         };
         let instances = build(&cells, cursor, &[]);
         assert_eq!(
@@ -1236,6 +1240,46 @@ mod tests {
     }
 
     /// 以标准测试配置执行一次缓存构建。
+    /// 增量缓存用例的公共夹具：24 行全 `a` 的网格、隐藏光标、1024² 图集与
+    /// 24×80 缓存，并以一次全脏构建把缓存播种好。
+    struct SeededCacheBuild {
+        cells: Vec<CellData>,
+        cursor: CellCursor,
+        font_pipeline: crate::render::font::FontPipeline,
+        cache: CachedInstances,
+        instances: Vec<CellInstance>,
+    }
+
+    fn seeded_cache_build() -> SeededCacheBuild {
+        let cells: Vec<CellData> = (0..24)
+            .map(|row| cell_data(row, 0, 'a', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0))
+            .collect();
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: [1.0, 1.0, 1.0, 1.0],
+        };
+        let mut seeded = SeededCacheBuild {
+            cells,
+            cursor,
+            font_pipeline: crate::render::font::FontPipeline::new(1024, 1024, 14.0),
+            cache: CachedInstances::new(24, 80),
+            instances: Vec::new(),
+        };
+        let ok = run_cached_build(
+            &seeded.cells,
+            seeded.cursor,
+            &std::iter::repeat_n(true, 24).collect::<Vec<bool>>(),
+            &mut seeded.font_pipeline,
+            &mut seeded.cache,
+            &mut seeded.instances,
+        );
+        assert!(ok.is_some(), "initial full build should succeed");
+        seeded
+    }
+
     fn run_cached_build(
         cells: &[CellData],
         cursor: CellCursor,
@@ -1274,32 +1318,13 @@ mod tests {
     /// 从缓存提供（NFR-010：只重绘脏行）。
     #[test]
     fn cached_incremental_rebuild_matches_full_build() {
-        let mk = |row: u32, ch: char| {
-            cell_data(row, 0, ch, [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
-        };
-        let cells: Vec<CellData> = (0..24).map(|row| mk(row, 'a')).collect();
-        let cursor = CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: None,
-        };
-
-        // 第 1 帧：全脏一遍以播种缓存。
-        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        let mut instances = Vec::new();
-        let mut cache = CachedInstances::new(24, 80);
-        let all_dirty = vec![true; 24];
-        let ok = run_cached_build(
-            &cells,
+        let SeededCacheBuild {
+            cells,
             cursor,
-            &all_dirty,
-            &mut font_pipeline,
-            &mut cache,
-            &mut instances,
-        );
-        assert!(ok.is_some(), "initial full build should succeed");
+            mut font_pipeline,
+            mut cache,
+            mut instances,
+        } = seeded_cache_build();
         let full_frame1 = build(&cells, cursor, &[]);
         assert!(
             instances_equal(&instances, &full_frame1),
@@ -1309,7 +1334,7 @@ mod tests {
         // 第 2 帧：仅第 2 行变化；其余各行必须从
         // 缓存提供，结果仍须等于完整重建。
         let mut cells2 = cells.clone();
-        cells2[2] = mk(2, 'z');
+        cells2[2] = cell_data(2, 0, 'z', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
         let mut dirty = vec![false; 24];
         dirty[2] = true;
         instances.clear();
@@ -1340,32 +1365,13 @@ mod tests {
     /// 直到各行碰巧重新变脏。
     #[test]
     fn cached_stale_atlas_generation_forces_full_rebuild() {
-        let mk = |row: u32, ch: char| {
-            cell_data(row, 0, ch, [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
-        };
-        let cells: Vec<CellData> = (0..24).map(|row| mk(row, 'a')).collect();
-        let cursor = CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: None,
-        };
-
-        // 第 1 帧：全脏一遍以播种缓存。
-        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        let mut instances = Vec::new();
-        let mut cache = CachedInstances::new(24, 80);
-        let all_dirty = vec![true; 24];
-        let ok = run_cached_build(
-            &cells,
+        let SeededCacheBuild {
+            cells,
             cursor,
-            &all_dirty,
-            &mut font_pipeline,
-            &mut cache,
-            &mut instances,
-        );
-        assert!(ok.is_some(), "initial full build should succeed");
+            mut font_pipeline,
+            mut cache,
+            mut instances,
+        } = seeded_cache_build();
 
         // 模拟缓存填充之后的图集重建/驱逐。
         cache.atlas_generation = cache.atlas_generation.wrapping_add(1);
@@ -1374,7 +1380,7 @@ mod tests {
         // 内容会从缓存被提供；代际陈旧时则必须整帧
         // 改为重建。
         let mut cells2 = cells.clone();
-        cells2[2] = mk(2, 'z');
+        cells2[2] = cell_data(2, 0, 'z', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
         let clean = vec![false; 24];
         instances.clear();
         let ok = run_cached_build(
@@ -1425,7 +1431,7 @@ mod tests {
             col: 0,
             visible: false,
             style: CursorStyle::Block,
-            color: None,
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let config = CellInstanceConfig {
             rows: ROWS,
@@ -1551,7 +1557,7 @@ mod tests {
             col: 0,
             visible: false,
             style: CursorStyle::Block,
-            color: None,
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let full = build(&cells, cursor, &[]);
@@ -1607,7 +1613,7 @@ mod tests {
             col: 0,
             visible: false,
             style: CursorStyle::Block,
-            color: None,
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let full = build(&cells, cursor, &[]);
@@ -1656,7 +1662,7 @@ mod tests {
             col: 38,
             visible: true,
             style: crate::terminal::ghostty_terminal::CursorStyle::Block,
-            color: Some([1.0, 1.0, 1.0, 1.0]),
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         // 光标下仅一个空单元格（码点 0）。
         let cells = vec![cell_data(0, 38, '\0', [1.0; 4], [0.0; 4], 0)];
@@ -1689,7 +1695,7 @@ mod tests {
             col: 5,
             visible: true,
             style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
-            color: Some([1.0, 1.0, 1.0, 1.0]),
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let cells = vec![cell_data(0, 5, '\0', [1.0; 4], [0.0; 4], 0)];
         let instances = build(&cells, cursor, &[]);
@@ -1729,7 +1735,7 @@ mod tests {
             col: 7,
             visible: true,
             style: crate::terminal::ghostty_terminal::CursorStyle::Underline,
-            color: Some([1.0, 1.0, 1.0, 1.0]),
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let cells = vec![cell_data(0, 7, '\0', [1.0; 4], [0.0; 4], 0)];
         let instances = build(&cells, cursor, &[]);
@@ -1760,7 +1766,7 @@ mod tests {
             col: 0,
             visible: true,
             style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
-            color: Some([1.0, 1.0, 1.0, 1.0]),
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let cells = vec![cell_data(
             0,

@@ -1,6 +1,7 @@
 # key-input-encoding Specification
 
 ## Purpose
+
 硬件按键到终端转义序列的编码归属与模式适配。以 Ghostty 为终端状态的单一来源，
 按键编码 MUST 取用上游 `key::Encoder`，本仓 MUST NOT 自维护按键转义序列表。
 编码在 VT 线程完成：上游编码器的模式选项须从活体 `Terminal` 读取，而 `Terminal`

@@ -1,35 +1,17 @@
 //! 与 JNI 无关的按键修饰辅助函数，置于 `ffi.rs` 之外以便脱离 JVM 单元测试。
 
-/// 对按键串施加 Ctrl/Alt/Super 修饰语义，返回终端收到的字节序列。
-/// 可打印 ASCII 配 Ctrl 走标准 `code & 0x1F` 公式；Alt/Super 加 ESC 前缀；
-/// 控制字符与非 ASCII 字节原样透传。掩码值取上游 `key.Mods` 原始位
-/// （与 Kotlin `KeyModifiers` 同一套位）。
-pub(crate) fn encode_modifiers(input: &[u8], modifiers: i32) -> Vec<u8> {
-    const CTRL_MASK: i32 = 2;
-    const ALT_MASK: i32 = 4;
-    const SUPER_MASK: i32 = 8;
+/// 终端收到的按键字节：Alt/Super 加 ESC 前缀，其余原样。
+///
+/// 此处**不做** Ctrl 折叠（`code & 0x1F`）：走本入口的调用方已保证 Ctrl 未激活
+/// （`Bridge.processKeyEvent` 的两条回退分支都在 `!ctrlActive` 内），Ctrl 折叠由
+/// 上游按键编码器负责。两端各实现一遍 Ctrl 规则只会让它们对同一按键产生分歧。
+pub(crate) fn encode_meta_prefix(input: &[u8], meta_prefix: bool) -> Vec<u8> {
     const ESCAPE_BYTE: u8 = 0x1B;
-    const CONTROL_FORMULA_MASK: u8 = 0x1F;
-    const PRINTABLE_ASCII_RANGE: std::ops::RangeInclusive<u8> = 0x20..=0x7E;
 
-    let ctrl = (modifiers & CTRL_MASK) != 0;
-    let alt_or_super = (modifiers & (ALT_MASK | SUPER_MASK)) != 0;
-
-    let mut output = Vec::with_capacity(input.len() + 2);
-
-    if alt_or_super {
-        output.push(ESCAPE_BYTE); // Alt/Super 加 ESC 前缀
+    let mut output = Vec::with_capacity(input.len() + 1);
+    if meta_prefix {
+        output.push(ESCAPE_BYTE);
     }
-
-    if ctrl && input.len() == 1 {
-        let code = input[0];
-        // 可打印 ASCII 套用 Ctrl 公式；控制字符与非 ASCII 字节原样透传。
-        if PRINTABLE_ASCII_RANGE.contains(&code) {
-            output.push(code & CONTROL_FORMULA_MASK);
-            return output;
-        }
-    }
-
     output.extend_from_slice(input);
     output
 }
@@ -38,44 +20,15 @@ pub(crate) fn encode_modifiers(input: &[u8], modifiers: i32) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    // ── encode_modifiers ──────────────────────────────────────────
-
     #[test]
-    fn encode_modifiers_plain_passthrough() {
-        assert_eq!(encode_modifiers(b"hello", 0), b"hello");
+    fn plain_input_passes_through() {
+        assert_eq!(encode_meta_prefix(b"hello", false), b"hello");
     }
 
     #[test]
-    fn encode_modifiers_ctrl_printable_uses_mask() {
-        // Ctrl+A → 0x01，Ctrl+Z → 0x1A。掩码按上游 key.Mods 位（CTRL=2）。
-        assert_eq!(encode_modifiers(b"a", 2), b"\x01");
-        assert_eq!(encode_modifiers(b"z", 2), b"\x1a");
-    }
-
-    #[test]
-    fn encode_modifiers_ctrl_non_printable_passthrough() {
-        // Ctrl 作用于已有控制字符时原样透传。
-        assert_eq!(encode_modifiers(b"\x01", 2), b"\x01");
-        // Ctrl 作用于非 ASCII 字节时原样透传。
-        assert_eq!(encode_modifiers(&[0xC3, 0xA9], 2), b"\xc3\xa9");
-    }
-
-    #[test]
-    fn encode_modifiers_alt_prefixes_esc() {
-        // 上游 key.Mods 位：ALT=4，SUPER=8。
-        assert_eq!(encode_modifiers(b"a", 4), b"\x1ba");
-        assert_eq!(encode_modifiers(b"a", 8), b"\x1ba");
-    }
-
-    #[test]
-    fn encode_modifiers_ctrl_alt_combined() {
-        // Alt+Ctrl+A → ESC + Ctrl+A。
-        assert_eq!(encode_modifiers(b"a", 4 | 2), b"\x1b\x01");
-    }
-
-    #[test]
-    fn encode_modifiers_ctrl_multichar_no_mask() {
-        // Ctrl 下多字节：无单字符可套公式，原样透传。
-        assert_eq!(encode_modifiers(b"ab", 2), b"ab");
+    fn meta_prefix_leads_with_escape() {
+        assert_eq!(encode_meta_prefix(b"a", true), b"\x1ba");
+        // 多字节输入（如输入法给出的非 ASCII 字符）同样只加前缀，不逐字节处理。
+        assert_eq!(encode_meta_prefix("é".as_bytes(), true), b"\x1b\xc3\xa9");
     }
 }

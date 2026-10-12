@@ -1,6 +1,7 @@
 package terminal.emulator.ui.theme
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -49,9 +50,10 @@ class TerminalThemePaletteTest {
     }
 
     @Test
-    fun `packed theme keeps its own name`() {
-        val packedColors = ByteArray(ThemeRepository.PACKED_THEME_BYTES) { 0x01 }
-        val theme = ThemeRepository.themeFromPacked("test_theme", true, packedColors)
-        assertEquals("test_theme", theme.name)
+    fun `packed theme keeps its own name and dark flag`() {
+        val lightPacked = ByteArray(ThemeRepository.PACKED_THEME_BYTES) { 0x01 }
+        assertEquals("test_theme", ThemeRepository.themeFromPacked("test_theme", lightPacked).name)
+        val darkPacked = lightPacked.copyOf().also { it[0] = 1 }
+        assertTrue(ThemeRepository.themeFromPacked("test_theme", darkPacked).dark)
     }
 }

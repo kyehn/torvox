@@ -33,8 +33,9 @@ use jni::sys::{
 };
 use jni::{Env, EnvUnowned, jni_str};
 
-use super::text_utils::encode_modifiers;
+use super::text_utils::encode_meta_prefix;
 use crate::render::cell_builder::SearchHighlight;
+use crate::render::cell_builder::{SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA};
 use crate::terminal::ShellEnv;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::session::Session;
@@ -177,10 +178,10 @@ struct RenderState {
     /// 上次绘制时的搜索高亮（视口行空间）。脏带渲染必须在其变化或被清除时标记对应行，
     /// 否则陈旧的高亮像素会残留在累加器中。
     last_drawn_search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
-    /// 应用层光标色覆盖（用户主题），叠加在终端自身光标色之上；`None` = 跟随终端。
-    /// 由 `setCursorColor` 写入，渲染线程构建 `CellCursor` 时读取；主题应用总是伴随
-    /// 重绘，故无需空闲重绘门控。
-    cursor_color: Option<[f32; 4]>,
+    /// 当前生效的终端主题（静态清单项）。渲染态自身的颜色——光标色与搜索高亮色——
+    /// 都取自它，故颜色真源只存在于 [`crate::terminal::theme`] 一处，Kotlin 无需
+    /// 回传颜色。由 `setTheme` 写入，主题变更总是伴随重绘。
+    theme: &'static crate::terminal::theme::Theme,
     /// 预分配的脏行掩码，跨帧复用以避免逐帧 `Vec<bool>` 分配（约 100-300 字节 × 120fps）。
     dirty_mask: Vec<bool>,
     /// Kitty 图像缓存（按会话键控）：VT 线程经生成戳推送变更通知，
@@ -266,7 +267,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             last_frame: None,
             last_scroll_px: 0.0,
             last_drawn_search_highlights: Vec::new(),
-            cursor_color: None,
+            theme: crate::terminal::theme::default_dark(),
             dirty_mask: Vec::new(),
             kitty_session: 0,
             kitty_generation: u64::MAX,
@@ -568,9 +569,8 @@ fn init_session_inner(
     };
 
     // 回滚行数固定：PROHIBITED 禁止「终端回滚行数」设置，故不提供任何入参通道。
-    let theme = crate::terminal::session::ThemeConfig::default();
-
-    match Session::spawn_with_theme(&shell_path, rows, cols, &shell_env, None, theme) {
+    // 会话以默认主题起，真实主题随后经 `setTheme` 按标识下发。
+    match Session::spawn(&shell_path, rows, cols, &shell_env, None) {
         Ok(session) => {
             let id = next_session_id();
             let entry = SessionEntry {
@@ -741,28 +741,6 @@ fn get_session_count_inner(_env: &mut Env, _class: JClass) -> jint {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// JNI 导出：getScrollbackRows
-// ══════════════════════════════════════════════════════════════════════════
-
-/// 返回某会话的回滚行数（未知或为空时为 0）。轻量读取：加会话锁 → 查询 Ghostty → 解锁。
-/// 供 Kotlin 帧耗时内存仪表使用——跨窗口单调增长的行数意味着回滚无界。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getScrollbackRows(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    session_id: jlong,
-) -> jint {
-    jni_export_guard!(&mut unowned_env, 0, |_env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            return Ok(0);
-        };
-        let session = entry.session.lock();
-        session.terminal().scrollback_length() as jint
-    })
-}
-
 // ── 输入、调整与键鼠编码 ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：resize
@@ -1039,25 +1017,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
     _class: JClass,
     session_id: jlong,
     key: JString,
-    modifiers: jint,
+    meta_prefix: jboolean,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        write_key_inner(env, _class, session_id, key, modifiers)
+        write_key_inner(env, _class, session_id, key, meta_prefix)
     })
 }
 
-/// 把单个按键的可打印字符写入 PTY，并按修饰位套 ESC 前缀与 Ctrl 折叠。
+/// 把单个按键的可打印字符写入 PTY，`meta_prefix` 为真时加 ESC 前缀（Alt/Super）。
 ///
 /// 只在**按键编码器不覆盖该键码**时调用：上游 `key::Key` 没有对应键的键码
 /// （如 `KEYCODE_AT` 的 `@` 实为 Shift+2）落到此处，取平台给出的码点直写。
-/// `modifiers` 取上游 `key.Mods` 原始位，与 Kotlin `KeyModifiers` 同一套。
-/// 这里的 Ctrl 折叠是回退入口的兜底，正常键入路径由 `encodeKeyEvent` 编码。
+/// Ctrl 折叠不在此处——调用方已保证 Ctrl 未激活，Ctrl 由上游编码器负责。
 fn write_key_inner(
     env: &mut Env,
     _class: JClass,
     session_id: jlong,
     key: JString,
-    modifiers: jint,
+    meta_prefix: jboolean,
 ) {
     let id = session_id as u64;
 
@@ -1069,7 +1046,7 @@ fn write_key_inner(
     if let Some(entry) = registry.get(&id) {
         // 会话锁只用来取 PTY 写入面；真正的写入在其之外（理由同 `feed_pty_inner`）。
         let pty_master = entry.session.lock().pty_master();
-        let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
+        let bytes = encode_meta_prefix(key_str.as_bytes(), meta_prefix != JNI_FALSE);
         let result = pty_master.write(&bytes);
         if let Err(e) = result {
             // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
@@ -1328,6 +1305,36 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'loc
 }
 
 fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jstring {
+    // 步骤 1：推进全部会话（输出灌入终端、收割 VT 副作用、事件入队）。
+    pump_sessions();
+
+    // 步骤 2：从队列排空一个事件。
+    let event = EVENT_QUEUE.pop();
+
+    match event {
+        Some(e) => {
+            let json = match serde_json::to_string(&e) {
+                Ok(json) => json,
+                Err(err) => {
+                    log::error!("pollEvent: event serialization failed: {err}");
+                    return std::ptr::null_mut();
+                }
+            };
+            string_to_jstring(env, &json)
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+// ── 渲染生命周期 ──────────────────────────────────────────────────
+/// 推进全部会话的终端状态，并把本轮产生的事件推入事件队列。
+///
+/// 与 [`poll_event_inner`] 的步骤 2 分离，使 [`Java_terminal_emulator_bridge_NativeBridge_pumpSessions`]
+/// 可在渲染暂停期间单独调用：此时渲染线程已停，`pollEvent` 无人调用，若会话也不再
+/// 推进，有界输出通道会填满 → 读线程阻塞 → PTY 内核缓冲填满 → 后台作业停摆。
+/// 本函数不消费事件队列，故后台期间产生的剪贴板、退出等事件仍在队列中，
+/// 渲染恢复后由 `pollEvent` 正常派发。
+fn pump_sessions() {
     // 步骤 1：轮询活跃会话的新事件。先收集事件，释放会话锁后再推入，
     // 以保持锁顺序 `SESSION_REGISTRY` → `Session` → `EVENT_QUEUE`。
     // 绝不在持有 `Session` 锁时锁 `EVENT_QUEUE`。
@@ -1466,30 +1473,17 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             },
         });
     }
-    // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。
-    for event in pending_events {
-        EVENT_QUEUE.push(event);
-    }
-
-    // 步骤 2：从队列排空一个事件。
-    let event = EVENT_QUEUE.pop();
-
-    match event {
-        Some(e) => {
-            let json = match serde_json::to_string(&e) {
-                Ok(json) => json,
-                Err(err) => {
-                    log::error!("pollEvent: event serialization failed: {err}");
-                    return std::ptr::null_mut();
-                }
-            };
-            string_to_jstring(env, &json)
-        }
-        None => std::ptr::null_mut(),
-    }
 }
 
-// ── 渲染生命周期 ──────────────────────────────────────────────────
+/// 不消费事件的会话推进泵：渲染暂停期间维持终端状态前进，避免后台作业停摆。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pumpSessions(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| pump_sessions());
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：attachWindow
 // ══════════════════════════════════════════════════════════════════════════
@@ -1613,7 +1607,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
     jni_export_guard!(&mut unowned_env, -1, |_env| render_inner(session_id as u64))
 }
 
-/// 由 `CursorInfo` 快照构建光标，并套用渲染状态中的光标色（用户主题）。
+/// 由 `CursorInfo` 快照构建光标，光标色取当前主题。
 /// 光标样式恒为默认块状：样式覆盖已随光标样式设置一并移除。
 fn build_cursor(
     render_state: &RenderState,
@@ -1624,7 +1618,9 @@ fn build_cursor(
         col: cursor_info.col,
         visible: cursor_info.visible,
         style: cursor_info.style,
-        color: render_state.cursor_color,
+        color: crate::terminal::ghostty_terminal::GhosttyTerminal::color_to_float(
+            render_state.theme.palette.cursor,
+        ),
     }
 }
 
@@ -2715,63 +2711,85 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
 }
 
 // ── 搜索与选择 ──────────────────────────────────────────────────
-/// 返回搜索匹配的扁平 `IntArray`：每项三个 `Int`，依次为 `row`、`start_col`、
-/// `end_col`，列下标为字符列。会话不存在、查询超时或断连时返回 null。
-///
-/// 扁平数组而非对象数组：JNI 已用 `IntArray` 传选区界限（见 [`bounds_to_int_array`]），
-/// 同形状的数据没有理由再引入一层编解码与一份跨语言 schema 镜像。
+/// 设置搜索 needle 并同步跑完搜索，返回命中总数。会话不存在、查询超时或断连时返回 0。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScrollback<'local>(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSetNeedle<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
-    query: JString<'local>,
-    case_sensitive: jboolean,
+    needle: JString<'local>,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, 0, |env| {
+        let id = session_id as u64;
+        let Ok(needle) = needle.try_to_string(env) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("searchSetNeedle: bad needle string"),
+            );
+            return Ok(0);
+        };
+        let Some(query_tx) = session_query_channel(id) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("searchSetNeedle: session not found"),
+            );
+            return Ok(0);
+        };
+        let total = crate::terminal::ghostty_terminal::GhosttyTerminal::search_set_needle_on(
+            &query_tx, &needle,
+        );
+        log::info!("searchSetNeedle: needle={needle:?} matches={total}");
+        total as jint
+    })
+}
+
+/// 选中下一个（`forward = true`）或上一个命中，返回 `[序号, 总数, 行, 起始列, 结束列]`；
+/// 无命中、会话不存在、查询超时或断连时返回 null。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSelect<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    forward: jboolean,
 ) -> jintArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
-        let Ok(query) = query.try_to_string(env) else {
+        let Some(query_tx) = session_query_channel(id) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("searchAllInScrollback: bad query string"),
+                jni_str!("searchSelect: session not found"),
             );
             return Ok(std::ptr::null_mut());
         };
-        let session_handle = {
-            let registry = rlock_session_registry();
-            let Some(entry) = registry.get(&id) else {
-                let _ = env.throw_new(
-                    jni_str!("java/lang/IllegalArgumentException"),
-                    jni_str!("searchAllInScrollback: session not found"),
-                );
-                return Ok(std::ptr::null_mut());
-            };
-            entry.session.clone()
+        let Some(selected) = crate::terminal::ghostty_terminal::GhosttyTerminal::search_select_on(
+            &query_tx, forward,
+        ) else {
+            return Ok(std::ptr::null_mut());
         };
-        // 注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让销毁会话的写锁饥饿。
-        // 克隆的会话句柄使查询期间销毁仍安全，会话在查询结束前保持存活。
-        // 会话锁只取查询通道：VT 查询本身在锁外跑，大回滚搜索不再冻结
-        // 按帧取锁的渲染。查询期间会话被销毁则通道断开，回退空结果。
-        let query_tx = session_handle.lock().terminal().query_channel();
-        let matches =
-            crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
-                &query_tx,
-                &query,
-                case_sensitive,
-            );
-        log::info!(
-            "searchAllInScrollback: query={query:?} matches={}",
-            matches.len(),
-        );
-
-        let mut values = Vec::with_capacity(matches.len() * 3);
-        for m in &matches {
-            values.push(m.row.min(jint::MAX as u32) as jint);
-            values.push(m.start_col.min(jint::MAX as u32) as jint);
-            values.push(m.end_col.min(jint::MAX as u32) as jint);
-        }
+        let values = vec![
+            selected.index as jint,
+            selected.total as jint,
+            selected.matched.row.min(jint::MAX as u32) as jint,
+            selected.matched.start_col.min(jint::MAX as u32) as jint,
+            selected.matched.end_col.min(jint::MAX as u32) as jint,
+        ];
         jint_slice_to_int_array(env, &values)
     })
+}
+
+/// 取会话的查询通道。注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让
+/// 销毁会话的写锁饥饿；会话锁也只用于取通道（VT 查询本身在锁外跑）。
+/// 会话不存在时返回 None，由调用方抛出。
+fn session_query_channel(
+    session_id: u64,
+) -> Option<flume::Sender<crate::terminal::ghostty_terminal::Query>> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    let session = entry.session.lock();
+    let query_tx = session.terminal().query_channel();
+    drop(session);
+    drop(registry);
+    Some(query_tx)
 }
 
 // ── 字体与主题 ──────────────────────────────────────────────────
@@ -2844,129 +2862,88 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMax
     })
 }
 
-/// 内置终端主题数量。颜色真源在构建期嵌入的 alacritty 主题文件
-/// （见 [`crate::terminal::theme`]），Kotlin 经本组直接量逐项取回，不经 JSON。
+/// 内置终端主题标识清单，顺序即设置界面展示顺序（深底在前、日间在后）。
+/// 颜色真源在构建期嵌入的 alacritty 主题文件（见 [`crate::terminal::theme`]），
+/// Kotlin 逐个标识按 [`Java_terminal_emulator_bridge_NativeBridge_getThemeColors`]
+/// 取回颜色，全程直接量、不经 JSON。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeCount(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-) -> jint {
-    jni_export_guard!(&mut unowned_env, 0, |_env| theme::all().len() as jint)
-}
-
-/// 按序号取主题标识（即 alacritty 文件名，也是设置落盘键值）。
-/// 越界抛异常并返回 null，不回退默认主题。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeName<'local>(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeNames<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
-    theme_index: jint,
-) -> jstring {
-    jni_export_guard!(unowned_env, std::ptr::null_mut(), |env| {
+) -> jobjectArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let themes = theme::all();
-        let Ok(index) = usize::try_from(theme_index) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("getThemeName: index must be non-negative"),
-            );
+        let Ok(string_class) = env.find_class(jni_str!("java/lang/String")) else {
+            log::error!("getThemeNames: find_class java/lang/String failed");
             return Ok(std::ptr::null_mut());
         };
-        let Some(entry) = themes.get(index) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                JNIString::from(format!("getThemeName: index {theme_index} out of range")),
-            );
+        let Ok(array) = env.new_object_array(themes.len() as jsize, string_class, JObject::null())
+        else {
+            log::error!("getThemeNames: new_object_array failed");
             return Ok(std::ptr::null_mut());
         };
-        string_to_jstring(env, entry.name)
+        // 元素初值为 null：任一 new_string / set_element 失败都会留下 null，而
+        // Kotlin 侧声明是 `Array<String>`，null 元素会成为无声的 NPE。故失败即整体作废。
+        for (index, entry) in themes.iter().enumerate() {
+            let Ok(element) = env.new_string(entry.name) else {
+                log::error!("getThemeNames: cannot encode theme {index}, aborting list");
+                return Ok(std::ptr::null_mut());
+            };
+            if let Err(error) = array.set_element(env, index, &element) {
+                log::error!("getThemeNames: cannot store theme {index}: {error}");
+                return Ok(std::ptr::null_mut());
+            }
+        }
+        array.into_raw()
     })
 }
 
-/// 按序号取深底标记。越界抛异常并返回 false。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isThemeDark(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    theme_index: jint,
-) -> jboolean {
-    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
-        let themes = theme::all();
-        let Ok(index) = usize::try_from(theme_index) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("isThemeDark: index must be non-negative"),
-            );
-            return Ok(JNI_FALSE);
-        };
-        let Some(entry) = themes.get(index) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                JNIString::from(format!("isThemeDark: index {theme_index} out of range")),
-            );
-            return Ok(JNI_FALSE);
-        };
-        if entry.dark { JNI_TRUE } else { JNI_FALSE }
-    })
-}
-
-/// 按序号取主题颜色：60 字节 = 背景 3 + 前景 3 + 光标 3 + 选区 3 + 十六色 48。
-/// 越界或分配失败返回 null（不回退默认主题）。
+/// 按标识取主题颜色：`dark` 标记（0/1）与 60 字节颜色，依次为背景、前景、光标、
+/// 选区与十六色，每色三字节。未知标识返回 null（设置数据错误，由调用方清除该键），
+/// 分配失败亦返回 null。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeColors(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    theme_index: jint,
+    theme_name: JString,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let themes = theme::all();
-        let Ok(index) = usize::try_from(theme_index) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("getThemeColors: index must be non-negative"),
-            );
+        let Some(name) = read_jni_string(env, &theme_name, "getThemeColors", "theme name") else {
             return Ok(std::ptr::null_mut());
         };
-        let Some(entry) = themes.get(index) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                JNIString::from(format!("getThemeColors: index {theme_index} out of range")),
-            );
+        let Some(entry) = theme::by_name(&name) else {
             return Ok(std::ptr::null_mut());
         };
         let palette = &entry.palette;
-        let mut packed = Vec::with_capacity(60);
-        packed.extend_from_slice(&palette.background);
-        packed.extend_from_slice(&palette.foreground);
-        packed.extend_from_slice(&palette.cursor);
-        packed.extend_from_slice(&palette.selection_background);
+        let mut packed = Vec::with_capacity(THEME_PACKED_BYTES);
+        packed.push(u8::from(entry.dark));
+        for color in [
+            palette.background,
+            palette.foreground,
+            palette.cursor,
+            palette.selection_background,
+        ] {
+            push_rgb(&mut packed, color);
+        }
         for ansi_color in palette.ansi {
-            packed.extend_from_slice(&ansi_color);
+            push_rgb(&mut packed, ansi_color);
         }
         match env.byte_array_from_slice(&packed) {
             Ok(array) => array.into_raw(),
-            Err(_) => std::ptr::null_mut(),
+            Err(error) => {
+                log::error!("getThemeColors: byte_array_from_slice failed: {error}");
+                std::ptr::null_mut()
+            }
         }
     })
 }
 
-/// 按标识取序号，未知返回 -1（设置数据错误，由调用方清除该键，不抛异常）。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeIndexByName(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    theme_name: JString,
-) -> jint {
-    jni_export_guard!(&mut unowned_env, -1, |env| {
-        let Some(name) = read_jni_string(env, &theme_name, "getThemeIndexByName", "theme name")
-        else {
-            return Ok(-1);
-        };
-        let themes = theme::all();
-        themes
-            .iter()
-            .position(|entry| entry.name == name)
-            .map_or(-1, |index| index as jint)
-    })
+/// 单个主题的打包长度（见 [`Java_terminal_emulator_bridge_NativeBridge_getThemeColors`]）。
+const THEME_PACKED_BYTES: usize = 61;
+
+/// 颜色按 RGB 三字节落进打包缓冲（Kotlin 侧按同一布局解包）。
+fn push_rgb(packed: &mut Vec<u8>, color: libghostty_vt::style::RgbColor) {
+    packed.extend_from_slice(&[color.r, color.g, color.b]);
 }
 
 /// 默认夜间主题标识，对应 DESIGN 默认终端主题。分配失败返回 null。
@@ -2975,8 +2952,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultDark
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jstring {
-    jni_export_guard!(unowned_env, std::ptr::null_mut(), |env| {
-        string_to_jstring(env, theme::default_dark_name())
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        string_to_jstring(env, theme::default_dark().name)
     })
 }
 
@@ -2986,29 +2963,67 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultLigh
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jstring {
-    jni_export_guard!(unowned_env, std::ptr::null_mut(), |env| {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         string_to_jstring(env, theme::default_light_name())
     })
 }
 
-/// 返回字体信息字符串（当前字体 + CJK 回退）。
+/// 返回字体信息的打包字节（布局见本文件的 `pack_font_info`）。渲染状态尚未初始化时为 null。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-) -> jstring {
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
             return Ok(std::ptr::null_mut());
         };
-        let info = render_state.font_pipeline.font_info();
+        let packed = pack_font_info(&render_state.font_pipeline.font_info());
         drop(state);
-        match serde_json::to_string(&info) {
-            Ok(json) => string_to_jstring(env, &json),
-            Err(_) => std::ptr::null_mut(),
+        match env.byte_array_from_slice(&packed) {
+            Ok(array) => array.into_raw(),
+            Err(error) => {
+                log::error!("getFontInfo: byte_array_from_slice failed: {error}");
+                std::ptr::null_mut()
+            }
         }
     })
+}
+
+/// 字体信息的跨语言打包布局（Kotlin 侧对应 `FontInfo` 的解码）。
+///
+/// ```text
+/// u32  flags        bit0 主字体等宽；CJK 状态取判别序号（见 CjkFallbackState）
+/// f32 ×3            单元格宽高（物理像素）、逻辑字号（sp）
+/// u16  名称个数
+/// 名称 × n           UTF-8、NUL 分隔，先主字体族名（无主字体则空串），后 CJK 回退族名
+/// ```
+pub(crate) fn pack_font_info(info: &crate::render::font::pipeline::FontInfo) -> Vec<u8> {
+    // CJK 状态占 bit1 起（bit0 留给等宽标记），与 Kotlin 的 `CjkState.entries[flags ushr 1]` 对齐。
+    let mut flags = (info.cjk_state as u32) << 1;
+    if info.active.as_ref().is_some_and(|active| active.monospaced) {
+        flags |= 1;
+    }
+    let mut names = info.cjk_families.clone();
+    names.insert(
+        0,
+        info.active
+            .as_ref()
+            .map_or_else(String::new, |active| active.name.clone()),
+    );
+    let mut packed =
+        Vec::with_capacity(18 + names.iter().map(|name| name.len() + 1).sum::<usize>());
+    packed.extend_from_slice(&flags.to_le_bytes());
+    for value in [info.cell_width_px, info.cell_height_px, info.font_size] {
+        packed.extend_from_slice(&value.to_le_bytes());
+    }
+    packed.extend_from_slice(&(names.len() as u16).to_le_bytes());
+    for name in &names {
+        packed.extend_from_slice(name.as_bytes());
+        packed.push(0);
+    }
+    packed
 }
 
 /// 清除渲染器下一帧的搜索高亮区间。
@@ -3029,168 +3044,70 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
     })
 }
 
-/// 搜索高亮线格式：匹配数前缀字节数（i32 LE）。前缀本身就是一个整数字段。
-const SEARCH_HIGHLIGHT_COUNT_BYTES: usize = 4;
-/// 搜索高亮线格式：记录内单个整数字段（row/start/end 各占这么多）。
-const SEARCH_HIGHLIGHT_FIELD_BYTES: usize = 4;
-/// 搜索高亮线格式：记录末尾 RGBA 四通道的字节数。
-const SEARCH_HIGHLIGHT_COLOR_BYTES: usize = 4;
-/// 记录内整数字段的个数（row/start/end 各一个）。
-const SEARCH_HIGHLIGHT_FIELD_COUNT: usize = 3;
-/// 搜索高亮线格式：单条记录字节数（整数字段 + RGBA）。
-const SEARCH_HIGHLIGHT_RECORD_BYTES: usize =
-    SEARCH_HIGHLIGHT_FIELD_COUNT * SEARCH_HIGHLIGHT_FIELD_BYTES + SEARCH_HIGHLIGHT_COLOR_BYTES;
-/// 记录内 `row` 字段的序号。
-const SEARCH_HIGHLIGHT_ROW_FIELD: usize = 0;
-/// 记录内 `start_col` 字段的序号。
-const SEARCH_HIGHLIGHT_START_COL_FIELD: usize = 1;
-/// 记录内 `end_col_exclusive` 字段的序号。
-const SEARCH_HIGHLIGHT_END_COL_FIELD: usize = 2;
-
-/// 搜索高亮线格式的畸形类别。每一类对应一个具体故障面（Kotlin 打包侧写错、
-/// 两侧口径不一致、载荷传输截断），归因与排查路径不同，故不折叠为单一错误。
-#[derive(Debug)]
-enum SearchHighlightError {
-    /// 载荷短于计数前缀，读不出权威长度。
-    TooShort { length: usize },
-    /// 计数前缀按 i32 LE 解释为负数。
-    NegativeCount { count: i32 },
-    /// 前缀声明的条数多于负载中实际存在的完整记录数（两侧口径不一致）。
-    CountExceedsRecords { declared: usize, available: usize },
-    /// 完整记录数够声明的条数，但尾部仍剩不足一条记录的残缺字节（传输截断）。
-    TruncatedTail { remaining: usize },
-}
-
-impl std::fmt::Display for SearchHighlightError {
-    /// 面向 logcat 的可读诊断：每类给出实测值，让「两侧口径不一致」与「传输截断」
-    /// 在日志里一眼可分，而非退化成同一个 `Debug` 串。
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TooShort { length } => {
-                write!(formatter, "载荷 {length} 字节短于 4 字节计数前缀")
-            }
-            Self::NegativeCount { count } => write!(formatter, "计数前缀为负数 {count}"),
-            Self::CountExceedsRecords {
-                declared,
-                available,
-            } => write!(
-                formatter,
-                "计数前缀声明 {declared} 条而负载只有 {available} 条完整记录"
-            ),
-            Self::TruncatedTail { remaining } => write!(
-                formatter,
-                "负载尾部多出 {remaining} 字节，不足一条 16 字节记录"
-            ),
-        }
-    }
-}
-
-/// 读一条记录内指定序号的整数字段（`row`/`start_col`/`end_col_exclusive` 依次为
-/// `SEARCH_HIGHLIGHT_ROW_FIELD`/`START_COL`/`END_COL`）。切片来自
-/// `chunks_exact(SEARCH_HIGHLIGHT_RECORD_BYTES)`，长度已被协议保证，越界切片不可能发生。
-fn read_highlight_field(record: &[u8], field_index: usize) -> i32 {
-    let start = field_index * SEARCH_HIGHLIGHT_FIELD_BYTES;
-    i32::from_le_bytes(
-        record[start..start + SEARCH_HIGHLIGHT_FIELD_BYTES]
-            .try_into()
-            .expect("i32 field"),
-    )
-}
-
-/// 解析搜索高亮线格式载荷：`[计数(i32 LE)][定长记录…]`，每条记录为
-/// `row(i32) start(i32) end(i32) RGBA(u8x4)`。计数为零是合法的空载荷
-/// （清除高亮、搜索无结果都走这条路径），不是畸形输入。
+/// 把当前搜索的视口命中写入渲染态，供下一帧绘制。
 ///
-/// 四类畸形一律返回 `Err` 出声，不静默截断也不静默当作零条——现状的静默容错
-/// 会把「两侧格式口径不一致」伪装成「搜索没高亮」。
-fn parse_search_highlights(bytes: &[u8]) -> Result<Vec<SearchHighlight>, SearchHighlightError> {
-    let Some(prefix) = bytes.get(..SEARCH_HIGHLIGHT_COUNT_BYTES) else {
-        return Err(SearchHighlightError::TooShort {
-            length: bytes.len(),
-        });
-    };
-    let declared_count = i32::from_le_bytes(
-        prefix
-            .try_into()
-            .expect("count field is SEARCH_HIGHLIGHT_COUNT_BYTES long"),
-    );
-    if declared_count < 0 {
-        return Err(SearchHighlightError::NegativeCount {
-            count: declared_count,
-        });
-    }
-    let payload = &bytes[SEARCH_HIGHLIGHT_COUNT_BYTES..];
-    let available_records = payload.len() / SEARCH_HIGHLIGHT_RECORD_BYTES;
-    if declared_count as usize > available_records {
-        return Err(SearchHighlightError::CountExceedsRecords {
-            declared: declared_count as usize,
-            available: available_records,
-        });
-    }
-    if !payload.len().is_multiple_of(SEARCH_HIGHLIGHT_RECORD_BYTES) {
-        return Err(SearchHighlightError::TruncatedTail {
-            remaining: payload.len() % SEARCH_HIGHLIGHT_RECORD_BYTES,
-        });
-    }
-    let (records, _) = payload.as_chunks::<SEARCH_HIGHLIGHT_RECORD_BYTES>();
-    Ok(records
-        .iter()
-        .map(|record| SearchHighlight {
-            row: read_highlight_field(record, SEARCH_HIGHLIGHT_ROW_FIELD),
-            start_col: read_highlight_field(record, SEARCH_HIGHLIGHT_START_COL_FIELD),
-            end_col_exclusive: read_highlight_field(record, SEARCH_HIGHLIGHT_END_COL_FIELD),
-            color: record[SEARCH_HIGHLIGHT_FIELD_COUNT * SEARCH_HIGHLIGHT_FIELD_BYTES..]
-                .try_into()
-                .expect("rgba is SEARCH_HIGHLIGHT_COLOR_BYTES long"),
-        })
-        .collect())
-}
-
-/// 设置搜索高亮区间。`data` 按字节打包：先是 4 字节的匹配数（i32 LE，权威长度），
-/// 随后是同样数量的 16 字节记录：row(i32) start(i32) end(i32) RGBA(u8x4)。
-/// Kotlin 的 `TerminalScreen` 按此格式打包并调用
-/// `bridge.setSearchHighlights(data.copyOf())`；渲染循环在下一帧消费解析出的列表。
-///
-/// # Safety
-/// 仅由 JVM 经 JNI 调用，`data` 须为本次调用期间有效的 `jbyteArray`。
+/// 命中与选中态取自上游 `search::Search`（VT 线程内），Kotlin 只提供视口滚动偏移与
+/// 两个主题色：视口折算口径 `gridRow = 绝对行 - (回滚长度 - 滚动偏移)`，`scrollOffset`
+/// 为 0 表示贴底。落在视口外的命中不写入——高亮只画在可见格上。
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighlights(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHighlights(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    _session_id: jlong,
-    data: jbyteArray,
+    session_id: jlong,
+    scroll_offset: jint,
 ) {
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
-        // `from_raw` 只包装指针而不取得所有权；局部引用在本 native 方法返回时释放
-        // （与 `feed_pty_inner` 同一模式）。
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-        let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
-            // JVM 侧拷贝失败（多为 OOM）：出声，否则调用方只看到高亮不更新。
-            log::error!("setSearchHighlights: JVM failed to copy the highlight byte array");
-            return Ok(());
-        };
-        let highlights = match parse_search_highlights(&bytes) {
-            Ok(highlights) => highlights,
-            // 出声但不中断：panic 会经 release profile 的 `panic = "abort"` 杀掉宿主
-            // 应用，用户只看到闪退而非「高亮没画出来」。保持上一帧高亮而非清空——
-            // 清空会让已有高亮突然消失，反而掩盖问题。
-            Err(error) => {
-                log::error!(
-                    "setSearchHighlights: {error}（载荷共 {} 字节）；保持上一帧高亮",
-                    bytes.len()
-                );
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        let query_tx = match session_query_channel(session_id as u64) {
+            Some(query_tx) => query_tx,
+            None => {
+                log::error!("applySearchHighlights: session {session_id} not found");
                 return Ok(());
             }
         };
+        let highlights =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::search_viewport_highlights_on(
+                &query_tx,
+            );
+        let viewport_top = highlights.scrollback_lines as i32 - scroll_offset;
         let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.search_highlights = highlights;
-            // 置脏标志：无 PTY 流量时新高亮也必须绘制到下一帧
-            //（#5 空闲屏回归）。
-            render_state.dirty.store(true, Ordering::Relaxed);
-        }
-    });
+        let Some(render_state) = state.as_mut() else {
+            return Ok(());
+        };
+        // 当前选中命中用主题前景色，其余用主题选区色：颜色真源是渲染态持有的
+        // 当前主题（见 `setTheme`），Kotlin 不参与。
+        let palette = &render_state.theme.palette;
+        render_state.search_highlights = highlights
+            .matches
+            .iter()
+            .filter_map(|matched| {
+                let row = matched.row as i32 - viewport_top;
+                if row < 0 {
+                    return None;
+                }
+                let color = if highlights.selected.as_ref() == Some(matched) {
+                    let current = palette.foreground;
+                    [
+                        current.r,
+                        current.g,
+                        current.b,
+                        SEARCH_HIGHLIGHT_CURRENT_ALPHA,
+                    ]
+                } else {
+                    let other = palette.selection_background;
+                    [other.r, other.g, other.b, SEARCH_HIGHLIGHT_OTHER_ALPHA]
+                };
+                Some(SearchHighlight {
+                    row,
+                    start_col: matched.start_col as i32,
+                    end_col_exclusive: matched.end_col as i32,
+                    color,
+                })
+            })
+            .collect();
+        // 置脏标志：无 PTY 流量时新高亮也必须绘制到下一帧
+        //（#5 空闲屏回归）。
+        render_state.dirty.store(true, Ordering::Relaxed);
+    })
 }
 
 /// 设置下一渲染帧的活动文本选区。
@@ -3237,78 +3154,57 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     });
 }
 
-/// 应用主题：54 字节 = 背景 RGB(3) + 前景 RGB(3) + 16 个 ANSI 调色板色(48)。
-/// 对应 `GhosttyTerminal::set_theme`。
-///
-/// # Safety
-/// 仅由 JVM 经 JNI 调用，`data` 须为本次调用期间有效的 `jbyteArray`。
+/// 按标识应用主题：终端默认色与调色板进 VT 线程，光标色与搜索高亮色供渲染态取用。
+/// 标识未知即抛异常——主题真源在 [`crate::terminal::theme`]，Kotlin 无从构造清单外的主题。
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
-    data: jbyteArray,
+    theme_name: JString,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
         let id = session_id as u64;
-        // SAFETY: `data` 是本导出被调用前 JVM 已校验的 JNI `jbyteArray` 参数；
-        // jni crate 的 `from_raw` 只包装指针，而 `convert_byte_array` 会按数组实际
-        // 长度做边界检查。
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-        let bytes = match env.convert_byte_array(&byte_array) {
-            Ok(bytes) => bytes,
-            Err(_) => {
+        let Some(name) = read_jni_string(env, &theme_name, "setTheme", "theme name") else {
+            return Ok(());
+        };
+        let Some(entry) = theme::by_name(&name) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                JNIString::from(format!("setTheme: unknown theme {name}")),
+            );
+            return Ok(());
+        };
+        let background = entry.palette.background;
+        {
+            let registry = rlock_session_registry();
+            let Some(session_entry) = registry.get(&id) else {
                 let _ = env.throw_new(
                     jni_str!("java/lang/IllegalArgumentException"),
-                    jni_str!("setTheme: cannot read byte array"),
+                    jni_str!("setTheme: session not found"),
                 );
                 return Ok(());
-            }
-        };
-        if bytes.len() != 54 {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("setTheme: expected exactly 54 bytes (background3 foreground3 ansi48)"),
-            );
-            return Ok(());
+            };
+            let session = session_entry.session.lock();
+            session.terminal().set_theme(entry);
         }
-        let background = [bytes[0], bytes[1], bytes[2]];
-        let foreground = [bytes[3], bytes[4], bytes[5]];
-        let mut ansi = [[0u8; 3]; 16];
-        for (i, color) in ansi.iter_mut().enumerate() {
-            let base = 6 + i * 3;
-            *color = [bytes[base], bytes[base + 1], bytes[base + 2]];
-        }
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("setTheme: session not found"),
-            );
-            return Ok(());
-        };
-        let session = entry.session.lock();
-        session.terminal().set_theme(background, foreground, ansi);
         // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE。`render_inner` 在阶段 3
         // 持 RENDER_STATE 反向取注册表与会话锁，若此处嵌套持有即构成环形等待
         // （parking_lot 互斥锁不可重入），渲染线程与设置应用线程将同时冻结。
-        drop(session);
-        drop(registry);
+        //
         // 单元格着色器的 Fix F 判定会把每个单元格的背景与 `uniforms.default_background`
         // 比对，后者取自 `Renderer::background`。不同步时终端主题与渲染器默认值不一致，
         // `is_default_background` 恒为 false，背景色判定失效。
-        {
-            let mut state = render_state_mut();
-            if let Some(render_state) = state.as_mut() {
-                render_state.renderer.set_background_color(background);
-                // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
-                render_state.renderer.cell_cache = None;
-                render_state.dirty.store(true, Ordering::Relaxed);
-            }
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.theme = entry;
+            render_state.renderer.set_background_color(background);
+            // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
+            render_state.renderer.cell_cache = None;
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
-        log::info!(
-            "setTheme: session {id} background={background:02X?} foreground={foreground:02X?}"
-        );
+        drop(state);
+        log::info!("setTheme: session {id} theme={name}");
     })
 }
 
@@ -3359,32 +3255,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
                 render_state.renderer.frame_invalidated = true;
             }
             log::info!("setRenderPaused: paused={}", paused);
-        }
-    })
-}
-
-/// 应用层光标色覆盖（`red` | `green` | `blue`，0..1 线性 RGB）。叠加在主题光标色之上，
-/// 使用户主题的光标色能抵达渲染器（54 字节的 `setTheme` 载荷没有对应槽位）。
-/// 总是覆盖，无清除路径：唯一调用方 `Bridge.setTheme` 每次显式下发主题光标色。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-    red: f32,
-    green: f32,
-    blue: f32,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.cursor_color = Some([
-                red.clamp(0.0, 1.0),
-                green.clamp(0.0, 1.0),
-                blue.clamp(0.0, 1.0),
-                1.0,
-            ]);
-            log::info!("setCursorColor: ({red}, {green}, {blue})");
         }
     })
 }
@@ -3882,9 +3752,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
             return Ok(JNI_FALSE);
         };
         let session = entry.session.lock();
+        let mode_kind = match kind {
+            0 => libghostty_vt::terminal::ModeKind::Dec,
+            _ => libghostty_vt::terminal::ModeKind::Ansi,
+        };
         if session
             .terminal()
-            .mode_get(mode_num.max(0) as u16, kind.max(0) as u8)
+            .mode_get(libghostty_vt::terminal::Mode::new(
+                mode_num.max(0) as u16,
+                mode_kind,
+            ))
         {
             JNI_TRUE
         } else {
@@ -4035,6 +3912,41 @@ mod font_size_cap_tests {
 }
 
 #[cfg(test)]
+mod font_info_packing_tests {
+    use super::pack_font_info;
+    use crate::render::font::pipeline::FontPipeline;
+
+    /// 字体信息打包：`u32` 标志 + 三个 `f32` + `u16` 名称数 + NUL 分隔名称。
+    /// 判别序号与浮点按小端摆放，Kotlin 侧按同一布局解包。
+    #[test]
+    fn font_info_packs_flags_metrics_and_names() {
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        pipeline.set_system_locale("en-US");
+        let packed = pack_font_info(&pipeline.font_info());
+        let flags = u32::from_le_bytes(packed[0..4].try_into().unwrap());
+        assert_eq!(
+            flags & !1,
+            crate::render::font::pipeline::CjkFallbackState::None as u32,
+            "未解析到 CJK 回退族时状态须为 None"
+        );
+        assert_eq!(
+            f32::from_le_bytes(packed[12..16].try_into().unwrap()),
+            14.0,
+            "字号按 f32 原样传递"
+        );
+        assert!(f32::from_le_bytes(packed[8..12].try_into().unwrap()) > 0.0);
+        let name_count = u16::from_le_bytes(packed[16..18].try_into().unwrap());
+        assert_eq!(name_count, 1, "只有主字体名，无 CJK 回退族");
+        let names: Vec<&[u8]> = packed[18..]
+            .split(|byte| *byte == 0)
+            .filter(|name| !name.is_empty())
+            .collect();
+        assert_eq!(names.len(), 1);
+        assert!(!names[0].is_empty(), "主字体族名须非空");
+    }
+}
+
+#[cfg(test)]
 mod render_sample_bits_tests {
     use super::pack_render_sample;
 
@@ -4146,202 +4058,5 @@ mod render_sample_bits_tests {
         let fallback = super::panic_text(&42_u32);
         assert!(!fallback.is_empty(), "非字符串 panic 载荷必须给出非空诊断");
         assert_ne!(fallback, "42", "非字符串载荷不得直接回显 Debug 形式");
-    }
-}
-
-#[cfg(test)]
-mod search_highlight_wire_format_tests {
-    use super::{
-        SEARCH_HIGHLIGHT_COLOR_BYTES, SEARCH_HIGHLIGHT_FIELD_BYTES, SEARCH_HIGHLIGHT_RECORD_BYTES,
-        SearchHighlightError, parse_search_highlights,
-    };
-
-    /// 按线格式拼一条记录：`row`/`start_col`/`end_col` 各一个 i32 LE，加 RGBA。
-    fn highlight_record(
-        row: i32,
-        start_col: i32,
-        end_col_exclusive: i32,
-        color: [u8; 4],
-    ) -> Vec<u8> {
-        let mut record = Vec::with_capacity(SEARCH_HIGHLIGHT_RECORD_BYTES);
-        for field in [row, start_col, end_col_exclusive] {
-            record.extend_from_slice(&field.to_le_bytes());
-        }
-        record.extend_from_slice(&color);
-        record
-    }
-
-    /// 按线格式拼载荷：计数前缀 + 记录序列。
-    fn highlight_payload(declared_count: i32, records: &[Vec<u8>]) -> Vec<u8> {
-        let mut payload = declared_count.to_le_bytes().to_vec();
-        for record in records {
-            payload.extend_from_slice(record);
-        }
-        payload
-    }
-
-    /// 载荷短于计数前缀：连权威长度都读不出，不能当作「零条高亮」静默返回。
-    #[test]
-    fn payload_shorter_than_count_prefix_is_rejected() {
-        for length in 0..SEARCH_HIGHLIGHT_FIELD_BYTES {
-            let bytes = vec![0xA5_u8; length];
-            assert!(
-                matches!(
-                    parse_search_highlights(&bytes),
-                    Err(SearchHighlightError::TooShort { length: reported })
-                        if reported == length
-                ),
-                "{length} 字节载荷必须判为前缀不足（并带上实测长度），实际 {:?}",
-                parse_search_highlights(&bytes),
-            );
-        }
-    }
-
-    /// 计数为负不得被 `max(0)` 抹平为「无高亮」——那是 Kotlin 侧写错了 i32，
-    /// 静默抹平会把打包缺陷伪装成搜索行为。
-    #[test]
-    fn negative_count_is_rejected_with_its_value() {
-        for count in [-1, -2, i32::MIN] {
-            let bytes = count.to_le_bytes().to_vec();
-            assert!(
-                matches!(
-                    parse_search_highlights(&bytes),
-                    Err(SearchHighlightError::NegativeCount { count: reported })
-                        if reported == count
-                ),
-                "计数 {count} 必须判为负计数并带上该值",
-            );
-        }
-    }
-
-    /// 声明条数多于实际完整记录数：两侧口径不一致，必须出声而不是静默截断。
-    #[test]
-    fn declared_count_above_available_records_is_rejected() {
-        let records = [
-            highlight_record(0, 1, 4, [10, 20, 30, 255]),
-            highlight_record(5, 2, 6, [40, 50, 60, 160]),
-        ];
-        // 声明 5 条而只有 2 条完整记录。
-        let bytes = highlight_payload(5, &records);
-        assert!(
-            matches!(
-                parse_search_highlights(&bytes),
-                Err(SearchHighlightError::CountExceedsRecords {
-                    declared: 5,
-                    available: 2
-                })
-            ),
-            "声明 5 条实有 2 条必须判为计数超出记录数，实际 {:?}",
-            parse_search_highlights(&bytes),
-        );
-        // 声明数仅比实有多数 1 条同样是口径不一致（少了最后一条记录）。
-        let bytes = highlight_payload(3, &records);
-        assert!(
-            matches!(
-                parse_search_highlights(&bytes),
-                Err(SearchHighlightError::CountExceedsRecords {
-                    declared: 3,
-                    available: 2
-                })
-            ),
-            "声明 3 条实有 2 条必须判为计数超出记录数",
-        );
-    }
-
-    /// 声明条数都凑满了，但负载长度不是记录长的整数倍：传输截断的残缺尾巴。
-    #[test]
-    fn trailing_partial_record_is_rejected_with_remainder() {
-        let records = [highlight_record(0, 1, 4, [10, 20, 30, 255])];
-        for remainder in 1..SEARCH_HIGHLIGHT_RECORD_BYTES {
-            let mut bytes = highlight_payload(1, &records);
-            bytes.extend(std::iter::repeat_n(0x7Fu8, remainder));
-            assert!(
-                matches!(
-                    parse_search_highlights(&bytes),
-                    Err(SearchHighlightError::TruncatedTail { remaining: reported })
-                        if reported == remainder
-                ),
-                "尾部多出 {remainder} 字节必须判为残缺尾巴并带上实测余量，实际 {:?}",
-                parse_search_highlights(&bytes),
-            );
-        }
-    }
-
-    /// 判定顺序：声明数超出实有条数时，「计数超出」先于「尾部残缺」命中。
-    /// 两者同时成立不是二选一——更根本的口径不一致先报，残缺只是它的表征。
-    #[test]
-    fn count_exceeds_takes_precedence_over_truncated_tail() {
-        // 声明 2 条，实有 1 条完整记录 + 7 字节残缺尾巴：两类判据同时成立。
-        let mut bytes = highlight_payload(2, &[highlight_record(0, 1, 4, [10, 20, 30, 255])]);
-        bytes.extend(std::iter::repeat_n(0x7Fu8, 7));
-        assert!(
-            matches!(
-                parse_search_highlights(&bytes),
-                Err(SearchHighlightError::CountExceedsRecords {
-                    declared: 2,
-                    available: 1
-                })
-            ),
-            "计数超出必须先于尾部残缺被判定，实际 {:?}",
-            parse_search_highlights(&bytes),
-        );
-    }
-
-    /// 合法载荷逐字段解析：字段值不得串位、不得补零，含负数 row（回滚坐标）。
-    #[test]
-    fn well_formed_payload_parses_field_by_field() {
-        let records = [
-            highlight_record(0, 1, 4, [10, 20, 30, 255]),
-            highlight_record(-3, 7, 9, [40, 50, 60, 160]),
-        ];
-        let highlights =
-            parse_search_highlights(&highlight_payload(2, &records)).expect("载荷合法");
-        assert_eq!(highlights.len(), 2);
-        assert_eq!(highlights[0].row, 0);
-        assert_eq!(highlights[0].start_col, 1);
-        assert_eq!(highlights[0].end_col_exclusive, 4);
-        assert_eq!(highlights[0].color, [10, 20, 30, 255]);
-        // 负 row：回滚区坐标为负，解析不得因符号位而串到相邻字段。
-        assert_eq!(highlights[1].row, -3);
-        assert_eq!(highlights[1].start_col, 7);
-        assert_eq!(highlights[1].end_col_exclusive, 9);
-        assert_eq!(highlights[1].color, [40, 50, 60, 160]);
-    }
-
-    /// alpha 落在反色阈值两侧时字节必须原样保留（阈值判定属渲染侧，不在解析层）。
-    #[test]
-    fn alpha_around_swap_threshold_survives_parsing() {
-        for alpha in [0, 127, 128, 160, 255] {
-            let bytes = highlight_payload(1, &[highlight_record(0, 0, 1, [1, 2, 3, alpha])]);
-            let highlights = parse_search_highlights(&bytes).expect("载荷合法");
-            assert_eq!(
-                highlights[0].color,
-                [1, 2, 3, alpha],
-                "alpha={alpha} 必须原样进入 SearchHighlight",
-            );
-        }
-    }
-
-    /// 零计数是合法空载荷：清除高亮与「搜索无结果」都走这条路径，不是畸形输入。
-    #[test]
-    fn zero_count_payload_is_legal_and_empty() {
-        let highlights = parse_search_highlights(&0_i32.to_le_bytes()).expect("零计数是合法空载荷");
-        assert!(
-            highlights.is_empty(),
-            "零计数必须解析为空列表，实际 {} 条",
-            highlights.len(),
-        );
-        // 前缀恰好 4 字节、无任何负载字节，同样合法。
-        let highlights = parse_search_highlights(&[0, 0, 0, 0]).expect("仅前缀的零计数");
-        assert!(highlights.is_empty());
-    }
-
-    /// 线格式常量必须与 Kotlin `TerminalScreen` 的打包口径一致：前缀 4 字节、
-    /// 每条 16 字节、其中末尾 4 字节是 RGBA。若 Kotlin 侧加字段，此处须同步。
-    #[test]
-    fn wire_format_constants_match_the_kotlin_packing() {
-        assert_eq!(SEARCH_HIGHLIGHT_FIELD_BYTES, 4);
-        assert_eq!(SEARCH_HIGHLIGHT_COLOR_BYTES, 4);
-        assert_eq!(SEARCH_HIGHLIGHT_RECORD_BYTES, 16);
     }
 }

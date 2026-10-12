@@ -1543,9 +1543,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         }
 
-    fun setSearchHighlights(data: ByteArray) {
+    /** 让原生按当前搜索状态重建视口高亮并绘制：命中区间、选中态与颜色都在原生侧。 */
+    fun applySearchHighlights(scrollOffset: Int) {
         val bridge = viewModel?.runtime?.bridge() ?: return
-        bridge.setSearchHighlights(data.copyOf()) // 为 JNI 防御性拷贝
+        bridge.applySearchHighlights(scrollOffset)
         viewModel?.runtime?.forceRender()
     }
 

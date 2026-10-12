@@ -1,6 +1,6 @@
 //! CJK 解析稳态开销：缓存预热后重复解析同一组汉字，度量热路径单字成本。
 //!
-//! 开发期分析用（`cargo bench -p native --bench cjk_resolve`），
+//! 开发期分析用（`cargo bench --manifest-path native/Cargo.toml -p native --bench cjk_resolve`），
 //! 不进门禁：机器字体环境不同，绝对数值不可比，只看同机前后对比。
 
 use criterion::{Criterion, criterion_group, criterion_main};

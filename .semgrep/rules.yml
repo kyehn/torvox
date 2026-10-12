@@ -1,4 +1,6 @@
 rules:
+
+  # ── Rust 代码禁令：调试残留、跳过测试、不受管构建与显式退出 ──
   - id: no-dbg-macro
     patterns:
       - pattern: dbg!(...)
@@ -29,7 +31,7 @@ rules:
     message: "SKIP logs hide missing preconditions. Assert them instead."
     severity: ERROR
     languages: [rust]
-  - id: no-test-early-return
+  - id: no-rust-test-early-return
     patterns:
       - pattern: return;
       - pattern-inside: |
@@ -104,7 +106,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
@@ -124,7 +125,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   - id: no-bootstrap-sidecar
     pattern-regex: '\bsidecar\b'
@@ -144,7 +144,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   - id: no-prohibited-shells
     pattern-regex: '\b(fish|dash|zsh)\b'
@@ -164,7 +163,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
@@ -184,7 +182,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'
@@ -204,7 +201,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   - id: no-zigbuild
     pattern-regex: 'zigbuild'
@@ -224,7 +220,6 @@ rules:
       exclude:
         - ".semgrep/**"
         - "docs/specification/*"
-        - "docs/REVIEW*.md"
         - "README.md"
   # Repo tooling rules (generic): manifests, scripts and workflows.
   # check-rust.nu scans this file, so they live here.
@@ -401,3 +396,273 @@ rules:
         - "docs/specification/*"
         # 同上：归档台账里的提交号是历史证据，不追溯改写。
         - "openspec/changes/archive/**"
+
+  # ── 分层与架构：模块方向、错误类型与抑制属性 ──
+  - id: no-hardcoded-paths
+    pattern-regex: '/data/[a-zA-Z0-9._]+/files'
+    paths:
+      include:
+        - "**/android/app/src/main/**/*.kt"
+    message: "No hardcoded /data/.*/files paths in production code — use context.filesDir"
+    severity: ERROR
+    languages:
+      - kotlin
+  - id: no-allow-in-prod
+    patterns:
+      - pattern-regex: '#\[allow\('
+    paths:
+      include:
+        - "**/native/src/**/*.rs"
+      exclude:
+        - "**/test_helpers*"
+        - "**/tests.rs"
+        - "**/*_tests.rs"
+        - "**/prop_tests.rs"
+        - "**/snapshot_test.rs"
+    message: "No #[allow] in production source code — fix the underlying issue instead"
+    severity: ERROR
+    languages:
+      - rust
+  - id: no-android-in-terminal
+    pattern-regex: 'crate::android::'
+    paths:
+      include:
+        - "**/native/src/terminal/**/*.rs"
+    message: "terminal module must not depend on android module (violates layer direction)"
+    severity: ERROR
+    languages:
+      - rust
+  - id: no-android-in-render
+    pattern-regex: 'crate::android::'
+    paths:
+      include:
+        - "**/native/src/render/**/*.rs"
+    message: "render module must not depend on android module (violates layer direction)"
+    severity: ERROR
+    languages:
+      - rust
+  - id: no-render-in-terminal
+    pattern-regex: 'crate::render::'
+    paths:
+      include:
+        - "**/native/src/terminal/**/*.rs"
+    message: "terminal module must not depend on render module (violates layer direction)"
+    severity: ERROR
+    languages:
+      - rust
+  - id: no-anyhow-in-native
+    pattern-regex: '\banyhow\b'
+    paths:
+      include:
+        - "**/native/src/**/*.rs"
+    message: "anyhow is forbidden in library crate — use thiserror"
+    severity: ERROR
+    languages:
+      - rust
+
+  # ── Kotlin 代码禁令：跳过测试、协程逃逸、空断言与不受管构建 ──
+  - id: no-junit-ignore
+    pattern-regex: '@Ignore\b'
+    message: "@Ignore hides failures. spec TESTING bans silent skips."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-junit-assume
+    patterns:
+      - pattern-either:
+          - pattern: Assume.$METHOD(...)
+          - pattern: assumeTrue(...)
+          - pattern: assumeFalse(...)
+          - pattern: assumeThat(...)
+    message: "Assume aborts tests silently. Assert preconditions instead."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-test-early-return
+    patterns:
+      - pattern: return
+      - pattern-inside: |
+          @Test
+          fun $NAME(...) {
+            ...
+          }
+    message: "bare return in @Test passes vacuously. Use fail(...) instead."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-globalscope-launch
+    patterns:
+      - pattern: GlobalScope.launch { ... }
+    message: "`GlobalScope.launch` creates a fire-and-forget coroutine with no lifecycle management. Use `viewModelScope`, `lifecycleScope`, or a custom `CoroutineScope` tied to the component lifecycle."
+    severity: ERROR
+    languages: [kotlin]
+    # 无 `fix:`：目标协程作用域随组件而异（viewModelScope / lifecycleScope / 自建），
+    # 规则无从判定；此前写的 `$SCOPE.launch { ... }` 里 `$SCOPE` 并未被 pattern 绑定，
+    # `semgrep --fix` 会把它替换成空串，直接吃掉整段协程。
+  - id: no-runblocking-production
+    patterns:
+      - pattern: runBlocking { ... }
+      - pattern-not-inside: |
+          @Test
+          fun $F(...) {
+            ...
+          }
+      - pattern-not-inside: |
+          @BeforeClass @JvmStatic
+          fun $F(...) {
+            ...
+          }
+      - pattern-not: |
+          runBlocking {
+            withTimeoutOrNull($T) { $B }
+          }
+      - pattern-not-inside: |
+          Thread {
+            ...
+          }
+      - pattern-not-inside: |
+          Thread(...)
+    message: "`runBlocking` blocks the current thread. Use structured concurrency with `suspend` functions and appropriate scopes."
+    severity: ERROR
+    languages: [kotlin]
+    paths:
+      exclude:
+        - "**/*/test/*"
+        - "**/*/tests/*"
+        # onStartCommand has no scope; dedicated daemon-thread bridge.
+        - "**/installer/BootstrapInstallService.kt"
+  - id: no-non-null-assertion
+    patterns:
+      - pattern: $VAR!!
+    message: "Non-null assertion `!!` throws NullPointerException if the value is null. Use safe calls (`?.`), Elvis (`?:`), or proper null handling."
+    severity: ERROR
+    languages: [kotlin]
+    paths:
+      exclude:
+        - "**/*/test/*"
+        - "**/*/tests/*"
+        - "**/*/androidTest/*"
+  - id: no-thread-block
+    patterns:
+      - pattern: thread { ... }
+    message: "Raw `thread { }` is discouraged. Use `viewModelScope.launch` or `lifecycleScope.launch` with `Dispatchers.IO` for background work."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-system-exit
+    patterns:
+      - pattern: System.exit($ARG)
+    message: "`System.exit()` terminates the JVM process. Use proper activity/fragment lifecycle management."
+    severity: ERROR
+    languages: [kotlin, java]
+  - id: no-map-get-nonnull
+    patterns:
+      - pattern: $MAP.get($KEY)!!
+    message: "`.get()!!` throws NullPointerException if the key is missing. Use `$MAP[$KEY] ?: <default>` or `$MAP.getValue($KEY)`."
+    severity: WARNING
+    languages: [kotlin]
+  - id: no-raw-async-callback
+    patterns:
+      - pattern: |
+          object : $CALLBACK {
+            ...
+          }
+      - metavariable-pattern:
+          metavariable: $CALLBACK
+          pattern: AsyncCallback
+    message: "Raw `object : AsyncCallback` blocks the callback style. Use coroutines (`suspend` functions) instead."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-unmanaged-build-exec
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec($CMD, ...)
+          - pattern: ProcessBuilder($CMD, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '(?i).*(cargo|gradle|assembleDebug).*'
+    message: "Unmanaged builds are forbidden; use nix develop tooling."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-fail-on-no-discovered-tests
+    pattern-regex: 'failOnNoDiscoveredTests\s*=\s*false'
+    message: "failOnNoDiscoveredTests = false hides empty test discovery."
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.gradle.kts"
+  - id: no-gradle-unmanaged-build
+    patterns:
+      - pattern: commandLine($ARGS, ...)
+      - metavariable-regex:
+          metavariable: $ARGS
+          regex: '(?s).*(cargo|gradle|assembleDebug).*'
+    message: "Unmanaged builds are forbidden in Gradle scripts."
+    severity: ERROR
+    languages: [kotlin]
+    paths:
+      include:
+        - "**/*.gradle.kts"
+
+  # ── Android 专有：Activity/Context 泄漏与主线程阻塞 ──
+  - id: no-activity-static-leak
+    patterns:
+      - pattern-either:
+          - pattern: |
+              companion object {
+                ...
+                var $FIELD: $ACTIVITY = ...
+                ...
+              }
+          - pattern: |
+              object $OBJECT {
+                ...
+                var $FIELD: $ACTIVITY = ...
+                ...
+              }
+      - metavariable-regex:
+          metavariable: $ACTIVITY
+          regex: '.*Activity'
+    message: "Storing an Activity reference in a companion/object leaks the Activity. Use `WeakReference<Activity>` or a lifecycle-aware pattern."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-basecontext-stored
+    patterns:
+      - pattern-either:
+          - pattern: |
+              companion object {
+                ...
+                var $FIELD = $CTX.getBaseContext()
+                ...
+              }
+          - pattern: |
+              object $OBJECT {
+                ...
+                var $FIELD = $CTX.getBaseContext()
+                ...
+              }
+          - pattern: |
+              companion object {
+                ...
+                var $FIELD = $CTX.baseContext
+                ...
+              }
+          - pattern: |
+              object $OBJECT {
+                ...
+                var $FIELD = $CTX.baseContext
+                ...
+              }
+    message: "Storing `BaseContext` in a companion/object leaks the context. Use `ApplicationContext` with `WeakReference` or pass context explicitly."
+    severity: ERROR
+    languages: [kotlin]
+  - id: no-thread-sleep-main
+    patterns:
+      - pattern: Thread.sleep($MILLIS)
+    message: "`Thread.sleep()` blocks the current thread, potentially causing ANRs. Prefer coroutines `delay()` on the main thread or structured threading."
+    severity: ERROR
+    languages: [kotlin, java]
+    fix: |
+      delay($MILLIS)
+    paths:
+      exclude:
+        - "**/*/test/*"
+        - "**/*/tests/*"
+        - "**/*/androidTest/*"

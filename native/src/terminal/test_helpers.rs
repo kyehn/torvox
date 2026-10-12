@@ -283,7 +283,10 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert that DEC private mode N is in the expected state.
     pub fn assert_mode(self, mode_num: u16, expected: bool) -> Self {
-        let actual = self.terminal.mode_get(mode_num, 0);
+        let actual = self.terminal.mode_get(libghostty_vt::terminal::Mode::new(
+            mode_num,
+            libghostty_vt::terminal::ModeKind::Dec,
+        ));
         assert_eq!(
             actual, expected,
             "DEC mode {mode_num} mismatch: expected {expected}, got {actual}"
@@ -363,6 +366,19 @@ impl<'a> TermTestCase<'a> {
         );
         tc
     }
+}
+
+/// 设置 needle 后读视口内命中（绝对网格行，按物理行拆分）。
+///
+/// 上游 `search::Search` 按「命中总数 + 视口命中 + 选中态」分工，不提供一次性全量
+/// 列表；小终端用例里视口即全屏，故视口命中就是全部命中。命中取自高亮查询的
+/// `matches` 字段——那是 JNI 侧真正消费的那一条路径，不另开只读口。
+pub fn search_viewport_matches(
+    terminal_under_test: &GhosttyTerminal,
+    needle: &str,
+) -> Vec<crate::terminal::ghostty_terminal::SearchMatch> {
+    terminal_under_test.search_set_needle(needle);
+    terminal_under_test.search_viewport_highlights().matches
 }
 
 #[cfg(test)]
@@ -632,15 +648,35 @@ mod tests {
     #[test]
     fn theme_colors_apply_to_cells() {
         let mut t = terminal();
-        let mut ansi = [[0u8, 0, 0]; 16];
-        ansi[1] = [0xAB, 0x12, 0x34];
-        t.set_theme([0x44, 0x55, 0x66], [0x11, 0x22, 0x33], ansi);
+        // 换到日间主题：与初态默认（夜间）不同，才能证明下发的是新主题而非初值。
+        let light = crate::terminal::theme::by_name(crate::terminal::theme::default_light_name())
+            .expect("默认日间主题");
+        t.set_theme(light);
         t.flush();
+        let palette = &light.palette;
         TermTestCase::new(&mut t)
             .write(b"\x1b[31mX\x1b[0mY")
-            .assert_foreground_exact(0, 0, 0xAB, 0x12, 0x34)
-            .assert_foreground_exact(0, 1, 0x11, 0x22, 0x33)
-            .assert_background_exact(0, 1, 0x44, 0x55, 0x66);
+            .assert_foreground_exact(
+                0,
+                0,
+                palette.ansi[1].r,
+                palette.ansi[1].g,
+                palette.ansi[1].b,
+            )
+            .assert_foreground_exact(
+                0,
+                1,
+                palette.foreground.r,
+                palette.foreground.g,
+                palette.foreground.b,
+            )
+            .assert_background_exact(
+                0,
+                1,
+                palette.background.r,
+                palette.background.g,
+                palette.background.b,
+            );
     }
 
     #[test]
