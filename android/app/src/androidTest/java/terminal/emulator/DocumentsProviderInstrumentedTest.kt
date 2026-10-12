@@ -323,13 +323,15 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             )
             requireNotNull(movedUri) { "moveDocument must return the new document uri" }
             val movedDocId = DocumentsContract.getDocumentId(movedUri)
-            assertEquals("tree-mutations/source (2).txt", movedDocId)
-            assertTrue(File(probeDir, "source (2).txt").exists())
+            // 冲突命名按提供者的唯一名策略（`DocumentMutations.uniqueChild`：在整名后
+            // 追加 " (2)"），故冲突名是 `source.txt (2)` 而非插入扩展名前的 `source (2).txt`。
+            assertEquals("tree-mutations/source.txt (2)", movedDocId)
+            assertTrue(File(probeDir, "source.txt (2)").exists())
             assertTrue(
                 "move must remove the document from its old parent",
                 !File(targetDir, "source.txt").exists(),
             )
-            assertEquals("edited body", File(probeDir, "source (2).txt").readText())
+            assertEquals("edited body", File(probeDir, "source.txt (2)").readText())
         } finally {
             probeDir.deleteRecursively()
             targetDir.deleteRecursively()

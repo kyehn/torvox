@@ -1,4 +1,4 @@
-//! 文本整形：接入 cosmic-text 以支持连字与复杂文种。
+//! 文本整形：接入 cosmic-text 以支持单码位整形与复杂文种叠加（按格渲染，不跨单元连字）。
 use super::{FontPipeline, ShapedGlyphInfo, glyph_cache::ShapeKey};
 use unicode_script::{Script, UnicodeScript};
 

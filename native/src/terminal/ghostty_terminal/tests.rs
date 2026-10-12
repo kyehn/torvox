@@ -3345,3 +3345,259 @@ fn deliver_terminate_gives_up_instead_of_blocking_on_a_stuck_consumer() {
         start.elapsed()
     );
 }
+
+// ── 行级增量抽取（grid-extraction-incremental） ───────────────────────────
+//
+// 行级增量与全量重建产出逐字节相同，内容断言无法区分二者（增量正确但从未
+// 命中时用例照样全绿）。故本组用例的判别力来自行级计数：断言本次抽取确有
+// 行走复制路径，且复制结果与逐格抽取逐字节相同。计数按终端实例隔离
+// （取自 `GhosttyTerminal` 而非进程全局）——`cargo test` 并行执行，
+// 全局计数会被同进程其他终端的抽取淹没，「本帧复用 0 行」将不可判别。
+
+/// 取下一帧 CellData；VT 线程按批推送，轮询到有帧为止（不依赖固定时长）。
+fn next_cell_frame(terminal_under_test: &GhosttyTerminal) -> Vec<CellData> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some((cells, _)) = terminal_under_test.receive_cell_data() {
+            return cells;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "5s 内未收到 CellData 帧"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+/// 按网格行取行文本：断言对象是渲染热路径消费的那份数据。
+fn row_text_from_cells(cells: &[CellData], row: u32) -> String {
+    let mut by_col: Vec<(u32, char)> = cells
+        .iter()
+        .filter(|cell| cell.row == row && cell.codepoint != 0)
+        .map(|cell| (cell.col, char::from_u32(cell.codepoint).unwrap_or('\0')))
+        .collect();
+    by_col.sort_by_key(|(col, _)| *col);
+    by_col.into_iter().map(|(_, ch)| ch).collect()
+}
+
+#[test]
+fn row_extraction_reuses_unchanged_rows_across_frames() {
+    let mut terminal_under_test = terminal();
+    // 写满多行，使首帧每行都有内容（全部判脏，建立缓存）。
+    for row in 0..20 {
+        terminal_under_test.vt_write(format!("\x1b[{};1Hline{row}", row + 1).as_bytes());
+    }
+    terminal_under_test.flush();
+    let _ = next_cell_frame(&terminal_under_test);
+
+    let (_, extracted_before) = terminal_under_test.take_cache_stats();
+    assert!(
+        extracted_before > 0,
+        "首帧必须逐格抽取建立缓存（缓存不存在时无行可复用）"
+    );
+
+    // 只改第 0 行，其余不动。
+    terminal_under_test.vt_write(b"\x1b[1;1HX");
+    terminal_under_test.flush();
+    let cells = next_cell_frame(&terminal_under_test);
+    let (reused_after, extracted_after) = terminal_under_test.take_cache_stats();
+
+    assert!(
+        reused_after > 0,
+        "只改一行时其余行 MUST 走复制路径，实测复用 {reused_after} 行、逐格 {extracted_after} 行"
+    );
+    assert!(
+        extracted_after < reused_after,
+        "逐格行数({extracted_after}) MUST 少于复制行数({reused_after})，\
+         否则行级判定没有生效（等价于全量重建）"
+    );
+    // 复制的那一行内容必须仍是旧值——行号 1 未被本次写入触及。
+    assert_eq!(
+        row_text_from_cells(&cells, 1),
+        "line1",
+        "未被改动的行经复制路径后内容必须与写入时一致"
+    );
+    assert_eq!(
+        row_text_from_cells(&cells, 0),
+        "Xine0",
+        "被改动的行必须走逐格抽取并反映新内容"
+    );
+}
+
+#[test]
+fn row_extraction_result_matches_full_rebuild_byte_for_byte() {
+    let mut terminal_under_test = terminal();
+    for row in 0..12 {
+        terminal_under_test.vt_write(format!("\x1b[{};1Hcontent{row}", row + 1).as_bytes());
+    }
+    terminal_under_test.flush();
+    let _ = next_cell_frame(&terminal_under_test);
+
+    // 改若干行（含宽字符行与颜色行，覆盖样式与宽度两条易错路径）。
+    terminal_under_test.vt_write(b"\x1b[1;1HAA\x1b[31mred");
+    terminal_under_test.vt_write(b"\x1b[5;1H\x1b[32mgreen\x1b[0m");
+    terminal_under_test.vt_write("\x1b[7;1H中文宽字符".as_bytes());
+    terminal_under_test.flush();
+    let incremental = next_cell_frame(&terminal_under_test);
+    let (reused, extracted) = terminal_under_test.take_cache_stats();
+    assert!(reused > 0, "本帧 MUST 命中行复制路径才有对照意义");
+
+    // 强制全量重建：`reset` 清空网格与缓存，再重放同一段输出。
+    let mut fresh = terminal();
+    for row in 0..12 {
+        fresh.vt_write(format!("\x1b[{};1Hcontent{row}", row + 1).as_bytes());
+    }
+    fresh.flush();
+    let _ = next_cell_frame(&fresh);
+    fresh.vt_write(b"\x1b[1;1HAA\x1b[31mred");
+    fresh.vt_write(b"\x1b[5;1H\x1b[32mgreen\x1b[0m");
+    fresh.vt_write("\x1b[7;1H中文宽字符".as_bytes());
+    fresh.flush();
+    let full = next_cell_frame(&fresh);
+
+    // 逐字节比较：`CellData` 是 bytemuck POD，按原始字节比最快且最严。
+    assert_eq!(
+        bytemuck::cast_slice::<CellData, u8>(&incremental),
+        bytemuck::cast_slice::<CellData, u8>(&full),
+        "行级增量的 CellData MUST 与全量重建逐字节相同（复用 {reused} 行 / 逐格 {extracted} 行）"
+    );
+}
+
+#[test]
+fn row_cache_invalidated_on_selection_install() {
+    let mut terminal_under_test = terminal();
+    for row in 0..10 {
+        terminal_under_test.vt_write(format!("\x1b[{};1Hrow{row}", row + 1).as_bytes());
+    }
+    terminal_under_test.flush();
+    let _ = next_cell_frame(&terminal_under_test);
+
+    // 安装选区：反白被烘焙进 CellData 颜色，缓存行颜色逐行过时。
+    terminal_under_test.set_selection((1, 0), (1, 3));
+    terminal_under_test.flush();
+    let cells = next_cell_frame(&terminal_under_test);
+    let (reused, _) = terminal_under_test.take_cache_stats();
+
+    let selected = cells
+        .iter()
+        .find(|cell| cell.row == 1 && cell.col == 0)
+        .expect("选区内单元必须存在");
+    let unselected = cells
+        .iter()
+        .find(|cell| cell.row == 2 && cell.col == 0)
+        .expect("选区外单元必须存在");
+    assert_ne!(
+        selected.background, unselected.background,
+        "安装选区后该行 MUST 反白（缓存未失效会使反白帧缺失）"
+    );
+    assert_eq!(
+        reused, 0,
+        "选区安装 MUST 使行缓存整体失效，本次不得有复制行"
+    );
+}
+
+#[test]
+fn row_cache_invalidated_on_resize() {
+    let mut terminal_under_test = terminal();
+    for row in 0..20 {
+        terminal_under_test.vt_write(format!("\x1b[{};1Hrow{row}", row + 1).as_bytes());
+    }
+    terminal_under_test.flush();
+    let _ = next_cell_frame(&terminal_under_test);
+
+    // 改行数后行区间整体错位，缓存不可复用。
+    assert!(terminal_under_test.resize(12, 80), "resize 应被接受");
+    terminal_under_test.flush();
+    let cells = next_cell_frame(&terminal_under_test);
+    let (reused, _) = terminal_under_test.take_cache_stats();
+
+    assert_eq!(reused, 0, "尺寸变化 MUST 使行缓存整体失效");
+    let rows_present = cells.iter().map(|cell| cell.row).max();
+    assert!(
+        rows_present.is_some_and(|max| max < 12),
+        "重调后的网格 MUST 只含新尺寸的行，实际最大行 {rows_present:?}"
+    );
+}
+
+#[test]
+fn row_extraction_handles_wide_char_row_growth() {
+    // 宽字符使该行单元数少于其他行：行区间必须由 `build_row_ranges` 依
+    // `CellData.row` 划分，若按 cols 反推会把错位的内容复制到别的行。
+    let mut terminal_under_test = terminal();
+    for row in 0..6 {
+        terminal_under_test.vt_write(format!("\x1b[{};1Hplain{row}", row + 1).as_bytes());
+    }
+    terminal_under_test.flush();
+    let _ = next_cell_frame(&terminal_under_test);
+
+    // 第 2 行改为整行宽字符：其单元数从 cols 降到 cols/2。
+    terminal_under_test.vt_write(format!("\x1b[2;1H{}", "宽".repeat(20)).as_bytes());
+    terminal_under_test.flush();
+    let cells = next_cell_frame(&terminal_under_test);
+    let (reused, _) = terminal_under_test.take_cache_stats();
+    assert!(reused > 0, "本帧 MUST 命中行复制路径");
+
+    // 逐行核对：复制来的行不得被宽字符行的短行内容污染。
+    for row in 0..6u32 {
+        let expected = if row == 1 {
+            "宽".repeat(20)
+        } else {
+            format!("plain{row}")
+        };
+        assert_eq!(
+            row_text_from_cells(&cells, row),
+            expected,
+            "第 {row} 行内容必须正确（宽字符行缩短后行区间不得错位）"
+        );
+    }
+}
+
+/// 2.9 的效果测量：冷启动全量抽取与稳态增量抽取的单帧耗时对照。
+///
+/// 对照只用两条真实路径，不靠命令投递构造：新建终端的**首次**抽取没有缓存
+/// 可用，必走全量；同一终端随后每次只改一行，未变行走复制。两者的唯一差异
+/// 就是行缓存是否可用。
+///
+/// 只断言功能性事实（增量组确实命中复制路径），性能数字只打印不做阈值断言——
+/// 并行执行下墙钟噪声大到足以让任何阈值失真，而 `TESTING.md` 要求测试可复现
+/// 且无不稳定项。测量值按本机实测记录在变更文档里。
+#[test]
+fn bench_row_extraction_full_versus_incremental() {
+    const FRAMES: u32 = 60;
+
+    let mut terminal_under_test = terminal();
+    for row in 0..23 {
+        terminal_under_test.vt_write(format!("\x1b[{row};1Hseed row {row}").as_bytes());
+    }
+    // 冷启动：建立缓存的那一帧必为全量。
+    let full_start = Instant::now();
+    terminal_under_test.flush();
+    black_box(next_cell_frame(&terminal_under_test));
+    let full_millis = full_start.elapsed().as_secs_f64() * 1000.0;
+    let (_, full_extracted) = terminal_under_test.take_cache_stats();
+
+    // 稳态：每帧只改一行，其余行走复制。写入逐帧不同，故不会被内容去重吞掉。
+    let incremental_start = Instant::now();
+    let mut reused_total = 0u64;
+    for frame in 0..FRAMES {
+        terminal_under_test.vt_write(format!("\x1b[23;1H{frame:02}").as_bytes());
+        terminal_under_test.flush();
+        black_box(next_cell_frame(&terminal_under_test));
+        reused_total += terminal_under_test.take_cache_stats().0;
+    }
+    let incremental_millis = incremental_start.elapsed().as_secs_f64() * 1000.0 / FRAMES as f64;
+
+    println!(
+        "首帧全量 {:.3}ms（逐格 {full_extracted} 行），稳态增量 {:.3}ms/帧（{FRAMES} 帧共复用 {reused_total} 行）",
+        full_millis, incremental_millis
+    );
+
+    assert!(
+        full_extracted > 0,
+        "冷启动首帧 MUST 逐格抽取全部行（此时无缓存可复用）"
+    );
+    assert!(
+        reused_total > 0,
+        "稳态每帧 MUST 命中行复制路径，否则测的是全量而非增量"
+    );
+}

@@ -34,6 +34,9 @@ class SecondStageRunner(
 
         /** 执行 app-data ELF 的系统链接器（SELinux 绕过）。出货的两个 ABI 都是 64 位。 */
         internal const val SYSTEM_LINKER = "/system/bin/linker64"
+
+        /** 子进程环境变量版本号：与原生侧 `pty.rs` 的 `TERMUX_VERSION` 同值，两侧各自声明。 */
+        internal const val TERMUX_VERSION = "0.119.0-beta.3"
     }
 
     data class Result(val success: Boolean, val errors: List<String> = emptyList())
@@ -274,7 +277,7 @@ class SecondStageRunner(
         "LANG" to "en_US.UTF-8",
         "TERM" to "xterm-256color",
         "COLORTERM" to "truecolor",
-        "TERMUX_VERSION" to "0.119.0-beta.3",
+        "TERMUX_VERSION" to TERMUX_VERSION,
     )
 
     /**

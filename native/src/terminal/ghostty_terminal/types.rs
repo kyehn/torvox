@@ -109,6 +109,33 @@ pub struct CellData {
     pub col: u32,
 }
 
+/// 依 `CellData.row` 把扁平行主序的 `cell_data` 切片划分为每行范围。
+/// 宽字符/间隔单元被终端省略，故各行长度不同；
+/// 无单元的行映射为空范围。存在超出 `rows` 的
+/// 单元（或输入非行主序）时返回 `None`——
+/// 属陈旧/失配数据，不可用于增量构建。
+///
+/// 置于终端层而非渲染层：入参与返回值都只由 `CellData` 的行号约定决定，
+/// 渲染侧的实例构建与终端侧的逐行缓存共用同一判据。
+pub(crate) fn build_row_ranges(
+    cell_data: &[CellData],
+    rows: u32,
+) -> Option<Vec<std::ops::Range<usize>>> {
+    let mut ranges: Vec<std::ops::Range<usize>> = (0..rows as usize).map(|_| 0..0).collect();
+    let mut current = 0usize;
+    for (r, range) in ranges.iter_mut().enumerate() {
+        let start = current;
+        while current < cell_data.len() && cell_data[current].row as usize == r {
+            current += 1;
+        }
+        *range = start..current;
+    }
+    if current < cell_data.len() {
+        return None;
+    }
+    Some(ranges)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,7 +281,7 @@ pub(crate) const COMMAND_CHANNEL_CAPACITY: usize = 1024;
 pub(crate) const QUERY_CHANNEL_CAPACITY: usize = 256;
 /// 单元格帧通道容量（渲染线程逐帧消费，满则丢弃旧帧）。
 pub(crate) const CELL_DATA_CHANNEL_CAPACITY: usize = 4;
-/// 上游 OSC 回调事件通道容量（剪贴板写入、振铃，低频；满则丢弃，VT 线程永不阻塞）。
+/// 上游 OSC 回调事件通道容量（剪贴板写入，低频；满则丢弃，VT 线程永不阻塞）。
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
 /// 构造函数等待 VT 线程进入其闭包的时限。超过即判定线程调度异常。

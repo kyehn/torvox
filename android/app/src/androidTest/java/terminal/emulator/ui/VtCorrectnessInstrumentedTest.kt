@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -23,6 +24,7 @@ import terminal.emulator.util.runCatchingCancellable
 class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 15_000L
+        private const val SETTLE_INTERVAL_MS = 200L
         private const val ROWS = 24
         private const val COLS = 80
     }
@@ -37,10 +39,38 @@ class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
             NativeBridge.initSession(ROWS, COLS, "/system/bin/sh", home, home, "", "")
         assertTrue("原生会话创建失败", sessionId != 0L)
         try {
+            awaitShellQuiet(sessionId)
+            resetGrid(sessionId)
             body(sessionId)
         } finally {
             runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
+    }
+
+    /**
+     * 等 shell 停止输出。提示符经 PTY 异步落到网格，若与用例注入的字节交叠，
+     * 光标断言就会读到 shell 的落点而非注入后的位置（实测光标被推到第 50 余列）。
+     * 连续两次采样文本不变即视为安静，不依赖提示符的具体形状。
+     */
+    private fun awaitShellQuiet(sessionId: Long) {
+        val deadline = SystemClock.uptimeMillis() + OUTPUT_TIMEOUT_MS
+        var previous = NativeBridge.getTerminalText(sessionId)
+        while (SystemClock.uptimeMillis() < deadline) {
+            Thread.sleep(SETTLE_INTERVAL_MS)
+            val current = NativeBridge.getTerminalText(sessionId)
+            if (current == previous) return
+            previous = current
+        }
+    }
+
+    /** 清屏并把光标归零，使后续断言只反映本用例注入的字节。 */
+    private fun resetGrid(sessionId: Long) {
+        feedText(sessionId, "\u001B[2J\u001B[H")
+        val seen =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+                NativeBridge.getCursorViewportPacked(sessionId) == 0L
+            }
+        assertNotNull("清屏后光标必须归零", seen)
     }
 
     private fun feedText(sessionId: Long, text: String) {

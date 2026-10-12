@@ -1,11 +1,13 @@
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::paste;
-use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
+use libghostty_vt::render::{CellIterator, RenderState, RowIterator, Snapshot};
 use libghostty_vt::screen::{CellWide, GridRef};
 use libghostty_vt::search::{MatchBuffer, Search};
 use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
@@ -58,6 +60,10 @@ const MAX_HYPERLINK_URI_BYTES: usize = 64 * 1024;
 /// OSC 52 剪贴板负载上限（1MiB）：远超任何真实剪贴板内容，又不至于让一份异常负载
 /// 拖垮进程内存（负载经 `String` 事件 → 事件队列 → Kotlin 剪贴板逐层复制）。
 const MAX_CLIPBOARD_PAYLOAD_BYTES: usize = 1024 * 1024;
+/// 选区形状：块选通道已移除（无入口、无 JNI 参数），选区固定为线性，故 rectangle 恒假。
+/// 具名而非就地写 `false`：两处安装/格式化入口共用该口径，就地字面量会让
+/// 「将来若引入块选」这件事看不出还需要改几个点。
+const SELECTION_RECTANGLE: bool = false;
 
 /// 16 个标准 ANSI 调色板索引，按 xterm 顺序（常规色在前，亮色在后）。
 /// `libghostty_vt::Palette` 只暴露具名的 `PaletteIndex` 常量，
@@ -128,13 +134,221 @@ fn has_visible_underline(underline: libghostty_vt::style::Underline) -> bool {
     )
 }
 
+/// 逐帧渲染迭代器与其宿主行缓存。
+///
+/// 三者与 VT 线程同生命周期，不逐帧新建：上游 [`RenderState`] 跨帧持有上次快照
+/// 状态，逐帧新建会使 `rows = 0` 初值把每次 [`RenderState::update`] 判为
+/// 「维度变化 → 全量重建」，行级脏标记恒为全脏。`RowCache` 只服务于
+/// [`Self::build_cell_data`]（快照路径整帧重建，不做行级缓存）。
+pub(crate) struct RenderExtractors<'alloc> {
+    render_state: RenderState<'alloc>,
+    row_iter: RowIterator<'alloc>,
+    cell_iter: CellIterator<'alloc>,
+    row_cache: RowCache,
+    /// 行级分流计数，仅测试使用：按终端实例隔离，避免并行测试互相污染。
+    #[cfg(test)]
+    pub(crate) cache_stats: CacheStats,
+}
+
+impl<'alloc> RenderExtractors<'alloc> {
+    /// 创建失败即记日志并返回 `None`：缺了它们既取不到网格也读不到光标，
+    /// 以「本帧返回空网格」延后只会在第一次渲染时静默降级。
+    pub(crate) fn new() -> Option<Self> {
+        let render_state = match RenderState::new() {
+            Ok(initialized_state) => initialized_state,
+            Err(state_error) => {
+                log::error!("RenderExtractors: RenderState::new() failed: {state_error}");
+                return None;
+            }
+        };
+        let row_iter = match RowIterator::new() {
+            Ok(initialized_rows) => initialized_rows,
+            Err(row_error) => {
+                log::error!("RenderExtractors: RowIterator::new() failed: {row_error}");
+                return None;
+            }
+        };
+        let cell_iter = match CellIterator::new() {
+            Ok(initialized_cells) => initialized_cells,
+            Err(cell_error) => {
+                log::error!("RenderExtractors: CellIterator::new() failed: {cell_error}");
+                return None;
+            }
+        };
+        Some(Self {
+            render_state,
+            row_iter,
+            cell_iter,
+            row_cache: RowCache::new(),
+            // 测试构建下由 `run_inner` 从 `RunConfig` 换成该终端实例的句柄；
+            // 生产构建无此字段，故此处为占位。
+            #[cfg(test)]
+            cache_stats: CacheStats::default(),
+        })
+    }
+
+    /// 三个迭代器字段作为可变引用一次性解出：`build_cell_data` 需要同时独占
+    /// 借用它们（上游 `RowIteration` 借用 `RowIterator` 与 `Snapshot`，
+    /// `CellIteration` 借用 `RowIteration`），逐字段借用会与 `row_cache`
+    /// 的可变借用冲突。
+    fn parts(
+        &mut self,
+    ) -> (
+        &mut RenderState<'alloc>,
+        &mut RowIterator<'alloc>,
+        &mut CellIterator<'alloc>,
+        &mut RowCache,
+    ) {
+        (
+            &mut self.render_state,
+            &mut self.row_iter,
+            &mut self.cell_iter,
+            &mut self.row_cache,
+        )
+    }
+
+    /// 行缓存整体失效（网格尺寸变化、终端重置、主题变更、选区安装或清除）。
+    /// 上游脏状态按实例保存，故本方法只清本仓缓存，`RenderState` 仍如实反映
+    /// 终端的新脏状态——它会在下一次 `update` 时看到尺寸变化或全量脏标记。
+    pub(crate) fn invalidate_row_cache(&mut self) {
+        self.row_cache.invalidate();
+    }
+}
+
+/// 上一帧的扁平 `CellData` 与其按行划分的区间。
+///
+/// 干净行整段复制自这里，故行边界必须由 [`build_row_ranges`] 依
+/// `CellData.row` 划分而非按 `cols` 反推：宽字符被上游省略，各行单元数不同。
+pub(crate) struct RowCache {
+    cells: Vec<CellData>,
+    ranges: Vec<std::ops::Range<usize>>,
+}
+
+/// 行级路径的可观测计数，仅测试使用。
+///
+/// 行级增量与全量重建产出逐字节相同，内容断言无法区分二者（增量正确但从未
+/// 命中时，用例照样全绿）；这两个计数是「行级路径确实生效」的唯一判别力来源。
+///
+/// 按终端实例隔离而非进程全局：测试并行执行，全局计数会被同进程其他终端的
+/// 抽取淹没，「本帧复用 0 行」这类断言因此不可判别。句柄经 [`RunConfig`] 传入，
+/// 测试从自己的终端句柄取同一实例。
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct CacheStats(Arc<(AtomicU64, AtomicU64)>);
+
+#[cfg(test)]
+impl CacheStats {
+    pub(crate) fn record(&self, reused: u64, extracted: u64) {
+        self.0.0.fetch_add(reused, Ordering::Relaxed);
+        self.0.1.fetch_add(extracted, Ordering::Relaxed);
+    }
+
+    /// 取出并清零：返回自上次取出以来本终端的复用行数与逐格行数。
+    pub(crate) fn take(&self) -> (u64, u64) {
+        (
+            self.0.0.swap(0, Ordering::Relaxed),
+            self.0.1.swap(0, Ordering::Relaxed),
+        )
+    }
+}
+
+impl RowCache {
+    pub(crate) fn new() -> Self {
+        Self {
+            cells: Vec::new(),
+            ranges: Vec::new(),
+        }
+    }
+
+    /// 缓存不覆盖本次抽取的网格尺寸时无法复用（行区间按行数划分）。
+    pub(crate) fn covers(&self, rows: u32) -> bool {
+        self.ranges.len() == rows as usize
+    }
+
+    /// 交出缓存内容与行边界，供本帧抽取期间充当干净行来源。
+    ///
+    /// 取走而非克隆：本帧结束后 [`Self::store`] 用本帧输出重建，无需保留旧缓冲。
+    /// 克隆 24×80 网格（约 150KB）会把省下的逐单元 FFI 往返换成与被否方案同型的
+    /// 拷贝成本。
+    fn take_previous(&mut self) -> (Vec<CellData>, Vec<std::ops::Range<usize>>) {
+        (
+            std::mem::take(&mut self.cells),
+            std::mem::take(&mut self.ranges),
+        )
+    }
+
+    /// 记录本帧输出与其行边界。行边界推导失败时保持缓存为空：
+    /// 错位的区间会把别行的内容写进本行，比不缓存更糟。
+    ///
+    /// 拷贝一整份本帧网格换取后续帧免去逐单元 FFI 往返——只在本帧确有脏行
+    /// （即确有新内容）时才走到这里。
+    pub(crate) fn store(&mut self, data: &[CellData], rows: u32) {
+        match crate::terminal::ghostty_terminal::build_row_ranges(data, rows) {
+            Some(ranges) => {
+                self.cells = data.to_vec();
+                self.ranges = ranges;
+            }
+            None => {
+                log::error!("build_cell_data: row ranges mismatch — cache invalidated");
+                self.invalidate();
+            }
+        }
+    }
+
+    /// 该网格行在缓冲中的区间；行数不匹配时返回空切片，
+    /// 调用方据此走逐格抽取而非误用错位区间。
+    fn row_slice<'a>(
+        cells: &'a [CellData],
+        ranges: &[std::ops::Range<usize>],
+        row: u32,
+    ) -> &'a [CellData] {
+        match ranges.get(row as usize) {
+            Some(range) => &cells[range.clone()],
+            None => &[],
+        }
+    }
+
+    /// 整体失效：下一帧必须逐格重建。用于网格尺寸变化、重置、主题或选区变更
+    /// ——这些情形下缓存内容与新网格不可比。
+    pub(crate) fn invalidate(&mut self) {
+        self.cells.clear();
+        self.ranges.clear();
+    }
+}
+
+/// 视口相对的光标位置与可见性（网格行、网格列、是否可见）。
+///
+/// 一律取 [`Snapshot::cursor_viewport`] 而非活动屏 `cursor_y()`：用户把回滚滚进视口后
+/// 活动屏行号与视口行分叉，光标会匹配到错误的网格行（真机上表现为光标「块」按滚动量
+/// 向右下跳约一格）。光标所在页不在可见视口内时上游返回 `None`（如大幅滚动），
+/// 此时不画光标。
+///
+/// `build_cell_data` 与 `build_snapshot` 两条抽取路径共用本函数：两份判读一旦分叉，
+/// 同一终端状态下 CellData 与快照会给出不同的光标行。
+fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool) {
+    match snapshot.cursor_viewport() {
+        Ok(Some(cursor_viewport)) => (
+            cursor_viewport.y as u32,
+            cursor_viewport.x as u32,
+            snapshot
+                .cursor_visible()
+                .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
+        ),
+        Ok(None) | Err(_) => (0, 0, false),
+    }
+}
+
 /// 是否为双下划线：单独成函数，与绘制判定同源，避免三处散落比较。
 fn is_double_underline(underline: libghostty_vt::style::Underline) -> bool {
     underline == libghostty_vt::style::Underline::Double
 }
 
-/// 创建三个逐帧渲染迭代器的辅助函数。
+/// 创建三个逐帧渲染迭代器。
 /// 任一创建失败即记日志并返回 `None`。
+///
+/// 迭代器与 VT 线程同生命周期（见 [`Self::run`] 的持有点），不逐帧新建：上游
+/// [`RenderState`] 跨帧持有上次快照状态，逐帧新建会使其 `rows = 0` 初值把每次
+/// [`RenderState::update`] 判为「维度变化」而重建全部行，行级脏跟踪恒为全脏。
 fn create_render_iterators() -> Option<(
     RenderState<'static>,
     RowIterator<'static>,
@@ -219,6 +433,7 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         search: &mut Option<Search<'_, 'term>>,
         match_buffer: &mut MatchBuffer,
+        extractors: &mut RenderExtractors<'term>,
     ) -> bool {
         let mut selection_installed = false;
         match query {
@@ -302,6 +517,7 @@ impl super::GhosttyTerminal {
                     [1.0, 1.0, 1.0, 1.0],
                     [0.0, 0.0, 0.0, 1.0],
                     alt_screen_active,
+                    extractors,
                 )
                 .and_then(|(_, cursor)| cursor.visible.then_some((cursor.row, cursor.col)));
                 try_send(&tx, visible_cursor, "query channel send failed");
@@ -560,6 +776,7 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         search: &mut Option<Search<'_, 'term>>,
         match_buffer: &mut MatchBuffer,
+        extractors: &mut RenderExtractors<'term>,
     ) -> bool {
         let mut selection_installed = false;
         while let Ok(query) = query_receiver.try_recv() {
@@ -575,6 +792,7 @@ impl super::GhosttyTerminal {
                 default_background,
                 search,
                 match_buffer,
+                extractors,
             );
         }
         selection_installed
@@ -740,6 +958,24 @@ impl super::GhosttyTerminal {
         // 命中读出用的存储，跨查询复用（上游按需扩容）。
         let mut match_buffer = MatchBuffer::new();
 
+        // 逐帧渲染迭代器与其行缓存：与终端同生命周期，不逐帧新建。上游 `RenderState`
+        // 跨帧持有上次快照状态，逐帧新建会使 `rows = 0` 初值把每次 `update` 判为
+        // 「维度变化 → 全量重建」，行级脏标记恒为全脏（实测命中率 0%）。
+        // 创建失败即终止 VT 线程：缺了它们既取不到网格也读不到光标，
+        // 以「本帧返回空网格」延后只会在第一次渲染时静默降级。
+        let mut extractors = match RenderExtractors::new() {
+            Some(extractors) => extractors,
+            None => {
+                log::error!("ghostty_terminal: render extractors unavailable — thread exiting");
+                return;
+            }
+        };
+        // 测试构建：换成该终端实例自己的计数句柄，使并行用例互不污染。
+        #[cfg(test)]
+        {
+            extractors.cache_stats = config.cache_stats.clone();
+        }
+
         // 初始主题：libghostty-vt 不处理 OSC 10/11 默认色转义（默认值归内嵌方所有，
         // OSC 4 调色板覆盖由上游处理），故走原生 setter。否则终端会保留内置的
         // xterm 调色板，主题颜色永远进不到网格里。
@@ -795,12 +1031,14 @@ impl super::GhosttyTerminal {
                         default_background,
                         &mut search,
                         &mut match_buffer,
+                        &mut extractors,
                     ) {
                         // 查询内安装与 Command::SetSelection 同款失效：
                         // 反白改变每行内容，帧必须重推。
                         last_cell_data_push = None;
                         grid_dirty = true;
                         cell_data_dirty = true;
+                        extractors.invalidate_row_cache();
                     }
                     // ── 自动推送 CellData（仅在真实状态变化后）──
                     if cell_data_dirty {
@@ -810,6 +1048,7 @@ impl super::GhosttyTerminal {
                             default_foreground,
                             default_background,
                             &mut last_cell_data_push,
+                            &mut extractors,
                         );
                         cell_data_dirty = false;
                     }
@@ -857,6 +1096,9 @@ impl super::GhosttyTerminal {
                         // 这些 setter 写入的默认色正是上游单元颜色查询的解析基准。
                         Self::apply_theme(&mut terminal, &theme.palette);
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
+                        // 默认前景/背景参与每个单元的颜色解算，换主题后
+                        // 缓存中的颜色逐行过时。
+                        extractors.invalidate_row_cache();
                         batch_dirty = true;
                     }
                     Command::Resize { rows, cols } => {
@@ -885,6 +1127,10 @@ impl super::GhosttyTerminal {
                                 .store(DEFAULT_CELL_HEIGHT, Ordering::Release);
                         }
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
+                        // 行数变化时行区间整体错位，缓存不可复用。
+                        // `RowCache::covers` 也会拦下这一情形，这里显式失效
+                        // 使失效时机与既有 `mark_grid_dirty` 保持同处。
+                        extractors.invalidate_row_cache();
                         batch_dirty = true;
                     }
                     Command::SetCellPixelSize {
@@ -925,6 +1171,7 @@ impl super::GhosttyTerminal {
                         cached_snapshot = None;
                         last_cell_data_push = None;
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
+                        extractors.invalidate_row_cache();
                         batch_dirty = true;
                     }
                     Command::SetSelection { start, end } => {
@@ -934,6 +1181,7 @@ impl super::GhosttyTerminal {
                         Self::install_selection_impl(&terminal, start, end);
                         last_cell_data_push = None;
                         grid_dirty = true;
+                        extractors.invalidate_row_cache();
                         batch_dirty = true;
                     }
                     Command::ClearSelection => {
@@ -942,6 +1190,7 @@ impl super::GhosttyTerminal {
                         }
                         last_cell_data_push = None;
                         grid_dirty = true;
+                        extractors.invalidate_row_cache();
                         batch_dirty = true;
                     }
                     Command::TakeSnapshot { tx } => {
@@ -987,11 +1236,13 @@ impl super::GhosttyTerminal {
                 default_background,
                 &mut search,
                 &mut match_buffer,
+                &mut extractors,
             ) {
                 // 同上：查询内安装的选区需要纳入本批重推。
                 last_cell_data_push = None;
                 grid_dirty = true;
                 batch_dirty = true;
+                extractors.invalidate_row_cache();
             }
             // 整批只做一次 cell-data 构建——上面的每次状态改动都已完成，
             // 故这里反映的是积压队列的最终状态。`grid_dirty` 由每条改动型
@@ -1004,6 +1255,7 @@ impl super::GhosttyTerminal {
                     default_foreground,
                     default_background,
                     &mut last_cell_data_push,
+                    &mut extractors,
                 );
                 cell_data_dirty = false;
             }
@@ -1237,12 +1489,13 @@ impl super::GhosttyTerminal {
     /// 终端网格变化后推送一份新的 cell-data 快照。
     /// [`Self::push_cell_data`] 的薄封装，补齐各命令处理器共用的
     /// 标准 config/状态接线。
-    fn refresh_cell_data(
+    fn refresh_cell_data<'alloc>(
         config: &RunConfig,
-        terminal: &libghostty_vt::terminal::Terminal,
+        terminal: &libghostty_vt::terminal::Terminal<'alloc, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
+        extractors: &mut RenderExtractors<'alloc>,
     ) {
         Self::push_cell_data(
             config.cell_data_tx.as_ref(),
@@ -1251,16 +1504,18 @@ impl super::GhosttyTerminal {
             default_foreground,
             default_background,
             last_push,
+            extractors,
         );
     }
 
-    fn push_cell_data(
+    fn push_cell_data<'alloc>(
         cell_data_tx: Option<&Sender<(Vec<CellData>, CursorInfo)>>,
         alt_screen_active: &Arc<AtomicBool>,
-        terminal: &Terminal,
+        terminal: &Terminal<'alloc, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
+        extractors: &mut RenderExtractors<'alloc>,
     ) {
         if let Some(tx) = cell_data_tx
             && let Some(data) = Self::build_cell_data(
@@ -1268,6 +1523,7 @@ impl super::GhosttyTerminal {
                 default_foreground,
                 default_background,
                 alt_screen_active,
+                extractors,
             )
         {
             // 自上次推送以来什么都没变时跳过发送：循环定时器（50ms 空闲唤醒）
@@ -1457,16 +1713,22 @@ impl super::GhosttyTerminal {
 
     /// 构建用于渲染的扁平全量 `CellData` 网格。
     ///
-    /// 上游的 `row.dirty()` 依赖跨帧复用的 `RenderState`：本函数每帧新建
-    /// `RenderState`，其 `rows = 0` 初值使 `update` 走「维度变化 → 全量重建」分支，
-    /// 全部行恒为脏（实测命中率 0%）。故不做行级缓存——那只会逐帧多一次
-    /// 整网格深拷贝与分配而永不命中。跳过干净快照由 `snapshot_needs_rebuild`
-    /// 在网格层面完成。
-    pub(crate) fn build_cell_data(
-        terminal: &Terminal,
+    /// 逐格抽取只对上游判脏的行执行，干净行整段复制 [`RowCache`] 的上一帧内容。
+    /// 判脏依据是 [`RowIteration::dirty`]，它依赖跨帧复用的 [`RenderState`]——
+    /// 本函数的迭代器由 [`Self::run`] 跨帧持有，且每次成功抽完后经
+    /// [`Snapshot::clean`] 标记快照已消费，两者缺一则全部行恒为脏。
+    ///
+    /// 每帧的行数据全部读出后才 `clean`：上游要求整帧渲染完成后才可清脏，
+    /// 提前标记会让本帧尚未读完的行被下一帧当作干净行复用。
+    ///
+    /// 跳过干净快照（网格级）由 `snapshot_needs_rebuild` 在上层完成，与行级判定
+    /// 是同一决策的两层：网格未变时本函数根本不执行。
+    pub(crate) fn build_cell_data<'alloc, 'cb>(
+        terminal: &Terminal<'alloc, 'cb>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
         alt_screen_active: &Arc<AtomicBool>,
+        extractors: &mut RenderExtractors<'alloc>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         // VT 线程每推一帧就同步这个无锁的备用屏镜像。Android 输入路径在每次
         // 触摸滚动时无锁读取它，以决定手势是否转发给远端
@@ -1481,12 +1743,18 @@ impl super::GhosttyTerminal {
         let cols = grid_cols(terminal);
         let size = (rows * cols) as usize;
 
-        let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
+        // 计数句柄须在 `parts()` 的独占借用之前取一份副本：`extractors` 在整个
+        // 抽取期间已被可变借用，此处再借即冲突。句柄内部是 `Arc`，副本共享
+        // 同一组原子量。
+        #[cfg(test)]
+        let cache_stats = extractors.cache_stats.clone();
+        let (render_state, row_iter, cell_iter, row_cache) = extractors.parts();
 
         let snapshot = match render_state.update(terminal) {
             Ok(render_snapshot) => render_snapshot,
             Err(update_error) => {
                 log::error!("build_cell_data: render_state.update failed: {update_error}");
+                row_cache.invalidate();
                 return None;
             }
         };
@@ -1495,12 +1763,26 @@ impl super::GhosttyTerminal {
             Ok(row_iterator) => row_iterator,
             Err(row_error) => {
                 log::error!("build_cell_data: row_iter.update failed: {row_error}");
+                row_cache.invalidate();
                 return None;
             }
         };
 
+        // 缓存行数与网格不一致（尺寸变更/重置/首次抽取）时不可复用：
+        // 区间按行数划分，错位复用会把别行的内容写进本行。
+        // 旧帧缓冲经 `take_previous` 移出后即由本帧输出重建，故不留悬空副本。
+        let reusable_rows = row_cache.covers(rows);
+        let (previous_cells, previous_ranges) = if reusable_rows {
+            row_cache.take_previous()
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
+        let mut extraction_complete = true;
+        // 本次抽取的行级分流结果，仅测试读取；生产构建不声明，零开销。
+        #[cfg(test)]
+        let (mut reused_rows, mut extracted_rows) = (0u64, 0u64);
         // 无选区时跳过每行一次 selection FFI。读失败按「无选区」作答并出声：
         // 若真读成 false 而终端确有选区，本帧的反白会整帧消失且无处可查。
         let selection_active = match terminal.selection() {
@@ -1512,6 +1794,36 @@ impl super::GhosttyTerminal {
         };
 
         while let Some(row) = row_iter_impl.next() {
+            // 行级脏判定：缓存不可复用（尺寸变更/首次）时全部行逐格抽取；
+            // 上游报该行干净时整段复制上一帧该行——内容逐字节相同，省下
+            // 一次逐单元 FFI 往返。判读失败按「脏」处理：宁可多抽，
+            // 不可拿可能失配的缓存冒充本帧内容。
+            let row_dirty = !reusable_rows
+                || match row.dirty() {
+                    Ok(dirty) => dirty,
+                    Err(error) => {
+                        log::warn!("build_cell_data: row dirty query failed: {error}");
+                        true
+                    }
+                };
+            if !row_dirty {
+                data.extend_from_slice(RowCache::row_slice(
+                    &previous_cells,
+                    &previous_ranges,
+                    current_row,
+                ));
+                #[cfg(test)]
+                {
+                    reused_rows += 1;
+                }
+                current_row += 1;
+                continue;
+            }
+            #[cfg(test)]
+            {
+                extracted_rows += 1;
+            }
+
             // 行级选区范围（无选区时为 None）：每行一次 FFI，避免逐单元格查询。
             let row_selection = if selection_active {
                 row.selection().ok().flatten()
@@ -1524,6 +1836,9 @@ impl super::GhosttyTerminal {
                 Ok(ci) => ci,
                 Err(error) => {
                     log::warn!("build_cell_data: cell_iter.update failed: {error}");
+                    // 该行已不完整，不得以缓存版本冒充：整帧作废并清空缓存。
+                    row_cache.invalidate();
+                    extraction_complete = false;
                     break;
                 }
             };
@@ -1659,23 +1974,35 @@ impl super::GhosttyTerminal {
             data.extend_from_slice(&row_data);
             current_row += 1;
         }
+        // 行迭代在此自然结束：它持有 `RowIterator` 的可变借用与快照的共享借用，
+        // 而后续的 `Snapshot::clean` 与读光标都只取 `&self`，两者不冲突——
+        // 无需提前 drop（`RowIteration` 不实现 `Drop`，显式 drop 只延长借用而无作用）。
+
+        // 抽取中断：该帧网格不完整，不得把半张网格推给渲染线程，也不留作缓存。
+        if !extraction_complete {
+            row_cache.invalidate();
+            return None;
+        }
+
+        // 本帧完整后才刷新缓存与标记快照已消费：
+        // · 缓存按 `build_row_ranges` 的行边界划分，行数与内容不符即无法复用；
+        // · 上游要求整帧完成后才可 `clean`，提前标记会让下一帧误判未读出的行为干净。
+        //
+        // 一次整网格拷贝（约 150KB/24×80）换下一帧少走 22 行的逐单元 FFI 往返
+        // （实测同一 `RenderState` 跨帧复用时，改一行只判脏该行与末行）：
+        // 净收益为正，故此处不做「全干净帧免拷贝」之类的特化——该路径本就
+        // 很少进入（`build_cell_data` 由 `batch_dirty`/`cell_data_dirty` 双重守卫），
+        // 而特化会引入一条需要单独证明正确的相等性判断。
+        row_cache.store(&data, rows);
+        if let Err(clean_error) = snapshot.clean() {
+            log::warn!("build_cell_data: snapshot clean failed: {clean_error}");
+        }
+        #[cfg(test)]
+        cache_stats.record(reused_rows, extracted_rows);
+
         let cursor_style = Self::cursor_style_from_snapshot(&snapshot);
-        // 光标位置必须取自 render-state 的**视口**坐标，而非活动屏查询：
-        // `cursor_y()` 返回的是**活动区**内的行号，而 CellData 的行是视口行
-        // （当前滚动视口的 0..rows-1）。用户把回滚滚进视口后两者即分叉，
-        // 光标会匹配到错误的网格行——表现为光标「块」按滚动量向右下跳
-        // （真机上报告为光标偏移约 1 格）。`cursor_viewport()` 在光标所在页
-        // 不在可见视口内时返回 None（如大幅滚动），此时干脆不该画光标。
-        let (cursor_row, cursor_col, cursor_visible) = match snapshot.cursor_viewport() {
-            Ok(Some(cv)) => (
-                cv.y as u32,
-                cv.x as u32,
-                snapshot
-                    .cursor_visible()
-                    .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
-            ),
-            Ok(None) | Err(_) => (0, 0, false),
-        };
+        // 光标取视口相对坐标：口径与判据见 [cursor_in_viewport]。
+        let (cursor_row, cursor_col, cursor_visible) = cursor_in_viewport(&snapshot);
         Some((
             data,
             CursorInfo {
@@ -1742,8 +2069,10 @@ impl super::GhosttyTerminal {
         let size = (rows * cols) as usize;
         let mut cells = Vec::with_capacity(size);
 
-        // 局部 RenderState+迭代器——每次调用新建，以避开
-        // invariant-param Terminal 类型带来的生命周期问题。
+        // 独立的 RenderState 与迭代器：快照路径每次整帧重建，不做行级缓存，
+        // 故不复用 `build_cell_data` 跨帧持有的那一套。上游的脏状态按实例保存
+        // （见 render.rs 模块文档「dirty tracking」），两套实例互不消费对方的
+        // 脏标记——共用会使行级判定读到已被快照路径 `clean` 清掉的状态。
         let (mut render_state, mut row_iter, mut cell_iter) = match create_render_iterators() {
             Some(iterator_bundle) => iterator_bundle,
             None => return GridSnapshot::fallback(rows, cols),
@@ -1853,18 +2182,8 @@ impl super::GhosttyTerminal {
             }
         }
 
-        // 视口相对的光标坐标（与上面按视口行存放的单元行一致）：回滚被滚进
-        // 视口后，活动屏的 `cursor_y` 就与视口分叉了。
-        let (cursor_row, cursor_col, cursor_visible) = match snapshot.cursor_viewport() {
-            Ok(Some(cv)) => (
-                cv.y as u32,
-                cv.x as u32,
-                snapshot
-                    .cursor_visible()
-                    .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
-            ),
-            Ok(None) | Err(_) => (0, 0, false),
-        };
+        // 视口相对的光标坐标（与按视口行存放的单元行一致）：口径见 [cursor_in_viewport]。
+        let (cursor_row, cursor_col, cursor_visible) = cursor_in_viewport(&snapshot);
 
         let dirty = vec![true; (rows as usize) * (cols as usize)];
 
@@ -1965,8 +2284,8 @@ impl super::GhosttyTerminal {
         else {
             return String::new();
         };
-        // 块选通道已移除：选区固定为线性（rectangle 恒 false）。
-        let selection = libghostty_vt::selection::Selection::new(start_gref, end_gref, false);
+        let selection =
+            libghostty_vt::selection::Selection::new(start_gref, end_gref, SELECTION_RECTANGLE);
         let mut formatter = match libghostty_vt::fmt::Formatter::new(
             terminal,
             libghostty_vt::fmt::FormatterOptions::new()
@@ -2076,7 +2395,7 @@ impl super::GhosttyTerminal {
         Self::installed_bounds(terminal, selection)
     }
 
-    /// 将视图坐标的选区安装为终端持有的活动选区（跟踪引用）。
+    /// 将绝对网格坐标的选区安装为终端持有的活动选区（跟踪引用）。
     /// 与 selection_text_impl 同一坐标系：绝对网格行（0 = 回滚顶部）。
     /// 无效端点时静默忽略（调用方已标记脏并重推，保持帧一致）。
     pub(crate) fn install_selection_impl(terminal: &Terminal, start: (u32, u32), end: (u32, u32)) {
@@ -2086,8 +2405,8 @@ impl super::GhosttyTerminal {
         ) else {
             return;
         };
-        // 块选通道已移除：选区固定为线性（rectangle 恒 false）。
-        let selection = libghostty_vt::selection::Selection::new(start_ref, end_ref, false);
+        let selection =
+            libghostty_vt::selection::Selection::new(start_ref, end_ref, SELECTION_RECTANGLE);
         if terminal.set_selection(Some(&selection)).is_err() {
             log::warn!("ghostty_terminal: install selection failed");
         }

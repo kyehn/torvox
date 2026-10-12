@@ -380,4 +380,28 @@ class TerminalSurfaceLogicTest {
         )
         assertEquals(110 to 516, anchor)
     }
+
+    // ── 词选边界解析 ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `word bounds from the native derivation are used verbatim`() {
+        val bounds = resolveWordSelectionBounds(intArrayOf(7, 2, 7, 9), gridRow = 7, col = 4)
+        assertEquals(SelectionBounds(startRow = 7, startCol = 2, endRow = 7, endCol = 9), bounds)
+    }
+
+    @Test
+    fun `no selectable word falls back to the tapped cell`() {
+        // 空白格无词（上游 select_word 返回空）：退化为落点单格，粘贴菜单语义不变。
+        assertEquals(
+            SelectionBounds(startRow = 12, startCol = 5, endRow = 12, endCol = 5),
+            resolveWordSelectionBounds(null, gridRow = 12, col = 5),
+        )
+    }
+
+    @Test
+    fun `a bounds array of the wrong length falls back to the tapped cell`() {
+        // 长度不符即视为查询失败：错位数组会把别处的界限写进本次选区。
+        val bounds = resolveWordSelectionBounds(intArrayOf(1, 2, 3), gridRow = 20, col = 6)
+        assertEquals(SelectionBounds(startRow = 20, startCol = 6, endRow = 20, endCol = 6), bounds)
+    }
 }

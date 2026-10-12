@@ -6,6 +6,8 @@ use flume::{Sender, bounded};
 use libghostty_vt::key;
 
 use super::commands::{Command, Query, RunConfig};
+#[cfg(test)]
+use super::internal::CacheStats;
 use super::types::*;
 
 impl super::GhosttyTerminal {
@@ -39,6 +41,13 @@ impl super::GhosttyTerminal {
             AtomicU32::new(DEFAULT_CELL_WIDTH),
             AtomicU32::new(DEFAULT_CELL_HEIGHT),
         ));
+        // 行级计数句柄：闭包 `move` 取一份，构造体留一份（内部是 `Arc`，
+        // 两份副本共享同一组原子量）。生产构建无此变量。
+        #[cfg(test)]
+        let (cache_stats_for_run, cache_stats_for_self) = {
+            let shared = CacheStats::default();
+            (shared.clone(), shared)
+        };
         // 就绪握手：`thread::spawn` 返回时新线程可能尚未被调度，此时构造完成、
         // 调用方立刻发查询，查询会在 QUERY_TIMEOUT_MS 内无人应答而回退到
         // DISCONNECTED_*（表现为「spawn 完马上 resize 却拿到旧网格」的竞态）。
@@ -62,6 +71,8 @@ impl super::GhosttyTerminal {
                         cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
                         clipboard_tx,
+                        #[cfg(test)]
+                        cache_stats: cache_stats_for_run.clone(),
                     })
                 }));
                 if let Err(panic) = result {
@@ -99,7 +110,15 @@ impl super::GhosttyTerminal {
             pty_write_responses,
             last_pty_write_byte: 0,
             alt_screen_active,
+            #[cfg(test)]
+            cache_stats: cache_stats_for_self,
         })
+    }
+
+    /// 本终端的行级抽取计数：取出并清零，返回（复用行数，逐格行数）。
+    #[cfg(test)]
+    pub(crate) fn take_cache_stats(&self) -> (u64, u64) {
+        self.cache_stats.take()
     }
 
     pub fn drain_pty_write_responses(&self) -> Vec<Vec<u8>> {

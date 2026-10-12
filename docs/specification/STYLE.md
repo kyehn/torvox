@@ -46,7 +46,7 @@
 - 使用简体中文编写注释和文档，表述需要简明扼要。
 - 只能在 rs/kt 文件中编写注释，kts/yml 及其他文件不可添加
 - Torvox/torvox 仅为软件名称，除部分介绍文档外一律不得出现，使用如 terminal 等通用词。
-- `nix/store` 不得出现在任何 rs/kt/kts 代码中。
+- `nix/store` 不得出现在任何代码中，除了 `nativeBuildInputs` 检查代码
 - `fish` `dash` `zsh` 不得出现在任何文件中。
 - 不得定义任何 crate features。
 - 不得保留死代码。

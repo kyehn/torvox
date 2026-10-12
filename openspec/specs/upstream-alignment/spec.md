@@ -415,10 +415,10 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `Terminal::vt_write` 二进制安全 | 采用（已修） | `pty_write` 曾把 `>0xF7` 改空格，破坏 Kitty 直接 RGB 等二进制载荷；现仅剔除 NUL，与 `vt_write` 同策略 |
 | 调色板与字节转浮点 | 采用（已修） | 渲染侧 `CATPPUCCIN_MOCHA_BACKGROUND` 与手写除法已删，以 `theme` 单源（构建期 alacritty-theme）与 `default_palette` 为唯一入口 |
 | `selection` 交叉翻转归属 | 采用（已修） | 对标 termlib `applyHandleDrag` 五元组：回传新归属柄并收紧等值判据，调用方更新 `handleDragState` |
-| `search::Search` 全文搜索 | 采用（2026 改判） | 自研 `regex` 搜索曾被判定合规，实为重复实现：软换行跨行、随输出增量同步、命中总数与导航滚动上游全已提供。现 VT 线程持有 `search::Search`（同生命周期的局部变量，非自引用结构），needle/总数/导航/视口命中均走上游，本仓只做「上游选区 → 按物理行网格区间」转换。代价：上游仅 ASCII 折叠、无区分大小写开关，`DESIGN.md` 修饰键栏节的「大小写匹配」与「使用库（如 `regex`）实现文本搜索」两条已失效，须由维护者改写（`docs/specification/` 不可由代理修改）；`regex` 依赖随之删除。软换行/宽字符/CJK/真实空格的用例语义按上游口径重写，见 `text-search` 规约 |
-| `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | DESIGN 禁双击三击多击选择；格式化器已选用 `fmt::Formatter`，双格式化器并存需注释说明而非迁移 |
+| `search::Search` 全文搜索 | 采用（2026 改判） | 自研 `regex` 搜索曾被判定合规，实为重复实现：软换行跨行、随输出增量同步、命中总数与导航滚动上游全已提供。现 VT 线程持有 `search::Search`（同生命周期的局部变量，非自引用结构），needle/总数/导航/视口命中均走上游，本仓只做「上游选区 → 按物理行网格区间」转换。代价：上游仅 ASCII 折叠、无区分大小写开关，`DESIGN.md` 修饰键栏节原「大小写匹配」与「使用库（如 `regex`）实现文本搜索」两条**已由维护者改写**（删去大小写匹配按钮、改写为使用 libghostty-vt Search，与上游口径一致）；`regex` 依赖随之删除。软换行/宽字符/CJK/真实空格的用例语义按上游口径重写，见 `text-search` 规约 |
+| `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | 连击语义与 `DESIGN.md:132`「不得支持双击三击多击选择」正面冲突，该族主体（拖动手势 + 边缘自动滚动）另有两条理由：其自动滚动按定时器在边缘区持续滚动，与 `text-selection`「每次触点移动恰好滚 1 行、静止不滚」相反；其手势状态若由 VT 线程持有，则每个触摸帧一次跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。四项上游优势的覆盖情况：词派生、跟踪选区、随滚动跟随、复制格式化已走上游；宽字符吸附的事实取自上游网格单元宽度；边缘滚动节奏不采纳；单一来源已由 `terminal.rs` 承担。 |
 | termlib `trimDetectedUrl`/括号计数/跨行拼接 | 不采用 | DESIGN「链接识别通过 `libghostty-vt` 查询，没有额外检查」即禁止移植；仅保留空白 trim 与协议白名单（属安全检查） |
-| `on_bell`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_desktop_notification`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册 |
+| `on_bell`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_desktop_notification`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册。`on_bell` 曾被 7 处注释误记为已接线（`ghostty_terminal/commands.rs` 的 `RunConfig` 悬空附着于 `cell_size_px`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、以及 `session.rs` 的 5 处收割路径文档），实际该通道只承载 OSC 52 剪贴板写入；注释已删除，未新增回调 |
 | `track_grid_ref`、`width_px`/`height_px`、光标色实时查询、`set_mode`、`vt_write_until_ground` | 不采用 | 按需取用；现有轮询与原子镜像满足当前消费者，DESIGN 要求最小实现 |
 | `key::Encoder` 按键编码 | 采用（已修） | Android 键码到上游 `Key` 为机械对应表（`keymap.rs`），桥形态与 `Query::EncodeMouseEvent` 同构（编码在 VT 线程）；`TerminalInputEncoder` 仅保留输入法文本路径 |
 | `Terminal::paste` 粘贴 | 不采用 | 含换行文本返回 `Error::Rejected` 并要求确认框后 `allow_unsafe` 重试，PROHIBITED 明禁粘贴确认对话框；恒置 `allow_unsafe` 则检查失去意义 |
@@ -505,3 +505,51 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 61 字节打包含深底标记与颜色）、字体信息（`getFontInfo` 的 `u32` 标志 + 三个 `f32` +
 `u16` 名称数 + NUL 分隔 UTF-8 名称，CJK 状态按判别序号传递）、搜索结果
 （`searchAllInScrollback` 扁平 `IntArray`）、会话列表（`listSessions` 扁平 `LongArray`）。
+
+### Requirement: 不采用的上游回调不得留有通道描述
+
+判定为不采用的上游回调 MUST NOT 在代码注释、结构体字段文档或常量说明中以「事件通道」
+「每次振铃一个空消息」等形态描述为已存在的实现。若某回调已判定不采用而代码中仍见其
+通道描述，MUST 删除该描述，MUST NOT 顺手接线回调——接线需先有 `DESIGN.md` 声明与
+消费者，缺一即属未声明功能。
+
+本仓的 OSC 回调事件通道只承载 OSC 52 剪贴板写入，相关容量常量与字段文档 MUST 只描述
+剪贴板写入。
+
+#### Scenario: 悬空通道注释被删除
+
+- **WHEN** 结构体中某字段的文档注释描述了一条并不存在的上游回调通道
+- **THEN** 该描述被删除，相邻字段保留其自身文档，不因删除而并入邻字段
+
+#### Scenario: 事件通道容量说明只写剪贴板
+
+- **WHEN** 查阅 OSC 回调事件通道容量的说明
+- **THEN** 说明只提到剪贴板写入，不出现未接线的其他回调
+
+#### Scenario: 清理不以接线收尾
+
+- **WHEN** 因注释失真而删除某回调的通道描述
+- **THEN** 该回调仍保持未接线，且没有新增任何消费者或事件变体
+
+### Requirement: 选择手势类上游 API 的不采用依据须覆盖往返成本
+
+上游 `selection::gesture` 一类以指针事件驱动选区、要求与终端变更串行的 API，其采纳
+判定 MUST 以**拖动路径的跨线程往返成本**为主要判据，MUST NOT 仅以「DESIGN 禁多击选择」
+为由——连击计数只是该族的一小部分，拖动与边缘自动滚动才是主体。
+
+此类 API 与本仓的交互模型通常冲突：手势状态机不可跨线程，而拖动的每一帧都必须把结果
+推到渲染侧才能重定位手柄；若每次 MOVE 都要一次带超时的跨线程查询，本仓现有的
+「本地算边界 + 节流推送 + 松手提交」模型即被推翻。故评估时 MUST 先核对拖动路径当前的
+往返形态，再判断该 API 是否能以低频事件（而非逐 MOVE）的形态接入。
+
+MUST 同时逐项核对上游能力的语义优势是否已被现有实现覆盖；已被覆盖者不构成采纳理由。
+
+#### Scenario: 不采用依据不是多击限制
+
+- **WHEN** 记录上游手势 API 的不采用结论
+- **THEN** 依据包含拖动路径的往返成本，且不只写「不支持多击选择」
+
+#### Scenario: 低频接入点单独评估
+
+- **WHEN** 评估上游手势 API 中仅在低频定时事件触发的部分（如边缘自动滚动）
+- **THEN** 该部分与逐 MOVE 部分分开评估，不因整体不采用而一并排除

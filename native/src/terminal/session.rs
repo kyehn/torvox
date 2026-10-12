@@ -522,7 +522,7 @@ impl Session {
             true
         } else {
             // 本帧没有新输出，但 VT 线程可能仍在处理此前投递的命令：其回调事件
-            // （OSC 52 写入、BEL）与回写应答此刻可能刚好就绪。仍然收割一次，否则
+            // （OSC 52 写入）与回写应答此刻可能刚好就绪。仍然收割一次，否则
             // 这些副作用要一直等到下一批输出到来才上报——终端安静时（恰恰是用户
             // 复制完内容的那一刻）就永远不发生。
             self.harvest_vt_side_effects();
@@ -530,13 +530,13 @@ impl Session {
         }
     }
 
-    /// 收割 VT 侧的副作用：回调事件（OSC 52 写入、BEL）与 PTY 回写应答（DECRPM/DSR/DA）。
+    /// 收割 VT 侧的副作用：回调事件（OSC 52 写入）与 PTY 回写应答（DECRPM/DSR/DA）。
     ///
     /// 两者都是非阻塞取（`try_recv` 与加锁后 `take`），故**不**以 VT 线程的 flush ack
     /// 为条件。原实现把收割挂在 `flush_with_timeout(Duration::ZERO)` 的成功分支上，
     /// 而零期限的 `recv_timeout` 要在 ack 已被 VT 线程送出的一瞬才可能命中，实测 32 次
     /// 连续尝试 0 次成功（`zero_timeout_flush_observes_the_ack`）——于是这条分支实际是
-    /// 死代码：OSC 52 写入与 BEL 永远不收割（用户复制内容后剪贴板不更新、振铃不响），
+    /// 死代码：OSC 52 写入永远不收割（用户复制内容后剪贴板不更新），
     /// DECRPM/DSR/DA 应答也永不写回 PTY（子应用无限期等待设备状态查询）。
     ///
     /// 丢弃 flush 的代价是无 Synchronization：VT 线程尚未处理完时取到空，下次取到。
@@ -572,7 +572,7 @@ impl Session {
         self.output_processor.take_new_output()
     }
 
-    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入 / BEL 振铃）到队列/标志位。
+    /// 收割 VT 线程经上游回调上报的事件（剪贴板写入）到队列/标志位。
     /// 拉取式：每帧重复调用，VT 线程尚未处理完时取到空、下帧再取（见
     /// `harvest_vt_side_effects` 的说明——本路径不 flush）。
     fn drain_callback_events(&self) {
@@ -1182,7 +1182,7 @@ mod tests {
     /// 回归护栏：OSC 52 写入必须被收割，用户复制的内容才能进系统剪贴板。
     ///
     /// 原实现把收割挂在 `flush_with_timeout(Duration::ZERO)` 成功分支上，而零期限
-    /// `recv_timeout` 实测 32 次 0 次命中 ack，故 OSC 52 与 BEL 事件永不上报
+    /// `recv_timeout` 实测 32 次 0 次命中 ack，故 OSC 52 事件永不上报
     /// （`NativeBridgeSmokeTest > feedTerminal OSC52 write surfaces clipboard poll event`
     /// 长期失败即由此而来）。本测试只依赖「投递 + 收割」，不依赖任何 flush 时序。
     #[test]

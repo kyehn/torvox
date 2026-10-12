@@ -115,29 +115,54 @@ fn gpu_instance() -> &'static OnceLock<GlobalGpu> {
 
 /// 渲染路径取全局 GPU：不可用即致命（无法渲染的终端是坏的，不应跚行运转）。
 fn global_gpu() -> &'static GlobalGpu {
-    gpu_instance().get_or_init(|| match init_gpu() {
-        Ok(global) => global,
-        Err(initialization_error) => panic!(
-            "GPU initialization failed: {initialization_error}. \
-             See log for details."
-        ),
+    initialize_global_gpu().unwrap_or_else(|initialization_error| {
+        panic!("GPU initialization failed: {initialization_error}. See log for details.")
     })
 }
 
 /// 可失败取全局 GPU：失败不致命，供启动预热等非渲染路径使用（见
 /// `Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState`）。
-///
-/// 失败**不写入** `OnceLock`，故后续渲染路径仍会重试初始化：设备上的 Vulkan 初始化
-/// 在进程刚起来的数秒内可能失败（GPU 尚被别的应用占用），而同一设备稍后即可成功，
-/// 预热不该把一次瞬时失败固化成启动即崩。
 pub(crate) fn try_global_gpu() -> Result<&'static GlobalGpu, GpuError> {
+    initialize_global_gpu()
+}
+
+/// GPU 初始化的唯一实现（致命渲染路径与可失败的预热路径共用，故只有这一处）。
+///
+/// 判空与写入之间持一把初始化锁，使 `init_gpu`（建 Instance、request_adapter、
+/// request_device）在进程内**只发生一次**。先前的三段式
+/// `get` 判空 → `init_gpu` → `get_or_init` 在判空与写入之间并不原子：预热线程与
+/// 渲染线程在启动瞬间并发时，两者各自跑完一次完整初始化，第二次的
+/// device/queue/adapter 被 `get_or_init` 直接丢弃——白耗一次显存与驱动资源
+/// （真机 logcat 实证：`GPU adapter` 与 `GPU device created` 各打印两遍，分属
+/// tid 20094 与 20114 两个线程）。
+///
+/// 失败**不写入** `OnceLock`（锁在返回 Err 前释放），故后续渲染路径仍会重试初始化：
+/// 设备上的 Vulkan 初始化在进程刚起来的数秒内可能失败（GPU 尚被别的应用占用），
+/// 而同一设备稍后即可成功，预热不该把一次瞬时失败固化成启动即崩。
+fn initialize_global_gpu() -> Result<&'static GlobalGpu, GpuError> {
+    static INITIALIZATION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+    if let Some(initialized) = gpu_instance().get() {
+        return Ok(initialized);
+    }
+    let _initialization = INITIALIZATION.lock();
+    // 持锁后重查：等锁期间可能已由另一线程初始化完毕。
     if let Some(initialized) = gpu_instance().get() {
         return Ok(initialized);
     }
     let global = init_gpu()?;
-    // 并发下可能已被另一个线程写入：取已缓存者，丢弃本次多余结果。
+    #[cfg(test)]
+    INITIALIZATION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(gpu_instance().get_or_init(|| global))
 }
+
+/// `init_gpu` 成功完成的次数，仅测试读取：生产构建不声明。
+///
+/// 计数使「初始化只发生一次」可断言：仅比对各线程拿到的引用做不到这一点——
+/// `OnceLock` 一旦填满，修复前（并发下各自初始化、后者被丢弃）与修复后的代码
+/// 都让每个线程拿到同一引用，故该比对对竞态零判别力。
+#[cfg(test)]
+pub(crate) static INITIALIZATION_COUNT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 /// GPU 渲染器：持有 wgpu 资源与管线。字段按空行分组：核心资源、单元管线资源、图集资源、
 /// Kitty 图形协议（kgp_*）、逐帧瞬时状态。
