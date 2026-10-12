@@ -57,7 +57,8 @@ MUST NOT 截断——截断会让用户搜到另一个串的结果。字符数�
 50k 窗口），本仓 MUST NOT 另设一份。
 
 UI 侧 MUST NOT 用 `take` 截断查询串：超长查询 MUST 在 UI 侧直接判为无命中
-（`resultCount = 0`），MUST NOT 送往原生。查询框仍显示用户输入的原文。
+（`resultCount = 0`），MUST NOT 送往原生。查询框仍显示用户输入的原文。上限值非法
+（`maxChars < 0`，如原生失败哨兵）时 MUST 快速失败，MUST NOT 把全部查询静默判为无命中。
 
 #### Scenario: 超长查询无命中
 
@@ -69,6 +70,11 @@ UI 侧 MUST NOT 用 `take` 截断查询串：超长查询 MUST 在 UI 侧直接�
 - **WHEN** 用户在搜索框输入超过 128 字符的查询
 - **THEN** UI 侧直接判为 0 命中，不调用原生搜索，查询框保留原文；
   用户看到的是「无命中」而非截断串的命中
+
+#### Scenario: 非法上限快速失败
+
+- **WHEN** 上限值为负数
+- **THEN** 抛错而非返回无命中
 
 ### Requirement: 搜索高亮由原生按上游命中直接生成
 
