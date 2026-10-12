@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
@@ -33,5 +34,10 @@ class SearchQueryCoerceTest {
     fun `astral chars count as one codepoint like native`() {
         val query = "😀".repeat(65)
         assertEquals(query, coerceSearchQuery(query, 128))
+    }
+
+    @Test
+    fun `negative limit fails fast instead of silent no hit`() {
+        assertThrows(IllegalArgumentException::class.java) { coerceSearchQuery("", -1) }
     }
 }
