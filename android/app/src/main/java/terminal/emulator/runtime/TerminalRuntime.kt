@@ -3280,15 +3280,15 @@ constructor(
     }
 
     /**
-     * 渲染暂停期间的会话推进泵线程；无会话推进需求时为 null。
+     * 渲染暂停期间的会话推进泵；未启动时为 null。
      *
      * 渲染线程同时承担「渲染」与「推进会话（pollAll）」两件事（见渲染循环内
      * 「输出泵与渲染解耦」注释）。暂停渲染即停掉渲染线程，输出泵随之消失：无人
      * 调用 `pollEvent` 时有界输出通道会填满，读线程阻塞、PTY 内核缓冲填满，后台
-     * 作业就此停摆。故暂停期间另起本线程只推进会话，不消费事件——事件留在原生
+     * 作业就此停摆。故暂停期间另起本泵只推进会话，不消费事件——事件留在原生
      * 队列，渲染恢复后照常派发。
      */
-    @Volatile private var sessionPumpThread: Thread? = null
+    @Volatile private var sessionPump: java.util.concurrent.ScheduledExecutorService? = null
 
     fun pauseRendering() {
         // stopRenderThread 会 join 渲染线程（每会话最长 THREAD_JOIN_TIMEOUT_MS）；
@@ -3320,46 +3320,49 @@ constructor(
     /**
      * 启动会话推进泵（幂等）：渲染已停时维持终端状态前进。
      *
+     * 用定时执行器而非「线程 + sleep」：节拍由调度器承担，不占线程阻塞等待，
+     * [stopSessionPump] 的取消即刻生效（`sleep` 方案要等到下一拍醒来）。
+     *
      * 节拍取 16ms（对标上游读侧合并投递）：推进是「有输出才做事」的拉取，无输出时
      * 每次只走一遍有界通道的 `try_recv`，代价可忽略；而间隔过大又会拖慢后台作业的
-     * 可见进度。线程在 [resumeRendering] 或无会话时退出，不留常驻线程。
+     * 可见进度。无会话时自停，不留常驻线程。
      */
     private fun startSessionPump() {
-        if (sessionPumpThread != null) return
+        if (sessionPump != null) return
         val pump =
-            Thread({
-                while (true) {
-                    val bridge =
-                        synchronized(sessionLock) {
-                            val active = activeSessionId
-                            if (active == 0L || !sessions.containsKey(active)) return@Thread
-                            sessions[active]?.bridge
-                        } ?: return@Thread
-                    try {
-                        NativeBridge.pumpSessions()
-                    } catch (exception: Exception) {
-                        // 单次失败不终止泵：会话已销毁或原生桥异常时，下一拍自然收敛。
-                        LogUtil.w("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
-                        return@Thread
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "SessionPump").apply { isDaemon = true }
+            }
+        sessionPump = pump
+        pump.scheduleWithFixedDelay(
+            {
+                val hasSession =
+                    synchronized(sessionLock) {
+                        val active = activeSessionId
+                        active != 0L && sessions.containsKey(active)
                     }
-                    try {
-                        Thread.sleep(SESSION_PUMP_INTERVAL_MS)
-                    } catch (interrupted: InterruptedException) {
-                        // stopSessionPump 的中断即退出信号，不吞异常。
-                        Thread.currentThread().interrupt()
-                        return@Thread
-                    }
+                if (!hasSession) {
+                    // 无会话即无推进需求：停掉自身（调度器随之空转，resumeRendering 会回收）。
+                    stopSessionPump()
+                    return@scheduleWithFixedDelay
                 }
-            }, "terminal-session-pump")
-        pump.isDaemon = true
-        sessionPumpThread = pump
-        pump.start()
+                try {
+                    NativeBridge.pumpSessions()
+                } catch (exception: Exception) {
+                    // 单次失败不终止泵：会话已销毁或原生桥异常时，下一拍自然收敛。
+                    LogUtil.w("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
+                }
+            },
+            0,
+            SESSION_PUMP_INTERVAL_MS,
+            java.util.concurrent.TimeUnit.MILLISECONDS,
+        )
     }
 
     /** 停止会话推进泵：渲染恢复后由渲染线程接管推进（幂等）。 */
     private fun stopSessionPump() {
-        sessionPumpThread?.interrupt()
-        sessionPumpThread = null
+        sessionPump?.shutdownNow()
+        sessionPump = null
     }
 
     fun resumeRendering() {
