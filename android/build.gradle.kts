@@ -34,8 +34,6 @@ subprojects {
           .editorConfigOverride(
               mapOf(
                   "ktlint_function_naming_ignore_when_annotated_with" to "Composable",
-                  // 与 detekt ktlint-wrapper（同为 ktlint 1.8.0，code_style intellij_idea 默认列宽 120）保持一致，
-                  // 否则两工具在表达式函数体换行上互斥，fmt 无法收敛。
                   "max_line_length" to "120",
               ),
           )

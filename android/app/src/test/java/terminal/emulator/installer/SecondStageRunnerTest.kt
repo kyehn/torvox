@@ -75,7 +75,7 @@ class SecondStageRunnerTest {
         val env = runnerWith(prefix).prefixEnvironment()
         assertEquals(prefix.absolutePath, env["PREFIX"])
         assertEquals(prefix.absolutePath, env["TERMUX_PREFIX_DIR_PATH"])
-        assertEquals("0.119.0-beta.3", env["TERMUX_VERSION"])
+        assertEquals(SecondStageRunner.TERMUX_VERSION, env["TERMUX_VERSION"])
         assertEquals("en_US.UTF-8", env["LANG"])
         for (key in listOf("PATH", "SHELL", "LD_PRELOAD", "LD_LIBRARY_PATH", "PWD")) {
             assertTrue("$key must not be set", !env.containsKey(key))

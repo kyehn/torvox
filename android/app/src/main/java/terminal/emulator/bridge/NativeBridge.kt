@@ -277,7 +277,7 @@ object NativeBridge {
     external fun applySearchHighlights(sessionId: Long, scrollOffset: Int)
 
     /**
-     * 设置当前文本选区（可视网格行列）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
+     * 设置当前文本选区（绝对网格行列，0 = 回滚顶部）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
      */
     @JvmStatic
     external fun setSelection(

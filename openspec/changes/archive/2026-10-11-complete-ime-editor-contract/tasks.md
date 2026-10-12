@@ -80,14 +80,14 @@
 
 - [x] 5.1 记录上一次回报的绝对位置，`setSelection` 按差值折算 `DPAD_LEFT` / `DPAD_RIGHT` 送 PTY，幅度按码点钳位；单测覆盖右移一字符、左移一字符、超大位移钳位
 - [x] 5.2 绝对位置不回写输入法侧文本：单测断言读回的文本逐字符不变
-- [ ] 5.3 `sendKeyEvent` 补 `ACTION_MULTIPLE`：按 `event.characters` 的码点提交，不经键码映射（实现已交付；所称“三字符事件”单测全仓无踪——`commitEventCharacters` 为私有路径，裸编码由 `TerminalInputEncoderTest` 覆盖而接线无断言，故不勾选，缺口见 design.md 6.3）
+- [x] 5.3 `sendKeyEvent` 补 `ACTION_MULTIPLE`：按 `event.characters` 的码点提交，不经键码映射；`HardKeyboardMultipleArrivalTest` 断言受理返回 true、含非 ASCII 标记落格且只出现一次（变异验证：抽掉投递即红、还原即绿）
 - [x] 5.4 单字符事件行为不变：既有键编码单测保持全绿，且新增单测断言其输出与变更前一致
 
 ## 6. 校正受理与诚实性核对
 
 - [x] 6.1 仪器测试探针校正路径：默认 `commitCorrection` 返回 false 即不分发（1.3 同次实测），校正文本不可能经 `commitText` 到达 PTY；结论已记入 design.md 探针结论，无新增探针、无残留
 - [x] 6.2 按 6.1 结论实现 `commitCorrection`：6.1 结论为不送达故返回拒绝（显式覆写，注释引用 6.1）；单测 `ImeCommitCorrectionTest` 断言拒绝，与结论一致
-- [ ] 6.3 全量核对「受理即送达」：逐一确认本变更返回受理的接口均有对应单测证明其输入到达 PTY，结论写入 design.md
+- [x] 6.3 全量核对「受理即送达」：结论见 design.md 6.3（受理接口按组逐项有送达证据，共 6 组）
 
 ## 7. 规范对齐与验收
 

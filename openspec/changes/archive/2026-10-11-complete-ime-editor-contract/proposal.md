@@ -28,7 +28,8 @@ Android 14 起新增的 `replaceText` 更直接：其默认实现改的是 `Base
 
 | 方法 | 覆写 | 本仓实测行为 |
 | --- | --- | --- |
-| `setComposingText` / `commitText` / `finishComposingText` / `deleteSurroundingText` / `sendKeyEvent` | 是 | 既有差分与抑制窗口语义（N1-24 / N1-27）保持不动 |
+| `setComposingText` / `commitText` / `finishComposingText` / `deleteSurroundingText` | 是 | 既有差分与抑制窗口语义（N1-24 / N1-27）保持不动 |
+| `sendKeyEvent` | 是 | `ACTION_MULTIPLE` 逐码点提交保持不动；**抑制/暂停窗口内由「受理但丢弃」改为拒绝**——硬键盘多字符无第二条通道，谎报受理即永久丢字（见 D9） |
 | `getEditable` | 否 | `BaseInputConnection` 自持 editable，PTY 无感知 |
 | `replaceText` | 否 | 继承默认实现，编辑不落 PTY |
 | `getExtractedText` / `getTextBeforeCursor` / `getTextAfterCursor` / `getSurroundingText` | 否 | 一律取自未同步的 editable |

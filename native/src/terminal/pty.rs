@@ -1241,7 +1241,7 @@ mod tests {
             ("TERMUX_PREFIX_DIR_PATH", TEST_PREFIX),
             ("TMPDIR", TEST_TMPDIR),
             ("TERMUX_TMP_PREFIX_DIR_PATH", TEST_TMPDIR),
-            ("TERMUX_VERSION", "0.119.0-beta.3"),
+            ("TERMUX_VERSION", TERMUX_VERSION),
             ("TERMUX_HOME_DIR_PATH", "/tmp/test_home"),
         ] {
             assert!(
