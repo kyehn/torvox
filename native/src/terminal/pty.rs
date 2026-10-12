@@ -911,8 +911,7 @@ fn read_shebang_interpreter(path: &str) -> Option<(std::ffi::CString, Option<std
     let first_line = std::str::from_utf8(&header[2..read])
         .ok()?
         .lines()
-        .next()
-        .unwrap_or("")
+        .next()?
         .trim();
     let mut tokens = first_line.split_whitespace();
     let interpreter = tokens.next().filter(|token| !token.is_empty())?;
@@ -1099,6 +1098,14 @@ mod tests {
     fn shebang_missing_returns_none() {
         let path = std::env::temp_dir().join("terminal-shebang-plain-bin");
         std::fs::write(&path, [0x7fu8, b'E', b'L', b'F', 2]).unwrap();
+        assert!(read_shebang_interpreter(path.to_str().unwrap()).is_none());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn shebang_bare_marker_returns_none() {
+        let path = std::env::temp_dir().join("terminal-shebang-bare.sh");
+        std::fs::write(&path, "#!").unwrap();
         assert!(read_shebang_interpreter(path.to_str().unwrap()).is_none());
         std::fs::remove_file(&path).unwrap();
     }
