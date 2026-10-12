@@ -936,17 +936,20 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
         }
     };
 
-    let registry = rlock_session_registry();
-    let Some(entry) = registry.get(&id) else {
-        let _ = env.throw_new(
-            jni_str!("java/lang/RuntimeException"),
-            jni_str!("feedPty: session not found"),
-        );
-        return;
+    // 写入在两把锁之外：主端满时 `write_all` 最多等 `pty::WRITE_DRAIN_TIMEOUT`，
+    // 而会话锁每帧被渲染与事件收割取得，注册表读锁则被销毁/切换会话等写操作等待——
+    // 持任一把写入都会把整台终端冻住同样长的时间。故先克隆写入面再放锁。
+    let pty_master = {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("feedPty: session not found"),
+            );
+            return;
+        };
+        entry.session.lock().pty_master()
     };
-    // 写入在会话锁之外：主端满时 `write_all` 最多等 `pty::WRITE_DRAIN_TIMEOUT`，
-    // 而会话锁每帧被渲染与事件收割取得——持锁写入会把整台终端冻住同样长的时间。
-    let pty_master = entry.session.lock().pty_master();
     if let Err(write_error) = pty_master.write(&input) {
         // 主端 fd 是 O_NONBLOCK：`write_all` 已为缓冲排空等待过（见 pty::WRITE_DRAIN_TIMEOUT），
         // 到此仍失败说明子进程长时间不读 stdin。此处记日志——静默返回等于让用户
@@ -1042,31 +1045,33 @@ fn write_key_inner(
         return;
     };
 
-    let registry = rlock_session_registry();
-    if let Some(entry) = registry.get(&id) {
-        // 会话锁只用来取 PTY 写入面；真正的写入在其之外（理由同 `feed_pty_inner`）。
-        let pty_master = entry.session.lock().pty_master();
-        let bytes = encode_meta_prefix(key_str.as_bytes(), meta_prefix != JNI_FALSE);
-        let result = pty_master.write(&bytes);
-        if let Err(e) = result {
-            // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
-            if e.is_would_block() {
-                log::error!("writeKey: 子进程未在期限内消费按键，丢弃 {key_str}");
-                return;
-            }
-            if let Err(e) = env.throw_new(
+    // 会话锁只用来克隆 PTY 写入面；写入在会话锁与注册表读锁之外（理由同 `feed_pty_inner`）。
+    let pty_master = {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
                 jni_str!("java/lang/RuntimeException"),
-                JNIString::from(format!("writeKey: write failed: {e}")),
-            ) {
-                log::error!("writeKey: throw_new failed: {e}");
-            }
+                jni_str!("writeKey: session not found"),
+            );
+            return;
+        };
+        entry.session.lock().pty_master()
+    };
+    let bytes = encode_meta_prefix(key_str.as_bytes(), meta_prefix != JNI_FALSE);
+    let result = pty_master.write(&bytes);
+    if let Err(e) = result {
+        // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
+        if e.is_would_block() {
+            log::error!("writeKey: 子进程未在期限内消费按键，丢弃 {key_str}");
+            return;
         }
-        return;
+        if let Err(e) = env.throw_new(
+            jni_str!("java/lang/RuntimeException"),
+            JNIString::from(format!("writeKey: write failed: {e}")),
+        ) {
+            log::error!("writeKey: throw_new failed: {e}");
+        }
     }
-    let _ = env.throw_new(
-        jni_str!("java/lang/RuntimeException"),
-        jni_str!("writeKey: session not found"),
-    );
 }
 
 // JNI 导出：encodeMouseEvent
@@ -2251,10 +2256,13 @@ fn detach_window_inner(_env: &mut Env, _class: JClass, _session_id: jlong) {
     // 属主检查与 surface 丢弃在**同一个** `RENDER_STATE` 锁内完成
     // （`attach_window_inner` 也取该锁）：若拆成“先检查后丢弃”，并发的挂载
     // （已存入新属主）可能插入其间而其新建的 surface 被丢弃。
-    let Ok(mut state) = RENDER_STATE.lock() else {
-        log::error!("detachWindow: render state lock poisoned");
-        return;
-    };
+    //
+    // 中毒后照常取内层值（与 `render_state_mut` 同口径）：渲染期 panic 已被
+    // `jni_export_guard` 转成 Java 异常，锁随之中毒；此处置为放弃就永久漏掉
+    // `release_surface` 与 `ATTACHED_SESSION_ID` 清零，surface 自愈路径随之失效。
+    let mut state = RENDER_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if ATTACHED_SESSION_ID
         .compare_exchange(
             session_id,
@@ -3538,22 +3546,23 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
     jni_export_guard!(&mut unowned_env, (), |env| {
         #[cfg(target_os = "android")]
         {
-            // 从 Java 的 `String[]` 解析。
+            // 从 Java 的 `String[]` 解析。任一项解码失败即抛异常并整体放弃：
+            // 异常待决期间继续调 JNI 是未定义行为（JNI 规范只允许极少数调用），
+            // 且本次调用的结果本就被该异常作废——继续读剩余项毫无意义。
             let mut path_list: Vec<std::path::PathBuf> = Vec::new();
             // SAFETY: `paths` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效
             // （与 `feed_pty_inner` 同一模式）。
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
             let count = array.len(env).unwrap_or(0);
             for font_index in 0..count {
-                // 单个路径解码失败不该让其余字体全部失效，故跳过并记明位置。
                 let Some(item) = array.get_element(env, font_index).ok() else {
-                    log::warn!("setExtraFontPaths: 读不到第 {font_index} 个元素，跳过");
-                    continue;
+                    log::warn!("setExtraFontPaths: 读不到第 {font_index} 个元素，放弃");
+                    return Ok(());
                 };
-                match read_jni_string(env, &item, "setExtraFontPaths", "paths[]") {
-                    Some(text) => path_list.push(std::path::PathBuf::from(text)),
-                    None => continue,
-                }
+                let Some(text) = read_jni_string(env, &item, "setExtraFontPaths", "paths[]") else {
+                    return Ok(());
+                };
+                path_list.push(std::path::PathBuf::from(text));
             }
             crate::render::font::font_db::set_extra_font_paths(path_list);
             // 若管线已存在则重建，使新字体立即可选。
