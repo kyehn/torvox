@@ -97,6 +97,50 @@ fn store_attachment(
     })]
 }
 
+/// 本帧可用的部分渲染脏带；`None` 即强制全量重绘（判定表见本文件 `tests`）。
+///
+/// 脏带掩码必须与本帧的构建掩码同源：本帧走了全量重建（换字体、缩放、缓存失效）
+/// 时每个单元的图集 UV 与几何都换了，而 `should_render_partial` 只看脏带数量，
+/// 于是 partial 路径只重绘脏带、其余行沿用累加器里的旧像素——换字体后整屏仍是
+/// 旧字，直到下一次输出把各行碰巧重新变脏。
+///
+/// 另两项同前：缓存尺寸不符（缩放）或图集代际变化（UV 已搬迁）时稀疏带会让
+/// 干净行残留陈旧 UV，同样强制全量。
+fn partial_frame_bands(
+    rebuilt_all_rows: bool,
+    cache: Option<&crate::render::cell_builder::CachedInstances>,
+    rows: u32,
+    cols: u32,
+    atlas_generation: u64,
+    dirty_rows: Option<&[bool]>,
+) -> Option<Vec<crate::render::cell_builder::DirtyBand>> {
+    if rebuilt_all_rows {
+        return None;
+    }
+    let cache = cache?;
+    let mask = dirty_rows?;
+    if !cache.is_compatible(rows, cols) {
+        return None;
+    }
+    if cache.built_atlas_generation() != atlas_generation {
+        return None;
+    }
+    Some(
+        crate::render::cell_builder::compute_dirty_bands(mask)
+            .into_iter()
+            .map(|(start_row, end_row_exclusive)| {
+                let (instance_start, instance_end) = cache.band_slice(start_row, end_row_exclusive);
+                crate::render::cell_builder::DirtyBand {
+                    start_row,
+                    end_row_exclusive,
+                    instance_start,
+                    instance_end,
+                }
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
 impl Renderer {
     /// Present one background-colored frame immediately (启动黑屏防护、
     /// 渲染稳定性 spec §4)：首个内容帧要等 shell 输出 + 冷启动
@@ -616,37 +660,42 @@ impl Renderer {
         };
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
         // `None`（调用方无基线，如首帧）强制全量重建。
-        let converted = match dirty_rows {
+        let (converted, rebuilt_all_rows) = match dirty_rows {
             Some(mask) => {
                 let cache = self.cell_cache.get_or_insert_with(|| {
                     crate::render::cell_builder::CachedInstances::new(rows, cols)
                 });
-                let effective_mask: &[bool] = if cache.is_compatible(rows, cols) {
-                    mask
-                } else {
-                    // 缓存已与网格不匹配（缩放）：新缓存是空的，若仍按“干净行”
-                    // 取值会复制 0 个实例并丢行。本帧强制全量重建。
-                    *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
-                    self.cell_full_mask_cache.resize(rows as usize, true);
-                    &self.cell_full_mask_cache
-                };
-                crate::render::cell_builder::build_instances_cached(
+                let (effective_mask, rebuilt_all_rows): (&[bool], bool) =
+                    if cache.is_compatible(rows, cols) {
+                        (mask, false)
+                    } else {
+                        // 缓存已与网格不匹配（缩放）：新缓存是空的，若仍按“干净行”
+                        // 取值会复制 0 个实例并丢行。本帧强制全量重建。
+                        *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
+                        self.cell_full_mask_cache.resize(rows as usize, true);
+                        (&self.cell_full_mask_cache, true)
+                    };
+                let converted = crate::render::cell_builder::build_instances_cached(
                     cell_data,
                     config,
                     font_pipeline,
                     effective_mask,
                     cache,
                     &mut self.cpu_instances,
-                )
+                );
+                (converted, rebuilt_all_rows)
             }
             None => {
                 // 无基线：丢弃可能已失效的陈旧缓存并重建所有行。
                 self.cell_cache = None;
-                crate::render::build_instances_from_cell_data(
-                    cell_data,
-                    config,
-                    font_pipeline,
-                    &mut self.cpu_instances,
+                (
+                    crate::render::build_instances_from_cell_data(
+                        cell_data,
+                        config,
+                        font_pipeline,
+                        &mut self.cpu_instances,
+                    ),
+                    true,
                 )
             }
         };
@@ -675,30 +724,14 @@ impl Renderer {
         // 若 bands 仍稀疏，partial 路径只画 bands，干净行残留 stale UV
         //（`nix --help` 斜体/新字形部分不可见、滑动后部分出现）。
         // 与增量发射的代际门控（cell_builder 428 行）同条件。
-        let bands = self.cell_cache.as_ref().and_then(|cache| {
-            let mask = dirty_rows?;
-            if !cache.is_compatible(rows, cols) {
-                return None;
-            }
-            if cache.built_atlas_generation() != font_pipeline.atlas_generation() {
-                return None;
-            }
-            Some(
-                crate::render::cell_builder::compute_dirty_bands(mask)
-                    .into_iter()
-                    .map(|(start_row, end_row_exclusive)| {
-                        let (instance_start, instance_end) =
-                            cache.band_slice(start_row, end_row_exclusive);
-                        crate::render::cell_builder::DirtyBand {
-                            start_row,
-                            end_row_exclusive,
-                            instance_start,
-                            instance_end,
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        });
+        let bands = partial_frame_bands(
+            rebuilt_all_rows,
+            self.cell_cache.as_ref(),
+            rows,
+            cols,
+            font_pipeline.atlas_generation(),
+            dirty_rows,
+        );
         let plan = crate::render::cell_builder::FramePatch {
             bands: bands.unwrap_or_default(),
             cell_height_px: grid_cell_height,
@@ -941,6 +974,87 @@ mod tests {
     /// `(ready, invalidated, bands, kgp) -> partial`
     fn partial(args: (bool, bool, usize, bool)) -> bool {
         Renderer::should_render_partial(args.0, args.1, args.2, args.3)
+    }
+
+    /// 已构建、尺寸匹配、代际一致、含脏行。
+    fn built_cache() -> crate::render::cell_builder::CachedInstances {
+        let mut cache = crate::render::cell_builder::CachedInstances::new(4, 2);
+        cache.update_for_test(&[2usize, 3, 3, 6]);
+        cache
+    }
+
+    #[test]
+    fn dirty_rows_yield_bands_when_cache_matches() {
+        let cache = built_cache();
+        let bands = partial_frame_bands(
+            false,
+            Some(&cache),
+            4,
+            2,
+            0,
+            Some(&[false, true, false, true]),
+        )
+        .expect("cache 一致且非全量重建时必须给出脏带");
+        assert_eq!(bands.len(), 2);
+        assert_eq!((bands[0].start_row, bands[0].end_row_exclusive), (1, 2));
+        assert_eq!((bands[0].instance_start, bands[0].instance_end), (2, 3));
+    }
+
+    /// 全量重建（换字体、缩放、缓存失效）时每格 UV 与几何都换了：稀疏带会让
+    /// 干净行沿用累加器里的旧像素，必须强制全量重绘。这是「换字体后整屏仍是
+    /// 旧字」的回归钉。
+    #[test]
+    fn full_rebuild_never_yields_partial_bands() {
+        let cache = built_cache();
+        assert!(
+            partial_frame_bands(
+                true,
+                Some(&cache),
+                4,
+                2,
+                0,
+                Some(&[false, true, false, true])
+            )
+            .is_none()
+        );
+    }
+
+    /// 缓存未构建时（尺寸上「兼容」但一行数据都没有）不得据稀疏带做部分渲染。
+    #[test]
+    fn unbuilt_cache_yields_no_bands() {
+        let cache = crate::render::cell_builder::CachedInstances::new(4, 2);
+        assert!(partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[true; 4])).is_none());
+    }
+
+    /// 尺寸变化（缩放）与图集代际变化（UV 已搬迁）同样强制全量。
+    #[test]
+    fn incompatible_size_or_generation_yields_no_bands() {
+        let cache = built_cache();
+        assert!(partial_frame_bands(false, Some(&cache), 8, 2, 0, Some(&[true; 4])).is_none());
+        assert!(partial_frame_bands(false, Some(&cache), 4, 2, 7, Some(&[true; 4])).is_none());
+    }
+
+    #[test]
+    fn missing_cache_or_mask_yields_no_bands() {
+        let cache = built_cache();
+        assert!(partial_frame_bands(false, None, 4, 2, 0, Some(&[true; 4])).is_none());
+        assert!(partial_frame_bands(false, Some(&cache), 4, 2, 0, None).is_none());
+    }
+
+    /// 空脏掩码不产生带——与构建行为一致，无带即由 `should_render_partial` 的
+    /// `band_count > 0` 判为全量重绘。
+    #[test]
+    fn empty_mask_yields_no_bands() {
+        let cache = built_cache();
+        let bands = partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[false; 4]))
+            .expect("路径本身可用，只是没有脏行");
+        assert!(bands.is_empty());
+        assert!(!Renderer::should_render_partial(
+            true,
+            false,
+            bands.len(),
+            false
+        ));
     }
 
     // ── 滚动一致性门控（fix-scroll-residual-tearing） ──────────────
