@@ -2,15 +2,18 @@
 //! TOML 源，运行时解析为渲染与 UI 共用的调色板。
 //!
 //! 仓库不留颜色副本：TOML 源由 `include_str!` 在编译期嵌入，字段按 alacritty
-//! `config/color.rs` 的结构声明，缺失字段回退到上游同类型 `Default` 的值——
-//! 回退取自上游而非本仓库另造算法。
+//! `config/color.rs` 的结构声明。色值语法与深浅判定都取自上游 ghostty
+//! （`RgbColor::parse` 与 `RgbColor::perceived_luminance`），故本仓不另造颜色算法，
+//! 上游改动也不必在此同步。十六色与主色按上游结构**必填**：缺项即解析失败，
+//! 不回退到任何手写默认色。
 //!
-//! 主题标识在 [`SOURCES`] 各出现且只出现一次：它既是 alacritty 文件名，也是设置中
+//! 主题标识只在主题清单宏的调用处各出现一次：它既是 alacritty 文件名，也是设置中
 //! 存储的名字，故二者不会漂移；默认主题用下标引用而非重复名字面量。
 
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use libghostty_vt::style::RgbColor;
+use serde::{Deserialize, Deserializer, de::Error as _};
 
 // 主题目录：alacritty 主题仓库的浅克隆（由 nix shellHook 准备，见 `flake.nix`）。
 //
@@ -21,7 +24,7 @@ use serde::Deserialize;
 /// 把主题清单展开为 `(源名, TOML 文本)` 表。
 ///
 /// 宏让主题名在一处书写即可同时充当 `include_str!` 的路径片段与设置中存储的名字；
-/// 默认主题用清单下标引用，因此不需要第二处名字面量。
+/// 默认主题用清单下标引用，因此不需要第二处名字面量。展开结果为私有 `SOURCES`。
 macro_rules! theme_sources {
     (
         dir = $dir:literal;
@@ -55,14 +58,15 @@ theme_sources! {
     "monokai",
 }
 
-/// 颜色取值：十六字面量，或 alacritty 的两个特殊色名。
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-enum Color {
-    /// `'#RRGGBB'`。
-    Rgb(String),
-    /// `CellForeground` / `CellBackground`——指单元格自身的前景/背景，非常量色。
-    Symbolic(String),
+/// alacritty 的 `CellForeground`：取本主题前景色（反色段的合法特殊色名）。
+const CELL_FOREGROUND: &str = "CellForeground";
+
+/// 按上游 ghostty 颜色语法解析色值。失败信息带上出错文本：上游错误只有
+/// `invalid value`，而 TOML 只给出行列，两者合起来才指得出是哪个色值坏了。
+fn rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RgbColor, D::Error> {
+    let text = String::deserialize(deserializer)?;
+    RgbColor::parse(&text)
+        .map_err(|_| D::Error::custom(format!("{text:?} 不是 ghostty 颜色语法的色值")))
 }
 
 /// 一套主题的全部颜色。
@@ -71,50 +75,78 @@ enum Color {
 /// 占 8..16。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
-    pub background: [u8; 3],
-    pub foreground: [u8; 3],
-    pub cursor: [u8; 3],
-    pub selection_background: [u8; 3],
-    pub ansi: [[u8; 3]; 16],
+    pub background: RgbColor,
+    pub foreground: RgbColor,
+    pub cursor: RgbColor,
+    pub selection_background: RgbColor,
+    pub ansi: [RgbColor; 16],
 }
 
 /// alacritty `Colors::primary`。
 #[derive(Deserialize)]
 struct Primary {
-    background: Color,
-    foreground: Color,
+    #[serde(deserialize_with = "rgb")]
+    background: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    foreground: RgbColor,
 }
 
 /// ANSI 十六色的一个色组（`colors.normal` 或 `colors.bright`）。
 #[derive(Deserialize)]
 struct AnsiGroup {
-    black: Color,
-    red: Color,
-    green: Color,
-    yellow: Color,
-    blue: Color,
-    magenta: Color,
-    cyan: Color,
-    white: Color,
+    #[serde(deserialize_with = "rgb")]
+    black: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    red: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    green: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    yellow: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    blue: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    magenta: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    cyan: RgbColor,
+    #[serde(deserialize_with = "rgb")]
+    white: RgbColor,
+}
+
+impl AnsiGroup {
+    /// 按 alacritty 的槽位顺序展开：字段顺序即 ANSI 序号（`normal` 在前、
+    /// `bright` 在后占 8..16）。
+    fn into_colors(self) -> [RgbColor; 8] {
+        [
+            self.black,
+            self.red,
+            self.green,
+            self.yellow,
+            self.blue,
+            self.magenta,
+            self.cyan,
+            self.white,
+        ]
+    }
 }
 
 /// `colors.cursor` 与 `colors.selection` 的源结构：两者在 alacritty 中都是
 /// `InvertedCellColors`，故共用同一形状。该类型的背景色字段在 `[colors.cursor]`
-/// 段写作别名 `cursor`、在 `[colors.selection]` 段写作 `background`
+/// 段写作别名 `cursor`、在 `[colors.selection]` 段写作别名 `background`
 /// （见上游 `InvertedCellColors` 的 `#[config(alias)]`），`#[serde(alias)]` 同时
 /// 接受两者。其前景色字段（`text` / `foreground`）只影响选区文字，本应用以反色
-/// 绘制选区、不消费该值，故不声明。
+/// 绘制选区、不消费该值，故不声明。色值不走上面的 `rgb`：该段允许写
+/// `CellForeground`，且缺段时按上游 `InvertedCellColors::default` 取前景色。
 #[derive(Deserialize)]
 struct InvertedCellColors {
     #[serde(alias = "background", alias = "cursor")]
-    inverted_background: Color,
+    inverted_background: String,
 }
 
 #[derive(Deserialize)]
 struct Colors {
     primary: Primary,
-    normal: Option<AnsiGroup>,
-    bright: Option<AnsiGroup>,
+    normal: AnsiGroup,
+    bright: AnsiGroup,
     cursor: Option<InvertedCellColors>,
     selection: Option<InvertedCellColors>,
 }
@@ -126,11 +158,6 @@ struct ThemeFile {
 
 impl Palette {
     /// 解析一套 alacritty 主题源。
-    ///
-    /// 缺段时按上游默认回退，与 alacritty 加载同一份配置的结果一致：
-    /// `cursor` / `selection` 的底色缺省为单元格前景色
-    /// （`InvertedCellColors::default` 的 `background: CellForeground`），
-    /// 十六色缺项回退到 `NormalColors` / `BrightColors` 的 `Default`。
     fn parse(name: &str, text: &str) -> Result<Self, String> {
         let Colors {
             primary,
@@ -141,112 +168,36 @@ impl Palette {
         } = toml::from_str::<ThemeFile>(text)
             .map_err(|error| format!("{name}: {error}"))?
             .colors;
-
-        let background = resolve(&primary.background, None)
-            .ok_or_else(|| format!("{name}: colors.primary.background"))?;
-        let foreground = resolve(&primary.foreground, None)
-            .ok_or_else(|| format!("{name}: colors.primary.foreground"))?;
-
-        let mut ansi = [[0u8; 3]; 16];
-        ansi[..8].copy_from_slice(
-            &normal.map_or_else(default_normal, |group| expand(&group, foreground)),
-        );
-        ansi[8..].copy_from_slice(
-            &bright.map_or_else(default_bright, |group| expand(&group, foreground)),
-        );
-
+        let foreground = primary.foreground;
+        let mut ansi = [RgbColor::default(); 16];
+        ansi[..8].copy_from_slice(&normal.into_colors());
+        ansi[8..].copy_from_slice(&bright.into_colors());
         Ok(Self {
-            background,
+            background: primary.background,
             foreground,
-            cursor: inverted_background(cursor, foreground),
-            selection_background: inverted_background(selection, foreground),
+            cursor: inverted_background(cursor, foreground)?,
+            selection_background: inverted_background(selection, foreground)?,
             ansi,
         })
     }
 }
 
-/// alacritty `NormalColors::default`。
-fn default_normal() -> [[u8; 3]; 8] {
-    [
-        [0x18, 0x18, 0x18],
-        [0xac, 0x42, 0x42],
-        [0x90, 0xa9, 0x59],
-        [0xf4, 0xbf, 0x75],
-        [0x6a, 0x9f, 0xb5],
-        [0xaa, 0x75, 0x9f],
-        [0x75, 0xb5, 0xaa],
-        [0xd8, 0xd8, 0xd8],
-    ]
-}
-
-/// alacritty `BrightColors::default`。
-fn default_bright() -> [[u8; 3]; 8] {
-    [
-        [0x6b, 0x6b, 0x6b],
-        [0xc5, 0x55, 0x55],
-        [0xaa, 0xc4, 0x74],
-        [0xfe, 0xca, 0x88],
-        [0x82, 0xb8, 0xc8],
-        [0xc2, 0x8c, 0xb8],
-        [0x93, 0xd3, 0xc3],
-        [0xf8, 0xf8, 0xf8],
-    ]
-}
-
-/// 字面量取十六进制；`CellForeground` 取给定前景色。
-///
-/// `CellBackground` 与未知色名在此返回 `None`：它们需要单元格实际背景才能定值，
-/// 而解析期只有一个静态默认值可依，故交由调用方按上游语义回退。
-fn resolve(color: &Color, foreground: Option<[u8; 3]>) -> Option<[u8; 3]> {
-    match color {
-        Color::Rgb(text) => parse_hex(text),
-        Color::Symbolic(name) if name == "CellForeground" => foreground,
-        Color::Symbolic(_) => None,
+/// `InvertedCellColors` 的底色。缺段回退到前景色（同上游默认值）；
+/// `CellForeground` 取前景色，其余按上游颜色语法解析。
+fn inverted_background(
+    inverted: Option<InvertedCellColors>,
+    foreground: RgbColor,
+) -> Result<RgbColor, String> {
+    let Some(InvertedCellColors {
+        inverted_background: text,
+    }) = inverted
+    else {
+        return Ok(foreground);
+    };
+    if text == CELL_FOREGROUND {
+        return Ok(foreground);
     }
-}
-
-fn parse_hex(text: &str) -> Option<[u8; 3]> {
-    let digits = text.strip_prefix('#')?;
-    match digits.len() {
-        6 => {
-            let channel = |pair: &str| u8::from_str_radix(pair, 16).ok();
-            Some([
-                channel(&digits[0..2])?,
-                channel(&digits[2..4])?,
-                channel(&digits[4..6])?,
-            ])
-        }
-        3 => {
-            let channel = |index: usize| {
-                let nibble = u8::from_str_radix(&digits[index..index + 1], 16).ok()?;
-                Some(nibble << 4 | nibble)
-            };
-            Some([channel(0)?, channel(1)?, channel(2)?])
-        }
-        _ => None,
-    }
-}
-
-/// 色组按 alacritty 的 ANSI 槽位顺序展开；单项不可解析时退回前景色。
-fn expand(group: &AnsiGroup, foreground: [u8; 3]) -> [[u8; 3]; 8] {
-    let color = |value: &Color| resolve(value, Some(foreground)).unwrap_or(foreground);
-    [
-        color(&group.black),
-        color(&group.red),
-        color(&group.green),
-        color(&group.yellow),
-        color(&group.blue),
-        color(&group.magenta),
-        color(&group.cyan),
-        color(&group.white),
-    ]
-}
-
-/// `InvertedCellColors` 的底色；缺段回退到前景色（同上游默认值）。
-fn inverted_background(inverted: Option<InvertedCellColors>, foreground: [u8; 3]) -> [u8; 3] {
-    inverted
-        .and_then(|inverted| resolve(&inverted.inverted_background, Some(foreground)))
-        .unwrap_or(foreground)
+    RgbColor::parse(&text).map_err(|error| format!("{text}: {error}"))
 }
 
 /// 一个主题的标识与调色板。
@@ -259,43 +210,33 @@ pub struct Theme {
     pub dark: bool,
 }
 
-/// 解析结果只算一次，之后跨线程只读共享。
+/// 解析与排序只算一次，之后跨线程只读共享。
+///
+/// 排序在初始化时完成，故 [`all`] 返回切片而非每次调用的新 `Vec`。
 static THEMES: LazyLock<Vec<Theme>> = LazyLock::new(|| {
-    SOURCES
+    let mut themes: Vec<Theme> = SOURCES
         .iter()
         .map(|(name, text)| {
             let palette = Palette::parse(name, text)
                 .unwrap_or_else(|error| panic!("alacritty 主题解析失败: {error}"));
             Theme {
                 name,
-                dark: is_dark(palette.background),
+                // 上游文档：背景亮度超过 0.5 即视为浅色，故此处取其补。
+                dark: palette.background.perceived_luminance() <= 0.5,
                 palette,
             }
         })
-        .collect()
+        .collect();
+    themes.sort_by_key(|theme| !theme.dark);
+    themes
 });
-
-/// 相对亮度（Rec. 601 加权）。低于中灰即视为深底。
-///
-/// 以中灰为界而非更精细的感知模型，是因为清单内各主题背景色与 0.5 相距都远：
-/// 最亮的一侧在 0.8 以上、最暗的一侧在 0.15 以下，阈值挪动不改变任何判定。
-fn is_dark(color: [u8; 3]) -> bool {
-    let [red, green, blue] = color.map(|channel| f32::from(channel) / 255.0);
-    0.299 * red + 0.587 * green + 0.114 * blue < 0.5
-}
 
 /// 全部主题，深底在前、日间在后。
 ///
 /// 顺序即设置界面的展示顺序：DESIGN 要求跟随系统时日夜两组各自可选，把同组
 /// 主题相邻摆放免去调用方再排一次。
-pub fn all() -> Vec<&'static Theme> {
-    let mut themes: Vec<&'static Theme> = THEMES.iter().collect();
-    themes.sort_by_key(|theme| !theme.dark);
-    themes
-}
-
-fn default(index: usize) -> &'static Theme {
-    &THEMES[index]
+pub fn all() -> &'static [Theme] {
+    &THEMES
 }
 
 /// 标识对应的 alacritty 源文本。标识即文件名，故取源只需按标识查 [`SOURCES`]。
@@ -307,14 +248,16 @@ fn source_of(name: &str) -> &'static str {
         .unwrap_or_else(|| panic!("清单中没有标识 {name}"))
 }
 
-/// 默认（夜间）主题标识，对应 DESIGN 指定的默认终端主题。
-pub fn default_dark_name() -> &'static str {
-    default(DEFAULT_DARK_INDEX).name
+/// 默认（夜间）主题，对应 DESIGN 指定的默认终端主题。
+///
+/// 会话初态、渲染首帧清除色与设置默认值都取这里，故不存在第二份默认主题声明。
+pub fn default_dark() -> &'static Theme {
+    by_name(SOURCES[DEFAULT_DARK_INDEX].0).expect("默认主题须在清单中")
 }
 
 /// 默认（日间）主题标识。
 pub fn default_light_name() -> &'static str {
-    default(DEFAULT_LIGHT_INDEX).name
+    SOURCES[DEFAULT_LIGHT_INDEX].0
 }
 
 /// 按主题标识取主题。未命中返回 `None`：存着无法解析的名字即设置数据损坏，

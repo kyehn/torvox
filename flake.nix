@@ -85,7 +85,6 @@
               mesa
               vulkan-loader
               vulkan-tools
-              vttest
               nixfmt-rs
               pkg-config
               openssl

@@ -44,8 +44,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
         /** 默认日间主题：单源在 Rust 侧。 */
         private fun defaultDayTheme(): String = terminal.emulator.ui.theme.ThemeRepository.defaultLightName()
 
-        const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
-        const val DEFAULT_THEME_MODE = "fixed"
+        const val DEFAULT_FOLLOW_SYSTEM = terminal.emulator.ui.theme.ThemeMode.FOLLOW_SYSTEM
+        const val DEFAULT_THEME_MODE = terminal.emulator.ui.theme.ThemeMode.FIXED
 
         /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
         private const val DEBOUNCE_MILLIS = 300L

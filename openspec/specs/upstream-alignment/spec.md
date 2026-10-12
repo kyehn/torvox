@@ -415,7 +415,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `Terminal::vt_write` 二进制安全 | 采用（已修） | `pty_write` 曾把 `>0xF7` 改空格，破坏 Kitty 直接 RGB 等二进制载荷；现仅剔除 NUL，与 `vt_write` 同策略 |
 | 调色板与字节转浮点 | 采用（已修） | 渲染侧 `CATPPUCCIN_MOCHA_BACKGROUND` 与手写除法已删，以 `theme` 单源（构建期 alacritty-theme）与 `default_palette` 为唯一入口 |
 | `selection` 交叉翻转归属 | 采用（已修） | 对标 termlib `applyHandleDrag` 五元组：回传新归属柄并收紧等值判据，调用方更新 `handleDragState` |
-| `search::Search` 全文搜索 | 不采用 | DESIGN 要求「使用库（如 `regex`）实现文本搜索」；自研 `regex` 搜索合规，上游 `Search` 的视口导航语义与本仓批量查询不一致；且上游仅 ASCII 折叠、无大小写开关，`unicode_case_folding`（café/čau/Я/Σ）用例无法通过，`regex` 本身即外部库 |
+| `search::Search` 全文搜索 | 采用（2026 改判） | 自研 `regex` 搜索曾被判定合规，实为重复实现：软换行跨行、随输出增量同步、命中总数与导航滚动上游全已提供。现 VT 线程持有 `search::Search`（同生命周期的局部变量，非自引用结构），needle/总数/导航/视口命中均走上游，本仓只做「上游选区 → 按物理行网格区间」转换。代价：上游仅 ASCII 折叠、无区分大小写开关，`DESIGN.md` 修饰键栏节的「大小写匹配」与「使用库（如 `regex`）实现文本搜索」两条已失效，须由维护者改写（`docs/specification/` 不可由代理修改）；`regex` 依赖随之删除。软换行/宽字符/CJK/真实空格的用例语义按上游口径重写，见 `text-search` 规约 |
 | `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | DESIGN 禁双击三击多击选择；格式化器已选用 `fmt::Formatter`，双格式化器并存需注释说明而非迁移 |
 | termlib `trimDetectedUrl`/括号计数/跨行拼接 | 不采用 | DESIGN「链接识别通过 `libghostty-vt` 查询，没有额外检查」即禁止移植；仅保留空白 trim 与协议白名单（属安全检查） |
 | `on_bell`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_desktop_notification`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册 |
@@ -429,6 +429,41 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `color_scheme` 回调 | 不采用 | 注册 None 等价于未注册；无 OS 级来源，不猜 |
 | `set_terminfo_name` | 不采用 | 未设置则 TN 查询不报告；声称值需先审计能力一致性，暂无消费者要求 |
 | Kitty 文件/共享内存介质 | 不采用 | 直传已覆盖主路径；文件介质是新能力面（沙箱路径裁决），需产品确认，另立变更 |
+| `kitty::graphics::RustPngDecoder` | 采用（已修） | 本仓原先自写 60 行 `KittyPngDecoder`，注释称「上游 RustPngDecoder 无公开构造器」——该结论与上游源码不符：`pub const fn new()` 存在，且本仓已开 `png` 特性。自写版按未经上限校验的 PNG 头尺寸在全局堆分配，绕过的正是上游分配器上限 |
+| `style::RgbColor::parse` / `perceived_luminance` | 采用（已修） | 主题色值解析与深浅分组原为本仓手写（`#RGB` 展开、Rec.601 加权 0.299/0.587/0.114）；两者都取自上游，阈值语义与 ghostty 一致 |
+| `on_clipboard_read` | 不采用 | 上游要求在回调内同步应答（VT 流暂停）。本仓的应答链必须异步：剪贴板内容来自 Android 系统剪贴板，经 `pollEvent` 上报后再回写 PTY；若改走上游回调，VT 线程要阻塞到 Kotlin 应答，终端在应答期间冻结。识别仍需自研扫描（上游回调装上后才拦截得到），故净收益为负 |
+| `fmt::Formatter` 取全量纯文本 | 不采用 | 文档写明只覆盖 active screen，而本仓 `ReadAllText` 的口径是「回滚 + 视口」；上游补回滚参数后才可能跟进 |
+
+### Requirement: 六大上游对标结论按「能力 → 本仓现状 → 差距 → 阻塞层」登记
+
+对标对象固定为六个：`sylirre/ghostty-android-terminal`、`termux/termux-app`、
+`mrndstvndv/termux-ghostty`、`connectbot/termlib`、`libtermux/libtermux-android`、
+`Uzaaft/libghostty-rs`（后者以 `Cargo.toml` 所钉 rev 为准）。每项 MUST 记录上游的
+**实测做法**（文件与符号级），本仓现状，差距，以及差距可修的层；MUST NOT 以
+「上游更好」这类概括代替定位。
+
+#### Scenario: 复查结论可逐项复核
+
+- **WHEN** 读到某项对标结论
+- **THEN** 该项的上游做法、本仓现状、差距与阻塞层都能在表内读到，不需重新克隆上游
+
+2026-10-12 复查台账（上游均取当日 `main`/master 浅克隆）：
+
+| 能力 | 上游实测做法 | 本仓现状 | 差距 | 阻塞层 |
+| --- | --- | --- | --- | --- |
+| 全文搜索实现 | `ghostty-android-terminal` 在 `app/src/main/cpp/terminal_jni.c` 自研：`run_search` 全屏扫描、`search_cs` 保留区分大小写、`case_fold.h` 生成 BMP 折叠表、`search_dirty` 触发重扫、`MAX_MATCHES` 封顶；其注释写明「libghostty-vt has no built-in search」（所钉版本早于上游引入 search） | 走上游 `search::Search`（本规范「采用（2026 改判）」行） | 区分大小写：上游仅 ASCII 折叠、无开关 | 上游（`SearchOption` 只有 NEEDLE/SELECT_*，需上游新增才可能跟进） |
+| 搜索命中高亮 | 同上：当前命中装为终端选区（`search reuses the selection slot`），高亮走选区通道 | 独立 `render_state.search_highlights` 通道，由原生按上游命中直接生成 | 多一条高亮通道 | 本仓（可选：复用选区槽可再删通道，代价是命中与选区互斥） |
+| 搜索导航上下文 | 同上：导航从 Java 侧重跑扫描，陈旧屏幕坐标不需跟踪引用 | 导航走上游 `select_*`，视图侧把命中行居中 | 无 | 无 |
+| 格子数据跨语言传输 | `termux-ghostty` 把脏行序列化为直连 JNI `ByteBuffer`（UTF-16 长度/折行标志/连续 cell 起点长度宽度/u64 样式/UTF-16 字符，8 字节对齐） | 网格数据全程在 Rust 内（flume 通道 + 脏跟踪），不经 JNI | 不适用 | 无（我们的路径本就不跨 JNI，该优化无对象） |
+| 修饰键栏 | `termux-app` 的 `termux-shared/.../extrakeys/`（`ExtraKeysInfo`/`ExtraKeysView`/`ExtraKeysConstants`/`SpecialButton`）含布局编辑器与按键配置 | 仅采纳默认布局与粘滞语义 | 布局编辑器 | PROHIBITED（明禁） |
+| 选区拖动手柄 | `termlib` 的 `applyHandleDrag` 锚点语义 + 交叉翻转 | 已采纳（同源实现与单测） | 无 | 无 |
+| Linux 用户态 SDK | `libtermux-android` 提供 `core`/`os`/`terminal-view`/`bootstrap-*`/`shizuku` 模块（README 自述实验阶段） | 自持 bootstrap 安装与终端视图 | Shizuku 集成 | PROHIBITED（明禁）；其余能力已由本仓自实现覆盖 |
+| 其余 libghostty-rs 能力 | `gesture`/`select_output`/`format_selection_*`/`snapshot decoder`/`on_bell`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_progress_report`/`on_desktop_notification`/`device_attributes`/`xtversion`/`color_scheme`/`set_terminfo_name`/`track_grid_ref`/`width_px`/`height_px` | 均未采纳 | 无消费者 | 本仓（按需取用，见「上游 API 取用判定」表） |
+| Kitty 图像 PNG 解码 | `kitty/graphics.rs:997` 的 `RustPngDecoder`（`pub const fn new`）经 `set_png_decoder` 注册；解码前先按 libghostty 分配器取定长缓冲，未受该上限约束的尺寸不会被 PNG 头放大 | 已采纳（本次改判）：删除本仓 60 行等价实现与 `png` 直接依赖 | 无 | 无 |
+| 颜色语法与深浅判定 | `style.rs:390` `RgbColor::parse`（3/6/9/12 位 hex、X11 名、`rgb:`/`rgbi:`）与 `style.rs:415` `perceived_luminance`（文档写明「背景亮度超过 0.5 即视为浅色」） | 已采纳：主题色值与深浅分组都走上游，本仓不再手写 `#RGB` 展开与 Rec.601 公式 | 无 | 无 |
+| 终端模式查询 | `terminal.rs:1380` `Mode::BRACKETED_PASTE`、`terminal.rs:1367` `Mode::FOCUS_EVENT` 具名常量 | 已采纳：`Query::ModeGet` 携带上游 `Mode`，删掉 `(u16, u8)` 裸号与各调用点的数字 | 无 | 无 |
+| `fmt::Formatter` 全量纯文本 | `fmt.rs:163` `Formatter::new(terminal, opts)` 文档写明「a terminal's **active screen**」，只覆盖活动屏 | 不采纳：本仓的 `ReadAllText` 覆盖回滚 + 视口（`scrollback_len + grid_rows`），格式化器取不到已滚出的行 | 逐格 FFI 扫描（每格 `grid_ref`→`cell`→`codepoint`）在回滚填满时单趟可越过查询超时，靠 `all_text` 缓存兜住 | 上游（格式化器需补回滚范围参数） |
+| `on_clipboard_read` 同步回调 | `terminal.rs:2754` 回调文档：应答须在回调返回前完成，回调期间 VT 流暂停；不装回调则 OSC 52 读取被忽略 | 不采纳：应答链是「VT 线程 → 会话队列 → `pollEvent` → Kotlin 读系统剪贴板 → JNI 回写 PTY」的异步链，改用回调须让 VT 线程阻塞等待 Android 侧剪贴板应答 | 读取请求的识别自研逐字节状态机（`output_processor.rs`），应答由本仓拼 OSC 52 帧 + base64 | 本仓（架构取舍：宁可不走上游回调，也不冻结 VT 线程） |
 
 ### Requirement: 跨 JNI 扁平数据 MUST 用直接量而非 JSON
 
@@ -453,20 +488,20 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 
 ### Requirement: 保留 JSON 的边界登记
 
-以下两处经实测对照后保留 JSON，逐项记录理由与替代方案的规模，避免后来者重复调研；
+仅剩一处经实测对照后保留 JSON，逐项记录理由与替代方案的规模，避免后来者重复调研；
 保留项的字段一经变更 MUST 同步其单测，MUST NOT 把解码失败改写为空值：
 
 | 边界 | 形状 | 保留理由 | 直接量替代方案的实测规模 |
 | --- | --- | --- | --- |
-| `pollEvent` / `pollResult`（`event.rs`、`ffi.rs`） | 单次调用返回一个事件，3 种变体各自 2–3 个字段，`exit.code` 需表达 `null` 与 0 之别 | 变体判别 + 「一次取出后即消费」的语义由一次 JSON 解码天然保证；拆成标量需跨调用保存槽位，而槽位要引入并发可见性与「取用顺序」两个新失败面 | 至少 1（判别）+ 4（文本/标识/码点/选择区）次调用，外加一处会话级槽位与其线程安全 |
-| `getFontInfo`（`ffi.rs`） | 单次调用返回 7 个字段，含 `Option` 与 `Vec<String>` | 一次调用取得完整快照；渲染状态锁只在调用期间持有 | 拆为 5 次调用即 5 次获取渲染状态锁；返回 `Any[]` 需 Kotlin 侧按下标装箱解箱，并把「字段顺序」变成隐式契约 |
+| `pollEvent` / `pollResult`（`event.rs`、`ffi.rs`） | 单次调用返回一个事件，3 种变体各自 2–3 个字段，`exit.code` 需表达 `null` 与 0 之别；剪贴板载荷长度不可预知 | 变体判别 + 「一次取出后即消费」的语义由一次 JSON 解码天然保证；拆成标量需跨调用保存槽位，而槽位要引入并发可见性与「取用顺序」两个新失败面 | 至少 1（判别）+ 4（文本/标识/码点/选择区）次调用，外加一处会话级槽位与其线程安全；剪贴板文本还须再加一段长度前缀与分段拉取协议 |
 
 #### Scenario: 保留项不得腐化
 
-- **WHEN** 修改上述任一 JSON 边界的字段
-- **THEN** 对应单测（`PollEventTest`、`ParseEventTest`、`FontInfoDtoCodecTest`）MUST 同步更新，
+- **WHEN** 修改上述 JSON 边界的字段
+- **THEN** 对应单测（`PollEventTest`、`ParseEventTest`）MUST 同步更新，
   且 MUST NOT 把反序列化失败改写为空值——空值与「真的没有」必须可区分
 
-已按本标准收敛的形状（供对照，勿回流 JSON）：主题清单
-（`theme-configuration`：数量/标识/深浅/60 字节颜色/序号查询/默认名）、搜索结果
+已按本标准收敛的形状（供对照，勿回流 JSON）：主题（`theme-configuration`：按标识寻址，
+61 字节打包含深底标记与颜色）、字体信息（`getFontInfo` 的 `u32` 标志 + 三个 `f32` +
+`u16` 名称数 + NUL 分隔 UTF-8 名称，CJK 状态按判别序号传递）、搜索结果
 （`searchAllInScrollback` 扁平 `IntArray`）、会话列表（`listSessions` 扁平 `LongArray`）。

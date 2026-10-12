@@ -1,7 +1,10 @@
 package terminal.emulator.bridge
 
-/** 原生搜索结果扁平数组中每项的 `Int` 个数：row、start_col、end_col。 */
-private const val MATCH_STRIDE = 3
+/** 一次搜索命中的网格区间：`row` 是绝对网格行（0 = 回滚顶部），`endCol` 为开区间上界。 */
+data class SearchMatchRange(val row: Int, val startCol: Int, val endCol: Int)
+
+/** 搜索选中态：命中序号（0 = 最新）、命中总数与选中命中的区间。 */
+data class SearchSelection(val index: Int, val total: Int, val matched: SearchMatchRange)
 
 /**
  * 原生查询路径：每个方法与 JNI 导出 1:1 对应，供 [Bridge] 查询活动会话。
@@ -32,8 +35,8 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
         NativeBridge.clearSearchHighlights(sessionIdProvider())
     }
 
-    fun setSearchHighlights(data: ByteArray) {
-        NativeBridge.setSearchHighlights(sessionIdProvider(), data)
+    fun applySearchHighlights(scrollOffset: Int) {
+        NativeBridge.applySearchHighlights(sessionIdProvider(), scrollOffset)
     }
 
     fun scrollbackLine(row: Int): String? = NativeBridge.scrollbackLine(sessionIdProvider(), row)
@@ -42,12 +45,16 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun cursorViewportPacked(): Long = NativeBridge.getCursorViewportPacked(sessionIdProvider())
 
-    fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
-        NativeBridge.searchAllInScrollback(
-            sessionIdProvider(),
-            query,
-            caseSensitive,
-        )?.let(::searchMatches)
+    fun searchSetNeedle(needle: String): Int = NativeBridge.searchSetNeedle(sessionIdProvider(), needle)
+
+    fun searchSelect(forward: Boolean): SearchSelection? =
+        NativeBridge.searchSelect(sessionIdProvider(), forward)?.let { flat ->
+            SearchSelection(
+                index = flat[0],
+                total = flat[1],
+                matched = SearchMatchRange(flat[2], flat[3], flat[4]),
+            )
+        }
 
     fun setScrollOffset(offset: Int) {
         // 原生侧在 VT 线程经 scroll_viewport 应用增量，下一次 CellData 推送即带上滚动后的视图。
@@ -80,17 +87,5 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: ""
 
-    fun getFontInfo(): String? = NativeBridge.getFontInfo()
-}
-
-/**
- * 原生扁平搜索结果 → `(row, start_col, end_col)` 三元组列表。
- *
- * 不做范围校验：原生在构造命中时即以 `start < end` 把关（`end_col` 必然大于
- * `start_col`），三者是 `u32` 故不可能为负。此处再过滤只会让无效区间被静默吞成
- * 「无结果」，把生产端的问题藏起来。
- */
-internal fun searchMatches(flat: IntArray): List<Triple<Int, Int, Int>> = List(flat.size / MATCH_STRIDE) { index ->
-    val base = index * MATCH_STRIDE
-    Triple(flat[base], flat[base + 1], flat[base + 2])
+    fun getFontInfo(): ByteArray? = NativeBridge.getFontInfo()
 }

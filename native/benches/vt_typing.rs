@@ -5,7 +5,7 @@
 //! confidence intervals for development-time analysis:
 //!
 //! ```text
-//! cargo bench -p native --bench vt_typing
+//! cargo bench --manifest-path native/Cargo.toml -p native --bench vt_typing
 //! ```
 
 use criterion::{Criterion, criterion_group, criterion_main};

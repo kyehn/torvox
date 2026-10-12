@@ -48,11 +48,6 @@ object NativeBridge {
     /** 当前活跃会话数。 */
     @JvmStatic external fun getSessionCount(): Int
 
-    /**
-     * 会话的回滚行数（会话未知时为 0），作为内存计量的输入：回滚无界增长会表现为行数单调上升。
-     */
-    @JvmStatic external fun getScrollbackRows(sessionId: Long): Int
-
     /** 活跃会话 ID；数组为空即无会话。 */
     @JvmStatic external fun listSessions(): LongArray
 
@@ -81,7 +76,7 @@ object NativeBridge {
      *             与 [terminal.emulator.input.KeyModifiers] 同一套位
      * @param text 输入法合成的文本，非输入法按键传 null
      */
-    @JvmStatic external fun writeKey(sessionId: Long, key: String, mods: Int)
+    @JvmStatic external fun writeKey(sessionId: Long, key: String, metaPrefix: Boolean)
 
     /**
      * 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用的 DECSET 选择 SGR/X10/UTF-8）。
@@ -223,12 +218,20 @@ object NativeBridge {
     @JvmStatic external fun wideCharTailCols(sessionId: Long, row: Int): IntArray
 
     /**
-     * 搜索整个回滚缓冲，返回扁平 `IntArray`：每项三个 `Int`，依次为 `row`、
-     * `start_col`、`end_col`（列号为字符列）。超时、断连或会话不存在返回 null。
-     * 调用方需在 UI 线程做防抖。
+     * 设置搜索 needle 并同步跑完搜索，返回命中总数。
+     * 上游 `search::Search` 承担匹配、软换行跨行与增量同步；ASCII 字母不区分大小写，
+     * 无区分大小写开关。超时、断连或会话不存在返回 0。
      */
     @JvmStatic
-    external fun searchAllInScrollback(sessionId: Long, query: String, caseSensitive: Boolean): IntArray?
+    external fun searchSetNeedle(sessionId: Long, needle: String): Int
+
+    /**
+     * 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回
+     * `[序号, 总数, 行, 起始列, 结束列]`；无命中、超时、断连或会话不存在返回 null。
+     * 行号是绝对网格行（0 = 回滚顶部），选中时视口已滚到该命中。
+     */
+    @JvmStatic
+    external fun searchSelect(sessionId: Long, forward: Boolean): IntArray?
 
     /** 字体库族名列表（fonts.xml 声明的文件集 + 用户投放目录）。 */
     @JvmStatic external fun listFontFamilies(): Array<String>?
@@ -248,14 +251,30 @@ object NativeBridge {
      */
     @JvmStatic external fun getRasterScaleRange(): FloatArray?
 
-    /** 结构化字体信息 JSON（见 [FontInfoDto]），渲染器未初始化时为 null。 */
-    @JvmStatic external fun getFontInfo(): String?
+    /** 字体信息打包字节（布局见 `FontInfo.fromPacked`），渲染器未初始化时为 null。 */
+    @JvmStatic external fun getFontInfo(): ByteArray?
+
+    /**
+     * 推进全部会话的终端状态（输出灌入 VT、收割 VT 副作用、事件入队），但不消费事件。
+     *
+     * 渲染暂停（切后台、Surface 销毁）时渲染线程停止，[pollEvent] 无人调用；若此时
+     * 也无人推进会话，有界输出通道会填满 → 读线程阻塞 → PTY 内核缓冲填满 → 后台
+     * 作业停摆。本调用维持推进而不取走事件，故后台期间的剪贴板、退出等事件仍留在
+     * 队列中，渲染恢复后由 [pollEvent] 正常派发。
+     */
+    @JvmStatic external fun pumpSessions()
 
     /** 清除渲染器的搜索高亮。 */
     @JvmStatic external fun clearSearchHighlights(sessionId: Long)
 
-    /** 设置渲染器搜索高亮范围（按字节打包，见 TerminalSurface）。 */
-    @JvmStatic external fun setSearchHighlights(sessionId: Long, data: ByteArray)
+    /**
+     * 把当前搜索的视口命中写入渲染态（下一帧绘制）。
+     *
+     * 命中区间、选中态与高亮色（当前命中用主题前景色、其余用主题选区色）都由原生
+     * 按当前主题给出；本调用只提供视口滚动偏移（0 表示贴底）。
+     */
+    @JvmStatic
+    external fun applySearchHighlights(sessionId: Long, scrollOffset: Int)
 
     /**
      * 设置当前文本选区（可视网格行列）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
@@ -273,8 +292,9 @@ object NativeBridge {
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
     @JvmStatic external fun resetTerminal(sessionId: Long)
 
+    /** 按标识应用主题：调色板真源在原生，Kotlin 只传设置里存的标识。 */
     @JvmStatic
-    external fun setTheme(sessionId: Long, data: ByteArray)
+    external fun setTheme(sessionId: Long, themeName: String)
 
     /**
      * 用上游 `paste::encode` 把剪贴板字节编码为 PTY 写入字节（bracketed 包裹与否
@@ -284,23 +304,17 @@ object NativeBridge {
     @JvmStatic
     external fun encodePaste(sessionId: Long, data: ByteArray): ByteArray?
 
-    /** 内置终端主题数量，单源在 Rust 侧（构建期嵌入的 alacritty 主题）。 */
-    @JvmStatic external fun getThemeCount(): Int
-
-    /** 按序号取主题标识（即设置落盘键值），越界返回 null。 */
-    @JvmStatic external fun getThemeName(index: Int): String?
-
-    /** 按序号取深底标记。 */
-    @JvmStatic external fun isThemeDark(index: Int): Boolean
+    /**
+     * 全部主题标识，顺序即设置界面展示顺序（深底在前、日间在后）。
+     * 单源在 Rust 侧（构建期嵌入的 alacritty 主题）；任一元素失败则整体返回 null。
+     */
+    @JvmStatic external fun getThemeNames(): Array<String>?
 
     /**
-     * 按序号取主题颜色：60 字节 = 背景 3 + 前景 3 + 光标 3 + 选区 3 + 十六色 48。
-     * 越界或分配失败返回 null。
+     * 按标识取主题：61 字节 = 深底标记 1 + 背景 3 + 前景 3 + 光标 3 + 选区 3 + 十六色 48。
+     * 未知标识或分配失败返回 null。
      */
-    @JvmStatic external fun getThemeColors(index: Int): ByteArray?
-
-    /** 按标识取序号，未知返回 -1。 */
-    @JvmStatic external fun getThemeIndexByName(name: String): Int
+    @JvmStatic external fun getThemeColors(name: String): ByteArray?
 
     /** 默认夜间主题标识，对应默认终端主题，分配失败返回 null。 */
     @JvmStatic external fun getDefaultDarkName(): String?
@@ -317,12 +331,6 @@ object NativeBridge {
      */
     @JvmStatic
     external fun setSurfaceLossInjected(sessionId: Long, injected: Boolean): Boolean
-
-    /**
-     * 应用层光标颜色覆盖，线性 RGB（每通道 0..1），总是覆盖，无清除路径。
-     */
-    @JvmStatic
-    external fun setCursorColor(sessionId: Long, red: Float, green: Float, blue: Float)
 
     @JvmStatic
     external fun setFontFamily(sessionId: Long, family: String): Boolean

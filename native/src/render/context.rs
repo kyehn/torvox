@@ -10,16 +10,16 @@ use crate::terminal::ghostty_terminal::GhosttyTerminal;
 /// 初始清除色：与终端初态同源（默认主题背景），避免首帧黑闪。
 /// 运行时主题经 `set_background_color` 更新，此处只覆盖到达前的窗口。
 fn initial_background_color() -> wgpu::Color {
-    let (_, background, _) = GhosttyTerminal::default_palette();
-    background_color_from_bytes(background)
+    background_clear_color(crate::terminal::theme::default_dark().palette.background)
 }
 
-/// 主题背景字节转清除色：与终端侧字节转浮点同源，避免两处手写除法。
-fn background_color_from_bytes(background: [u8; 3]) -> wgpu::Color {
+/// 主题背景转清除色：与终端侧字节转浮点同源，避免两处手写除法。
+fn background_clear_color(background: libghostty_vt::style::RgbColor) -> wgpu::Color {
+    let [red, green, blue, _] = GhosttyTerminal::color_to_float(background);
     wgpu::Color {
-        r: f64::from(GhosttyTerminal::byte_to_float(background[0])),
-        g: f64::from(GhosttyTerminal::byte_to_float(background[1])),
-        b: f64::from(GhosttyTerminal::byte_to_float(background[2])),
+        r: f64::from(red),
+        g: f64::from(green),
+        b: f64::from(blue),
         a: 1.0,
     }
 }
@@ -659,8 +659,8 @@ impl Renderer {
         }
     }
 
-    pub fn set_background_color(&mut self, background: [u8; 3]) {
-        self.background = background_color_from_bytes(background);
+    pub fn set_background_color(&mut self, background: libghostty_vt::style::RgbColor) {
+        self.background = background_clear_color(background);
         // 清除色只在全量帧上生效（部分帧从不再绘网格四边形之外的边距），
         // 故强制下一帧全量，使主题切换能重绘到每一处。
         self.frame_invalidated = true;

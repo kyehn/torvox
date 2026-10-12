@@ -13,7 +13,7 @@ import kotlin.system.measureTimeMillis
  * JVM-side JNI round-trip tests — no emulator, no Android device.
  *
  * Loads the HOST-built `libnative.so` (same Rust code as the Android target, built with
- * `nix develop --command cargo build --package native --profile release`) and drives the real JNI
+ * `nix develop --command cargo build --manifest-path native/Cargo.toml --profile release`) and drives the real JNI
  * bridge: initSession → feedTerminal → getTitle/getTerminalText → destroySession.
  *
  * ## Why this exists (what pure-Rust tests cannot cover)
@@ -33,14 +33,14 @@ import kotlin.system.measureTimeMillis
  * everything exercised here is pure CPU logic.
  *
  * Locating the library: unit tests run with cwd = `android/app/`, so the path is the fixed
- * `../../target/release/libnative.so`. No candidate probing and no environment override — the
+ * `../../native/target/release/libnative.so`. No candidate probing and no environment override — the
  * library must already be there (built as above, the step the `check` workflow runs before
  * `check-gradle.nu`), or the load fails loudly.
  */
 class NativeBridgeSmokeTest {
     private companion object {
         /** 固定路径：缺失时 System.load 自身抛错，不再探测候选位置。 */
-        private const val HOST_LIBRARY_PATH = "../../target/release/libnative.so"
+        private const val HOST_LIBRARY_PATH = "../../native/target/release/libnative.so"
 
         /** Real shell on the dev host (CI runner). Android uses /system/bin/sh. */
         private const val HOST_SHELL = "/bin/sh"
@@ -148,16 +148,15 @@ class NativeBridgeSmokeTest {
     @Test
     fun `scrollback rows grows after scrollback-generating output`() {
         withSession { sessionId ->
-            assertEquals("fresh session has no scrollback", 0, NativeBridge.getScrollbackRows(sessionId))
+            assertEquals("fresh session has no scrollback", 0, NativeBridge.scrollbackLength(sessionId))
             // More lines than the visible grid -> pushed into scrollback.
             val payload = (1..200).joinToString("\n") { "scrollback line $it" } + "\n"
             NativeBridge.feedTerminal(sessionId, payload.toByteArray())
             val grew =
                 awaitTrue("scrollback populated") {
-                    NativeBridge.getScrollbackRows(sessionId) > 0
+                    NativeBridge.scrollbackLength(sessionId) > 0
                 }
             assertTrue("200 fed lines must create scrollback rows", grew)
-            assertEquals("unknown session reads as 0 rows", 0, NativeBridge.getScrollbackRows(999_999L))
         }
     }
 

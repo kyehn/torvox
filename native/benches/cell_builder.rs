@@ -5,7 +5,7 @@
 //! with realistic mixed content (ASCII/CJK/colors/bold/italic):
 //!
 //! ```text
-//! cargo bench -p native --bench cell_builder
+//! cargo bench --manifest-path native/Cargo.toml -p native --bench cell_builder
 //! ```
 
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -52,7 +52,7 @@ fn build_instances(c: &mut Criterion) {
         col: 40,
         visible: true,
         style: native::terminal::CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
 
     c.bench_function("build_instances_from_cell_data", |b| {

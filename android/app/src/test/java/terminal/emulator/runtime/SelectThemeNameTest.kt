@@ -3,15 +3,18 @@ package terminal.emulator.runtime
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.ui.theme.ThemeMode
+import terminal.emulator.ui.theme.resolveAppDarkMode
+import terminal.emulator.ui.theme.resolveTerminalThemeName
 
 /**
- * Pure theme-name selection behind `TerminalRuntime.resolveThemeName`:
- * fixed modes take their key directly, follow-system resolves day/night
- * from the app mode or the system flag.
+ * `TerminalRuntime.resolveThemeName` 的真实选择路径：把设置快照逐字段喂给
+ * [resolveTerminalThemeName] 与 [resolveAppDarkMode]，断日夜两组的选取，以及
+ * 「跟随系统」时由软件主题（或系统标志）决定的二级裁决。
  */
 class SelectThemeNameTest {
 
-    private fun stored(themeMode: String = "follow", appThemeMode: String = "follow") =
+    private fun stored(themeMode: String = ThemeMode.FOLLOW_SYSTEM, appThemeMode: String = ThemeMode.FOLLOW_SYSTEM) =
         SettingsRepository.SettingsState(
             fontSize = 14f,
             themeName = "fixed-theme",
@@ -21,19 +24,29 @@ class SelectThemeNameTest {
             appThemeMode = appThemeMode,
         )
 
+    /** 与 [TerminalRuntime.resolveThemeName] 同形的取值。 */
+    private fun selectThemeName(stored: SettingsRepository.SettingsState, systemDark: Boolean): String =
+        resolveTerminalThemeName(
+            mode = stored.themeMode,
+            fixedName = stored.themeName,
+            dayName = stored.dayThemeName,
+            nightName = stored.nightThemeName,
+            isDark = resolveAppDarkMode(stored.appThemeMode, systemDark),
+        )
+
     @Test
     fun `fixed mode returns the fixed name`() {
-        assertEquals("fixed-theme", selectThemeName(stored(themeMode = "fixed"), systemDark = true))
+        assertEquals("fixed-theme", selectThemeName(stored(themeMode = ThemeMode.FIXED), systemDark = true))
     }
 
     @Test
     fun `day mode returns the day name`() {
-        assertEquals("day-theme", selectThemeName(stored(themeMode = "day"), systemDark = true))
+        assertEquals("day-theme", selectThemeName(stored(themeMode = ThemeMode.DAY), systemDark = true))
     }
 
     @Test
     fun `night mode returns the night name`() {
-        assertEquals("night-theme", selectThemeName(stored(themeMode = "night"), systemDark = false))
+        assertEquals("night-theme", selectThemeName(stored(themeMode = ThemeMode.NIGHT), systemDark = false))
     }
 
     @Test
@@ -44,7 +57,7 @@ class SelectThemeNameTest {
 
     @Test
     fun `explicit app mode overrides the system flag`() {
-        assertEquals("day-theme", selectThemeName(stored(appThemeMode = "day"), systemDark = true))
-        assertEquals("night-theme", selectThemeName(stored(appThemeMode = "night"), systemDark = false))
+        assertEquals("day-theme", selectThemeName(stored(appThemeMode = ThemeMode.DAY), systemDark = true))
+        assertEquals("night-theme", selectThemeName(stored(appThemeMode = ThemeMode.NIGHT), systemDark = false))
     }
 }

@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use super::*;
 use crate::terminal::ghostty_terminal::public_api::sanitize_vt_input;
-use crate::terminal::test_helpers::{assert_invariants, row_text};
+use crate::terminal::test_helpers::{assert_invariants, row_text, search_viewport_matches};
 use libghostty_vt::key::Mods;
 
 fn terminal() -> GhosttyTerminal {
@@ -38,14 +38,29 @@ fn small_terminal() -> GhosttyTerminal {
 /// 默认主题前景（浮点）：断言锚定当前默认调色板而不手写色值，
 /// 换默认主题时用例不随之漂移失效。
 fn default_foreground() -> [f32; 4] {
-    let (_, _, foreground) = GhosttyTerminal::default_palette();
-    GhosttyTerminal::byte_color_to_float(foreground)
+    GhosttyTerminal::color_to_float(crate::terminal::theme::default_dark().palette.foreground)
 }
 
 /// 默认主题背景（浮点）：同上，不手写色值。
 fn default_background() -> [f32; 4] {
-    let (_, background, _) = GhosttyTerminal::default_palette();
-    GhosttyTerminal::byte_color_to_float(background)
+    GhosttyTerminal::color_to_float(crate::terminal::theme::default_dark().palette.background)
+}
+
+/// 默认主题第 `index` 号 ANSI 槽位色（浮点）：同上，不手写色值。
+fn default_ansi(index: usize) -> [f32; 4] {
+    GhosttyTerminal::color_to_float(crate::terminal::theme::default_dark().palette.ansi[index])
+}
+
+/// 单元前景与主题色（浮点）的比较：字节转浮点有量化误差。
+fn assert_color(actual: [f32; 4], expected: [f32; 4], context: &str) {
+    for channel in 0..3 {
+        assert!(
+            (actual[channel] - expected[channel]).abs() < 0.02,
+            "{context}：通道{channel} 须为 {}，实际 {}",
+            expected[channel],
+            actual[channel]
+        );
+    }
 }
 
 /// 从快照中取出指定行列的单元
@@ -166,7 +181,7 @@ fn reset_clears_selection() {
 }
 
 #[test]
-fn search_all_finds_match() {
+fn search_finds_match_and_keeps_terminal_usable() {
     let mut terminal_under_test = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     terminal_under_test.vt_write(b"search_target_here\n");
     terminal_under_test.flush();
@@ -174,10 +189,9 @@ fn search_all_finds_match() {
         terminal_under_test.vt_write(format!("filler {line_number}\n").as_bytes());
     }
     terminal_under_test.flush();
-    // 搜索命中回滚首行并保持终端可用。
-    let results = terminal_under_test.search_all_in_scrollback("search_target", true);
+    // 搜索能定位到已滚入历史的 needle，且终端保持可用。
     assert!(
-        !results.is_empty(),
+        terminal_under_test.search_set_needle("search_target") > 0,
         "search_target must be found in scrollback"
     );
     terminal_under_test.vt_write(b"AfterSearch");
@@ -209,7 +223,7 @@ fn search_reports_each_wrapped_line_once_with_physical_rows() {
     );
 
     assert_eq!(
-        terminal_under_test.search_all_in_scrollback("klmnopqrst", true),
+        search_viewport_matches(&terminal_under_test, "klmnopqrst"),
         vec![SearchMatch {
             row: 1,
             start_col: 0,
@@ -220,7 +234,7 @@ fn search_reports_each_wrapped_line_once_with_physical_rows() {
 
     // 跨软换行的命中按物理行拆成两段，列区间落在各自行内。
     assert_eq!(
-        terminal_under_test.search_all_in_scrollback("ijklm", true),
+        search_viewport_matches(&terminal_under_test, "ijklm"),
         vec![
             SearchMatch {
                 row: 0,
@@ -238,13 +252,10 @@ fn search_reports_each_wrapped_line_once_with_physical_rows() {
 }
 
 #[test]
-fn search_all_empty_query() {
+fn search_empty_needle_returns_nothing() {
     let terminal_under_test = terminal();
-    assert!(
-        terminal_under_test
-            .search_all_in_scrollback("", true)
-            .is_empty()
-    );
+    assert_eq!(terminal_under_test.search_set_needle(""), 0);
+    assert!(search_viewport_matches(&terminal_under_test, "").is_empty());
 }
 
 #[test]
@@ -2339,59 +2350,79 @@ fn encode_paste_sanitizes_control_bytes() {
     );
 }
 
-/// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史
-/// 后 search_all 仍命中首行（揭示语义由 Kotlin 滚动承载，
-/// 此处断言命中坐标）。
+/// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史后
+/// 搜索仍能命中它，且导航把命中带进视口（揭示由上游按滚动策略完成）。
 #[test]
-fn search_all_reveals_history_match() {
+fn search_select_reveals_history_match_in_viewport() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     terminal_under_test.vt_write(b"needle\n");
     for index in 0..10 {
         terminal_under_test.vt_write(format!("filler{index}\n").as_bytes());
     }
     terminal_under_test.flush();
-    let results = terminal_under_test.search_all_in_scrollback("needle", true);
-    assert!(!results.is_empty(), "history hit");
-    let hit = &results[0];
-    assert_eq!(hit.start_col, 0, "needle starts at col 0");
-    let line = terminal_under_test
-        .read_line_text(hit.row)
-        .expect("hit line");
-    assert_eq!(line, "needle");
+    assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
+    let selected = terminal_under_test
+        .search_select(true)
+        .expect("history hit is selectable");
+    assert_eq!(selected.index, 0, "newest hit is index 0");
+    assert_eq!(selected.matched.start_col, 0, "needle starts at col 0");
+    assert_eq!(
+        terminal_under_test.read_line_text(selected.matched.row),
+        Some("needle".to_string()),
+        "hit line must be the needle line"
+    );
+    // 导航后该命中必须落在视口内，否则 UI 高亮与滚动定位无从谈起。
+    assert_eq!(
+        terminal_under_test.search_viewport_highlights().matches,
+        vec![selected.matched.clone()],
+        "selected hit must be revealed in the viewport"
+    );
 }
 
-/// 对标上游 searchStepWraps：本仓 search_all 返回旧→新稳定顺序，
-/// Kotlin SearchResult.nextIndex/previousIndex 承载回绕（已有单测）；
-/// 此处锁定顺序契约：首个为最旧、末个为最新。
+/// 对标上游 searchStepWraps：命中下标 0 为最新，`select_next` 朝更旧内容走，
+/// 走到最旧后回绕到最新。
 #[test]
-fn search_all_order_oldest_first_newest_last() {
+fn search_select_walks_from_newest_toward_older_and_wraps() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     for _ in 0..3 {
         terminal_under_test.vt_write(b"match\n");
     }
     terminal_under_test.flush();
-    let results = terminal_under_test.search_all_in_scrollback("match", true);
-    assert_eq!(results.len(), 3);
-    assert!(results[0].row < results[2].row, "oldest first, newest last");
+    assert_eq!(terminal_under_test.search_set_needle("match"), 3);
+    let newest = terminal_under_test
+        .search_select(true)
+        .expect("first select");
+    let older = terminal_under_test
+        .search_select(true)
+        .expect("second select");
+    assert_eq!((newest.index, older.index), (0, 1), "0 is the newest hit");
+    assert!(
+        older.matched.row < newest.matched.row,
+        "select_next moves toward older content (newest row {}, older row {})",
+        newest.matched.row,
+        older.matched.row
+    );
+    let oldest = terminal_under_test
+        .search_select(true)
+        .expect("third select");
+    assert_eq!(oldest.index, 2, "last hit before wrapping");
+    let wrapped = terminal_under_test
+        .search_select(true)
+        .expect("wraps to newest");
+    assert_eq!(wrapped.index, 0, "select_next wraps past the oldest hit");
 }
 
-/// 对标上游 searchNoMatchesClearsSelection：无命中返回空（清除语义
-/// 由 Kotlin 搜索状态机承载，此处锁定空结果契约）。
+/// 对标上游 searchNoMatchesClearsSelection：无命中时总数为 0、视口命中为空，
+/// 且导航返回 None（UI 据此清空选中态）。
 #[test]
-fn search_all_no_matches_returns_empty() {
+fn search_no_matches_clears_selection() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"hello world");
     terminal_under_test.flush();
-    assert!(
-        terminal_under_test
-            .search_all_in_scrollback("zzz", false)
-            .is_empty()
-    );
-    assert!(
-        terminal_under_test
-            .search_all_in_scrollback("zzz", true)
-            .is_empty()
-    );
+    assert_eq!(terminal_under_test.search_set_needle("zzz"), 0);
+    assert!(search_viewport_matches(&terminal_under_test, "").is_empty());
+    assert!(terminal_under_test.search_select(true).is_none());
+    assert!(terminal_under_test.search_select(false).is_none());
 }
 
 /// 锁外查询通道与方法版同结果——JNI 侧只将会话锁删减到取通道，
@@ -2401,13 +2432,15 @@ fn search_via_bare_channel_matches_method() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"needle in haystack needle");
     terminal_under_test.flush();
-    let via_method = terminal_under_test.search_all_in_scrollback("needle", true);
-    let via_channel =
-        crate::terminal::ghostty_terminal::GhosttyTerminal::search_all_in_scrollback_on(
-            &terminal_under_test.query_channel(),
-            "needle",
-            true,
+    let via_method = search_viewport_matches(&terminal_under_test, "needle");
+    let via_channel = {
+        let query_tx = terminal_under_test.query_channel();
+        crate::terminal::ghostty_terminal::GhosttyTerminal::search_set_needle_on(
+            &query_tx, "needle",
         );
+        crate::terminal::ghostty_terminal::GhosttyTerminal::search_viewport_highlights_on(&query_tx)
+            .matches
+    };
     assert_eq!(via_method.len(), 2);
     assert_eq!(via_method, via_channel);
 }
@@ -2766,16 +2799,9 @@ fn sgr31_red_reaches_cell_data_foreground() {
     );
 
     // 2) 默认主题配置：复刻设备 apply_theme 后的精确状态。
-    let (dracula_ansi, dracula_background, dracula_foreground) = GhosttyTerminal::default_palette();
-    let mut dracula = GhosttyTerminal::new_with_theme(
-        24,
-        80,
-        1000,
-        dracula_background,
-        dracula_foreground,
-        dracula_ansi,
-    )
-    .expect("dracula terminal");
+    let default_theme = crate::terminal::theme::default_dark();
+    let mut dracula = GhosttyTerminal::new_with_theme(24, 80, 1000, default_theme)
+        .expect("default theme terminal");
     dracula.vt_write(b"\x1b[31mRED\x1b[0m");
     dracula.flush();
     let (cells, _) = dracula.receive_cell_data().expect("cell data");
@@ -2797,9 +2823,8 @@ fn sgr31_red_reaches_cell_data_foreground() {
 /// 复刻其精确主题与几何，锁定颜色通路。
 #[test]
 fn sgr31_default_theme_reaches_foreground() {
-    let (ansi, background, foreground) = GhosttyTerminal::default_palette();
     let mut terminal_under_test =
-        GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
+        GhosttyTerminal::new_with_theme(44, 48, 1000, crate::terminal::theme::default_dark())
             .expect("default terminal");
     terminal_under_test.vt_write(b"\x1b[31mRED\x1b[0m");
     terminal_under_test.flush();
@@ -2808,12 +2833,10 @@ fn sgr31_default_theme_reaches_foreground() {
         .iter()
         .find(|cell| cell.codepoint == 'R' as u32)
         .expect("R cell present");
-    assert!(
-        (red_cell.foreground[0] - 1.0).abs() < 0.02
-            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
-            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
-        "默认主题 SGR31 前景须为 #FF5555，实际 {:?}",
-        red_cell.foreground
+    assert_color(
+        red_cell.foreground,
+        default_ansi(1),
+        "SGR31 前景须取 ANSI 槽位 1",
     );
 }
 
@@ -2822,21 +2845,16 @@ fn sgr31_default_theme_reaches_foreground() {
 /// 第三包系统性缺席；先在 host 判定是构建层去重还是设备推送时序。
 #[test]
 fn sgr_same_text_tricolor_rows_all_present() {
-    let (ansi, background, foreground) = GhosttyTerminal::default_palette();
-    let mut terminal = GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
-        .expect("default terminal");
+    let mut terminal =
+        GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
+            .expect("default terminal");
     for code in [34u8, 31, 32] {
         terminal.vt_write(format!("\x1b[{code}mEEEEEEEE\x1b[0m\r\n").as_bytes());
     }
     terminal.flush();
     let (cells, _) = terminal.receive_cell_data().expect("cell data");
     // 三行 E 首字符：行0蓝、行1红、行2绿（默认主题槽位色）。
-    let expected: [(u32, [u8; 3]); 3] = [
-        (0, [0x82, 0xAA, 0xFF]),
-        (1, [0xFF, 0x55, 0x55]),
-        (2, [0x50, 0xFA, 0x7B]),
-    ];
-    for (row, expected_rgb) in expected {
+    for (row, ansi_index) in [(0, 4), (1, 1), (2, 2)] {
         let cell = cells
             .iter()
             .find(|cell| cell.row == row && cell.col == 0)
@@ -2846,13 +2864,7 @@ fn sgr_same_text_tricolor_rows_all_present() {
             "行{row}首格须为 E，实际 {}",
             cell.codepoint
         );
-        assert!(
-            (cell.foreground[0] - expected_rgb[0] as f32 / 255.0).abs() < 0.02
-                && (cell.foreground[1] - expected_rgb[1] as f32 / 255.0).abs() < 0.05
-                && (cell.foreground[2] - expected_rgb[2] as f32 / 255.0).abs() < 0.05,
-            "行{row}前景须为 {expected_rgb:?}，实际 {:?}",
-            cell.foreground
-        );
+        assert_color(cell.foreground, default_ansi(ansi_index), "行首前景");
     }
 }
 /// 默认主题下 SGR31/32/34 三色必须各自到达 CellData 前景。
@@ -2860,16 +2872,11 @@ fn sgr_same_text_tricolor_rows_all_present() {
 /// 还是设备侧问题（计数/呈现），再定跟进方向。
 #[test]
 fn sgr_tricolor_default_theme_reaches_foreground() {
-    let (ansi, background, foreground) = GhosttyTerminal::default_palette();
-    // （码，标记字符，期望槽位色）
-    let cases: [(u8, u8, [u8; 3]); 3] = [
-        (31, b'R', [0xFF, 0x55, 0x55]),
-        (32, b'G', [0x50, 0xFA, 0x7B]),
-        (34, b'B', [0x82, 0xAA, 0xFF]),
-    ];
-    for (code, marker, expected) in cases {
+    // （码，标记字符，期望 ANSI 槽位）
+    let cases: [(u8, u8, usize); 3] = [(31, b'R', 1), (32, b'G', 2), (34, b'B', 4)];
+    for (code, marker, ansi_index) in cases {
         let mut terminal =
-            GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
+            GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
                 .expect("default terminal");
         terminal.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
         terminal.flush();
@@ -2878,12 +2885,10 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
             .iter()
             .find(|cell| cell.codepoint == marker as u32)
             .expect("marked cell present");
-        assert!(
-            (marked.foreground[0] - expected[0] as f32 / 255.0).abs() < 0.02
-                && (marked.foreground[1] - expected[1] as f32 / 255.0).abs() < 0.05
-                && (marked.foreground[2] - expected[2] as f32 / 255.0).abs() < 0.05,
-            "Mocha 主题 SGR{code} 前景须为 {expected:?}，实际 {:?}",
-            marked.foreground
+        assert_color(
+            marked.foreground,
+            default_ansi(ansi_index),
+            &format!("SGR{code} 前景"),
         );
     }
 }

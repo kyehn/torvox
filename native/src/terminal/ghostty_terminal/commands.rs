@@ -13,11 +13,7 @@ use super::types::*;
 pub enum Command {
     Write(Vec<u8>),
     FlushAck(Sender<()>),
-    SetTheme {
-        background: [u8; 3],
-        foreground: [u8; 3],
-        ansi: [[u8; 3]; 16],
-    },
+    SetTheme(&'static crate::terminal::theme::Theme),
     Resize {
         rows: u32,
         cols: u32,
@@ -61,7 +57,7 @@ pub enum Query {
     CursorY(Sender<u32>),
     CursorVisible(Sender<bool>),
     Title(Sender<String>),
-    ModeGet(u16, u8, Sender<bool>),
+    ModeGet(libghostty_vt::terminal::Mode, Sender<bool>),
     ScrollbackLength(Sender<u32>),
     ReadLineText {
         row: u32,
@@ -108,10 +104,23 @@ pub enum Query {
         row: u32,
         tx: Sender<Vec<u32>>,
     },
-    SearchInScrollbackAll {
-        query: String,
-        case_sensitive: bool,
-        tx: Sender<Vec<SearchMatch>>,
+    /// 设置搜索 needle 并同步跑完搜索，返回命中总数；空 needle 清除并归零。
+    ///
+    /// 匹配、软换行跨行、增量同步与滚动策略全部由上游 `search::Search` 承担，
+    /// `search` 对象随 VT 线程存活，跨查询复用同一份索引状态。
+    SearchSetNeedle {
+        needle: String,
+        tx: Sender<usize>,
+    },
+    /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态；
+    /// 无命中时 None。选中时上游按滚动策略移动视口。
+    SearchSelect {
+        forward: bool,
+        tx: Sender<Option<SearchSelection>>,
+    },
+    /// 绘制视口高亮所需的全部输入：视口命中、选中命中与回滚长度。
+    SearchViewportHighlights {
+        tx: Sender<SearchViewportHighlights>,
     },
     DumpGrid {
         tx: Sender<DumpedGrid>,
@@ -176,9 +185,9 @@ pub(crate) struct RunConfig {
     pub(crate) rows: u32,
     pub(crate) cols: u32,
     pub(crate) scrollback_lines: u32,
-    pub(crate) background_color: [u8; 3],
-    pub(crate) foreground_color: [u8; 3],
-    pub(crate) ansi_colors: [[u8; 3]; 16],
+    /// 初态主题：调色板经 [`crate::terminal::theme`] 单源解析，`SetTheme` 换主题后
+    /// 以命令携带的新主题为准。
+    pub(crate) theme: &'static crate::terminal::theme::Theme,
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     /// 备用屏状态的无锁镜像，由 VT 线程每帧更新，供输入路径免阻塞 RPC 检出。
     pub(crate) alt_screen_active: Arc<AtomicBool>,

@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.LocalContext
  */
 data class TerminalTheme(
     val name: String,
+    /** 深底主题，供「跟随系统」在日夜两组间切换；判定由原生给出。 */
+    val dark: Boolean,
     val background: Color,
     val foreground: Color,
     val cursor: Color,
@@ -28,8 +30,29 @@ data class TerminalTheme(
 }
 
 /**
+ * 终端主题模式取值（落盘于 `SettingsRepository` 的 `themeMode`）。
+ *
+ * 唯一声明处：`when` 的分支、设置页的选项与默认值都引用它们，写错字面量不再会
+ * 悄悄落进 `else` 的「跟随系统」分支。
+ */
+object ThemeMode {
+    /** 固定使用单一主题（`themeName` 键）。 */
+    const val FIXED = "fixed"
+
+    /** 固定使用日间主题（`dayThemeName` 键）。 */
+    const val DAY = "day"
+
+    /** 固定使用夜间主题（`nightThemeName` 键）。 */
+    const val NIGHT = "night"
+
+    /** 跟随软件主题在日间与夜间主题间切换。 */
+    const val FOLLOW_SYSTEM = "follow_system"
+}
+
+/**
  * 由主题模式设置解析出活动的终端主题名。
- * 纯函数，供 TerminalScreen 的背景与主题查找共用，使模式切换逻辑只存在于一处。
+ * 纯函数，供 TerminalScreen 的背景、TerminalRuntime 的设置读取与主题查找共用，
+ * 使模式切换逻辑只存在于一处。
  */
 fun resolveTerminalThemeName(
     mode: String,
@@ -38,16 +61,16 @@ fun resolveTerminalThemeName(
     nightName: String,
     isDark: Boolean,
 ): String = when (mode) {
-    "fixed" -> fixedName
-    "day" -> dayName
-    "night" -> nightName
+    ThemeMode.FIXED -> fixedName
+    ThemeMode.DAY -> dayName
+    ThemeMode.NIGHT -> nightName
     else -> if (isDark) nightName else dayName
 }
 
 /** 由应用主题模式设置解析应用的深色模式。 */
 fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = when (appThemeMode) {
-    "night" -> true
-    "day" -> false
+    ThemeMode.NIGHT -> true
+    ThemeMode.DAY -> false
     else -> systemDark
 }
 
@@ -60,7 +83,7 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
 fun resolveMaterialColorScheme(appThemeMode: String, forceDark: Boolean, isDarkTheme: Boolean): ColorScheme {
     val context = LocalContext.current
     return when {
-        appThemeMode == "follow_system" -> {
+        appThemeMode == ThemeMode.FOLLOW_SYSTEM -> {
             if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 

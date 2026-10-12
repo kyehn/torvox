@@ -10,30 +10,21 @@ use super::types::*;
 
 impl super::GhosttyTerminal {
     pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, TerminalError> {
-        let (ansi, background, foreground) = Self::default_palette();
-        Self::new_with_theme(rows, cols, scrollback_lines, background, foreground, ansi)
-    }
-
-    /// 默认主题调色板：DESIGN 默认终端主题，经 [`crate::terminal::theme`] 单源读取。
-    ///
-    /// 初态与会话默认及渲染首帧清除色均经此取得，不在仓库内另存颜色副本。
-    pub fn default_palette() -> ([[u8; 3]; 16], [u8; 3], [u8; 3]) {
-        let theme = crate::terminal::theme::by_name(crate::terminal::theme::default_dark_name())
-            .expect("默认主题须在清单中");
-        (
-            theme.palette.ansi,
-            theme.palette.background,
-            theme.palette.foreground,
+        Self::new_with_theme(
+            rows,
+            cols,
+            scrollback_lines,
+            crate::terminal::theme::default_dark(),
         )
     }
 
+    /// 以指定主题创建。主题是静态清单项（见 [`crate::terminal::theme`]），故取用
+    /// 不复制调色板，换主题即换引用。
     pub fn new_with_theme(
         rows: u32,
         cols: u32,
         scrollback_lines: u32,
-        initial_background: [u8; 3],
-        initial_foreground: [u8; 3],
-        initial_ansi: [[u8; 3]; 16],
+        theme: &'static crate::terminal::theme::Theme,
     ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
@@ -65,9 +56,7 @@ impl super::GhosttyTerminal {
                         rows,
                         cols,
                         scrollback_lines,
-                        background_color: initial_background,
-                        foreground_color: initial_foreground,
-                        ansi_colors: initial_ansi,
+                        theme,
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
                         cell_size_px: cell_size_px_for_run,
@@ -210,13 +199,10 @@ impl super::GhosttyTerminal {
         }
     }
 
-    pub fn set_theme(&self, background: [u8; 3], foreground: [u8; 3], ansi: [[u8; 3]; 16]) {
+    /// 换主题。主题取自静态清单，故命令只携带引用，不复制调色板。
+    pub fn set_theme(&self, theme: &'static crate::terminal::theme::Theme) {
         // try_send：与 resize 同非阻塞策略。
-        if let Err(error) = self.cmd_tx.try_send(Command::SetTheme {
-            background,
-            foreground,
-            ansi,
-        }) {
+        if let Err(error) = self.cmd_tx.try_send(Command::SetTheme(theme)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
@@ -431,22 +417,17 @@ impl super::GhosttyTerminal {
         .into()
     }
 
-    pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
-        self.mode_get_with_timeout(
-            mode_num,
-            kind,
-            std::time::Duration::from_millis(QUERY_TIMEOUT_MS),
-        )
+    pub fn mode_get(&self, mode: libghostty_vt::terminal::Mode) -> bool {
+        self.mode_get_with_timeout(mode, std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
     }
 
     pub fn mode_get_with_timeout(
         &self,
-        mode_num: u16,
-        kind: u8,
+        mode: libghostty_vt::terminal::Mode,
         timeout: std::time::Duration,
     ) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Query::ModeGet(mode_num, kind, tx)) {
+        if let Err(error) = self.query_tx.try_send(Query::ModeGet(mode, tx)) {
             // 发送失败即无人会应答：继续 recv 只会白等满整个 timeout，
             // 而调用方普遍持有会话锁，故立即返回（与 query() 同策略）。
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
@@ -456,7 +437,7 @@ impl super::GhosttyTerminal {
             Ok(mode) => mode,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: mode_get({mode_num}, {kind}) timed out or disconnected — returning false"
+                    "ghostty_terminal: mode_get({mode:?}) timed out or disconnected — returning false"
                 );
                 false
             }
@@ -567,25 +548,64 @@ impl super::GhosttyTerminal {
         )
     }
 
-    pub fn search_all_in_scrollback(&self, query: &str, case_sensitive: bool) -> Vec<SearchMatch> {
-        Self::search_all_in_scrollback_on(&self.query_tx, query, case_sensitive)
+    /// 设置搜索 needle 并同步跑完搜索，返回命中总数；空 needle 清除搜索。
+    ///
+    /// 匹配、软换行跨行与增量同步均由上游 `search::Search` 承担，搜索对象随
+    /// VT 线程存活，故连续查询复用同一份索引状态。
+    pub fn search_set_needle(&self, needle: &str) -> usize {
+        Self::search_set_needle_on(&self.query_tx, needle)
     }
 
-    /// [`Self::search_all_in_scrollback`] 的通道外置版（见 [`Self::query_on`]）。
-    pub(crate) fn search_all_in_scrollback_on(
-        query_tx: &Sender<Query>,
-        query: &str,
-        case_sensitive: bool,
-    ) -> Vec<SearchMatch> {
+    /// [`Self::search_set_needle`] 的通道外置版（见 [`Self::query_on`]）。
+    pub(crate) fn search_set_needle_on(query_tx: &Sender<Query>, needle: &str) -> usize {
         Self::query_on(
             query_tx,
-            |tx| Query::SearchInScrollbackAll {
-                query: query.to_string(),
-                case_sensitive,
+            |tx| Query::SearchSetNeedle {
+                needle: needle.to_string(),
                 tx,
             },
-            Vec::new(),
-            "search_all_in_scrollback",
+            0,
+            "search_set_needle",
+        )
+    }
+
+    /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态。
+    /// 无命中时 None；视口滚动由上游按滚动策略完成。
+    pub fn search_select(&self, forward: bool) -> Option<SearchSelection> {
+        Self::search_select_on(&self.query_tx, forward)
+    }
+
+    /// [`Self::search_select`] 的通道外置版（见 [`Self::query_on`]）。
+    pub(crate) fn search_select_on(
+        query_tx: &Sender<Query>,
+        forward: bool,
+    ) -> Option<SearchSelection> {
+        Self::query_on(
+            query_tx,
+            |tx| Query::SearchSelect { forward, tx },
+            None,
+            "search_select",
+        )
+    }
+
+    /// 绘制视口高亮所需的全部输入（视口命中、选中命中、回滚长度）。
+    pub fn search_viewport_highlights(&self) -> SearchViewportHighlights {
+        Self::search_viewport_highlights_on(&self.query_tx)
+    }
+
+    /// [`Self::search_viewport_highlights`] 的通道外置版（见 [`Self::query_on`]）。
+    pub(crate) fn search_viewport_highlights_on(
+        query_tx: &Sender<Query>,
+    ) -> SearchViewportHighlights {
+        Self::query_on(
+            query_tx,
+            |tx| Query::SearchViewportHighlights { tx },
+            SearchViewportHighlights {
+                matches: Vec::new(),
+                selected: None,
+                scrollback_lines: 0,
+            },
+            "search_viewport_highlights",
         )
     }
 

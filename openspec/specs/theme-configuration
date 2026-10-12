@@ -16,8 +16,15 @@ DESIGN `docs/specification/DESIGN.md`「终端主题」节为准：构建期从
 - 真源在 Rust 侧：`native/src/terminal/theme.rs` 的主题清单经 `include_str!`
   在构建期嵌入 alacritty TOML，运行时解析为调色板；标识既是文件名也是
   设置落盘键值，各出现且只出现一次，默认主题用清单下标引用。
-- Kotlin 侧不存名字与颜色副本：`ThemeRepository` 经原生直接量
- （数量/标识/深底标记/60 字节颜色/序号查询/默认名）逐项取回，不经 JSON。
+- 颜色语法与深浅判定取自上游 ghostty（`RgbColor::parse`、
+  `RgbColor::perceived_luminance`），本仓不另造颜色算法，也不手写 alacritty
+  的十六色默认值：清单内每个主题都写全两组十六色，缺项即解析失败。
+- 主题**按标识寻址**：下发 `setTheme(标识)`，终端默认色、ANSI 调色板、光标色与
+  搜索高亮色都由原生按同一份调色板解析，不存在「取回 60 字节再打包 54 字节回传」
+  的第二份副本，故 Kotlin 无从造出与原生不一致的颜色。
+- Kotlin 侧不存名字与颜色副本：`ThemeRepository` 经原生直接量（标识清单
+  `Array<String>`、按标识的 61 字节打包「深底标记 + 60 字节颜色」、默认名）
+  取回，不经 JSON，也不做序号算术。
 - 默认：夜间 `dracula_plus`，日间 `catppuccin_latte`；跟随系统时两者自动切换。
 
 ## Theme Application

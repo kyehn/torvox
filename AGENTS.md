@@ -1,11 +1,12 @@
 # AGENTS.md
 
-基于 `wgpu`（Vulkan）渲染、`Ghostty` VT 解析（`libghostty-vt-sys`）与 Kotlin + Compose UI 的 Android 终端模拟器。
+基于 `wgpu`（Vulkan）渲染、`Ghostty` VT 解析（`libghostty-vt`）与 Kotlin + Compose UI 的 Android 终端模拟器。
 
 ## 必须
 
 - 修改任何文件前阅读 `docs/specification/` 下的全部文档。
-- openspec/specs openspec/changes 目录使用 openspec 命令管理，openspec/specs 目录需要保持更新，修改代码后更新实际情况和补充实现细节，openspec 是参考文档不是严格规范，置信度较 docs/specification/ 低，以 docs/specification/ 和用户提示为准。
+- openspec/specs openspec/changes 目录使用 openspec 命令管理，openspec/specs 目录需要保持更新，修改代码后更新实际情况和补充实现细节，openspec 文档只是参考文档没有约束力
+- docs/specification/ 可能过期，以 用户提示为准
 - 用户提示和文档中使用的 “代码” 一词不包括 “注释”。而 “文档” 一词指的是如 Markdown 文件之类
 
 ## 受阻时

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.runtime.LogUtil
+import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -71,20 +70,16 @@ private val searchQueryMaxLength: Int by lazy {
     terminal.emulator.bridge.NativeBridge.searchQueryMaxChars()
 }
 
-/** 终端内文本搜索的合并状态，取代原先 6 个独立的 remember 变量。 */
+/** 终端内文本搜索状态，取代原先 6 个独立的 remember 变量。 */
 private data class SearchState(
     val query: String = "",
-    val results: List<SearchResult> = emptyList(),
+    val resultCount: Int = 0,
     val currentIndex: Int = 0,
-    val caseSensitive: Boolean = false,
-    val previousQuery: String = "",
+    val selectedMatch: SearchMatchRange? = null,
     val highlightsActive: Boolean = false,
 ) {
     val hasResults: Boolean
-        get() = results.isNotEmpty()
-
-    val resultCount: Int
-        get() = results.size
+        get() = resultCount > 0
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -319,7 +314,6 @@ fun TerminalScreen(
             // 高亮会整体停在旧行；此处由所有改变可见偏移的路径（手势、程序化滚动、
             // 会话切换与输出引起的贴底复位）同步。
             val viewportScrollOffset = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            val scrollbackLength by viewModel.scrollbackLength.collectAsStateWithLifecycle()
 
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
@@ -348,77 +342,56 @@ fun TerminalScreen(
                 }
             }
 
-            fun scrollToMatchIfNeeded(match: SearchResult) {
-                val surface = surfaceRef.value ?: return
-                val visibleRows = surface.getRows()
-                val scrollbackLen = surface.getMaxScrollOffset()
-                val scrollOffset = surface.getScrollOffset()
-                val firstVisibleRow = scrollbackLen - scrollOffset
-                val lastVisibleRow = firstVisibleRow + visibleRows - 1
-                if (match.lineIndex !in firstVisibleRow..lastVisibleRow) {
-                    val centeredRow = (match.lineIndex - visibleRows / 2).coerceAtLeast(0)
-                    surface.scrollToRow(centeredRow)
-                }
-            }
-
             suspend fun performSearch() {
                 val query = searchState.query
                 if (query.isEmpty()) {
-                    searchState = searchState.copy(results = emptyList())
+                    searchState = searchState.copy(resultCount = 0, selectedMatch = null)
                     return
                 }
                 surfaceRef.value?.finishComposing()
                 val bridge =
                     viewModel.runtime.bridge()
                         ?: run {
-                            searchState = searchState.copy(results = emptyList())
+                            searchState = searchState.copy(resultCount = 0, selectedMatch = null)
                             return
                         }
-                val effectiveCaseSensitive =
-                    searchState.caseSensitive || query.any { it.isUpperCase() }
-                // 原生侧要逐回滚行拼串 + 跑正则（上限 5 万匹配），在 5 万行回滚上以秒计。
+                // 原生侧要跑上游搜索器（上限 50k 命中），在 5 万行回滚上以秒计。
                 // 阻塞 JNI 必须离开主线程：否则输入法与按键一起卡住。
-                val matches =
+                val total =
                     withContext(TerminalDispatchers.inputOutput) {
-                        bridge.searchAllInScrollback(query, effectiveCaseSensitive)
-                    } ?: run {
-                        searchState = searchState.copy(results = emptyList())
-                        return
+                        bridge.searchSetNeedle(query)
                     }
-                val results = matches.map { (row, startCol, endCol) ->
-                    SearchResult(lineIndex = row, startIndex = startCol, endIndex = endCol)
-                }
-                // 收窄判定：GNOME Console（kgx）用 g_strrstr() 检查 last_search
-                // 字符串是否*包含*当前查询——而非仅做前缀匹配。
-                // 这使收窄在用户从搜索串中部或末尾删字时也能生效，
-                // 而不只是删掉末尾字符时。
-                val isNarrowing = SearchResult.isNarrowingDown(query, searchState.previousQuery)
-                val newIndex =
-                    if (isNarrowing && results.isNotEmpty()) {
-                        searchState.currentIndex.coerceIn(0, results.size - 1)
-                    } else {
-                        0
+                // 换 needle 即重启搜索，上一次的选中态作废（上游不保留旧命中）。
+                searchState = searchState.copy(resultCount = total, currentIndex = 0, selectedMatch = null)
+            }
+
+            /**
+             * 把选中命中居中：上游定位策略只保证命中可见，命中会贴视口上下缘，
+             * 上下文为零。居中由视图侧执行，命中行上下各留半屏可读内容。
+             */
+            fun centerSelectedRow(row: Int) {
+                val surface = surfaceRef.value ?: return
+                val centeredRow = (row - surface.getRows() / 2).coerceAtLeast(0)
+                surface.scrollToRow(centeredRow)
+            }
+
+            /** 上一个/下一个：导航由上游完成（顺带滚动视口），此处只消费选中态。 */
+            suspend fun selectSearchMatch(forward: Boolean) {
+                val bridge = viewModel.runtime.bridge() ?: return
+                val selection =
+                    withContext(TerminalDispatchers.inputOutput) {
+                        bridge.searchSelect(forward)
+                    } ?: run {
+                        searchState = searchState.copy(selectedMatch = null)
+                        return
                     }
                 searchState =
                     searchState.copy(
-                        results = results,
-                        currentIndex = newIndex,
-                        previousQuery = query,
+                        currentIndex = selection.index,
+                        resultCount = selection.total,
+                        selectedMatch = selection.matched,
                     )
-                if (results.isNotEmpty()) {
-                    scrollToMatchIfNeeded(results[newIndex])
-                }
-            }
-
-            LaunchedEffect(searchState.caseSensitive) {
-                if (searchState.query.isNotEmpty()) {
-                    // 必须一并取消待执行的防抖搜索：它带着**切换前**的大小写敏感度，
-                    // 在 150ms 后才启动并覆盖 searchState，于是界面显示大小写不敏感的
-                    // 开关状态却配着区分大小写的结果集。
-                    searchDebouncer.cancel()
-                    searchJob?.cancel()
-                    searchJob = scope.launch { performSearch() }
-                }
+                centerSelectedRow(selection.matched.row)
             }
 
             // IME 跟随：位移由两处各自承担，二者读同一个 insets 来源（`imeInsetFlow`）。
@@ -622,34 +595,15 @@ fun TerminalScreen(
                             searchState.hasResults,
                             searchState.resultCount,
                             searchState.currentIndex,
-                            searchState.results,
+                            searchState.selectedMatch,
                             viewportScrollOffset.intValue,
-                            // 回滚长度取组合可观察镜像，不在重组期间发起同步 JNI 查询
-                            // （scrollbackLength 是一次最长可阻塞 500ms 的 VT 线程
-                            // 往返，而输入法动画帧与拖动 MOVE 都会触发重组）。
-                            // 真实值在 effect 体内现取，键只需感知「它变了」。
-                            scrollbackLength,
-                            resolvedTerminalTheme.foreground,
-                            resolvedTerminalTheme.selectionBackground,
                         ) {
                             if (showTextSearch && searchState.hasResults) {
                                 val surface = surfaceRef.value
                                 if (surface != null) {
-                                    val highlightBytes = SearchHighlightPacker.pack(
-                                        results = searchState.results,
-                                        currentIndex = searchState.currentIndex,
-                                        rows = surface.getRows(),
-                                        scrollbackCount = surface.getMaxScrollOffset(),
-                                        scrollOffset = viewportScrollOffset.intValue,
-                                        // 当前命中项完全不透明的主题前景色，其余为降低
-                                        // 不透明度的主题选区色，两者 alpha 见
-                                        // SearchHighlightColors。
-                                        foreground = resolvedTerminalTheme.foreground,
-                                        selectionBackground = resolvedTerminalTheme.selectionBackground,
-                                    )
-                                    // 单次调用：surface.setSearchHighlights 内部会调用
-                                    // bridge.setSearchHighlights + bridge.render
-                                    surface.setSearchHighlights(highlightBytes)
+                                    // 命中区间、选中态、视口折算与高亮色全在原生侧：
+                                    // 视图只给滚动偏移，高亮即刻随原生搜索状态同步。
+                                    surface.applySearchHighlights(viewportScrollOffset.intValue)
                                     searchState = searchState.copy(highlightsActive = true)
                                 }
                             } else if (searchState.highlightsActive) {
@@ -694,25 +648,12 @@ fun TerminalScreen(
                             currentResultIndex = searchState.currentIndex,
                             onPrevious = {
                                 if (searchState.hasResults) {
-                                    val newIndex =
-                                        SearchResult.previousIndex(
-                                            searchState.currentIndex,
-                                            searchState.resultCount,
-                                        )
-                                    val match = searchState.results[newIndex]
-                                    scrollToMatchIfNeeded(match)
-                                    LogUtil.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
-                                    searchState = searchState.copy(currentIndex = newIndex)
+                                    scope.launch { selectSearchMatch(forward = false) }
                                 }
                             },
                             onNext = {
                                 if (searchState.hasResults) {
-                                    val newIndex =
-                                        SearchResult.nextIndex(searchState.currentIndex, searchState.resultCount)
-                                    val match = searchState.results[newIndex]
-                                    scrollToMatchIfNeeded(match)
-                                    LogUtil.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
-                                    searchState = searchState.copy(currentIndex = newIndex)
+                                    scope.launch { selectSearchMatch(forward = true) }
                                 }
                             },
                             onClose = {
@@ -722,10 +663,6 @@ fun TerminalScreen(
                                 searchJob?.cancel()
                                 surfaceRef.value?.clearSearchHighlights()
                             },
-                            caseSensitive = searchState.caseSensitive,
-                            onCaseSensitiveToggle = { searchState = searchState.copy(caseSensitive = it) },
-                            autoCaseSensitive =
-                            !searchState.caseSensitive && searchState.query.any { it.isUpperCase() },
                             modifier = Modifier.testTag("TextSearchBar"),
                         )
                     } else {

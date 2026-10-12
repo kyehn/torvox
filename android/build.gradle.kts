@@ -16,10 +16,12 @@ plugins {
   id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
 }
 
-if (
-    System.getenv("IN_NIX_SHELL").isNullOrEmpty() ||
-        System.getenv("NIX_BUILD_TOP").isNullOrEmpty() ||
-        System.getenv("nativeBuildInputs").isNullOrEmpty()
+val nativeBuildInputs = System.getenv("nativeBuildInputs")
+if (System.getenv("IN_NIX_SHELL") != "impure" ||
+    System.getenv("NIX_BUILD_TOP")?.startsWith("/tmp/nix-shell.") != true ||
+    nativeBuildInputs == null ||
+    !nativeBuildInputs.startsWith("/nix/store/") ||
+    nativeBuildInputs.length <= 1000
 ) {
   throw GradleException("Must run inside nix develop")
 }
