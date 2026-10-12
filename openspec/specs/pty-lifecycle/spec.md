@@ -1,6 +1,7 @@
 # pty-lifecycle Specification
 
 ## Purpose
+
 PTY 生成与收尾的生命周期行为：spawn 携带像素尺寸、无变化时跳过 resize、前台进程组优先收尾、IUTF8 语义与上游输入路径一致。本能力覆盖 Rust 侧 PTY 拥有者与 Kotlin 侧尺寸来源之间的可观测契约。
 
 ## Requirements

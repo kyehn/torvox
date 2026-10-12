@@ -357,6 +357,34 @@ Based on the research, here is the proposed openspec modification plan for this 
 
 ---
 
+## P1/P2 逐点核查结论（2026-10-12）
+
+`docs/research/00-汇总与可参考点收敛.md` 把 25 仓结论收敛为 P0/P1/P2 与禁止项。P0 已由
+`ecosystem-p0-alignment` 与 `bootstrap-install` 覆盖；下表是 P1/P2 逐点核查后的状态，
+每行给出本仓落点或「不采纳」的具体依据。禁止项（自研 VT、Canvas 渲染、正则搜索、
+自研链接白名单等）一律不引入，故不在表内。
+
+| 收敛点 | 状态 | 依据 |
+| --- | --- | --- |
+| 会话创建失败早退并结束 | 已满足 | `Session::spawn` 失败即返回 `Err`，`initSession` 抛异常且**不**写注册表与 `ACTIVE_SESSION_ID`，无半初始化会话 |
+| JNI 几何校验 | 已修（本轮） | 越界由 `u16::try_from` 拒绝；**0 行/0 列此前被放行**，现与会话层同判据拒绝（`session.rs` `resize`/`spawn`），非法尺寸不下发 PTY |
+| 读写循环可中断 | 已满足 | VT 线程命令循环 `recv_timeout(50ms)` 可中断；终止经 `Command::Terminate` 跳出并限时 join |
+| 资源清理幂等 | 已满足 | `Session::drop` 与 `GhosttyTerminal::drop` 均走「投递终止 + 限时 join」，重复调用安全 |
+| PTY 子进程核对清单 | 已满足 | 子开从端（`openpty` 后设 `FD_CLOEXEC`）、`setsid` + `TIOCSCTTY`、`close_stray_fds()`、`execve` 用预构造 `envp`（整表替换环境，等价于清空后重装） |
+| UTF-8 粘包跨馈送重解永不抛 | 已满足 | `OutputProcessor` 的状态机与缓冲跨 `process()` 调用保留，序列被拆包不会丢；解码用 `from_utf8_lossy`，不抛 |
+| 读线程 16ms 合并投递 | 不采纳 | VT 线程已按批排空命令且每批只构建一次 CellData 帧（`drain_queries` 后统一 `refresh_cell_data`），合并收益已由批处理取得；再加 16ms 定时合并只会引入固定延迟 |
+| OSC52 读写门控 | 已满足 | 写入走上游 `on_clipboard_write`；读取请求由 `OutputProcessor` 最小扫描器拦截上报，超限序列出声透传 |
+| OSC8 点链确认、查询仍走 Ghostty | 已满足 | `hyperlink_at` 直接查上游网格单元，UI 无链接白名单与二次扫描 |
+| shell 引用单引号转义 | 不适用 | 本仓不经 shell 字符串注入命令：启动入口直接 `execve`（DESIGN 明禁脚本路径与相对路径），无需引用转义 |
+| 宿主变量透传取交集、禁 LD_LIBRARY_PATH | 已满足 | `ANDROID_ENV_VARS` 为 14 项定长白名单，`LD_LIBRARY_PATH`/`PWD`/`LD_PRELOAD` 不在其中 |
+| 文档提供器形态 | 已满足 | `documents-provider` 规约已落地，根按本仓 home |
+| 通知退出常驻形态 | 已满足 | `TerminalForegroundService` 常驻通知并提供退出动作 |
+| DNS 写 resolv.conf | 不采纳 | `etc/resolv.conf` 由 bootstrap zip 自带；DESIGN 的 Bootstrap 节未声明该步骤，新增即引入未声明行为 |
+| 备份完成后替换 | 已满足 | `bootstrap-install` 规约：旧 `usr` 随机后缀备份保留、原子换入、失败回滚 |
+| 主机密钥双态问询 / 裁弱算法 / 断点续传 | 不适用 | 本仓无 SSH 能力，DESIGN 未声明，不预置 |
+| 预测线状态机思想（以 Ghostty 重实现） | 不适用 | 该点针对 Shell 集成提示，DESIGN 未声明相应功能；不得以研究结论新增能力 |
+| fuzz 全性 + 种子固定、语料回放、吞吐基线 | 部分已满足 | 语料回放已在 `terminal-state-regression` 与上游语料判定中落地；proptest 种子固定已用于 `output_processor`；fuzz 语料目录未建（`.gitignore` 已预留），待有可证伪目标时再立项 |
+
 ## OpenQuestions for Further Research
 
 1. Should the theme system completely replace the hardcoded alacritty-theme approach, or coexist with it?

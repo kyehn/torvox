@@ -1,13 +1,15 @@
 package terminal.emulator.ui.theme
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThemeRepositoryTest {
     private fun packedWith(
+        dark: Byte = 1,
         background: ByteArray = byteArrayOf(0x11, 0x22, 0x33),
         foreground: ByteArray = byteArrayOf(0x44, 0x55, 0x66),
         cursor: ByteArray = byteArrayOf(0x77, 0x88.toByte(), 0x99.toByte()),
@@ -15,13 +17,12 @@ class ThemeRepositoryTest {
         ansiByte: Byte = 0x01,
     ): ByteArray {
         val ansiColors = ByteArray(48) { ansiByte }
-        return background + foreground + cursor + selection + ansiColors
+        return byteArrayOf(dark) + background + foreground + cursor + selection + ansiColors
     }
 
     @Test
-    fun `themeFromPacked maps 60 bytes to theme colors`() {
-        val packedColors = packedWith()
-        val theme = ThemeRepository.themeFromPacked("test_theme", true, packedColors)
+    fun `themeFromPacked maps packed bytes to theme colors`() {
+        val theme = ThemeRepository.themeFromPacked("test_theme", packedWith())
         assertEquals("test_theme", theme.name)
         assertEquals(Color(0xFF112233), theme.background)
         assertEquals(Color(0xFF445566), theme.foreground)
@@ -32,24 +33,21 @@ class ThemeRepositoryTest {
     }
 
     @Test
-    fun `themeFromPacked preserves dark flag`() {
-        val packedColors = packedWith()
-        val darkTheme = ThemeRepository.themeFromPacked("test_dark", true, packedColors)
-        val lightTheme = ThemeRepository.themeFromPacked("test_light", false, packedColors)
-        assertEquals(Color(0xFF112233).toArgb(), darkTheme.background.toArgb())
-        assertEquals(Color(0xFF112233).toArgb(), lightTheme.background.toArgb())
+    fun `themeFromPacked reads the dark flag from the first byte`() {
+        assertTrue(ThemeRepository.themeFromPacked("test_dark", packedWith(dark = 1)).dark)
+        assertFalse(ThemeRepository.themeFromPacked("test_light", packedWith(dark = 0)).dark)
     }
 
     @Test
     fun `themeFromPacked rejects wrong lengths instead of truncating`() {
         assertThrows(IllegalArgumentException::class.java) {
-            ThemeRepository.themeFromPacked("test_theme", true, ByteArray(59))
+            ThemeRepository.themeFromPacked("test_theme", ByteArray(60))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            ThemeRepository.themeFromPacked("test_theme", true, ByteArray(61))
+            ThemeRepository.themeFromPacked("test_theme", ByteArray(62))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            ThemeRepository.themeFromPacked("test_theme", true, ByteArray(0))
+            ThemeRepository.themeFromPacked("test_theme", ByteArray(0))
         }
     }
 }

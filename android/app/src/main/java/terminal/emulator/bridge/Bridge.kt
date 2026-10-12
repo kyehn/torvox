@@ -1,6 +1,7 @@
 package terminal.emulator.bridge
 
 import kotlinx.coroutines.launch
+import terminal.emulator.input.KeyModifiers
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.runCatchingCancellable
 
@@ -13,46 +14,13 @@ sealed interface Shell {
     data class Custom(val path: String) : Shell
 }
 
-/**
- * ARGB → 线性 RGB 浮点（每通道 0..1），供 JNI 光标颜色通道使用。
- * alpha 字节被刻意丢弃（渲染器将光标视为不透明）。
- */
-internal fun argbToRgbFloats(argb: Int): FloatArray = floatArrayOf(
-    (argb shr 16 and 0xFF) / 255f,
-    (argb shr 8 and 0xFF) / 255f,
-    (argb and 0xFF) / 255f,
-)
-
-/** 以 ARGB 整数表达的终端主题，供原生渲染器使用，对应 makeBridgeTheme() 的转换。 */
-data class BridgeTheme(
-    val name: String,
-    val background: Int,
-    val foreground: Int,
-    val cursor: Int,
-    val ansi0: Int,
-    val ansi1: Int,
-    val ansi2: Int,
-    val ansi3: Int,
-    val ansi4: Int,
-    val ansi5: Int,
-    val ansi6: Int,
-    val ansi7: Int,
-    val ansi8: Int,
-    val ansi9: Int,
-    val ansi10: Int,
-    val ansi11: Int,
-    val ansi12: Int,
-    val ansi13: Int,
-    val ansi14: Int,
-    val ansi15: Int,
-)
-
 /** 构造 [Bridge] 时传入的配置。 */
 data class TerminalConfig(
     val shell: Shell,
     val rows: Int,
     val cols: Int,
-    val theme: BridgeTheme,
+    /** 终端主题标识；调色板真源在原生，桥接层与渲染层都不另存颜色副本。 */
+    val themeName: String,
     val home: String,
     val workingDirectory: String,
     val prefix: String,
@@ -374,44 +342,11 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     // ── 主题 / 外观 ──
-    // 端到端接线：setTheme 打包 54 字节（背景 3 + 前景 3 + ansi 48）交给原生调色板；
-    // OSC 10/11/4 颜色处理位于终端引擎内部并经调色板 API 应用。光标颜色走独立的
-    // setCursorColor 通道，以保持 54 字节布局稳定（ffi.rs 校验精确长度）。
-    fun setTheme(theme: BridgeTheme) {
-        LogUtil.d(TAG, "setTheme: ${theme.name}")
-        val data = ByteArray(THEME_PACKED_BYTES)
-        fun packColor(offset: Int, argb: Int) {
-            data[offset] = (argb shr 16 and 0xFF).toByte()
-            data[offset + 1] = (argb shr 8 and 0xFF).toByte()
-            data[offset + 2] = (argb and 0xFF).toByte()
-        }
-        packColor(0, theme.background)
-        packColor(3, theme.foreground)
-        val ansi =
-            listOf(
-                theme.ansi0,
-                theme.ansi1,
-                theme.ansi2,
-                theme.ansi3,
-                theme.ansi4,
-                theme.ansi5,
-                theme.ansi6,
-                theme.ansi7,
-                theme.ansi8,
-                theme.ansi9,
-                theme.ansi10,
-                theme.ansi11,
-                theme.ansi12,
-                theme.ansi13,
-                theme.ansi14,
-                theme.ansi15,
-            )
-        ansi.forEachIndexed { index, color -> packColor(6 + index * 3, color) }
-        val cursorRgb = argbToRgbFloats(theme.cursor)
-        onSession("setTheme", Unit) {
-            NativeBridge.setTheme(it, data)
-            NativeBridge.setCursorColor(it, cursorRgb[0], cursorRgb[1], cursorRgb[2])
-        }
+    // 端到端接线：只下发主题标识，终端默认色、ANSI 调色板、光标色与搜索高亮色都由
+    // 原生按同一份构建期嵌入的 alacritty 主题解析，故两端不可能各自持一份颜色。
+    fun setTheme(themeName: String) {
+        LogUtil.d(TAG, "setTheme: $themeName")
+        onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName) }
     }
 
     fun setSystemLocale(locale: String) {
@@ -522,7 +457,10 @@ class Bridge(private val config: TerminalConfig) {
         if (action != android.view.KeyEvent.ACTION_DOWN) return false
         // 修饰位取上游 `key.Mods` 原始位（1=shift，2=ctrl，4=alt，8=super），
         // 由编码器直接消费，应用不再自行解读。
-        val ctrlActive = modifiers and terminal.emulator.input.KeyModifiers.CTRL != 0
+        val ctrlActive = modifiers and KeyModifiers.CTRL != 0
+        // Alt/Super 在终端语义上是「加 ESC 前缀」，而本入口只处理编码器未覆盖的
+        // 键码，故把这条规则折成一个布尔下发：掩码位值不必在两端各写一份。
+        val metaPrefix = modifiers and (KeyModifiers.ALT or KeyModifiers.SUPER) != 0
         return onSession("processKeyEvent", false) { id ->
             // 编码器按终端状态选择形态：DECCKM 下方向键走 SS3、modifyOtherKeys
             // 下 Ctrl+字母走 `CSI 27;mod;code~`、backarrow key mode 下退格发 BS
@@ -551,7 +489,7 @@ class Bridge(private val config: TerminalConfig) {
             // 编码或按上游规则丢弃。
             if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
                 if (!Character.isValidCodePoint(unicodeChar)) return@onSession false
-                NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), modifiers)
+                NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), metaPrefix)
                 return@onSession true
             }
             // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
@@ -563,7 +501,7 @@ class Bridge(private val config: TerminalConfig) {
                     android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
                         .get(keyCode, 0)
                 if (derived > 0 && Character.isValidCodePoint(derived)) {
-                    NativeBridge.writeKey(id, String(Character.toChars(derived)), modifiers)
+                    NativeBridge.writeKey(id, String(Character.toChars(derived)), metaPrefix)
                     return@onSession true
                 }
             }
@@ -591,7 +529,7 @@ class Bridge(private val config: TerminalConfig) {
     // 它们返回 Unit，吞掉异常等于让调用方以为写入成功——错误必须出声。
     fun clearSearchHighlights() = queryPort.clearSearchHighlights()
 
-    fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
+    fun applySearchHighlights(scrollOffset: Int) = queryPort.applySearchHighlights(scrollOffset)
 
     fun scrollbackLine(row: Int): String? = onQuery("scrollbackLine", null) { queryPort.scrollbackLine(row) }
 
@@ -601,8 +539,10 @@ class Bridge(private val config: TerminalConfig) {
         queryPort.cursorViewportPacked()
     }
 
-    fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
-        onQuery("searchAllInScrollback", null) { queryPort.searchAllInScrollback(query, caseSensitive) }
+    fun searchSetNeedle(needle: String): Int = onQuery("searchSetNeedle", 0) { queryPort.searchSetNeedle(needle) }
+
+    fun searchSelect(forward: Boolean): SearchSelection? =
+        onQuery("searchSelect", null) { queryPort.searchSelect(forward) }
 
     fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
@@ -638,7 +578,7 @@ class Bridge(private val config: TerminalConfig) {
 
     fun getDefaultFontName(): String = onQuery("getDefaultFontName", "") { queryPort.getDefaultFontName() }
 
-    fun getFontInfo(): String? = onQuery("getFontInfo", null) { queryPort.getFontInfo() }
+    fun getFontInfo(): FontInfo? = onQuery("getFontInfo", null) { queryPort.getFontInfo()?.let(FontInfo::fromPacked) }
 
     companion object {
         private const val TAG = "Bridge"
@@ -660,9 +600,6 @@ class Bridge(private val config: TerminalConfig) {
 
         /** pollAll() 每帧最多排空的事件数，限定渲染线程开销。 */
         private const val MAX_EVENTS_PER_POLL = 32
-
-        /** setTheme 打包长度：背景 3 + 前景 3 + 16 色 × 3 = 54 字节，ffi.rs 校验精确长度。 */
-        private const val THEME_PACKED_BYTES = 54
     }
 }
 

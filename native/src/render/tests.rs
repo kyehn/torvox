@@ -551,7 +551,7 @@ fn cursor_rendering_on_visible_cursor() {
         col: 0,
         visible: true,
         style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -712,7 +712,7 @@ fn build_cursor_probe_instance(
         col: 0,
         visible: cursor_visible,
         style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     build_configured_cell_instance(&cell_data, cursor, cell_width, cell_height, font_pipeline)
 }
@@ -742,7 +742,7 @@ fn build_single_cell_instance(
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -778,7 +778,7 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let instances = build_configured_cell_instance(
         &cell_data,
@@ -851,7 +851,7 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         col: 9,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -938,7 +938,7 @@ fn cluster_cell_invalid_extra_falls_back_without_overlay() {
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let instances = build_configured_cell_instance(
         &cell_data,
@@ -1034,7 +1034,7 @@ fn all_chars_share_same_baseline_y() {
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -1099,7 +1099,7 @@ fn cjk_bearing_y_not_centered() {
                 col: 0,
                 visible: false,
                 style: CursorStyle::Block,
-                color: None,
+                color: [1.0, 1.0, 1.0, 1.0],
             };
             let (cell_width, cell_height) = font_pipeline.cell_metrics();
             let mut instances = Vec::new();
@@ -1158,21 +1158,20 @@ fn gpu_background_plain_color_fill() {
         .expect("wgpu render must succeed");
 
     // 清屏色即默认主题背景（单源，不手写色值）。
-    let (_, default_background, _) =
-        crate::terminal::ghostty_terminal::GhosttyTerminal::default_palette();
+    let default_background = crate::terminal::theme::default_dark().palette.background;
     let idx = (25 * 50 + 25) * 4;
     assert_eq!(
-        result[idx], default_background[0],
+        result[idx], default_background.r,
         "center R should be default theme background R"
     );
     assert_eq!(
         result[idx + 1],
-        default_background[1],
+        default_background.g,
         "center G should be default theme background G"
     );
     assert_eq!(
         result[idx + 2],
-        default_background[2],
+        default_background.b,
         "center B should be default theme background B"
     );
     assert_eq!(result[idx + 3], 255, "center A should be 255");
@@ -1244,7 +1243,7 @@ fn search_highlight_blends_on_non_cursor_cell() {
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1290,7 +1289,7 @@ fn cursor_cell_not_affected_by_search_highlight() {
         col: 0,
         visible: true,
         style: CursorStyle::Block,
-        color: Some([0.5, 0.5, 1.0, 1.0]),
+        color: [0.5, 0.5, 1.0, 1.0],
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1550,7 +1549,7 @@ fn selection_intersect_current_match_double_swap() {
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1710,7 +1709,7 @@ fn cursor_color_custom_values() {
         col: 0,
         visible: true,
         style: CursorStyle::Block,
-        color: Some([0.5, 0.3, 0.8, 1.0]),
+        color: [0.5, 0.3, 0.8, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -2354,7 +2353,7 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             col: cursor_info.col,
             visible: cursor_info.visible,
             style: cursor_info.style,
-            color: None,
+            color: [1.0, 1.0, 1.0, 1.0],
         };
         let mut instances = Vec::new();
         super::build_instances_from_cell_data(
@@ -2417,7 +2416,7 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
         col: 0,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let instances = build_configured_cell_instance(
         &cell_data,
@@ -2462,7 +2461,7 @@ fn same_glyph_at_different_cells_samples_identical_atlas_region() {
         col: 99,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -2511,7 +2510,7 @@ fn distinct_glyphs_sample_distinct_atlas_regions() {
         col: 99,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -2634,7 +2633,7 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
         col: 99,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
@@ -2705,7 +2704,7 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
         col: 99,
         visible: false,
         style: CursorStyle::Block,
-        color: None,
+        color: [1.0, 1.0, 1.0, 1.0],
     };
     let config = test_config(1, text.len() as u32, cell_width, cell_height, cursor, &[]);
     let mut first = Vec::new();
@@ -2817,12 +2816,11 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
         })
         .collect();
     // 清屏背景即默认主题背景（单源，不手写色值）。
-    let (_, default_background, _) =
-        crate::terminal::ghostty_terminal::GhosttyTerminal::default_palette();
+    let default_background = crate::terminal::theme::default_dark().palette.background;
     let background = [
-        default_background[0],
-        default_background[1],
-        default_background[2],
+        default_background.r,
+        default_background.g,
+        default_background.b,
         255,
     ];
 

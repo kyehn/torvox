@@ -20,12 +20,10 @@ pub(crate) struct OverlayQuad {
     pub flags: f32,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FontInfo {
     pub active: Option<FontInfoActive>,
-    /// CJK 回退状态："fallback"（已列出族名）、"skipped"（主字体已覆盖 CJK）或 "none"。
-    pub cjk_state: String,
-    /// `cjk_state` 为 "fallback" 时的 CJK 回退族名。
+    pub cjk_state: CjkFallbackState,
+    /// [`CjkFallbackState::Fallback`] 时列出的 CJK 回退族名。
     pub cjk_families: Vec<String>,
     pub cell_width_px: f32,
     pub cell_height_px: f32,
@@ -34,7 +32,22 @@ pub struct FontInfo {
     pub font_size: f32,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+/// CJK 回退状态。
+///
+/// 跨语言时按下表的判别序号传递（见 [`crate::android`] 的 `getFontInfo` 打包），
+/// 故两侧各有一份枚举而没有互相比对的字符串字面量。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum CjkFallbackState {
+    /// 未解析到任何 CJK 回退族。
+    None = 0,
+    /// 主字体不含 CJK，已列出回退族名。
+    Fallback = 1,
+    /// 主字体自身已覆盖 CJK，无需回退。
+    Skipped = 2,
+}
+
+#[derive(Clone, Debug)]
 pub struct FontInfoActive {
     pub name: String,
     pub monospaced: bool,
@@ -437,11 +450,11 @@ impl FontPipeline {
             });
         let cjk = self.cjk_fallback_names();
         let (cjk_state, cjk_families) = if !cjk.is_empty() {
-            ("fallback".to_string(), cjk)
+            (CjkFallbackState::Fallback, cjk)
         } else if self.primary_supports_cjk() {
-            ("skipped".to_string(), Vec::new())
+            (CjkFallbackState::Skipped, Vec::new())
         } else {
-            ("none".to_string(), Vec::new())
+            (CjkFallbackState::None, Vec::new())
         };
         let (cw, ch) = self.cell_metrics();
         FontInfo {

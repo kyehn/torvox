@@ -1,6 +1,7 @@
 # bootstrap-install Specification
 
 ## Purpose
+
 bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链、原子换入、postinst 执行。
 
 ## Requirements

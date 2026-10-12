@@ -1,6 +1,7 @@
 # settings-propagation Specification
 
 ## Purpose
+
 设置下发的范围语义：live 设置推送全部会话并即时生效，spawn-time 设置仅影响新建会话。本能力覆盖设置存储到 Rust 会话之间的可观测下发契约。
 
 ## Requirements

@@ -36,17 +36,21 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
-            target/
+            native/target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-
       - env:
           CARGO_INCREMENTAL: "0"
+<<<<<<< Updated upstream
+        run: scripts/check.nu
+=======
         run: |
           scripts/check-rust.nu
           scripts/build-android-libs.nu x86_64
-          nix develop --command cargo build --package native --profile release
+          nix develop --command cargo build --manifest-path native/Cargo.toml --profile release
           scripts/check-gradle.nu
+>>>>>>> Stashed changes
       - uses: actions/cache/save@main
         with:
           path: |
@@ -59,5 +63,5 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git
-            target/
+            native/target/
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}

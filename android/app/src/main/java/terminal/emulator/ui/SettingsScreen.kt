@@ -71,13 +71,14 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.bridge.FontActiveDto
-import terminal.emulator.bridge.FontInfoDto
+import terminal.emulator.bridge.CjkState
+import terminal.emulator.bridge.FontInfo
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.installer.TermuxBootstrap
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.TerminalTheme
+import terminal.emulator.ui.theme.ThemeMode
 
 /** 危险操作（清除应用数据）的警示红色。 */
 private val DANGER_RED = Color.Red
@@ -264,7 +265,7 @@ private fun AppearanceSectionContent(
     fontFamily: String,
     availableFonts: List<String>,
     defaultFontName: String,
-    fontInfo: String,
+    fontInfo: FontInfo?,
     onFontSizePreview: (Float) -> Unit,
     onFontSizeCommitted: (Float) -> Unit,
     onFontFamilySelected: (String) -> Unit,
@@ -383,9 +384,9 @@ private fun TerminalThemeSection(
             )
             Spacer(modifier = Modifier.height(8.dp))
             when (themeMode) {
-                "follow_system",
-                "day",
-                "night",
+                ThemeMode.FOLLOW_SYSTEM,
+                ThemeMode.DAY,
+                ThemeMode.NIGHT,
                 -> {
                     Column(modifier = Modifier.testTag("DayNightThemeSection")) {
                         ThemeSelector(
@@ -410,7 +411,7 @@ private fun TerminalThemeSection(
                     }
                 }
 
-                "fixed" -> {
+                ThemeMode.FIXED -> {
                     ThemeSelector(
                         label = "",
                         selectedTheme = themeName,
@@ -564,44 +565,39 @@ private fun FontSizeSlider(
 
 @Composable
 private fun FontInfoSectionIfAvailable(
-    fontInfo: String,
+    fontInfo: FontInfo?,
     defaultFontName: String,
     fontSize: Float,
     spToPxScale: Float,
     textColor: Color,
     secondaryText: Color,
 ) {
-    if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
+    if (fontInfo != null || defaultFontName.isNotEmpty()) {
         Spacer(modifier = Modifier.height(8.dp))
-        val dto = FontInfoDto.fromJson(fontInfo)
-        when {
-            dto != null ->
-                FontInfoSection(
-                    fontInfo = dto,
-                    pixelPerSp = spToPxScale,
-                    textColor = textColor,
-                    secondaryText = secondaryText,
-                )
-
-            fontInfo.isEmpty() ->
-                FontInfoSection(
-                    fontInfo =
-                    FontInfoDto(
-                        active = FontActiveDto(name = defaultFontName, monospaced = false),
-                        fontSize = fontSize,
-                    ),
-                    pixelPerSp = spToPxScale,
-                    textColor = textColor,
-                    secondaryText = secondaryText,
-                )
-
-            else -> {
-                Text(
-                    text = stringResource(R.string.no_font_loaded),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = secondaryText,
-                )
-            }
+        if (fontInfo != null) {
+            FontInfoSection(
+                fontInfo = fontInfo,
+                pixelPerSp = spToPxScale,
+                textColor = textColor,
+                secondaryText = secondaryText,
+            )
+        } else {
+            // 原生尚未上报度量时，只用设置里的字体族名与字号占位，不伪造单元格尺寸。
+            FontInfoSection(
+                fontInfo =
+                FontInfo(
+                    activeName = defaultFontName,
+                    activeMonospaced = false,
+                    cjkState = CjkState.NONE,
+                    cjkFamilies = emptyList(),
+                    cellWidthPx = 0f,
+                    cellHeightPx = 0f,
+                    fontSizeSp = fontSize,
+                ),
+                pixelPerSp = spToPxScale,
+                textColor = textColor,
+                secondaryText = secondaryText,
+            )
         }
     }
 }
@@ -615,7 +611,7 @@ private fun SystemFontSelector(
     accentColor: Color,
     fonts: ImmutableList<String> = persistentListOf(),
     defaultFontName: String = "",
-    fontInfo: String = "",
+    fontInfo: FontInfo? = null,
     titleOverride: String? = null,
 ) {
     // 保持传入顺序（fonts.xml 文档顺序在前），只做精确去重。
@@ -679,8 +675,7 @@ private fun SystemFontSelector(
             }
         }
 
-        val fontInfoDto = FontInfoDto.fromJson(fontInfo)
-        if (fontInfoDto?.cjkState == "none") {
+        if (fontInfo?.cjkState == CjkState.NONE) {
             CjkFallbackMissingWarning()
         }
     }
@@ -745,9 +740,9 @@ internal fun AppThemeSelector(
     Column(modifier = Modifier.testTag("AppThemeSelector")) {
         val buttons =
             listOf(
-                "day" to stringResource(R.string.day),
-                "night" to stringResource(R.string.night),
-                "follow_system" to stringResource(R.string.follow_system),
+                ThemeMode.DAY to stringResource(R.string.day),
+                ThemeMode.NIGHT to stringResource(R.string.night),
+                ThemeMode.FOLLOW_SYSTEM to stringResource(R.string.follow_system),
             )
         val spacing = if (isSmall) 4.dp else 6.dp
         if (isSmall) {
@@ -809,7 +804,7 @@ internal fun TerminalThemeModeSelector(
     cardBackground: Color,
     accentColor: Color,
 ) {
-    val isFollowSystem = selectedMode != "fixed"
+    val isFollowSystem = selectedMode != ThemeMode.FIXED
     Row(
         modifier = Modifier.fillMaxWidth().testTag("TerminalThemeModeSelector"),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -823,7 +818,7 @@ internal fun TerminalThemeModeSelector(
         Switch(
             checked = isFollowSystem,
             onCheckedChange = { checked ->
-                onModeSelected(if (checked) "follow_system" else "fixed")
+                onModeSelected(if (checked) ThemeMode.FOLLOW_SYSTEM else ThemeMode.FIXED)
             },
             modifier = Modifier.testTag("TerminalThemeFollowSystemSwitch"),
             colors =
@@ -1275,17 +1270,17 @@ private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColo
 }
 
 @Composable
-private fun FontInfoSection(fontInfo: FontInfoDto, pixelPerSp: Float, textColor: Color, secondaryText: Color) {
+private fun FontInfoSection(fontInfo: FontInfo, pixelPerSp: Float, textColor: Color, secondaryText: Color) {
     Column(modifier = Modifier.testTag("FontInfoSection")) {
-        fontInfo.active?.let { active ->
+        if (fontInfo.activeName.isNotEmpty()) {
             Text(
-                text = stringResource(R.string.font_info_active, active.name),
+                text = stringResource(R.string.font_info_active, fontInfo.activeName),
                 style = MaterialTheme.typography.bodyMedium,
                 color = textColor,
             )
         }
         val cjkText = fontInfo.cjkFallbackText()
-        val cjkCoveredByPrimary = fontInfo.cjkState == "skipped"
+        val cjkCoveredByPrimary = fontInfo.cjkState == CjkState.SKIPPED
         val hasCjk = fontInfo.hasRealCjkFallback
         val cjkDisplayColor =
             when {
@@ -1315,10 +1310,10 @@ private fun FontInfoSection(fontInfo: FontInfoDto, pixelPerSp: Float, textColor:
                 color = secondaryText,
             )
         }
-        if (fontInfo.fontSize > 0f) {
-            val sizePx = fontSpToPx(fontInfo.fontSize, pixelPerSp)
+        if (fontInfo.fontSizeSp > 0f) {
+            val sizePx = fontSpToPx(fontInfo.fontSizeSp, pixelPerSp)
             Text(
-                text = stringResource(R.string.font_info_size_sp, fontInfo.fontSize, sizePx),
+                text = stringResource(R.string.font_info_size_sp, fontInfo.fontSizeSp, sizePx),
                 style = MaterialTheme.typography.bodySmall,
                 color = secondaryText,
             )

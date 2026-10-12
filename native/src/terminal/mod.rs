@@ -14,7 +14,7 @@ pub mod mock_pty;
 pub mod output_processor;
 pub mod pty;
 pub mod session;
-pub use session::ThemeConfig;
+
 pub mod shell_env;
 pub mod theme;
 

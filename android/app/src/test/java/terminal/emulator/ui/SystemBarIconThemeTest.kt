@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import terminal.emulator.ui.theme.TerminalTheme
 import terminal.emulator.ui.theme.ThemeRepository
 
 /**
@@ -16,15 +17,16 @@ import terminal.emulator.ui.theme.ThemeRepository
  */
 class SystemBarIconThemeTest {
 
-    private fun fakeTheme(themeName: String, background: Color) = ThemeRepository.themeFromPacked(
-        themeName,
-        false,
-        byteArrayOf(
-            background.redByte(),
-            background.greenByte(),
-            background.blueByte(),
-        ) + ByteArray(57) { 0x01 },
-    )
+    private fun fakeTheme(themeName: String, background: Color): TerminalTheme {
+        val packed =
+            byteArrayOf(0) +
+                byteArrayOf(
+                    background.redByte(),
+                    background.greenByte(),
+                    background.blueByte(),
+                ) + ByteArray(57) { 0x01 }
+        return ThemeRepository.themeFromPacked(themeName, packed)
+    }
 
     private fun Color.redByte(): Byte = (this.red * 255f + 0.5f).toInt().toByte()
 
