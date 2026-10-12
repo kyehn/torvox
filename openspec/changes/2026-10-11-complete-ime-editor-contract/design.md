@@ -85,10 +85,11 @@ setComposingRegion(start, end) →  base[0, start) + <光标定位标记> + base
 **备选与否决理由**：批量期间缓冲到 `endBatchEdit` 再发——否决，那会改动
 `ime-small-write-direct` 已锁定的发送时序，把一个契约变更混入本次变更。
 
-### D7 `commitCorrection` 先拒绝，待探针证明后再受理
+### D7 `commitCorrection` 按 6.1 结论拒绝
 
-校正文本是否经 `commitText` 到达 PTY 未经验证。探针证明之前返回拒绝——输入法停止调用
-比「以为生效而实际丢失」安全。
+6.1 已证默认路径不分发校正，校正文本不可能经提交路径送达：
+探针证明之前返回拒绝——输入法停止调用
+比「以为生效而实际丢失」安全；结论既定后显式拒绝即最终实现。
 
 ### D8 平台新增接口 MUST 先探针后覆写
 
@@ -111,3 +112,67 @@ setComposingRegion(start, end) →  base[0, start) + <光标定位标记> + base
 
 无数据迁移，无新增依赖。回滚 = 还原单个文件的覆写；镜像类状态仅存活于输入法连接
 生命周期内，无残留。
+
+## 探针结论
+
+探针代码一律用后即删，仓库 MUST NOT 残留常红探针；结论按输入法标识与系统版本记录。
+
+探针汇总（1.4）：1.1 替换受理落自持、1.2 取文空读、1.3 批量均拒校正拒光标拒、
+6.1 校正无文可达——均为合成直调（无输入法参与，API 35 模拟器），探针文件全部已删，
+仓库无残留；各分节即分项结论。
+
+### 1.2 取文默认值（已探）
+
+合成 `BaseInputConnection(View, true)` 直调（无输入法参与，API 35 模拟器）：
+`getTextBeforeCursor` / `getTextAfterCursor` 返回空串，
+`getExtractedText().text` 返回 null（非空串），`getSurroundingText` 返回非空对象。
+结论：未覆写时输入法读到的是未同步的空 editable，读不到自己刚写入的内容——
+本仓组字基线覆写方向成立。探针文件已删除。
+
+### 1.1 替换默认值（已探）
+
+合成 `BaseInputConnection(View, true)` 直调 `replaceText(0, 0, "hi", 1, null)`
+（无输入法参与，API 35 模拟器）：返回 true，自持 editable 变为 "hi"，
+既有出口无字节（该默认实现只改输入法侧文本，不经过本仓任何出口）。
+结论：未覆写时新编辑路径静默丢失——输入法收到受理，PTY 收不到任何字节，
+故本仓 `replaceText` 经既有出口重放方向成立。探针文件已删除。
+
+### 1.3 批量与杂项默认值（已探）
+
+合成 `BaseInputConnection(View, true)` 直调（无输入法参与，API 35 模拟器）：
+`beginBatchEdit` 两次均为 false，`endBatchEdit` 两次均为 false，
+`setComposingRegion(0,0)` 为 true，`commitCorrection` 为 false，
+`requestCursorUpdates`（`CURSOR_UPDATE_IMMEDIATE` / `CURSOR_UPDATE_MONITOR`，
+SDK 无 `CURSOR_UPDATE_IMPLICIT` 常量）两次均为 false，
+`setSelection(0,0)` 为 true。
+结论：批量编辑默认被拒（输入法据此判定字段不支持批量编辑），
+故本仓 `beginBatchEdit` / `endBatchEdit` 受理覆写方向成立；
+校正默认拒绝与 6.2 拒绝方向一致；光标更新默认拒绝与 4.1 不谎称受理一致。
+探针文件已删除。
+
+### 6.1 校正路径（已探，复用 1.3 同次实测）
+
+1.3 同次运行中 `commitCorrection(CorrectionInfo(0, "a", "b"))` 在默认连接上返回
+false（无输入法参与，API 35 模拟器）：默认路径根本不分发校正，故校正文本不可能
+经 `commitText` 到达 PTY。结论：校正是否送达无需另起探针——答案是否定的；
+6.2 的显式拒绝（`ImeCommitCorrectionTest` 锁定）与默认行为一致，无行为落差。
+无新增探针文件，无残留。
+
+### 6.3 受理即送达核对（已核对，未闭环，不勾选）
+
+逐项确认返回受理的接口与其送达证明（送达指经既有出口产出字节；PTY 收字节由
+出口单测逐字节断言，框架到 PTY 的传输由既有会话链路承担，不在输入法层重证）：
+
+- 取文四接口：`ComposingBaselineTest`（两侧切分、越界钳制、取值源唯一）——通过。
+- `replaceText`：`ComposingBaselineTest.replaceRange`（头+文+尾、非 ASCII、越界拒绝）
+  与 `ComposingDiffTest`（公共前缀差分）——通过。
+- `setComposingRegion`：`reanchorRegion` 范围内改写/无公共前缀拒绝——通过。
+- `beginBatchEdit` / `endBatchEdit`：`ImeCursorContractTest`（两层嵌套、多余结束钳位）
+  ——通过；4.5 即时性无直接单测，由结构保证（写入路径无缓冲分支，计数不参与
+  时序 D6）与提交出口既有测试覆盖——记为结构保证，非缺口。
+- `setSelection`：`ImeCursorContractTest`（左右位移、超大钳位、零位移无动作）——通过。
+- `sendKeyEvent/ACTION_MULTIPLE`：缺直接单测——`commitEventCharacters` 为私有路径，
+  裸文本编码由 `TerminalInputEncoderTest` 覆盖，码点迭代接线无断言；缺口待补，
+  故 6.3 保持不勾选。
+- `commitCorrection` / `requestCursorUpdates`：非受理（前者拒绝、后者未实现），
+  不在核对范围内，见 6.1 / 4.1。

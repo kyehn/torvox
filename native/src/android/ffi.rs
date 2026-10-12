@@ -1473,6 +1473,10 @@ fn pump_sessions() {
             },
         });
     }
+    // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。
+    for event in pending_events {
+        EVENT_QUEUE.push(event);
+    }
 }
 
 /// 不消费事件的会话推进泵：渲染暂停期间维持终端状态前进，避免后台作业停摆。
