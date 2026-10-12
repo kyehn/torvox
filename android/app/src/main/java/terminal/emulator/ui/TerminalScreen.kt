@@ -64,7 +64,7 @@ private const val IME_TOGGLE_DELAY_MS = 50L
 
 /**
  * 搜索查询串长度上限：向原生取真实值（原生为唯一真源，不在此处自带副本）。
- * 超长查询会被原生直接判为无命中，故 UI 必须先截断。
+ * 超长查询在 UI 侧直接判为无命中，不送原生（见 [coerceSearchQuery]）。
  */
 private val searchQueryMaxLength: Int by lazy {
     terminal.emulator.bridge.NativeBridge.searchQueryMaxChars()
@@ -633,15 +633,23 @@ fun TerminalScreen(
                         TextSearchBar(
                             query = searchState.query,
                             onQueryChange = { newQuery ->
-                                // 匹配文本长度须受限（DESIGN 修饰键栏节）：查询串直接送入
-                                // 原生全回滚区扫描，过长会使单次搜索耗时不可预测。
-                                searchState = searchState.copy(query = newQuery.take(searchQueryMaxLength))
-                                searchJob?.cancel()
-                                // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
-                                // （termlib / ghostty-android 做法）。待执行的搜索由
-                                // debouncer 取消，而非每次击键都新起协程。
-                                searchDebouncer.submit {
-                                    searchJob = scope.launch { performSearch() }
+                                // 匹配文本长度须受限（`text-search` 查询上限条）：超长直接判无命中，
+                                // MUST NOT 截断——截断会让用户搜到另一个串的结果。查询框保留原文。
+                                val coerced = coerceSearchQuery(newQuery, searchQueryMaxLength)
+                                if (coerced == null) {
+                                    searchState =
+                                        searchState.copy(query = newQuery, resultCount = 0, selectedMatch = null)
+                                    searchJob?.cancel()
+                                    searchDebouncer.cancel()
+                                } else {
+                                    searchState = searchState.copy(query = coerced)
+                                    searchJob?.cancel()
+                                    // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
+                                    // （termlib / ghostty-android 做法）。待执行的搜索由
+                                    // debouncer 取消，而非每次击键都新起协程。
+                                    searchDebouncer.submit {
+                                        searchJob = scope.launch { performSearch() }
+                                    }
                                 }
                             },
                             resultCount = searchState.resultCount,

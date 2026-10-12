@@ -44,13 +44,6 @@ import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 
-/** 与 `selection::TouchClass` 对应。 */
-enum class TouchClass {
-    Text,
-    Whitespace,
-    Unknown,
-}
-
 /** 上游选择派生查询回传的界限数组长度：[startRow, startCol, endRow, endCol]。 */
 internal const val SELECTION_BOUNDS_LENGTH = 4
 
@@ -62,21 +55,17 @@ data class SelectionState(
     val start: SelectionAnchor? = null,
     val end: SelectionAnchor? = null,
     val selectedText: String = "",
-    val touchClass: TouchClass = TouchClass.Unknown,
+    /**
+     * 仅粘贴选区：长按落在空白单元格（空行、空白格、行尾之后的列）。
+     *
+     * 这几类在 termux 的 `getSelectedText(x,y,x,y)` 下同归一档，故只有一个布尔
+     * 取值；其余一切长按（有内容）都是普通文本选区。
+     */
+    val pasteOnly: Boolean = false,
     // 已执行菜单动作（复制/全选/分享）时置位：浮动菜单关闭而选区高亮保留。
     // 下次长按或拖动手柄移动时重置。
     val menuDismissed: Boolean = false,
 ) {
-    /**
-     * 仅粘贴选区：落点是空白单元格（空行、空白格、行尾之后的列）。
-     *
-     * 三者在 termux 的 `getSelectedText(x,y,x,y)` 下同归此类，故只有一个取值；
-     * 此前另有一个 `EmptyArea` 与 `Whitespace` 并列，只服务于已经删掉的
-     * 「无高亮粘贴小片」路径，实际长按一律走 `Whitespace`。
-     */
-    val pasteOnly: Boolean
-        get() = touchClass == TouchClass.Whitespace
-
     val hasSelection: Boolean
         get() = active && start != null && end != null
 
@@ -228,8 +217,8 @@ constructor(
 
     // ── 选区转发（实现在 SelectionManager） ──
 
-    fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) =
-        selectionManager.startSelection(row, col, touchClass)
+    fun startSelection(row: Int, col: Int, pasteOnly: Boolean = false) =
+        selectionManager.startSelection(row, col, pasteOnly)
 
     fun updateSelection(row: Int, col: Int) = selectionManager.updateSelection(row, col)
 
@@ -275,7 +264,7 @@ constructor(
                 // 在 dragging 下跳过重建——否则升级引发的重组会重建 overlay
                 // 弹窗，杀死正进行的手势流（柄刚抓住就松手，拖拽永不生长）。
                 // endSelection（松手）负责清回 false，生命周期闭环。
-                state.copy(selection = current.copy(touchClass = TouchClass.Text, dragging = true))
+                state.copy(selection = current.copy(pasteOnly = false, dragging = true))
             }
         }
     }
@@ -335,10 +324,9 @@ constructor(
         // hasSelectionOrDrag 在 onUserInputForScrollSnap 内部也会检查；
         // 此处透传，使共用的辅助函数拥有最终守卫权。
         onUserInputForScrollSnap(isCommit)
-        val written = runtime.writeToPty(sessionId, data)
-        if (!written) {
-            LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
-        }
+        // 写失败的原因（会话不存在/正在关闭，或存活但无 bridge）已由 runtime 记全，
+        // 此处不再重复一条泛化错误。
+        runtime.writeToPty(sessionId, data)
     }
 
     /** 把字节直接送入 VT 解析器（供转义序列测试使用）。 */
@@ -383,7 +371,7 @@ constructor(
      * 经外层 ViewModel 访问 _state、runtime 与 clipboardPaster。
      */
     inner class SelectionManager {
-        fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) {
+        fun startSelection(row: Int, col: Int, pasteOnly: Boolean = false) {
             val anchor = SelectionAnchor(row, col)
             // CAS：选区在主线程上被触碰，但 _state 也被 IO 协程写入；
             // 普通读-改-写可能丢失其中之一的更新。mode 在 lambda 内读取。
@@ -395,7 +383,7 @@ constructor(
                         dragging = true,
                         start = anchor,
                         end = anchor,
-                        touchClass = touchClass,
+                        pasteOnly = pasteOnly,
                         menuDismissed = false,
                     ),
                 )
@@ -653,7 +641,7 @@ constructor(
                 LogUtil.e("TerminalViewModel", "extractSelectedText: 无活动会话，选区文本未提取")
                 return ""
             }
-            // 选区行以网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
+            // 选区行以绝对网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
             //
             // 换行感知的提取（termux TerminalBuffer.getSelectedText 语义）：
             // 软换行行拼接时不插入

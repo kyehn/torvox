@@ -2,18 +2,29 @@
 
 ## Purpose
 
-终端网格整体状态的测试覆盖方式。`docs/specification/TESTING.md` 明确不进行回归测试，故不设
-金标语料与快照比对装置；终端状态行为由 `ghostty_terminal::tests` 中针对具体行为的断言覆盖，
-其中回滚区旧行顺序、输入回显与光标、显示宽度、字重与颜色等均逐项直接断言网格输出。
+终端网格整体状态的测试覆盖方式。本能力不设金标语料与快照比对装置——判据是
+`docs/specification/TESTING.md` 的「只测试本项目功能」「被测试部分应当曾经发生过错误
+或该测试可以证明最终功能正确」与「不保留无意义或低价值测试」：语料回放考的是上游
+`libghostty-vt` 的 VT 语义，属 `TESTING.md` 明禁的「不测试依赖行为」，且
+`upstream-alignment`「上游 VT 语义不由本仓测试覆盖」已登记该门槛。终端状态行为改由
+`ghostty_terminal::tests` 中针对具体行为的断言覆盖，其中回滚区旧行顺序、输入回显与
+光标、显示宽度、字重与颜色四类均逐项直接断言网格输出（逐格读 `CellSnapshot` 或
+`CellData`，不经中间文本层）。
 
 实现细节：
 
 - 网格状态经 `dump_grid`（`Query::DumpGrid` → `build_dumped_grid`）与 `take_snapshot`
   （`build_snapshot`）两条路径采集，两者均以 `CellSnapshot` 承载逐格 codepoint 与样式。
+  渲染热路径另有一条 `build_cell_data`（`Vec<CellData>`），行级增量下未变行整段复制
+  上一帧缓存——增量与全量重建的输出内容本应相同，故其正确性不能由内容断言判别，
+  须比对两者输出并另设可观测计数，详见在途变更 `grid-extraction-incremental`。
 - `getTerminalText` 只消费单元文本，不读取样式；`CellSnapshot` 不跨 FFI 传往 Kotlin。
 - 回滚区样式保留由 `ghostty_terminal::tests::scrollback_retains_explicit_cell_style` 覆盖；
   选区与搜索只消费文本行。
-- `docs/specification/TESTING.md` 的「不进行回归测试」为本能力不引入金标语料与期望文件的依据。
+- 四类断言的落点：回滚顺序 `scrollback_keeps_order_and_newest_line_stays_visible`（经
+  `read_line_text` 逐格读网格）、回显与光标 `cursor_matches_last_printed_row_after_echo_print`
+  （直接读 CellData 行列）、显示宽度 `cell_iterator_cjk_double_width`（断 `width` 字段）、
+  字重与颜色 `sgr_style_attributes_reach_snapshot_and_cell_data`（断 `flags` 与三色通道）。
 
 ## Requirements
 
@@ -35,3 +46,37 @@ shuttle 在安装全局 panic 钩子时会先访问自身的调度状态，在�
 
 - **WHEN** 运行并发不变量用例
 - **THEN** 两个用例均在独立测试目标中运行并通过，穷举交错的能力保持不变
+
+### Requirement: 网格状态断言直接针对网格输出
+
+终端网格状态 MUST 由直接读取网格的断言覆盖：回滚区旧行顺序、输入回显与光标跟随、
+简体中文显示宽度、字重与颜色文本，各 MUST 有断言其网格输出的用例，MUST NOT 仅断言
+某一层的中间量或派生值。
+
+期望值来源为本仓实现自身输出的网格快照装置 MUST NOT 引入：它把本仓的输出当成
+本仓的正确答案，无法在实现出错时失败。期望值来自标准文本、上游协议文档或真机实测的
+语料不在此限，按 `upstream-alignment` 的采纳门槛单独判定。
+
+本能力的规范依据 MUST 以 `docs/specification/TESTING.md` 与 `upstream-alignment` 的实际
+条款为准，MUST NOT 引用该文件中不存在的表述。
+
+#### Scenario: 回滚区旧行按顺序断言
+
+- **WHEN** 输出超出网格高度后回滚区被逐行读取
+- **THEN** 断言逐行比对回滚区文本与顺序，新行出现在视口底部
+
+#### Scenario: 字重与颜色断言网格呈现
+
+- **WHEN** 终端以不同字重与前景色显示文本
+- **THEN** 断言检查对应网格单元的样式与颜色，不止检查单元文本非空
+
+#### Scenario: 不引入自验证快照装置
+
+- **WHEN** 评估是否引入网格快照语料
+- **THEN** 期望值由本仓实现自身产出的不引入，理由记为自验证；外部真相来源的语料
+      单独按 `upstream-alignment` 的门槛评估
+
+#### Scenario: 规范引用不得超出被引用文件
+
+- **WHEN** 本能力引用 `docs/specification/TESTING.md` 作为某项取舍的依据
+- **THEN** 被引用的表述在该文件中确实存在，否则改引 `upstream-alignment` 的对应条款

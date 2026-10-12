@@ -35,6 +35,9 @@ pub struct GhosttyTerminal {
     /// 供 Android 输入路径免阻塞 RPC 检出备用屏（vim/less/htop），使触摸滚动
     /// 转发为滚轮转义序列而非滚动本地回滚（备用屏会吞掉滚轮）。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
+    /// 行级抽取的可观测计数，仅测试使用。
+    #[cfg(test)]
+    pub(crate) cache_stats: internal::CacheStats,
 }
 
 /// Terminate 投递的短时等待：try_send 在队列满时失败，但 VT 线程按批排空

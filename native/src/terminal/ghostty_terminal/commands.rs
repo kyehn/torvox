@@ -194,11 +194,13 @@ pub(crate) struct RunConfig {
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,
-    /// 上游 BEL 回调事件通道（VT 线程推送，调用方轮询）：每次振铃一个空消息。
     /// 当前单元格像素几何（XTWINOPS 14/16t 应答用）：Resize 回填默认值，
     /// SetCellPixelSize 回填真实字形度量；回调经此共享，无锁读取。
     pub(crate) cell_size_px: Arc<(AtomicU32, AtomicU32)>,
     /// 可选通道：设置后 VT 线程在网格变化时自动构建并推送 `Vec<CellData>`，
     /// 即线程拆分架构的数据路径（会话线程 → Vec<CellData> → 渲染线程）。
     pub(crate) cell_data_tx: Option<flume::Sender<(Vec<CellData>, CursorInfo)>>,
+    /// 行级抽取的可观测计数，仅测试使用：生产构建无此字段。
+    #[cfg(test)]
+    pub(crate) cache_stats: super::internal::CacheStats,
 }

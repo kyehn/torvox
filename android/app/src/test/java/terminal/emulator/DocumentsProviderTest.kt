@@ -251,6 +251,47 @@ class DocumentsProviderTest {
         }
     }
 
+    /**
+     * 真机 logcat 实证：外部文件管理器经树 URI 寻址时传 `terminal_home/nix.conf`（带树根前缀），
+     * 而行内只发行无前缀的相对路径。该前缀形此前落到 `home/terminal_home/…`（不存在）而失败。
+     * 存在 `home/nix.conf` 时，前缀形删除必须删到它；返回后文件必须消失。
+     */
+    @Test
+    fun deleteDocument_accepts_tree_root_prefixed_id() {
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "prefixed-victim.txt").apply { writeText("x") }
+        provider.deleteDocument("terminal_home/prefixed-victim.txt")
+        assertTrue("prefixed delete must remove home/prefixed-victim.txt", !target.exists())
+    }
+
+    /**
+     * 精确路径优先：家目录里真有 `terminal_home` 子目录时，`terminal_home/victim.txt`
+     * 首先指它自己，无前缀别名不得抢占行内地址。
+     */
+    @Test
+    fun deleteDocument_prefixed_id_prefers_exact_path() {
+        val provider = ensureProvider()
+        val inner = java.io.File(rootDir(), "terminal_home").apply { mkdirs() }
+        val exactVictim = java.io.File(inner, "victim.txt").apply { writeText("exact") }
+        val outerVictim = java.io.File(rootDir(), "victim.txt").apply { writeText("outer") }
+        provider.deleteDocument("terminal_home/victim.txt")
+        assertTrue("exact path must be deleted", !exactVictim.exists())
+        assertTrue("outer file must survive", outerVictim.exists())
+    }
+
+    /**
+     * 同一别名覆盖改名：前缀形 rename 必须改到去前缀后的文件，且返回无前缀的新 docId
+     *（调用方凭返回 id 自愈为行内形式）。
+     */
+    @Test
+    fun renameDocument_accepts_tree_root_prefixed_id() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "prefixed-source.txt").apply { writeText("content") }
+        val newDocId = provider.renameDocument("terminal_home/prefixed-source.txt", "prefixed-dest.txt")
+        assertEquals("prefixed-dest.txt", newDocId)
+        assertTrue(java.io.File(rootDir(), "prefixed-dest.txt").exists())
+    }
+
     @Test
     fun openDocument_mode_w_truncates_existing_content() {
         val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }

@@ -6,6 +6,7 @@ use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
+use crate::terminal::ghostty_terminal::build_row_ranges;
 use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
@@ -323,30 +324,6 @@ impl CachedInstances {
         self.instances = vec![zeroed; total];
         self.built = true;
     }
-}
-
-/// 依 `CellData.row` 把扁平行主序的 `cell_data` 切片划分为每行范围。
-/// 宽字符/间隔单元被终端省略，故各行长度不同；
-/// 无单元的行映射为空范围。存在超出 `rows` 的
-/// 单元（或输入非行主序）时返回 `None`——
-/// 属陈旧/失配数据，不可用于增量构建。
-pub(crate) fn build_row_ranges(
-    cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    rows: u32,
-) -> Option<Vec<std::ops::Range<usize>>> {
-    let mut ranges: Vec<std::ops::Range<usize>> = (0..rows as usize).map(|_| 0..0).collect();
-    let mut current = 0usize;
-    for (r, range) in ranges.iter_mut().enumerate() {
-        let start = current;
-        while current < cell_data.len() && cell_data[current].row as usize == r {
-            current += 1;
-        }
-        *range = start..current;
-    }
-    if current < cell_data.len() {
-        return None;
-    }
-    Some(ranges)
 }
 
 /// 按字节比较两段行内单元切片。`CellData` 是 POD

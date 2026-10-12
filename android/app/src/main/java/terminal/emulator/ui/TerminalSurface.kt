@@ -35,7 +35,6 @@ import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.TouchClass
 import terminal.emulator.input.BatchEditDepth
 import terminal.emulator.input.ComposingBaseline
 import terminal.emulator.input.KeyModifiers
@@ -422,7 +421,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         LogUtil.d(
             TAG,
             "hideSelectionMenu($reason): pasteOnly=${selection?.pasteOnly} " +
-                "menuDismissed=${selection?.menuDismissed} touchClass=${selection?.touchClass}",
+                "menuDismissed=${selection?.menuDismissed}",
         )
         try {
             popup.dismiss()
@@ -805,8 +804,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      */
                     @Suppress("DEPRECATION")
                     override fun sendKeyEvent(event: KeyEvent): Boolean {
+                        // 暂停与抑制窗口内一律**拒绝**：返回 true 等于谎报已处理，而事件并未
+                        // 送达——硬键盘多字符没有第二条通道，丢字不可恢复，故据实拒绝。
+                        // 抑制窗口口径与其余写入路径一致（皆返回 false）。
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
-                            return true
+                            return false
                         }
                         return when (event.action) {
                             // 多字符事件只给 characters，没有可映射的键码：
@@ -1900,7 +1902,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** 最后一次拖动结束的 uptimeMillis；驱动 [shouldSuppressTapAfterDragEnd] 的菜单重显保护。 */
     private var lastHandleDragEndUptimeMs = 0L
 
-    // 拖动锚点：拖动开始时被抓住手柄所固定的单元格边界（网格坐标）。
+    // 拖动锚点：拖动开始时被抓住手柄所固定的单元格边界（绝对网格坐标，0 = 回滚顶部）。
     // 拖动增量相对该锚点计算，因为手柄窗口悬于其锚定单元格之下
     // ——直接用触摸像素会解析到边界下方的那一行。
     // 锚点语义对标 termlib 的 applyHandleDrag（Terminal.kt:2294 起）；
@@ -2492,7 +2494,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val isOnWhitespace = isWhitespaceCell(line, col)
 
         if (isOnWhitespace) {
-            viewModel?.startSelection(gridRow, col, TouchClass.Whitespace)
+            viewModel?.startSelection(gridRow, col, pasteOnly = true)
             viewModel?.endSelection()
 
             // （termux 对等）：空白单元格的选区也显示两个手柄叠在该单元格上
@@ -2509,38 +2511,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 上游 select_word 派生词界（ghostty 默认边界：空白与
             // `'"\`│|:;,()[]{}<>$`），长按走 native 派生；
             // native 侧已安装选区，回传的有序界限驱动状态与控制柄。
-            val wordBounds = bridge?.selectWordAt(gridRow, col)
-
-            val startRow: Int
-            val startCol: Int
-            val endRow: Int
-            val endCol: Int
-
-            if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
-                startRow = wordBounds[0]
-                startCol = wordBounds[1]
-                endRow = wordBounds[2]
-                endCol = wordBounds[3]
-            } else {
-                // 无可选词/查询失败：退化为落点单格（网格坐标），
-                // 粘贴菜单语义不变。
-                startRow = gridRow
-                startCol = col
-                endRow = gridRow
-                endCol = col
-            }
+            val bounds = resolveWordSelectionBounds(bridge?.selectWordAt(gridRow, col), gridRow, col)
 
             LogUtil.d(
                 "Selection",
                 "LONG_PRESS text: tapRow=$row tapCol=$col gridRow=$gridRow " +
-                    "expanded start=($startRow,$startCol) end=($endRow,$endCol) " +
+                    "expanded start=(${bounds.startRow},${bounds.startCol}) " +
+                    "end=(${bounds.endRow},${bounds.endCol}) " +
                     "menu=FULL cellW=$cellWidth cellH=$cellHeight rows=$rows cols=$cols",
             )
 
-            viewModel?.startSelection(startRow, startCol, TouchClass.Text)
-            viewModel?.updateSelection(endRow, endCol)
+            viewModel?.startSelection(bounds.startRow, bounds.startCol)
+            viewModel?.updateSelection(bounds.endRow, bounds.endCol)
             viewModel?.endSelection()
-            selectionHandles.showSelectionHandles(startRow, startCol, endRow, endCol, getAccentColor())
+            selectionHandles.showSelectionHandles(
+                bounds.startRow,
+                bounds.startCol,
+                bounds.endRow,
+                bounds.endCol,
+                getAccentColor(),
+            )
         }
     }
 
@@ -2743,25 +2733,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private fun startWordSelectionAt(event: MotionEvent) {
         val col = pixelToCell(event.x, cellWidth, cols)
         val row = pixelToCell(event.y, cellHeight, rows)
-        // 上游 select_word 词界 — 与长按完全同一 native 派生，无两侧分叉。
-        val bridge = viewModel?.runtime?.bridge()
+        // 上游 select_word 词界 — 与长按完全同一 native 派生、同一回退函数。
         val gridRow = currentViewportTopGrid() + row
-        val wordBounds = bridge?.selectWordAt(gridRow, col)
-        if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
-            viewModel?.startSelection(wordBounds[0], wordBounds[1])
-            viewModel?.updateSelection(wordBounds[2], wordBounds[3])
-            viewModel?.endSelection()
-            LogUtil.d(
-                "Selection",
-                "RIGHT_CLICK word: tapRow=$row tapCol=$col " +
-                    "expanded start=(${wordBounds[0]},${wordBounds[1]}) " +
-                    "end=(${wordBounds[2]},${wordBounds[3]})",
+        val bounds =
+            resolveWordSelectionBounds(
+                viewModel?.runtime?.bridge()?.selectWordAt(gridRow, col),
+                gridRow,
+                col,
             )
-        } else {
-            // 无可选词：单格回退。选区状态用网格行（0 = 回滚顶部），
-            // 此处已换算为 gridRow，抽取与控柄渲染一致。
-            viewModel?.startSelection(gridRow, col)
-        }
+        viewModel?.startSelection(bounds.startRow, bounds.startCol)
+        viewModel?.updateSelection(bounds.endRow, bounds.endCol)
+        // 回退分支同样须收尾：只 startSelection 会把选区永久留在拖动态，
+        // 此后输入不再自动贴底。
+        viewModel?.endSelection()
+        LogUtil.d(
+            "Selection",
+            "RIGHT_CLICK word: tapRow=$row tapCol=$col " +
+                "expanded start=(${bounds.startRow},${bounds.startCol}) " +
+                "end=(${bounds.endRow},${bounds.endCol})",
+        )
 
         try {
             magnifier = magnifier ?: Magnifier.Builder(this@TerminalSurface).build()
@@ -3275,6 +3265,19 @@ internal fun gridToScreen(
  * 使原生 setSelection 绝不看到倒置或越界的单元格。
  */
 internal data class SelectionBounds(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
+
+/**
+ * 词选边界解析：取上游 `select_word` 派生的有序界限，失败时退化为落点单格。
+ *
+ * 两条词选入口（长按、侧键点击）共用本函数，使回退形态不可能分叉：回退分支若只在
+ * 其中一条路径上遗漏 `endSelection`，选区会永久停在拖动态，此后输入不再自动贴底。
+ */
+internal fun resolveWordSelectionBounds(wordBounds: IntArray?, gridRow: Int, col: Int): SelectionBounds =
+    if (wordBounds != null && wordBounds.size == SELECTION_BOUNDS_LENGTH) {
+        SelectionBounds(wordBounds[0], wordBounds[1], wordBounds[2], wordBounds[3])
+    } else {
+        SelectionBounds(startRow = gridRow, startCol = col, endRow = gridRow, endCol = col)
+    }
 
 /**
  * 保序的范围钳位（termux TextSelectionCursorController.updatePosition 语义）：

@@ -89,7 +89,27 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
         fun decodeDocId(docId: String, rootDir: File): File {
             if (docId == ROOT_ID) return rootDir.canonicalFile
-            val resolved = File(rootDir, docId).canonicalFile
+            // 树 URI 线形：外部文件管理器经树 URI 寻址时，传进来的 docId 会带上树根前缀
+            // （`terminal_home/nix.conf`），而本提供者行内只发行无前缀的相对路径。
+            // 真机 logcat 实证：该前缀形 delete/rename 落到 `home/terminal_home/…`（不存在）而失败。
+            // 精确路径优先（家目录里真有一个 `terminal_home` 子目录时，其行内地址不受影响），
+            // 仅当精确路径不存在、去前缀后仍在根内时接受别名；两者都不存在时按原样解码，
+            // 错误形态与此前一致。返回值恒为无前缀的规范地址，调用方回传的 docId 自愈为行内形式。
+            val exact = File(rootDir, docId)
+            val rootPrefix = "$ROOT_ID/"
+            if (docId.startsWith(rootPrefix) && !exact.exists() &&
+                !java.nio.file.Files.isSymbolicLink(exact.toPath())
+            ) {
+                // 去前缀别名只收无链接的普通路径：前缀形恰好命中一条家目录内的链接时，
+                // 交给原样解码走链接自身的读写分支（重命名只动链接、删除只删链接）。
+                val stripped = File(rootDir, docId.removePrefix(rootPrefix))
+                if (!java.nio.file.Files.isSymbolicLink(stripped.toPath())) {
+                    val resolved = stripped.canonicalFile
+                    requireInsideRoot(resolved, rootDir)
+                    return resolved
+                }
+            }
+            val resolved = exact.canonicalFile
             requireInsideRoot(resolved, rootDir)
             return resolved
         }

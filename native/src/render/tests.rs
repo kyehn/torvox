@@ -2226,6 +2226,68 @@ mod surface_loss_tests {
     }
 }
 
+// GPU 初始化并发 → 只初始化一次（render-gpu-init-race）
+// ══════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod gpu_init_race_tests {
+    use crate::render::context::{INITIALIZATION_COUNT, try_global_gpu};
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+
+    /// 预热线程与渲染线程在启动瞬间并发调用取 GPU，完整的 Vulkan 初始化
+    /// （建 Instance、request_adapter、request_device）在进程内必须只发生一次。
+    ///
+    /// 真机 logcat 实证的回归护栏：修复前 `GPU adapter` 与 `GPU device created`
+    /// 各打印两遍、分属 线程 与 线程，两次初始化中第二次的产物被直接丢弃。
+    ///
+    /// 断言进程内的初始化总次数而非「各线程拿到同一引用」：`OnceLock` 一旦填满，
+    /// 后者对修复前后的代码同样成立，对本竞态零判别力；且预热后再断言亦属恒真——
+    /// 填满后 `init_gpu` 不可能再执行。竞态只发生在**首次**初始化，故断言
+    /// 「成功初始化过且仅一次」，无论本进程内 GPU 是被本用例还是被并行用例首先
+    /// 拉起，该断言都成立。
+    #[test]
+    fn concurrent_lookups_initialize_gpu_once() {
+        // 并发数取多核上限，使 check-then-act 窗口尽可能被命中。不预先初始化：
+        // 预热会把竞态窗口关掉。
+        let thread_count = std::thread::available_parallelism()
+            .map(std::num::NonZero::get)
+            .unwrap_or(4)
+            .clamp(2, 16);
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let handles: Vec<_> = (0..thread_count)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    try_global_gpu()
+                })
+            })
+            .collect();
+
+        let mut instances = HashSet::new();
+        for handle in handles {
+            let gpu = handle
+                .join()
+                .expect("GPU lookup thread must not panic")
+                .expect("GPU must be available");
+            // 取到的正是同一个全局实例（引用为 'static），故其地址唯一标识它。
+            instances.insert(gpu as *const _ as usize);
+        }
+
+        assert_eq!(
+            instances.len(),
+            1,
+            "all threads must observe one GPU instance, got {instances:?}",
+        );
+        assert_eq!(
+            INITIALIZATION_COUNT.load(Ordering::Relaxed),
+            1,
+            "GPU 初始化在进程内只能成功一次（竞态回归：并发下多建一次，其产物被丢弃）",
+        );
+    }
+}
+
 #[cfg(test)]
 mod last_content_row_tests {
     use crate::render::cell_builder::last_content_row;

@@ -3249,7 +3249,9 @@ constructor(
             entry.notifyRender()
             return written
         }
-        LogUtil.w("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭）")
+        // 两条 false 分支各自在此记全原因（会话不存在/正在关闭，或存活但无 bridge），
+        // 调用方不再重复记一条泛化错误。
+        LogUtil.w("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭），${data.size} 字节未写入")
         return false
     }
 

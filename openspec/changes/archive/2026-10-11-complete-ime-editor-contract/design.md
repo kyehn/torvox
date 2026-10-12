@@ -96,6 +96,14 @@ setComposingRegion(start, end) →  base[0, start) + <光标定位标记> + base
 `replaceText` 等平台新增方法的默认实现不可见。实现顺序 MUST 为「写探针 → 观察默认行为
 → 覆写并经既有出口」，MUST NOT 照文档直接实现。
 
+### D9 `sendKeyEvent` 在抑制/暂停窗口内拒绝而非受理
+
+原先该分支返回 `true`：事件并未送达却回报「已受理」。硬键盘多字符（如蓝牙键盘粘贴键）
+**没有第二条通道**，谎报受理等于永久丢字且无法恢复，与 spec「只回报本仓确实做到之事」
+相悖。故改为 `return false`，让输入法/系统据实重发，与其余六条写入路径同口径。
+
+**备选与否决理由**：保留 `true` 让硬件键「看起来没坏」——否决，回滚会重新引入静默丢字。
+
 ## Risks / Trade-offs
 
 - **[输入法把绝对 `setSelection` 当语义用]** → 只按差值响应可能多发或少发方向键。
@@ -158,7 +166,7 @@ false（无输入法参与，API 35 模拟器）：默认路径根本不分发�
 6.2 的显式拒绝（`ImeCommitCorrectionTest` 锁定）与默认行为一致，无行为落差。
 无新增探针文件，无残留。
 
-### 6.3 受理即送达核对（已核对，未闭环，不勾选）
+### 6.3 受理即送达核对（已闭环）
 
 逐项确认返回受理的接口与其送达证明（送达指经既有出口产出字节；PTY 收字节由
 出口单测逐字节断言，框架到 PTY 的传输由既有会话链路承担，不在输入法层重证）：
@@ -171,8 +179,9 @@ false（无输入法参与，API 35 模拟器）：默认路径根本不分发�
   ——通过；4.5 即时性无直接单测，由结构保证（写入路径无缓冲分支，计数不参与
   时序 D6）与提交出口既有测试覆盖——记为结构保证，非缺口。
 - `setSelection`：`ImeCursorContractTest`（左右位移、超大钳位、零位移无动作）——通过。
-- `sendKeyEvent/ACTION_MULTIPLE`：缺直接单测——`commitEventCharacters` 为私有路径，
-  裸文本编码由 `TerminalInputEncoderTest` 覆盖，码点迭代接线无断言；缺口待补，
-  故 6.3 保持不勾选。
+- `sendKeyEvent/ACTION_MULTIPLE`：`HardKeyboardMultipleArrivalTest`——断言受理返回
+  true、含非 ASCII 标记落格且只出现一次。断言具判别力：把投递分支改为 `true` 后该用
+  例即红（报「多字符标记必须落格」），还原即绿；早期版本把非空 `Boolean` 喂给
+  `assertNotNull` 而恒过，已废弃不用。
 - `commitCorrection` / `requestCursorUpdates`：非受理（前者拒绝、后者未实现），
   不在核对范围内，见 6.1 / 4.1。
