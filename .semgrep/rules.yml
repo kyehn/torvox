@@ -202,6 +202,8 @@ rules:
         - ".semgrep/**"
         - "docs/specification/*"
         - "README.md"
+        - "native/build.rs"
+        - "android/build.gradle.kts"
   - id: no-zigbuild
     pattern-regex: 'zigbuild'
     message: "Use cargo ndk for Android builds, not cargo zigbuild."
