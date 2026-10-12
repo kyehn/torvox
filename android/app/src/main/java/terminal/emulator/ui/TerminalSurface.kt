@@ -15,6 +15,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.CorrectionInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
@@ -1005,6 +1006,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         repeat(delta.leftward()) { sendCursorMove(KeyEvent.KEYCODE_DPAD_LEFT) }
                         return true
                     }
+
+                    /**
+                     * 校正请求一律拒绝：6.1 已证默认路径不分发校正，校正文本不可能
+                     * 经提交路径送达，受理即谎称生效；拒绝让输入法停止调用更安全。
+                     */
+                    override fun commitCorrection(info: CorrectionInfo?): Boolean = false
 
                     /** 合成一次方向键按下并走既有键事件路径（`setSelection` 折算用）。 */
                     private fun sendCursorMove(keyCode: Int) {
