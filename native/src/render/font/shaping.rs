@@ -56,9 +56,9 @@ impl FontPipeline {
         let metrics =
             cosmic_text::Metrics::new(raster_size, raster_size * DEFAULT_LINE_HEIGHT_RATIO);
         let mut buffer = self.shaping_buffer.take().unwrap_or_else(|| {
-            let mut b = cosmic_text::Buffer::new_empty(metrics);
-            b.set_size(Some(INFINITE_BUFFER_WIDTH), None);
-            b
+            let mut reused_buffer = cosmic_text::Buffer::new_empty(metrics);
+            reused_buffer.set_size(Some(INFINITE_BUFFER_WIDTH), None);
+            reused_buffer
         });
         buffer.set_metrics(metrics);
         buffer.set_size(Some(INFINITE_BUFFER_WIDTH), None);
@@ -83,12 +83,12 @@ impl FontPipeline {
                     if start.is_none() {
                         start = Some(byte_index);
                     }
-                } else if let Some(s) = start.take() {
-                    cjk_ranges.push(s..byte_index);
+                } else if let Some(range_start) = start.take() {
+                    cjk_ranges.push(range_start..byte_index);
                 }
             }
-            if let Some(s) = start {
-                cjk_ranges.push(s..text.len());
+            if let Some(range_start) = start {
+                cjk_ranges.push(range_start..text.len());
             }
             if !cjk_ranges.is_empty() {
                 let font_database = self.font_system.db();

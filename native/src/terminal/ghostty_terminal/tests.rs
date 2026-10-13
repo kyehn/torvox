@@ -2821,6 +2821,106 @@ fn sgr31_red_reaches_cell_data_foreground() {
 /// FFI 默认主题下 SGR31 必须到达 CellData 前景。
 /// 背景：设备像素验收曾报 SGR 无显色，后证实为 harness 问题；
 /// 复刻其精确主题与几何，锁定颜色通路。
+/// 回归钉：取光标查询不得触发整网格抽取。
+///
+/// `Query::RenderCursor` 只要 (row, col) 与可见性，却曾走 `build_cell_data`：
+/// 逐行抽完整张网格、把结果写进跨帧行缓存并 `snapshot.clean()` 标为已消费。
+/// 为两个整数做这件事，在大网格上是数百次跨语言调用，还让「取光标」与「渲染」
+/// 共用同一份可变抽取状态。
+///
+/// 判别力：`take_cache_stats()` 是抽取路径自己记的账。先渲染若干帧让行缓存进入
+/// 可复用态并确认账上确有复用（同时确认该账只在抽取路径上记），再清零、取一次
+/// 光标——账上仍须为零；若它偷偷抽了网格，复用计数必然非零。
+#[test]
+fn render_cursor_query_does_not_extract_cells() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"line one\r\nline two\r\nline three\r\n");
+    terminal_under_test.flush();
+    let _ = terminal_under_test.receive_cell_data().expect("warm frame");
+    // 只改末行：前两行在缓存里可复用，于是本次构建必然记下非零复用——
+    // 这同时确认该账确实只在抽取路径上记，且在此状态下复用可观测。
+    terminal_under_test.vt_write(b"\x1b[3;1Hchanged\r\n");
+    terminal_under_test.flush();
+    let _ = terminal_under_test
+        .receive_cell_data()
+        .expect("second frame");
+    let (reused_before, _) = terminal_under_test.take_cache_stats();
+    assert!(
+        reused_before > 0,
+        "前置条件：只改末行时前两行应复用（实得 {reused_before}）"
+    );
+
+    terminal_under_test.take_cache_stats();
+    let _ = terminal_under_test.render_cursor();
+
+    let (reused_after, extracted_after) = terminal_under_test.take_cache_stats();
+    assert_eq!(
+        (reused_after, extracted_after),
+        (0, 0),
+        "取光标只该更新快照，不得触发任何网格抽取"
+    );
+}
+
+/// 回归钉：取光标查询不得用写死的默认色污染跨帧行缓存。
+///
+/// 污染成立需要三件事同时发生（第一版用例只满足了两件，故还原成写死色仍全绿）：
+/// 1. 该行在取光标那一刻**仍是脏的**——写完不 `flush()`，让写入留在队列里；
+/// 2. 写入与查询落在**同一批**——批处理里 `drain_queries` 先于
+///    `refresh_cell_data`，二者共用同一个 `extractors`；
+/// 3. `build_cell_data` 用的是**主题默认色**——写死色会让此刻判脏的行以那组颜色
+///    存入 `row_cache`，又被 `snapshot.clean()` 标为已消费，下一步渲染看到
+///    「全部干净」便直接复用，整行错色直到它再次变化。
+#[test]
+fn render_cursor_query_does_not_poison_the_row_cache_with_literal_colors() {
+    let theme = crate::terminal::theme::by_name("tokyo_night").expect("tokyo_night theme");
+    let foreground = GhosttyTerminal::color_to_float(theme.palette.foreground);
+    let background = GhosttyTerminal::color_to_float(theme.palette.background);
+    // 先坐实前提：这个主题确实不同于写死色，否则本例无判别力。
+    assert_ne!(
+        (background[0], background[1], background[2]),
+        (0.0, 0.0, 0.0),
+        "本例要求主题背景非纯黑，否则写死色与真实色无法区分"
+    );
+    assert_ne!(
+        (foreground[0], foreground[1], foreground[2]),
+        (1.0, 1.0, 1.0),
+        "本例要求主题前景非纯白，否则写死色与真实色无法区分"
+    );
+
+    let mut terminal_under_test =
+        GhosttyTerminal::new_with_theme(24, 80, 1000, theme).expect("theme terminal");
+    // 先出一帧，让缓存与快照进入「已消费」状态。
+    terminal_under_test.vt_write(b"seed\r\n");
+    terminal_under_test.flush();
+    let _ = terminal_under_test
+        .receive_cell_data()
+        .expect("seed cell data");
+
+    // 写入刻意不 flush：命令留在队列里，与随后的取光标查询同批处理，
+    // 且此刻该行仍是脏的——这正是会被写死色重新提取并存入缓存的那一行。
+    terminal_under_test.vt_write(b"POISONED\r\n");
+    let _ = terminal_under_test.render_cursor();
+    // 随后这一帧走 refresh_cell_data：该行已被标记为已消费，故**复用**缓存里那份
+    // （可能已被写死色污染的）单元，而不是重新提取。这就是缺陷的可观测结果。
+    terminal_under_test.flush();
+
+    let (cells, _) = terminal_under_test.receive_cell_data().expect("cell data");
+    let cell = cells
+        .iter()
+        .find(|cell| cell.codepoint == 'P' as u32)
+        .expect("P cell present after cursor query");
+    assert_color(
+        cell.background,
+        background,
+        "取光标查询后单元格背景须仍是主题默认背景",
+    );
+    assert_color(
+        cell.foreground,
+        foreground,
+        "取光标查询后单元格前景须仍是主题默认前景",
+    );
+}
+
 #[test]
 fn sgr31_default_theme_reaches_foreground() {
     let mut terminal_under_test =
@@ -3505,18 +3605,32 @@ fn row_cache_invalidated_on_resize() {
     terminal_under_test.flush();
     let _ = next_cell_frame(&terminal_under_test);
 
+    // 计数基线清零：stats 是「自上次 take 以来的累计」，而上面的轮询可能转过
+    // 多轮。不先清零，断言就混进了 resize 之前那批帧的复用数——轮询转的轮数取决于
+    // 机器负载，于是同一个实现有时过有时不过（实测负载下偶发失败一次）。
+    let _ = terminal_under_test.take_cache_stats();
+
     // 改行数后行区间整体错位，缓存不可复用。
     assert!(terminal_under_test.resize(12, 80), "resize 应被接受");
     terminal_under_test.flush();
-    let cells = next_cell_frame(&terminal_under_test);
-    let (reused, _) = terminal_under_test.take_cache_stats();
-
+    // 必须轮询到「行数已随 resize 收敛」的那一帧，而不是取 resize 后的第一帧：
+    // 通道里可能还压着 resize 之前排队的旧帧（`flush` 逐条命令各推一帧），负载
+    // 高时它更容易被先取到，于是断言落在旧帧的最大行上——与被测行为无关的偶发失败。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let reused = loop {
+        let cells = next_cell_frame(&terminal_under_test);
+        let stats = terminal_under_test.take_cache_stats();
+        let max_row = cells.iter().map(|cell| cell.row).max();
+        if max_row.is_some_and(|max| max < 12) {
+            break stats.0;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "resize 后 5s 内未出现新尺寸的帧，最后一帧最大行 {max_row:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
     assert_eq!(reused, 0, "尺寸变化 MUST 使行缓存整体失效");
-    let rows_present = cells.iter().map(|cell| cell.row).max();
-    assert!(
-        rows_present.is_some_and(|max| max < 12),
-        "重调后的网格 MUST 只含新尺寸的行，实际最大行 {rows_present:?}"
-    );
 }
 
 #[test]

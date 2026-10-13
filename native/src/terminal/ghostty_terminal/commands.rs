@@ -191,6 +191,8 @@ pub(crate) struct RunConfig {
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     /// 备用屏状态的无锁镜像，由 VT 线程每帧更新，供输入路径免阻塞 RPC 检出。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
+    /// VT 线程置位表示 `Terminal::resize` 失败（网格未真正改尺寸）。
+    pub(crate) resize_failed: Arc<AtomicBool>,
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,

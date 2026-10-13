@@ -104,13 +104,93 @@ impl FontPipeline {
 
                 Some((cell_width, cell_height.ceil()))
             });
-            if let Some(Some(m)) = result {
-                return m;
+            if let Some(Some(metrics)) = result {
+                return metrics;
             }
         }
         (
             self.font_size * CELL_WIDTH_FALLBACK_RATIO,
             (self.font_size * CELL_HEIGHT_FALLBACK_RATIO).ceil(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FontPipeline;
+    use super::{ASCII_END, ASCII_START};
+
+    /// 等宽容差：字体表里的前进宽度是整数 units，换算成像素后同值必然逐位相等，
+    /// 这里留一点余量只为吸收 f32 运算顺序差异。
+    const ADVANCE_TOLERANCE: f32 = 1e-3;
+
+    /// 真实字体数据当基准：格宽必须是字体自己表里的前进宽度，且该面真的等宽。
+    ///
+    /// 取的是本仓**实际选中**的主字体面（宿主上来自系统字体库），数据由 swash 直接
+    /// 从字体文件读出，与 [`FontPipeline::cell_metrics`] 的计算路径相互独立——upem、
+    /// 面索引、advance、ascent/descent 全部出自字体本身：
+    ///
+    /// - 字体库标注的 `monospaced` 若与表里的实际宽度不符（选错面、或某个
+    ///   「等宽」族其实比例宽度），格宽会裁切或空出字形，此前没有任何用例能发现；
+    /// - 格宽、行高与字体表换算结果一致，则字号换算链（upem、缩放、上取整）无缺口。
+    ///
+    /// 字体库为空即判红：没有字体时度量整体退到比例回退值，那正是要防的情况，
+    /// 不能当作环境问题放过。
+    #[test]
+    fn cell_metrics_match_the_selected_face_own_tables() {
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
+        let (cell_width, cell_height) = pipeline.cell_metrics();
+        let font_id = pipeline
+            .font_id
+            .expect("宿主字体库应选到主字体面，否则度量已退到比例回退值");
+        let database = pipeline.font_system.db();
+        let read = database.with_face_data(font_id, |font_data, face_index| {
+            let font = swash::FontRef::from_index(font_data, face_index as usize)?;
+            let charmap = font.charmap();
+            let glyph_metrics = font.glyph_metrics(&[]);
+            let metrics = font.metrics(&[]);
+            let scale = pipeline.font_size / metrics.units_per_em as f32;
+            let advances: Vec<f32> = (ASCII_START..ASCII_END)
+                .map(|codepoint| charmap.map(codepoint))
+                .filter(|&glyph_id| glyph_id != 0)
+                .map(|glyph_id| glyph_metrics.advance_width(glyph_id) * scale)
+                .collect();
+            Some((
+                advances,
+                metrics.ascent * scale,
+                metrics.descent.abs() * scale,
+            ))
+        });
+        let Some(Some((advances, ascent, descent))) = read else {
+            panic!("读取主字体面 {font_id:?} 的字体表失败");
+        };
+        assert!(
+            advances.len() > 90,
+            "主字体只覆盖 {} 个可打印 ASCII，取样不足以判定等宽",
+            advances.len()
+        );
+
+        let mut non_monospaced = Vec::new();
+        for (offset, advance) in advances.iter().enumerate() {
+            if (advance - advances[0]).abs() > ADVANCE_TOLERANCE {
+                non_monospaced.push(format!("U+{:04X}", ASCII_START + offset as u32));
+            }
+        }
+        assert!(
+            non_monospaced.is_empty(),
+            "选中面被当作等宽，但这些码位的前进宽度与 'm' 不同（{} 个）：{}",
+            non_monospaced.len(),
+            non_monospaced.join(" ")
+        );
+        assert!(
+            (cell_width - advances[0]).abs() <= ADVANCE_TOLERANCE,
+            "格宽 {cell_width} 与字体表前进宽度 {} 不符",
+            advances[0]
+        );
+        assert_eq!(
+            cell_height,
+            (ascent + descent).ceil(),
+            "行高须是 (ascent + descent) 按字号换算后上取整"
+        );
     }
 }

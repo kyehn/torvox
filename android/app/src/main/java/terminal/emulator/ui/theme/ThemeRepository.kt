@@ -1,6 +1,8 @@
 package terminal.emulator.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import terminal.emulator.bridge.NativeBridge
 
 /**
@@ -75,6 +77,13 @@ object ThemeRepository {
                 ?: error("Theme names unavailable from native")
         return names.map { themeName -> byName(themeName) }
     }
+
+    /**
+     * 进程内缓存的 [all]。主题在构建期定进二进制，进程生命周期内不变，而 [all] 要
+     * 经 JNI 取名并逐主题取色——调用方若用 `remember` 持有，列表项滚出屏幕再滚回
+     * 就会重跑整轮（十一次同步 JNI）。
+     */
+    val allCached: ImmutableList<TerminalTheme> by lazy { all().toImmutableList() }
 
     /**
      * 按名取主题。未知返回 null（设置数据错误，由调用方清除该键）；

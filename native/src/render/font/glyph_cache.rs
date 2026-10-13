@@ -3,7 +3,8 @@ use std::num::NonZeroUsize;
 
 use super::{
     ASCII_UPPER_BOUND, GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey, OUTLINE_CACHE_CAPACITY,
-    SHAPE_CACHE_CAPACITY, STYLE_FACE_CACHE_CAPACITY,
+    SHAPE_CACHE_CAPACITY, STYLE_FACE_CACHE_CAPACITY, STYLE_GLYPH_ID_CACHE_CAPACITY,
+    UNRESOLVABLE_CACHE_CAPACITY,
 };
 use lru::LruCache;
 
@@ -35,6 +36,14 @@ pub struct GlyphCache {
     /// 首屏构建次数从 400 降到约 3。键必须带光栅尺寸：embedded bitmap 只在
     /// 特定尺寸存在，同样 (font, gid) 在不同字号/缩放下结论可能相反。
     pub outline_cache: LruCache<(fontdb::ID, swash::GlyphId, u32), bool>,
+    /// 「库内无面能解析此码位」的负缓存：值恒为 `()`，只用作集合。
+    ///
+    /// 链条走到全库扫描仍找不到时记入，此后跳过一次「遍历 fontdb 全部 face 并逐个
+    /// `with_face_data` 解压」的扫描——罕见汉字每帧一次是实打实的开销。
+    ///
+    /// 与 [`Self::cjk_glyph_cache`] 同批失效（`clear_identity_caches`，即换字体/
+    /// 换 locale/换字号三处），故新增字体后不会留下永久误判。
+    pub unresolvable_glyphs: LruCache<char, ()>,
 }
 
 impl Default for GlyphCache {
@@ -50,8 +59,12 @@ impl GlyphCache {
             NonZeroUsize::new(SHAPE_CACHE_CAPACITY).expect("SHAPE_CACHE_CAPACITY > 0");
         let style_face_cache_cap =
             NonZeroUsize::new(STYLE_FACE_CACHE_CAPACITY).expect("STYLE_FACE_CACHE_CAPACITY > 0");
+        let style_glyph_id_cap = NonZeroUsize::new(STYLE_GLYPH_ID_CACHE_CAPACITY)
+            .expect("STYLE_GLYPH_ID_CACHE_CAPACITY > 0");
         let outline_cache_cap =
             NonZeroUsize::new(OUTLINE_CACHE_CAPACITY).expect("OUTLINE_CACHE_CAPACITY > 0");
+        let unresolvable_cap = NonZeroUsize::new(UNRESOLVABLE_CACHE_CAPACITY)
+            .expect("UNRESOLVABLE_CACHE_CAPACITY > 0");
         Self {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
@@ -59,20 +72,10 @@ impl GlyphCache {
             glyph_id_cache: LruCache::new(cache_cap),
             cjk_glyph_cache: LruCache::new(cache_cap),
             style_face_cache: LruCache::new(style_face_cache_cap),
-            style_glyph_id_cache: LruCache::new(style_face_cache_cap),
+            style_glyph_id_cache: LruCache::new(style_glyph_id_cap),
             outline_cache: LruCache::new(outline_cache_cap),
+            unresolvable_glyphs: LruCache::new(unresolvable_cap),
         }
-    }
-
-    pub fn clear(&mut self) {
-        self.glyph_cache.clear();
-        self.shape_cache.clear();
-        self.ascii_glyph_ids = [None; ASCII_UPPER_BOUND as usize];
-        self.glyph_id_cache.clear();
-        self.cjk_glyph_cache.clear();
-        self.style_face_cache.clear();
-        self.style_glyph_id_cache.clear();
-        self.outline_cache.clear();
     }
 }
 
@@ -84,15 +87,6 @@ mod tests {
     fn glyph_cache_new_is_empty() {
         let glyph_cache = GlyphCache::new();
         assert!(glyph_cache.glyph_cache.iter().next().is_none());
-    }
-
-    #[test]
-    fn glyph_cache_clear_resets_ascii() {
-        let mut glyph_cache = GlyphCache::new();
-        glyph_cache.ascii_glyph_ids[65] = Some(42);
-        assert!(glyph_cache.ascii_glyph_ids[65].is_some());
-        glyph_cache.clear();
-        assert!(glyph_cache.ascii_glyph_ids[65].is_none());
     }
 
     /// 模块存在的理由就是淘汰策略：容量一满就必须真的丢掉最久未用的那条，
@@ -124,34 +118,6 @@ mod tests {
             glyph_cache.outline_cache.peek(&key_for(1)).is_none(),
             "最久未用的条目必须被淘汰"
         );
-    }
-
-    #[test]
-    fn style_face_cache_evicts_with_clear() {
-        let mut glyph_cache = GlyphCache::new();
-        glyph_cache
-            .style_face_cache
-            .put((fontdb::ID::default(), true, false), None);
-        glyph_cache
-            .style_glyph_id_cache
-            .put((fontdb::ID::default(), 65), swash::GlyphId::from(42u16));
-        assert!(glyph_cache.style_face_cache.len() == 1);
-        assert!(glyph_cache.style_glyph_id_cache.len() == 1);
-        glyph_cache.clear();
-        assert!(glyph_cache.style_face_cache.is_empty());
-        assert!(glyph_cache.style_glyph_id_cache.is_empty());
-    }
-
-    #[test]
-    fn outline_cache_evicts_with_clear() {
-        let mut glyph_cache = GlyphCache::new();
-        glyph_cache.outline_cache.put(
-            (fontdb::ID::default(), swash::GlyphId::from(42u16), 0),
-            true,
-        );
-        assert_eq!(glyph_cache.outline_cache.len(), 1);
-        glyph_cache.clear();
-        assert_eq!(glyph_cache.outline_cache.len(), 0);
     }
 
     #[test]

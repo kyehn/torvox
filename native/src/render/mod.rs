@@ -1,8 +1,13 @@
 //! GPU 渲染管线：wgpu 实例管理、图集与字形渲染，无 CPU/Canvas 回退路径。
 //! [`font`] 负责整形与光栅化，`pipeline` 构建管线，`pass` 驱动逐帧渲染。
 //!
-//! 图集的 alpha 覆盖纹理用 `Rgba8Unorm`（R 通道为覆盖率，GBA 为 0）且是
-//! **线性**非 sRGB 格式：覆盖率数据本就在线性空间，GPU 采样时不做 gamma 校正。
+//! 图集的覆盖率纹理用 `Rgba8Unorm`，且覆盖率被写进**全部四个通道**
+//! （`font/atlas` 的 Mask 分支写 R=G=B=A=alpha；有色字形分支写
+//! R=G=B=alpha、A=255）。形式上仍是 `Rgba8Unorm`，语义上只有 `.r` 被消费——
+//! 着色器按 `texel.r` 解析覆盖率，其余通道不参与任何判定。
+//! 且它是**线性**非 sRGB 格式：覆盖率数据本就在线性空间，GPU 采样时不做 gamma 校正。
+//! （此前此处写「R 通道为覆盖率，GBA 为 0」，与实际写入不符——照它改图集会静默
+//! 改变每个抗锯齿字形边缘的颜色。）
 
 // ── 子模块 ──────────────────────────────────────────────────────────────
 pub mod font;
@@ -24,7 +29,6 @@ mod tests;
 pub use cell_builder::{CellCursor, build_instances_from_cell_data};
 #[cfg(test)]
 pub(crate) use cell_builder::{SearchHighlight, blend_highlight, cell_highlight};
-pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::apply_scroll_px_offset;
 pub use context::orthographic_projection;
@@ -72,11 +76,10 @@ pub struct CellInstance {
     pub quad_size: [f32; 2],
     pub flags: f32,
     pub bearing: [f32; 2],
-    pub glyph_advance_width: f32,
 }
 
 impl CellInstance {
-    pub const ATTRIBS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+    pub const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
         1 => Float32x2,
         2 => Float32x2,
         3 => Float32x2,
@@ -86,7 +89,6 @@ impl CellInstance {
         6 => Float32x2,
         7 => Float32,
         8 => Float32x2,
-        9 => Float32,
     ];
 
     pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {

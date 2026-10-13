@@ -133,4 +133,53 @@ class RenderWatchDogTest {
         watchdog.stop()
         assertEquals("a stopped renderer must not be reported as hung", 0, hangs)
     }
+
+    /**
+     * 回归钉：`stop` 后再 `start` 的同一实例，旧循环不得越过闸门。
+     *
+     * 旧实现用一个布尔 `stopped` 表达「已停止」，而 `start` 会把它复位——于是上一代
+     * 循环（它正卡在不可取消的探测里，取消来不及）看到复位后的 `false` 照样回调，
+     * 把**新**渲染线程误判为死亡。
+     *
+     * 判别力：第一次探测被刻意放行时返回「已停滞」的标记（起始时间远早于超时），
+     * 故唯一能挡住回调的就是代次判据本身——把这行判据去掉，本例即由 0 次变正数。
+     */
+    @Test
+    fun `restarted instance does not let the stale loop fire`() {
+        val firstProbeEntered = CountDownLatch(1)
+        val releaseFirstProbe = CountDownLatch(1)
+        val probeCount = java.util.concurrent.atomic.AtomicInteger()
+        var hangs = 0
+        val watchdog =
+            RenderWatchDog(
+                getMarks = {
+                    if (probeCount.getAndIncrement() == 0) {
+                        // 第一代：卡在不可取消的等待里，模拟「正处于探测与回调之间」。
+                        firstProbeEntered.countDown()
+                        releaseFirstProbe.await()
+                        // 放行时给一份「已开始且未结束」的标记：起始远早于超时，
+                        // 且 done 仍为初值 0（start > done），回调判据完全成立。
+                        FrameMarks(startNanos = System.nanoTime() - 10_000_000_000L)
+                    } else {
+                        val now = System.nanoTime()
+                        FrameMarks(startNanos = now, doneNanos = now)
+                    }
+                },
+                isRunning = { true },
+                onHangDetected = { hangs++ },
+                hangTimeoutNanos = fastTimeout,
+                checkIntervalMs = fastInterval,
+            )
+
+        watchdog.start()
+        assertTrue("first generation must reach the probe", firstProbeEntered.await(2, TimeUnit.SECONDS))
+        watchdog.stop()
+        // 复用同一实例：旧实现在此处把 stopped 复位，旧循环因此得以回调。
+        watchdog.start()
+        releaseFirstProbe.countDown()
+        Thread.sleep(300)
+        watchdog.stop()
+
+        assertEquals("stale generation must not fire after restart", 0, hangs)
+    }
 }

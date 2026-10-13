@@ -367,10 +367,9 @@ private fun TerminalThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    // 主题单源在 Rust 侧，经仓库取回；自定义主题为禁止实现。
-    val allThemes = remember {
-        terminal.emulator.ui.theme.ThemeRepository.all().toImmutableList()
-    }
+    // 主题单源在 Rust 侧，经仓库取回；自定义主题为禁止实现。取进程内缓存而非
+    // `remember`：本组合在 LazyColumn 列表项内，滚出再滚回会重跑整轮 JNI。
+    val allThemes = terminal.emulator.ui.theme.ThemeRepository.allCached
 
     Column {
         SectionHeader(stringResource(R.string.theme), sectionTitleColor)

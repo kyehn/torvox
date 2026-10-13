@@ -63,6 +63,21 @@ class BootstrapDownloaderTest {
         assertTrue("the user's file must survive", source.exists())
     }
 
+    /**
+     * 回归钉：默认客户端按进程唯一，不随每次点击安装新建。
+     *
+     * 每个 `OkHttpClient` 自带一套 `Dispatcher`（线程池）与 `ConnectionPool`，都要
+     * 显式关闭才立即回收；`BootstrapDownloader` 每次点安装新建一个，若客户端也跟着
+     * 新建，连续安装几次就叠加出多套线程池与连接池。
+     */
+    @Test
+    fun `default client is created once per process`() {
+        assertTrue(
+            "默认客户端必须复用同一实例",
+            BootstrapDownloader.defaultClient() === BootstrapDownloader.defaultClient(),
+        )
+    }
+
     private fun downloader(): BootstrapDownloader = BootstrapDownloader(context())
 
     /** Configures httpsServer with an okhttp-tls HeldCertificate (2048-bit,

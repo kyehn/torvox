@@ -592,7 +592,7 @@
 
 ### 3.5 `render`（39 项）
 
-行级脏跟踪在上游可用，本仓抽取侧尚未接入：0% 命中率是「每帧新建 `RenderState`」与「未标记快照已消费」两个条件同时不成立的合流，实测同一 `RenderState` 跨帧复用并逐帧标记已消费后，24 行中仅写入行与光标离开的末行判脏。接入工作见在途变更 `2026-10-12-audit-research-residual-gaps` 的 `grid-extraction-incremental` 能力。渲染所需属性已全部取到，其余是完整渲染器才需要的附加段。
+行级脏跟踪在上游可用，本仓抽取侧已接入：0% 命中率曾是「每帧新建 `RenderState`」与「未标记快照已消费」两个条件同时不成立的合流，实测同一 `RenderState` 跨帧复用并逐帧标记已消费后，24 行中仅写入行与光标离开的末行判脏。口径见 `grid-extraction-incremental` 能力。渲染所需属性已全部取到，其余是完整渲染器才需要的附加段。
 
 | 项 | 说明 |
 | --- | --- |
@@ -1009,7 +1009,7 @@ SGR 属性经 `render::CellIteration::style` 直读。
 
 ## 4. 观察
 
-- `Terminal::on_bell` 未接线，且有 7 处注释描述了一条不存在的 BEL 通道：`commands.rs:197-198`（悬空附着于 `cell_size_px`）、`types.rs:257`（`EVENT_CHANNEL_CAPACITY`，实际只承载剪贴板写入）与 `session.rs:525`、`:533`、`:539`、`:575`、`:1185`（收割路径文档注释）。已裁定保持静默并删除这些注释，清理见在途变更 `2026-10-12-audit-research-residual-gaps`。`session.rs:612`、`:1028`、`:1040` 的 BEL 指 OSC 52 应答的 ST 终止符，是真实协议内容，不在其列。
+- `Terminal::on_bell` 未接线。曾有 7 处注释描述一条不存在的 BEL 通道（`commands.rs` 的 `RunConfig`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、`session.rs` 的 5 处收割路径文档），已随归档变更 `2026-10-12-audit-research-residual-gaps` 的任务 3.1/3.2 删除；这些位置现只描述 OSC 52 剪贴板写入。`session.rs:612` 的 `0x07` 是 OSC 52 应答的 **BEL 终止符**（兼容 xterm），是真实协议内容，不在其列。
 - `selection::gesture` 一族不采用，理由不止连击计数：其自动滚动按定时器在边缘区持续滚动，与本仓「每次触点移动滚一行、静止不滚」冲突；其手势状态若由 VT 线程持有，则每个触摸帧都需跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。词派生、跟踪选区、随滚动跟随与复制格式化仍走上游，见 §2.8。
 - OSC 52 的读取请求（`?`）上游明确忽略，仍由本仓 `output_processor` 的最小扫描器拦截；因此 `on_clipboard_read` 与整个 `ClipboardRead` 族不必接线。
 - 鼠标与键盘编码器的所有单选项 setter 都不单独调用，选项一律经 `set_options_from_terminal` 从终端整体同步，这是编码正确的唯一入口。

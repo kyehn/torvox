@@ -14,8 +14,17 @@ pub(crate) const SHAPE_CACHE_CAPACITY: usize = 1024;
 /// 同族样式面解析缓存容量：键为 (字体, 粗, 斜) 三元组，组合数天然很小。
 pub(crate) const STYLE_FACE_CACHE_CAPACITY: usize = 64;
 
+/// 样式面字形号缓存容量：键为 (面, 码位)，规模随**屏幕上出现过的不同字符**增长，
+/// 与上一项的三元组不同源。一屏 40×20 就有 800 个不同码位，64 条会被立刻穿透，
+/// 而每次穿透都要重入 `with_face_data` 并重建 charmap（字体解压）。
+pub(crate) const STYLE_GLYPH_ID_CACHE_CAPACITY: usize = 4_096;
+
 /// 轮廓来源探测缓存容量：键带光栅尺寸，覆盖常用字号×字形组合。
 pub(crate) const OUTLINE_CACHE_CAPACITY: usize = 10_000;
+
+/// 「无面能解析此码位」负缓存容量：设备不装的罕见汉字只以两种形态出现——整段输出
+/// 或 `cat` 出来，数量有界，故容量取小值即可（它只在命中时省下一次全库扫描）。
+pub(crate) const UNRESOLVABLE_CACHE_CAPACITY: usize = 512;
 
 /// CJK 表意文字的起始码位（U+2E80），用于判定是否尝试 CJK 回退字体查询。
 pub(crate) const CJK_IDEOGRAPHIC_START: u32 = 0x2E80;
@@ -137,7 +146,6 @@ pub struct GlyphInfo {
     pub width: i32,
     pub height: i32,
     pub placement: swash::zeno::Placement,
-    pub advance_width: f32,
     pub allocation_id: Option<guillotiere::AllocId>,
 }
 
@@ -209,6 +217,89 @@ mod tests {
             !fonts.is_empty(),
             "Should have at least one system monospace font"
         );
+    }
+
+    /// 上报的 `CjkFallbackState` 与渲染器实际取舍必须同源：报 `Skipped`
+    /// （主字体已覆盖、无需回退层）的唯一正当理由是 charmap 探测确认主字体
+    /// 覆盖本 locale 的 CJK，否则应报 `None`。
+    ///
+    /// 一屏之内的不同码位必须都留在样式面字形号缓存里。
+    ///
+    /// 该缓存的键是 (面, 码位)，规模随屏幕上出现过的**不同字符**增长，与同族的
+    /// (字体, 粗, 斜) 三元组缓存不同源。容量若按三元组那种「组合数天然很小」来取，
+    /// 一屏 40×20 就把它穿透，每次未命中都要重入 `with_face_data` 重建 charmap
+    /// （字体解压）——粗体/斜体文本越常见越慢。
+    #[test]
+    fn styled_screenful_of_codepoints_stays_cached() {
+        const SCREENFUL: u32 = 200;
+        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        pipeline.set_system_locale("zh-CN");
+        let sample: Vec<char> = (0x4E00..0x4E00 + SCREENFUL)
+            .filter_map(char::from_u32)
+            .collect();
+        for codepoint in &sample {
+            pipeline.glyph_information_styled(*codepoint, true, false);
+        }
+        assert_eq!(
+            pipeline.caches.style_glyph_id_cache.len(),
+            sample.len(),
+            "样式面字形号缓存必须容得下一屏之内的不同码位"
+        );
+    }
+
+    /// 上报的单元格尺寸必须是**物理**像素，即布局实际使用的那个尺度。
+    ///
+    /// 单元四边形按 `cell_metrics × raster_scale` 布置，而 `font_info` 的字段
+    /// 声明为物理像素（打包布局与设置页的「px」标签都按物理像素读）。少了这个
+    /// 换算，高密度设备上设置页显示的单元格会比实际渲染小一个密度倍数。
+    #[test]
+    fn reported_cell_size_matches_the_rendered_grid_scale() {
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        pipeline.set_raster_scale(3.0);
+        let info = pipeline.font_info();
+        let (logical_width, logical_height) = pipeline.cell_metrics();
+        assert!(
+            (info.cell_width_px - logical_width * 3.0).abs() < 1e-3
+                && (info.cell_height_px - logical_height * 3.0).abs() < 1e-3,
+            "上报单元格 {:?} 应为布局尺寸 ({}, {}) × raster_scale",
+            (info.cell_width_px, info.cell_height_px),
+            logical_width,
+            logical_height
+        );
+    }
+
+    /// 早先的族名子串启发式与探测会相反（族名带 CJK 字样但 charmap 无该码位），
+    /// 于是 UI 显示「已覆盖」而渲染器其实装着回退层。本用例在宿主上只能钉住
+    /// 「无 fonts.xml 时拉丁等宽面报 None」这一端；分叉的那一端（主字体本身即 CJK
+    /// 字体）只在设备上出现，无法在宿主单测中构造——由 `primary_covers_cjk_probe`
+    /// 单一实现从结构上排除两处各判一次的可能。
+    #[test]
+    fn reported_cjk_skipped_implies_primary_really_covers_cjk() {
+        use crate::render::font::pipeline::CjkFallbackState;
+
+        for locale in ["zh-CN", "ja-JP", "ko-KR"] {
+            let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+            pipeline.set_system_locale(locale);
+            let info = pipeline.font_info();
+            if !info.cjk_families.is_empty() {
+                assert_eq!(
+                    info.cjk_state,
+                    CjkFallbackState::Fallback,
+                    "locale={locale}"
+                );
+                continue;
+            }
+            // 无回退层时报 Skipped 只有一个正当理由：charmap 探测确认主字体
+            // 覆盖本 locale 的 CJK。宿主无 fonts.xml，主字体是 DroidSansMono
+            // 一类拉丁等宽面，既不覆盖中也不覆盖 가 —— 任何 locale 都必须是
+            // None。早先的族名子串启发式在这里同样返回 false，故本断言的作用是
+            // 钉住「探测与上报同源」这条关系，而非当前具体字体。
+            assert!(
+                !pipeline.primary_covers_cjk_probe(),
+                "locale={locale}: 宿主等宽面不该覆盖 CJK，若换字体请同步更新本断言"
+            );
+            assert_eq!(info.cjk_state, CjkFallbackState::None, "locale={locale}");
+        }
     }
 
     #[test]
@@ -776,77 +867,32 @@ mod tests {
         assert!(descent > 0.0, "descent should be positive, got {descent}");
     }
 
+    /// CJK 字形位图必须非空，且宽度落在两格之内。
+    ///
+    /// 着色器按 bearing 定位、按 1:1 采样，裁剪靠位图与格子的几何关系完成，
+    /// 不再按前进宽度缩放——故「前进宽度合理」已无意义，改为钉住真正决定观感的
+    /// 两条：位图非空（否则是豆腐块/空白），宽度不超过 CJK 四边形（两格）太多
+    /// （超出的部分会被裁掉，用户看到半个字）。
     #[test]
-    fn cell_width_from_m_advance_matches() {
+    fn cjk_glyph_bitmap_fits_in_two_cells() {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let info_m = pipeline.glyph_information('m').expect("should have 'm'");
-        let info_x = pipeline.glyph_information('X').expect("should have 'X'");
-        let (cw, _ch) = pipeline.cell_metrics();
-        assert!(
-            (info_m.advance_width - cw).abs() < 1.0,
-            "advance_width('m')={} ≈ cell_width={}",
-            info_m.advance_width,
-            cw
-        );
-        assert!(
-            (info_x.advance_width - cw).abs() < 1.0,
-            "advance_width('X')={} ≈ cell_width={}",
-            info_x.advance_width,
-            cw
-        );
-    }
-
-    #[test]
-    fn any_monospace_advance_matches_cell_width() {
-        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let (cw, _) = pipeline.cell_metrics();
-        let chars = ['A', 'm', 'W', '0', 'l', 'i'];
-        for ch in chars {
-            if let Some(info) = pipeline.glyph_information(ch) {
-                assert!(
-                    (info.advance_width - cw).abs() < 2.0,
-                    "advance('{ch}')={:.1} ≈ cell_width={:.1}",
-                    info.advance_width,
-                    cw
-                );
-            }
-        }
-        if let Some(alt) = pipeline.list_monospace_fonts().first().cloned()
-            && pipeline.set_font_family(&alt)
-        {
-            let (cw2, _) = pipeline.cell_metrics();
-            for ch in chars {
-                if let Some(info) = pipeline.glyph_information(ch) {
-                    assert!(
-                        (info.advance_width - cw2).abs() < 2.0,
-                        "font '{alt}': advance('{ch}')={:.1} ≈ cell_width={:.1}",
-                        info.advance_width,
-                        cw2
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn cjk_advance_valid_for_any_font() {
-        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let (cw, _) = pipeline.cell_metrics();
-        let cjk_chars = ['中', '好', '世', '界', '日', '本'];
-        for ch in cjk_chars {
-            if let Some(info) = pipeline.glyph_information(ch) {
-                assert!(
-                    info.advance_width > 0.0,
-                    "CJK '{ch}' must have positive advance, got {:.1}",
-                    info.advance_width
-                );
-                assert!(
-                    info.advance_width <= cw * 3.0,
-                    "CJK '{ch}' advance={:.1} should be ≤ 3*cell_width={:.1}",
-                    info.advance_width,
-                    cw * 3.0
-                );
-            }
+        let (cell_width, _) = pipeline.cell_metrics();
+        for codepoint in [
+            '\u{4E2D}', '\u{597D}', '\u{4E16}', '\u{754C}', '\u{65E5}', '\u{672C}',
+        ] {
+            let Some(info) = pipeline.glyph_information(codepoint) else {
+                continue;
+            };
+            assert!(
+                info.width > 0 && info.height > 0,
+                "CJK {codepoint} 必须光栅化出非空位图（实得 {info:?}）"
+            );
+            assert!(
+                info.width as f32 <= cell_width * 2.5,
+                "CJK {codepoint} 位图宽 {} 超出两格（{}×2），会被裁掉半个字",
+                info.width,
+                cell_width
+            );
         }
     }
 
@@ -995,6 +1041,80 @@ mod tests {
 
     // ──: 分层回退 ─────────────
 
+    /// 回归钉：样式面判定须随 `clear_identity_caches` 一并失效。
+    ///
+    /// 「这个族有没有粗/斜面」的结论存在 `style_face_cache` 里，而
+    /// `set_system_locale` 恰恰会在清缓存之后**补装整个 TTC**（含全套字重与样式）。
+    /// 只清正缓存的话，补装前算出的「无粗面」会活过那次补装：主字体没变、key 不变、
+    /// LRU 也不会自然淘汰，于是 `bold=true` 一直走合成加粗而不是真粗面。
+    #[test]
+    fn style_face_verdict_is_invalidated_by_clear_identity_caches() {
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        // 以真实路径填充判定缓存（`resolve_style_face` 在里面记账）。
+        let _ = pipeline.glyph_information_styled('A', true, false);
+        assert!(
+            !pipeline.caches.style_face_cache.is_empty(),
+            "前置条件：样式面判定应已被缓存"
+        );
+
+        // 换 locale：这正是会补装区域回退面的那条路径。
+        pipeline.set_system_locale("zh-CN");
+        assert!(
+            pipeline.caches.style_face_cache.is_empty(),
+            "补装字面后旧的「有无粗面」结论必须作废，否则补装进来的真粗面永不被使用"
+        );
+
+        // 换字体同样要作废（另一条调用 `clear_identity_caches` 的路径）。
+        // 必须换成**真正不同的族**：`set_font_family` 在解析结果与当前字面相同时是
+        // 刻意不去失效的空操作（见其 KDoc），换回同一族本就不该清缓存。
+        let _ = pipeline.glyph_information_styled('A', true, false);
+        assert!(
+            !pipeline.caches.style_face_cache.is_empty(),
+            "前置条件：判定重新被缓存"
+        );
+        let primary_id = pipeline.font_id.expect("管线应有主字体");
+        let current_family = pipeline
+            .font_system
+            .db()
+            .face(primary_id)
+            .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+            .expect("主字体须给出族名");
+        let other = pipeline
+            .list_monospace_fonts()
+            .into_iter()
+            .find(|name| *name != current_family)
+            .expect("宿主应有第二个等宽族（run inside nix develop）");
+        assert!(pipeline.set_font_family(&other), "切到 {other} 应成功");
+        assert!(
+            pipeline.caches.style_face_cache.is_empty(),
+            "换主字体同样必须作废样式面判定"
+        );
+    }
+
+    /// 回归钉：解析不出的码位只扫一次全库，之后命中负缓存直接跳过。
+    ///
+    /// `find_glyph_anywhere` 要遍历 fontdb 全部 face 并逐个 `with_face_data` 解压，
+    /// 设备未装的罕见汉字每帧一次是实打实的开销。判别力：断言第一次解析后负缓存
+    /// 即有该码位，且它与 `cjk_glyph_cache` 同批失效——换字体后必须重新扫，
+    /// 否则「新增字体后仍判找不到」会让新字永久不显示。
+    #[test]
+    fn unresolvable_codepoint_is_scanned_once_then_cached() {
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        // U+10FFFD（私用平面）无任何字体覆盖，稳定落在「扫描失败」这一支。
+        let rare = char::from_u32(0x10FFFD).expect("valid private-use codepoint");
+        pipeline.glyph_information(rare);
+        assert!(
+            pipeline.caches.unresolvable_glyphs.contains(&rare),
+            "扫描失败后必须记入负缓存，否则每帧重扫全库"
+        );
+        // 同批失效：换字号走 clear_identity_caches，负缓存随之清空。
+        pipeline.set_font_size_in_place(16.0);
+        assert!(
+            !pipeline.caches.unresolvable_glyphs.contains(&rare),
+            "负缓存须与 cjk_glyph_cache 同批失效，否则新字体装入后仍判找不到"
+        );
+    }
+
     #[test]
     fn symbol_glyph_resolves_via_database_scan() {
         // U+25B6 (▶) 不在 Liberation Mono 中，却在宿主的 DejaVu Sans 中。
@@ -1037,6 +1157,51 @@ mod tests {
         assert_eq!(
             reread.width, info.width,
             "symbol reread must match first resolution"
+        );
+    }
+
+    /// `.notdef` 入缓存后不得短路回退链（spec d7 场景 3 的次序变体）。
+    ///
+    /// 主字体未覆盖的码位最终会止于 `.notdef`，而 `.notdef` 是一个非空的空心方框，
+    /// 于是它会被当作正常字形写进字形缓存。此后**任何**主字体未覆盖的码位都会在
+    /// 快径上命中这条缓存并直接返回豆腐块，跳过 CJK 回退层与全库扫描——同一屏幕上
+    /// 「先出现的未知码位」会决定后续所有未知码位的命运。故快径必须与回退支路
+    /// 一样先排除字形号 0。
+    #[test]
+    fn cached_notdef_does_not_shortcut_the_fallback_chain() {
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        assert!(
+            pipeline
+                .list_monospace_fonts()
+                .iter()
+                .any(|name| name.contains("Liberation")),
+            "Liberation Mono must be present (run inside nix develop)"
+        );
+        assert!(
+            pipeline.set_font_family("Liberation Mono"),
+            "switch to Liberation Mono"
+        );
+        // 毒化：先查一个宿主任何字体都没有的码位，让 `.notdef` 进字形缓存。
+        let rare = char::from_u32(0x10FFFD).expect("valid private-use codepoint");
+        let notdef = pipeline
+            .glyph_information(rare)
+            .expect(".notdef must still produce a glyph");
+        assert!(
+            notdef.width > 0 && notdef.height > 0,
+            "前提：.notdef 可光栅化且非空（实得 {notdef:?}），否则本用例无从验证"
+        );
+        // 随后查询一个必须由回退面解析的符号：若被 `.notdef` 短路，这里会是豆腐块。
+        pipeline
+            .glyph_information('\u{25B6}')
+            .expect("symbol glyph");
+        let resolved = pipeline
+            .caches
+            .cjk_glyph_cache
+            .get(&'\u{25B6}')
+            .expect("symbol must be cached");
+        assert_ne!(
+            resolved.1, 0,
+            "先查过未知码位后，符号仍须由回退面解析出真实字形，不能被缓存的 .notdef 短路"
         );
     }
 

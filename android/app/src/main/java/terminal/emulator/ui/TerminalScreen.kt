@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -46,6 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
@@ -119,7 +121,9 @@ fun TerminalScreen(
     val terminalBackground = resolvedTerminalTheme.background
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // 只在事件回调里读写，从不在组合期读，故不用快照状态——那会让每次赋值多触发
+    // 一次无效失效（写入还发生在 Handler 回调里，本就不在快照范围内）。
+    val searchJobHolder = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
     // 搜索查询的 150ms 真实防抖。SearchDebouncer 把快速连击合并为静默期后的
     // 一次 performSearch，而不是每次击键都触发一次全回滚搜索。
     // 生产调度器跑在主 Looper 上（TerminalSurface 回调在主线程）；
@@ -440,13 +444,20 @@ fun TerminalScreen(
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 key(surfaceKey) {
                     Box(modifier = Modifier.fillMaxSize()) {
+                        // 工厂在**组合期**被调用（ComposeNode 创建阶段），而
+                        // `surfaceRef` 在本组合内被读（LaunchedEffect 的 key）——
+                        // 组合期写快照状态会让整个 TerminalScreen 再走一遍组合，
+                        // 首遍还按 `surfaceRef == null` 挂上另一条 effect 分支。
+                        // 故工厂只把视图放进非快照持有者，由随后的 SideEffect
+                        // （组合提交后）写入快照状态。
+                        val createdSurface = remember { arrayOfNulls<TerminalSurface>(1) }
                         AndroidView(
                             factory = { context ->
                                 terminal.emulator.ui
                                     .TerminalSurface(context)
                                     .apply { setTag("TerminalSurfaceView") }
                                     .also { surface ->
-                                        surfaceRef.value = surface
+                                        createdSurface[0] = surface
                                         surface.attachViewModel(viewModel)
                                         surface.onScrollChanged = { offset ->
                                             viewportScrollOffset.intValue = offset
@@ -494,6 +505,8 @@ fun TerminalScreen(
                             },
                             modifier = Modifier.fillMaxSize(),
                         )
+                        // 组合提交后再发布：组合期写会让本作用域立即再组合一遍。
+                        SideEffect { surfaceRef.value = createdSurface[0] }
 
                         if (selectionActive) {
                             val selStart = selection.start
@@ -639,16 +652,16 @@ fun TerminalScreen(
                                 if (coerced == null) {
                                     searchState =
                                         searchState.copy(query = newQuery, resultCount = 0, selectedMatch = null)
-                                    searchJob?.cancel()
+                                    searchJobHolder.get()?.cancel()
                                     searchDebouncer.cancel()
                                 } else {
                                     searchState = searchState.copy(query = coerced)
-                                    searchJob?.cancel()
+                                    searchJobHolder.get()?.cancel()
                                     // 防抖：连续击键在静默 150ms 后合并为一次 performSearch
                                     // （termlib / ghostty-android 做法）。待执行的搜索由
                                     // debouncer 取消，而非每次击键都新起协程。
                                     searchDebouncer.submit {
-                                        searchJob = scope.launch { performSearch() }
+                                        searchJobHolder.set(scope.launch { performSearch() })
                                     }
                                 }
                             },
@@ -668,52 +681,38 @@ fun TerminalScreen(
                                 showTextSearch = false
                                 searchState = SearchState()
                                 searchDebouncer.cancel()
-                                searchJob?.cancel()
+                                searchJobHolder.get()?.cancel()
                                 surfaceRef.value?.clearSearchHighlights()
                             },
                             modifier = Modifier.testTag("TextSearchBar"),
                         )
                     } else {
+                        // 按键回调整体 `remember`：强跳过模式（Compose 编译器 2.x 起
+                        // 默认开启）按**实例**比较 lambda，每次重组现造的必然是不同实例，
+                        // 该组合永不被跳过，两行按键与分页器整棵子树每次都重跑（此前用
+                        // `@NonRestartableComposable` 压掉编译器告警，等于把根因当症状治）。
+                        // 构造放在非 @Composable 函数里：compose-lints 的
+                        // `ComposeViewModelForwarding` 规则禁止组合体直接引用 ViewModel
+                        // 参数并转交下去。
+                        val modifierBarActions =
+                            remember(viewModel, scope, drawerState) {
+                                buildModifierBarActions(viewModel, scope, drawerState)
+                            }
                         ModifierBar(
                             modifier = Modifier.testTag("ModifierBar"),
-                            // 文本输入页：输入法文本不经按键编码器，原样直写。
-                            onSubmit = { data ->
-                                val sessionId = viewModel.runtime.inputTargetSessionId
-                                viewModel.writeToPty(sessionId, data.toByteArray(Charsets.UTF_8))
-                            },
-                            // 按键页：统一走原生键编码器，模式（DECCKM、modifyOtherKeys、
-                            // kitty 键盘协议）由终端状态决定，Kotlin 不再自带序列。
-                            onKey = { keyCode, modifiers ->
-                                viewModel.runtime.bridge()
-                                    ?.processKeyEvent(keyCode, modifiers, 0, 0, 0) == true
-                            },
-                            onConsumeModifiers = {
-                                viewModel.consumeOneShotModifiers()
-                            },
-                            onDrawerClick = {
-                                scope.launch { drawerState.open() }
-                            },
-                            onPasteClick = {
-                                viewModel.pasteFromClipboard()
-                            },
-                            onScrollClick = {
-                                viewModel.toggleScrollMode()
-                            },
+                            onSubmit = modifierBarActions.onSubmit,
+                            onKey = modifierBarActions.onKey,
+                            onConsumeModifiers = modifierBarActions.onConsumeModifiers,
+                            onDrawerClick = modifierBarActions.onDrawerClick,
+                            onPasteClick = modifierBarActions.onPasteClick,
+                            onScrollClick = modifierBarActions.onScrollClick,
                             scrollActive = state.scrollActive,
                             ctrlState = state.ctrlState,
                             altState = state.altState,
-                            onToggleCtrl = {
-                                viewModel.cycleCtrlState()
-                            },
-                            onToggleAlt = {
-                                viewModel.cycleAltState()
-                            },
-                            onLockCtrl = {
-                                viewModel.lockCtrlState()
-                            },
-                            onLockAlt = {
-                                viewModel.lockAltState()
-                            },
+                            onToggleCtrl = modifierBarActions.onToggleCtrl,
+                            onToggleAlt = modifierBarActions.onToggleAlt,
+                            onLockCtrl = modifierBarActions.onLockCtrl,
+                            onLockAlt = modifierBarActions.onLockAlt,
                             textColor = resolvedTerminalTheme.foreground,
                             backgroundColor = resolvedTerminalTheme.background,
                         )
@@ -764,3 +763,39 @@ internal fun usesLightSystemBarIcons(background: Color): Boolean =
 
 /** 背景亮度高于此值即按浅色背景处理（图标取深色）。取 WCAG 相对亮度中点。 */
 private const val LIGHT_BACKGROUND_LUMINANCE_THRESHOLD = 0.5f
+
+/**
+ * 构造修饰键栏的回调集合。
+ *
+ * 刻意放在非 `@Composable` 函数里：compose-lints 的 `ComposeViewModelForwarding`
+ * 规则禁止组合体直接引用并转交 ViewModel 参数（[TerminalScreen] 的
+ * `viewModel` 是带默认值的参数）。调用点只需
+ * `remember(viewModel, scope, drawerState) { buildModifierBarActions(...) }`
+ * 一次，即可让 `ModifierBar` 的全部 lambda 参数在重组间保持同一实例。
+ *
+ * 捕获的都是重组间稳定的值，故按这些键记忆不会读到过期引用。
+ */
+private fun buildModifierBarActions(
+    viewModel: TerminalViewModel,
+    scope: CoroutineScope,
+    drawerState: DrawerState,
+): ModifierBarActions = ModifierBarActions(
+    // 文本输入页：输入法文本不经按键编码器，原样直写。
+    onSubmit = { data: String ->
+        val sessionId = viewModel.runtime.inputTargetSessionId
+        viewModel.writeToPty(sessionId, data.toByteArray(Charsets.UTF_8))
+    },
+    // 按键页：统一走原生键编码器，模式（DECCKM、modifyOtherKeys、kitty 键盘
+    // 协议）由终端状态决定，Kotlin 不再自带序列。
+    onKey = { keyCode: Int, modifiers: Int ->
+        viewModel.runtime.bridge()?.processKeyEvent(keyCode, modifiers, 0, 0, 0) == true
+    },
+    onDrawerClick = { scope.launch { drawerState.open() } },
+    onScrollClick = { viewModel.toggleScrollMode() },
+    onToggleCtrl = { viewModel.cycleCtrlState() },
+    onToggleAlt = { viewModel.cycleAltState() },
+    onLockCtrl = { viewModel.lockCtrlState() },
+    onLockAlt = { viewModel.lockAltState() },
+    onPasteClick = { viewModel.pasteFromClipboard() },
+    onConsumeModifiers = { viewModel.consumeOneShotModifiers() },
+)

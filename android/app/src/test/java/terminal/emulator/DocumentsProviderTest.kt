@@ -774,6 +774,45 @@ class DocumentsProviderTest {
         }
     }
 
+    /**
+     * 回归钉：把符号链接搬进其**解析目标**的子目录必须放行，与 copyDocument 一致。
+     *
+     * `isHomeLink` 对家目录内的链接返回链接自身，故此处 `source` 是链接而不是
+     * `mvtree`；`canonicalFile` 却把链接解析成目标，于是不带 `isSymbolicLink` 限定
+     * 的守卫会把一次普通 rename 误判成「搬进自己的子孙」而拒绝。move 不遍历子树，
+     * 根本不存在 a/b/a/b 打转风险——copyDocument 早已按此放行。
+     */
+    @Test
+    fun moveDocument_symlink_into_its_own_target_subtree_is_allowed() {
+        val provider = ensureProvider()
+        val tree = java.io.File(rootDir(), "mvtree").apply { mkdirs() }
+        java.io.File(tree, "sub").mkdirs()
+        createSymlink("mvlink", tree)
+        val newId = provider.moveDocument("mvlink", "terminal_home", "mvtree/sub")
+        assertEquals("mvtree/sub/mvlink", newId)
+        val moved = java.io.File(rootDir(), newId)
+        assertTrue(
+            "moved entry must stay a symlink, not an expanded directory",
+            java.nio.file.Files.isSymbolicLink(moved.toPath()),
+        )
+        assertEquals(tree.canonicalPath, moved.canonicalPath)
+    }
+
+    /** 守卫对真目录仍然生效：链接放行不等于放弃自环防护。 */
+    @Test
+    fun moveDocument_real_directory_into_own_descendant_is_still_refused() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "realtree/sub").apply { mkdirs() }
+        val failure =
+            try {
+                provider.moveDocument("realtree", "terminal_home", "realtree/sub")
+                null
+            } catch (expected: java.io.IOException) {
+                expected
+            }
+        assertNotNull("真目录搬进自身子孙必须仍然被拒", failure)
+    }
+
     @Test
     fun copyDocument_into_own_descendant_is_refused() {
         val provider = ensureProvider()

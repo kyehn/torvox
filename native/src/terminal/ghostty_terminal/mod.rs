@@ -35,6 +35,10 @@ pub struct GhosttyTerminal {
     /// 供 Android 输入路径免阻塞 RPC 检出备用屏（vim/less/htop），使触摸滚动
     /// 转发为滚轮转义序列而非滚动本地回滚（备用屏会吞掉滚轮）。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
+    /// VT 线程上 `Terminal::resize` 失败留下的标记：网格仍是旧尺寸，而
+    /// `Session::resize` 已按「命令已入队」把缓存尺寸发布成新值。调用方据此
+    /// 让下一次 resize 事件（即使尺寸相同）重试，修复永久分歧。
+    pub(crate) resize_failed: Arc<AtomicBool>,
     /// 行级抽取的可观测计数，仅测试使用。
     #[cfg(test)]
     pub(crate) cache_stats: internal::CacheStats,

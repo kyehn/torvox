@@ -133,6 +133,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 而新的 TerminalSurface 会构建新的 InputBatchBuffer。
         // 不做此步，每次重建都会泄漏一个守护线程，它经 sink 闭包钉住整条视图链。
         inputBatchBuffer.close()
+        // 摘掉排队钩子：批缓冲已关闭，留着会让此后的按键写入被拒并逐条记警告，
+        // 而直写本就是合法路径（视图不在前台时）。
+        viewModel?.runtime?.bridge()?.ptyWriteQueue = null
     }
 
     override fun onAttachedToWindow() {
@@ -371,14 +374,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (cellWidthPixels <= 0f || cellHeightPixels <= 0f) return null
         val start = selection.start ?: return null
         val end = selection.end ?: return null
-        val (topRow, bottomRow) =
-            if (start.row <= end.row) start.row to end.row else end.row to start.row
-        val (leftCol, rightCol) =
-            if (start.row < end.row || start.col <= end.col) {
-                start.col to end.col
-            } else {
-                end.col to start.col
-            }
+        // 行按先后归一（与取文共用 `normalizeSelectionAnchors`）；列取包围盒极值——
+        // 多行选区的列是各行内偏移，不存在「全局左右」，故不能跟着行一起换。
+        val (lo, hi) = normalizeSelectionAnchors(start, end, { it.row }, { it.col })
+        val topRow = lo.row
+        val bottomRow = hi.row
+        val leftCol = minOf(start.col, end.col)
+        val rightCol = maxOf(start.col, end.col)
         val viewportTopGrid = currentViewportTopGrid()
         val (leftPx, topPx) = gridToScreen(topRow, leftCol, viewportTopGrid, cellWidthPixels, cellHeightPixels)
         val (rightPx, bottomPx) =
@@ -717,10 +719,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        if (isPaused) {
-                            composing.clear()
-                            return true
-                        }
+                        // 暂停时据实拒绝（理由同 `sendKeyEvent`）：返回 true 等于谎报已送达，
+                        // 而字节并未发出，且组字基线不得在此清——失焦时输入法自动提交
+                        // 整段组字，返回 false 才能让它重发，丢字不可恢复。
+                        if (isPaused) return false
                         // 触摸抑制窗口内不清组字基线、不吞输入：返回 false 让输入法重试，
                         // 否则下次更新以空基线做 diff 致重复文本（N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
@@ -752,15 +754,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun finishComposingText(): Boolean {
+                        // 暂停时不得清基线：PTY 已收到组字增量，失焦清空后输入法
+                        // 重新提交会按空基线算出整段追加，同一段文字被写入两次。
+                        if (isPaused) return false
                         composing.clear()
                         return true
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        if (isPaused) {
-                            composing.clear()
-                            return true
-                        }
+                        // 暂停时据实拒绝（理由同 `setComposingText`），不得清组字基线。
+                        if (isPaused) return false
                         // 同上：抑制窗口内返回 false 让输入法重发该提交，
                         // 返回 true 等于声称已处理，字符永久丢失（N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
@@ -823,7 +826,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                        if (isPaused) return true
+                        if (isPaused) return false
                         // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
                         // beforeLength/afterLength 来自输入法（不可信）：
@@ -927,7 +930,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         newCursorPosition: Int,
                         attrs: TextAttribute?,
                     ): Boolean {
-                        if (isPaused) return true
+                        if (isPaused) return false
                         // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val target =
@@ -945,7 +948,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      * 不引入新文本，区间外的已提交内容必须原样保留。
                      */
                     override fun setComposingRegion(start: Int, end: Int): Boolean {
-                        if (isPaused) return true
+                        if (isPaused) return false
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val target = composing.reanchorRegion(start, end) ?: return false
                         val edit = ComposingDiff.reconcile(composing.text, target)
@@ -1000,7 +1003,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      * 否则输入法会把自己的移动误认为内容变更而重发整段。
                      */
                     override fun setSelection(start: Int, end: Int): Boolean {
-                        if (isPaused) return true
+                        if (isPaused) return false
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val delta = selectionMover.moveTo(end)
                         if (delta.isEmpty) return true
@@ -1494,6 +1497,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
         viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
+        // 硬件按键与鼠标事件同样排到批缓冲：直写的 `feedPty` 在主端满时最多等 5s，
+        // 会把 UI 线程冻住；共用一条出口还顺带保证与输入法写入的先后顺序
+        // （两路各写时，缓冲中待发的退格会被直写的击键越过）。
+        viewModel.runtime.bridge()?.ptyWriteQueue = { sessionId, data ->
+            inputBatchBuffer.write(data, sessionId)
+        }
         observeImeShiftInputs(viewModel)
     }
 
@@ -3194,6 +3203,21 @@ internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px /
 
 /** 纯像素矩形（y 向下增大）：菜单锚定的几何输入，JVM 可单测（不碰 android.jar）。 */
 internal data class PixelRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+/**
+ * 选区两端点按「先比行、行同再比列」归一化为 (起点, 终点)。
+ *
+ * 上游保留选择方向，`start`/`end` 可能反向。归一化只有这一处实现：菜单锚定与
+ * 取文两处各写一份时曾分叉——取文那份判 `row < row || (row == row && col <= col)`，
+ * 菜单那份少了行相等那一支，对向左下的选区会算出 leftCol > rightCol。今天菜单只取
+ * `(left + right) / 2`，交换不可见，故未暴露；任何非对称用法（如按宽度裁剪）即继承该错。
+ */
+internal fun <T> normalizeSelectionAnchors(start: T, end: T, row: (T) -> Int, col: (T) -> Int): Pair<T, T> =
+    if (row(start) < row(end) || (row(start) == row(end) && col(start) <= col(end))) {
+        start to end
+    } else {
+        end to start
+    }
 
 /**
  * 菜单锚定纯函数（design 决策 3）：返回菜单左上角 (x, y)；无处可放返回 null（调用方隐藏菜单）。规则：

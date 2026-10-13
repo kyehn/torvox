@@ -47,17 +47,10 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
-    /** 是否存在主剪贴板（能防范剪贴板服务死掉时的异常；用于粘贴按钮的可用性判断）。 */
-    @SuppressLint("DeprecatedCall")
-    fun hasClipboardText(): Boolean {
-        val clipboard = manager() ?: return false
-        return try {
-            // hasPrimaryClip()：无替代方案的弃用 API（API 36）。
-            clipboard.hasPrimaryClip()
-        } catch (failure: Exception) {
-            // 只记异常类名：异常消息可能嵌入剪贴板文本。
-            LogUtil.w(tag, "剪贴板存在性查询失败: ${failure.javaClass.simpleName}")
-            false
-        }
-    }
+    /**
+     * 剪贴板里是否有可粘贴的文本；无主剪贴板、非文本项（URI/Intent 剪贴）或读取失败
+     * 均为 false。复用 [clipboardText]：粘贴菜单据此决定是否提供 PASTE，口径与真正
+     * 粘贴出去的必须是同一份内容。
+     */
+    fun hasClipboardText(): Boolean = clipboardText().getOrNull() != null
 }

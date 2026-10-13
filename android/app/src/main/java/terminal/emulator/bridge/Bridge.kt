@@ -52,6 +52,25 @@ class Bridge(private val config: TerminalConfig) {
     @Volatile var onPtyWrite: (() -> Unit)? = null
 
     /**
+     * 把 PTY 写入交给宿主排队的钩子；为 null 时直写。
+     *
+     * 原生 `feedPty` 在主端满时最多等 `WRITE_DRAIN_TIMEOUT`（5s），而击键与鼠标
+     * 事件从 UI 线程直连——子进程不读 stdin 时每次按键冻住主线程。宿主把本钩子接到
+     * 按帧合并的批缓冲上，写入即落到单线程发送器：UI 线程不阻塞，且与输入法写入
+     * 共用同一条有序出口（此前两路各写，缓冲中待发的退格会被直写的击键越过）。
+     *
+     * [writeToPty] 这条**不走**本钩子——它本身就是批缓冲的 sink，排队会自调用。
+     * 由 [terminal.emulator.ui.TerminalSurface] 在 attach/detach 之间设置。
+     */
+    @Volatile var ptyWriteQueue: ((Long, ByteArray) -> Unit)? = null
+
+    /** 交给宿主队列（若有），否则直写。调用点无须再判，语义一致。 */
+    private fun sendToPty(sessionId: Long, data: ByteArray) {
+        val queue = ptyWriteQueue
+        if (queue != null) queue(sessionId, data) else NativeBridge.feedPty(sessionId, data)
+    }
+
+    /**
      * 统一转发一次 JNI 调用。
      *
      * 两种「拿不到结果」的状态共用 [onUnavailable]：会话尚未建立（id 为 0），
@@ -440,7 +459,11 @@ class Bridge(private val config: TerminalConfig) {
                 NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, modifiers, cellWidth, cellHeight)
             }
         if (bytes.isEmpty()) return false
-        return writeToPty(bytes)
+        return onSession("encodeMouseEvent:write", false) { targetId ->
+            sendToPty(targetId, bytes)
+            onPtyWrite?.invoke()
+            true
+        }
     }
 
     /**
@@ -478,7 +501,8 @@ class Bridge(private val config: TerminalConfig) {
                     action = action,
                 )
             if (encoded.isNotEmpty()) {
-                NativeBridge.feedPty(id, encoded)
+                // 排队写：几乎全部按键走这一支，直写会让子进程不读 stdin 时冻住主线程。
+                sendToPty(id, encoded)
                 onPtyWrite?.invoke()
                 return@onSession true
             }
@@ -497,9 +521,7 @@ class Bridge(private val config: TerminalConfig) {
             // 推导字符，保证这类击键仍能到达 PTY：范围必须覆盖**整个**按键码域而非只有
             // A..Z，否则空格、数字与标点（输入法同样报告 unicodeChar=0）会被整键丢弃。
             if (!ctrlActive) {
-                val derived =
-                    android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
-                        .get(keyCode, 0)
+                val derived = virtualKeyboardMap.get(keyCode, 0)
                 if (derived > 0 && Character.isValidCodePoint(derived)) {
                     NativeBridge.writeKey(id, String(Character.toChars(derived)), metaPrefix)
                     return@onSession true
@@ -582,6 +604,16 @@ class Bridge(private val config: TerminalConfig) {
 
     companion object {
         private const val TAG = "Bridge"
+
+        /**
+         * 虚拟键盘的按键字符映射表：进程内取一次。
+         *
+         * `KeyCharacterMap.load` 每次都新建对象并走一次 `nativeLoad`，平台不缓存——
+         * 原先在每次击键的回退路径上调，等于每次按键都重新加载整张映射表。
+         */
+        private val virtualKeyboardMap: android.view.KeyCharacterMap by lazy {
+            android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
+        }
 
         /** renderWithNewOutput 打包：内容下沿行占 bit 43..52，该值表示视口全空。 */
         const val LAST_CONTENT_ROW_NONE_BITS = 0x3FF
