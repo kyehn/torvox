@@ -285,6 +285,9 @@ constructor(
      */
     @Volatile private var pendingSurface: PendingSurface? = null
 
+    /** Surface 归属：判定 `surfaceDestroyed` 是否来自当前持有视图。 */
+    private val surfaceOwnership = terminal.emulator.ui.SurfaceOwnership()
+
     /** 一次移交的 Surface 与其尺寸；不可变，读一次即自洽。 */
     private class PendingSurface(val surface: android.view.Surface, val width: Int, val height: Int)
 
@@ -874,10 +877,25 @@ constructor(
     }
 
     /**
+     * 拖动途中按节流推送选区边界（与 [setSelection] 的区别只有 `dragging`）。
+     *
+     * MUST 保留 `dragging=true`：普通提交意味着「拖动已结束」，而节流推送发生在
+     * 拖动途中——若它也把 dragging 清成 false，[setSelectionDragging] 置的保护
+     * 最多存活一个节流周期（50ms），新输出随即可能把视口拽回底部，手柄白拖。
+     */
+    fun pushSelectionBoundsDuringDrag(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        selectionState.set(
+            SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection = true, dragging = true),
+        )
+        sessions[activeSessionId]?.notifyRender()
+    }
+
+    /**
      * 在 UI 线程标记选区手柄拖拽的开始/结束，经既有 selectionState 通道并入
      * SelectionStateSnapshot.dragging。渲染线程在滚动复位决策中视拖拽等同选区激活
      * （termux skipScrolling 对等语义）。endSelection/clearSelection 经 setSelection
-     * 以 dragging=false 覆写快照，故无需专门的清除路径。
+     * 以 dragging=false 覆写快照，故无需专门的清除路径；拖动途中的边界推送走
+     * [pushSelectionBoundsDuringDrag]，它保留该位。
      */
     fun setSelectionDragging(dragging: Boolean) {
         val current = selectionState.get()
@@ -3776,7 +3794,30 @@ constructor(
         }
     }
 
-    fun onSurfaceDestroyed() {
+    /**
+     * 认领 Surface 归属。视图每次拿到可用 Surface 都调一次——此后它才是唯一有权
+     * 暂停渲染的那个（见 [onSurfaceDestroyed]）。
+     */
+    fun onSurfaceClaimed(owner: Any) {
+        surfaceOwnership.claim(owner)
+    }
+
+    /**
+     * Surface 被销毁。[owner] 是回调方视图的凭证。
+     *
+     * **陈旧视图的回调必须原样忽略**：Activity 重建时旧窗口的 `surfaceDestroyed`
+     * 可能晚于新视图的 `surfaceCreated` 到达，而全局暂停是非计数布尔、清除它的
+     * 位置全在新视图的恢复路径上——按下去就没有人再放开，终端全黑且渲染线程毫无
+     * 异常表现（无错误、无重启、无自愈）。
+     */
+    fun onSurfaceDestroyed(owner: Any) {
+        if (!surfaceOwnership.release(owner)) {
+            LogUtil.w(
+                TAG,
+                "onSurfaceDestroyed: stale view ignored (current owner=${surfaceOwnership.currentOwner})",
+            )
+            return
+        }
         // 待绑定的 Surface（bridge 存在之前的 start/attachSurface）
         // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
         // 并渲染出黑帧。整条记录（含尺寸）一并清空，否则重算网格会沿用已销毁尺寸。

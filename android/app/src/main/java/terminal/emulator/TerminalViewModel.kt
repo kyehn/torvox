@@ -451,7 +451,9 @@ constructor(
             val hiRow = maxOf(boundsArray[0], boundsArray[2])
             val loCol = minOf(boundsArray[1], boundsArray[3])
             val hiCol = maxOf(boundsArray[1], boundsArray[3])
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
+            // 走拖动途中的专用入口：普通提交会把 dragging 清成 false，
+            // 那正是「保护只存活 50ms」的由来（见 TerminalRuntime 的同名方法）。
+            runtime.pushSelectionBoundsDuringDrag(loRow, loCol, hiRow, hiCol)
         }
 
         @Volatile private var lastDragNativeSyncUptimeMs = 0L
