@@ -29,10 +29,13 @@ pub(crate) fn quad_corner_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
 pub struct GpuUniforms {
     pub projection: [[f32; 4]; 4],
     pub atlas_size: [f32; 2],
-    pub raster_scale: f32,
-    /// std140 尾部对齐：uniform 结构体大小须为 16 的倍数（76 → 80）。否则着色器
-    /// 越界读取，wgpu 丢弃所有实例绘制，字形渲染结果全为 0。
-    pub _padding: f32,
+    /// std140 尾部对齐：着色器侧把结构体大小取整到 16 的倍数（76 → 80），故本侧
+    /// 也必须凑够 80 字节，否则 wgpu 以「绑定小于 min_binding_size」拒绝整个管线，
+    /// 实例绘制全被丢弃、字形渲染结果全为 0。
+    ///
+    /// 这里曾有一个 `raster_scale` 字段：着色器读到它却从不使用（字形按 1:1 采样，
+    /// 再乘一次会把字形缩回逻辑像素），写入它只是每帧多传一个从不参与运算的数。
+    pub _padding: [f32; 2],
 }
 
 impl Renderer {
@@ -143,7 +146,12 @@ impl Renderer {
             &bind_group_layout,
             &shader,
             crate::render::CellInstance::buffer_layout(),
-            // 图集是预乘 alpha 的覆盖率遮罩，采样后须按 alpha 混合而非覆盖写。
+            // 图集**不是**预乘 alpha：着色器已把覆盖率解算成不透明色
+            // （`cell.wgsl` 的 `color = mix(background, foreground, texel.r)`，
+            // 两者 alpha 均来自 `color_to_float`，恒为 1.0），故对文字而言混合状态
+            // 等价于覆盖写。它真正需要混合的是那批**半透明**光标标记实例
+            // （块光标背景 alpha 0.7，见 `BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE`）。
+            // 因此不要因为「文字看起来正常」就拆掉它——那是半透明光标在依赖它。
             Some(wgpu::BlendState::ALPHA_BLENDING),
             format,
         )

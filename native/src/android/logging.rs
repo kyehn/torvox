@@ -65,9 +65,12 @@ impl Log for AndroidLogger {
             // SAFETY: "Rust" 不含内部 NUL 字节
             CString::new("Rust").expect("hardcoded string without NUL")
         });
-        let message_c = CString::new(message).unwrap_or_else(|_| {
-            // SAFETY: `Vec::<u8>::new()` 不含 NUL 字节
-            CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
+        // 消息里含内嵌 NUL 时截断到第一个 NUL：整条丢弃会把 panic 现场（路径、
+        // 用户可控的字符串）变成空行，而空行既无处可查也读不出「出过什么事」。
+        let message_c = CString::new(message.clone()).unwrap_or_else(|_| {
+            let end = message.find('\0').unwrap_or(message.len());
+            // SAFETY: 已截断到首个 NUL 之前，该切片不含 NUL 字节。
+            CString::new(&message[..end]).expect("truncated before first NUL")
         });
         // SAFETY: `__android_log_write` 是公开 NDK 函数，指针指向有效的 NUL 结尾 C 字符串。
         unsafe {

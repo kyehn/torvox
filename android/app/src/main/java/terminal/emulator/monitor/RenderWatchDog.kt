@@ -32,17 +32,21 @@ class RenderWatchDog(
     // 陈旧看门狗在重启后触发 onHangDetected 会把*新*渲染线程标记为死亡，故回调与 stop
     // 互斥：stop 返回后再无回调。取消协程不能替代它——取消只在挂起点生效，
     // 看门狗可能正处在 delay 之后与回调之间的窗口内。
+    //
+    // 用「启动代次」而非布尔位：布尔位会被下一次 start() 复位，于是同一实例重启时
+    // 旧循环仍能过闸，把新渲染线程误判为死亡。代次单调递增，旧循环发现自己已过期
+    // 即无权回调——不依赖调用方是否复用实例。
     private val fireLock = Any()
-    private var stopped = false
+    private var generation = 0L
 
     fun start() {
         // 检查与启动必须在同一个临界区内：分开写时两个并发调用者（切会话与
         // checkSessions 的重启）都能通过 `isActive` 检查，各自跑一个 2s 轮询循环，
         // onHangDetected 被触发两次。
         synchronized(fireLock) {
-            stopped = false
             if (watchJob?.isActive == true) return
-            watchJob = scope.launch { watchLoop() }
+            val ownGeneration = ++generation
+            watchJob = scope.launch { watchLoop(ownGeneration) }
         }
     }
 
@@ -52,11 +56,11 @@ class RenderWatchDog(
         // 非阻塞：stop 在 sessionLock 内被调用（pauseRendering 的执行器线程、
         // handleSessionExit 的渲染线程），而该锁同时被主线程的
         // stopForegroundServiceIfIdle 争用——任何等待都按会话数累加为 ANR。
-        synchronized(fireLock) { stopped = true }
+        synchronized(fireLock) { generation++ }
         job.cancel()
     }
 
-    private suspend fun watchLoop() {
+    private suspend fun watchLoop(ownGeneration: Long) {
         while (scope.coroutineContext.isActive) {
             delay(checkIntervalMs)
             // 一次读出整条记录：起止分两次读时，可能拿到新 start 配旧 done，
@@ -65,7 +69,7 @@ class RenderWatchDog(
             val elapsed = System.nanoTime() - marks.startNanos
             if (marks.startNanos > marks.doneNanos && elapsed > hangTimeoutNanos && isRunning()) {
                 LogUtil.e(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
-                synchronized(fireLock) { if (!stopped) onHangDetected() }
+                synchronized(fireLock) { if (generation == ownGeneration) onHangDetected() }
             }
         }
     }

@@ -17,7 +17,8 @@
   （`build_snapshot`）两条路径采集，两者均以 `CellSnapshot` 承载逐格 codepoint 与样式。
   渲染热路径另有一条 `build_cell_data`（`Vec<CellData>`），行级增量下未变行整段复制
   上一帧缓存——增量与全量重建的输出内容本应相同，故其正确性不能由内容断言判别，
-  须比对两者输出并另设可观测计数，详见在途变更 `grid-extraction-incremental`。
+  须比对两者输出并另设可观测计数，口径见 `grid-extraction-incremental` 的行缓存失效与
+  脏行来源条。
 - `getTerminalText` 只消费单元文本，不读取样式；`CellSnapshot` 不跨 FFI 传往 Kotlin。
 - 回滚区样式保留由 `ghostty_terminal::tests::scrollback_retains_explicit_cell_style` 覆盖；
   选区与搜索只消费文本行。

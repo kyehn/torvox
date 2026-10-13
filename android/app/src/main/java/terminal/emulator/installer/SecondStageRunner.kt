@@ -15,7 +15,11 @@ import java.util.concurrent.TimeUnit
  * 读取与关闭竞争时返回 null。无人消费的排空结果直接丢弃。
  */
 internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable {
-    stream.bufferedReader().readText()
+    // use：读到 EOF 后必须显式关掉读端，否则管道 fd 要等 GC/finalizer 才回收。
+    // 一趟引导要跑 var/lib/dpkg/info/*.postinst 全表（真实引导约 250-300 个），
+    // 不关就是数百个悬挂 fd；Android 进程 fd 默认上限 1024，未及 GC 就用尽会得到
+    // EMFILE，表现为后续 chmod/开文件抛 IOException 而整次 postinst 阶段失败。
+    stream.bufferedReader().use { it.readText() }
 }.getOrNull()
 
 class SecondStageRunner(
@@ -125,6 +129,10 @@ class SecondStageRunner(
         errors: MutableList<String>,
         attempt: Int,
     ): Boolean {
+        // 提到 try 外：成功路径（exitCode == 0）此前直接 return，从不销毁
+        // Process。一趟引导几百个 postinst，每个泄 2 个管道 fd，直到 GC/finalizer
+        // 才回收；口径与 detectDpkgVersion 的 finally 一致。
+        var proc: Process? = null
         try {
             Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
             val environment =
@@ -149,40 +157,41 @@ class SecondStageRunner(
             val command = postinstCommand(script)
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
             LogUtil.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
-            val proc =
+            val process =
                 Runtime.getRuntime()
                     .exec(
                         command,
                         envArray,
                         File("/"),
                     )
-            proc.outputStream.close()
+            proc = process
+            process.outputStream.close()
             // 守护消费者：若 destroyForcibly() 之后 postinst 的孙进程仍持有管道，
             // 阻塞的 readText 线程绝不能比进程活得更久
             // （普通线程会泄漏并绑定 JVM 生命周期）。
-            // 排空 lambda 绝不能抛异常：下方的 proc.destroy() 关闭管道时
+            // 排空 lambda 绝不能抛异常：finally 里的 proc?.destroy() 关闭管道时
             // 守护读取线程可能仍阻塞在 readText 中
             // （设备上已证：子进程先退出时 detectDpkgVersion 出现 FATAL）。
             // 裸 Thread 上未捕获的抛出会杀掉应用进程。
             val stdoutThread =
-                Thread { drainQuietly(proc.inputStream) }
+                Thread { drainQuietly(process.inputStream) }
                     .apply {
                         isDaemon = true
                     }
             val stderrBox = StringBuilder()
             val stderrThread =
-                Thread { drainQuietly(proc.errorStream)?.let { stderrBox.append(it) } }
+                Thread { drainQuietly(process.errorStream)?.let { stderrBox.append(it) } }
                     .apply { isDaemon = true }
             stdoutThread.start()
             stderrThread.start()
-            val exited = proc.waitFor(30, TimeUnit.SECONDS)
+            val exited = process.waitFor(30, TimeUnit.SECONDS)
             if (!exited) {
-                proc.destroyForcibly()
+                process.destroyForcibly()
                 // Android 的 Process 没有 ProcessHandle API，
                 // 故无法直接杀掉孙进程。向下述守护管道消费者
                 // 对直接子进程发 SIGKILL 是可得的最佳清理手段；
                 // 幸存的孙进程会成孤儿，并在应用进程死亡时被系统回收。
-                proc.waitFor(5, TimeUnit.SECONDS)
+                process.waitFor(5, TimeUnit.SECONDS)
                 stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
                 stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
                 val timeoutReport = "$packageName postinst timed out after 30s"
@@ -190,7 +199,7 @@ class SecondStageRunner(
             }
             stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
             stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
-            val exitCode = proc.exitValue()
+            val exitCode = process.exitValue()
             if (exitCode == 0) return true
             val detail = stderrBox.toString().trim().take(400)
             val report =
@@ -201,6 +210,10 @@ class SecondStageRunner(
             val report =
                 "$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}"
             return recordPostinstFailure(errors, report, attempt, POSTINST_MAX_ATTEMPTS)
+        } finally {
+            // 成功路径此前从不销毁 Process：一趟引导几百个 postinst，每个泄 2 个
+            // 管道 fd，直到 GC/finalizer 才回收，Android 进程 fd 上限 1024。
+            proc?.destroy()
         }
     }
 

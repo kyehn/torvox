@@ -361,6 +361,63 @@ class BootstrapInstallerTest {
         assertTrue(installer.needsInstall())
     }
 
+    /**
+     * 回归钉：清不净 staging 区时安装必须失败，而不是把新引导写进残留旧树。
+     *
+     * 上一次安装若在解压中途被杀，`staging` 会留下整棵树。此前 `delete` 丢弃了每个
+     * `File.delete()` 的返回值，于是「删不掉」与「删干净」无法区分，`install` 照样
+     * 继续：新一轮条目写进旧树，`atomicRename` 把这份混血树当 prefix 发布，而安装
+     * 一路报成功。
+     *
+     * 关键在只读目录的位置：放在 `locked/`（ZIP 只写 `bin/`、`lib/`），于是
+     * **去掉守卫后解压会顺利成功**——本例据此与旧行为区分，而不是靠「反正也失败」
+     * 这种任何实现都能蒙对的断言。测试以非 root 身份运行；Robolectric 无
+     * symlink/ACL 支持，故用权限位制造真实的删不掉。
+     */
+    @Test
+    fun install_aborts_when_staging_cannot_be_cleared() {
+        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        // 模拟「上次安装被杀」留下的残留树。
+        val locked = File(stagingDir, "locked")
+        locked.mkdirs()
+        File(locked, "leftover-from-previous-run").writeText("stale binary")
+        locked.setWritable(false, false)
+        locked.setReadable(true, false)
+        try {
+            val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+            val result = runBlocking { installer.install(zip) }
+
+            assertTrue("staging 删不净时安装必须失败", result.isFailure)
+            assertEquals(
+                "失败原因须是清空 staging 区，而不是后续解压步骤",
+                "Bootstrap staging dir could not be fully cleared",
+                result.exceptionOrNull()?.message,
+            )
+            assertFalse("prefix 绝不能被原子换入", installer.isInstalled())
+        } finally {
+            locked.setWritable(true, false)
+            stagingDir.deleteRecursively()
+        }
+    }
+
+    /** 清空 staging 区必须把上次残留整棵树清掉，不能只删顶层目录。 */
+    @Test
+    fun install_clears_deep_stale_staging_tree_before_extracting() {
+        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        val deep = File(stagingDir, "a/b/c/stale")
+        deep.parentFile?.mkdirs()
+        deep.writeText("stale")
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+        assertTrue(runBlocking { installer.install(zip) }.isSuccess)
+
+        assertFalse(
+            "残留的深层条目必须被清掉，否则会与新引导混进同一棵树",
+            File(prefixDir, "a/b/c/stale").exists(),
+        )
+    }
+
     @Test
     fun needsInstall_reflects_shell_entry_presence() {
         File(prefixDir, "bin").mkdirs()

@@ -67,15 +67,14 @@ SAF 客户端 MUST 仍能读写：`enforceReadPermissionInner` / `enforceWritePe
 
 ### Requirement: 提供者权威用应用标识前缀
 
-文档提供者的 authority MUST 取 `${applicationId}.documents`（即 `com.termux.documents`），
-与 `FileProvider` 同源。包名（`terminal.emulator`）只用于 Kotlin 包与类命名，
-不是应用标识；用包名拼 authority 会与参考实现 `TermuxDocumentsProvider` 不一致，
-并在多应用同设备时失去隔离。
+文档提供者的 authority MUST 取 `${applicationId}.documents`（即 `com.termux.documents`）。
+包名（`terminal.emulator`）只用于 Kotlin 包与类命名，不是应用标识；用包名拼 authority
+会与参考实现 `TermuxDocumentsProvider` 不一致，并在多应用同设备时失去隔离。
 
-#### Scenario: 与 FileProvider 同源
+#### Scenario: authority 取应用标识前缀
 
-- **WHEN** 检查两个提供者的 authority
-- **THEN** 均为 `com.termux` 前缀，仅末段不同（`documents` / `fileprovider`）
+- **WHEN** 检查文档提供者的 authority
+- **THEN** 等于 `com.termux.documents`
 
 ### Requirement: 查询行只写请求投影内的列
 

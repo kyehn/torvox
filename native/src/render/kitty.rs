@@ -179,8 +179,9 @@ fn copy_sub_rect(
             destination.get_mut(destination_offset..destination_offset + row_bytes),
         ) else {
             log::error!(
-                "KGP blit out of range at row {row} (source len {} destination len {row_bytes})",
+                "KGP blit out of range at row {row} (source len {}, destination len {}, row bytes {row_bytes})",
                 source.len(),
+                destination.len(),
             );
             break;
         };

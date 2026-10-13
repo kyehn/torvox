@@ -83,13 +83,44 @@ impl<T: Copy + Default, E: std::error::Error> jni::errors::ErrorPolicy<T, E>
         payload: Box<dyn std::any::Any + Send + 'static>,
     ) -> jni::errors::Result<T> {
         if !env.exception_check() {
-            let _ = env.throw(format!("Rust panic: {}", panic_text(&payload)));
+            let _ = env.throw(format!("Rust panic: {}", take_panic_text_and_leak(payload)));
+        } else {
+            // 已有 Java 异常在飞，载荷只需处置掉：仍走同一条「不销毁」路径。
+            take_panic_text_and_leak(payload);
         }
         Ok(*failure)
     }
 }
 
-/// 取 panic 载荷的可读文本；销毁载荷本身可能 panic，销毁失败时原样泄漏而非二次 panic。
+/// 取 panic 载荷的可读文本，并**故意泄漏**该载荷本身。
+///
+/// 本函数跑在**解卷路径**上：此刻已经有一个 panic 在途。载荷的 `Box` 若在此按值
+/// 销毁、而载荷元素的 `Drop` 又 panic，就是「解卷中解卷」——Rust 不会尝试第二次
+/// 解卷，而是直接 `abort`。这正是 `jni_export_guard!` 唯一还能漏出 abort 的机制：
+/// 守卫接住了首个 panic，却在**处理**它时崩掉，调用方连 Java 异常都拿不到。
+/// 真机日志里 `prefetchRenderState` 的 SIGABRT 即属此类（栈顶是 `abort`，而不是
+/// `rust_panic` 的展开路径）。
+///
+/// 故按「崩溃路径上宁可漏几字节」取舍：`mem::forget` 掉整个 `Box`。panic 载荷
+/// 通常是 `&'static str` 或 `String`，泄漏量可忽略；而把它误降级成整进程 abort 的
+/// 代价比高得多——那会丢掉本已备好的诊断信息，且不可恢复。
+///
+/// 刻意做成独立函数而非内联进 `on_panic`：`on_panic` 需要活的 `&mut Env`（只有设备上
+/// 才有），抽出来才能在宿主单测里钉住「绝不销毁」这一条性质。
+fn take_panic_text_and_leak(payload: Box<dyn std::any::Any + Send + 'static>) -> String {
+    // 必须写 `as_ref()`（即 `&*payload`），不能写 `&payload`。
+    //
+    // 后者靠 deref coercion 把 `&Box<dyn Any + Send>` 转成 `&(dyn Any + Send)`，
+    // 转出来的 trait object 丢掉了具体类型：实测 `&payload` 调 `downcast_ref` 恒为
+    // `None`，而 `&*payload` 正常命中。后果是**每一个真实 panic 的文本都被报成
+    // "non-string panic payload"**——守卫明明接住了 panic，抛给 Java 的诊断却是
+    // 一句占位话，等于把最该看清的那条信息抹掉。此处曾经就是这样错的。
+    let text = panic_text(payload.as_ref());
+    std::mem::forget(payload);
+    text
+}
+
+/// 取 panic 载荷的可读文本。本身只借用，不负责销毁（见 [`take_panic_text_and_leak`]）。
 fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(text) = payload.downcast_ref::<&'static str>() {
         return (*text).to_string();
@@ -394,6 +425,13 @@ pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
 /// 超限的请求不占槽，就地显式作答空串（xterm 兼容的空剪贴板响应）。
 const MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION: usize = 8;
 
+/// 每帧允许的洪泛削减回写次数上限。
+///
+/// 削减分支要同步写 PTY，而写 PTY 在子进程不读 stdin 时每次可等到 50ms。一帧十块
+/// 输出就可能带来数千条读请求，全写一遍等于把渲染线程整个交给病态远端。取 16 是
+/// 「足够让远端知道终端已拒绝」与「最坏等待远小于一帧预算」之间的折中。
+const MAX_FLOOD_SHED_ANSWERS_PER_FRAME: usize = 16;
+
 /// 单会话当前未作答的读请求数（上段上限的判据）。
 pub(crate) fn unanswered_clipboard_reads(session_id: u64) -> usize {
     REQUEST_REGISTRY
@@ -526,7 +564,9 @@ fn init_session_inner(
     }
 
     // 读取 Kotlin 侧从 bootstrap 解析出的环境（home / 工作目录 / prefix / mkshrc 路径）。
-    // 空串表示“未知”，回退到进程环境。
+    // 空串按“未指定”处理：prefix 空表示无 PREFIX（failsafe 会话与未装引导程序时
+    // 正是如此，见 TerminalRuntime 的 buildConfig），工作目录空则取 home。
+    // 注意这里**不读进程环境**——子进程环境由 `pty::build_env` 按白名单逐项重建。
     let Some(home) = read_jni_string(env, &home, "initSession", "home") else {
         return 0;
     };
@@ -1129,12 +1169,13 @@ fn encode_mouse_event_inner(
     cell_height: jfloat,
 ) -> jbyteArray {
     let id = session_id as u64;
-    let registry = rlock_session_registry();
-    let Some(entry) = registry.get(&id) else {
+    // 通道外置：查询在两把锁之外执行（每次鼠标移动都会走到这里，锁内等待 VT
+    // 应答会连同按帧取锁的渲染一起卡住一个查询超时）。
+    let Some(query_tx) = session_query_channel(id) else {
         return empty_java_byte_array(env);
     };
-    let session = entry.session.lock();
-    let Some(bytes) = session.terminal().encode_mouse_event(
+    let Some(bytes) = crate::terminal::ghostty_terminal::GhosttyTerminal::encode_mouse_event_on(
+        &query_tx,
         (x_px, y_px),
         action as u8,
         button as u8,
@@ -1198,12 +1239,12 @@ fn encode_key_event_inner(
     let Some(key) = crate::android::keymap::key_for_android_keycode(key_code) else {
         return empty_java_byte_array(env);
     };
-    let registry = rlock_session_registry();
-    let Some(entry) = registry.get(&(session_id as u64)) else {
+    // 通道外置：查询在两把锁之外执行（理由同 `encode_mouse_event_inner`）。
+    let Some(query_tx) = session_query_channel(session_id as u64) else {
         return empty_java_byte_array(env);
     };
-    let session = entry.session.lock();
-    let Some(bytes) = session.terminal().encode_key_event(
+    let Some(bytes) = crate::terminal::ghostty_terminal::GhosttyTerminal::encode_key_event_on(
+        &query_tx,
         key,
         match action {
             1 => key::Action::Release,
@@ -1264,12 +1305,13 @@ fn encode_paste_inner(
             return std::ptr::null_mut();
         }
     };
-    let registry = rlock_session_registry();
-    let Some(entry) = registry.get(&(session_id as u64)) else {
+    // 通道外置：查询在两把锁之外执行（理由同 `encode_mouse_event_inner`）。
+    let Some(query_tx) = session_query_channel(session_id as u64) else {
         return empty_java_byte_array(env);
     };
-    let session = entry.session.lock();
-    let Some(bytes) = session.terminal().encode_paste(&input) else {
+    let Some(bytes) =
+        crate::terminal::ghostty_terminal::GhosttyTerminal::encode_paste_on(&query_tx, &input)
+    else {
         return empty_java_byte_array(env);
     };
     if bytes.is_empty() {
@@ -1409,6 +1451,12 @@ fn pump_sessions() {
             // → 子进程写入阻塞）就会冻结后台作业；每帧排空若干块既保持管道流动，
             // 又不饿死活跃会话的帧预算。
             session.poll_pty_output(PTY_POLL_CHUNKS_PER_FRAME);
+            // 后台会话同样收割读请求。只排活跃者会让本队列无界增长（后台程序持续
+            // 发读请求时每帧进一条、从不取出），且那些程序永远收不到应答。走的是
+            // 与活跃会话同一条削减路径，故成本同样受下方的每帧上限约束。
+            for selection in session.take_clipboard_reads() {
+                pending_clipboard_reads.push((*session_id, selection));
+            }
         }
         // 立即消费事件标志并带上正确的 `session_id` 推入。若留着不管，
         // 它们会在数分钟后该会话重新活跃时被重放（陈旧重放）。
@@ -1423,11 +1471,21 @@ fn pump_sessions() {
     // 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
     // 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
     // VT 线程绝不能阻塞等待宿主应用，且 `clipboardResult` 可能在任意线程到达。
+    let mut flood_shed_answers = 0usize;
     for (session_id, selection) in pending_clipboard_reads {
         let unanswered = unanswered_clipboard_reads(session_id);
         if unanswered >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
             // 洪泛削减：就地显式作答空串，不注册、不推事件、不起应答线程。
             // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置。
+            //
+            // 但「就地作答」本身要写 PTY（base64 + 带期限的写入，子进程不读 stdin
+            // 时每次可等到 50ms），而这段代码跑在渲染线程上：一次 8KB 输出块里能塞
+            // 约 900 条读请求，一帧十块即约 9000 次带锁写入，光等待就足以吃掉整帧
+            // 预算。故削减回写也按帧封顶——被削减的请求本就是「拒绝」，不写即拒绝。
+            if flood_shed_answers >= MAX_FLOOD_SHED_ANSWERS_PER_FRAME {
+                continue;
+            }
+            flood_shed_answers += 1;
             flood_shed_warn_throttled(session_id, unanswered);
             let registry = wlock_session_registry();
             let session = registry.get(&session_id).map(|entry| entry.session.clone());
@@ -1833,13 +1891,12 @@ fn render_inner(session_id: u64) -> jint {
                         .set_cell_pixel_size(sync_cell_width, sync_cell_height);
                 }
             }
-            // 渲染状态锁外查询：仅放置键变化时触发；刚推送帧时通常毫秒级返回
-            // （卡住时由 500 毫秒超时兜底），期间其他渲染状态消费者不再排队。
+            // 渲染状态锁与会话锁之外查询：仅放置键变化时触发；刚推送帧时通常
+            // 毫秒级返回（卡住时由 500 毫秒超时兜底），期间其他渲染状态消费者
+            // 不再排队，按帧取会话锁的写入路径也不再排队。
             let fetched_kitty_frames = if need_kitty_fetch {
-                let registry = rlock_session_registry();
-                registry
-                    .get(&session_id)
-                    .map(|entry| entry.session.lock().terminal().take_kitty_placements())
+                session_query_channel(session_id)
+                    .map(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
                     .unwrap_or_default()
             } else {
                 Vec::new()
@@ -2391,19 +2448,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
     session_id: jlong,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        // 通道外置：查询在两把锁之外执行（标题随每次状态更新拉取，理由同
+        // `wideCharTailCols`）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
                 jni_str!("getTitle: session not found"),
             );
             return Ok(std::ptr::null_mut());
         };
-        let session = entry.session.lock();
-        let title = session.terminal().title();
-        drop(session);
-        drop(registry);
+        let title = crate::terminal::ghostty_terminal::GhosttyTerminal::title_on(&query_tx);
         string_to_jstring(env, &title)
     })
 }
@@ -2417,17 +2471,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
     session_id: jlong,
 ) -> jint {
     jni_export_guard!(&mut unowned_env, 0, |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        // 通道外置：查询在两把锁之外执行（理由同 `getTitle`）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
                 jni_str!("scrollbackLength: session not found"),
             );
             return Ok(0);
         };
-        let session = entry.session.lock();
-        session.terminal().scrollback_length() as jint
+        crate::terminal::ghostty_terminal::GhosttyTerminal::scrollback_length_on(&query_tx) as jint
     })
 }
 
@@ -2442,18 +2494,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewp
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, -1, |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        // 通道外置：光标坐标取自整网格构建，锁内等待会把按帧取这两把锁的渲染线程
+        // 一并堵住（理由同 `getTitle`，此处代价更高）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
                 jni_str!("getCursorViewportPacked: session not found"),
             );
             return Ok(-1);
         };
-        let session = entry.session.lock();
-        let terminal = session.terminal();
-        let Some((row, col)) = terminal.render_cursor() else {
+        let Some((row, col)) =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::render_cursor_on(&query_tx)
+        else {
             return Ok(-1);
         };
         ((row as jlong) << 32) | (col as jlong)
@@ -2472,27 +2524,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
     row: jint,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        let Ok(row) = u32::try_from(row) else {
+            // 负行号表示无数据而非调用错误：视口拖过回滚顶部时正常出现，
+            // 按查询契约返回 null，不抛异常。
+            return Ok(std::ptr::null_mut());
+        };
+        // 通道外置：查询在两把锁之外执行（滚动时逐行拉取，理由同 `getTitle`）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
                 jni_str!("scrollbackLine: session not found"),
             );
             return Ok(std::ptr::null_mut());
         };
-        let Ok(row) = u32::try_from(row) else {
-            // 负行号表示无数据而非调用错误：视口拖过回滚顶部时正常出现，
-            // 按查询契约返回 null，不抛异常。
-            return Ok(std::ptr::null_mut());
-        };
-        let session = entry.session.lock();
         // Kotlin 传入的是绝对行号（回滚 + 视口偏移，经
         // `scrollbackLength - scrollOffset + row` 计算），故直接透传给期望绝对行号的
         // `read_line_text`。
-        let text = session.terminal().read_line_text(row);
-        drop(session);
-        drop(registry);
+        let text =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::read_line_text_on(&query_tx, row);
         match text {
             Some(text) => string_to_jstring(env, &text),
             None => std::ptr::null_mut(),
@@ -2513,20 +2562,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
     session_id: jlong,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        // 通道外置：全回滚扫描最慢，必须在两把锁之外跑，否则期间渲染与事件
+        // 收割全部停摆（该导出每次全选/复制都调用）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
                 jni_str!("getTerminalText: session not found"),
             );
             return Ok(std::ptr::null_mut());
         };
-        let session = entry.session.lock();
-        let text = session.terminal().read_all_text();
-        drop(session);
-        drop(registry);
-
+        let text = crate::terminal::ghostty_terminal::GhosttyTerminal::read_all_text_on(&query_tx);
         string_to_jstring(env, &text)
     })
 }
@@ -2547,17 +2592,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        // 通道外置：格式化取文在两把锁之外跑（复制动作，期间渲染不该停摆）。
+        let Some(query_tx) = session_query_channel(id) else {
             return Ok(std::ptr::null_mut());
         };
-        let session = entry.session.lock();
-        let text = session.terminal().selection_text(
+        let text = crate::terminal::ghostty_terminal::GhosttyTerminal::selection_text_on(
+            &query_tx,
             (start_row.max(0) as u32, start_col.max(0) as u32),
             (end_row.max(0) as u32, end_col.max(0) as u32),
         );
-        drop(session);
-        drop(registry);
         string_to_jstring(env, &text)
     })
 }
@@ -2616,17 +2659,18 @@ fn select_bounds_export<'local>(
     session_id: jlong,
     row: jint,
     col: jint,
-    select: impl FnOnce(&GhosttyTerminal, u32, u32) -> Option<((u32, u32), (u32, u32))>,
+    // 通道外置：选区派生在两把锁之外跑（理由同 `getTitle`）。
+    select: impl FnOnce(
+        &flume::Sender<crate::terminal::ghostty_terminal::Query>,
+        u32,
+        u32,
+    ) -> Option<((u32, u32), (u32, u32))>,
 ) -> jintArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             return Ok(std::ptr::null_mut());
         };
-        let session = entry.session.lock();
-        let bounds = select(session.terminal(), row.max(0) as u32, col.max(0) as u32);
-        drop(session);
-        drop(registry);
+        let bounds = select(&query_tx, row.max(0) as u32, col.max(0) as u32);
         bounds_to_int_array(env, bounds)
     })
 }
@@ -2642,15 +2686,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'
     row: jint,
     col: jint,
 ) -> jintArray {
-    select_bounds_export(unowned_env, session_id, row, col, |terminal, row, col| {
-        terminal.select_word_at(row, col)
+    select_bounds_export(unowned_env, session_id, row, col, |query_tx, row, col| {
+        GhosttyTerminal::select_word_at_on(query_tx, row, col)
     })
 }
 
 /// 该行中作为宽字符后半格（`SpacerTail`）的列号，升序。
 ///
 /// 会话不存在或查询失败时返回空数组（等价于无吸附）：保持原列，不猜。会话锁与
-/// 注册表读锁在取到结果后立即释放——查询走 VT 线程，绝不能持锁跨越。
+/// 通道外置：查询在两把锁之外执行（每次拖动手柄都调用，锁内等 VT 应答会连同
+/// 按帧取锁的渲染一起卡住）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCols<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2659,14 +2704,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCo
     row: jint,
 ) -> jintArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             return Ok(u32_vec_to_int_array(env, &[]));
         };
-        let session = entry.session.lock();
-        let tail_cols = session.terminal().wide_char_tail_cols(row.max(0) as u32);
-        drop(session);
-        drop(registry);
+        let tail_cols = crate::terminal::ghostty_terminal::GhosttyTerminal::wide_char_tail_cols_on(
+            &query_tx,
+            row.max(0) as u32,
+        );
         u32_vec_to_int_array(env, &tail_cols)
     })
 }
@@ -2680,15 +2724,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'loc
     session_id: jlong,
 ) -> jintArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             return Ok(std::ptr::null_mut());
         };
-        let session = entry.session.lock();
-        let bounds = session.terminal().select_all();
-        drop(session);
-        drop(registry);
+        let bounds = crate::terminal::ghostty_terminal::GhosttyTerminal::select_all_on(&query_tx);
         bounds_to_int_array(env, bounds)
     })
 }
@@ -2704,17 +2743,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
     col: jint,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        // 通道外置：查询在两把锁之外执行（长按取链接时调用，理由同 `getTitle`）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
             return Ok(std::ptr::null_mut());
         };
-        let session = entry.session.lock();
-        let url = session
-            .terminal()
-            .hyperlink_at(row.max(0) as u32, col.max(0) as u32);
-        drop(session);
-        drop(registry);
+        let url = GhosttyTerminal::hyperlink_at_on(&query_tx, row.max(0) as u32, col.max(0) as u32);
         match url {
             Some(url) => string_to_jstring(env, &url),
             None => std::ptr::null_mut(),
@@ -3430,12 +3463,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            // **两条**管线必须在 `raster_scale` 上一致——字体管线按
-            // `font_size*scale` 光栅化字形位图，渲染器则把同一缩放送入单元着色器的
-            // uniform。失步时着色器按 1x 采样位图而 `cell_builder` 按 Nx 计算 bearing，
-            // 字形会被画成畸变的角落三角形。
+            // 缩放只落在字体管线上：字形位图按 `font_size*scale` 光栅化，
+            // 单元几何（`cell_builder`）与 bearing 也按同一 scale 算，着色器一律
+            // 1:1 采样。渲染器侧曾有一个同名的 uniform 字段，但它从不被着色器读取
+            // （再乘一次反而会把字形缩回逻辑像素），故已删除而非同步两处。
             render_state.font_pipeline.set_raster_scale(scale);
-            render_state.renderer.set_raster_scale(scale);
             // 位图全部重光栅：旧 UV 指向错误图块，丢缓存并重绘。
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
@@ -3760,27 +3792,82 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
     kind: jint,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(JNI_FALSE);
-        };
-        let session = entry.session.lock();
         let mode_kind = match kind {
             0 => libghostty_vt::terminal::ModeKind::Dec,
             _ => libghostty_vt::terminal::ModeKind::Ansi,
         };
-        if session
-            .terminal()
-            .mode_get(libghostty_vt::terminal::Mode::new(
-                mode_num.max(0) as u16,
-                mode_kind,
-            ))
-        {
+        // 通道外置：查询在两把锁之外执行（理由同 `getTitle`）。
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
+            return Ok(JNI_FALSE);
+        };
+        if GhosttyTerminal::mode_get_on(
+            &query_tx,
+            libghostty_vt::terminal::Mode::new(mode_num.max(0) as u16, mode_kind),
+            std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
+        ) {
             JNI_TRUE
         } else {
             JNI_FALSE
         }
     })
+}
+
+#[cfg(test)]
+mod panic_payload_tests {
+    use super::take_panic_text_and_leak;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// 载荷的 `Drop` 会置位。用它来判定「载荷有没有被销毁过」。
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// 回归钉：解卷路径上**绝不销毁** panic 载荷。
+    ///
+    /// 载荷若在此按值销毁、而它的 `Drop` 又 panic，就是「解卷中解卷」——Rust 直接
+    /// `abort`，`jni_export_guard!` 接住的 panic 就此变成整进程崩溃，调用方连
+    /// Java 异常都拿不到。代价只是漏几字节（载荷通常是 `&str`/`String`），
+    /// 换来的却是保住已备好的诊断信息。
+    ///
+    /// 判别力：去掉 `mem::forget` → 载荷被销毁 → `DropFlag` 置位 → 用例判红。
+    #[test]
+    fn panic_payload_is_never_dropped_on_the_unwinding_path() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let payload: Box<dyn std::any::Any + Send> = Box::new(DropFlag(Arc::clone(&dropped)));
+        let _text = take_panic_text_and_leak(payload);
+        assert!(
+            !dropped.load(Ordering::SeqCst),
+            "解卷路径上销毁 panic 载荷会招致双重 panic（进程 abort）"
+        );
+    }
+
+    /// 文本仍要取得到：泄漏的是载荷本身，不是诊断信息。
+    #[test]
+    fn panic_payload_text_is_still_reported() {
+        // 显式标注 `&'static str`：否则推断可能选成与本函数泛型无关的短生命周期
+        // `&str`，载荷的 `TypeId` 便对不上，downcast 落空。
+        let static_text: &'static str = "boom";
+        assert_eq!(
+            take_panic_text_and_leak(Box::new(static_text)),
+            "boom",
+            "&'static str 载荷应原样透出"
+        );
+        assert_eq!(
+            take_panic_text_and_leak(Box::new(String::from("owned boom"))),
+            "owned boom",
+            "String 载荷应取出内容"
+        );
+        assert_eq!(
+            take_panic_text_and_leak(Box::new(42u32)),
+            "non-string panic payload",
+            "未知载荷退化为占位文本，不得 panic"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -3802,6 +3889,126 @@ mod clipboard_read_flood_tests {
         cancel_request(4102, only_b);
         assert_eq!(unanswered_clipboard_reads(4101), 0);
         assert_eq!(unanswered_clipboard_reads(4102), 0);
+    }
+}
+
+#[cfg(test)]
+mod background_clipboard_read_tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::{
+        ACTIVE_SESSION_ID, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
+        MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, SessionEntry, pump_sessions,
+        wlock_session_registry,
+    };
+    use crate::terminal::pty::Pty;
+    use crate::terminal::session::Session;
+
+    /// 会话注册表与活跃会话 id 是进程级全局量：两个用例各自登记会话再驱动
+    /// `pump_sessions`，并行跑时会把对方的会话也泵一遍（谁先取走对方的读请求，
+    /// 谁的断言就落空）。故本模块内共用一把锁串行化。
+    static REGISTRY_ACCESS: Mutex<()> = Mutex::new(());
+
+    /// OSC 52 读取请求（`ESC ] 52 ; c ; ? BEL`）：上游忽略它，本仓代答。
+    const READ_REQUEST: &[u8] = b"\x1b]52;c;?\x07";
+    /// 洪泛削减的空串应答。
+    const EMPTY_ANSWER: &[u8] = b"\x1b]52;c;\x07";
+
+    /// 后台会话的读请求同样必须被收割并应答。
+    ///
+    /// 判别力：只排活跃会话时，后台会话的读请求队列进一条、从不取出——队列无界
+    /// 增长，而远端程序永远收不到任何应答。此处断言的是**可观测结果**：读请求最终
+    /// 变成了写回 PTY 的 `ESC ] 52 ; c ; BEL`（洪泛削减的空串应答）。
+    #[test]
+    fn background_session_read_requests_are_answered() {
+        let _registry_access = REGISTRY_ACCESS.lock();
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let session = Arc::new(parking_lot::Mutex::new(
+            Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+                .expect("with_pty must succeed"),
+        ));
+        // 单块输出里塞够请求数：超上限的那些走洪泛削减，就地作答空串——
+        // 那条应答就是「请求确实被处理了」的外部可见证据。
+        let mut flood = Vec::new();
+        for _ in 0..MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION + 4 {
+            flood.extend_from_slice(READ_REQUEST);
+        }
+        session.lock().inject_output_for_test(&flood);
+        let session_id = 98_060_401u64;
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry {
+                session: session.clone(),
+                last_scroll_offset: 0,
+            },
+        );
+        let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
+        ACTIVE_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
+        pump_sessions();
+        ACTIVE_SESSION_ID.store(previous_active, std::sync::atomic::Ordering::Release);
+        wlock_session_registry().remove(&session_id);
+
+        let answered = String::from_utf8_lossy(&handle.written()).into_owned();
+        assert!(
+            answered.contains("\x1b]52;c;\x07"),
+            "后台会话的读请求必须被应答，实际写回 {answered:?}"
+        );
+        assert!(
+            session.lock().take_clipboard_reads().is_empty(),
+            "读请求队列必须每帧排空，否则后台程序持续发请求时无界增长"
+        );
+    }
+
+    /// 洪泛削减的回写同样按帧封顶。
+    ///
+    /// 削减分支要同步写 PTY（子进程不读 stdin 时每次可等到 50ms），而这段代码跑在
+    /// 渲染线程上。单块 8KB 输出能塞约 900 条读请求，两块即近 1800 条——不封顶就是
+    /// 渲染线程一帧内上千次带锁写入。断言的是「写回次数有上界」这一可观测结果。
+    #[test]
+    fn flood_shed_answers_are_capped_per_frame() {
+        let _registry_access = REGISTRY_ACCESS.lock();
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let session = Arc::new(parking_lot::Mutex::new(
+            Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+                .expect("with_pty must succeed"),
+        ));
+        // 两块输出，每块塞满请求：远超每帧回写上限，也远超单会话未作答上限。
+        // 一块输出按 8KB 计（PTY 读取缓冲），塞满请求即约 900 条一块。
+        let mut flood = Vec::new();
+        for _ in 0..2 * 8192 / READ_REQUEST.len() {
+            flood.extend_from_slice(READ_REQUEST);
+        }
+        for _ in 0..2 {
+            session.lock().inject_output_for_test(&flood);
+        }
+        let session_id = 98_060_402u64;
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry {
+                session: session.clone(),
+                last_scroll_offset: 0,
+            },
+        );
+        let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
+        ACTIVE_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
+        pump_sessions();
+        ACTIVE_SESSION_ID.store(previous_active, std::sync::atomic::Ordering::Release);
+        wlock_session_registry().remove(&session_id);
+
+        let written = handle.written();
+        let answers = written
+            .windows(EMPTY_ANSWER.len())
+            .filter(|window| *window == EMPTY_ANSWER)
+            .count();
+        assert!(
+            answers > 0,
+            "削减分支必须仍然作答，否则远端永远等不到应答（写回 {:?}）",
+            String::from_utf8_lossy(&written)
+        );
+        assert!(
+            answers <= MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
+            "削减回写每帧 {answers} 次，超过上限 {MAX_FLOOD_SHED_ANSWERS_PER_FRAME}"
+        );
     }
 }
 

@@ -46,14 +46,34 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
-    /** 主线程同步投递，返回连接真实的受理结果（异步投递会读到初值）。 */
+    /**
+     * 主线程同步投递，返回连接真实的受理结果（异步投递会读到初值）。
+     *
+     * 必须**轮询重试**而不是只发一次：`TerminalSurface.onWindowFocusChanged` 在窗口
+     * 获得焦点时同样会推后 `suppressUntilNanos`（有意为之——此刻输入法可能仍在组字，
+     * 立刻受理会失步并产生重复文本或多余空格），而 `sendKeyEvent` 的判据是
+     * `isPaused || now < suppressUntilNanos`。instrumentation 环境下窗口焦点会抖动，
+     * 单次投递有相当概率正落在抑制窗内而被**据实拒绝**（返回 false，不是丢字）。
+     *
+     * 这正是该断言原先的失败消息「暂停/抑制窗口内拒绝属预期失败」那句的含义：
+     * 它描述的是被测实现的有意契约，而不是缺陷——用单次投递去 `assertTrue` 是在
+     * 拿契约当 bug 报。模拟器上稳定复现（修前 3 连败）、修后 4 连过。
+     *
+     * 重试安全：受理结果就是返回值本身，返回 false 即未受理、未提交，故重试不会
+     * 把同一段文本重复送进去。
+     */
     @Suppress("DEPRECATION")
     private fun sendMultipleCharacters(marker: String): Boolean {
         var accepted = false
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            val connection =
-                findTerminalSurface(composeTestRule.activity).onCreateInputConnection(EditorInfo())
-            accepted = connection.sendKeyEvent(KeyEvent(SystemClock.uptimeMillis(), marker, 0, 0))
+        UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                val connection =
+                    findTerminalSurface(composeTestRule.activity)
+                        .onCreateInputConnection(EditorInfo())
+                accepted =
+                    connection.sendKeyEvent(KeyEvent(SystemClock.uptimeMillis(), marker, 0, 0))
+            }
+            accepted
         }
         return accepted
     }

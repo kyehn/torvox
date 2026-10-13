@@ -165,13 +165,19 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
         requireDirectory(targetParent)
         // 禁止把目录搬进自己的子孙：否则复制/删除在环上打转。
-        val sourceCanonical = source.canonicalFile.path
-        val targetParentCanonical = targetParent.canonicalFile.path
-        if (
-            targetParentCanonical == sourceCanonical ||
-            targetParentCanonical.startsWith(sourceCanonical + File.separator)
-        ) {
-            throw IOException("Refusing to move a directory into its own descendant")
+        // 与 copyDocument 同一守卫，且同样只认真目录：move 对符号链接只是改个名，
+        // 不遍历子树，故「链接的解析目标在源之下」并无 a/b/a/b 打转风险；而
+        // canonicalFile 正是把链接解析到目标，据此拒绝会误伤「把链接搬进其目标
+        // 子目录」这一正常操作——copyDocument 早已按此放行并有用例钉住。
+        if (source.isDirectory && !Files.isSymbolicLink(source.toPath())) {
+            val sourceCanonical = source.canonicalFile.path
+            val targetParentCanonical = targetParent.canonicalFile.path
+            if (
+                targetParentCanonical == sourceCanonical ||
+                targetParentCanonical.startsWith(sourceCanonical + File.separator)
+            ) {
+                throw IOException("Refusing to move a directory into its own descendant")
+            }
         }
         val sourceParentId =
             TerminalDocumentsProvider.encodeDocId(
@@ -356,7 +362,14 @@ internal class DocumentMutations(private val context: Context, private val rootD
      * 数据依然正确，至多让选择器晚一次刷新——不值得为它加重试或落盘兜底。
      */
     fun notifyWritten(documentId: String, written: File) {
-        notifyDocument(documentId)
+        // 由文件反推行内 docId 归一，而非直接用调用方传进来的 documentId：
+        // 树 URI 客户端寻址时传的是 `terminal_home/nix.conf` 这种带树根前缀的形式，
+        // 而本提供者行内只发行 `nix.conf`。两者构成**兄弟** URI 而非祖先/后代，
+        // 广播到前者收不到——外部编辑器覆写后文件选择器不刷新。renameDocument
+        // 早已按此归一（见上方 encodeDocId 调用）。
+        notifyDocument(
+            TerminalDocumentsProvider.encodeDocId(written, rootDir()) ?: documentId,
+        )
         notifyParentOf(written, rootDir())
     }
 

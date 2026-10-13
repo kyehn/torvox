@@ -37,6 +37,8 @@ impl super::GhosttyTerminal {
         let pty_for_run = pty_write_responses.clone();
         let alt_screen_active = Arc::new(AtomicBool::new(false));
         let alt_screen_active_for_run = alt_screen_active.clone();
+        let resize_failed = Arc::new(AtomicBool::new(false));
+        let resize_failed_for_run = resize_failed.clone();
         let cell_size_px_for_run = Arc::new((
             AtomicU32::new(DEFAULT_CELL_WIDTH),
             AtomicU32::new(DEFAULT_CELL_HEIGHT),
@@ -68,6 +70,7 @@ impl super::GhosttyTerminal {
                         theme,
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
+                        resize_failed: resize_failed_for_run,
                         cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
                         clipboard_tx,
@@ -110,6 +113,7 @@ impl super::GhosttyTerminal {
             pty_write_responses,
             last_pty_write_byte: 0,
             alt_screen_active,
+            resize_failed,
             #[cfg(test)]
             cache_stats: cache_stats_for_self,
         })
@@ -247,6 +251,17 @@ impl super::GhosttyTerminal {
         true
     }
 
+    /// 上一次入队的 resize 是否在 VT 线程上真的失败过（网格仍是旧尺寸）。
+    /// 调用方据此让下一次 resize 事件重试，而非按「尺寸未变」短路。
+    pub fn resize_failed(&self) -> bool {
+        self.resize_failed.load(Ordering::Acquire)
+    }
+
+    /// 测试钩子：直接置位/清除 [Self::resize_failed]。
+    pub fn set_resize_failed_for_test(&self, failed: bool) {
+        self.resize_failed.store(failed, Ordering::Release);
+    }
+
     pub fn set_cell_pixel_size(&self, cell_width: u32, cell_height: u32) {
         if let Err(error) = self.cmd_tx.try_send(Command::SetCellPixelSize {
             cell_width,
@@ -316,7 +331,13 @@ impl super::GhosttyTerminal {
     }
 
     pub fn take_kitty_placements(&self) -> Vec<KittyPlacementFrame> {
-        self.query(
+        Self::take_kitty_placements_on(&self.query_tx)
+    }
+
+    /// [`Self::take_kitty_placements`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn take_kitty_placements_on(query_tx: &Sender<Query>) -> Vec<KittyPlacementFrame> {
+        Self::query_on(
+            query_tx,
             |tx| Query::TakeKittyPlacements { tx },
             Vec::new(),
             "take_kitty_placements",
@@ -340,7 +361,16 @@ impl super::GhosttyTerminal {
     }
 
     pub fn render_cursor(&self) -> Option<(u32, u32)> {
-        self.query(Query::RenderCursor, None, "render_cursor")
+        Self::render_cursor_on(&self.query_tx)
+    }
+
+    /// [`Self::render_cursor`] 的通道外置版，理由同 [`Self::title_on`]。
+    ///
+    /// 这一条比其余查询更该走锁外：光标坐标取自 `build_cell_data`，即与渲染同源的
+    /// **整网格**构建，耗时随网格面积走（上限 `QUERY_TIMEOUT_MS`）。持着注册表读锁与
+    /// 会话锁等它，等于让每次取光标都把按帧取这两把锁的渲染线程堵住。
+    pub(crate) fn render_cursor_on(query_tx: &Sender<Query>) -> Option<(u32, u32)> {
+        Self::query_on(query_tx, Query::RenderCursor, None, "render_cursor")
     }
 
     pub fn receive_cell_data(&self) -> Option<(Vec<CellData>, CursorInfo)> {
@@ -367,7 +397,30 @@ impl super::GhosttyTerminal {
         cell_width: f32,
         cell_height: f32,
     ) -> Option<Vec<u8>> {
-        self.query(
+        Self::encode_mouse_event_on(
+            &self.query_tx,
+            position,
+            action,
+            button,
+            modifiers,
+            cell_width,
+            cell_height,
+        )
+    }
+
+    /// [`Self::encode_mouse_event`] 的通道外置版：调用方在会话锁内克隆查询通道，
+    /// 随后在锁外编码，使每次鼠标移动不持有会话锁与注册表锁等待 VT 应答。
+    pub(crate) fn encode_mouse_event_on(
+        query_tx: &Sender<Query>,
+        position: (f32, f32),
+        action: u8,
+        button: u8,
+        modifiers: u16,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> Option<Vec<u8>> {
+        Self::query_on(
+            query_tx,
             |tx| Query::EncodeMouseEvent {
                 position,
                 action,
@@ -401,7 +454,22 @@ impl super::GhosttyTerminal {
         text: Option<char>,
         unshifted: Option<char>,
     ) -> Option<Vec<u8>> {
-        self.query(
+        Self::encode_key_event_on(&self.query_tx, key, action, modifiers, text, unshifted)
+    }
+
+    /// [`Self::encode_key_event`] 的通道外置版：调用方在会话锁内克隆查询通道，
+    /// 随后在锁外编码，使每次击键不持有会话锁与注册表锁等待 VT 应答——否则重负载
+    /// VT 线程下每次按键会连同按帧取这两把锁的渲染一起卡住一个查询超时。
+    pub(crate) fn encode_key_event_on(
+        query_tx: &Sender<Query>,
+        key: key::Key,
+        action: key::Action,
+        modifiers: u16,
+        text: Option<char>,
+        unshifted: Option<char>,
+    ) -> Option<Vec<u8>> {
+        Self::query_on(
+            query_tx,
             |tx| Query::EncodeKeyEvent {
                 key,
                 action,
@@ -425,7 +493,13 @@ impl super::GhosttyTerminal {
     /// 编码失败返回 `Some(空)`，由调用方丢弃本次粘贴；
     /// 仅查询通道卡死时返回 `None`。
     pub fn encode_paste(&self, data: &[u8]) -> Option<Vec<u8>> {
-        self.query(
+        Self::encode_paste_on(&self.query_tx, data)
+    }
+
+    /// [`Self::encode_paste`] 的通道外置版，理由同 [`Self::encode_key_event_on`]。
+    pub(crate) fn encode_paste_on(query_tx: &Sender<Query>, data: &[u8]) -> Option<Vec<u8>> {
+        Self::query_on(
+            query_tx,
             |tx| Query::EncodePaste {
                 data: data.to_vec(),
                 tx,
@@ -437,7 +511,11 @@ impl super::GhosttyTerminal {
     }
 
     pub fn mode_get(&self, mode: libghostty_vt::terminal::Mode) -> bool {
-        self.mode_get_with_timeout(mode, std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
+        Self::mode_get_on(
+            &self.query_tx,
+            mode,
+            std::time::Duration::from_millis(QUERY_TIMEOUT_MS),
+        )
     }
 
     pub fn mode_get_with_timeout(
@@ -445,8 +523,18 @@ impl super::GhosttyTerminal {
         mode: libghostty_vt::terminal::Mode,
         timeout: std::time::Duration,
     ) -> bool {
+        Self::mode_get_on(&self.query_tx, mode, timeout)
+    }
+
+    /// [`Self::mode_get_with_timeout`] 的通道外置版，理由同 [`Self::title_on`]。
+    /// 本查询自带超时参数（其余走 `query_on` 的统一期限），故不并入 `query_on`。
+    pub(crate) fn mode_get_on(
+        query_tx: &Sender<Query>,
+        mode: libghostty_vt::terminal::Mode,
+        timeout: std::time::Duration,
+    ) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Query::ModeGet(mode, tx)) {
+        if let Err(error) = query_tx.try_send(Query::ModeGet(mode, tx)) {
             // 发送失败即无人会应答：继续 recv 只会白等满整个 timeout，
             // 而调用方普遍持有会话锁，故立即返回（与 query() 同策略）。
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
@@ -503,11 +591,28 @@ impl super::GhosttyTerminal {
     }
 
     pub fn title(&self) -> String {
-        self.query(Query::Title, DISCONNECTED_TITLE.to_string(), "title")
+        Self::title_on(&self.query_tx)
+    }
+
+    /// [`Self::title`] 的通道外置版，理由同 [`Self::encode_key_event_on`]。
+    /// 标题随每次状态更新从 Kotlin 侧拉取，频率与击键同级。
+    pub(crate) fn title_on(query_tx: &Sender<Query>) -> String {
+        Self::query_on(
+            query_tx,
+            Query::Title,
+            DISCONNECTED_TITLE.to_string(),
+            "title",
+        )
     }
 
     pub fn scrollback_length(&self) -> u32 {
-        self.query(
+        Self::scrollback_length_on(&self.query_tx)
+    }
+
+    /// [`Self::scrollback_length`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn scrollback_length_on(query_tx: &Sender<Query>) -> u32 {
+        Self::query_on(
+            query_tx,
             Query::ScrollbackLength,
             DISCONNECTED_SCROLLBACK,
             "scrollback_length",
@@ -515,20 +620,55 @@ impl super::GhosttyTerminal {
     }
 
     pub fn read_line_text(&self, row: u32) -> Option<String> {
-        self.query(|tx| Query::ReadLineText { row, tx }, None, "read_line_text")
+        Self::read_line_text_on(&self.query_tx, row)
+    }
+
+    /// [`Self::read_line_text`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn read_line_text_on(query_tx: &Sender<Query>, row: u32) -> Option<String> {
+        Self::query_on(
+            query_tx,
+            |tx| Query::ReadLineText { row, tx },
+            None,
+            "read_line_text",
+        )
     }
 
     pub fn read_visible_text(&self) -> String {
-        self.query(Query::ReadVisibleText, String::new(), "read_visible_text")
+        Self::read_visible_text_on(&self.query_tx)
+    }
+
+    /// [`Self::read_visible_text`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn read_visible_text_on(query_tx: &Sender<Query>) -> String {
+        Self::query_on(
+            query_tx,
+            Query::ReadVisibleText,
+            String::new(),
+            "read_visible_text",
+        )
     }
 
     /// 视口 + 回滚区全量文本。`dump_grid` 的等价替代：调用方只需字符，无需样式。
     pub fn read_all_text(&self) -> String {
-        self.query(Query::ReadAllText, String::new(), "read_all_text")
+        Self::read_all_text_on(&self.query_tx)
+    }
+
+    /// [`Self::read_all_text`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn read_all_text_on(query_tx: &Sender<Query>) -> String {
+        Self::query_on(query_tx, Query::ReadAllText, String::new(), "read_all_text")
     }
 
     pub fn selection_text(&self, start: (u32, u32), end: (u32, u32)) -> String {
-        self.query(
+        Self::selection_text_on(&self.query_tx, start, end)
+    }
+
+    /// [`Self::selection_text`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn selection_text_on(
+        query_tx: &Sender<Query>,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) -> String {
+        Self::query_on(
+            query_tx,
             |tx| Query::SelectionText { start, end, tx },
             String::new(),
             "selection_text",
@@ -536,7 +676,17 @@ impl super::GhosttyTerminal {
     }
 
     pub fn select_word_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
-        self.query(
+        Self::select_word_at_on(&self.query_tx, row, col)
+    }
+
+    /// [`Self::select_word_at`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn select_word_at_on(
+        query_tx: &Sender<Query>,
+        row: u32,
+        col: u32,
+    ) -> Option<((u32, u32), (u32, u32))> {
+        Self::query_on(
+            query_tx,
             |tx| Query::SelectWordAt { row, col, tx },
             None,
             "select_word_at",
@@ -546,7 +696,14 @@ impl super::GhosttyTerminal {
     /// 该行中作为宽字符后半格的列号，升序。查询失败时为空 vec（等价于无吸附）：
     /// 保持原列，不猜。
     pub fn wide_char_tail_cols(&self, row: u32) -> Vec<u32> {
-        self.query(
+        Self::wide_char_tail_cols_on(&self.query_tx, row)
+    }
+
+    /// [`Self::wide_char_tail_cols`] 的通道外置版，理由同 [`Self::encode_key_event_on`]。
+    /// 本方法每次拖动手柄都调用，故不能持双锁等 VT 应答。
+    pub(crate) fn wide_char_tail_cols_on(query_tx: &Sender<Query>, row: u32) -> Vec<u32> {
+        Self::query_on(
+            query_tx,
             |tx| Query::WideCharTailCols { row, tx },
             Vec::new(),
             "wide_char_tail_cols",
@@ -554,13 +711,24 @@ impl super::GhosttyTerminal {
     }
 
     pub fn select_all(&self) -> Option<((u32, u32), (u32, u32))> {
-        self.query(|tx| Query::SelectAll { tx }, None, "select_all")
+        Self::select_all_on(&self.query_tx)
+    }
+
+    /// [`Self::select_all`] 的通道外置版，理由同 [`Self::encode_key_event_on`]。
+    pub(crate) fn select_all_on(query_tx: &Sender<Query>) -> Option<((u32, u32), (u32, u32))> {
+        Self::query_on(query_tx, |tx| Query::SelectAll { tx }, None, "select_all")
     }
 
     /// 查询网格单元处的 OSC 8 超链接 URI（行 0 = 回滚顶部，与 scrollbackLine 一致）；
     /// 无链接时为 None。
     pub fn hyperlink_at(&self, row: u32, col: u32) -> Option<String> {
-        self.query(
+        Self::hyperlink_at_on(&self.query_tx, row, col)
+    }
+
+    /// [`Self::hyperlink_at`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn hyperlink_at_on(query_tx: &Sender<Query>, row: u32, col: u32) -> Option<String> {
+        Self::query_on(
+            query_tx,
             |tx| Query::HyperlinkAt { row, col, tx },
             None,
             "hyperlink_at",

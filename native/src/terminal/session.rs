@@ -113,26 +113,80 @@ impl SessionError {
 /// PTY 主端：可克隆的写入面，与 [Session] 解耦。
 ///
 /// 为什么必须能脱离会话锁使用：`Pty::write_all` 在子进程不读 stdin 时最多等
-/// `pty::WRITE_DRAIN_TIMEOUT`（5s），而会话锁每帧都被渲染与事件收割取得——
-/// 持锁写入会把整台终端（渲染、事件、输入）冻住同样长的时间。
-/// 写入只需主端 fd，故句柄单独克隆、锁外完成；写入之间仍由本互斥量串行
-/// （同一 PTY 的字节序要求）。
+/// `pty::WRITE_DRAIN_TIMEOUT`（5s），且每有部分写入就重置期限，故持锁时间**无上界**；
+/// 而会话锁每帧都被渲染与事件收割取得——持锁写入会把整台终端（渲染、事件、输入）
+/// 冻住同样长的时间。写入只需主端 fd，故句柄单独克隆、锁外完成。
+///
+/// 两把锁的分工是刻意的：
+/// - **读侧无锁**：`resize` / `set_pixel_size` / `child_pid` 只是 ioctl 或取字段，
+///   直接经 `Arc<dyn Pty>` 完成。它们一旦排在无上界的写入后面，UI 线程上的
+///   旋转/输入法变化就会跟着一起卡住。
+/// - **仅写入之间互斥**：同一 PTY 的字节序要求写入彼此串行，故另设一把只锁写入
+///   的锁——它挡不住别的线程，但也不会被只读路径拖住。
 #[derive(Clone)]
 pub struct PtyMaster {
-    inner: Arc<Mutex<Box<dyn Pty>>>,
+    /// 只读路径直接经它拿 `&dyn Pty`，不取任何锁（`Pty` 为 `Send + Sync`）。
+    pty: Arc<dyn Pty>,
+    /// 只串行化写入之间的字节序，与读侧无关。
+    write_order: Arc<Mutex<()>>,
     exited: Arc<AtomicBool>,
+    /// 子进程 pid，构造期取一次。
+    ///
+    /// `request_exit` 必须在**不取互斥量**的前提下读到它：那条路经 `destroySession`
+    /// 跑在 UI 线程上，而互斥量此刻可能被 `PtyMaster::write` 持住——后者要等子进程
+    /// 消费，且每有部分写入就重置期限，故持锁时间**无上界**。子进程退出后该路若被
+    /// 堵住，`Session::drop` 的 `join_with_timeout` 随之超时并分离等待线程。
+    ///
+    /// 进程组在 spawn 之后不再改变，故这个值与经 `Pty::child_pid` 现取完全等价。
+    child_pid: nix::unistd::Pid,
 }
+
+/// 待上报 OSC 52 剪贴板写入的上限。渲染暂停期间（设置页/输入法弹出）`poll_clipboard`
+/// 停调，而程序可继续发 OSC 52；超出即丢最旧，使内存不随「上游发得多快」增长。
+const MAX_CLIPBOARD_TEXT_QUEUE: usize = 8;
 
 impl PtyMaster {
     fn new(pty: Box<dyn Pty>, exited: Arc<AtomicBool>) -> Self {
+        let child_pid = pty.child_pid();
         Self {
-            inner: Arc::new(Mutex::new(pty)),
+            pty: Arc::from(pty),
+            write_order: Arc::new(Mutex::new(())),
             exited,
+            child_pid,
         }
     }
 
-    fn with<R>(&self, action: impl FnOnce(&mut dyn Pty) -> R) -> R {
-        action(&mut **self.inner.lock())
+    /// 子进程 pid：不取互斥量，故可在写入进行中安全调用。
+    pub fn child_pid(&self) -> nix::unistd::Pid {
+        self.child_pid
+    }
+
+    /// 更新 PTY winsize。**不取锁**：只是 ioctl，与无上界的写入无关。
+    pub fn resize(&self, rows: u16, cols: u16) -> Result<(), crate::terminal::pty::PtyError> {
+        self.pty.resize(rows, cols)
+    }
+
+    /// 更新 TIOCSWINSZ 的像素字段。**不取锁**，同上。
+    pub fn set_pixel_size(
+        &self,
+        width: u16,
+        height: u16,
+    ) -> Result<(), crate::terminal::pty::PtyError> {
+        self.pty.set_pixel_size(width, height)
+    }
+
+    /// 以给定排空期限写入。**取写入锁**以保字节序——VT 应答与用户输入共用主端。
+    pub fn write_with_timeout(
+        &self,
+        data: &[u8],
+        drain_timeout: std::time::Duration,
+    ) -> std::io::Result<()> {
+        let _order = self.pty_write_order();
+        self.pty.write_all(data, drain_timeout)
+    }
+
+    fn pty_write_order(&self) -> parking_lot::MutexGuard<'_, ()> {
+        self.write_order.lock()
     }
 
     /// 写入子进程 stdin。会话已退出即拒绝（`SessionError::Closed`）——
@@ -141,7 +195,7 @@ impl PtyMaster {
         if self.exited.load(Ordering::Acquire) {
             return Err(SessionError::Closed);
         }
-        self.with(|pty| pty.write_all(data))
+        self.write_with_timeout(data, crate::terminal::pty::WRITE_DRAIN_TIMEOUT)
             .map_err(SessionError::Io)
     }
 }
@@ -164,15 +218,19 @@ pub struct Session {
     /// 待上报的 OSC 52 剪贴板写入（FIFO）：`drain_callback_events` 收割，
     /// `poll_clipboard` 取走队首。队列而非单槽——渲染暂停（设置页/输入法弹出）
     /// 期间 `pollEvent` 停调，单槽会让后一次写入覆盖前一次，用户丢剪贴板内容。
-    /// 上游回调通道有界（`EVENT_CHANNEL_CAPACITY`）且满时记日志丢弃，
-    /// 故队列深度天然受其约束。
+    ///
+    /// 深度**不**受 `EVENT_CHANNEL_CAPACITY` 约束：那只约束上游回调通道，而
+    /// `drain_callback_events` 每帧把通道**排空**进本队列、`poll_clipboard` 每帧只
+    /// 取一条，于是程序以快于每帧一条的速率发 OSC 52 时净增速可达每帧十余条，
+    /// 队列无界增长。故显式封顶并丢最旧（见 `MAX_CLIPBOARD_TEXT_QUEUE`）。
     clipboard_text: Arc<Mutex<VecDeque<String>>>,
     /// 待处理的 OSC 52 剪贴板读取请求：所请求的 selection 名。
-    /// 待上报的 OSC 52 剪贴板读取（FIFO）：`poll_pty_output` 收割，
-    /// JNI 层逐帧取走全部并转发给宿主应用，经 [`Session::answer_clipboard_read`]
-    /// 写回应答。队列而非单槽——同帧/块内多个读请求必须全部作答，
-    /// 单槽 last-wins 会让被挤掉的请求永不作答；
-    /// 上游 flood 由 JNI 侧单会话上限显式作答空串，故深度天然有界。
+    ///
+    /// FIFO：`poll_pty_output` 收割，JNI 层**对每个会话**（含后台）逐帧取走全部并
+    /// 转发给宿主应用，经 [`Session::answer_clipboard_read`] 写回应答。队列而非
+    /// 单槽——同帧/块内多个读请求必须全部作答，单槽 last-wins 会让被挤掉的请求
+    /// 永不作答。深度由「每帧必被排空」约束：只排活跃会话时，后台程序持续发读
+    /// 请求会让本队列无界增长（进一条、从不取），故后台分支同样收割。
     clipboard_read: Arc<Mutex<VecDeque<String>>>,
 
     // ── 线程生命周期 ─────────────────────────────────────────────────
@@ -205,6 +263,17 @@ impl Session {
         cols: u32,
     ) -> Result<Self, SessionError> {
         Self::spawn_with_pty(pty, rows, cols)
+    }
+
+    /// 往本会话的输出通道注入一段 PTY 输出（等价于 `pty_read` 收到数据）。
+    ///
+    /// 仅供测试：`MockPty` 的输出侧是 `/dev/null`（见其 `try_clone_reader_fd`），
+    /// 没有注入口，故「程序输出了什么」这条最常见的测试前提无法表达。
+    #[cfg(test)]
+    pub(crate) fn inject_output_for_test(&self, bytes: &[u8]) {
+        self.output_tx
+            .send(bytes.to_vec())
+            .expect("output_tx send must succeed");
     }
 
     /// 以默认主题创建会话。`cwd` 可选，覆盖子进程初始工作目录；
@@ -430,11 +499,14 @@ impl Session {
         }
         // 相同尺寸直接短路，**除非**上一次网格 resize 被丢弃——此时缓存尺寸已与网格
         // 不符，必须重发相同尺寸以修复分歧。
-        let dirty = self.grid_dirty.load(Ordering::Acquire);
+        // `resize_failed` 与 `grid_dirty` 同为「不得按同尺寸短路」的判据：前者来自
+        // 命令**已入队但 VT 线程上失败**，后者来自入队即被丢弃。两者的共同后果都是
+        // PTY/缓存尺寸已更新而网格仍是旧尺寸。
+        let dirty = self.grid_dirty.load(Ordering::Acquire) || self.terminal.resize_failed();
         if !dirty && (rows as u32, cols as u32) == self.grid_size() {
             return Ok(ResizeOutcome::Applied);
         }
-        self.pty.with(|pty| pty.resize(rows, cols))?;
+        self.pty.resize(rows, cols)?;
         if !self.terminal.resize(rows as u32, cols as u32) {
             // PTY winsize 已变但 Ghostty 网格未变（命令被丢弃）。缓存保留旧尺寸并置
             // `grid_dirty`，使下次 resize 事件（即使尺寸相同）重试而非短路。
@@ -457,7 +529,7 @@ impl Session {
     /// 像素感知的程序（`icat`、全屏 TUI）从 TIOCGWINSZ 读像素尺寸，为 0 时会回退到错误的
     /// 默认单元格尺寸。行列必须保留，因为 TIOCSWINSZ 会替换整个结构体。
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), SessionError> {
-        self.pty.with(|pty| pty.set_pixel_size(width, height))?;
+        self.pty.set_pixel_size(width, height)?;
         // 同步单元格像素几何到终端（Kitty 放置几何依赖它；失败仅日志，不阻断 PTY）。
         let (rows, cols) = self.grid_size();
         if rows > 0 && cols > 0 && width > 0 && height > 0 {
@@ -550,7 +622,12 @@ impl Session {
     fn drain_pty_write_back(&mut self) {
         for response in self.terminal.drain_pty_write_responses() {
             log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
-            if let Err(error) = self.pty.with(|pty| pty.write_all(&response)) {
+            // 帧级短期限：此处逐帧收割且全程持会话锁，按用户输入的 5s 上限等待会把
+            // 渲染与看门狗一起拖住（见 pty::WRITE_BACK_TIMEOUT）。
+            if let Err(error) = self
+                .pty
+                .write_with_timeout(&response, crate::terminal::pty::WRITE_BACK_TIMEOUT)
+            {
                 log::error!(
                     "session: PTY write-back failed ({} bytes): {}",
                     response.len(),
@@ -579,7 +656,18 @@ impl Session {
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             // FIFO 而非单槽：渲染暂停（pollEvent 停调）期间的连续写入必须全部保留，
             // 单槽会让后一次覆盖前一次，用户丢剪贴板内容。
-            self.clipboard_text.lock().push_back(text);
+            let mut queue = self.clipboard_text.lock();
+            queue.push_back(text);
+            // 丢最旧而非拒收最新：队首才是用户已等待最久、即将被上报的那条。
+            // 与 clipboard_read 的洪泛削减同口径（见 ffi 的
+            // MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION），只是那边答空串、这边丢弃。
+            if queue.len() > MAX_CLIPBOARD_TEXT_QUEUE {
+                queue.pop_front();
+                log::warn!(
+                    "clipboard queue overflow (>{} pending); dropping oldest write",
+                    MAX_CLIPBOARD_TEXT_QUEUE,
+                );
+            }
         }
     }
 
@@ -614,7 +702,7 @@ impl Session {
             return Err(SessionError::Closed);
         }
         self.pty
-            .with(|pty| pty.write_all(&response))
+            .write_with_timeout(&response, crate::terminal::pty::WRITE_BACK_TIMEOUT)
             .map_err(SessionError::Io)?;
         Ok(())
     }
@@ -688,7 +776,12 @@ impl Session {
             return;
         }
         let data = if focused { b"\x1b[I" } else { b"\x1b[O" };
-        if let Err(error) = self.pty.with(|pty| pty.write_all(data)) {
+        // 焦点事件按用户操作触发、极稀疏，且丢出会让 vim 一类应用停在错误的焦点模式：
+        // 故用完整的排空期限，不与逐帧收割共用短上限。
+        if let Err(error) = self
+            .pty
+            .write_with_timeout(data, crate::terminal::pty::WRITE_DRAIN_TIMEOUT)
+        {
             log::warn!("session: focus_event write failed: {error}");
         }
     }
@@ -752,7 +845,7 @@ impl Session {
         // Err 走到「output channel closed」退出分支，等待线程也随 exited 标志退出。
         // 换入的是空通道，故 `poll_pty_output` 等后续调用仍安全。
         self.output_rx = flume::bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND).1;
-        let pid = self.pty.with(|pty| pty.child_pid());
+        let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
             // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
             // （管道、前台组内的后台作业）一并退出。
@@ -901,14 +994,14 @@ mod tests {
         }
 
         impl Pty for BlockingPty {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            fn write(&self, buf: &[u8]) -> io::Result<usize> {
                 self.entered.store(true, Ordering::Release);
                 while !self.released.load(Ordering::Acquire) {
                     std::thread::sleep(Duration::from_millis(1));
                 }
                 Ok(buf.len())
             }
-            fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            fn read(&self, _buf: &mut [u8]) -> io::Result<usize> {
                 Err(io::Error::new(io::ErrorKind::WouldBlock, "no data"))
             }
             fn resize(&self, _rows: u16, _cols: u16) -> Result<(), PtyError> {
@@ -1366,6 +1459,147 @@ mod tests {
         );
     }
 
+    /// 回归钉：VT 线程上的 resize 失败后，同尺寸的下次 resize 不得再被短路。
+    ///
+    /// `GhosttyTerminal::resize` 只报告命令**是否入队**，而 `Terminal::resize` 真正
+    /// 在 VT 线程上执行，二者之间还隔着一次可能失败的上游调用。此前该失败只记日志：
+    /// `Session::resize` 已按「已入队」把缓存尺寸发布成新值并清掉 `grid_dirty`，
+    /// 于是同尺寸的下一次 resize 走 `!dirty && 尺寸未变` 短路——PTY 与网格永久分歧，
+    /// 且没有任何重试时机。
+    ///
+    /// 判别力看 `MockPty::resize_count`：短路分支根本不碰 PTY，故计数不增；
+    /// 重试则必然经过 `pty.resize`。（前一版只断言 `grid_dirty`/`resize_failed`
+    /// 这类间接量，还原实现后仍全绿——它并没有观察是否真的重发。）
+    #[test]
+    fn vt_thread_resize_failure_forces_the_next_resize_to_retry() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::spawn_with_pty(Box::new(pty), 30, 100).expect("session");
+
+        // 基线：同尺寸第二次本就该短路（既有去重，不能被破坏）。
+        session.resize(30, 100).expect("first resize");
+        let after_first = handle.resize_count();
+        session.resize(30, 100).expect("second resize");
+        assert_eq!(
+            handle.resize_count(),
+            after_first,
+            "无失败标记时同尺寸必须继续短路"
+        );
+
+        // 模拟「命令已入队但 VT 线程上失败」。
+        session.terminal.set_resize_failed_for_test(true);
+        session.resize(30, 100).expect("retry resize");
+        assert_eq!(
+            handle.resize_count(),
+            after_first + 1,
+            "VT 线程 resize 失败后，同尺寸的下一次必须真正重发（PTY 计数应 +1）"
+        );
+    }
+
+    /// 回归钉：持锁写入进行中，`PtyMaster::child_pid` 仍须立即可读。
+    ///
+    /// `PtyMaster::write` 持互斥量跑完整个 `write_all`，而它每有部分写入就重置期限，
+    /// 故持锁时间无上界。`request_exit` 经 `destroySession` 跑在 UI 线程上，若它也去
+    /// 取这把锁，子进程不读 stdin 时销毁会阻塞主线程，`Session::drop` 的
+    /// `join_with_timeout` 随之超时并分离等待线程。
+    ///
+    /// 用 gate 确定性地停写入在临界区内（不是 sleep，无竞态）；读取放在**另一个线程**
+    /// 里经超时收取：若读取要取锁就会一直等下去，直接在主线程调用会把用例挂死而不是
+    /// 判红——挂死的用例比判红的更难排查。先收结果、再放行、最后才断言，保证任何分支
+    /// 下写入线程都会被放出来。
+    #[test]
+    fn child_pid_stays_readable_while_a_write_holds_the_master_lock() {
+        use crate::terminal::mock_pty::{MockPty, WriteGate};
+        use std::sync::mpsc;
+
+        /// 读取上限。取锁的实现会等到 gate 放行才返回，故任何非零上限都能判红；
+        /// 给足余量使正常路径绝不会因调度抖动而误报。
+        const READ_BUDGET: Duration = Duration::from_millis(500);
+
+        let (mut pty, _handle) = MockPty::new(24, 80);
+        let gate = WriteGate::new();
+        pty.gate_writes(gate.clone());
+        let master = PtyMaster::new(Box::new(pty), Arc::new(AtomicBool::new(false)));
+
+        let writer = {
+            let master = master.clone();
+            std::thread::spawn(move || {
+                let _ = master.write(b"blocked");
+            })
+        };
+        gate.wait_until_entered();
+
+        // 只读路径两条一起验：`child_pid`（取字段）与 `resize`（ioctl）。
+        // 后者是本轮由「与写入争锁」改为无锁的那一条。
+        let (sender, receiver) = mpsc::channel();
+        let reader = {
+            let master = master.clone();
+            std::thread::spawn(move || {
+                let _ = sender.send((master.child_pid(), master.resize(30, 100)));
+            })
+        };
+        let received = receiver.recv_timeout(READ_BUDGET);
+
+        // 先收尾再断言：任何情况下都不把写入线程留在闸里。
+        gate.release();
+        writer.join().expect("writer thread panicked");
+        reader.join().expect("reader thread panicked");
+
+        let (pid, resize_result) = received.expect("只读路径不得取主端互斥量：此刻写入正持锁");
+        assert!(pid.as_raw() > 0, "child pid 应为构造期缓存的值");
+        assert!(
+            resize_result.is_ok(),
+            "resize 是纯 ioctl，排在无上界的写入之后必须仍是成功的：{resize_result:?}"
+        );
+    }
+
+    /// 回归钉：待上报的剪贴板写入队列必须有界，且丢最旧。
+    ///
+    /// 该队列此前的深度说明写着「受 `EVENT_CHANNEL_CAPACITY` 约束」——那只约束
+    /// 上游回调通道，而 `drain_callback_events` 每帧把通道排空进本队列、
+    /// `poll_clipboard` 每帧只取一条。程序以快于每帧一条的速率发 OSC 52 时队列
+    /// 每帧净增十余条且无上限；渲染暂停（设置页/输入法弹出）期间消费彻底停摆。
+    ///
+    /// 走真实路径：投进 VT 解析器再 `process_output` 收割，不在用例里复刻封顶逻辑
+    /// ——那只会断言测试自己刚写下的代码。
+    #[test]
+    fn clipboard_write_queue_is_bounded_and_drops_oldest() {
+        use base64::Engine;
+        let mut session = spawn_test_session();
+        let total = MAX_CLIPBOARD_TEXT_QUEUE + 5;
+        for index in 0..total {
+            let payload = base64::engine::general_purpose::STANDARD
+                .encode(format!("clip-{index}").as_bytes());
+            session
+                .terminal_mut()
+                .vt_write(format!("\u{1b}]52;c;{payload}\u{7}").as_bytes());
+        }
+        // 收割是逐帧的：反复 process_output 让 VT 线程把全部事件递进通道，
+        // 每轮都不调用 poll_clipboard（模拟渲染暂停期消费停摆）。
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while session.clipboard_text.lock().len() < total && std::time::Instant::now() < deadline {
+            session.process_output();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let queue = session.clipboard_text.lock();
+        assert!(
+            queue.len() <= MAX_CLIPBOARD_TEXT_QUEUE,
+            "待上报队列必须有界（上限 {}，实得 {}），否则内存随上游发送速率增长",
+            MAX_CLIPBOARD_TEXT_QUEUE,
+            queue.len(),
+        );
+        assert!(
+            !queue.is_empty(),
+            "过载后队列不得为空：丢最旧也仍须留住较新的那批"
+        );
+        // 队列里是解码后的正文（base64 只用于线路传输），不是载荷本身。
+        assert_eq!(
+            queue.back().map(String::as_str),
+            Some(format!("clip-{}", total - 1).as_str()),
+            "丢的必须是较旧的那批，队首才是等待最久的一条",
+        );
+    }
+
     #[test]
     fn request_exit_kills_child_while_session_still_alive() {
         // destroySession 从注册表摘下条目后即向宿主返回，此时剪贴板应答等异步
@@ -1373,7 +1607,7 @@ mod tests {
         // 否则宿主已经认为会话销毁、shell 却在后台继续跑（生命周期契约破裂）。
         let mut session = spawn_test_session();
         session.write(b"echo alive\n").expect("write failed");
-        let pid = session.pty.with(|pty| pty.child_pid());
+        let pid = session.pty.child_pid();
         assert!(pid.as_raw() > 0, "spawned session must have a child pid");
 
         session.request_exit();

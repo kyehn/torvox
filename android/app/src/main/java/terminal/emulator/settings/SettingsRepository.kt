@@ -9,7 +9,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -48,9 +47,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val DEFAULT_THEME_MODE = terminal.emulator.ui.theme.ThemeMode.FIXED
 
         /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
-        private const val DEBOUNCE_MILLIS = 300L
+        internal const val DEBOUNCE_MILLIS = 300L
 
-        /** Shell 启动入口默认空（DESIGN :113 未设置时为空），空即走默认回退链。 */
+        /** Shell 启动入口默认空（DESIGN.md:89 未设置时为空），空即走默认回退链。 */
         const val DEFAULT_SHELL = ""
 
         /**
@@ -99,7 +98,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
         /**
          * 用户可选的字号范围与精度，取自 Termux
-         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:67
+         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:66
          * 「默认大小与可选范围/精度须参考 Termux」）：下限 4dip；默认值 12dip 且取偶，
          * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
          *
@@ -311,6 +310,17 @@ constructor(private val provider: SettingsDataStoreProvider) {
     @Volatile private var bootstrapUrlEditsArmed = true
 
     /**
+     * 最近一次已落盘的引导 URL，用于去重。
+     *
+     * 刻意不用 `distinctUntilChanged()`：它的「上一个值」藏在算子内部，
+     * `dropPendingBootstrapUrlEdits` 里的 `resetReplayCache()` 碰不到。于是
+     * 「设为 X → 清除应用数据 → 再输入同一个 X」这一串里，第二次的 X 与算子记着的
+     * X 相同而被抑制，`put` 永不执行：会话内安装仍成功（读的是 replay 缓存），
+     * 重启应用后 URL 却又变空，用户以为没保存。
+     */
+    @Volatile private var lastPersistedBootstrapUrl: String? = null
+
+    /**
      * 丢弃尚未落盘的引导 URL 编辑并暂停防抖写入：清除应用数据前调用，
      * 否则防抖写入会在删除之后重建 `preferences_pb`，清除静默不生效。
      * 连带清空 replay 缓存，故其后的 `latestBootstrapUrlEdit()` 不再返回已清除的值。
@@ -318,6 +328,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun dropPendingBootstrapUrlEdits() {
         bootstrapUrlEditMutex.withLock {
             bootstrapUrlEditsArmed = false
+            // 去重基线一并清掉：数据已被删除，重设同一个 URL 必须真的再写一次。
+            lastPersistedBootstrapUrl = null
             @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
             bootstrapUrlEdits.resetReplayCache()
         }
@@ -331,14 +343,14 @@ constructor(private val provider: SettingsDataStoreProvider) {
     init {
         scope.launch {
             @OptIn(kotlinx.coroutines.FlowPreview::class)
-            bootstrapUrlEdits
-                .debounce(DEBOUNCE_MILLIS)
-                .distinctUntilChanged()
-                .collect { value ->
-                    bootstrapUrlEditMutex.withLock {
-                        if (bootstrapUrlEditsArmed) put(Keys.BOOTSTRAP_URL, value)
+            bootstrapUrlEdits.debounce(DEBOUNCE_MILLIS).collect { value ->
+                bootstrapUrlEditMutex.withLock {
+                    if (bootstrapUrlEditsArmed && value != lastPersistedBootstrapUrl) {
+                        put(Keys.BOOTSTRAP_URL, value)
+                        lastPersistedBootstrapUrl = value
                     }
                 }
+            }
         }
     }
 

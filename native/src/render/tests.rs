@@ -31,7 +31,9 @@ fn ascii_font() -> crate::render::font::FontPipeline {
 
 #[test]
 fn cell_instance_size() {
-    assert_eq!(std::mem::size_of::<CellInstance>(), 96);
+    // 2+2+2+4+4+4+2+1+2 个 f32 = 23 × 4 = 92 字节。去掉从不参与运算的
+    // 字形前进宽度后少了 4 字节；顶点属性表随之少一项（见 `cell_instance_attribs_locations`）。
+    assert_eq!(std::mem::size_of::<CellInstance>(), 92);
 }
 
 #[test]
@@ -153,14 +155,13 @@ fn cell_instance_pod_roundtrip() {
         underline_color: [1.0, 1.0, 1.0, 1.0],
         quad_size: [3.0, 4.0],
         flags: 5.0,
-        bearing: [0.0; 2],
-        glyph_advance_width: 8.0,
+        bearing: [8.0, 9.0],
     };
     let bytes = bytemuck::bytes_of(&instance);
     let back: &CellInstance = bytemuck::from_bytes(bytes);
     assert!(f32_arrays_equal(&back.quad_origin, &[1.0, 2.0]));
     assert!(f32_eq(back.flags, 5.0));
-    assert!(f32_eq(back.glyph_advance_width, 8.0));
+    assert!(f32_arrays_equal(&back.bearing, &[8.0, 9.0]));
 }
 
 #[test]
@@ -177,8 +178,8 @@ fn cell_instance_zeroable() {
 
 #[test]
 fn gpu_uniforms_size() {
-    // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 4 (raster_scale) + 4
-    // (std140 trailing padding) = 80. Matches the WGSL `Uniforms`.
+    // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 8 (std140 trailing padding) = 80.
+    // Matches the WGSL `Uniforms`, whose struct size is likewise rounded to 16.
     assert_eq!(std::mem::size_of::<GpuUniforms>(), 80);
 }
 
@@ -217,12 +218,11 @@ fn orthographic_projection_basic() {
 #[test]
 fn cell_instance_attribs_locations() {
     let attribs = CellInstance::ATTRIBS;
-    assert_eq!(attribs.len(), 10);
+    assert_eq!(attribs.len(), 9);
     assert_eq!(attribs[0].shader_location, 1);
     assert_eq!(attribs[1].shader_location, 2);
     assert_eq!(attribs[5].shader_location, 10);
     assert_eq!(attribs[8].shader_location, 8);
-    assert_eq!(attribs[9].shader_location, 9);
 }
 
 #[test]
@@ -490,14 +490,12 @@ fn orthographic_projection_resize_gpu_uniforms() {
     let uniforms_800 = GpuUniforms {
         projection: orthographic_projection(800.0, 600.0),
         atlas_size: [1024.0, 1024.0],
-        raster_scale: 1.0,
-        _padding: 0.0,
+        _padding: [0.0; 2],
     };
     let uniforms_400 = GpuUniforms {
         projection: orthographic_projection(800.0, 400.0),
         atlas_size: [1024.0, 1024.0],
-        raster_scale: 1.0,
-        _padding: 0.0,
+        _padding: [0.0; 2],
     };
 
     // Same projection/atlas layout, different height
@@ -1908,7 +1906,6 @@ fn bench_gpu_full_submit_throughput() {
             quad_size: [10.0, 20.0],
             flags: 0.0,
             bearing: [0.0, 0.0],
-            glyph_advance_width: 0.0,
         })
         .collect();
     let bytes = bytemuck::cast_slice(&instance_data);
@@ -2215,6 +2212,26 @@ mod surface_loss_tests {
     fn skipped_frame_resets_streak() {
         assert_eq!(surface_loss_transition(1, false, false), (0, false));
         assert_eq!(surface_loss_transition(2, true, false), (0, true));
+    }
+
+    /// 回归钉：连续「仅本帧跳过」永不判死 surface。
+    ///
+    /// 取纹理期限被压到帧级（两条取纹理路径共用 `ACQUIRE_TIMEOUT`），理由是这把
+    /// 期限就是 UI 线程在一次 GPU 卡死时最多要等的时间——前提是超时只降级为
+    /// `Skipped`（下一帧重试）而不是判死窗口。若跳过会推进失效计数，这个期限就
+    /// 会把一次慢帧变成永久黑屏，故此处显式钉住。
+    #[test]
+    fn repeated_skips_never_invalidate_surface() {
+        let mut streak = 0;
+        let mut invalidated = false;
+        // 远超 surface 级失效门槛（连续 2 次）的跳过次数。
+        for _ in 0..64 {
+            let next = surface_loss_transition(streak, invalidated, false);
+            streak = next.0;
+            invalidated = next.1;
+            assert!(!invalidated, "跳过不得判死 surface");
+            assert_eq!(streak, 0, "跳过证明 surface 仍存活，计数须清零");
+        }
     }
 
     /// Already-invalid surfaces stay invalid (idempotent): the host is expected to
@@ -2632,42 +2649,6 @@ fn italic_d_rasterizes_distinct_from_regular() {
 }
 
 #[test]
-fn italic_d_advance_covers_sheared_bitmap() {
-    // 斜体 d 像 a 根因回归：shear 让顶部右移约 height×0.2126，
-    // advance 必须覆盖位图宽，否则 shader 右上裁剪。
-    let mut pipeline = ascii_font();
-    let regular = pipeline
-        .glyph_information_styled('d', false, false)
-        .expect("regular d");
-    let italic = pipeline
-        .glyph_information_styled('d', false, true)
-        .expect("italic d");
-    let overflow = italic.advance_width - regular.advance_width;
-    assert!(
-        overflow >= 0.0,
-        "italic advance={} regular advance={} 合成斜体 advance 不得小于正体",
-        italic.advance_width,
-        regular.advance_width
-    );
-    // 取证结论（Liberation Mono 真斜体 face）：位图 9px vs
-    // advance 8.43px，右悬 0.57px 是字体固有度量（合法 overhang，
-    // ghostty/termux 同样按 advance 盒裁剪）。d 像 a 不来自此处。
-    // 本测试 pin 该边界：右悬不得超过 1px，否则 shader 裁剪可见。
-    let bitmap_overhang = italic.width as f32 - italic.advance_width;
-    assert!(
-        bitmap_overhang <= 1.0,
-        "italic bitmap w={} advance={} 右悬空 {}px 超过 1px 则 shader 裁剪可见",
-        italic.width,
-        italic.advance_width,
-        bitmap_overhang
-    );
-}
-
-/// 首帧上传契约：实例构建（渲染帧 Phase 3）期间新光栅化的字形必须留下
-/// 待上传脏区。render_inner 的 Phase 1 上传只覆盖构建前已有的脏区
-/// （此处先 take 模拟），构建后仍必须能取到覆盖全部新字形区域的矩形；
-/// 若构建后无脏区，帧绘制将按空纹理采样，斜体/新字形首帧缺失。
-#[test]
 fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
     use crate::terminal::ghostty_terminal::CellData;
     use crate::terminal::ghostty_terminal::cell_flags;
@@ -2873,7 +2854,6 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
                 quad_size: [surface_width as f32, cell_height_px],
                 flags: 0.0,
                 bearing: [0.0; 2],
-                glyph_advance_width: 0.0,
             }
         })
         .collect();

@@ -9,32 +9,35 @@ use super::{FontPipeline, GlyphInfo};
 const MAX_CJK_FALLBACK_FONTS: usize = 3;
 
 impl FontPipeline {
+    /// 主字体是否覆盖本 locale 的 CJK 代表字符。
+    ///
+    /// 回退层的取舍与 `font_info()` 上报的 `CjkFallbackState` 必须同源，故两者共用
+    /// 此处。探测按 locale 分片的代表字符（见 [`cjk_probe_char`]）而非固定「中」：
+    /// CN 字体未必覆盖谚文音节，要求中/日/가同时存在会拒绝匹配的主字体。
+    pub(crate) fn primary_covers_cjk_probe(&self) -> bool {
+        let Some(primary_id) = self.font_id else {
+            return false;
+        };
+        let Some(probe) = super::font_db::cjk_probe_char(self.system_locale()) else {
+            return false;
+        };
+        super::font_db::face_covers(self.font_system.db(), primary_id, probe)
+    }
+
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
         if system_locale.is_empty() {
             log::debug!("CJK_FALLBACK: skipped (locale not yet known)");
             return;
         }
-        let Some(cjk_variant) = super::font_db::locale_cjk_variant(system_locale) else {
+        // 非 CJK locale 不装回退层（探测字符在此 locale 下无意义）。
+        if super::font_db::cjk_probe_char(system_locale).is_none() {
             log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
             return;
-        };
+        }
 
-        if let Some(primary_id) = self.font_id {
-            let font_database = self.font_system.db();
-            // 探测 locale 的代表字符：CJK 字体按 locale 分片（CN 字体未必覆盖
-            // 谚文音节），故不要求中/日/가同时存在，否则会拒绝匹配的主字体。
-            let probe = if cjk_variant == "kr" { '가' } else { '中' };
-            let primary_supports_cjk = font_database
-                .with_face_data(primary_id, |font_data, face_index| {
-                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                    Some(font_ref.charmap().map(probe) != 0)
-                })
-                .flatten()
-                .unwrap_or(false);
-            if primary_supports_cjk {
-                log::debug!("CJK_FALLBACK: skipped (primary font already supports CJK)");
-                return;
-            }
+        if self.primary_covers_cjk_probe() {
+            log::debug!("CJK_FALLBACK: skipped (primary font already supports CJK)");
+            return;
         }
 
         let fonts_xml = super::font_db::read_fonts_xml();

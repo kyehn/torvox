@@ -28,7 +28,8 @@ pub struct FontInfo {
     pub cell_width_px: f32,
     pub cell_height_px: f32,
     /// 逻辑字号（sp，Kotlin 侧传入 setFontSizeInPlace 的值）。
-    /// 设备像素 = font_size * raster_scale * density。
+    /// 设备像素 = font_size * raster_scale——`raster_scale` 本身已是「显示密度 ×
+    /// 系统字体缩放」，不再另乘 density。
     pub font_size: f32,
 }
 
@@ -73,6 +74,56 @@ pub struct FontPipeline {
     pub(crate) dirty_rect: Option<(u32, u32, u32, u32)>,
     system_locale: String,
     pub(crate) shaping_buffer: Option<cosmic_text::Buffer>,
+}
+
+/// 字形位图在单元格内的竖向定位：返回 `(bearing_y, raw_bearing_y)`。
+///
+/// 两处消费必须逐字段一致：主字形路径（`cell_builder` 的 `append_row_instances`）与
+/// 叠加层（本文件的 `shaped_overlay_instance`）各自算一遍，分叉会让组合记号/ZWJ 表情
+/// 与它的基字形错开——而这类偏移没有任何既有用例覆盖（整形的用例断言的是 advance，
+/// 不是 bearing）。故收成一处，由两边各自调用。
+///
+/// - `bearing_y`：常规取「基线减放置顶部」；位图高于单元格时退化为竖向居中。
+///   CJK 回退面常出现 `placement.top > ascent`，此时 bearing_y 为负，正是设计意图。
+/// - `raw_bearing_y`：未作居中回退的原值。方块光标与字形位图同高同顶边，要用它。
+///
+/// 单位统一为物理像素：`glyph_h_px` 已含光栅缩放，`ascent_px * raster_scale` 同。
+pub(crate) fn glyph_bearing_y(
+    ascent_px: f32,
+    raster_scale: f32,
+    placement_top: f32,
+    glyph_h_px: f32,
+    cell_h_px: f32,
+) -> (f32, f32) {
+    let raw_bearing_y = ascent_px * raster_scale - placement_top;
+    let bearing_y = if glyph_h_px > cell_h_px {
+        (cell_h_px - glyph_h_px) / 2.0
+    } else {
+        raw_bearing_y
+    };
+    (bearing_y, raw_bearing_y)
+}
+
+/// 回归钉：bearing 判定的两条分支与 raw 值须各自正确。
+///
+/// 主字形路径与叠加层都调它：错一分，组合记号/ZWJ 表情会与基字形错开，
+/// 而整形的用例断言的是 advance 不是 bearing，故此处显式钉住三个性质——
+/// ① 位图不高于单元格时用基线减 top；② 高于单元格时退化为居中（可为负）；
+/// ③ raw 值永不做居中回退（方块光标靠它对齐顶边）。
+#[test]
+fn glyph_bearing_y_matches_the_centering_fallback_contract() {
+    // ① 常规：ascent 14px、scale 1、top 3 → 11。
+    assert_eq!(glyph_bearing_y(14.0, 1.0, 3.0, 10.0, 20.0).0, 11.0);
+    // ② 高于单元格：以 30px 高的位图进 20px 单元格 → (20-30)/2 = -5。
+    let (bearing, raw) = glyph_bearing_y(14.0, 1.0, 3.0, 30.0, 20.0);
+    assert_eq!(
+        (bearing, raw),
+        (-5.0, 11.0),
+        "居中回退须与 raw 值分道：方块光标要的是 raw"
+    );
+    // ③ CJK 回退面 top > ascent：raw 为负，仍不触发居中（位图不高于单元）。
+    let (cjk_bearing, cjk_raw) = glyph_bearing_y(14.0, 1.0, 20.0, 12.0, 20.0);
+    assert_eq!((cjk_bearing, cjk_raw), (-6.0, -6.0));
 }
 
 impl FontPipeline {
@@ -157,13 +208,11 @@ impl FontPipeline {
         {
             let font_database = self.font_system.db();
             let covers_cjk = |face_id| {
-                font_database
-                    .with_face_data(face_id, |font_data, face_index| {
-                        swash::FontRef::from_index(font_data, face_index as usize)
-                            .map(|font| font.charmap().map('中') != 0)
-                    })
-                    .flatten()
-                    .unwrap_or(false)
+                super::font_db::face_covers(
+                    font_database,
+                    face_id,
+                    super::font_db::cjk_probe_char(&self.system_locale).unwrap_or('中'),
+                )
             };
             let face = font_database
                 .faces()
@@ -195,6 +244,15 @@ impl FontPipeline {
         self.caches.shape_cache.clear();
         self.caches.glyph_id_cache.clear();
         self.caches.cjk_glyph_cache.clear();
+        // 负缓存与 cjk_glyph_cache 同批失效：二者都依赖「当前库有哪些面」，换字体、
+        // 换 locale（会补装区域回退面）、换字号都必须让「找不到」这一结论重来。
+        self.caches.unresolvable_glyphs.clear();
+        // 样式面判定必须一并失效：它的值形如 `Some(face_id)` / `None`（这个族有没有
+        // 粗/斜面），而 `set_system_locale` 在同一路径上经
+        // `load_region_fallback_faces` **补装整个 TTC**（含全套字重与样式）。
+        // 只清正缓存会让补装前算出的「无粗面」结论活过那次补装：主字体没变、
+        // key 不变，LRU 也不会自然淘汰，于是 `bold=true` 一直走合成加粗而非真粗面。
+        self.caches.style_face_cache.clear();
         self.caches.ascii_glyph_ids = [None; 128];
     }
 
@@ -238,6 +296,11 @@ impl FontPipeline {
             self.rediscover_fallback_fonts();
         }
         true
+    }
+
+    /// 当前系统 locale（CJK 判定按它分片，见 `cjk_probe_char`）。
+    pub(crate) fn system_locale(&self) -> &str {
+        &self.system_locale
     }
 
     pub fn set_system_locale(&mut self, locale: &str) {
@@ -325,14 +388,16 @@ impl FontPipeline {
         let uv_w = info.width as f32 / atlas_width;
         let uv_h = info.height as f32 / atlas_height;
         let bearing_x = info.placement.left as f32;
-        // 物理像素对物理像素：与主字形路径同式（height 已含光栅缩放）。
+        // 物理像素对物理像素：与主字形路径共用同一个判定（height 已含光栅缩放）。
         let glyph_height_px = info.height as f32;
-        let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-        let bearing_y = if glyph_height_px > cell_height {
-            (cell_height - glyph_height_px) / 2.0
-        } else {
-            raw_bearing_y
-        };
+        // 叠加层只需要 bearing_y；raw 值方块光标才用，故显式忽略。
+        let (bearing_y, _) = glyph_bearing_y(
+            ascent_pixels,
+            raster_scale,
+            info.placement.top as f32,
+            glyph_height_px,
+            cell_height,
+        );
         Some(crate::render::CellInstance {
             quad_origin: quad.origin,
             atlas_offset: [uv_x, uv_y],
@@ -343,7 +408,6 @@ impl FontPipeline {
             quad_size: quad.size,
             flags: quad.flags,
             bearing: [bearing_x, bearing_y],
-            glyph_advance_width: 0.0,
         })
     }
 
@@ -379,9 +443,12 @@ impl FontPipeline {
     }
 
     /// 按优先级返回 CJK 回退族名（顺序同按 effective_priority 排序的
-    /// `cjk_fallback_ids`）。去重保留首次出现，通用 CJK 族（含 "cjk" 不含
-    /// "serif"）归并为一项 "Noto Sans CJK"，"Noto Serif CJK" 仍独立保留。
-    /// 不按字母排序：首元素即实际渲染命中者，必须与 `FALLBACK_HIT` 族一致。
+    /// `cjk_fallback_ids`），去重保留首次出现。
+    ///
+    /// 报**真实族名**：设置页把它当「设备上装了哪些回退字体」显示，用户按名去找，
+    /// 归一化成一个并不存在的名字（如把 `Noto Sans CJK SC`/`TC`/`JP` 合成
+    /// "Noto Sans CJK"）既对不上用户按名查找的结果，也与本函数 KDoc 承诺的
+    /// 「首元素即实际渲染命中者」相悖。不按字母排序：首元素必须是渲染真正命中的族。
     pub fn cjk_fallback_names(&self) -> Vec<String> {
         let font_database = self.font_system.db();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -389,49 +456,19 @@ impl FontPipeline {
         for &id in &self.cjk_fallback_ids {
             if let Some(face) = font_database.face(id)
                 && let Some((name, _)) = face.families.first()
+                && seen.insert(name.to_lowercase())
             {
-                let lower = name.to_lowercase();
-                if seen.insert(lower) {
-                    ordered.push(name.clone());
-                }
+                ordered.push(name.clone());
             }
         }
-        let mut normalized: Vec<String> = Vec::new();
-        let mut seen_generic = false;
-        for name in ordered {
-            let lower = name.to_lowercase();
-            let is_generic_cjk = lower.contains("cjk") && !lower.contains("serif");
-            if is_generic_cjk {
-                if !seen_generic {
-                    normalized.push("Noto Sans CJK".to_string());
-                    seen_generic = true;
-                }
-            } else {
-                normalized.push(name);
-            }
-        }
-        normalized
+        ordered
     }
 
+    /// 主字体是否覆盖本 locale 的 CJK 代表字符。与回退层取舍同源，见
+    /// [`Self::primary_covers_cjk_probe`]——两处若各判一次，上报的状态可能与
+    /// 渲染器实际是否装了回退层相反。
     fn primary_supports_cjk(&self) -> bool {
-        let Some(font_id) = self.font_id else {
-            return false;
-        };
-        let font_database = self.font_system.db();
-        let Some(face) = font_database.face(font_id) else {
-            return false;
-        };
-        face.families.iter().any(|(name, _)| {
-            let lower = name.to_lowercase();
-            lower.contains("cjk")
-                || lower.contains("chinese")
-                || lower.contains("japanese")
-                || lower.contains("korean")
-                || lower.contains(" sc")
-                || lower.contains(" tc")
-                || lower.contains(" jp")
-                || lower.contains(" kr")
-        })
+        self.primary_covers_cjk_probe()
     }
 
     /// 供 UI 层（JNI）使用的结构化字体信息，仅承载数据，
@@ -456,13 +493,17 @@ impl FontPipeline {
         } else {
             (CjkFallbackState::None, Vec::new())
         };
+        // 上报物理像素：`cell_metrics` 给的是逻辑像素，而单元四边形按
+        // `cell_metrics × raster_scale` 布置（见 `pass.rs`）。两者不同尺度时，
+        // 设置页按物理像素显示的「单元格」就会与实际渲染差一个密度倍数。
         let (cw, ch) = self.cell_metrics();
+        let raster_scale = self.get_raster_scale();
         FontInfo {
             active,
             cjk_state,
             cjk_families,
-            cell_width_px: cw,
-            cell_height_px: ch,
+            cell_width_px: cw * raster_scale,
+            cell_height_px: ch * raster_scale,
             font_size: self.font_size,
         }
     }
@@ -605,8 +646,11 @@ impl FontPipeline {
         let code_point = ch as u32;
 
         // ── 快径：ASCII 且字形号已缓存 ──
+        // 字形号 0 一律不走快径：`.notdef` 是非空的空心方框，一旦入缓存，
+        // 「主字体没有这个码位」就会被快径当成已解析，整条回退链被跳过。
         if code_point < ASCII_UPPER_BOUND
             && let Some(gid) = self.caches.ascii_glyph_ids[ch as usize]
+            && gid != 0
             && let Some(info) = self.lookup_glyph(primary_font_id, gid, synthesis)
         {
             return Some(info);
@@ -650,7 +694,12 @@ impl FontPipeline {
         // 之前主字体写入的 .notdef（豆腐块）。
         let is_nerd_private_use =
             (NERD_FONT_PRIVATE_USE_START..=NERD_FONT_PRIVATE_USE_END).contains(&code_point);
+        // 字形号 0 同理不走：`.notdef` 会带着非空位图进缓存（空心方框），此后
+        // 每个主字体未覆盖的码位都在这里命中它并直接返回豆腐块，CJK 回退层与
+        // 全库扫描全被跳过——「先出现的未知码位」会决定后续所有未知码位的命运。
+        // 这与下面两条回退支路对字形号 0 的处理是同一件事，此处只是先前漏了。
         if !is_nerd_private_use
+            && glyph_id != 0
             && let Some(info) = self.lookup_glyph(primary_font_id, glyph_id, synthesis)
         {
             if !synthesized && code_point >= CJK_IDEOGRAPHIC_START {
@@ -717,7 +766,13 @@ impl FontPipeline {
             }
             // 链尾的全库扫描（spec d7：以全字体库扫描结束）。结果进
             // cjk_glyph_cache，故每个字只跑一次。
-            if let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
+            //
+            // 已知解析不出的码位直接跳过扫描：`find_glyph_anywhere` 要遍历 fontdb
+            // 全部 face 并逐个 `with_face_data` 解压字体，罕见汉字（设备未装对应
+            // CJK 字体）每次脏行重建都要付一次。跳过后照常落到下方主字体回退，由
+            // .notdef 出图——与扫描失败时的可见结果完全一致，只是省掉了扫描。
+            if !self.caches.unresolvable_glyphs.contains(&ch)
+                && let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
                 && let Some(result) =
                     self.glyph_information_from_font_with_synthesis(scan_id, scan_gid, synthesis)
                 && result.width > 0
@@ -727,6 +782,9 @@ impl FontPipeline {
                     self.caches.cjk_glyph_cache.put(ch, (scan_id, scan_gid));
                 }
                 return Some(result);
+            }
+            if !synthesized {
+                self.caches.unresolvable_glyphs.put(ch, ());
             }
         }
 
@@ -750,8 +808,9 @@ impl FontPipeline {
     }
 
     /// 字体列表。宿主列出库内全部等宽族；设备上改为按需枚举
-    /// `fonts.xml` 声明的完整族集合——渲染侧只常驻 4 个族，列表却必须完整，
-    /// 故此处才触发那次枚举（约 4ms），且只在设置页显示列表时被调用。
+    /// `fonts.xml` 声明的完整族集合——渲染侧只常驻 3 个族（见 `new`：主字体 +
+    /// 符号族 + 区域族），列表却必须完整，故此处才触发那次枚举（约 4ms），
+    /// 且只在设置页显示列表时被调用。
     pub fn list_monospace_fonts(&self) -> Vec<String> {
         #[cfg(target_os = "android")]
         {

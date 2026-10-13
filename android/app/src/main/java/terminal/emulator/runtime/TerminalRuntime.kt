@@ -971,8 +971,10 @@ constructor(
         if (mkshRcFile.isFile) {
             try {
                 if (mkshRcFile.readText().contains(contentMarker)) return
-            } catch (_: Exception) {
-                // 不可读——下方覆写
+            } catch (exception: Exception) {
+                // 记下读取失败的原因再覆写：只记「写入失败」会把真正的根因（权限/IO）
+                // 丢掉，现场只剩一条与病因无关的消息。
+                LogUtil.w("Runtime", "Failed to read $MKSHRC_FILENAME: $exception")
             }
         }
         try {
@@ -1035,7 +1037,7 @@ constructor(
                 mkshrcPath = mkshrcPath,
             )
         }
-        // 默认入口依次探测 bash 与 login（DESIGN :187 文件存在即启动，不检查权限）。
+        // 默认入口依次探测 bash 与 login（DESIGN.md:145 文件存在即启动，不检查权限）。
         val prefixShell = findPrefixShell(prefixDir)
         LogUtil.d(
             "Runtime",
@@ -1044,7 +1046,7 @@ constructor(
         val effectivePrefix = if (prefixShell != null) prefixDir else ""
         val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
         ensureMkshPromptRc()
-        // 无启动目录设置（DESIGN :117）：工作目录恒为家目录。
+        // 无启动目录设置（DESIGN.md:93）：工作目录恒为家目录。
         return TerminalConfig(
             shell = effectiveShell,
             rows = rows,
@@ -1961,7 +1963,7 @@ constructor(
     private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int, val themeName: String)
 
     /**
-     * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN :187），不检查权限。
+     * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN.md:145），不检查权限。
      */
     private fun findPrefixShell(prefixDir: String): String? = listOf("bin/bash", "bin/login").firstOrNull { candidate ->
         java.io.File("$prefixDir/$candidate").isFile
@@ -2115,7 +2117,7 @@ constructor(
 
     /**
      * 存有无法解析主题名的键即设置数据错误：记日志并清除该键，
-     * 下次读取回落默认值（DESIGN:16 设置数据错误 → 清除设置数据、:24 不做 Fallback）。
+     * 下次读取回落默认值（DESIGN.md:17 设置数据错误 → 清除设置数据、DESIGN.md:20 不做 Fallback）。
      *
      * 返回是否真的清除过：调用方据此决定要不要重读快照，否则会把刚清除的未知名
      * 当作解析结果返回。
@@ -2128,7 +2130,7 @@ constructor(
         return true
     }
 
-    /** 空即默认入口（DESIGN :113 未设置时为空），其余原样透传，不特殊处理。 */
+    /** 空即默认入口（DESIGN.md:89 未设置时为空），其余原样透传，不特殊处理。 */
     private fun resolveShell(shellPath: String): Shell = if (shellPath.isEmpty()) {
         Shell.SystemDefault
     } else {
@@ -3713,7 +3715,7 @@ constructor(
             "Runtime",
             "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName}",
         )
-        // 不设 catch：此前「记日志后继续」是 DESIGN.md:24 禁止的未声明 Fallback——
+        // 不设 catch：此前「记日志后继续」是 DESIGN.md:20 禁止的未声明 Fallback——
         // 它带着半套设置（字体已换而字号/光栅未换）继续渲染，用户只看到字形忽大忽小，
         // 日志里那条 error 又被吞在半路。上抛后由 start() 的 catch 完整回滚
         // （关 bridge、移除会话条目、重置 UI）并带完整堆栈落 logcat，错误不掩盖。

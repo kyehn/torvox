@@ -27,7 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.NonRestartableComposable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -149,6 +149,13 @@ internal val TERMUX_EXTRA_KEYS: ImmutableList<ToolbarKey> = persistentListOf(
     ToolbarKey.PGDN,
 )
 
+// 固定 2 行 7 列：从中点切分（termux extra_keys 顺序）。按键表是常量，两行
+// 也可在加载期切好——放进组合期每次重组都要新建两个列表。
+internal val TERMUX_EXTRA_KEYS_ROW1: List<ToolbarKey> =
+    TERMUX_EXTRA_KEYS.subList(0, TERMUX_EXTRA_KEYS.size / 2).toImmutableList()
+internal val TERMUX_EXTRA_KEYS_ROW2: List<ToolbarKey> =
+    TERMUX_EXTRA_KEYS.subList(TERMUX_EXTRA_KEYS.size / 2, TERMUX_EXTRA_KEYS.size).toImmutableList()
+
 // Termux ExtraKeysView 对等：长按阈值 400ms（FALLBACK_LONG_PRESS_DURATION），
 // 自动重复在同一延迟后开始，并以 80ms 节奏重复（DEFAULT_LONG_PRESS_REPEAT_DELAY）。
 private const val LONG_PRESS_MS = 400L
@@ -220,7 +227,6 @@ private fun ModifierBarTextInputPage(
  * 会话按钮（DRAWER）位于左侧第二个位置，带 termux 默认的 `popup: 'PASTE'`
  * （长按粘贴剪贴板）。所有按钮无边框、背景透明，权重相等以保证尺寸一致。
  */
-@NonRestartableComposable
 @Composable
 fun ModifierBar(
     onSubmit: (String) -> Unit,
@@ -251,9 +257,8 @@ fun ModifierBar(
     onConsumeModifiers: () -> Unit = {},
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
-    // 固定 2 行 7 列：从中点切分（termux extra_keys 顺序）。
-    val row1 = TERMUX_EXTRA_KEYS.take(TERMUX_EXTRA_KEYS.size / 2)
-    val row2 = TERMUX_EXTRA_KEYS.drop(TERMUX_EXTRA_KEYS.size / 2)
+    val row1 = TERMUX_EXTRA_KEYS_ROW1
+    val row2 = TERMUX_EXTRA_KEYS_ROW2
     // 第 0 页是按键页，第 1 页是文本输入页（DESIGN：左滑进入文本输入框）。
     val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
     val actions =
@@ -329,7 +334,8 @@ private data class ToolbarKeyPresentation(
 )
 
 /** 修饰键栏可触发的回调集合。 */
-private data class ModifierBarActions(
+@Immutable
+internal data class ModifierBarActions(
     val onSubmit: (String) -> Unit,
     val onDrawerClick: () -> Unit,
     val onScrollClick: () -> Unit,
@@ -347,6 +353,7 @@ private data class ModifierBarActions(
 )
 
 /** 修饰键的实时切换状态。 */
+@Immutable
 private data class ModifierBarStates(
     val ctrlState: ModifierState,
     val altState: ModifierState,
@@ -608,7 +615,7 @@ private fun RowScope.ExtraKeyButton(
                                     android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
                                 currentOnClick()
-                            } else if (!tapValid && currentEvent.changes.any { it.pressed }) {
+                            } else if (currentEvent.changes.any { it.pressed }) {
                                 // 滑出后指针仍按下：排空到抬手；取消时已全部释放，
                                 // 不得再等事件，否则会吞掉下一次手势的 DOWN。
                                 while (currentEvent.changes.any { it.pressed }) {

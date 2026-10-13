@@ -2,17 +2,27 @@
 
 ## Purpose
 
-PTY 生成与收尾的生命周期行为：spawn 携带像素尺寸、无变化时跳过 resize、前台进程组优先收尾、IUTF8 语义与上游输入路径一致。本能力覆盖 Rust 侧 PTY 拥有者与 Kotlin 侧尺寸来源之间的可观测契约。
+PTY 生成与收尾的生命周期行为：生成播种行列尺寸、resize 携带像素尺寸、无变化时跳过 resize、前台进程组优先收尾、IUTF8 语义与上游输入路径一致。本能力覆盖 Rust 侧 PTY 拥有者与 Kotlin 侧尺寸来源之间的可观测契约。
 
 ## Requirements
 
-### Requirement: 生成携带像素尺寸且无变化跳过
+### Requirement: 生成播种行列尺寸且 resize 携带像素尺寸
 
-spawn 与 resize 携带的 winsize MUST 含像素字段（列数乘单元格宽、行数乘单元格高），尺寸无变化的 resize MUST 跳过，不向 PTY 发送信号，避免无辜 `SIGWINCH` 导致行被擦除。
+生成时的内核 winsize MUST 按调用方给的 rows/cols 播种，使 shell 在首次 resize 前
+不看到 0x0；像素字段在首次 `setPixelSize` 之前为 0，MUST NOT 在生成处按单元格度量
+推算——生成调用的入口只给行列数。
 
-#### Scenario: 生成携带像素字段
+resize 携带的 winsize MUST 含像素字段（列数乘单元格宽、行数乘单元格高），尺寸无变化的
+resize MUST 跳过，不向 PTY 发送信号，避免无辜 `SIGWINCH` 导致行被擦除。
 
-- **WHEN** 以 80 列与实测单元格度量生成会话
+#### Scenario: 生成播种行列尺寸
+
+- **WHEN** 以 24 行 80 列生成会话
+- **THEN** 内核 winsize 的行列为 24 与 80，像素字段为 0
+
+#### Scenario: resize 携带像素字段
+
+- **WHEN** 在已给定像素尺寸的会话上请求 resize
 - **THEN** 透传的 `ws_xpixel/ypixel` 等于列数乘单元格宽与行数乘单元格高
 
 #### Scenario: 无变化 resize 不发信号

@@ -35,6 +35,25 @@ const BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE: f32 = 0.7;
 
 use std::collections::HashMap;
 
+/// 把网格码位转成 `char`：非法值退化为 U+FFFD，但**必记一条 error**。
+///
+/// libghostty 只产出合法标量值，故这里不该被走到。原先这里只有一个 `unwrap_or`
+/// （外加一个 `debug_assert!`）——release 构建里非法值会被静默替换成方框，现场不留
+/// 任何痕迹，而 DESIGN 明令禁止掩盖错误。保留替换本身是刻意的：这是渲染热路径，
+/// panic 只会换来黑屏而非更好的诊断。
+fn codepoint_to_char(codepoint: u32) -> char {
+    match char::from_u32(codepoint) {
+        Some(ch) => ch,
+        None => {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| {
+                log::error!("cell_builder: 网格给出非法码位 {codepoint:#x}，按 U+FFFD 渲染");
+            });
+            '�'
+        }
+    }
+}
+
 /// 供 build_instances_from_cell_data() 渲染光标用的光标状态。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CellCursor {
@@ -326,6 +345,27 @@ impl CachedInstances {
     }
 }
 
+/// 簇文本：主体码位后接全部有效组合记号（`grapheme_extra` 中的 0 为占位，跳过）。
+///
+/// 预热遍与发射遍都需要它，故只此一处构造——两处各自拼一遍会让每个带组合记号的
+/// 单元在每帧做两次同样的扫描与 `String` 分配。
+fn cluster_text(
+    ch: char,
+    grapheme_extra: &[u32; crate::terminal::ghostty_terminal::MAX_GRAPHEME_EXTRA],
+) -> String {
+    let mut text = String::with_capacity(1 + grapheme_extra.len() * 4);
+    text.push(ch);
+    for &codepoint in grapheme_extra {
+        if codepoint == 0 {
+            continue;
+        }
+        if let Some(mark) = char::from_u32(codepoint) {
+            text.push(mark);
+        }
+    }
+    text
+}
+
 /// 按字节比较两段行内单元切片。`CellData` 是 POD
 /// bytemuck 结构，故这样做有效且快于逐字段比对。
 fn rows_equal(
@@ -436,7 +476,6 @@ fn build_row_instances_into(
         "cell_builder: grid {rows}x{cols} cell {cell_width:.1}x{cell_height:.1} cells={}",
         cell_data.len()
     );
-    let _ = (rows, cols); // 调用方用于投影；四边形网格覆盖全部
     let ascent_pixels = font_pipeline.ascent_pixels();
     let raster_scale = font_pipeline.get_raster_scale();
     // 跨帧复用缓冲：Vec 由调用方（Renderer）持有，
@@ -556,7 +595,7 @@ fn warm_frame_glyphs(
         let _ = font_pipeline.glyph_information('0');
     }
     for cd in cell_data {
-        let ch = char::from_u32(cd.codepoint).unwrap_or('�');
+        let ch = codepoint_to_char(cd.codepoint);
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
             continue;
         }
@@ -571,16 +610,7 @@ fn warm_frame_glyphs(
         if !has_cluster {
             continue;
         }
-        let mut cluster_text = String::new();
-        cluster_text.push(ch);
-        for codepoint in &cd.grapheme_extra {
-            if *codepoint == 0 {
-                continue;
-            }
-            if let Some(mark) = char::from_u32(*codepoint) {
-                cluster_text.push(mark);
-            }
-        }
+        let cluster_text = cluster_text(ch, &cd.grapheme_extra);
         if cluster_text.chars().count() <= 1 {
             continue;
         }
@@ -628,14 +658,9 @@ fn append_row_instances(
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
 ) {
     for cd in cell_row {
-        // 转换前校验码点——非法值应当
-        // 在 debug 构建中被捕获，避免终端内容缺陷被掩盖。
-        debug_assert!(
-            char::from_u32(cd.codepoint).is_some(),
-            "cell_builder: invalid codepoint: {}",
-            cd.codepoint
-        );
-        let ch = char::from_u32(cd.codepoint).unwrap_or('�');
+        // 非法码位由 codepoint_to_char 记录（每个构建都记，不再只有 debug），
+        // 避免终端内容缺陷在 release 里被静默替换成方框而不留痕迹。
+        let ch = codepoint_to_char(cd.codepoint);
         let cell_span = cd.width.max(1) as f32;
         let quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         let mut foreground = cd.foreground;
@@ -683,7 +708,8 @@ fn append_row_instances(
         let glyph_quad_size = [cell_width * cell_span, cell_height];
         let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
-            // 空单元格：不发背景四边形，只有下面的光标块。
+            // 空单元格只发一个四边形：无光标时铺满全格背景；有光标时收缩为光标
+            // 标记，格内其余区域不被本帧覆盖（靠累加器保留，见脏带清除实例）。
             {
                 let mut origin = quad_origin;
                 let mut size = quad_size;
@@ -747,7 +773,6 @@ fn append_row_instances(
                     quad_size: size,
                     flags: cd.flags as f32,
                     bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
                 });
             }
             continue;
@@ -764,22 +789,14 @@ fn append_row_instances(
         // 序列）：整簇只整形一次，使每个记号落到字体
         // 指定的位置。无附加符的单元完全跳过整形，
         // 常见情形零开销。
-        let has_cluster = cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0);
-        let mut cluster_text = String::new();
-        if has_cluster {
-            cluster_text.push(ch);
-            for codepoint in &cd.grapheme_extra {
-                if *codepoint == 0 {
-                    continue;
-                }
-                if let Some(mark) = char::from_u32(*codepoint) {
-                    cluster_text.push(mark);
-                }
-            }
-        }
         let cluster_shaped: Vec<crate::render::font::ShapedGlyphInfo> =
-            if cluster_text.chars().count() > 1 {
-                font_pipeline.shape_run(&cluster_text)
+            if cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0) {
+                let cluster_text = cluster_text(ch, &cd.grapheme_extra);
+                if cluster_text.chars().count() > 1 {
+                    font_pipeline.shape_run(&cluster_text)
+                } else {
+                    Vec::new()
+                }
             } else {
                 Vec::new()
             };
@@ -801,17 +818,18 @@ fn append_row_instances(
             let uv_w = info.width as f32 / atlas_width;
             let uv_h = info.height as f32 / atlas_height;
             let bearing_x = info.placement.left as f32;
-            // info.height 是光栅化位图高度，单位为物理像素
-            // （已乘 raster_scale）。与之比较的是物理网格单元高度；
-            // 居中回退同样按物理像素给出——
-            // 单位不可混用）。
+            // info.height 是光栅化位图高度，单位为物理像素（已乘 raster_scale）
+            // ——与物理网格单元高度同单位，居中回退同样按物理像素给出。
+            // 该判定与叠加层共用 `glyph_bearing_y`：两处分叉会让组合记号/ZWJ
+            // 表情与基字形错开，而那类偏移没有任何用例覆盖。
             let glyph_h_px = info.height as f32;
-            let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-            let bearing_y = if glyph_h_px > cell_height {
-                (cell_height - glyph_h_px) / 2.0
-            } else {
-                raw_bearing_y
-            };
+            let (bearing_y, raw_bearing_y) = crate::render::font::pipeline::glyph_bearing_y(
+                ascent_pixels,
+                raster_scale,
+                info.placement.top as f32,
+                glyph_h_px,
+                cell_height,
+            );
             let mut origin = glyph_quad_origin;
             let mut size = glyph_quad_size;
             // 方块光标与字形位图同高同顶边：字形坐在基线上而非
@@ -832,7 +850,6 @@ fn append_row_instances(
                 quad_size: size,
                 flags: cd.flags as f32,
                 bearing: [bearing_x, bearing_y],
-                glyph_advance_width: info.advance_width,
             });
 
             // 竖线/下划线光标：在字形之上追加细标记（原文颜色不动，
@@ -872,7 +889,6 @@ fn append_row_instances(
                     quad_size: marker_size,
                     flags: cd.flags as f32,
                     bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
                 });
             }
 
@@ -940,7 +956,6 @@ fn append_row_instances(
                 quad_size,
                 flags: cd.flags as f32,
                 bearing: [0.0; 2],
-                glyph_advance_width: 0.0,
             });
         }
     }
@@ -1286,7 +1301,6 @@ mod tests {
                     && x.quad_size == y.quad_size
                     && x.flags == y.flags
                     && x.bearing == y.bearing
-                    && x.glyph_advance_width == y.glyph_advance_width
             })
     }
 
