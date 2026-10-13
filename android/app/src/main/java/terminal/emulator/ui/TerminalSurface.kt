@@ -142,6 +142,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         super.onAttachedToWindow()
         // 同一实例可被重新 attach（见 inputBatchBuffer 注释）：重建已关闭的批缓冲。
         inputBatchBuffer = newInputBatchBuffer()
+        // 排队钩子 MUST 随 attach 恢复：它在 detach 时被摘掉（批缓冲已关闭，留着会让
+        // 此后的按键写入被拒），而视图复用不重走 attachViewModel。漏恢复的后果是
+        // 硬件键与鼠标退回同步 feedPty——主端满时每次按键最多冻住 UI 线程 5s。
+        installPtyWriteQueue()
         // 订阅必须随 attach 恢复，不能只在 attachViewModel 里建一次：detach 会停掉它们
         // （见 onDetachedFromWindow 的清理），而视图复用时不会重新走 AndroidView.factory，
         // 于是 altScreenActiveFlow / lastContentRowFlow / cellMetricsFlow 三条输入全部失联
@@ -1497,12 +1501,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
         viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
-        // 硬件按键与鼠标事件同样排到批缓冲：直写的 `feedPty` 在主端满时最多等 5s，
-        // 会把 UI 线程冻住；共用一条出口还顺带保证与输入法写入的先后顺序
-        // （两路各写时，缓冲中待发的退格会被直写的击键越过）。
-        viewModel.runtime.bridge()?.ptyWriteQueue = { sessionId, data ->
-            inputBatchBuffer.write(data, sessionId)
-        }
+        // 硬件按键与鼠标事件同样排到批缓冲（理由见 [installPtyWriteQueue]）。
+        installPtyWriteQueue()
         observeImeShiftInputs(viewModel)
     }
 
@@ -2705,8 +2705,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         return viewModel?.runtime?.activeSessionScrollOffset() ?: scrollOffset
     }
 
-    fun getMaxScrollOffset(): Int = currentScrollbackLength()
-
     fun getRows(): Int = rows
 
     fun getCols(): Int = cols
@@ -2715,6 +2713,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // 分屏、Compose 重新挂载）时必须重建，否则每次 write 都抛 RejectedExecutionException
     // ——输入法输入与粘贴会在无任何症状的情况下永久失效。
     private var inputBatchBuffer = newInputBatchBuffer()
+
+    /**
+     * 本视图的 Surface 归属凭证：一个视图实例一个。用于区分「当前持有 Surface 的视图」
+     * 与「Activity 重建后仍在迟到回调的旧视图」（见 [TerminalRuntime.onSurfaceDestroyed]）。
+     */
+    private val surfaceOwnershipToken = Any()
+
+    /**
+     * 把硬件按键与鼠标事件的写入接到批缓冲。
+     *
+     * 直写的 `feedPty` 在主端满时最多等 5s，会把 UI 线程冻住；共用一条出口还顺带
+     * 保证与输入法写入的先后顺序（两路各写时，缓冲中待发的退格会被直写的击键越过）。
+     * attach 与首次绑定都要装，故只此一处实现。
+     */
+    private fun installPtyWriteQueue() {
+        viewModel?.runtime?.bridge()?.ptyWriteQueue = { sessionId, data ->
+            inputBatchBuffer.write(data, sessionId)
+        }
+    }
 
     private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
         flushSink = { sessionId, data -> viewModel?.writeToPty(sessionId, data) },
@@ -3094,6 +3111,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (width <= 0 || height <= 0) return
         val surface = holder.surface
         if (!surface.isValid) return
+        // 先认领归属：此后本视图才是唯一有权暂停渲染的那个，旧视图迟到的
+        // `surfaceDestroyed` 据此被识别为陈旧（见 `TerminalRuntime.onSurfaceDestroyed`）。
+        viewModel?.runtime?.onSurfaceClaimed(surfaceOwnershipToken)
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         viewModel?.let { terminalViewModel ->
@@ -3145,7 +3165,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        viewModel?.runtime?.onSurfaceDestroyed()
+        viewModel?.runtime?.onSurfaceDestroyed(surfaceOwnershipToken)
         viewModel?.runtime?.releaseAllGpuSurfaces()
         // 关闭选区/光标手柄弹窗：它们持有 Activity 上下文，
         // 而「已 dismiss 但仍显示」的弹窗会触发 StrictMode 的
