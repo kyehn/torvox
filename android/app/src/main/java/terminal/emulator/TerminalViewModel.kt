@@ -38,6 +38,7 @@ import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.clampSelection
+import terminal.emulator.ui.normalizeSelectionAnchors
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import javax.inject.Inject
@@ -649,12 +650,7 @@ constructor(
             // 且格式化器在内部把网格列映射到字符下标，使 CJK 宽字符绝不被切开
             // （等效于 TerminalRow.findStartOfColumn）。
             // 旧的逐行 scrollbackLine + '\n' 拼接无法侦测换行，且可能切开代理对。
-            val (lo, hi) =
-                if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
-                    start to end
-                } else {
-                    end to start
-                }
+            val (lo, hi) = normalizeSelectionAnchors(start, end, { it.row }, { it.col })
             // 空选区返回 ""，查询失败返回 null——后者必须出声：合并成 "" 会让
             // 复制按钮无声失败，用户只看到「选中了却看不出选中」（无高亮变化）。
             val text = bridge.selectionText(lo.row, lo.col, hi.row, hi.col)
@@ -1082,9 +1078,11 @@ constructor(
      */
     fun refreshSessionMetas(force: Boolean = false) {
         if (!force && SystemClock.uptimeMillis() - lastMetaRefreshMs < SESSION_META_REFRESH_THROTTLE_MS) return
-        lastMetaRefreshMs = SystemClock.uptimeMillis()
         val ids = _state.value.sessions.map { it.id }.sorted()
         if (ids.isEmpty()) return
+        // 消费节流窗口须在空表早退之后：空列表本无事可做，占掉窗口会让紧跟着的
+        // 首个真实会话错过一次标题回填。
+        lastMetaRefreshMs = SystemClock.uptimeMillis()
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             val fresh = ids.map { id ->
                 val title = runCatchingCancellable { NativeBridge.getTitle(id) }.getOrNull()
@@ -1158,7 +1156,14 @@ constructor(
                 terminal.emulator.installer.BootstrapOrchestrator.ERROR_CANCELLED ->
                     context.getString(R.string.bootstrap_cancelled)
 
-                else -> context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
+                // 编排器已把每条失败收敛成只含异常类名的文案（原始消息可能嵌入引导 URL，
+                // 故不外泄），这里再取一次类名会把那层收敛整个抹掉：真机上 `file://`
+                // 被 SELinux 拒绝时用户只看到「安装失败：Exception」，无从判断该换
+                // 预设、换 https 还是改从文件安装。裸异常才退回类名。
+                else -> context.getString(
+                    R.string.bootstrap_error,
+                    exception.message ?: exception.javaClass.simpleName,
+                )
             }
         },
     )
@@ -1226,8 +1231,10 @@ constructor(
                     secondStage,
                     onProgress = onProgress,
                 )
-            // 直接读取防抖后的值：DataStore 写入有 500ms 防抖，
-            // 故用户在输入后立刻点安装时 first() 仍可能返回旧 URL。
+            // 直接读取防抖后的值：DataStore 写入有防抖
+            // （terminal.emulator.settings.SettingsRepository.DEBOUNCE_MILLIS），
+            // 故用户在输入后立刻点安装时 first() 仍可能返回旧 URL。此前此处硬写
+            // 「500ms」而实际是 300ms，改动后就会漂移，故改为引用常量。
             // 已编辑的输入框（即使被清空）优先于已存储的 URL。
             val edited = settingsRepository.latestBootstrapUrlEdit()
             val url =
@@ -1329,7 +1336,7 @@ constructor(
     /** 死键（组合符）状态：组合键本身不产生输出，等下一次击键合成。 */
     private val deadKeys = terminal.emulator.input.DeadKeyState()
 
-    /** Shell 启动入口经保存按钮直接写入（DESIGN :113 提供保存按钮），不检查文本。 */
+    /** Shell 启动入口经保存按钮直接写入（DESIGN.md:89 提供保存按钮），不检查文本。 */
     fun setShell(shell: String) {
         viewModelScope.launch { settingsRepository.setShell(shell) }
     }

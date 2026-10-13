@@ -71,4 +71,24 @@ class ClipboardAccessTest {
             access.hasClipboardText(),
         )
     }
+
+    /**
+     * 非文本剪贴（复制了一个链接 / 一张图片）在平台上 `hasPrimaryClip()` 为真，
+     * 但没有任何可粘贴文本。粘贴菜单若据此提供 PASTE，点下去只会得到「剪贴板无文本」
+     * ——正是该接口声称要消除的反馈，故此处钉住 hasClipboardText 只为文本项返回真。
+     */
+    @Test
+    fun `hasClipboardText is false for a non-text clip`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        val uri = android.net.Uri.parse("content://terminal.emulator.test/link")
+        manager.setPrimaryClip(
+            android.content.ClipData.newRawUri("copied link", uri),
+        )
+        org.junit.Assert.assertFalse(
+            "clip with no text must not report hasClipboardText",
+            access.hasClipboardText(),
+        )
+    }
 }

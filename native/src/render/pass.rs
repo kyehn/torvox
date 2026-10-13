@@ -9,12 +9,18 @@ use std::sync::mpsc::SyncSender;
 /// 设备轮询超时：仅测试回读脚手架使用（`render_to_buffer` 内），生产零引用。
 #[cfg(test)]
 const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-/// warmup 的取纹理期限：它跑在 `attach_surface` 内，即持有全局 `RENDER_STATE`，
-/// 而该调用由 UI 线程（`surfaceChanged`）驱动——按渲染帧的 2s 上限会让一次
-/// GPU 卡死冻结主线程 2s。warmup 只是「立刻铺一层背景色」的尽力而为，
-/// 失败也由随后的渲染帧补上，故用约 6 个 vsync 的短期限。
-const WARMUP_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+/// 取纹理期限（约 6 个 vsync）。两条取纹理路径共用一个值，理由相同：都在持有全局
+/// `RENDER_STATE` 的临界区内，而 UI 线程（`surfaceChanged`、`setViewportScrollPx`、
+/// `setTheme`、`setFontSizeInPlace`、`applySearchHighlights`）会争这把锁——期限就是
+/// 这些调用方在一次 GPU 卡死（Mali-G57 的 `vkAcquireNextImageKHR` 会永久卡住，见
+/// `acquire_texture` 注释）时最多要等多久。
+///
+/// 此前渲染路径取 2s、warmup 取 100ms，口径不一致：一次卡死会把主线程冻住 2s。
+/// 超时落在 `AcquireOutcome::Skipped` 上，它**不**判死 surface（只有
+/// `SurfaceLost` 才推进 `surface_loss_streak`），下一帧照常重试；连续跳过满
+/// `SKIP_FATAL_FRAME_LIMIT` 帧会记一条 error。因此短期限的代价只是「慢机器上
+/// 多跳几帧」，换来的却是卡死时 UI 线程不被按在地上两秒。
+pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 /// 回读 map 轮询步长：每次 poll 等待的分片，避免忙等。
 /// 仅测试使用（`render_to_buffer` 是无 surface 的回读测试脚手架，生产零调用）。
 #[cfg(test)]
@@ -118,7 +124,15 @@ fn partial_frame_bands(
         return None;
     }
     let cache = cache?;
-    let mask = dirty_rows?;
+    // 掩码必须与行数对齐：`compute_dirty_bands` 产出的行号会直达
+    // `cache.band_slice` → `row_ends[row]`，而 `row_ends` 的长度只由
+    // `is_compatible(rows, cols)` 保证与 `rows` 相等，**不**由掩码长度保证。
+    // 与 `build_row_instances_into` 的判定同口径（cell_builder 里那处
+    // `dirty_rows.is_some_and(|f| f.len() >= rows as usize)`）：超长只取前
+    // `rows` 项（越界的位本就无所谓），过短则放弃分帧、整屏重画。
+    // 少了这一步，一旦有调用方传入更长的掩码，release 构建就会在
+    // `row_ends[row]` 上越界 panic，把渲染线程整个带走。
+    let mask = dirty_rows?.get(..rows as usize)?;
     if !cache.is_compatible(rows, cols) {
         return None;
     }
@@ -141,6 +155,41 @@ fn partial_frame_bands(
     )
 }
 
+/// 清除实例与真实单元实例在同一顶点缓冲中的字节边界 `(clear_end, draw_end)`：
+/// 清除段占 `[0, clear_end)`，真实例占 `[clear_end, draw_end)`。
+///
+/// 纯函数，判定表见本文件 `tests`。容量必须按 `draw_end` 一次算足：先写清除段、
+/// 再为真实例扩容重建缓冲，会把刚落盘的清除段丢掉。
+fn instance_upload_layout(clear_count: usize, draw_count: usize) -> (u64, u64) {
+    let stride = std::mem::size_of::<crate::render::CellInstance>() as u64;
+    let clear_end = clear_count as u64 * stride;
+    (clear_end, clear_end + draw_count as u64 * stride)
+}
+
+/// 顶点缓冲容量不足 `required_size` 时按需重建，否则原样保留。
+fn ensure_instance_capacity(
+    device: &wgpu::Device,
+    instance_buffer: &mut Option<wgpu::Buffer>,
+    required_size: u64,
+    label: &str,
+) {
+    if required_size == 0 {
+        return;
+    }
+    if instance_buffer
+        .as_ref()
+        .is_some_and(|buffer| buffer.size() >= required_size)
+    {
+        return;
+    }
+    *instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: required_size.max(MIN_VERTEX_BUFFER_SIZE),
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    }));
+}
+
 impl Renderer {
     /// Present one background-colored frame immediately (启动黑屏防护、
     /// 渲染稳定性 spec §4)：首个内容帧要等 shell 输出 + 冷启动
@@ -157,7 +206,7 @@ impl Renderer {
             return;
         };
         let Some(output) = self
-            .acquire_texture(surface, config.width, config.height, WARMUP_ACQUIRE_TIMEOUT)
+            .acquire_texture(surface, config.width, config.height, ACQUIRE_TIMEOUT)
             .into_texture()
         else {
             return;
@@ -206,8 +255,10 @@ impl Renderer {
         // Outdated 是瞬态（surface 被缩放或重建），reconfigure 后可恢复 —— 模拟器实测：
         // SwiftShader 的 dequeueBuffer 超时与 SurfaceFlinger 缩放竞态都会报 Outdated，
         // 不 reconfigure 的话切回应用后渲染线程会永久空转在 begin_frame 失败上。
-        // 图集格式必须等于 surface 格式；Android 的 view_formats 故意置空
-        // （见 context.rs 的 surface.configure 处说明），故此处无需格式降级协商。
+        // 图集与 surface 格式各取所需：字形图集恒为 Rgba8Unorm（只作采样源，见
+        // create_atlas_texture），不随 surface 格式变；surface 按 caps 取非 sRGB
+        // 变体。Android 的 view_formats 故意置空（见 context.rs 的 surface.configure
+        // 处说明），故此处无需格式降级协商。
         // 工作线程经 OnceLock 只建一次并跨帧复用，避免每进程重复建线程；
         // 每帧仅一次同步通道分配。
         let (response_sender, response_receiver) =
@@ -248,26 +299,7 @@ impl Renderer {
         }
     }
 
-    /// 按需扩容并上传单元实例数据。写成对精确字段的关联函数（而非 `&mut self`），
-    /// 使调用方在整帧持有其他字段借用（如单元管线）时仍能调用。
-    /// 表面帧与截图回读两条路径共用，`label` 用于在调试工具中区分。
-    fn upload_cell_instances(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        instance_buffer: &mut Option<wgpu::Buffer>,
-        instances: &[crate::render::CellInstance],
-        label: &str,
-    ) {
-        Self::upload_instances(
-            device,
-            queue,
-            instance_buffer,
-            bytemuck::cast_slice(instances),
-            label,
-        );
-    }
-
-    /// 按需扩容并上传 KGP 实例数据，同 [`Self::upload_cell_instances`]。
+    /// 按需扩容并上传 KGP 实例数据，同 [`Self::upload_instances`]。
     fn upload_kgp_instances(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -280,22 +312,24 @@ impl Renderer {
             queue,
             kgp_instance_buffer,
             bytemuck::cast_slice(kgp_instances),
+            0,
             label,
         );
     }
 
-    /// 两类实例共用的上传：容量不足时按需重建，否则原地覆写。
+    /// 两类实例共用的上传：容量不足时按需重建，否则原地覆写到 `offset_bytes`。
     fn upload_instances(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         instance_buffer: &mut Option<wgpu::Buffer>,
         instance_data: &[u8],
+        offset_bytes: u64,
         label: &str,
     ) {
         if instance_data.is_empty() {
             return;
         }
-        let needed_size = instance_data.len() as u64;
+        let needed_size = offset_bytes + instance_data.len() as u64;
         let resize_buffer = instance_buffer
             .as_ref()
             .is_none_or(|buf| buf.size() < needed_size);
@@ -308,7 +342,7 @@ impl Renderer {
             }));
         }
         if let Some(buf) = instance_buffer.as_ref() {
-            queue.write_buffer(buf, 0, instance_data);
+            queue.write_buffer(buf, offset_bytes, instance_data);
         }
     }
 
@@ -396,7 +430,6 @@ impl Renderer {
                     quad_size: [config_width as f32, (y1 - y0) as f32],
                     flags: 0.0,
                     bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
                 });
             }
         }
@@ -471,10 +504,11 @@ impl Renderer {
             kgp_present,
             scroll_active,
         );
-        // 脏带清除实例（仅部分帧）：空单元不产生覆盖四边形，故 LoadOp::Load 上的
-        // 脏带重绘会留下陈旧像素——最明显的是永不消失的旧光标块（模拟器实证：色块
-        // 累积在此前每个光标列上）。单元着色器把 has_glyph=0 四边形直接以背景色
-        // 填充，故每带一个清除实例即可在重绘前抹掉陈旧像素，无需额外管线。
+        // 脏带清除实例（仅部分帧）：空单元只在有光标时收缩为光标标记，格内其余
+        // 区域不被本帧覆盖，故 LoadOp::Load 上的脏带重绘会留下陈旧像素——最明显的
+        // 是永不消失的旧光标块（模拟器实证：色块累积在此前每个光标列上）。单元着色
+        // 器把 has_glyph=0 四边形直接以背景色填充，故每带一个清除实例即可在重绘
+        // 前抹掉陈旧像素，无需额外管线。
         let clear_instances = if partial {
             self.band_clear_instances(
                 dirty_bands,
@@ -486,20 +520,30 @@ impl Renderer {
             Vec::new()
         };
         let clear_count = clear_instances.len() as u32;
-        let mut upload_buffer = clear_instances;
-        if clear_count > 0 {
-            upload_buffer.extend_from_slice(instances);
-        }
-
-        Self::upload_cell_instances(
+        // 清除段与真实例作为同一缓冲的两段写入（免掉拼接中间 Vec：每个部分帧都要
+        // 为几枚清除四边形整份复制约 190KB 实例数组）。容量按两段之和一次算足——
+        // 先写清除段再为真实例扩容重建缓冲，会把刚落盘的清除段丢掉。
+        let (clear_end, draw_end) = instance_upload_layout(clear_count as usize, instances.len());
+        ensure_instance_capacity(
+            &self.device,
+            &mut self.instance_buffer,
+            draw_end,
+            "Instance Buffer",
+        );
+        Self::upload_instances(
             &self.device,
             &self.queue,
             &mut self.instance_buffer,
-            if clear_count > 0 {
-                &upload_buffer
-            } else {
-                instances
-            },
+            bytemuck::cast_slice(&clear_instances[..]),
+            0,
+            "Instance Buffer",
+        );
+        Self::upload_instances(
+            &self.device,
+            &self.queue,
+            &mut self.instance_buffer,
+            bytemuck::cast_slice(instances),
+            clear_end,
             "Instance Buffer",
         );
         Self::upload_kgp_instances(
@@ -823,11 +867,13 @@ impl Renderer {
                 label: Some("Readback Encoder"),
             });
 
-        Self::upload_cell_instances(
+        // 回读路径无脏带（强制全量重绘），整段从偏移 0 上传即可。
+        Self::upload_instances(
             &self.device,
             &self.queue,
             &mut self.instance_buffer,
-            instances,
+            bytemuck::cast_slice(instances),
+            0,
             "Instance Buffer (readback)",
         );
         Self::upload_kgp_instances(
@@ -983,6 +1029,31 @@ mod tests {
         cache
     }
 
+    /// 两段上传的字节边界：清除段与真实例在同一缓冲内不得重叠，且末段终点须等于
+    /// 两段合计（容量按此一次算足；先写清除段再为真实例扩容会把清除段丢掉）。
+    #[test]
+    fn instance_upload_layout_table() {
+        let stride = std::mem::size_of::<crate::render::CellInstance>() as u64;
+        assert!(
+            stride > 0 && stride.is_multiple_of(4),
+            "顶点偏移须 4 字节对齐"
+        );
+        for (clear_count, draw_count) in [(0usize, 0usize), (0, 5), (3, 5), (1, 0)] {
+            let (clear_end, draw_end) = instance_upload_layout(clear_count, draw_count);
+            assert_eq!(
+                clear_end,
+                clear_count as u64 * stride,
+                "{clear_count}/{draw_count}"
+            );
+            assert_eq!(
+                draw_end,
+                (clear_count + draw_count) as u64 * stride,
+                "{clear_count}/{draw_count}"
+            );
+            assert!(clear_end <= draw_end, "真实例起点不得早于清除段终点");
+        }
+    }
+
     #[test]
     fn dirty_rows_yield_bands_when_cache_matches() {
         let cache = built_cache();
@@ -998,6 +1069,64 @@ mod tests {
         assert_eq!(bands.len(), 2);
         assert_eq!((bands[0].start_row, bands[0].end_row_exclusive), (1, 2));
         assert_eq!((bands[0].instance_start, bands[0].instance_end), (2, 3));
+    }
+
+    /// 回归钉：掩码与行数不齐时必须走安全分支，绝不越界。
+    ///
+    /// `compute_dirty_bands` 产出的行号会直达 `cache.band_slice` →
+    /// `row_ends[row]`，而 `row_ends` 的长度只由 `is_compatible(rows, cols)`
+    /// 保证与 `rows` 相等，**不**由掩码长度保证。此前掩码被原样喂进去，唯一的
+    /// 防线是 `band_slice` 里的 `debug_assert!`——release 构建形同虚设，
+    /// 渲染线程会当场越界 panic。判别力看：获得与 4 行等长掩码相同的带。
+    #[test]
+    fn overlong_dirty_mask_is_truncated_not_indexed_out_of_bounds() {
+        let cache = built_cache();
+        // 掩码比行数长（前 4 位与等长用例完全相同，多出的 3 位全是脏行）。
+        let bands = partial_frame_bands(
+            false,
+            Some(&cache),
+            4,
+            2,
+            0,
+            Some(&[false, true, false, true, true, true, true]),
+        )
+        .expect("超长掩码应截断后照常给出脏带");
+        // 与等长掩码的结果逐字段一致：多出的位必须被忽略。
+        let expected = partial_frame_bands(
+            false,
+            Some(&cache),
+            4,
+            2,
+            0,
+            Some(&[false, true, false, true]),
+        )
+        .expect("等长对照");
+        assert_eq!(bands.len(), expected.len());
+        for (band, want) in bands.iter().zip(expected.iter()) {
+            assert_eq!(
+                (band.start_row, band.end_row_exclusive),
+                (want.start_row, want.end_row_exclusive)
+            );
+            assert_eq!(
+                (band.instance_start, band.instance_end),
+                (want.instance_start, want.instance_end)
+            );
+        }
+        assert!(
+            bands.iter().all(|band| band.start_row < 4),
+            "行号必须落在 [0, rows) 内"
+        );
+    }
+
+    /// 掩码比行数短时不能取到全部行：宁可整屏重画，也不拿不完整的脏带做增量更新
+    /// （漏掉的行会一直停在累加器里的旧像素上）。
+    #[test]
+    fn short_dirty_mask_falls_back_to_a_full_redraw() {
+        let cache = built_cache();
+        assert!(
+            partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[true, true])).is_none(),
+            "掩码短于行数时必须放弃稀疏带"
+        );
     }
 
     /// 全量重建（换字体、缩放、缓存失效）时每格 UV 与几何都换了：稀疏带会让
@@ -1081,8 +1210,8 @@ mod tests {
         );
     }
 
-    /// 脏带清除实例：每带一个纯色四边形，覆盖该带完整像素矩形
-    /// （空单元在 LoadOp::Load 上不产生覆盖四边形，会残留陈旧光标像素）。
+    /// 脏带清除实例：每带一个纯色四边形，覆盖该带完整像素矩形（空单元有光标时只发
+    /// 光标标记，格内其余区域不被本帧覆盖，会残留陈旧光标像素）。
     #[test]
     fn band_clear_instances_cover_band_rect() {
         let renderer = Renderer::new_with_no_surface();

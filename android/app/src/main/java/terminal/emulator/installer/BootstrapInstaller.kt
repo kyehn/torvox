@@ -9,8 +9,11 @@ import terminal.emulator.runtime.isSystemShellScript
 import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Paths
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -113,7 +116,12 @@ class BootstrapInstaller(
         try {
             // 只清空 staging 区。现有 prefix 必须存活到新引导完全解压并原子换入为止
             // （见 atomicRename），否则安装失败会让用户完全没有可用的引导。
-            delete(stagingDir)
+            //
+            // 清不净就必须中止：继续下去会把新引导写进残留的旧树，再由
+            // atomicRename 发布成一份混血 prefix，而安装一路报成功。
+            if (!delete(stagingDir)) {
+                throw IOException("Bootstrap staging dir could not be fully cleared")
+            }
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)
@@ -387,14 +395,38 @@ class BootstrapInstaller(
         File(prefixDir, "tmp").mkdirs()
     }
 
-    private fun delete(file: File) {
+    /**
+     * 删除一棵目录树，返回是否**全部**删净。
+     *
+     * 返回值必须被调用方检查：清不净的 staging 区会被下一次解压直接写进去，
+     * 最终 `atomicRename` 把「旧引导残留 + 新引导条目」这份混血树当成 prefix 发布，
+     * 而安装一路报成功。`listFiles()` 返回 null 不是「空目录」而是「列举不出来」
+     * （权限/IO 失败）——那意味着一整棵子树根本没被遍历到。
+     *
+     * 用 `NOFOLLOW_LINKS` 判存在性：断链符号链接的 `exists()` 恒为 false，
+     * 用它会让残链永远留在树里。
+     */
+    private fun delete(file: File): Boolean {
+        if (!Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return true
+        var clean = true
         // 删除时绝不跟随符号链接：指向目录的符号链接会解析为 isDirectory=true，
         // 于是列举并递归会删除*目标*的内容（数据丢失），
         // 而自指链接会无限递归（StackOverflowError）。
         // 符号链接只是一个 inode——删它本身，而非其指向。
-        if (!java.nio.file.Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
-            file.listFiles()?.forEach { delete(it) }
+        if (!Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
+            val children = file.listFiles()
+            if (children == null) {
+                LogUtil.w("BootstrapInstaller", "Cannot list ${file.name}; subtree left in place")
+                clean = false
+            } else {
+                children.forEach { if (!delete(it)) clean = false }
+            }
         }
-        file.delete()
+        if (!file.delete()) {
+            // 只记名与父目录名：条目名来自用户提供的 ZIP，带全路径会泄露到 logcat。
+            LogUtil.w("BootstrapInstaller", "Failed to delete ${file.name} under ${file.parentFile?.name}")
+            clean = false
+        }
+        return clean
     }
 }

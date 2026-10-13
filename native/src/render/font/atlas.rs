@@ -63,83 +63,47 @@ impl FontPipeline {
         let font_database = self.font_system.db();
         let font_size = self.font_size;
         let raster_size = font_size * self.raster_scale;
-        let pair =
-            font_database.with_face_data(font_id, |font_data, face_index| -> Option<(_, f32)> {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                // 可变字体优先走 `wght`/`ital` 轴（真字重/真倾斜）；字体未声明该轴
-                // 时才退回轮廓级合成。轴必须在 builder 之前设定才生效。
-                let variations = super::variation_settings(&font_ref, synthesis);
-                let mut scaler = self
-                    .scaler_context
-                    .builder(font_ref)
-                    .size(raster_size)
-                    // Hinting 把 TrueType 竖干对齐到像素网格；raster_scale > 1（设备密度）时
-                    // 位图已足够大，hinting 只会扭曲字形（模拟器 OCR 在 124px hinting 位图上
-                    // 失败），故仅在 1:1 渲染时启用。
-                    .hint(self.raster_scale <= 1.01)
-                    .variations(variations.clone())
-                    .build();
-                let image = {
-                    let mut render = Render::new(&[Source::Outline]);
-                    // 轮廓级合成（swash 原生）：bold 用 embolden()，italic 用仿射剪切，
-                    // 在光栅化时应用以保留抗锯齿质量。已由轴表达的部分不重复合成。
-                    let axis_has = |tag: &[u8; 4]| {
-                        variations
-                            .iter()
-                            .any(|setting| setting.tag == swash::tag_from_bytes(tag))
-                    };
-                    if matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic)
-                        && !axis_has(b"wght")
-                    {
-                        render.embolden(raster_size * BOLD_STRENGTH_EM);
-                    }
-                    if matches!(
-                        synthesis,
-                        GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
-                    ) && !axis_has(b"ital")
-                    {
-                        // 剪切 x' = x + y * slope（顶部行向右倾）。
-                        render.transform(Some(Transform::new(
-                            1.0,
-                            0.0,
-                            ITALIC_SHEAR,
-                            1.0,
-                            0.0,
-                            0.0,
-                        )));
-                    }
-                    render.render(&mut scaler, glyph_id)
-                };
-                let upem = font_ref.metrics(&[]).units_per_em as f32;
-                let scale = if upem > 0.0 {
-                    font_size / upem
-                } else {
-                    font_size
-                };
-                // `glyph_metrics(&[])` 不带轴坐标，VF 加粗后前伸宽度会偏小；
-                // 轴生效时改用缩放后轮廓的水平范围（swash 未公开带坐标的
-                // GlyphMetrics 构造）。等宽网格布局本身不消费该值，仅供诊断。
-                let advance_width = if variations.is_empty() {
-                    font_ref.glyph_metrics(&[]).advance_width(glyph_id) * scale
-                } else {
-                    scaler.scale_outline(glyph_id).map_or(0.0, |outline| {
-                        let bounds = outline.bounds();
-                        (bounds.max.x - bounds.min.x) * scale
-                    })
-                };
-                Some((image, advance_width))
-            })?;
-        let (image, advance_width) = pair?;
-
-        let image = match image {
-            Some(img) => img,
-            None => {
-                // 光栅无输出：返回 None 让上层回退链继续试下一层字体。
-                // 不得缓存零尺寸占位——零尺寸 Some 入库后毒化后续所有帧
-                //（快路直接命中返回空白，整批同字形持续消失）。
-                return None;
+        // 外层 None = 读字体表失败（向上抛）；内层 None = 光栅无输出，此时返回
+        // None 让上层回退链继续试下一层字体。不得缓存零尺寸占位——零尺寸 Some
+        // 入库后毒化后续所有帧（快路直接命中返回空白，整批同字形持续消失）。
+        let image = font_database.with_face_data(font_id, |font_data, face_index| {
+            let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+            // 可变字体优先走 `wght`/`ital` 轴（真字重/真倾斜）；字体未声明该轴
+            // 时才退回轮廓级合成。轴必须在 builder 之前设定才生效。
+            let variations = super::variation_settings(&font_ref, synthesis);
+            let mut scaler = self
+                .scaler_context
+                .builder(font_ref)
+                .size(raster_size)
+                // Hinting 把 TrueType 竖干对齐到像素网格；raster_scale > 1（设备密度）时
+                // 位图已足够大，hinting 只会扭曲字形（模拟器 OCR 在 124px hinting 位图上
+                // 失败），故仅在 1:1 渲染时启用。
+                .hint(self.raster_scale <= 1.01)
+                .variations(variations.clone())
+                .build();
+            let mut render = Render::new(&[Source::Outline]);
+            // 轮廓级合成（swash 原生）：bold 用 embolden()，italic 用仿射剪切，
+            // 在光栅化时应用以保留抗锯齿质量。已由轴表达的部分不重复合成。
+            let axis_has = |tag: &[u8; 4]| {
+                variations
+                    .iter()
+                    .any(|setting| setting.tag == swash::tag_from_bytes(tag))
+            };
+            if matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic)
+                && !axis_has(b"wght")
+            {
+                render.embolden(raster_size * BOLD_STRENGTH_EM);
             }
-        };
+            if matches!(
+                synthesis,
+                GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
+            ) && !axis_has(b"ital")
+            {
+                // 剪切 x' = x + y * slope（顶部行向右倾）。
+                render.transform(Some(Transform::new(1.0, 0.0, ITALIC_SHEAR, 1.0, 0.0, 0.0)));
+            }
+            render.render(&mut scaler, glyph_id)
+        })??;
 
         let width = image.placement.width as i32;
         let height = image.placement.height as i32;
@@ -152,7 +116,7 @@ impl FontPipeline {
             .atlas
             .allocate(guillotiere::size2(width + 1, height + 1))
         {
-            Some(a) => a,
+            Some(allocation) => allocation,
             None => {
                 let evict_count =
                     (self.caches.glyph_cache.len() / GLYPH_CACHE_EVICTION_DIVISOR).max(1);
@@ -170,11 +134,11 @@ impl FontPipeline {
                 if evicted_any {
                     self.atlas_generation = self.atlas_generation.wrapping_add(1);
                 }
-                if let Some(a) = self
+                if let Some(retry_allocation) = self
                     .atlas
                     .allocate(guillotiere::size2(width + 1, height + 1))
                 {
-                    a
+                    retry_allocation
                 } else {
                     log::warn!(
                         "ATLAS_REBUILD: atlas full ({}x{}), rebuilding with {} cached glyphs",
@@ -278,7 +242,6 @@ impl FontPipeline {
             width,
             height,
             placement: image.placement,
-            advance_width,
             allocation_id,
         };
 
@@ -305,7 +268,10 @@ impl FontPipeline {
             let synthesis = GlyphSynthesis::from_bits(key.synthesis);
             self.glyph_information_from_font_with_synthesis(key.font_id, key.glyph_id, synthesis);
         }
-        self.atlas_generation = self.atlas_generation.saturating_add(1);
+        // 与上面驱逐路径同为 wrapping_add：代际是「能否复用已缓存 UV」的闸门，
+        // 判据是 `!=`。saturating_add 一旦停在 u64::MAX 就不再变化，于是上一代的
+        // 代际会与它判为相等、缓存里的旧 UV 被当成仍然有效；回绕则永不与前一值相同。
+        self.atlas_generation = self.atlas_generation.wrapping_add(1);
         self.reset_dirty_rect_full();
     }
 

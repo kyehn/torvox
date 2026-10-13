@@ -1,8 +1,8 @@
 struct Uniforms {
     projection: mat4x4<f32>,
     atlas_size: vec2<f32>,
-    raster_scale: f32,
-    _padding: f32,
+    // std140 trailing padding to a 16-byte multiple: 76 -> 80 bytes.
+    _padding: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -20,7 +20,6 @@ struct VertexOutput {
     @location(5) glyph_size_px: vec2<f32>,
     @location(6) quad_size: vec2<f32>,
     @location(7) uv_offset: vec2<f32>,
-    @location(8) glyph_advance_w: f32,
     @location(9) flags: f32,
 };
 
@@ -36,7 +35,6 @@ fn vs_main(
     @location(6) quad_size: vec2<f32>,
     @location(7) flags: f32,
     @location(8) bearing: vec2<f32>,
-    @location(9) glyph_advance_w: f32,
 ) -> VertexOutput {
     let half_quad = quad_size * 0.5;
     let world_pos = quad_origin + half_quad + offset * half_quad;
@@ -54,7 +52,6 @@ fn vs_main(
     output.glyph_size_px = uv_size * uniforms.atlas_size;
     output.quad_size = quad_size;
     output.uv_offset = uv_offset;
-    output.glyph_advance_w = glyph_advance_w;
     output.flags = flags;
     return output;
 }
@@ -70,7 +67,6 @@ fn fs_main(
     @location(5) glyph_size_px: vec2<f32>,
     @location(6) quad_size: vec2<f32>,
     @location(7) uv_offset: vec2<f32>,
-    @location(8) glyph_advance_w: f32,
     @location(9) flags: f32,
 ) -> @location(0) vec4<f32> {
     var color: vec4<f32>;
@@ -86,10 +82,11 @@ fn fs_main(
         // spans cell_w × cell_span physical px; the rasterized bitmap
         // (glyph_size_px, generated at font_size × raster_scale) sits at
         // bearing.x and is clipped by the in_glyph check below. Scaling by
-        // glyph_advance/quad_size is 1.0 only for monospace Latin (advance ==
-        // cell width); CJK quads (2 cells ≈ 44px) exceed the ~37px advance,
-        // which stretched every CJK glyph ~1.19× horizontally (发虚, 与英文
-        // 宽度不协调). 1:1 sampling keeps glyphs exactly at raster size.
+        // (advance / quad_size) would be 1.0 only for monospace Latin
+        // (advance == cell width); CJK quads (2 cells ≈ 44px) exceed the
+        // ~37px advance, which stretched every CJK glyph ~1.19× horizontally
+        // (发虚, 与英文宽度不协调). 1:1 sampling keeps glyphs exactly at raster
+        // size — the per-glyph advance is therefore not uploaded at all.
         let scaled_x = cell_px.x;
         // Y: use natural font metrics. bearing.y positions the glyph relative to
         // the cell top (ascent_px - placement.top). For CJK fallback glyphs where

@@ -10,7 +10,7 @@ data class SearchSelection(val index: Int, val total: Int, val matched: SearchMa
  * 原生查询路径：每个方法与 JNI 导出 1:1 对应，供 [Bridge] 查询活动会话。
  *
  * 对调用方的约定：null/0/空表示引擎「无数据」，绝不可伪造。
- * 单行/字体查询开销小，批量查询（[getTerminalText]、[searchAllInScrollback]）由 UI 负责防抖。
+ * 单行/字体查询开销小，批量查询（[getTerminalText]、[searchSetNeedle]）由 UI 负责防抖。
  */
 class NativeQueryPort(private val sessionIdProvider: () -> Long) {
     fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())

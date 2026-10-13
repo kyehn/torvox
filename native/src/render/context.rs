@@ -65,13 +65,6 @@ pub struct FrameContext {
     pub(crate) config_height: u32,
 }
 
-impl FrameContext {
-    pub fn submit(self, queue: &wgpu::Queue) {
-        queue.submit(std::iter::once(self.encoder.finish()));
-        queue.present(self.texture);
-    }
-}
-
 pub(crate) struct GlobalGpu {
     #[cfg(target_os = "android")]
     pub(crate) instance: wgpu::Instance,
@@ -230,11 +223,14 @@ pub struct Renderer {
     pub(crate) kgp_texture: Option<wgpu::Texture>,
     pub(crate) kgp_atlas_width: u32,
     pub(crate) kgp_atlas_height: u32,
-    pub(crate) raster_scale: f32,
     pub(crate) render_paused: bool,
     /// 持久离屏帧累加器：权威帧内容跨帧存活，使部分（脏带）帧可合成到上次输出上，
     /// 每帧一次 `copy_texture_to_texture` 呈现到交换链。
     pub(crate) frame_texture: Option<wgpu::Texture>,
+    /// `frame_texture` 的 view：只在纹理重建时换。view 的默认描述符不依赖任何
+    /// 可变状态，纹理不变则内容同一，每帧重建等于每帧一次 image view 对象分配
+    /// 与驱动侧对象表增长（同 `kgp_bind_group` 惰性化的理由）。
+    pub(crate) frame_view: Option<wgpu::TextureView>,
     /// 累加器内容陈旧/未知，下一帧必须全量重绘（首帧、resize、格式变更、surface
     /// 重挂载）；成功全量绘制后清除。
     pub(crate) frame_invalidated: bool,
@@ -261,7 +257,7 @@ impl Renderer {
         };
         if needs_new {
             log::info!("ensure_frame_texture: creating accumulator {width}x{height} ({format:?})");
-            self.frame_texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Frame Accumulator"),
                 size: wgpu::Extent3d {
                     width,
@@ -274,13 +270,13 @@ impl Renderer {
                 format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
-            }));
+            });
+            self.frame_view = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            self.frame_texture = Some(texture);
             // 新纹理内容未定义，下一帧必须全量重绘。
             self.frame_invalidated = true;
         }
-        self.frame_texture
-            .as_ref()
-            .map(|frame_texture| frame_texture.create_view(&wgpu::TextureViewDescriptor::default()))
+        self.frame_view.clone()
     }
 
     /// 获取 surface 纹理并为本帧创建 `FrameContext`；获取失败（surface 丢失、超时、
@@ -351,9 +347,9 @@ impl Renderer {
             return None;
         }
 
-        // uniform 缓冲内容每帧重写；绑定组按对象标识绑定，仍然有效。
-        self.refresh_cell_uniforms(config_width as f32, config_height as f32);
-
+        // uniform 已在函数开头按本帧尺寸（`refresh_cell_uniforms`）写过：此路径到
+        // 这里只有取纹理与尺寸核对，两者都不改图集尺寸、投影尺寸与滚动偏移，
+        // 故不再重写同一份字节（每帧一次多余的 `write_buffer`）。
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -377,6 +373,7 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         self.frame_texture = None;
+        self.frame_view = None;
         self.cell_bind_group = None;
         self.instance_buffer = None;
         self.cell_pipeline = None;
@@ -443,24 +440,12 @@ impl Renderer {
             kgp_texture: None,
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
-            raster_scale: 1.0,
             render_paused: false,
             frame_texture: None,
+            frame_view: None,
             frame_invalidated: true,
             swapchain_copy_supported: false,
         }
-    }
-
-    pub async fn new() -> Result<Self, GpuError> {
-        let (_instance, _adapter, device, queue) =
-            crate::render::wgpu_backend::initialize_wgpu().await?;
-        let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Vertex Buffer"),
-            contents: bytemuck::cast_slice(QUAD_CORNERS),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        Ok(Self::new_inner(device, queue, quad_vertex_buffer))
     }
 
     /// 创建共享全局 wgpu instance/adapter/device 的 `Renderer`，适用于无窗口上下文。
@@ -539,11 +524,9 @@ impl Renderer {
                 "attach_surface: wgpu create_surface failed: {error}"
             ))
         })?;
-        // 重建即视为恢复：失效位与连续失败计数随之清零，新 surface 重新接受判定。
-        self.surface_invalidated = false;
-        self.surface_loss_streak = 0;
         // 累加器内容属于旧 surface，重挂载后强制全量重绘。
         self.frame_texture = None;
+        self.frame_view = None;
         self.frame_invalidated = true;
         let surface = std::sync::Arc::new(surface);
         // 默认配置挑选驱动支持的呈现模式与格式；`RENDER_SCALE` 与 `reconfigure_swapchain`
@@ -560,17 +543,7 @@ impl Renderer {
         } else {
             wgpu::TextureUsages::RENDER_ATTACHMENT
         };
-        // 优先非 sRGB 变体：Android SurfaceFlinger 默认 RGBA_8888（非 sRGB）；模拟器上
-        // SwiftShader 交换链格式与 Surface 原生格式不符时缓冲区队列无法分配。
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|candidate| !candidate.is_srgb())
-            .or_else(|| caps.formats.first().copied())
-            .ok_or_else(|| {
-                GpuError::Surface("attach_surface: no supported surface formats".into())
-            })?;
+        let format = Self::select_surface_format(&caps)?;
         let config = wgpu::SurfaceConfiguration {
             usage,
             format,
@@ -621,6 +594,16 @@ impl Renderer {
         self.projection_width = scaled_width;
         self.projection_height = scaled_height;
         self.surface = Some(surface);
+        // 重建**确实**成功才清失效位与连续失败计数。
+        //
+        // 放在这里而非 `create_surface_unsafe` 之后：本次此间的 `get_capabilities` /
+        // `select_surface_format` / `configure` 任一失败都会提前 `?` 上抛，而那时
+        // 重建尚未成立。先清零等于让失败路径替成功路径还愿——`get_capabilities` 在
+        // 模拟器上失败时（Surface::configure 报 `UnsupportedQueueFamily` 的那条根因）
+        // 会反复把 `surface_loss_streak` 打回 0，使「连续两次取帧失败即判失效」的
+        // 自愈阈值永远攒不满，渲染就此停摆，连重试都没了。
+        self.surface_invalidated = false;
+        self.surface_loss_streak = 0;
         // ── 启动黑屏防护 ─────────────────────────────
         // 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百毫秒：字形整形、
         // 整幅 atlas 上传、纹理分配）；期间交换链一帧未提交，屏幕保持空黑，静默 shell
@@ -643,6 +626,7 @@ impl Renderer {
         self.surface_invalidated = false;
         self.surface_loss_streak = 0;
         self.frame_texture = None;
+        self.frame_view = None;
         self.frame_invalidated = true;
         log::info!("release_surface: surface dropped");
     }
@@ -693,12 +677,6 @@ impl Renderer {
 
     pub fn set_render_paused(&mut self, paused: bool) {
         self.render_paused = paused;
-    }
-
-    pub fn set_raster_scale(&mut self, scale: f32) {
-        if scale > 0.0 && scale.is_finite() {
-            self.raster_scale = scale;
-        }
     }
 
     /// 非有限输入被忽略；Kotlin 侧把该值限制在一行高度内（整行走行通道）。
@@ -865,10 +843,15 @@ impl Renderer {
             };
             let offset = (origin_y as u64 * width as u64 + origin_x as u64)
                 * crate::render::font::ATLAS_BYTES_PER_PIXEL as u64;
+            // 长度下界必须按 wgpu 的**跨步**规则算，而不是「宽 × 高 × BPP」：
+            // `bytes_per_row` 恒为整幅宽度 `width`，故末行之前每行都要走满一个跨步。
+            // 正确式：offset + (upload_height - 1) * width * BPP + upload_width * BPP。
+            // 旧式在 `upload_width < width`（脏矩形比幅面窄）时会低估，于是守卫放过
+            // 一段实际过短的数据，最终由 wgpu  panic 收场而不是这里的干净报错。
+            let bpp = crate::render::font::ATLAS_BYTES_PER_PIXEL;
             let needed = offset as usize
-                + upload_height as usize
-                    * upload_width as usize
-                    * crate::render::font::ATLAS_BYTES_PER_PIXEL;
+                + (upload_height as usize).saturating_sub(1) * width as usize * bpp
+                + upload_width as usize * bpp;
             if data.len() < needed {
                 log::error!(
                     "upload_atlas: data too short ({} < {}), upload_w={upload_width} upload_h={upload_height}",
@@ -920,15 +903,15 @@ impl Renderer {
         crate::render::pipeline::GpuUniforms {
             projection: proj,
             atlas_size: [atlas_width, atlas_height],
-            raster_scale: self.raster_scale,
-            _padding: 0.0,
+            _padding: [0.0; 2],
         }
     }
 
     /// 写入 uniforms 并重建单元绑定组。
     ///
-    /// 由 [`Renderer::update_bind_group`] 与 [`Renderer::initialize_pipeline_and_bind_group`] 共用，
-    /// 避免约 40 行重复的 uniform 构建 + 缓冲写入 + 绑定组创建。
+    /// 与 [`Renderer::refresh_cell_uniforms`] 不同，它重建绑定组，供
+    /// [`Renderer::initialize_pipeline_and_bind_group`] 独用，避免约 40 行重复的
+    /// uniform 构建 + 缓冲写入 + 绑定组创建。
     fn write_uniforms(
         &mut self,
         atlas_width: f32,
@@ -1014,24 +997,85 @@ impl Renderer {
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
     }
-
-    pub fn update_bind_group(
-        &mut self,
-        atlas_width: f32,
-        atlas_height: f32,
-        projection_width: f32,
-        projection_height: f32,
-    ) {
-        self.write_uniforms(
-            atlas_width,
-            atlas_height,
-            projection_width,
-            projection_height,
-        );
-    }
 }
 
 impl Renderer {
+    /// 从适配器报告的格式里**指名**挑一个 8 位 RGBA 族的交换链格式。
+    ///
+    /// 此前是「取第一个非 sRGB 格式」——那等于让设备决定我们会去申请哪种窗口缓冲。
+    /// 真机日志（ZTE P720S20 / Mali）在 `attachWindow` 之后立刻报：
+    /// `E/mali_gralloc: ERROR: Unrecognized and/or unsupported format 0x38 and usage
+    /// 0xb00` 与 `Requested R8 format is not supported with this allocator`。0x38 正是
+    /// `AHARDWAREBUFFER_FORMAT_R8_UNORM`——即驱动把单通道格式排在了候选首位，我们照单
+    /// 申请，于是缓冲区队列分配失败。这不只是日志噪音：渲染进 R8 目标也只有灰度一个
+    /// 通道，即便侥幸分配成功，颜色也是错的。
+    ///
+    /// 取舍顺序：Rgba8Unorm（与 SurfaceFlinger 默认 RGBA_8888 原生对应，无需 sRGB 视图）
+    /// → 其它非 sRGB 的 RGBA/BGRA 8 位 → 任意非 sRGB → 任意格式。每一档退化都记一条
+    /// 日志，避免「用了个奇怪格式」这件事再次无声发生。
+    /// 与 `select_present_mode` 同理：唯一调用方 `attach_surface` 仅 Android 存在，
+    /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn select_surface_format(
+        caps: &wgpu::SurfaceCapabilities,
+    ) -> Result<wgpu::TextureFormat, GpuError> {
+        let rgba_family = |candidate: &wgpu::TextureFormat| {
+            matches!(
+                candidate,
+                wgpu::TextureFormat::Rgba8Unorm
+                    | wgpu::TextureFormat::Bgra8Unorm
+                    | wgpu::TextureFormat::Rgba8UnormSrgb
+                    | wgpu::TextureFormat::Bgra8UnormSrgb
+            )
+        };
+        if let Some(format) = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == wgpu::TextureFormat::Rgba8Unorm)
+        {
+            return Ok(format);
+        }
+        if let Some(format) = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|candidate| rgba_family(candidate) && !candidate.is_srgb())
+        {
+            log::warn!("attach_surface: 设备未提供 Rgba8Unorm，退到交换链格式 {format:?}");
+            return Ok(format);
+        }
+        // 宁可要 sRGB 的 RGBA8，也不要非 RGBA 族：单通道目标渲染出来只有灰度，
+        // gamma 不对只是偏亮/偏暗，颜色正确性远比 gamma 重要。
+        if let Some(format) = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|candidate| rgba_family(candidate))
+        {
+            log::warn!(
+                "attach_surface: 只有 sRGB 的 RGBA8 可用，交换链退到 {format:?}（gamma 会偏）"
+            );
+            return Ok(format);
+        }
+        if let Some(format) = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|candidate| !candidate.is_srgb())
+        {
+            log::error!(
+                "attach_surface: 适配器只提供非 RGBA8 族格式，交换链退到 {format:?}；\
+                 若该格式的窗口缓冲不可分配（Mali 的 R8_UNORM 即是），画面将无法呈现"
+            );
+            return Ok(format);
+        }
+        caps.formats
+            .first()
+            .copied()
+            .ok_or_else(|| GpuError::Surface("attach_surface: no supported surface formats".into()))
+    }
+
     /// 宿主构建排除了仅 Android 的 `attach_surface` 调用方，本函数在宿主上会成为死代码，
     /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
     #[cfg(any(target_os = "android", test))]
@@ -1073,6 +1117,7 @@ impl Renderer {
         // 否则空闲 shell 会永远持有重建后为空的累加器——空闲门控只在
         // `frame_invalidated` 时重绘，导致输入法 resize / 切后台且 surface 保留时黑屏或闪烁。
         self.frame_texture = None;
+        self.frame_view = None;
         self.frame_invalidated = true;
 
         self.projection_width = scaled_width;
@@ -1139,6 +1184,59 @@ impl Renderer {
             config_width,
             config_height,
         );
+    }
+}
+
+#[cfg(test)]
+mod surface_format_selection {
+    use super::Renderer;
+    use wgpu::{
+        CompositeAlphaMode, PresentMode, SurfaceCapabilities, TextureFormat, TextureUsages,
+    };
+
+    fn caps(formats: Vec<TextureFormat>) -> SurfaceCapabilities {
+        SurfaceCapabilities {
+            formats,
+            format_capabilities: Vec::new(),
+            present_modes: vec![PresentMode::Fifo],
+            alpha_modes: vec![CompositeAlphaMode::Auto],
+            usages: TextureUsages::RENDER_ATTACHMENT,
+        }
+    }
+
+    /// 回归钉：必须指名要 8 位 RGBA 族，而不是「取第一个非 sRGB 格式」。
+    ///
+    /// 真机日志（ZTE P720S20 / Mali）在 `attachWindow` 后立刻报
+    /// `E/mali_gralloc: Unrecognized and/or unsupported format 0x38 and usage 0xb00`
+    /// 与 `Requested R8 format is not supported with this allocator`——0x38 就是
+    /// `AHARDWAREBUFFER_FORMAT_R8_UNORM`。旧写法把「设备排第一的非 sRGB 格式」直接
+    /// 当交换链格式，于是照着设备的首选去申请窗口缓冲；Mali 的 gralloc 分配不出来，
+    /// 即便侥幸分配成功，渲染进 R8 目标也只有灰度一个通道。
+    #[test]
+    fn rgba8_is_preferred_even_when_the_device_lists_r8_first() {
+        let selected = Renderer::select_surface_format(&caps(vec![
+            TextureFormat::R8Unorm,
+            TextureFormat::Rgba8Unorm,
+        ]))
+        .expect("candidate present");
+        assert_eq!(selected, TextureFormat::Rgba8Unorm);
+    }
+
+    /// 只报 sRGB 的 RGBA8 时退到它，而不是随手挑单通道格式。
+    #[test]
+    fn falls_back_to_srgb_rgba8_when_plain_rgba8_is_absent() {
+        let selected = Renderer::select_surface_format(&caps(vec![
+            TextureFormat::R8Unorm,
+            TextureFormat::Rgba8UnormSrgb,
+        ]))
+        .expect("candidate present");
+        assert_eq!(selected, TextureFormat::Rgba8UnormSrgb);
+    }
+
+    /// 一个候选都没有时必须报「无格式」而不是默默选一个。
+    #[test]
+    fn empty_format_list_is_an_error() {
+        assert!(Renderer::select_surface_format(&caps(Vec::new())).is_err());
     }
 }
 

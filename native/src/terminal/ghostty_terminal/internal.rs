@@ -338,6 +338,38 @@ fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool) {
     }
 }
 
+/// 单元帧被丢弃告警的限频。
+///
+/// 渲染暂停期（设置页/输入法弹出）**刻意不消费**通道——`receive` 是破坏性取数，
+/// 暂停帧取走后永不呈现，恢复时 VT 的去重基线也不会重推，那正是「IME 弹出时输入
+/// 不可见」的主因。帧于是留在通道里，而通道有界：终端继续输出就把它填满，此后
+/// **每一次**推送都失败。实测设备上这是每秒约 40 条、持续到恢复为止的告警洪水。
+///
+/// 逐条记没有任何诊断价值（每一条都只是同一个「通道满」），却会挤爆 logcat 并持续
+/// 吃 CPU。故限频；恢复后通道排空时自然不再命中限频，首条即重新可见。
+static LAST_CELL_FRAME_DROP_WARN_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+const CELL_FRAME_DROP_WARN_INTERVAL_MS: u64 = 5_000;
+
+fn warn_drop_throttled(error: &flume::TrySendError<(Vec<CellData>, CursorInfo)>) {
+    use std::sync::atomic::Ordering;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_CELL_FRAME_DROP_WARN_MS.load(Ordering::Relaxed);
+    if now_ms.saturating_sub(last) >= CELL_FRAME_DROP_WARN_INTERVAL_MS
+        && LAST_CELL_FRAME_DROP_WARN_MS
+            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    {
+        log::warn!(
+            "ghostty_terminal: cell frame dropped ({error}) — further drops within {}ms are not logged",
+            CELL_FRAME_DROP_WARN_INTERVAL_MS,
+        );
+    }
+}
+
 /// 是否为双下划线：单独成函数，与绘制判定同源，避免三处散落比较。
 fn is_double_underline(underline: libghostty_vt::style::Underline) -> bool {
     underline == libghostty_vt::style::Underline::Double
@@ -426,7 +458,6 @@ impl super::GhosttyTerminal {
     pub(crate) fn process_query<'term>(
         query: Query,
         terminal: &mut Terminal<'term, '_>,
-        alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
         encoders: &mut Encoders,
         default_foreground: [f32; 4],
@@ -512,14 +543,18 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::RenderCursor(tx) => {
-                let visible_cursor = Self::build_cell_data(
-                    terminal,
-                    [1.0, 1.0, 1.0, 1.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                    alt_screen_active,
-                    extractors,
-                )
-                .and_then(|(_, cursor)| cursor.visible.then_some((cursor.row, cursor.col)));
+                // 只更新快照取光标视口，**不**走 build_cell_data：本查询要的只是
+                // (row, col) 与可见性，而 build_cell_data 会把整张网格逐行抽一遍、
+                // 写进跨帧行缓存、再 `snapshot.clean()` 标为已消费。为两个整数做这件事
+                // 既浪费，又让「取光标」与「渲染」共用同一份可变抽取状态——此前本查询
+                // 甚至会把抽取结果按调用处的默认色存进缓存。
+                let (render_state, _, _, _) = extractors.parts();
+                let visible_cursor = render_state
+                    .update(terminal)
+                    .map(|snapshot| cursor_in_viewport(&snapshot))
+                    .ok()
+                    .filter(|(_, _, visible)| *visible)
+                    .map(|(row, col, _)| (row, col));
                 try_send(&tx, visible_cursor, "query channel send failed");
             }
             Query::ReadVisibleText(tx) => {
@@ -769,7 +804,6 @@ impl super::GhosttyTerminal {
     pub(crate) fn drain_queries<'term>(
         query_receiver: &flume::Receiver<Query>,
         terminal: &mut Terminal<'term, '_>,
-        alt_screen_active: &Arc<AtomicBool>,
         all_text: &mut Option<String>,
         encoders: &mut Encoders,
         default_foreground: [f32; 4],
@@ -785,7 +819,6 @@ impl super::GhosttyTerminal {
             selection_installed |= Self::process_query(
                 query,
                 terminal,
-                alt_screen_active,
                 all_text,
                 encoders,
                 default_foreground,
@@ -1024,7 +1057,6 @@ impl super::GhosttyTerminal {
                     if Self::drain_queries(
                         &query_receiver,
                         &mut terminal,
-                        &config.alt_screen_active,
                         &mut cached_all_text,
                         &mut encoders,
                         default_foreground,
@@ -1114,8 +1146,15 @@ impl super::GhosttyTerminal {
                         if let Err(error) =
                             terminal.resize(cols, rows, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
                         {
-                            log::error!("ghostty_terminal: resize failed: {error}");
+                            // 网格没改成，但 `Session::resize` 已按「命令已入队」把缓存
+                            // 尺寸发布成新值、并把 `grid_dirty` 清了——同尺寸的下次 resize
+                            // 因此会短路，两者永久分歧。置位标记让那次重试真正发生。
+                            config.resize_failed.store(true, Ordering::Release);
+                            log::error!(
+                                "ghostty_terminal: resize failed: {error}; grid lags the PTY — next resize retries"
+                            );
                         } else {
+                            config.resize_failed.store(false, Ordering::Release);
                             // 整网重调回填默认几何，XTWINOPS 应答与上游实际一致。
                             config
                                 .cell_size_px
@@ -1229,7 +1268,6 @@ impl super::GhosttyTerminal {
             if Self::drain_queries(
                 &query_receiver,
                 &mut terminal,
-                &config.alt_screen_active,
                 &mut cached_all_text,
                 &mut encoders,
                 default_foreground,
@@ -1546,7 +1584,7 @@ impl super::GhosttyTerminal {
             // 下一帧同一内容会命中 unchanged 而不再补发，屏幕将永久停留在旧帧。
             match tx.try_send((data.0.clone(), data.1)) {
                 Ok(()) => *last_push = Some(data),
-                Err(error) => log::warn!("ghostty_terminal: cell frame dropped: {error}"),
+                Err(error) => warn_drop_throttled(&error),
             }
         }
     }
@@ -2728,6 +2766,51 @@ mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
     use libghostty_vt::style::{Style, StyleColor, Underline};
+
+    /// 回归钉：单元帧被丢弃的告警必须限频。
+    ///
+    /// 渲染暂停期刻意不消费通道（`receive` 是破坏性取数，取走的帧永不呈现），
+    /// 通道于是被填满，此后每次推送都失败——实测设备上每秒约 40 条、持续到恢复为止。
+    /// 逐条记无诊断价值却挤爆 logcat 并持续吃 CPU。
+    ///
+    /// 判别力：限频窗口内无论调用多少次，只应放行第一次。本例断言「连续 50 次里
+    /// 放行次数为 1」；去掉限频（每次都记）即失败。
+    #[test]
+    fn cell_frame_drop_warning_is_throttled() {
+        use std::sync::atomic::Ordering;
+        // 从零起算，确保第一次调用一定落在窗口内（否则静态原子被别的用例推进过）。
+        LAST_CELL_FRAME_DROP_WARN_MS.store(0, Ordering::Relaxed);
+        let error = flume::bounded::<(Vec<CellData>, CursorInfo)>(0)
+            .0
+            .try_send((
+                Vec::new(),
+                CursorInfo {
+                    row: 0,
+                    col: 0,
+                    visible: false,
+                    style: CursorStyle::Block,
+                    scrollback_length: 0,
+                    rows: 0,
+                    cols: 0,
+                    kitty_generation: 0,
+                },
+            ))
+            .expect_err("bounded(0) must reject every send");
+        let mut logged = 0;
+        for _ in 0..50 {
+            // 直接数「本进程内本条是否真的被写出」不可行（log 无测试挂钩），
+            // 故改为驱动限频闸门本身：把窗口设为极大，除首次外必然全部落空。
+            let before = LAST_CELL_FRAME_DROP_WARN_MS.load(Ordering::Relaxed);
+            warn_drop_throttled(&error);
+            if LAST_CELL_FRAME_DROP_WARN_MS.load(Ordering::Relaxed) != before {
+                logged += 1;
+            }
+        }
+        assert_eq!(
+            logged, 1,
+            "限频窗口内只应放行一次告警，实际放行 {logged} 次"
+        );
+    }
 
     #[test]
     fn byte_to_float_scales_255() {

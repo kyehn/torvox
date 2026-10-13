@@ -215,7 +215,7 @@ class ModifierBarRobolectricTest {
 
     @Test
     fun `swipe left enters text input page and swipe right returns`() {
-        // DESIGN.md:207「修饰键栏支持向左滑动进入文本输入框和返回」：分页器两页
+        // DESIGN.md:158「修饰键栏支持向左滑动进入文本输入框和返回」：分页器两页
         // （按键页 → 文本输入页），此前两向滑动都没有覆盖。
         setModifierBar()
         composeRule.onNodeWithTag("TextInputPage").assertDoesNotExist()

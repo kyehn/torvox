@@ -103,6 +103,32 @@ pub(crate) fn db_has_monospaced(font_database: &fontdb::Database) -> bool {
     font_database.faces().any(|face| face.monospaced)
 }
 
+/// 面的 charmap 是否覆盖 `probe`。
+///
+/// 「这个面支不支持 CJK」的全部判定都走此处：主字体是否覆盖 locale 代表字符
+/// （决定装不装 CJK 回退层、并向 UI 上报同一状态）与宿主选字体时避开已覆盖 CJK
+/// 的面。各写一份时，两处可能给出相反结论——UI 报「跳过回退」而渲染器其实装了。
+pub(crate) fn face_covers(
+    font_database: &fontdb::Database,
+    face_id: fontdb::ID,
+    probe: char,
+) -> bool {
+    font_database
+        .with_face_data(face_id, |font_data, face_index| {
+            swash::FontRef::from_index(font_data, face_index as usize)
+                .map(|font| font.charmap().map(probe) != 0)
+        })
+        .flatten()
+        .unwrap_or(false)
+}
+
+/// 本 locale 的 CJK 代表字符：CJK 字体按 locale 分片（CN 字体未必覆盖谚文音节），
+/// 故韩语用谚文、其余用汉字，不要求中/日/가同时存在，否则会拒绝匹配的主字体。
+/// 非 CJK locale 返回 `None`。
+pub(crate) fn cjk_probe_char(system_locale: &str) -> Option<char> {
+    locale_cjk_variant(system_locale).map(|variant| if variant == "kr" { '가' } else { '中' })
+}
+
 /// OEM 精简 ROM 可能声明了等宽字体却不提供文件（或文件损坏），使最小常驻集
 /// 没有任何等宽面：放宽装入 fonts.xml 全量声明文件（跳过已在库中的），保证
 /// 库内至少有一个可用面，返回新装入的文件数。健康设备永不进入此路径。
@@ -455,7 +481,7 @@ fn resolve_font_path(filename: &str) -> Option<std::path::PathBuf> {
         .find(|path| path.is_file())
 }
 
-/// 字体致命退出的唯一出口（`DESIGN.md:16` 的「输出日志并崩溃退出」）：先输出一行
+/// 字体致命退出的唯一出口（`DESIGN.md:17` 的「输出日志并崩溃退出」）：先输出一行
 /// `FONT_FATAL` 错误日志，再 `abort`。
 ///
 /// 用 `log` 门面而非直写 `__android_log_write`：层方向禁止 `render` 依赖 `android`
@@ -795,9 +821,9 @@ pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
         Some("tc") => &["zh-Hant", "zh-TW", "zh-HK", "zh", "und-Hani"],
         Some("jp") => &["ja"],
         Some("kr") => &["ko"],
-        // `DESIGN.md:155` 限定区域字体取「本区域」，故非 CJK 系统语言下候选必须为空：
+        // `font-selection` 规格限定区域字体取「本区域」，故非 CJK 系统语言下候选必须为空：
         // 放开会让英文系统也预装 CJK 族，违反该条。终端里出现非本区域文字即无回退，
-        // 属规范现状而非缺陷——改它要先改 155（保护文件）。
+        // 属规范现状而非缺陷——改它要先改 `font-selection` 规格（保护文件）。
         _ => &[],
     }
 }
@@ -1108,7 +1134,7 @@ mod tests {
 
     /// `fallbackFor` 标记的字体属于**另一条** fallback 链，不得并入本族候选：
     /// zh-Hans 里 `NotoSerifCJK-Regular.ttc` 与正体同名同权重并列，收进来会让
-    /// serif 面与正体竞争同一字符（`DESIGN.md:159` 要求中文用 Noto Sans CJK SC
+    /// `cjk-rendering` 规格要求中文用 Noto Sans CJK SC（index=2）、
     /// 而非 Noto Serif）。
     #[test]
     fn parse_fonts_xml_skips_fallback_for_fonts() {

@@ -271,4 +271,43 @@ class NativeBridgeSmokeTest {
             )
         }
     }
+
+    /**
+     * 回归钉：硬件按键的字节走宿主排队钩子，而不是直写 `feedPty`。
+     *
+     * 直写的 `feedPty` 在主端满时最多等 `WRITE_DRAIN_TIMEOUT`（5s），而击键来自
+     * UI 线程——子进程不读 stdin 时每次按键冻住主线程。宿主把 `ptyWriteQueue` 接到
+     * 批缓冲上后，`processKeyEvent` 编码出的字节必须交给该钩子。
+     *
+     * 判别力：本例断言钩子被调用并收到**非空**字节；还原成直写（钩子恒不被 consult）
+     * 时它一次都不会被调用，断言即失败。
+     */
+    @Test
+    fun `encoded key bytes go through the host write queue`() {
+        val bridge = TestBridges.create()
+        val queued = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        bridge.ptyWriteQueue = { sessionId, data ->
+            assertTrue("queued write must carry a session id", sessionId > 0)
+            queued.add(data)
+        }
+        val sessionId = bridge.spawnTerminal(24, 80, HOST_SHELL)
+        assertTrue("spawnTerminal must return a positive session id", sessionId > 0)
+        try {
+            // KEYCODE_A：上游 `key::Encoder` 覆盖它，故走 `encoded.isNotEmpty()` 那一支。
+            val handled =
+                bridge.processKeyEvent(
+                    keyCode = android.view.KeyEvent.KEYCODE_A,
+                    modifiers = 0,
+                    action = android.view.KeyEvent.ACTION_DOWN,
+                    unicodeChar = 'a'.code,
+                    unshiftedChar = 'a'.code,
+                )
+            assertTrue("A must be encoded and accepted", handled)
+            assertTrue("the queue must receive the encoded bytes", queued.isNotEmpty())
+            assertEquals("A encodes to a single byte", 1, queued[0].size)
+            assertEquals('a'.code.toByte(), queued[0][0])
+        } finally {
+            bridge.close()
+        }
+    }
 }
