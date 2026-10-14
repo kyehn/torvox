@@ -325,16 +325,17 @@ impl RowCache {
 ///
 /// `build_cell_data` 与 `build_snapshot` 两条抽取路径共用本函数：两份判读一旦分叉，
 /// 同一终端状态下 CellData 与快照会给出不同的光标行。
-fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool) {
+fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool, bool) {
     match snapshot.cursor_viewport() {
         Ok(Some(cursor_viewport)) => (
             cursor_viewport.y as u32,
             cursor_viewport.x as u32,
+            cursor_viewport.at_wide_tail,
             snapshot
                 .cursor_visible()
                 .unwrap_or(DISCONNECTED_CURSOR_VISIBLE),
         ),
-        Ok(None) | Err(_) => (0, 0, false),
+        Ok(None) | Err(_) => (0, 0, false, false),
     }
 }
 
@@ -553,8 +554,8 @@ impl super::GhosttyTerminal {
                     .update(terminal)
                     .map(|snapshot| cursor_in_viewport(&snapshot))
                     .ok()
-                    .filter(|(_, _, visible)| *visible)
-                    .map(|(row, col, _)| (row, col));
+                    .filter(|(_, _, _, visible)| *visible)
+                    .map(|(row, col, _, _)| (row, col));
                 try_send(&tx, visible_cursor, "query channel send failed");
             }
             Query::ReadVisibleText(tx) => {
@@ -1045,49 +1046,52 @@ impl super::GhosttyTerminal {
 
         'vt_loop: loop {
             // 等待有界通道里的下一条命令。用超时，以便在没有命令待处理时
-            // （例如两次写入之间的查询）也周期性检查查询通道。
-            let mut pending = match config
-                .command_receiver
-                .recv_timeout(std::time::Duration::from_millis(50))
-            {
-                Ok(command) => Some(command),
-                Err(flume::RecvTimeoutError::Timeout) => {
-                    // 没有待处理的有界命令——排空查询通道，让命令之间的查询
-                    // 不必无限期等待。
-                    if Self::drain_queries(
-                        &query_receiver,
-                        &mut terminal,
-                        &mut cached_all_text,
-                        &mut encoders,
-                        default_foreground,
-                        default_background,
-                        &mut search,
-                        &mut match_buffer,
-                        &mut extractors,
-                    ) {
-                        // 查询内安装与 Command::SetSelection 同款失效：
-                        // 反白改变每行内容，帧必须重推。
-                        last_cell_data_push = None;
-                        grid_dirty = true;
-                        cell_data_dirty = true;
-                        extractors.invalidate_row_cache();
-                    }
-                    // ── 自动推送 CellData（仅在真实状态变化后）──
-                    if cell_data_dirty {
-                        Self::refresh_cell_data(
-                            &config,
-                            &terminal,
+            // （例如两次写入之间的查询）也周期性检查查询通道。tick 长度同时是
+            // 查询的最坏延迟，调用方的超时窗口必须大于它（见 `VT_IDLE_TICK_MS`）。
+            let mut pending =
+                match config
+                    .command_receiver
+                    .recv_timeout(std::time::Duration::from_millis(
+                        super::types::VT_IDLE_TICK_MS,
+                    )) {
+                    Ok(command) => Some(command),
+                    Err(flume::RecvTimeoutError::Timeout) => {
+                        // 没有待处理的有界命令——排空查询通道，让命令之间的查询
+                        // 不必无限期等待。
+                        if Self::drain_queries(
+                            &query_receiver,
+                            &mut terminal,
+                            &mut cached_all_text,
+                            &mut encoders,
                             default_foreground,
                             default_background,
-                            &mut last_cell_data_push,
+                            &mut search,
+                            &mut match_buffer,
                             &mut extractors,
-                        );
-                        cell_data_dirty = false;
+                        ) {
+                            // 查询内安装与 Command::SetSelection 同款失效：
+                            // 反白改变每行内容，帧必须重推。
+                            last_cell_data_push = None;
+                            grid_dirty = true;
+                            cell_data_dirty = true;
+                            extractors.invalidate_row_cache();
+                        }
+                        // ── 自动推送 CellData（仅在真实状态变化后）──
+                        if cell_data_dirty {
+                            Self::refresh_cell_data(
+                                &config,
+                                &terminal,
+                                default_foreground,
+                                default_background,
+                                &mut last_cell_data_push,
+                                &mut extractors,
+                            );
+                            cell_data_dirty = false;
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                Err(flume::RecvTimeoutError::Disconnected) => break,
-            };
+                    Err(flume::RecvTimeoutError::Disconnected) => break,
+                };
             // 整批命令处理完只做一次 cell-data 构建。poll_pty_output 每个渲染帧
             // 最多喂入 MAX_CHUNKS_PER_FRAME 条 Write 命令；若每条 Write 之后
             // 都重建整个网格（每次遍历 ~2444 次 Ghostty FFI 调用），SwiftShader
@@ -2040,12 +2044,14 @@ impl super::GhosttyTerminal {
 
         let cursor_style = Self::cursor_style_from_snapshot(&snapshot);
         // 光标取视口相对坐标：口径与判据见 [cursor_in_viewport]。
-        let (cursor_row, cursor_col, cursor_visible) = cursor_in_viewport(&snapshot);
+        let (cursor_row, cursor_col, cursor_at_wide_tail, cursor_visible) =
+            cursor_in_viewport(&snapshot);
         Some((
             data,
             CursorInfo {
                 row: cursor_row,
                 col: cursor_col,
+                at_wide_tail: cursor_at_wide_tail,
                 visible: cursor_visible,
                 style: cursor_style,
                 scrollback_length: scrollback_len(terminal),
@@ -2221,7 +2227,7 @@ impl super::GhosttyTerminal {
         }
 
         // 视口相对的光标坐标（与按视口行存放的单元行一致）：口径见 [cursor_in_viewport]。
-        let (cursor_row, cursor_col, cursor_visible) = cursor_in_viewport(&snapshot);
+        let (cursor_row, cursor_col, _, cursor_visible) = cursor_in_viewport(&snapshot);
 
         let dirty = vec![true; (rows as usize) * (cols as usize)];
 
@@ -2787,6 +2793,7 @@ mod tests {
                 CursorInfo {
                     row: 0,
                     col: 0,
+                    at_wide_tail: false,
                     visible: false,
                     style: CursorStyle::Block,
                     scrollback_length: 0,

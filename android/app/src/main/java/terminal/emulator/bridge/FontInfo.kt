@@ -1,21 +1,20 @@
 package terminal.emulator.bridge
 
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-
 /**
  * 原生字体管线上报的字体状态。
  *
  * 跨 JNI 形状是 [NativeBridge.getFontInfo] 的打包字节（`pack_font_info` 的布局：
- * `u32` 标志 + 三个 `f32` + `u16` 名称数 + NUL 分隔的 UTF-8 名称），Kotlin 侧只做
- * 解包：不在此处留存文本表示，也不再经中间字符串解析。
+ * `u32` 标志 + 三个 `f32` + `u16` 名称数 + `u16` CJK 名称数 + NUL 分隔的 UTF-8
+ * 名称），Kotlin 侧只做解包：不在此处留存文本表示，也不再经中间字符串解析。
  */
 data class FontInfo(
     val activeName: String,
     val activeMonospaced: Boolean,
     val cjkState: CjkState,
-    /** [CjkState.Fallback] 时列出的 CJK 回退族名。 */
+    /** [CjkState.FALLBACK] 时列出的 CJK 回退族名。 */
     val cjkFamilies: List<String>,
+    /** 除主字体与 [cjkFamilies] 外实际供出过字形的族名（符号族、区域族等）。 */
+    val otherFamilies: List<String>,
     val cellWidthPx: Float,
     val cellHeightPx: Float,
     /** 逻辑字号，单位 sp（原生 `setFontSizeInPlace` 单位，非 px）。 */
@@ -28,8 +27,11 @@ data class FontInfo(
     fun cjkFallbackText(): String? = cjkFamilies.takeIf { it.isNotEmpty() }?.joinToString(", ")
 
     companion object {
-        /** 固定部分字节数：标志 4 + 三个 `f32` 12 + 名称数 2。 */
-        private const val HEADER_BYTES = 18
+        /** 固定部分字节数：标志 4 + 三个 `f32` 12 + 名称数 2 + CJK 名称数 2。 */
+        private const val HEADER_BYTES = 20
+
+        /** 名称数在头部里的起始偏移。 */
+        private const val NAME_COUNT_OFFSET = 16
 
         /** 标志位：主字体等宽。 */
         private const val MONOSPACED_FLAG = 1
@@ -40,23 +42,32 @@ data class FontInfo(
         fun fromPacked(packed: ByteArray): FontInfo {
             require(packed.size > HEADER_BYTES) { "Packed font info is too short: ${packed.size}" }
             val flags = intAt(packed, 0)
-            val nameCount = (packed[16].toInt() and 0xFF) or ((packed[17].toInt() and 0xFF) shl 8)
+            val nameCount = shortAt(packed, NAME_COUNT_OFFSET)
+            val cjkCount = shortAt(packed, NAME_COUNT_OFFSET + 2)
             // 原生每个名称后必跟一个 NUL，故切分结果恒为「名称数 + 1 个尾部空串」；
             // 少于此即载荷被截断，多于此即尾部有多余字节。
             val names = packed.decodeToString(HEADER_BYTES, packed.size).split('\u0000')
             require(names.size == nameCount + 1) {
                 "Packed font info declares $nameCount names but carries ${names.size - 1}"
             }
+            // 主字体占一个名字，CJK 段紧随其后，其余即「其他被使用字体」。
+            require(cjkCount <= nameCount - 1) {
+                "Packed font info declares $cjkCount CJK names out of $nameCount"
+            }
             return FontInfo(
                 activeName = names[0],
                 activeMonospaced = flags and MONOSPACED_FLAG != 0,
                 cjkState = CjkState.entries[flags ushr 1],
-                cjkFamilies = names.drop(1).take(nameCount - 1),
+                cjkFamilies = names.subList(1, cjkCount + 1),
+                otherFamilies = names.subList(cjkCount + 1, nameCount),
                 cellWidthPx = floatAt(packed, 4),
                 cellHeightPx = floatAt(packed, 8),
                 fontSizeSp = floatAt(packed, 12),
             )
         }
+
+        private fun shortAt(packed: ByteArray, offset: Int): Int = (packed[offset].toInt() and 0xFF) or
+            ((packed[offset + 1].toInt() and 0xFF) shl 8)
 
         private fun intAt(packed: ByteArray, offset: Int): Int = (packed[offset].toInt() and 0xFF) or
             ((packed[offset + 1].toInt() and 0xFF) shl 8) or
@@ -90,6 +101,3 @@ enum class CjkState {
  *   小于真实渲染的像素值。
  */
 fun fontSpToPx(fontSizeSp: Float, spToPxScale: Float): Float = fontSizeSp * spToPxScale
-
-/** ARGB 整数的 alpha 固定为不透明（主题与字体信息均为不透明色）。 */
-internal fun opaqueArgb(color: Color): Int = color.toArgb() or (0xFF shl 24)

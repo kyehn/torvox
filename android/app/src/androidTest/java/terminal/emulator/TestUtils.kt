@@ -411,7 +411,8 @@ fun AndroidComposeTestRule<*, *>.waitForSettingsScreen(timeoutMs: Long = 60_000)
 fun terminalCellSizePx(activity: Activity, bridge: Bridge): Pair<Float, Float> {
     val spToPxScale =
         activity.resources.displayMetrics.density * activity.resources.configuration.fontScale
-    return Pair(bridge.getCellWidth() * spToPxScale, bridge.getCellHeight() * spToPxScale)
+    val (cellWidthSp, cellHeightSp) = bridge.cellSize()
+    return Pair(cellWidthSp * spToPxScale, cellHeightSp * spToPxScale)
 }
 
 /**

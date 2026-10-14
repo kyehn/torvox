@@ -24,8 +24,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use crate::event::Event;
-use jni::objects::JObject;
 use jni::objects::{JClass, JString};
+use jni::objects::{JLongArray, JObject};
 use jni::strings::JNIString;
 use jni::sys::{
     JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jfloatArray, jint, jintArray, jlong,
@@ -131,6 +131,37 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     "non-string panic payload".to_string()
 }
 
+/// 把 `jint` 收窄到无符号小类型，越界抛 `IllegalArgumentException` 并返回 `None`。
+///
+/// `as` 在此处是静默截断：鼠标按钮 65536 会落进合法的小按钮号，越界的模式号同理，
+/// 与「该模式确实关闭 / 确实无按键」无法区分。仓库内行列与像素尺寸早已改用
+/// `try_from` + 抛错（见 `initSession`、`setPixelSize`），此处补齐其余跨语言收窄点。
+fn narrow_jint<T>(env: &mut Env, method: &str, field: &str, value: jint) -> Option<T>
+where
+    T: TryFrom<jint>,
+{
+    match T::try_from(value) {
+        Ok(narrowed) => Some(narrowed),
+        Err(_) => {
+            let message =
+                jni::strings::JNIString::from(format!("{method}: {field} out of range: {value}"));
+            let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"), &message);
+            None
+        }
+    }
+}
+
+/// 会话不存在（注册表查无此 id）时抛出。
+///
+/// 与其余故障**必须**分用异常类型：Kotlin 侧 [`Bridge.onSession`] 只把本类型当作
+/// 会话竞态（Activity 重建/进程回收，见 DESIGN）并回缺省值，其余异常照实上抛。
+/// 二者共用一个 `RuntimeException` 时，「PTY 写入失败」「主题不存在」「尺寸越界」
+/// 等真实故障会被一并说成「会话已销毁」而无声消失——日志里只剩一句错误的归因。
+fn throw_session_missing(env: &mut Env, method: &str) {
+    let message = jni::strings::JNIString::from(format!("{method}: session not found"));
+    let _ = env.throw_new(jni_str!("java/lang/IllegalStateException"), &message);
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // NDK FFI 声明
 // ══════════════════════════════════════════════════════════════════════════
@@ -167,9 +198,6 @@ unsafe extern "C" {
 
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
-    /// 本会话上次应用的滚动偏移。若按单一全局值计算增量，切换会话后旧会话的渲染线程
-    /// 带着另一会话的偏移恢复时就会错误移动旧会话视口。
-    last_scroll_offset: i64,
 }
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
@@ -190,10 +218,12 @@ static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 struct RenderState {
     renderer: crate::render::context::Renderer,
     font_pipeline: crate::render::font::FontPipeline,
-    /// 下一帧的搜索高亮区间。由 `setSearchHighlights` 写入（按字节打包的 rows/cols），
+    /// 下一帧的搜索高亮区间。由 `applySearchHighlights` 写入（按字节打包的 rows/cols），
     /// `render_inner` 消费；只有最新输入有意义（渲染循环约 60fps 且每次按键都重设）。
     /// 存为已解析结构便于按切片传入，由 `clearSearchHighlights` 清除。
-    search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
+    ///
+    /// 按会话键控，见 [`SessionScoped`]。
+    search_highlights: SessionScoped<crate::render::cell_builder::SearchHighlight>,
     /// 上次渲染的帧（单元 + 光标 + 尺寸 + 会话）。`render()` 只在有新输出时绘制，故空闲
     /// 终端复用此缓存帧而非逐帧重新合成。会话标识避免切会话后把旧会话网格画到新会话。
     last_frame: Option<(
@@ -206,9 +236,6 @@ struct RenderState {
     /// 上次绘制时的视口 Y 像素偏移——供空闲重绘门控检测逐像素滚动余数变化并强制重绘
     /// （该偏移移动像素但不改单元内容）。
     last_scroll_px: f32,
-    /// 上次绘制时的搜索高亮（视口行空间）。脏带渲染必须在其变化或被清除时标记对应行，
-    /// 否则陈旧的高亮像素会残留在累加器中。
-    last_drawn_search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
     /// 当前生效的终端主题（静态清单项）。渲染态自身的颜色——光标色与搜索高亮色——
     /// 都取自它，故颜色真源只存在于 [`crate::terminal::theme`] 一处，Kotlin 无需
     /// 回传颜色。由 `setTheme` 写入，主题变更总是伴随重绘。
@@ -235,6 +262,39 @@ struct RenderState {
     /// 它**同时**是 Kotlin 渲染循环的唤醒信号与空闲门控的通过条件之一——绝不可作为
     /// 外层短路（空闲重绘决策在门控内部做出）。
     dirty: AtomicBool,
+}
+
+/// 按会话键控的一段渲染态数据。
+///
+/// 渲染态是进程级唯一的，而产生它的查询是**每会话**的：切会话时宿主重建搜索状态而
+/// 不再发一次清除，于是新会话首帧会带着上一会话的命中框合成。键控让「这份数据属于
+/// 谁」与数据本身同生共死——拆成并行字段时，任一入口漏清都会画到错误的会话上。
+///
+/// `drawn` 与 `current` 成对：脏带渲染靠二者判重决定标脏哪些行，故 `enter_session`
+/// 必须同时清空，丢弃一次才不会被读成「高亮未变」而把旧像素留在累加器里。
+struct SessionScoped<T> {
+    session: u64,
+    current: Vec<T>,
+    drawn: Vec<T>,
+}
+
+impl<T> SessionScoped<T> {
+    fn new() -> Self {
+        Self {
+            session: 0,
+            current: Vec::new(),
+            drawn: Vec::new(),
+        }
+    }
+
+    /// 丢弃不属于本会话的内容。每帧在渲染前调用一次，两条帧路径共用同一份结论。
+    fn enter_session(&mut self, session: u64) {
+        if self.session != session {
+            self.session = 0;
+            self.current.clear();
+            self.drawn.clear();
+        }
+    }
 }
 
 /// 在无 surface 的情况下预热渲染器与字体库：把 wgpu 设备初始化与 200+ 个系统字体加载
@@ -294,10 +354,9 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
         *guard = Some(RenderState {
             renderer,
             font_pipeline,
-            search_highlights: Vec::new(),
+            search_highlights: SessionScoped::new(),
             last_frame: None,
             last_scroll_px: 0.0,
-            last_drawn_search_highlights: Vec::new(),
             theme: crate::terminal::theme::default_dark(),
             dirty_mask: Vec::new(),
             kitty_session: 0,
@@ -345,19 +404,29 @@ fn repack_kitty_atlas(
     cell_height: f32,
     uploaded_generation: u64,
 ) {
-    match crate::render::kitty::pack_and_build(&render_state.kitty_frames, cell_width, cell_height)
-    {
+    render_state.kitty_instances = match crate::render::kitty::pack_and_build(
+        &render_state.kitty_frames,
+        cell_width,
+        cell_height,
+    ) {
         Some((atlas, atlas_width, atlas_height, instances)) => {
-            render_state
+            // 图集被拒（超设备上限、长度不符、尺寸溢出）时纹理为空，而留着按旧图集
+            // 算好的实例会让 `kgp_present` 恒真：绑定组恒 `None` 图像永不出现，
+            // 部分帧增量渲染却被永久关掉，且每帧都因尺寸漂移重打包一次。
+            if render_state
                 .renderer
-                .set_kgp_atlas(&atlas, atlas_width, atlas_height);
-            render_state.kitty_instances = instances;
+                .set_kgp_atlas(&atlas, atlas_width, atlas_height)
+            {
+                instances
+            } else {
+                Vec::new()
+            }
         }
         None => {
             render_state.renderer.set_kgp_atlas(&[], 0, 0);
-            render_state.kitty_instances.clear();
+            Vec::new()
         }
-    }
+    };
     render_state.kitty_uploaded_generation = uploaded_generation;
 }
 
@@ -615,7 +684,6 @@ fn init_session_inner(
             let id = next_session_id();
             let entry = SessionEntry {
                 session: Arc::new(Mutex::new(session)),
-                last_scroll_offset: 0,
             };
 
             let mut registry = wlock_session_registry();
@@ -661,7 +729,7 @@ fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> j
     let id = session_id as u64;
     // 先把条目从注册表取出并在**丢弃之前**释放写锁：`Session::drop` 会杀死子进程并 join
     // 其读取/等待线程（数十至数百毫秒），期间持有全局注册表锁会阻塞所有会话的
-    // pollEvent/feedPty/writeKey。活跃 id 的修正在写锁**临界区内**完成，
+    // pollEvent/feedPty/encodeKeyText。活跃 id 的修正在写锁**临界区内**完成，
     // 使并发的 `switchSession` 不可能插入陈旧值。
     let removed_entry = {
         let mut guard = wlock_session_registry();
@@ -748,36 +816,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
         let id = session_id as u64;
-        let mut registry = wlock_session_registry();
-        let Some(entry) = registry.get_mut(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("resetTerminal: session not found"),
-            );
+        // 注册表读锁：会话锁可被 PTY 写入按住数秒（见 `setScrollOffset` 的同款理由），
+        // 写锁会把销毁/切换会话等全部操作一并堵住，而本路径只读注册表。
+        let Some(session) = session_handle(id) else {
+            throw_session_missing(env, "resetTerminal");
             return Ok(());
         };
-        let session = entry.session.lock();
-        session.reset_terminal();
-        // VT 视口已归零：同步清零本会话的滚动记账，否则下一次
-        // setScrollOffset 会按 stale 值算出错误 delta 误滚视图。
-        entry.last_scroll_offset = 0;
+        session.lock().reset_terminal();
     })
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// JNI 导出：getSessionCount
-// ══════════════════════════════════════════════════════════════════════════
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionCount(
-    mut _unowned: EnvUnowned<'_>,
-    _class: JClass,
-) -> jint {
-    jni_export_guard!(&mut _unowned, 0, |env| get_session_count_inner(env, _class))
-}
-
-fn get_session_count_inner(_env: &mut Env, _class: JClass) -> jint {
-    rlock_session_registry().len() as i32
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -803,10 +849,7 @@ fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, co
     let id = session_id as u64;
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        let _ = env.throw_new(
-            jni_str!("java/lang/RuntimeException"),
-            jni_str!("resize: session not found"),
-        );
+        throw_session_missing(env, "resize");
         return;
     };
     let mut session = entry.session.lock();
@@ -883,10 +926,7 @@ fn set_pixel_size_inner(
     let id = session_id as u64;
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        let _ = env.throw_new(
-            jni_str!("java/lang/RuntimeException"),
-            jni_str!("setPixelSize: session not found"),
-        );
+        throw_session_missing(env, "setPixelSize");
         return;
     };
     let (Ok(width), Ok(height)) = (u16::try_from(width_px), u16::try_from(height_px)) else {
@@ -930,13 +970,28 @@ fn focus_event_inner(
     focused: jboolean,
 ) -> jboolean {
     let id = session_id as u64;
-    let registry = rlock_session_registry();
-    if let Some(entry) = registry.get(&id) {
+    // 写入在两把锁之外：主端满时排空上限是 5s，而会话锁每帧被渲染与事件收割取得、
+    // 注册表读锁被销毁/切换会话等写操作等待——持任一把写入都会把整台终端冻住
+    // 同样长的时间（理由同 `feed_pty`）。故锁内只做 VT 查询与克隆写入面。
+    let (payload, pty_master) = {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return JNI_FALSE;
+        };
         let mut session = entry.session.lock();
-        session.focus_event(focused == JNI_TRUE);
-        return JNI_TRUE;
+        let Some(payload) = session.focus_event_bytes(focused == JNI_TRUE) else {
+            return JNI_TRUE;
+        };
+        (payload, session.pty_master())
+    };
+    // 焦点事件按用户操作触发、极稀疏，且丢出会让 vim 一类应用停在错误的焦点模式：
+    // 故用完整的排空期限，不与逐帧收割共用短上限。
+    if let Err(error) =
+        pty_master.write_with_timeout(payload, crate::terminal::pty::WRITE_DRAIN_TIMEOUT)
+    {
+        log::warn!("session: focus_event write failed: {error}");
     }
-    JNI_FALSE
+    JNI_TRUE
 }
 
 // JNI 导出：feedPty
@@ -982,10 +1037,7 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
     let pty_master = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("feedPty: session not found"),
-            );
+            throw_session_missing(env, "feedPty");
             return;
         };
         entry.session.lock().pty_master()
@@ -999,6 +1051,23 @@ fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteA
                 "feedPty: 子进程未在期限内消费输入，丢弃 {} 字节",
                 input.len()
             );
+            return;
+        }
+        // 会话已退出是正常生命周期终态，不是故障：抛异常会让 UI 线程上那一次按键
+        // 把整个进程带走。`exited` 由读取线程或等待线程在察觉之后才置位，而从端
+        // 已关闭时主端写得到的正是 `EIO`/`EPIPE`——只判 `Closed` 会漏掉「子进程已经
+        // 死了但还没人知道」这段窗口，那正是击键最易命中的时刻。
+        if let crate::terminal::session::SessionError::Io(io_error) = &write_error
+            && matches!(io_error.raw_os_error(), Some(libc::EIO) | Some(libc::EPIPE))
+        {
+            log::debug!(
+                "feedPty: 子进程已退出（{write_error}），丢弃 {} 字节",
+                input.len()
+            );
+            return;
+        }
+        if matches!(write_error, crate::terminal::session::SessionError::Closed) {
+            log::debug!("feedPty: 会话已退出，丢弃 {} 字节", input.len());
             return;
         }
         let _ = env.throw_new(
@@ -1041,10 +1110,7 @@ fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
     };
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        let _ = env.throw_new(
-            jni_str!("java/lang/RuntimeException"),
-            jni_str!("feedTerminal: session not found"),
-        );
+        throw_session_missing(env, "feedTerminal");
         return;
     };
     let mut session = entry.session.lock();
@@ -1052,66 +1118,41 @@ fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// JNI 导出：writeKey
+// JNI 导出：encodeKeyText
 // ══════════════════════════════════════════════════════════════════════════
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    session_id: jlong,
-    key: JString,
-    meta_prefix: jboolean,
-) {
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        write_key_inner(env, _class, session_id, key, meta_prefix)
-    })
-}
-
-/// 把单个按键的可打印字符写入 PTY，`meta_prefix` 为真时加 ESC 前缀（Alt/Super）。
+/// 把按键编码器未覆盖的键码所对应的码点转成终端字节，`meta_prefix` 为真时加 ESC 前缀。
 ///
 /// 只在**按键编码器不覆盖该键码**时调用：上游 `key::Key` 没有对应键的键码
 /// （如 `KEYCODE_AT` 的 `@` 实为 Shift+2）落到此处，取平台给出的码点直写。
 /// Ctrl 折叠不在此处——调用方已保证 Ctrl 未激活，Ctrl 由上游编码器负责。
-fn write_key_inner(
-    env: &mut Env,
+///
+/// 纯编码，**不碰会话也不写 PTY**：原实现在此处同步写，主端满时最多等
+/// `WRITE_DRAIN_TIMEOUT`（5s），而调用点在 UI 线程上（击键与鼠标事件）——子进程不读
+/// stdin 时每次按键冻住主线程，正是 `ptyWriteQueue` 当初要避免的事；它还绕过
+/// 写入队列与 `onPtyWrite` 唤醒钩子，回显要多等一个空闲闭锁。编码留在原生（JNI
+/// 不传 Java 字符串做字节通道），写入交回调用方与其它按键同一条有序出口。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyText(
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    session_id: jlong,
     key: JString,
     meta_prefix: jboolean,
-) {
-    let id = session_id as u64;
-
-    let Some(key_str) = read_jni_string(env, &key, "writeKey", "key string") else {
-        return;
-    };
-
-    // 会话锁只用来克隆 PTY 写入面；写入在会话锁与注册表读锁之外（理由同 `feed_pty_inner`）。
-    let pty_master = {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("writeKey: session not found"),
-            );
-            return;
+) -> jbyteArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let Some(key_str) = read_jni_string(env, &key, "encodeKeyText", "key string") else {
+            return Ok(empty_java_byte_array(env));
         };
-        entry.session.lock().pty_master()
-    };
-    let bytes = encode_meta_prefix(key_str.as_bytes(), meta_prefix != JNI_FALSE);
-    let result = pty_master.write(&bytes);
-    if let Err(e) = result {
-        // EAGAIN：与 `feedPty` 同因——子进程长时间不读 stdin，如实记日志。
-        if e.is_would_block() {
-            log::error!("writeKey: 子进程未在期限内消费按键，丢弃 {key_str}");
-            return;
+        let bytes = encode_meta_prefix(key_str.as_bytes(), meta_prefix != JNI_FALSE);
+        match env.byte_array_from_slice(&bytes) {
+            Ok(array) => array.into_raw(),
+            Err(error) => {
+                log::error!("encodeKeyText: byte_array_from_slice failed: {error}");
+                // 返回空数组而非 null：Kotlin 侧声明为非空 `ByteArray`，返回 null
+                // 会在 UI 线程上抛 NPE——比「这次按键丢失」严重得多。
+                empty_java_byte_array(env)
+            }
         }
-        if let Err(e) = env.throw_new(
-            jni_str!("java/lang/RuntimeException"),
-            JNIString::from(format!("writeKey: write failed: {e}")),
-        ) {
-            log::error!("writeKey: throw_new failed: {e}");
-        }
-    }
+    })
 }
 
 // JNI 导出：encodeMouseEvent
@@ -1174,12 +1215,24 @@ fn encode_mouse_event_inner(
     let Some(query_tx) = session_query_channel(id) else {
         return empty_java_byte_array(env);
     };
+    // 逐个收窄、逐个早退：收窄失败已经抛了异常并把它挂起，此后**不得**再调任何
+    // JNI 函数（JNI 规范只允许极少数调用，checkJNI 下直接 abort 进程）。故这里既
+    // 不再收窄其余字段，也不去 `NewByteArray`——直接交回宏的失败值。
+    let Some(action) = narrow_jint(env, "encodeMouseEvent", "action", action) else {
+        return std::ptr::null_mut();
+    };
+    let Some(button) = narrow_jint(env, "encodeMouseEvent", "button", button) else {
+        return std::ptr::null_mut();
+    };
+    let Some(modifiers) = narrow_jint(env, "encodeMouseEvent", "modifiers", modifiers) else {
+        return std::ptr::null_mut();
+    };
     let Some(bytes) = crate::terminal::ghostty_terminal::GhosttyTerminal::encode_mouse_event_on(
         &query_tx,
         (x_px, y_px),
-        action as u8,
-        button as u8,
-        modifiers as u16,
+        action,
+        button,
+        modifiers,
         cell_width,
         cell_height,
     ) else {
@@ -1243,6 +1296,10 @@ fn encode_key_event_inner(
     let Some(query_tx) = session_query_channel(session_id as u64) else {
         return empty_java_byte_array(env);
     };
+    // 收窄失败已挂起 Java 异常：此后不得再调 JNI（同上），故直接交回失败值。
+    let Some(modifiers) = narrow_jint(env, "encodeKeyEvent", "modifiers", modifiers) else {
+        return std::ptr::null_mut();
+    };
     let Some(bytes) = crate::terminal::ghostty_terminal::GhosttyTerminal::encode_key_event_on(
         &query_tx,
         key,
@@ -1251,7 +1308,7 @@ fn encode_key_event_inner(
             2 => key::Action::Repeat,
             _ => key::Action::Press,
         },
-        modifiers as u16,
+        modifiers,
         key_event_text(unicode_char),
         key_event_text(unshifted_char),
     ) else {
@@ -1489,7 +1546,6 @@ fn pump_sessions() {
             flood_shed_warn_throttled(session_id, unanswered);
             let registry = wlock_session_registry();
             let session = registry.get(&session_id).map(|entry| entry.session.clone());
-            drop(registry);
             if let Some(session) = session {
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, "") {
@@ -1504,10 +1560,7 @@ fn pump_sessions() {
             request_id,
             selection: selection.clone(),
         });
-        let registry = wlock_session_registry();
-        let session = registry.get(&session_id).map(|entry| entry.session.clone());
-        drop(registry);
-        if let Some(session) = session {
+        if let Some(session) = session_handle(session_id) {
             std::thread::spawn(move || {
                 let answer = wait_for_clipboard_answer(rx);
                 // 应答线程是槽位的唯一所有者：无论宿主是否作答（事件被队列淘汰、
@@ -1628,8 +1681,22 @@ unsafe fn attach_window_inner(
         log::error!(
             "FFI: attachWindow — ANativeWindow_setBuffersGeometry failed: {geometry_status}"
         );
+        // 与下方 `attach_surface` 失败同一条自愈路径：不得让任何会话继续「拥有」一个
+        // 已不存在的 surface，否则旧属主的 detachWindow 仍能 CAS 成功并清掉状态，
+        // 而新窗口无人挂载——渲染对「无 surface」返回 0 与空闲帧不可区分，终端永久黑屏。
         // SAFETY: 同下方的 `ANativeWindow_release`，此处无 surface 接管该引用。
+        // 先释放再碰渲染状态：`render_state_mut()` 在渲染器尚未建好时会创建它并可能
+        // panic，引用在那之后泄漏就再也归还不回来了。
         unsafe { ANativeWindow_release(ptr) };
+        {
+            let mut state = render_state_mut();
+            state
+                .as_mut()
+                .expect("render_state_mut always initializes")
+                .renderer
+                .mark_surface_invalidated();
+        }
+        ATTACHED_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
         return;
     }
     let mut state = render_state_mut();
@@ -1645,6 +1712,12 @@ unsafe fn attach_window_inner(
         }
         Err(error) => {
             log::error!("FFI: attachWindow surface attach failed: {error}");
+            // 不得让任何会话继续「拥有」一个已不存在的 surface：旧属主的 detachWindow
+            // 仍能 CAS 成功并清掉状态，而新窗口无人挂载，渲染对「无 surface」返回 0
+            // 与空闲帧不可区分——终端永久黑屏。改为判死并上报，宿主据此换一个新窗口
+            // 重新挂载（与 surface 丢失同一条自愈路径）。
+            renderer.mark_surface_invalidated();
+            ATTACHED_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
         }
     }
     // SAFETY: `ptr` 是来自 `ANativeWindow_fromSurface` 的有效 `ANativeWindow*`。
@@ -1681,8 +1754,12 @@ fn build_cursor(
     cursor_info: &crate::terminal::ghostty_terminal::CursorInfo,
 ) -> crate::render::CellCursor {
     crate::render::CellCursor {
+        // 光标落在宽字符尾列时 `col` 指的是第二格，而单元数据只为该宽字符发出一条
+        // 头列记录（`width=2` 一条即整个字形）——渲染侧按列匹配，故在此折算成锚列。
+        // 归位在本函数：它是 VT 真值与渲染锚点之间唯一的转换口，而 `getCursor-
+        // ViewportPacked` 等可观测查询继续报 VT 的真实列。
         row: cursor_info.row,
-        col: cursor_info.col,
+        col: cursor_info.col - u32::from(cursor_info.at_wide_tail),
         visible: cursor_info.visible,
         style: cursor_info.style,
         color: crate::terminal::ghostty_terminal::GhosttyTerminal::color_to_float(
@@ -1735,6 +1812,9 @@ fn render_inner(session_id: u64) -> jint {
         if render_state.renderer.surface.is_none() {
             return 0;
         }
+        // 切会话时按会话键丢弃上一会话的搜索高亮（见 `SessionScoped`）：在阶段 1 这一次
+        // 加锁内完成，两条帧路径共用同一份结论。
+        render_state.search_highlights.enter_session(session_id);
         // 惰性一次性创建管线。
         if render_state.renderer.cell_pipeline.is_none() {
             let (w, h) = render_state
@@ -1823,7 +1903,7 @@ fn render_inner(session_id: u64) -> jint {
                     cursor_info,
                     rows,
                     cols,
-                    scroll_offset: entry.last_scroll_offset,
+                    scroll_offset: session.last_scroll_offset(),
                 }
             }
             None => FrameData::Idle {},
@@ -2018,8 +2098,8 @@ fn render_inner(session_id: u64) -> jint {
                 dirty_mask,
                 rows_usize,
                 highlight_rows_to_mark(
-                    &render_state.search_highlights,
-                    &render_state.last_drawn_search_highlights,
+                    &render_state.search_highlights.current,
+                    &render_state.search_highlights.drawn,
                 ),
             );
             let result = render_state.renderer.render_cell_data(
@@ -2028,13 +2108,14 @@ fn render_inner(session_id: u64) -> jint {
                 cols,
                 cursor,
                 &mut render_state.font_pipeline,
-                &render_state.search_highlights,
+                &render_state.search_highlights.current,
                 Some(&render_state.dirty_mask),
                 &render_state.kitty_instances,
             );
             if result.is_ok() {
                 render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
-                render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
+                render_state.search_highlights.drawn =
+                    render_state.search_highlights.current.clone();
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
             }
             match result {
@@ -2060,7 +2141,7 @@ fn render_inner(session_id: u64) -> jint {
             // 或累加器失效（surface 重挂载/resize：新交换链从未收到过帧，空闲 shell
             // 会永远黑屏）。选区经 VT 线程作为新单元内容到达，故无需自己的门控。
             let highlights_changed =
-                render_state.search_highlights != render_state.last_drawn_search_highlights;
+                render_state.search_highlights.current != render_state.search_highlights.drawn;
             let scroll_px_changed =
                 (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
                     > f32::EPSILON;
@@ -2083,8 +2164,8 @@ fn render_inner(session_id: u64) -> jint {
                 dirty_mask,
                 rows_usize,
                 highlight_rows_to_mark(
-                    &render_state.search_highlights,
-                    &render_state.last_drawn_search_highlights,
+                    &render_state.search_highlights.current,
+                    &render_state.search_highlights.drawn,
                 ),
             );
             // Idle Kitty 同步：字体/缩放变化不经过 VT（无 New 帧），缓存实例
@@ -2126,12 +2207,13 @@ fn render_inner(session_id: u64) -> jint {
                 cached_cols,
                 cursor,
                 &mut render_state.font_pipeline,
-                &render_state.search_highlights,
+                &render_state.search_highlights.current,
                 Some(&render_state.dirty_mask),
                 &render_state.kitty_instances,
             );
             if result.is_ok() {
-                render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
+                render_state.search_highlights.drawn =
+                    render_state.search_highlights.current.clone();
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
                 // 注意：空闲时**不**更新 `last_frame`——单元未变。
             }
@@ -2222,8 +2304,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     let count = jni_export_guard!(&mut unowned_env, -1i32, |_env| render_inner(
         session_id as u64
     ));
-    let mut new_output: i64 = 0;
-    if count >= 0 {
+    // 三个采样**必须**在计数门控之外：死 surface 的每一帧都以 -1 失败，把它们挂在
+    // `count >= 0` 门下会让失效位永远送不到宿主（宿主因此永不换窗口，终端永久黑屏）。
+    // 空闲帧（count == 0）同样要采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
+    // 恰在空闲定居后最需要这些坐标。这里不调用 `render_cursor()`：它要走 VT 线程同步
+    // 查询，缓存才是无阻塞且与绘制同源的坐标。
+    //
+    // 整段（连同 `new_output` 的消费）必须同在**一个**守卫内：守卫之间留任何一行裸
+    // 代码，就等于把一次 panic 放回 `extern "system"` 边界外——那会 abort 进程而非抛
+    // Java 异常。守卫内 `render_state_mut()` 在 `RENDER_STATE` 仍为 `None` 时会建渲染器
+    // 并于 GPU 初始化失败时 panic，而 `render_inner` 刚失败（count == -1）的正是同一条
+    // 路径。
+    jni_export_guard!(&mut unowned_env, RENDER_SAMPLE_FAILURE_BITS, |_env| {
         // 就地消费 `new_output` 标志，省一次 JNI 穿越，
         // 并读取本帧已渲染缓存的光标与内容下沿，使跟随输入法的位移看到本帧绘制的坐标；
         // 同时上报渲染器判死的 surface，让宿主换新的 `ANativeWindow`（死窗口的
@@ -2232,23 +2324,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         // 必须留在通道里等下一帧，否则失败帧会吞掉它。
         // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE（`setSelection` 同款，
         // 不可跨作用域持有）。
-        let registry = rlock_session_registry();
-        if let Some(entry) = registry.get(&(session_id as u64))
-            && entry.session.lock().take_new_output()
-        {
-            new_output = 1;
-        }
-    }
-    // 三个采样**必须**在计数门控之外：死 surface 的每一帧都以 -1 失败，把它们挂在
-    // `count >= 0` 门下会让失效位永远送不到宿主（宿主因此永不换窗口，终端永久黑屏）。
-    // 空闲帧（count == 0）同样要采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
-    // 恰在空闲定居后最需要这些坐标。这里不调用 `render_cursor()`：它要走 VT 线程同步
-    // 查询，缓存才是无阻塞且与绘制同源的坐标。
-    //
-    // 采样段同样须在守卫内：`render_state_mut()` 在 `RENDER_STATE` 仍为 `None` 时会
-    // 建渲染器并于 GPU 初始化失败时 panic，而 `render_inner` 刚失败（count == -1）的
-    // 正是同一条路径——守卫外再 panic 一次即越过 `extern "system"` 边界 abort 进程。
-    jni_export_guard!(&mut unowned_env, RENDER_SAMPLE_FAILURE_BITS, |_env| {
+        let new_output = i64::from(
+            count >= 0
+                && session_handle(session_id as u64)
+                    .is_some_and(|session| session.lock().take_new_output()),
+        );
         // 备用屏标志与内容下沿同批上报：宿主据此让输入法跟随位移归零
         // （helix/vim 等全屏 TUI 占满视口，任何位移都把应用顶部推出屏幕）。
         // 读取的是 VT 线程写入的原子量，无同步查询，故与另两个采样同样无阻塞。
@@ -2256,9 +2336,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         // 必须在 `render_state_mut()` 之前取：全局锁序为 注册表 → 会话 → RENDER_STATE，
         // 反向嵌套即死锁。取完即释放，与上方 `new_output` 采样同款。
         let alt_screen_active = i64::from(
-            rlock_session_registry()
-                .get(&(session_id as u64))
-                .is_some_and(|entry| entry.session.lock().terminal().alt_screen_active_atomic()),
+            session_handle(session_id as u64)
+                .is_some_and(|session| session.lock().terminal().alt_screen_active_atomic()),
         ) * ALT_SCREEN_ACTIVE_BIT;
         let render_state = render_state_mut();
         let last_frame = render_state
@@ -2392,7 +2471,7 @@ fn clipboard_result_inner<'local>(
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-/// 返回活跃会话 id 的 JSON 数组。
+/// 返回活跃会话 id 的数组（长整型，非 JSON）。
 ///
 /// 注：由 `NativeBridgeSmokeTest` 覆盖（会话枚举的 JVM 边界）；生产 Kotlin 侧
 /// 在 `TerminalRuntime.sessionIds` 中跟踪 id。
@@ -2404,6 +2483,69 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         list_sessions_inner(env, _class)
     })
+}
+
+/// 按传入顺序返回各会话的终端标题；未知会话对应元素为 null。
+///
+/// 会话列表刷新原本逐会话各发一次 `getTitle`，N 个会话就是 N 次同步往返。标题查询
+/// 与列表刷新同批发生，故一次取回。未知会话不抛：调用方此时正在按自己的会话表回填，
+/// 竞态下少一个会话是正常状态，空标题即可表达。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionTitles<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_ids: jlongArray,
+) -> jobjectArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        get_session_titles_inner(env, session_ids)
+    })
+}
+
+fn get_session_titles_inner<'local>(
+    env: &mut Env<'local>,
+    session_ids: jlongArray,
+) -> jobjectArray {
+    // SAFETY：`session_ids` 是本次 JNI 调用的实参，生命周期覆盖本函数。
+    let ids = unsafe { JLongArray::from_raw(env, session_ids) };
+    let Ok(length) = ids.len(env) else {
+        log::error!("getSessionTitles: cannot read session id array length");
+        return std::ptr::null_mut();
+    };
+    let mut session_id_values = vec![0 as jlong; length];
+    if ids.get_region(env, 0, &mut session_id_values).is_err() {
+        log::error!("getSessionTitles: cannot read session ids");
+        return std::ptr::null_mut();
+    }
+    let Ok(string_class) = env.find_class(jni_str!("java/lang/String")) else {
+        log::error!("getSessionTitles: find_class java/lang/String failed");
+        return std::ptr::null_mut();
+    };
+    let Ok(array) = env.new_object_array(
+        session_id_values.len() as jsize,
+        string_class,
+        JObject::null(),
+    ) else {
+        log::error!("getSessionTitles: new_object_array failed");
+        return std::ptr::null_mut();
+    };
+    for (index, id) in session_id_values.iter().enumerate() {
+        // 未知会话留 null：调用方按空标题处理，不抛异常。
+        let element: JObject = match session_title(*id as u64) {
+            Some(title) => match env.new_string(title) {
+                Ok(text) => text.into(),
+                Err(error) => {
+                    log::error!("getSessionTitles: cannot encode title for {id}: {error}");
+                    return std::ptr::null_mut();
+                }
+            },
+            None => JObject::null(),
+        };
+        if let Err(error) = array.set_element(env, index, &element) {
+            log::error!("getSessionTitles: cannot store title {index}: {error}");
+            return std::ptr::null_mut();
+        }
+    }
+    array.into_raw()
 }
 
 /// Rust 字符串 → JNI `jstring`：编码失败返回 null，不抛异常、不吞错（调用方按 null 处理）。
@@ -2436,7 +2578,7 @@ const ATLAS_SIZE: u32 = 2048;
 // JNI 导出：TerminalQueryPort（搜索/回滚/文本/字体）
 //
 // Kotlin TerminalQueryPort 接缝的原生侧。每个导出都遵循 resize_inner 的模式：
-// 注册表读锁 → 会话锁 → 引擎查询；会话 id 未知时抛 IllegalArgumentException。
+// 注册表读锁 → 会话锁 → 引擎查询；会话 id 未知时抛 IllegalStateException。
 // 字体查询不需要会话 id，直接读全局 RENDER_STATE。
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -2448,18 +2590,21 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
     session_id: jlong,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        // 通道外置：查询在两把锁之外执行（标题随每次状态更新拉取，理由同
-        // `wideCharTailCols`）。
-        let Some(query_tx) = session_query_channel(session_id as u64) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("getTitle: session not found"),
-            );
+        // 单会话查询保持严格契约：会话未知即抛，不返回空标题——调用方要能区分
+        // 「没有标题」与「会话没了」。
+        let Some(title) = session_title(session_id as u64) else {
+            throw_session_missing(env, "getTitle");
             return Ok(std::ptr::null_mut());
         };
-        let title = crate::terminal::ghostty_terminal::GhosttyTerminal::title_on(&query_tx);
         string_to_jstring(env, &title)
     })
+}
+
+/// 会话标题的查询通道外置（理由同 `wideCharTailCols`：标题随每次状态更新拉取）。
+/// 会话未知返回 `None`，与 `getTitle` 的抛错契约区分开。
+fn session_title(session_id: u64) -> Option<String> {
+    let query_tx = session_query_channel(session_id)?;
+    Some(crate::terminal::ghostty_terminal::GhosttyTerminal::title_on(&query_tx))
 }
 
 // ── 文本与滚动查询 ──────────────────────────────────────────────
@@ -2473,10 +2618,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
     jni_export_guard!(&mut unowned_env, 0, |env| {
         // 通道外置：查询在两把锁之外执行（理由同 `getTitle`）。
         let Some(query_tx) = session_query_channel(session_id as u64) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("scrollbackLength: session not found"),
-            );
+            throw_session_missing(env, "scrollbackLength");
             return Ok(0);
         };
         crate::terminal::ghostty_terminal::GhosttyTerminal::scrollback_length_on(&query_tx) as jint
@@ -2497,10 +2639,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewp
         // 通道外置：光标坐标取自整网格构建，锁内等待会把按帧取这两把锁的渲染线程
         // 一并堵住（理由同 `getTitle`，此处代价更高）。
         let Some(query_tx) = session_query_channel(session_id as u64) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("getCursorViewportPacked: session not found"),
-            );
+            throw_session_missing(env, "getCursorViewportPacked");
             return Ok(-1);
         };
         let Some((row, col)) =
@@ -2531,10 +2670,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
         };
         // 通道外置：查询在两把锁之外执行（滚动时逐行拉取，理由同 `getTitle`）。
         let Some(query_tx) = session_query_channel(session_id as u64) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("scrollbackLine: session not found"),
-            );
+            throw_session_missing(env, "scrollbackLine");
             return Ok(std::ptr::null_mut());
         };
         // Kotlin 传入的是绝对行号（回滚 + 视口偏移，经
@@ -2565,10 +2701,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
         // 通道外置：全回滚扫描最慢，必须在两把锁之外跑，否则期间渲染与事件
         // 收割全部停摆（该导出每次全选/复制都调用）。
         let Some(query_tx) = session_query_channel(session_id as u64) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("getTerminalText: session not found"),
-            );
+            throw_session_missing(env, "getTerminalText");
             return Ok(std::ptr::null_mut());
         };
         let text = crate::terminal::ghostty_terminal::GhosttyTerminal::read_all_text_on(&query_tx);
@@ -2766,18 +2899,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSetNeedl
 ) -> jint {
     jni_export_guard!(&mut unowned_env, 0, |env| {
         let id = session_id as u64;
-        let Ok(needle) = needle.try_to_string(env) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("searchSetNeedle: bad needle string"),
-            );
+        let Some(needle) = read_jni_string(env, &needle, "searchSetNeedle", "needle") else {
             return Ok(0);
         };
         let Some(query_tx) = session_query_channel(id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("searchSetNeedle: session not found"),
-            );
+            throw_session_missing(env, "searchSetNeedle");
             return Ok(0);
         };
         let total = crate::terminal::ghostty_terminal::GhosttyTerminal::search_set_needle_on(
@@ -2800,10 +2926,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSelect<'
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let Some(query_tx) = session_query_channel(id) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("searchSelect: session not found"),
-            );
+            throw_session_missing(env, "searchSelect");
             return Ok(std::ptr::null_mut());
         };
         let Some(selected) = crate::terminal::ghostty_terminal::GhosttyTerminal::search_select_on(
@@ -2822,19 +2945,26 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSelect<'
     })
 }
 
-/// 取会话的查询通道。注册表读锁在此释放：查询经 500 毫秒有界超时，持锁跨越会让
-/// 销毁会话的写锁饥饿；会话锁也只用于取通道（VT 查询本身在锁外跑）。
-/// 会话不存在时返回 None，由调用方抛出。
+/// 取会话句柄。注册表读锁与**会话锁**都在此释放：两者都可能被 PTY 写入按住数秒
+/// （`feed_pty` 的写入面正是这样克隆出去再写），持锁跨越会让销毁会话的写锁饥饿，
+/// 渲染线程更不该在注册表**写**锁内排队——只读查找一律走本函数。
+fn session_handle(session_id: u64) -> Option<Arc<Mutex<Session>>> {
+    rlock_session_registry()
+        .get(&session_id)
+        .map(|entry| entry.session.clone())
+}
+
+/// [`Self::session_handle`] 的查询通道版。查询经 500 毫秒有界超时，VT 查询本身
+/// 在会话锁外跑。会话不存在时返回 None，由调用方抛出。
 fn session_query_channel(
     session_id: u64,
 ) -> Option<flume::Sender<crate::terminal::ghostty_terminal::Query>> {
-    let registry = rlock_session_registry();
-    let entry = registry.get(&session_id)?;
-    let session = entry.session.lock();
-    let query_tx = session.terminal().query_channel();
-    drop(session);
-    drop(registry);
-    Some(query_tx)
+    Some(
+        session_handle(session_id)?
+            .lock()
+            .terminal()
+            .query_channel(),
+    )
 }
 
 // ── 字体与主题 ──────────────────────────────────────────────────
@@ -2907,109 +3037,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMax
     })
 }
 
-/// 内置终端主题标识清单，顺序即设置界面展示顺序（深底在前、日间在后）。
-/// 颜色真源在构建期嵌入的 alacritty 主题文件（见 [`crate::terminal::theme`]），
-/// Kotlin 逐个标识按 [`Java_terminal_emulator_bridge_NativeBridge_getThemeColors`]
-/// 取回颜色，全程直接量、不经 JSON。
+/// 主题目录与全部调色板的一次性打包（布局见 [`crate::terminal::theme::pack_catalog`]）。
+///
+/// 一次同步调用取代「逐个标识取调色板」的 `1 + N` 次往返：目录在构建期即固定，
+/// 进程内不变，而设置页要一次显示全部主题。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeNames<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-) -> jobjectArray {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let themes = theme::all();
-        let Ok(string_class) = env.find_class(jni_str!("java/lang/String")) else {
-            log::error!("getThemeNames: find_class java/lang/String failed");
-            return Ok(std::ptr::null_mut());
-        };
-        let Ok(array) = env.new_object_array(themes.len() as jsize, string_class, JObject::null())
-        else {
-            log::error!("getThemeNames: new_object_array failed");
-            return Ok(std::ptr::null_mut());
-        };
-        // 元素初值为 null：任一 new_string / set_element 失败都会留下 null，而
-        // Kotlin 侧声明是 `Array<String>`，null 元素会成为无声的 NPE。故失败即整体作废。
-        for (index, entry) in themes.iter().enumerate() {
-            let Ok(element) = env.new_string(entry.name) else {
-                log::error!("getThemeNames: cannot encode theme {index}, aborting list");
-                return Ok(std::ptr::null_mut());
-            };
-            if let Err(error) = array.set_element(env, index, &element) {
-                log::error!("getThemeNames: cannot store theme {index}: {error}");
-                return Ok(std::ptr::null_mut());
-            }
-        }
-        array.into_raw()
-    })
-}
-
-/// 按标识取主题颜色：`dark` 标记（0/1）与 60 字节颜色，依次为背景、前景、光标、
-/// 选区与十六色，每色三字节。未知标识返回 null（设置数据错误，由调用方清除该键），
-/// 分配失败亦返回 null。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeColors(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeCatalog(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    theme_name: JString,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let Some(name) = read_jni_string(env, &theme_name, "getThemeColors", "theme name") else {
-            return Ok(std::ptr::null_mut());
-        };
-        let Some(entry) = theme::by_name(&name) else {
-            return Ok(std::ptr::null_mut());
-        };
-        let palette = &entry.palette;
-        let mut packed = Vec::with_capacity(THEME_PACKED_BYTES);
-        packed.push(u8::from(entry.dark));
-        for color in [
-            palette.background,
-            palette.foreground,
-            palette.cursor,
-            palette.selection_background,
-        ] {
-            push_rgb(&mut packed, color);
-        }
-        for ansi_color in palette.ansi {
-            push_rgb(&mut packed, ansi_color);
-        }
+        let packed = crate::terminal::theme::pack_catalog();
         match env.byte_array_from_slice(&packed) {
             Ok(array) => array.into_raw(),
             Err(error) => {
-                log::error!("getThemeColors: byte_array_from_slice failed: {error}");
+                log::error!("getThemeCatalog: byte_array_from_slice failed: {error}");
                 std::ptr::null_mut()
             }
         }
-    })
-}
-
-/// 单个主题的打包长度（见 [`Java_terminal_emulator_bridge_NativeBridge_getThemeColors`]）。
-const THEME_PACKED_BYTES: usize = 61;
-
-/// 颜色按 RGB 三字节落进打包缓冲（Kotlin 侧按同一布局解包）。
-fn push_rgb(packed: &mut Vec<u8>, color: libghostty_vt::style::RgbColor) {
-    packed.extend_from_slice(&[color.r, color.g, color.b]);
-}
-
-/// 默认夜间主题标识，对应 DESIGN 默认终端主题。分配失败返回 null。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultDarkName<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-) -> jstring {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        string_to_jstring(env, theme::default_dark().name)
-    })
-}
-
-/// 默认日间主题标识。分配失败返回 null。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultLightName<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-) -> jstring {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        string_to_jstring(env, theme::default_light_name())
     })
 }
 
@@ -3036,13 +3081,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo(
     })
 }
 
+/// 字体信息的打包头部字节数：标志 4 + 三个 `f32` 12 + 名称数 2 + CJK 名称数 2。
+const FONT_INFO_HEADER_BYTES: usize = 20;
+
 /// 字体信息的跨语言打包布局（Kotlin 侧对应 `FontInfo` 的解码）。
 ///
 /// ```text
-/// u32  flags        bit0 主字体等宽；CJK 状态取判别序号（见 CjkFallbackState）
-/// f32 ×3            单元格宽高（物理像素）、逻辑字号（sp）
-/// u16  名称个数
-/// 名称 × n           UTF-8、NUL 分隔，先主字体族名（无主字体则空串），后 CJK 回退族名
+/// u32  flags         bit0 主字体等宽；CJK 状态取判别序号（见 CjkFallbackState）
+/// f32 ×3             单元格宽高（物理像素）、逻辑字号（sp）
+/// u16  名称个数       主字体 + CJK 回退族 + 其他被使用族
+/// u16  CJK 名称数     紧随其后的一段是 CJK 回退族，其余为其他被使用族
+/// 名称 × n            UTF-8、NUL 分隔，先主字体族名（无主字体则空串），
+///                     再 CJK 回退族名，最后其他被使用族名
 /// ```
 pub(crate) fn pack_font_info(info: &crate::render::font::pipeline::FontInfo) -> Vec<u8> {
     // CJK 状态占 bit1 起（bit0 留给等宽标记），与 Kotlin 的 `CjkState.entries[flags ushr 1]` 对齐。
@@ -3051,19 +3101,22 @@ pub(crate) fn pack_font_info(info: &crate::render::font::pipeline::FontInfo) -> 
         flags |= 1;
     }
     let mut names = info.cjk_families.clone();
+    names.extend(info.other_families.iter().cloned());
     names.insert(
         0,
         info.active
             .as_ref()
             .map_or_else(String::new, |active| active.name.clone()),
     );
-    let mut packed =
-        Vec::with_capacity(18 + names.iter().map(|name| name.len() + 1).sum::<usize>());
+    let mut packed = Vec::with_capacity(
+        FONT_INFO_HEADER_BYTES + names.iter().map(|name| name.len() + 1).sum::<usize>(),
+    );
     packed.extend_from_slice(&flags.to_le_bytes());
     for value in [info.cell_width_px, info.cell_height_px, info.font_size] {
         packed.extend_from_slice(&value.to_le_bytes());
     }
     packed.extend_from_slice(&(names.len() as u16).to_le_bytes());
+    packed.extend_from_slice(&(info.cjk_families.len() as u16).to_le_bytes());
     for name in &names {
         packed.extend_from_slice(name.as_bytes());
         packed.push(0);
@@ -3081,7 +3134,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.search_highlights.clear();
+            render_state.search_highlights.current.clear();
+            render_state.search_highlights.session = 0;
             // 置脏标志：高亮清除必须送达屏幕，即便终端处于空闲
             // （否则陈旧高亮会一直残留到下次 PTY 输出——正是 #5 这类回归）。
             render_state.dirty.store(true, Ordering::Relaxed);
@@ -3121,7 +3175,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
         // 当前选中命中用主题前景色，其余用主题选区色：颜色真源是渲染态持有的
         // 当前主题（见 `setTheme`），Kotlin 不参与。
         let palette = &render_state.theme.palette;
-        render_state.search_highlights = highlights
+        render_state.search_highlights.current = highlights
             .matches
             .iter()
             .filter_map(|matched| {
@@ -3149,6 +3203,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
                 })
             })
             .collect();
+        render_state.search_highlights.session = session_id as u64;
         // 置脏标志：无 PTY 流量时新高亮也必须绘制到下一帧
         //（#5 空闲屏回归）。
         render_state.dirty.store(true, Ordering::Relaxed);
@@ -3224,10 +3279,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         {
             let registry = rlock_session_registry();
             let Some(session_entry) = registry.get(&id) else {
-                let _ = env.throw_new(
-                    jni_str!("java/lang/IllegalArgumentException"),
-                    jni_str!("setTheme: session not found"),
-                );
+                throw_session_missing(env, "setTheme");
                 return Ok(());
             };
             let session = session_entry.session.lock();
@@ -3484,7 +3536,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
     path: JString<'local>,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let Some(path_str) = read_jni_string(env, &path, "setExtraFontPaths", "path") else {
+        let Some(path_str) = read_jni_string(env, &path, "loadFontFile", "path") else {
             return Ok(std::ptr::null_mut());
         };
         // 自定义字体加载是 Android 专属特性（带额外路径的字体库仅 Android 有；
@@ -3585,7 +3637,18 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             // SAFETY: `paths` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效
             // （与 `feed_pty_inner` 同一模式）。
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
-            let count = array.len(env).unwrap_or(0);
+            // 读长度失败不得当成空数组：本次调用会**替换**已登记的路径，空列表等于
+            // 把用户的 `.termux/fonts` 静默注销、字体列表随之缩水，且无任何报错。
+            let count = match array.len(env) {
+                Ok(count) => count,
+                Err(error) => {
+                    let message = jni::strings::JNIString::from(format!(
+                        "setExtraFontPaths: cannot read array length: {error}"
+                    ));
+                    let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
+                    return Ok(());
+                }
+            };
             for font_index in 0..count {
                 let Some(item) = array.get_element(env, font_index).ok() else {
                     log::warn!("setExtraFontPaths: 读不到第 {font_index} 个元素，放弃");
@@ -3613,42 +3676,32 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
 }
 
 // ── 网格尺寸查询 ────────────────────────────────────────────────
-/// 字体单元格度量（`getCellWidth`/`getCellHeight` 共享）：无渲染状态时返回 0.0；
-/// `pick` 从 `(width, height)` 中取一维。
-fn cell_metric_dim(pick: impl FnOnce((f32, f32)) -> f32) -> f32 {
-    let state = render_state_mut();
-    let Some(render_state) = state.as_ref() else {
-        return 0.0;
-    };
-    pick(render_state.font_pipeline.cell_metrics())
-}
-
-/// 当前单元格宽度（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`）。
+/// 当前单元格宽高（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`），
+/// 打包为一个 `jlong`：低 32 位是宽度的 `f32` 位、高 32 位是高度。无渲染状态时为 0。
 ///
-/// 供 `Bridge.getCellWidth` 使用。宽度对字号**严格线性**（`advance × size / upem`，
-/// 等宽分支无取整），故它是「原生是否真的接受了该字号」最可靠的判据：原生拒收时
-/// 单元格度量不变。
+/// 宽高一并取回：两者只可能被同一处消费（触摸映射与网格重算），分两次查询只是多
+/// 一次 JNI 往返。宽度对字号**严格线性**（`advance × size / upem`，等宽分支无
+/// 取整），故它是「原生是否真的接受了该字号」最可靠的判据：原生拒收时单元格度量
+/// 不变。行高经过 `.ceil()`，对字号非线性。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellSizePacked(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    _session_id: jlong,
-) -> jfloat {
-    jni_export_guard!(&mut unowned_env, 0.0, |_env| {
-        cell_metric_dim(|metrics| metrics.0)
+) -> jlong {
+    jni_export_guard!(unowned_env, 0, |_env| {
+        let state = render_state_mut();
+        let Some(render_state) = state.as_ref() else {
+            return Ok(0);
+        };
+        let (width, height) = render_state.font_pipeline.cell_metrics();
+        cell_metrics_packed_from(width, height)
     })
 }
 
-/// 当前单元格高度（字号单位，同 `getCellWidth`；行高经过 `.ceil()`，对字号非线性）。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-) -> jfloat {
-    jni_export_guard!(&mut unowned_env, 0.0, |_env| {
-        cell_metric_dim(|metrics| metrics.1)
-    })
+/// 宽高 → 打包 `jlong`。宽度那一步的 `as u32` 不可省：少了它，宽度位模式的最高位
+/// 会被符号扩展进高半区，高度随之变成一个天文数字。
+fn cell_metrics_packed_from(width: f32, height: f32) -> jlong {
+    (((u64::from(height.to_bits())) << 32) | u64::from(width.to_bits())) as jlong
 }
 
 /// 当前网格尺寸，打包为 `(rows << 32) | cols`；会话未知时为 0。
@@ -3685,24 +3738,23 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let target = offset.max(0) as i64;
         let sent = {
-            let mut registry = wlock_session_registry();
-            let Some(entry) = registry.get_mut(&(_session_id as u64)) else {
+            let Some(session) = session_handle(_session_id as u64) else {
                 return Ok(());
             };
             // 每会话独立计算增量：此前代码按单一全局 `render_state.scroll_offset`
             // 计算，切换会话会污染恢复后会话的视口。
-            let delta = target - entry.last_scroll_offset;
+            let session = session.lock();
+            let delta = target - session.last_scroll_offset();
             if delta == 0 {
                 return Ok(());
             }
-            let session = entry.session.lock();
             // `scroll_viewport` 的增量语义（主机与模拟器已验证）：负值 = 向上滚入历史，
             // 正值 = 回到底部。Kotlin 的 `scrollOffset` 在用户向上滑（进入历史）时增大，
             // 故此处必须取反：此前符号写反，向下滑到底部时发的是负增量，
             // 结果反而滚进了历史。
             let sent = session.terminal().scroll_viewport(-(delta as isize));
             if sent {
-                entry.last_scroll_offset = target;
+                session.set_last_scroll_offset(target);
                 log::debug!("setScrollOffset: target={target} delta={delta}");
             } else {
                 // 命令通道已满或 VT 线程已消失：**不**推进 `last_scroll_offset`，
@@ -3773,38 +3825,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
         };
         let session = entry.session.lock();
         if session.terminal().alt_screen_active_atomic() {
-            JNI_TRUE
-        } else {
-            JNI_FALSE
-        }
-    })
-}
-
-/// 查询终端模式（ghostty `mode_get`）。`kind` 选择模式命名空间：0 = DEC 私有模式，
-/// 非 0 = ANSI 模式。供 Kotlin 键编码器查询 DECCKM（应用光标键，DEC 私有模式 1），
-/// 以在方向键的 SS3（`ESC OA`）与 CSI（`ESC [ A`）之间切换。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    session_id: jlong,
-    mode_num: jint,
-    kind: jint,
-) -> jboolean {
-    jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        let mode_kind = match kind {
-            0 => libghostty_vt::terminal::ModeKind::Dec,
-            _ => libghostty_vt::terminal::ModeKind::Ansi,
-        };
-        // 通道外置：查询在两把锁之外执行（理由同 `getTitle`）。
-        let Some(query_tx) = session_query_channel(session_id as u64) else {
-            return Ok(JNI_FALSE);
-        };
-        if GhosttyTerminal::mode_get_on(
-            &query_tx,
-            libghostty_vt::terminal::Mode::new(mode_num.max(0) as u16, mode_kind),
-            std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
-        ) {
             JNI_TRUE
         } else {
             JNI_FALSE
@@ -3939,7 +3959,6 @@ mod background_clipboard_read_tests {
             session_id,
             SessionEntry {
                 session: session.clone(),
-                last_scroll_offset: 0,
             },
         );
         let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
@@ -3986,7 +4005,6 @@ mod background_clipboard_read_tests {
             session_id,
             SessionEntry {
                 session: session.clone(),
-                last_scroll_offset: 0,
             },
         );
         let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
@@ -4009,6 +4027,35 @@ mod background_clipboard_read_tests {
             answers <= MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
             "削减回写每帧 {answers} 次，超过上限 {MAX_FLOOD_SHED_ANSWERS_PER_FRAME}"
         );
+    }
+}
+
+#[cfg(test)]
+mod cell_size_packing_tests {
+    use super::cell_metrics_packed_from;
+
+    /// 宽高按两个 `f32` 位落进同一个 `jlong`：低位宽、高位高。
+    ///
+    /// 判别力在**符号扩展**：`as u32 as u64` 这一步若写成 `as u64`，宽度位模式的
+    /// 最高位会被填成符号位，宽度在小数值上取回一个天文数字。
+    #[test]
+    fn width_and_height_occupy_low_and_high_halves() {
+        let packed = cell_metrics_packed_from(8.5, 17.25);
+        let width = f32::from_bits((packed as u64 & 0xFFFF_FFFF) as u32);
+        let height = f32::from_bits(((packed as u64) >> 32) as u32);
+        assert_eq!(width, 8.5);
+        assert_eq!(height, 17.25);
+    }
+
+    /// 负宽位模式（NaN/负数的位模式带最高位）不得污染高度半区。
+    #[test]
+    fn width_bits_do_not_leak_into_the_height_half() {
+        let packed = cell_metrics_packed_from(-0.0, 1.0);
+        let width = f32::from_bits((packed as u64 & 0xFFFF_FFFF) as u32);
+        let height = f32::from_bits(((packed as u64) >> 32) as u32);
+        assert_eq!(width, -0.0);
+        assert!(width.is_sign_negative());
+        assert_eq!(height, 1.0);
     }
 }
 
@@ -4136,7 +4183,7 @@ mod font_info_packing_tests {
     use super::pack_font_info;
     use crate::render::font::pipeline::FontPipeline;
 
-    /// 字体信息打包：`u32` 标志 + 三个 `f32` + `u16` 名称数 + NUL 分隔名称。
+    /// 字体信息打包：`u32` 标志 + 三个 `f32` + 两个 `u16` 计数 + NUL 分隔名称。
     /// 判别序号与浮点按小端摆放，Kotlin 侧按同一布局解包。
     #[test]
     fn font_info_packs_flags_metrics_and_names() {
@@ -4156,8 +4203,10 @@ mod font_info_packing_tests {
         );
         assert!(f32::from_le_bytes(packed[8..12].try_into().unwrap()) > 0.0);
         let name_count = u16::from_le_bytes(packed[16..18].try_into().unwrap());
-        assert_eq!(name_count, 1, "只有主字体名，无 CJK 回退族");
-        let names: Vec<&[u8]> = packed[18..]
+        let cjk_count = u16::from_le_bytes(packed[18..20].try_into().unwrap());
+        assert_eq!(cjk_count, 0, "无 CJK 回退族");
+        assert_eq!(name_count, 1, "只有主字体名，无 CJK 回退族与其他被使用族");
+        let names: Vec<&[u8]> = packed[20..]
             .split(|byte| *byte == 0)
             .filter(|name| !name.is_empty())
             .collect();
@@ -4278,5 +4327,147 @@ mod render_sample_bits_tests {
         let fallback = super::panic_text(&42_u32);
         assert!(!fallback.is_empty(), "非字符串 panic 载荷必须给出非空诊断");
         assert_ne!(fallback, "42", "非字符串载荷不得直接回显 Debug 形式");
+    }
+}
+
+#[cfg(test)]
+mod scroll_bookkeeping_tests {
+    use super::{SessionEntry, rlock_session_registry, wlock_session_registry};
+    use crate::terminal::pty::Pty;
+    use crate::terminal::session::Session;
+    use std::sync::Arc;
+
+    /// 滚动记账归会话，重置须把它一并归零。
+    ///
+    /// 该值此前挂在注册表项上，于是滚动与重置两条路径都得在**注册表写锁**内取会话锁
+    /// ——而会话锁可被 PTY 写入按住数秒，一条只读查找因此能冻住整台终端。归位到会话
+    /// 内（原子量）后两条路径只取读锁，语义不变。
+    #[test]
+    fn scroll_bookkeeping_lives_on_the_session_and_reset_clears_it() {
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let session = Arc::new(parking_lot::Mutex::new(
+            Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+                .expect("with_pty must succeed"),
+        ));
+        let session_id = 98_090_101u64;
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry {
+                session: session.clone(),
+            },
+        );
+
+        session.lock().set_last_scroll_offset(37);
+        // 经注册表读锁取回的句柄看到的是同一份记账（两个会话各自独立，见下一条）。
+        let through_registry = rlock_session_registry()
+            .get(&session_id)
+            .expect("已登记")
+            .session
+            .clone();
+        assert_eq!(through_registry.lock().last_scroll_offset(), 37);
+
+        through_registry.lock().reset_terminal();
+        assert_eq!(
+            session.lock().last_scroll_offset(),
+            0,
+            "重置后 VT 视口已归零，滚动记账必须同步归零，否则下一次滚动按 stale 值算 delta"
+        );
+
+        wlock_session_registry().remove(&session_id);
+    }
+
+    /// 两个会话的滚动记账互不相干。
+    ///
+    /// 判别力：记账若挂在全局或注册表某处（此前正是「单一全局偏移」的历史成因），
+    /// B 会话滚动后 A 的记账也会变。
+    #[test]
+    fn scroll_bookkeeping_is_per_session() {
+        let new_session = || {
+            let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+            Arc::new(parking_lot::Mutex::new(
+                Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+                    .expect("with_pty must succeed"),
+            ))
+        };
+        let first = new_session();
+        let second = new_session();
+        first.lock().set_last_scroll_offset(11);
+        assert_eq!(
+            second.lock().last_scroll_offset(),
+            0,
+            "另一会话的滚动不得推进本会话的记账"
+        );
+    }
+}
+
+#[cfg(test)]
+mod session_scoped_tests {
+    use super::SessionScoped;
+
+    /// 切会话必须丢弃上一会话的数据，且 `drawn` 一并清。
+    ///
+    /// 判别力：渲染态是进程级唯一的，而高亮来自每会话的查询——切会话时宿主重建搜索
+    /// 状态、不再发清除，故不丢弃就把上一会话的命中框合成到新会话网格上。`drawn`
+    /// 只清一半同样错：脏带渲染靠它与 `current` 判重，半清会被读成「高亮未变」，
+    /// 旧高亮像素留在累加器里。
+    #[test]
+    fn entering_another_session_drops_the_previous_highlights() {
+        let mut scoped = SessionScoped::new();
+        scoped.session = 1;
+        scoped.current = vec![10, 11];
+        scoped.drawn = vec![10, 11];
+
+        scoped.enter_session(2);
+        assert!(scoped.current.is_empty(), "命中框不得带到另一会话");
+        assert!(
+            scoped.drawn.is_empty(),
+            "上次绘制的高亮须同步清，否则脏带判重读成「高亮未变」"
+        );
+
+        // 同一会话重复进入是每帧常态：不得清自己的高亮。
+        scoped.session = 2;
+        scoped.current = vec![20];
+        scoped.drawn = vec![20];
+        scoped.enter_session(2);
+        assert_eq!(scoped.current, vec![20], "同一会话的高亮须保留");
+        assert_eq!(scoped.drawn, vec![20]);
+    }
+}
+
+#[cfg(test)]
+mod cursor_anchor_tests {
+    use super::build_cursor;
+    use crate::terminal::ghostty_terminal::CursorInfo;
+    use crate::terminal::ghostty_terminal::CursorStyle;
+
+    /// 落在宽字符尾列的光标必须折算成该宽字符的头列。
+    ///
+    /// 判别力：`build_cell_data` 对一个宽字符只发出一条头列记录（`width=2`，一条即
+    /// 整个字形），spacer 单元不产出记录。渲染侧按 `row`/`col` 相等匹配光标，故不折算
+    /// 时尾列上的光标匹配不到任何记录，那几帧终端看上去「重绘了但没有光标」——
+    /// 方块/竖线/下划线三种样式全中，因为匹配发生在样式分支之前。
+    #[test]
+    fn cursor_column_folds_onto_the_wide_characters_head() {
+        let mut wide_tail = CursorInfo {
+            row: 3,
+            col: 7,
+            at_wide_tail: true,
+            visible: true,
+            style: CursorStyle::Block,
+            scrollback_length: 0,
+            rows: 24,
+            cols: 80,
+            kitty_generation: 0,
+        };
+        let mut render_state = super::render_state_mut();
+        let render_state = render_state
+            .as_mut()
+            .expect("渲染状态在无 GPU 环境下仍应可用（无 surface 的渲染器不碰设备）");
+        let cursor = build_cursor(render_state, &wide_tail);
+        assert_eq!(cursor.col, 6, "尾列（第 7 格）折算到头列（第 6 格）");
+
+        // 折算只认尾列标志：普通列与宽度为 1 的单元都不受影响。
+        wide_tail.at_wide_tail = false;
+        assert_eq!(build_cursor(render_state, &wide_tail).col, 7);
     }
 }

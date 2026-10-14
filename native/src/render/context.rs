@@ -215,7 +215,6 @@ pub struct Renderer {
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
     /// 创建 kgp_pipeline 时所用的表面格式；表面格式变更后必须重建管线。
     pub(crate) kgp_pipeline_format: Option<wgpu::TextureFormat>,
-    pub(crate) kgp_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
     pub(crate) kgp_uniform_buffer: Option<wgpu::Buffer>,
     pub(crate) kgp_sampler: Option<wgpu::Sampler>,
@@ -388,7 +387,6 @@ impl Drop for Renderer {
         self.kgp_bind_group = None;
         self.kgp_sampler = None;
         self.kgp_uniform_buffer = None;
-        self.kgp_bind_group_layout = None;
         self.kgp_pipeline = None;
         self.kgp_pipeline_format = None;
         self.kgp_texture = None;
@@ -432,7 +430,6 @@ impl Renderer {
             background: initial_background_color(),
             kgp_pipeline: None,
             kgp_pipeline_format: None,
-            kgp_bind_group_layout: None,
             kgp_bind_group: None,
             kgp_uniform_buffer: None,
             kgp_sampler: None,
@@ -585,7 +582,6 @@ impl Renderer {
             self.kgp_pipeline = None;
             self.kgp_pipeline_format = None;
             self.kgp_bind_group = None;
-            self.kgp_bind_group_layout = None;
             log::info!(
                 "attach_surface: surface format changed {previous_format:?} -> {:?}, cell/kitty pipelines scheduled for rebuild",
                 self.pipeline_format,
@@ -629,6 +625,17 @@ impl Renderer {
         self.frame_view = None;
         self.frame_invalidated = true;
         log::info!("release_surface: surface dropped");
+    }
+
+    /// 挂载失败后记账：标记 surface 判死，使宿主经 [`Self::surface_invalidated`] 换新
+    /// 窗口重试（既有自愈路径）。
+    ///
+    /// 只挂在失败路径上才有意义：`create_surface_unsafe` / `get_capabilities` /
+    /// `select_surface_format` 任一失败都会提前返回，此时 `surface` 已是 `None`。
+    /// 而 `render` 对「无 surface」返回 0——与空闲帧不可区分，宿主的换窗口看门狗
+    /// 因此永远不触发，终端就此黑屏到 Activity 重建为止。
+    pub fn mark_surface_invalidated(&mut self) {
+        self.surface_invalidated = true;
     }
 
     /// 当前缓存的 surface 是否已判死（见 [Self::surface_invalidated]）。
@@ -686,7 +693,17 @@ impl Renderer {
         }
     }
 
-    pub fn set_kgp_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) {
+    /// 装载 KGP 图集。返回是否装载成功——**拒绝也必须让调用方知道**：拒绝后纹理为空，
+    /// 若调用方仍留着按旧图集算好的实例，非空实例会让部分帧增量渲染被永久关掉
+    /// （`kgp_present` 恒真而绑定组恒 `None`），且每帧都因「尺寸漂移」重打包一次。
+    pub fn set_kgp_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) -> bool {
+        // 换图集 = 换掉累加器里那些像素的内容，故下一帧必须全量自包含重绘。
+        // 漏掉的后果只在**清空**分支现形：图像消失后 `kgp_instances` 为空，
+        // `should_render_partial_frame` 于是重新放行部分帧，而图像原先压住的那些行
+        // 若并不脏（kitty 图常叠在空白单元格上），此后每帧只画脏带——图像像素在
+        // 屏幕上永久残留，重启会话前消不掉。换图集分支同理：新图集的 UV 布局与
+        // 旧图集无关，未重绘的行上留的是上一张图的残片。
+        self.frame_invalidated = true;
         // `write_texture` 在数据不足 `bytes_per_row * height` 时 panic，而这份数据
         // 经 JNI 跨越 FFI：调用方算错一行字节数就会把渲染线程直接带走。
         // 长度不符是调用方的缺陷，故此处拒绝并留证据，而不是让 wgpu 抛。
@@ -699,7 +716,8 @@ impl Renderer {
                 width,
                 height
             );
-            return;
+            self.reject_kgp_atlas();
+            return false;
         };
         if rgba_data.len() < expected_len {
             log::warn!(
@@ -708,14 +726,24 @@ impl Renderer {
                 height,
                 rgba_data.len()
             );
-            return;
+            self.reject_kgp_atlas();
+            return false;
         }
         if width == 0 || height == 0 {
-            self.kgp_texture = None;
-            self.kgp_bind_group = None;
-            self.kgp_atlas_width = 0;
-            self.kgp_atlas_height = 0;
-            return;
+            self.reject_kgp_atlas();
+            return false;
+        }
+        // 超出设备上限时 `create_texture` 返回无效句柄，装上去也不会有任何图像，
+        // 只有逐帧的校验错误——与长度不符同款处理：拒绝并清空。
+        let max_side = self.device.limits().max_texture_dimension_2d;
+        if width > max_side || height > max_side {
+            log::warn!(
+                "set_kgp_atlas: {}x{} exceeds device limit {max_side}; atlas rejected",
+                width,
+                height
+            );
+            self.reject_kgp_atlas();
+            return false;
         }
         let device = &self.device;
         let queue = &self.queue;
@@ -744,6 +772,15 @@ impl Renderer {
         self.kgp_atlas_width = width;
         self.kgp_atlas_height = height;
         self.kgp_bind_group = None;
+        true
+    }
+
+    /// 拒绝一次图集装载：清空纹理与尺寸，使上传侧不再每帧判定「尺寸漂移」而重打包。
+    fn reject_kgp_atlas(&mut self) {
+        self.kgp_texture = None;
+        self.kgp_bind_group = None;
+        self.kgp_atlas_width = 0;
+        self.kgp_atlas_height = 0;
     }
 }
 

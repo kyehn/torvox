@@ -9,8 +9,8 @@
 //! ```
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use native::render::cell_builder::CellInstanceConfig;
 use native::render::font::FontPipeline;
-use native::render::gpu::CellInstanceConfig;
 use native::terminal::ghostty_terminal::CellData;
 use std::hint::black_box;
 

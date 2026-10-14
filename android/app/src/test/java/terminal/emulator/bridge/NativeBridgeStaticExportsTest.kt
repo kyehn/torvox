@@ -11,7 +11,7 @@ import org.junit.Test
  * 于是第 3 个 JNI 槽位传的是 `this`，而原生按 `jclass` 接收——两者都是 64 位，
  * 加上 `_class` 从不解引用，调用表面正常；只有 debuggable 构建开启的 CheckJNI 会报
  * 参数类型错误。曾有 6 个生产导出（setTheme / setFontFamily / loadFontFile /
- * setExtraFontPaths / getCellHeight / setScrollOffset）在无声地错位。
+ * setExtraFontPaths / getCellSizePacked / setScrollOffset）在无声地错位。
  */
 class NativeBridgeStaticExportsTest {
 

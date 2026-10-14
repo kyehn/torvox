@@ -43,6 +43,9 @@ impl FontPipeline {
     /// 样式感知字形查询：请求合成 bold/italic 而主字体无匹配面时对 alpha 遮罩做后处理
     /// （bold 加粗、italic 剪切）；若存在匹配面（如 Roboto-Bold.ttf），调用方先用
     /// [FontPipeline::resolve_style_face] 解析出该面并传 [GlyphSynthesis::None]。
+    ///
+    /// 本函数是字形真正出图的唯一收口，故在此登记供出字形的面（供 `font_info`
+    /// 上报「其他被使用字体」）；登记只在返回 `Some` 的两条路径上发生。
     pub(crate) fn glyph_information_from_font_with_synthesis(
         &mut self,
         font_id: fontdb::ID,
@@ -50,6 +53,7 @@ impl FontPipeline {
         synthesis: GlyphSynthesis,
     ) -> Option<GlyphInfo> {
         if let Some(info) = self.lookup_glyph(font_id, glyph_id, synthesis) {
+            self.caches.note_used_face(font_id);
             return Some(info);
         }
 
@@ -246,6 +250,7 @@ impl FontPipeline {
         };
 
         self.caches.glyph_cache.put(key, info.clone());
+        self.caches.note_used_face(font_id);
         // 注意：此处不推进 atlas_generation。新分配只占用空闲区，已有 UV 不变；
         // 代际只在驱逐/重建（真正搬迁 UV）时推进，否则每帧新字形都会误杀增量实例缓存。
         Some(info)

@@ -33,6 +33,7 @@ import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.BUTTON_HEIGHT_DP
+import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -797,11 +798,16 @@ constructor(
             foregroundServiceRunning = false
         }
         try {
-            terminal.emulator.service.TerminalForegroundService.updateSessionCount(context, count)
+            if (!terminal.emulator.service.TerminalForegroundService.updateSessionCount(context, count)) {
+                foregroundServiceRunning = false
+            }
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) {
                 throw exception
             }
+            // 同理：启动没成功就不能让标志停在真，否则后续 startForegroundServiceIfNeeded
+            // 跳过重启，存活会话既无常驻通知也无唤醒锁。
+            foregroundServiceRunning = false
             LogUtil.e("Runtime", "updateSessionCount failed", exception)
         }
     }
@@ -2069,8 +2075,9 @@ constructor(
      */
     private fun refreshCellMetricsFrom(bridge: Bridge): Boolean {
         val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
-        val newCellWidth = bridge.getCellWidth() * spToPxScale
-        val newCellHeight = bridge.getCellHeight() * spToPxScale
+        val (cellWidthSp, cellHeightSp) = bridge.cellSize()
+        val newCellWidth = cellWidthSp * spToPxScale
+        val newCellHeight = cellHeightSp * spToPxScale
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
         // 单元格度量是输入法跟随平移量的输入（`computeContentBottomPx` 按行号×行高
@@ -2374,7 +2381,7 @@ constructor(
                     sessions[finalSessionId] = entry
                     setActiveSessionId(finalSessionId)
                     bridge.onPtyWrite = {
-                        // 输入写入唤醒：每次 PTY 写入（经 processKeyEvent/writeKey 的硬件按键、
+                        // 输入写入唤醒：每次 PTY 写入（经 processKeyEvent 的硬件按键、
                         // IME sendKeyEvent 退格、鼠标）都必须离开空闲驻留。
                         // 空闲 >5s 后循环驻留在 500ms 闭锁上且 vsync 泵已停
                         // ——没有此唤醒，退格的 shell 回显要等满整个 500ms 空闲闭锁节拍
@@ -3291,7 +3298,8 @@ constructor(
         // 向每个会话广播会让单次窗口焦点变化执行 N 次同步 JNI RPC。
         val entry = sessions[activeSessionId] ?: return
         val bridge = entry.bridge
-        // 不在主线程做：原生 focus_event 先经 VT 线程做 1004 模式查询（最长 50ms）
+        // 不在主线程做：原生 focus_event 先经 VT 线程做 1004 模式查询（有界等待，
+        // 上限为 VT 空闲 tick 的四倍，见原生 `FOCUS_MODE_QUERY_TIMEOUT_MS`）
         // 再写 PTY，两者都在会话锁内。此前在 UI 线程同步调用，VT 线程一旦卡住
         // （大输出、GC）每次窗口焦点变化都会把主线程堵满 50ms——正是掉帧的形状。
         // 焦点顺序由单线程执行器保持，与键盘事件进入 PTY 的顺序一致（xterm 语义：
@@ -3832,12 +3840,43 @@ constructor(
      * 该标志必须在 Surface 恢复路径（TerminalSurface.surfaceCreated）上清除
      * ——没有别处会做这件事：只要它保持置位，render_frame 就以 Ok() 短路，
      * 恢复后的会话会渲染出纯黑帧，而渲染线程看起来完全健康（无错误、无重启）。
+     *
+     * 生产代码 MUST NOT 直接调用本函数置位或清除：暂停有多个来源（设置页、交换链
+     * 与输入法网格两个防抖、切后台），而标志是**非计数**单一布尔，直接写会让先结束
+     * 的那一个把别人还在等的暂停放掉。置位/清除一律经 [acquireRenderPause] 与
+     * [releaseRenderPause] 记账；只有「刚拿到可用 Surface、必须立刻出一帧」的入口
+     * 才可直接清除。
      */
     fun setRenderPaused(paused: Boolean) {
         for (entry in sessions.values) {
             entry.bridge.setRenderPaused(paused)
         }
     }
+
+    /**
+     * 渲染暂停的单一记账：共享给设置页、交换链防抖与输入法网格防抖三个来源。
+     *
+     * 此前只有 [terminal.emulator.ui.TerminalSurface] 持有一本账，而设置页那条
+     * 暂停直接写全局布尔：关设置页时的那次 `setRenderPaused(false)` 会把切后台的
+     * 暂停一并顶掉（在已死的 BufferQueue 上出帧 → 永久黑屏）。收进运行期后三个来源
+     * 共用一本账，先结束的那个不再能放开别人还在等的那一次。
+     */
+    private val renderPauseLedger = RenderPauseLedger { paused -> setRenderPaused(paused) }
+
+    /**
+     * 账本本身：给 [terminal.emulator.ui.TerminalSurface] 的两个防抖共用。
+     *
+     * 只暴露领/还与账本读取，MUST NOT 让调用方整本清空——[RenderPauseLedger.reset]
+     * 会连带作废别的来源的持有。
+     */
+    internal val renderPauseLedgerHandle: RenderPauseLedger
+        get() = renderPauseLedger
+
+    /** 领一次渲染暂停，返回本次持有的凭证；置位时同步原生标志。 */
+    fun acquireRenderPause(): Long = renderPauseLedger.acquire()
+
+    /** 归还 [acquireRenderPause] 领到的那一次。 */
+    fun releaseRenderPause(token: Long) = renderPauseLedger.release(token)
 
     fun releaseAllGpuSurfaces() {
         // Surface 销毁：干净地暂停渲染线程，而不是把它们标记为死亡。

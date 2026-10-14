@@ -399,3 +399,32 @@ fn absent_unshifted_codepoint_never_carries_over_from_the_previous_key() {
         "kitty 协议下不得上报上一个按键的码位"
     );
 }
+
+/// DECCKM 的置位与复位都必须在编码输出上可见，且方向相反。
+///
+/// 这条是 `VtCorrectnessInstrumentedTest.cursorKeyModeSwitchesViaDecPrivateMode`
+/// 的宿主侧锚点：真机用例断言同一条生产编码路径（`encodeKeyEvent` 导出）。此前该
+/// 用例靠一个只被测试调用的 `getMode` 导出观察模式标志，那个导出没有生产调用方，
+/// 已删除；此处与它各据一头——宿主持编码器本身，真机持 JNI 接线。
+#[test]
+fn cursor_key_mode_round_trips_through_the_encoder() {
+    let mut terminal = terminal();
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
+        b"\x1b[A"
+    );
+
+    set_dec_mode(&mut terminal, b"1");
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
+        b"\x1bOA",
+        "DECCKM 置位后方向键须换成 SS3 应用光标形式"
+    );
+
+    reset_dec_mode(&mut terminal, b"1");
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
+        b"\x1b[A",
+        "DECCKM 复位后方向键须回到 CSI 形式"
+    );
+}

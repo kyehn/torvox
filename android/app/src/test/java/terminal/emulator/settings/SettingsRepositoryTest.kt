@@ -78,7 +78,7 @@ class SettingsRepositoryTest {
     fun `bootstrap url round-trips`() = runTest {
         repository.bootstrapUrl.test {
             assertEquals("", awaitItem())
-            repository.setBootstrapUrl("https://packages.termux.dev/apt/termux-main/bootstrap.zip")
+            repository.recordBootstrapUrlEdit("https://packages.termux.dev/apt/termux-main/bootstrap.zip")
             assertEquals("https://packages.termux.dev/apt/termux-main/bootstrap.zip", awaitItem())
         }
     }

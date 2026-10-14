@@ -124,6 +124,7 @@
     <string name="font_info_cjk_none">CJK 后备：无</string>
     <string name="font_info_cjk_skipped">CJK 后备已跳过（主字体支持 CJK）</string>
     <string name="font_info_size_sp">字体大小：%1$s SP（约 %2$s px）</string>
+    <string name="font_info_other_families">其他字体：%1$s</string>
     <string name="home_key">Home</string>
     <string name="no_font_loaded">未加载字体</string>
     <string name="open_session_drawer">打开会话抽屉</string>

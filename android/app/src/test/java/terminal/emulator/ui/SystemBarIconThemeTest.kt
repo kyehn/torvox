@@ -6,7 +6,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import terminal.emulator.ui.theme.TerminalTheme
-import terminal.emulator.ui.theme.ThemeRepository
 
 /**
  * 系统栏图标明暗必须跟随**终端主题背景像素**，而不是系统深浅色或软件主题开关
@@ -17,16 +16,11 @@ import terminal.emulator.ui.theme.ThemeRepository
  */
 class SystemBarIconThemeTest {
 
-    private fun fakeTheme(themeName: String, background: Color): TerminalTheme {
-        val packed =
-            byteArrayOf(0) +
-                byteArrayOf(
-                    background.redByte(),
-                    background.greenByte(),
-                    background.blueByte(),
-                ) + ByteArray(57) { 0x01 }
-        return ThemeRepository.themeFromPacked(themeName, packed)
-    }
+    private fun fakeTheme(themeName: String, background: Color): TerminalTheme = TerminalTheme(
+        themeName,
+        byteArrayOf(background.redByte(), background.greenByte(), background.blueByte()) +
+            ByteArray(51) { 0x01 },
+    )
 
     private fun Color.redByte(): Byte = (this.red * 255f + 0.5f).toInt().toByte()
 

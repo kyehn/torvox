@@ -89,50 +89,66 @@ pub trait Pty: Send + Sync {
     /// 读取而无需任何 `unsafe` 块。
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
     fn set_nonblocking(&self) -> Result<(), PtyError>;
-    fn spawn(
-        shell: &str,
-        rows: u16,
-        cols: u16,
-        env: &ShellEnv,
-        cwd: Option<&Path>,
-    ) -> Result<Box<dyn Pty>, PtyError>
-    where
-        Self: Sized;
-
     /// 写入全部字节，主端满时最多等 `drain_timeout`。
+    ///
+    /// 返回 `(已写出的字节数, 结果)`：出错时也带上已写出的长度，调用方据此只把
+    /// **未写出**的部分退回队列——否则「部分写出后超时」会让已发出的前缀在下次重试时
+    /// 再发一遍，子应用于是收到两条应答。
+    ///
+    /// [`crate::terminal::session::PtyMaster::write_with_timeout`] 丢掉该计数（用户输入
+    /// 不容忍重发、也不重试），而 VT 应答的续写队列要用它。
+    ///
+    /// `refresh_budget_on_progress` 为假时 `drain_timeout` 是**总**预算而非每次部分写
+    /// 都重新计的续额：逐帧回写 VT 应答全程持会话锁，给它续命等于取消封顶。
     ///
     /// 超时时长由调用方给：用户输入经单线程发送器写出（可以等满用户输入的排空上限
     /// 5s，等的是子进程消费），而渲染线程收割的 VT 应答（DECRPM/DSR/DA）只有几十
     /// 字节，却会连带冻结按帧取会话锁的渲染与看门狗——故那条路径给一个帧级短期限
     /// （见 `WRITE_BACK_TIMEOUT`）。
-    fn write_all(&self, mut buf: &[u8], drain_timeout: std::time::Duration) -> io::Result<()> {
+    fn write_all(
+        &self,
+        mut buf: &[u8],
+        drain_timeout: std::time::Duration,
+        refresh_budget_on_progress: bool,
+    ) -> (usize, io::Result<()>) {
+        let total = buf.len();
+        let mut written = 0usize;
         let mut deadline = std::time::Instant::now() + drain_timeout;
         while !buf.is_empty() {
             match self.write(buf) {
                 Ok(0) => {
                     // 非阻塞主端只会以 EAGAIN 失败、绝不会返回 0，但测试替身或异常后端可能：
                     // 在 0 上死循环比一次虚假的 WouldBlock 更糟。
-                    return Err(io::Error::from(io::ErrorKind::WouldBlock));
+                    return (written, Err(io::Error::from(io::ErrorKind::WouldBlock)));
                 }
                 Ok(bytes_written) => {
                     buf = &buf[bytes_written..];
-                    // 已推进：重新给子进程整个宽限期，慢速消费者不被累计等待误伤。
-                    deadline = std::time::Instant::now() + drain_timeout;
+                    written += bytes_written;
+                    // 已推进：默认重新给子进程整个宽限期，慢速消费者不被累计等待
+                    // 误伤。逐帧回写 VT 应答的那条路 MUST NOT 续命——调用方给的是
+                    // 一个绝对墙钟预算（每帧至多 WRITE_BACK_TIMEOUT），在每次部分写
+                    // 后重置等于给「每个期限前吃一口」的消费者开了无上限的窗口，
+                    // 渲染与看门狗仍会被按住。
+                    if refresh_budget_on_progress {
+                        deadline = std::time::Instant::now() + drain_timeout;
+                    }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     // PTY 输入缓冲已满。**绝不丢弃剩余字节**：丢弃会让粘贴被静默截断
                     // （子进程执行半条命令），也会把 VT 应答截断在转义序列中间，
                     // 使子应用永久等待一个永远不完整的回答。等子进程消费即可。
-                    wait_writable(self.master_fd(), deadline)?;
+                    if let Err(error) = wait_writable(self.master_fd(), deadline) {
+                        return (written, Err(error));
+                    }
                 }
                 // EINTR 不是失败：信号打断了 write。resize 的 SIGWINCH 与子进程退出
                 // 的 SIGCHLD 都走这条，于是一次击键会被报成「写入失败、已丢弃」，
                 // 而字节其实从未送出。直接重试，且**不动**期限——信号不算等待。
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error),
+                Err(error) => return (written, Err(error)),
             }
         }
-        Ok(())
+        (total, Ok(()))
     }
 }
 
@@ -662,17 +678,6 @@ impl Pty for PtyPair {
     fn set_nonblocking(&self) -> Result<(), PtyError> {
         PtyPair::set_nonblocking(self)
     }
-
-    fn spawn(
-        shell: &str,
-        rows: u16,
-        cols: u16,
-        env: &ShellEnv,
-        cwd: Option<&Path>,
-    ) -> Result<Box<dyn Pty>, PtyError> {
-        PtyPair::spawn(shell, rows, cols, env, cwd)
-            .map(|pty_pair| Box::new(pty_pair) as Box<dyn Pty>)
-    }
 }
 
 impl Drop for PtyPair {
@@ -1002,7 +1007,9 @@ mod tests {
         let (mut pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         pty.interrupt_next_writes(1);
 
-        Pty::write_all(&pty, b"hello", WRITE_DRAIN_TIMEOUT).expect("EINTR 后必须重试而不是报错");
+        Pty::write_all(&pty, b"hello", WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("EINTR 后必须重试而不是报错");
 
         assert_eq!(handle.written(), b"hello", "字节必须全部送出，一个都不能少");
     }
@@ -1020,7 +1027,9 @@ mod tests {
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.set_nonblocking().expect("set_nonblocking failed");
         let script = format!("sleep 0.2; cat > {}\n", capture.display());
-        Pty::write_all(&pty, script.as_bytes(), WRITE_DRAIN_TIMEOUT).expect("write failed");
+        Pty::write_all(&pty, script.as_bytes(), WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("write failed");
 
         // 总量远超 PTY 输入缓冲（~4KB），中途必然 EAGAIN；逐行短行避开内核
         // 规范模式 4095 字符的行长上限。
@@ -1033,7 +1042,8 @@ mod tests {
         .collect::<Vec<u8>>();
         assert!(payload.len() > PTY_INPUT_BUFFER_BYTES);
 
-        Pty::write_all(&pty, &payload, WRITE_DRAIN_TIMEOUT)
+        Pty::write_all(&pty, &payload, WRITE_DRAIN_TIMEOUT, true)
+            .1
             .expect("write_all 不得因缓冲满而丢弃字节");
 
         let deadline = std::time::Instant::now() + Duration::from_secs(PTY_WRITE_TEST_DRAIN_SECS);
@@ -1369,7 +1379,9 @@ mod tests {
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.set_nonblocking().expect("set_nonblocking failed");
 
-        Pty::write_all(&pty, b"echo hello_vt\n", WRITE_DRAIN_TIMEOUT).expect("write failed");
+        Pty::write_all(&pty, b"echo hello_vt\n", WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("write failed");
 
         let output = read_until(&pty, b"hello_vt");
         assert!(
@@ -1516,7 +1528,9 @@ mod tests {
 
         let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
         pty.set_nonblocking().expect("set_nonblocking failed");
-        Pty::write_all(&pty, b"pwd\n", WRITE_DRAIN_TIMEOUT).expect("write failed");
+        Pty::write_all(&pty, b"pwd\n", WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("write failed");
 
         let output = read_until(&pty, temp.to_string_lossy().as_bytes());
         std::fs::remove_dir_all(&temp).ok();
@@ -1544,7 +1558,9 @@ mod tests {
 
         let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
         pty.set_nonblocking().expect("set_nonblocking failed");
-        Pty::write_all(&pty, b"echo \"ENV-is:$ENV\"\n", WRITE_DRAIN_TIMEOUT).expect("write failed");
+        Pty::write_all(&pty, b"echo \"ENV-is:$ENV\"\n", WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("write failed");
 
         let needle = format!("ENV-is:{marker}");
         let output = read_until(&pty, needle.as_bytes());
@@ -1600,8 +1616,12 @@ mod tests {
             .expect("spawn must succeed in test env");
         pty.set_nonblocking().expect("set_nonblocking failed");
 
-        Pty::write_all(&pty, b"echo a\n", WRITE_DRAIN_TIMEOUT).expect("first write must succeed");
-        Pty::write_all(&pty, b"echo b\n", WRITE_DRAIN_TIMEOUT).expect("second write must succeed");
+        Pty::write_all(&pty, b"echo a\n", WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("first write must succeed");
+        Pty::write_all(&pty, b"echo b\n", WRITE_DRAIN_TIMEOUT, true)
+            .1
+            .expect("second write must succeed");
 
         let mut buf = [0u8; TEST_READ_BUF_SIZE];
         let mut output = Vec::new();

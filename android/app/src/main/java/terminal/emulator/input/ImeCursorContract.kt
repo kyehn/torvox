@@ -8,10 +8,11 @@ package terminal.emulator.input
  * 生命周期的一层状态机，抽出后可在纯 JVM 单测里覆盖，不必拉起 Surface
  * 走完整触摸与渲染链路。
  *
- * 组字光标锚点回报（`requestCursorUpdates`）刻意不在此：其投递面
- * `InputConnection.updateCursorAnchorInfo` 是框架 `@hide` 方法，
- * compileSdk 37 的公共 stub 里不存在（仅见于 `InputMethodManager`
- * 等 IME 侧类），故不做无法编译的假实现。
+ * 组字光标锚点回报的准入状态 ([CursorUpdateMonitor]) 也在此：投递面是
+ * `InputMethodManager.updateCursorAnchorInfo(View, CursorAnchorInfo)`——公开 API，
+ * 其文档职责即「回报文本插入点与组字字符的位置变化」。`InputConnection` 上同名
+ * 的 `updateCursorAnchorInfo` 是 `@hide`，但那条路径只是同一个 binder 调用，
+ * 经 `InputMethodManager` 走完全等价，故锚点回报可实现。
  *
  * 下溢钳位到 0 而非变负：输入法给出多余的 `endBatchEdit` 时，
  * 负深度会让随后一次 `begin` 仍停留在「非批量」状态，反而错过后续整段编辑。
@@ -69,5 +70,32 @@ class SelectionMover(private val maxMagnitude: Int) {
     /** 与实际组字基线重新对齐，使下一次折算以该位置为原点。 */
     fun resetTo(position: Int) {
         lastPosition = position
+    }
+}
+
+/**
+ * 输入法请求的光标位置更新监视（`InputConnection.requestCursorUpdates`）。
+ *
+ * 为何必须是显式状态而不是「每次组字变化都回报」：回报是有成本的 IPC，而输入法
+ * 只在需要把候选窗口贴到真实光标时才请求它。未请求时回报是纯浪费；请求被关闭
+ * （mode 清掉 MONITOR 位）后继续回报，则把一个已经不需要的通道留着。
+ */
+class CursorUpdateMonitor {
+    /** 输入法最近一次请求的监视模式；0 表示未请求。 */
+    var requestedMode: Int = 0
+        private set
+
+    /** 是否正处于「光标/锚点变化即回报」的监视中。 */
+    val isMonitoring: Boolean
+        get() = (requestedMode and MONITOR) != 0
+
+    /** 记录一次请求。重复请求是常态（输入法随焦点与设置变化重发）。 */
+    fun update(mode: Int) {
+        requestedMode = mode
+    }
+
+    companion object {
+        /** `CURSOR_UPDATE_MONITOR`：光标或锚点变化即回报。 */
+        const val MONITOR = android.view.inputmethod.InputConnection.CURSOR_UPDATE_MONITOR
     }
 }
