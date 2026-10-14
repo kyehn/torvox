@@ -142,11 +142,16 @@ class InputBatchBuffer(
             }
         }
         // 摘掉已投递的回调：close 之后它们仍会在最长一个回退超时（或下一帧）后触发，
-        // 把本缓冲连同其 sink 闭包一起钉住一个超时周期。触发本身无害（drain 已空），
-        // 但等待期间视图链不可回收。
-        fallbackHandler.removeCallbacks(fallbackFlush)
-        if (useChoreographer) {
-            frameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
+        // 把本缓冲连同其 sink 闭包一起钉住一个超时周期。摘除与 `scheduled` 的复位
+        // MUST 同批：只摘回调而留下「已排程」的标记，close 后落进来的字节就再也
+        // 排不上任何回调——既不发送也不记日志，输入丢失变成无声的（回退路径正是
+        // 经本处 `RejectedExecutionException` 记日志的）。
+        synchronized(lock) {
+            fallbackHandler.removeCallbacks(fallbackFlush)
+            if (useChoreographer) {
+                frameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
+            }
+            scheduled = false
         }
         sender.shutdown()
     }

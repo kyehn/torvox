@@ -19,22 +19,36 @@ import androidx.compose.ui.platform.LocalContext
  * 设置页只用这里解出的背景、前景与十六色。
  */
 data class TerminalTheme(val name: String, val background: Color, val foreground: Color, val ansi: List<Color>) {
-    constructor(name: String, colors: ByteArray) : this(
-        name = name,
-        background = colors.colorAt(0),
-        foreground = colors.colorAt(1),
-        ansi = List(ANSI_COLOR_COUNT) { index -> colors.colorAt(2 + index) },
-    )
-
     init {
         require(ansi.size == ANSI_COLOR_COUNT) { "Theme must have exactly $ANSI_COLOR_COUNT ANSI colors" }
     }
 
-    private companion object {
-        const val ANSI_COLOR_COUNT = 16
-        const val COLOR_BYTES = 3
+    companion object {
+        private const val ANSI_COLOR_COUNT = 16
+        private const val COLOR_BYTES = 3
 
-        fun ByteArray.colorAt(index: Int): Color {
+        /** 目录条目里颜色的字节数：背景、前景与十六色。 */
+        const val PACKED_COLOR_BYTES = (2 + ANSI_COLOR_COUNT) * COLOR_BYTES
+
+        /**
+         * 由目录条目里那段颜色字节构造主题。
+         *
+         * 长度不符即抛错：短数组会越界读出无意义颜色，长数组则是布局已变——
+         * 两种都要当场出声，MUST NOT 截断或补默认色。
+         */
+        fun fromPackedColors(name: String, packedColors: ByteArray): TerminalTheme {
+            require(packedColors.size == PACKED_COLOR_BYTES) {
+                "Theme colours must be $PACKED_COLOR_BYTES bytes, got ${packedColors.size}"
+            }
+            return TerminalTheme(
+                name = name,
+                background = packedColors.colorAt(0),
+                foreground = packedColors.colorAt(1),
+                ansi = List(ANSI_COLOR_COUNT) { index -> packedColors.colorAt(2 + index) },
+            )
+        }
+
+        private fun ByteArray.colorAt(index: Int): Color {
             val base = index * COLOR_BYTES
             return Color(
                 0xFF000000L or

@@ -186,15 +186,22 @@ fun TerminalScreen(
                 // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
                 // 故使用从 AndroidView 工厂捕获的 surfaceRef。
                 surfaceRef.value?.finishComposing()
-                // 取消在途的 surface 重建重试：它会 setRenderPaused(false) +
+                // 取消在途的 surface 重建重试：它会恢复渲染 +
                 // resumeRendering()，跨过本次暂停就会在已被系统回收的 BufferQueue
                 // 上继续出帧（ERROR_SURFACE_LOST_KHR → 返回后永久黑屏）。
                 surfaceRef.value?.cancelSurfaceRecreate()
-                // 后台时停止渲染线程：切应用不会调用 surfaceDestroyed（Surface 被保留），
-                // 不做此步线程会继续在已被系统回收的 BufferQueue 上取帧
-                // → ERROR_SURFACE_LOST_KHR → 返回后永久黑屏（模拟器已验证）。
-                viewModel.runtime.setRenderPaused(true)
-                viewModel.runtime.pauseRendering()
+                // 切后台：领一次渲染暂停并停止渲染线程。切应用不会调用
+                // surfaceDestroyed（Surface 被保留），不做此步线程会继续在已被
+                // 系统回收的 BufferQueue 上取帧 → ERROR_SURFACE_LOST_KHR
+                // → 返回后永久黑屏（模拟器已验证）。直写全局布尔则会被随后的前台
+                // 恢复（或关设置页）把别的来源仍在等的暂停一并清掉，故一律经账本。
+                //
+                // 顺序 MUST 是「先领新的、再取消旧的」：反之会让持有者数经过 0，
+                // 在一个即将被系统回收的窗口上多出一对暂停/恢复。
+                viewModel.runtime.pauseRenderingForBackground()
+                // 在途的两个尺寸防抖同样必须取消：后台时 SurfaceView 保留窗口，
+                // 它们却仍会到期执行并恢复渲染，把刚装上的后台暂停撤掉。
+                surfaceRef.value?.cancelResizeDebounces()
                 val inputMethodManager =
                     context.getSystemService(
                         android.content.Context.INPUT_METHOD_SERVICE,
@@ -222,7 +229,11 @@ fun TerminalScreen(
                         viewModel.currentSurface = holderSurface
                         bridge.releaseGpuSurface()
                         bridge.attachSurface(holderSurface, surface.width, surface.height)
-                        viewModel.runtime.setRenderPaused(false)
+                        // 清**全部**生命周期持有（Surface 销毁 + 切后台），不止切后台
+                        // 那一条：`surfaceCreated` 早期返回（0 尺寸 / Surface 当时无效）
+                        // 时不会走到强制出帧，本次前台恢复正是替代它的那条路径，
+                        // 漏清就留下一枚永不归还的持有，渲染就此永久暂停。
+                        viewModel.runtime.clearLifecycleRenderPause()
                         viewModel.runtime.resumeRendering()
                         viewModel.runtime.forceRender()
                     } else {
@@ -238,7 +249,13 @@ fun TerminalScreen(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            // 组合在此期间被销毁而 ON_RESUME 未走到（Surface 始终未就绪）时，
+            // 切后台那次持有就没人还了——账本里留着它，此后所有领用都不再
+            // 发出暂停。凭证在运行期（不随组合走），故此处显式归还。
+            viewModel.runtime.resumeRenderingFromBackground()
+        }
     }
 
     BackHandler(enabled = drawerState.isOpen) {

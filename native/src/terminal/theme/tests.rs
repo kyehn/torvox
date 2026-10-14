@@ -283,18 +283,12 @@ fn catalog_packs_every_theme_in_source_order() {
         assert_eq!(entry.name, theme.name);
         assert_eq!(
             entry.flags & 1 != 0,
-            theme.dark,
-            "{} 的深底标记与真源不符",
-            theme.name
-        );
-        assert_eq!(
-            entry.flags & 2 != 0,
             theme.name == default_dark_name,
             "{} 的默认深色标记与真源不符",
             theme.name
         );
         assert_eq!(
-            entry.flags & 4 != 0,
+            entry.flags & 2 != 0,
             theme.name == default_light_name,
             "{} 的默认浅色标记与真源不符",
             theme.name
@@ -306,12 +300,12 @@ fn catalog_packs_every_theme_in_source_order() {
         }
     }
     assert_eq!(
-        entries.iter().filter(|entry| entry.flags & 2 != 0).count(),
+        entries.iter().filter(|entry| entry.flags & 1 != 0).count(),
         1,
         "默认深色主题须恰有一个"
     );
     assert_eq!(
-        entries.iter().filter(|entry| entry.flags & 4 != 0).count(),
+        entries.iter().filter(|entry| entry.flags & 2 != 0).count(),
         1,
         "默认浅色主题须恰有一个"
     );

@@ -3830,7 +3830,34 @@ constructor(
         // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
         // 并渲染出黑帧。整条记录（含尺寸）一并清空，否则重算网格会沿用已销毁尺寸。
         pendingSurface = null
-        setRenderPaused(true)
+        // 经账本领暂停而非直写全局布尔：直写的暂停不被任何持有者计数，
+        // 别的来源归还时（视图 detach 归还防抖）会把它一并清掉——
+        // 而渲染线程此时可能仍在已被系统回收的 BufferQueue 上出帧。
+        // 顺序 MUST 是「先领新的、再归还旧的」：反之会让持有者数经过 0，
+        // 多出一对暂停/恢复回调（同 TerminalSurface 两个防抖的替换路径）。
+        val previous = surfaceDestroyedPauseToken
+        surfaceDestroyedPauseToken = renderPauseLedger.acquire()
+        previous?.let { renderPauseLedger.release(it) }
+    }
+
+    /** Surface 销毁那次暂停的凭证。 */
+    private var surfaceDestroyedPauseToken: Long? = null
+
+    /** 切后台那次暂停的凭证；重复调用先归还前一次，故不会累计持有。 */
+    private var backgroundPauseToken: Long? = null
+
+    /** 切后台：领一次渲染暂停并停止渲染线程。 */
+    fun pauseRenderingForBackground() {
+        val previous = backgroundPauseToken
+        backgroundPauseToken = renderPauseLedger.acquire()
+        previous?.let { renderPauseLedger.release(it) }
+        pauseRendering()
+    }
+
+    /** 切前台：归还切后台那次暂停。 */
+    fun resumeRenderingFromBackground() {
+        backgroundPauseToken?.let { renderPauseLedger.release(it) }
+        backgroundPauseToken = null
     }
 
     /**
@@ -3841,42 +3868,45 @@ constructor(
      * ——没有别处会做这件事：只要它保持置位，render_frame 就以 Ok() 短路，
      * 恢复后的会话会渲染出纯黑帧，而渲染线程看起来完全健康（无错误、无重启）。
      *
-     * 生产代码 MUST NOT 直接调用本函数置位或清除：暂停有多个来源（设置页、交换链
-     * 与输入法网格两个防抖、切后台），而标志是**非计数**单一布尔，直接写会让先结束
-     * 的那一个把别人还在等的暂停放掉。置位/清除一律经 [acquireRenderPause] 与
-     * [releaseRenderPause] 记账；只有「刚拿到可用 Surface、必须立刻出一帧」的入口
-     * 才可直接清除。
+     * 生产代码 MUST NOT 直接调用本函数：暂停有五个来源（设置页、切后台、
+     * Surface 销毁、交换链与输入法网格两个防抖），而标志是**非计数**单一布尔，
+     * 直接写会让先结束的那一个把别人还在等的暂停放掉。一律经
+     * [acquireRenderPause] 与 [releaseRenderPause] 记账。
      */
-    fun setRenderPaused(paused: Boolean) {
+    private fun setRenderPaused(paused: Boolean) {
         for (entry in sessions.values) {
             entry.bridge.setRenderPaused(paused)
         }
     }
 
     /**
-     * 渲染暂停的单一记账：共享给设置页、交换链防抖与输入法网格防抖三个来源。
+     * 渲染暂停的单一记账：共享给设置页、切后台、Surface 销毁与本仓两个防抖。
      *
-     * 此前只有 [terminal.emulator.ui.TerminalSurface] 持有一本账，而设置页那条
-     * 暂停直接写全局布尔：关设置页时的那次 `setRenderPaused(false)` 会把切后台的
-     * 暂停一并顶掉（在已死的 BufferQueue 上出帧 → 永久黑屏）。收进运行期后三个来源
-     * 共用一本账，先结束的那个不再能放开别人还在等的那一次。
+     * 此前只有 [terminal.emulator.ui.TerminalSurface] 持有一本账，而设置页与切后台
+     * 各自直接写全局布尔：先结束的那个会把另一个仍在等的暂停顶掉（在已死的
+     * BufferQueue 上出帧 → 永久黑屏）。收进运行期后所有来源共用一本账。
      */
     private val renderPauseLedger = RenderPauseLedger { paused -> setRenderPaused(paused) }
-
-    /**
-     * 账本本身：给 [terminal.emulator.ui.TerminalSurface] 的两个防抖共用。
-     *
-     * 只暴露领/还与账本读取，MUST NOT 让调用方整本清空——[RenderPauseLedger.reset]
-     * 会连带作废别的来源的持有。
-     */
-    internal val renderPauseLedgerHandle: RenderPauseLedger
-        get() = renderPauseLedger
 
     /** 领一次渲染暂停，返回本次持有的凭证；置位时同步原生标志。 */
     fun acquireRenderPause(): Long = renderPauseLedger.acquire()
 
     /** 归还 [acquireRenderPause] 领到的那一次。 */
     fun releaseRenderPause(token: Long) = renderPauseLedger.release(token)
+
+    /**
+     * 作废**生命周期**持有（Surface 销毁、切后台）并按计数决定是否恢复渲染。
+     *
+     * 只给「刚拿到可用 Surface、必须立刻出一帧」的入口。刻意不清设置页那条：
+     * 那是界面层的独立意图，终端视图在设置页覆盖层之下仍会收到尺寸变化
+     * （设置页自己的键盘），整本清账会把「进入设置时暂停渲染」废掉。
+     */
+    fun clearLifecycleRenderPause() {
+        surfaceDestroyedPauseToken?.let { renderPauseLedger.release(it) }
+        surfaceDestroyedPauseToken = null
+        backgroundPauseToken?.let { renderPauseLedger.release(it) }
+        backgroundPauseToken = null
+    }
 
     fun releaseAllGpuSurfaces() {
         // Surface 销毁：干净地暂停渲染线程，而不是把它们标记为死亡。

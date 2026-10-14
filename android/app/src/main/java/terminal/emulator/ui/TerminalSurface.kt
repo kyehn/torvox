@@ -585,10 +585,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 归还（见 [RenderPauseLedger.release]）；`onSizeChanged` 与
             // `surfaceChanged` 常在同一帧用同一尺寸各调一次本方法，正是这条替换路径的
             // 常见触发。
-            val token = pauseLedger.acquire()
+            val token = viewModel?.runtime?.acquireRenderPause()
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize = null
-            pendingSurfaceResizeToken?.let { pauseLedger.release(it) }
+            pendingSurfaceResizeToken?.let { viewModel?.runtime?.releaseRenderPause(it) }
             pendingSurfaceResizeToken = token
             pendingSurfaceResize =
                 Runnable {
@@ -597,8 +597,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
                     // 稳定触发可能恰好落在已配置的尺寸上而提前返回、来不及执行自身的
                     // 恢复——故始终在此归还。
-                    pendingSurfaceResizeToken?.let { pauseLedger.release(it) }
-                    pendingSurfaceResizeToken = null
+                    //
+                    // 归还的是**本 runnable 领到的那一枚**，且要确认它仍是当前在途的
+                    // 那一枚：视图 detach 时 `removeCallbacks` 够不到 attach 期间投递的
+                    // runnable（`mAttachInfo` 已置空，改投 `mRunQueue`），同一实例重新
+                    // attach 后它仍会执行——若归还是无条件的，它会去还掉新防抖刚领的那枚。
+                    if (token != null && pendingSurfaceResizeToken == token) {
+                        pendingSurfaceResizeToken = null
+                        viewModel?.runtime?.releaseRenderPause(token)
+                    }
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
@@ -735,9 +742,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      */
                     override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean {
                         cursorMonitor.update(cursorUpdateMode)
-                        // 立即补报一次：输入法常在已开监视时改模式（加 FILTER 位），
-                        // 不补报则它要等下一次组字变化才拿到位置。
-                        reportComposingCursorAnchor()
+                        reportComposingCursorAnchor(immediate = true)
                         return true
                     }
 
@@ -747,8 +752,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      * 准入与落格见 [composingCursorMarker]；坐标取终端光标格——
                      * 组字字节正写进那一格。无组字或输入法未请求监视时不回报，
                      * 否则候选窗口会被贴到不属于它的格子上。
+                     *
+                     * @param immediate 跳过限频。输入法刚改监视模式时要立刻拿到位置，
+                     *   等下一次组字变化会让候选窗口先落在旧格上。
                      */
-                    private fun reportComposingCursorAnchor() {
+                    private fun reportComposingCursorAnchor(immediate: Boolean = false) {
+                        // 准入判据 MUST 先于查询：视口坐标是一次同步 VT 查询，
+                        // VT 忙时上限 QUERY_TIMEOUT_MS（500ms）。组字逐键发生，
+                        // 未请求监视或无组字时先判掉，主线程上就不必付这份等待。
+                        if (!cursorMonitor.isMonitoring || !composing.isComposing) return
+                        if (!immediate) {
+                            val now = System.nanoTime()
+                            if (now - lastCursorAnchorQueryNanos < CURSOR_ANCHOR_QUERY_THROTTLE_NANOS) return
+                        }
                         val runtime = viewModel?.runtime ?: return
                         val packed = runtime.bridge()?.cursorViewportPacked() ?: return
                         if (packed < 0) return
@@ -756,14 +772,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         val cursorCol = (packed and 0xFFFFFFFFL).toInt()
                         val marker =
                             composingCursorMarker(
-                                monitoring = cursorMonitor.isMonitoring,
-                                composing = composing.isComposing,
                                 cursorRow = cursorRow,
                                 cursorCol = cursorCol,
                                 rows = rows,
                                 cellWidth = cellWidth,
                                 cellHeight = cellHeight,
                             ) ?: return
+                        // 时间戳只在**真的产出了锚点**之后推进（同回滚长度查询）：
+                        // `packed < 0` 是查询失败，标记为 null 则是光标落在视口外，
+                        // 两者都不该吃掉限频窗口。
+                        lastCursorAnchorQueryNanos = System.nanoTime()
                         val info =
                             CursorAnchorInfo.Builder()
                                 .setComposingText(0, composing.text)
@@ -857,8 +875,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         if (ctrlActive || altActive) {
                             terminalViewModel.consumeOneShotModifiers()
                         }
-                        // 组字已清：锚点随之失效，准入条件不再满足，不再回报。
-                        reportComposingCursorAnchor()
+                        // 不在此回报锚点：组字刚被清空，锚点的准入条件已不满足，
+                        // 任何一次回报都必然被丢弃。
                         return true
                     }
 
@@ -1506,6 +1524,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val IME_RESIZE_DEBOUNCE_MS = 48L
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
 
+        /** 组字锚点查询限频：与回滚长度同款，锚点位置滞后一窗不影响候选窗口落点。 */
+        private const val CURSOR_ANCHOR_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
+
         // 单次触摸手势转发的滚轮行数上限：无界 repeat 会在主线程逐行同步
         // 等待原生查询（VT 忙时每行最长 500ms），大幅滑动即冻结 UI。
         // 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。
@@ -1612,6 +1633,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     @Volatile private var cachedScrollbackLength: Int = 0
 
     private var lastScrollbackQueryNanos: Long = 0L
+
+    /** 组字光标锚点最后一次查询的时刻，用于给同步 VT 查询限频。 */
+    private var lastCursorAnchorQueryNanos: Long = 0L
 
     var touchEnabled: Boolean = true
         set(value) {
@@ -1764,10 +1788,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 恢复，是正确的。
         //
         // 备用屏下新旧行数交替渲染会被用户看见，故在防抖期间暂停渲染。
-        val token = if (runtime.altScreenActiveFlow.value) pauseLedger.acquire() else null
+        val token = if (runtime.altScreenActiveFlow.value) runtime.acquireRenderPause() else null
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize = null
-        pendingImeGridResizeToken?.let { pauseLedger.release(it) }
+        pendingImeGridResizeToken?.let { runtime.releaseRenderPause(it) }
         pendingImeGridResizeToken = token
         pendingImeGridResize =
             Runnable {
@@ -1775,22 +1799,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 resizeManager.applyGridResize(surfaceWidthPixels, surfaceHeightPixels)
                 // 凭证已陈旧时（视图 detach 后的 `mRunQueue` 延迟派发）ledger 会把它当
                 // 空操作，故这里只清仍属于本次的那一个。
-                token?.let { pauseLedger.release(it) }
+                token?.let { viewModel?.runtime?.releaseRenderPause(it) }
                 if (pendingImeGridResizeToken == token) pendingImeGridResizeToken = null
             }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
     }
 
     /**
-     * 两个防抖（交换链重配、输入法网格重排）共用的渲染暂停记账。
+     * 在途 [pendingSurfaceResize] 的暂停凭证；取消或执行后 MUST 归还并清空。
      *
-     * 账本由运行期持有（[TerminalRuntime.acquireRenderPause]）：设置页那条暂停也走
-     * 同一本账，否则三个来源各自写同一个非计数布尔，先结束的那一个会把别人还在等的
-     * 暂停放掉。不变量见 [RenderPauseLedger]。
+     * 账本由运行期持有（`TerminalRuntime.acquireRenderPause` / `releaseRenderPause`）：
+     * 设置页、切后台、Surface 销毁与本文件的两个防抖共用同一本，否则各写同一个
+     * 非计数布尔，先结束的那一个会把别人还在等的暂停放掉。不变量见
+     * [RenderPauseLedger]。
      */
-    private val pauseLedger: RenderPauseLedger
-        get() = (viewModel?.runtime ?: error("pause ledger needs the runtime")).renderPauseLedgerHandle
-
-    /** 在途 [pendingSurfaceResize] 的暂停凭证；取消或执行后 MUST 归还并清空。 */
     private var pendingSurfaceResizeToken: Long? = null
 
     /** 在途 [pendingImeGridResize] 的暂停凭证（主屏不暂停，故可为空）。 */
@@ -1812,28 +1833,39 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     private fun forceResumeRendering() {
         cancelDebounceHolds()
-        // 无条件出一帧：本函数的所有调用点都刚拿到可用 Surface。直接写运行期而不走
-        // ledger ——ledger 只对自己的持有负责，而这里要覆盖的是别的持有者
-        // （切后台等）留下的全局暂停标志。
-        viewModel?.runtime?.setRenderPaused(false)
+        // 立刻恢复渲染：本函数的所有调用点都刚拿到可用 Surface，故作废生命周期持有
+        // （Surface 销毁、切后台）而不只是自己的——残留持有会让后续领用永远发不出
+        // 暂停。是否真的恢复由账本计数决定（设置页仍在展示时计数非零，仍保持暂停）：
+        // 那是界面层的独立意图，终端视图在设置覆盖层之下仍会收到尺寸变化。
+        viewModel?.runtime?.clearLifecycleRenderPause()
     }
 
     /**
-     * 取消两个在途防抖并归还它们持有的渲染暂停，**不**动全局暂停标志本身。
+     * 取消两个在途防抖并归还其持有的渲染暂停。
      *
-     * 视图 detach 必须走这里而不是 [forceResumeRendering]：`SurfaceView` 的
-     * `dispatchDetachedFromWindow` 先销毁硬件层（投递 `surfaceDestroyed`，据此
-     * `setRenderPaused(true)`）才投递 `onDetachedFromWindow`。全局暂停是**非计数**
-     * 的单一布尔，无条件写 false 等于把刚刚装上的暂停、以及设置页那条暂停一起顶掉，
-     * 渲染线程便对着已死的 `ANativeWindow` 空跑到下一条恢复路径为止。
+     * 切后台必须调它：SurfaceView 在后台保留窗口，`surfaceDestroyed` 不会来，
+     * 而在途防抖仍会到期执行——它经 `applyResizeNormal` 恢复渲染，于是刚装上的
+     * 后台暂停被自己的防抖撤掉，渲染线程转去已在被系统回收的 BufferQueue 上取帧
+     * （ERROR_SURFACE_LOST_KHR → 返回后永久黑屏）。
      */
+    fun cancelResizeDebounces() {
+        cancelDebounceHolds()
+        pendingImeGridResize?.let { removeCallbacks(it) }
+        pendingImeGridResize = null
+    }
+
     private fun cancelDebounceHolds() {
         pendingSurfaceResize?.let { removeCallbacks(it) }
         pendingSurfaceResize = null
+        // 必须归还而不是只置空：清掉字段不等于归还持有，一次漏还即让账本里
+        // 永远留着一次暂停——此后 acquire() 不再发出暂停（旗标已是真，
+        // 布尔幂等），而 release() 也再不会让它归零，所有防抖与设置页的暂停
+        // 就此静默失效。只归还本视图领到的这两个凭证：其余持有（设置页、
+        // 切后台、Surface 销毁）都不属于本视图。
+        pendingSurfaceResizeToken?.let { viewModel?.runtime?.releaseRenderPause(it) }
         pendingSurfaceResizeToken = null
+        pendingImeGridResizeToken?.let { viewModel?.runtime?.releaseRenderPause(it) }
         pendingImeGridResizeToken = null
-        // 不调 ledger 的 reset：上面的显式置空已归还本视图领到的每一次持有，而
-        // reset 会连带清掉设置页那条与本视图无关的暂停。
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
@@ -2681,7 +2713,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 然后解除暂停 + 恢复 + 强制渲染一帧。
      *
      * 重试链必须挂在字段上才能被取消：它每次尝试都会 `forceResumeRendering()`
-     * （内含 `setRenderPaused(false)`）+ `resumeRendering()`，一旦跨越 ON_PAUSE 就会撤销宿主刚请求的暂停，
+     * （内含恢复渲染）+ `resumeRendering()`，一旦跨越 ON_PAUSE 就会撤销宿主刚请求的暂停，
      * 在已被回收的 BufferQueue 上继续渲染。且每次重试都是新 lambda，
      * 即便有字段也要由本函数自己重排。
      */
@@ -3190,11 +3222,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 重新绑定（重建后的）Surface；渲染器据此重建其 wgpu surface。
                 terminalViewModel.runtime.attachSurface(surface, width, height)
                 terminalViewModel.runtime.recomputeGrid()
-                // onSurfaceDestroyed 会在此路径上置 render_paused=true，
-                // 而只有设置界面会清除它，
-                // 故普通的后台/恢复循环会让该标志保持置位，
-                // 使重启的渲染线程输出黑帧（暂停时 render_frame 会短路）。
-                // 在线程重启前清除它。
+                // onSurfaceDestroyed 在此路径上领了一次暂停（渲染标志置位），
+                // 故普通的后台/恢复循环会让该标志保持置位，使重启的渲染线程
+                // 输出黑帧（暂停时 render_frame 会短路）。线程重启前清掉它。
                 forceResumeRendering()
                 terminalViewModel.runtime.resumeRendering()
                 terminalViewModel.runtime.forceRender()
@@ -3370,25 +3400,20 @@ internal fun gridToScreen(
 internal data class InsertionMarker(val horizontal: Float, val top: Float, val baseline: Float, val bottom: Float)
 
 /**
- * 是否回报组字光标锚点，若是则标记矩形落在哪个格子。
+ * 组字光标锚点的标记矩形；光标不在视口内时返回 null（调用方据此不回报）。
  *
- * 准入两条，缺一即 null（调用方据此不回报）：
- * - 输入法正在请求光标监视——没人在等时回报是一条无人读取的 IPC；
- * - 当前有组字——无组字时给一个「光标位置」会让候选窗口贴到不属于它的格子。
+ * 另两条准入（输入法正在请求光标监视、当前有组字）在调用前判定：它们只依赖
+ * 输入法与组字基线，不需要本次的网格坐标，先判掉就省下那次同步 VT 查询。
  *
- * 光标不在视口内时同样不回报：候选窗口会落在屏幕外。取**终端光标格**而非组字
- * 文本自身位置，因为组字字节正写进那一格。
+ * 取**终端光标格**而非组字文本自身位置，因为组字字节正写进那一格。
  */
 internal fun composingCursorMarker(
-    monitoring: Boolean,
-    composing: Boolean,
     cursorRow: Int,
     cursorCol: Int,
     rows: Int,
     cellWidth: Float,
     cellHeight: Float,
 ): InsertionMarker? {
-    if (!monitoring || !composing) return null
     if (cursorRow < 0 || cursorRow >= rows || cursorCol < 0) return null
     val (markerX, markerY) = gridToScreen(cursorRow, cursorCol, 0, cellWidth, cellHeight)
     return InsertionMarker(

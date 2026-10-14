@@ -509,11 +509,13 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 - **THEN** 对应单测（`PollEventTest`、`ParseEventTest`）MUST 同步更新，
   且 MUST NOT 把反序列化失败改写为空值——空值与「真的没有」必须可区分
 
-已按本标准收敛的形状（供对照，勿回流 JSON）：主题（`theme-configuration`：按标识寻址，
-61 字节打包含深底标记与颜色）、字体信息（`getFontInfo` 的 `u32` 标志 + 三个 `f32` +
+已按本标准收敛的形状（供对照，勿回流 JSON）：主题（`theme-configuration`：
+`getThemeCatalog` 一次取回整个目录，`u16` 主题数 + 逐条「标志 + 名称长度 +
+名称 + 54 字节颜色」）、字体信息（`getFontInfo` 的 `u32` 标志 + 三个 `f32` +
 `u16` 名称数 + NUL 分隔 UTF-8 名称，CJK 状态按判别序号传递）、搜索结果
 （`searchSelect` 扁平 `IntArray`，命中总数由 `searchSetNeedle` 返回）、会话列表
-（`listSessions` 扁平 `LongArray`）。
+（`listSessions` 扁平 `LongArray`）、会话标题（`getSessionTitles` 的字符串数组，
+按传入顺序对应）。
 
 ### Requirement: 不采用的上游回调不得留有通道描述
 

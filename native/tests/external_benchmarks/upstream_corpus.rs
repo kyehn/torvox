@@ -114,6 +114,9 @@ impl Replay {
 }
 
 /// 取语料并按生产写入路径（`pty_write` → VT → 快照）回放。
+/// 模式查询期限：与 `GhosttyTerminal` 内建查询同口径。
+const MODE_QUERY_TIMEOUT_MS: u64 = 500;
+
 fn replay(name: &str) -> Replay {
     let bytes = seed_bytes(name);
     let mut terminal = GhosttyTerminal::new(ROWS, COLUMNS, SCROLLBACK).expect("创建终端");
@@ -152,7 +155,10 @@ fn state_walk(name: &str) -> Vec<(bool, bool)> {
             terminal.pty_write(&[byte]);
             terminal.flush();
             (
-                terminal.mode_get(Mode::CURSOR_VISIBLE),
+                terminal.mode_get_with_timeout(
+                    Mode::CURSOR_VISIBLE,
+                    std::time::Duration::from_millis(MODE_QUERY_TIMEOUT_MS),
+                ),
                 terminal.alt_screen_active_atomic(),
             )
         })

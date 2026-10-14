@@ -1,18 +1,17 @@
 package terminal.emulator.ui
 
 /**
- * 防抖期间的渲染暂停**记账**。
+ * 渲染暂停**记账**。
  *
- * 两个防抖（交换链重配、输入法网格重排）各自领一次暂停、到期归还一次；运行期的
- * `setRenderPaused` 是非计数布尔，而两者窗口可能重叠，故须计数。三个不变量：
+ * 各来源（设置页、切后台、Surface 销毁、交换链防抖、输入法网格重排）各自领一次
+ * 暂停、到期归还一次；运行期的 `setRenderPaused` 是非计数布尔，而这些窗口彼此
+ * 可能重叠，故须计数。两个不变量：
  *
  * - 只有归属自己的持有才会归还，且只能归还一次（重复归还会减掉别人的）。
- * - [reset] 之后，任何**陈旧**持有者的归还都是空操作——否则它会去减 reset 之后
- *   新领的那一次，等于提前放开了仍在等稳定尺寸的那个防抖。
  * - 集合从空变为非空时暂停、从非空变为空时恢复。
  *
  * 独立于 [android.view.View] 是为了能在 JVM 单测里跑完整条记账序列——这个记账
- * 出过两次错（被丢弃的防抖不归还、reset 不作废旧持有者），两次都表现为共享
+ * 出过两次错（被丢弃的防抖不归还、归还时动到别人的持有），两次都表现为共享
  * 渲染器被永久暂停即终端全黑，而当时没有任何测试能覆盖到它。
  */
 internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) {
@@ -35,7 +34,7 @@ internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) 
     /**
      * 归还 [acquire] 领到的那一次。
      *
-     * 凭证不在持有集合里就是陈旧的（已被 [reset] 注销，或早就归还过），此时
+     * 凭证不在持有集合里就是陈旧的（早已归还过），此时
      * MUST NOT 改动计数。
      *
      * 被 `removeCallbacks` 丢弃的防抖同样走这里归还：它永不执行，归还也永不自行
@@ -47,23 +46,5 @@ internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) 
     fun release(token: Long) {
         if (!holders.remove(token)) return
         if (holders.isEmpty()) onPauseChanged(false)
-    }
-
-    /**
-     * 作废全部持有，把账清零；持有者非空时恢复渲染。
-     *
-     * 用于「我们等的那件事已经发生，不必再等」的入口（Surface 重建成功、交换链重配
-     * 完成）。这些入口本就必须立刻出一帧，此时继续挂着防抖暂停只会让已就绪的缓冲不
-     * 显示；清空集合让之后到达的陈旧 `release` 自动成为空操作。
-     *
-     * 持有者本就为空时 MUST NOT 回调：本类只对**自己的**持有负责，`setRenderPaused`
-     * 是全局单布尔，切后台（ON_PAUSE）等其他持有者也会写它，无条件写 false 会把
-     * 它们的暂停顶掉。调用方若确需无条件出一帧，直接调运行期的
-     * `setRenderPaused(false)`。
-     */
-    fun reset() {
-        if (holders.isEmpty()) return
-        holders.clear()
-        onPauseChanged(false)
     }
 }
