@@ -3572,24 +3572,37 @@ fn row_cache_invalidated_on_selection_install() {
     terminal_under_test.flush();
     let _ = next_cell_frame(&terminal_under_test);
 
+    // 计数基线清零：stats 是「自上次 take 以来的累计」，不先清零就会混进上面
+    // 那批帧的复用数（与 row_cache_invalidated_on_resize 同一条理由）。
+    let _ = terminal_under_test.take_cache_stats();
+
     // 安装选区：反白被烘焙进 CellData 颜色，缓存行颜色逐行过时。
     terminal_under_test.set_selection((1, 0), (1, 3));
     terminal_under_test.flush();
-    let cells = next_cell_frame(&terminal_under_test);
-    let (reused, _) = terminal_under_test.take_cache_stats();
-
-    let selected = cells
-        .iter()
-        .find(|cell| cell.row == 1 && cell.col == 0)
-        .expect("选区内单元必须存在");
-    let unselected = cells
-        .iter()
-        .find(|cell| cell.row == 2 && cell.col == 0)
-        .expect("选区外单元必须存在");
-    assert_ne!(
-        selected.background, unselected.background,
-        "安装选区后该行 MUST 反白（缓存未失效会使反白帧缺失）"
-    );
+    // 必须轮询到「该行已反白」的那一帧，而不是取安装后的第一帧：通道里可能还压着
+    // 安装之前排队的旧帧（`flush` 逐条命令各推一帧），负载高时它更容易被先取到，
+    // 于是断言落在旧帧上——与被测行为无关的偶发失败。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let reused = loop {
+        let cells = next_cell_frame(&terminal_under_test);
+        let stats = terminal_under_test.take_cache_stats();
+        let selected = cells
+            .iter()
+            .find(|cell| cell.row == 1 && cell.col == 0)
+            .expect("选区内单元必须存在");
+        let unselected = cells
+            .iter()
+            .find(|cell| cell.row == 2 && cell.col == 0)
+            .expect("选区外单元必须存在");
+        if selected.background != unselected.background {
+            break stats.0;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "安装选区后 5s 内未出现该行已反白的帧"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
     assert_eq!(
         reused, 0,
         "选区安装 MUST 使行缓存整体失效，本次不得有复制行"

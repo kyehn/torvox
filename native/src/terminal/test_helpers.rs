@@ -283,10 +283,10 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert that DEC private mode N is in the expected state.
     pub fn assert_mode(self, mode_num: u16, expected: bool) -> Self {
-        let actual = self.terminal.mode_get(libghostty_vt::terminal::Mode::new(
-            mode_num,
-            libghostty_vt::terminal::ModeKind::Dec,
-        ));
+        let actual = mode_is_set(
+            self.terminal,
+            libghostty_vt::terminal::Mode::new(mode_num, libghostty_vt::terminal::ModeKind::Dec),
+        );
         assert_eq!(
             actual, expected,
             "DEC mode {mode_num} mismatch: expected {expected}, got {actual}"
@@ -382,6 +382,14 @@ pub fn search_viewport_matches(
 }
 
 #[cfg(test)]
+/// 模式查询（测试侧统一期限，与内建查询同口径）。
+fn mode_is_set(terminal: &GhosttyTerminal, mode: libghostty_vt::terminal::Mode) -> bool {
+    terminal.mode_get_with_timeout(
+        mode,
+        std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
+    )
+}
+
 mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::GhosttyTerminal;

@@ -259,7 +259,7 @@ pub fn default_light_name() -> &'static str {
 /// ```text
 /// u16  主题数，与 [`all`] 同序
 /// 每条：
-///   u8  标志：bit0 深底；bit1 默认深色；bit2 默认浅色
+///   u8  标志：bit0 默认深色；bit1 默认浅色
 ///   u8  名称字节数
 ///   名称 UTF-8
 ///   54 字节颜色：背景、前景各 3，十六色 48
@@ -271,9 +271,9 @@ pub fn pack_catalog() -> Vec<u8> {
     const COLOR_BYTES: usize = 3;
     /// 背景、前景与十六色，即 Kotlin 侧真正消费的全部颜色。
     const ENTRY_COLOR_BYTES: usize = 18 * COLOR_BYTES;
-    const FLAG_DARK: u8 = 1 << 0;
-    const FLAG_DEFAULT_DARK: u8 = 1 << 1;
-    const FLAG_DEFAULT_LIGHT: u8 = 1 << 2;
+    // 深底/日间分组由 [THEMES] 的排序表达，不占标志位：打包出去无人读。
+    const FLAG_DEFAULT_DARK: u8 = 1 << 0;
+    const FLAG_DEFAULT_LIGHT: u8 = 1 << 1;
 
     let default_dark_name = default_dark().name;
     let default_light_name = default_light_name();
@@ -281,9 +281,6 @@ pub fn pack_catalog() -> Vec<u8> {
     packed.extend_from_slice(&(THEMES.len() as u16).to_le_bytes());
     for theme in THEMES.iter() {
         let mut flags = 0;
-        if theme.dark {
-            flags |= FLAG_DARK;
-        }
         if theme.name == default_dark_name {
             flags |= FLAG_DEFAULT_DARK;
         }

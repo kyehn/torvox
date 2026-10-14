@@ -230,15 +230,21 @@ class NativeBridgeSmokeTest {
 
     @Test
     fun `JNI call overhead stays in a sane ballpark`() {
-        val iterations = 200
-        val elapsed = measureTimeMillis {
-            repeat(iterations) { NativeBridge.searchQueryMaxChars() }
+        // 探针 MUST 是「真实调用一次」的成本，不是一个常量返回：后者只量到
+        // 绑桩跳转，量不到注册表读锁与数组拷贝，回归就藏得住。
+        withSession { sessionId ->
+            val iterations = 200
+            val elapsed = measureTimeMillis {
+                repeat(iterations) { NativeBridge.listSessions() }
+            }
+            println("JNI overhead diagnostic: $iterations listSessions calls took ${elapsed}ms")
+            assertTrue(
+                "$iterations JNI calls took ${elapsed}ms — regression in bridge cost",
+                elapsed < 50,
+            )
+            // 同一窗口内必须仍能读到刚建的会话：探针没在破坏桥接。
+            assertTrue(NativeBridge.listSessions().contains(sessionId))
         }
-        println("JNI overhead diagnostic: $iterations calls took ${elapsed}ms")
-        assertTrue(
-            "$iterations JNI calls took ${elapsed}ms — regression in bridge cost",
-            elapsed < 50,
-        )
     }
 
     /**

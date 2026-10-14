@@ -510,14 +510,6 @@ impl super::GhosttyTerminal {
         .into()
     }
 
-    pub fn mode_get(&self, mode: libghostty_vt::terminal::Mode) -> bool {
-        Self::mode_get_on(
-            &self.query_tx,
-            mode,
-            std::time::Duration::from_millis(QUERY_TIMEOUT_MS),
-        )
-    }
-
     pub fn mode_get_with_timeout(
         &self,
         mode: libghostty_vt::terminal::Mode,

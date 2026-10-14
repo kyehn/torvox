@@ -30,7 +30,7 @@ class ThemeRepositoryTest {
             ThemeRepository.parseCatalog(
                 catalog(
                     catalogEntry(
-                        ThemeRepository.FLAG_DARK or ThemeRepository.FLAG_DEFAULT_DARK,
+                        ThemeRepository.FLAG_DEFAULT_DARK,
                         "test_theme",
                         colors(0x112233, 0x445566, 0x99),
                     ),
@@ -53,7 +53,7 @@ class ThemeRepositoryTest {
             ThemeRepository.parseCatalog(
                 catalog(
                     catalogEntry(
-                        ThemeRepository.FLAG_DARK or ThemeRepository.FLAG_DEFAULT_DARK,
+                        ThemeRepository.FLAG_DEFAULT_DARK,
                         "night",
                         colors(0x000000, 0x000000, 0x00),
                     ),
@@ -68,7 +68,7 @@ class ThemeRepositoryTest {
         val whole =
             catalog(
                 catalogEntry(
-                    ThemeRepository.FLAG_DARK or ThemeRepository.FLAG_DEFAULT_DARK,
+                    ThemeRepository.FLAG_DEFAULT_DARK,
                     "test_theme",
                     colors(0x112233, 0x445566, 0x99),
                 ),
@@ -85,7 +85,7 @@ class ThemeRepositoryTest {
         val noLight =
             catalog(
                 catalogEntry(
-                    ThemeRepository.FLAG_DARK or ThemeRepository.FLAG_DEFAULT_DARK,
+                    ThemeRepository.FLAG_DEFAULT_DARK,
                     "test_theme",
                     colors(0x000000, 0x000000, 0x00),
                 ),

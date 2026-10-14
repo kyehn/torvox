@@ -24,9 +24,8 @@ object ThemeRepository {
     /** 单条的固定开销：标志 1 + 名称长度 1。 */
     private const val ENTRY_FIXED_BYTES = 2
 
-    internal const val FLAG_DARK = 1
-    internal const val FLAG_DEFAULT_DARK = 2
-    internal const val FLAG_DEFAULT_LIGHT = 4
+    internal const val FLAG_DEFAULT_DARK = 1
+    internal const val FLAG_DEFAULT_LIGHT = 2
 
     /** 一次查询取回的目录：主题清单（深底在前、日间在后）与两个默认主题标识。 */
     internal class ThemeCatalog(
@@ -73,7 +72,7 @@ object ThemeRepository {
             offset += ENTRY_COLOR_BYTES
             if (flags and FLAG_DEFAULT_DARK != 0) defaultDarkName = themeName
             if (flags and FLAG_DEFAULT_LIGHT != 0) defaultLightName = themeName
-            themes += TerminalTheme(themeName, colors)
+            themes += TerminalTheme.fromPackedColors(themeName, colors)
         }
         require(offset == packed.size) { "Theme catalog has ${packed.size - offset} trailing bytes" }
         return ThemeCatalog(
