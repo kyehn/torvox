@@ -1536,11 +1536,10 @@ mod tests {
         let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // 模式 2004（bracketed paste）默认应关闭。
-        assert!(
-            !session
-                .terminal()
-                .mode_get(libghostty_vt::terminal::Mode::BRACKETED_PASTE)
-        );
+        assert!(!session.terminal().mode_get_with_timeout(
+            libghostty_vt::terminal::Mode::BRACKETED_PASTE,
+            std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
+        ));
     }
 
     /// 子进程未启用 1004 时不得发出任何焦点字节。

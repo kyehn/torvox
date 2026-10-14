@@ -5,11 +5,11 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * 组字光标锚点的准入与落格（[composingCursorMarker]）。
+ * 组字光标锚点的落格（[composingCursorMarker]）。
  *
- * 锚点 MUST 落在终端光标格：输入法据此把候选窗口贴到真实光标。准入两条，
- * 缺一即不回报——无组字时给一个「光标位置」会让候选窗口贴到不属于它的格子，
- * 未请求监视时回报是一条无人读取的 IPC。
+ * 锚点 MUST 落在终端光标格：输入法据此把候选窗口贴到真实光标。视口外的光标
+ * MUST NOT 回报——候选窗口会落在屏幕外。另两条准入（输入法正在请求监视、当前
+ * 有组字）由调用方在查询前判定，不在本函数的参数里。
  */
 class ComposingCursorAnchorTest {
 
@@ -17,8 +17,6 @@ class ComposingCursorAnchorTest {
     fun `marker lands in the terminal cursor cell`() {
         val marker =
             composingCursorMarker(
-                monitoring = true,
-                composing = true,
                 cursorRow = 3,
                 cursorCol = 4,
                 rows = 24,
@@ -33,42 +31,10 @@ class ComposingCursorAnchorTest {
     }
 
     @Test
-    fun `no monitoring request reports nothing`() {
-        assertNull(
-            composingCursorMarker(
-                monitoring = false,
-                composing = true,
-                cursorRow = 3,
-                cursorCol = 4,
-                rows = 24,
-                cellWidth = 10f,
-                cellHeight = 20f,
-            ),
-        )
-    }
-
-    @Test
-    fun `no composition reports nothing`() {
-        assertNull(
-            composingCursorMarker(
-                monitoring = true,
-                composing = false,
-                cursorRow = 3,
-                cursorCol = 4,
-                rows = 24,
-                cellWidth = 10f,
-                cellHeight = 20f,
-            ),
-        )
-    }
-
-    @Test
     fun `cursor outside the viewport reports nothing`() {
         // 光标滚出视口时候选窗口会落在屏幕外，回报没有意义。
         assertNull(
             composingCursorMarker(
-                true,
-                true,
                 cursorRow = -1,
                 cursorCol = 4,
                 rows = 24,
@@ -78,8 +44,6 @@ class ComposingCursorAnchorTest {
         )
         assertNull(
             composingCursorMarker(
-                true,
-                true,
                 cursorRow = 24,
                 cursorCol = 4,
                 rows = 24,
@@ -89,8 +53,6 @@ class ComposingCursorAnchorTest {
         )
         assertNull(
             composingCursorMarker(
-                true,
-                true,
                 cursorRow = 3,
                 cursorCol = -1,
                 rows = 24,
@@ -104,8 +66,6 @@ class ComposingCursorAnchorTest {
     fun `last visible row still reports`() {
         val marker =
             composingCursorMarker(
-                true,
-                true,
                 cursorRow = 23,
                 cursorCol = 0,
                 rows = 24,

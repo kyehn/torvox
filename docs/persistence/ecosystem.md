@@ -27,6 +27,8 @@ C 为仅记录在案或反面教材。「参照面」是本仓实现时该仓的
 | rafaelmeloreisnovo/termux-app-rafacodephi | termux 重型 fork | B | 行尾孤立高代理越界的真实修复（本仓宽字符边界必须有 limit 检查）；反面：文档海、BLAKE3 整包校验 |
 | Rprop/AnsolePlus | 旧版 termux 打包 | C | 反面：与上游同位置的孤立代理项越界未修 |
 | Autonomous-Agentic-Workflows/termux-app | 旧基线 fork | C | 反面：删文件回传门控 + JNI 释放错对象（`ReleaseStringUTFChars` 写错对象） |
+| vercel-labs/wterm | Zig/WASM + DOM 渲染，`@wterm/ghostty` 走 libghostty 的 WASM 封装 | C | 证明 libghostty 可作 WASM 后端，但本仓已直接用 `libghostty-vt-sys`；浏览器/WASM 形态无法作为 Android 依赖。其 WebSocket PTY 的重连与背压设计仅在日后开网络终端时可参考 |
+| felixse/FluentTerminal（已停更）、lxqt/qterminal、KDE/konsole、KDE/yakuake、JetBrains/jediterm、borisfaure/terminology | 桌面壳 + xterm.js / QML | C | 桌面端复用 xterm.js，VT 与渲染都在别处，与本仓的单一来源正面冲突。可参考的只有产品面（主题导入、Shell Profile、键位编辑），而这些恰是本仓明禁项或未声明项 |
 | irealashu/ApexShell、shafinthedev/Ply、Sunbr99/TerminalOS、TOYTTQE/PufiX、eggie-admin/hydra-shell-android、deathlegionteamlk/jolz、Malik1stmkw/termux-clone | — | C | 无终端实现、无 PTY 或玩具；`catch (_: Exception) {}` 通篇；su/Shizuku 提权 |
 
 ## 二、仍然有效的结论
@@ -47,6 +49,9 @@ C 为仅记录在案或反面教材。「参照面」是本仓实现时该仓的
   无「更完整又能直接换」者。
 - **减码空间**：本仓无死代码可白捡（`allow(dead_code)`/`todo!`/`unimplemented!`
   为 0），字体子系统是最大单块。降本只能靠重构而非换库。
+- **新参考项目也买不到依赖**：跨形态对照后结论不变——Web/WASM 系（即便直接封装
+  了 libghostty）与桌面壳系（复用 xterm.js / QML）都把 VT 解析与渲染放在别处，
+  与本仓的单一来源正面冲突，能借鉴的只有产品面。
 
 ## 三、禁止项（勿从外部仓库抄入）
 

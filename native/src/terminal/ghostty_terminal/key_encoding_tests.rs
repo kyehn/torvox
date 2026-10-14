@@ -9,6 +9,14 @@
 use super::*;
 use libghostty_vt::key::{self, Action, Mods};
 
+/// 模式查询（测试侧统一期限，与内建查询同口径）。
+fn mode_is_set(terminal: &GhosttyTerminal, mode: libghostty_vt::terminal::Mode) -> bool {
+    terminal.mode_get_with_timeout(
+        mode,
+        std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
+    )
+}
+
 fn terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
 }
@@ -226,10 +234,10 @@ fn arrows_follow_cursor_key_application_mode() {
 
     set_dec_mode(&mut terminal, b"1");
     assert!(
-        terminal.mode_get(libghostty_vt::terminal::Mode::new(
-            1,
-            libghostty_vt::terminal::ModeKind::Dec
-        )),
+        mode_is_set(
+            &terminal,
+            libghostty_vt::terminal::Mode::new(1, libghostty_vt::terminal::ModeKind::Dec)
+        ),
         "DECCKM must be set"
     );
     assert_eq!(
@@ -241,6 +249,13 @@ fn arrows_follow_cursor_key_application_mode() {
         b"\x1b[1;5A",
         "modified arrows stay CSI even in application cursor mode"
     );
+
+    // DECRST 必须真回到普通形式：只断言置位时，「复位」这条路径没人钉。
+    reset_dec_mode(&mut terminal, b"1");
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
+        b"\x1b[A"
+    );
 }
 
 #[test]
@@ -249,19 +264,19 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     // 上游以该默认值为准，故应用小键盘模式（66）在默认状态下不生效。
     let mut terminal = terminal();
     assert!(
-        terminal.mode_get(libghostty_vt::terminal::Mode::new(
-            1035,
-            libghostty_vt::terminal::ModeKind::Dec
-        )),
+        mode_is_set(
+            &terminal,
+            libghostty_vt::terminal::Mode::new(1035, libghostty_vt::terminal::ModeKind::Dec)
+        ),
         "mode 1035 defaults on"
     );
 
     set_dec_mode(&mut terminal, b"66");
     assert!(
-        terminal.mode_get(libghostty_vt::terminal::Mode::new(
-            66,
-            libghostty_vt::terminal::ModeKind::Dec
-        )),
+        mode_is_set(
+            &terminal,
+            libghostty_vt::terminal::Mode::new(66, libghostty_vt::terminal::ModeKind::Dec)
+        ),
         "DECKPAM must be set"
     );
     assert_eq!(
@@ -276,10 +291,10 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     // 关掉 1035 后应用小键盘才真正接管：kp_1 / kp_enter 走 SS3 形态。
     reset_dec_mode(&mut terminal, b"1035");
     assert!(
-        !terminal.mode_get(libghostty_vt::terminal::Mode::new(
-            1035,
-            libghostty_vt::terminal::ModeKind::Dec
-        )),
+        !mode_is_set(
+            &terminal,
+            libghostty_vt::terminal::Mode::new(1035, libghostty_vt::terminal::ModeKind::Dec)
+        ),
         "mode 1035 must be off"
     );
     assert_eq!(
@@ -304,10 +319,10 @@ fn backspace_follows_backarrow_key_mode() {
 
     set_dec_mode(&mut terminal, b"67");
     assert!(
-        terminal.mode_get(libghostty_vt::terminal::Mode::new(
-            67,
-            libghostty_vt::terminal::ModeKind::Dec
-        )),
+        mode_is_set(
+            &terminal,
+            libghostty_vt::terminal::Mode::new(67, libghostty_vt::terminal::ModeKind::Dec)
+        ),
         "DECBKM must be set"
     );
     assert_eq!(
@@ -397,34 +412,5 @@ fn absent_unshifted_codepoint_never_carries_over_from_the_previous_key() {
         encode(&terminal, key::Key::NumpadParenLeft, Mods::empty()),
         Vec::<u8>::new(),
         "kitty 协议下不得上报上一个按键的码位"
-    );
-}
-
-/// DECCKM 的置位与复位都必须在编码输出上可见，且方向相反。
-///
-/// 这条是 `VtCorrectnessInstrumentedTest.cursorKeyModeSwitchesViaDecPrivateMode`
-/// 的宿主侧锚点：真机用例断言同一条生产编码路径（`encodeKeyEvent` 导出）。此前该
-/// 用例靠一个只被测试调用的 `getMode` 导出观察模式标志，那个导出没有生产调用方，
-/// 已删除；此处与它各据一头——宿主持编码器本身，真机持 JNI 接线。
-#[test]
-fn cursor_key_mode_round_trips_through_the_encoder() {
-    let mut terminal = terminal();
-    assert_eq!(
-        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
-        b"\x1b[A"
-    );
-
-    set_dec_mode(&mut terminal, b"1");
-    assert_eq!(
-        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
-        b"\x1bOA",
-        "DECCKM 置位后方向键须换成 SS3 应用光标形式"
-    );
-
-    reset_dec_mode(&mut terminal, b"1");
-    assert_eq!(
-        encode(&terminal, key::Key::ArrowUp, Mods::empty()),
-        b"\x1b[A",
-        "DECCKM 复位后方向键须回到 CSI 形式"
     );
 }

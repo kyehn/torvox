@@ -16,10 +16,10 @@ import terminal.emulator.ui.theme.TerminalTheme
  */
 class SystemBarIconThemeTest {
 
-    private fun fakeTheme(themeName: String, background: Color): TerminalTheme = TerminalTheme(
+    private fun fakeTheme(themeName: String, background: Color): TerminalTheme = TerminalTheme.fromPackedColors(
         themeName,
         byteArrayOf(background.redByte(), background.greenByte(), background.blueByte()) +
-            ByteArray(51) { 0x01 },
+            ByteArray(TerminalTheme.PACKED_COLOR_BYTES - 3) { 0x01 },
     )
 
     private fun Color.redByte(): Byte = (this.red * 255f + 0.5f).toInt().toByte()

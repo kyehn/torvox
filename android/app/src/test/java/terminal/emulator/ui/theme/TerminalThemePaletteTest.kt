@@ -54,7 +54,7 @@ class TerminalThemePaletteTest {
         val entry =
             byteArrayOf(
                 (
-                    ThemeRepository.FLAG_DARK or ThemeRepository.FLAG_DEFAULT_DARK or
+                    ThemeRepository.FLAG_DEFAULT_DARK or
                         ThemeRepository.FLAG_DEFAULT_LIGHT
                     ).toByte(),
                 name.size.toByte(),

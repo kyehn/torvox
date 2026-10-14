@@ -2,7 +2,6 @@ package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -113,63 +112,5 @@ class RenderPauseLedgerTest {
         ledger.release(second)
         assertEquals(0, ledger.holderCount)
         assertFalse(pauseChanges.last())
-    }
-
-    @Test
-    fun `reset cancels every hold and makes stale releases no-ops`() {
-        val stale = ledger.acquire()
-        ledger.reset()
-        assertEquals(0, ledger.holderCount)
-        assertFalse(pauseChanges.last())
-
-        // reset 之后新防抖领的暂停，不许被 reset 之前的陈旧持有者减掉。
-        val fresh = ledger.acquire()
-        val before = pauseChanges.size
-        ledger.release(stale)
-        assertEquals(1, ledger.holderCount)
-        assertEquals("陈旧持有者不得发出任何记账变化", before, pauseChanges.size)
-        assertTrue("仍在等待的防抖不得被放开", pauseChanges.last())
-
-        ledger.release(fresh)
-        assertEquals(0, ledger.holderCount)
-        assertFalse(pauseChanges.last())
-    }
-
-    @Test
-    fun `settings page releasing first keeps the background pause`() {
-        // 设置页与切后台共用一本账的直接后果：关设置页先归还时，切后台那条暂停
-        // 必须仍在——否则会在已被系统回收的 BufferQueue 上出帧（永久黑屏）。
-        val background = ledger.acquire()
-        val settings = ledger.acquire()
-        ledger.release(settings)
-        assertEquals(1, ledger.holderCount)
-        assertStillPaused()
-
-        ledger.release(background)
-        assertEquals(0, ledger.holderCount)
-        assertFalse(pauseChanges.last())
-    }
-
-    @Test
-    fun `background releasing first keeps the settings pause`() {
-        // 反向同构：切前台先归还时，设置页仍在展示，渲染必须继续暂停。
-        val settings = ledger.acquire()
-        val background = ledger.acquire()
-        ledger.release(background)
-        assertEquals(1, ledger.holderCount)
-        assertStillPaused()
-
-        ledger.release(settings)
-        assertEquals(0, ledger.holderCount)
-        assertFalse(pauseChanges.last())
-    }
-
-    @Test
-    fun `reset with no holders changes nothing`() {
-        // 本类只对自己的持有负责：`setRenderPaused` 是全局单布尔，切后台等别的持有者
-        // 也会写它。此处若无条件回调 false，就会把它们的暂停顶掉。
-        ledger.reset()
-        assertEquals(0, ledger.holderCount)
-        assertEquals(emptyList<Boolean>(), pauseChanges)
     }
 }

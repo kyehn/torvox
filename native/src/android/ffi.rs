@@ -3698,8 +3698,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellSizePac
     })
 }
 
-/// 宽高 → 打包 `jlong`。宽度那一步的 `as u32` 不可省：少了它，宽度位模式的最高位
-/// 会被符号扩展进高半区，高度随之变成一个天文数字。
+/// 宽高 → 打包 `jlong`。宽度 MUST 用零扩展（`u64::from`）：写成 `as u64` 会把
+/// 宽度位模式的最高位符号扩展进高半区，高度随之变成一个天文数字。
 fn cell_metrics_packed_from(width: f32, height: f32) -> jlong {
     (((u64::from(height.to_bits())) << 32) | u64::from(width.to_bits())) as jlong
 }
@@ -4036,8 +4036,8 @@ mod cell_size_packing_tests {
 
     /// 宽高按两个 `f32` 位落进同一个 `jlong`：低位宽、高位高。
     ///
-    /// 判别力在**符号扩展**：`as u32 as u64` 这一步若写成 `as u64`，宽度位模式的
-    /// 最高位会被填成符号位，宽度在小数值上取回一个天文数字。
+    /// 判别力在**零扩展**：`u64::from(width.to_bits())` 这一步若写成 `as u64`，
+    /// 宽度位模式的最高位会被填成符号位，宽度在小数值上取回一个天文数字。
     #[test]
     fn width_and_height_occupy_low_and_high_halves() {
         let packed = cell_metrics_packed_from(8.5, 17.25);
