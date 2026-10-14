@@ -1024,7 +1024,7 @@ SGR 属性经 `render::CellIteration::style` 直读。
 
 ## 5. 观察
 
-- `Terminal::on_bell` 未接线。曾有 7 处注释描述一条不存在的 BEL 通道（`commands.rs` 的 `RunConfig`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、`session.rs` 的 5 处收割路径文档），已随归档变更 `2026-10-12-audit-research-residual-gaps` 的任务 3.1/3.2 删除；这些位置现只描述 OSC 52 剪贴板写入。`session.rs:612` 的 `0x07` 是 OSC 52 应答的 **BEL 终止符**（兼容 xterm），是真实协议内容，不在其列。
+- `Terminal::on_bell` 未接线。曾有 7 处注释描述一条不存在的 BEL 通道（`commands.rs` 的 `RunConfig`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、`session.rs` 的 5 处收割路径文档），已随归档变更 `2026-10-12-audit-research-residual-gaps` 的任务 3.1/3.2 删除；这些位置现只描述 OSC 52 剪贴板写入。`session.rs:829` 的 `0x07` 是 OSC 52 应答的 **BEL 终止符**（兼容 xterm），是真实协议内容，不在其列。
 - `selection::gesture` 一族不采用，理由不止连击计数：其自动滚动按定时器在边缘区持续滚动，与本仓「每次触点移动滚一行、静止不滚」冲突；其手势状态若由 VT 线程持有，则每个触摸帧都需跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。词派生、跟踪选区、随滚动跟随与复制格式化仍走上游，见 §2.8。
 - OSC 52 的读取请求（`?`）上游明确忽略，仍由本仓 `output_processor` 的最小扫描器拦截；因此 `on_clipboard_read` 与整个 `ClipboardRead` 族不必接线。
 - 鼠标与键盘编码器的所有单选项 setter 都不单独调用，选项一律经 `set_options_from_terminal` 从终端整体同步，这是编码正确的唯一入口。

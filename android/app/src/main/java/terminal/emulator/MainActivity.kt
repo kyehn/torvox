@@ -240,10 +240,12 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
     }
     DisposableEffect(showSettings) {
         onDispose {
-            settingsPauseToken?.let { token ->
-                viewModel.runtime.releaseRenderPause(token)
-                settingsPauseToken = null
-            }
+            // 打开设置时也走这里（本次持有为空），那一次 MUST NOT 出帧：刚打开就
+            // 出一帧，等于在「设置页遮住终端」的第一帧上白白跑一次 GPU。
+            val token = settingsPauseToken
+            settingsPauseToken = null
+            if (token == null) return@onDispose
+            viewModel.runtime.releaseRenderPause(token)
             // 关设置页要的是「立刻出一帧」：账本归还不是无条件恢复，Surface 已就绪时
             // 这里补一次，与 TerminalSurface.surfaceCreated 同源。
             viewModel.runtime.forceRender()
