@@ -13,6 +13,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -221,22 +222,32 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
     LaunchedEffect(openSettingsRequests) {
         if (openSettingsRequests > 0) showSettings = true
     }
+    // 设置页的渲染暂停走运行期的共享账本而不是直接写全局布尔：关设置页时
+    // 无条件 setRenderPaused(false) 会把切后台那条暂停一并顶掉，在已被系统回收的
+    // BufferQueue 上出帧即永久黑屏。账本保证只有全部来源都归还后才恢复。
+    var settingsPauseToken by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(showSettings) {
-        // 关闭设置时立即恢复渲染（此时 bridge 已存在）；
-        // 只有「打开」转换才需要等待 bridge 出现的冷启轮询。
-        if (!showSettings) {
-            viewModel.runtime.bridge()?.setRenderPaused(false)
-            return@LaunchedEffect
-        }
-        // bridge 由运行期在首个会话 spawn 之后异步创建；
-        // 在此有界轮询可避免在带 `openSettingsOnLaunch` 的冷启动中
-        // 静默丢失暂停状态。
+        if (!showSettings) return@LaunchedEffect
+        // bridge 由运行期在首个会话 spawn 之后异步创建；原生暂停标志落在全局渲染器
+        // 上，渲染器尚未建立时写入即丢失，故打开设置页前先等它出现（有界轮询，
+        // 只在带 `openSettingsOnLaunch` 的冷启动才真正等待）。
         var attempts = 0
         while (viewModel.runtime.bridge() == null && attempts < BRIDGE_READY_POLL_ATTEMPTS) {
             kotlinx.coroutines.delay(BRIDGE_READY_POLL_INTERVAL_MS)
             attempts++
         }
-        viewModel.runtime.bridge()?.setRenderPaused(true)
+        settingsPauseToken = viewModel.runtime.acquireRenderPause()
+    }
+    DisposableEffect(showSettings) {
+        onDispose {
+            settingsPauseToken?.let { token ->
+                viewModel.runtime.releaseRenderPause(token)
+                settingsPauseToken = null
+            }
+            // 关设置页要的是「立刻出一帧」：账本归还不是无条件恢复，Surface 已就绪时
+            // 这里补一次，与 TerminalSurface.surfaceCreated 同源。
+            viewModel.runtime.forceRender()
+        }
     }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val appThemeMode = settings.appThemeMode

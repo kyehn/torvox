@@ -16,10 +16,12 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.CorrectionInfo
+import android.view.inputmethod.CursorAnchorInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.SurroundingText
 import android.view.inputmethod.TextAttribute
 import android.widget.Magnifier
@@ -37,6 +39,7 @@ import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.input.BatchEditDepth
 import terminal.emulator.input.ComposingBaseline
+import terminal.emulator.input.CursorUpdateMonitor
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.SelectionMover
@@ -579,13 +582,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 还多出两次 JNI 往返。
             //
             // 被 `removeCallbacks` 丢弃的 runnable 永不执行，它领到的那次暂停必须在此
-            // 归还（见 [RenderPauseLedger.releaseAndCancel]）；`onSizeChanged` 与
+            // 归还（见 [RenderPauseLedger.release]）；`onSizeChanged` 与
             // `surfaceChanged` 常在同一帧用同一尺寸各调一次本方法，正是这条替换路径的
             // 常见触发。
             val token = pauseLedger.acquire()
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize = null
-            pendingSurfaceResizeToken?.let { pauseLedger.releaseAndCancel(it) }
+            pendingSurfaceResizeToken?.let { pauseLedger.release(it) }
             pendingSurfaceResizeToken = token
             pendingSurfaceResize =
                 Runnable {
@@ -705,6 +708,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 故下沉为可单测类型（ImeCursorContract）。
                     private val batchEdits = BatchEditDepth()
                     private val selectionMover = SelectionMover(maxMagnitude = MAX_SELECTION_MOVE)
+                    private val cursorMonitor = CursorUpdateMonitor()
 
                     private fun encodeAndSend(text: String, ctrlActive: Boolean, altActive: Boolean) {
                         inputBatchBuffer.write(
@@ -720,6 +724,59 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 异步发送时，超量追加被推迟到下一帧，退格先到即顺序反转。
                     private fun sendBackspaces(count: Int) {
                         if (count > 0) inputBatchBuffer.write(ByteArray(count) { BACKSPACE_BYTE })
+                    }
+
+                    /**
+                     * 受理输入法的光标位置监视请求。
+                     *
+                     * 返回 true 是因为本仓**确实**会回报（见 [reportComposingCursorAnchor]）；
+                     * 返回 false 会让输入法以为锚点永不更新，从此不再请求，候选窗口
+                     * 也就永远贴不到真实光标。
+                     */
+                    override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean {
+                        cursorMonitor.update(cursorUpdateMode)
+                        // 立即补报一次：输入法常在已开监视时改模式（加 FILTER 位），
+                        // 不补报则它要等下一次组字变化才拿到位置。
+                        reportComposingCursorAnchor()
+                        return true
+                    }
+
+                    /**
+                     * 把组字光标锚点回报给输入法。
+                     *
+                     * 准入与落格见 [composingCursorMarker]；坐标取终端光标格——
+                     * 组字字节正写进那一格。无组字或输入法未请求监视时不回报，
+                     * 否则候选窗口会被贴到不属于它的格子上。
+                     */
+                    private fun reportComposingCursorAnchor() {
+                        val runtime = viewModel?.runtime ?: return
+                        val packed = runtime.bridge()?.cursorViewportPacked() ?: return
+                        if (packed < 0) return
+                        val cursorRow = (packed shr 32).toInt()
+                        val cursorCol = (packed and 0xFFFFFFFFL).toInt()
+                        val marker =
+                            composingCursorMarker(
+                                monitoring = cursorMonitor.isMonitoring,
+                                composing = composing.isComposing,
+                                cursorRow = cursorRow,
+                                cursorCol = cursorCol,
+                                rows = rows,
+                                cellWidth = cellWidth,
+                                cellHeight = cellHeight,
+                            ) ?: return
+                        val info =
+                            CursorAnchorInfo.Builder()
+                                .setComposingText(0, composing.text)
+                                .setInsertionMarkerLocation(
+                                    marker.horizontal,
+                                    marker.top,
+                                    marker.baseline,
+                                    marker.bottom,
+                                    0,
+                                )
+                                .build()
+                        context.getSystemService(InputMethodManager::class.java)
+                            ?.updateCursorAnchorInfo(this@TerminalSurface, info)
                     }
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
@@ -754,6 +811,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             )
                         }
                         composing.compose(newComposing, newCursorPosition)
+                        reportComposingCursorAnchor()
                         return true
                     }
 
@@ -799,6 +857,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         if (ctrlActive || altActive) {
                             terminalViewModel.consumeOneShotModifiers()
                         }
+                        // 组字已清：锚点随之失效，准入条件不再满足，不再回报。
+                        reportComposingCursorAnchor()
                         return true
                     }
 
@@ -944,6 +1004,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         sendBackspaces(edit.backspaces)
                         encodeAndSend(edit.append, ctrlActive = false, altActive = false)
                         composing.compose(target, newCursorPosition)
+                        reportComposingCursorAnchor()
                         return true
                     }
 
@@ -962,6 +1023,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         }
                         // 重锚后光标落在新区间末尾。
                         composing.compose(target, newCursorPosition = 1)
+                        reportComposingCursorAnchor()
                         return true
                     }
 
@@ -1705,7 +1767,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val token = if (runtime.altScreenActiveFlow.value) pauseLedger.acquire() else null
         pendingImeGridResize?.let { removeCallbacks(it) }
         pendingImeGridResize = null
-        pendingImeGridResizeToken?.let { pauseLedger.releaseAndCancel(it) }
+        pendingImeGridResizeToken?.let { pauseLedger.release(it) }
         pendingImeGridResizeToken = token
         pendingImeGridResize =
             Runnable {
@@ -1721,12 +1783,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 两个防抖（交换链重配、输入法网格重排）共用的渲染暂停记账。
      *
-     * 运行期的 `setRenderPaused` 是**非计数**布尔（共享的单一 GPU 渲染器），而两个
-     * 防抖窗可能重叠：先结束的那一个会把暂停清掉，另一个仍在等稳定尺寸——陈旧缓冲被
-     * 拉伸。记账与它的三个不变量见 [RenderPauseLedger]。
+     * 账本由运行期持有（[TerminalRuntime.acquireRenderPause]）：设置页那条暂停也走
+     * 同一本账，否则三个来源各自写同一个非计数布尔，先结束的那一个会把别人还在等的
+     * 暂停放掉。不变量见 [RenderPauseLedger]。
      */
-    private val pauseLedger =
-        RenderPauseLedger { paused -> viewModel?.runtime?.setRenderPaused(paused) }
+    private val pauseLedger: RenderPauseLedger
+        get() = (viewModel?.runtime ?: error("pause ledger needs the runtime")).renderPauseLedgerHandle
 
     /** 在途 [pendingSurfaceResize] 的暂停凭证；取消或执行后 MUST 归还并清空。 */
     private var pendingSurfaceResizeToken: Long? = null
@@ -1770,7 +1832,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         pendingSurfaceResize = null
         pendingSurfaceResizeToken = null
         pendingImeGridResizeToken = null
-        pauseLedger.reset()
+        // 不调 ledger 的 reset：上面的显式置空已归还本视图领到的每一次持有，而
+        // reset 会连带清掉设置页那条与本视图无关的暂停。
     }
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
@@ -3303,8 +3366,41 @@ internal fun gridToScreen(
     cellHeight: Float,
 ): Pair<Float, Float> = Pair(col * cellWidth, (row - viewportTopGrid) * cellHeight)
 
+/** 组字光标的插入标记矩形（视图局部坐标，平台随后按视图矩阵变换到屏幕）。 */
+internal data class InsertionMarker(val horizontal: Float, val top: Float, val baseline: Float, val bottom: Float)
+
 /**
- * 规范化的选区边界：start ≤ end，两个锚点均钳位到网格内。
+ * 是否回报组字光标锚点，若是则标记矩形落在哪个格子。
+ *
+ * 准入两条，缺一即 null（调用方据此不回报）：
+ * - 输入法正在请求光标监视——没人在等时回报是一条无人读取的 IPC；
+ * - 当前有组字——无组字时给一个「光标位置」会让候选窗口贴到不属于它的格子。
+ *
+ * 光标不在视口内时同样不回报：候选窗口会落在屏幕外。取**终端光标格**而非组字
+ * 文本自身位置，因为组字字节正写进那一格。
+ */
+internal fun composingCursorMarker(
+    monitoring: Boolean,
+    composing: Boolean,
+    cursorRow: Int,
+    cursorCol: Int,
+    rows: Int,
+    cellWidth: Float,
+    cellHeight: Float,
+): InsertionMarker? {
+    if (!monitoring || !composing) return null
+    if (cursorRow < 0 || cursorRow >= rows || cursorCol < 0) return null
+    val (markerX, markerY) = gridToScreen(cursorRow, cursorCol, 0, cellWidth, cellHeight)
+    return InsertionMarker(
+        horizontal = markerX,
+        top = markerY,
+        baseline = markerY + cellHeight,
+        bottom = markerY + cellHeight,
+    )
+}
+
+/**
+ * 规范化的选区边界 * 规范化的选区边界：start ≤ end，两个锚点均钳位到网格内。
  * 由 [clampSelection] 产出；供拖动手柄更新路径消费，
  * 使原生 setSelection 绝不看到倒置或越界的单元格。
  */

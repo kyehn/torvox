@@ -13,7 +13,7 @@
 pub mod font;
 pub mod kitty;
 
-pub(crate) mod cell_builder;
+pub mod cell_builder;
 pub mod context;
 mod pass;
 mod pipeline;
@@ -144,14 +144,4 @@ impl KittyGraphicsInstance {
             attributes: &Self::ATTRIBS,
         }
     }
-}
-
-// ── 供基准与渲染测试使用的再导出面 ─────────────────────────────────────────
-pub mod gpu {
-    pub use super::cell_builder::{
-        CellCursor, CellInstanceConfig, SearchHighlight, build_instances_from_cell_data,
-    };
-    pub use super::context::{Renderer, orthographic_projection};
-    pub use super::pipeline::GpuUniforms;
-    pub use super::{CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE};
 }

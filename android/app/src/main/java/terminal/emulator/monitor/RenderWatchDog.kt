@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 
@@ -51,17 +50,24 @@ class RenderWatchDog(
     }
 
     fun stop() {
-        val job = watchJob ?: return
-        watchJob = null
+        // 清空 job 与推进代次必须在**同一个临界区内**：分两次写时 `start()` 会看到
+        // 「已停」而启动新一代循环，随后本次 stop 再推进一次代次，那个新循环就永远
+        // 发现自己「已过期」——渲染线程再卡死也不会有人回调，等于看门狗被永久关掉。
+        val job = synchronized(fireLock) {
+            generation++
+            watchJob.also { watchJob = null }
+        } ?: return
         // 非阻塞：stop 在 sessionLock 内被调用（pauseRendering 的执行器线程、
         // handleSessionExit 的渲染线程），而该锁同时被主线程的
         // stopForegroundServiceIfIdle 争用——任何等待都按会话数累加为 ANR。
-        synchronized(fireLock) { generation++ }
         job.cancel()
     }
 
     private suspend fun watchLoop(ownGeneration: Long) {
-        while (scope.coroutineContext.isActive) {
+        // 退出条件只有一个：`delay` 在取消时抛 CancellationException。原先还套了一层
+        // `scope.coroutineContext.isActive`——那是本 `WatchDog` 的 SupervisorJob，
+        // 从不随 job 取消而结束，恒为真，等于一个永不生效的死条件。
+        while (true) {
             delay(checkIntervalMs)
             // 一次读出整条记录：起止分两次读时，可能拿到新 start 配旧 done，
             // 伪造出 `start > done` 并误杀健康的渲染线程。

@@ -24,7 +24,7 @@ import kotlin.system.measureTimeMillis
  * - JString→String / String→JString conversion (UTF-16 round-trip, NUL, non-ASCII) — only a real
  *   JVM produces/reads JNI strings
  * - jbyteArray→Vec<u8> input conversion ([feedTerminal] is binary-safe)
- * - env.throw_new exception paths (IllegalArgumentException on bad args)
+ * - env.throw_new exception paths (IllegalArgumentException on bad args, IllegalStateException on a missing session)
  * - the full Kotlin→JNI→command channel→VT thread→ghostty parser→query round-trip; `vt_write` hands
  *   the buffer to the VT thread via `try_send`, so a broken command channel or dead VT thread only
  *   shows here (previously only the emulator caught it — heavy and black-box)
@@ -88,14 +88,14 @@ class NativeBridgeSmokeTest {
 
     @Test
     fun `initSession spawns a session and destroySession removes it`() {
-        val before = NativeBridge.getSessionCount()
+        val before = NativeBridge.listSessions().size
         withSession { sessionId ->
             assertTrue(
                 "registry must now contain the session",
                 NativeBridge.listSessions().contains(sessionId),
             )
         }
-        assertEquals("session must be removed again", before, NativeBridge.getSessionCount())
+        assertEquals("session must be removed again", before, NativeBridge.listSessions().size)
     }
 
     @Test
@@ -110,6 +110,45 @@ class NativeBridgeSmokeTest {
                 }
             assertTrue("OSC 0 title must be applied by the VT thread", applied)
         }
+    }
+
+    @Test
+    fun `getSessionTitles returns titles in the requested order`() {
+        withSession { firstId ->
+            withSession { secondId ->
+                NativeBridge.feedTerminal(firstId, "\u001b]0;FIRST\u001b\\".toByteArray())
+                NativeBridge.feedTerminal(secondId, "\u001b]0;SECOND\u001b\\".toByteArray())
+                assertTrue(
+                    "两个标题都必须被 VT 线程应用",
+                    awaitTrue("titles applied") {
+                        NativeBridge.getTitle(firstId) == "FIRST" &&
+                            NativeBridge.getTitle(secondId) == "SECOND"
+                    },
+                )
+                // 顺序由实参决定而非注册表顺序：调用方按自己的会话表回填，
+                // 对不上就会把标题写到别的会话上。
+                val forward = NativeBridge.getSessionTitles(longArrayOf(firstId, secondId))
+                assertEquals(listOf("FIRST", "SECOND"), forward?.toList())
+                val reversed = NativeBridge.getSessionTitles(longArrayOf(secondId, firstId))
+                assertEquals(listOf("SECOND", "FIRST"), reversed?.toList())
+            }
+        }
+    }
+
+    @Test
+    fun `getSessionTitles reports unknown sessions as null without throwing`() {
+        withSession { sessionId ->
+            // 活着的会话没有标题时是**空串**，未知会话才是 null：调用方据此区分
+            // 「这个会话还没有标题」与「会话没了」，后者要能触发列表重建。
+            val titles = NativeBridge.getSessionTitles(longArrayOf(sessionId, 999_999L))
+            assertEquals(
+                "未知会话须为 null，无标题会话须为空串",
+                listOf("", null),
+                titles?.toList(),
+            )
+        }
+        // 空入参不得抛：会话列表为空时每轮刷新都会走到它。
+        assertEquals(emptyList<String?>(), NativeBridge.getSessionTitles(LongArray(0))?.toList())
     }
 
     @Test
@@ -168,20 +207,22 @@ class NativeBridgeSmokeTest {
     }
 
     @Test
-    fun `unknown session id throws IllegalArgumentException`() {
+    fun `unknown session id throws IllegalStateException`() {
         // A bogus id must not crash the process: the export throws a Java
-        // exception (jni_export_guard) instead of aborting. The exact type
-        // is part of the Kotlin-side contract (ffi.rs getTitle throws
-        // IllegalArgumentException for unknown sessions).
+        // exception (jni_export_guard) instead of aborting. The exact type is
+        // part of the Kotlin-side contract: `Bridge.onSession` catches **only**
+        // IllegalStateException (ffi.rs throw_session_missing), so widening it to a
+        // supertype here would silently turn every missing-session call into an
+        // opaque propagated exception instead of the intended "session is gone".
         val exception =
             try {
                 NativeBridge.getTitle(999_999L)
                 null
-            } catch (exception: IllegalArgumentException) {
+            } catch (exception: IllegalStateException) {
                 exception
             }
         assertNotNull(
-            "unknown session must throw IllegalArgumentException, got silent return",
+            "unknown session must throw IllegalStateException, got silent return",
             exception,
         )
         assertNotNull("bridge must remain usable after the failed call", NativeBridge.listSessions().isEmpty())
@@ -189,17 +230,15 @@ class NativeBridgeSmokeTest {
 
     @Test
     fun `JNI call overhead stays in a sane ballpark`() {
-        withSession { sessionId ->
-            val iterations = 200
-            val elapsed = measureTimeMillis {
-                repeat(iterations) { NativeBridge.getSessionCount() }
-            }
-            println("JNI overhead diagnostic: $iterations getSessionCount calls took ${elapsed}ms")
-            assertTrue(
-                "200 JNI calls took ${elapsed}ms — regression in bridge cost",
-                elapsed < 50,
-            )
+        val iterations = 200
+        val elapsed = measureTimeMillis {
+            repeat(iterations) { NativeBridge.searchQueryMaxChars() }
         }
+        println("JNI overhead diagnostic: $iterations calls took ${elapsed}ms")
+        assertTrue(
+            "$iterations JNI calls took ${elapsed}ms — regression in bridge cost",
+            elapsed < 50,
+        )
     }
 
     /**

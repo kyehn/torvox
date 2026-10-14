@@ -46,7 +46,8 @@ class Bridge(private val config: TerminalConfig) {
 
     /**
      * 每次 PTY 写入的钩子：在所有 PTY 写路径（[Bridge.writeToPty]、[processKeyEvent]、
-     * [encodeMouseEvent]）上调用，使绕过 TerminalRuntime.writeToPty 的硬件按键也能唤醒渲染。
+     * [sendFallbackKey]、[encodeMouseEvent]）上调用，使绕过 TerminalRuntime.writeToPty
+     * 的硬件按键也能唤醒渲染。
      * 同时是渲染唤醒接缝：空闲 >5s 后的退格不再需要等满 500ms 空闲闭锁才能看到回显。
      */
     @Volatile var onPtyWrite: (() -> Unit)? = null
@@ -71,20 +72,38 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     /**
+     * 编码器未覆盖的键码走这条出口：编码在原生，写入与其余按键同一条队列。
+     *
+     * 原实现在原生侧直接同步写 PTY，主端满时最多等 5s——调用点在 UI 线程上，
+     * 子进程不读 stdin 时每次这类击键冻住主线程，正是 [ptyWriteQueue] 要避免的事；
+     * 它还绕过队列与 [onPtyWrite]，回显要多等一个空闲闭锁才出现。
+     */
+    private fun sendFallbackKey(sessionId: Long, text: String, metaPrefix: Boolean) {
+        val encoded = NativeBridge.encodeKeyText(text, metaPrefix)
+        sendToPty(sessionId, encoded)
+        onPtyWrite?.invoke()
+    }
+
+    /**
      * 统一转发一次 JNI 调用。
      *
      * 两种「拿不到结果」的状态共用 [onUnavailable]：会话尚未建立（id 为 0），
-     * 以及检查之后、调用之前会话被销毁（native 对未知会话抛 RuntimeException，
-     * 见 DESIGN 的 Activity 重建/进程回收场景）。两者都不是崩溃理由，但都记
-     * 警告而非静默丢弃。
+     * 以及检查之后、调用之前会话被销毁（native 对未知会话抛
+     * [IllegalStateException]，见 DESIGN 的 Activity 重建/进程回收场景）。
+     * 两者都不是崩溃理由，但都记警告而非静默丢弃。
+     *
+     * 只捕获 [IllegalStateException] 这一种：其余异常（PTY 写入失败、主题不存在、
+     * 尺寸越界、native panic）必须照实上抛。此前这里捕的是整个 `RuntimeException`，
+     * 于是这些真实故障被一并归因为「会话已销毁」而无声消失——用户选了个损坏的
+     * 主题名，界面毫无反应，日志还写着一条错误的归因。
      */
     private inline fun <T> onSession(name: String, onUnavailable: T, call: (Long) -> T): T {
         val id = sessionId
         if (id == 0L) return onUnavailable
         return try {
             call(id)
-        } catch (exception: RuntimeException) {
-            LogUtil.w(TAG, "$name: 会话 $id 已销毁，返回缺省值（${exception.javaClass.simpleName}）")
+        } catch (sessionMissing: IllegalStateException) {
+            LogUtil.w(TAG, "$name: 会话 $id 已销毁，返回缺省值")
             onUnavailable
         }
     }
@@ -101,7 +120,8 @@ class Bridge(private val config: TerminalConfig) {
 
     fun ping(): String {
         if (!NativeBridge.isNativeLoaded()) throw RuntimeException("native library not loaded")
-        return "native library OK, sessions=${NativeBridge.getSessionCount()}"
+        val sessions = runCatchingCancellable { NativeBridge.listSessions() }.getOrDefault(LongArray(0))
+        return "native library OK, sessions=${sessions.size}"
     }
 
     // ── 会话生命周期 ──
@@ -172,9 +192,8 @@ class Bridge(private val config: TerminalConfig) {
 
     fun getGridRowsColsPacked(): Long = onSession("getGridRowsColsPacked", 0L, NativeBridge::getGridRowsColsPacked)
 
-    fun getCellWidth(): Float = onSession("getCellWidth", 0f, NativeBridge::getCellWidth)
-
-    fun getCellHeight(): Float = onSession("getCellHeight", 0f, NativeBridge::getCellHeight)
+    /** 单元格宽高（字号单位）。宽高恒定同批消费，故一次查询一并取回。 */
+    fun cellSize(): Pair<Float, Float> = unpackCellSize(NativeBridge.getCellSizePacked())
 
     // ── 渲染 ──
 
@@ -454,13 +473,14 @@ class Bridge(private val config: TerminalConfig) {
         cellWidth: Float,
         cellHeight: Float,
     ): Boolean {
-        val bytes =
-            onSession("encodeMouseEvent", ByteArray(0)) {
-                NativeBridge.encodeMouseEvent(it, xPx, yPx, action, button, modifiers, cellWidth, cellHeight)
-            }
-        if (bytes.isEmpty()) return false
-        return onSession("encodeMouseEvent:write", false) { targetId ->
-            sendToPty(targetId, bytes)
+        // 编码与写入在**同一次** `onSession` 里：两次 `onSession` 各读一遍 `sessionId`，
+        // 两次之间会话被销毁并重建时，按旧会话坐标算出的转义序列会写进新会话的 PTY。
+        // 与 `processKeyEvent` 同款写法。
+        return onSession("encodeMouseEvent", false) { id ->
+            val bytes =
+                NativeBridge.encodeMouseEvent(id, xPx, yPx, action, button, modifiers, cellWidth, cellHeight)
+            if (bytes.isEmpty()) return@onSession false
+            sendToPty(id, bytes)
             onPtyWrite?.invoke()
             true
         }
@@ -513,7 +533,7 @@ class Bridge(private val config: TerminalConfig) {
             // 编码或按上游规则丢弃。
             if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
                 if (!Character.isValidCodePoint(unicodeChar)) return@onSession false
-                NativeBridge.writeKey(id, String(Character.toChars(unicodeChar)), metaPrefix)
+                sendFallbackKey(id, String(Character.toChars(unicodeChar)), metaPrefix)
                 return@onSession true
             }
             // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
@@ -523,7 +543,7 @@ class Bridge(private val config: TerminalConfig) {
             if (!ctrlActive) {
                 val derived = virtualKeyboardMap.get(keyCode, 0)
                 if (derived > 0 && Character.isValidCodePoint(derived)) {
-                    NativeBridge.writeKey(id, String(Character.toChars(derived)), metaPrefix)
+                    sendFallbackKey(id, String(Character.toChars(derived)), metaPrefix)
                     return@onSession true
                 }
             }
@@ -624,6 +644,9 @@ class Bridge(private val config: TerminalConfig) {
         /** renderWithNewOutput 打包：bit 54 = 备用屏（helix/vim 等全屏 TUI）激活。 */
         const val ALT_SCREEN_ACTIVE_BIT = 1L shl 54
 
+        /** getCellSizePacked 打包：低 32 位是单元格宽度的 `f32` 位。 */
+        internal const val LOW_32_BITS = 0xFFFFFFFFL
+
         /** 视口全空（或无会话）时解码出的内容下沿行。 */
         const val LAST_CONTENT_ROW_NONE = -1
 
@@ -657,4 +680,13 @@ internal fun decodeRenderResult(packed: Long): Bridge.RenderResult {
         (packed and Bridge.SURFACE_INVALIDATED_BIT) != 0L,
         (packed and Bridge.ALT_SCREEN_ACTIVE_BIT) != 0L,
     )
+}
+
+/**
+ * `getCellSizePacked` 打包值 → (宽, 高)。顶层而非 [Bridge] 成员：解码只依赖位形，
+ * 不依赖会话，故可脱离 JNI 直接以字面量测试。
+ */
+internal fun unpackCellSize(packed: Long): Pair<Float, Float> {
+    val width = Float.fromBits((packed and Bridge.LOW_32_BITS).toInt())
+    return Pair(width, Float.fromBits((packed shr 32).toInt()))
 }

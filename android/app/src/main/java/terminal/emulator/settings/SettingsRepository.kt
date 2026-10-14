@@ -280,8 +280,6 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
 
-    suspend fun setBootstrapUrl(url: String) = put(Keys.BOOTSTRAP_URL, url)
-
     /**
      * 记录一次引导 URL 编辑，由本单例的防抖写入落盘。
      *

@@ -1007,7 +1007,22 @@ SGR 属性经 `render::CellIteration::style` 直读。
 | `ReleaseEvent::new` | 构造释放事件 |
 | `ReleaseEvent::new_with_alloc` | 自定义分配器创建 |
 
-## 4. 观察
+## 4. 上游家族与替换性
+
+`libghostty` 家族实测两层并存，本仓只用无头的那一层：
+
+- **`libghostty-vt`**（本仓使用）：`GhosttyLibVt.zig` → `lib_vt.zig`，头
+  `include/ghostty/vt*.h`，无头、跨平台（含 Android）、C ABI；本仓经
+  `libghostty-rs` 使用，`native/Cargo.toml` 跟踪其 master 修订并开启
+  `log`/`png`，无本地补丁。
+- **完整 `libghostty`**：`GhosttyLib.zig` → `main_c.zig`，头 `include/ghostty.h`
+  （`ghostty_app_t`/`config_t`/`surface_t`/`inspector_t`、剪贴板、检查器），
+  胖静态库 + pkg-config，为移植「应用运行时」而设。其 `ghostty_platform_e`
+  仅 `INVALID/MACOS/IOS`，**对 Android 无收益**，故不接入。
+
+换核的可行性见 `ecosystem.md` 第二节：本仓确切约束下无「更完整又能直接换」者。
+
+## 5. 观察
 
 - `Terminal::on_bell` 未接线。曾有 7 处注释描述一条不存在的 BEL 通道（`commands.rs` 的 `RunConfig`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、`session.rs` 的 5 处收割路径文档），已随归档变更 `2026-10-12-audit-research-residual-gaps` 的任务 3.1/3.2 删除；这些位置现只描述 OSC 52 剪贴板写入。`session.rs:612` 的 `0x07` 是 OSC 52 应答的 **BEL 终止符**（兼容 xterm），是真实协议内容，不在其列。
 - `selection::gesture` 一族不采用，理由不止连击计数：其自动滚动按定时器在边缘区持续滚动，与本仓「每次触点移动滚一行、静止不滚」冲突；其手势状态若由 VT 线程持有，则每个触摸帧都需跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。词派生、跟踪选区、随滚动跟随与复制格式化仍走上游，见 §2.8。

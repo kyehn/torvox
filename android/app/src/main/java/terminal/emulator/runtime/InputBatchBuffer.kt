@@ -141,6 +141,13 @@ class InputBatchBuffer(
                 }
             }
         }
+        // 摘掉已投递的回调：close 之后它们仍会在最长一个回退超时（或下一帧）后触发，
+        // 把本缓冲连同其 sink 闭包一起钉住一个超时周期。触发本身无害（drain 已空），
+        // 但等待期间视图链不可回收。
+        fallbackHandler.removeCallbacks(fallbackFlush)
+        if (useChoreographer) {
+            frameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
+        }
         sender.shutdown()
     }
 

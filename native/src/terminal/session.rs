@@ -6,7 +6,7 @@ use std::io::Read;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::time::Duration;
 
 use flume::{Receiver, bounded};
@@ -145,6 +145,24 @@ pub struct PtyMaster {
 /// 停调，而程序可继续发 OSC 52；超出即丢最旧，使内存不随「上游发得多快」增长。
 const MAX_CLIPBOARD_TEXT_QUEUE: usize = 8;
 
+/// 单帧最多回写多少条 VT 应答。
+///
+/// 上界而非下界：正常终端一帧内至多一两条（DSR 一次、DA 一次），而病态输出
+/// （`printf '\033[6n'` 循环）一帧能产生上万条。写完即止，剩余的留在
+/// [`Session::pty_write_back_queue`] 下帧续写。它与
+/// `WRITE_BACK_TIMEOUT` 的墙钟闸各管一件事：条数封顶内存与单帧工作量，
+/// 墙钟封顶**持会话锁**的时间——主端满时每条都会等满排空期限，只靠条数封顶
+/// 仍能按住渲染与看门狗近一秒。
+const MAX_PTY_WRITES_PER_FRAME: usize = 16;
+
+/// 待回写 VT 应答的队列上限。
+///
+/// 每帧只写走 [`MAX_PTY_WRITES_PER_FRAME`] 条，生产速率远高于它时（子进程不读
+/// stdin，病态程序又持续查询）队列净增长，故显式封顶丢最旧——应答是请求-响应
+/// 语义，不被消费的应答不会被回头读，无限保留只是白占内存。取值给足突发余量：
+/// 一整帧的输出块（10 × 8KiB）能产生的 DSR 应答不足其四分之一。
+const MAX_PENDING_PTY_WRITES: usize = 256;
+
 impl PtyMaster {
     fn new(pty: Box<dyn Pty>, exited: Arc<AtomicBool>) -> Self {
         let child_pid = pty.child_pid();
@@ -182,7 +200,25 @@ impl PtyMaster {
         drain_timeout: std::time::Duration,
     ) -> std::io::Result<()> {
         let _order = self.pty_write_order();
-        self.pty.write_all(data, drain_timeout)
+        self.pty.write_all(data, drain_timeout, true).1
+    }
+
+    /// [`Self::write_with_timeout`] 的带回写条数版：返回**已写出的字节数**（含出错
+    /// 时的部分写），调用方据此只把未写出的部分退回队列。VT 应答续写用；用户输入走
+    /// 上面那条——它不容忍重发，多写一次就是多打一行命令。
+    ///
+    /// 排空期限同时是**写入锁**的取锁期限：逐帧续写传进来的是整帧剩余墙钟预算，
+    /// 而用户输入传满额。上一条路径的写入锁在别处被等满 `WRITE_DRAIN_TIMEOUT` 时，
+    /// 不设限地等锁会让「整段持会话锁以墙钟为界」变成「以条数 × 排空期限为界」。
+    ///
+    /// `None` 表示期限内没取到写入锁，调用方须把整条退回队列下帧续写。
+    pub fn write_with_timeout_counted(
+        &self,
+        data: &[u8],
+        drain_timeout: std::time::Duration,
+    ) -> Option<(usize, std::io::Result<()>)> {
+        let _order = self.write_order.try_lock_for(drain_timeout)?;
+        Some(self.pty.write_all(data, drain_timeout, false))
     }
 
     fn pty_write_order(&self) -> parking_lot::MutexGuard<'_, ()> {
@@ -233,6 +269,19 @@ pub struct Session {
     /// 请求会让本队列无界增长（进一条、从不取），故后台分支同样收割。
     clipboard_read: Arc<Mutex<VecDeque<String>>>,
 
+    /// 本帧未写完的 VT 应答（DECRPM/DSR/DA 等），FIFO。
+    ///
+    /// 独占性来自会话锁而非某个专属线程：`pollEvent` 会逐帧扫描**全部**会话，
+    /// 故本字段由当帧持住本会话锁的那个线程独占（通常是活跃会话的渲染线程）。
+    ///
+    /// VT 引擎的应答缓冲是无界的 `Vec`（上游回调逐条 push），而回写每次可等到
+    /// `WRITE_BACK_TIMEOUT`：于是一个 8KiB 输出块里的上万个 `CSI 6n` 查询会在同一帧
+    /// 产生上万个应答，`drain_pty_write_back` 逐条同步写——子进程不读 stdin 时
+    /// 每条都等满 50ms，**全程持会话锁**，把按帧取同锁的渲染与看门狗一起拖住。
+    /// 故每帧只写有限条，写不完的留在这里下帧续写（见
+    /// [`Session::drain_pty_write_back`]）。
+    pty_write_back_queue: VecDeque<Vec<u8>>,
+
     // ── 线程生命周期 ─────────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,
@@ -251,6 +300,13 @@ pub struct Session {
     /// 避免尺寸短路永久掩盖 PTY/网格不一致。
     ///
     grid_dirty: AtomicBool,
+
+    /// 本会话上次已应用的滚动偏移。若按单一全局值计算增量，切换会话后旧会话的渲染
+    /// 线程带着另一会话的偏移恢复时就会错误移动旧会话视口。
+    ///
+    /// 存在会话内而非注册表项内：滚动与重置两条路径都要在**注册表读锁**下取会话锁
+    /// （会话锁可被 PTY 写入按住数秒），挂一个跨阻塞调用的注册表写锁会把整台终端冻住。
+    last_scroll_offset: AtomicI64,
 }
 
 impl Session {
@@ -467,12 +523,14 @@ impl Session {
             exit_reported,
             clipboard_text,
             clipboard_read,
+            pty_write_back_queue: VecDeque::new(),
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(ExitCodeSlot::Pending)),
             terminal_rows: AtomicU32::new(rows),
             terminal_cols: AtomicU32::new(cols),
             grid_dirty: AtomicBool::new(false),
+            last_scroll_offset: AtomicI64::new(0),
         })
     }
 
@@ -541,8 +599,30 @@ impl Session {
     }
 
     /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
-    pub fn reset_terminal(&self) {
+    ///
+    /// OSC 52 读取扫描器一并归位：它是 VT 之外的第二份解析状态，不跟着 RIS 重置
+    /// 就会把重置后的头一段输出当成未闭合的读取请求吞掉（见 [`OutputProcessor::reset`]）。
+    pub fn reset_terminal(&mut self) {
+        self.output_processor.reset();
+        // 清空本会话的续写队列：RIS 之前排队的应答带着旧网格的行列号，重置后再补发
+        // 等于让终端状态与刚重建的网格对不上。VT 侧 `reset` 是异步投递的，引擎缓冲
+        // 里尚未收割的应答仍可能随后到达——那属于「重置后仍排队」而非本队列残留。
+        self.pty_write_back_queue.clear();
         self.terminal.reset();
+        // VT 视口已归零：同步清零本会话的滚动记账，否则下一次滚动会按 stale 值算出
+        // 错误 delta 误滚视图。
+        self.last_scroll_offset.store(0, Ordering::Release);
+    }
+
+    /// 上次已应用的滚动偏移（滚动路径经 [`Self::scroll_viewport`] 推进）。
+    pub fn last_scroll_offset(&self) -> i64 {
+        self.last_scroll_offset.load(Ordering::Acquire)
+    }
+
+    /// 推进滚动记账。仅在 `scroll_viewport` 确认投递后才调用——发送失败时保持旧值，
+    /// 下次以相同目标调用才能重试该增量而非静默丢弃。
+    pub fn set_last_scroll_offset(&self, offset: i64) {
+        self.last_scroll_offset.store(offset, Ordering::Release);
     }
 
     /// 无锁读取最近已知的网格尺寸（spawn/resize 时更新）。绝不阻塞：VT 线程的权威尺寸
@@ -560,7 +640,7 @@ impl Session {
     /// [`Self::focus_event`] 中 DECSET 1004 模式查询的超时。调用方持会话锁，
     /// 而该锁每帧都被渲染与事件收割取得，故 VT 线程卡住时必须快速失败。
     /// PTY 写入在同一把锁内，其排空上限是 `pty::WRITE_DRAIN_TIMEOUT`。
-    const FOCUS_MODE_QUERY_TIMEOUT_MS: u64 = 50;
+    const FOCUS_MODE_QUERY_TIMEOUT_MS: u64 = 4 * crate::terminal::ghostty_terminal::VT_IDLE_TICK_MS;
 
     /// 处理来自 PTY 读取线程的终端输出：读取 VT 输出、更新终端状态并排空回写应答。
     /// 处理过任何 VT 数据时返回 true。
@@ -619,20 +699,63 @@ impl Session {
     }
 
     /// 把待处理的 VT 应答（DECRPM、DSR、DA 等）回写到子 PTY。VT 引擎负责缓冲，子进程在等它们。
+    ///
+    /// 每帧至多写 [`MAX_PTY_WRITES_PER_FRAME`] 条，写不完的（含失败的那条）留在
+    /// [`Self::pty_write_back_queue`] 下帧续写。**首次写失败即停**：一次失败已说明
+    /// 子进程此刻不读 stdin，继续按同一条件逐条重试只会把本帧的持锁时间乘以条数。
+    /// 队列封顶丢最旧——应答是请求-响应语义，子进程不消费就永远不会回头读，
+    /// 无限保留只是白占内存；丢弃时记错误，不静默。
     fn drain_pty_write_back(&mut self) {
-        for response in self.terminal.drain_pty_write_responses() {
+        // 新到的应答排在既有队列之后：先前的应答先出去，顺序与引擎产生顺序一致。
+        self.pty_write_back_queue
+            .extend(self.terminal.drain_pty_write_responses());
+        let overflow = self
+            .pty_write_back_queue
+            .len()
+            .saturating_sub(MAX_PENDING_PTY_WRITES);
+        if overflow > 0 {
+            self.pty_write_back_queue.drain(..overflow);
+            log::error!(
+                "session: dropped {overflow} of {} VT responses, child is not reading stdin",
+                self.pty_write_back_queue.len() + overflow
+            );
+        }
+        // 整段持会话锁的时间以**墙钟**为界而非以条数计：每条各自等满
+        // `WRITE_BACK_TIMEOUT` 的话，`条数 × 期限` 在主端满时仍能按住渲染与看门狗
+        // 近一秒。逐帧收割且全程持会话锁，故到期即止，余下留队下帧。
+        let deadline = std::time::Instant::now() + crate::terminal::pty::WRITE_BACK_TIMEOUT;
+        for _ in 0..MAX_PTY_WRITES_PER_FRAME {
+            // 把**剩余**预算交给这一条，而不是整份期限：否则每条都能再等满一个
+            // WRITE_BACK_TIMEOUT，最坏持锁时间变成两倍，与「以墙钟为界」的说法不符。
+            let Some(budget) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return;
+            };
+            let Some(response) = self.pty_write_back_queue.pop_front() else {
+                return;
+            };
             log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
-            // 帧级短期限：此处逐帧收割且全程持会话锁，按用户输入的 5s 上限等待会把
-            // 渲染与看门狗一起拖住（见 pty::WRITE_BACK_TIMEOUT）。
-            if let Err(error) = self
-                .pty
-                .write_with_timeout(&response, crate::terminal::pty::WRITE_BACK_TIMEOUT)
-            {
+            let Some((written, result)) = self.pty.write_with_timeout_counted(&response, budget)
+            else {
+                // 写入锁被等满剩余预算（用户输入正占着主端）：本条退回队首下帧续写，
+                // 与墙钟闸同一语义——到期即止，不拖住会话锁。
+                self.pty_write_back_queue.push_front(response);
+                return;
+            };
+            if let Err(error) = result {
                 log::error!(
-                    "session: PTY write-back failed ({} bytes): {}",
+                    "session: PTY write-back failed ({} bytes, {} written): {}",
                     response.len(),
+                    written,
                     error
                 );
+                // 只退回**未写出**的部分：整条退回会让下一帧把已发出的前缀再发一遍，
+                // 子应用于是收到两条 DECRPM/DSR 应答；而全部丢掉又让子应用永远等不到
+                // 一个完整回答。
+                if written < response.len() {
+                    self.pty_write_back_queue
+                        .push_front(response[written..].to_vec());
+                }
+                return;
             }
         }
     }
@@ -653,6 +776,7 @@ impl Session {
     /// 拉取式：每帧重复调用，VT 线程尚未处理完时取到空、下帧再取（见
     /// `harvest_vt_side_effects` 的说明——本路径不 flush）。
     fn drain_callback_events(&self) {
+        let mut dropped = 0usize;
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             // FIFO 而非单槽：渲染暂停（pollEvent 停调）期间的连续写入必须全部保留，
             // 单槽会让后一次覆盖前一次，用户丢剪贴板内容。
@@ -663,11 +787,16 @@ impl Session {
             // MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION），只是那边答空串、这边丢弃。
             if queue.len() > MAX_CLIPBOARD_TEXT_QUEUE {
                 queue.pop_front();
-                log::warn!(
-                    "clipboard queue overflow (>{} pending); dropping oldest write",
-                    MAX_CLIPBOARD_TEXT_QUEUE,
-                );
+                dropped += 1;
             }
+        }
+        // 逐条记没有任何诊断价值（每条都只是同一个「队列满」），却能让病态程序
+        // 每秒刷出数十条 logcat——与渲染洪泛、事件队列溢出同款限频。
+        if dropped > 0 {
+            log::warn!(
+                "clipboard queue overflow (>{} pending); dropped {dropped} oldest writes",
+                MAX_CLIPBOARD_TEXT_QUEUE,
+            );
         }
     }
 
@@ -755,35 +884,23 @@ impl Session {
         &mut self.terminal
     }
 
-    pub fn title(&self) -> String {
-        self.terminal.title()
-    }
-
-    pub fn mode_get(&self, mode: libghostty_vt::terminal::Mode) -> bool {
-        self.terminal.mode_get(mode)
-    }
-
-    pub fn focus_event(&mut self, focused: bool) {
-        // DECSET 1004 焦点上报：序列必须**直接**写入子 PTY 而非进入 VT 引擎——引擎的
-        // 输出流解析器把 `CSI I` 当作 CHT（光标水平制表）、`CSI O` 当作非法 CSI，送入
-        // 引擎只会把光标移到下一个制表位而非通知应用。仅当子进程确实启用了 1004 时才发送
-        // （xterm 语义）。超时很短：调用方持会话锁而该锁每帧都被渲染与事件收割取得，
-        // VT 线程卡住时不得拖满通用查询超时。
+    /// DECSET 1004 焦点上报：返回待直写子 PTY 的序列，`None` 表示子进程未启用 1004。
+    ///
+    /// 序列必须**直接**写入子 PTY 而非进入 VT 引擎——引擎的输出流解析器把 `CSI I` 当作
+    /// CHT（光标水平制表）、`CSI O` 当作非法 CSI，送入引擎只会把光标移到下一个制表位而非
+    /// 通知应用。仅当子进程确实启用了 1004 时才发送（xterm 语义）。查询窗口须短于用户输入
+    /// 的排空上限：调用方持会话锁，VT 线程卡住时不得拖满通用查询超时。
+    ///
+    /// 写入刻意留给调用方在**释放会话锁之后**做：主端满时排空上限是 5s，而会话锁每帧被
+    /// 渲染与事件收割取得（理由同 [`PtyMaster`]）。
+    pub fn focus_event_bytes(&mut self, focused: bool) -> Option<&'static [u8]> {
         if !self.terminal.mode_get_with_timeout(
             libghostty_vt::terminal::Mode::FOCUS_EVENT,
             std::time::Duration::from_millis(Self::FOCUS_MODE_QUERY_TIMEOUT_MS),
         ) {
-            return;
+            return None;
         }
-        let data = if focused { b"\x1b[I" } else { b"\x1b[O" };
-        // 焦点事件按用户操作触发、极稀疏，且丢出会让 vim 一类应用停在错误的焦点模式：
-        // 故用完整的排空期限，不与逐帧收割共用短上限。
-        if let Err(error) = self
-            .pty
-            .write_with_timeout(data, crate::terminal::pty::WRITE_DRAIN_TIMEOUT)
-        {
-            log::warn!("session: focus_event write failed: {error}");
-        }
+        Some(if focused { b"\x1b[I" } else { b"\x1b[O" })
     }
 }
 
@@ -848,36 +965,65 @@ impl Session {
         let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
             // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
-            // （管道、前台组内的后台作业）一并退出。
-            if let Ok(pgid) = nix::unistd::getpgid(Some(pid)) {
-                let pgid_raw = pgid.as_raw();
+            // （管道、前台组内的后台作业）一并退出。组不可用时退化为直杀子进程，
+            // 两者只差信号目标，故把目标选好后走同一条「HUP → CONT → 让步 → KILL」。
+            let own_pgid = nix::unistd::getpgid(None)
+                .map(|group| group.as_raw())
+                .unwrap_or(-1);
+            let group = nix::unistd::getpgid(Some(pid))
+                .ok()
                 // 自杀 guard：子进程 fork 后在 setsid 前与本进程同组，组杀会连带杀死
-                // 本进程（设备实证 SIGKILL 自杀），故退化为直杀子进程。
-                let own_pgid = nix::unistd::getpgid(None)
-                    .map(|group| group.as_raw())
-                    .unwrap_or(-1);
-                if pgid_raw == own_pgid {
-                    log::warn!("session drop: child shares our process group, direct kill only");
-                }
-                if pgid_raw > 0 && pgid_raw != own_pgid {
-                    let group = nix::unistd::Pid::from_raw(-pgid_raw);
-                    if !deliver_signal(group, nix::sys::signal::Signal::SIGHUP, "SIGHUP to pgid") {
-                        deliver_signal(pid, nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
-                    }
-                    deliver_signal(group, nix::sys::signal::Signal::SIGCONT, "SIGCONT to pgid");
-                    std::thread::sleep(TRAILING_EXIT_GRACE);
-                    if !deliver_signal(group, nix::sys::signal::Signal::SIGKILL, "SIGKILL to pgid")
-                    {
-                        deliver_signal(pid, nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
-                    }
-                    return;
-                }
+                // 本进程（设备实证 SIGKILL 自杀）。
+                // 下界是 2 而非 1：pgid == 1 时 `-pgid` 就是 -1，`kill(-1, …)` 会把信号
+                // 发给**所有**本进程有权发信号的进程。
+                .filter(|pgid| pgid.as_raw() > 1 && pgid.as_raw() != own_pgid)
+                .map_or(pid, |pgid| {
+                    log::debug!("session exit: signalling process group {}", pgid.as_raw());
+                    nix::unistd::Pid::from_raw(-pgid.as_raw())
+                });
+            if group == pid {
+                log::warn!("session exit: 进程组不可用，仅直杀子进程 {}", pid.as_raw());
             }
-            // 退化路径：`getpgid` 失败或 pgid <= 0 时直杀子进程。
-            deliver_signal(pid, nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
-            deliver_signal(pid, nix::sys::signal::Signal::SIGCONT, "SIGCONT to child");
-            std::thread::sleep(TRAILING_EXIT_GRACE);
-            deliver_signal(pid, nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
+            Self::terminate_target(pid, group);
+        }
+    }
+
+    /// 按 `SIGHUP → SIGCONT → 让步 → SIGKILL` 收掉目标：先给前台组一次体面退出，
+    /// 让它有机会刷盘与复原终端；宽限期后仍存活即强杀。组信号失败时逐级退到子进程。
+    fn terminate_target(pid: nix::unistd::Pid, group: nix::unistd::Pid) {
+        // 组不可用时 `group` 就是 `pid`，标签据实切换，否则日志会把直杀子进程写成
+        // 「打给了进程组」，排障时会被直接带偏。
+        let (first, label) = if group == pid {
+            (pid, "child")
+        } else {
+            (group, "pgid")
+        };
+        // 退路只在目标确实不同时才发：退化路径下 `first` 就是 `pid`，重发等于把
+        // 同一个信号再打一遍（失败时日志会出现两条一模一样的记录）。
+        let fallback = |signal: nix::sys::signal::Signal, what: &str| {
+            if first != pid {
+                deliver_signal(pid, signal, what);
+            }
+        };
+        if !deliver_signal(
+            first,
+            nix::sys::signal::Signal::SIGHUP,
+            &format!("SIGHUP to {label}"),
+        ) {
+            fallback(nix::sys::signal::Signal::SIGHUP, "SIGHUP to child");
+        }
+        deliver_signal(
+            first,
+            nix::sys::signal::Signal::SIGCONT,
+            &format!("SIGCONT to {label}"),
+        );
+        std::thread::sleep(TRAILING_EXIT_GRACE);
+        if !deliver_signal(
+            first,
+            nix::sys::signal::Signal::SIGKILL,
+            &format!("SIGKILL to {label}"),
+        ) {
+            fallback(nix::sys::signal::Signal::SIGKILL, "SIGKILL to child");
         }
     }
 }
@@ -1021,15 +1167,6 @@ mod tests {
             }
             fn set_nonblocking(&self) -> Result<(), PtyError> {
                 Ok(())
-            }
-            fn spawn(
-                _shell: &str,
-                _rows: u16,
-                _cols: u16,
-                _env: &ShellEnv,
-                _cwd: Option<&Path>,
-            ) -> Result<Box<dyn Pty>, PtyError> {
-                unreachable!("本替身只经 with_pty_for_test 构造")
             }
         }
 
@@ -1390,7 +1527,7 @@ mod tests {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
-        assert_eq!(session.title(), "");
+        assert_eq!(session.terminal().title(), "");
     }
 
     #[test]
@@ -1399,30 +1536,182 @@ mod tests {
         let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         // 模式 2004（bracketed paste）默认应关闭。
-        assert!(!session.mode_get(libghostty_vt::terminal::Mode::BRACKETED_PASTE));
+        assert!(
+            !session
+                .terminal()
+                .mode_get(libghostty_vt::terminal::Mode::BRACKETED_PASTE)
+        );
+    }
+
+    /// 子进程未启用 1004 时不得发出任何焦点字节。
+    ///
+    /// 契约写在 `focus_event_bytes` 上：序列必须**直写**子 PTY（送入 VT 引擎只会把
+    /// `CSI I` 当成 CHT 把光标移到下一个制表位），且只在子进程自己开 1004 时才发。
+    /// 此前该函数**没有任何断言**（只调用不检查），这正是它在无人察觉的情况下被改坏
+    /// 的原因。
+    ///
+    /// 「已启用时写出 `CSI I`/`CSI O`」这半边在宿主单测里**不覆盖**：它要先问一次
+    /// VT 线程模式，答复要穿过 VT 线程的空闲 tick 与整网格重建，并发跑全量测试时
+    /// 该往返耗时无上界，写成断言就是一条不稳定用例（TESTING.md 禁止）。此处如实
+    /// 登记为覆盖缺口，不以重试或放宽断言冒充覆盖；与本契约直接相关、且能确定覆盖的
+    /// 那一半——查询窗口必须宽于该 tick——由下一条用例钉住。
+    #[test]
+    fn focus_event_stays_silent_until_the_child_enables_mode_1004() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+
+        assert_eq!(session.focus_event_bytes(true), None);
+        assert_eq!(session.focus_event_bytes(false), None);
+        assert!(
+            handle.written().is_empty(),
+            "1004 未启用时不得发出任何字节，收到 {:?}",
+            String::from_utf8_lossy(&handle.written())
+        );
+    }
+
+    /// 部分写成功后回写队列只保留**未写出**的尾巴。
+    ///
+    /// 主端满时 `write_all` 可能写出一部分再超时。此时若把整条应答退回队列，下一帧
+    /// 会把已发出的前缀再发一遍，子应用于是收到两条 DECRPM/DSR 应答；而全部丢掉又
+    /// 让它永远等不到一个完整回答。
+    #[test]
+    fn partial_write_back_requeues_only_the_unwritten_tail() {
+        let query_count = 2;
+        let queries = "\x1b[6n".repeat(query_count);
+
+        // 基准：主端畅通时同样两条查询写出的字节总数。它是后面那条关系式的**外部**
+        // 真值——若拿队列自身的长度当期望，「整条退回」与「全部丢掉」两种错法都会
+        // 恰好对上（本轮第一版正是如此，两次变异都全绿）。
+        let (plain_pty, plain_handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut plain = Session::with_pty_for_test(Box::new(plain_pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        plain.inject_output_for_test(queries.as_bytes());
+        plain.process_output();
+        plain.terminal_mut().flush();
+        for _ in 0..query_count + 1 {
+            plain.process_output();
+        }
+        let expected_total = plain_handle.written().len();
+        assert!(expected_total > 0, "前置：基准写出须非空");
+
+        let (mut pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        // 只写出前 3 字节、其后恒 EAGAIN：确定性地复现「部分写出后主端满」。
+        pty.write_partial_then_block(3);
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        session.inject_output_for_test(queries.as_bytes());
+        session.process_output();
+        session.terminal_mut().flush();
+
+        session.process_output();
+        assert!(
+            session
+                .pty_write_back_queue
+                .iter()
+                .all(|tail| !tail.is_empty()),
+            "每条尾巴都须非空：整条退回会让已写前缀被重发，全部丢掉则丢应答"
+        );
+        let written_before_unblock = handle.written().len();
+        assert!(
+            written_before_unblock > 0 && written_before_unblock < expected_total,
+            "前置：替身应写出一部分而非全部，实测 {written_before_unblock}/{expected_total}"
+        );
+
+        // 随后模拟子进程恢复消费：逐帧排空。总字节数须与基准**完全一致**——
+        // 多写即重发前缀，少写即丢应答，两种错法都被这一条挡住。
+        handle.force_unblock_writes();
+        for _ in 0..query_count + 1 {
+            session.process_output();
+        }
+        assert!(session.pty_write_back_queue.is_empty(), "队列须排空");
+        assert_eq!(
+            handle.written().len(),
+            expected_total,
+            "受阻后写出的总字节数须与畅通时一致（{expected_total}），既不重发也不丢"
+        );
+    }
+
+    /// 焦点模式查询的窗口必须严格宽于 VT 线程的空闲 tick。
+    ///
+    /// VT 线程只在命令批尾与 tick 到点时排空查询通道，故无命令在途时一次查询要等满
+    /// 整个 tick。两值相等即赛跑：超时先到就被当成「子进程没开 1004」，这一次焦点
+    /// 上报静默丢失，vim 一类按 1004 切高亮的程序随即停在错误状态。
+    ///
+    /// 行为用例（`focus_event_stays_silent_until_the_child_enables_mode_1004`）抓不住
+    /// 它——那要撞上线程调度，红不红随机器而变。故此处直接钉住这条不等式。
+    #[test]
+    fn focus_mode_query_window_outlives_the_vt_idle_tick() {
+        let tick_ms = crate::terminal::ghostty_terminal::VT_IDLE_TICK_MS;
+        assert!(
+            Session::FOCUS_MODE_QUERY_TIMEOUT_MS > tick_ms,
+            "查询窗口 {}ms 须严格大于 VT 空闲 tick {tick_ms}ms，否则焦点上报随机丢失",
+            Session::FOCUS_MODE_QUERY_TIMEOUT_MS
+        );
     }
 
     #[test]
-    fn session_focus_event_writes_to_terminal() {
+    fn vt_write_back_is_capped_per_frame_and_carries_over() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        let query_count = MAX_PTY_WRITES_PER_FRAME * 3;
+        let queries = "\x1b[6n".repeat(query_count);
+        session.inject_output_for_test(queries.as_bytes());
+        // 先把查询送进 VT 线程并等它处理完，否则收割到的应答条数取决于线程调度。
+        session.process_output();
+        session.terminal_mut().flush();
+
+        // 断言从**可观测的写入**反推，不假设「第一帧恰好写走整上限条」：`flush()`
+        // 之后 VT 线程是否已回完一轮仍取决于调度，那一帧可能一条都没写。
+        // 每条 DSR 应答形如 `ESC [ 行 ; 列 R`，故 `ESC [` 的个数即已写出的应答数。
+        let written_responses = || {
+            handle
+                .written()
+                .windows(2)
+                .filter(|pair| *pair == b"\x1b[")
+                .count()
+        };
+        session.process_output();
+        assert!(
+            written_responses() <= MAX_PTY_WRITES_PER_FRAME,
+            "单帧写出的条数须有上界，实测 {}",
+            written_responses()
+        );
+        for _ in 0..=query_count {
+            if session.pty_write_back_queue.is_empty() {
+                break;
+            }
+            session.process_output();
+        }
+        assert!(
+            session.pty_write_back_queue.is_empty(),
+            "逐帧续写后队列须排空，不得丢应答"
+        );
+        assert_eq!(
+            written_responses(),
+            query_count,
+            "全部 {query_count} 条应答须恰好各写一次"
+        );
+    }
+
+    /// `request_exit` 必须同时置位会话自己的退出标志。
+    ///
+    /// 此前这条用例断言的是 `MockPtyHandle::is_exited`，与会话无关：把
+    /// `request_exit` 整段删掉它照样全绿。`destroySession` 正是靠该标志让此后所有写入
+    /// 报 `SessionError::Closed`，标志不置位则已关闭的会话仍可接收输入。
+    #[test]
+    fn request_exit_marks_the_session_exited() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
-        // `focus_event` 向终端写 CSI 序列，不应 panic。
-        session.focus_event(true);
-        session.focus_event(false);
-    }
-
-    #[test]
-    fn session_exited_flag() {
-        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed");
-        assert!(!session.is_exited(), "fresh session must not be exited");
-        let flag = session.exited_flag();
-        assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
-        // 标记已退出并验证。
-        handle.set_exited();
-        assert!(handle.is_exited());
+        assert!(!session.is_exited(), "新建会话不得已是退出态");
+        session.request_exit();
+        assert!(session.is_exited(), "request_exit 后必须置位退出标志");
+        assert!(
+            session.exited_flag().load(Ordering::Acquire),
+            "对外暴露的标志与 is_exited 必须同源"
+        );
     }
 
     /// 护栏：满输出通道下的会话拆卸必须及时完成。
@@ -1549,6 +1838,69 @@ mod tests {
         assert!(
             resize_result.is_ok(),
             "resize 是纯 ioctl，排在无上界的写入之后必须仍是成功的：{resize_result:?}"
+        );
+    }
+
+    /// 回归钉：逐帧应答续写等不到主端写入锁时按墙钟退出，而非拖住会话锁。
+    ///
+    /// 墙钟闸此前只封住了 `write_all` 本身，取写入锁却是无期限的——而那条锁正是
+    /// 用户输入（`feedPty`）与 VT 应答共用的互斥量。于是「整段持会话锁的时间以墙钟
+    /// 为界」在用户输入正占着主端时并不成立：一条应答就能把渲染与看门狗按住满排空
+    /// 上限。用 gate 确定性地把一条用户输入停在临界区内（不靠 sleep，无竞态）。
+    #[test]
+    fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
+        use std::sync::mpsc;
+
+        const READ_BUDGET: Duration = Duration::from_millis(500);
+
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let session = Arc::new(Mutex::new(
+            Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+                .expect("with_pty must succeed"),
+        ));
+
+        // 用户输入持写入锁停住（等价于 `feedPty` 卡在主端排空上），直到本用例放行。
+        let (locked_sender, locked_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let user_write = {
+            let session = session.clone();
+            std::thread::spawn(move || {
+                // 写入面克隆出来再取锁：生产路径（`feedPty`）正是如此，
+                // 否则持锁的是会话锁而非主端写入锁，两条就不是同一个状态。
+                let pty_master = session.lock().pty_master();
+                let _order = pty_master.pty_write_order();
+                locked_sender.send(()).expect("已持锁");
+                release_receiver.recv().expect("等放行");
+            })
+        };
+        locked_receiver
+            .recv_timeout(READ_BUDGET)
+            .expect("用户写入须在期限内取到主端写入锁");
+
+        // 收割在另一个线程里做：取不到写入锁的实现会一直等下去，直接在本线程调用
+        // 会把用例挂死而不是判红——挂死的用例比判红的更难排查。
+        let (sender, receiver) = mpsc::channel();
+        let worker = std::thread::spawn({
+            let session = session.clone();
+            move || {
+                let mut session = session.lock();
+                session
+                    .pty_write_back_queue
+                    .push_back(b"\x1b[1;1R".to_vec());
+                session.drain_pty_write_back();
+                let _ = sender.send(session.pty_write_back_queue.len());
+            }
+        });
+        let received = receiver.recv_timeout(READ_BUDGET);
+
+        release_sender.send(()).expect("放行");
+        user_write.join().expect("用户写入线程 panicked");
+        worker.join().expect("收割线程 panicked");
+
+        let pending = received.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
+        assert_eq!(
+            pending, 1,
+            "等不到写入锁时应答须整条退回队列下帧续写，不得丢弃"
         );
     }
 

@@ -65,6 +65,16 @@ impl OutputProcessor {
         self.new_output.swap(false, Ordering::AcqRel)
     }
 
+    /// 丢弃暂存中的扫描状态，回到「下一个字节按地面态处理」。
+    ///
+    /// RIS 全重置后必须调用：扫描器是 VT 之外的**第二份**解析状态，终端被重置而
+    /// 扫描器停在 `Selection` 上时，重置后的前 `MAX_SCAN_BYTES` 个字节会被当作仍在
+    /// 读取请求的选择器名吞掉——用户按“重置终端”后头半行输入凭空消失，缓冲区随后
+    /// 溢出并报一条与本次重置毫无关系的「选择器名过长」。
+    pub fn reset(&mut self) {
+        self.scan = ReadScan::default();
+    }
+
     pub fn process(&mut self, data: &[u8]) -> OutputSnapshot {
         // PTY 摄入即置 `new_output`（旁路标志而非入队事件）。空块不算输出。
         if !data.is_empty() {
@@ -105,6 +115,11 @@ enum ReadState {
 
 /// 扫描暂存上限：合法读取请求远小于此值，超限直接透传（防病态输入积压）。
 const MAX_SCAN_BYTES: usize = 64;
+
+/// 选择器名字节：xterm 的 OSC 52 选择器是单词字符（`c` / `p` / `s`），协议未定义其他取值。
+fn is_selection_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'?'
+}
 
 impl ReadScan {
     fn step(&mut self, byte: u8, snapshot: &mut OutputSnapshot) {
@@ -153,7 +168,12 @@ impl ReadScan {
                 if byte == b';' {
                     self.buf.push(byte);
                     self.state = ReadState::Question;
-                } else if byte == 0x07 || byte == 0x1B {
+                } else if byte == 0x07 || byte == 0x1B || !is_selection_byte(byte) {
+                    // 选择器名只收字母数字与 `?`（上游 `ClipboardLocation` 也只产出
+                    // `c`/`p`/`s`）。此前这里把 `\r`、`\n`、`\x0c` 等控制字节一并收下，
+                    // 而应答是逐字节拼进 `ESC ] 52 ; <sel> ; <base64> BEL` 写回 PTY 的：
+                    // 远端一条 `\e]52;c\r;?\a` 就能让应答里出现裸回车，被 shell 行编辑
+                    // 当成回车处理。非读取请求一律原样透传给上游。
                     self.drain(&mut snapshot.filtered);
                     if byte == 0x1B {
                         self.buf.push(byte);
@@ -291,6 +311,29 @@ mod tests {
         );
     }
 
+    /// RIS 全重置后扫描器必须归位。
+    ///
+    /// 扫描器是 VT 之外的第二份解析状态：停在 `Selection` 上时，重置后的前
+    /// `MAX_SCAN_BYTES` 个字节会被当成仍在读取请求的选择器名吞掉——用户按
+    /// 「重置终端」后头一段输出凭空消失，随后缓冲区溢出并报一条与重置无关的
+    /// 「选择器名过长」。
+    #[test]
+    fn reset_discards_a_half_scanned_read_request() {
+        let mut processor = OutputProcessor::new();
+        // 只喂序列的前半段：扫描器停在 `Selection` 上。
+        assert!(
+            processor.process(b"\x1b]52;cl").filtered.is_empty(),
+            "前置：未闭合的读取请求尚未吐出任何字节"
+        );
+        processor.reset();
+        let snapshot = processor.process(b"hello");
+        assert_eq!(
+            snapshot.filtered, b"hello",
+            "重置后每个字节都必须按地面态透传"
+        );
+        assert!(snapshot.clipboard_reads.is_empty());
+    }
+
     #[test]
     fn osc52_read_request_st_terminator() {
         let mut processor = OutputProcessor::new();
@@ -317,6 +360,36 @@ mod tests {
         assert!(snapshot.filtered.is_empty());
         let snapshot = processor.process(b"?\x07");
         assert_eq!(snapshot.clipboard_reads.as_slice(), ["c"]);
+        assert!(snapshot.filtered.is_empty());
+    }
+
+    /// 选择器名里的控制字节不得被当作选择器收下。
+    ///
+    /// 应答是逐字节拼成 `ESC ] 52 ; <sel> ; <base64> BEL` 写回 PTY 的，故收下回车
+    /// 就等于把裸回车塞进远端的读应答——shell 行编辑器会把它当成一次回车。协议里
+    /// 选择器是单词字符（上游 `ClipboardLocation` 也只产出 `c`/`p`/`s`），故非字母
+    /// 数字非 `?` 的字节一律判「不是读取请求」，整段原样透传给上游。
+    #[test]
+    fn osc52_selection_rejects_control_bytes() {
+        for injected in [b'\r', b'\n', 0x0c, 0xff] {
+            let mut processor = OutputProcessor::new();
+            let mut input = Vec::from(&b"\x1b]52;c"[..]);
+            input.push(injected);
+            input.extend_from_slice(b";?\x07");
+            let snapshot = processor.process(&input);
+            assert!(
+                snapshot.clipboard_reads.is_empty(),
+                "控制字节 {injected:#04x} 不得被当作选择器收下"
+            );
+            assert_eq!(snapshot.filtered, input, "非读取请求必须整段原样透传给上游");
+        }
+    }
+
+    #[test]
+    fn osc52_selection_still_accepts_word_characters() {
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"\x1b]52;c1;?\x07");
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["c1"]);
         assert!(snapshot.filtered.is_empty());
     }
 

@@ -16,7 +16,7 @@ const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_se
 /// 均由 `session` 产生（`Exit` 亦可经 `pollEvent` 上报）。
 ///
 /// 跨 JNI 边界前统一序列化为 JSON，用内部标签（`#[serde(tag = "event")]`）供 Kotlin 匹配。
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// 剪贴板写入内容：OSC 52 set 交由 Kotlin 经 `setPrimaryClip` 写入系统剪贴板。

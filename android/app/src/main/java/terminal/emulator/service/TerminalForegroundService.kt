@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -37,24 +36,33 @@ class TerminalForegroundService : Service() {
             Intent(context, TerminalForegroundService::class.java),
         )
 
-        fun updateSessionCount(context: Context, count: Int) {
+        /**
+         * 启动或更新前台服务，返回是否真的发起。
+         *
+         * 返回值必须外传：后台启动被系统拒绝时（API 31+ 的
+         * `ForegroundServiceStartNotAllowedException`，如系统杀掉服务而 `START_STICKY`
+         * 尚未重启），调用方的「服务在运行」标志若停在真，此后
+         * `startForegroundServiceIfNeeded` 会永远跳过重启——存活会话既没有常驻通知
+         * 也没有 `PARTIAL_WAKE_LOCK`，后台随时可能被杀且用户看不到任何提示。
+         */
+        fun updateSessionCount(context: Context, count: Int): Boolean {
             if (count <= 0) {
                 // 刻意忽略返回值：对已停止服务 stopService 返回 false
                 // 同样是期望的终态。
                 stop(context)
-                return
+                return true
             }
             val intent =
                 Intent(context, TerminalForegroundService::class.java).apply {
                     putExtra(EXTRA_SESSION_COUNT, count)
                 }
-            try {
+            return try {
                 context.startForegroundService(intent)
+                true
             } catch (exception: Exception) {
-                // API 31+：应用在后台而服务尚未运行时抛 ForegroundServiceStartNotAllowedException
-                // （如系统杀掉了它而 START_STICKY 尚未重启）。
-                // 这绝不能使渲染线程崩溃。
+                // 这绝不能使渲染线程崩溃；但失败必须如实报回，不得伪装成已启动。
                 LogUtil.w("TerminalForegroundService", "startForegroundService failed", exception)
+                false
             }
         }
     }
@@ -208,13 +216,17 @@ class TerminalForegroundService : Service() {
         scheduleWakeLockRenewal()
     }
 
+    /**
+     * 服务是 `android:exported="false"` 且全仓无 `bindService` 调用，`onBind` 必须
+     * 显式声明为 null——抽象成员不实现连编译都过不去，「无人调用」不是省略的理由。
+     */
+    override fun onBind(intent: Intent?): IBinder? = null
+
     private fun releaseWakeLock() {
         wakeLockRenewal.removeCallbacksAndMessages(null)
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
     }
-
-    override fun onBind(intent: Intent?): IBinder = Binder()
 
     override fun onDestroy() {
         releaseWakeLock()

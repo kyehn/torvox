@@ -61,6 +61,11 @@ shuttle 在安装全局 panic 钩子时会先访问自身的调度状态，在�
 本能力的规范依据 MUST 以 `docs/specification/TESTING.md` 与 `upstream-alignment` 的实际
 条款为准，MUST NOT 引用该文件中不存在的表述。
 
+#### Scenario: 外部基准经运行期取数
+
+- **WHEN** 网格断言的期望值取自外部真相来源（Unicode UCD 宽度表、上游模糊语料、kitty 键盘协议规范）
+- **THEN** 该数据 MUST 于测试运行期现取、仓内不留副本，取数失败即判红，MUST NOT 跳过
+
 #### Scenario: 回滚区旧行按顺序断言
 
 - **WHEN** 输出超出网格高度后回滚区被逐行读取
@@ -81,3 +86,15 @@ shuttle 在安装全局 panic 钩子时会先访问自身的调度状态，在�
 
 - **WHEN** 本能力引用 `docs/specification/TESTING.md` 作为某项取舍的依据
 - **THEN** 被引用的表述在该文件中确实存在，否则改引 `upstream-alignment` 的对应条款
+
+### Requirement: 重置终端同步归位 OSC 52 扫描器
+
+RIS 全重置 MUST 同时丢弃 OSC 52 读取扫描器的暂存状态。扫描器是 VT 之外的第二份解析
+状态，不随 RIS 重置就会停在未闭合的读取请求上：重置后的前若干字节被当成仍在读取的
+选择器名吞掉，用户看到「重置终端」后头一段输出凭空消失，并伴随一条与本次重置毫无
+关系的「选择器名过长」告警。
+
+#### Scenario: 重置后首个字节即按地面态透传
+
+- **WHEN** 扫描器停在未闭合的 OSC 52 读取请求上，此时执行 RIS 重置
+- **THEN** 重置后的每个字节都原样透传给 VT 解析器，不被当作选择器名暂存

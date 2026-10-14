@@ -44,6 +44,14 @@ pub struct GlyphCache {
     /// 与 [`Self::cjk_glyph_cache`] 同批失效（`clear_identity_caches`，即换字体/
     /// 换 locale/换字号三处），故新增字体后不会留下永久误判。
     pub unresolvable_glyphs: LruCache<char, ()>,
+    /// 实际供出过字形的面，按首次命中顺序去重。`FontPipeline::font_info` 据此上报
+    /// 「其他被使用字体」——符号族经全库扫描参与渲染，却不在 `cjk_fallback_ids` 里，
+    /// 只按回退层上报会让实际渲染所用的面全部隐形。
+    ///
+    /// 与 `cjk_glyph_cache` 同批失效：换字体/换 locale/换字号后旧结论不再成立。
+    /// 元素个数等于「当前库里有面的族数」，设备上常驻 3 个族（见 `FontPipeline::new`），
+    /// 用户换族与 locale 补装各自追加，故线性查找的成本可忽略。
+    pub used_faces: Vec<fontdb::ID>,
 }
 
 impl Default for GlyphCache {
@@ -75,6 +83,16 @@ impl GlyphCache {
             style_glyph_id_cache: LruCache::new(style_glyph_id_cap),
             outline_cache: LruCache::new(outline_cache_cap),
             unresolvable_glyphs: LruCache::new(unresolvable_cap),
+            used_faces: Vec::new(),
+        }
+    }
+
+    /// 登记一个实际供出过字形的面。只在字形解析成功后调用（见
+    /// `FontPipeline::glyph_information_from_font_with_synthesis`），故列表里
+    /// 不会混进「试过但没出图」的面。
+    pub fn note_used_face(&mut self, face: fontdb::ID) {
+        if !self.used_faces.contains(&face) {
+            self.used_faces.push(face);
         }
     }
 }

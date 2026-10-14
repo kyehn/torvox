@@ -13,19 +13,36 @@ import androidx.compose.ui.platform.LocalContext
 /**
  * 终端主题：名字与颜色一律经 [ThemeRepository] 从原生单源取回，
  * Kotlin 侧不另存任何名字面量与色值副本。
+ *
+ * 颜色由目录条目里那 54 字节（背景、前景各 3，十六色 48）在构造时解出，
+ * 条目本身不保留——终端页的光标与选区由渲染器按同一份调色板绘制，
+ * 设置页只用这里解出的背景、前景与十六色。
  */
-data class TerminalTheme(
-    val name: String,
-    /** 深底主题，供「跟随系统」在日夜两组间切换；判定由原生给出。 */
-    val dark: Boolean,
-    val background: Color,
-    val foreground: Color,
-    val cursor: Color,
-    val selectionBackground: Color,
-    val ansi: List<Color>,
-) {
+data class TerminalTheme(val name: String, val background: Color, val foreground: Color, val ansi: List<Color>) {
+    constructor(name: String, colors: ByteArray) : this(
+        name = name,
+        background = colors.colorAt(0),
+        foreground = colors.colorAt(1),
+        ansi = List(ANSI_COLOR_COUNT) { index -> colors.colorAt(2 + index) },
+    )
+
     init {
-        require(ansi.size == 16) { "Theme must have exactly 16 ANSI colors" }
+        require(ansi.size == ANSI_COLOR_COUNT) { "Theme must have exactly $ANSI_COLOR_COUNT ANSI colors" }
+    }
+
+    private companion object {
+        const val ANSI_COLOR_COUNT = 16
+        const val COLOR_BYTES = 3
+
+        fun ByteArray.colorAt(index: Int): Color {
+            val base = index * COLOR_BYTES
+            return Color(
+                0xFF000000L or
+                    (this[base].toLong() and 0xFF shl 16) or
+                    (this[base + 1].toLong() and 0xFF shl 8) or
+                    (this[base + 2].toLong() and 0xFF),
+            )
+        }
     }
 }
 

@@ -21,7 +21,7 @@ pub const SEARCH_HIGHLIGHT_CURRENT_ALPHA: u8 = 255;
 
 /// 其余命中的高亮 alpha：同样反色但降低不透明度，使当前项仍能突出。
 ///
-/// 取 160 是因为它仍 ≥ [`SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD`]（128），故与当前项
+/// 取 160 是因为它仍 ≥ `SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD`（128），故与当前项
 /// 走同一条「交换前景/背景再混合」的分支，只是不透明度不同。
 pub const SEARCH_HIGHLIGHT_OTHER_ALPHA: u8 = 160;
 /// 竖线光标宽度占单元格宽度比例（DECSCUSR 竖线样式）。
@@ -150,7 +150,7 @@ pub(crate) fn apply_search_highlight(
 
 /// 连续的一段脏网格行，并解析出其实例切片。
 ///
-/// 由 [`compute_dirty_bands`] + [`CachedInstances::band_slice`] 产出，
+/// 由 [`compute_dirty_bands`] + `CachedInstances::band_slice` 产出，
 /// 供 GPU 脏带渲染路径消费（render-vulkan-performance）：
 /// 只提交该带的实例，也只触碰累加器的带区域，
 /// 干净行保留上一帧像素。
