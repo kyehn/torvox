@@ -3425,7 +3425,7 @@ internal fun composingCursorMarker(
 }
 
 /**
- * 规范化的选区边界 * 规范化的选区边界：start ≤ end，两个锚点均钳位到网格内。
+ * 规范化的选区边界：start ≤ end，两个锚点均钳位到网格内。
  * 由 [clampSelection] 产出；供拖动手柄更新路径消费，
  * 使原生 setSelection 绝不看到倒置或越界的单元格。
  */
