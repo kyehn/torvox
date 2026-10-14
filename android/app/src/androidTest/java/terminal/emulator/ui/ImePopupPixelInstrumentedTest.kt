@@ -185,7 +185,8 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
     private fun sparseStripHeightPx(): Int {
         val metrics = composeTestRule.activity.resources
         val spToPxScale = metrics.displayMetrics.density * metrics.configuration.fontScale
-        val cellHeight = bridge().getCellHeight() * spToPxScale
+        val (_, cellHeightSp) = bridge().cellSize()
+        val cellHeight = cellHeightSp * spToPxScale
         assertTrue("单元格高度不可用 ($cellHeight)", cellHeight > 0f)
         return (SPARSE_STRIP_ROWS * cellHeight).toInt()
     }

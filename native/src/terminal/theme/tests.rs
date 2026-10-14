@@ -180,27 +180,30 @@ fn upstream_color_syntax_expands_hex_shorthand() {
     );
 }
 
-/// 每个源都能解析出调色板，且标识与 alacritty 文件名逐字相同——标识同时是构建期
-/// 路径片段与设置中落盘的键值，二者必须同源。
+/// 深底标记与首屏分组必须由背景亮度决定，且清单按深底在前排好。
+///
+/// 深底标记决定「跟随系统」在日夜两组间怎么选，而唯一的判据是上游文档给的那条
+/// 亮度阈值（见 `Theme::dark` 与 `THEMES` 的排序）。此前这里只断言「标识与清单同源」，
+/// 那等于把 `SOURCES` 和 `THEMES` 各解析一遍互相比对——两者同源，恒成立。
 #[test]
-fn every_source_parses_and_keeps_its_identifier() {
+fn dark_flag_and_leading_order_follow_background_luminance() {
     let themes = all();
     assert_eq!(themes.len(), SOURCES.len());
     for theme in themes {
         assert_eq!(
-            theme.palette.background,
-            Palette::parse(theme.name, source_of(theme.name))
-                .expect("清单项应可解析")
-                .background,
-            "{} 的标识与清单不一致",
+            theme.dark,
+            theme.palette.background.perceived_luminance() <= 0.5,
+            "{} 的深底标记与其背景亮度不符",
             theme.name,
         );
+    }
+    // 深底在前：任一深底主题的序号都不得晚于任一日间主题。
+    let last_dark = themes.iter().rposition(|theme| theme.dark);
+    let first_light = themes.iter().position(|theme| !theme.dark);
+    if let (Some(last_dark), Some(first_light)) = (last_dark, first_light) {
         assert!(
-            theme
-                .palette
-                .ansi
-                .iter()
-                .all(|color| *color != RgbColor::default())
+            last_dark < first_light,
+            "深底主题未排在日间主题之前：{last_dark} vs {first_light}"
         );
     }
     let unique: std::collections::BTreeSet<&str> = themes.iter().map(|theme| theme.name).collect();
@@ -222,4 +225,94 @@ fn dark_and_light_groups_are_separated() {
     assert!(default_dark().dark);
     assert!(!by_name(default_light_name()).expect("默认日间主题").dark);
     assert_ne!(DEFAULT_DARK_INDEX, DEFAULT_LIGHT_INDEX);
+}
+
+/// 目录打包：逐字段按布局读回，与 [`super::pack_catalog`] 的文档一致。
+///
+/// 判据不只是「能解开」：条数、顺序、名称、深底与默认标记、颜色三元组各自与
+/// [`all`] / [`default_dark`] / [`default_light_name`] 对得上——打包与真源一旦
+/// 漂移，设置页就会按另一套顺序或另一个默认主题渲染。
+#[test]
+fn catalog_packs_every_theme_in_source_order() {
+    const ENTRY_COLOR_BYTES: usize = 54;
+
+    struct Entry {
+        flags: u8,
+        name: String,
+        colors: Vec<u8>,
+    }
+
+    fn parse(packed: &[u8]) -> Vec<Entry> {
+        let mut offset = 0usize;
+        let count = u16::from_le_bytes(packed[offset..offset + 2].try_into().unwrap());
+        offset += 2;
+        let mut entries = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let flags = packed[offset];
+            let name_length = packed[offset + 1] as usize;
+            offset += 2;
+            let name = String::from_utf8(packed[offset..offset + name_length].to_vec()).unwrap();
+            offset += name_length;
+            let colors = packed[offset..offset + ENTRY_COLOR_BYTES].to_vec();
+            offset += ENTRY_COLOR_BYTES;
+            entries.push(Entry {
+                flags,
+                name,
+                colors,
+            });
+        }
+        assert_eq!(offset, packed.len(), "打包长度须与逐条读取的偏移一致");
+        entries
+    }
+
+    fn color_at(colors: &[u8], index: usize) -> RgbColor {
+        let base = index * 3;
+        RgbColor {
+            r: colors[base],
+            g: colors[base + 1],
+            b: colors[base + 2],
+        }
+    }
+
+    let entries = parse(&super::pack_catalog());
+    let themes = all();
+    assert_eq!(entries.len(), themes.len());
+    let default_dark_name = default_dark().name;
+    let default_light_name = default_light_name();
+    for (entry, theme) in entries.iter().zip(themes) {
+        assert_eq!(entry.name, theme.name);
+        assert_eq!(
+            entry.flags & 1 != 0,
+            theme.dark,
+            "{} 的深底标记与真源不符",
+            theme.name
+        );
+        assert_eq!(
+            entry.flags & 2 != 0,
+            theme.name == default_dark_name,
+            "{} 的默认深色标记与真源不符",
+            theme.name
+        );
+        assert_eq!(
+            entry.flags & 4 != 0,
+            theme.name == default_light_name,
+            "{} 的默认浅色标记与真源不符",
+            theme.name
+        );
+        assert_eq!(color_at(&entry.colors, 0), theme.palette.background);
+        assert_eq!(color_at(&entry.colors, 1), theme.palette.foreground);
+        for (index, ansi) in theme.palette.ansi.iter().enumerate() {
+            assert_eq!(color_at(&entry.colors, 2 + index), *ansi, "{}", theme.name);
+        }
+    }
+    assert_eq!(
+        entries.iter().filter(|entry| entry.flags & 2 != 0).count(),
+        1,
+        "默认深色主题须恰有一个"
+    );
+    assert_eq!(
+        entries.iter().filter(|entry| entry.flags & 4 != 0).count(),
+        1,
+        "默认浅色主题须恰有一个"
+    );
 }

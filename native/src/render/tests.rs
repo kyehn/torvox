@@ -636,9 +636,9 @@ fn test_config<'a>(
     grid_cell_width: f32,
     grid_cell_height: f32,
     cursor: CellCursor,
-    search_highlights: &'a [gpu::SearchHighlight],
-) -> gpu::CellInstanceConfig<'a> {
-    gpu::CellInstanceConfig {
+    search_highlights: &'a [cell_builder::SearchHighlight],
+) -> cell_builder::CellInstanceConfig<'a> {
+    cell_builder::CellInstanceConfig {
         rows,
         cols,
         grid_cell_width,
@@ -1731,7 +1731,13 @@ fn render_paused_skips_frame() {
     assert!(!context.render_paused, "should start unpaused");
     // 未配置 surface 时，未暂停状态下渲染必须失败
     assert!(
-        context.render_frame(&[], &[]).is_err(),
+        context
+            .render_frame_with_plan(
+                &[],
+                &[],
+                &crate::render::cell_builder::FramePatch::default()
+            )
+            .is_err(),
         "expected error when not paused and no surface"
     );
     // When paused, render reports not-presented (Err) so the caller
@@ -1739,7 +1745,13 @@ fn render_paused_skips_frame() {
     // frame would otherwise be lost forever (IME pause swallows output).
     context.set_render_paused(true);
     assert!(
-        context.render_frame(&[], &[]).is_err(),
+        context
+            .render_frame_with_plan(
+                &[],
+                &[],
+                &crate::render::cell_builder::FramePatch::default()
+            )
+            .is_err(),
         "expected err when paused (frame not presented)"
     );
 }
@@ -1750,12 +1762,24 @@ fn render_paused_toggle_resumes_rendering() {
     // Pause then unpause
     context.set_render_paused(true);
     assert!(
-        context.render_frame(&[], &[]).is_err(),
+        context
+            .render_frame_with_plan(
+                &[],
+                &[],
+                &crate::render::cell_builder::FramePatch::default()
+            )
+            .is_err(),
         "paused reports not-presented"
     );
     context.set_render_paused(false);
     assert!(
-        context.render_frame(&[], &[]).is_err(),
+        context
+            .render_frame_with_plan(
+                &[],
+                &[],
+                &crate::render::cell_builder::FramePatch::default()
+            )
+            .is_err(),
         "unpaused fails without surface (correct behavior)"
     );
 }
@@ -1766,7 +1790,13 @@ fn render_paused_remains_paused_after_multiple_frames() {
     context.set_render_paused(true);
     for _ in 0..10 {
         assert!(
-            context.render_frame(&[], &[]).is_err(),
+            context
+                .render_frame_with_plan(
+                    &[],
+                    &[],
+                    &crate::render::cell_builder::FramePatch::default()
+                )
+                .is_err(),
             "paused render must stay not-presented across multiple frames"
         );
     }
@@ -1784,7 +1814,13 @@ fn set_render_paused_idempotent() {
     context.set_render_paused(true);
     context.set_render_paused(true);
     assert!(
-        context.render_frame(&[], &[]).is_err(),
+        context
+            .render_frame_with_plan(
+                &[],
+                &[],
+                &crate::render::cell_builder::FramePatch::default()
+            )
+            .is_err(),
         "double-pause still not-presented"
     );
 }
@@ -1863,7 +1899,7 @@ fn bench_gpu_command_encoding_overhead() {
 
 /// Benchmark full GPU pipeline throughput for rendering a screen of CellInstances:
 /// buffer upload + command encoding + submit + poll. This mirrors the actual
-/// render_frame() path without requiring a swapchain surface.
+/// render_frame_with_plan() path without requiring a swapchain surface.
 #[test]
 fn bench_gpu_full_submit_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
@@ -2097,6 +2133,60 @@ fn kgp_atlas_zero_size_clears_texture() {
     assert!(context.kgp_bind_group.is_none());
     assert_eq!(context.kgp_atlas_width, 0);
     assert_eq!(context.kgp_atlas_height, 0);
+}
+
+/// 超出设备上限的图集尺寸必须被拒绝，而不是装一个无效纹理。
+///
+/// `create_texture` 对超限尺寸返回无效句柄，装上去图像永远不出现，只有逐帧的
+/// wgpu 校验错误——而尺寸来自 kitty 帧宽累加，属远端可控输入。
+#[test]
+fn kitty_atlas_beyond_the_device_limit_is_rejected() {
+    let mut context = Renderer::new_with_no_surface();
+    // 只把**一个**轴撑到超限，另一轴取 1：载荷于是只有 64KB 量级，
+    // 「长度不足」那条早退不会替尺寸检查兜底——否则去掉尺寸检查本用例照样全绿。
+    let oversized = context.device.limits().max_texture_dimension_2d + 1;
+    let payload = vec![0u8; oversized as usize * 4];
+    context.set_kgp_atlas(&payload, oversized, 1);
+    assert!(
+        context.kgp_texture.is_none(),
+        "超限图集不得装入（{oversized} > 设备上限）"
+    );
+    assert_eq!(context.kgp_atlas_width, 0);
+}
+
+/// 换 Kitty 图集必须让下一帧全量重绘。
+///
+/// 漏掉时后果只在**清空**分支现形：图像消失后 `kgp_instances` 为空，
+/// `should_render_partial_frame` 重新放行部分帧，而图像原先压住的那些行若并不脏
+/// （kitty 图常叠在空白单元格上），此后每帧只画脏带——图像像素永久残留在屏幕上。
+#[test]
+fn replacing_the_kitty_atlas_invalidates_the_accumulator() {
+    let mut context = Renderer::new_with_no_surface();
+    let (width, height) = (4u32, 4u32);
+    context.set_kgp_atlas(
+        &vec![0u8; (width as usize) * 4 * (height as usize)],
+        width,
+        height,
+    );
+    context.frame_invalidated = false;
+
+    // 换图集：新图集的 UV 布局与旧图集无关，未重绘的行留的是上一张图的残片。
+    context.set_kgp_atlas(&[], 0, 0);
+    assert!(
+        context.frame_invalidated,
+        "清空图集后下一帧必须全量重绘，否则旧图像像素永久残留"
+    );
+
+    context.frame_invalidated = false;
+    context.set_kgp_atlas(
+        &vec![0u8; (width as usize) * 4 * (height as usize)],
+        width,
+        height,
+    );
+    assert!(
+        context.frame_invalidated,
+        "换图集后下一帧必须全量重绘，否则留下上一张图的残片"
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2935,5 +3025,40 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
     assert_eq!(
         frame_back, frame_at_rest,
         "full redraw after scroll settle must be byte-identical to pre-scroll"
+    );
+}
+
+/// 被拒的图集必须把「没装上」告诉调用方，否则实例会滞留。
+///
+/// 判别力：拒绝只清纹理与尺寸，调用方若照旧写回按旧图集算好的实例，`kgp_present`
+/// 便恒真——绑定组恒 `None` 图像永不出现，**部分帧增量渲染在该会话剩余生命周期内彻底
+/// 失效**，且每帧都因「上传尺寸漂移」重打包一次。把 `false` 一律改成 `true` 即复现。
+#[test]
+fn a_rejected_kitty_atlas_reports_the_rejection() {
+    let mut context = Renderer::new_with_no_surface();
+    let (width, height) = (4u32, 4u32);
+    assert!(
+        context.set_kgp_atlas(
+            &vec![0u8; (width as usize) * 4 * (height as usize)],
+            width,
+            height
+        ),
+        "恰好够长的载荷必须被接受"
+    );
+
+    // 三条拒绝路径都要说出来：长度不足、零尺寸（清空）、超设备上限。
+    let short_by_one = vec![0u8; (width as usize) * 4 * (height as usize) - 1];
+    assert!(
+        !context.set_kgp_atlas(&short_by_one, width, height),
+        "长度不足必须报告未装载"
+    );
+    assert!(
+        !context.set_kgp_atlas(&[], 0, 0),
+        "零尺寸（清空）必须报告未装载"
+    );
+    let oversized = context.device.limits().max_texture_dimension_2d + 1;
+    assert!(
+        !context.set_kgp_atlas(&vec![0u8; oversized as usize * 4], oversized, 1),
+        "超设备上限必须报告未装载"
     );
 }

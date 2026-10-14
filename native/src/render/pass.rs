@@ -384,18 +384,6 @@ impl Renderer {
         ) && !scroll_active
     }
 
-    pub fn render_frame(
-        &mut self,
-        instances: &[crate::render::CellInstance],
-        kgp_instances: &[crate::render::KittyGraphicsInstance],
-    ) -> Result<(), GpuError> {
-        self.render_frame_with_plan(
-            instances,
-            kgp_instances,
-            &crate::render::cell_builder::FramePatch::default(),
-        )
-    }
-
     /// 每个脏带构造一个纯色实例：has_glyph=0 的四边形，单元着色器直接以
     /// `background` 原样填充，覆盖该带的完整像素矩形（全部列 × 该带的行跨度）。
     fn band_clear_instances(

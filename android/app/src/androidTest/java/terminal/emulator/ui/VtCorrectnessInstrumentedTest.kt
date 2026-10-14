@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -190,20 +191,34 @@ class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
     @Test
     fun cursorKeyModeSwitchesViaDecPrivateMode() {
         withSession { sessionId ->
-            // 对标 sylirre EmulatorVtTest.arrowKeyEncodingHonorsCursorKeyMode 的模式部分：
-            // DECCKM（DEC 私有模式 1）切换必须经 getMode 查询可见。
+            // 对标 sylirre EmulatorVtTest.arrowKeyEncodingHonorsCursorKeyMode 的模式部分。
+            //
+            // 判据取**生产编码路径**而非模式标志查询：DECCKM（DEC 私有模式 1）是否真的
+            // 到达编码器读的那份终端状态，唯一可观测的后果是方向键的形式在 CSI 与 SS3
+            // 应用光标之间切换。原生 `getMode` 导出已随之删除——它没有生产调用方，
+            // 而留下的判据比模式标志更强。
+            fun encodedArrowKey(): String = NativeBridge.encodeKeyEvent(
+                sessionId,
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                0,
+                0,
+                0,
+                android.view.KeyEvent.ACTION_DOWN,
+            ).toString(Charsets.US_ASCII)
+
+            assertEquals("默认状态下方向键走 CSI 形式", "\u001b[A", encodedArrowKey())
             feedText(sessionId, "\u001B[?1h")
             val enabled =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
-                    NativeBridge.getMode(sessionId, 1, 0)
+                    encodedArrowKey() == "\u001bOA"
                 }
-            assertNotNull("DECCKM 置位后 getMode(1) 必须为真", enabled)
+            assertNotNull("DECCKM 置位后方向键须换成 SS3 应用光标形式", enabled)
             feedText(sessionId, "\u001B[?1l")
             val disabled =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
-                    !NativeBridge.getMode(sessionId, 1, 0)
+                    encodedArrowKey() == "\u001b[A"
                 }
-            assertNotNull("DECCKM 复位后 getMode(1) 必须为假", disabled)
+            assertNotNull("DECCKM 复位后方向键须回到 CSI 形式", disabled)
         }
     }
 

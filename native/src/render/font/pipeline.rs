@@ -25,6 +25,8 @@ pub struct FontInfo {
     pub cjk_state: CjkFallbackState,
     /// [`CjkFallbackState::Fallback`] 时列出的 CJK 回退族名。
     pub cjk_families: Vec<String>,
+    /// 除主字体与 `cjk_families` 之外实际供出过字形的族名（符号族、区域族等）。
+    pub other_families: Vec<String>,
     pub cell_width_px: f32,
     pub cell_height_px: f32,
     /// 逻辑字号（sp，Kotlin 侧传入 setFontSizeInPlace 的值）。
@@ -253,6 +255,7 @@ impl FontPipeline {
         // 只清正缓存会让补装前算出的「无粗面」结论活过那次补装：主字体没变、
         // key 不变，LRU 也不会自然淘汰，于是 `bold=true` 一直走合成加粗而非真粗面。
         self.caches.style_face_cache.clear();
+        self.caches.used_faces.clear();
         self.caches.ascii_glyph_ids = [None; 128];
     }
 
@@ -349,6 +352,8 @@ impl FontPipeline {
         self.raster_scale = scale;
         self.caches.shape_cache.clear();
         self.caches.glyph_cache.clear();
+        // 负缓存的成立条件是「当前光栅尺寸下全库扫描描得出图」，故与光栅尺寸同批失效。
+        self.caches.unresolvable_glyphs.clear();
         self.reset_atlas();
         log::debug!("RASTER_SCALE: scale={:.3}", scale);
     }
@@ -471,6 +476,40 @@ impl FontPipeline {
         self.primary_covers_cjk_probe()
     }
 
+    /// 实际供出字形的面里，除主字体与 [Self::cjk_fallback_names] 之外的族名。
+    ///
+    /// 按 [`GlyphCache::used_faces`] 的首次命中顺序去重保留：第一个供出字形的面
+    /// 就是渲染真正落到它上面的那个族，顺序有信息量。主字体（含其粗/斜面，同族）
+    /// 与已单独上报的 CJK 回退族都不在此列，避免设置页同一行显示两遍。
+    fn other_used_family_names(&self) -> Vec<String> {
+        let font_database = self.font_system.db();
+        let primary_family = self
+            .font_id
+            .and_then(|id| font_database.face(id))
+            .and_then(|face| face.families.first().map(|(name, _)| name.as_str()));
+        let cjk_families = self.cjk_fallback_names();
+        let mut seen: std::collections::HashSet<String> = cjk_families
+            .iter()
+            .map(|name| name.to_lowercase())
+            .collect();
+        let mut ordered = Vec::new();
+        for &id in &self.caches.used_faces {
+            let Some(name) = font_database
+                .face(id)
+                .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+            else {
+                continue;
+            };
+            if primary_family.is_some_and(|primary| primary.eq_ignore_ascii_case(&name))
+                || !seen.insert(name.to_lowercase())
+            {
+                continue;
+            }
+            ordered.push(name);
+        }
+        ordered
+    }
+
     /// 供 UI 层（JNI）使用的结构化字体信息，仅承载数据，
     /// 显示字符串一律放在 Kotlin 资源里以便本地化。
     pub fn font_info(&self) -> FontInfo {
@@ -502,6 +541,7 @@ impl FontPipeline {
             active,
             cjk_state,
             cjk_families,
+            other_families: self.other_used_family_names(),
             cell_width_px: cw * raster_scale,
             cell_height_px: ch * raster_scale,
             font_size: self.font_size,

@@ -99,4 +99,27 @@ class ImeCursorContractTest {
         mover.resetTo(2)
         assertEquals(2, mover.moveTo(0).leftward())
     }
+    // ── CursorUpdateMonitor ──────────────────────────────────────
+
+    @Test
+    fun `no monitoring request means no anchor is ever due`() {
+        val monitor = CursorUpdateMonitor()
+        assertFalse(monitor.isMonitoring)
+        // IME 未请求时逐次组字变化都不得回报：那是一条没人等的 IPC。
+        monitor.update(0)
+        assertFalse(monitor.isMonitoring)
+    }
+
+    @Test
+    fun `monitoring turns on and off with the requested mode`() {
+        val monitor = CursorUpdateMonitor()
+        monitor.update(CursorUpdateMonitor.MONITOR)
+        assertTrue(monitor.isMonitoring)
+        // 输入法关闭监视时把模式清掉：此后必须停止回报，否则通道一直挂着。
+        monitor.update(0)
+        assertFalse(monitor.isMonitoring)
+        // 叠加 FILTER 位仍是监视中。
+        monitor.update(CursorUpdateMonitor.MONITOR or (1 shl 4))
+        assertTrue(monitor.isMonitoring)
+    }
 }

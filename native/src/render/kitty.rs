@@ -44,7 +44,12 @@ fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
             atlas_y: 0,
         }));
         clamped.push(rect);
-        width = width.saturating_add(rect.2);
+        // 每条目后留 1 像素沟槽：KGP 采样器是双线性，而显示尺寸通常不等于源子矩形
+        // （缩放或子矩形裁剪都会让片元中心的纹素坐标落到子图边界外），于是边缘的
+        // 双线性 tap 会跨过边界取到**邻图**的首列，每张图右缘出现一道邻图颜色的竖条。
+        // 沟槽里复制该子图自己的末列（见 `pack_atlas`），边界外插于是取到同色而非邻色。
+        // 字形图集走的是另一条同款约定：`allocate(width + 1, height + 1)`。
+        width = width.saturating_add(rect.2 + 1);
         height = height.max(rect.3);
     }
     if width == 0 || height == 0 {
@@ -127,6 +132,13 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             source_width,
             source_height,
         );
+        // 填沟槽：逐行把末列复制到右侧那一像素。
+        let stride = layout.width as usize * 4;
+        let edge = (entry.atlas_x + source_width) as usize * 4;
+        for row in 0..source_height as usize {
+            let last = row * stride + edge - 4;
+            atlas.copy_within(last..last + 4, row * stride + edge);
+        }
     }
     Some((
         Cow::Owned(atlas),
@@ -347,19 +359,34 @@ mod tests {
         assert!(layout_entries(&[]).is_none());
     }
 
+    /// 条带条目之间留 1 像素沟槽，沟槽里是**本条目自己的末列**。
+    ///
+    /// KGP 采样器是双线性，而显示尺寸通常不等于源子矩形（缩放、`source_*` 子矩形
+    /// 裁剪都会让片元中心的纹素坐标落到子图边界外），边缘的 tap 于是跨过边界取到
+    /// 邻图首列——每张图右缘出现一道邻图颜色的竖条。沟槽复制末列后，边界外插取到的
+    /// 是同色像素。
     #[test]
-    fn strip_packs_two_images_side_by_side() {
+    fn strip_entries_are_separated_by_a_replicated_edge_column() {
         let frames = vec![test_frame(), green_frame_at(5, 0)];
         let (atlas, width, height, entries) = pack_atlas(&frames).expect("atlas");
-        assert_eq!((width, height), (3, 2));
-        assert_eq!(entries.len(), 2);
+        // 1 像素的第一张 + 1 沟槽 + 2 像素的第二张 + 1 沟槽。
+        assert_eq!((width, height), (5, 2), "每条目后各留 1 像素沟槽");
+        assert_eq!(entries[1].as_ref().map(|entry| entry.atlas_x), Some(2));
+        let texel = |x: u32, y: u32| {
+            let offset = (y * width + x) as usize * 4;
+            atlas[offset..offset + 4].to_vec()
+        };
+        assert_eq!(texel(1, 0), vec![255, 0, 0, 255], "沟槽复制本图末列");
+        assert_eq!(texel(1, 1), vec![0, 0, 0, 0], "未被任何图覆盖的行保持透明");
+        assert_eq!(texel(4, 0), vec![0, 255, 0, 255], "第二张自己的沟槽");
+
         let instances = build_kitty_instances(&frames, width, height, &entries, 8.0, 16.0);
         assert_eq!(instances.len(), 2);
-        // 第二帧 UV 指向条带偏移 1/3 处，宽 2/3。
-        assert_eq!(instances[1].atlas_offset, [1.0 / 3.0, 0.0]);
-        assert_eq!(instances[1].atlas_region, [2.0 / 3.0, 1.0]);
+        // UV 按子矩形归一化，沟槽不计入子图：第二帧偏移 2/5、宽 2/5。
+        assert_eq!(instances[1].atlas_offset, [2.0 / 5.0, 0.0]);
+        assert_eq!(instances[1].atlas_region, [2.0 / 5.0, 1.0]);
         assert_eq!(instances[1].quad_origin, [40.0, 0.0]);
-        assert_eq!(atlas.len(), 3 * 2 * 4);
+        assert_eq!(atlas.len(), 5 * 2 * 4);
     }
 
     #[test]
@@ -369,11 +396,11 @@ mod tests {
         bad.source_x = 10;
         let frames = vec![bad, green_frame_at(0, 0)];
         let (atlas, width, height, entries) = pack_atlas(&frames).expect("atlas survives");
-        assert_eq!((width, height), (2, 2));
+        assert_eq!((width, height), (3, 2), "无效帧不占沟槽");
         assert!(entries[0].is_none());
         let instances = build_kitty_instances(&frames, width, height, &entries, 8.0, 16.0);
         assert_eq!(instances.len(), 1);
-        assert_eq!(atlas.len(), 2 * 2 * 4);
+        assert_eq!(atlas.len(), 3 * 2 * 4);
     }
 
     #[test]

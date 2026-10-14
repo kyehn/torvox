@@ -239,15 +239,6 @@ pub fn all() -> &'static [Theme] {
     &THEMES
 }
 
-/// 标识对应的 alacritty 源文本。标识即文件名，故取源只需按标识查 [`SOURCES`]。
-#[cfg(test)]
-fn source_of(name: &str) -> &'static str {
-    SOURCES
-        .iter()
-        .find_map(|(source_name, text)| (*source_name == name).then_some(*text))
-        .unwrap_or_else(|| panic!("清单中没有标识 {name}"))
-}
-
 /// 默认（夜间）主题，对应 DESIGN 指定的默认终端主题。
 ///
 /// 会话初态、渲染首帧清除色与设置默认值都取这里，故不存在第二份默认主题声明。
@@ -258,6 +249,59 @@ pub fn default_dark() -> &'static Theme {
 /// 默认（日间）主题标识。
 pub fn default_light_name() -> &'static str {
     SOURCES[DEFAULT_LIGHT_INDEX].0
+}
+
+/// 主题目录一次查询的跨语言打包字节（小端）。
+///
+/// 取代「逐个标识取调色板」的往返：设置页一次显示全部主题，逐个取要做
+/// `1 + N` 次同步 JNI，而目录在构建期即固定、进程内不变。
+///
+/// ```text
+/// u16  主题数，与 [`all`] 同序
+/// 每条：
+///   u8  标志：bit0 深底；bit1 默认深色；bit2 默认浅色
+///   u8  名称字节数
+///   名称 UTF-8
+///   54 字节颜色：背景、前景各 3，十六色 48
+/// ```
+///
+/// 光标色与选区色不入包：终端页的光标与选区由渲染器按同一份调色板绘制，
+/// 设置页预览只用背景、前景与十六色，码进包里只会留下无人读取的字段。
+pub fn pack_catalog() -> Vec<u8> {
+    const COLOR_BYTES: usize = 3;
+    /// 背景、前景与十六色，即 Kotlin 侧真正消费的全部颜色。
+    const ENTRY_COLOR_BYTES: usize = 18 * COLOR_BYTES;
+    const FLAG_DARK: u8 = 1 << 0;
+    const FLAG_DEFAULT_DARK: u8 = 1 << 1;
+    const FLAG_DEFAULT_LIGHT: u8 = 1 << 2;
+
+    let default_dark_name = default_dark().name;
+    let default_light_name = default_light_name();
+    let mut packed = Vec::with_capacity(2 + THEMES.len() * (2 + ENTRY_COLOR_BYTES));
+    packed.extend_from_slice(&(THEMES.len() as u16).to_le_bytes());
+    for theme in THEMES.iter() {
+        let mut flags = 0;
+        if theme.dark {
+            flags |= FLAG_DARK;
+        }
+        if theme.name == default_dark_name {
+            flags |= FLAG_DEFAULT_DARK;
+        }
+        if theme.name == default_light_name {
+            flags |= FLAG_DEFAULT_LIGHT;
+        }
+        packed.push(flags);
+        let name = theme.name.as_bytes();
+        packed.push(name.len() as u8);
+        packed.extend_from_slice(name);
+        for color in [theme.palette.background, theme.palette.foreground]
+            .into_iter()
+            .chain(theme.palette.ansi)
+        {
+            packed.extend_from_slice(&[color.r, color.g, color.b]);
+        }
+    }
+    packed
 }
 
 /// 按主题标识取主题。未命中返回 `None`：存着无法解析的名字即设置数据损坏，

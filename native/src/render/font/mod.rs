@@ -302,6 +302,95 @@ mod tests {
         }
     }
 
+    /// 「其他被使用字体」上报的是**实际供出字形的面**，不是「回退层里装着的族」。
+    ///
+    /// 两者会相反：回退层只含 CJK 族，而符号/区域族是全库扫描找到的，从不进
+    /// `cjk_fallback_ids`。没有这条上报时，屏幕上真的参与渲染的符号族对用户隐形。
+    /// 宿主环境带 Noto CJK 与 Maple Mono，拉丁与汉字分属不同族，故渲染一个汉字
+    /// 后必能观察到一个非主字体族。
+    #[test]
+    fn reported_other_families_name_the_faces_that_actually_supplied_glyphs() {
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        let primary = pipeline
+            .current_font_family_name()
+            .expect("宿主须有可用主字体");
+        // 只光栅化 ASCII：全部落在主字体，此时不应报出任何「其他」族。
+        assert_eq!(
+            pipeline.font_info().other_families,
+            Vec::<String>::new(),
+            "仅主字体供出字形时不得凭空多报"
+        );
+        let glyph = pipeline
+            .glyph_information('中')
+            .expect("宿主字体库须能解析汉字");
+        assert!(glyph.width > 0 && glyph.height > 0);
+        let info = pipeline.font_info();
+        assert!(
+            info.other_families
+                .iter()
+                .any(|family| !family.eq_ignore_ascii_case(&primary)),
+            "主字体 {primary} 未覆盖汉字时，实际供出字形的族应被上报：{:?}",
+            info.other_families
+        );
+        assert!(
+            !info.other_families.contains(&primary),
+            "主字体自身不得出现在「其他被使用字体」里"
+        );
+        // 已被单独上报的 CJK 回退族不再重复出现在尾段。
+        assert!(
+            info.cjk_families
+                .iter()
+                .all(|family| !info.other_families.contains(family)),
+            "CJK 回退族已在独立行显示：{:?} / {:?}",
+            info.cjk_families,
+            info.other_families
+        );
+    }
+
+    /// 换字号后旧字体的结论不得留存：换之前渲染过汉字（非主字体族），换回来时
+    /// 该族须重新累积，否则「其他被使用字体」会一直挂着早已不再渲染的族。
+    #[test]
+    fn used_face_reporting_resets_with_the_identity_caches() {
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        assert!(
+            pipeline.glyph_information('中').is_some(),
+            "宿主字体库须能解析汉字"
+        );
+        assert!(
+            !pipeline.font_info().other_families.is_empty(),
+            "前置：渲染汉字后须已有非主字体族可报"
+        );
+        pipeline.set_font_size_in_place(18.0);
+        assert_eq!(
+            pipeline.font_info().other_families,
+            Vec::<String>::new(),
+            "清空后须重新累积，不得留存上一次字体的面"
+        );
+    }
+
+    /// 换 locale 会清空上报面集合却**保留** `glyph_cache`（`set_system_locale` 只调
+    /// `clear_identity_caches`）。于是重新取同一个字时走的是缓存命中分支、不再重新
+    /// 光栅化——若只在新光栅化路径上登记，供出该字形的面就此永久漏报。
+    #[test]
+    fn used_face_reporting_survives_a_locale_change_without_re_rasterizing() {
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        assert!(
+            pipeline.glyph_information('中').is_some(),
+            "宿主字体库须能解析汉字"
+        );
+        pipeline.set_system_locale("ja-JP");
+        assert!(
+            pipeline.font_info().other_families.is_empty(),
+            "前置：locale 变更后上报面已清空"
+        );
+        let cached = pipeline.glyph_information('中').expect("缓存命中仍须出图");
+        assert!(cached.width > 0 && cached.height > 0);
+        assert!(
+            !pipeline.font_info().other_families.is_empty(),
+            "缓存命中的字形同样算「实际供出」，其面须重新登记"
+        );
+    }
+
     #[test]
     fn font_matching_stripped_spaces() {
         let pipeline = FontPipeline::new(1024, 1024, 14.0);
@@ -1112,6 +1201,22 @@ mod tests {
         assert!(
             !pipeline.caches.unresolvable_glyphs.contains(&rare),
             "负缓存须与 cjk_glyph_cache 同批失效，否则新字体装入后仍判找不到"
+        );
+
+        // 缩放同样在失效面上：扫描的接受判据是「**当前光栅尺寸**下 swash 描得出图」
+        // （`find_glyph_anywhere` 要求 `width > 0 && height > 0`，而换尺寸会换掉
+        // 候选面上的 bitmap strike 与矢量轮廓）。结论绑在尺寸上却不同步失效时，
+        // 缩放后个别码位永久显示 .notdef，直到换字体/字号/locale 才恢复——而
+        // `glyph_cache` 与 `atlas_generation` 都已换代，症状与缓存不一致极易误判。
+        pipeline.glyph_information(rare);
+        assert!(
+            pipeline.caches.unresolvable_glyphs.contains(&rare),
+            "前置：重新落入负缓存"
+        );
+        pipeline.set_raster_scale(2.0);
+        assert!(
+            !pipeline.caches.unresolvable_glyphs.contains(&rare),
+            "负缓存绑定当前光栅尺寸，改缩放必须随之失效"
         );
     }
 

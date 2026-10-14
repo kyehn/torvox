@@ -1,11 +1,9 @@
 use std::collections::VecDeque;
 use std::io;
 use std::os::unix::io::{OwnedFd, RawFd};
-use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal::pty::{Pty, PtyError};
-use crate::terminal::shell_env::ShellEnv;
 
 struct MockPtyInner {
     input_buffer: VecDeque<Vec<u8>>,
@@ -21,6 +19,11 @@ struct MockPtyInner {
     /// 置位后 write 先进 gate 的「已进入」闸并等待「放行」，用于确定性地复现
     /// 「持有互斥量的写入进行中」这一并发状态（靠 sleep 判定必然带竞态）。
     gate: Option<Arc<WriteGate>>,
+    /// 「下一次只写前 N 字节」的额度：确定性地复现「部分写出后主端满」，即写调用方
+    /// 必须只把**未写出**的部分退回队列的情形。
+    partial_write: Option<usize>,
+    /// 额度用尽后恒返回 EAGAIN（模拟子进程不再读 stdin）。
+    block_writes: bool,
 }
 
 /// 让 [Pty::write] 可被外部确定性地停在临界区内。
@@ -77,12 +80,21 @@ impl MockPty {
             .interrupt_writes = count;
     }
 
+    /// 让下一次 [Pty::write] 只写出前 `bytes` 字节、其后恒返回 EAGAIN。
+    pub fn write_partial_then_block(&mut self, bytes: usize) {
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
+        inner.partial_write = Some(bytes);
+        inner.block_writes = true;
+    }
+
     pub fn new(rows: u16, cols: u16) -> (Self, MockPtyHandle) {
         let inner = Arc::new(Mutex::new(MockPtyInner {
             input_buffer: VecDeque::new(),
             resize_count: 0,
             interrupt_writes: 0,
             gate: None,
+            partial_write: None,
+            block_writes: false,
             child_exited: false,
             rows,
             cols,
@@ -97,6 +109,15 @@ impl MockPty {
 }
 
 impl MockPtyHandle {
+    /// 恢复「写多少都接受」，用于模拟子进程重新开始消费（见
+    /// [`MockPty::write_partial_then_block`]）。`MockPty` 已被装箱进会话，只能经
+    /// 本句柄设置——它与替身共用同一份内部状态。
+    pub fn force_unblock_writes(&self) {
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
+        inner.partial_write = None;
+        inner.block_writes = false;
+    }
+
     pub fn set_exited(&self) {
         self.inner.lock().expect("mock mutex poisoned").child_exited = true;
     }
@@ -145,6 +166,14 @@ impl Pty for MockPty {
             }
         }
         let mut inner = self.inner.lock().expect("mock mutex poisoned");
+        if inner.block_writes {
+            if let Some(partial) = inner.partial_write.take() {
+                let accepted = buf.len().min(partial);
+                inner.input_buffer.push_back(buf[..accepted].to_vec());
+                return Ok(accepted);
+            }
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
         if inner.interrupt_writes > 0 {
             inner.interrupt_writes -= 1;
             return Err(io::Error::from(io::ErrorKind::Interrupted));
@@ -206,16 +235,5 @@ impl Pty for MockPty {
 
     fn set_nonblocking(&self) -> Result<(), PtyError> {
         Ok(())
-    }
-
-    fn spawn(
-        _shell: &str,
-        rows: u16,
-        cols: u16,
-        _env: &ShellEnv,
-        _cwd: Option<&Path>,
-    ) -> Result<Box<dyn Pty>, PtyError> {
-        let (mock, _handle) = MockPty::new(rows, cols);
-        Ok(Box::new(mock))
     }
 }

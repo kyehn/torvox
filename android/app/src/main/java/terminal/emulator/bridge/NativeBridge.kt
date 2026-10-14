@@ -5,7 +5,7 @@ import terminal.emulator.runtime.LogUtil
 /**
  * 到原生 Rust 终端引擎（`native.so`）的 JNI 桥接，全部为直接 `external fun` 导出，无 JNA、无线路编码。
  *
- * 会话流程：[initSession] 创建 → [feedPty]/[writeKey] 送输入 → 每帧 [pollEvent] 排空事件 → [destroySession] 销毁。
+ * 会话流程：[initSession] 创建 → [feedPty]/[encodeKeyText] 送输入 → 每帧 [pollEvent] 排空事件 → [destroySession] 销毁。
  * 渲染流程：[attachWindow] 传入 Surface 指针，[detachWindow] 在 Surface 销毁时解绑，[resize] 更新尺寸。
  */
 object NativeBridge {
@@ -45,8 +45,12 @@ object NativeBridge {
     /** 切换当前会话，会话存在返回 true。 */
     @JvmStatic external fun switchSession(sessionId: Long): Boolean
 
-    /** 当前活跃会话数。 */
-    @JvmStatic external fun getSessionCount(): Int
+    /**
+     * 按传入顺序返回各会话的终端标题；未知会话对应元素为 null。
+     *
+     * 会话列表刷新原本逐会话各发一次 [getTitle]：N 个会话就是 N 次同步往返。
+     */
+    @JvmStatic external fun getSessionTitles(sessionIds: LongArray): Array<String?>?
 
     /** 活跃会话 ID；数组为空即无会话。 */
     @JvmStatic external fun listSessions(): LongArray
@@ -69,14 +73,13 @@ object NativeBridge {
     @JvmStatic external fun feedTerminal(sessionId: Long, data: ByteArray)
 
     /**
-     * 编码并提交按键事件。
+     * 编码器未覆盖的键码所对应码点的终端字节，`metaPrefix` 为真时带 ESC 前缀（Alt/Super）。
      *
-     * @param key 按键名，如 "a"、"Enter"、"Escape"、"Space"
-     * @param mods 上游 `key.Mods` 原始位（1=shift，2=ctrl，4=alt，8=super），
-     *             与 [terminal.emulator.input.KeyModifiers] 同一套位
-     * @param text 输入法合成的文本，非输入法按键传 null
+     * 只在 [terminal.emulator.input.KeyModifiers] 之外的回退分支调用（上游
+     * `key::Key` 没有对应键，如 `KEYCODE_AT` 的 `@` 实为 Shift+2）。纯编码，不碰会话
+     * 也不写 PTY——写入由 [Bridge] 交给既有的按键写入队列，与其余按键同一条有序出口。
      */
-    @JvmStatic external fun writeKey(sessionId: Long, key: String, metaPrefix: Boolean)
+    @JvmStatic external fun encodeKeyText(key: String, metaPrefix: Boolean): ByteArray
 
     /**
      * 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按应用的 DECSET 选择 SGR/X10/UTF-8）。
@@ -122,16 +125,6 @@ object NativeBridge {
      * 可在每次触摸滚动时安全调用：备用屏下滚动以滚轮转义转发给远端而非本地回滚。
      */
     @JvmStatic external fun getAltScreenState(sessionId: Long): Boolean
-
-    /**
-     * 查询终端模式（ghostty `mode_get`）；`kind` 为 0 是 DEC 私有模式，非 0 是 ANSI 模式。
-     *
-     * 按键编码不再经此通道：DECCKM 等模式由原生 `key::Encoder` 在编码时从终端状态
-     * 读取（`set_options_from_terminal`）。保留它是因为真机 VT 正确性用例需要一条
-     * 可直接观察终端模式状态的通道（`VtCorrectnessInstrumentedTest.cursorKeyModeSwitchesViaDecPrivateMode`），
-     * 否则「终端真的切了模式」只能间接推断。
-     */
-    @JvmStatic external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
 
     /** 将窗口焦点变化转发给会话，使子进程收到 DECSET 1004 焦点上报（`\x1b[I` / `\x1b[O`）。 */
     @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
@@ -305,22 +298,14 @@ object NativeBridge {
     external fun encodePaste(sessionId: Long, data: ByteArray): ByteArray?
 
     /**
-     * 全部主题标识，顺序即设置界面展示顺序（深底在前、日间在后）。
-     * 单源在 Rust 侧（构建期嵌入的 alacritty 主题）；任一元素失败则整体返回 null。
+     * 主题目录与全部调色板的一次性打包：`u16` 主题数（小端）后跟逐条
+     * 「标志 + 名称长度 + 名称 + 54 字节颜色」，顺序即设置界面展示顺序
+     * （深底在前、日间在后）。标志 bit0 深底、bit1 默认深色、bit2 默认浅色。
+     *
+     * 单源在 Rust 侧（构建期嵌入的 alacritty 主题）；分配失败返回 null。
+     * 取代逐个标识取调色板：一次同步调用即取回全部主题。
      */
-    @JvmStatic external fun getThemeNames(): Array<String>?
-
-    /**
-     * 按标识取主题：61 字节 = 深底标记 1 + 背景 3 + 前景 3 + 光标 3 + 选区 3 + 十六色 48。
-     * 未知标识或分配失败返回 null。
-     */
-    @JvmStatic external fun getThemeColors(name: String): ByteArray?
-
-    /** 默认夜间主题标识，对应默认终端主题，分配失败返回 null。 */
-    @JvmStatic external fun getDefaultDarkName(): String?
-
-    /** 默认日间主题标识，分配失败返回 null。 */
-    @JvmStatic external fun getDefaultLightName(): String?
+    @JvmStatic external fun getThemeCatalog(): ByteArray?
 
     @JvmStatic
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
@@ -351,11 +336,12 @@ object NativeBridge {
     @JvmStatic
     external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
 
+    /**
+     * 单元格宽高，打包为一个 `Long`：低 32 位宽度、高 32 位高度的 `f32` 位。
+     * 宽高一并取回——两者只可能被同一处消费，分两次查询只是多一次往返。
+     */
     @JvmStatic
-    external fun getCellWidth(sessionId: Long): Float
-
-    @JvmStatic
-    external fun getCellHeight(sessionId: Long): Float
+    external fun getCellSizePacked(): Long
 
     @JvmStatic
     external fun getGridRowsColsPacked(sessionId: Long): Long

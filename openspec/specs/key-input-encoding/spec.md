@@ -20,9 +20,10 @@ MUST NOT 用 Kotlin 侧的模式查询结果替代上游的模式读取。
 编码 MUST 与既有鼠标编码同构地落在 VT 线程：编码器与事件对象由 VT 线程持有，
 `Query` 携带键码、修饰位与文本，编码字节经通道回传后写入 PTY。
 
-`NativeBridge.getMode` 模式查询通道 MUST NOT 出现在按键编码路径上。经核实它仍有
-仪器化测试消费者（`VtCorrectnessInstrumentedTest` 断言 DECCKM 经该通道可见），
-故该通道为测试与诊断用途而保留，MUST NOT 据「已无人调用」将其删除。
+终端模式 MUST NOT 经独立的模式查询通道暴露给按键编码：本仓不设 `getMode` 之类的
+模式查询导出，MUST NOT 据「测试需要观察模式」新增一个无生产调用方的导出。模式是否
+生效 MUST 经编码输出的变化观察——DECCKM 置位使方向键从 `CSI A` 换成 `SS3 A`，复位
+再换回来。
 
 #### Scenario: 无修饰字母按 xterm 传统编码
 
@@ -64,10 +65,10 @@ MUST NOT 用 Kotlin 侧的模式查询结果替代上游的模式读取。
 - **WHEN** 单独按下 Shift、Ctrl 或 CapsLock
 - **THEN** 不向 PTY 写入任何字节
 
-#### Scenario: 模式查询通道不在编码路径上
+#### Scenario: 模式经编码输出而非模式查询观察
 
-- **WHEN** 检查 `NativeBridge.getMode` 的调用点
-- **THEN** 按键编码路径上不存在该调用；其消费者只有仪器化测试
+- **WHEN** 检查终端模式的可观察面
+- **THEN** 不存在独立的模式查询导出；DECCKM 置位后方向键编码为 `SS3 A`、复位后回到 `CSI A`
 
 ### Requirement: Android 键码到上游 Key 的映射单一且无行为判断
 
@@ -111,3 +112,41 @@ Android 键码 MUST 映射为上游 `Key::Unidentified`，由上游编码器判�
 
 - **WHEN** 输入法提交 `"a\nb"`
 - **THEN** PTY 原样收到 `a` LF `b`
+
+### Requirement: 编码器未覆盖的按键回退走同一条写入出口
+
+上游编码器未覆盖的键码（其 `Key` 无对应项，如 `KEYCODE_AT` 的 `@` 实为 Shift+2），
+以及输入法在 `unicodeChar == 0` 时须由虚拟键盘映射表推导的字符，MUST 走与其余按键
+**同一条**有序写入出口（宿主队列）并触发渲染唤醒钩子；原生侧 MUST 只做编码，MUST NOT
+在其中同步写 PTY。该路径的调用点在 UI 线程上，而主端满时同步写最多等 5 秒——绕过队列
+即每敲一次这类键冻住主线程（ANR），且回显要多等一个空闲闭锁才出现。
+
+#### Scenario: 回退按键不阻塞 UI 线程
+
+- **WHEN** 子进程不读 stdin，此时按下编码器未覆盖的键
+- **THEN** 该按键经宿主写入队列送出，UI 线程不等待子进程消费
+
+#### Scenario: Alt 前缀与普通字符同样直写
+
+- **WHEN** 回退路径编码带 ESC 前缀的字符（Alt/Super）与不带前缀的普通字符
+- **THEN** 两者都以原生给出的字节原样写入，不经 VT 引擎重排
+
+### Requirement: 焦点上报直写子 PTY 且只在子进程启用 1004 时发送
+
+DECSET 1004 焦点事件的 `CSI I`/`CSI O` MUST 直写子 PTY，MUST NOT 进入 VT 引擎
+（引擎的输出流解析器把 `CSI I` 当 CHT、把 `CSI O` 当非法 CSI，送入只会移动光标而非
+通知应用）；且只在子进程确实启用了 1004 时发送（xterm 语义）。
+
+模式查询的等待窗口 MUST 严格宽于 VT 线程的空闲 tick：VT 线程只在命令批尾与 tick 到点
+时排空查询通道，窗口与之相等即与该 tick 赛跑，超时先到会被当成「子进程没开 1004」而
+静默丢掉这一次焦点上报。
+
+#### Scenario: 1004 未启用时静默
+
+- **WHEN** 子进程未启用 1004，视图发生焦点变化
+- **THEN** 不向子 PTY 写入任何字节
+
+#### Scenario: 查询窗口宽于 VT 空闲 tick
+
+- **WHEN** 比对焦点模式查询的等待窗口与 VT 线程的空闲 tick
+- **THEN** 前者严格大于后者

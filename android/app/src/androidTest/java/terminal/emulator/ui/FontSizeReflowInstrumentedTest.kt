@@ -28,7 +28,7 @@ import terminal.emulator.waitForSession
  * 被原生拒收——历史缺陷正是如此（Kotlin 侧 100sp 与原生 `4.0..=100.0` 两份魔数，
  * 低密度设备上 Termux 允许的 256sp 被截断）。只测中间档的用例对该缺陷完全无感。
  *
- * 判据一律取**原生回读**的单元格度量（`getCellWidth` / `getCellHeight`），不是 Kotlin
+ * 判据一律取**原生回读**的单元格度量（`Bridge.cellSize`），不是 Kotlin
  * 自己刚推送的 `appliedFontSizeSp()`——后者对本次缺陷完全无感（见 [applyAndAwait]）。
  */
 @RunWith(JUnit4::class)
@@ -101,12 +101,13 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             val runtime = activity.runtime
             val bridge = requireNotNull(runtime.bridge())
             val packed = bridge.getGridRowsColsPacked()
+            val cellSize = bridge.cellSize()
             metrics =
                 GridMetrics(
                     sizeSp = runtime.appliedFontSizeSp(),
                     cols = (packed and 0xffffffffL).toInt(),
-                    cellHeight = bridge.getCellHeight(),
-                    cellWidth = bridge.getCellWidth(),
+                    cellHeight = cellSize.second,
+                    cellWidth = cellSize.first,
                 )
         }
         return metrics
@@ -115,7 +116,7 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
     /**
      * 提交目标字号并等待**原生回读**落地，返回落地后的读数。
      *
-     * 判据 MUST 是原生侧 `getCellWidth()` 的线性比例（见 [GridMetrics]）：Kotlin 的
+     * 判据 MUST 是原生侧单元格宽度的线性比例（见 [GridMetrics]）：Kotlin 的
      * `appliedFontSizeSp()` 只是自己刚推送的值，与原生是否接受无关——修复前原生对
      * 超限字号静默 `return Ok(())`，该值照样变成请求值，拿它当判据的用例对本次缺陷
      * 完全无感。原生真被拒收时单元格宽高都不变，故宽度比例是最直接的判别量。

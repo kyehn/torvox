@@ -57,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -213,7 +212,7 @@ fun SettingsScreen(
                 }
                 item {
                     ClearAppDataSectionItem(
-                        onClearAppData = { viewModel.clearAppData(it) },
+                        onClearAppData = { viewModel.clearAppData() },
                         textColor = textColor,
                         cardBackground = cardBackground,
                         sectionTitleColor = sectionTitleColor,
@@ -275,9 +274,6 @@ private fun AppearanceSectionContent(
     accentColor: Color,
     backgroundColor: Color,
 ) {
-    // 字体列表只在此外观项实际组合（即用户能看到字体选择器）时枚举一次：
-    // 会话启动不再触发列举。LazyColumn 懒加载，故滚到此处才计入显示。
-    LaunchedEffect(Unit) { onFontsVisible() }
     // 拖动过程只走轻量路径做预览（setFontSizeInPlace + 单元格度量刷新，
     // 不写 DataStore、不重排网格）；数值在松手时一次性提交。
     // 每一步拖动都提交会并发运行完整的 applyFontSettings 链（IO 调度器），
@@ -309,6 +305,7 @@ private fun AppearanceSectionContent(
         SystemFontSelector(
             selectedFamily = fontFamily,
             onFamilySelected = onFontFamilySelected,
+            onFontsVisible = onFontsVisible,
             textColor = textColor,
             cardBackground = backgroundColor,
             accentColor = accentColor,
@@ -490,7 +487,7 @@ private fun BootstrapSectionFromSettings(
 
 @Composable
 private fun ClearAppDataSectionItem(
-    onClearAppData: ((() -> Unit) -> Unit),
+    onClearAppData: () -> Unit,
     textColor: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
@@ -589,6 +586,7 @@ private fun FontInfoSectionIfAvailable(
                     activeMonospaced = false,
                     cjkState = CjkState.NONE,
                     cjkFamilies = emptyList(),
+                    otherFamilies = emptyList(),
                     cellWidthPx = 0f,
                     cellHeightPx = 0f,
                     fontSizeSp = fontSize,
@@ -605,6 +603,7 @@ private fun FontInfoSectionIfAvailable(
 private fun SystemFontSelector(
     selectedFamily: String,
     onFamilySelected: (String) -> Unit,
+    onFontsVisible: () -> Unit,
     textColor: Color,
     cardBackground: Color,
     accentColor: Color,
@@ -640,6 +639,10 @@ private fun SystemFontSelector(
                     .background(cardBackground)
                     .clickable {
                         showFontPicker = true
+                        // 完整字体列表只在此刻真正要显示时才枚举（DESIGN 字体节）：
+                        // 外观项本身只显示当前族，而 LazyColumn 项每次滚进滚出都会重组，
+                        // 挂在组合上等于每滚一次就重跑一轮 JNI 列举 + 目录注册。
+                        onFontsVisible()
                     }
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -839,7 +842,9 @@ private fun ShellInput(shellPath: String, onShellSaved: (String) -> Unit, textCo
     Column {
         Text(stringResource(R.string.shell), style = labelStyle, color = textColor)
         Spacer(modifier = Modifier.height(4.dp))
-        var text by remember(shellPath) { mutableStateOf(shellPath) }
+        // `rememberSaveable` 而非 `remember`：本项在 LazyColumn 的 item 内，滚出再滚回
+        // 会离开组合并丢弃普通 remember 的状态——用户已敲入但未保存的内容被静默吞掉。
+        var text by rememberSaveable(shellPath) { mutableStateOf(shellPath) }
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
@@ -969,11 +974,17 @@ private fun BootstrapSection(
     // 无论用 `LaunchedEffect` 无条件覆盖还是 `remember(bootstrapUrl)` 重新播种，
     // 都会把用户在写入窗口内继续敲进去的字符抹掉，且重新播种不经 `onValueChange`，
     // 于是输入框与设置静默分叉，用户接着就把被截断的 URL 拿去安装。
-    // 该设置的唯一写入方就是本输入框，故「编辑过」期间无需再跟随外部值。
-    var url by remember { mutableStateOf(bootstrapUrl) }
-    var urlEdited by remember { mutableStateOf(false) }
+    // 故只吞掉「自己刚写下去的那一次」回流（[Self::pendingEcho]），而不是像先前那样
+    // 用布尔闩把整个编辑期都钉住——清除应用数据后存储值变空串、闩仍是真，输入框继续
+    // 显示清除前的旧 URL，而安装读到的却是空串，两者静默分叉。
+    // `rememberSaveable`：与上方 shell 入口同理，LazyColumn 滚出再滚回不得丢输入。
+    var url by rememberSaveable { mutableStateOf(bootstrapUrl) }
+    var pendingEcho by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(bootstrapUrl) {
-        if (!urlEdited) url = bootstrapUrl
+        if (pendingEcho != bootstrapUrl) {
+            pendingEcho = null
+            url = bootstrapUrl
+        }
     }
 
     Column {
@@ -981,7 +992,7 @@ private fun BootstrapSection(
             value = url,
             onValueChange = {
                 url = it
-                urlEdited = true
+                pendingEcho = it
                 onUrlChanged(it)
             },
             label = { Text(stringResource(R.string.bootstrap_url_label)) },
@@ -1202,12 +1213,7 @@ private fun BootstrapPresetItem(
 }
 
 @Composable
-private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColor: Color) {
-    val context = LocalContext.current
-    // 在 composable 作用域内解析一次：基于 LocalContext 的资源读取
-    // 不感知配置变化（lint LocalContextGetResourceValueCall），
-    // 且 stringResource() 不能在 onClick lambda 内调用。
-    val clearAppDataDone = stringResource(R.string.clear_app_data_done)
+private fun ClearAppDataSection(onClearAppData: () -> Unit, textColor: Color) {
     var showConfirmDialog by remember { mutableStateOf(false) }
 
     if (showConfirmDialog) {
@@ -1219,15 +1225,7 @@ private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColo
                 TextButton(
                     onClick = {
                         showConfirmDialog = false
-                        onClearAppData {
-                            // 进程内的 StateFlow 仍持有旧值；需重启才能彻底重置。
-                            android.widget.Toast.makeText(
-                                context,
-                                clearAppDataDone,
-                                android.widget.Toast.LENGTH_LONG,
-                            )
-                                .show()
-                        }
+                        onClearAppData()
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = DANGER_RED),
                 ) {
@@ -1300,6 +1298,13 @@ private fun FontInfoSection(fontInfo: FontInfo, pixelPerSp: Float, textColor: Co
         )
         if (!hasCjk && !cjkCoveredByPrimary) {
             CjkFallbackMissingWarning()
+        }
+        if (fontInfo.otherFamilies.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.font_info_other_families, fontInfo.otherFamilies.joinToString(", ")),
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryText,
+            )
         }
         if (fontInfo.cellWidthPx > 0f && fontInfo.cellHeightPx > 0f) {
             Text(

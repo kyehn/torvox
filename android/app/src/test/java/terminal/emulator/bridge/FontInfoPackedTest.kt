@@ -14,16 +14,17 @@ import java.nio.ByteOrder
  * 字体信息打包字节的真实解码（`FontInfo.fromPacked`）。
  *
  * 布局与原生 `pack_font_info` 一一对应：`u32` 标志（bit0 等宽、其余为 CJK 状态
- * 判别序号）+ 三个 `f32` + `u16` 名称数 + NUL 分隔的 UTF-8 名称。
+ * 判别序号）+ 三个 `f32` + `u16` 名称数 + `u16` CJK 名称数 + NUL 分隔的 UTF-8 名称。
  */
 class FontInfoPackedTest {
     companion object {
-        /** 固定部分字节数：标志 4 + 三个 `f32` 12 + 名称数 2。 */
-        private const val HEADER_BYTES = 18
+        /** 固定部分字节数：标志 4 + 三个 `f32` 12 + 名称数 2 + CJK 名称数 2。 */
+        private const val HEADER_BYTES = 20
     }
 
     private fun pack(
         names: List<String>,
+        cjkCount: Int = 0,
         monospaced: Boolean = false,
         cjkState: CjkState = CjkState.NONE,
         cellWidthPx: Float = 7.0f,
@@ -39,6 +40,7 @@ class FontInfoPackedTest {
         buffer.putFloat(cellHeightPx)
         buffer.putFloat(fontSizeSp)
         buffer.putShort(names.size.toShort())
+        buffer.putShort(cjkCount.toShort())
         val nameBytes = ByteArrayOutputStream()
         names.forEach { name ->
             nameBytes.write(name.toByteArray(Charsets.UTF_8))
@@ -53,6 +55,7 @@ class FontInfoPackedTest {
             FontInfo.fromPacked(
                 pack(
                     names = listOf("Fira Code", "Noto Sans CJK SC", "Noto Sans CJK JP"),
+                    cjkCount = 2,
                     monospaced = true,
                     cjkState = CjkState.FALLBACK,
                 ),
@@ -61,6 +64,7 @@ class FontInfoPackedTest {
         assertTrue(info.activeMonospaced)
         assertEquals(CjkState.FALLBACK, info.cjkState)
         assertEquals(listOf("Noto Sans CJK SC", "Noto Sans CJK JP"), info.cjkFamilies)
+        assertTrue(info.otherFamilies.isEmpty())
         assertEquals(7.0f, info.cellWidthPx, 0.0f)
         assertEquals(14.0f, info.cellHeightPx, 0.0f)
         assertEquals(14.0f, info.fontSizeSp, 0.0f)
@@ -68,11 +72,33 @@ class FontInfoPackedTest {
         assertTrue(info.hasRealCjkFallback)
     }
 
+    /**
+     * 「其他被使用字体」是名称表尾段，CJK 段紧随主字体之后——分隔全靠 CJK 名称数。
+     * 若两侧都以「名称总数减一」切分，本用例即判红。
+     */
+    @Test
+    fun `cjk count splits the trailing other families from the cjk block`() {
+        val info =
+            FontInfo.fromPacked(
+                pack(
+                    names = listOf("Droid Sans Mono", "Noto Sans CJK SC", "Noto Color Emoji", "DejaVu Sans Mono"),
+                    cjkCount = 1,
+                    cjkState = CjkState.FALLBACK,
+                ),
+            )
+        assertEquals(listOf("Noto Sans CJK SC"), info.cjkFamilies)
+        assertEquals(listOf("Noto Color Emoji", "DejaVu Sans Mono"), info.otherFamilies)
+    }
+
     @Test
     fun `non-ascii family names survive the utf8 round trip`() {
-        val info = FontInfo.fromPacked(pack(names = listOf("等距更纱黑体", "思源黑体"), cjkState = CjkState.FALLBACK))
+        val info =
+            FontInfo.fromPacked(
+                pack(names = listOf("等距更纱黑体", "思源黑体", "霞鹜文楷"), cjkCount = 1, cjkState = CjkState.FALLBACK),
+            )
         assertEquals("等距更纱黑体", info.activeName)
         assertEquals(listOf("思源黑体"), info.cjkFamilies)
+        assertEquals(listOf("霞鹜文楷"), info.otherFamilies)
     }
 
     @Test
@@ -81,6 +107,7 @@ class FontInfoPackedTest {
         assertFalse(info.hasRealCjkFallback)
         assertNull(info.cjkFallbackText())
         assertEquals(CjkState.NONE, info.cjkState)
+        assertTrue(info.otherFamilies.isEmpty())
     }
 
     @Test
@@ -96,5 +123,9 @@ class FontInfoPackedTest {
         // 名称数声明多于实际携带的名字时同样拒绝：截断的载荷会少报回退族。
         val truncated = pack(names = listOf("A", "B")).copyOf(HEADER_BYTES + 2)
         assertThrows(IllegalArgumentException::class.java) { FontInfo.fromPacked(truncated) }
+        // CJK 名称数越过主字体占位即内部不一致：继续切分会崩在 subList 上，
+        // 不如与截断同样以契约错误报出。
+        val impossible = pack(names = listOf("A", "B"), cjkCount = 2)
+        assertThrows(IllegalArgumentException::class.java) { FontInfo.fromPacked(impossible) }
     }
 }

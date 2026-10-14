@@ -3715,3 +3715,42 @@ fn bench_row_extraction_full_versus_incremental() {
         "稳态每帧 MUST 命中行复制路径，否则测的是全量而非增量"
     );
 }
+
+/// 光标落在宽字符尾列时须被认到该宽字符的头列记录上，否则整帧不画光标。
+///
+/// 上游为此专门给了 `CursorViewport::at_wide_tail`——此前本仓读快照时把它丢了，只留
+/// `(row, col)`。而 `build_cell_data` 对一个宽字符只发出一条头列记录（`width=2`，
+/// 一条即整个字形），于是尾列上的光标列号匹配不到任何记录：那几帧终端看上去「重绘了
+/// 但没有光标」。三种光标样式（方块/竖线/下划线）全中，因为匹配发生在样式分支之前。
+#[test]
+fn cursor_on_a_wide_characters_tail_column_is_reported() {
+    let mut terminal_under_test = GhosttyTerminal::new(2, 10, 100).expect("terminal");
+    // 「中」占第 0、1 两格；`CSI 2 G` 把光标移到它的尾列（第 1 格）。
+    terminal_under_test.vt_write("中\x1b[2G".as_bytes());
+    terminal_under_test.flush();
+
+    let (cells, cursor) = terminal_under_test
+        .receive_cell_data()
+        .expect("写完须产出单元数据");
+    assert!(cursor.visible, "光标可见");
+    assert_eq!(cursor.col, 1, "VT 真值：光标停在宽字符的第二格");
+    assert!(cursor.at_wide_tail, "上游须把这个位置标成宽字符尾列");
+
+    // 渲染侧按列匹配头列记录，故那一格必须存在（宽字符只发一条 `width=2` 的记录）。
+    let wide = cells
+        .iter()
+        .find(|cell| cell.row == cursor.row && cell.col == 0)
+        .expect("宽字符的头列记录");
+    assert_eq!(wide.width, 2, "头列记录覆盖两格");
+
+    // 关键判别力：光标所在行的尾列上**没有**任何记录（spacer 不产出记录），故光标列号
+    // 若不折算成锚列就匹配不到任何记录，那一帧终端看上去「重绘了但没有光标」。
+    let tail_column_records = cells
+        .iter()
+        .filter(|cell| cell.row == cursor.row && cell.col == cursor.col)
+        .count();
+    assert_eq!(
+        tail_column_records, 0,
+        "尾列不得有自己的记录：断言语料前提，否则本用例对折算与否没有判别力"
+    );
+}

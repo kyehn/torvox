@@ -59,7 +59,7 @@ class RenderPauseLedgerTest {
         // 增长到不为 0，`setRenderPaused(false)` 再不被调用——终端全黑。
         var token = ledger.acquire()
         repeat(64) {
-            ledger.releaseAndCancel(token)
+            ledger.release(token)
             assertEquals(0, ledger.holderCount)
             token = ledger.acquire()
             assertEquals(1, ledger.holderCount)
@@ -76,7 +76,7 @@ class RenderPauseLedgerTest {
         // 持有者数会经过 0，每个替换帧都多出一对 setRenderPaused 调用。
         val first = ledger.acquire()
         val second = ledger.acquire()
-        ledger.releaseAndCancel(first)
+        ledger.release(first)
         assertEquals(listOf(true), pauseChanges)
         ledger.release(second)
         assertEquals(listOf(true, false), pauseChanges)
@@ -87,7 +87,7 @@ class RenderPauseLedgerTest {
         // 防抖窗内备用屏状态翻转：旧的持一次而新的不持，持有者数 1 → 1 → 0，
         // 恰好发一次恢复。
         val first = ledger.acquire()
-        ledger.releaseAndCancel(first)
+        ledger.release(first)
         assertEquals(listOf(true, false), pauseChanges)
         assertEquals(0, ledger.holderCount)
     }
@@ -131,6 +131,35 @@ class RenderPauseLedgerTest {
         assertTrue("仍在等待的防抖不得被放开", pauseChanges.last())
 
         ledger.release(fresh)
+        assertEquals(0, ledger.holderCount)
+        assertFalse(pauseChanges.last())
+    }
+
+    @Test
+    fun `settings page releasing first keeps the background pause`() {
+        // 设置页与切后台共用一本账的直接后果：关设置页先归还时，切后台那条暂停
+        // 必须仍在——否则会在已被系统回收的 BufferQueue 上出帧（永久黑屏）。
+        val background = ledger.acquire()
+        val settings = ledger.acquire()
+        ledger.release(settings)
+        assertEquals(1, ledger.holderCount)
+        assertStillPaused()
+
+        ledger.release(background)
+        assertEquals(0, ledger.holderCount)
+        assertFalse(pauseChanges.last())
+    }
+
+    @Test
+    fun `background releasing first keeps the settings pause`() {
+        // 反向同构：切前台先归还时，设置页仍在展示，渲染必须继续暂停。
+        val settings = ledger.acquire()
+        val background = ledger.acquire()
+        ledger.release(background)
+        assertEquals(1, ledger.holderCount)
+        assertStillPaused()
+
+        ledger.release(settings)
         assertEquals(0, ledger.holderCount)
         assertFalse(pauseChanges.last())
     }

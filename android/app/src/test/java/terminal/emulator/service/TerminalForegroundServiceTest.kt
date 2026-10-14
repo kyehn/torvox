@@ -138,6 +138,49 @@ class TerminalForegroundServiceTest {
         )
     }
 
+    /**
+     * 通知上的「退出」按钮（DESIGN：常驻通知提供退出按钮）必须真的收掉全部会话并停服。
+     *
+     * 该动作此前**零覆盖**：按钮 action 的常量、入口分支与 `stopSelf` 都没有断言，
+     * 把它接错成「只停服务不关会话」不会有任何用例变红——而那会让通知消失、
+     * 会话却继续在后台跑。
+     */
+    @Test
+    fun `exit action stops the service and reports the exit intent`() {
+        val exitIntent = Intent(context, TerminalForegroundService::class.java)
+            .setAction("terminal.emulator.action.EXIT")
+        val service = Robolectric.buildService(TerminalForegroundService::class.java, exitIntent)
+            .create()
+            .get()
+        assertEquals(
+            "exit must not re-pin the service",
+            Service.START_NOT_STICKY,
+            service.onStartCommand(exitIntent, 0, 1),
+        )
+        assertTrue(
+            "exit action must stop the service",
+            shadowOf(service).isStoppedBySelf,
+        )
+    }
+
+    /**
+     * `updateSessionCount` 的返回值必须如实反映「是否真的发起」：后台启动被系统拒绝时
+     * 调用方要靠它清掉「服务在运行」标志，否则后续 `startForegroundServiceIfNeeded`
+     * 会永远跳过重启，存活会话既无常驻通知也无唤醒锁。
+     */
+    @Test
+    fun `updateSessionCount reports failure when the start is refused`() {
+        val refusingContext =
+            object : android.content.ContextWrapper(context) {
+                override fun startForegroundService(intent: Intent): ComponentName? =
+                    throw android.app.ForegroundServiceStartNotAllowedException("refused")
+            }
+        assertFalse(
+            "a refused start must not be reported as success",
+            TerminalForegroundService.updateSessionCount(refusingContext, 2),
+        )
+    }
+
     private fun postedNotificationText(): CharSequence? {
         val manager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager

@@ -183,21 +183,13 @@ constructor(
     @Volatile private var cachedScrollbackLength = 0
 
     /**
-     * 回滚长度的组合可观察镜像。
+     * 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。
      *
-     * 视图侧每次**成功**查询后回写（[updateScrollbackLength]），组合侧据此订阅，
-     * 不在重组期间自己发起同步 JNI 查询——那是一次最长可阻塞 500ms 的调用
-     * （VT 线程忙于解析大块写入时），而重组在输入法动画帧与拖动 MOVE 上都会发生。
+     * 刻意不另起一个 `StateFlow` 镜像：组合侧没有订阅者（重组期间自己发起同步 JNI
+     * 查询是最长可阻塞 500ms 的调用），镜像只会在每次手势查询时多发一次通知。
      */
-    private val scrollbackLengthState = kotlinx.coroutines.flow.MutableStateFlow(0)
-
-    /** 见 [scrollbackLengthState]。 */
-    val scrollbackLength: kotlinx.coroutines.flow.StateFlow<Int> = scrollbackLengthState.asStateFlow()
-
-    /** 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。 */
     internal fun updateScrollbackLength(length: Int) {
         cachedScrollbackLength = length
-        scrollbackLengthState.value = length
     }
 
     /** 绝对空间的最后一行：两处选区钳位的唯一来源，避免各自计算再次漂移。 */
@@ -278,7 +270,7 @@ constructor(
 
     fun selectAll() = selectionManager.selectAll()
 
-    fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
+    fun pasteFromClipboard() = selectionManager.pasteFromClipboard()
 
     /** 网格 resize 后把选区锚点钳位到绝对网格，使原生 setSelection 绝不收到越界单元格。 */
     private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
@@ -572,6 +564,11 @@ constructor(
         }
 
         fun clearSelection() {
+            // 同批作废未提交的拖动边界：输入法显隐、surface 销毁等路径会在拖动途中
+            // 清选区，`finishHandleDrag` 不再到达。此后新建的选区若再提交一次拖动，
+            // `commitDragBounds` 会把**上一段**的旧边界写进来，抽取与复制随即取到
+            // 不相干的内容。
+            lastDragBounds = null
             _state.update { it.copy(selection = SelectionState()) }
             syncSelectionToNative()
             // 强制立即重绘：否则原生侧的脏标志要等下一个 vsync 节拍，
@@ -663,22 +660,32 @@ constructor(
             return text
         }
 
-        /** 把剪贴板内容直接粘贴到 PTY（无确认对话框）。
+        /**
+         * 把剪贴板内容直接粘贴到 PTY（无确认对话框）。
+         *
+         * **必须**离开主线程：`encodePaste` 是同步 JNI，100 万字符剪贴板要整块转
+         * UTF-8 并经上游 `paste::encode` 重新编码，仓库自述上界 500ms
+         * （`QUERY_TIMEOUT_MS`），而它是菜单与侧键按钮的点击回调。
          *
          * 粘贴走 `pasteSink`（Surface 侧注入 `InputBatchBuffer.write`）：100 万字符
          * 剪贴板产生 250 块，主线程逐块同步写 PTY 会阻塞在会话锁 + PTY 写入上（N1-26）。
-         * ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入。
+         * ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入；它内部加锁，
+         * 故从 IO 线程调用无碍。
+         *
+         * 返回值曾是「粘贴字符数」，三个调用点一个都没用，故去掉。
          */
-        fun pasteFromClipboard(): Int {
-            // 空剪贴板与读取失败都返回 0，但两者都不许无声：失败已由
-            // ClipboardAccess 记日志，这里补的是「点粘贴却什么都不发生」的空剪贴板。
-            val text =
-                clipboardAccess.clipboardText().getOrNull()
-                    ?: run {
-                        LogUtil.w("TerminalViewModel", "粘贴跳过: 剪贴板无文本")
-                        return 0
-                    }
-            return executePaste(text)
+        fun pasteFromClipboard() {
+            viewModelScope.launch(TerminalDispatchers.inputOutput) {
+                // 空剪贴板与读取失败都不许无声：失败已由 ClipboardAccess 记日志，
+                // 这里补的是「点粘贴却什么都不发生」的空剪贴板。
+                val text =
+                    clipboardAccess.clipboardText().getOrNull()
+                        ?: run {
+                            LogUtil.w("TerminalViewModel", "粘贴跳过: 剪贴板无文本")
+                            return@launch
+                        }
+                executePaste(text)
+            }
         }
 
         /** 把 [text] 编码后真正写入 PTY。
@@ -690,7 +697,7 @@ constructor(
          * 取自终端模式 2004 的活体状态，控制字节由上游中化，本处不解释内容。
          * 编码失败（会话已消失等）记警告后跳过：后续写入同样落空。
          */
-        fun executePaste(text: String): Int {
+        fun executePaste(text: String) {
             // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
             // 会让粘贴尾部写进新会话。
             val sessionId = runtime.inputTargetSessionId
@@ -698,7 +705,7 @@ constructor(
             if (truncated.isEmpty()) {
                 LogUtil.d("TerminalViewModel", "粘贴跳过：空白或截断后无内容")
                 _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-                return 0
+                return
             }
             val encoded =
                 try {
@@ -710,13 +717,13 @@ constructor(
             if (encoded == null || encoded.isEmpty()) {
                 LogUtil.w("TerminalViewModel", "粘贴跳过：编码无输出")
                 _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-                return 0
+                return
             }
+            // `pasteSink` 由 Surface 注入批缓冲（内部 `synchronized`），任意线程可调。
             for (chunk in pasteByteChunks(encoded)) {
                 pasteSink(sessionId, chunk)
             }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-            return truncated.length
         }
     }
 
@@ -780,11 +787,17 @@ constructor(
 
         /**
          * 字体列表 UI 路径：枚举并发布可用列表、默认字体名与字体信息。
-         * 只在字体列表实际显示时调用（设置页 `LaunchedEffect`），
+         * 只在字体列表实际显示时调用（设置页打开字体选择对话框那一刻），
          * 不由会话状态发射触发。
+         *
+         * 进程内只跑一轮（DESIGN：字体列表被缓存直到应用关闭）：`fonts.xml` 与用户
+         * 投放目录在进程存活期间不会变，重跑只会反复走一遍 JNI 列举与目录注册。
          */
         fun refreshFontList() {
-            if (fontLoadJob?.isActive == true) return
+            // 并发闩只管「别并发起多轮」；缓存闩只在**真的枚举完成**后置位——
+            // 提前置位会让「会话尚未就绪」这一次早退把整进程都锁成空列表，
+            // 之后再点开选择框也不再重试。
+            if (fontListLoaded || fontLoadJob?.isActive == true) return
             fontLoadJob = viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
@@ -804,6 +817,7 @@ constructor(
                             bridge.listFontFamilies().orEmpty(),
                         )
                     _availableFonts.value = allFonts
+                    fontListLoaded = true
                     // 空即「原生未上报」，不得改用列表首项冒充：DESIGN 要求主字体为空时
                     // 取 fonts.xml 的 monospace 家族，列表首项是字体库枚举顺序，与之无关。
                     // 显示侧本就对空值有回落（FontFamilySelectors 取列表首项仅作标签）。
@@ -1026,12 +1040,13 @@ constructor(
      * 删除与用户数据（files 目录下的 home/usr）无关的设置、崩溃循环状态与缓存数据，
      * 并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
      *
-     * [onComplete] 在 IO 调度器上回调（非主线程）；界面工作（如 Toast）需自行切回主线程
-     * 或使用 Android 自动投递的 Toast API。有条目删不掉时记错误日志且**不**回调成功——
-     * 抛异常会经协程默认处理器杀掉整个进程，而吞掉返回值又会让用户被告知「已清除」
-     * 而 `settings.preferences_pb` 原封不动。
+     * 全部在 IO 调度器上完成，成功提示由本方法自己切回主线程弹出（与 `setFontFamily`
+     * 同款）：把回调交给界面层就得在契约里写明「非主线程」，而调用方一旦在回调里
+     * 直接 `Toast.show()` 就会因无 Looper 抛 `IllegalStateException` 杀掉进程。
+     * 有条目删不掉时记错误日志且**不**提示成功——抛异常会经协程默认处理器杀掉整个
+     * 进程，而无条件提示又会让用户被告知「已清除」而 `settings.preferences_pb` 原封不动。
      */
-    fun clearAppData(onComplete: () -> Unit) {
+    fun clearAppData() {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             // 先停掉防抖写入：用户在 300ms 窗口内改完 URL 就点清除，
             // 落盘会发生在删除之后并重建 preferences_pb，清除静默不生效。
@@ -1056,7 +1071,14 @@ constructor(
                     LogUtil.e("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
                     return@launch
                 }
-                onComplete()
+                kotlinx.coroutines.withContext(TerminalDispatchers.main) {
+                    android.widget.Toast.makeText(
+                        context,
+                        context.getString(R.string.clear_app_data_done),
+                        android.widget.Toast.LENGTH_LONG,
+                    )
+                        .show()
+                }
             } finally {
                 // 无论成败都重新接受编辑：否则清除后用户再改 URL 永不落盘。
                 settingsRepository.rearmBootstrapUrlEdits()
@@ -1086,9 +1108,12 @@ constructor(
         // 首个真实会话错过一次标题回填。
         lastMetaRefreshMs = SystemClock.uptimeMillis()
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            val fresh = ids.map { id ->
-                val title = runCatchingCancellable { NativeBridge.getTitle(id) }.getOrNull()
-                SessionInfo(id = id, title = title.orEmpty())
+            // 一次批量查询取代逐会话往返：N 个会话原本是 N 次同步 JNI。
+            val titles =
+                runCatchingCancellable { NativeBridge.getSessionTitles(ids.toLongArray()) }
+                    .getOrNull()
+            val fresh = ids.mapIndexed { index, id ->
+                SessionInfo(id = id, title = titles?.getOrNull(index).orEmpty())
             }
             withContext(TerminalDispatchers.main) {
                 _state.update { current ->
@@ -1323,13 +1348,22 @@ constructor(
         settingsRepository.setAppThemeMode(mode)
     }
 
-    /** 持久化一项主题设置，然后把整个主题重新应用到 bridge。由五个主题设置器共用。 */
+    /**
+     * 持久化一项主题设置，然后把整个主题重新应用到 bridge。由五个主题设置器共用。
+     *
+     * 存储里失效的主题标识由运行期一处清完（`clearUnknownThemeNames`，三个键一并
+     * 查），此处 MUST NOT 再兜一层异常重试：那一层捕获不到真正会抛的那个异常类型，
+     * 反而会在原生字节布局出问题时把用户的主题重写掉——把契约破裂藏成「设置已修复」。
+     */
     private fun applyThemeSettings(persist: suspend () -> Unit) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             persist()
             runtime.applySettings()
         }
     }
+
+    /** 字体列表是否已枚举过（进程内一次，见 [refreshFontList]）。 */
+    @Volatile private var fontListLoaded = false
 
     // 在 UI 线程写入、在 IO 协程读取；volatile 使可见性显式化，
     // 而不依赖隐式的 happens-before 关系。
@@ -1570,6 +1604,7 @@ constructor(
                 return@launch
             }
             withContext(TerminalDispatchers.main) {
+                val closedActive = _state.value.activeSessionId == id
                 _state.update { current ->
                     val remaining = current.sessions.filter { it.id != id }
                     if (remaining.isEmpty()) {
@@ -1595,9 +1630,17 @@ constructor(
                             runtime.state.value.title.ifEmpty {
                                 context.getString(R.string.session_number, newActiveIndex + 1)
                             },
-                            selection = SelectionState(),
+                            // 只在关掉的就是活动会话时才清选区：此前无条件清空，
+                            // 于是「关掉一个后台会话」会顺手抹掉**活动**会话的选区状态，
+                            // 而原生侧的 setSelection 仍在——屏幕上留下无手柄、无菜单
+                            // 的幽灵反色，复制还会取到不相干的区域。清选区必须与
+                            // 原生同步，否则同一条路径也会留下幽灵反色。
+                            selection = if (closedActive) SelectionState() else current.selection,
                         )
                     }
+                }
+                if (closedActive) {
+                    selectionManager.clearSelection()
                 }
                 refreshSessionMetas(force = true)
             }

@@ -160,7 +160,7 @@ impl Renderer {
     pub(crate) fn create_kgp_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-    ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("KGP Shader"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
@@ -168,7 +168,7 @@ impl Renderer {
             ))),
         });
         let bind_group_layout = Self::text_bind_group_layout(device, "KGP Bind Group Layout");
-        let pipeline = Self::create_text_pipeline(
+        Self::create_text_pipeline(
             device,
             "KGP Pipeline",
             &bind_group_layout,
@@ -177,8 +177,7 @@ impl Renderer {
             // KGP 图像可能带 alpha（半透明 PNG）；REPLACE 会在透明区域绘出黑边。
             Some(wgpu::BlendState::ALPHA_BLENDING),
             format,
-        );
-        (pipeline, bind_group_layout)
+        )
     }
 
     pub(crate) fn ensure_kgp_pipeline(&mut self, config_width: u32, config_height: u32) {
@@ -193,11 +192,9 @@ impl Renderer {
             });
 
         if self.kgp_pipeline.is_none() || self.kgp_pipeline_format != Some(format) {
-            let (pipeline, layout) = Self::create_kgp_pipeline(&self.device, format);
-            self.kgp_pipeline = Some(pipeline);
+            self.kgp_pipeline = Some(Self::create_kgp_pipeline(&self.device, format));
             self.kgp_pipeline_format = Some(format);
-            self.kgp_bind_group_layout = Some(layout);
-            // 旧管线/布局派生的绑定组不可复用。
+            // 旧管线派生的绑定组不可复用。
             self.kgp_bind_group = None;
         }
 

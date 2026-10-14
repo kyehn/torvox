@@ -35,24 +35,19 @@ internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) 
     /**
      * 归还 [acquire] 领到的那一次。
      *
-     * 凭证不在持有集合里就是陈旧的（已被 [releaseAndCancel] 或 [reset] 注销），
-     * 此时 MUST NOT 改动计数。
+     * 凭证不在持有集合里就是陈旧的（已被 [reset] 注销，或早就归还过），此时
+     * MUST NOT 改动计数。
+     *
+     * 被 `removeCallbacks` 丢弃的防抖同样走这里归还：它永不执行，归还也永不自行
+     * 发生，持有就永久留在集合里（渲染器永不恢复）。
+     *
+     * 调用顺序无约束：先归还后领取会让持有者数经过 0，多发一对恢复/暂停；先领取后
+     * 归还则全程非空。推荐后者。
      */
     fun release(token: Long) {
         if (!holders.remove(token)) return
         if (holders.isEmpty()) onPauseChanged(false)
     }
-
-    /**
-     * 注销一个被取消的防抖所持有的暂停。
-     *
-     * 被 `removeCallbacks` 丢弃的防抖永不执行，它的 `release` 也永不发生，持有就永久
-     * 留在集合里（渲染器永不恢复），故取消方 MUST 调用本方法归还。
-     *
-     * 调用顺序无约束：先归还后领取会让持有者数经过 0，多发一对恢复/暂停；先领取后
-     * 归还则全程非空。推荐后者。
-     */
-    fun releaseAndCancel(token: Long) = release(token)
 
     /**
      * 作废全部持有，把账清零；持有者非空时恢复渲染。
