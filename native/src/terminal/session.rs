@@ -614,7 +614,7 @@ impl Session {
         self.last_scroll_offset.store(0, Ordering::Release);
     }
 
-    /// 上次已应用的滚动偏移（滚动路径经 [`Self::scroll_viewport`] 推进）。
+    /// 上次已应用的滚动偏移（滚动路径经 [`GhosttyTerminal::scroll_viewport`] 推进）。
     pub fn last_scroll_offset(&self) -> i64 {
         self.last_scroll_offset.load(Ordering::Acquire)
     }
