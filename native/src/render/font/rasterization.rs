@@ -24,24 +24,32 @@ impl FontPipeline {
         );
     }
 
-    fn scaled_metric(&self, extract: impl FnOnce(swash::Metrics) -> f32, fallback: f32) -> f32 {
-        if let Some(font_id) = self.font_id {
-            let font_database = self.font_system.db();
-            let result = font_database.with_face_data(font_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                let metrics = font_ref.metrics(&[]);
-                let upem = metrics.units_per_em as f32;
-                if upem == 0.0 {
-                    return None;
-                }
-                let scale = self.font_size / upem;
-                Some(extract(metrics) * scale)
-            });
-            if let Some(Some(px)) = result {
-                return px;
+    /// 打开主字体面、读度量并按字号换算比例，交给 `use_font` 取所需值。
+    ///
+    /// `font_id` 缺失、面数据不可读、upem 为 0 三种失败在 `scaled_metric` 与
+    /// `cell_metrics` 里走同一批回退值：各写一份「开面 + 算 scale」的样板会让
+    /// 回退口径分叉，而分叉只表现为单元格尺寸对不上实际渲染。
+    fn with_font_metrics<T>(
+        &self,
+        use_font: impl FnOnce(swash::FontRef<'_>, swash::Metrics, f32) -> Option<T>,
+    ) -> Option<T> {
+        let font_id = self.font_id?;
+        let font_database = self.font_system.db();
+        let result = font_database.with_face_data(font_id, |font_data, face_index| {
+            let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+            let metrics = font_ref.metrics(&[]);
+            let upem = metrics.units_per_em as f32;
+            if upem == 0.0 {
+                return None;
             }
-        }
-        self.font_size * fallback
+            use_font(font_ref, metrics, self.font_size / upem)
+        });
+        result.flatten()
+    }
+
+    fn scaled_metric(&self, extract: impl FnOnce(swash::Metrics) -> f32, fallback: f32) -> f32 {
+        self.with_font_metrics(|_font_ref, metrics, scale| Some(extract(metrics) * scale))
+            .unwrap_or(self.font_size * fallback)
     }
 
     pub fn ascent_pixels(&self) -> f32 {
@@ -53,60 +61,51 @@ impl FontPipeline {
     }
 
     pub fn cell_metrics(&self) -> (f32, f32) {
-        if let Some(font_id) = self.font_id {
-            let font_database = self.font_system.db();
-            let result = font_database.with_face_data(font_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                let metrics = font_ref.metrics(&[]);
-                let upem = metrics.units_per_em as f32;
-                if upem == 0.0 {
-                    return None;
-                }
-                let scale = self.font_size / upem;
-                let ascent = metrics.ascent * scale;
-                let descent = metrics.descent.abs() * scale;
-                // 行高只取 ascent+descent，不计字体 line gap：Droid Sans Mono 的
-                // leading 约 2000 units，即便封顶 25% 仍把行高推到 1.465em，
-                // 行间空白达字高的约两倍。line gap 属于段落间距而非每行内部。
-                let cell_height = ascent + descent;
+        if let Some(metrics) = self.with_font_metrics(|font_ref, metrics, scale| {
+            let ascent = metrics.ascent * scale;
+            let descent = metrics.descent.abs() * scale;
+            // 行高只取 ascent+descent，不计字体 line gap：Droid Sans Mono 的
+            // leading 约 2000 units，即便封顶 25% 仍把行高推到 1.465em，
+            // 行间空白达字高的约两倍。line gap 属于段落间距而非每行内部。
+            let cell_height = ascent + descent;
 
-                let charmap = font_ref.charmap();
-                let glyph_metrics = font_ref.glyph_metrics(&[]);
+            let charmap = font_ref.charmap();
+            let glyph_metrics = font_ref.glyph_metrics(&[]);
 
-                if self
-                    .font_id
-                    .is_some_and(|id| font_database.faces().any(|f| f.id == id && f.monospaced))
-                {
-                    let glyph_id = charmap.map('m' as u32);
-                    let advance = glyph_metrics.advance_width(glyph_id);
-                    let cell_width = if advance > 0.0 {
-                        advance * scale
-                    } else {
-                        self.font_size * CELL_WIDTH_FALLBACK_RATIO
-                    };
-                    return Some((cell_width, cell_height.ceil()));
-                }
-
-                let max_advance = ['m', 'W', '0']
-                    .iter()
-                    .filter_map(|&ch| {
-                        let gid = charmap.map(ch as u32);
-                        let adv = glyph_metrics.advance_width(gid);
-                        if adv > 0.0 { Some(adv * scale) } else { None }
-                    })
-                    .fold(0.0f32, f32::max);
-
-                let cell_width = if max_advance > 0.0 {
-                    max_advance
+            if self.font_id.is_some_and(|id| {
+                self.font_system
+                    .db()
+                    .faces()
+                    .any(|f| f.id == id && f.monospaced)
+            }) {
+                let glyph_id = charmap.map('m' as u32);
+                let advance = glyph_metrics.advance_width(glyph_id);
+                let cell_width = if advance > 0.0 {
+                    advance * scale
                 } else {
                     self.font_size * CELL_WIDTH_FALLBACK_RATIO
                 };
-
-                Some((cell_width, cell_height.ceil()))
-            });
-            if let Some(Some(metrics)) = result {
-                return metrics;
+                return Some((cell_width, cell_height.ceil()));
             }
+
+            let max_advance = ['m', 'W', '0']
+                .iter()
+                .filter_map(|&ch| {
+                    let gid = charmap.map(ch as u32);
+                    let adv = glyph_metrics.advance_width(gid);
+                    if adv > 0.0 { Some(adv * scale) } else { None }
+                })
+                .fold(0.0f32, f32::max);
+
+            let cell_width = if max_advance > 0.0 {
+                max_advance
+            } else {
+                self.font_size * CELL_WIDTH_FALLBACK_RATIO
+            };
+
+            Some((cell_width, cell_height.ceil()))
+        }) {
+            return metrics;
         }
         (
             self.font_size * CELL_WIDTH_FALLBACK_RATIO,
