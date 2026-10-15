@@ -20,7 +20,7 @@
       评级语义与「生态参照面组行」定义写入 Requirement 正文，禁止项三条与测试边界
       由 Requirement 正文与 `terminal-state-regression` 承接，两处悬问闭合结果
       （shitty 许可双轨、ratty font/atlas）与字体表真值对照位置一并登记
-- [ ] 删除 `docs/research/` 全部 74 份
+- [x] 删除 `docs/research/` 全部 74 份（`git rm -r docs/research`，目录随之移除）
 - [x] `FontFileOverrideInstrumentedTest` 注释改指 `openspec/specs/upstream-alignment` 的
       禁改区待维护者裁定项台账（rapidocr OCR 自动化未实施），不再引用 `docs/research`
 
@@ -45,4 +45,5 @@
 
 - [ ] `cargo test`（全目标）与 `cargo clippy --all-targets --deny warnings`
 - [ ] `./gradlew testDebugUnitTest`（Kotlin 单测，含被改注释文件所在模块）
-- [ ] 删除后全仓 grep 确认无 `docs/research` 悬空引用（归档变更除外）
+- [x] 删除后全仓 grep 确认无 `docs/research` 悬空引用（归档变更与本变更自身描述除外；
+      `native/target/` 构建产物内的无关命中不计）
