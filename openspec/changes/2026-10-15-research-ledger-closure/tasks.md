@@ -14,10 +14,18 @@
 
 - [x] 新增 `render-stability` Requirement「Surface 尺寸钳制到设备上限」
 - [x] 新增 `upstream-alignment` Requirement「研究报告逐份结论登记在本规范内」
-      （语料判定补齐行 16 行 + 能力裁定补齐行 18 行 + 禁改区登记表 4 行）
+      （语料判定补齐行 33 行 + 能力裁定补齐行 37 行 + 参照面与反面做法收敛补齐行 15 行
+      + 禁改区待维护者裁定项台账 4 行）
+- [x] 审阅发现的两类缺口已补：索引行依据指向空表（分屏、Web 壳语料等）与
+      仅存于待删报告/归档的结论（konsole/pebrel/libtsm 等 10 条语料行、
+      WebSocket、ZMODEM、命令面板、远程会话、AI 集成、vi-like、文件管理器、
+      结构化输出、第三方渲染实现、Terminal API 共 12 条能力行）
+- [x] MCP 与无障碍朗读改判 PROHIBITED（`PROHIBITED.md` 明禁条目），
+      替下先前「未声明」错裁（同 BiDi 更正口径）
 - [x] RTL/BiDi 口径更正：`PROHIBITED` 无该条目，正确口径为「未声明不立项」
-- [x] `docs/persistence/ecosystem.md` 参照面表补 mostty/hollow/con、自研 VT 组、
-      Web 壳组三组漏登行；「未声明功能面统一口径」「设备性能门禁空白」两节
+- [x] `docs/research/ecosystem.md`（原 `docs/persistence/ecosystem.md`，用户 commit
+      `41522b67` 移入研究目录）参照面表补 mostty/hollow/con、自研 VT 组、Web 壳组
+      三组漏登行；「未声明功能面统一口径」「设备性能门禁空白」两节（该文件随本轮退役）
 
 ## 三、代码实现（已完成）
 
@@ -57,7 +65,7 @@
 
 ## 五、审阅循环
 
-- [ ] 第一次完整审阅（对照两份文档集逐份抽查 + 全量构建测试）
+- [x] 第一次完整审阅（对照两份文档集逐份抽查 + 全量构建测试）
 - [ ] 第二次完整审阅（对抗式：构造可破坏新规范条款与实现的输入）
 - [ ] 第三次完整审阅确认无遗留
 
@@ -65,7 +73,7 @@
 
 维护者已裁定「都不改，只登记」，落地方案见 `upstream-alignment` 新 Requirement：
 
-- [ ] aislop / jscpd 门禁（TESTING.md 环境节）
-- [ ] rapidocr OCR 自动化（TESTING.md 环境节 + 外部基准优先级 4）
-- [ ] CI 产物哈希比对（vercel-labs-wterm 研究结论）
-- [ ] Android 15+ 16KB 页 `.so` 对齐（GlobalTechInfo-RedTerm 研究结论）
+- [x] aislop / jscpd 门禁（TESTING.md 环境节）——已登记，未实施
+- [x] rapidocr OCR 自动化（TESTING.md 环境节 + 外部基准优先级 4）——已登记，未实施
+- [x] CI 产物哈希比对（vercel-labs-wterm 研究结论）——已登记，未实施
+- [x] Android 15+ 16KB 页 `.so` 对齐（GlobalTechInfo-RedTerm 研究结论）——已登记，未实施

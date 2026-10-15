@@ -1,19 +1,18 @@
 # 设计
 
 - 下面如“有 `a` `b` `c` 项”指有且只有，不可有未声明行为。
-- 未声明的细节参考 [termux-app](https://github.com/termux/termux-app) 和 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal)。
-- libghostty-vt 使用参考 [ghostty-android-terminal libghostty-vt](https://github.com/sylirre/ghostty-android-terminal/blob/main/docs/architecture.md#libghostty-vt)。
+- 未声明的细节参考 [termux-app](https://github.com/termux/termux-app) 和 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal) 并遵循最佳实践
 
 ## 依赖
 
-- 依赖、工具尽量使用最新版本，尽量不固定小版本，版本声明不写精确版本（不用 `=x.y.z`）
+- 依赖、工具尽量使用最新版本，尽量不固定小版本，版本声明尽量不写精确版本（尽量不用 `=x.y.z`）
 - 多使用库，尽量避免自定义实现。
 - 图标（非软件桌面图标）使用系统提供或图标包，不做 `vendor`，不从外部单独下载。
 
 ## 习惯
 
 - 只允许设置下面出现的环境变量，尽量不要读取环境变量。
-- 尽量选择简洁、可靠、优雅、先进、激进、不妥协的设计方案。
+- 尽量选择简洁、可靠、优雅、先进、激进、不妥协的设计方案，追求质量而不是编写代码的速度
 - 异常处理代码尽量简洁，不随意回退。通常：极端情况/错误 → 输出错误日志并崩溃退出；设置数据错误 → 清除设置数据。
 - 不做不必要功能。
 - 高性能、低功耗，低内存友好。
@@ -38,9 +37,9 @@
   │       └── terminal/
   ```
 
-- 以 Ghostty 作为终端状态的单一来源，不重复实现 Ghostty 已有功能。
+- 不重复实现 Ghostty 已有功能。
 
-- 渲染完全在 Rust 侧通过 `wgpu` 完成。Kotlin 仅通过直接 JNI 接收轻量事件，无沉重网格数据跨越 FFI 边界。
+- 渲染在 Rust 侧通过 `wgpu` 完成。Kotlin 仅通过直接 JNI 接收轻量事件，无沉重网格数据跨越 FFI 边界。
 
 - 会话归属于 Rust，而非 Kotlin。PTY 的 `fork` / `exec`、Ghostty 终端与渲染循环均由 Rust 管理。Android Activity 生命周期要求应用正确处理以下场景：
   - Activity 重建（屏幕旋转、配置变更）：Surface 被销毁并重建，旧 `ANativeWindow` 指针失效。
@@ -81,8 +80,7 @@
 - **软件主题**：“日间”、“夜间”、“跟随系统”三种。
 
 - **终端主题**：作用于终端页面与修饰键栏，默认 dracula_plus 主题，开启“跟随系统”开关后可以分别设置日/夜两种终端主题，并跟随“软件主题”在两者间切换。
-  - 构建时从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码颜色，硬编码主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light
-  - `catppuccin_mocha` 等文本在代码中应该只出现一次
+  - 构建时从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码颜色，`catppuccin_mocha` 等主题名称在代码中应该只出现一次，硬编码主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light，不得转换名称，不使用 Dracula Plus 命名
   - 默认主题在第一次使用时即被应用。
   - 主题效果支持预览，主题名称不在预览框内，而是在其下方，长主题名称可以被正常显示。
 
@@ -186,4 +184,4 @@
 - 软件不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` 目录，`/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为 重命名 目标
 - 适配 Android 软件启动屏动画
 - 遵循 Material Design 3
-- 申请通知和文件权限
+- 申请通知和文件权限，支持 `/sdcard` 目录

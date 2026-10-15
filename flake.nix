@@ -130,7 +130,7 @@
                     installPhase = ''
                       runHook preInstall
 
-                      install MapleMonoNormal-NF-CN-Medium.ttf -D --target-directory $out/share/fonts/truetype
+                      install MapleMonoNormal-NF-CN-Regular.ttf -D --target-directory $out/share/fonts/truetype
 
                       runHook postInstall
                     '';
