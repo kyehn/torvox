@@ -22,8 +22,8 @@ C 为仅记录在案或反面教材。「参照面」是本仓实现时该仓的
 | GlobalTechInfo/RedTerm | JitPack 复用 Termux 库 | B | 完成后替换 + 孤儿清理；搜索高亮覆盖层两层反色 |
 | frostre1997/kosh、RohitKushvaha01/ReTerminal | Termux View + Compose 壳 | B | 文档提供器形态（ReTerminal 已停更） |
 | reapercanuk39/termux-kotlin-app | termux 完整 Kotlin 化 | B | 迁移文档的组织方式；**其「保留上游测试套件」不是正例**（单测仅 2 文件约 18 例） |
-| Adhi-hub07/on3-terminal | termite 范式，C PTY + Kotlin VT | B | `IUTF8`、像素 winsize、收尾 HUP→轮询→KILL 三例共识；反面：自造 `svc #0` syscall JNI、宽表缺 `isLowSurrogate` 校验、产物入库 |
-| imlunixdev/puppy | Kotlin + C++ PTY | B | 合并投递防粘包；反面：`curl \| sh`、构建产物入库、`onDraw` 内 `measureText` + `resize` |
+| Adhi-hub07/on3-terminal | termite 范式，C PTY + Kotlin VT | B | `IUTF8`、像素 winsize 两例共识；收尾仅直杀 `SIGKILL`（无组杀，不如本仓）；反面：自造 `svc #0` syscall JNI、宽表缺 `isLowSurrogate` 校验、产物入库 |
+| imlunixdev/puppy | Kotlin + C++ PTY | B | 合并投递防粘包；反面：构建产物入库、`onDraw` 内 `measureText` + `resize` |
 | rafaelmeloreisnovo/termux-app-rafacodephi | termux 重型 fork | B | 行尾孤立高代理越界的真实修复（本仓宽字符边界必须有 limit 检查）；反面：文档海、BLAKE3 整包校验 |
 | Rprop/AnsolePlus | 旧版 termux 打包 | C | 反面：与上游同位置的孤立代理项越界未修 |
 | Autonomous-Agentic-Workflows/termux-app | 旧基线 fork | C | 反面：删文件回传门控 + JNI 释放错对象（`ReleaseStringUTFChars` 写错对象） |
@@ -34,10 +34,10 @@ C 为仅记录在案或反面教材。「参照面」是本仓实现时该仓的
 | contour-terminal/contour | C++23 + OpenGL 桌面终端，自带 vtconformance | C | conformance 套件经 `upstream-alignment` 采纳门槛判定不引入（不测依赖行为）；daemon 持久会话违 PROHIBITED；字形图集/文本簇分组已有等价实现 |
 | migueldeicaza/SwiftTerm | Swift 自研终端库，含 Ghostty fuzz 语料回归对照 | C | 其与 Ghostty 的 fuzz 语料对照思路已由本仓 `external_benchmarks`（ghostty fuzz 语料回放 + UCD 宽度 + kitty 键盘协议）落地；Swift 生态与自研 VT 不复制 |
 | missdeer/mostty、sudo-tee/hollow、nowledge-co/con-terminal | 同为 libghostty 唯一 VT 核的 Zig/Windows 壳（mostty Win32、hollow Emacs 动态模块、con Windows 客户端） | C | 唯一与本仓同引擎的对标组。mostty 的 PTY→UI 交接（SPSC 环、edge-triggered 唤醒、单帧 quantum）本仓已有界通道 + level-poll 等价物；hollow 的 wrapper 回调生命周期仅作一次性审计参照（许可未确认，不移植代码）；con 的完整 libghostty 壳仅 Apple 平台，等不到 Android |
-| pg83/shitty、marshallku/copad、pop-os/cosmic-term、techsenger/jeditermfx、sanohiro/bcon、paulrobello/par-term（及 par-term-emu-core）、not-elm/orzma、midasdf/zt、wilsonglasser/oryxis、lihop/godot-xterm、lmorg/ttyphoon、tenox7/aclock、tn5250j/tn5250j | 自研 VT 或桌面/Web 壳 | C | 自研 VT 一律不引入；各自测试语料（shitty `tst/`、par-term fuzz、jeditermfx 金图、orzma、zt、ttyphoon 等）按 `upstream-alignment` 补齐行判定不采纳；`zt` 的 O(1) row-map 与内嵌 59k 字体判定不需要/未声明；godot-xterm 的 bell cooldown、copy-on-selection 分别裁定不接线、不采纳；tn5250j 的 5250 主帧协议不适用 |
+| pg83/shitty、marshallku/copad、pop-os/cosmic-term、techsenger/jeditermfx、sanohiro/bcon、paulrobello/par-term（及 par-term-emu-core）、not-elm/orzma、midasdf/zt、wilsonglasser/oryxis、lihop/godot-xterm、lmorg/ttyphoon、tenox7/aclock、tn5250j/tn5250j | 自研 VT 或桌面/Web 壳 | C | 自研 VT 一律不引入；各自测试语料（shitty `tst/`、par-term fuzz、jeditermfx 金图、orzma、zt、ttyphoon 等）按 `upstream-alignment` 补齐行判定不采纳；shitty 的许可双轨悬问已实地闭合（导入基线含 `lib/vterm` 保持 GPL-3.0，一手贡献 MIT/GPL3 双选）；`zt` 的 O(1) row-map 与内嵌 59k 字体判定不需要/未声明；godot-xterm 的 bell cooldown、copy-on-selection 分别裁定不接线、不采纳；tn5250j 的 5250 主帧协议不适用 |
 | tuzig/terminal7、veops/go-ansiterm、mrlima4095/OpenTTY-J2ME、marc2332/term、z-hunter/Scanline-term | Web 壳 / 服务端 Go 库 / 玩具 | C | 无 Android 落点；Scanline-term 的 MCP agent 桥、会话恢复、CRT 特效分别裁定未声明不立项、PROHIBITED 明禁、未声明；marc2332-term 的 JSON 会话持久化撞 PROHIBITED，分屏与 worktree 未声明 |
 | felixse/FluentTerminal（已停更）、lxqt/qterminal、KDE/konsole、KDE/yakuake、JetBrains/jediterm、borisfaure/terminology | 桌面壳 + xterm.js / QML | C | 桌面端复用 xterm.js，VT 与渲染都在别处，与本仓的单一来源正面冲突。可参考的只有产品面（主题导入、Shell Profile、键位编辑），而这些恰是本仓明禁项或未声明项 |
-| irealashu/ApexShell、shafinthedev/Ply、Sunbr99/TerminalOS、TOYTTQE/PufiX、eggie-admin/hydra-shell-android、deathlegionteamlk/jolz、Malik1stmkw/termux-clone | — | C | 无终端实现、无 PTY 或玩具；`catch (_: Exception) {}` 通篇；su/Shizuku 提权 |
+| irealashu/ApexShell、shafinthedev/Ply、Sunbr99/TerminalOS、TOYTTQE/PufiX、eggie-admin/hydra-shell-android、deathlegionteamlk/jolz、Malik1stmkw/termux-clone | — | C | 无终端实现、无 PTY 或玩具；Ply 的包管理为管道远程脚本（`curl \| sh`）；`catch (_: Exception) {}` 通篇；su/Shizuku 提权 |
 
 ## 二、仍然有效的结论
 
@@ -73,6 +73,15 @@ C 为仅记录在案或反面教材。「参照面」是本仓实现时该仓的
 - **设备性能门禁空白（登记在案）**：全仓无自动化设备性能门禁，性能证据均为
   代码注释内的 ad-hoc 真机实测；自动化留待维护者裁定（rapidocr OCR 闭环同批，
   见 `upstream-alignment` 的禁改区登记表）。
+- **本轮核验闭合的两处研究文档悬问**（原文档自陈「未检/待确认」，已实地取数）：
+  - `pg83/shitty` 的许可悬问：仓库根 `LICENSE` 明示双轨——2023-07-11 导入的
+    基线（含 `lib/vterm`）保持 GPL-3.0-or-later，此后一手贡献 MIT/GPL3 双选。
+    本仓无论如何不引入其代码（自研 VT + 不 vendor 可自动获取的文件），记录备查。
+  - `orhun/ratty` 的「font/atlas better inspect not now」：实列 `src/` 全部
+    20 个条目（camera/cli/config/control/inline/keyboard/kitty/mouse/paths/
+    plugin/present/rendering/rgp/runtime/scene/screen/shaders/systems/terminal）
+    无 font/atlas 模块——字体与图集随 Bevy 默认栈，无独立实现可借。该悬问闭合，
+    原「越过该层」的判断维持。
 
 ## 三、禁止项（勿从外部仓库抄入）
 

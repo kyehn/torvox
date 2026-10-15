@@ -12,10 +12,10 @@
 
 - 使用 `cargo ndk` 进行 Android 构建，禁止使用 `cargo zigbuild`。
 - 构建顺序：先构建 `.so`，再构建 APK。APK 构建阶段要求 `jniLibs/` 已填充。
-- compileOptions 为 `JavaVersion.VERSION_17`。
+- compileOptions 包括 `JavaVersion.VERSION_17`。
 - `minSdkVersion` 为 33，`compileSdkVersion` 为 37，`targetSdkVersion` 为 28。
 - `versionCode` 为 2000，`versionName` 为 0.1.0。
 - Rust 版本最低为 1.99，`edition` 最低为 2024。
-- 不得保留未使用依赖，所有依赖使用最新稳定版本，如果目前已使用不稳定版本且无更高版本的稳定版本则使用最新不稳定版本，不得降级依赖。处理破坏性更新，不跳过，不放弃。
+- 不得保留未使用依赖，所有依赖使用最新稳定版本，如果目前已使用不稳定版本且无更高版本的稳定版本则使用最新不稳定版本，不得降级依赖。尽力处理破坏性更新
 - rust/kotlin/gradle 代码中绝不能出现使用 `cargo build` `cargo test` `./gradlew ":app:assembleDebug"` `git clone` 或其他进行构建的情况，禁止不受管理的构建。
 - 只支持 `arm64-v8a`、`x86_64` 架构，`x86_64` 在构建/测试/模拟器测试时使用。
