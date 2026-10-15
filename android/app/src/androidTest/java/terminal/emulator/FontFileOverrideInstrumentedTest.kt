@@ -45,7 +45,7 @@ class FontFileOverrideInstrumentedTest : TerminalLogcatTest() {
                     prefix = "",
                     mkshrcPath = "",
                     fontSizeTenths = 140,
-                )
+                ),
             )
         val sessionId = bridge.spawnTerminal(24, 80, "/system/bin/sh")
         assertTrue("会话创建失败", sessionId != 0L)
