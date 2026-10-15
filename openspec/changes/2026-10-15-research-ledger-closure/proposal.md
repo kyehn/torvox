@@ -38,8 +38,9 @@
   写进规范正文（语料判定行 + 能力裁定行），使每条结论可脱离归档独立复核。
 - **代码**：`native/src/render/context.rs` 新增 `surface_extent` 纯函数并替换
   `attach_surface` / `reconfigure_swapchain` 两处重复现算；`render/tests.rs` 增判定表用例。
-- **`docs/persistence/ecosystem.md`**：参照面表补 mostty / hollow / jeditermfx /
-  tn5250j / Scanline / pg83 / cosmic-term 等漏登行；「减码空间」一节补 jscpd 实测口径。
+- **`docs/research/ecosystem.md`**：参照面表补 mostty / hollow / con 同引擎组、
+  自研 VT 组、Web 壳组三组漏登行；补「未声明功能面统一口径」「会话持久化」
+  「设备性能门禁空白」三节。
 
 ## 不做什么
 
@@ -57,6 +58,6 @@
 - Affected specs: `render-stability`（新增钳制条款）、`upstream-alignment`（新增台账
   Requirement，把原只存在于归档的逐份结论写入规范）。
 - Affected code: `native/src/render/context.rs`、`native/src/render/tests.rs`。
-- Affected docs: `docs/persistence/ecosystem.md`。
+- Affected docs: `docs/research/ecosystem.md`。
 - 行为变化：超过设备纹理上限的窗口尺寸不再注定永久黑屏（被钳制后正常出帧）；
   正常尺寸下行为逐字节不变（判定表钉住缩放与钳制两个不变量）。

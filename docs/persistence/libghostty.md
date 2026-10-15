@@ -1020,7 +1020,8 @@ SGR 属性经 `render::CellIteration::style` 直读。
   胖静态库 + pkg-config，为移植「应用运行时」而设。其 `ghostty_platform_e`
   仅 `INVALID/MACOS/IOS`，**对 Android 无收益**，故不接入。
 
-换核的可行性见 `ecosystem.md` 第二节：本仓确切约束下无「更完整又能直接换」者。
+换核的可行性：本仓确切约束下无「更完整又能直接换」者（对照结论保留在
+`openspec/specs/upstream-alignment`）。
 
 ## 5. 观察
 
