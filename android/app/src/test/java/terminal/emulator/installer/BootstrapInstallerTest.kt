@@ -65,6 +65,21 @@ class BootstrapInstallerTest {
         zipFile.delete()
     }
 
+    /**
+     * 在 prefix 的 `var/lib/dpkg/info` 下落一个假 postinst 并置可执行。
+     *
+     * 三个 second-stage 用例共用这段脚手架：各写一份时「信息目录路径」这类细节
+     * 一旦在某一份里漂移，用例会因目录缺失而失败，而不是因被测行为失败。
+     */
+    private fun seedPostinst(body: String): File {
+        val infoDir = File(prefixDir, "var/lib/dpkg/info")
+        infoDir.mkdirs()
+        val script = File(infoDir, "fake.postinst")
+        script.writeText(body.trimIndent())
+        script.setExecutable(true)
+        return script
+    }
+
     private fun buildFakeBootstrapZip(withSymlinks: Boolean): File {
         ZipOutputStream(zipFile.outputStream()).use { zos ->
             fun add(name: String, content: String = "x") {
@@ -269,19 +284,14 @@ class BootstrapInstallerTest {
     @Test
     fun secondStageRunner_executesPostinstScript() {
         // Seed a minimal prefix with a post-install script that writes a marker file.
-        val infoDir = File(prefixDir, "var/lib/dpkg/info")
-        infoDir.mkdirs()
         val marker = File(prefixDir, "postinst-ran.marker")
-        val script = File(infoDir, "fake.postinst")
-        script.writeText(
+        seedPostinst(
             """
             #!/bin/sh
             echo "configure" > "${marker.absolutePath}"
             exit 0
-            """
-                .trimIndent(),
+            """,
         )
-        script.setExecutable(true)
 
         val result = runBlocking { SecondStageRunner(prefixDir, homeDir).run() }
 
@@ -293,12 +303,9 @@ class BootstrapInstallerTest {
     fun secondStageRunner_retriesOnceAfterPostinstCrash() {
         // 首轮 139（复刻 update-alternatives 首运崩溃：活干完、进程崩），
         // 次轮幂等成功：旧逻辑无重试直接失败，新逻辑自愈。
-        val infoDir = File(prefixDir, "var/lib/dpkg/info")
-        infoDir.mkdirs()
         val flag = File(prefixDir, "first-run-crashed.flag")
         val marker = File(prefixDir, "postinst-retried.marker")
-        val script = File(infoDir, "fake.postinst")
-        script.writeText(
+        seedPostinst(
             """
             #!/bin/sh
             if [ -f "${flag.absolutePath}" ]; then
@@ -307,10 +314,8 @@ class BootstrapInstallerTest {
             fi
             touch "${flag.absolutePath}"
             exit 139
-            """
-                .trimIndent(),
+            """,
         )
-        script.setExecutable(true)
 
         val result = runBlocking { SecondStageRunner(prefixDir, homeDir).run() }
 
@@ -320,19 +325,14 @@ class BootstrapInstallerTest {
 
     @Test
     fun secondStageRunner_lockIsReleasedAfterRun() {
-        val infoDir = File(prefixDir, "var/lib/dpkg/info")
-        infoDir.mkdirs()
         val marker = File(prefixDir, "postinst-ran.marker")
-        val script = File(infoDir, "fake.postinst")
-        script.writeText(
+        seedPostinst(
             """
             #!/bin/sh
             echo "configure" > "${marker.absolutePath}"
             exit 0
-            """
-                .trimIndent(),
+            """,
         )
-        script.setExecutable(true)
 
         val runner = SecondStageRunner(prefixDir, homeDir)
         val first = runBlocking { runner.run() }
