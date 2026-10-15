@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Terminal engine"
+
 [lints.clippy]
 too_many_arguments = "allow"
 type_complexity = "allow"
@@ -71,3 +72,11 @@ harness = false
 name = "cjk_resolve"
 path = "benches/cjk_resolve.rs"
 harness = false
+
+[profile.release]
+# panic 键不设（默认 unwind）：JNI 导出守卫的 panic 处理链依赖展开，
+# 置 abort 会让守卫接住的 panic 直接终止进程。
+lto = true
+codegen-units = 1
+opt-level = "z"
+strip = true

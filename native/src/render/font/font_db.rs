@@ -652,7 +652,8 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
         log::error!("FONT_XML: 根元素不是 familyset/fontconfig");
         return (monospace, lang_fallbacks);
     }
-    for family in root
+    for family in document
+        .root_element()
         .children()
         .filter(|node| node.is_element() && node.tag_name().name() == "family")
     {
@@ -710,6 +711,37 @@ pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
     (monospace, lang_fallbacks)
 }
 
+/// `fonts.xml` 根下全部 `<family>` 元素（按文档顺序）。
+///
+/// 三个解析入口（families / declared files / aliases）共用同一条遍历链：
+/// 各写一份时任何一处增删过滤条件都会静默分叉，而分叉只体现在真机字体缺失上。
+/// 三个调用方均为 `#[cfg(any(target_os = "android", test))]`，故同口径限定。
+#[cfg(any(target_os = "android", test))]
+fn fonts_xml_families_of<'a, 'input>(
+    document: &'a roxmltree::Document<'input>,
+) -> impl Iterator<Item = roxmltree::Node<'a, 'input>> {
+    document
+        .root_element()
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "family")
+}
+
+/// 一个 `<family>` 下全部非空 `<font>` 文件名（按文档顺序，不去重）。
+///
+/// `parse_fonts_xml_declared_files` 与 `parse_fonts_xml_aliases` 共用：两处各写
+/// 一份时任何一处增删过滤条件都会静默分叉，而分叉只体现在真机字体缺失上。
+#[cfg(any(target_os = "android", test))]
+fn family_font_files(family: roxmltree::Node<'_, '_>) -> Vec<String> {
+    family
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "font")
+        .filter_map(|font| font.text())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// `fonts.xml` 声明的全部字体文件名（去重前，按文档顺序）。
 ///
 /// 覆盖**每个** `<family>` 下的 `<font>`，包括既无 `name` 也无 `lang` 的族：
@@ -722,19 +754,8 @@ pub(crate) fn parse_fonts_xml_declared_files(xml: &str) -> Vec<String> {
         log::error!("FONT_XML: 解析失败");
         return filenames;
     };
-    for family in document
-        .root_element()
-        .children()
-        .filter(|node| node.is_element() && node.tag_name().name() == "family")
-    {
-        for font in family
-            .children()
-            .filter(|node| node.is_element() && node.tag_name().name() == "font")
-        {
-            if let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) {
-                filenames.push(filename.to_string());
-            }
-        }
+    for family in fonts_xml_families_of(&document) {
+        filenames.extend(family_font_files(family));
     }
     filenames
 }
@@ -743,18 +764,14 @@ pub(crate) fn parse_fonts_xml_declared_files(xml: &str) -> Vec<String> {
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
     let mut aliases = Vec::new();
-    let document = match roxmltree::Document::parse(xml) {
-        Ok(document) => document,
-        Err(_) => return aliases,
+    let Ok(document) = roxmltree::Document::parse(xml) else {
+        return aliases;
     };
     let root = document.root_element();
     if !matches!(root.tag_name().name(), "familyset" | "fontconfig") {
         return aliases;
     }
-    for family in root
-        .children()
-        .filter(|node| node.is_element() && node.tag_name().name() == "family")
-    {
+    for family in fonts_xml_families_of(&document) {
         let Some(name) = family
             .attribute("name")
             .map(str::trim)
@@ -762,15 +779,7 @@ pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
         else {
             continue;
         };
-        let mut filenames = Vec::new();
-        for font in family
-            .children()
-            .filter(|node| node.is_element() && node.tag_name().name() == "font")
-        {
-            if let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) {
-                filenames.push(filename.to_string());
-            }
-        }
+        let filenames = family_font_files(family);
         if !filenames.is_empty() {
             aliases.push((name.to_string(), filenames));
         }

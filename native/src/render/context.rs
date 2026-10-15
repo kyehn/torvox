@@ -528,8 +528,11 @@ impl Renderer {
         let surface = std::sync::Arc::new(surface);
         // 默认配置挑选驱动支持的呈现模式与格式；`RENDER_SCALE` 与 `reconfigure_swapchain`
         // 一致（跨渲染器固定的缩放，保证单元格度量一致）。
-        let scaled_width = ((width as f32 * crate::render::RENDER_SCALE) as u32).max(1);
-        let scaled_height = ((height as f32 * crate::render::RENDER_SCALE) as u32).max(1);
+        let (scaled_width, scaled_height) = surface_extent(
+            width,
+            height,
+            global_gpu().device.limits().max_texture_dimension_2d,
+        );
         let caps = surface.get_capabilities(&global_gpu().adapter);
         // 脏带合成要求交换链纹理接受来自帧累加器的拷贝（Vulkan 上普遍支持）；
         // 特殊驱动缺失时回退到旧的直接渲染路径（仅全量重绘）。
@@ -824,6 +827,22 @@ pub fn apply_scroll_px_offset(
 /// 顶点缓冲的下限字节数。wgpu 拒绝 0 字节的缓冲，而调用方的空列表提前返回
 /// 并不构成该下限的来源——留一个最小值让契约与 wgpu 的要求对齐。
 pub const MIN_VERTEX_BUFFER_SIZE: u64 = 64;
+
+/// 交换链尺寸的唯一计算点：按跨渲染器固定的 `RENDER_SCALE` 缩放，再钳制到
+/// `[1, max_texture_dimension_2d]`。
+///
+/// `attach_surface` 与 `reconfigure_swapchain` 两条挂载路径 MUST 共用本函数。
+/// 超限的 surface 交给 `configure` 时，wgpu 30 的 `configure` 无返回值，失败只经
+/// `get_current_texture` 的 Lost 状态异步上报——表现为永久黑屏且没有直接错误；
+/// 缩放与钳制各写一份则补了钳制的那条路径会给另一条留下这个缺口。
+/// 与 `select_surface_format` 同理：唯一调用方仅 Android 存在，故限定为
+/// Android 生产构建 + 测试，而非加 `allow(dead_code)`。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn surface_extent(width: u32, height: u32, max_texture_dimension_2d: u32) -> (u32, u32) {
+    let limit = max_texture_dimension_2d.max(1);
+    let scaled = |dim: u32| ((dim as f32 * crate::render::RENDER_SCALE) as u32).clamp(1, limit);
+    (scaled(width), scaled(height))
+}
 
 impl Renderer {
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {
@@ -1141,8 +1160,8 @@ impl Renderer {
             (Some(s), Some(c)) => (s, c),
             _ => return,
         };
-        let scaled_width = ((width as f32 * crate::render::RENDER_SCALE) as u32).max(1);
-        let scaled_height = ((height as f32 * crate::render::RENDER_SCALE) as u32).max(1);
+        let (scaled_width, scaled_height) =
+            surface_extent(width, height, self.device.limits().max_texture_dimension_2d);
         if config.width == scaled_width && config.height == scaled_height {
             return;
         }

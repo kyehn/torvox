@@ -36,6 +36,47 @@ fn cell_instance_size() {
     assert_eq!(std::mem::size_of::<CellInstance>(), 92);
 }
 
+/// 交换链尺寸判定表：缩放、下限、上限钳制三个不变量各有用例。
+/// 判红方式：去掉钳制则前两条钳制断言判红；去掉下限则零尺寸两条判红。
+#[test]
+fn surface_extent_decision_table() {
+    const NO_LIMIT: u32 = u32::MAX;
+
+    // 缩放：`RENDER_SCALE` 为 1.0 时逐像素透传；期望按该常量推导，
+    // 常量一旦改动本表即暴露意图而非静默跟随。
+    assert_eq!(
+        crate::render::context::surface_extent(1080, 2400, NO_LIMIT),
+        (
+            (1080.0 * crate::render::RENDER_SCALE) as u32,
+            (2400.0 * crate::render::RENDER_SCALE) as u32
+        )
+    );
+
+    // 上限钳制：超过 `max_texture_dimension_2d` 的尺寸必须被钳回该上限。
+    assert_eq!(
+        crate::render::context::surface_extent(8192, 4096, 4096),
+        (4096, 4096)
+    );
+    // 只有一维超限时另一维不受影响。
+    assert_eq!(
+        crate::render::context::surface_extent(600, 9000, 8192),
+        (600, 8192)
+    );
+    // 恰好等于上限时原样通过（钳制 MUST NOT 把合法尺寸改小）。
+    assert_eq!(
+        crate::render::context::surface_extent(2048, 2048, 2048),
+        (2048, 2048)
+    );
+
+    // 下限：零尺寸（空窗口/尚未布局）不得原样交给 configure。
+    assert_eq!(crate::render::context::surface_extent(0, 0, 4096), (1, 1));
+    // 设备上报零上限（异常驱动）时钳制区间退化为 [1, 1]，MUST NOT panic。
+    assert_eq!(
+        crate::render::context::surface_extent(3000, 4000, 0),
+        (1, 1)
+    );
+}
+
 #[test]
 fn scroll_px_offset_translates_viewport_down() {
     // Positive offset moves content down: NDC Y shrinks by 2*px/height.
