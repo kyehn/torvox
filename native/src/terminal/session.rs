@@ -63,6 +63,24 @@ fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
     }
 }
 
+/// 选择收尾信号的目标：`kill(-pgid)` 覆盖整个前台进程组，使 shell 的子进程一并退出。
+/// 组号下界 MUST 大于 1——`-1` 会把信号发给本进程有权发信号的所有进程；组号也 MUST NOT
+/// 是本进程自身的组——子进程 fork 后尚未 `setsid` 时与本进程同组，组杀会连带杀死自己
+/// （设备实证 SIGKILL 自杀）。本进程组号取不到时一律退化为直杀子进程：确认不了就不组杀。
+/// 纯函数，使这条 guard 无需真实子进程即可测试。
+fn exit_signal_target(
+    pid: nix::unistd::Pid,
+    child_pgid: Option<nix::unistd::Pid>,
+    own_pgid: Option<nix::unistd::Pid>,
+) -> nix::unistd::Pid {
+    let Some(own_pgid) = own_pgid else {
+        return pid;
+    };
+    child_pgid
+        .filter(|pgid| pgid.as_raw() > 1 && *pgid != own_pgid)
+        .map_or(pid, |pgid| nix::unistd::Pid::from_raw(-pgid.as_raw()))
+}
+
 /// 读取线程在 `poll` 中停驻多久后重新检查退出标志。改用 poll 后输出延迟依旧很低，
 /// 而 PTY 空闲时不再空转 CPU。
 const READ_POLL_TIMEOUT_MS: i32 = 100;
@@ -967,21 +985,14 @@ impl Session {
             // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
             // （管道、前台组内的后台作业）一并退出。组不可用时退化为直杀子进程，
             // 两者只差信号目标，故把目标选好后走同一条「HUP → CONT → 让步 → KILL」。
-            let own_pgid = nix::unistd::getpgid(None)
-                .map(|group| group.as_raw())
-                .unwrap_or(-1);
-            let group = nix::unistd::getpgid(Some(pid))
-                .ok()
-                // 自杀 guard：子进程 fork 后在 setsid 前与本进程同组，组杀会连带杀死
-                // 本进程（设备实证 SIGKILL 自杀）。
-                // 下界是 2 而非 1：pgid == 1 时 `-pgid` 就是 -1，`kill(-1, …)` 会把信号
-                // 发给**所有**本进程有权发信号的进程。
-                .filter(|pgid| pgid.as_raw() > 1 && pgid.as_raw() != own_pgid)
-                .map_or(pid, |pgid| {
-                    log::debug!("session exit: signalling process group {}", pgid.as_raw());
-                    nix::unistd::Pid::from_raw(-pgid.as_raw())
-                });
-            if group == pid {
+            let group = exit_signal_target(
+                pid,
+                nix::unistd::getpgid(Some(pid)).ok(),
+                nix::unistd::getpgid(None).ok(),
+            );
+            if group != pid {
+                log::debug!("session exit: signalling process group {}", -group.as_raw());
+            } else {
                 log::warn!("session exit: 进程组不可用，仅直杀子进程 {}", pid.as_raw());
             }
             Self::terminate_target(pid, group);
@@ -2019,5 +2030,30 @@ mod tests {
             ReaderErrorAction::Stop
         );
         assert_eq!(read_error_action(None), ReaderErrorAction::Stop);
+    }
+
+    /// 收尾信号目标的选择就是自杀 guard 的全部逻辑：三种退化都必须直杀子进程。
+    #[test]
+    fn exit_signal_target_declines_group_kill_when_unsafe() {
+        use nix::unistd::Pid;
+        let pid = Pid::from_raw(4242);
+        let own = Pid::from_raw(100);
+        let child_group = Pid::from_raw(4243);
+        // 正常情形：子进程自成组且与本进程不同组 —— 组杀。
+        assert_eq!(
+            exit_signal_target(pid, Some(child_group), Some(own)),
+            Pid::from_raw(-4243)
+        );
+        // setsid 前：子进程与本进程同组，组杀会连带杀死本进程 —— 直杀子进程。
+        assert_eq!(exit_signal_target(pid, Some(own), Some(own)), pid);
+        // pgid == 1 时 `-pgid` 就是 -1，会命中本进程有权发信号的所有进程 —— 直杀子进程。
+        assert_eq!(
+            exit_signal_target(pid, Some(Pid::from_raw(1)), Some(own)),
+            pid
+        );
+        // 本进程组号取不到：确认不了就不组杀。
+        assert_eq!(exit_signal_target(pid, Some(child_group), None), pid);
+        // 子进程组号取不到 —— 直杀子进程。
+        assert_eq!(exit_signal_target(pid, None, Some(own)), pid);
     }
 }
