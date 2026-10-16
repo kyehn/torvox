@@ -1355,7 +1355,7 @@ fn cursor_cell_not_affected_by_search_highlight() {
 // ── Search highlight helpers and tests ───────────────────────────
 
 /// Test helper: groups `SearchHighlight`s by row, just like
-/// `build_cell_instances_into` does inline.
+/// `build_row_instances_into` does inline.
 fn group_highlights_by_row(
     highlights: &[SearchHighlight],
 ) -> HashMap<i32, Vec<&SearchHighlight>, foldhash::fast::RandomState> {
