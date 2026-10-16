@@ -36,14 +36,35 @@
       玩具组空 `catch` 与 su/Shizuku 提权、puppy 构建产物入库、on3 宽表缺 `isLowSurrogate`、
       kosh/ReTerminal 文档提供器形态、charon「全文本框镜像」不采纳、kotlin-app 测试套件
       非正例、ghostel FFI 细节
-- [ ] 第三轮完整审阅确认无遗留
-- [ ] `openspec validate --all`、markdownlint 通过
+- [x] 第三轮完整审阅（终态，17 行索引抽查 + `ecosystem.md` 107 行逐句复核 + 上游事实
+      4 项核验）：补修 5 处——主规范台账 `shafinthedev/ReTerminal` owner 更正为
+      `RohitKushvaha01/ReTerminal`、ledger-closure proposal 份数口径改 105（31 + 74）、
+      Ply 行号收窄为 `src/main.rs:102`、单列 fuzz 语料路径 `test/fuzz-libghostty`、
+      「性能门禁行」锚点名对齐为「设备性能自动化门禁行」
+- [x] 第四轮审阅（能力裁定补齐行 37 行逐行审计 + owner 抽查 41 个）：补修 3 处——
+      设备性能门禁判定与现状不符（宏基准已存在并接入 CI，缺的是阈值判定）、
+      `STYLE.md` 已声明界面仅简体中文（非「未声明」）、主规范 `jackpal/androidterm`
+      → `jackpal/Android-Terminal-Emulator`（旧名 API 404）
+- [x] 第五轮审阅（归档可行性仿真 + 自洽性）：补修 10 处——两份 tasks 的勾选状态（ledger
+      第二／三次审阅）与验证记录（含 `-- -D warnings` 写法、`androidTest` 源集口径）、
+      子代理分组计数笔误、`context.rs` 历史行号改现况、`level-poll` 自造术语改
+      `new_output`（`AtomicBool`）、ledger proposal 的 Requirement 名与 `ecosystem.md`
+      退役后表述、retirement proposal 的「主 spec 已有」与「在途新增表」归属、
+      两份 spec delta 内 `docs/research` 的「已退役」口径
+- [x] 第六轮审阅（本仓事实断言核验 10 项）：全部成立（行号、常量、仓库名、CI 接线），
+      未发现需改的规范缺陷
+- [x] `openspec validate --all`（33 通过 / 0 失败）与 markdownlint（`openspec/**/*.md`
+      277 文件 0 issues）通过；`--strict` 的 9 项告警全为「>500 字符长 Requirement」，
+      属既有风格
 - [ ] 归档 `2026-10-15-research-ledger-closure` 与本变更（顺序：先 ledger-closure，
       本变更索引行的依据表才可解析），核对主 spec 条目数
 
 ## 四、验证
 
-- [ ] `cargo test`（全目标）与 `cargo clippy --all-targets --deny warnings`
-- [ ] `./gradlew testDebugUnitTest`（Kotlin 单测，含被改注释文件所在模块）
+- [x] `cargo clippy --all-targets -- -D warnings`、`cargo test`（全目标）通过：
+      lib 621 + concurrency 2 + external_benchmarks 9 全绿，0 失败
+- [x] `./gradlew testDebugUnitTest` 与 `./gradlew compileDebugAndroidTestKotlin` 通过
+      （被改注释文件 `FontFileOverrideInstrumentedTest.kt` 属 `androidTest` 源集，
+      单测任务不编译它，故另编译该源集）
 - [x] 删除后全仓 grep 确认无 `docs/research` 悬空引用（归档变更与本变更自身描述除外；
       `native/target/` 构建产物内的无关命中不计）
