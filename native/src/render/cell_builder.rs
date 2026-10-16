@@ -242,8 +242,9 @@ fn is_content_codepoint(codepoint: u32) -> bool {
 
 /// 增量渲染的行级实例缓存（FR-013 / NFR-010）。
 ///
-/// 与测试专用参照实现 `snapshot_reference::build_cell_instances_into`
-/// （row_ends + 每行的实例切片）保持一致：构建后 `row_ends[r]` 即
+/// 与全量路径 `build_instances_from_cell_data`（row_ends + 每行的实例切片）
+/// 保持一致，差异由 `cached_incremental_rebuild_matches_full_build`
+/// 逐实例比对：构建后 `row_ends[r]` 即
 /// 行 `r` 的实例在 `instances` 中的结束下标（不含）。干净行可
 /// 直接从上一帧复制，不必再经字体图集
 /// 遍历其单元格（NFR-010：只重绘脏行）。
