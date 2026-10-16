@@ -8,8 +8,10 @@
 现状盘点（本轮逐份复读 74 份 + 归档台账比对）：
 
 1. **索引层缺失**：规范内已有「已复查结论台账」（语料）、「Android 侧终端项目的复查台账」
-   （25 项）、「能力裁定补齐行」、「禁改区待维护者裁定项台账」、「OSC 覆盖逐项核对」等表，
-   但它们以**资产/能力**为键，不以**报告文件**为键。实测 74 份报告中有 20 余份
+   （25 项）、「OSC 覆盖逐项核对」等以资产／能力为键的表，在途变更
+   `2026-10-15-research-ledger-closure` 另新增「语料判定补齐行台账」「能力裁定补齐行台账」
+   「参照面与反面做法收敛补齐行」「禁改区待维护者裁定项台账」四张补齐表，
+   但它们仍以**资产/能力**为键，不以**报告文件**为键。实测 74 份报告中有 20 余份
    （`zebra`、`fbpad`、`HiSH`、`batata`、`lumina`、`havoc`、`Bobcat`、`TerminalFX`、
    `iced_term`、`zashterminal`、`omnipty`、`zerotty`、`DomTerm`、`termora`、`libvtty`、
    `qwertty`、`ketraterm`、`kmscon/libtsm`、`BossTerm`、`mintty`、`fyne` 等）

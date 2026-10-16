@@ -310,3 +310,82 @@ fn catalog_packs_every_theme_in_source_order() {
         "默认浅色主题须恰有一个"
     );
 }
+
+/// 调色板必须与上游主题源里的**十六进制字面量**逐字段相等。
+///
+/// 期望值刻意不来自 [`Palette::parse`]：期望与被测同源时，任何解析错误都会被一并
+/// 搬进期望，断言恒成立（`dark_flag_and_leading_order_follow_background_luminance`
+/// 的注释已记过同一坑）。这里用一段独立的按段扫描从嵌入的 TOML 源里读出背景、前景
+/// 与十六色，再与解析结果比对——槽位顺序、段错读或配色被改写都会立刻判红。
+/// `CellForeground` 一类别名不在扫描器职责内，那正是解析器要自行处理的部分。
+#[test]
+fn palette_matches_the_hex_literals_in_the_theme_sources() {
+    for &(name, text) in SOURCES {
+        let palette = Palette::parse(name, text).expect("清单内主题应可解析");
+        let (background, foreground, ansi) = literal_colors(name, text);
+        assert_eq!(palette.background, background, "{name}: 背景与源字面量不符");
+        assert_eq!(palette.foreground, foreground, "{name}: 前景与源字面量不符");
+        assert_eq!(palette.ansi, ansi, "{name}: 十六色与源字面量不符");
+    }
+}
+
+/// 从主题源文本扫出 `(背景, 前景, 十六色)`，全部按 `#RRGGBB` 字面量读。
+///
+/// 只认 `[colors.primary]` / `[colors.normal]` / `[colors.bright]` 三段的
+/// `键 = <引号>#RRGGBB` 首处字面量；整行注释（以 `#` 起）与行尾注释自然略过。
+/// 段名或键名对不上即 panic——源结构变了必须判红，不得静默跳过。
+fn literal_colors(name: &str, source: &str) -> (RgbColor, RgbColor, [RgbColor; 16]) {
+    const ANSI_KEYS: [&str; 8] = [
+        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+    ];
+
+    fn hex(value: &str) -> Option<RgbColor> {
+        let digits = value.get(value.find('#')? + 1..)?.get(..6)?;
+        Some(RgbColor {
+            r: u8::from_str_radix(digits.get(..2)?, 16).ok()?,
+            g: u8::from_str_radix(digits.get(2..4)?, 16).ok()?,
+            b: u8::from_str_radix(digits.get(4..6)?, 16).ok()?,
+        })
+    }
+
+    let mut section = String::new();
+    let mut primary: [Option<RgbColor>; 2] = [None; 2];
+    let mut ansi: [Option<RgbColor>; 16] = [None; 16];
+    for line in source.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(heading) = line
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            section.clear();
+            section.push_str(heading);
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        match section.as_str() {
+            "colors.primary" if key == "background" => primary[0] = hex(value),
+            "colors.primary" if key == "foreground" => primary[1] = hex(value),
+            "colors.normal" | "colors.bright" => {
+                let index = key;
+                if let Some(slot) = ANSI_KEYS.iter().position(|candidate| *candidate == index) {
+                    ansi[slot + if section == "colors.normal" { 0 } else { 8 }] = hex(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    let missing = |what: &str| panic!("{name}: 源文本里找不到 {what} 的 #RRGGBB 字面量");
+    (
+        primary[0].unwrap_or_else(|| missing("背景")),
+        primary[1].unwrap_or_else(|| missing("前景")),
+        std::array::from_fn(|slot| {
+            ansi[slot].unwrap_or_else(|| missing(&format!("十六色第 {slot} 槽")))
+        }),
+    )
+}
