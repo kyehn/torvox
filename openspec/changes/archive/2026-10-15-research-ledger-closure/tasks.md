@@ -5,8 +5,10 @@
 - [x] 重读用户指定 commit `9aea751d` 的 `docs/research` 编号文档集 31 份
 - [x] 重读当前工作区 `docs/research` 73 份
 - [x] 对照归档变更 `2026-10-15-research-residual-closure` 的 tasks.md 逐份核对覆盖状态
-- [x] 四组子代理并行复核（10+10+10+10+10+10+10+10 份分组）提取可执行项并与台账比对
-- [x] 代码级取证：`render-stability` 的 surface 钳制缺口（`context.rs:531/1144` 两处重复现算）
+- [x] 子代理并行分组复核当前工作区 73 份逐仓报告，逐份提取可执行项并与台账比对
+      （分组与逐份结论见 `2026-10-15-research-docs-retirement` 索引表）
+- [x] 代码级取证：`render-stability` 的 surface 钳制缺口（`context.rs:531` 的
+      `attach_surface` 与 `:1164` 的 `reconfigure_swapchain` 两处重复现算）
 - [x] 确认维护者裁定：禁改区（`scripts/`、`.github/`、`android/app/build.gradle.kts`）
       四项待办「都不改，只登记」
 
@@ -36,7 +38,7 @@
 - [x] `render/tests.rs` 新增判定表用例 `surface_extent_decision_table`
 - [x] 变异验证一：去掉钳制判红（tests.rs:56 断言失败）
 - [x] 变异验证二：去掉下限判红
-- [x] `cargo fmt --check`、`cargo clippy --all-targets --deny warnings`、
+- [x] `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、
       针对性 `cargo test --lib surface_extent` 全绿
 
 ## 四、代码重复率（jscpd 实测）
@@ -66,8 +68,9 @@
 ## 五、审阅循环
 
 - [x] 第一次完整审阅（对照两份文档集逐份抽查 + 全量构建测试）
-- [ ] 第二次完整审阅（对抗式：构造可破坏新规范条款与实现的输入）
-- [ ] 第三次完整审阅确认无遗留
+- [x] 第二次完整审阅（对抗式：构造可破坏新规范条款与实现的输入）——修补记录见
+      `2026-10-15-research-docs-retirement` 第三节
+- [x] 第三次完整审阅确认无遗留（同上）
 
 ## 六、禁改区待维护者裁定（AGENTS.md：`scripts/`、`.github/`、`android/app/build.gradle.kts`）
 

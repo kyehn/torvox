@@ -2,8 +2,8 @@
 
 ## Why
 
-`docs/research` 的 93 份研究报告（用户指定 commit 的编号文档集 31 份 + 当前工作区
-73 份）在归档变更 `2026-10-15-research-residual-closure` 里做过一轮逐份处置，但本轮
+`docs/research` 的 105 份研究报告（用户指定 commit 的编号文档集 31 份 + 当前工作区
+74 份）在归档变更 `2026-10-15-research-residual-closure` 里做过一轮逐份处置，但本轮
 把两份文档集**重新完整读一遍**后，发现该台账自身有缺口，且有 1 处真实代码缺口：
 
 1. **四份文档零台账覆盖**：`sudo-tee-hollow`、`techsenger-jeditermfx`、`tn5250j-tn5250j`、
@@ -34,13 +34,16 @@
 - **新增 `render-stability` Requirement「Surface 尺寸钳制到设备上限」**：交换链尺寸
   MUST 由唯一纯函数计算（缩放后钳制到设备 `max_texture_dimension_2d`），两条挂载路径
   MUST 共用；超限钳制 MUST 可被宿主单测直接判定（判定表，不经 GPU）。
-- **新增 `upstream-alignment` Requirement「研究报告结论台账补齐」**：把上述逐份结论
-  写进规范正文（语料判定行 + 能力裁定行），使每条结论可脱离归档独立复核。
+- **新增 `upstream-alignment` Requirement「研究报告逐份结论登记在本规范内」**：把上述
+  逐份结论写进规范正文，使每条结论可脱离归档独立复核；落点为其后四个 Requirement：
+  逐条判定行归「语料判定补齐行台账」与「能力裁定补齐行台账」，参照面与反面做法归
+  「参照面与反面做法收敛补齐行」，禁改区四项归「禁改区待维护者裁定项台账（只登记，不实施）」。
 - **代码**：`native/src/render/context.rs` 新增 `surface_extent` 纯函数并替换
   `attach_surface` / `reconfigure_swapchain` 两处重复现算；`render/tests.rs` 增判定表用例。
 - **`docs/research/ecosystem.md`**：参照面表补 mostty / hollow / con 同引擎组、
   自研 VT 组、Web 壳组三组漏登行；补「未声明功能面统一口径」「会话持久化」
-  「设备性能门禁空白」三节。
+  「设备性能门禁空白」三节。该文件随后由 `2026-10-15-research-docs-retirement`
+  整体删除，上述内容以本变更的「参照面与反面做法收敛补齐行」与索引表为准。
 
 ## 不做什么
 
@@ -55,9 +58,11 @@
 
 ## Impact
 
-- Affected specs: `render-stability`（新增钳制条款）、`upstream-alignment`（新增台账
-  Requirement，把原只存在于归档的逐份结论写入规范）。
+- Affected specs: `render-stability`（新增钳制条款）、`upstream-alignment`（新增逐份
+  结论登记要求与语料判定／能力裁定／参照面收敛／禁改区四张补齐表，把原只存在于归档的
+  逐份结论写入规范）。
 - Affected code: `native/src/render/context.rs`、`native/src/render/tests.rs`。
-- Affected docs: `docs/research/ecosystem.md`。
+- Affected docs: `docs/research/ecosystem.md`（本变更期间尚在；随后由
+  `2026-10-15-research-docs-retirement` 整体删除，内容并入规范表）。
 - 行为变化：超过设备纹理上限的窗口尺寸不再注定永久黑屏（被钳制后正常出帧）；
   正常尺寸下行为逐字节不变（判定表钉住缩放与钳制两个不变量）。

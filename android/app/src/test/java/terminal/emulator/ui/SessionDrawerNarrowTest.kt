@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -98,5 +99,7 @@ class SessionDrawerNarrowTest {
             composeRule.onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
                 .fetchSemanticsNodes()
         assertTrue("会话项必须存在", items.size == 1)
+        composeRule.onNodeWithText("会话 1").assertIsDisplayed()
+        composeRule.onNodeWithText("VT_TITLE").assertIsDisplayed()
     }
 }

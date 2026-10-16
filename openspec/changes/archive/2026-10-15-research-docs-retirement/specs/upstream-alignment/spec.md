@@ -23,7 +23,9 @@ MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删
 完整 `libghostty` 的 `ghostty_platform_e` 仅 `INVALID/MACOS/IOS`、对 Android 无收益；
 `rio-vt` 未上 crates.io、须自 rio 仓库自建——在本仓确切约束（Android + Rust 宿主 + wgpu +
 无头 + C ABI + kitty 图形 + 单一来源）下无「更完整又能直接换」者。
-测试边界由 `terminal-state-regression` 与该能力「上游 VT 语义不由本仓测试覆盖」承担。
+测试边界由 `terminal-state-regression` 与该能力「上游 VT 语义不由本仓测试覆盖」承担：
+VT 解析归上游，上游权威 fuzz 为 `libghostty` 的 `test/fuzz-libghostty`（parser／stream／osc），
+本仓只测接缝与契约，外部数据即基准、不入库。
 
 原 `ecosystem.md` 的 S/A/B/C 参照面评级是研究期分流工具，其作用已由索引表的「判定」列
 与各台账取代；表中依据列写作「生态参照面组行」的行，指同一组「形态或技术栈与本仓
@@ -123,7 +125,7 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 | `mirbehnam-RtlTerminal.md` | C#/WPF Windows RTL 终端 | 不采纳：RTL 整形与 layoutDirection 均未声明 | 「能力裁定补齐行」RTL 两行 |
 | `missdeer-mostty.md` | Zig + libghostty 桌面原生终端 | 不立项：单帧 deadline／quantum 属过度设计，本仓读链已有界；PTY→UI 模式已有等价物 | 「能力裁定补齐行」mostty 两行（含错裁更正） |
 | `mrlima4095-OpenTTY-J2ME.md` | J2ME MIDlet + RISC-V 模拟器 | 不采纳：与终端组件无现实关联 | 生态参照面组行 |
-| `nihiL7331-sfte.md` | C 单头文件极小终端（st 衍生） | 不采纳：仓内仅 fuzz 宏无语料；设备性能门禁登记在案 | 「语料判定补齐行」sfte 行；「能力裁定补齐行」性能门禁行 |
+| `nihiL7331-sfte.md` | C 单头文件极小终端（st 衍生） | 不采纳：仓内仅 fuzz 宏无语料；设备性能门禁登记在案 | 「语料判定补齐行」sfte 行；「能力裁定补齐行」设备性能自动化门禁行 |
 | `not-elm-orzma.md` | Rust 自研 VT + WebView 混合终端 | 不采纳（门槛 1+3）：第三方 VT 差分；WebView 超范围 | 「语料判定补齐行」orzma 行 |
 | `nowledge-co-con-terminal.md` | Rust+GPUI 全量 Ghostty 的 AI 终端 | 不采纳（门槛 1）：conformance 期望为自身输出；完整 libghostty 无 Android 平台 | 「语料判定补齐行」con 行；本条「禁止项三条保留」段（不等待完整 libghostty 支持 Android） |
 | `omnipty-terminal-omnipty.md` | Rust+GPUI+alacritty 桌面终端 | 不采纳：GPUI 非 Android；事件循环本仓已有等价 | 生态参照面组行 |
