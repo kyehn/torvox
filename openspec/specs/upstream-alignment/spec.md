@@ -855,7 +855,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 | `curl \| sh` 式引导安装 | shafinthedev/Ply（`src/main.rs:102` 的 `curl -s {} \| sh`，包管理安装流程） | **不得反向采纳**：引导安装按 `bootstrap-install` 固定流程执行，不把远端脚本接进 shell 管道 |
 | 渲染热路径内的 `measureText` | puppy | **不得反向采纳**：与既有台账行「在渲染热路径内改写终端状态」同口径，文本度量不得进每帧路径；其构建产物入库一并计入既有台账「仓库内提交 CMake 生成物与构建产物」行 |
 | 治理文档膨胀（「文档海」） | termux-app-rafacodephi、termux-kotlin-app | **不得反向采纳**：文档面收敛为 `openspec/` 与 `docs/specification/`，研究过程记录不常驻 |
-| 整包完整性校验（BLAKE3 与 sha256 双实现） | termux-app-rafacodephi（`BootstrapIntegrityVerifier` 走 BLAKE3；loader `BootstrapChecksumValidator` 走 sha256） | 不采纳：整包校验与 `PROHIBITED.md` 终端节「Bootstrap zip 的 sha256 sidecar 校验」同口径 |
+| 整包完整性校验（BLAKE3 与 sha256 双实现） | termux-app-rafacodephi（`BootstrapIntegrityVerifier` 走 BLAKE3；loader `BootstrapChecksumValidator` 走 sha256） | 不采纳：整包校验与 `PROHIBITED.md` 终端节「Bootstrap zip 的 sha256 旁挂校验文件」同口径 |
 | 删减式回退（缺源文件、删 Sixel 分支、去 API 版本守卫） | Autonomous-Agentic-Workflows/termux-app | **不得反向采纳**：跟 master 并保留上游能力；既有实测台账已记「官方的弱化子集（缺六个源文件）」 |
 | JNI 字符串释放错对象（`ReleaseStringUTFChars`） | Autonomous-Agentic-Workflows/termux-app、Rprop/AnsolePlus、reapercanuk39/termux-kotlin-app（三仓 `termux.c:164-165` 同为 `(cmd, cmd_cwd)`；上游为 `(cwd, cmd_cwd)`） | **不得反向采纳**：JNI 字符串与数组释放 MUST 对象成对，错位即漏释放加错释放 |
 | 选择空间以负行号寻址回滚区的心智模型 | CocaKova/charon（`TextSelection.kt` 行号 `coerceIn(-scrollbackSize, rows-1)` 经 `ScreenBuffer.relativeLine` 解析） | 仅参照：本仓选择空间与回滚寻址归上游，`text-selection` 只声明可观测契约，不下沉自研；其 IME「全文本框镜像」不采纳——本仓口径是组字基线为输入法可见文本的唯一镜像（`ime-editor-contract`） |
@@ -1265,7 +1265,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | P2「启动路径纯函数化测试（`PathTreatmentUtilsTests`）的思路」 | 已实现同向：本仓启动路径判定为纯函数并各有单测（`native/src/terminal/pty.rs` 的 `is_pie`／`read_shebang_interpreter` 与其用例） |
 | `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | 禁止项「kP/kN 重映射」 | 不采纳：翻页键编码 MUST 走上游 `key::Encoder`（`key-input-encoding`），该重映射属无 Ghostty 依据的上游行为变更 |
 | `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | 禁止项「图像协议剥离」 | 反向已实现：本仓保留 Kitty 图形协议（含存储上限与 PNG 解码），剥离方向与 `DESIGN.md` 相反 |
-| `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | 禁止项「传感器桥与审计膨胀」「自研 bootstrap 与回滚与收据」「bootstrap sha256 校验文件」「治理工作流膨胀」 | 未声明，不立项；其中整包校验与治理膨胀已分别在「能力裁定补齐行」与「参照面与反面做法收敛补齐行」判死（撞 `PROHIBITED.md` 终端节「Bootstrap zip 的 sha256 sidecar 校验」条） |
+| `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | 禁止项「传感器桥与审计膨胀」「自研 bootstrap 与回滚与收据」「bootstrap sha256 校验文件」「治理工作流膨胀」 | 未声明，不立项；其中整包校验与治理膨胀已分别在「能力裁定补齐行」与「参照面与反面做法收敛补齐行」判死（撞 `PROHIBITED.md` 终端节「Bootstrap zip 的 sha256 旁挂校验文件」条） |
 | `08-pavelc4-Rin.md` | P1「读写线程与应答回写分离」「resize 同步引擎与 pty」「ENV 指向 home 下 mkshrc」 | 已有去向：应答回写分离与 resize 归 `pty-lifecycle`（「VT 应答回写逐帧有界」「生成播种行列尺寸且 resize 携带像素尺寸」）；`ENV` 归 `shell-env`（值为应用私有 rc 绝对路径，非 `{home}/.mkshrc`） |
 | `08-pavelc4-Rin.md` | P2「解析器按命令枚举组织的代码结构（仅结构思路）」 | 不采纳：解析唯一真源为 Ghostty，本仓只在 `output_processor.rs` 自研 OSC 52 读取请求的逐字节收割，命令枚举式解析器结构无落点 |
 | `08-pavelc4-Rin.md` | 反面价值 P0「手写 545 行仍是不完备子集，须在汇总中引用」 | 已实现：`00-汇总与可参考点收敛.md` 行与该仓复查台账行进已写明（门槛 1 成立、门槛 3 不满足，终端侧零测试），反衬 Ghostty 单源决策 |

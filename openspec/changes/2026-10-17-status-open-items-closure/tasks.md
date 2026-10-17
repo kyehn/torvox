@@ -86,13 +86,13 @@
       `handleSessionExit` 随即移除会话（DESIGN.md:145「正常退出时关闭会话」已实现）；
       termux 侧 `TermuxTerminalSessionActivityClient#onSessionFinished` 对退出状态 0/130
       走 `removeFinishedSession`，而该方法在 `service.getTermuxSessionsSize() == 0` 时
-      调 `mActivity.finishActivityIfNotFinishing()`——**这一步 torvox 从未实现**
+      调 `mActivity.finishActivityIfNotFinishing()`——**这一步本应用从未实现**
       （全仓无任何 `finish()`）：会话没了，应用却停在无会话的空界面，
       用户看到的正是「exit 后什么都没关」。
 - [x] 不照抄 termux 的「130 也自动关闭」：两者的退出码空间不同——termux 把信号死亡记为
-      **负值**（`-WTERMSIG`），130 是真实的退出码；torvox 按 shell 惯例记为
+      **负值**（`-WTERMSIG`），130 是真实的退出码；本应用按 shell 惯例记为
       `128 + 信号号`（`native/src/terminal/session.rs` 的 `SIGNAL_EXIT_BASE`），
-      故 130 在 torvox 里就是 SIGINT 死亡，属于 DESIGN.md 要「保留现场」的崩溃。
+      故 130 在本应用里就是 SIGINT 死亡，属于 DESIGN.md 要「保留现场」的崩溃。
       照抄会把被 Ctrl-C 杀死的 shell 静默关掉，与 termux 对信号死亡的处理（保留提示）相反。
 - [x] 修：`MainActivity` 在 `lifecycleScope` 里收集 `runtime.state`，会话表由非空转为空
       即 `finish()`（termux 的 `finishActivityIfNotFinishing` 对等；Activity 不在时
@@ -119,7 +119,7 @@
       成第二行 12sp 小字；DESIGN 的示例是 `[1] ~`（序号与标题同行），termux 在无会话名
       （用户新建会话没有 `mSessionName`）时也是 `numberPart + sessionTitlePart` 同行
       （`TermuxSessionsListViewController.getView`），只有存在会话名时才换行。
-      torvox 没有会话名，因此标题必须跟在序号后面——现状既丢了规范里的序号格式，
+      本应用没有会话名，因此标题必须跟在序号后面——现状既丢了规范里的序号格式，
       又让标题退成次要信息，读起来就是「没显示会话标题」。
 - [x] 按根因修：`SessionDrawer` 条目改为单行 `[序号] 标题`，序号加粗、标题斜体
       （`AnnotatedString` 分段样式，与 termux 的 bold/italic span 一致）；标题为空时
