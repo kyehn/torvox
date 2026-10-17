@@ -54,6 +54,15 @@ data class RuntimeState(
 )
 
 /**
+ * spawn 的结果：原生会话 id，以及建 PTY 时实际使用的网格。
+ *
+ * 网格一并带出是因为它不再等于任何默认值（见 [initialSpawnGrid]）：调用方发布
+ * [RuntimeState] 时必须用真实行列，否则 UI/选区会按 24×80 的陈旧网格算几何，
+ * 与 PTY 的真实 winsize 不一致。
+ */
+internal data class SpawnResult(val sessionId: Long, val rows: Int, val cols: Int)
+
+/**
  * 用户滚动手势后的窗口期，期间新输出不得把视口拽回底部（见 [shouldResetScroll]）。
  * 默认 termux 对等路径传入零时间戳，故该保护保持关闭。
  */
@@ -1031,7 +1040,7 @@ constructor(
     private val mkshrcPath: String
         get() = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME).absolutePath
 
-    private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
+    private suspend fun buildConfig(): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
             val fontDeferred = async { computeFontSizeTenths() }
@@ -1065,8 +1074,6 @@ constructor(
             ensureMkshPromptRc()
             return TerminalConfig(
                 shell = Shell.SystemDefault,
-                rows = rows,
-                cols = cols,
                 fontSizeTenths = configReads.fontSizeTenths,
                 themeName = resolvedTheme.name,
                 home = homeDir,
@@ -1087,8 +1094,6 @@ constructor(
         // 无启动目录设置（DESIGN.md:93）：工作目录恒为家目录。
         return TerminalConfig(
             shell = effectiveShell,
-            rows = rows,
-            cols = cols,
             fontSizeTenths = configReads.fontSizeTenths,
             themeName = resolvedTheme.name,
             home = homeDir,
@@ -2312,7 +2317,7 @@ constructor(
             val config = buildConfig()
             LogUtil.d(
                 "Runtime",
-                "buildConfig: fontSizeTenths=${config.fontSizeTenths} rows=${config.rows} cols=${config.cols} theme=${config.themeName} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
+                "buildConfig: fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
             )
             val bridgeStartNs = System.nanoTime()
             val bridge = Bridge(config)
@@ -2351,15 +2356,15 @@ constructor(
                 return
             }
 
-            val spawnResult = spawnTerminalTimed(bridge, config, "start")
+            val spawn = spawnTerminalTimed(bridge, config, "start", width, height)
             LogUtil.d(
                 "Runtime",
-                "spawnTerminal: rows=${config.rows} cols=${config.cols} result=$spawnResult",
+                "spawnTerminal: result=${spawn.sessionId}",
             )
-            if (spawnResult <= 0L) {
+            if (spawn.sessionId <= 0L) {
                 LogUtil.e(
                     "Runtime",
-                    "spawnTerminal returned $spawnResult — native session init failed, aborting start",
+                    "spawnTerminal returned ${spawn.sessionId} — native session init failed, aborting start",
                 )
                 bridge.close()
                 return
@@ -2387,7 +2392,7 @@ constructor(
                     starting = false
                     abandonedReason = "duplicate"
                 } else {
-                    finalSessionId = spawnResult
+                    finalSessionId = spawn.sessionId
                     entry =
                         SessionEntry(
                             id = finalSessionId,
@@ -2460,14 +2465,14 @@ constructor(
                 _state.value =
                     RuntimeState(
                         isRunning = true,
-                        rows = config.rows,
-                        cols = config.cols,
+                        rows = spawn.rows,
+                        cols = spawn.cols,
                         activeSessionId = finalSessionId,
                         sessionIds = listOf(finalSessionId),
                     )
                 LogUtil.d(
                     "Runtime",
-                    "session $finalSessionId config: rows=${config.rows} cols=${config.cols} fontSizeTenths=${config.fontSizeTenths}",
+                    "session $finalSessionId config: fontSizeTenths=${config.fontSizeTenths}",
                 )
                 LogUtil.d("Runtime", "session $finalSessionId started")
                 try {
@@ -2602,13 +2607,13 @@ constructor(
             // 当 start()（较慢的引导路径，同样在其锁外 spawn）与 createSession 并发时，
             // Kotlin 的 max+1 序列与原生序列可能漂移；
             // 以原生 ID 路由 switchSession/handleSessionExit 可保持同步。
-            val spawnResult = spawnTerminalTimed(bridge, config, "createSession")
-            if (spawnResult <= 0L) {
+            val spawn = spawnTerminalTimed(bridge, config, "createSession", width, height)
+            if (spawn.sessionId <= 0L) {
                 // 无回退：启动入口失败不尝试其他 shell；已有会话原样保留显示，失败经 logcat 输出。
-                throw RuntimeException("native spawn failed (result=$spawnResult)")
+                throw RuntimeException("native spawn failed (result=${spawn.sessionId})")
             }
             bridge.prefetchRenderStateAsync(scope)
-            nextId = spawnResult
+            nextId = spawn.sessionId
             consumeFailsafeRequest()
 
             // 原生渲染状态是进程级单例，而 start() 会在 surface 过小/无效时提前返回
@@ -2859,10 +2864,9 @@ constructor(
         // 注意：刻意置于 sessionLock 之外——bridge.render() 在 GPU 故障时
         // （Mali GPU 的 get_current_texture）可能无限挂起。
         try {
-            // GPU surface 在 spawnTerminal/attachSurface 之后可能尚未完全配置好
-            // （共享 ANativeWindow 上的一瞬竞争）。以短暂延迟重试几次首次同步渲染，
-            // 以便呈现真实内容，而不是在尚未就绪的 Surface 上启动渲染线程
-            // （那会阻塞并触发挂起看门狗）。
+            // 重试梯子只接硬失败（< 0）；`0` 的语义是「本帧没有可画的内容」，切会话后
+            // 那正是常态——surface 尚未就绪、目标会话暂无新帧都会返回 0，而原生已按当前
+            // 会话请求重推一帧（帧留在通道里，就绪后被取走并呈现），故不在此空转重试。
             var initialRender = target.bridge.render()
             var attempts = 1
             while (initialRenderRetryNeeded(initialRender, attempts, RENDER_INITIAL_RETRY_MAX)) {
@@ -3139,8 +3143,8 @@ constructor(
         val config = buildConfig()
         val effectiveFontFamily =
             terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
-        // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：buildConfig() 的默认
-        // 24x80 会缩小存活的 PTY（vim/htop 收到多余的 SIGWINCH 并重排）。
+        // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：网格的 winsize 只由
+        // spawn 时的真实度量与显式 resize 决定，applySettings 不碰它。
         // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
         // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
         // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
@@ -3714,12 +3718,28 @@ constructor(
         bridge: Bridge,
         config: terminal.emulator.bridge.TerminalConfig,
         caller: String,
-    ): Long {
+        surfaceWidth: Int,
+        surfaceHeight: Int,
+    ): SpawnResult {
+        // PTY 的 winsize 决定 shell 第一个 prompt 的排版宽度：先建 24×80 再 resize 会让
+        // shell 重排已打印的 prompt（首屏出现截断 + 补行的两份 prompt）。此处用原生全局
+        // 字体度量（不依赖会话，spawn 前即可查询）与已知 surface 尺寸算出真实网格，
+        // 度量未就绪时退回 config 的默认值。
+        refreshCellMetricsFrom(bridge)
+        val (rows, cols) =
+            initialSpawnGrid(
+                surfaceWidth = surfaceWidth,
+                surfaceHeight = surfaceHeight,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+                modifierBarHeightPx = modifierBarHeightPx,
+                imeReserve = imeGridReserve(),
+            )
         val startNs = System.nanoTime()
-        val result = bridge.spawnTerminal(config.rows, config.cols, bridge.shellPath())
+        val result = bridge.spawnTerminal(rows, cols, bridge.shellPath())
         val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
-        LogUtil.d("Runtime", "$caller spawnTerminal result=$result elapsed=${elapsedMs}ms")
-        return result
+        LogUtil.d("Runtime", "$caller spawnTerminal rows=$rows cols=$cols result=$result elapsed=${elapsedMs}ms")
+        return SpawnResult(sessionId = result, rows = rows, cols = cols)
     }
 
     /**
@@ -3992,8 +4012,10 @@ internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (curr
 internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
 
 /**
- * 初始同步渲染重试（switchSession）：只要首帧渲染结果为失败（< 0）
- * 且尝试计数仍低于 [maxAttempts] 就继续重试。纯决策，从重试循环中抽出以便测试。
+ * 初始同步渲染重试（switchSession）：只有硬失败（< 0：会话未注册、渲染态异常等）
+ * 才重试。**`0` 不是失败**：它是「本帧没有可画的内容」，surface 尚未就绪、目标会话
+ * 暂无新帧、缓存帧属于别的会话都会返回 0——切会话后重推请求已由原生渲染路径发出，
+ * 该帧到达即呈现，重试只会空转。纯决策，从重试循环中抽出以便测试。
  */
 internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean =
     result < 0 && attempts < maxAttempts
@@ -4103,6 +4125,45 @@ internal fun computeGridDimensions(
     val cols = (surfaceWidth / cellWidth).toInt().coerceAtLeast(1)
     val rows = (surfaceHeight / cellHeight).toInt().coerceAtLeast(1)
     return Pair(rows, cols)
+}
+
+/**
+ * spawn PTY 之前能确定的最佳网格：用原生字体度量与已知的 surface 像素尺寸算出真实
+ * 行列，度量或尺寸尚未就绪时退回 [DEFAULT_GRID_ROWS]×[DEFAULT_GRID_COLS]（旧行为）。
+ *
+ * 为什么必须在 spawn 之前算：PTY 的 winsize 决定 shell 怎么排版它的第一个 prompt。
+ * 先按默认 24×80 建 PTY、attach 之后才 resize，会让 shell 收到 SIGWINCH 重排**已经
+ * 打印过**的 prompt——真机日志（（时间已移除））里新会话首屏正是从中间截断、第二行
+ * 才补齐的 prompt（`终端提示符/data/user/0/com.ter` 恰好是 42 列网格下
+ * 的第一行）。用真实网格建 PTY 后，attach 之后的首次 resize 变成零变更（见
+ * [TerminalRuntime.recomputeGridFromFontMetrics] 的相等早退）。
+ */
+internal fun initialSpawnGrid(
+    surfaceWidth: Int,
+    surfaceHeight: Int,
+    cellWidth: Float,
+    cellHeight: Float,
+    modifierBarHeightPx: Int,
+    imeReserve: Int,
+): Pair<Int, Int> {
+    // 守卫必须看 spawn 时的原始像素尺寸，不能只看 computeGridDimensions 的 (0,0) 哨兵：
+    // computeGridAvailableHeight 会把「高度 ≤ 键栏 + 输入法」钳到 1 px，于是 0 高度的
+    // surface 会绕过哨兵、被 computeGridDimensions 钳成一行——一个 1 行的 PTY 比默认网格更糟
+    // （布局尚未发生时的尺寸竞态正是这样）。
+    if (surfaceWidth <= 0 || surfaceHeight <= 0 || cellWidth <= 0f || cellHeight <= 0f) {
+        return Pair(DEFAULT_GRID_ROWS, DEFAULT_GRID_COLS)
+    }
+    return computeGridDimensions(
+        surfaceWidth = surfaceWidth,
+        surfaceHeight =
+        computeGridAvailableHeight(
+            surfaceHeight = surfaceHeight,
+            modifierBarHeightPx = modifierBarHeightPx,
+            imeReserve = imeReserve,
+        ),
+        cellWidth = cellWidth,
+        cellHeight = cellHeight,
+    )
 }
 
 /**
