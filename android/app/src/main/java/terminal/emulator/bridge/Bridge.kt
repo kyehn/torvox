@@ -581,6 +581,11 @@ class Bridge(private val config: TerminalConfig) {
         queryPort.cursorViewportPacked()
     }
 
+    /** 最近一帧渲染取走的光标（同 [cursorViewportPacked] 的打包）；一次原子读，不等待 VT。 */
+    fun renderedCursorPacked(): Long = onQuery("renderedCursorPacked", -1L) {
+        queryPort.renderedCursorPacked()
+    }
+
     fun searchSetNeedle(needle: String): Int = onQuery("searchSetNeedle", 0) { queryPort.searchSetNeedle(needle) }
 
     fun searchSelect(forward: Boolean): SearchSelection? =
