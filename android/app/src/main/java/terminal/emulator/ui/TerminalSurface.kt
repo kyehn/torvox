@@ -2548,7 +2548,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     0,
                     maxPx,
                 )
-                lastFlingPx = startPx
+                // 取 OverScroller 钳制后的真实起点：fling() 会把 startY 夹进 [0, maxPx]，
+                // 直接用未钳制的 startPx 时，首帧差值会多出被夹掉的一段、方向相反。
+                lastFlingPx = flingScroller.currY
                 postOnAnimation(flingStepRunnable)
                 return true
             }
@@ -3628,12 +3630,10 @@ internal fun resolveOpenLinkUri(hyperlinkUri: String?): String? = hyperlinkUri?.
 /** 滚动行高下限：避免除零，保持手势可用。 */
 internal const val MIN_CELL_HEIGHT_PX = 1f
 
-/** 滚动一步结果：钳制后的偏移、剩余亚行余量、被丢弃的越界位移、更新后的位移显出量。 */
+/** 滚动一步结果：钳制后的偏移、剩余亚行余量、更新后的位移显出量。 */
 internal data class ScrollStep(
     val newOffset: Int,
     val newAccumulatorPx: Float,
-    /** 边界外丢弃的位移（正 = 更早历史方向）：既不进渲染器余量也不跨行回弹。 */
-    val overflowPx: Float = 0f,
     /** 更新后的位移显出量（见 `TerminalSurface.imeShiftRevealPx`）。 */
     val revealPx: Float = 0f,
 )
@@ -3646,7 +3646,7 @@ internal data class ScrollStep(
  * 边界必须先判，且排在亚行早退之前：已在边界（偏移 0 或回滚长度）继续向边界外拖时，
  * 余量若照常下发，渲染器会把整幅网格按投影亚行平移，边缘露出一条背景空带；等余量
  * 攒够一整行才被清零，内容又整体弹回一行——即「滑到边界跳动闪烁」。故越界位移一律
- * 就地丢弃（[ScrollStep.overflowPx]），不经过渲染器。
+ * 就地丢弃，不经过渲染器。
  *
  * 回滚区顶端（[scrollbackLength]）还有一层越界：位移把网格顶部裁在屏幕上边界之外，
  * 继续上滑时越界位移喂给 [revealPx]，按像素把那段顶部放回屏幕；反向（回到边界内）
@@ -3678,10 +3678,11 @@ internal fun applyScrollDistance(
         // 越过回滚区顶端：先按容量显出被位移裁掉的网格顶部，显不出的部分直接丢弃。
         val room = (revealCapacityPx - reveal).coerceAtLeast(0f)
         val revealed = minOf(accumulator, room)
-        return ScrollStep(scrollOffset, 0f, accumulator - revealed, reveal + revealed)
+        // 显不出的部分（accumulator - revealed）就地丢弃，不跨行回弹。
+        return ScrollStep(scrollOffset, 0f, reveal + revealed)
     }
     if (accumulator < 0f && scrollOffset <= 0) {
-        return ScrollStep(scrollOffset, 0f, overflowPx = accumulator, revealPx = reveal)
+        return ScrollStep(scrollOffset, 0f, revealPx = reveal)
     }
     // 截断趋向零：正/负亚行余量对称，消除 floor 非对称导致的 1 行级漂移
     val rawAmount = (accumulator / cellHeight).toInt()
