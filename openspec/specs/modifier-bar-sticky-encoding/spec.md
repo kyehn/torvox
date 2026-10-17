@@ -42,6 +42,9 @@ HOME、END、PGUP、PGDN 等）此前走裸序列直写 PTY，不读粘滞态：
 enter raw mode, we disable that"*），LF 因此表现为「回车变成 j」。带 Ctrl/Alt/Shift 的回车
 MUST 按 ghostty `src/input/function_keys.zig` 的 Enter 条目上报 `CSI 27;mod;13~`
 （Shift=2、Alt+Shift=4、Ctrl=5、Ctrl+Shift=6、Alt=7、Alt+Ctrl+Shift=8）；
+
+#### Scenario: 仅 Alt 回车的 ESC 前缀
+
 仅 Alt 时 MUST 为 ESC 前缀加 CR。
 
 Shift+Enter MUST NOT 走 LF：LF 在 raw 模式下同样被读成 Ctrl+J 即字母 j，
@@ -118,6 +121,8 @@ wezterm `termwiz/src/input.rs` 的 Alt+Tab → `ESC TAB`）：
 | 仅 Alt | `ESC HT` |
 | 含 Ctrl | `CSI 27;mod;9~` |
 | Shift+Alt | `CSI 27;4;9~` |
+
+#### Scenario: 越界形态不得出现
 
 MUST NOT 发出 `CSI 9;mod~`：该形态既不是 xterm 的 `CSI 27;mod;9~`，
 也不是其 `formatOtherKeys` 变体 `CSI 9;mod u`，无任何参考实现使用。

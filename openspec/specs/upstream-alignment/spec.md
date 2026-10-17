@@ -174,6 +174,8 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
 
 VT 解析与重排是上游 `libghostty-vt` 的职责（DESIGN 单一来源，`ghostty_terminal/tests.rs` 删除集合已列明）。TESTING 只测本项目功能、不做回归，故 xterm 语料、缺口触发器与重排往返三类断言 MUST NOT 留存本仓：`native/tests/vt_corpus.rs`、`native/tests/vt_conformance.rs`、`native/tests/vt_upstream_blockers.rs`、`native/tests/reflow_round_trip.rs` 已删除。
 
+#### Scenario: 外部真值类断言的同口径
+
 外部真值类断言同口径 MUST NOT 留存：以 Unicode UCD 宽度表、kitty 规范字节、ghostty fuzz 语料为期望的三类外部基准（`native/tests/external_benchmarks/`，9 例）已删除，`ureq` 随之退出 dev-dependencies。逐条复述既有本地单测的 Gherkin 套件（`native/tests/bdd/`、`native/tests/features/`，7 特性 12 场景）同批删除，`cucumber`／`tokio` 退出 dev-dependencies——TESTING「不保留无意义或低价值测试」之下，与本地单测重复的断言 MUST 只留一条。
 
 历史实测零本仓 bug：语料引入修的是测试侧空格口径（43 例误报），随后两次改动分别订正多参理由与自造输入，内联改动只搬运语料；重排三条只加测试无产品修复；外部基准三项实测分歧（kitty 16 处、宽度 268 个码位）全部落在上游与终端惯例，产品修复为零。同口径的删除先例见归档变更「删除回归金标语料与重复着色器校验测试」与「删除未发现本项目可解问题的上游测试资产」。`concurrency.rs`（`EventQueue`）与快照管线等本地单元测试保留。
@@ -248,6 +250,8 @@ VT 解析与重排是上游 `libghostty-vt` 的职责（DESIGN 单一来源，`g
 
 许可证 MUST NOT 作为判定依据：本仓不引入许可证文件也不检查依赖许可证，故「许可证排除」
 不是可用理由；因许可被排除的资产 MUST 改列其真正违反的门槛。
+
+#### Scenario: 实测数字与差异归因
 
 MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差异聚类），实测探针 MUST 在判定
 完成后删除。差异 MUST 归因到具体层（本仓 / 绑定层 / 终端上游），MUST NOT 以「上游行为不同」
@@ -740,6 +744,8 @@ MUST NOT 把逐份结论只留在归档变更里。
 本表每行 MUST 写清资产、判定与可复核依据；复查中发现未登记的语料资产 MUST 补行，
 MUST NOT 以概括表述代替逐项判定。
 
+#### Scenario: 语料资产逐项判定
+
 | 资产 | 判定 | 可复核依据 |
 | --- | --- | --- |
 | ghostty `corpus/stream-initial` 01–24 | **采纳后撤回**（不测上游） | 曾落地为 `native/tests/external_benchmarks/upstream_corpus.rs`（按发布标签取数、清单按名排序并断条数）；后随外部基准整体删除——期望由上游语义决定，通过只说明上游未变。日后复查 MUST NOT 重建，见「外部基准与 BDD 套件的退场」行 |
@@ -795,6 +801,8 @@ MUST NOT 以概括表述代替逐项判定。
 无对应功能声明，按 `STYLE.md` 不实现。判「PROHIBITED」时 MUST 引 `PROHIBITED.md`
 条目，MUST NOT 以「未声明」笼统代替；错裁 MUST 按事实更正并保留更正前后结论。
 
+#### Scenario: 功能面逐条裁定
+
 | 功能面 | 出处 | 判定 |
 | --- | --- | --- |
 | Model Context Protocol | godot-pty-gpty、lumina、ntilde、par-term、par-term-emu-core-rust、ratty、Scanline-term | **PROHIBITED 明禁**（`PROHIBITED.md` 终端节「Model Context Protocol」）；口径更正：先前记「未声明」属错裁，按 BiDi 更正同例改判；出处更正：先前引 copad、Lume 属误引（两报告无 MCP），改引实测命中者，同时补入 gpty |
@@ -847,6 +855,8 @@ MUST NOT 以概括表述代替逐项判定。
 反面做法 MUST 点名出处仓库与做法并标注「不得反向采纳」或「不采纳」，
 MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
+#### Scenario: 反面做法点名与归属
+
 | 项 | 出处 | 判定与依据 |
 | --- | --- | --- |
 | PTY 输出合并投递与 UTF-8 粘包保留解码 | puppy、anoterm | 仅参照：本仓会话与输出管道在 Rust，字节直传上游 VT stream，无自研粘包解码；跨块半扫由 `output_processor.rs` 用例覆盖 |
@@ -881,6 +891,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 登记 MUST NOT 只有落地方案而无事实基线：日后获授权实施的人 MUST NOT 需要重新调研
 「改之前是什么样」。故每项 MUST 同时登记**实测基线**与**实施时的验收判据**，
 使门禁的判定以基线为准而非以「无输出」为准。
+
+#### Scenario: 实测基线与验收判据
 
 | 项 | 规范依据 | 落地方案（未实施） |
 | --- | --- | --- |
@@ -943,6 +955,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 为何不凭猜测处理，覆盖缺口 MUST 写明缺的是哪半边与替代判据。MUST NOT 把未查清或不可测的
 条目写成已解决，也 MUST NOT 因「做不到」而删除条目。
 
+#### Scenario: 未闭合条目的去向
+
 | 项 | 判定与依据 |
 | --- | --- |
 | `get_capabilities` 在模拟器上失败的真因 | **未查清，维持不处理**：无模拟器反馈闭环，加重试属凭猜测（编号集 `28`）。代码侧已落地的是同根因的可见缺陷修复——`attach_surface` 只在重建**确实成功**后才清失效位与连续失败计数（否则失败路径替成功路径还愿，自愈阈值永远攒不满，渲染停摆，`native/src/render/context.rs`）；该修复带 `#[cfg(target_os = "android")]`、宿主无 seam，判别力用例会被迫把被测逻辑抄进测试体（第一版恒通过），故**据实登记为覆盖缺口**，不冒充已覆盖 |
@@ -984,6 +998,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删除而不丢失任何仍需遵守的结论。
 本仓现已删除 `docs/research` 全部报告，索引表是这批研究的**唯一常驻载体**；
 日后若重新引入研究文档，索引行 MUST 与文档同批提交。
+
+#### Scenario: 索引外的补充事实
 
 生态扫描中仍作为判断依据保留的事实：跨 25 仓扫描 `wgpu` 零命中、完整 GPU 终端渲染
 路径仅本仓；Canvas 逐格体系在 CJK 性能上先天不足，Termux 与 ghostty 均已批注
