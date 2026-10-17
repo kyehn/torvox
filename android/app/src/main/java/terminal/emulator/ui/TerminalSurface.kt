@@ -2071,17 +2071,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** 停止进行中的惯性动画（触点按下、程序化滚动）。
      *  惯性尚未自然结束时，这也会执行收尾语义——清除亚像素余量并触发
      *  onScrollingStateChanged(false)——使中断后渲染循环的 shouldResetScroll
-     *  不会被陈旧的滚动激活标志阻塞。 */
+     *  不会被陈旧的滚动激活标志阻塞。收尾本身复用 [finishFlingAnimation]，
+     *  两条路径不得漂移：少清一项就会让 scrollActive 残留、阻塞自动回底。 */
     private fun stopFlingAnimation() {
         if (!flingScroller.isFinished) {
             flingScroller.forceFinished(true)
-            removeCallbacks(flingStepRunnable)
-            // 惯性中断收尾：与 finishFlingAnimation 同语义，
-            // 否则 scrollActive 残留阻塞 render-loop 自动回底。
-            scrollAccumulatorPx = 0f
-            viewModel?.runtime?.setScrollRemainderPx(0f)
-            isScrolling = false
-            onScrollingStateChanged?.invoke(false)
+            finishFlingAnimation()
         }
     }
 

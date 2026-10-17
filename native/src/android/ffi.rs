@@ -309,8 +309,10 @@ struct RenderState {
 /// 不再发一次清除，于是新会话首帧会带着上一会话的命中框合成。键控让「这份数据属于
 /// 谁」与数据本身同生共死——拆成并行字段时，任一入口漏清都会画到错误的会话上。
 ///
-/// `drawn` 与 `current` 成对：脏带渲染靠二者判重决定标脏哪些行，故 `enter_session`
-/// 必须同时清空，丢弃一次才不会被读成「高亮未变」而把旧像素留在累加器里。
+/// `drawn` 与 `current` 成对：脏带渲染靠二者判脏哪些行，故 `enter_session` **只**清
+/// `current`——`drawn` 里那批正留在累加器像素里的旧内容必须再进一次脏掩码才会被重画掉
+/// （判据与理由见 `enter_session`）。谁把两者一起清，谁就重新引入「关搜索后反色块
+/// 不消失」：那些行不再进掩码，旧高亮就永久留在屏幕上。
 struct SessionScoped<T> {
     session: u64,
     current: Vec<T>,
@@ -341,8 +343,13 @@ impl<T> SessionScoped<T> {
     }
 }
 
-/// 在无 surface 的情况下预热渲染器与字体库：把 wgpu 设备初始化与 200+ 个系统字体加载
-/// 移出 attach→首帧路径（软件 GL 上冷启动在此耗时约 3s）。spawn 后在后台线程调用一次。
+/// 在无 surface 的情况下预热渲染器与字体库；spawn 后在后台线程调用一次。
+///
+/// 顺序说明：spawn 前算网格的 `getCellSizePacked` 走的也是 `render_state_mut`，正常启动里
+/// 初始化因此已经发生，此处通常是**幂等兜底**——度量查询赶上 GPU 暂不可用而返回 0 时，
+/// 这里再试一次。它真正保住的语义是「GPU 初始化失败不致命」：字体库无任何可用面时
+/// `font_db::fatal` 是 `process::abort`（进程级终止，见下），而 GPU 失败只记账，
+/// 致命判定留给渲染路径（那段 attach→首帧本就要等初始化，软件 GL 上约 3s）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState(
     mut unowned_env: EnvUnowned<'_>,
@@ -3834,6 +3841,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellSizePac
     _class: JClass,
 ) -> jlong {
     jni_export_guard!(unowned_env, 0, |_env| {
+        // 这次查询只是给 spawn 算网格：GPU 暂不可用时返回 0，Kotlin 侧保留旧度量或退回
+        // config 默认网格（`refreshCellMetricsFrom` 已写明 0 的语义），**不**在这里 abort。
+        // 与 prefetchRenderState 同口径：GPU 失败可重试、只记账，字体库不可用才致命；
+        // 真无 GPU 的设备仍在首帧由渲染路径给出明确错误。
+        if let Err(initialization_error) = crate::render::context::try_global_gpu() {
+            log::error!("cell metrics query skipped: {initialization_error}");
+            return Ok(0);
+        }
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
             return Ok(0);
