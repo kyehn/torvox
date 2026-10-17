@@ -2372,7 +2372,8 @@ constructor(
             // 会话已按（可能的）failsafe 请求建出：清掉请求，使其只对这一次生效。
             // spawn 失败时**不**清——请求仍在，下一次尝试仍应是应急会话。
             consumeFailsafeRequest()
-            // 渲染预热与 shell 启动并行：wgpu 初始化 + 字体库加载移出 attach→首帧链。
+            // 渲染预热：正常路径上 spawn 前的网格计算已经建好渲染态（见 spawnTerminalTimed），
+            // 此处是那时 GPU 恰好不可用时的幂等重试；失败只记账，致命判定在首帧。
             bridge.prefetchRenderStateAsync(scope)
 
             applyRenderSettings(bridge, config, caller = "start", syncGrid = true)
@@ -3723,8 +3724,16 @@ constructor(
     ): SpawnResult {
         // PTY 的 winsize 决定 shell 第一个 prompt 的排版宽度：先建 24×80 再 resize 会让
         // shell 重排已打印的 prompt（首屏出现截断 + 补行的两份 prompt）。此处用原生全局
-        // 字体度量（不依赖会话，spawn 前即可查询）与已知 surface 尺寸算出真实网格，
-        // 度量未就绪时退回 config 的默认值。
+        // 字体度量（不依赖会话）与已知 surface 尺寸算出真实网格，度量未就绪时退回 config
+        // 的默认值。
+        //
+        // 代价：字体管线与 wgpu 渲染器同住在原生 RenderState 里，这次度量查询因此不是
+        // 纯 CPU 查询——首次调用会把整个渲染态建起来，于是 shell 的启动从「与初始化并行」
+        // 变成「排在初始化之后」；首帧时刻不变（本来就要等初始化，软件 GL 上约 3s）。
+        // 换来的是 shell 的第一个 prompt 一定按真实宽度排版。
+        // ponytail: 想拆出「只建字体管线、不建渲染器」的入口，得把 font_pipeline 从
+        // RenderState 里搬出去，改生产路径 77 处调用点（连测试共 204 处）；软件 GL 的
+        // 启动延迟成为用户可感问题时再拆。
         refreshCellMetricsFrom(bridge)
         val (rows, cols) =
             initialSpawnGrid(

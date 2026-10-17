@@ -145,8 +145,11 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     /**
-     * 后台预热渲染器与字体库：PTY 已 spawn（shell 并行启动），attach 前把 wgpu 初始化与
-     * 200+ 系统字体加载移到后台线程，不阻塞首帧链。
+     * 后台预热渲染器与字体库：PTY 已 spawn，故它不推迟 shell 的启动。
+     *
+     * 正常路径上初始化早在 spawn 前算网格时就已完成（`getCellSizePacked` → 原生
+     * `render_state_mut`），这里通常是幂等空转；它真正保住的是「GPU 初始化失败不致命」：
+     * 那次度量查询赶上 GPU 暂不可用会返回 0、由 Kotlin 退回默认网格，此处再试一次。
      *
      * 下方 [catch] 只接得住 JNI 层抛回的 `RuntimeException`；字体库无任何可用面时
      * `font_db::fatal` 走 `process::abort`，是进程级终止，此处接不到。
