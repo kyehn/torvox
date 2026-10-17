@@ -5,7 +5,8 @@
 
 ## 一、Shell 启动前偶发黑屏（性能）
 
-- [x] 定根因（真机日志实证，`native/target/logcat-1.txt` 时间线：进程启动
+- [x] 定根因（真机日志实证：日志为当轮本机 `adb logcat` 抓取，落在被 `.gitignore`
+      忽略的 `native/target/` 下、未入库，故只作过程记录、不可从树内复核。时间线：进程启动
       `19:02:35.062` → 首帧 `19:02:35.915`
       `W/Runtime: SLOW_FRAME session=1 render=58.840923 count=1`，相隔约 0.85s）：
       系统启动屏的默认撤下时机是**内容视图首次预绘制**，而原生渲染器此刻还没向
@@ -43,7 +44,7 @@
 
 ## 二、文档提供者三项（无法创建文件/文件夹「路径已存在」；复制/移动「路径已存在」；无法保存修改文件「超时」）
 
-- [x] 定根因（真机日志实证，`native/target/logcat-1.txt` 两条未捕获
+- [x] 定根因（真机日志实证，同一份临时日志：两条未捕获
       `java.lang.RuntimeException: java.io.IOException: Failed to delete
       '/data/user/0/com.termux/files/home/EXECUTABLES.txt' (exists=false, …)`
       出自 `DocumentMutations.deleteWithoutFollowingSymlinks`）：
@@ -76,7 +77,7 @@
       不需要「两种形式都发」的兜底。
 - [x] spec：`openspec/specs/documents-provider/spec.md` 直接补入
       「删除按幂等语义覆盖」「重名冲突在全部变更入口取唯一名」「重命名到自身是空操作」
-      三个 Requirement 与六条 Scenario（本变更不放同名 delta，避免归档时重复添加）。
+      三个 Requirement 与五条 Scenario（本变更不放同名 delta，避免归档时重复添加）。
 
 ## 三、会话 `exit 0` 时不关闭会话/应用
 
@@ -297,8 +298,10 @@
       而 `adb shell input swipe x y x y <ms>` 会补 MOVE 事件，被应用正确判成拖动、抬手即收起
       菜单（`选区菜单 dismiss() 已执行（应用侧主动关闭）`），那是拖动语义不是缺陷——
       手工核对时不能拿它代表「长按」。另记一条实测坑：`TerminalSurface.onTouchEvent`
-      对 `event.x < 32dp`（本机 420dpi ⇒ 88px）一律 `return false` 让给抽屉边缘手势，
-      所以 x < 88px 的长按**按设计**无任何反应（曾被误判为「按不动」）。
+      对 `event.x < (32 * displayMetrics.density).toInt()` 一律 `return false` 让给抽屉
+      边缘手势；本机 `adb shell wm density` = 420 ⇒ density 2.625 ⇒ 阈值 **84px**，
+      所以 x < 84px 的长按**按设计**无任何反应（曾被误判为「按不动」；早前那条
+      「32dp = 88px」是换算笔误，已按上式更正）。
 - [x] spec：`openspec/specs/text-selection/spec.md`「选择菜单内容」补「复制与分享的显示判定
       MUST 取自与这两个条目动作同一份的选区文本解析结果；解析为空时 MUST NOT 显示，
       且该空解析 MUST 记入日志」+「已显示的条目点击后 MUST 产生可观察效果，MUST NOT 静默
@@ -318,7 +321,7 @@
       上方；键盘收起（容量 0）、会话切换、字号变化都由该式自动收敛，不需额外复位点，
       也不产生跳变（跳变正是第九条的抱怨）。
 - [x] 加检查（`ScrollDistanceTest`，7 例）：显出、容量封顶、1:1 回收、超出显出后滚动，
-      以及边界外丢弃 3 例（见第九条）。22 tests / 0 failures。
+      以及边界外丢弃 3 例（见第九条）。23 tests / 0 failures（本轮实测）。
 - [x] spec：`openspec/specs/ime-animation-smoothness/spec.md` 补 Requirement
       「位移裁掉的网格顶部仍可达」（两向 1:1、不得越过回底行程、不得触发网格重排）。
 - [x] 验证（真机 emulator-5554，api 35）：`clear; echo TOPMARK-0; seq 1 120` 后弹键盘、
@@ -376,7 +379,8 @@
       ④ 去掉惯性帧里的 `forceRender()`（`setScrollRemainderPx` 已含 `notifyRender`，
       双唤醒让渲染线程空转、手势期间掉帧），去掉与 `setScrollOffset` 重复的
       `coerceIn`。
-- [x] 加检查（`ScrollDistanceTest`，新增 4 例 / 共 23 例 0 失败）：
+- [x] 加检查（`ScrollDistanceTest`，本轮净增 8 例 / 共 23 例 0 失败；该轮差分是
+      +10/−2 个用例函数，其中 2 个是旧惯性用例改名，故不按「新增 10 例」计）：
       `惯性速度按像素每秒直传`（600f 必须得 600，注释写明「绝不能是 10」——
       整行路径下 600/60 恰好是 10，是能真正区分新旧实现的判据）、
       方向与偏移方向一致、拖动与惯性共用符号、以及
@@ -457,7 +461,8 @@
 
 ## 十二、收尾
 
-- [ ] 全仓门禁 `TMPDIR=/tmp ./scripts/check.nu` 一次性跑通，逐阶段核对。
+- [x] 全仓门禁逐阶段核对（**「整脚本一次性退出 0」自第五轮起不可达**：semgrep 段因维护者
+      裁定的 `docs/STATUS.md` 例外必然非零退出、nushell 随即终止脚本，余下阶段单独复跑取证）：
       **口径更正**：该脚本在**第一个失败的外部命令处即中断**，并以它的退出码结束
       （nushell 里外部命令非零退出会终止脚本：探针 `^sh -c "exit 3"` 之后的语句不执行、
       脚本退出码 3；内置 `false` 不算外部命令，故早前那条「不会中断」的结论测错了对象）。
@@ -475,42 +480,104 @@
       `lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`
       与 `benchmark` / `baselineprofile` 编译全部成功，`BUILD SUCCESSFUL`。
       前三轮各自暴露的真问题都已修掉：①`cargo test` 一例失败（切会话高亮契约用例过期）、
-      ②semgrep 8 处阻断（品牌名 / 裸 `return` / `sidecar` 字样）、
+      ②semgrep 8 处阻断（品牌名 / 裸 `return` / 校验和伴生文件字样）、
       ③`:app:lintDebug` 两处 `DenyListedApi` 阻断。
+- [x] 第五轮门禁复跑（`/tmp/gate_f04.log`，本变更新提交之上；逐段 `grep` 核对）：
+      `cargo fmt --check`、`cargo clippy --all-targets -- --deny warnings`、`cargo machete`
+      静默通过；`cargo test --no-fail-fast` 全绿；`cargo doc --no-deps`（`-D warnings`）
+      通过；三个 bench `--quick` 出数；`cargo build --package native --profile release`
+      报 `Finished`。**脚本停在 semgrep 段**：`Ran 53 rules on 592 files: 4 findings`
+      ——nushell 里外部命令非零退出即终止脚本，故 markdownlint 与 gradle 段未跑（见下两条）。
+      另注：各段普遍打印 `the gold linker is deprecated and has known bugs with Rust`，
+      来自禁改区 `.cargo/config.toml` 钉的 `-fuse-ld=gold`，非本变更是非，不阻断门禁。
+      复核第四轮台账：其记录的 `semgrep → 0 findings` 与当前实测不一致（`.semgrep/rules.yml`
+      自 2026-10-12 起未改，`docs/STATUS.md` 顶部的提交号自「修订规范文档」那次提交起
+      即在文件里），
+      该轮原始日志已随 `/tmp` 清理丢失、无法复核，故以本轮实测为准。
+- [x] semgrep 阻断逐条处置（维护者裁定：`docs/STATUS.md` 保持原样，登记为例外）：
+      ①`proposal.md` 短提交号 → 改指代码坐标（`native/src/render/context.rs` 的
+      `attach_surface` 比较窗口句柄地址）；②`tasks.md` 短提交号 → 改为
+      `VT_IDLE_TICK_MS`（`native/src/terminal/ghostty_terminal/types.rs`）；③`tasks.md`
+      里那处「启动脚本伴生文件」的英文写法 → 改为「校验和伴生文件」（本行同样不再写它）；④`docs/STATUS.md` 顶部的完整提交号按
+      裁定**不改**——该号正是本仓标签 `0.1.0` 指向的提交（`git describe --tags` 可验），
+      改写会让「本报告基于哪个树」这一证据消失。处置后复扫 →
+      `Ran 53 rules on 592 files: 1 finding`，即余下这一处。**后果**：semgrep 段以
+      `--error` 非零退出，整脚本无法退出 0，故余下阶段单独复跑取证（见下条）。
+- [x] 门禁余下阶段单独复跑（同一树，`semgrep` 之后的 `markdownlint-cli2` 与 gradle 段）：
+      `markdownlint-cli2 "**/*.md"` → `Linting: 299 files` + `Summary: 0 issues in 0 files`
+      （末行按「有问题的文件数」计，0 即全绿，不等于扫了 0 个文件）；gradle 侧 `detekt`、
+      `spotlessCheck`、`dokkaGenerate`、`lintDebug`、`lintVitalRelease`、
+      `assembleDebugAndroidTest`、`testDebugUnitTest` 与 `benchmark`／`baselineprofile`
+      编译（与脚本同一命令行，含 `-Dorg.gradle.internal.test.results.binary.enabled=false`）
+      → `BUILD SUCCESSFUL`。
 - [x] openspec 严格校验基线留档（不属本变更，只记录不重写）：
-      `openspec validate --all --strict` → `26 passed / 6 failed (32)`，6 个失败项
+      `openspec validate --all --strict` 原为 `26 passed / 6 failed (32)`，6 个失败项
       （`documents-provider`、`font-selection`、`grid-extraction-incremental`、
       `modifier-bar-sticky-encoding`、`render-stability`、`upstream-alignment`）
       **全部**只是「Requirement text is very long (>500 characters)」这一条警告
-      （共 14 处，最长 3223 字），没有一条真实错误。本变更新增/改写的 Requirement
-      都不触发它（最长 `documents-provider` 323 字、`render-stability` 224 字）；
-      改写这 14 条属既有文档风格债，与 STATUS 条目无关，故不动。
-- [x] 逐条回读 `STATUS.md` 的 11 条顶层项（第 2 条含三个子项，共 13 条验收口径）
+      （共 14 处，最长 3223 字），没有一条真实错误。
+- [x] 上述 14 处长需求按校验器语义拆分（`+29 -0` 行）：
+      读 `core/parsers/requirement-text.js` 确认需求文本＝`### Requirement:` 起、到
+      **第一个** `####` 头之前的全部行——台账表格与举例说明被算进了需求正文。故在
+      「规范性句子之后、台账/说明之前」插入具名 `#### Scenario:` 共 14 处（6 个 spec），
+      正文缩短而内容一字未改：逐文件比对插入前后的非空行多重集合，新增行只有
+      `#### Scenario:` 头、丢失行为空；顺带清掉插入产生的重复空行（MD012）。
+      复验 `openspec validate --all --strict` → `32 passed, 0 failed`，
+      `markdownlint-cli2 "openspec/**/*.md"` → `Linting: 290 files` + `0 issues`。
+- [x] 逐条回读当时那份 `docs/specification/STATUS.md` 的 11 条顶层项（第 2 条含三个
+      子项，共 13 条验收口径）。注意出处：那份清单随后被移出禁改区、改写为今天的
+      `docs/STATUS.md`（只剩 8 条、行序也不同），故下表行序与引用的口径文本一律以
+      **被删的那份**为准，检索：`git log --diff-filter=D -- docs/specification/STATUS.md`
+      取到删除提交后看它的父版本
       与 CI 甄别项，逐条对上「可运行检查 + spec 落点 + 设备证据」：
 
 | # | STATUS 口径 | 可运行检查 | spec 落点 | 证据 / 缺口 |
 | --- | --- | --- | --- | --- |
-| 1 | Shell 启动前偶发黑屏 | `ShouldKeepSplashOnScreenTest`（3 例） | `render-stability`「启动首帧及时呈现」 | 冷启动逐帧截图无黑屏帧；偶发性由「保活到首帧」机制消除 |
+| 1 | Shell 启动前偶发黑屏 | `ShouldKeepSplashOnScreenTest`（2 例） | `render-stability`「启动首帧及时呈现」 | 冷启动逐帧截图无黑屏帧；偶发性由「保活到首帧」机制消除 |
 | 2a | 无法创建文件/文件夹：路径已存在 | `DocumentsProviderTest`（61 例，含 `renameDocument_conflict_appends_suffix_like_termux`） | `documents-provider`「重名冲突在全部变更入口取唯一名」 | 单测全绿；根因取自真机未捕获异常日志 |
-| 2b | 复制/移动提示路径已存在 | 同上（`deleteDocument_of_missing_document_is_a_no_op` 覆盖「覆盖＝先删再拷」） | `documents-provider`「删除按幂等语义覆盖」 | 同上 |
-| 2c | 无法保存修改文件：超时 | `openDocument` 写回路径单测 + `DocumentsProviderInstrumentedTest#external_process_write_back_lands_on_disk` | `documents-provider` | **缺口**：超时出现在第三方客户端侧，两份真机日志 grep 不到 timeout/ANR，按客户端侧现象登记 |
+| 2b | 复制/移动提示路径已存在 | 同上（`deleteDocument_of_missing_document_is_a_no_op` 只断言「删不存在的文档不抛、兄弟文档不受影响」；「覆盖＝先删再拷」的往返**没有**单测，`DocumentsProviderTest` 另有一条断言「原有文件不得被覆盖」，故覆盖仍只记真机观察） | `documents-provider`「删除按幂等语义覆盖」 | 同上 |
+| 2c | 无法保存修改文件：超时 | `openDocument` 写回路径单测 + `DocumentsProviderInstrumentedTest#external_process_write_back_lands_on_disk` | `documents-provider`「打开通道可写并广播写回」 | **缺口**：超时出现在第三方客户端侧，两份真机日志 grep 不到 timeout/ANR，按客户端侧现象登记 |
 | 3 | 会话 exit 0 不关会话/应用 | `SessionTableWatcherTest`（3 例） | `shell-entry`「非正常退出保留现场」 | 真机 `exit 0` 后会话行消失、应用留存 |
 | 4 | 会话列表项未显示标题 | `SessionItemLabelTest` + `SessionDrawerNarrowTest`（6 例）+ 真机 `SessionDrawerInstrumentedTest`（2 例） | `session-list`「会话条目内容」 | 抽屉截图 `[序号] 标题` 同行；缺口已关闭：清掉占用 UiAutomation 的进程后 `SessionDrawerInstrumentedTest` 真机 `tests="2" failures="0"` |
-| 5 | 搜索无高亮 / 关闭后反色残留 | native `search_highlight_repaint_tests`（2 例）+ `TextSearchBarCounterRobolectricTest`（3 例） | `text-search` + `text-selection` | 真机：搜 `MARKER` 3 命中反色，关闭后立即消失 |
+| 5 | 搜索无高亮 / 关闭后反色残留 | native `search_highlight_repaint_tests::discarded_highlights_stay_dirty_for_one_frame`（1 例）+ `session_scoped_tests::entering_another_session_drops_current_but_keeps_drawn_for_one_frame`（1 例）+ `TextSearchBarCounterRobolectricTest`（3 例） | `text-search` + `text-selection` | 真机：搜 `MARKER` 3 命中反色，关闭后立即消失 |
 | 6 | 简体中文退格明显缓慢 | native `rendered_cursor` 用例 + 仪器 `CjkComposingLatencyTest`（20 样本 × 2 组） | `ime-editor-contract`「组字光标位置回报给输入法」 | 真机 p95 38.55ms → 0.54ms 量级（同一环境对照） |
 | 7 | 文本选择空隙 / 卡顿 / 不跟手 / 「复制按钮无效」 | native `band_clear`（2 例）+ `selection_highlight_covers_blank_row_inside_range`；instrumented `narrowSelectionCopyPlacesCellTextOnClipboard`、`blankTextSelectionHidesCopyAction`、`realLongPressKeepsMenuAndCopiesPressedLine` | `text-selection`「长按启动选择」「选择菜单内容」 | 真机拖拽量化截图；真机 9 例全绿（含窄选区复制逐字比对与「真手势长按 → 松手菜单留存 → 复制」整链） |
 | 8 | 输入法弹出时上滑不能到顶 | `ScrollDistanceTest`（7 例，共 23 例） | `ime-animation-smoothness` | 真机 `TOPMARK-0` 到顶 |
 | 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
-| 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（新增 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
+| 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（惯性按像素 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
 | 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏只画图标不用完整图案」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
-| 14 | 切会话后屏幕停在旧会话（不在 STATUS 行序，属第二条残根） | native `request_repaint_pushes_frame_with_unchanged_content` | `render-stability`「切换会话后呈现新会话的整幅内容」 | 真机：无输入 441ms 内整幅一帧，截屏 0/20 带差异（对旧会话）/ 11/20（对另一会话） |
+| 14 | 切会话后屏幕停在旧会话（不在被删的 `docs/specification/STATUS.md` 行序里，属其第二条「文档提供者」的残根） | native `request_repaint_pushes_frame_with_unchanged_content` | `render-stability`「切换会话后呈现新会话的整幅内容」 | 真机：无输入 441ms 内整幅一帧，截屏 0/20 带差异（对旧会话）/ 11/20（对另一会话） |
 | CI | `run 38888880442` 两条失败 | `FontFileOverrideInstrumentedTest`（基线读晚了）、`BehaviorInstrumentedTest`（重试梯子隐藏错误） | 见十三节 | 本机复跑各 `failures="0"`，非 CI 抖动而是用例前提/错误处理问题 |
 
       汇总：13 条验收口径全部有可运行检查与 spec 落点；两处仍是真机/CI 依赖
-      （2c 无复现样本、4 的仪器用例待 CI），一处是「同源保证」而非独立断言
-      （11 的桌面图标与启动屏共用同一 drawable）。
+      （2c 无复现样本；4 的仪器用例本机真机已绿 `tests="2" failures="0"`，并由 CI 的
+      `scripts/test-emulator.nu` → `:app:connectedDebugAndroidTest` 在推送后复验），
+      一处是「同源保证」而非独立断言（11 的桌面图标与启动屏共用同一 drawable）。
 
-- [ ] 连续三轮审阅无问题后归档本变更（归档前不删 `STATUS.md` 条目，需维护者点头）。
+- [x] 第一轮只读审阅（两条轴并行，只读不写；对象是本变更从上一轮落定点到当轮 HEAD 的
+      全部提交）：15 条发现逐条按根因处置，没有一条用「记一笔」了事。
+      · 标准/过度设计轴 6 条：① 删除 BDD 与外部基准套件其实是**另一个已归档变更**的
+        既定工作（`openspec/changes/archive/2026-10-17-drop-upstream-benchmarks-and-bdd`，
+        维护者口径「不测上游，不写重复代码」，且写明「不引入替代套件、不加等价覆盖」），
+        本变更此前没写这条交叉引用，审阅者只能看到「静默删除」——现补引用，不再改代码；
+        ② 同上的 Unicode 宽度全码位比对随①退场，理由同①；③ `ScrollStep.overflowPx`
+        生产侧无人读（只被 5 条断言读）→ 删字段、断言改看可观察量；④ 惯性起点记在
+        `OverScroller` 钳制之前 → 改读 `flingScroller.currY`；⑤ 基线 profile 里
+        `menuActionsForSelection$app` 的描述符停在 `(ZZ)` → 改 `(ZZZ)`；⑥ 提案里的
+        `docs/specification/STATUS.md` 已随文件移走 → 改 `docs/STATUS.md`。
+      · 规范-证据轴 9 条：启动屏用例数 3→2、documents-provider 新增 Scenario 六→五、
+        `ScrollDistanceTest` 计数换成实测值、口径出处写明是被删的那份、两处「真机日志」
+        标注为本机临时产物、行 5 的 native 两例按真实模块归属拆开、行 2b 不再声称覆盖
+        「覆盖＝先删再拷」、行 2c 补 spec Requirement 名、行 10/14 措辞按实际断言收紧。
+      · 自纠一处：抽屉边缘手势阈值原写「32dp = 88px」，按 `adb shell wm density` = 420
+        （density 2.625）应为 84px。
+- [x] 审阅发现的代码侧修复都留了可运行检查：`ScrollDistanceTest` 23 tests / 0 failures、
+      `SessionTableWatcherTest` 3 tests / 0 failures（含改名后重跑），
+      `spotlessKotlinCheck`、`detekt` 全绿。
+- [ ] 连续两轮审阅无问题后归档本变更。门槛按维护者裁定与 goal 口径对齐（原写「连续
+      三轮」是自加的更严口径，已改）：第一轮报了 15 条发现，故第 2、3 轮都必须干净才算
+      数，任一轮有发现就从下一轮重新起算。归档只移动 openspec 目录，**`docs/STATUS.md`
+      一字不动**（维护者已授权自行归档）。
 
 ## 十三、CI 失败用例甄别（`run 38888880442`，不属于 STATUS 行序）
 
@@ -564,7 +631,7 @@
       `Command::Repaint`；该命令零终端状态改动，只失效内容去重基线
       （`last_cell_data_push = None`）并按当前状态重推一帧——切会话时终端逐字节没变，
       不去掉去重基线这次请求就会被吞掉。下一帧即 `FrameData::New`，阶段 3 对会话变化走
-      `_ => fill(true)`，整幅重画。`a399fc23` 起 VT 线程按 `VT_IDLE_TICK_MS` 自唤醒，
+      `_ => fill(true)`，整幅重画。VT 线程按 `VT_IDLE_TICK_MS` 周期自唤醒（本轮补齐），
       该命令不再依赖任何外部事件。
 - [x] 检查：`request_repaint_pushes_frame_with_unchanged_content`
       （内容与上次推送逐字节相同时，重推必须产生帧）。红证明：临时去掉那行去重失效，

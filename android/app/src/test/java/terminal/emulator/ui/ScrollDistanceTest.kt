@@ -179,7 +179,8 @@ class ScrollDistanceTest {
         val step = applyScrollDistance(0f, -20f, CELL_HEIGHT, SCROLLBACK_LENGTH, SCROLLBACK_LENGTH)
         assertEquals(SCROLLBACK_LENGTH, step.newOffset)
         assertEquals(0f, step.newAccumulatorPx)
-        assertEquals(20f, step.overflowPx)
+        // 顶上无显出量容量时越界位移不产生任何可见效果：偏移与显出量都不动。
+        assertEquals(0f, step.revealPx)
     }
 
     @Test
@@ -187,7 +188,6 @@ class ScrollDistanceTest {
         val step = applyScrollDistance(0f, 20f, CELL_HEIGHT, 0, SCROLLBACK_LENGTH)
         assertEquals(0, step.newOffset)
         assertEquals(0f, step.newAccumulatorPx)
-        assertEquals(-20f, step.overflowPx)
     }
 
     @Test
@@ -196,7 +196,6 @@ class ScrollDistanceTest {
         val step = applyScrollDistance(0f, 20f, CELL_HEIGHT, SCROLLBACK_LENGTH, SCROLLBACK_LENGTH)
         assertEquals(SCROLLBACK_LENGTH, step.newOffset)
         assertEquals(-20f, step.newAccumulatorPx)
-        assertEquals(0f, step.overflowPx)
     }
 
     // 位移显出量：上滑到回滚区顶端后继续上滑，把被键盘位移裁到屏幕上边界之外的网格顶部
@@ -207,7 +206,6 @@ class ScrollDistanceTest {
         val step = applyScrollDistance(0f, -20f, CELL_HEIGHT, SCROLLBACK_LENGTH, SCROLLBACK_LENGTH, 0f, 130f)
         assertEquals(SCROLLBACK_LENGTH, step.newOffset)
         assertEquals(0f, step.newAccumulatorPx)
-        assertEquals(0f, step.overflowPx)
         assertEquals(20f, step.revealPx)
     }
 
@@ -216,7 +214,6 @@ class ScrollDistanceTest {
         val step = applyScrollDistance(0f, -40f, CELL_HEIGHT, SCROLLBACK_LENGTH, SCROLLBACK_LENGTH, 130f, 130f)
         assertEquals(SCROLLBACK_LENGTH, step.newOffset)
         assertEquals(130f, step.revealPx)
-        assertEquals(40f, step.overflowPx)
     }
 
     @Test

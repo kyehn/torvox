@@ -27,7 +27,7 @@ class SessionTableWatcherTest {
     }
 
     @Test
-    fun backgroundSessionStillCountsAsASession() {
+    fun onlyTheLastSessionDisappearingFinishesTheApp() {
         val watcher = SessionTableWatcher()
         assertFalse("多个会话存在时不关闭", watcher.onSessionCount(3))
         assertFalse("仍有会话存活时不关闭", watcher.onSessionCount(1))

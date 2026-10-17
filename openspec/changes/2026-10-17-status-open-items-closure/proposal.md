@@ -2,7 +2,9 @@
 
 ## Why
 
-`docs/specification/STATUS.md` 是维护者手写的**真机待办清单**：12 条现象、无归属、
+`docs/specification/STATUS.md`（本变更过程中该文件被移出禁改区、改写为今天的
+`docs/STATUS.md`，行序与内容都变了，故下文口径一律以被删的那份 11 条为准）是维护者手写的
+**真机待办清单**：11 条现象（13 条验收口径）、无归属、
 无复现步骤，且只有该文件知道它们存在。openspec 侧没有对应变更，于是每一轮修复都要
 从现象重新查一遍（上一轮就为「路径已存在」重新扒了一遍 AOSP 客户端源码），
 而已经修好的条目与仍然存在的条目混排在一起，读者无法分辨哪些还有事要做。
@@ -50,7 +52,7 @@
    而 `:app:assembleDebug` **不**触发 Rust 构建；`jniLibs/` 为空时 APK 里干脆没有 `.so`，
    启动即 `UnsatisfiedLinkError`。拿旧 `.so` 的行为判「改了没用」，是「修了仍复现」的常见来源。
 7. **把「复用」当默认前提**。`attach_surface` 曾无条件复用已有 surface，窗口换了还画到
-   已失效的 `ANativeWindow` 上（`f8154d42` 修）；「窗口没变」当时没有任何实验支撑，
+   已失效的 `ANativeWindow` 上（`attach_surface` 改为比较窗口句柄地址，见 `native/src/render/context.rs`）；「窗口没变」当时没有任何实验支撑，
    只因为 `Surface` 对象被复用就被当成同一窗口。
 8. **没有复现样本却反复收口**。文档提供者的「保存修改文件超时」至今没有带客户端名的
    日志，多轮里被「顺手再改一次」，改的都是已有单测覆盖的写回通道。无样本时登记缺口、
@@ -95,4 +97,5 @@
 - 代码：`android/app/src/main/java/terminal/emulator/{DocumentMutations,TerminalDocumentsProvider}.kt`
   及后续各条自己落点的文件；每个提交只碰该条所需的文件。
 - 规范：`openspec/specs/*` 按条更新（第 2 条已更新 `documents-provider`）。
-- 不改 `docs/specification/STATUS.md`（AGENTS.md 禁改区，且清理条目需维护者点头）。
+- 不改 `docs/STATUS.md`（AGENTS.md 禁改区，且清理条目需维护者点头）；它原是
+  `docs/specification/STATUS.md`，移出禁改区后内容同样不动。
