@@ -7,7 +7,6 @@ import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.ContextThemeWrapper
-import androidx.core.content.ContextCompat
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,7 +52,7 @@ class SplashIconRobolectricTest {
                 true,
             ),
         )
-        val icon = requireNotNull(ContextCompat.getDrawable(themed, value.resourceId)) {
+        val icon = requireNotNull(themed.getDrawable(value.resourceId)) {
             "windowSplashScreenAnimatedIcon 指向的 drawable 必须存在"
         }
         assertFalse(

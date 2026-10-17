@@ -87,10 +87,17 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
         //
         // 判据是「受理**或**抛异常」：抑制窗口只静默返回 false，而走到锚点回报的调用
         // 要么正常返回 true，要么在回报里抛（后者由下方断言判为缺陷，其耗时仍然作数）。
+        var firstWriteError: String? = null
         val reached =
             UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
-                runCatching { onUiThread { connection.setComposingText(PINYIN, 1) } }
-                    .fold(onSuccess = { it }, onFailure = { true })
+                try {
+                    onUiThread { connection.setComposingText(PINYIN, 1) }
+                } catch (reachedWithThrow: RuntimeException) {
+                    // 走到锚点回报的调用可能在这里抛：仍算「到达」，但异常原文必须留住——
+                    // 它是缺陷证据，由采样结束后的断言一并判死（探针期异常=…）。
+                    firstWriteError = describe(reachedWithThrow)
+                    true
+                }
             }
         assertNotNull("输入法写入一直被拒（暂停或抑制窗口），样本会退化成空转", reached)
         // 组字字节真的写进 PTY 才算测到了这条路径：空转的循环也会给出漂亮的耗时。
@@ -111,11 +118,13 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
             }
         assertNotNull("帧内光标一直取不到，锚点上报会整段跳过，样本无效", renderedCursor)
 
-        sampleEdits(connection)
-        val monitoringOn = sampleEdits(connection)
+        val growthSteps = mutableListOf<Edit>()
+        // 预热一轮（结果丢弃）：让限频窗口与组字基线先落定，正式两组才好对照。
+        sampleEdits(connection, growthSteps)
+        val monitoringOn = sampleEdits(connection, growthSteps)
         onUiThread { connection.requestCursorUpdates(0) }
-        sampleEdits(connection)
-        val monitoringOff = sampleEdits(connection)
+        sampleEdits(connection, growthSteps)
+        val monitoringOff = sampleEdits(connection, growthSteps)
 
         val on = monitoringOn.map { it.elapsedUs }
         val off = monitoringOff.map { it.elapsedUs }
@@ -128,9 +137,14 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
 
         // 先记指标再判受理：异常样本的耗时同样是证据，先落日志才读得到。
         val firstBad = (monitoringOn + monitoringOff).firstOrNull { it.error != null || !it.accepted }
+        // 生长步与探针期的异常同样进判据：它们不进耗时统计，但「回调以异常收场」是缺陷，
+        // 不能因为不计时就丢掉（此前两者都吞在 `runCatching` 里，见 lint 的 DenyListedApi）。
+        val firstGrowthError = growthSteps.firstOrNull { it.error != null }
         assertTrue(
-            "组字回调未正常受理（${firstBad?.error ?: "返回 false"}）：锚点回报不得让输入法回调以异常收场",
-            firstBad == null,
+            "组字回调未正常受理（${firstBad?.error ?: "返回 false"}；" +
+                "探针期异常=${firstWriteError ?: "无"}；生长步异常=${firstGrowthError?.error ?: "无"}）" +
+                "：锚点回报不得让输入法回调以异常收场",
+            firstBad == null && firstGrowthError == null && firstWriteError == null,
         )
 
         assertTrue(
@@ -146,36 +160,39 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
      *
      * 生长步必须先于间隔：它自己也会发起一次锚点回报，紧邻的计时步会被限频挡掉，
      * 那样两组都测不到查询，用例就变成恒真的。
+     *
+     * 生长步的结果不进耗时统计，但异常收进 [growthSteps]：抛点在锚点回报里，与紧随的计时步
+     * 同一个（字节与组字基线在抛点之前就已更新），记下来才不至于把证据藏起来。
      */
-    private fun sampleEdits(input: InputConnection): List<Edit> = buildList {
+    private fun sampleEdits(input: InputConnection, growthSteps: MutableList<Edit>): List<Edit> = buildList {
         repeat(SAMPLES) {
-            // 生长步不计时，其异常由紧随的计时步记录：抛点在锚点回报里，
-            // 与计时步同一个（字节与组字基线在抛点之前就已更新）。
-            runCatching { onUiThread { input.setComposingText(PINYIN, 1) } }
+            growthSteps += recordEdit(input, PINYIN)
             Thread.sleep(SAMPLE_GAP_MS)
-            add(timedRetraction(input))
+            add(recordEdit(input, PINYIN.dropLast(1)))
         }
     }
 
-    /** 在 UI 线程执行一次单字符回退，返回该回调自身耗时（微秒）与受理/异常结果。 */
-    private fun timedRetraction(input: InputConnection): Edit {
+    /** 在 UI 线程执行一次组字写入，返回该回调自身耗时（微秒）与受理/异常结果。 */
+    private fun recordEdit(input: InputConnection, text: String): Edit {
         var elapsedUs = 0L
         var accepted = false
         var error: String? = null
         onUiThread {
             val start = System.nanoTime()
             try {
-                accepted = input.setComposingText(PINYIN.dropLast(1), 1)
+                accepted = input.setComposingText(text, 1)
             } catch (t: Throwable) {
                 // 采样不因被测路径抛异常而中断：异常本身是证据（实测修正前锚点回报在
                 // `CursorAnchorInfo.Builder.build()` 处必抛，异常逃出回调），
                 // 断言据 [Edit.error] 报出原文。耗时仍照记——抛异常前的等待真发生过。
-                error = "${t.javaClass.simpleName}: ${t.message}"
+                error = describe(t)
             }
             elapsedUs = (System.nanoTime() - start) / 1_000
         }
         return Edit(elapsedUs, accepted, error)
     }
+
+    private fun describe(t: Throwable): String = "${t.javaClass.simpleName}: ${t.message}"
 
     /**
      * 触摸一次让窗口真正拿到焦点。
