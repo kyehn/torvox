@@ -86,13 +86,13 @@
       `handleSessionExit` 随即移除会话（DESIGN.md:145「正常退出时关闭会话」已实现）；
       termux 侧 `TermuxTerminalSessionActivityClient#onSessionFinished` 对退出状态 0/130
       走 `removeFinishedSession`，而该方法在 `service.getTermuxSessionsSize() == 0` 时
-      调 `mActivity.finishActivityIfNotFinishing()`——**这一步 torvox 从未实现**
+      调 `mActivity.finishActivityIfNotFinishing()`——**这一步本应用从未实现**
       （全仓无任何 `finish()`）：会话没了，应用却停在无会话的空界面，
       用户看到的正是「exit 后什么都没关」。
 - [x] 不照抄 termux 的「130 也自动关闭」：两者的退出码空间不同——termux 把信号死亡记为
-      **负值**（`-WTERMSIG`），130 是真实的退出码；torvox 按 shell 惯例记为
+      **负值**（`-WTERMSIG`），130 是真实的退出码；本应用按 shell 惯例记为
       `128 + 信号号`（`native/src/terminal/session.rs` 的 `SIGNAL_EXIT_BASE`），
-      故 130 在 torvox 里就是 SIGINT 死亡，属于 DESIGN.md 要「保留现场」的崩溃。
+      故 130 在本应用里就是 SIGINT 死亡，属于 DESIGN.md 要「保留现场」的崩溃。
       照抄会把被 Ctrl-C 杀死的 shell 静默关掉，与 termux 对信号死亡的处理（保留提示）相反。
 - [x] 修：`MainActivity` 在 `lifecycleScope` 里收集 `runtime.state`，会话表由非空转为空
       即 `finish()`（termux 的 `finishActivityIfNotFinishing` 对等；Activity 不在时
@@ -119,7 +119,7 @@
       成第二行 12sp 小字；DESIGN 的示例是 `[1] ~`（序号与标题同行），termux 在无会话名
       （用户新建会话没有 `mSessionName`）时也是 `numberPart + sessionTitlePart` 同行
       （`TermuxSessionsListViewController.getView`），只有存在会话名时才换行。
-      torvox 没有会话名，因此标题必须跟在序号后面——现状既丢了规范里的序号格式，
+      本应用没有会话名，因此标题必须跟在序号后面——现状既丢了规范里的序号格式，
       又让标题退成次要信息，读起来就是「没显示会话标题」。
 - [x] 按根因修：`SessionDrawer` 条目改为单行 `[序号] 标题`，序号加粗、标题斜体
       （`AnnotatedString` 分段样式，与 termux 的 bold/italic span 一致）；标题为空时
@@ -213,6 +213,15 @@
       `cargo test --package native --lib -- rendered_cursor` → `1 passed`。
 - [x] 证据留档：修正前的两组耗时与异常文本取自 `/tmp/cjk-prefix6.log`（同一用例、同一
       环境，仅坐标来源未改），修正后取自 `/tmp/cjk-fixed1.log`、`/tmp/cjk-fixed2.log`。
+- [x] 门禁补正（全仓门禁第二轮，`:app:lintDebug`）：该用例有两处 `runCatching` 被
+      `DenyListedApi`/slack-lint 判为阻断（协程下会吞掉 `CancellationException`），
+      而它们同时正是「隐藏错误」：探针期与生长步的异常此前都被 `fold(onFailure = { true })`
+      与丢弃返回值吃掉，注释里「由下方断言判为缺陷」那句话当时是空头承诺。改法：探针期
+      改 `try/catch RuntimeException`，异常原文存进 `firstWriteError`；生长步与计时步
+      共用 `recordEdit(input, text)`，生长步结果收进 `growthSteps`；受理断言扩展为
+      「计时步无异常/未被拒 且 探针期与生长步均无异常」，三处异常都进失败消息。
+      真机复跑（emulator-5554）：`tests="1" failures="0" errors="0" skipped="0"`，
+      on p50=374µs / p95=859µs，off p50=235µs / p95=640µs，差值 139µs ≪ 8ms 预算。
 
 ## 七、文本选择不同行间有空隙、卡顿、不跟手
 
@@ -390,6 +399,11 @@
       `Theme.SplashScreen.IconBackground` 的差别仅是后者多映射
       `android:windowSplashScreenIconBackgroundColor`；本应用 `minSdk = 33`，
       兼容库 23–30 的启动屏路径（`Theme.SplashScreen.Common`）在设备上根本不走。
+- 门禁补正（全仓门禁第二轮，`:app:lintDebug`）：该用例原先用
+      `ContextCompat.getDrawable` 取图标，`DenyListedApi`/slack-lint 判为阻断
+      （本应用 `minSdk = 33`，平台自带的 `Context#getDrawable` 就够），改成
+      `themed.getDrawable(value.resourceId)` 并删掉该 import；
+      `:app:testDebugUnitTest --tests "terminal.emulator.SplashIconRobolectricTest"` 复跑通过。
 
 ## 十二、收尾
 
@@ -400,7 +414,51 @@
       首轮实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
       clippy / doc / bench / semgrep / markdownlint / gradle 全部未跑。
       故「跑通」＝从 `cargo fmt` 段起重跑并逐段看到全部阶段通过。
-- [ ] 逐条回读 12 条，确认验收口径被测试或 spec 覆盖；仍依赖真机的项写明缺口。
+- [x] **第四轮实测通过**（`/tmp/check4.log`，整脚本退出码 `0`，逐段核对）：
+      `cargo fmt --check`、`cargo clippy --all-targets -- --deny warnings`、`cargo machete`
+      静默通过；`cargo test --no-fail-fast` → lib `628 passed; 0 failed`、
+      `tests/concurrency.rs` `2 passed`、doc-tests `0`；`cargo doc --no-deps`（`-D warnings`）
+      通过；三个 bench `--quick` 全出数（`cell_builder` 835.93ms、`cjk_resolve` 17.18ms、
+      `vt_typing` 540.80µs）；`cargo build --package native --profile release` 通过；
+      `semgrep` → `Ran 53 rules on 590 files: 0 findings`；`markdownlint-cli2` →
+      `0 issues in 0 files`；gradle 侧 `detekt`、`spotlessCheck`、`dokkaGenerate`、
+      `lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`
+      与 `benchmark` / `baselineprofile` 编译全部成功，`BUILD SUCCESSFUL`。
+      前三轮各自暴露的真问题都已修掉：①`cargo test` 一例失败（切会话高亮契约用例过期）、
+      ②semgrep 8 处阻断（品牌名 / 裸 `return` / `sidecar` 字样）、
+      ③`:app:lintDebug` 两处 `DenyListedApi` 阻断。
+- [x] openspec 严格校验基线留档（不属本变更，只记录不重写）：
+      `openspec validate --all --strict` → `26 passed / 6 failed (32)`，6 个失败项
+      （`documents-provider`、`font-selection`、`grid-extraction-incremental`、
+      `modifier-bar-sticky-encoding`、`render-stability`、`upstream-alignment`）
+      **全部**只是「Requirement text is very long (>500 characters)」这一条警告
+      （共 14 处，最长 3223 字），没有一条真实错误。本变更新增/改写的 Requirement
+      都不触发它（最长 `documents-provider` 323 字、`render-stability` 224 字）；
+      改写这 14 条属既有文档风格债，与 STATUS 条目无关，故不动。
+- [x] 逐条回读 `STATUS.md` 的 11 条顶层项（第 2 条含三个子项，共 13 条验收口径）
+      与 CI 甄别项，逐条对上「可运行检查 + spec 落点 + 设备证据」：
+
+| # | STATUS 口径 | 可运行检查 | spec 落点 | 证据 / 缺口 |
+| --- | --- | --- | --- | --- |
+| 1 | Shell 启动前偶发黑屏 | `ShouldKeepSplashOnScreenTest`（3 例） | `render-stability`「启动首帧及时呈现」 | 冷启动逐帧截图无黑屏帧；偶发性由「保活到首帧」机制消除 |
+| 2a | 无法创建文件/文件夹：路径已存在 | `DocumentsProviderTest`（61 例，含 `renameDocument_conflict_appends_suffix_like_termux`） | `documents-provider`「重名冲突在全部变更入口取唯一名」 | 单测全绿；根因取自真机未捕获异常日志 |
+| 2b | 复制/移动提示路径已存在 | 同上（`deleteDocument_of_missing_document_is_a_no_op` 覆盖「覆盖＝先删再拷」） | `documents-provider`「删除按幂等语义覆盖」 | 同上 |
+| 2c | 无法保存修改文件：超时 | `openDocument` 写回路径单测 + `DocumentsProviderInstrumentedTest#external_process_write_back_lands_on_disk` | `documents-provider` | **缺口**：超时出现在第三方客户端侧，两份真机日志 grep 不到 timeout/ANR，按客户端侧现象登记 |
+| 3 | 会话 exit 0 不关会话/应用 | `SessionTableWatcherTest`（3 例） | `shell-entry`「非正常退出保留现场」 | 真机 `exit 0` 后会话行消失、应用留存 |
+| 4 | 会话列表项未显示标题 | `SessionItemLabelTest` + `SessionDrawerNarrowTest`（6 例） | `session-list`「会话条目内容」 | 抽屉截图 `[序号] 标题` 同行；**缺口**：`SessionDrawerInstrumentedTest` 本机跑不动（用例执行前失败），只编译验证 |
+| 5 | 搜索无高亮 / 关闭后反色残留 | native `search_highlight_repaint_tests`（2 例）+ `TextSearchBarCounterRobolectricTest`（3 例） | `text-search` + `text-selection` | 真机：搜 `MARKER` 3 命中反色，关闭后立即消失 |
+| 6 | 简体中文退格明显缓慢 | native `rendered_cursor` 用例 + 仪器 `CjkComposingLatencyTest`（20 样本 × 2 组） | `ime-editor-contract`「组字光标位置回报给输入法」 | 真机 p95 38.55ms → 0.54ms 量级（同一环境对照） |
+| 7 | 文本选择空隙 / 卡顿 / 不跟手 | native `band_clear`（2 例）+ `selection_highlight_covers_blank_row_inside_range` | `text-selection`「长按启动选择」 | 真机拖拽量化截图 |
+| 8 | 输入法弹出时上滑不能到顶 | `ScrollDistanceTest`（7 例，共 23 例） | `ime-animation-smoothness` | 真机 `TOPMARK-0` 到顶 |
+| 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
+| 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（新增 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
+| 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏只画图标不用完整图案」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
+| CI | `run 38888880442` 两条失败 | `FontFileOverrideInstrumentedTest`（基线读晚了）、`BehaviorInstrumentedTest`（重试梯子隐藏错误） | 见十三节 | 本机复跑各 `failures="0"`，非 CI 抖动而是用例前提/错误处理问题 |
+
+      汇总：13 条验收口径全部有可运行检查与 spec 落点；两处仍是真机/CI 依赖
+      （2c 无复现样本、4 的仪器用例待 CI），一处是「同源保证」而非独立断言
+      （11 的桌面图标与启动屏共用同一 drawable）。
+
 - [ ] 连续三轮审阅无问题后归档本变更（归档前不删 `STATUS.md` 条目，需维护者点头）。
 
 ## 十三、CI 失败用例甄别（`run 38888880442`，不属于 STATUS 行序）

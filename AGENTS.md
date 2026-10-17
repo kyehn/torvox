@@ -5,7 +5,7 @@
 ## 必须
 
 - 修改任何文件前阅读 `docs/specification/` 下的全部文档。
-- openspec/specs openspec/changes 目录使用 openspec 命令管理，openspec/specs 目录需要保持更新，修改代码后更新实际情况和补充实现细节，openspec 文档没有任何约束力
+- openspec/specs openspec/changes 目录使用 openspec 命令管理，openspec/specs 目录需要保持更新，修改代码后更新实际情况和补充实现细节，openspec 文档仅供参考
 - docs/specification/ 可能过期，以 用户提示为准
 - 用户提示和文档中使用的 “代码” 一词不包括 “注释”。而 “文档” 一词指的是如 Markdown 文件之类
 - 规范文档、用户提示 表述不可能面面俱到，不得咬文嚼字，不得以 规范文档 反驳 用户提示，必要时询问
@@ -20,7 +20,7 @@
 
 允许修正拼写 / 语法错误，或修正格式 / 排版。需用户明确同意后方可修改实际内容。
 
-- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc` `.semgrepignore` `.cargo/config.toml` `.gitignore` `native/build.rs` `openspec/config.yaml`
+- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc` `.semgrepignore` `.cargo/config.toml` `.gitignore` `native/build.rs` `openspec/config.yaml` `docs/STATUS.md`
 
 ## 不得轻易更改文件，必须确保符合 docs/specification/ 要求
 
