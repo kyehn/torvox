@@ -167,6 +167,15 @@ pub struct Renderer {
     pub(crate) queue: wgpu::Queue,
     pub(crate) surface: Option<std::sync::Arc<wgpu::Surface<'static>>>,
     pub(crate) surface_config: Option<wgpu::SurfaceConfiguration>,
+    /// 当前挂载的 `ANativeWindow` 句柄（地址，等价于指针比较）：`attach_surface`
+    /// 能否原地 reconfigure 的唯一附加依据，见 [Self::can_reuse_attached_surface]。
+    ///
+    /// 真机日志（2026-10-17 18:21）里回前台与切会话送来的都是**新**窗口，而旧 surface
+    /// 包裹的 BufferQueue 已被 SurfaceFlinger 回收：少了这道比对时快速路径照走，
+    /// reconfigure 之后每帧 `dequeueBuffer: BufferQueue has been abandoned` →
+    /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
+    /// 期间屏幕停在旧会话（或纯主题背景）那一帧。
+    attached_window: Option<usize>,
     /// 连续 surface 级取纹理失败的计数（见 [Self::note_surface_acquire]）。
     surface_loss_streak: u8,
     /// 连续「本帧跳过」计数：工作线程死亡或取纹理持续超时时，帧循环每帧
@@ -391,7 +400,22 @@ impl Drop for Renderer {
         self.kgp_pipeline_format = None;
         self.kgp_texture = None;
         self.surface = None;
+        self.attached_window = None;
     }
+}
+
+/// [Renderer::can_reuse_attached_surface] 的判定本体：四个条件缺一不可——已建 surface、
+/// 已配置、未判死、且送来的正是当前挂载的那个 `ANativeWindow`。抽成自由函数以便单测
+/// 穷举：设备上判错的代价是整屏停帧（见 `Renderer::attached_window`）。
+#[cfg(any(target_os = "android", test))]
+fn reuse_attached_surface(
+    has_surface: bool,
+    has_config: bool,
+    invalidated: bool,
+    attached_window: Option<usize>,
+    incoming_window: usize,
+) -> bool {
+    has_surface && has_config && !invalidated && attached_window == Some(incoming_window)
 }
 
 impl Renderer {
@@ -405,6 +429,7 @@ impl Renderer {
             queue,
             surface: None,
             surface_config: None,
+            attached_window: None,
             surface_loss_streak: 0,
             consecutive_skip_frames: 0,
             surface_invalidated: false,
@@ -480,7 +505,8 @@ impl Renderer {
         // 快速路径：已挂载 surface 时（输入法收起、HOME→recents 且 surface 保留）
         // 原地 reconfigure 而非丢弃重建。重建会与渲染线程竞争，在 SwiftShader 上
         // 报 ERROR_NATIVE_WINDOW_IN_USE_KHR；reconfigure 是零拷贝的。
-        if self.surface.is_some() && self.surface_config.is_some() && !self.surface_invalidated {
+        let window = ptr as usize;
+        if self.can_reuse_attached_surface(window) {
             self.reconfigure_swapchain(width, height);
             log::info!("attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)");
             return Ok(());
@@ -489,6 +515,8 @@ impl Renderer {
             log::warn!(
                 "attach_surface: previous surface invalidated; rebuilding from ANativeWindow"
             );
+        } else if self.attached_window.is_some() {
+            log::info!("attach_surface: ANativeWindow changed; rebuilding for the new window");
         }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
         // 先释放旧 surface 再建新 surface：Android 上两个 wgpu surface 包裹同一个
@@ -593,6 +621,7 @@ impl Renderer {
         self.projection_width = scaled_width;
         self.projection_height = scaled_height;
         self.surface = Some(surface);
+        self.attached_window = Some(window);
         // 重建**确实**成功才清失效位与连续失败计数。
         //
         // 放在这里而非 `create_surface_unsafe` 之后：本次此间的 `get_capabilities` /
@@ -622,6 +651,7 @@ impl Renderer {
     pub fn release_surface(&mut self) {
         self.surface = None;
         self.surface_config = None;
+        self.attached_window = None;
         self.surface_invalidated = false;
         self.surface_loss_streak = 0;
         self.frame_texture = None;
@@ -637,6 +667,21 @@ impl Renderer {
     /// `select_surface_format` 任一失败都会提前返回，此时 `surface` 已是 `None`。
     /// 而 `render` 对「无 surface」返回 0——与空闲帧不可区分，宿主的换窗口看门狗
     /// 因此永远不触发，终端就此黑屏到 Activity 重建为止。
+    /// 能否在已挂载的 surface 上原地 reconfigure（而不是丢弃重建）。
+    ///
+    /// 同一 `ANativeWindow` 是必要条件：换窗口后缓存 surface 指向的 BufferQueue 已被
+    /// 回收，reconfigure 不会复活它（见 `attached_window` 字段）。
+    #[cfg(target_os = "android")]
+    fn can_reuse_attached_surface(&self, window: usize) -> bool {
+        reuse_attached_surface(
+            self.surface.is_some(),
+            self.surface_config.is_some(),
+            self.surface_invalidated,
+            self.attached_window,
+            window,
+        )
+    }
+
     pub fn mark_surface_invalidated(&mut self) {
         self.surface_invalidated = true;
     }
@@ -1304,5 +1349,61 @@ mod send_check {
         assert_send::<super::Renderer>();
         fn assert_sync<T: Sync>() {}
         assert_sync::<super::Renderer>();
+    }
+}
+
+#[cfg(test)]
+mod attach_surface_reuse {
+    use super::reuse_attached_surface;
+
+    /// 回归钉：快速路径必须要求**同一个** `ANativeWindow`。
+    ///
+    /// 真机日志（2026-10-17 18:21）里回前台、加会话、切会话每次都送新窗口，而缓存
+    /// surface 指向的旧 BufferQueue 已被回收：放行快速路径就 reconfigure 出一个死
+    /// 交换链，随后每帧 `dequeueBuffer: BufferQueue has been abandoned` →
+    /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
+    /// 期间屏幕停在旧会话或纯主题背景那一帧（用户可见「切换无变化」）。
+    #[test]
+    fn fast_path_needs_the_same_window_and_a_live_surface() {
+        assert!(reuse_attached_surface(
+            true,
+            true,
+            false,
+            Some(0x1000),
+            0x1000
+        ));
+        // 换窗口（回前台 / 新会话 / 切会话）：必须重建。
+        assert!(!reuse_attached_surface(
+            true,
+            true,
+            false,
+            Some(0x1000),
+            0x2000
+        ));
+        // 尚未挂载过窗口：没有可复用的 surface。
+        assert!(!reuse_attached_surface(true, true, false, None, 0x1000));
+        // 已判死的 surface 是死队列，reconfigure 不会复活它。
+        assert!(!reuse_attached_surface(
+            true,
+            true,
+            true,
+            Some(0x1000),
+            0x1000
+        ));
+        // 没有 surface 或没有配置：无物可复用。
+        assert!(!reuse_attached_surface(
+            false,
+            true,
+            false,
+            Some(0x1000),
+            0x1000
+        ));
+        assert!(!reuse_attached_surface(
+            true,
+            false,
+            false,
+            Some(0x1000),
+            0x1000
+        ));
     }
 }
