@@ -264,6 +264,13 @@ constructor(
 
     fun copySelectionToClipboard() = selectionManager.copySelectionToClipboard()
 
+    /**
+     * 菜单可用性判定用的选区文本：与 [copySelectionToClipboard]/[shareSelection]
+     * 共用同一解析（[SelectionManager.resolvedSelectionText]），
+     * 故「复制/分享项显示」与「动作取得到文本」不可能分叉。
+     */
+    fun selectionTextForAction(): String = selectionManager.resolvedSelectionText()
+
     fun clearSelection() = selectionManager.clearSelection()
 
     fun shareSelection() = selectionManager.shareSelection()
@@ -549,14 +556,40 @@ constructor(
             publishNormalizedSelectionBounds(current.start, current.end)
         }
 
-        fun copySelectionToClipboard() {
+        /**
+         * 选区文本的**唯一**解析入口：菜单可用性判定与菜单动作共用它。
+         *
+         * 缓存为空时按需重取——原生 `selection_text` 在部分回滚/重排状态下返回空，
+         * 此时动作仍必须拿到真实文本。共用同一解析是「复制按钮毫无反应」的根治点：
+         * 只要某一侧独立判定，就会出现「项显示、动作却取到空串 → 静默返回」的分叉
+         * （实测：长按落在有内容的格子、抽取范围却整段落在行尾空白列上，
+         * 修剪后为空串，点复制后剪贴板不变、菜单照样关闭）。
+         */
+        fun resolvedSelectionText(): String {
             val selection = _state.value.selection
+            if (!selection.active) return ""
             // 重新提取而不信任缓存的 selectedText：若缓存文本为空
             // （某些回滚状态下原生 selection_text 为 null），
-            // 会出现「复制按钮毫无反应」的反馈。
             // 按需提取保证菜单动作总是复制当前选区。
-            val rawText = selection.selectedText.ifEmpty { extractSelectedText(selection) }
-            if (rawText.isEmpty()) return
+            return selection.selectedText.ifEmpty { extractSelectedText(selection) }
+        }
+
+        /** 选区边界的日志形式：空解析告警必须自带定位信息，否则等于没记。 */
+        private fun selectionBoundsForLog(): String {
+            val selection = _state.value.selection
+            val start = selection.start
+            val end = selection.end
+            if (start == null || end == null) return "(无界)"
+            return "(start=${start.row},${start.col} end=${end.row},${end.col} pasteOnly=${selection.pasteOnly})"
+        }
+
+        fun copySelectionToClipboard() {
+            val rawText = resolvedSelectionText()
+            if (rawText.isEmpty()) {
+                // 不再静默：空解析是用户可见的「点了没反应」，必须留痕可查。
+                LogUtil.w("TerminalViewModel", "复制跳过: 选区文本为空 ${selectionBoundsForLog()}")
+                return
+            }
             val clipped = rawText.take(CLIPBOARD_TEXT_MAX_LENGTH)
             clipboardAccess.setClipboardText(clipped, label = "terminal selection")
             // 动作完成后关闭浮动菜单；保留高亮。
@@ -595,8 +628,11 @@ constructor(
         }
 
         fun shareSelection() {
-            val rawText = _state.value.selection.selectedText
-            if (rawText.isEmpty()) return
+            val rawText = resolvedSelectionText()
+            if (rawText.isEmpty()) {
+                LogUtil.w("TerminalViewModel", "分享跳过: 选区文本为空 ${selectionBoundsForLog()}")
+                return
+            }
             val shareIntent =
                 Intent.createChooser(
                     Intent(Intent.ACTION_SEND).apply {
