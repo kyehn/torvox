@@ -1768,6 +1768,33 @@ fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
     }
 }
 
+/// 切会话后累加器里留着上一个会话的像素，而目标会话内容与上次推送逐字节相同
+/// （终端本身毫无变化）——内容去重会吞掉「重推」请求，屏幕就停在上一个会话上。
+#[test]
+fn request_repaint_pushes_frame_with_unchanged_content() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write(b"prompt$ ");
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_some(),
+        "首帧必须到达"
+    );
+    terminal_under_test.request_repaint();
+    terminal_under_test.flush();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut pushed = false;
+    while !pushed {
+        pushed = terminal_under_test.receive_cell_data().is_some();
+        assert!(
+            pushed || std::time::Instant::now() < deadline,
+            "内容不变时重推请求未产生 CellData 帧"
+        );
+        if !pushed {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+}
+
 /// 视口滚动后，绝对网格行（0 = 回滚顶部，与 Kotlin 的
 /// `scrollbackLength - scrollOffset + row` 同口径）查询必须仍命中该行的内容。
 /// `dump_grid.visible` 直接取 `Point::Viewport`，即屏幕上真实显示的文本，
