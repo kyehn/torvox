@@ -138,11 +138,13 @@
       --tests "terminal.emulator.ui.SessionDrawerNarrowTest"` → 6 tests / 0 failures；真机（重装 debug APK 后）uiautomator dump 显示
       `TextView text="[1] LIVETITLE"`（单行，条目高 126px，改前为两行 178px）；
       `openspec validate --specs` → 31 passed / 0 failed；markdownlint 0 issues。
-- [x] 仪器测试本机跑不动，如实记录：`connectedDebugAndroidTest` 两次都在**用例执行前**
+- [x] 仪器测试本机跑不动，如实记录并已消除：`connectedDebugAndroidTest` 两次都在**用例执行前**
       失败（`UiAutomationService … already registered!` / `Error granting runtime permission`，
-      本机 mobile-mcp 占着 UiAutomation），**既有用例 `addSwitchAndCloseSession` 同样失败**，
-      与本次改动无关；新增的 `sessionItemShowsNumberAndTerminalTitleOnOneLine` 只做了编译
-      验证（`:app:compileDebugAndroidTestKotlin`），留给 CI 的干净环境执行。
+      当时本机 mobile-mcp 进程占着 UiAutomation），**既有用例 `addSwitchAndCloseSession` 同样失败**，
+      与本次改动无关；新增的 `sessionItemShowsNumberAndTerminalTitleOnOneLine` 当时只做了编译
+      验证（`:app:compileDebugAndroidTestKotlin`）。随后清掉占用、重装 APK 后补跑：
+      `:app:connectedDebugAndroidTest -P…class=terminal.emulator.ui.SessionDrawerInstrumentedTest`
+      → `tests="2" failures="0" errors="0" skipped="0"`（2026-10-17T19:08:14），缺口关闭。
 
 ## 五、搜索匹配无高亮、关闭搜索后反色未消失
 
@@ -253,6 +255,54 @@
 - [x] 构建陷阱留档：`:app:assembleDebug` **不会**重编 Rust，`jniLibs/` 需先跑
       `nix develop --command nu scripts/build-android-libs.nu`，否则装机跑的仍是旧 `.so`
       （本次曾因此把旧行为误判成「修了没用」）。
+- [x] STATUS 第七条残项「拖动选区/全选后点击复制按钮无效（输入法弹出，未触发复制按钮，
+      菜单消失）」定根因——描述里其实是**三个可分辨的现象**，实测把它们分开：
+      ① 动作执行了：输入法弹出时（`show_ime_with_hard_keyboard=1`）长按 (62,520) 得到
+      `setSelection: start=(16,3) end=(16,4) active=true`，菜单复制/分享/全选齐全；
+      点 (93,366) 的「复制」后日志出现 `setSelection: (0,0) active=false` +
+      `hideSelectionMenu(selectionInactive)`——那正是复制动作第二行的 `clearSelection()`。
+      故「未触发复制按钮」不成立：**按钮触发了，剪贴板没变**，从用户视角与「按不动」同形。
+      ② 不是平台写入失败：随后长按空白格得到 `LONG_PRESS whitespace … menu=PASTE_ONLY`
+      + `菜单跳过：无动作`（= `hasClipboardText()` 为假），全程无「剪贴板读取失败」；
+      且既有 instrumented 用例 `copyActionPlacesTextOnClipboard`（全选路径）在本设备
+      API 35 / targetSdk 28 下通过 ⇒ 写入与读取都正常 ⇒ 写进去的是**空串**。
+      ③ 判别实验（先跑、再动代码）：新增用例在生产 API 上建 3 格窄选区，先断言解析文本、
+      再断言剪贴板内容，`narrowSelectionCopyPlacesCellTextOnClipboard` 通过
+      （`"QQQ"` → 剪贴板 `"QQQ"`）⇒ 窄选区抽取与写入都正常。剩下唯一可能的分叉：
+      **菜单显示判定用长按落点**（单格 `isWhitespaceCell`）**而动作解析用整段选区**
+      （原生抽取 + 上游行尾裁剪）——落点格有内容 ⇒ 挂出「复制」，选区整段落在行尾空白列上
+      ⇒ 裁剪后空串 ⇒ 静默 `return`，菜单照常关闭。历次修复分别落在抽取、菜单、手柄上，
+      没有一处把两侧绑成同一输入，这就是「修了还是复现」的原因。
+- [x] 修（单一接缝）：`SelectionManager` 新增 `resolvedSelectionText()`
+      （= 动作原本的语义：缓存空则按需重取；选区不活跃返回空串），
+      `copySelectionToClipboard`/`shareSelection` 改用它，空解析时 `LogUtil.w`
+      记「复制/分享跳过: 选区文本为空 (start=… end=… pasteOnly=…)」——不再静默；
+      `TerminalViewModel.selectionTextForAction()` 暴露同一解析；
+      `showSelectionMenu` 据此算 `hasCopyableText` 传给
+      `menuActionsForSelection(pasteOnly, pasteEnabled, hasCopyableText)`，
+      决定复制/分享是否入列（与「打开链接」条目同一原则：显示判定与动作解析共用同一输入）。
+      全选与打开链接不受门控：前者恒有内容，后者自带「有无链接」判定。
+- [x] 验证（真机 emulator-5554，`SelectionEspressoTest` 9 例
+      `tests="9" failures="0" errors="0" skipped="0"`）：新增
+      `narrowSelectionCopyPlacesCellTextOnClipboard`（窄选区解析文本 == 剪贴板内容 == `"QQQ"`）、
+      `blankTextSelectionHidesCopyAction`（先断言 `!pasteOnly` 且 `selectedText == ""`，
+      再断言菜单仍弹（`全选` 在）但**没有**`复制`；少了「全选仍在」这条会退化成
+      「菜单没弹」的假绿）、`realLongPressKeepsMenuAndCopiesPressedLine`
+      （真实 MotionEvent 序列：DOWN → 900ms 无 MOVE → UP，断言**松手后**菜单仍在、
+      点「复制」后剪贴板 == 被长按那一整行文本）；既有 `copyActionPlacesTextOnClipboard`
+      （有文本时复制必须生效）、`partialSelectShowsSelectionMenu`（有文本时复制必须仍在）
+      继续通过 ⇒ 双向覆盖。
+- [x] 手势路径与既有用例的分工留档：`startPartialSelection()` 是 `startSelection/updateSelection/
+      endSelection` **直调**，只覆盖「选区已建立之后」的接缝，故上面补了真手势用例；
+      而 `adb shell input swipe x y x y <ms>` 会补 MOVE 事件，被应用正确判成拖动、抬手即收起
+      菜单（`选区菜单 dismiss() 已执行（应用侧主动关闭）`），那是拖动语义不是缺陷——
+      手工核对时不能拿它代表「长按」。另记一条实测坑：`TerminalSurface.onTouchEvent`
+      对 `event.x < 32dp`（本机 420dpi ⇒ 88px）一律 `return false` 让给抽屉边缘手势，
+      所以 x < 88px 的长按**按设计**无任何反应（曾被误判为「按不动」）。
+- [x] spec：`openspec/specs/text-selection/spec.md`「选择菜单内容」补「复制与分享的显示判定
+      MUST 取自与这两个条目动作同一份的选区文本解析结果；解析为空时 MUST NOT 显示，
+      且该空解析 MUST 记入日志」+「已显示的条目点击后 MUST 产生可观察效果，MUST NOT 静默
+      返回」+ 场景「选区文本解析为空时不显示复制」。
 
 ## 八、输入法弹出时上滑不能到顶部
 
@@ -445,10 +495,10 @@
 | 2b | 复制/移动提示路径已存在 | 同上（`deleteDocument_of_missing_document_is_a_no_op` 覆盖「覆盖＝先删再拷」） | `documents-provider`「删除按幂等语义覆盖」 | 同上 |
 | 2c | 无法保存修改文件：超时 | `openDocument` 写回路径单测 + `DocumentsProviderInstrumentedTest#external_process_write_back_lands_on_disk` | `documents-provider` | **缺口**：超时出现在第三方客户端侧，两份真机日志 grep 不到 timeout/ANR，按客户端侧现象登记 |
 | 3 | 会话 exit 0 不关会话/应用 | `SessionTableWatcherTest`（3 例） | `shell-entry`「非正常退出保留现场」 | 真机 `exit 0` 后会话行消失、应用留存 |
-| 4 | 会话列表项未显示标题 | `SessionItemLabelTest` + `SessionDrawerNarrowTest`（6 例） | `session-list`「会话条目内容」 | 抽屉截图 `[序号] 标题` 同行；**缺口**：`SessionDrawerInstrumentedTest` 本机跑不动（用例执行前失败），只编译验证 |
+| 4 | 会话列表项未显示标题 | `SessionItemLabelTest` + `SessionDrawerNarrowTest`（6 例）+ 真机 `SessionDrawerInstrumentedTest`（2 例） | `session-list`「会话条目内容」 | 抽屉截图 `[序号] 标题` 同行；缺口已关闭：清掉占用 UiAutomation 的进程后 `SessionDrawerInstrumentedTest` 真机 `tests="2" failures="0"` |
 | 5 | 搜索无高亮 / 关闭后反色残留 | native `search_highlight_repaint_tests`（2 例）+ `TextSearchBarCounterRobolectricTest`（3 例） | `text-search` + `text-selection` | 真机：搜 `MARKER` 3 命中反色，关闭后立即消失 |
 | 6 | 简体中文退格明显缓慢 | native `rendered_cursor` 用例 + 仪器 `CjkComposingLatencyTest`（20 样本 × 2 组） | `ime-editor-contract`「组字光标位置回报给输入法」 | 真机 p95 38.55ms → 0.54ms 量级（同一环境对照） |
-| 7 | 文本选择空隙 / 卡顿 / 不跟手 | native `band_clear`（2 例）+ `selection_highlight_covers_blank_row_inside_range` | `text-selection`「长按启动选择」 | 真机拖拽量化截图 |
+| 7 | 文本选择空隙 / 卡顿 / 不跟手 / 「复制按钮无效」 | native `band_clear`（2 例）+ `selection_highlight_covers_blank_row_inside_range`；instrumented `narrowSelectionCopyPlacesCellTextOnClipboard`、`blankTextSelectionHidesCopyAction`、`realLongPressKeepsMenuAndCopiesPressedLine` | `text-selection`「长按启动选择」「选择菜单内容」 | 真机拖拽量化截图；真机 9 例全绿（含窄选区复制逐字比对与「真手势长按 → 松手菜单留存 → 复制」整链） |
 | 8 | 输入法弹出时上滑不能到顶 | `ScrollDistanceTest`（7 例，共 23 例） | `ime-animation-smoothness` | 真机 `TOPMARK-0` 到顶 |
 | 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
 | 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（新增 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |

@@ -177,6 +177,8 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 MUST NOT 因此改变。备用屏状态 MUST 随每帧渲染结果一并上报（与内容下沿同批），MUST NOT 由输入法定居后的独立查询提供：输入法弹出动画期间该状态会翻转
 （启动 helix 的同时键盘正收起），查询所得缓存必然滞后于当帧的位移计算。
 
+#### Scenario: 以网格收缩兑现适应窗口大小
+
 **位移为 0 MUST 同时以网格收缩兑现「适应窗口大小」**：窗口是 `adjustNothing`，
 Surface 尺寸全程不变，故备用屏下 MUST 把输入法遮挡计入网格高度
 （`rows = floor((surface − ModifierBar − 输入法遮挡) / cellHeight)`），使全屏 TUI

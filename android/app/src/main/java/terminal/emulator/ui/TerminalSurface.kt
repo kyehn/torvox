@@ -198,7 +198,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             return
         }
         val pasteEnabled = clipboardAccess.hasClipboardText()
-        val actions = menuActionsForSelection(pasteOnly, pasteEnabled)
+        // 文本区动作的显示判定与动作解析共用同一份文本（viewModel.selectionTextForAction
+        // → SelectionManager.resolvedSelectionText）。空文本的选区不再挂出「复制/分享」：
+        // 点下去只会静默返回，用户看到的是「按钮无效」，而这与「按不动」无法区分。
+        val hasCopyableText = viewModel?.selectionTextForAction()?.isNotEmpty() == true
+        val actions = menuActionsForSelection(pasteOnly, pasteEnabled, hasCopyableText)
         if (actions.isEmpty()) {
             LogUtil.d(TAG, "菜单跳过：无动作")
             return
@@ -241,20 +245,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         selectionMenuPopup = popup
     }
 
-    /** 选区可用菜单项：对标 termux 语义（COPY | SHARE | SELECT ALL | OPEN LINK，剪贴板有文本时提供 PASTE）。 */
-    internal fun menuActionsForSelection(pasteOnly: Boolean, pasteEnabled: Boolean): List<Pair<String, () -> Unit>> =
-        buildList {
-            if (pasteOnly) {
-                if (pasteEnabled) {
-                    add(
-                        context.getString(R.string.paste) to
-                            {
-                                viewModel?.pasteFromClipboard()
-                                viewModel?.clearSelection()
-                            },
-                    )
-                }
-            } else {
+    /** 选区可用菜单项：对标 termux 语义（COPY | SHARE | SELECT ALL | OPEN LINK，剪贴板有文本时提供 PASTE）。
+     *
+     * [hasCopyableText] 由调用方用 [TerminalViewModel.selectionTextForAction]（即动作真正
+     * 复制的那份文本）求得：为空时 COPY/SHARE 不出现——它们是唯一的「点了没反应」入口。
+     */
+    internal fun menuActionsForSelection(
+        pasteOnly: Boolean,
+        pasteEnabled: Boolean,
+        hasCopyableText: Boolean = true,
+    ): List<Pair<String, () -> Unit>> = buildList {
+        if (pasteOnly) {
+            if (pasteEnabled) {
+                add(
+                    context.getString(R.string.paste) to
+                        {
+                            viewModel?.pasteFromClipboard()
+                            viewModel?.clearSelection()
+                        },
+                )
+            }
+        } else {
+            if (hasCopyableText) {
                 add(
                     context.getString(R.string.copy) to
                         {
@@ -269,29 +281,30 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             viewModel?.clearSelection()
                         },
                 )
+            }
+            add(
+                context.getString(R.string.select_all) to
+                    {
+                        // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
+                        viewModel?.selectAll()
+                        // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
+                        showSelectionMenuForCurrentSelection()
+                    },
+            )
+            // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
+            // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
+            val selectionHyperlinkUri = selectionHyperlinkUri()
+            if (selectionHyperlinkUri != null) {
                 add(
-                    context.getString(R.string.select_all) to
+                    context.getString(R.string.open_link) to
                         {
-                            // termux 行为：全选后保持菜单打开，用户可立即复制新选区。
-                            viewModel?.selectAll()
-                            // 选择几何剧变：隐藏→按新界限重显完成重锚（design 决策 3）。
-                            showSelectionMenuForCurrentSelection()
+                            openSelectionAsLink(selectionHyperlinkUri)
+                            viewModel?.clearSelection()
                         },
                 )
-                // 打开链接项：仅 OSC 8 超链接（libghostty-vt 不识别纯文本裸 URL）。
-                // 显示判定与动作解析共用同一输入，绝不出现“项显示却无目标”。
-                val selectionHyperlinkUri = selectionHyperlinkUri()
-                if (selectionHyperlinkUri != null) {
-                    add(
-                        context.getString(R.string.open_link) to
-                            {
-                                openSelectionAsLink(selectionHyperlinkUri)
-                                viewModel?.clearSelection()
-                            },
-                    )
-                }
             }
         }
+    }
 
     /** 选区起点的 OSC 8 超链接 URI，无链接返回 null。 */
     private fun selectionHyperlinkUri(): String? = viewModel
