@@ -414,6 +414,19 @@
       首轮实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
       clippy / doc / bench / semgrep / markdownlint / gradle 全部未跑。
       故「跑通」＝从 `cargo fmt` 段起重跑并逐段看到全部阶段通过。
+- [x] **第四轮实测通过**（`/tmp/check4.log`，整脚本退出码 `0`，逐段核对）：
+      `cargo fmt --check`、`cargo clippy --all-targets -- --deny warnings`、`cargo machete`
+      静默通过；`cargo test --no-fail-fast` → lib `628 passed; 0 failed`、
+      `tests/concurrency.rs` `2 passed`、doc-tests `0`；`cargo doc --no-deps`（`-D warnings`）
+      通过；三个 bench `--quick` 全出数（`cell_builder` 835.93ms、`cjk_resolve` 17.18ms、
+      `vt_typing` 540.80µs）；`cargo build --package native --profile release` 通过；
+      `semgrep` → `Ran 53 rules on 590 files: 0 findings`；`markdownlint-cli2` →
+      `0 issues in 0 files`；gradle 侧 `detekt`、`spotlessCheck`、`dokkaGenerate`、
+      `lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`
+      与 `benchmark` / `baselineprofile` 编译全部成功，`BUILD SUCCESSFUL`。
+      前三轮各自暴露的真问题都已修掉：①`cargo test` 一例失败（切会话高亮契约用例过期）、
+      ②semgrep 8 处阻断（品牌名 / 裸 `return` / `sidecar` 字样）、
+      ③`:app:lintDebug` 两处 `DenyListedApi` 阻断。
 - [x] openspec 严格校验基线留档（不属本变更，只记录不重写）：
       `openspec validate --all --strict` → `26 passed / 6 failed (32)`，6 个失败项
       （`documents-provider`、`font-selection`、`grid-extraction-incremental`、
