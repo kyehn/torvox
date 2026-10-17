@@ -73,7 +73,8 @@
 
 ### 第 2 条的落点
 
-第 2 条先落地，因为它有真机日志实证（`native/target/logcat-1.txt` 两条未捕获
+第 2 条先落地，因为它有真机日志实证（当轮本机抓的 logcat，落在被 `.gitignore`
+忽略的 `native/target/` 下、未入库：两条未捕获
 `RuntimeException`）：
 
 - **删除幂等**：删已不存在的目标（终端侧 `rm` 后的幽灵行、客户端重试、
@@ -85,7 +86,7 @@
 
 `openspec/specs/documents-provider/spec.md` 已**直接**补入三个 Requirement
 （删除按幂等语义覆盖 / 重名冲突在全部变更入口取唯一名 / 重命名到自身是空操作）
-与六条 Scenario，因此本变更不再为它准备 delta，避免归档时重复添加同名 Requirement。
+与五条 Scenario，因此本变更不再为它准备 delta，避免归档时重复添加同名 Requirement。
 
 第 2 条的「保存修改文件超时」一项**无仓内缺陷可修**：写回通道（`openDocument`
 不要求条目已存在、`w`/`wt` 截断、`wa` 追加、`rw` 创建、关闭时广播）已有单测覆盖，

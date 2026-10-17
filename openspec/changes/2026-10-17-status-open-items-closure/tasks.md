@@ -101,7 +101,7 @@
       冷启动时 state 先以空表发布（会话由运行期异步创建），直接判空会在启动瞬间关掉应用，
       故必须记住「曾有过会话」，并只触发一次。
 - [x] 加检查（`SessionTableWatcherTest`）：`coldStartWithNoSessionsYetDoesNotFinish`、
-      `lastSessionClosedFinishesOnce`、`backgroundSessionStillCountsAsASession`
+      `lastSessionClosedFinishesOnce`、`onlyTheLastSessionDisappearingFinishesTheApp`
       —— 分别钉住冷启动不误关、清空即关且只关一次、多会话时最后一个消失才关。
 - [x] spec：`openspec/specs/shell-entry/spec.md` 的「非正常退出保留现场」Requirement 补
       「最后一个会话消失时关闭应用」，并加 Scenario「最后一个会话结束后关闭应用」
@@ -341,12 +341,16 @@
       经 `setScrollRemainderPx` 下发渲染器，渲染器按投影矩阵把整幅网格亚行平移，边缘
       露出一条背景空带；余量再攒够一整行时偏移无处可去、余量被清零，内容整体弹回一行
       ——「跳动 + 闪烁」。整行级越界此前已被钳制清零，故只在亚行量级复现。
-- [x] 修：三处边界判定提到亚行早退之前，越界位移就地丢弃（`ScrollStep.overflowPx`），
+- [x] 修：三处边界判定提到亚行早退之前，越界位移就地丢弃（`ScrollStep` 只带偏移、
+      余量与显出量，越界部分没有回传字段），
       既不进渲染器余量也不跨行回弹：底部（偏移 0 且继续向更新方向拖）、顶部
       （偏移 = 回滚长度且继续向更早方向拖，改喂显出量）、顶端之外显不出的部分同样丢弃。
       同一处改动顺带把 `scrollOffset` 赋值收敛到 `setScrollOffset`（位移显出量依赖它）。
-- [x] 加检查（`ScrollDistanceTest`）：`边界外位移就地丢弃`（顶部/底部对称两例）、
-      `边界内的亚行跟随不受影响`，并保留原有整行/钳制/漂移用例。
+- [x] 加检查（`ScrollDistanceTest`）：`overscroll at the top edge is discarded instead of
+      leaking to the renderer` 与 `overscroll at the bottom edge is discarded symmetrically`
+      （顶部/底部对称两例，对应 spec Requirement「边界外位移就地丢弃」）、
+      `leaving the top edge keeps the sub cell remainder`（对应「边界内的亚行跟随不受
+      影响」），并保留原有整行/钳制/漂移用例。
 - [x] spec：`openspec/specs/scroll-physics-drift/spec.md` 补 Requirement
       「边界外位移就地丢弃」（含「边界判定先于亚行早退」）。
 - [x] 验证（真机 emulator-5554，api 35，键盘弹出、实时视图）：同量级只改方向的对照——
@@ -381,14 +385,18 @@
       `coerceIn`。
 - [x] 加检查（`ScrollDistanceTest`，本轮净增 8 例 / 共 23 例 0 失败；该轮差分是
       +10/−2 个用例函数，其中 2 个是旧惯性用例改名，故不按「新增 10 例」计）：
-      `惯性速度按像素每秒直传`（600f 必须得 600，注释写明「绝不能是 10」——
-      整行路径下 600/60 恰好是 10，是能真正区分新旧实现的判据）、
-      方向与偏移方向一致、拖动与惯性共用符号、以及
-      `慢甩按像素推进且不整行量化`（整行量化时第一帧就跨一整行）。
+      `fling velocity is kept in pixels per second`（600f 必须得 600，注释写明
+      「绝不能是 10」——整行路径下 600/60 恰好是 10，是能真正区分新旧实现的判据）、
+      `fling velocity keeps drag direction`、`drag and fling share the same direction sign`，
+      以及 `slow fling advances by pixels without row quantization`（整行量化时第一帧就
+      跨一整行）。
 - [x] spec：`openspec/specs/scroll-physics-drift/spec.md` 补 Requirement
       「惯性滚动按像素推进」（速度单位不得含行高、上界含完整位移容量、
       与拖动共用边界丢弃与显出量），3 条场景。
       `openspec validate scroll-physics-drift --type spec --strict` 通过。
+      同文件「边界外位移就地丢弃」的 Requirement 与两条 Scenario 原本点名
+      `ScrollStep.overflowPx`；该字段删掉后一并改为可观察口径（越界位移就地丢弃、
+      不进亚行余量、不下发渲染器），规范与代码重新同步。
 - [x] 验证（真机 emulator-5554，api 35，键盘弹出）：`echo TOPMARK-0; seq 1 60`
       后在实时视图向下甩（手势方向见下方留档），logcat 逐帧读数：偏移
       `0 → 1 → 18`（= 回滚长度，到底）而**亚行余量全程非整行**
@@ -439,9 +447,10 @@
       `[7.6,91.4]×[16.4,84.6]`」；改后 1 例 0 失败。
 - [x] spec：`openspec/specs/render-stability/spec.md` 的「启动首帧及时呈现」后补
       Requirement「启动屏只画图标不用完整图案」，3 条场景，新增 Requirement 224 字、
-      无告警。本文件 `--strict` 仍报改动前就有的那一条告警（`requirements[7]`：
+      无告警。**当时**本文件 `--strict` 仍报改动前就有的那一条告警（`requirements[7]`：
       3223 字的「备用屏下输入法弹出不位移终端 Surface」超 500 字上限），非本次引入；
-      全仓同类告警共 14 条、6 个 spec，见十二节留档。
+      全仓同类告警当时共 14 条、6 个 spec（已在十二节按校验器语义拆分，拆分后本文件
+      `--strict` 为 32 passed / 0 failed）。
 - [x] 验证（真机 emulator-5554，api 35，density 420）：重装后冷启动逐帧截图——
       `(700,1200)` 由底板色 `(13,17,23)` 变为底色 `(30,30,46)`（底板消失），
       图案包围盒 `[364,724]×[1050,1349]`、中心 `(544,1199.5)`（屏幕中心
@@ -499,7 +508,7 @@
       `attach_surface` 比较窗口句柄地址）；②`tasks.md` 短提交号 → 改为
       `VT_IDLE_TICK_MS`（`native/src/terminal/ghostty_terminal/types.rs`）；③`tasks.md`
       里那处「启动脚本伴生文件」的英文写法 → 改为「校验和伴生文件」（本行同样不再写它）；④`docs/STATUS.md` 顶部的完整提交号按
-      裁定**不改**——该号正是本仓标签 `0.1.0` 指向的提交（`git describe --tags` 可验），
+      裁定**不改**——该号正是本仓标签 `0.1.0` 指向的提交（`git rev-list -n1 0.1.0` 可验），
       改写会让「本报告基于哪个树」这一证据消失。处置后复扫 →
       `Ran 53 rules on 592 files: 1 finding`，即余下这一处。**后果**：semgrep 段以
       `--error` 非零退出，整脚本无法退出 0，故余下阶段单独复跑取证（见下条）。
@@ -574,10 +583,41 @@
 - [x] 审阅发现的代码侧修复都留了可运行检查：`ScrollDistanceTest` 23 tests / 0 failures、
       `SessionTableWatcherTest` 3 tests / 0 failures（含改名后重跑），
       `spotlessKotlinCheck`、`detekt` 全绿。
+- [x] 第二轮只读审阅（同样两条轴并行、只读不写；对象是本变更此前落定点到当轮 HEAD 的
+      全部提交）：11 条发现（规范-证据轴 7、标准/过度设计轴 4，其中「规范仍点名已删字段」
+      两条同源）逐条按根因处置，没有一条以「记一笔」了事。
+      · 唯一的代码级根因：`getCellSizePacked` 走 `render_state_mut`，GPU 初始化失败即
+        panic，而同一初始化的预热路径是「失败只记账、可重试」——spawn 前算网格的度量查询
+        恰好最可能撞上瞬时失败，却成了唯一把「一次失败」升级为进程中止的入口。改为先
+        `try_global_gpu()` 探测，失败记日志并返回 0，由 Kotlin 按既有语义退回默认网格；
+        致命判定仍留在首帧渲染路径。
+      · 四处注释与代码相反：预热被写成「移到 spawn 后、与 shell 启动并行」，实际是度量
+        查询已把字体管线与 wgpu 渲染器一起建起（两者同住 `RenderState`），shell 启动因此
+        排在初始化之后。按实际顺序改写这四处，并在 `spawnTerminalTimed` 记下取舍与代价
+        （软件 GL 上 shell 启动被顺带推迟几百毫秒，首帧时刻不变），以 `ponytail:` 注明
+        「只建字体管线」的拆法要动渲染路径 200 余处调用点，故本轮不拆。
+      · `SessionScoped` 的结构体文档写「`enter_session` 必须同时清空 `drawn`」，与同文件
+        实现及方法文档正好相反，照它改就会把已修的「关闭搜索后反色块不消失」引回来：
+        按实现与判据改写这段文档。
+      · `scroll-physics-drift` 仍点名已删的 `ScrollStep.overflowPx`（Requirement 一级）：
+        改为可观察口径，规范与代码重新同步。
+      · `stopFlingAnimation` 抄了 `finishFlingAnimation` 的收尾四行（注释也自认同语义）：
+        改为直接复用，两条路径不再能各自漂移。
+      · 其余为表述类：会话计数用例改名后台账仍引旧名；三个用例名写成中文标识符而仓库里
+        实际是英文名；条目 441 行以现在时描述当时的校验告警数；`git describe --tags` 验
+        不出「标签指向哪个提交」，换成 `git rev-list -n1`；提案的 Scenario 计数六→五；
+        真机日志证据注明落在被 gitignore 的 `native/target/` 下、未入库。
+      · 自纠一处流程问题：修复代码时误用 `git add -A`，把同一批文档修改并进了那条代码
+        提交，提交信息因此只覆盖代码侧。内容与其验证（markdownlint、semgrep、
+        `openspec validate`、Rust 与 Kotlin 门禁）都已完成，此处如实记录范围与信息的出入。
+- [x] 第二轮代码侧修复的验证：Rust `fmt` / `clippy --deny warnings` / `test` / `doc`
+      全绿；`spotlessKotlinCheck`、`detekt` 全绿；`ScrollDistanceTest` 23 tests / 0 failures
+      （重跑，读当轮新写入的结果 XML 而非 up-to-date 残件）；markdownlint 0 issue、
+      semgrep 1 条既定例外、`openspec validate --all --strict` 32 passed / 0 failed。
 - [ ] 连续两轮审阅无问题后归档本变更。门槛按维护者裁定与 goal 口径对齐（原写「连续
-      三轮」是自加的更严口径，已改）：第一轮报了 15 条发现，故第 2、3 轮都必须干净才算
-      数，任一轮有发现就从下一轮重新起算。归档只移动 openspec 目录，**`docs/STATUS.md`
-      一字不动**（维护者已授权自行归档）。
+      三轮」是自加的更严口径，已改）：第一轮报了 15 条、第二轮报了 11 条发现，故第 3、4
+      轮都必须干净才算数，任一轮有发现就从下一轮重新起算。归档只移动 openspec 目录，
+      **`docs/STATUS.md` 一字不动**（维护者已授权自行归档）。
 
 ## 十三、CI 失败用例甄别（`run 38888880442`，不属于 STATUS 行序）
 
