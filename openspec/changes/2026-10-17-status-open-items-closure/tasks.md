@@ -333,9 +333,54 @@
 
 ## 十一、启动动画用图标而非完整图案
 
-- [ ] 按 `docs/specification/DESIGN.md` 的启动画面约定定差异。
-- [ ] 修。
-- [ ] 验证：可运行检查。
+- [x] 定根因（AOSP `SplashscreenContentDrawer` + `SplashscreenIconDrawableFactory`
+      源码 + 像素取证）：主题把 `windowSplashScreenAnimatedIcon` 指到自适应应用图标
+      `@mipmap/ic_launcher`。平台只在**该属性未设置**（图标取自应用）时才做自适应图标的
+      「只取前景」后处理（`processAdaptiveIcon`）；属性已设置时直接 `makeIconDrawable`，
+      自适应图标被整块画出——底板圆形一起上屏，这就是「完整图案」；且非自适应路径下
+      图标被 `AdaptiveForegroundDrawable` 放大 1.5 倍再裁圆
+      （`DEFAULT_VIEW_PORT_SCALE = 2/3`、`insetWidth = 0.75 × 边长`），
+      可见区只剩 108 视口中心半径 36 单位的圆。
+      实测冷启动截图（density 420）：底板 `#0D1117` 圆直径 504px = 192dp
+      （`starting_surface_icon_size` 160dp × 无底色系数 1.2），星形整颗被裁掉、
+      窗口两个角被切。
+- [x] 修（同一根因两处）：启动屏图标换成非自适应的 `@drawable/launcher_foreground`，
+      父主题由 `Theme.SplashScreen.IconBackground` 换成 `Theme.SplashScreen`
+      （不声明 `windowSplashScreenIconBackgroundColor`，图标后不加圆底板），
+      背景保持 `#1E1E2E`——平台于是按 Android 13 默认形态把图形放大 1.5 倍画在底色上。
+      图形本身越出安全区（实测最远半径 48.5 单位 > 36），故在
+      `launcher_foreground.xml` 与 `launcher_monochrome.xml` 外层加一个
+      `pivot(54,54) scale 0.62 translate(2.79,2.17)` 的 group：缩到半径 33
+      （= 官方 66dp 安全圆），并按实测包围盒 `[7.6,91.4]×[16.4,84.6]`、
+      中心 `(49.5,50.5)` 回正到视口中心。启动屏与桌面图标同源一份图形，
+      没有第二份路径副本。
+- [x] 附修（同一次 SVG 转换的第二个缺陷）：三个圆点路径以 `A` 开头、缺首段 `M`，
+      解析时起点落在原点、每段弧被重新放大（实测渲染成 80×95px 的大色块；
+      半径 1.6 单位的点应为 11px）。补 `M` 并去掉退化的首段弧（两点对径，
+      两段半弧即成整圆），实测三点各 10–11px。
+- [x] 加检查（`SplashIconRobolectricTest`，`@GraphicsMode(NATIVE)` + `sdk = 34`）：
+      从 `Theme.Terminal.Splash` 解析 `android:windowSplashScreenAnimatedIcon`，
+      断言 ① 不是 `AdaptiveIconDrawable`（交自适应图标即「完整图案」）；
+      ② 按 4px/单位渲染后确有图案（不透明像素 > 位图 1%）；
+      ③ 最远半径 ≤ 36 单位（超出即被裁）；④ 最远半径 ≥ 30 单位（不得缩成小块）。
+      改前跑：① 报图标是自适应图标，③ 报「实际最远 48.5，包围盒
+      `[7.6,91.4]×[16.4,84.6]`」；改后 1 例 0 失败。
+- [x] spec：`openspec/specs/render-stability/spec.md` 的「启动首帧及时呈现」后补
+      Requirement「启动屏只画图标不用完整图案」，3 条场景，新增 Requirement 224 字、
+      无告警。本文件 `--strict` 仍报改动前就有的那一条告警（`requirements[7]`：
+      3223 字的「备用屏下输入法弹出不位移终端 Surface」超 500 字上限），非本次引入；
+      全仓同类告警共 14 条、6 个 spec，见十二节留档。
+- [x] 验证（真机 emulator-5554，api 35，density 420）：重装后冷启动逐帧截图——
+      `(700,1200)` 由底板色 `(13,17,23)` 变为底色 `(30,30,46)`（底板消失），
+      图案包围盒 `[364,724]×[1050,1349]`、中心 `(544,1199.5)`（屏幕中心
+      `(540,1200)`），最远半径 234px < 可见圆 252px（= 96dp）→ 无裁切；
+      星形 `#ffb467` 386px 出现在 `(693,1081)`（改前整颗被裁不可见），
+      三点各 10–11px。桌面图标（应用抽屉）同样完整：星形 12×10px 可见、
+      三点正常、窗口角不再被切。
+- 口径留档：`values-v31` 下 `Theme.SplashScreen` 与
+      `Theme.SplashScreen.IconBackground` 的差别仅是后者多映射
+      `android:windowSplashScreenIconBackgroundColor`；本应用 `minSdk = 33`，
+      兼容库 23–30 的启动屏路径（`Theme.SplashScreen.Common`）在设备上根本不走。
 
 ## 十二、收尾
 
