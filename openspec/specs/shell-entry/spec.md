@@ -55,7 +55,7 @@ MUST NOT 提供启动目录设置框；`workingDirectory` MUST 恒为家目录�
 
 ### Requirement: 非正常退出保留现场
 
-shell 崩溃（非主动正常退出）MUST 保留现场不关闭会话，显示 `[Process completed (code 255) - press Enter]`（`exit -1` 示例）；正常退出时关闭会话；启动入口失败不得回退，保留输出显示。
+shell 崩溃（非主动正常退出）MUST 保留现场不关闭会话，显示 `[Process completed (code 255) - press Enter]`（`exit -1` 示例）；正常退出时关闭会话，且最后一个会话消失时关闭应用（termux 语义）；启动入口失败不得回退，保留输出显示。
 
 #### Scenario: 非零退出保留现场
 
@@ -66,3 +66,9 @@ shell 崩溃（非主动正常退出）MUST 保留现场不关闭会话，显示
 
 - **WHEN** shell 以零码退出
 - **THEN** 会话直接关闭
+
+#### Scenario: 最后一个会话结束后关闭应用
+
+- **WHEN** 会话表中最后一个会话消失（零码退出、回车确认 `[Process completed]`、或用户关闭会话）
+- **THEN** 应用 MUST 随之关闭，MUST NOT 停在无会话的空界面
+- **AND** 冷启动时「会话尚未创建」的空表 MUST NOT 触发关闭（会话由运行期异步创建）

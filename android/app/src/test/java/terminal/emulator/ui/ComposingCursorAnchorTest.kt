@@ -31,6 +31,35 @@ class ComposingCursorAnchorTest {
     }
 
     @Test
+    fun `marker follows the cell metrics instead of caching the old ones`() {
+        // 字号变更后度量会变，锚点 MUST 随之重算：候选窗口贴错格子即表现为
+        // 输入法候选窗与光标错位。这里断言度量是每次现算的入参，不是缓存值。
+        val before =
+            composingCursorMarker(
+                cursorRow = 3,
+                cursorCol = 4,
+                rows = 24,
+                cellWidth = 10f,
+                cellHeight = 20f,
+            )
+        val after =
+            composingCursorMarker(
+                cursorRow = 3,
+                cursorCol = 4,
+                rows = 24,
+                cellWidth = 20f,
+                cellHeight = 40f,
+            )
+        requireNotNull(before)
+        requireNotNull(after)
+        assertEquals("度量翻倍后左沿同步翻倍", before.horizontal * 2f, after.horizontal, 0.01f)
+        assertEquals("度量翻倍后顶沿同步翻倍", before.top * 2f, after.top, 0.01f)
+        assertEquals("度量翻倍后下沿同步翻倍", before.bottom * 2f, after.bottom, 0.01f)
+        assertEquals("标记高即格高", 20f, before.bottom - before.top, 0.01f)
+        assertEquals("格高翻倍后标记高同步翻倍", 40f, after.bottom - after.top, 0.01f)
+    }
+
+    @Test
     fun `cursor outside the viewport reports nothing`() {
         // 光标滚出视口时候选窗口会落在屏幕外，回报没有意义。
         assertNull(

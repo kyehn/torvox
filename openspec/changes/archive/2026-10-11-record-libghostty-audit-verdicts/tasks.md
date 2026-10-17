@@ -28,9 +28,22 @@
 
 - [x] 3.1 新增「上游 API 取用判定」Requirement，承载结论表。
 - [x] 3.2 `openspec validate --changes` 通过。
-- [ ] 3.3 `openspec archive` 后 `openspec validate --specs` 全绿。
+- [x] 3.3 `openspec archive` 后 `openspec validate --specs` 全绿。
+      （补记于 `research-residual-audit-closure`，2026-10-16 实测：31 passed / 0 failed；
+      余下告警均为既有「>500 字符长 Requirement」风格项）
 
 ## 4. 待办（本次不做，阻塞点见规范表）
 
-- [ ] 4.1 按键编码迁至上游 `key::Encoder`：需先裁定 Android 键码到上游 `Key` 的映射表与 JNI 桥形态，另立变更。
-- [ ] 4.2 粘贴走 `Terminal::paste`（bracketed）：需先裁定 IME 提交路径与模式查询归属，另立变更。
+两项待办的**实际裁定与当初设想的做法不同**，故不按原样勾选为「已实现」，而是按
+实际落点更正（补记于 `research-residual-audit-closure`，2026-10-16）：
+
+- [x] 4.1 按键编码迁至上游 `key::Encoder`：需先裁定 Android 键码到上游 `Key` 的映射表与 JNI 桥形态，另立变更。
+      ——已由 `2026-10-11-adopt-upstream-key-encoder` 实现并归档：常驻规约
+      `key-input-encoding` 载「按键编码 MUST 取用上游 `key::Encoder`，本仓 MUST NOT
+      自维护按键转义序列表」，编码前 MUST `set_options_from_terminal` 取活体模式状态。
+- [x] 4.2 粘贴走 `Terminal::paste`（bracketed）：需先裁定 IME 提交路径与模式查询归属，另立变更。
+      ——已由 `2026-10-11-adopt-bracketed-paste` 实现并归档，但**实际做法与本条设想相反**：
+      常驻规约 `paste-encoding` 明写「MUST NOT 取用上游 `Terminal::paste`：其含换行
+      文本返回 `Error::Rejected` 并要求嵌入方自行分帧」，本仓改走上游 `paste::encode`
+      并自行处理 bracketed 标志。故本条按「已达成目标（bracketed 语义经上游承担）
+      但路径与初稿相反」结案，不得读成照原计划实现了 `Terminal::paste`。

@@ -45,7 +45,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         return docId
     }
 
-    fun renameDocument(documentId: String, displayName: String): String {
+    fun renameDocument(documentId: String, displayName: String): String? {
         val root = rootDir()
         val rootCanonical = root.canonicalFile
         if (documentId == TerminalDocumentsProvider.ROOT_ID) {
@@ -66,10 +66,16 @@ internal class DocumentMutations(private val context: Context, private val rootD
         if (source.canonicalFile == rootCanonical) {
             throw java.io.FileNotFoundException("Refusing to rename the root document")
         }
-        val target = File(parent, safeName)
-        if (target.exists()) {
-            throw IOException("Target '$safeName' already exists")
+        if (safeName == source.name) {
+            // 名字没变：框架约定「原 docId 仍有效时返回 null」。少了这一守卫，
+            // uniqueChild 会把源文件本身当冲突，把 `x` 静默改成 `x (2)`。
+            return null
         }
+        // 重名冲突与 create/copy/move 同一策略（`uniqueChild`）：框架合约明确允许
+        // 提供者为避开重名而改写名字。硬失败只会让「先新建、后改名」的客户端
+        // （文件管理器的建文件/建文件夹、另存为）拿到跨 Binder 的运行时异常，
+        // 界面报「路径已存在」而操作全丢。
+        val target = uniqueChild(parent, safeName)
         if (!source.renameTo(target)) {
             throw IOException("Failed to rename '$displayName'")
         }
@@ -91,11 +97,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val rawFile = File(root, documentId)
         if (TerminalDocumentsProvider.isHomeLink(rawFile, root)) {
             // docId 指向链接自身：只删链接 inode，不断其目标整棵树。
-            if (rawFile.delete()) {
-                notifyParentOf(rawFile, root)
-                return
-            }
-            throw java.io.FileNotFoundException("Failed to delete symlink $documentId")
+            deleteOrFail(rawFile, "Failed to delete symlink")
+            notifyParentOf(rawFile, root)
+            return
         }
         val file = TerminalDocumentsProvider.decodeDocId(documentId, root)
         if (file.canonicalFile == root.canonicalFile) {
@@ -223,25 +227,32 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 directories.add(current)
                 current.listFiles()?.forEach { stack.addLast(it) }
             } else {
-                if (!current.delete()) {
-                    throw IOException(
-                        "Failed to delete '${current.path}' " +
-                            "(exists=${current.exists()}, isDirectory=${current.isDirectory}, " +
-                            "canWrite=${current.canWrite()}, isSymlink=${Files.isSymbolicLink(current.toPath())})",
-                    )
-                }
+                deleteOrFail(current, "Failed to delete")
             }
         }
         for (directoryIndex in directories.indices.reversed()) {
-            if (!directories[directoryIndex].delete()) {
-                val failedDirectory = directories[directoryIndex]
-                throw IOException(
-                    "Failed to delete directory '${failedDirectory.path}' " +
-                        "(exists=${failedDirectory.exists()}, canWrite=${failedDirectory.canWrite()}, " +
-                        "isSymlink=${Files.isSymbolicLink(failedDirectory.toPath())})",
-                )
-            }
+            deleteOrFail(directories[directoryIndex], "Failed to delete directory")
         }
+    }
+
+    /**
+     * 删除单个条目；条目已不在时视为成功。
+     *
+     * 真机 logcat 实证：文件管理器「覆盖」＝先删目标再拷入，而它缓存的列表里常有
+     * 终端侧 `rm` 掉的**幽灵行**——删幽灵时目标已不存在，此前的实现抛 IOException，
+     * 跨 Binder 变成 RuntimeException（`exists=false` 那两条未捕获异常即此），
+     * 客户端只能报操作失败。删除的后置条件是「不再存在」，已满足就没有失败可言。
+     * 确实删不掉（权限、目录非空）时抛 [java.io.FileNotFoundException]：框架
+     * `DocumentsProvider.call` 只把这一种类型原样转交，其余一律包成 RuntimeException。
+     */
+    private fun deleteOrFail(target: File, message: String) {
+        if (target.delete()) return
+        if (!Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)) return
+        throw java.io.FileNotFoundException(
+            "$message '${target.path}' " +
+                "(exists=${target.exists()}, isDirectory=${target.isDirectory()}, " +
+                "canWrite=${target.canWrite()}, isSymlink=${Files.isSymbolicLink(target.toPath())})",
+        )
     }
 
     private fun copyTree(source: File, targetParent: File, baseName: String = source.name): File {

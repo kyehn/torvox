@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -79,6 +80,29 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
     private fun currentText(): String? {
         runCatchingCancellable { NativeBridge.pollEvent() }
         return composeTestRule.getBridge()?.getTerminalText()
+    }
+
+    @Test
+    fun sessionItemShowsNumberAndTerminalTitleOnOneLine() {
+        val initialSession =
+            UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) {
+                composeTestRule.activeSessionId() > 0
+            }
+        assertNotNull("初始必须有活跃会话", initialSession)
+
+        // OSC 2 直写终端网格（经 parser，不依赖 shell 就绪）：标题经 ghostty →
+        // JNI 批量读取 → 抽屉条目。序号与标题必须同一行，标题斜体。
+        val title = "TITLE${System.currentTimeMillis() % 100000}"
+        assertTrue(
+            "标题送显失败",
+            bridge().feedTerminal("\u001B]2;$title\u0007".toByteArray(Charsets.UTF_8)),
+        )
+
+        composeTestRule.openDrawer()
+        val index = composeTestRule.sessionIndex(composeTestRule.activeSessionId())
+        assertTrue("抽屉中必须找到活跃会话", index >= 0)
+        val item = composeTestRule.onAllNodesWithTag("SessionItem")[index]
+        item.assertTextContains("[${index + 1}] $title")
     }
 
     @Test

@@ -48,6 +48,13 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **WHEN** 应用冷启动完成
 - **THEN** 启动动画结束后直接显示 Shell 与主题背景（见 DESIGN.md Shell 节）
 
+#### Scenario: 启动屏遮挡到终端首帧呈现
+
+- **WHEN** 冷启动后系统启动屏求值撤下时机（内容视图首次预绘制）
+- **THEN** 终端尚未向 Surface 呈现任何一帧时 MUST 继续遮挡（此时 SurfaceView 的开孔区透出黑底）
+- **AND** 终端首帧呈现后 MUST 立即撤下
+- **AND** 首帧在 5s 上限内始终未呈现时 MUST 撤下，MUST NOT 永久遮挡界面
+
 ### Requirement: 渲染 surface 失效后自愈
 
 原生 surface MUST NOT 因其原生窗口的 BufferQueue 被遗弃而终身失效：连续 surface 级取

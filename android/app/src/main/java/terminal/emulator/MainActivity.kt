@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,6 +40,9 @@ import javax.inject.Inject
 /** 冷启动后，设置覆盖层的暂停逻辑为等待 bridge 出现而放弃的时长（50ms × 50 = 2.5s）。 */
 private const val BRIDGE_READY_POLL_INTERVAL_MS = 50L
 private const val BRIDGE_READY_POLL_ATTEMPTS = 50
+
+/** 系统启动屏的最长驻留：终端首帧迟迟不来（引导未装、会话起不来）时不得永久遮挡界面。 */
+private const val SPLASH_MAX_WAIT_MS = 5_000L
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -83,7 +87,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // 系统启动屏：冷启动首帧前显示主题背景，与 windowBackground 同色，
         // 首帧就绪后自动切回 Theme.Terminal。
-        installSplashScreen()
+        // 撤下时机不交给默认的「内容视图首次绘制」——那一刻原生渲染器还没提交过缓冲，
+        // SurfaceView 的开孔区透出黑底（真机 logcat：首帧在进程启动后约 0.85s 才呈现，
+        // 两者之间即「Shell 启动前偶发黑屏」）。改为等到终端首帧已呈现，见
+        // [shouldKeepSplashOnScreen]。
+        val splashScreen = installSplashScreen()
+        val splashStartMs = SystemClock.uptimeMillis()
+        splashScreen.setKeepOnScreenCondition {
+            // 闭包在内容视图首次预绘制时才求值，故此处读 runtime 一定晚于 Hilt 注入。
+            shouldKeepSplashOnScreen(
+                framePresented = runtime.hasPresentedFrame,
+                waitedMs = SystemClock.uptimeMillis() - splashStartMs,
+            )
+        }
         super.onCreate(savedInstanceState)
         // activity 1.14.0-alpha03 弃用 ComponentActivity.enableEdgeToEdge()，
         // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
@@ -110,6 +126,19 @@ class MainActivity : ComponentActivity() {
             notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         handleLaunchIntent(intent)
+        // 最后一个会话结束后关闭应用（termux 语义：会话表空了就 finish，见 termux-app
+        // TermuxTerminalSessionActivityClient#removeFinishedSession）。此前会话被移除后
+        // 应用停在无会话的空界面，用户看到的是「exit 后什么都没关」。
+        // 生命周期作用域内收集：Activity 销毁即取消，且 finish() 本就在主线程调用。
+        lifecycleScope.launch {
+            val sessions = SessionTableWatcher()
+            runtime.state.collect { state ->
+                if (sessions.onSessionCount(state.sessionIds.size)) {
+                    LogUtil.d(TAG, "last session closed; finishing activity")
+                    finish()
+                }
+            }
+        }
         setContent {
             TerminalNavHost(openSettingsRequests = openSettingsRequests)
         }
@@ -271,5 +300,39 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
                 )
             }
         }
+    }
+}
+
+/**
+ * 系统启动屏是否继续遮挡。
+ *
+ * 终端首帧已呈现就立刻撤下；首帧迟迟不来（引导未装、会话起不来、原生库缺失）时以
+ * [SPLASH_MAX_WAIT_MS] 兜底，把界面（及其错误提示）还给用户，而不是让启动屏永久占屏。
+ *
+ * 纯函数、无 Android 依赖，便于单测；判据只有「首帧」与「等了多久」两项，故不引入状态机。
+ */
+internal fun shouldKeepSplashOnScreen(framePresented: Boolean, waitedMs: Long): Boolean =
+    !framePresented && waitedMs < SPLASH_MAX_WAIT_MS
+
+/**
+ * 会话表清空 → 关闭应用的判据。
+ *
+ * 冷启动时 [TerminalRuntime.state] 先以空会话表发布（会话由运行期异步创建），直接判空
+ * 会在启动瞬间关掉应用，故必须记住「曾有过会话」；关闭只触发一次，使 finish 之后
+ * 残留的状态发射不再重复调用 finish。纯 Kotlin、无 Android 依赖，便于单测。
+ */
+internal class SessionTableWatcher {
+    private var sawSession = false
+    private var fired = false
+
+    /** 返回是否应关闭应用。 */
+    fun onSessionCount(count: Int): Boolean {
+        if (count > 0) {
+            sawSession = true
+            return false
+        }
+        if (!sawSession || fired) return false
+        fired = true
+        return true
     }
 }

@@ -56,8 +56,19 @@
 - [x] `openspec validate --all`（33 通过 / 0 失败）与 markdownlint（`openspec/**/*.md`
       277 文件 0 issues）通过；`--strict` 的 9 项告警全为「>500 字符长 Requirement」，
       属既有风格
-- [ ] 归档 `2026-10-15-research-ledger-closure` 与本变更（顺序：先 ledger-closure，
-      本变更索引行的依据表才可解析），核对主 spec 条目数
+- [x] 归档 `2026-10-15-research-ledger-closure` 与本变更，核对主 spec 条目数
+      （补记于 `research-residual-audit-closure`，2026-10-16）
+
+      **顺序更正**：本项原文写「顺序：先 ledger-closure，本变更索引行的依据表才可解析」，
+      但实测两变更落在**同一提交**（提交标题「openspec: 归档 research ledger closure
+      与 research docs retirement 变更」），即依据表的解析依赖并未按先后两次提交兑现。
+      以 git 事实为准，故更正为同一提交归档。
+
+      **主 spec 条目数（实测数，归档后状态）**：`openspec/specs/upstream-alignment/spec.md`
+      含 32 条 `### Requirement:`、68 条 `#### Scenario:`。该数为
+      `research-per-doc-resolution` 归档后（次日补记时）实测；两变更同一提交归档
+      （即上一段的提交）时该 spec 为 29 条 Requirement / 61 条 Scenario，
+      故 MUST NOT 读作「归档当时的条目数」。
 
 ## 四、验证
 

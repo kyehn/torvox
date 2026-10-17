@@ -130,6 +130,7 @@
     <string name="open_session_drawer">打开会话抽屉</string>
     <string name="page_down">Page Down</string>
     <string name="page_up">Page Up</string>
+    <string name="session_index">[%1$d]</string>
     <string name="session_number">会话 %1$d</string>
     <string name="tab_key">Tab</string>
     <string name="toggle_keyboard">显示或隐藏键盘</string>

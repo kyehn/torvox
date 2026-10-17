@@ -18,10 +18,10 @@ cols=80 chars=6 text="中 文 AB"
 Kotlin 的累加模型在第一个宽字符之后就整体左移一格，用户可见后果：
 
 - `isWhitespaceCell("中 文 AB", col = 2)` 读到列 1 的尾格空格 → 判为空白 → **长按
-  「文」弹出仅粘贴菜单**，而非选词（`DESIGN.md:171`；spec text-selection
+  「文」弹出仅粘贴菜单**，而非选词（`DESIGN.md:124`；spec text-selection
   「长按非空文本 → 选词」）。行内每出现一个宽字符，错位就再累加一格。
 - `snapColToWideChar("中 文 AB", col = 3)` 比较出下标 2≠1 → 不吸附，**宽字符「文」
-  被选区从中间切开**（`DESIGN.md:173`「支持宽字符吸附」；spec
+  被选区从中间切开**（`DESIGN.md:126`「支持宽字符吸附」；spec
   「手柄停在双宽字符的后半格 → 吸附至该字符起始列」）。
 
 两者都被既有单测当成正确行为钉住（`TerminalSurfaceLogicTest` 用 `"中文AB"`、

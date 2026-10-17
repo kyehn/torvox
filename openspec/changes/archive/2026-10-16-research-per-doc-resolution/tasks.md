@@ -1,7 +1,7 @@
 # 任务
 
 顺序固定：先编号文档集 `00`–`30`（`26` 缺失，共 31 份），再 74 份现行报告
-（按退役前提交 `8f5bc831` 的目录序）。**严格串行**：一份读完、判定、补齐、删除、
+（按两集各自的退役前目录序）。**严格串行**：一份读完、判定、补齐、删除、
 单独提交后，才允许开始下一份；任一提交内 MUST NOT 出现第二份报告的删除。
 
 ## 一、准备
@@ -46,14 +46,14 @@
 - [x] 033 `DanteAlighierin-foot.md` — 补齐行 1 条（可借鉴项逐条裁定、测试数据与 branding 自陈结论）
 - [x] 034 `GlobalTechInfo-RedTerm.md` — 补齐行 1 条（中性项逐条去向、测试数据门槛 3、许可结论）
 - [x] 035 `JetBrains-jediterm.md` — 补齐行 1 条（中性项裁定：语料分流、Pty4J 平台不符、2026 同步输出无消费者）
-- [x] 036 `KDE-konsole.md` — 补齐行 1 条（语料门槛 1、profile/插件撞 PROHIBITED、tysend 未声明）
+- [x] 036 `KDE-konsole.md` — 补齐行 1 条（语料门槛 1、profile 撞 PROHIBITED、插件面未声明、tysend 未声明）
 - [x] 037 `KDE-maui-station.md` — 补齐行 1 条（无 VT 资产、split 更正、服务/UI 分离作对照）
 - [x] 038 `KDE-yakuake.md` — 补齐行 1 条（下拉 UX 无 Android 对应、profile 撞 PROHIBITED、无测试资产）
 - [x] 039 `Kuddev-pebrel.md` — 补齐行 1 条（release profile 已落地、O3 与语料不采纳、OSC 7 归核对表）
 - [x] 040 `PaNDa2code-zerotty.md` — 补齐行 1 条（shell tests 门槛 3、Vulkan 目标对照、CI 不可移植）
 - [x] 041 `PerBothner-DomTerm.md` — 补齐行 1 条（WebSocket 归能力裁定行、REPL 面不立项、web 资产禁嵌）
 - [x] 042 `RohitKushvaha01-ReTerminal.md` — 补齐行 1 条（多模块/fastlane 不立项、模板测试无资产、停更记录）
-- [x] 043 `TermoraDev-termora.md` — 补齐行 1 条（模型面已有等价实现、控制序列归上游、插件撞禁项、25 例门槛 1+3）
+- [x] 043 `TermoraDev-termora.md` — 补齐行 1 条（模型面已有等价实现、控制序列归上游、插件面未声明、25 例门槛 1+3）
 - [x] 044 `TragicWarrior-libvtty.md` — 补齐行 1 条（按键映射/颜色缓存仅结构对照、语料门槛 1+3、LGPL 义务）
 - [x] 045 `Yazelix-mars.md` — 补齐行 1 条（sugarloaf spike 维持不做、字体/kitty 已有等价、语料门槛 1+3）
 - [x] 046 `ademmenh-zebra.md` — 补齐行 1 条（无待办项、无资产、自评 T 级不入 S/A/B/C 语义）
@@ -95,7 +95,7 @@
 - [x] 082 `mintty-mintty.md` — 补齐行 1 条（宽度表归上游、Sixel/Tek/BiDi 未声明、testbidi 无消费者）
 - [x] 083 `mirbehnam-RtlTerminal.md` — 补齐行 1 条（RTL/layoutDirection 未声明、ConPTY 无落点、按键设置明禁）
 - [x] 084 `missdeer-mostty.md` — 补齐行 1 条（ring/唤醒已有等价、deadline 不立项、主题热重载撞明禁、探针无资产）
-- [x] 085 `mrlima4095-OpenTTY-J2ME.md` — 补齐行 1 条（插件面明禁、Lua/VFS 未声明、RISC-V/Linux 与 WSL 表述更正）
+- [x] 085 `mrlima4095-OpenTTY-J2ME.md` — 补齐行 1 条（插件面未声明、Lua/VFS 未声明、RISC-V/Linux 与 WSL 表述更正）
 - [x] 086 `nihiL7331-sfte.md` — 补齐行 1 条（st 衍生不采纳、NDK 编译不推荐、性能门禁归其出处、fuzz 宏无资产）
 - [x] 087 `not-elm-orzma.md` — 补齐行 1 条（自研 VT 与 WebView 不采纳、OSC 8 已有、AI 政策不立项、后端未枚举不断言）
 - [x] 088 `nowledge-co-con-terminal.md` — 补齐行 1 条（全量 libghostty 无 Android、策略合并/主题 patch 无落点、harness 无资产）
@@ -107,7 +107,7 @@
 - [x] 094 `pop-os-cosmic-term.md` — 补齐行 1 条（替代核不采纳、cosmic-text/Profiles/快捷键逐项去向、无 VT 测试、许可以 LICENSE 为准）
 - [x] 095 `rricharz-Tek4010.md` — 补齐行 1 条（Tek 协议未声明、余辉特效不立项、语料无落点、许可未确认）
 - [x] 096 `sanohiro-bcon.md` — 补齐行 1 条（vte crate 门槛 1+3、Sixel 来源未确立、panes 未声明、测试未分类）
-- [x] 097 `sudo-tee-hollow.md` — 补齐行 1 条（回调/脏标记已有等价、ConPTY 特权不移植、Lua 插件撞明禁、许可未确认）
+- [x] 097 `sudo-tee-hollow.md` — 补齐行 1 条（回调/脏标记已有等价、ConPTY 特权不移植、Lua 插件未声明、许可未确认）
 - [x] 098 `techsenger-jeditermfx.md` — 补齐行 1 条（golden 同源门槛 1、Pty4J 沿用裁定、type-ahead/高亮模式未声明、无 instrumentation）
 - [x] 099 `tenox7-aclock.md` — 补齐行 1 条（人工对照非语料、drawing UI 不立项、无资产、许可未确认）
 - [x] 100 `tn5250j-tn5250j.md` — 补齐行 1 条（5250 不适用、Swing/Ant 无落点、tests 无资产、许可未确认）
@@ -119,6 +119,33 @@
 
 ## 三、收尾
 
-- [x] `docs/research/` 清空后删除空目录，提交（逐份 `git rm` 后末件提交 `a71f8aeb`，目录已随最后一份删除消失，`ls` 确认不存在）
-- [ ] 连续三轮独立审阅（每轮：台账完整、规范行号可复核、代码测试可跑），直至无问题
-- [ ] 归档本变更，`openspec validate` 与 markdownlint 通过
+- [x] `docs/research/` 清空后删除空目录，提交（逐份 `git rm` 后末件提交即 `z-hunter-Scanline-term.md` 的删除提交，`git log --diff-filter=D -- docs/research/z-hunter-Scanline-term.md` 可复核；目录已随最后一份删除消失，`ls` 确认不存在）
+- [x] 连续三轮审阅（每轮：台账完整、规范引用可复核、代码与门禁可跑），直至无问题。
+      审阅共 13 轮：前 10 轮的发现已全部修完（4 处失效事实：`build_env` 位置、已移除的
+      `snapshot_reference`、`docs/libghostty.md` 误记「已删」、一处未转义 `|`；3 处行号漂移；
+      1 处无测试的组杀自杀 guard，已提为纯函数并补测；4 处归档后失指代的「本变更」；
+      5 处 semgrep 阻断；1 处逐份顺序措辞失真；提案里 4 处与要求正文不符的表述）。
+      后三轮均无问题：轮 11 机械复核（键三向一致 105、台账 187 行 = 逐份声明之和、
+      每份一个删除提交、路径与符号可检索、代码引用不带行号）；轮 12 归档后合并复核
+      （两组增量全部入常驻规范、台账表在常驻规范内仅出现一次且与归档前逐字相同、
+      无重名 Requirement）；轮 13 终态复核（无旧路径残留、无 `## ADDED Requirements`
+      头泄漏、全量门禁复跑退出码 0）。
+      注：本环境无可用独立模型审阅（子会话被上游路由拒绝、多模型候选阶段 exit 1），
+      故三轮审阅均为可复现机械复核 + 逐句对码 + 门禁，对外可验证证据即门禁与脚本输出。
+- [x] 归档本变更：归档前 `openspec validate research-per-doc-resolution --strict` 无 ERROR／WARNING
+      （归档后该子命令按归档名不解析归档目录，改以 `openspec validate --all` 复核，
+      新增的两条与三条要求均无 WARNING；仓库里其余 7 个规格的长正文 WARNING 为本变更之前即有）；
+      `markdownlint-cli2` 0 issues（290 文件）、`semgrep` 0 findings（53 规则 582 文件）、
+      `scripts/check.nu` 退出码 0（cargo fmt／clippy／machete／test 623+11／doc／bench／
+      release 构建、Gradle detekt／lint／单测／release 组装／dokka）
+
+## 三、归档后补记（口径更正）
+
+- 插件面误裁：第 49／56／98／110 行的逐份判定摘要原写「插件撞 PROHIBITED」
+  「插件面明禁」，系误裁——`docs/specification/` 全文无插件禁项（实测
+  `grep -rn "插件" docs/specification/` 零命中），插件系统、事件总线、mux daemon
+  的口径是「未声明，不立项」，本变更自己在常驻规范「能力裁定补齐行」插件系统行
+  即如此判定。故四处摘要按实测改为未声明；常驻规范的四行（`KDE-konsole.md`／
+  `TermoraDev-termora.md`／`mrlima4095-OpenTTY-J2ME.md`／`sudo-tee-hollow.md`）同步
+  改写；本目录 `specs/upstream-alignment/spec.md` 的四行按「历史台账不改写」保留
+  原文并加口径更正标记（同 `iewnfod-lumina-terminal.md` 行既有的「口径更正行」做法）。

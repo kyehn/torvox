@@ -45,6 +45,13 @@ xterm.js 的一致性语料（vttest 血统，76 例输入 + 76 份期望屏幕�
 路径，去 vendor 时只改一份，另一份静默指向已删除的目录——该文件注释本就写着「两级
 会爬到仓库外面去」，而抄来的那份正好犯了它警告的错。
 
+> 口径更正（补记）：本节两条机制从未落地，均据 git 史实核销——`flake.nix` 全史不含
+> `target/xterm-js`（`git log --all -S "target/xterm-js"` 只命中收录本文件的提交），
+> `native/tests/common/mod.rs` 从未存在。实际路径是把语料内联进
+> `native/tests/vt_corpus.rs`，随后随该测试整条删除；现况见常驻规范
+> `openspec/specs/upstream-alignment` 的「已采纳语料的落地形态」。详见同目录
+> `tasks.md` 末尾「归档后补记」。
+
 ### 3. 仓库卫生 semgrep 规则
 
 新增 6 条规则（挂在 `check-rust.nu` 显式列出的配置里，`scripts/` 不可改）：
