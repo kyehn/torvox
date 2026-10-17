@@ -32,7 +32,7 @@
 
 ## 3. 规范落地
 
-- [x] 3.1 新增「已复查结论登记在规范内」Requirement，承载逐项结论表与实测记录表。
+- [x] 3.1 新增「已复查结论登记在本规范内」Requirement，承载逐项结论表与实测记录表。
 - [x] 3.2 在 Requirement 中固定「同一上限 MUST 只由一个具名常量表达」，
       使派生字面量不得再散落。
 - [x] 3.3 `openspec validate record-upstream-corpus-verdicts --strict` 通过。

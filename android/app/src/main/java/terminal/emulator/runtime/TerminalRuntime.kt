@@ -305,6 +305,20 @@ constructor(
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
 
     /**
+     * 是否已向 Surface 呈现过至少一帧（渲染线程写，主线程读）。
+     *
+     * 冷启动撤下系统启动屏的条件见 `MainActivity`：系统启动屏默认在「内容视图首次绘制」
+     * 时撤下，而那一刻渲染器还没提交过缓冲，SurfaceView 的开孔区透出黑底——真机 logcat
+     * 实证首帧在进程启动后约 0.85s 才呈现，两者之间就是「Shell 启动前偶发黑屏」。
+     *
+     * 用裸 `@Volatile` 而非 StateFlow：一次性翻转不需要订阅者，免得每次冷启动付一次
+     * 分配与唤醒。
+     */
+    @Volatile
+    var hasPresentedFrame: Boolean = false
+        private set
+
+    /**
      * 活动会话的视口最后一个有内容的行（0 起，[Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。
      * 仅在变化时由渲染线程发布；输入法跟随位移订阅它以裁剪平移量。
      * 与 [state] 分开，使光标/内容变化不触发 state 订阅者重组。
@@ -1458,6 +1472,9 @@ constructor(
                                         // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
                                         val renderResult = bridge.renderWithNewOutput()
                                         val count = renderResult.count
+                                        // count > 0 = 本帧真的渲染并提交了缓冲（空闲帧为 0，
+                                        // 失败帧为负）：据此判定首帧已呈现给 Surface。
+                                        if (count > 0) hasPresentedFrame = true
                                         val newOutput = renderResult.newOutput
                                         val lastContentRow = renderResult.lastContentRow
                                         if (lastContentRow != entry.lastContentRow) {

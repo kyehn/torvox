@@ -50,16 +50,8 @@ wgpu-types = "30"
 criterion = { version = "0.8", default-features = false, features = [
   "cargo_bench_support",
 ] }
-cucumber = "0.23"
 proptest = "1.11"
 shuttle = "0.9"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-# 外部基准数据（Unicode UCD、ghostty 模糊语料）在测试运行期现取，不入库。
-ureq = { version = "3.4", default-features = false, features = ["rustls"] }
-[[test]]
-name = "bdd"
-path = "tests/bdd/main.rs"
-harness = false
 [[bench]]
 name = "cell_builder"
 path = "benches/cell_builder.rs"

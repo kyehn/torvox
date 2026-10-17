@@ -32,7 +32,7 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`：新增「已复查结论登记在规范内」要求，承载逐项结论表、实测记录表，
+- `upstream-alignment`：新增「已复查结论登记在本规范内」要求，承载逐项结论表、实测记录表，
   以及具名常量 MUST 取代派生字面量的通用约束。
 
 ## Impact

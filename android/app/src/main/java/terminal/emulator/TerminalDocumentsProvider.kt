@@ -343,7 +343,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String =
         mutations.createDocument(parentDocumentId, mimeType, displayName)
 
-    override fun renameDocument(documentId: String, displayName: String): String =
+    override fun renameDocument(documentId: String, displayName: String): String? =
         mutations.renameDocument(documentId, displayName)
 
     override fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String =

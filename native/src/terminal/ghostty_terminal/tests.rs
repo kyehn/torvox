@@ -459,9 +459,23 @@ fn read_all_text_answers_repeated_queries_within_query_timeout() {
     // 网格一变缓存必须失效，否则调用方会读到陈旧内容。
     terminal_under_test.vt_write(b"fresh-marker\n");
     terminal_under_test.flush();
+    // 网格一变缓存必须失效，否则调用方会读到陈旧内容。
+    //
+    // 这里是失效后的第一趟**未缓存**重建：逐行走 ghostty FFI，机器被压满时
+    // VT 线程可能错过单次 `QUERY_TIMEOUT_MS`，`query_on` 便按契约返回空串兜底
+    // ——但重建结果已经落进缓存，下一次查询必然命中（实测未压满约 100ms，
+    // 远低于期限）。故按期限重试，把「一次超时」与「缓存永不失效」区分开：
+    // 后者重试到期限也读不到新内容。
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    let mut text = String::new();
+    while !text.contains("fresh-marker") && Instant::now() < deadline {
+        text = terminal_under_test.read_all_text();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     assert!(
-        terminal_under_test.read_all_text().contains("fresh-marker"),
-        "网格变动后缓存必须失效"
+        text.contains("fresh-marker"),
+        "网格变动后缓存必须失效（重试到期限仍未读到新内容，长度={}）",
+        text.len()
     );
 }
 

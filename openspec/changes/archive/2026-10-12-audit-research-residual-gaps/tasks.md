@@ -18,7 +18,7 @@
 
 - [x] 2.1 断言「跨帧复用后未变行判干净」：首帧写满网格，次帧只写一行，脏行数小于总行数且包含该行
 - [x] 2.2 断言「未标记 clean 则脏状态不重置」：连续两帧均不调用快照 clean 标记，第二帧仍全行判脏
-- [x] 2.3 断言「网格未变化时不进入行级路径」：`grid_dirty` 为假且已有缓存时，逐格抽取不被调用
+- [x] 2.3 断言「网格未变时不进入行级路径」：`grid_dirty` 为假且已有缓存时，逐格抽取不被调用
 - [x] 2.4 断言「未变化行不产生跨语言读取」：仅改一行的网格状态，干净行不逐格回到终端读取（以可观测的读取计数或等价探针判定，不靠时间阈值）
 - [x] 2.5 断言「增量与全量结果一致」：同一段 PTY 输出分别走行级增量与强制全量重建，两次 `CellData` 逐字节相同
 - [x] 2.6 断言「尺寸变化后退化为全量重建」与「选区安装后反白正确」
@@ -47,5 +47,17 @@
 - [x] 5.2 `cargo test` 全绿（572 单测 + 2 并发 + 12 BDD 场景，0 失败 0 忽略）；新增 6 例行级抽取用例，未改动无关用例
 - [x] 5.3 `clippy --all-targets` 零告警；期间修掉一处自引入的多余 `drop(row_iter_impl)`（`RowIteration` 不实现 `Drop`，显式 drop 只延长借用）；未新增任何抑制
 - [ ] 5.4 **仪器测试需 Android 设备与 Vulkan（Mesa lavapipe），本会话未执行**：渲染无卡顿/撕裂一项仍须设备侧确认，不以主机数字替代。主机侧以 60 帧持续输出对照实测：稳态增量 0.180ms/帧（60 帧复用 1379 行）vs 冷启动首帧全量 2.918ms。复跑复核（2026-10-12 换机）：稳态增量 0.242ms/帧对全量 2.509ms，**复用行数 1379 与上次逐帧一致**——绝对耗时随机器而变，可比的判别力在复用行数
+
+      设备侧阻塞点已探明（`research-residual-audit-closure`，2026-10-16 复跑）：
+      本宿主具备 `/dev/kvm`（`crw-rw-rw-`，非只读占位）与 `platform-tools`，
+      但模拟器组件为**部分下载**——`system-images/android-35/google_apis/x86_64/`
+      仅存 146 字节 `.installer/.installData`、无 `package.xml`，故 `avdmanager`
+      报 `Package path is not valid. Valid system image paths are: null`；
+      `emulator` 目录虽有 `lib64/` 与 `package.xml`（`sdkmanager --list_installed`
+      列为 37.2.12）却缺可执行二进制。修复尝试 `sdkmanager "emulator"
+      "system-images;android-35;google_apis;x86_64"` 解压镜像时失败于
+      `Error on ZipFile unknown archive`（下载包损坏）。
+      故本项从「环境未探索」升级为「环境已探明、阻塞点为镜像包损坏」，维持未勾选；
+      缺口性质不变，仍须设备侧确认，不得以主机数字替代。
 - [x] 5.5 本变更未新增任何 `docs/specification/` 改动：两处声明收窄来自 5.6 裁定，`DESIGN.md:118` 的「跳过逐行复制」已是依据；`REFERENCE.md` 的采用状态补注属上一轮经批准的独立改动（不在本变更范围，本变更未触及该文件）
 - [x] 5.6 `DESIGN.md:176` 的「清除滚动条」与 `DESIGN.md:138` 的「支持连字」两处声明与实现的不一致已提交维护者裁定（见 `design.md` §5）：裁定为重置按钮清除回滚与滚动状态、不引入可见滚动条；连字声明收窄为单码位整形与复杂文种叠加，不做跨单元连字。`DESIGN.md` 措辞已按裁定更新，本变更不实现这两项

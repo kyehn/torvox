@@ -725,6 +725,63 @@ class DocumentsProviderTest {
         assertEquals("real.txt", target.name)
     }
 
+    /**
+     * 同名改名沿用 create/copy/move 的冲突策略，而不是硬失败：框架合约允许提供者
+     * 为避开重名改写名字。「先新建、后改名」的客户端（文件管理器建文件/建文件夹、
+     * 另存为）此前拿到 IOException，界面报「路径已存在」且操作全丢。
+     */
+    @Test
+    fun renameDocument_conflict_appends_suffix_like_termux() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "rename-src.txt").apply { writeText("payload") }
+        java.io.File(rootDir(), "rename-dst.txt").apply { writeText("occupied") }
+        val newDocId = provider.renameDocument("rename-src.txt", "rename-dst.txt")
+        assertEquals("rename-dst.txt (2)", newDocId)
+        assertEquals("payload", java.io.File(rootDir(), "rename-dst.txt (2)").readText())
+        assertEquals("occupied", java.io.File(rootDir(), "rename-dst.txt").readText())
+        assertTrue("source must be gone", !java.io.File(rootDir(), "rename-src.txt").exists())
+    }
+
+    @Test
+    fun renameDocument_with_unchanged_name_is_a_no_op() {
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "same-name.txt").apply { writeText("keep") }
+        // 框架约定原 docId 仍有效时返回 null；此处若不拦，源文件本身会被当成冲突而
+        // 静默变成 `same-name.txt (2)`。
+        assertEquals(null, provider.renameDocument("same-name.txt", "same-name.txt"))
+        assertTrue("file must keep its name", target.exists())
+        assertEquals("keep", target.readText())
+    }
+
+    /**
+     * 真机 logcat 实证：删已不存在的条目（文件管理器缓存的幽灵行、覆盖写先删目标）
+     * 曾抛 IOException，跨 Binder 变 RuntimeException 而让客户端报操作失败。
+     * 删除的后置条件是「不再存在」——已满足即成功。
+     */
+    @Test
+    fun deleteDocument_of_missing_document_is_a_no_op() {
+        val provider = ensureProvider()
+        val survivor = java.io.File(rootDir(), "survivor.txt").apply { writeText("keep") }
+        provider.deleteDocument("vanished.txt")
+        assertTrue("siblings must survive", survivor.exists())
+        assertEquals("keep", survivor.readText())
+    }
+
+    @Test
+    fun deleteDocument_of_dangling_symlink_removes_the_link() {
+        val provider = ensureProvider()
+        val link = java.io.File(rootDir(), "ghost-link.txt")
+        java.nio.file.Files.createSymbolicLink(
+            link.toPath(),
+            java.io.File(rootDir(), "no-such-target.txt").toPath(),
+        )
+        provider.deleteDocument("ghost-link.txt")
+        assertTrue(
+            "dangling link must be unlinked",
+            !java.nio.file.Files.exists(link.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS),
+        )
+    }
+
     @Test
     fun file_row_advertises_rename_copy_move() {
         val provider = ensureProvider()

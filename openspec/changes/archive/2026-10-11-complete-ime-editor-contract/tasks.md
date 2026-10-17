@@ -28,6 +28,15 @@
 
 ### 0.3 本轮未能实现（不勾选，如实登记）
 
+> **2026-10-16 更正（本节结论已被后续实现推翻）**：本节当时判定「投递面不可达」，
+> 只因扫描了 `InputConnection` 上那个 `@hide` 的同名方法。其后经
+> `research-ledger-closure` 复核发现，投递面另有**公开 API** 路径
+> `InputMethodManager.updateCursorAnchorInfo(View, CursorAnchorInfo)`，两者是同一
+> 次 binder 调用，故锚点回报可实现。实现提交为 2026-10-14 的
+> 「实现组字光标锚点回报：投递面取公开 InputMethodManager.updateCursorAnchorInfo」。
+> **本节结论作废**；4.1–4.3 已实现并带单测，其勾选状态见第四节。
+> 以下原文保留以记录当时的判断依据与教训。
+
 **4.1-4.3 组字光标锚点回报：投递面不可达，故不实现。**
 任务要求经 `CursorAnchorInfo` 回报组字光标。其唯一投递方法是
 `InputConnection.updateCursorAnchorInfo` —— 对 compileSdk 37 的公共 stub jar 做
@@ -70,9 +79,23 @@
 
 ## 4. 组字光标与批量编辑
 
-- [ ] 4.1 **不可达，未实现**（见 §0.3：投递面 `InputConnection.updateCursorAnchorInfo` 是框架 `@hide` 方法，公共 stub 无此符号）实现 `requestCursorUpdates`：受理隐式更新，以组字光标回报 `CursorAnchorInfo`，变换矩阵由 `cellWidth` / `cellHeight` 与 `gridToScreen` 现算；单测断言锚点落在对应网格单元格内
-- [ ] 4.2 **随 4.1 一并未实现**（无锚点构造则无处判断无组字）无组字时不回报任何锚点；单测断言此时不产生锚点更新
-- [ ] 4.3 **随 4.1 一并未实现**（曾实现并单测，随 4.1 撤回以免留下只被自身测试调用的死代码）字号变更后重算锚点不缓存旧度量：单测改变度量后锚点随之改变
+- [x] 4.1 **已实现（§0.3 的「不可达」结论作废）**：实现 `requestCursorUpdates`：受理隐式更新，以组字光标回报 `CursorAnchorInfo`，变换矩阵由 `cellWidth` / `cellHeight` 与 `gridToScreen` 现算；单测断言锚点落在对应网格单元格内。
+      投递链：`TerminalSurface` 的 `requestCursorUpdates` → `reportComposingCursorAnchor`
+      → `CursorAnchorInfo.Builder` → 公开 `InputMethodManager.updateCursorAnchorInfo`。
+      补记于 `research-residual-audit-closure`（2026-10-16）：§0.3 当年只扫了
+      `InputConnection` 上 `@hide` 的同名方法；投递面另有公开 API 路径，两者同属一次
+      binder 调用。实现提交为 2026-10-14 的「实现组字光标锚点回报：投递面取公开
+      InputMethodManager.updateCursorAnchorInfo」。
+- [x] 4.2 **已实现（随 4.1）**：无组字时不回报任何锚点；单测断言此时不产生锚点更新
+      （`ImeCursorContractTest` 的 `no monitoring request means no anchor is ever due`
+      钉「未请求监视时不回报」；准入判据为
+      `if (!cursorMonitor.isMonitoring || !composing.isComposing) return`）
+- [x] 4.3 **已实现（随 4.1）**：字号变更后重算锚点不缓存旧度量；单测改变度量后锚点随之改变。
+      补记于 `research-residual-audit-closure`（2026-10-16）：本条原先**无覆盖**——
+      `ComposingCursorAnchorTest` 仅有落格、视口外、末行三条。已补用例
+      `marker follows the cell metrics instead of caching the old ones`：度量翻倍后
+      左沿/顶沿/下沿与标记高同步翻倍。变异验证——把 `markerY + cellHeight` 改成硬编码
+      `markerY + 20f` 以模拟缓存旧度量，该用例立即判红；恢复后全绿。
 - [x] 4.4 实现 `beginBatchEdit` / `endBatchEdit` 嵌套计数配对且下溢钳位到 0；单测覆盖两层嵌套与多余 `endBatchEdit`
 - [ ] 4.5 批量期间单次提交仍逐次经既有出口发送（行为由结构保证：`batchEdits` 仅计数、写入路径无缓冲分支；所称即时性单测全仓无踪，故不勾选）
 
@@ -93,5 +116,8 @@
 
 - [x] 7.1 `openspec validate 2026-10-11-complete-ime-editor-contract --type change` 通过
 - [ ] 7.2 `cargo test`、`testDebugUnitTest`、`detekt` 与相关仪器测试全绿（已绿：cargo全目标、unit501、detekt、NDK、冒烟10/10、退出9/9、VT15/15、系统剪贴板1/1；仪器全量另5红为环境：像素×3 GPU、文档命名×1、缺bootstrap×1）
-- [ ] 7.3 归档后核对 `openspec/specs/` 确实含 `ime-editor-contract` 及其条目数，不以校验通过即认定落地
+- [x] 7.3 归档后核对 `openspec/specs/` 确实含 `ime-editor-contract` 及其条目数，不以校验通过即认定落地
+      （补记于 `research-residual-audit-closure`，2026-10-16 实测：该 spec 存在，
+      含 9 条 `### Requirement:`、22 条 `#### Scenario:`，`openspec list --specs`
+      列为 `ime-editor-contract requirements 9`）
 - [x] 7.4 `upstream-alignment` 台账补记：本变更取 charon 的 IME 契约经验，`updateSelection` 一项经实测为框架内部 @hide、公开接口不可覆写，记为不采纳并给出依据

@@ -140,6 +140,54 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 - **THEN** 以 `FileNotFoundException` 拒绝，且 home 内不留下任何复制产物，
       home 之外的目标不被搬走或改名
 
+### Requirement: 删除按幂等语义覆盖
+
+删除 MUST 幂等：目标已不存在即视为成功。删除的后置条件是「不再存在」，
+已满足就没有失败可言；真机 logcat 实证过对已消失目标抛 `IOException`，
+经 `DocumentsProvider.call` 变成 `RuntimeException` 交给客户端，文件管理器只能报整次操作失败。
+走到这一步的真实场景有三类：终端侧 `rm` 之后客户端缓存里的**幽灵行**、客户端重试、
+以及「覆盖」＝先删目标再拷入。判「还在不在」MUST 用 `LinkOption.NOFOLLOW_LINKS` 语义，
+否则悬空符号链接（`File.exists()` 为假而其 inode 确实存在）会被误判成已删除，真实失败被吞掉。
+
+#### Scenario: 删除已不存在的条目
+
+- **WHEN** 客户端删除一个已被终端侧删除（或上次调用已删掉）的文档
+- **THEN** 调用 MUST 正常返回，MUST NOT 抛异常，且 MUST NOT 影响同目录其他条目
+
+#### Scenario: 删除悬空符号链接
+
+- **WHEN** 客户端删除一个指向已消失目标的符号链接
+- **THEN** 链接 inode MUST 被删除，MUST NOT 因目标是悬空的而误报成功或失败
+
+#### Scenario: 真删不掉时给出可处理的失败
+
+- **WHEN** 目标确实存在却删不掉（权限不足、目录非空）
+- **THEN** 抛 `FileNotFoundException`，MUST NOT 抛被框架包成 `RuntimeException` 的裸 `IOException`
+
+### Requirement: 重名冲突在全部变更入口取唯一名
+
+重名冲突 MUST 在全部入口（`createDocument`/`renameDocument`/`copyDocument`/`moveDocument`）
+走同一策略：追加 `" (2)"` 之类的唯一名后缀，MUST NOT 因重名失败。
+框架合约明确允许提供者「为避开重名改写名字」（`DocumentsProvider#createDocument`
+与 `#renameDocument` 的注释同此措辞），硬失败只会让「先新建、后改名」的客户端
+（文件管理器的建文件/建文件夹、另存为）界面报「路径已存在」并丢掉整次操作。
+
+#### Scenario: 重命名撞上已存在的名字
+
+- **WHEN** 客户端把 `a.txt` 重命名为已存在的 `b.txt`
+- **THEN** 落盘为 `b.txt (2)` 并返回其 docId，`b.txt` 的原内容 MUST NOT 被覆盖
+
+### Requirement: 重命名到自身是空操作
+
+重命名到与自身相同的名字 MUST 是空操作，并 MUST 按框架约定返回 `null`
+（「原 docId 仍有效时返回 null」，`DocumentsProvider.call` 只在非 `null` 时才重建 URI）。
+缺少该守卫时源文件会被当成冲突改名成 `x (2)`——静默换个名字比拒绝更糟。
+
+#### Scenario: 重命名到自身
+
+- **WHEN** 客户端以当前名字重命名文档
+- **THEN** 返回 `null`，文件 MUST 仍用原名，MUST NOT 变成 `name (2)`
+
 ### Requirement: openDocument 必须兑现 FLAG_DIR_SUPPORTS_CREATE 的承诺
 
 目录在 `queryDocument` 里声明了 `FLAG_DIR_SUPPORTS_CREATE` 与 `FLAG_SUPPORTS_WRITE`。

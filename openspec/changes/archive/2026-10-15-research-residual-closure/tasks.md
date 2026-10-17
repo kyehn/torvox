@@ -29,20 +29,39 @@
 
 ## 四、禁改区待维护者裁定（AGENTS.md：`scripts/`、`.github/` 不得擅改）
 
-- [ ] **aislop / jscpd 门禁**：`TESTING.md` 第 24 行明文要求，
+维护者已裁定「都不改，只登记」，故本节两项**已登记且维持未实施**；实测基线与实施
+验收判据见常驻规范 `upstream-alignment` 的「禁改区待维护者裁定项台账」Requirement
+（补记于 `research-residual-audit-closure`，2026-10-16）。
+
+- [x] **aislop / jscpd 门禁**：`TESTING.md` 第 24 行明文要求，
       `scripts/check.nu` 与 CI 均无该步骤（归档任务自述「规范要求的这道门禁
       实际缺席」）。落地方案：`scripts/check.nu` 增 `npx aislop@latest scan` 与
       `npx jscpd@latest --min-lines 8 --min-tokens 60` 两步，与既有
       semgrep / markdownlint 同段。须用户明确同意后执行。
-- [ ] **rapidocr OCR 自动化**：`TESTING.md` 第 23 行与研究文档优先级 4 要求
+      实测基线：aislop score 90 / Healthy，0 errors、14 warnings 全为 `complexity/*`
+      且 0 `confirmed-defect`，但 `dominantUnsupported` 为 `Kotlin`（不覆盖本仓
+      Kotlin）；jscpd 31 处克隆 / 423 行 / 0.78%。
+- [x] **rapidocr OCR 自动化**：`TESTING.md` 第 23 行与研究文档优先级 4 要求
       「拉截图 → 跑 rapidocr → 断言」闭环，现仅有人工宿主步骤。落地方案：
       `scripts/` 增 OCR 判定脚本 + `build.yml` 模拟器步骤调用。须用户明确同意后执行。
+      实测基线：`flake.nix` 已引导把模型下载到 `/tmp/.rapidocr-models`（环境就绪），
+      但 `scripts/test-emulator.nu` 只跑两项 connected 测试，仓内无任何 OCR 消费方。
 
-## 五、文档处置台账（93 份）
+## 五、文档处置台账（94 份）
 
 口径：已实现 = 结论已有 spec 条款与实现；已禁止 = 撞 `PROHIBITED`/`DESIGN` 明禁；
 已登记 = 已有 spec/持久库逐项登记不采纳及理由；不立项 = `DESIGN` 未声明
 （`STYLE` 禁止实现未声明功能），理由已记录；本轮解决 = 本变更落地。
+
+份数与范围更正：标题原写「93 份」而两小节为 31 + 63，自相矛盾，实测应为 **94 份**。
+两个数字各自可核：编号文档集 31 份；工作区 63 份是本变更**编写时**的快照
+（`docs/research` 当时确为 63 份），其后随用户补档增长——本节归档提交时为 72 份，
+`docs/research` 退役前为 74 份，故本节不覆盖工作区的全部报告。
+31 + 74 = 105 份的最终逐份判定与逐行补齐见
+`2026-10-16-research-per-doc-resolution`，其后续审阅与收口为
+`2026-10-16-research-residual-audit-closure`；同日更早归档的
+`2026-10-15-research-ledger-closure` 承接的是禁改区四项与台账行，
+不在 105 份逐份判定链上。本节只记录编写时的判定，不追认增量。
 
 ### 编号文档集（用户指定 commit，31 份）
 
@@ -128,6 +147,14 @@
 
 ## 六、审阅循环
 
-- [ ] 第一次完整审阅（对照 docs/research 逐份抽查 10 份 + 全量构建测试）
-- [ ] 第二次完整审阅（对抗式：构造可破坏新 spec 条款的输入）
-- [ ] 第三次完整审阅确认无遗留
+本变更未自行执行这三轮审阅；审阅由后续变更承接执行，结论与修补记录见对应节次。
+补记于 `research-residual-audit-closure`（2026-10-16），依据为下列承接方记录。
+
+- [x] 第一次完整审阅（对照 docs/research 逐份抽查 10 份 + 全量构建测试）
+      ——承接方：`research-ledger-closure` 第五节「第一次完整审阅」（对照两份文档集逐份
+      抽查 + 全量构建测试）
+- [x] 第二次完整审阅（对抗式：构造可破坏新 spec 条款的输入）
+      ——承接方：`research-ledger-closure` 第五节「第二次完整审阅（对抗式）」，
+      修补记录转记于 `research-docs-retirement` 第三节
+- [x] 第三次完整审阅确认无遗留
+      ——承接方：`research-ledger-closure` 第五节「第三次完整审阅确认无遗留」
