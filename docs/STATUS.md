@@ -4,18 +4,30 @@
 
 - 添加的新会话 首个 shell prompt渲染错误，
 默认会话
-```
+
+```text
+
 …host/data/user/0/com.termux/files/home $
-```
+
+```text
+
 新会话（输入法未关闭，输入内容等操作但界面不变，如果输入exit 0回车即使关闭输入法也不会再输出新内容）
-```
+
+```text
+
 nix-on-droid@localhost/data/user/0/com.ter
-```
+
+```text
+
 新会话（输入法关闭），输入法关闭后第二行输出正确的prompt
-```
+
+```text
+
 nix-on-droid@localhost/data/user/0/com.ter
 …host/data/user/0/com.termux/files/home $
-```
+
+```text
+
 - 添加新会话后，点击会话列表项无法切换会话，侧面面板正确关闭，但终端界面无变化
 - 切换应用返回时当前会话内容无法显示只有主题背景，切换会话后可以显示和操作（由于上一条问题，那么切换到的会话是不是还是原来的会话？为什么不受影响呢？)，新启动应用也可能发生
 - 文档提供者：
