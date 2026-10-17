@@ -161,6 +161,15 @@
       `search_highlight_repaint_tests::discarded_highlights_stay_dirty_for_one_frame`
       （已确认对旧行为失败）；Kotlin 新增 `TextSearchBarCounterRobolectricTest`（3 条）。
       真机：搜索 `MARKER` 得 3 命中且三行反色，关闭搜索后反色立即消失。
+- [x] 门禁补正（首轮全仓 `check.nu` 抓到，见十二节）：
+      `session_scoped_tests::entering_another_session_drops_the_previous_highlights`
+      断言的正是本次修掉的旧行为（切会话时 `drawn` 一并清），随修复转红。核对该断言的
+      依据「半清会被读成高亮未变」不成立：`highlight_rows_to_mark` 恒取
+      `current ∪ drawn`，没有判重分支；真正吃这一口的是空闲路径的门控
+      `needs_repaint = current != drawn`——清掉 `drawn` 会让它当场为假、空闲帧静默跳过，
+      旧高亮像素留在累加器里（与本节实测吻合）。用例改钉新契约
+      `entering_another_session_drops_current_but_keeps_drawn_for_one_frame`，
+      并做反证：把 `self.drawn.clear()` 加回 `enter_session` 后该用例转红，复原后转绿。
 
 ## 六、简体中文退格缓慢
 
@@ -384,8 +393,13 @@
 
 ## 十二、收尾
 
-- [ ] 全仓门禁 `TMPDIR=/tmp ./scripts/check.nu` 一次性跑通，逐阶段核对
-      （该脚本不因外部命令失败而中断，须逐段确认）。
+- [ ] 全仓门禁 `TMPDIR=/tmp ./scripts/check.nu` 一次性跑通，逐阶段核对。
+      **口径更正**：该脚本在**第一个失败的外部命令处即中断**，并以它的退出码结束
+      （nushell 里外部命令非零退出会终止脚本：探针 `^sh -c "exit 3"` 之后的语句不执行、
+      脚本退出码 3；内置 `false` 不算外部命令，故早前那条「不会中断」的结论测错了对象）。
+      首轮实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
+      clippy / doc / bench / semgrep / markdownlint / gradle 全部未跑。
+      故「跑通」＝从 `cargo fmt` 段起重跑并逐段看到全部阶段通过。
 - [ ] 逐条回读 12 条，确认验收口径被测试或 spec 覆盖；仍依赖真机的项写明缺口。
 - [ ] 连续三轮审阅无问题后归档本变更（归档前不删 `STATUS.md` 条目，需维护者点头）。
 
