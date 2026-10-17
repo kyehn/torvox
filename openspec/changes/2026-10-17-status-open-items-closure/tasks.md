@@ -414,6 +414,14 @@
       首轮实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
       clippy / doc / bench / semgrep / markdownlint / gradle 全部未跑。
       故「跑通」＝从 `cargo fmt` 段起重跑并逐段看到全部阶段通过。
+- [x] openspec 严格校验基线留档（不属本变更，只记录不重写）：
+      `openspec validate --all --strict` → `26 passed / 6 failed (32)`，6 个失败项
+      （`documents-provider`、`font-selection`、`grid-extraction-incremental`、
+      `modifier-bar-sticky-encoding`、`render-stability`、`upstream-alignment`）
+      **全部**只是「Requirement text is very long (>500 characters)」这一条警告
+      （共 14 处，最长 3223 字），没有一条真实错误。本变更新增/改写的 Requirement
+      都不触发它（最长 `documents-provider` 323 字、`render-stability` 224 字）；
+      改写这 14 条属既有文档风格债，与 STATUS 条目无关，故不动。
 - [x] 逐条回读 `STATUS.md` 的 11 条顶层项（第 2 条含三个子项，共 13 条验收口径）
       与 CI 甄别项，逐条对上「可运行检查 + spec 落点 + 设备证据」：
 
