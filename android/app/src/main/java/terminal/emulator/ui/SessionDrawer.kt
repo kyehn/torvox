@@ -243,7 +243,7 @@ private fun SessionDrawerActions(
  * 会话条目文案：`[序号] 标题`——序号加粗、终端标题斜体，两者同行。
  *
  * 与 termux 无会话名时的渲染一致（`TermuxSessionsListViewController.getView` 的
- * `numberPart + sessionTitlePart`）：termux 只在有会话名时才换行，torvox 没有会话名，
+ * `numberPart + sessionTitlePart`）：termux 只在有会话名时才换行，本应用没有会话名，
  * 因此标题始终跟在序号后。标题为空时只剩序号，不占第二行。
  */
 internal fun sessionItemLabel(indexLabel: String, title: String): AnnotatedString = buildAnnotatedString {

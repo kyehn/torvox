@@ -3828,15 +3828,15 @@ fn selection_highlight_covers_blank_row_inside_range() {
             .find(|c| c.row == 5 && c.col == 0)
             .expect("单元格");
         if first.background != outside.background {
-            println!(
-                "first={:?} blank={:?} blank_mid={:?} outside={:?}",
-                first.background, blank.background, blank_mid.background, outside.background
-            );
             assert_eq!(
                 blank.background, first.background,
                 "选区内的空行必须反白：否则选中区域在空行处断开，表现为「不同行间存在空隙」"
             );
-            return;
+            assert_eq!(
+                blank_mid.background, first.background,
+                "空行的反白要铺满选中列，不能只在行首几格"
+            );
+            break;
         }
         assert!(std::time::Instant::now() < deadline, "5s 内未见反白帧");
         std::thread::sleep(std::time::Duration::from_millis(2));
