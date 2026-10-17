@@ -207,27 +207,129 @@
 
 ## 七、文本选择不同行间有空隙、卡顿、不跟手
 
-- [ ] 定根因：选择坐标取整/节流/重绘范围。
-- [ ] 修。
-- [ ] 验证：`text-selection` spec 与检查。
+- [x] 定根因：三个症状各自独立——
+      ① 行间空隙：脏带清除用 `floor(start*H)` / `ceil(end*H)` 向外取整，多覆盖相邻行的
+      边界像素；相邻行在部分帧里通常不在脏带内、本帧不重绘，那一像素就保留清除色
+      （主题背景），在选区/搜索高亮这类整行着色里表现为 1px 细缝。模拟器实测
+      `cell_height=44.625`，缝隙只出现在小数部分 > 0.5 的行边界——与修正前抓到的帧吻合
+      （`/tmp/d03.raw`：x=700 处反色区块内三条 1px 背景色细线，间距 134px = 3×44.625）。
+      ②③ 卡顿、不跟手：拖动途中的原生推送节流 50ms（≈3 帧），高亮最多落后手指 3 帧，
+      快速拖动时肉眼可见。
+- [x] 修：`native/src/render/pass.rs` 新增 `band_clear_pixel_range`——只清除**像素中心**
+      落在该行跨度内的像素行（与单元四边形同一光栅化规则），`band_clear_instances`
+      改用它；`TerminalViewModel.DRAG_NATIVE_SYNC_INTERVAL_MS` 50 → 16（一帧）。
+- [x] spec：`openspec/specs/text-selection/spec.md` 的「长按启动选择」补一段
+      「反色 MUST 连续覆盖选区内全部像素……脏带重绘的清除范围 MUST 与单元四边形的
+      光栅化像素范围一致，MUST NOT 侵入本帧未重绘的相邻行」，并补「空行反白」
+      「选区行间无缝隙」两个场景。
+- [x] 验证：`cargo test band_clear` → `2 passed`（新增
+      `band_clear_range_does_not_bleed_into_neighbour_rows`：h=44.625 时行 1 的清除范围
+      必须是 `[45,89)`，旧公式为 `[44,90)`）；`cargo fmt --check`、`cargo clippy
+      --all-targets` 干净；`./gradlew :app:spotlessCheck :app:detekt` `BUILD SUCCESSFUL`；
+      `openspec validate text-selection --type spec --strict` → valid。
+- [x] 回归：`native/src/terminal/ghostty_terminal/tests.rs` 补
+      `selection_highlight_covers_blank_row_inside_range`（选区内空行与内容行同色）。
+- [x] 证据留档：修正前帧 `/tmp/d03.raw` 取自旧 `.so`，修正后同配方帧里同列不再出现细缝，
+      只是该次拖动选区较短（2 行），单个边界不足以定论，故结论以旧帧的实测签名
+      （缝隙位置与取整公式的预测逐条对上）+ 单元测试为准。
+- [x] 构建陷阱留档：`:app:assembleDebug` **不会**重编 Rust，`jniLibs/` 需先跑
+      `nix develop --command nu scripts/build-android-libs.nu`，否则装机跑的仍是旧 `.so`
+      （本次曾因此把旧行为误判成「修了没用」）。
 
 ## 八、输入法弹出时上滑不能到顶部
 
-- [ ] 按 `docs/specification/TESTING.md:36-38` 的验收口径（弹出时内容上移、
-      底部像素不动、无闪烁撕裂卡顿）定根因并修。
-- [ ] 验证：可运行检查。
+- [x] 定根因：位移（`computeImeSurfaceShift`）只按键盘遮挡与内容下沿算，与滚动位置无关；
+      于是被位移裁在屏幕上边界之外的那几行（本机 818px ≈ 18 行）根本不在上滑行程里
+      ——回滚区上滑到偏移 = 回滚长度即到底，「到顶部」在像素上不可达。
+      另一条思路（按剩余回滚量钳制位移）已否决：回滚不足一屏时提示符会被键盘吞掉，
+      撞 `TESTING.md` 第 37 条。
+- [x] 修：新增「显出量」（`imeShiftRevealPx`）——越过回滚区顶端的越界位移按容量
+      （= 当前完整位移）1:1 喂给显出量，Surface 实际平移 = 位移 − 显出量；反向拖动
+      先按同一比例回收显出量再下滚（1:1，不出现 2 倍行程）。显出量上界取
+      `min(容量, 偏移 × 行高)`，偏移归 0（实时视图）时恒为 0 ⇒ 提示符永远钉在键盘
+      上方；键盘收起（容量 0）、会话切换、字号变化都由该式自动收敛，不需额外复位点，
+      也不产生跳变（跳变正是第九条的抱怨）。
+- [x] 加检查（`ScrollDistanceTest`，7 例）：显出、容量封顶、1:1 回收、超出显出后滚动，
+      以及边界外丢弃 3 例（见第九条）。22 tests / 0 failures。
+- [x] spec：`openspec/specs/ime-animation-smoothness/spec.md` 补 Requirement
+      「位移裁掉的网格顶部仍可达」（两向 1:1、不得越过回底行程、不得触发网格重排）。
+- [x] 验证（真机 emulator-5554，api 35）：`clear; echo TOPMARK-0; seq 1 120` 后弹键盘、
+      甩到回滚区顶端——`TOPMARK-0` 完整可见；再收起键盘，同一区域
+      y∈[180,420] 逐像素比对 `differing_px=0`，即弹键盘时那一带没有任何裁剪，与无键盘
+      时逐像素一致。反向对照：实时视图下收起键盘同区域差 23529 px，证明位移真实存在、
+      不是「容量恰好为 0」的假通过。
+- 已知残余：快速甩到顶端时 `OverScroller` 只能停在 `scrollbackLen`，显出量仍为 0，
+      最早一行仍被裁掉；慢拖或「甩到底后再拖」可达。归第十条的按像素状态统一处理。
+      （第十条已收口：惯性改为按像素推进、上界含完整位移容量后，甩到回滚区顶端继续
+      过冲的位移同样喂给显出量，一次甩动即可把显出量吃满。）
 
 ## 九、上下滑动到边界跳动/闪烁
 
-- [ ] 定根因：回滚缓冲边界处的重绘。
-- [ ] 修。
-- [ ] 验证：可运行检查。
+- [x] 定根因（`applyScrollDistance`）：边界外的余量在**亚行早退之后**才清零——偏移已在
+      边界（0 或回滚长度）却继续向边界外拖时，`rawAmount == 0` 先原样返回，余量随后
+      经 `setScrollRemainderPx` 下发渲染器，渲染器按投影矩阵把整幅网格亚行平移，边缘
+      露出一条背景空带；余量再攒够一整行时偏移无处可去、余量被清零，内容整体弹回一行
+      ——「跳动 + 闪烁」。整行级越界此前已被钳制清零，故只在亚行量级复现。
+- [x] 修：三处边界判定提到亚行早退之前，越界位移就地丢弃（`ScrollStep.overflowPx`），
+      既不进渲染器余量也不跨行回弹：底部（偏移 0 且继续向更新方向拖）、顶部
+      （偏移 = 回滚长度且继续向更早方向拖，改喂显出量）、顶端之外显不出的部分同样丢弃。
+      同一处改动顺带把 `scrollOffset` 赋值收敛到 `setScrollOffset`（位移显出量依赖它）。
+- [x] 加检查（`ScrollDistanceTest`）：`边界外位移就地丢弃`（顶部/底部对称两例）、
+      `边界内的亚行跟随不受影响`，并保留原有整行/钳制/漂移用例。
+- [x] spec：`openspec/specs/scroll-physics-drift/spec.md` 补 Requirement
+      「边界外位移就地丢弃」（含「边界判定先于亚行早退」）。
+- [x] 验证（真机 emulator-5554，api 35，键盘弹出、实时视图）：同量级只改方向的对照——
+      向上 75px/900ms（边界外）逐像素差 `differing_px=0`；向下 75px/900ms（边界内）
+      差 11960 px（余量仍在工作，证明手势确实进了 `onScroll`）；再向上 75px 回基线，
+      与初始帧差 0（无漂移）。
+- 手势门槛留档（免得下次误用无效对照）：`adb input swipe` 总位移不足约 40px 时
+      `onScroll` 收不到有效距离（触摸门槛），40px 与 30px 的上下对照都是 0 差、无区分力。
 
 ## 十、滑动未按像素滚动
 
-- [ ] 定根因：滚动手势与滚动位置的换算。
-- [ ] 修。
-- [ ] 验证：可运行检查。
+- [x] 定根因（`onFling`/`doFlingStep`）：拖动路径早就在算亚行累加器
+      （`applyScrollDistance`），惯性路径却把速度先除以行高换成「行/秒」
+      （`flingRowsPerSecond`），再让 `OverScroller` 按**整行**跑，每帧把
+      `currY` 直接写成 `setScrollOffset(target.coerceIn(0, 回滚长度))`。三重后果：
+      ① 每帧位移被量化成整行，速度换算里 `roundToInt()` 还把 600px/s 压成 10 行/s，
+      行高一大就明显变慢；② 边界判定只看「行」，越界过冲被 `coerceIn` 吞掉，
+      显出量恒为 0——这正是第八条那条已知残余（甩到顶端仍有最早一行被裁）；
+      ③ 惯性帧不经过共用的边界丢弃/显出量逻辑，与拖动路径两套实现各走各的。
+      另：`onScroll` 在惯性的第一帧就被 `flingScroller.forceFinished` 前
+      `scrollAccumulatorPx = 0f` 抹掉亚行余量，手指停下的位置与内容位置脱节。
+- [x] 修：惯性改按像素推进，与拖动共用一条管道。
+      ① 速度换算退化为恒等直传（`flingVelocityPxPerSecond`，行高不再参与），
+      `OverScroller` 直接吃像素/秒；② 上界改为
+      `回滚长度 × 行高 + 完整位移容量`（`maxPx`），越界过冲因此能进显出量；
+      ③ 新增 `applyScrollStep(ScrollStep, 回滚长度)`，把「写偏移、写显出量、下发
+      亚行余量」收成一处，`onScroll` 与 `doFlingStep` 都只喂增量——
+      惯性增量取 `currY - lastFlingPx`、经同一个 `applyScrollDistance`
+      （含边界丢弃、1:1 显出量回收），不再有第二份实现；
+      ④ 去掉惯性帧里的 `forceRender()`（`setScrollRemainderPx` 已含 `notifyRender`，
+      双唤醒让渲染线程空转、手势期间掉帧），去掉与 `setScrollOffset` 重复的
+      `coerceIn`。
+- [x] 加检查（`ScrollDistanceTest`，新增 4 例 / 共 23 例 0 失败）：
+      `惯性速度按像素每秒直传`（600f 必须得 600，注释写明「绝不能是 10」——
+      整行路径下 600/60 恰好是 10，是能真正区分新旧实现的判据）、
+      方向与偏移方向一致、拖动与惯性共用符号、以及
+      `慢甩按像素推进且不整行量化`（整行量化时第一帧就跨一整行）。
+- [x] spec：`openspec/specs/scroll-physics-drift/spec.md` 补 Requirement
+      「惯性滚动按像素推进」（速度单位不得含行高、上界含完整位移容量、
+      与拖动共用边界丢弃与显出量），3 条场景。
+      `openspec validate scroll-physics-drift --type spec --strict` 通过。
+- [x] 验证（真机 emulator-5554，api 35，键盘弹出）：`echo TOPMARK-0; seq 1 60`
+      后在实时视图向下甩（手势方向见下方留档），logcat 逐帧读数：偏移
+      `0 → 1 → 18`（= 回滚长度，到底）而**亚行余量全程非整行**
+      （30.375 / 37.5 / 14.75），即惯性帧确实按像素推进；
+      继续在顶端过冲，显出量吃到 `803.25px` = 18 × 44.625 = 当前完整位移容量，
+      截图里**回滚区最早一行 `$ echo TOPMARK-0;seq 1 60` 出现在屏幕第一行**
+      （旧实现 `coerceIn` 到 `scrollbackLen` 时那一行必在裁剪区内），
+      键盘保持弹出；随后回车，视图回到底部且提示符完整可见于键盘上方
+      （`TESTING.md` 第 37 条不回归）。
+- 手势方向留档（免得下次白跑）：实时视图下**向上**滑是往更新方向、已在边界，
+      `onScroll` 收得到但位移恒为 0，看屏幕分不出「没滚动」与「滚了但内容全同」；
+      进回滚区要**向下**滑。逐像素比对也须用**带编号**的内容
+      （`seq 1 60`）：全同的 `yes` 行整行滚动后屏幕逐像素不变，会伪装成没滚动。
 
 ## 十一、启动动画用图标而非完整图案
 

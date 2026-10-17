@@ -3797,3 +3797,48 @@ fn cursor_on_a_wide_characters_tail_column_is_reported() {
         "尾列不得有自己的记录：断言语料前提，否则本用例对折算与否没有判别力"
     );
 }
+
+#[test]
+fn selection_highlight_covers_blank_row_inside_range() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[1;1HAAA");
+    terminal_under_test.vt_write(b"\x1b[3;1HBBB");
+    terminal_under_test.flush();
+    let _ = next_cell_frame(&terminal_under_test);
+
+    terminal_under_test.set_selection((0, 0), (2, 5));
+    terminal_under_test.flush();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let cells = next_cell_frame(&terminal_under_test);
+        let first = cells
+            .iter()
+            .find(|c| c.row == 0 && c.col == 0)
+            .expect("单元格");
+        let blank = cells
+            .iter()
+            .find(|c| c.row == 1 && c.col == 0)
+            .expect("单元格");
+        let blank_mid = cells
+            .iter()
+            .find(|c| c.row == 1 && c.col == 3)
+            .expect("单元格");
+        let outside = cells
+            .iter()
+            .find(|c| c.row == 5 && c.col == 0)
+            .expect("单元格");
+        if first.background != outside.background {
+            println!(
+                "first={:?} blank={:?} blank_mid={:?} outside={:?}",
+                first.background, blank.background, blank_mid.background, outside.background
+            );
+            assert_eq!(
+                blank.background, first.background,
+                "选区内的空行必须反白：否则选中区域在空行处断开，表现为「不同行间存在空隙」"
+            );
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "5s 内未见反白帧");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
