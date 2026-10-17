@@ -213,6 +213,15 @@
       `cargo test --package native --lib -- rendered_cursor` → `1 passed`。
 - [x] 证据留档：修正前的两组耗时与异常文本取自 `/tmp/cjk-prefix6.log`（同一用例、同一
       环境，仅坐标来源未改），修正后取自 `/tmp/cjk-fixed1.log`、`/tmp/cjk-fixed2.log`。
+- [x] 门禁补正（全仓门禁第二轮，`:app:lintDebug`）：该用例有两处 `runCatching` 被
+      `DenyListedApi`/slack-lint 判为阻断（协程下会吞掉 `CancellationException`），
+      而它们同时正是「隐藏错误」：探针期与生长步的异常此前都被 `fold(onFailure = { true })`
+      与丢弃返回值吃掉，注释里「由下方断言判为缺陷」那句话当时是空头承诺。改法：探针期
+      改 `try/catch RuntimeException`，异常原文存进 `firstWriteError`；生长步与计时步
+      共用 `recordEdit(input, text)`，生长步结果收进 `growthSteps`；受理断言扩展为
+      「计时步无异常/未被拒 且 探针期与生长步均无异常」，三处异常都进失败消息。
+      真机复跑（emulator-5554）：`tests="1" failures="0" errors="0" skipped="0"`，
+      on p50=374µs / p95=859µs，off p50=235µs / p95=640µs，差值 139µs ≪ 8ms 预算。
 
 ## 七、文本选择不同行间有空隙、卡顿、不跟手
 
@@ -390,6 +399,11 @@
       `Theme.SplashScreen.IconBackground` 的差别仅是后者多映射
       `android:windowSplashScreenIconBackgroundColor`；本应用 `minSdk = 33`，
       兼容库 23–30 的启动屏路径（`Theme.SplashScreen.Common`）在设备上根本不走。
+- 门禁补正（全仓门禁第二轮，`:app:lintDebug`）：该用例原先用
+      `ContextCompat.getDrawable` 取图标，`DenyListedApi`/slack-lint 判为阻断
+      （本应用 `minSdk = 33`，平台自带的 `Context#getDrawable` 就够），改成
+      `themed.getDrawable(value.resourceId)` 并删掉该 import；
+      `:app:testDebugUnitTest --tests "terminal.emulator.SplashIconRobolectricTest"` 复跑通过。
 
 ## 十二、收尾
 
