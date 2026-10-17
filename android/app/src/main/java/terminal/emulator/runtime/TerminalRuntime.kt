@@ -901,7 +901,7 @@ constructor(
      *
      * MUST 保留 `dragging=true`：普通提交意味着「拖动已结束」，而节流推送发生在
      * 拖动途中——若它也把 dragging 清成 false，[setSelectionDragging] 置的保护
-     * 最多存活一个节流周期（50ms），新输出随即可能把视口拽回底部，手柄白拖。
+     * 最多存活一个推送间隔，新输出随即可能把视口拽回底部，手柄白拖。
      */
     fun pushSelectionBoundsDuringDrag(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
         selectionState.set(
@@ -4197,6 +4197,9 @@ internal fun alignGridOnSwitch(bridge: Bridge, rows: Int, cols: Int) {
  * 上界取 `imeBottomPx`：位移超过键盘高度会在键盘上方留下一段终端背景空隙。
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
  * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
+ *
+ * 位移把网格**顶部**若干行推出屏幕上边界（见 [TerminalSurface] 的显出量处理）：被推出
+ * 的行不在上滑行程里，只能由边界外的过度滑动按像素回收位移看回来。
  */
 internal fun computeImeSurfaceShift(
     contentBottomPx: Int,

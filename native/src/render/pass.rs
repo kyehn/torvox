@@ -384,8 +384,31 @@ impl Renderer {
         ) && !scroll_active
     }
 
+    /// 脏带对应的像素行范围：与单元四边形完全相同的光栅化规则——只覆盖
+    /// **像素中心**落在 `[start_row, end_row_exclusive) * cell_height_px` 内的行。
+    ///
+    /// 向外取整（`floor(start)` / `ceil(end)`）会多覆盖相邻行的边界像素，
+    /// 而相邻行在部分帧里通常不在脏带内、本帧不重绘，于是那一像素保留清除色
+    /// （主题背景），在选区/搜索高亮这类连续整行着色里表现为行与行之间的
+    /// 1px 缝隙（用户报告的「文本选择 不同行间存在空隙」，模拟器实测：
+    /// cell_height=44.625 时缝隙出现在 44.625 的分数部分 > 0.5 的行边界）。
+    fn band_clear_pixel_range(
+        start_row: usize,
+        end_row_exclusive: usize,
+        cell_height_px: f32,
+        config_height: u32,
+    ) -> (u32, u32) {
+        let y0 = (start_row as f32 * cell_height_px - 0.5).ceil().max(0.0) as u32;
+        let y1 = ((end_row_exclusive as f32 * cell_height_px - 0.5)
+            .ceil()
+            .max(0.0) as u32)
+            .min(config_height);
+        (y0, y1)
+    }
+
     /// 每个脏带构造一个纯色实例：has_glyph=0 的四边形，单元着色器直接以
-    /// `background` 原样填充，覆盖该带的完整像素矩形（全部列 × 该带的行跨度）。
+    /// `background` 原样填充，覆盖该带的像素矩形（全部列 × 该带的行跨度，
+    /// 边界见 [`Self::band_clear_pixel_range`]）。
     fn band_clear_instances(
         &self,
         dirty_bands: &[crate::render::cell_builder::DirtyBand],
@@ -404,9 +427,12 @@ impl Renderer {
         ];
         let mut instances = Vec::with_capacity(dirty_bands.len());
         for band in dirty_bands {
-            let y0 = (band.start_row as f32 * cell_height_px).floor().max(0.0) as u32;
-            let y1 =
-                ((band.end_row_exclusive as f32 * cell_height_px).ceil() as u32).min(config_height);
+            let (y0, y1) = Self::band_clear_pixel_range(
+                band.start_row,
+                band.end_row_exclusive,
+                cell_height_px,
+                config_height,
+            );
             if y1 > y0 {
                 instances.push(crate::render::CellInstance {
                     quad_origin: [0.0, y0 as f32],
@@ -1232,6 +1258,36 @@ mod tests {
             renderer
                 .band_clear_instances(&bands, 0.0, 1080, 2400)
                 .is_empty()
+        );
+    }
+
+    /// 脏带清除不得侵入相邻行的边界像素：向外取整会在选区/搜索高亮的整行着色里
+    /// 留下 1px 背景色缝隙（「文本选择 不同行间存在空隙」）。分数单元高
+    /// （模拟器实测 44.625）才暴露，整数高看不出。
+    #[test]
+    fn band_clear_range_does_not_bleed_into_neighbour_rows() {
+        let h = 44.625_f32;
+        // 单元四边形只填充中心落进行跨度的像素行：行 1 = 中心在 [44.625, 89.25)
+        // 的像素 = 45..88，故清除范围必须是 [45, 89)，不含像素 44（属行 0）
+        // 与 89（属行 2）。
+        assert_eq!(Renderer::band_clear_pixel_range(1, 2, h, 2400), (45, 89));
+        // 行 3..5：中心在 [133.875, 223.125) 的像素 = 134..222。
+        assert_eq!(Renderer::band_clear_pixel_range(3, 5, h, 2400), (134, 223));
+        // 连续多带与单带覆盖同一像素集合（分带不得改变覆盖）。
+        for row in 1..5 {
+            let (single_lo, single_hi) = Renderer::band_clear_pixel_range(row, row + 1, h, 2400);
+            let (band_lo, band_hi) = Renderer::band_clear_pixel_range(1, 5, h, 2400);
+            if row == 1 {
+                assert_eq!((single_lo, single_hi), (band_lo, band_lo + 44));
+            }
+            assert!(single_lo >= band_lo && single_hi <= band_hi);
+        }
+        // 整屏脏带仍覆盖到最后一行的最后一个像素，且不越出帧高。
+        assert_eq!(Renderer::band_clear_pixel_range(0, 24, h, 2400), (0, 1071));
+        assert_eq!(
+            Renderer::band_clear_pixel_range(0, 24, h, 1070),
+            (0, 1070),
+            "帧高上限仍然生效"
         );
     }
 
