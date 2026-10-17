@@ -2393,6 +2393,22 @@ fn search_select_reveals_history_match_in_viewport() {
     );
 }
 
+/// 未选中任何命中时视口命中集也必须可用：UI 在用户按「下一个」之前就要画高亮，
+/// 高亮不能依赖选中态（选中只决定哪一个用强调色）。
+#[test]
+fn search_viewport_highlights_without_selection() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"alpha needle beta\n");
+    terminal_under_test.vt_write(b"gamma\n");
+    terminal_under_test.flush();
+    assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
+    let highlights = terminal_under_test.search_viewport_highlights();
+    assert!(highlights.selected.is_none(), "未导航时不应有选中命中");
+    assert_eq!(highlights.matches.len(), 1, "未选中时也要给出视口命中");
+    assert_eq!(highlights.matches[0].start_col, 6);
+    assert_eq!(highlights.matches[0].end_col, 12);
+}
+
 /// 对标上游 searchStepWraps：命中下标 0 为最新，`select_next` 朝更旧内容走，
 /// 走到最旧后回绕到最新。
 #[test]

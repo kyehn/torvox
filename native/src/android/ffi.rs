@@ -20,6 +20,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicI64;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -196,8 +197,46 @@ unsafe extern "C" {
 // 会话注册表
 // ══════════════════════════════════════════════════════════════════════════
 
+/// 光标载体无值：首帧尚未被渲染线程取走，或该帧的光标不可见（隐藏、滚出视口）。
+const RENDERED_CURSOR_NONE: i64 = -1;
+
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
+    /// 渲染线程每消费一帧新数据就以 `Release` 写入本会话**那一帧**的光标格
+    /// （编码见 [`pack_rendered_cursor`]）。读方是输入法锚点上报：主线程、逐键发生，
+    /// 只做一次 `Acquire` 读——不发 VT 查询、不取会话锁。会话锁可能被 PTY 写入按住，
+    /// 而锚点必须在同一拍里给出坐标（旧路走同步查询，实测每次组字回退等 18ms p50）。
+    rendered_cursor: AtomicI64,
+}
+
+impl SessionEntry {
+    fn new(session: Arc<Mutex<Session>>) -> Self {
+        Self {
+            session,
+            rendered_cursor: AtomicI64::new(RENDERED_CURSOR_NONE),
+        }
+    }
+}
+
+/// 一帧的 `CursorInfo` → [`SessionEntry::rendered_cursor`] 的编码，格式同
+/// `getCursorViewportPacked`：`(row << 32) | col`，不可见时为 [`RENDERED_CURSOR_NONE`]。
+///
+/// 不含第二次解读：`CursorInfo` 的行列本就由 `cursor_in_viewport` 产出（隐藏与
+/// 滚出视口都表现为 `visible = false`），故这里只做打包。
+fn pack_rendered_cursor(info: &crate::terminal::ghostty_terminal::CursorInfo) -> i64 {
+    if info.visible {
+        ((info.row as i64) << 32) | (info.col as i64)
+    } else {
+        RENDERED_CURSOR_NONE
+    }
+}
+
+/// 读某会话最近的帧内光标；会话未登记时返回 `None`（调用方据以区分「未知会话」与
+/// 「已知会话但当前无可见光标」）。
+fn rendered_cursor_packed(session_id: u64) -> Option<i64> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    Some(entry.rendered_cursor.load(Ordering::Acquire))
 }
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
@@ -288,11 +327,16 @@ impl<T> SessionScoped<T> {
     }
 
     /// 丢弃不属于本会话的内容。每帧在渲染前调用一次，两条帧路径共用同一份结论。
+    ///
+    /// `drawn` 故意**不**清：脏带渲染靠 `current ∪ drawn` 决定标脏哪些行，而被丢弃的
+    /// 那批高亮正是此刻还留在累加器像素里的行，必须再进一次脏掩码才会被重画掉。
+    /// 连它一起清，切会话与 `clearSearchHighlights` 后这些行不在掩码里，旧高亮就
+    /// 一直留在屏幕上（实测：关闭搜索后反色块不消失，随后只有光标行在重绘）。
+    /// 渲染成功后 `drawn` 被赋成 `current`（此刻已空），故这份残留只活一帧，自净。
     fn enter_session(&mut self, session: u64) {
         if self.session != session {
-            self.session = 0;
+            self.session = session;
             self.current.clear();
-            self.drawn.clear();
         }
     }
 }
@@ -682,9 +726,7 @@ fn init_session_inner(
     match Session::spawn(&shell_path, rows, cols, &shell_env, None) {
         Ok(session) => {
             let id = next_session_id();
-            let entry = SessionEntry {
-                session: Arc::new(Mutex::new(session)),
-            };
+            let entry = SessionEntry::new(Arc::new(Mutex::new(session)));
 
             let mut registry = wlock_session_registry();
             registry.insert(id, entry);
@@ -1799,6 +1841,51 @@ fn mark_overlay_dirty_rows<'a>(
     }
 }
 
+#[cfg(test)]
+mod search_highlight_repaint_tests {
+    use super::{SessionScoped, highlight_rows_to_mark, mark_overlay_dirty_rows};
+    use crate::render::cell_builder::SearchHighlight;
+
+    fn highlight(row: i32) -> SearchHighlight {
+        SearchHighlight {
+            row,
+            start_col: 0,
+            end_col_exclusive: 6,
+            color: [0, 0, 0, 255],
+        }
+    }
+
+    /// 换会话（`clearSearchHighlights` 走同一条 `enter_session` 分支）后，上一次画过
+    /// 高亮的行必须仍进脏掩码。
+    ///
+    /// 判别力：`enter_session` 若把 `drawn` 一并清空，掩码上就没有第 2 行，脏带渲染
+    /// 跳过它，累加器里的旧高亮像素留在屏幕上——实测关闭搜索后反色块不消失，随后
+    /// 只有光标行在重绘。
+    #[test]
+    fn discarded_highlights_stay_dirty_for_one_frame() {
+        let mut scoped = SessionScoped::<SearchHighlight>::new();
+        scoped.enter_session(1);
+        scoped.current.push(highlight(2));
+        scoped.drawn = scoped.current.clone();
+
+        scoped.enter_session(2);
+        assert!(scoped.current.is_empty(), "换会话后不得再画上一会话的高亮");
+        assert_eq!(scoped.drawn.len(), 1, "被丢弃的高亮行要留一帧用于标脏");
+
+        let mut dirty_mask = [false; 5];
+        mark_overlay_dirty_rows(
+            &mut dirty_mask,
+            5,
+            highlight_rows_to_mark(&scoped.current, &scoped.drawn),
+        );
+        assert!(
+            dirty_mask[2],
+            "旧高亮所在行必须标脏，否则旧像素永远留在累加器里"
+        );
+        assert!(!dirty_mask[3], "未受高亮影响的行不该被顺带标脏");
+    }
+}
+
 fn render_inner(session_id: u64) -> jint {
     // ── 阶段 1：渲染前准备（单次持有 RENDER_STATE 锁）───────────────────
     // 检查 surface 就绪状态、上传图集脏区、惰性创建管线——全部在**一次**加锁内完成
@@ -1898,6 +1985,12 @@ fn render_inner(session_id: u64) -> jint {
             Some((cells, cursor_info)) => {
                 let rows = cursor_info.rows;
                 let cols = cursor_info.cols;
+                // 光标随帧发布给会话条目：输入法锚点上报（主线程、逐键）读它，
+                // 不再为此发一次同步 VT 查询。发布点在注册表读锁 + 会话锁内，
+                // 而载体本身是原子量——两侧都不因这次发布多等一把锁。
+                entry
+                    .rendered_cursor
+                    .store(pack_rendered_cursor(&cursor_info), Ordering::Release);
                 FrameData::New {
                     cells,
                     cursor_info,
@@ -2627,8 +2720,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
 
 /// 返回终端光标的视口位置，打包为 `(y << 32) | x`；光标隐藏或在视口外时返回 -1。
 ///
-/// 可观测性：经 `build_cell_data` 读取——即渲染线程消费的**同一**数据源，使埋点层
-/// 看到的坐标与 GPU 绘制的完全一致。取值为从 0 开始的视口行列。
+/// **当前真值、同步查询**：`Query::RenderCursor` → `cursor_in_viewport`，取值即 VT
+/// 快照此刻的光标格，代价是一次 VT 线程往返（忙时上限一个查询超时）。正确性断言
+/// 要「刚写进去的数据立刻反映出来」时用本方法；逐帧/逐键的热路径 MUST 改用
+/// [`Java_terminal_emulator_bridge_NativeBridge_getRenderedCursorPacked`]。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewportPacked(
     mut unowned_env: EnvUnowned<'_>,
@@ -2648,6 +2743,27 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewp
             return Ok(-1);
         };
         ((row as jlong) << 32) | (col as jlong)
+    })
+}
+
+/// 返回**最近一帧**渲染线程取走的光标视口位置，打包同 `getCursorViewportPacked`；
+/// 首帧被取走之前（或该帧光标不可见）返回 -1。
+///
+/// 与 `getCursorViewportPacked` 同口径（同出 `cursor_in_viewport`）而不同时效：这里读
+/// 的是已消费帧的光标，代价是一次原子读——不发查询、不取会话锁、不等待 VT 线程。
+/// 逐键发生的输入法锚点上报取本方法；需要「刚写入的数据立刻反映」的断言取前者。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedCursorPacked(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) -> jlong {
+    jni_export_guard!(&mut unowned_env, RENDERED_CURSOR_NONE, |env| {
+        let Some(packed) = rendered_cursor_packed(session_id as u64) else {
+            throw_session_missing(env, "getRenderedCursorPacked");
+            return Ok(RENDERED_CURSOR_NONE);
+        };
+        packed
     })
 }
 
@@ -3135,7 +3251,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights.current.clear();
-            render_state.search_highlights.session = 0;
+            // 不动 `session`：清空 `current` 已足以让本会话不再有高亮，而改键会让下一帧
+            // 走进 `enter_session` 的换会话分支——那里保留 `drawn` 正是为了把旧高亮行
+            // 再标脏一次，键一改这条补救路径就白走一趟。
             // 置脏标志：高亮清除必须送达屏幕，即便终端处于空闲
             // （否则陈旧高亮会一直残留到下次 PTY 输出——正是 #5 这类回归）。
             render_state.dirty.store(true, Ordering::Relaxed);
@@ -3913,13 +4031,13 @@ mod clipboard_read_flood_tests {
 }
 
 #[cfg(test)]
-mod background_clipboard_read_tests {
+mod session_registry_tests {
     use std::sync::{Arc, Mutex};
 
     use super::{
         ACTIVE_SESSION_ID, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
-        MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, SessionEntry, pump_sessions,
-        wlock_session_registry,
+        MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, Ordering, RENDERED_CURSOR_NONE, SessionEntry,
+        pack_rendered_cursor, pump_sessions, rendered_cursor_packed, wlock_session_registry,
     };
     use crate::terminal::pty::Pty;
     use crate::terminal::session::Session;
@@ -3953,16 +4071,63 @@ mod background_clipboard_read_tests {
     /// 或「摘除登记」都会让后续用例读到别人的会话——这类串味只会偶发，
     /// 而在本模块外它读到的正是生产注册表。
     fn pump_once_as_background(session: &Arc<parking_lot::Mutex<Session>>, session_id: u64) {
-        wlock_session_registry().insert(
-            session_id,
-            SessionEntry {
-                session: session.clone(),
-            },
-        );
+        wlock_session_registry().insert(session_id, SessionEntry::new(session.clone()));
         let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
         ACTIVE_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
         pump_sessions();
         ACTIVE_SESSION_ID.store(previous_active, std::sync::atomic::Ordering::Release);
+        wlock_session_registry().remove(&session_id);
+    }
+
+    /// 帧内光标载体的读回：未发布 → 无值，发布可见格 → 该格，发布隐藏格 → 无值，
+    /// 未登记的会话 → `None`（与「已知会话但当前无光标」必须分得开）。
+    ///
+    /// 判别力：把「无值」与「未知会话」塌缩成同一个返回值时，刚建会话、首帧还没被
+    /// 取走的那段时间里，调用方分不清「会话没了」和「暂时没有光标」——前者该报错，
+    /// 后者该静默。
+    #[test]
+    fn rendered_cursor_reads_published_cell_and_separates_unknown_session() {
+        let _access = REGISTRY_ACCESS.lock();
+        let (session, _handle) = background_session();
+        let session_id = 0x5EED_C0DE_u64;
+        wlock_session_registry().insert(session_id, SessionEntry::new(session));
+        let publish = |id: u64, packed: i64| {
+            wlock_session_registry()
+                .get(&id)
+                .expect("entry must be registered")
+                .rendered_cursor
+                .store(packed, Ordering::Release);
+        };
+        let info = |row, col, visible| crate::terminal::ghostty_terminal::CursorInfo {
+            row,
+            col,
+            at_wide_tail: false,
+            visible,
+            style: crate::terminal::ghostty_terminal::CursorStyle::Block,
+            scrollback_length: 0,
+            rows: 24,
+            cols: 80,
+            kitty_generation: 0,
+        };
+
+        // 首帧尚未被渲染线程取走。
+        assert_eq!(
+            rendered_cursor_packed(session_id),
+            Some(RENDERED_CURSOR_NONE)
+        );
+
+        publish(session_id, pack_rendered_cursor(&info(3, 7, true)));
+        assert_eq!(rendered_cursor_packed(session_id), Some((3 << 32) | 7));
+
+        // 该帧光标隐藏（含滚出视口）：没有可用光标，但会话是已知的。
+        publish(session_id, pack_rendered_cursor(&info(0, 0, false)));
+        assert_eq!(
+            rendered_cursor_packed(session_id),
+            Some(RENDERED_CURSOR_NONE)
+        );
+
+        assert_eq!(rendered_cursor_packed(session_id + 1), None);
+
         wlock_session_registry().remove(&session_id);
     }
 
@@ -4352,12 +4517,7 @@ mod scroll_bookkeeping_tests {
                 .expect("with_pty must succeed"),
         ));
         let session_id = 98_090_101u64;
-        wlock_session_registry().insert(
-            session_id,
-            SessionEntry {
-                session: session.clone(),
-            },
-        );
+        wlock_session_registry().insert(session_id, SessionEntry::new(session.clone()));
 
         session.lock().set_last_scroll_offset(37);
         // 经注册表读锁取回的句柄看到的是同一份记账（两个会话各自独立，见下一条）。

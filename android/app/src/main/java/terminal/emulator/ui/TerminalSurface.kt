@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import android.content.Context
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
@@ -749,7 +750,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     /**
                      * 把组字光标锚点回报给输入法。
                      *
-                     * 准入与落格见 [composingCursorMarker]；坐标取终端光标格——
+                     * 准入与落格见 [composingCursorMarker]；坐标取最近一帧的终端光标格——
                      * 组字字节正写进那一格。无组字或输入法未请求监视时不回报，
                      * 否则候选窗口会被贴到不属于它的格子上。
                      *
@@ -757,16 +758,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      *   等下一次组字变化会让候选窗口先落在旧格上。
                      */
                     private fun reportComposingCursorAnchor(immediate: Boolean = false) {
-                        // 准入判据 MUST 先于查询：视口坐标是一次同步 VT 查询，
-                        // VT 忙时上限 QUERY_TIMEOUT_MS（500ms）。组字逐键发生，
-                        // 未请求监视或无组字时先判掉，主线程上就不必付这份等待。
+                        // 准入判据先于取坐标：未请求监视或无组字时连帧内光标都不必取。
                         if (!cursorMonitor.isMonitoring || !composing.isComposing) return
                         if (!immediate) {
                             val now = System.nanoTime()
                             if (now - lastCursorAnchorQueryNanos < CURSOR_ANCHOR_QUERY_THROTTLE_NANOS) return
                         }
                         val runtime = viewModel?.runtime ?: return
-                        val packed = runtime.bridge()?.cursorViewportPacked() ?: return
+                        // 取**最近一帧**的光标：渲染线程已把它发布在会话条目上，这里只做一次
+                        // 原子读。旧路每次组字都发一次同步 VT 查询，实测回退一键要等
+                        // 18ms(p50)/38ms(p95)，全部落在主线程上。
+                        val packed = runtime.bridge()?.renderedCursorPacked() ?: return
                         if (packed < 0) return
                         val cursorRow = (packed shr 32).toInt()
                         val cursorCol = (packed and 0xFFFFFFFFL).toInt()
@@ -779,11 +781,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 cellHeight = cellHeight,
                             ) ?: return
                         // 时间戳只在**真的产出了锚点**之后推进（同回滚长度查询）：
-                        // `packed < 0` 是查询失败，标记为 null 则是光标落在视口外，
-                        // 两者都不该吃掉限频窗口。
+                        // `packed < 0` 是取不到光标（首帧未到或光标不可见），标记为 null 则是
+                        // 光标落在视口外，两者都不该吃掉限频窗口。
                         lastCursorAnchorQueryNanos = System.nanoTime()
                         val info =
                             CursorAnchorInfo.Builder()
+                                // 局部→屏幕的折算矩阵：只给定位参数而不给矩阵时
+                                // `CursorAnchorInfo.Builder.build()` 直接抛
+                                // （坐标是视图局部的，平台不会替调用方补这一步）。
+                                .setMatrix(cursorAnchorMatrix())
                                 .setComposingText(0, composing.text)
                                 .setInsertionMarkerLocation(
                                     marker.horizontal,
@@ -795,6 +801,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 .build()
                         context.getSystemService(InputMethodManager::class.java)
                             ?.updateCursorAnchorInfo(this@TerminalSurface, info)
+                    }
+
+                    /** [getLocationOnScreen] 的落点，复用以免逐键分配。仅主线程使用。 */
+                    private val anchorLocation = IntArray(2)
+
+                    /** 局部→屏幕的换算矩阵，复用同上。 */
+                    private val anchorMatrix = Matrix()
+
+                    /**
+                     * 锚点坐标（视图局部）→ 屏幕坐标的矩阵。
+                     *
+                     * 本视图不在屏幕原点，且输入法弹出时**自身**就被 `translationY` 上移
+                     * （见 [applyImeShift]）——`getLocationOnScreen` 每次都把当前位移算进去，
+                     * 故候选窗口跟着光标走，不会停在未上移的旧位置。
+                     */
+                    private fun cursorAnchorMatrix(): Matrix {
+                        this@TerminalSurface.getLocationOnScreen(anchorLocation)
+                        anchorMatrix.setTranslate(anchorLocation[0].toFloat(), anchorLocation[1].toFloat())
+                        return anchorMatrix
                     }
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {

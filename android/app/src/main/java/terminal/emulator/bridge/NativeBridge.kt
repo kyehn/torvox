@@ -179,8 +179,14 @@ object NativeBridge {
     /** 某一行的文本（已去除尾部空白），空行返回 null。row 为绝对行号。 */
     @JvmStatic external fun scrollbackLine(sessionId: Long, row: Int): String?
 
-    /** 光标视口位置，打包为 `(y << 32) | x`，隐藏时为 -1。 */
+    /** 光标视口位置，打包为 `(y << 32) | x`，隐藏时为 -1。**当前真值**，代价是一次同步 VT 查询。 */
     @JvmStatic external fun getCursorViewportPacked(sessionId: Long): Long
+
+    /**
+     * **最近一帧**渲染取走的光标视口位置，打包同 [getCursorViewportPacked]；首帧取走之前为 -1。
+     * 一次原子读，不等待 VT——逐键的热路径（输入法锚点上报）用它。
+     */
+    @JvmStatic external fun getRenderedCursorPacked(sessionId: Long): Long
 
     /** 可视区与回滚文本以换行连接。 */
     @JvmStatic external fun getTerminalText(sessionId: Long): String?

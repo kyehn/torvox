@@ -241,15 +241,7 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
     runCatchingCancellable { grantNotificationPermission() }
     // Also dismiss the system permission dialog if it is still visible (PlayStore image shows
     // Allow/Deny).
-    runCatchingCancellable {
-        val d = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        if (d.hasObject(By.text("Allow"))) d.findObject(By.text("Allow"))?.click()
-        if (d.hasObject(By.text("ALLOW"))) d.findObject(By.text("ALLOW"))?.click()
-        if (d.hasObject(By.text("Deny"))) {
-            // Do not click Deny; just grant via uiAutomation and wait
-            Thread.sleep(300)
-        }
-    }
+    dismissBlockingSystemDialog(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()))
     // Fast-path: Settings may already be visible (shared activity across cucumber scenarios).
     val settingsAlreadyVisible =
         probeAssertion {
@@ -298,6 +290,8 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
     if (uiResClickOpened) return
     // Fallback: open drawer explicitly then click Settings. Retry up to 3 times for CI flakiness.
     repeat(3) { attempt ->
+        // 对话框可能晚于上面那次清理才弹出（冷启动 CI），之后每一击都打在它身上。
+        dismissBlockingSystemDialog(device)
         openDrawer()
         // After drawer is open, try Compose first (most reliable), then UiDevice res/desc/text.
         val composeAfterDrawer =
@@ -345,7 +339,50 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
         }
         if (attempt < 2) Thread.sleep(700)
     }
-    waitForSettingsScreen(timeoutMs = 60_000)
+    // 兜底：冷启动 CI 上设置页可能只是极慢。失败时 MUST 报出「谁挡在前面」——梯子里
+    // 每一击的错误都被 runCatchingCancellable 吃掉，只剩一句「Condition still not
+    // satisfied after 60000 ms」，看不出是权限对话框挡着还是应用根本没起来。
+    dismissBlockingSystemDialog(device)
+    try {
+        waitForSettingsScreen(timeoutMs = 60_000)
+    } catch (error: AssertionError) {
+        throw AssertionError("设置页始终未出现（${foregroundReport(device)}）", error)
+    }
+}
+
+/**
+ * 清掉挡在应用之上的系统权限对话框——它吃掉所有点击。返回是否清理过。
+ *
+ * 冷启动 CI（PlayStore 镜像）上该对话框可能晚于导航开始才弹出，故重试梯子每轮都要
+ * 再看一眼，而不是只在入口处清一次。
+ */
+private fun dismissBlockingSystemDialog(device: UiDevice): Boolean {
+    var dismissed = false
+    runCatchingCancellable {
+        if (device.hasObject(By.text("Allow"))) {
+            device.findObject(By.text("Allow"))?.click()
+            dismissed = true
+        }
+        if (device.hasObject(By.text("ALLOW"))) {
+            device.findObject(By.text("ALLOW"))?.click()
+            dismissed = true
+        }
+        if (device.hasObject(By.text("Deny"))) {
+            // Do not click Deny; just grant via uiAutomation and wait
+            Thread.sleep(300)
+        }
+    }
+    return dismissed
+}
+
+/** 设置页兜底失败时的定性报告：前台是谁、有没有系统对话框挡着。 */
+private fun foregroundReport(device: UiDevice): String {
+    val pkg = runCatchingCancellable { device.currentPackageName }.getOrNull() ?: "未知"
+    val dialog =
+        listOf("Allow", "ALLOW", "Deny").firstOrNull { label ->
+            runCatchingCancellable { device.hasObject(By.text(label)) }.getOrDefault(false)
+        }
+    return "前台包=$pkg，系统对话框=${dialog ?: "无"}"
 }
 
 private fun AndroidComposeTestRule<*, *>.waitForSettingsScreenProbe(timeoutMs: Long): Boolean {

@@ -146,15 +146,64 @@
 
 ## 五、搜索匹配无高亮、关闭搜索后反色未消失
 
-- [ ] 定根因：命中区间如何传给渲染、反色状态在何处设置与清理。
-- [ ] 修高亮与反色清理。
-- [ ] 验证：`text-search` / `text-selection` 相关 spec 与检查同步更新。
+- [x] 定根因：命中区间如何传给渲染、反色状态在何处设置与清理。
+      「无高亮」不成立：`applySearchHighlights` 把 `search_highlights.session` 设为真会话号，
+      下一帧 `enter_session` 判定为同一会话（空操作），命中行照常标脏并画入累积纹理；
+      真机像素解码可见命中块。「反色未消失」成立且根因在清理路径：`clearSearchHighlights`
+      把 `session` 置 0，下一帧 `enter_session(1)` 走「会话切换」分支，把 `current` 与
+      **`drawn`** 一起清空，于是 `highlight_rows_to_mark` 无行可标脏，部分帧只重画光标行，
+      旧高亮留在累积纹理上。附带缺陷：计数把「上游尚未选中」渲染成「第 1 个」。
+- [x] 修高亮与反色清理。`SessionScoped::enter_session` 会话切换时只清 `current`、保留
+      `drawn` 一帧并写入真会话号；`clearSearchHighlights` 不再动 `session`；计数改
+      `currentResultIndex: Int?`，未选中时报 `共 N 个`。
+- [x] 验证：`text-search` / `text-selection` 相关 spec 与检查同步更新。
+      `text-search` 补「置脏须配合上一帧已画出的高亮行记录」与计数口径；原生新增
+      `search_highlight_repaint_tests::discarded_highlights_stay_dirty_for_one_frame`
+      （已确认对旧行为失败）；Kotlin 新增 `TextSearchBarCounterRobolectricTest`（3 条）。
+      真机：搜索 `MARKER` 得 3 命中且三行反色，关闭搜索后反色立即消失。
 
 ## 六、简体中文退格缓慢
 
-- [ ] 定根因：中文 IME 退格的输入路径（一次删除一个组合单元）与阻塞点。
-- [ ] 修。
-- [ ] 验证：可运行检查 + 真机日志口径。
+- [x] 定根因（判别实验，非推断）：同一台模拟器上交替采样「输入法已请求光标监视」
+      与「未请求监视」两组（`CjkComposingLatencyTest`，20 样本/组，grow → sleep 120ms →
+      timed retract）：**开启**时回退一键 p50 17.96ms / p95 38.55ms，**关闭**时
+      p50 0.19ms / p95 0.54ms。差距即锚点回报里的同步 VT 查询等待——组字逐键发生，
+      每一次都落在主线程上（≈1–2 帧）。
+- [x] 根因二（同一次采样顺带实证）：每个样本都以
+      `IllegalArgumentException: Coordinate transformation matrix is required when
+      positional parameters are specified.` 收场（`CursorAnchorInfo$Builder.build()` ←
+      `reportComposingCursorAnchor`）。锚点**一次也没送到**输入法，而每次组字都要付一次
+      异常构造。AOSP（android15-release）`CursorAnchorInfo.Builder.build()` 在给出任何
+      定位参数而未给矩阵时必抛。
+- [x] 修（根因一）：锚点坐标改取**渲染线程已消费的那一帧**的光标。native 在渲染阶段 2
+      消费帧处把 `CursorInfo` 打包发布到会话条目上的 `AtomicI64`
+      （`SessionEntry::rendered_cursor`，`Release` 写 / `Acquire` 读），新增 JNI
+      `getRenderedCursorPacked`：一次原子读，不取会话锁、不发查询。口径不变——与同步
+      查询同出 `cursor_in_viewport`，隐藏与滚出视口都表现为「无光标」；同步查询
+      `getCursorViewportPacked` 保留给「刚写进去的数据立刻反映」的断言。
+- [x] 修（根因二）：锚点补 `setMatrix(视图局部 → 屏幕)`（视图当前屏幕位置，不缓存成
+      常量——输入法弹出时本视图被自身 `translationY` 上移，`getLocationOnScreen` 每次都
+      算进去）。
+- [x] 加检查（native 单测）
+      `session_registry_tests::rendered_cursor_reads_published_cell_and_separates_unknown_session`：
+      未发布 → 无值、可见格 → 该格、隐藏格 → 无值、未登记会话 → `None`（「未知会话」与
+      「已知会话但暂时无光标」必须分得开）。
+- [x] 加检查（仪器测试）
+      `CjkComposingLatencyTest#composing_backspace_does_not_wait_on_cursor_anchor_query`：
+      监视开/关两组的 p50 差不超过 8ms 预算。非恒真条件齐备——组字字节必须落格
+      （否则样本无效）、每次调用必须受理且不以异常收场、帧内光标必须取得到
+      （否则锚点整段跳过、两组都「漂亮」）。修正后两轮实测：on p50 0.36/0.47ms、
+      p95 0.93/0.67ms；off p50 0.19/0.16ms。
+- [x] spec：`openspec/specs/ime-editor-contract/spec.md` 的「组字光标位置回报给输入法」
+      改写坐标来源与矩阵要求（原「视口坐标是一次同步 VT 查询…故查询 MUST 限频」的口径
+      连同护栏一并更正），并补三个场景：逐键回报不等待 VT、锚点携带局部到屏幕的矩阵、
+      帧内光标未就绪时不回报。
+- [x] 验证：`./gradlew :app:connectedDebugAndroidTest
+      -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.ui.CjkComposingLatencyTest`
+      → `BUILD SUCCESSFUL`，指标 `composing_edit_{on,off}_{p50,p95}_us` 见上；
+      `cargo test --package native --lib -- rendered_cursor` → `1 passed`。
+- [x] 证据留档：修正前的两组耗时与异常文本取自 `/tmp/cjk-prefix6.log`（同一用例、同一
+      环境，仅坐标来源未改），修正后取自 `/tmp/cjk-fixed1.log`、`/tmp/cjk-fixed2.log`。
 
 ## 七、文本选择不同行间有空隙、卡顿、不跟手
 
@@ -192,3 +241,33 @@
       （该脚本不因外部命令失败而中断，须逐段确认）。
 - [ ] 逐条回读 12 条，确认验收口径被测试或 spec 覆盖；仍依赖真机的项写明缺口。
 - [ ] 连续三轮审阅无问题后归档本变更（归档前不删 `STATUS.md` 条目，需维护者点头）。
+
+## 十三、CI 失败用例甄别（`run 38888880442`，不属于 STATUS 行序）
+
+定时跑失败的两条不在 STATUS 的 11 条里，一并按根因-修复收口。
+
+- [x] `FontFileOverrideInstrumentedTest#termux_font_file_becomes_primary_font`：
+      本机原样复跑即复现（`AssertionError: Roboto 为比例字体：主字体切换后等宽标记必须
+      翻转为假`），是用例自身的前提过期而非 CI 抖动。把两侧 `FontInfo` 写进失败消息后
+      取到实证：两侧**逐字段相同**（`activeName=Roboto, activeMonospaced=false,
+      cellWidthPx=12.420898, cellHeightPx=17.0, fontSizeSp=14.0`）。根因是基线读晚了：
+      `loadFontFile` 当场就 `rebuild_font_pipeline` 再 `set_font_family`
+      （`native/src/android/ffi.rs`，`cjk-rendering` spec 早已记「`loadFontFile` 在重建后
+      再设字体族」），而用例把「默认基线」取在该调用**之后**，于是
+      `default.activeMonospaced` 已经是 Roboto 的 `false`，两条判据（等宽翻转为假、
+      单元格度量变化）恒假。修：基线移到 `loadFontFile` 之前读，并在注释里写明为何
+      不能再挪回去。复跑该用例 `tests="1" failures="0"`。
+- [x] `BehaviorInstrumentedTest#behavior_settings_shell_entry_empty_until_saved`：
+      本机复跑通过（`tests="1" failures="0"`），整套 `BehaviorInstrumentedTest` 也通过
+      （`tests="10" failures="0"`），即 CI 上的间歇失败，无确定性可复现 bug。失败面是
+      `TestUtils.openSettings()` 用尽重试梯子后由 `waitForSettingsScreen(60_000)` 抛出的
+      裸 `Condition still not satisfied after 60000 ms`；梯子里每一击的错误都被
+      `runCatchingCancellable` 吃掉，故消息不含任何线索（隐藏错误）。按「不得隐藏错误」
+      补两处：① 权限对话框清理抽成 `dismissBlockingSystemDialog`，重试梯子**每轮**都看
+      一眼——它可能晚于入口那次清理才弹出，之后每一击都打在对话框上；② 兜底失败改写为
+      `设置页始终未出现（前台包=…，系统对话框=…）`，下一次 CI 失败自带定性线索。本机复跑
+      通过。
+- [x] 空跑陷阱留档：`-Pandroid.testInstrumentationRunnerArguments.class=A#b,C#d`
+      （多组「类#方法」逗号拼接）**不匹配任何用例**，任务照样 `BUILD SUCCESSFUL` 且报
+      `tests="0"`。甄别时按每个用例单跑，并核对 JUnit XML 的 `tests="N"` 而不是只看
+      Gradle 的退出码。
