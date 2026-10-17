@@ -19120,7 +19120,7 @@ SPLterminal/emulator/ui/TerminalSurface;->installImeInsetListener()V
 SPLterminal/emulator/ui/TerminalSurface;->invalidateWideCharTailCache()V
 PLterminal/emulator/ui/TerminalSurface;->isPaused$app()Z
 SPLterminal/emulator/ui/TerminalSurface;->isSelectingText()Z
-SPLterminal/emulator/ui/TerminalSurface;->menuActionsForSelection$app(ZZ)Ljava/util/List;
+SPLterminal/emulator/ui/TerminalSurface;->menuActionsForSelection$app(ZZZ)Ljava/util/List;
 HSPLterminal/emulator/ui/TerminalSurface;->modifierBitmask(Landroid/view/KeyEvent;)B
 SPLterminal/emulator/ui/TerminalSurface;->newInputBatchBuffer()Lterminal/emulator/runtime/InputBatchBuffer;
 SPLterminal/emulator/ui/TerminalSurface;->observeImeShiftInputs(Lterminal/emulator/TerminalViewModel;)V
