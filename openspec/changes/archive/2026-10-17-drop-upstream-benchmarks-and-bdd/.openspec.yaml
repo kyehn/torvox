@@ -1,0 +1,7 @@
+schema: spec-driven
+skip_specs: true
+goal: |
+  按维护者口径「不测上游，不写重复代码」删除两批测试资产，并把结论直接落进
+  openspec/specs/upstream-alignment（保持 specs 与代码同步，故不在本变更放 delta）。
+  删除对象：native/tests/external_benchmarks/（期望由上游决定）、
+  native/tests/bdd/ ＋ native/tests/features/（逐条复述 native/src 既有单测）。

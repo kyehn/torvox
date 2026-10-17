@@ -95,6 +95,6 @@ Android 14 起新增的 `replaceText` 更直接：其默认实现改的是 `Base
   组字基线的取文/替换逻辑宜下沉到 `input/` 或 `ui/` 的独立文件以便单测。
 - 测试：`testDebugUnitTest`（Robolectric sdk=33 覆盖取文与批量编辑等公开接口），
   `replaceText` 因 API 34+ 须在 API 34+ 上验证（Robolectric 提 sdk 或仪器测试）。
-- 规范：新增 `ime-editor-contract`；`upstream-alignment` 的「同类安卓终端复查台账」
+- 规范：新增 `ime-editor-contract`；`upstream-alignment` 的「Android 侧终端项目的复查台账」
   已登记 `CocaKova/charon` 为「需改造后采纳」，本变更取其 `TextSelection` 之外的
   IME 契约经验，但 `updateSelection` 一项经实测不可实现、不采纳。

@@ -38,9 +38,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import terminal.emulator.R
@@ -99,10 +103,8 @@ fun SessionDrawer(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(sessions, key = { _, session -> session.id }) { index, session ->
-                val sessionNumber = stringResource(R.string.session_number, index + 1)
                 SessionItem(
-                    title = sessionNumber,
-                    subtitle = session.title,
+                    label = sessionItemLabel(stringResource(R.string.session_index, index + 1), session.title),
                     isActive = session.id == activeSessionId,
                     onClick = {
                         onSwitchSession(session.id)
@@ -237,10 +239,23 @@ private fun SessionDrawerActions(
     }
 }
 
+/**
+ * 会话条目文案：`[序号] 标题`——序号加粗、终端标题斜体，两者同行。
+ *
+ * 与 termux 无会话名时的渲染一致（`TermuxSessionsListViewController.getView` 的
+ * `numberPart + sessionTitlePart`）：termux 只在有会话名时才换行，torvox 没有会话名，
+ * 因此标题始终跟在序号后。标题为空时只剩序号，不占第二行。
+ */
+internal fun sessionItemLabel(indexLabel: String, title: String): AnnotatedString = buildAnnotatedString {
+    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("$indexLabel ") }
+    if (title.isNotEmpty()) {
+        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(title) }
+    }
+}
+
 @Composable
 private fun SessionItem(
-    title: String,
-    subtitle: String,
+    label: AnnotatedString,
     isActive: Boolean,
     onClick: () -> Unit,
     onClose: () -> Unit,
@@ -249,7 +264,7 @@ private fun SessionItem(
     textColor: Color,
 ) {
     val itemBackgroundColor = if (isActive) surface else Color.Transparent
-    val titleColor = if (isActive) textColor else textColor.copy(alpha = 0.7f)
+    val labelColor = if (isActive) textColor else textColor.copy(alpha = 0.7f)
 
     Row(
         modifier =
@@ -271,26 +286,14 @@ private fun SessionItem(
                 .background(if (isActive) accent else textColor.copy(alpha = 0.4f)),
         )
         Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = titleColor,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle.isNotEmpty()) {
-                Text(
-                    text = subtitle,
-                    color = titleColor.copy(alpha = 0.7f),
-                    fontSize = 12.sp,
-                    fontStyle = FontStyle.Italic,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        Text(
+            text = label,
+            color = labelColor,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
         Icon(
             imageVector = Icons.Default.Close,
             contentDescription = stringResource(R.string.cd_close_session),

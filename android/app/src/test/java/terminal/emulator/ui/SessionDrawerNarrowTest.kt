@@ -99,7 +99,7 @@ class SessionDrawerNarrowTest {
             composeRule.onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
                 .fetchSemanticsNodes()
         assertTrue("会话项必须存在", items.size == 1)
-        composeRule.onNodeWithText("会话 1").assertIsDisplayed()
-        composeRule.onNodeWithText("VT_TITLE").assertIsDisplayed()
+        // 序号与终端标题同行（termux 无会话名时的渲染，DESIGN 示例 `[1] ~`）。
+        composeRule.onNodeWithText("[1] VT_TITLE").assertIsDisplayed()
     }
 }

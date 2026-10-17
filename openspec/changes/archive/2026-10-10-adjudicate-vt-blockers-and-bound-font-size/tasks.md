@@ -7,7 +7,7 @@
       `params.len == 1` 守卫、中间字符 warn 分支）
 - [x] 订正 `vt_conformance.rs` 的 `NOT_ADOPTED` 理由：改为实测根因并注明缺口层
 - [x] 新增 `native/tests/vt_upstream_blockers.rs` 以特征化断言钉住缺口（7 项）
-- [x] `upstream-alignment` 规范补充「理由须可复核到源码位置」与「上游缺口以特征化
+- [x] `upstream-alignment` 规范补充「理由必须可复核到源码位置」与「上游缺口以特征化
       断言钉住并作为重新裁定触发器」
 
 ## 二、字号上界按可用列数收敛
