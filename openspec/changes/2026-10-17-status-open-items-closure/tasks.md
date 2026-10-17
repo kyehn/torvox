@@ -400,7 +400,30 @@
       首轮实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
       clippy / doc / bench / semgrep / markdownlint / gradle 全部未跑。
       故「跑通」＝从 `cargo fmt` 段起重跑并逐段看到全部阶段通过。
-- [ ] 逐条回读 12 条，确认验收口径被测试或 spec 覆盖；仍依赖真机的项写明缺口。
+- [x] 逐条回读 `STATUS.md` 的 11 条顶层项（第 2 条含三个子项，共 13 条验收口径）
+      与 CI 甄别项，逐条对上「可运行检查 + spec 落点 + 设备证据」：
+
+| # | STATUS 口径 | 可运行检查 | spec 落点 | 证据 / 缺口 |
+| --- | --- | --- | --- | --- |
+| 1 | Shell 启动前偶发黑屏 | `ShouldKeepSplashOnScreenTest`（3 例） | `render-stability`「启动首帧及时呈现」 | 冷启动逐帧截图无黑屏帧；偶发性由「保活到首帧」机制消除 |
+| 2a | 无法创建文件/文件夹：路径已存在 | `DocumentsProviderTest`（61 例，含 `renameDocument_conflict_appends_suffix_like_termux`） | `documents-provider`「重名冲突在全部变更入口取唯一名」 | 单测全绿；根因取自真机未捕获异常日志 |
+| 2b | 复制/移动提示路径已存在 | 同上（`deleteDocument_of_missing_document_is_a_no_op` 覆盖「覆盖＝先删再拷」） | `documents-provider`「删除按幂等语义覆盖」 | 同上 |
+| 2c | 无法保存修改文件：超时 | `openDocument` 写回路径单测 + `DocumentsProviderInstrumentedTest#external_process_write_back_lands_on_disk` | `documents-provider` | **缺口**：超时出现在第三方客户端侧，两份真机日志 grep 不到 timeout/ANR，按客户端侧现象登记 |
+| 3 | 会话 exit 0 不关会话/应用 | `SessionTableWatcherTest`（3 例） | `shell-entry`「非正常退出保留现场」 | 真机 `exit 0` 后会话行消失、应用留存 |
+| 4 | 会话列表项未显示标题 | `SessionItemLabelTest` + `SessionDrawerNarrowTest`（6 例） | `session-list`「会话条目内容」 | 抽屉截图 `[序号] 标题` 同行；**缺口**：`SessionDrawerInstrumentedTest` 本机跑不动（用例执行前失败），只编译验证 |
+| 5 | 搜索无高亮 / 关闭后反色残留 | native `search_highlight_repaint_tests`（2 例）+ `TextSearchBarCounterRobolectricTest`（3 例） | `text-search` + `text-selection` | 真机：搜 `MARKER` 3 命中反色，关闭后立即消失 |
+| 6 | 简体中文退格明显缓慢 | native `rendered_cursor` 用例 + 仪器 `CjkComposingLatencyTest`（20 样本 × 2 组） | `ime-editor-contract`「组字光标位置回报给输入法」 | 真机 p95 38.55ms → 0.54ms 量级（同一环境对照） |
+| 7 | 文本选择空隙 / 卡顿 / 不跟手 | native `band_clear`（2 例）+ `selection_highlight_covers_blank_row_inside_range` | `text-selection`「长按启动选择」 | 真机拖拽量化截图 |
+| 8 | 输入法弹出时上滑不能到顶 | `ScrollDistanceTest`（7 例，共 23 例） | `ime-animation-smoothness` | 真机 `TOPMARK-0` 到顶 |
+| 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
+| 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（新增 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
+| 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏只画图标不用完整图案」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
+| CI | `run 38888880442` 两条失败 | `FontFileOverrideInstrumentedTest`（基线读晚了）、`BehaviorInstrumentedTest`（重试梯子隐藏错误） | 见十三节 | 本机复跑各 `failures="0"`，非 CI 抖动而是用例前提/错误处理问题 |
+
+      汇总：13 条验收口径全部有可运行检查与 spec 落点；两处仍是真机/CI 依赖
+      （2c 无复现样本、4 的仪器用例待 CI），一处是「同源保证」而非独立断言
+      （11 的桌面图标与启动屏共用同一 drawable）。
+
 - [ ] 连续三轮审阅无问题后归档本变更（归档前不删 `STATUS.md` 条目，需维护者点头）。
 
 ## 十三、CI 失败用例甄别（`run 38888880442`，不属于 STATUS 行序）
