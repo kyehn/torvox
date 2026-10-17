@@ -37,3 +37,17 @@
 
 - **WHEN** `attachPendingSurface` 的 `syncGridDimensions` 读到 `cellWidth == 0f`（度量未就绪）而早退
 - **THEN** 后续任一次 `syncGridDimensions` 读到有效度量时触发网格重算，网格收敛到 45×48
+
+### Requirement: PTY 建立时即使用真实网格
+
+`TerminalRuntime` 在 spawn PTY MUST 先用原生字体度量与已知 Surface 像素尺寸算出真实网格（`initialSpawnGrid`），MUST NOT 先按默认 24×80 建立 PTY 再依赖 attach 之后的 resize 纠正；仅当度量或尺寸尚未就绪时退回默认网格。
+
+#### Scenario: 度量已就绪时新建会话
+
+- **WHEN** 原生字体度量可用（26.4×53.2 px 单元格）、Surface 为 1080×2209、修饰键栏 132 px，新建会话 spawn
+- **THEN** PTY 的 winsize 为 39×40，shell 的第一个 prompt 按 40 列排版；attach 之后的首次 resize 零变更
+
+#### Scenario: 度量或尺寸尚未就绪
+
+- **WHEN** `cellWidth`/`cellHeight` 仍为 0，或 Surface 尚未布局（宽或高为 0）
+- **THEN** `initialSpawnGrid` 返回默认 24×80（与旧路径一致），零高度不会退化成 1 行 PTY；度量就绪后由 `syncGridDimensions` 重算并 resize

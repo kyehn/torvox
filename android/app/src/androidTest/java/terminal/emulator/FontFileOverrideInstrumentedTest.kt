@@ -38,8 +38,6 @@ class FontFileOverrideInstrumentedTest : TerminalLogcatTest() {
             Bridge(
                 TerminalConfig(
                     shell = Shell.SystemDefault,
-                    rows = 24,
-                    cols = 80,
                     themeName = "",
                     home = home.absolutePath,
                     workingDirectory = home.absolutePath,

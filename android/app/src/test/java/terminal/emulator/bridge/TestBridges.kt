@@ -7,11 +7,9 @@ package terminal.emulator.bridge
  * 主题标识取默认夜间主题名（单源在原生），断言目标不涉及真实配色。
  */
 internal object TestBridges {
-    fun create(rows: Int = 24, cols: Int = 80): Bridge = Bridge(
+    fun create(): Bridge = Bridge(
         TerminalConfig(
             shell = Shell.SystemDefault,
-            rows = rows,
-            cols = cols,
             themeName = "",
             home = "",
             workingDirectory = "",
