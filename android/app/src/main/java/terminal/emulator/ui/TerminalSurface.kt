@@ -110,6 +110,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 否则换视图 / Activity 重建后终端会被上一份键盘高度上移（旋转不重建 Activity，
         // 由 `onSizeChanged` → `applyImeShift` 按新视口高度覆盖，不走这条路径）。
         appliedImeShiftPx = 0
+        imeShiftCapacityPx = 0
+        imeShiftRevealPx = 0f
         if (translationY != 0f) translationY = 0f
         // 运行期那份也必须归零：它只由本视图的 insets 派发写入，而新视图（或复用后
         // 的本视图）的首次派发若发生在键盘已收起时，算出的 `reserved` 就是 0、与它
@@ -1712,6 +1714,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var appliedImeShiftPx: Int = 0
 
     /**
+     * 位移显出量（px）：在**滚动行程尽头之外**按手指位移 1:1 回收位移，
+     * 把被位移裁到屏幕上边界外的网格顶部重新放回屏幕。
+     *
+     * 为什么需要它：位移只按键盘遮挡与内容下沿计算，与滚动位置无关，于是网格
+     * 最上面的「位移」像素常驻屏幕外，而上滑行程以回滚区顶端为终点——「到顶部」
+     * 在像素上不可达（STATUS「输入法弹出时上滑不能到顶部」）。显出量由
+     * [applyScrollDistance] 消费回滚区顶端之外的越界位移得到，回到边界内时先按
+     * 同一比例回收（见该函数），两个方向都是 1:1，不出现 2 倍行程。
+     */
+    private var imeShiftRevealPx: Float = 0f
+
+    /** [imeShiftRevealPx] 的容量上限：当前完整位移（无键盘、备用屏恒 0）。 */
+    private var imeShiftCapacityPx: Int = 0
+
+    /**
      * 订阅平台 insets 派发，维护 [imeInsetPx]。
      *
      * 为什么是派发而非轮询或组合读取：既有实现读 Compose 的 `WindowInsets.ime`
@@ -1770,25 +1787,68 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 组合往返。
      *
      * 位移量仍是 [computeImeSurfaceShift] 的判定结果（按内容下沿裁剪、备用屏恒 0），
-     * 口径与单测一致。五个触发点各自覆盖它的一个输入：输入法遮挡（insets 派发）、
+     * 口径与单测一致。六个触发点各自覆盖它的一个输入：输入法遮挡（insets 派发）、
      * 内容下沿、单元格度量、备用屏状态（后三者由 [observeImeShiftInputs] 订阅）、
-     * 视口尺寸（[onSizeChanged]，旋转时 Activity 不重建）。
+     * 视口尺寸（[onSizeChanged]，旋转时 Activity 不重建）、滚动位置
+     * （[setScrollOffset]，见 [imeShiftRevealPx]）。
      */
     private fun applyImeShift() {
         val runtime = viewModel?.runtime ?: return
         if (height <= 0) return
-        val shift =
+        val cellHeight = runtime.cellHeight
+        val capacity =
             computeImeSurfaceShift(
-                contentBottomPx =
-                computeContentBottomPx(runtime.lastContentRowFlow.value, runtime.cellHeight),
+                contentBottomPx = computeContentBottomPx(runtime.lastContentRowFlow.value, cellHeight),
                 surfaceHeightPx = height,
                 modifierBarHeightPx = runtime.modifierBarHeightPx,
                 imeBottomPx = imeInsetPx,
                 isAltScreenActive = runtime.altScreenActiveFlow.value,
             )
+        // 显出量不得越过「回到底部还需上滑的行程」：偏移到 0（实时视图）必须归零，
+        // 否则提示符被键盘吞掉（TESTING.md 第 37 条）。到回滚区顶端时该上界等于整段
+        // 回滚，恒大于容量，不参与限制。
+        imeShiftRevealPx =
+            imeShiftRevealPx.coerceIn(0f, minOf(capacity.toFloat(), scrollOffset * cellHeight))
+        imeShiftCapacityPx = capacity
+        val shift = capacity - imeShiftRevealPx.toInt()
         if (shift == appliedImeShiftPx) return
         appliedImeShiftPx = shift
         translationY = -shift.toFloat()
+    }
+
+    /**
+     * 写入视口滚动位置并向宿主通报。位移的显出量上界依赖滚动位置，故同步刷新位移。
+     */
+    private fun setScrollOffset(target: Int) {
+        if (target == scrollOffset) return
+        scrollOffset = target
+        applyImeShift()
+        onScrollChanged?.invoke(target)
+    }
+
+    /**
+     * 把一次滚动增量落到视图：偏移、位移显出量、渲染器亚行余量。
+     *
+     * 拖动与惯性共用这一条管道（见 [applyScrollDistance]），两者的区别只在增量
+     * 从哪来——手指还是 `OverScroller`。分成两份实现时惯性那份会漏掉边界丢弃与
+     * 显出量，内容按整行跳（STATUS ⑩）。
+     */
+    private fun applyScrollStep(step: ScrollStep, scrollbackLen: Int) {
+        scrollAccumulatorPx = step.newAccumulatorPx
+        imeShiftRevealPx = step.revealPx
+        if (step.newOffset != scrollOffset) {
+            setScrollOffset(step.newOffset)
+        } else {
+            // 偏移未变，但显出量可能刚在回滚区顶端之外被消费/回收。
+            applyImeShift()
+        }
+        // 逐像素余量：把亚行累加器镜像给渲染器，使内容在行内跟随手指。
+        // 以非空回滚为条件——没有历史时任何偏移都会露出空白。
+        // setScrollRemainderPx 已含 notifyRender，不再额外 forceRender
+        // （双重唤醒致手势期间渲染线程空转，滚动卡顿）。
+        if (scrollbackLen > 0) {
+            viewModel?.runtime?.setScrollRemainderPx(scrollAccumulatorPx)
+        }
     }
 
     /**
@@ -1954,11 +2014,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 惯性滚动物理（termux TerminalView:1345 模式）：由 [OverScroller] 驱动逐帧减速动画，
      * 而非旧的一次性跳到钳位距离——跳变使惯性滚动显得生硬突兀
-     * （「上下滑动…异常并且卡顿」）。[postOnAnimation] 把各步对齐到 vsync；
-     * 每步只经 onScrollChanged 推出增量。
+     * （「上下滑动…异常并且卡顿」）。[postOnAnimation] 把各步对齐到 vsync。
+     *
+     * 行程单位是**像素**：逐帧增量交给拖动同一条管道（[applyScrollStep]），
+     * 整行与亚行余量一起算，内容才能按像素跟随惯性；按行驱动时每帧落点被截成
+     * 整行，表现为逐行跳动（STATUS ⑩）。上界含键盘位移的显出量容量，
+     * 猛甩也能走到「显出被位移裁掉的网格顶部」的行程末端（STATUS ⑧）。
      */
     private val flingScroller = OverScroller(context)
     private val flingStepRunnable = Runnable { doFlingStep() }
+
+    /** 上一惯性帧的像素位置（[flingScroller] 的 currY）：逐帧差值即本帧行程。 */
+    private var lastFlingPx = 0
 
     /** 把惯性滚动动画推进一个 vsync 节拍。 */
     private fun doFlingStep() {
@@ -1966,13 +2033,24 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             finishFlingAnimation()
             return
         }
-        val target = flingScroller.currY.coerceIn(0, currentScrollbackLength())
-        if (target != scrollOffset) {
-            scrollOffset = target
-            onScrollChanged?.invoke(target)
-            // 每个惯性步进后按 vsync 节流请求重绘，
-            // 使渲染线程（Mailbox）不拖滞地呈现最新帧。
-            viewModel?.runtime?.forceRender()
+        val deltaPx = flingScroller.currY - lastFlingPx
+        lastFlingPx = flingScroller.currY
+        if (deltaPx != 0) {
+            val scrollbackLen = currentScrollbackLength()
+            // 与 onScroll 同符号：手指下移 distanceY 为负、偏移增大（更旧），
+            // 而 scroller 的 currY 增大的方向也是更旧，故取负后再喂。
+            applyScrollStep(
+                applyScrollDistance(
+                    scrollAccumulatorPx,
+                    -deltaPx.toFloat(),
+                    cellHeight,
+                    scrollOffset,
+                    scrollbackLen,
+                    imeShiftRevealPx,
+                    imeShiftCapacityPx.toFloat(),
+                ),
+                scrollbackLen,
+            )
         }
         postOnAnimation(flingStepRunnable)
     }
@@ -2192,8 +2270,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val scrollbackLen = currentScrollbackLength()
         val newOffset = (scrollOffset + step).coerceIn(0, scrollbackLen)
         if (newOffset != scrollOffset) {
-            scrollOffset = newOffset
-            onScrollChanged?.invoke(scrollOffset)
+            setScrollOffset(newOffset)
             // 向上滚钉新视口顶行，向下滚钉底行。
             val gridRow =
                 if (step == EDGE_SCROLL_STEP_UP) {
@@ -2327,7 +2404,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onDown(motionEvent: MotionEvent): Boolean {
                 // 手势开始时重置亚单元格累加器，使首次 onScroll 距离从干净的起点算起。
                 // 同步本地偏移与运行时真源：渲染线程回底后本地仍旧值，下次手势若从旧值起算会跳变。
-                viewModel?.runtime?.activeSessionScrollOffset()?.let { scrollOffset = it }
+                viewModel?.runtime?.activeSessionScrollOffset()?.let {
+                    scrollOffset = it
+                    // 会话切换连回滚长度一起换掉，位移显出量的上界随之变化（见 applyImeShift）。
+                    applyImeShift()
+                }
                 scrollAccumulatorPx = 0f
                 viewModel?.runtime?.setScrollRemainderPx(0f)
                 return true
@@ -2400,20 +2481,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 截断趋向零（toInt）：正/负亚行阈值对称，消除 floor 非对称导致的漂移。
                 // 注意符号:distanceY = previousY - currentY,下移为负,需取反累加才能使下移增加偏移。
                 val scrollStep =
-                    applyScrollDistance(scrollAccumulatorPx, distanceY, cellHeight, scrollOffset, scrollbackLen)
-                scrollAccumulatorPx = scrollStep.newAccumulatorPx
-                if (scrollStep.newOffset != scrollOffset) {
-                    scrollOffset = scrollStep.newOffset
-                    onScrollChanged?.invoke(scrollOffset)
-                }
-                // 逐像素余量：把亚行累加器镜像给渲染器，
-                // 使内容在行内跟随手指。
-                // 以非空回滚为条件——没有历史时任何偏移都会露出空白。
-                // setScrollRemainderPx 已含 notifyRender，不再额外 forceRender
-                // （双重唤醒致手势期间渲染线程空转，滚动卡顿）。
-                if (scrollbackLen > 0) {
-                    viewModel?.runtime?.setScrollRemainderPx(scrollAccumulatorPx)
-                }
+                    applyScrollDistance(
+                        scrollAccumulatorPx,
+                        distanceY,
+                        cellHeight,
+                        scrollOffset,
+                        scrollbackLen,
+                        imeShiftRevealPx,
+                        imeShiftCapacityPx.toFloat(),
+                    )
+                applyScrollStep(scrollStep, scrollbackLen)
                 return true
             }
 
@@ -2440,25 +2517,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     return true
                 }
 
-                // velocityY 系像素/秒，滚动偏移系行：除以行高换算为行/秒，否则 20 倍过速直接撞边，
-                // 视口跳变撕裂为“折叠”。fling 前清亚行余量，避免旧余量叠加首帧。
+                // velocityY 系像素/秒，OverScroller 直接吃像素：不再除行高换成行/秒
+                // （那样逐帧落点是整行，内容只能逐行跳，STATUS ⑩）。行程起点带上
+                // 亚行余量、上界带上键盘位移的显出量容量，见 [flingScroller]。
                 stopFlingAnimation()
-                scrollAccumulatorPx = 0f
-                viewModel?.runtime?.setScrollRemainderPx(0f)
                 isScrolling = true
                 onScrollingStateChanged?.invoke(true)
-                // 与 onScroll 同向：velocityY 为像素/秒、下移为正，除以行高得行/秒。
-                val rowVelocity = flingRowsPerSecond(velocityY, cellHeight)
+                val startPx = (scrollOffset * cellHeight + scrollAccumulatorPx).roundToInt()
+                val maxPx = (scrollbackLen * cellHeight).roundToInt() + imeShiftCapacityPx
                 flingScroller.fling(
                     0,
-                    scrollOffset,
+                    startPx,
                     0,
-                    rowVelocity,
+                    flingVelocityPxPerSecond(velocityY),
                     0,
                     0,
                     0,
-                    scrollbackLen,
+                    maxPx,
                 )
+                lastFlingPx = startPx
                 postOnAnimation(flingStepRunnable)
                 return true
             }
@@ -2795,8 +2872,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val scrollbackLen = currentScrollbackLength()
         val targetOffset = scrollOffsetForRow(row, scrollbackLen)
         if (targetOffset != scrollOffset) {
-            scrollOffset = targetOffset
-            onScrollChanged?.invoke(scrollOffset)
+            setScrollOffset(targetOffset)
             // 以信号（按 vsync 节奏）通知渲染线程，
             // 而不是在每个滚动事件上用同步 GPU 渲染阻塞 UI 线程。
             viewModel?.runtime?.forceRender()
@@ -2816,6 +2892,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val sessionOffset = viewModel?.runtime?.activeSessionScrollOffset() ?: 0
         if (scrollOffset != sessionOffset) {
             scrollOffset = sessionOffset
+            // 会话切换连回滚长度一起换掉，位移显出量的上界随之变化（见 applyImeShift）。
+            applyImeShift()
         }
     }
 
@@ -3537,13 +3615,29 @@ internal fun resolveOpenLinkUri(hyperlinkUri: String?): String? = hyperlinkUri?.
 /** 滚动行高下限：避免除零，保持手势可用。 */
 internal const val MIN_CELL_HEIGHT_PX = 1f
 
-/** 滚动一步结果：钳制后的偏移与剩余亚行余量。 */
-internal data class ScrollStep(val newOffset: Int, val newAccumulatorPx: Float)
+/** 滚动一步结果：钳制后的偏移、剩余亚行余量、被丢弃的越界位移、更新后的位移显出量。 */
+internal data class ScrollStep(
+    val newOffset: Int,
+    val newAccumulatorPx: Float,
+    /** 边界外丢弃的位移（正 = 更早历史方向）：既不进渲染器余量也不跨行回弹。 */
+    val overflowPx: Float = 0f,
+    /** 更新后的位移显出量（见 `TerminalSurface.imeShiftRevealPx`）。 */
+    val revealPx: Float = 0f,
+)
 
 /**
  * 手指滚动增量换算（onScroll 可测核心，同向逻辑）。
  * distanceY 为手势约定（previousY - currentY）：下移为负，进入更早历史（偏移增加）；
  * 上移为正，回到更新内容（偏移减少）。亚行余量累积，整行才移动；边缘钳制并清余量。
+ *
+ * 边界必须先判，且排在亚行早退之前：已在边界（偏移 0 或回滚长度）继续向边界外拖时，
+ * 余量若照常下发，渲染器会把整幅网格按投影亚行平移，边缘露出一条背景空带；等余量
+ * 攒够一整行才被清零，内容又整体弹回一行——即「滑到边界跳动闪烁」。故越界位移一律
+ * 就地丢弃（[ScrollStep.overflowPx]），不经过渲染器。
+ *
+ * 回滚区顶端（[scrollbackLength]）还有一层越界：位移把网格顶部裁在屏幕上边界之外，
+ * 继续上滑时越界位移喂给 [revealPx]，按像素把那段顶部放回屏幕；反向（回到边界内）
+ * 先按同一比例回收显出量再下滚，两个方向都是 1:1。
  *
  * 取整使用截断趋向零（toInt），正/负余量的亚行阈值对称：
  * floor 在负方向过激（-0.9px → -1 行而 +0.9px → 0 行），
@@ -3555,29 +3649,49 @@ internal fun applyScrollDistance(
     cellHeightPx: Float,
     scrollOffset: Int,
     scrollbackLength: Int,
+    revealPx: Float = 0f,
+    revealCapacityPx: Float = 0f,
 ): ScrollStep {
     var accumulator = accumulatorPx - distanceY
     val cellHeight = cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)
+    var reveal = revealPx
+    if (scrollOffset >= scrollbackLength && accumulator < 0f) {
+        // 回到边界内：先 1:1 回收显出量，回收完（余量为 0）才真正下滚。
+        val consumed = minOf(-accumulator, reveal)
+        reveal -= consumed
+        accumulator += consumed
+    }
+    if (accumulator > 0f && scrollOffset >= scrollbackLength) {
+        // 越过回滚区顶端：先按容量显出被位移裁掉的网格顶部，显不出的部分直接丢弃。
+        val room = (revealCapacityPx - reveal).coerceAtLeast(0f)
+        val revealed = minOf(accumulator, room)
+        return ScrollStep(scrollOffset, 0f, accumulator - revealed, reveal + revealed)
+    }
+    if (accumulator < 0f && scrollOffset <= 0) {
+        return ScrollStep(scrollOffset, 0f, overflowPx = accumulator, revealPx = reveal)
+    }
     // 截断趋向零：正/负亚行余量对称，消除 floor 非对称导致的 1 行级漂移
     val rawAmount = (accumulator / cellHeight).toInt()
     if (rawAmount == 0) {
-        return ScrollStep(scrollOffset, accumulator)
+        return ScrollStep(scrollOffset, accumulator, revealPx = reveal)
     }
     val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLength)
     accumulator -= (newOffset - scrollOffset) * cellHeight
     if ((newOffset == 0 && accumulator < 0f) || (newOffset == scrollbackLength && accumulator > 0f)) {
         accumulator = 0f
     }
-    return ScrollStep(newOffset, accumulator)
+    return ScrollStep(newOffset, accumulator, revealPx = reveal)
 }
 
 /**
- * 惯性行速度换算（onFling 可测核心，与拖动同向）。
- * velocityY 为手势约定（像素/秒，下移为正）：下移进入更早历史（正行速度），
- * 上移回到更新内容（负行速度）。行高归一避免除零过速撞边。
+ * 惯性速度交给 [android.widget.OverScroller] 的口径（onFling 可测核心）：**像素/秒原样**。
+ *
+ * 历史实现除以行高换成行/秒，逐帧落点被截成整行，内容只能逐行跳到目的地
+ * （STATUS「上下滑动未实现按像素滚动」）。行内跟随由 [applyScrollDistance] 的亚行
+ * 余量负责，速度这里**不得**再做第二遍行换算——两次换算叠加会同时丢掉像素行程。
+ * 手势约定下移为正，与 [applyScrollDistance] 的 `distanceY` 取负后同向。
  */
-internal fun flingRowsPerSecond(velocityYPxPerSecond: Float, cellHeightPx: Float): Int =
-    (velocityYPxPerSecond / cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)).toInt()
+internal fun flingVelocityPxPerSecond(velocityYPxPerSecond: Float): Int = velocityYPxPerSecond.roundToInt()
 
 /** 缩放手势收敛阈值：小于此差值视为回到锚点，只撤销预览不持久化。 */
 internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f

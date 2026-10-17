@@ -444,7 +444,7 @@ constructor(
             val loCol = minOf(boundsArray[1], boundsArray[3])
             val hiCol = maxOf(boundsArray[1], boundsArray[3])
             // 走拖动途中的专用入口：普通提交会把 dragging 清成 false，
-            // 那正是「保护只存活 50ms」的由来（见 TerminalRuntime 的同名方法）。
+            // 那正是「保护只存活一个推送间隔」的由来（见 TerminalRuntime 的同名方法）。
             runtime.pushSelectionBoundsDuringDrag(loRow, loCol, hiRow, hiCol)
         }
 
@@ -904,9 +904,11 @@ constructor(
     }
 
     companion object {
-        // 手柄拖动期间两次原生 setSelection 推送之间的最小间隔：
-        // 实时高亮节奏（termux 对等）与逐帧 JNI + 重渲染开销之间的取舍。
-        private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 50L
+        // 手柄拖动期间两次原生推送之间的最小间隔：一帧（60Hz），即高亮最多落后
+        // 手指一帧。更长（原先 50ms≈3 帧）在快速拖动时可被看出「不跟手」，
+        // 更短不会更快——notifyRender 会立刻让渲染线程做一次整屏重绘，
+        // 这个间隔正是拖动期间的渲染节奏上限。
+        private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 16L
         private const val TIMEOUT_MILLIS = 5_000L
     }
 
