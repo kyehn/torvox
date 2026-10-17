@@ -21,10 +21,16 @@
         <item name="colorOnSurface">@color/material_color_on_surface</item>
     </style>
     <!-- 系统启动屏：冷启动首帧前显示主题背景而非黑闪，
-         MainActivity.onCreate 内 installSplashScreen 切回本主题。 -->
-    <style name="Theme.Terminal.Splash" parent="Theme.SplashScreen.IconBackground">
+         MainActivity.onCreate 内 installSplashScreen 切回本主题。
+         图标只给前景图形，不给 @mipmap/ic_launcher：平台对
+         windowSplashScreenAnimatedIcon 不做自适应图标的「只取前景」处理，收到
+         自适应图标就照原样连底板整块画出来（完整图案）且四周被 192dp 圆裁掉；
+         收到非自适应图形时才把它放大 1.5 倍画在 windowSplashScreenBackground 上，
+         与 Android 13 默认的「图标 + 底色」启动屏一致。父主题用 Theme.SplashScreen
+         （不声明 windowSplashScreenIconBackgroundColor，图标后不加圆形底板）。 -->
+    <style name="Theme.Terminal.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#1E1E2E</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/launcher_foreground</item>
         <item name="windowSplashScreenAnimationDuration">300</item>
         <item name="postSplashScreenTheme">@style/Theme.Terminal</item>
     </style>
