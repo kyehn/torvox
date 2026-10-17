@@ -133,7 +133,7 @@ dependencies {
   ksp("com.google.dagger:hilt-android-compiler:2.60.1")
   implementation("androidx.hilt:hilt-navigation-compose:1.4.0")
 
-  implementation("androidx.datastore:datastore-preferences:1.3.0-alpha11")
+  implementation("androidx.datastore:datastore-preferences:1.3.0-rc01")
 
   implementation("com.squareup.okhttp3:okhttp:5.5.0")
   testImplementation("com.squareup.okhttp3:mockwebserver3:5.5.0")
@@ -173,7 +173,7 @@ dependencies {
   androidTestImplementation("com.google.dagger:hilt-android-testing:2.60.1")
   kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60.1")
 
-  androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
+  androidTestImplementation("io.cucumber:cucumber-android:7.19.0")
 
   baselineProfile(project(":baselineprofile"))
 }
