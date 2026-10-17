@@ -45,6 +45,8 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun cursorViewportPacked(): Long = NativeBridge.getCursorViewportPacked(sessionIdProvider())
 
+    fun renderedCursorPacked(): Long = NativeBridge.getRenderedCursorPacked(sessionIdProvider())
+
     fun searchSetNeedle(needle: String): Int = NativeBridge.searchSetNeedle(sessionIdProvider(), needle)
 
     fun searchSelect(forward: Boolean): SearchSelection? =

@@ -52,11 +52,15 @@ class FontFileOverrideInstrumentedTest : TerminalLogcatTest() {
         assertTrue("会话创建失败", sessionId != 0L)
         try {
             NativeBridge.switchSession(sessionId)
+            // 基线 MUST 在 `loadFontFile` **之前**取：该导出当场就把面换上并重建管线
+            // （`rebuild_font_pipeline` + `set_font_family`），之后再取拿到的已经是
+            // font.ttf 的字体——「等宽翻转为假」「单元格度量变化」两条判据会恒假，
+            // 用例永远红（CI 上正是这条先炸的）。
+            val default =
+                checkNotNull(FontInfo.fromPacked(checkNotNull(NativeBridge.getFontInfo())))
             val family = NativeBridge.loadFontFile(sessionId, fontFile.absolutePath)
             assertNotNull("用户字体文件必须可解析出族名", family)
 
-            val default =
-                checkNotNull(FontInfo.fromPacked(checkNotNull(NativeBridge.getFontInfo())))
             // setFontFamily 的入参不重要：font.ttf 存在时探测路径优先应用该文件。
             val applied = bridge.setFontFamily("")
             assertEquals("探测路径必须成功应用 font.ttf", true, applied)
@@ -64,7 +68,7 @@ class FontFileOverrideInstrumentedTest : TerminalLogcatTest() {
             val info = FontInfo.fromPacked(checkNotNull(NativeBridge.getFontInfo()))
             assertEquals("上报的主字体必须是 font.ttf 的族", family, info.activeName)
             assertTrue(
-                "Roboto 为比例字体：主字体切换后等宽标记必须翻转为假",
+                "Roboto 为比例字体：主字体切换后等宽标记必须翻转为假（默认=$default，切换后=$info）",
                 default.activeMonospaced && !info.activeMonospaced,
             )
             assertTrue(

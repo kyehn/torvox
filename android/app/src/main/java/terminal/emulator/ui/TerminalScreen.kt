@@ -683,7 +683,8 @@ fun TerminalScreen(
                                 }
                             },
                             resultCount = searchState.resultCount,
-                            currentResultIndex = searchState.currentIndex,
+                            // 只有按过上一个/下一个才有选中命中：未选中时报当前序号是假话。
+                            currentResultIndex = searchState.currentIndex.takeIf { searchState.selectedMatch != null },
                             onPrevious = {
                                 if (searchState.hasResults) {
                                     scope.launch { selectSearchMatch(forward = false) }

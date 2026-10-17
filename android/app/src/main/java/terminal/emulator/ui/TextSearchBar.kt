@@ -47,7 +47,7 @@ fun TextSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     resultCount: Int,
-    currentResultIndex: Int,
+    currentResultIndex: Int?,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onClose: () -> Unit,
@@ -92,7 +92,7 @@ fun TextSearchBar(
 }
 
 @Composable
-private fun SearchResultCounter(query: String, resultCount: Int, currentResultIndex: Int) {
+private fun SearchResultCounter(query: String, resultCount: Int, currentResultIndex: Int?) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Spacer(modifier = Modifier.width(4.dp))
         if (query.isNotEmpty()) {
@@ -100,6 +100,9 @@ private fun SearchResultCounter(query: String, resultCount: Int, currentResultIn
                 text =
                 if (resultCount == 0) {
                     stringResource(R.string.search_no_results)
+                } else if (currentResultIndex == null) {
+                    // 还没按过上一个/下一个：上游此刻没有选中命中，报「第 1 个」是假话。
+                    stringResource(R.string.search_results_total, resultCount)
                 } else {
                     stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
                 },
