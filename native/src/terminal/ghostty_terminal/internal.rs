@@ -1206,6 +1206,12 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
+                    Command::Repaint => {
+                        // 显式重推：内容可能与上次推送逐字节相同（切会话时终端本身毫无
+                        // 变化），去重基线必须一并失效，否则这次请求被吞掉。
+                        last_cell_data_push = None;
+                        batch_dirty = true;
+                    }
                     Command::Reset => {
                         // RIS 全重置：恢复初始状态并清空回滚；全部帧缓存失效。
                         // 显式清除终端持有的活动选区（幂等，不依赖上游副作用）。

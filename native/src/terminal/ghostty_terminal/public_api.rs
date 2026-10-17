@@ -279,6 +279,14 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 请求按当前状态重推一帧 CellData，不作任何状态改变。内容去重对显式请求不适用，
+    /// 故去重基线在 VT 线程上被失效，帧必定到达（通道满时仍会丢弃本请求）。
+    pub fn request_repaint(&self) {
+        if let Err(error) = self.cmd_tx.try_send(Command::Repaint) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for repaint: {error}");
+        }
+    }
+
     /// 安装终端持有的线性活动选区（跟踪引用，随滚动/输出/重排跟随文本）。
     /// 坐标为绝对网格行（0 = 回滚顶部）与列。
     /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。

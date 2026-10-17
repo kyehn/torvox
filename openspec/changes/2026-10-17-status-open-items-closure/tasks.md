@@ -453,6 +453,7 @@
 | 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
 | 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（新增 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
 | 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏只画图标不用完整图案」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
+| 14 | 切会话后屏幕停在旧会话（不在 STATUS 行序，属第二条残根） | native `request_repaint_pushes_frame_with_unchanged_content` | `render-stability`「切换会话后呈现新会话的整幅内容」 | 真机：无输入 441ms 内整幅一帧，截屏 0/20 带差异（对旧会话）/ 11/20（对另一会话） |
 | CI | `run 38888880442` 两条失败 | `FontFileOverrideInstrumentedTest`（基线读晚了）、`BehaviorInstrumentedTest`（重试梯子隐藏错误） | 见十三节 | 本机复跑各 `failures="0"`，非 CI 抖动而是用例前提/错误处理问题 |
 
       汇总：13 条验收口径全部有可运行检查与 spec 落点；两处仍是真机/CI 依赖
@@ -490,3 +491,43 @@
       （多组「类#方法」逗号拼接）**不匹配任何用例**，任务照样 `BUILD SUCCESSFUL` 且报
       `tests="0"`。甄别时按每个用例单跑，并核对 JUnit XML 的 `tests="N"` 而不是只看
       Gradle 的退出码。
+
+## 十四、会话切换后屏幕停在上一个会话的像素上（本轮真机新复现）
+
+第二条（点击会话列表项无法切换会话）此前被判「已修」，本轮按「屏幕像素」而不是
+「日志行」重新验收时复现：切换确实发生了（会话对象、活动 id、渲染线程都换了），
+但**画面**在无输入时一直停在旧会话上。
+
+- [x] 判别性实验（修复前，同一配方仅 `.so` 不同）：两条会话分别输出 `seq 1 30`
+      与 `seq 100 130`；打开抽屉点另一行后**不输入任何东西**，日志只有
+      `switched to session 1` 与 `initial render for session 1 result=0`，
+      此后 25 秒里全是 `SLOW_FRAME … count=0 newOutput=false`（空闲帧），
+      截屏仍是另一条会话的内容；碰巧敲一个键才整幅刷新。
+- [x] 定根因：渲染态 `last_frame` 记着产出该缓存帧的会话（`ffi.rs`），空闲路径发现
+      它不属于当前会话就 `return 0` —— 这个守卫本身是对的（防止把旧会话网格画到新
+      会话），但**既不请求重推也不报错**：目标会话若无新 VT 输出就永远不推帧，
+      于是「切了会话」与「屏幕换了」之间没有任何机制把它们绑在一起。
+      同一轮的日志判据掩盖了它：`initialRenderRetryNeeded` 只把 `< 0` 当失败，
+      而 `0` 的真实语义是「本帧什么都没画」，因此 `result=0` 被记成成功。
+- [x] 修在共用点（渲染路径，而不是切会话那一条路径）：`render_inner` 阶段 0 发现缓存帧
+      会话与当前会话不一致时，按 注册表 → 会话 的锁序取句柄并 `try_send`
+      `Command::Repaint`；该命令零终端状态改动，只失效内容去重基线
+      （`last_cell_data_push = None`）并按当前状态重推一帧——切会话时终端逐字节没变，
+      不去掉去重基线这次请求就会被吞掉。下一帧即 `FrameData::New`，阶段 3 对会话变化走
+      `_ => fill(true)`，整幅重画。`a399fc23` 起 VT 线程按 `VT_IDLE_TICK_MS` 自唤醒，
+      该命令不再依赖任何外部事件。
+- [x] 检查：`request_repaint_pushes_frame_with_unchanged_content`
+      （内容与上次推送逐字节相同时，重推必须产生帧）。红证明：临时去掉那行去重失效，
+      用例 2.02s 超时失败；恢复后通过。
+- [x] 真机复验（同一配方，仅换新 `.so`）：两条会话分别 `seq 1 30` / `seq 100 130`，
+      切回后不输入任何东西 —— `18:18:13.990 initial render … result=0` →
+      `18:18:14.434 render_frame: presented 2160 instances (partial=true, bands=1)`
+      （2160 = 45×48 全部单元，落在一条连续脏带即整幅；`bands=1` 是全脏掩码经
+      `compute_dirty_bands` 合并的结果，不是「只重绘一行」）。
+      截屏逐带比较：与切换前该会话 `0/20` 带有差异、与另一会话 `11/20` 带有差异；
+      反向切换（1 → 2）同样 `0/20` 与 `11/20`。
+- [x] 顺带纠一处「看起来在跑其实是空转」的兜底：`initialRenderRetryNeeded` 的注释称其为
+      「surface 尚未就绪时重试」，而该场景返回 `0`、判定为成功，梯子永不触发。改为按
+      实际语义注释（只接硬失败；surface 未就绪的帧留在通道里由后续帧取走），不改行为。
+- [x] spec 落点：`openspec/specs/render-stability/spec.md` 新增
+      「切换会话后呈现新会话的整幅内容」Requirement 与三条 Scenario。

@@ -12,25 +12,53 @@
 
 ## What Changes
 
-严格串行，每条一次提交；每条在本变更 `tasks.md` 留下实测证据，不虚记。
+严格串行，逐条收敛；每条一次提交，每条在本变更 `tasks.md` 留下当次 HEAD 的实测证据，
+不虚记。条目与验收口径以 `tasks.md` 为准（它随每轮实测更新），本文件只保留方向。
 
-1. **Shell 启动前偶发黑屏**（`native/target/logcat-1.txt`）：首帧前
-   `applySurfaceResize: surface not valid yet, deferring` 与
-   `initialize_pipeline_and_bind_group` 的先后关系、以及
-   `E/SurfaceSyncer: Failed to find sync for id=N` 是本条唯一的实测线索，
-   逐条排除后给出结论。
-2. **文档提供者三项**（**已落地**）：详见下节。
-3. **会话 `exit 0` 后不关闭会话/应用**：与 `termux-app` 行为对照，
-   确认是设计选择还是漏实现，落在会话生命周期。
-4. **会话列表项未显示会话标题**：会话标题已在会话模型里，列表项没取。
-5. **搜索命中无高亮、关闭搜索后反色不消失**：命中区间与反色状态的清理时机。
-6. **简体中文退格缓慢**：中文 IME 退格一次删除一个组合单元时的输入路径。
-7. **文本选择跨行有空隙、卡顿、不跟手**：选择坐标的取整与节流。
-8. **输入法弹出时上滑到不了顶部**：`TESTING.md:36-38` 已写明验收口径
-   （弹出时内容上移且底部像素不动、无闪烁撕裂卡顿）。
-9. **滑动到边界跳动/闪烁**：回滚缓冲边界处的重绘。
-10. **滑动未按像素滚动**：滚动手势与滚动位置的换算。
-11. **启动动画用图标而非完整图案**：`DESIGN.md` 对启动画面的约定。
+- STATUS 前 11 条按行序落在 `tasks.md` 的一…十一节，逐条给出根因、代码落点、
+  可运行检查与 `openspec/specs/*` 的对应 Requirement。
+- 十二节收尾：逐条核对验收口径、检查是否可运行、证据是否可复现。
+- 十三节是本轮 CI 定时跑（`run 38888880442`）里与 STATUS 无关的两条失败用例。
+- 十四节是本轮真机验证时**新复现**的缺陷（会话切换后屏幕停在上一个会话的像素上）：
+  它不在 `STATUS.md` 的行序里，但属于第二条「点击会话列表项无法切换会话」的残根，
+  按同一口径收口。
+
+## 为什么此前多轮都「修了还是复现」
+
+这一问的答案不在某一行代码，而在**每一轮是怎么判定「修好了」的**。逐条都有本仓实例：
+
+1. **验收信号是日志行，不是屏幕像素**。切会话那条最后一次真机验证里
+   `switched to session 1`、`initial render for session 1 result=0`、`session 1 first render OK`
+   三行齐备，看起来成功；而 `result == 0` 的真实语义是「本帧什么都没画」
+   （`initialRenderRetryNeeded` 只把 `result < 0` 当失败，`0` 被判成功），屏幕上
+   是上一个会话的像素，实测持续 25 秒直到碰巧有输入。→ 判别性实验必须落在可观测状态上。
+2. **在症状处打补丁，而不是在共用函数里挡一次**。同一族缺陷的两种表现：
+   搜索高亮按会话键控修在 `SessionScoped`（共用点，正确），而「切会话后整幅不重绘」
+   在渲染路径被一个一致性守卫静默丢弃（空闲帧发现缓存帧属于别的会话就 `return 0`），
+   既不请求重推也不报错——症状于是换条路径原样回来。
+3. **改错层**。「路径已存在」修在 `create`/`uniqueChild`，而谎报来自存在性探测与创建
+   的口径不一致；中文 IME 退格慢修在 `setComposingText`/`reportComposingCursorAnchor`
+   的查询上，而退格实际走 `sendKeyEvent(KEYCODE_DEL)` → `onKeyDown` → `processKeyEvent`
+   → `encodeKeyEvent`，两条路径毫无交集，于是「优化过还是慢」。
+4. **测试证据被上一轮的产物污染**。调试期 `println` 撞上 Kotlin `-Werror` 编译失败，
+   而 `app/build/test-results/**` 留着上一次的 JUnit XML，失败被误读给旧用例。
+   → 每次 `rm -rf app/build/test-results app/build/reports/tests`，只认控制台输出。
+5. **记上门禁绿、而当时的 HEAD 是红的**。`tasks.md` 里一句「`./gradlew … BUILD SUCCESSFUL`」
+   取自更早一次运行，同一 HEAD 上 `spotlessKotlinCheck` 实为失败。→ 证据带 HEAD 与命令原文。
+6. **装机跑的不是刚编出来的那份二进制**。`libnative.so` 由
+   `nix develop --command nu scripts/build-android-libs.nu` 产出后复制进 `jniLibs/`，
+   而 `:app:assembleDebug` **不**触发 Rust 构建；`jniLibs/` 为空时 APK 里干脆没有 `.so`，
+   启动即 `UnsatisfiedLinkError`。拿旧 `.so` 的行为判「改了没用」，是「修了仍复现」的常见来源。
+7. **把「复用」当默认前提**。`attach_surface` 曾无条件复用已有 surface，窗口换了还画到
+   已失效的 `ANativeWindow` 上（`f8154d42` 修）；「窗口没变」当时没有任何实验支撑，
+   只因为 `Surface` 对象被复用就被当成同一窗口。
+8. **没有复现样本却反复收口**。文档提供者的「保存修改文件超时」至今没有带客户端名的
+   日志，多轮里被「顺手再改一次」，改的都是已有单测覆盖的写回通道。无样本时登记缺口、
+   停止改动，比继续猜便宜。
+9. **待办清单与代码库不同步**。这 11 条只存在于 `docs/STATUS.md`（禁改区），代码侧没有
+   spec、没有可运行检查；每轮都从现象重查，上一轮已确认的结论（例如窗口复用的实测）
+   不落在任何检查里，下一轮重新踩。本变更把每条落到 `openspec/specs` + 一个可运行检查，
+   正是为了让下一轮不必再从头查。
 
 ### 第 2 条的落点
 

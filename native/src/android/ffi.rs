@@ -1886,7 +1886,34 @@ mod search_highlight_repaint_tests {
     }
 }
 
+/// 取会话句柄并请求其重推一帧。会话不存在时为 false。
+///
+/// 锁序：注册表 → 会话，且在**不持有** RENDER_STATE 时调用（见下方调用点）。
+fn request_session_repaint(session_id: u64) -> bool {
+    session_handle(session_id)
+        .map(|session| session.lock().terminal().request_repaint())
+        .is_some()
+}
+
 fn render_inner(session_id: u64) -> jint {
+    // ── 阶段 0：切会话后索要一帧 ────────────────────────────────────────
+    // 累加器里是上一个会话的像素，而 `last_frame` 缓存也属于它：阶段 3 的空闲路径
+    // 会因会话不一致而拒绘（防止把旧会话网格画到新会话），目标会话若无新输出就
+    // 永远不推帧——屏幕一直停在旧会话内容上，直到碰巧有输入（实测切换后 25s 未变）。
+    // 故此处按当前会话索要一次重推：内容去重在 VT 线程上被失效，下一帧即为
+    // `FrameData::New`，阶段 3 对会话变化的 `_ => fill(true)` 分支整幅重画。
+    // 只读一次 RENDER_STATE 并立即释放，随后才按注册表 → 会话的锁序取句柄。
+    let cached_frame_session = {
+        let state = render_state_mut();
+        state
+            .as_ref()
+            .and_then(|render_state| render_state.last_frame.as_ref())
+            .map(|(_, _, _, _, cached_session)| *cached_session)
+    };
+    if cached_frame_session.is_some_and(|cached_session| cached_session != session_id) {
+        request_session_repaint(session_id);
+    }
+
     // ── 阶段 1：渲染前准备（单次持有 RENDER_STATE 锁）───────────────────
     // 检查 surface 就绪状态、上传图集脏区、惰性创建管线——全部在**一次**加锁内完成
     // 而非原先的三次，使每帧的 RENDER_STATE 加锁往返从 3 次降到 2 次（第二次在阶段 3）。
