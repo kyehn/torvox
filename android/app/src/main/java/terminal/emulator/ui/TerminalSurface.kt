@@ -2581,6 +2581,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var longPressStartY = 0f
 
     /**
+     * 长按后是否已越过触摸阈值，转入真正的拖动扩选。
+     *
+     * 长按选词后手指的微动（长按自身的抖动，真机上必然出现）不该改写刚选出的词：
+     * 越过阈值前 ACTION_MOVE 一律不动选区。少了这道守卫，1px 位移就把
+     * `(1,6)-(1,10)` 的整词塌缩成 `(1,6)-(1,7)`，菜单随选区重锚，
+     * 用户点下去的一瞬正好点空——表象即「所有菜单按钮失效、点一下菜单自己消失」。
+     */
+    private var longPressDragStarted = false
+
+    /**
      * 本次手势是否已把拖动转发为滚轮（见 onScroll）：转发过的手势其惯性段
      * 同样属于应用，onFling 只吞不滚，绝不让本地回滚接管（见 onFling）。
      * 手势开始时在 onDown 重置。
@@ -2814,6 +2824,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
                 isAfterLongPress = true
                 longPressDragging = true
+                longPressDragStarted = false
                 longPressStartX = event.x
                 longPressStartY = event.y
                 handleLongPress(event.x, event.y)
@@ -3392,18 +3403,30 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         driveHandleDragMove(touchX, touchY)
                     }
                 } else if (longPressDragging && isSelectingText) {
-                    val col = pixelToCell(event.x, cellWidth, cols)
-                    val row = pixelToCell(event.y, cellHeight, rows)
-                    val gridRow = currentViewportTopGrid() + row
-                    viewModel?.updateSelection(gridRow, col)
-                    val sel = viewModel?.state?.value?.selection
-                    if (sel?.start != null && sel.end != null) {
-                        // 重定位而非重建：showSelectionHandles 会 dismiss 并重建
-                        // 2 个 PopupWindow（4 次 WindowManager IPC + 分配）
-                        // ——在 60-120Hz 的 ACTION_MOVE 下是必然掉帧的来源。
-                        // repositionHandle 改用 PopupWindow.update（进程内）。
-                        selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
-                        selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
+                    // 长按自身的抖动不算拖动：越过触摸阈值前一律不动刚选出的词。
+                    // 少了这道守卫，1px 位移就把整词选区塌缩成单格（实测
+                    // `(1,6)-(1,10)` → `(1,6)-(1,7)`），菜单随选区重锚走位，
+                    // 用户点下去的一瞬正好点空——表象即「菜单按钮全部失效」。
+                    if (!longPressDragStarted) {
+                        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                        val dx = event.x - longPressStartX
+                        val dy = event.y - longPressStartY
+                        longPressDragStarted = dx * dx + dy * dy > slop * slop
+                    }
+                    if (longPressDragStarted) {
+                        val col = pixelToCell(event.x, cellWidth, cols)
+                        val row = pixelToCell(event.y, cellHeight, rows)
+                        val gridRow = currentViewportTopGrid() + row
+                        viewModel?.updateSelection(gridRow, col)
+                        val sel = viewModel?.state?.value?.selection
+                        if (sel?.start != null && sel.end != null) {
+                            // 重定位而非重建：showSelectionHandles 会 dismiss 并重建
+                            // 2 个 PopupWindow（4 次 WindowManager IPC + 分配）
+                            // ——在 60-120Hz 的 ACTION_MOVE 下是必然掉帧的来源。
+                            // repositionHandle 改用 PopupWindow.update（进程内）。
+                            selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
+                            selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
+                        }
                     }
                 }
             }
