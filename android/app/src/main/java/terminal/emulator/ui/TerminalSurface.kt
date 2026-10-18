@@ -37,7 +37,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
-import terminal.emulator.SelectionAnchor
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.input.BatchEditDepth
 import terminal.emulator.input.ComposingBaseline
@@ -171,26 +170,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private var selectionMenuPopup: PopupWindow? = null
 
+    /** 菜单条视图，与 [selectionMenuPopup] 同生命周期（原地换条目时复用，见 [showSelectionMenu]）。 */
+    private var selectionMenuBar: android.widget.LinearLayout? = null
+
     /**
-     * 已显示的那份菜单的身份：五项全同即菜单内容与锚点都不会变，[showSelectionMenu]
-     * 只挪锚点、不重建。原先每次 show 都无条件 dismiss + 重建，窗口与其中的视图实例
-     * 被换掉，用户在「按钮已解析出来」与「手指落下」之间那几帧点到的就是被丢弃的旧
-     * 实例——现象是点复制/粘贴没反应、菜单自己消失（实测：点击前 0.5s 有一次
-     * showSelectionMenu 触发的重建）。
+     * 菜单窗口里已建好的条目文案。条目集不变就什么都不动；变了（例如剪贴板由空变
+     * 非空、PASTE 因此出现）也只原地换条目——窗口本身一次选区会话只创建一次。
      *
      * 复用前必须确认窗口还活着：平台直接移除弹窗（父视图窗口令牌变化）不会走
      * [hideSelectionMenu]，此时 `isShowing` 仍为 true，只看它就会把菜单永久留在
      * 一个已消失的窗口上（`contentView.isAttachedToWindow` 是可靠的存活判据）。
      */
-    private var shownMenuIdentity: MenuIdentity? = null
-
-    private data class MenuIdentity(
-        val start: SelectionAnchor?,
-        val end: SelectionAnchor?,
-        val pasteOnly: Boolean,
-        val selectedText: String,
-        val pasteEnabled: Boolean,
-    )
+    private var shownMenuLabels: List<String>? = null
 
     /**
      * 选区上下文菜单，以 [PopupWindow] 实现（与选区手柄相同的独立系统窗口模式）：
@@ -203,42 +194,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 使失效的 PASTE 动作永不出现（即「PASTE 按钮始终显示」这一反馈）。
      * 关闭沿用既有的选区状态流：点击外部会抵达终端并清除选区，
      * TerminalScreen 的 LaunchedEffect 随即调用 [hideSelectionMenu]。
+     *
+     * **窗口一次选区会话只创建一次**：此后状态怎么变都原地更新（[PopupWindow.update]
+     * 挪锚点、[fillMenuBar] 换条目）。此前每次 show 都 dismiss + 重建，旧窗口已从窗口
+     * 管理器消失、新窗口还没挂上，中间几百毫秒里触摸落到下层——铺满整个表面的手柄
+     * 覆盖层，再转发给终端并清掉选区。用户看到的就是「所有菜单按钮无效、点一下菜单
+     * 自己消失」（实测：点击前 0.5s 有一次 showSelectionMenu 触发的重建）。
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
-        // 手柄覆盖层不因菜单显示而收起：覆盖层只在柄位矩形内消费触摸、其余转发给表面，
-        // 而菜单是后开的子窗口，落在条目上的触摸由它自己收。抓柄时 latchDragAnchor
-        // 收起菜单、抬手由 finishHandleDrag 重锚重显——此处若顺手收起覆盖层，那条路径
-        // 就成了死代码，长按选词之后再也没法拖柄扩选。
+        // 覆盖层不因菜单显示而收起：它只在柄位矩形内消费触摸、其余转发给表面，
+        // 抓柄时 latchDragAnchor 收起菜单、抬手由 finishHandleDrag 重锚重显——
+        // 若顺手收起覆盖层，那条路径就成了死代码，长按选词之后再也没法拖柄扩选。
+        // 两者叠放不靠创建先后：覆盖层用 TYPE_APPLICATION_PANEL、菜单用
+        // TYPE_APPLICATION_SUB_PANEL，层号高者恒在上，覆盖层重建也压不住菜单。
         val selection = viewModel?.state?.value?.selection
-        val pasteEnabledNow = clipboardAccess.hasClipboardText()
-        val identity =
-            selection?.let {
-                MenuIdentity(it.start, it.end, pasteOnly, it.selectedText, pasteEnabledNow)
-            }
-        val existing = selectionMenuPopup
-        if (selection != null &&
-            identity != null &&
-            identity == shownMenuIdentity &&
-            existing?.isShowing == true &&
-            existing.contentView.isAttachedToWindow
-        ) {
-            menuAnchor(selection)?.let { anchor ->
-                val loc = IntArray(2)
-                getLocationInWindow(loc)
-                existing.update(
-                    loc[0] + anchor.first,
-                    loc[1] + anchor.second,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                )
-            }
-            return
-        }
-        hideSelectionMenu("showSelectionMenu", restoreHandles = false)
-        if (!isAttachedToWindow) {
-            LogUtil.w(TAG, "菜单跳过：未附着")
-            return
-        }
         if (selection == null) {
             LogUtil.w(TAG, "菜单跳过：视图模型为空")
             return
@@ -251,9 +220,45 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // → SelectionManager.resolvedSelectionText）。空文本的选区不再挂出「复制/分享」：
         // 点下去只会静默返回，用户看到的是「按钮无效」，而这与「按不动」无法区分。
         val hasCopyableText = viewModel?.selectionTextForAction()?.isNotEmpty() == true
-        val actions = menuActionsForSelection(pasteOnly, pasteEnabledNow, hasCopyableText)
+        val actions =
+            menuActionsForSelection(pasteOnly, clipboardAccess.hasClipboardText(), hasCopyableText)
         if (actions.isEmpty()) {
             LogUtil.d(TAG, "菜单跳过：无动作")
+            return
+        }
+        val anchor = menuAnchor(selection)
+        if (anchor == null) {
+            LogUtil.d(TAG, "菜单跳过：无处安放")
+            return
+        }
+        val loc = IntArray(2)
+        getLocationInWindow(loc)
+        val existing = selectionMenuPopup
+        val existingBar = selectionMenuBar
+        if (existing != null &&
+            existingBar != null &&
+            existing.isShowing &&
+            existing.contentView.isAttachedToWindow
+        ) {
+            val labels = actions.map { it.first }
+            if (labels != shownMenuLabels) fillMenuBar(existingBar, actions)
+            shownMenuLabels = labels
+            existing.update(
+                loc[0] + anchor.first,
+                loc[1] + anchor.second,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            LogUtil.d(
+                TAG,
+                "菜单原地更新：at=(${loc[0] + anchor.first},${loc[1] + anchor.second}) labels=$labels",
+            )
+            return
+        }
+        // 旧窗口已不在（平台移除或已 dismiss）：清掉引用再重建。
+        hideSelectionMenu("showSelectionMenu", restoreHandles = false)
+        if (!isAttachedToWindow) {
+            LogUtil.w(TAG, "菜单跳过：未附着")
             return
         }
         val bar = buildMenuBar(actions)
@@ -272,19 +277,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
                     )
                 }
-        val anchor = menuAnchor(selection)
-        if (anchor == null) {
-            LogUtil.d(TAG, "菜单跳过：无处安放")
-            return
-        }
-        val loc = IntArray(2)
-        getLocationInWindow(loc)
         try {
             // 本回调只在**我们**调用 dismiss() 时触发。平台直接移除弹窗窗口
             // （父视图窗口令牌变化/销毁）不会走到这里——两者是否成对出现，
             // 是区分「应用主动关菜单」与「平台把窗口收走」的唯一依据。
             popup.setOnDismissListener { LogUtil.d(TAG, "选区菜单 dismiss() 已执行（应用侧主动关闭）") }
             popup.showAtLocation(this@TerminalSurface, 0, loc[0] + anchor.first, loc[1] + anchor.second)
+            LogUtil.d(
+                TAG,
+                "菜单显示：at=(${loc[0] + anchor.first},${loc[1] + anchor.second}) " +
+                    "pasteOnly=$pasteOnly actions=${actions.size}",
+            )
         } catch (exception: Exception) {
             // Activity 在检查与显示之间被 detach——与选区手柄同一守卫；
             // 弹窗从未变为可见。
@@ -292,7 +295,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             return
         }
         selectionMenuPopup = popup
-        shownMenuIdentity = identity
+        selectionMenuBar = bar
+        shownMenuLabels = actions.map { it.first }
     }
 
     /** 选区可用菜单项：对标 termux 语义（COPY | SHARE | SELECT ALL | OPEN LINK，剪贴板有文本时提供 PASTE）。
@@ -385,39 +389,46 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /** 深色胶囊工具栏，每个动作用一个可点击标签承载。 */
+    /**
+     * 深色胶囊工具栏，每个动作用一个可点击标签承载（创建窗口时用；
+     * 已在屏幕上的菜单原地换条目走 [fillMenuBar]）。
+     */
     private fun buildMenuBar(actions: List<Pair<String, () -> Unit>>): android.widget.LinearLayout {
+        val bar = android.widget.LinearLayout(context)
+        fillMenuBar(bar, actions)
+        return bar
+    }
+
+    /** 把 [actions] 装进 [bar]：先清空再重建按钮，窗口与背景复用（见 [showSelectionMenu]）。 */
+    private fun fillMenuBar(bar: android.widget.LinearLayout, actions: List<Pair<String, () -> Unit>>) {
         val density = resources.displayMetrics.density
         fun densityPixels(value: Int): Int = (value * density + HALF_PIXEL_OFFSET).toInt()
-        val bar =
-            android.widget.LinearLayout(context).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                val backgroundDrawable = android.graphics.drawable.GradientDrawable()
-                backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
-                backgroundDrawable.cornerRadius = densityPixels(MENU_BAR_CORNER_RADIUS_DP).toFloat()
-                background = backgroundDrawable
-                elevation = densityPixels(MENU_ELEVATION_DP).toFloat()
-                for ((label, action) in actions) {
-                    val item =
-                        android.widget.TextView(context).apply {
-                            text = label
-                            setTextColor(resolveThemeColor(R.attr.colorOnSurface, R.color.material_color_on_surface))
-                            textSize = MENU_ITEM_TEXT_SIZE_SP
-                            val horizontalPadding = densityPixels(MENU_ITEM_HORIZONTAL_PADDING_DP)
-                            setPadding(
-                                horizontalPadding,
-                                densityPixels(MENU_ITEM_VERTICAL_PADDING_DP),
-                                horizontalPadding,
-                                densityPixels(MENU_ITEM_VERTICAL_PADDING_DP),
-                            )
-                            isClickable = true
-                            isFocusable = false
-                            setOnClickListener { action() }
-                        }
-                    addView(item)
+        bar.orientation = android.widget.LinearLayout.HORIZONTAL
+        val backgroundDrawable = android.graphics.drawable.GradientDrawable()
+        backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
+        backgroundDrawable.cornerRadius = densityPixels(MENU_BAR_CORNER_RADIUS_DP).toFloat()
+        bar.background = backgroundDrawable
+        bar.elevation = densityPixels(MENU_ELEVATION_DP).toFloat()
+        bar.removeAllViews()
+        for ((label, action) in actions) {
+            val item =
+                android.widget.TextView(context).apply {
+                    text = label
+                    setTextColor(resolveThemeColor(R.attr.colorOnSurface, R.color.material_color_on_surface))
+                    textSize = MENU_ITEM_TEXT_SIZE_SP
+                    val horizontalPadding = densityPixels(MENU_ITEM_HORIZONTAL_PADDING_DP)
+                    setPadding(
+                        horizontalPadding,
+                        densityPixels(MENU_ITEM_VERTICAL_PADDING_DP),
+                        horizontalPadding,
+                        densityPixels(MENU_ITEM_VERTICAL_PADDING_DP),
+                    )
+                    isClickable = true
+                    isFocusable = false
+                    setOnClickListener { action() }
                 }
-            }
-        return bar
+            bar.addView(item)
+        }
     }
 
     /**
@@ -485,13 +496,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 状态流重锚），无此参数时菜单意外消失只能靠猜。
      *
      * [restoreHandles] 为 false 时不动手柄覆盖层——只给「关掉是为了马上重开菜单」的
-     * 调用点用（见 [showSelectionMenu]：菜单期间手柄必须让位），否则关闭菜单后按
-     * 当前选区恢复手柄。
+     * 调用点用（见 [showSelectionMenu]），否则关闭菜单后按当前选区恢复手柄。
      */
     fun hideSelectionMenu(reason: String, restoreHandles: Boolean = true) {
         val popup = selectionMenuPopup
         selectionMenuPopup = null
-        shownMenuIdentity = null
+        selectionMenuBar = null
+        shownMenuLabels = null
         if (popup == null) return
         // 记下消失瞬间的选区状态：菜单的关闭完全由选区状态流驱动，
         // 而 dismiss 的调用点有四条（detach／抓柄／IME 切换／非手柄轻击），
@@ -1302,7 +1313,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     isClippingEnabled = false
                     setBackgroundDrawable(null)
                     setAnimationStyle(0)
-                    setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL)
+                    // TYPE_APPLICATION_PANEL 而非 SUB_PANEL：覆盖层与选区菜单同在一个
+                    // 选区会话里重建/创建，层号必须把次序钉死——PANEL(1001) 低于
+                    // SUB_PANEL(1002)，菜单恒在覆盖层之上。两者同类型时按添加顺序叠加，
+                    // 覆盖层每次重建都晚于菜单，会把菜单压住：菜单被压住时落在条目上的
+                    // 点击穿透到终端、被当成「柄位外的轻击」清掉选区（现象：所有菜单
+                    // 按钮失效、点击菜单消失）。
+                    setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL)
                     isSplitTouchEnabled = false
                     // focusable=false 使键盘输入继续流向终端，
                     // 同时覆盖层消费其边界内的触摸（由 dispatchTouchEvent 路由）。
@@ -2208,6 +2225,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var dragAnchorCol = 0
 
     /**
+     * 鼠标上报中的 TUI（yazi 等）轻点即左键单击：经 Ghostty 鼠标编码器把
+     * 按下/抬起各编码一次写入 PTY。编码器在应用未启用鼠标上报时返回 false
+     * 且不写 PTY（见 Bridge.encodeMouseEvent），此时返回 false 让轻点照常
+     * 走链接/选区/焦点路径；两次编码间会话被重建时可能只送出按下，与
+     * termux TerminalView.onUp 的行为一致——远端由自己的超时兜底。
+     */
+    private fun encodeMouseTap(event: MotionEvent): Boolean {
+        val runtime = viewModel?.runtime ?: return false
+        val bridge = runtime.bridge() ?: return false
+        val modifiers = KeyModifiers.ghosttyMods(event.metaState)
+        val cellWidth = runtime.cellWidth
+        val cellHeight = runtime.cellHeight
+        val press = bridge.encodeMouseEvent(event.x, event.y, 0, 0, modifiers, cellWidth, cellHeight)
+        if (!press) {
+            return false
+        }
+        bridge.encodeMouseEvent(event.x, event.y, 1, 0, modifiers, cellWidth, cellHeight)
+        return true
+    }
+
+    /**
      * 在视口像素 (px, py) 处打开 OSC 8 超链接（若有）。对标 termux 的
      * TerminalView.openLinkAt：经 cellWidth/cellHeight 完成像素→单元格映射，
      * 再查询原生超链接 URI 并启动系统处理器。成功打开链接时返回 true。
@@ -2486,6 +2524,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var longPressStartX = 0f
     private var longPressStartY = 0f
 
+    /**
+     * 本次手势是否已把拖动转发为滚轮（见 onScroll）：转发过的手势其惯性段
+     * 同样属于应用，onFling 只吞不滚，绝不让本地回滚接管（见 onFling）。
+     * 手势开始时在 onDown 重置。
+     */
+    private var wheelForwarded = false
+
     private val clipboardAccess = ClipboardAccess(context, tag = "Surface")
     private val resizeManager = ResizeManager()
     private val imeConnection = ImeConnection()
@@ -2497,6 +2542,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val gestureListener =
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(motionEvent: MotionEvent): Boolean {
+                // 手势开始时重置滚轮转发标记：惯性段只属于做出转发的那次手势。
+                wheelForwarded = false
                 // 手势开始时重置亚单元格累加器，使首次 onScroll 距离从干净的起点算起。
                 // 同步本地偏移与运行时真源：渲染线程回底后本地仍旧值，下次手势若从旧值起算会跳变。
                 viewModel?.runtime?.activeSessionScrollOffset()?.let {
@@ -2516,13 +2563,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 // 选词中移动由 ACTION_MOVE 长按拖动分支消费；此处吞掉避免双路径竞争致摇晃。
                 if (isSelectingText) return true
-                // 备用屏滚轮转发。当远端处于备用屏（vim/less/htop）时，
-                // 触摸滚动手势必须以滚轮转义发送给远端而非滚动本地回滚，
-                // 否则用户无法在这些程序内部滚动。
-                // 每个滚过的行转发一个滚轮事件，与 onGenericMotionEvent
-                // 中的外接鼠标路径一致。
-                val altBridge = viewModel?.runtime?.bridge()
-                if (altBridge != null && altBridge.isAltScreenActive()) {
+                // 触摸拖动 = 应用滚动：应用启用鼠标上报时经 Ghostty 鼠标编码器
+                // 把每个滚过的行转发成一个滚轮事件，对标 termux TerminalView 的
+                // scrolledWithFinger——yazi 等主屏 TUI 里拖动即应用内滚动。
+                // 应用未启用上报时编码器返回 false（不写 PTY），主屏回落到本地
+                // 回滚；备用屏（vim/less/htop）没有回滚，拖动静默吞掉。
+                // 与 onGenericMotionEvent 中的外接鼠标路径一致。
+                val wheelBridge = viewModel?.runtime?.bridge()
+                if (wheelBridge != null) {
                     val cellWidth = viewModel?.runtime?.cellWidth ?: 1f
                     val cellHeight = viewModel?.runtime?.cellHeight ?: 1f
                     val pointerXPx = e2.x
@@ -2532,12 +2580,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellHeight).toInt()))
                     // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
-                    var forwarded = false
                     val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
                     repeat(cappedLines) {
                         val wheelModifiers = KeyModifiers.ghosttyMods(e2.metaState)
                         if (
-                            altBridge.encodeMouseEvent(
+                            wheelBridge.encodeMouseEvent(
                                 pointerXPx,
                                 pointerYPx,
                                 0,
@@ -2547,7 +2594,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 cellHeight,
                             )
                         ) {
-                            altBridge.encodeMouseEvent(
+                            wheelBridge.encodeMouseEvent(
                                 pointerXPx,
                                 pointerYPx,
                                 1,
@@ -2556,11 +2603,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 cellWidth,
                                 cellHeight,
                             )
-                            forwarded = true
+                            wheelForwarded = true
                         }
                     }
-                    return forwarded
                 }
+                if (wheelForwarded) return true
+                if (wheelBridge != null && wheelBridge.isAltScreenActive()) return true
                 val scrollbackLen = currentScrollbackLength()
                 if (!isScrolling) {
                     isScrolling = true
@@ -2592,6 +2640,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 // 选词中 fling 同样吞掉，避免落到滚动路径致视口跳变。
                 if (isSelectingText) return true
+                // 本次手势的拖动已把滚轮转发给应用：惯性段属于应用，
+                // 直接吞掉，绝不让本地回滚接管（见 onScroll 的 wheelForwarded）。
+                if (wheelForwarded) return true
                 // 在备用屏（vim/less/htop）上，fling 绝不能滚动本地回滚
                 // ——该手势属于远端。此处直接丢弃（消费掉）而不转发，
                 // 因为惯性速度没有干净的滚轮行数映射；
@@ -2664,6 +2715,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     scrollAccumulatorPx = 0f
                     viewModel?.runtime?.setScrollRemainderPx(0f)
                     onScrollingStateChanged?.invoke(false)
+                    return true
+                }
+                // 鼠标上报中的 TUI（yazi 等）：轻点即左键单击，对标 termux
+                // TerminalView.onUp 的语义——编码器在应用未启用鼠标上报时返回 false
+                // 且不写 PTY，轻点照常走链接/选区/焦点路径。开启上报时点击属于
+                // 运行中的应用，链接不抢在它之前。
+                if (!isSelectingText && encodeMouseTap(event)) {
                     return true
                 }
                 // OSC 8 超链接轻点（对标 termux TerminalView.openLinkAt）：

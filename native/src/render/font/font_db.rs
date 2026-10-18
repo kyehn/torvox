@@ -129,6 +129,18 @@ pub(crate) fn cjk_probe_char(system_locale: &str) -> Option<char> {
     locale_cjk_variant(system_locale).map(|variant| if variant == "kr" { '가' } else { '中' })
 }
 
+/// 「主字体是否覆盖 CJK」的探测字符：locale 有 CJK 分片时用其代表字符，
+/// 否则退到通用汉字。
+///
+/// 与 [`cjk_probe_char`] 的区别就是这层回退：`None` 表达的是「本 locale 没有分片
+/// 代表字符」，不是「主字体不支持 CJK」。用它回答后者，会让自带全套汉字的字体在
+/// `en-US`/`de-DE` 下被报成「未检测到 CJK 备用字体」——一个本无需回退的主字体，
+/// 却在设置页看到明确错误提示。是否**装**回退层仍按 locale 是否为 CJK 判定
+/// （见 `cjk::find_cjk_fallback_fonts`），两件事各有一处判据。
+pub(crate) fn cjk_coverage_probe_char(system_locale: &str) -> char {
+    cjk_probe_char(system_locale).unwrap_or('中')
+}
+
 /// OEM 精简 ROM 可能声明了等宽字体却不提供文件（或文件损坏），使最小常驻集
 /// 没有任何等宽面：放宽装入 fonts.xml 全量声明文件（跳过已在库中的），保证
 /// 库内至少有一个可用面，返回新装入的文件数。健康设备永不进入此路径。
@@ -1384,6 +1396,25 @@ mod tests {
         assert_eq!(super::locale_cjk_variant("ko-KR"), Some("kr"));
         for locale in ["", "en-US", "und", "ZH-CN"] {
             assert_eq!(super::locale_cjk_variant(locale), None, "locale={locale}");
+        }
+    }
+
+    /// 覆盖探测字符在非 CJK locale 下退到通用汉字，分片 locale 仍取分片字符。
+    ///
+    /// 它（而不是 `cjk_probe_char`）才是「主字体是否覆盖 CJK」的判据：非 CJK
+    /// locale 下返回 `None` 会被下游当成「主字体不支持 CJK」，使自带汉字的字体
+    /// 在设置页被报成缺回退层。
+    #[test]
+    fn cjk_coverage_probe_char_falls_back_to_han_for_non_cjk_locales() {
+        assert_eq!(super::cjk_coverage_probe_char("zh-CN"), '中');
+        assert_eq!(super::cjk_coverage_probe_char("ja-JP"), '中');
+        assert_eq!(super::cjk_coverage_probe_char("ko-KR"), '가');
+        for locale in ["", "en-US", "de-DE", "und"] {
+            assert_eq!(
+                super::cjk_coverage_probe_char(locale),
+                '中',
+                "locale={locale}"
+            );
         }
     }
 
