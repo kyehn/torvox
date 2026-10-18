@@ -12,8 +12,9 @@
 ### Requirement: 粘贴编码取用上游 encode
 
 剪贴板文本到 PTY 字节的编码 MUST 经上游 `paste::encode`，其 bracketed 标志 MUST 取自
-终端模式 2004 的活体状态（`mode_get(2004, 0)`）。编码 MUST 在 VT 线程完成，与按键、
-鼠标编码同属一条终端状态感知路径。
+终端模式 2004 的活体状态，且 MUST 经上游具名常量读取
+（`terminal.mode(Mode::BRACKETED_PASTE)`，MUST NOT 用裸号 2004）。编码 MUST 在 VT 线程
+完成，与按键、鼠标编码同属一条终端状态感知路径。
 
 本仓 MUST NOT 自实现安全控制字节中化（NUL、ESC、DEL 换空格）与 bracketed 包裹，
 MUST NOT 自实现换行归一——三者都是上游协议语义且彼此耦合，归一与否由 bracketed 决定。

@@ -6,8 +6,10 @@
 光标「高度、宽度等均参考 Termux」）：其光标矩形为
 `canvas.drawRect(left, y - cursorHeight, right, y, mTextPaint)`，其中
 `cursorHeight = mFontLineSpacingAndAscent - mFontAscent`、`mFontLineSpacingAndAscent =
-mFontLineSpacing + mFontAscent`（`mFontAscent` 为负）⇒ 光标高度恰为 `mFontLineSpacing`
-（行高），矩形即整格。
+mFontLineSpacing + mFontAscent`（`mFontAscent` 为负）⇒ termux 的光标矩形即整格。本仓沿用
+「以整格作光标盒」的口径，但整格 = 本仓单元盒（`ascent + descent`），**不计**字体
+line gap（理由见 `native/src/render/font/rasterization.rs` 的 `cell_metrics` 注释），
+故光标高度不等于 termux 的 `mFontLineSpacing`，两者只在「整格」这一点上一致。
 
 实现：`native/src/render/cell_builder.rs` 的 `append_row_instances`——光标盒就是该函数的
 默认 `quad_origin` / `quad_size`，Block 分支只把背景换成光标色；Bar/Underline 在单元盒内
@@ -53,10 +55,18 @@ MUST NOT 跟随格内字形位图定尺寸——位图高度随字符变化，�
 ### Requirement: 宽字符光标几何
 
 宽字符（`CellData::width == 2`）上的光标 MUST 覆盖整个字形宽度（两列），
-MUST NOT 只覆盖首列。尾部网格列没有独立 `CellData`，光标盒按首条记录的列跨度缩放，
-故不存在需要单独处理的间隔单元。
+MUST NOT 只覆盖首列。尾列（spacer）在单元层面不产出独立记录，但光标可以停在该尾列上：
+渲染锚点 MUST 折算到该字形的头列记录，否则该帧匹配不到任何记录、不生成光标四边形。
+
+实现：`build_cursor` 以 `col - u32::from(at_wide_tail)` 归位；`getCursorViewportPacked`
+等可观测查询仍报 VT 的真实列。
 
 #### Scenario: 光标停在宽字符上
 
 - **WHEN** VT 光标落在某个宽字符的首列
 - **THEN** 光标盒横跨该宽字符的两列，右边缘与字形右边缘对齐
+
+#### Scenario: 光标停在宽字符的尾列
+
+- **WHEN** VT 光标落在某个宽字符的第二格（`at_wide_tail`）
+- **THEN** 渲染锚点等值于该字形头列上的光标，该帧仍生成光标四边形

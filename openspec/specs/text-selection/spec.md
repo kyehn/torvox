@@ -135,21 +135,46 @@ DESIGN 不支持双击/三击/多击选择：多次快速轻击 MUST NOT 触发�
 - **WHEN** 文本分支的选区解析结果为空（选区整段落在行尾空白列上，抽取按上游规则裁剪后为空串）
 - **THEN** 菜单不含复制与分享、仍含全选，且空解析连同选区边界写入日志
 
-### Requirement: 菜单与手柄覆盖层互斥
+### Requirement: 菜单与手柄覆盖层并存
 
-菜单显示期间手柄覆盖层 MUST NOT 存在：该覆盖层铺满终端表面并消费边界内全部触摸，重叠时落在菜单条目上的点击被它吃掉（现象：点复制/粘贴无反应）。菜单关闭后 MUST 按当时选区恢复覆盖层，选区已空则不再显示。同一份菜单被重复请求显示时 MUST 沿用已显示的窗口与视图实例，只重锚不重建；复用前 MUST 确认窗口仍附着在视图树上，`isShowing` 不足以判定存活。
+菜单显示期间手柄覆盖层 MUST 仍可抓取：MUST NOT 为显示菜单而收起覆盖层——那样
+`latchDragAnchor`（抓柄即隐藏菜单）成死代码，长按选词后再也无法拖柄扩选。抓柄时
+MUST 隐藏菜单，抬手由 `finishHandleDrag` 按新几何重锚重显。
 
-实现：`showSelectionMenu` 先收起手柄再显示菜单；`hideSelectionMenu(reason, restoreHandles = true)` 关闭后调 `reshowSelectionHandles()`，其自身重开调用传 `restoreHandles = false`。存活判据为 `contentView.isAttachedToWindow`。
+实现：`showSelectionMenu` 不动覆盖层；菜单关闭后由 `hideSelectionMenu(reason,
+restoreHandles = true)` 调 `reshowSelectionHandles()`，其自身重开调用传
+`restoreHandles = false`。
 
-#### Scenario: 菜单显示期间手柄不重叠
+#### Scenario: 菜单显示期间手柄仍可抓取
 
-- **WHEN** 长按空白单元格且剪贴板有文本
-- **THEN** 手柄覆盖层不存在，点击到达菜单条目
+- **WHEN** 长按选词使菜单显示后按在 END 柄位
+- **THEN** 覆盖层收到该按压并隐藏菜单，拖动开始（而非被当成轻击别处清掉选区）
 
-#### Scenario: 菜单关闭后手柄恢复
+#### Scenario: 菜单关闭后手柄按当前选区恢复
 
-- **WHEN** 菜单因点击条目、抓柄或轻击别处而关闭且选区仍在
-- **THEN** 手柄覆盖层按当前选区重新显示
+- **WHEN** 菜单因点击条目或轻击别处而关闭且选区仍在
+- **THEN** 手柄覆盖层按当前选区重新显示；选区已空则不显示
+
+### Requirement: 拖动中不重建手柄覆盖层
+
+拖动进行中 MUST NOT 重建手柄覆盖层：`hideSelectionHandles` 会 dismiss 承载本次按压的
+弹窗、销毁其窗口令牌，平台随即取消手势，后续 MOVE/UP 落到新窗口却已无 DOWN——现象是
+按住手柄一瞬即断、抬手不重锚。拖动结束后的重显 MUST 由 `finishHandleDrag` 发起。
+
+实现：`reshowSelectionHandles()` 在 `handleDragState != HandleDrag.NONE` 时直接返回。
+
+#### Scenario: 拖动中不重建覆盖层
+
+- **WHEN** 拖动进行中菜单因抓柄而关闭且选区仍在
+- **THEN** 覆盖层不重建，同一窗口继续收到 MOVE/UP，抬手后菜单按新几何重锚重显
+
+### Requirement: 同一份菜单的重复显示沿用既有窗口
+
+同一份菜单被重复请求显示时 MUST 沿用已显示的窗口与视图实例，只重锚不重建；复用前
+MUST 确认窗口仍附着在视图树上，`isShowing` 不足以判定存活——每次显示都重建会让用户在
+「条目已解析」与「手指落下」之间点到被丢弃的旧实例（现象：点复制/粘贴无反应）。
+
+实现：存活判据为 `contentView.isAttachedToWindow`。
 
 #### Scenario: 内容未变的重复显示不重建弹窗
 
