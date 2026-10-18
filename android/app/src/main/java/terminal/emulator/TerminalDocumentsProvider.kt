@@ -36,6 +36,9 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         /** SAF mode 字符串的最大长度（`ParcelFileDescriptor.parseMode` 的上界）。 */
         private const val MAX_OPEN_MODE_LENGTH = 4
 
+        /** 列举超过该耗时即落日志：正常规模在毫秒级，出现即说明目录规模异常。 */
+        private const val SLOW_LISTING_MILLIS = 250L
+
         /** mode 字符串允许的字符（与 `parseOpenModeFallback` 的语义集合一致）。 */
         private const val OPEN_MODE_CHARACTERS = "rwatsd"
 
@@ -170,10 +173,24 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         }
     }
 
-    override fun onCreate(): Boolean = true
+    /**
+     * 提供者创建即开始监视家目录：客户端看得见哪一层，查询哪一层时再登记
+     * （见 [DocumentWatcher]）。根目录在此登记，`queryChildDocuments` 登记其余。
+     */
+    override fun onCreate(): Boolean {
+        watcher.watch(queries.rootDir())
+        return true
+    }
 
     private val queries: DocumentQueries by lazy {
         DocumentQueries(requireNotNull(context) { "TerminalDocumentsProvider requires a Context" })
+    }
+
+    private val watcher: DocumentWatcher by lazy {
+        DocumentWatcher(
+            requireNotNull(context) { "TerminalDocumentsProvider requires a Context" },
+            { queries.rootDir() },
+        )
     }
 
     private val mutations: DocumentMutations by lazy {
@@ -248,11 +265,13 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         projection: Array<out String>?,
         sortOrder: String?,
     ): Cursor {
+        val started = android.os.SystemClock.elapsedRealtime()
         val cols = projection ?: DOC_PROJECTION
         val cursor = MatrixCursor(cols)
         val rootDir = queries.rootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
+        watcher.watch(parent)
         val children = parent.listFiles() ?: emptyArray()
         val sorted =
             children.sortedWith(
@@ -260,6 +279,12 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             )
         for (child in sorted) {
             queries.addDocRow(cursor, child, rootDir, cols)
+        }
+        // 逐条目 stat 在巨大目录里会拖慢整次列举；「保存超时」一类反馈需要一条
+        // 「慢在哪一层」的证据，正常规模（毫秒级）不落日志。
+        val elapsed = android.os.SystemClock.elapsedRealtime() - started
+        if (elapsed >= SLOW_LISTING_MILLIS) {
+            LogUtil.w(TAG, "slow listing '$parentDocumentId': ${sorted.size} entries in ${elapsed}ms")
         }
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
@@ -341,22 +366,53 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     }
 
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String =
-        mutations.createDocument(parentDocumentId, mimeType, displayName)
+        trace("createDocument '$displayName'") {
+            mutations.createDocument(parentDocumentId, mimeType, displayName)
+        }
 
     override fun renameDocument(documentId: String, displayName: String): String? =
-        mutations.renameDocument(documentId, displayName)
+        trace("renameDocument '$documentId' -> '$displayName'") {
+            mutations.renameDocument(documentId, displayName)
+        }
 
     override fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String =
-        mutations.copyDocument(sourceDocumentId, targetParentDocumentId)
+        trace("copyDocument '$sourceDocumentId'") {
+            mutations.copyDocument(sourceDocumentId, targetParentDocumentId)
+        }
 
     override fun moveDocument(
         sourceDocumentId: String,
         sourceParentDocumentId: String,
         targetParentDocumentId: String,
-    ): String = mutations.moveDocument(sourceDocumentId, targetParentDocumentId)
+    ): String = trace("moveDocument '$sourceDocumentId'") {
+        mutations.moveDocument(sourceDocumentId, targetParentDocumentId)
+    }
 
     override fun deleteDocument(documentId: String) {
-        mutations.deleteDocument(documentId)
+        trace("deleteDocument '$documentId'") { mutations.deleteDocument(documentId) }
+    }
+
+    /**
+     * 变更入口的统一取证：每次调用的耗时与结果都进 logcat。
+     *
+     * 真机反馈里「保存超时」「重命名卡死」两种形态都只有客户端一侧的现象——是提供者
+     * 慢、根本没被调用，还是客户端自己等待，从现有日志分不出来。落一条「进来了、多久
+     * 出去、结果如何」就能把下一份反馈直接归因，不必再靠猜。
+     */
+    private fun <T> trace(operation: String, block: () -> T): T {
+        val started = android.os.SystemClock.elapsedRealtime()
+        try {
+            val result = block()
+            LogUtil.i(TAG, "$operation ok (${android.os.SystemClock.elapsedRealtime() - started}ms)")
+            return result
+        } catch (error: Exception) {
+            LogUtil.w(
+                TAG,
+                "$operation failed (${android.os.SystemClock.elapsedRealtime() - started}ms)",
+                error,
+            )
+            throw error
+        }
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
