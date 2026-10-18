@@ -26,6 +26,7 @@ import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
+import terminal.emulator.probeAssertion
 import terminal.emulator.sessionCount
 import terminal.emulator.sessionIndex
 import terminal.emulator.util.runCatchingCancellable
@@ -82,6 +83,17 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
+    /**
+     * 会话注册表里的终端标题（抽屉元数据的同一来源）。
+     *
+     * 喂 OSC 的字节只是进了解析队列，标题要等 VT 线程取走并发布才可读：喂完立刻读恒为
+     * 旧值，故须轮询。
+     */
+    private fun sessionTitle(sessionId: Long): String? {
+        runCatchingCancellable { NativeBridge.pollEvent() }
+        return NativeBridge.getSessionTitles(longArrayOf(sessionId))?.getOrNull(0)
+    }
+
     @Test
     fun sessionItemShowsNumberAndTerminalTitleOnOneLine() {
         val initialSession =
@@ -89,6 +101,7 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
                 composeTestRule.activeSessionId() > 0
             }
         assertNotNull("初始必须有活跃会话", initialSession)
+        val activeId = composeTestRule.activeSessionId()
 
         // OSC 2 直写终端网格（经 parser，不依赖 shell 就绪）：标题经 ghostty →
         // JNI 批量读取 → 抽屉条目。序号与标题必须同一行，标题斜体。
@@ -97,12 +110,28 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
             "标题送显失败",
             bridge().feedTerminal("\u001B]2;$title\u0007".toByteArray(Charsets.UTF_8)),
         )
+        // 标题进注册表是异步的，而抽屉只在打开瞬间强制刷新、之后的迟到标题不再补显示：
+        // 喂完立刻开抽屉就会断言到一个只有序号的旧条目（CI 实测抓到 `[2] `）。
+        assertNotNull(
+            "标题未在 ${GRID_TIMEOUT_MS}ms 内进入会话注册表",
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                sessionTitle(activeId) == title
+            },
+        )
 
         composeTestRule.openDrawer()
-        val index = composeTestRule.sessionIndex(composeTestRule.activeSessionId())
+        val index = composeTestRule.sessionIndex(activeId)
         assertTrue("抽屉中必须找到活跃会话", index >= 0)
-        val item = composeTestRule.onAllNodesWithTag("SessionItem")[index]
-        item.assertTextContains("[${index + 1}] $title")
+        // 条目文案取自 IO 线程回填的元数据：开抽屉后的头几帧可能仍是空标题。
+        assertNotNull(
+            "抽屉条目必须显示「[${index + 1}] $title」，实际注册表标题=${sessionTitle(activeId)}",
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                probeAssertion {
+                    composeTestRule.onAllNodesWithTag("SessionItem")[index]
+                        .assertTextContains("[${index + 1}] $title")
+                }
+            },
+        )
     }
 
     @Test

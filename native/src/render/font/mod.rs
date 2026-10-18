@@ -268,11 +268,59 @@ mod tests {
         );
     }
 
+    /// 非 CJK 系统语言下，本身覆盖 CJK 的主字体必须报 `Skipped`，不是 `None`。
+    ///
+    /// `cjk_probe_char("en-US")` 返回 `None`，其语义是「本 locale 没有分片代表
+    /// 字符」，不是「主字体不支持 CJK」；早先的实现把两者混为一谈，于是英文系统下
+    /// 的 CJK 主字体（用户在 `~/.termux/font` 放了字体文件，或直接选了 CJK 族）
+    /// 在设置页被报成「未检测到 CJK 备用字体」——一个本无需回退的主字体却显示
+    /// 明确错误提示。分片代表字符只用于「CN 字体未必覆盖谚文」这类匹配，不能
+    /// 反过来当作主字体的能力上限。
+    #[test]
+    fn cjk_primary_under_non_cjk_locale_reports_skipped_not_none() {
+        use crate::render::font::font_db;
+        use crate::render::font::pipeline::CjkFallbackState;
+
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        assert!(
+            try_load_cjk_fonts(pipeline.font_system.db_mut()),
+            "CJK fonts must load (run inside nix develop)"
+        );
+        assert_eq!(
+            font_db::cjk_probe_char("en-US"),
+            None,
+            "本用例的前提：en-US 没有分片代表字符"
+        );
+        // 现挑一个真的覆盖「中」的面当主字体（宿主环境带 Noto CJK）。
+        let family = {
+            let font_database = pipeline.font_system.db();
+            font_database
+                .faces()
+                .find(|face| font_db::face_covers(font_database, face.id, '中'))
+                .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+                .expect("宿主须装入至少一个覆盖「中」的面（nix develop 的 Noto CJK）")
+        };
+        pipeline.set_system_locale("en-US");
+        assert!(pipeline.set_font_family(&family), "族 '{family}' 应可选中");
+        let info = pipeline.font_info();
+        assert_eq!(
+            info.active.as_ref().map(|active| active.name.as_str()),
+            Some(family.as_str()),
+            "选中的主字体必须就是上面探测过的那个族"
+        );
+        assert!(
+            info.cjk_families.is_empty(),
+            "非 CJK locale 不装回退层，却得到 {:?}",
+            info.cjk_families
+        );
+        assert_eq!(info.cjk_state, CjkFallbackState::Skipped);
+    }
+
     /// 早先的族名子串启发式与探测会相反（族名带 CJK 字样但 charmap 无该码位），
-    /// 于是 UI 显示「已覆盖」而渲染器其实装着回退层。本用例在宿主上只能钉住
-    /// 「无 fonts.xml 时拉丁等宽面报 None」这一端；分叉的那一端（主字体本身即 CJK
-    /// 字体）只在设备上出现，无法在宿主单测中构造——由 `primary_covers_cjk_probe`
-    /// 单一实现从结构上排除两处各判一次的可能。
+    /// 于是 UI 显示「已覆盖」而渲染器其实装着回退层。本用例在宿主上钉住另一端：
+    /// 拉丁等宽面在 CJK locale 下必须报 `None`（分叉的另一端——主字体本身即 CJK
+    /// 字体——由 `cjk_primary_under_non_cjk_locale_reports_skipped_not_none` 覆盖，
+    /// `primary_covers_cjk_probe` 的单一实现则从结构上排除两处各判一次的可能）。
     #[test]
     fn reported_cjk_skipped_implies_primary_really_covers_cjk() {
         use crate::render::font::pipeline::CjkFallbackState;
