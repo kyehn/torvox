@@ -110,6 +110,18 @@ SAF 客户端 MUST 仍能读写：`enforceReadPermissionInner` / `enforceWritePe
 - **WHEN** 目录内某条目的属性（大小、修改时间）变化
 - **THEN** 条目自身的文档 URI MUST 被广播，该目录的子文档 URI MUST NOT 被广播
 
+#### Scenario: 只改内容的写入同样被广播
+
+- **WHEN** 终端侧 `>>`、`sed -i` 一类只改文件内容的写入（inode 元数据不变，内核只报 `MODIFY`）
+- **THEN** 条目自身的文档 URI MUST 被广播，使客户端的大小/时间列不再停在旧值；
+  监视的事件集缺少 `MODIFY` 时这条静默失效
+
+#### Scenario: 被反复查询的目录不在淘汰端
+
+- **WHEN** 客户端反复查询同一目录（每次查询刷新其最近使用位置），其后容量满触发淘汰
+- **THEN** 被淘汰的是最久未被**查询**的目录，MUST NOT 是仍在被查询的这一个；
+  判重时读一次即刷新的容器访问序是唯一依据，`containsKey` 不算访问
+
 ### Requirement: 提供者权威用应用标识前缀
 
 文档提供者的 authority MUST 取 `${applicationId}.documents`（即 `com.termux.documents`）。
