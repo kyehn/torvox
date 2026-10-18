@@ -454,4 +454,98 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             watchDir.deleteRecursively()
         }
     }
+
+    /**
+     * 外部文件管理器经树 URI 前缀寻址时，列表游标必须收到终端侧改动的通知。
+     *
+     * 用户报障（复制/移动提示「路径已存在」、创建文件失败）的直连回归：客户端把观察者
+     * 注册在**列表游标**上（DocumentsUI 的 DirectoryLoader 正是
+     * `cursor.registerContentObserver`），游标是否刷新完全取决于提供者在
+     * `setNotificationUri` 与 `notifyChange` 两侧是否用同一个 URI。前缀形式寻址时
+     * （`terminal_home/…`，真机 logcat 里 delete 即此形式）若不归一，两者落在兄弟
+     * URI 上，平台按 path 段下降匹配永不命中，游标停在旧快照——客户端便拿幽灵行把
+     * 创建/重命名/粘贴拒成「路径已存在」。
+     */
+    @Test
+    fun cursor_from_tree_prefixed_listing_observes_terminal_side_changes() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val probeDir = File(home, "prefixed-observe").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val treeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
+            val childrenViaTree =
+                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, "terminal_home/prefixed-observe")
+            val cursor = context.contentResolver.query(childrenViaTree, null, null, null, null)
+            requireNotNull(cursor) { "前缀寻址的子项查询必须成功" }
+            val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+            val observer =
+                object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) {
+                        notified.set(true)
+                    }
+                }
+            cursor.registerContentObserver(observer)
+            try {
+                // 终端侧改动：绕过提供者直接落盘，等价于 shell 里的 touch/解压。
+                File(probeDir, "terminal-side.txt").writeText("x")
+                assertNotNull(
+                    "前缀寻址注册的列表游标必须收到终端侧改动（5 秒内未收到）",
+                    UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) { notified.get() },
+                )
+            } finally {
+                cursor.unregisterContentObserver(observer)
+                cursor.close()
+            }
+        } finally {
+            probeDir.deleteRecursively()
+        }
+    }
+
+    /**
+     * 终端侧只改内容（`>>`、`sed -i`）必须让打开的列表看到新的大小/时间。
+     *
+     * 内核为此只报 MODIFY，不改 inode 元数据；[DocumentWatcher] 的订阅集若漏了它，
+     * 列表的元数据列就停在旧值。本用例走真实 inotify（追加写而非 create），
+     * 直接钉住订阅集本身，而不是把事件常量当输入注入。
+     */
+    @Test
+    fun terminal_side_content_append_notifies_open_listing() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val watchDir = File(home, "modify-probe").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val target = File(watchDir, "appended.log").apply { writeText("first") }
+        try {
+            val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "modify-probe")
+            context.contentResolver.query(childrenUri, null, null, null, null)?.use {
+                assertTrue("探测目录的子项查询必须成功", it.count == 1)
+            }
+
+            val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+            val observer =
+                object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) {
+                        notified.set(true)
+                    }
+                }
+            context.contentResolver.registerContentObserver(childrenUri, true, observer)
+            try {
+                // 追加写：inode 不变，内核只报 MODIFY。
+                target.appendText("second")
+                assertNotNull(
+                    "终端侧追加内容后，打开该目录的列表必须收到条目通知（5 秒内未收到）",
+                    UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) { notified.get() },
+                )
+            } finally {
+                context.contentResolver.unregisterContentObserver(observer)
+            }
+        } finally {
+            watchDir.deleteRecursively()
+        }
+    }
 }

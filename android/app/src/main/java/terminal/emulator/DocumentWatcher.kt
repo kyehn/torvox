@@ -37,6 +37,9 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
          * 关注的事件：条目的出现、消失、改名、移动与属性变化，加上目录自身的
          * 删除/移动（用于注销观察者）。不含 OPEN/ACCESS/CLOSE_*：查询自身就要读
          * 目录，逐次广播等于自激。
+         *
+         * 含 [FileObserver.MODIFY]：终端侧 `>>`、`sed -i` 一类只改内容的写入不改变
+         * inode 元数据，内核只报 MODIFY；缺了它，列表的大小/时间列停在旧值。
          */
         const val EVENTS =
             FileObserver.CREATE or
@@ -44,6 +47,7 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
                 FileObserver.MOVED_FROM or
                 FileObserver.MOVED_TO or
                 FileObserver.ATTRIB or
+                FileObserver.MODIFY or
                 FileObserver.DELETE_SELF or
                 FileObserver.MOVE_SELF
 
@@ -81,7 +85,10 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
     fun watch(directory: File) {
         val path = directory.path
         synchronized(lock) {
-            if (watched.containsKey(path)) return
+            // 经 `get` 而非 `containsKey`：容器的访问序只被 `get` 刷新，`containsKey`
+            // 不算访问。用后者时，一个正在被客户端反复查询的目录位置停在首次插入处，
+            // 容量满时先被淘汰——客户端看得见的目录失去监视，幽灵行就此回归。
+            if (watched[path] != null) return
         }
         // 根目录自身与根外目录（encodeDocId 返回 null）不监视：
         // 根外目录本就不该出现在选择器里，越界条目在查询时已被跳过。

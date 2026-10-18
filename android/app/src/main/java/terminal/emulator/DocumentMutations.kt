@@ -40,8 +40,8 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val docId =
             TerminalDocumentsProvider.encodeDocId(child, root)
                 ?: throw IOException("Failed to encode docId for '${child.name}'")
-        notifyChildren(parentDocumentId)
-        notifyDocument(docId)
+        notifyChildren(parent, root)
+        notifyDocument(child, root)
         return docId
     }
 
@@ -79,13 +79,11 @@ internal class DocumentMutations(private val context: Context, private val rootD
         if (!source.renameTo(target)) {
             throw IOException("Failed to rename '$displayName'")
         }
-        val parentId =
-            TerminalDocumentsProvider.encodeDocId(parent, root) ?: TerminalDocumentsProvider.ROOT_ID
-        notifyChildren(parentId)
         val newId = TerminalDocumentsProvider.encodeDocId(target, root)
             ?: throw IOException("Failed to encode docId for '$safeName'")
-        notifyDocument(newId)
-        notifyDocument(documentId)
+        notifyChildren(parent, root)
+        notifyDocument(target, root)
+        notifyDocument(source, root)
         return newId
     }
 
@@ -108,7 +106,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         }
         deleteWithoutFollowingSymlinks(file)
         notifyParentOf(file, root)
-        notifyDocument(documentId)
+        notifyDocument(file, root)
     }
 
     fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String {
@@ -144,10 +142,10 @@ internal class DocumentMutations(private val context: Context, private val rootD
             }
         }
         val target = copyTree(effectiveSource, targetParent)
-        notifyChildren(targetParentDocumentId)
+        notifyChildren(targetParent, root)
         val newId = TerminalDocumentsProvider.encodeDocId(target, root)
             ?: throw IOException("Failed to encode docId for '${target.name}'")
-        notifyDocument(newId)
+        notifyDocument(target, root)
         return newId
     }
 
@@ -183,31 +181,27 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 throw IOException("Refusing to move a directory into its own descendant")
             }
         }
-        val sourceParentId =
-            TerminalDocumentsProvider.encodeDocId(
-                source.parentFile ?: root,
-                root,
-            ) ?: TerminalDocumentsProvider.ROOT_ID
+        val sourceParentFile = source.parentFile ?: root
         val target = uniqueChild(targetParent, source.name)
         if (!source.renameTo(target)) {
             // 同文件系统 rename 极少失败：目标已占位已在上一步排除，
             // 剩下的是 IO 错误；退化为复制加删除，保证语义完整。
             val copied = copyTree(source, targetParent, source.name)
             deleteWithoutFollowingSymlinks(source)
-            notifyChildren(sourceParentId)
-            notifyChildren(targetParentDocumentId)
+            notifyChildren(sourceParentFile, root)
+            notifyChildren(targetParent, root)
             val copiedId = TerminalDocumentsProvider.encodeDocId(copied, root)
                 ?: throw IOException("Failed to encode docId for '${copied.name}'")
-            notifyDocument(copiedId)
-            notifyDocument(sourceDocumentId)
+            notifyDocument(copied, root)
+            notifyDocument(source, root)
             return copiedId
         }
-        notifyChildren(sourceParentId)
-        notifyChildren(targetParentDocumentId)
+        notifyChildren(sourceParentFile, root)
+        notifyChildren(targetParent, root)
         val newId = TerminalDocumentsProvider.encodeDocId(target, root)
             ?: throw IOException("Failed to encode docId for '${target.name}'")
-        notifyDocument(newId)
-        notifyDocument(sourceDocumentId)
+        notifyDocument(target, root)
+        notifyDocument(source, root)
         return newId
     }
 
@@ -372,29 +366,36 @@ internal class DocumentMutations(private val context: Context, private val rootD
      * `queryChildDocuments` 都直读文件系统。所以即使某次广播随进程被杀而丢失，
      * 数据依然正确，至多让选择器晚一次刷新——不值得为它加重试或落盘兜底。
      */
-    fun notifyWritten(documentId: String, written: File) {
-        // 由文件反推行内 docId 归一，而非直接用调用方传进来的 documentId：
-        // 树 URI 客户端寻址时传的是 `terminal_home/nix.conf` 这种带树根前缀的形式，
-        // 而本提供者行内只发行 `nix.conf`。两者构成**兄弟** URI 而非祖先/后代，
-        // 广播到前者收不到——外部编辑器覆写后文件选择器不刷新。renameDocument
-        // 早已按此归一（见上方 encodeDocId 调用）。
-        notifyDocument(
-            TerminalDocumentsProvider.encodeDocId(written, rootDir()) ?: documentId,
-        )
+    fun notifyWritten(written: File) {
+        // 广播一律由文件反推行内 docId（见 notifyDocument/notifyChildren），
+        // 调用方传进来的可能带树根前缀（`terminal_home/nix.conf`），而那与本提供者
+        // 发行的 `nix.conf` 是兄弟 URI，广播过去收不到。
+        notifyDocument(written, rootDir())
         notifyParentOf(written, rootDir())
     }
 
-    private fun notifyChildren(parentDocumentId: String) {
+    /** 父目录列表的变更广播；目录无法编码（根外）时静默跳过，不是可报的错误。 */
+    private fun notifyParentOf(file: File, root: File) {
+        val parent = file.parentFile ?: return
+        notifyChildren(parent, root)
+    }
+
+    private fun notifyChildren(parent: File, root: File) {
+        // 广播与「列表查询注册的通知 URI」必须同一个：客户端带树根前缀寻址时
+        // parent 的 docId 是 `terminal_home/sub`，而行内只发行 `sub`，两者是
+        // 兄弟 URI。故这里一律由目录反推行内 docId，绝不透传调用方的字符串。
+        val parentId = TerminalDocumentsProvider.encodeDocId(parent, root) ?: return
         context.contentResolver.notifyChange(
             DocumentsContract.buildChildDocumentsUri(
                 TerminalDocumentsProvider.AUTHORITY,
-                parentDocumentId,
+                parentId,
             ),
             null,
         )
     }
 
-    private fun notifyDocument(documentId: String) {
+    private fun notifyDocument(file: File, root: File) {
+        val documentId = TerminalDocumentsProvider.encodeDocId(file, root) ?: return
         context.contentResolver.notifyChange(
             DocumentsContract.buildDocumentUri(
                 TerminalDocumentsProvider.AUTHORITY,
@@ -402,11 +403,5 @@ internal class DocumentMutations(private val context: Context, private val rootD
             ),
             null,
         )
-    }
-
-    private fun notifyParentOf(file: File, root: File) {
-        val parent = file.parentFile ?: return
-        val parentId = TerminalDocumentsProvider.encodeDocId(parent, root) ?: return
-        notifyChildren(parentId)
     }
 }

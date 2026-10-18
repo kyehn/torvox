@@ -612,6 +612,67 @@ class DocumentsProviderTest {
         )
     }
 
+    /**
+     * 列表查询注册的通知 URI 必须与终端侧广播同一命名空间。
+     *
+     * 外部文件管理器经树 URI 寻址时传的是 `terminal_home/sub` 这种带树根前缀的 docId
+     * （真机 logcat 里 delete 正是这个形式），而行内发行与 inotify 播报都是无前缀的
+     * `sub`。注册用前者、广播用后者时两者构成**兄弟** URI，平台按 path 段下降的通知
+     * 匹配永远对不上——shell 里 `rm`/`mv` 后列表停在旧快照，客户端便拿幽灵行把
+     * 创建/重命名/粘贴拒成「路径已存在」。
+     */
+    @Test
+    fun queryChildDocuments_registers_notification_uri_without_tree_prefix() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "prefixed").mkdirs()
+
+        val cursor =
+            provider.query(
+                DocumentsContract.buildChildDocumentsUri(authority, "terminal_home/prefixed"),
+                null,
+                android.os.Bundle(),
+                null,
+            )
+        requireNotNull(cursor).use {
+            assertEquals(
+                "通知 URI 必须归一为行内形式，否则终端侧广播送不到",
+                DocumentsContract.buildChildDocumentsUri(authority, "prefixed"),
+                it.notificationUri,
+            )
+        }
+    }
+
+    /** 带前缀父目录里的变更，广播必须落在无前缀的列表 URI 上（与上面的注册端对称）。 */
+    @Test
+    fun createDocument_under_prefixed_parent_notifies_unprefixed_listing() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "prefixed-create").mkdirs()
+        val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "prefixed-create")
+        val notified = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        val observer =
+            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    notified.add("children")
+                }
+            }
+        val resolver = requireNotNull(provider.context).contentResolver
+        resolver.registerContentObserver(childrenUri, true, observer)
+        try {
+            provider.createDocument("terminal_home/prefixed-create", "text/plain", "in.txt")
+            idleLoopersUntilNotified(notified, listOf("children"))
+            assertTrue(
+                "带前缀父目录的创建必须通知无前缀列表，got $notified",
+                notified.contains("children"),
+            )
+            assertTrue(
+                "文件须落在去前缀后的真实目录里",
+                java.io.File(rootDir(), "prefixed-create/in.txt").exists(),
+            )
+        } finally {
+            resolver.unregisterContentObserver(observer)
+        }
+    }
+
     @Test
     fun queryDocument_symlink_returns_link_itself() {
         val provider = ensureProvider()

@@ -121,4 +121,20 @@ class DocumentWatcherTest {
 
         assertEquals("同一目录的多条事件必须合并成一次列表通知", 1, children.hits.size)
     }
+
+    /**
+     * 只改内容的写入（终端侧 `>>`、`sed -i`）内核只报 MODIFY，不改 inode 元数据。
+     * 监视集必须含它，否则列表的大小/时间列停在旧值。
+     */
+    @Test
+    fun `modify notifies the document without reloading the listing`() {
+        val children = observe(DocumentsContract.buildChildDocumentsUri(authority, "terminal_home"))
+        val document = observe(DocumentsContract.buildDocumentUri(authority, "appended.log"))
+
+        watcher.onDirectoryEvent("terminal_home", FileObserver.MODIFY, "appended.log")
+        advanceUntil(listOf(document))
+
+        assertTrue("内容变化必须通知条目自身", document.hits.isNotEmpty())
+        assertEquals("改内容不改变条目列表，不应触发列表重载", emptyList<String>(), children.hits)
+    }
 }
