@@ -21,16 +21,17 @@
         <item name="colorOnSurface">@color/material_color_on_surface</item>
     </style>
     <!-- 系统启动屏：冷启动首帧前显示主题背景而非黑闪，
-         MainActivity.onCreate 内 installSplashScreen 切回本主题。
-         图标直接给 @mipmap/ic_launcher：平台对自适应图标只取前景层，
-         超出的部分与桌面上一样被圆形蒙版裁掉，图案与应用图标完全一致。
+          MainActivity.onCreate 内 installSplashScreen 切回本主题。
+         图标给 drawable/splash_icon（普通图形，非自适应）：平台只手裁自适应图标，
+         普通图形会缩进内圈 72/108，图案因此完整可见——给 @mipmap/ic_launcher
+         会沿用桌面蒙版，把图案裁成图标形状（STATUS「启动动画图案不完整」）。
          图标后是否垫圆形底板（STATUS ⑪ 的「完整图案」）只取决于本主题有没有
          声明 windowSplashScreenIconBackgroundColor——故父主题用 Theme.SplashScreen
          且不声明该属性，与 windowSplashScreenAnimatedIcon 指到哪个 drawable 无关；
          曾误判为自适应图标所致，另存了一份缩小的前景图形，结果连桌面图标一起改小。 -->
     <style name="Theme.Terminal.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#1E1E2E</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
         <item name="windowSplashScreenAnimationDuration">300</item>
         <item name="postSplashScreenTheme">@style/Theme.Terminal</item>
     </style>

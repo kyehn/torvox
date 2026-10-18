@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动屏图标（windowSplashScreenAnimatedIcon）。
+     这里刻意给一份「普通图形」而不是自适应图标 @mipmap/ic_launcher：平台的
+     SplashscreenContentDrawer 只在拿到 AdaptiveIconDrawable 时才沿用它自己的蒙版；
+     给普通图形时会套一层 AdaptiveForegroundDrawable——按内圈 72/108 缩放后再裁，
+     于是图案完整落在可见圆内（STATUS「启动动画图案不完整，被限制到图标形状」）。
+     因为主题没声明 windowSplashScreenIconBackgroundColor，平台还会把整块图标区
+     放大 1.5 倍（splash_icon_no_background_scale_factor），图案看起来与应用图标
+     一样大。桌面图标仍是 mipmap-anydpi-v26/ic_launcher（自适应、满幅），两者互不影响。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/launcher_foreground" />
+</layer-list>
