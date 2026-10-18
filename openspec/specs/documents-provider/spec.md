@@ -80,6 +80,16 @@ SAF 客户端 MUST 仍能读写：`enforceReadPermissionInner` / `enforceWritePe
 应用级上限约 128，耗尽会让**全部**监视静默失效。合并窗口内同一目录的多条事件 MUST
 合并成一轮广播，批量操作（解压、`git checkout`）不得把客户端逼成逐条重载。
 
+广播与查询端注册 URI 的 docId MUST 一律取行内无前缀形式，MUST NOT 透传客户端字符串。
+
+#### Scenario: 前缀寻址的目录同样收得到广播
+
+- **WHEN** 客户端经树 URI 以带树根前缀的 docId（`terminal_home/sub`，见「树根前缀别名」）
+  查询该目录列表，随后终端侧在其中 `rm`／`mv`／解压
+- **THEN** `setNotificationUri` 与 `notifyChange` 落在同一个无前缀 URI 上，列表刷新；
+  若不归一，两者是**兄弟** URI，平台按 path 段下降匹配永不命中，游标停在旧快照，
+  外部文件管理器表现为「创建/复制/重命名没反应」
+
 #### Scenario: 终端侧删除后列表自动消失该条目
 
 - **WHEN** 文件管理器正显示某目录，终端侧删掉其中一个条目
