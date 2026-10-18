@@ -31,12 +31,12 @@ Column + 修饰键栏 + 搜索层），主线程动画帧成本随 UI 树规模�
 ### Requirement: 终端位移按内容下沿裁剪
 
 输入法弹出时终端 Surface 的位移量 MUST 等于「键盘遮住且放不下的内容高度」，
-即 `max(0, contentBottomPx − (surfaceHeightPx − barHeightPx − imeBottomPx))` 且
+即 `max(0, revealBottomPx − (surfaceHeightPx − barHeightPx − imeBottomPx))` 且
 MUST NOT 超过 `imeBottomPx`，MUST NOT 无条件取整个 imeBottom。网格自顶端锚定渲染，
 键盘遮挡的是网格**末尾**行：无条件按 imeBottom 平移会把稀疏会话（提示符在首行）
-整体推出屏幕上边界，终端区表现为全空（实测提示符由 y=134 落到 y=−686）。内容下沿
-MUST 取「视口内最后一个有内容的行」下沿（空格/制表/NUL 不计内容），MUST NOT 取
-光标行——光标隐藏或滚出视口时无坐标可用，且光标在顶行时其下方内容会被吞。
+整体推出屏幕上边界，终端区表现为全空（实测提示符由 y=134 落到 y=−686）。
+`revealBottomPx` MUST 取「最后一个有内容的行」下沿与「可见光标所在格」下沿中较低者
+（空格/制表/NUL 不计内容）；光标不可用时 MUST 退化为只按内容行计算。
 
 该裁剪等价于 Termux `adjustResize` 会砍掉的那部分高度：稀疏会话 shift = 0
 （内容每像素原位），内容占满网格时 shift 恒等于 imeBottom（末行紧贴键栏顶边）。
@@ -51,7 +51,14 @@ MUST 取「视口内最后一个有内容的行」下沿（空格/制表/NUL 不
 - **WHEN** 内容占满网格时点击终端弹出输入法
 - **THEN** 终端 Surface 位移恒等于 imeBottom，末行紧贴键栏顶边、弹出前后底部像素相同
 
-#### Scenario: 下沿取自渲染帧而非光标
+#### Scenario: 光标落在最后一个有字行的下一行
+
+- **WHEN** 提示符占满整行（或命令行结尾换行）使光标位于最后一个有字行的下一行，
+      且该行会被键盘遮住时点击终端弹出输入法
+- **THEN** 位移比「只按内容下沿」多出的部分恰好把光标所在格顶到键盘上方，
+      光标完整可见
+
+#### Scenario: 无光标坐标时退化到渲染帧内容下沿
 
 - **WHEN** 应用光标隐藏（`tput civis`）或视口已滚入回滚区
 - **THEN** 内容下沿仍取自渲染帧的视口内容（有内容时 shift = imeBottom），
