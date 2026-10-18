@@ -138,6 +138,19 @@
       - 设备证据：日志出现 `粘贴入队 11 字节 -> 会话 1`，粘贴用例通过；单独运行
         `SurfaceLossRecoveryInstrumentedTest` 全绿（0 失败）。此前两轮的红是模拟器被并行负载
         拖慢留下的环境噪声（`shell prompt 未出现`，帧耗时 850ms），不是产品行为。
+      - **补记（用户报「所有菜单按钮失效、点击菜单消失」的第二层根因）**：上面修的是
+        「点击到不了菜单」，用户现象还有一半来自「菜单在点击前一刻自己挪走」。真机日志实证：
+        长按选出 `world` 输出 `setSelection (1,6)-(1,10)` 后，**紧跟**一条
+        `setSelection (1,6)-(1,7)` ——注入 1px MOVE 即把整词塌缩成被按单元格，菜单随选区
+        几何重锚走位，手指点下去的一瞬正好点空。根因：`longPressStartX/Y` 早已记录起点却
+        **从未被读取**，长按后的移动阈值判定当初漏实现（缺陷引入于 2026-07-30，早于 CI
+        run 39112133317 两个半月，也是该 run 唯一失败步骤的红项）。
+      - 落盘（`22625806`）：越过 `ViewConfiguration.scaledTouchSlop` 前 ACTION_MOVE 一律
+        不动选区，越过后才扩选。
+      - 可运行检查：`VisualInlineVerificationTest#verifyWordSelectionPositions`（修复前
+        连续两次独立运行稳定失败 `diff=160px`/`107px`，修复后 0 failed）；
+        `SelectionDragQuantifiedTest` 与 `SelectionEspressoTest` 两条回归线全绿。
+
 - [x] 文档提供者：创建、复制/移动、保存超时三个子项
       - 结论：三个子项在今天的代码上由真机仪器用例覆盖并通过（同一次 `am instrument` 报
         `OK (10 tests)`），单元层 `DocumentsProviderTest` 61 test / 0 失败。
@@ -152,6 +165,46 @@
         落在客户端超时侧、仓内没有超时或 ANR 可修，本轮在今天的代码上重跑仍无该现象。
       - 未覆盖：由第三方编辑器触发的真实「另存为」交互需要一个可安装的客户端，写回只验到
         提供者边界为止。
+      - **补记（用户报「路径已存在」的根因，此前几轮修的是别的层）**：前几轮修的是提供者
+        **自己**的重名策略（`uniqueChild` 改名而非硬失败、拒绝改到自身）。但用户看到
+        「路径已存在」的判定根本不在提供者里——AOSP 取证：该提示（`name_conflict`）在整个
+        `packages/apps/DocumentsUI` 全树只有一处使用（`RenameDocumentFragment` 的本地预检），
+        数据源是目录列表游标的**一次快照**（`DirectoryLoader` 把内容观察者注册在
+        **游标**上，`cursor.registerContentObserver`）。因此「提供者写盘成功但客户端仍拒」
+        的充要条件就是游标没刷新，而游标刷新只取决于 `setNotificationUri` 与 `notifyChange`
+        是否落在同一个 URI 上：此前查询端注册客户端原样传来的 docId（真机为带树根前缀的
+        `terminal_home/…`），广播端发行行内无前缀 docId，两者是**兄弟** URI，平台按 path
+        段下降匹配永不命中。客户端于是拿终端侧已删条目的幽灵行当已占用名字——这也解释了
+        「选择覆盖就能成功」：绕过本地预检即可。
+      - 落盘（`a1b85692`）：`setNotificationUri` 与全部 `notifyChange` 调用点的 docId 一律
+        由 File 反推为行内无前缀形式；`bf8f7ebb` 另补监视事件集缺 `MODIFY`（终端侧 `>>`、
+        `sed -i` 只改内容时元数据列停在旧值）与按查询刷新的 LRU 访问序。
+      - 可运行检查：`DocumentsProviderInstrumentedTest` 新增「前缀寻址的列表游标收得到终端侧
+        广播」（走真实 `ContentResolver` + inotify，断言 `terminal_home/sub` 寻址的游标在
+        终端侧落盘后收到通知）与「追加内容触发通知」两例。
+      - 设备证据：修复后单跑两例各 `tests="1" failures="0"`；全量仪器套件 200 例 0 failed；
+        全量单元测试 579 例 0 failed。真机日志 `deleteDocument 'terminal_home/logcat_…' ok
+        (3ms)` 实证前缀寻址路径真实存在（该次删除成功，故当时窗口内无失败现场）。
+      - 剩余两条仍未定案（**不假装已解决**）：①「保存修改文件超时」按既有台账落点在客户端
+        超时等待侧，本轮该日志窗口内无 create/rename/copy 现场；②「重命名文件卡死」与本次
+        修的本地预检同源（预检拒改后提交无响应），但同样缺真机样本。两条都需一份含
+        create/rename 操作的新日志（`trace()` 打点已在位）才能归因。
+      - **用户第二次上传的日志（`logcat_2026-10-18_16-50-19.txt`）**：位于
+        `origin/kyehn-patch-1` 分支，**未合入 main**；采集于 16:47:08–16:48:18（= 08:47 UTC），
+        **早于** URI 归一修复（18:01 UTC），故它记录的是修复前的行为。该版本含 `trace()` 打点
+        （07:12 UTC 落地）而无归一修复，正好是一份「有观测、无修复」的对照样本：
+        · 71 秒窗口内提供者侧**只有一条** `deleteDocument 'terminal_home/logcat_2026-10-18_12-07-26.txt'
+          ok (3ms)`，**没有任何 create/rename/copy 请求到达提供者**——与「『路径已存在』的判定
+          在客户端本地预检、操作根本没走到提供者」这一根因判断一致；也说明上一轮台账里
+          「该次删除成功，故窗口内无失败现场」的措辞不够准：真正的原因是这个窗口只做了删除。
+        · 前缀寻址（`terminal_home/…`）在真机路径上确认存在，且删除 3ms 完成、无阻塞。
+        · **不能**用来验证本轮修复：采集时刻早于全部提供者修复。
+      - **新发现（未定案，留给下轮）**：同一份日志里，45 个渲染循环窗口（每窗 60 帧 ≈ 1 秒）
+        中有 44 个出现 60–115ms（中位 88.7ms）的长帧尖峰，而**渲染阶段**的窗口 max 中位仅
+        3.45ms——停顿不在渲染路径，而在循环的其他环节（`waitOutput`/`pollAll`/事件派发/
+        统计上报）。STATUS 当天保留的「文本选择性能需要提升」可能与此有关，但该日志窗口
+        内没有选择操作，**不足以归因**；需要一份含滚动与选词的日志，或按
+        `SLOW_FRAME`（阈值 30ms，本窗口只出现 1 次，即启动首帧）补齐循环内各段计时。
 - [x] 启动屏图案与应用图标
       - 与上面零覆盖项的「启动动画图案模糊（含「应用图标被意外更改」）」是同一条，判据不重复：
         本轮在今天的代码上强制重跑 `SplashIconRobolectricTest`，1 test / 0 失败 / 0 跳过；
@@ -160,7 +213,9 @@
 ## 三、shell 启动缓慢
 
 - [x] 子进程环境缺 `PATH=$PREFIX/bin`（与 Termux-app 正常会话的环境分歧）
-      - 现象与日志：用户日志（`logcat_2026-10-18_12-07-26.txt`，随「修订规范文档」提交入库）里
+      - 现象与日志：用户提供的日志 `logcat_2026-10-18_12-07-26.txt`（**该文件未入库**：
+        仓库对象库里查无此名，提交历史里也没有任何 logcat 文件；本文结论取自其内容，
+        文件名在同批 16-50-19 日志的 `deleteDocument` 现场里出现过）里
         `Session::spawn`（12:07:18.106）后应用侧无输出；12:04:31.5～12:04:53.3 的 22 秒窗口内
         有 27 次 `avc: granted { execute }`（约每 0.9s 一次，末尾是用户工具链的 `scalar` 等）
         ——慢的是引导链自身在连续执行，不是应用阻塞。
@@ -224,3 +279,33 @@
         今日重跑 `cargo test render::font` = **132 passed / 0 failed**。
       - 未覆盖：设置页上「不提示」的展示效果没有独立像素级用例，由 pipeline
         状态断言（`CjkFallbackState::Skipped`）覆盖。
+
+## 六、CI build 稳定性（run 39112133317）
+
+- [x] 仪器测试步骤失败（`reactivecircus/android-emulator-runner@v2`）
+      - 现象：该 run（main，`e3554083`，08:37 创建）唯一失败步骤是第 12 步
+        `reactivecircus/android-emulator-runner@v2`（08:44:23 → 08:55:37，11m14s），
+        其后 `git tag` 与 release 两步被跳过；此前七步（含 `build-android-libs.nu`、
+        `build-apk.nu`）全绿。该步 script 为 `nu scripts/test-emulator.nu`，含两条命令：
+        `:app:connectedDebugAndroidTest` 与 `:benchmark:connectedBenchmarkReleaseAndroidTest`。
+        CI 原始日志需要仓库 admin 权限（API 返回 403），故步骤粒度是可得的最细证据。
+      - 根因：`:app:connectedDebugAndroidTest` 里的
+        `VisualInlineVerificationTest#verifyWordSelectionPositions` 稳定失败——
+        长按选词后 `longPressStartX/Y` 被记录却从未被读取（阈值判定漏实现），
+        手指微抖（注入 1px MOVE）即把整词选区 `(1,6)-(1,10)` 塌缩成 `(1,6)-(1,7)`。
+        该缺陷引入于 `36043254`（2026-07-30 Kotlin 桥重构），**早于**本 run 的提交，
+        故不是偶发；上一轮全量套件（200 例）恰有且仅有这 1 例红，且单独重跑连续两次
+        都红，与 CI 步骤失败吻合。
+      - 落盘：`22625806` 补 `ViewConfiguration.scaledTouchSlop` 守卫（见本文档「文本选择」
+        与 `text-selection` 规范「长按后微动不改写词选区」）。
+      - 可运行检查：`22625806` 后单跑该用例 `connected-failures: 0 failed`；
+        `SelectionDragQuantifiedTest` 与 `SelectionEspressoTest` 两条回归线亦全绿。
+      - 设备证据（本机模拟器，复现 CI 第 12 步的两条命令）：
+        ① `./gradlew :app:connectedDebugAndroidTest` = **0 failed**（16m28s）；
+        ② `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` = **BUILD SUCCESSFUL**（4m45s）。
+        两者合计量级与 CI 该步的 11m14s 同阶。
+      - 未覆盖：本机模拟器与 CI 的 `android-emulator-runner` 参数不同（CI 为 api 35 /
+        google_apis / x86_64 / 1536M / 2 cores / swiftshader_indirect / disable-animations），
+        且 CI 上的失败仍是从「本地同款套件有且仅有该例红」推定而来——CI 日志不可得。
+        下轮 CI 若再红，第 12 步的步骤粒度不足以定位到具体用例，需要在脚本里细分输出
+        （`scripts/` 为禁改区，此处只记观察）。
