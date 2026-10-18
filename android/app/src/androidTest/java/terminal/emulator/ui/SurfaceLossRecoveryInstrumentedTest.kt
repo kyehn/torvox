@@ -190,18 +190,19 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         // 「已选中文字却没有任何菜单」——选区状态仍在 ViewModel 里，不会自愈。
         printAndAwait("echo SEL_MENU_MARKER", "SEL_MENU_MARKER")
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            // 选区取**最后一行整行**（提示符与刚回显的标记所在行）而非固定的
-            // 「0 行 2..5 列」：后者在整套连跑时可能落在空白上，而空文本选区按产品语义
-            // 不挂「复制/分享」（menuActionsForSelection）——菜单其实出现了，断言却当成
-            // 菜单缺失，且该分支不打任何日志。整行选择与列宽/回滚位置无关。
+            // 选区取**全屏**（0,0 → 末行末列），既不取固定的「0 行 2..5 列」，也不取
+            // 「最后一行」：全新会话的内容写在**顶部**行（提示符就在第 0 行），任何写死的
+            // 行都可能在整套连跑时落在空白上——而空文本选区按产品语义不挂「复制/分享」
+            // （menuActionsForSelection），菜单其实出现了，断言却被读成菜单缺失，且该分支
+            // 不打任何日志。全屏选择与回滚位置、网格尺寸、列宽都无关。
             val packed = bridge().getGridRowsColsPacked()
             val rows = (packed ushr 32).toInt()
             val cols = (packed and 0xFFFFFFFFL).toInt()
-            activity.terminalViewModel.startSelection(rows - 1, 0)
+            activity.terminalViewModel.startSelection(0, 0)
             activity.terminalViewModel.updateSelection(rows - 1, cols - 1)
             activity.terminalViewModel.endSelection()
             assertTrue(
-                "最后一行必须是可复制文本，否则菜单不挂「复制」",
+                "全屏选区必须含文本，否则菜单不挂「复制」",
                 activity.terminalViewModel.selectionTextForAction().isNotEmpty(),
             )
         }
