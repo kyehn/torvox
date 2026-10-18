@@ -21,6 +21,15 @@ const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// `SKIP_FATAL_FRAME_LIMIT` 帧会记一条 error。因此短期限的代价只是「慢机器上
 /// 多跳几帧」，换来的却是卡死时 UI 线程不被按在地上两秒。
 pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+/// 排干在途取帧的期限，由 surface 销毁/重建方（`release_surface`、`attach_surface`
+/// 慢路径、`Renderer::drop`）使用。
+///
+/// 与 [`ACQUIRE_TIMEOUT`] 的分工：那条是**每帧**预算，越短越好；这条只在 surface
+/// 生命周期切换时付一次，要让「慢但会返回」的驱动走完（模拟器实测 SwiftShader 的
+/// `dequeueBuffer` 超时约 0.9s）。取 2s：既覆盖这类慢返回，又不至于在真卡死时把
+/// 宿主线程按太久——超时即由调用方拒绝同窗口重建（见 `Renderer::attach_surface`）。
+pub(crate) const ACQUIRE_DRAIN_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(2000);
 /// 回读 map 轮询步长：每次 poll 等待的分片，避免忙等。
 /// 仅测试使用（`render_to_buffer` 是无 surface 的回读测试脚手架，生产零调用）。
 #[cfg(test)]
@@ -32,9 +41,93 @@ const MAP_READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_mill
 
 type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any + Send>>;
 
+/// 在途取帧的记账：回答「工作线程现在是否仍持有某个 surface 的 `Arc` 克隆」。
+///
+/// 排干（drain）语义的必要性：克隆存活期间其下的 Vulkan surface 不销毁；此时在
+/// **同一个** `ANativeWindow` 上再建一个 Vulkan surface，`vkCreateAndroidSurfaceKHR`
+/// 返回 `ERROR_NATIVE_WINDOW_IN_USE_KHR`，而 wgpu-hal 的 vulkan 后端对这个错误直接
+/// `expect()` panic。该 panic 出现在 JNI 调用（`attachWindow`）里会被导出守卫转成
+/// Java 异常——宿主不捕获，进程随即 FATAL 退出，整轮仪器化运行作废（2026-10-18
+/// 日志实测：`acquire 超时 → release+同址 attach → 860ms 后 panic`）。
+///
+/// 计数在请求入队前 +1、工作线程**放下克隆之后** -1（顺序不可交换，见工作线程处
+/// 注释）；[`Self::drain`] 等到归零，供 surface 销毁/重建前调用。
+pub(crate) struct AcquireLane {
+    in_flight: std::sync::Mutex<usize>,
+    idle: std::sync::Condvar,
+}
+
+impl AcquireLane {
+    fn begin(&self) {
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *in_flight += 1;
+    }
+
+    /// 工作线程在放下 surface 克隆**之后**调用；归零时唤醒排干方。
+    ///
+    /// `saturating_sub` 而非 `-=`：单测以手工 begin/finish 驱动本类型，计数错乱时
+    /// 宁可停在 0（排干方立刻放行）也不要在工作线程上 panic——那条线程上 panic
+    /// 等于把整条取纹理通道打死。
+    fn finish(&self) {
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *in_flight = in_flight.saturating_sub(1);
+        if *in_flight == 0 {
+            self.idle.notify_all();
+        }
+    }
+
+    /// 等到无在途取帧。`true` = 已排干（无克隆在途）；`false` = 超时（工作线程被
+    /// 驱动卡住，Mali GPU 的已知形态）——调用方必须据此拒绝同窗口重建，
+    /// 而不是继续建 surface。
+    fn drain(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while *in_flight > 0 {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            let (guard, wait) = self
+                .idle
+                .wait_timeout(in_flight, deadline - now)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            in_flight = guard;
+            if wait.timed_out() && *in_flight > 0 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+fn acquire_lane() -> &'static std::sync::Arc<AcquireLane> {
+    static LANE: OnceLock<std::sync::Arc<AcquireLane>> = OnceLock::new();
+    LANE.get_or_init(|| {
+        std::sync::Arc::new(AcquireLane {
+            in_flight: std::sync::Mutex::new(0),
+            idle: std::sync::Condvar::new(),
+        })
+    })
+}
+
+/// 排干在途取帧，供 surface 销毁/重建前调用（实现见 [`AcquireLane`]）。
+pub(crate) fn drain_in_flight_acquires(timeout: std::time::Duration) -> bool {
+    acquire_lane().drain(timeout)
+}
+
 struct AcquireRequest {
     surface: std::sync::Arc<wgpu::Surface<'static>>,
     response: std::sync::mpsc::SyncSender<AcquireResult>,
+    lane: std::sync::Arc<AcquireLane>,
 }
 
 fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
@@ -43,10 +136,23 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
         .name("gpu-acquire".into())
         .spawn(move || {
             for request in rx {
+                let AcquireRequest {
+                    surface,
+                    response,
+                    lane,
+                } = request;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    request.surface.get_current_texture()
+                    surface.get_current_texture()
                 }));
-                let _ = request.response.send(result);
+                // 顺序不可交换：先放下克隆（其下的 Vulkan surface 随最后一个克隆销毁），
+                // 再 finish。反过来会让排干方在克隆仍在途时就被唤醒，同窗口重建照旧
+                // 撞上 ERROR_NATIVE_WINDOW_IN_USE_KHR。
+                drop(surface);
+                lane.finish();
+                // 销账之后才回送结果：`send` 可能因接收端已超时退出通道而被阻塞，
+                // 若把它排在 finish 之前，排干方就要替通道背压买单（最多一帧
+                // `ACQUIRE_TIMEOUT`），而它只该关心克隆有没有放下。
+                let _ = response.send(result);
             }
         })
         .unwrap_or_else(|spawn_error| {
@@ -263,14 +369,22 @@ impl Renderer {
         // 每帧仅一次同步通道分配。
         let (response_sender, response_receiver) =
             std::sync::mpsc::sync_channel::<AcquireResult>(1);
+        // 先记账再入队：入队成功即可能在工作线程里持有 surface 克隆，
+        // 排干方（attach/release/drop）据此才不会把「在途克隆」当成「没有克隆」。
+        let lane = acquire_lane();
+        lane.begin();
         let request = AcquireRequest {
             surface: std::sync::Arc::clone(surface),
             response: response_sender,
+            lane: std::sync::Arc::clone(lane),
         };
         // 通道满 = 上一帧的请求仍卡在工作线程里（Mali GPU 专有卡死），此时**绝不能**
         // 退回渲染线程就地取纹理：那正是本文件存在的理由所要避免的无超时阻塞，
         // 会让渲染线程永久挂死。本帧跳过，下一帧重试。
         if let Err(error) = acquire_worker_tx().try_send(request) {
+            // 请求从未进入工作线程（退回的请求里没有本帧的在途克隆），
+            // 立刻销账，避免排干方白等一个不存在的在途取帧。
+            lane.finish();
             log::warn!("acquire_texture: worker busy or dead ({error}); frame skipped");
             return AcquireOutcome::Skipped;
         }
@@ -1027,6 +1141,55 @@ mod tests {
             std::ptr::eq(tx1, tx2),
             "acquire_worker must return the same sender each call"
         );
+    }
+
+    // ── 在途取帧排干（AcquireLane）判定表 ──
+
+    fn idle_lane() -> AcquireLane {
+        AcquireLane {
+            in_flight: std::sync::Mutex::new(0),
+            idle: std::sync::Condvar::new(),
+        }
+    }
+
+    /// 无在途取帧时排干必须立即成功：`attach_surface` 的首次挂载与一切正常
+    /// surface 切换都靠这条路径直接放行，绝不能凭空等待。
+    #[test]
+    fn drain_succeeds_immediately_when_idle() {
+        assert!(idle_lane().drain(std::time::Duration::from_millis(0)));
+    }
+
+    /// 有在途取帧时排干必须在期限后**失败**，而不是假装成功——
+    /// 假装成功正是同窗口重建撞 `ERROR_NATIVE_WINDOW_IN_USE_KHR` 的原因。
+    #[test]
+    fn drain_times_out_while_a_request_is_in_flight() {
+        let lane = idle_lane();
+        lane.begin();
+        assert!(!lane.drain(std::time::Duration::from_millis(10)));
+    }
+
+    /// 工作线程销账后，已在等待的排干方必须被唤醒：release→attach 同址的
+    /// 恢复路径靠这条唤醒在同一次调用里完成重建，而不是退回拒绝分支。
+    #[test]
+    fn drain_wakes_up_when_the_in_flight_request_finishes() {
+        let lane = std::sync::Arc::new(idle_lane());
+        lane.begin();
+        let finisher = std::sync::Arc::clone(&lane);
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            finisher.finish();
+        });
+        assert!(lane.drain(std::time::Duration::from_secs(5)));
+        worker.join().expect("finisher thread joins");
+    }
+
+    /// 全局 lane 在任何取帧之前处于排干态：首个 `attach_surface`（尚无旧 surface）
+    /// 不得被守卫拦住。
+    #[test]
+    fn global_lane_is_drained_before_any_acquire() {
+        assert!(drain_in_flight_acquires(std::time::Duration::from_millis(
+            0
+        )));
     }
 
     // ── should_render_partial 判定表 ──

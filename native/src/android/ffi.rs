@@ -116,20 +116,9 @@ fn take_panic_text_and_leak(payload: Box<dyn std::any::Any + Send + 'static>) ->
     // `None`，而 `&*payload` 正常命中。后果是**每一个真实 panic 的文本都被报成
     // "non-string panic payload"**——守卫明明接住了 panic，抛给 Java 的诊断却是
     // 一句占位话，等于把最该看清的那条信息抹掉。此处曾经就是这样错的。
-    let text = panic_text(payload.as_ref());
+    let text = crate::panic_text(payload.as_ref());
     std::mem::forget(payload);
     text
-}
-
-/// 取 panic 载荷的可读文本。本身只借用，不负责销毁（见 [`take_panic_text_and_leak`]）。
-fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
-    if let Some(text) = payload.downcast_ref::<&'static str>() {
-        return (*text).to_string();
-    }
-    if let Some(text) = payload.downcast_ref::<String>() {
-        return text.clone();
-    }
-    "non-string panic payload".to_string()
 }
 
 /// 把 `jint` 收窄到无符号小类型，越界抛 `IllegalArgumentException` 并返回 `None`。
@@ -4521,21 +4510,6 @@ mod render_sample_bits_tests {
         assert_eq!(super::ALT_SCREEN_ACTIVE_BIT >> 32 & 0x1, 0);
         assert_eq!((super::ALT_SCREEN_ACTIVE_BIT >> 43) & 0x3FF, 0);
         assert_eq!(super::ALT_SCREEN_ACTIVE_BIT >> 53 & 0x1, 0);
-    }
-
-    #[test]
-    fn panic_text_reads_both_payload_shapes() {
-        assert_eq!(
-            super::panic_text(&"GPU initialization failed"),
-            "GPU initialization failed"
-        );
-        assert_eq!(super::panic_text(&String::from("索引越界")), "索引越界");
-        // 非字符串载荷：断言的是「仍能给出一条可读诊断」这条性质，而不是把兜底那句
-        // 文案抄回来——后者只会复述实现。空串会让 panic 诊断失去意义，Debug 形式
-        // （"42"）虽可读但与真正的 panic 文本混淆。
-        let fallback = super::panic_text(&42_u32);
-        assert!(!fallback.is_empty(), "非字符串 panic 载荷必须给出非空诊断");
-        assert_ne!(fallback, "42", "非字符串载荷不得直接回显 Debug 形式");
     }
 }
 

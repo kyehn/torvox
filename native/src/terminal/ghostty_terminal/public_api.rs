@@ -79,11 +79,7 @@ impl super::GhosttyTerminal {
                     })
                 }));
                 if let Err(panic) = result {
-                    let panic_message = panic
-                        .downcast_ref::<String>()
-                        .map(|s| s.as_str())
-                        .or_else(|| panic.downcast_ref::<&str>().copied())
-                        .unwrap_or("unknown panic payload");
+                    let panic_message = crate::panic_text(panic.as_ref());
                     // 接收端随 run 的栈帧一同析构，命令/查询通道随即断开，
                     // 后续操作在入队处显式失败——无需另设标志位。
                     log::error!("ghostty_terminal thread panicked: {panic_message}");
