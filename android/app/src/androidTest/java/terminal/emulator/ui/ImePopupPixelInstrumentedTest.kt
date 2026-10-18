@@ -571,9 +571,10 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
                 pumpAndText().orEmpty().contains("$") || pumpAndText().orEmpty().contains("#")
             }
         assertNotNull("shell prompt 未出现", promptSeen)
-        // 提交前必须确认界面未暂停：`commitText` 在暂停期据实返回 false（契约如此，
-        // 输入法据此重发）。旧写法丢弃返回值，于是「界面暂停→静默不写→中文未落格」
-        // 会被误读成产品缺陷。轮询到连接接受为止，且只成功提交一次。
+        // 提交前必须确认连接受理：只有「切换余波」的有界抑制窗口会让 `commitText`
+        // 据实返回 false（契约如此，输入法据此重发）。旧写法丢弃返回值，于是
+        // 「窗口内被拒→静默不写→中文未落格」会被误读成产品缺陷。轮询到连接受理为止，
+        // 且只成功提交一次。
         val committed =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
                 var accepted = false
@@ -586,7 +587,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
                 }
                 accepted
             }
-        assertNotNull("中文提交必须被输入连接接受（界面暂停时 commitText 返回 false，需重试）", committed)
+        assertNotNull("中文提交必须被输入连接接受（有界抑制窗口内返回 false，需重试）", committed)
         val chineseSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
                 pumpAndText()?.replace("\n", "")?.contains("中文") == true

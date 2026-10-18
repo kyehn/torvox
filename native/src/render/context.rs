@@ -176,6 +176,16 @@ pub struct Renderer {
     /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
     /// 期间屏幕停在旧会话（或纯主题背景）那一帧。
     attached_window: Option<usize>,
+    /// 最近一次 [`Renderer::release_surface`] 释放的窗口句柄（地址）。
+    ///
+    /// 为什么释放后还要记它：释放时若在途取帧排不干（工作线程仍持有旧 surface 的
+    /// `Arc` 克隆，其下的 Vulkan surface 尚未销毁），宿主紧接着就会把**同一个**
+    /// `ANativeWindow` 送回来重建（`TerminalSurface.postDelayedSurfaceRecreate` 实测
+    /// 同址 attach）。那时 `attached_window` 已是 `None`，只凭它无从判断「这个窗口上
+    /// 还有旧 surface 活着」，重建就会撞上 `ERROR_NATIVE_WINDOW_IN_USE_KHR` 触发
+    /// wgpu-hal panic（2026-10-18 日志：整进程退出、整轮仪器化作废）。
+    /// 判定见 [`rebuild_blocked_by_in_flight_surface`]；重建成功后清零。
+    retired_window: Option<usize>,
     /// 连续 surface 级取纹理失败的计数（见 [Self::note_surface_acquire]）。
     surface_loss_streak: u8,
     /// 连续「本帧跳过」计数：工作线程死亡或取纹理持续超时时，帧循环每帧
@@ -380,6 +390,16 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        // 同 `release_surface`：渲染器被丢弃时若有在途取帧持有 surface 克隆，
+        // 销毁可能跑在克隆之后，而宿主可能已把同一窗口交给下一个渲染器
+        // （会话重建）。排干后再丢，把「同窗口两个 Vulkan surface」的窗口期压到零。
+        // 超时只记日志：丢弃路径没有可拒绝的调用方，且此处已是清理终点。
+        if !super::pass::drain_in_flight_acquires(super::pass::ACQUIRE_DRAIN_TIMEOUT) {
+            log::warn!(
+                "Renderer::drop: in-flight acquire did not drain within {}ms; dropping anyway",
+                super::pass::ACQUIRE_DRAIN_TIMEOUT.as_millis(),
+            );
+        }
         self.frame_texture = None;
         self.frame_view = None;
         self.cell_bind_group = None;
@@ -401,6 +421,7 @@ impl Drop for Renderer {
         self.kgp_texture = None;
         self.surface = None;
         self.attached_window = None;
+        self.retired_window = None;
     }
 }
 
@@ -418,6 +439,28 @@ fn reuse_attached_surface(
     has_surface && has_config && !invalidated && attached_window == Some(incoming_window)
 }
 
+/// 排干失败（工作线程仍持有旧 surface 的 `Arc` 克隆）时，是否必须拒绝在
+/// `incoming_window` 上重建 surface。
+///
+/// 只有「重建目标正是那个仍有克隆在途的窗口」才不可做：同一 `ANativeWindow` 上并存
+/// 两个 Vulkan surface 会被驱动拒绝（`ERROR_NATIVE_WINDOW_IN_USE_KHR`）并触发
+/// wgpu-hal panic，把进程带走。换新窗口重建是安全的——陈旧克隆包着的是旧
+/// BufferQueue，与新窗口无关（真机日志里回前台/切会话送的正是新窗口）。
+///
+/// `retired_window` 覆盖「释放与重建之间」的窗口期：`release_surface` 排干失败后
+/// 仍会清掉 `attached_window`，只凭它无从判断刚释放的窗口是否就是送回来的这个
+/// （2026-10-18 实测：同址 attach，相距 53ms）。抽成自由函数以便单测穷举。
+#[cfg(any(target_os = "android", test))]
+fn rebuild_blocked_by_in_flight_surface(
+    in_flight_drained: bool,
+    incoming_window: usize,
+    attached_window: Option<usize>,
+    retired_window: Option<usize>,
+) -> bool {
+    !in_flight_drained
+        && (attached_window == Some(incoming_window) || retired_window == Some(incoming_window))
+}
+
 impl Renderer {
     pub(crate) fn new_inner(
         device: wgpu::Device,
@@ -430,6 +473,7 @@ impl Renderer {
             surface: None,
             surface_config: None,
             attached_window: None,
+            retired_window: None,
             surface_loss_streak: 0,
             consecutive_skip_frames: 0,
             surface_invalidated: false,
@@ -518,12 +562,51 @@ impl Renderer {
         } else if self.attached_window.is_some() {
             log::info!("attach_surface: ANativeWindow changed; rebuilding for the new window");
         }
+        // 排干在途取帧：工作线程可能仍持有旧 surface 的 `Arc` 克隆（其下的 Vulkan
+        // surface 直到克隆被放下才销毁）。同一窗口上并存两个 Vulkan surface 会被驱动
+        // 拒绝（ERROR_NATIVE_WINDOW_IN_USE_KHR）并触发 wgpu-hal panic，故必须先排干。
+        // 排干在正常路径上是瞬时的（工作线程一帧取纹理内就放克隆）；排不干只可能是
+        // 驱动卡死（Mali-G57 已知形态），此时同窗口重建必须拒绝——见下方判定。
+        let in_flight_drained =
+            super::pass::drain_in_flight_acquires(super::pass::ACQUIRE_DRAIN_TIMEOUT);
+        if rebuild_blocked_by_in_flight_surface(
+            in_flight_drained,
+            window,
+            self.attached_window,
+            self.retired_window,
+        ) {
+            log::error!(
+                "attach_surface: in-flight acquire on the SAME window {window:#x} did not drain within {}ms; \
+                 refusing to rebuild (two Vulkan surfaces on one ANativeWindow panic wgpu-hal). \
+                 The host must bring a fresh ANativeWindow.",
+                super::pass::ACQUIRE_DRAIN_TIMEOUT.as_millis(),
+            );
+            return Err(GpuError::Surface(format!(
+                "attach_surface: same-window rebuild refused: an in-flight acquire still holds the \
+                 previous surface on window {window:#x} after {}ms; retry with a fresh ANativeWindow",
+                super::pass::ACQUIRE_DRAIN_TIMEOUT.as_millis(),
+            )));
+        }
+        if !in_flight_drained {
+            log::warn!(
+                "attach_surface: in-flight acquire did not drain within {}ms but targets a different window; \
+                 proceeding with the rebuild",
+                super::pass::ACQUIRE_DRAIN_TIMEOUT.as_millis(),
+            );
+        }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
+        // 先丢帧累加器再丢 surface：累加器持有旧 surface 的输出细节（present/discard
+        // 都记在 `SurfaceId` 上），倒过来会让旧纹理去访问已注销的 surface id。
+        // 顺序之外的理由与下一段注释相同：旧 surface 必须死透，才能为同一窗口再建
+        // 一个 Vulkan surface。
+        self.frame_texture = None;
+        self.frame_view = None;
+        self.frame_invalidated = true;
         // 先释放旧 surface 再建新 surface：Android 上两个 wgpu surface 包裹同一个
         // ANativeWindow，旧 surface 仍存活时无法为该窗口创建 Vulkan swapchain，
         // 随后的 get_current_texture 永远报 “Surface is not configured for presentation”
         // （模拟器实测：首次之后的每个会话都黑屏）。调用方保证此刻无渲染线程处于帧中
-        // （switchSession 会先停旧线程），故可安全丢弃。
+        // （switchSession 会先停旧线程），且在途取帧已在函数开头排干，故可安全丢弃。
         self.surface = None;
         self.surface_config = None;
         // SAFETY:
@@ -532,7 +615,14 @@ impl Renderer {
         //   存活至 detachWindow 丢弃由其产生的 surface——wgpu 在创建时自行取得引用，
         //   调用方在本调用返回后即释放自己的引用；
         // - Android 上无 X11/Wayland display。
-        let surface = unsafe {
+        // `create_surface_unsafe` 包在 catch_unwind 里：wgpu-hal 的 vulkan 后端对
+        // `vkCreateAndroidSurfaceKHR` 的错误直接 `expect()`（`instance.rs`），而
+        // `ERROR_NATIVE_WINDOW_IN_USE_KHR`（同一 ANativeWindow 上已有 Vulkan surface）
+        // 是它认得的错误之一。panic 会沿 JNI 边界变成未捕获的 Java 异常，把整个进程
+        // 带走（2026-10-18 日志：宿主在 postDelayed 回调里 attach，进程 FATAL 退出，
+        // 整轮仪器化运行作废）。这里转成显式错误上报，绝不静默：日志保留 panic 载荷，
+        // 调用方（ffi）据此走既有的判死/换窗口自愈路径。
+        let created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
             global_gpu()
                 .instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
@@ -543,16 +633,22 @@ impl Renderer {
                     )),
                     raw_window_handle: RawWindowHandle::AndroidNdk(handle),
                 })
-        }
-        .map_err(|error| {
-            GpuError::Surface(format!(
-                "attach_surface: wgpu create_surface failed: {error}"
-            ))
-        })?;
-        // 累加器内容属于旧 surface，重挂载后强制全量重绘。
-        self.frame_texture = None;
-        self.frame_view = None;
-        self.frame_invalidated = true;
+        }));
+        let surface = match created {
+            Ok(Ok(surface)) => surface,
+            Ok(Err(error)) => {
+                return Err(GpuError::Surface(format!(
+                    "attach_surface: wgpu create_surface failed: {error}"
+                )));
+            }
+            Err(panic) => {
+                let detail = crate::panic_text(&*panic);
+                log::error!("attach_surface: wgpu create_surface panicked: {detail}");
+                return Err(GpuError::Surface(format!(
+                    "attach_surface: wgpu create_surface panicked: {detail}"
+                )));
+            }
+        };
         let surface = std::sync::Arc::new(surface);
         // 默认配置挑选驱动支持的呈现模式与格式；`RENDER_SCALE` 与 `reconfigure_swapchain`
         // 一致（跨渲染器固定的缩放，保证单元格度量一致）。
@@ -622,6 +718,8 @@ impl Renderer {
         self.projection_height = scaled_height;
         self.surface = Some(surface);
         self.attached_window = Some(window);
+        // 重建成立：本窗口上不再有「可能仍存活的旧 surface」需要记着（见 `retired_window`）。
+        self.retired_window = None;
         // 重建**确实**成功才清失效位与连续失败计数。
         //
         // 放在这里而非 `create_surface_unsafe` 之后：本次此间的 `get_capabilities` /
@@ -649,14 +747,29 @@ impl Renderer {
     /// 丢弃已挂载的 surface（Android detach 路径）。
     #[cfg(target_os = "android")]
     pub fn release_surface(&mut self) {
+        // 先排干在途取帧：工作线程持有 `Arc` 克隆时，其下的 Vulkan surface 尚未销毁，
+        // 而宿主（`TerminalSurface.postDelayedSurfaceRecreate`）紧接着就可能把同一个
+        // `ANativeWindow` 送回来重建——那时再发现克隆在途就已经在 `create_surface` 里了
+        // （实测同址 attach，距离释放仅 53ms）。排不干**不**阻塞释放（驱动可能永久卡死），
+        // 改为记下窗口句柄，让后续的同窗口重建自己拒绝（见 `retired_window`）。
+        if !super::pass::drain_in_flight_acquires(super::pass::ACQUIRE_DRAIN_TIMEOUT) {
+            log::warn!(
+                "release_surface: in-flight acquire did not drain within {}ms; \
+                 a later same-window rebuild will be refused until it completes",
+                super::pass::ACQUIRE_DRAIN_TIMEOUT.as_millis(),
+            );
+        }
+        // 同 `attach_surface` 的慢路径：先丢帧累加器再丢 surface，让旧纹理的
+        // present/discard 还能落在活着的 surface 上。
+        self.frame_texture = None;
+        self.frame_view = None;
+        self.frame_invalidated = true;
+        self.retired_window = self.attached_window;
         self.surface = None;
         self.surface_config = None;
         self.attached_window = None;
         self.surface_invalidated = false;
         self.surface_loss_streak = 0;
-        self.frame_texture = None;
-        self.frame_view = None;
-        self.frame_invalidated = true;
         log::info!("release_surface: surface dropped");
     }
 
@@ -1405,5 +1518,44 @@ mod attach_surface_reuse {
             Some(0x1000),
             0x1000
         ));
+    }
+}
+
+#[cfg(test)]
+mod in_flight_rebuild_guard {
+    use super::rebuild_blocked_by_in_flight_surface;
+
+    const WINDOW: usize = 0x7f00_1234;
+
+    /// 判定表：排干成功一律放行；排干失败只拒绝「重建目标正是仍有克隆在途的那个窗口」。
+    ///
+    /// 拒绝分支对应 2026-10-18 的崩溃现场：`release_surface` 后 53ms 宿主把**同一个**
+    /// （同址）`ANativeWindow` 送回来重建，而在途取帧仍持有旧 surface 的克隆——
+    /// `vkCreateAndroidSurfaceKHR` 报 `ERROR_NATIVE_WINDOW_IN_USE_KHR`，
+    /// wgpu-hal `.expect()` panic 沿 JNI 边界把整个进程带走。
+    #[test]
+    fn only_a_same_window_rebuild_is_refused_while_an_acquire_is_in_flight() {
+        let cases: &[(bool, Option<usize>, Option<usize>, usize, bool)] = &[
+            // 排干成功：一律放行（正常路径）。
+            (true, Some(WINDOW), Some(WINDOW), WINDOW, false),
+            (true, None, None, WINDOW, false),
+            // 排干失败 + 目标正是当前挂载的窗口（未释放即在途）：拒绝。
+            (false, Some(WINDOW), None, WINDOW, true),
+            // 排干失败 + 目标正是刚释放的窗口（release→attach 同址）：拒绝。
+            (false, None, Some(WINDOW), WINDOW, true),
+            // 排干失败 + 换了新窗口：陈旧克隆包着旧 BufferQueue，放行。
+            (false, Some(WINDOW), Some(WINDOW), WINDOW + 0x1000, false),
+            (false, None, Some(WINDOW), WINDOW + 0x1000, false),
+            // 排干失败却既无挂载也无释放记录：本不可达（在途克隆必来自挂载过的 surface），
+            // 保守放行且由上层日志暴露，避免守卫在这里凭空拒绝一切重建。
+            (false, None, None, WINDOW, false),
+        ];
+        for &(drained, attached, retired, incoming, expected) in cases {
+            assert_eq!(
+                rebuild_blocked_by_in_flight_surface(drained, incoming, attached, retired),
+                expected,
+                "drained={drained} attached={attached:?} retired={retired:?} incoming={incoming:#x}",
+            );
+        }
     }
 }

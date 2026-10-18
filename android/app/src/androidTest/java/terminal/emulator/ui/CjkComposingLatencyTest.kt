@@ -54,7 +54,7 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
     }
 
     /**
-     * 一次组字回退：自身耗时（微秒）、是否被受理（false＝暂停/抑制窗口内被拒），
+     * 一次组字回退：自身耗时（微秒）、是否被受理（false＝切换余波的抑制窗口内被拒），
      * 以及逃出回调的异常原文（非空即被测路径自己抛了，样本据此判不可信）。
      */
     private data class Edit(val elapsedUs: Long, val accepted: Boolean, val error: String? = null)
@@ -99,7 +99,7 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
                     true
                 }
             }
-        assertNotNull("输入法写入一直被拒（暂停或抑制窗口），样本会退化成空转", reached)
+        assertNotNull("输入法写入一直被拒（切换余波的抑制窗口），样本会退化成空转", reached)
         // 组字字节真的写进 PTY 才算测到了这条路径：空转的循环也会给出漂亮的耗时。
         val echoSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
@@ -195,12 +195,11 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
     private fun describe(t: Throwable): String = "${t.javaClass.simpleName}: ${t.message}"
 
     /**
-     * 触摸一次让窗口真正拿到焦点。
+     * 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。
      *
-     * 窗口失焦会置位 `isPaused`，输入法写入随即被整段拒收（返回 false 且不发声），
-     * 样本全部退化成零耗时空转——本用例必须先把它排除。单次抬起的处理会清掉抑制
-     * 窗口并 `requestFocus()`，与 [terminal.emulator.ui.ImePopupPixelInstrumentedTest]
-     * 驱动输入法前的那一次触摸同路。
+     * 交付本身不因失焦被拒（`isPaused` 只用于保住组字基线），但窗口获得焦点会开一个
+     * 有界的余波窗口；单次抬起的处理会清掉该窗口并 `requestFocus()`，与
+     * [terminal.emulator.ui.ImePopupPixelInstrumentedTest] 驱动输入法前的那一次触摸同路。
      */
     private fun tapToFocus(surface: View) {
         val location = IntArray(2)
