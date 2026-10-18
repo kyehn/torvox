@@ -627,6 +627,7 @@ fn cursor_not_rendered_when_invisible() {
         cell_width,
         cell_height,
         &mut font_pipeline,
+        CursorStyle::Block,
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
@@ -652,6 +653,7 @@ fn reverse_video_applied_to_blank_cell() {
         cell_width,
         cell_height,
         &mut font_pipeline,
+        CursorStyle::Block,
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
@@ -733,6 +735,7 @@ fn build_cursor_probe_instance(
     cell_width: f32,
     cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
+    style: CursorStyle,
 ) -> Vec<crate::render::CellInstance> {
     use crate::terminal::ghostty_terminal::CellData;
     let cell_data = vec![CellData {
@@ -750,7 +753,7 @@ fn build_cursor_probe_instance(
         row: 0,
         col: 0,
         visible: cursor_visible,
-        style: CursorStyle::Block,
+        style,
         color: [1.0, 1.0, 1.0, 1.0],
     };
     build_configured_cell_instance(&cell_data, cursor, cell_width, cell_height, font_pipeline)
@@ -1623,32 +1626,67 @@ fn selection_intersect_current_match_double_swap() {
 // ── Cursor shape tests ──
 
 #[test]
-fn cursor_block_full_cell_size() {
-    let mut font_pipeline = ascii_font();
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let instances = build_cursor_probe_instance(
-        0x20,
-        [1.0, 1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0, 1.0],
-        0,
-        true,
-        cell_width,
-        cell_height,
-        &mut font_pipeline,
-    );
-    assert_eq!(instances.len(), 1);
-    let cell = &instances[0];
-    // Production block cursor tracks the glyph bitmap (not the full cell):
-    // full cell width, glyph height, placed inside the cell.
-    assert!(
-        f32_eq(cell.quad_size[0], cell_width),
-        "Block cursor width should equal cell width"
-    );
-    assert!(
-        cell.quad_size[1] > 0.0 && cell.quad_size[1] <= cell_height,
-        "Block cursor height should cover the glyph within the cell, got {}",
-        cell.quad_size[1]
-    );
+fn cursor_geometry_anchored_to_cell_box() {
+    // spec cursor-rendering「方块光标按整格几何」「光标标记锚在单元盒」：光标几何只由
+    // 单元盒决定，与格内字形（空单元格取参考位图、文本格取该字形位图）无关。
+    // 跟随位图会让同一个光标随内容变高变矮、降部字形还会把它带出行界。
+    for style in [CursorStyle::Block, CursorStyle::Bar, CursorStyle::Underline] {
+        for codepoint in [0x20, 'g' as u32, 'M' as u32] {
+            let mut font_pipeline = ascii_font();
+            let (cell_width, cell_height) = font_pipeline.cell_metrics();
+            let instances = build_cursor_probe_instance(
+                codepoint,
+                [1.0, 1.0, 1.0, 1.0],
+                [0.0, 0.0, 0.0, 1.0],
+                0,
+                true,
+                cell_width,
+                cell_height,
+                &mut font_pipeline,
+                style,
+            );
+            // 文本格上的 Bar/Underline 会在字形之后追加标记四边形，取最后一个。
+            let cell = instances.last().expect("cursor must produce an instance");
+            let (left, top) = (cell.quad_origin[0], cell.quad_origin[1]);
+            let (width, height) = (cell.quad_size[0], cell.quad_size[1]);
+            assert!(
+                f32_eq(left, 0.0),
+                "{style:?}/{codepoint:#x}: 光标左边界应为单元左边界 0，实得 {left}"
+            );
+            match style {
+                CursorStyle::Block => {
+                    assert!(
+                        f32_eq(top, 0.0)
+                            && f32_eq(width, cell_width)
+                            && f32_eq(height, cell_height),
+                        "{style:?}/{codepoint:#x}: 方块光标应为整格 {cell_width}×{cell_height}，实得 [{left},{top}]+[{width},{height}]"
+                    );
+                }
+                CursorStyle::Bar => {
+                    assert!(
+                        f32_eq(top, 0.0) && f32_eq(top + height, cell_height),
+                        "{style:?}/{codepoint:#x}: 竖线应纵向铺满单元 [0,{cell_height}]，实得 [{top},{}]",
+                        top + height
+                    );
+                    assert!(
+                        width > 0.0 && width < cell_width,
+                        "{style:?}/{codepoint:#x}: 竖线宽度应窄于单元 {cell_width}，实得 {width}"
+                    );
+                }
+                CursorStyle::Underline => {
+                    assert!(
+                        top > 0.0 && f32_eq(top + height, cell_height),
+                        "{style:?}/{codepoint:#x}: 下划线底边应为单元底边 {cell_height}，实得 [{top},{}]",
+                        top + height
+                    );
+                    assert!(
+                        f32_eq(width, cell_width),
+                        "{style:?}/{codepoint:#x}: 下划线宽度应为整格 {cell_width}，实得 {width}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -1664,6 +1702,7 @@ fn cursor_not_rendered_when_visible_false() {
         cell_width,
         cell_height,
         &mut font_pipeline,
+        CursorStyle::Block,
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
@@ -1687,6 +1726,7 @@ fn cursor_at_origin() {
         cell_width,
         cell_height,
         &mut font_pipeline,
+        CursorStyle::Block,
     );
     assert_eq!(
         instances.len(),
@@ -1713,6 +1753,7 @@ fn cursor_with_text_and_block_style() {
         cell_width,
         cell_height,
         &mut font_pipeline,
+        CursorStyle::Block,
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];

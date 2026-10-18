@@ -22,12 +22,15 @@ class ComputeImeSurfaceShiftTest {
     private val gridHeightPx = containerHeightPx - modifierBarHeightPx
     private val visibleGridPx = gridHeightPx - keyboardPx
 
-    private fun shiftFor(contentBottomPx: Int, imeBottomPx: Int = keyboardPx) = computeImeSurfaceShift(
-        contentBottomPx = contentBottomPx,
-        surfaceHeightPx = containerHeightPx,
-        modifierBarHeightPx = modifierBarHeightPx,
-        imeBottomPx = imeBottomPx,
-    )
+    /** [cursorBottomPx] = 0 表示光标不在内容末行之下（或在内容末行之上、取不到）。 */
+    private fun shiftFor(contentBottomPx: Int, imeBottomPx: Int = keyboardPx, cursorBottomPx: Int = 0) =
+        computeImeSurfaceShift(
+            contentBottomPx = contentBottomPx,
+            surfaceHeightPx = containerHeightPx,
+            modifierBarHeightPx = modifierBarHeightPx,
+            imeBottomPx = imeBottomPx,
+            cursorBottomPx = cursorBottomPx,
+        )
 
     // ── sparse content stays put ────────────────────────────────────────────
 
@@ -110,6 +113,7 @@ class ComputeImeSurfaceShiftTest {
                 surfaceHeightPx = containerHeightPx,
                 modifierBarHeightPx = modifierBarHeightPx,
                 imeBottomPx = keyboardPx,
+                cursorBottomPx = 0,
                 isAltScreenActive = true,
             ),
         )
@@ -124,8 +128,26 @@ class ComputeImeSurfaceShiftTest {
                 surfaceHeightPx = containerHeightPx,
                 modifierBarHeightPx = modifierBarHeightPx,
                 imeBottomPx = containerHeightPx,
+                cursorBottomPx = 0,
                 isAltScreenActive = true,
             ),
+        )
+    }
+
+    // ── the row the cursor sits on, not just the last row with glyphs ─────────
+
+    /**
+     * 提示符整行占满（或命令行结尾换行）时光标落在最后一个有字行的**下一行**：
+     * 内容本身放得下（位移 0），但光标必须仍被顶到键盘上方，故位移恰好多出一格。
+     * 少了这一格，用户看到的就是「输入法弹出时光标不可见、没有剩余空间」。
+     */
+    @Test
+    fun `cursor row below the last content row is revealed`() {
+        val contentBottomPx = visibleGridPx - cellHeightPx
+        assertEquals(0, shiftFor(contentBottomPx = contentBottomPx))
+        assertEquals(
+            cellHeightPx,
+            shiftFor(contentBottomPx = contentBottomPx, cursorBottomPx = visibleGridPx + cellHeightPx),
         )
     }
 }
