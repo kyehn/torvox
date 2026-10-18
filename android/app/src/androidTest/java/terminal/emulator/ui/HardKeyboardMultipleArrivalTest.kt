@@ -49,11 +49,10 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
     /**
      * 主线程同步投递，返回连接真实的受理结果（异步投递会读到初值）。
      *
-     * 必须**轮询重试**而不是只发一次：`TerminalSurface.onWindowFocusChanged` 在窗口
-     * 获得焦点时同样会推后 `suppressUntilNanos`（有意为之——此刻输入法可能仍在组字，
-     * 立刻受理会失步并产生重复文本或多余空格），而 `sendKeyEvent` 的判据是
-     * `isPaused || now < suppressUntilNanos`。instrumentation 环境下窗口焦点会抖动，
-     * 单次投递有相当概率正落在抑制窗内而被**据实拒绝**（返回 false，不是丢字）。
+     * 必须**轮询重试**而不是只发一次：`sendKeyEvent` 的判据是
+     * `now < suppressUntilNanos`——窗口切换（获得焦点、抽屉关闭）会开一个**有界**的
+     * 抑制窗口，instrumentation 环境下焦点抖动会让单次投递有相当概率正落在窗内而被
+     * **据实拒绝**（返回 false，不是丢字）。窗口不延长、不叠加，于是重试必然收敛。
      *
      * 这正是该断言原先的失败消息「暂停/抑制窗口内拒绝属预期失败」那句的含义：
      * 它描述的是被测实现的有意契约，而不是缺陷——用单次投递去 `assertTrue` 是在
@@ -107,7 +106,7 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
 
         val marker = "MULTIα${System.currentTimeMillis() % 100000}"
         val accepted = sendMultipleCharacters(marker)
-        assertTrue("ACTION_MULTIPLE 必须被受理（暂停/抑制窗口内拒绝属预期失败）", accepted)
+        assertTrue("ACTION_MULTIPLE 必须被受理（有界抑制窗口内拒绝属预期失败）", accepted)
         val arrived =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
                 pumpAndText()?.replace("\n", "")?.contains(marker) == true

@@ -65,6 +65,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     SurfaceHolder.Callback {
 
     override fun onDetachedFromWindow() {
+        // 先落旗再拆窗口：平台在 onDetachedFromWindow 回调**内部**仍报告
+        // `isAttachedToWindow == true`（AttachInfo 尚未清空），弹窗创建处只凭它守卫会
+        // 放行——新窗口随后挂在一个正在销毁的 Activity 上，框架报
+        // `WindowLeaked: Activity ... has leaked window PopupWindow$PopupDecorView`
+        // 并把窗口永久留在屏幕上（实测 88 次泄漏，泄漏的是铺满全屏的手柄覆盖层；
+        // 留在屏幕上的覆盖层会吃掉后续用例的触摸，见 [reshowSelectionHandles]）。
+        viewDetached = true
         super.onDetachedFromWindow()
         // 强制隐藏输入法：软键盘打开时可能在旋转或返回键期间发生 detach。
         // 不做此步，键盘会残留显示在已销毁的 Activity 窗口之上（键盘卡死问题）。
@@ -127,8 +134,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 会在视图 detach 后继续让本视图（及整条 viewModel 链）存活
         // ——与上方的 runnable 同属一类泄漏。Surface 拆除路径也会调用它，
         // 但 detach 可以不伴随 Surface 销毁发生（重组时 Compose 替换视图）。
+        //
+        // `restoreHandles = false` MUST：默认值会在菜单关闭后按当前选区重建手柄窗口，
+        // 而此刻视图正在拆除——`isAttachedToWindow` 在 onDetachedFromWindow 内部仍为 true
+        // （框架先回调、后清 AttachInfo），守卫拦不住，于是 Activity 销毁时多出一个
+        // System 窗口：`WindowLeaked: Activity ... has leaked window PopupDecorView` +
+        // `Input channel object '... PopupWindow' was disposed without first being removed`。
+        // 每个 detach 一份，整套仪器用例跑下来累积成百个悬空窗口与输入通道。
         selectionHandles.hideSelectionHandles()
-        hideSelectionMenu("detach")
+        hideSelectionMenu("detach", restoreHandles = false)
         try {
             magnifier?.dismiss()
         } catch (exception: Exception) {
@@ -146,6 +160,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        // 与 [viewDetached] 成对：重新 attach 后才允许再建弹窗窗口。
+        viewDetached = false
         // 同一实例可被重新 attach（见 inputBatchBuffer 注释）：重建已关闭的批缓冲。
         inputBatchBuffer = newInputBatchBuffer()
         // 排队钩子 MUST 随 attach 恢复：它在 detach 时被摘掉（批缓冲已关闭，留着会让
@@ -257,7 +273,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
         // 旧窗口已不在（平台移除或已 dismiss）：清掉引用再重建。
         hideSelectionMenu("showSelectionMenu", restoreHandles = false)
-        if (!isAttachedToWindow) {
+        if (viewDetached || !isAttachedToWindow) {
             LogUtil.w(TAG, "菜单跳过：未附着")
             return
         }
@@ -905,12 +921,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        // 暂停时据实拒绝（理由同 `sendKeyEvent`）：返回 true 等于谎报已送达，
-                        // 而字节并未发出，且组字基线不得在此清——失焦时输入法自动提交
-                        // 整段组字，返回 false 才能让它重发，丢字不可恢复。
-                        if (isPaused) return false
-                        // 触摸抑制窗口内不清组字基线、不吞输入：返回 false 让输入法重试，
-                        // 否则下次更新以空基线做 diff 致重复文本（N1-24）。
+                        // 交付不按焦点状态整段拒收（见 onWindowFocusChanged 注释）：
+                        // 只有切换瞬间的有界抑制窗口会让输入法重试——返回 false 时
+                        // 组字基线不得清、字节不得吞，才能靠重发恢复（N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val newComposing = text?.toString() ?: ""
                         // 纯校对逻辑（ComposingDiff），已单元测试
@@ -943,17 +956,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     override fun finishComposingText(): Boolean {
                         // 暂停时不得清基线：PTY 已收到组字增量，失焦清空后输入法
                         // 重新提交会按空基线算出整段追加，同一段文字被写入两次。
+                        // 这是基线不变量，与是否接受交付无关——故此处**不**因
+                        // 焦点丢失而阻塞交付，只拒绝「清空基线」这一动作。
                         if (isPaused) return false
                         composing.clear()
                         return true
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        // 暂停时据实拒绝（理由同 `setComposingText`），不得清组字基线。
-                        if (isPaused) return false
-                        // 同上：抑制窗口内返回 false 让输入法重发该提交，
+                        // 抑制窗口内返回 false 让输入法重发该提交，
                         // 返回 true 等于声称已处理，字符永久丢失（N1-24）。
-                        if (System.nanoTime() < suppressUntilNanos) return false
+                        if (System.nanoTime() < suppressUntilNanos) {
+                            if (terminal.emulator.BuildConfig.DEBUG) {
+                                LogUtil.d(
+                                    TAG,
+                                    "commitText 在抑制窗口内被拒，" +
+                                        "剩余 ${(suppressUntilNanos - System.nanoTime()) / 1_000_000}ms",
+                                )
+                            }
+                            return false
+                        }
                         val committedText = text?.toString() ?: return false
                         val terminalViewModel = viewModel
                         val state = terminalViewModel?.state?.value
@@ -996,10 +1018,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      */
                     @Suppress("DEPRECATION")
                     override fun sendKeyEvent(event: KeyEvent): Boolean {
-                        // 暂停与抑制窗口内一律**拒绝**：返回 true 等于谎报已处理，而事件并未
+                        // 抑制窗口内**拒绝**：返回 true 等于谎报已处理，而事件并未
                         // 送达——硬键盘多字符没有第二条通道，丢字不可恢复，故据实拒绝。
-                        // 抑制窗口口径与其余写入路径一致（皆返回 false）。
-                        if (isPaused || System.nanoTime() < suppressUntilNanos) {
+                        // 口径与其余写入路径一致（皆返回 false），且只限这一个有界窗口：
+                        // 焦点丢失本身不拒收（见 onWindowFocusChanged 注释）。
+                        if (System.nanoTime() < suppressUntilNanos) {
                             return false
                         }
                         return when (event.action) {
@@ -1015,7 +1038,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     }
 
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                        if (isPaused) return false
                         // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
                         // beforeLength/afterLength 来自输入法（不可信）：
@@ -1119,7 +1141,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         newCursorPosition: Int,
                         attrs: TextAttribute?,
                     ): Boolean {
-                        if (isPaused) return false
                         // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val target =
@@ -1138,7 +1159,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      * 不引入新文本，区间外的已提交内容必须原样保留。
                      */
                     override fun setComposingRegion(start: Int, end: Int): Boolean {
-                        if (isPaused) return false
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val target = composing.reanchorRegion(start, end) ?: return false
                         val edit = ComposingDiff.reconcile(composing.text, target)
@@ -1194,7 +1214,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      * 否则输入法会把自己的移动误认为内容变更而重发整段。
                      */
                     override fun setSelection(start: Int, end: Int): Boolean {
-                        if (isPaused) return false
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val delta = selectionMover.moveTo(end)
                         if (delta.isEmpty) return true
@@ -1285,7 +1304,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) return
             // showAtLocation 需要窗口 token；在 Activity 结束过渡的帧中
             // 视图可能已 detach，调用会抛 BadTokenException。
-            if (!isAttachedToWindow) return
+            // `isAttachedToWindow` 在拆除回调内部仍为 true（见 [viewDetached]），
+            // 故两条件都要查——只凭它会把窗口建在正在销毁的 Activity 上。
+            if (viewDetached || !isAttachedToWindow) return
             if (width <= 0 || height <= 0) return
 
             val leftDrawable = resolveSelectionHandleDrawable(left = true)?.mutate() ?: return
@@ -2074,16 +2095,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     var drawerOpen: Boolean = false
         set(value) {
+            val wasOpen = field
             field = value
             if (value) {
                 selectionHandles.hideSelectionHandles()
-            } else {
+            } else if (wasOpen) {
                 // ModalNavigationDrawer 的遮罩轻击会关闭抽屉，
                 // 但在关闭动画期间该轻击可能穿透到 TerminalSurface
                 // ——终端轻击会清除选区，故关闭抽屉会静默抹掉活跃的文本选区。
                 // 在抽屉关闭动画时长（300ms）内抑制「轻击清除」，
                 // 使选区能存活抽屉自身的关闭手势。
-                suppressUntilNanos = System.nanoTime() + DRAWER_CLOSE_TAP_GRACE_NANOS
+                armInputSuppression(DRAWER_CLOSE_TAP_GRACE_NANOS)
             }
         }
 
@@ -2118,7 +2140,37 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     @Volatile internal var isPaused = false
 
+    /**
+     * 视图已开始（或已完成）离开窗口树。
+     *
+     * 弹窗创建不能用 `isAttachedToWindow` 判活：平台在 onDetachedFromWindow 回调**内部**
+     * 仍报告 true（AttachInfo 先回调后清空），于是拆除过程中建出的窗口会挂在一个正在
+     * 销毁的 Activity 上——框架报 `WindowLeaked: ... has leaked window PopupDecorView`
+     * 并把窗口永久留在屏幕上（实测 88 次；铺满全屏的手柄覆盖层留在屏幕上后，
+     * 后续用例的触摸会被它吃掉）。本旗在回调第一条语句落位，attach 时清除。
+     */
+    private var viewDetached = false
+
     @Volatile private var suppressUntilNanos = 0L
+
+    /**
+     * 开一个**有界**的输入抑制窗口：刚发生窗口/抽屉切换时，紧随其后的输入可能是切换
+     * 手势的余波（抽屉遮罩轻击穿透、失焦瞬间的收尾提交），据此拒绝一小段。
+     *
+     * 已开着的窗口**不延长**——连续多次切换只应付一个窗口的代价。此前各处直接写
+     * `suppressUntilNanos = now + window`，焦点/抽屉事件密集时抑制期会被反复续命，
+     * 输入被连续拒绝直到事件停下来为止（IME 集成用例的整个重试窗口都会被吃掉，
+     * 正是 CI 上「中文提交必须被输入连接接受」反复失败的形态）。
+     *
+     * 本窗口只拦「切换余波」，绝不用作整段拒收：失焦本身不阻塞输入投递
+     * （见 [imeConnection] 各编辑方法——平台只会在它认定的焦点视图上调用它们）。
+     */
+    private fun armInputSuppression(windowNanos: Long) {
+        val now = System.nanoTime()
+        if (now >= suppressUntilNanos) {
+            suppressUntilNanos = now + windowNanos
+        }
+    }
 
     private var pendingUnpauseRunnable: Runnable? = null
 
@@ -2306,6 +2358,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /** 在当前选区范围上重新隐藏并显示选区手柄（拖动结束后使用，使手柄吸附到最终单元格）。 */
     private fun reshowSelectionHandles() {
+        // 拆除中绝不重建覆盖层：框架在 detach 回调内部仍报告 isAttachedToWindow=true，
+        // 建出的窗口挂在正在销毁的 Activity 上并被永久留下（WindowLeaked: PopupDecorView，
+        // 实测 88 次）——留在屏幕上的全屏覆盖层会吃掉后续触摸。
+        if (viewDetached || !isAttachedToWindow) return
         // 拖动中绝不重建覆盖层：`hideSelectionHandles` 会 dismiss 掉承载本次按压的弹窗，
         // 窗口令牌随之销毁，平台立刻取消手势——后续 MOVE/UP 落到新窗口却已无 DOWN，
         // 表现为按住手柄一瞬即断、抬手不重锚（仪器用例 SelectionDragQuantifiedTest 判红）。
@@ -2928,17 +2984,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         super.onWindowFocusChanged(hasFocus)
         viewModel?.runtime?.focusChange(hasFocus)
         if (!hasFocus) {
+            // 失焦只据实记账，不拦输入：平台把文本送进本连接，即表明输入法
+            // 正对着本视图（连接由平台按焦点选择），此时拒收会让「切回来立刻打字」
+            // 丢掉最初几个字，且在无头仪器化环境下（窗口长期无焦点）会把输入
+            // 整段饿死——历史上多次以「输入一直不被接受」的形式失败。
+            // 真正需要拦的只是切换瞬间的余波，交由下方有界窗口处理。
             isPaused = true
             imeConnection.currentInputConnection?.let { ic ->
                 ic.finishComposingText()
             }
-            suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
+            armInputSuppression(SUPPRESS_GRACE_PERIOD_NS)
         }
         if (hasFocus) {
             // 重置暂停状态，但绝不要调用 finishComposingText——输入法可能正处于
             // 组字中；在此中止会导致输入法失步，产生重复文本、多余空格或静默丢字。
             isPaused = false
-            suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
+            armInputSuppression(SUPPRESS_GRACE_PERIOD_NS)
         }
     }
 
