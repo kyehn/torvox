@@ -103,6 +103,7 @@
     - `COLORTERM` 为 `truecolor`。
     - `TERM` 为 `xterm-256color`。
     - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
+    - `PATH` 为 `/data/data/com.termux/files/usr/bin`（Termux-app 正常会话同款；prefix 不可用或 failsafe 时不得设置，保留宿主默认）。
   - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD`
   - 仅宿主存在时透传，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
   - 禁止对其他 bootstrap 特殊处理，`postinstall` 只在存在时运行，不做无意义检查/校验，出现问题正常报错。

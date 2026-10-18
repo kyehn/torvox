@@ -151,3 +151,71 @@
       - 与上面零覆盖项的「启动动画图案模糊（含「应用图标被意外更改」）」是同一条，判据不重复：
         本轮在今天的代码上强制重跑 `SplashIconRobolectricTest`，1 test / 0 失败 / 0 跳过；
         `themes.xml`、自适应图标定义与前景图形在该修复后均未再改动。
+
+## 三、shell 启动缓慢
+
+- [x] 子进程环境缺 `PATH=$PREFIX/bin`（与 Termux-app 正常会话的环境分歧）
+      - 现象与日志：用户日志（`logcat_2026-10-18_12-07-26.txt`，随「修订规范文档」提交入库）里
+        `Session::spawn`（12:07:18.106）后应用侧无输出；12:04:31.5～12:04:53.3 的 22 秒窗口内
+        有 27 次 `avc: granted { execute }`（约每 0.9s 一次，末尾是用户工具链的 `scalar` 等）
+        ——慢的是引导链自身在连续执行，不是应用阻塞。
+      - 根因（上游源码比对）：`$PREFIX/bin/login` 是引导会话的默认入口，其 termux-exec 探针
+        `$SHELL -c "coreutils --coreutils-prog=true"` 依赖 `PATH` 解析 `coreutils`，失败即
+        `unset LD_PRELOAD`（termux-exec 关闭）；termux-app 的 `TermuxShellEnvironment.getEnvironment`
+        在正常会话（`!isFailSafe` 分支）设置 `PATH=$PREFIX/bin`，我们白名单逐项比对后唯一缺的
+        就是它。缺 `$PREFIX/bin` 时由 shell 自带的默认 PATH 兜底，用户包装脚本里
+        `command -v nix` 一类按名探测全部落空，启动链走「找不到 → 兜底」分支。
+      - 证据（设备，本机模拟器）：改造前会话子进程 envp（`/proc/<pid>/environ`，19 项）无
+        `PATH`；会话内探针脚本输出 `$PATH` 只有 mksh 自带的系统默认，`$PREFIX/bin` 不在其中。
+      - 落盘：`pty.rs::build_env` 在 `ShellEnv.prefix` 为 `Some` 时补 `PATH={prefix}/bin`；
+        `prefix` 为 `None`（无引导 / failsafe）时不设置，保留宿主默认——与 Termux-app 的
+        正常 / failsafe 两分支语义对齐。`DESIGN.md` 白名单与 `shell-env` spec 同步更新。
+      - 可运行检查：`build_env_sets_path_to_prefix_bin`（有 prefix 时取值恰为 `{prefix}/bin`）、
+        `build_env_without_prefix_omits_prefix_vars`（无 prefix 时 `PATH` 必须缺席）、
+        `build_env_rejects_unlisted_variables`（`PATH` 之外未声明变量仍被拒）。
+      - 设备证据（本机模拟器，重建 `libnative.so` 后）：
+        ① 存在 `files/usr/bin/{bash,login}` 时会话子进程 envp 出现
+        `PATH=/data/user/0/com.termux/files/usr/bin`（随 PREFIX/TMPDIR 同现）；会话内探针
+        `command -v coreutils` / `command -v bash` 均解析到 `$PREFIX/bin`（rc=0）——
+        正是 `login` 的 termux-exec 探针所做的查询；
+        ② 移走 `files/usr` 重启后 envp 无 `PATH`（19 项），会话内 `$PATH` 回落到宿主默认
+        （`cut` 可用、`coreutils` 不可用），与 Termux-app 的 failsafe 分支一致。
+      - 未覆盖：该分歧是已证实的环境不一致，但不是 22 秒的全部成因（窗口内 27 次执行说明
+        引导链在跑用户工具）；加速与否需要在用户设备上复验。
+
+## 四、触摸操作无效（yazi 等 TUI 应用）
+
+- [x] 鼠标上报开启时轻点与拖动没有转发给会话
+      - 现象与日志：yazi 等 TUI 开启 SGR 鼠标上报（`ESC[?1000h` + `ESC[?1006h`）后，
+        手指操作完全无效；应用侧收不到任何鼠标序列。
+      - 根因：手势层没有区分「应用在收鼠标事件」与「应用在收本地选区/滚回」——
+        轻点只走本地点按路径（转成选区手势），拖动只移动本地 scrollback，
+        两条都不产生会话输入。
+      - 落盘（提交「鼠标上报中轻点转发左键点击、拖动转发滚轮」）：会话处于鼠标上报状态时，轻点转发为同单元格的 SGR
+        左键按下+抬起（`ESC[<0;col;rowM` / `m`），单指拖动按累计位移转发滚轮
+        （`ESC[<64/65;col;rowM`，每个单元格高度一次），坐标一律取手势落点
+        或当前指针所在单元格；未开启上报时保持原有本地选择与滚动行为。
+      - 可运行检查：`MouseReportingInstrumentedTest` 两个用例——
+        `fingerTapInMouseTuiSendsLeftClickAtSameCell`、
+        `fingerDragInMouseTuiSendsWheelInsteadOfScrollingScrollback`；
+        spec 侧 `key-input-encoding` 已补该契约。
+      - 设备证据：定稿版本连跑 5 轮（`connectedDebugAndroidTest` 单类）全部 0 失败；
+        中间两轮红是脚手架自身的时序问题（arming 与断言窗口不匹配），随测试版本
+        迭代消除，与产品代码无关。
+      - 未覆盖：双指、长按拖拽等其余手势未定义新语义，保持原行为。
+
+## 五、主字体已覆盖 CJK 时的「未找到后备字体」误报
+
+- [x] 非 CJK locale 下主字体自覆盖却报错
+      - 现象与日志：系统语言非 CJK（如 en-US）时，主字体本身覆盖 CJK 仍被报
+        「未检测到 CJK 备用字体」。
+      - 根因：`cjk_probe_char(locale)` 返回 `None` 的语义是「本 locale 没有分片代表
+        字符」，实现把它当成了「主字体不支持 CJK」，于是无需回退的场景也走了
+        缺字体告警。
+      - 落盘（提交「主字体已覆盖 CJK 时不再误报未找到后备字体」）：无探针字符时回退层状态为 `Skipped`（无需回退）；
+        覆盖判定改由字体面自身的码点覆盖（`face_covers`）驱动，
+        `pipeline` 只在有探针字符且主字体确实未覆盖时才报缺字体。
+      - 可运行检查：`cjk_primary_under_non_cjk_locale_reports_skipped_not_none` 等；
+        今日重跑 `cargo test render::font` = **132 passed / 0 failed**。
+      - 未覆盖：设置页上「不提示」的展示效果没有独立像素级用例，由 pipeline
+        状态断言（`CjkFallbackState::Skipped`）覆盖。
