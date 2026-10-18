@@ -482,7 +482,9 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
 
     @Test
     fun paste_only_handle_drag_upgrades_selection_and_grows_D75() {
-        val (_, _, markerRow) = prepareWordTarget("growme")
+        // 标记词取 12 列：拖动落点允许有格子级偏差（触点量化 + 手势起始槽位），
+        // 词只有 6 列时落点稍微偏右就退出词外，区间只剩空白、菜单随之无「复制」。
+        val (wordTapX, _, markerRow) = prepareWordTarget("growmearcxyz")
         seedClipboard()
         val (cellWidth, cellHeight) = cellPx()
         val surface = attachedSurface()
@@ -502,13 +504,14 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
 
         // Grab the stacked END handle of the pressed cell itself: anchor at
         // that cell's bottom-right corner where the END handle hangs.
-        // 全 surface 本地坐标；终点落入标记词内（约第 10 列、标记行中部）。
+        // 终点取 prepareWordTarget 返回的词内列：标记词经 `ESC[8;1H` 画在首列，
+        // 手挑列（越过后半词）会拖出只含空白的区间——菜单于是只有「全选」，
+        // 外部表现才是「拖了却没长出可复制的文本」。
         val (handleX, handleY) = cellAnchorLocal(col = blankCol + 1, row = blankRow)
-        val targetX = (10 + 0.5f) * cellWidth
         realSwipe(
             x0Local = handleX,
             y0Local = handleY,
-            x1Local = targetX,
+            x1Local = wordTapX,
             y1Local = (markerRow + 0.5f) * cellHeight,
             steps = 12,
         )

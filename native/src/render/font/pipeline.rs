@@ -87,7 +87,7 @@ pub struct FontPipeline {
 ///
 /// - `bearing_y`：常规取「基线减放置顶部」；位图高于单元格时退化为竖向居中。
 ///   CJK 回退面常出现 `placement.top > ascent`，此时 bearing_y 为负，正是设计意图。
-/// - `raw_bearing_y`：未作居中回退的原值。方块光标与字形位图同高同顶边，要用它。
+/// - `raw_bearing_y`：未作居中回退的原值。Bar/Underline 光标标记靠它对齐字形盒顶边。
 ///
 /// 单位统一为物理像素：`glyph_h_px` 已含光栅缩放，`ascent_px * raster_scale` 同。
 pub(crate) fn glyph_bearing_y(
@@ -111,7 +111,7 @@ pub(crate) fn glyph_bearing_y(
 /// 主字形路径与叠加层都调它：错一分，组合记号/ZWJ 表情会与基字形错开，
 /// 而整形的用例断言的是 advance 不是 bearing，故此处显式钉住三个性质——
 /// ① 位图不高于单元格时用基线减 top；② 高于单元格时退化为居中（可为负）；
-/// ③ raw 值永不做居中回退（方块光标靠它对齐顶边）。
+/// ③ raw 值永不做居中回退（Bar/Underline 光标标记靠它对齐字形盒顶边）。
 #[test]
 fn glyph_bearing_y_matches_the_centering_fallback_contract() {
     // ① 常规：ascent 14px、scale 1、top 3 → 11。
