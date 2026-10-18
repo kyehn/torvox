@@ -693,10 +693,10 @@ fn append_row_instances(
         let mut effective_background = background;
         // 默认四边形尺寸（方块光标与空单元格共用）
         let quad_size = [cell_width * cell_span, cell_height];
-        // 方块光标高度跟随字形（ascent+descent 以物理
-        // 像素计），而非整个网格单元——420dpi 下整格高的光标块
-        // 看着就是包住 ~66px 字形的巨大实心矩形，而单元只有
-        // 79px 高。
+        // 方块光标恒为整格矩形（spec cursor-rendering「方块光标按整格几何」）：
+        // termux 的 TerminalRenderer 把光标画在 [基线 − 行高, 基线]，即整格。
+        // 跟随字形位图会让同一光标随格内字符变高变矮、越出本行——空单元格取
+        // 'M' 位图高度，文本单元格取该字形位图高度，两者不等。
 
         if is_cursor && matches!(cursor.style, CursorStyle::Block) {
             // 方块光标（独占样式）：保留原文前景保证可读，仅把背景
@@ -709,27 +709,23 @@ fn append_row_instances(
         let glyph_quad_size = [cell_width * cell_span, cell_height];
         let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
-            // 空单元格只发一个四边形：无光标时铺满全格背景；有光标时收缩为光标
-            // 标记，格内其余区域不被本帧覆盖（靠累加器保留，见脏带清除实例）。
+            // 空单元格只发一个四边形：无光标时铺满全格背景；Bar/Underline 时收缩为
+            // 光标标记，格内其余区域不被本帧覆盖（靠累加器保留，见脏带清除实例）。
+            // 方块光标不收缩——整格就是光标盒。
             {
                 let mut origin = quad_origin;
                 let mut size = quad_size;
-                // 空单元格上的方块光标：像下面的非空路径那样，
-                // 让光标块与字形盒精确对齐——顶边 = 基线 −
-                // 参考字形的 placement.top，高度 = 该参考字形的
-                // 位图高度。quad_origin 是单元顶边（shader
-                // 原样占据 [origin, origin+size]；bearing 只在框内
-                // 移动位图），故在此加上完整 ascent 会把光标块
-                // 压低一行——即「光标块比文字低一行」
-                // 的报告（，模拟器实测：
-                // VT 光标 (0,38)，光标块像素落在第 1 行）。
+                // 空单元格上的 Bar/Underline：顶边 = 基线 − 参考字形的
+                // placement.top，高度 = 该参考字形的位图高度。quad_origin 是单元
+                // 顶边（shader 原样占据 [origin, origin+size]），故不能直接加完整
+                // ascent——那会把标记压低一行。
                 if is_cursor {
                     let marker_background = cursor.marker_background();
                     let reference = font_pipeline
                         .glyph_information('M')
                         .or_else(|| font_pipeline.glyph_information('0'));
                     // 参考字形盒：顶边与高度与非空路径一致，保证空
-                    // 单元格光标与文本行对齐。
+                    // 单元格标记与文本行对齐。
                     let (glyph_top, glyph_height) = match reference {
                         Some(info) => (
                             ascent_pixels * raster_scale - info.placement.top as f32,
@@ -742,10 +738,7 @@ fn append_row_instances(
                         ),
                     };
                     match cursor.style {
-                        CursorStyle::Block => {
-                            origin[1] += glyph_top;
-                            size[1] = glyph_height;
-                        }
+                        CursorStyle::Block => {}
                         CursorStyle::Bar => {
                             // 竖线光标：单元格左侧细竖条，高度与字形盒一致。
                             origin[1] += glyph_top;
@@ -831,15 +824,9 @@ fn append_row_instances(
                 glyph_h_px,
                 cell_height,
             );
-            let mut origin = glyph_quad_origin;
-            let mut size = glyph_quad_size;
-            // 方块光标与字形位图同高同顶边：字形坐在基线上而非
-            // 单元格中心，顶边即基线减放置顶部偏移。
-            if is_cursor && matches!(cursor.style, CursorStyle::Block) {
-                let cursor_h = glyph_h_px.max(1.0);
-                origin[1] += raw_bearing_y;
-                size[1] = cursor_h;
-            }
+            // 方块光标不加修饰：quad 本身就是整格光标盒。
+            let origin = glyph_quad_origin;
+            let size = glyph_quad_size;
 
             instances.push(CellInstance {
                 quad_origin: origin,
@@ -1191,6 +1178,44 @@ mod tests {
             [0.0, 1.0, 0.0, 0.7],
             "background = cursor color * 0.7"
         );
+    }
+
+    /// 方块光标恒为整格矩形（spec cursor-rendering「方块光标按整格几何」）：
+    /// 不随格内字形变高变矮，也不越过行界。
+    #[test]
+    fn block_cursor_quad_is_the_whole_cell() {
+        let cell_width = 1024.0 / 80.0;
+        let cell_height = 1024.0 / 24.0;
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: true,
+            style: CursorStyle::Block,
+            color: [0.0, 1.0, 0.0, 1.0],
+        };
+        const FG: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+        const BG: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+        let cases = [
+            ("空白", cell_data(0, 0, ' ', FG, BG, 0), 1u32),
+            ("码点 0", cell_data(0, 0, '\0', FG, BG, 0), 1),
+            ("升部", cell_data(0, 0, 'b', FG, BG, 0), 1),
+            ("降部", cell_data(0, 0, 'g', FG, BG, 0), 1),
+            ("宽字符", cell_data(0, 0, '中', FG, BG, 0), 2),
+        ];
+        for (name, mut cell, width) in cases {
+            cell.width = width;
+            let instances = build(&[cell], cursor, &[]);
+            assert_eq!(
+                instances[0].quad_origin,
+                [0.0, 0.0],
+                "{name}: 光标盒顶边即单元顶边"
+            );
+            assert_eq!(
+                instances[0].quad_size,
+                [cell_width * width as f32, cell_height],
+                "{name}: 光标盒必须等于整格"
+            );
+        }
     }
 
     /// 空单元格（空格）只发背景四边形，绝不发字形实例。
@@ -1641,43 +1666,6 @@ mod tests {
             instances_equal(&instances, &full),
             "result must equal a full rebuild on cache mismatch"
         );
-    }
-    /// 空单元格上的方块光标必须留在光标自身所在行内：
-    /// quad_origin 是单元顶边（shader 原样占据
-    /// [origin, origin+size]），故顶边绝不可按完整 ascent
-    /// 平移——那会把光标块压到文字下一行（模拟器实测：
-    /// VT 光标 (0,38)，光标块像素落在第 1 行）。
-    #[test]
-    fn block_cursor_on_empty_cell_stays_in_its_row() {
-        let cursor = CellCursor {
-            row: 0,
-            col: 38,
-            visible: true,
-            style: crate::terminal::ghostty_terminal::CursorStyle::Block,
-            color: [1.0, 1.0, 1.0, 1.0],
-        };
-        // 光标下仅一个空单元格（码点 0）。
-        let cells = vec![cell_data(0, 38, '\0', [1.0; 4], [0.0; 4], 0)];
-        let instances = build(&cells, cursor, &[]);
-        assert_eq!(instances.len(), 1, "empty cursor cell emits one quad");
-        let cell_height = 1024.0 / 24.0;
-        let origin_y = instances[0].quad_origin[1];
-        let bottom_y = origin_y + instances[0].quad_size[1];
-        assert!(
-            origin_y >= 0.0 && bottom_y <= cell_height + 0.5,
-            "block quad spans y [{origin_y}, {bottom_y}] but row 0 ends at {cell_height}"
-        );
-        // 光标块必须与参考字形的字形盒对齐，与非空
-        // 路径一致（顶边 = 基线 − placement.top）。
-        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        if let Some(reference) = font_pipeline.glyph_information('M') {
-            let expected_top = font_pipeline.ascent_pixels() * font_pipeline.get_raster_scale()
-                - reference.placement.top as f32;
-            assert!(
-                (origin_y - expected_top).abs() <= 1.5,
-                "empty-cell block top {origin_y} != reference glyph top {expected_top}"
-            );
-        }
     }
     /// 竖线光标在空单元格必须是左侧细竖条，而非整格方块。
     #[test]

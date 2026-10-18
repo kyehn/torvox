@@ -1498,6 +1498,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         event.actionMasked == MotionEvent.ACTION_CANCEL ||
                             event.getPointerId(event.actionIndex) == dragPointerLocked
                     if (endedByOwner) {
+                        // UP 携带最终触点：快速拖动时最后一个 MOVE 常落后一两格，
+                        // 少了这一帧提交的就是旧位置——用户侧表现正是「拖动不跟手」。
+                        // 只在 UP 应用（CANCEL 无可靠坐标）。
+                        if (event.actionMasked == MotionEvent.ACTION_UP) {
+                            val lockedIdx = lockedIndex(event)
+                            if (lockedIdx >= 0) {
+                                driveHandleDragMove(event.getX(lockedIdx), event.getY(lockedIdx))
+                            }
+                        }
                         finishHandleDrag()
                         dragOwner = null
                         dragPointerLocked = null
