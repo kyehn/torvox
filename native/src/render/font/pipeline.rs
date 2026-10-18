@@ -170,10 +170,31 @@ impl FontPipeline {
         if pipeline.font_id.is_none() {
             pipeline.find_monospace_font();
         }
-        let system_locale = pipeline.system_locale.clone();
-        pipeline.find_cjk_fallback_fonts(&system_locale);
+        // 初始 locale 取进程级值并走 `set_system_locale`（而不是只赋值）：重建管线
+        // （`loadFontFile` / `setExtraFontPaths` 替换整条管线）与首次创建共用同一条
+        // 「locale 到达」路径——区域回退族补装 + 回退层发现。少了它，重建后的管线
+        // 从 "" 起步：探测字符缺失、主字体覆盖 CJK 也被报成「未检测到 CJK 备用字体」，
+        // 且必须等下一次 locale 事件（`setSystemLocale`）才恢复，用户看到的是
+        // 「设置页显示错误、过一会儿又对」。
+        let initial_locale = Self::initial_system_locale();
+        if !initial_locale.is_empty() {
+            pipeline.set_system_locale(&initial_locale);
+        }
         pipeline.rasterize_ascii();
         pipeline
+    }
+
+    /// 管线创建时的初始 locale：Android 取进程级值（JNI `setSystemLocale` 写入，
+    /// [`super::font_db::current_locale`]），其余目标为空串（locale 由调用方显式设置）。
+    fn initial_system_locale() -> String {
+        #[cfg(target_os = "android")]
+        {
+            super::font_db::current_locale()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            String::new()
+        }
     }
 
     /// 选定主字体。
@@ -213,7 +234,7 @@ impl FontPipeline {
                 super::font_db::face_covers(
                     font_database,
                     face_id,
-                    super::font_db::cjk_probe_char(&self.system_locale).unwrap_or('中'),
+                    super::font_db::cjk_coverage_probe_char(&self.system_locale),
                 )
             };
             let face = font_database

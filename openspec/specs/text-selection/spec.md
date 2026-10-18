@@ -143,7 +143,7 @@ MUST 隐藏菜单，抬手由 `finishHandleDrag` 按新几何重锚重显。
 
 实现：`showSelectionMenu` 不动覆盖层；菜单关闭后由 `hideSelectionMenu(reason,
 restoreHandles = true)` 调 `reshowSelectionHandles()`，其自身重开调用传
-`restoreHandles = false`。
+`restoreHandles = false`。两者的叠放由窗口类型钉死，覆盖层重建压不住菜单（见下一节）。
 
 #### Scenario: 菜单显示期间手柄仍可抓取
 
@@ -154,6 +154,41 @@ restoreHandles = true)` 调 `reshowSelectionHandles()`，其自身重开调用�
 
 - **WHEN** 菜单因点击条目或轻击别处而关闭且选区仍在
 - **THEN** 手柄覆盖层按当前选区重新显示；选区已空则不显示
+
+### Requirement: 菜单在手柄覆盖层之上
+
+菜单显示期间 MUST 是应用子系统窗口里最上层的一个，且该地位 MUST NOT 依赖「在屏窗口的
+重建」：覆盖层每次因选区或主题变化而重建、尺寸又铺满终端表面、把柄位之外的触摸转发给
+终端视图——菜单一旦被压住，落在条目上的点击就会变成「柄位外的轻击」并清掉选区
+（现象：所有菜单按钮失效、点击菜单消失）。
+
+实现：窗口类型把次序钉死——覆盖层用 `TYPE_APPLICATION_PANEL`（1001）、菜单用
+`TYPE_APPLICATION_SUB_PANEL`（1002），层号高者恒在上，与创建先后无关。早先的做法是
+覆盖层重建后把菜单 dismiss 再重新 show（`raiseSelectionMenuAboveOverlay`），已废弃：
+在屏窗口的重建本身有代价——旧窗口已从窗口管理器消失、新窗口尚未接收触摸，中间几百毫秒
+里触摸发给下层，正是「点菜单没反应」的成因之一。
+
+#### Scenario: 覆盖层重建后菜单仍可点击
+
+- **WHEN** 菜单显示期间手柄覆盖层因选区或主题变化而重建
+- **THEN** 菜单仍在覆盖层之上，点击条目执行其动作（不再清掉选区、不再自行关闭）
+
+#### Scenario: 状态变化不重建菜单窗口
+
+- **WHEN** 菜单显示期间选区状态变化（剪贴板由空变非空、选区文本或锚点变化）
+- **THEN** 菜单窗口 MUST NOT 被 dismiss 重建：条目集变化只原地换条目（`fillMenuBar`），
+      锚点变化只 `PopupWindow.update` 挪位；点击落在条目上的那一刻窗口始终有效
+
+#### Scenario: 长按空白后点「粘贴」
+
+- **WHEN** 长按空白单元格得到纯粘贴菜单后点击「粘贴」
+- **THEN** 该点击到达菜单条目并执行粘贴，选区随之按条目语义处置
+
+#### Scenario: 仪器侧取到的是菜单根
+
+- **WHEN** 用 Espresso 的 `inRoot(isPlatformPopup())` 或 UiAutomator 查菜单条目
+- **THEN** 命中的是菜单窗口——Espresso 取的「最上层 PopupWindow 根」与叠放次序同源，
+      被压住的菜单连同其中的条目一并不可见
 
 ### Requirement: 拖动中不重建手柄覆盖层
 

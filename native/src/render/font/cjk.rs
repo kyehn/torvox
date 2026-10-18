@@ -9,19 +9,24 @@ use super::{FontPipeline, GlyphInfo};
 const MAX_CJK_FALLBACK_FONTS: usize = 3;
 
 impl FontPipeline {
-    /// 主字体是否覆盖本 locale 的 CJK 代表字符。
+    /// 主字体是否覆盖 CJK 代表字符（回退层的取舍与 `font_info()` 上报的
+    /// `CjkFallbackState` 必须同源，故两者共用此处）。
     ///
-    /// 回退层的取舍与 `font_info()` 上报的 `CjkFallbackState` 必须同源，故两者共用
-    /// 此处。探测按 locale 分片的代表字符（见 [`cjk_probe_char`]）而非固定「中」：
-    /// CN 字体未必覆盖谚文音节，要求中/日/가同时存在会拒绝匹配的主字体。
+    /// 探测字符按 locale 分片（见 [`cjk_probe_char`]），非 CJK locale 回退到通用
+    /// 汉字：`None` 表达的是「本 locale 没有分片代表字符」，不是「主字体不覆盖 CJK」。
+    /// 把它当成后者，会让自带全套汉字的字体在 `en-US`/`de-DE` 下被报成
+    /// 「未检测到 CJK 备用字体」——用户看到的是明确错误提示，而它本无需回退。
+    /// 判据的语义是「主字体能否画出 CJK」，与「本 locale 是否要装回退层」
+    /// （[`Self::find_cjk_fallback_fonts`] 按 locale 是否为 CJK 早退）各管一件事。
     pub(crate) fn primary_covers_cjk_probe(&self) -> bool {
         let Some(primary_id) = self.font_id else {
             return false;
         };
-        let Some(probe) = super::font_db::cjk_probe_char(self.system_locale()) else {
-            return false;
-        };
-        super::font_db::face_covers(self.font_system.db(), primary_id, probe)
+        super::font_db::face_covers(
+            self.font_system.db(),
+            primary_id,
+            super::font_db::cjk_coverage_probe_char(self.system_locale()),
+        )
     }
 
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
