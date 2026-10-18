@@ -49,10 +49,6 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
 
         /** Catppuccin Mocha 背景（0x1E1E2E）：与应用默认主题一致，用作「无墨迹」基准。 */
         private const val BACKGROUND_COLOR = 0x1E1E2E
-
-        /** 选区所在视口行与起始列：与网格列数无关的固定量。 */
-        private const val SELECTION_ROW = 0
-        private const val SELECTION_START_COL = 2
     }
 
     @get:Rule
@@ -194,9 +190,20 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         // 「已选中文字却没有任何菜单」——选区状态仍在 ViewModel 里，不会自愈。
         printAndAwait("echo SEL_MENU_MARKER", "SEL_MENU_MARKER")
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            activity.terminalViewModel.startSelection(SELECTION_ROW, SELECTION_START_COL)
-            activity.terminalViewModel.updateSelection(SELECTION_ROW, SELECTION_START_COL + 3)
+            // 选区取**最后一行整行**（提示符与刚回显的标记所在行）而非固定的
+            // 「0 行 2..5 列」：后者在整套连跑时可能落在空白上，而空文本选区按产品语义
+            // 不挂「复制/分享」（menuActionsForSelection）——菜单其实出现了，断言却当成
+            // 菜单缺失，且该分支不打任何日志。整行选择与列宽/回滚位置无关。
+            val packed = bridge().getGridRowsColsPacked()
+            val rows = (packed ushr 32).toInt()
+            val cols = (packed and 0xFFFFFFFFL).toInt()
+            activity.terminalViewModel.startSelection(rows - 1, 0)
+            activity.terminalViewModel.updateSelection(rows - 1, cols - 1)
             activity.terminalViewModel.endSelection()
+            assertTrue(
+                "最后一行必须是可复制文本，否则菜单不挂「复制」",
+                activity.terminalViewModel.selectionTextForAction().isNotEmpty(),
+            )
         }
         composeTestRule.waitForIdle()
         assertNotNull("选区菜单必须先出现", awaitCopyAction())
