@@ -3,6 +3,7 @@ package terminal.emulator
 import android.provider.DocumentsContract
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import terminal.emulator.TerminalLogcatTest
@@ -409,6 +410,48 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             assertEquals(listOf("after.txt"), probeDir.list()?.sorted())
         } finally {
             probeDir.deleteRecursively()
+        }
+    }
+
+    /**
+     * 终端侧改动必须通知打开着的列表（幽灵行的根治点）。
+     *
+     * 提供者此前只广播自己的变更操作，shell 里 `rm`/`mv`/解压后的列表全是旧快照，
+     * 客户端拿着残留的幽灵行把创建/改名/粘贴拒成「路径已存在」。本用例走真实
+     * inotify：查询目录登记监视 → 绕过提供者直接落盘（等价于终端里的 `touch`）→
+     * 断言该目录的列表通知到达。
+     */
+    @Test
+    fun terminal_side_change_notifies_open_listing() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val watchDir = File(home, "watch-probe").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "watch-probe")
+        // 查询子项即登记监视：客户端看到哪一层，提供者就守哪一层。
+        context.contentResolver.query(childrenUri, null, null, null, null)?.use {
+            assertTrue("探测目录的子项查询必须成功", it.count == 0)
+        }
+
+        val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+        val observer =
+            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    notified.set(true)
+                }
+            }
+        context.contentResolver.registerContentObserver(childrenUri, true, observer)
+        try {
+            File(watchDir, "terminal-side.txt").writeText("x")
+            assertNotNull(
+                "终端侧新建文件后，打开该目录的列表必须收到通知（5 秒内未收到）",
+                UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) { notified.get() },
+            )
+        } finally {
+            context.contentResolver.unregisterContentObserver(observer)
+            watchDir.deleteRecursively()
         }
     }
 }

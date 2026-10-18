@@ -65,6 +65,41 @@ SAF 客户端 MUST 仍能读写：`enforceReadPermissionInner` / `enforceWritePe
 - **AND** 重命名路径 MUST NOT 套用此默认名——空名在重命名语境下仍是客户端契约违反，
       照旧抛 `FileNotFoundException`
 
+### Requirement: 终端侧改动即时广播，列表不留幽灵行
+
+客户端列表是对提供者的一次查询快照；终端里的 `rm`/`mv`/解压/`git` 绕过提供者，
+不广播，快照就永远停在旧状态。提供者 MUST 监视**曾被 `queryChildDocuments` 查询过**
+的目录（查询即登记），把条目出现、消失、改名、移动转成对「该目录子文档 URI」的
+`notifyChange`；属性变化与带名字的事件同时播报「条目文档 URI」，使文件选择器与终端
+互相即时反映对方造成的改动。
+
+真机实证的后果：列表残留终端侧已删除的幽灵行，客户端拿它当已占用的名字，创建/重命名/
+粘贴被其自身拒成「路径已存在」，选择「覆盖」绕过预检后又能成功。
+
+监视 MUST 设上限并按最近使用淘汰最久未看的目录：每个受监视目录占一个 inotify 实例，
+应用级上限约 128，耗尽会让**全部**监视静默失效。合并窗口内同一目录的多条事件 MUST
+合并成一轮广播，批量操作（解压、`git checkout`）不得把客户端逼成逐条重载。
+
+#### Scenario: 终端侧删除后列表自动消失该条目
+
+- **WHEN** 文件管理器正显示某目录，终端侧删掉其中一个条目
+- **THEN** 该目录的子文档 URI MUST 被 `notifyChange` 广播，列表刷新后不再显示该条目
+
+#### Scenario: 终端侧新建后列表自动出现该条目
+
+- **WHEN** 文件管理器正显示某目录，终端侧在其中新建文件或目录
+- **THEN** 该目录的子文档 URI MUST 被 `notifyChange` 广播，列表刷新后显示该条目
+
+#### Scenario: 批量改动合并成一轮通知
+
+- **WHEN** 合并窗口内同一目录接连发生多条事件（解压、`git checkout`）
+- **THEN** 该目录的子文档 URI MUST 只被广播一次
+
+#### Scenario: 属性变化不改列表
+
+- **WHEN** 目录内某条目的属性（大小、修改时间）变化
+- **THEN** 条目自身的文档 URI MUST 被广播，该目录的子文档 URI MUST NOT 被广播
+
 ### Requirement: 提供者权威用应用标识前缀
 
 文档提供者的 authority MUST 取 `${applicationId}.documents`（即 `com.termux.documents`）。
