@@ -915,6 +915,11 @@ pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
             "TERMUX_TMP_PREFIX_DIR_PATH".to_string(),
             format!("{prefix}/tmp"),
         ));
+        // Termux-app 正常会话同款（TermuxShellEnvironment.getEnvironment 的 !isFailSafe 分支）：
+        // login 的 termux-exec 探针 `$SHELL -c "coreutils …"` 与用户 shell 都靠这条 PATH 找到
+        // `$PREFIX/bin` 下的命令；缺了它，login 会 `unset LD_PRELOAD`，termux-exec 被自动关闭。
+        // prefix 不可用（无引导或 failsafe）时不得设置，由宿主 shell 自带默认 PATH 兜底。
+        result.push(("PATH".to_string(), format!("{prefix}/bin")));
     }
     result.push(("TERMUX_VERSION".to_string(), TERMUX_VERSION.to_string()));
     result
@@ -1336,7 +1341,6 @@ mod tests {
             "PWD",
             "USER",
             "SHELL",
-            "PATH",
             "LINES",
             "COLUMNS",
             "SSL_CERT_FILE",
@@ -1356,6 +1360,19 @@ mod tests {
     }
 
     #[test]
+    fn build_env_sets_path_to_prefix_bin() {
+        let mut env = test_env();
+        env.prefix = Some(TEST_PREFIX.to_string());
+        let result = build_env(&env);
+        assert!(
+            result
+                .iter()
+                .any(|(key, value)| key == "PATH" && value == &format!("{TEST_PREFIX}/bin")),
+            "PATH must point at the prefix bin for Termux command lookup, got {result:?}"
+        );
+    }
+
+    #[test]
     fn build_env_without_prefix_omits_prefix_vars() {
         let result = build_env(&test_env());
         for key in [
@@ -1363,6 +1380,7 @@ mod tests {
             "TERMUX_PREFIX_DIR_PATH",
             "TMPDIR",
             "TERMUX_TMP_PREFIX_DIR_PATH",
+            "PATH",
         ] {
             assert!(
                 !result.iter().any(|(name, _)| name == key),
