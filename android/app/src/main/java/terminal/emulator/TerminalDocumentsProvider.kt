@@ -250,12 +250,21 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val cols = projection ?: DOC_PROJECTION
         val cursor = MatrixCursor(cols)
         val rootDir = queries.rootDir()
-        queries.addDocRow(cursor, queries.resolveLinkEntry(documentId, rootDir), rootDir, cols)
+        val file = queries.resolveLinkEntry(documentId, rootDir)
+        queries.addDocRow(cursor, file, rootDir, cols)
         context?.contentResolver?.let { resolver ->
-            cursor.setNotificationUri(
-                resolver,
-                android.provider.DocumentsContract.buildDocumentUri(AUTHORITY, documentId),
-            )
+            // 通知 URI 取由文件反推的行内 docId，而非客户端传来的原样字符串。
+            // 树 URI 寻址传的是 `terminal_home/nix.conf`，广播只发行 `nix.conf`，
+            // 两者构成兄弟 URI——注册成前缀形式就永远收不到广播，客户端于是
+            // 停在旧快照上，拿幽灵行把创建/改名拒成「路径已存在」。
+            // 站外链接（`ln -s /sdcard/x ~/link`）编码得 null：addDocRow 已按同一
+            // 判断跳过该行，这里同样不设通知 URI，而不是把合法输入当不变量破坏。
+            encodeDocId(file, rootDir)?.let { docId ->
+                cursor.setNotificationUri(
+                    resolver,
+                    android.provider.DocumentsContract.buildDocumentUri(AUTHORITY, docId),
+                )
+            }
         }
         return cursor
     }
@@ -287,9 +296,16 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             LogUtil.w(TAG, "slow listing '$parentDocumentId': ${sorted.size} entries in ${elapsed}ms")
         }
         context?.contentResolver?.let { resolver ->
+            // 同 queryDocument：通知 URI 必须是行内无前缀形式，广播也只发这种，
+            // 客户端带树根前缀寻址时两者才是同一个 URI。parent 已过
+            // requireInsideRoot，编码失败即不变量被破坏。
+            val parentId =
+                requireNotNull(encodeDocId(parent, rootDir)) {
+                    "queryChildDocuments: cannot encode docId for ${parent.path}"
+                }
             cursor.setNotificationUri(
                 resolver,
-                android.provider.DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentDocumentId),
+                android.provider.DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentId),
             )
         }
         return cursor
@@ -346,7 +362,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             }
         // 句柄关闭即视为外部写回：广播文档与父目录，文件选择器才能看到大小/时间变化。裸 open() 时外部编辑"看起来没反应"。
         return ParcelFileDescriptor.open(file, fileMode, closeNotifyHandler) {
-            mutations.notifyWritten(documentId, file)
+            mutations.notifyWritten(file)
         }
     }
 
