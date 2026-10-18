@@ -1632,7 +1632,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         this.viewModel = viewModel
         // 选区菜单粘贴经批缓冲异步写（N1-26）：与长按粘贴同一出口，
         // 避免主线程逐块同步写 PTY。
-        viewModel.pasteSink = { sessionId, data -> inputBatchBuffer.write(data, sessionId) }
+        viewModel.pasteSink = { sessionId, data ->
+            // 「粘贴内容没到 shell」必须能从日志判定：本行记入队，[InputBatchBuffer]
+            // 记录刷写失败或丢弃，`executePaste` 记跳过——三段合起来覆盖整条链路。
+            LogUtil.d("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
+            inputBatchBuffer.write(data, sessionId)
+        }
         // 硬件按键与鼠标事件同样排到批缓冲（理由见 [installPtyWriteQueue]）。
         installPtyWriteQueue()
         observeImeShiftInputs(viewModel)
@@ -2951,7 +2956,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
-        flushSink = { sessionId, data -> viewModel?.writeToPty(sessionId, data) },
+        flushSink = { sessionId, data ->
+            // 未绑定时 `viewModel?.` 会把刷写变成无声空操作：粘贴与输入就此消失，
+            // 日志里片痕不留。[InputBatchBuffer] 对「已关闭/被拒绝」都留了日志，
+            // 这条同样必须留，否则「字节入队了却没到 shell」永远无法从日志判定。
+            val target = viewModel
+            if (target == null) {
+                LogUtil.w("TerminalSurface", "批缓冲刷写丢弃：视图模型尚未绑定 (${data.size} 字节)")
+            } else {
+                target.writeToPty(sessionId, data)
+            }
+        },
         inputSessionId = { viewModel?.runtime?.inputTargetSessionId ?: 0L },
     )
 

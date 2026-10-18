@@ -582,7 +582,7 @@
 | 8 | 输入法弹出时上滑不能到顶 | `ScrollDistanceTest`（7 例，共 23 例） | `ime-animation-smoothness` | 真机 `TOPMARK-0` 到顶 |
 | 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
 | 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（惯性按像素 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
-| 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏只画图标不用完整图案」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
+| 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏用应用图标本身」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
 | 14 | 切会话后屏幕停在旧会话（不在被删的 `docs/specification/STATUS.md` 行序里，属其第二条「文档提供者」的残根） | native `request_repaint_pushes_frame_with_unchanged_content` | `render-stability`「切换会话后呈现新会话的整幅内容」 | 真机：无输入 441ms 内整幅一帧，截屏 0/20 带差异（对旧会话）/ 11/20（对另一会话） |
 | CI | `run 38888880442` 两条失败 | `FontFileOverrideInstrumentedTest`（基线读晚了）、`BehaviorInstrumentedTest`（重试梯子隐藏错误） | 见十三节 | 本机复跑各 `failures="0"`，非 CI 抖动而是用例前提/错误处理问题 |
 
@@ -719,3 +719,32 @@
       实际语义注释（只接硬失败；surface 未就绪的帧留在通道里由后续帧取走），不改行为。
 - [x] spec 落点：`openspec/specs/render-stability/spec.md` 新增
       「切换会话后呈现新会话的整幅内容」Requirement 与三条 Scenario。
+- [x] 整机全套（194 例）里红而不稳的两例，根因在**用例自己的时序与前提**，不在产品：
+      `TermuxBootstrapRealTerminalTest` 点「+」后只 `waitForIdle` 就直读桥，而
+      `TerminalViewModel.createSession` 在 IO 协程里建会话并改 `activeSessionId`，
+      `getBridge()` 读的正是「当前活跃会话」（`TestUtils.kt` 的 `getBridge`）——整套连跑
+      拿到的是**上一个**会话的桥，SHELL 断言因此读到此前 diag 用例写下的 SGR 文本
+      （实测形态：`EEE_RED…echoTERMUX_ALIVE_…`）。改为轮询等 `activeSessionId` 真正切换
+      （30s 上限）再 `awaitBridge()`，断言一条未减。
+      `SurfaceLossRecoveryInstrumentedTest#selectionMenuSurvivesSurfaceRebuild` 盲选
+      「0 行 2..5 列」，而空文本选区按产品语义本就不挂「复制/分享」
+      （`menuActionsForSelection` 仍会加「全选」，故菜单照样弹出）——菜单其实出现了，
+      断言却当成菜单缺失；该分支**不打任何日志**（成功路径同样不打），这正是此前按
+      日志找不到原因的地方。**推断**（非实测，日志里没有这条）：涨上去的那一带是空白。
+      这条推断有两种可能来源——把写死的行当成了有内容的行，或前序用例留下的滚动前提
+      让该行落空——两者都不必查清：改为选**全屏**
+      （`startSelection(0,0)` → `updateSelection(末行, 末列)`）并断言该选区文本非空，
+      对两种前提都成立。中途先按「最后一行整行」改过一版，整套连跑时正是这条新断言
+      当场失败（最后一行无文本，这是实测），可见写死行号本身就不可靠；全屏选择与
+      网格尺寸、列宽、回滚位置全都无关。
+      这两例单跑必过、整套连跑红：`TermuxBootstrapRealTerminalTest` 例外，借 APK
+      未重建时也绿过一次。**不得**由此说它们是 CI 那次红的直接来源——台账另记的
+      `run 38888880442` 红的是 `FontFileOverrideInstrumentedTest` 与
+      `BehaviorInstrumentedTest`，两处红点是不同的用例集合。
+- [x] 门禁固有红点再补一处：`SplashIconRobolectricTest` 留着未使用的 `assertFalse`
+      导入，本机 `detekt` 实测报 `NoUnusedImports`（ktlint 包装规则，默认 error 级；
+      门禁不加 `--auto-correct`，故不会被自动修掉）——于是 `detekt` 在**未改任何代码**的
+      `main` 上即失败，与 `docs/STATUS.md` 排版、台账里的短提交号 semgrep 同一类
+      「门禁本来就红，红不能证伪任何修复」。该导入是先前把 `assertFalse` 换成
+      `assertNotNull` 时留下的孤儿；删掉后
+      `compileDebugAndroidTestKotlin spotlessCheck detekt` 全绿，用例与断言一条未动。
