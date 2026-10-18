@@ -57,6 +57,15 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
                     bridge.getTerminalText()?.contains("#") == true
             }
         assertNotNull("shell prompt 未出现", promptReady)
+        // 「shell 启动缓慢」的用户口径 = 进程起来到提示符可输入。应用侧埋点已证实不是瓶颈
+        // （bridge 创建 2~9ms、spawnTerminal 20~32ms，见 Runtime 的 `bridge created` /
+        // `spawnTerminal` 两条），余下等待落在引导链自身——指标把它记下来，供真机日志
+        // `grep UX_METRIC` 直接对标。不设硬断言：进程存活时长受测试类执行顺序影响，
+        // 该值的用法是趋势而非阈值。
+        UxTestUtils.metric(
+            "startup_to_prompt_ms",
+            SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis(),
+        )
 
         val latencies = mutableListOf<Long>()
         for (index in 1..SAMPLES) {

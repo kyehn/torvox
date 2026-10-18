@@ -55,17 +55,17 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **AND** 终端首帧呈现后 MUST 立即撤下
 - **AND** 首帧在 5s 上限内始终未呈现时 MUST 撤下，MUST NOT 永久遮挡界面
 
-### Requirement: 启动屏用应用图标本身
+### Requirement: 启动屏用普通图形复用桌面图标前景
 
-系统启动屏的图标 MUST 是应用图标本身（`@mipmap/ic_launcher`）：平台对自适应图标
-只取其前景层，超出圆形蒙版的部分与桌面上一样被裁掉。MUST NOT 为启动屏另做一份
-缩小或改形的图形——那会让启动屏与桌面图标各画一遍同一图案。图标后 MUST NOT 垫
-圆形底板：底板只由 `windowSplashScreenIconBackgroundColor` 是否不透明决定，
-与 `windowSplashScreenAnimatedIcon` 指到哪个 drawable 无关。
+系统启动屏的图标 MUST 是**普通图形**（`@drawable/splash_icon`，`layer-list` 引用
+`launcher_foreground`），MUST NOT 直接给自适应图标：平台的 `SplashscreenContentDrawer`
+只在拿到自适应图标时才沿用自己的蒙版，图案便与桌面图标一样被裁成图标形状。`splash_icon`
+MUST NOT 另画一份图形，只引用与桌面图标同一份的前景资源。图标后 MUST NOT 垫圆形底板。
 
 实现：`Theme.Terminal.Splash` 的 `windowSplashScreenAnimatedIcon` 指向
-`@mipmap/ic_launcher`，父主题 `Theme.SplashScreen`；回归防线为
-`SplashIconRobolectricTest`。
+`@drawable/splash_icon`，父主题 `Theme.SplashScreen` 且不声明
+`windowSplashScreenIconBackgroundColor`；回归防线为 `SplashIconRobolectricTest`
+（解析平台变换后断言可见区，而非只断言资源存在）。
 
 #### Scenario: 启动屏为图形加底色
 
@@ -77,10 +77,16 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **WHEN** 审查启动屏图形前景层的绘制范围
 - **THEN** 最远半径不得小于 40 单位（原始图形实测 50.3），不得为迁就蒙版整体缩小
 
+#### Scenario: 启动屏直接给自适应图标
+
+- **WHEN** `windowSplashScreenAnimatedIcon` 指向 `@mipmap/ic_launcher`
+- **THEN** 图案沿桌面蒙版被裁成图标形状——这是用户报「图案不完整」的实测根因，
+  MUST NOT 如此配置
+
 #### Scenario: 与桌面图标同源
 
 - **WHEN** 审查启动屏图标与自适应图标前景
-- **THEN** 两者是同一份资源，仓内无第二份路径副本
+- **THEN** 启动屏只引用桌面图标同一份的 `launcher_foreground`，仓内无第二份路径副本
 
 ### Requirement: 渲染 surface 失效后自愈
 

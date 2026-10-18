@@ -89,16 +89,21 @@
         两次都在键盘可见（即 `computeImeSurfaceShift` 生效）的状态下截图核对。
       - 未覆盖：没有自动化的像素级断言——这条是观感，判据落在位移公式与组字退格的单元用例上。
 - [x] 启动动画图案模糊（含「应用图标被意外更改」）
-      - 根因：启动屏一度不取自适应前景图形，又把 `launcher_foreground` 整体缩到 0.62 去适配，
-        于是同一图案有了两份缩放版本，桌面图标跟着一起被改样。
-      - 落盘：`windowSplashScreenAnimatedIcon` 直接指 `@mipmap/ic_launcher`（自适应图标本身，
-        平台只取前景层）；父主题 `Theme.SplashScreen` 不声明
-        `windowSplashScreenIconBackgroundColor`（不垫圆形底板）；`launcher_foreground` 保持原始尺寸。
-      - 可运行检查：`SplashIconRobolectricTest#splashIconIsTheAppIconItselfAndItsArtworkIsNotShrunk`
-        ——解析主题属性、必须是 `AdaptiveIconDrawable`、底色 alpha 必须为 0、前景按 4 像素/单位
-        渲染后最远半径落在 40~60 单位且覆盖非空。
-      - 设备证据：该用例以 `--rerun` 强制重跑实测 1 test / 0 failures（增量缓存会假绿，故必须重跑）；
-        `themes.xml`、`AndroidManifest.xml`、`res/mipmap/ic_launcher.xml` 三处复核一致。
+      - 根因（实测）：`windowSplashScreenAnimatedIcon` 曾直接指 `@mipmap/ic_launcher`（自适应
+        图标本身）——平台的 `SplashscreenContentDrawer` 只在拿到自适应图标时才沿用自己的蒙版，
+        于是启动屏图案与桌面图标一样被裁成图标形状；此外曾把 `launcher_foreground` 整体缩到
+        0.62 去适配，结果是同一图案有了两份缩放版本，桌面图标跟着一起被改样。
+      - 落盘：`windowSplashScreenAnimatedIcon` 改指**普通图形** `@drawable/splash_icon`
+        （`layer-list` 只引用桌面图标同一份的 `launcher_foreground`）——平台改走「缩进内圈
+        72/108 再裁」的路径，图案完整；父主题 `Theme.SplashScreen` 不声明
+        `windowSplashScreenIconBackgroundColor`（不垫圆形底板，并因此按
+        `splash_icon_no_background_scale_factor` 放大 1.5 倍，观感与桌面图标等大）；
+        `launcher_foreground` 保持原始尺寸。桌面图标仍是 `@mipmap/ic_launcher`，两者互不影响。
+      - 可运行检查：`SplashIconRobolectricTest#splashIconIsAPlainDrawableWhoseArtworkFitsTheVisibleCircle`
+        ——解析主题属性、图标**不得是** `AdaptiveIconDrawable`、底色 alpha 必须为 0、按内圈缩放
+        与 1.5 倍放大解析后图案落在图标区可见圆内且不小于桌面图标可见内容、不透明像素非空。
+      - 设备证据：该用例以 `--rerun` 强制重跑实测 1 test / 0 failures / 0 skipped（增量缓存会假绿，
+        故必须重跑）；`themes.xml`、`AndroidManifest.xml`、`res/drawable/splash_icon.xml` 三处一致。
         启动屏存活到首帧为止，截图往返抓不到它，像素级判据以该渲染用例为准。
 
 ## 二、复验项（上一变更已收敛，需在今天的代码上重测）
