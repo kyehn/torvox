@@ -9,6 +9,7 @@ import android.util.TypedValue
 import android.view.ContextThemeWrapper
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,17 +21,20 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * STATUS ⑪「启动动画使用图标而不是完整图案」的判据。
+ * 启动屏图标的判据（STATUS ⑪「启动动画使用图标而不是完整图案」+「应用图标被意外更改」）。
  *
- * 系统（AOSP `SplashscreenContentDrawer`）对 `windowSplashScreenAnimatedIcon` 的处理：
- * 图标按 `starting_surface_icon_size`(160dp) × 无底色放大系数 1.2 = 192dp 绘制，
- * 非自适应图标再由 `AdaptiveForegroundDrawable` 放大 1.5 倍并裁到圆内，
- * 因此**可见区只有 108 视口中心半径 36 单位（=72×72 安全区）的圆**。
- * 若把自适应应用图标直接交给它，平台会连同底板整块画出（完整图案）且四周被裁；
- * 交给非自适应的前景图形，平台才会把图标画在启动屏底色上。
+ * 平台对 `windowSplashScreenAnimatedIcon` 的处理：图标绘在
+ * `windowSplashScreenBackground` 上，圆形可见区只有 108 视口中心半径 36 单位
+ * （=72×72 安全区）；自适应图标只取其前景层，超出的部分与桌面上一样被蒙版裁掉。
+ * 图标后是否再垫一层圆形底板，只取决于主题有没有声明
+ * `windowSplashScreenIconBackgroundColor`——与 `windowSplashScreenAnimatedIcon`
+ * 指到哪个 drawable 无关。
  *
- * 故一条断言钉住两种情况：解析出的图标不是自适应图标，且渲染出的图案既非空白
- * 又不超出可见圆（超出即被裁切），同时确实铺满可见区（不得缩成一小块）。
+ * 历史坑：曾把「图标带底板」误判成自适应图标所致，先改父主题、又把
+ * `launcher_foreground` 整体缩到 0.62，结果桌面图标一起变小变样（用户报
+ * 「应用图标被意外更改」）。故本测试钉住两件事：启动屏用的就是应用图标本身
+ * （自适应图标，不得另存一份缩小的图形），且它的前景图案保持原始大小
+ * （半径 50.3 单位），不得被调小。
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -38,7 +42,7 @@ import kotlin.math.min
 class SplashIconRobolectricTest {
 
     @Test
-    fun splashIconIsAMarkOnTheSplashBackgroundThatFitsTheVisibleCircle() {
+    fun splashIconIsTheAppIconItselfAndItsArtworkIsNotShrunk() {
         val themed = ContextThemeWrapper(
             ApplicationProvider.getApplicationContext<Context>(),
             R.style.Theme_Terminal_Splash,
@@ -55,24 +59,50 @@ class SplashIconRobolectricTest {
         val icon = requireNotNull(themed.getDrawable(value.resourceId)) {
             "windowSplashScreenAnimatedIcon 指向的 drawable 必须存在"
         }
-        assertFalse(
-            "启动屏必须只画图标本身；交给平台自适应图标会把底板一起画成完整图案",
-            icon is AdaptiveIconDrawable,
+        val adaptive = icon as? AdaptiveIconDrawable
+        assertNotNull(
+            "启动屏必须直接用应用图标（mipmap/ic_launcher）：另做一份缩小图形会让" +
+                "启动屏与应用图标各画一遍同一图案。实际 ${icon.javaClass.simpleName}",
+            adaptive,
+        )
+        // 图标后垫不垫圆形底板（STATUS ⑪ 的「完整图案」）只由这个属性的透明度决定：
+        // Theme.SplashScreen 解析出的底色是全透明，Theme.SplashScreen.IconBackground
+        // 才给不透明底色。父主题换成后者、或本主题自己声明一个颜色，都会让底板回来。
+        val iconBackground = TypedValue()
+        themed.theme.resolveAttribute(
+            android.R.attr.windowSplashScreenIconBackgroundColor,
+            iconBackground,
+            true,
+        )
+        val backgroundAlpha = when {
+            iconBackground.type in TypedValue.TYPE_FIRST_COLOR_INT..TypedValue.TYPE_LAST_COLOR_INT ->
+                iconBackground.data ushr 24
+
+            iconBackground.type == TypedValue.TYPE_REFERENCE ->
+                themed.resources.getColor(iconBackground.resourceId, themed.theme) ushr 24
+
+            else -> 0
+        }
+        assertTrue(
+            "图标后不得垫圆形底板（STATUS ⑪「完整图案」），" +
+                "实际底色 type=${iconBackground.type} alpha=$backgroundAlpha",
+            backgroundAlpha == 0,
         )
 
-        val rendered = render(icon)
+        // 只画前景层：平台对自适应图标取的就是这一层。
+        val rendered = render(requireNotNull(adaptive).foreground)
         assertTrue(
             "图标必须是可绘制图案，实际不透明像素 ${rendered.opaquePixels}",
             rendered.opaquePixels > OPAQUE_PIXELS_FLOOR,
         )
         assertTrue(
-            "图标不得超出可见圆（半径 $VISIBLE_RADIUS 单位），实际最远 ${rendered.maxRadius}，" +
-                "包围盒 ${rendered.bounds}",
-            rendered.maxRadius <= VISIBLE_RADIUS,
+            "图案不得被调小（原始半径约 $ARTWORK_RADIUS_FLOOR 单位以上），" +
+                "实际最远 ${rendered.maxRadius}，包围盒 ${rendered.bounds}",
+            rendered.maxRadius >= ARTWORK_RADIUS_FLOOR,
         )
         assertTrue(
-            "图标应铺满可见区，实际最远只有 ${rendered.maxRadius} 单位",
-            rendered.maxRadius >= VISIBLE_RADIUS - 6f,
+            "图案不应远超画布，实际最远 ${rendered.maxRadius} 单位",
+            rendered.maxRadius <= ARTWORK_RADIUS_CEILING,
         )
     }
 
@@ -117,8 +147,11 @@ class SplashIconRobolectricTest {
         const val BITMAP_PX = 432
         const val CENTRE = 54f
 
-        /** 192dp 图标 ÷ 1.5 倍前景放大 = 可见圆直径 72 单位，即半径 36。 */
-        const val VISIBLE_RADIUS = 36f
+        /** 原始图案最远半径实测 50.3 单位（含描边）；低于 40 即为「被调小」。 */
+        const val ARTWORK_RADIUS_FLOOR = 40f
+
+        /** 画布对角线的一半约 76 单位；超过 60 说明图形被放大到越界。 */
+        const val ARTWORK_RADIUS_CEILING = 60f
 
         /** 图案至少覆盖位图的 1%，用于区分「有图案」与「整块空白」。 */
         const val OPAQUE_PIXELS_FLOOR = BITMAP_PX * BITMAP_PX / 100

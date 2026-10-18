@@ -55,28 +55,32 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **AND** 终端首帧呈现后 MUST 立即撤下
 - **AND** 首帧在 5s 上限内始终未呈现时 MUST 撤下，MUST NOT 永久遮挡界面
 
-### Requirement: 启动屏只画图标不用完整图案
+### Requirement: 启动屏用应用图标本身
 
-系统启动屏的图标 MUST 是非自适应图形，MUST NOT 直接交自适应应用图标：平台只对
-「属性未设置、图标取自应用」做自适应图标的只取前景处理，属性已设置时会把底板整块
-画出（完整图案）。图形 MUST 完整落在启动屏可见圆内（无裁切），且 MUST 铺满可见区
-（不得缩成小块）。启动屏图标与自适应图标前景 MUST 同源同一份图形，MUST NOT 维护
-第二份路径副本；启动屏 MUST 以主题底色作底，MUST NOT 另加图标底板。
+系统启动屏的图标 MUST 是应用图标本身（`@mipmap/ic_launcher`）：平台对自适应图标
+只取其前景层，超出圆形蒙版的部分与桌面上一样被裁掉。MUST NOT 为启动屏另做一份
+缩小或改形的图形——那会让启动屏与桌面图标各画一遍同一图案。图标后 MUST NOT 垫
+圆形底板：底板只由 `windowSplashScreenIconBackgroundColor` 是否不透明决定，
+与 `windowSplashScreenAnimatedIcon` 指到哪个 drawable 无关。
+
+实现：`Theme.Terminal.Splash` 的 `windowSplashScreenAnimatedIcon` 指向
+`@mipmap/ic_launcher`，父主题 `Theme.SplashScreen`；回归防线为
+`SplashIconRobolectricTest`。
 
 #### Scenario: 启动屏为图形加底色
 
 - **WHEN** 冷启动显示系统启动屏
-- **THEN** 只见图形本体画在主题底色上，自适应图标的底板与蒙版不出现
+- **THEN** 只见图形本体画在主题底色上，图标后不出现圆形底板
 
-#### Scenario: 图形不被裁切
+#### Scenario: 图案不被调小
 
-- **WHEN** 审查启动屏图形的绘制范围
-- **THEN** 图形最远点落在可见圆（108 视口中心半径 36 单位）内，星形、窗口角等边缘元素完整可见
+- **WHEN** 审查启动屏图形前景层的绘制范围
+- **THEN** 最远半径不得小于 40 单位（原始图形实测 50.3），不得为迁就蒙版整体缩小
 
 #### Scenario: 与桌面图标同源
 
 - **WHEN** 审查启动屏图标与自适应图标前景
-- **THEN** 两处指向同一 drawable，仓内无第二份路径副本
+- **THEN** 两者是同一份资源，仓内无第二份路径副本
 
 ### Requirement: 渲染 surface 失效后自愈
 

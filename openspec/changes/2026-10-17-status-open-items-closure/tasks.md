@@ -458,6 +458,33 @@
       星形 `#ffb467` 386px 出现在 `(693,1081)`（改前整颗被裁不可见），
       三点各 10–11px。桌面图标（应用抽屉）同样完整：星形 12×10px 可见、
       三点正常、窗口角不再被切。
+- [x] **回退并改正（用户复报「应用图标被意外更改」）**：上一轮把启动屏两件事一次改完
+      （父主题换成 `Theme.SplashScreen`、图标换成非自适应 `@drawable/launcher_foreground`），
+      又把**共用的**前景图形整体缩到 0.62。两个改动混在一起，归因没被单独验证过：
+      设备上看到「底板消失 + 图案变大」是哪个改动带来的，无人分辨；而缩小共用图形
+      必然连带改动桌面图标——这正是复报的成因。真正的判据在设备上取证完毕：
+      ① `Theme.SplashScreen` 父主题解析出的 `windowSplashScreenIconBackgroundColor`
+      透明度为 0（`SplashIconRobolectricTest` 断言值），底板有无只取决于该属性，
+      与 `windowSplashScreenAnimatedIcon` 指到哪个 drawable 无关；
+      ② 自适应图标只取前景层，超出的部分被圆形蒙版裁掉，与桌面表现一致——
+      故启动屏直接用 `@mipmap/ic_launcher`，不再另存缩小图形。
+      落地：`launcher_foreground.xml`、`launcher_monochrome.xml` 回退到 `3ea986f5^`
+      （原始图形，实测最远半径 50.3 单位，含描边；此前记的 48.5 未计描边），
+      `themes.xml` 的 `windowSplashScreenAnimatedIcon` 改为 `@mipmap/ic_launcher`，
+      父主题保持 `Theme.SplashScreen`（⑪「完整图案」不复发）。
+- [x] 真机复验（emulator-5554，api 35，density 420，`app-debug.apk` 重装）：
+      应用信息页图标恢复为整块终端窗口 + 星形（缩小期间只有一个小星 + 细描边）；
+      冷启动首帧截图 `sp5_1.png`：底色 `#1E1E2E`、图案大而清晰、图标后无圆形底板，
+      边缘按蒙版裁切（与桌面一致）。
+- [x] 加检查改判据（`SplashIconRobolectricTest`）：原断言「不是自适应图标 / 半径 ≤ 36 /
+      ≥ 30」把上一轮的错误设计钉死了。改为 ① 解析出的**必须是**自适应图标
+      （启动屏不得另存图形）；② `windowSplashScreenIconBackgroundColor` 解析后
+      透明度必须为 0（⑪ 的真正判据；父主题若换成 `Theme.SplashScreen.IconBackground`
+      即失败）；③ 前景层图案最远半径 ≥ 40 且 ≤ 60 单位（0.62 那版实测 30，必失败；
+      原始图形 50.3 通过）。改后 1 例 0 失败，`BUILD SUCCESSFUL`。
+- [x] spec 改正：`openspec/specs/render-stability/spec.md` 的 Requirement
+      「启动屏只画图标不用完整图案」改名并重写为「启动屏用应用图标本身」，
+      Scenario「图形不被裁切」换成「图案不被调小」，补实现落点。
 - 口径留档：`values-v31` 下 `Theme.SplashScreen` 与
       `Theme.SplashScreen.IconBackground` 的差别仅是后者多映射
       `android:windowSplashScreenIconBackgroundColor`；本应用 `minSdk = 33`，
