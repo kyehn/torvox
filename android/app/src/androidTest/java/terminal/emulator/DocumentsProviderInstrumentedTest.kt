@@ -337,4 +337,78 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             targetDir.deleteRecursively()
         }
     }
+
+    /**
+     * 外部文件管理器走**树 URI** 的重命名。
+     *
+     * 真机反馈「重命名文件卡死」：对话框关掉、列表里名字不变，既无报错也无落盘。
+     * 与复制/移动的差别只在入口：平台把 `renameDocument` 直接路由到提供者（不经
+     * `call()`），客户端交出的是 `tree/<root>/document/<docId>` 形式的 URI。这里按
+     * 客户端真实序列断言改名落盘、旧名消失、**返回的 URI 立刻可用** —— 返回 null
+     * 会让客户端当「名字没变」处理并静默收场，正是无响应观感的来源。
+     */
+    @Test
+    fun tree_uri_rename_round_trip() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val probeDir = File(home, "tree-rename").apply { deleteRecursively() }
+        try {
+            val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
+            val rootTreeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
+
+            val dirUri = DocumentsContract.createDocument(
+                context.contentResolver,
+                rootDocumentUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "tree-rename",
+            )
+            requireNotNull(dirUri) { "probe dir create must return a uri" }
+            val dirDocId = DocumentsContract.getDocumentId(dirUri)
+            val childrenInDir = DocumentsContract.buildChildDocumentsUriUsingTree(rootTreeUri, dirDocId)
+
+            val sourceUri = DocumentsContract.createDocument(
+                context.contentResolver,
+                childrenInDir,
+                "text/plain",
+                "before.txt",
+            )
+            requireNotNull(sourceUri) { "tree URI create must return a uri" }
+            context.contentResolver.openOutputStream(sourceUri, "rwt").use { stream ->
+                requireNotNull(stream).write("rename body".toByteArray())
+            }
+            val sourceDocId = DocumentsContract.getDocumentId(sourceUri)
+            assertEquals("tree-rename/before.txt", sourceDocId)
+            val sourceViaTree = DocumentsContract.buildDocumentUriUsingTree(rootTreeUri, sourceDocId)
+
+            // ① 改名：必须返回新 URI（返回 null 等于「名字没变」，客户端静默收场）。
+            val renamedUri = DocumentsContract.renameDocument(
+                context.contentResolver,
+                sourceViaTree,
+                "after.txt",
+            )
+            requireNotNull(renamedUri) { "renameDocument must return the renamed document uri" }
+            assertEquals("tree-rename/after.txt", DocumentsContract.getDocumentId(renamedUri))
+            assertTrue("rename must land on disk", File(probeDir, "after.txt").exists())
+            assertTrue("rename must remove the old name", !File(probeDir, "before.txt").exists())
+            assertEquals("rename must preserve content", "rename body", File(probeDir, "after.txt").readText())
+
+            // ② 新 docId 立刻可寻址：客户端改名后接着读/写，不能只认旧 id。
+            assertEquals("text/plain", context.contentResolver.getType(renamedUri))
+            context.contentResolver.openInputStream(renamedUri).use { stream ->
+                val text = requireNotNull(stream) { "renamed document must be readable" }.readBytes().decodeToString()
+                assertEquals("rename body", text)
+            }
+
+            // ③ 名字没变：提供者按框架合约回 null（原 docId 仍有效），平台据此把同一个
+            // URI 交回客户端；磁盘不得因此多出副本，也不得改名。
+            val unchangedUri =
+                DocumentsContract.renameDocument(context.contentResolver, renamedUri, "after.txt")
+            assertEquals(renamedUri, unchangedUri)
+            assertTrue(File(probeDir, "after.txt").exists())
+            assertEquals("rename body", File(probeDir, "after.txt").readText())
+            assertEquals(listOf("after.txt"), probeDir.list()?.sorted())
+        } finally {
+            probeDir.deleteRecursively()
+        }
+    }
 }

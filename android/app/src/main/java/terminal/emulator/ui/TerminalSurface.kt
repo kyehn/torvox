@@ -205,12 +205,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * TerminalScreen 的 LaunchedEffect 随即调用 [hideSelectionMenu]。
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
-        // 菜单与手柄覆盖层都是铺满 Surface 的子系统窗口。覆盖层 `isOutsideTouchable=false`
-        // 且消费其边界内的全部触摸（见 HandleOverlayLayout 注释），两者重叠时落在菜单项上
-        // 的触摸会被它吃掉：表现为「点复制/粘贴没反应、菜单随后消失」，Espresso 也会挑中
-        // 覆盖层的根而报找不到菜单项。拖动手柄本身就隐藏菜单（latchDragAnchor），
-        // 故菜单显示期间手柄让位是既有设计，不新增互斥规则。
-        selectionHandles.hideSelectionHandles()
+        // 手柄覆盖层不因菜单显示而收起：覆盖层只在柄位矩形内消费触摸、其余转发给表面，
+        // 而菜单是后开的子窗口，落在条目上的触摸由它自己收。抓柄时 latchDragAnchor
+        // 收起菜单、抬手由 finishHandleDrag 重锚重显——此处若顺手收起覆盖层，那条路径
+        // 就成了死代码，长按选词之后再也没法拖柄扩选。
         val selection = viewModel?.state?.value?.selection
         val pasteEnabledNow = clipboardAccess.hasClipboardText()
         val identity =
@@ -2270,6 +2268,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /** 在当前选区范围上重新隐藏并显示选区手柄（拖动结束后使用，使手柄吸附到最终单元格）。 */
     private fun reshowSelectionHandles() {
+        // 拖动中绝不重建覆盖层：`hideSelectionHandles` 会 dismiss 掉承载本次按压的弹窗，
+        // 窗口令牌随之销毁，平台立刻取消手势——后续 MOVE/UP 落到新窗口却已无 DOWN，
+        // 表现为按住手柄一瞬即断、抬手不重锚（仪器用例 SelectionDragQuantifiedTest 判红）。
+        // 抓柄路径本来就是「先 latchDragAnchor 隐藏菜单、再走 reshow」，必须在这里挡住；
+        // 拖动结束时 finishHandleDrag 会自行调用本函数，届时手柄已吸附到最终单元格。
+        if (handleDragState != HandleDrag.NONE) return
         val selection = viewModel?.state?.value?.selection
         if (selection?.start != null && selection.end != null) {
             selectionHandles.hideSelectionHandles()
