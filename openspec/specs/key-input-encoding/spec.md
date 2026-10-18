@@ -79,7 +79,9 @@ MUST NOT 用 Kotlin 侧的模式查询结果替代上游的模式读取。
 
 按键的 `utf8` 文本 MUST 按上游文档约束过滤：C0 控制字符（U+0000-U+001F、U+007F）
 MUST 传 `None` 而非原样传入，MUST NOT 传平台功能键私有区码位。映射表中无对应的
-Android 键码 MUST 映射为上游 `Key::Unidentified`，由上游编码器判定其是否产出序列。
+Android 键码 MUST NOT 在原生侧构造上游 `Key`：该键码在 JNI 边界短路为空字节数组，
+交宿主按 `unicodeChar` 与虚拟键盘映射表决定是否回退（见「编码器未覆盖的按键回退走
+同一条写入出口」），原生不构造 `Key::Unidentified`、也不进编码器。
 
 #### Scenario: 映射表给出上游 Key
 
@@ -91,10 +93,10 @@ Android 键码 MUST 映射为上游 `Key::Unidentified`，由上游编码器判�
 - **WHEN** 以 `META_SHIFT_ON | META_CTRL_ON` 发起编码
 - **THEN** 上游 `Mods` 含 `SHIFT` 与 `CTRL`，不含 `ALT` 与 `SUPER`
 
-#### Scenario: 未知键码不静默产生字符
+#### Scenario: 未知键码不在原生侧产生 Key
 
-- **WHEN** 以映射表未覆盖的 Android 键码发起编码且无 `unicodeChar`
-- **THEN** 上游 `Key` 为 `Unidentified` 且不向 PTY 写入字节
+- **WHEN** 以映射表未覆盖的 Android 键码发起编码
+- **THEN** 原生返回空字节数组，不构造上游 `Key`，也不由编码器产出序列
 
 ### Requirement: 输入法提交文本不经按键编码路径
 

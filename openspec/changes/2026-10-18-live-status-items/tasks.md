@@ -30,7 +30,23 @@
 
 ## 一、零覆盖项
 
-- [ ] 重命名文件卡死
+- [x] 重命名文件卡死
+      - 根因：仓内无缺陷。客户端路径（树 URI + 平台 `renameDocument`）在真机上改名落盘、
+        旧名消失、新 docId 立刻可寻址。此前标成「零覆盖」是覆盖缺口而非缺陷：仪器套件有
+        创建、写回、复制、移动的往返，唯独没有重命名往返，于是改没改都不会红。真机上
+        对话框关掉、名字不变、无报错，正是客户端没改名字时框架的静默收场（提供者按
+        `documents-provider` 的「重命名到自身是空操作」回 `null`，平台把同一 URI 交回）；
+        手工复现时注入的按键始终没进到对话框输入框（IME 日志里该窗口 `inputType=NULL`），
+        没走到改名分支，也顺带印证了这条路径：文本没变，界面就只会「什么都没发生」。
+      - 落盘：提供者未改（行为已符合契约：同名字返回 `null`、冲突走 `uniqueChild`），
+        本轮补的是可运行检查。
+      - 可运行检查：`DocumentsProviderInstrumentedTest#tree_uri_rename_round_trip`，
+        经真机 `ContentResolver` 走树 URI 断言：① 改名必须返回新 URI、旧名消失、内容不变；
+        ② 新 docId 立刻可 `getType`/`openInputStream`；③ 名字没变时平台回同一 URI、
+        磁盘不得多出副本。
+      - 设备证据：`am instrument -e class terminal.emulator.DocumentsProviderInstrumentedTest`
+        真机全绿 `OK (10 tests)`。
+      - 未覆盖：DocumentsUI 改名对话框本身的端到端点击（注入按键进不到该输入框，见根因）。
 - [x] 输入光标大小形状不一致、移到文本时字体下降溢出
       - 根因：光标几何锚在格内字形位图上。方块光标取「整格宽 × 位图高」，空单元格取
         `'M'` 位图、文本格取该字形位图，两者不等；Bar/Underline 更进一步，起点也按
@@ -62,7 +78,16 @@
         在改动后通过（内容满屏时终端上移、上移前后底部内容相同、稳定后无闪烁）。
       - 未覆盖：光标格的像素位置没有设备断言——该断言需要把产品几何常量抄进测试，
         会变成易碎测试；差距由单元测试的公式与设备用例的实测位移共同兜住。
-- [ ] prompt 占满整行时输入内容后全部退格不留下空行
+- [x] prompt 占满整行时输入内容后全部退格不留下空行
+      - 结论：今天的代码上该行为正确，两种形状都实测过，没有残留空行。位移公式在内容退回一行
+        时归零（`ComputeImeSurfaceShiftTest#single row prompt does not move`、
+        `empty viewport does not move` 已钉住），退格只发退格字节、不重写整段
+        （`ComposingDiffTest#contract_to_empty_is_all_backspaces`，用「世界」两个码点断言 2 次退格）。
+      - 设备证据：① 先在默认提示符下键入 190 个字符（提示符行被占满、光标停在行尾），再连按
+        200 次退格——光标回到 `$` 提示符所在的第一行，其后无残留行、无空白行；② 把 `PS1` 设成 60 个
+        `p`（提示符自身占满整行）后键入 `abc` 再退格 3 次——光标回到提示符末尾，下面没有多出空行。
+        两次都在键盘可见（即 `computeImeSurfaceShift` 生效）的状态下截图核对。
+      - 未覆盖：没有自动化的像素级断言——这条是观感，判据落在位移公式与组字退格的单元用例上。
 - [x] 启动动画图案模糊（含「应用图标被意外更改」）
       - 根因：启动屏一度不取自适应前景图形，又把 `launcher_foreground` 整体缩到 0.62 去适配，
         于是同一图案有了两份缩放版本，桌面图标跟着一起被改样。
@@ -78,7 +103,21 @@
 
 ## 二、复验项（上一变更已收敛，需在今天的代码上重测）
 
-- [ ] 简体中文退格延迟
+- [x] 简体中文退格延迟
+      - 根因：组字每次变化都会把光标锚点回报给输入法，而该回报曾走同步 VT 查询——主线程要等
+        一整帧（PTY 回显 → 渲染帧 → VT 循环节拍）才拿到光标位置。拼音逐键回退就是逐键
+        组字变化，于是「退格明显缓慢」按帧计。
+      - 落盘：锚点改读帧内已发布的光标（`reportComposingCursorAnchor`），不再进同步查询；
+        组字增量本身是纯前缀 diff（`ComposingDiff.reconcile`），退格只发退格字节、不重写整段。
+      - 可运行检查：`CjkComposingLatencyTest#composing_backspace_does_not_wait_on_cursor_anchor_query`
+      ——注入逐键 `setComposingText` 回退（`zhongguo` → …），量该回调在**主线程**上的耗时，
+      分「请求光标监视」与「不请求」两组各 20 个样本，两组 p50 之差必须低于 8ms（半帧）。
+      同组还有 `ComposingDiffTest` 钉住退格语义（「世界」两码点＝2 次退格、emoji 算一次）。
+      - 设备证据：今天的代码上单跑该类真机通过 `OK (1 test)`，14.9s。此前两次红都是本机
+        UiAutomation 被占用（驱动设备的 mobile-mcp 常驻进程持有），与产品无关；
+        释放该进程后同一命令即绿。
+      - 未覆盖：模拟器里没有中文输入法，手感本身无法复现；用例注入的是输入法回调，
+        量的是回调耗时，不是真实拼音候选窗的行为。
 - [x] 文本选择卡顿、不跟手，拖动选区或全选后点「复制」无效
       - 根因（设备日志）：菜单与手柄覆盖层同时存在。覆盖层窗口尺寸等于整个终端表面、
         `isOutsideTouchable=false`，按自身注释消费边界内全部触摸，落在菜单条目上的点击被它
@@ -94,5 +133,21 @@
       - 设备证据：日志出现 `粘贴入队 11 字节 -> 会话 1`，粘贴用例通过；单独运行
         `SurfaceLossRecoveryInstrumentedTest` 全绿（0 失败）。此前两轮的红是模拟器被并行负载
         拖慢留下的环境噪声（`shell prompt 未出现`，帧耗时 850ms），不是产品行为。
-- [ ] 文档提供者：创建、复制/移动、保存超时三个子项
-- [ ] 启动屏图案与应用图标
+- [x] 文档提供者：创建、复制/移动、保存超时三个子项
+      - 结论：三个子项在今天的代码上由真机仪器用例覆盖并通过（同一次 `am instrument` 报
+        `OK (10 tests)`），单元层 `DocumentsProviderTest` 61 test / 0 失败。
+      - 创建：`child_documents_round_trip_create_delete`、`resolver_create_then_modify_round_trip`、
+        `resolver_create_directory_round_trip`、`tree_uri_nested_create_and_write_back_round_trip`
+        （嵌套目录里建文件，再按相对根的 docId 回查、写回、删除）。
+      - 复制/移动：`tree_uri_modify_copy_move_round_trip`（源保留、副本落盘、移动后旧父目录不再
+        有条目，重名冲突按 `uniqueChild` 落成 `source.txt (2)`）。这条往返由设备层用例覆盖，
+        单元层不再重复一份同形用例——旧变更记的「覆盖＝先删再拷没有单测」缺口由它兜住。
+      - 保存超时：`external_process_write_back_lands_on_disk`（外部进程经提供者写回落到磁盘）、
+        `external_process_read_succeeds_without_manage_documents`。旧变更已按设备日志确认报错
+        落在客户端超时侧、仓内没有超时或 ANR 可修，本轮在今天的代码上重跑仍无该现象。
+      - 未覆盖：由第三方编辑器触发的真实「另存为」交互需要一个可安装的客户端，写回只验到
+        提供者边界为止。
+- [x] 启动屏图案与应用图标
+      - 与上面零覆盖项的「启动动画图案模糊（含「应用图标被意外更改」）」是同一条，判据不重复：
+        本轮在今天的代码上强制重跑 `SplashIconRobolectricTest`，1 test / 0 失败 / 0 跳过；
+        `themes.xml`、自适应图标定义与前景图形在该修复后均未再改动。
