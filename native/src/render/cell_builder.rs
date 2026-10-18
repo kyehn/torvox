@@ -715,43 +715,24 @@ fn append_row_instances(
             {
                 let mut origin = quad_origin;
                 let mut size = quad_size;
-                // 空单元格上的 Bar/Underline：顶边 = 基线 − 参考字形的
-                // placement.top，高度 = 该参考字形的位图高度。quad_origin 是单元
-                // 顶边（shader 原样占据 [origin, origin+size]），故不能直接加完整
-                // ascent——那会把标记压低一行。
+                // 光标标记锚在单元盒，不锚字形位图（spec cursor-rendering
+                // 「光标标记锚在单元盒」）：位图高度随字符变化，锚它会让同一个光标
+                // 在空单元格与文本格之间变高变矮，降部字形还会把标记带出行界。
                 if is_cursor {
                     let marker_background = cursor.marker_background();
-                    let reference = font_pipeline
-                        .glyph_information('M')
-                        .or_else(|| font_pipeline.glyph_information('0'));
-                    // 参考字形盒：顶边与高度与非空路径一致，保证空
-                    // 单元格标记与文本行对齐。
-                    let (glyph_top, glyph_height) = match reference {
-                        Some(info) => (
-                            ascent_pixels * raster_scale - info.placement.top as f32,
-                            (info.height as f32).max(1.0),
-                        ),
-                        None => (
-                            0.0,
-                            ((ascent_pixels + font_pipeline.descent_pixels()) * raster_scale)
-                                .max(1.0),
-                        ),
-                    };
                     match cursor.style {
                         CursorStyle::Block => {}
                         CursorStyle::Bar => {
-                            // 竖线光标：单元格左侧细竖条，高度与字形盒一致。
-                            origin[1] += glyph_top;
+                            // 竖线光标：单元格左侧细竖条，高度为整格。
                             size[0] = (cell_width * BAR_CURSOR_WIDTH_FRACTION)
                                 .max(CURSOR_MARKER_MINIMUM_THICKNESS);
-                            size[1] = glyph_height;
                             effective_background = marker_background;
                         }
                         CursorStyle::Underline => {
-                            // 下划线光标：字形盒底部细横条，宽度覆盖整格。
+                            // 下划线光标：整格底部细横条，宽度覆盖整格。
                             let marker_height = (cell_height * UNDERLINE_CURSOR_HEIGHT_FRACTION)
                                 .max(CURSOR_MARKER_MINIMUM_THICKNESS);
-                            origin[1] += glyph_top + glyph_height - marker_height;
+                            origin[1] += cell_height - marker_height;
                             size[1] = marker_height;
                             effective_background = marker_background;
                         }
@@ -817,7 +798,7 @@ fn append_row_instances(
             // 该判定与叠加层共用 `glyph_bearing_y`：两处分叉会让组合记号/ZWJ
             // 表情与基字形错开，而那类偏移没有任何用例覆盖。
             let glyph_h_px = info.height as f32;
-            let (bearing_y, raw_bearing_y) = crate::render::font::pipeline::glyph_bearing_y(
+            let (bearing_y, _) = crate::render::font::pipeline::glyph_bearing_y(
                 ascent_pixels,
                 raster_scale,
                 info.placement.top as f32,
@@ -841,18 +822,16 @@ fn append_row_instances(
             });
 
             // 竖线/下划线光标：在字形之上追加细标记（原文颜色不动，
-            // 标记盖在上层保证可见）。
+            // 标记盖在上层保证可见）；标记锚在单元盒，不锚字形位图。
             if is_cursor && !matches!(cursor.style, CursorStyle::Block) {
                 let marker_background = cursor.marker_background();
-                let glyph_top = glyph_quad_origin[1] + raw_bearing_y;
-                let glyph_height = glyph_h_px.max(1.0);
                 let (marker_origin, marker_size) = match cursor.style {
                     CursorStyle::Bar => (
-                        [glyph_quad_origin[0], glyph_top],
+                        glyph_quad_origin,
                         [
                             (cell_width * BAR_CURSOR_WIDTH_FRACTION)
                                 .max(CURSOR_MARKER_MINIMUM_THICKNESS),
-                            glyph_height,
+                            cell_height,
                         ],
                     ),
                     _ => {
@@ -861,7 +840,7 @@ fn append_row_instances(
                         (
                             [
                                 glyph_quad_origin[0],
-                                glyph_top + glyph_height - marker_height,
+                                glyph_quad_origin[1] + cell_height - marker_height,
                             ],
                             [cell_width * cell_span, marker_height],
                         )

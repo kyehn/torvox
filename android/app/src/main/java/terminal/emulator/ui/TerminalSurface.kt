@@ -37,6 +37,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
+import terminal.emulator.SelectionAnchor
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.input.BatchEditDepth
 import terminal.emulator.input.ComposingBaseline
@@ -171,6 +172,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var selectionMenuPopup: PopupWindow? = null
 
     /**
+     * 已显示的那份菜单的身份：五项全同即菜单内容与锚点都不会变，[showSelectionMenu]
+     * 只挪锚点、不重建。原先每次 show 都无条件 dismiss + 重建，窗口与其中的视图实例
+     * 被换掉，用户在「按钮已解析出来」与「手指落下」之间那几帧点到的就是被丢弃的旧
+     * 实例——现象是点复制/粘贴没反应、菜单自己消失（实测：点击前 0.5s 有一次
+     * showSelectionMenu 触发的重建）。
+     *
+     * 复用前必须确认窗口还活着：平台直接移除弹窗（父视图窗口令牌变化）不会走
+     * [hideSelectionMenu]，此时 `isShowing` 仍为 true，只看它就会把菜单永久留在
+     * 一个已消失的窗口上（`contentView.isAttachedToWindow` 是可靠的存活判据）。
+     */
+    private var shownMenuIdentity: MenuIdentity? = null
+
+    private data class MenuIdentity(
+        val start: SelectionAnchor?,
+        val end: SelectionAnchor?,
+        val pasteOnly: Boolean,
+        val selectedText: String,
+        val pasteEnabled: Boolean,
+    )
+
+    /**
      * 选区上下文菜单，以 [PopupWindow] 实现（与选区手柄相同的独立系统窗口模式）：
      * 旧的 Compose 菜单会被 SurfaceView 的开孔遮住，而 ActionMode TYPE_FLOATING 工具栏
      * 在 API 35 模拟器上不渲染（模拟器已验证：手柄可见、工具栏缺失）。
@@ -183,12 +205,42 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * TerminalScreen 的 LaunchedEffect 随即调用 [hideSelectionMenu]。
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
-        hideSelectionMenu("showSelectionMenu")
+        // 菜单与手柄覆盖层都是铺满 Surface 的子系统窗口。覆盖层 `isOutsideTouchable=false`
+        // 且消费其边界内的全部触摸（见 HandleOverlayLayout 注释），两者重叠时落在菜单项上
+        // 的触摸会被它吃掉：表现为「点复制/粘贴没反应、菜单随后消失」，Espresso 也会挑中
+        // 覆盖层的根而报找不到菜单项。拖动手柄本身就隐藏菜单（latchDragAnchor），
+        // 故菜单显示期间手柄让位是既有设计，不新增互斥规则。
+        selectionHandles.hideSelectionHandles()
+        val selection = viewModel?.state?.value?.selection
+        val pasteEnabledNow = clipboardAccess.hasClipboardText()
+        val identity =
+            selection?.let {
+                MenuIdentity(it.start, it.end, pasteOnly, it.selectedText, pasteEnabledNow)
+            }
+        val existing = selectionMenuPopup
+        if (selection != null &&
+            identity != null &&
+            identity == shownMenuIdentity &&
+            existing?.isShowing == true &&
+            existing.contentView.isAttachedToWindow
+        ) {
+            menuAnchor(selection)?.let { anchor ->
+                val loc = IntArray(2)
+                getLocationInWindow(loc)
+                existing.update(
+                    loc[0] + anchor.first,
+                    loc[1] + anchor.second,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+            }
+            return
+        }
+        hideSelectionMenu("showSelectionMenu", restoreHandles = false)
         if (!isAttachedToWindow) {
             LogUtil.w(TAG, "菜单跳过：未附着")
             return
         }
-        val selection = viewModel?.state?.value?.selection
         if (selection == null) {
             LogUtil.w(TAG, "菜单跳过：视图模型为空")
             return
@@ -197,12 +249,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             LogUtil.w(TAG, "菜单跳过：选区无界")
             return
         }
-        val pasteEnabled = clipboardAccess.hasClipboardText()
         // 文本区动作的显示判定与动作解析共用同一份文本（viewModel.selectionTextForAction
         // → SelectionManager.resolvedSelectionText）。空文本的选区不再挂出「复制/分享」：
         // 点下去只会静默返回，用户看到的是「按钮无效」，而这与「按不动」无法区分。
         val hasCopyableText = viewModel?.selectionTextForAction()?.isNotEmpty() == true
-        val actions = menuActionsForSelection(pasteOnly, pasteEnabled, hasCopyableText)
+        val actions = menuActionsForSelection(pasteOnly, pasteEnabledNow, hasCopyableText)
         if (actions.isEmpty()) {
             LogUtil.d(TAG, "菜单跳过：无动作")
             return
@@ -243,6 +294,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             return
         }
         selectionMenuPopup = popup
+        shownMenuIdentity = identity
     }
 
     /** 选区可用菜单项：对标 termux 语义（COPY | SHARE | SELECT ALL | OPEN LINK，剪贴板有文本时提供 PASTE）。
@@ -433,10 +485,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      *
      * [reason] 必填：关闭完全由外部驱动（detach／抓柄／IME 切换／非手柄轻击／
      * 状态流重锚），无此参数时菜单意外消失只能靠猜。
+     *
+     * [restoreHandles] 为 false 时不动手柄覆盖层——只给「关掉是为了马上重开菜单」的
+     * 调用点用（见 [showSelectionMenu]：菜单期间手柄必须让位），否则关闭菜单后按
+     * 当前选区恢复手柄。
      */
-    fun hideSelectionMenu(reason: String) {
+    fun hideSelectionMenu(reason: String, restoreHandles: Boolean = true) {
         val popup = selectionMenuPopup
         selectionMenuPopup = null
+        shownMenuIdentity = null
         if (popup == null) return
         // 记下消失瞬间的选区状态：菜单的关闭完全由选区状态流驱动，
         // 而 dismiss 的调用点有四条（detach／抓柄／IME 切换／非手柄轻击），
@@ -454,6 +511,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 已 dismiss——只记日志，使原因不丢失。
             LogUtil.w(TAG, "hideSelectionMenu: dismiss failed", exception)
         }
+        if (restoreHandles) reshowSelectionHandles()
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1826,6 +1884,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val capacity =
             computeImeSurfaceShift(
                 contentBottomPx = computeContentBottomPx(runtime.lastContentRowFlow.value, cellHeight),
+                // 光标行单独算：它常落在最后一个有字行的下一行（提示符整行占满时），
+                // 只报内容末行会让位移差一行，光标留在键盘后面且用户看不到任何线索。
+                // 取不到光标（负值）时传 -1，此时该参数为 0，退化为只看内容末行。
+                cursorBottomPx =
+                computeContentBottomPx(
+                    runtime.bridge()?.renderedCursorPacked()
+                        ?.takeIf { it >= 0 }
+                        ?.let { (it shr 32).toInt() }
+                        ?: -1,
+                    cellHeight,
+                ),
                 surfaceHeightPx = height,
                 modifierBarHeightPx = runtime.modifierBarHeightPx,
                 imeBottomPx = imeInsetPx,

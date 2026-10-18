@@ -4270,17 +4270,24 @@ internal fun alignGridOnSwitch(bridge: Bridge, rows: Int, cols: Int) {
  *
  * 位移把网格**顶部**若干行推出屏幕上边界（见 [TerminalSurface] 的显出量处理）：被推出
  * 的行不在上滑行程里，只能由边界外的过度滑动按像素回收位移看回来。
+ *
+ * 显出量按「内容末行」与「光标所在行」中较低的一行计算：光标常落在最后一个有字行的
+ * **下一行**（提示符整行占满、或命令行结尾换行后），只按内容末行算出的位移会把光标
+ * 留在键盘后面——现象就是「prompt 占满整行时输入法光标不可见、没有剩余空间」。
  */
 internal fun computeImeSurfaceShift(
     contentBottomPx: Int,
     surfaceHeightPx: Int,
     modifierBarHeightPx: Int,
     imeBottomPx: Int,
+    cursorBottomPx: Int,
     isAltScreenActive: Boolean = false,
 ): Int {
     if (isAltScreenActive) return 0
     val visibleContentPx = surfaceHeightPx - modifierBarHeightPx - imeBottomPx
-    return (contentBottomPx - visibleContentPx).coerceIn(0, imeBottomPx)
+    // 光标行**低于**内容末行时取光标行；取不到光标（负值/0）时退化为只看内容末行。
+    val revealBottomPx = maxOf(contentBottomPx, cursorBottomPx)
+    return (revealBottomPx - visibleContentPx).coerceIn(0, imeBottomPx)
 }
 
 /**

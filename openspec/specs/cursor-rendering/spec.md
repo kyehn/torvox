@@ -10,7 +10,9 @@ mFontLineSpacing + mFontAscent`（`mFontAscent` 为负）⇒ 光标高度恰为 
 （行高），矩形即整格。
 
 实现：`native/src/render/cell_builder.rs` 的 `append_row_instances`——光标盒就是该函数的
-默认 `quad_origin` / `quad_size`，Block 分支只把背景换成光标色。
+默认 `quad_origin` / `quad_size`，Block 分支只把背景换成光标色；Bar/Underline 在单元盒内
+收缩为细标记（空单元格收缩那唯一的四边形，文本格在字形之后追加一个标记四边形），
+同样不读字形位图。
 
 ## Requirements
 
@@ -30,6 +32,23 @@ MUST NOT 跟随格内字形位图定尺寸——位图高度随字符变化，�
 
 - **WHEN** 光标停在 `g`、`j`、`中` 等位图高于或低于参考字形的字符上
 - **THEN** 光标盒仍限制在本行整格内，不侵入上一行或下一行
+
+### Requirement: 光标标记锚在单元盒
+
+竖线（Bar）与下划线（Underline）光标 MUST 锚在单元盒，MUST NOT 锚在格内字形位图：
+竖线的高 = 单元高、顶边 = 单元顶边；下划线的底边 = 单元底边、宽 = 单元宽 × 列跨度。
+位图高度随字符变化，空单元格还得另取参考字形，锚位图会让同一光标在空白格与文本格之间
+变高变矮。
+
+#### Scenario: 竖线光标在空单元格与文本格上等高
+
+- **WHEN** 同一个竖线光标依次停在空白格、`M` 与降部字形 `g` 上
+- **THEN** 三处的顶边与高度相同，恒为整格
+
+#### Scenario: 下划线光标贴单元底边
+
+- **WHEN** 光标停在任一单元格
+- **THEN** 下划线横条的下沿与单元底边重合，不侵入下一行
 
 ### Requirement: 宽字符光标几何
 
