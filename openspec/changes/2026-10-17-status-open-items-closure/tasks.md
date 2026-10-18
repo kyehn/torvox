@@ -5,7 +5,7 @@
 
 ## 一、Shell 启动前偶发黑屏（性能）
 
-- [x] 定根因（真机日志实证：日志为当轮本机 `adb logcat` 抓取，落在被 `.gitignore`
+- [x] 定根因（真机日志实证：日志为当时本机 `adb logcat` 抓取，落在被 `.gitignore`
       忽略的 `native/target/` 下、未入库，故只作过程记录、不可从树内复核。时间线：进程启动
       `19:02:35.062` → 首帧 `19:02:35.915`
       `W/Runtime: SLOW_FRAME session=1 render=58.840923 count=1`，相隔约 0.85s）：
@@ -164,7 +164,7 @@
       `search_highlight_repaint_tests::discarded_highlights_stay_dirty_for_one_frame`
       （已确认对旧行为失败）；Kotlin 新增 `TextSearchBarCounterRobolectricTest`（3 条）。
       真机：搜索 `MARKER` 得 3 命中且三行反色，关闭搜索后反色立即消失。
-- [x] 门禁补正（首轮全仓 `check.nu` 抓到，见十二节）：
+- [x] 门禁补正（首次全仓 `check.nu` 抓到，见十二节）：
       `session_scoped_tests::entering_another_session_drops_the_previous_highlights`
       断言的正是本次修掉的旧行为（切会话时 `drawn` 一并清），随修复转红。核对该断言的
       依据「半清会被读成高亮未变」不成立：`highlight_rows_to_mark` 恒取
@@ -204,7 +204,7 @@
       `CjkComposingLatencyTest#composing_backspace_does_not_wait_on_cursor_anchor_query`：
       监视开/关两组的 p50 差不超过 8ms 预算。非恒真条件齐备——组字字节必须落格
       （否则样本无效）、每次调用必须受理且不以异常收场、帧内光标必须取得到
-      （否则锚点整段跳过、两组都「漂亮」）。修正后两轮实测：on p50 0.36/0.47ms、
+      （否则锚点整段跳过、两组都「漂亮」）。修正后两次实测：on p50 0.36/0.47ms、
       p95 0.93/0.67ms；off p50 0.19/0.16ms。
 - [x] spec：`openspec/specs/ime-editor-contract/spec.md` 的「组字光标位置回报给输入法」
       改写坐标来源与矩阵要求（原「视口坐标是一次同步 VT 查询…故查询 MUST 限频」的口径
@@ -216,7 +216,7 @@
       `cargo test --package native --lib -- rendered_cursor` → `1 passed`。
 - [x] 证据留档：修正前的两组耗时与异常文本取自 `/tmp/cjk-prefix6.log`（同一用例、同一
       环境，仅坐标来源未改），修正后取自 `/tmp/cjk-fixed1.log`、`/tmp/cjk-fixed2.log`。
-- [x] 门禁补正（全仓门禁第二轮，`:app:lintDebug`）：该用例有两处 `runCatching` 被
+- [x] 门禁补正（全仓门禁复跑，`:app:lintDebug`）：该用例有两处 `runCatching` 被
       `DenyListedApi`/slack-lint 判为阻断（协程下会吞掉 `CancellationException`），
       而它们同时正是「隐藏错误」：探针期与生长步的异常此前都被 `fold(onFailure = { true })`
       与丢弃返回值吃掉，注释里「由下方断言判为缺陷」那句话当时是空头承诺。改法：探针期
@@ -321,7 +321,7 @@
       上方；键盘收起（容量 0）、会话切换、字号变化都由该式自动收敛，不需额外复位点，
       也不产生跳变（跳变正是第九条的抱怨）。
 - [x] 加检查（`ScrollDistanceTest`，7 例）：显出、容量封顶、1:1 回收、超出显出后滚动，
-      以及边界外丢弃 3 例（见第九条）。23 tests / 0 failures（本轮实测）。
+      以及边界外丢弃 3 例（见第九条）。23 tests / 0 failures（本次实测）。
 - [x] spec：`openspec/specs/ime-animation-smoothness/spec.md` 补 Requirement
       「位移裁掉的网格顶部仍可达」（两向 1:1、不得越过回底行程、不得触发网格重排）。
 - [x] 验证（真机 emulator-5554，api 35）：`clear; echo TOPMARK-0; seq 1 120` 后弹键盘、
@@ -383,7 +383,7 @@
       ④ 去掉惯性帧里的 `forceRender()`（`setScrollRemainderPx` 已含 `notifyRender`，
       双唤醒让渲染线程空转、手势期间掉帧），去掉与 `setScrollOffset` 重复的
       `coerceIn`。
-- [x] 加检查（`ScrollDistanceTest`，本轮净增 8 例 / 共 23 例 0 失败；该轮差分是
+- [x] 加检查（`ScrollDistanceTest`，本次净增 8 例 / 共 23 例 0 失败；那次差分是
       +10/−2 个用例函数，其中 2 个是旧惯性用例改名，故不按「新增 10 例」计）：
       `fling velocity is kept in pixels per second`（600f 必须得 600，注释写明
       「绝不能是 10」——整行路径下 600/60 恰好是 10，是能真正区分新旧实现的判据）、
@@ -468,8 +468,9 @@
       与 `windowSplashScreenAnimatedIcon` 指到哪个 drawable 无关；
       ② 自适应图标只取前景层，超出的部分被圆形蒙版裁掉，与桌面表现一致——
       故启动屏直接用 `@mipmap/ic_launcher`，不再另存缩小图形。
-      落地：`launcher_foreground.xml`、`launcher_monochrome.xml` 回退到 `3ea986f5^`
-      （原始图形，实测最远半径 50.3 单位，含描边；此前记的 48.5 未计描边），
+      落地：`launcher_foreground.xml`、`launcher_monochrome.xml` 回退到启动屏图形整体缩小之前的
+      那一版（按 `git log --oneline --` 追这两个文件的改动即可定位；原始图形，实测最远半径
+      50.3 单位，含描边；此前记的 48.5 未计描边），
       `themes.xml` 的 `windowSplashScreenAnimatedIcon` 改为 `@mipmap/ic_launcher`，
       父主题保持 `Theme.SplashScreen`（⑪「完整图案」不复发）。
 - [x] 真机复验（emulator-5554，api 35，density 420，`app-debug.apk` 重装）：
@@ -489,7 +490,7 @@
       `Theme.SplashScreen.IconBackground` 的差别仅是后者多映射
       `android:windowSplashScreenIconBackgroundColor`；本应用 `minSdk = 33`，
       兼容库 23–30 的启动屏路径（`Theme.SplashScreen.Common`）在设备上根本不走。
-- 门禁补正（全仓门禁第二轮，`:app:lintDebug`）：该用例原先用
+- 门禁补正（全仓门禁复跑，`:app:lintDebug`）：该用例原先用
       `ContextCompat.getDrawable` 取图标，`DenyListedApi`/slack-lint 判为阻断
       （本应用 `minSdk = 33`，平台自带的 `Context#getDrawable` 就够），改成
       `themed.getDrawable(value.resourceId)` 并删掉该 import；
@@ -497,15 +498,15 @@
 
 ## 十二、收尾
 
-- [x] 全仓门禁逐阶段核对（**「整脚本一次性退出 0」自第五轮起不可达**：semgrep 段因维护者
+- [x] 全仓门禁逐阶段核对（**「整脚本一次性退出 0」自门禁复跑起不可达**：semgrep 段因维护者
       裁定的 `docs/STATUS.md` 例外必然非零退出、nushell 随即终止脚本，余下阶段单独复跑取证）：
       **口径更正**：该脚本在**第一个失败的外部命令处即中断**，并以它的退出码结束
       （nushell 里外部命令非零退出会终止脚本：探针 `^sh -c "exit 3"` 之后的语句不执行、
       脚本退出码 3；内置 `false` 不算外部命令，故早前那条「不会中断」的结论测错了对象）。
-      首轮实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
+      首次实测正是如此：`cargo test` 报 1 例失败后脚本停在 687 行、退出码 101，
       clippy / doc / bench / semgrep / markdownlint / gradle 全部未跑。
       故「跑通」＝从 `cargo fmt` 段起重跑并逐段看到全部阶段通过。
-- [x] **第四轮实测通过**（`/tmp/check4.log`，整脚本退出码 `0`，逐段核对）：
+- [x] **门禁整脚本实测通过**（`/tmp/check4.log`，整脚本退出码 `0`，逐段核对）：
       `cargo fmt --check`、`cargo clippy --all-targets -- --deny warnings`、`cargo machete`
       静默通过；`cargo test --no-fail-fast` → lib `628 passed; 0 failed`、
       `tests/concurrency.rs` `2 passed`、doc-tests `0`；`cargo doc --no-deps`（`-D warnings`）
@@ -515,10 +516,10 @@
       `0 issues in 0 files`；gradle 侧 `detekt`、`spotlessCheck`、`dokkaGenerate`、
       `lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`、`lintDebug`
       与 `benchmark` / `baselineprofile` 编译全部成功，`BUILD SUCCESSFUL`。
-      前三轮各自暴露的真问题都已修掉：①`cargo test` 一例失败（切会话高亮契约用例过期）、
+      此前各次暴露的真问题都已修掉：①`cargo test` 一例失败（切会话高亮契约用例过期）、
       ②semgrep 8 处阻断（品牌名 / 裸 `return` / 校验和伴生文件字样）、
       ③`:app:lintDebug` 两处 `DenyListedApi` 阻断。
-- [x] 第五轮门禁复跑（`/tmp/gate_f04.log`，本变更新提交之上；逐段 `grep` 核对）：
+- [x] 门禁复跑（`/tmp/gate_f04.log`，本变更新提交之上；逐段 `grep` 核对）：
       `cargo fmt --check`、`cargo clippy --all-targets -- --deny warnings`、`cargo machete`
       静默通过；`cargo test --no-fail-fast` 全绿；`cargo doc --no-deps`（`-D warnings`）
       通过；三个 bench `--quick` 出数；`cargo build --package native --profile release`
@@ -526,10 +527,10 @@
       ——nushell 里外部命令非零退出即终止脚本，故 markdownlint 与 gradle 段未跑（见下两条）。
       另注：各段普遍打印 `the gold linker is deprecated and has known bugs with Rust`，
       来自禁改区 `.cargo/config.toml` 钉的 `-fuse-ld=gold`，非本变更是非，不阻断门禁。
-      复核第四轮台账：其记录的 `semgrep → 0 findings` 与当前实测不一致（`.semgrep/rules.yml`
+      复核上一份门禁台账：其记录的 `semgrep → 0 findings` 与当前实测不一致（`.semgrep/rules.yml`
       自 2026-10-12 起未改，`docs/STATUS.md` 顶部的提交号自「修订规范文档」那次提交起
       即在文件里），
-      该轮原始日志已随 `/tmp` 清理丢失、无法复核，故以本轮实测为准。
+      那次原始日志已随 `/tmp` 清理丢失、无法复核，故以本次实测为准。
 - [x] semgrep 阻断逐条处置（维护者裁定：`docs/STATUS.md` 保持原样，登记为例外）：
       ①`proposal.md` 短提交号 → 改指代码坐标（`native/src/render/context.rs` 的
       `attach_surface` 比较窗口句柄地址）；②`tasks.md` 短提交号 → 改为
@@ -590,7 +591,7 @@
       `scripts/test-emulator.nu` → `:app:connectedDebugAndroidTest` 在推送后复验），
       一处是「同源保证」而非独立断言（11 的桌面图标与启动屏共用同一 drawable）。
 
-- [x] 第一轮只读审阅（两条轴并行，只读不写；对象是本变更从上一轮落定点到当轮 HEAD 的
+- [x] 首次只读审阅（两条轴并行，只读不写；对象是本变更从上次落定点到当次 HEAD 的
       全部提交）：15 条发现逐条按根因处置，没有一条用「记一笔」了事。
       · 标准/过度设计轴 6 条：① 删除 BDD 与外部基准套件其实是**另一个已归档变更**的
         既定工作（`openspec/changes/archive/2026-10-17-drop-upstream-benchmarks-and-bdd`，
@@ -610,7 +611,7 @@
 - [x] 审阅发现的代码侧修复都留了可运行检查：`ScrollDistanceTest` 23 tests / 0 failures、
       `SessionTableWatcherTest` 3 tests / 0 failures（含改名后重跑），
       `spotlessKotlinCheck`、`detekt` 全绿。
-- [x] 第二轮只读审阅（同样两条轴并行、只读不写；对象是本变更此前落定点到当轮 HEAD 的
+- [x] 再次只读审阅（同样两条轴并行、只读不写；对象是本变更此前落定点到当次 HEAD 的
       全部提交）：11 条发现（规范-证据轴 7、标准/过度设计轴 4，其中「规范仍点名已删字段」
       两条同源）逐条按根因处置，没有一条以「记一笔」了事。
       · 唯一的代码级根因：`getCellSizePacked` 走 `render_state_mut`，GPU 初始化失败即
@@ -622,7 +623,7 @@
         查询已把字体管线与 wgpu 渲染器一起建起（两者同住 `RenderState`），shell 启动因此
         排在初始化之后。按实际顺序改写这四处，并在 `spawnTerminalTimed` 记下取舍与代价
         （软件 GL 上 shell 启动被顺带推迟几百毫秒，首帧时刻不变），以 `ponytail:` 注明
-        「只建字体管线」的拆法要动渲染路径 200 余处调用点，故本轮不拆。
+        「只建字体管线」的拆法要动渲染路径 200 余处调用点，故本次不拆。
       · `SessionScoped` 的结构体文档写「`enter_session` 必须同时清空 `drawn`」，与同文件
         实现及方法文档正好相反，照它改就会把已修的「关闭搜索后反色块不消失」引回来：
         按实现与判据改写这段文档。
@@ -637,13 +638,16 @@
       · 自纠一处流程问题：修复代码时误用 `git add -A`，把同一批文档修改并进了那条代码
         提交，提交信息因此只覆盖代码侧。内容与其验证（markdownlint、semgrep、
         `openspec validate`、Rust 与 Kotlin 门禁）都已完成，此处如实记录范围与信息的出入。
-- [x] 第二轮代码侧修复的验证：Rust `fmt` / `clippy --deny warnings` / `test` / `doc`
+- [x] 再次审阅所报代码侧修复的验证：Rust `fmt` / `clippy --deny warnings` / `test` / `doc`
       全绿；`spotlessKotlinCheck`、`detekt` 全绿；`ScrollDistanceTest` 23 tests / 0 failures
-      （重跑，读当轮新写入的结果 XML 而非 up-to-date 残件）；markdownlint 0 issue、
+      （重跑，读当次新写入的结果 XML 而非 up-to-date 残件）；markdownlint 0 issue、
       semgrep 1 条既定例外、`openspec validate --all --strict` 32 passed / 0 failed。
-- [ ] 连续两轮审阅无问题后归档本变更。门槛按维护者裁定与 goal 口径对齐（原写「连续
-      三轮」是自加的更严口径，已改）：第一轮报了 15 条、第二轮报了 11 条发现，故第 3、4
-      轮都必须干净才算数，任一轮有发现就从下一轮重新起算。归档只移动 openspec 目录，
+- [x] `docs/STATUS.md` 另有一处**排版**修正（独立提交）：代码块补语言、段落补空行，
+      `markdownlint` 由此前的 3 条错误（MD040/MD031/MD032）转为全绿；条目文字与行序未动，
+      `.semgrep` 的既定例外仍在原行。
+- [ ] 连续两次审阅无问题后归档本变更。门槛按维护者裁定与 goal 口径对齐（原写「连续
+      三次」是自加的更严口径，已改）：首次审阅报了 15 条、再次报了 11 条发现，故其后
+      两次都必须干净才算数，任一次有发现就从下一次重新起算。归档只移动 openspec 目录，
       **`docs/STATUS.md` 一字不动**（维护者已授权自行归档）。
 
 ## 十三、CI 失败用例甄别（`run 38888880442`，不属于 STATUS 行序）
@@ -676,9 +680,9 @@
       `tests="0"`。甄别时按每个用例单跑，并核对 JUnit XML 的 `tests="N"` 而不是只看
       Gradle 的退出码。
 
-## 十四、会话切换后屏幕停在上一个会话的像素上（本轮真机新复现）
+## 十四、会话切换后屏幕停在上一个会话的像素上（本次真机新复现）
 
-第二条（点击会话列表项无法切换会话）此前被判「已修」，本轮按「屏幕像素」而不是
+第二条（点击会话列表项无法切换会话）此前被判「已修」，本次按「屏幕像素」而不是
 「日志行」重新验收时复现：切换确实发生了（会话对象、活动 id、渲染线程都换了），
 但**画面**在无输入时一直停在旧会话上。
 
@@ -698,7 +702,7 @@
       `Command::Repaint`；该命令零终端状态改动，只失效内容去重基线
       （`last_cell_data_push = None`）并按当前状态重推一帧——切会话时终端逐字节没变，
       不去掉去重基线这次请求就会被吞掉。下一帧即 `FrameData::New`，阶段 3 对会话变化走
-      `_ => fill(true)`，整幅重画。VT 线程按 `VT_IDLE_TICK_MS` 周期自唤醒（本轮补齐），
+      `_ => fill(true)`，整幅重画。VT 线程按 `VT_IDLE_TICK_MS` 周期自唤醒（本次补齐），
       该命令不再依赖任何外部事件。
 - [x] 检查：`request_repaint_pushes_frame_with_unchanged_content`
       （内容与上次推送逐字节相同时，重推必须产生帧）。红证明：临时去掉那行去重失效，
