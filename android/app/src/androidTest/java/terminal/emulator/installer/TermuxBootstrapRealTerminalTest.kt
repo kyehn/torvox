@@ -15,7 +15,8 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.getBridge
+import terminal.emulator.activeSessionId
+import terminal.emulator.awaitBridge
 import terminal.emulator.openDrawer
 import terminal.emulator.waitForSession
 
@@ -47,6 +48,9 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
         private const val INSTALL_EXTRA = "terminal.emulator.install_bootstrap"
         private const val INSTALL_TIMEOUT_MS = 10 * 60_000L
         private const val OUTPUT_TIMEOUT_MS = 30_000L
+
+        /** 新增会话到 activeSessionId 切换的等待上限：切换在 IO 协程里，与 Compose 空闲无关。 */
+        private const val SESSION_SWITCH_TIMEOUT_MS = 30_000L
     }
 
     @get:Rule
@@ -64,7 +68,7 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
     }
 
     private fun ptyLines(command: String): String {
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val bridge = composeTestRule.awaitBridge()
         assertTrue(
             "PTY write rejected: $command",
             bridge.writeToPty("$command\n".toByteArray(Charsets.UTF_8)),
@@ -156,9 +160,20 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
         // the drawer and add a session through the product path.
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
+        // 「+」在 IO 协程里建会话并把 activeSessionId 指过去（TerminalViewModel.createSession）：
+        // waitForIdle 只等 Compose 空闲，不等这条协程。点完就直读会拿到**上一个**会话的桥，
+        // 读数于是混进此前用例留下的输出（整类连跑实测：SHELL 断言读到别类的 SGR 文本，
+        // 而单跑本类必过——同一份代码的两种时序）。
+        val previousActive = composeTestRule.activeSessionId()
         composeTestRule.onNodeWithTag("AddSessionButton").performClick()
+        assertNotNull(
+            "点击新增会话后当前会话未在 ${SESSION_SWITCH_TIMEOUT_MS}ms 内切换",
+            UxTestUtils.pollUntilTrue(timeoutMs = SESSION_SWITCH_TIMEOUT_MS, intervalMs = 200) {
+                composeTestRule.activeSessionId() != previousActive
+            },
+        )
         composeTestRule.waitForIdle()
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null after add")
+        val bridge = composeTestRule.awaitBridge()
 
         // Marker round-trip: the installed shell is alive and echoes.
         val marker = "TERMUX_ALIVE_${System.currentTimeMillis() % 100000}"
