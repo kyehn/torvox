@@ -1019,7 +1019,7 @@ class DocumentsProviderTest {
         assertEquals(
             "must be refused before any copy runs, not after a runaway traversal",
             "Refusing to copy a directory into its own descendant",
-            failure!!.message,
+            checkNotNull(failure) { "copy into own descendant must fail" }.message,
         )
         assertEquals(
             "no runaway copy may be left behind",

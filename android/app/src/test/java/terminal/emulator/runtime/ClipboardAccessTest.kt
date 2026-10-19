@@ -78,6 +78,7 @@ class ClipboardAccessTest {
      * ——正是该接口声称要消除的反馈，故此处钉住 hasClipboardText 只为文本项返回真。
      */
     @Test
+    @SuppressLint("DeprecatedCall") // 剪贴板读写无替代面：测试必须构造真实非文本 clip
     fun `hasClipboardText is false for a non-text clip`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE)

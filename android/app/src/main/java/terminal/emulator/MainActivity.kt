@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -155,7 +156,7 @@ class MainActivity : ComponentActivity() {
      * 用计数而不用布尔值——设置关闭后计数保持，再次到达仍能触发重组；
      * 布尔值在首次置 true 后不再变化，二次 intent 无法生效。
      */
-    private var openSettingsRequests by mutableStateOf(0)
+    private var openSettingsRequests by mutableIntStateOf(0)
 
     private fun handleLaunchIntent(intent: Intent?) {
         if (intent == null) {

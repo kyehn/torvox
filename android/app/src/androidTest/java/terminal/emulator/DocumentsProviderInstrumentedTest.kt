@@ -214,7 +214,10 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
 
         // 删「嵌套目录里的文件」：客户端用列举时拿到的 docId 原样删除。
         val deleteByDocId =
-            DocumentsContract.buildDocumentUriUsingTree(rootTreeUri, nestedFileDocId!!)
+            DocumentsContract.buildDocumentUriUsingTree(
+                rootTreeUri,
+                checkNotNull(nestedFileDocId) { "列举必须返回嵌套文件的 docId" },
+            )
         assertTrue(DocumentsContract.deleteDocument(context.contentResolver, deleteByDocId))
         assertTrue(
             "delete must remove only the nested file",

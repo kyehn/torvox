@@ -51,6 +51,7 @@ fun rememberIsSmallScreen(): Boolean {
 
 /** 设置响应式样式：小屏标记与标题/数值文本样式，三处行骨架共用。 */
 @Composable
+@ReadOnlyComposable
 private fun rememberSettingsResponsiveStyles(): Triple<Boolean, TextStyle, TextStyle> {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
