@@ -186,7 +186,7 @@ constructor(
      * 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。
      *
      * 刻意不另起一个 `StateFlow` 镜像：组合侧没有订阅者（重组期间自己发起同步 JNI
-     * 查询是最长可阻塞 500ms 的调用），镜像只会在每次手势查询时多发一次通知。
+     * 查询是最长可阻塞两次查询超时（约 1s）的调用），镜像只会在每次手势查询时多发一次通知。
      */
     internal fun updateScrollbackLength(length: Int) {
         cachedScrollbackLength = length
