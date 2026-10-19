@@ -822,7 +822,7 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         val target = java.io.File(rootDir(), "same-name.txt").apply { writeText("keep") }
         // 框架约定原 docId 仍有效时返回 null；此处若不拦，源文件本身会被当成冲突而
-        // 静默变成 `same-name.txt (2)`。
+        // 静默变成 `same-name (2).txt`（序号插扩展名前）。
         assertEquals(null, provider.renameDocument("same-name.txt", "same-name.txt"))
         assertTrue("file must keep its name", target.exists())
         assertEquals("keep", target.readText())

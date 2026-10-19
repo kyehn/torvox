@@ -733,6 +733,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
         val existing = File(home, "dup-dir-probe").apply { mkdirs() }
+        val suffixDir = File(home, "dup-dir-probe (2)")
         try {
             val createdUri = DocumentsContract.createDocument(
                 context.contentResolver,
@@ -742,10 +743,10 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             )
             requireNotNull(createdUri)
             val docId = DocumentsContract.getDocumentId(createdUri)
-            assertEquals("重名目录必须追加消歧后缀", File(home, "dup-dir-probe (2)").path, File(home, docId).path)
+            assertEquals("重名目录必须追加消歧后缀", suffixDir.path, File(home, docId).path)
             assertTrue(File(home, docId).isDirectory)
-            DocumentsContract.deleteDocument(context.contentResolver, createdUri)
         } finally {
+            suffixDir.deleteRecursively()
             existing.deleteRecursively()
         }
     }
@@ -792,15 +793,19 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
         val probe = File(home, "tree-delete-probe.txt").apply { writeText("to be deleted") }
-        assertTrue(probe.exists())
         val treeUri = DocumentsContract.buildDocumentUriUsingTree(
             DocumentsContract.buildTreeDocumentUri(authority, "terminal_home"),
             "tree-delete-probe.txt",
         )
-        assertTrue(
-            "tree 前缀删除必须成功",
-            DocumentsContract.deleteDocument(context.contentResolver, treeUri),
-        )
-        assertTrue("删除后磁盘条目必须同步退场", !probe.exists())
+        try {
+            assertTrue(probe.exists())
+            assertTrue(
+                "tree 前缀删除必须成功",
+                DocumentsContract.deleteDocument(context.contentResolver, treeUri),
+            )
+            assertTrue("删除后磁盘条目必须同步退场", !probe.exists())
+        } finally {
+            probe.delete()
+        }
     }
 }
