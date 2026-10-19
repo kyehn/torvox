@@ -257,7 +257,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             mkdirs()
         }
         // 只清残留、不预建：`tree-mutations` 由本用例经提供者创建。预建会让提供者
-        // 按与 Termux 一致的冲突命名（已存在则追加 " (2)"）返回 `tree-mutations (2)`，
+        // 按 AOSP/桌面冲突命名（已存在则追加 " (1)" 起序号）返回 `tree-mutations (1)`，
         // 下面的 docId 断言随之对不上。这里它只是事后读盘的参照，无需先存在。
         val probeDir = File(home, "tree-mutations").apply { deleteRecursively() }
         try {
@@ -325,14 +325,14 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             requireNotNull(movedUri) { "moveDocument must return the new document uri" }
             val movedDocId = DocumentsContract.getDocumentId(movedUri)
             // 冲突命名按提供者的唯一名策略（`DocumentMutations.uniqueChild`）：
-            // 序号插在扩展名前，冲突名是 `source (2).txt`。
-            assertEquals("tree-mutations/source (2).txt", movedDocId)
-            assertTrue(File(probeDir, "source (2).txt").exists())
+            // 序号插在扩展名前且从 1 起，冲突名是 `source (1).txt`。
+            assertEquals("tree-mutations/source (1).txt", movedDocId)
+            assertTrue(File(probeDir, "source (1).txt").exists())
             assertTrue(
                 "move must remove the document from its old parent",
                 !File(targetDir, "source.txt").exists(),
             )
-            assertEquals("edited body", File(probeDir, "source (2).txt").readText())
+            assertEquals("edited body", File(probeDir, "source (1).txt").readText())
         } finally {
             probeDir.deleteRecursively()
             targetDir.deleteRecursively()
@@ -734,7 +734,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
 
     /**
      * 重名新建走框架允许的消歧（同 Termux 策略）：已存在则生成唯一消歧名
-     * （序号插扩展名前，`dup-create-probe (2).txt`）而非报「路径已存在」。
+     * （序号插扩展名前且从 1 起，`dup-create-probe (1).txt`）而非报「路径已存在」。
      * 直接覆盖客户端报障「无法创建文件/文件夹：路径已存在」这条外来现象的
      * 提供者侧契约：无论磁盘上已有同名文件/目录，新建必须成功落盘且新名字
      * 由返回 URI 下发。
@@ -754,7 +754,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             )
             requireNotNull(createdUri)
             val docId = DocumentsContract.getDocumentId(createdUri)
-            val suffixFile = File(home, "dup-create-probe (2).txt")
+            val suffixFile = File(home, "dup-create-probe (1).txt")
             try {
                 assertEquals("重名新建必须追加消歧后缀", suffixFile.path, File(home, docId).path)
                 suffixFile.writeText("with suffix")
@@ -773,7 +773,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
         val existing = File(home, "dup-dir-probe").apply { mkdirs() }
-        val suffixDir = File(home, "dup-dir-probe (2)")
+        val suffixDir = File(home, "dup-dir-probe (1)")
         try {
             val createdUri = DocumentsContract.createDocument(
                 context.contentResolver,
@@ -812,14 +812,14 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val docId = DocumentsContract.getDocumentId(newUri)
             assertEquals(
                 "改名撞名必须追加消歧后缀",
-                File(home, "conflict-rename-new (2).txt").path,
+                File(home, "conflict-rename-new (1).txt").path,
                 File(home, docId).path,
             )
             assertTrue("改名后的内容必须原地保留", File(home, docId).readText() == "x")
         } finally {
             original.delete()
             occupant.delete()
-            File(home, "conflict-rename-new (2).txt").delete()
+            File(home, "conflict-rename-new (1).txt").delete()
         }
     }
 

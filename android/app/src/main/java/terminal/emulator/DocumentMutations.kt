@@ -301,11 +301,13 @@ internal class DocumentMutations(private val context: Context, private val rootD
     }
 
     private fun uniqueChild(parent: File, baseName: String): File {
-        // 与 Termux/桌面惯例一致的冲突策略：已存在则追加序号而非报错。
-        // 序号插在扩展名之前（`a.txt` → `a (2).txt`）：客户端按名字排序/去重时
-        // 遵循「同一改名族在同侧」的惯例，且 AOSP `DocumentsUI` 的自动消歧同型。
+        // 与 Termux/桌面/AOSP 一致的冲突策略：已存在则追加序号而非报错。
+        // 序号插在扩展名之前且从 1 起（`a.txt` → `a (1).txt`）：与 AOSP
+        // `FileUtils.buildUniqueFileWithExtension`（`ncounters n = 0` 先自增，
+        // 首个冲突即 `'example (1).txt'`）同型；从 2 起会让第一次冲突显示成
+        // `a (2).txt`，客户端与用户都以为已经有同名兄弟（重复复制到第三次才「对上」）。
         var child = File(parent, baseName)
-        var conflictId = 2
+        var conflictId = 1
         while (child.exists() || Files.isSymbolicLink(child.toPath())) {
             child = File(parent, deconflictedName(baseName, conflictId))
             conflictId++
@@ -314,7 +316,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
     }
 
     /**
-     * 冲突名序号：有扩展名把序号插在最后一个点前（`a.txt` → `a (2).txt`）；
+     * 冲突名序号：有扩展名把序号插在最后一个点前（`a.txt` → `a (1).txt`）；
      * 无扩展名（`lastIndexOf` 得 -1）或前导点（`.gitignore`，点在首位不算
      * 扩展名）则整体作为基础名尾部追加 ` (n)`。目录与文件共用同一规则，
      * 含点的目录名同样点前插序号（桌面/SAF 惯例一致）。

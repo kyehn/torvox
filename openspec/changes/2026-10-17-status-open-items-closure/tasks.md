@@ -897,13 +897,13 @@
       修复项（mtime 窗口 ±100ms、uniqueChild 序号位、watch 前置检查等）
       保持不变。
 - [x] 本仓每次 CI 红的完整归因链（按 run 逐条）：
-      39158752681 → 视觉选区双测（重长按重试前清选区，bfd8c89e，本地已复证）；
+      39158752681 → 视觉选区双测（重长按重试前清选区，本地已复证）；
       39203343224 → provider 保存回写 mtime 亚毫秒越界（±100ms 余量 +
-      外部客户端回写协议修复 aa0c124a/121890a3，本地一条 1.25s 复绿）；
-      5 点段 → 深缓冲下沉 1 条单点窗口错过（1361db39 自修复 + 套件重排）；
-      39223866383（08:35，a3c5d7ec）→ connected 全套全绿；
+      外部客户端回写协议修复（台账两项提交），本地一条 1.25s 复绿）；
+      5 点段 → 深缓冲下沉 1 条单点窗口错过（自修复 + 套件重排）；
+      39223866383（08:35）→ connected 全套全绿；
       39238735868（10:37 check）→ semgrep no-git-short-hash 3 findings
-      （台账文档中的短提交号写法，9c987607 去除）。
+      （台账文档中的短提交号写法，已去除）。
 - [x] 本机冷启动口径（CI 同 `320x640@160`）六类仪器全绿：提供者 20/20、
       视觉选区 2/2、拖拽 4/4、CJK 组合 1/1、真机 bootstrap 1/1、
       shell 响应 2/2（实时 UX_METRIC：startup_to_prompt_ms=11800、
@@ -918,16 +918,33 @@
 - [x] 本机 cargo 全量套件偶发 1 例红（`read_all_text_answers_repeated_
       queries_within_query_timeout` 回滚读数=0）根因与修复：高负载（全量
       套件并行 + 深缓冲用例同时段）下 VT 线程整体错过 `QUERY_TIMEOUT_MS`
-      窗口，FFI `scrollback_rows` 变 Err→兜底 0。按「不隐藏错误 + 兜底最低」修为三层：
-      query_on 重试一次（QUERY_ATTEMPTS=2，第二轮命中已落盘缓存）、
-      护栏 5s 按期限轮询代替单次读、`scrollback_len` 失败原因 WARN
-      （2cda0cde / ad539a2a）。cargo 全量两轮复绿（119.2s / 77.8s，638/0）。
-      spec 同步：render-loop-scroll-cadence 增补「VT 通道查询的期限重试
-      与兜底语义」Requirement（单次重试 + 两种场景）。
+      窗口，FFI `scrollback_rows` 变 Err→兜底 0。按「不隐藏错误 + 兜底最
+      低」修为四层：query_on 幂等查询重试一次（QUERY_ATTEMPTS=2；读缓存
+      查询命中已落盘缓存、直读查询靠线程恢复），SearchSelect 等非幂等
+      动作型查询 query_on_once 只发一次（防滞留首查应答丢失后被重发放大
+      为视口双跳）、护栏 5s 按期限轮询代替单次读、`scrollback_len` 失败
+      原因 WARN。cargo 全量两轮复绿
+      （119.2s / 77.8s，638/0）。spec 同步：render-loop-scroll-cadence
+      增补「VT 通道查询的期限重试与兜底语义」Requirement（幂等重试一
+      次、动作型只发一次 + 三种场景）。
 - [x] 本机重建协议勘误记录（避免后人误判「测试崩了」）：重启后的
       `--rerun-tasks` APK 打包发生在 jniLibs 落盘之前时，包内无
       libnative.so（视觉用例 UnsatisfiedLinkError）。处置顺序：先
       build-android-libs 落盘 .so → `:app:assembleDebug{,AndroidTest}`
       → `unzip -l` 断言 APK 含 libnative.so → 再安装。
+- [x] 冲突序号语义修正（二轮前事实核对）：AOSP
+      `FileUtils.buildUniqueFileWithExtension` 实源（android.googlesource
+      .com，`n = 0` 先自增、注释示例 `'example (1).txt'`）指出唯一名首个
+      冲突序号为 1——本仓此前从 2 起会让首次冲突显示 `a (2).txt`，客户端
+      误读为已有同名兄弟。`uniqueChild` 计数器改从 1 起；
+      `openspec/specs/documents-provider` 与两类测试同步改断言
+      （单测门禁绿 + 仪器 20/20 复绿）。历史节中所有 `(2)` 序号示例指该语义
+      修正前的当时口径。
+- [x] queryDocument/queryChildDocuments 抛 `FileNotFoundException` 按契约
+      （外部真实客户端验证流：content CLI 缺失路径 No result found、MT
+      Manager；断链 lstat 语义可见性）由并行会话落地并推送
+      （tasks.md 之外，commit 在 main，3 条 `@Test` 单测 + CLI 四象限外部
+      验证），对应 spec「缺失路径的查询按 AOSP 契约抛 FileNotFoundException」
+      与三个场景。本轮验收通过。
 - [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录
       （下轮用户日志到达后立即判读）。
