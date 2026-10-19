@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 启动屏图标（windowSplashScreenAnimatedIcon）。
-     这里刻意给一份「普通图形」而不是自适应图标 @mipmap/ic_launcher：平台的
-     SplashscreenContentDrawer 只在拿到 AdaptiveIconDrawable 时才沿用它自己的蒙版；
-     给普通图形时会套一层 AdaptiveForegroundDrawable——按内圈 72/108 缩放后再裁，
-     于是图案完整落在可见圆内（STATUS「启动动画图案不完整，被限制到图标形状」）。
-     因为主题没声明 windowSplashScreenIconBackgroundColor，平台还会把整块图标区
-     放大 1.5 倍（splash_icon_no_background_scale_factor），图案看起来与应用图标
-     一样大。桌面图标仍是 mipmap-anydpi-v26/ic_launcher（自适应、满幅），两者互不影响。 -->
+<!-- 启动屏图标（windowSplashScreenAnimatedIcon）：logo_art 的收缩包装。
+     平台 SplashscreenContentDrawer 把这里的 drawable 画进 160dp×1.2=192dp 的
+     图标单元，并按默认圆形蒙版（config_icon_mask：单元的 50/108 ≈ 88.9dp）
+     裁掉蒙版外的内容；直接引用 logo_art（108dp 视口）时被放大 192/108=1.78 倍，
+     墨迹最远半径 ≈ 89.4dp 恰超蒙版，星角与终端窗口的一角被裁掉
+     （STATUS「启动动画图案不完整，被限制到图标形状」）。
+     给一份 96dp 的固定尺寸 item 后，图案整体 0.89 倍居中，
+     墨迹最远半径 ≈ 44.7dp ≤ 88.9dp，完整落进蒙版圆且一角不被裁。
+     桌面图标仍由 launcher_foreground.xml 以 1:1 呈现图案，两处互不影响。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/launcher_foreground" />
+    <item
+        android:width="96dp"
+        android:height="96dp"
+        android:gravity="center"
+        android:drawable="@drawable/logo_art" />
 </layer-list>

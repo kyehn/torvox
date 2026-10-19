@@ -3,11 +3,14 @@ package terminal.emulator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.LayerDrawable
 import android.util.TypedValue
 import android.view.ContextThemeWrapper
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,59 +18,49 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import kotlin.math.abs
 import kotlin.math.hypot
-import kotlin.math.max
-import kotlin.math.min
 
 /**
- * 启动屏图标的判据（STATUS ⑥「启动动画图案不完整，被限制到图标形状」）。
- *
- * 平台的 [SplashscreenContentDrawer] 只在拿到自适应图标时才沿用它自己的蒙版
- * （See `SplashViewBuilder.processAdaptiveIcon` / `createIconDrawable`）：给
- * `windowSplashScreenAnimatedIcon` 一份普通图形时，平台会套
- * `AdaptiveForegroundDrawable`——把图形缩进内圈 72×72（108 视口），再按圆形蒙版裁；
- * 又因为主题没有声明 `windowSplashScreenIconBackgroundColor`，整块图标区会被
- * `splash_icon_no_background_scale_factor`（1.5）放大，图案的观感尺寸与应用图标一致。
- * 因此「图案完整」的充分必要条件是：**图形是普通图形，且它的图案在内圈里仍落进
- * 半径 36 的可见圆内**。
- *
- * 历史坑：曾把 `windowSplashScreenAnimatedIcon` 指向自适应图标 @mipmap/ic_launcher，
- * 图案沿桌面蒙版被裁成图标形状（用户报「图案不完整」）；也曾为了绕开而把
- * `launcher_foreground` 整体缩到 0.62，结果桌面图标一起变小变样（用户报
- * 「应用图标被意外更改」）。故本测试钉住三件事：启动屏图案是普通图形、图案完整
- * 落进可见圆、且桌面图标的前景保持原始大小（半径 50.3 单位）。
+ * 启动屏图标的行为判据（STATUS ⑥「启动动画图案不完整，被限制到图标形状」）：主题解析出的
+ * 启动屏 drawable 只能是普通图形；包装层墨迹必须完整落进平台蒙版且足够醒目
+ * （详见 openspec/specs/render-stability 的「启动屏图标为单一图案源的收缩包装」）。
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w360dp-h640dp-160dpi")
 class SplashIconRobolectricTest {
 
     @Test
-    fun splashIconIsAPlainDrawableWhoseArtworkFitsTheVisibleCircle() {
-        val themed = ContextThemeWrapper(
-            ApplicationProvider.getApplicationContext<Context>(),
-            R.style.Theme_Terminal_Splash,
-        )
-        val value = TypedValue()
+    fun splashIconWrapsSharedArtworkInsideMaskCircle() {
+        val themed = themedContext()
+
+        val splashValue = TypedValue()
         assertTrue(
             "启动屏主题必须能解析出 windowSplashScreenAnimatedIcon",
             themed.theme.resolveAttribute(
                 android.R.attr.windowSplashScreenAnimatedIcon,
-                value,
+                splashValue,
                 true,
             ),
         )
-        val icon = requireNotNull(themed.getDrawable(value.resourceId)) {
+        assertEquals(
+            "启动屏图标必须就是 splash_icon 资源本身",
+            R.drawable.splash_icon,
+            splashValue.resourceId,
+        )
+        val splashIcon = requireNotNull(themed.getDrawable(splashValue.resourceId)) {
             "windowSplashScreenAnimatedIcon 指向的 drawable 必须存在"
         }
         assertFalse(
-            "启动屏图标不得是自适应图标：平台会沿用桌面蒙版把图案裁成图标形状" +
-                "（STATUS「启动动画图案不完整」）。实际 ${icon.javaClass.simpleName}",
-            icon is AdaptiveIconDrawable,
+            "启动屏图标不得是自适应图标：平台会沿用桌面蒙版把图案裁成图标形状。" +
+                "实际 ${splashIcon.javaClass.simpleName}",
+            splashIcon is AdaptiveIconDrawable,
         )
-        // 图标后垫不垫圆形底板（STATUS ⑪ 的「完整图案」）只由这个属性的透明度决定：
-        // Theme.SplashScreen 解析出的底色是全透明，Theme.SplashScreen.IconBackground
-        // 才给不透明底色。父主题换成后者、或本主题自己声明一个颜色，都会让底板回来。
+
+        // 图标后不得垫不透明的圆形底板（STATUS ⑪「完整图案」）。父主题
+        // Theme.SplashScreen 解析出全透明底色；一旦换成
+        // Theme.SplashScreen.IconBackground 或本主题自声明颜色，底板就回来了。
         val iconBackground = TypedValue()
         themed.theme.resolveAttribute(
             android.R.attr.windowSplashScreenIconBackgroundColor,
@@ -84,114 +77,159 @@ class SplashIconRobolectricTest {
             else -> 0
         }
         assertTrue(
-            "图标后不得垫圆形底板（STATUS ⑪「完整图案」），" +
-                "实际底色 type=${iconBackground.type} alpha=$backgroundAlpha",
+            "图标后不得垫圆形底板，实际底色 type=${iconBackground.type} alpha=$backgroundAlpha",
             backgroundAlpha == 0,
         )
 
-        // 平台把普通图形缩进内圈 72/108，再因为「没有图标底板」把整块图标区放大
-        // NO_BACKGROUND_SCALE 倍。图案要完整，就得在**图标区**里不越出蒙版半径
-        // （圆内切于方形图标区，半径 = 图标区半宽），同时不要比桌面图标的可见内容还小。
-        val full = render(icon, VIEWPORT_UNITS)
-        val iconAreaFraction = full.maxRadius / VIEWPORT_UNITS *
-            (ICON_INNER_UNITS.toFloat() / VIEWPORT_UNITS) * NO_BACKGROUND_SCALE
-        assertTrue(
-            "启动屏图案不得越出图标区（蒙版半径 0.5），实际占图标区 " +
-                "${"%.3f".format(iconAreaFraction)}，包围盒 ${full.bounds}",
-            iconAreaFraction <= 0.5f,
+        // 结构：两处 wrapper 都必须单层引用 logo_art（保证图案只此一份）。
+        val splashChild = (splashIcon as LayerDrawable).getDrawable(0)
+            ?: error("splash_icon 的 layer item 必须引用 logo_art")
+        val launcherIcon = requireNotNull(
+            themed.resources.getDrawable(R.drawable.launcher_foreground, themed.theme),
         )
+        val launcherChild = (launcherIcon as LayerDrawable).getDrawable(0)
+            ?: error("launcher_foreground 的 layer item 必须引用 logo_art")
+
+        // 同一份图案：两个 wrapper 的子层都在自身固有尺寸（108dp=108px，density 1）
+        // 的画布上渲染，像素完全一致，否则就是两份副本漂移了。
+        val artPx = requireNotNull(splashChild.intrinsicWidth) {
+            "splash_icon 的 item 必须带 android:width/height 固定尺寸"
+        }
+        val splashChildBits = renderBits(splashChild, artPx)
+        val launcherChildBits = renderBits(launcherChild, artPx)
         assertTrue(
-            "启动屏图案不得小于桌面图标的可见内容（${VISIBLE_CIRCLE_RADIUS}/${VIEWPORT_UNITS}），" +
-                "实际占图标区 ${"%.3f".format(iconAreaFraction)}",
-            iconAreaFraction >= VISIBLE_CIRCLE_RADIUS / VIEWPORT_UNITS,
-        )
-        assertTrue(
-            "启动屏图案必须是可绘制图案，实际不透明像素 ${full.opaquePixels}",
-            full.opaquePixels > OPAQUE_PIXELS_FLOOR,
+            "启动屏与桌面引用的必须是同一份 logo_art 像素（" +
+                "splash=${splashChildBits.size} launcher=${launcherChildBits.size}）",
+            splashChildBits.contentEquals(launcherChildBits),
         )
 
-        // 启动屏画的必须是与桌面图标同一份图形（不得另存缩小版，否则两处观感不一致）。
-        val appIcon = themed.resources.getDrawable(R.drawable.launcher_foreground, themed.theme)
-        val launcherFull = render(appIcon, VIEWPORT_UNITS)
+        // 桌面 1:1：前景图案墨迹半径应 = logo_art 原始 ≈47.6~50.3 单位（= dp）。
+        val launcherInk = inkRadius(renderBitmap(launcherChild, artPx))
         assertTrue(
-            "启动屏图案必须与桌面图标的前景同一份图形（bounds=${VIEWPORT_UNITS}u）",
-            full.pixels.contentEquals(launcherFull.pixels),
+            "桌面图案必须是原始 1:1 大小（墨迹半径应落在 $ARTWORK_MIN.." +
+                "$ARTWORK_MAX dp），实际 ${"%.1f".format(launcherInk)}dp",
+            launcherInk in ARTWORK_MIN..ARTWORK_MAX,
         )
 
-        // 桌面图标的前景本身不得被调小：原始图案最远半径实测 50.3 单位。
+        // 平台管线几何：启动屏把这一 wrapper 画进 192dp 单元并按 88.9dp
+        // 蒙版裁剪；96dp 包装下图案墨迹必须完整落进蒙版圆（尺寸上不封顶地
+        // 接近蒙版，说明收缩包装没生效——旧实现就在 0.95 上被裁）。
+        val cellPx = SPLASH_CELL_DP
+        val cell = Bitmap.createBitmap(cellPx, cellPx, Bitmap.Config.ARGB_8888)
+        splashIcon.setBounds(0, 0, cellPx, cellPx)
+        splashIcon.draw(Canvas(cell))
+        val splashInkOnCell = inkRadius(cell)
         assertTrue(
-            "应用图标前景不得被调小（原始半径约 $ARTWORK_RADIUS_FLOOR 单位以上），" +
-                "实际最远 ${launcherFull.maxRadius}，包围盒 ${launcherFull.bounds}",
-            launcherFull.maxRadius >= ARTWORK_RADIUS_FLOOR,
-        )
-        assertTrue(
-            "应用图标前景不应远超画布，实际最远 ${launcherFull.maxRadius} 单位",
-            launcherFull.maxRadius <= ARTWORK_RADIUS_CEILING,
+            "启动屏图案墨迹半径必须是蒙版的 ${"%.0f".format(SPLASH_ART_MIN_RATIO * 100)}%" +
+                "..${"%.0f".format(SPLASH_ART_MAX_RATIO * 100)}%，实际 ${"%.1f".format(splashInkOnCell)}dp",
+            splashInkOnCell in SPLASH_ART_MIN_RATIO * MASK_RADIUS_DP..SPLASH_ART_MAX_RATIO * MASK_RADIUS_DP,
         )
     }
 
-    private class Rendered(val maxRadius: Float, val opaquePixels: Int, val bounds: String, val pixels: IntArray)
+    /** 三个点迹（红/黄/绿）必须按各自 fill 色渲染成小圆，不得渲染成大色块。 */
+    @Test
+    fun dotsRenderAsSmallCircles() {
+        val themed = themedContext()
+        val art = requireNotNull(themed.getDrawable(R.drawable.logo_art)) {
+            "logo_art 资源缺失"
+        }
+        val artPx = requireNotNull(art.intrinsicWidth) {
+            "logo_art 的固有尺寸必须是矢量声明的 108"
+        }
+        val artBitmap = renderBitmap(art, artPx)
+        intArrayOf(DOT_RED, DOT_YELLOW, DOT_GREEN).forEach { fillColor ->
+            var ink = 0
+            for (y in 0 until artPx) {
+                for (x in 0 until artPx) {
+                    val pixel = artBitmap.getPixel(x, y)
+                    if ((pixel ushr 24) >= ALPHA_FLOOR &&
+                        abs(Color.red(pixel) - Color.red(fillColor)) <= DOT_COLOR_FUZZ &&
+                        abs(Color.green(pixel) - Color.green(fillColor)) <= DOT_COLOR_FUZZ &&
+                        abs(Color.blue(pixel) - Color.blue(fillColor)) <= DOT_COLOR_FUZZ
+                    ) {
+                        ink++
+                    }
+                }
+            }
+            // 正确形态（实测校准：红4/黄5/绿5px）与缺首段 M 的坏形态（实测 21px）
+            // 之间取安全带 [2,14]，两侧都比校准值离边界远。
+            assertTrue(
+                "点迹必须渲染成 ${DOT_MIN_INK}..$DOT_MAX_INK px 的小圆，fillColor=${"%06X".format(fillColor)} 露出墨迹 $ink px",
+                ink in DOT_MIN_INK..DOT_MAX_INK,
+            )
+        }
+    }
 
-    /** 把 drawable 画进 `boundsUnits`×`boundsUnits`（108 视口单位）的位图并测量图案。 */
-    private fun render(drawable: Drawable, boundsUnits: Int): Rendered {
-        val px = (boundsUnits * UNITS_TO_PX).toInt()
+    private fun themedContext(): ContextThemeWrapper = ContextThemeWrapper(
+        ApplicationProvider.getApplicationContext<Context>(),
+        R.style.Theme_Terminal_Splash,
+    )
+
+    /** 最远非透明像素到画布中心的距离。Robolectric 160dpi 下 1px = 1dp。 */
+    private fun inkRadius(bitmap: Bitmap): Float {
+        val centerX = (bitmap.width - 1) / 2f
+        val centerY = (bitmap.height - 1) / 2f
+        var maxRadius = 0f
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                val argb = bitmap.getPixel(x, y)
+                if ((argb ushr 24) < ALPHA_FLOOR) continue
+                val distance = hypot(x + 0.5f - centerX, y + 0.5f - centerY)
+                if (distance > maxRadius) maxRadius = distance
+            }
+        }
+        return maxRadius
+    }
+
+    private fun renderBitmap(drawable: Drawable, px: Int): Bitmap {
         val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
         drawable.setBounds(0, 0, px, px)
         drawable.draw(Canvas(bitmap))
+        return bitmap
+    }
 
-        val pixels = IntArray(px * px)
-        bitmap.getPixels(pixels, 0, px, 0, 0, px, px)
-        var maxRadius = 0f
-        var opaque = 0
-        var minU = Float.MAX_VALUE
-        var minV = Float.MAX_VALUE
-        var maxU = -Float.MAX_VALUE
-        var maxV = -Float.MAX_VALUE
-        val centre = boundsUnits / 2f
-        for (y in 0 until px) {
-            for (x in 0 until px) {
-                if (pixels[y * px + x] ushr 24 == 0) continue
-                opaque++
-                val u = (x + 0.5f) / UNITS_TO_PX
-                val v = (y + 0.5f) / UNITS_TO_PX
-                minU = min(minU, u)
-                maxU = max(maxU, u)
-                minV = min(minV, v)
-                maxV = max(maxV, v)
-                maxRadius = max(maxRadius, hypot(u - centre, v - centre))
-            }
-        }
-        return Rendered(
-            "%.1f".format(maxRadius).toFloat(),
-            opaque,
-            "[%.1f,%.1f]×[%.1f,%.1f]".format(minU, maxU, minV, maxV),
-            pixels,
-        )
+    private fun renderBits(drawable: Drawable, px: Int): IntArray {
+        val bitmap = renderBitmap(drawable, px)
+        val bits = IntArray(px * px)
+        bitmap.getPixels(bits, 0, px, 0, 0, px, px)
+        return bits
     }
 
     private companion object {
-        /** 108 单位视口按 4 像素/单位渲染，足够分辨抗锯齿边缘。 */
-        const val UNITS_TO_PX = 4f
-
-        /** 自适应图标视口。 */
+        /** logo_art 的视口（108 单位）。 */
         const val VIEWPORT_UNITS = 108
 
-        /** 平台给普通启动屏图形用的内圈（108 视口里占 72）。 */
-        const val ICON_INNER_UNITS = 72
+        /** 平台启动屏单元：160dp × 1.2（no_background_scale_factor）= 192dp。 */
+        const val SPLASH_CELL_DP = 192
 
-        /** 内圈对应的圆形可见区半径：72 / 2。 */
-        const val VISIBLE_CIRCLE_RADIUS = 36f
+        /** 平台默认蒙版圆半径：192dp 单元的 50/108 ≈ 88.9dp。 */
+        const val MASK_RADIUS_DP: Float = SPLASH_CELL_DP * 50f / VIEWPORT_UNITS
 
-        /** 没声明 windowSplashScreenIconBackgroundColor 时平台对图标区的放大倍数。 */
-        const val NO_BACKGROUND_SCALE = 1.5f
+        /** 启动屏图案墨迹半径区间（相对蒙版）：下限 = 完整图案要醒目
+         *  （Robolectric ≈0.50、平台实测 ≈0.87）；上限 = 不触碰蒙版
+         *  （直接给裸图案的旧实现 ≈1.0，星尖恰好出圆被裁）。 */
+        const val SPLASH_ART_MIN_RATIO = 0.40f
+        const val SPLASH_ART_MAX_RATIO = 0.95f
 
-        /** 原始图案最远半径实测 50.3 单位（含描边）；低于 40 即为「被调小」。 */
-        const val ARTWORK_RADIUS_FLOOR = 40f
+        /** 1:1 图案（launcher）墨迹半径范围（logo_art 原始 ≈47.6~50.3dp）。 */
+        const val ARTWORK_MIN = 44f
+        const val ARTWORK_MAX = 54f
 
-        /** 画布对角线的一半约 76 单位；超过 60 说明图形被放大到越界。 */
-        const val ARTWORK_RADIUS_CEILING = 60f
+        /** 点迹 fill 色（logo_art 的红/黄/绿三圆）。 */
+        const val DOT_RED = 0xff8a6c.toInt()
+        const val DOT_YELLOW = 0xffdb67.toInt()
+        const val DOT_GREEN = 0x86e96d.toInt()
 
-        /** 图案至少覆盖位图的 1%，用于区分「有图案」与「整块空白」。 */
-        const val OPAQUE_PIXELS_FLOOR = ICON_INNER_UNITS * ICON_INNER_UNITS / 100
+        // 点迹颜色匹配余量（抗锯齿边缘会混色，只计大部分覆盖本色的像素）。
+        const val DOT_COLOR_FUZZ = 24
+
+        /** 点迹最小墨迹（抗锯齿边缘的整圆至少有这么多纯色像素）。 */
+        const val DOT_MIN_INK = 2
+
+        /** 点迹墨迹上限（缺首段 M 的坏形态实测墨迹 21px，此处取区间安全上限）。 */
+        const val DOT_MAX_INK = 14
+
+        /** 非透明像素门槛（抗锯齿边缘也算墨迹）。 */
+        const val ALPHA_FLOOR = 0x70
     }
 }

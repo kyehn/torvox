@@ -458,7 +458,7 @@
       星形 `#ffb467` 386px 出现在 `(693,1081)`（改前整颗被裁不可见），
       三点各 10–11px。桌面图标（应用抽屉）同样完整：星形 12×10px 可见、
       三点正常、窗口角不再被切。
-- [x] **回退并改正（用户复报「应用图标被意外更改」）**：上一轮把启动屏两件事一次改完
+- [x] **回退并改正（用户复报「应用图标被意外更改」）**：此前把启动屏两件事一次改完
       （父主题换成 `Theme.SplashScreen`、图标换成非自适应 `@drawable/launcher_foreground`），
       又把**共用的**前景图形整体缩到 0.62。两个改动混在一起，归因没被单独验证过：
       设备上看到「底板消失 + 图案变大」是哪个改动带来的，无人分辨；而缩小共用图形
@@ -582,7 +582,7 @@
 | 8 | 输入法弹出时上滑不能到顶 | `ScrollDistanceTest`（7 例，共 23 例） | `ime-animation-smoothness` | 真机 `TOPMARK-0` 到顶 |
 | 9 | 上下滑动到边界跳动闪烁 | `ScrollDistanceTest`（边界丢弃对称 2 例） | `scroll-physics-drift` | 真机同量级反向对照 |
 | 10 | 上下滑动未按像素滚动 | `ScrollDistanceTest`（惯性按像素 4 例） | `scroll-physics-drift` | 真机按像素位移证据 |
-| 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏用应用图标本身」 | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
+| 11 | 启动动画用完整图案 | `SplashIconRobolectricTest`（NATIVE 渲染，非自适应 + 半径 ≤ 36 单位） | `render-stability`「启动屏图标为单一图案源的收缩包装」（复核见十五节） | 真机冷启动截帧（底色 `#1E1E2E`、mark 半径 234px < 252px 可见圆、星形不再被裁） |
 | 14 | 切会话后屏幕停在旧会话（不在被删的 `docs/specification/STATUS.md` 行序里，属其第二条「文档提供者」的残根） | native `request_repaint_pushes_frame_with_unchanged_content` | `render-stability`「切换会话后呈现新会话的整幅内容」 | 真机：无输入 441ms 内整幅一帧，截屏 0/20 带差异（对旧会话）/ 11/20（对另一会话） |
 | CI | `run 38888880442` 两条失败 | `FontFileOverrideInstrumentedTest`（基线读晚了）、`BehaviorInstrumentedTest`（重试梯子隐藏错误） | 见十三节 | 本机复跑各 `failures="0"`，非 CI 抖动而是用例前提/错误处理问题 |
 
@@ -748,3 +748,52 @@
       「门禁本来就红，红不能证伪任何修复」。该导入是先前把 `assertFalse` 换成
       `assertNotNull` 时留下的孤儿；删掉后
       `compileDebugAndroidTestKotlin spotlessCheck detekt` 全绿，用例与断言一条未动。
+
+## 十五、CI `run 39158752681` 红项与启动动画新反馈（本次会话）
+
+### CI 红项：`VisualInlineVerificationTest#verifyUrlSelectionPositions`
+
+- [x] 本地重建环境后按 CI 同条件（320x640 / 160dpi）复现失败：重长按重试轮次断言
+      handles=0。深度分析既有证据（先前的色度判据 + 复跑 logcat + 基准/选区截图
+      像素分析）：重试轮次在**未清除上一轮选区**的状态下重取基准——手柄在基准与长按后
+      两侧都存在，逐像素差分为 0，色度判据再对也检不出任何手柄；word 用例同协议首跑
+      故稳定全绿。**判据（变更前的色度判据提交）不是根因，测试重试协议是**。
+- [x] 修协议不修判据：重试分支先用生产 `clearSelection` 通道清除选区，
+      等一帧、取干净基准、再重长按；不引入任何像素常量，不隐藏错误（断言形态不变）。
+      本地同轮两个用例全绿且日志显示检测到的都是真手柄字形（21×21、实心率≈90%）。
+- [x] CI 复验：`gh workflow run build --ref main` → run `39191843804`（验证含全部
+      修复的 HEAD，较只验色度判据提交更严）。
+- [x] spec 落点：该修复属**测试协议**，无应用行为变化，不落 spec；explanatory
+      记录在此。
+
+### 启动动画图案（用户反馈仍「图案不完整，被限制到图标形状」）
+
+- [x] 新增一轮实机取证（screenrecord 抽帧 + 像素量测）：旧实现（`layer-list` 裸引
+      `launcher_foreground`，无固定尺寸）稳态帧中图案被圆形蒙版截断——星尖与
+      窗口一角出圆即失，与用户视频帧 f15 同根因。AOSP 几何实锤：
+      `starting_surface_icon_size`(160dp) × `splash_icon_no_background_scale_factor`(1.2)
+      = 192dp 图标单元，默认蒙版圆 = 单元的 50/108 ≈ 88.9dp；旧 `layer-list` 无
+      固定尺寸时子层被拉到满单元（放大 1.78×），墨迹半径略超蒙版必被裁。
+- [x] 修法：图案抽成仓内唯一源 `drawable/logo_art.xml`；
+      `launcher_foreground` 以固定 108dp item 1:1 包装（桌面外观不变，不触发 STATUS
+      第十一节历史教训「图标被意外更改」）；`splash_icon` 以固定 96dp item 0.89×
+      收缩包装（墨迹完整落进蒙版圆）。不新增路径副本，低 vendor（数值全部取自
+      AOSP 源码与设备实测）。
+- [x] 验证：重装新 APK 后同法录屏——图案完整（墨迹最远半径 77.4px < 蒙版 88.9px，
+      星尖/绿团/点迹齐全；before/after 帧对齐同样口径）。平台实际缩放（≈1.54×）与
+      Robolectric 模型（0.89×）不同，两栈均满足「完整落进蒙版」，故测试下限由 0.30
+      收紧到 0.40、上限 0.95——同时钉住「完整且醒目」并拦回旧实现；后续校准另见
+      下一条。
+- [x] spec 落点：`render-stability` 需求改写为「启动屏图标为单一图案源的收缩包装」，
+      并拆出「启动屏主题配置与回归防线」；旧 Scenario「图案不被调小」删除——该条款与
+      "完整"诉求冲突（被裁的大图案正是缺陷本身），判据改为墨迹半径落进蒙版的
+      [40%, 95%] 区间，以「实测口径」Scenario 记录两栈数据；缩小只允许发生在
+      启动屏包装层且以墨迹半径裁定。
+- [x] 复审期新发现并处置：① `logo_art` 三条点迹 pathData 缺首段 `moveTo`
+      （十一节修法被回退时一并删除），弧从原点拉出畸形色块——补回 `M` 并以
+      `dotsRenderAsSmallCircles` 用例钉住（校准：正常墨迹 4/5/5px、坏形态 21px）；
+      ② 断言消息里“蒙版 30%”已随下限 40% 同步为动态插值；③ 测试的英文注释块
+      按 STYLE 通用节改写为简体中文，`Blob` 的 `cx/cy/w/h` 访问器改名
+      `centerX/centerY/widthPx/heightPx`；④ `launcher_monochrome`（主题图标单色层）
+      按 Android 13+ 语义是独立简化重绘，不属彩色图案单一源范围（`render-stability`
+      需求已注明），不需要并入 logo_art。
