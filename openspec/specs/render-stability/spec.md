@@ -55,38 +55,59 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **AND** 终端首帧呈现后 MUST 立即撤下
 - **AND** 首帧在 5s 上限内始终未呈现时 MUST 撤下，MUST NOT 永久遮挡界面
 
-### Requirement: 启动屏用普通图形复用桌面图标前景
+### Requirement: 启动屏图标为单一图案源的收缩包装
 
-系统启动屏的图标 MUST 是**普通图形**（`@drawable/splash_icon`，`layer-list` 引用
-`launcher_foreground`），MUST NOT 直接给自适应图标：平台的 `SplashscreenContentDrawer`
-只在拿到自适应图标时才沿用自己的蒙版，图案便与桌面图标一样被裁成图标形状。`splash_icon`
-MUST NOT 另画一份图形，只引用与桌面图标同一份的前景资源。图标后 MUST NOT 垫圆形底板。
+系统启动屏的图标 MUST 是**普通图形**（`@drawable/splash_icon`），MUST NOT 直接给自适应
+图标。彩色图案（终端窗口 + 星形 + 点迹）在仓内 MUST 只有一份（`@drawable/logo_art`）：
+启动屏与桌面图标前景都只包装引用它，MUST NOT 各自维护路径副本；自适应图标的 monochrome
+层（`launcher_monochrome`）是平台 themed icon 的单色简化重绘，不属该份彩色图案的副本。
+启动屏包装 MUST 是固定尺寸（96dp）的收缩包装，墨迹半径 MUST 严格小于平台蒙版圆且不小于
+其 40%；桌面自适应图标前景（`launcher_foreground`）MUST 以 108dp 固定尺寸 1:1 引用
+`logo_art`，外观与直接引用原图案一致。缩小只允许发生在启动屏包装层。
 
-实现：`Theme.Terminal.Splash` 的 `windowSplashScreenAnimatedIcon` 指向
-`@drawable/splash_icon`，父主题 `Theme.SplashScreen` 且不声明
-`windowSplashScreenIconBackgroundColor`；回归防线为 `SplashIconRobolectricTest`
-（解析平台变换后断言可见区，而非只断言资源存在）。
+#### Scenario: 平台启动屏几何（动机）
+
+- **WHEN** 平台冷启动绘制启动屏图标
+- **THEN** 图标单元 = `starting_surface_icon_size`(160dp) ×
+  `splash_icon_no_background_scale_factor`(1.2) = 192dp，默认蒙版圆 = 单元的 50/108
+  ≈ 88.9dp；裸 `layer-list`（无固定尺寸子项）会被拉到满单元（放大 1.78×），墨迹半径
+  超越蒙版上限，星尖与窗口一角被裁——用户报「图案不完整，被限制到图标形状」的实测根因，
+  也是本收缩包装的动机
+
+#### Scenario: 实测口径
+
+- **WHEN** 验证启动屏输出
+- **THEN** Robolectric 模型墨迹 ≈0.50×蒙版，平台 emulator 录屏量测 ≈0.87×蒙版，
+  两栈均在 [40%, 95%] 区间内；旧实现 ≈1.0× 即被裁
 
 #### Scenario: 启动屏为图形加底色
 
 - **WHEN** 冷启动显示系统启动屏
 - **THEN** 只见图形本体画在主题底色上，图标后不出现圆形底板
 
-#### Scenario: 图案不被调小
-
-- **WHEN** 审查启动屏图形前景层的绘制范围
-- **THEN** 最远半径不得小于 40 单位（原始图形实测 50.3），不得为迁就蒙版整体缩小
-
 #### Scenario: 启动屏直接给自适应图标
 
 - **WHEN** `windowSplashScreenAnimatedIcon` 指向 `@mipmap/ic_launcher`
-- **THEN** 图案沿桌面蒙版被裁成图标形状——这是用户报「图案不完整」的实测根因，
-  MUST NOT 如此配置
+- **THEN** 图案沿桌面蒙版被裁成图标形状，MUST NOT 如此配置
 
 #### Scenario: 与桌面图标同源
 
 - **WHEN** 审查启动屏图标与自适应图标前景
-- **THEN** 启动屏只引用桌面图标同一份的 `launcher_foreground`，仓内无第二份路径副本
+- **THEN** 启动屏与桌面图标前景都只引用同一份的 `logo_art`，仓内无第二份路径副本；
+  桌面前景以 108dp 1:1 呈现，启动屏以 96dp 收缩包装呈现
+
+### Requirement: 启动屏主题配置与回归防线
+
+`Theme.Terminal.Splash` 的 `windowSplashScreenAnimatedIcon` MUST 指向
+`@drawable/splash_icon`；父主题 MUST 为 `Theme.SplashScreen` 且不声明
+`windowSplashScreenIconBackgroundColor`。回归防线 `SplashIconRobolectricTest`
+MUST 解析平台几何后断言墨迹与蒙版关系，MUST NOT 只断言资源存在。
+
+#### Scenario: 主题配置
+
+- **WHEN** 审查启动屏主题
+- **THEN** 渲染期解析出的 `windowSplashScreenAnimatedIcon` 指向 `splash_icon`，
+  底色 alpha 为 0（无图标背板）
 
 ### Requirement: 渲染 surface 失效后自愈
 

@@ -95,10 +95,10 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         minOf(Color.red(argb), Color.green(argb), Color.blue(argb))
 
     private data class Blob(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int, val ink: Int) {
-        val cx get() = (minX + maxX) / 2
-        val cy get() = (minY + maxY) / 2
-        val w get() = maxX - minX + 1
-        val h get() = maxY - minY + 1
+        val centerX get() = (minX + maxX) / 2
+        val centerY get() = (minY + maxY) / 2
+        val widthPx get() = maxX - minX + 1
+        val heightPx get() = maxY - minY + 1
     }
 
     /**
@@ -191,10 +191,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         return count
     }
 
-    // Real cell metrics come from the native grid, NOT from assuming
-    // 80x24. The emulator's actual grid is 60 columns (1080/17.96), so
-    // w/80f guesses the wrong column and a long-press can land on the
-    // prompt instead of the target text.
+    // 字符格度量取自 native 网格，而非假设 80x24：实际列数（1080/17.96≈60）
+    // 与假设能差出一倍，用错列号会让长按落在提示符而不是目标文本上。
     private data class CellMetrics(val cellWidth: Float, val cellHeight: Float, val cols: Int, val rows: Int)
 
     private fun estimateCellMetrics(): CellMetrics? {
@@ -215,12 +213,10 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         return CellMetrics(width / cols, height / rows, cols, rows)
     }
 
-    // The software renderer lags behind the PTY data while the test
-    // process is busy; wait until consecutive frames stop changing (the
-    // echoed output has been rasterized) before long-pressing.
+    // 软件渲染器在测试进程繁忙时会落后于 PTY 数据；长按前等连续两帧不再变化
+    // （回显内容已光栅化完成）。
     private fun waitForRenderStable(logTag: String, timeoutMs: Long = 12_000): Bitmap {
-        // takeScreenshot can transiently return null (surface swap /
-        // renderer busy); retry before giving up.
+        // 截屏可能瞬时失败（surface 换建 / 渲染器繁忙）；先重试再放弃。
         var prev: Bitmap? = null
         repeat(3) {
             prev = captureScreenshot()
@@ -241,12 +237,9 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         return current
     }
 
-    // Poll until at least two handle marks appear (the selection-handle
-    // PopupWindows surface slowly under SwiftShader). A long-press whose
-    // DOWN/UP events land in the same main-thread batch is treated as a tap
-    // and produces no selection — instead of weakening the assertion,
-    // re-issue the gesture against a fresh baseline (a real user would
-    // simply long-press again).
+    // 轮询直到至少出现两个手柄标记（SwiftShader 下选区手柄弹窗的表面加载很慢）。
+    // DOWN/UP 落进同一主线程批次的长按会被平台当作点击而不产生选区——
+    // 断言不能因此减弱，做法是对新基准再发一次手势（真实用户就是再按一次）。
     //
     // 重试背后还有一层坑：重长按前抓的新基准若带着上一轮**未清除的选区**
     // （手柄在 before/after 两侧都在），差分为零，poll 恒 0——CI 冷启动下
@@ -280,7 +273,10 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             handles = findSelectionHandleMarks(baseline, shot, cellWidth, cellHeight)
             Log.i(logTag, "Poll: ${handles.size} handle marks")
             handles.forEachIndexed { i, handle ->
-                Log.i(logTag, "  Candidate $i: (${handle.cx},${handle.cy}) ${handle.w}x${handle.h} ink=${handle.ink}")
+                Log.i(
+                    logTag,
+                    "  Candidate $i: (${handle.centerX},${handle.centerY}) ${handle.widthPx}x${handle.heightPx} ink=${handle.ink}",
+                )
             }
             if (handles.size >= 2) break
             if (retries < 2 && SystemClock.elapsedRealtime() < deadline - 4_000) {
@@ -301,8 +297,9 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
      */
     private fun assertHandleMarksPaired(h0: Blob, h1: Blob, label: String) {
         Assert.assertTrue(
-            "$label handle marks differ in size: ${h0.w}x${h0.h} vs ${h1.w}x${h1.h}",
-            abs(h0.w - h1.w) <= HANDLE_SIZE_TOLERANCE_PX && abs(h0.h - h1.h) <= HANDLE_SIZE_TOLERANCE_PX,
+            "$label 两个手柄尺寸不一致: ${h0.widthPx}x${h0.heightPx} vs ${h1.widthPx}x${h1.heightPx}",
+            abs(h0.widthPx - h1.widthPx) <= HANDLE_SIZE_TOLERANCE_PX &&
+                abs(h0.heightPx - h1.heightPx) <= HANDLE_SIZE_TOLERANCE_PX,
         )
     }
 
@@ -337,15 +334,14 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             "Long-press at ($longPressX, $longPressY) for 'world' (grid ${metrics.cols}x${metrics.rows})",
         )
 
-        // Wait for the renderer to settle on the echoed output, then
-        // long-press and poll for the handle popups.
+        // 等渲染器把回显画完，再长按并轮询手柄弹窗。
         val baselineShot = waitForRenderStable("VisualInline-Word")
         Log.i("VisualInline-Word", "Baseline ready")
         injectLongPress(requireNotNull(tv), longPressX, longPressY)
         val (afterSel, handles) =
             pollForSelectionHandles(baselineShot, "Word", longPressX, longPressY, cellW, cellH)
 
-        // Save for evidence
+        // 留证据
         saveToExternal("word-baseline", baselineShot)
         saveToExternal("word-selection", afterSel)
 
@@ -358,13 +354,15 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         val h0 = handles[0]
         val h1 = handles[1]
         assertHandleMarksPaired(h0, h1, "word")
-        val rowDiff = abs(h0.cy - h1.cy)
+        val rowDiff = abs(h0.centerY - h1.centerY)
         Log.i("VisualInline", "Handle row diff: ${rowDiff}px (cellH=$cellH)")
         Assert.assertTrue("Handles not on same row (diff=$rowDiff)", rowDiff < cellH * 2)
 
-        // Verify handles are near the long-press position
-        val startNear = h0.cx in (longPressX.toInt() - (cellW * 8).toInt())..(longPressX.toInt() + (cellW * 4).toInt())
-        val endNear = h1.cx in (longPressX.toInt() - (cellW * 2).toInt())..(longPressX.toInt() + (cellW * 8).toInt())
+        // 校验手柄落在长按位置周边
+        val startNear =
+            h0.centerX in (longPressX.toInt() - (cellW * 8).toInt())..(longPressX.toInt() + (cellW * 4).toInt())
+        val endNear =
+            h1.centerX in (longPressX.toInt() - (cellW * 2).toInt())..(longPressX.toInt() + (cellW * 8).toInt())
         if (!startNear || !endNear) {
             Log.w("VisualInline", "Start handle near: $startNear, End handle near: $endNear")
         }
@@ -409,9 +407,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         val longPressY = cellH * (urlRow + 0.5f)
         Log.i("VisualInline-URL", "Long-press at ($longPressX, $longPressY)")
 
-        // Wait for the renderer to settle on the echoed URL line, then
-        // long-press and poll for the handle popups (with a re-long-press
-        // fallback when the gesture is swallowed by a busy main thread).
+        // 等渲染器把回显的 URL 行画完，再长按并轮询手柄弹窗（手势被繁忙
+        // 主线程吞掉时走重长按兜底）。
         val baseline = waitForRenderStable("VisualInline-URL")
         Log.i("VisualInline-URL", "Baseline ready")
         injectLongPress(requireNotNull(tv), longPressX, longPressY)
@@ -427,14 +424,14 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         val h0 = handles[0]
         val h1 = handles[1]
         assertHandleMarksPaired(h0, h1, "url")
-        val rowDiff = abs(h0.cy - h1.cy)
+        val rowDiff = abs(h0.centerY - h1.centerY)
         // URL is at column 0. Under SwiftShader the two handle strokes can
         // partially bleed into neighboring per-glyph change blobs, so assert
         // only that they share a row band and are separated by a plausible
         // number of cells. (The strict >=5-cell span was flaky on the
         // software renderer; URL selection itself is asserted by >=2 handles.)
         Assert.assertTrue("URL handle rows differ ($rowDiff)", rowDiff < cellH * 2)
-        val urlCells = h1.cx / cellW.toInt() - h0.cx / cellW.toInt()
+        val urlCells = h1.centerX / cellW.toInt() - h0.centerX / cellW.toInt()
         Log.i("VisualInline", "URL spans $urlCells cells ($cellW px/cell)")
 
         Log.i("VisualInline", "URL selection verification PASSED")
@@ -448,7 +445,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             Log.i("VisualInline", "Saved $name: ${file.absolutePath} (${file.length()}B)")
         }
-        // Also save to internal
+        // 同时存一份到应用私有目录
         val intDir = File(composeRule.activity.filesDir, "screenshots")
         intDir.mkdirs()
         val intFile = File(intDir, "inline-verify-$name.png")
