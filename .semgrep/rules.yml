@@ -104,8 +104,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
@@ -123,8 +123,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
   - id: no-bootstrap-sidecar
     pattern-regex: '\bsidecar\b'
@@ -142,8 +142,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
   - id: no-prohibited-shells
     pattern-regex: '\b(fish|dash|zsh)\b'
@@ -161,8 +161,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
@@ -180,8 +180,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'
@@ -199,8 +199,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
         - "native/build.rs"
         - "android/build.gradle.kts"
@@ -220,8 +220,8 @@ rules:
         - "**/*.nu"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         - "README.md"
   # Repo tooling rules (generic): manifests, scripts and workflows.
   # check-rust.nu scans this file, so they live here.
@@ -326,8 +326,8 @@ rules:
         - "**/*.yaml"
         - "**/*.toml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
   # ------------------------------------------------- git/cargo 等外部构建命令
   # 产物只能来自 nix develop。源码里起 git/cargo 进程意味着构建绕过工具链，
   # 且把「仓库处于某个 git 状态」这一隐式依赖塞进运行时。
@@ -370,8 +370,8 @@ rules:
         - "**/*.yml"
         - "**/*.yaml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         # 归档的变更台账是历史记录本身：那里的提交号就是「当时做了这件事」的证据，
         # 改写它等于伪造记录（台账里已有条目记着某次 force-push 把旧号作废）。
         # 现存全部 114 处集中在此，见汇报。
@@ -397,8 +397,8 @@ rules:
         - "**/*.yml"
         - "**/*.yaml"
       exclude:
-        - ".semgrep/**"
-        - "docs/specification/*"
+        - "/.semgrep/**"
+        - "/docs/specification/*"
         # 同上：归档台账里的提交号是历史证据，不追溯改写。
         - "openspec/changes/archive/**"
         # 同上：STATUS.md 是禁改区，基线坐标由维护者书写，可能取短号。
