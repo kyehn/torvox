@@ -371,7 +371,7 @@ impl super::GhosttyTerminal {
     /// [`Self::render_cursor`] 的通道外置版，理由同 [`Self::title_on`]。
     ///
     /// 这一条比其余查询更该走锁外：光标坐标取自 `build_cell_data`，即与渲染同源的
-    /// **整网格**构建，耗时随网格面积走（上限 `QUERY_TIMEOUT_MS`）。持着注册表读锁与
+    /// **整网格**构建，耗时随网格面积走（忙时上限两次查询超时）。持着注册表读锁与
     /// 会话锁等它，等于让每次取光标都把按帧取这两把锁的渲染线程堵住。
     pub(crate) fn render_cursor_on(query_tx: &Sender<Query>) -> Option<(u32, u32)> {
         Self::query_on(query_tx, Query::RenderCursor, None, "render_cursor")
@@ -561,8 +561,11 @@ impl super::GhosttyTerminal {
     /// 随后在锁外执行长查询，使大回滚搜索不冻结按帧取锁的渲染。
     /// 查询重试次数：VT 线程正常在 `VT_IDLE_TICK_MS` 内应答，但系统过载（并行测试、
     /// 后台编译）时可能整体错过一个 `QUERY_TIMEOUT_MS` 窗口。重试一次可把「偶发
-    /// 错过」与「VT 线程卡死」区分开：前者第二轮通常直接命中上一轮已落盘的缓存，
-    /// 后者只会再等满一个期限后仍回退——调用方拿到的兜底值语义不变。
+    /// 错过」与「VT 线程卡死」区分开：幂等查询第二轮通常直接命中（读缓存查询
+    /// 会命中上一轮已落盘的缓存，直读查询等到线程恢复后的第一次应答），后者
+    /// 只会再等满一个期限后仍回退——调用方拿到的兜底值语义不变。
+    /// 有副作用的动作型查询（如 `SearchSelect` 推进搜索游标）经
+    /// [`Self::query_on_once`] 只发一次，防止滞留首查应答丢失后重发双跳。
     const QUERY_ATTEMPTS: u8 = 2;
 
     fn query_on<T>(
@@ -571,7 +574,27 @@ impl super::GhosttyTerminal {
         fallback: T,
         method: &str,
     ) -> T {
-        for attempt in 1..=Self::QUERY_ATTEMPTS {
+        Self::query_on_attempts(query_tx, build, fallback, method, Self::QUERY_ATTEMPTS)
+    }
+
+    /// [`Self::query_on`] 的单发版：供非幂等的动作型查询使用。
+    fn query_on_once<T>(
+        query_tx: &Sender<Query>,
+        build: impl Fn(Sender<T>) -> Query,
+        fallback: T,
+        method: &str,
+    ) -> T {
+        Self::query_on_attempts(query_tx, build, fallback, method, 1)
+    }
+
+    fn query_on_attempts<T>(
+        query_tx: &Sender<Query>,
+        build: impl Fn(Sender<T>) -> Query,
+        fallback: T,
+        method: &str,
+        attempts: u8,
+    ) -> T {
+        for attempt in 1..=attempts {
             let (tx, rx) = bounded(1);
             if let Err(error) = query_tx.try_send(build(tx)) {
                 log::warn!("ghostty_terminal: query_tx full/dropped failed for {method}: {error}");
@@ -579,12 +602,14 @@ impl super::GhosttyTerminal {
             }
             match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
                 Ok(value) => return value,
-                Err(_) if attempt < Self::QUERY_ATTEMPTS => {
-                    log::warn!("ghostty_terminal: {method} 第 {attempt} 次查询超时，重试一次");
-                }
-                Err(_) => {
+                Err(error) if attempt < attempts => {
                     log::warn!(
-                        "ghostty_terminal: {method} timed out or disconnected — returning fallback"
+                        "ghostty_terminal: {method} query attempt {attempt} hit deadline ({error:?}); retrying once"
+                    );
+                }
+                Err(error) => {
+                    log::warn!(
+                        "ghostty_terminal: {method} timed out or disconnected after {attempts} attempt(s) ({error:?}) — returning fallback"
                     );
                 }
             }
@@ -774,7 +799,7 @@ impl super::GhosttyTerminal {
         query_tx: &Sender<Query>,
         forward: bool,
     ) -> Option<SearchSelection> {
-        Self::query_on(
+        Self::query_on_once(
             query_tx,
             |tx| Query::SearchSelect { forward, tx },
             None,
