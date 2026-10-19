@@ -517,6 +517,20 @@ class DocumentsProviderTest {
     }
 
     /**
+     * 文件消歧序号插在扩展名前：`a.txt` 撞名落在 `a (2).txt`——与桌面/共享
+     * SAF 客户端的惯例同型，同一基础名的改名族在排序/去重时落在同侧。
+     * 无扩展名的名字整体尾部追加；前导点不算扩展名（`.profile` → `.profile (2)`）。
+     */
+    @Test
+    fun conflict_names_insert_index_before_extension() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "dup.txt").writeText("base")
+        java.io.File(rootDir(), ".profile").writeText("dot")
+        assertEquals("dup (2).txt", provider.createDocument("terminal_home", "text/plain", "dup.txt"))
+        assertEquals(".profile (2)", provider.createDocument("terminal_home", "text/plain", ".profile"))
+    }
+
+    /**
      * 目录同享冲突命名：客户端若已把目录建在磁盘上再让提供者建同名目录，
      * 拿回的 docId 带 " (2)" 后缀（与文件路径同一条策略）。
      *
@@ -797,8 +811,8 @@ class DocumentsProviderTest {
         java.io.File(rootDir(), "rename-src.txt").apply { writeText("payload") }
         java.io.File(rootDir(), "rename-dst.txt").apply { writeText("occupied") }
         val newDocId = provider.renameDocument("rename-src.txt", "rename-dst.txt")
-        assertEquals("rename-dst.txt (2)", newDocId)
-        assertEquals("payload", java.io.File(rootDir(), "rename-dst.txt (2)").readText())
+        assertEquals("rename-dst (2).txt", newDocId)
+        assertEquals("payload", java.io.File(rootDir(), "rename-dst (2).txt").readText())
         assertEquals("occupied", java.io.File(rootDir(), "rename-dst.txt").readText())
         assertTrue("source must be gone", !java.io.File(rootDir(), "rename-src.txt").exists())
     }
@@ -1126,7 +1140,7 @@ class DocumentsProviderTest {
 
         assertTrue(
             "返回的 docId 必须指向真实落盘文件，否则客户端回查询不到",
-            newId == "dest/dup.txt (2)" && java.io.File(root, newId).isFile,
+            newId == "dest/dup (2).txt" && java.io.File(root, newId).isFile,
         )
         assertEquals("first", java.io.File(root, newId).readText())
         assertEquals("原有文件不得被覆盖", "already here", java.io.File(root, "dest/dup.txt").readText())

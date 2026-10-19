@@ -301,14 +301,30 @@ internal class DocumentMutations(private val context: Context, private val rootD
     }
 
     private fun uniqueChild(parent: File, baseName: String): File {
-        // 与 Termux 一致的冲突策略：已存在则追加 " (2)" 后缀，而非报错。
+        // 与 Termux/桌面惯例一致的冲突策略：已存在则追加序号而非报错。
+        // 序号插在扩展名之前（`a.txt` → `a (2).txt`）：客户端按名字排序/去重时
+        // 遵循「同一改名族在同侧」的惯例，且 AOSP `DocumentsUI` 的自动消歧同型。
         var child = File(parent, baseName)
         var conflictId = 2
         while (child.exists() || Files.isSymbolicLink(child.toPath())) {
-            child = File(parent, "$baseName ($conflictId)")
+            child = File(parent, deconflictedName(baseName, conflictId))
             conflictId++
         }
         return child
+    }
+
+    /**
+     * 冲突名序号：无扩展名（或目录）直接尾部追加 ` (n)`；有扩展名把序号插在
+     * 点前。只看最后一个 `.` 是否落在名字内部（前导点位指向隐藏文件不算
+     * 扩展名，`.gitignore` 仍整体作为基础名处理）。
+     */
+    private fun deconflictedName(baseName: String, index: Int): String {
+        val dot = baseName.lastIndexOf('.')
+        return if (dot > 0) {
+            "${baseName.substring(0, dot)} ($index)${baseName.substring(dot)}"
+        } else {
+            "$baseName ($index)"
+        }
     }
 
     /**
