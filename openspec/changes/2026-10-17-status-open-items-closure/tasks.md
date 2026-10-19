@@ -811,9 +811,9 @@
       线程到 IO 协程（`scope.launch`），`FrameTimingTrend` 保持在渲染线程；
       加 `SLOW_LOOP gate/pre/render/poll/tail` 阶段分解打点供真机下一份日志
       直接定位吃时环节。
-- [x] `DocumentWatcher.watch` 失败路径补齐：`startWatching()` 返回 false
-      （目录竞争移除等）时代码回收登记的占位条目，且告警必须带路径——
-      消除「死占位 → 该目录从此静默不再监视」的静默丢失。
+- [x] `DocumentWatcher.watch` 失败路径补齐：`startWatching()` 失败（抛
+      IOException，如目录竞争移除）时回收登记的占位条目再上抛，且告警必带
+      路径——消除「死占位 → 该目录从此静默不再监视」的静默丢失。
 - [x] 文档提供者真实测试（模拟器仪器实测 19 条全绿，0 失败）：新增
       ① 新建重名落 `dup (2).txt`（序号插扩展名前）② 新建重名目录同 ③
       改名撞名同 ④ tree 前缀删除终端侧创建文件——直接对准用户真机日志里
@@ -826,5 +826,21 @@
 - [x] mtime 边界竞态：`external_save_cycle` 用例的 `mtime in
       startedMs..startedMs+elapsed` 在亚毫秒采样下偶发越界——窗界 ±100ms
       余量（assertion message 同步给出实测窗口值）。
+- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
+      用户日志到达后立即判读）。
+
+## 十七、第二轮独立审阅（子代理无偏视角）并修复
+
+- [x] 两路子代理独立审阅（组合审阅 + 渲染循环验收）：代码本体 0 阻断缺陷；
+      发现并修复 4 项：①spec `b.txt (2)` 与实现 `b (2).txt` 直接矛盾（已同步）；
+      ②`deconflictedName` KDoc 与目录/文件共用规则矛盾（已对齐+含点目录语义注）；
+      ③SLOW_LOOP 用整循环判定，空闲会话 gate 驻留 500ms 被误判慢、release 里
+      2 行/秒 WARN——改按非 gate 段之和判定；④两仪器用例失败路径无 finally——
+      重名目录与 tree 删除用例补齐收尾。
+- [x] 渲染循环验收报告 PASS（账目恒等式、无死变量/空引用、节律与分级逐项核对）。
+      台账既有措辞勘误：台账第十六节「`startWatching()` 返回 false」实为抛
+      IOException（`FileObserver.startWatching()` 无返回值），致辞已按实际语义改写。
+- [x] 复验：spotlessCheck+detekt+`:app:testDebugUnitTest` 全绿；
+      `openspec validate --all --strict` 33 passed / 0 failed；check.nu 全绿。
 - [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
       用户日志到达后立即判读）。
