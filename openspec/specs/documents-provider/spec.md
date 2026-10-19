@@ -150,6 +150,33 @@ MUST 只写请求投影包含的列，缺失列跳过而非填 `null`。对请�
 - **WHEN** 以 `null` 投影查询文档
 - **THEN** 返回全部六个文档列
 
+### Requirement: 缺失路径的查询按 AOSP 契约抛 FileNotFoundException
+
+对不存在的 docId 调 `queryDocument`、对不存在的目录调 `queryChildDocuments`
+MUST 抛 `FileNotFoundException`（裸类型，不得被框架包装成
+`RuntimeException`/`IllegalStateException`），树 URI 与非树 URI 一致——AOSP
+`DocumentsProvider#queryDocument` 的文档写明「若文档不存在 Implementation
+should throw FileNotFoundException」（也即让 SAF 界面把失效路径当成
+「文档已消失」重列，而不是把脏错误弹给用户）。实现 MUST 用 lstat 语义判
+存在（`Files.isSymbolicLink` 为真即地址可解析），断链自身仍在列举里可见、
+回查同样可达；判存在 MUST 先于 `watch()` 登记，避免对已消失目录登记观察者。
+
+#### Scenario: 缺失文档按树/非树 URI 一致拒绝
+
+- **WHEN** 客户端（content CLI 或 SAF）以不存在的 docId 查询，无论树与非树形式
+- **THEN** 得到 `FileNotFoundException`（CLI 呈现为 No result found），不抛包装异常
+
+#### Scenario: 断链可见性与回查一致
+
+- **WHEN** 目录存在一个指向缺失目标的符号链接并在列举中出现
+- **THEN** 以该 docId 回查 `queryDocument` 仍返回（lstat 可见），只有真正无
+      inode 的缺失路径才被拒绝
+
+#### Scenario: 缺失父目录不登记观察者
+
+- **WHEN** 对不存在的目录发起 `queryChildDocuments`
+- **THEN** 抛 `FileNotFoundException` 且不得对该目录调用 `watch()` 登记
+
 ### Requirement: 变更操作按树 URI 客户端契约覆盖
 
 `copyDocument` / `moveDocument` / 写回 MUST 按**外部文件管理器的真实寻址形式**覆盖，
@@ -227,7 +254,8 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 
 重名冲突 MUST 在全部入口（`createDocument`/`renameDocument`/`copyDocument`/`moveDocument`）
 走同一策略：生成唯一名消歧（序号插在最后一个点前，无扩展名或前导点则尾部
-追加 `" (2)"`），MUST NOT 因重名失败。
+追加 `" (1)"` 并逐次自增，与 AOSP `FileUtils.buildUniqueFileWithExtension`
+的 `n = 0` 先自增约定同型），MUST NOT 因重名失败。
 框架合约明确允许提供者「为避开重名改写名字」（`DocumentsProvider#createDocument`
 与 `#renameDocument` 的注释同此措辞），硬失败只会让「先新建、后改名」的客户端
 （文件管理器的建文件/建文件夹、另存为）界面报「路径已存在」并丢掉整次操作。
@@ -235,18 +263,18 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 #### Scenario: 重命名撞上已存在的名字
 
 - **WHEN** 客户端把 `a.txt` 重命名为已存在的 `b.txt`
-- **THEN** 落盘为 `b (2).txt`（序号插在扩展名前）并返回其 docId，`b.txt` 的原内容 MUST NOT 被覆盖
+- **THEN** 落盘为 `b (1).txt`（序号插在扩展名前、首个冲突序号为 1）并返回其 docId，`b.txt` 的原内容 MUST NOT 被覆盖
 
 ### Requirement: 重命名到自身是空操作
 
 重命名到与自身相同的名字 MUST 是空操作，并 MUST 按框架约定返回 `null`
 （「原 docId 仍有效时返回 null」，`DocumentsProvider.call` 只在非 `null` 时才重建 URI）。
-缺少该守卫时源文件会被当成冲突改名成 `x (2)`——静默换个名字比拒绝更糟。
+缺少该守卫时源文件会被当成冲突改名成 `x (1)`——静默换个名字比拒绝更糟。
 
 #### Scenario: 重命名到自身
 
 - **WHEN** 客户端以当前名字重命名文档
-- **THEN** 返回 `null`，文件 MUST 仍用原名，MUST NOT 变成 `name (2)`
+- **THEN** 返回 `null`，文件 MUST 仍用原名，MUST NOT 变成 `name (1)`
 
 ### Requirement: openDocument 必须兑现 FLAG_DIR_SUPPORTS_CREATE 的承诺
 

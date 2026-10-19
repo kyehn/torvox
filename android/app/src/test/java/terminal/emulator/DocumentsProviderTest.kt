@@ -517,27 +517,28 @@ class DocumentsProviderTest {
     }
 
     /**
-     * 文件消歧序号插在扩展名前：`a.txt` 撞名落在 `a (2).txt`——与桌面/共享
+     * 文件消歧序号插在扩展名前且从 1 起：`a.txt` 撞名落在 `a (1).txt`——与 AOSP
+     * `FileUtils.buildUniqueFileWithExtension`（首个冲突即 `example (1).txt`）、桌面/共享
      * SAF 客户端的惯例同型，同一基础名的改名族在排序/去重时落在同侧。
-     * 无扩展名的名字整体尾部追加；前导点不算扩展名（`.profile` → `.profile (2)`）。
+     * 惯例同侧。无扩展名的名字整体尾部追加；前导点不算扩展名（`.profile` → `.profile (1)`）。
      */
     @Test
     fun conflict_names_insert_index_before_extension() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "dup.txt").writeText("base")
         java.io.File(rootDir(), ".profile").writeText("dot")
-        assertEquals("dup (2).txt", provider.createDocument("terminal_home", "text/plain", "dup.txt"))
-        assertEquals(".profile (2)", provider.createDocument("terminal_home", "text/plain", ".profile"))
+        assertEquals("dup (1).txt", provider.createDocument("terminal_home", "text/plain", "dup.txt"))
+        assertEquals(".profile (1)", provider.createDocument("terminal_home", "text/plain", ".profile"))
     }
 
     /**
      * 目录同享冲突命名：客户端若已把目录建在磁盘上再让提供者建同名目录，
-     * 拿回的 docId 带 " (2)" 后缀（与文件路径同一条策略）。
+     * 拿回的 docId 带 " (1)" 起算的后缀（与文件路径同一条策略）。
      *
      * 这条断言是 `DocumentsProviderInstrumentedTest#tree_uri_modify_copy_move_round_trip`
      * 踩过坑后的守栏：那个用例曾先 `mkdirs()` 预建目录，再经 `ContentResolver`
      * 让提供者创建同名目录，于是断言 `docId == "tree-mutations"` 拿到的是
-     * `tree-mutations (2)`。设备预置状态与自建状态都必须走这条策略，调用方
+     * `tree-mutations (1)`（首个冲突）。设备预置状态与自建状态都必须走这条策略，调用方
      * 不得假定「我请求什么名字就拿回什么 docId」。
      */
     @Test
@@ -556,7 +557,7 @@ class DocumentsProviderTest {
                 "dupdir",
             )
         assertEquals("dupdir", first)
-        assertEquals("dupdir (2)", second)
+        assertEquals("dupdir (1)", second)
         assertTrue("second directory must exist", java.io.File(rootDir(), second).isDirectory)
         assertTrue("first directory must be untouched", java.io.File(rootDir(), first).isDirectory)
     }
@@ -577,7 +578,7 @@ class DocumentsProviderTest {
                 "My.Dir",
             )
         assertEquals("My.Dir", first)
-        assertEquals("My (2).Dir", second)
+        assertEquals("My (1).Dir", second)
         assertTrue("second dotted directory must exist", java.io.File(rootDir(), second).isDirectory)
         assertTrue("first dotted directory must be untouched", java.io.File(rootDir(), first).isDirectory)
     }
@@ -867,8 +868,8 @@ class DocumentsProviderTest {
         java.io.File(rootDir(), "rename-src.txt").apply { writeText("payload") }
         java.io.File(rootDir(), "rename-dst.txt").apply { writeText("occupied") }
         val newDocId = provider.renameDocument("rename-src.txt", "rename-dst.txt")
-        assertEquals("rename-dst (2).txt", newDocId)
-        assertEquals("payload", java.io.File(rootDir(), "rename-dst (2).txt").readText())
+        assertEquals("rename-dst (1).txt", newDocId)
+        assertEquals("payload", java.io.File(rootDir(), "rename-dst (1).txt").readText())
         assertEquals("occupied", java.io.File(rootDir(), "rename-dst.txt").readText())
         assertTrue("source must be gone", !java.io.File(rootDir(), "rename-src.txt").exists())
     }
@@ -878,7 +879,7 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         val target = java.io.File(rootDir(), "same-name.txt").apply { writeText("keep") }
         // 框架约定原 docId 仍有效时返回 null；此处若不拦，源文件本身会被当成冲突而
-        // 静默变成 `same-name (2).txt`（序号插扩展名前）。
+        // 静默变成 `same-name (1).txt`（序号插扩展名前，从 1 起）。
         assertEquals(null, provider.renameDocument("same-name.txt", "same-name.txt"))
         assertTrue("file must keep its name", target.exists())
         assertEquals("keep", target.readText())
@@ -1196,7 +1197,7 @@ class DocumentsProviderTest {
 
         assertTrue(
             "返回的 docId 必须指向真实落盘文件，否则客户端回查询不到",
-            newId == "dest/dup (2).txt" && java.io.File(root, newId).isFile,
+            newId == "dest/dup (1).txt" && java.io.File(root, newId).isFile,
         )
         assertEquals("first", java.io.File(root, newId).readText())
         assertEquals("原有文件不得被覆盖", "already here", java.io.File(root, "dest/dup.txt").readText())
