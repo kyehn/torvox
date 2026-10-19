@@ -423,7 +423,17 @@ fn read_all_text_answers_repeated_queries_within_query_timeout() {
     }
     terminal_under_test.flush();
     // ghostty 会自行裁剪回滚，故只断言「已大幅填满」而非精确上限。
-    let filled = terminal_under_test.scrollback_length();
+    //
+    // 与文件内其余护栏同口径按期限轮询：系统过载（本机全量套件并行、深缓冲
+    // 用例同时段在跑）时 VT 线程可能整体错过一个 `QUERY_TIMEOUT_MS` 窗口，
+    // 一次性读到兜底值 0（CI 尚未复现本现象）；轮询把「一次读不到」与
+    // 「回滚确实没填满」区分开，配合查询端的重试兜底双保险。
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    let mut filled = terminal_under_test.scrollback_length();
+    while filled <= MAX_SCROLLBACK / 2 && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        filled = terminal_under_test.scrollback_length();
+    }
     assert!(
         filled > MAX_SCROLLBACK / 2,
         "回滚必须大幅填满，护栏才覆盖最坏情况（实际={filled}）"

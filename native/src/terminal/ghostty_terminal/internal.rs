@@ -99,8 +99,13 @@ fn grid_rows(terminal: &Terminal) -> u32 {
 }
 
 /// 回滚行数：ghostty 断开时为 0（与 `grid_rows` 对称）。
+/// FFI 报错时记下原因再按 0 处理——静默吞掉会让「回滚量=0」的下游断言
+/// 只能猜错误来源（本机 cargo 全量套件曾撞上一次，无法归因）。
 fn scrollback_len(terminal: &Terminal) -> u32 {
-    terminal.scrollback_rows().unwrap_or(0) as u32
+    terminal.scrollback_rows().unwrap_or_else(|error| {
+        log::warn!("ghostty_terminal: scrollback_rows query failed: {error}");
+        0
+    }) as u32
 }
 
 /// 单格码点直读：调用方保证列在界内，不逐格查网格宽度。
