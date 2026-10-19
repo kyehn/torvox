@@ -575,10 +575,15 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         // 据实返回 false（契约如此，输入法据此重发）。旧写法丢弃返回值，于是
         // 「窗口内被拒→静默不写→中文未落格」会被误读成产品缺陷。轮询到连接受理为止，
         // 且只成功提交一次。
+        // 探测必须走 runOnMainSync：Activity.runOnUiThread 在测试线程上投递即返回，
+        // 紧随其后的同步读取与主线程上的任务执行是一场毫秒级竞速——读几乎必输，
+        // 结果「commitText 已受理但读到 false」被误判为产品缺陷，15 秒重试耗尽
+        // （CI 同款失败实录，PROBE 时间线实证：task got=true 后 1ms 读才是 false）。
+        // runOnMainSync 保证任务执行完、返回值可见后才返回，读取因此确定。
         val committed =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
                 var accepted = false
-                composeTestRule.activity.runOnUiThread {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
                     val editorInfo = android.view.inputmethod.EditorInfo()
                     accepted =
                         findTerminalSurface(composeTestRule.activity)

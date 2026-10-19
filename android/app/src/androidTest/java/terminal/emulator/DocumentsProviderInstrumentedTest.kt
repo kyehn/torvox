@@ -505,14 +505,16 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     }
 
     /**
-     * 终端侧只改内容（`>>`、`sed -i`）必须让打开的列表看到新的大小/时间。
+     * 终端侧只改内容（`>>`、`sed -i`）必须让打开的客户端看到新的大小/时间。
      *
      * 内核为此只报 MODIFY，不改 inode 元数据；[DocumentWatcher] 的订阅集若漏了它，
-     * 列表的元数据列就停在旧值。本用例走真实 inotify（追加写而非 create），
-     * 直接钉住订阅集本身，而不是把事件常量当输入注入。
+     * 列表的元数据列就停在旧值。按现行契约（单测「modify notifies the document
+     * without reloading the listing」），MODIFY 只广播**文档 URI**，不触发条目列表
+     * 重载；客户端的列表要靠自身观察/重列来取新元数据。本用例钉住：① 文档 URI
+     * 的广播及时到达；② 追加完成后重列直接给出新大小与时间。
      */
     @Test
-    fun terminal_side_content_append_notifies_open_listing() {
+    fun terminal_side_content_append_notifies_document_and_metadata_updates() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
         val watchDir = File(home, "modify-probe").apply {
@@ -521,11 +523,15 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         }
         val target = File(watchDir, "appended.log").apply { writeText("first") }
         try {
-            val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "modify-probe")
-            context.contentResolver.query(childrenUri, null, null, null, null)?.use {
-                assertTrue("探测目录的子项查询必须成功", it.count == 1)
-            }
-
+            // 监视按「客户端查询过的目录」登记：先重列一次才启用监听。
+            context.contentResolver.query(
+                DocumentsContract.buildChildDocumentsUri(authority, "modify-probe"),
+                null,
+                null,
+                null,
+                null,
+            )?.use { assertTrue("探测目录的子项查询必须成功", it.count == 1) }
+            val documentUri = DocumentsContract.buildDocumentUri(authority, "modify-probe/appended.log")
             val notified = java.util.concurrent.atomic.AtomicBoolean(false)
             val observer =
                 object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
@@ -533,19 +539,153 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                         notified.set(true)
                     }
                 }
-            context.contentResolver.registerContentObserver(childrenUri, true, observer)
+            context.contentResolver.registerContentObserver(documentUri, true, observer)
             try {
                 // 追加写：inode 不变，内核只报 MODIFY。
                 target.appendText("second")
                 assertNotNull(
-                    "终端侧追加内容后，打开该目录的列表必须收到条目通知（5 秒内未收到）",
+                    "终端侧追加内容后，持有该文档的客户端必须收到元数据通知（5 秒内未收到）",
                     UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) { notified.get() },
                 )
+                // 元数据随各次查询直读文件系统：追加后的重查必须已呈现新大小/时间。
+                val expectedMtime = target.lastModified()
+                context.contentResolver.query(documentUri, null, null, null, null)?.use {
+                    assertTrue("追加后重查文档行必须命中", it.moveToFirst())
+                    val sizeIndex = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+                    val mtimeIndex = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    assertEquals("追加后的大小必须反映新内容", target.length(), it.getLong(sizeIndex))
+                    assertTrue(
+                        "追加后的 mtime 必须落在追加窗口内",
+                        it.getLong(mtimeIndex) >= expectedMtime - 100,
+                    )
+                }
             } finally {
                 context.contentResolver.unregisterContentObserver(observer)
             }
         } finally {
             watchDir.deleteRecursively()
+        }
+    }
+
+    /**
+     * 编辑器回存周期：以 `wt`（截断写）模式打开并写回，随后立即重查行。
+     *
+     * 客户端报障「无法保存修改文件：超时」。真机日志（提供者 trace 或）未取到
+     * 现场前，本用例在模拟器上钉住提供者侧周期：打开、写回、落盘、重查皆须在
+     * 预算内完成且内容/时间戳一致。若真机复现再现，trace 行可直接对出哪一步
+     * 吃掉了时间。
+     */
+    @Test
+    fun external_save_cycle_writes_back_and_relists_in_budget() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val docId = "save-cycle-probe.txt"
+        val target = File(home, docId)
+        try {
+            val startedMs = System.currentTimeMillis()
+            target.writeText("seed")
+            val timeBudgetMs = 2_000L
+            val payload = "saved-through-saf".toByteArray()
+            // 编辑器「保存修改文件」的回存通道：wt = write + truncate + create。
+            context.contentResolver.openOutputStream(
+                DocumentsContract.buildDocumentUri(authority, docId),
+                "wt",
+            ).use { output ->
+                requireNotNull(output).also { it.write(payload) }
+            }
+            val relisted = context.contentResolver.query(
+                DocumentsContract.buildDocumentUri(authority, docId),
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                ),
+                null,
+                null,
+                null,
+            )
+            requireNotNull(relisted).use {
+                assertTrue("回存后重查必须命中最新的行", it.moveToFirst())
+                assertEquals("回存后的大小必须反映写入内容", payload.size.toLong(), it.getLong(1))
+                val mtime = it.getLong(2)
+                val elapsed = System.currentTimeMillis() - startedMs
+                assertTrue(
+                    "打开、写回、重查整周期 $elapsed ms 超出 $timeBudgetMs ms 预算",
+                    elapsed <= timeBudgetMs,
+                )
+                assertTrue("mtime 必须落在保存窗口内", mtime in startedMs..(startedMs + elapsed))
+            }
+        } finally {
+            target.delete()
+        }
+    }
+
+    /**
+     * 重命名后的列表即时性：改名返回新 docId 后，**下一次**父目录查询就必须
+     * 只见到新名字（旧行已退场）。客户端报障「重命名文件：卡死」的界面再无
+     * 反馈正发生在这一步。真机未见日志前，模拟器上钉住提供者侧的即时性。
+     */
+    @Test
+    fun rename_reflected_in_next_listing_of_parent() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val docId = "rename-probe-old.txt"
+        val oldFile = File(home, docId)
+        try {
+            oldFile.writeText("rename me")
+            val newDisplayName = "rename-probe-new.txt"
+            val timeBudgetMs = 2_000L
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            val newUri = DocumentsContract.renameDocument(
+                context.contentResolver,
+                DocumentsContract.buildDocumentUri(authority, docId),
+                newDisplayName,
+            )
+            requireNotNull(newUri)
+            // 客户端改名后的第一步：以返回的新 URI 重查行、重列父目录。
+            assertNotNull(
+                "改名后第一时间重查必须命中（可直接发射失败提示）",
+                UxTestUtils.pollUntilTrue(timeoutMs = timeBudgetMs, intervalMs = 20) {
+                    context.contentResolver.query(
+                        newUri,
+                        arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        cursor.moveToFirst() && cursor.getString(0) == newDisplayName
+                    } ?: false
+                },
+            )
+            val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
+            assertNotNull(
+                "下一次父目录列表必须只含新名字、无旧行",
+                UxTestUtils.pollUntilTrue(timeoutMs = timeBudgetMs, intervalMs = 20) {
+                    context.contentResolver.query(
+                        childrenUri,
+                        arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                        var hasNew = false
+                        var hasOld = false
+                        while (cursor.moveToNext()) {
+                            when (cursor.getString(idIndex)) {
+                                newDisplayName -> hasNew = true
+                                docId -> hasOld = true
+                            }
+                        }
+                        hasNew && !hasOld
+                    } ?: false
+                },
+            )
+            val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+            assertTrue("重命名→重列整周期 $elapsed ms 超出 $timeBudgetMs ms 预算", elapsed <= timeBudgetMs)
+        } finally {
+            oldFile.delete()
+            File(home, "rename-probe-new.txt").delete()
         }
     }
 }
