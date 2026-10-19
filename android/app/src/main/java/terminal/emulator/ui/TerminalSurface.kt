@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Matrix
 import android.graphics.Rect
@@ -1029,7 +1030,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             // 多字符事件只给 characters，没有可映射的键码：
                             // 按码点直接提交，绕开键码映射。
                             KeyEvent.ACTION_MULTIPLE ->
-                                commitEventCharacters(event.characters)
+                                commitEventCharacters(event.multipleCharacters())
 
                             KeyEvent.ACTION_DOWN -> handleKeyEvent(event)
 
@@ -3965,3 +3966,14 @@ internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale
  */
 internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean =
     kotlin.math.abs(finalSizeSp - baseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP
+
+/**
+ * ACTION_MULTIPLE 的字符载荷。
+ *
+ * `KeyEvent.getCharacters()` 自 API 29 弃用（官方指向 `commitText`），但硬件键盘的
+ * 多字符事件**只**经这条通道送达，而 `InputConnection` 没有接收多字符的非弃用面；
+ * 保留并在此定点抑制，处置理由见 `sendKeyEvent` 的 ACTION_MULTIPLE 分支。
+ */
+@SuppressLint("DeprecatedCall") // 无替代面：多字符事件只经 characters 送达
+@Suppress("DEPRECATION") // 同上；Kotlin 编译器告警在 -Werror 下同样需要定点抑制
+private fun KeyEvent.multipleCharacters(): String = characters

@@ -127,7 +127,6 @@
     <string name="font_info_size_sp">字体大小：%1$s SP（约 %2$s px）</string>
     <string name="font_info_other_families">其他字体：%1$s</string>
     <string name="home_key">Home</string>
-    <string name="no_font_loaded">未加载字体</string>
     <string name="open_session_drawer">打开会话抽屉</string>
     <string name="page_down">Page Down</string>
     <string name="page_up">Page Up</string>

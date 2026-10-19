@@ -42,7 +42,9 @@ class FontUtilsArchTest {
                 detectArchFromAbi()
                 Assert.fail("riscv64 必须抛而非回退 aarch64")
             } catch (exception: IllegalStateException) {
-                Assert.assertTrue(exception.message!!.contains("riscv64"))
+                Assert.assertTrue(
+                    checkNotNull(exception.message) { "异常必须带消息" }.contains("riscv64"),
+                )
             }
         }
     }
