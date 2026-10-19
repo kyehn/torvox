@@ -41,6 +41,12 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         /** 长按选词用例的落字（列 7 落在 "world" 内）。 */
         private const val WORD_TEXT = "hello world selectable text terminal"
 
+        /** 两个手柄同源于同一个平台 drawable，尺寸允许的像素偏差。 */
+        private const val HANDLE_SIZE_TOLERANCE_PX = 4
+
+        /** 手柄描边色的最小颜色跨度；实测约 88，反白选区/浮动菜单等中性像素不高于 5。 */
+        private const val COLOR_SPREAD_THRESHOLD = 40
+
         /** URL 行用例的落字；本仓不识别裸文本 URL（`hyperlinkAt` 只认 OSC 8），此例只验长按出行选择手柄。 */
         private const val URL_TEXT = "https://git.io/terminal-url-42"
 
@@ -84,26 +90,56 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         abs(Color.green(a) - Color.green(b)) +
         abs(Color.blue(a) - Color.blue(b))
 
-    private data class Blob(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int) {
+    /** 颜色跨度（最大通道 - 最小通道）：中性色（黑/白/灰，含反白选区）≈ 0。 */
+    private fun colorSpread(argb: Int): Int = maxOf(Color.red(argb), Color.green(argb), Color.blue(argb)) -
+        minOf(Color.red(argb), Color.green(argb), Color.blue(argb))
+
+    private data class Blob(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int, val ink: Int) {
         val cx get() = (minX + maxX) / 2
         val cy get() = (minY + maxY) / 2
         val w get() = maxX - minX + 1
         val h get() = maxY - minY + 1
     }
 
-    private fun findChangedBlobs(before: Bitmap, after: Bitmap, threshold: Int = 50, minSize: Int = 8): List<Blob> {
+    /**
+     * 选区手柄的像素判据：变更像素里的**上色实心块**。
+     *
+     * 手柄是应用主题的 textSelectHandle drawable——它自带的描边色与终端配色主题无关，
+     * 始终是同一个高饱和色；而同一次长按带来的其余变化都是中性色：选区高亮是反白
+     * （白底黑字），浮动菜单是中性底 + 中性字。于是「变更 ∧ 上色」恰好挑出两条手柄。
+     *
+     * 不能只按连通块尺寸挑「手柄大小的块」：选区起点在行首时，左柄与高亮带只差一行、
+     * 彼此粘连成一块，该块宽度随选区长度增长——长选区（URL 用例 24 格）必然超窗，
+     * 表现为「一个手柄也找不到」；而上色判据把左柄从高亮带里直接分出来。
+     */
+    private fun findSelectionHandleMarks(
+        before: Bitmap,
+        after: Bitmap,
+        cellWidth: Float,
+        cellHeight: Float,
+        threshold: Int = 50,
+    ): List<Blob> {
         val w = minOf(before.width, after.width)
         val h = minOf(before.height, after.height)
         val changed = Array(h) { BooleanArray(w) }
         for (y in 0 until h) {
             for (x in 0 until w) {
-                changed[y][x] = colorDiff(before.getPixel(x, y), after.getPixel(x, y)) > threshold
+                val afterPixel = after.getPixel(x, y)
+                changed[y][x] =
+                    colorDiff(before.getPixel(x, y), afterPixel) > threshold &&
+                    colorSpread(afterPixel) >= COLOR_SPREAD_THRESHOLD
             }
         }
 
         val visited = Array(h) { BooleanArray(w) }
         val blobs = mutableListOf<Blob>()
         val dirs = listOf(-1 to -1, -1 to 0, -1 to 1, 0 to -1, 0 to 1, 1 to -1, 1 to 0, 1 to 1)
+        // 尺寸筛网按字符格缩放（不写像素常量）：手柄约 2.5x1.2 格，至少一格大、
+        // 大不过四格，就能把抗锯齿轮廓的碎片挡在外面。
+        val minW = cellWidth * 0.9f
+        val minH = cellHeight * 0.9f
+        val maxW = cellWidth * 4f
+        val maxH = cellHeight * 4f
 
         for (y in 0 until h) {
             for (x in 0 until w) {
@@ -112,11 +148,13 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
                 var maxX = x
                 var minY = y
                 var maxY = y
+                var ink = 0
                 val stack = ArrayDeque<Pair<Int, Int>>()
                 stack.addLast(x to y)
                 visited[y][x] = true
                 while (stack.isNotEmpty()) {
                     val (cx, cy) = stack.removeLast()
+                    ink++
                     minX = minOf(minX, cx)
                     maxX = maxOf(maxX, cx)
                     minY = minOf(minY, cy)
@@ -132,8 +170,9 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
                 }
                 val bw = maxX - minX + 1
                 val bh = maxY - minY + 1
-                if (bw >= 10 && bh >= 10) {
-                    blobs.add(Blob(minX, minY, maxX, maxY))
+                // 实心度：手柄是满心泪滴，边界框里一半以上都得上色，避免把零散像素当成手柄。
+                if (bw >= minW && bh >= minH && bw <= maxW && bh <= maxH && ink * 2 >= bw * bh) {
+                    blobs.add(Blob(minX, minY, maxX, maxY, ink))
                 }
             }
         }
@@ -202,18 +241,33 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         return current
     }
 
-    // Poll until at least two handle-sized change blobs appear (the
-    // selection-handle PopupWindows surface slowly under SwiftShader). A
-    // long-press whose DOWN/UP events land in the same main-thread batch
-    // is treated as a tap and produces no selection — instead of weakening
-    // the assertion, re-issue the gesture against a fresh baseline (a real
-    // user would simply long-press again).
+    // Poll until at least two handle marks appear (the selection-handle
+    // PopupWindows surface slowly under SwiftShader). A long-press whose
+    // DOWN/UP events land in the same main-thread batch is treated as a tap
+    // and produces no selection — instead of weakening the assertion,
+    // re-issue the gesture against a fresh baseline (a real user would
+    // simply long-press again).
+    //
+    // 重试背后还有一层坑：重长按前抓的新基准若带着上一轮**未清除的选区**
+    // （手柄在 before/after 两侧都在），差分为零，poll 恒 0——CI 冷启动下
+    // 整条重试链就此报废。重试前先经 production 的清选区通道把状态归零，
+    // 保证每次重试都走「干净基准 → 长按 → 出现手柄」的同一套正向链。
     private fun pollForSelectionHandles(
         initialBaseline: Bitmap,
         logTag: String,
         lpX: Float,
         lpY: Float,
+        cellWidth: Float,
+        cellHeight: Float,
     ): Pair<Bitmap, List<Blob>> {
+        // 清除共用会话的选区状态（用户语义与 cleanUpTerminalState 相同），
+        // 随后等上一帧选区渲染出画面再抓基准。
+        fun clearSelectionNow() {
+            composeRule.activity.runOnUiThread {
+                composeRule.activity.terminalViewModel.clearSelection()
+            }
+            Thread.sleep(700)
+        }
         var baseline = initialBaseline
         var lastShot = initialBaseline
         var handles = emptyList<Blob>()
@@ -223,14 +277,15 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             val shot = captureScreenshot()
             if (shot == null) continue
             lastShot = shot
-            handles = findChangedBlobs(baseline, shot).filter { it.w in 20..180 && it.h in 20..180 }
-            Log.i(logTag, "Poll: ${handles.size} handle-sized blobs")
-            handles.forEachIndexed { i, h ->
-                Log.i(logTag, "  Candidate $i: (${h.cx},${h.cy}) ${h.w}x${h.h}")
+            handles = findSelectionHandleMarks(baseline, shot, cellWidth, cellHeight)
+            Log.i(logTag, "Poll: ${handles.size} handle marks")
+            handles.forEachIndexed { i, handle ->
+                Log.i(logTag, "  Candidate $i: (${handle.cx},${handle.cy}) ${handle.w}x${handle.h} ink=${handle.ink}")
             }
             if (handles.size >= 2) break
             if (retries < 2 && SystemClock.elapsedRealtime() < deadline - 4_000) {
                 Thread.sleep(1500)
+                clearSelectionNow()
                 baseline = requireNotNull(captureScreenshot()) { "baseline for re-long-press" }
                 injectLongPress(requireNotNull(tv), lpX, lpY)
                 retries++
@@ -238,6 +293,17 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             }
         }
         return lastShot to handles
+    }
+
+    /**
+     * 两条手柄同源于一个平台 drawable，尺寸必须一致——旧的「手柄大小的块」判据
+     * 会把选区高亮带当成手柄，尺寸一致性把这类误判直接顶回来。
+     */
+    private fun assertHandleMarksPaired(h0: Blob, h1: Blob, label: String) {
+        Assert.assertTrue(
+            "$label handle marks differ in size: ${h0.w}x${h0.h} vs ${h1.w}x${h1.h}",
+            abs(h0.w - h1.w) <= HANDLE_SIZE_TOLERANCE_PX && abs(h0.h - h1.h) <= HANDLE_SIZE_TOLERANCE_PX,
+        )
     }
 
     @Test
@@ -276,7 +342,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         val baselineShot = waitForRenderStable("VisualInline-Word")
         Log.i("VisualInline-Word", "Baseline ready")
         injectLongPress(requireNotNull(tv), longPressX, longPressY)
-        val (afterSel, handles) = pollForSelectionHandles(baselineShot, "Word", longPressX, longPressY)
+        val (afterSel, handles) =
+            pollForSelectionHandles(baselineShot, "Word", longPressX, longPressY, cellW, cellH)
 
         // Save for evidence
         saveToExternal("word-baseline", baselineShot)
@@ -290,6 +357,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
 
         val h0 = handles[0]
         val h1 = handles[1]
+        assertHandleMarksPaired(h0, h1, "word")
         val rowDiff = abs(h0.cy - h1.cy)
         Log.i("VisualInline", "Handle row diff: ${rowDiff}px (cellH=$cellH)")
         Assert.assertTrue("Handles not on same row (diff=$rowDiff)", rowDiff < cellH * 2)
@@ -347,7 +415,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         val baseline = waitForRenderStable("VisualInline-URL")
         Log.i("VisualInline-URL", "Baseline ready")
         injectLongPress(requireNotNull(tv), longPressX, longPressY)
-        val (afterShot, handles) = pollForSelectionHandles(baseline, "URL", longPressX, longPressY)
+        val (afterShot, handles) = pollForSelectionHandles(baseline, "URL", longPressX, longPressY, cellW, cellH)
         saveToExternal("url-baseline", baseline)
         saveToExternal("url-selection", afterShot)
 
@@ -358,6 +426,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
 
         val h0 = handles[0]
         val h1 = handles[1]
+        assertHandleMarksPaired(h0, h1, "url")
         val rowDiff = abs(h0.cy - h1.cy)
         // URL is at column 0. Under SwiftShader the two handle strokes can
         // partially bleed into neighboring per-glyph change blobs, so assert
