@@ -1373,6 +1373,9 @@ constructor(
                                 var lastScrollOffset = Int.MAX_VALUE
                                 var lastScrollRemainderPx = Float.NaN
                                 var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
+                                // 慢循环帧的阶段分解日志节流：连续慢帧（如 500ms 空闲闭锁）
+                                // 不刷屏，最密 2 行/秒。
+                                var lastSlowLoopLogNanos = 0L
                                 // 每线程帧时长统计：渲染线程重启时重置（新生涯，不带陈旧历史）。
                                 val frameTiming = FrameTimingStats()
                                 // 整循环周期统计（渲染 + pollAll + 事件派发 + waitOutput）：
@@ -1440,6 +1443,7 @@ constructor(
                                             bridge.waitOutput(timeoutNanos / 1_000_000L)
                                             if (Thread.interrupted()) throw InterruptedException()
                                         }
+                                        val loopGateDoneNanos = System.nanoTime()
                                         // 渲染前消费唤醒标志。三者都无条件清除：
                                         // 落在门控检查与本次清除之间的信号会并入下方的渲染；
                                         // 落在渲染期间的信号则等下一次 vsync/超时节拍
@@ -1472,6 +1476,7 @@ constructor(
                                             bridge.setScrollYPx(currentRemainderPx)
                                             lastScrollRemainderPx = currentRemainderPx
                                         }
+                                        val loopPrerenderDoneNanos = System.nanoTime()
                                         entry.frameMarks = entry.frameMarks.copy(startNanos = System.nanoTime())
                                         // 渲染与 new_output 消费合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
                                         // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
@@ -1674,69 +1679,50 @@ constructor(
                                                 exception,
                                             )
                                         }
+                                        val loopPollDoneNanos = System.nanoTime()
                                         if (count >= 0) {
                                             diagCount++
                                             if (diagCount == 1) {
                                                 LogUtil.d("Runtime", "session ${entry.id} first render OK")
                                             }
                                             if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
-                                                val title =
-                                                    try {
-                                                        bridge.getActiveSessionTitle()
-                                                    } catch (exception: Exception) {
-                                                        LogUtil.e("Runtime", "title query failed", exception)
-                                                        ""
+                                                // 标题刷新移出渲染线程：getTitle 是 VT 通道外置查询，
+                                                // 要等 VT 线程下一次 50ms 空闲 tick 应答
+                                                // （VT 忙时等满 QUERY_TIMEOUT_MS）。真机日志实测该
+                                                // 查询每逢本分支（60 帧窗口 ≈ 1 秒）将渲染帧拉到
+                                                // 60–115ms；压测环境下踩满 500ms。
+                                                scope.launch {
+                                                    val title =
+                                                        try {
+                                                            bridge.getActiveSessionTitle()
+                                                        } catch (exception: Exception) {
+                                                            LogUtil.e("Runtime", "title query failed", exception)
+                                                            ""
+                                                        }
+                                                    if (title.isNotEmpty() && title != _state.value.title) {
+                                                        // CAS 更新：收集器与 IO 会话函数也会写 _state，
+                                                        // 此处非原子的读-改-写会覆盖它们的会话列表。
+                                                        _state.update { current -> current.copy(title = title) }
                                                     }
-                                                if (title.isNotEmpty() && title != _state.value.title) {
-                                                    // CAS 更新：收集器与 IO 会话函数也会写 _state，
-                                                    // 此处非原子的读-改-写会覆盖它们的会话列表。
-                                                    _state.update { current -> current.copy(title = title) }
                                                 }
                                             }
                                             // 整循环的结束时刻（供 RenderWatchDog 判挂起）：
                                             // 与上面的 renderDoneNanos 是两个窗口，勿合并。
                                             entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
                                             frameTiming.takeReport()?.let { report ->
-                                                // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长
-                                                // 即表示历史无界。
-                                                val scrollbackRows = entry.bridge.scrollbackLength()
-                                                val summary =
-                                                    "session ${entry.id} frame timing window " +
-                                                        "(${report.frameCount} frames): " +
-                                                        "avg=${report.averageNanos / NANOS_PER_MILLI}ms " +
-                                                        "p95=${report.p95Nanos / NANOS_PER_MILLI}ms " +
-                                                        "max=${report.maxNanos / NANOS_PER_MILLI}ms " +
-                                                        "scrollback=$scrollbackRows rows"
+                                                // 趋势基线序列只有渲染线程按帧序推进——observe() 必须
+                                                // 留在渲染线程串行喂入；摘要的 scrollbackLength() 是
+                                                // 同一条 VT 通道外置查询（同 title 同款 50–500ms 等待），
+                                                // 一起移出渲染线程——否则它把下一个窗口首帧拖慢。
                                                 val trendDegraded = frameTimingTrend.observe(report.averageNanos)
                                                 val baselineNanos = frameTimingTrend.currentBaselineNanos()
-                                                val baselineMs = baselineNanos?.div(NANOS_PER_MILLI)
-                                                when {
-                                                    // 绝对病态：超出任何设备预期的停滞
-                                                    // （模拟器基线 ~555ms/帧；真机 ~17ms）。
-                                                    report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
-                                                        report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
-                                                        LogUtil.w(
-                                                            "Runtime",
-                                                            "$summary — severe stall(s), investigate render cost",
-                                                        )
-
-                                                    // 相对基线的回归（约为设备自身学习到的基线的 3 倍，
-                                                    // 且平均至少 100ms）：捕捉绝对阈值无法覆盖的
-                                                    // 渐进式、设备特定的降级。
-                                                    trendDegraded ->
-                                                        LogUtil.w(
-                                                            "Runtime",
-                                                            "$summary — degraded vs baseline (${baselineMs}ms), " +
-                                                                "investigate render cost",
-                                                        )
-
-                                                    // 正常窗口：用 Info 而非 Debug，使该计量在 release 构建中仍保留
-                                                    // ——LogUtil.d 受 BuildConfig.DEBUG 门控，
-                                                    // 在 release APK 上会隐藏每个窗口，
-                                                    // 使渐进问题不可见。
-                                                    // 每 60 个渲染帧一行（真机 ~1s，模拟器 ~33s），
-                                                    // 是安静但始终存在的信号。
-                                                    else -> LogUtil.i("Runtime", summary)
+                                                scope.launch {
+                                                    logFrameTiming(
+                                                        entry,
+                                                        report,
+                                                        trendDegraded,
+                                                        baselineNanos?.div(NANOS_PER_MILLI),
+                                                    )
                                                 }
                                             }
                                             // 尾部队列等待已移除——驻留现在发生在上方的循环顶部唤醒门控
@@ -1746,7 +1732,35 @@ constructor(
                                         // （含 waitOutput + pollAll + 事件派发）。
                                         // 若渲染均值 ~16ms 而此处 ~50ms，
                                         // 说明时间花在循环的其他环节，而非原生渲染路径。
-                                        loopTiming.record(System.nanoTime() - loopFrameStart)
+                                        val loopDurationNanos = System.nanoTime() - loopFrameStart
+                                        loopTiming.record(loopDurationNanos)
+                                        // 慢循环帧的定位仪器：一旦整循环 > SLOW_FRAME_LOG_THRESHOLD_MS，
+                                        // 打出各阶段耗时（唤醒门控/渲染前推送/渲染 JNI/输出泵+事件/循环尾），
+                                        // SLOW_FRAME 只看渲染 JNI，循环其他环节静默。
+                                        if (
+                                            loopDurationNanos > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L &&
+                                            System.nanoTime() - lastSlowLoopLogNanos > 500_000_000L
+                                        ) {
+                                            lastSlowLoopLogNanos = System.nanoTime()
+                                            val tailNanos =
+                                                loopDurationNanos - (loopPollDoneNanos - loopFrameStart)
+                                            val gateMs = (loopGateDoneNanos - loopFrameStart) / NANOS_PER_MILLI
+                                            val preMs = (loopPrerenderDoneNanos - loopGateDoneNanos) / NANOS_PER_MILLI
+                                            val renderMs = (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
+                                            val pollMs = (loopPollDoneNanos - renderDoneNanos) / NANOS_PER_MILLI
+                                            val totalMs = loopDurationNanos / NANOS_PER_MILLI
+                                            LogUtil.w(
+                                                "Runtime",
+                                                "SLOW_LOOP " +
+                                                    "session=${entry.id} " +
+                                                    "total=${totalMs}ms " +
+                                                    "gate=${gateMs}ms " +
+                                                    "pre=${preMs}ms " +
+                                                    "render=${renderMs}ms " +
+                                                    "poll=${pollMs}ms " +
+                                                    "tail=${tailNanos / NANOS_PER_MILLI}ms",
+                                            )
+                                        }
                                         loopTiming.takeReport()?.let { loopReport ->
                                             val loopAvgMs = loopReport.averageNanos / NANOS_PER_MILLI
                                             val loopP95Ms = loopReport.p95Nanos / NANOS_PER_MILLI
@@ -2007,6 +2021,58 @@ constructor(
     }
 
     private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int, val themeName: String)
+
+    /**
+     * 渲染循环窗口封尾的帧耗时日志，从渲染线程移到 IO 协程打：
+     * 其中 [SessionEntry.bridge.scrollbackLength] 是 VT 通道外置查询，
+     * 与 title 同款 50–500ms 等待——留在渲染线程时随窗口边界每 60 帧
+     * （≈1 秒）把那一帧拖到 60–115ms（压测环境踩满 500ms）。
+     * 严重度判定与趋势喂入已在渲染线程内完成，这里只做取数与打印。
+     */
+    private fun logFrameTiming(
+        entry: SessionEntry,
+        report: FrameTimingReport,
+        trendDegraded: Boolean,
+        baselineMs: Double?,
+    ) {
+        // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长即表示历史无界。
+        val scrollbackRows = entry.bridge.scrollbackLength()
+        val summary =
+            "session ${entry.id} frame timing window " +
+                "(${report.frameCount} frames): " +
+                "avg=${report.averageNanos / NANOS_PER_MILLI}ms " +
+                "p95=${report.p95Nanos / NANOS_PER_MILLI}ms " +
+                "max=${report.maxNanos / NANOS_PER_MILLI}ms " +
+                "scrollback=$scrollbackRows rows"
+        when {
+            // 绝对病态：超出任何设备预期的停滞
+            // （模拟器基线 ~555ms/帧；真机 ~17ms）。
+            report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
+                report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
+                LogUtil.w(
+                    "Runtime",
+                    "$summary — severe stall(s), investigate render cost",
+                )
+
+            // 相对基线的回归（约为设备自身学习到的基线的 3 倍，
+            // 且平均至少 100ms）：捕捉绝对阈值无法覆盖的
+            // 渐进式、设备特定的降级。
+            trendDegraded ->
+                LogUtil.w(
+                    "Runtime",
+                    "$summary — degraded vs baseline (${baselineMs}ms), " +
+                        "investigate render cost",
+                )
+
+            // 正常窗口：用 Info 而非 Debug，使该计量在 release 构建中仍保留
+            // ——LogUtil.d 受 BuildConfig.DEBUG 门控，
+            // 在 release APK 上会隐藏每个窗口，
+            // 使渐进问题不可见。
+            // 每 60 个渲染帧一行（真机 ~1s，模拟器 ~33s），
+            // 是安静但始终存在的信号。
+            else -> LogUtil.i("Runtime", summary)
+        }
+    }
 
     /**
      * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN.md:145），不检查权限。

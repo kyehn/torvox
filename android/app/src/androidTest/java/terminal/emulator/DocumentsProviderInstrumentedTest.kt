@@ -688,4 +688,115 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             File(home, "rename-probe-new.txt").delete()
         }
     }
+
+    /**
+     * 重名新建走框架允许的消歧（同 Termux 策略）：已存在则追加 " (2)" 后缀
+     * 而非报「路径已存在」。直接覆盖客户端报障「无法创建文件/文件夹：路径已
+     * 存在」这条外来现象的提供者侧契约：无论磁盘上已有同名文件/目录，新建
+     * 必须成功落盘且新名字由返回 URI 下发。
+     */
+    @Test
+    fun create_conflicting_name_lands_with_suffix() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val parentUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
+        val existing = File(home, "dup-create-probe.txt").apply { writeText("already here") }
+        try {
+            val createdUri = DocumentsContract.createDocument(
+                context.contentResolver,
+                parentUri,
+                "text/plain",
+                "dup-create-probe.txt",
+            )
+            requireNotNull(createdUri)
+            val docId = DocumentsContract.getDocumentId(createdUri)
+            val suffixFile = File(home, "dup-create-probe (2).txt")
+            try {
+                assertEquals("重名新建必须追加消歧后缀", suffixFile.path, File(home, docId).path)
+                suffixFile.writeText("with suffix")
+            } finally {
+                suffixFile.delete()
+                existing.delete()
+            }
+        } finally {
+            existing.delete()
+        }
+    }
+
+    /** 重名新建目录走同名消歧：目录与文件用同一 uniqueChild 策略。 */
+    @Test
+    fun create_conflicting_directory_lands_with_suffix() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val existing = File(home, "dup-dir-probe").apply { mkdirs() }
+        try {
+            val createdUri = DocumentsContract.createDocument(
+                context.contentResolver,
+                DocumentsContract.buildChildDocumentsUri(authority, "terminal_home"),
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "dup-dir-probe",
+            )
+            requireNotNull(createdUri)
+            val docId = DocumentsContract.getDocumentId(createdUri)
+            assertEquals("重名目录必须追加消歧后缀", File(home, "dup-dir-probe (2)").path, File(home, docId).path)
+            assertTrue(File(home, docId).isDirectory)
+            DocumentsContract.deleteDocument(context.contentResolver, createdUri)
+        } finally {
+            existing.deleteRecursively()
+        }
+    }
+
+    /**
+     * 重名 rename 的消歧与 create/copy/move 同策略：改名为磁盘已有名字时
+     * 追加 " (2)"，绝不静默失败——客户端依然拿到新 URI，重列即见新名字。
+     */
+    @Test
+    fun rename_to_conflicting_name_lands_with_suffix() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val original = File(home, "conflict-rename-old.txt").apply { writeText("x") }
+        val occupant = File(home, "conflict-rename-new.txt").apply { writeText("occupied") }
+        try {
+            val newUri = DocumentsContract.renameDocument(
+                context.contentResolver,
+                DocumentsContract.buildDocumentUri(authority, "conflict-rename-old.txt"),
+                "conflict-rename-new.txt",
+            )
+            requireNotNull(newUri)
+            val docId = DocumentsContract.getDocumentId(newUri)
+            assertEquals(
+                "改名撞名必须追加消歧后缀",
+                File(home, "conflict-rename-new (2).txt").path,
+                File(home, docId).path,
+            )
+            assertTrue("改名后的内容必须原地保留", File(home, docId).readText() == "x")
+        } finally {
+            original.delete()
+            occupant.delete()
+            File(home, "conflict-rename-new (2).txt").delete()
+        }
+    }
+
+    /**
+     * 站外（终端侧）创建文件的 tree 前缀删除：用户日志里的唯一提供者现场
+     * 是「tree 前缀 docId 的 deleteDocument」。本用例在模拟器真实客户端
+     * （ContentResolver）上复刻同型删除：`tree/<root>/document/<docId>`
+     * 经 `deleteDocument` 必须成功且磁盘条目同步退场。
+     */
+    @Test
+    fun tree_uri_delete_removes_terminal_side_document() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val probe = File(home, "tree-delete-probe.txt").apply { writeText("to be deleted") }
+        assertTrue(probe.exists())
+        val treeUri = DocumentsContract.buildDocumentUriUsingTree(
+            DocumentsContract.buildTreeDocumentUri(authority, "terminal_home"),
+            "tree-delete-probe.txt",
+        )
+        assertTrue(
+            "tree 前缀删除必须成功",
+            DocumentsContract.deleteDocument(context.contentResolver, treeUri),
+        )
+        assertTrue("删除后磁盘条目必须同步退场", !probe.exists())
+    }
 }
