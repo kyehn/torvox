@@ -106,7 +106,7 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
+        - "/README.md"
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
     message: "Old bootstrap presets are forbidden; use current values."
@@ -125,7 +125,7 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
+        - "/README.md"
   - id: no-bootstrap-sidecar
     pattern-regex: '\bsidecar\b'
     message: "Bootstrap sha256 sidecar checks are forbidden by spec."
@@ -144,7 +144,7 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
+        - "/README.md"
   - id: no-prohibited-shells
     pattern-regex: '\b(fish|dash|zsh)\b'
     message: "fish/dash/zsh must not appear in code."
@@ -163,7 +163,7 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
+        - "/README.md"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
     message: "Use generic terms; Torvox only in intro docs."
@@ -182,7 +182,7 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
+        - "/README.md"
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'
     message: "Hardcoded nix store paths are forbidden in code."
@@ -201,9 +201,9 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
-        - "native/build.rs"
-        - "android/build.gradle.kts"
+        - "/README.md"
+        - "/native/build.rs"
+        - "/android/build.gradle.kts"
   - id: no-zigbuild
     pattern-regex: 'zigbuild'
     message: "Use cargo ndk for Android builds, not cargo zigbuild."
@@ -222,7 +222,7 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
-        - "README.md"
+        - "/README.md"
   # Repo tooling rules (generic): manifests, scripts and workflows.
   # check-rust.nu scans this file, so they live here.
   - id: no-crate-features
@@ -375,10 +375,10 @@ rules:
         # 归档的变更台账是历史记录本身：那里的提交号就是「当时做了这件事」的证据，
         # 改写它等于伪造记录（台账里已有条目记着某次 force-push 把旧号作废）。
         # 现存全部 114 处集中在此，见汇报。
-        - "openspec/changes/archive/**"
+        - "/openspec/changes/archive/**"
         # docs/STATUS.md 属禁改区：基线行是维护者手写的修订坐标，规则无法靠改文件
         # 满足，故排除；其余任何位置的哈希仍一律拦截。
-        - "docs/STATUS.md"
+        - "/docs/STATUS.md"
   # 短提交号：要求至少一位数字且至少一个 a-f 字母，否则纯字母词会被误判
   # （defaced 这类 7 字母词恰好全落在十六进制字符集里）。7~39 位覆盖 git 短号。
   - id: no-git-short-hash-in-source-and-docs
@@ -400,9 +400,9 @@ rules:
         - "/.semgrep/**"
         - "/docs/specification/*"
         # 同上：归档台账里的提交号是历史证据，不追溯改写。
-        - "openspec/changes/archive/**"
+        - "/openspec/changes/archive/**"
         # 同上：STATUS.md 是禁改区，基线坐标由维护者书写，可能取短号。
-        - "docs/STATUS.md"
+        - "/docs/STATUS.md"
 
   # ── 分层与架构：模块方向、错误类型与抑制属性 ──
   - id: no-hardcoded-paths

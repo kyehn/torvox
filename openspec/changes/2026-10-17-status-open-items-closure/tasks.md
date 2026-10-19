@@ -851,11 +851,11 @@
 
 ## 十八、第三/四轮独立审阅闭环与平台事实修正
 
-- [x] 三轮审阅（F1-F3 已修，a3c5d7ec/c1e66b17）：①spec 正文/Scenario 的
+- [x] 三轮审阅（F1-F3 已修）：①spec 正文/Scenario 的
       消歧名一致（`b (2).txt`）②2 处仪器 KDoc 与断言对齐 ③watch 兜底当时补
       `stopWatching` 半初始化保险；新增「终端侧 DELETE 真实 inotify 通知」与
       「含点目录 `My (2).Dir`」两条测试（模拟器仪器 20/20、单测 582/0）。
-- [x] 四轮审阅发现实质问题并逐一修复：d8802045 的异常式 watch 失败撤回
+- [x] 四轮审阅发现实质问题并逐一修复：异常式 watch 失败撤回
       （try/catch+stopWatching）在 `minSdk 33` 平台不可达——AOSP 13+ 的
       `FileObserver.startWatching()` 为 void、native `inotify_add_watch`
       失败静默置 `wfds[i]=-1`（源码级核对 android_util_FileObserver.cpp 与
