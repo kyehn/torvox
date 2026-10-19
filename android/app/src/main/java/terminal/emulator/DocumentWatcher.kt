@@ -105,8 +105,14 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
                     }
                 }
             }
+        // 创建 → 启用 → 登记 收进同一把锁：binder 线程并发对同一目录登记时，
+        // 锁外窗口会让两个观察者并存（各收一份事件，后者覆盖前者后 stop 永不
+        // 发生，白耗一个 inotify 槽位）。比对结果在同一锁内确认，避免并发二写。
+        synchronized(lock) {
+            if (watched[path] != null) return
+            watched[path] = observer
+        }
         observer.startWatching()
-        synchronized(lock) { watched[path] = observer }
     }
 
     /**
