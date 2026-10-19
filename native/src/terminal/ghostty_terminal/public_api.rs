@@ -553,32 +553,43 @@ impl super::GhosttyTerminal {
 
     /// 向 VT 线程发送无状态 [`Query`] 并等待应答，发送失败或超时回退到 `fallback`；
     /// 全部查询方法共用这唯一一处有界通道 + 超时样板。
-    fn query<T>(&self, build: impl FnOnce(Sender<T>) -> Query, fallback: T, method: &str) -> T {
+    fn query<T>(&self, build: impl Fn(Sender<T>) -> Query, fallback: T, method: &str) -> T {
         Self::query_on(&self.query_tx, build, fallback, method)
     }
 
     /// [`Self::query`] 的通道外置版：调用方在会话锁内克隆查询通道，
     /// 随后在锁外执行长查询，使大回滚搜索不冻结按帧取锁的渲染。
+    /// 查询重试次数：VT 线程正常在 `VT_IDLE_TICK_MS` 内应答，但系统过载（并行测试、
+    /// 后台编译）时可能整体错过一个 `QUERY_TIMEOUT_MS` 窗口。重试一次可把「偶发
+    /// 错过」与「VT 线程卡死」区分开：前者第二轮通常直接命中上一轮已落盘的缓存，
+    /// 后者只会再等满一个期限后仍回退——调用方拿到的兜底值语义不变。
+    const QUERY_ATTEMPTS: u8 = 2;
+
     fn query_on<T>(
         query_tx: &Sender<Query>,
-        build: impl FnOnce(Sender<T>) -> Query,
+        build: impl Fn(Sender<T>) -> Query,
         fallback: T,
         method: &str,
     ) -> T {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = query_tx.try_send(build(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed for {method}: {error}");
-            return fallback;
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(value) => value,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: {method} timed out or disconnected — returning fallback"
-                );
-                fallback
+        for attempt in 1..=Self::QUERY_ATTEMPTS {
+            let (tx, rx) = bounded(1);
+            if let Err(error) = query_tx.try_send(build(tx)) {
+                log::warn!("ghostty_terminal: query_tx full/dropped failed for {method}: {error}");
+                return fallback;
+            }
+            match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
+                Ok(value) => return value,
+                Err(_) if attempt < Self::QUERY_ATTEMPTS => {
+                    log::warn!("ghostty_terminal: {method} 第 {attempt} 次查询超时，重试一次");
+                }
+                Err(_) => {
+                    log::warn!(
+                        "ghostty_terminal: {method} timed out or disconnected — returning fallback"
+                    );
+                }
             }
         }
+        fallback
     }
 
     /// 克隆 VT 查询通道（见 [`Self::query_on`]）。

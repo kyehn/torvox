@@ -800,7 +800,9 @@
 
 ## 十六、CI `run 39203343224` 根因裁决与文档提供者真实测试补强（本次会话）
 
-- [x] run 147/146/143 等红项根因：本地全量套件复跑出现同族 3 失败
+- [x] run 147/146/143 等红项根因（二十节校正：此组三处红出现于**本地全量
+      套件复跑**，不等同于 run 39203343224 的 CI 红项——后者唯一红是
+      `external_save_cycle_writes_back…in_budget` 的 mtime 窗口，见二十节）：本地全量套件复跑出现同族 3 失败
       （SelectionDragQuantifiedTest、TermuxBootstrapRealTerminalTest、
       CjkComposingLatencyTest），三类单独重跑全绿——CI 与本地同源的资源定时器
       flake，非新代码回归（绿→红 delta 仅「watch 收锁」与新增
@@ -883,3 +885,49 @@
   - [x] 本仓 release 构建有 `-dontobfuscate`（`android/app/proguard-rules.pro`），不会产出 `l.۬۬ᩳ` 形态的混淆名；
   - [x] 全仓 `*.kt`/`*.rs` 检索 `FileChannel|tryLock|FileLock` 零命中（`grep -rn` 实测无输出），java.nio 仅出现在测试代码的 `java.nio.file.Files`/`ByteBuffer` 用例；
   - [x] 栈中 `FileChannel.tryLock` 双重加锁（`OverlappingFileLockException`）属于另一个应用程序自身 JVM 代码的文件锁配对错误，本仓不涉及任何文件锁语义，无需修复。
+
+## 二十、CI 真相校正与本会话全量复证（第六轮审阅）
+
+- [x] 十六节勘误（run 归因混叠校正）：对照 run 39203343224 全量日志逐行
+      取证，该 run 在 connected 套件中实际只出现一条红
+      `DocumentsProviderInstrumentedTest#external_save_cycle_writes_back_
+      and_relists_in_budget`（"mtime 必须落在保存窗口内"）；十六节把
+      「本地全量重跑三处定时器红（147/146/143）」误种进该 run 的正文——
+      实际三定时器类在该 CI run 中全部通过。以本日志为准，十六节其余
+      修复项（mtime 窗口 ±100ms、uniqueChild 序号位、watch 前置检查等）
+      保持不变。
+- [x] 本仓每次 CI 红的完整归因链（按 run 逐条）：
+      39158752681 → 视觉选区双测（重长按重试前清选区，bfd8c89e，本地已复证）；
+      39203343224 → provider 保存回写 mtime 亚毫秒越界（±100ms 余量 +
+      外部客户端回写协议修复 aa0c124a/121890a3，本地一条 1.25s 复绿）；
+      5 点段 → 深缓冲下沉 1 条单点窗口错过（1361db39 自修复 + 套件重排）；
+      39223866383（08:35，a3c5d7ec）→ connected 全套全绿；
+      39238735868（10:37 check）→ semgrep no-git-short-hash 3 findings
+      （台账文档中的短提交号写法，9c987607 去除）。
+- [x] 本机冷启动口径（CI 同 `320x640@160`）六类仪器全绿：提供者 20/20、
+      视觉选区 2/2、拖拽 4/4、CJK 组合 1/1、真机 bootstrap 1/1、
+      shell 响应 2/2（实时 UX_METRIC：startup_to_prompt_ms=11800、
+      shell_echo p50=60/max=66ms）；曾判 flake 的三定时器类在逐类重跑中
+      全绿，CI 已在 39223866383 全绿。
+- [x] shell 启动链路分段实测（本机，模拟器）：进程创建 1.1s
+      （40.270→41.643 handleLaunchIntent）、bridge 1.25s、spawnTerminal
+      12ms；UX_METRIC startup_to_prompt_ms=11800 为模拟器口径（冷 JIT +
+      SwiftShader）。真机复测协议（下一轮用户日志直接可比）：
+      `adb shell am force-stop com.termux` → 手动冷启动 → logcat 中
+      `UX_METRIC .* startup_to_prompt_ms` 行。
+- [x] 本机 cargo 全量套件偶发 1 例红（`read_all_text_answers_repeated_
+      queries_within_query_timeout` 回滚读数=0）根因与修复：高负载（全量
+      套件并行 + 深缓冲用例同时段）下 VT 线程整体错过 `QUERY_TIMEOUT_MS`
+      窗口，FFI `scrollback_rows` 变 Err→兜底 0。按「不隐藏错误 + 兜底最低」修为三层：
+      query_on 重试一次（QUERY_ATTEMPTS=2，第二轮命中已落盘缓存）、
+      护栏 5s 按期限轮询代替单次读、`scrollback_len` 失败原因 WARN
+      （2cda0cde / ad539a2a）。cargo 全量两轮复绿（119.2s / 77.8s，638/0）。
+      spec 同步：render-loop-scroll-cadence 增补「VT 通道查询的期限重试
+      与兜底语义」Requirement（单次重试 + 两种场景）。
+- [x] 本机重建协议勘误记录（避免后人误判「测试崩了」）：重启后的
+      `--rerun-tasks` APK 打包发生在 jniLibs 落盘之前时，包内无
+      libnative.so（视觉用例 UnsatisfiedLinkError）。处置顺序：先
+      build-android-libs 落盘 .so → `:app:assembleDebug{,AndroidTest}`
+      → `unzip -l` 断言 APK 含 libnative.so → 再安装。
+- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录
+      （下轮用户日志到达后立即判读）。
