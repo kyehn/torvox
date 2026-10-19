@@ -1734,11 +1734,15 @@ constructor(
                                         // 说明时间花在循环的其他环节，而非原生渲染路径。
                                         val loopDurationNanos = System.nanoTime() - loopFrameStart
                                         loopTiming.record(loopDurationNanos)
-                                        // 慢循环帧的定位仪器：一旦整循环 > SLOW_FRAME_LOG_THRESHOLD_MS，
-                                        // 打出各阶段耗时（唤醒门控/渲染前推送/渲染 JNI/输出泵+事件/循环尾），
+                                        // 慢循环帧的定位仪器：整循环超阈值才看——但空闲会话的门控
+                                        // 驻留（waitOutput 至多 500ms）是正常设计态而非慢，
+                                        // 按非 gate 作用段之和判定，避免 release 里空终端
+                                        // 永久 WARN 刷屏。各阶段耗时（渲染前推送/渲染 JNI/
+                                        // 输出泵+事件/循环尾）供真机日志定位吃时环节，
                                         // SLOW_FRAME 只看渲染 JNI，循环其他环节静默。
                                         if (
-                                            loopDurationNanos > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L &&
+                                            loopDurationNanos - (loopGateDoneNanos - loopFrameStart) >
+                                            SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L &&
                                             System.nanoTime() - lastSlowLoopLogNanos > 500_000_000L
                                         ) {
                                             lastSlowLoopLogNanos = System.nanoTime()
