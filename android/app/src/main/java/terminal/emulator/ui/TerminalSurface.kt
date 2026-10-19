@@ -1775,7 +1775,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var lastImeVisible: Boolean = false
 
     // 回滚长度缓存：`scrollbackLength()` 是同步 JNI 查询，
-    // 当 VT 线程忙于解析大块写入时最多可阻塞 500ms。
+    // 当 VT 线程忙于解析大块写入时最多可阻塞两次查询超时（如约 1s）。
     // 手势路径在每个 MotionEvent 上都调用它，
     // 故节流到 ~10Hz 并在其间使用缓存值——避免滚动期间的 UI 线程卡顿/ANR。
     @Volatile private var cachedScrollbackLength: Int = 0

@@ -2744,7 +2744,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
 /// 返回终端光标的视口位置，打包为 `(y << 32) | x`；光标隐藏或在视口外时返回 -1。
 ///
 /// **当前真值、同步查询**：`Query::RenderCursor` → `cursor_in_viewport`，取值即 VT
-/// 快照此刻的光标格，代价是一次 VT 线程往返（忙时上限一个查询超时）。正确性断言
+/// 快照此刻的光标格，代价是一次 VT 线程往返（忙时上限两次查询超时）。正确性断言
 /// 要「刚写进去的数据立刻反映出来」时用本方法；逐帧/逐键的热路径 MUST 改用
 /// [`Java_terminal_emulator_bridge_NativeBridge_getRenderedCursorPacked`]。
 #[unsafe(no_mangle)]
