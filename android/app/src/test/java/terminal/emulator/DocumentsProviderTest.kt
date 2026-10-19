@@ -752,6 +752,41 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun queryDocument_missing_throws_instead_of_emitting_ghost_row() {
+        // AOSP 契约：不存在的文档抛 FileNotFoundException。回幽灵行会让客户端
+        // 认定路径仍存在（新建撞「路径已存在」、列表停在旧快照）。
+        try {
+            ensureProvider().queryDocument("definitely-absent.txt", null)
+            fail("missing document must throw FileNotFoundException")
+        } catch (expected: java.io.FileNotFoundException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun queryChildDocuments_missing_directory_throws() {
+        // 空游标会把「目录已消失」伪装成「空目录」，客户端继续往不存在处写入。
+        try {
+            ensureProvider().queryChildDocuments("definitely-absent-dir", null, null as String?)
+            fail("missing directory must throw FileNotFoundException")
+        } catch (expected: java.io.FileNotFoundException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun queryDocument_broken_symlink_still_addressable() {
+        // 断链会出现在列举结果里；按列举结果回查必须同样拿得到，
+        // 否则客户端点开列表里的条目就报「不存在」。
+        val provider = ensureProvider()
+        createSymlink("dangling.txt", java.io.File(rootDir(), "not-there.txt"))
+        val cursor = provider.queryDocument("dangling.txt", null)
+        cursor.use {
+            assertEquals("broken link must still be one row", 1, it.count)
+        }
+    }
+
+    @Test
     fun queryDocument_dotdot_escape_rejected() {
         try {
             ensureProvider().queryDocument("../outside.txt", null)
