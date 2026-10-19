@@ -251,6 +251,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val cursor = MatrixCursor(cols)
         val rootDir = queries.rootDir()
         val file = queries.resolveLinkEntry(documentId, rootDir)
+        // AOSP 契约：文档不存在必须抛 FileNotFoundException（基类签名即如此声明）。
+        // 此前无条件 addDocRow 会回一行 size=0/lastModified=0 的空壳：客户端把不存在的
+        // 路径当成仍存在，新建/改名撞「路径已存在」，列表停在旧快照。
+        // 链接按链接自身判存在（lstat 语义）：断链会出现在列举结果里，按列举结果回查
+        // 必须同样拿得到，否则客户端点开列举里的条目就报「不存在」。
+        if (!file.exists() && !java.nio.file.Files.isSymbolicLink(file.toPath())) {
+            throw java.io.FileNotFoundException("queryDocument: no such document '$documentId'")
+        }
         queries.addDocRow(cursor, file, rootDir, cols)
         context?.contentResolver?.let { resolver ->
             // 通知 URI 取由文件反推的行内 docId，而非客户端传来的原样字符串。
@@ -280,6 +288,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = queries.rootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
+        // 同 queryDocument：目录不存在（或已不是目录）必须抛 FileNotFoundException，
+        // 而不是回空游标。空游标让客户端把「目录已消失」当成「空目录」，
+        // 继续往一个不存在的路径写入。
+        if (!parent.isDirectory) {
+            throw java.io.FileNotFoundException(
+                "queryChildDocuments: no such directory '$parentDocumentId'",
+            )
+        }
         watcher.watch(parent)
         val children = parent.listFiles() ?: emptyArray()
         val sorted =
