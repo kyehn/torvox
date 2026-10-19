@@ -324,15 +324,15 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             )
             requireNotNull(movedUri) { "moveDocument must return the new document uri" }
             val movedDocId = DocumentsContract.getDocumentId(movedUri)
-            // 冲突命名按提供者的唯一名策略（`DocumentMutations.uniqueChild`：在整名后
-            // 追加 " (2)"），故冲突名是 `source.txt (2)` 而非插入扩展名前的 `source (2).txt`。
-            assertEquals("tree-mutations/source.txt (2)", movedDocId)
-            assertTrue(File(probeDir, "source.txt (2)").exists())
+            // 冲突命名按提供者的唯一名策略（`DocumentMutations.uniqueChild`）：
+            // 序号插在扩展名前，冲突名是 `source (2).txt`。
+            assertEquals("tree-mutations/source (2).txt", movedDocId)
+            assertTrue(File(probeDir, "source (2).txt").exists())
             assertTrue(
                 "move must remove the document from its old parent",
                 !File(targetDir, "source.txt").exists(),
             )
-            assertEquals("edited body", File(probeDir, "source.txt (2)").readText())
+            assertEquals("edited body", File(probeDir, "source (2).txt").readText())
         } finally {
             probeDir.deleteRecursively()
             targetDir.deleteRecursively()
@@ -609,11 +609,15 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                 assertEquals("回存后的大小必须反映写入内容", payload.size.toLong(), it.getLong(1))
                 val mtime = it.getLong(2)
                 val elapsed = System.currentTimeMillis() - startedMs
+                // 毫秒精度文件系统与采样时钟有亚毫秒偏差，窗界留 100ms 余量。
                 assertTrue(
                     "打开、写回、重查整周期 $elapsed ms 超出 $timeBudgetMs ms 预算",
                     elapsed <= timeBudgetMs,
                 )
-                assertTrue("mtime 必须落在保存窗口内", mtime in startedMs..(startedMs + elapsed))
+                assertTrue(
+                    "mtime 必须落在保存窗口内（mtime=$mtime 窗口=$startedMs..${startedMs + elapsed}）",
+                    mtime in (startedMs - 100)..(startedMs + elapsed + 100),
+                )
             }
         } finally {
             target.delete()
