@@ -226,7 +226,8 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 ### Requirement: 重名冲突在全部变更入口取唯一名
 
 重名冲突 MUST 在全部入口（`createDocument`/`renameDocument`/`copyDocument`/`moveDocument`）
-走同一策略：追加 `" (2)"` 之类的唯一名后缀，MUST NOT 因重名失败。
+走同一策略：生成唯一名消歧（序号插在最后一个点前，无扩展名或前导点则尾部
+追加 `" (2)"`），MUST NOT 因重名失败。
 框架合约明确允许提供者「为避开重名改写名字」（`DocumentsProvider#createDocument`
 与 `#renameDocument` 的注释同此措辞），硬失败只会让「先新建、后改名」的客户端
 （文件管理器的建文件/建文件夹、另存为）界面报「路径已存在」并丢掉整次操作。

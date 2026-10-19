@@ -811,9 +811,12 @@
       线程到 IO 协程（`scope.launch`），`FrameTimingTrend` 保持在渲染线程；
       加 `SLOW_LOOP gate/pre/render/poll/tail` 阶段分解打点供真机下一份日志
       直接定位吃时环节。
-- [x] `DocumentWatcher.watch` 失败路径补齐：`startWatching()` 失败（抛
-      IOException，如目录竞争移除）时回收登记的占位条目再上抛，且告警必带
-      路径——消除「死占位 → 该目录从此静默不再监视」的静默丢失。
+- [x] `DocumentWatcher.watch` 失败路径补齐：平台事实（AOSP 13+，`minSdk 33`）
+      是 `FileObserver.startWatching()` 返回 void 且 native `inotify_add_watch`
+      失败（含 ENOENT）只把 `wfds[i]` 置 -1，不抛异常也不打日志——异常式
+      撤回在此平台不可达。实际修复是登记时的「目录此刻存在」前置检查：
+      目录已消失便不登记占位，客户端下次重列自会重新触发 `watch()`——
+      消除「已登记但无主观察者 → 该目录从此静默不再监视」的静默丢失。
 - [x] 文档提供者真实测试（模拟器仪器实测 19 条全绿，0 失败）：新增
       ① 新建重名落 `dup (2).txt`（序号插扩展名前）② 新建重名目录同 ③
       改名撞名同 ④ tree 前缀删除终端侧创建文件——直接对准用户真机日志里
@@ -838,9 +841,45 @@
       2 行/秒 WARN——改按非 gate 段之和判定；④两仪器用例失败路径无 finally——
       重名目录与 tree 删除用例补齐收尾。
 - [x] 渲染循环验收报告 PASS（账目恒等式、无死变量/空引用、节律与分级逐项核对）。
-      台账既有措辞勘误：台账第十六节「`startWatching()` 返回 false」实为抛
-      IOException（`FileObserver.startWatching()` 无返回值），致辞已按实际语义改写。
+      此节曾把「`startWatching()` 返回 false」勘为「抛 IOException」——该勘误
+      本身仍是二次推断（AOSP 13+ 平台实况是两者皆非：返回 void、不抛、失败
+      静默落 `wfds[i]=-1`），已在十八节按源码级事实再次如实改写。
 - [x] 复验：spotlessCheck+detekt+`:app:testDebugUnitTest` 全绿；
       `openspec validate --all --strict` 33 passed / 0 failed；check.nu 全绿。
 - [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
       用户日志到达后立即判读）。
+
+## 十八、第三/四轮独立审阅闭环与平台事实修正
+
+- [x] 三轮审阅（F1-F3 已修，a3c5d7ec/c1e66b17）：①spec 正文/Scenario 的
+      消歧名一致（`b (2).txt`）②2 处仪器 KDoc 与断言对齐 ③watch 兜底当时补
+      `stopWatching` 半初始化保险；新增「终端侧 DELETE 真实 inotify 通知」与
+      「含点目录 `My (2).Dir`」两条测试（模拟器仪器 20/20、单测 582/0）。
+- [x] 四轮审阅发现实质问题并逐一修复：d8802045 的异常式 watch 失败撤回
+      （try/catch+stopWatching）在 `minSdk 33` 平台不可达——AOSP 13+ 的
+      `FileObserver.startWatching()` 为 void、native `inotify_add_watch`
+      失败静默置 `wfds[i]=-1`（源码级核对 android_util_FileObserver.cpp 与
+      FileObserver.java）。修正为「目录此刻存在」前置检查：目录已消失
+      便不登记占位，客户端下次重列重新触发 watch()——真正消除「静默
+      失守」占位（死代码删除，错误路径不再假设平台行为）。
+- [x] 台账勘误再收正：十六/十七节的「startWatching 抛 IOException」二次
+      推断按源码事实改写为「失败静默落 -1」，前置检查修复口径以此为准。
+- [x] Speclist 更新：`DocumentsProviderInstrumentedTest` 仪器总数 19→20；
+      render-loop-scroll-cadence spec 三 Requirement 律例全部映射并经
+      四轮逐行核对（250ms/17ms/500ms/5s 常量、`hasScrollMotion` 入门控、
+      `scope.launch` 走 IO、趋势留渲染线程）。
+- [x] 期间复验：`DocumentsProviderTest.offsetBy` Robolectric reset NPE
+      （`openDocument…`/`copyDocument of symlink…` 两个不同点、单跑皆绿）
+      属 sandbox teardown flake，不属产品回归；`:app:testDebugUnitTest`
+      全量 582/0、`:app:connectedDebugAndroidTest` 全量重跑 BUILD FAILED→
+      同用例单跑全绿，已如实记录。
+- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
+      用户日志到达后立即判读）。
+
+## 十九、用户真机崩溃栈 OverlappingFileLockException 的排查结论（非本仓成因）
+
+- [x] 排除证据链已固化：用户在 `kyehn-patch-1` 第四次上传的崩溃栈（`ZTE 7552N / SDK 33 / release 13 / TARGET_SDK 30 / VER 2.26.10(26101061)`，全混淆类名如 `l.۬۬ᩳ`）与本仓代码零重叠——
+  - [x] 本仓 `versionName = "0.1.0"`、`versionCode = 2000`（`android/app/build.gradle.kts:43-44`），与栈头 `VER 2.26.10(26101061)` 不匹配；
+  - [x] 本仓 release 构建有 `-dontobfuscate`（`android/app/proguard-rules.pro`），不会产出 `l.۬۬ᩳ` 形态的混淆名；
+  - [x] 全仓 `*.kt`/`*.rs` 检索 `FileChannel|tryLock|FileLock` 零命中（`grep -rn` 实测无输出），java.nio 仅出现在测试代码的 `java.nio.file.Files`/`ByteBuffer` 用例；
+  - [x] 栈中 `FileChannel.tryLock` 双重加锁（`OverlappingFileLockException`）属于另一个应用程序自身 JVM 代码的文件锁配对错误，本仓不涉及任何文件锁语义，无需修复。
