@@ -314,9 +314,10 @@ internal class DocumentMutations(private val context: Context, private val rootD
     }
 
     /**
-     * 冲突名序号：无扩展名（或目录）直接尾部追加 ` (n)`；有扩展名把序号插在
-     * 点前。只看最后一个 `.` 是否落在名字内部（前导点位指向隐藏文件不算
-     * 扩展名，`.gitignore` 仍整体作为基础名处理）。
+     * 冲突名序号：有扩展名把序号插在最后一个点前（`a.txt` → `a (2).txt`）；
+     * 无扩展名（`lastIndexOf` 得 -1）或前导点（`.gitignore`，点在首位不算
+     * 扩展名）则整体作为基础名尾部追加 ` (n)`。目录与文件共用同一规则，
+     * 含点的目录名同样点前插序号（桌面/SAF 惯例一致）。
      */
     private fun deconflictedName(baseName: String, index: Int): String {
         val dot = baseName.lastIndexOf('.')

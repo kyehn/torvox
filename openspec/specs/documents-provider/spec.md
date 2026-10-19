@@ -234,7 +234,7 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 #### Scenario: 重命名撞上已存在的名字
 
 - **WHEN** 客户端把 `a.txt` 重命名为已存在的 `b.txt`
-- **THEN** 落盘为 `b.txt (2)` 并返回其 docId，`b.txt` 的原内容 MUST NOT 被覆盖
+- **THEN** 落盘为 `b (2).txt`（序号插在扩展名前）并返回其 docId，`b.txt` 的原内容 MUST NOT 被覆盖
 
 ### Requirement: 重命名到自身是空操作
 
