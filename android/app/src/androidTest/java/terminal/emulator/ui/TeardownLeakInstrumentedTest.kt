@@ -90,7 +90,7 @@ class TeardownLeakInstrumentedTest : TerminalLogcatTest() {
     /** 挂全屏选区并以菜单「复制」项出现在 UiAutomator 树为出现信号。 */
     private fun showSelectionOnTerminal() {
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            val packed = composeTestRule.getBridge()!!.getGridRowsColsPacked()
+            val packed = checkNotNull(composeTestRule.getBridge()) { "桥接必须就绪" }.getGridRowsColsPacked()
             val rows = (packed ushr 32).toInt()
             val cols = (packed and 0xFFFFFFFFL).toInt()
             activity.terminalViewModel.startSelection(0, 0)

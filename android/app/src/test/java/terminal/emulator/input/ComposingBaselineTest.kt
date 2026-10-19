@@ -185,7 +185,7 @@ class ComposingBaselineTest {
     fun `reconciling a replaceRange result rewrites only what follows the common prefix`() {
         val baseline = ComposingBaseline()
         baseline.compose("abcdef", newCursorPosition = 0)
-        val target = baseline.replaceRange(2, 4, "X")!!
+        val target = checkNotNull(baseline.replaceRange(2, 4, "X")) { "replaceRange 必须成功" }
         // 与既有差分出口对接：`ComposingDiff` 的既定策略是「最长公共前缀 + 其后重打」，
         // 故前缀 "ab" 之后的 "cdef" 整体退格，再补新的 "Xef"。
         val edit = ComposingDiff.reconcile(baseline.text, target)

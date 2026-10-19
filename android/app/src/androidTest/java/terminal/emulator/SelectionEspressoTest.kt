@@ -391,6 +391,8 @@ class SelectionEspressoTest : TerminalLogcatTest() {
     }
 
     /** 读剪贴板（系统服务须在主线程取），最长等 5s。 */
+    @Suppress("DEPRECATION") // 读真实系统剪贴板：平台无替代 API
+    @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     private fun awaitClipboardText(): String? {
         var text: String? = null
         val deadline = System.currentTimeMillis() + 5_000
