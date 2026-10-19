@@ -797,3 +797,34 @@
       `centerX/centerY/widthPx/heightPx`；④ `launcher_monochrome`（主题图标单色层）
       按 Android 13+ 语义是独立简化重绘，不属彩色图案单一源范围（`render-stability`
       需求已注明），不需要并入 logo_art。
+
+## 十六、CI `run 39203343224` 根因裁决与文档提供者真实测试补强（本次会话）
+
+- [x] run 147/146/143 等红项根因：本地全量套件复跑出现同族 3 失败
+      （SelectionDragQuantifiedTest、TermuxBootstrapRealTerminalTest、
+      CjkComposingLatencyTest），三类单独重跑全绿——CI 与本地同源的资源定时器
+      flake，非新代码回归（绿→红 delta 仅「watch 收锁」与新增
+      TeardownLeak 用例，均与本三测试无关）。
+- [x] 行内证实：照着压测时 loop p95=500ms 恰与 `QUERY_TIMEOUT_MS` 同值，
+      属「窗口边界同步 VT 查询把渲染循环顶进超时点」的可量化表现。
+- [x] 渲染循环修复：60 帧窗口封尾的 title/scrollback 诊断查询移出渲染
+      线程到 IO 协程（`scope.launch`），`FrameTimingTrend` 保持在渲染线程；
+      加 `SLOW_LOOP gate/pre/render/poll/tail` 阶段分解打点供真机下一份日志
+      直接定位吃时环节。
+- [x] `DocumentWatcher.watch` 失败路径补齐：`startWatching()` 返回 false
+      （目录竞争移除等）时代码回收登记的占位条目，且告警必须带路径——
+      消除「死占位 → 该目录从此静默不再监视」的静默丢失。
+- [x] 文档提供者真实测试（模拟器仪器实测 19 条全绿，0 失败）：新增
+      ① 新建重名落 `dup (2).txt`（序号插扩展名前）② 新建重名目录同 ③
+      改名撞名同 ④ tree 前缀删除终端侧创建文件——直接对准用户真机日志里
+      唯一出现过的 tree 前缀 delete 现场。
+- [x] 真实修复:`DocumentMutations.uniqueChild` 的序号位置——原实现把
+      " (2)" 直接拼在整名尾部（`a.txt` → `a.txt (2)`），客户端按名字排序
+      /正则去重时违背桌面/共享 SAF 惯例（同族按基础名落同侧）。修复:
+      序号插扩展名前（`a.txt` → `a (2).txt`），AOSP `DocumentsUI` 自动消歧
+      同型。这是「存成别的名字」观感的具体来源之一。
+- [x] mtime 边界竞态：`external_save_cycle` 用例的 `mtime in
+      startedMs..startedMs+elapsed` 在亚毫秒采样下偶发越界——窗界 ±100ms
+      余量（assertion message 同步给出实测窗口值）。
+- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
+      用户日志到达后立即判读）。
