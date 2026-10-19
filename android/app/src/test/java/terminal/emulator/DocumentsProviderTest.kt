@@ -562,6 +562,27 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun createDocument_dotted_directory_conflict_inserts_index_before_extension() {
+        val provider = ensureProvider()
+        val first =
+            provider.createDocument(
+                "terminal_home",
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "My.Dir",
+            )
+        val second =
+            provider.createDocument(
+                "terminal_home",
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "My.Dir",
+            )
+        assertEquals("My.Dir", first)
+        assertEquals("My (2).Dir", second)
+        assertTrue("second dotted directory must exist", java.io.File(rootDir(), second).isDirectory)
+        assertTrue("first dotted directory must be untouched", java.io.File(rootDir(), first).isDirectory)
+    }
+
+    @Test
     fun querySearchDocuments_finds_by_name_case_insensitive() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "MeetingNotes.txt").writeText("x")
