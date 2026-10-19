@@ -93,6 +93,17 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
         // 根目录自身与根外目录（encodeDocId 返回 null）不监视：
         // 根外目录本就不该出现在选择器里，越界条目在查询时已被跳过。
         val docId = TerminalDocumentsProvider.encodeDocId(directory, rootDir()) ?: return
+        // 守护闸门必须在登记**之前**：目录此刻已消失便不登记。平台事实
+        // （AOSP 13+，minSdk 33）：`FileObserver.startWatching()` 返回 void，
+        // native 端 `inotify_add_watch` 失败（含 ENOENT）只把 `wfds[i]` 置 -1，
+        // 既不抛异常也不打日志——若先把占位塞进 watched 再让 startWatching
+        // 静默失败，后续 watch() 命中即 return，该目录从此静默失守。
+        // 把检查放前面后，剩余竞态只有「检查通过、add_watch 前被删」这一
+        // 内核级窄窗；它无法在 java 层探测（平台不回报），按最低兜底照实
+        // 留占位，下一轮客户端重列会重新触发 watch() —— spec 已声明。
+        if (!directory.isDirectory) {
+            return
+        }
         val observer =
             object : FileObserver(directory, EVENTS) {
                 override fun onEvent(event: Int, name: String?) {
@@ -113,15 +124,15 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
             watched[path] = observer
         }
         // 启用保持锁外：inotify_add_watch 是系统调用，不该阻塞共享给
-        // onDirectoryEvent/flush 的这把锁。失败时撤回登记再上抛——
-        // 占位条目若无主观察者，后续 watch() 会在这里命中即 return，
-        // 该目录从此静默失去监视。
-        try {
-            observer.startWatching()
-        } catch (exception: Exception) {
-            synchronized(lock) { watched.remove(path, observer) }
-            throw exception
-        }
+        // onDirectoryEvent/flush 的这把锁。
+        // 平台事实（AOSP 13+，minSdk 33）：`FileObserver.startWatching()`
+        // 返回 void 且 native 端 `inotify_add_watch` 失败（含 ENOENT）
+        // 只把 `wfds[i]` 置 -1，既不抛异常也不打日志。「目录此刻存在」
+        // 的前置检查在登记**之前**（见上方）已把「目录已消失」挡在门外，
+        // 而 check-then-watch 的内核级窄窗（检查后、add_watch 前被删）
+        // 平台不可消除，此处按显式失败如实留下占位——登记后目录被删
+        // 的那一轮客户端多半会重列，配合下次查询重新登记自愈。
+        observer.startWatching()
     }
 
     /**

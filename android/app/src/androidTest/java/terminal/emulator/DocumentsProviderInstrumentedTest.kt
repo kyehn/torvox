@@ -456,6 +456,45 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     }
 
     /**
+     * 终端侧删除：用户真机日志里唯一见过的提供者现场是 tree 前缀 docId 的
+     * `deleteDocument`，spec 场景「终端侧删除后列表自动消失」此前只被
+     * CREATE 用例覆盖。本用例用同一真实 inotify 通道复刻 DELETE：
+     * 列表持有方注册观察者后，`rm` 文件必须在 5 秒内收到通知。
+     */
+    @Test
+    fun terminal_side_delete_notifies_open_listing() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val watchDir = File(home, "watch-delete-probe").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        File(watchDir, "to-remove.txt").writeText("x")
+        val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "watch-delete-probe")
+        context.contentResolver.query(childrenUri, null, null, null, null)?.use {
+            assertTrue("探测目录的子项查询必须成功", it.count == 1)
+        }
+        val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+        val observer =
+            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    notified.set(true)
+                }
+            }
+        context.contentResolver.registerContentObserver(childrenUri, true, observer)
+        try {
+            assertTrue("探针删除必须成功", File(watchDir, "to-remove.txt").delete())
+            assertNotNull(
+                "终端侧删除文件后，打开该目录的列表必须收到通知（5 秒内未收到）",
+                UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) { notified.get() },
+            )
+        } finally {
+            context.contentResolver.unregisterContentObserver(observer)
+            watchDir.deleteRecursively()
+        }
+    }
+
+    /**
      * 外部文件管理器经树 URI 前缀寻址时，列表游标必须收到终端侧改动的通知。
      *
      * 用户报障（复制/移动提示「路径已存在」、创建文件失败）的直连回归：客户端把观察者
@@ -694,10 +733,11 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     }
 
     /**
-     * 重名新建走框架允许的消歧（同 Termux 策略）：已存在则追加 " (2)" 后缀
-     * 而非报「路径已存在」。直接覆盖客户端报障「无法创建文件/文件夹：路径已
-     * 存在」这条外来现象的提供者侧契约：无论磁盘上已有同名文件/目录，新建
-     * 必须成功落盘且新名字由返回 URI 下发。
+     * 重名新建走框架允许的消歧（同 Termux 策略）：已存在则生成唯一消歧名
+     * （序号插扩展名前，`dup-create-probe (2).txt`）而非报「路径已存在」。
+     * 直接覆盖客户端报障「无法创建文件/文件夹：路径已存在」这条外来现象的
+     * 提供者侧契约：无论磁盘上已有同名文件/目录，新建必须成功落盘且新名字
+     * 由返回 URI 下发。
      */
     @Test
     fun create_conflicting_name_lands_with_suffix() {
@@ -753,7 +793,8 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
 
     /**
      * 重名 rename 的消歧与 create/copy/move 同策略：改名为磁盘已有名字时
-     * 追加 " (2)"，绝不静默失败——客户端依然拿到新 URI，重列即见新名字。
+     * 生成唯一消歧名（序号插扩展名前），绝不静默失败——客户端依然拿到新
+     * URI，重列即见新名字。
      */
     @Test
     fun rename_to_conflicting_name_lands_with_suffix() {
