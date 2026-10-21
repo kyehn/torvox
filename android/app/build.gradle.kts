@@ -146,7 +146,7 @@ dependencies {
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0-RC")
+  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
 
   releaseImplementation("androidx.profileinstaller:profileinstaller:1.4.1")
   testImplementation("org.robolectric:robolectric:4.17")

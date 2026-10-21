@@ -26,7 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 @Composable
 internal fun SystemBarsFollowBackground(view: View, background: Color) {
     val window = (view.context as? Activity)?.window ?: return
-    val lightBackground = usesLightSystemBarIcons(background)
+    val lightBackground = hasLightBackground(background)
     SideEffect {
         // 显式声明图标明暗：`WindowCompat.enableEdgeToEdge(window)` 按**系统**深浅色
         // 决定，且不接受样式参数；`SystemBarStyle` 那套只挂在已弃用的
@@ -40,12 +40,15 @@ internal fun SystemBarsFollowBackground(view: View, background: Color) {
 }
 
 /**
- * 系统栏图标是否取深色：背景为浅色时取深色图标（WCAG 相对亮度中点为界）。
+ * 背景是否为浅色（WCAG 相对亮度中点为界）。浅色背景上系统栏图标取深色。
  *
  * 按背景像素而非软件主题开关判定：图标最终画在该背景上，浅色背景配夜间开关时
  * 按开关判会判反。
+ *
+ * 名字说的是「背景浅不浅」而不是「图标浅不浅」——后者是结论，会随平台对
+ * `isAppearanceLightStatusBars` 的语义理解而反转。
  */
-internal fun usesLightSystemBarIcons(background: Color): Boolean =
+internal fun hasLightBackground(background: Color): Boolean =
     background.luminance() > LIGHT_BACKGROUND_LUMINANCE_THRESHOLD
 
 /** 背景亮度高于此值即按浅色背景处理（图标取深色）。取 WCAG 相对亮度中点。 */

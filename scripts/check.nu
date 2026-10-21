@@ -4,6 +4,10 @@ def main [] {
     cd native
     cargo fmt --all -v -- --check
     cargo clippy --all-targets -- --deny warnings
+    # 约 1100 行代码只在 `#[cfg(target_os = "android")]` 下编译（FFI、字体库、
+    # Vulkan 后端），主机目标的 clippy 完全看不到它们。Android 目标必须单独
+    # lint 一次，否则那部分代码的告警永远没人看。
+    cargo ndk -t arm64-v8a clippy --all-targets -- --deny warnings
     cargo machete --with-metadata
     cargo test --no-fail-fast
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -15,6 +19,9 @@ def main [] {
     cd ..
     semgrep scan --error --dataflow-traces --time --config .semgrep/rules.yml
     markdownlint-cli2 "**/*.md"
+    # openspec 规范是契约快照：门禁必须自己盯住它，否则规范与实现的漂移
+    # 只能靠人工发现（曾出现过：规范条目超长、拆分后未同步）。
+    openspec validate --all --strict
     cd android
     ./gradlew --continue detekt spotlessCheck app:dokkaGenerate lintDebug lintVitalRelease assembleDebugAndroidTest testDebugUnitTest benchmark:compileBenchmarkReleaseKotlin baselineprofile:compileNonMinifiedReleaseKotlin -Dorg.gradle.internal.test.results.binary.enabled=false
 }

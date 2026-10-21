@@ -30,14 +30,14 @@ class SystemBarIconThemeTest {
 
     @Test
     fun `light background asks for dark icons`() {
-        assertTrue(usesLightSystemBarIcons(Color(0xFFFFFFFF)))
-        assertTrue(usesLightSystemBarIcons(Color(0xFFF8F8F2)))
+        assertTrue(hasLightBackground(Color(0xFFFFFFFF)))
+        assertTrue(hasLightBackground(Color(0xFFF8F8F2)))
     }
 
     @Test
     fun `dark background asks for light icons`() {
-        assertFalse(usesLightSystemBarIcons(Color(0xFF000000)))
-        assertFalse(usesLightSystemBarIcons(Color(0xFF101020)))
+        assertFalse(hasLightBackground(Color(0xFF000000)))
+        assertFalse(hasLightBackground(Color(0xFF101020)))
     }
 
     /**
@@ -50,7 +50,7 @@ class SystemBarIconThemeTest {
                 fakeTheme("test_light", Color(0xFFFFFFFF)),
                 fakeTheme("test_dark", Color(0xFF101020)),
             )
-        val lightThemes = themes.filter { usesLightSystemBarIcons(it.background) }.map { it.name }
+        val lightThemes = themes.filter { hasLightBackground(it.background) }.map { it.name }
         assertTrue(
             "浅色主题不应为空，否则本用例无判别力",
             lightThemes.isNotEmpty(),
@@ -60,7 +60,7 @@ class SystemBarIconThemeTest {
             lightThemes.size < themes.size,
         )
         for (theme in themes) {
-            val light = usesLightSystemBarIcons(theme.background)
+            val light = hasLightBackground(theme.background)
             val luminance = theme.background.luminance()
             assertTrue(
                 "主题 ${theme.name} 判据与亮度自洽：light=$light luminance=$luminance",
@@ -72,6 +72,6 @@ class SystemBarIconThemeTest {
     /** 深色背景下图标必须是浅色。 */
     @Test
     fun `dark background uses light icons`() {
-        assertFalse(usesLightSystemBarIcons(Color(0xFF101020)))
+        assertFalse(hasLightBackground(Color(0xFF101020)))
     }
 }
