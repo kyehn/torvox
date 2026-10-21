@@ -836,7 +836,7 @@
       全量仪器套件已多次完整跑通。用户设备日志（本变更所附的 logcat）已判读：
       慢帧集中在光栅化与应用调度，不在本仓可控段内。
 
-## 十七、第二轮独立审阅（子代理无偏视角）并修复
+## 十七、独立审阅（子代理无偏视角）并修复
 
 - [x] 两路子代理独立审阅（组合审阅 + 渲染循环验收）：代码本体 0 阻断缺陷；
       发现并修复 4 项：①spec `b.txt (2)` 与实现 `b (2).txt` 直接矛盾（已同步）；
@@ -855,13 +855,13 @@
       全量仪器套件已多次完整跑通。用户设备日志（本变更所附的 logcat）已判读：
       慢帧集中在光栅化与应用调度，不在本仓可控段内。
 
-## 十八、第三/四轮独立审阅闭环与平台事实修正
+## 十八、多次独立审阅的闭环与平台事实修正
 
-- [x] 三轮审阅（F1-F3 已修）：①spec 正文/Scenario 的
+- [x] 审阅发现的 F1-F3 已修：①spec 正文/Scenario 的
       消歧名一致（`b (2).txt`）②2 处仪器 KDoc 与断言对齐 ③watch 兜底当时补
       `stopWatching` 半初始化保险；新增「终端侧 DELETE 真实 inotify 通知」与
       「含点目录 `My (2).Dir`」两条测试（模拟器仪器 20/20、单测 582/0）。
-- [x] 四轮审阅发现实质问题并逐一修复：异常式 watch 失败撤回
+- [x] 另一次审阅发现实质问题并逐一修复：异常式 watch 失败撤回
       （try/catch+stopWatching）在 `minSdk 33` 平台不可达——AOSP 13+ 的
       `FileObserver.startWatching()` 为 void、native `inotify_add_watch`
       失败静默置 `wfds[i]=-1`（源码级核对 android_util_FileObserver.cpp 与
@@ -892,7 +892,7 @@
   - [x] 全仓 `*.kt`/`*.rs` 检索 `FileChannel|tryLock|FileLock` 零命中（`grep -rn` 实测无输出），java.nio 仅出现在测试代码的 `java.nio.file.Files`/`ByteBuffer` 用例；
   - [x] 栈中 `FileChannel.tryLock` 双重加锁（`OverlappingFileLockException`）属于另一个应用程序自身 JVM 代码的文件锁配对错误，本仓不涉及任何文件锁语义，无需修复。
 
-## 二十、CI 真相校正与本会话全量复证（第六轮审阅）
+## 二十、CI 真相校正与本会话全量复证（含再次独立审阅）
 
 - [x] 十六节勘误（run 归因混叠校正）：对照 run 39203343224 全量日志逐行
       取证，该 run 在 connected 套件中实际只出现一条红

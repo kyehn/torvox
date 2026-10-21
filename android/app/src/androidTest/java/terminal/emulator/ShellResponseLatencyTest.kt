@@ -56,12 +56,18 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
         // 「shell 启动缓慢」的用户口径 = 进程起来到提示符可输入。应用侧埋点已证实不是瓶颈
         // （bridge 创建 2~9ms、spawnTerminal 20~32ms，见 Runtime 的 `bridge created` /
         // `spawnTerminal` 两条），余下等待落在引导链自身——指标把它记下来，供真机日志
-        // `grep UX_METRIC` 直接对标。不设硬断言：进程存活时长受测试类执行顺序影响，
-        // 该值的用法是趋势而非阈值。
-        UxTestUtils.metric(
-            "startup_to_prompt_ms",
-            SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis(),
-        )
+        // `grep UX_METRIC` 直接对标。
+        //
+        // 读应用自己采到的冷启动度量（进程启动 → 首帧 / 首个 PTY 输出），**不**在这里
+        // 现算 `uptimeMillis - getStartUptimeMillis()`：测试类排在本套件后面跑时，
+        // 那个差值是「测试跑到现在过了多久」（实测 484 秒），与启动耗时无关。
+        val startup = composeTestRule.activity.terminalViewModel.runtime.startupMetrics.value
+        startup.startupToFirstFrameMs?.let {
+            UxTestUtils.metric("startup_to_first_frame_ms", it)
+        }
+        startup.startupToFirstOutputMs?.let {
+            UxTestUtils.metric("startup_to_first_output_ms", it)
+        }
 
         val latencies = mutableListOf<Long>()
         for (index in 1..SAMPLES) {

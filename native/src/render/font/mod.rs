@@ -268,7 +268,7 @@ mod tests {
         );
     }
 
-    /// 非 CJK 系统语言下，本身覆盖 CJK 的主字体必须报 `Skipped`，不是 `None`。
+    /// 非 CJK 系统语言下，本身覆盖 CJK 的主字体必须报「已跳过」，不是「缺失」。
     ///
     /// `cjk_probe_char("en-US")` 返回 `None`，其语义是「本 locale 没有分片代表
     /// 字符」，不是「主字体不支持 CJK」；早先的实现把两者混为一谈，于是英文系统下
@@ -276,6 +276,9 @@ mod tests {
     /// 在设置页被报成「未检测到 CJK 备用字体」——一个本无需回退的主字体却显示
     /// 明确错误提示。分片代表字符只用于「CN 字体未必覆盖谚文」这类匹配，不能
     /// 反过来当作主字体的能力上限。
+    ///
+    /// 报出的必须是**非 CJK 语言**这一条：语言回退层按平台语义只对 CJK 语言
+    /// 声明，故英文系统下的缺席原因是语言，与主字体是否覆盖汉字无关。
     #[test]
     fn cjk_primary_under_non_cjk_locale_reports_skipped_not_none() {
         use crate::render::font::font_db;
@@ -313,7 +316,46 @@ mod tests {
             "非 CJK locale 不装回退层，却得到 {:?}",
             info.cjk_families
         );
-        assert_eq!(info.cjk_state, CjkFallbackState::Skipped);
+        assert_eq!(info.cjk_state, CjkFallbackState::SkippedNonCjkLocale);
+    }
+
+    /// 「按设计跳过」与「确实缺失」必须分开：非 CJK 语言下无论主字体是否覆盖
+    /// 汉字，回退层都按平台语义不装——那是正常状态，不是「未检测到」。
+    ///
+    /// 早先的实现只按「主字体是否覆盖代表字符」二分：英文系统 + 拉丁等宽主字体
+    /// 会落进 `None`，设置页于是对一台完全正常的机器报「未检测到 CJK 备用字体」。
+    #[test]
+    fn non_cjk_locale_never_reports_missing_cjk_fallback() {
+        use crate::render::font::pipeline::CjkFallbackState;
+
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        pipeline.set_system_locale("en-US");
+        let info = pipeline.font_info();
+        assert_eq!(
+            info.cjk_state,
+            CjkFallbackState::SkippedNonCjkLocale,
+            "非 CJK 语言下的缺席是按设计为之，不得报成缺失"
+        );
+        assert!(
+            info.cjk_families.is_empty(),
+            "非 CJK 语言不装语言回退族，却得到 {:?}",
+            info.cjk_families
+        );
+    }
+
+    /// 系统语言未知时同样是「按设计跳过」，不是缺失。
+    #[test]
+    fn unknown_locale_reports_skipped_not_missing() {
+        use crate::render::font::pipeline::CjkFallbackState;
+
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+        pipeline.find_cjk_fallback_fonts("");
+        let info = pipeline.font_info();
+        assert_eq!(
+            info.cjk_state,
+            CjkFallbackState::SkippedLocaleUnknown,
+            "语言未知时无从判断是否需要回退族，不得报成缺失"
+        );
     }
 
     /// 早先的族名子串启发式与探测会相反（族名带 CJK 字样但 charmap 无该码位），

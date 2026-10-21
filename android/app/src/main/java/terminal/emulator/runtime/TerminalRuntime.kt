@@ -54,6 +54,16 @@ data class RuntimeState(
 )
 
 /**
+ * 冷启动度量（毫秒）：以**进程启动**为原点。
+ *
+ * - [startupToFirstFrameMs]：到第一帧真正上屏（用户看到的「app 打开了」）。
+ * - [startupToFirstOutputMs]：到首个 PTY 输出（shell 的提示符落格，shell 真的可用了）。
+ *
+ * 两者都为 null 表示尚未发生（首帧未出 / shell 未说话）。
+ */
+data class StartupMetrics(val startupToFirstFrameMs: Long? = null, val startupToFirstOutputMs: Long? = null)
+
+/**
  * spawn 的结果：原生会话 id，以及建 PTY 时实际使用的网格。
  *
  * 网格一并带出是因为它不再等于任何默认值（见 [initialSpawnGrid]）：调用方发布
@@ -361,6 +371,34 @@ constructor(
     private fun publishSurfaceBufferPresent(present: Boolean) {
         if (surfaceBufferPresentFlow.value == present) return
         surfaceBufferPresentFlow.value = present
+    }
+
+    /**
+     * 冷启动度量：进程启动到「首帧上屏」与「首个 PTY 输出」的耗时。
+     *
+     * 两个口径对应用户的两种抱怨：「app 打开慢」看首帧，「shell 启动慢」看首个输出
+     * （提示符落格的那一刻 shell 才真的可用）。两者都以**进程启动时刻**为原点，
+     * 故必须在进程内采集——测试进程事后读 `Process.getStartUptimeMillis()` 只能得到
+     * 「测试跑到现在过了多久」，不是启动耗时。
+     */
+    private val startupMetricsFlow = MutableStateFlow(StartupMetrics())
+    val startupMetrics: StateFlow<StartupMetrics> = startupMetricsFlow.asStateFlow()
+
+    /** 进程启动至今的毫秒数（uptime 时基，与 `Process.getStartUptimeMillis()` 同源）。 */
+    private fun elapsedSinceProcessStartMs(): Long =
+        android.os.SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis()
+
+    /** 渲染线程写；只在值真正变化时发布。 */
+    private fun publishStartupMetrics(startupToFirstFrameMs: Long? = null, startupToFirstOutputMs: Long? = null) {
+        val current = startupMetricsFlow.value
+        val next =
+            StartupMetrics(
+                startupToFirstFrameMs = startupToFirstFrameMs ?: current.startupToFirstFrameMs,
+                startupToFirstOutputMs = startupToFirstOutputMs ?: current.startupToFirstOutputMs,
+            )
+        if (next != current) {
+            startupMetricsFlow.value = next
+        }
     }
 
     /**
@@ -1557,6 +1595,7 @@ constructor(
                                             // 冷启动耗时的唯一终点标记：系统启动屏等到这里才撤下，
                                             // 故「进程启动 → 本行」就是用户看到的启动时长。
                                             LogUtil.i(TAG, "first frame presented")
+                                            publishStartupMetrics(startupToFirstFrameMs = elapsedSinceProcessStartMs())
                                         }
                                         val newOutput = renderResult.newOutput
                                         val lastContentRow = renderResult.lastContentRow
@@ -1602,6 +1641,9 @@ constructor(
                                             // 500ms 空闲闭锁因而永不生效。持续输出流
                                             // （tail -f、ping、gradle）总是携带 newOutput，故保持活跃。
                                             entry.lastSignalNanos = System.nanoTime()
+                                            // 首个 PTY 输出 = shell 真的开始说话了（提示符已落格）：
+                                            // 「进程启动 → 这一刻」是用户口径的「shell 启动慢」。
+                                            publishStartupMetrics(startupToFirstOutputMs = elapsedSinceProcessStartMs())
                                             // 滚动语义（termux onScreenUpdated 对等）：消费原生 new_output
                                             // 标志（PTY 摄入的旁路标志，而非同样统计空闲重绘的
                                             // render() 计数），且仅在无选区/拖拽、SCROLL 锁关闭、
