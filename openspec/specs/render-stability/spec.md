@@ -155,8 +155,10 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 
 #### Scenario: 重建请求限流
 
-- **WHEN** 失效位持续为 1（重建无望）
-- **THEN** 请求间隔 MUST ≥ 最小间隔，单会话请求次数 MUST ≤ 上限，超过后停止并告警一次
+- **WHEN** 失效位持续为 1
+- **THEN** 前 `SURFACE_RECREATE_MAX_ATTEMPTS` 次请求间隔 MUST ≥ 最小间隔（500ms）；
+      用尽后 MUST 转为慢重试（间隔 ≥ 5s）并只告警一次，MUST NOT 永久停止请求——
+      平台迟迟不交付新窗口时，停止请求等于把渲染线程钉在死窗口上，用户看到永久空白
 
 ### Requirement: 切换会话后呈现新会话的整幅内容
 

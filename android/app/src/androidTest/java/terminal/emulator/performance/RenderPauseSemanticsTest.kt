@@ -44,7 +44,7 @@ class RenderPauseSemanticsTest : TerminalLogcatTest() {
             // 暂停/恢复语义由网格与返回码相对关系验证。
             val firstRender = NativeBridge.render(sessionId, 0, 0)
             android.util.Log.i("PauseProbe", "firstRender=$firstRender")
-            NativeBridge.setRenderPaused(sessionId, true)
+            NativeBridge.setRenderPaused(true)
             try {
                 NativeBridge.feedTerminal(
                     sessionId,
@@ -57,7 +57,7 @@ class RenderPauseSemanticsTest : TerminalLogcatTest() {
                 assertNotNull("暂停期写入必须落格", second)
                 assertTrue("暂停期 render 必须返回 0", NativeBridge.render(sessionId, 0, 0) == 0)
             } finally {
-                NativeBridge.setRenderPaused(sessionId, false)
+                NativeBridge.setRenderPaused(false)
             }
             val presented = NativeBridge.render(sessionId, 0, 0)
             android.util.Log.i("PauseProbe", "resumedRender=$presented")

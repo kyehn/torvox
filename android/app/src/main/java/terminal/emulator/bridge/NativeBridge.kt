@@ -382,8 +382,11 @@ object NativeBridge {
      */
     @JvmStatic external fun getThemeCatalog(): ByteArray?
 
+    /**
+     * 暂停/恢复渲染器。标志挂在唯一的全局渲染器上，与会话无关。
+     */
     @JvmStatic
-    external fun setRenderPaused(sessionId: Long, paused: Boolean)
+    external fun setRenderPaused(paused: Boolean)
 
     /**
      * 测试钩子：开启/关闭持续的 surface 级取纹理失败（等价于 BufferQueue 被遗弃）。

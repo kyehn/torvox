@@ -3562,8 +3562,15 @@ pub(crate) fn pack_font_info(info: &crate::render::font::pipeline::FontInfo) -> 
     for value in [info.cell_width_px, info.cell_height_px, info.font_size] {
         packed.extend_from_slice(&value.to_le_bytes());
     }
-    packed.extend_from_slice(&(names.len() as u16).to_le_bytes());
-    packed.extend_from_slice(&(info.cjk_families.len() as u16).to_le_bytes());
+    // 计数用 u16 承载：族名数量一旦超出就明确报错，不静默回绕
+    // （回绕会让 Kotlin 侧的「名称数与实际个数相符」校验抛异常，
+    //  表现为设置页字体信息崩溃）。panic 由 JNI 守卫转成 Java 异常。
+    let name_count =
+        u16::try_from(names.len()).expect("font family count exceeds the u16 wire field");
+    let cjk_count = u16::try_from(info.cjk_families.len())
+        .expect("cjk family count exceeds the u16 wire field");
+    packed.extend_from_slice(&name_count.to_le_bytes());
+    packed.extend_from_slice(&cjk_count.to_le_bytes());
     for name in &names {
         packed.extend_from_slice(name.as_bytes());
         packed.push(0);
@@ -3789,11 +3796,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSurfaceLoss
 
 /// 暂停/恢复渲染器（如设置界面打开期间或 surface 已销毁时）。Rust 渲染器已在
 /// `render_frame` 中检查 `render_paused`；本 JNI 导出补上缺失的传输通道。
+///
+/// 暂停标志挂在**唯一的全局渲染器**上，与会话无关，故不收会话 id：调用方
+/// 曾经按会话逐个调用（每次都要抢被整帧 GPU 工作持有的渲染状态锁），
+/// 而零会话时又永远清不掉标志——下一个会话会渲染纯黑。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPaused(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    _session_id: jlong,
     paused: jboolean,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
