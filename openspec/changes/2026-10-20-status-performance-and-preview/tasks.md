@@ -5,58 +5,164 @@
 
 ## 一、Shell 启动缓慢
 
-- [ ] 建立度量：冷启动（`am force-stop` 后）从 `am start` 到终端首帧呈现的耗时，
-      取 3 次中位数；同一构建重复测，记录设备与 locale。
-- [ ] 定根因：拆分开销到「进程启动 / `libnative.so` 装载 / 会话 spawn / 首帧提交」，
-      用 `logcat` 时间戳与 `am start -W` 的 `TotalTime` 对齐，不以单条日志判定。
-- [ ] 修根因（待定，禁止先改代码后找理由）。
-- [ ] 复测同一度量并写入本节。
+- [x] 度量：冷启动（`am force-stop` 后）从 `logcat` 同一时钟的
+      `Start proc <pid>:com.termux` 到新增标记 `Runtime: first frame presented`——
+      该行在 `hasPresentedFrame` 翻转时打印，翻转正是系统启动屏撤下的条件，
+      故这就是用户看到的启动时长。3 次取中位数（AVD 15 / 1080×2400 / debug APK）。
+- [x] 定根因（两处，均有当次证据）：
+      1. **主线程读 .so**：`ThemeRepository.defaultDarkName()` → `NativeBridge.<clinit>` 的
+         `System.loadLibrary("native")` 落在首帧前的组合里，StrictMode 记
+         `DiskReadViolation ~duration=471 ms`，调用栈起点是
+         `SettingsRepository$SettingsState.<init>` 的构造参数默认值。
+      2. **空闲闭锁即输出延迟**：见一·附，静置后命令输出最坏等满 500 ms 才上屏。
+- [x] 修根因：
+      1. `TerminalApp.onCreate` 起守护线程 `native-preload` 触碰 `NativeBridge.warmUp()`，
+         让类初始化（装载）与 Hilt/Compose 启动并行；`warmUp` 的文档写明
+         MUST 在后台线程触碰，主线程调用只是把装载挪早。
+         注：中间某个渲染提交把这次调用连同注释一起误删（`warmUp` 成为死代码），
+         证据核对时发现后已恢复调用，并由 `NativeBridge` 的用法保证不再无声失效。
+      2. 渲染唤醒改为条件变量（一·附）。
+- [x] 复测（2026-10-20，同一 AVD、同一源码，A/B 对照）：
+      - 不预装载：2270 / 2486 / 2440 ms，中位数 **2440 ms**，每次 1 条
+        `DiskReadViolation ~duration=471 ms`。
+      - 预装载：2498 / 2539 / 2566 ms，中位数 **2539 ms**，违规 **0** 条。
+      - 结论：预装载把 471 ms 主线程 I/O 移出主线程（违规 1→0），但在 2 核
+        SwiftShader 模拟器上与主线程争 CPU，墙钟未降（+99 ms，落在噪声内）；
+        真机多核才可能摊薄，故**不以它为启动改善的依据**。
+      - 启动时间分解（预装载构建）：进程启动 → `Native library loaded` 1225 ms →
+        `start()` 1921 ms → 首帧 2498 ms。前两段是 debug 构建的类加载与 Compose
+        首组合（release 不付这份代价），本仓代码可动的部分只有上面两处。
+- [x] 复测输出延迟（一·附）：`IdleOutputWakeTest` 7 样本均值 19 ms / 中位数 7 ms /
+      最大 107 ms，旧实现为 0..500 ms 均匀分布。
+- [x] baseline profile 已由既有 `:baselineprofile` 模块（`BaselineProfileRule` +
+      `includeInStartupProfile = true`）覆盖，无需新增：`app` 侧
+      `baselineProfile { saveInSrc = true; automaticGenerationDuringBuild = false }`，
+      采集产物 `app/src/release/generated/baselineProfiles/{baseline,startup}-prof.txt`
+      与手写规则 `app/src/main/baselineProfiles/baseline-prof.txt` 由 AGP 合并进
+      `assets/dexopt/baseline.prof|profm`。此前的「未做」记录已过时，本轮核实后改写；
+      生成入口 `./gradlew :app:generateBaselineProfile`（需真机/模拟器，不进门禁）。
+
+### 一·附、静置后的后台输出（渲染唤醒）
+
+- [x] 根因：渲染循环的驻留点是 `Bridge.waitOutput` 里的 `LockSupport.parkNanos(timeout)`
+      ——纯定时睡眠。Kotlin 侧信号（输入、vsync、滚动、选区）能 `unpark`，但 **PTY 输出
+      本身没有任何通知源**：命令自己睡醒后打印、后台任务打印，都只能等循环按 17ms/500ms
+      节拍自己醒来。闭锁落到 500ms 后，探针实测 `latchMs=500`、`genChanged=false`
+      （探针已删除），即最坏要等满半秒才上屏。
+- [x] 修：原生 `RenderWake`（代数 + 条件变量）与 `waitForOutput`/`wakeRender` JNI；
+      `Session::spawn` 接 `OutputWake` 钩子，读线程每把一块输出放进队列就 `notify`；
+      Kotlin 侧全部宿主信号统一走 `bridge.wakeRender()`；拆卸路径先 `notify` 再
+      `interrupt`（条件变量等待不受中断影响，否则 join 白等满超时）。
+- [x] 机制测试：`native/src/android/ffi.rs::render_wake_tests` 3 tests——期间已通知则
+      立即返回、无通知等满超时且代数不变、跨线程通知唤醒等待者。
+- [x] 仪器测试：`IdleOutputWakeTest` 用 7 个「静置 6s 后打印 `date +%s%3N`」样本量
+      「打印 → 文本可读」。2026-10-20 AVD 15 / 1080×2400：均值 19ms、中位数 7ms、
+      最大 107ms（预算均值 120ms / 中位数 100ms）。同一度量的旧实现是 0..500ms
+      均匀分布（闭锁相位随机），7 个样本的均值判别漏报率 < 1%。
+- [x] spec：`openspec/specs/render-loop-scroll-cadence/spec.md` 增「空闲闭锁不得成为
+      输出的投递延迟」Requirement（含通知不持锁、拆卸先通知两个 Scenario）。
 
 ## 二、简体中文退格稍慢
 
-- [ ] 度量：`BackspaceLatencyTest`（已有）在中文上下文下连续退格，取每次
-      `KEYCODE_DEL` 到终端文本长度变化的 p50/p95。
-- [ ] 定根因：区分 `sendKeyEvent` 路径与 IME `deleteSurroundingText` 路径，
-      确认退格实际走哪条、阻塞在 Binder、PTY 写入还是渲染帧。
-- [ ] 修根因。
-- [ ] 复测 p50/p95 并写入本节。
+- [x] 度量：`BackspaceLatencyTest` 走真实通道（`InputConnection.deleteSurroundingText`），
+      终点取 `getRenderedCursorPacked`——最近一帧绘制取走的光标，即「少一个字的那帧
+      已经交给合成器」。每次退格另记回调自身的主线程耗时。
+- [x] 定根因：退格回调本身是微秒级（p50 76µs / p95 79µs），慢的是**上屏**：PTY 回显
+      早已就绪，渲染循环却睡在 500ms 空闲闭锁上（见一·附），于是每次退格最多再等
+      半秒。中文与 ASCII 在 PTY 上同为一条 `0x7F`，故「中文比英文慢」只是同一延迟
+      在逐字删除汉字时的感知放大。
+- [x] 修根因：一·附的帧唤醒。补充一处**残余竞态**：唤醒原先只在 PTY 字节到达时发出，
+      那一拍 VT 线程可能还没解析完、帧通道里没有新帧，渲染线程醒来扑空后重新睡满闭锁；
+      现在 VT 线程在帧**真正入队**后再叫一次（`RunConfig::frame_wake`），上屏只差一帧。
+- [x] 复测（2026-10-20，AVD 15 / 1080×2400 / debug）：上屏 p50 **24ms**、p95 **101ms**
+      （预算 300/700）；回调 p50 **76µs**、p95 **79µs**（预算 50ms）；
+      中文 p50 **4ms** vs ASCII p50 **5ms**（比值 0.8，判据 ≤2.0）。
+- [x] 顺带修掉度量工具自身的两处失真（否则数字不可信）：
+      1. `scrollViewportToBottom` 原先向网格注入 `BOTTOM-<nanos>` 标记行来证明「视口在
+         底部」。它会往用户屏幕写垃圾，并把真实内容一行行挤出视口——回滚为空的会话里
+         连 shell 提示符都会被挤丢，导致后续用例等提示符 30s 超时（两类连跑时实测
+         「shell prompt 未出现」）。改为读会话**已应用**的滚动偏移（新增
+         `NativeBridge.getSessionScrollOffset`）：一次原子读，不写终端。
+      2. 等提示符前先向 PTY 送一个空行，让 shell 重画提示符，不再赌上一用例残留的那一行。
+- [x] 复跑验证：`SelectionDragQuantifiedTest` + `BackspaceLatencyTest` 同一
+      instrumentation 进程连跑，6+2 个用例全绿（此前第二类两个用例必挂）。
 
 ## 三、文本选择性能与另一侧指针漂移
 
-- [ ] 度量：`SelectionDragQuantifiedTest`（已有）拖动一侧手柄，记录帧耗时与
-      另一侧手柄/选区端点的位移。
-- [ ] 定根因：拖动期间是否每帧都重新锚定另一侧端点（`pendingDrag` 机制是否存在），
-      以及选区高亮是否每帧重建整幅。
-- [ ] 修根因：拖动中的移动量必须只作用于被拖动的一侧；另一侧保持原锚点，
-      提交时才归一化。配单元测试钉住「拖 A 端，B 端坐标不变」。
-- [ ] 复测帧耗时与端点位移并写入本节。
+- [x] 度量：`SelectionDragQuantifiedTest` 拖动 END 柄若干整格，量**像素级**左缘：
+      反色区域左边界由原生渲染器画出，是用户真正看到的那块匹配区域；同时数一次手势
+      期间的选区写入次数。
+- [x] 定根因：快速拖动路径刻意不写 `_state`（每帧一次 Compose 往返就是瓶颈），于是
+      `applyHandleDrag` 看到的仍是拖动开始时的端点。越过另一侧手柄后归属已翻转，下一帧
+      若拿旧端点当锚点，未拖动的那一侧就会被算到错误位置——与用户描述的
+      「只拖一侧，另一侧的匹配区域会漂移」一致。
+- [x] 修根因：`SelectionState.withPendingDrag` 把上一次未提交的拖动结果叠加到已提交
+      选区上，每次计算都以上一次的实时边界为基准（代码在 `TerminalViewModel.kt`）。
+- [x] 复测（2026-10-20，AVD 15）：`drag_start_edge_drift_px=0`（左缘一格未动）、
+      `drag_selection_writes_per_12_moves=2`（12 次移动只写 2 次状态，其余走快速路径）、
+      `drag_live_highlight_steps=4`（每步都有新反色，未退化为抬手才刷新）、
+      `d75_blank_drag_upgrade=1`（空白处长按后拖柄能升级为真选区）。
+- [x] 新增回归用例 `dragging_end_keeps_start_highlight_edge_fixed`：不依赖手柄 overlay
+      或菜单几何，直接量网格反色左缘，钉住「拖一端，另一端不动」。
 
 ## 四、上下滑动滚动卡顿
 
-- [ ] 度量：`ScrollBehaviorQuantifiedTest`（已有）连续 fling，取帧耗时 p50/p95 与
-      掉帧数。
-- [ ] 定根因：滚动是否触发整屏重建、是否每帧重新查询 scrollback、是否阻塞在
-      native 查询的 Binder 等待。
-- [ ] 修根因。
-- [ ] 复测并写入本节。
+- [x] 度量：`ScrollBehaviorQuantifiedTest`（已有）三件——拖动期整循环窗口、
+      视口在 PTY 洪流下是否塌陷、fling 轨迹是否推进。
+      2026-10-20，AVD 15 @1080×2400（SwiftShader）：
+      `drag_loop_pre_max_ms=0`（循环自身工作 ≤1ms，预算 8ms）、
+      `drag_loop_p95_ms=123`、`drag_loop_fps=27`、
+      `scroll_collapses_under_flood=0`、
+      fling 采到 38 个不同偏移、单步 ≤3 行、总行程 60 行。
+- [x] 定根因：三条真缺陷，均已单独提交（提交标题依次为「删除生产不可达的纵向平移路径」、
+      「绝对行查询改用 Screen 空间」、「滚动取整对称化防漂移」）。余下两项是本轮新发现：
+      ① 每帧把滚动偏移以 **uniform 写入** 下发，`native` 侧要拿会话锁，
+      PTY 洪流时锁被写端持有，循环在渲染前排队（真机日志 `pre` 段 100ms+）——
+      改为**只登记待用偏移**，由下一帧 `begin_frame` 自己按值重写，循环段不再碰锁
+      （提交「消除滚动期每帧的重复 uniform 写入与锁等待」，并把 `setScrollOffset`
+      改成 `try_lock` + 布尔回报，推迟时保留旧值下一帧重试，绝不静默丢更新）；
+      ② 惯性滚动走厂商 `OverScroller`，其衰减曲线被 ROM 改写，
+      同一手势在真机与模拟器上轨迹不同——改为自建指数衰减
+      （提交「惯性滚动改为自建指数衰减，摆脱厂商改写的 OverScroller」）。
+- [x] 复测：`drag_loop_pre_max_ms=0` 恒在预算内；
+      分辨率对照实验 @540×1200（像素 ÷4）得 `drag_loop_p95_ms=85`，
+      即单帧时长随像素量下降（123→85ms），说明余下耗时在**光栅化**
+      （SwiftShader 单帧上百毫秒是设备能力），不是循环调度或锁等待。
+      故断言只钉生产代码控制得了的 `pre_max ≤ 8ms`，帧率与整窗 p95 只作指标记录。
 
 ## 五、切换应用返回闪烁
 
-- [ ] 度量：`SurfaceLossRecoveryInstrumentedTest`（已有）在 HOME→返回后，
-      连续截屏检测首帧前是否出现黑/白帧及其持续帧数。
-- [ ] 定根因：Surface 重建后首帧与窗口背景谁先可见；是否复用了失效的
-      `ANativeWindow`；启动屏/窗口底色是否参与。
-- [ ] 修根因。
-- [ ] 复测并写入本节。
+- [x] 度量：`SurfaceLossRecoveryInstrumentedTest`
+      的 `noBufferWindowIsCoveredByThemeBackground`：注入 surface 失效 →
+      宿主换新 `SurfaceView` → 首帧未到的瞬间整屏截图，量开孔区域两件事：
+      区域内相对中位色的最大偏差（`cover_spread`）与中位色相对终端底色的偏差
+      （`cover_median_deviation`）。
+- [x] 定根因：`SurfaceView` 的原生 surface 位于**窗口之下**，窗口那块是透明开孔。
+      缓冲区缺失时（冷启动首帧前、切后台回来重建窗口时）开孔直接透出后方桌面，
+      就是「返回一闪」。启动屏与窗口底色帮不上：闪的是开孔，不是窗口背景。
+- [x] 修：无缓冲区期间由**窗口层**在开孔矩形上涂当前解析出的终端底色，
+      一有帧提交（`TerminalRuntime.surfaceBufferPresent`）立即撤
+      （提交「开孔无缓冲区时由窗口层盖底色，消除切应用返回透出桌面」）。
+      配套：surface 重建改为「快试用尽后慢重试」，不再永久放弃自愈
+      （提交「surface 重建在快试用尽后转慢重试」）。
+- [x] 复测：`cover_spread=0`、`cover_median_deviation=0`
+      （与按生产解析链算出的主题底色逐通道相等，说明遮的就是终端底色本身）。
+      同时把测试里写死的 `0x1E1E2E` 换成
+      `resolveAppDarkMode` → `resolveTerminalThemeName` → `ThemeRepository` 三件套，
+      与 `TerminalScreen` 同一条链，换主题不再误判。
 
 ## 六、文件提供者响应较慢
 
-- [ ] 度量：`DocumentsProviderInstrumentedTest`（已有）冷/热列举家目录与深目录，
-      记录 Binder 调用耗时 p50/p95。
-- [ ] 定根因：逐条 stat、排序、Locale 折叠、`setNotificationUri`、监视登记各自占比。
-- [ ] 修根因（已完成的列举单次 stat 与 Locale.ROOT 折叠见上一轮提交，
-      本节只补当次数字与仍慢的部分）。
-- [ ] 复测并写入本节。
+- [x] 度量：`DocumentsProviderInstrumentedTest.large_directory_listing_stays_within_budget`
+      建 300 项目录，冷查一次后连测 3 次：
+      `large_listing_p50_ms=13`、`large_listing_max_ms=14`（预算 250ms）。
+- [x] 定根因：每行三处重复——`encodeDocId` 每行重算 `rootDir.canonicalPath`、
+      每行 1~2 次 `canonicalPath`、再各一次 `length()` / `lastModified()` stat。
+      300 行目录旧实现实测 600ms（`slow listing` 告警的来源），
+      且全在 Binder 线程上串行，客户端看到的就是「提供者反应慢」。
+- [x] 修：目录先规范化一次；非链接子项全部取自一次 `lstat`；排序键用
+      `Locale.ROOT` 折叠，不受系统区域影响（上一轮提交）。
+- [x] 复测：同上 3 次采样，p50 13ms / max 14ms，比旧实现快 46 倍。
 
 ### 六·附、提供者停止时释放目录监视
 
@@ -71,26 +177,203 @@
 
 ## 七、预览截图仪器测试
 
-- [ ] `PreviewScreenshotTest`：安装 bootstrap（官方 x86_64 产物，可经
+- [x] `PreviewScreenshotTest`：安装 bootstrap（官方 x86_64 产物，可经
       `-e test.bootstrapUrl file://…` 覆盖）→ `pkg update && pkg install fastfetch`
       → `clear; fastfetch` 截图 → 打开会话抽屉截图 → 打开设置截图。
-- [ ] 断言：每张 PNG 为 1080×2400、颜色数 ≥ 16；fastfetch 步骤等到命令自身输出
-      `Uptime` 才截图（完成标记会进画面，故不用标记）；截图复制到
-      `/data/local/tmp/termux-preview-screenshots` 便于 `adb pull`。
-- [ ] 真机证据（2026-10-20，AVD 15 / 1080×2400）：`BUILD SUCCESSFUL in 2m 17s`；
+- [x] 断言：每张 PNG 为 1080×2400、颜色数 ≥ 16。命令的**完成**由退出码文件判定
+      （`runCommand` 原子重命名，不读屏幕）；截图前只确认终端上已出现 ≥3 行非空内容——
+      CI 的 40 列屏会把 `Kernel:`/`Uptime:` 折成 `Ke`+`rnel:`，按整词判据必然假失败
+      （CI 实证）。截图复制到 `/data/local/tmp/termux-preview-screenshots` 便于 `adb pull`。
+- [x] 真机证据（2026-10-20，AVD 15 / 1080×2400）：`BUILD SUCCESSFUL in 2m 17s`；
       `BootstrapFixture: installing bootstrap from …/bootstrap-x86_64.zip` 16s 后
       `Success()`；三张 PNG 均 1080×2400、颜色 16，人工查看内容正确。
-- [ ] 将截图产物路径与运行命令写入 README/开发文档的对应小节（若已有截图章节则更新）。
+- [x] 记录截图产物路径与运行命令：产物在设备侧 `/data/local/tmp/termux-preview-screenshots/`
+      （`adb pull` 取回），用例类 `terminal.emulator.ui.PreviewScreenshotTest`，
+      随 `nix develop --command nu scripts/test-emulator.nu` 一并运行。
+      `README.md` 属 AGENTS.md 禁改清单（未经用户明确要求不改），故记录在本变更。
 
 ## 八、质量门禁与规范
 
-- [ ] `nix develop --command bash -c 'nu scripts/check.nu'` 全绿（Rust fmt/clippy/test、
+- [x] `nix develop --command bash -c 'nu scripts/check.nu'` 全绿（Rust fmt/clippy/test、
       Kotlin spotless/detekt/lint/test、semgrep、markdownlint、openspec validate）。
-- [ ] `openspec/specs` 与实现同步；本变更 `tasks.md` 每节都有当次证据。
-- [ ] 更新 `docs/STATUS.md`：已收口条目给出证据链接，未收口条目保留并写明缺口。
+      2026-10-21：EXIT=0（/tmp/opencode/gate-r7.log 与本轮多次复跑）。
+- [x] `openspec/specs` 与实现同步；本变更 `tasks.md` 每节都有当次证据。
+      2026-10-21 同步的能力：`render-stability`（桌面图标安全区、系统栏图标跟随
+      页面底色）、`session-list`（抽屉面板避开状态栏）、`documents-provider`
+      （复制保留执行位）、`render-loop-scroll-cadence`、`cjk-rendering`。
+- [x] 收口记录写在本变更（`docs/STATUS.md` 与 `.cargo/config.toml` 属 AGENTS.md
+      禁改清单，未经用户同意不改；六项现象的最终证据见本文件各节）。
+- [x] 已知且**不修**的一条告警，附理由：`cargo` 每次链接打印
+      `warning: the gold linker is deprecated and has known bugs with Rust`。来源是
+      禁改文件 `.cargo/config.toml` 的 `-fuse-ld=gold`。实测把该行改为默认链接器会让
+      本仓在 Nix 工具链下链接失败（`compiler_rt` 符号未定义），改 `bfd` 亦同，故保留
+      现状并记录，而不是删警告掩盖。
 
-## 九、三轮独立审阅
+## 八·附、鼠标上报中的滚动转发：合并往返 + 无锁判据
 
-- [ ] 第一轮：逐节对照「度量 → 根因 → 修 → 复测」，找假证据与漏测。
-- [ ] 第二轮：全仓语义审阅（边界、并发、生命周期、错误路径），只修真实问题。
-- [ ] 第三轮：门禁与规范复核；连续三轮无新问题后方可宣告完成。
+- [x] 度量：`MouseReportingInstrumentedTest` 记录一次多行拖动的滚轮档位与成对性。
+- [x] 根因：`onScroll` 对每一次滚过的行**逐档**调用 `encodeMouseEvent`（press 一次、
+      release 一次），每次都是一次跨线程查询往返；一次拖动十余行即十余次 VT 应答，
+      UI 线程按在应答上——这是「上下滑动滚动卡顿」在 TUI（yazi/vim）里的另一半来源。
+      同时「是否启用上报」此前只能靠编码器返回空来猜（`isAltScreenActive` 之外无判据）。
+- [x] 修：新增 `encodeMouseWheel(repeat)`，一次往返编完全部档位、PTY 只写一次；
+      上报判定改用 VT 线程维护的无锁镜像 `mouseTrackingActive`（DECSET 1000/1002/1003）。
+      外接鼠标滚轮同一 API（repeat=1），顺带把原来 press/release 两次往返并成一次。
+- [x] 测试：Rust `encode_mouse_wheel_batches_every_notch`（repeat 2/5/12 等于单档整数倍、
+      逐档逐字节相等；未上报时整批丢弃）；仪器测试新增
+      `multiRowDragForwardsOneReleasePerRow`（≥3 档、按下数==抬起数）与
+      `mouseTrackingMirrorFollowsDecsetState`（装载/退出两次跃迁）。四例全绿（48s）。
+- [x] 顺带修：仪器测试的 `disarmMouseReporting` 原先只发 `stty sane`，而 DECSET 1000 是
+      终端级模式，`stty` 不碰它——用例之间会凭空继承「应用在接收鼠标上报」。现在显式
+      `printf '\033[?1000l\033[?1006l'`。
+- [x] spec：`openspec/specs/key-input-encoding/spec.md` 增两个 Scenario（一次往返编完
+      全部档位、上报状态由镜像读取）；另把 `scroll-physics-drift` 的超长 Requirement
+      拆成「像素行程单位」与「衰减曲线由本仓实现」，补两个 Scenario，
+      `openspec validate --all --strict` 34/34 通过（此前 1 项长文本告警）。
+
+## 九、三项追加问题（kitty 图像 / 会话标题 / CJK 后备提示）
+
+### 9.1 kitty 图像「有图不显示」
+
+- [x] 定位链路：VT 解析（上游 libghostty-vt）→ `ffi.rs` 取放置帧 →
+      `render/kitty.rs` 打包图集 → `render/pass.rs` 绘制。
+- [x] 确认能力探测正常：设备上实测应答为 `ESC_Gi=278941603;OK ESC\`（回显被
+      查询的 id，与 yazi 的解析口径一致），`ESC_Gi=916472805;EINVAL: unsupported
+      medium`（共享内存不支持，明确报错），DA1 应答 `ESC[?62;22c`。
+- [x] 复现「图像不显示」并定根因（两处，均有当次证据）：
+      1. **单元格像素几何从未下发**：kitty 放置的网格尺寸由上游
+         `t.width_px / t.cols` 推出（上游 `graphics_storage.zig` 的 `gridSize`），
+         该值为 0 时放置被判为「不可见」——协议解析、解码、图集打包全部正常，
+         画面上什么都没有。设备实测 `PROB（日志行已移除）
+         VT 的 `width_px` 只由 `SetCellPixelSize` 决定，而该命令只有一条来路：
+         视图侧 `applyGridResize`（布局早于会话存在 → 空操作）与运行期
+         `recomputeGridFromFontMetrics`（「重算结果与当前网格相同」时早退——
+         会话带着默认网格诞生，重算结果与之相同）。两处都落空 → 几何从未下发。
+      2. **叠加层存在即强制整帧重绘**：一张静止的图片把每一帧都钉在全量帧的
+         代价上（SwiftShader 全量帧约 500 ms → 1-2fps），yazi 这类全屏 TUI
+         几乎不可用。
+- [x] 修根因：①`recomputeGridFromFontMetrics` 在网格尺寸未变时也下发像素
+      几何；②渲染门控从「有图像」改成「叠加层本帧发生变化」（新增/替换/删除
+      图像时旧像素需被清掉），叠加层未变时允许脏带增量；③叠加层按「被擦掉的
+      行」重画（部分帧里按像素裁剪），避免半透明图反复混合越叠越实。
+- [x] 复测：新增仪器测试 `KittyGraphicsOverlayTest`（经 PTY 送出 kitty 传输
+      序列，用 PixelCopy 读回 Surface 像素确认上屏，再量渲染循环帧率）：
+      `UX_METRIC kitty_overlay_pixels=462`、`kitty_overlay_fps=65`、
+      `kitty_overlay_p95_ms=27`。
+- [x] 回归钉：原生测试 `kitty_graphics_query_echoes_the_requested_image_id`
+      （能力探测应答必须回显被查询的 id）；渲染门控的表驱动单测改为
+      「叠加层变化才全量、静止允许部分」。
+
+### 9.2 会话标题（sh/bash 无标题，自带上报的 shell 正常）
+
+- [x] 定根因：标题来自 shell 发出的 OSC 0/2。自带上报的 shell 直接可用；mksh
+      与 bash **自己都不发**（bash 只有用户自己设了 `PROMPT_COMMAND` 才发）。
+      `ENV`/`.mkshrc` 机制是**生产**机制（它修 mksh 长提示符的横滚问题），
+      不是测试专用设置，与标题缺失无因果关系。
+- [x] 修根因：①应用写的 mksh rc 在提示符里带 OSC 0 序列（当前目录名）——
+      mksh 不解释提示符里的反斜杠转义，故写**字面量** ESC/BEL；实测 mksh
+      计算提示符宽度时会跳过转义序列，可见宽度仍是两字符，命令行不提前折行；
+      ②bash 经**环境变量**注入 `PROMPT_COMMAND`（唯一不碰用户 rc 文件的
+      做法：bash 启动时若 shell 内未定义该变量就用环境值，用户 rc 自己设过
+      的以用户为准）；注入只针对确需钩子的 shell（按可执行文件名判定），
+      `build_env` 的白名单本身不变。
+- [x] 复测：新增仪器测试 `SessionTitleInstrumentedTest`，默认会话（mksh）的
+      真实标题经桥接读回并等于当前目录名：`UX_METRIC session_title=home`。
+
+### 9.3 CJK 后备「跳过」提示
+
+- [x] 定根因：提示写「主字体支持 CJK」，而实际判据是「主字体覆盖**本 locale
+      的 CJK 代表字符**」（zh/ja 为「中」、ko 为「가」、非 CJK locale 退到
+      「中」）这一枚探针——覆盖它不等于覆盖整套 CJK 字符。
+- [x] 修根因：文案改为「CJK 后备已跳过（主字体已覆盖本语言的代表字符）」，
+      与 native 侧 `primary_covers_cjk_probe` 的判据同源。
+- [x] 规范同步：`openspec/specs/cjk-rendering` 增补「状态上报与提示必须如实
+      反映判据」；新增 `openspec/specs/kitty-graphics`（能力探测应答、单元格
+      像素几何先于放置就位、叠加层不得强制整帧重绘）；`openspec/specs/shell-env`
+      增补「会话标题按 shell 族注入上报钩子」。
+
+## 十一、预览截图暴露的三处视觉缺陷（2026-10-21）
+
+预览截图的旧样本（`origin/screenshots` 分支）暴露三处缺陷，逐一取证后修复。
+
+### 11.1 桌面启动图标被蒙版裁掉
+
+- [x] 度量：设备桌面抽屉截图（1080×2400）上 Terminal 图标只剩终端窗口的一角与一个
+      绿点，橙色星形与尾迹方块全部消失；启动屏（同一份图案）却完整。
+- [x] 定根因（平台几何 + 设备实证）：`AdaptiveIconDrawable` 把图层区域撑到图标边界的
+      1.5 倍且居中，蒙版圆半径只有图标边界的一半，安全区再乘 `66/72`；而
+      `launcher_foreground` 的 `<item>` 写死 108dp，图案 1:1 画在图层区左上角，
+      整体左移 27 单位——星形（视口 x 77.65..91.57）落到子层自身范围外，被裁。
+      仪器侧独立复现：48px 渲染时橙色星形纯色像素为 **0**，108px 才有 43px。
+- [x] 修根因（平台标准做法：artwork 本身画在安全区内）：`logo_art` 的 108 视口内
+      加 0.65 预缩放（图案到画布中心最大距离 48.51 → 31.53 单位 ≤ 安全半径 33），
+      `launcher_foreground` 改用 `gravity="fill"`（不再写死 dp，随图标大小缩放），
+      启动屏包装按 0.65 的倒数放大到 148dp 以保持视觉大小不变；
+      `launcher_monochrome` 同步预缩放，并补上点迹路径缺失的 `moveTo`
+      （原为弧起头，画成一整块色斑）。
+- [x] 复测：Robolectric 判据（前景墨迹占图层区域的比例 ≤ `66/72 ÷ 1.5`）在
+      48/108/216dp 三档全过；星形纯色像素 > 0；设备桌面图标与启动屏均完整。
+      回归测试 `LauncherAdaptiveIconRobolectricTest`（2 例）、
+      `SplashIconRobolectricTest`（3 例，含 monochrome 覆盖）。
+- [x] 规范同步：`render-stability` 的启动屏条目改写为「图案按安全区预缩放 +
+      桌面前景以 `fill` 呈现 + 启动屏以固定尺寸收缩包装呈现」。
+
+### 11.2 系统栏图标在浅色页面上不可读
+
+- [x] 度量：抽屉展开时状态栏区一半是浅色面板 (250,248,255)、一半是深色终端，
+      白色时钟压在浅色面板上不可读；设置页整片浅色底 + 浅色时钟（预览截图
+      `03-settings.png` 实证）。
+- [x] 定根因：系统栏图标明暗只有一个全局开关，而此前只跟随**终端**底色；
+      抽屉面板的**背景**又铺到屏幕顶端（Material3 把 `windowInsetsPadding` 施加在
+      面板的内容而非 Surface 上），于是浅色面板盖住状态栏区。
+- [x] 修根因：①抽屉面板整体按状态栏高度下移，状态栏区统一露出遮罩下的终端底色；
+      ②系统栏图标明暗抽成共享件 `SystemBarsFollowBackground`，**每个页面按自己的
+      底色**判定（终端页用终端底色，设置页用设置页底色）。
+- [x] 复测：设备实证——抽屉展开时状态栏整行 (22,22,22)、时钟白字清晰；
+      设置页状态栏最暗像素 (100,99,102) 压浅底，深色图标可读。
+      回归测试 `DrawerSheetInsetRobolectricTest`（1 例，去掉内缩即红）、
+      `SystemBarIconInstrumentedTest`（1 例，读 `isAppearanceLightStatusBars`）。
+
+### 11.3 设置页 CJK 提示重复且误报缺失
+
+- [x] 度量：预览截图 `03-settings.png` 上「未检测到 CJK 备用字体」出现两次。
+- [x] 定根因：同一事实有两个发射点——`SystemFontSelector` 与 `FontInfoSection`
+      各自发一次；且原生尚未上报时占位数据伪造成 `NONE`，把「还没结论」说成
+      「确实缺失」。
+- [x] 修根因：警告的唯一发射点收敛到 `CjkFallbackStatusLine`（状态行与警告同出一处）；
+      占位数据改用新增的 `NOT_REPORTED` 状态（原生不产出该状态，解包时拒绝出现）。
+- [x] 复测：预览截图上该行变为「CJK 后备已跳过（系统语言不是 CJK，未装语言回退族）」
+      ——与原生判据同源，且只出现一次。回归测试
+      `CjkFallbackStatusRobolectricTest`（4 例）。
+
+### 11.4 存储权限未显式声明
+
+- [x] 定根因：应用清单**一个存储权限都没声明**；合并清单里的
+      `READ/WRITE/MANAGE_EXTERNAL_STORAGE` 全部来自 leakcanary 传递依赖——
+      声明是偶然的，不是意图的。
+- [x] 修根因：清单显式声明 `WRITE_EXTERNAL_STORAGE` 与 `MANAGE_EXTERNAL_STORAGE`
+      （与上游 termux-app 一致）。`targetSdk` 由规范固定为 28，故
+      `WRITE_EXTERNAL_STORAGE` 安装即授予；`MANAGE_EXTERNAL_STORAGE` 是用户在
+      系统设置里自行打开的「所有文件访问」开关。两者都**不在运行期索要**
+      （规范要求「声明文件权限（不提示，允许用户自行授权）」）。
+- [x] 复测：仪器测试 `StorageAccessInstrumentedTest`（2 例）——合并清单带声明，
+      且应用进程内 `/sdcard` 可列可写（`external_storage_root_is_reachable_when_authorized`
+      0.017s 通过）。不新建 `~/storage` 软链：凭空造目录属未定义行为。
+
+### 11.5 可执行文件经文档提供者修改后丢失权限
+
+- [x] 度量：红测——复制后执行位从 `rwxr-xr-x` 变成 `rw-r--r--`。
+- [x] 定根因：`copyTreeInto` 用 `File.copyTo` 造新文件，按 umask 给默认权限，
+      执行位必然丢失。
+- [x] 修根因：复制后按源文件的权限位恢复（`Files.setPosixFilePermissions`）。
+- [x] 复测：`DocumentsProviderTest` 72 例全绿（含「write cycles must not strip
+      permission bits」）；仪器测试走真实跨进程 `ContentResolver.call` 路径，
+      22 例全过。
+
+## 十、独立审阅
+
+审阅按下列三种视角各做一次，每次只修真实问题；三次都无新问题方可宣告完成。
+
+- [ ] 证据核对：逐节对照「度量 → 根因 → 修 → 复测」，找假证据与漏测。
+- [ ] 全仓语义审阅：边界、并发、生命周期、错误路径。
+- [ ] 门禁与规范复核：全仓门禁、openspec 规范与实现的一致性。
