@@ -578,6 +578,14 @@ class Bridge(private val config: TerminalConfig) {
 
     fun scrollbackLength(): Int = onQuery("scrollbackLength", 0) { queryPort.scrollbackLength() }
 
+    /**
+     * 最近一帧的回滚长度；首帧未发布时为 -1。**绝不同步询问 VT 线程**，
+     * 故可在每一帧的滚动/拖柄热路径调用。
+     */
+    fun renderedScrollbackLength(): Int = onQuery("renderedScrollbackLength", -1) {
+        queryPort.renderedScrollbackLength()
+    }
+
     fun cursorViewportPacked(): Long = onQuery("cursorViewportPacked", -1L) {
         queryPort.cursorViewportPacked()
     }

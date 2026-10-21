@@ -940,6 +940,58 @@ class DocumentsProviderTest {
         assertTrue("source must survive a copy", java.io.File(rootDir(), "src.txt").exists())
     }
 
+    /**
+     * 复制可执行文件必须保住执行位。
+     *
+     * 复制造的是新 inode，只能靠显式搬权限位还原；用 `File.copyTo` 会按进程 umask
+     * 落成 0644，脚本拷过去就不可执行了（DESIGN「可执行文件被修改后不丢失权限」）。
+     */
+    @Test
+    fun copyDocument_preserves_executable_bit() {
+        val provider = ensureProvider()
+        val source = java.io.File(rootDir(), "run.sh").apply { writeText("#!/bin/sh\necho hi\n") }
+        java.nio.file.Files.setPosixFilePermissions(
+            source.toPath(),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+        )
+        java.io.File(rootDir(), "dest").apply { mkdirs() }
+        provider.copyDocument("run.sh", "dest")
+        val copy = java.io.File(rootDir(), "dest/run.sh")
+        assertEquals(
+            "copied script must stay executable",
+            "rwxr-xr-x",
+            java.nio.file.Files.getPosixFilePermissions(copy.toPath()).let {
+                java.nio.file.attribute.PosixFilePermissions.toString(it)
+            },
+        )
+    }
+
+    /** 目录树复制同样要保住目录的执行位，否则进去就 Permission denied。 */
+    @Test
+    fun copyDocument_preserves_executable_bit_inside_tree() {
+        val provider = ensureProvider()
+        val nested = java.io.File(rootDir(), "proj/bin").apply { mkdirs() }
+        java.nio.file.Files.setPosixFilePermissions(
+            nested.toPath(),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+        )
+        val script = java.io.File(nested, "tool").apply { writeText("#!/bin/sh\n") }
+        java.nio.file.Files.setPosixFilePermissions(
+            script.toPath(),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+        )
+        java.io.File(rootDir(), "dest").apply { mkdirs() }
+        provider.copyDocument("proj", "dest")
+        val copiedScript = java.io.File(rootDir(), "dest/proj/bin/tool")
+        assertEquals(
+            "copied script inside a tree must stay executable",
+            "rwxr-xr-x",
+            java.nio.file.attribute.PosixFilePermissions.toString(
+                java.nio.file.Files.getPosixFilePermissions(copiedScript.toPath()),
+            ),
+        )
+    }
+
     @Test
     fun moveDocument_relocates_and_clears_source() {
         val provider = ensureProvider()
@@ -1255,5 +1307,52 @@ class DocumentsProviderTest {
             "家目录内不得留下任何复制产物",
             java.io.File(root, "landing").list().isNullOrEmpty(),
         )
+    }
+
+    /**
+     * 列举顺序：目录优先，其次按 display name 的**小写**比较。
+     *
+     * 判别力：直接按 `File.name` 排序会把所有大写名排到小写前（且默认 Locale
+     * 在土耳其语下把 `I` 折成 `ı`）；把排序键 `isDirectory` 当作比较器内的实时
+     * stat 还会让同一目录的每个条目被 stat O(log n) 次。
+     */
+    @Test
+    fun queryChildDocuments_orders_directories_first_then_lowercase_names() {
+        val parent = java.io.File(rootDir(), "ordering-fixture").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            java.io.File(parent, "Beta.txt").writeText("b")
+            java.io.File(parent, "alpha.txt").writeText("a")
+            java.io.File(parent, "Gamma").mkdirs()
+            java.io.File(parent, "delta").mkdirs()
+
+            val cursor =
+                ensureProvider().queryChildDocuments("ordering-fixture", null, null as String?)
+            val names =
+                cursor.use {
+                    val index = it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    buildList {
+                        while (it.moveToNext()) add(it.getString(index))
+                    }
+                }
+            assertEquals(listOf("delta", "Gamma", "alpha.txt", "Beta.txt"), names)
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    /**
+     * 系统停止提供者会释放全部目录监视；同一进程内再被拉起时，查询必须照常
+     * 工作并重新登记监视（`shutdown` 不得留下永久静默的提供者）。
+     */
+    @Test
+    fun shutdown_releases_watchers_and_query_still_works() {
+        val children = { ensureProvider().queryChildDocuments("terminal_home", null, null as String?) }
+
+        children().use { assertNotNull("停止前应能列举家目录", it) }
+        ensureProvider().shutdown()
+        children().use { assertNotNull("停止后再次查询应重新登记并返回游标", it) }
     }
 }

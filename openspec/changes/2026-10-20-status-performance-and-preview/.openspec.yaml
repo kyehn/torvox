@@ -1,0 +1,10 @@
+schema: spec-driven
+skip_specs: true
+goal: |
+  收敛 docs/STATUS.md（基于 851419c4）列出的六条真机现象：shell 启动慢、中文退格慢、
+  文本选择性能与另一侧指针漂移、滚动卡顿、切换应用返回闪烁、文件提供者响应慢。
+  每条先给出可复现的度量与根因，再改代码，再以同一件仪器测试复测并留下数字。
+  规范落盘方式与上一轮相同：修完直接改 openspec/specs/ 对应能力，保持 specs 与代码同步；
+  本变更不放 delta，避免归档时与主 spec 重复添加同名 Requirement。
+  另交付三项预览截图仪器测试（bootstrap+fastfetch、侧边面板、设置），
+  并在收尾轮次完成全仓门禁与三轮独立审阅。

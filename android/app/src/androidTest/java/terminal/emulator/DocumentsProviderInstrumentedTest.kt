@@ -852,4 +852,47 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             probe.delete()
         }
     }
+
+    /**
+     * 跨进程复制可执行文件必须保住执行位。
+     *
+     * 单测（Robolectric）跑在同一进程内，落盘权限受测试进程 umask 影响；此处走真实
+     * `ContentResolver` 复制通道，落在应用真实的 `files/home` 上，权限位是设备上的
+     * 真值。复制造的是新 inode，权限位只能显式搬运——否则脚本拷过去就不可执行。
+     */
+    @Test
+    fun copy_document_preserves_executable_bit_across_process() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val targetDir = File(home, "exec-copy-target").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val source = File(home, "exec-copy-source.sh").apply {
+            delete()
+            writeText("#!/system/bin/sh\necho hi\n")
+        }
+        val executable = java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x")
+        java.nio.file.Files.setPosixFilePermissions(source.toPath(), executable)
+        try {
+            val copiedUri = DocumentsContract.copyDocument(
+                context.contentResolver,
+                DocumentsContract.buildDocumentUri(authority, "exec-copy-source.sh"),
+                DocumentsContract.buildChildDocumentsUri(authority, "exec-copy-target"),
+            )
+            requireNotNull(copiedUri) { "copyDocument must return the new document uri" }
+            val copied = File(targetDir, "exec-copy-source.sh")
+            assertTrue("copied file must land on disk", copied.exists())
+            assertEquals(
+                "copied script must stay executable",
+                "rwxr-xr-x",
+                java.nio.file.attribute.PosixFilePermissions.toString(
+                    java.nio.file.Files.getPosixFilePermissions(copied.toPath()),
+                ),
+            )
+        } finally {
+            source.delete()
+            targetDir.deleteRecursively()
+        }
+    }
 }

@@ -785,9 +785,8 @@ constructor(
     }
 
     private fun stopForegroundService() {
-        // 不以标志位为闸门：MainActivity.onCreate 经静态 TerminalForegroundService.start()
-        // 直接启动服务而不设置该标志，若以标志位控制停止，当 Activity 在运行期引导完成前
-        // 销毁时会泄漏服务及其 PARTIAL_WAKE_LOCK。对未运行的服务调 stopService
+        // 不以标志位为闸门：服务可能被系统回收而标志仍停在真（START_STICKY 尚未重启），
+        // 若以标志位控制停止，存活会话的服务就再也停不掉。对未运行的服务调 stopService
         // 是无害空操作（返回 false），故无条件停止并重置标志。
         val stopped =
             try {
@@ -4265,8 +4264,6 @@ internal fun computeGridAvailableHeight(surfaceHeight: Int, modifierBarHeightPx:
 private const val SURFACE_RECREATE_MIN_INTERVAL_NANOS = 500_000_000L
 
 // 单会话连续重建请求上限：超过即停止并告警（重建无望时避免无限拆装视图）。
-// 它管的是「请求换 surface」这一个阶段；视图侧 detach+attach 重试链的次数是
-// `TerminalSurface.SURFACE_RETRY_ATTACH_MAX_ATTEMPTS`，两者是同一恢复链的不同阶段。
 private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
 
 /**

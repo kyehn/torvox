@@ -58,11 +58,17 @@ internal class DocumentQueries(private val context: Context) {
         null
     }
 
-    fun addDocRow(cursor: MatrixCursor, file: File, rootDir: File, columns: Array<out String>) {
+    fun addDocRow(
+        cursor: MatrixCursor,
+        file: File,
+        rootDir: File,
+        columns: Array<out String>,
+        isDirectory: Boolean = file.isDirectory,
+    ) {
         val docId = TerminalDocumentsProvider.encodeDocId(file, rootDir) ?: return
-        val mime = if (file.isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
+        val mime = if (isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
         var flags = 0
-        if (file.isDirectory) flags = flags or Document.FLAG_DIR_SUPPORTS_CREATE
+        if (isDirectory) flags = flags or Document.FLAG_DIR_SUPPORTS_CREATE
         flags = flags or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_WRITE
         // 重命名/复制/移动均已实现并单测覆盖：不声明客户端就不提供入口，
         // “无法重命名/复制”报障即源于此。

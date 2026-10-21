@@ -108,6 +108,25 @@ data class HandleDragResult(
     val draggingStart: Boolean,
 )
 
+/**
+ * 快速拖动路径的**当前边界**：把上一次未提交的拖动结果叠加到已提交选区上。
+ *
+ * 快速路径刻意不写 `_state`（每帧一次 Compose 往返正是瓶颈），于是 `applyHandleDrag`
+ * 看到的 `start`/`end` 仍停在拖动开始时的位置。越过另一侧手柄后归属已经翻转，
+ * 下一帧若仍拿旧端点当锚点，就会把**没被拖动的**那一侧算到错误位置——现象正是
+ * 「只动一侧，另一侧的匹配区域却变了」。故每次计算都必须以上一次的实时边界为基准。
+ */
+internal fun SelectionState.withPendingDrag(pending: HandleDragResult?): SelectionState =
+    if (!active || pending == null) {
+        this
+    } else {
+        copy(
+            start = SelectionAnchor(pending.startRow, pending.startCol),
+            end = SelectionAnchor(pending.endRow, pending.endCol),
+            dragging = true,
+        )
+    }
+
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
 data class SessionInfo(val id: Long, val title: String = "")
 
@@ -373,6 +392,9 @@ constructor(
     inner class SelectionManager {
         fun startSelection(row: Int, col: Int, pasteOnly: Boolean = false) {
             val anchor = SelectionAnchor(row, col)
+            // 新一次长按必须丢弃上一轮快速拖动留下的实时边界，否则首个 MOVE
+            // 会以旧选区为基准算出错误端点。
+            lastDragBounds = null
             // CAS：选区在主线程上被触碰，但 _state 也被 IO 协程写入；
             // 普通读-改-写可能丢失其中之一的更新。mode 在 lambda 内读取。
             _state.update { state ->
@@ -415,7 +437,7 @@ constructor(
             val current = _state.value.selection
             if (!current.active || current.pasteOnly) return null
             val result =
-                current.applyHandleDrag(
+                current.withPendingDrag(lastDragBounds).applyHandleDrag(
                     draggingStart = draggingStart,
                     targetRow = row,
                     targetCol = col,

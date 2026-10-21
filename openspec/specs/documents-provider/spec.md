@@ -122,6 +122,21 @@ SAF 客户端 MUST 仍能读写：`enforceReadPermissionInner` / `enforceWritePe
 - **THEN** 被淘汰的是最久未被**查询**的目录，MUST NOT 是仍在被查询的这一个；
   判重时读一次即刷新的容器访问序是唯一依据，`containsKey` 不算访问
 
+提供者被系统停止（`shutdown`）时 MUST 注销全部已登记的监视、丢弃待广播事件并结束
+广播线程：进程可能继续服务其他组件，不释放会让每个看过的目录白占一个 inotify 实例。
+停止后再次被拉起时，下一次查询 MUST 重新登记监视并恢复广播，MUST NOT 永久静默。
+
+#### Scenario: 停止后再次浏览目录
+
+- **WHEN** 提供者收到 `shutdown` 后又收到同一目录的 `queryChildDocuments`
+- **THEN** 该目录被重新登记，终端侧改动仍会触发该目录子文档 URI 的广播
+
+#### Scenario: 停止时不遗留观察者
+
+- **WHEN** 提供者登记过若干目录后收到 `shutdown`
+- **THEN** 每个已登记目录的监视都被注销，广播线程在有限时间内结束，
+  停止前已排队但未播报的事件 MUST NOT 在停止后补发
+
 ### Requirement: 提供者权威用应用标识前缀
 
 文档提供者的 authority MUST 取 `${applicationId}.documents`（即 `com.termux.documents`）。
@@ -264,6 +279,32 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 
 - **WHEN** 客户端把 `a.txt` 重命名为已存在的 `b.txt`
 - **THEN** 落盘为 `b (1).txt`（序号插在扩展名前、首个冲突序号为 1）并返回其 docId，`b.txt` 的原内容 MUST NOT 被覆盖
+
+### Requirement: 复制保留 POSIX 权限位
+
+复制 MUST 保留源条目的 POSIX 权限位：普通文件与目录 MUST 把源权限位写到目标上，
+目录树里的每一项（含嵌套的普通文件与子目录）都适用。复制造的是新 inode，权限位
+不会自动跟随——只搬内容不搬权限时，脚本拷过去就不可执行（执行位按进程 umask
+落成默认 0644），「可执行文件被修改后不丢失权限」这条承诺随之失效。源或目标不落
+在支持 POSIX 权限的文件系统上时 MUST 静默跳过：那是平台限制，不是本次复制引入的
+错误。符号链接 MUST 按链接本身复制（不跟随目标），且 MUST NOT 因权限位而报错——
+符号链接的权限位在 Linux 上恒为 0777，`lchmod` 无从设置。
+
+#### Scenario: 复制可执行文件
+
+- **WHEN** 客户端复制一个带执行位的脚本
+- **THEN** 副本的执行位 MUST 与源一致，脚本拷过去仍可直接运行
+
+#### Scenario: 复制目录树
+
+- **WHEN** 客户端复制一个目录，且其中含带执行位的脚本与带执行位的子目录
+- **THEN** 副本里的脚本与子目录 MUST 保留各自的执行位
+
+#### Scenario: 复制含符号链接的目录树
+
+- **WHEN** 客户端复制的目录树里含符号链接
+- **THEN** 副本里的链接 MUST 仍指向同一目标，MUST NOT 被展开成普通文件，
+  且复制 MUST NOT 因链接的权限位而失败
 
 ### Requirement: 重命名到自身是空操作
 

@@ -43,6 +43,8 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun scrollbackLength(): Int = NativeBridge.scrollbackLength(sessionIdProvider())
 
+    fun renderedScrollbackLength(): Int = NativeBridge.getRenderedScrollbackLength(sessionIdProvider())
+
     fun cursorViewportPacked(): Long = NativeBridge.getCursorViewportPacked(sessionIdProvider())
 
     fun renderedCursorPacked(): Long = NativeBridge.getRenderedCursorPacked(sessionIdProvider())
