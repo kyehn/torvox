@@ -38,6 +38,12 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
 
         /** 连续多少轮回滚长度不变即认定洪流已停。 */
         private const val FLOOD_SETTLE_STABLE_SAMPLES = 3
+
+        /**
+         * 等一条覆盖拖动期的帧节奏窗口的上限：窗口满 60 帧才输出，
+         * 555ms/帧的软渲染设备需要 33s，留一倍余量。
+         */
+        private const val WINDOW_WAIT_TIMEOUT_MS = 60_000L
     }
 
     @get:Rule
@@ -245,4 +251,114 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
             collapses == 0,
         )
     }
+
+    /**
+     * 持续滚动期间的循环帧节奏：客户端报障「滚动卡顿」。
+     *
+     * 仪器复用生产代码已有的 loop timing 窗口（`TerminalRuntime` 每 60 帧输出一行
+     * `loop timing window ... p95=.. max=.. ≈Nfps`）——那是唯一覆盖「门控→推状态→
+     * 渲染→pollAll→尾部队列」整循环的计量，真机与模拟器同款。
+     *
+     * 两条被证伪的路子记在这里，避免后来者重走：
+     * - `Window.OnFrameMetricsAvailableListener` 在滚动期采到 **0 帧**：终端内容由原生
+     *   渲染线程直接画进 SurfaceView 的 Surface，不经过主线程 `ViewRootImpl` 遍历。
+     * - `PixelCopy` 读回已呈现缓冲：360×420 的条带单次也要 ~300ms，只能到 3 样本/秒。
+     *
+     * 采样窗口只取**手指按住且正在移动**期间完整结束的那些：窗口跨到松手后的驻留帧
+     * 会混入 500ms 的合法空转帧，那测的是空闲节拍而非滚动。持续按住 2.5s 保证至少
+     * 一个窗口在中途收满 60 帧。
+     */
+    @Test
+    fun drag_loop_frame_pacing_stays_smooth() {
+        var bridge: Bridge? = null
+        val deadline = System.currentTimeMillis() + 15000
+        while (System.currentTimeMillis() < deadline) {
+            bridge = composeTestRule.getBridge()
+            if (bridge != null) break
+            Thread.sleep(500)
+        }
+        val activeBridge = bridge ?: throw AssertionError("bridge null after wait")
+        seedScrollback(activeBridge)
+        val view = surface()
+        val centerX = device.displayWidth / 2f
+        val before = view.getScrollOffset()
+
+        val dragStartMs = System.currentTimeMillis()
+        val dt = SystemClock.uptimeMillis()
+        view.dispatchTouchEvent(
+            android.view.MotionEvent.obtain(dt, dt, android.view.MotionEvent.ACTION_DOWN, centerX, 300f, 0),
+        )
+        var y = 300f
+        while (System.currentTimeMillis() - dragStartMs < 2500) {
+            Thread.sleep(16)
+            // 单向匀速下移（手指下移 = 翻向更早的内容）。全程不折返：反向移动会
+            // 让视口回落，末态可能又回到 0，使「是否滚动」这一前置断言失去意义。
+            y = minOf(y + 10f, device.displayHeight - 200f)
+            val now = SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(
+                android.view.MotionEvent.obtain(dt, now, android.view.MotionEvent.ACTION_MOVE, centerX, y, 0),
+            )
+        }
+        val dragEndMs = System.currentTimeMillis()
+        val upAt = SystemClock.uptimeMillis()
+        view.dispatchTouchEvent(
+            android.view.MotionEvent.obtain(dt, upAt, android.view.MotionEvent.ACTION_UP, centerX, y, 0),
+        )
+
+        assertTrue(
+            "持续拖动未翻向历史（offset $before -> ${view.getScrollOffset()}），帧节奏测量无意义",
+            view.getScrollOffset() > before,
+        )
+
+        val initial = UxTestUtils.logcatSince(dragStartMs)
+        val renderedFrames = initial.count { it.contains("render_frame: presented") }
+        assertTrue(
+            "持续滚动 2.5s 内没有任何一帧被呈现：\n" + initial.joinToString("\n").takeLast(800),
+            renderedFrames > 0,
+        )
+        // 阶段耗时窗口满 60 帧才输出：真机 60 FPS 下约 1s，软件渲染模拟器一帧 ~110ms
+        // 就要 6s 以上，必然晚于 2.5s 的拖动结束。要求「窗口在拖动期内结束」等于把
+        // 设备速度写进用例——慢设备上永远采不到样本。改为等一条**覆盖**拖动期的窗口：
+        // 覆盖区间由窗口自身计量反推（epoch − frames × avg），与设备快慢无关。
+        var lines = initial
+        val sawWindow =
+            UxTestUtils.pollUntilTrue(timeoutMs = WINDOW_WAIT_TIMEOUT_MS, intervalMs = 500) {
+                lines = UxTestUtils.logcatSince(dragStartMs)
+                lines.mapNotNull { UxTestUtils.LoopTimingWindow.parse(it) }
+                    .any { it.covers(dragStartMs, dragEndMs) }
+            }
+        assertNotNull(
+            "等待 ${WINDOW_WAIT_TIMEOUT_MS}ms 仍没有一条帧节奏窗口覆盖拖动期" +
+                "（共呈现 $renderedFrames 帧）——仪器失效，不能当作通过",
+            sawWindow,
+        )
+        // 阶段耗时有两个来源，按设备速度各自出现：慢帧走 SLOW_LOOP（逐帧、500ms 节流），
+        // 快设备只在整窗汇总里留下 pre_max。两者都取上界。
+        val slowLoopPreMs =
+            lines.mapNotNull { loopPrePattern.find(it)?.groupValues?.get(1)?.toDoubleOrNull() }
+        val windows =
+            lines.mapNotNull { UxTestUtils.LoopTimingWindow.parse(it) }
+                .filter { it.covers(dragStartMs, dragEndMs) }
+        val worstPre = (slowLoopPreMs + windows.map { it.preMaxMs }).maxOrNull()
+        assertTrue(
+            "滚动期没有采到任何阶段耗时样本（$renderedFrames 帧已呈现）——仪器失效，不能当作通过",
+            worstPre != null,
+        )
+        windows.maxByOrNull { it.p95Ms }?.let { window ->
+            UxTestUtils.metric("drag_loop_p95_ms", window.p95Ms.toLong())
+            UxTestUtils.metric("drag_loop_fps", window.fps.toLong())
+        }
+        val preMax = worstPre ?: 0.0
+        UxTestUtils.metric("drag_loop_pre_max_ms", preMax.toLong())
+        // 只断言生产代码控制得了的那一段：门控之后、渲染 JNI 之前的循环自身工作
+        // （推选区 / 滚动偏移 / 滚动余量）。帧率与整窗 p95 取决于 GPU —— 本模拟器
+        // （SwiftShader）单帧渲染就要 ~130ms，那是设备能力而不是回归，故只记指标。
+        assertTrue(
+            "滚动期循环自身工作单帧用掉 ${preMax}ms，超过 8ms：\n" + windows.joinToString("\n"),
+            preMax <= 8.0,
+        )
+    }
+
+    /** `SLOW_LOOP ... pre=<ms>ms ...` 里的循环自身工作时长。 */
+    private val loopPrePattern = Regex("""SLOW_LOOP .*?\bpre=([\d.E-]+)ms""")
 }

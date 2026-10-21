@@ -854,6 +854,51 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     }
 
     /**
+     * 大目录列举的耗时与正确性：客户端报障「文件提供者响应速度较慢」，真机日志里
+     * 300 项的目录在提供者内部实测 **600ms**（`slow listing` 告警）。
+     *
+     * 根因是每行三处重复：`encodeDocId` 里每行重算 `rootDir.canonicalPath`、每行
+     * 1~2 次 `canonicalPath`，再加 `length()`/`lastModified()` 各一次 stat。现在
+     * 目录先规范化一次，非链接子项全部取自一次 `lstat`。预算取 250ms：仍能在
+     * 软件光栅的模拟器上留足余量，同时把旧实现（600ms）钉在门槛之外。
+     */
+    @Test
+    fun large_directory_listing_stays_within_budget() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val dir = File(home, "listing-budget-probe").apply { mkdirs() }
+        val entries = 300
+        try {
+            repeat(entries) { File(dir, "f$it.txt").writeText("") }
+            val uri = DocumentsContract.buildChildDocumentsUri(authority, "listing-budget-probe")
+            // 首次查询含提供者冷启动、根解析与 inotify 登记，计入会让阈值失去意义。
+            readListing(context, uri).also { assertEquals(entries, it.size) }
+            val samples = (1..3).map {
+                val started = android.os.SystemClock.elapsedRealtime()
+                val rows = readListing(context, uri)
+                android.os.SystemClock.elapsedRealtime() - started
+            }
+            val sorted = samples.sorted()
+            val p50 = sorted[sorted.size / 2]
+            UxTestUtils.metric("large_listing_p50_ms", p50)
+            UxTestUtils.metric("large_listing_max_ms", sorted.last())
+            assertTrue(
+                "300 项目录列举 p50=${p50}ms 超出 250ms 预算（样本=$samples）",
+                p50 <= LISTING_BUDGET_MS,
+            )
+            // 正确性锚点：行序（目录在前、名字升序）与 docId 形态不能因优化漂移。
+            val names = readListing(context, uri).map { it.displayName }
+            assertEquals("名字必须升序", names.sorted(), names)
+            assertTrue(
+                "docId 必须是无树根前缀的相对路径",
+                readListing(context, uri).all { it.documentId == "listing-budget-probe/${it.displayName}" },
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    /**
      * 跨进程复制可执行文件必须保住执行位。
      *
      * 单测（Robolectric）跑在同一进程内，落盘权限受测试进程 umask 影响；此处走真实
@@ -894,5 +939,36 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             source.delete()
             targetDir.deleteRecursively()
         }
+    }
+
+    private class ListingRow(val documentId: String, val displayName: String)
+
+    /** 读完整游标：耗时要包含游标填充，而不只是第一次 `moveToNext`。 */
+    private fun readListing(context: android.content.Context, uri: android.net.Uri): List<ListingRow> {
+        val rows = ArrayList<ListingRow>(LISTING_ROWS_HINT)
+        context.contentResolver.query(
+            uri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            ),
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            requireNotNull(cursor)
+            while (cursor.moveToNext()) {
+                rows += ListingRow(cursor.getString(0), cursor.getString(1))
+            }
+        }
+        return rows
+    }
+
+    private companion object {
+        /** 300 项列举的 p50 预算。旧实现实测 600ms。 */
+        const val LISTING_BUDGET_MS = 250L
+
+        /** 游标容量预置，避免把 ArrayList 扩容计入列举耗时。 */
+        const val LISTING_ROWS_HINT = 320
     }
 }

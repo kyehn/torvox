@@ -17,11 +17,15 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun getActiveSessionTitle(): String = getTitle() ?: ""
 
-    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
+    /**
+     * 安装选区；返回 false 表示本次写入被推迟（会话锁被 PTY 写入持有），
+     * 调用方保留旧快照、下一帧重试。
+     */
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?): Boolean {
         // 选区由终端侧持有（引用跟踪，经 NativeBridge.setSelection 安装）：
         // VT 线程把反色烘焙进 CellData，视图侧无需维护单元格簿记。
         val active = hasSelection ?: true
-        NativeBridge.setSelection(
+        return NativeBridge.setSelection(
             sessionIdProvider(),
             startRow,
             startCol,
@@ -49,6 +53,8 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun renderedCursorPacked(): Long = NativeBridge.getRenderedCursorPacked(sessionIdProvider())
 
+    fun visibleText(): String = NativeBridge.getVisibleText(sessionIdProvider()).orEmpty()
+
     fun searchSetNeedle(needle: String): Int = NativeBridge.searchSetNeedle(sessionIdProvider(), needle)
 
     fun searchSelect(forward: Boolean): SearchSelection? =
@@ -60,10 +66,11 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
             )
         }
 
-    fun setScrollOffset(offset: Int) {
-        // 原生侧在 VT 线程经 scroll_viewport 应用增量，下一次 CellData 推送即带上滚动后的视图。
-        NativeBridge.setScrollOffset(sessionIdProvider(), offset)
-    }
+    /**
+     * 原生侧在 VT 线程经 scroll_viewport 应用增量，下一次 CellData 推送即带上滚动后的视图。
+     * 返回 false 表示写入被推迟（会话锁被 PTY 写入持有）：调用方保留旧值、下一帧重试。
+     */
+    fun setScrollOffset(offset: Int): Boolean = NativeBridge.setScrollOffset(sessionIdProvider(), offset)
 
     fun setScrollYPx(offsetPx: Float) {
         NativeBridge.setScrollYPx(sessionIdProvider(), offsetPx)

@@ -15,6 +15,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitShellPrompt
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.util.runCatchingCancellable
@@ -83,13 +84,7 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
 
     /** 经 shell 打印一行，回显重发至多 3 次（冷 stdin 竞态，同其他用例口径）。 */
     private fun printAndAwait(command: String, needle: String) {
-        assertNotNull(
-            "shell prompt 未出现",
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                val text = pumpAndText().orEmpty()
-                text.contains("$") || text.contains("#")
-            },
-        )
+        awaitShellPrompt(bridge())
         var seen: Long? = null
         repeat(3) {
             bridge().writeToPty("$command\n".toByteArray(Charsets.UTF_8))

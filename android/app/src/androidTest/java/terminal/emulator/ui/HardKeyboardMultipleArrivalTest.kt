@@ -15,6 +15,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
@@ -89,12 +90,7 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
         val bridge = checkNotNull(bridgeReady)
         // 清场：中止共用会话遗留的行编辑内容（空行 ETX 无害）。
         bridge.writeToPty("\u0003".toByteArray(Charsets.UTF_8))
-        val promptSeen =
-            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                val text = pumpAndText().orEmpty()
-                text.contains("$") || text.contains("#")
-            }
-        assertNotNull("shell prompt 未出现", promptSeen)
+        awaitShellPrompt(bridge, OUTPUT_TIMEOUT_MS)
         // 回显链健康探针：不健康则本用例的落格失败归因错误。
         val healthProbe = "ECHO${System.currentTimeMillis() % 100000}"
         bridge.writeToPty("echo $healthProbe\n".toByteArray(Charsets.UTF_8))

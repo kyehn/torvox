@@ -3,6 +3,7 @@ package terminal.emulator
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -174,6 +175,74 @@ object UxTestUtils {
     fun metric(name: String, value: Number) {
         Log.i(TAG, "$name=$value")
     }
+
+    /**
+     * 读自 [sinceEpochMs] 起的 logcat 行（`-v epoch`，行首为 epoch 秒）。
+     *
+     * 生产端已有按窗口输出的计量（帧节奏、慢循环分解），用例要断言它们就必须能
+     * 按时间切片取回来；`logcat -T` 让切片在设备侧完成，避免把整份缓冲搬进进程。
+     */
+    fun logcatSince(sinceEpochMs: Long): List<String> {
+        val sinceSeconds = String.format(java.util.Locale.US, "%.3f", sinceEpochMs / 1000.0)
+        return try {
+            InstrumentationRegistry.getInstrumentation()
+                .uiAutomation
+                .executeShellCommand("logcat -d -v epoch -T $sinceSeconds")
+                // 读取必须在 use 块内完成：块外再读同一 fd 只会拿到 EBADF。
+                .use { descriptor ->
+                    android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)
+                        .bufferedReader()
+                        .readLines()
+                }
+        } catch (error: Exception) {
+            throw AssertionError("读取 logcat 失败（since=$sinceSeconds）：$error", error)
+        }
+    }
+
+    /**
+     * 生产端 `loop timing window` 一行里的计量（渲染循环整循环的节奏）。
+     *
+     * 该行由 `TerminalRuntime` 每 60 帧输出一次，覆盖「门控→推状态→渲染→
+     * pollAll→尾部队列」整循环——这是唯一能量到整循环的计量：主线程的
+     * `OnFrameMetricsAvailableListener` 在终端内容直写 Surface 时采不到帧，
+     * `PixelCopy` 读回单次要 ~300ms，都量不了这个循环。
+     */
+    data class LoopTimingWindow(
+        val epochMs: Long,
+        val frames: Int,
+        val avgMs: Double,
+        val p95Ms: Double,
+        val maxMs: Double,
+        val preMaxMs: Double,
+        val fps: Int,
+    ) {
+        /** 窗口的采样区间是否与 [fromMs]..[toMs] 有交集（区间由自身计量反推）。 */
+        fun covers(fromMs: Long, toMs: Long): Boolean {
+            val startMs = epochMs - (frames * avgMs).toLong()
+            return startMs <= toMs && epochMs >= fromMs
+        }
+
+        companion object {
+            private val pattern =
+                Regex(
+                    """^(\d+)\.\d+\s+\d+\s+\d+\s+I Runtime\s*:\s*session \d+ loop timing window \((\d+) frames\): """ +
+                        """avg=([\d.]+)ms p95=([\d.]+)ms max=([\d.]+)ms pre_max=([\d.]+)ms ≈(\d+)fps""",
+                )
+
+            fun parse(line: String): LoopTimingWindow? {
+                val match = pattern.find(line.trim()) ?: return null
+                return LoopTimingWindow(
+                    epochMs = match.groupValues[1].toLong() * 1000,
+                    frames = match.groupValues[2].toInt(),
+                    avgMs = match.groupValues[3].toDouble(),
+                    p95Ms = match.groupValues[4].toDouble(),
+                    maxMs = match.groupValues[5].toDouble(),
+                    preMaxMs = match.groupValues[6].toDouble(),
+                    fps = match.groupValues[7].toInt(),
+                )
+            }
+        }
+    }
 }
 
 // ── 像素判读 ─────────────────────────────────────────
@@ -235,27 +304,51 @@ fun pixelLuminance(shot: Bitmap, x: Int, y: Int): Int {
 // ── 网格定位写入 ─────────────────────────────────────
 
 /**
- * 视口归位到底部并按**渲染真相**确认归位。
+ * 视口归位到底部，并等到**会话真的接受了这次归位**。
  *
- * 屏幕行号与绝对网格行的换算 `视口行 = 绝对行 - (回滚长度 - 偏移)` 只在偏移为 0
- * 时成立；共用会话里任何翻阅/搜索留下的非零偏移都让按行号算出的点击/长按落到
- * 另一行——落到空行即退化为仅粘贴菜单，外部表现是「长按未打开选择菜单」，
- * 与长按本身无关。
+ * 屏幕行号与绝对网格行的换算 `视口行 = 绝对行 - (回滚长度 - 偏移)` 只在偏移为 0 时
+ * 成立；共用会话里任何翻阅/搜索留下的非零偏移都让按行号算出的点击/长按落到另一行——
+ * 落到空行即退化为仅粘贴菜单，外部表现是「长按未打开选择菜单」，与长按本身无关。
  *
- * 判据取「渲染光标行 == 回滚长度」而非 `TerminalRuntime.activeSessionScrollOffset()`：
- * 后者是渲染线程尚未消费的命令槽（`setScrollOffset` 只写槽并通知，Surface 的触摸
- * 滚动还会把它改回去），拿它轮询等于等一个转瞬即逝的中间态——实测 CI 恒读 943。
- * 光标行由渲染帧产出，与偏移同源，是稳定判据。
+ * 判据取 `sessionScrollOffset() == 0`：那是 VT 侧**已应用**的偏移。
+ * 两个被否决的旧判据，都是把「不可见的中间态」当成了真值：
+ *  - `activeSessionScrollOffset()` 是渲染线程尚未消费的命令槽，实测 CI 恒读 943；
+ *  - 向网格注入 `BOTTOM-<nanos>` 标记行虽然能证明视口在底部，却往用户屏幕里写垃圾，
+ *    并把真实内容一行行挤出视口——回滚为 0 的会话里，连 shell 提示符都会被挤丢，
+ *    后续用例等提示符只能超时（跨类跑时实测「shell prompt 未出现」）。
  */
 fun scrollViewportToBottom(bridge: Bridge, runtime: TerminalRuntime, timeoutMs: Long = 5_000) {
     runtime.setScrollOffset(0)
-    val scrollbackRows = bridge.scrollbackLength()
     val atBottom =
         UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 50) {
-            val packed = bridge.cursorViewportPacked()
-            packed >= 0 && (packed shr 32).toInt() == scrollbackRows
+            bridge.sessionScrollOffset() == 0
         }
-    assertNotNull("视口必须归位到底部（光标行未达回滚末行 $scrollbackRows）", atBottom)
+    assertNotNull("视口必须归位到底部（会话滚动偏移未回到 0）", atBottom)
+}
+
+/**
+ * 等 shell 提示符出现；等不到就先向 PTY 要一个新的。
+ *
+ * 直接轮询全量文本有个隐藏前提：提示符**还在网格里**。共用会话跑多个用例时，前一个
+ * 用例的整屏输出可以把那一行挤出网格；回滚为空时会话里连痕迹都不剩，于是后续用例
+ * 白等 30s 后报「shell prompt 未出现」——这与被测行为无关，纯粹是把上一用例的残留
+ * 当成了本用例的前提。空行的 Enter 一定会让 shell 重画提示符，故先给一次机会，
+ * 只在真的等不到时才发（常见路径不额外多出一行提示符）。
+ */
+fun awaitShellPrompt(bridge: Bridge, timeoutMs: Long = 30_000) {
+    val seen = {
+        UxTestUtils.pollUntilTrue(timeoutMs = minOf(timeoutMs, 3_000), intervalMs = 100) {
+            bridge.getTerminalText()?.let { it.contains("$") || it.contains("#") } == true
+        }
+    }
+    if (seen() != null) return
+    bridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
+    assertNotNull(
+        "shell prompt 未出现",
+        UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
+            bridge.getTerminalText()?.let { it.contains("$") || it.contains("#") } == true
+        },
+    )
 }
 
 /** SGR 转义序列：`ESC [ … m`。不占列，故落格判据须先剥除。 */

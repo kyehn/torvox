@@ -14,6 +14,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
+import terminal.emulator.awaitShellPrompt
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.injectTap
 import terminal.emulator.waitForSession
@@ -67,11 +68,7 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
     @Test
     fun composing_backspace_does_not_wait_on_cursor_anchor_query() {
         val bridge = composeTestRule.awaitBridge()
-        val promptSeen =
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                bridge.getTerminalText()?.let { it.contains("$") || it.contains("#") } == true
-            }
-        assertNotNull("shell prompt 未出现", promptSeen)
+        awaitShellPrompt(bridge)
 
         val surface = onUiThread { findTerminalSurface(composeTestRule.activity) }
         tapToFocus(surface)

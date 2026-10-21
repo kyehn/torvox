@@ -10,6 +10,7 @@ import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -119,6 +120,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         tapWordOffset: Int = 5,
         warmKeyboard: Boolean = false,
         targetViewportRow: Int = 7,
+        startColumn: Int = 1,
     ): Triple<Float, Float, Int> {
         // 视口先归位：坐标换算只在滚动偏移为 0 时成立（见 scrollViewportToBottom）。
         scrollViewportToBottom(bridge(), composeTestRule.activity.terminalViewModel.runtime)
@@ -144,7 +146,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
             if (landed != null) break
             val fed =
                 bridge().feedTerminal(
-                    "\u001B[${targetViewportRow + 1};1H$words".toByteArray(Charsets.UTF_8),
+                    "\u001B[${targetViewportRow + 1};${startColumn}H$words".toByteArray(Charsets.UTF_8),
                 )
             assertTrue("标记送显失败", fed)
             landed =
@@ -537,5 +539,166 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         assertTrue("full menu still shows PASTE after growth to text", !menuVisible("粘贴"))
         UxTestUtils.metric("d75_blank_drag_upgrade", 1)
         resetSelection()
+    }
+
+    // ── 4. 只拖一侧：另一侧的匹配区域不得漂移 ───────────────────────────
+
+    /**
+     * 拖动 END 柄时，选区**左边界**（START 一侧的匹配区域）必须一格不动。
+     *
+     * 这正是用户报告的「只拖动一侧，另一侧的匹配区域会漂移」：快速路径若拿已提交
+     * 选区当锚点，越过翻转后未拖动的一侧就会被算到错误位置。判定不依赖手柄 overlay
+     * 或菜单几何——直接量终端网格里反色区域的左缘像素：它由原生渲染器画出，是用户
+     * 真正看到的那块「匹配区域」。
+     */
+    @Test
+    fun dragging_end_keeps_start_highlight_edge_fixed() {
+        val (tapX, tapY, markerRow) = prepareWordTarget(
+            words = "driftword",
+            targetViewportRow = 9,
+            startColumn = 6,
+        )
+        longPressUntilSelected(tapX, tapY)
+        Thread.sleep(700)
+        assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
+
+        val before = committedSelection()
+        val startCol = before.start?.col ?: -1
+        val endCol = before.end?.col ?: -1
+        val startGridRow = before.start?.row ?: -1
+        assertTrue("长按后必须有跨格选区 ($startCol..$endCol)", startCol >= 0 && endCol > startCol)
+        val startViewportRow = startGridRow - bridge().scrollbackLength()
+        assertTrue("起点必须在视口内（行=$startViewportRow 标记行=$markerRow）", startViewportRow >= 0)
+
+        val surface = attachedSurface()
+        val location = IntArray(2)
+        surface.getLocationOnScreen(location)
+        val (cellWidth, cellHeight) = cellPx()
+        val bandY = (location[1] + (startViewportRow + 0.5f) * cellHeight).toInt()
+        // 背景样本取同行第 0 列：标记从第 6 列起画，那里必为空白。
+        val background = pixelLuminance(
+            UxTestUtils.screenshot(device),
+            location[0] + (cellWidth * 0.5f).toInt(),
+            bandY,
+        )
+        val baseline = highlightLeftEdge(bandY, background, location[0], location[0] + surface.width)
+
+        // END 柄左移若干整格（不越过 START）：反色区域收缩，但左缘必须不动。
+        val (grabX, grabY) = cellAnchorLocal(col = endCol + 1, row = startViewportRow)
+        val steps = minOf(3, endCol - startCol - 2).coerceAtLeast(1)
+        var currentX = grabX
+        var worstDrift = 0
+        repeat(steps) {
+            currentX -= cellWidth.toInt()
+            realSwipe(currentX + cellWidth / 2, grabY, currentX, grabY, steps = 4)
+            Thread.sleep(120)
+            val edge = highlightLeftEdge(bandY, background, location[0], location[0] + surface.width)
+            worstDrift = maxOf(worstDrift, kotlin.math.abs(edge - baseline))
+            assertTrue(
+                "第 ${it + 1} 步拖动 END 后选区左缘从 ${baseline}px 漂到 ${edge}px（左移 ${cellWidth}px 一格）",
+                kotlin.math.abs(edge - baseline) <= EDGE_DRIFT_TOLERANCE_PX,
+            )
+        }
+        UxTestUtils.metric("drag_start_edge_drift_px", worstDrift)
+
+        val after = committedSelection()
+        assertTrue(
+            "END 拖动后起点不应改变（$startCol → ${after.start?.col}）",
+            after.start?.col == before.start?.col && after.start?.row == before.start?.row,
+        )
+        assertTrue("END 手柄没有真的移动（end=${after.end?.col}）", (after.end?.col ?: -1) < endCol)
+        resetSelection()
+    }
+
+    /**
+     * 一次手势里的 MOVE 不得逐帧写 Compose 选区状态。
+     *
+     * 快速路径的收益就在这里：MOVE 只算边界、挪 overlay，状态在抬手时提交一次。
+     * 计数用 StateFlow 的发射次数——每次 `_state.update` 都对应一次重组，12 次 MOVE
+     * 若各写一次，真机上就是每帧一遍整棵订阅树（历史「拖动卡顿」的根因）。
+     */
+    @Test
+    fun dragging_commits_selection_once_per_gesture() {
+        val (tapX, tapY, _) = prepareWordTarget(
+            words = "batchword",
+            targetViewportRow = 9,
+            startColumn = 6,
+        )
+        longPressUntilSelected(tapX, tapY)
+        assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
+
+        val before = committedSelection()
+        val endCol = before.end?.col ?: -1
+        val endGridRow = before.end?.row ?: -1
+        assertTrue("长按后必须有末端 ($endCol,$endGridRow)", endCol > 0)
+        val endViewportRow = endGridRow - bridge().scrollbackLength()
+        val (cellWidth, _) = cellPx()
+        val (grabX, grabY) = cellAnchorLocal(col = endCol + 1, row = endViewportRow)
+
+        val selections = java.util.Collections.synchronizedList(mutableListOf<SelectionState>())
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val job = scope.launch {
+            composeTestRule.activity.terminalViewModel.state.collect { selections += it.selection }
+        }
+        Thread.sleep(300)
+        val beforeCount = selections.size
+
+        // 12 个 MOVE 的单个手势：DOWN → 12×MOVE → UP。
+        realSwipe(grabX, grabY, grabX - cellWidth * 3, grabY, steps = 12)
+        Thread.sleep(600)
+        job.cancel()
+        val writes = selections.size - beforeCount
+        UxTestUtils.metric("drag_selection_writes_per_12_moves", writes)
+
+        assertTrue(
+            "12 次 MOVE 期间选区状态写了 $writes 次（上限 $MAX_DRAG_STATE_WRITES）：MOVE 又走回了 Compose 重组",
+            writes <= MAX_DRAG_STATE_WRITES,
+        )
+        val after = committedSelection()
+        assertTrue(
+            "手势结束后选区没有变化（end=${after.end?.col} 起点=$endCol）：拖动没有生效，计数无意义",
+            (after.end?.col ?: -1) != endCol,
+        )
+        resetSelection()
+    }
+
+    /** 主线程读当前已提交选区（base 为 Compose 状态，必须同步取）。 */
+    private fun committedSelection(): SelectionState {
+        var selection: SelectionState? = null
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            selection = composeTestRule.activity.terminalViewModel.state.value.selection
+        }
+        return requireNotNull(selection) { "选区状态读取失败" }
+    }
+
+    /**
+     * 扫描 [bandY] 这一行像素，返回选区反色区域的最左缘 x（屏幕坐标）。
+     *
+     * 反色单元格整格背景与空白格不同，故「连续 3 个采样点都偏离 [background] 亮度」
+     * 即认为进入了选区。找不到返回 -1（调用方会因漂移超限失败）。
+     */
+    private fun highlightLeftEdge(bandY: Int, background: Int, left: Int, right: Int): Int {
+        val shot = UxTestUtils.screenshot(device)
+        var run = 0
+        for (x in left until minOf(right, shot.width)) {
+            val delta = kotlin.math.abs(pixelLuminance(shot, x, bandY) - background)
+            run = if (delta > EDGE_LUMINANCE_DELTA) run + 1 else 0
+            if (run >= 3) return x - 2
+        }
+        return -1
+    }
+
+    private companion object {
+        /** 左缘允许的像素漂移：覆盖抗锯齿与手柄重定位的取整。 */
+        const val EDGE_DRIFT_TOLERANCE_PX = 3
+
+        /** 判定「反色格」的亮度差阈值。 */
+        const val EDGE_LUMINANCE_DELTA = 24
+
+        /**
+         * 12 次 MOVE 允许的状态写次数：抬手提交本身可能写 1～2 次（选区 + 菜单几何），
+         * 与「每次 MOVE 都写」的 12 次有一眼可辨的数量级差。
+         */
+        const val MAX_DRAG_STATE_WRITES = 3
     }
 }
