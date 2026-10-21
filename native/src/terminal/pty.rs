@@ -274,6 +274,10 @@ impl PtyPair {
             .collect::<Result<Vec<_>, _>>()?;
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
+            .chain(
+                title_report_hook(&shell_executable)
+                    .map(|(name, value)| (name.to_string(), value.to_string())),
+            )
             .map(|(key, value)| {
                 std::ffi::CString::new(format!("{key}={value}")).map_err(|null_error| {
                     let message = format!("env var contains null byte: {null_error}");
@@ -902,6 +906,27 @@ fn base_env_with_host(
     result
 }
 
+/// bash 的会话标题上报钩子。
+///
+/// bash 不自带标题上报：只有用户自己设置 `PROMPT_COMMAND` 时才发
+/// OSC 0/2。经**环境变量**注入是唯一不碰用户 rc 文件的做法——bash 启动时若
+/// shell 内未定义该变量，就用环境里的值；用户 rc 里自己设了则以用户为准。
+/// 值里写的是 printf 的转义序列（bash 执行时才展开），故用普通字符串。
+const BASH_PROMPT_COMMAND: &str = "printf \"\\033]0;%s\\007\" \"${PWD##*/}\"";
+
+/// 该 shell 需要注入的标题上报钩子（变量名 + 值），不需要时为空。
+///
+/// 只有 bash 一族需要：mksh 的钩子由应用写的 rc 文件承担（见
+/// `TerminalRuntime.ensureMkshPromptRc`），其余自带标题上报的 shell 不必注入。
+fn title_report_hook(shell: &str) -> Option<(&'static str, &'static str)> {
+    let name = std::path::Path::new(shell).file_name()?.to_str()?;
+    if name == "bash" || name.starts_with("bash-") {
+        Some(("PROMPT_COMMAND", BASH_PROMPT_COMMAND))
+    } else {
+        None
+    }
+}
+
 pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
     let mut result = base_env(env.prefix.as_deref());
     result.push(("HOME".to_string(), env.home.clone()));
@@ -1274,6 +1299,31 @@ mod tests {
                 .iter()
                 .any(|(key, value)| key == "ENV" && value == "/tmp/test_app_data/.mkshrc")
         );
+    }
+
+    #[test]
+    fn bash_sessions_get_a_title_report_hook() {
+        // bash 自己不发 OSC 0/2：没有 PROMPT_COMMAND 就没有会话标题。
+        let hook = super::title_report_hook("/data/data/com.termux/files/usr/bin/bash");
+        assert_eq!(hook.map(|(name, _)| name), Some("PROMPT_COMMAND"));
+        let value = hook.map(|(_, value)| value).unwrap_or_default();
+        assert!(
+            value.contains("]0;") && value.contains("PWD"),
+            "钩子必须发出 OSC 0 并带上当前目录，实际：{value}"
+        );
+    }
+
+    #[test]
+    fn non_bash_sessions_get_no_title_report_hook() {
+        // mksh 走应用写的 rc 文件；其他 shell 不注入未知变量。
+        for shell in [
+            "/system/bin/sh",
+            "/data/data/com.termux/files/usr/bin/mksh",
+            "/data/data/com.termux/files/usr/bin/other-shell",
+            "/usr/bin/other-shell",
+        ] {
+            assert_eq!(super::title_report_hook(shell), None, "shell={shell}");
+        }
     }
 
     #[test]
