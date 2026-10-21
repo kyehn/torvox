@@ -176,6 +176,12 @@ object NativeBridge {
     /** 会话的回滚行数。 */
     @JvmStatic external fun scrollbackLength(sessionId: Long): Int
 
+    /**
+     * 最近一帧的回滚长度：与屏幕上这一帧同源，只读一次原子量。
+     * 首帧尚未取走时为 -1；未知会话抛异常。
+     */
+    @JvmStatic external fun getRenderedScrollbackLength(sessionId: Long): Int
+
     /** 某一行的文本（已去除尾部空白），空行返回 null。row 为绝对行号。 */
     @JvmStatic external fun scrollbackLine(sessionId: Long, row: Int): String?
 

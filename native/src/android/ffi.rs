@@ -20,6 +20,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -189,6 +190,9 @@ unsafe extern "C" {
 /// 光标载体无值：首帧尚未被渲染线程取走，或该帧的光标不可见（隐藏、滚出视口）。
 const RENDERED_CURSOR_NONE: i64 = -1;
 
+/// 渲染帧回滚长度无值：首帧尚未被渲染线程取走。
+const RENDERED_SCROLLBACK_NONE: i32 = -1;
+
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
     /// 渲染线程每消费一帧新数据就以 `Release` 写入本会话**那一帧**的光标格
@@ -196,6 +200,10 @@ struct SessionEntry {
     /// 只做一次 `Acquire` 读——不发 VT 查询、不取会话锁。会话锁可能被 PTY 写入按住，
     /// 而锚点必须在同一拍里给出坐标（旧路走同步查询，实测每次组字回退等 18ms p50）。
     rendered_cursor: AtomicI64,
+    /// 同一帧的回滚长度（`CursorInfo.scrollback_length`）。滚动钳位与选区手柄
+    /// 每帧都要用；改读此处后不再向 VT 线程发同步 RPC——VT 忙于输出时那次查询
+    /// 最长阻塞 500ms，正是滚动/拖柄的卡顿来源。
+    rendered_scrollback: AtomicI32,
 }
 
 impl SessionEntry {
@@ -203,6 +211,7 @@ impl SessionEntry {
         Self {
             session,
             rendered_cursor: AtomicI64::new(RENDERED_CURSOR_NONE),
+            rendered_scrollback: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
         }
     }
 }
@@ -226,6 +235,14 @@ fn rendered_cursor_packed(session_id: u64) -> Option<i64> {
     let registry = rlock_session_registry();
     let entry = registry.get(&session_id)?;
     Some(entry.rendered_cursor.load(Ordering::Acquire))
+}
+
+/// 读某会话最近一帧的回滚长度；会话未登记时返回 `None`，首帧未发布时返回
+/// [`RENDERED_SCROLLBACK_NONE`]。
+fn rendered_scrollback(session_id: u64) -> Option<i32> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    Some(entry.rendered_scrollback.load(Ordering::Acquire))
 }
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
@@ -2014,6 +2031,10 @@ fn render_inner(session_id: u64) -> jint {
                 entry
                     .rendered_cursor
                     .store(pack_rendered_cursor(&cursor_info), Ordering::Release);
+                entry.rendered_scrollback.store(
+                    i32::try_from(cursor_info.scrollback_length).unwrap_or(i32::MAX),
+                    Ordering::Release,
+                );
                 FrameData::New {
                     cells,
                     cursor_info,
@@ -2790,8 +2811,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedCur
     })
 }
 
+/// 最近一帧的回滚长度（0 起）。首帧尚未取走时为 -1；未知会话抛异常（与光标载体一致，
+/// 让调用方能区分「会话没了」与「暂时没有帧」）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScrollbackLength(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, RENDERED_SCROLLBACK_NONE, |env| {
+        let Some(length) = rendered_scrollback(session_id as u64) else {
+            throw_session_missing(env, "getRenderedScrollbackLength");
+            return Ok(RENDERED_SCROLLBACK_NONE);
+        };
+        length
+    })
+}
+
 /// 返回单个回滚行去除首尾空白后的文本，空行返回 null。
-///
 /// **惰性访问语义**——Ghostty 只保留被显式读取过的行，多数下标返回 null。
 /// 不可用于全文迭代——应改用 `dump_grid`（经 `getTerminalText`）。
 #[unsafe(no_mangle)]
@@ -4067,8 +4104,9 @@ mod session_registry_tests {
 
     use super::{
         ACTIVE_SESSION_ID, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
-        MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, Ordering, RENDERED_CURSOR_NONE, SessionEntry,
-        pack_rendered_cursor, pump_sessions, rendered_cursor_packed, wlock_session_registry,
+        MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, Ordering, RENDERED_CURSOR_NONE,
+        RENDERED_SCROLLBACK_NONE, SessionEntry, pack_rendered_cursor, pump_sessions,
+        rendered_cursor_packed, rendered_scrollback, wlock_session_registry,
     };
     use crate::terminal::pty::Pty;
     use crate::terminal::session::Session;
@@ -4158,6 +4196,34 @@ mod session_registry_tests {
         );
 
         assert_eq!(rendered_cursor_packed(session_id + 1), None);
+
+        wlock_session_registry().remove(&session_id);
+    }
+
+    /// 帧内回滚长度载体：首帧未取走 → 无值；发布后 → 该帧长度；未知会话 → `None`。
+    /// 判别力：把「无值」当成 0 会让滚动钳位在首帧前把用户按住不动，
+    /// 把「未知会话」当成 0 则让切会话后的旧查询静默成功。
+    #[test]
+    fn rendered_scrollback_separates_unpublished_from_unknown_session() {
+        let _access = REGISTRY_ACCESS.lock();
+        let (session, _handle) = background_session();
+        let session_id = 0x5EED_5C40_u64;
+        wlock_session_registry().insert(session_id, SessionEntry::new(session));
+
+        assert_eq!(
+            rendered_scrollback(session_id),
+            Some(RENDERED_SCROLLBACK_NONE),
+            "首帧尚未被渲染线程取走时必须与真实的 0 行回滚区分开"
+        );
+
+        wlock_session_registry()
+            .get(&session_id)
+            .expect("entry must be registered")
+            .rendered_scrollback
+            .store(524, Ordering::Release);
+        assert_eq!(rendered_scrollback(session_id), Some(524));
+
+        assert_eq!(rendered_scrollback(session_id + 1), None);
 
         wlock_session_registry().remove(&session_id);
     }

@@ -75,11 +75,21 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
 
     /**
      * 事件在 FileObserver 自己的线程上到达，广播另起专线：inotify 回调里直接做
-     * Binder 调用会让同一观察者后续事件排队等待，批量操作时更慢。线程随进程消亡。
+     * Binder 调用会让同一观察者后续事件排队等待，批量操作时更慢。
+     *
+     * 按需启动，[shutdown] 后置空；下一次事件重新拉起，故提供者重启后仍能广播。
      */
-    private val thread by lazy { HandlerThread("terminal-documents-watch").apply { start() } }
-    private val handler by lazy { Handler(thread.looper) }
+    private var thread: HandlerThread? = null
+    private var handler: Handler? = null
     private val flushRunnable = Runnable { flushPending() }
+
+    /** 专线 Handler；只在锁内调用，首次调用时启动线程。 */
+    private fun broadcastHandler(): Handler {
+        handler?.let { return it }
+        val started = HandlerThread("terminal-documents-watch").apply { start() }
+        thread = started
+        return Handler(started.looper).also { handler = it }
+    }
 
     /** 登记一个客户端看得见的目录；已登记则只刷新其活跃度。 */
     fun watch(directory: File) {
@@ -152,9 +162,34 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
             }
             if (!flushScheduled) {
                 flushScheduled = true
-                handler.postDelayed(flushRunnable, COALESCE_MILLIS)
+                broadcastHandler().postDelayed(flushRunnable, COALESCE_MILLIS)
             }
         }
+    }
+
+    /**
+     * 释放全部 inotify 实例、丢弃待广播事件并结束广播线程。
+     *
+     * 提供者被系统停止后进程仍可能继续服务其他组件；不注销观察者会让每个看过的
+     * 目录白占一个 inotify 槽位（应用级上限约 128），最终整体静默失效。
+     * 停止后再次 [watch] 会重新登记、重新拉起线程，不进入永久静默。
+     */
+    fun shutdown() {
+        val observers: List<FileObserver>
+        val broadcaster: HandlerThread?
+        synchronized(lock) {
+            observers = watched.values.toList()
+            watched.clear()
+            pendingChildren.clear()
+            pendingDocuments.clear()
+            flushScheduled = false
+            handler?.removeCallbacksAndMessages(null)
+            broadcaster = thread
+            thread = null
+            handler = null
+        }
+        observers.forEach { it.stopWatching() }
+        broadcaster?.quitSafely()
     }
 
     private fun forget(path: String) {

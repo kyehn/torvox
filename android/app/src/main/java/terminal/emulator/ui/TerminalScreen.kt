@@ -186,10 +186,6 @@ fun TerminalScreen(
                 // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
                 // 故使用从 AndroidView 工厂捕获的 surfaceRef。
                 surfaceRef.value?.finishComposing()
-                // 取消在途的 surface 重建重试：它会恢复渲染 +
-                // resumeRendering()，跨过本次暂停就会在已被系统回收的 BufferQueue
-                // 上继续出帧（ERROR_SURFACE_LOST_KHR → 返回后永久黑屏）。
-                surfaceRef.value?.cancelSurfaceRecreate()
                 // 切后台：领一次渲染暂停并停止渲染线程。切应用不会调用
                 // surfaceDestroyed（Surface 被保留），不做此步线程会继续在已被
                 // 系统回收的 BufferQueue 上取帧 → ERROR_SURFACE_LOST_KHR
@@ -217,31 +213,15 @@ fun TerminalScreen(
                 if (
                     surface != null && surface.isAttachedToWindow && surface.width > 0 && surface.height > 0
                 ) {
-                    // 即使 Surface 对象存活（无 surfaceDestroyed），
-                    // 系统也可能在后台回收其 BufferQueue：
-                    // 重新 attach 会去重配一个已死的 Surface → 永远 ERROR_SURFACE_LOST_KHR。
-                    // 故先丢弃它，使 attach 走慢路径并从（此时又有效的）
-                    // ANativeWindow 重建交换链。使用 holder 的实时 Surface，
-                    // 而非缓存的 currentSurface（回收后其 isValid 恒为 false）。
-                    val bridge = viewModel.runtime.bridge()
-                    val holderSurface = surface.holder?.surface
-                    if (bridge != null && holderSurface != null && holderSurface.isValid) {
-                        viewModel.currentSurface = holderSurface
-                        bridge.releaseGpuSurface()
-                        bridge.attachSurface(holderSurface, surface.width, surface.height)
-                        // 清**全部**生命周期持有（Surface 销毁 + 切后台），不止切后台
-                        // 那一条：`surfaceCreated` 早期返回（0 尺寸 / Surface 当时无效）
-                        // 时不会走到强制出帧，本次前台恢复正是替代它的那条路径，
-                        // 漏清就留下一枚永不归还的持有，渲染就此永久暂停。
-                        viewModel.runtime.clearLifecycleRenderPause()
-                        viewModel.runtime.resumeRendering()
-                        viewModel.runtime.forceRender()
-                    } else {
-                        // holder 尚未有效（系统仍在恢复 BufferQueue）：
-                        // 持续重试直到有效，然后重建。
-                        // 此刻绝不要解除暂停——在已死的 Surface 上出帧会永远失败。
-                        surface.postDelayedSurfaceRecreate(viewModel)
-                    }
+                    // 不在这里无条件 release/attach：Surface 被保留时交换链通常仍然可用，
+                    // 重建会先丢掉上一帧、再等新交换链的首帧，正是切回时看到的一闪。
+                    // 真的被系统回收时，渲染线程会在取帧失败后随帧上报
+                    // `surfaceInvalidated`，由 `maybeRequestSurfaceRecreate` 换成新窗口；
+                    // `surfaceDestroyed` 路径则由 `surfaceCreated` 重新绑定。
+                    viewModel.runtime.clearLifecycleRenderPause()
+                    viewModel.runtime.resumeRendering()
+                    // 即使没有新输出也立即出一帧：交换链若已失效，这一帧就是探针。
+                    viewModel.runtime.forceRender()
                 } else {
                     surface?.postDelayedUnpause(200L)
                 }
