@@ -200,15 +200,21 @@ val reportConnectedFailures = tasks.register("reportConnectedFailures") {
         .get()
         .asFile
     val reports = resultsDir.walkTopDown().filter { it.isFile && it.extension == "xml" }.toList()
+    // 零用例 = 这一轮什么都没跑（APK 安装失败、用例过滤器写错、UTP 没连上设备）。
+    // AGP 对「runner 启动前就失败」不会把主任务标红——实测 adb install 找不到 APK
+    // 时 `connectedDebugAndroidTest` 仍报 BUILD SUCCESSFUL、只把异常塞进输出。
+    // 那会让 CI 在一条测试都没跑的情况下静默变绿，故这里必须抛错；
+    // docs/specification/TESTING.md 明确要求缺依赖时失败而不是跳过。
     if (reports.isEmpty()) {
-      println("connected-failures: no UTP XML results under ${resultsDir.path}")
-      return@doLast
+      throw GradleException("connected tests produced no UTP XML results under ${resultsDir.path}")
     }
     var failed = 0
+    var executed = 0
     val documentBuilder = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
     reports.forEach { report ->
       val document = documentBuilder.parse(report)
       val cases = document.getElementsByTagName("testcase")
+      executed += cases.length
       for (index in 0 until cases.length) {
         val testCase = cases.item(index) as org.w3c.dom.Element
         val failures = testCase.getElementsByTagName("failure")
@@ -227,7 +233,10 @@ val reportConnectedFailures = tasks.register("reportConnectedFailures") {
         }
       }
     }
-    println("connected-failures: $failed failed in ${reports.size} report files")
+    println("connected-failures: $failed failed in ${reports.size} report files, $executed cases executed")
+    if (executed == 0) {
+      throw GradleException("connected tests executed 0 cases; nothing ran. Results: ${resultsDir.path}")
+    }
   }
 }
 

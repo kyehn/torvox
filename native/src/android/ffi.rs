@@ -4283,7 +4283,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
             return Ok(());
         };
         render_state.renderer.set_viewport_scroll_px(offset_px);
-        log::debug!("setScrollYPx: {offset_px}");
+        // 触摸滚动的每个 MOVE 都会走到这里（数十次/手势），日志级别取 trace：
+        // 值本身在 `setScrollOffset` 里已有落点记录，debug 级只会把 CI 日志刷满。
+        log::trace!("setScrollYPx: {offset_px}");
     })
 }
 
