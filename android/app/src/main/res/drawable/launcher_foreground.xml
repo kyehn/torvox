@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 桌面自适应图标的前景层：logo_art 的 1:1 包装。
-     item 用固定 108dp 尺寸 + gravity=center：标准自适应单元就是 108dp 宽，
-     于是图案在单元内以原视口 1:1 居中绘制，外观与直接引用原图案完全一致，
-     但文件不再与启动屏几何耦合（启动屏由 splash_icon.xml 另行收缩包装）。 -->
+<!-- 桌面自适应图标的前景层：图案本身已按安全区缩放（见 logo_art.xml）。
+
+     item 不写死 dp 尺寸而用 gravity="fill"：平台把前景层按 1.5× 图标边界绘制，
+     写死尺寸会让图案不随图标大小缩放，密度越高的设备裁得越狠。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item
-        android:width="108dp"
-        android:height="108dp"
-        android:gravity="center"
-        android:drawable="@drawable/logo_art" />
+        android:drawable="@drawable/logo_art"
+        android:gravity="fill" />
 </layer-list>

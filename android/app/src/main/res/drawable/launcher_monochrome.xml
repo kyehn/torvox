@@ -1,11 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Monochrome version for themed icons (Android 13+).
-     Converted from assets/logo-vector.svg — white on transparent. -->
+     Converted from assets/logo-vector.svg — white on transparent.
+
+     与彩色图案同一套摆放：整幅图案按自适应图标的安全区等比缩到 0.65
+     （见 logo_art.xml 的同一组缩放），否则 themed icon 也会把星形与尾迹
+     方块裁掉。点迹的 pathData 同样以 moveTo 起头——弧前没有 moveTo 时，
+     首弧会从原点拉出一条畸形色块。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.65"
+        android:scaleY="0.65">
 
     <!-- Terminal window group: same transform as foreground -->
     <group
@@ -22,13 +33,13 @@
 
         <!-- Three dots -->
         <path
-            android:pathData="A1.6,1.6 0 1,1 9.74,11.6 A1.6,1.6 0 1,1 6.54,11.6 A1.6,1.6 0 1,1 9.74,11.6 Z"
+            android:pathData="M9.74,11.6 A1.6,1.6 0 1,1 6.54,11.6 A1.6,1.6 0 1,1 9.74,11.6 Z"
             android:fillColor="#FFFFFF"/>
         <path
-            android:pathData="A1.6,1.6 0 1,1 15.01,11.6 A1.6,1.6 0 1,1 11.81,11.6 A1.6,1.6 0 1,1 15.01,11.6 Z"
+            android:pathData="M15.01,11.6 A1.6,1.6 0 1,1 11.81,11.6 A1.6,1.6 0 1,1 15.01,11.6 Z"
             android:fillColor="#FFFFFF"/>
         <path
-            android:pathData="A1.6,1.6 0 1,1 20.29,11.6 A1.6,1.6 0 1,1 17.09,11.6 A1.6,1.6 0 1,1 20.29,11.6 Z"
+            android:pathData="M20.29,11.6 A1.6,1.6 0 1,1 17.09,11.6 A1.6,1.6 0 1,1 20.29,11.6 Z"
             android:fillColor="#FFFFFF"/>
 
         <!-- Prompt ">" chevron -->
@@ -72,5 +83,7 @@
     <path
         android:pathData="M79.72,32.14 l1.69,0 l0,1.69 l-1.69,0 Z"
         android:fillColor="#FFFFFF"/>
+
+    </group>
 
 </vector>
