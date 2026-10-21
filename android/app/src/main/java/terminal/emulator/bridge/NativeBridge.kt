@@ -12,11 +12,25 @@ object NativeBridge {
     private const val TAG = "NativeBridge"
     private var nativeLoaded = false
 
+    /**
+     * 触发类初始化（也就是装载原生库）的那条线程的名字。
+     *
+     * 装载要读整个 `.so`，落在首帧前的主线程上会拖慢冷启动（debug 构建实测
+     * 471ms，StrictMode 记为 `DiskReadViolation`），故预装载线程来触碰。
+     * 记录它是为了让崩溃日志能回答「库是在哪条线程上装的」，
+     * 并由仪器测试钉住「不得落在主线程」。
+     */
+    @Volatile
+    @JvmStatic
+    var loaderThreadName: String? = null
+        private set
+
     init {
+        loaderThreadName = Thread.currentThread().name
         try {
             System.loadLibrary("native")
             nativeLoaded = true
-            LogUtil.i(TAG, "Native library loaded: native")
+            LogUtil.i(TAG, "Native library loaded: native on $loaderThreadName")
         } catch (exception: UnsatisfiedLinkError) {
             LogUtil.e(TAG, "Failed to load native library: ${exception.message}")
         }

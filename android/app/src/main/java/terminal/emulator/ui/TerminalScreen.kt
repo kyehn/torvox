@@ -10,13 +10,20 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -37,10 +44,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -69,7 +77,15 @@ private const val IME_TOGGLE_DELAY_MS = 50L
  * 超长查询在 UI 侧直接判为无命中，不送原生（见 [coerceSearchQuery]）。
  */
 private val searchQueryMaxLength: Int by lazy {
-    terminal.emulator.bridge.NativeBridge.searchQueryMaxChars()
+    // 原生库缺失时 NativeBridge 的类初始化仍会成功（它只记日志），
+    // 但 external 方法的链接会抛 UnsatisfiedLinkError——那是 Error 不是 Exception，
+    // 会从 onQueryChange 回调一路逃到全局处理器而崩掉进程。故显式设防。
+    val bridge = terminal.emulator.bridge.NativeBridge
+    if (!bridge.isNativeLoaded()) {
+        0
+    } else {
+        runCatching { bridge.searchQueryMaxChars() }.getOrDefault(0)
+    }
 }
 
 /** 终端内文本搜索状态，取代原先 6 个独立的 remember 变量。 */
@@ -140,7 +156,12 @@ fun TerminalScreen(
     var showTextSearch by remember { mutableStateOf(false) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = LocalView.current
-    SystemBarsFollowTerminalBackground(view, terminalBackground)
+    // 覆盖层（设置页）打开时终端页不得再写系统栏明暗：设置页与终端页同处一棵
+    // 组合树，各自都写的话谁最后重组谁赢——被遮住的那一页也会把图标改成另一套，
+    // 表现为「切回终端瞬间图标闪一下」。覆盖层自己按自己的底色写。
+    if (!isOverlayVisible) {
+        SystemBarsFollowBackground(view, terminalBackground)
+    }
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
     // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用
     // （修饰键栏布局不可配置，故没有 KEYBOARD 附加键，见 PROHIBITED 的布局编辑器禁令）。
@@ -244,12 +265,13 @@ fun TerminalScreen(
         scope.launch { drawerState.close() }
     }
 
+    // 抽屉面板要避开状态栏：见 DrawerSheet。
+    val statusBarTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface,
-            ) {
+            DrawerSheet(statusBarTop = statusBarTop) {
                 SessionDrawer(
                     sessions = state.sessions,
                     activeSessionId = state.activeSessionId,
@@ -740,44 +762,30 @@ fun TerminalScreen(
 }
 
 /**
- * 系统栏图标明暗跟随已解析的终端主题背景。
+ * 抽屉面板。
  *
- * 窗口是边到边的（`MainActivity.onCreate` 已 `WindowCompat.enableEdgeToEdge`），
- * 系统栏自身透明、只决定**图标明暗**，而 `enableEdgeToEdge` 的默认样式跟随
- * **系统**深浅色——与应用内「日间/夜间」开关以及浅色终端主题都无关：
- * 日间 + 浅色终端主题下状态栏图标恒为浅色，在浅背景上不可见
- * （DESIGN：软件主题三种模式；终端配色作用于终端页面与修饰键栏）。
+ * 面板背景必须避开状态栏：Material3 把 `windowInsetsPadding` 施加在面板的**内容**而非
+ * `Surface`（背景）上，面板底色会一路铺到屏幕顶端，把浅色面板盖在状态栏区。状态栏区于是
+ * 一半是浅面板（白字时钟不可读）、一半是深色终端，而系统栏图标明暗只有一个全局开关，
+ * 无法同时让两侧都清晰。
  *
- * 明暗判据取背景自身亮度而非软件主题开关：图标最终画在该背景像素上，
- * 按像素判才不会在浅色终端主题配夜间开关时判反。
+ * 故面板整体按状态栏高度下移：状态栏区统一露出遮罩下的终端底色，图标继续跟随终端底色。
  */
 @Composable
-private fun SystemBarsFollowTerminalBackground(view: android.view.View, background: Color) {
-    val window = (view.context as? android.app.Activity)?.window ?: return
-    val lightBackground = usesLightSystemBarIcons(background)
-    SideEffect {
-        // 显式声明图标明暗：`WindowCompat.enableEdgeToEdge(window)` 按**系统**深浅色
-        // 决定，且不接受样式参数；`SystemBarStyle` 那套只挂在已弃用的
-        // `ComponentActivity.enableEdgeToEdge` 上。要让图标跟随应用内主题与终端配色，
-        // 只能直接写 insets controller 的两枚开关。
-        androidx.core.view.WindowInsetsControllerCompat(window, view).apply {
-            isAppearanceLightStatusBars = lightBackground
-            isAppearanceLightNavigationBars = lightBackground
-        }
+internal fun DrawerSheet(
+    statusBarTop: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    ModalDrawerSheet(
+        drawerContainerColor = MaterialTheme.colorScheme.surface,
+        // 顶边已由下面的 padding 让开，内容只需处理横向与底部（导航栏）内边距。
+        windowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+        modifier = modifier.padding(top = statusBarTop).testTag("DrawerSheet"),
+    ) {
+        content()
     }
 }
-
-/**
- * 系统栏图标是否取深色：背景为浅色时取深色图标（WCAG 相对亮度中点为界）。
- *
- * 按背景像素而非软件主题开关判定：图标最终画在该背景上，浅色终端主题配夜间开关时
- * 按开关判会判反。
- */
-internal fun usesLightSystemBarIcons(background: Color): Boolean =
-    background.luminance() > LIGHT_BACKGROUND_LUMINANCE_THRESHOLD
-
-/** 背景亮度高于此值即按浅色背景处理（图标取深色）。取 WCAG 相对亮度中点。 */
-private const val LIGHT_BACKGROUND_LUMINANCE_THRESHOLD = 0.5f
 
 /**
  * 构造修饰键栏的回调集合。
