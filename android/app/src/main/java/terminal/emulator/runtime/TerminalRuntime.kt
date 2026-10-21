@@ -978,8 +978,11 @@ constructor(
      * 原生 surface 判死后按间隔请求宿主换新的原生窗口（[surfaceRecreateSignal] 递增）。
      *
      * 由渲染线程在每帧读到失效位时调用。失效位在重建成功后由原生回落为 0，
-     * 故请求天然边沿触发；间隔限流与次数上限由 [decideSurfaceRecreate] 裁决，
-     * 避免重建无望时反复拆装视图（抖动与耗电）。
+     * 故请求天然边沿触发。频率由 [decideSurfaceRecreate] 裁决：先按快间隔连试
+     * [SURFACE_RECREATE_MAX_ATTEMPTS] 次，之后退化为每 [SURFACE_RECREATE_SLOW_INTERVAL_NANOS]
+     * 一次的慢重试——快试覆盖「重建立即有效」的常态，慢重试兜住「平台迟迟不交付新窗口」
+     * 的长尾：只放弃意味着渲染线程永远空转在一张死窗口上，用户看到的是一块永久空白，
+     * 而这恰恰发生在切后台往返、平台仍在重排窗口的时刻。
      */
     private fun maybeRequestSurfaceRecreate(entry: SessionEntry) {
         val now = System.nanoTime()
@@ -989,17 +992,16 @@ constructor(
             // 否则会把复位后的新预算又推回耗尽。
             val budget = budgetRef.get()
             val decision = decideSurfaceRecreate(budget.attempts, budget.lastRequestNanos, now)
-            if (decision.exhausted) {
-                if (!budget.exhaustedLogged &&
-                    budgetRef.compareAndSet(budget, budget.copy(exhaustedLogged = true))
-                ) {
+            if (decision.exhausted && !budget.exhaustedLogged) {
+                // 只告警一次：慢重试仍然每轮都发请求，重复告警只会淹没日志。
+                if (budgetRef.compareAndSet(budget, budget.copy(exhaustedLogged = true))) {
                     LogUtil.e(
                         TAG,
-                        "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS recreate attempts exhausted; " +
-                            "terminal will stay blank until the surface is recreated by the platform",
+                        "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS fast recreate attempts exhausted; " +
+                            "falling back to one attempt every $SURFACE_RECREATE_SLOW_INTERVAL_MS ms",
                     )
                 }
-                return
+                continue
             }
             if (!decision.request) return
             if (budgetRef.compareAndSet(
@@ -1018,9 +1020,14 @@ constructor(
                 LogUtil.w(
                     TAG,
                     // 报刚才写下的那次计数，而不是重新读引用——并发复位会让日志
-                    // 印出一个从未请求过的次数。
-                    "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
-                        "requesting a fresh Android surface",
+                    // 印出一个从未请求过的次数。慢重试阶段不再有分母。
+                    if (budget.attempts + 1 <= SURFACE_RECREATE_MAX_ATTEMPTS) {
+                        "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
+                            "requesting a fresh Android surface"
+                    } else {
+                        "surface invalidated (slow retry ${budget.attempts + 1 - SURFACE_RECREATE_MAX_ATTEMPTS}): " +
+                            "requesting a fresh Android surface"
+                    },
                 )
                 return
             }
@@ -2488,6 +2495,10 @@ constructor(
                 }
                 startedBridge = null
                 starting = false
+                // 悬空的 Surface 不得留在待挂载队列里：网格计算以 pendingSurface 的
+                // 宽高为权威，留着会算出一个与任何真实 Surface 都不匹配的网格，
+                // 并把它经 resize 推给 PTY（一次多余的 SIGWINCH + 重排）。
+                pendingSurface = null
                 return
             }
 
@@ -2922,6 +2933,9 @@ constructor(
     suspend fun switchSession(id: Long, surface: Surface, width: Int, height: Int): Boolean {
         if (!switchSessionInternal(id, surface, width, height)) return false
         updateState()
+        // 标题只在锁外刷新：取标题要走阻塞式 VT 往返（最长约 1 秒），
+        // sessionLock 是所有会话操作的总闸，锁内阻塞等于冻结整个会话子系统。
+        refreshActiveSessionTitle()
         return true
     }
 
@@ -3273,6 +3287,9 @@ constructor(
             }
             updateState()
         }
+        // 关闭活动会话后标题要立刻跟着变：活动会话变了，标题不能还挂着旧的。
+        // 与切换同理，刷新必须在锁外做。
+        refreshActiveSessionTitle()
     }
 
     suspend fun applySettings() {
@@ -3432,8 +3449,12 @@ constructor(
                     }
                     entry.renderSignaled.set(true)
                     entry.notifyRender()
+                    return true
                 }
-                return true
+                // 非 Enter 的输入在此被丢弃：如实报告未写入。
+                // 返回 true 会让调用方（输入法提交、粘贴、按键）把
+                // 「被静默吞掉」当成「已写入」，输入就此消失且毫无症状。
+                return false
             }
             val written = entry.bridge.writeToPty(data)
             if (!written) {
@@ -3563,10 +3584,13 @@ constructor(
     }
 
     fun resumeRendering() {
-        // 渲染线程接管推进后立即停泵：两个泵同时推进同一批会话只是重复劳动
-        // （推进是幂等的拉取，但白白多占一次通道遍历）。
-        stopSessionPump()
         surfaceTransitionExecutor.execute {
+            // 停泵 MUST 与「块 A 末尾的启泵」严格有序：两者都排在本执行器上，
+            // 才能保证恢复后不留下一个与渲染线程重复推进会话的泵。
+            // 放在调用线程上停泵会与块 A 竞态：主线程先看到泵还没建起来而空转，
+            // 块 A 随后又把泵建起来，恢复后双泵推进、且该泵永不退出
+            // （会自行停机的条件是没有会话，而此时恒有会话）。
+            stopSessionPump()
             synchronized(sessionLock) {
                 // 恢复即重置换视图预算：ON_RESUME 之后平台会重新交付 Surface，
                 // 这正是一次全新的机会。此前预算只在「渲染成功」时清零，而切后台
@@ -3782,6 +3806,9 @@ constructor(
             hung.isAlive
         ) {
             hung.interrupt()
+            // 本调用在 sessionLock 内：期间会话子系统整体冻结，上限是这次 join
+            // 的 THREAD_JOIN_TIMEOUT_MS（另有 startRenderThread 里对旧线程的同长 join），
+            // 两者相加是关闭窗口内的最坏等待。
             hung.join(THREAD_JOIN_TIMEOUT_MS)
         }
         if (
@@ -3981,24 +4008,37 @@ constructor(
     // 四、状态与 Surface 生命周期
     // ══════════════════════════════════════════════════════════════════════
 
+    /**
+     * 刷新会话状态。**不得**在此处查询会话标题。
+     *
+     * 标题查询是一次阻塞式 VT 往返（最长约 1 秒），而本方法在会话总闸
+     * `sessionLock` 内被调用（关闭/切换/退出路径），压着锁查会把整个会话子系统
+     * 冻结住。标题由 [refreshActiveSessionTitle] 在锁外刷新。
+     */
     private fun updateState() {
-        val currentTitle =
-            sessions[activeSessionId]?.bridge?.getActiveSessionTitle() ?: _state.value.title
-        // 用 _state.update（CAS）而非读-改-写赋值：渲染线程的 title CAS
-        // 可能落在我们的读与写之间，被陈旧 title 覆盖
-        // （下个周期会自愈，但 CAS 完全避免该回归）。
-        // lambda 内的映射读取走 ConcurrentHashMap（弱一致，无需加锁）；
-        // 持有 sessionLock 的调用方额外获得与会话创建/关闭的结构性串行化。
-        // currentTitle 本身是 CAS 之前的快照读取：两个并发的 updateState 调用
-        // 仍可能用陈旧 title 覆盖更新的 title
-        // （与 syncGridDimensions 同属「CAS 外读取」一类，会自愈）。
-        _state.update { previous ->
-            previous.copy(
-                isRunning = sessions.isNotEmpty(),
-                title = currentTitle.ifEmpty { previous.title },
-                activeSessionId = activeSessionId,
-                sessionIds = sessions.keys.sorted(),
+        // 标题不在这里取：标题只能通过阻塞式 VT 往返获得（最长约 1 秒），
+        // 而本函数会在持有 sessionLock 时被调用。
+        _state.update { current ->
+            current.copy(
+                sessionId = activeSessionId,
+                sessions = sessions.values.map { it.toSessionInfo() },
+                hasActiveSession = activeSessionId != null,
             )
+        }
+    }
+
+    /**
+     * 在**锁外**查询活动会话的标题并写回状态。
+     *
+     * 标题是 VT 的 OSC 0 上报，只能通过一次阻塞式 VT 往返取得（最长约 1 秒）。
+     * 故必须与会话总闸分开：调用方需在释放 `sessionLock` 之后再调用。
+     */
+    private fun refreshActiveSessionTitle() {
+        val sessionId = activeSessionId
+        val bridge = sessions[sessionId]?.bridge ?: return
+        val title = bridge.getActiveSessionTitle() ?: return
+        _state.update { current ->
+            if (current.sessionId == sessionId) current.copy(title = title) else current
         }
     }
 
@@ -4077,9 +4117,12 @@ constructor(
      * [acquireRenderPause] 与 [releaseRenderPause] 记账。
      */
     private fun setRenderPaused(paused: Boolean) {
-        for (entry in sessions.values) {
-            entry.bridge.setRenderPaused(paused)
-        }
+        // 渲染器全局唯一，暂停标志也是一个全局布尔：按会话逐个调用只会把同一次
+        // 暂停重复 N 遍——每次都要抢被整帧 GPU 工作持有的渲染状态锁，主线程因此
+        // 连等 N 个帧时长（模拟器基线 ~555ms/帧，真机 ~17ms/帧）。
+        // 零会话时更糟：没有会话就没有可调用的桥，标志永远落不下去，下一个会话
+        // 会渲染纯黑。故直接调全局原生入口，且只调一次。
+        NativeBridge.setRenderPaused(paused)
     }
 
     /**
@@ -4351,8 +4394,15 @@ internal fun computeGridAvailableHeight(surfaceHeight: Int, modifierBarHeightPx:
 // 短于此的重试只会连累在途的重建。
 private const val SURFACE_RECREATE_MIN_INTERVAL_NANOS = 500_000_000L
 
-// 单会话连续重建请求上限：超过即停止并告警（重建无望时避免无限拆装视图）。
+// 单会话连续重建请求的快试上限：超过即转为慢重试（避免无限拆装视图，又不放弃自愈）。
 private const val SURFACE_RECREATE_MAX_ATTEMPTS = 5
+
+// 慢重试间隔（纳秒）：快试用尽后每次请求的间隔。取 5s 是因为这段长尾只在平台迟迟
+// 不交付新窗口时出现，一次重建本身要经历拆装视图 + 新 surface 交付 + 首帧。
+private const val SURFACE_RECREATE_SLOW_INTERVAL_NANOS = 5_000_000_000L
+
+// 同一间隔的毫秒形式：只用于日志文案，避免两处常量各写一个数字。
+private const val SURFACE_RECREATE_SLOW_INTERVAL_MS = SURFACE_RECREATE_SLOW_INTERVAL_NANOS / 1_000_000
 
 /**
  * 内容下沿像素：视口最后一个有内容的行的下沿（视口全空为 0）。
@@ -4448,23 +4498,24 @@ internal fun computeImeSurfaceShift(
 /**
  * surface 重建请求的纯决策（[maybeRequestSurfaceRecreate] 的判据）。
  *
- * 失效位在原生侧重建成功后回落为 0，故「判死后未回落」本身即是边沿；间隔限流
- * 覆盖重建无望的情形（窗口始终换不到），次数上限兜住无限拆装视图的抖动与耗电。
+ * 失效位在原生侧重建成功后回落为 0，故「判死后未回落」本身即是边沿。前
+ * [SURFACE_RECREATE_MAX_ATTEMPTS] 次按 [SURFACE_RECREATE_MIN_INTERVAL_NANOS] 快试，
+ * 用尽后改按 [SURFACE_RECREATE_SLOW_INTERVAL_NANOS] 慢重试：快试覆盖常态，慢重试
+ * 兜住平台迟迟不交付新窗口的长尾，既不无限拆装视图，也不把渲染线程永久钉在死窗口上。
  *
  * @param attempts 已发出的请求次数
  * @param lastRequestNanos 上次请求时刻（纳秒，0 = 从未请求）
  * @param nowNanos 当前时刻（纳秒）
  */
 internal fun decideSurfaceRecreate(attempts: Int, lastRequestNanos: Long, nowNanos: Long): SurfaceRecreateDecision {
-    if (attempts >= SURFACE_RECREATE_MAX_ATTEMPTS) {
-        return SurfaceRecreateDecision(exhausted = true)
-    }
-    val intervalElapsed = lastRequestNanos == 0L || nowNanos - lastRequestNanos >= SURFACE_RECREATE_MIN_INTERVAL_NANOS
-    return SurfaceRecreateDecision(request = intervalElapsed)
+    val fastPhase = attempts < SURFACE_RECREATE_MAX_ATTEMPTS
+    val interval = if (fastPhase) SURFACE_RECREATE_MIN_INTERVAL_NANOS else SURFACE_RECREATE_SLOW_INTERVAL_NANOS
+    val intervalElapsed = lastRequestNanos == 0L || nowNanos - lastRequestNanos >= interval
+    return SurfaceRecreateDecision(request = intervalElapsed, exhausted = !fastPhase)
 }
 
 /**
  * [decideSurfaceRecreate] 的结论：[request] = 本帧请求换新的原生窗口，
- * [exhausted] = 次数上限已用尽（调用方据此只告警一次）。
+ * [exhausted] = 已进入慢重试阶段（调用方据此只告警一次，请求本身照发）。
  */
 internal data class SurfaceRecreateDecision(val request: Boolean = false, val exhausted: Boolean = false)
