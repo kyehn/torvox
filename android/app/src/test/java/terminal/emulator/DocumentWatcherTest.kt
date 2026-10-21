@@ -137,4 +137,22 @@ class DocumentWatcherTest {
         assertTrue("内容变化必须通知条目自身", document.hits.isNotEmpty())
         assertEquals("改内容不改变条目列表，不应触发列表重载", emptyList<String>(), children.hits)
     }
+
+    /**
+     * 提供者被系统停止后不得继续广播旧事件，但重新监视后必须恢复——否则一次
+     * `shutdown` 就让文件管理器再也看不到终端侧改动。
+     */
+    @Test
+    fun `shutdown drops pending events and later events still notify`() {
+        val children = observe(DocumentsContract.buildChildDocumentsUri(authority, "terminal_home"))
+
+        watcher.onDirectoryEvent("terminal_home", FileObserver.CREATE, "before-shutdown.txt")
+        watcher.shutdown()
+        advanceUntil(listOf(children), maxRounds = 3)
+        assertEquals("停止时待播报的事件必须丢弃", emptyList<String>(), children.hits)
+
+        watcher.onDirectoryEvent("terminal_home", FileObserver.CREATE, "after-shutdown.txt")
+        advanceUntil(listOf(children))
+        assertTrue("停止后重新监视必须继续广播", children.hits.isNotEmpty())
+    }
 }

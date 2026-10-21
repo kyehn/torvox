@@ -77,4 +77,42 @@ class SelectionStateTest {
         val back = moved.applyHandleDrag(draggingStart = crossed.draggingStart, targetRow = 0, targetCol = 11)
         assertEquals(HandleDragResult(0, 10, 0, 11, false), back)
     }
+
+    // ── withPendingDrag：快速路径以未提交的实时边界为基准 ──────────────
+
+    @Test
+    fun `pending drag keeps stationary handle pinned after crossing`() {
+        // 拖动开始时的已提交选区仍停在 (0,2)-(0,10)；手指已把 START 拖到 12，
+        // 归属翻转为 END。回拖到 11 时，未被拖动的手柄必须留在 10。
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val pending = HandleDragResult(0, 10, 0, 12, false)
+        val next =
+            committed.withPendingDrag(pending).applyHandleDrag(
+                draggingStart = pending.draggingStart,
+                targetRow = 0,
+                targetCol = 11,
+            )
+        assertEquals(HandleDragResult(0, 10, 0, 11, false), next)
+    }
+
+    @Test
+    fun `pending drag keeps stationary handle pinned after crossing left`() {
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val pending = HandleDragResult(0, 0, 0, 2, true)
+        val next =
+            committed.withPendingDrag(pending).applyHandleDrag(
+                draggingStart = pending.draggingStart,
+                targetRow = 0,
+                targetCol = 1,
+            )
+        assertEquals(HandleDragResult(0, 1, 0, 2, true), next)
+    }
+
+    @Test
+    fun `pending drag is ignored when absent or inactive`() {
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        assertEquals(committed, committed.withPendingDrag(null))
+        val inactive = committed.copy(active = false)
+        assertEquals(inactive, inactive.withPendingDrag(HandleDragResult(0, 0, 0, 1, true)))
+    }
 }

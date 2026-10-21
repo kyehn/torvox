@@ -182,6 +182,13 @@ internal class DocumentMutations(private val context: Context, private val rootD
             }
         }
         val sourceParentFile = source.parentFile ?: root
+        // 移到同一目录：语义上就是「不动」。AOSP 的 moveDocument 在源父目录与目标父目录
+        // 相同时原样返回源 docId——用户没要求改名，就不该被 uniqueChild 改成「name (1)」
+        // （源文件自身与目标同名，会被当成冲突）。
+        if (sourceParentFile.canonicalFile == targetParent.canonicalFile) {
+            return TerminalDocumentsProvider.encodeDocId(source, root)
+                ?: throw IOException("Failed to encode docId for '${source.name}'")
+        }
         val target = uniqueChild(targetParent, source.name)
         if (!source.renameTo(target)) {
             // 同文件系统 rename 极少失败：目标已占位已在上一步排除，
@@ -261,42 +268,91 @@ internal class DocumentMutations(private val context: Context, private val rootD
         return target
     }
 
+    /**
+     * 复制符号链接本身，不跟随目标。
+     *
+     * 相对目标的基准是**链接所在目录**：原样复制会把基准留在旧目录，
+     * 复制到别处后同一串相对路径解析到完全不同的文件（甚至悬空）。
+     * 故把目标按新位置重算：新父目录仍在原树内时保持相对，否则写绝对路径——
+     * 两种情形都让链接仍指向原来那个文件。
+     */
+    private fun copySymbolicLink(source: File, target: File) {
+        val originalTarget = Files.readSymbolicLink(source.toPath())
+        val sourceParent = source.parentFile?.toPath()
+        val targetParent = target.parentFile?.toPath()
+        val rebased =
+            if (originalTarget.isAbsolute || sourceParent == null || targetParent == null) {
+                originalTarget
+            } else {
+                val resolved = sourceParent.resolve(originalTarget).normalize()
+                if (resolved.startsWith(targetParent)) {
+                    targetParent.relativize(resolved)
+                } else {
+                    resolved
+                }
+            }
+        Files.createSymbolicLink(target.toPath(), rebased)
+    }
+
     private fun copyTreeInto(source: File, target: File) {
         if (Files.isSymbolicLink(source.toPath())) {
             // 只复制链接 inode：跟随会把站外目标整棵树吸入家目录。
-            Files.copy(
-                source.toPath(),
-                target.toPath(),
-                LinkOption.NOFOLLOW_LINKS,
-            )
+            copySymbolicLink(source, target)
             return
         }
         if (!source.isDirectory) {
-            source.copyTo(target)
+            copyRegularFile(source, target)
             return
         }
         if (!target.mkdirs() && !target.isDirectory) {
             throw IOException("Failed to create directory '${target.path}'")
         }
+        copyPermissions(source, target)
         val stack = ArrayDeque<Pair<File, File>>()
         source.listFiles()?.forEach { stack.addLast(it to target) }
         while (stack.isNotEmpty()) {
             val (src, dstParent) = stack.removeLast()
             if (Files.isSymbolicLink(src.toPath())) {
-                Files.copy(
-                    src.toPath(),
-                    File(dstParent, src.name).toPath(),
-                    LinkOption.NOFOLLOW_LINKS,
-                )
+                copySymbolicLink(src, File(dstParent, src.name))
             } else if (src.isDirectory) {
                 val destination = File(dstParent, src.name)
                 if (!destination.mkdirs() && !destination.isDirectory) {
                     throw IOException("Failed to create directory '${destination.path}'")
                 }
+                copyPermissions(src, destination)
                 src.listFiles()?.forEach { stack.addLast(it to destination) }
             } else {
-                src.copyTo(File(dstParent, src.name))
+                copyRegularFile(src, File(dstParent, src.name))
             }
+        }
+    }
+
+    /**
+     * 复制普通文件并保留权限位。
+     *
+     * 新建 inode 只带进程 umask 给的默认权限（实测 0644），执行位必丢——脚本拷过去
+     * 就不可执行，DESIGN「可执行文件被修改后不丢失权限」因此不成立。故内容搬完后
+     * 把源文件的权限位原样写到目标上。
+     */
+    private fun copyRegularFile(source: File, target: File) {
+        source.copyTo(target)
+        copyPermissions(source, target)
+    }
+
+    /**
+     * 把源条目的 POSIX 权限位搬到目标条目。
+     *
+     * 目标已存在时按「就地改权限」处理，不重建 inode——重建会丢硬链接与属主。
+     * 源或目标不落在支持 POSIX 权限的文件系统上时静默跳过：那是平台限制，
+     * 不是本次复制引入的错误。
+     */
+    private fun copyPermissions(source: File, target: File) {
+        val permissions =
+            runCatchingCancellable {
+                Files.getPosixFilePermissions(source.toPath(), LinkOption.NOFOLLOW_LINKS)
+            }.getOrNull() ?: return
+        runCatchingCancellable {
+            Files.setPosixFilePermissions(target.toPath(), permissions)
         }
     }
 

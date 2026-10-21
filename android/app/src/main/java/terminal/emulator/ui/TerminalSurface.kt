@@ -92,7 +92,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         stopFlingAnimation()
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable = null
-        cancelSurfaceRecreate()
         // 两个防抖的 resume 回调同样持有本视图：detach 恰在防抖窗内则
         // pause 之后 resume 丢失，渲染永久暂停。直接取消会吞掉配对的 resume
         // ——先把持有的暂停全部归还（计数归零），再取消回调。
@@ -100,8 +99,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 与设置页的暂停都不是本视图的，见 cancelDebounceHolds 的说明。
         cancelDebounceHolds()
         // 输入法网格防抖也必须取消，而不只是作废凭证（`forceResumeRendering` 对它
-        // 刻意只清凭证，因为它的 `postDelayedSurfaceRecreate` 调用方还要靠 runnable
-        // 执行）。detach 场景不同：insets 派发已经停摆、遮挡高度刚被归零，
+        // 刻意只清凭证，因为那条 runnable 还要执行 `applyGridResize`）。
+        // detach 场景不同：insets 派发已经停摆、遮挡高度刚被归零，
         // 那个 runnable 若在 48ms 后照常跑，就会拿**旧视图**的 surfaceWidth/Height
         // 配**已归零**的扣减量向运行期下发一次 resize，把 PTY 撑回被键盘遮住的高度；
         // 视图已被丢弃（Compose 换 key）时它甚至永不 attach，等于凭空改写网格。
@@ -1676,17 +1675,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。
         private const val MAX_WHEEL_LINES_PER_GESTURE = 8
 
-        /**
-         * 本视图侧 detach+attach 重试链的参数（换 GPU surface 后等 holder 重新有效）。
-         *
-         * 与运行期的 `TerminalRuntime.SURFACE_RECREATE_MAX_ATTEMPTS` 是同一条恢复链的
-         * **两个阶段**，不是同一个上限：运行期数的是「请求换 surface 的次数」，
-         * 这里数的是「请求被接受后重新挂上 surface 的尝试次数」。刻意取不同的名字，
-         * 否则两处 5 与 10 会被读成同一件事的重复定义。
-         */
-        private const val SURFACE_RETRY_ATTACH_DELAY_MS = 500L
-        private const val SURFACE_RETRY_ATTACH_MAX_ATTEMPTS = 10
-
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
         private const val BACKSPACE_BYTE = 0x08.toByte()
@@ -1775,10 +1763,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     @Volatile private var scrollOffset: Int = 0
     private var lastImeVisible: Boolean = false
 
-    // 回滚长度缓存：`scrollbackLength()` 是同步 JNI 查询，
-    // 当 VT 线程忙于解析大块写入时最多可阻塞两次查询超时（如约 1s）。
-    // 手势路径在每个 MotionEvent 上都调用它，
-    // 故节流到 ~10Hz 并在其间使用缓存值——避免滚动期间的 UI 线程卡顿/ANR。
+    // 回滚长度缓存：正常情况下直接读渲染线程随帧发布的原子量（零等待），
+    // 只有首帧尚未发布时才回退到同步 JNI 查询；回退路径仍按 ~10Hz 节流，
+    // 因为 VT 线程忙于解析大块写入时那次查询最多可阻塞约 1s。
     @Volatile private var cachedScrollbackLength: Int = 0
 
     private var lastScrollbackQueryNanos: Long = 0L
@@ -2038,16 +2025,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 无条件恢复渲染，并作废两个在途防抖持有的暂停。
      *
-     * 用于「我们等的那件事已经发生，不必再等」的入口：Surface 重建成功
-     * （[postDelayedSurfaceRecreate]）、交换链重配置完成（[ResizeManager.applyResizeNormal]）、
-     * Surface 重新交付（[surfaceCreated]）。这些入口本就必须立刻出一帧（否则黑屏），
-     * 此时继续挂着防抖暂停只会让本已就绪的缓冲不显示。
+     * 用于「我们等的那件事已经发生，不必再等」的入口：交换链重配置完成
+     * （[ResizeManager.applyResizeNormal]）、Surface 重新交付（[surfaceCreated]）。
+     * 这些入口本就必须立刻出一帧（否则黑屏），此时继续挂着防抖暂停只会让
+     * 本已就绪的缓冲不显示。
      *
      * 交换链防抖 MUST 一并取消：它等的正是「尺寸稳定」，而本函数的前提就是稳定已达成。
      * 输入法网格防抖 MUST NOT 取消——它的动作（[ResizeManager.applyGridResize]）不碰
-     * 交换链，且 [postDelayedSurfaceRecreate] 那条路径后面没有 `applyGridResize` 补做，
-     * 取消了就只剩等下一次 insets 变化才自愈；改为只作废它的凭证，让 runnable 照常
-     * 执行（陈旧归还已是空操作）。
+     * 交换链；改为只作废它的凭证，让 runnable 照常执行（陈旧归还已是空操作）。
      */
     private fun forceResumeRendering() {
         cancelDebounceHolds()
@@ -3015,15 +3000,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    /** 在途的 surface 重建重试；detach 与 ON_PAUSE 必须能取消它（见 [postDelayedSurfaceRecreate]）。 */
-    private var pendingSurfaceRecreate: Runnable? = null
-
-    /** 取消在途的 surface 重建重试。宿主切后台时必须调用，否则重试会撤销刚请求的渲染暂停。 */
-    fun cancelSurfaceRecreate() {
-        pendingSurfaceRecreate?.let { removeCallbacks(it) }
-        pendingSurfaceRecreate = null
-    }
-
     fun postDelayedUnpause(delayMillis: Long) {
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable =
@@ -3036,49 +3012,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 .also { postDelayed(it, delayMillis) }
     }
 
-    /**
-     * 切应用恢复：ON_RESUME 时 holder 的 Surface 往往仍无效
-     * （系统在后台回收了 BufferQueue，且未送达 surfaceDestroyed）。
-     * 持续重试 detach+attach 的交换链重建直到 holder 重新有效，
-     * 然后解除暂停 + 恢复 + 强制渲染一帧。
-     *
-     * 重试链必须挂在字段上才能被取消：它每次尝试都会 `forceResumeRendering()`
-     * （内含恢复渲染）+ `resumeRendering()`，一旦跨越 ON_PAUSE 就会撤销宿主刚请求的暂停，
-     * 在已被回收的 BufferQueue 上继续渲染。且每次重试都是新 lambda，
-     * 即便有字段也要由本函数自己重排。
-     */
-    fun postDelayedSurfaceRecreate(
-        viewModel: TerminalViewModel,
-        attemptsLeft: Int = SURFACE_RETRY_ATTACH_MAX_ATTEMPTS,
-    ) {
-        pendingSurfaceRecreate?.let { removeCallbacks(it) }
-        pendingSurfaceRecreate =
-            Runnable {
-                pendingSurfaceRecreate = null
-                val holderSurface = holder?.surface
-                if (holderSurface != null && holderSurface.isValid && width > 0 && height > 0) {
-                    val bridge = viewModel.runtime.bridge()
-                    if (bridge != null) {
-                        viewModel.currentSurface = holderSurface
-                        bridge.releaseGpuSurface()
-                        bridge.attachSurface(holderSurface, width, height)
-                    }
-                    forceResumeRendering()
-                    viewModel.runtime.resumeRendering()
-                    viewModel.runtime.forceRender()
-                } else if (attemptsLeft > 1) {
-                    postDelayedSurfaceRecreate(viewModel, attemptsLeft - 1)
-                }
-            }.also { postDelayed(it, SURFACE_RETRY_ATTACH_DELAY_MS) }
-    }
-
     private fun currentScrollbackLength(): Int {
+        val viewModel = viewModel ?: return cachedScrollbackLength
+        val bridge = viewModel.runtime.bridge() ?: return cachedScrollbackLength
+        // 首选渲染线程随帧发布的原子量：与屏幕内容同源，且永不等待 VT 线程。
+        // 旧路每次节流窗口到期都发同步 RPC，VT 忙于输出时会把滚动/拖柄阻塞最长 500ms。
+        val rendered = bridge.renderedScrollbackLength()
+        if (rendered >= 0) {
+            cachedScrollbackLength = rendered
+            viewModel.updateScrollbackLength(rendered)
+            return rendered
+        }
+        // 首帧尚未被渲染线程取走：此时才退到一次同步查询（每 100ms 至多一次）。
         val now = System.nanoTime()
         if (now - lastScrollbackQueryNanos < SCROLLBACK_QUERY_THROTTLE_NANOS) {
             return cachedScrollbackLength
         }
-        val viewModel = viewModel ?: return cachedScrollbackLength
-        val bridge = viewModel.runtime.bridge() ?: return cachedScrollbackLength
         // 时间戳只在**查询成功**之后才推进：bridge 缺席或查询抛错时都返回陈旧缓存，
         // 此时若已消耗节流窗口，后续手势会继续锚到上一个会话的回滚长度长达 100ms。
         cachedScrollbackLength =

@@ -182,6 +182,25 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return true
     }
 
+    /**
+     * 系统停止提供者时释放全部目录监视与广播线程。
+     *
+     * `onCreate` 必然先执行，故此处 [watcher] 已初始化；若进程继续存活而提供者被
+     * 再次拉起，下一次查询会重新登记并向观察者广播。
+     */
+    override fun shutdown() {
+        watcher.shutdown()
+        // 写回通知线程由本提供者创建，必须由本提供者回收：
+        // 平台给的 shutdown() 是唯一释放钩子，而进程还可能继续存活。
+        // 退出后置空，下次用时重建——与目录监视器同一套「停用后可再拉起」的约定。
+        synchronized(this) {
+            closeNotifyThread?.quitSafely()
+            closeNotifyThread = null
+            closeNotifyHandler = null
+        }
+        super.shutdown()
+    }
+
     private val queries: DocumentQueries by lazy {
         DocumentQueries(requireNotNull(context) { "TerminalDocumentsProvider requires a Context" })
     }
@@ -210,12 +229,19 @@ class TerminalDocumentsProvider : DocumentsProvider() {
      * 专用线程只做这一次 I/O，不与渲染争主线程；provider 的生命周期等于进程，
      * 线程随进程消亡，无需单独回收（`ContentProvider` 也没有可覆写的销毁钩子）。
      */
-    private val closeNotifyThread: android.os.HandlerThread by lazy {
-        android.os.HandlerThread("terminal-documents-writeback").apply { start() }
-    }
+    private var closeNotifyThread: android.os.HandlerThread? = null
+    private var closeNotifyHandler: android.os.Handler? = null
 
-    private val closeNotifyHandler: android.os.Handler by lazy {
-        android.os.Handler(closeNotifyThread.looper)
+    /** 取写回通知的 Handler；线程已退出时重建。 */
+    private fun closeNotifyHandler(): android.os.Handler {
+        synchronized(this) {
+            val thread = closeNotifyThread
+            val handler = closeNotifyHandler
+            if (thread != null && handler != null && thread.isAlive) return handler
+            val newThread = android.os.HandlerThread("terminal-documents-writeback").apply { start() }
+            closeNotifyThread = newThread
+            return android.os.Handler(newThread.looper).also { closeNotifyHandler = it }
+        }
     }
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
@@ -297,13 +323,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             )
         }
         watcher.watch(parent)
-        val children = parent.listFiles() ?: emptyArray()
+        // 目录项逐个 stat 是列举的主要成本；排序键 `isDirectory` 与 display name 只取一次，
+        // 避免 O(n log n) 次比较各触发一次 stat，也避免默认 Locale 把 `i` 排错。
         val sorted =
-            children.sortedWith(
-                compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() },
-            )
-        for (child in sorted) {
-            queries.addDocRow(cursor, child, rootDir, cols)
+            (parent.listFiles() ?: emptyArray())
+                .map { child -> Triple(child, child.isDirectory, child.name.lowercase(java.util.Locale.ROOT)) }
+                .sortedWith(compareByDescending<Triple<File, Boolean, String>> { it.second }.thenBy { it.third })
+        for ((child, isDirectory, _) in sorted) {
+            queries.addDocRow(cursor, child, rootDir, cols, isDirectory)
         }
         // 逐条目 stat 在巨大目录里会拖慢整次列举；「保存超时」一类反馈需要一条
         // 「慢在哪一层」的证据，正常规模（毫秒级）不落日志。
@@ -377,7 +404,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 else -> parseOpenModeFallback(mode)
             }
         // 句柄关闭即视为外部写回：广播文档与父目录，文件选择器才能看到大小/时间变化。裸 open() 时外部编辑"看起来没反应"。
-        return ParcelFileDescriptor.open(file, fileMode, closeNotifyHandler) {
+        return ParcelFileDescriptor.open(file, fileMode, closeNotifyHandler()) {
             mutations.notifyWritten(file)
         }
     }

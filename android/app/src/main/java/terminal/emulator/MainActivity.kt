@@ -113,11 +113,10 @@ class MainActivity : ComponentActivity() {
         @SuppressLint("UseKtx")
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
-        terminal.emulator.service.TerminalForegroundService.start(this)
-        // TerminalForegroundService.start() 无条件启动服务，但唤醒锁只在
-        // sessionCount>=1 时获取（冷启动的裸 start() 此时计数为 0）；
-        // onDestroy 经 runtime.stopForegroundServiceIfIdle() 在无会话时无条件
-        // 停止服务，因此离开应用后不会长期持锁。
+        // 前台服务不在这里启动：它只为存活会话提供常驻通知与 PARTIAL_WAKE_LOCK，
+        // 而首个会话由 `TerminalRuntime.startSession` 创建时经
+        // `startForegroundServiceIfNeeded` 启动。冷启动时先起服务要付一次 AMS 往返
+        // + 通知渠道创建，且裸 start() 的计数为 0，会被紧接着的会话更新覆盖。
         // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，缺失时每次 notify() 都抛
         // SecurityException 且会话通知不再出现。启动时申请一次；拒绝不影响终端功能。
         if (
