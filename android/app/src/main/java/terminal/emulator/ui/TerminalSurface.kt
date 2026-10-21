@@ -644,7 +644,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         modifierBarHeightPx = runtime?.modifierBarHeightPx ?: 0,
                         imeReserve = runtime?.imeGridReserve() ?: 0,
                     ).toFloat() / rows
-                cols = (width.toFloat() / cellWidthPx).toInt().coerceAtLeast(1)
+                // 上界：兜底用的 lastConfigured* 严重失配时，cellWidthPx 可能小到
+                // 让商溢出 Int（Float.toInt() 饱和成 Int.MAX_VALUE），进而把 PTY 网格
+                // 撑到 65535 列。手机上的终端最多几百列，512 足够宽裕。
+                cols = (width.toFloat() / cellWidthPx).toInt().coerceIn(1, MAX_FALLBACK_GRID_SIZE)
                 rows =
                     (
                         computeGridAvailableHeight(
@@ -652,7 +655,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             modifierBarHeightPx = runtime?.modifierBarHeightPx ?: 0,
                             imeReserve = runtime?.imeGridReserve() ?: 0,
                         ).toFloat() / cellHeightPx
-                        ).toInt().coerceAtLeast(1)
+                        ).toInt().coerceIn(1, MAX_FALLBACK_GRID_SIZE)
             }
         }
 
@@ -1636,6 +1639,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     companion object {
         private const val TAG = "TerminalSurface"
+
+        /** 度量未就绪时的兜底网格上界：手机上的终端最多几百列。 */
+        private const val MAX_FALLBACK_GRID_SIZE = 512
         private const val MENU_BAR_CORNER_RADIUS_DP = 8
         private const val MENU_ELEVATION_DP = 6
         private const val MENU_ITEM_TEXT_SIZE_SP = 14f

@@ -311,7 +311,6 @@ private fun AppearanceSectionContent(
             accentColor = accentColor,
             fonts = availableFonts.toImmutableList(),
             defaultFontName = defaultFontName,
-            fontInfo = fontInfo,
         )
         FontInfoSectionIfAvailable(
             fontInfo = fontInfo,
@@ -579,12 +578,14 @@ private fun FontInfoSectionIfAvailable(
             )
         } else {
             // 原生尚未上报度量时，只用设置里的字体族名与字号占位，不伪造单元格尺寸。
+            // CJK 状态同理：此刻还没有结论，故报「尚未上报」而非「无」——
+            // 报「无」会凭空造出一个不存在的缺失问题。
             FontInfoSection(
                 fontInfo =
                 FontInfo(
                     activeName = defaultFontName,
                     activeMonospaced = false,
-                    cjkState = CjkState.NONE,
+                    cjkState = CjkState.NOT_REPORTED,
                     cjkFamilies = emptyList(),
                     otherFamilies = emptyList(),
                     cellWidthPx = 0f,
@@ -609,7 +610,6 @@ private fun SystemFontSelector(
     accentColor: Color,
     fonts: ImmutableList<String> = persistentListOf(),
     defaultFontName: String = "",
-    fontInfo: FontInfo? = null,
     titleOverride: String? = null,
 ) {
     // 保持传入顺序（fonts.xml 文档顺序在前），只做精确去重。
@@ -675,10 +675,6 @@ private fun SystemFontSelector(
                     accentColor = accentColor,
                 )
             }
-        }
-
-        if (fontInfo?.cjkState == CjkState.NONE) {
-            CjkFallbackMissingWarning()
         }
     }
 }
@@ -1276,29 +1272,9 @@ private fun FontInfoSection(fontInfo: FontInfo, pixelPerSp: Float, textColor: Co
                 color = textColor,
             )
         }
-        val cjkText = fontInfo.cjkFallbackText()
-        val cjkCoveredByPrimary = fontInfo.cjkState == CjkState.SKIPPED
-        val hasCjk = fontInfo.hasRealCjkFallback
-        val cjkDisplayColor =
-            when {
-                hasCjk -> secondaryText
-                cjkCoveredByPrimary -> secondaryText
-                else -> WARNING_ORANGE
-            }
-        val cjkLine =
-            when {
-                cjkText != null -> stringResource(R.string.font_info_cjk_fallback, cjkText)
-                cjkCoveredByPrimary -> stringResource(R.string.font_info_cjk_skipped)
-                else -> stringResource(R.string.font_info_cjk_none)
-            }
-        Text(
-            text = cjkLine,
-            style = MaterialTheme.typography.bodySmall,
-            color = cjkDisplayColor,
-        )
-        if (!hasCjk && !cjkCoveredByPrimary) {
-            CjkFallbackMissingWarning()
-        }
+        // CJK 状态行与缺失警告同出一处（见 CjkFallbackStatusLine）：
+        // 同一事实发两次会让人以为是两个问题。
+        CjkFallbackStatusLine(fontInfo = fontInfo, secondaryText = secondaryText)
         if (fontInfo.otherFamilies.isNotEmpty()) {
             Text(
                 text = stringResource(R.string.font_info_other_families, fontInfo.otherFamilies.joinToString(", ")),

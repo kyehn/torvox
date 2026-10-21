@@ -87,6 +87,73 @@ CJK 回退层的发现 MUST NOT 依赖 locale 早于字体库构建这一调用�
 - **WHEN** Termux 字体目录存在并注册到字体数据库后重建管线
 - **THEN** 实例缓存失效且请求新帧，终端以新字体渲染
 
+### Requirement: CJK 后备状态按判据上报
+
+设置页展示的 CJK 后备状态 MUST 与渲染器实际取舍同源。
+
+代表字符只是一枚探针（zh/ja 等为「中」、ko 为「가」、非 CJK locale 退到
+「中」）：覆盖它不等于覆盖整套 CJK 字符，MUST NOT 把「覆盖了代表字符」夸大成
+「支持 CJK」。
+
+缺席原因 MUST 按下列次序判定并分别上报（原生 `CjkFallbackState`）：
+系统语言未知 → `SkippedLocaleUnknown`；系统语言不是 CJK →
+`SkippedNonCjkLocale`；CJK 语言下主字体覆盖代表字符 →
+`SkippedPrimaryCovers`；CJK 语言下主字体不覆盖代表字符且无回退族 →
+`None`（缺失，带告警）；装上回退族 → `Fallback`。
+
+#### Scenario: 代表字符未被覆盖时报缺失
+
+- **WHEN** CJK 语言下主字体不覆盖代表字符，且系统 fonts.xml 未提供可用的回退族
+- **THEN** 上报 `None`，设置页据此给出告警
+
+### Requirement: CJK 后备提示如实反映状态且只在一处展示
+
+提示文案 MUST 如实反映判据。「按设计跳过」与「确实缺失」 MUST 分开提示：前者是
+正常状态（语言回退层按平台语义只对 CJK 语言声明，主字体已覆盖代表字符，
+或系统语言尚未知），MUST NOT 报成「未检测到 CJK 备用字体」；后者才是真问题
+（该装却没装上），MUST 给出告警。
+
+同一事实 MUST 只有一处展示：CJK 状态行与缺失告警 MUST 同出一处，页面内其他位置
+MUST NOT 重复展示同一句告警。
+
+原生尚未上报状态时（应用刚起来、字体信息还没到手），MUST 显示中性文案，MUST NOT
+断言「缺失」或「已跳过」——此时两者都还没有结论。
+
+#### Scenario: 主字体覆盖代表字符时提示如何措辞
+
+- **WHEN** CJK 语言下主字体覆盖了本 locale 的 CJK 代表字符（回退层因此不需要装）
+- **THEN** 设置页显示「CJK 后备已跳过（主字体已覆盖本语言的代表字符）」，
+  MUST NOT 显示「主字体支持 CJK」这类超出判据的断言
+
+#### Scenario: 非 CJK 语言下不得报缺失
+
+- **WHEN** 系统语言不是 CJK（如 `en-US`），无论主字体是否覆盖汉字
+- **THEN** 设置页显示「CJK 后备已跳过（系统语言不是 CJK，未装语言回退族）」
+  且 MUST NOT 附带「未检测到 CJK 备用字体」的告警
+
+#### Scenario: 系统语言未知时不得报缺失
+
+- **WHEN** 系统语言尚未知
+- **THEN** 设置页显示「CJK 后备已跳过（系统语言未知，未装语言回退族）」
+  且 MUST NOT 附带告警
+
+#### Scenario: 缺失时给出明确告警
+
+- **WHEN** CJK 语言下主字体不覆盖代表字符，且系统 fonts.xml 未提供可用的回退族
+- **THEN** 设置页显示「CJK 后备：无」并附「未检测到 CJK 备用字体」的告警，
+  且告警 MUST 说明东亚字符改由全库扫描补齐（可能缺字或更慢）
+
+#### Scenario: 同一句告警只出现一次
+
+- **WHEN** 打开设置页
+- **THEN** 「未检测到 CJK 备用字体」这句告警在页面上只出现一处
+
+#### Scenario: 原生尚未上报时不得断言结论
+
+- **WHEN** 原生还没给出 CJK 后备状态
+- **THEN** 设置页显示中性文案（如「CJK 后备：尚未上报」），
+  MUST NOT 显示「CJK 后备：无」或任何「已跳过」措辞
+
 ### Requirement: CJK 回退段判定走 Unicode 文字属性
 
 整形侧 `needs_cjk_fallback` MUST 走 UAX #24 `Script` 属性（`unicode-script`

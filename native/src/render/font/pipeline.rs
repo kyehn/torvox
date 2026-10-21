@@ -222,11 +222,14 @@ impl FontPipeline {
             }
         }
 
-        // 宿主（单元测试与基准）没有系统 fonts.xml：取 fontdb 首个等宽面。
+        // 宿主（单元测试与基准）没有系统 fonts.xml：取 fontdb 首个「能当终端字体用」
+        // 的等宽面。除等宽外还要覆盖拉丁：宿主环境里 Noto Color Emoji 之类的符号面
+        // 也自称等宽（且不覆盖 CJK），按枚举顺序先撞上它就会把整条管线钉在 emoji
+        // 上——单元格度量按方形 emoji 算，ASCII 只有零星十来个有字形，六个字体用例
+        // 随宿主字体安装顺序时红时绿。判据用字形能力探测（charmap），不是字体名。
         // 优先选自身不覆盖 CJK 的面 —— 否则 `find_cjk_fallback_fonts` 会判定
         // 「主字体已支持 CJK」而整层跳过，单元测试就再也验证不到 CJK 回退链路。
-        // 判定用字形能力探测（charmap），不是硬编码字体名。全部等宽面都覆盖 CJK
-        // 时退回首面。设备上走上面的 fonts.xml 分支，本段不编译。
+        // 全部等宽面都覆盖 CJK 时退回首面。设备上走上面的 fonts.xml 分支，本段不编译。
         #[cfg(not(target_os = "android"))]
         {
             let font_database = self.font_system.db();
@@ -237,10 +240,21 @@ impl FontPipeline {
                     super::font_db::cjk_coverage_probe_char(&self.system_locale),
                 )
             };
+            let usable_monospace = |face: &&fontdb::FaceInfo| {
+                face.monospaced
+                    && super::font_db::face_covers_latin(font_database, face.id)
+                    && !covers_cjk(face.id)
+            };
             let face = font_database
                 .faces()
-                .find(|face| face.monospaced && !covers_cjk(face.id))
+                .find(usable_monospace)
+                .or_else(|| {
+                    font_database.faces().find(|face| {
+                        face.monospaced && super::font_db::face_covers_latin(font_database, face.id)
+                    })
+                })
                 .or_else(|| font_database.faces().find(|face| face.monospaced));
+
             if let Some(face) = face {
                 let name = face.families.first().map_or("", |(name, _)| name);
                 log::debug!("FONT_SELECT: host monospace id={:?} name='{name}'", face.id);
