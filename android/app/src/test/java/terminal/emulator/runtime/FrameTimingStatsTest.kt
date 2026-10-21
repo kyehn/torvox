@@ -78,4 +78,35 @@ class FrameTimingStatsTest {
         assertEquals(1_000_000_000L, report.maxNanos)
         assertEquals(53_800_000L, report.averageNanos) // (95*4 + 5*1000)/100 ms
     }
+
+    @Test
+    fun `window closes on the duration cap when frames are scarce`() {
+        // 低帧率设备实测 1.8–8 FPS：拖动 2.5s 只有 3 帧，循环随后转入空闲闭锁不再出新帧。
+        // 只按帧数结算的话这 3 帧永远不会被报告，故时长到上限即出报告。
+        val stats = FrameTimingStats(windowSize = 60, maxWindowNanos = 2_000_000_000L)
+        stats.record(100_000_000L, atNanos = 0L)
+        stats.record(200_000_000L, atNanos = 900_000_000L)
+        assertFalse("未到 2s 不应提前结算", stats.isWindowComplete())
+        stats.record(300_000_000L, atNanos = 2_000_000_000L)
+        assertTrue(stats.isWindowComplete())
+        val report = checkNotNull(stats.takeReport())
+        assertEquals(3, report.frameCount)
+        assertEquals(200_000_000L, report.averageNanos)
+        assertEquals(300_000_000L, report.maxNanos)
+        assertEquals(300_000_000L, report.p95Nanos) // n=3: ceil(0.95*3)-1 = 2 -> max
+        // 结算后重新计时，不能带着旧窗口的起点立刻再结算。
+        stats.record(50_000_000L, atNanos = 2_100_000_000L)
+        assertFalse(stats.isWindowComplete())
+    }
+
+    @Test
+    fun `fast devices still report on the frame count, not the duration cap`() {
+        val stats = FrameTimingStats(windowSize = 3, maxWindowNanos = 2_000_000_000L)
+        // 60 FPS：3 帧仅 50ms，远在上限之内。
+        stats.record(16_000_000L, atNanos = 0L)
+        stats.record(16_000_000L, atNanos = 16_000_000L)
+        stats.record(16_000_000L, atNanos = 33_000_000L)
+        assertTrue(stats.isWindowComplete())
+        assertEquals(3, checkNotNull(stats.takeReport()).frameCount)
+    }
 }

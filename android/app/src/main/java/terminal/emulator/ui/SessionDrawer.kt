@@ -50,6 +50,9 @@ import androidx.compose.ui.unit.sp
 import terminal.emulator.R
 import terminal.emulator.SessionInfo
 
+/** 抽屉里每个会话的关闭按钮 testTag 前缀：测试据此关闭指定会话，无需按位置猜节点。 */
+const val CLOSE_SESSION_TAG_PREFIX = "CloseSession-"
+
 @Composable
 fun SessionDrawer(
     sessions: List<SessionInfo>,
@@ -106,6 +109,7 @@ fun SessionDrawer(
                 SessionItem(
                     label = sessionItemLabel(stringResource(R.string.session_index, index + 1), session.title),
                     isActive = session.id == activeSessionId,
+                    closeTestTag = "$CLOSE_SESSION_TAG_PREFIX${session.id}",
                     onClick = {
                         onSwitchSession(session.id)
                         onClose()
@@ -257,6 +261,7 @@ internal fun sessionItemLabel(indexLabel: String, title: String): AnnotatedStrin
 private fun SessionItem(
     label: AnnotatedString,
     isActive: Boolean,
+    closeTestTag: String,
     onClick: () -> Unit,
     onClose: () -> Unit,
     accent: Color,
@@ -302,6 +307,7 @@ private fun SessionItem(
             Modifier
                 .size(18.dp)
                 .clip(CircleShape)
+                .testTag(closeTestTag)
                 .clickable(onClick = onClose)
                 .padding(2.dp),
         )
