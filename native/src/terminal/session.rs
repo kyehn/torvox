@@ -17,6 +17,13 @@ use crate::terminal::output_processor::OutputProcessor;
 use crate::terminal::pty::{Pty, PtyError, PtyPair};
 use crate::terminal::shell_env::ShellEnv;
 
+/// 读线程每读到一块新输出后调用一次的唤醒钩子。
+///
+/// 会话本身不关心宿主的渲染循环，只负责「有新字节了」这一个事实；
+/// 把钩子做成 `Arc<dyn Fn>` 让宿主（Android FFI 层）把 PTY 输出接到自己的
+/// 渲染唤醒源上，而不必在会话里引入平台类型或轮询线程。
+pub type OutputWake = Arc<dyn Fn() + Send + Sync>;
+
 const READ_BUF_SIZE: usize = 8192;
 
 /// 拆卸会话时 SIGHUP 与 SIGKILL 之间的宽限期，同时作为读/等待线程的 join 超时。
@@ -336,7 +343,7 @@ impl Session {
         rows: u32,
         cols: u32,
     ) -> Result<Self, SessionError> {
-        Self::spawn_with_pty(pty, rows, cols)
+        Self::spawn_with_pty(pty, rows, cols, None)
     }
 
     /// 往本会话的输出通道注入一段 PTY 输出（等价于 `pty_read` 收到数据）。
@@ -359,6 +366,7 @@ impl Session {
         cols: u32,
         env: &ShellEnv,
         cwd: Option<&Path>,
+        output_wake: Option<OutputWake>,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}, cwd={cwd:?}");
         // 预先拒绝非法尺寸（与 `resize` 同一判据）：0 行/0 列会让 Ghostty 网格与 PTY
@@ -393,7 +401,12 @@ impl Session {
 
         let child_pid = pty.child_pid();
 
-        let mut session = match Self::spawn_with_pty(Box::new(pty) as Box<dyn Pty>, rows, cols) {
+        let mut session = match Self::spawn_with_pty(
+            Box::new(pty) as Box<dyn Pty>,
+            rows,
+            cols,
+            output_wake.clone(),
+        ) {
             Ok(session) => session,
             Err(inner_error) => {
                 // `read_file` 在此被丢弃，其 fd 随之安全关闭。
@@ -403,6 +416,7 @@ impl Session {
 
         let exited = session.exited.clone();
         let output_tx = session.output_tx.clone();
+        let output_wake = output_wake;
 
         log::info!("Session::spawn: spawning reader thread");
         let exited_read = exited.clone();
@@ -451,6 +465,11 @@ impl Session {
                         if output_tx.send(data).is_err() {
                             log::info!("reader thread: output channel closed");
                             break;
+                        }
+                        // 数据已入队再唤醒：等待方被叫醒后立刻能读到这块输出，
+                        // 不会出现「先醒再空转一拍」。
+                        if let Some(wake) = output_wake.as_ref() {
+                            wake();
                         }
                     }
                     Err(read_error) => match read_error_action(read_error.raw_os_error()) {
@@ -519,7 +538,12 @@ impl Session {
         Ok(session)
     }
 
-    fn spawn_with_pty(pty: Box<dyn Pty>, rows: u32, cols: u32) -> Result<Self, SessionError> {
+    fn spawn_with_pty(
+        pty: Box<dyn Pty>,
+        rows: u32,
+        cols: u32,
+        frame_wake: Option<OutputWake>,
+    ) -> Result<Self, SessionError> {
         log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));
@@ -528,8 +552,16 @@ impl Session {
         let (output_tx, output_rx) = bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND);
         // 管道分支：原始 PTY 输出的次要消费者（日志、追踪）。
 
-        let terminal = GhosttyTerminal::new(rows, cols, DEFAULT_SCROLLBACK_LINES)
-            .map_err(SessionError::Terminal)?;
+        // 同一份唤醒既用于 PTY 到达，也用于帧入队：渲染线程在「有字节但还没帧」
+        // 的那一拍醒来后可以立刻再睡，等帧真正入队时被第二次叫醒。
+        let terminal = GhosttyTerminal::new_with_frame_wake(
+            rows,
+            cols,
+            DEFAULT_SCROLLBACK_LINES,
+            crate::terminal::theme::default_dark(),
+            frame_wake,
+        )
+        .map_err(SessionError::Terminal)?;
 
         Ok(Self {
             pty: PtyMaster::new(pty, exited.clone()),
@@ -1084,7 +1116,7 @@ mod tests {
 
     /// 为测试创建 24x80 的 `/bin/sh` 会话。
     fn spawn_test_session() -> Session {
-        Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed")
+        Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None, None).expect("spawn failed")
     }
 
     /// 启动 shell、发送 `exit` 并等待会话报告退出。
@@ -1772,7 +1804,7 @@ mod tests {
     #[test]
     fn vt_thread_resize_failure_forces_the_next_resize_to_retry() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::spawn_with_pty(Box::new(pty), 30, 100).expect("session");
+        let mut session = Session::spawn_with_pty(Box::new(pty), 30, 100, None).expect("session");
 
         // 基线：同尺寸第二次本就该短路（既有去重，不能被破坏）。
         session.resize(30, 100).expect("first resize");

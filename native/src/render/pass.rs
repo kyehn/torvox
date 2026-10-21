@@ -461,14 +461,20 @@ impl Renderer {
     }
 
     /// 脏带部分渲染的判定（纯函数，表驱动单测）。仅当本帧唯一变化是被标记
-    /// 脏带的单元实例时成立；任何全屏叠加（kitty 图像）或累加器失效都强制全量重绘。
+    /// 脏带的单元实例时成立；累加器失效、或 kitty 叠加层本帧发生变化
+    /// （新增/替换/删除图像）都强制全量重绘。
+    ///
+    /// kitty 图像**存在**本身不再强制全量：图像层是独立的图集，每帧整层重画在
+    /// 累加器之上，文本层的脏带互不影响。此前把「有图像」当作必须全量的条件，
+    /// 等于让一张静止的图片把整个终端钉在全量帧的代价上（SwiftShader 实测
+    /// 全量帧 ~500ms，终端直接掉到 1-2fps，yazi 这类全屏 TUI 更是几乎不可用）。
     fn should_render_partial(
         accumulator_ready: bool,
         frame_invalidated: bool,
         band_count: usize,
-        kgp_present: bool,
+        kgp_overlay_dirty: bool,
     ) -> bool {
-        accumulator_ready && !frame_invalidated && band_count > 0 && !kgp_present
+        accumulator_ready && !frame_invalidated && band_count > 0 && !kgp_overlay_dirty
     }
 
     /// 滚动一致性门控：视口像素偏移非零，或自上一呈现帧发生变化时为 true。
@@ -487,15 +493,37 @@ impl Renderer {
         accumulator_ready: bool,
         frame_invalidated: bool,
         band_count: usize,
-        kitty_graphics_present: bool,
+        kgp_overlay_dirty: bool,
         scroll_active: bool,
     ) -> bool {
         Self::should_render_partial(
             accumulator_ready,
             frame_invalidated,
             band_count,
-            kitty_graphics_present,
+            kgp_overlay_dirty,
         ) && !scroll_active
+    }
+
+    /// 脏带是否触及 kitty 图像所在的行。
+    ///
+    /// 图像四边形按像素定位，脏带按整行重画：只要两者在行上相交，该处的
+    /// 图像像素就被清掉（脏带先以背景色清除，再画单元），必须重画图像。
+    /// 单元格高度未知（几何尚未就绪）时保守返回 true——宁可多画一次，
+    /// 也不留下被擦掉一半的图像。
+    fn kgp_touched_by_band(
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
+        band: &crate::render::cell_builder::DirtyBand,
+        cell_height_px: f32,
+    ) -> bool {
+        if cell_height_px <= 0.0 {
+            return true;
+        }
+        kgp_instances.iter().any(|instance| {
+            let first_row = (instance.quad_origin[1] / cell_height_px).floor();
+            let last_row =
+                ((instance.quad_origin[1] + instance.quad_size[1]) / cell_height_px).ceil();
+            (band.start_row as f32) < last_row && (band.end_row_exclusive as f32) > first_row
+        })
     }
 
     /// 脏带对应的像素行范围：与单元四边形完全相同的光栅化规则——只覆盖
@@ -569,6 +597,7 @@ impl Renderer {
         &mut self,
         instances: &[crate::render::CellInstance],
         kgp_instances: &[crate::render::KittyGraphicsInstance],
+        kgp_overlay_dirty: bool,
         plan: &crate::render::cell_builder::FramePatch,
     ) -> Result<(), GpuError> {
         let dirty_bands = &plan.bands[..];
@@ -629,7 +658,7 @@ impl Renderer {
             accumulator_view.is_some(),
             self.frame_invalidated,
             dirty_bands.len(),
-            kgp_present,
+            kgp_overlay_dirty,
             scroll_active,
         );
         // 脏带清除实例（仅部分帧）：空单元只在有光标时收缩为光标标记，格内其余
@@ -741,7 +770,12 @@ impl Renderer {
             }
         }
 
-        // Kitty 图像（仅全量帧——可叠加任意区域）。
+        // Kitty 图像：只在**它的像素被本帧擦掉**的那些行上重画。
+        //
+        // 叠加层是 alpha 混合：同一幅图反复混合到同一片像素上，透明度会逐帧
+        // 收敛到不透明（十帧内），半透明图像于是「越用越实」。全量帧整屏重画，
+        // 图像像素必被清掉，于是整层重画；部分帧只有与图像相交的脏带被重画，
+        // 于是只在那几条带（按像素裁剪）上重画图像，其余像素原样留在累加器里。
         if kgp_present
             && let (Some(kgp_pipeline), Some(kgp_bind_group)) =
                 (&self.kgp_pipeline, &self.kgp_bind_group)
@@ -752,7 +786,27 @@ impl Renderer {
             if let Some(ref ib) = self.kgp_instance_buffer {
                 render_pass.set_vertex_buffer(1, ib.slice(..));
             }
-            render_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
+            if partial {
+                for band in dirty_bands {
+                    if !Self::kgp_touched_by_band(kgp_instances, band, plan.cell_height_px) {
+                        continue;
+                    }
+                    let (top, bottom) = Self::band_clear_pixel_range(
+                        band.start_row,
+                        band.end_row_exclusive,
+                        plan.cell_height_px,
+                        config_height,
+                    );
+                    if bottom <= top {
+                        continue;
+                    }
+                    render_pass.set_scissor_rect(0, top, config_width, bottom - top);
+                    render_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
+                }
+                render_pass.set_scissor_rect(0, 0, config_width, config_height);
+            } else {
+                render_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
+            }
         }
 
         drop(render_pass);
@@ -806,6 +860,7 @@ impl Renderer {
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
         dirty_rows: Option<&[bool]>,
         kgp_instances: &[crate::render::KittyGraphicsInstance],
+        kgp_overlay_dirty: bool,
     ) -> Result<(), GpuError> {
         // 图集尺寸由字形管线自身持有（UV 归一化的唯一权威），不再由调用方并传一份。
         let (atlas_px_width, atlas_px_height) = font_pipeline.atlas_dimensions();
@@ -908,7 +963,8 @@ impl Renderer {
             bands: bands.unwrap_or_default(),
             cell_height_px: grid_cell_height,
         };
-        let result = self.render_frame_with_plan(&cpu_instances, kgp_instances, &plan);
+        let result =
+            self.render_frame_with_plan(&cpu_instances, kgp_instances, kgp_overlay_dirty, &plan);
         self.cpu_instances = cpu_instances;
         result
     }
@@ -1474,29 +1530,63 @@ mod tests {
         assert!(!partial((true, false, 0, false)));
     }
 
+    /// 脏带与 kitty 图像相交判据（表驱动）：图像像素被脏带擦掉时必须重画图像。
     #[test]
-    fn partial_rejected_by_overlays() {
-        // 任何全屏叠加都强制全量重绘。
-        assert!(!partial((true, false, 1, true))); // kgp
+    fn kitty_overlay_is_redrawn_only_when_its_pixels_are_wiped() {
+        // 图像四边形：原点 (0, 0)，尺寸 44x44 像素（占第 0、1 两行，行高 22）。
+        let instance = crate::render::KittyGraphicsInstance::new(
+            [0.0, 0.0],
+            [44.0, 44.0],
+            [0.0, 0.0],
+            [1.0, 1.0],
+            1.0,
+        );
+        let instances = [instance];
+        let band = |start: usize, end: usize| crate::render::cell_builder::DirtyBand {
+            start_row: start,
+            end_row_exclusive: end,
+            instance_start: 0,
+            instance_end: 0,
+        };
+        // 脏带与图像所在行相交 → 必须重画（否则图像被擦掉一半）。
+        assert!(Renderer::kgp_touched_by_band(&instances, &band(0, 1), 22.0));
+        assert!(Renderer::kgp_touched_by_band(&instances, &band(1, 2), 22.0));
+        // 脏带在图像之外 → 不必重画（图像像素原样保留，重复混合会让半透明图越叠越实）。
+        assert!(!Renderer::kgp_touched_by_band(
+            &instances,
+            &band(2, 3),
+            22.0
+        ));
+        // 单元格高度未知时保守重画。
+        assert!(Renderer::kgp_touched_by_band(&instances, &band(9, 10), 0.0));
+    }
+
+    #[test]
+    fn partial_rejected_when_kitty_overlay_changed() {
+        // 叠加层本帧发生变化（新增/替换/删除图像）：上一帧的图像像素仍在累加器里，
+        // 不整帧重绘就会留下残影。
+        assert!(!partial((true, false, 1, true)));
+    }
+
+    #[test]
+    fn partial_allowed_while_kitty_overlay_is_static() {
+        // 图像保持不变时叠加层每帧照画，文本层照旧走脏带：一张静止的图片不该把
+        // 终端钉在全量帧的代价上（SwiftShader 实测全量帧 ~500ms → 1-2fps）。
+        assert!(partial((true, false, 1, false)));
     }
     // ── 滚动门控合成判定表：partial 候选与 scroll 门控的合成 ──
     // 覆盖生产合成（render_frame_with_plan 经 should_render_partial_frame 求值）：
     // 归零稳定基线接受部分渲染；滚动激活（含惯性滚动中、归零复位瞬间、
     // 持屏拖动非零保持）一律强制全量，不依赖 GPU。
-    /// `(accumulator_ready, frame_invalidated, band_count, kitty_graphics_present, scroll_active) -> partial`
+    /// `(accumulator_ready, frame_invalidated, band_count, kgp_overlay_dirty, scroll_active) -> partial`
     fn planned_frame(decision: (bool, bool, usize, bool, bool)) -> bool {
-        let (
-            accumulator_ready,
-            frame_invalidated,
-            band_count,
-            kitty_graphics_present,
-            scroll_active,
-        ) = decision;
+        let (accumulator_ready, frame_invalidated, band_count, kgp_overlay_dirty, scroll_active) =
+            decision;
         Renderer::should_render_partial_frame(
             accumulator_ready,
             frame_invalidated,
             band_count,
-            kitty_graphics_present,
+            kgp_overlay_dirty,
             scroll_active,
         )
     }
@@ -1520,13 +1610,13 @@ mod tests {
         for accumulator_ready in [true, false] {
             for frame_invalidated in [true, false] {
                 for band_count in [0usize, 1usize] {
-                    for kitty_graphics_present in [true, false] {
+                    for kgp_overlay_dirty in [true, false] {
                         assert!(
                             !planned_frame((
                                 accumulator_ready,
                                 frame_invalidated,
                                 band_count,
-                                kitty_graphics_present,
+                                kgp_overlay_dirty,
                                 true
                             )),
                             "scroll_active must always veto partial",

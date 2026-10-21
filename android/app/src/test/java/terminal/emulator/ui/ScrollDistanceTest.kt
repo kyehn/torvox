@@ -80,34 +80,57 @@ class ScrollDistanceTest {
     }
 
     @Test
-    fun `fling velocity is kept in pixels per second`() {
-        // 除以行高换成行/秒会让逐帧落点被截成整行，内容只能逐行跳（STATUS ⑩）：
-        // 600px/s 在 60px 行高下必须是 600，绝不能是 10。
-        assertEquals(600, flingVelocityPxPerSecond(600f))
-    }
-
-    @Test
-    fun `fling velocity keeps drag direction`() {
-        // 下移为正（更旧）、上移为负（更新），与 applyScrollDistance 的偏移同向。
-        assertTrue(flingVelocityPxPerSecond(600f) > 0)
-        assertTrue(flingVelocityPxPerSecond(-600f) < 0)
+    fun `fling keeps velocity in pixels and drag direction`() {
+        // 手指上移速度为负 → 行程为负（偏移变小、回到更新内容）；下移为正 → 反向。
+        // 除以行高换成行/秒会让逐帧落点被截成整行，内容只能逐行跳（STATUS ⑩）。
+        assertTrue(flingOffsetPx(600f, 16L) > 0f)
+        assertTrue(flingOffsetPx(-600f, 16L) < 0f)
     }
 
     @Test
     fun `drag and fling share the same direction sign`() {
-        // 同一物理方向：拖动增量符号与惯性速度符号一致，锁定方向错误回归。
+        // 同一物理方向：拖动增量符号与惯性行程符号一致，锁定方向错误回归。
         val dragDown = applyScrollDistance(0f, -60f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
-        val flingDown = flingVelocityPxPerSecond(600f)
+        val flingDown = flingOffsetPx(600f, 16L)
         assertTrue(
             "下滑后内容必须上移且惯性方向向上（offset=${dragDown.newOffset} fling=$flingDown）",
-            dragDown.newOffset > MIDDLE_OFFSET && flingDown > 0,
+            dragDown.newOffset > MIDDLE_OFFSET && flingDown > 0f,
         )
         val dragUp = applyScrollDistance(0f, 60f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
-        val flingUp = flingVelocityPxPerSecond(-600f)
+        val flingUp = flingOffsetPx(-600f, 16L)
         assertTrue(
             "上滑后内容必须下移且惯性方向向下（offset=${dragUp.newOffset} fling=$flingUp）",
-            dragUp.newOffset < MIDDLE_OFFSET && flingUp < 0,
+            dragUp.newOffset < MIDDLE_OFFSET && flingUp < 0f,
         )
+    }
+
+    @Test
+    fun `fling decelerates monotonically and stays bounded`() {
+        // 指数衰减：同长时段内的行程必须递减，总行程上界为 |v|·τ（不会甩出天文数字）。
+        val velocity = 5000f
+        var previous = 0f
+        var elapsed = 0L
+        var travel = 0f
+        while (elapsed < FLING_MAX_DURATION_MS) {
+            elapsed += 16L
+            travel = flingOffsetPx(velocity, elapsed)
+            assertTrue("行程必须单调递增（t=$elapsed travel=$travel）", travel > previous)
+            previous = travel
+        }
+        val firstFrame = flingOffsetPx(velocity, 16L)
+        val lastFrameGap =
+            flingOffsetPx(velocity, FLING_MAX_DURATION_MS) - flingOffsetPx(velocity, FLING_MAX_DURATION_MS - 16L)
+        assertTrue("首帧必须远快于尾帧（$firstFrame vs $lastFrameGap）", firstFrame > lastFrameGap * 10f)
+        val bound = velocity * FLING_TIME_CONSTANT_MS / 1000f
+        assertTrue("总行程 $travel 不得超过上界 $bound", travel <= bound)
+        // 时长上限处剩不到 2px：此时收尾的落差不被看见（一行的 1/30）。
+        assertTrue("衰减完毕时距上界应不足 2px", bound - travel < 2f)
+    }
+
+    @Test
+    fun `fling starts at zero and ignores non positive elapsed`() {
+        assertEquals(0f, flingOffsetPx(5000f, 0L))
+        assertEquals(0f, flingOffsetPx(5000f, -8L))
     }
 
     @Test

@@ -1817,6 +1817,7 @@ fn render_paused_skips_frame() {
             .render_frame_with_plan(
                 &[],
                 &[],
+                false,
                 &crate::render::cell_builder::FramePatch::default()
             )
             .is_err(),
@@ -1831,6 +1832,7 @@ fn render_paused_skips_frame() {
             .render_frame_with_plan(
                 &[],
                 &[],
+                false,
                 &crate::render::cell_builder::FramePatch::default()
             )
             .is_err(),
@@ -1848,6 +1850,7 @@ fn render_paused_toggle_resumes_rendering() {
             .render_frame_with_plan(
                 &[],
                 &[],
+                false,
                 &crate::render::cell_builder::FramePatch::default()
             )
             .is_err(),
@@ -1859,6 +1862,7 @@ fn render_paused_toggle_resumes_rendering() {
             .render_frame_with_plan(
                 &[],
                 &[],
+                false,
                 &crate::render::cell_builder::FramePatch::default()
             )
             .is_err(),
@@ -1876,6 +1880,7 @@ fn render_paused_remains_paused_after_multiple_frames() {
                 .render_frame_with_plan(
                     &[],
                     &[],
+                    false,
                     &crate::render::cell_builder::FramePatch::default()
                 )
                 .is_err(),
@@ -1900,6 +1905,7 @@ fn set_render_paused_idempotent() {
             .render_frame_with_plan(
                 &[],
                 &[],
+                false,
                 &crate::render::cell_builder::FramePatch::default()
             )
             .is_err(),

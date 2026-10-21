@@ -27,7 +27,6 @@ import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.SurroundingText
 import android.view.inputmethod.TextAttribute
 import android.widget.Magnifier
-import android.widget.OverScroller
 import android.widget.PopupWindow
 import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
@@ -57,6 +56,7 @@ import terminal.emulator.runtime.computeGridDimensions
 import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.util.runCatchingCancellable
+import kotlin.math.exp
 import kotlin.math.roundToInt
 
 class TerminalSurface
@@ -2161,37 +2161,56 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var pendingUnpauseRunnable: Runnable? = null
 
     /**
-     * 惯性滚动物理（termux TerminalView:1345 模式）：由 [OverScroller] 驱动逐帧减速动画，
-     * 而非旧的一次性跳到钳位距离——跳变使惯性滚动显得生硬突兀
-     * （「上下滑动…异常并且卡顿」）。[postOnAnimation] 把各步对齐到 vsync。
+     * 惯性滚动物理：由本视图按 vsync 自驱的指数衰减（[flingOffsetPx]），
+     * 不再交给 [android.widget.OverScroller]。[postOnAnimation] 把各步对齐到 vsync。
+     *
+     * 为什么不用平台 scroller：厂商 ROM 会改写它的样条。真机日志（厂商 ROM）里
+     * `fling, after Optimize, velocityY=-14061 … adjust Duration, min to mFinal`
+     * 紧跟一行 `force Finished` —— 整段惯性被折叠成一帧落点，一次猛甩直接跳十几行
+     * 并戛然而止，用户看到的就是「上下滑动异常并且卡顿」。自建模型是纯函数：
+     * 跨设备一致、可单测、没有平台隐藏状态。
      *
      * 行程单位是**像素**：逐帧增量交给拖动同一条管道（[applyScrollStep]），
      * 整行与亚行余量一起算，内容才能按像素跟随惯性；按行驱动时每帧落点被截成
      * 整行，表现为逐行跳动（STATUS ⑩）。上界含键盘位移的显出量容量，
      * 猛甩也能走到「显出被位移裁掉的网格顶部」的行程末端（STATUS ⑧）。
      */
-    private val flingScroller = OverScroller(context)
     private val flingStepRunnable = Runnable { doFlingStep() }
 
-    /** 上一惯性帧的像素位置（[flingScroller] 的 currY）：逐帧差值即本帧行程。 */
-    private var lastFlingPx = 0
+    /** 惯性起点（偏移空间像素：`scrollOffset * cellHeight + 亚行余量`）。 */
+    private var flingStartPx = 0f
+
+    /** 惯性起点时刻（[SystemClock.uptimeMillis]，与 vsync 同一时基）。 */
+    private var flingStartUptimeMs = 0L
+
+    /** 手势抬起时的速度（像素/秒，手势坐标系：手指上移为负）。 */
+    private var flingVelocityPxPerS = 0f
+
+    /** 偏移空间的上界：回滚长度 + 键盘位移显出量容量。 */
+    private var flingLimitPx = 0f
+
+    private var flingActive = false
+
+    /** 上一惯性帧的像素位置：逐帧差值即本帧行程。 */
+    private var lastFlingPx = 0f
 
     /** 把惯性滚动动画推进一个 vsync 节拍。 */
     private fun doFlingStep() {
-        if (!flingScroller.computeScrollOffset()) {
-            finishFlingAnimation()
-            return
-        }
-        val deltaPx = flingScroller.currY - lastFlingPx
-        lastFlingPx = flingScroller.currY
-        if (deltaPx != 0) {
+        if (!flingActive) return
+        val elapsedMs = SystemClock.uptimeMillis() - flingStartUptimeMs
+        val travelPx = flingOffsetPx(flingVelocityPxPerS, elapsedMs)
+        val targetPx = flingStartPx + travelPx
+        val clampedPx = targetPx.coerceIn(0f, flingLimitPx)
+        val deltaPx = clampedPx - lastFlingPx
+        lastFlingPx = clampedPx
+        if (deltaPx != 0f) {
             val scrollbackLen = currentScrollbackLength()
             // 与 onScroll 同符号：手指下移 distanceY 为负、偏移增大（更旧），
-            // 而 scroller 的 currY 增大的方向也是更旧，故取负后再喂。
+            // 而惯性像素增大的方向也是更旧，故取负后再喂。
             applyScrollStep(
                 applyScrollDistance(
                     scrollAccumulatorPx,
-                    -deltaPx.toFloat(),
+                    -deltaPx,
                     cellHeight,
                     scrollOffset,
                     scrollbackLen,
@@ -2200,6 +2219,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 ),
                 scrollbackLen,
             )
+        }
+        // 撞到边界（被钳制）或衰减到行程已尽：收尾，不再空转 vsync 回调。
+        val reachedBound = clampedPx != targetPx
+        val settled =
+            elapsedMs >= FLING_MAX_DURATION_MS ||
+                kotlin.math.abs(flingOffsetPx(flingVelocityPxPerS, FLING_MAX_DURATION_MS) - travelPx) < FLING_SETTLE_PX
+        if (reachedBound || settled) {
+            finishFlingAnimation()
+            return
         }
         postOnAnimation(flingStepRunnable)
     }
@@ -2210,13 +2238,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      *  不会被陈旧的滚动激活标志阻塞。收尾本身复用 [finishFlingAnimation]，
      *  两条路径不得漂移：少清一项就会让 scrollActive 残留、阻塞自动回底。 */
     private fun stopFlingAnimation() {
-        if (!flingScroller.isFinished) {
-            flingScroller.forceFinished(true)
+        if (flingActive) {
             finishFlingAnimation()
         }
     }
 
     private fun finishFlingAnimation() {
+        flingActive = false
         removeCallbacks(flingStepRunnable)
         isScrolling = false
         scrollAccumulatorPx = 0f
@@ -2622,7 +2650,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 回滚；备用屏（vim/less/htop）没有回滚，拖动静默吞掉。
                 // 与 onGenericMotionEvent 中的外接鼠标路径一致。
                 val wheelBridge = viewModel?.runtime?.bridge()
-                if (wheelBridge != null) {
+                if (wheelBridge != null && wheelBridge.isMouseTrackingActive()) {
                     val cellWidth = viewModel?.runtime?.cellWidth ?: 1f
                     val cellHeight = viewModel?.runtime?.cellHeight ?: 1f
                     val pointerXPx = e2.x
@@ -2633,31 +2661,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
                     val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
-                    repeat(cappedLines) {
-                        val wheelModifiers = KeyModifiers.ghosttyMods(e2.metaState)
-                        if (
-                            wheelBridge.encodeMouseEvent(
-                                pointerXPx,
-                                pointerYPx,
-                                0,
-                                button,
-                                wheelModifiers,
-                                cellWidth,
-                                cellHeight,
-                            )
-                        ) {
-                            wheelBridge.encodeMouseEvent(
-                                pointerXPx,
-                                pointerYPx,
-                                1,
-                                button,
-                                wheelModifiers,
-                                cellWidth,
-                                cellHeight,
-                            )
-                            wheelForwarded = true
-                        }
-                    }
+                    // 一次往返编码全部档位：逐档 encodeMouseEvent 会把 UI 线程
+                    // 按在每档一次 VT 应答上（滚动手势一次可滚十余行）。
+                    wheelForwarded =
+                        wheelBridge.encodeMouseWheel(
+                            pointerXPx,
+                            pointerYPx,
+                            button,
+                            KeyModifiers.ghosttyMods(e2.metaState),
+                            cellWidth,
+                            cellHeight,
+                            cappedLines,
+                        )
                 }
                 if (wheelForwarded) return true
                 if (wheelBridge != null && wheelBridge.isAltScreenActive()) return true
@@ -2715,27 +2730,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     return true
                 }
 
-                // velocityY 系像素/秒，OverScroller 直接吃像素：不再除行高换成行/秒
+                // velocityY 系像素/秒，偏移空间同样是像素：不再除行高换成行/秒
                 // （那样逐帧落点是整行，内容只能逐行跳，STATUS ⑩）。行程起点带上
-                // 亚行余量、上界带上键盘位移的显出量容量，见 [flingScroller]。
+                // 亚行余量、上界带上键盘位移的显出量容量，见 [flingOffsetPx]。
                 stopFlingAnimation()
                 isScrolling = true
                 onScrollingStateChanged?.invoke(true)
-                val startPx = (scrollOffset * cellHeight + scrollAccumulatorPx).roundToInt()
-                val maxPx = (scrollbackLen * cellHeight).roundToInt() + imeShiftCapacityPx
-                flingScroller.fling(
-                    0,
-                    startPx,
-                    0,
-                    flingVelocityPxPerSecond(velocityY),
-                    0,
-                    0,
-                    0,
-                    maxPx,
-                )
-                // 取 OverScroller 钳制后的真实起点：fling() 会把 startY 夹进 [0, maxPx]，
-                // 直接用未钳制的 startPx 时，首帧差值会多出被夹掉的一段、方向相反。
-                lastFlingPx = flingScroller.currY
+                flingStartPx = scrollOffset * cellHeight + scrollAccumulatorPx
+                flingVelocityPxPerS = velocityY
+                flingLimitPx = scrollbackLen * cellHeight + imeShiftCapacityPx
+                flingStartUptimeMs = SystemClock.uptimeMillis()
+                // 起点先夹进范围：不夹的话首帧差值会多出被夹掉的一段、方向相反。
+                lastFlingPx = flingStartPx.coerceIn(0f, flingLimitPx)
+                flingActive = true
                 postOnAnimation(flingStepRunnable)
                 return true
             }
@@ -3445,28 +3452,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (bridge != null) {
                 val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
-                val mods = KeyModifiers.ghosttyMods(event.metaState)
                 if (
-                    bridge.encodeMouseEvent(
+                    bridge.encodeMouseWheel(
                         event.x,
                         event.y,
-                        0,
                         button,
-                        mods,
+                        KeyModifiers.ghosttyMods(event.metaState),
                         runtime.cellWidth,
                         runtime.cellHeight,
+                        1,
                     )
                 ) {
-                    // 滚轮释放完成滚动手势。
-                    bridge.encodeMouseEvent(
-                        event.x,
-                        event.y,
-                        1,
-                        button,
-                        mods,
-                        runtime.cellWidth,
-                        runtime.cellHeight,
-                    )
                     return true
                 }
             }
@@ -3882,14 +3878,33 @@ internal fun applyScrollDistance(
 }
 
 /**
- * 惯性速度交给 [android.widget.OverScroller] 的口径（onFling 可测核心）：**像素/秒原样**。
- *
- * 历史实现除以行高换成行/秒，逐帧落点被截成整行，内容只能逐行跳到目的地
- * （STATUS「上下滑动未实现按像素滚动」）。行内跟随由 [applyScrollDistance] 的亚行
- * 余量负责，速度这里**不得**再做第二遍行换算——两次换算叠加会同时丢掉像素行程。
- * 手势约定下移为正，与 [applyScrollDistance] 的 `distanceY` 取负后同向。
+ * 惯性模型的时间常数（毫秒）：速度按 `v(t) = v₀·e^(-t/τ)` 衰减，
+ * 总行程为 `v₀·τ`（像素）。350ms 的观感与平台样条接近（5000px/s ≈ 1750px 行程，
+ * 约 1.5s 内走完 99%），但完全由本仓决定，不受厂商改写影响。
  */
-internal fun flingVelocityPxPerSecond(velocityYPxPerSecond: Float): Int = velocityYPxPerSecond.roundToInt()
+internal const val FLING_TIME_CONSTANT_MS = 350f
+
+/** 惯性动画的时长上限（毫秒）：此后位移增量已不足半像素，继续发 vsync 回调没有意义。 */
+internal const val FLING_MAX_DURATION_MS = 2450L
+
+/** 剩余行程小于该值即视为衰减完毕（像素）。 */
+internal const val FLING_SETTLE_PX = 0.5f
+
+/**
+ * 惯性位移（onFling 可测核心）：给定抬起速度和已过时间，返回**相对起点的行程**（像素）。
+ *
+ * 纯函数是刻意选的：平台 [android.widget.OverScroller] 会被厂商 ROM 改写，
+ * 真机日志里整段样条被"优化"成一帧落点（`force Finished`），一次猛甩直接跳十几行。
+ * 指数衰减跨设备一致、单调、有界（上界 `v₀·τ`），且能逐帧落到亚像素，
+ * 配合 [applyScrollDistance] 的余量实现逐像素跟随。
+ *
+ * 单位约定与手势一致：手指上移速度为负，行程也为负（偏移变小、回到更新内容）。
+ */
+internal fun flingOffsetPx(velocityPxPerSecond: Float, elapsedMs: Long): Float {
+    if (elapsedMs <= 0L) return 0f
+    val decayed = 1f - exp(-elapsedMs / FLING_TIME_CONSTANT_MS)
+    return velocityPxPerSecond * (FLING_TIME_CONSTANT_MS / 1000f) * decayed
+}
 
 /** 缩放手势收敛阈值：小于此差值视为回到锚点，只撤销预览不持久化。 */
 internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f

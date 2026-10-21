@@ -66,7 +66,81 @@ internal class DocumentQueries(private val context: Context) {
         isDirectory: Boolean = file.isDirectory,
     ) {
         val docId = TerminalDocumentsProvider.encodeDocId(file, rootDir) ?: return
-        val mime = if (isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
+        addRow(cursor, docId, file.name, isDirectory, file.length(), file.lastModified(), columns)
+    }
+
+    /**
+     * 读一个目录的全部子项，每项**只做一次** `lstat`，且不做路径规范化。
+     *
+     * 旧实现逐行调用 `encodeDocId`，后者对每个条目都要 `rootDir.canonicalPath`
+     * （每行重算）、`Files.isSymbolicLink`（lstat）与 1~2 次 `file.canonicalPath`
+     * （沿路径逐级 lstat + readlink），再加 `length()`/`lastModified()` 各一次 stat；
+     * 300 项的目录在提供者内实测 **600ms**（`slow listing` 日志）。
+     *
+     * 现在目录本身先规范化一次（`parentCanonical`），非链接子项的行号/大小/时间
+     * 全部取自这一次 `lstat`：子项路径 = 父规范路径 + 名字，名字不含分隔符，
+     * 包含性由结构保证，无需再解析。符号链接仍按目标判断包含性（沿用旧行为：
+     * 指向 home 之外的链接跳过），且大小/时间仍取目标——与 `encodeDocId` 的注释一致，
+     * 链接条目的身份是链接自身，客户端看到的目标大小不变。
+     */
+    fun readChildren(parentCanonical: File, rootCanonical: String): List<ChildEntry> {
+        val parentRel = relativeDocId(parentCanonical.path, rootCanonical)
+        val entries = ArrayList<ChildEntry>()
+        for (child in parentCanonical.listFiles() ?: return emptyList()) {
+            val attributes = try {
+                java.nio.file.Files.readAttributes(
+                    child.toPath(),
+                    java.nio.file.attribute.BasicFileAttributes::class.java,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                )
+            } catch (error: java.io.IOException) {
+                LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+                continue
+            }
+            val docId = if (parentRel.isEmpty()) child.name else "$parentRel/${child.name}"
+            val sortKey = child.name.lowercase(java.util.Locale.ROOT)
+            if (!attributes.isSymbolicLink) {
+                entries +=
+                    ChildEntry(
+                        docId = docId,
+                        name = child.name,
+                        isDirectory = attributes.isDirectory,
+                        size = attributes.size(),
+                        modified = attributes.lastModifiedTime().toMillis(),
+                        sortKey = sortKey,
+                    )
+                continue
+            }
+            val target = canonicalOrNull(child) ?: continue
+            if (!TerminalDocumentsProvider.isInsideRoot(target, rootCanonical)) continue
+            entries +=
+                ChildEntry(
+                    docId = docId,
+                    name = child.name,
+                    isDirectory = child.isDirectory,
+                    size = child.length(),
+                    modified = child.lastModified(),
+                    sortKey = sortKey,
+                )
+        }
+        return entries.sortedWith(compareByDescending<ChildEntry> { it.isDirectory }.thenBy { it.sortKey })
+    }
+
+    fun addChildRow(cursor: MatrixCursor, entry: ChildEntry, columns: Array<out String>) {
+        addRow(cursor, entry.docId, entry.name, entry.isDirectory, entry.size, entry.modified, columns)
+    }
+
+    /** 行组装：MIME、能力位与列投影只在这里定义，列表与单文档两条路径共用。 */
+    private fun addRow(
+        cursor: MatrixCursor,
+        docId: String,
+        name: String,
+        isDirectory: Boolean,
+        size: Long,
+        modified: Long,
+        columns: Array<out String>,
+    ) {
+        val mime = if (isDirectory) Document.MIME_TYPE_DIR else getMimeType(name)
         var flags = 0
         if (isDirectory) flags = flags or Document.FLAG_DIR_SUPPORTS_CREATE
         flags = flags or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_WRITE
@@ -81,10 +155,10 @@ internal class DocumentQueries(private val context: Context) {
         if (mime.startsWith("image/")) flags = flags or Document.FLAG_SUPPORTS_THUMBNAIL
         cursor.newRow().apply {
             if (Document.COLUMN_DOCUMENT_ID in columns) add(Document.COLUMN_DOCUMENT_ID, docId)
-            if (Document.COLUMN_DISPLAY_NAME in columns) add(Document.COLUMN_DISPLAY_NAME, file.name)
+            if (Document.COLUMN_DISPLAY_NAME in columns) add(Document.COLUMN_DISPLAY_NAME, name)
             if (Document.COLUMN_MIME_TYPE in columns) add(Document.COLUMN_MIME_TYPE, mime)
-            if (Document.COLUMN_SIZE in columns) add(Document.COLUMN_SIZE, file.length())
-            if (Document.COLUMN_LAST_MODIFIED in columns) add(Document.COLUMN_LAST_MODIFIED, file.lastModified())
+            if (Document.COLUMN_SIZE in columns) add(Document.COLUMN_SIZE, size)
+            if (Document.COLUMN_LAST_MODIFIED in columns) add(Document.COLUMN_LAST_MODIFIED, modified)
             if (Document.COLUMN_FLAGS in columns) add(Document.COLUMN_FLAGS, flags)
         }
     }
@@ -94,4 +168,20 @@ internal class DocumentQueries(private val context: Context) {
         if (ext.isEmpty()) return "application/octet-stream"
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
+
+    /** 规范路径 [path] 相对根 [rootCanonical] 的 docId 前缀；根自身为空串。 */
+    private fun relativeDocId(path: String, rootCanonical: String): String =
+        if (path == rootCanonical) "" else path.removePrefix(rootCanonical + File.separator)
 }
+
+/**
+ * 目录项，字段全部来自 [`DocumentQueries.readChildren`] 里那一次 `lstat`（链接取目标）。
+ */
+internal data class ChildEntry(
+    val docId: String,
+    val name: String,
+    val isDirectory: Boolean,
+    val size: Long,
+    val modified: Long,
+    val sortKey: String,
+)

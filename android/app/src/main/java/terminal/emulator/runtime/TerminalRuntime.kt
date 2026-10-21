@@ -328,6 +328,25 @@ constructor(
         private set
 
     /**
+     * 当前 Surface 自最近一次（重）交付以来是否已有一帧提交进它的缓冲区。
+     *
+     * `SurfaceView` 的原生 surface 位于应用窗口**之下**：窗口在该区域是透明开孔，
+     * 缓冲区一旦缺失（切后台被系统销毁、重建窗口、冷启动首帧未出），开孔就透出
+     * 后方的桌面/上一个应用——这就是切应用返回时的一闪。开孔无法用窗口背景遮住
+     * （窗口像素盖在 surface 之上），只能由组合层在「还没有缓冲区」这段时间内
+     * 临时涂上与终端一致的底色，缓冲区一到就撤掉。
+     *
+     * 渲染线程写、主线程读；只在变化时发布，空闲期不产生任何分配。
+     */
+    private val surfaceBufferPresentFlow = MutableStateFlow(false)
+    val surfaceBufferPresent: StateFlow<Boolean> = surfaceBufferPresentFlow.asStateFlow()
+
+    private fun publishSurfaceBufferPresent(present: Boolean) {
+        if (surfaceBufferPresentFlow.value == present) return
+        surfaceBufferPresentFlow.value = present
+    }
+
+    /**
      * 活动会话的视口最后一个有内容的行（0 起，[Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。
      * 仅在变化时由渲染线程发布；输入法跟随位移订阅它以裁剪平移量。
      * 与 [state] 分开，使光标/内容变化不触发 state 订阅者重组。
@@ -1382,6 +1401,11 @@ constructor(
                                 // 循环窗口的倒数才是真实帧率，且能区分「原生渲染慢」
                                 // 与「循环中其他环节慢」。
                                 val loopTiming = FrameTimingStats()
+                                // 门控之后、渲染 JNI 之前的「循环自身工作」统计：推送选区/
+                                // 滚动偏移与滚动余量。它必须恒为亚毫秒级——一旦在这段里做
+                                // GPU 调用（曾经把 uniform 写入放在这里），洪流期间会排到
+                                // 100ms+，把整帧拖慢而 SLOW_LOOP 的 render 段看起来正常。
+                                val loopPreTiming = FrameTimingStats()
                                 // 基线自适应降级检测器：学习设备自身的帧时间基线，
                                 // 对回归至其约 3 倍以上的窗口告警——同一套机制
                                 // 既适用于软件模拟器（~555ms/帧）也适用于真机（~17ms），
@@ -1454,8 +1478,12 @@ constructor(
                                         entry.vsyncRequested = false
                                         entry.forceRenderRequested = false
                                         entry.renderSignaled.set(false)
+                                        // 写入可能被推迟（会话锁被 PTY 写入持有）：此时不推进
+                                        // 记账，下一帧以同一快照重试。绝不在这里等锁——那会把
+                                        // 每帧拖到 PTY 输出的时长（真机日志 pre 段 100ms+）。
                                         val selectionSnapshot = selectionState.get()
-                                        if (selectionSnapshot != lastSelection) {
+                                        if (
+                                            selectionSnapshot != lastSelection &&
                                             bridge.setSelection(
                                                 selectionSnapshot.startRow,
                                                 selectionSnapshot.startCol,
@@ -1463,15 +1491,20 @@ constructor(
                                                 selectionSnapshot.endCol,
                                                 selectionSnapshot.hasSelection,
                                             )
+                                        ) {
                                             lastSelection = selectionSnapshot
                                         }
                                         val currentScrollOffset = entry.scrollOffset
-                                        if (currentScrollOffset != lastScrollOffset) {
+                                        if (
+                                            currentScrollOffset != lastScrollOffset &&
                                             bridge.setScrollOffset(currentScrollOffset)
+                                        ) {
                                             lastScrollOffset = currentScrollOffset
                                         }
                                         val currentRemainderPx = entry.scrollRemainderPx
                                         if (currentRemainderPx != lastScrollRemainderPx) {
+                                            // 只登记待用偏移：原生侧下一帧的 begin_frame
+                                            // 会按它重写 uniform，此处不做任何 GPU 调用。
                                             bridge.setScrollYPx(currentRemainderPx)
                                             lastScrollRemainderPx = currentRemainderPx
                                         }
@@ -1481,6 +1514,9 @@ constructor(
                                         // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
                                         val renderResult = bridge.renderWithNewOutput()
                                         val count = renderResult.count
+                                        if (count > 0) {
+                                            publishSurfaceBufferPresent(true)
+                                        }
                                         // count > 0 = 本帧真的渲染并提交了缓冲（空闲帧为 0，
                                         // 失败帧为负）：据此判定首帧已呈现给 Surface。
                                         if (count > 0) hasPresentedFrame = true
@@ -1733,6 +1769,7 @@ constructor(
                                         // 说明时间花在循环的其他环节，而非原生渲染路径。
                                         val loopDurationNanos = System.nanoTime() - loopFrameStart
                                         loopTiming.record(loopDurationNanos)
+                                        loopPreTiming.record(loopPrerenderDoneNanos - loopGateDoneNanos)
                                         // 慢循环帧的定位仪器：整循环超阈值才看——但空闲会话的门控
                                         // 驻留（waitOutput 至多 500ms）是正常设计态而非慢，
                                         // 按非 gate 作用段之和判定，避免 release 里空终端
@@ -1764,10 +1801,12 @@ constructor(
                                                     "tail=${tailNanos / NANOS_PER_MILLI}ms",
                                             )
                                         }
+                                        val preReport = loopPreTiming.takeReport()
                                         loopTiming.takeReport()?.let { loopReport ->
                                             val loopAvgMs = loopReport.averageNanos / NANOS_PER_MILLI
                                             val loopP95Ms = loopReport.p95Nanos / NANOS_PER_MILLI
                                             val loopMaxMs = loopReport.maxNanos / NANOS_PER_MILLI
+                                            val preMaxMs = (preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI
                                             val fps =
                                                 if (loopReport.averageNanos > 0) {
                                                     (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
@@ -1779,7 +1818,8 @@ constructor(
                                                 "session ${entry.id} loop timing window " +
                                                     "(${loopReport.frameCount} frames): " +
                                                     "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
-                                                    "max=${loopMaxMs}ms ≈${fps}fps",
+                                                    "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
+                                                    "≈${fps}fps",
                                             )
                                         }
                                     } catch (exception: InterruptedException) {
@@ -3274,7 +3314,17 @@ constructor(
             // 命中即保持当前网格，而不是塌缩成一行。
             return
         }
-        if (newRows == currentRows && newCols == currentCols) return
+        if (newRows == currentRows && newCols == currentCols) {
+            // 网格尺寸没变，**像素几何仍须下发**：VT 的单元格像素尺寸只由
+            // `setPixelSize` 这条路径提供，缺了它终端的 width_px 为 0，
+            // kitty 图像协议的放置尺寸算不出来（gridSize 为 0 → 图像永不显示，
+            // yazi 预览一片空白），鼠标像素映射与 XTWINOPS 报告也一并失准。
+            // 启动路径恰好命中这一支：会话带着默认网格诞生，重算后的尺寸与
+            // 当前值相同 → 早退 → 像素几何从未下发（视图侧那次布局又早于
+            // 会话存在，同样落空）。
+            setPixelSize(surfaceW, availableHeight)
+            return
+        }
         LogUtil.d(
             "Runtime",
             "recomputeGridFromFontMetrics: ${currentRows}x$currentCols -> ${newRows}x$newCols " +
@@ -3597,9 +3647,18 @@ constructor(
      * 则保留为待绑定，会话启动后立即绑定。
      */
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
+        // 只有**换了 Surface 实例**才算新的开孔：同一 Surface 的尺寸变化
+        // （旋转、输入法重排）交换链里仍有上一帧，此时盖底色会闪一下。
+        if (attachedSurface !== surface) {
+            attachedSurface = surface
+            publishSurfaceBufferPresent(false)
+        }
         pendingSurface = PendingSurface(surface, width, height)
         sessions[activeSessionId]?.bridge?.attachSurface(surface, width, height)
     }
+
+    /** 最近一次交给渲染器的 Surface 实例，用于区分「新开孔」与「同一开孔改尺寸」。 */
+    private var attachedSurface: android.view.Surface? = null
 
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
         // 一次取出三元组：读两次之间可能有并发移交，尺寸必须与该 Surface 同源。
@@ -3945,6 +4004,9 @@ constructor(
         // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
         // 并渲染出黑帧。整条记录（含尺寸）一并清空，否则重算网格会沿用已销毁尺寸。
         pendingSurface = null
+        attachedSurface = null
+        // 开孔已随视图拆除，缓冲区不再存在：先盖上底色，等新 surface 的新帧。
+        publishSurfaceBufferPresent(false)
         // 经账本领暂停而非直写全局布尔：直写的暂停不被任何持有者计数，
         // 别的来源归还时（视图 detach 归还防抖）会把它一并清掉——
         // 而渲染线程此时可能仍在已被系统回收的 BufferQueue 上出帧。

@@ -16,7 +16,7 @@
 //! 锁顺序 `SESSION_REGISTRY` → `Session` → `exit_code`；`EVENT_QUEUE` 独立加锁，
 //! 绝不在持有 `Session` 锁时获取。
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
@@ -24,6 +24,7 @@ use std::sync::atomic::AtomicI32;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use crate::event::Event;
 use jni::objects::{JClass, JString};
@@ -193,8 +194,46 @@ const RENDERED_CURSOR_NONE: i64 = -1;
 /// 渲染帧回滚长度无值：首帧尚未被渲染线程取走。
 const RENDERED_SCROLLBACK_NONE: i32 = -1;
 
+/// 渲染循环的唤醒源：一个「代数 + 条件变量」。
+///
+/// 渲染线程没有自己的输入队列可等，旧实现让它在 Kotlin 侧 `LockSupport.parkNanos`
+/// 定时醒来轮询输出：活跃时每 17ms 空转一次，空闲闭锁 500ms 则让**没有输入**的
+/// 后台输出最坏等满半秒才上屏。把等待搬到原生条件变量后，PTY 读线程与 Kotlin 侧
+/// 信号（vsync/输入/滚动）都只是把代数 +1 并 `notify_all`：输出到达即刻返回，
+/// 空闲时一次唤醒都不发。
+///
+/// 代数而非裸信号量：等待方把「上次醒来时的代数」带进来，若期间已有 notify，
+/// `wait` 立即返回而不丢失唤醒，也不需要额外的「先检查后睡眠」窗口。
+#[derive(Default)]
+struct RenderWake {
+    generation: Mutex<u64>,
+    condvar: Condvar,
+}
+
+impl RenderWake {
+    /// 通知等待方：代数 +1 并唤醒。可从任意线程调用（读线程、UI 线程、渲染线程自身）。
+    fn notify(&self) {
+        let mut generation = self.generation.lock();
+        *generation = generation.wrapping_add(1);
+        drop(generation);
+        self.condvar.notify_all();
+    }
+
+    /// 等到代数变化或超时，返回当前代数。`timeout` 为零表示不等待。
+    fn wait(&self, last_generation: u64, timeout: Duration) -> u64 {
+        let mut generation = self.generation.lock();
+        if *generation == last_generation && !timeout.is_zero() {
+            // 超时结果无需区分：返回的代数相同即「没等到东西」，调用方照旧落一帧。
+            let _timeout_result = self.condvar.wait_for(&mut generation, timeout);
+        }
+        *generation
+    }
+}
+
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
+    /// 本会话渲染循环的唤醒源。PTY 输出到达（读线程）与 Kotlin 侧信号共用它。
+    render_wake: Arc<RenderWake>,
     /// 渲染线程每消费一帧新数据就以 `Release` 写入本会话**那一帧**的光标格
     /// （编码见 [`pack_rendered_cursor`]）。读方是输入法锚点上报：主线程、逐键发生，
     /// 只做一次 `Acquire` 读——不发 VT 查询、不取会话锁。会话锁可能被 PTY 写入按住，
@@ -207,9 +246,10 @@ struct SessionEntry {
 }
 
 impl SessionEntry {
-    fn new(session: Arc<Mutex<Session>>) -> Self {
+    fn new(session: Arc<Mutex<Session>>, render_wake: Arc<RenderWake>) -> Self {
         Self {
             session,
+            render_wake,
             rendered_cursor: AtomicI64::new(RENDERED_CURSOR_NONE),
             rendered_scrollback: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
         }
@@ -299,6 +339,13 @@ struct RenderState {
     kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
     kitty_instances: Vec<crate::render::KittyGraphicsInstance>,
     kitty_uploaded_generation: u64,
+    /// Kitty 叠加层自上次**成功呈现**以来是否发生过变化（新增/替换/删除图像）。
+    ///
+    /// 变化的那一帧必须全量重绘：旧图像的像素仍留在累加器里，不清就会留下残影。
+    /// 图像保持不变时叠加层每帧照画，不需要全量——否则一张静止的图片会把终端
+    /// 钉在全量帧的代价上（SwiftShader 实测全量帧 ~500ms，终端掉到 1-2fps）。
+    /// 呈现失败时不清标记，下一帧仍按「有变化」处理，避免残影被永久留下。
+    kitty_overlay_dirty: bool,
     /// 内容脏标志：由改动延迟渲染输入的 JNI 入口
     /// （`setSearchHighlights`/`clearSearchHighlights`、`setFontSizeInPlace`）置位，
     /// 渲染线程在 `render_inner` 中用一次 `getAndSet(false)` 交换消费。与每会话的
@@ -426,6 +473,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_frames: Vec::new(),
             kitty_instances: Vec::new(),
             kitty_uploaded_generation: u64::MAX,
+            kitty_overlay_dirty: false,
             dirty: AtomicBool::new(false),
         });
         log::info!("render state initialized (renderer + font pipeline)");
@@ -736,10 +784,15 @@ fn init_session_inner(
 
     // 回滚行数固定：PROHIBITED 禁止「终端回滚行数」设置，故不提供任何入参通道。
     // 会话以默认主题起，真实主题随后经 `setTheme` 按标识下发。
-    match Session::spawn(&shell_path, rows, cols, &shell_env, None) {
+    let render_wake = Arc::new(RenderWake::default());
+    let output_wake = {
+        let wake = Arc::clone(&render_wake);
+        Some(Arc::new(move || wake.notify()) as crate::terminal::session::OutputWake)
+    };
+    match Session::spawn(&shell_path, rows, cols, &shell_env, None, output_wake) {
         Ok(session) => {
             let id = next_session_id();
-            let entry = SessionEntry::new(Arc::new(Mutex::new(session)));
+            let entry = SessionEntry::new(Arc::new(Mutex::new(session)), render_wake);
 
             let mut registry = wlock_session_registry();
             registry.insert(id, entry);
@@ -1301,6 +1354,109 @@ fn encode_mouse_event_inner(
         .unwrap_or(std::ptr::null_mut())
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// JNI 导出：encodeMouseWheel
+// ══════════════════════════════════════════════════════════════════════════
+// 一次往返编码多档滚轮（每档 press + release）。触摸拖动一个事件可能滚过数行，
+// 逐档调用会把 UI 线程按在每个档位的一次 VT 应答上；合并后每次事件只有一次
+// 往返，PTY 也只写一次。鼠标上报关闭时返回空数组（该事件被丢弃）。
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseWheel(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+    x_px: jfloat,
+    y_px: jfloat,
+    button: jint,
+    modifiers: jint,
+    cell_width: jfloat,
+    cell_height: jfloat,
+    repeat: jint,
+) -> jbyteArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        encode_mouse_wheel_inner(
+            env,
+            session_id,
+            x_px,
+            y_px,
+            button,
+            modifiers,
+            cell_width,
+            cell_height,
+            repeat,
+        )
+    })
+}
+
+// JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge`
+// 声明决定，而非设计选择。
+#[allow(clippy::too_many_arguments)]
+fn encode_mouse_wheel_inner(
+    env: &mut Env,
+    session_id: jlong,
+    x_px: jfloat,
+    y_px: jfloat,
+    button: jint,
+    modifiers: jint,
+    cell_width: jfloat,
+    cell_height: jfloat,
+    repeat: jint,
+) -> jbyteArray {
+    let id = session_id as u64;
+    let Some(query_tx) = session_query_channel(id) else {
+        return empty_java_byte_array(env);
+    };
+    // 逐个收窄、逐个早退：收窄失败已经抛了异常并把它挂起，此后不得再调 JNI。
+    let Some(button) = narrow_jint(env, "encodeMouseWheel", "button", button) else {
+        return std::ptr::null_mut();
+    };
+    let Some(modifiers) = narrow_jint(env, "encodeMouseWheel", "modifiers", modifiers) else {
+        return std::ptr::null_mut();
+    };
+    let Some(repeat) = narrow_jint::<u32>(env, "encodeMouseWheel", "repeat", repeat) else {
+        return std::ptr::null_mut();
+    };
+    let Some(bytes) = crate::terminal::ghostty_terminal::GhosttyTerminal::encode_mouse_wheel_on(
+        &query_tx,
+        (x_px, y_px),
+        button,
+        modifiers,
+        cell_width,
+        cell_height,
+        repeat,
+    ) else {
+        return empty_java_byte_array(env);
+    };
+    java_bytes_or_empty(env, &bytes)
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI 导出：mouseTrackingActive
+// ══════════════════════════════════════════════════════════════════════════
+// 远端是否启用了鼠标上报（DECSET 1000/1002/1003）。无锁读取 VT 线程每帧维护
+// 的镜像——触摸拖动的每个事件都要判一次，走查询通道会阻塞 UI 线程。
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingActive(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(session_id as u64)) else {
+            return Ok(JNI_FALSE);
+        };
+        let session = entry.session.lock();
+        if session.terminal().mouse_tracking_active_atomic() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
+}
+
 // ── 按键编码 ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI 导出：encodeKeyEvent
@@ -1445,6 +1601,65 @@ fn key_event_text(code_point: jint) -> Option<char> {
     let code_point = u32::try_from(code_point).ok()?;
     let character = char::from_u32(code_point)?;
     (!character.is_control() && !(0xF700..=0xF8FF).contains(&code_point)).then_some(character)
+}
+
+// ── 渲染唤醒 ────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// JNI 导出：waitForOutput / wakeRender
+// ══════════════════════════════════════════════════════════════════════════
+
+/// 渲染循环的驻留点：等新输出或任意唤醒信号，返回新的唤醒代数。
+///
+/// `last_generation` 是调用方上次拿到的代数；期间若已发生 notify，立即返回，
+/// 因此「检查完信号再进场」与 notify 竞争也不会丢唤醒。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_waitForOutput(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+    last_generation: jlong,
+    timeout_millis: jlong,
+) -> jlong {
+    jni_export_guard!(&mut unowned_env, last_generation, |_env| {
+        let timeout = Duration::from_millis(u64::try_from(timeout_millis).unwrap_or(0));
+        let last_generation = u64::try_from(last_generation).unwrap_or(0);
+        // 读锁只用于取一份 Arc：等待期间绝不能持注册表锁（销毁会话要写锁）。
+        let wake = {
+            let registry = rlock_session_registry();
+            registry
+                .get(&(session_id as u64))
+                .map(|entry| Arc::clone(&entry.render_wake))
+        };
+        match wake {
+            Some(wake) => wake.wait(last_generation, timeout) as jlong,
+            None => {
+                // 会话已销毁：按同一节奏睡一段再返回，调用方下一拍就会看到会话消失
+                // 并退出循环。返回原代数而不是新值，避免伪造「有新信号」。
+                std::thread::sleep(timeout);
+                last_generation as jlong
+            }
+        }
+    })
+}
+
+/// 唤醒指定会话的渲染循环（vsync、输入、滚动、选区等所有 Kotlin 侧信号）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wakeRender(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        let wake = {
+            let registry = rlock_session_registry();
+            registry
+                .get(&(session_id as u64))
+                .map(|entry| Arc::clone(&entry.render_wake))
+        };
+        if let Some(wake) = wake {
+            wake.notify();
+        }
+    })
 }
 
 // ── 事件轮询 ────────────────────────────────────────────────────
@@ -2131,6 +2346,10 @@ fn render_inner(session_id: u64) -> jint {
             if kitty_keys_changed || kitty_cell_changed {
                 let generation_changed = kitty_generation != render_state.kitty_generation
                     || session_id != render_state.kitty_session;
+                // 本帧刷新了 kitty 状态（图像增删或放置集合/几何变化）：上一帧留在
+                // 累加器里的图像像素已失效，必须整帧重绘才能去掉残影。状态未变的
+                // 帧不需要全量——叠加层每帧照画，文本层照旧走脏带。
+                render_state.kitty_overlay_dirty = true;
                 render_state.kitty_session = session_id;
                 render_state.kitty_generation = kitty_generation;
                 render_state.kitty_scroll_offset = scroll_offset;
@@ -2248,8 +2467,10 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.search_highlights.current,
                 Some(&render_state.dirty_mask),
                 &render_state.kitty_instances,
+                render_state.kitty_overlay_dirty,
             );
             if result.is_ok() {
+                render_state.kitty_overlay_dirty = false;
                 render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
                 render_state.search_highlights.drawn =
                     render_state.search_highlights.current.clone();
@@ -2347,8 +2568,10 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.search_highlights.current,
                 Some(&render_state.dirty_mask),
                 &render_state.kitty_instances,
+                render_state.kitty_overlay_dirty,
             );
             if result.is_ok() {
+                render_state.kitty_overlay_dirty = false;
                 render_state.search_highlights.drawn =
                     render_state.search_highlights.current.clone();
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
@@ -2828,6 +3051,25 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScr
     })
 }
 
+/// 会话**已应用**的滚动偏移（0 = 视口贴底）。
+///
+/// 与 `TerminalRuntime.activeSessionScrollOffset()` 的区别是「已应用」：后者是渲染线程
+/// 尚未消费的命令槽，读到的是转瞬即逝的中间态。仪器测试要断言「视口归位」时读这里——
+/// 一次原子读，不写终端、不发 VT 查询（旧做法向网格注入标记行，会把真实内容挤出
+/// 无回滚的视口，连带把提示符丢出屏幕）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionScrollOffset(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, 0, |_env| {
+        session_handle(session_id as u64).map_or(0, |session| {
+            i32::try_from(session.lock().last_scroll_offset()).unwrap_or(i32::MAX)
+        })
+    })
+}
+
 /// 返回单个回滚行去除首尾空白后的文本，空行返回 null。
 /// **惰性访问语义**——Ghostty 只保留被显式读取过的行，多数下标返回 null。
 /// 不可用于全文迭代——应改用 `dump_grid`（经 `getTerminalText`）。
@@ -2881,6 +3123,27 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
             return Ok(std::ptr::null_mut());
         };
         let text = crate::terminal::ghostty_terminal::GhosttyTerminal::read_all_text_on(&query_tx);
+        string_to_jstring(env, &text)
+    })
+}
+
+/// 返回当前**可见视口**的文本（每行以换行拼接，行数 == 网格行数）。
+///
+/// 与 `getTerminalText`（视口 + 全回滚）相对：调用方要判断「某行是否看得见」时
+/// 用它，代价随网格面积而非回滚深度走。仪器测试以此确认视口确实停在底部。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVisibleText<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jstring {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
+            throw_session_missing(env, "getVisibleText");
+            return Ok(std::ptr::null_mut());
+        };
+        let text =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::read_visible_text_on(&query_tx);
         string_to_jstring(env, &text)
     })
 }
@@ -3391,10 +3654,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
 /// 设置下一渲染帧的活动文本选区。
 ///
 /// 终端持有选区安装口：坐标为绝对网格行（row 0 = 回滚顶部），与控制柄逻辑一致。
+/// 设置当前文本选区（绝对网格行列，0 = 回滚顶部）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
 /// 选区经 `GhosttyTerminal::set_selection` 安装为终端状态（跟踪引用，随滚动/
 /// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 CellData；
 /// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
 /// 选区恒为线性（块选通道已随 mode 一并移除）。
+///
+/// 返回 true 表示本次写入已生效（或无需写入）。会话锁被 PTY 写入按住时返回 false 且
+/// **不阻塞**：调用方（渲染循环）保留上一次已提交的值，下一帧重试。拖动选区时每帧都会
+/// 调用本函数，阻塞在这里等于把每帧拖到 PTY 输出的时长（真机实测单帧 100ms+）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     mut unowned_env: EnvUnowned<'_>,
@@ -3405,14 +3673,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     end_row: jint,
     end_col: jint,
     has_selection: jboolean,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, JNI_TRUE, |_env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
-            return Ok(());
+            return Ok(JNI_TRUE);
         };
-        let session = entry.session.lock();
+        let Some(session) = entry.session.try_lock() else {
+            return Ok(JNI_FALSE);
+        };
         if has_selection == jni::sys::JNI_TRUE {
             session.terminal().set_selection(
                 (start_row.max(0) as u32, start_col.max(0) as u32),
@@ -3429,7 +3699,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
         if let Some(render_state) = state.as_mut() {
             render_state.dirty.store(true, Ordering::Relaxed);
         }
-    });
+        JNI_TRUE
+    })
 }
 
 /// 按标识应用主题：终端默认色与调色板进 VT 线程，光标色与搜索高亮色供渲染态取用。
@@ -3914,25 +4185,31 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
 /// 设置视口滚动偏移（回滚区内的行数，0 = 活跃屏幕）。与上次偏移的差值在 VT 线程
 /// 经 `scroll_viewport(Delta)` 应用，故下一次 CellData 推送即携带滚动后的视图
 /// （此前在 Kotlin 侧是空操作）。
+///
+/// 返回 true 表示本次写入已生效（或无需写入）。会话锁被 PTY 写入按住时返回 false 且
+/// **不阻塞**：调用方保留上一次已提交的值，下一帧重试。滚动期间每帧都调用本函数，
+/// 在这里等锁等于把帧率钉在 PTY 输出的节奏上（真机日志实测 pre 段 100ms+）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     offset: jint,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, JNI_TRUE, |_env| {
         let target = offset.max(0) as i64;
         let sent = {
             let Some(session) = session_handle(_session_id as u64) else {
-                return Ok(());
+                return Ok(JNI_TRUE);
             };
             // 每会话独立计算增量：此前代码按单一全局 `render_state.scroll_offset`
             // 计算，切换会话会污染恢复后会话的视口。
-            let session = session.lock();
+            let Some(session) = session.try_lock() else {
+                return Ok(JNI_FALSE);
+            };
             let delta = target - session.last_scroll_offset();
             if delta == 0 {
-                return Ok(());
+                return Ok(JNI_TRUE);
             }
             // `scroll_viewport` 的增量语义（主机与模拟器已验证）：负值 = 向上滚入历史，
             // 正值 = 回到底部。Kotlin 的 `scrollOffset` 在用户向上滑（进入历史）时增大，
@@ -3961,12 +4238,17 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
                 render_state.dirty.store(true, Ordering::Relaxed);
             }
         }
+        if sent { JNI_TRUE } else { JNI_FALSE }
     })
 }
 
 /// 设置逐像素平滑滚动用的视口 Y 像素偏移（正值 = 内容下移，与 Kotlin 手势余数
-/// 符号一致）。立即套用到共享的单元 uniforms，使下一呈现帧携带该偏移；
-/// 渲染线程的空闲门控也经 `last_scroll_px` 观察到变化。
+/// 符号一致）。只登记待用值：真正写 uniform 的是随后那一帧的 `begin_frame`，
+/// 它每帧都按当前偏移重写同一份字节。
+///
+/// 此前这里当场 `refresh_cell_uniforms`（一次 `queue.write_buffer`）——与同一线程
+/// 紧接着开帧的那次写入完全重复，却在洪流期间排队等 GPU 队列 ~100ms。渲染循环的
+/// pre 段因此从 <1ms 涨到 100ms+，真机日志（SLOW_LOOP pre=102-123ms）即此。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
     mut unowned_env: EnvUnowned<'_>,
@@ -3983,11 +4265,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
             return Ok(());
         };
         render_state.renderer.set_viewport_scroll_px(offset_px);
-        let (width, height) = (
-            render_state.renderer.projection_width as f32,
-            render_state.renderer.projection_height as f32,
-        );
-        render_state.renderer.refresh_cell_uniforms(width, height);
         log::debug!("setScrollYPx: {offset_px}");
     })
 }
@@ -4099,13 +4376,63 @@ mod clipboard_read_flood_tests {
 }
 
 #[cfg(test)]
+mod render_wake_tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use super::RenderWake;
+
+    /// 代数语义：期间已通知过，带旧代数进场必须立即返回（不丢唤醒）。
+    #[test]
+    fn wait_returns_at_once_when_notified_before_entry() {
+        let wake = RenderWake::default();
+        assert_eq!(wake.wait(0, Duration::ZERO), 0);
+        wake.notify();
+        let start = Instant::now();
+        assert_eq!(wake.wait(0, Duration::from_secs(5)), 1);
+        assert!(
+            start.elapsed() < Duration::from_millis(100),
+            "已有通知时不应真的等待：{:?}",
+            start.elapsed()
+        );
+    }
+
+    /// 无通知时等满超时并返回同一代数——调用方据此照常落一帧，不 busy-spin。
+    #[test]
+    fn wait_times_out_and_keeps_generation() {
+        let wake = RenderWake::default();
+        let start = Instant::now();
+        // 初始代数为 0：带 0 进场且无人通知 → 等满超时后仍返回 0。
+        assert_eq!(wake.wait(0, Duration::from_millis(50)), 0);
+        assert!(
+            start.elapsed() >= Duration::from_millis(40),
+            "应至少等满大部分超时：{:?}",
+            start.elapsed()
+        );
+    }
+
+    /// 跨线程通知：等待中的线程必须被立刻叫醒（PTY 读线程→渲染线程的真实形态）。
+    #[test]
+    fn notify_wakes_another_thread() {
+        let wake = Arc::new(RenderWake::default());
+        let waiter = {
+            let wake = Arc::clone(&wake);
+            std::thread::spawn(move || wake.wait(0, Duration::from_secs(5)))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        wake.notify();
+        assert_eq!(waiter.join().expect("waiter panicked"), 1);
+    }
+}
+
+#[cfg(test)]
 mod session_registry_tests {
     use std::sync::{Arc, Mutex};
 
     use super::{
         ACTIVE_SESSION_ID, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
         MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, Ordering, RENDERED_CURSOR_NONE,
-        RENDERED_SCROLLBACK_NONE, SessionEntry, pack_rendered_cursor, pump_sessions,
+        RENDERED_SCROLLBACK_NONE, RenderWake, SessionEntry, pack_rendered_cursor, pump_sessions,
         rendered_cursor_packed, rendered_scrollback, wlock_session_registry,
     };
     use crate::terminal::pty::Pty;
@@ -4140,7 +4467,10 @@ mod session_registry_tests {
     /// 或「摘除登记」都会让后续用例读到别人的会话——这类串味只会偶发，
     /// 而在本模块外它读到的正是生产注册表。
     fn pump_once_as_background(session: &Arc<parking_lot::Mutex<Session>>, session_id: u64) {
-        wlock_session_registry().insert(session_id, SessionEntry::new(session.clone()));
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry::new(session.clone(), Arc::new(RenderWake::default())),
+        );
         let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
         ACTIVE_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
         pump_sessions();
@@ -4159,7 +4489,10 @@ mod session_registry_tests {
         let _access = REGISTRY_ACCESS.lock();
         let (session, _handle) = background_session();
         let session_id = 0x5EED_C0DE_u64;
-        wlock_session_registry().insert(session_id, SessionEntry::new(session));
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry::new(session, Arc::new(RenderWake::default())),
+        );
         let publish = |id: u64, packed: i64| {
             wlock_session_registry()
                 .get(&id)
@@ -4208,7 +4541,10 @@ mod session_registry_tests {
         let _access = REGISTRY_ACCESS.lock();
         let (session, _handle) = background_session();
         let session_id = 0x5EED_5C40_u64;
-        wlock_session_registry().insert(session_id, SessionEntry::new(session));
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry::new(session, Arc::new(RenderWake::default())),
+        );
 
         assert_eq!(
             rendered_scrollback(session_id),
@@ -4581,7 +4917,7 @@ mod render_sample_bits_tests {
 
 #[cfg(test)]
 mod scroll_bookkeeping_tests {
-    use super::{SessionEntry, rlock_session_registry, wlock_session_registry};
+    use super::{RenderWake, SessionEntry, rlock_session_registry, wlock_session_registry};
     use crate::terminal::pty::Pty;
     use crate::terminal::session::Session;
     use std::sync::Arc;
@@ -4599,7 +4935,10 @@ mod scroll_bookkeeping_tests {
                 .expect("with_pty must succeed"),
         ));
         let session_id = 98_090_101u64;
-        wlock_session_registry().insert(session_id, SessionEntry::new(session.clone()));
+        wlock_session_registry().insert(
+            session_id,
+            SessionEntry::new(session.clone(), Arc::new(RenderWake::default())),
+        );
 
         session.lock().set_last_scroll_offset(37);
         // 经注册表读锁取回的句柄看到的是同一份记账（两个会话各自独立，见下一条）。

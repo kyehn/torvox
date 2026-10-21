@@ -553,6 +553,43 @@ fn encode_mouse_event_carries_modifiers() {
     assert_ne!(shift, ctrl, "Shift 与 Ctrl 组合不得互相混淆");
 }
 
+/// 一次调用编码 `repeat` 档滚轮：输出必须是单档序列的整数倍，且档位按下→释放成对。
+///
+/// 触摸拖动一个事件常滚过十余行，逐档 `encode_mouse_event` 会让 UI 线程等十余次
+/// VT 应答——这正是「滚动卡顿」的直接来源。批量接口必须让一次往返产出全部档位。
+#[test]
+fn encode_mouse_wheel_batches_every_notch() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let single = terminal_under_test
+        .encode_mouse_wheel((10.0, 10.0), 3, 0, 10.0, 20.0, 1)
+        .expect("wheel encode");
+    assert!(!single.is_empty(), "tracking on: one notch must encode");
+    for repeat in [2u32, 5, 12] {
+        let batched = terminal_under_test
+            .encode_mouse_wheel((10.0, 10.0), 3, 0, 10.0, 20.0, repeat)
+            .expect("wheel batch encode");
+        assert_eq!(
+            batched.len(),
+            single.len() * repeat as usize,
+            "repeat={repeat} 必须等于单档序列的整数倍"
+        );
+        assert_eq!(
+            batched,
+            single.repeat(repeat as usize),
+            "repeat={repeat} 必须逐档重复同一 press+release 对"
+        );
+    }
+    // 上报关闭时整批丢弃：调用方据此回落到本地回滚。
+    let plain = terminal();
+    plain.flush();
+    let dropped = plain
+        .encode_mouse_wheel((10.0, 10.0), 3, 0, 10.0, 20.0, 8)
+        .expect("no-tracking encode still returns Some");
+    assert!(dropped.is_empty(), "tracking off:整批必须丢弃（不写 PTY）");
+}
+
 /// Wheel-up with DECSET 1000 + SGR → button 4 (wheel-up = button 64+4-32).
 /// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
 #[test]
@@ -2619,6 +2656,31 @@ fn hyperlink_at_long_and_oversized_uris() {
     assert!(
         terminal_under_test.hyperlink_at(1, 0).is_none(),
         "over-cap URI must be dropped, not truncated"
+    );
+}
+
+/// Kitty 图形协议查询必须应答，且**回显被查询的图像 id**。
+///
+/// 客户端（如 yazi）用固定 id 探测能力：`ESC_Gi=278941603,s=1,v=1,a=q,t=d,f=24;AAAA`，
+/// 并把应答解析成 `i=<id>` + `OK`/`ERROR`。应答若不带 id，客户端解析失败即判定
+/// 「终端不支持 kitty 图像」，图片预览整体不显示。
+#[test]
+fn kitty_graphics_query_echoes_the_requested_image_id() {
+    let mut terminal = terminal();
+    terminal.pty_write(b"\x1b_Gi=278941603,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
+    terminal.flush();
+    let responses = terminal.drain_pty_write_responses();
+    let response = responses
+        .last()
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        .unwrap_or_default();
+    assert!(
+        response.contains("i=278941603"),
+        "kitty 查询应答必须回显请求的图像 id，实际收到：{response:?}"
+    );
+    assert!(
+        response.contains("OK"),
+        "kitty 查询应答必须是 OK，实际收到：{response:?}"
     );
 }
 
