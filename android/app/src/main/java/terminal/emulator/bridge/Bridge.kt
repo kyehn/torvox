@@ -4,6 +4,7 @@ import kotlinx.coroutines.launch
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.runCatchingCancellable
+import java.util.concurrent.atomic.AtomicReference
 
 /** 终端会话的 shell 配置。 */
 sealed interface Shell {
@@ -277,11 +278,6 @@ class Bridge(private val config: TerminalConfig) {
         onSession("releaseGpuSurface", Unit) { NativeBridge.detachWindow(it) }
     }
 
-    fun setRenderPaused(paused: Boolean) {
-        LogUtil.d(TAG, "setRenderPaused($paused)")
-        onSession("setRenderPaused", Unit) { NativeBridge.setRenderPaused(it, paused) }
-    }
-
     /**
      * 测试钩子：开启/关闭持续的 surface 级取纹理失败（等价于原生窗口的 BufferQueue
      * 被遗弃，实测形态是每帧都失败）。仅供仪器化用例验证 surface 失效自愈，
@@ -403,33 +399,35 @@ class Bridge(private val config: TerminalConfig) {
         onSession("setSystemLocale", Unit) { NativeBridge.setSystemLocale(it, locale) }
     }
 
-    private var lastExtraFontPaths: List<String> = emptyList()
+    // 字体设置的应用会从 IO 协程与设置流程并发到达，去重状态用原子引用整体替换：
+    // 普通可变字段的读-改-写会竞态，最坏结果是去重失效 → 原生重建字体管线
+    // 并重新分配图集。
+    private val lastExtraFontPaths = AtomicReference<List<String>>(emptyList())
 
     fun setExtraFontPaths(paths: List<String>) {
         LogUtil.d(TAG, "setExtraFontPaths($paths)")
         // 原生调用会重建字体管线（重新分配图集），因此跳过重复调用，目录内容在重建时自行拾取。
-        if (paths == lastExtraFontPaths) return
-        lastExtraFontPaths = paths
+        if (lastExtraFontPaths.getAndSet(paths) == paths) return
         onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
     }
 
     // font.ttf 覆盖探测缓存：native 每次加载都会追加字体条目，
     // 同一文件只探测一次，内容变化才重新探测。
-    private var lastDefaultFontProbeKey: String? = null
-    private var lastDefaultFontProbeFamily: String? = null
+    // 键与族名成对出现，用一个原子引用整体替换：拆成两个可变字段会出现
+    // 「键已更新、族名还是旧的」这种撕裂状态。
+    private val defaultFontProbe = AtomicReference<Pair<String?, String?>?>(null)
 
     private fun probeDefaultFontFile(): String? {
         val file =
             terminal.emulator.termuxDefaultFontFile(config.home) ?: run {
-                lastDefaultFontProbeKey = null
-                lastDefaultFontProbeFamily = null
+                defaultFontProbe.set(null)
                 return null
             }
         val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
-        if (key == lastDefaultFontProbeKey) return lastDefaultFontProbeFamily
+        val cached = defaultFontProbe.get()
+        if (cached != null && cached.first == key) return cached.second
         val family = loadFontFile(file.absolutePath)
-        lastDefaultFontProbeKey = key
-        lastDefaultFontProbeFamily = family
+        defaultFontProbe.set(key to family)
         return family
     }
 

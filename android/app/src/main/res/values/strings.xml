@@ -84,7 +84,7 @@
     <string name="search_results_total">共 %1$d 个</string>
 
     <!-- CJK Warning -->
-    <string name="cjk_fallback_missing_warning">未检测到 CJK 备用字体。东亚字符可能无法正确渲染。</string>
+    <string name="cjk_fallback_missing_warning">未检测到 CJK 备用字体。东亚字符只能由全库扫描补齐，可能缺字或更慢。</string>
     <string name="install">安装</string>
 
     <string name="alt_toggle">Alt 切换</string>
@@ -123,7 +123,10 @@
     <string name="font_info_cell">单元格：%1$s x %2$s px</string>
     <string name="font_info_cjk_fallback">CJK 后备：%1$s</string>
     <string name="font_info_cjk_none">CJK 后备：无</string>
-    <string name="font_info_cjk_skipped">CJK 后备已跳过（主字体支持 CJK）</string>
+    <string name="font_info_cjk_skipped">CJK 后备已跳过（主字体已覆盖本语言的代表字符）</string>
+    <string name="font_info_cjk_skipped_non_cjk_locale">CJK 后备已跳过（系统语言不是 CJK，未装语言回退族）</string>
+    <string name="font_info_cjk_skipped_locale_unknown">CJK 后备已跳过（系统语言未知，未装语言回退族）</string>
+    <string name="font_info_cjk_not_reported">CJK 后备：尚未上报</string>
     <string name="font_info_size_sp">字体大小：%1$s SP（约 %2$s px）</string>
     <string name="font_info_other_families">其他字体：%1$s</string>
     <string name="home_key">Home</string>

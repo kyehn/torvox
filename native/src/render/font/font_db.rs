@@ -556,8 +556,9 @@ fn resolve_system_monospace_from_fonts_xml() -> Vec<String> {
 /// 最低可用门槛——emoji 字体（如 Noto Color Emoji Flags）会被 fontdb 标记为等宽
 /// 却没有任何拉丁字形，选中它们主字体只剩豆腐块。判定用字形能力探测（charmap），
 /// 不是硬编码字体名。
-#[cfg(any(target_os = "android", test))]
-fn face_covers_latin(font_database: &fontdb::Database, face_id: fontdb::ID) -> bool {
+///
+/// 设备主字体梯次与宿主（单元测试/基准）的主字体选择共用同一条门槛。
+pub(crate) fn face_covers_latin(font_database: &fontdb::Database, face_id: fontdb::ID) -> bool {
     font_database
         .with_face_data(face_id, |font_data, face_index| {
             swash::FontRef::from_index(font_data, face_index as usize)
