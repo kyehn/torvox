@@ -67,7 +67,7 @@ class StorageAccessInstrumentedTest {
             }
         UxTestUtils.metric("external_storage_entries", children.size)
         // 实写一次：能列目录不等于能写——写权限缺失时只有写会失败。
-        val probe = File(externalRoot, "torvox-storage-probe.txt")
+        val probe = File(externalRoot, "storage-probe.txt")
         try {
             probe.writeText("storage probe")
             assertEquals("storage probe", probe.readText())

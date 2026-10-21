@@ -5,13 +5,14 @@
      裁掉蒙版外的内容；直接引用 logo_art（108dp 视口）时被放大 192/108=1.78 倍，
      墨迹最远半径 ≈ 89.4dp 恰超蒙版，星角与终端窗口的一角被裁掉
      （STATUS「启动动画图案不完整，被限制到图标形状」）。
-     给一份 96dp 的固定尺寸 item 后，图案整体 0.89 倍居中，
-     墨迹最远半径 ≈ 44.7dp ≤ 88.9dp，完整落进蒙版圆且一角不被裁。
-     桌面图标仍由 launcher_foreground.xml 以 1:1 呈现图案，两处互不影响。 -->
+
+     logo_art 自身已按自适应图标安全区缩放 0.65（见 logo_art.xml），
+     故这里的 item 尺寸要相应放大 96/0.65 ≈ 148dp，启动屏上的图案大小
+     才与缩放前一致：墨迹最远半径 ≈ 43dp ≤ 88.9dp，完整落进蒙版圆。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item
-        android:width="96dp"
-        android:height="96dp"
+        android:width="148dp"
+        android:height="148dp"
         android:gravity="center"
         android:drawable="@drawable/logo_art" />
 </layer-list>

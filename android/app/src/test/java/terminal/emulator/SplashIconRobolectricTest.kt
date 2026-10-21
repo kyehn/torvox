@@ -103,12 +103,16 @@ class SplashIconRobolectricTest {
             splashChildBits.contentEquals(launcherChildBits),
         )
 
-        // 桌面 1:1：前景图案墨迹半径应 = logo_art 原始 ≈47.6~50.3 单位（= dp）。
+        // The pattern must fit inside the adaptive icon's safe zone: the platform draws
+        // the foreground layer at 1.5× the icon bounds, and the mask only exposes the
+        // center safe circle (66/72 of the 72/108 visible viewport) — the pattern's
+        // farthest point from the canvas center must stay inside that circle,
+        // otherwise the launcher crops the star tip and the window corner.
         val launcherInk = inkRadius(renderBitmap(launcherChild, artPx))
         assertTrue(
-            "桌面图案必须是原始 1:1 大小（墨迹半径应落在 $ARTWORK_MIN.." +
-                "$ARTWORK_MAX dp），实际 ${"%.1f".format(launcherInk)}dp",
-            launcherInk in ARTWORK_MIN..ARTWORK_MAX,
+            "the pattern's ink radius must not exceed the safe circle's $SAFE_ZONE_RADIUS" +
+                " units, actual ${"%.1f".format(launcherInk)}",
+            launcherInk <= SAFE_ZONE_RADIUS,
         )
 
         // 平台管线几何：启动屏把这一 wrapper 画进 192dp 单元并按 88.9dp
@@ -136,26 +140,41 @@ class SplashIconRobolectricTest {
         val artPx = requireNotNull(art.intrinsicWidth) {
             "logo_art 的固有尺寸必须是矢量声明的 108"
         }
-        val artBitmap = renderBitmap(art, artPx)
+        // 图案已按安全区缩放，点迹随之变细：4 倍渲染才留得住足够的纯色像素
+        // 供判别（阈值见 DOT_MIN_SIZE / DOT_MAX_SIZE）。
+        val artBitmap = renderBitmap(art, artPx * DOT_RENDER_SCALE)
         intArrayOf(DOT_RED, DOT_YELLOW, DOT_GREEN).forEach { fillColor ->
-            var ink = 0
-            for (y in 0 until artPx) {
-                for (x in 0 until artPx) {
+            var minX = Int.MAX_VALUE
+            var minY = Int.MAX_VALUE
+            var maxX = -1
+            var maxY = -1
+            for (y in 0 until artBitmap.height) {
+                for (x in 0 until artBitmap.width) {
                     val pixel = artBitmap.getPixel(x, y)
                     if ((pixel ushr 24) >= ALPHA_FLOOR &&
                         abs(Color.red(pixel) - Color.red(fillColor)) <= DOT_COLOR_FUZZ &&
                         abs(Color.green(pixel) - Color.green(fillColor)) <= DOT_COLOR_FUZZ &&
                         abs(Color.blue(pixel) - Color.blue(fillColor)) <= DOT_COLOR_FUZZ
                     ) {
-                        ink++
+                        if (x < minX) minX = x
+                        if (x > maxX) maxX = x
+                        if (y < minY) minY = y
+                        if (y > maxY) maxY = y
                     }
                 }
             }
-            // 正确形态（实测校准：红4/黄5/绿5px）与缺首段 M 的坏形态（实测 21px）
-            // 之间取安全带 [2,14]，两侧都比校准值离边界远。
             assertTrue(
-                "点迹必须渲染成 ${DOT_MIN_INK}..$DOT_MAX_INK px 的小圆，fillColor=${"%06X".format(fillColor)} 露出墨迹 $ink px",
-                ink in DOT_MIN_INK..DOT_MAX_INK,
+                "点迹必须存在，fillColor=${"%06X".format(fillColor)}",
+                maxX >= minX,
+            )
+            // 正确形态是小圆（直径 ≈ 2×1.6 单位）；缺首段 M 的坏形态是一整块色斑。
+            // 判据取包围盒边长：与渲染倍率无关，只反映形状本身。
+            val width = maxX - minX + 1
+            val height = maxY - minY + 1
+            assertTrue(
+                "点迹必须是小圆（边长 ${DOT_MIN_SIZE}..$DOT_MAX_SIZE px），" +
+                    "fillColor=${"%06X".format(fillColor)} 实测 $width×$height px",
+                width in DOT_MIN_SIZE..DOT_MAX_SIZE && height in DOT_MIN_SIZE..DOT_MAX_SIZE,
             )
         }
     }
@@ -211,23 +230,35 @@ class SplashIconRobolectricTest {
         const val SPLASH_ART_MIN_RATIO = 0.40f
         const val SPLASH_ART_MAX_RATIO = 0.95f
 
-        /** 1:1 图案（launcher）墨迹半径范围（logo_art 原始 ≈47.6~50.3dp）。 */
-        const val ARTWORK_MIN = 44f
-        const val ARTWORK_MAX = 54f
+        /**
+         * 自适应图标安全区半径（logo_art 的 108 单位视口内）。
+         *
+         * 平台把前景层按 1.5× 图标边界绘制，可见区是其中的 72/108，安全区又是可见区的
+         * 66/72，故安全半径 = 72 × 66/72 = 33 单位。图案到画布中心的最远距离不得越过它。
+         */
+        const val SAFE_ZONE_RADIUS = 33f
 
         /** 点迹 fill 色（logo_art 的红/黄/绿三圆）。 */
         const val DOT_RED = 0xff8a6c.toInt()
         const val DOT_YELLOW = 0xffdb67.toInt()
         const val DOT_GREEN = 0x86e96d.toInt()
 
-        // 点迹颜色匹配余量（抗锯齿边缘会混色，只计大部分覆盖本色的像素）。
-        const val DOT_COLOR_FUZZ = 24
+        // 点迹颜色匹配余量：点迹是实色填充，核心像素即本色，故容差取小值。
+        // 大容差会把星形光晕与填充的混合色（#FFC37F 一类）也算进来，
+        // 那会让包围盒横跨整颗星。
+        const val DOT_COLOR_FUZZ = 6
 
-        /** 点迹最小墨迹（抗锯齿边缘的整圆至少有这么多纯色像素）。 */
-        const val DOT_MIN_INK = 2
+        /** 点迹包围盒最小边长（正确形态是小圆，直径 ≈ 2×1.6 单位）。 */
+        const val DOT_MIN_SIZE = 4
 
-        /** 点迹墨迹上限（缺首段 M 的坏形态实测墨迹 21px，此处取区间安全上限）。 */
-        const val DOT_MAX_INK = 14
+        /** 渲染倍率：图案已按安全区缩放，点迹随之变细，4 倍渲染才留得住纯色像素。 */
+        const val DOT_RENDER_SCALE = 4
+
+        /**
+         * 点迹包围盒最大边长。缺首段 M 的坏形态是从原点拉出的一整条色斑，
+         * 包围盒会横跨整幅画布，远超此限。
+         */
+        const val DOT_MAX_SIZE = 16
 
         /** 非透明像素门槛（抗锯齿边缘也算墨迹）。 */
         const val ALPHA_FLOOR = 0x70
