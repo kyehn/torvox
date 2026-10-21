@@ -3,13 +3,19 @@ package terminal.emulator
 import android.app.Application
 import android.os.StrictMode
 import dagger.hilt.android.HiltAndroidApp
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.runtime.LogUtil
+import kotlin.concurrent.thread
 
 @HiltAndroidApp
 open class TerminalApp : Application() {
     override fun onCreate() {
         super.onCreate()
         if (isInstallProcess(Application.getProcessName())) return
+        // 原生库装载要先读整个 .so：debug 构建实测 471ms，全落在首帧前的组合里。
+        // 先起守护线程触碰 NativeBridge 触发类初始化，与 Hilt/Compose 的启动并行；
+        // 主线程之后首次调用 native 时只等这条线程剩余的装载时间。
+        thread(isDaemon = true, name = "native-preload") { NativeBridge.warmUp() }
         // StrictMode 仅 debug：release 下每次 I/O 的 penaltyLog 拖慢冷启动。
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(
