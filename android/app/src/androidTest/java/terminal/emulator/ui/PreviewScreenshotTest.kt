@@ -102,25 +102,28 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
         assertNotNull("命令在 ${timeoutMs}ms 内未结束：$command", done)
         val code = rc.readText().trim().toIntOrNull()
         assertNotNull("退出码文件内容不可解析：${rc.readText().take(32)}", code)
-        return code!!
+        return requireNotNull(code)
     }
 
     /**
-     * 等屏幕上出现 [needle]。
+     * 等终端上真的出现 [minLines] 行非空内容。
      *
-     * [needle] MUST 是**不会被折行拆开**的短词：屏幕宽度随设备与字体变化，CI 的小屏
-     * 只有 40 列，长词（`Uptime:`）会在冒号处折断成 `Up` + `time:`，按整词判据就永远
-     * 等不到——这正是本用例在 CI 上假失败的原因。执行完成仍由 [runCommand] 的退出码
-     * 判定，这里只确认字节已经落到屏幕上，供截图使用。
+     * 不用「屏幕上含某个词」做判据：列数随设备宽度与字体变化，CI 的小屏只有 40 列，
+     * `Kernel:` / `Uptime:` 这类键名会在词中断开（实测折成 `Ke` + `rnel:`），
+     * 按整词匹配必然假失败。行数判据不受折行影响——折得越多行越多。
+     * 执行是否成功仍由 [runCommand] 的退出码判定，这里只确认字节已落到屏幕上，供截图使用。
      */
-    private fun awaitTerminalText(needle: String, timeoutMs: Long = OUTPUT_TIMEOUT_MS) {
+    private fun awaitRenderedLines(minLines: Int, timeoutMs: Long = OUTPUT_TIMEOUT_MS) {
         val bridge = composeTestRule.awaitBridge()
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
-                bridge.getTerminalText()?.contains(needle) == true
+                val lines = bridge.getTerminalText()?.lines()?.count { it.isNotBlank() } ?: 0
+                lines >= minLines
             }
         assertNotNull(
-            "终端文本在 ${timeoutMs}ms 内未出现 `$needle`：\n${tail(bridge.getTerminalText().orEmpty())}",
+            "终端在 ${timeoutMs}ms 内未出现 $minLines 行内容：\n${tail(
+                composeTestRule.awaitBridge().getTerminalText().orEmpty(),
+            )}",
             seen,
         )
     }
@@ -133,6 +136,22 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
     }
 
     private fun quote(file: File): String = "'${file.absolutePath}'"
+
+    /**
+     * 设置页是否已挂到组合树上。
+     *
+     * 点按到设置页首帧之间有一小段动画，`waitForIdle` 不覆盖这段过渡，
+     * 故以「节点存在」为轮询条件，而不是一次断言定生死；节点缺席是这里的正常中间态，
+     * 用显式捕获把它与真正的失败区分开。
+     */
+    private fun settingsScreenShown(): Boolean = try {
+        composeTestRule
+            .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
+            .assertExists()
+        true
+    } catch (expected: AssertionError) {
+        false
+    }
 
     /** 断言上下文：命令失败时只带最后一段终端文本，避免刷屏。 */
     private fun tail(text: String): String = text.takeLast(2_000)
@@ -278,7 +297,8 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
         val logoArgs = if (cols >= 60) "" else " --logo none"
         val fetchRc = runCommand("clear; fastfetch$logoArgs -s os:kernel:uptime")
         assertEquals("fastfetch 运行失败（RC=$fetchRc）", 0, fetchRc)
-        awaitTerminalText("Kernel")
+        // 三个模块在 40 列屏上会折成 4~6 行；取 3 是「三块信息都在」的下界。
+        awaitRenderedLines(3)
         Thread.sleep(800) // fastfetch 的 logo 与系统信息分行打印，等最后一帧落屏。
         saveScreenshot("01-fastfetch.png")
 
@@ -293,9 +313,7 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
         composeTestRule.waitForIdle()
         UxTestUtils.pollUntilTrue(timeoutMs = 5_000) {
-            runCatching {
-                composeTestRule.onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertExists()
-            }.isSuccess
+            settingsScreenShown()
         }
         Thread.sleep(400) // 设置页首帧与滚动位置稳定。
         saveScreenshot("03-settings.png")
