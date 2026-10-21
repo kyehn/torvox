@@ -12,9 +12,10 @@ open class TerminalApp : Application() {
     override fun onCreate() {
         super.onCreate()
         if (isInstallProcess(Application.getProcessName())) return
-        // 原生库装载要先读整个 .so：debug 构建实测 471ms，全落在首帧前的组合里。
-        // 先起守护线程触碰 NativeBridge 触发类初始化，与 Hilt/Compose 的启动并行；
-        // 主线程之后首次调用 native 时只等这条线程剩余的装载时间。
+        // 原生库装载要先读整个 .so：debug 构建实测 471ms 主线程 I/O（StrictMode
+        // DiskReadViolation）。先起守护线程触碰 NativeBridge 触发类初始化，与
+        // Hilt/Compose 的启动并行；主线程之后首次调用 native 时只等剩余装载时间。
+        // 墙钟不会因此变短（首帧仍需等装载完成），去掉的是主线程上的磁盘读。
         thread(isDaemon = true, name = "native-preload") { NativeBridge.warmUp() }
         // StrictMode 仅 debug：release 下每次 I/O 的 penaltyLog 拖慢冷启动。
         if (BuildConfig.DEBUG) {

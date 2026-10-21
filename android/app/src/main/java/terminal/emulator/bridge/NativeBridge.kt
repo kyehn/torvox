@@ -27,7 +27,7 @@ object NativeBridge {
     /**
      * 冷启动预热：调用方 MUST 在后台线程触碰本对象，使 [System.loadLibrary] 的数百毫秒
      * 磁盘 I/O 与首帧前的启动工作并行（debug 构建实测 471ms，StrictMode 记为
-     * `DiskReadViolation`）。装载由 [NativeBridge] 的类初始化完成，本函数只是那样的触碰点；
+     * `DiskReadViolation`）。装载由本类的类初始化完成，本函数只是那样的触碰点；
      * 主线程之后首次调用任一 native 方法时只等剩余装载时间。
      *
      * 在主线程调用等于把装载挪到更早，仍串行阻塞首帧，故不提供主线程入口。
