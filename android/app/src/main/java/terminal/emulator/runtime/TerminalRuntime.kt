@@ -199,12 +199,20 @@ internal data class SessionEntry(
 
     @Volatile var lastSignalNanos: Long = System.nanoTime()
 
+    /**
+     * 渲染线程上次醒来时原生唤醒源的代数。
+     *
+     * 只由渲染线程读写；与 [Bridge.waitOutput] 的返回值配套，使「查完信号再进场」
+     * 与通知竞争时不丢唤醒（见 [RenderWake] 的代数语义）。
+     */
+    @Volatile var wakeGeneration: Long = 0L
+
     fun notifyRender() {
         lastSignalNanos = System.nanoTime()
         renderSignaled.set(true)
-        renderThreadRef?.let {
-            java.util.concurrent.locks.LockSupport.unpark(it)
-        }
+        // 唤醒原生条件变量而非 unpark：渲染线程在原生侧等待（PTY 输出与宿主信号共用
+        // 同一把通知），unpark 对它没有任何作用。
+        bridge.wakeRender()
     }
 
     /**
@@ -214,9 +222,18 @@ internal data class SessionEntry(
      *（空闲终端上自我维持的 60-166fps 循环）。
      */
     fun pokeVsync() {
-        renderThreadRef?.let {
-            java.util.concurrent.locks.LockSupport.unpark(it)
-        }
+        bridge.wakeRender()
+    }
+
+    /**
+     * 让渲染线程立刻离开等待去复查 `running`/会话状态。
+     *
+     * 原生条件变量等待不可被 `Thread.interrupt()` 打断，故拆卸路径必须先通知，
+     * 再中断（中断仍负责其余可中断阻塞），否则 join 会白等满超时。
+     */
+    fun wakeRenderThread() {
+        bridge.wakeRender()
+        renderThreadRef?.interrupt()
     }
 
     @Volatile var scrollOffset: Int = 0
@@ -1261,7 +1278,7 @@ constructor(
             // 使延迟重启（restartRenderThreadAfterDelay）仍能执行；
             // 也使并发的 pauseRendering()（将 running 置假）能正确取消待执行的重启。
             entry.renderThreadRef?.let { renderThread ->
-                renderThread.interrupt()
+                entry.wakeRenderThread()
                 renderThread.join(THREAD_JOIN_TIMEOUT_MS)
                 if (renderThread.isAlive) {
                     LogUtil.w("Runtime", "Render thread did not exit within timeout, continuing anyway")
@@ -1351,7 +1368,7 @@ constructor(
                         "session ${entry.id} startRenderThread called from its own render thread — skipping join",
                     )
                 } else {
-                    t.interrupt()
+                    entry.wakeRenderThread()
                     t.join(THREAD_JOIN_TIMEOUT_MS)
                     if (t.isAlive) {
                         LogUtil.w(
@@ -1463,7 +1480,11 @@ constructor(
                                                 } else {
                                                     RENDER_LATCH_TIMEOUT_NANOS
                                                 }
-                                            bridge.waitOutput(timeoutNanos / 1_000_000L)
+                                            entry.wakeGeneration =
+                                                bridge.waitOutput(
+                                                    entry.wakeGeneration,
+                                                    timeoutNanos / 1_000_000L,
+                                                )
                                             if (Thread.interrupted()) throw InterruptedException()
                                         }
                                         val loopGateDoneNanos = System.nanoTime()
@@ -1519,7 +1540,12 @@ constructor(
                                         }
                                         // count > 0 = 本帧真的渲染并提交了缓冲（空闲帧为 0，
                                         // 失败帧为负）：据此判定首帧已呈现给 Surface。
-                                        if (count > 0) hasPresentedFrame = true
+                                        if (count > 0 && !hasPresentedFrame) {
+                                            hasPresentedFrame = true
+                                            // 冷启动耗时的唯一终点标记：系统启动屏等到这里才撤下，
+                                            // 故「进程启动 → 本行」就是用户看到的启动时长。
+                                            LogUtil.i(TAG, "first frame presented")
+                                        }
                                         val newOutput = renderResult.newOutput
                                         val lastContentRow = renderResult.lastContentRow
                                         if (lastContentRow != entry.lastContentRow) {
@@ -1909,7 +1935,7 @@ constructor(
             entry.renderThreadRef = null
             entry.renderSignaled.set(false)
             thread?.let { t ->
-                t.interrupt()
+                entry.wakeRenderThread()
                 t.join(THREAD_JOIN_TIMEOUT_MS)
                 if (t.isAlive) {
                     LogUtil.e(
