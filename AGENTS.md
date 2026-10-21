@@ -2,26 +2,46 @@
 
 基于 `wgpu`（Vulkan）渲染、`Ghostty` VT 解析（`libghostty-vt`）与 Kotlin + Compose UI 的 Android 终端模拟器。
 
-## 必须
+## 规范优先级
 
-- 修改任何文件前阅读 `docs/specification/` 下的全部文档。
-- openspec/specs openspec/changes 目录使用 openspec 命令管理，openspec/specs 目录需要保持更新，修改代码后更新实际情况和补充实现细节，openspec 文档仅供参考
-- docs/specification/ 可能过期，以 用户提示为准
-- 用户提示和文档中使用的 “代码” 一词不包括 “注释”。而 “文档” 一词指的是如 Markdown 文件之类
-- 规范文档、用户提示 表述不可能面面俱到，不得咬文嚼字，不得以 规范文档 反驳 用户提示，必要时询问
+- `docs/specification/` 是行为与架构的规范来源，可能滞后于用户指令，两者冲突时以用户明确指令为准。
+- openspec/specs openspec/changes 目录使用 openspec 命令管理，openspec/specs 目录需要保持更新，修改代码后更新实际情况和补充实现细节，openspec 文档仅供参考。
+- 规范未覆盖的实现细节，按既有行为与参考项目和最佳实践处理，无法确定时先提问。
+- 用户提示和文档中的“代码”一词不包括“注释”；“文档”指 Markdown 等文档文件。
+- 规范与用户提示不可能面面俱到，不得咬文嚼字，不得以规范文档反驳用户提示。
+
+## 开工前
+
+- 修改任何文件前，阅读 `docs/specification/` 下的全部文档。
+
+## 受保护文件
+
+以下文件更改时需谨慎，须遵循 `docs/specification/` 和用户要求：
+
+- `Cargo.toml`
+- `build.gradle.kts`
+- `settings.gradle.kts`
+- `detekt.yml`
+- `lint.xml`
+- `docs/persistence`
+
+以下文件只允许修正拼写 / 语法错误，或修正格式 / 排版。需用户明确同意后方可修改实际内容：
+
+- `.github/`
+- `scripts/`
+- `flake.nix`
+- `rust-toolchain.toml`
+- `README.md`
+- `AGENTS.md`
+- `docs/specification/`
+- `docs/STATUS.md`
+- `.markdownlint.jsonc`
+- `.semgrepignore`
+- `.cargo/config.toml`
+- `.gitignore`
+- `native/build.rs`
+- `openspec/config.yaml`
 
 ## 受阻时
 
-- 缺少依赖时：优先检查 `flake.nix`，再提问。
-- 遇到合并冲突时：停止操作并展示冲突文件。
-- 优先修复根因：避免通过删除文件、跳过测试或添加 `#[allow(...)]` 来掩盖问题。
-
-## 禁止修改文件和目录，文件不得修改，目录递归要求并且不得创建/删除/重命名文件
-
-允许修正拼写 / 语法错误，或修正格式 / 排版。需用户明确同意后方可修改实际内容。
-
-- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc` `.semgrepignore` `.cargo/config.toml` `.gitignore` `native/build.rs` `openspec/config.yaml` `docs/STATUS.md`
-
-## 不得轻易更改文件，必须确保符合 docs/specification/ 要求
-
-`Cargo.toml` `build.gradle.kts`  `settings.gradle.kts` `detekt.yml` `lint.xml` `docs/persistence`
+- 遇到已尝试所有方案仍然无法解决的问题时停止操作并提供说明。
