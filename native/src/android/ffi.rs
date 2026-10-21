@@ -1306,6 +1306,21 @@ fn empty_java_byte_array(env: &mut Env) -> jbyteArray {
         .unwrap_or(std::ptr::null_mut())
 }
 
+/// 把编码器的字节结果交给 JVM：空结果交回空数组（Kotlin 侧按「本按键不产生序列」
+/// 处理），非空则拷贝成 `byte[]`；拷贝失败交回 null，此时 JVM 已挂起异常。
+///
+/// 三条按键/粘贴编码路径（鼠标、键盘、粘贴）共用本函数，使「空即空数组、失败即
+/// null」的口径只有一处定义——各自抄一份时，任何一处漏掉空判断都会让 Kotlin 收到
+/// 长度为 0 的数组与「编码失败」无法区分的信号。
+fn java_bytes_or_empty(env: &mut Env, bytes: &[u8]) -> jbyteArray {
+    if bytes.is_empty() {
+        return empty_java_byte_array(env);
+    }
+    env.byte_array_from_slice(bytes)
+        .map(|array| array.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn encode_mouse_event_inner(
     env: &mut Env,
     session_id: jlong,
@@ -1346,12 +1361,7 @@ fn encode_mouse_event_inner(
     ) else {
         return empty_java_byte_array(env);
     };
-    if bytes.is_empty() {
-        return empty_java_byte_array(env);
-    }
-    env.byte_array_from_slice(&bytes)
-        .map(|arr| arr.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+    java_bytes_or_empty(env, &bytes)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1378,23 +1388,25 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseWhe
         encode_mouse_wheel_inner(
             env,
             session_id,
-            x_px,
-            y_px,
-            button,
-            modifiers,
-            cell_width,
-            cell_height,
-            repeat,
+            MouseWheelEvent {
+                x_px,
+                y_px,
+                button,
+                modifiers,
+                cell_width,
+                cell_height,
+                repeat,
+            },
         )
     })
 }
 
-// JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge`
-// 声明决定，而非设计选择。
-#[allow(clippy::too_many_arguments)]
-fn encode_mouse_wheel_inner(
-    env: &mut Env,
-    session_id: jlong,
+/// 一次滚轮事件的原始参数（仍是 JNI 的原始标量，收窄在调用方完成）。
+///
+/// JNI 导出的参数表由 Kotlin 侧的 `NativeBridge` 声明决定，导出函数本身无法
+/// 收敛参数个数；事件参数收进结构体后，内层函数就只剩「环境 + 会话 + 事件」
+/// 三件事，而不是七个平铺的标量。
+struct MouseWheelEvent {
     x_px: jfloat,
     y_px: jfloat,
     button: jint,
@@ -1402,28 +1414,34 @@ fn encode_mouse_wheel_inner(
     cell_width: jfloat,
     cell_height: jfloat,
     repeat: jint,
+}
+
+fn encode_mouse_wheel_inner(
+    env: &mut Env,
+    session_id: jlong,
+    event: MouseWheelEvent,
 ) -> jbyteArray {
     let id = session_id as u64;
     let Some(query_tx) = session_query_channel(id) else {
         return empty_java_byte_array(env);
     };
     // 逐个收窄、逐个早退：收窄失败已经抛了异常并把它挂起，此后不得再调 JNI。
-    let Some(button) = narrow_jint(env, "encodeMouseWheel", "button", button) else {
+    let Some(button) = narrow_jint(env, "encodeMouseWheel", "button", event.button) else {
         return std::ptr::null_mut();
     };
-    let Some(modifiers) = narrow_jint(env, "encodeMouseWheel", "modifiers", modifiers) else {
+    let Some(modifiers) = narrow_jint(env, "encodeMouseWheel", "modifiers", event.modifiers) else {
         return std::ptr::null_mut();
     };
-    let Some(repeat) = narrow_jint::<u32>(env, "encodeMouseWheel", "repeat", repeat) else {
+    let Some(repeat) = narrow_jint::<u32>(env, "encodeMouseWheel", "repeat", event.repeat) else {
         return std::ptr::null_mut();
     };
     let Some(bytes) = crate::terminal::ghostty_terminal::GhosttyTerminal::encode_mouse_wheel_on(
         &query_tx,
-        (x_px, y_px),
+        (event.x_px, event.y_px),
         button,
         modifiers,
-        cell_width,
-        cell_height,
+        event.cell_width,
+        event.cell_height,
         repeat,
     ) else {
         return empty_java_byte_array(env);
@@ -1525,12 +1543,7 @@ fn encode_key_event_inner(
     ) else {
         return empty_java_byte_array(env);
     };
-    if bytes.is_empty() {
-        return empty_java_byte_array(env);
-    }
-    env.byte_array_from_slice(&bytes)
-        .map(|arr| arr.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+    java_bytes_or_empty(env, &bytes)
 }
 
 // ── 粘贴编码 ────────────────────────────────────────────────────
@@ -1582,12 +1595,7 @@ fn encode_paste_inner(
     else {
         return empty_java_byte_array(env);
     };
-    if bytes.is_empty() {
-        return empty_java_byte_array(env);
-    }
-    env.byte_array_from_slice(&bytes)
-        .map(|arr| arr.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+    java_bytes_or_empty(env, &bytes)
 }
 
 /// Android 的码点转上游键事件的文本。
@@ -4792,9 +4800,9 @@ mod font_info_packing_tests {
         let packed = pack_font_info(&pipeline.font_info());
         let flags = u32::from_le_bytes(packed[0..4].try_into().unwrap());
         assert_eq!(
-            flags & !1,
-            crate::render::font::pipeline::CjkFallbackState::None as u32,
-            "未解析到 CJK 回退族时状态须为 None"
+            flags >> 1,
+            crate::render::font::pipeline::CjkFallbackState::SkippedNonCjkLocale as u32,
+            "非 CJK 系统的回退层按设计跳过，不得报成缺失"
         );
         assert_eq!(
             f32::from_le_bytes(packed[12..16].try_into().unwrap()),

@@ -36,6 +36,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
 import terminal.emulator.R
+import terminal.emulator.bridge.CjkState
+import terminal.emulator.bridge.FontInfo
 
 /** 设置界面进入紧凑模式的屏幕宽度阈值。 */
 val SMALL_SCREEN_WIDTH_DP = 400.dp
@@ -220,5 +222,55 @@ internal fun CjkFallbackMissingWarning() {
             style = MaterialTheme.typography.bodySmall,
             color = WARNING_ORANGE,
         )
+    }
+}
+
+/**
+ * CJK 回退状态的**唯一**呈现：状态行 + 缺失警告。
+ *
+ * 状态与提示必须出自同一处：同一事实发两次（字体选择卡一处、字体信息区一处）
+ * 会让人以为是两个问题；而「按设计跳过」与「确实缺失」混为一谈，则会把正常状态
+ * 报成故障。判定规则见 [terminal.emulator.bridge.FontInfo.isCjkFallbackMissing]。
+ */
+@Composable
+internal fun CjkFallbackStatusLine(fontInfo: FontInfo, secondaryText: Color) {
+    val cjkText = fontInfo.cjkFallbackText()
+    val hasCjk = fontInfo.hasRealCjkFallback
+    // 「按设计跳过」与「确实缺失」是两回事：前者不是问题，不得报缺失；
+    // 「尚未上报」同样不是缺失——原生还没给结论。
+    val cjkSkipped = fontInfo.isCjkFallbackSkipped
+    val displayColor =
+        when {
+            hasCjk -> secondaryText
+            cjkSkipped -> secondaryText
+            fontInfo.cjkState == CjkState.NOT_REPORTED -> secondaryText
+            else -> WARNING_ORANGE
+        }
+    val statusLine =
+        when {
+            cjkText != null -> stringResource(R.string.font_info_cjk_fallback, cjkText)
+
+            fontInfo.cjkState == CjkState.SKIPPED_PRIMARY_COVERS ->
+                stringResource(R.string.font_info_cjk_skipped)
+
+            fontInfo.cjkState == CjkState.SKIPPED_NON_CJK_LOCALE ->
+                stringResource(R.string.font_info_cjk_skipped_non_cjk_locale)
+
+            fontInfo.cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN ->
+                stringResource(R.string.font_info_cjk_skipped_locale_unknown)
+
+            fontInfo.cjkState == CjkState.NOT_REPORTED ->
+                stringResource(R.string.font_info_cjk_not_reported)
+
+            else -> stringResource(R.string.font_info_cjk_none)
+        }
+    Text(
+        text = statusLine,
+        style = MaterialTheme.typography.bodySmall,
+        color = displayColor,
+        modifier = Modifier.testTag("CjkFallbackStatusLine"),
+    )
+    if (fontInfo.isCjkFallbackMissing) {
+        CjkFallbackMissingWarning()
     }
 }

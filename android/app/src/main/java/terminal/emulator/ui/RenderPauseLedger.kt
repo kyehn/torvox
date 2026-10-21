@@ -1,5 +1,7 @@
 package terminal.emulator.ui
 
+import androidx.annotation.MainThread
+
 /**
  * 渲染暂停**记账**。
  *
@@ -13,7 +15,12 @@ package terminal.emulator.ui
  * 独立于 [android.view.View] 是为了能在 JVM 单测里跑完整条记账序列——这个记账
  * 出过两次错（被丢弃的防抖不归还、归还时动到别人的持有），两次都表现为共享
  * 渲染器被永久暂停即终端全黑，而当时没有任何测试能覆盖到它。
+ *
+ * **仅限主线程调用**：所有调用点（surface 销毁、进入后台、IME 网格重算的
+ * `postDelayed`、设置界面的 `viewModelScope`）都在主线程。这里的计数与
+ * 去重都不是线程安全的——将来若从后台线程调用，计数会出错。
  */
+@MainThread
 internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) {
 
     private val holders = mutableSetOf<Long>()

@@ -128,4 +128,18 @@ class FontInfoPackedTest {
         val impossible = pack(names = listOf("A", "B"), cjkCount = 2)
         assertThrows(IllegalArgumentException::class.java) { FontInfo.fromPacked(impossible) }
     }
+
+    /**
+     * 未知 CJK 状态序号即契约不一致：原生与 Kotlin 的状态枚举对不上时必须报出，
+     * 不能让下标越界抛一句无来由的异常。
+     */
+    @Test
+    fun `unknown cjk state ordinal is rejected`() {
+        val payload = pack(names = listOf("Liberation Mono"))
+        val flags = (CjkState.entries.size shl 1)
+        payload[0] = (flags and 0xFF).toByte()
+        payload[1] = ((flags shr 8) and 0xFF).toByte()
+        val error = assertThrows(IllegalArgumentException::class.java) { FontInfo.fromPacked(payload) }
+        assertTrue("错误信息须指明越界的状态序号", error.message.orEmpty().contains("CJK state"))
+    }
 }
