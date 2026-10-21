@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -107,6 +108,9 @@ fun SettingsScreen(
     val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
     val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     BackHandler(enabled = true) { onBack() }
+    // 系统栏图标明暗按**设置页自己的底色**判定：设置页是浅色面，若沿用终端页
+    // （深底）的判定，状态栏时钟会是浅色压浅底，几乎看不清。
+    SystemBarsFollowBackground(LocalView.current, backgroundColor)
     Surface(
         modifier =
         modifier.fillMaxSize()
