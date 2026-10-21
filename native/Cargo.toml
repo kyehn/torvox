@@ -23,12 +23,12 @@ futures = "0.3"
 guillotiere = "0.7"
 jni = { version = "0.22", default-features = false }
 libc = "0.2"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "d2036baeb605d31d09a9e2ba6d0c923e04c34d54", features = [
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "0ef80413de1326685743378efbfa06d849e041a7", features = [
   "log",
   "png",
 ] }
 log = "0.4"
-lru = "0.18"
+lru = "0.19"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
 parking_lot = "0.12"
 raw-window-handle = "0.6"

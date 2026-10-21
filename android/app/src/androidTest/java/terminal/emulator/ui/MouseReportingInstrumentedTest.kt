@@ -22,6 +22,7 @@ import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.injectTap
+import terminal.emulator.restoreSharedShellState
 import terminal.emulator.terminalCellSizePx
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
@@ -70,13 +71,10 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
      * 断言直接读字节，不经过终端渲染。ETX 仍能结束 cat（整体 raw 会关信号）。
      */
     private fun armMouseReporting() {
-        bridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
-        val promptSeen =
-            UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
-                val text = currentText()
-                text != null && (text.contains("$") || text.contains("#"))
-            }
-        assertNotNull("shell prompt 必须先就绪, 实际: ${currentText()?.takeLast(200)}", promptSeen)
+        // 先复位共享 shell：确保没有残留的前台进程占着 tty、tty 是 sane 的。
+        // 否则「写命令」这一步可能被前台进程读走（`-icanon` 下非行缓冲），
+        // 命令连同 ETX 一起丢失，表现为「鼠标上报装载失败」。
+        bridge().restoreSharedShellState()
         bridge().writeToPty(
             (
                 "stty -echo -icanon; printf '\\033[?1000h\\033[?1006h'; printf 'MOUSE_ARMED\\n'; " +
@@ -89,6 +87,15 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
                 currentText()?.contains("MOUSE_ARMED") == true
             }
         assertNotNull("鼠标上报装载失败, 实际: ${currentText()?.takeLast(200)}", armed)
+        // 镜像是**每帧**同步的（VT 线程推帧时写入原子量），而「MOUSE_ARMED 可见」
+        // 来自对 VT 的直接查询：两者之间可能差一帧。故这里等镜像追上，
+        // 否则紧随其后的触摸会落在「上报尚未生效」的窗口里，被当成本地手势。
+        assertNotNull(
+            "DECSET 1000 装载后镜像必须为真",
+            UxTestUtils.pollUntilTrue(timeoutMs = ARM_TIMEOUT_MS, intervalMs = 50) {
+                bridge().isMouseTrackingActive()
+            },
+        )
         bridge().setScrollOffset(0)
     }
 
@@ -100,12 +107,16 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     }
 
     /**
-     * 复位共享 shell：ETX 结束 cat（-icanon 保留 ISIG），再显式关掉鼠标上报并恢复
-     * tty 回显。DECRST 必须真的发出去：DECSET 1000 是终端级模式，`stty sane` 不会
-     * 清它，漏掉会让同一会话里后续用例凭空继承「应用在接收鼠标上报」。
+     * 复位共享 shell。
+     *
+     * ETX 与复位命令必须**分次**写：tty 处于 `-icanon` 时前台 `cat` 一次 read
+     * 就把 ETX 与其后的命令字节一起读走（非行缓冲），命令就此丢失——鼠标上报
+     * 没关、`stty sane` 没执行，后续用例继承「不回显」的 tty 与「上报中」的终端。
+     * DECRST 仍必须真的发出去：DECSET 1000 是终端级模式，`stty sane` 清不了它。
+     * 复位细节见 [restoreSharedShellState]。
      */
     private fun disarmMouseReporting() {
-        bridge().writeToPty("\u0003printf '\\033[?1000l\\033[?1006l'; stty sane\n".toByteArray(Charsets.UTF_8))
+        bridge().restoreSharedShellState()
     }
 
     /** `ESC[<BUTTON;COL;ROWM`/`m` 的原始 SGR 序列（1 基单元格坐标）。 */
@@ -252,18 +263,12 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     fun mouseTrackingMirrorFollowsDecsetState() {
         val bridge = bridge()
         // 同一会话可能被前序用例留在上报态：先归零，断言只针对本用例造成的两次跃迁。
+        // 归零走共享复位（它自带「镜像必须回落」的断言），不复位成功即判红。
         if (bridge.isMouseTrackingActive()) {
             disarmMouseReporting()
-            assertNotNull(
-                "前置归零失败：DECRST 之后镜像必须回落",
-                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {
-                    !bridge.isMouseTrackingActive()
-                },
-            )
         }
         assertFalse("未装载 DECSET 时不得声称应用在接收鼠标上报", bridge.isMouseTrackingActive())
         armMouseReporting()
-        assertTrue("DECSET 1000 装载后镜像必须为真", bridge.isMouseTrackingActive())
         disarmMouseReporting()
         val cleared =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {

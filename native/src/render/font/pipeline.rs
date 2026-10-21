@@ -42,12 +42,41 @@ pub struct FontInfo {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum CjkFallbackState {
-    /// 未解析到任何 CJK 回退族。
+    /// CJK 语言环境、主字体不覆盖该语言的代表字符，且未能解析到任何 CJK 回退族。
     None = 0,
     /// 主字体不含 CJK，已列出回退族名。
     Fallback = 1,
-    /// 主字体自身已覆盖 CJK，无需回退。
-    Skipped = 2,
+    /// 主字体已覆盖本 locale 的 CJK 代表字符：按设计不装语言回退族。
+    SkippedPrimaryCovers = 2,
+    /// 系统语言不是 CJK：按平台语义不装 `lang` 语言回退族。
+    SkippedNonCjkLocale = 3,
+    /// 系统语言尚未知：无从判断是否需要语言回退族。
+    SkippedLocaleUnknown = 4,
+}
+
+/// CJK 回退层为何缺席。
+///
+/// 「按设计不装」与「装了但没找到」是两件事，设置页的提示必须分开：
+/// 前者是正常状态（不该报缺失），后者才是真问题。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CjkFallbackSkipReason {
+    /// 系统语言尚未知。
+    LocaleUnknown,
+    /// 系统语言不是 CJK：平台只为 CJK 语言声明 `lang` 回退族。
+    NonCjkLocale,
+    /// 主字体已覆盖本 locale 的 CJK 代表字符。
+    PrimaryCovers,
+}
+
+impl CjkFallbackSkipReason {
+    /// 该原因对应的上报状态。
+    pub(crate) fn state(self) -> CjkFallbackState {
+        match self {
+            Self::LocaleUnknown => CjkFallbackState::SkippedLocaleUnknown,
+            Self::NonCjkLocale => CjkFallbackState::SkippedNonCjkLocale,
+            Self::PrimaryCovers => CjkFallbackState::SkippedPrimaryCovers,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +95,9 @@ pub struct FontPipeline {
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
+    /// CJK 回退层按设计缺席的原因；`None` 表示「不是按设计缺席」——
+    /// 要么已装上回退族，要么确实找不到（那是真问题，由状态 `None` 上报）。
+    pub(crate) cjk_fallback_skip_reason: Option<CjkFallbackSkipReason>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
     pub(crate) atlas_generation: u64,
@@ -158,6 +190,7 @@ impl FontPipeline {
             atlas_height: atlas_height as u32,
             font_id: None,
             cjk_fallback_ids: Vec::new(),
+            cjk_fallback_skip_reason: None,
             font_size,
             atlas_generation: 0,
             fallback_generation: 0,
@@ -562,8 +595,11 @@ impl FontPipeline {
         let cjk = self.cjk_fallback_names();
         let (cjk_state, cjk_families) = if !cjk.is_empty() {
             (CjkFallbackState::Fallback, cjk)
+        } else if let Some(reason) = self.cjk_fallback_skip_reason {
+            // 按设计不装：不是缺失，不该报「未检测到」。
+            (reason.state(), Vec::new())
         } else if self.primary_supports_cjk() {
-            (CjkFallbackState::Skipped, Vec::new())
+            (CjkFallbackState::SkippedPrimaryCovers, Vec::new())
         } else {
             (CjkFallbackState::None, Vec::new())
         };
