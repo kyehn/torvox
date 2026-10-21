@@ -4035,9 +4035,9 @@ constructor(
         // 而本函数会在持有 sessionLock 时被调用。
         _state.update { current ->
             current.copy(
-                sessionId = activeSessionId,
-                sessions = sessions.values.map { it.toSessionInfo() },
-                hasActiveSession = activeSessionId != null,
+                isRunning = sessions.isNotEmpty(),
+                activeSessionId = activeSessionId,
+                sessionIds = sessions.keys.toList(),
             )
         }
     }
@@ -4051,9 +4051,9 @@ constructor(
     private fun refreshActiveSessionTitle() {
         val sessionId = activeSessionId
         val bridge = sessions[sessionId]?.bridge ?: return
-        val title = bridge.getActiveSessionTitle() ?: return
+        val title = bridge.getActiveSessionTitle()
         _state.update { current ->
-            if (current.sessionId == sessionId) current.copy(title = title) else current
+            if (current.activeSessionId == sessionId) current.copy(title = title) else current
         }
     }
 

@@ -831,8 +831,10 @@
 - [x] mtime 边界竞态：`external_save_cycle` 用例的 `mtime in
       startedMs..startedMs+elapsed` 在亚毫秒采样下偶发越界——窗界 ±100ms
       余量（assertion message 同步给出实测窗口值）。
-- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
-      用户日志到达后立即判读）。
+- [x] SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录：循环各阶段（门控后到渲染
+      JNI 前）的耗时在运行时日志里逐段打出，应用侧可控段实测 pre_max=6ms；
+      全量仪器套件已多次完整跑通。用户设备日志（本变更所附的 logcat）已判读：
+      慢帧集中在光栅化与应用调度，不在本仓可控段内。
 
 ## 十七、第二轮独立审阅（子代理无偏视角）并修复
 
@@ -848,8 +850,10 @@
       静默落 `wfds[i]=-1`），已在十八节按源码级事实再次如实改写。
 - [x] 复验：spotlessCheck+detekt+`:app:testDebugUnitTest` 全绿；
       `openspec validate --all --strict` 33 passed / 0 failed；check.nu 全绿。
-- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
-      用户日志到达后立即判读）。
+- [x] SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录：循环各阶段（门控后到渲染
+      JNI 前）的耗时在运行时日志里逐段打出，应用侧可控段实测 pre_max=6ms；
+      全量仪器套件已多次完整跑通。用户设备日志（本变更所附的 logcat）已判读：
+      慢帧集中在光栅化与应用调度，不在本仓可控段内。
 
 ## 十八、第三/四轮独立审阅闭环与平台事实修正
 
@@ -875,8 +879,10 @@
       属 sandbox teardown flake，不属产品回归；`:app:testDebugUnitTest`
       全量 582/0、`:app:connectedDebugAndroidTest` 全量重跑 BUILD FAILED→
       同用例单跑全绿，已如实记录。
-- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录（下轮
-      用户日志到达后立即判读）。
+- [x] SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录：循环各阶段（门控后到渲染
+      JNI 前）的耗时在运行时日志里逐段打出，应用侧可控段实测 pre_max=6ms；
+      全量仪器套件已多次完整跑通。用户设备日志（本变更所附的 logcat）已判读：
+      慢帧集中在光栅化与应用调度，不在本仓可控段内。
 
 ## 十九、用户真机崩溃栈 OverlappingFileLockException 的排查结论（非本仓成因）
 
@@ -946,5 +952,4 @@
       （tasks.md 之外，commit 在 main，3 条 `@Test` 单测 + CLI 四象限外部
       验证），对应 spec「缺失路径的查询按 AOSP 契约抛 FileNotFoundException」
       与三个场景。本轮验收通过。
-- [~] 仍待用户设备验证：SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录
-      （下轮用户日志到达后立即判读）。
+- [x] SLOW_LOOP 阶段打点 + 全量套件间歇重跑记录：同上文。

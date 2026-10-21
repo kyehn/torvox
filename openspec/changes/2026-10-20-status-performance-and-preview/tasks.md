@@ -107,13 +107,14 @@
 
 ## 四、上下滑动滚动卡顿
 
-- [x] 度量：`ScrollBehaviorQuantifiedTest`（已有）三件——拖动期整循环窗口、
-      视口在 PTY 洪流下是否塌陷、fling 轨迹是否推进。
+- [x] 度量：`ScrollBehaviorQuantifiedTest`（已有）三个用例——回车归位是否在预算内、
+      视口在 PTY 洪流下是否塌陷、拖动期整循环窗口的帧节奏。
       2026-10-20，AVD 15 @1080×2400（SwiftShader）：
       `drag_loop_pre_max_ms=0`（循环自身工作 ≤1ms，预算 8ms）、
       `drag_loop_p95_ms=123`、`drag_loop_fps=27`、
-      `scroll_collapses_under_flood=0`、
-      fling 采到 38 个不同偏移、单步 ≤3 行、总行程 60 行。
+      `scroll_collapses_under_flood=0`。
+      另有一次性探针（**无自动化钉**，仅供定位方向）：fling 采到 38 个不同偏移、
+      单步 ≤3 行、总行程 60 行。
 - [x] 定根因：三条真缺陷，均已单独提交（提交标题依次为「删除生产不可达的纵向平移路径」、
       「绝对行查询改用 Screen 空间」、「滚动取整对称化防漂移」）。余下两项是本轮新发现：
       ① 每帧把滚动偏移以 **uniform 写入** 下发，`native` 侧要拿会话锁，
@@ -171,7 +172,8 @@
 - [x] 修：`DocumentWatcher.shutdown()` 注销全部观察者、丢弃待播事件、结束线程并置空，
       下次事件按需重启；`TerminalDocumentsProvider.shutdown()` 转调。
 - [x] 检查：`DocumentWatcherTest` 6 tests / 0 failures、`DocumentsProviderTest`
-      70 tests / 0 failures（`--rerun-tasks`，2026-10-20）。
+      70 tests / 0 failures（`--rerun-tasks`，2026-10-20；§11.5 的权限位用例加入后
+      该类为 72 tests / 0 failures）。
 - [x] spec：`openspec/specs/documents-provider/spec.md` 的「终端侧改动即时广播」
       增加 shutdown 契约与两个 Scenario。
 
@@ -222,14 +224,16 @@
 - [x] 测试：Rust `encode_mouse_wheel_batches_every_notch`（repeat 2/5/12 等于单档整数倍、
       逐档逐字节相等；未上报时整批丢弃）；仪器测试新增
       `multiRowDragForwardsOneReleasePerRow`（≥3 档、按下数==抬起数）与
-      `mouseTrackingMirrorFollowsDecsetState`（装载/退出两次跃迁）。四例全绿（48s）。
+      `mouseTrackingMirrorFollowsDecsetState`（装载/退出两次跃迁）。整类 4 例全绿（48s）。
 - [x] 顺带修：仪器测试的 `disarmMouseReporting` 原先只发 `stty sane`，而 DECSET 1000 是
       终端级模式，`stty` 不碰它——用例之间会凭空继承「应用在接收鼠标上报」。现在显式
       `printf '\033[?1000l\033[?1006l'`。
 - [x] spec：`openspec/specs/key-input-encoding/spec.md` 增两个 Scenario（一次往返编完
       全部档位、上报状态由镜像读取）；另把 `scroll-physics-drift` 的超长 Requirement
       拆成「像素行程单位」与「衰减曲线由本仓实现」，补两个 Scenario，
-      `openspec validate --all --strict` 34/34 通过（此前 1 项长文本告警）。
+      `openspec validate --all --strict` 36/36 通过（写下时为 34/34；§9.3 与 §11.1 新增/改写的
+      两条 Requirement 正文超 500 字符，已在 2026-10-21 拆分为「Requirement + Scenario」，
+      拆分后 36/36 全绿）。
 
 ## 九、三项追加问题（kitty 图像 / 会话标题 / CJK 后备提示）
 
@@ -292,11 +296,11 @@
       像素几何先于放置就位、叠加层不得强制整帧重绘）；`openspec/specs/shell-env`
       增补「会话标题按 shell 族注入上报钩子」。
 
-## 十一、预览截图暴露的三处视觉缺陷（2026-10-21）
+## 十、预览截图暴露的三处视觉缺陷（2026-10-21）
 
 预览截图的旧样本（`origin/screenshots` 分支）暴露三处缺陷，逐一取证后修复。
 
-### 11.1 桌面启动图标被蒙版裁掉
+### 10.1 桌面启动图标被蒙版裁掉
 
 - [x] 度量：设备桌面抽屉截图（1080×2400）上 Terminal 图标只剩终端窗口的一角与一个
       绿点，橙色星形与尾迹方块全部消失；启动屏（同一份图案）却完整。
@@ -313,12 +317,12 @@
       （原为弧起头，画成一整块色斑）。
 - [x] 复测：Robolectric 判据（前景墨迹占图层区域的比例 ≤ `66/72 ÷ 1.5`）在
       48/108/216dp 三档全过；星形纯色像素 > 0；设备桌面图标与启动屏均完整。
-      回归测试 `LauncherAdaptiveIconRobolectricTest`（2 例）、
-      `SplashIconRobolectricTest`（3 例，含 monochrome 覆盖）。
+      回归测试 `LauncherAdaptiveIconRobolectricTest`（3 例，含 monochrome 覆盖）、
+      `SplashIconRobolectricTest`（2 例）。
 - [x] 规范同步：`render-stability` 的启动屏条目改写为「图案按安全区预缩放 +
       桌面前景以 `fill` 呈现 + 启动屏以固定尺寸收缩包装呈现」。
 
-### 11.2 系统栏图标在浅色页面上不可读
+### 10.2 系统栏图标在浅色页面上不可读
 
 - [x] 度量：抽屉展开时状态栏区一半是浅色面板 (250,248,255)、一半是深色终端，
       白色时钟压在浅色面板上不可读；设置页整片浅色底 + 浅色时钟（预览截图
@@ -334,7 +338,7 @@
       回归测试 `DrawerSheetInsetRobolectricTest`（1 例，去掉内缩即红）、
       `SystemBarIconInstrumentedTest`（1 例，读 `isAppearanceLightStatusBars`）。
 
-### 11.3 设置页 CJK 提示重复且误报缺失
+### 10.3 设置页 CJK 提示重复且误报缺失
 
 - [x] 度量：预览截图 `03-settings.png` 上「未检测到 CJK 备用字体」出现两次。
 - [x] 定根因：同一事实有两个发射点——`SystemFontSelector` 与 `FontInfoSection`
@@ -346,7 +350,7 @@
       ——与原生判据同源，且只出现一次。回归测试
       `CjkFallbackStatusRobolectricTest`（4 例）。
 
-### 11.4 存储权限未显式声明
+### 10.4 存储权限未显式声明
 
 - [x] 定根因：应用清单**一个存储权限都没声明**；合并清单里的
       `READ/WRITE/MANAGE_EXTERNAL_STORAGE` 全部来自 leakcanary 传递依赖——
@@ -360,7 +364,7 @@
       且应用进程内 `/sdcard` 可列可写（`external_storage_root_is_reachable_when_authorized`
       0.017s 通过）。不新建 `~/storage` 软链：凭空造目录属未定义行为。
 
-### 11.5 可执行文件经文档提供者修改后丢失权限
+### 10.5 可执行文件经文档提供者修改后丢失权限
 
 - [x] 度量：红测——复制后执行位从 `rwxr-xr-x` 变成 `rw-r--r--`。
 - [x] 定根因：`copyTreeInto` 用 `File.copyTo` 造新文件，按 umask 给默认权限，
@@ -370,10 +374,124 @@
       permission bits」）；仪器测试走真实跨进程 `ContentResolver.call` 路径，
       22 例全过。
 
-## 十、独立审阅
+## 十一、三轮独立审阅
 
 审阅按下列三种视角各做一次，每次只修真实问题；三次都无新问题方可宣告完成。
 
-- [ ] 证据核对：逐节对照「度量 → 根因 → 修 → 复测」，找假证据与漏测。
-- [ ] 全仓语义审阅：边界、并发、生命周期、错误路径。
-- [ ] 门禁与规范复核：全仓门禁、openspec 规范与实现的一致性。
+- [x] 证据核对：逐节对照「度量 → 根因 → 修 → 复测」，找假证据与漏测。
+- [x] 全仓语义审阅：边界、并发、生命周期、错误路径。
+- [x] 门禁与规范复核：全仓门禁、openspec 规范与实现的一致性。
+
+### 11.1 证据核对视角的发现与处置
+
+- [x] 假证据（§4）：台账称三件度量含「fling 轨迹是否推进」，并给出「38 个不同偏移 /
+      单步 ≤3 行 / 总行程 60 行」。实际 `ScrollBehaviorQuantifiedTest` 只有三个用例
+      （回车归位 / 洪流塌陷 / 拖动期帧节奏），全树无任何 fling 轨迹度量，那组数字
+      没有任何断言能产生。改为真实的三个用例名，并把那组数字明确标注为「一次性探针
+      数据，无自动化钉」。
+- [x] 假证据（§8·附）：台账称 `openspec validate --all --strict` 34/34 通过。写下时确为
+      34/34，但 §9.3 与 §11.1 新增/改写的两条 Requirement 正文超 500 字符，strict 下
+      判失败（33/35）。已把两条拆成「Requirement + Scenario」并把平台几何下沉到
+      Scenario，拆分后 36/36 全绿；台账改为记拆分后的现状。
+- [x] 假证据（§7）：台账称「断言每张 PNG 为 1080×2400」。代码只断言颜色数 ≥ 16，
+      尺寸仅打日志（分辨率由设备决定）。台账改为「断言颜色数 ≥ 16；尺寸只记录不断言」。
+- [x] 台账与代码不一致（§11.1）：测试例数写反（称 Launcher 2 例 / Splash 3 例且
+      monochrome 在 Splash）。实际 Launcher 3 例（含 monochrome）、Splash 2 例，已改。
+- [x] 过期数字（§6·附 / §8·附）：`DocumentsProviderTest` 70 → 72 例；鼠标上报「四例」
+      改为「整类 4 例」。
+- [x] 漏测（§1）：原生预装载曾被整段删掉而没有任何用例变红。已在 `NativeBridge` 记录
+      装载线程名，并加仪器测试 `NativePreloadInstrumentedTest` 钉住「库由
+      `native-preload` 线程装载，不得落在主线程」。
+
+### 11.2 语义与边界视角的发现与处置
+
+- [x] H1（主线程被整帧 GPU 工作持有的全局渲染状态锁挡住）：`setRenderPaused` 原生只设
+      一个全局标志、并不用会话 id，而 Kotlin 侧按会话逐个调用——每次都要抢锁，且
+      **零会话时标志永远清不掉**（下一个会话渲染纯黑）。改为：原生导出去掉未用的
+      会话 id，Kotlin 只调一次；`Bridge` 的转发层同步删除。
+- [x] H2（持 `sessionLock` 时做最长约 1 秒的阻塞式 VT 标题查询）：`updateState()` 改为
+      不再取标题（只做 CAS 状态更新），标题改由 `refreshActiveSessionTitle()` 在**锁外**
+      刷新（会话切换后与关闭后立即刷新，另有渲染线程侧 500ms 周期刷新兜底）。
+- [x] H3（停泵与启泵分处两条线程 → 恢复后留下永不退出的重复推进泵）：停泵移入
+      `surfaceTransitionExecutor`，与「暂停块末尾的启泵」严格有序。
+- [x] M1（被丢弃的输入返回成功）：非 Enter 的输入在等待进程结束期间被丢弃，如实返回
+      `false`，不再把静默吞掉的输入报告为已写入。
+- [x] M2（移到同一目录被改名）：同目录移动原样返回源 docId，不做去重改名。
+- [x] M3（复制符号链接后相对目标失效）：复制链接时按新位置重算相对目标；新父目录仍在
+      原树内则保持相对，否则写绝对路径，两种情形都仍指向原来那个文件。
+- [x] M4（`closeNotifyThread` 永不退出）：`shutdown()` 里 `quitSafely()` 并置空，下一次
+      使用时重建。
+- [x] M5（`Bridge` 的可变去重缓存非线程安全）：改为原子引用整体替换（路径列表用一个
+      引用，键与族名用一对值的引用，避免撕裂）。
+- [x] M6（原生库缺失时 `UnsatisfiedLinkError` 逃出回调）：`searchQueryMaxLength` 加
+      装载守卫与 `runCatching`（`UnsatisfiedLinkError` 是 `Error` 不是 `Exception`）。
+- [x] M7（`pack_font_info` 的 u16 计数静默截断）：改用 `u16::try_from` 明确报错，回绕不再
+      静默发生（回绕会让 Kotlin 侧校验抛异常，表现为设置页字体信息崩溃）。
+- [x] L1（`start()` 失败未清 `pendingSurface`）：失效分支置空，避免算出与任何真实
+      Surface 都不匹配的网格并多推一次 SIGWINCH。
+- [x] L2（兜底推导的行列可能溢出成 `Int.MAX_VALUE`）：给推导值加上界。
+- [x] L3（`RenderPauseLedger` 未声明线程约束）：标 `@MainThread`。
+- [x] L4（锁内两次 join 的上限未写明）：在注释里写明上限。
+
+### 11.3 门禁与规范复核视角的发现与处置
+
+- [x] 门禁未校验 openspec 规范（`scripts/check.nu` 全文无 openspec 调用，而台账却把
+      「openspec validate」写进门禁清单）：已在门禁里加入 `openspec validate --all
+      --strict`——这正是它能悄悄漂移的原因。
+- [x] P4（系统栏图标明暗有两个写入者，被遮住的终端页也在写）：`TerminalScreen` 仅在
+      没有覆盖层时才写系统栏；并加仪器测试「设置页打开后终端页重组不得改写系统栏」。
+- [x] P5（复制保留 POSIX 权限位的规范比实现宽——符号链接未搬权限）：Linux 上符号链接
+      权限位恒为 0777、`lchmod` 不支持，规范收窄为「普通文件与目录」并写明原因。
+- [x] P6（台账章节编号倒置、proposal 的 What Changes 与实际章节脱节）：章节重排为
+      一…十、十一（独立审阅）；proposal 按实际章节重写。
+- [x] P7（上一轮遗留的 change 未归档、且有一条 `[~]` 不是合法勾选标记）：`[~]` 改为
+      正常文字行，避免与 `- [x]/- [ ]` 混用造成计数歧义。
+- [x] P8（proposal 的前提写「六条现象」，而当前 `docs/STATUS.md` 是 5 条）：proposal
+      改为同时交代两版清单，并写明「STATUS.md 的 5 条已全部由本变更覆盖，请维护者勾销」
+      ——`docs/STATUS.md` 属禁改清单，本变更不改它。
+- [x] P9/P10/P11（门禁不跑仪器测试、不 lint Android 侧原生代码、不产出含 `libnative.so`
+      的 APK）：这三项都需要改 `scripts/` 与 CI 工作流，超出「改代码」的边界，记为
+      后续独立变更（见下「遗留」）。
+- [x] D5（存储权限的显式声明没有任何 openspec 覆盖）：新建 `openspec/specs/storage-access/`
+      记「应用 MUST 显式声明外部存储读写权限」及三条 Scenario。
+- [x] D3 的两处缺口（CJK 状态无「唯一发射点」约束、缺席原因次序里没有「尚未上报」）：
+      已在 `cjk-rendering` 补齐。
+- [x] S2（`native/src/lib.rs` 的模块文档指向不存在的 `tests/bdd/`）：改为实际路径
+      （Cucumber 套件在 `android/app/src/androidTest/assets/features/`）。
+
+### 11.4 全仓语义与边界审阅的发现与处置
+
+- [x] H1（`setRenderPaused` 按会话逐个调用，而原生侧只设一个全局标志）：原生导出
+      去掉未用的会话 id，Kotlin 侧改为单次调用。零会话时暂停标志同样能落下
+      ——原先经 `onSession`（要求活会话）调用，会话全关时标志永远清不掉，
+      下一个会话渲染纯黑。
+- [x] H2（`updateState()` 在持有 `sessionLock` 时做阻塞式 VT 往返取标题，最长约
+      1 秒）：标题查询移出锁——`updateState()` 只做纯状态更新，标题由
+      `refreshActiveSessionTitle()` 在锁外刷新（会话切换与关闭后立即刷新，
+      渲染线程另有周期刷新）。
+- [x] H3（停泵在调用线程、启泵在执行器 → 竞态，恢复后留下与渲染线程重复推进
+      会话的泵，且该泵永不退出）：停泵移入 `surfaceTransitionExecutor`，与「块 A
+      末尾的启泵」严格有序。
+- [x] M1（`writeToPty` 对被丢弃的输入返回 `true`，把静默吞掉的输入报成成功）：
+      非 Enter 的输入返回 `false`。
+- [x] M2（`moveDocument` 把文件移入其所在目录会改名成 `name (1)`）：同目录移动
+      原样返回源 docId。
+- [x] M3（复制符号链接时原样保留相对目标，换目录后链接语义被破坏）：按新位置
+      重算相对目标；目标在新父目录之外时写绝对路径。
+- [x] M4（`TerminalDocumentsProvider` 的写回通知线程永不退出）：`shutdown()` 里
+      `quitSafely()` 并置空，下一次使用时重建。
+- [x] M5（`Bridge` 的两个可变缓存字段非线程安全，去重失效会重建字体管线）：
+      改用原子引用整体替换。
+- [x] M6（原生库缺失时 `searchQueryMaxLength` 的 `UnsatisfiedLinkError` 逃逸崩进程）：
+      先判 `isNativeLoaded()`，再 `runCatching` 兜底。
+- [x] M7（`pack_font_info` 的 `u16` 计数静默截断，回绕会让设置页崩）：
+      改用 `try_from` 明确报错。
+- [x] L1（`start()` 失败路径未清 `pendingSurface`，会把错误网格下发给 PTY）：
+      失效分支清空。
+- [x] L2（兜底推导的行列可能饱和到 `Int.MAX_VALUE`）：加上界。
+- [x] L3（`RenderPauseLedger` 未声明线程约束）：标注 `@MainThread`。
+- [x] L4（`activateReplacementSession` 在锁内做两次各 1 秒的 join）：注释写明
+      这一上限。
+- [x] 补充回归：原生预装载此前没有任何用例会变红（该修复曾被整段删掉）。
+      `NativeBridge` 记录装载线程名，新增仪器测试断言「原生库由 `native-preload`
+      线程装载、不得落在主线程」。
