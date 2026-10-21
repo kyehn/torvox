@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -18,6 +19,9 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
+import terminal.emulator.ui.theme.ThemeRepository
+import terminal.emulator.ui.theme.resolveAppDarkMode
+import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
@@ -48,9 +52,6 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         /** 采样步长（x 与 y 同用）。 */
         private const val INK_SAMPLE_STEP_PX = 3
 
-        /** Catppuccin Mocha 背景（0x1E1E2E）：与应用默认主题一致，用作「无墨迹」基准。 */
-        private const val BACKGROUND_COLOR = 0x1E1E2E
-
         /**
          * 区域内相对中位色的最大偏差上限：纯色覆盖时只有边缘抗锯齿会跳一两点；
          * 透出桌面时壁纸/图标的像素会立刻撑开这个值。
@@ -62,6 +63,30 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
          * 但仍远小于「透出别的画面」的差异（后者是几十以上）。
          */
         private const val COVER_COLOR_TOLERANCE = 24
+    }
+
+    /**
+     * 终端底色：与 [terminal.emulator.ui.TerminalScreen] 同一条解析链
+     * （应用深浅 → 终端主题名 → 目录），而不是写死某个十六进制值。
+     * 主题换色时测试跟着走，不会因为基准过期而误判「透出桌面」。
+     */
+    private val terminalBackgroundArgb: Int by lazy {
+        val state = composeTestRule.activity.terminalViewModel.settings.value
+        val configuration = composeTestRule.activity.resources.configuration
+        val systemDark =
+            (configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val isDark = resolveAppDarkMode(state.appThemeMode, systemDark)
+        val name =
+            resolveTerminalThemeName(
+                mode = state.themeMode,
+                fixedName = state.themeName,
+                dayName = state.dayThemeName,
+                nightName = state.nightThemeName,
+                isDark = isDark,
+            )
+        val theme = ThemeRepository.byNameOrNull(name) ?: ThemeRepository.byName(ThemeRepository.defaultDarkName())
+        theme.background.toArgb()
     }
 
     @get:Rule
@@ -132,7 +157,7 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         while (y < bottom) {
             var x = left
             while (x < right) {
-                ink += kotlin.math.abs(bitmap.getPixel(x, y) - BACKGROUND_COLOR).toLong() and 0xFFFFFF
+                ink += kotlin.math.abs(bitmap.getPixel(x, y) - terminalBackgroundArgb).toLong() and 0xFFFFFF
                 x += INK_SAMPLE_STEP_PX
             }
             y += INK_SAMPLE_STEP_PX
@@ -290,6 +315,8 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
                     height = surface.height,
                 ),
             ) { "开孔区域必须量到像素" }
+        UxTestUtils.metric("cover_spread", cover.spread.toLong())
+        UxTestUtils.metric("cover_median_deviation", cover.medianDeviation.toLong())
         assertTrue(
             "无缓冲区期间开孔区域必须是均匀的终端底色（实测 spread=${cover.spread} " +
                 "medianDeviation=${cover.medianDeviation}），否则就是透出了后方画面",
@@ -348,7 +375,7 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
                 val sorted = samples.map { it[channel] }.sorted()
                 sorted[sorted.size / 2]
             }
-        val expected = channels.map { channel -> (BACKGROUND_COLOR shr (16 - channel * 8)) and 0xFF }
+        val expected = channels.map { channel -> (terminalBackgroundArgb shr (16 - channel * 8)) and 0xFF }
         val medianDeviation = channels.maxOf { kotlin.math.abs(median[it] - expected[it]) }
         val spread =
             samples.maxOf { sample ->

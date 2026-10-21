@@ -192,6 +192,28 @@ should throw FileNotFoundException」（也即让 SAF 界面把失效路径当�
 - **WHEN** 对不存在的目录发起 `queryChildDocuments`
 - **THEN** 抛 `FileNotFoundException` 且不得对该目录调用 `watch()` 登记
 
+### Requirement: 树寻址的前置校验由提供者按根内包含性回答
+
+平台对树 URI 的每次访问先调用 `DocumentsProvider.isChildDocument`（`enforceTree`），
+默认实现恒为 `false`，会让客户端的树内访问全部被拒成 `SecurityException`——列表能列出、
+一操作就失败。提供者 MUST 覆写它，并按**根内包含性**回答：两侧 docId 都解码到合法路径后，
+子项解析后的路径须以父项路径加分隔符为前缀（符号链接按目标判定，故 home 内互指的链接
+仍可经父目录寻址）。
+
+越界路径与畸形 docId MUST 回答 `false` 并留 WARN，MUST NOT 抛异常：平台在
+`enforceTree` 里把异常当作客户端越权，客户端只会看到笼统的拒绝。
+
+#### Scenario: 树内子文档可被树客户端访问
+
+- **WHEN** 外部文件管理器以 `tree/<root>/document/<docId>` 访问 `docId` 为
+  `<父>/<子>` 的文档
+- **THEN** `isChildDocument(父, 子)` 回答 `true`，访问放行到本提供者的查询/变更实现
+
+#### Scenario: 指向根外的链接不算子项
+
+- **WHEN** `docId` 解析后落在 home 之外（含经符号链接逃逸）
+- **THEN** 回答 `false`，且不因该判断抛异常给平台
+
 ### Requirement: 变更操作按树 URI 客户端契约覆盖
 
 `copyDocument` / `moveDocument` / 写回 MUST 按**外部文件管理器的真实寻址形式**覆盖，
