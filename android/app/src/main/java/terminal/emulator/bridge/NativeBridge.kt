@@ -24,6 +24,18 @@ object NativeBridge {
 
     fun isNativeLoaded(): Boolean = nativeLoaded
 
+    /**
+     * 冷启动预热：调用方 MUST 在后台线程触碰本对象，使 [System.loadLibrary] 的数百毫秒
+     * 磁盘 I/O 与首帧前的启动工作并行（debug 构建实测 471ms，StrictMode 记为
+     * `DiskReadViolation`）。装载由 [NativeBridge] 的类初始化完成，本函数只是那样的触碰点；
+     * 主线程之后首次调用任一 native 方法时只等剩余装载时间。
+     *
+     * 在主线程调用等于把装载挪到更早，仍串行阻塞首帧，故不提供主线程入口。
+     */
+    fun warmUp() {
+        // 触碰即触发类初始化（`init` 块里的 loadLibrary）；无需其他动作。
+    }
+
     // ── 会话生命周期 ──
 
     /** 新建终端会话，返回会话 ID（0 表示失败）。 */
@@ -100,6 +112,34 @@ object NativeBridge {
     ): ByteArray
 
     /**
+     * 把 `repeat` 档滚轮一次编码成 press+release 串（每档一对）。
+     *
+     * 触摸拖动一个事件可能滚过数行，逐档调用 [encodeMouseEvent] 会把 UI 线程按在
+     * 每档一次 VT 应答上；合并后每次事件只有一次往返，PTY 也只写一次。
+     * `button` 3 为向上（更旧）、4 为向下（更新）；上报未启用时返回空数组。
+     */
+    @JvmStatic
+    external fun encodeMouseWheel(
+        sessionId: Long,
+        xPx: Float,
+        yPx: Float,
+        button: Int,
+        modifiers: Int,
+        cellWidth: Float,
+        cellHeight: Float,
+        repeat: Int,
+    ): ByteArray
+
+    /**
+     * 远端是否启用鼠标上报（DECSET 1000/1002/1003）。
+     *
+     * 读 VT 线程每帧维护的镜像，没有查询往返：触摸拖动的每个事件都要判一次，
+     * 走查询通道会把 UI 线程按满一个查询超时。
+     */
+    @JvmStatic
+    external fun mouseTrackingActive(sessionId: Long): Boolean
+
+    /**
      * 用 Ghostty 键编码器把按键事件编码为终端转义序列。
      *
      * DECCKM、modifyOtherKeys、kitty 键盘协议、backarrow key mode 等模式全部由编码器
@@ -146,6 +186,23 @@ object NativeBridge {
      */
     @JvmStatic external fun pollEvent(): String?
 
+    // ── 渲染唤醒 ──
+
+    /**
+     * 渲染循环的驻留点：等新输出或任意唤醒信号，返回新的唤醒代数。
+     *
+     * 传入上一次拿到的代数；期间若已发生通知则立即返回，故「查完信号再进场」
+     * 与通知竞争时也不会丢唤醒。[timeoutMillis] 为 0 表示只取当前代数、不等待。
+     */
+    @JvmStatic external fun waitForOutput(sessionId: Long, lastGeneration: Long, timeoutMillis: Long): Long
+
+    /**
+     * 唤醒指定会话的渲染循环（vsync、输入、滚动、选区等所有宿主侧信号）。
+     *
+     * 只是把原生唤醒代数 +1 并 `notify_all`，不触碰会话锁。
+     */
+    @JvmStatic external fun wakeRender(sessionId: Long)
+
     // ── Surface ──
 
     /** 绑定 Android Surface 供 GPU 渲染，原生侧据此 ANativeWindow 指针创建 wgpu surface。 */
@@ -182,6 +239,9 @@ object NativeBridge {
      */
     @JvmStatic external fun getRenderedScrollbackLength(sessionId: Long): Int
 
+    /** 会话已应用的滚动偏移（0 = 视口贴底）；未知会话返回 0。 */
+    @JvmStatic external fun getSessionScrollOffset(sessionId: Long): Int
+
     /** 某一行的文本（已去除尾部空白），空行返回 null。row 为绝对行号。 */
     @JvmStatic external fun scrollbackLine(sessionId: Long, row: Int): String?
 
@@ -196,6 +256,9 @@ object NativeBridge {
 
     /** 可视区与回滚文本以换行连接。 */
     @JvmStatic external fun getTerminalText(sessionId: Long): String?
+
+    /** 仅可见视口的文本，每行以换行连接；代价随网格面积走，不随回滚深度走。 */
+    @JvmStatic external fun getVisibleText(sessionId: Long): String?
 
     /**
      * 用 Ghostty 原生格式化器提取选中文本：软换行处不插入 '\n' 并去除尾部空白，
@@ -292,7 +355,7 @@ object NativeBridge {
         endRow: Int,
         endCol: Int,
         hasSelection: Boolean,
-    )
+    ): Boolean
 
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
     @JvmStatic external fun resetTerminal(sessionId: Long)
@@ -359,7 +422,7 @@ object NativeBridge {
     external fun getGridRowsColsPacked(sessionId: Long): Long
 
     @JvmStatic
-    external fun setScrollOffset(sessionId: Long, offset: Int)
+    external fun setScrollOffset(sessionId: Long, offset: Int): Boolean
 
     @JvmStatic
     external fun setScrollYPx(sessionId: Long, offsetPx: Float)

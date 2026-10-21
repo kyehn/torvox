@@ -16,6 +16,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
@@ -97,12 +98,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         // 共用会话的行编辑状态跨用例残留（见 PasteButton 同因说明）：
         // 先送 ETX 中止再等 prompt，否则门控把 shell 污染误判成未就绪。
         bridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
-        val promptSeen =
-            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                val text = pumpAndText().orEmpty()
-                text.contains("$") || text.contains("#")
-            }
-        assertNotNull("shell prompt 未出现", promptSeen)
+        awaitShellPrompt(bridge(), GRID_TIMEOUT_MS)
         // 冷启动 stdin 竞态：prompt 落格不等于 shell 已消费 stdin，单次写入
         // 可能丢失（粘贴案定案同类）。幂等重发至多 3 次，回显即停。
         var seen: Long? = null

@@ -4,6 +4,8 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -97,14 +99,23 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         return String(file.readBytes(), Charsets.ISO_8859_1)
     }
 
-    /** 复位共享 shell：ETX 结束 cat（-icanon 保留 ISIG），再恢复 tty 回显。 */
+    /**
+     * 复位共享 shell：ETX 结束 cat（-icanon 保留 ISIG），再显式关掉鼠标上报并恢复
+     * tty 回显。DECRST 必须真的发出去：DECSET 1000 是终端级模式，`stty sane` 不会
+     * 清它，漏掉会让同一会话里后续用例凭空继承「应用在接收鼠标上报」。
+     */
     private fun disarmMouseReporting() {
-        bridge().writeToPty("\u0003stty sane\n".toByteArray(Charsets.UTF_8))
+        bridge().writeToPty("\u0003printf '\\033[?1000l\\033[?1006l'; stty sane\n".toByteArray(Charsets.UTF_8))
     }
 
     /** `ESC[<BUTTON;COL;ROWM`/`m` 的原始 SGR 序列（1 基单元格坐标）。 */
     private fun sgr(button: Int, col: Int, row: Int, release: Boolean): String =
         "\u001b[<$button;${col + 1};${row + 1}${if (release) "m" else "M"}"
+
+    /** 滚轮上行（button 64）的按下次数：批量编码必须成对，故按下数即档位数。 */
+    private fun wheelPresses(bytes: String): Int = Regex("\u001b\\[<64;\\d+;\\d+M").findAll(bytes).count()
+
+    private fun wheelReleases(bytes: String): Int = Regex("\u001b\\[<64;\\d+;\\d+m").findAll(bytes).count()
 
     /** 断言消息用的可读化：ESC 显示为 `^[`。 */
     private fun readable(bytes: String): String = bytes.replace("\u001b", "^[")
@@ -201,6 +212,64 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         val scrollOffset = composeTestRule.activity.terminalViewModel.runtime.activeSessionScrollOffset()
         assertTrue("应用启用鼠标上报时本地回滚不得被滚动 (offset=$scrollOffset)", scrollOffset == 0)
         disarmMouseReporting()
+        composeTestRule.cleanUpTerminalState()
+    }
+
+    /**
+     * 一次拖动跨多行：每个滚过的行都要有对应的滚轮档，且按下/抬起严格成对。
+     *
+     * 逐档往返曾是「滚动卡顿」的来源；批量接口改变的只是往返次数，档位一个不能少。
+     */
+    @Test
+    fun multiRowDragForwardsOneReleasePerRow() {
+        armMouseReporting()
+        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge())
+        val surface = findTerminalSurface(composeTestRule.activity)
+        // 四行行程：两段 MOVE 各两行，每段一次 onScroll 各编两档。
+        dragGesture(
+            surface,
+            x = (TAP_COL + 0.5f) * cellWidth,
+            fromY0 = (TAP_ROW + 4 + 0.5f) * cellHeight,
+            toY0 = (TAP_ROW + 0.5f) * cellHeight,
+        )
+        val forwarded =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {
+                wheelPresses(receivedBytes()) >= 3
+            }
+        val bytes = receivedBytes()
+        assertNotNull("四行拖动必须转发多档滚轮, 实际[${readable(bytes)}]", forwarded)
+        assertEquals(
+            "每个滚轮档必须有对应抬起（按下=抬起）",
+            wheelPresses(bytes),
+            wheelReleases(bytes),
+        )
+        disarmMouseReporting()
+        composeTestRule.cleanUpTerminalState()
+    }
+
+    /** 鼠标上报镜像：DECSET 装载后为真、DECRST 后为假——滚动手势据此免去一次查询往返。 */
+    @Test
+    fun mouseTrackingMirrorFollowsDecsetState() {
+        val bridge = bridge()
+        // 同一会话可能被前序用例留在上报态：先归零，断言只针对本用例造成的两次跃迁。
+        if (bridge.isMouseTrackingActive()) {
+            disarmMouseReporting()
+            assertNotNull(
+                "前置归零失败：DECRST 之后镜像必须回落",
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {
+                    !bridge.isMouseTrackingActive()
+                },
+            )
+        }
+        assertFalse("未装载 DECSET 时不得声称应用在接收鼠标上报", bridge.isMouseTrackingActive())
+        armMouseReporting()
+        assertTrue("DECSET 1000 装载后镜像必须为真", bridge.isMouseTrackingActive())
+        disarmMouseReporting()
+        val cleared =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {
+                !bridge.isMouseTrackingActive()
+            }
+        assertNotNull("DECRST 之后镜像必须回落", cleared)
         composeTestRule.cleanUpTerminalState()
     }
 }

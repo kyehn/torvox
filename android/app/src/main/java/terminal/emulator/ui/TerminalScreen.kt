@@ -104,6 +104,8 @@ fun TerminalScreen(
     val viewModelDayThemeName = settings.dayThemeName
     val viewModelNightThemeName = settings.nightThemeName
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
+    // 开孔是否已有缓冲区：决定要不要在窗口层涂底色（见 TerminalRuntime.surfaceBufferPresent）。
+    val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsStateWithLifecycle()
     val isSettingsDark =
         resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
     // 未知名已在 TerminalRuntime.clearUnknownThemeNames 清除对应键；此处取不到
@@ -440,7 +442,22 @@ fun TerminalScreen(
                 // 终端 Surface 占满整块高度：键栏覆盖其底部，而网格已按同一口径预留
                 // 键栏高度（见 TerminalSurface.ResizeManager），故 rows/cols 不受键栏位移影响。
                 key(surfaceKey) {
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier =
+                        Modifier.fillMaxSize()
+                            // SurfaceView 的原生 surface 在窗口**之下**：窗口这块是透明
+                            // 开孔，缓冲区缺失时（冷启动首帧前、切后台回来重建窗口时）
+                            // 透出后方桌面即「切应用返回一闪」。开孔遮不住（窗口像素盖在
+                            // surface 之上），故只在「还没有缓冲区」这窗口内涂终端底色，
+                            // 一有帧提交就撤（见 TerminalRuntime.surfaceBufferPresent）。
+                            .then(
+                                if (surfaceBufferPresent) {
+                                    Modifier
+                                } else {
+                                    Modifier.background(terminalBackground)
+                                },
+                            ),
+                    ) {
                         // 工厂在**组合期**被调用（ComposeNode 创建阶段），而
                         // `surfaceRef` 在本组合内被读（LaunchedEffect 的 key）——
                         // 组合期写快照状态会让整个 TerminalScreen 再走一遍组合，

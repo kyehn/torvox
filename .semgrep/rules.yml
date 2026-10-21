@@ -533,6 +533,8 @@ rules:
       exclude:
         - "**/*/test/*"
         - "**/*/tests/*"
+        # 仪器测试与单元测试同为测试代码，测试体里阻塞等待协程是正确用法。
+        - "**/*/androidTest/*"
         # onStartCommand has no scope; dedicated daemon-thread bridge.
         - "**/installer/BootstrapInstallService.kt"
   - id: no-non-null-assertion

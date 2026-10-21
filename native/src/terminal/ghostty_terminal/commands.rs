@@ -152,6 +152,21 @@ pub enum Query {
         cell_height: f32,
         tx: Sender<Vec<u8>>,
     },
+    /// 一次往返编码多档滚轮：`repeat` 个 press+release 对拼进同一个缓冲区。
+    /// 触摸拖动一个事件可能滚过数行，逐行发查询会把 UI 线程按在 VT 线程上
+    /// （每行两次应答，且每次都可能排在整个 `QUERY_TIMEOUT_MS` 之后）；
+    /// 合并成一次往返后，每次手势事件只阻塞一次，PTY 也只写一次。
+    EncodeMouseWheel {
+        position: (f32, f32),
+        /// 3 = 滚轮上（更旧），4 = 滚轮下（更新），与 [`Self::EncodeMouseEvent`] 同号。
+        button: u8,
+        modifiers: u16,
+        cell_width: f32,
+        cell_height: f32,
+        /// 编码几档，调用方保证 ≥1。
+        repeat: u32,
+        tx: Sender<Vec<u8>>,
+    },
     /// 用上游 `key::Encoder` 把按键事件编码为终端转义序列。DECCKM、keypad 应用
     /// 模式、modifyOtherKeys、kitty 键盘协议与 backarrow key mode 全部由
     /// `set_options_from_terminal` 从终端状态接管，调用方无需查询任何模式。
@@ -196,6 +211,10 @@ pub(crate) struct RunConfig {
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     /// 备用屏状态的无锁镜像，由 VT 线程每帧更新，供输入路径免阻塞 RPC 检出。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
+    /// 鼠标上报（DECSET 1000/1002/1003）是否启用的无锁镜像，同样每帧刷新。
+    /// 触摸拖动每个事件都要判一次「远端要不要滚轮」，走查询通道会把 UI 线程
+    /// 钉在 VT 线程的一次应答上；读原子量则是纯本地判断。
+    pub(crate) mouse_tracking_active: Arc<AtomicBool>,
     /// VT 线程置位表示 `Terminal::resize` 失败（网格未真正改尺寸）。
     pub(crate) resize_failed: Arc<AtomicBool>,
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
@@ -207,6 +226,11 @@ pub(crate) struct RunConfig {
     /// 可选通道：设置后 VT 线程在网格变化时自动构建并推送 `Vec<CellData>`，
     /// 即线程拆分架构的数据路径（会话线程 → Vec<CellData> → 渲染线程）。
     pub(crate) cell_data_tx: Option<flume::Sender<(Vec<CellData>, CursorInfo)>>,
+    /// 帧入队后的唤醒回调（会话侧接渲染循环的条件变量）。渲染线程只知道
+    /// 「有输出」时会被叫醒，但那一拍 VT 线程可能还没解析完、通道里没有新帧，
+    /// 于是它重新睡满空闲闭锁——真机上表现为静置 5s 后后台输出晚 0..500ms 上屏。
+    /// 帧真正入队时再叫一次，屏幕上的延迟就只剩一帧。
+    pub(crate) frame_wake: Option<crate::terminal::session::OutputWake>,
     /// 行级抽取的可观测计数，仅测试使用：生产构建无此字段。
     #[cfg(test)]
     pub(crate) cache_stats: super::internal::CacheStats,

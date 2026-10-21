@@ -250,16 +250,26 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     /**
-     * 将调用线程挂起 [timeoutMs]，或直到 [terminal.emulator.runtime.SessionEntry.notifyRender] 唤醒（先到为准）。
-     * 基于 park 的睡眠既限定渲染循环的轮询节奏（避免 100% CPU 空转），又与调用
-     * LockSupport.unpark 的 SessionEntry.notifyRender 配对。
-     * 返回值仅供参考：parkNanos 遇中断即返回且不清除中断标志，调用方须自行重查。
-     * 未被中断则返回 true。
+     * 将调用线程挂起最多 [timeoutMs] 毫秒，或直到有新输出 / 宿主信号（先到为准），
+     * 返回新的唤醒代数。
+     *
+     * 等待在原生条件变量上完成：PTY 读线程与 [wakeRender] 都是同一把通知，
+     * 因此既保留「空闲时零唤醒」的省电语义，又让**没有输入**的后台输出立即上屏，
+     * 不必等满空闲闭锁。调用方把返回值存回 `SessionEntry.wakeGeneration`，
+     * 下次等待若期间已有通知则立即返回——不丢唤醒。
      */
-    fun waitOutput(timeoutMs: Long): Boolean {
-        if (timeoutMs <= 0L) return true
-        java.util.concurrent.locks.LockSupport.parkNanos(timeoutMs * 1_000_000L)
-        return !Thread.currentThread().isInterrupted
+    fun waitOutput(lastGeneration: Long, timeoutMs: Long): Long = onSession("waitOutput", lastGeneration) {
+        NativeBridge.waitForOutput(it, lastGeneration, timeoutMs)
+    }
+
+    /**
+     * 唤醒本会话的渲染循环：把原生唤醒代数 +1。
+     *
+     * 会话已销毁时静默忽略（[onSession] 契约）——渲染循环的存亡由渲染线程自身的
+     * `running` 标志裁决，唤醒失败不构成错误。
+     */
+    fun wakeRender() {
+        onSession("wakeRender", Unit) { NativeBridge.wakeRender(it) }
     }
 
     fun releaseGpuSurface() {
@@ -488,6 +498,41 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     /**
+     * 把 `repeat` 档滚轮一次编码并写入 PTY（每档一个 press + release）。
+     *
+     * 触摸拖动一个事件可能滚过数行：逐档调用 [encodeMouseEvent] 会让 UI 线程按在
+     * 每档一次 VT 应答上，PTY 也要被写满 2×repeat 次。合并后一次事件只有一次往返。
+     * 返回是否真的写入了（上报关闭、编码失败或会话消失时为 false）。
+     */
+    fun encodeMouseWheel(
+        xPx: Float,
+        yPx: Float,
+        button: Int,
+        modifiers: Int,
+        cellWidth: Float,
+        cellHeight: Float,
+        repeat: Int,
+    ): Boolean {
+        if (repeat <= 0) return false
+        return onSession("encodeMouseWheel", false) { id ->
+            val bytes =
+                NativeBridge.encodeMouseWheel(id, xPx, yPx, button, modifiers, cellWidth, cellHeight, repeat)
+            if (bytes.isEmpty()) return@onSession false
+            sendToPty(id, bytes)
+            onPtyWrite?.invoke()
+            true
+        }
+    }
+
+    /**
+     * 远端是否启用鼠标上报（DECSET 1000/1002/1003）。
+     *
+     * 与 [isAltScreenActive] 同理读镜像而非查询通道：触摸拖动的每个事件都要判一次，
+     * 查询会把 UI 线程按满一个查询超时，正是「滚动卡顿」的来源。
+     */
+    fun isMouseTrackingActive(): Boolean = onSession("mouseTrackingActive", false, NativeBridge::mouseTrackingActive)
+
+    /**
      * 远端是否处于备用屏幕缓冲（vim/less/htop）。无锁，可在每次触摸滚动时安全调用。
      * 为真时触摸滚动必须以滚轮转义转发给远端（见 [terminal.emulator.ui.TerminalSurface] onScroll）而非滚动本地回滚。
      */
@@ -562,9 +607,10 @@ class Bridge(private val config: TerminalConfig) {
     fun getActiveSessionTitle(): String = onQuery("getActiveSessionTitle", "") { queryPort.getActiveSessionTitle() }
 
     // ── 选区 ──
-    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?) {
+
+    /** 返回 false 表示写入被推迟（会话锁被 PTY 写入持有）：调用方保留旧快照并下一帧重试。 */
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?): Boolean =
         queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection)
-    }
 
     // ── 搜索 / 回滚 ──
     // 取值类查询经 NativeQueryPort 转发到真实的原生 JNI 路径，并经 onQuery 把
@@ -577,6 +623,16 @@ class Bridge(private val config: TerminalConfig) {
     fun scrollbackLine(row: Int): String? = onQuery("scrollbackLine", null) { queryPort.scrollbackLine(row) }
 
     fun scrollbackLength(): Int = onQuery("scrollbackLength", 0) { queryPort.scrollbackLength() }
+
+    /**
+     * 会话**已应用**的滚动偏移（0 = 视口贴底）。
+     *
+     * 与 [TerminalRuntime.activeSessionScrollOffset] 的「待消费命令槽」不同：只有 VT 侧
+     * 接受了本次滚动后这个值才变化，故可作为「归位已完成」的稳定判据（仪器测试用）。
+     */
+    fun sessionScrollOffset(): Int = onSession("sessionScrollOffset", 0) {
+        NativeBridge.getSessionScrollOffset(it)
+    }
 
     /**
      * 最近一帧的回滚长度；首帧未发布时为 -1。**绝不同步询问 VT 线程**，
@@ -600,11 +656,14 @@ class Bridge(private val config: TerminalConfig) {
     fun searchSelect(forward: Boolean): SearchSelection? =
         onQuery("searchSelect", null) { queryPort.searchSelect(forward) }
 
-    fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
+    fun setScrollOffset(offset: Int): Boolean = queryPort.setScrollOffset(offset)
 
     fun setScrollYPx(offsetPx: Float) = queryPort.setScrollYPx(offsetPx)
 
     fun getTerminalText(): String? = onQuery("getTerminalText", null) { queryPort.getTerminalText() }
+
+    /** 可见视口文本（不含回滚）。判断「某行是否看得见」用它，别用全量文本。 */
+    fun getVisibleText(): String = onQuery("getVisibleText", "") { queryPort.visibleText() }
 
     fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int): String? =
         onQuery("selectionText", null) {

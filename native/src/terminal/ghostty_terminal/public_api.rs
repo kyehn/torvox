@@ -28,6 +28,18 @@ impl super::GhosttyTerminal {
         scrollback_lines: u32,
         theme: &'static crate::terminal::theme::Theme,
     ) -> Result<Self, TerminalError> {
+        Self::new_with_frame_wake(rows, cols, scrollback_lines, theme, None)
+    }
+
+    /// [`Self::new_with_theme`] + 帧入队唤醒：VT 线程每推送一帧就调用一次
+    /// `frame_wake`，让渲染线程不必靠空闲闭锁超时才发现新帧。
+    pub fn new_with_frame_wake(
+        rows: u32,
+        cols: u32,
+        scrollback_lines: u32,
+        theme: &'static crate::terminal::theme::Theme,
+        frame_wake: Option<crate::terminal::session::OutputWake>,
+    ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
         let (cell_data_tx, cell_data_rx) =
@@ -37,6 +49,8 @@ impl super::GhosttyTerminal {
         let pty_for_run = pty_write_responses.clone();
         let alt_screen_active = Arc::new(AtomicBool::new(false));
         let alt_screen_active_for_run = alt_screen_active.clone();
+        let mouse_tracking_active = Arc::new(AtomicBool::new(false));
+        let mouse_tracking_active_for_run = mouse_tracking_active.clone();
         let resize_failed = Arc::new(AtomicBool::new(false));
         let resize_failed_for_run = resize_failed.clone();
         let cell_size_px_for_run = Arc::new((
@@ -70,9 +84,11 @@ impl super::GhosttyTerminal {
                         theme,
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
+                        mouse_tracking_active: mouse_tracking_active_for_run,
                         resize_failed: resize_failed_for_run,
                         cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
+                        frame_wake,
                         clipboard_tx,
                         #[cfg(test)]
                         cache_stats: cache_stats_for_run.clone(),
@@ -109,6 +125,7 @@ impl super::GhosttyTerminal {
             pty_write_responses,
             last_pty_write_byte: 0,
             alt_screen_active,
+            mouse_tracking_active,
             resize_failed,
             #[cfg(test)]
             cache_stats: cache_stats_for_self,
@@ -440,6 +457,59 @@ impl super::GhosttyTerminal {
         .into()
     }
 
+    /// 把 `repeat` 档滚轮编码为一次应答：每档一个 press + release 对。
+    ///
+    /// 触摸拖动一个事件可能滚过数行，逐档往返会把 UI 线程按在 VT 线程上
+    /// （每档两次应答）；合并后一次事件只有一次往返，PTY 也只写一次。
+    /// `button` 3 为向上（更旧）、4 为向下（更新）。鼠标上报未启用时返回空。
+    pub fn encode_mouse_wheel(
+        &self,
+        position: (f32, f32),
+        button: u8,
+        modifiers: u16,
+        cell_width: f32,
+        cell_height: f32,
+        repeat: u32,
+    ) -> Option<Vec<u8>> {
+        Self::encode_mouse_wheel_on(
+            &self.query_tx,
+            position,
+            button,
+            modifiers,
+            cell_width,
+            cell_height,
+            repeat,
+        )
+    }
+
+    /// [`Self::encode_mouse_wheel`] 的通道外置版，语义同
+    /// [`Self::encode_mouse_event_on`]。
+    pub(crate) fn encode_mouse_wheel_on(
+        query_tx: &Sender<Query>,
+        position: (f32, f32),
+        button: u8,
+        modifiers: u16,
+        cell_width: f32,
+        cell_height: f32,
+        repeat: u32,
+    ) -> Option<Vec<u8>> {
+        Self::query_on(
+            query_tx,
+            |tx| Query::EncodeMouseWheel {
+                position,
+                button,
+                modifiers,
+                cell_width,
+                cell_height,
+                repeat: repeat.max(1),
+                tx,
+            },
+            Vec::new(),
+            "encode_mouse_wheel",
+        )
+        .into()
+    }
+
     /// 用上游 `key::Encoder` 把按键事件编码为终端转义序列。
     ///
     /// 编码器的全部选项（DECCKM、keypad 应用模式、modifyOtherKeys、kitty 键盘
@@ -549,6 +619,14 @@ impl super::GhosttyTerminal {
 
     pub fn alt_screen_active_atomic(&self) -> bool {
         self.alt_screen_active.load(Ordering::Acquire)
+    }
+
+    /// 鼠标上报（DECSET 1000/1002/1003）是否启用。
+    ///
+    /// 镜像由 VT 线程每帧刷新，故本调用不碰查询通道、不等待 VT 线程——
+    /// 触摸拖动的每个事件都要问一次，等一次应答就够卡住手势了。
+    pub fn mouse_tracking_active_atomic(&self) -> bool {
+        self.mouse_tracking_active.load(Ordering::Acquire)
     }
 
     /// 向 VT 线程发送无状态 [`Query`] 并等待应答，发送失败或超时回退到 `fallback`；

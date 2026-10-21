@@ -534,7 +534,9 @@ impl super::GhosttyTerminal {
             }
             Query::ScrollbackLength(tx) => {
                 let scrollback_rows = scrollback_len(terminal);
-                log::debug!("ghostty_terminal: scrollback_rows query returned {scrollback_rows}");
+                // 热路径：滚动期间每次手势都会查一次，debug 级别会在 logcat 里
+                // 刷出每秒十几行、并给渲染线程添一次同步写。降为 trace。
+                log::trace!("ghostty_terminal: scrollback_rows query returned {scrollback_rows}");
                 try_send(
                     &tx,
                     scrollback_rows,
@@ -689,63 +691,64 @@ impl super::GhosttyTerminal {
                 cell_height,
                 tx,
             } => {
-                // 参考：zelland src-tauri/src/terminal.rs 的
-                // `encode_mouse_event`——用 Ghostty 鼠标编码器配合渲染器的
-                // 实时单元格尺寸，并在鼠标上报关闭时丢弃事件。编码器的选项
-                // 取自终端（跟踪模式 + 格式），故 SGR/X10/UTF-8 输出遵循应用
-                // 的 DECSET 选择。
-                let (mouse_encoder, mouse_event) = match encoders.mouse.as_mut() {
-                    Some(pair) => pair,
-                    None => {
-                        log::warn!(
-                            "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
-                        );
-                        try_send(&tx, Vec::new(), "mouse_encode response send failed");
-                        return false;
-                    }
-                };
-                mouse_encoder.set_options_from_terminal(terminal);
-                // 视口外 motion 只在有键按下时上报（上游 mouse_encode 口径）：
-                // 按下/移动恒有接触（触摸 onTouchEvent 与持键鼠标移动），
-                // 释放后无接触。缺省 false 会把滑出视口的拖动静默丢弃。
-                let mapped_action = match action {
-                    1 => mouse::Action::Release,
-                    2 => mouse::Action::Motion,
-                    _ => mouse::Action::Press,
-                };
-                mouse_encoder
-                    .set_any_button_pressed(!matches!(mapped_action, mouse::Action::Release));
-                let cols = grid_cols(terminal);
-                let rows = grid_rows(terminal);
-                let size = mouse::EncoderSize {
-                    screen_width: cols.saturating_mul(cell_width.max(1.0) as u32),
-                    screen_height: rows.saturating_mul(cell_height.max(1.0) as u32),
-                    cell_width: cell_width.max(1.0) as u32,
-                    cell_height: cell_height.max(1.0) as u32,
-                    padding_top: 0,
-                    padding_bottom: 0,
-                    padding_right: 0,
-                    padding_left: 0,
-                };
-                mouse_encoder.set_size(size);
-                mouse_event.set_position(mouse::Position {
-                    x: position.0,
-                    y: position.1,
-                });
-                mouse_event.set_action(mapped_action);
-                mouse_event.set_button(match button {
-                    1 => Some(mouse::Button::Right),
-                    2 => Some(mouse::Button::Middle),
-                    3 => Some(mouse::Button::Four),
-                    4 => Some(mouse::Button::Five),
-                    _ => Some(mouse::Button::Left),
-                });
-                // 修饰键进编码器：Shift/Ctrl 点击在远端（vim/tmux/htop）必须与
-                // 普通左键可区分，否则无法粘贴选择、无法扩展选区。
-                mouse_event.set_mods(Mods::from_bits_retain(modifiers));
                 let mut response = Vec::new();
-                if let Err(error) = mouse_encoder.encode_to_vec(mouse_event, &mut response) {
-                    log::warn!("ghostty_terminal: mouse encode failed: {error}");
+                // 参考：zelland src-tauri/src/terminal.rs 的 `encode_mouse_event`——
+                // 用 Ghostty 鼠标编码器配合渲染器的实时单元格尺寸，并在鼠标上报
+                // 关闭时丢弃事件。编码器选项取自终端（跟踪模式 + 格式），故
+                // SGR/X10/UTF-8 输出遵循应用的 DECSET 选择。
+                Self::encode_mouse_event_into(
+                    encoders,
+                    terminal,
+                    &mut response,
+                    position,
+                    match action {
+                        1 => mouse::Action::Release,
+                        2 => mouse::Action::Motion,
+                        _ => mouse::Action::Press,
+                    },
+                    Some(Self::mouse_button(button)),
+                    modifiers,
+                    cell_width,
+                    cell_height,
+                );
+                try_send(&tx, response, "mouse encode response send failed");
+            }
+            Query::EncodeMouseWheel {
+                position,
+                button,
+                modifiers,
+                cell_width,
+                cell_height,
+                repeat,
+                tx,
+            } => {
+                let mut response = Vec::new();
+                // 一个滚轮档 = press + release。`repeat` 档合并在这一次应答里：
+                // 触摸拖动一次事件滚过几行就编几档，PTY 也只写一次。
+                let wheel = Some(Self::mouse_button(button));
+                for _ in 0..repeat.max(1) {
+                    Self::encode_mouse_event_into(
+                        encoders,
+                        terminal,
+                        &mut response,
+                        position,
+                        mouse::Action::Press,
+                        wheel,
+                        modifiers,
+                        cell_width,
+                        cell_height,
+                    );
+                    Self::encode_mouse_event_into(
+                        encoders,
+                        terminal,
+                        &mut response,
+                        position,
+                        mouse::Action::Release,
+                        wheel,
+                        modifiers,
+                        cell_width,
+                        cell_height,
+                    );
                 }
                 try_send(&tx, response, "mouse encode response send failed");
             }
@@ -1552,7 +1555,11 @@ impl super::GhosttyTerminal {
     ) {
         Self::push_cell_data(
             config.cell_data_tx.as_ref(),
-            &config.alt_screen_active,
+            config.frame_wake.as_ref(),
+            &ScreenMirrors {
+                alt_screen: &config.alt_screen_active,
+                mouse_tracking: &config.mouse_tracking_active,
+            },
             terminal,
             default_foreground,
             default_background,
@@ -1563,7 +1570,8 @@ impl super::GhosttyTerminal {
 
     fn push_cell_data<'alloc>(
         cell_data_tx: Option<&Sender<(Vec<CellData>, CursorInfo)>>,
-        alt_screen_active: &Arc<AtomicBool>,
+        frame_wake: Option<&crate::terminal::session::OutputWake>,
+        mirrors: &ScreenMirrors<'_>,
         terminal: &Terminal<'alloc, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
@@ -1575,7 +1583,7 @@ impl super::GhosttyTerminal {
                 terminal,
                 default_foreground,
                 default_background,
-                alt_screen_active,
+                mirrors,
                 extractors,
             )
         {
@@ -1598,7 +1606,13 @@ impl super::GhosttyTerminal {
             // 去重基线只在帧真正入队后推进：通道满时本帧被丢弃，若同时推进基线，
             // 下一帧同一内容会命中 unchanged 而不再补发，屏幕将永久停留在旧帧。
             match tx.try_send((data.0.clone(), data.1)) {
-                Ok(()) => *last_push = Some(data),
+                Ok(()) => {
+                    *last_push = Some(data);
+                    // 帧已可被取走：叫醒可能正睡在空闲闭锁上的渲染线程。
+                    if let Some(wake) = frame_wake {
+                        wake();
+                    }
+                }
                 Err(error) => warn_drop_throttled(&error),
             }
         }
@@ -1606,6 +1620,68 @@ impl super::GhosttyTerminal {
 }
 
 impl super::GhosttyTerminal {
+    /// 鼠标事件里的按钮编号 → 上游按钮。1/2 为右键/中键，3/4 为滚轮上/下，
+    /// 其余（含 0）按左键处理：与 Android 的 `BUTTON_PRIMARY` 约定一致。
+    fn mouse_button(button: u8) -> mouse::Button {
+        match button {
+            1 => mouse::Button::Right,
+            2 => mouse::Button::Middle,
+            3 => mouse::Button::Four,
+            4 => mouse::Button::Five,
+            _ => mouse::Button::Left,
+        }
+    }
+
+    /// 把一个鼠标事件编码进 `out`。
+    ///
+    /// 编码器与事件跨事件复用：选项按终端当前状态重新同步，按钮/位置/修饰键
+    /// 逐字段覆写。漏写任一字段都会让本次事件沿用上一次的取值。
+    fn encode_mouse_event_into(
+        encoders: &mut Encoders<'_>,
+        terminal: &Terminal,
+        out: &mut Vec<u8>,
+        position: (f32, f32),
+        action: mouse::Action,
+        button: Option<mouse::Button>,
+        modifiers: u16,
+        cell_width: f32,
+        cell_height: f32,
+    ) {
+        let Some((encoder, event)) = encoders.mouse.as_mut() else {
+            log::warn!("ghostty_terminal: mouse encoder/event unavailable — dropping mouse event");
+            return;
+        };
+        encoder.set_options_from_terminal(terminal);
+        // 视口外 motion 只在有键按下时上报（上游 mouse_encode 口径）：
+        // 按下/移动恒有接触（触摸 onTouchEvent 与持键鼠标移动），
+        // 释放后无接触。缺省 false 会把滑出视口的拖动静默丢弃。
+        encoder.set_any_button_pressed(!matches!(action, mouse::Action::Release));
+        let cols = grid_cols(terminal);
+        let rows = grid_rows(terminal);
+        encoder.set_size(mouse::EncoderSize {
+            screen_width: cols.saturating_mul(cell_width.max(1.0) as u32),
+            screen_height: rows.saturating_mul(cell_height.max(1.0) as u32),
+            cell_width: cell_width.max(1.0) as u32,
+            cell_height: cell_height.max(1.0) as u32,
+            padding_top: 0,
+            padding_bottom: 0,
+            padding_right: 0,
+            padding_left: 0,
+        });
+        event.set_position(mouse::Position {
+            x: position.0,
+            y: position.1,
+        });
+        event.set_action(action);
+        event.set_button(button);
+        // 修饰键进编码器：Shift/Ctrl 点击在远端（vim/tmux/htop）必须与
+        // 普通左键可区分，否则无法粘贴选择、无法扩展选区。
+        event.set_mods(Mods::from_bits_retain(modifiers));
+        if let Err(error) = encoder.encode_to_vec(event, out) {
+            log::warn!("ghostty_terminal: mouse encode failed: {error}");
+        }
+    }
+
     /// 上游 Kitty 图像载荷归一化为 RGBA8：Ok(None) 为分片传输待定返回 None；
     /// RGB 直扩 alpha，灰度按亮度展开，PNG 经线程解码器已为 RGBA（按长度兜底）。
     fn kitty_image_to_rgba(
@@ -1763,7 +1839,21 @@ impl super::GhosttyTerminal {
         out.sort_by_key(|frame| frame.z);
         out
     }
+}
 
+/// VT 线程每帧刷新的无锁屏幕状态镜像。
+///
+/// Android 输入路径在每一次触摸/滚轮事件里都要读它（决定「转发给远端」还是
+/// 「滚本地回滚」），因此这些值绝不能靠查询通道获得：一次查询就要等 VT 线程
+/// 从解析里抽身应答，终端正刷输出时会把 UI 线程按满一个 `QUERY_TIMEOUT_MS`。
+pub(crate) struct ScreenMirrors<'a> {
+    /// 备用屏（vim / less / htop）是否活动。
+    pub(crate) alt_screen: &'a Arc<AtomicBool>,
+    /// 鼠标上报（DECSET 1000/1002/1003）是否启用。
+    pub(crate) mouse_tracking: &'a Arc<AtomicBool>,
+}
+
+impl super::GhosttyTerminal {
     /// 构建用于渲染的扁平全量 `CellData` 网格。
     ///
     /// 逐格抽取只对上游判脏的行执行，干净行整段复制 [`RowCache`] 的上一帧内容。
@@ -1780,16 +1870,23 @@ impl super::GhosttyTerminal {
         terminal: &Terminal<'alloc, 'cb>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        alt_screen_active: &Arc<AtomicBool>,
+        mirrors: &ScreenMirrors<'_>,
         extractors: &mut RenderExtractors<'alloc>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         // VT 线程每推一帧就同步这个无锁的备用屏镜像。Android 输入路径在每次
         // 触摸滚动时无锁读取它，以决定手势是否转发给远端
         // （Haven 研究：altScreen 滚轮消费）。
-        alt_screen_active.store(
+        mirrors.alt_screen.store(
             terminal
                 .active_screen()
                 .is_ok_and(|screen| screen == libghostty_vt::screen::Screen::Alternate),
+            Ordering::Release,
+        );
+        // 鼠标上报开关同样每帧镜像：输入路径（触摸拖动、外接滚轮）每次事件都要
+        // 决定「转发给远端还是滚本地回滚」，走查询通道会把 UI 线程钉在 VT 线程
+        // 的一次应答上；读原子量是纯本地判断。
+        mirrors.mouse_tracking.store(
+            terminal.is_mouse_tracking().unwrap_or(false),
             Ordering::Release,
         );
         let rows = grid_rows(terminal);

@@ -80,7 +80,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // 终端中指向 home 目录之外的符号链接很常见
             // （如 ln -s /sdcard/x ~/link）。跳过它们而非抛异常
             // ——require() 会使每次浏览都中断整个 SAF 目录列举。
-            if (!(fileCanonical.startsWith(rootPath + File.separator) || fileCanonical == rootPath)) {
+            if (!isInsideRoot(fileCanonical, rootPath)) {
                 return null
             }
             return if (fileCanonical == rootPath) {
@@ -89,6 +89,15 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 filePath.removePrefix(rootPath + File.separator)
             }
         }
+
+        /**
+         * 规范路径 [path] 是否落在根 [rootCanonical] 之内（含根本身）。
+         *
+         * 前缀必须带分隔符：`/home2` 不得被判为在 `/home` 之内。链接目标、去前缀别名
+         * 与目录列举共用这一条判据，避免同一条规则出现分叉实现。
+         */
+        fun isInsideRoot(path: String, rootCanonical: String): Boolean =
+            path == rootCanonical || path.startsWith(rootCanonical + File.separator)
 
         fun decodeDocId(docId: String, rootDir: File): File {
             if (docId == ROOT_ID) return rootDir.canonicalFile
@@ -314,29 +323,28 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = queries.rootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
+        // 规范路径只算一次：列目录与行编码都以它为准（子项路径 = 父规范路径 + 名字）。
+        val parentCanonical = parent.canonicalFile
         // 同 queryDocument：目录不存在（或已不是目录）必须抛 FileNotFoundException，
         // 而不是回空游标。空游标让客户端把「目录已消失」当成「空目录」，
         // 继续往一个不存在的路径写入。
-        if (!parent.isDirectory) {
+        if (!parentCanonical.isDirectory) {
             throw java.io.FileNotFoundException(
                 "queryChildDocuments: no such directory '$parentDocumentId'",
             )
         }
-        watcher.watch(parent)
-        // 目录项逐个 stat 是列举的主要成本；排序键 `isDirectory` 与 display name 只取一次，
+        watcher.watch(parentCanonical)
+        // 每项一次 lstat，排序键 `isDirectory` 与折叠名也只取一次，
         // 避免 O(n log n) 次比较各触发一次 stat，也避免默认 Locale 把 `i` 排错。
-        val sorted =
-            (parent.listFiles() ?: emptyArray())
-                .map { child -> Triple(child, child.isDirectory, child.name.lowercase(java.util.Locale.ROOT)) }
-                .sortedWith(compareByDescending<Triple<File, Boolean, String>> { it.second }.thenBy { it.third })
-        for ((child, isDirectory, _) in sorted) {
-            queries.addDocRow(cursor, child, rootDir, cols, isDirectory)
+        val entries = queries.readChildren(parentCanonical, rootDir.canonicalPath)
+        for (entry in entries) {
+            queries.addChildRow(cursor, entry, cols)
         }
         // 逐条目 stat 在巨大目录里会拖慢整次列举；「保存超时」一类反馈需要一条
         // 「慢在哪一层」的证据，正常规模（毫秒级）不落日志。
         val elapsed = android.os.SystemClock.elapsedRealtime() - started
         if (elapsed >= SLOW_LISTING_MILLIS) {
-            LogUtil.w(TAG, "slow listing '$parentDocumentId': ${sorted.size} entries in ${elapsed}ms")
+            LogUtil.w(TAG, "slow listing '$parentDocumentId': ${entries.size} entries in ${elapsed}ms")
         }
         context?.contentResolver?.let { resolver ->
             // 同 queryDocument：通知 URI 必须是行内无前缀形式，广播也只发这种，

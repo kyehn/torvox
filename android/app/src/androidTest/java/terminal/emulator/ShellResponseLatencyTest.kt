@@ -14,6 +14,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
+import terminal.emulator.awaitShellPrompt
 
 /**
  * Quantified verification of "shell 反应稍显缓慢" — the matrix marked this "(C) 需设备验证" precisely because
@@ -51,12 +52,7 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
     @Test
     fun shell_echo_latency_meets_emulator_budget() {
         val bridge = composeTestRule.awaitBridge()
-        val promptReady =
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                bridge.getTerminalText()?.contains("$") == true ||
-                    bridge.getTerminalText()?.contains("#") == true
-            }
-        assertNotNull("shell prompt 未出现", promptReady)
+        awaitShellPrompt(bridge)
         // 「shell 启动缓慢」的用户口径 = 进程起来到提示符可输入。应用侧埋点已证实不是瓶颈
         // （bridge 创建 2~9ms、spawnTerminal 20~32ms，见 Runtime 的 `bridge created` /
         // `spawnTerminal` 两条），余下等待落在引导链自身——指标把它记下来，供真机日志
