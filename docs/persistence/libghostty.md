@@ -2,7 +2,7 @@
 
 上游：<https://github.com/Uzaaft/libghostty-rs>，crate `libghostty-vt`（对 C 库 `libghostty-vt-sys` 的安全 Rust 绑定）。本项目经 `native/Cargo.toml` 跟踪其 master 修订，开启 `log` 与 `png` 两个特性，无本地补丁。
 
-`crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 201 个，其余 517 个未使用。
+`crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 203 个，其余 515 个未使用。
 
 ## 0. 口径
 
@@ -18,7 +18,7 @@
 | `key` | 36 | 13 | 23 |
 | `mouse` | 30 | 14 | 16 |
 | `paste` | 9 | 1 | 8 |
-| `render` | 63 | 24 | 39 |
+| `render` | 63 | 26 | 37 |
 | `screen` | 37 | 11 | 26 |
 | `search` | 26 | 15 | 11 |
 | `selection` | 38 | 12 | 26 |
@@ -36,7 +36,7 @@
 | `snapshot` | 27 | 0 | 27 |
 | `unicode` | 2 | 0 | 2 |
 | `selection::gesture` | 50 | 0 | 50 |
-| 合计 | 718 | 201 | 517 |
+| 合计 | 718 | 203 | 515 |
 
 调用点集中在 `native/src/terminal/ghostty_terminal/internal.rs`（VT 线程主循环）、`public_api.rs`、`commands.rs`、`theme.rs`、`session.rs` 与 `render/context.rs`；其余模块全未接线。
 
@@ -144,9 +144,9 @@
 | --- | --- |
 | `encode` | 粘贴编码：括号化包裹、换行转回车、控制字节中化，输出缓冲按 `OutOfSpace{required}` 精确扩容 |
 
-### 2.5 `render`（24 项）
+### 2.5 `render`（26 项）
 
-帧数据主路径：`RenderState::update` 出快照，行迭代器 + 单元迭代器逐格读取。
+帧数据主路径：`RenderState::update` 出快照，行迭代器 + 单元迭代器逐格读取；行级脏跟踪驱动跨帧行缓存复用——干净行整段复制上一帧，省逐单元 FFI 往返（命中的前提是同一 `RenderState` 跨帧复用且逐帧标记已消费，口径见 `grid-extraction-incremental` 能力）。
 
 | 项 | 说明 |
 | --- | --- |
@@ -167,10 +167,12 @@
 | `CellIterator::update` | 绑定行 |
 | `RenderState::new` | 创建渲染状态 |
 | `RenderState::update` | 把终端状态更新为快照 |
+| `RowIteration::dirty` | 该行是否脏——行级脏判定，干净行整段复制上一帧缓存 |
 | `RowIteration::next` | 取下一行 |
 | `RowIteration::selection` | 该行的终端持有选区范围 |
 | `RowIterator::new` | 创建行迭代器 |
 | `RowIterator::update` | 绑定快照 |
+| `Snapshot::clean` | 标记快照已消费——整帧抽取完成后调用，与行缓存复用配对 |
 | `Snapshot::cursor_viewport` | 光标视口坐标（滚动后与活动区坐标分叉，必须用这个） |
 | `Snapshot::cursor_visible` | 快照内的光标可见性 |
 | `Snapshot::cursor_visual_style` | 光标视觉样式 |
@@ -314,7 +316,7 @@
 | `PlacementIterator::update` | 绑定图像存储 |
 | `RustPngDecoder::new` | 构造内置解码器 |
 | `Terminal::kitty_graphics` | 取 Kitty 图像存储 |
-| `Terminal::set_kitty_image_storage_limit` | 图像存储总量上限 |
+| `Terminal::set_kitty_image_storage_limit` | 图像存储总量上限（本仓设 64 MiB，恰为上游默认值） |
 
 ### 2.12 `log`（3 项）
 
@@ -469,7 +471,7 @@
 | `ProgressReport::state` | 进度状态 |
 | `Terminal::bg_color` | OSC 11 背景色 |
 | `Terminal::clipboard_write_max_bytes` | 剪贴板写入上限读取 |
-| `Terminal::compress` | 回滚压缩（丢弃最旧内容） |
+| `Terminal::compress` | 回滚压缩：仅改存储表示，不动逻辑内容与回滚上限（见 §5） |
 | `Terminal::compression_activity` | 回滚压缩的活跃度 |
 | `Terminal::continuation_alloc` | 把续传缓冲分配为字节 |
 | `Terminal::continuation_buf` | 把续传缓冲拷入定长缓冲 |
@@ -504,9 +506,9 @@
 | `Terminal::scrollback_max_bytes` | 回滚字节上限读取 |
 | `Terminal::scrollback_max_lines` | 回滚行数上限读取 |
 | `Terminal::scrollbar` | 滚动条状态 |
-| `Terminal::set_apc_max_bytes` | APC 序列上限 |
+| `Terminal::set_apc_max_bytes` | APC 序列上限（上游默认：kitty 65 MiB、glyph 1 MiB，两协议默认全开） |
 | `Terminal::set_clipboard_write_max_bytes` | 设置剪贴板写入上限 |
-| `Terminal::set_continuation_max_bytes` | 设置续传缓冲上限 |
+| `Terminal::set_continuation_max_bytes` | 设置续传缓冲上限（默认禁用；仅服务快照重放，本仓无持久化故不启用） |
 | `Terminal::set_default_cursor_blink` | 设置默认光标闪烁 |
 | `Terminal::set_default_cursor_color` | 设置默认光标色 |
 | `Terminal::set_default_cursor_style` | 设置默认光标样式 |
@@ -590,9 +592,9 @@
 | `Options::with_source` | 设来源 |
 | `Terminal::paste` | 终端驱动的粘贴（拒绝流程需确认对话框，PROHIBITED 明禁） |
 
-### 3.5 `render`（39 项）
+### 3.5 `render`（37 项）
 
-行级脏跟踪在上游可用，本仓抽取侧已接入：0% 命中率曾是「每帧新建 `RenderState`」与「未标记快照已消费」两个条件同时不成立的合流，实测同一 `RenderState` 跨帧复用并逐帧标记已消费后，24 行中仅写入行与光标离开的末行判脏。口径见 `grid-extraction-incremental` 能力。渲染所需属性已全部取到，其余是完整渲染器才需要的附加段。
+行级脏判定（`RowIteration::dirty`）与快照已消费标记（`Snapshot::clean`）已接线（见 §2.5），此表不再含这两项。剩余未用项是完整渲染器才需要的附加段：分段更新（`begin_update`/`Update::end`）服务「解析与渲染并发消费同一快照」的嵌壳方，本仓 VT 线程独占解析与抽取，无并发消费者；`next_dirty`/`set_dirty` 假设消费者按脏行跳跃推进，与本仓行缓存按行索引对齐（`next()` 保持全行序列）不匹配；过扫（`Overscan`）服务像素级滚动的行边界补齐，本仓滚动按整行推进。
 
 | 项 | 说明 |
 | --- | --- |
@@ -616,14 +618,12 @@
 | `RenderState::overscan_request` | 查询建议过扫行数 |
 | `RenderState::set_overscan` | 设置过扫行数 |
 | `RowIteration::cells_raw` | 整行单元原始切片 |
-| `RowIteration::dirty` | 该行是否脏 |
 | `RowIteration::id` | 行标识 |
 | `RowIteration::next_dirty` | 下一个脏行 |
 | `RowIteration::raw_row` | 原始行 |
 | `RowIteration::set_dirty` | 置脏 |
 | `RowIteration::viewport_y` | 视口内行号 |
 | `RowIterator::new_with_alloc` | 自定义分配器创建 |
-| `Snapshot::clean` | 是否全干净 |
 | `Snapshot::colors` | 调色板快照 |
 | `Snapshot::cols` | 快照列数 |
 | `Snapshot::cursor` | 光标结构体 |
@@ -851,7 +851,7 @@
 
 ### 3.15 `focus`（2 项）
 
-焦点上报序列必须直写子 PTY，送入 VT 引擎会被当作 CHT（光标水平制表）。
+焦点上报序列必须直写子 PTY，送入 VT 引擎会被当作 CHT（光标水平制表）。序列本身是定长三字节（模式 1004 规范的 CSI I / CSI O），`session.rs` 的 `focus_event_bytes` 以字面量直写并经测试钉住（模式 1004 门控）；`Event::encode` 编码同一字节且多一次 FFI 往返，无净收益。
 
 | 项 | 说明 |
 | --- | --- |
@@ -1030,4 +1030,8 @@ SGR 属性经 `render::CellIteration::style` 直读。
 - OSC 52 的读取请求（`?`）上游明确忽略，仍由本仓 `output_processor` 的最小扫描器拦截；因此 `on_clipboard_read` 与整个 `ClipboardRead` 族不必接线。
 - 鼠标与键盘编码器的所有单选项 setter 都不单独调用，选项一律经 `set_options_from_terminal` 从终端整体同步，这是编码正确的唯一入口。
 - 光标视觉样式取 `render::Snapshot::cursor_visual_style` 而非 `Terminal::cursor_style`，因为快照路径与 CellData 同源，两条路径不会分叉。
-- 未使用的 517 项中，多数是上游为通用嵌壳方提供的可选能力（设备属性应答族、桌面通知、进度上报、快照持久化、手势状态机、自定义分配器）。剩余的配置型 setter 均为上游默认值即足够；需要限流或改协议行为时再启用，届时须先补 DESIGN 声明。
+- 未使用的 515 项中，多数是上游为通用嵌壳方提供的可选能力（设备属性应答族、桌面通知、进度上报、快照持久化、手势状态机、自定义分配器）。剩余的配置型 setter 均为上游默认值即足够；需要限流或改协议行为时再启用，届时须先补 DESIGN 声明。
+- 2026-10-20 全量复核：公开项总数 718 与源码精确吻合（含 `terminal.rs`/`render.rs` 各 2 个 `pub use` 再导出；`io.rs` 为 `pub(crate)` 不计入）；抽查已用项均有真实调用点、抽查未用项确实未接线，本清单分类可信。
+- 同轮复核现有使用无错误：回滚须先 `set_scrollback_max_bytes(None)` 再设行数（上游字节预算默认先于行数触发），`internal.rs` 顺序正确；KGP 存储上限 64 MiB 恰为上游默认值；APC 载荷上游默认 kitty 65 MiB、glyph 1 MiB 且两协议默认全开，大图传输无隐藏截断；光标未知样式回退块、焦点序列直写 PTY 两处实现与文档论断一致。`Terminal::compress` 的条目说明原写成「丢弃最旧内容」，与上游「压缩只改存储表示、从不动逻辑内容或回滚上限」矛盾，已修正；该 API 未用合理——上游注明须与写入/渲染/搜索串行，本仓 2000 行预算内存可控。
+- 二次复核（2026-10-20 晚）：上游 master 领先本仓钉住 rev 仅 1 个提交（2026-10-19，`libghostty-vt-sys` 构建脚本允许经 `ZIG` 环境变量选择 Zig 版本，只改 README 与 build.rs），不触碰 `crates/libghostty-vt/src`，公开面 718 项不变。本次修正两处分类滞后：`RowIteration::dirty` 与 `Snapshot::clean` 随行级脏跟踪接线已实际使用（`internal.rs` 的行级脏判定与整帧抽取后标记），自未用表移入 §2.5，计数订正为已用 203 / 未用 515。候选「可用未用」API 逐项核查（`on_title_changed`/`next_dirty`/`begin_update`/`Update::end`/`viewport_active`/`is_cursor_pending_wrap`/`vt_write_until_ground`/`is_vt_ground`/`track_grid_ref`/`overscan` 家族/`cursor_blinking`/`cursor_password_input`/`set_resize_pull_scrollback`）：生产代码零命中且各有不采用的架构理由（拉取模式、行缓存按行索引对齐、VT 线程独占解析、整行滚动），维持未用。`focus::Event::encode` 判定记入 §3.15：与手写字面量同字节，多一次 FFI 往返，无净收益。
+- 三次复核（2026-10-20 深夜，逐项全覆盖）：已用 203 项逐一对照上游 doc comment 核查调用语义，**全部符合，无一使用不当**。逐项核实的关键约束：`set_png_decoder` 上游明文要求与 terminal 同线程，本仓在 `run_inner`（VT 线程）注册与 `vt_write` 同线程；`on_clipboard_write` 的 `reply` 义务两条路径都履行（成功 `Ok`、通道满 `Busy`），`try_send` 永不阻塞 VT 线程；`key::Event` 跨事件复用时 `set_unshifted_codepoint` 显式写 `'\0'` 防残留（上游无清零入口）、`set_consumed_mods` 避免文本消费后修饰位重复叠加；编码器选项一律每事件前 `set_options_from_terminal` 整体同步；`Snapshot::clean` 在整帧抽取完成后才调用；`set_logger` 实读上游源码为进程全局（`RwLock` + `sys_set`，非线程局部），本仓经 `log::logger()` 桥接与上游文档示例一致；`style_id` 行内连续同样式缓存、Kitty `generation()` 存储戳跳过、paste `OutOfSpace{required}` 精确扩容、`to_ordered(Forward)` 抹平拖动方向、search `MatchBuffer` 跨查询复用——均与上游语义一致。未用 515 项换角度全面复查（「本仓已有对应功能但自建」的交叉项逐一深挖）：光标色为本轮唯一新识别候选——上游 `Snapshot::cursor_color` 返回 OSC 12 运行时覆盖色，本仓 `build_cursor` 恒取主题 `palette.cursor`；判定为一致的设计立场而非遗漏：bg/fg/cursor 三色以主题为单一来源（`Terminal::bg_color`/`fg_color` 的 OSC 10/11 覆盖读取同样不消费），DESIGN 光标恒块状不闪烁，alacritty 主题文件自带 cursor 色且本仓解析链路完整。`selection_background` 由搜索高亮（`ffi.rs`）与选区反显（VT 烘焙进 CellData）消费，不经上游选区颜色路径，合理。`pending_wrap` 渲染、`on_enquiry`、OSC 12 消费均零命中，无功能缺口。结论：无应接线而漏接的 API，无需任何代码改动。
