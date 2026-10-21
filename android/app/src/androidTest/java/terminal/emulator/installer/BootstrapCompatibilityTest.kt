@@ -3,7 +3,6 @@ package terminal.emulator.installer
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert
 import org.junit.BeforeClass
 import org.junit.Test
@@ -15,47 +14,11 @@ import java.io.File
 @RunWith(JUnit4::class)
 class BootstrapCompatibilityTest : TerminalLogcatTest() {
     companion object {
-        private val BOOTSTRAP_URL by lazy {
-            // 模拟器无外网：CI/本地先 adb push 官方 zip 到 Download 目录，测试经
-            // Instrumentation arguments 以 test.bootstrapUrl 传入 file:// 路径
-            // （adb shell am instrument -e test.bootstrapUrl file:///...）。
-            // 未传参则回退官方 https URL（有外网的设备仍可直跑）。
-            InstrumentationRegistry.getArguments().getString("test.bootstrapUrl")
-                ?: "https://github.com/termux/termux-packages/releases/download/" +
-                "bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"
-        }
         private const val TAG = "BootstrapTest"
 
         @BeforeClass @JvmStatic
         fun ensureBootstrap() {
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val bash = java.io.File(context.filesDir, "usr/bin/bash")
-            if (bash.exists()) {
-                java.io.File(context.filesDir, "home").mkdirs()
-                return
-            }
-            val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-            Log.i(TAG, "installing bootstrap from $BOOTSTRAP_URL")
-            val result =
-                runBlocking {
-                    // 路径必须经 context 解析：/data/data 与 /data/user/0 在此设备
-                    // 上并非同一挂载，硬编码前者会导致 staging→prefix 的原子换入
-                    // 跨分区失败。prefix/home/staging 三者必须同目录同挂载。
-                    val prefixDir = java.io.File(ctx.filesDir, "usr")
-                    val homeDir = java.io.File(ctx.filesDir, "home")
-                    // staging 必须与 prefix 同文件系统（filesDir），否则原子换入
-                    // 的 rename 跨分区失败（cacheDir 与 filesDir 不同挂载）。
-                    val stagingDir = java.io.File(ctx.filesDir, "bootstrap-staging")
-                    BootstrapOrchestrator(
-                        BootstrapDownloader(ctx),
-                        BootstrapInstaller(prefixDir, homeDir, stagingDir),
-                        SecondStageRunner(prefixDir, homeDir),
-                    ).ensureBootstrap(BOOTSTRAP_URL)
-                }
-            Log.i(TAG, "bootstrap result: $result")
-            Assert.assertTrue("bootstrap failed", result.isSuccess)
-            Assert.assertTrue("bash not found after bootstrap", bash.exists())
-            java.io.File(context.filesDir, "home").mkdirs()
+            ensureBootstrapInstalled()
         }
     }
 

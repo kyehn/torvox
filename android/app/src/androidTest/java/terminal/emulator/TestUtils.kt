@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -194,11 +195,32 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
     }
 }
 
+/**
+ * 关掉抽屉：`SessionDrawer` 是 `ModalNavigationDrawer`，其 `BackHandler` 在展开时
+ * 接管返回键。点抽屉外的遮罩会落在终端上（可能触发选择），返回键是唯一无副作用的路。
+ */
+fun AndroidComposeTestRule<*, *>.closeDrawer() {
+    waitForIdle()
+    Espresso.pressBack()
+    waitUntil(timeoutMillis = DRAWER_VISIBLE_TIMEOUT_MS) {
+        !probeAssertion {
+            onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
+        }
+    }
+}
+
 /** 当前活跃会话 id（主线程同步读）：会话增删断言的共享读口。 */
 fun AndroidComposeTestRule<*, *>.activeSessionId(): Long {
     var id = -1L
     runOnMainThread { id = (activity as MainActivity).terminalViewModel.state.value.activeSessionId }
     return id
+}
+
+/** 全部会话 id（主线程同步读）：与 [activeSessionId] 同口径，按列表顺序。 */
+fun AndroidComposeTestRule<*, *>.sessionIds(): List<Long> {
+    var ids = emptyList<Long>()
+    runOnMainThread { ids = (activity as MainActivity).terminalViewModel.state.value.sessions.map { it.id } }
+    return ids
 }
 
 /** 会话总数（主线程同步读）：与 [activeSessionId] 同口径。 */
