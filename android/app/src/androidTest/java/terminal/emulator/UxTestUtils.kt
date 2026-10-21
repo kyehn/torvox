@@ -355,6 +355,48 @@ fun awaitShellPrompt(bridge: Bridge, timeoutMs: Long = 30_000) {
 private val SGR_SEQUENCE = Regex("\u001B\\[[0-9;]*m")
 
 /**
+ * 让共享 shell 回到可预期状态：结束占着 tty 的前台进程、恢复 tty 回显、关掉全部鼠标上报模式。
+ *
+ * 共享会话是所有仪器测试的公共资源，而**命令回显**正是它的状态之一：任何用例把
+ * tty 改成 `-echo`，都会**静默**污染后续用例——依赖「命令回显出现」的用例会一直
+ * 等到超时。本仓踩过这个坑：鼠标用例用一次写入同时送 ETX 与复位命令，而 tty 处于
+ * `-icanon` 时前台 `cat` 一次 read 就把两者一起读走（非行缓冲），命令就此丢失——
+ * 鼠标上报没关、`stty sane` 没执行，回显再没打开，后续用例以「命令回显未出现」判红。
+ *
+ * 三步必须**分次**写：
+ * 1. ETX 单独一次：结束可能占着 tty 的前台进程（`cat` 之类）；
+ * 2. 等 shell 真的能执行命令——判据取命令的**输出**而非回显，因为此刻回显可能仍是关的；
+ * 3. `stty sane` 恢复 tty，并关掉全部鼠标上报模式（终端级模式，`stty` 管不着）。
+ */
+fun Bridge.restoreSharedShellState(timeoutMs: Long = 30_000) {
+    val nonce = "restore-${System.nanoTime()}"
+    val deadline = System.nanoTime() + timeoutMs * 1_000_000
+    var responsive = false
+    while (System.nanoTime() < deadline && !responsive) {
+        writeToPty("\u0003".toByteArray(Charsets.UTF_8))
+        writeToPty("printf 'RESTORE_%s\\n' $nonce\n".toByteArray(Charsets.UTF_8))
+        responsive =
+            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
+                getTerminalText()?.contains(nonce) == true
+            } != null
+    }
+    assertNotNull("共享 shell 无法恢复可交互（前台进程未退出？）", responsive)
+    writeToPty(
+        (
+            "stty sane; printf '\\033[?1000l\\033[?1002l\\033[?1003l" +
+                "\\033[?1005l\\033[?1015l\\033[?1006l'\n"
+            ).toByteArray(Charsets.UTF_8),
+    )
+    // 鼠标上报是终端级状态：模式关掉后镜像必须回落，否则滚动手势会一直被转发给远端。
+    assertNotNull(
+        "DECRST 之后鼠标上报镜像必须回落",
+        UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
+            !isMouseTrackingActive()
+        },
+    )
+}
+
+/**
  * 视口 [row] 行首列起写入 [text] 并轮询至**渲染光标**落在该行文本末列。
  *
  * 落格判据取渲染光标而非文本包含：光标位置由 VT 产出、与单元格内容同源，

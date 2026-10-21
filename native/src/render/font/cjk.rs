@@ -32,16 +32,22 @@ impl FontPipeline {
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
         if system_locale.is_empty() {
             log::debug!("CJK_FALLBACK: skipped (locale not yet known)");
+            self.cjk_fallback_skip_reason =
+                Some(super::pipeline::CjkFallbackSkipReason::LocaleUnknown);
             return;
         }
         // 非 CJK locale 不装回退层（探测字符在此 locale 下无意义）。
         if super::font_db::cjk_probe_char(system_locale).is_none() {
             log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
+            self.cjk_fallback_skip_reason =
+                Some(super::pipeline::CjkFallbackSkipReason::NonCjkLocale);
             return;
         }
 
         if self.primary_covers_cjk_probe() {
             log::debug!("CJK_FALLBACK: skipped (primary font already supports CJK)");
+            self.cjk_fallback_skip_reason =
+                Some(super::pipeline::CjkFallbackSkipReason::PrimaryCovers);
             return;
         }
 
@@ -54,6 +60,9 @@ impl FontPipeline {
                 MAX_CJK_FALLBACK_FONTS,
             )
         });
+        // 走到这里就是「该装但装不上（或装上了）」：缺席不是按设计为之，
+        // 故清掉跳过原因——找不到时状态为 None（真问题），装上时为 Fallback。
+        self.cjk_fallback_skip_reason = None;
         if self.cjk_fallback_ids.is_empty() {
             #[cfg(any(target_os = "android", test))]
             let has_pending_region = fonts_xml.as_deref().is_some_and(|xml| {

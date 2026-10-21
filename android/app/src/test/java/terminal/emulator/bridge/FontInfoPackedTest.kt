@@ -107,7 +107,27 @@ class FontInfoPackedTest {
         assertFalse(info.hasRealCjkFallback)
         assertNull(info.cjkFallbackText())
         assertEquals(CjkState.NONE, info.cjkState)
+        assertFalse(info.isCjkFallbackSkipped)
         assertTrue(info.otherFamilies.isEmpty())
+    }
+
+    /**
+     * 「按设计跳过」的三种状态都不是缺失：设置页据此不报「未检测到」。
+     */
+    @Test
+    fun `skipped states are not reported as missing`() {
+        val skipped =
+            listOf(
+                CjkState.SKIPPED_PRIMARY_COVERS,
+                CjkState.SKIPPED_NON_CJK_LOCALE,
+                CjkState.SKIPPED_LOCALE_UNKNOWN,
+            )
+        for (state in skipped) {
+            val info = FontInfo.fromPacked(pack(names = listOf("Liberation Mono"), cjkState = state))
+            assertEquals(state, info.cjkState)
+            assertTrue("状态 $state 属跳过，不得报成缺失", info.isCjkFallbackSkipped)
+            assertFalse(info.hasRealCjkFallback)
+        }
     }
 
     @Test
