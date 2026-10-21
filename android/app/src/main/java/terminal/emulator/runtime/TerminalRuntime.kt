@@ -1052,6 +1052,11 @@ constructor(
      * mksh 在设置 `$ENV` 时读它，否则交互式读 `~/.mkshrc`；我们先 source 系统 rc
      * （保留其 PATH/别名设置）再覆盖 PS1。引导中的 bash 从不读此文件。
      * 文件不含内容标记时覆写，使陈旧安装自愈。
+     *
+     * 提示符同时**上报会话标题**（OSC 0，当前目录名）：mksh 自己不发 OSC 0/2
+     * （别的 shell 未必自带），没有这层集成，mksh 会话在抽屉里永远只有序号。标题序列
+     * 写在提示符里、由 mksh 每次画提示符时发出——mksh 计算提示符宽度时会跳过
+     * 转义序列，可见宽度仍是两个字符，不会把命令行顶到折行。
      */
     private fun ensureMkshPromptRc() {
         val mkshRcFile = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
@@ -1071,7 +1076,7 @@ constructor(
             mkshRcFile.writeText(
                 "# terminal: termux-parity prompt (see TerminalRuntime.ensureMkshPromptRc)\n" +
                     ". /system/etc/mkshrc\n" +
-                    "PS1='\$ '\n",
+                    "PS1='$OSC_TITLE_START\${PWD##*/}$OSC_TITLE_END\$ '\n",
             )
         } catch (exception: Exception) {
             LogUtil.w("Runtime", "Failed to write $MKSHRC_FILENAME: $exception")
@@ -1993,6 +1998,16 @@ constructor(
 
         /** mksh 交互 shell 经 `$ENV` 加载的启动文件名（DESIGN Shell 节）。 */
         const val MKSHRC_FILENAME = ".mkshrc"
+
+        /**
+         * OSC 0 标题序列的起止：ESC ] 0 ; 与 BEL。
+         *
+         * mksh 的提示符里必须写**字面量**的 ESC/BEL：mksh 不解释提示符里的
+         * 反斜杠转义（`\033` 会原样打印出来），也不认 bash 的 `\[`/`\]` 非打印
+         * 标记。好在 mksh 计算提示符宽度时会跳过转义序列，可见宽度不受影响。
+         */
+        private const val OSC_TITLE_START = "\u001B]0;"
+        private const val OSC_TITLE_END = "\u0007"
 
         private const val TENTHS_PER_UNIT = 10
 
