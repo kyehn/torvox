@@ -1,11 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 文件权限（DESIGN 软件节「声明文件权限（不提示，允许用户自行授权），支持 /sdcard 目录」）。
+         WRITE_EXTERNAL_STORAGE 在 targetSdk 28 下随安装授予（沿用 legacy 存储视图），
+         终端子进程与宿主同 UID，因而直接可读写 /sdcard；
+         MANAGE_EXTERNAL_STORAGE 是「所有文件访问」开关，由用户自行在系统设置里开启，
+         应用不弹窗提示。两者都与上游 Termux 的清单一致。 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:name=".TerminalApp"
