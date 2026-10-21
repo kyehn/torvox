@@ -50,6 +50,18 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
 
         /** Catppuccin Mocha 背景（0x1E1E2E）：与应用默认主题一致，用作「无墨迹」基准。 */
         private const val BACKGROUND_COLOR = 0x1E1E2E
+
+        /**
+         * 区域内相对中位色的最大偏差上限：纯色覆盖时只有边缘抗锯齿会跳一两点；
+         * 透出桌面时壁纸/图标的像素会立刻撑开这个值。
+         */
+        private const val COVER_SPREAD_TOLERANCE = 8
+
+        /**
+         * 中位色相对终端底色的上限：屏幕合成与色彩管理会让纯色整体偏移几级，
+         * 但仍远小于「透出别的画面」的差异（后者是几十以上）。
+         */
+        private const val COVER_COLOR_TOLERANCE = 24
     }
 
     @get:Rule
@@ -219,6 +231,130 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         assertTrue("关闭失效注入必须被原生接受", bridge().setSurfaceLossInjectedForTest(false))
 
         assertNotNull("换 SurfaceView 后选区菜单必须重现", awaitCopyAction())
+    }
+
+    /**
+     * 无缓冲区期间窗口层必须盖住开孔底色，而不是透出后方桌面。
+     *
+     * 症状是「切应用返回闪一下」：SurfaceView 的原生 surface 位于窗口**之下**，窗口
+     * 在这块是透明开孔。缓冲区缺失时若组合层不着色，开孔就透出桌面/上一个应用。
+     * 用持续注入把「无缓冲区」拉长成稳定状态，才能既断言运行期标志，又量到像素：
+     * 开孔区域必须是**均匀的终端底色**（透出桌面时不会是纯底色）。
+     */
+    @Test
+    fun noBufferWindowIsCoveredByThemeBackground() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        composeTestRule.waitForIdle()
+        assertNotNull(
+            "正常出帧后必须报告「已有缓冲区」，否则覆盖层永远撤不掉",
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                runtime.surfaceBufferPresent.value
+            },
+        )
+
+        assertTrue("失效注入必须被原生接受", bridge().setSurfaceLossInjectedForTest(true))
+        val surfaceBefore = findTerminalSurface(composeTestRule.activity)
+        // 持续注入让新 Surface 也拿不到缓冲：宿主换视图后「无缓冲区」成为稳定态。
+        val rebuilt =
+            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                bridge().writeToPty("echo COVER_TICK\n".toByteArray(Charsets.UTF_8))
+                pumpAndText()
+                composeTestRule.waitForIdle()
+                val current =
+                    runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
+                current != null && current !== surfaceBefore
+            }
+        assertNotNull("注入 surface 失效后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView", rebuilt)
+        assertNotNull(
+            "换视图后、首帧未到时必须报告「无缓冲区」，否则不会着色遮住开孔",
+            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
+                !runtime.surfaceBufferPresent.value
+            },
+        )
+        // 像素证据要在「注入仍生效」的这一瞬抓：先把画面拿到手，随后立刻撤注入。
+        // 反过来先轮询像素会把注入拖上几秒，重建预算被耗光，之后的恢复就无从发生。
+        val shot = runCatchingCancellable { UxTestUtils.screenshot(device) }.getOrNull()
+        val released = bridge().setSurfaceLossInjectedForTest(false)
+        assertTrue("关闭失效注入必须被原生接受（$released）", released)
+        val bitmap = checkNotNull(shot) { "无缓冲区期间必须能截到开孔区域" }
+        val surface = findTerminalSurface(composeTestRule.activity)
+        val location = IntArray(2)
+        surface.getLocationOnScreen(location)
+        val cover =
+            checkNotNull(
+                coverPixels(
+                    bitmap = bitmap,
+                    left = location[0].coerceIn(0, bitmap.width - 1),
+                    top = location[1].coerceIn(0, bitmap.height - 1),
+                    width = surface.width,
+                    height = surface.height,
+                ),
+            ) { "开孔区域必须量到像素" }
+        assertTrue(
+            "无缓冲区期间开孔区域必须是均匀的终端底色（实测 spread=${cover.spread} " +
+                "medianDeviation=${cover.medianDeviation}），否则就是透出了后方画面",
+            cover.spread <= COVER_SPREAD_TOLERANCE && cover.medianDeviation <= COVER_COLOR_TOLERANCE,
+        )
+        // 恢复与「换视图」同源：失效位持续为 1 时宿主会换新 SurfaceView，新窗口出帧后
+        // 覆盖层才该撤。每轮都要制造输出——空闲帧不渲染，不喂输出就既驱动不出重试，
+        // 也看不到新窗口的首帧。
+        assertNotNull(
+            "恢复出帧后必须撤销覆盖层",
+            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                bridge().writeToPty("echo COVER_RESUME\n".toByteArray(Charsets.UTF_8))
+                pumpAndText()
+                composeTestRule.waitForIdle()
+                runtime.surfaceBufferPresent.value
+            },
+        )
+        awaitInk("恢复后：")
+    }
+
+    /** 开孔区域的底色量测：中位色相对终端底色的偏差，以及区域内相对中位色的最大偏差。 */
+    private data class CoverPixels(val medianDeviation: Int, val spread: Int)
+
+    /**
+     * 采样开孔区域的像素。
+     *
+     * 判据分两层：`spread` 小表示这块被**均匀**涂了一块纯色（透出桌面时会混进壁纸、
+     * 图标、上一应用，spread 立刻变大）；`medianDeviation` 小表示这块的纯色就是终端
+     * 底色本身。分开量是因为屏幕合成与色彩管理会让纯色整体偏移一两级，但仍远小于
+     * 「透出别的画面」的差异。
+     */
+    private fun coverPixels(
+        bitmap: android.graphics.Bitmap,
+        left: Int,
+        top: Int,
+        width: Int,
+        height: Int,
+    ): CoverPixels? {
+        val right = (left + width).coerceIn(left + 1, bitmap.width)
+        val bottom = (top + height / 2).coerceIn(top + 1, bitmap.height)
+        val channels = IntArray(3) { index -> index }
+        val samples = ArrayList<IntArray>()
+        var y = top
+        while (y < bottom) {
+            var x = left
+            while (x < right) {
+                val pixel = bitmap.getPixel(x, y)
+                samples += intArrayOf((pixel shr 16) and 0xFF, (pixel shr 8) and 0xFF, pixel and 0xFF)
+                x += INK_SAMPLE_STEP_PX
+            }
+            y += INK_SAMPLE_STEP_PX
+        }
+        if (samples.isEmpty()) return null
+        val median =
+            channels.map { channel ->
+                val sorted = samples.map { it[channel] }.sorted()
+                sorted[sorted.size / 2]
+            }
+        val expected = channels.map { channel -> (BACKGROUND_COLOR shr (16 - channel * 8)) and 0xFF }
+        val medianDeviation = channels.maxOf { kotlin.math.abs(median[it] - expected[it]) }
+        val spread =
+            samples.maxOf { sample ->
+                channels.maxOf { kotlin.math.abs(sample[it] - median[it]) }
+            }
+        return CoverPixels(medianDeviation = medianDeviation, spread = spread)
     }
 
     /** 轮询至选择菜单的「复制」项出现在无障碍树中（返回耗时，null 表示超时）。 */

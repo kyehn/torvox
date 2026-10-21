@@ -5,13 +5,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure surface-recreate throttling behind [TerminalRuntime.maybeRequestSurfaceRecreate]:
- * the first invalid frame requests a fresh Android surface immediately, retries wait for the
- * minimum interval, and the attempt cap stops the churn once rebuilding looks hopeless.
+ * [TerminalRuntime.maybeRequestSurfaceRecreate] 背后的纯限流：首帧失效立即请求换新窗口，
+ * 快试阶段按最小间隔重试，用尽后转为慢重试——既不无限拆装视图，也不永久放弃自愈。
  */
 class DecideSurfaceRecreateTest {
 
     private val minIntervalNanos = 500_000_000L
+    private val slowIntervalNanos = 5_000_000_000L
 
     @Test
     fun `first failure requests immediately`() {
@@ -42,18 +42,33 @@ class DecideSurfaceRecreateTest {
     }
 
     @Test
-    fun `attempt cap exhausts instead of requesting`() {
-        val decision = decideSurfaceRecreate(attempts = 5, lastRequestNanos = 0L, nowNanos = 1L)
+    fun `slow phase reports exhaustion and waits for its own interval`() {
+        val decision = decideSurfaceRecreate(
+            attempts = 5,
+            lastRequestNanos = 1_000_000_000L,
+            nowNanos = 1_000_000_000L + slowIntervalNanos - 1,
+        )
         assertFalse(decision.request)
         assertTrue(decision.exhausted)
     }
 
     @Test
-    fun `exhaustion wins over a long idle interval`() {
+    fun `slow phase keeps retrying after its interval`() {
+        val decision = decideSurfaceRecreate(
+            attempts = 5,
+            lastRequestNanos = 1_000_000_000L,
+            nowNanos = 1_000_000_000L + slowIntervalNanos,
+        )
+        assertTrue(decision.request)
+        assertTrue(decision.exhausted)
+    }
+
+    @Test
+    fun `slow phase does not retry at the fast cadence`() {
         val decision = decideSurfaceRecreate(
             attempts = 99,
             lastRequestNanos = 1L,
-            nowNanos = 1L + minIntervalNanos * 100,
+            nowNanos = 1L + minIntervalNanos * 2,
         )
         assertFalse(decision.request)
         assertTrue(decision.exhausted)
