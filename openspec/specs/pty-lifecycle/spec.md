@@ -81,6 +81,9 @@ VT 引擎的应答缓冲（DECRPM/DSR/DA 等 `on_pty_write` 回调产物）无�
 拆卸路径 MUST 可重入：重复请求退出 MUST NOT 发出第二组信号、MUST NOT panic，
 第二次调用与第一次的结果一致。
 
+等待线程已回收子进程并置位退出标志后，拆卸 MUST NOT 再按该 PID 发信号；
+`getpgid(child)` 返回 `ESRCH` 时同样 MUST 直接返回，避免 PID 被系统复用后误伤无关进程。
+
 读取循环 MUST 在 PTY 消失或错误致命时自行停止，MUST NOT 对从端关闭导致的 `EIO` 无限重试；
 瞬时错误重试的判定 MUST 由纯函数表达并有其单测。
 
@@ -96,6 +99,11 @@ VT 引擎的应答缓冲（DECRPM/DSR/DA 等 `on_pty_write` 回调产物）无�
 - **THEN** 只发一组挂断与强杀信号，第二次调用不 panic 且结果与第一次一致
       （`native/src/terminal/session.rs` 的 `request_exit` 以 `exited` 标志短路，
       并把输出通道换新使后续取用仍安全）
+
+#### Scenario: 子进程已回收后不再发信号
+
+- **WHEN** 等待线程已回收子进程，随后才请求退出
+- **THEN** 拆卸直接返回，不调用 `kill(2)`，避免命中复用后的 PID
 
 #### Scenario: 从端关闭后读循环停止
 
@@ -146,8 +154,11 @@ resize 的结果 MUST 区分两种情形：PTY 与网格都已缩放，以及 PT
 把从端 `dup2` 到 0／1／2、以显式 `argv` 与 `envp` 调用 `execve`。主端 fd MUST 带
 `FD_CLOEXEC`，MUST NOT 泄漏给子进程。
 
-执行失败 MUST 可诊断：errno MUST 编码进退出码（`100 + errno`，截到 155），且 MUST 把
+执行失败 MUST 可诊断：errno MUST 编码进退出码（`100 + errno`，errno 范围 1..=133），且 MUST 把
 可读原因写进从端，MUST NOT 静默退出使调用方只看到「空会话」。
+
+等待线程 MUST 只把 `100 + errno`（errno 1..=133）的退出码解释为 `execve` 失败；
+其他退出码（例如 shell 的 `exit 254`）MUST NOT 记为执行失败。
 
 termios MUST 置 `IUTF8`，且 MUST 关闭软件流控（`IXON`／`IXOFF` 清零）。
 
@@ -166,6 +177,11 @@ termios MUST 置 `IUTF8`，且 MUST 关闭软件流控（`IXON`／`IXOFF` 清零
 - **WHEN** 目标二进制不存在或不可执行
 - **THEN** 退出码含 errno 编码（由等待线程解码并在 logcat 可观测），
       且从端出现可读的错误行 `execve failed: errno=N`
+
+#### Scenario: 普通非零退出不误报 exec 失败
+
+- **WHEN** shell 正常执行并返回 `exit 254`
+- **THEN** 等待线程按普通退出码处理，MUST NOT 输出 `possible execve errno` 错误日志
 
 #### Scenario: 软件流控关闭
 
