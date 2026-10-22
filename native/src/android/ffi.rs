@@ -2477,17 +2477,22 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.kitty_instances,
                 render_state.kitty_overlay_dirty,
             );
-            if result.is_ok() {
-                render_state.kitty_overlay_dirty = false;
-                render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
-                render_state.search_highlights.drawn =
-                    render_state.search_highlights.current.clone();
-                render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
-            }
             match result {
-                Ok(()) => 1,
+                Ok(()) => {
+                    render_state.kitty_overlay_dirty = false;
+                    render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+                    render_state.search_highlights.drawn =
+                        render_state.search_highlights.current.clone();
+                    render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
+                    1
+                }
                 Err(error) => {
                     log::error!("render: frame failed: {error}");
+                    // receive_cell_data() 是破坏性取数，VT 去重基线已推进，未呈现的帧
+                    // 不会被 VT 补发。把本帧 cells 留在 last_frame，并置 dirty 确保
+                    // 下一帧（Idle 或 New）重试，避免该帧内容永久丢失。
+                    render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+                    render_state.dirty.store(true, Ordering::Release);
                     -1
                 }
             }
