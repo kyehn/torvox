@@ -2707,7 +2707,14 @@ constructor(
                         serviceException,
                     )
                 }
-                renderSupervisor.startRenderThread(startedEntry)
+                // 切后台期间 MUST NOT 启动渲染线程：渲染线程去取帧会得到
+                // ERROR_SURFACE_LOST_KHR（永久黑屏），且与推进泵重复消费全局事件队列。
+                // 会话已注册（running=false），ON_RESUME 由 resumeRendering 统一拉起。
+                if (!isBackgroundPaused) {
+                    renderSupervisor.startRenderThread(startedEntry)
+                } else {
+                    startedEntry.running = false
+                }
                 renderSupervisor.startRenderMonitor()
             }
             // 在会话注册之后才重算网格
@@ -3067,7 +3074,7 @@ constructor(
             }
 
             // Surface 已在上方经 attachSurface 交给渲染器；此处无需其他操作。
-            target.running = true
+            target.running = !isBackgroundPaused
         }
 
         // 阶段 2（不持锁）：在事件驱动的渲染线程启动前，同步渲染新会话的首帧，
@@ -3154,38 +3161,43 @@ constructor(
             // 推给它一帧（在属于前一个回滚缓冲区的行号上）。放在 try 之外：
             // 起线程失败时下方会把活动会话还给前一个，此时此处不做任何改动。
             publishActiveSessionState(target)
-            try {
-                renderSupervisor.startRenderThread(target)
-            } catch (exception: Exception) {
-                LogUtil.e(
-                    "Runtime",
-                    "switchSession: failed to start render thread for session $id",
-                    exception,
-                )
-                // 前一个活动会话已停止且其 GPU surface 已释放，恢复它，
-                // 使终端不会被留在冻结状态（无渲染线程，且监视器会永远跳过
-                // !running 的条目）。
-                val previous = sessions[previousActiveId]
-                if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
-                    LogUtil.w(
+            if (isBackgroundPaused) {
+                // 切后台期间不启动；ON_RESUME 由 resumeRendering 统一拉起。
+                LogUtil.d("Runtime", "switchSession: background-paused, deferring render thread start for session $id")
+            } else {
+                try {
+                    renderSupervisor.startRenderThread(target)
+                } catch (exception: Exception) {
+                    LogUtil.e(
                         "Runtime",
-                        "switchSession: restoring previous session ${previous.id} after failure",
+                        "switchSession: failed to start render thread for session $id",
+                        exception,
                     )
-                    previous.running = true
-                    previous.renderThreadExited = false
-                    previous.restartAttempts = 0
-                    try {
-                        renderSupervisor.startRenderThread(previous)
-                        setActiveSessionId(previous.id)
-                    } catch (restoreException: Exception) {
-                        LogUtil.e(
+                    // 前一个活动会话已停止且其 GPU surface 已释放，恢复它，
+                    // 使终端不会被留在冻结状态（无渲染线程，且监视器会永远跳过
+                    // !running 的条目）。
+                    val previous = sessions[previousActiveId]
+                    if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
+                        LogUtil.w(
                             "Runtime",
-                            "switchSession: failed to restore previous session ${previous.id}",
-                            restoreException,
+                            "switchSession: restoring previous session ${previous.id} after failure",
                         )
+                        previous.running = true
+                        previous.renderThreadExited = false
+                        previous.restartAttempts = 0
+                        try {
+                            renderSupervisor.startRenderThread(previous)
+                            setActiveSessionId(previous.id)
+                        } catch (restoreException: Exception) {
+                            LogUtil.e(
+                                "Runtime",
+                                "switchSession: failed to restore previous session ${previous.id}",
+                                restoreException,
+                            )
+                        }
                     }
+                    return false
                 }
-                return false
             }
             try {
                 setActiveSessionId(id)
@@ -3498,7 +3510,8 @@ constructor(
      * 输入字节可能在别的线程刷写（输入法批缓冲的帧回调与 PtyWriter 线程），
      * 那时再解析 `sessions[activeSessionId]` 会把粘贴尾部写进用户刚切换到的新会话。
      */
-    val inputTargetSessionId: Long get() = activeSessionId
+    val inputTargetSessionId: Long
+        get() = activeSessionId
 
     fun writeToPty(sessionId: Long, data: ByteArray): Boolean {
         val entry = sessions[sessionId]
@@ -3938,7 +3951,16 @@ constructor(
         }
         // 无条件重启：仍存活的旧线程正在退出；
         // startRenderThread 会 interrupt+join 它并强制换上一个新线程。
-        renderSupervisor.startRenderThread(replacement)
+        if (isBackgroundPaused) {
+            // 切后台期间不拉起新渲染线程；ON_RESUME 由 resumeRendering 统一拉起。
+            replacement.running = false
+            LogUtil.d(
+                "Runtime",
+                "activateReplacementSession: background-paused, deferring render start for session ${replacement.id}",
+            )
+        } else {
+            renderSupervisor.startRenderThread(replacement)
+        }
         if (syncGrid) {
             bridge.let { syncGridDimensions(it) }
         }
@@ -4086,10 +4108,15 @@ constructor(
         // 标题不在这里取：标题只能通过阻塞式 VT 往返获得（最长约 1 秒），
         // 而本函数会在持有 sessionLock 时被调用。
         _state.update { current ->
+            val active = activeSessionId
             current.copy(
                 isRunning = sessions.isNotEmpty(),
-                activeSessionId = activeSessionId,
+                activeSessionId = active,
                 sessionIds = sessions.keys.toList(),
+                // 活动会话换了（或一个都不剩）就清掉旧标题：标题是**某个**会话的
+                // 属性，留在旧会话上会让 UI 显示别人的名字；真实标题由随后的
+                // 异步刷新填回（见 [scheduleActiveSessionTitleRefresh]）。
+                title = if (active != current.activeSessionId || active == 0L) "" else current.title,
             )
         }
     }
@@ -4104,13 +4131,24 @@ constructor(
      */
     private fun scheduleActiveSessionTitleRefresh() {
         scope.launch {
-            val (sessionId, bridgeOrNull) = synchronized(sessionLock) {
-                activeSessionId to sessions[activeSessionId]?.bridge
+            val sessionId = synchronized(sessionLock) { activeSessionId }
+            if (sessionId == 0L) {
+                _state.update { current -> current.copy(title = "") }
+                return@launch
             }
-            val bridge = bridgeOrNull ?: return@launch
-            val title = bridge.getActiveSessionTitle()
+            // 按会话 ID 查标题，而不是查「当前活动会话」：后者是全局查询，
+            // A→B→A 的并发切换里它可能返回 B 的标题却写进 A 的槽位。
+            // 用 runCatchingCancellable 而非裸 runCatching：后者会吞掉协程取消信号
+            // （slack-lint DenyListedApi）。
+            val queried =
+                runCatchingCancellable { NativeBridge.getSessionTitles(longArrayOf(sessionId)) }
+                    .getOrNull()
+                    ?.firstOrNull()
+            // 查询失败（会话刚销毁/JNI 报错）时不动已有标题：宁可显示旧标题，
+            // 也不要把还能用的名字抹成空。
+            if (queried == null) return@launch
             _state.update { current ->
-                if (current.activeSessionId == sessionId) current.copy(title = title) else current
+                if (current.activeSessionId == sessionId) current.copy(title = queried) else current
             }
         }
     }
@@ -4124,20 +4162,16 @@ constructor(
     }
 
     /**
-     * Surface 被销毁。[owner] 是回调方视图的凭证。
-     *
-     * **陈旧视图的回调必须原样忽略**：Activity 重建时旧窗口的 `surfaceDestroyed`
-     * 可能晚于新视图的 `surfaceCreated` 到达，而全局暂停是非计数布尔、清除它的
-     * 位置全在新视图的恢复路径上——按下去就没有人再放开，终端全黑且渲染线程毫无
-     * 异常表现（无错误、无重启、无自愈）。
-     */
-    /**
      * Surface 销毁通知；返回 true 表示 [owner] 确实是当前持有者并已处理。
      *
+     * [owner] 是回调方视图的凭证。**陈旧视图的回调必须原样忽略**：Activity 重建时
+     * 旧窗口的 `surfaceDestroyed` 可能晚于新视图的 `surfaceCreated` 到达，而全局
+     * 暂停是非计数布尔、清除它的位置全在新视图的恢复路径上——按下去就没有人再放开，
+     * 终端全黑且渲染线程毫无异常表现（无错误、无重启、无自愈）。
+     *
      * 调用方 MUST 只在自己的持有被认领时才释放 GPU Surface/清空 `currentSurface`：
-     * Activity 重建时新旧视图会短暂共存，陈旧视图的 `surfaceDestroyed` 可能晚于
-     * 新视图的 `surfaceCreated` 到达——无条件暂停会停掉新视图刚恢复的渲染线程，
-     * 而该暂停的凭证再也不会被归还（永久黑屏）。
+     * 无条件暂停会停掉新视图刚恢复的渲染线程，而该暂停的凭证再也不会被归还
+     * （永久黑屏）。
      */
     fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
@@ -4170,6 +4204,17 @@ constructor(
 
     /** 切后台那次暂停的凭证；重复调用先归还前一次，故不会累计持有。 */
     private var backgroundPauseToken: Long? = null
+
+    /**
+     * 切后台那次暂停是否仍在持有。
+     *
+     * 尺寸变化路径（IME 收起、旋转）会重算网格并重绑 Surface；此时若正处于后台，
+     * MUST NOT 顺手恢复渲染：后台的 BufferQueue 可能已被系统回收，
+     * 渲染线程去取帧会得到 `ERROR_SURFACE_LOST_KHR`（返回后永久黑屏），
+     * 且恢复出来的渲染线程会与推进泵重复消费同一全局事件队列。
+     */
+    val isBackgroundPaused: Boolean
+        get() = backgroundPauseToken != null
 
     /** 切后台：领一次渲染暂停并停止渲染线程。 */
     fun pauseRenderingForBackground() {
@@ -4230,10 +4275,20 @@ constructor(
      * （设置页自己的键盘），整本清账会把「进入设置时暂停渲染」废掉。
      */
     fun clearLifecycleRenderPause() {
-        surfaceDestroyedPauseToken?.let { renderPauseLedger.release(it) }
-        surfaceDestroyedPauseToken = null
+        clearSurfaceDestroyedRenderPause()
         backgroundPauseToken?.let { renderPauseLedger.release(it) }
         backgroundPauseToken = null
+    }
+
+    /**
+     * 只归还「Surface 销毁」那一次暂停。
+     *
+     * 切后台那次必须由 [resumeRenderingFromBackground] 单独归还：后台期间系统可能
+     * 已回收 BufferQueue，此时恢复渲染等于让渲染线程去取帧失败（永久黑屏）。
+     */
+    fun clearSurfaceDestroyedRenderPause() {
+        surfaceDestroyedPauseToken?.let { renderPauseLedger.release(it) }
+        surfaceDestroyedPauseToken = null
     }
 
     fun releaseAllGpuSurfaces() {
