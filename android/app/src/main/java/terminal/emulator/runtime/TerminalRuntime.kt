@@ -790,10 +790,12 @@ constructor(
         }
         // 渲染线程仍卡在原生代码里时由同一条守卫跳过关闭（在其下销毁即 UAF）。
         entry.closeBridgeUnlessRenderThreadAlive("shell exit")
+        var activeSessionReplaced = false
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
             sessions.remove(entry.id)
             if (entry.id == activeSessionId) {
+                activeSessionReplaced = true
                 // 前台会话刚刚消失；接替会话没有渲染线程（只有活动会话渲染），
                 // 其输出/事件永远不会被轮询，终端将看似卡死。此刻立即激活它。
                 setActiveSessionId(sessions.keys.sorted().lastOrNull() ?: 0L)
@@ -810,6 +812,8 @@ constructor(
             updateForegroundSessionCount(sessions.size)
             updateState()
         }
+        // 接替会话换了，标题不能停留在已退出会话上；查询本身在后台作用域里。
+        if (activeSessionReplaced) scheduleActiveSessionTitleRefresh()
     }
 
     private fun closeDeadSession(entry: SessionEntry) {
@@ -2992,7 +2996,7 @@ constructor(
         updateState()
         // 标题只在锁外刷新：取标题要走阻塞式 VT 往返（最长约 1 秒），
         // sessionLock 是所有会话操作的总闸，锁内阻塞等于冻结整个会话子系统。
-        refreshActiveSessionTitle()
+        scheduleActiveSessionTitleRefresh()
         return true
     }
 
@@ -3346,7 +3350,7 @@ constructor(
         }
         // 关闭活动会话后标题要立刻跟着变：活动会话变了，标题不能还挂着旧的。
         // 与切换同理，刷新必须在锁外做。
-        refreshActiveSessionTitle()
+        scheduleActiveSessionTitleRefresh()
     }
 
     suspend fun applySettings() {
@@ -4070,7 +4074,7 @@ constructor(
      *
      * 标题查询是一次阻塞式 VT 往返（最长约 1 秒），而本方法在会话总闸
      * `sessionLock` 内被调用（关闭/切换/退出路径），压着锁查会把整个会话子系统
-     * 冻结住。标题由 [refreshActiveSessionTitle] 在锁外刷新。
+     * 冻结住。标题由 [scheduleActiveSessionTitleRefresh] 在后台刷新。
      */
     private fun updateState() {
         // 标题不在这里取：标题只能通过阻塞式 VT 往返获得（最长约 1 秒），
@@ -4085,17 +4089,23 @@ constructor(
     }
 
     /**
-     * 在**锁外**查询活动会话的标题并写回状态。
+     * 异步刷新活动会话的标题。
      *
-     * 标题是 VT 的 OSC 0 上报，只能通过一次阻塞式 VT 往返取得（最长约 1 秒）。
-     * 故必须与会话总闸分开：调用方需在释放 `sessionLock` 之后再调用。
+     * 标题是 VT 的 OSC 0 上报，只能通过一次阻塞式 VT 往返取得（最长约 1 秒），
+     * 故整个查询必须离开调用线程（切换/关闭都可能发生在主线程），并且
+     * `sessions` 的读取要回到 `sessionLock` 内——它是普通 `HashMap`。
+     * 写回时按会话 ID 校验，避免慢查询覆盖已经切走的会话标题。
      */
-    private fun refreshActiveSessionTitle() {
-        val sessionId = activeSessionId
-        val bridge = sessions[sessionId]?.bridge ?: return
-        val title = bridge.getActiveSessionTitle()
-        _state.update { current ->
-            if (current.activeSessionId == sessionId) current.copy(title = title) else current
+    private fun scheduleActiveSessionTitleRefresh() {
+        scope.launch {
+            val (sessionId, bridgeOrNull) = synchronized(sessionLock) {
+                activeSessionId to sessions[activeSessionId]?.bridge
+            }
+            val bridge = bridgeOrNull ?: return@launch
+            val title = bridge.getActiveSessionTitle()
+            _state.update { current ->
+                if (current.activeSessionId == sessionId) current.copy(title = title) else current
+            }
         }
     }
 
