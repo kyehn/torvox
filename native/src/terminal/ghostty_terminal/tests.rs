@@ -1815,6 +1815,68 @@ fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
     }
 }
 
+/// 同步更新（模式 2026）期间，VT 线程不得发布中间帧：BSU 与 ESU 分两次写入，
+/// 保持期间收到的 CellData 必须为空，ESU 之后的帧才包含期间写入的内容。
+#[test]
+fn synchronized_output_defers_frame_until_release() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write(b"\x1b[?2026h");
+    terminal_under_test.flush();
+    // 排空进入保持前的帧（若空闲 tick 已推过一帧）。
+    let _ = terminal_under_test.receive_cell_data();
+    terminal_under_test.vt_write(b"held");
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_none(),
+        "BSU..ESU 之间不得发布中间帧"
+    );
+    terminal_under_test.vt_write(b"\x1b[?2026l");
+    terminal_under_test.flush();
+    let (cells, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("ESU 必须发布最终帧");
+    let text: String = cells
+        .iter()
+        .filter_map(|cell| char::from_u32(cell.codepoint))
+        .collect();
+    assert!(
+        text.contains("held"),
+        "最终帧必须包含保持期间写入的内容, got {text:?}"
+    );
+}
+
+/// 引擎不会自行结束保持：程序发了 BSU 后崩溃（没有 ESU）时，宿主必须超时解锁，
+/// 否则屏幕永久冻结。这里不发 ESU，仍应在超时后收到包含挂起内容的帧。
+#[test]
+fn synchronized_output_hold_times_out_without_release() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write(b"\x1b[?2026hstuck");
+    terminal_under_test.flush();
+    // 排空进入保持前的帧；此后没有任何写入，唯一能推帧的途径就是超时解锁。
+    let _ = terminal_under_test.receive_cell_data();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut frame = None;
+    while frame.is_none() {
+        frame = terminal_under_test.receive_cell_data();
+        assert!(
+            frame.is_some() || std::time::Instant::now() < deadline,
+            "保持超时后 3s 内仍未强制发布帧"
+        );
+        if frame.is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    let (cells, _) = frame.expect("frame");
+    let text: String = cells
+        .iter()
+        .filter_map(|cell| char::from_u32(cell.codepoint))
+        .collect();
+    assert!(
+        text.contains("stuck"),
+        "超时解锁发布的帧必须包含保持期间的内容, got {text:?}"
+    );
+}
+
 /// 切会话后累加器里留着上一个会话的像素，而目标会话内容与上次推送逐字节相同
 /// （终端本身毫无变化）——内容去重会吞掉「重推」请求，屏幕就停在上一个会话上。
 #[test]

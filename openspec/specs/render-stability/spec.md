@@ -63,6 +63,21 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **WHEN** 用户快速滚动终端内容
 - **THEN** 画面连续更新，无撕裂残影（见 render-loop-scroll-cadence）
 
+### Requirement: 同步输出期间的帧发布门控
+
+模式 2026（BSU/ESU）保持期间 MUST NOT 向渲染线程发布中间帧。
+
+#### Scenario: BSU..ESU 之间不出现中间帧
+
+- **WHEN** 程序写入 `ESC[?2026h` 后继续输出、再写入 `ESC[?2026l`
+- **THEN** 保持期间不发布 CellData 帧，屏幕停留在此前的完整帧
+- **AND** ESU 到达后发布包含全部保持期间输出的最终帧
+
+#### Scenario: 保持超时后强制发布
+
+- **WHEN** 程序发出 BSU 后超过 1s 未发 ESU（崩溃或忘记释放）
+- **THEN** 宿主 MUST 复位模式并发布当前帧，MUST NOT 永久冻结画面
+
 ### Requirement: 启动首帧及时呈现
 
 应用启动后终端内容 MUST 在合理时间内呈现，MUST NOT 长时间黑屏。

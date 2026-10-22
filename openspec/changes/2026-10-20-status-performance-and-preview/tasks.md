@@ -495,3 +495,8 @@
 - [x] 补充回归：原生预装载此前没有任何用例会变红（该修复曾被整段删掉）。
       `NativeBridge` 记录装载线程名，新增仪器测试断言「原生库由 `native-preload`
       线程装载、不得落在主线程」。
+- [x] 补充（`docs/persistence/libghostty.md` 四次复核的唯一成对缺口）：模式 2026
+      此前只写不读（`GridSnapshot.sync_active` 零消费）。改为帧发布层门控——VT 循环
+      在保持期间不发布 CellData，ESU 后发布最终帧；1s 超时强制解锁，避免程序崩溃
+      永久冻结。删除 `sync_active`，新增两个回归测试；规范见 `render-stability`
+      的「同步输出期间的帧发布门控」。

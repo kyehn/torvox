@@ -376,6 +376,46 @@ fn warn_drop_throttled(error: &flume::TrySendError<(Vec<CellData>, CursorInfo)>)
     }
 }
 
+/// 同步更新（模式 2026）的发布门控：BSU（`2026h`）到 ESU（`2026l`）之间不发布
+/// 中间帧，渲染线程继续显示进入保持前的那一帧；ESU 的写入重新置脏并在批尾发布
+/// 最终帧。
+///
+/// 引擎没有时钟、也不会自行结束保持——程序崩溃或忘记发 ESU 时屏幕会永久冻结。
+/// 上游建议宿主超时解锁，这里取 1 秒：超时后复位模式并立即发布当前帧（日志留痕）。
+/// 返回 `true` 表示仍处于保持中、本帧应跳过发布。
+fn synchronized_output_hold(
+    terminal: &mut Terminal,
+    held_since: &mut Option<std::time::Instant>,
+) -> bool {
+    let active = match terminal.mode(Mode::SYNC_OUTPUT) {
+        Ok(active) => active,
+        Err(error) => {
+            log::error!("ghostty_terminal: sync output mode query failed: {error}");
+            false
+        }
+    };
+    if !active {
+        *held_since = None;
+        return false;
+    }
+    let started = held_since.get_or_insert_with(std::time::Instant::now);
+    if started.elapsed() < SYNC_OUTPUT_HOLD_TIMEOUT {
+        return true;
+    }
+    log::warn!(
+        "ghostty_terminal: synchronized output held for over {}ms without release; forcing frame",
+        SYNC_OUTPUT_HOLD_TIMEOUT.as_millis()
+    );
+    if let Err(error) = terminal.set_mode(Mode::SYNC_OUTPUT, false) {
+        log::error!("ghostty_terminal: sync output mode release failed: {error}");
+    }
+    *held_since = None;
+    false
+}
+
+/// 保持超过该时长即视为程序已放弃 ESU（上游推荐 1 秒）。
+const SYNC_OUTPUT_HOLD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// 是否为双下划线：单独成函数，与绘制判定同源，避免三处散落比较。
 fn is_double_underline(underline: libghostty_vt::style::Underline) -> bool {
     underline == libghostty_vt::style::Underline::Double
@@ -1051,6 +1091,9 @@ impl super::GhosttyTerminal {
         // 不再全幅重建（2400+ 次 Ghostty FFI 调用），重复重建s只靠 last_push 去重
         // 抑制发送，CPU 清零。
         let mut cell_data_dirty = true;
+        // 同步更新（模式 2026）的保持起点：引擎不会自行结束保持，
+        // 程序崩溃或忘记 ESU 时由这里超时解锁（见 `synchronized_output_hold`）。
+        let mut synchronized_output_held_since: Option<std::time::Instant> = None;
 
         'vt_loop: loop {
             // 等待有界通道里的下一条命令。用超时，以便在没有命令待处理时
@@ -1085,7 +1128,12 @@ impl super::GhosttyTerminal {
                             extractors.invalidate_row_cache();
                         }
                         // ── 自动推送 CellData（仅在真实状态变化后）──
-                        if cell_data_dirty {
+                        if cell_data_dirty
+                            && !synchronized_output_hold(
+                                &mut terminal,
+                                &mut synchronized_output_held_since,
+                            )
+                        {
                             Self::refresh_cell_data(
                                 &config,
                                 &terminal,
@@ -1304,7 +1352,9 @@ impl super::GhosttyTerminal {
             // 故这里反映的是积压队列的最终状态。`grid_dirty` 由每条改动型
             // 命令就地置位，并保持置位直到 TakeSnapshot 消费它为止
             // （快照缓存失效语义，与逐命令版本相同）。
-            if batch_dirty {
+            if batch_dirty
+                && !synchronized_output_hold(&mut terminal, &mut synchronized_output_held_since)
+            {
                 Self::refresh_cell_data(
                     &config,
                     &terminal,
@@ -2339,14 +2389,6 @@ impl super::GhosttyTerminal {
 
         let dirty = vec![true; (rows as usize) * (cols as usize)];
 
-        let sync_active = match terminal.mode(Mode::SYNC_OUTPUT) {
-            Ok(sync_active) => sync_active,
-            Err(error) => {
-                log::error!("ghostty_terminal: sync output mode query failed: {error}");
-                false
-            }
-        };
-
         GridSnapshot {
             rows,
             cols,
@@ -2367,7 +2409,6 @@ impl super::GhosttyTerminal {
                 }
             },
             scrollback_length: scrollback_len(terminal),
-            sync_active,
         }
     }
 
