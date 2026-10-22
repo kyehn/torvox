@@ -70,6 +70,13 @@ fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
     }
 }
 
+/// 子进程把 execve 的 errno 编码为 `100 + errno`；errno 上限 133，更大的退出码
+/// （如 shell 的 `exit 254`）与 execve 无关。
+fn execve_errno_from_exit_code(code: i32) -> Option<i32> {
+    let errno = code - 100;
+    (1..=133).contains(&errno).then_some(errno)
+}
+
 /// 选择收尾信号的目标：`kill(-pgid)` 覆盖整个前台进程组，使 shell 的子进程一并退出。
 /// 组号下界 MUST 大于 1——`-1` 会把信号发给本进程有权发信号的所有进程；组号也 MUST NOT
 /// 是本进程自身的组——子进程 fork 后尚未 `setsid` 时与本进程同组，组杀会连带杀死自己
@@ -495,14 +502,10 @@ impl Session {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
-                && code >= 100
+                && let Some(exec_errno) = execve_errno_from_exit_code(code)
             {
-                // 退出码 >= 100 可能编码了 execve 的 errno + 100（本仓子进程会先向 PTY
-                // 写 “execve failed: errno=”，该标记才权威）。Shell 也按惯例退出
-                // 126/127（如启动器脚本内部 exec 被拒），故无 PTY 标记的 126 并非 execve 失败。
                 log::error!(
-                    "wait thread: child exited with code {code} (possible execve errno={}; see PTY output for the authoritative marker)",
-                    code - 100
+                    "wait thread: child exited with code {code} (possible execve errno={exec_errno}; see PTY output for the authoritative marker)"
                 );
             }
             log::info!("wait thread: child exited: {result:?}");
@@ -1007,28 +1010,51 @@ impl Session {
     /// 使「立即杀掉 shell」可从任何上下文（含 `destroySession` 与已 detach 的
     /// Arc 克隆）幂等发起。
     pub fn request_exit(&mut self) {
-        self.exited.store(true, Ordering::Release);
+        // 等待线程已回收子进程时不再发信号：PID 可能已被复用，直杀会误伤无关进程。
+        let already_exited = self.exited.swap(true, Ordering::AcqRel);
         // 先断开输出通道：flume 旧接收端一析构，阻塞的 `output_tx.send` 即返回
         // Err 走到「output channel closed」退出分支，等待线程也随 exited 标志退出。
-        // 换入的是空通道，故 `poll_pty_output` 等后续调用仍安全。
+        // 换入的是空通道，故 `poll_pty_output` 等后续调用仍安全。自然退出后
+        // 也要断开：读取线程可能正卡在满通道的 send 上。
         self.output_rx = flume::bounded::<Vec<u8>>(OUTPUT_CHANNEL_BOUND).1;
         let pid = self.pty.child_pid();
-        if pid.as_raw() > 0 {
-            // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
-            // （管道、前台组内的后台作业）一并退出。组不可用时退化为直杀子进程，
-            // 两者只差信号目标，故把目标选好后走同一条「HUP → CONT → 让步 → KILL」。
-            let group = exit_signal_target(
-                pid,
-                nix::unistd::getpgid(Some(pid)).ok(),
-                nix::unistd::getpgid(None).ok(),
-            );
-            if group != pid {
-                log::debug!("session exit: signalling process group {}", -group.as_raw());
-            } else {
-                log::warn!("session exit: 进程组不可用，仅直杀子进程 {}", pid.as_raw());
-            }
-            Self::terminate_target(pid, group);
+        if already_exited || pid.as_raw() <= 0 {
+            return;
         }
+        // 优先组杀：`kill(-pgid)` 把信号发给整个前台进程组，使 shell 的子进程
+        // （管道、前台组内的后台作业）一并退出。组不可用时退化为直杀子进程，
+        // 两者只差信号目标，故把目标选好后走同一条「HUP → CONT → 让步 → KILL」。
+        let child_pgid = nix::unistd::getpgid(Some(pid));
+        if matches!(child_pgid, Err(nix::errno::Errno::ESRCH)) {
+            log::debug!("session exit: child {} already exited", pid.as_raw());
+            return;
+        }
+        let own_pgid = nix::unistd::getpgid(None).ok();
+        let group = exit_signal_target(pid, child_pgid.as_ref().ok().copied(), own_pgid);
+        match (child_pgid, own_pgid) {
+            (Ok(child), Some(own)) if child == own => {
+                log::debug!(
+                    "session exit: child {} shares our process group",
+                    pid.as_raw()
+                );
+            }
+            (Ok(_), Some(_)) => {
+                log::debug!("session exit: signalling process group {}", -group.as_raw());
+            }
+            (Err(error), _) => {
+                log::warn!(
+                    "session exit: getpgid({}) failed: {error}; killing child directly",
+                    pid.as_raw()
+                );
+            }
+            (Ok(_), None) => {
+                log::warn!(
+                    "session exit: own process group unavailable; killing child {} directly",
+                    pid.as_raw()
+                );
+            }
+        }
+        Self::terminate_target(pid, group);
     }
 
     /// 按 `SIGHUP → SIGCONT → 让步 → SIGKILL` 收掉目标：先给前台组一次体面退出，
@@ -2005,6 +2031,8 @@ mod tests {
         assert!(pid.as_raw() > 0, "spawned session must have a child pid");
 
         session.request_exit();
+        // 重复拆卸必须短路，不 panic，也不再碰子进程 PID。
+        session.request_exit();
 
         // 子进程必须在 request_exit 返回后即已消失（信号已投递）。
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -2087,5 +2115,16 @@ mod tests {
         assert_eq!(exit_signal_target(pid, Some(child_group), None), pid);
         // 子进程组号取不到 —— 直杀子进程。
         assert_eq!(exit_signal_target(pid, None, Some(own)), pid);
+    }
+
+    #[test]
+    fn execve_errno_only_decodes_real_errno_range() {
+        assert_eq!(execve_errno_from_exit_code(102), Some(2));
+        assert_eq!(execve_errno_from_exit_code(113), Some(13));
+        assert_eq!(execve_errno_from_exit_code(233), Some(133));
+        // shell 的 `exit 254` / `exit 255` 不是 execve 编码。
+        assert_eq!(execve_errno_from_exit_code(254), None);
+        assert_eq!(execve_errno_from_exit_code(255), None);
+        assert_eq!(execve_errno_from_exit_code(100), None);
     }
 }
