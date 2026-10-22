@@ -30,9 +30,11 @@ private const val ENTER_KEY_EVENT = "KEYCODE_ENTER"
  * Baseline profile 采集：用 UiAutomator 走一段真实路径，把启动、终端渲染、修饰键、
  * 会话抽屉上的类与方法标记为热，供 ART 提前 AOT 编译。
  *
- * 真机执行 `./gradlew generateBaselineProfile`；产物由 app 侧
- * `baselineProfile { saveInSrc = true }` 写入 `app/src/main/baselineProfiles/`，
- * 与手写规则同目录，由 AGP 合并进 `assets/dexopt/baseline.prof`。
+ * 真机执行 `./gradlew :app:generateBaselineProfile`；采集产物由 app 侧
+ * `baselineProfile { saveInSrc = true }` 写入 `app/src/release/generated/baselineProfiles/`
+ * （`baseline-prof.txt` 与 `startup-prof.txt`，因 `includeInStartupProfile = true` 两者同内容），
+ * 与手写的 `app/src/main/baselineProfiles/baseline-prof.txt` 由 AGP 一并合并进
+ * `assets/dexopt/baseline.prof` 与 `baseline.profm`。
  *
  * 全程不断言：未安装引导程序、首次启动弹窗等环境差异不应让整次采集失败。
  */

@@ -275,7 +275,7 @@ impl PtyPair {
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
             .chain(
-                title_report_hook(&shell_executable)
+                title_report_hook(shell_executable)
                     .map(|(name, value)| (name.to_string(), value.to_string())),
             )
             .map(|(key, value)| {
