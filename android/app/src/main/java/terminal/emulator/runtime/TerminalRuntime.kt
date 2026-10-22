@@ -1636,7 +1636,7 @@ constructor(
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                             LogUtil.w(
                                                 "Runtime",
-                                                "慢帧诊断
+                                                "慢帧=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
                                             )
                                         }
                                         if (newOutput) {
