@@ -1042,13 +1042,13 @@ impl Session {
                 log::debug!("session exit: signalling process group {}", -group.as_raw());
             }
             (Err(error), _) => {
-                log::warn!(
+                log::debug!(
                     "session exit: getpgid({}) failed: {error}; killing child directly",
                     pid.as_raw()
                 );
             }
             (Ok(_), None) => {
-                log::warn!(
+                log::debug!(
                     "session exit: own process group unavailable; killing child {} directly",
                     pid.as_raw()
                 );
