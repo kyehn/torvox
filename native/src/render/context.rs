@@ -675,12 +675,11 @@ impl Renderer {
             present_mode: Self::select_present_mode(&caps),
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
-            // 三个缓冲（max_frame_latency=3）：FIFO vsync 下单缓冲时渲染线程会阻塞在
-            // acquire 直到显示端消费上一帧，任何超过一个 vsync 周期的帧都会拖垮整条
-            // 管线，帧时间还会混叠到 vsync 倍数（Mali 设备实测 20-30fps）。三缓冲使
-            // acquire 立即返回、渲染管线与扫描输出解耦；Mailbox（驱动支持时已在上方
-            // 选中）丢弃最旧的排队帧而不回压渲染线程——滚动终端中新帧永远胜出。
-            desired_maximum_frame_latency: 3,
+            // 双缓冲：FIFO 下单缓冲会让 acquire 阻塞到显示端消费上一帧；三缓冲又把
+            // 排队深度堆到 3 帧，慢帧时 acquire 实测等到 2-3 个 vsync（Mali 上单帧
+            // 33-58ms）。取 2 保留流水线，同时把等待上限压到一帧。Mailbox（驱动支持
+            // 时已在上方选中）丢弃最旧排队帧，滚动终端中新帧仍然胜出。
+            desired_maximum_frame_latency: 2,
             color_space: wgpu::SurfaceColorSpace::Srgb,
         };
         // Android 上 view_formats 故意置空：平台缺少 SURFACE_VIEW_FORMATS 降级标志，
@@ -1300,7 +1299,7 @@ impl Renderer {
         // 扫描线，滚动时必然撕裂，且让渲染线程无界冲刷（真机实测 166fps，
         // 多数帧被显示端丢弃）。优先 Mailbox（vsync 节拍 + 新帧覆盖旧帧、
         // 无背压——滚动终端里「最新帧永远胜出」正是所需取舍，见下方
-        // attach_surface 对 desired_maximum_frame_latency=3 的注释），其次
+        // attach_surface 对 desired_maximum_frame_latency=2 的注释），其次
         // Fifo（标准 vsync），再 AutoVsync；Immediate 仅作驱动只支持它时的
         // 最后兜底。
         if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
