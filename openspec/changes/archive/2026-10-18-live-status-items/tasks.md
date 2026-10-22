@@ -213,7 +213,7 @@
       - 现象与日志：用户提供的日志 `运行日志`（**该文件未入库**：
         仓库对象库里查无此名，提交历史里也没有任何 logcat 文件；本文结论取自其内容，
         文件名在同批日志的删除现场里出现过）里 `Session::spawn` 后应用侧无输出；同一窗口内
-        只有一连串外部工具链的 `SELinux 授权
+        只有一连串外部工具链的 SELinux execute 授权——慢的是引导链自身在连续执行，
         不是应用阻塞。
       - 根因（上游源码比对）：`$PREFIX/bin/login` 是引导会话的默认入口，其 termux-exec 探针
         `$SHELL -c "coreutils --coreutils-prog=true"` 依赖 `PATH` 解析 `coreutils`，失败即
