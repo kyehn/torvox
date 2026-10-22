@@ -8,7 +8,7 @@
 
 ## 取证摘要
 
-- 设备：模拟器 emulator profile 1080x2400 @ 420dpi（raster_scale=2.625），zh-CN locale，
+- 设备：模拟器配置 1080x2400 @ 420dpi（raster_scale=2.625），zh-CN locale，
   系统字体 scale 1.0；主字体 DroidSansMono，CJK fallback NotoSansCJK-Regular.ttc index=2（SC）。
 - 修复前 ink box（2-cell quad 内）：中 37x34 / 文 42x35 / 测 41x34 / 试 41x34，
   FreeType 参考 36.75px 无 hint：31x35 / 35x35 / 34x34 / 34x35 → 宽度比率 ≈1.19–1.21。

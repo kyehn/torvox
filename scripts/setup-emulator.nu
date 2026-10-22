@@ -69,7 +69,7 @@ def main [--boot_timeout: int = 360, --gpu: string = "swiftshader_indirect", --k
         ^($sdkmanager_path) "--install" "emulator"
     }
     if not ($avd_ini | path exists) {
-        ^($avdmanager_path) create avd --name test_avd --package $system_image --device "模拟器" --force
+        ^($avdmanager_path) create avd --name test_avd --package $system_image --force
     }
 
     if (emulator_alive) {
