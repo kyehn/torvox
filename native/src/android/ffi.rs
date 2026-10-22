@@ -243,15 +243,26 @@ struct SessionEntry {
     /// 每帧都要用；改读此处后不再向 VT 线程发同步 RPC——VT 忙于输出时那次查询
     /// 最长阻塞 500ms，正是滚动/拖柄的卡顿来源。
     rendered_scrollback: AtomicI32,
+    /// PTY 摄入标志的共享镜像。渲染线程每帧读清它；放在注册表而非会话里，
+    /// 是因为取会话锁可能被 VT 解析按住数十毫秒。
+    new_output: Arc<AtomicBool>,
+    /// 备用屏激活的共享镜像，与 `new_output` 同批上报，读取同样不取会话锁。
+    alt_screen_active: Arc<AtomicBool>,
 }
 
 impl SessionEntry {
     fn new(session: Arc<Mutex<Session>>, render_wake: Arc<RenderWake>) -> Self {
+        let (new_output, alt_screen_active) = {
+            let session = session.lock();
+            (session.new_output_flag(), session.alt_screen_active_flag())
+        };
         Self {
             session,
             render_wake,
             rendered_cursor: AtomicI64::new(RENDERED_CURSOR_NONE),
             rendered_scrollback: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
+            new_output,
+            alt_screen_active,
         }
     }
 }
@@ -2694,9 +2705,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     _width: jint,
     _height: jint,
 ) -> jlong {
+    let jni_start = std::time::Instant::now();
     let count = jni_export_guard!(&mut unowned_env, -1i32, |_env| render_inner(
         session_id as u64
     ));
+    let inner_done = std::time::Instant::now();
     // 三个采样**必须**在计数门控之外：死 surface 的每一帧都以 -1 失败，把它们挂在
     // `count >= 0` 门下会让失效位永远送不到宿主（宿主因此永不换窗口，终端永久黑屏）。
     // 空闲帧（count == 0）同样要采样：空闲时无新单元数据、无需 GPU 呈现，但 IME 位移
@@ -2715,23 +2728,27 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         // BufferQueue 不可 reconfigure 复活，实测会永久黑屏）。
         // `new_output` 是破坏性消费：只在计数非负（帧未被判失败）时取，未呈现的新数据
         // 必须留在通道里等下一帧，否则失败帧会吞掉它。
-        // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE（`setSelection` 同款，
+        // 会话锁序：注册表读锁 → 会话锁 → RENDER_STATE（`setSelection` 同款，
         // 不可跨作用域持有）。
-        let new_output = i64::from(
-            count >= 0
-                && session_handle(session_id as u64)
-                    .is_some_and(|session| session.lock().take_new_output()),
-        );
-        // 备用屏标志与内容下沿同批上报：宿主据此让输入法跟随位移归零
-        // （helix/vim 等全屏 TUI 占满视口，任何位移都把应用顶部推出屏幕）。
-        // 读取的是 VT 线程写入的原子量，无同步查询，故与另两个采样同样无阻塞。
         //
-        // 必须在 `render_state_mut()` 之前取：全局锁序为 注册表 → 会话 → RENDER_STATE，
-        // 反向嵌套即死锁。取完即释放，与上方 `new_output` 采样同款。
-        let alt_screen_active = i64::from(
-            session_handle(session_id as u64)
-                .is_some_and(|session| session.lock().terminal().alt_screen_active_atomic()),
-        ) * ALT_SCREEN_ACTIVE_BIT;
+        // `new_output` 与备用屏标志都从注册表的共享原子量读取，**不取会话锁**：
+        // 滚动期间 PTY 洪流会把会话锁按住数十毫秒，渲染线程若在此排队，Kotlin
+        // 侧实测每帧 55-60ms（原生 render 本身 <30ms，故 SLOW_RENDER_INNER 不触发）。
+        // `new_output` 仍是读后即清；失败帧（count < 0）不消费，留给下一帧。
+        let (new_output, alt_screen_active) = {
+            let registry = rlock_session_registry();
+            match registry.get(&(session_id as u64)) {
+                Some(entry) => {
+                    let new_output = count >= 0 && entry.new_output.swap(false, Ordering::AcqRel);
+                    let alt_screen_active = entry.alt_screen_active.load(Ordering::Acquire);
+                    (
+                        i64::from(new_output),
+                        i64::from(alt_screen_active) * ALT_SCREEN_ACTIVE_BIT,
+                    )
+                }
+                None => (0, 0),
+            }
+        };
         let render_state = render_state_mut();
         let last_frame = render_state
             .as_ref()
@@ -2746,6 +2763,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
                 .as_ref()
                 .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
         ) * SURFACE_INVALIDATED_BIT;
+        // 原生 render 本身未达 30ms（SLOW_RENDER_INNER 不触发）而整个 JNI 穿越
+        // 超过 30ms：差额只可能落在渲染后的采样段（注册表/会话锁或 RENDER_STATE）。
+        // 这条日志把「Kotlin 看到 58ms、原生 render 日志却沉默」的盲区钉住。
+        let inner_ms = inner_done.duration_since(jni_start).as_secs_f64() * 1000.0;
+        let sample_ms = inner_done.elapsed().as_secs_f64() * 1000.0;
+        if inner_ms < 30.0 && inner_ms + sample_ms >= 30.0 {
+            log::warn!(
+                "SLOW_RENDER_SAMPLE inner={inner_ms:.3}ms sample={sample_ms:.3}ms count={count}"
+            );
+        }
         pack_render_sample(
             count as i64 & 0xFFFF_FFFF,
             new_output,
@@ -4857,6 +4884,35 @@ mod font_info_packing_tests {
             .collect();
         assert_eq!(names.len(), 1);
         assert!(!names[0].is_empty(), "主字体族名须非空");
+    }
+}
+
+#[cfg(test)]
+mod session_entry_flag_tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+
+    use super::{RenderWake, SessionEntry};
+    use crate::terminal::mock_pty::MockPty;
+    use crate::terminal::session::Session;
+
+    /// 渲染采样读的是注册表里的共享原子量，不是会话锁后的字段：一旦有人改成
+    /// 另建一个标志，这条指针相等断言会先红，避免慢帧修复被静默回退。
+    #[test]
+    fn entry_shares_session_flags_for_lock_free_sampling() {
+        let (pty, _handle) = MockPty::new(24, 80);
+        let session =
+            Session::with_pty_for_test(Box::new(pty) as Box<dyn crate::terminal::pty::Pty>, 24, 80)
+                .expect("session");
+        let new_output = session.new_output_flag();
+        let alt_screen = session.alt_screen_active_flag();
+        let entry = SessionEntry::new(
+            Arc::new(Mutex::new(session)),
+            Arc::new(RenderWake::default()),
+        );
+        assert!(Arc::ptr_eq(&entry.new_output, &new_output));
+        assert!(Arc::ptr_eq(&entry.alt_screen_active, &alt_screen));
     }
 }
 

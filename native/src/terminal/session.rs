@@ -819,10 +819,16 @@ impl Session {
         self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
-    /// 读取并清除 `new_output` 标志。由 PTY 摄入
-    /// 路径置位，渲染线程是唯一的读清消费者；与 `dirty` 标志相互独立。
-    pub fn take_new_output(&self) -> bool {
-        self.output_processor.take_new_output()
+    /// 会话注册表持有的 `new_output` 共享标志：渲染线程直接读它，
+    /// 不抢会话锁（PTY 洪流下锁可能被 VT 解析按住数十毫秒）。
+    pub fn new_output_flag(&self) -> Arc<AtomicBool> {
+        self.output_processor.new_output_flag()
+    }
+
+    /// 备用屏激活的无锁镜像：与 `new_output` 同批上报给宿主，
+    /// 同样不经过会话锁。
+    pub fn alt_screen_active_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.terminal.alt_screen_active)
     }
 
     /// 收割 VT 线程经上游回调上报的事件（剪贴板写入）到队列/标志位。
