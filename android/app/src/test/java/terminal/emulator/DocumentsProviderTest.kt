@@ -992,6 +992,40 @@ class DocumentsProviderTest {
         )
     }
 
+    /**
+     * 只读目录树也必须能复制：先落目录权限再创建子项会 EACCES。
+     *
+     * 源目录 `0555` 时，目标目录若在填充前就被改成同样的只读权限，随后创建
+     * 子项会失败；权限只能在整棵子树写完后再按原样搬。
+     */
+    @Test
+    fun copyDocument_copies_read_only_directory_tree() {
+        val provider = ensureProvider()
+        val readOnlyDirectory = java.io.File(rootDir(), "locked").apply { mkdirs() }
+        java.io.File(readOnlyDirectory, "note.txt").writeText("keep")
+        val readOnlyPermissions =
+            java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-xr-x")
+        java.nio.file.Files.setPosixFilePermissions(readOnlyDirectory.toPath(), readOnlyPermissions)
+        java.io.File(rootDir(), "dest").apply { mkdirs() }
+        try {
+            provider.copyDocument("locked", "dest")
+            val copiedDirectory = java.io.File(rootDir(), "dest/locked")
+            assertEquals(
+                "copied read-only directory must keep its permissions",
+                "r-xr-xr-x",
+                java.nio.file.attribute.PosixFilePermissions.toString(
+                    java.nio.file.Files.getPosixFilePermissions(copiedDirectory.toPath()),
+                ),
+            )
+            assertEquals("keep", java.io.File(copiedDirectory, "note.txt").readText())
+        } finally {
+            java.nio.file.Files.setPosixFilePermissions(
+                readOnlyDirectory.toPath(),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            )
+        }
+    }
+
     @Test
     fun moveDocument_relocates_and_clears_source() {
         val provider = ensureProvider()
