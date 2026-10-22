@@ -338,6 +338,8 @@
 
 ## 3. 未使用 API
 
+515 项未用（72%）经聚类验证为正常构成：整域禁用 117 项（`selection::gesture` 50 + `snapshot` 27 + `osc`/`sgr` 17 + `build_info` 11 + `alloc` 5 + 其余 7，均对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 84 项（`Mode` 39 + 设备属性应答族 45，清单型常量按需取用）、同一能力的替代表达 24 项（`*_with_alloc` 分配器变体、`*_buf`/`format_len` 缓冲变体——已用等价形态）、功能域内可选方法/选项 290 项（完整桌面嵌壳方的可选面）。对照：上游官方示例 `ghostling_rs`（约 1kLoC 的完整终端）消费约 50 项，本仓 203 项是其 4 倍。718 项是上游「完整能力菜单」而非「预期全量消费」。
+
 ### 3.1 `terminal`（179 项）
 
 配置类 setter 与查询类 getter 全部未用，上游默认值即满足需求；设备属性应答族备而未用的原因是本项目不需要向被测程序谎报能力。
@@ -499,7 +501,7 @@
 | `Terminal::on_enquiry` | ENQ 询问回调 |
 | `Terminal::on_progress_report` | 进度上报回调 |
 | `Terminal::on_pwd_changed` | 工作目录变化回调 |
-| `Terminal::on_render_hold` | 渲染保持回调 |
+| `Terminal::on_render_hold` | 渲染保持回调（模式 2026 配套；见 §5 四次复核的缺口记录） |
 | `Terminal::on_title_changed` | 标题变化回调 |
 | `Terminal::on_xtversion` | XTGETTCAP/版本查询回调 |
 | `Terminal::pwd` | OSC 7/1337 上报的工作目录 |
@@ -1035,3 +1037,4 @@ SGR 属性经 `render::CellIteration::style` 直读。
 - 同轮复核现有使用无错误：回滚须先 `set_scrollback_max_bytes(None)` 再设行数（上游字节预算默认先于行数触发），`internal.rs` 顺序正确；KGP 存储上限 64 MiB 恰为上游默认值；APC 载荷上游默认 kitty 65 MiB、glyph 1 MiB 且两协议默认全开，大图传输无隐藏截断；光标未知样式回退块、焦点序列直写 PTY 两处实现与文档论断一致。`Terminal::compress` 的条目说明原写成「丢弃最旧内容」，与上游「压缩只改存储表示、从不动逻辑内容或回滚上限」矛盾，已修正；该 API 未用合理——上游注明须与写入/渲染/搜索串行，本仓 2000 行预算内存可控。
 - 二次复核（2026-10-20 晚）：上游 master 领先本仓钉住 rev 仅 1 个提交（2026-10-19，`libghostty-vt-sys` 构建脚本允许经 `ZIG` 环境变量选择 Zig 版本，只改 README 与 build.rs），不触碰 `crates/libghostty-vt/src`，公开面 718 项不变。本次修正两处分类滞后：`RowIteration::dirty` 与 `Snapshot::clean` 随行级脏跟踪接线已实际使用（`internal.rs` 的行级脏判定与整帧抽取后标记），自未用表移入 §2.5，计数订正为已用 203 / 未用 515。候选「可用未用」API 逐项核查（`on_title_changed`/`next_dirty`/`begin_update`/`Update::end`/`viewport_active`/`is_cursor_pending_wrap`/`vt_write_until_ground`/`is_vt_ground`/`track_grid_ref`/`overscan` 家族/`cursor_blinking`/`cursor_password_input`/`set_resize_pull_scrollback`）：生产代码零命中且各有不采用的架构理由（拉取模式、行缓存按行索引对齐、VT 线程独占解析、整行滚动），维持未用。`focus::Event::encode` 判定记入 §3.15：与手写字面量同字节，多一次 FFI 往返，无净收益。
 - 三次复核（2026-10-20 深夜，逐项全覆盖）：已用 203 项逐一对照上游 doc comment 核查调用语义，**全部符合，无一使用不当**。逐项核实的关键约束：`set_png_decoder` 上游明文要求与 terminal 同线程，本仓在 `run_inner`（VT 线程）注册与 `vt_write` 同线程；`on_clipboard_write` 的 `reply` 义务两条路径都履行（成功 `Ok`、通道满 `Busy`），`try_send` 永不阻塞 VT 线程；`key::Event` 跨事件复用时 `set_unshifted_codepoint` 显式写 `'\0'` 防残留（上游无清零入口）、`set_consumed_mods` 避免文本消费后修饰位重复叠加；编码器选项一律每事件前 `set_options_from_terminal` 整体同步；`Snapshot::clean` 在整帧抽取完成后才调用；`set_logger` 实读上游源码为进程全局（`RwLock` + `sys_set`，非线程局部），本仓经 `log::logger()` 桥接与上游文档示例一致；`style_id` 行内连续同样式缓存、Kitty `generation()` 存储戳跳过、paste `OutOfSpace{required}` 精确扩容、`to_ordered(Forward)` 抹平拖动方向、search `MatchBuffer` 跨查询复用——均与上游语义一致。未用 515 项换角度全面复查（「本仓已有对应功能但自建」的交叉项逐一深挖）：光标色为本轮唯一新识别候选——上游 `Snapshot::cursor_color` 返回 OSC 12 运行时覆盖色，本仓 `build_cursor` 恒取主题 `palette.cursor`；判定为一致的设计立场而非遗漏：bg/fg/cursor 三色以主题为单一来源（`Terminal::bg_color`/`fg_color` 的 OSC 10/11 覆盖读取同样不消费），DESIGN 光标恒块状不闪烁，alacritty 主题文件自带 cursor 色且本仓解析链路完整。`selection_background` 由搜索高亮（`ffi.rs`）与选区反显（VT 烘焙进 CellData）消费，不经上游选区颜色路径，合理。`pending_wrap` 渲染、`on_enquiry`、OSC 12 消费均零命中，无功能缺口。结论：无应接线而漏接的 API，无需任何代码改动。
+- 四次复核（2026-10-21，针对「未用比例异常」的构成分析）：515 项未用聚类为四类（见 §3 引言）——整域禁用 117（22.7%，对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 84（16.3%，`Mode` 42 取 3、设备属性应答族 45，清单型常量按需取用）、替代表达 24（4.7%，`*_with_alloc`/`*_buf` 已用等价形态）、域内可选面 290（56.3%，完整桌面嵌壳方才需要），分模块账目自洽。对照证据：上游官方示例 `ghostling_rs`（约 1kLoC 完整终端）实读消费约 50 项（use 导入 27 类型 + 方法入口），且其消费的设备属性应答族恰是本仓判定不采用的域；本仓 203 项为其 4 倍。结论：72% 未用是通用 VT 引擎绑定库的正常形态，非异常信号。本轮逐家族「成对 API 只用一半」检查发现**一处使用不完整（唯一缺口）**：`Mode::SYNC_OUTPUT`（已用）与 `on_render_hold`（未用）成对只用一半——`internal.rs` 查询模式 2026 写入 `GridSnapshot.sync_active`，但该字段生产侧零消费（`take_snapshot` 生产调用为零、渲染主路径走 CellData 通道、渲染/JNI/Kotlin/tests 对 `sync_active` 全零命中），查询结果写后无人读，BSU/ESU 同步更新期间渲染无帧门控（可能呈现中间帧）；上游为这正是提供 `on_render_hold` 回调（`held: bool`，文档明言可自由忽略）。处置二选一待规格裁定：接线渲染门控，或移除该查询；两者都须先过 openspec 流程，本轮只记录不改代码。其余成对检查全部合适：`Selection::adjust` 未用合理（命令通道每事件携带完整坐标，`Selection::new` 重建 + `to_ordered` 比增量调整更直接）；glyph 协议维持默认全开合理（上游绑定层渲染面无 glossary 出口，本仓无消费路径，关闭亦无渲染差异）。
