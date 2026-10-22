@@ -251,8 +251,7 @@
       1. **单元格像素几何从未下发**：kitty 放置的网格尺寸由上游
          `t.width_px / t.cols` 推出（上游 `graphics_storage.zig` 的 `gridSize`），
          该值为 0 时放置被判为「不可见」——协议解析、解码、图集打包全部正常，
-         画面上什么都没有。设备实测 `PROB（日志行已移除）
-         VT 的 `width_px` 只由 `SetCellPixelSize` 决定，而该命令只有一条来路：
+         画面上什么都没有。设备实测确认几何未下发；VT 的 `width_px` 只由 `SetCellPixelSize` 决定，而该命令只有一条来路：
          视图侧 `applyGridResize`（布局早于会话存在 → 空操作）与运行期
          `recomputeGridFromFontMetrics`（「重算结果与当前网格相同」时早退——
          会话带着默认网格诞生，重算结果与之相同）。两处都落空 → 几何从未下发。
