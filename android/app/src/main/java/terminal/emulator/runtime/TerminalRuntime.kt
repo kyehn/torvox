@@ -1636,7 +1636,7 @@ constructor(
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                             LogUtil.w(
                                                 "Runtime",
-                                                "（日志数值已移除）
+                                                "慢帧诊断
                                             )
                                         }
                                         if (newOutput) {

@@ -2086,7 +2086,7 @@ ICNDigit-{Bold,Light,Medium,Regular,Thin}.ttc   RedMagicDigit.ttf
 | `W/InputEventReceiver` 已释放仍 finish 事件 | **不是我们造成的**：`setComposingText`/`finishComposingText`/`commitText` 三个方法全部在 `TerminalSurface.kt` 内就地重写为本地实现（清 `composingBuffer` + `encodeAndSend`），一个 binder 调用都不发；框架层 `BaseInputConnection.finishComposingText` 的跨进程路径根本没走到。该序列由窗口拆除时 IME 侧发起 |
 | `W/RemoteInputConnectionImpl` inactive | 同上：我们在窗口失焦（`onWindowFocusChanged(false)`）与 `ON_PAUSE` 各调一次 `finishComposing()`，第二次是重复的空操作（组字已清空），但两次都不跨进程，警告由 IME 进程侧记录。**无证据支撑的改动不做** |
 | `W/Parcel` Expecting binder but got null | 渲染线程（线程）上出现，与上述 IME 窗口同一时刻；我们无 binder 使用 |
-| `E/GPU 分配器` R8/AIDL 格式 | 驱动分配器内部消息。我们已显式挑非 sRGB surface 格式（`context.rs` 的 `.find(\|c\| !c.is_srgb())`）且 `view_formats: vec![]`；`0x38`(A2B10G10R10_SRGB) 由驱动在换屏时自选，非应用指定 |
+| GPU 分配器 R8/AIDL 格式 | 驱动分配器内部消息。我们已显式挑非 sRGB surface 格式（`context.rs` 的 `.find(\|c\| !c.is_srgb())`）且 `view_formats: vec![]`；`0x38`(A2B10G10R10_SRGB) 由驱动在换屏时自选，非应用指定 |
 | `W/wgpu_core` 缺 `SURFACE_VIEW_FORMATS` | 已在 `context.rs` 注释里写明：Android 上该降级标志缺失，`view_formats` 必须置空否则 `configure` 失败（API 35 模拟器实测）。这是**已知且必需的取舍**，非缺陷 |
 | `W/Runtime SLOW_FRAME` ×29 | 循环本体健康；尖峰与 GPU 缓冲重建期的分配器活动交错。物理设备复现不在 CI 能力内；不凭单份日志改渲染路径 |
 | `W/libc` 属性被拒 / `W/ziparchive` / `W/proot` / `W/bash` / `W/login` | SELinux 与 procfs/audit 痕迹，bootstrap 内正常现象 |
@@ -2146,7 +2146,7 @@ AOSP 自 Android 13 起改为按语言分片。）
 | 来源 | 计数 | 性质 |
 | --- | --- | --- |
 | `W/Runtime SLOW_FRAME` | 29 | 自有帧耗时诊断，非错误 |
-| `E/GPU 分配器` R8 格式不支持 | 8 | GPU 驱动限制，wgpu 自行规避 |
+| GPU 分配器 R8 格式不支持 | 8 | GPU 驱动限制，wgpu 自行规避 |
 | `W/wgpu_core` `SURFACE_VIEW_FORMATS` 缺失 | 4 | 同上，downlevel 能力通告 |
 | `E/SurfaceSyncer` / `W/Parcel` / `W/RemoteInputConnectionImpl` | 9 | 系统框架 |
 | `W/libc` 属性访问被拒 | 4 | SELinux |

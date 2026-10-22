@@ -129,7 +129,7 @@ class TerminalSurfaceLogicTest {
 
     @Test
     fun `clampSelection clamps then swaps so the result is always ordered`() {
-        // Both anchors out of bounds AN（日志行已移除）
+        // Both anchors out of bounds AND inverted: clamping alone would leave
         // start > end; the swap must run after clamping.
         assertEquals(
             SelectionBounds(startRow = 0, startCol = 0, endRow = 10, endCol = 10),
