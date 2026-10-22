@@ -1,0 +1,7 @@
+schema: spec-driven
+skip_specs: true
+goal: |
+  收敛 docs/specification/STATUS.md 的 12 条真机待办。
+  规范落盘方式：每条修完后直接改 openspec/specs/ 对应能力（保持 specs 与代码同步），
+  不在本变更放 delta——已落地条目若同时存在于 delta 与主 spec，归档时会重复添加同名
+  Requirement。已落地者见 tasks.md 的勾选与验证行。
