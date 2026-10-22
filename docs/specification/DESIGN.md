@@ -74,9 +74,9 @@
   - 系统不存在 `fonts.xml` 或其内容无法解析，软件输出日志并崩溃退出，不做复杂处理。
   - 相关设置出现错误时（如默认字体设置错误）重置设置数据。
   - 从不复制/移动文件。
-  - `/data/data/com.termux/files/home/.termux/font.ttf`（也支持 ttc otf 等格式）如果存在设置为主字体。
+  - `/data/data/com.termux/files/home/.termux/font.ttf` 或 `/data/data/com.termux/files/home/.config/termux/font.ttf`（也支持 ttc otf 等格式）如果存在设置为主字体。
   - 支持多字重字体、动态字体文件。
-  - 如果文件夹 `/data/data/com.termux/files/home/.termux/fonts` 存在则加入字体扫描路径并显示其中字体在字体列表。
+  - 如果文件夹 `/data/data/com.termux/files/home/.termux/fonts` 或 `/data/data/com.termux/files/home/.config/termux/fonts` 存在则加入字体扫描路径并显示其中字体在字体列表。
   - 只有一项主字体选择，不支持粗体/斜体单独设置，粗体/斜体跟随主字体。
   - 字体列表无重复项，“DroidSans”和“Droid Sans”以及“Droid Sans Regular”重复，要求外部库 API 提供正确的字体列表。
   - 字体列表中不展示“系统默认”等含糊选项，不显示不存在的字体，不使用硬编码，字体列表不提供“从文件加载”选项。
@@ -94,20 +94,9 @@
   - 启动目录为 `/data/data/com.termux/files/home`，不提供启动目录设置。
 - **Bootstrap**：支持 URL 与本地文件安装。
   - 提供 Termux 预设选项，不提供旧版本如 `apt-android-5 2022.04.28-r6`，从 `termux-app/app/build.gradle` 提取逻辑。
-  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，安装时原 `usr` 重命名为 `usr.xxxxx`（随机后缀）；换入失败时回滚旧目录并保持其可用，安装完成后旧目录由用户手动删除，不自动删除。
+  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，下载/安装前要求中间目录 `/data/data/com.termux/files/usr-staging` 不存在，如果存在则拒绝执行，原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
   - 不记录 Bootstrap 状态，不得生成安装标记。
   - 不得特殊化设置权限，按照 Termux 同款流程设置，不额外设置。
-  - 只允许设置下面的环境变量：
-    - `HOME` 和 `TERMUX_HOME_DIR_PATH` 为 `/data/data/com.termux/files/home`。
-    - `PREFIX` 和 `TERMUX_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr`。
-    - `TMPDIR` 和 `TERMUX_TMP_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr/tmp`。
-    - `LANG` 为 `en_US.UTF-8`。
-    - `COLORTERM` 为 `truecolor`。
-    - `TERM` 为 `xterm-256color`。
-    - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
-    - `PATH` 为 `/data/data/com.termux/files/usr/bin`，仅目录存在时设置。failsafe 时不得设置，保留宿主默认
-  - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD`
-  - 仅宿主存在时透传，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
   - 禁止对其他 bootstrap 特殊处理，`postinstall` 只在存在时运行，不做无意义检查/校验，出现问题正常报错。
 - **清除应用数据按钮**，清除设置数据/缓存数据等。不得影响 `/data/data/com.termux/files` 目录
 
@@ -143,13 +132,25 @@
 
 ### Shell
 
-- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退
-- 默认 `LANG` 为 `en_US.UTF-8`。
+- 不检查 Bootstrap 状态，设置下面的环境变量：
+    - `HOME` 和 `TERMUX_HOME_DIR_PATH` 为 `/data/data/com.termux/files/home`。
+    - `PREFIX` 和 `TERMUX_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr`。
+    - `TMPDIR` 和 `TERMUX_TMP_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr/tmp`。
+    - `LANG` 为 `en_US.UTF-8`。
+    - `COLORTERM` 为 `truecolor`。
+    - `TERM` 为 `xterm-256color`。
+    - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
+    - `PATH` 为 原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置。failsafe 时，保留原 `PATH`，不附加。
+    - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，bash 启动时注入 `PROMPT_COMMAND` 以上报会话标题。
+- 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD` 等环境变量
+- 仅宿主存在时透传环境变量，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
+- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
 - shell 崩溃（非主动正常退出）保留现场不关闭会话（参考 Termux，如执行 `exit -1` 后输出 `[Process completed (code 255) - press Enter]`，不主动关闭会话），正常退出时（如 `exit` 命令或用户点击关闭按钮）关闭会话。
 - 回滚行数与 Termux 默认 `transcript-rows` 一致。
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和主题背景，而不是从黑屏花费较长时间过渡。
-- bash 启动时注入 `PROMPT_COMMAND` 以上报会话标题，环境变量 `ENV` 为 `/data/data/com.termux/.mkshrc`。
 - 没有任何内建命令，不内置提供 `termux-setup-storage` `termux-open` 等，也没有替代实现。
+- 忽略 bell character，不做出响应
+- 应用位于后台时能够继续活跃，但不实现 `termux-wake-lock`，不得影响“睡眠”等机制。
 
 ### 修饰键栏
 
@@ -185,7 +186,7 @@
 - 应用启动时检查应用数据兼容性：无法解析或引用不存在的主题/字体时清除该项并回退默认；不得清除 `/data/data/com.termux/files`。
 - 实现文档提供器，向系统文件选择器暴露 `/data/data/com.termux/files/home`，可读可写，可执行文件被修改后不丢失权限。
 - 参考 termux-app 实现前台通知常驻，显示会话数量，提供“退出”按钮，申请通知权限。
-- **不得修改用户文件**：`/data/data/com.termux/files` 由用户管理，应用自身不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` `/data/data/com.termux/files/home/storage` `/data/data/com.termux/files/home/storage/shared` 等路径，对于 `/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为重命名目标，其他情况不得修改。
+- **不得修改用户文件**：`/data/data/com.termux/files` 由用户管理，应用自身不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` `/data/data/com.termux/files/home/storage` `/data/data/com.termux/files/home/storage/shared` 等路径，对于 `/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为重命名目标，其他情况不得修改。不自动清理 `/data/data/com.termux/files/usr/tmp` 等目录。
 - 适配 Android 软件启动屏动画
 - 遵循 Material Design 3
 - 声明文件权限（不提示，允许用户自行授权），支持 `/sdcard` 目录
