@@ -4203,6 +4203,9 @@ constructor(
     private var surfaceDestroyedPauseToken: Long? = null
 
     /** 切后台那次暂停的凭证；重复调用先归还前一次，故不会累计持有。 */
+    // 读取方 activateReplacementSession 跑在渲染监视的 IO 作用域，写入方是主线程：
+    // 没有 volatile 时后台线程可能永远看不到游客状态，进而在后台拉起渲染线程。
+    @Volatile
     private var backgroundPauseToken: Long? = null
 
     /**
