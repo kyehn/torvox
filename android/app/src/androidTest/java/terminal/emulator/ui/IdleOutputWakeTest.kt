@@ -128,9 +128,11 @@ class IdleOutputWakeTest : TerminalLogcatTest() {
         assertTrue("[$label] 命令未写入 PTY", bridge.writeToPty(command.toByteArray()))
 
         // 回显先落地再计时：慢查询（数十毫秒）留在静置窗口里，不进关键路径。
+        // 视口文本按行拼接（行间有 \n），长回显行被软换行切断时 nonce 会被切成两半，
+        // 故先把 \n 去掉再匹配，与仓库其它回显判据（FontSizeReflow 等）保持一致。
         val echoed =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 20) {
-                bridge.getVisibleText().contains(nonce)
+                bridge.getVisibleText().replace("\n", "").contains(nonce)
             }
         assertNotNull("[$label] 命令回显未出现", echoed)
 
