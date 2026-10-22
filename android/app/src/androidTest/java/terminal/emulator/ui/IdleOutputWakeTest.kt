@@ -147,8 +147,17 @@ class IdleOutputWakeTest : TerminalLogcatTest() {
         while (System.nanoTime() < deadline) {
             val packed = bridge.renderedCursorPacked()
             val stamp = readStamp(stampFile)
-            if (stamp != null && packed >= 0 && packed != baseline) {
+            // 光标可见且位置已变化时，直接按光标呈现计时；若光标恰好处于闪烁
+            // 不可见期（packed == -1），则以终端文本落地（时间戳）作为呈现兜底，
+            // 避免光标闪烁导致判据失效。latency 基于 stamp 文件的打印时刻，
+            // 不受本轮询查询开销影响。
+            if (stamp != null && packed != -1L && packed != baseline) {
                 seen = packed
+                latency = (System.currentTimeMillis() - stamp).coerceAtLeast(0)
+                break
+            }
+            if (stamp != null && bridge.getTerminalText().orEmpty().contains(stamp.toString())) {
+                seen = packed.coerceAtLeast(0)
                 latency = (System.currentTimeMillis() - stamp).coerceAtLeast(0)
                 break
             }
