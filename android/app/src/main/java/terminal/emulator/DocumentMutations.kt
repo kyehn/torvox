@@ -341,7 +341,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
         if (!target.mkdirs() && !target.isDirectory) {
             throw IOException("Failed to create directory '${target.path}'")
         }
-        copyPermissions(source, target)
+        // 目录权限最后再搬：源目录若是只读（如 0555），先设权限会让随后创建子项
+        // 立刻 EACCES，复制一棵只读目录树必然失败。
+        val pendingDirectoryPermissions = mutableListOf(source to target)
         val stack = ArrayDeque<Pair<File, File>>()
         source.listFiles()?.forEach { stack.addLast(it to target) }
         while (stack.isNotEmpty()) {
@@ -353,11 +355,14 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 if (!destination.mkdirs() && !destination.isDirectory) {
                     throw IOException("Failed to create directory '${destination.path}'")
                 }
-                copyPermissions(src, destination)
+                pendingDirectoryPermissions += src to destination
                 src.listFiles()?.forEach { stack.addLast(it to destination) }
             } else {
                 copyRegularFile(src, File(dstParent, src.name))
             }
+        }
+        pendingDirectoryPermissions.asReversed().forEach { (src, destination) ->
+            copyPermissions(src, destination)
         }
     }
 
