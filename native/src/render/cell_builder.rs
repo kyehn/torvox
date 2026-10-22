@@ -94,6 +94,8 @@ pub struct CellInstanceConfig<'a> {
     pub atlas_width: f32,
     pub atlas_height: f32,
     pub search_highlights: &'a [SearchHighlight],
+    /// 主题背景色；空单元与它同色时无需再画背景四边形，清除色已经铺好。
+    pub default_background: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -103,6 +105,28 @@ pub struct SearchHighlight {
     pub start_col: i32,
     pub end_col_exclusive: i32,
     pub color: [u8; 4],
+}
+
+/// 空白单元不画背景四边形的前提：无光标、无装饰线，且背景与清除色一致。
+///
+/// 全量帧由 `LoadOp::Clear` 铺好背景，部分帧由脏带清除实例铺好；
+/// 只有与主题背景同色的空白格才能安全省略，否则会丢掉显式背景色。
+fn blank_cell_needs_quad(
+    flags: u32,
+    is_cursor: bool,
+    background: [f32; 4],
+    default_background: [f32; 4],
+) -> bool {
+    const DECORATIONS: u32 = (1 << cell_flags::UNDERLINE)
+        | (1 << cell_flags::STRIKETHROUGH)
+        | (1 << cell_flags::OVERLINE)
+        | (1 << cell_flags::DOUBLE_UNDERLINE);
+    is_cursor
+        || flags & DECORATIONS != 0
+        || background
+            .iter()
+            .zip(default_background)
+            .any(|(actual, expected)| (actual - expected).abs() > 1.0 / 255.0)
 }
 
 /// 判断某单元格是否落在搜索高亮区间内。
@@ -465,6 +489,7 @@ fn build_row_instances_into(
         atlas_width,
         atlas_height,
         search_highlights,
+        default_background,
     } = config;
     // 四边形几何用调用方给的网格单元尺寸，即 FONT 单元
     // 大小（cell_metrics * raster_scale），而不是 surface/rows。
@@ -547,6 +572,7 @@ fn build_row_instances_into(
                     atlas_height,
                     cursor,
                     &highlights_by_row,
+                    default_background,
                     font_pipeline,
                     instances,
                     &cell_data[range.clone()],
@@ -654,6 +680,7 @@ fn append_row_instances(
     atlas_height: f32,
     cursor: CellCursor,
     highlights_by_row: &HashMap<i32, Vec<&SearchHighlight>, RandomState>,
+    default_background: [f32; 4],
     font_pipeline: &mut crate::render::font::FontPipeline,
     instances: &mut Vec<CellInstance>,
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
@@ -709,6 +736,17 @@ fn append_row_instances(
         let glyph_quad_size = [cell_width * cell_span, cell_height];
         let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
+            // 与清除色同色的空白格不必发射：全量帧已由 Clear 铺底，
+            // 部分帧由脏带清除实例铺底；省略后滚动整屏重绘的实例数按
+            // 有效字符数而非网格面积增长。
+            if !blank_cell_needs_quad(
+                cd.flags,
+                is_cursor,
+                effective_background,
+                default_background,
+            ) {
+                continue;
+            }
             // 空单元格只发一个四边形：无光标时铺满全格背景；Bar/Underline 时收缩为
             // 光标标记，格内其余区域不被本帧覆盖（靠累加器保留，见脏带清除实例）。
             // 方块光标不收缩——整格就是光标盒。
@@ -974,6 +1012,7 @@ mod tests {
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
                 search_highlights: highlights,
+                default_background: [0.0; 4],
             },
             &mut font_pipeline,
             &mut instances,
@@ -1233,6 +1272,7 @@ mod tests {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             search_highlights: &[],
+            default_background: [0.0; 4],
         }
     }
 
@@ -1438,6 +1478,7 @@ mod tests {
             atlas_width: ATLAS,
             atlas_height: ATLAS,
             search_highlights: &[],
+            default_background: [0.0; 4],
         };
         let mut font_pipeline =
             crate::render::font::FontPipeline::new(ATLAS as i32, ATLAS as i32, 14.0);
@@ -1717,6 +1758,41 @@ mod tests {
             "underline bottom {bottom} must stay inside row 0 ({cell_height})"
         );
     }
+    /// 空白网格不再为每格发射背景四边形，实例数只随有效字符增长。
+    #[test]
+    fn blank_default_cells_do_not_emit_instances() {
+        let mut cells = vec![cell_data(0, 0, 'A', [1.0; 4], [0.0; 4], 0)];
+        for col in 1..80 {
+            cells.push(cell_data(0, col, '\0', [1.0; 4], [0.0; 4], 0));
+        }
+        let instances = build(&cells, CellCursor::default(), &[]);
+        assert_eq!(
+            instances.len(),
+            1,
+            "only the glyph cell should emit an instance"
+        );
+    }
+
+    /// 空白格只有与清除色一致且无光标/装饰时才可省略背景四边形。
+    #[test]
+    fn blank_cell_quad_skipped_only_when_clear_color_and_undecorated() {
+        let background = [0.1, 0.2, 0.3, 1.0];
+        assert!(!blank_cell_needs_quad(0, false, background, background));
+        assert!(blank_cell_needs_quad(0, true, background, background));
+        assert!(blank_cell_needs_quad(
+            1 << cell_flags::UNDERLINE,
+            false,
+            background,
+            background
+        ));
+        assert!(blank_cell_needs_quad(
+            0,
+            false,
+            [0.1, 0.2, 0.4, 1.0],
+            background
+        ));
+    }
+
     /// 非空单元格竖线光标：字形保持原文色并追加一枚标记。
     #[test]
     fn bar_cursor_on_glyph_cell_emits_glyph_plus_marker() {

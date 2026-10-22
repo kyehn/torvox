@@ -905,6 +905,12 @@ impl Renderer {
             atlas_width: atlas_px_width as f32,
             atlas_height: atlas_px_height as f32,
             search_highlights,
+            default_background: [
+                self.background.r as f32,
+                self.background.g as f32,
+                self.background.b as f32,
+                self.background.a as f32,
+            ],
         };
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
         // `None`（调用方无基线，如首帧）强制全量重建。

@@ -4,6 +4,7 @@
 //! OSC 7/8/52 写入一律直达 Ghostty：工作目录、剪贴板写入、超链接状态
 //! 以 Ghostty 为单一来源（上游回调与查询 API），本仓不再自建 OSC 解析器。
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 超长选择器告警的限频间隔（毫秒）。与渲染侧的洪泛告警同档。
@@ -41,10 +42,13 @@ pub struct OutputSnapshot {
 pub struct OutputProcessor {
     scan: ReadScan,
     /// `new_output` 标志：[`Self::process`] 摄入
-    /// 非空 PTY 块时置位，渲染线程经 [`Self::take_new_output`] 读取并清除。
+    /// 非空 PTY 块时置位，渲染线程经共享句柄读清（见 [`Self::new_output_flag`]）。
     /// 与 `dirty` 标志相互独立：新输出可把视口复位到底部，而 dirty（选区/高亮/字号
     /// 变化）只能触发重绘，绝不滚动复位。
-    new_output: AtomicBool,
+    ///
+    /// 用 `Arc` 共享给会话注册表：渲染线程每帧读它时不能去抢会话锁——PTY 洪流
+    /// 下会话锁可能被 VT 解析按住数十毫秒，正是滚动掉帧的来源。
+    new_output: Arc<AtomicBool>,
 }
 
 impl Default for OutputProcessor {
@@ -57,8 +61,13 @@ impl OutputProcessor {
     pub fn new() -> Self {
         Self {
             scan: ReadScan::default(),
-            new_output: AtomicBool::new(false),
+            new_output: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// 会话注册表持有的共享标志：渲染线程每帧读它，不需要会话锁。
+    pub fn new_output_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.new_output)
     }
 
     pub fn take_new_output(&self) -> bool {
@@ -272,6 +281,22 @@ mod tests {
         assert!(processor.take_new_output());
         // 单消费者读清：第二次读取为 false。
         assert!(!processor.take_new_output());
+    }
+
+    #[test]
+    fn new_output_flag_is_shared_with_lock_free_reader() {
+        let mut processor = OutputProcessor::new();
+        let flag = processor.new_output_flag();
+        assert!(!flag.load(Ordering::Acquire));
+        let _ = processor.process(b"x");
+        assert!(
+            flag.swap(false, Ordering::AcqRel),
+            "registry-held flag must observe PTY intake"
+        );
+        assert!(
+            !processor.take_new_output(),
+            "external swap must clear the processor's own flag"
+        );
     }
 
     #[test]

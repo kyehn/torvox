@@ -690,6 +690,7 @@ fn test_config<'a>(
         atlas_width: TEST_ATLAS_SIZE,
         atlas_height: TEST_ATLAS_SIZE,
         search_highlights,
+        default_background: [0.0; 4],
     }
 }
 
