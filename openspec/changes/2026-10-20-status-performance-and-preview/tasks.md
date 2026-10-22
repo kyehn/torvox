@@ -151,6 +151,9 @@
       同时把测试里写死的 `0x1E1E2E` 换成
       `resolveAppDarkMode` → `resolveTerminalThemeName` → `ThemeRepository` 三件套，
       与 `TerminalScreen` 同一条链，换主题不再误判。
+- [x] 复审补强：`activateReplacementSession` 在渲染监视的 IO 作用域里读
+      `isBackgroundPaused`，而暂停凭证由主线程写——普通 `var` 没有跨线程可见性，
+      后台线程可能读不到刚领的暂停并拉起渲染线程。凭证字段改为 `@Volatile`。
 
 ## 六、文件提供者响应较慢
 
@@ -373,6 +376,9 @@
 - [x] 复测：`DocumentsProviderTest` 72 例全绿（含「write cycles must not strip
       permission bits」）；仪器测试走真实跨进程 `ContentResolver.call` 路径，
       22 例全过。
+- [x] 复审补强：目录权限原先在 `mkdirs` 后立即落，只读源目录（`0555`）的副本
+      会在创建子项时 EACCES。改为整棵子树写完后再逆序落权限，新增
+      `copyDocument_copies_read_only_directory_tree` 覆盖该形态。
 
 ### 10.6 软件启动图模糊
 
