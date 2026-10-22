@@ -133,15 +133,15 @@
 ### Shell
 
 - 不检查 Bootstrap 状态，设置下面的环境变量：
-    - `HOME` 和 `TERMUX_HOME_DIR_PATH` 为 `/data/data/com.termux/files/home`。
-    - `PREFIX` 和 `TERMUX_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr`。
-    - `TMPDIR` 和 `TERMUX_TMP_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr/tmp`。
-    - `LANG` 为 `en_US.UTF-8`。
-    - `COLORTERM` 为 `truecolor`。
-    - `TERM` 为 `xterm-256color`。
-    - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
-    - `PATH` 为 原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置。failsafe 时，保留原 `PATH`，不附加。
-    - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，bash 启动时注入 `PROMPT_COMMAND` 以上报会话标题。
+  - `HOME` 和 `TERMUX_HOME_DIR_PATH` 为 `/data/data/com.termux/files/home`。
+  - `PREFIX` 和 `TERMUX_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr`。
+  - `TMPDIR` 和 `TERMUX_TMP_PREFIX_DIR_PATH` 为 `/data/data/com.termux/files/usr/tmp`。
+  - `LANG` 为 `en_US.UTF-8`。
+  - `COLORTERM` 为 `truecolor`。
+  - `TERM` 为 `xterm-256color`。
+  - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
+  - `PATH` 为 原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置。failsafe 时，保留原 `PATH`，不附加。
+  - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，bash 启动时注入 `PROMPT_COMMAND` 以上报会话标题。
 - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD` 等环境变量
 - 仅宿主存在时透传环境变量，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
 - 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
