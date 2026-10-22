@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.AnimationDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import android.util.TypedValue
@@ -22,8 +23,9 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * 启动屏图标的行为判据（STATUS ⑥「启动动画图案不完整，被限制到图标形状」）：主题解析出的
- * 启动屏 drawable 只能是普通图形；包装层墨迹必须完整落进平台蒙版且足够醒目
+ * 启动屏图标的行为判据：主题解析出的启动屏 drawable 必须是 Animatable（平台据此直接
+ * 绘制矢量，不再按 108dp 光栅化后放大，见 STATUS「软件启动图模糊」），且必须是普通
+ * 图形而非自适应图标；包装层墨迹必须完整落进平台蒙版且足够醒目
  * （详见 openspec/specs/render-stability 的「启动屏图标为单一图案源的收缩包装」）。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -57,6 +59,19 @@ class SplashIconRobolectricTest {
                 "实际 ${splashIcon.javaClass.simpleName}",
             splashIcon is AdaptiveIconDrawable,
         )
+        // 平台对非 Animatable 的自定义图标先按 108dp 光栅化再放大到 192dp（1.78×），
+        // 矢量边缘会被重采样成模糊；AnimationDrawable 是拿到直接绘制路径的最小载体。
+        assertTrue(
+            "启动屏图标必须是 Animatable，否则平台会把矢量按 108dp 光栅化后放大。" +
+                "实际 ${splashIcon.javaClass.simpleName}",
+            splashIcon is AnimationDrawable,
+        )
+        val splashAnimation = splashIcon as AnimationDrawable
+        assertEquals(
+            "splash_icon 必须是单帧动画：多帧会真的动起来",
+            1,
+            splashAnimation.numberOfFrames,
+        )
 
         // 图标后不得垫不透明的圆形底板（STATUS ⑪「完整图案」）。父主题
         // Theme.SplashScreen 解析出全透明底色；一旦换成
@@ -82,18 +97,22 @@ class SplashIconRobolectricTest {
         )
 
         // 结构：两处 wrapper 都必须单层引用 logo_art（保证图案只此一份）。
-        val splashChild = (splashIcon as LayerDrawable).getDrawable(0)
-            ?: error("splash_icon 的 layer item 必须引用 logo_art")
+        // splash_icon 顶层是单帧动画，帧本身是收缩包装 layer-list。
+        val splashFrame = requireNotNull(splashAnimation.getFrame(0)) {
+            "splash_icon 的唯一帧必须存在"
+        }
+        val splashChild = (splashFrame as LayerDrawable).getDrawable(0)
+            ?: error("splash_frame 的 layer item 必须引用 logo_art")
         val launcherIcon = requireNotNull(
             themed.resources.getDrawable(R.drawable.launcher_foreground, themed.theme),
         )
         val launcherChild = (launcherIcon as LayerDrawable).getDrawable(0)
             ?: error("launcher_foreground 的 layer item 必须引用 logo_art")
 
-        // 同一份图案：两个 wrapper 的子层都在自身固有尺寸（108dp=108px，density 1）
-        // 的画布上渲染，像素完全一致，否则就是两份副本漂移了。
+        // 同一份图案：两个 wrapper 的子层都是 logo_art 本身，在固有尺寸
+        // （108dp=108px，density 1）的画布上渲染，像素必须完全一致。
         val artPx = requireNotNull(splashChild.intrinsicWidth) {
-            "splash_icon 的 item 必须带 android:width/height 固定尺寸"
+            "logo_art 必须有矢量声明的固有尺寸"
         }
         val splashChildBits = renderBits(splashChild, artPx)
         val launcherChildBits = renderBits(launcherChild, artPx)
@@ -103,21 +122,19 @@ class SplashIconRobolectricTest {
             splashChildBits.contentEquals(launcherChildBits),
         )
 
-        // The pattern must fit inside the adaptive icon's safe zone: the platform draws
-        // the foreground layer at 1.5× the icon bounds, and the mask only exposes the
-        // center safe circle (66/72 of the 72/108 visible viewport) — the pattern's
-        // farthest point from the canvas center must stay inside that circle,
-        // otherwise the launcher crops the star tip and the window corner.
+        // 图案必须落在自适应图标安全区内：平台把前景层按图标边界的 1.5 倍绘制，
+        // 蒙版只露出中间的安全圆（72/108 可见区里的 66/72），图案离画布中心
+        // 最远的点必须留在圆内，否则桌面会裁掉星尖与窗口一角。
         val launcherInk = inkRadius(renderBitmap(launcherChild, artPx))
         assertTrue(
-            "the pattern's ink radius must not exceed the safe circle's $SAFE_ZONE_RADIUS" +
-                " units, actual ${"%.1f".format(launcherInk)}",
+            "图案墨迹半径不得超过安全圆半径 $SAFE_ZONE_RADIUS 单位，" +
+                "实际 ${"%.1f".format(launcherInk)}",
             launcherInk <= SAFE_ZONE_RADIUS,
         )
 
-        // 平台管线几何：启动屏把这一 wrapper 画进 192dp 单元并按 88.9dp
-        // 蒙版裁剪；96dp 包装下图案墨迹必须完整落进蒙版圆（尺寸上不封顶地
-        // 接近蒙版，说明收缩包装没生效——旧实现就在 0.95 上被裁）。
+        // 平台管线几何：Animatable 分支把这一 wrapper 直接画进 192dp 单元并按
+        // 88.9dp 蒙版裁剪，绝对 263dp 的帧让墨迹半径为 ≈76.7dp；上限 95% 用于
+        // 发现「收缩包装失效、图案贴到蒙版边」的回归，下限 40% 防止图案过小。
         val cellPx = SPLASH_CELL_DP
         val cell = Bitmap.createBitmap(cellPx, cellPx, Bitmap.Config.ARGB_8888)
         splashIcon.setBounds(0, 0, cellPx, cellPx)
@@ -221,12 +238,13 @@ class SplashIconRobolectricTest {
         /** 平台启动屏单元：160dp × 1.2（no_background_scale_factor）= 192dp。 */
         const val SPLASH_CELL_DP = 192
 
-        /** 平台默认蒙版圆半径：192dp 单元的 50/108 ≈ 88.9dp。 */
+        /** 平台启动屏蒙版安全半径的下界：192dp 单元按 50/108 缩放 ≈ 88.9dp
+         *  （config_icon_mask 是圆角方形，轴线方向恰好是 96dp，取更保守的 88.9dp）。 */
         const val MASK_RADIUS_DP: Float = SPLASH_CELL_DP * 50f / VIEWPORT_UNITS
 
         /** 启动屏图案墨迹半径区间（相对蒙版）：下限 = 完整图案要醒目
-         *  （Robolectric ≈0.50、平台实测 ≈0.87）；上限 = 不触碰蒙版
-         *  （直接给裸图案的旧实现 ≈1.0，星尖恰好出圆被裁）。 */
+         *  （Robolectric 与平台 emulator 实测均 ≈0.86）；上限 = 不触碰蒙版
+         *  （直接给裸图案的旧实现 ≈1.0，星尖恰好出界被裁）。 */
         const val SPLASH_ART_MIN_RATIO = 0.40f
         const val SPLASH_ART_MAX_RATIO = 0.95f
 
