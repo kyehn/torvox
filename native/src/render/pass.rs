@@ -612,9 +612,11 @@ impl Renderer {
             return Err(GpuError::Surface("no surface configured".to_string()));
         }
 
+        let frame_start = std::time::Instant::now();
         let mut frame_ctx = self
             .begin_frame()
             .ok_or_else(|| GpuError::Surface("begin_frame failed".to_string()))?;
+        let begin_done = std::time::Instant::now();
 
         let config_width = frame_ctx.config_width;
         let config_height = frame_ctx.config_height;
@@ -831,10 +833,29 @@ impl Renderer {
         self.last_drawn_viewport_scroll_px = self.viewport_scroll_px;
 
         // 提交 + 呈现
+        let encode_done = std::time::Instant::now();
         let encoder = frame_ctx.encoder;
         let texture = frame_ctx.texture;
         self.queue.submit(std::iter::once(encoder.finish()));
+        let submit_done = std::time::Instant::now();
         self.queue.present(texture);
+        let present_done = std::time::Instant::now();
+
+        // 慢帧只记一条，区分 acquire/编码/提交/呈现哪段阻塞；30ms 与 Kotlin 侧
+        // SLOW_FRAME 阈值一致，正常帧不产生日志。
+        let total = present_done.duration_since(frame_start);
+        if total >= std::time::Duration::from_millis(30) {
+            let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+            log::warn!(
+                "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={}",
+                ms(begin_done.duration_since(frame_start)),
+                ms(encode_done.duration_since(begin_done)),
+                ms(submit_done.duration_since(encode_done)),
+                ms(present_done.duration_since(submit_done)),
+                ms(total),
+                instances.len(),
+            );
+        }
 
         log::debug!(
             "render_frame: presented {} instances (partial={partial}, bands={})",

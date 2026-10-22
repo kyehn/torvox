@@ -546,9 +546,10 @@ impl PtyPair {
                     buf[i] = b'\n';
                     i += 1;
                     let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, i);
-                    // 把 errno 编码进退出码（>= 100），使父进程的等待线程即使在 PTY
-                    // 输出因销毁竞态丢失时也能记录确切失败原因。
-                    let code = 100 + errno.min(155);
+                    // 把 errno 编码进退出码（100 + errno），使父进程的等待线程即使在 PTY
+                    // 输出因销毁竞态丢失时也能记录确切失败原因。errno 上界 133
+                    // （EHWPOISON），封顶后退出码 <= 233，与 shell 的 254/255 不冲突。
+                    let code = 100 + errno.min(133);
                     libc::_exit(code);
                 }
             }

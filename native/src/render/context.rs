@@ -737,10 +737,15 @@ impl Renderer {
         // 预先创建帧累加器，把一次性纹理分配移出首个渲染帧，并立即 warmup() 呈现一帧
         // 背景色，让表面立刻可见。
         if let Some(config) = &self.surface_config {
-            let _ = self.ensure_frame_texture(config.width, config.height, config.format);
+            let (width, height, format) = (config.width, config.height, config.format);
+            let (present_mode, latency) =
+                (config.present_mode, config.desired_maximum_frame_latency);
+            let _ = self.ensure_frame_texture(width, height, format);
+            log::info!(
+                "attach_surface: configured {scaled_width}x{scaled_height} format={format:?} present={present_mode:?} latency={latency}"
+            );
         }
         self.warmup();
-        log::info!("attach_surface: configured {scaled_width}x{scaled_height}");
         Ok(())
     }
 
