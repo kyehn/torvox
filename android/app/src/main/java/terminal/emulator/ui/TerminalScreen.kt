@@ -63,6 +63,7 @@ import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import kotlin.math.max
 import kotlin.math.min
@@ -84,7 +85,12 @@ private val searchQueryMaxLength: Int by lazy {
     if (!bridge.isNativeLoaded()) {
         0
     } else {
-        runCatching { bridge.searchQueryMaxChars() }.getOrDefault(0)
+        try {
+            bridge.searchQueryMaxChars()
+        } catch (error: UnsatisfiedLinkError) {
+            LogUtil.e("TerminalScreen", "searchQueryMaxChars is unavailable: ${error.message}")
+            0
+        }
     }
 }
 
