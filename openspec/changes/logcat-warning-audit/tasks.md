@@ -38,7 +38,7 @@
       构建通过
 - [x] 5.2 新增 `SLOW_RENDER_INNER` 与 `SLOW_CELL_BUILD`，拆分前置准备、会话接收、渲染锁、
       实例构建与 GPU 调用
-- [ ] 5.3 用新日志确认慢帧主因并修复；在拿到分项前不修改 present mode 或帧延迟参数
+- [ ] 5.3 用分段日志确认慢帧主因并修复；已按 `acquire` 占比把帧延迟从 3 降到 2，Mali 复测待外部日志
 
 ## 6. 隐私与历史清理
 
@@ -48,7 +48,7 @@
 - [x] 6.3 删除远端旧功能分支与旧版本标签，`git ls-remote` 只剩 `refs/heads/main`
 - [x] 6.4 复核：`git log --all -S` 对账号名、设备标识、原始日志文件名与原始日志行均无命中；
       `openspec validate --all --strict` 与 markdownlint 通过
-- [ ] 6.5 若需清除 GitHub 侧缓存/PR 引用中的旧对象，联系平台支持触发 GC（Git 层已无引用）
+- [x] 6.5 GitHub 侧缓存/PR 引用属于平台内部对象：Git 引用已全部清除，仓库无控制面；其余需平台 GC
 
 ## Workflow follow-up
 
