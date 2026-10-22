@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.BatchEditDepth
 import terminal.emulator.input.ComposingBaseline
 import terminal.emulator.input.CursorUpdateMonitor
@@ -155,7 +156,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         inputBatchBuffer.close()
         // 摘掉排队钩子：批缓冲已关闭，留着会让此后的按键写入被拒并逐条记警告，
         // 而直写本就是合法路径（视图不在前台时）。
-        viewModel?.runtime?.bridge()?.ptyWriteQueue = null
+        //
+        // 只摘自己装的那一份：Activity 重建时新旧视图短暂共存，旧视图 detach 可能晚于
+        // 新视图 attach；无条件按「当前活动会话」的 bridge 清空会摘掉新视图刚装的钩子，
+        // 硬件键/鼠标退回主线程同步写 PTY（PTY 满时每次按键冻结 UI 数秒）。
+        val bridge = ptyWriteQueueBridge
+        if (bridge != null && viewModel?.runtime?.bridge() === bridge) {
+            bridge.ptyWriteQueue = null
+        }
+        ptyWriteQueueBridge = null
     }
 
     override fun onAttachedToWindow() {
@@ -775,9 +784,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             lastConfiguredWidth = width
             lastConfiguredHeight = height
             // 切后台返回经 surfaceChanged 重建交换链后强制一帧：闲时无新输出也呈现，避免黑屏。
-            forceResumeRendering()
-            terminalViewModel.runtime.resumeRendering()
-            terminalViewModel.runtime.forceRender()
+            //
+            // 但后台期间 MUST NOT 恢复：ON_PAUSE 收起输入法会触发一次尺寸变化，
+            // 那时窗口可能已被系统回收，恢复渲染只会取帧失败（永久黑屏），
+            // 还会多出一个与推进泵重复消费全局事件队列的渲染线程。
+            if (!terminalViewModel.runtime.isBackgroundPaused) {
+                forceResumeRendering()
+                terminalViewModel.runtime.resumeRendering()
+                terminalViewModel.runtime.forceRender()
+            }
             // 旋转/窗口尺寸变化（无输入法事件时）永远不会到达 runtime.resize：
             // 另一个触发点只有 insets 派发回调。
             // 使用共享公式使两条路径对网格的认知一致。
@@ -2166,6 +2181,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private var pendingUnpauseRunnable: Runnable? = null
 
+    /** 当前安装 [Bridge.ptyWriteQueue] 的那条 bridge；detach 时据此只摘自己的一份。 */
+    private var ptyWriteQueueBridge: Bridge? = null
+
     /**
      * 惯性滚动物理：由本视图按 vsync 自驱的指数衰减（[flingOffsetPx]），
      * 不再交给 [android.widget.OverScroller]。[postOnAnimation] 把各步对齐到 vsync。
@@ -3018,8 +3036,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         pendingUnpauseRunnable =
             Runnable {
                 pendingUnpauseRunnable = null
-                if (hasWindowFocus()) {
-                    isPaused = false
+                if (!hasWindowFocus()) return@Runnable
+                isPaused = false
+                val vm = viewModel ?: return@Runnable
+                // ON_RESUME 已经发生（只是 Surface 当时未就绪）：切后台那次暂停必须
+                // 此时归还，否则账本里永远留着它，此后任何 acquire 都发不出暂停。
+                vm.runtime.resumeRenderingFromBackground()
+                val surface = holder.surface
+                // Surface 就绪后按常规路径恢复：清掉 Surface 销毁那次暂停、重启渲染
+                // 线程并出一帧探针。Surface 仍无效时留待下一次 surfaceChanged/resize。
+                if (surface.isValid && width > 0 && height > 0) {
+                    vm.runtime.clearSurfaceDestroyedRenderPause()
+                    vm.runtime.resumeRendering()
+                    vm.runtime.forceRender()
                 }
             }
                 .also { postDelayed(it, delayMillis) }
@@ -3116,9 +3145,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * attach 与首次绑定都要装，故只此一处实现。
      */
     private fun installPtyWriteQueue() {
-        viewModel?.runtime?.bridge()?.ptyWriteQueue = { sessionId, data ->
+        val bridge = viewModel?.runtime?.bridge() ?: return
+        bridge.ptyWriteQueue = { sessionId, data ->
             inputBatchBuffer.write(data, sessionId)
         }
+        ptyWriteQueueBridge = bridge
     }
 
     private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
@@ -3529,9 +3560,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // onSurfaceDestroyed 在此路径上领了一次暂停（渲染标志置位），
                 // 故普通的后台/恢复循环会让该标志保持置位，使重启的渲染线程
                 // 输出黑帧（暂停时 render_frame 会短路）。线程重启前清掉它。
-                forceResumeRendering()
-                terminalViewModel.runtime.resumeRendering()
-                terminalViewModel.runtime.forceRender()
+                if (!terminalViewModel.runtime.isBackgroundPaused) {
+                    forceResumeRendering()
+                    terminalViewModel.runtime.resumeRendering()
+                    terminalViewModel.runtime.forceRender()
+                }
                 val runtimeState = terminalViewModel.runtime.state.value
                 if (runtimeState.rows > 0 && runtimeState.cols > 0) {
                     rows = runtimeState.rows

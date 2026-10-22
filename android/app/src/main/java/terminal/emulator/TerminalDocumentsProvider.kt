@@ -452,7 +452,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         sourceParentDocumentId: String,
         targetParentDocumentId: String,
     ): String = trace("moveDocument '$sourceDocumentId'") {
-        mutations.moveDocument(sourceDocumentId, targetParentDocumentId)
+        mutations.moveDocument(sourceDocumentId, targetParentDocumentId, sourceParentDocumentId)
     }
 
     override fun deleteDocument(documentId: String) {

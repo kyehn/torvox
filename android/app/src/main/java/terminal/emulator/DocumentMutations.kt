@@ -119,6 +119,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
         if (source.canonicalFile == rootCanonical) {
             throw java.io.FileNotFoundException("Refusing to copy the root document")
         }
+        if (!Files.exists(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            throw java.io.FileNotFoundException("Source document does not exist: '$sourceDocumentId'")
+        }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
         requireDirectory(targetParent)
         // 读源用跟随语义（复制链接目标内容）还是链接自身？与浏览一致：
@@ -149,7 +152,11 @@ internal class DocumentMutations(private val context: Context, private val rootD
         return newId
     }
 
-    fun moveDocument(sourceDocumentId: String, targetParentDocumentId: String): String {
+    fun moveDocument(
+        sourceDocumentId: String,
+        targetParentDocumentId: String,
+        sourceParentDocumentId: String? = null,
+    ): String {
         val root = rootDir()
         if (sourceDocumentId == TerminalDocumentsProvider.ROOT_ID) {
             throw java.io.FileNotFoundException("Refusing to move the root document")
@@ -163,6 +170,18 @@ internal class DocumentMutations(private val context: Context, private val rootD
             }
         if (source.canonicalFile == root.canonicalFile) {
             throw java.io.FileNotFoundException("Refusing to move the root document")
+        }
+        // AOSP 契约：sourceParentDocumentId 是客户端声称的源父目录。忽略它，
+        // 跨父移动时客户端手里的过期列表不会暴露，源会从真实父目录悄悄搬走。
+        // 空串表示未提供（部分客户端如此），此时无从校验。
+        if (!sourceParentDocumentId.isNullOrEmpty()) {
+            val claimedParent = TerminalDocumentsProvider.decodeDocId(sourceParentDocumentId, root)
+            val actualParent = source.parentFile ?: root
+            if (claimedParent.canonicalFile != actualParent.canonicalFile) {
+                throw java.io.FileNotFoundException(
+                    "sourceParentDocumentId '$sourceParentDocumentId' is not the parent of '$sourceDocumentId'",
+                )
+            }
         }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
         requireDirectory(targetParent)
@@ -259,7 +278,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
     private fun copyTree(source: File, targetParent: File, baseName: String = source.name): File {
         val target = uniqueChild(targetParent, baseName)
         try {
-            copyTreeInto(source, target)
+            copyTreeInto(source, target, source, target)
         } catch (failure: IOException) {
             // 半截复制产物不能留给客户端：尽力清掉再把原错抛出去。
             runCatchingCancellable { deleteWithoutFollowingSymlinks(target) }
@@ -272,32 +291,47 @@ internal class DocumentMutations(private val context: Context, private val rootD
      * 复制符号链接本身，不跟随目标。
      *
      * 相对目标的基准是**链接所在目录**：原样复制会把基准留在旧目录，
-     * 复制到别处后同一串相对路径解析到完全不同的文件（甚至悬空）。
-     * 故把目标按新位置重算：新父目录仍在原树内时保持相对，否则写绝对路径——
-     * 两种情形都让链接仍指向原来那个文件。
+     * 复制到别处后同一串相对路径解析到完全不同的文件（甚至悬空）。故按新位置重算：
+     *
+     * - 目标在被复制的这棵树**内部**：映射到副本里的同一相对位置。整棵树
+     *   `~/p` → `~/q` 时 `p/d/link -> ../f` 变成 `q/d/link -> ../f`，副本自包含，
+     *   删掉原树也不会悬空。
+     * - 目标在树**外**：仍指向原来那个文件（用绝对路径表达，因为相对深度在新位置
+     *   未必成立）。
+     * - 显式绝对目标原样保留：用户就是要它指向那个位置。
      */
-    private fun copySymbolicLink(source: File, target: File) {
+    private fun copySymbolicLink(source: File, target: File, sourceRoot: File, destRoot: File) {
         val originalTarget = Files.readSymbolicLink(source.toPath())
-        val sourceParent = source.parentFile?.toPath()
-        val targetParent = target.parentFile?.toPath()
+        val sourceParent = source.parentFile?.toPath()?.toAbsolutePath()?.normalize()
+        val targetParent = target.parentFile?.toPath()?.toAbsolutePath()?.normalize()
+        if (sourceParent == null || targetParent == null) {
+            Files.createSymbolicLink(target.toPath(), originalTarget)
+            return
+        }
+        // 显式绝对目标原样保留：用户就是要它指向那个位置，重算反而改变语义。
+        if (originalTarget.isAbsolute) {
+            Files.createSymbolicLink(target.toPath(), originalTarget)
+            return
+        }
+        val resolved = sourceParent.resolve(originalTarget).normalize()
+        val sourceRootPath = sourceRoot.toPath().toAbsolutePath().normalize()
+        val destRootPath = destRoot.toPath().toAbsolutePath().normalize()
+        // 链接目标在**被复制的树内**时，按树内相对位置重映射到副本：
+        // 复制 p 到 q 后 p/d/link -> ../f 必须变成 q/d/link -> ../f，
+        // 而不是指向原树（副本不自治，且泄漏私有绝对路径）。
         val rebased =
-            if (originalTarget.isAbsolute || sourceParent == null || targetParent == null) {
-                originalTarget
+            if (resolved.startsWith(sourceRootPath)) {
+                destRootPath.resolve(sourceRootPath.relativize(resolved))
             } else {
-                val resolved = sourceParent.resolve(originalTarget).normalize()
-                if (resolved.startsWith(targetParent)) {
-                    targetParent.relativize(resolved)
-                } else {
-                    resolved
-                }
+                resolved
             }
-        Files.createSymbolicLink(target.toPath(), rebased)
+        Files.createSymbolicLink(target.toPath(), targetParent.relativize(rebased))
     }
 
-    private fun copyTreeInto(source: File, target: File) {
+    private fun copyTreeInto(source: File, target: File, sourceRoot: File, destRoot: File) {
         if (Files.isSymbolicLink(source.toPath())) {
             // 只复制链接 inode：跟随会把站外目标整棵树吸入家目录。
-            copySymbolicLink(source, target)
+            copySymbolicLink(source, target, sourceRoot, destRoot)
             return
         }
         if (!source.isDirectory) {
@@ -313,7 +347,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         while (stack.isNotEmpty()) {
             val (src, dstParent) = stack.removeLast()
             if (Files.isSymbolicLink(src.toPath())) {
-                copySymbolicLink(src, File(dstParent, src.name))
+                copySymbolicLink(src, File(dstParent, src.name), sourceRoot, destRoot)
             } else if (src.isDirectory) {
                 val destination = File(dstParent, src.name)
                 if (!destination.mkdirs() && !destination.isDirectory) {
