@@ -197,7 +197,6 @@ pub struct GridSnapshot {
     pub dirty: Vec<bool>,
     pub title: String,
     pub scrollback_length: u32,
-    pub sync_active: bool,
 }
 
 /// KGP 图像的原始像素数据（RGBA8）。
@@ -245,7 +244,6 @@ impl GridSnapshot {
             cursor_style: Default::default(),
             title: String::new(),
             scrollback_length: 0,
-            sync_active: false,
         }
     }
 }
