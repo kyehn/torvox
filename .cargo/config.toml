@@ -1,2 +1,15 @@
+# 宿主（x86_64-unknown-linux-gnu）链接口径。
+#
+# `libghostty-vt.a` 里的 Zig `compiler_rt.o` 以 null 符号（符号表第 0 项）生成
+# `R_X86_64_PLT32` 引用；rustc 默认的 rust-lld 对它直接报 undefined symbol。
+# ld.bfd 则会在 Zig 合并 `.eh_frame`（`__*_chk` 包装共用一段）后拒绝生成
+# `.eh_frame_hdr`（overlapping FDEs），绕过它需要 `--no-eh-frame-hdr`，而那会
+# 抽掉展开器所需的 FDE 索引，`catch_unwind` 实测直接 abort——不可接受。
+#
+# 故用 GNU gold：它按 null→0 解析引用，且能正常生成 `.eh_frame_hdr`。rustc 会就
+# gold 的弃用发一条提示（`the gold linker is deprecated`），这是工具链告警而非
+# 代码问题；换成 lld/bfd 都会破坏上述任一侧。
+#
+# Android 目标不经此处：cargo-ndk 自带 lld，Zig 对象不参与 Android 链接。
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=gold"]

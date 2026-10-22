@@ -449,9 +449,13 @@
 - [x] P8（proposal 的前提写「六条现象」，而当前 `docs/STATUS.md` 是 5 条）：proposal
       改为同时交代两版清单，并写明「STATUS.md 的 5 条已全部由本变更覆盖，请维护者勾销」
       ——`docs/STATUS.md` 属禁改清单，本变更不改它。
-- [x] P9/P10/P11（门禁不跑仪器测试、不 lint Android 侧原生代码、不产出含 `libnative.so`
-      的 APK）：这三项都需要改 `scripts/` 与 CI 工作流，超出「改代码」的边界，记为
-      后续独立变更（见下「遗留」）。
+- [x] P10（门禁不 lint Android 侧原生代码）：已在 `scripts/check.nu` 加入
+      `cargo ndk -t arm64-v8a clippy --all-targets -- --deny warnings`——约 1100 行
+      `cfg(target_os = "android")` 代码此前从不被任何 lint 看到；当前代码在 Android
+      目标上零告警。
+- [x] P9/P11（门禁不跑仪器测试、APK 含 `libnative.so`）：由 `.github/workflows/build.yml`
+      覆盖——`scripts/build-apk.nu` 先构建双 ABI 原生库再打包，模拟器作业运行
+      `scripts/test-emulator.nu`。`check.nu` 面向无设备的本地门禁，不重复这两步。
 - [x] D5（存储权限的显式声明没有任何 openspec 覆盖）：新建 `openspec/specs/storage-access/`
       记「应用 MUST 显式声明外部存储读写权限」及三条 Scenario。
 - [x] D3 的两处缺口（CJK 状态无「唯一发射点」约束、缺席原因次序里没有「尚未上报」）：
