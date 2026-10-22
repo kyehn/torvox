@@ -1727,6 +1727,12 @@ constructor(
                                             // 退出优先在独立分支中处理：该事件已从原生队列消费且无法重放，
                                             // 故下方剪贴板处理中的异常绝不能跳过清理。
                                             if (poll.exit) {
+                                                // 本帧退出的是否就是本条目（而非同帧里某个后台会话）。
+                                                // 只有「自己退出」才允许结束本渲染循环；后台会话退出
+                                                // 绝不能把活动会话的循环 break 掉——那会让可见终端
+                                                // 冻结到看门狗重启（每次还累加重启计数，最终误关活会话）。
+                                                val selfExited =
+                                                    poll.sessionId == 0L || poll.sessionId == entry.id
                                                 // 先回复空值，再做任何清理：这些剪贴板读取请求
                                                 // 已从原生队列消费且永不会再被派发，
                                                 // 不予回复会挂起请求方。
@@ -1782,7 +1788,7 @@ constructor(
                                                         }
                                                     }
                                                 }
-                                                if (!entry.waitingForProcessCompleted) {
+                                                if (selfExited && !entry.waitingForProcessCompleted) {
                                                     break
                                                 }
                                                 // 正在显示 [Process completed] 提示
@@ -4125,13 +4131,21 @@ constructor(
      * 位置全在新视图的恢复路径上——按下去就没有人再放开，终端全黑且渲染线程毫无
      * 异常表现（无错误、无重启、无自愈）。
      */
-    fun onSurfaceDestroyed(owner: Any) {
+    /**
+     * Surface 销毁通知；返回 true 表示 [owner] 确实是当前持有者并已处理。
+     *
+     * 调用方 MUST 只在自己的持有被认领时才释放 GPU Surface/清空 `currentSurface`：
+     * Activity 重建时新旧视图会短暂共存，陈旧视图的 `surfaceDestroyed` 可能晚于
+     * 新视图的 `surfaceCreated` 到达——无条件暂停会停掉新视图刚恢复的渲染线程，
+     * 而该暂停的凭证再也不会被归还（永久黑屏）。
+     */
+    fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
             LogUtil.w(
                 TAG,
                 "onSurfaceDestroyed: stale view ignored (current owner=${surfaceOwnership.currentOwner})",
             )
-            return
+            return false
         }
         // 待绑定的 Surface（bridge 存在之前的 start/attachSurface）
         // 在持有者销毁的瞬间即已陈旧——稍后绑定会把已死的 Surface 交给新 bridge
@@ -4148,6 +4162,7 @@ constructor(
         val previous = surfaceDestroyedPauseToken
         surfaceDestroyedPauseToken = renderPauseLedger.acquire()
         previous?.let { renderPauseLedger.release(it) }
+        return true
     }
 
     /** Surface 销毁那次暂停的凭证。 */

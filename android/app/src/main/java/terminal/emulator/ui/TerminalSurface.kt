@@ -3562,8 +3562,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        viewModel?.runtime?.onSurfaceDestroyed(surfaceOwnershipToken)
-        viewModel?.runtime?.releaseAllGpuSurfaces()
+        // 只有当前持有者的销毁才允许拆 GPU 面：陈旧视图（Activity 重建时新旧短暂
+        // 共存）的这条回调可能晚于新视图的 surfaceCreated 到达，无条件暂停会停掉
+        // 新视图刚恢复的渲染线程，且其凭证永不归还 → 永久黑屏。
+        val owned = viewModel?.runtime?.onSurfaceDestroyed(surfaceOwnershipToken) == true
+        if (owned) {
+            viewModel?.runtime?.releaseAllGpuSurfaces()
+        }
         // 关闭选区/光标手柄弹窗：它们持有 Activity 上下文，
         // 而「已 dismiss 但仍显示」的弹窗会触发 StrictMode 的
         // Activity 泄漏（在 Activity 销毁期间旋转时还会触发 BadTokenException 崩溃）。
@@ -3585,8 +3590,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         //
         // 此前这里在主线程同步清空：注释声称「执行器的顺序保证 join 已完成」，
         // 但该顺序只覆盖 `pauseRendering` 内部，不覆盖这一行。
-        viewModel?.runtime?.runAfterRenderThreadsStopped {
-            viewModel?.currentSurface = null
+        if (owned) {
+            val runtime = viewModel?.runtime
+            val destroyedSurface = holder.surface
+            runtime?.runAfterRenderThreadsStopped {
+                // 期间新 Surface 可能已绑定（旋转 + 慢渲染线程时是确定性时序）：
+                // 无条件清空会让 createSession/switchSession 一直看到 null 而静默
+                // 返回。只清掉本次销毁的那一张。
+                if (viewModel?.currentSurface === destroyedSurface) {
+                    viewModel?.currentSurface = null
+                }
+            }
         }
     }
 }
