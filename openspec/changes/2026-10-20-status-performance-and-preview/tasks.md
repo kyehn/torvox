@@ -312,7 +312,7 @@
 - [x] 修根因（平台标准做法：artwork 本身画在安全区内）：`logo_art` 的 108 视口内
       加 0.65 预缩放（图案到画布中心最大距离 48.51 → 31.53 单位 ≤ 安全半径 33），
       `launcher_foreground` 改用 `gravity="fill"`（不再写死 dp，随图标大小缩放），
-      启动屏包装按 0.65 的倒数放大到 148dp 以保持视觉大小不变；
+      启动屏包装按 0.65 的倒数放大以保持视觉大小不变（今为 263dp 单帧，见 §10.6）；
       `launcher_monochrome` 同步预缩放，并补上点迹路径缺失的 `moveTo`
       （原为弧起头，画成一整块色斑）。
 - [x] 复测：Robolectric 判据（前景墨迹占图层区域的比例 ≤ `66/72 ÷ 1.5`）在
@@ -373,6 +373,29 @@
 - [x] 复测：`DocumentsProviderTest` 72 例全绿（含「write cycles must not strip
       permission bits」）；仪器测试走真实跨进程 `ContentResolver.call` 路径，
       22 例全过。
+
+### 10.6 软件启动图模糊
+
+- [x] 度量：emulator 420dpi 冷启动首帧截图上，启动屏图案的窗口描边在 y=1150 扫描线
+      的亮度过渡（背景 33 → 描边峰值 211）横跨约 13–20px；同屏文字的抗锯齿过渡只有
+      1–2px。图案在屏上占约 300px，而矢量只按 108dp（≈283px）栅格化过。
+- [x] 定根因（平台源码 + 设备实证）：`SplashscreenIconDrawableFactory.makeIconDrawable`
+      对**非** `Animatable` 的自定义图标一律套 `ImmobileIconDrawable`：先在
+      `starting_surface_default_icon_size`（108dp）的位图上预绘制，再按
+      `drawBitmap(..., FILTER_BITMAP_FLAG)` 放大到 `mIconSize × 1.2`（192dp，1.78×）。
+      矢量的清晰度在 108dp 那一步就丢了，放大只是把损失摊开。主题指定的
+      `windowSplashScreenAnimatedIcon` 固定走 `loadInDetail=false`，没有高分辨率旁路。
+- [x] 修根因：把 `splash_icon` 顶层改成单帧、1ms、`oneshot` 的 `AnimationDrawable`
+      （`Animatable`），平台改走 `AnimatableIconAnimateListener`，每帧直接绘制
+      `splash_frame` 里的矢量，不再经过 108dp 位图。帧内的 `layer-list` 用绝对
+      263dp（= 旧的 148dp × 192/108）保持图案在屏上的视觉大小不变，墨迹半径仍为
+      ≈76.7dp（≈0.86× 蒙版安全半径）。单帧 + 1ms 保证视觉静止，且
+      `getTotalDuration()` 不会推迟启动屏撤下。
+- [x] 复测：`SplashIconRobolectricTest` 增加「顶层必须是单帧 AnimationDrawable」
+      判据；Robolectric 与设备截图的墨迹半径均 ≈0.86×蒙版；同一扫描线的描边过渡
+      从 13–20px 降到 2px，与文字的抗锯齿宽度一致。
+- [x] 规范同步：`render-stability` 的启动屏条目增加「顶层必须 Animatable、不得落入
+      108dp 位图预绘制路径」，实测口径改为两栈均 ≈0.86×蒙版。
 
 ## 十一、三轮独立审阅
 

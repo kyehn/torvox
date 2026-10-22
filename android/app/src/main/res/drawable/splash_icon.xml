@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 启动屏图标（windowSplashScreenAnimatedIcon）：logo_art 的收缩包装。
+<!-- 启动屏图标（windowSplashScreenAnimatedIcon）：logo_art 的唯一包装。
      平台 SplashscreenContentDrawer 把这里的 drawable 画进 160dp×1.2=192dp 的
-     图标单元，并按默认圆形蒙版（config_icon_mask：单元的 50/108 ≈ 88.9dp）
-     裁掉蒙版外的内容；直接引用 logo_art（108dp 视口）时被放大 192/108=1.78 倍，
+     图标单元，并按默认蒙版（config_icon_mask：单元的 50/108 ≈ 88.9dp）裁掉
+     蒙版外的内容；直接引用 logo_art（108dp 视口）时被放大 192/108=1.78 倍，
      墨迹最远半径 ≈ 89.4dp 恰超蒙版，星角与终端窗口的一角被裁掉
      （STATUS「启动动画图案不完整，被限制到图标形状」）。
 
-     logo_art 自身已按自适应图标安全区缩放 0.65（见 logo_art.xml），
-     故这里的 item 尺寸要相应放大 96/0.65 ≈ 148dp，启动屏上的图案大小
-     才与缩放前一致：墨迹最远半径 ≈ 43dp ≤ 88.9dp，完整落进蒙版圆。 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+     顶层必须是 Animatable：平台对**非** Animatable 的自定义图标走
+     SplashscreenIconDrawableFactory.ImmobileIconDrawable，先按
+     starting_surface_default_icon_size（108dp）光栅化，再放大到 192dp 单元
+     （1.78×），矢量边缘被双线性重采样成模糊（STATUS「软件启动图模糊」）。
+     Animatable 走 AnimatableIconAnimateListener 分支，每帧直接 draw 矢量，
+     不经过 108dp 位图。这里用单帧、1ms、oneshot 的 AnimationDrawable 只为
+     取得直接绘制路径：视觉上静止，getTotalDuration()=1ms 也不会推迟启动屏撤下。 -->
+<animation-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:oneshot="true">
     <item
-        android:width="148dp"
-        android:height="148dp"
-        android:gravity="center"
-        android:drawable="@drawable/logo_art" />
-</layer-list>
+        android:duration="1"
+        android:drawable="@drawable/splash_frame" />
+</animation-list>

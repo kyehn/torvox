@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动屏图案的收缩包装（splash_icon 的唯一帧）。
+     平台直接把本层画到 192dp 图标单元，item 的绝对尺寸就是屏幕尺寸：
+     263dp = 旧位图路径的 148dp × (192/108)，图案与修复前同大。
+     logo_art 已按自适应图标安全区预缩放 0.65（见 logo_art.xml），
+     263dp 下墨迹最远半径 ≈ 31.5/108×263 ≈ 76.7dp，小于蒙版安全半径
+     （≥88.9dp），星尖与终端窗口四角完整；同时不小于蒙版的 40%，
+     不会缩成看不清的小点。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="263dp"
+        android:height="263dp"
+        android:gravity="center"
+        android:drawable="@drawable/logo_art" />
+</layer-list>

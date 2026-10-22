@@ -122,27 +122,40 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 ### Requirement: 启动屏与桌面图标共用单一图案源
 
 系统启动屏的图标 MUST 是**普通图形**（`@drawable/splash_icon`），MUST NOT 直接给自适应
-图标。彩色图案（终端窗口 + 星形 + 点迹）在仓内 MUST 只有一份（`@drawable/logo_art`）：
-启动屏与桌面图标前景都只包装引用它，MUST NOT 各自维护路径副本；自适应图标的 monochrome
-层（`launcher_monochrome`）是平台 themed icon 的单色简化重绘，不属该份彩色图案的副本。
+图标。顶层 drawable MUST 是 `Animatable`（现为单帧 `AnimationDrawable`）：平台对非
+`Animatable` 的自定义图标先按 `starting_surface_default_icon_size`（108dp）光栅化，再放大
+到 192dp 单元（1.78×），矢量边缘会被重采样成模糊。彩色图案（终端窗口 + 星形 + 点迹）在仓内
+MUST 只有一份（`@drawable/logo_art`）：启动屏与桌面图标前景都只包装引用它，MUST NOT
+各自维护路径副本；自适应图标的 monochrome 层（`launcher_monochrome`）是平台 themed icon
+的单色简化重绘，不属该份彩色图案的副本。
 
 启动屏包装 MUST 是固定尺寸的收缩包装，其尺寸按图案的预缩放比例放大，以保持启动屏上的
-视觉大小不变；其墨迹半径 MUST 严格小于平台蒙版圆且不小于其 40%。
+视觉大小不变；其墨迹半径 MUST 严格小于平台蒙版安全半径且不小于其 40%。
 
 #### Scenario: 平台启动屏几何（动机）
 
 - **WHEN** 平台冷启动绘制启动屏图标
 - **THEN** 图标单元 = `starting_surface_icon_size`(160dp) ×
-  `splash_icon_no_background_scale_factor`(1.2) = 192dp，默认蒙版圆 = 单元的 50/108
-  ≈ 88.9dp；裸 `layer-list`（无固定尺寸子项）会被拉到满单元（放大 1.78×），墨迹半径
-  超越蒙版上限，星尖与窗口一角被裁——用户报「图案不完整，被限制到图标形状」的实测根因，
-  也是本收缩包装的动机
+  `splash_icon_no_background_scale_factor`(1.2) = 192dp，蒙版按 `config_icon_mask`
+  缩放，安全半径下界 = 单元的 50/108 ≈ 88.9dp；裸 `layer-list`（无固定尺寸子项）会被拉到
+  满单元（放大 1.78×），墨迹半径超越蒙版上限，星尖与窗口一角被裁——用户报「图案不完整，
+  被限制到图标形状」的实测根因，也是本收缩包装的动机
+
+#### Scenario: 矢量启动图不被光栅化
+
+- **WHEN** 平台为 `windowSplashScreenAnimatedIcon` 创建绘制包装
+- **THEN** 顶层是 `Animatable` 时走 `AnimatableIconAnimateListener`，每帧直接绘制矢量；
+  MUST NOT 落入 `ImmobileIconDrawable` 的 108dp 位图预绘制路径
+- **AND** 启动屏图案在 420dpi 下按 192dp 单元直接栅格化，窗口描边与星尖保持矢量锐度，
+  MUST NOT 出现 108dp→192dp 双线性放大造成的模糊
 
 #### Scenario: 实测口径
 
 - **WHEN** 验证启动屏输出
-- **THEN** Robolectric 模型墨迹 ≈0.50×蒙版，平台 emulator 录屏量测 ≈0.87×蒙版，
-  两栈均在 [40%, 95%] 区间内；旧实现 ≈1.0× 即被裁
+- **THEN** Robolectric 模型与平台 emulator 录屏的墨迹半径均 ≈0.86×蒙版，
+  均在 [40%, 95%] 区间内；旧实现 ≈1.0× 即被裁
+- **AND** emulator 420dpi 截图中图案描边的亮度过渡为 2px，与同一屏上的文字抗锯齿一致；
+  修复前为 13–20px（108dp 位图放大）
 
 #### Scenario: 启动屏为图形加底色
 
@@ -187,13 +200,14 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 `Theme.Terminal.Splash` 的 `windowSplashScreenAnimatedIcon` MUST 指向
 `@drawable/splash_icon`；父主题 MUST 为 `Theme.SplashScreen` 且不声明
 `windowSplashScreenIconBackgroundColor`。回归防线 `SplashIconRobolectricTest`
-MUST 解析平台几何后断言墨迹与蒙版关系，MUST NOT 只断言资源存在。
+MUST 解析平台几何后断言墨迹与蒙版关系，并断言顶层 drawable 是 `Animatable` 的单帧
+包装，MUST NOT 只断言资源存在。
 
 #### Scenario: 主题配置
 
 - **WHEN** 审查启动屏主题
 - **THEN** 渲染期解析出的 `windowSplashScreenAnimatedIcon` 指向 `splash_icon`，
-  底色 alpha 为 0（无图标背板）
+  顶层是单帧 `AnimationDrawable`，底色 alpha 为 0（无图标背板）
 
 ### Requirement: 渲染 surface 失效后自愈
 
