@@ -908,6 +908,7 @@ impl Renderer {
         };
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
         // `None`（调用方无基线，如首帧）强制全量重建。
+        let build_start = std::time::Instant::now();
         let (converted, rebuilt_all_rows) = match dirty_rows {
             Some(mask) => {
                 let cache = self.cell_cache.get_or_insert_with(|| {
@@ -947,6 +948,7 @@ impl Renderer {
                 )
             }
         };
+        let build_done = std::time::Instant::now();
 
         // 字形首帧完整性：实例构建（build_instances_cached/…）期间新光栅化
         // 的字形只写入了 CPU 侧 atlas_bitmap 并登记 dirty_rect，尚未到达
@@ -980,13 +982,27 @@ impl Renderer {
             font_pipeline.atlas_generation(),
             dirty_rows,
         );
+        let partial = bands.is_some();
         let plan = crate::render::cell_builder::FramePatch {
             bands: bands.unwrap_or_default(),
             cell_height_px: grid_cell_height,
         };
+        let gpu_start = std::time::Instant::now();
         let result =
             self.render_frame_with_plan(&cpu_instances, kgp_instances, kgp_overlay_dirty, &plan);
+        let gpu_done = std::time::Instant::now();
         self.cpu_instances = cpu_instances;
+        let total = gpu_done.duration_since(build_start);
+        if total >= std::time::Duration::from_millis(30) {
+            let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
+            log::warn!(
+                "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms instances={} partial={partial} rows={rows}",
+                ms(build_done.duration_since(build_start)),
+                ms(gpu_done.duration_since(gpu_start)),
+                ms(total),
+                cell_data.len(),
+            );
+        }
         result
     }
 

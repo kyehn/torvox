@@ -2132,6 +2132,7 @@ fn request_session_repaint(session_id: u64) -> bool {
 }
 
 fn render_inner(session_id: u64) -> jint {
+    let render_start = std::time::Instant::now();
     // ── 阶段 0：切会话后索要一帧 ────────────────────────────────────────
     // 累加器里是上一个会话的像素，而 `last_frame` 缓存也属于它：阶段 3 的空闲路径
     // 会因会话不一致而拒绘（防止把旧会话网格画到新会话），目标会话若无新输出就
@@ -2196,6 +2197,7 @@ fn render_inner(session_id: u64) -> jint {
             );
         }
     } // ── 已释放 render_state 锁 ──────────────────────────────────────────
+    let phase1_done = std::time::Instant::now();
 
     // ── 阶段 2：收集单元数据（仅持会话锁）───────────────────────────────
     // 有新数据时从通道接收自有的 `CellData`（零拷贝移动）；空闲时只记录事实——
@@ -2269,6 +2271,7 @@ fn render_inner(session_id: u64) -> jint {
             None => FrameData::Idle {},
         }
     }; // ── 会话锁在此释放 ─────────────────────────────────────────────────
+    let phase2_done = std::time::Instant::now();
 
     // ── 阶段 3：渲染（持渲染状态锁）────────────────────────────────────
     // 本阶段是全局锁序 SESSION_REGISTRY → Session → RENDER_STATE 中唯一反向的一处：
@@ -2279,11 +2282,13 @@ fn render_inner(session_id: u64) -> jint {
         log::error!("render: render state missing");
         return -1;
     };
+    let lock_done = std::time::Instant::now();
     // 单点读清内容脏标志。
     let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
 
     // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，省去整帧克隆（CellData 96B×行列数）。
-    match frame_data {
+    let render_done;
+    let count = match frame_data {
         FrameData::New {
             cells,
             cursor_info,
@@ -2477,6 +2482,7 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.kitty_instances,
                 render_state.kitty_overlay_dirty,
             );
+            render_done = std::time::Instant::now();
             match result {
                 Ok(()) => {
                     render_state.kitty_overlay_dirty = false;
@@ -2583,6 +2589,7 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.kitty_instances,
                 render_state.kitty_overlay_dirty,
             );
+            render_done = std::time::Instant::now();
             if result.is_ok() {
                 render_state.kitty_overlay_dirty = false;
                 render_state.search_highlights.drawn =
@@ -2598,7 +2605,20 @@ fn render_inner(session_id: u64) -> jint {
                 }
             }
         }
+    };
+    let total = render_done.duration_since(render_start);
+    if total >= std::time::Duration::from_millis(30) {
+        let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
+        log::warn!(
+            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms render={:.3}ms total={:.3}ms count={count}",
+            ms(phase1_done.duration_since(render_start)),
+            ms(phase2_done.duration_since(phase1_done)),
+            ms(lock_done.duration_since(phase2_done)),
+            ms(render_done.duration_since(lock_done)),
+            ms(total),
+        );
     }
+    count
 }
 
 // ══════════════════════════════════════════════════════════════════════════
