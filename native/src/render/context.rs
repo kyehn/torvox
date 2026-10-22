@@ -126,8 +126,7 @@ pub(crate) fn try_global_gpu() -> Result<&'static GlobalGpu, GpuError> {
 /// `get` 判空 → `init_gpu` → `get_or_init` 在判空与写入之间并不原子：预热线程与
 /// 渲染线程在启动瞬间并发时，两者各自跑完一次完整初始化，第二次的
 /// device/queue/adapter 被 `get_or_init` 直接丢弃——白耗一次显存与驱动资源
-/// （真机 logcat 实证：`GPU adapter` 与 `GPU device created` 各打印两遍，分属
-/// 线程 与 线程 两个线程）。
+/// （真机 logcat 实证：`GPU adapter` 与 `GPU device created` 各打印两遍，分属两个线程）。
 ///
 /// 失败**不写入** `OnceLock`（锁在返回 Err 前释放），故后续渲染路径仍会重试初始化：
 /// 设备上的 Vulkan 初始化在进程刚起来的数秒内可能失败（GPU 尚被别的应用占用），
