@@ -10,7 +10,6 @@
 - 不检查环境，如不得检查 rust 产物是否存在，不存在则自然失败。
 - 新测试进入 `cargo test` `testDebugUnitTest` `connectedDebugAndroidTest` 等现有体系，不随意添加新体系。
 - 不保留无意义或低价值测试。被测试部分应当曾经发生过错误或该测试可以证明最终功能正确。
-- 测试时软件内环境变量 `ENV` 可以设置为 `/data/data/com.termux/.mkshrc`
 
 ## 运行测试
 

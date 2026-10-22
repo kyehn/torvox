@@ -3,6 +3,8 @@
 - 文中“有 `a` `b` `c` 项”的描述指有且只有，不得增加未声明行为。
 - 未声明的实现细节可参考 [termux-app](https://github.com/termux/termux-app) 与 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal) 同时遵循最佳实践。
 
+---
+
 ## 依赖
 
 - 依赖、工具尽量使用最新版本，尽量不固定小版本，版本声明尽量不写精确版本（尽量不用 `=x.y.z`）
@@ -103,7 +105,7 @@
     - `COLORTERM` 为 `truecolor`。
     - `TERM` 为 `xterm-256color`。
     - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
-    - `PATH` 为 `/data/data/com.termux/files/usr/bin`（Termux-app 正常会话同款；prefix 不可用或 failsafe 时不得设置，保留宿主默认）。
+    - `PATH` 为 `/data/data/com.termux/files/usr/bin`，仅目录存在时设置。failsafe 时不得设置，保留宿主默认
   - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD`
   - 仅宿主存在时透传，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
   - 禁止对其他 bootstrap 特殊处理，`postinstall` 只在存在时运行，不做无意义检查/校验，出现问题正常报错。
