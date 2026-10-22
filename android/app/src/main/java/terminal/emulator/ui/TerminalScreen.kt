@@ -60,10 +60,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.SearchMatchRange
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
-import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import kotlin.math.max
 import kotlin.math.min

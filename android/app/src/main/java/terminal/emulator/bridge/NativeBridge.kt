@@ -1,6 +1,16 @@
 package terminal.emulator.bridge
 
 import terminal.emulator.runtime.LogUtil
+import java.util.concurrent.CountDownLatch
+
+/**
+ * 原生库的类初始化是否已经开始。
+ *
+ * 它必须是**文件级**属性：通过 `NativeBridge.xxx` 访问同一个闩会在主线程上触发
+ * 类初始化，恰好把装载拉回主线程。`TerminalApp` 等这个闩，保证
+ * `native-preload` 线程先进入 [NativeBridge] 的 `init`，主线程随后才可能触碰它。
+ */
+internal val nativeClassInitStarted = CountDownLatch(1)
 
 /**
  * 到原生 Rust 终端引擎（`native.so`）的 JNI 桥接，全部为直接 `external fun` 导出，无 JNA、无线路编码。
@@ -27,6 +37,9 @@ object NativeBridge {
 
     init {
         loaderThreadName = Thread.currentThread().name
+        // 先宣告「装载已在本线程开始」，再读 .so：等待方只等这一次调度，
+        // 不替主线程等完整个装载。
+        nativeClassInitStarted.countDown()
         try {
             System.loadLibrary("native")
             nativeLoaded = true
