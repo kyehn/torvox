@@ -2434,7 +2434,7 @@ mod gpu_init_race_tests {
     /// （建 Instance、request_adapter、request_device）在进程内必须只发生一次。
     ///
     /// 真机 logcat 实证的回归护栏：修复前 `GPU adapter` 与 `GPU device created`
-    /// 各打印两遍、分属 线程 与 线程，两次初始化中第二次的产物被直接丢弃。
+    /// 各打印两遍、分属两个线程，两次初始化中第二次的产物被直接丢弃。
     ///
     /// 断言进程内的初始化总次数而非「各线程拿到同一引用」：`OnceLock` 一旦填满，
     /// 后者对修复前后的代码同样成立，对本竞态零判别力；且预热后再断言亦属恒真——
