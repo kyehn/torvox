@@ -4482,7 +4482,7 @@ internal fun computeGridDimensions(
  *
  * 为什么必须在 spawn 之前算：PTY 的 winsize 决定 shell 怎么排版它的第一个 prompt。
  * 先按默认 24×80 建 PTY、attach 之后才 resize，会让 shell 收到 SIGWINCH 重排**已经
- * 打印过**的 prompt——真机日志（（时间已移除））里新会话首屏正是从中间截断、第二行
+ * 打印过**的 prompt——真机日志里新会话首屏正是从中间截断、第二行
  * 才补齐的 prompt（`终端提示符/data/user/0/com.ter` 恰好是 42 列网格下
  * 的第一行）。用真实网格建 PTY 后，attach 之后的首次 resize 变成零变更（见
  * [TerminalRuntime.recomputeGridFromFontMetrics] 的相等早退）。
