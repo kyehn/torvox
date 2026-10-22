@@ -6,7 +6,7 @@
 
 ## What Changed
 
-- 滚动时渲染循环掉帧：真机 logcat 实测 loop avg=509ms ≈1fps（scroll）→ 恢复 58-66fps，SLOW_FRAME render=35.88ms
+- 滚动时渲染循环掉帧：滚动时循环掉帧，修复后恢复流畅
 - frame avg=0-1ms（绘制本身极快）→ 瓶颈在循环等待/滚动重建路径，非 GPU 绘制
 - 输入法弹出/隐藏动画：取证确认暂停链（setRenderPaused/attachWindow/applySurfaceResize）全程零调用；
   insets 逐帧值读取从主组合体移入叶节点 `WindowImeBottomPx`，位移经 snapshotFlow 收集器 +

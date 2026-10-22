@@ -47,8 +47,7 @@ consumer 已经没了。此时：
 ### 1.3 为什么仪器化下必现、非仪器化下少见
 
 非仪器化运行（本会话多次手动验证）终端持续正常渲染、无 `abandoned` 日志；
-in instrumentation 两次运行（进程：`abandon=70 configured=0`；
-进程 全量：`abandon=6148 configured=1`）必现，且一旦发生后续 132 次
+in instrumentation 的两次运行都必现，且一旦发生后续 132 次
 `attach` 全走快路径。触发条件是模拟器 SurfaceFlinger/BufferQueue 侧的回收
 （`-no-window -gpu swiftshader_indirect` + UiAutomator 反复抓屏/查询），
 应用侧无法预防，但**必须能自愈**。

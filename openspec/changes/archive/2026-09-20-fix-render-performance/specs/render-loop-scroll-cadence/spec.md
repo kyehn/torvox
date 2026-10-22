@@ -2,7 +2,7 @@
 
 Scrolling was janky: logcat loop-timing windows collapsed to ~2fps during a
 scroll gesture (avg≈500ms ≈ the idle-latch timeout), even though the native
-render itself was fast (`SLOW_FRAME render=36-48ms`; real device `frame
+render itself was fast (frame
 avg=0-1ms`). The sink was the render loop *parking* at the 500ms idle latch,
 not the GPU draw.
 
