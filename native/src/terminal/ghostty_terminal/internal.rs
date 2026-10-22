@@ -1557,7 +1557,7 @@ impl super::GhosttyTerminal {
                 }
             }
             Err(error) => {
-                log::error!("ghostty_terminal: apply_theme failed to read ANS（日志行已移除）
+                log::error!("ghostty_terminal: apply_theme failed to read ANSI palette: {error}");
             }
         }
     }

@@ -170,7 +170,7 @@ pub struct Renderer {
     /// 当前挂载的 `ANativeWindow` 句柄（地址，等价于指针比较）：`attach_surface`
     /// 能否原地 reconfigure 的唯一附加依据，见 [Self::can_reuse_attached_surface]。
     ///
-    /// 真机日志（（时间已移除））里回前台与切会话送来的都是**新**窗口，而旧 surface
+    /// 真机日志里回前台与切会话送来的都是**新**窗口，而旧 surface
     /// 包裹的 BufferQueue 已被 SurfaceFlinger 回收：少了这道比对时快速路径照走，
     /// reconfigure 之后每帧 `dequeueBuffer: BufferQueue has been abandoned` →
     /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
@@ -1222,9 +1222,7 @@ impl Renderer {
     /// 从适配器报告的格式里**指名**挑一个 8 位 RGBA 族的交换链格式。
     ///
     /// 此前是「取第一个非 sRGB 格式」——那等于让设备决定我们会去申请哪种窗口缓冲。
-    /// 真机日志（测试设备 / Mali）在 `attachWindow` 之后立刻报：
-    /// `（日志行已移除）
-    /// 0xb00` 与 `R8 格式不被分配器支持`。0x38 正是
+    /// 真机（Mali GPU）在 `attachWindow` 之后立刻报告 R8 格式不被分配器支持。0x38 正是
     /// `AHARDWAREBUFFER_FORMAT_R8_UNORM`——即驱动把单通道格式排在了候选首位，我们照单
     /// 申请，于是缓冲区队列分配失败。这不只是日志噪音：渲染进 R8 目标也只有灰度一个
     /// 通道，即便侥幸分配成功，颜色也是错的。
@@ -1425,9 +1423,7 @@ mod surface_format_selection {
 
     /// 回归钉：必须指名要 8 位 RGBA 族，而不是「取第一个非 sRGB 格式」。
     ///
-    /// 真机日志（测试设备 / Mali）在 `attachWindow` 后立刻报
-    /// `（日志行已移除）
-    /// 与 `R8 格式不被分配器支持`——0x38 就是
+    /// 真机（Mali GPU）在 `attachWindow` 后立刻报告 R8 格式不被分配器支持——0x38 就是
     /// `AHARDWAREBUFFER_FORMAT_R8_UNORM`。旧写法把「设备排第一的非 sRGB 格式」直接
     /// 当交换链格式，于是照着设备的首选去申请窗口缓冲；Mali 的 gralloc 分配不出来，
     /// 即便侥幸分配成功，渲染进 R8 目标也只有灰度一个通道。
@@ -1476,7 +1472,7 @@ mod attach_surface_reuse {
 
     /// 回归钉：快速路径必须要求**同一个** `ANativeWindow`。
     ///
-    /// 真机日志（（时间已移除））里回前台、加会话、切会话每次都送新窗口，而缓存
+    /// 真机日志里回前台、加会话、切会话每次都送新窗口，而缓存
     /// surface 指向的旧 BufferQueue 已被回收：放行快速路径就 reconfigure 出一个死
     /// 交换链，随后每帧 `dequeueBuffer: BufferQueue has been abandoned` →
     /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
