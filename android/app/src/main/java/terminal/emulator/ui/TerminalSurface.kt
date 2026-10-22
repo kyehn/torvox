@@ -760,7 +760,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.runtime.recomputeGrid()
             val surface = holder.surface
             if (!surface.isValid) {
-                LogUtil.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
+                LogUtil.d(TAG, "applySurfaceResize: surface not valid yet, deferring")
                 pendingRetryWidth = width
                 pendingRetryHeight = height
                 return
