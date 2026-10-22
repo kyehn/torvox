@@ -504,3 +504,23 @@
       在保持期间不发布 CellData，ESU 后发布最终帧；1s 超时强制解锁，避免程序崩溃
       永久冻结。删除 `sync_active`，新增两个回归测试；规范见 `render-stability`
       的「同步输出期间的帧发布门控」。
+
+### 11.5 重启后的补充修复（2026-10-21 晚）
+
+- [x] 标题刷新仍在**调用线程**做最长 1 秒的阻塞 VT 往返：`refreshActiveSessionTitle()`
+      在 `switchSession`/`closeSession` 中被直接调用，而两者都可能跑在主线程；且它
+      在锁外读普通 `HashMap` 的 `sessions`。改为 `scheduleActiveSessionTitleRefresh()`：
+      锁内只取 `(activeSessionId, bridge)`，查询放 `scope`（IO），写回前按会话 ID 校验；
+      活动会话退出并接替时同样刷新。回归：会话切换后标题跟着换、旧查询不覆盖新会话。
+- [x] 原生预装载**不确定**：`TerminalApp` 只是起线程，主线程仍可能先触碰
+      `NativeBridge`，471ms 的 `.so` 读取就回到主线程（装载线程名也不再是
+      `native-preload`，仪器测试会红）。改为文件级 `CountDownLatch`：预装载线程进入
+      类初始化即释放，主线程最多等一次调度（2 秒上限，超时大声告警），不等装载完成。
+- [x] 门禁偶发（非代码问题）：`lintAnalyzeDebugUnitTest` / `lintAnalyzeDebugAndroidTest`
+      曾以 `Unexpected failure during lint analysis ... this is a bug in lint` 崩溃；
+      单独复跑 `:app:lintDebug` 即 EXIT=0。记录为 AGP/Kotlin FIR 的工具链缺陷，
+      不以关闭规则或跳过 lint 的方式掩盖。
+- [x] 全仓重复率与静态扫描（`npx jscpd --min-tokens 60`、`npx aislop@latest scan`）：
+      重复行 1.66%（1371/82475），无 AI-slop/安全/lint 发现；仅有的 14 条
+      code-quality 提示是「文件/函数过长」的启发式阈值，拆分属于无行为收益的搬迁，
+      不做。
