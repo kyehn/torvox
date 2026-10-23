@@ -979,6 +979,21 @@ impl super::GhosttyTerminal {
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
             log::error!("ghostty_terminal: set_kitty_image_storage_limit failed: {error}");
         }
+        // 默认仅启用 direct 介质；kitten icat / yazi 等客户端会使用 file / shared memory /
+        // temp file 介质传输大图，不启用会导致 "EINVAL: unsupported medium"，图像无法显示。
+        if let Err(error) = terminal.set_kitty_image_from_file_allowed(true) {
+            log::error!("ghostty_terminal: set_kitty_image_from_file_allowed failed: {error}");
+        }
+        if let Err(error) = terminal.set_kitty_image_from_shared_mem_allowed(true) {
+            log::error!(
+                "ghostty_terminal: set_kitty_image_from_shared_mem_allowed failed: {error}"
+            );
+        }
+        if let Err(error) =
+            terminal.set_kitty_image_temp_file_dir(Some(std::env::temp_dir().as_path()))
+        {
+            log::error!("ghostty_terminal: set_kitty_image_temp_file_dir failed: {error}");
+        }
         // PNG 载荷在进程内解码为 RGBA8（线程局部回调，须在 VT 线程注册）。
         // 用上游解码器：它按 libghostty 的分配器上限先取缓冲区再解码，
         // 未经该上限的尺寸不会被 PNG 头放大成巨额分配。

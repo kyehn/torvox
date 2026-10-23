@@ -24,10 +24,11 @@ icat、mpv `--vo=kitty` 等都靠它出图。协议本身有两处「必须答�
 - **WHEN** 客户端发出 `ESC_Gi=278941603,s=1,v=1,a=q,t=d,f=24;AAAA ESC\`
 - **THEN** 终端回 `ESC_Gi=278941603;OK ESC\`，客户端据此判定支持 kitty 通道
 
-#### Scenario: 共享内存通道不被支持时明确报错
+#### Scenario: 共享内存与文件介质已启用
 
-- **WHEN** 客户端用 `t=s`（共享内存）探测
-- **THEN** 终端回 `ESC_Gi=<id>;ERROR:…` 之类的明确失败，MUST NOT 无应答
+- **WHEN** 客户端用 `t=s`（共享内存）或 `t=f`（文件）传输图像
+- **THEN** 终端在平台支持时按该介质读取并显示图像；不支持时回
+  `ESC_Gi=<id>;ERROR:…` 明确失败，MUST NOT 无应答
   （无应答会让客户端等到超时才继续）
 
 ### Requirement: 单元格像素几何必须先于图像放置就位
@@ -149,3 +150,14 @@ icat、mpv `--vo=kitty` 等都靠它出图。协议本身有两处「必须答�
 
 - **WHEN** 单元格像素高度尚未确定（几何未就绪），无法判断脏带是否触及图像
 - **THEN** 整层重画图像，MUST NOT 留下残缺图像
+
+### Requirement: 共享内存与文件介质已启用
+
+终端 MUST 在平台支持时启用 Kitty 图像协议的 file 与 shared memory 介质；不支持时
+MUST 返回明确错误应答，MUST NOT 无应答。
+
+#### Scenario: 客户端使用文件或共享内存介质
+
+- **WHEN** 客户端用 `t=f` 或 `t=s` 传输图像
+- **THEN** 终端在平台支持时按该介质读取并显示图像；不支持时返回
+  `ESC_Gi=<id>;ERROR:…`，MUST NOT 无应答
