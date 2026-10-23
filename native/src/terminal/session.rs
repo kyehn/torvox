@@ -70,13 +70,6 @@ fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
     }
 }
 
-/// 子进程把 execve 的 errno 编码为 `100 + errno`；errno 上限 133，更大的退出码
-/// （如 shell 的 `exit 254`）与 execve 无关。
-fn execve_errno_from_exit_code(code: i32) -> Option<i32> {
-    let errno = code - 100;
-    (1..=133).contains(&errno).then_some(errno)
-}
-
 /// 选择收尾信号的目标：`kill(-pgid)` 覆盖整个前台进程组，使 shell 的子进程一并退出。
 /// 组号下界 MUST 大于 1——`-1` 会把信号发给本进程有权发信号的所有进程；组号也 MUST NOT
 /// 是本进程自身的组——子进程 fork 后尚未 `setsid` 时与本进程同组，组杀会连带杀死自己
@@ -382,7 +375,7 @@ impl Session {
         if rows == 0 || cols == 0 || u16::try_from(rows).is_err() || u16::try_from(cols).is_err() {
             return Err(SessionError::InvalidDimensions);
         }
-        let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env, cwd) {
+        let mut pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env, cwd) {
             Ok(pty_pair) => {
                 log::info!("Session::spawn: PtyPair::spawn OK");
                 pty_pair
@@ -407,6 +400,10 @@ impl Session {
         let mut read_file = File::from(reader_fd);
 
         let child_pid = pty.child_pid();
+        // execve 失败回报管道的读端：等待线程在子进程退出后据此判定 execve
+        // 是否真失败——退出码不能承担这件事（shell 被 SIGHUP 杀掉时退出码 129
+        // 与「errno=29」的编码撞车）。
+        let exec_failure_reader = pty.take_exec_failure_reader();
 
         let mut session = match Self::spawn_with_pty(
             Box::new(pty) as Box<dyn Pty>,
@@ -501,12 +498,13 @@ impl Session {
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
-            if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
-                && let Some(exec_errno) = execve_errno_from_exit_code(code)
+            // execve 真失败只有子进程自己知道：它把 errno 写进了回报管道。
+            // 退出码不作数——正常收尾（组杀 SIGHUP）时 shell 退出码是 129，
+            // 与「errno=29」的旧编码撞车，会把正常路径误报成 execve 失败。
+            if let Some(reader) = exec_failure_reader
+                && let Some(exec_errno) = crate::terminal::pty::read_exec_failure_errno(&reader)
             {
-                log::error!(
-                    "wait thread: child exited with code {code} (possible execve errno={exec_errno}; see PTY output for the authoritative marker)"
-                );
+                log::error!("wait thread: execve failed: errno={exec_errno}");
             }
             log::info!("wait thread: child exited: {result:?}");
             match result {
@@ -1192,6 +1190,32 @@ mod tests {
         session.resize(40, 120).expect("resize failed");
         assert_eq!(session.terminal().rows(), 40);
         assert_eq!(session.terminal().cols(), 120);
+    }
+
+    /// execve 失败的会话：退出码是 `100 + errno` 编码，失败原因由回报管道给出。
+    ///
+    /// 判别力：旧实现靠退出码反推 errno（`code - 100`），shell 被 SIGHUP 杀掉时的
+    /// 退出码 129 会被误判成「errno=29 的 execve 失败」，于是正常会话收尾也打出
+    /// E 级日志。现在失败与否只由子进程写回管道决定。
+    #[test]
+    fn exec_failure_session_exits_with_errno_encoding() {
+        let mut session = Session::spawn(
+            "/nonexistent/session-shell-for-exec-failure",
+            24,
+            80,
+            &ShellEnv::default(),
+            None,
+            None,
+        )
+        .expect("spawn failed");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        drain_output(&mut session, deadline);
+        assert!(session.is_exited());
+        assert_eq!(
+            session.take_reported_exit(),
+            Some(ReportedExit::Code(100 + libc::ENOENT)),
+            "execve 失败的退出码必须是 100 + errno 编码"
+        );
     }
 
     /// 回归护栏：PTY 写入不得在会话锁内阻塞。
@@ -2121,16 +2145,5 @@ mod tests {
         assert_eq!(exit_signal_target(pid, Some(child_group), None), pid);
         // 子进程组号取不到 —— 直杀子进程。
         assert_eq!(exit_signal_target(pid, None, Some(own)), pid);
-    }
-
-    #[test]
-    fn execve_errno_only_decodes_real_errno_range() {
-        assert_eq!(execve_errno_from_exit_code(102), Some(2));
-        assert_eq!(execve_errno_from_exit_code(113), Some(13));
-        assert_eq!(execve_errno_from_exit_code(233), Some(133));
-        // shell 的 `exit 254` / `exit 255` 不是 execve 编码。
-        assert_eq!(execve_errno_from_exit_code(254), None);
-        assert_eq!(execve_errno_from_exit_code(255), None);
-        assert_eq!(execve_errno_from_exit_code(100), None);
     }
 }

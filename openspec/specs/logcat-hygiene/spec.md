@@ -23,6 +23,13 @@ MUST 记为 debug 或 info，MUST NOT 记为 warn 或 error；只有真正表示
 - **WHEN** 子进程已退出，或信号目标退化为直杀子进程
 - **THEN** 收尾日志记为 debug，MUST NOT 出现进程组相关 warn
 
+#### Scenario: execve 失败的判定依据
+
+- **WHEN** 子进程以退出码结束，且该退出码落在「100 + errno」编码区间内
+- **THEN** MUST NOT 据此判定 execve 失败；判定 MUST 只依据子进程回报的确切 errno。
+      正常收尾（组杀 SIGHUP 后 shell 按 128+信号码惯例退出）MUST NOT 产生
+      error 级日志
+
 #### Scenario: Surface 尚未就绪
 
 - **WHEN** 布局阶段先于 `surfaceCreated` 到达，尺寸变化被延迟处理

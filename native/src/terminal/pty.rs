@@ -208,6 +208,11 @@ pub struct PtyPair {
     /// `&self` 方法，本可完全无锁，却被迫与无上界的写入争同一把互斥量。
     pixel_width: AtomicU16,
     pixel_height: AtomicU16,
+    /// execve 失败回报管道的读端：写端带 FD_CLOEXEC，execve 成功即随 exec 关闭，
+    /// 父进程读到 EOF；失败时子进程写入 errno 后退出，父进程读到确切 errno。
+    ///
+    /// 取走（[`PtyPair::take_exec_failure_reader`]）后由等待线程在子进程退出后读取。
+    exec_failure_reader: Option<OwnedFd>,
 }
 
 impl PtyPair {
@@ -219,8 +224,8 @@ impl PtyPair {
     ///
     /// TIOCSWINSZ 种子取调用方给的 rows/cols（测试与默认会话均以 24x80 调用，
     /// 由 `spawn_seeds_24x80_winsize` 验证），使 shell 在首次 resize 前不会看到 0x0。
-    /// execve 的 errno 编码进退出码（100 + errno）由等待线程解码，在 logcat 中
-    /// 比直接写 stderr 更易观测。
+    /// execve 失败时子进程把确切 errno 写进回报管道（见 [`read_exec_failure_errno`]），
+    /// 由等待线程取走——退出码不作判定依据：正常收尾时 shell 的退出码与旧编码撞车。
     pub fn spawn(
         shell: &str,
         rows: u16,
@@ -242,6 +247,21 @@ impl PtyPair {
         // openpty 不保证 FD_CLOEXEC：exec 后泄漏的 pty 主 fd 会让 shell 子进程
         // 继续持有终端，父进程退出的 EOF 永远到不了 shell。
         for fd in [&master_fd, &slave_fd] {
+            nix::fcntl::fcntl(
+                fd,
+                nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+            )
+            .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
+        }
+
+        // execve 失败回报管道：写端带 FD_CLOEXEC，execve 成功时随 exec 关闭，
+        // 父进程读到 EOF 即「exec 成功」；失败时子进程把 errno 写进去。
+        //
+        // 退出码承担不了这件事：shell 被 SIGHUP 杀掉时退出码是 129，与「errno=29」
+        // 的编码撞车，会把正常收尾误报成 execve 失败。管道给的是确切 errno。
+        let (exec_failure_reader, exec_failure_writer) = nix::unistd::pipe()
+            .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
+        for fd in [&exec_failure_reader, &exec_failure_writer] {
             nix::fcntl::fcntl(
                 fd,
                 nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
@@ -420,11 +440,15 @@ impl PtyPair {
                 if let Err(e) = nix::unistd::close(slave_fd) {
                     log::warn!("failed to close PTY slave fd in parent after fork: {e}");
                 }
+                // 父进程只留读端：写端留着则子进程 exec 成功后管道也不 EOF，
+                // 等待线程会一直阻塞在读上。
+                drop(exec_failure_writer);
                 Ok(Self {
                     master: master_fd,
                     child_pid: child,
                     pixel_width: AtomicU16::new(0),
                     pixel_height: AtomicU16::new(0),
+                    exec_failure_reader: Some(exec_failure_reader),
                 })
             }
             nix::unistd::ForkResult::Child => {
@@ -433,6 +457,8 @@ impl PtyPair {
                     // （fork 后不允许分配/记日志）。
                     let _ = e;
                 }
+                // 子进程只留写端：读端留着则父进程永远拿不到 EOF。
+                drop(exec_failure_reader);
                 let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: `getsid(0)` 是返回调用进程会话 ID 的 POSIX 函数。传 0 始终
                 // 有效，在 fork 后的单线程子进程中安全。
@@ -508,7 +534,7 @@ impl PtyPair {
                     libc::signal(libc::SIGPIPE, libc::SIG_DFL);
                     libc::signal(libc::SIGALRM, libc::SIG_DFL);
                 }
-                close_stray_fds();
+                close_stray_fds(exec_failure_writer.as_raw_fd());
                 // SAFETY: 传入预先分配且 NUL 结尾的数组时 `execve` 安全。
                 // `shell_ptr`、`args_ptrs`、`env_ptrs` 均在 fork() 之前经
                 // `CString::new()` 与 `CString::as_ptr()` 构造，保证指针有效。
@@ -546,9 +572,19 @@ impl PtyPair {
                     buf[i] = b'\n';
                     i += 1;
                     let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, i);
-                    // 把 errno 编码进退出码（100 + errno），使父进程的等待线程即使在 PTY
-                    // 输出因销毁竞态丢失时也能记录确切失败原因。errno 上界 133
-                    // （EHWPOISON），封顶后退出码 <= 233，与 shell 的 254/255 不冲突。
+                    // 把确切 errno 写回父进程：等待线程据此判定 execve 真失败。
+                    // 退出码承担不了这件事——shell 被 SIGHUP 杀掉时退出码 129 与
+                    // 「errno=29」的编码撞车，会把正常收尾误报成 execve 失败。
+                    let errno_bytes = errno.to_ne_bytes();
+                    // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全；
+                    // `errno_bytes` 是栈上定长数组，不触碰堆。
+                    let _ = libc::write(
+                        exec_failure_writer.as_raw_fd(),
+                        errno_bytes.as_ptr() as *const libc::c_void,
+                        errno_bytes.len(),
+                    );
+                    // 退出码仍按 100 + errno 编码（errno 上界 133，即 EHWPOISON），
+                    // 供 UI 显示；它不再是判定 execve 失败的依据。
                     let code = 100 + errno.min(133);
                     libc::_exit(code);
                 }
@@ -558,6 +594,14 @@ impl PtyPair {
 
     pub fn child_pid(&self) -> nix::unistd::Pid {
         self.child_pid
+    }
+
+    /// 取走 execve 失败回报管道的读端。
+    ///
+    /// 由等待线程在子进程退出后读取：读到的 errno 即 execve 的确切失败原因，
+    /// 读不到（EOF）即 execve 成功。
+    pub fn take_exec_failure_reader(&mut self) -> Option<OwnedFd> {
+        self.exec_failure_reader.take()
     }
 
     pub fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
@@ -814,13 +858,16 @@ fn child_exit_with_reason(slave_fd: std::os::unix::io::RawFd, reason: &str, code
 /// 报出极大值（如 100 万以上）的系统上出现病态扫描时长。
 const STRAY_FD_SCAN_LIMIT: libc::c_int = 65536;
 
-/// 关闭子进程中除标准流（0、1、2，即 `dup2` 后的 PTY 从端）外的所有已打开 fd，
-/// 避免启动的 shell 继承父进程的无关 fd（它们会占用资源或泄漏能力）。
+/// 关闭子进程中除标准流（0、1、2，即 `dup2` 后的 PTY 从端）与 [keep_fd] 外的
+/// 所有已打开 fd，避免启动的 shell 继承父进程的无关 fd（它们会占用资源或泄漏能力）。
+///
+/// [keep_fd] 是 execve 失败回报管道的写端：它必须活到 execve，否则失败时父进程
+/// 读不到 errno，只能看到一次没有原因的退出。
 ///
 /// 注意：fork 后、exec 前的单线程子进程中的尽力清理，不在 {0,1,2} 的 fd 一律关闭
 /// ——不支持白名单。调用进程持有的库 fd（如日志转发）也会被关闭，但子进程随即
 /// exec 成 shell，故可接受。`close()` 失败一律忽略（不致命）。
-fn close_stray_fds() {
+fn close_stray_fds(keep_fd: RawFd) {
     // SAFETY: `getrlimit(2)` 在 POSIX 异步信号安全列表中。只要 `RLIMIT_NOFILE` 未被
     // 并发修改（此处从不发生），在从多线程进程 fork 出的线程中调用是安全的。
     let mut rlim = libc::rlimit {
@@ -847,6 +894,9 @@ fn close_stray_fds() {
     // 注意：此处不能用 log，因为它可能在 fork 后的子进程中运行（非异步信号安全）。
     // 错误按设计静默。
     for fd in 3..=upper {
+        if fd == keep_fd {
+            continue;
+        }
         // SAFETY: 对无效 fd 执行 `close(2)` 只返回 EBADF（无害），
         // 故不存在重复关闭或无效 fd 崩溃的风险。从 3 开始即排除了标准流（0、1、2）。
         unsafe {
@@ -857,6 +907,22 @@ fn close_stray_fds() {
 
 fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
     base_env_with_host(prefix, &|key| std::env::var(key).ok())
+}
+
+/// 读回子进程报告的 execve 失败 errno。
+///
+/// 必须在子进程退出后读：execve 成功时写端随 exec 关闭，读到 EOF（无失败）；
+/// 失败时子进程先写入 errno 再退出，故此时管道里必有那 4 个字节。
+pub(crate) fn read_exec_failure_errno(reader: &OwnedFd) -> Option<i32> {
+    let mut buf = [0u8; 4];
+    match nix::unistd::read(reader, &mut buf) {
+        Ok(4) => Some(i32::from_ne_bytes(buf)),
+        Ok(_) => None,
+        Err(errno) => {
+            log::debug!("read exec failure pipe failed: {errno}");
+            None
+        }
+    }
 }
 
 /// 带可注入宿主环境的 [`base_env`]：生产传真实进程环境，测试传固定映射，
@@ -1023,6 +1089,55 @@ mod tests {
         assert!(
             nix::sys::signal::kill(pid, None).is_err(),
             "child {pid} 仍存活：drop 未终止子进程"
+        );
+    }
+
+    /// execve 失败时子进程把确切 errno 写进回报管道，父进程据此判定 execve 真失败。
+    ///
+    /// 退出码承担不了这件事：shell 被 SIGHUP 杀掉时退出码是 129，与「errno=29」的
+    /// 旧编码撞车——应用侧曾据此在正常会话收尾时打出 E 级日志。
+    #[test]
+    fn exec_failure_reports_exact_errno_through_the_pipe() {
+        let mut pty = PtyPair::spawn(
+            "/nonexistent/pty-shell-for-exec-failure",
+            24,
+            80,
+            &ShellEnv::default(),
+            None,
+        )
+        .expect("spawn failed");
+        let child_pid = pty.child_pid();
+        let reader = pty
+            .take_exec_failure_reader()
+            .expect("exec failure reader must exist");
+        // 先等子进程退出再读管道：写端随 exec 关闭（成功）或随退出关闭（失败）。
+        let status = nix::sys::wait::waitpid(child_pid, None).expect("waitpid failed");
+        assert!(
+            matches!(status, nix::sys::wait::WaitStatus::Exited(_, _)),
+            "execve 失败时子进程应正常退出，实际 {status:?}"
+        );
+        assert_eq!(
+            read_exec_failure_errno(&reader),
+            Some(libc::ENOENT),
+            "回报管道必须给出确切 errno"
+        );
+    }
+
+    /// execve 成功时回报管道为空：写端随 exec 关闭，父进程读到 EOF。
+    #[test]
+    fn successful_exec_leaves_the_failure_pipe_empty() {
+        let mut pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let child_pid = pty.child_pid();
+        let reader = pty
+            .take_exec_failure_reader()
+            .expect("exec failure reader must exist");
+        nix::sys::signal::kill(child_pid, nix::sys::signal::Signal::SIGKILL).expect("kill failed");
+        let _ = nix::sys::wait::waitpid(child_pid, None);
+        assert_eq!(
+            read_exec_failure_errno(&reader),
+            None,
+            "execve 成功时管道必须为空"
         );
     }
 
