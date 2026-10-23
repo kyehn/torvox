@@ -5,7 +5,7 @@
 - 上下滑动滚动 缓慢 卡顿 闪烁
   - 已改为滚动更新由 vsync 合并（不再逐触摸事件立即唤醒），避免交换链排队等待两个 vsync；待真机复测 `SLOW_RENDER_PHASE acquire` 占比
 - 应用图标较旧版观感下降，由于应用图标空间有限内容可以溢出以保证观感，软件启动图实际内容占比较小观感不佳
-  - 已将彩色/单色前景从 0.65 放大到 0.75：星形最远点 32.6 仍在 33 安全圆内，终端窗口最远角允许被蒙版裁掉；启动图 263dp 下墨迹半径 88.6dp 接近 88.9dp 蒙版。待真机确认观感
+  - 已将彩色/单色前景从 0.65 放大到 0.75：实测墨迹半径 34.7 单位（主体像素）/35.5 单位（含抗锯齿边缘），越过 66dp 安全区建议圆（33 单位）但仍在平台圆形蒙版裁切圆（36 单位）内；启动图 263dp 下墨迹半径 88.2dp，接近蒙版裁切圆 88.9dp。图标判据已改为「不越出平台裁切圆」（`SplashIconRobolectricTest`、`LauncherAdaptiveIconRobolectricTest`）。待真机确认观感
 - 可执行文件通过文档提供者修改后丢失权限，修复无效
   - 已覆盖：`copyDocument`/`moveDocument` 复制权限位，`openDocument("w"/"wt")` 原地截断保留执行位（用例 `copyDocument_preserves_executable_bit`、`openDocument_mode_w_preserves_executable_bit`）。若仍复现，需给出具体客户端与操作：客户端「写临时文件再重命名」会新建 inode，提供器无法继承旧权限
 - 使用 kitten icat 测试 Terminal graphics protocol 可以工作，但是图像部分位置不会自动移动（手势滚动无问题），后面显示的内容会逐渐被图像覆盖。yazi 无法显示图像，实际为数个方框叉号

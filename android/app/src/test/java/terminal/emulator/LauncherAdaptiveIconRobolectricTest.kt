@@ -16,16 +16,18 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * 桌面自适应图标必须把整幅图案留在平台蒙版的安全区内。
+ * 桌面自适应图标必须把整幅图案留在平台蒙版的裁切圆内。
  *
  * 平台几何（`AdaptiveIconDrawable`）：图层区域是图标边界的 1.5 倍且居中，
- * 蒙版圆半径是图标边界的一半，安全区再乘 `66/72`。前景里的图案按图层区域
- * 摆放时，一单位图案 = 1.5×边界/108；图案墨迹半径 48.5 单位即 0.674×边界，
- * 超出 0.5×边界的蒙版圆——星形因此被裁掉，只剩终端窗口的一角。
+ * 圆形蒙版的裁切圆半径是图标边界的一半（72dp 可见区的一半 = 36dp），
+ * 图案在 108 单位视口里按 1:1 铺进图层区域（1 单位 = 1.5×边界/108）。
+ * 图案墨迹半径 48.51 单位即 0.674×边界，远超 0.5×边界的裁切圆——星形因此
+ * 被裁掉，只剩终端窗口的一角。
  *
  * 判据落在前景层自身：把它按图层区域（1.5×图标边长）渲染，墨迹半径占图层区域
- * 的比例必须不超过安全区占图层区域的比例。修复前该比例是 0.449（越界），
- * 修复后是 0.282（图案已按 0.65 缩进安全区）。
+ * 的比例必须不超过裁切圆半径占图层区域的比例（0.5×1.5/1.5 = 1/3）。
+ * 66dp 安全区（半径 33 单位 = 0.3056）是设计建议线而非裁切线：图案按用户
+ * 要求越过它以保住观感（STATUS「应用图标较旧版观感下降」），故不作断言。
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -33,13 +35,13 @@ import kotlin.math.hypot
 class LauncherAdaptiveIconRobolectricTest {
 
     @Test
-    fun `adaptive icon keeps the whole artwork inside the safe zone`() {
+    fun `adaptive icon keeps the whole artwork inside the mask circle`() {
         for (iconSizeDp in intArrayOf(LAUNCHER_ICON_SIZE_DP, CANONICAL_ICON_SIZE_DP, LARGE_ICON_SIZE_DP)) {
             val ratio = foregroundInkRatio(iconSizeDp)
             assertTrue(
-                "图标 ${iconSizeDp}dp 下图案墨迹占图层区域 $ratio，必须不超过安全区 $SAFE_ZONE_RATIO，" +
+                "图标 ${iconSizeDp}dp 下图案墨迹占图层区域 $ratio，必须不超过裁切圆 $MASK_CIRCLE_RATIO，" +
                     "否则会被平台蒙版裁掉",
-                ratio <= SAFE_ZONE_RATIO,
+                ratio <= MASK_CIRCLE_RATIO,
             )
         }
     }
@@ -60,10 +62,10 @@ class LauncherAdaptiveIconRobolectricTest {
     }
 
     /**
-     * 单色层（themed icon）走同一套蒙版几何，图案同样必须留在安全区内。
+     * 单色层（themed icon）走同一套蒙版几何，图案同样必须留在裁切圆内。
      */
     @Test
-    fun `the monochrome layer also stays inside the safe zone`() {
+    fun `the monochrome layer also stays inside the mask circle`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val monochrome = requireNotNull(context.resources.getDrawable(R.drawable.launcher_monochrome, null)) {
             "launcher_monochrome 资源缺失"
@@ -71,8 +73,8 @@ class LauncherAdaptiveIconRobolectricTest {
         val layerRegion = (CANONICAL_ICON_SIZE_DP * LAYER_REGION_SCALE).toInt()
         val ratio = inkRadius(monochrome, layerRegion) / layerRegion
         assertTrue(
-            "单色层墨迹占图层区域 $ratio，必须不超过安全区 $SAFE_ZONE_RATIO",
-            ratio <= SAFE_ZONE_RATIO,
+            "单色层墨迹占图层区域 $ratio，必须不超过裁切圆 $MASK_CIRCLE_RATIO",
+            ratio <= MASK_CIRCLE_RATIO,
         )
     }
 
@@ -92,7 +94,12 @@ class LauncherAdaptiveIconRobolectricTest {
         return inkRadius(foreground, layerRegion) / layerRegion
     }
 
-    /** 最远非透明像素到画布中心的距离。Robolectric 160dpi 下 1px = 1dp。 */
+    /**
+     * 最远不透明像素到画布中心的距离。Robolectric 160dpi 下 1px = 1dp。
+     *
+     * 只统计近乎不透明的主体像素：半透明抗锯齿边缘不参与，几何量的是矢量
+     * 轮廓而非软边。
+     */
     private fun inkRadius(drawable: android.graphics.drawable.Drawable, size: Int): Float {
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         drawable.setBounds(0, 0, size, size)
@@ -102,7 +109,7 @@ class LauncherAdaptiveIconRobolectricTest {
         var maxRadius = 0f
         for (y in 0 until bitmap.height) {
             for (x in 0 until bitmap.width) {
-                if ((bitmap.getPixel(x, y) ushr 24) < ALPHA_FLOOR) continue
+                if ((bitmap.getPixel(x, y) ushr 24) < SOLID_ALPHA_FLOOR) continue
                 val distance = hypot(x + 0.5f - centerX, y + 0.5f - centerY)
                 if (distance > maxRadius) maxRadius = distance
             }
@@ -144,8 +151,11 @@ class LauncherAdaptiveIconRobolectricTest {
         /** 平台把图层区域撑到图标边界的倍数。 */
         const val LAYER_REGION_SCALE = 1.5f
 
-        /** 安全区占图标边界的比例：蒙版半径的 `66/72`。 */
-        const val SAFE_ZONE_RATIO = 66f / 72f / LAYER_REGION_SCALE
+        /**
+         * 裁切圆半径占图层区域的比例：圆半径是图标边界的一半（0.5×边界），
+         * 图层区域是 1.5×边界，故 0.5/1.5 = 1/3。
+         */
+        const val MASK_CIRCLE_RATIO = 1f / 3f
 
         /** 星形的填充色（logo_art 里的橙）。 */
         val STAR_FILL = 0xffb467.toInt()
@@ -155,5 +165,8 @@ class LauncherAdaptiveIconRobolectricTest {
 
         /** 非透明像素门槛。 */
         const val ALPHA_FLOOR = 0x70
+
+        /** 近乎不透明的主体像素门槛：量几何时排除半透明软边。 */
+        const val SOLID_ALPHA_FLOOR = 0xF0
     }
 }
