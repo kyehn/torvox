@@ -99,6 +99,10 @@ pub struct FontPipeline {
     /// 要么已装上回退族，要么确实找不到（那是真问题，由状态 `None` 上报）。
     pub(crate) cjk_fallback_skip_reason: Option<CjkFallbackSkipReason>,
     pub(crate) font_size: f32,
+    /// 主字体单元格度量缓存。`fontdb::with_face_data` 每次都会重新 mmap 字体文件，
+    /// 而渲染循环每帧要读多次；缓存后只在字体族或字号变化时重算。
+    pub(crate) cell_width: f32,
+    pub(crate) cell_height: f32,
     pub(crate) raster_scale: f32,
     pub(crate) atlas_generation: u64,
     /// 回退层代际：cjk/symbol/nerd/emoji 任一层重发现即递增。
@@ -192,6 +196,8 @@ impl FontPipeline {
             cjk_fallback_ids: Vec::new(),
             cjk_fallback_skip_reason: None,
             font_size,
+            cell_width: 0.0,
+            cell_height: 0.0,
             atlas_generation: 0,
             fallback_generation: 0,
             dirty_rect: None,
@@ -203,6 +209,7 @@ impl FontPipeline {
         if pipeline.font_id.is_none() {
             pipeline.find_monospace_font();
         }
+        pipeline.refresh_cell_metrics();
         // 初始 locale 取进程级值并走 `set_system_locale`（而不是只赋值）：重建管线
         // （`loadFontFile` / `setExtraFontPaths` 替换整条管线）与首次创建共用同一条
         // 「locale 到达」路径——区域回退族补装 + 回退层发现。少了它，重建后的管线
@@ -366,6 +373,7 @@ impl FontPipeline {
             self.reset_atlas();
             self.rediscover_fallback_fonts();
         }
+        self.refresh_cell_metrics();
         true
     }
 
@@ -398,6 +406,7 @@ impl FontPipeline {
         self.clear_identity_caches();
         self.caches.glyph_cache.clear();
         self.reset_atlas();
+        self.refresh_cell_metrics();
         let (cw, ch) = self.cell_metrics();
         log::debug!(
             "FONT_SIZE_IN_PLACE: size={} cell={:.1}x{:.1}",

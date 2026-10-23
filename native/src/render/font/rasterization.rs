@@ -60,7 +60,22 @@ impl FontPipeline {
         self.scaled_metric(|m| m.descent.abs(), DESCENT_FALLBACK_RATIO)
     }
 
+    /// 重新计算并缓存主字体单元格度量。
+    ///
+    /// 只在字体族或字号变化时调用。`fontdb::with_face_data` 会重新打开并 mmap
+    /// 字体文件，`faces()` 还要遍历字体库；渲染循环每帧多次读取度量时不能走这条路径。
+    pub(crate) fn refresh_cell_metrics(&mut self) {
+        let (width, height) = self.compute_cell_metrics();
+        self.cell_width = width;
+        self.cell_height = height;
+    }
+
+    /// 读取缓存的单元格度量。渲染热路径专用，不做字体库查询。
     pub fn cell_metrics(&self) -> (f32, f32) {
+        (self.cell_width, self.cell_height)
+    }
+
+    fn compute_cell_metrics(&self) -> (f32, f32) {
         if let Some(metrics) = self.with_font_metrics(|font_ref, metrics, scale| {
             let ascent = metrics.ascent * scale;
             let descent = metrics.descent.abs() * scale;
