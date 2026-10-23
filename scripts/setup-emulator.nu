@@ -8,8 +8,7 @@ let emulator_log = ($avd_dir | path join "emulator.log")
 let emulator_log_err = ($avd_dir | path join "emulator.err.log")
 
 def emulator_alive [] {
-    let ids = (try { ^pgrep -f qemu-system } catch { "" } | str trim)
-    not ($ids | is-empty)
+    ^adb devices | lines | any {|line| $line starts-with "emulator-5554" }
 }
 
 def print_log_tail [path: path, lines: int] {
@@ -28,12 +27,12 @@ def print_emulator_logs [] {
 def wait_for_boot [--boot_timeout: int] {
     let start = (date now)
     loop {
-        let boot = (try { ^adb shell getprop sys.boot_completed } catch { "" } | str trim)
+        let boot = (try { ^adb -s emulator-5554 shell getprop sys.boot_completed } catch { "" } | str trim)
         if $boot == "1" {
             print "Emulator booted"
             return
         }
-        if not (emulator_alive) {
+        if ((date now) - $start) > 10sec and not (emulator_alive) {
             print $"(ansi red)EMULATOR PROCESS DIED during boot(ansi reset)"
             print_emulator_logs
             error make { msg: "Emulator process exited before boot completed (likely a host-side SEGV)" }
@@ -49,55 +48,41 @@ def wait_for_boot [--boot_timeout: int] {
 def main [--boot_timeout: int = 360, --gpu: string = "swiftshader_indirect", --keep_data] {
     $env.ANDROID_AVD_HOME = $avd_home
 
-    let boot = (try { ^adb shell getprop sys.boot_completed } catch { "" } | str trim)
-    if $boot == "1" {
-        print "Emulator already running and booted"
-        ^adb shell echo "ready"
-        return
-    }
+    let booted = (try { ^adb -s emulator-5554 shell getprop sys.boot_completed } catch { "" } | str trim) == "1"
+    if not $booted {
+        if (emulator_alive) {
+            print "Emulator process already running but not yet booted — waiting for boot instead of spawning a second instance"
+        } else {
+            let avdmanager_path = ($sdk_root | path join "cmdline-tools" "latest" "bin" "avdmanager")
+            let sdkmanager_path = ($sdk_root | path join "cmdline-tools" "latest" "bin" "sdkmanager")
+            let system_image = "system-images;android-35;google_apis;x86_64"
+            let system_image_dir = ($sdk_root | path join "system-images" "android-35" "google_apis" "x86_64")
 
-    let avdmanager_path = ($sdk_root | path join "cmdline-tools" "latest" "bin" "avdmanager")
-    let sdkmanager_path = ($sdk_root | path join "cmdline-tools" "latest" "bin" "sdkmanager")
-    let system_image = "system-images;android-35;google_apis;x86_64"
-    let system_image_dir = ($sdk_root | path join "system-images" "android-35" "google_apis" "x86_64")
+            if not ($system_image_dir | path exists) {
+                ^($sdkmanager_path) "--install" $system_image
+            }
+            if not (($sdk_root | path join "emulator" "emulator") | path exists) {
+                ^($sdkmanager_path) "--install" "emulator"
+            }
+            if not (($avd_ini | path exists) and ($avd_dir | path exists)) {
+                "no\n" | ^($avdmanager_path) create avd --name test_avd --package $system_image --force
+            }
 
-    if not ($system_image_dir | path exists) {
-        ^($sdkmanager_path) "--install" $system_image
-    }
-    let emulator_pkg = ($sdk_root | path join "emulator" "emulator")
-    if not ($emulator_pkg | path exists) {
-        ^($sdkmanager_path) "--install" "emulator"
-    }
-    if not ($avd_ini | path exists) {
-        ^($avdmanager_path) create avd --name test_avd --package $system_image --force
-    }
-
-    if (emulator_alive) {
-        print "Emulator process already running but not yet booted — waiting for boot instead of spawning a second instance"
-        wait_for_boot --boot_timeout $boot_timeout
-        let sdk = (^adb shell getprop ro.build.version.sdk | str trim)
-        if $sdk != "35" {
-            error make { msg: $"Expected SDK 35, got: ($sdk)" }
+            mkdir $avd_dir
+            rm -f $emulator_log $emulator_log_err
+            rm -f ($avd_home | path join "emu-update-last-check.ini")
+            let wipe_flag = (if $keep_data { [] } else { ["-wipe-data"] })
+            $env.QT_QPA_PLATFORM = "offscreen"
+            ^setsid --fork ($sdk_root | path join "emulator" "emulator") -avd test_avd -no-window -gpu $gpu -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics ...$wipe_flag -memory 2048 -feature -Wifi -dns-server 8.8.8.8 o> $emulator_log e> $emulator_log_err
         }
-        let gles = (^adb shell "dumpsys SurfaceFlinger | grep 'GLES:'" | str trim)
-        print $"Emulator ready, SDK: ($sdk)"
-        print $"GLES backend: ($gles)"
-        return
+        wait_for_boot --boot_timeout $boot_timeout
     }
 
-    let emulator_path = ($sdk_root | path join "emulator" "emulator")
-    mkdir $avd_dir
-    rm -f $emulator_log $emulator_log_err
-    rm -f ($avd_home | path join "emu-update-last-check.ini")
-    let wipe_flag = (if $keep_data { [] } else { ["-wipe-data"] })
-    $env.QT_QPA_PLATFORM = "offscreen"
-    ^setsid --fork ($emulator_path) -avd test_avd -no-window -gpu $gpu -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics ...$wipe_flag -memory 2048 -feature -Wifi -dns-server 8.8.8.8 o> $emulator_log e> $emulator_log_err
-    wait_for_boot --boot_timeout $boot_timeout
-    let sdk = (^adb shell getprop ro.build.version.sdk | str trim)
+    let sdk = (^adb -s emulator-5554 shell getprop ro.build.version.sdk | str trim)
     if $sdk != "35" {
         error make { msg: $"Expected SDK 35, got: ($sdk)" }
     }
-    let gles = (^adb shell "dumpsys SurfaceFlinger | grep 'GLES:'" | str trim)
+    let gles = (^adb -s emulator-5554 shell "dumpsys SurfaceFlinger | grep 'GLES:'" | str trim)
     print $"Emulator ready, SDK: ($sdk)"
     print $"GLES backend: ($gles)"
 }
