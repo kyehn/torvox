@@ -1,0 +1,2616 @@
+[2026-10-24 02:00:49.308 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9edf, base=0x0, importpid=20239
+
+[2026-10-24 02:00:49.308 Uid(value=10379):20239:20272 D/OpenGLRenderer]
+endAllActiveAnimators on 0xb400006e948de390 (RippleDrawable) with handle 0xb400006da472f7d0
+
+[2026-10-24 02:00:49.318 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9ede, base=0x0, importpid=20239
+
+[2026-10-24 02:00:49.318 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:49.318 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9edd, base=0x0, importpid=20239
+
+[2026-10-24 02:00:49.325 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:00:49.325 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:49.340 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [42d0] , this = android.widget.OverScroller$SplineOverScroller@9c942d0
+
+[2026-10-24 02:00:49.340 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [02c9] , this = android.widget.OverScroller$SplineOverScroller@9ed02c9
+
+[2026-10-24 02:00:49.340 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@9c942d0, mScrollerY = android.widget.OverScroller$SplineOverScroller@9ed02c9
+
+[2026-10-24 02:00:49.340 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [9dce] , this = android.widget.OverScroller$SplineOverScroller@1399dce
+
+[2026-10-24 02:00:49.340 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [24ef] , this = android.widget.OverScroller$SplineOverScroller@ef124ef
+
+[2026-10-24 02:00:49.340 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@1399dce, mScrollerY = android.widget.OverScroller$SplineOverScroller@ef124ef
+
+[2026-10-24 02:00:49.341 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [0285] , this = android.widget.OverScroller$SplineOverScroller@23a0285
+
+[2026-10-24 02:00:49.341 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [c8da] , this = android.widget.OverScroller$SplineOverScroller@755c8da
+
+[2026-10-24 02:00:49.341 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@23a0285, mScrollerY = android.widget.OverScroller$SplineOverScroller@755c8da
+
+[2026-10-24 02:00:49.341 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [9be8] , this = android.widget.OverScroller$SplineOverScroller@ed29be8
+
+[2026-10-24 02:00:49.341 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [4201] , this = android.widget.OverScroller$SplineOverScroller@89d4201
+
+[2026-10-24 02:00:49.341 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@ed29be8, mScrollerY = android.widget.OverScroller$SplineOverScroller@89d4201
+
+[2026-10-24 02:00:49.374 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:00:49.378 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [96a3] , this = android.widget.OverScroller$SplineOverScroller@fe196a3
+
+[2026-10-24 02:00:49.378 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [fda0] , this = android.widget.OverScroller$SplineOverScroller@404fda0
+
+[2026-10-24 02:00:49.378 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@fe196a3, mScrollerY = android.widget.OverScroller$SplineOverScroller@404fda0
+
+[2026-10-24 02:00:49.379 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [5d1e] , this = android.widget.OverScroller$SplineOverScroller@9ba5d1e
+
+[2026-10-24 02:00:49.379 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [f9ff] , this = android.widget.OverScroller$SplineOverScroller@fecf9ff
+
+[2026-10-24 02:00:49.379 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@9ba5d1e, mScrollerY = android.widget.OverScroller$SplineOverScroller@fecf9ff
+
+[2026-10-24 02:00:49.383 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [f1f6] , this = android.widget.OverScroller$SplineOverScroller@a26f1f6
+
+[2026-10-24 02:00:49.383 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [29f7] , this = android.widget.OverScroller$SplineOverScroller@a9229f7
+
+[2026-10-24 02:00:49.383 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@a26f1f6, mScrollerY = android.widget.OverScroller$SplineOverScroller@a9229f7
+
+[2026-10-24 02:00:49.385 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [49ce] , this = android.widget.OverScroller$SplineOverScroller@44649ce
+
+[2026-10-24 02:00:49.386 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [60ef] , this = android.widget.OverScroller$SplineOverScroller@fbe60ef
+
+[2026-10-24 02:00:49.386 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@44649ce, mScrollerY = android.widget.OverScroller$SplineOverScroller@fbe60ef
+
+[2026-10-24 02:00:49.391 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [ac8c] , this = android.widget.OverScroller$SplineOverScroller@5e0ac8c
+
+[2026-10-24 02:00:49.391 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [4fd5] , this = android.widget.OverScroller$SplineOverScroller@5844fd5
+
+[2026-10-24 02:00:49.391 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@5e0ac8c, mScrollerY = android.widget.OverScroller$SplineOverScroller@5844fd5
+
+[2026-10-24 02:00:49.405 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:49.405 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:00:49.405 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:49.405 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:00:49.407 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@52178c0[ܽ֨ᩳ], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:00:49.407 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:00:49.420 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:00:49.422 Uid(value=10379):20239:20841 I/mali_gralloc]
+register: id=0x299000a9ee0, importpid=-1
+
+[2026-10-24 02:00:49.423 Uid(value=10379):20239:20841 I/mali_gralloc]
+register: id=0x299000a9ee1, importpid=-1
+
+[2026-10-24 02:00:49.424 Uid(value=10379):20239:20841 I/mali_gralloc]
+register: id=0x299000a9ee2, importpid=-1
+
+[2026-10-24 02:00:49.439 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:00:49.700 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:49.718 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9ed8, base=0x0, importpid=20239
+
+[2026-10-24 02:00:49.718 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9eda, base=0x0, importpid=20239
+
+[2026-10-24 02:00:49.722 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:00:49.722 Uid(value=10379):20239:20239 I/mali_gralloc]
+unregister: id=0x299000a9ed9, base=0x0, importpid=20239
+
+[2026-10-24 02:00:49.850 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [8b4c] , this = android.widget.OverScroller$SplineOverScroller@6278b4c
+
+[2026-10-24 02:00:49.850 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [a795] , this = android.widget.OverScroller$SplineOverScroller@40fa795
+
+[2026-10-24 02:00:49.850 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@6278b4c, mScrollerY = android.widget.OverScroller$SplineOverScroller@40fa795
+
+[2026-10-24 02:00:49.851 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [749b] , this = android.widget.OverScroller$SplineOverScroller@f61749b
+
+[2026-10-24 02:00:49.851 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [1038] , this = android.widget.OverScroller$SplineOverScroller@8e81038
+
+[2026-10-24 02:00:49.851 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@f61749b, mScrollerY = android.widget.OverScroller$SplineOverScroller@8e81038
+
+[2026-10-24 02:00:49.854 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [bf77] , this = android.widget.OverScroller$SplineOverScroller@a58bf77
+
+[2026-10-24 02:00:49.854 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [f7e4] , this = android.widget.OverScroller$SplineOverScroller@f29f7e4
+
+[2026-10-24 02:00:49.854 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@a58bf77, mScrollerY = android.widget.OverScroller$SplineOverScroller@f29f7e4
+
+[2026-10-24 02:00:49.857 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [c849] , this = android.widget.OverScroller$SplineOverScroller@ac6c849
+
+[2026-10-24 02:00:49.857 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [b54e] , this = android.widget.OverScroller$SplineOverScroller@91fb54e
+
+[2026-10-24 02:00:49.857 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@ac6c849, mScrollerY = android.widget.OverScroller$SplineOverScroller@91fb54e
+
+[2026-10-24 02:00:50.009 Uid(value=10379):20239:20239 D/InputMethodManager]
+showSoftInput() view=l.۫ۨᩳ{73a3781 VFED...L. .F.p..ID 0,30-480,744 #7f0a0613 app:id/MT_Protector aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+
+[2026-10-24 02:00:50.043 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{6a73844 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@4c257e8mViews.size()=3
+
+[2026-10-24 02:00:50.043 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:00:50.053 Uid(value=10379):20239:20239 D/VRI[PopupWindow:e3b4557]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:00:50.055 Uid(value=10379):20239:20849 I/mali_gralloc]
+register: id=0x299000a9ee5, importpid=-1
+
+[2026-10-24 02:00:50.055 Uid(value=10379):20239:20849 I/mali_gralloc]
+register: id=0x299000a9ee6, importpid=-1
+
+[2026-10-24 02:00:50.055 Uid(value=10379):20239:20849 I/mali_gralloc]
+register: id=0x299000a9ee7, importpid=-1
+
+[2026-10-24 02:00:50.059 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:00:50.087 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:00:50.103 Uid(value=10379):20239:20239 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-10-24 02:00:50.268 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9ee7, base=0x0, importpid=20239
+
+[2026-10-24 02:00:50.270 Uid(value=10379):20239:20253 I/mali_gralloc]
+unregister: id=0x299000a9ee6, base=0x0, importpid=20239
+
+[2026-10-24 02:00:50.271 Uid(value=10379):20239:20253 I/mali_gralloc]
+unregister: id=0x299000a9ee5, base=0x0, importpid=20239
+
+[2026-10-24 02:00:52.030 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [a117] , this = android.widget.OverScroller$SplineOverScroller@e1a117
+
+[2026-10-24 02:00:52.030 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [c904] , this = android.widget.OverScroller$SplineOverScroller@df0c904
+
+[2026-10-24 02:00:52.030 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@e1a117, mScrollerY = android.widget.OverScroller$SplineOverScroller@df0c904
+
+[2026-10-24 02:00:52.031 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [f122] , this = android.widget.OverScroller$SplineOverScroller@112f122
+
+[2026-10-24 02:00:52.031 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [37b3] , this = android.widget.OverScroller$SplineOverScroller@cd537b3
+
+[2026-10-24 02:00:52.031 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@112f122, mScrollerY = android.widget.OverScroller$SplineOverScroller@cd537b3
+
+[2026-10-24 02:00:52.033 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@179ce9[ܽ֨ᩳ], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=3
+
+[2026-10-24 02:00:52.033 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:00:52.045 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:00:52.049 Uid(value=10379):20239:20855 I/mali_gralloc]
+register: id=0x299000a9eef, importpid=-1
+
+[2026-10-24 02:00:52.049 Uid(value=10379):20239:20855 I/mali_gralloc]
+register: id=0x299000a9ef0, importpid=-1
+
+[2026-10-24 02:00:52.050 Uid(value=10379):20239:20855 I/mali_gralloc]
+register: id=0x299000a9ef1, importpid=-1
+
+[2026-10-24 02:00:52.051 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:00:52.084 Uid(value=10327):19702:20796 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/15398985.rollback'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline1.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:295)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-10-24 02:00:52.086 Uid(value=10327):19702:20796 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/15398985.rollback'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline1.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:295)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-10-24 02:00:52.094 Uid(value=10327):19702:20796 I/TerminalDocumentsProvider]
+renameDocument 'torvox/c' -> '15398985.rollback' ok (5ms)
+
+[2026-10-24 02:00:52.097 Uid(value=10327):19702:20796 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/c'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline1.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:295)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-10-24 02:00:52.102 Uid(value=10327):19702:20796 I/TerminalDocumentsProvider]
+createDocument 'c' ok (2ms)
+
+[2026-10-24 02:00:52.113 Uid(value=10327):19702:20796 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/15398985.rollback' ok (2ms)
+
+[2026-10-24 02:00:52.129 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9eef, base=0x0, importpid=20239
+
+[2026-10-24 02:00:52.142 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9ef1, base=0x0, importpid=20239
+
+[2026-10-24 02:00:52.143 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9ef0, base=0x0, importpid=20239
+
+[2026-10-24 02:00:52.159 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:00:53.634 Uid(value=10379):20239:20239 D/Activity]
+key back trace onKeyUp called
+
+[2026-10-24 02:00:53.635 Uid(value=10379):20239:20239 I/System.out]
+exitToExternalApp=false
+
+[2026-10-24 02:00:53.649 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:53.655 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:00:53.655 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:53.662 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:53.666 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:53.666 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:00:53.666 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:53.667 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:00:53.688 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:00:53.691 Uid(value=10379):20239:20862 I/mali_gralloc]
+register: id=0x299000a9f02, importpid=-1
+
+[2026-10-24 02:00:53.693 Uid(value=10379):20239:20862 I/mali_gralloc]
+register: id=0x299000a9f03, importpid=-1
+
+[2026-10-24 02:00:53.695 Uid(value=10379):20239:20862 I/mali_gralloc]
+register: id=0x299000a9f04, importpid=-1
+
+[2026-10-24 02:00:53.959 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:53.978 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9ee0, base=0x0, importpid=20239
+
+[2026-10-24 02:00:53.978 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9ee2, base=0x0, importpid=20239
+
+[2026-10-24 02:00:53.983 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:00:53.984 Uid(value=10379):20239:20239 I/mali_gralloc]
+unregister: id=0x299000a9ee1, base=0x0, importpid=20239
+
+[2026-10-24 02:00:54.751 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:54.779 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:00:54.779 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:00:54.787 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f02, base=0x0, importpid=20239
+
+[2026-10-24 02:00:54.788 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f04, base=0x0, importpid=20239
+
+[2026-10-24 02:00:54.789 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f03, base=0x0, importpid=20239
+
+[2026-10-24 02:00:54.794 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:00:55.135 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:55.150 Uid(value=10327):19702:19702 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-24 02:00:55.158 Uid(value=10327):19702:19702 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:19781 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#7(BLAST Consumer)7](id:4cf600000007,api:0,p:-1,c:19702) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:19781 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:20876 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#7(BLAST Consumer)7](id:4cf600000007,api:0,p:-1,c:19702) query: BufferQueue has been abandoned
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:20876 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:20876 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:20876 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:20876 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-24 02:00:55.159 Uid(value=10327):19702:20876 W/Runtime]
+session 1 transient render error code=-1 (consecutive=0, surviving)
+
+[2026-10-24 02:00:55.160 Uid(value=10327):19702:19702 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f04712ef0 480x819
+
+[2026-10-24 02:00:55.160 Uid(value=10327):19702:19702 I/native::render::context]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-10-24 02:00:55.160 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9eaf, base=0x0, importpid=19702
+
+[2026-10-24 02:00:55.161 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9eb0, base=0x0, importpid=19702
+
+[2026-10-24 02:00:55.161 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9eb1, base=0x0, importpid=19702
+
+[2026-10-24 02:00:55.161 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9eb2, base=0x0, importpid=19702
+
+[2026-10-24 02:00:55.163 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:00:55.163 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:00:55.163 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:00:55.163 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:00:55.163 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:00:55.163 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:00:55.164 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:00:55.164 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:00:55.165 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f0c, importpid=-1
+
+[2026-10-24 02:00:55.166 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f0d, importpid=-1
+
+[2026-10-24 02:00:55.167 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f0e, importpid=-1
+
+[2026-10-24 02:00:55.168 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f0f, importpid=-1
+
+[2026-10-24 02:00:55.168 Uid(value=10327):19702:19702 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-24 02:00:55.168 Uid(value=10327):19702:19702 I/native::render::context]
+attach_surface: configured 480x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-10-24 02:00:55.169 Uid(value=10327):19702:19702 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-24 02:00:55.170 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-24 02:00:55.170 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-10-24 02:00:55.170 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-10-24 02:00:55.170 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-10-24 02:00:55.170 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-10-24 02:00:55.173 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9f10, importpid=-1
+
+[2026-10-24 02:00:55.179 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9f11, importpid=-1
+
+[2026-10-24 02:00:55.220 Uid(value=10327):19702:20876 W/Runtime]
+SLOW_LOOP session=1 total=61.772846ms gate=7.7E-5ms pre=0.032692ms render=1.011923ms poll=60.728115ms tail=3.9E-5ms
+
+[2026-10-24 02:00:55.222 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 681 instances (partial=false, bands=1)
+
+[2026-10-24 02:00:55.222 Uid(value=10327):19702:20876 I/Runtime]
+session 1 recovered after 1 errors
+
+[2026-10-24 02:00:55.296 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:00:55.924 Uid(value=10327):19702:19702 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-10-24 02:00:55.924 Uid(value=10327):19702:19702 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{67d784 VFED..... .F...... 0,0-480,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-10-24 02:00:55.964 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.426217ms p95=17.171692ms max=61.772846ms pre_max=0.032692ms ≈74fps
+
+[2026-10-24 02:00:55.973 Uid(value=10327):19702:19730 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.079744ms p95=0.080885ms max=2.070077ms scrollback=46 rows
+
+[2026-10-24 02:00:55.979 Uid(value=10327):19702:19702 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-10-24 02:00:55.999 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9f15, importpid=-1
+
+[2026-10-24 02:00:56.650 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:00:56.652 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:00:56.782 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.642529ms p95=17.155038ms max=17.366346ms pre_max=0.003384ms ≈73fps
+
+[2026-10-24 02:00:56.798 Uid(value=10327):19702:19730 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.111558ms p95=0.077153ms max=3.051038ms scrollback=46 rows
+
+[2026-10-24 02:00:57.086 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 650 instances (partial=false, bands=1)
+
+[2026-10-24 02:00:57.094 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370757): avc: granted { execute } for name="eza" dev="dm-38" ino=7002357 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370758): avc: granted { execute } for name="eza" dev="dm-38" ino=7002357 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370759): avc: granted { execute } for name="ld-linux-aarch64.so.1" dev="dm-38" ino=8604897 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):20887:20887 W/fish]
+type=1400 audit(0.0:10370760): avc: granted { execute } for name="prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):20887:20887 W/fish]
+type=1400 audit(0.0:10370761): avc: granted { execute_no_trans } for path="/data/data/com.termux/files/usr/tmp/prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):20887:20887 W/prooted-19763-e]
+type=1400 audit(0.0:10370762): avc: granted { execute } for path="/data/data/com.termux/files/usr/tmp/prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):20887:20887 W/prooted-19763-e]
+type=1400 audit(0.0:10370763): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/6cra80mm42k58z65k59vgikczi0dvvx8-eza-0.23.5/bin/eza" dev="dm-38" ino=7002357 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.098 Uid(value=10327):20887:20887 W/prooted-19763-e]
+type=1400 audit(0.0:10370764): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/hx9wvdx2l59iahwf9nmrx7rwkm6cymgs-glibc-2.44-25/lib/ld-linux-aarch64.so.1" dev="dm-38" ino=8604897 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:00:57.450 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.124661ms p95=16.912846ms max=17.976154ms pre_max=0.019192ms ≈89fps
+
+[2026-10-24 02:00:57.450 Uid(value=10327):19702:19730 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.097052ms p95=0.072962ms max=4.903615ms scrollback=87 rows
+
+[2026-10-24 02:00:57.455 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 587 instances (partial=false, bands=1)
+
+[2026-10-24 02:00:57.457 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 650 instances (partial=false, bands=1)
+
+[2026-10-24 02:00:57.457 Uid(value=10327):19702:19728 D/native::render::font::pipeline]
+FONT_DIAG: set_font_family('Maple Mono Normal NF CN') found id=ID(InnerId(49v1))
+
+[2026-10-24 02:00:57.457 Uid(value=10327):19702:19728 D/native::android::ffi]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-10-24 02:00:57.476 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 681 instances (partial=false, bands=1)
+
+[2026-10-24 02:00:58.219 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.817644ms p95=17.305769ms max=17.445307ms pre_max=0.00277ms ≈78fps
+
+[2026-10-24 02:00:58.222 Uid(value=10327):19702:19746 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.167284ms p95=0.136538ms max=4.656461ms scrollback=88 rows
+
+[2026-10-24 02:00:58.223 Uid(value=10327):19702:19728 D/native::render::font::pipeline]
+FONT_DIAG: set_font_family('Maple Mono Normal NF CN') found id=ID(InnerId(49v1))
+
+[2026-10-24 02:00:58.223 Uid(value=10327):19702:19728 D/native::android::ffi]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-10-24 02:00:59.105 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.763308ms p95=17.299192ms max=18.257193ms pre_max=0.019769ms ≈67fps
+
+[2026-10-24 02:00:59.128 Uid(value=10327):19702:19746 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.052615ms p95=0.081615ms max=0.370461ms scrollback=88 rows
+
+[2026-10-24 02:01:00.023 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.290371ms p95=17.292039ms max=17.343615ms pre_max=0.022731ms ≈65fps
+
+[2026-10-24 02:01:00.033 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.060127ms p95=0.089769ms max=0.281ms scrollback=88 rows
+
+[2026-10-24 02:01:01.009 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.424966ms p95=17.170885ms max=17.479192ms pre_max=0.008269ms ≈60fps
+
+[2026-10-24 02:01:01.043 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.055084ms p95=0.095307ms max=0.231462ms scrollback=88 rows
+
+[2026-10-24 02:01:01.796 Uid(value=10327):19702:20876 W/Runtime]
+SLOW_FRAME session=1 render=36.005423 count=0 newOutput=false scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-10-24 02:01:01.796 Uid(value=10327):19702:20876 W/Runtime]
+SLOW_LOOP session=1 total=53.158116ms gate=17.084808ms pre=0.003116ms render=36.005461ms poll=0.063923ms tail=8.08E-4ms
+
+[2026-10-24 02:01:01.977 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.117254ms p95=17.219269ms max=53.158116ms pre_max=0.008615ms ≈62fps
+
+[2026-10-24 02:01:01.997 Uid(value=10327):19702:19746 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.643862ms p95=0.064731ms max=36.005423ms scrollback=88 rows
+
+[2026-10-24 02:01:02.899 Uid(value=10327):19702:19702 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-10-24 02:01:02.899 Uid(value=10327):19702:19702 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{67d784 VFED..... .F...... 0,0-480,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-10-24 02:01:02.930 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.879653ms p95=17.551692ms max=36.17473ms pre_max=0.002846ms ≈62fps
+
+[2026-10-24 02:01:02.949 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.348931ms p95=0.024923ms max=19.882192ms scrollback=88 rows
+
+[2026-10-24 02:01:02.949 Uid(value=10327):19702:19702 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-10-24 02:01:03.833 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.042001ms p95=17.451538ms max=17.582731ms pre_max=0.008539ms ≈66fps
+
+[2026-10-24 02:01:03.868 Uid(value=10327):19702:19746 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.021412ms p95=0.0535ms max=0.060884ms scrollback=88 rows
+
+[2026-10-24 02:01:03.966 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 682 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:03.968 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 682 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:03.966 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370779): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:03.966 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370780): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:03.966 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370781): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:03.970 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370782): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:03.970 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370783): avc: granted { execute } for name="rg" dev="dm-38" ino=7061847 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:03.997 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 686 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:04.300 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:04.304 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:04.310 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:04.600 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.781235ms p95=17.058961ms max=17.420923ms pre_max=0.017384ms ≈78fps
+
+[2026-10-24 02:01:04.609 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.298782ms p95=1.950077ms max=4.823962ms scrollback=88 rows
+
+[2026-10-24 02:01:05.274 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370807): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:05.274 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370808): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:05.278 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370809): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:05.278 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370810): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:05.286 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:05.289 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:05.282 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370811): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:05.520 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.322308ms p95=17.379423ms max=17.759808ms pre_max=0.032385ms ≈65fps
+
+[2026-10-24 02:01:05.537 Uid(value=10327):19702:19746 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.164739ms p95=0.207539ms max=5.274692ms scrollback=88 rows
+
+[2026-10-24 02:01:05.602 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 684 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:05.604 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 684 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:06.021 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 684 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:06.023 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 651 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:06.062 Uid(value=10327):19702:20876 D/native::render::pass]
+render_frame: presented 680 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:06.204 Uid(value=10327):19702:20876 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.401385ms p95=17.062654ms max=17.355192ms pre_max=0.004154ms ≈87fps
+
+[2026-10-24 02:01:06.211 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.299649ms p95=2.151538ms max=5.417808ms scrollback=90 rows
+
+[2026-10-24 02:01:07.067 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:07.078 Uid(value=10327):19702:19702 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-24 02:01:07.089 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:07.141 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:07.141 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:07.141 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:07.141 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:07.155 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:07.158 Uid(value=10379):20239:20948 I/mali_gralloc]
+register: id=0x299000a9f2e, importpid=-1
+
+[2026-10-24 02:01:07.159 Uid(value=10379):20239:20948 I/mali_gralloc]
+register: id=0x299000a9f2f, importpid=-1
+
+[2026-10-24 02:01:07.161 Uid(value=10379):20239:20948 I/mali_gralloc]
+register: id=0x299000a9f30, importpid=-1
+
+[2026-10-24 02:01:07.198 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:07.233 Uid(value=10379):20239:20247 W/bin.mt.plus]
+Cleared Reference was only reachable from finalizer (only reported once)
+
+[2026-10-24 02:01:07.239 Uid(value=10379):20239:20247 I/bin.mt.plus]
+CollectorTransition concurrent copying GC freed 214962(9846KB) AllocSpace objects, 79(3948KB) LOS objects, 66% free, 19MB/58MB, paused 210us,51us total 149.745ms
+
+[2026-10-24 02:01:07.248 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-10-24 02:01:07.252 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9f10, base=0x0, importpid=19702
+
+[2026-10-24 02:01:07.256 Uid(value=10327):19702:19702 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:07.261 Uid(value=10327):19702:19716 I/mali_gralloc]
+unregister: id=0x299000a9f11, base=0x0, importpid=19702
+
+[2026-10-24 02:01:07.261 Uid(value=10327):19702:19716 I/mali_gralloc]
+unregister: id=0x299000a9f15, base=0x0, importpid=19702
+
+[2026-10-24 02:01:07.915 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+fling, before Optimize, velocityY=-3355, velocityX=0, mOriginVelocityY=-3355
+
+[2026-10-24 02:01:07.915 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+fling, after  Optimize, velocityY=-8504, velocityX=0, mOriginVelocityY=-3355
+
+[2026-10-24 02:01:07.915 Uid(value=10379):20239:20239 I/Z##OverScrollerMifavor]
+fling, set Frame Rate For Scene Change to START.
+
+[2026-10-24 02:01:07.915 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+[9d8e] get Spline Fling Duration, save Origin slide duration, velocity=-8504, mOriginVelocityY=-3355, l=0.12508634818595915, mPhysicalCoeff=69078.836, mSplineDistance=4861, DECELERATION_RATE=2.3582017, INFLEXION=0.35, decelMinusOne=1.3582017421722412, mOriginSplineDurationY=1096
+
+[2026-10-24 02:01:07.915 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+[9d8e] get Spline Fling Distance, save Origin slide Distance, velocity=-8504, mOriginVelocityY=-3355, l=0.12508634818595915, mPhysicalCoeff=69078.836, mSplineDistance=4861, DECELERATION_RATE=2.3582017, INFLEXION=0.35, decelMinusOne=1.3582017421722412, mOriginTotalDistanceY=1287.5312965618218
+
+[2026-10-24 02:01:07.941 Uid(value=10379):20239:20239 E/Z##OverScrollerMifavor]
+[9d8e] update warning, mCurrentPosition=2147483438, mPrePosition=2147483540, mPreStep=2147483540, step=-102, mDuration=1975, currVelocity=-6276.0596
+
+[2026-10-24 02:01:07.975 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+startAfterEdge in. start=-8, min=0, max=0, velocity=-5789
+
+[2026-10-24 02:01:07.975 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+startAfterEdge out. 
+
+[2026-10-24 02:01:07.991 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+[9d8e] start Spring back in. start=-8, end=0, velocity=0
+
+[2026-10-24 02:01:08.075 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+compute Scroll Offset 2, set Frame Rate For Scene Change to STOP.
+
+[2026-10-24 02:01:09.066 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-10-24 02:01:10.023 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:10.031 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:10.031 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:10.043 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [0862] , this = android.widget.OverScroller$SplineOverScroller@3770862
+
+[2026-10-24 02:01:10.043 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [9df3] , this = android.widget.OverScroller$SplineOverScroller@c089df3
+
+[2026-10-24 02:01:10.043 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@3770862, mScrollerY = android.widget.OverScroller$SplineOverScroller@c089df3
+
+[2026-10-24 02:01:10.043 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [7ab0] , this = android.widget.OverScroller$SplineOverScroller@cbd7ab0
+
+[2026-10-24 02:01:10.043 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [0d29] , this = android.widget.OverScroller$SplineOverScroller@c2f0d29
+
+[2026-10-24 02:01:10.043 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@cbd7ab0, mScrollerY = android.widget.OverScroller$SplineOverScroller@c2f0d29
+
+[2026-10-24 02:01:10.044 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [91dc] , this = android.widget.OverScroller$SplineOverScroller@ef791dc
+
+[2026-10-24 02:01:10.044 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [52e5] , this = android.widget.OverScroller$SplineOverScroller@a0252e5
+
+[2026-10-24 02:01:10.044 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@ef791dc, mScrollerY = android.widget.OverScroller$SplineOverScroller@a0252e5
+
+[2026-10-24 02:01:10.044 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [efc8] , this = android.widget.OverScroller$SplineOverScroller@959efc8
+
+[2026-10-24 02:01:10.044 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [3861] , this = android.widget.OverScroller$SplineOverScroller@f0a3861
+
+[2026-10-24 02:01:10.044 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@959efc8, mScrollerY = android.widget.OverScroller$SplineOverScroller@f0a3861
+
+[2026-10-24 02:01:10.078 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:01:10.082 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [d46b] , this = android.widget.OverScroller$SplineOverScroller@262d46b
+
+[2026-10-24 02:01:10.082 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [3bc8] , this = android.widget.OverScroller$SplineOverScroller@68f3bc8
+
+[2026-10-24 02:01:10.082 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@262d46b, mScrollerY = android.widget.OverScroller$SplineOverScroller@68f3bc8
+
+[2026-10-24 02:01:10.082 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [eb86] , this = android.widget.OverScroller$SplineOverScroller@321eb86
+
+[2026-10-24 02:01:10.082 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [4c47] , this = android.widget.OverScroller$SplineOverScroller@ad84c47
+
+[2026-10-24 02:01:10.082 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@321eb86, mScrollerY = android.widget.OverScroller$SplineOverScroller@ad84c47
+
+[2026-10-24 02:01:10.086 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [7d3f] , this = android.widget.OverScroller$SplineOverScroller@fbc7d3f
+
+[2026-10-24 02:01:10.086 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [b60c] , this = android.widget.OverScroller$SplineOverScroller@f24b60c
+
+[2026-10-24 02:01:10.086 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@fbc7d3f, mScrollerY = android.widget.OverScroller$SplineOverScroller@f24b60c
+
+[2026-10-24 02:01:10.088 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [baa4] , this = android.widget.OverScroller$SplineOverScroller@7c9baa4
+
+[2026-10-24 02:01:10.088 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [a00d] , this = android.widget.OverScroller$SplineOverScroller@69aa00d
+
+[2026-10-24 02:01:10.088 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@7c9baa4, mScrollerY = android.widget.OverScroller$SplineOverScroller@69aa00d
+
+[2026-10-24 02:01:10.094 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [91f5] , this = android.widget.OverScroller$SplineOverScroller@e5691f5
+
+[2026-10-24 02:01:10.094 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [fb8a] , this = android.widget.OverScroller$SplineOverScroller@3d2fb8a
+
+[2026-10-24 02:01:10.094 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@e5691f5, mScrollerY = android.widget.OverScroller$SplineOverScroller@3d2fb8a
+
+[2026-10-24 02:01:10.110 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:10.110 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:10.110 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:10.110 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:10.112 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@9916472[ܽ֨ᩳ], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:01:10.112 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:01:10.123 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:10.125 Uid(value=10379):20239:20959 I/mali_gralloc]
+register: id=0x299000a9f34, importpid=-1
+
+[2026-10-24 02:01:10.125 Uid(value=10379):20239:20959 I/mali_gralloc]
+register: id=0x299000a9f35, importpid=-1
+
+[2026-10-24 02:01:10.126 Uid(value=10379):20239:20959 I/mali_gralloc]
+register: id=0x299000a9f36, importpid=-1
+
+[2026-10-24 02:01:10.143 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:01:10.415 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:10.432 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f2f, base=0x0, importpid=20239
+
+[2026-10-24 02:01:10.432 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f30, base=0x0, importpid=20239
+
+[2026-10-24 02:01:10.436 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:10.437 Uid(value=10379):20239:20239 I/mali_gralloc]
+unregister: id=0x299000a9f2e, base=0x0, importpid=20239
+
+[2026-10-24 02:01:10.553 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [8ae5] , this = android.widget.OverScroller$SplineOverScroller@7398ae5
+
+[2026-10-24 02:01:10.553 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [19ba] , this = android.widget.OverScroller$SplineOverScroller@df019ba
+
+[2026-10-24 02:01:10.553 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@7398ae5, mScrollerY = android.widget.OverScroller$SplineOverScroller@df019ba
+
+[2026-10-24 02:01:10.554 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [87c8] , this = android.widget.OverScroller$SplineOverScroller@68487c8
+
+[2026-10-24 02:01:10.554 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [f061] , this = android.widget.OverScroller$SplineOverScroller@47cf061
+
+[2026-10-24 02:01:10.554 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@68487c8, mScrollerY = android.widget.OverScroller$SplineOverScroller@47cf061
+
+[2026-10-24 02:01:10.558 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [5874] , this = android.widget.OverScroller$SplineOverScroller@33e5874
+
+[2026-10-24 02:01:10.558 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [319d] , this = android.widget.OverScroller$SplineOverScroller@e37319d
+
+[2026-10-24 02:01:10.558 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@33e5874, mScrollerY = android.widget.OverScroller$SplineOverScroller@e37319d
+
+[2026-10-24 02:01:10.560 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [915e] , this = android.widget.OverScroller$SplineOverScroller@982915e
+
+[2026-10-24 02:01:10.560 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [b93f] , this = android.widget.OverScroller$SplineOverScroller@196b93f
+
+[2026-10-24 02:01:10.560 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@982915e, mScrollerY = android.widget.OverScroller$SplineOverScroller@196b93f
+
+[2026-10-24 02:01:17.570 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:17.613 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:17.613 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:17.617 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-10-24 02:01:17.618 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f34, base=0x0, importpid=20239
+
+[2026-10-24 02:01:17.619 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f36, base=0x0, importpid=20239
+
+[2026-10-24 02:01:17.619 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f35, base=0x0, importpid=20239
+
+[2026-10-24 02:01:17.627 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:37.880 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:37.893 Uid(value=10327):19702:19702 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-24 02:01:37.899 Uid(value=10327):19702:19781 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#9(BLAST Consumer)9](id:4cf600000009,api:0,p:-1,c:19702) dequeueBuffer: BufferQueue has been abandoned
+
+[2026-10-24 02:01:37.899 Uid(value=10327):19702:19781 E/vulkan]
+dequeueBuffer failed: No such device (-19)
+
+[2026-10-24 02:01:37.900 Uid(value=10327):19702:21180 E/BufferQueueProducer]
+[SurfaceView[com.termux/terminal.emulator.MainActivity]#9(BLAST Consumer)9](id:4cf600000009,api:0,p:-1,c:19702) query: BufferQueue has been abandoned
+
+[2026-10-24 02:01:37.900 Uid(value=10327):19702:21180 E/vulkan]
+NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: No such device (-19) value=0
+
+[2026-10-24 02:01:37.900 Uid(value=10327):19702:21180 E/wgpu_hal::vulkan::swapchain::native]
+get_physical_device_surface_present_modes: ERROR_SURFACE_LOST_KHR
+
+[2026-10-24 02:01:37.900 Uid(value=10327):19702:21180 E/native::render::context]
+GPU_UNCAPTURED_ERROR: Validation {
+    source: ContextError {
+        fn_ident: "Surface::configure",
+        source: UnsupportedQueueFamily,
+        label: "",
+    },
+    description: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Surface does not support the adapter's queue family\n",
+}
+
+[2026-10-24 02:01:37.900 Uid(value=10327):19702:21180 E/native::android::ffi]
+render: frame failed: surface creation failed: begin_frame failed
+
+[2026-10-24 02:01:37.900 Uid(value=10327):19702:21180 W/Runtime]
+session 1 transient render error code=-1 (consecutive=0, surviving)
+
+[2026-10-24 02:01:37.903 Uid(value=10327):19702:19702 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:37.905 Uid(value=10327):19702:19702 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f046f5210 480x819
+
+[2026-10-24 02:01:37.905 Uid(value=10327):19702:19702 I/native::render::context]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-10-24 02:01:37.905 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f0c, base=0x0, importpid=19702
+
+[2026-10-24 02:01:37.905 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f0d, base=0x0, importpid=19702
+
+[2026-10-24 02:01:37.906 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f0e, base=0x0, importpid=19702
+
+[2026-10-24 02:01:37.906 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f0f, base=0x0, importpid=19702
+
+[2026-10-24 02:01:37.906 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:37.906 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:37.907 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:37.907 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:37.907 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:37.907 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:37.907 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:37.907 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:37.909 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f66, importpid=-1
+
+[2026-10-24 02:01:37.909 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f67, importpid=-1
+
+[2026-10-24 02:01:37.910 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f68, importpid=-1
+
+[2026-10-24 02:01:37.912 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9f69, importpid=-1
+
+[2026-10-24 02:01:37.912 Uid(value=10327):19702:19702 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-24 02:01:37.912 Uid(value=10327):19702:19702 I/native::render::context]
+attach_surface: configured 480x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-10-24 02:01:37.914 Uid(value=10327):19702:19702 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-24 02:01:37.915 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-24 02:01:37.915 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-10-24 02:01:37.915 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-10-24 02:01:37.915 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-10-24 02:01:37.915 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-10-24 02:01:37.915 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=5
+
+[2026-10-24 02:01:37.918 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9f6a, importpid=-1
+
+[2026-10-24 02:01:37.928 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9f6b, importpid=-1
+
+[2026-10-24 02:01:37.964 Uid(value=10327):19702:21180 W/Runtime]
+SLOW_LOOP session=1 total=65.688423ms gate=7.7E-5ms pre=0.033038ms render=0.973038ms poll=64.682193ms tail=7.7E-5ms
+
+[2026-10-24 02:01:37.967 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 680 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:37.967 Uid(value=10327):19702:21180 I/Runtime]
+session 1 recovered after 1 errors
+
+[2026-10-24 02:01:37.999 Uid(value=10327):19702:19702 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-10-24 02:01:38.029 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9f6f, importpid=-1
+
+[2026-10-24 02:01:38.045 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:38.829 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.502063ms p95=17.213961ms max=65.688423ms pre_max=0.033038ms ≈64fps
+
+[2026-10-24 02:01:38.863 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.082394ms p95=0.078192ms max=2.604385ms scrollback=90 rows
+
+[2026-10-24 02:01:39.254 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370909): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:39.263 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 681 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:39.267 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 685 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:39.664 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.913733ms p95=17.241884ms max=17.564423ms pre_max=0.067693ms ≈71fps
+
+[2026-10-24 02:01:39.666 Uid(value=10327):19702:19749 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.154206ms p95=0.078539ms max=5.748961ms scrollback=90 rows
+
+[2026-10-24 02:01:40.123 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 686 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:40.118 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370910): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.118 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370911): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.128 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 686 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:40.450 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.094912ms p95=17.395307ms max=18.737769ms pre_max=0.037154ms ≈76fps
+
+[2026-10-24 02:01:40.477 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.111587ms p95=0.086923ms max=2.674769ms scrollback=90 rows
+
+[2026-10-24 02:01:40.531 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 653 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:40.538 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370912): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.542 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370913): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.542 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370914): avc: granted { execute } for name="ld-linux-aarch64.so.1" dev="dm-38" ino=8604897 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.542 Uid(value=10327):21206:21206 W/fish]
+type=1400 audit(0.0:10370915): avc: granted { execute } for name="prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.542 Uid(value=10327):21206:21206 W/fish]
+type=1400 audit(0.0:10370916): avc: granted { execute_no_trans } for path="/data/data/com.termux/files/usr/tmp/prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.542 Uid(value=10327):21206:21206 W/prooted-19763-e]
+type=1400 audit(0.0:10370917): avc: granted { execute } for path="/data/data/com.termux/files/usr/tmp/prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.542 Uid(value=10327):21206:21206 W/prooted-19763-e]
+type=1400 audit(0.0:10370918): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/dq1apsyiah48nmc4n45dpwc33k887hdn-coreutils-9.11/bin/coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:40.576 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 683 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:41.101 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=10.844119ms p95=17.084885ms max=17.435962ms pre_max=0.004654ms ≈92fps
+
+[2026-10-24 02:01:41.126 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.098129ms p95=0.081385ms max=2.385384ms scrollback=92 rows
+
+[2026-10-24 02:01:41.185 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 684 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:41.190 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 690 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:41.989 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.813002ms p95=17.396308ms max=17.446577ms pre_max=0.004539ms ≈67fps
+
+[2026-10-24 02:01:41.986 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370925): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:41.986 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370926): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:41.992 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.137866ms p95=0.08427ms max=5.075654ms scrollback=92 rows
+
+[2026-10-24 02:01:41.999 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 691 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:42.002 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 691 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:42.389 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 656 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:42.394 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370927): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:42.398 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370928): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:42.398 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370929): avc: granted { execute } for name="ld-linux-aarch64.so.1" dev="dm-38" ino=8604897 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:01:42.426 Uid(value=10327):19702:21180 D/native::render::pass]
+render_frame: presented 680 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:42.621 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=10.527241ms p95=17.066385ms max=17.449115ms pre_max=0.028039ms ≈94fps
+
+[2026-10-24 02:01:42.624 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.290753ms p95=1.894769ms max=6.293654ms scrollback=94 rows
+
+[2026-10-24 02:01:43.563 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:43.598 Uid(value=10327):19702:19702 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-24 02:01:43.599 Uid(value=10327):19702:21180 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.289057ms p95=17.396ms max=20.866884ms pre_max=0.018385ms ≈61fps
+
+[2026-10-24 02:01:43.606 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-10-24 02:01:43.623 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9f6b, base=0x0, importpid=19702
+
+[2026-10-24 02:01:43.624 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9f6f, base=0x0, importpid=19702
+
+[2026-10-24 02:01:43.624 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9f6a, base=0x0, importpid=19702
+
+[2026-10-24 02:01:43.626 Uid(value=10327):19702:19749 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.093421ms p95=0.031884ms max=4.251038ms scrollback=94 rows
+
+[2026-10-24 02:01:43.627 Uid(value=10327):19702:19702 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:44.415 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:44.445 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:44.445 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:44.445 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:44.445 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:44.475 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:44.501 Uid(value=10379):20239:21232 I/mali_gralloc]
+register: id=0x299000a9f7d, importpid=-1
+
+[2026-10-24 02:01:44.503 Uid(value=10379):20239:21232 I/mali_gralloc]
+register: id=0x299000a9f7e, importpid=-1
+
+[2026-10-24 02:01:44.504 Uid(value=10379):20239:21232 I/mali_gralloc]
+register: id=0x299000a9f7f, importpid=-1
+
+[2026-10-24 02:01:44.524 Uid(value=10379):20239:20272 W/OpenGLRenderer]
+pushLayerUpdate haveTrimMemory
+
+[2026-10-24 02:01:44.535 Uid(value=10379):20239:20247 I/bin.mt.plus]
+CollectorTransition concurrent copying GC freed 294158(12MB) AllocSpace objects, 36(1792KB) LOS objects, 66% free, 16MB/49MB, paused 2.631ms,33us total 199.473ms
+
+[2026-10-24 02:01:44.552 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:45.520 Uid(value=10379):20239:20239 D/Activity]
+key back trace onKeyUp called
+
+[2026-10-24 02:01:45.527 Uid(value=10379):20239:20239 I/System.out]
+exitToExternalApp=false
+
+[2026-10-24 02:01:45.543 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:45.546 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:45.546 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:45.558 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:45.563 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:45.563 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:45.563 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:45.563 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:45.602 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:45.604 Uid(value=10379):20239:21237 I/mali_gralloc]
+register: id=0x299000a9f86, importpid=-1
+
+[2026-10-24 02:01:45.605 Uid(value=10379):20239:21237 I/mali_gralloc]
+register: id=0x299000a9f87, importpid=-1
+
+[2026-10-24 02:01:45.606 Uid(value=10379):20239:21237 I/mali_gralloc]
+register: id=0x299000a9f88, importpid=-1
+
+[2026-10-24 02:01:45.896 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:45.909 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f7e, base=0x0, importpid=20239
+
+[2026-10-24 02:01:45.910 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f7f, base=0x0, importpid=20239
+
+[2026-10-24 02:01:45.910 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f7d, base=0x0, importpid=20239
+
+[2026-10-24 02:01:46.389 Uid(value=10379):20239:20239 D/Activity]
+key back trace onKeyUp called
+
+[2026-10-24 02:01:46.436 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-10-24 02:01:47.373 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+fling, before Optimize, velocityY=6208, velocityX=0, mOriginVelocityY=6208
+
+[2026-10-24 02:01:47.373 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+fling, after  Optimize, velocityY=15737, velocityX=0, mOriginVelocityY=6208
+
+[2026-10-24 02:01:47.373 Uid(value=10379):20239:20239 I/Z##OverScrollerMifavor]
+fling, set Frame Rate For Scene Change to START.
+
+[2026-10-24 02:01:47.373 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+[9d8e] get Spline Fling Duration, save Origin slide duration, velocity=15737, mOriginVelocityY=6208, l=0.7404733599315539, mPhysicalCoeff=69078.836, mSplineDistance=-2681, DECELERATION_RATE=2.3582017, INFLEXION=0.35, decelMinusOne=1.3582017421722412, mOriginSplineDurationY=1724
+
+[2026-10-24 02:01:47.373 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+[9d8e] get Spline Fling Distance, save Origin slide Distance, velocity=15737, mOriginVelocityY=6208, l=0.7404733599315539, mPhysicalCoeff=69078.836, mSplineDistance=-2681, DECELERATION_RATE=2.3582017, INFLEXION=0.35, decelMinusOne=1.3582017421722412, mOriginTotalDistanceY=3747.928246656134
+
+[2026-10-24 02:01:47.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+startAfterEdge in. start=8, min=0, max=0, velocity=11154
+
+[2026-10-24 02:01:47.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+startAfterEdge out. 
+
+[2026-10-24 02:01:47.432 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+[9d8e] start Spring back in. start=8, end=0, velocity=0
+
+[2026-10-24 02:01:47.515 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+compute Scroll Offset 2, set Frame Rate For Scene Change to STOP.
+
+[2026-10-24 02:01:48.067 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [d3d9] , this = android.widget.OverScroller$SplineOverScroller@b90d3d9
+
+[2026-10-24 02:01:48.067 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [819e] , this = android.widget.OverScroller$SplineOverScroller@c819e
+
+[2026-10-24 02:01:48.067 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@b90d3d9, mScrollerY = android.widget.OverScroller$SplineOverScroller@c819e
+
+[2026-10-24 02:01:48.080 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [415a] , this = android.widget.OverScroller$SplineOverScroller@725415a
+
+[2026-10-24 02:01:48.080 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [6f8b] , this = android.widget.OverScroller$SplineOverScroller@a626f8b
+
+[2026-10-24 02:01:48.080 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@725415a, mScrollerY = android.widget.OverScroller$SplineOverScroller@a626f8b
+
+[2026-10-24 02:01:48.081 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [7967] , this = android.widget.OverScroller$SplineOverScroller@3867967
+
+[2026-10-24 02:01:48.081 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [4314] , this = android.widget.OverScroller$SplineOverScroller@5e94314
+
+[2026-10-24 02:01:48.081 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@3867967, mScrollerY = android.widget.OverScroller$SplineOverScroller@5e94314
+
+[2026-10-24 02:01:48.084 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@2f74503[MainNoBgIcon], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:01:48.084 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:01:48.120 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:48.124 Uid(value=10379):20239:21244 I/mali_gralloc]
+register: id=0x299000a9f90, importpid=-1
+
+[2026-10-24 02:01:48.125 Uid(value=10379):20239:21244 I/mali_gralloc]
+register: id=0x299000a9f91, importpid=-1
+
+[2026-10-24 02:01:48.127 Uid(value=10379):20239:21244 I/mali_gralloc]
+register: id=0x299000a9f92, importpid=-1
+
+[2026-10-24 02:01:48.144 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:01:48.878 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f92, base=0x0, importpid=20239
+
+[2026-10-24 02:01:48.878 Uid(value=10379):20239:20272 D/OpenGLRenderer]
+endAllActiveAnimators on 0xb400006e9486f940 (RippleDrawable) with handle 0xb400006da47b49a0
+
+[2026-10-24 02:01:48.885 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:48.888 Uid(value=10379):20239:20495 I/mali_gralloc]
+unregister: id=0x299000a9f91, base=0x0, importpid=20239
+
+[2026-10-24 02:01:48.889 Uid(value=10379):20239:20495 I/mali_gralloc]
+unregister: id=0x299000a9f90, base=0x0, importpid=20239
+
+[2026-10-24 02:01:48.893 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:48.893 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:48.903 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [9600] , this = android.widget.OverScroller$SplineOverScroller@889600
+
+[2026-10-24 02:01:48.903 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [0e39] , this = android.widget.OverScroller$SplineOverScroller@bdc0e39
+
+[2026-10-24 02:01:48.903 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@889600, mScrollerY = android.widget.OverScroller$SplineOverScroller@bdc0e39
+
+[2026-10-24 02:01:48.903 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [9c7e] , this = android.widget.OverScroller$SplineOverScroller@21d9c7e
+
+[2026-10-24 02:01:48.903 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [35df] , this = android.widget.OverScroller$SplineOverScroller@3be35df
+
+[2026-10-24 02:01:48.903 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@21d9c7e, mScrollerY = android.widget.OverScroller$SplineOverScroller@3be35df
+
+[2026-10-24 02:01:48.904 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [54f5] , this = android.widget.OverScroller$SplineOverScroller@e6654f5
+
+[2026-10-24 02:01:48.904 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [028a] , this = android.widget.OverScroller$SplineOverScroller@9f3028a
+
+[2026-10-24 02:01:48.904 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@e6654f5, mScrollerY = android.widget.OverScroller$SplineOverScroller@9f3028a
+
+[2026-10-24 02:01:48.905 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [2518] , this = android.widget.OverScroller$SplineOverScroller@7632518
+
+[2026-10-24 02:01:48.905 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [4b71] , this = android.widget.OverScroller$SplineOverScroller@3144b71
+
+[2026-10-24 02:01:48.905 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@7632518, mScrollerY = android.widget.OverScroller$SplineOverScroller@3144b71
+
+[2026-10-24 02:01:48.942 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:01:48.947 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [24d0] , this = android.widget.OverScroller$SplineOverScroller@aff24d0
+
+[2026-10-24 02:01:48.947 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [3cc9] , this = android.widget.OverScroller$SplineOverScroller@4ba3cc9
+
+[2026-10-24 02:01:48.947 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@aff24d0, mScrollerY = android.widget.OverScroller$SplineOverScroller@4ba3cc9
+
+[2026-10-24 02:01:48.948 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [eeef] , this = android.widget.OverScroller$SplineOverScroller@601eeef
+
+[2026-10-24 02:01:48.948 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [bdfc] , this = android.widget.OverScroller$SplineOverScroller@179bdfc
+
+[2026-10-24 02:01:48.948 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@601eeef, mScrollerY = android.widget.OverScroller$SplineOverScroller@179bdfc
+
+[2026-10-24 02:01:48.951 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [cce7] , this = android.widget.OverScroller$SplineOverScroller@7d2cce7
+
+[2026-10-24 02:01:48.951 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [d094] , this = android.widget.OverScroller$SplineOverScroller@d9d094
+
+[2026-10-24 02:01:48.951 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@7d2cce7, mScrollerY = android.widget.OverScroller$SplineOverScroller@d9d094
+
+[2026-10-24 02:01:48.954 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [71df] , this = android.widget.OverScroller$SplineOverScroller@c3271df
+
+[2026-10-24 02:01:48.954 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [9e2c] , this = android.widget.OverScroller$SplineOverScroller@1a69e2c
+
+[2026-10-24 02:01:48.954 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@c3271df, mScrollerY = android.widget.OverScroller$SplineOverScroller@1a69e2c
+
+[2026-10-24 02:01:48.960 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [38a7] , this = android.widget.OverScroller$SplineOverScroller@11338a7
+
+[2026-10-24 02:01:48.960 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [3154] , this = android.widget.OverScroller$SplineOverScroller@89c3154
+
+[2026-10-24 02:01:48.960 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@11338a7, mScrollerY = android.widget.OverScroller$SplineOverScroller@89c3154
+
+[2026-10-24 02:01:48.972 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:48.972 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:48.972 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:48.972 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:48.974 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@d007aab[ܽ֨ᩳ], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:01:48.974 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:01:48.987 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:48.990 Uid(value=10379):20239:21252 I/mali_gralloc]
+register: id=0x299000a9f93, importpid=-1
+
+[2026-10-24 02:01:48.991 Uid(value=10379):20239:21252 I/mali_gralloc]
+register: id=0x299000a9f94, importpid=-1
+
+[2026-10-24 02:01:48.992 Uid(value=10379):20239:21252 I/mali_gralloc]
+register: id=0x299000a9f95, importpid=-1
+
+[2026-10-24 02:01:49.012 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:01:49.287 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:49.303 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f88, base=0x0, importpid=20239
+
+[2026-10-24 02:01:49.306 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:49.307 Uid(value=10379):20239:21094 I/mali_gralloc]
+unregister: id=0x299000a9f87, base=0x0, importpid=20239
+
+[2026-10-24 02:01:49.307 Uid(value=10379):20239:21094 I/mali_gralloc]
+unregister: id=0x299000a9f86, base=0x0, importpid=20239
+
+[2026-10-24 02:01:49.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [c8bd] , this = android.widget.OverScroller$SplineOverScroller@9e8c8bd
+
+[2026-10-24 02:01:49.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [3eb2] , this = android.widget.OverScroller$SplineOverScroller@4753eb2
+
+[2026-10-24 02:01:49.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@9e8c8bd, mScrollerY = android.widget.OverScroller$SplineOverScroller@4753eb2
+
+[2026-10-24 02:01:49.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [e180] , this = android.widget.OverScroller$SplineOverScroller@4de180
+
+[2026-10-24 02:01:49.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [33b9] , this = android.widget.OverScroller$SplineOverScroller@4de33b9
+
+[2026-10-24 02:01:49.415 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@4de180, mScrollerY = android.widget.OverScroller$SplineOverScroller@4de33b9
+
+[2026-10-24 02:01:49.419 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [95ac] , this = android.widget.OverScroller$SplineOverScroller@76f95ac
+
+[2026-10-24 02:01:49.419 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [5275] , this = android.widget.OverScroller$SplineOverScroller@9255275
+
+[2026-10-24 02:01:49.419 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@76f95ac, mScrollerY = android.widget.OverScroller$SplineOverScroller@9255275
+
+[2026-10-24 02:01:49.421 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [24d6] , this = android.widget.OverScroller$SplineOverScroller@d5524d6
+
+[2026-10-24 02:01:49.421 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [1357] , this = android.widget.OverScroller$SplineOverScroller@1fe1357
+
+[2026-10-24 02:01:49.421 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@d5524d6, mScrollerY = android.widget.OverScroller$SplineOverScroller@1fe1357
+
+[2026-10-24 02:01:49.778 Uid(value=10379):20239:20239 D/InputMethodManager]
+showSoftInput() view=l.۫ۨᩳ{6ebf8ae VFED...L. .F.p..ID 0,30-480,744 #7f0a0613 app:id/MT_Protector aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+
+[2026-10-24 02:01:49.807 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{10d9893 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@4c257e8mViews.size()=3
+
+[2026-10-24 02:01:49.808 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:01:49.818 Uid(value=10379):20239:20239 D/VRI[PopupWindow:e1ec982]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:49.821 Uid(value=10379):20239:21258 I/mali_gralloc]
+register: id=0x299000a9f98, importpid=-1
+
+[2026-10-24 02:01:49.823 Uid(value=10379):20239:21258 I/mali_gralloc]
+register: id=0x299000a9f99, importpid=-1
+
+[2026-10-24 02:01:49.823 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:01:49.824 Uid(value=10379):20239:21258 I/mali_gralloc]
+register: id=0x299000a9f9a, importpid=-1
+
+[2026-10-24 02:01:49.842 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:01:49.864 Uid(value=10379):20239:20239 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-10-24 02:01:50.022 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f98, base=0x0, importpid=20239
+
+[2026-10-24 02:01:50.024 Uid(value=10379):20239:20315 I/mali_gralloc]
+unregister: id=0x299000a9f9a, base=0x0, importpid=20239
+
+[2026-10-24 02:01:50.024 Uid(value=10379):20239:20315 I/mali_gralloc]
+unregister: id=0x299000a9f99, base=0x0, importpid=20239
+
+[2026-10-24 02:01:52.775 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [d108] , this = android.widget.OverScroller$SplineOverScroller@7fd108
+
+[2026-10-24 02:01:52.775 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [a0a1] , this = android.widget.OverScroller$SplineOverScroller@c4ca0a1
+
+[2026-10-24 02:01:52.775 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@7fd108, mScrollerY = android.widget.OverScroller$SplineOverScroller@c4ca0a1
+
+[2026-10-24 02:01:52.776 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [a5dd] , this = android.widget.OverScroller$SplineOverScroller@cf1a5dd
+
+[2026-10-24 02:01:52.776 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [2552] , this = android.widget.OverScroller$SplineOverScroller@95b2552
+
+[2026-10-24 02:01:52.776 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@cf1a5dd, mScrollerY = android.widget.OverScroller$SplineOverScroller@95b2552
+
+[2026-10-24 02:01:52.778 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@ce7c2d9[ܽ֨ᩳ], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=3
+
+[2026-10-24 02:01:52.778 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:01:52.791 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:52.794 Uid(value=10379):20239:21263 I/mali_gralloc]
+register: id=0x299000a9fa2, importpid=-1
+
+[2026-10-24 02:01:52.795 Uid(value=10379):20239:21263 I/mali_gralloc]
+register: id=0x299000a9fa3, importpid=-1
+
+[2026-10-24 02:01:52.795 Uid(value=10379):20239:21263 I/mali_gralloc]
+register: id=0x299000a9fa4, importpid=-1
+
+[2026-10-24 02:01:52.797 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:01:52.827 Uid(value=10327):19702:19716 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/15398986.rollback'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline1.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:295)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-10-24 02:01:52.835 Uid(value=10327):19702:19716 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/15398986.rollback'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline1.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:295)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-10-24 02:01:52.841 Uid(value=10327):19702:19716 I/TerminalDocumentsProvider]
+renameDocument 'torvox/c' -> '15398986.rollback' ok (4ms)
+
+[2026-10-24 02:01:52.847 Uid(value=10327):19702:19716 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/c'
+	at terminal.emulator.DocumentMutations$$ExternalSyntheticBUOutline1.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:295)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-10-24 02:01:52.853 Uid(value=10327):19702:19716 I/TerminalDocumentsProvider]
+createDocument 'c' ok (2ms)
+
+[2026-10-24 02:01:52.866 Uid(value=10327):19702:19716 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/15398986.rollback' ok (3ms)
+
+[2026-10-24 02:01:52.885 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fa2, base=0x0, importpid=20239
+
+[2026-10-24 02:01:52.900 Uid(value=10379):20239:20315 I/mali_gralloc]
+unregister: id=0x299000a9fa4, base=0x0, importpid=20239
+
+[2026-10-24 02:01:52.900 Uid(value=10379):20239:20315 I/mali_gralloc]
+unregister: id=0x299000a9fa3, base=0x0, importpid=20239
+
+[2026-10-24 02:01:52.914 Uid(value=10379):20239:20239 W/OnBackInvokedCallback]
+OnBackInvokedCallback is not enabled for the application.
+Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+
+[2026-10-24 02:01:55.340 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:55.382 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:55.382 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:55.391 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-10-24 02:01:55.392 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f93, base=0x0, importpid=20239
+
+[2026-10-24 02:01:55.392 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f95, base=0x0, importpid=20239
+
+[2026-10-24 02:01:55.393 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9f94, base=0x0, importpid=20239
+
+[2026-10-24 02:01:55.397 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:55.784 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:55.804 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:55.804 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:55.804 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:55.804 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:55.828 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:55.830 Uid(value=10379):20239:21324 I/mali_gralloc]
+register: id=0x299000a9fba, importpid=-1
+
+[2026-10-24 02:01:55.831 Uid(value=10379):20239:21324 I/mali_gralloc]
+register: id=0x299000a9fbb, importpid=-1
+
+[2026-10-24 02:01:55.832 Uid(value=10379):20239:21324 I/mali_gralloc]
+register: id=0x299000a9fbc, importpid=-1
+
+[2026-10-24 02:01:55.952 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:56.362 Uid(value=10379):20239:20239 D/Activity]
+key back trace onKeyUp called
+
+[2026-10-24 02:01:56.363 Uid(value=10379):20239:20239 I/System.out]
+exitToExternalApp=false
+
+[2026-10-24 02:01:56.376 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:56.383 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:56.383 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:56.393 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:56.398 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:56.398 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:01:56.398 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:56.398 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:01:56.433 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:56.434 Uid(value=10379):20239:21328 I/mali_gralloc]
+register: id=0x299000a9fc3, importpid=-1
+
+[2026-10-24 02:01:56.435 Uid(value=10379):20239:21328 I/mali_gralloc]
+register: id=0x299000a9fc4, importpid=-1
+
+[2026-10-24 02:01:56.436 Uid(value=10379):20239:21328 I/mali_gralloc]
+register: id=0x299000a9fc5, importpid=-1
+
+[2026-10-24 02:01:56.704 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:56.721 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fba, base=0x0, importpid=20239
+
+[2026-10-24 02:01:56.721 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fbb, base=0x0, importpid=20239
+
+[2026-10-24 02:01:56.724 Uid(value=10379):20239:20239 D/VRI[ܽ֨ᩳ]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:56.725 Uid(value=10379):20239:20239 I/mali_gralloc]
+unregister: id=0x299000a9fbc, base=0x0, importpid=20239
+
+[2026-10-24 02:01:57.745 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:57.780 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:01:57.780 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:01:57.794 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fc3, base=0x0, importpid=20239
+
+[2026-10-24 02:01:57.794 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fc5, base=0x0, importpid=20239
+
+[2026-10-24 02:01:57.795 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fc4, base=0x0, importpid=20239
+
+[2026-10-24 02:01:57.800 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:01:58.616 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:58.636 Uid(value=10327):19702:19702 I/native::android::ffi]
+setRenderPaused: paused=false
+
+[2026-10-24 02:01:58.646 Uid(value=10327):19702:19702 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:01:58.649 Uid(value=10327):19702:19702 I/native::android::ffi]
+FFI: attachWindow ptr=0x6f04701e70 480x819
+
+[2026-10-24 02:01:58.649 Uid(value=10327):19702:19702 I/native::render::context]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-10-24 02:01:58.650 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f66, base=0x0, importpid=19702
+
+[2026-10-24 02:01:58.650 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f67, base=0x0, importpid=19702
+
+[2026-10-24 02:01:58.650 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f68, base=0x0, importpid=19702
+
+[2026-10-24 02:01:58.650 Uid(value=10327):19702:19702 I/mali_gralloc]
+unregister: id=0x299000a9f69, base=0x0, importpid=19702
+
+[2026-10-24 02:01:58.651 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:58.651 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:58.651 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:58.651 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:58.651 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:58.651 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:58.652 Uid(value=10327):19702:19702 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-10-24 02:01:58.652 Uid(value=10327):19702:19702 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-10-24 02:01:58.652 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9fcc, importpid=-1
+
+[2026-10-24 02:01:58.653 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9fcd, importpid=-1
+
+[2026-10-24 02:01:58.654 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9fce, importpid=-1
+
+[2026-10-24 02:01:58.655 Uid(value=10327):19702:19702 I/mali_gralloc]
+register: id=0x299000a9fcf, importpid=-1
+
+[2026-10-24 02:01:58.655 Uid(value=10327):19702:19702 I/native::render::context]
+ensure_frame_texture: creating accumulator 480x819 (Rgba8Unorm)
+
+[2026-10-24 02:01:58.655 Uid(value=10327):19702:19702 I/native::render::context]
+attach_surface: configured 480x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-10-24 02:01:58.658 Uid(value=10327):19702:19702 I/native::android::ffi]
+FFI: attachWindow surface attached (session 1)
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=5
+
+[2026-10-24 02:01:58.660 Uid(value=10327):19702:19702 E/SurfaceSyncer]
+Failed to find sync for id=6
+
+[2026-10-24 02:01:58.661 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 680 instances (partial=false, bands=1)
+
+[2026-10-24 02:01:58.667 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9fd0, importpid=-1
+
+[2026-10-24 02:01:58.671 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9fd1, importpid=-1
+
+[2026-10-24 02:01:58.675 Uid(value=10327):19702:19725 I/mali_gralloc]
+register: id=0x299000a9fd2, importpid=-1
+
+[2026-10-24 02:01:58.761 Uid(value=10327):19702:19702 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-10-24 02:01:58.778 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:01:59.376 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.989551ms p95=17.231923ms max=34.797384ms pre_max=1.971962ms ≈83fps
+
+[2026-10-24 02:01:59.426 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.356249ms p95=0.087769ms max=17.659769ms scrollback=94 rows
+
+[2026-10-24 02:01:59.908 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 681 instances (partial=true, bands=1)
+
+[2026-10-24 02:01:59.913 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 681 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:00.108 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 682 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:00.110 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 682 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:00.162 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.086722ms p95=17.270923ms max=17.786577ms pre_max=0.013615ms ≈76fps
+
+[2026-10-24 02:02:00.209 Uid(value=10327):19702:19749 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.203044ms p95=1.938077ms max=3.479423ms scrollback=94 rows
+
+[2026-10-24 02:02:00.451 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 647 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:00.458 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370939): avc: granted { execute } for name="eza" dev="dm-38" ino=7002357 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:00.462 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370940): avc: granted { execute } for name="eza" dev="dm-38" ino=7002357 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:00.462 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370941): avc: granted { execute } for name="ld-linux-aarch64.so.1" dev="dm-38" ino=8604897 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:00.462 Uid(value=10327):21352:21352 W/fish]
+type=1400 audit(0.0:10370942): avc: granted { execute } for name="prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:00.462 Uid(value=10327):21352:21352 W/fish]
+type=1400 audit(0.0:10370943): avc: granted { execute_no_trans } for path="/data/data/com.termux/files/usr/tmp/prooted-19763-eIkogM" dev="dm-38" ino=7680855 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:00.812 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 597 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:00.814 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 629 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:00.816 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 650 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:00.829 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.119894ms p95=16.873692ms max=17.126346ms pre_max=0.024ms ≈89fps
+
+[2026-10-24 02:02:00.831 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.214744ms p95=1.97027ms max=5.066539ms scrollback=135 rows
+
+[2026-10-24 02:02:00.835 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 681 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:01.598 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.815084ms p95=17.4405ms max=17.882846ms pre_max=0.005692ms ≈78fps
+
+[2026-10-24 02:02:01.636 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.057983ms p95=0.089693ms max=2.163423ms scrollback=136 rows
+
+[2026-10-24 02:02:01.797 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 682 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:01.802 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 687 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:02.099 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 683 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:02.094 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370961): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:02.094 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370962): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:02.094 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370963): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:02.106 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 684 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:02.361 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.702308ms p95=17.088885ms max=18.017692ms pre_max=0.007039ms ≈78fps
+
+[2026-10-24 02:02:02.363 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 684 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:02.411 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.282018ms p95=2.145693ms max=5.072192ms scrollback=136 rows
+
+[2026-10-24 02:02:02.642 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370964): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:02.649 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 685 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:02.652 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 685 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:02.990 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370965): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:03.001 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 685 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:03.004 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 685 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:03.134 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.895289ms p95=17.1135ms max=17.312923ms pre_max=0.0045ms ≈77fps
+
+[2026-10-24 02:02:03.152 Uid(value=10327):19702:19728 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.312291ms p95=2.121ms max=5.456ms scrollback=136 rows
+
+[2026-10-24 02:02:03.342 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370982): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:03.342 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370983): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:03.346 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370984): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:03.351 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 686 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:03.354 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 686 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:03.749 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 686 instances (partial=true, bands=1)
+
+[2026-10-24 02:02:03.751 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 653 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:03.754 Uid(value=10327):19774:19774 W/fish]
+type=1400 audit(0.0:10370985): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:03.758 Uid(value=10327):19763:19763 W/proot]
+type=1400 audit(0.0:10370986): avc: granted { execute } for name="coreutils" dev="dm-38" ino=6847359 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-10-24 02:02:03.773 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 648 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:03.776 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 624 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:03.779 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=10.737561ms p95=17.170808ms max=17.715231ms pre_max=0.035692ms ≈93fps
+
+[2026-10-24 02:02:03.779 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.282346ms p95=2.089038ms max=4.808193ms scrollback=151 rows
+
+[2026-10-24 02:02:03.781 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 648 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:03.781 Uid(value=10327):19702:19730 D/native::render::font::pipeline]
+FONT_DIAG: set_font_family('Maple Mono Normal NF CN') found id=ID(InnerId(49v1))
+
+[2026-10-24 02:02:03.781 Uid(value=10327):19702:19730 D/native::android::ffi]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-10-24 02:02:03.785 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 571 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:03.803 Uid(value=10327):19702:21341 D/native::render::pass]
+render_frame: presented 599 instances (partial=false, bands=1)
+
+[2026-10-24 02:02:04.588 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.483532ms p95=17.205077ms max=17.613692ms pre_max=0.009154ms ≈74fps
+
+[2026-10-24 02:02:04.605 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.176673ms p95=0.085923ms max=3.958ms scrollback=152 rows
+
+[2026-10-24 02:02:04.607 Uid(value=10327):19702:19748 D/native::render::font::pipeline]
+FONT_DIAG: set_font_family('Maple Mono Normal NF CN') found id=ID(InnerId(49v1))
+
+[2026-10-24 02:02:04.607 Uid(value=10327):19702:19748 D/native::android::ffi]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-10-24 02:02:05.542 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.893982ms p95=17.65223ms max=18.706885ms pre_max=0.008962ms ≈62fps
+
+[2026-10-24 02:02:05.545 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.048263ms p95=0.216116ms max=0.359731ms scrollback=152 rows
+
+[2026-10-24 02:02:06.461 Uid(value=10327):19702:21341 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.306996ms p95=17.418615ms max=17.552577ms pre_max=0.020615ms ≈65fps
+
+[2026-10-24 02:02:06.502 Uid(value=10327):19702:19748 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.061001ms p95=0.100231ms max=0.267846ms scrollback=152 rows
+
+[2026-10-24 02:02:07.350 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:02:07.377 Uid(value=10327):19702:19702 I/native::android::ffi]
+setRenderPaused: paused=true
+
+[2026-10-24 02:02:07.391 Uid(value=10327):19702:19702 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-10-24 02:02:07.395 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9fd0, base=0x0, importpid=19702
+
+[2026-10-24 02:02:07.396 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9fd2, base=0x0, importpid=19702
+
+[2026-10-24 02:02:07.396 Uid(value=10327):19702:19725 I/mali_gralloc]
+unregister: id=0x299000a9fd1, base=0x0, importpid=19702
+
+[2026-10-24 02:02:07.400 Uid(value=10327):19702:19702 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:02:08.227 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:02:08.270 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:02:08.270 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: ""
+
+[2026-10-24 02:02:08.270 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:02:08.270 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "-1"
+
+[2026-10-24 02:02:08.282 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:02:08.286 Uid(value=10379):20239:21394 I/mali_gralloc]
+register: id=0x299000a9fe2, importpid=-1
+
+[2026-10-24 02:02:08.288 Uid(value=10379):20239:21394 I/mali_gralloc]
+register: id=0x299000a9fe3, importpid=-1
+
+[2026-10-24 02:02:08.289 Uid(value=10379):20239:21394 I/mali_gralloc]
+register: id=0x299000a9fe4, importpid=-1
+
+[2026-10-24 02:02:08.401 Uid(value=10379):20239:20247 I/bin.mt.plus]
+CollectorTransition concurrent copying GC freed 135621(6498KB) AllocSpace objects, 52(2800KB) LOS objects, 66% free, 18MB/56MB, paused 210us,103us total 176.629ms
+
+[2026-10-24 02:02:08.414 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:02:09.495 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [1559] , this = android.widget.OverScroller$SplineOverScroller@1a41559
+
+[2026-10-24 02:02:09.496 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [651e] , this = android.widget.OverScroller$SplineOverScroller@d34651e
+
+[2026-10-24 02:02:09.496 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@1a41559, mScrollerY = android.widget.OverScroller$SplineOverScroller@d34651e
+
+[2026-10-24 02:02:09.509 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{74c601 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:02:09.509 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:02:09.529 Uid(value=10379):20239:20239 D/VRI[PopupWindow:105afe8]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:02:09.533 Uid(value=10379):20239:21409 I/mali_gralloc]
+register: id=0x299000a9fe5, importpid=-1
+
+[2026-10-24 02:02:09.533 Uid(value=10379):20239:21409 I/mali_gralloc]
+register: id=0x299000a9fe6, importpid=-1
+
+[2026-10-24 02:02:09.534 Uid(value=10379):20239:21409 I/mali_gralloc]
+register: id=0x299000a9fe7, importpid=-1
+
+[2026-10-24 02:02:09.548 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:02:10.453 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [dbc1] , this = android.widget.OverScroller$SplineOverScroller@4e0dbc1
+
+[2026-10-24 02:02:10.453 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [8f66] , this = android.widget.OverScroller$SplineOverScroller@ef88f66
+
+[2026-10-24 02:02:10.453 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@4e0dbc1, mScrollerY = android.widget.OverScroller$SplineOverScroller@ef88f66
+
+[2026-10-24 02:02:10.476 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [251c] , this = android.widget.OverScroller$SplineOverScroller@324251c
+
+[2026-10-24 02:02:10.477 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [8525] , this = android.widget.OverScroller$SplineOverScroller@95a8525
+
+[2026-10-24 02:02:10.477 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@324251c, mScrollerY = android.widget.OverScroller$SplineOverScroller@95a8525
+
+[2026-10-24 02:02:10.477 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [4ea1] , this = android.widget.OverScroller$SplineOverScroller@2534ea1
+
+[2026-10-24 02:02:10.477 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [b8c6] , this = android.widget.OverScroller$SplineOverScroller@f3b8c6
+
+[2026-10-24 02:02:10.477 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@2534ea1, mScrollerY = android.widget.OverScroller$SplineOverScroller@f3b8c6
+
+[2026-10-24 02:02:10.480 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@7b533dd[MainNoBgIcon], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=3
+
+[2026-10-24 02:02:10.480 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:02:10.514 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:02:10.517 Uid(value=10379):20239:21412 I/mali_gralloc]
+register: id=0x299000a9fe8, importpid=-1
+
+[2026-10-24 02:02:10.517 Uid(value=10379):20239:21412 I/mali_gralloc]
+register: id=0x299000a9fe9, importpid=-1
+
+[2026-10-24 02:02:10.519 Uid(value=10379):20239:21412 I/mali_gralloc]
+register: id=0x299000a9fea, importpid=-1
+
+[2026-10-24 02:02:10.525 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:02:10.529 Uid(value=10379):20239:20239 D/VRI[PopupWindow:105afe8]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-10-24 02:02:10.686 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fe5, base=0x0, importpid=20239
+
+[2026-10-24 02:02:10.686 Uid(value=10379):20239:20272 D/OpenGLRenderer]
+endAllActiveAnimators on 0xb400006e94830690 (RippleDrawable) with handle 0xb400006da471a8c0
+
+[2026-10-24 02:02:10.687 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9fe7, base=0x0, importpid=20239
+
+[2026-10-24 02:02:10.688 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9fe6, base=0x0, importpid=20239
+
+[2026-10-24 02:02:11.790 Uid(value=10379):20239:20272 D/OpenGLRenderer]
+endAllActiveAnimators on 0xb400006e947f6e00 (RippleDrawable) with handle 0xb400006da4749d50
+
+[2026-10-24 02:02:11.791 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9fe8, base=0x0, importpid=20239
+
+[2026-10-24 02:02:11.809 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9fea, base=0x0, importpid=20239
+
+[2026-10-24 02:02:11.809 Uid(value=10379):20239:20252 I/mali_gralloc]
+unregister: id=0x299000a9fe9, base=0x0, importpid=20239
+
+[2026-10-24 02:02:13.046 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [e60c] , this = android.widget.OverScroller$SplineOverScroller@872e60c
+
+[2026-10-24 02:02:13.047 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [cb55] , this = android.widget.OverScroller$SplineOverScroller@44bcb55
+
+[2026-10-24 02:02:13.047 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@872e60c, mScrollerY = android.widget.OverScroller$SplineOverScroller@44bcb55
+
+[2026-10-24 02:02:13.061 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{41ffbc2 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:02:13.062 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:02:13.084 Uid(value=10379):20239:20239 D/VRI[PopupWindow:463100d]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:02:13.088 Uid(value=10379):20239:21415 I/mali_gralloc]
+register: id=0x299000a9feb, importpid=-1
+
+[2026-10-24 02:02:13.089 Uid(value=10379):20239:21415 I/mali_gralloc]
+register: id=0x299000a9fec, importpid=-1
+
+[2026-10-24 02:02:13.090 Uid(value=10379):20239:21415 I/mali_gralloc]
+register: id=0x299000a9fed, importpid=-1
+
+[2026-10-24 02:02:13.105 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:02:14.965 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [a512] , this = android.widget.OverScroller$SplineOverScroller@cf5a512
+
+[2026-10-24 02:02:14.965 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [f4e3] , this = android.widget.OverScroller$SplineOverScroller@acef4e3
+
+[2026-10-24 02:02:14.965 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@cf5a512, mScrollerY = android.widget.OverScroller$SplineOverScroller@acef4e3
+
+[2026-10-24 02:02:14.965 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [1599] , this = android.widget.OverScroller$SplineOverScroller@fb51599
+
+[2026-10-24 02:02:14.965 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [005e] , this = android.widget.OverScroller$SplineOverScroller@a05005e
+
+[2026-10-24 02:02:14.965 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@fb51599, mScrollerY = android.widget.OverScroller$SplineOverScroller@a05005e
+
+[2026-10-24 02:02:14.968 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@99dc90c[MainNoBgIcon], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=3
+
+[2026-10-24 02:02:14.968 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:02:14.980 Uid(value=10379):20239:20239 D/VRI[PopupWindow:463100d]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-10-24 02:02:14.994 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:02:14.997 Uid(value=10379):20239:21420 I/mali_gralloc]
+register: id=0x299000a9fee, importpid=-1
+
+[2026-10-24 02:02:14.998 Uid(value=10379):20239:21420 I/mali_gralloc]
+register: id=0x299000a9fef, importpid=-1
+
+[2026-10-24 02:02:14.999 Uid(value=10379):20239:21420 I/mali_gralloc]
+register: id=0x299000a9ff0, importpid=-1
+
+[2026-10-24 02:02:15.003 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:02:15.163 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fed, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.164 Uid(value=10379):20239:20272 D/OpenGLRenderer]
+endAllActiveAnimators on 0xb400006e9496b0b0 (RippleDrawable) with handle 0xb400006da4733790
+
+[2026-10-24 02:02:15.164 Uid(value=10379):20239:20495 I/mali_gralloc]
+unregister: id=0x299000a9fec, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.164 Uid(value=10379):20239:20495 I/mali_gralloc]
+unregister: id=0x299000a9feb, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.505 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fee, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.505 Uid(value=10379):20239:20272 D/OpenGLRenderer]
+endAllActiveAnimators on 0xb400006e94977840 (RippleDrawable) with handle 0xb400006da47c6010
+
+[2026-10-24 02:02:15.516 Uid(value=10379):20239:20239 D/CompatibilityChangeReporter]
+Compat change id reported: 160794467; UID 10379; state: DISABLED
+
+[2026-10-24 02:02:15.517 Uid(value=10379):20239:20495 I/mali_gralloc]
+unregister: id=0x299000a9ff0, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.517 Uid(value=10379):20239:20495 I/mali_gralloc]
+unregister: id=0x299000a9fef, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.546 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [b119] , this = android.widget.OverScroller$SplineOverScroller@fdbb119
+
+[2026-10-24 02:02:15.546 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [35de] , this = android.widget.OverScroller$SplineOverScroller@2d635de
+
+[2026-10-24 02:02:15.546 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@fdbb119, mScrollerY = android.widget.OverScroller$SplineOverScroller@2d635de
+
+[2026-10-24 02:02:15.547 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [ba8c] , this = android.widget.OverScroller$SplineOverScroller@c9bba8c
+
+[2026-10-24 02:02:15.547 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+SplineOverScroller mStringID = [45d5] , this = android.widget.OverScroller$SplineOverScroller@56d45d5
+
+[2026-10-24 02:02:15.547 Uid(value=10379):20239:20239 D/Z##OverScrollerMifavor]
+new SplineOverScroller.SMART_SLIDE in OverScroller. mScrollerX = android.widget.OverScroller$SplineOverScroller@c9bba8c, mScrollerY = android.widget.OverScroller$SplineOverScroller@56d45d5
+
+[2026-10-24 02:02:15.548 Uid(value=10327):19702:19750 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/c' ok (3ms)
+
+[2026-10-24 02:02:15.549 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews: DecorView@479dcdb[MainNoBgIcon], this = android.view.WindowManagerGlobal@4c257e8mViews.size()=2
+
+[2026-10-24 02:02:15.549 Uid(value=10379):20239:20239 D/WindowClient]
+Add to mViews packageName:bin.mt.plus
+
+[2026-10-24 02:02:15.571 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-10-24 02:02:15.574 Uid(value=10379):20239:21426 I/mali_gralloc]
+register: id=0x299000a9ff1, importpid=-1
+
+[2026-10-24 02:02:15.574 Uid(value=10379):20239:21426 I/mali_gralloc]
+register: id=0x299000a9ff2, importpid=-1
+
+[2026-10-24 02:02:15.575 Uid(value=10379):20239:21426 I/mali_gralloc]
+register: id=0x299000a9ff3, importpid=-1
+
+[2026-10-24 02:02:15.577 Uid(value=10379):20239:20272 W/Parcel]
+Expecting binder but got null!
+
+[2026-10-24 02:02:15.752 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9ff2, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.753 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9ff3, base=0x0, importpid=20239
+
+[2026-10-24 02:02:15.753 Uid(value=10379):20239:20239 I/mali_gralloc]
+unregister: id=0x299000a9ff1, base=0x0, importpid=20239
+
+[2026-10-24 02:02:17.072 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-10-24 02:02:17.102 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fe2, base=0x0, importpid=20239
+
+[2026-10-24 02:02:17.102 Uid(value=10379):20239:20272 I/mali_gralloc]
+unregister: id=0x299000a9fe4, base=0x0, importpid=20239
+
+[2026-10-24 02:02:17.103 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "
+
+[2026-10-24 02:02:17.103 Uid(value=10379):20239:20276 W/SQLiteLog]
+(28) double-quoted string literal: "43CC9C4D13D6C2B3B742924C4CD7A418"
+
+[2026-10-24 02:02:17.112 Uid(value=10379):20239:20239 D/VRI[MainNoBgIcon]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-10-24 02:02:17.113 Uid(value=10379):20239:20239 I/mali_gralloc]
+unregister: id=0x299000a9fe3, base=0x0, importpid=20239
+
+[2026-10-24 02:02:17.121 Uid(value=10379):20239:20239 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
