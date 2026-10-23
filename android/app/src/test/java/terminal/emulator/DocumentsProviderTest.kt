@@ -317,6 +317,34 @@ class DocumentsProviderTest {
     }
 
     /**
+     * 经 SAF 覆盖写（编辑器 SAVE、文件管理器覆盖）必须保留执行位。
+     *
+     * `MODE_TRUNCATE` 截断的是已有 inode，权限位本就不该变；这条用例钉住
+     * DESIGN「可执行文件被修改后不丢失权限」的用户可见承诺，防止将来
+     * openDocument 改成「写临时文件再替换」时静默退回 0644。
+     */
+    @Test
+    fun openDocument_mode_w_preserves_executable_bit() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val script = java.io.File(home, "run.sh").apply { writeText("#!/bin/sh\n") }
+        java.nio.file.Files.setPosixFilePermissions(
+            script.toPath(),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+        )
+        provider.openDocument("run.sh", "w", null).use { fd ->
+            java.io.FileOutputStream(fd.fileDescriptor).write("#!/bin/sh\necho hi\n".toByteArray())
+        }
+        assertEquals(
+            "editing a script through SAF must keep it executable",
+            "rwxr-xr-x",
+            java.nio.file.attribute.PosixFilePermissions.toString(
+                java.nio.file.Files.getPosixFilePermissions(script.toPath()),
+            ),
+        )
+        assertEquals("#!/bin/sh\necho hi\n", script.readText())
+    }
+
+    /**
      * 平台创建惯例：客户端按 `FLAG_DIR_SUPPORTS_CREATE` 的承诺经 openDocument 落盘
      * （编辑器 SAVE、文件管理器覆盖写都走这条）。此前 openDocument 要求条目已存在，
      * 这类客户端于是拿到 FileNotFoundException——「无法修改文件」的直接成因。

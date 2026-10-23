@@ -2,9 +2,8 @@
 <!-- Monochrome version for themed icons (Android 13+).
      Converted from assets/logo-vector.svg — white on transparent.
 
-     与彩色图案同一套摆放：整幅图案按自适应图标的安全区等比缩到 0.65
-     （见 logo_art.xml 的同一组缩放），否则 themed icon 也会把星形与尾迹
-     方块裁掉。点迹的 pathData 同样以 moveTo 起头——弧前没有 moveTo 时，
+     与彩色图案同一套摆放：整幅图案按 0.75 缩放（见 logo_art.xml 的同一组
+     缩放），星形留在安全圆内，终端窗口最远角允许被蒙版裁掉一点。点迹的 pathData 同样以 moveTo 起头——弧前没有 moveTo 时，
      首弧会从原点拉出一条畸形色块。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -15,8 +14,8 @@
     <group
         android:pivotX="54"
         android:pivotY="54"
-        android:scaleX="0.65"
-        android:scaleY="0.65">
+        android:scaleX="0.75"
+        android:scaleY="0.75">
 
     <!-- Terminal window group: same transform as foreground -->
     <group
