@@ -133,11 +133,14 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
         val bashPath = "/data/user/0/$packageName/files/usr/bin/bash"
 
         // Trigger the install in the real app process (shell-uid am start).
-        // The installer atomically replaces usr/, so re-running over a
-        // previous install is the product path (no stale state possible).
+        // `-f 0x20000000` is FLAG_ACTIVITY_SINGLE_TOP: the instrumentation's
+        // Compose rule is bound to the already-running MainActivity. Starting a
+        // second instance would put a new activity on top of it, so the test's
+        // `openDrawer()` would click the visible drawer while polling the old
+        // activity's semantics tree — the drawer then never appears to open.
         val startOut =
             shell(
-                "am start -n $packageName/$MAIN_ACTIVITY --es $INSTALL_EXTRA $zipPath",
+                "am start -f 0x20000000 -n $packageName/$MAIN_ACTIVITY --es $INSTALL_EXTRA $zipPath",
             )
         Log.i(TAG, "am start output: $startOut")
 
