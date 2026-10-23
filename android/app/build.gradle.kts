@@ -135,9 +135,9 @@ dependencies {
 
   implementation("androidx.datastore:datastore-preferences:1.3.0")
 
-  implementation("com.squareup.okhttp3:okhttp:5.5.0")
-  testImplementation("com.squareup.okhttp3:mockwebserver3:5.5.0")
-  testImplementation("com.squareup.okhttp3:okhttp-tls:5.5.0")
+  implementation("com.squareup.okhttp3:okhttp:5.5.1")
+  testImplementation("com.squareup.okhttp3:mockwebserver3:5.5.1")
+  testImplementation("com.squareup.okhttp3:okhttp-tls:5.5.1")
   debugImplementation("com.squareup.leakcanary:leakcanary-android:3.0-alpha-9")
 
   testImplementation("junit:junit:4.13.2")
