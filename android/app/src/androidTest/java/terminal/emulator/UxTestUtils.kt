@@ -181,6 +181,21 @@ object UxTestUtils {
     }
 
     /**
+     * 以 shell 身份执行一条命令并读回标准输出。
+     *
+     * 仪器化进程本身没有改系统设置的权限，shell 有：`cmd uimode night yes` 这类
+     * 系统状态切换必须经它执行，测试进程内的任何 API 都做不到。
+     */
+    fun runShellCommand(command: String): String = InstrumentationRegistry.getInstrumentation()
+        .uiAutomation
+        .executeShellCommand(command)
+        .use { descriptor ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)
+                .bufferedReader()
+                .readText()
+        }
+
+    /**
      * 读自 [sinceEpochMs] 起的 logcat 行（`-v epoch`，行首为 epoch 秒）。
      *
      * 生产端已有按窗口输出的计量（帧节奏、慢循环分解），用例要断言它们就必须能
