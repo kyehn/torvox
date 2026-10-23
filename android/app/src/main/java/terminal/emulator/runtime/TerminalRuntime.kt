@@ -1466,6 +1466,9 @@ constructor(
                                 // 慢循环帧的阶段分解日志节流：连续慢帧（如 500ms 空闲闭锁）
                                 // 不刷屏，最密 2 行/秒。
                                 var lastSlowLoopLogNanos = 0L
+                                // 慢帧告警同样节流：滚动时每帧都超 30ms，逐帧写 logcat
+                                // 会让诊断本身成为负担；帧时长统计窗口仍保留完整分布。
+                                var lastSlowFrameLogNanos = 0L
                                 // 每线程帧时长统计：渲染线程重启时重置（新生涯，不带陈旧历史）。
                                 val frameTiming = FrameTimingStats()
                                 // 整循环周期统计（渲染 + pollAll + 事件派发 + waitOutput）：
@@ -1635,10 +1638,14 @@ constructor(
                                         frameTiming.record(renderDoneNanos - entry.frameMarks.startNanos)
                                         val frameMs = (renderDoneNanos - entry.frameMarks.startNanos) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
-                                            LogUtil.w(
-                                                "Runtime",
-                                                "SLOW_FRAME session=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
-                                            )
+                                            val nowNanos = System.nanoTime()
+                                            if (nowNanos - lastSlowFrameLogNanos > 500_000_000L) {
+                                                lastSlowFrameLogNanos = nowNanos
+                                                LogUtil.w(
+                                                    "Runtime",
+                                                    "SLOW_FRAME session=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
+                                                )
+                                            }
                                         }
                                         if (newOutput) {
                                             // 只有真实的 PTY 摄入才刷新空闲时钟：count 同样统计静态网格的

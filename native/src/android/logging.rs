@@ -58,6 +58,11 @@ impl Log for AndroidLogger {
     }
 
     fn log(&self, record: &Record) {
+        // `log!` 宏只查 `max_level()`，不查 `enabled()`：模块级过滤必须在这里再判一次，
+        // 否则 wgpu/naga 的逐帧 Debug 日志仍会灌满 logcat（实测单次启动数万行）。
+        if !self.enabled(record.metadata()) {
+            return;
+        }
         let tag = record.target();
         let message = format!("{}", record.args());
         let prio = level_to_android(record.level());
