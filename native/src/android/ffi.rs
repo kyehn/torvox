@@ -2709,11 +2709,7 @@ fn placeholder_layout_signature(cells: &[crate::terminal::ghostty_terminal::Cell
         signature = signature.wrapping_mul(0x0000_0100_0000_01b3);
         count += 1;
     }
-    if count == 0 {
-        0
-    } else {
-        signature ^ count
-    }
+    if count == 0 { 0 } else { signature ^ count }
 }
 
 // JNI 导出：renderWithNewOutput

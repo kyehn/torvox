@@ -1945,10 +1945,7 @@ impl super::GhosttyTerminal {
                     })();
                     match meta {
                         Ok((image_id, placement_id, z, x_offset, y_offset)) => {
-                            virtual_meta.insert(
-                                (image_id, placement_id),
-                                (z, x_offset, y_offset),
-                            );
+                            virtual_meta.insert((image_id, placement_id), (z, x_offset, y_offset));
                         }
                         Err(error) => {
                             log::warn!("kitty: virtual placement metadata failed: {error}");
