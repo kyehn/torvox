@@ -343,6 +343,13 @@ struct RenderState {
     kitty_session: u64,
     kitty_generation: u64,
     kitty_scroll_offset: i64,
+    /// 回滚长度（历史行数）。新输出把行推入回滚时放置的视口行号随之变化，
+    /// 但用户滚动偏移仍为 0；漏掉这个键会让图像钉在旧行、被后续文本覆盖。
+    kitty_scrollback_length: u32,
+    /// 可见 Unicode 占位符的布局签名。虚拟放置的图像位置由占位符单元决定，
+    /// 生成戳不变时 TUI 仍可能重绘并移动占位符；签名变化才重查，避免每帧
+    /// 重解码整幅图。
+    kitty_placeholder_signature: u64,
     kitty_rows: u32,
     kitty_cols: u32,
     kitty_cell_width: f32,
@@ -477,6 +484,8 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_session: 0,
             kitty_generation: u64::MAX,
             kitty_scroll_offset: i64::MIN,
+            kitty_scrollback_length: u32::MAX,
+            kitty_placeholder_signature: u64::MAX,
             kitty_rows: u32::MAX,
             kitty_cols: u32::MAX,
             kitty_cell_width: 0.0,
@@ -2313,6 +2322,12 @@ fn render_inner(session_id: u64) -> jint {
             // 全局锁序：渲染状态锁内绝不嵌套注册表与会话锁。会话查询在锁外完成
             // 后再重取渲染状态锁应用结果，消除渲染线程与主题线程的环形等待。
             let kitty_generation = cursor_info.kitty_generation;
+            // 纯文本会话（生成戳为 0）不做逐格扫描：签名只服务于图像放置缓存。
+            let placeholder_signature = if kitty_generation != 0 {
+                placeholder_layout_signature(&cells)
+            } else {
+                0
+            };
             // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
             let (font_width, font_height) = render_state.font_pipeline.cell_metrics();
             let raster_scale = render_state.font_pipeline.get_raster_scale();
@@ -2321,6 +2336,8 @@ fn render_inner(session_id: u64) -> jint {
             let kitty_keys_snapshot = session_id != render_state.kitty_session
                 || kitty_generation != render_state.kitty_generation
                 || scroll_offset != render_state.kitty_scroll_offset
+                || cursor_info.scrollback_length != render_state.kitty_scrollback_length
+                || placeholder_signature != render_state.kitty_placeholder_signature
                 || rows != render_state.kitty_rows
                 || cols != render_state.kitty_cols;
             let kitty_cell_changed = (grid_cell_width - render_state.kitty_cell_width).abs()
@@ -2377,6 +2394,8 @@ fn render_inner(session_id: u64) -> jint {
                 render_state.kitty_session = session_id;
                 render_state.kitty_generation = kitty_generation;
                 render_state.kitty_scroll_offset = scroll_offset;
+                render_state.kitty_scrollback_length = cursor_info.scrollback_length;
+                render_state.kitty_placeholder_signature = placeholder_signature;
                 render_state.kitty_rows = rows;
                 render_state.kitty_cols = cols;
                 render_state.kitty_cell_width = grid_cell_width;
@@ -2671,6 +2690,29 @@ fn last_content_row_bits_for_frame(
     match crate::render::cell_builder::last_content_row(cells, rows) {
         Some(row) if (row as i64) < LAST_CONTENT_ROW_NONE_BITS => row as i64,
         _ => LAST_CONTENT_ROW_NONE_BITS,
+    }
+}
+
+/// 可见 Unicode 占位符的布局签名。
+///
+/// 虚拟放置的锚点由占位符单元反推；图像生成戳不变时，TUI 重绘仍可能把
+/// 同一幅图挪到新位置。对全部占位符位置做滚动哈希即可感知任意移动，又不必
+/// 每帧重查并重解码整幅 RGBA。
+fn placeholder_layout_signature(cells: &[crate::terminal::ghostty_terminal::CellData]) -> u64 {
+    let mut signature = 0xcbf2_9ce4_8422_2325u64;
+    let mut count = 0u64;
+    for cell in cells {
+        if cell.codepoint != crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER {
+            continue;
+        }
+        signature ^= (u64::from(cell.row) << 32) | u64::from(cell.col);
+        signature = signature.wrapping_mul(0x0000_0100_0000_01b3);
+        count += 1;
+    }
+    if count == 0 {
+        0
+    } else {
+        signature ^ count
     }
 }
 
@@ -5127,6 +5169,48 @@ mod session_scoped_tests {
         assert_eq!(scoped.current, vec![20], "同一会话的高亮须保留");
         assert_eq!(scoped.drawn, vec![20]);
         assert_eq!(scoped.current, scoped.drawn, "同一会话内门控不得被点亮");
+    }
+}
+
+#[cfg(test)]
+mod placeholder_signature_tests {
+    use super::placeholder_layout_signature;
+    use crate::terminal::ghostty_terminal::CellData;
+    use crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER;
+
+    fn placeholder(row: u32, col: u32) -> CellData {
+        let mut cell: CellData = bytemuck::Zeroable::zeroed();
+        cell.codepoint = PLACEHOLDER;
+        cell.row = row;
+        cell.col = col;
+        cell
+    }
+
+    /// 签名必须随占位符位置变化：同一幅图被 TUI 重绘到新行时，
+    /// 渲染线程要重查放置，否则图像钉在旧位置。
+    #[test]
+    fn signature_tracks_placeholder_movement() {
+        let at_origin = [placeholder(2, 3)];
+        let moved = [placeholder(4, 3)];
+        assert_ne!(
+            placeholder_layout_signature(&at_origin),
+            placeholder_layout_signature(&moved)
+        );
+        assert_eq!(
+            placeholder_layout_signature(&at_origin),
+            placeholder_layout_signature(&[placeholder(2, 3)])
+        );
+    }
+
+    /// 纯文本（无占位符）必须返回稳定的 0，避免每帧误判为布局变化。
+    #[test]
+    fn no_placeholders_is_stable() {
+        let mut text: CellData = bytemuck::Zeroable::zeroed();
+        text.codepoint = u32::from('a');
+        text.row = 1;
+        text.col = 1;
+        assert_eq!(placeholder_layout_signature(&[text]), 0);
+        assert_eq!(placeholder_layout_signature(&[]), 0);
     }
 }
 

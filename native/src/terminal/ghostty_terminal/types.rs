@@ -227,7 +227,9 @@ pub struct KittyPlacementFrame {
     pub z: i32,
     pub image_width: u32,
     pub image_height: u32,
-    pub image_rgba: Vec<u8>,
+    /// 图像像素经 `Arc` 共享：Unicode 占位符按放置分组时，同一图像可能被
+    /// 多个可见块引用，逐块复制整幅 RGBA 会成倍放大内存。
+    pub image_rgba: std::sync::Arc<[u8]>,
 }
 
 impl GridSnapshot {

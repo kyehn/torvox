@@ -8,6 +8,7 @@ use crate::terminal::CursorStyle;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::ghostty_terminal::build_row_ranges;
 use crate::terminal::ghostty_terminal::cell_flags;
+use crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER;
 
 use foldhash::fast::RandomState;
 
@@ -623,7 +624,7 @@ fn warm_frame_glyphs(
     }
     for cd in cell_data {
         let ch = codepoint_to_char(cd.codepoint);
-        if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
+        if ch == ' ' || ch == '\0' || cd.codepoint == 0 || cd.codepoint == PLACEHOLDER {
             continue;
         }
         let bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
@@ -735,7 +736,7 @@ fn append_row_instances(
         // 光标标记尺寸裁掉）。
         let glyph_quad_size = [cell_width * cell_span, cell_height];
         let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
-        if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
+        if ch == ' ' || ch == '\0' || cd.codepoint == 0 || cd.codepoint == PLACEHOLDER {
             // 与清除色同色的空白格不必发射：全量帧已由 Clear 铺底，
             // 部分帧由脏带清除实例铺底；省略后滚动整屏重绘的实例数按
             // 有效字符数而非网格面积增长。

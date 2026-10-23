@@ -12,6 +12,7 @@ mod commands;
 mod internal;
 mod public_api;
 mod types;
+pub(crate) mod unicode_placement;
 
 pub use commands::Command;
 pub use commands::Query;
