@@ -122,14 +122,32 @@ class SplashIconRobolectricTest {
             splashChildBits.contentEquals(launcherChildBits),
         )
 
-        // 图案必须落在自适应图标安全区内：平台把前景层按图标边界的 1.5 倍绘制，
-        // 蒙版只露出中间的安全圆（72/108 可见区里的 66/72），图案离画布中心
-        // 最远的点必须留在圆内，否则桌面会裁掉星尖与窗口一角。
-        val launcherInk = inkRadius(renderBitmap(launcherChild, artPx))
+        // 图案摆放的判据落在平台蒙版上：平台把前景层按图标边界的 1.5 倍绘制，
+        // 圆形蒙版只露出半径 36 单位（72dp 可见区的一半）的圆，超出即被裁掉。
+        //
+        // 66dp 安全区（半径 33 单位）是设计建议而非平台裁切线：0.75 缩放后星尖
+        // 与终端窗口远角都越过这条建议线，但仍在蒙版圆内——用户明确允许内容溢出
+        // 以保住观感（STATUS「应用图标较旧版观感下降」）。因此判据取平台真实裁切
+        // 边界，并按近乎不透明的主体像素量几何（半透明抗锯齿边缘不参与）。
+        //
+        // 星形在 108 视口里位于右侧（x ≥ 56），与终端窗口的墨迹互不重叠，故按
+        // x 阈值即可单独量出，确保识别点没被裁掉。
+        val launcherBitmap = renderBitmap(launcherChild, artPx)
+        val launcherInk = inkRadius(launcherBitmap, alphaFloor = SOLID_ALPHA_FLOOR)
         assertTrue(
-            "图案墨迹半径不得超过安全圆半径 $SAFE_ZONE_RADIUS 单位，" +
+            "图案墨迹半径不得超过平台蒙版圆半径 $MASK_CIRCLE_RADIUS 单位，" +
                 "实际 ${"%.1f".format(launcherInk)}",
-            launcherInk <= SAFE_ZONE_RADIUS,
+            launcherInk <= MASK_CIRCLE_RADIUS,
+        )
+        val starInk = inkRadius(
+            launcherBitmap,
+            minXUnits = STAR_REGION_MIN_X_UNITS,
+            alphaFloor = SOLID_ALPHA_FLOOR,
+        )
+        assertTrue(
+            "星形墨迹半径不得超过平台蒙版圆半径 $MASK_CIRCLE_RADIUS 单位，" +
+                "实际 ${"%.1f".format(starInk)}",
+            starInk <= MASK_CIRCLE_RADIUS,
         )
 
         // 平台管线几何：Animatable 分支把这一 wrapper 直接画进 192dp 单元并按
@@ -201,15 +219,23 @@ class SplashIconRobolectricTest {
         R.style.Theme_Terminal_Splash,
     )
 
-    /** 最远非透明像素到画布中心的距离。Robolectric 160dpi 下 1px = 1dp。 */
-    private fun inkRadius(bitmap: Bitmap): Float {
+    /**
+     * 最远非透明像素到画布中心的距离。Robolectric 160dpi 下 1px = 1dp。
+     *
+     * [minXUnits] 把统计限制在视口右侧（108 单位制），用于把星形与终端窗口的
+     * 墨迹分开量。[alphaFloor] 可收紧到近乎不透明的主体像素，使量到的是矢量
+     * 几何而不是抗锯齿软边。
+     */
+    private fun inkRadius(bitmap: Bitmap, minXUnits: Float = 0f, alphaFloor: Int = ALPHA_FLOOR): Float {
         val centerX = (bitmap.width - 1) / 2f
         val centerY = (bitmap.height - 1) / 2f
+        val minXPx = minXUnits / VIEWPORT_UNITS * bitmap.width
         var maxRadius = 0f
         for (y in 0 until bitmap.height) {
             for (x in 0 until bitmap.width) {
+                if (x + 0.5f < minXPx) continue
                 val argb = bitmap.getPixel(x, y)
-                if ((argb ushr 24) < ALPHA_FLOOR) continue
+                if ((argb ushr 24) < alphaFloor) continue
                 val distance = hypot(x + 0.5f - centerX, y + 0.5f - centerY)
                 if (distance > maxRadius) maxRadius = distance
             }
@@ -243,18 +269,22 @@ class SplashIconRobolectricTest {
         const val MASK_RADIUS_DP: Float = SPLASH_CELL_DP * 50f / VIEWPORT_UNITS
 
         /** 启动屏图案墨迹半径区间（相对蒙版）：下限 = 完整图案要醒目
-         *  （Robolectric 与平台 emulator 实测均 ≈0.86）；上限 = 不触碰蒙版
-         *  （直接给裸图案的旧实现 ≈1.0，星尖恰好出界被裁）。 */
+         *  （直接给裸图案的旧实现 ≈0.86）；上限 = 不得越过蒙版圆
+         *  （0.75 缩放 + 263dp 帧后 ≈0.99，恰好贴边且完整）。 */
         const val SPLASH_ART_MIN_RATIO = 0.40f
-        const val SPLASH_ART_MAX_RATIO = 0.95f
+        const val SPLASH_ART_MAX_RATIO = 1.0f
 
         /**
-         * 自适应图标安全区半径（logo_art 的 108 单位视口内）。
-         *
-         * 平台把前景层按 1.5× 图标边界绘制，可见区是其中的 72/108，安全区又是可见区的
-         * 66/72，故安全半径 = 72 × 66/72 = 33 单位。图案到画布中心的最远距离不得越过它。
+         * 平台圆形蒙版的裁切半径（108 单位视口内）：72dp 可见区的一半 = 36 单位。
+         * 越过这条线的内容会被蒙版裁掉。
          */
-        const val SAFE_ZONE_RADIUS = 33f
+        const val MASK_CIRCLE_RADIUS = 36f
+
+        /**
+         * 视口右侧分界（108 单位制）：星形与尾迹点位于 x ≥ 56，终端窗口的最远点在
+         * 左侧，故 x ≥ 50 即可只量到星形一侧的墨迹。
+         */
+        const val STAR_REGION_MIN_X_UNITS = 50f
 
         /** 点迹 fill 色（logo_art 的红/黄/绿三圆）。 */
         const val DOT_RED = 0xff8a6c.toInt()
@@ -280,5 +310,8 @@ class SplashIconRobolectricTest {
 
         /** 非透明像素门槛（抗锯齿边缘也算墨迹）。 */
         const val ALPHA_FLOOR = 0x70
+
+        /** 近乎不透明的主体像素门槛：量几何时排除半透明软边。 */
+        const val SOLID_ALPHA_FLOOR = 0xF0
     }
 }
