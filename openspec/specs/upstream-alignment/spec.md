@@ -170,6 +170,15 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
       提交数差；MUST NOT 写 hash（见「rev 本身不进正文」，rev 的唯一载体是
       `Cargo.toml` 的依赖钉）
 
+#### Scenario: 终端上游与绑定层同时缺失
+
+- **WHEN** 某 VT 特性在终端上游 master 与绑定层所钉提交中都不存在
+- **THEN** 记录 MUST 写明是上游缺口，并给出两处可复核事实（上游 master 的源码
+      事实与绑定层所钉提交的源码事实），MUST NOT 记为绑定层滞后
+- **AND** 应用 MUST NOT 以绕过上游的方式补齐该能力（如自研 VT 解析、自建共享
+      内存通道）；协议定义了应答时 MUST 按协议回明确失败，未定义应答时 MUST NOT
+      伪造应答
+
 ### Requirement: 上游 VT 语义不由本仓测试覆盖
 
 VT 解析与重排是上游 `libghostty-vt` 的职责（DESIGN 单一来源，`ghostty_terminal/tests.rs` 删除集合已列明）。TESTING 只测本项目功能、不做回归，故 xterm 语料、缺口触发器与重排往返三类断言 MUST NOT 留存本仓：`native/tests/vt_corpus.rs`、`native/tests/vt_conformance.rs`、`native/tests/vt_upstream_blockers.rs`、`native/tests/reflow_round_trip.rs` 已删除。
