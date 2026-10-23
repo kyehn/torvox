@@ -2816,7 +2816,72 @@ fn kitty_placements_collects_visible_display() {
     let placement = &placements[0];
     assert_eq!(placement.image_id, 7);
     assert!(placement.pixel_width > 0 && placement.pixel_height > 0);
-    assert_eq!(placement.image_rgba, vec![255, 0, 0, 255]);
+    assert_eq!(placement.image_rgba.as_ref(), [255, 0, 0, 255]);
+}
+
+/// 新输出把行推入回滚时，普通放置的视口行号必须随之上移；渲染线程的
+/// kitty 缓存键含回滚长度，正是依赖这个变化触发重查。
+#[test]
+fn kitty_placement_moves_up_when_output_scrolls() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(b"\x1b[2;3H\x1b_Ga=T,f=24,s=1,v=1,i=13;/wAA\x1b\\");
+    terminal.flush();
+    let before = terminal
+        .take_kitty_placements()
+        .into_iter()
+        .find(|placement| placement.image_id == 13)
+        .expect("显示中的图像必须有可见放置");
+    terminal.pty_write(b"\x1b[24;1H\n");
+    terminal.flush();
+    let after = terminal
+        .take_kitty_placements()
+        .into_iter()
+        .find(|placement| placement.image_id == 13)
+        .expect("上移一行后图像仍应可见");
+    assert_eq!(
+        after.viewport_row,
+        before.viewport_row - 1,
+        "回滚一行后放置必须上移一行"
+    );
+}
+
+/// Kitty 虚拟放置（Unicode 占位符）：fg 颜色编码图像 id，underline 颜色编码
+/// 放置 id，占位符后的组合记号编码图像行列；锚点 = 单元网格位置 − 图像行列。
+#[test]
+fn kitty_virtual_placement_uses_placeholder_diacritics() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=9,U=1,p=1,z=2,X=3,Y=4;/wAA\x1b\\");
+    terminal.pty_write(
+        "\x1b[2;3H\x1b[38;2;0;0;9m\x1b[58;2;0;0;1m\u{10EEEE}\u{0305}\u{0305}".as_bytes(),
+    );
+    terminal.flush();
+    let placements = terminal.take_kitty_placements();
+    assert_eq!(placements.len(), 1, "虚拟放置必须进入图像通道");
+    let placement = &placements[0];
+    assert_eq!(placement.image_id, 9);
+    assert_eq!((placement.viewport_row, placement.viewport_col), (1, 2));
+    assert_eq!((placement.pixel_width, placement.pixel_height), (1, 1));
+    assert_eq!((placement.z, placement.cell_offset_x, placement.cell_offset_y), (2, 3, 4));
+    assert_eq!(placement.image_rgba.as_ref(), [255, 0, 0, 255]);
+}
+
+/// 占位符未设置 underline（放置 id 缺省为 0）时，回退到该图像的第一个虚拟放置，
+/// 与上游行为一致：客户端漏编码放置 id 不应让整幅图消失。
+#[test]
+fn kitty_virtual_placement_without_underline_falls_back_to_first_placement() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=10,U=1,p=5;/wAA\x1b\\");
+    terminal.pty_write(
+        "\x1b[2;3H\x1b[38;2;0;0;10m\u{10EEEE}\u{0305}\u{0305}".as_bytes(),
+    );
+    terminal.flush();
+    let placements = terminal.take_kitty_placements();
+    assert_eq!(placements.len(), 1, "缺省放置 id 必须回退到首个虚拟放置");
+    assert_eq!(placements[0].image_id, 10);
+    assert_eq!((placements[0].viewport_row, placements[0].viewport_col), (1, 2));
 }
 
 /// Kitty 载荷杂散 NUL 不得丢图（对标上游 kittyStrayNulInPayloadStillStores：

@@ -91,7 +91,7 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             && clamped_height == frame.image_height
         {
             return Some((
-                Cow::Borrowed(&frame.image_rgba),
+                Cow::Borrowed(frame.image_rgba.as_ref()),
                 frame.image_width,
                 frame.image_height,
                 vec![Some(AtlasEntry {
@@ -121,7 +121,7 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             continue;
         };
         copy_sub_rect(
-            &frame.image_rgba,
+            frame.image_rgba.as_ref(),
             frame.image_width,
             &mut atlas,
             layout.width,
@@ -304,7 +304,7 @@ mod tests {
             z: 0,
             image_width: 1,
             image_height: 1,
-            image_rgba: vec![255, 0, 0, 255],
+            image_rgba: vec![255, 0, 0, 255].into(),
         }
     }
 
@@ -326,7 +326,8 @@ mod tests {
             image_height: 2,
             image_rgba: vec![
                 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255,
-            ],
+            ]
+            .into(),
         }
     }
 
