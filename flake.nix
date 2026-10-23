@@ -82,6 +82,7 @@
               taplo
               yamlfmt
               markdownlint-cli2
+              openspec
               mesa
               vulkan-loader
               vulkan-tools
