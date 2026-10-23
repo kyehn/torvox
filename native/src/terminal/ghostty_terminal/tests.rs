@@ -1783,6 +1783,80 @@ fn scroll_viewport_delta_scrolls_cell_data() {
     );
 }
 
+/// 纯视口滚动必须走行平移快路径：只逐格抽取露出的边缘行，
+/// 其余行整段复用上一帧缓存。没有这条断言时，平移逻辑退化成全量抽取
+/// 仍能通过内容断言（真机表现为每次滚轮事件 58ms 卡顿）。
+#[test]
+fn scroll_viewport_reuses_shifted_rows() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_some(),
+        "首帧必须到达"
+    );
+    // 清空首帧的全量计数，只统计滚动帧。
+    terminal_under_test.take_cache_stats();
+
+    assert!(
+        terminal_under_test.scroll_viewport(-2),
+        "scroll_viewport should accept delta"
+    );
+    terminal_under_test.flush();
+    let scrolled = terminal_under_test
+        .receive_cell_data()
+        .expect("滚动后必须收到 CellData 帧");
+    let scrolled_rows: std::collections::HashSet<u32> =
+        scrolled.0.iter().map(|cell| cell.row).collect();
+    assert_eq!(scrolled_rows.len(), 5, "滚动帧仍须覆盖 5 个视口行");
+
+    let (reused, extracted) = terminal_under_test.take_cache_stats();
+    assert_eq!(
+        extracted, 2,
+        "向上滚 2 行只应逐格抽取露出的 2 行，实际 {extracted} 行"
+    );
+    assert_eq!(
+        reused, 3,
+        "其余 3 行应整段复用平移后的缓存，实际 {reused} 行"
+    );
+}
+
+/// 输出发生在滚动之后时，待平移量必须丢弃：否则平移帧会跳过上游脏标记，
+/// 把滚动前的旧行当成新内容复用。计数是唯一判别力来源——内容断言在
+/// 视口外的输出上看不出差别。
+#[test]
+fn write_after_scroll_does_not_reuse_shifted_rows() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_some(),
+        "首帧必须到达"
+    );
+    terminal_under_test.take_cache_stats();
+
+    assert!(
+        terminal_under_test.scroll_viewport(-2),
+        "scroll_viewport should accept delta"
+    );
+    terminal_under_test.vt_write(b"post-scroll output\n");
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_some(),
+        "滚动后写入必须收到 CellData 帧"
+    );
+
+    let (_reused, extracted) = terminal_under_test.take_cache_stats();
+    assert!(
+        extracted > 2,
+        "滚动后写入必须让脏行走逐行判定，而不是只抽露出的 2 行；实际 {extracted} 行"
+    );
+}
+
 /// 已在底部时继续向下滚动：视口内容不变，但显式滚动是用户动作，
 /// 必须强制推帧，否则行级滚动的即时重绘补救路径会被内容去重吞掉。
 #[test]

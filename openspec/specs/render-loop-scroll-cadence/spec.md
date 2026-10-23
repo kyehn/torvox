@@ -38,6 +38,26 @@ latch 超时 MUST 同时咨询 `hasScrollMotion()`，使 idle-clocks 过期后�
 - **WHEN** 手势事件稀疏（主线程忙于手势/组合评分，事件间隙长）
 - **THEN** 250ms 运动窗口内的间隙不被 500ms latch 吞掉，帧率不塌陷
 
+### Requirement: 滚动更新由 vsync 合并
+
+滚动入口（`setScrollRemainderPx` / `setScrollOffset`）MUST 只更新偏移与滚动/空闲时钟，
+MUST NOT 直接置 `renderSignaled` 或立即唤醒渲染线程。唤醒 MUST 由 Choreographer 帧回调
+在下一个显示帧置 `vsyncRequested` 后统一发出，使高刷触摸流（120Hz）每个 vsync
+最多产出一帧。滚动事件频率高于显示刷新率时，逐事件立即渲染会把交换链排满，
+`acquire` 反而要等两个 vsync，单帧被放大到 30–60ms。
+
+#### Scenario: 高刷触摸不塞满交换链
+
+- **WHEN** 120Hz 触摸流连续更新亚行滚动余量
+- **THEN** 渲染线程每个 vsync 最多渲染一帧，滚动期间 `SLOW_RENDER_PHASE` 的
+      `acquire` 不再因两帧排队而占该帧总时长的大部分
+
+#### Scenario: 滚动仍能及时上屏
+
+- **WHEN** 用户开始一次新的滚动手势（距上次信号已超过空闲阈值）
+- **THEN** 滚动入口刷新空闲时钟，Choreographer 回调在下一个 vsync 唤醒渲染线程，
+      不因未直接唤醒而落入 500ms 空闲闭锁
+
 ### Requirement: 窗口边界诊断查询移出渲染线程
 
 渲染循环 MUST NOT 在 60 帧窗口边界（`RENDER_DIAGNOSTIC_FREQUENCY` 命中）于
@@ -93,9 +113,10 @@ MUST NOT 参与重试，只发一次，防止滞留首查的应答丢失后被�
 ### Requirement: 空闲闭锁不得成为输出的投递延迟
 
 渲染循环的等待 MUST 由原生唤醒源承担：PTY 读线程每读到一块输出、以及宿主侧
-信号（vsync、输入、滚动、选区、forceRender）MUST 都推进同一个唤醒代数并立即
-唤醒等待方。500ms 空闲闭锁 MUST 只作为「没有任何事件时」的兜底节拍，不得成为
-无输入输出（后台任务、长时间命令完成）的上屏延迟来源。
+信号（vsync、输入、选区、forceRender）MUST 都推进同一个唤醒代数并立即唤醒等待方；
+滚动更新按上一节的 vsync 合并策略唤醒，不逐事件直发。500ms 空闲闭锁 MUST 只作为
+「没有任何事件时」的兜底节拍，不得成为无输入输出（后台任务、长时间命令完成）的
+上屏延迟来源。
 
 唤醒 MUST 采用「代数 + 条件变量」语义：带上次代数进场，期间已发生通知则立即
 返回，使「查完信号再进场」与通知竞争时不丢唤醒；等待 MUST NOT 持有会话注册表

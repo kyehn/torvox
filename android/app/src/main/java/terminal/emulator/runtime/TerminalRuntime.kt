@@ -942,10 +942,10 @@ constructor(
         // 记录手势时间，使渲染线程的 recentlyScrolled 保护能在用户滚动后的
         // RECENT_SCROLL_WINDOW_NANOS 内抑制新输出引起的滚动复位。
         entry.lastScrollNanos = System.nanoTime()
-        // 渲染线程已读取 entry.scrollOffset 并在 surface 锁下调 bridge.setScrollOffset()，
-        // 在此调用只会给调用线程（滚动时通常是 UI 线程）多一次 JNI 往返与 surface 锁获取。
-        // 只信号渲染线程去取该变更即可。
-        entry.notifyRender()
+        // 滚动事件可高于显示刷新率：立即 notifyRender 会让每个事件都产出一帧，
+        // 交换链很快排满，acquire 反而等两个 vsync。这里只刷新空闲时钟，
+        // 由 Choreographer 帧回调在下一个 vsync 统一唤醒并合并多次滚动。
+        entry.lastSignalNanos = System.nanoTime()
     }
 
     /**
@@ -958,7 +958,8 @@ constructor(
         // 此处也盖上滚动运动时钟（不只 setScrollOffset 中盖）：逐像素的亚行运动是
         // 拖拽期间频率最高的事件，必须保持循环的活跃节奏。
         entry.lastScrollNanos = System.nanoTime()
-        entry.notifyRender()
+        // 同 setScrollOffset：亚行运动不直接唤醒，交给 vsync 回调合并。
+        entry.lastSignalNanos = System.nanoTime()
     }
 
     /** 从 TerminalViewModel 同步 SCROLL 按钮锁，使渲染线程知道新输出时是否自动复位滚动。 */

@@ -152,6 +152,10 @@ pub(crate) struct RenderExtractors<'alloc> {
     row_iter: RowIterator<'alloc>,
     cell_iter: CellIterator<'alloc>,
     row_cache: RowCache,
+    /// 上一批命令只有视口滚动时记录的实际行偏移（终端语义：向下为正）。
+    /// 下一帧据此平移 `RowCache` 并只逐格抽取露出的边缘行；任何内容变更
+    /// 或缓存失效都会清空它，避免拿平移后的旧内容冒充新内容。
+    scroll_shift: Option<isize>,
     /// 行级分流计数，仅测试使用：按终端实例隔离，避免并行测试互相污染。
     #[cfg(test)]
     pub(crate) cache_stats: CacheStats,
@@ -187,6 +191,7 @@ impl<'alloc> RenderExtractors<'alloc> {
             row_iter,
             cell_iter,
             row_cache: RowCache::new(),
+            scroll_shift: None,
             // 测试构建下由 `run_inner` 从 `RunConfig` 换成该终端实例的句柄；
             // 生产构建无此字段，故此处为占位。
             #[cfg(test)]
@@ -219,6 +224,26 @@ impl<'alloc> RenderExtractors<'alloc> {
     /// 终端的新脏状态——它会在下一次 `update` 时看到尺寸变化或全量脏标记。
     pub(crate) fn invalidate_row_cache(&mut self) {
         self.row_cache.invalidate();
+        self.scroll_shift = None;
+    }
+
+    /// 记录一次视口滚动实际移动的行数（终端语义：向下为正）。
+    ///
+    /// 同一批内多次滚动累加；`None` 表示本次滚动没有可平移的缓存
+    /// （例如已在底部，或内容刚变更），下一帧走完整抽取。
+    pub(crate) fn note_scroll(&mut self, delta: isize) {
+        self.scroll_shift = Some(self.scroll_shift.unwrap_or(0).saturating_add(delta));
+    }
+
+    /// 内容变更后丢弃待平移量：平移帧会跳过上游脏标记直接复用整行，
+    /// 若输出发生在滚动之后，旧缓存相对新网格已过期，必须回到逐行脏判定。
+    fn clear_scroll_shift(&mut self) {
+        self.scroll_shift = None;
+    }
+
+    /// 取走平移量：只对紧随其后的那一帧生效，避免陈旧偏移在后续帧继续套用。
+    fn take_scroll_shift(&mut self) -> Option<isize> {
+        self.scroll_shift.take()
     }
 }
 
@@ -282,6 +307,40 @@ impl RowCache {
             std::mem::take(&mut self.cells),
             std::mem::take(&mut self.ranges),
         )
+    }
+
+    /// 按视口滚动平移上一帧的行缓存。
+    ///
+    /// `delta` 为终端语义（向下为正）：新行 `i` 复用旧行 `i + delta`，
+    /// 越界行留下空区间，由本帧逐格抽取补齐。返回逐行「可直接复用」标记；
+    /// 平移后单元的行号同步改成新行号，列与样式保持不变（内容整体移动）。
+    fn shift_previous(
+        cells: &mut Vec<CellData>,
+        ranges: &mut Vec<std::ops::Range<usize>>,
+        delta: isize,
+        rows: u32,
+    ) -> Vec<bool> {
+        let mut shifted_cells = Vec::with_capacity(cells.len());
+        let mut shifted_ranges = Vec::with_capacity(rows as usize);
+        let mut reusable = vec![false; rows as usize];
+        for row in 0..rows {
+            let old_row = row as isize + delta;
+            if old_row >= 0 && old_row < rows as isize {
+                let old_range = ranges.get(old_row as usize).cloned().unwrap_or(0..0);
+                let start = shifted_cells.len();
+                shifted_cells.extend_from_slice(&cells[old_range]);
+                for cell in &mut shifted_cells[start..] {
+                    cell.row = row;
+                }
+                shifted_ranges.push(start..shifted_cells.len());
+                reusable[row as usize] = true;
+            } else {
+                shifted_ranges.push(shifted_cells.len()..shifted_cells.len());
+            }
+        }
+        *cells = shifted_cells;
+        *ranges = shifted_ranges;
+        reusable
     }
 
     /// 记录本帧输出与其行边界。行边界推导失败时保持缓存为空：
@@ -1160,13 +1219,22 @@ impl super::GhosttyTerminal {
             // 同批到达的 TakeSnapshot 必须能观察到 FIFO 序上排在它之前的写入，
             // 并重建而不是提供陈旧缓存。
             let mut batch_dirty = false;
+            // 本批是否已有内容变更（输出/主题/尺寸/选区/重置）。纯视口滚动才能
+            // 平移行缓存；若先有内容变更再滚动，缓存相对新网格已过期，必须整帧重建。
+            let mut content_changed_in_batch = false;
             let mut batch_acks: Vec<flume::Sender<()>> = Vec::new();
             while let Some(command) = pending.take() {
                 match command {
                     Command::Write(data) => {
                         terminal.vt_write(&data);
+                        // 输出可能发生在同一批的滚动之后：此时待平移量描述的
+                        // 是旧网格，继续套用会跳过脏行判定、复用过期内容。
+                        extractors.clear_scroll_shift();
+                        // 输出可能发生在同一批的滚动之后：此时待平移量描述的
+                        // 是旧网格，继续套用会跳过脏行判定、复用过期内容。
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         batch_dirty = true;
+                        content_changed_in_batch = true;
                     }
                     Command::FlushAck(tx) => {
                         // 扣到批尾构建完成才释放：`flush()` 的契约是返回时其前的每条命令
@@ -1194,6 +1262,7 @@ impl super::GhosttyTerminal {
                         // 缓存中的颜色逐行过时。
                         extractors.invalidate_row_cache();
                         batch_dirty = true;
+                        content_changed_in_batch = true;
                     }
                     Command::Resize { rows, cols } => {
                         // Ghostty 的 C API 取 u16 尺寸；越界值直接拒绝而非静默截断
@@ -1233,6 +1302,7 @@ impl super::GhosttyTerminal {
                         // 使失效时机与既有 `mark_grid_dirty` 保持同处。
                         extractors.invalidate_row_cache();
                         batch_dirty = true;
+                        content_changed_in_batch = true;
                     }
                     Command::SetCellPixelSize {
                         cell_width,
@@ -1254,15 +1324,35 @@ impl super::GhosttyTerminal {
                         }
                     }
                     Command::ScrollViewport(delta) => {
-                        // C ABI 返回 void；视口滚动失败只表现为无操作（网格不变），
-                        // setScrollOffset 里的重试逻辑会在下次偏移变化时重发。
+                        // C ABI 返回 void，且越界（已在顶部/底部）会静默钳制。
+                        // 用滚动条偏移的前后差取实际移动行数，避免在边界上按
+                        // 请求量平移缓存、把内容推出画面。读取失败时不做平移，
+                        // 下一帧整帧重建（正确性优先）。
+                        let before = terminal.scrollbar().map(|bar| bar.offset).ok();
                         terminal
                             .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+                        let after = terminal.scrollbar().map(|bar| bar.offset).ok();
+                        let actual_delta = match (before, after) {
+                            (Some(before), Some(after)) => Some(after as isize - before as isize),
+                            _ => None,
+                        };
                         // 显式滚动强制重推：视口内容可能逐字节相同（如已在底部），
                         // 内容去重会吞掉本次滑动的即时重绘。与 SetSelection 同款失效。
                         last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
+                        match actual_delta {
+                            // 只有纯视口滚动才平移缓存；本批已有内容变更时缓存
+                            // 相对新网格已过期，整帧重建。
+                            Some(actual) if !content_changed_in_batch => {
+                                if actual != 0 {
+                                    extractors.note_scroll(actual);
+                                }
+                                // actual == 0（已在边界）：没有行移动，缓存仍然有效，
+                                // 按常规行脏路径重推即可，不必整帧重建。
+                            }
+                            _ => extractors.invalidate_row_cache(),
+                        }
                     }
                     Command::Repaint => {
                         // 显式重推：内容可能与上次推送逐字节相同（切会话时终端本身毫无
@@ -1280,6 +1370,7 @@ impl super::GhosttyTerminal {
                         mark_grid_dirty(&mut grid_dirty, &mut cached_all_text);
                         extractors.invalidate_row_cache();
                         batch_dirty = true;
+                        content_changed_in_batch = true;
                     }
                     Command::SetSelection { start, end } => {
                         // 终端持有化：选区经 set_selection 安装为终端状态
@@ -1290,6 +1381,7 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         extractors.invalidate_row_cache();
                         batch_dirty = true;
+                        content_changed_in_batch = true;
                     }
                     Command::ClearSelection => {
                         if terminal.set_selection(None).is_err() {
@@ -1299,6 +1391,7 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         extractors.invalidate_row_cache();
                         batch_dirty = true;
+                        content_changed_in_batch = true;
                     }
                     Command::TakeSnapshot { tx } => {
                         let needs_rebuild =
@@ -2157,6 +2250,9 @@ impl super::GhosttyTerminal {
         // 同一组原子量。
         #[cfg(test)]
         let cache_stats = extractors.cache_stats.clone();
+        // 只在本帧消费：平移量描述的是「上一帧缓存 → 本帧网格」的关系，
+        // 一旦本帧抽取失败或内容另有变更，后续帧不得继续套用。
+        let scroll_shift = extractors.take_scroll_shift();
         let (render_state, row_iter, cell_iter, row_cache) = extractors.parts();
 
         let snapshot = match render_state.update(terminal) {
@@ -2181,10 +2277,26 @@ impl super::GhosttyTerminal {
         // 区间按行数划分，错位复用会把别行的内容写进本行。
         // 旧帧缓冲经 `take_previous` 移出后即由本帧输出重建，故不留悬空副本。
         let reusable_rows = row_cache.covers(rows);
-        let (previous_cells, previous_ranges) = if reusable_rows {
+        let (mut previous_cells, mut previous_ranges) = if reusable_rows {
             row_cache.take_previous()
         } else {
             (Vec::new(), Vec::new())
+        };
+        // 纯视口滚动：上一帧的每一行内容整体上下移动，平移缓存即可复用，
+        // 只需逐格抽取露出的 |delta| 行。没有这一步时每次滚轮事件都会
+        // 重走全网格（真机 24×80 约 58ms/帧），滚动明显卡顿。
+        let shifted_clean = if reusable_rows
+            && let Some(delta) = scroll_shift
+            && delta != 0
+        {
+            Some(RowCache::shift_previous(
+                &mut previous_cells,
+                &mut previous_ranges,
+                delta,
+                rows,
+            ))
+        } else {
+            None
         };
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
@@ -2207,14 +2319,22 @@ impl super::GhosttyTerminal {
             // 上游报该行干净时整段复制上一帧该行——内容逐字节相同，省下
             // 一次逐单元 FFI 往返。判读失败按「脏」处理：宁可多抽，
             // 不可拿可能失配的缓存冒充本帧内容。
-            let row_dirty = !reusable_rows
-                || match row.dirty() {
-                    Ok(dirty) => dirty,
-                    Err(error) => {
-                        log::warn!("build_cell_data: row dirty query failed: {error}");
-                        true
-                    }
-                };
+            let row_dirty = match &shifted_clean {
+                // 平移帧：缓存命中行内容就是本帧该行（整体移动），直接复用；
+                // 露出行没有旧内容，必须逐格抽取，不能再问上游脏标记——
+                // 上游只报告内容变化，不报告视口移动。
+                Some(clean) => !clean[current_row as usize],
+                None => {
+                    !reusable_rows
+                        || match row.dirty() {
+                            Ok(dirty) => dirty,
+                            Err(error) => {
+                                log::warn!("build_cell_data: row dirty query failed: {error}");
+                                true
+                            }
+                        }
+                }
+            };
             if !row_dirty {
                 data.extend_from_slice(RowCache::row_slice(
                     &previous_cells,
