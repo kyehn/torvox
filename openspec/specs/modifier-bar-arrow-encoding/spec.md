@@ -32,3 +32,9 @@ CSI（`ESC [ A`）或应用光标模式 SS3（`ESC O A`）。键栏此前走裸�
 
 - **WHEN** 已启用 DECCKM 且长按可配置键栏上键触发重复
 - **THEN** 重复序列同样为 `ESC O A`
+
+#### Scenario: 左右键同样跟随 DECCKM
+
+- **WHEN** 分别点击可配置键栏左键与右键（普通模式或应用光标模式）
+- **THEN** 左键发送 `ESC [ D` 或 `ESC O D`，右键发送 `ESC [ C` 或 `ESC O C`，
+      与硬件方向键完全一致（用例 `horizontal_arrows_encode_in_both_cursor_modes`）
