@@ -10,7 +10,7 @@ use libghostty_vt::mouse;
 use libghostty_vt::paste;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator, Snapshot};
 use libghostty_vt::screen::{CellWide, GridRef};
-use libghostty_vt::search::{MatchBuffer, Search};
+use libghostty_vt::search::{MatchBuffer, Scroll, Search};
 use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
 use libghostty_vt::style::PaletteIndex;
 use libghostty_vt::terminal::{Mode, Point, PointCoordinate, PointSpace};
@@ -3104,7 +3104,17 @@ impl super::GhosttyTerminal {
     ) -> usize {
         if search.is_none() {
             match Search::new(terminal) {
-                Ok(created) => *search = Some(created),
+                Ok(mut created) => {
+                    // 视口滚动只能有一个来源：本仓的 `setScrollOffset` 以会话记录的
+                    // `last_scroll_offset` 为增量基线，Kotlin 再按同一偏移算高亮行与
+                    // 居中目标。上游默认 `IfNeeded` 会在 `select_next` 里**偷偷移动视口**
+                    // （真机日志：选中后高亮与定位一起偏到非匹配行），基线不随之更新，
+                    // 下一次增量就会落到错误行。故关掉上游滚动，由宿主居中。
+                    if let Err(error) = created.set_scroll(Scroll::None) {
+                        log::error!("ghostty_terminal: search scroll policy failed: {error}");
+                    }
+                    *search = Some(created);
+                }
                 Err(error) => {
                     log::error!("ghostty_terminal: search::Search::new failed: {error}");
                     return 0;

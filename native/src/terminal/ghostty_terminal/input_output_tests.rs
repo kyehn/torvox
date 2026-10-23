@@ -404,3 +404,51 @@ fn search_folds_case_for_ascii_letters_only() {
         "无重音不得命中重音文本"
     );
 }
+
+/// 选中命中不得自行移动 VT 视口。
+///
+/// 滚动只有一条来源：宿主的 `setScrollOffset`（以会话的 `last_scroll_offset`
+/// 为增量基线），Kotlin 再用同一偏移算高亮行与居中目标。上游
+/// `select_next` 默认按 `Scroll::IfNeeded` 偷偷滚动视口，基线不随之更新，
+/// 下一次增量落到错误行——真机表现为「高亮和定位一起偏到非匹配区域」。
+#[test]
+fn search_select_does_not_scroll_the_viewport() {
+    let mut terminal_under_test = GhosttyTerminal::new(10, 40, 200).expect("terminal");
+    for index in 0..60 {
+        terminal_under_test.vt_write(format!("line{index:02}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    // 视口内容只能经帧通道读：快照缓存不随搜索导航失效，拿不到「滚动后」的画面。
+    let viewport_top_text = |terminal: &GhosttyTerminal| {
+        terminal.request_repaint();
+        terminal.flush();
+        let (cells, cursor) = terminal
+            .receive_cell_data()
+            .expect("repaint pushes a frame");
+        assert_eq!(cursor.rows, 10);
+        let mut text = String::new();
+        for cell in cells.iter().filter(|cell| cell.row == 0) {
+            if cell.codepoint != 0
+                && let Some(character) = char::from_u32(cell.codepoint)
+            {
+                text.push(character);
+            }
+        }
+        text
+    };
+    let before = viewport_top_text(&terminal_under_test);
+    assert_eq!(
+        terminal_under_test.search_set_needle("line00"),
+        1,
+        "needle must find the line pushed into scrollback"
+    );
+    assert!(
+        terminal_under_test.search_select(true).is_some(),
+        "navigation must select the match"
+    );
+    assert_eq!(
+        before,
+        viewport_top_text(&terminal_under_test),
+        "navigation MUST NOT move the viewport; centering belongs to the host"
+    );
+}
