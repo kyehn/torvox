@@ -334,6 +334,30 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 - **THEN** 副本里的链接 MUST 仍指向同一目标，MUST NOT 被展开成普通文件，
   且复制 MUST NOT 因链接的权限位而失败
 
+### Requirement: 替换流程保留 POSIX 权限位
+
+SAF 没有 chmod 通道，而编辑器/文件管理器的「保存并替换」不是就地截断：真机 logcat
+实测的调用序列是 `renameDocument(原文件 → 让位名)`、`createDocument(同名)`、
+`deleteDocument(让位名)`。新 inode 只带进程 umask 的默认权限（实测 0644），执行位必丢；
+只靠 `openDocument` 截断保留 inode 覆盖不到这条路径，脚本保存后就不再可执行。
+
+提供者 MUST 在 `renameDocument` 成功时记住被让位条目的 POSIX 权限位（键为父目录
+规范路径 + 原名），并在随后 `createDocument` 建出**同名**条目时把权限位继承回来。
+记录 MUST 用掉即删，并 MUST 有容量上限：没有同名让位记录的普通新建 MUST 保持 umask
+默认权限，MUST NOT 凭空获得执行位。符号链接不参与（Linux 上权限位恒为 0777）；
+文件系统不支持 POSIX 权限时静默跳过，与复制同一条平台限制。
+
+#### Scenario: 编辑器保存脚本后仍可执行
+
+- **WHEN** 一个权限为 `rwxr-xr-x` 的脚本经 SAF 被「改名让位 → 建同名新文件 → 删让位文件」
+  流程替换
+- **THEN** 同名新文件的权限位 MUST 与让位前一致，脚本仍可直接运行
+
+#### Scenario: 普通新建不带执行位
+
+- **WHEN** 客户端让位了 `a.sh`，随后新建的是另一个名字 `b.sh`
+- **THEN** `b.sh` MUST 保持 umask 默认权限，MUST NOT 继承 `a.sh` 的执行位
+
 ### Requirement: 重命名到自身是空操作
 
 重命名到与自身相同的名字 MUST 是空操作，并 MUST 按框架约定返回 `null`

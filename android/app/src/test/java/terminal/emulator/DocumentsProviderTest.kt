@@ -345,6 +345,59 @@ class DocumentsProviderTest {
     }
 
     /**
+     * 编辑器保存的真实「替换」流程必须保留执行位：改名让位 → 建同名新文件 → 删让位文件。
+     *
+     * 真机 logcat 实测的顺序：`renameDocument c -> <随机 id>.rollback`、
+     * `createDocument c`、`deleteDocument <随机 id>.rollback`。openDocument 截断
+     * 保留的是已有 inode，覆盖不到这条路径；新 inode 只带 umask 默认权限（0644），
+     * 脚本保存后就不再可执行。
+     */
+    @Test
+    fun replace_flow_rename_create_delete_preserves_executable_bit() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val script = java.io.File(home, "deploy.sh").apply { writeText("#!/bin/sh\nold\n") }
+        java.nio.file.Files.setPosixFilePermissions(
+            script.toPath(),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+        )
+        val provider = ensureProvider()
+        provider.renameDocument("deploy.sh", "15398985.rollback")
+        provider.createDocument("terminal_home", "text/plain", "deploy.sh")
+        provider.deleteDocument("15398985.rollback")
+        assertEquals(
+            "replacing a script through SAF must keep it executable",
+            "rwxr-xr-x",
+            java.nio.file.attribute.PosixFilePermissions.toString(
+                java.nio.file.Files.getPosixFilePermissions(script.toPath()),
+            ),
+        )
+    }
+
+    /** 普通新建不得凭空继承：没有同名让位记录时保持 umask 默认权限（无执行位）。 */
+    @Test
+    fun create_document_without_replace_keeps_default_permissions() {
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
+        val script = java.io.File(home, "a.sh").apply { writeText("#!/bin/sh\n") }
+        java.nio.file.Files.setPosixFilePermissions(
+            script.toPath(),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+        )
+        val provider = ensureProvider()
+        provider.renameDocument("a.sh", "a.sh.rollback")
+        provider.createDocument("terminal_home", "text/plain", "b.sh")
+        val created = java.io.File(home, "b.sh")
+        val createdPermissions = java.nio.file.Files.getPosixFilePermissions(created.toPath())
+        assertTrue(
+            "a fresh document must not inherit another name's execute bits",
+            createdPermissions.none {
+                it == java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE ||
+                    it == java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE ||
+                    it == java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE
+            },
+        )
+    }
+
+    /**
      * 平台创建惯例：客户端按 `FLAG_DIR_SUPPORTS_CREATE` 的承诺经 openDocument 落盘
      * （编辑器 SAVE、文件管理器覆盖写都走这条）。此前 openDocument 要求条目已存在，
      * 这类客户端于是拿到 FileNotFoundException——「无法修改文件」的直接成因。
