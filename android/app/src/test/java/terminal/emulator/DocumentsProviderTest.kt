@@ -1007,9 +1007,9 @@ class DocumentsProviderTest {
             java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-xr-x")
         java.nio.file.Files.setPosixFilePermissions(readOnlyDirectory.toPath(), readOnlyPermissions)
         java.io.File(rootDir(), "dest").apply { mkdirs() }
+        val copiedDirectory = java.io.File(rootDir(), "dest/locked")
         try {
             provider.copyDocument("locked", "dest")
-            val copiedDirectory = java.io.File(rootDir(), "dest/locked")
             assertEquals(
                 "copied read-only directory must keep its permissions",
                 "r-xr-xr-x",
@@ -1023,6 +1023,14 @@ class DocumentsProviderTest {
                 readOnlyDirectory.toPath(),
                 java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
             )
+            // 复制保留了只读权限；不恢复目标目录，Robolectric 的临时目录清理
+            // 会因无法删除其子文件而报 "Failed to destroy temp directory"。
+            if (copiedDirectory.exists()) {
+                java.nio.file.Files.setPosixFilePermissions(
+                    copiedDirectory.toPath(),
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+                )
+            }
         }
     }
 
