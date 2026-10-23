@@ -7,6 +7,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.attribute.PosixFilePermission
 
 /**
  * 文件变更操作：创建、重命名、删除、复制、移动。
@@ -19,7 +20,27 @@ internal class DocumentMutations(private val context: Context, private val rootD
         /** 客户端未给名字时的新建占位名，扩展名按 mimeType 追加。 */
         const val DEFAULT_FILE_NAME = "New Document"
         const val DEFAULT_DIRECTORY_NAME = "New Folder"
+
+        /** 待继承权限的条目上限：替换是一次「改名让位 → 建同名新文件 → 删让位文件」的连续动作，几条足够。 */
+        const val REPLACED_PERMISSION_LIMIT = 8
     }
+
+    /**
+     * 被改名让位的条目权限：`(父目录规范路径, 原名) -> 权限位`。
+     *
+     * SAF 没有 chmod 通道。编辑器保存（系统文件管理器、Material Files 等）的「替换」流程是：
+     * 把原文件改名让位 → 用 `createDocument` 建同名新文件 → 删除让位文件。新 inode 只带
+     * 进程 umask 的默认权限，执行位必丢——`openDocument` 截断保留 inode 只覆盖「就地覆写」
+     * 那一条路，对这条流程无效（真机 logcat：`renameDocument c -> <id>.rollback`、
+     * `createDocument c`、`deleteDocument <id>.rollback`）。故建同名文件时把让位条目的
+     * 权限位继承回来。上限按最近使用淘汰，防止长期进程里无限增长。
+     */
+    private val replacedPermissions =
+        object : LinkedHashMap<String, Set<PosixFilePermission>>(16, 0.75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, Set<PosixFilePermission>>,
+            ): Boolean = size > REPLACED_PERMISSION_LIMIT
+        }
 
     fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
         val root = rootDir()
@@ -37,6 +58,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 throw IOException("Failed to create file '${child.name}'")
             }
         }
+        applyReplacedPermissions(parent, child)
         val docId =
             TerminalDocumentsProvider.encodeDocId(child, root)
                 ?: throw IOException("Failed to encode docId for '${child.name}'")
@@ -76,8 +98,14 @@ internal class DocumentMutations(private val context: Context, private val rootD
         // （文件管理器的建文件/建文件夹、另存为）拿到跨 Binder 的运行时异常，
         // 界面报「路径已存在」而操作全丢。
         val target = uniqueChild(parent, safeName)
+        // 权限位必须在改名之前读：改名后原路径已不存在，读不到源 inode。
+        val replacedName = source.name
+        val replacedMode = posixPermissionsOrNull(source)
         if (!source.renameTo(target)) {
             throw IOException("Failed to rename '$displayName'")
+        }
+        if (replacedMode != null) {
+            rememberReplacedPermissions(parent, replacedName, replacedMode)
         }
         val newId = TerminalDocumentsProvider.encodeDocId(target, root)
             ?: throw IOException("Failed to encode docId for '$safeName'")
@@ -386,14 +414,42 @@ internal class DocumentMutations(private val context: Context, private val rootD
      * 不是本次复制引入的错误。
      */
     private fun copyPermissions(source: File, target: File) {
-        val permissions =
-            runCatchingCancellable {
-                Files.getPosixFilePermissions(source.toPath(), LinkOption.NOFOLLOW_LINKS)
-            }.getOrNull() ?: return
+        val permissions = posixPermissionsOrNull(source) ?: return
         runCatchingCancellable {
             Files.setPosixFilePermissions(target.toPath(), permissions)
         }
     }
+
+    /** 条目的 POSIX 权限位；符号链接不参与（Linux 上恒为 0777，lchmod 无从设置）。 */
+    private fun posixPermissionsOrNull(source: File): Set<PosixFilePermission>? =
+        if (Files.isSymbolicLink(source.toPath())) {
+            null
+        } else {
+            runCatchingCancellable {
+                Files.getPosixFilePermissions(source.toPath(), LinkOption.NOFOLLOW_LINKS)
+            }.getOrNull()
+        }
+
+    private fun rememberReplacedPermissions(parent: File, name: String, permissions: Set<PosixFilePermission>) {
+        val key = replacedPermissionKey(parent, name)
+        synchronized(replacedPermissions) { replacedPermissions[key] = permissions }
+    }
+
+    /**
+     * 新建的条目若顶替了一个刚被改名让位的同名条目，继承其权限位。
+     *
+     * 只认「同一父目录 + 同一名字」的让位记录，用掉即删；普通新建（没有让位记录）
+     * 保持 umask 默认权限，不会凭空多出执行位。
+     */
+    private fun applyReplacedPermissions(parent: File, child: File) {
+        val key = replacedPermissionKey(parent, child.name)
+        val permissions = synchronized(replacedPermissions) { replacedPermissions.remove(key) } ?: return
+        runCatchingCancellable {
+            Files.setPosixFilePermissions(child.toPath(), permissions)
+        }
+    }
+
+    private fun replacedPermissionKey(parent: File, name: String): String = "${parent.canonicalFile.path}\u0000$name"
 
     private fun uniqueChild(parent: File, baseName: String): File {
         // 与 Termux/桌面/AOSP 一致的冲突策略：已存在则追加序号而非报错。
