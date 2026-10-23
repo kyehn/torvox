@@ -259,6 +259,31 @@ fn arrows_follow_cursor_key_application_mode() {
 }
 
 #[test]
+fn horizontal_arrows_encode_in_both_cursor_modes() {
+    // 修饰栏的左右键与硬件键共用同一编码器：DECCKM 关闭时 CSI，
+    // 开启时 SS3。只测上键会漏掉左右键的键码映射或序列分支。
+    let mut terminal = terminal();
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowLeft, Mods::empty()),
+        b"\x1b[D"
+    );
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowRight, Mods::empty()),
+        b"\x1b[C"
+    );
+
+    set_dec_mode(&mut terminal, b"1");
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowLeft, Mods::empty()),
+        b"\x1bOD"
+    );
+    assert_eq!(
+        encode(&terminal, key::Key::ArrowRight, Mods::empty()),
+        b"\x1bOC"
+    );
+}
+
+#[test]
 fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     // DEC 私有模式 1035 默认开启，含义是「忽略 numlock，即永远数值小键盘」。
     // 上游以该默认值为准，故应用小键盘模式（66）在默认状态下不生效。
