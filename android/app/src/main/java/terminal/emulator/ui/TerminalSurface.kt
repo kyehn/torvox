@@ -876,6 +876,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     private fun reportComposingCursorAnchor(immediate: Boolean = false) {
                         // 准入判据先于取坐标：未请求监视或无组字时连帧内光标都不必取。
                         if (!cursorMonitor.isMonitoring || !composing.isComposing) return
+                        // 输入法尚未接管本视图（IME 动画/焦点切换的中间帧）时提交锚点，
+                        // 平台会打 "requestCursorAnchorInfo on inactive InputConnection"
+                        // 并丢弃这次更新；等真正获得焦点后的组字变化再报。
+                        if (!hasWindowFocus() || !isFocused) return
                         if (!immediate) {
                             val now = System.nanoTime()
                             if (now - lastCursorAnchorQueryNanos < CURSOR_ANCHOR_QUERY_THROTTLE_NANOS) return
