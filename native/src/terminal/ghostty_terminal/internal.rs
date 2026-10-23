@@ -989,8 +989,7 @@ impl super::GhosttyTerminal {
                 "ghostty_terminal: set_kitty_image_from_shared_mem_allowed failed: {error}"
             );
         }
-        if let Err(error) =
-            terminal.set_kitty_image_temp_file_dir(Some(std::env::temp_dir().as_path()))
+        if let Err(error) = terminal.set_kitty_image_temp_file_dir(config.kitty_temp_dir.as_deref())
         {
             log::error!("ghostty_terminal: set_kitty_image_temp_file_dir failed: {error}");
         }
