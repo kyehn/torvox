@@ -3845,11 +3845,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
             crate::terminal::ghostty_terminal::GhosttyTerminal::search_viewport_highlights_on(
                 &query_tx,
             );
+        // 视口顶行的绝对行号。`scroll_offset` 与 VT 视口是同一来源（宿主统一滚动），
+        // 上游默认的 `select_next` 自动滚动已关闭，二者不会各走各的。
         let viewport_top = highlights.scrollback_lines as i32 - scroll_offset;
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
             return Ok(());
         };
+        // 上游 `viewport_matches` 会按页多给一些视口外的命中（文档明确说明），
+        // 折算后必须两侧都裁：只裁负行会让视口下方的命中进入高亮列表，
+        // 一旦偏移换算有误差就画到无关行上。
+        let grid_rows = render_state
+            .last_frame
+            .as_ref()
+            .map_or(i32::MAX, |(_, _, rows, _, _)| *rows as i32);
         // 当前选中命中用主题前景色，其余用主题选区色：颜色真源是渲染态持有的
         // 当前主题（见 `setTheme`），Kotlin 不参与。
         let palette = &render_state.theme.palette;
@@ -3858,7 +3867,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
             .iter()
             .filter_map(|matched| {
                 let row = matched.row as i32 - viewport_top;
-                if row < 0 {
+                if row < 0 || row >= grid_rows {
                     return None;
                 }
                 let color = if highlights.selected.as_ref() == Some(matched) {
