@@ -37,6 +37,7 @@
     <string name="day">日间</string>
     <string name="night">夜间</string>
     <string name="follow_system">跟随系统</string>
+    <string name="day_night_switch">日夜切换</string>
     <string name="day_theme">日间主题</string>
     <string name="night_theme">夜间主题</string>
 

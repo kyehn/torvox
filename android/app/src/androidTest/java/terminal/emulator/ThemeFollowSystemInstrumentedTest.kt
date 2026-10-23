@@ -11,7 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.ui.theme.ThemeMode
+import terminal.emulator.ui.theme.AppThemeMode
+import terminal.emulator.ui.theme.TerminalThemeMode
 import terminal.emulator.ui.theme.ThemeRepository
 
 /**
@@ -63,16 +64,16 @@ class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
         setNightMode("no", Configuration.UI_MODE_NIGHT_NO)
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
             val viewModel = activity.terminalViewModel
-            viewModel.setThemeMode(ThemeMode.FOLLOW_SYSTEM)
-            viewModel.setAppThemeMode(ThemeMode.FOLLOW_SYSTEM)
+            viewModel.setThemeMode(TerminalThemeMode.DAY_NIGHT)
+            viewModel.setAppThemeMode(AppThemeMode.FOLLOW_SYSTEM)
             viewModel.setDayThemeName(ThemeRepository.defaultLightName())
             viewModel.setNightThemeName(ThemeRepository.defaultDarkName())
         }
         val applied =
             UxTestUtils.pollUntilTrue(timeoutMs = SETTINGS_TIMEOUT_MS, intervalMs = 100) {
                 val stored = readSettings()
-                stored.themeMode == ThemeMode.FOLLOW_SYSTEM &&
-                    stored.appThemeMode == ThemeMode.FOLLOW_SYSTEM &&
+                stored.themeMode == TerminalThemeMode.DAY_NIGHT &&
+                    stored.appThemeMode == AppThemeMode.FOLLOW_SYSTEM &&
                     stored.dayThemeName == ThemeRepository.defaultLightName() &&
                     stored.nightThemeName == ThemeRepository.defaultDarkName()
             }
