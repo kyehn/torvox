@@ -43,8 +43,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
         /** 默认日间主题：单源在 Rust 侧。 */
         private fun defaultDayTheme(): String = terminal.emulator.ui.theme.ThemeRepository.defaultLightName()
 
-        const val DEFAULT_FOLLOW_SYSTEM = terminal.emulator.ui.theme.ThemeMode.FOLLOW_SYSTEM
-        const val DEFAULT_THEME_MODE = terminal.emulator.ui.theme.ThemeMode.FIXED
+        const val DEFAULT_FOLLOW_SYSTEM = terminal.emulator.ui.theme.AppThemeMode.FOLLOW_SYSTEM
+        const val DEFAULT_THEME_MODE = terminal.emulator.ui.theme.TerminalThemeMode.FIXED
 
         /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
         internal const val DEBOUNCE_MILLIS = 300L
@@ -187,7 +187,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
     val nightThemeName: Flow<String> =
         provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: defaultTheme() }
     val themeMode: Flow<String> =
-        provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
+        provider.dataStore.data.map {
+            terminal.emulator.ui.theme.TerminalThemeMode.normalize(it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE)
+        }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
 
     val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
@@ -225,7 +227,10 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 themeName = prefs[Keys.THEME_NAME] ?: defaultTheme(),
                 dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: defaultDayTheme(),
                 nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: defaultTheme(),
-                themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
+                themeMode =
+                terminal.emulator.ui.theme.TerminalThemeMode.normalize(
+                    prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
+                ),
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
             )

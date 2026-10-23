@@ -77,8 +77,9 @@ import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.installer.TermuxBootstrap
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.ui.theme.AppThemeMode
 import terminal.emulator.ui.theme.TerminalTheme
-import terminal.emulator.ui.theme.ThemeMode
+import terminal.emulator.ui.theme.TerminalThemeMode
 
 /** 危险操作（清除应用数据）的警示红色。 */
 private val DANGER_RED = Color.Red
@@ -382,45 +383,38 @@ private fun TerminalThemeSection(
                 accentColor = MaterialTheme.colorScheme.primary,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            when (themeMode) {
-                ThemeMode.FOLLOW_SYSTEM,
-                ThemeMode.DAY,
-                ThemeMode.NIGHT,
-                -> {
-                    Column(modifier = Modifier.testTag("DayNightThemeSection")) {
-                        ThemeSelector(
-                            label = stringResource(R.string.day_theme),
-                            selectedTheme = dayThemeName,
-                            themes = allThemes,
-                            onThemeSelected = { onDayThemeSelected(it) },
-                            textColor = textColor,
-                            secondaryText = secondaryText,
-                            cardBackground = cardBackground,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        ThemeSelector(
-                            label = stringResource(R.string.night_theme),
-                            selectedTheme = nightThemeName,
-                            themes = allThemes,
-                            onThemeSelected = { onNightThemeSelected(it) },
-                            textColor = textColor,
-                            secondaryText = secondaryText,
-                            cardBackground = cardBackground,
-                        )
-                    }
-                }
-
-                ThemeMode.FIXED -> {
+            if (TerminalThemeMode.normalize(themeMode) == TerminalThemeMode.DAY_NIGHT) {
+                Column(modifier = Modifier.testTag("DayNightThemeSection")) {
                     ThemeSelector(
-                        label = "",
-                        selectedTheme = themeName,
+                        label = stringResource(R.string.day_theme),
+                        selectedTheme = dayThemeName,
                         themes = allThemes,
-                        onThemeSelected = { onFixedThemeSelected(it) },
+                        onThemeSelected = { onDayThemeSelected(it) },
+                        textColor = textColor,
+                        secondaryText = secondaryText,
+                        cardBackground = cardBackground,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ThemeSelector(
+                        label = stringResource(R.string.night_theme),
+                        selectedTheme = nightThemeName,
+                        themes = allThemes,
+                        onThemeSelected = { onNightThemeSelected(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
                         cardBackground = cardBackground,
                     )
                 }
+            } else {
+                ThemeSelector(
+                    label = "",
+                    selectedTheme = themeName,
+                    themes = allThemes,
+                    onThemeSelected = { onFixedThemeSelected(it) },
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                    cardBackground = cardBackground,
+                )
             }
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -742,9 +736,9 @@ internal fun AppThemeSelector(
     Column(modifier = Modifier.testTag("AppThemeSelector")) {
         val buttons =
             listOf(
-                ThemeMode.DAY to stringResource(R.string.day),
-                ThemeMode.NIGHT to stringResource(R.string.night),
-                ThemeMode.FOLLOW_SYSTEM to stringResource(R.string.follow_system),
+                AppThemeMode.DAY to stringResource(R.string.day),
+                AppThemeMode.NIGHT to stringResource(R.string.night),
+                AppThemeMode.FOLLOW_SYSTEM to stringResource(R.string.follow_system),
             )
         val spacing = if (isSmall) 4.dp else 6.dp
         if (isSmall) {
@@ -806,23 +800,23 @@ internal fun TerminalThemeModeSelector(
     cardBackground: Color,
     accentColor: Color,
 ) {
-    val isFollowSystem = selectedMode != ThemeMode.FIXED
+    val isDayNight = TerminalThemeMode.normalize(selectedMode) == TerminalThemeMode.DAY_NIGHT
     Row(
         modifier = Modifier.fillMaxWidth().testTag("TerminalThemeModeSelector"),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = stringResource(R.string.follow_system),
+            text = stringResource(R.string.day_night_switch),
             style = MaterialTheme.typography.bodyLarge,
             color = textColor,
         )
         Switch(
-            checked = isFollowSystem,
+            checked = isDayNight,
             onCheckedChange = { checked ->
-                onModeSelected(if (checked) ThemeMode.FOLLOW_SYSTEM else ThemeMode.FIXED)
+                onModeSelected(if (checked) TerminalThemeMode.DAY_NIGHT else TerminalThemeMode.FIXED)
             },
-            modifier = Modifier.testTag("TerminalThemeFollowSystemSwitch"),
+            modifier = Modifier.testTag("TerminalThemeDayNightSwitch"),
             colors =
             SwitchDefaults.colors(
                 checkedThumbColor = Color.White,

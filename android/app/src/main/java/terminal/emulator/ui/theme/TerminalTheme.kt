@@ -61,27 +61,47 @@ data class TerminalTheme(val name: String, val background: Color, val foreground
 }
 
 /**
- * 终端主题模式取值（落盘于 `SettingsRepository` 的 `themeMode`）。
+ * 软件（应用外壳）主题模式取值，落盘于 `SettingsRepository` 的 `appThemeMode`。
  *
- * 唯一声明处：`when` 的分支、设置页的选项与默认值都引用它们，写错字面量不再会
- * 悄悄落进 `else` 的「跟随系统」分支。
+ * 唯一声明处：设置页选项、默认值与深色解析都引用它们，写错字面量不再会悄悄
+ * 落进 `else` 的「跟随系统」分支。
  */
-object ThemeMode {
-    /** 固定使用单一主题（`themeName` 键）。 */
-    const val FIXED = "fixed"
-
-    /** 固定使用日间主题（`dayThemeName` 键）。 */
+object AppThemeMode {
+    /** 固定日间。 */
     const val DAY = "day"
 
-    /** 固定使用夜间主题（`nightThemeName` 键）。 */
+    /** 固定夜间。 */
     const val NIGHT = "night"
 
-    /** 跟随软件主题在日间与夜间主题间切换。 */
+    /** 跟随系统日夜。 */
     const val FOLLOW_SYSTEM = "follow_system"
 }
 
 /**
- * 由主题模式设置解析出活动的终端主题名。
+ * 终端主题模式取值，落盘于 `SettingsRepository` 的 `themeMode`。
+ *
+ * DESIGN 只给终端一个「日夜切换」开关：关＝固定用 `themeName`，
+ * 开＝分别用 `dayThemeName`/`nightThemeName` 并跟随软件主题切换。
+ */
+object TerminalThemeMode {
+    /** 开关关闭：固定使用单一主题（`themeName` 键）。 */
+    const val FIXED = "fixed"
+
+    /** 开关开启：按软件主题在日间/夜间主题间切换。 */
+    const val DAY_NIGHT = "day_night"
+
+    /**
+     * 落盘值归一。
+     *
+     * 旧版把终端主题存成四态（`fixed`/`day`/`night`/`follow_system`），其中后三者
+     * 在 UI 上都等价于「开关开启」。读取时统一折成两态，避免历史数据落进
+     * 「不认识就走 else」的隐式分支。
+     */
+    fun normalize(stored: String): String = if (stored == FIXED) FIXED else DAY_NIGHT
+}
+
+/**
+ * 由终端主题模式解析出活动主题名。
  * 纯函数，供 TerminalScreen 的背景、TerminalRuntime 的设置读取与主题查找共用，
  * 使模式切换逻辑只存在于一处。
  */
@@ -91,17 +111,16 @@ fun resolveTerminalThemeName(
     dayName: String,
     nightName: String,
     isDark: Boolean,
-): String = when (mode) {
-    ThemeMode.FIXED -> fixedName
-    ThemeMode.DAY -> dayName
-    ThemeMode.NIGHT -> nightName
-    else -> if (isDark) nightName else dayName
+): String = if (TerminalThemeMode.normalize(mode) == TerminalThemeMode.DAY_NIGHT) {
+    if (isDark) nightName else dayName
+} else {
+    fixedName
 }
 
 /** 由应用主题模式设置解析应用的深色模式。 */
 fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = when (appThemeMode) {
-    ThemeMode.NIGHT -> true
-    ThemeMode.DAY -> false
+    AppThemeMode.NIGHT -> true
+    AppThemeMode.DAY -> false
     else -> systemDark
 }
 
@@ -114,7 +133,7 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
 fun resolveMaterialColorScheme(appThemeMode: String, forceDark: Boolean, isDarkTheme: Boolean): ColorScheme {
     val context = LocalContext.current
     return when {
-        appThemeMode == ThemeMode.FOLLOW_SYSTEM -> {
+        appThemeMode == AppThemeMode.FOLLOW_SYSTEM -> {
             if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 

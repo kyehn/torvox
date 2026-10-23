@@ -68,11 +68,11 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
      * shown). The mode persists in DataStore across tests, so every test
      * states its precondition explicitly instead of relying on run order.
      */
-    private fun setTerminalThemeFollowSystem(enabled: Boolean) {
+    private fun setTerminalThemeDayNight(enabled: Boolean) {
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
             .performScrollToNode(hasTestTag("TerminalThemeModeSelector"))
-        val switch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
+        val switch = composeTestRule.onNodeWithTag("TerminalThemeDayNightSwitch")
         val isOn =
             switch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
                 switch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] == ToggleableState.On
@@ -102,14 +102,14 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun settingsShowsDayNightThemeSelectors() {
-        setTerminalThemeFollowSystem(enabled = true)
+        setTerminalThemeDayNight(enabled = true)
         scrollToNode("DayNightThemeSection")
         composeTestRule.onNodeWithTag("DayNightThemeSection").assertIsDisplayed()
     }
 
     @Test
     fun terminalThemeSelectorListsAllThemes() {
-        setTerminalThemeFollowSystem(enabled = false)
+        setTerminalThemeDayNight(enabled = false)
         scrollToNode("ThemeSelector")
         composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
         // The preview row is virtualized: only the visible themes are
@@ -129,7 +129,7 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun themeModeFollowSystemShowsDayAndNightSelectors() {
-        setTerminalThemeFollowSystem(enabled = true)
+        setTerminalThemeDayNight(enabled = true)
         scrollToNode("DayNightThemeSection")
         composeTestRule.onNodeWithTag("DayNightThemeSection").assertIsDisplayed()
         // 两个选择器各自的标签必须都在树里：只断言 section isDisplayed 时，标签缺失
@@ -142,7 +142,7 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun nightThemeShowsDefaultNameInDayNightSection() {
-        setTerminalThemeFollowSystem(enabled = true)
+        setTerminalThemeDayNight(enabled = true)
         scrollToNode("DayNightThemeSection")
         val defaultNightName = ThemeRepository.defaultDarkName()
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
@@ -152,7 +152,7 @@ class ThemeInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun themeModeFixedOnlyShowsSingleThemeSelector() {
-        setTerminalThemeFollowSystem(enabled = false)
+        setTerminalThemeDayNight(enabled = false)
         scrollToNode("ThemeSelector")
         composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
         composeTestRule.onAllNodes(hasTestTag("DayNightThemeSection")).assertCountEquals(0)

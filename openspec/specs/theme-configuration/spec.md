@@ -64,20 +64,39 @@
 - **WHEN** 目录长度或某条固定字段越界
 - **THEN** 解析抛错，不截断、不补默认色
 
-### Requirement: 日夜默认与跟随
+### Requirement: 日夜切换开关
 
-默认夜间主题 MUST 为 `dracula_plus`，默认日间主题 MUST 为 `catppuccin_latte`。
-开启跟随系统后 MUST 按软件主题在两者间自动切换。
+终端主题设置 MUST 是一个名为「日夜切换」的开关（DESIGN 软件主题/终端主题节），
+不是四态模式。默认夜间主题 MUST 为 `dracula_plus`，默认日间主题 MUST 为
+`catppuccin_latte`；开关默认关闭，固定使用 `theme_name`（缺省即默认夜间主题）。
+
+开关开启后 MUST 分别使用 `day_theme_name` 与 `night_theme_name`，并跟随**软件主题**
+在两者间切换（软件主题为日间/夜间/跟随系统三种，见 DESIGN）。软件主题若固定日间/
+夜间，终端不再看系统夜览状态。
+
+落盘值 MUST 只有 `fixed` 与 `day_night` 两种。旧版四态值（`day`、`night`、
+`follow_system`）在读取时 MUST 归一为 `day_night`——它们在旧 UI 上都等价于开关开启，
+不得落进「未知值即日夜」的隐式分支。
 
 #### Scenario: 默认主题生效
 
 - **WHEN** 首次启动且无主题设置
-- **THEN** 夜间用 `dracula_plus`，日间用 `catppuccin_latte`
+- **THEN** 开关关闭、使用 `dracula_plus`，不随系统夜览切换
 
-#### Scenario: 跟随系统切换
+#### Scenario: 日夜切换开启后跟随软件主题
 
-- **WHEN** 软件主题在日夜间切换且终端跟随开关开启
-- **THEN** 终端主题随之在日夜默认间切换
+- **WHEN** 打开日夜切换，软件主题为「跟随系统」，系统在日夜间切换
+- **THEN** 终端主题随之在 `catppuccin_latte` 与 `dracula_plus` 间切换
+
+#### Scenario: 软件主题固定日间时终端不跟随系统
+
+- **WHEN** 日夜切换开启且软件主题固定为日间，系统处于夜间
+- **THEN** 终端使用日间主题，MUST NOT 因系统夜览状态切到夜间主题
+
+#### Scenario: 旧版落盘值归一
+
+- **WHEN** `theme_mode` 里存着旧值 `day`、`night` 或 `follow_system`
+- **THEN** 读取结果为 `day_night`，行为与开关开启一致
 
 ### Requirement: 应用与错误处理
 

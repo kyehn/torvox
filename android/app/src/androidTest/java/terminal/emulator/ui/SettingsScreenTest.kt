@@ -65,11 +65,11 @@ class SettingsScreenTest : TerminalLogcatTest() {
 
     @Test
     fun settings_screen_switches_day_theme() {
-        // 日间主题行只在跟随系统开时渲染（模式跨测试持久化，先确保打开）。
+        // 日间主题行只在「日夜切换」开启时渲染（模式跨测试持久化，先确保打开）。
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
-            .performScrollToNode(hasTestTag("TerminalThemeFollowSystemSwitch"))
-        val followSwitch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
+            .performScrollToNode(hasTestTag("TerminalThemeDayNightSwitch"))
+        val followSwitch = composeTestRule.onNodeWithTag("TerminalThemeDayNightSwitch")
         val followOn =
             followSwitch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
                 followSwitch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] ==
@@ -95,7 +95,7 @@ class SettingsScreenTest : TerminalLogcatTest() {
         composeTestRule.onNodeWithText("终端主题").assertIsDisplayed()
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(hasText("软件主题"))
         composeTestRule.onNodeWithText("软件主题").assertIsDisplayed()
-        // 软件主题与终端主题各有一个跟随系统开关，断言存在即可。
+        // 软件主题有「跟随系统」选项；断言存在即可。
         assertTrue(
             composeTestRule.onAllNodes(hasText("跟随系统")).fetchSemanticsNodes().isNotEmpty(),
         )
@@ -105,12 +105,12 @@ class SettingsScreenTest : TerminalLogcatTest() {
     fun theme_switch_changes_terminal_appearance() {
         composeTestRule.waitForSession()
         composeTestRule.openSettings()
-        // Pin follow_system off so exactly one ThemeSelector renders (the
+        // Pin day/night switching off so exactly one ThemeSelector renders (the
         // mode persists in DataStore across tests).
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
-            .performScrollToNode(hasTestTag("TerminalThemeFollowSystemSwitch"))
-        val switch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
+            .performScrollToNode(hasTestTag("TerminalThemeDayNightSwitch"))
+        val switch = composeTestRule.onNodeWithTag("TerminalThemeDayNightSwitch")
         val isOn =
             switch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
                 switch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] ==

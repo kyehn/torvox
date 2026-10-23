@@ -3,7 +3,8 @@ package terminal.emulator.runtime
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.ui.theme.ThemeMode
+import terminal.emulator.ui.theme.AppThemeMode
+import terminal.emulator.ui.theme.TerminalThemeMode
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 
@@ -14,15 +15,17 @@ import terminal.emulator.ui.theme.resolveTerminalThemeName
  */
 class SelectThemeNameTest {
 
-    private fun stored(themeMode: String = ThemeMode.FOLLOW_SYSTEM, appThemeMode: String = ThemeMode.FOLLOW_SYSTEM) =
-        SettingsRepository.SettingsState(
-            fontSize = 14f,
-            themeName = "fixed-theme",
-            dayThemeName = "day-theme",
-            nightThemeName = "night-theme",
-            themeMode = themeMode,
-            appThemeMode = appThemeMode,
-        )
+    private fun stored(
+        themeMode: String = TerminalThemeMode.DAY_NIGHT,
+        appThemeMode: String = AppThemeMode.FOLLOW_SYSTEM,
+    ) = SettingsRepository.SettingsState(
+        fontSize = 14f,
+        themeName = "fixed-theme",
+        dayThemeName = "day-theme",
+        nightThemeName = "night-theme",
+        themeMode = themeMode,
+        appThemeMode = appThemeMode,
+    )
 
     /** 与 [TerminalRuntime.resolveThemeName] 同形的取值。 */
     private fun selectThemeName(stored: SettingsRepository.SettingsState, systemDark: Boolean): String =
@@ -36,28 +39,33 @@ class SelectThemeNameTest {
 
     @Test
     fun `fixed mode returns the fixed name`() {
-        assertEquals("fixed-theme", selectThemeName(stored(themeMode = ThemeMode.FIXED), systemDark = true))
+        assertEquals("fixed-theme", selectThemeName(stored(themeMode = TerminalThemeMode.FIXED), systemDark = true))
+        assertEquals("fixed-theme", selectThemeName(stored(themeMode = TerminalThemeMode.FIXED), systemDark = false))
     }
 
     @Test
-    fun `day mode returns the day name`() {
-        assertEquals("day-theme", selectThemeName(stored(themeMode = ThemeMode.DAY), systemDark = true))
-    }
-
-    @Test
-    fun `night mode returns the night name`() {
-        assertEquals("night-theme", selectThemeName(stored(themeMode = ThemeMode.NIGHT), systemDark = false))
-    }
-
-    @Test
-    fun `follow mode tracks the system flag`() {
+    fun `day night mode tracks the software theme`() {
         assertEquals("night-theme", selectThemeName(stored(), systemDark = true))
         assertEquals("day-theme", selectThemeName(stored(), systemDark = false))
     }
 
     @Test
     fun `explicit app mode overrides the system flag`() {
-        assertEquals("day-theme", selectThemeName(stored(appThemeMode = ThemeMode.DAY), systemDark = true))
-        assertEquals("night-theme", selectThemeName(stored(appThemeMode = ThemeMode.NIGHT), systemDark = false))
+        assertEquals("day-theme", selectThemeName(stored(appThemeMode = AppThemeMode.DAY), systemDark = true))
+        assertEquals("night-theme", selectThemeName(stored(appThemeMode = AppThemeMode.NIGHT), systemDark = false))
+    }
+
+    @Test
+    fun `legacy terminal modes normalize to day night`() {
+        // 旧版四态落盘值：day/night/follow_system 在 UI 上都等价于开关开启。
+        for (legacy in listOf("day", "night", "follow_system")) {
+            assertEquals(
+                "legacy mode $legacy must keep the day/night switch on",
+                TerminalThemeMode.DAY_NIGHT,
+                TerminalThemeMode.normalize(legacy),
+            )
+            assertEquals("night-theme", selectThemeName(stored(themeMode = legacy), systemDark = true))
+        }
+        assertEquals(TerminalThemeMode.FIXED, TerminalThemeMode.normalize(TerminalThemeMode.FIXED))
     }
 }
