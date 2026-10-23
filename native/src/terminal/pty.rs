@@ -224,8 +224,9 @@ impl PtyPair {
     ///
     /// TIOCSWINSZ 种子取调用方给的 rows/cols（测试与默认会话均以 24x80 调用，
     /// 由 `spawn_seeds_24x80_winsize` 验证），使 shell 在首次 resize 前不会看到 0x0。
-    /// execve 失败时子进程把确切 errno 写进回报管道（见 [`read_exec_failure_errno`]），
-    /// 由等待线程取走——退出码不作判定依据：正常收尾时 shell 的退出码与旧编码撞车。
+    /// execve 失败时子进程把确切 errno 写进回报管道，等待线程经本模块的
+    /// `read_exec_failure_errno` 取走——退出码不作判定依据：正常收尾时 shell 的
+    /// 退出码与旧编码撞车。
     pub fn spawn(
         shell: &str,
         rows: u16,
