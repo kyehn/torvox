@@ -284,21 +284,14 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
         )
 
         // 清屏后运行：截图里只有 fastfetch 的预览内容，不叠加安装日志或完成标记。
-        // 参数按**最小可用视口**（CI 的 40 列）挑，让输出在宽窄屏上都完整可见：
-        // `--logo-height 8` 把默认按终端高度缩放的 logo 压到 8 行；
-        // `-s` 只留三个短值模块——长值模块（Kernel 的完整版本串、packages、shell、
-        // terminal、cpu、gpu、disk）在 28 列的信息区里各折一到两行，叠起来正好把
-        // 首行顶出屏幕，截图会只剩 logo 的下半截。数据仍是本机真实值。
-        // 图标是否放得下取决于**当前网格列数**，而列数随设备宽度与字体变化（CI 的小屏
-        // 只有 40 列上下）。Android 图标连名字宽约 34 列，剩下的列不足以容纳信息区，
-        // 文字就会在词中断开、甚至把首行顶出屏幕。故按实测列数选图标：宽屏保留图标
-        // 好看，窄屏只留信息区。阈值取 60 是「图标 34 列 + 信息区至少 26 列」。
-        val cols = (composeTestRule.awaitBridge().getGridRowsColsPacked() and 0xFFFFFFFFL).toInt()
-        val logoArgs = if (cols >= 60) "" else " --logo none"
-        val fetchRc = runCommand("clear; fastfetch$logoArgs -s os:kernel:uptime")
+        // 命令与 docs/specification/TESTING.md 的预览规范一致：无 logo、无颜色、
+        // 固定模块顺序，保证截图可复现。数据仍是本机真实值。
+        val structure =
+            "Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Terminal:CPU:Memory:Swap:Disk:Locale"
+        val fetchRc = runCommand("clear; fastfetch --logo none --pipe -s \"$structure\"")
         assertEquals("fastfetch 运行失败（RC=$fetchRc）", 0, fetchRc)
-        // 三个模块在 40 列屏上会折成 4~6 行；取 3 是「三块信息都在」的下界。
-        awaitRenderedLines(3)
+        // 模块数即下界；Swap 等在无对应资源时可能不输出。
+        awaitRenderedLines(10)
         Thread.sleep(800) // fastfetch 的 logo 与系统信息分行打印，等最后一帧落屏。
         saveScreenshot("01-fastfetch.png")
 
