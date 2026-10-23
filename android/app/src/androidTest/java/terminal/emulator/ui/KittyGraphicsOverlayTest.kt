@@ -1,12 +1,9 @@
 package terminal.emulator.ui
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.util.Base64
-import android.view.PixelCopy
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -78,16 +75,10 @@ class KittyGraphicsOverlayTest : TerminalLogcatTest() {
          * 滚动强制的整帧重绘。
          */
         const val BUSY_LINES = 8
-
-        /** PixelCopy 单次读回的上限（毫秒）：软件渲染设备上读一屏要几百毫秒。 */
-        const val PIXEL_COPY_TIMEOUT_MS = 5_000L
     }
-
-    private lateinit var device: UiDevice
 
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         // 就绪门槛必须齐三样：bootstrap（真实 shell 才能 printf 出 kitty 序列）、
         // 通知权限（首次运行的权限对话框会让 Activity 进入 PAUSED，渲染随之暂停，
         // 图像永远上不了屏）、以及界面组合完成。
@@ -109,14 +100,15 @@ class KittyGraphicsOverlayTest : TerminalLogcatTest() {
         //    不用它做高频轮询——否则量具本身就把渲染循环按住了。
         var pixels = 0
         var shotDump: String? = null
+        val surface = UxTestUtils.terminalSurface(composeTestRule.activity)
         val onScreen =
             UxTestUtils.pollUntilTrue(timeoutMs = ON_SCREEN_TIMEOUT_MS, intervalMs = 500) {
-                val shot = captureSurface()
+                val shot = surface?.let { UxTestUtils.captureSurface(it) }
                 if (shot == null) {
                     shotDump = "未能从 Surface 读回像素"
                     false
                 } else {
-                    pixels = countImagePixels(shot)
+                    pixels = UxTestUtils.matchColor(shot, IMAGE_COLOR).count
                     if (pixels == 0) {
                         shotDump = "Surface 读回 ${shot.width}x${shot.height}，颜色数=${distinctColors(shot)}"
                     }
@@ -171,51 +163,6 @@ class KittyGraphicsOverlayTest : TerminalLogcatTest() {
         )
     }
 
-    /**
-     * 读回终端 Surface 已呈现的像素。
-     *
-     * 必须用 `PixelCopy` 而非 `UiAutomation.takeScreenshot()`：终端内容由原生
-     * 渲染线程直接画进 SurfaceView 的 Surface，不经过主线程 `ViewRootImpl` 遍历，
-     * 系统截图只拍到应用 UI 层，拍不到这一层（实测：系统截图里没有图像，
-     * Surface 里有）。PixelCopy 直接向合成器要该 Surface 的当前内容。
-     */
-    private fun captureSurface(): Bitmap? {
-        val view = surface() as? android.view.SurfaceView ?: return null
-        if (view.width <= 0 || view.height <= 0) return null
-        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var copied = false
-        PixelCopy.request(
-            view,
-            bitmap,
-            { result: Int ->
-                copied = result == PixelCopy.SUCCESS
-                latch.countDown()
-            },
-            android.os.Handler(android.os.Looper.getMainLooper()),
-        )
-        latch.await(PIXEL_COPY_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-        return if (copied) bitmap else null
-    }
-
-    /** 终端 Surface 视图。 */
-    private fun surface(): android.view.View? {
-        val content =
-            composeTestRule.activity.findViewById<android.view.ViewGroup>(android.R.id.content)
-        return findSurfaceInViewTree(content)
-    }
-
-    private fun findSurfaceInViewTree(group: android.view.ViewGroup): android.view.View? {
-        for (i in 0 until group.childCount) {
-            val child = group.getChildAt(i)
-            if (child is terminal.emulator.ui.TerminalSurface) return child
-            if (child is android.view.ViewGroup) {
-                findSurfaceInViewTree(child)?.let { return it }
-            }
-        }
-        return null
-    }
-
     /** 截图里的颜色数（粗略判空屏）。 */
     private fun distinctColors(bitmap: Bitmap): Int {
         val seen = HashSet<Int>()
@@ -225,32 +172,6 @@ class KittyGraphicsOverlayTest : TerminalLogcatTest() {
             }
         }
         return seen.size
-    }
-
-    /**
-     * 截图里那块图像的像素数。
-     *
-     * 按通道差判定（容差 24），避免抗锯齿边缘被漏掉；整屏扫描并跳步，
-     * 保证 64x64 的图像块仍能命中上百个采样点。
-     */
-    private fun countImagePixels(bitmap: Bitmap): Int {
-        val target = Color.red(IMAGE_COLOR)
-        val targetGreen = Color.green(IMAGE_COLOR)
-        val targetBlue = Color.blue(IMAGE_COLOR)
-        var count = 0
-        for (y in 0 until bitmap.height step 3) {
-            for (x in 0 until bitmap.width step 3) {
-                val pixel = bitmap.getPixel(x, y)
-                if (
-                    kotlin.math.abs(Color.red(pixel) - target) <= 24 &&
-                    kotlin.math.abs(Color.green(pixel) - targetGreen) <= 24 &&
-                    kotlin.math.abs(Color.blue(pixel) - targetBlue) <= 24
-                ) {
-                    count++
-                }
-            }
-        }
-        return count
     }
 
     /**

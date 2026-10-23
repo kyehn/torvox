@@ -311,6 +311,65 @@ static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::n
 #[cfg(target_os = "android")]
 static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Kitty 放置缓存键：任一项变化都意味着放置几何可能已变，须重查放置。
+///
+/// 抽成结构体而非散落字段，是为了让失效规则可单测钉住。其中「回滚长度」最易漏：
+/// 新输出把行推入回滚时放置的视口行号随之变化，但用户滚动偏移仍为 0，
+/// 漏掉这一项会让图像钉在旧行、被后续文本覆盖（用户实测现象）。
+///
+/// 「占位符签名」覆盖 Unicode 虚拟放置：图像位置由可见占位符单元决定，
+/// 生成戳不变时 TUI 仍可能重绘并移动占位符。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct KittyPlacementKeys {
+    session_id: u64,
+    generation: u64,
+    scroll_offset: i64,
+    scrollback_length: u32,
+    placeholder_signature: u64,
+    rows: u32,
+    cols: u32,
+}
+
+/// Kitty 缓存失效判定：把「哪些变化要做什么」集中到一处，避免散落的条件比较
+/// 随字段增删而漏判。
+struct KittyCacheInvalidation {
+    /// 须把单元格像素尺寸同步到终端侧：上游按该尺寸重算图像像素尺寸。
+    sync_cell_size: bool,
+    /// 须重查放置（渲染状态锁外查询会话）。
+    refetch_placements: bool,
+    /// 须整帧重绘：上一帧留在累加器里的图像像素已失效。
+    overlay_dirty: bool,
+    /// 须重打包图集（图像增删或换会话）。
+    repack_atlas: bool,
+}
+
+/// 依据放置键与单元格几何变化判定 Kitty 缓存如何失效。
+///
+/// 纯文本会话（生成戳 0）没有图像路径：只按需清掉残留图像并整帧重绘。
+fn kitty_cache_invalidation(
+    current: KittyPlacementKeys,
+    previous: KittyPlacementKeys,
+    cell_geometry_changed: bool,
+) -> KittyCacheInvalidation {
+    let keys_changed = current != previous;
+    let session_changed = current.session_id != previous.session_id;
+    if current.generation == 0 {
+        return KittyCacheInvalidation {
+            sync_cell_size: false,
+            refetch_placements: false,
+            overlay_dirty: keys_changed || cell_geometry_changed,
+            repack_atlas: false,
+        };
+    }
+    let placement_changed = keys_changed || cell_geometry_changed;
+    KittyCacheInvalidation {
+        // 换会话时新会话终端侧的图像几何可能不同，即便网格尺寸未变也要同步。
+        sync_cell_size: cell_geometry_changed || session_changed,
+        refetch_placements: placement_changed,
+        overlay_dirty: placement_changed,
+        repack_atlas: current.generation != previous.generation || session_changed,
+    }
+}
 struct RenderState {
     renderer: crate::render::context::Renderer,
     font_pipeline: crate::render::font::FontPipeline,
@@ -339,19 +398,8 @@ struct RenderState {
     /// 预分配的脏行掩码，跨帧复用以避免逐帧 `Vec<bool>` 分配（约 100-300 字节 × 120fps）。
     dirty_mask: Vec<bool>,
     /// Kitty 图像缓存（按会话键控）：VT 线程经生成戳推送变更通知，
-    /// 渲染线程仅在生成戳/滚动/网格变化时查询放置，平时复用实例。
-    kitty_session: u64,
-    kitty_generation: u64,
-    kitty_scroll_offset: i64,
-    /// 回滚长度（历史行数）。新输出把行推入回滚时放置的视口行号随之变化，
-    /// 但用户滚动偏移仍为 0；漏掉这个键会让图像钉在旧行、被后续文本覆盖。
-    kitty_scrollback_length: u32,
-    /// 可见 Unicode 占位符的布局签名。虚拟放置的图像位置由占位符单元决定，
-    /// 生成戳不变时 TUI 仍可能重绘并移动占位符；签名变化才重查，避免每帧
-    /// 重解码整幅图。
-    kitty_placeholder_signature: u64,
-    kitty_rows: u32,
-    kitty_cols: u32,
+    /// 渲染线程仅在放置键变化时查询放置，平时复用实例。
+    kitty_keys: KittyPlacementKeys,
     kitty_cell_width: f32,
     kitty_cell_height: f32,
     kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
@@ -481,13 +529,15 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             last_scroll_px: 0.0,
             theme: crate::terminal::theme::default_dark(),
             dirty_mask: Vec::new(),
-            kitty_session: 0,
-            kitty_generation: u64::MAX,
-            kitty_scroll_offset: i64::MIN,
-            kitty_scrollback_length: u32::MAX,
-            kitty_placeholder_signature: u64::MAX,
-            kitty_rows: u32::MAX,
-            kitty_cols: u32::MAX,
+            kitty_keys: KittyPlacementKeys {
+                session_id: 0,
+                generation: u64::MAX,
+                scroll_offset: i64::MIN,
+                scrollback_length: u32::MAX,
+                placeholder_signature: u64::MAX,
+                rows: u32::MAX,
+                cols: u32::MAX,
+            },
             kitty_cell_width: 0.0,
             kitty_cell_height: 0.0,
             kitty_frames: Vec::new(),
@@ -2333,24 +2383,27 @@ fn render_inner(session_id: u64) -> jint {
             let raster_scale = render_state.font_pipeline.get_raster_scale();
             let grid_cell_width = font_width * raster_scale;
             let grid_cell_height = font_height * raster_scale;
-            let kitty_keys_snapshot = session_id != render_state.kitty_session
-                || kitty_generation != render_state.kitty_generation
-                || scroll_offset != render_state.kitty_scroll_offset
-                || cursor_info.scrollback_length != render_state.kitty_scrollback_length
-                || placeholder_signature != render_state.kitty_placeholder_signature
-                || rows != render_state.kitty_rows
-                || cols != render_state.kitty_cols;
+            let kitty_keys = KittyPlacementKeys {
+                session_id,
+                generation: kitty_generation,
+                scroll_offset,
+                scrollback_length: cursor_info.scrollback_length,
+                placeholder_signature,
+                rows,
+                cols,
+            };
             let kitty_cell_changed = (grid_cell_width - render_state.kitty_cell_width).abs()
                 > f32::EPSILON
                 || (grid_cell_height - render_state.kitty_cell_height).abs() > f32::EPSILON;
+            // 失效规则集中在 `kitty_cache_invalidation`：放置键或单元格几何变化才重查，
+            // 纯文本会话零开销跳过。
+            let invalidation =
+                kitty_cache_invalidation(kitty_keys, render_state.kitty_keys, kitty_cell_changed);
             // 单元格几何失步：终端侧仍为旧值时上游按旧几何重算像素尺寸，
             // 与新来源口径不一致。先同步新尺寸到终端再重查
             // （先排空命令积压再处理查询，命令先发即先生效，无竞态）。
-            // 纯文本（生成戳为 0）零开销跳过；首图与切会话无缓存帧也同步，
-            // 否则缓存的新尺寸会永久掩盖终端侧的旧几何。
-            let need_cell_sync = kitty_generation != 0
-                && (kitty_cell_changed || session_id != render_state.kitty_session);
-            let need_kitty_fetch = kitty_generation != 0 && (kitty_keys_snapshot || need_cell_sync);
+            let need_cell_sync = invalidation.sync_cell_size;
+            let need_kitty_fetch = invalidation.refetch_placements;
             let sync_cell_width = grid_cell_width.max(1.0) as u32;
             let sync_cell_height = grid_cell_height.max(1.0) as u32;
             drop(state);
@@ -2383,21 +2436,12 @@ fn render_inner(session_id: u64) -> jint {
                 return 0;
             }
             // 强制重查：旧帧像素尺寸按旧几何解算，必须按新几何重算。
-            let kitty_keys_changed = kitty_keys_snapshot || need_cell_sync;
-            if kitty_keys_changed || kitty_cell_changed {
-                let generation_changed = kitty_generation != render_state.kitty_generation
-                    || session_id != render_state.kitty_session;
+            if invalidation.overlay_dirty {
                 // 本帧刷新了 kitty 状态（图像增删或放置集合/几何变化）：上一帧留在
                 // 累加器里的图像像素已失效，必须整帧重绘才能去掉残影。状态未变的
                 // 帧不需要全量——叠加层每帧照画，文本层照旧走脏带。
                 render_state.kitty_overlay_dirty = true;
-                render_state.kitty_session = session_id;
-                render_state.kitty_generation = kitty_generation;
-                render_state.kitty_scroll_offset = scroll_offset;
-                render_state.kitty_scrollback_length = cursor_info.scrollback_length;
-                render_state.kitty_placeholder_signature = placeholder_signature;
-                render_state.kitty_rows = rows;
-                render_state.kitty_cols = cols;
+                render_state.kitty_keys = kitty_keys;
                 render_state.kitty_cell_width = grid_cell_width;
                 render_state.kitty_cell_height = grid_cell_height;
                 if kitty_generation == 0 {
@@ -2409,10 +2453,10 @@ fn render_inner(session_id: u64) -> jint {
                     }
                 } else {
                     // 锁外已取回放置帧，此处仅应用，不再持渲染状态锁查询会话。
-                    if kitty_keys_changed {
+                    if invalidation.refetch_placements {
                         render_state.kitty_frames = fetched_kitty_frames;
                     }
-                    if generation_changed {
+                    if invalidation.repack_atlas {
                         repack_kitty_atlas(
                             render_state,
                             grid_cell_width,
@@ -5207,6 +5251,147 @@ mod placeholder_signature_tests {
         text.col = 1;
         assert_eq!(placeholder_layout_signature(&[text]), 0);
         assert_eq!(placeholder_layout_signature(&[]), 0);
+    }
+}
+
+#[cfg(test)]
+mod kitty_placement_keys_tests {
+    use super::{KittyPlacementKeys, kitty_cache_invalidation};
+
+    fn keys() -> KittyPlacementKeys {
+        KittyPlacementKeys {
+            session_id: 7,
+            generation: 3,
+            scroll_offset: 0,
+            scrollback_length: 100,
+            placeholder_signature: 0xabcd,
+            rows: 24,
+            cols: 80,
+        }
+    }
+
+    /// 任一放置键变化都要重查放置。
+    ///
+    /// 判别力：键集合此前是渲染状态里的散落字段，逐字段比较易漏——「回滚长度」
+    /// 曾被漏掉，于是新输出把行推入回滚时图像仍钉在旧行、被后续文本覆盖
+    /// （用户实测现象）。
+    #[test]
+    fn every_placement_key_change_triggers_refetch() {
+        let previous = keys();
+        for changed in [
+            KittyPlacementKeys {
+                session_id: 8,
+                ..previous
+            },
+            KittyPlacementKeys {
+                generation: 4,
+                ..previous
+            },
+            KittyPlacementKeys {
+                scroll_offset: 1,
+                ..previous
+            },
+            KittyPlacementKeys {
+                scrollback_length: 101,
+                ..previous
+            },
+            KittyPlacementKeys {
+                placeholder_signature: 0x1234,
+                ..previous
+            },
+            KittyPlacementKeys {
+                rows: 25,
+                ..previous
+            },
+            KittyPlacementKeys {
+                cols: 81,
+                ..previous
+            },
+        ] {
+            let invalidation = kitty_cache_invalidation(changed, previous, false);
+            assert!(
+                invalidation.refetch_placements,
+                "放置键变化必须重查放置: {changed:?}"
+            );
+            assert!(
+                invalidation.overlay_dirty,
+                "放置键变化必须整帧重绘以去掉累加器里的旧图像: {changed:?}"
+            );
+        }
+    }
+
+    /// 键与几何都没变时不重查、不重绘：否则每帧都重解码整幅图。
+    #[test]
+    fn unchanged_keys_keep_cache() {
+        let previous = keys();
+        let invalidation = kitty_cache_invalidation(previous, previous, false);
+        assert!(!invalidation.refetch_placements);
+        assert!(!invalidation.overlay_dirty);
+        assert!(!invalidation.sync_cell_size);
+        assert!(!invalidation.repack_atlas);
+    }
+
+    /// 单元格几何变化要先同步尺寸到终端侧再重查：旧帧像素尺寸按旧几何解算，
+    /// 不同步则图像按错误尺寸重算。
+    #[test]
+    fn cell_geometry_change_syncs_size_before_refetch() {
+        let previous = keys();
+        let invalidation = kitty_cache_invalidation(previous, previous, true);
+        assert!(invalidation.sync_cell_size, "几何变化须同步尺寸到终端侧");
+        assert!(invalidation.refetch_placements, "几何变化须重查放置");
+        assert!(invalidation.overlay_dirty);
+        assert!(!invalidation.repack_atlas, "几何变化不换图集");
+    }
+
+    /// 换会话要同步尺寸并重打包图集：新会话的图像集与几何都与旧会话无关。
+    #[test]
+    fn session_change_syncs_size_and_repacks_atlas() {
+        let previous = keys();
+        let changed = KittyPlacementKeys {
+            session_id: 8,
+            ..previous
+        };
+        let invalidation = kitty_cache_invalidation(changed, previous, false);
+        assert!(invalidation.sync_cell_size, "换会话须把尺寸同步到新会话");
+        assert!(invalidation.refetch_placements);
+        assert!(invalidation.repack_atlas, "换会话须重打包图集");
+        assert!(invalidation.overlay_dirty);
+    }
+
+    /// 生成戳变化表示图像增删：须重打包图集，但不必改单元格尺寸。
+    #[test]
+    fn generation_change_repacks_atlas_only() {
+        let previous = keys();
+        let changed = KittyPlacementKeys {
+            generation: 4,
+            ..previous
+        };
+        let invalidation = kitty_cache_invalidation(changed, previous, false);
+        assert!(invalidation.repack_atlas, "生成戳变化须重打包图集");
+        assert!(invalidation.refetch_placements);
+        assert!(!invalidation.sync_cell_size, "生成戳变化不涉及单元格尺寸");
+    }
+
+    /// 纯文本会话（生成戳 0）不触发任何图像路径，但撤下图像时仍须整帧重绘，
+    /// 否则累加器里残留的图像像素不会消失。
+    #[test]
+    fn pure_text_session_skips_image_paths_but_clears_residue() {
+        let previous = keys();
+        let plain = KittyPlacementKeys {
+            generation: 0,
+            ..previous
+        };
+        let invalidation = kitty_cache_invalidation(plain, previous, false);
+        assert!(!invalidation.refetch_placements, "纯文本不重查放置");
+        assert!(!invalidation.sync_cell_size);
+        assert!(!invalidation.repack_atlas);
+        assert!(
+            invalidation.overlay_dirty,
+            "图像撤下后须整帧重绘以清掉残留像素"
+        );
+
+        let still_plain = kitty_cache_invalidation(plain, plain, false);
+        assert!(!still_plain.overlay_dirty, "纯文本会话状态未变时不重绘");
     }
 }
 

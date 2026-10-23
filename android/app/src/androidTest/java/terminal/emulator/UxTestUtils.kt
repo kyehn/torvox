@@ -1,6 +1,7 @@
 package terminal.emulator
 
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
@@ -21,6 +22,9 @@ import java.io.File
  */
 object UxTestUtils {
     private const val TAG = "UX_METRIC"
+
+    /** PixelCopy 单次读回的上限（毫秒）：软件渲染设备上读一屏要几百毫秒。 */
+    private const val PIXEL_COPY_TIMEOUT_MS = 5_000L
 
     /**
      * Inject a drag gesture as a real event stream into [view] (the house TestUtils
@@ -242,6 +246,92 @@ object UxTestUtils {
                 )
             }
         }
+    }
+
+    /**
+     * 终端 Surface 视图：终端内容由原生渲染线程直绘 SurfaceView，不经过主线程
+     * ViewRootImpl 遍历，系统截图拍不到这一层。
+     */
+    fun terminalSurface(activity: android.app.Activity): android.view.View? {
+        val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content)
+        return findSurfaceInViewTree(content)
+    }
+
+    private fun findSurfaceInViewTree(group: android.view.ViewGroup): android.view.View? {
+        for (index in 0 until group.childCount) {
+            val child = group.getChildAt(index)
+            if (child is terminal.emulator.ui.TerminalSurface) return child
+            if (child is android.view.ViewGroup) {
+                findSurfaceInViewTree(child)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /**
+     * 用 PixelCopy 读回 Surface 当前呈现的像素。
+     *
+     * 必须用 PixelCopy 而非 `UiAutomation.takeScreenshot()`：终端内容由原生渲染线程
+     * 直接画进 SurfaceView 的 Surface，系统截图只拍到应用 UI 层（实测系统截图里
+     * 没有图像，Surface 里有）。
+     */
+    fun captureSurface(view: android.view.View): Bitmap? {
+        val surfaceView = view as? android.view.SurfaceView ?: return null
+        if (surfaceView.width <= 0 || surfaceView.height <= 0) return null
+        val bitmap = Bitmap.createBitmap(surfaceView.width, surfaceView.height, Bitmap.Config.ARGB_8888)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var copied = false
+        android.view.PixelCopy.request(
+            surfaceView,
+            bitmap,
+            { result: Int ->
+                copied = result == android.view.PixelCopy.SUCCESS
+                latch.countDown()
+            },
+            android.os.Handler(android.os.Looper.getMainLooper()),
+        )
+        latch.await(PIXEL_COPY_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        return if (copied) bitmap else null
+    }
+
+    /** 一次颜色扫描的结果：相符像素数与其包围盒。 */
+    data class ColorMatch(val count: Int, val bounds: Rect?)
+
+    /**
+     * 扫描整幅图，统计与 [color] 相符（每通道差 ≤ [tolerance]）的像素。
+     *
+     * 按通道差判定而非精确相等：抗锯齿边缘与合成器色彩转换都会带来少量偏差。
+     */
+    fun matchColor(bitmap: Bitmap, color: Int, tolerance: Int = 24): ColorMatch {
+        val targetRed = android.graphics.Color.red(color)
+        val targetGreen = android.graphics.Color.green(color)
+        val targetBlue = android.graphics.Color.blue(color)
+        val width = bitmap.width
+        val pixels = IntArray(width * bitmap.height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, bitmap.height)
+        var count = 0
+        var minX = Int.MAX_VALUE
+        var minY = Int.MAX_VALUE
+        var maxX = Int.MIN_VALUE
+        var maxY = Int.MIN_VALUE
+        for (index in pixels.indices) {
+            val pixel = pixels[index]
+            if (
+                kotlin.math.abs(android.graphics.Color.red(pixel) - targetRed) <= tolerance &&
+                kotlin.math.abs(android.graphics.Color.green(pixel) - targetGreen) <= tolerance &&
+                kotlin.math.abs(android.graphics.Color.blue(pixel) - targetBlue) <= tolerance
+            ) {
+                count++
+                val x = index % width
+                val y = index / width
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+            }
+        }
+        if (count == 0) return ColorMatch(0, null)
+        return ColorMatch(count, Rect(minX, minY, maxX + 1, maxY + 1))
     }
 }
 
