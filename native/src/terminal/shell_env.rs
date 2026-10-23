@@ -13,6 +13,21 @@ pub struct ShellEnv {
     pub mkshrc_path: Option<String>,
 }
 
+impl ShellEnv {
+    /// 引导前缀下的临时目录（`$PREFIX/tmp`）。
+    ///
+    /// 子进程的 `TMPDIR`（见 `pty::base_env`）与终端侧 Kitty 文件介质白名单必须取
+    /// 同一路径：客户端（yazi 等）把临时文件写进 `$TMPDIR`，终端若只认宿主进程的
+    /// `std::env::temp_dir()`（Android 上通常不存在），所有 `t=t` 传输都会被判
+    /// `EINVAL: temporary file not in temp dir`。
+    #[must_use]
+    pub fn tmp_dir(&self) -> Option<std::path::PathBuf> {
+        self.prefix
+            .as_deref()
+            .map(|prefix| std::path::Path::new(prefix).join("tmp"))
+    }
+}
+
 impl Default for ShellEnv {
     fn default() -> Self {
         Self {
@@ -47,6 +62,24 @@ mod tests {
         assert!(env.prefix.is_none());
         env.prefix = Some(TEST_PREFIX.to_string());
         assert_eq!(env.prefix.as_deref(), Some(TEST_PREFIX));
+    }
+
+    /// Kitty 文件介质白名单必须与子进程 `TMPDIR` 同源。
+    ///
+    /// 判别力：两侧各取自己的临时目录时（终端用宿主进程的 `std::env::temp_dir()`），
+    /// Android 上客户端写进 `$PREFIX/tmp` 的临时文件永远不在白名单里，真机
+    /// logcat 即 `EINVAL: temporary file not in temp dir`。
+    #[test]
+    fn tmp_dir_matches_the_shell_tmpdir() {
+        let mut env = ShellEnv::default();
+        assert_eq!(env.tmp_dir(), None, "无前缀时没有合法的临时目录");
+        env.prefix = Some(TEST_PREFIX.to_string());
+        assert_eq!(
+            env.tmp_dir(),
+            Some(std::path::PathBuf::from(
+                "/data/data/com.termux/files/usr/tmp"
+            ))
+        );
     }
 
     #[test]

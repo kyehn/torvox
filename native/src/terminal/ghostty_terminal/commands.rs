@@ -208,6 +208,9 @@ pub(crate) struct RunConfig {
     /// 初态主题：调色板经 [`crate::terminal::theme`] 单源解析，`SetTheme` 换主题后
     /// 以命令携带的新主题为准。
     pub(crate) theme: &'static crate::terminal::theme::Theme,
+    /// Kitty 文件介质允许的临时目录（客户端 `t=t` 的路径须落在这里）。
+    /// 与子进程 `TMPDIR` 同源；`None` 时上游拒绝全部临时文件传输。
+    pub(crate) kitty_temp_dir: Option<std::path::PathBuf>,
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     /// 备用屏状态的无锁镜像，由 VT 线程每帧更新，供输入路径免阻塞 RPC 检出。
     pub(crate) alt_screen_active: Arc<AtomicBool>,

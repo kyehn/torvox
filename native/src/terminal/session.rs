@@ -343,7 +343,7 @@ impl Session {
         rows: u32,
         cols: u32,
     ) -> Result<Self, SessionError> {
-        Self::spawn_with_pty(pty, rows, cols, None)
+        Self::spawn_with_pty(pty, rows, cols, None, Some(std::env::temp_dir()))
     }
 
     /// 往本会话的输出通道注入一段 PTY 输出（等价于 `pty_read` 收到数据）。
@@ -410,6 +410,7 @@ impl Session {
             rows,
             cols,
             output_wake.clone(),
+            env.tmp_dir().or_else(|| Some(std::env::temp_dir())),
         ) {
             Ok(session) => session,
             Err(inner_error) => {
@@ -544,6 +545,7 @@ impl Session {
         rows: u32,
         cols: u32,
         frame_wake: Option<OutputWake>,
+        kitty_temp_dir: Option<std::path::PathBuf>,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
@@ -555,12 +557,13 @@ impl Session {
 
         // 同一份唤醒既用于 PTY 到达，也用于帧入队：渲染线程在「有字节但还没帧」
         // 的那一拍醒来后可以立刻再睡，等帧真正入队时被第二次叫醒。
-        let terminal = GhosttyTerminal::new_with_frame_wake(
+        let terminal = GhosttyTerminal::new_with_frame_wake_and_temp_dir(
             rows,
             cols,
             DEFAULT_SCROLLBACK_LINES,
             crate::terminal::theme::default_dark(),
             frame_wake,
+            kitty_temp_dir,
         )
         .map_err(SessionError::Terminal)?;
 
@@ -1860,7 +1863,9 @@ mod tests {
     #[test]
     fn vt_thread_resize_failure_forces_the_next_resize_to_retry() {
         let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let mut session = Session::spawn_with_pty(Box::new(pty), 30, 100, None).expect("session");
+        let mut session =
+            Session::spawn_with_pty(Box::new(pty), 30, 100, None, Some(std::env::temp_dir()))
+                .expect("session");
 
         // 基线：同尺寸第二次本就该短路（既有去重，不能被破坏）。
         session.resize(30, 100).expect("first resize");

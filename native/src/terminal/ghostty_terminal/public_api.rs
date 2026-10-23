@@ -40,6 +40,26 @@ impl super::GhosttyTerminal {
         theme: &'static crate::terminal::theme::Theme,
         frame_wake: Option<crate::terminal::session::OutputWake>,
     ) -> Result<Self, TerminalError> {
+        Self::new_with_frame_wake_and_temp_dir(
+            rows,
+            cols,
+            scrollback_lines,
+            theme,
+            frame_wake,
+            Some(std::env::temp_dir()),
+        )
+    }
+
+    /// [`Self::new_with_frame_wake`] + Kitty 文件介质白名单目录（生产会话传
+    /// `$PREFIX/tmp`，与子进程 `TMPDIR` 同源）。
+    pub fn new_with_frame_wake_and_temp_dir(
+        rows: u32,
+        cols: u32,
+        scrollback_lines: u32,
+        theme: &'static crate::terminal::theme::Theme,
+        frame_wake: Option<crate::terminal::session::OutputWake>,
+        kitty_temp_dir: Option<std::path::PathBuf>,
+    ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
         let (cell_data_tx, cell_data_rx) =
@@ -82,6 +102,7 @@ impl super::GhosttyTerminal {
                         cols,
                         scrollback_lines,
                         theme,
+                        kitty_temp_dir,
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
                         mouse_tracking_active: mouse_tracking_active_for_run,
