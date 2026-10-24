@@ -3812,6 +3812,53 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
     })
 }
 
+/// 把视口命中折算成可绘制的高亮区间。
+///
+/// 折算口径 `gridRow = 绝对行 - viewport_top`，`viewport_top` 是视口顶行的绝对行号
+/// （回滚区顶部 = 0）。落在视口外的命中两侧都裁掉：上游 `viewport_matches` 按页读取，
+/// 会连带返回与视口同页、实际在视口外的命中（上游文档明确要求调用方裁剪）。
+///
+/// 当前选中命中的 alpha MUST 与其余命中不同（255 vs 160）：两者同色系时，
+/// 「当前在哪」不可区分——用户报障「当前匹配与其他匹配高亮应不同」。
+///
+/// 抽成纯函数以便表驱动测试：颜色分配与折算裁剪是两组独立不变式，混在 JNI 导出
+/// 里就只能靠像素级仪器化测试间接覆盖。
+fn build_search_highlights(
+    matches: &[crate::terminal::ghostty_terminal::SearchMatch],
+    selected: Option<&crate::terminal::ghostty_terminal::SearchMatch>,
+    viewport_top: i32,
+    grid_rows: i32,
+    palette: &crate::terminal::theme::Palette,
+) -> Vec<SearchHighlight> {
+    matches
+        .iter()
+        .filter_map(|matched| {
+            let row = matched.row as i32 - viewport_top;
+            if row < 0 || row >= grid_rows {
+                return None;
+            }
+            let color = if selected == Some(matched) {
+                let current = palette.foreground;
+                [
+                    current.r,
+                    current.g,
+                    current.b,
+                    SEARCH_HIGHLIGHT_CURRENT_ALPHA,
+                ]
+            } else {
+                let other = palette.selection_background;
+                [other.r, other.g, other.b, SEARCH_HIGHLIGHT_OTHER_ALPHA]
+            };
+            Some(SearchHighlight {
+                row,
+                start_col: matched.start_col as i32,
+                end_col_exclusive: matched.end_col as i32,
+                color,
+            })
+        })
+        .collect()
+}
+
 /// 把当前搜索的视口命中写入渲染态，供下一帧绘制。
 ///
 /// 命中与选中态取自上游 `search::Search`（VT 线程内），Kotlin 只提供视口滚动偏移与
@@ -3853,34 +3900,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
         // 当前选中命中用主题前景色，其余用主题选区色：颜色真源是渲染态持有的
         // 当前主题（见 `setTheme`），Kotlin 不参与。
         let palette = &render_state.theme.palette;
-        render_state.search_highlights.current = highlights
-            .matches
-            .iter()
-            .filter_map(|matched| {
-                let row = matched.row as i32 - viewport_top;
-                if row < 0 || row >= grid_rows {
-                    return None;
-                }
-                let color = if highlights.selected.as_ref() == Some(matched) {
-                    let current = palette.foreground;
-                    [
-                        current.r,
-                        current.g,
-                        current.b,
-                        SEARCH_HIGHLIGHT_CURRENT_ALPHA,
-                    ]
-                } else {
-                    let other = palette.selection_background;
-                    [other.r, other.g, other.b, SEARCH_HIGHLIGHT_OTHER_ALPHA]
-                };
-                Some(SearchHighlight {
-                    row,
-                    start_col: matched.start_col as i32,
-                    end_col_exclusive: matched.end_col as i32,
-                    color,
-                })
-            })
-            .collect();
+        render_state.search_highlights.current = build_search_highlights(
+            &highlights.matches,
+            highlights.selected.as_ref(),
+            viewport_top,
+            grid_rows,
+            palette,
+        );
         render_state.search_highlights.session = session_id as u64;
         // 置脏标志：无 PTY 流量时新高亮也必须绘制到下一帧
         //（#5 空闲屏回归）。
@@ -5300,6 +5326,126 @@ mod session_scoped_tests {
     }
 }
 
+#[cfg(test)]
+mod search_highlight_tests {
+    use super::build_search_highlights;
+    use crate::render::cell_builder::{
+        SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA,
+    };
+    use crate::terminal::ghostty_terminal::SearchMatch;
+    use crate::terminal::theme::Palette;
+    use libghostty_vt::style::RgbColor;
+
+    fn palette() -> Palette {
+        Palette {
+            background: RgbColor { r: 0, g: 0, b: 0 },
+            foreground: RgbColor {
+                r: 0xEE,
+                g: 0xEE,
+                b: 0xEE,
+            },
+            cursor: RgbColor { r: 0, g: 0, b: 0 },
+            selection_background: RgbColor {
+                r: 0x33,
+                g: 0x44,
+                b: 0x55,
+            },
+            ansi: [RgbColor { r: 0, g: 0, b: 0 }; 16],
+        }
+    }
+
+    fn matched(row: u32, start_col: u32, end_col: u32) -> SearchMatch {
+        SearchMatch {
+            row,
+            start_col,
+            end_col,
+        }
+    }
+
+    /// 当前命中与其余命中的高亮 MUST 不同。
+    ///
+    /// 用户报障：「文本搜索匹配和当前匹配高亮应该不同」。判别力：两者同色时，
+    /// 「当前在哪」无法从画面上分辨——即便当前项被额外标亮，两者的 alpha
+    /// 或颜色一旦取齐，画面就退化成「一片高亮」。
+    #[test]
+    fn current_match_is_distinguishable_from_other_matches() {
+        let current = matched(3, 2, 8);
+        let other = matched(5, 0, 4);
+        let highlights = build_search_highlights(
+            &[other.clone(), current.clone()],
+            Some(&current),
+            0,
+            20,
+            &palette(),
+        );
+        assert_eq!(2, highlights.len());
+
+        let current_hl = highlights
+            .iter()
+            .find(|hl| hl.row == 3)
+            .expect("当前命中的高亮必须存在");
+        let other_hl = highlights
+            .iter()
+            .find(|hl| hl.row == 5)
+            .expect("其他命中的高亮必须存在");
+
+        assert_ne!(
+            current_hl.color, other_hl.color,
+            "当前命中与其余命中的高亮颜色必须不同"
+        );
+        assert_eq!(
+            SEARCH_HIGHLIGHT_CURRENT_ALPHA, current_hl.color[3],
+            "当前命中 MUST 完全不透明"
+        );
+        assert_eq!(
+            SEARCH_HIGHLIGHT_OTHER_ALPHA, other_hl.color[3],
+            "其余命中 MUST 用较淡的 alpha"
+        );
+        assert_eq!(
+            [0xEE, 0xEE, 0xEE],
+            current_hl.color[..3],
+            "当前命中 MUST 取主题前景色"
+        );
+        assert_eq!(
+            [0x33, 0x44, 0x55],
+            other_hl.color[..3],
+            "其余命中 MUST 取主题选区色"
+        );
+    }
+
+    /// 视口外的命中 MUST 两侧都裁掉。
+    ///
+    /// 上游 `viewport_matches` 按页读取，会连带返回视口外的命中；只裁负行时，
+    /// 视口下方的命中会进入高亮列表，偏移换算一旦有半行误差就画到无关行上。
+    #[test]
+    fn matches_outside_viewport_are_clipped_on_both_sides() {
+        let matches = [
+            matched(1, 0, 3),  // 视口上方
+            matched(4, 0, 3),  // 视口内
+            matched(25, 0, 3), // 视口下方
+        ];
+        let highlights = build_search_highlights(&matches, None, 3, 20, &palette());
+        assert_eq!(1, highlights.len(), "只有视口内的命中可以写入高亮");
+        assert_eq!(1, highlights[0].row, "折算后的行号是绝对行减去视口顶行");
+    }
+
+    /// 没有选中命中时，全部命中都按「其余命中」着色。
+    ///
+    /// 判别力：若无选中态就被当作当前命中着色，用户点开搜索框却看不到任何
+    /// 「当前项」，正是「高亮成一片」的另一种形态。
+    #[test]
+    fn without_selection_all_matches_use_other_color() {
+        let matches = [matched(1, 0, 3), matched(2, 0, 3)];
+        let highlights = build_search_highlights(&matches, None, 0, 20, &palette());
+        assert_eq!(2, highlights.len());
+        for hl in &highlights {
+            assert_eq!(
+                SEARCH_HIGHLIGHT_OTHER_ALPHA, hl.color[3],
+                "无选中命中时不得有「当前项」着色"
+            );
+        }
+    }
+}
 #[cfg(test)]
 mod placeholder_signature_tests {
     use crate::terminal::ghostty_terminal::CellData;
