@@ -66,6 +66,48 @@ class RenderLatchCadenceTest {
     }
 
     /**
+     * 活跃闭锁不得与 vsync 在同一显示周期各推一帧。
+     *
+     * 判别力：健康 vsync 下若仍用 17ms 闭锁（≈一个 60Hz 周期），两路节拍的相位漂移会让
+     * 闭锁偶尔抢在 vsync 之前触发，同一周期推出两帧；交换链随即排满，下一次 acquire
+     * 阻塞约 70ms（真机日志里成对的 3–5ms 呈现间隔 + 70ms 空档）。故健康时必须明显
+     * 大于一个 vsync 周期；vsync 停摆时退回 17ms 兜底。
+     */
+    @Test
+    fun activeLatchOutlastsOneVsyncWhenVsyncIsFresh() {
+        val fresh = activeLatchTimeoutNanos(vsyncFresh = true)
+        assertTrue(
+            "健康 vsync 下的活跃闭锁必须大于一个 60Hz 周期（实际 $fresh ns）",
+            fresh > 17_000_000L,
+        )
+        assertEquals(
+            "vsync 停摆时必须退回 17ms 兜底节拍",
+            RENDER_LATCH_TIMEOUT_NANOS,
+            activeLatchTimeoutNanos(vsyncFresh = false),
+        )
+        assertTrue(
+            "vsync 新鲜度阈值必须覆盖多个显示周期",
+            RENDER_VSYNC_STALE_NANOS >= 3 * RENDER_LATCH_TIMEOUT_NANOS,
+        )
+    }
+
+    /**
+     * 渲染线程从 vsync 回调取速度：回调刷新 [SessionEntry.lastVsyncNanos]，
+     * 循环据此判定链是否健康（陈旧即退回兜底）。
+     */
+    @Test
+    fun vsyncCallbackTimestampMarksTheChainFresh() {
+        val entry =
+            SessionEntry(id = 1L, bridge = TestBridges.create(), renderThreadRef = null, running = false)
+        entry.lastVsyncNanos = System.nanoTime() - RENDER_VSYNC_STALE_NANOS - 1L
+        val stale = System.nanoTime() - entry.lastVsyncNanos <= RENDER_VSYNC_STALE_NANOS
+        assertFalse("超过阈值的时间戳必须判为不新鲜", stale)
+        entry.lastVsyncNanos = System.nanoTime()
+        val fresh = System.nanoTime() - entry.lastVsyncNanos <= RENDER_VSYNC_STALE_NANOS
+        assertTrue("刚收到的 vsync 必须判为新鲜", fresh)
+    }
+
+    /**
      * The wake contract the fix relies on: [SessionEntry.notifyRender] (invoked for every PTY
      * write through the onPtyWrite wiring) refreshes the idle clock and raises the render-signal,
      * so the gate immediately selects the active latch for the incoming shell echo.
