@@ -89,6 +89,35 @@ const val RECENT_SCROLL_WINDOW_NANOS: Long = 100_000_000L
 const val SCROLL_MOTION_WINDOW_NANOS: Long = 250_000_000L
 
 /**
+ * 活跃期闭锁超时：单个 vsync 周期（60Hz 显示 ~16.7ms）。
+ *
+ * 仅在 vsync 链不健康时使用。waitOutput 是纯 park（PTY 到达无法提前唤醒），
+ * 17ms 兜底保证主线程阻塞、vsync 信号丢失时输入回显仍在下一节拍上屏。
+ */
+const val RENDER_LATCH_TIMEOUT_NANOS: Long = 17_000_000L
+
+/**
+ * vsync 链健康时的活跃闭锁超时：2 个 vsync 周期。
+ *
+ * 必须明显大于一个显示周期，否则闭锁与 vsync 两路节拍会在同一周期内各推一帧
+ * （见 [activeLatchTimeoutNanos]）。
+ */
+const val RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS: Long = 34_000_000L
+
+/**
+ * vsync 新鲜度阈值：超过它即认为 Choreographer 链已停摆，活跃闭锁退回
+ * [RENDER_LATCH_TIMEOUT_NANOS]。取约 6 个 60Hz 周期，容忍主线程的一次卡顿，
+ * 又能在链真正断掉时于 100ms 内恢复兜底节拍。
+ */
+const val RENDER_VSYNC_STALE_NANOS: Long = 100_000_000L
+
+/** 空闲闭锁：没有任何信号时每 500ms 醒来尝试一帧（约 2 FPS）。 */
+const val RENDER_LATCH_IDLE_TIMEOUT_NANOS: Long = 500_000_000L
+
+/** 空闲判定阈值：距上次信号超过 5s 且无滚动运动即转入空闲闭锁。 */
+const val RENDER_IDLE_THRESHOLD_NANOS: Long = 5_000_000_000L
+
+/**
  * 滚动复位决策（termux `onScreenUpdated` 对等语义），纯函数无副作用以便表驱动测试。
  *
  * termux 语义：除文本选区激活或自动滚动被显式关闭外，新输出都会把视口滚回底部。
@@ -122,6 +151,21 @@ internal fun shouldResetScroll(
  */
 internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleThresholdNanos: Long): Boolean =
     idleNanos > idleThresholdNanos && !hasScrollMotion
+
+/**
+ * 活跃期闭锁超时：vsync 链健康时它只作安全网，不得成为第二路帧节拍。
+ *
+ * 两路节拍（Choreographer 每显示帧 + 17ms 闭锁）周期只差 0.3ms，相位漂移会让
+ * 闭锁偶尔落在 vsync 前一瞬：同一显示周期推出两帧（实测成对呈现间隔 3–5ms），
+ * 交换链随即排满，下一次 acquire 阻塞约 70ms（4 个 vsync）——这正是「滑动缓慢、
+ * 卡顿、闪烁」的形态。健康时把超时放宽到 2 个 vsync，使每个显示帧最多一帧；
+ * vsync 链停摆（[SessionEntry.lastVsyncNanos] 不再推进）时退回 17ms 兜底，
+ * 保持输入回显与滚动不被主线程阻塞拖死。纯函数无副作用。
+ *
+ * @param vsyncFresh 最近的 vsync 是否落在 [RENDER_VSYNC_STALE_NANOS] 内。
+ */
+internal fun activeLatchTimeoutNanos(vsyncFresh: Boolean): Long =
+    if (vsyncFresh) RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS else RENDER_LATCH_TIMEOUT_NANOS
 
 /**
  * 会话状态由两个布尔量编码：running 且未退出 = 存活；running 且已退出 = 死亡（待清理）；
@@ -165,6 +209,10 @@ internal data class SessionEntry(
     // 最近一次 UI 线程滚动手势的时间戳（System.nanoTime，在 setScrollOffset 中写入），
     // 渲染线程据此计算 recentlyScrolled 保护；0L 表示从未滚动过。
     @Volatile var lastScrollNanos: Long = 0L,
+    // 最近一次 Choreographer 显示帧的时间戳（System.nanoTime）。渲染循环据此判断
+    // vsync 链是否健康：健康时活跃闭锁只作安全网，绝不能同时充当第二路帧节拍
+    // （两路节拍相邻会在一帧内推出两帧，交换链排满后 acquire 阻塞 ~70ms）。
+    @Volatile var lastVsyncNanos: Long = 0L,
     // shell 已退出且 [Process completed (code X)] 提示已送入终端（见 feedProcessCompletedPrompt）。
     // 会话保持可见与运行，直到用户按 Enter。
     @Volatile var waitingForProcessCompleted: Boolean = false,
@@ -529,6 +577,7 @@ constructor(
                             entry.hasScrollMotion()
                         )
                 ) {
+                    entry.lastVsyncNanos = System.nanoTime()
                     entry.vsyncRequested = true
                     entry.pokeVsync()
                 }
@@ -1510,7 +1559,7 @@ constructor(
                                         //     （forceRender()，语义不变），
                                         //   ③ renderSignaled — 任意 notifyRender() 生产者
                                         //     （滚动/选区/PTY 相邻的 UI 信号）。
-                                        // 否则驻留在输出闭锁上。闭锁超时（活跃 16ms / 空闲 500ms）
+                                        // 否则驻留在输出闭锁上。闭锁超时（活跃 17–34ms / 空闲 500ms）
                                         // 同时充当安全网节奏：超时返回仍会落下一次渲染尝试，
                                         // 使主线程阻塞或 vsync 信号丢失时延迟字段的消费不会停摆。
                                         // 关于 PTY 输出：waitOutput 是纯 park——PTY 到达无法提前唤醒它；
@@ -1522,12 +1571,12 @@ constructor(
                                             !entry.forceRenderRequested &&
                                             !entry.renderSignaled.get()
                                         ) {
+                                            val nowNanos = System.nanoTime()
                                             val timeoutNanos: Long =
                                                 if (
                                                     shouldUseIdleLatch(
                                                         idleNanos =
-                                                        System.nanoTime() -
-                                                            entry.lastSignalNanos,
+                                                        nowNanos - entry.lastSignalNanos,
                                                         hasScrollMotion =
                                                         entry.hasScrollMotion(),
                                                         idleThresholdNanos =
@@ -1536,7 +1585,11 @@ constructor(
                                                 ) {
                                                     RENDER_LATCH_IDLE_TIMEOUT_NANOS
                                                 } else {
-                                                    RENDER_LATCH_TIMEOUT_NANOS
+                                                    activeLatchTimeoutNanos(
+                                                        vsyncFresh =
+                                                        nowNanos - entry.lastVsyncNanos <=
+                                                            RENDER_VSYNC_STALE_NANOS,
+                                                    )
                                                 }
                                             entry.wakeGeneration =
                                                 bridge.waitOutput(
@@ -2124,16 +2177,6 @@ constructor(
         private const val RENDER_ERROR_BACKOFF_MS =
             200L // 连续 10 次瞬时错误后延长睡眠
 
-        // 17ms active latch = 单个 vsync 周期（60Hz 显示 ~16.7ms）：
-        // waitOutput 是纯 park（PTY 到达无法提前唤醒，见 gate 注释），
-        // 8ms 的旧值让 active 态在每次 vsync 之外再多落一次兜底渲染，
-        // 实测渲染循环以 ~166fps 空转冲刷（多数帧被显示端丢弃，Immediate
-        // 下还叠加撕裂）。17ms 兜底把 active 节拍上界收敛到显示刷新率：
-        // 渲染要么由 Choreographer vsync 唤醒（~16.7ms 一次），要么由
-        // 本超时兜底，二者不会在同一周期重复触发。最坏输入→回显量化
-        // 延迟约 17ms，不可感知。
-        private const val RENDER_LATCH_TIMEOUT_NANOS = 17_000_000L
-
         // 慢帧诊断：超过此值的帧输出一行 SLOW_FRAME（渲染阶段墙钟时间）供离线拆解。
         private const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
 
@@ -2142,8 +2185,6 @@ constructor(
         // 报成 55/58/62/66/71/76 六个值（全部是舍入产物，不含帧率信息）。
         private const val NANOS_PER_MILLI = 1_000_000.0
         private const val NANOS_PER_SECOND = 1_000_000_000.0
-        private const val RENDER_LATCH_IDLE_TIMEOUT_NANOS = 500_000_000L // 500ms for idle (~2 FPS)
-        private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
         private const val THREAD_JOIN_TIMEOUT_MS = 1000L
         private const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
