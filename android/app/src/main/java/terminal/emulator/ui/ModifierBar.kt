@@ -156,14 +156,15 @@ internal val TERMUX_EXTRA_KEYS_ROW1: List<ToolbarKey> =
 internal val TERMUX_EXTRA_KEYS_ROW2: List<ToolbarKey> =
     TERMUX_EXTRA_KEYS.subList(TERMUX_EXTRA_KEYS.size / 2, TERMUX_EXTRA_KEYS.size).toImmutableList()
 
-// Termux ExtraKeysView 对等：长按阈值 400ms（FALLBACK_LONG_PRESS_DURATION），
-// 自动重复在同一延迟后开始，并以 80ms 节奏重复（DEFAULT_LONG_PRESS_REPEAT_DELAY）。
-private const val LONG_PRESS_MS = 400L
-
-// termux ExtraKeysView 语义：按键在 ACTION_DOWN 即触发，
-// 自动重复在初始延迟后开始，并以固定节奏重复直到 UP。
-private const val AUTO_REPEAT_INITIAL_DELAY_MS = 400L
+// Termux ExtraKeysView 语义：长按阈值取系统值（随无障碍「长按时长」变化），
+// 超出合理区间时退回 400ms；自动重复在同一阈值后开始，以 80ms 节奏重复。
+private const val MIN_LONG_PRESS_MS = 200L
+private const val MAX_LONG_PRESS_MS = 3000L
+private const val FALLBACK_LONG_PRESS_MS = 400L
 private const val AUTO_REPEAT_INTERVAL_MS = 80L
+
+internal fun modifierLongPressMillis(systemTimeoutMs: Long): Long =
+    systemTimeoutMs.takeIf { it in MIN_LONG_PRESS_MS..MAX_LONG_PRESS_MS } ?: FALLBACK_LONG_PRESS_MS
 
 // 按下反馈阈值。
 private const val PRESS_BG_TWEEN_MS = 30
@@ -535,6 +536,7 @@ private fun RowScope.ExtraKeyButton(
                 // 不会让长按误判，测试的虚拟时钟也推进同一条时间线。
                 val downEventTime = down.uptimeMillis
                 val slop = viewConfiguration.touchSlop
+                val longPressMs = modifierLongPressMillis(viewConfiguration.longPressTimeoutMillis)
                 // ACTION_CANCEL 会被 MotionEventAdapter 直接丢弃，改由 processCancel 合成
                 // 无 MotionEvent 的全释放事件送达；真实抬手/移动始终携带原始 MotionEvent。
                 var sawRawMotionEvent = currentEvent.motionEvent != null
@@ -551,14 +553,14 @@ private fun RowScope.ExtraKeyButton(
                     var gestureValid = true
                     if (currentSecondaryAction != null) {
                         // 带次级动作的按键（DRAWER → 粘贴）：轻点立即触发 onClick
-                        // （无长按确认窗口），而超过 LONG_PRESS_MS 的持续按压
+                        // （无长按确认窗口），而超过长按阈值的持续按压
                         // 只触发一次 secondaryAction。对应 Android 的
                         // onClick/onLongClick 划分。
                         var longPressTriggered = false
                         fun maybeFireLongPress(eventTimeMillis: Long) {
                             if (
                                 !longPressTriggered &&
-                                eventTimeMillis - downEventTime >= LONG_PRESS_MS
+                                eventTimeMillis - downEventTime >= longPressMs
                             ) {
                                 longPressTriggered = true
                                 view.performHapticFeedback(
@@ -626,7 +628,7 @@ private fun RowScope.ExtraKeyButton(
                             // 单调 uptime，与上方长按阈值同一时间线：墙钟前跳会让
                             // remaining 变负，循环再不 await 事件而是空转连发。
                             var nextRepeatAt =
-                                android.os.SystemClock.uptimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
+                                android.os.SystemClock.uptimeMillis() + longPressMs
                             var repeatFired = false
                             var repeatValid = true
                             while (currentOnRepeat != null) {

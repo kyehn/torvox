@@ -274,7 +274,7 @@ class ModifierBarRobolectricTest {
     }
 
     private companion object {
-        /** 长按阈值（LONG_PRESS_MS）之上留出余量。 */
+        /** 长按阈值（系统值，默认 500ms）之上留出余量。 */
         const val LONG_PRESS_HOLD_MS = 700L
     }
 }
