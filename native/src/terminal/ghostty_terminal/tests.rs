@@ -4150,3 +4150,32 @@ fn selection_highlight_covers_blank_row_inside_range() {
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
 }
+
+/// ED2（`clear`）必须**首次**即撤下 Kitty 放置，不得等第二次 clear。
+///
+/// 用户报障：「kitten icat 显示图像后 clear，文本被清除但图像依旧显示，
+/// 第二次 clear 才消失」。判别力放在 VT 侧不变式上：ED2 之后放置集合必须
+/// 立刻为空——若 VT 仍留着放置，渲染侧无从知道该擦除哪块像素，只能靠
+/// 「整帧重绘」兜底，而那正是「第二次 clear 才消失」的成因。
+///
+/// 图像经直接放置通道（`a=T`，即 kitten icat 走的那条）送入，故用同一路径
+/// 构造：VT 侧放置与 Unicode 占位符两条通道共用 ED2 撤除语义。
+#[test]
+fn ed2_removes_kitty_placements_on_first_clear() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
+    terminal.flush();
+    assert_eq!(
+        1,
+        terminal.take_kitty_placements().len(),
+        "直接放置通道送入的图像必须产生一个放置，否则本用例不覆盖撤除路径"
+    );
+
+    terminal.pty_write(b"\x1b[2J");
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "首次 ED2 后放置集合必须为空（图像不得残留到第二次 clear）"
+    );
+}
