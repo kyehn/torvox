@@ -38,6 +38,13 @@ const SURFACE_CONFIGURE_API: &str = "Surface::configure";
 /// （BufferQueue 被遗弃），surface 不再报告任何可用队列族。
 const UNSUPPORTED_QUEUE_FAMILY: &str = "does not support the adapter's queue family";
 
+/// 「配置尺寸与纹理尺寸不符」告警的限频闸门。
+///
+/// 重配本应让下一帧尺寸一致，但重配未生效时该告警会逐帧复现；逐条记会把 logcat
+/// 刷成告警洪水。真正的状态变化（重配后的尺寸）在后续诊断里仍可见。
+static SIZE_MISMATCH_THROTTLE: crate::render::slow_log::SlowLogThrottle =
+    crate::render::slow_log::SlowLogThrottle::new();
+
 /// 未捕获 GPU 错误是否属于「平台收走原生窗口后 wgpu 重新配置 surface 必然失败」这一类。
 ///
 /// 判据是错误**种类**而非文案泛泛：校验错误同时出现 wgpu 的配置 API 名
@@ -385,13 +392,15 @@ impl Renderer {
             // 按纹理实际尺寸重配并丢弃本次纹理、跳过本帧——绝不拿旧尺寸纹理渲染，
             // 那会把帧画进尺寸已不合脚的 swapchain；跳过也保证刚取得的 SurfaceTexture
             // 不被丢弃而不 present，交换链不丢缓冲区。下一帧取得的纹理尺寸即与配置一致。
-            log::warn!(
-                "begin_frame: size mismatch! config={}x{} texture={}x{}; reconfiguring and skipping frame",
-                config_width,
-                config_height,
-                tex_size.width,
-                tex_size.height
-            );
+            if SIZE_MISMATCH_THROTTLE.should_log() {
+                log::warn!(
+                    "begin_frame: size mismatch! config={}x{} texture={}x{}; reconfiguring and skipping frame",
+                    config_width,
+                    config_height,
+                    tex_size.width,
+                    tex_size.height
+                );
+            }
             if let Some(mut new_config) = self.surface_config.take() {
                 new_config.width = tex_size.width;
                 new_config.height = tex_size.height;

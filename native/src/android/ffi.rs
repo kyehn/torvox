@@ -757,6 +757,13 @@ pub(crate) fn unanswered_clipboard_reads(session_id: u64) -> usize {
 static LAST_FLOOD_SHED_WARN_MS: AtomicU64 = AtomicU64::new(0);
 const FLOOD_SHED_WARN_INTERVAL_MS: u64 = 5_000;
 
+/// 帧内分段慢帧诊断的限频闸门（两次输出间隔不小于 500ms）。
+static SLOW_RENDER_INNER_THROTTLE: crate::render::slow_log::SlowLogThrottle =
+    crate::render::slow_log::SlowLogThrottle::new();
+/// 采样段慢帧诊断的限频闸门（与帧内分段各自限频，互不吞掉）。
+static SLOW_RENDER_SAMPLE_THROTTLE: crate::render::slow_log::SlowLogThrottle =
+    crate::render::slow_log::SlowLogThrottle::new();
+
 fn flood_shed_warn_throttled(session_id: u64, unanswered: usize) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2797,7 +2804,10 @@ fn render_inner(session_id: u64) -> jint {
         }
     };
     let total = render_done.duration_since(render_start);
-    if total >= std::time::Duration::from_millis(30) {
+    // 限频：持续慢时逐帧都会命中，逐帧记会把 logcat 刷成慢帧洪水
+    //（实测软件 Vulkan 上一轮采集里此类条目占应用侧 W 级绝大多数）。
+    // 规范要求两次输出间隔不小于 500ms；本类诊断独占一个闸门。
+    if total >= std::time::Duration::from_millis(30) && SLOW_RENDER_INNER_THROTTLE.should_log() {
         let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
         log::warn!(
             "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms render={:.3}ms total={:.3}ms count={count}",
@@ -2947,7 +2957,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
         // 这条日志把「Kotlin 看到 58ms、原生 render 日志却沉默」的盲区钉住。
         let inner_ms = inner_done.duration_since(jni_start).as_secs_f64() * 1000.0;
         let sample_ms = inner_done.elapsed().as_secs_f64() * 1000.0;
-        if inner_ms < 30.0 && inner_ms + sample_ms >= 30.0 {
+        if inner_ms < 30.0
+            && inner_ms + sample_ms >= 30.0
+            && SLOW_RENDER_SAMPLE_THROTTLE.should_log()
+        {
             log::warn!(
                 "SLOW_RENDER_SAMPLE inner={inner_ms:.3}ms sample={sample_ms:.3}ms count={count}"
             );
