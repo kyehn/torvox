@@ -819,6 +819,61 @@ fn osc_clipboard_via_pty_write_path() {
     );
 }
 
+/// OSC 52 以 ST（`ESC \\`）终止时剪贴板事件 MUST 同样到达。
+///
+/// 判别力：只覆盖 BEL 结尾时，ST 结尾的序列（部分客户端如此发）会被静默丢弃，
+/// 用户侧表现是「复制到剪贴板没反应」。
+#[test]
+fn osc_clipboard_st_terminated() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b]52;c;SGVsbG8=\x1b\\");
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.poll_clipboard_event(),
+        Some(("c".to_string(), "Hello".to_string())),
+        "OSC 52 以 ST 终止时剪贴板事件必须到达"
+    );
+}
+
+/// 与剪贴板无关的 OSC MUST NOT 产生剪贴板事件。
+///
+/// 判别力：侧扫描器若把任意 OSC 都当剪贴板处理，标题/调色板之类的序列会污染
+/// 用户剪贴板。
+#[test]
+fn unrelated_osc_produces_no_clipboard_event() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b]0;unrelated\x07");
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.poll_clipboard_event(),
+        None,
+        "标题等无关 OSC 不得触发剪贴板事件"
+    );
+}
+
+/// 非法 base64 的 OSC 52 MUST NOT 产生剪贴板事件，终端仍须可用。
+///
+/// 判别力：解码失败若被当作空写入或半截写入上报，剪贴板会被垃圾内容覆盖。
+#[test]
+fn osc_clipboard_invalid_base64_is_ignored() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b]52;c;!!!not-base64!!!\x07");
+    terminal_under_test.flush();
+    assert_eq!(
+        terminal_under_test.poll_clipboard_event(),
+        None,
+        "非法 base64 不得进入剪贴板"
+    );
+    terminal_under_test.vt_write(b"After");
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+    assert!(
+        snap.cells.iter().any(|cell| cell.codepoint == 'A' as u32),
+        "非法 OSC 52 之后的文本仍须渲染"
+    );
+    assert_invariants(&snap);
+}
+
 /// OSC color reset — sent across split buffer.
 #[test]
 fn osc_color_reset_split_buffer() {
