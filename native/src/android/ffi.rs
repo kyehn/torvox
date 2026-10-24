@@ -37,6 +37,7 @@ use jni::sys::{
 use jni::{Env, EnvUnowned, jni_str};
 
 use super::text_utils::encode_meta_prefix;
+use crate::render::GpuError;
 use crate::render::cell_builder::SearchHighlight;
 use crate::render::cell_builder::{SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA};
 use crate::terminal::ShellEnv;
@@ -2268,6 +2269,23 @@ fn request_session_repaint(session_id: u64) -> bool {
         .is_some()
 }
 
+/// 帧失败日志的分级：可恢复的一类记 debug，真异常记 error。
+///
+/// 分级依据是**错误类型**（[GpuError::is_recoverable]），不是文案——文案会变，
+/// 类型不会。可恢复的一类（本帧没有可呈现的纹理：渲染暂停、surface 尚未挂载、
+/// 平台收走了原生窗口）逐帧可能重复，按 debug 记才不会把 W/E 闸门淹掉；
+/// 宿主侧另有「瞬时渲染错误」的限频汇总（`logcat-hygiene` 规范），两者分工：
+/// 本处给细节，宿主给频率。
+///
+/// 真异常（管线缺失、单元转换失败、attach 失败……）仍记 error，不降级。
+fn log_frame_failure(error: &GpuError) {
+    if error.is_recoverable() {
+        log::debug!("render: frame unavailable: {error}");
+    } else {
+        log::error!("render: frame failed: {error}");
+    }
+}
+
 fn render_inner(session_id: u64) -> jint {
     let render_start = std::time::Instant::now();
     // ── 阶段 0：切会话后索要一帧 ────────────────────────────────────────
@@ -2665,7 +2683,7 @@ fn render_inner(session_id: u64) -> jint {
                     1
                 }
                 Err(error) => {
-                    log::error!("render: frame failed: {error}");
+                    log_frame_failure(&error);
                     // receive_cell_data() 是破坏性取数，VT 去重基线已推进，未呈现的帧
                     // 不会被 VT 补发。把本帧 cells 留在 last_frame，并置 dirty 确保
                     // 下一帧（Idle 或 New）重试，避免该帧内容永久丢失。
@@ -2772,7 +2790,7 @@ fn render_inner(session_id: u64) -> jint {
             match result {
                 Ok(()) => 1,
                 Err(error) => {
-                    log::error!("render: frame failed: {error}");
+                    log_frame_failure(&error);
                     -1
                 }
             }

@@ -605,17 +605,19 @@ impl Renderer {
         // 会把从未上屏的新帧记为已呈现，后续 Idle 误判“已最新”不再补刷
         //（IME 弹出时输入不可见、隐藏后才出现的主因）。
         if self.render_paused {
-            return Err(GpuError::Surface("render paused".to_string()));
+            return Err(GpuError::SurfaceUnavailable("render paused".to_string()));
         }
         // 未暂停时 surface 与 config 必须可用。
         if self.surface.is_none() || self.surface_config.is_none() {
-            return Err(GpuError::Surface("no surface configured".to_string()));
+            return Err(GpuError::SurfaceUnavailable(
+                "no surface configured".to_string(),
+            ));
         }
 
         let frame_start = std::time::Instant::now();
         let mut frame_ctx = self
             .begin_frame()
-            .ok_or_else(|| GpuError::Surface("begin_frame failed".to_string()))?;
+            .ok_or_else(|| GpuError::SurfaceUnavailable("begin_frame failed".to_string()))?;
         let begin_done = std::time::Instant::now();
 
         let config_width = frame_ctx.config_width;
