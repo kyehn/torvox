@@ -1,6 +1,7 @@
 # performance-measurement Specification
 
 ## Purpose
+
 本仓的性能结论来自两条互不替代的路径：CI 内的微基准与测试（`cargo bench --quick`、
 Rust 用例、JVM 用例）与真机上的帧时序探针（渲染循环的 avg/p95/max 报告、慢帧分段
 诊断）。两者的能力边界必须写明：合成负载可以证明回归，但不能替代物理设备结论。

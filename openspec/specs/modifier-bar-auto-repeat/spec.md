@@ -1,6 +1,7 @@
 # modifier-bar-auto-repeat Specification
 
 ## Purpose
+
 修饰键栏的长按锁定与自动重复共用一条时间阈值。阈值若写死，用户在系统设置里调长
 「长按时长」（无障碍需求）后，键栏仍按固定节奏抢跑；Termux 的 `ExtraKeysView` 取
 `ViewConfiguration.getLongPressTimeout()` 并对越界值回退，本能力记录同一口径。
