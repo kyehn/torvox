@@ -2520,14 +2520,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
             updateDragHandleForCell(gridRow)
         }
-        val selection = viewModel?.state?.value?.selection
-        if (selection?.start != null && selection.end != null) {
-            selectionHandles.repositionHandle(HandleDrag.START, selection.start.row, selection.start.col)
-            selectionHandles.repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
-        }
     }
 
-    /** 把被拖动的手柄移到当前触摸列所在 [gridRow] 的单元格，并在宽字符（CJK）边界处吸附。 */
+    /**
+     * 把被拖动的手柄移到当前触摸列所在 [gridRow] 的单元格，并在宽字符（CJK）边界处吸附。
+     *
+     * 与快速路径走同一个入口（[TerminalViewModel.dragMove]）：两条路径各自维护边界时，
+     * 一条写入的端点会被另一条读到的旧端点覆盖——越过对侧手柄后尤其明显，
+     * 未拖动的一侧会异常增长、手柄与选区边界对不上。
+     */
     private fun updateDragHandleForCell(gridRow: Int) {
         // 列沿用与快速路径同一套折算（锚点 + 手指位移）：边缘滚动区若改用
         // 「手指所在格」，手指进出边缘区时列会跳一格。
@@ -2540,20 +2541,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 cols = cols,
             )
         val snappedCol = snapToWideCharBoundary(gridRow, curCol)
-        val flippedSide =
-            if (handleDragState == HandleDrag.START) {
-                viewModel?.updateSelectionStart(gridRow, snappedCol)
-            } else if (handleDragState == HandleDrag.END) {
-                viewModel?.updateSelection(gridRow, snappedCol)
-            } else {
-                null
-            }
-        if (flippedSide != null) {
-            handleDragState = if (flippedSide) HandleDrag.START else HandleDrag.END
-        }
-        // 节流的原生推送使单元格反色高亮在边缘滚动拖动期间保持实时
-        // （与快速 MOVE 路径同一节奏）。
-        viewModel?.syncDragSelectionToNativeThrottled()
+        val result =
+            viewModel?.dragMove(
+                draggingStart = handleDragState == HandleDrag.START,
+                row = gridRow,
+                col = snappedCol,
+                cachedMaxRow = (currentScrollbackLength() + rows - 1).coerceAtLeast(0),
+                cachedMaxCol = (cols - 1).coerceAtLeast(0),
+            ) ?: return
+        handleDragState = if (result.draggingStart) HandleDrag.START else HandleDrag.END
+        selectionHandles.repositionHandle(HandleDrag.START, result.startRow, result.startCol)
+        selectionHandles.repositionHandle(HandleDrag.END, result.endRow, result.endCol)
     }
 
     /**

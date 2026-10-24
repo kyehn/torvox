@@ -127,6 +127,35 @@ internal fun SelectionState.withPendingDrag(pending: HandleDragResult?): Selecti
         )
     }
 
+/**
+ * 一帧拖动的结果：以 [pending]（上一次未提交的实时边界）为基准折叠出新边界并钳位。
+ *
+ * 快速路径与慢速路径共用本函数。两侧各写一份时，任一侧漏掉 pending 就会在两条路径
+ * 交替的瞬间（快速拖动 ←→ 边缘滚动）把**未拖动**的一侧弹回已提交的旧端点：
+ * 现象正是「另一边界异常增加，手柄与边界不再对齐」。
+ *
+ * @param maxRow 绝对网格行上界（含），@param maxCol 列上界（含）。
+ */
+internal fun resolveDragBounds(
+    current: SelectionState,
+    pending: HandleDragResult?,
+    draggingStart: Boolean,
+    row: Int,
+    col: Int,
+    maxRow: Int,
+    maxCol: Int,
+): HandleDragResult {
+    val result = current.withPendingDrag(pending).applyHandleDrag(draggingStart, row, col)
+    val bounds = clampSelection(result.startRow, result.startCol, result.endRow, result.endCol, maxRow, maxCol)
+    return HandleDragResult(
+        bounds.startRow,
+        bounds.startCol,
+        bounds.endRow,
+        bounds.endCol,
+        result.draggingStart,
+    )
+}
+
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
 data class SessionInfo(val id: Long, val title: String = "")
 
@@ -234,8 +263,6 @@ constructor(
 
     fun updateSelection(row: Int, col: Int) = selectionManager.updateSelection(row, col)
 
-    fun updateSelectionStart(row: Int, col: Int) = selectionManager.updateSelectionStart(row, col)
-
     fun endSelection() = selectionManager.endSelection()
 
     /** 快速拖动路径：计算选区边界而不写 Compose 状态；见 [SelectionManager.dragMove]。 */
@@ -244,21 +271,6 @@ constructor(
 
     /** 把最后一次快速路径的拖动边界提交到 Compose 状态；见 [SelectionManager.commitDragBounds]。 */
     fun commitDragBounds() = selectionManager.commitDragBounds()
-
-    /**
-     * 边缘滚动手柄拖动期间以节流频率把当前 Compose 选区推送到原生：
-     * 慢速路径（[updateSelection]/[updateSelectionStart]）已写入状态，
-     * 故读回并共用快速路径的节奏守卫，使两条拖动路径的高亮速率一致。
-     */
-    fun syncDragSelectionToNativeThrottled() {
-        val current = _state.value.selection
-        val start = current.start ?: return
-        val end = current.end ?: return
-        if (!current.active || current.pasteOnly) return
-        selectionManager.syncDragBoundsToNativeThrottled(
-            intArrayOf(start.row, start.col, end.row, end.col),
-        )
-    }
 
     /**
      * termux setInitialTextSelectionPosition 流程：在空白单元格/仅粘贴的选区上抓住手柄时，
@@ -412,10 +424,7 @@ constructor(
             }
         }
 
-        fun updateSelection(row: Int, col: Int): Boolean = dragSelection(draggingStart = false, row = row, col = col)
-
-        fun updateSelectionStart(row: Int, col: Int): Boolean =
-            dragSelection(draggingStart = true, row = row, col = col)
+        fun updateSelection(row: Int, col: Int) = dragSelection(row = row, col = col)
 
         /**
          * 快速拖动路径：不触碰 Compose 状态地计算选区边界。
@@ -436,25 +445,18 @@ constructor(
         ): HandleDragResult? {
             val current = _state.value.selection
             if (!current.active || current.pasteOnly) return null
-            val result =
-                current.withPendingDrag(lastDragBounds).applyHandleDrag(
-                    draggingStart = draggingStart,
-                    targetRow = row,
-                    targetCol = col,
-                )
-            val bounds =
-                clampSelection(
-                    result.startRow,
-                    result.startCol,
-                    result.endRow,
-                    result.endCol,
-                    cachedMaxRow,
-                    cachedMaxCol,
-                )
             val flipped =
-                HandleDragResult(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol, result.draggingStart)
+                resolveDragBounds(
+                    current = current,
+                    pending = lastDragBounds,
+                    draggingStart = draggingStart,
+                    row = row,
+                    col = col,
+                    maxRow = cachedMaxRow,
+                    maxCol = cachedMaxCol,
+                )
             lastDragBounds = flipped
-            val boundsArray = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
+            val boundsArray = intArrayOf(flipped.startRow, flipped.startCol, flipped.endRow, flipped.endCol)
             syncDragBoundsToNativeThrottled(boundsArray)
             return flipped
         }
@@ -501,13 +503,13 @@ constructor(
 
         private var lastDragBounds: HandleDragResult? = null
 
-        private fun dragSelection(draggingStart: Boolean, row: Int, col: Int): Boolean {
+        /** 慢速路径：直接写 Compose 状态地拖动末端边界（遗留触摸路径与仪器化用例使用）。 */
+        private fun dragSelection(row: Int, col: Int) {
             // 拖动路径钳位所用的绝对网格边界（见下）；只读一次——
             // 并发的 resize 最多使该边界陈旧一帧。
             val runtimeState = runtime.state.value
             val maxRow = absoluteMaxRow(runtimeState.rows)
             val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
-            var flippedSide = draggingStart
             // CAS，活跃性检查置于 lambda 内部：选区读取与写入相对并发的
             // _state 更新是原子的。仅粘贴的选区（空单元格/空白处长按）不可变
             // ——长按期间手指的微小移动绝不能使该单格漂移。
@@ -516,32 +518,28 @@ constructor(
                 if (!current.active || current.pasteOnly) {
                     state
                 } else {
-                    val result =
-                        current.applyHandleDrag(
-                            draggingStart = draggingStart,
-                            targetRow = row,
-                            targetCol = col,
+                    // 与快速路径共用同一份「当前边界」：拖动途中的边界可能尚未提交到
+                    // _state（快速路径刻意不写），直接拿已提交的旧端点当基准会把
+                    // **没被拖动**的一侧算到错误位置——快速路径与边缘滚动交替时，
+                    // 现象就是「另一边界异常增加」。
+                    val flipped =
+                        resolveDragBounds(
+                            current = current,
+                            pending = lastDragBounds,
+                            draggingStart = false,
+                            row = row,
+                            col = col,
+                            maxRow = maxRow,
+                            maxCol = maxCol,
                         )
-                    flippedSide = result.draggingStart
-                    // 纵深防御：在拖动结果抵达原生 setSelection 之前先规范化
-                    // ——保序的 start ≤ end + 范围钳位到网格。
-                    // applyHandleDrag 本身已正确排序；clampSelection
-                    // 是倒置/越界目标的安全网。
-                    val bounds =
-                        clampSelection(
-                            result.startRow,
-                            result.startCol,
-                            result.endRow,
-                            result.endCol,
-                            maxRow,
-                            maxCol,
-                        )
+                    // 两条路径都写同一份实时边界，下一帧无论走哪条都以它为基准。
+                    lastDragBounds = flipped
                     state.copy(
                         selection =
                         current.copy(
                             dragging = true,
-                            start = SelectionAnchor(bounds.startRow, bounds.startCol),
-                            end = SelectionAnchor(bounds.endRow, bounds.endCol),
+                            start = SelectionAnchor(flipped.startRow, flipped.startCol),
+                            end = SelectionAnchor(flipped.endRow, flipped.endCol),
                             // 拖动期间隐藏浮动菜单；它在 ACTION_UP 时
                             // 于新位置重新出现（endSelection 恢复 menuDismissed=false）。
                             menuDismissed = true,
@@ -555,7 +553,6 @@ constructor(
             if (_state.value.selection.dragging) {
                 runtime.setSelectionDragging(true)
             }
-            return flippedSide
         }
 
         fun endSelection() {
