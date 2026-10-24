@@ -1147,6 +1147,27 @@ mod tests {
         }
     }
 
+    /// 等到退出码变为可上报，超时返回 `None`。
+    ///
+    /// 退出标志有两条置位路径：读线程（PTY EOF）与等待线程（拿到退出码），
+    /// 二者无序——标志已置而码尚未发布时 `take_reported_exit()` 返回 `None`。
+    /// 生产路径正是逐帧轮询直到可上报（见 [`Session::take_reported_exit`]），
+    /// 测试若只读一次就会读到中间的 `None` 而偶发失败。
+    fn wait_for_reported_exit(
+        session: &Session,
+        deadline: std::time::Instant,
+    ) -> Option<ReportedExit> {
+        loop {
+            if let Some(reported) = session.take_reported_exit() {
+                return Some(reported);
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// 为测试创建 24x80 的 `/bin/sh` 会话。
     fn spawn_test_session() -> Session {
         Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None, None).expect("spawn failed")
@@ -1215,7 +1236,7 @@ mod tests {
         drain_output(&mut session, deadline);
         assert!(session.is_exited());
         assert_eq!(
-            session.take_reported_exit(),
+            wait_for_reported_exit(&session, deadline),
             Some(ReportedExit::Code(100 + libc::ENOENT)),
             "execve 失败的退出码必须是 100 + errno 编码"
         );
@@ -1496,16 +1517,8 @@ mod tests {
         drain_output(&mut session, deadline);
         assert!(session.is_exited());
         // 每帧轮询直到可上报；真实退出码必然在等待线程里被写入，无需忙等。
-        let reported = loop {
-            if let Some(reported) = session.take_reported_exit() {
-                break reported;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "exit code must become reportable well within 3s"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        };
+        let reported = wait_for_reported_exit(&session, deadline)
+            .expect("exit code must become reportable well within 3s");
         assert_eq!(reported, ReportedExit::Code(3));
         // 恰好一次：此后不再有可上报的退出。
         assert_eq!(session.take_reported_exit(), None);
