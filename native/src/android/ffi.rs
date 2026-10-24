@@ -41,6 +41,7 @@ use crate::render::cell_builder::SearchHighlight;
 use crate::render::cell_builder::{SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA};
 use crate::terminal::ShellEnv;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
+use crate::terminal::ghostty_terminal::{placeholder_layout_signature, placeholder_row_signatures};
 use crate::terminal::session::Session;
 use crate::terminal::theme;
 use libghostty_vt::key;
@@ -2439,11 +2440,15 @@ fn render_inner(session_id: u64) -> jint {
             // 后再重取渲染状态锁应用结果，消除渲染线程与主题线程的环形等待。
             let kitty_generation = cursor_info.kitty_generation;
             // 纯文本会话（生成戳为 0）不做逐格扫描：签名只服务于图像放置缓存。
-            let placeholder_signature = if kitty_generation != 0 {
-                placeholder_layout_signature(&cells)
+            let placeholder_rows = if kitty_generation != 0 {
+                placeholder_row_signatures(&cells, rows)
             } else {
-                0
+                Vec::new()
             };
+            let absolute_base_row =
+                i64::from(cursor_info.scrollback_length).saturating_sub(scroll_offset);
+            let placeholder_signature =
+                placeholder_layout_signature(&placeholder_rows, absolute_base_row.max(0) as u64);
             // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
             let (font_width, font_height) = render_state.font_pipeline.cell_metrics();
             let raster_scale = render_state.font_pipeline.get_raster_scale();
@@ -2498,7 +2503,12 @@ fn render_inner(session_id: u64) -> jint {
             // 不再排队，按帧取会话锁的写入路径也不再排队。
             let fetched_kitty_frames = if need_kitty_fetch {
                 session_query_channel(session_id)
-                    .map(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
+                    .map(|query_tx| {
+                        GhosttyTerminal::take_kitty_placements_on(
+                            &query_tx,
+                            (kitty_generation != 0).then(|| std::sync::Arc::from(placeholder_rows)),
+                        )
+                    })
                     .unwrap_or_default()
             } else {
                 Vec::new()
@@ -2823,25 +2833,6 @@ fn last_content_row_bits_for_frame(
         Some(row) if (row as i64) < LAST_CONTENT_ROW_NONE_BITS => row as i64,
         _ => LAST_CONTENT_ROW_NONE_BITS,
     }
-}
-
-/// 可见 Unicode 占位符的布局签名。
-///
-/// 虚拟放置的锚点由占位符单元反推；图像生成戳不变时，TUI 重绘仍可能把
-/// 同一幅图挪到新位置。对全部占位符位置做滚动哈希即可感知任意移动，又不必
-/// 每帧重查并重解码整幅 RGBA。
-fn placeholder_layout_signature(cells: &[crate::terminal::ghostty_terminal::CellData]) -> u64 {
-    let mut signature = 0xcbf2_9ce4_8422_2325u64;
-    let mut count = 0u64;
-    for cell in cells {
-        if cell.codepoint != crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER {
-            continue;
-        }
-        signature ^= (u64::from(cell.row) << 32) | u64::from(cell.col);
-        signature = signature.wrapping_mul(0x0000_0100_0000_01b3);
-        count += 1;
-    }
-    if count == 0 { 0 } else { signature ^ count }
 }
 
 // JNI 导出：renderWithNewOutput
@@ -5311,9 +5302,11 @@ mod session_scoped_tests {
 
 #[cfg(test)]
 mod placeholder_signature_tests {
-    use super::placeholder_layout_signature;
     use crate::terminal::ghostty_terminal::CellData;
     use crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER;
+    use crate::terminal::ghostty_terminal::{
+        placeholder_layout_signature, placeholder_row_signatures,
+    };
 
     fn placeholder(row: u32, col: u32) -> CellData {
         let mut cell: CellData = bytemuck::Zeroable::zeroed();
@@ -5323,19 +5316,36 @@ mod placeholder_signature_tests {
         cell
     }
 
+    fn signature(cells: &[CellData], rows: u32, viewport_top_row: u64) -> u64 {
+        placeholder_layout_signature(&placeholder_row_signatures(cells, rows), viewport_top_row)
+    }
+
     /// 签名必须随占位符位置变化：同一幅图被 TUI 重绘到新行时，
     /// 渲染线程要重查放置，否则图像钉在旧位置。
     #[test]
     fn signature_tracks_placeholder_movement() {
         let at_origin = [placeholder(2, 3)];
-        let moved = [placeholder(4, 3)];
         assert_ne!(
-            placeholder_layout_signature(&at_origin),
-            placeholder_layout_signature(&moved)
+            signature(&at_origin, 8, 0),
+            signature(&[placeholder(4, 3)], 8, 0)
+        );
+        assert_ne!(
+            signature(&at_origin, 8, 0),
+            signature(&[placeholder(2, 5)], 8, 0)
         );
         assert_eq!(
-            placeholder_layout_signature(&at_origin),
-            placeholder_layout_signature(&[placeholder(2, 3)])
+            signature(&at_origin, 8, 0),
+            signature(&[placeholder(2, 3)], 8, 0)
+        );
+    }
+
+    /// 纯滚动（绝对行不变、视口行平移）不得改变签名，否则每次滚动都全量重扫。
+    /// 回看历史时视口顶行与视口行按相反方向变化，两者之和保持不变。
+    #[test]
+    fn signature_is_stable_across_pure_scroll() {
+        assert_eq!(
+            signature(&[placeholder(2, 3)], 8, 102),
+            signature(&[placeholder(3, 3)], 8, 101)
         );
     }
 
@@ -5346,8 +5356,8 @@ mod placeholder_signature_tests {
         text.codepoint = u32::from('a');
         text.row = 1;
         text.col = 1;
-        assert_eq!(placeholder_layout_signature(&[text]), 0);
-        assert_eq!(placeholder_layout_signature(&[]), 0);
+        assert_eq!(signature(&[text], 8, 0), 0);
+        assert_eq!(signature(&[], 8, 0), 0);
     }
 }
 

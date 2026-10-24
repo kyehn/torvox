@@ -572,6 +572,7 @@ impl super::GhosttyTerminal {
         search: &mut Option<Search<'_, 'term>>,
         match_buffer: &mut MatchBuffer,
         extractors: &mut RenderExtractors<'term>,
+        kitty_cache: &mut KittyPlacementCache,
     ) -> bool {
         let mut selection_installed = false;
         match query {
@@ -775,8 +776,12 @@ impl super::GhosttyTerminal {
                     "ghostty_terminal: query channel send failed",
                 );
             }
-            Query::TakeKittyPlacements { tx } => {
-                let placements = Self::collect_kitty_placements(terminal);
+            Query::TakeKittyPlacements { row_signatures, tx } => {
+                let placements = Self::collect_kitty_placements(
+                    terminal,
+                    kitty_cache,
+                    row_signatures.as_deref(),
+                );
                 try_send(
                     &tx,
                     placements,
@@ -921,6 +926,7 @@ impl super::GhosttyTerminal {
         search: &mut Option<Search<'_, 'term>>,
         match_buffer: &mut MatchBuffer,
         extractors: &mut RenderExtractors<'term>,
+        kitty_cache: &mut KittyPlacementCache,
     ) -> bool {
         let mut selection_installed = false;
         while let Ok(query) = query_receiver.try_recv() {
@@ -936,6 +942,7 @@ impl super::GhosttyTerminal {
                 search,
                 match_buffer,
                 extractors,
+                kitty_cache,
             );
         }
         selection_installed
@@ -1138,6 +1145,13 @@ impl super::GhosttyTerminal {
         // xterm 调色板，主题颜色永远进不到网格里。
         Self::apply_theme(&mut terminal, &config.theme.palette);
 
+        // Kitty 放置查询缓存：跨帧复用图像解码与未变化行的占位符扫描。
+        let mut kitty_cache = KittyPlacementCache::default();
+        #[cfg(test)]
+        {
+            kitty_cache.stats = config.kitty_stats.clone();
+        }
+
         // 克隆（flume receiver 是 Arc 句柄）：使下面的命令循环仍能借用
         // `config`，无需部分移动。
         let query_receiver = config.query_receiver.clone();
@@ -1194,6 +1208,7 @@ impl super::GhosttyTerminal {
                             &mut search,
                             &mut match_buffer,
                             &mut extractors,
+                            &mut kitty_cache,
                         ) {
                             // 查询内安装与 Command::SetSelection 同款失效：
                             // 反白改变每行内容，帧必须重推。
@@ -1450,6 +1465,7 @@ impl super::GhosttyTerminal {
                 &mut search,
                 &mut match_buffer,
                 &mut extractors,
+                &mut kitty_cache,
             ) {
                 // 同上：查询内安装的选区需要纳入本批重推。
                 last_cell_data_push = None;
@@ -1910,37 +1926,45 @@ impl super::GhosttyTerminal {
         Some((width, height, rgba.into()))
     }
 
-    /// 取图像并解码为 RGBA；同一次采集内按 image id 缓存，避免同一图像
+    /// 取图像并解码为 RGBA；跨查询按 image id 缓存，避免同一图像
     /// 被多个放置或占位符分组反复解码。
     fn cached_kitty_image(
         graphics: &libghostty_vt::kitty::graphics::Graphics<'_>,
-        cache: &mut HashMap<u32, Option<(u32, u32, Arc<[u8]>)>>,
+        cache: &mut KittyPlacementCache,
         image_id: u32,
     ) -> Option<(u32, u32, Arc<[u8]>)> {
-        if let Some(cached) = cache.get(&image_id) {
+        if let Some(cached) = cache.images.get(&image_id) {
             return cached.clone();
         }
         let decoded = graphics
             .image(image_id)
             .and_then(|image| Self::kitty_image_to_rgba(&image));
-        cache.insert(image_id, decoded.clone());
+        cache.images.insert(image_id, decoded.clone());
         decoded
     }
 
     /// 采集视口内全部可见 Kitty 放置：普通放置由 graphics 存储的 pin 解算，
     /// Unicode 占位符放置按可见占位符单元反推整图锚点。两者按 z 排序。
-    fn collect_kitty_placements(terminal: &Terminal) -> Vec<KittyPlacementFrame> {
+    fn collect_kitty_placements(
+        terminal: &Terminal,
+        cache: &mut KittyPlacementCache,
+        row_signatures: Option<&[u64]>,
+    ) -> Vec<KittyPlacementFrame> {
         use libghostty_vt::kitty::graphics::PlacementIterator;
         let Ok(graphics) = terminal.kitty_graphics() else {
             return Vec::new();
         };
+        match graphics.generation() {
+            Ok(generation) => cache.sync(generation, grid_cols(terminal)),
+            // 生成戳读不到就无法判断缓存是否过期：整体作废，退回全量扫描。
+            Err(_) => *cache = KittyPlacementCache::default(),
+        }
         let Ok(mut iterator) = PlacementIterator::new() else {
             return Vec::new();
         };
         let Ok(mut placements) = iterator.update(&graphics) else {
             return Vec::new();
         };
-        let mut image_cache = HashMap::new();
         let mut virtual_meta = HashMap::new();
         let mut out = Vec::new();
         while let Some(placement) = placements.next() {
@@ -1982,7 +2006,7 @@ impl super::GhosttyTerminal {
                 continue;
             };
             let Some((image_width, image_height, image_rgba)) =
-                Self::cached_kitty_image(&graphics, &mut image_cache, image_id)
+                Self::cached_kitty_image(&graphics, cache, image_id)
             else {
                 log::debug!("kitty: 图像 {image_id} 解码失败（格式或像素长度不支持），跳过");
                 continue;
@@ -2039,8 +2063,9 @@ impl super::GhosttyTerminal {
         out.extend(Self::collect_unicode_placements(
             terminal,
             &graphics,
-            &mut image_cache,
+            cache,
             &virtual_meta,
+            row_signatures,
         ));
         out.sort_by_key(|frame| frame.z);
         out
@@ -2054,8 +2079,9 @@ impl super::GhosttyTerminal {
     fn collect_unicode_placements(
         terminal: &Terminal,
         graphics: &libghostty_vt::kitty::graphics::Graphics<'_>,
-        image_cache: &mut HashMap<u32, Option<(u32, u32, Arc<[u8]>)>>,
+        cache: &mut KittyPlacementCache,
         virtual_meta: &HashMap<(u32, u32), (i32, u32, u32)>,
+        row_signatures: Option<&[u64]>,
     ) -> Vec<KittyPlacementFrame> {
         let rows = grid_rows(terminal);
         let cols = grid_cols(terminal);
@@ -2063,17 +2089,55 @@ impl super::GhosttyTerminal {
             return Vec::new();
         }
         let mut cells = Vec::new();
+        // 纯滚动时同一绝对行的占位符不变，`row_signatures` 命中即可复用上次扫描，
+        // 免掉每格 4 次 FFI；落定后的同布局重查同理。绝对行以 VT 自己的滚动条
+        // 偏移为基准（回看历史时视口顶行不是回滚长度）。
+        let cache_base_row = row_signatures.and_then(|_| match terminal.scrollbar() {
+            Ok(scrollbar) => Some(scrollbar.offset),
+            Err(error) => {
+                log::warn!("kitty: scrollbar query failed, row cache disabled: {error}");
+                None
+            }
+        });
+        let mut rows_in_view = HashMap::new();
+        #[cfg(test)]
+        let (mut reused_count, mut scanned_count) = (0u64, 0u64);
         for row in 0..rows {
-            let Ok(grid_ref) = terminal.grid_ref(Point::Viewport(PointCoordinate { x: 0, y: row }))
-            else {
-                continue;
-            };
-            let Ok(row_ref) = grid_ref.row() else {
-                continue;
-            };
-            if !row_ref.has_kitty_virtual_placeholder().unwrap_or(false) {
+            let signature = row_signatures
+                .and_then(|signatures| signatures.get(row as usize))
+                .copied();
+            if signature == Some(0) {
                 continue;
             }
+            let absolute_row = cache_base_row.map(|base| base + u64::from(row));
+            if let (Some(signature), Some(absolute_row)) = (signature, absolute_row) {
+                if let Some((cached_signature, cached)) = cache.rows.get(&absolute_row)
+                    && *cached_signature == signature
+                {
+                    let mut cached = cached.clone();
+                    cached.iter_mut().for_each(|cell| cell.grid_row = row);
+                    cells.extend(cached.iter().copied());
+                    rows_in_view.insert(absolute_row, (signature, cached));
+                    #[cfg(test)]
+                    {
+                        reused_count += 1;
+                    }
+                    continue;
+                }
+            } else if signature.is_none() {
+                let Ok(grid_ref) =
+                    terminal.grid_ref(Point::Viewport(PointCoordinate { x: 0, y: row }))
+                else {
+                    continue;
+                };
+                let Ok(row_ref) = grid_ref.row() else {
+                    continue;
+                };
+                if !row_ref.has_kitty_virtual_placeholder().unwrap_or(false) {
+                    continue;
+                }
+            }
+            let mut row_cells = Vec::new();
             for col in 0..cols {
                 let Ok(grid_ref) = terminal.grid_ref(Point::Viewport(PointCoordinate {
                     x: col as u16,
@@ -2129,7 +2193,7 @@ impl super::GhosttyTerminal {
                     }
                     None => image_id,
                 };
-                cells.push(unicode_placement::PlaceholderCell {
+                row_cells.push(unicode_placement::PlaceholderCell {
                     grid_row: row,
                     grid_col: col,
                     image_id,
@@ -2138,7 +2202,22 @@ impl super::GhosttyTerminal {
                     image_col,
                 });
             }
+            #[cfg(test)]
+            {
+                scanned_count += 1;
+            }
+            if let (Some(signature), Some(absolute_row)) = (signature, absolute_row) {
+                cells.extend(row_cells.iter().copied());
+                rows_in_view.insert(absolute_row, (signature, row_cells));
+            } else {
+                cells.extend(row_cells);
+            }
         }
+        if cache_base_row.is_some() {
+            cache.rows = rows_in_view;
+        }
+        #[cfg(test)]
+        cache.stats.record(reused_count, scanned_count);
         let mut out = Vec::new();
         for anchor in unicode_placement::anchors(&cells) {
             // 与上游一致：占位符未编码放置 id（underline 未设置）时，
@@ -2164,7 +2243,7 @@ impl super::GhosttyTerminal {
                 continue;
             };
             let Some((image_width, image_height, image_rgba)) =
-                Self::cached_kitty_image(graphics, image_cache, anchor.image_id)
+                Self::cached_kitty_image(graphics, cache, anchor.image_id)
             else {
                 continue;
             };
@@ -2190,6 +2269,34 @@ impl super::GhosttyTerminal {
             });
         }
         out
+    }
+}
+
+/// Kitty 放置查询的跨查询缓存。
+///
+/// 生成戳（图像集合/内容）或列数变化即整体作废；纯滚动时绝对行内容不变，
+/// 行缓存让新增视口行之外的扫描全部命中，落定重查也不再逐格走 FFI。
+#[derive(Default)]
+pub(crate) struct KittyPlacementCache {
+    generation: u64,
+    cols: u32,
+    /// image id → 解码结果（`None` 表示该图像不可解码，同样值得记住）。
+    images: HashMap<u32, Option<(u32, u32, Arc<[u8]>)>>,
+    /// 绝对缓冲行 → (占位符布局签名, 该行扫描结果)。
+    rows: HashMap<u64, (u64, Vec<unicode_placement::PlaceholderCell>)>,
+    /// 扫描计数，仅测试使用。
+    #[cfg(test)]
+    stats: CacheStats,
+}
+
+impl KittyPlacementCache {
+    fn sync(&mut self, generation: u64, cols: u32) {
+        if self.generation != generation || self.cols != cols {
+            self.generation = generation;
+            self.cols = cols;
+            self.images.clear();
+            self.rows.clear();
+        }
     }
 }
 
