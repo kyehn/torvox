@@ -45,6 +45,17 @@
       `cargo test --lib` 全绿
 - [x] 6.2 Kotlin JVM 单测，验证：`:app:testDebugUnitTest` 全绿
 
+## 7. 模拟器复现验证
+
+- [x] 7.1 在软件 Vulkan 的模拟器上复现「平台收回原生窗口」：切后台再切回前台，
+      验证：应用进程内出现平台 BufferQueue 被放弃与上游 surface 丢失报告，
+      证明该路径确实被走到
+- [x] 7.2 核对分级结果，验证：应用自身 error 为 0；「帧失败」「未捕获 GPU 错误」
+      降为 debug，「瞬时渲染错误」首次降为 info；剩余 warn 全为限频的慢帧诊断
+- [x] 7.3 核对恢复链，验证：一次失败帧后即恢复（宿主记录恢复事件，下一帧成功呈现）
+- [x] 7.4 结论以聚合形式写进 `evidence.md`，验证：文件内无原始日志行、时间戳、PID、
+      设备标识
+
 ## Workflow follow-up
 
 - `openspec validate 2026-10-24-logcat-hygiene-surface-reclaim --strict` 通过后，
