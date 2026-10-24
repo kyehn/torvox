@@ -36,7 +36,8 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     private fun appContext() = InstrumentationRegistry.getInstrumentation().targetContext
 
-    private fun withShellSession(body: (Long) -> Unit) {
+    /** 会话的工作目录（home）随回调传出：断言工作目录的用例需要它，不各自重算。 */
+    private fun withShellSession(body: (Long, String) -> Unit) {
         val context = appContext()
         val home = context.filesDir.resolve("shell-test-home").apply { mkdirs() }.absolutePath
         val sessionId =
@@ -45,7 +46,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
         // 输出泵：PTY→VT 由 pollEvent 驱动且仅泵活跃会话；切为活跃并在轮询中持续泵送。
         NativeBridge.switchSession(sessionId)
         try {
-            body(sessionId)
+            body(sessionId, home)
         } finally {
             runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
@@ -89,7 +90,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun sessionShowsShellPrompt() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             // 规范覆盖：启动后 shell prompt 正常显示，首行不被吞。
             val promptSeen =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
@@ -103,7 +104,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun shellEchoesCommandOutput() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             val marker = "SHELL_ALIVE_${System.currentTimeMillis() % 100000}"
             val text = shellLines(sessionId, "echo $marker")
             assertTrue("Shell 输出必须包含标记 $marker", text.contains(marker))
@@ -112,7 +113,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun pathIncludesSystemBin() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             val text = shellLines(sessionId, "echo \$PATH")
             assertTrue("PATH 必须包含 /system/bin, 实际尾部: ${text.takeLast(200)}", text.contains("/system/bin"))
         }
@@ -120,7 +121,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun resizeDeliveredToShell() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             NativeBridge.resize(sessionId, 30, 100)
             val text = shellLines(sessionId, "stty size")
             assertTrue("尺寸必须下发到 Shell (30 100), 实际尾部: ${text.takeLast(200)}", text.contains("30 100"))
@@ -129,15 +130,17 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun workingDirectoryIsReported() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, home ->
+            // 对标 sylirre ShellSessionTest.workingDirectoryIsHome：pwd 报出的就是
+            // 建会话时给的工作目录，而不是任意一个含 "/" 的路径。
             val text = shellLines(sessionId, "pwd")
-            assertTrue("工作目录必须可读, 实际尾部: ${text.takeLast(200)}", text.contains("/"))
+            assertTrue("工作目录必须是 $home, 实际尾部: ${text.takeLast(200)}", text.contains(home))
         }
     }
 
     @Test
     fun shellExitReportsWaitpidCode() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             // 退出码必须透出 waitpid 实测值，而非固定值。
             NativeBridge.feedPty(sessionId, "exit 42\n".toByteArray(Charsets.UTF_8))
             val exit = awaitSessionExit(sessionId)
@@ -147,7 +150,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun shellKilledBySignalReports128PlusSignal() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             // 信号致死按 128+信号值上报（SIGKILL=9），不得呈现为正常退出码 0。
             NativeBridge.feedPty(sessionId, "kill -9 $$\n".toByteArray(Charsets.UTF_8))
             val exit = awaitSessionExit(sessionId)
@@ -157,7 +160,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun titlePropagatesFromShell() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             // 对标 sylirre ShellSessionTest.titlePropagatesFromShell：shell 经 OSC 2
             // 设置的标题必须经 getTitle 查询可见（printf 解释转义，VT 解析落状态）。
             val title = "SHELL_TITLE_${System.currentTimeMillis() % 100000}"
@@ -173,7 +176,7 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun queriesAnsweredOverPty() {
-        withShellSession { sessionId ->
+        withShellSession { sessionId, _ ->
             // 对标 sylirre ShellSessionTest.terminalQueriesAreAnsweredOverPty：
             // shell 打印 DSR 查询后回显含 got:（与上游同强度断言）。
             // 注：应答字节生成（DSR 6→CSI r;c R）由 Rust 单测
