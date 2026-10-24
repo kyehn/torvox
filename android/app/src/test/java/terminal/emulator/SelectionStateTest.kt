@@ -145,10 +145,20 @@ class SelectionStateTest {
     fun `fast path folds onto the boundary written by the slow path`() {
         val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
         // 慢速路径刚把 END 拖到 16 并写入状态，实时边界即 (0,2)-(0,16)。
-        val slow = resolveDragBounds(committed, null, draggingStart = false, row = 0, col = 16, maxRow = 23, maxCol = 79)
+        val slow =
+            resolveDragBounds(committed, null, draggingStart = false, row = 0, col = 16, maxRow = 23, maxCol = 79)
         assertEquals(HandleDragResult(0, 2, 0, 16, false), slow)
         // 快速路径接着把 END 拖到 20：基准是慢路径的 16，不是已提交的 10。
-        val fast = resolveDragBounds(committed, slow, draggingStart = slow.draggingStart, row = 0, col = 20, maxRow = 23, maxCol = 79)
+        val fast =
+            resolveDragBounds(
+                committed,
+                slow,
+                draggingStart = slow.draggingStart,
+                row = 0,
+                col = 20,
+                maxRow = 23,
+                maxCol = 79,
+            )
         assertEquals(HandleDragResult(0, 2, 0, 20, false), fast)
     }
 
