@@ -140,6 +140,38 @@ class KittyGraphicsPlacementTest : TerminalLogcatTest() {
     }
 
     /**
+     * `clear`（ED2）之后图像必须从屏幕上消失，且不得等第二次 clear。
+     *
+     * 判别力：用户报障「kitten icat 显示图像后 clear，文本被清除但图像依旧显示，
+     * 第二次 clear 才消失」。只断言内部放置列表为空不够——缺陷正是「VT 已删除
+     * 放置，但渲染线程没重查、继续画缓存帧」，只有真实像素能判定。
+     */
+    @Test
+    fun clear_erases_image_on_first_ed2() {
+        val bridge = composeTestRule.awaitBridge()
+        val script = imageScript(imageId = 23, row = IMAGE_ROW, color = IMAGE_COLOR)
+        bridge.writeToPty("sh ${script.absolutePath}\n".toByteArray(Charsets.US_ASCII))
+        assertNotNull(
+            "kitty 图像没有在 ${ON_SCREEN_TIMEOUT_MS}ms 内上屏",
+            awaitSettledImage(bridge, IMAGE_COLOR, minRenderedScrollback = 0),
+        )
+
+        assertTrue(
+            "喂入 ED2 失败",
+            bridge.feedTerminal("\u001B[2J".toByteArray(Charsets.US_ASCII)),
+        )
+
+        val surface = UxTestUtils.terminalSurface(composeTestRule.activity)
+        assertNotNull("拿不到终端 Surface", surface)
+        val cleared =
+            UxTestUtils.pollUntilTrue(timeoutMs = ON_SCREEN_TIMEOUT_MS, intervalMs = 300) {
+                val shot = UxTestUtils.captureSurface(checkNotNull(surface))
+                shot == null || UxTestUtils.matchColor(shot, IMAGE_COLOR).count == 0
+            }
+        assertNotNull("ED2 之后图像像素仍在屏幕上（首次 clear 未清除图像）", cleared)
+    }
+
+    /**
      * Unicode 占位符（U=1）必须把占位单元画成图像，而不是占位字符本身。
      *
      * 判别力：yazi 走的就是这条路径；不实现时占位单元显示为缺字方框/叉号
