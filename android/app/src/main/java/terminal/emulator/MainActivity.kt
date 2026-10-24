@@ -189,7 +189,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
+        // MUST NOT setIntent(intent)：仪器化的 ActivityScenario 以「Activity 当前 intent
+        // 等于启动 intent」筛选生命周期事件（不匹配即整段忽略，见其
+        // "intent does not match" 日志）。换掉 intent 会让测试收不到 DESTROYED，
+        // 收尾永远等不到销毁态。本仓也没有任何地方读 getIntent()——launch intent 的
+        // 处理全部走 onCreate/onNewIntent 的入参。
         handleLaunchIntent(intent)
     }
 
