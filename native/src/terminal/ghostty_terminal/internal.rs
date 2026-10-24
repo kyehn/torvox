@@ -3322,7 +3322,7 @@ impl super::GhosttyTerminal {
         let Some(active) = search.as_mut() else {
             return SearchViewportHighlights {
                 matches: Vec::new(),
-                selected: None,
+                selected: Vec::new(),
                 scrollback_lines,
             };
         };
@@ -3332,25 +3332,25 @@ impl super::GhosttyTerminal {
                 log::error!("ghostty_terminal: search snapshot failed: {error}");
                 return SearchViewportHighlights {
                     matches: Vec::new(),
-                    selected: None,
+                    selected: Vec::new(),
                     scrollback_lines,
                 };
             }
         };
         let selected = match snapshot.selected_match() {
             Ok(Some(selected_match)) => {
-                let mut selected_matches = Vec::new();
+                let mut selected_rows = Vec::new();
                 Self::search_matches_from_selection(
                     snapshot.terminal(),
                     &selected_match,
-                    &mut selected_matches,
+                    &mut selected_rows,
                 );
-                selected_matches.first().cloned()
+                selected_rows
             }
-            Ok(None) => None,
+            Ok(None) => Vec::new(),
             Err(error) => {
                 log::error!("ghostty_terminal: search selected_match failed: {error}");
-                None
+                Vec::new()
             }
         };
         let Ok(viewport_matches) = snapshot.viewport_matches(match_buffer) else {

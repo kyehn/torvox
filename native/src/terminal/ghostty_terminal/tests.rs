@@ -2613,7 +2613,7 @@ fn search_viewport_highlights_without_selection() {
     terminal_under_test.flush();
     assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
     let highlights = terminal_under_test.search_viewport_highlights();
-    assert!(highlights.selected.is_none(), "未导航时不应有选中命中");
+    assert!(highlights.selected.is_empty(), "未导航时不应有选中命中");
     assert_eq!(highlights.matches.len(), 1, "未选中时也要给出视口命中");
     assert_eq!(highlights.matches[0].start_col, 6);
     assert_eq!(highlights.matches[0].end_col, 12);

@@ -162,15 +162,22 @@ pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
 
 #[inline]
 /// 把搜索高亮 RGBA 施加到单元格前景/背景。
+///
+/// 混合基准恒为**原背景**：交换只决定文字色（取原背景，反色后仍可读），不参与
+/// 底色计算。若先交换再拿交换后的背景当基准，基准已变成原前景色；默认主题的
+/// 选区色又正是前景色（无 `[colors.selection]` 时上游回退到前景），于是
+/// `blend(前景, 前景)` 与 alpha 无关——当前命中与其余命中渲染成同一块颜色，
+/// 用户看到的正是「两种高亮没有区别」。
 pub(crate) fn apply_search_highlight(
     foreground: &mut [f32; 4],
     background: &mut [f32; 4],
     hl: [u8; 4],
 ) {
+    let original_background = *background;
     if hl[3] >= SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD {
         std::mem::swap(foreground, background);
     }
-    *background = blend_highlight(*background, hl);
+    *background = blend_highlight(original_background, hl);
 }
 
 /// 连续的一段脏网格行，并解析出其实例切片。

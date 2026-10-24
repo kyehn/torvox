@@ -28,10 +28,13 @@ pub struct SearchSelection {
 ///
 /// 行号均为绝对网格行（0 = 回滚顶部）；视口折算由渲染侧用 `scrollback_lines`
 /// 与视图的滚动偏移完成，故终端侧不必知道视口位置。
+///
+/// `selected` 是选中命中占据的**全部物理行**：一个命中可跨软换行，只取首行会让
+/// 续行按「其余命中」上色，当前项在同一处命中里被劈成两种颜色。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchViewportHighlights {
     pub matches: Vec<SearchMatch>,
-    pub selected: Option<SearchMatch>,
+    pub selected: Vec<SearchMatch>,
     pub scrollback_lines: u32,
 }
 
