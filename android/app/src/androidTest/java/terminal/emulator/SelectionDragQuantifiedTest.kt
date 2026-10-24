@@ -12,6 +12,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import kotlinx.coroutines.launch
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -607,6 +608,49 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
             after.start?.col == before.start?.col && after.start?.row == before.start?.row,
         )
         assertTrue("END 手柄没有真的移动（end=${after.end?.col}）", (after.end?.col ?: -1) < endCol)
+        resetSelection()
+    }
+
+    /**
+     * 拖动手柄越过另一侧手柄：归属翻转，但被拖的边界必须停在手指所在格。
+     *
+     * 用户报障：「朝一个方向拖动指针后如果朝反方向移动越过另一个指针则文本匹配区域
+     * 将异常变动另一边界异常增加且两个指针和边界不再对齐」。翻转后未拖动的一侧必须
+     * 钉在原位，被拖的一侧必须跟着手指走：触点列的参考点若随归属翻转而换，
+     * 被拖的边界会反向跳一格（落在手指所在格的左边一格），交叉也会被立刻撤销。
+     */
+    @Test
+    fun dragging_end_past_start_keeps_finger_on_the_dragged_boundary() {
+        val (tapX, tapY, _) = prepareWordTarget(
+            words = "crossword",
+            targetViewportRow = 9,
+            startColumn = 6,
+        )
+        longPressUntilSelected(tapX, tapY)
+        Thread.sleep(700)
+        assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
+
+        val before = committedSelection()
+        val startCol = before.start?.col ?: -1
+        val endCol = before.end?.col ?: -1
+        val startGridRow = before.start?.row ?: -1
+        assertTrue("长按后必须有跨格选区 ($startCol..$endCol)", startCol >= 0 && endCol > startCol)
+        val viewportRow = startGridRow - bridge().scrollbackLength()
+        assertTrue("选区必须在视口内 (行=$viewportRow)", viewportRow >= 0)
+
+        val (cellWidth, _) = cellPx()
+        // 手指落在起点左侧两格：末端柄语义下即该格右缘。
+        val fingerCol = startCol - 2
+        assertTrue("起点左侧必须还有两格可拖 (起点列=$startCol)", fingerCol >= 0)
+        val (grabX, grabY) = cellAnchorLocal(col = endCol + 1, row = viewportRow)
+        val fingerX = (fingerCol + 1) * cellWidth
+        realSwipe(grabX, grabY, fingerX, grabY, steps = 8)
+        Thread.sleep(600)
+
+        val after = committedSelection()
+        assertEquals("被拖的边界必须停在手指所在格", fingerCol, after.start?.col ?: -1)
+        assertEquals("未拖动的一侧必须钉在原起点", startCol, after.end?.col ?: -1)
+        UxTestUtils.metric("drag_cross_dragged_col", after.start?.col ?: -1)
         resetSelection()
     }
 

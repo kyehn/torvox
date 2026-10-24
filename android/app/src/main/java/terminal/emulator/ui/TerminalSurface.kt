@@ -2318,6 +2318,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
+    // 抓柄时握住的是哪一侧：决定触点列的参考点（首格左缘 / 末格右缘）。
+    // 整次拖动内不变——手柄越过另一侧时只换归属；参考点跟着换会让目标列跳一格。
+    private var dragAnchorIsStart = false
+
     /**
      * 鼠标上报中的 TUI（yazi 等）轻点即左键单击：经 Ghostty 鼠标编码器把
      * 按下/抬起各编码一次写入 PTY。编码器在应用未启用鼠标上报时返回 false
@@ -2383,18 +2387,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     private fun dragTargetFromTouch(touchX: Float, touchY: Float): Pair<Int, Int> {
-        val anchorLocalY = (dragAnchorRow + 1) * cellHeight
-        val deltaRows = ((touchY - anchorLocalY) / cellHeight).roundToInt()
-        val row = (dragAnchorRow + deltaRows).coerceIn(0, (rows - 1).coerceAtLeast(0))
-        val anchorLocalX =
-            if (handleDragState == HandleDrag.START) {
-                dragAnchorCol * cellWidth
-            } else {
-                (dragAnchorCol + 1) * cellWidth
-            }
-        val deltaCols = ((touchX - anchorLocalX) / cellWidth).roundToInt()
-        val col = (dragAnchorCol + deltaCols).coerceIn(0, (cols - 1).coerceAtLeast(0))
-        val gridRow = currentViewportTopGrid() + row
+        val viewportTopGrid = currentViewportTopGrid()
+        val viewportRow =
+            dragTargetRow(
+                anchorViewportRow = dragAnchorRow - viewportTopGrid,
+                touchY = touchY,
+                cellHeight = cellHeight,
+                rows = rows,
+            )
+        val col =
+            dragTargetColumn(
+                anchorCol = dragAnchorCol,
+                anchorIsStart = dragAnchorIsStart,
+                touchX = touchX,
+                cellWidth = cellWidth,
+                cols = cols,
+            )
+        val gridRow = viewportTopGrid + viewportRow
         return gridRow to snapToWideCharBoundary(gridRow, col)
     }
 
@@ -2520,7 +2529,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /** 把被拖动的手柄移到当前触摸列所在 [gridRow] 的单元格，并在宽字符（CJK）边界处吸附。 */
     private fun updateDragHandleForCell(gridRow: Int) {
-        val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+        // 列沿用与快速路径同一套折算（锚点 + 手指位移）：边缘滚动区若改用
+        // 「手指所在格」，手指进出边缘区时列会跳一格。
+        val curCol =
+            dragTargetColumn(
+                anchorCol = dragAnchorCol,
+                anchorIsStart = dragAnchorIsStart,
+                touchX = currentTouchX,
+                cellWidth = cellWidth,
+                cols = cols,
+            )
         val snappedCol = snapToWideCharBoundary(gridRow, curCol)
         val flippedSide =
             if (handleDragState == HandleDrag.START) {
@@ -2606,6 +2624,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 使拖动能扩展范围，而不被「仅粘贴不可变」守卫吞掉。
         viewModel?.beginHandleDragOnPasteOnly()
         val selection = viewModel?.state?.value?.selection
+        dragAnchorIsStart = which == HandleDrag.START
         if (which == HandleDrag.START) {
             dragAnchorRow = selection?.start?.row ?: 0
             dragAnchorCol = selection?.start?.col ?: 0
@@ -3750,6 +3769,39 @@ internal fun gridToScreen(
     cellWidth: Float,
     cellHeight: Float,
 ): Pair<Float, Float> = Pair(col * cellWidth, (row - viewportTopGrid) * cellHeight)
+
+/**
+ * 触点列 → 目标列：相对**抓柄时**的参考点做整格位移。
+ *
+ * 参考点由抓柄时握住的那一侧决定（首端柄 = 首格左缘，末端柄 = 末格右缘），
+ * 整次拖动内保持不变。手柄越过另一侧时只换归属，参考点若跟着换，
+ * 目标列会在翻转瞬间跳一格：边界反向移动、交叉被立刻撤销，
+ * 被拖的柄也会与手指脱开一格（对标 termlib 固定 grabOffset 的做法）。
+ */
+internal fun dragTargetColumn(
+    anchorCol: Int,
+    anchorIsStart: Boolean,
+    touchX: Float,
+    cellWidth: Float,
+    cols: Int,
+): Int {
+    val referenceLocalX = (if (anchorIsStart) anchorCol else anchorCol + 1) * cellWidth
+    val deltaCols = ((touchX - referenceLocalX) / cellWidth).roundToInt()
+    return (anchorCol + deltaCols).coerceIn(0, (cols - 1).coerceAtLeast(0))
+}
+
+/**
+ * 触点行 → 目标行（视口行）。
+ *
+ * 手柄悬于格底，锚点是格底缘，故触点所在行 = 锚点行 + 手指的整行位移。
+ * [anchorViewportRow] 是锚点行的视口行号；锚点行与触点 Y 同处视口坐标系，
+ * 两者相减即为手指位移，绝对网格行由调用方加上视口顶行。
+ */
+internal fun dragTargetRow(anchorViewportRow: Int, touchY: Float, cellHeight: Float, rows: Int): Int {
+    val referenceLocalY = (anchorViewportRow + 1) * cellHeight
+    val deltaRows = ((touchY - referenceLocalY) / cellHeight).roundToInt()
+    return (anchorViewportRow + deltaRows).coerceIn(0, (rows - 1).coerceAtLeast(0))
+}
 
 /** 组字光标的插入标记矩形（视图局部坐标，平台随后按视图矩阵变换到屏幕）。 */
 internal data class InsertionMarker(val horizontal: Float, val top: Float, val baseline: Float, val bottom: Float)
