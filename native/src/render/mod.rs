@@ -55,10 +55,52 @@ pub enum GpuError {
     DeviceRequest(String),
     #[error("surface creation failed: {0}")]
     Surface(String),
+    /// 本帧没有可呈现的纹理：渲染暂停、surface 尚未挂载、平台收走了原生窗口
+    /// （BufferQueue 被遗弃），或交换链尺寸需要重配。
+    ///
+    /// 属**可恢复**路径：宿主换新窗口重挂载后即恢复（见 `render-stability`
+    /// 规范「渲染 surface 失效后自愈」），故日志级别低于 error——
+    /// 详见 [GpuError::is_recoverable]。
+    #[error("surface unavailable: {0}")]
+    SurfaceUnavailable(String),
     /// 仅测试回读脚手架（`render_to_buffer`）构造，生产路径不产生。
     #[cfg(test)]
     #[error("buffer readback failed: {0}")]
     Readback(String),
+}
+
+impl GpuError {
+    /// 该错误是否属于「本帧没画出来、但下一帧或换窗口后即可恢复」的一类。
+    ///
+    /// 判据是**类型**而非文案：只有 [GpuError::SurfaceUnavailable] 是可恢复的，
+    /// 其余（管线缺失、单元转换失败、attach 失败……）都是真异常。
+    ///
+    /// 用途：日志分级。可恢复的一类按 debug 记（逐帧可能重复，不能淹掉
+    /// W/E 闸门），真异常仍按 error 记。宿主侧另有「瞬时渲染错误」的限频汇总，
+    /// 两者分工：本处给细节，宿主给频率。
+    pub fn is_recoverable(&self) -> bool {
+        matches!(self, GpuError::SurfaceUnavailable(_))
+    }
+}
+
+#[cfg(test)]
+mod gpu_error_recoverability {
+    use super::GpuError;
+
+    /// 本帧没有可呈现的纹理属可恢复一类：宿主换新窗口重挂载后即恢复，
+    /// 不得按 error 记（否则每次切后台都刷一条 E 级，淹没真缺陷）。
+    #[test]
+    fn surface_unavailable_is_recoverable() {
+        assert!(GpuError::SurfaceUnavailable("begin_frame failed".into()).is_recoverable());
+    }
+
+    /// 其余错误都是真异常：管线缺失、单元转换失败、attach 失败、适配器缺失。
+    #[test]
+    fn other_errors_are_not_recoverable() {
+        assert!(!GpuError::Surface("No render pipeline".into()).is_recoverable());
+        assert!(!GpuError::NoAdapter.is_recoverable());
+        assert!(!GpuError::DeviceRequest("no device".into()).is_recoverable());
+    }
 }
 
 // ── GPU 实例类型 ────────────────────────────────────────────────────────

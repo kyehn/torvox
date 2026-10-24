@@ -24,8 +24,47 @@ fn background_clear_color(background: libghostty_vt::style::RgbColor) -> wgpu::C
     }
 }
 
+/// wgpu 的 surface 配置 API 名（出现在校验错误的描述里）。
+///
+/// 来自 wgpu-core 的 `handle_error_nolabel(..., "Surface::configure")`：那是
+/// 上游自己给出的调用点标识，不是本仓硬编码的文案。
+const SURFACE_CONFIGURE_API: &str = "Surface::configure";
+
+/// wgpu-core 对 `ConfigureSurfaceError::UnsupportedQueueFamily` 的描述片段。
+///
+/// 该错误只在 `surface.get_capabilities()` 失败时产生（wgpu-core 的
+/// `configure_surface`：`Err(_) => break 'error E::UnsupportedQueueFamily`），
+/// 而 Android 上该调用失败的常态只有一个：原生窗口已被平台收回
+/// （BufferQueue 被遗弃），surface 不再报告任何可用队列族。
+const UNSUPPORTED_QUEUE_FAMILY: &str = "does not support the adapter's queue family";
+
+/// 未捕获 GPU 错误是否属于「平台收走原生窗口后 wgpu 重新配置 surface 必然失败」这一类。
+///
+/// 判据是错误**种类**而非文案泛泛：校验错误同时出现 wgpu 的配置 API 名
+/// `Surface::configure` 与 `UnsupportedQueueFamily` 的描述。前者保证错误出在
+/// 配置 surface 上，后者保证失败原因是「这个 surface 已经不能用了」——不是
+/// 格式不支持、view_formats 不合法、尺寸为零等自家配置错误。
+///
+/// 这是平台事件的连带结果（切后台后系统收回窗口，自愈路径会换新窗口重挂载），
+/// 不是应用缺陷，故按 debug 记；其余未捕获错误一律 error。
+///
+/// 上游措辞若变，判据只会失效成「一律 error」——更吵，不会漏报。
+pub(crate) fn gpu_error_is_surface_lost(error: &wgpu::Error) -> bool {
+    match error {
+        wgpu::Error::Validation { description, .. } => {
+            description.contains(SURFACE_CONFIGURE_API)
+                && description.contains(UNSUPPORTED_QUEUE_FAMILY)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn log_gpu_error(error: &wgpu::Error) {
-    log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
+    if gpu_error_is_surface_lost(error) {
+        log::debug!("GPU_UNCAPTURED_ERROR (surface lost after window reclaim): {error:#?}");
+    } else {
+        log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
+    }
 }
 
 /// 连续跳帧达此数即把 worker 死亡从 warn 升级为 error（60fps 下约 5 秒）。
@@ -1461,6 +1500,51 @@ mod send_check {
         assert_send::<super::Renderer>();
         fn assert_sync<T: Sync>() {}
         assert_sync::<super::Renderer>();
+    }
+}
+
+#[cfg(test)]
+mod gpu_error_classification {
+    use super::gpu_error_is_surface_lost;
+
+    fn validation(description: &str) -> wgpu::Error {
+        wgpu::Error::Validation {
+            source: Box::new(std::io::Error::other("configure failed")),
+            description: description.to_string(),
+        }
+    }
+
+    /// 平台收走窗口后 wgpu 重新配置 surface 必然报「不支持该队列族」——
+    /// 这一类是平台事件的连带结果，不得按应用缺陷（error）记。
+    #[test]
+    fn surface_lost_reconfigure_is_not_an_app_defect() {
+        let error = validation(
+            "Validation Error\n\nCaused by:\n  In Surface::configure\n    \
+             Surface does not support the adapter's queue family\n",
+        );
+        assert!(gpu_error_is_surface_lost(&error));
+    }
+
+    /// 自家配置错误（格式不支持等）仍是应用缺陷，必须按 error 记。
+    #[test]
+    fn genuine_configure_error_stays_an_error() {
+        let error = validation(
+            "Validation Error\n\nCaused by:\n  In Surface::configure\n    \
+             Requested format Rgba8Unorm is not in list of supported formats: []\n",
+        );
+        assert!(!gpu_error_is_surface_lost(&error));
+    }
+
+    /// 非校验错误（内部错误）即便文案相同也不属「窗口被收回」。
+    #[test]
+    fn non_validation_errors_are_not_surface_lost() {
+        let error = wgpu::Error::Internal {
+            source: Box::new(std::io::Error::other("boom")),
+            description:
+                "In Surface::configure\n    Surface does not support the adapter's queue family\n"
+                    .to_string(),
+        };
+        assert!(!gpu_error_is_surface_lost(&error));
     }
 }
 

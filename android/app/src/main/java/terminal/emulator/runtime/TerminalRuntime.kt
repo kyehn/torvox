@@ -1697,10 +1697,15 @@ constructor(
                                             if (consecutiveErrors == 0 ||
                                                 consecutiveErrors % RENDER_MAX_TRANSIENT_ERRORS == 0
                                             ) {
-                                                LogUtil.w(
-                                                    "Runtime",
-                                                    "session ${entry.id} transient render error code=$count (consecutive=$consecutiveErrors, surviving)",
-                                                )
+                                                val message =
+                                                    "session ${entry.id} transient render error code=$count (consecutive=$consecutiveErrors, surviving)"
+                                                // 首次是正常退化（平台收走了窗口），重复才是异常：
+                                                // 分级见 transientRenderErrorIsWarning。
+                                                if (transientRenderErrorIsWarning(consecutiveErrors)) {
+                                                    LogUtil.w("Runtime", message)
+                                                } else {
+                                                    LogUtil.i("Runtime", message)
+                                                }
                                             }
                                             consecutiveErrors++
                                             // 帧已正常返回（只是渲染失败），渲染线程没有挂起。
@@ -4666,3 +4671,15 @@ internal fun decideSurfaceRecreate(attempts: Int, lastRequestNanos: Long, nowNan
  * [exhausted] = 已进入慢重试阶段（调用方据此只告警一次，请求本身照发）。
  */
 internal data class SurfaceRecreateDecision(val request: Boolean = false, val exhausted: Boolean = false)
+
+/**
+ * 瞬时渲染错误是否按 warn 记：首次是正常退化，连续出现才是异常。
+ *
+ * 首次出现几乎都是平台收走原生窗口后的正常退化——切后台时系统回收 BufferQueue，
+ * 渲染线程的探针帧取不到纹理，宿主随即换新窗口重挂载即恢复（见 `render-stability`
+ * 规范「渲染 surface 失效后自愈」）。这类事件按 info 记，不占 W 闸门；
+ * 连续出现说明新窗口迟迟不来，那才是异常，保留 warn。
+ *
+ * @param consecutiveErrors 本次之前已连续发生的瞬时错误数（0 = 首次）
+ */
+internal fun transientRenderErrorIsWarning(consecutiveErrors: Int): Boolean = consecutiveErrors > 0
