@@ -722,6 +722,131 @@ fn build_configured_cell_instance(
     instances
 }
 
+/// 每格一个非默认背景的网格（每格都发实例，便于逐格计数）。
+fn non_default_grid(rows: u32, cols: u32) -> Vec<crate::terminal::ghostty_terminal::CellData> {
+    use crate::terminal::ghostty_terminal::CellData;
+    (0..rows)
+        .flat_map(|row| {
+            (0..cols).map(move |col| CellData {
+                codepoint: b'a' as u32 + col,
+                width: 1,
+                grapheme_extra: [0; 7],
+                foreground: [0.5, 0.5, 0.5, 1.0],
+                background: [0.1, 0.1, 0.1, 1.0],
+                underline_color: [0.5, 0.5, 0.5, 1.0],
+                flags: 0,
+                row,
+                col,
+            })
+        })
+        .collect()
+}
+
+/// 增量构建与全量构建的输出 MUST 逐字节一致。
+///
+/// 脏带路径只决定「哪些行重画」，行内容必须与全新全量渲染相同——termlib
+/// `TerminalRedrawTest`（`changed.sameAs(fresh)`）在本仓的等效判据。判别力：增量
+/// 路径若在复制干净行时错位一行、或漏掉光标行，两条输出立刻不同。
+#[test]
+fn cached_build_matches_full_build_byte_for_byte() {
+    let mut font_pipeline = ascii_font();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
+    let (rows, cols) = (4u32, 5u32);
+    let cells = non_default_grid(rows, cols);
+    let cursor = CellCursor {
+        row: 2,
+        col: 1,
+        visible: true,
+        style: CursorStyle::Block,
+        color: [1.0, 1.0, 1.0, 1.0],
+    };
+    let config = test_config(rows, cols, cell_width, cell_height, cursor, &[]);
+
+    let mut full = Vec::new();
+    assert!(
+        crate::render::build_instances_from_cell_data(
+            &cells,
+            config,
+            &mut font_pipeline,
+            &mut full
+        )
+        .is_some(),
+        "full build failed"
+    );
+
+    let mut cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
+    let all_dirty = vec![true; rows as usize];
+    let mut first = Vec::new();
+    assert!(
+        crate::render::cell_builder::build_instances_cached(
+            &cells,
+            config,
+            &mut font_pipeline,
+            &all_dirty,
+            &mut cache,
+            &mut first,
+        )
+        .is_some(),
+        "cache-populating build failed"
+    );
+
+    let mut dirty = vec![false; rows as usize];
+    dirty[2] = true;
+    let mut partial = Vec::new();
+    assert!(
+        crate::render::cell_builder::build_instances_cached(
+            &cells,
+            config,
+            &mut font_pipeline,
+            &dirty,
+            &mut cache,
+            &mut partial,
+        )
+        .is_some(),
+        "partial build failed"
+    );
+
+    assert_eq!(
+        bytemuck::cast_slice::<CellInstance, u8>(&full),
+        bytemuck::cast_slice::<CellInstance, u8>(&partial),
+        "增量构建的输出必须与全量构建逐字节一致（脏带只改画哪些行，不改行内容）"
+    );
+}
+
+/// resize 循环 MUST 整缓存重建：实例数等于当前网格，不累积旧网格的行。
+///
+/// 判别力：行布局失效后若只按行尾偏移增量写，旧网格的行会残留在缓存里，
+/// 输出实例数随网格切换累加（这里立刻判红）。
+#[test]
+fn resize_cycles_do_not_accumulate_stale_rows() {
+    let mut font_pipeline = ascii_font();
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
+    let cursor = CellCursor::default();
+    let mut cache = crate::render::cell_builder::CachedInstances::new(4, 5);
+    for (rows, cols) in [(4u32, 5u32), (3, 6), (5, 4), (2, 8), (4, 5)] {
+        let cells = non_default_grid(rows, cols);
+        let config = test_config(rows, cols, cell_width, cell_height, cursor, &[]);
+        let mut out = Vec::new();
+        assert!(
+            crate::render::cell_builder::build_instances_cached(
+                &cells,
+                config,
+                &mut font_pipeline,
+                &vec![true; rows as usize],
+                &mut cache,
+                &mut out,
+            )
+            .is_some(),
+            "build for {rows}x{cols} failed"
+        );
+        assert_eq!(
+            out.len(),
+            (rows * cols) as usize,
+            "resize 后实例数必须等于当前网格单元数（{rows}x{cols}），不得累积旧网格的行"
+        );
+    }
+}
+
 /// Build one cursor-probe cell with white block cursor styling: covers the
 /// repeated single-cell cursor/reverse-video setup with varying codepoint,
 /// colors, flags and cursor visibility.
