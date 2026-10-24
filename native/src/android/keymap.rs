@@ -90,6 +90,7 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         117 => key::Key::MetaLeft,
         118 => key::Key::MetaRight,
         120 => key::Key::PrintScreen, // KEYCODE_SYSRQ
+        121 => key::Key::Pause,       // KEYCODE_BREAK：Termux 同键发 `ESC [ 34 ~`
         122 => key::Key::Home,        // KEYCODE_MOVE_HOME
         123 => key::Key::End,         // KEYCODE_MOVE_END
         124 => key::Key::Insert,
@@ -147,6 +148,13 @@ mod tests {
         // 二者对调会让退格变成前删。
         assert_eq!(key_for_android_keycode(67), Some(key::Key::Backspace));
         assert_eq!(key_for_android_keycode(112), Some(key::Key::Delete));
+    }
+
+    /// Pause/Break 必须到达上游编码器：未映射时该键退回按键文本（为空），
+    /// 整个键静默失效——Termux 在同键发 `ESC [ 34 ~`。
+    #[test]
+    fn pause_break_key_maps_to_pause() {
+        assert_eq!(key_for_android_keycode(121), Some(key::Key::Pause));
     }
 
     #[test]
