@@ -97,7 +97,10 @@ pub(crate) fn init() {
         // 未安装时上游把内部日志全部静默丢弃：VT 解析错误、分配失败、状态机异常
         // 一律无从查证，而 Ghostty 是本项目终端状态的单一来源。装上后这些消息经
         // `log` 门面进同一个 logcat sink，scope 作为 target，与本 crate 日志同源。
-        libghostty_vt::set_logger(Some(Box::new(log::logger())))
+        // SAFETY: 上游的日志回调是进程级全局量且不加同步，要求在任何线程进入
+        // libghostty 之前设置完毕；本函数只由 `JNI_OnLoad` 调用，VM 加载本库时
+        // 执行，早于任何 JNI 方法，此时没有线程进入过 libghostty。
+        unsafe { libghostty_vt::set_logger(Some(Box::new(log::logger()))) }
             .expect("libghostty-vt logger already set");
         install_panic_hook();
     });

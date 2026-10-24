@@ -46,9 +46,17 @@
                     $out/bin/semgrep-core
                 '';
               });
-          fixedSemgrep = pkgs.python3.pkgs.callPackage (
-            inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/default.nix"
-          ) { semgrep-core = fixedSemgrepCore; };
+          # semgrep 仍使用 mcp 1.x 的 FastMCP API，nixpkgs 的 mcp 2.x 已移除该模块，
+          # 这里把 semgrep 的 mcp 依赖固定回 1.29.0，待 semgrep 适配 mcp 2.x 后移除。
+          fixedSemgrep =
+            (pkgs.python3.pkgs.callPackage (
+              inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/default.nix"
+            ) { semgrep-core = fixedSemgrepCore; }).overridePythonAttrs (oldAttrs: {
+              pythonRelaxDeps = true;
+              dependencies = map (
+                dependency: if dependency.pname == "mcp" then pkgs.python3.pkgs.mcp_1 else dependency
+              ) oldAttrs.dependencies;
+            });
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
@@ -119,11 +127,9 @@
               nixfmt-rs
               pkg-config
               openssl
-              zig_0_16
+              zig_0_17
               cargo-ndk
-              (fixedSemgrep.overridePythonAttrs (oldAttrs: {
-                pythonRelaxDeps = true;
-              }))
+              fixedSemgrep
               systemdLibs
               fontconfig
               libpulseaudio

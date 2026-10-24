@@ -2,7 +2,7 @@
 //! 以命令方式在 PTY 读取线程与渲染线程间通信。
 
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::Duration;
 
@@ -20,6 +20,38 @@ pub use types::*;
 
 /// VT 线程析构等待上限，与会话拆卸宽限一致，避免无界阻塞。
 const TERMINAL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
+
+/// 安装进程级 PNG 解码器：Kitty Graphics Protocol 的 PNG 载荷在进程内解码为 RGBA8。
+///
+/// 上游把解码器回调存为 libghostty 的全局量且不做同步，要求在任何线程进入
+/// libghostty 之前设置完毕；各 VT 线程各自安装会与其他会话的 libghostty 调用相撞。
+/// 用上游解码器：它按 libghostty 的分配器上限先取缓冲区再解码，未经该上限的尺寸
+/// 不会被 PNG 头放大成巨额分配。
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn install_png_decoder() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        // SAFETY: 构造函数在动态库加载时执行，此前没有任何线程进入 libghostty。
+        if let Err(error) = unsafe {
+            libghostty_vt::kitty::graphics::set_png_decoder(Some(Box::new(
+                libghostty_vt::kitty::graphics::RustPngDecoder::new(),
+            )))
+        } {
+            log::error!("ghostty_terminal: set_png_decoder failed: {error}");
+        }
+    });
+}
+
+/// 库加载即安装 PNG 解码器，理由见 [`install_png_decoder`]。
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[used]
+#[unsafe(link_section = ".init_array")]
+static PNG_DECODER_INIT: extern "C" fn() = {
+    extern "C" fn init() {
+        install_png_decoder();
+    }
+    init
+};
 
 pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,

@@ -618,7 +618,7 @@ impl super::GhosttyTerminal {
             Query::Title(tx) => {
                 try_send(
                     &tx,
-                    terminal.title().unwrap_or("").to_string(),
+                    String::from_utf8_lossy(terminal.title().unwrap_or_default()).into_owned(),
                     "query channel send failed",
                 );
             }
@@ -1000,15 +1000,6 @@ impl super::GhosttyTerminal {
         {
             log::error!("ghostty_terminal: set_kitty_image_temp_file_dir failed: {error}");
         }
-        // PNG 载荷在进程内解码为 RGBA8（线程局部回调，须在 VT 线程注册）。
-        // 用上游解码器：它按 libghostty 的分配器上限先取缓冲区再解码，
-        // 未经该上限的尺寸不会被 PNG 头放大成巨额分配。
-        if let Err(error) = libghostty_vt::kitty::graphics::set_png_decoder(Some(Box::new(
-            libghostty_vt::kitty::graphics::RustPngDecoder::new(),
-        ))) {
-            log::error!("ghostty_terminal: set_png_decoder failed: {error}");
-        }
-
         // 注册终端应答的 PTY 回写回调
         // （DECRPM 模式报告、DSR、DA 等）
         if let Err(error) = terminal.on_pty_write({
@@ -1043,7 +1034,7 @@ impl super::GhosttyTerminal {
                     if fallback.is_none() {
                         fallback = Some(content.data);
                     }
-                    if content.mime.starts_with("text/") {
+                    if content.mime.starts_with(b"text/") {
                         chosen = Some(content.data);
                         break;
                     }
@@ -2849,7 +2840,7 @@ impl super::GhosttyTerminal {
             // 标题读失败不静默留空：会话列表会把该会话显示成无名，而空标题与
             // 「应用本来就没设标题」不可区分。
             title: match terminal.title() {
-                Ok(title) => title.to_string(),
+                Ok(title) => String::from_utf8_lossy(title).into_owned(),
                 Err(error) => {
                     log::error!("ghostty_terminal: title query failed: {error}");
                     String::new()

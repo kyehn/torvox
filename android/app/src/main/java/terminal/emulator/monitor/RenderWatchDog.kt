@@ -1,12 +1,12 @@
 package terminal.emulator.monitor
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.util.TerminalDispatchers
 
 /** 单帧起止时刻的不可变快照；看门狗每次只读一次，起止必定来自同一帧。 */
 data class FrameMarks(val startNanos: Long = 0L, val doneNanos: Long = 0L)
@@ -23,7 +23,7 @@ class RenderWatchDog(
         private const val TAG = "RenderWatchDog"
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.background)
 
     // 启动与停止分属不同线程（surfaceTransitionExecutor 与渲染线程），与它处同为易变。
     @Volatile private var watchJob: Job? = null
