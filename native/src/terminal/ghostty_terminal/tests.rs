@@ -928,6 +928,62 @@ fn resize_stress_100_cycles_with_scroll() {
     assert_invariants(&snap);
 }
 
+/// 缩窄重排必须保留软换行的整段文本：字符一个不少，只是折行位置改变。
+///
+/// 判别力：重排若按「行截断」实现，缩窄后的第二行起会被丢弃，全文只剩首行。
+#[test]
+fn shrink_reflow_keeps_wrapped_text() {
+    let mut terminal_under_test = GhosttyTerminal::new(6, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"abcdefghijklmnopqrstuvwxyz0123456789\n");
+    terminal_under_test.flush();
+    terminal_under_test.resize(6, 10);
+    terminal_under_test.flush();
+    let text: String = terminal_under_test.read_all_text().split('\n').collect();
+    assert!(
+        text.contains("abcdefghijklmnopqrstuvwxyz0123456789"),
+        "缩窄重排后的全文必须保留原串，实际 {text:?}"
+    );
+    let snap = terminal_under_test.take_snapshot();
+    assert_eq!(10, snap.cols, "网格列数应已缩窄");
+    assert_invariants(&snap);
+}
+
+/// 备用屏缩窄不重排也不 panic：可见内容仍是原文的连续片段，退出后主屏正文仍在。
+///
+/// 判别力：备用屏若按主屏同样「重排」，换行处会把两行拼成新的相邻关系，可见文本
+/// 就不再是原串的连续片段；缩窄路径越界则直接 panic（备用屏没有回滚区可借用）。
+#[test]
+fn shrink_alt_screen_clips_without_reflow() {
+    let mut terminal_under_test = GhosttyTerminal::new(6, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"primary line\n");
+    terminal_under_test.flush();
+    terminal_under_test.vt_write(b"\x1b[?1049h");
+    terminal_under_test.vt_write(b"alt-content-abcdefghij");
+    terminal_under_test.vt_write(b"\x1b[H");
+    terminal_under_test.flush();
+    terminal_under_test.resize(4, 10);
+    terminal_under_test.flush();
+    let alt: String = terminal_under_test.read_all_text().split('\n').collect();
+    assert!(
+        "alt-content-abcdefghij".contains(&alt),
+        "备用屏缩窄后可见内容必须是原文的连续片段（不得重排拼接），实际 {alt:?}"
+    );
+    assert_eq!(
+        10,
+        alt.chars().count(),
+        "可见内容必须按新宽度裁剪而非重排成多行，实际 {alt:?}"
+    );
+    terminal_under_test.vt_write(b"\x1b[?1049l");
+    terminal_under_test.flush();
+    let primary: String = terminal_under_test.read_all_text().split('\n').collect();
+    assert!(
+        primary.contains("primary line"),
+        "退出备用屏后主屏正文必须保留，实际 {primary:?}"
+    );
+    let snap = terminal_under_test.take_snapshot();
+    assert_invariants(&snap);
+}
+
 #[test]
 // 与字面量默认值精确比较，不涉及浮点运算。
 #[allow(clippy::float_cmp)]
@@ -1302,7 +1358,6 @@ fn tc_iv_002_alt_buffer_no_history() {
 // TC-PF-009: BEL in text renders both sides (exists as bel_character_does_not_crash)
 // TC-PF-010: APC consumed (exists as apc_consumed_silently)
 // ── TC-RS: Resize Stress (from test gap analysis §3.O) ────────────
-// RS-001 (shrink alt buffer) is the main gap
 
 // ── TC-UI: Session Panel & UI (from test gap analysis §3.P) ──────
 
