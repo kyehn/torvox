@@ -51,7 +51,7 @@
 
 ## 三、上游 A 全部 160 个 `@Test` 的逐条对照
 
-状态约定：✅ 等效（对应测试实测存在且断言语义可追溯）；⚠️ 部分（有邻近覆盖但断言面不同）；− 不适用（能力被规范禁止或未声明）。
+状态约定：✅ 等效（对应测试实测存在且断言语义可追溯）；⚠️ 部分（有邻近覆盖但断言面不同）；− 不适用（能力被规范禁止或未声明，或按 `TESTING.md`「不测试依赖行为」由引擎承担）。
 
 ### 3.1 `EmulatorVtTest`（54 条）
 
@@ -62,8 +62,8 @@
 | lineWrap | `VtCorrectnessInstrumentedTest.lineWrapContinuesText` + `dump_grid_scrollback_populated_after_scroll` | ✅ |
 | graphemeClusterCombiningMark | `combining_mark_reaches_grapheme_channel`（引擎图元通道） + `cluster_cell_merged_precomposed_emits_single_primary`（渲染合并） | ✅ |
 | graphemeClusterMultipleMarks | `cluster_cell_multi_mark_shapes_positioned_overlays` | ✅ |
-| indicConjunctNotClusteredByDefault | 无逐条同名断言（libghostty-vt 默认行为一致） | ⚠️ |
-| indicConjunctClustersWithMode2027 | 无（DEC 2027 动态开关未声明） | ⚠️ |
+| indicConjunctNotClusteredByDefault | 引擎默认行为，`TESTING.md` 明禁「测试依赖行为」，按策略不设逐条断言 | − |
+| indicConjunctClustersWithMode2027 | 无（DEC 2027 动态开关未声明，能力不适用） | − |
 | cursorMovement | `VtCorrectnessInstrumentedTest.cursorMovementSemantics` | ✅ |
 | eraseDisplay | `VtCorrectnessInstrumentedTest.eraseDisplayClearsMarker` | ✅ |
 | sgrColorsAndAttributes | `VtCorrectnessInstrumentedTest.sgrColoredTextRenders` + `sgr31_red_reaches_cell_data_foreground` | ✅ |
@@ -79,7 +79,7 @@
 | resizeReflowsPrimaryScreen | `VtCorrectnessInstrumentedTest.resizeKeepsContent` + `resize_stress_100_cycles_with_scroll` | ✅ |
 | scrollbackAndViewport | `VtCorrectnessInstrumentedTest.scrollbackKeepsOverflowInOrder` | ✅ |
 | scrollbackHonorsConfiguredLineCount | `scrollback_cap_is_honored` + `scrollback_deep_buffer_does_not_collapse` + `create_terminal_zero_scrollback` | ✅ |
-| shrinkReflowKeepsText | `resize_stress_100_cycles_with_scroll`（正向缩放路径），未单独断言缩窄重排保留文本 | ⚠️ |
+| shrinkReflowKeepsText | `shrink_reflow_keeps_wrapped_text`（缩窄重排后全文仍含原串）+ `resize_stress_100_cycles_with_scroll` | ✅ |
 | alternateScreenSwitch | `VtCorrectnessInstrumentedTest.altScreenSwitchReturnsToPrimary` + `altScreenStateMirrorsSwitch` | ✅ |
 | cursorPositionQueryProducesPtyResponse | `test_output_capture_cpr`（`native/src/terminal/test_helpers.rs`） | ✅ |
 | bellEventIsReported | 无（事件掩码未含 BEL 事件上报，未声明） | − |
@@ -101,7 +101,7 @@
 | kittyStrayNulInPayloadStillStores | `kitty_graphics_stray_nul_still_stores` | ✅ |
 | xtwinopsSizeReports | `test_xtwinops_size_reports`（`native/src/terminal/test_helpers.rs`） | ✅ |
 | kittyGraphicsAbsentWhenNoImages | `kitty_graphics_absent_when_no_images` | ✅ |
-| kittyGraphicsVirtualUnicodePlaceholder | `kitty_placements_collects_visible_display`（可见放置采集；虚拟占位 U=1 分支无独立断言） | ⚠️ |
+| kittyGraphicsVirtualUnicodePlaceholder | `kitty_placement_query_reuses_unchanged_rows` / `kitty_placement_row_cache_survives_scrollback_viewing`（U=1 虚拟占位下放置采集与逐行定位） + `kitty_placements_collects_visible_display` | ✅ |
 | searchFindsMatchAcrossScrollbackAndReveals | `search_select_reveals_history_match_in_viewport` + `TextSearchEndToEndTest.searchFindsAndHighlightsMatches` | ✅ |
 | searchCaseSensitivity | `search_is_case_insensitive_for_ascii_letters` + `TextSearchEndToEndTest.lowercaseQueryMatchesUppercaseContent` | ✅ |
 | searchUnicodeCaseFolding | `search_folds_case_for_ascii_letters_only` | ✅ |
@@ -112,16 +112,16 @@
 | searchClearRemovesMatchesAndSelection | 无独立原生 `searchClear` API（UI 关闭即清除：`TextSearchEndToEndTest.closeSearchRestoresModifierBar`） | ⚠️ |
 | searchCountsPastTheNavigableCapAndKeepsNewestReachable | `search_viewport_matches_cover_every_hit_row`（小规模变体） | ✅ |
 
-`EmulatorVtTest` 小计：✅ 46，⚠️ 6，− 2，共 54。
+`EmulatorVtTest` 小计：✅ 48，⚠️ 2，− 4，共 54。
 
 ### 3.2 其余 15 个测试文件（106 条）
 
 | 上游测试文件（条数） | 本项目对应（实测存在） | 状态 |
 | --- | --- | --- |
-| `ShellSessionTest` (9) | `ShellPtyInstrumentedTest`（9）：sessionShowsShellPrompt / shellEchoesCommandOutput / pathIncludesSystemBin / resizeDeliveredToShell / shellExitReportsWaitpidCode / shellKilledBySignalReports128PlusSignal / titlePropagatesFromShell / queriesAnsweredOverPty 一一对应；workingDirectoryIsHome → `workingDirectoryIsReported`（断言以「pwd 输出含 `/`」收尾，较上游窄） | ✅ 8 + ⚠️ 1 |
+| `ShellSessionTest` (9) | `ShellPtyInstrumentedTest`（9）：sessionShowsShellPrompt / shellEchoesCommandOutput / pathIncludesSystemBin / resizeDeliveredToShell / shellExitReportsWaitpidCode / shellKilledBySignalReports128PlusSignal / titlePropagatesFromShell / queriesAnsweredOverPty 一一对应；workingDirectoryIsHome → `workingDirectoryIsReported`（断言 pwd 报出的就是建会话时给的工作目录，已补齐至与上游同宽） | ✅ 9 |
 | `TerminalUiTest` (18) | launchShowsShellTabAndToolbar → `BehaviorVerificationTest.terminal_view_displayed_on_launch`；typedCommandRunsInShell → `UiAutomatorTest.typingViaSystemKeyboardReacts`；stickyCtrlInterruptsCommand → `StickyCtrlInterruptInstrumentedTest.stickyCtrlPlusCInterruptsRunningCommand`；newTabCreatesAndSwitchesSessions → `SessionCreationInstrumentedTest`（5）+ `SessionDrawerInstrumentedTest.addSwitchAndCloseSession`；fontSizeChangeReflowsGridAndSession → `FontSizeReflowInstrumentedTest.fontSizeChangeReflowsGridAndScalesCellHeight`；longPressSelectsWordAndCopyFillsClipboard → `SelectionEspressoTest.realLongPressKeepsMenuAndCopiesPressedLine`；longPressDragExtendsSelection → `SelectionDragQuantifiedTest`（6）；selectAllFromToolbarSelectsWholeBuffer → `selectAllShowsSelectionMenu` + `SelectionMenuActionsTest`（2）；pasteButtonTypesClipboardIntoShell → `PasteButtonInstrumentedTest.pasteMenuTypesClipboardIntoShell`；searchBarFindsAndHighlightsToken → `TextSearchEndToEndTest`（10）；closingActiveTabSwitchesToRemaining → `SessionDrawerInstrumentedTest.addSwitchAndCloseSession`；extraKeysTypeIntoShell → `ModifierBarTest`（14）+ `ModifierBarRobolectricTest`（11） | ✅ 12 |
 | `TerminalUiTest`（其余 6） | extraKeysSettingOpensEditor / extraKeysToggleHidesToolbarButKeepsConfig / extraKeysConfigDrivesToolbar（布局编辑器被禁止）；doubleTapSelectsWord / tripleTapSelectsLine（双击/三击选择未声明）；settingsMenuTogglesKeepScreenOn（keepScreenOn 未声明） | − 6 |
-| `term/OscSideScannerTest` (9) | clipboardWriteBelTerminated → `Osc52ClipboardInstrumentedTest.osc52_sequence_sets_system_clipboard` + `osc_clipboard_via_pty_write_path`；splitAcrossReads → `osc_clipboard_split_buffer`；clipboardWriteStTerminated / unrelatedOscIgnored / invalidBase64Ignored（拆分复装配有 `osc_title_split_buffer` 等相近断言，这三个无逐条断言）；clipboardQuery、progressNormalWithValue / progressClearNoValue / progressValueClamped（OSC 52 查询与 OSC 9;4 进度未声明） | ✅ 2 + ⚠️ 3 + − 4 |
+| `term/OscSideScannerTest` (9) | clipboardWriteBelTerminated → `Osc52ClipboardInstrumentedTest.osc52_sequence_sets_system_clipboard` + `osc_clipboard_via_pty_write_path`；splitAcrossReads → `osc_clipboard_split_buffer`；clipboardWriteStTerminated → `osc_clipboard_st_terminated`；unrelatedOscIgnored → `unrelated_osc_produces_no_clipboard_event`；invalidBase64Ignored → `osc_clipboard_invalid_base64_is_ignored`；clipboardQuery、progressNormalWithValue / progressClearNoValue / progressValueClamped（OSC 52 查询与 OSC 9;4 进度未声明） | ✅ 5 + − 4 |
 | `ThemeModelTest` (4) | presetsArePresentAndResolvable → `ThemeRepositoryTest`（4：catalog 顺序与默认标记断言）+ `TerminalThemePaletteTest`（3）；palette256GeneratesCubeAndGrayscale → 无运行时可写色板断言（主题为构建期产出）；csvRoundTrip / storeSaveRenameDelete（自定义主题编辑被禁止） | ✅ 1 + ⚠️ 1 + − 2 |
 | `ThemeActivityTest` (1) | launchesAndBuildsSwatchGrid → `ThemeInstrumentedTest.terminalThemeSelectorListsAllThemes` + `SettingsScreenTest.theme_switch_changes_terminal_appearance` | ✅ 1 |
 | `term/SessionServiceExitTest` (1) | exitTearsDownSessionsAndTheActivity → `SessionTableWatcherTest`（3，职责等价：`lastSessionClosedFinishesOnce` 等） | ✅ 1 |
@@ -135,15 +135,15 @@
 | `OnboardingActivityTest` (2) | 首次运行向导（规范未声明，首启直入默认会话） | − 2 |
 | `ui/TerminalFontStoreTest` (1) | failedImportLeavesNothingStaged：本仓字体从不复制/移动（`DESIGN.md` 声明），不存在导入暂存概念；字体装配错误面由 `bridge/FontInfoPackedTest` 覆盖 | − 1 |
 
-其余文件小计：✅ 25，⚠️ 5，− 76，共 106。
+其余文件小计：✅ 29，⚠️ 1，− 76，共 106。
 
 ### 3.3 全部合计（上游 A 160 条）
 
 | 状态 | 数量 |
 | --- | --- |
-| ✅ 等效 | 71 |
-| ⚠️ 部分 | 11 |
-| − 不适用 | 78 |
+| ✅ 等效 | 77 |
+| ⚠️ 部分 | 3 |
+| − 不适用 | 80 |
 
 合计 160，与上游实测一致。
 
@@ -189,7 +189,7 @@
 
 ## 六、结论与建议
 
-- 上游 A 160 条测试中，71 条在本项目存在等效测试、78 条对应能力不适用（禁止/未声明）、11 条部分对应；每条「等效」均给出双方精确测试名（当次源码导出）。按像素滚动三层证据链完整闭合。
+- 上游 A 160 条测试中，77 条在本项目存在等效测试、80 条对应能力不适用（禁止/未声明/依赖行为由引擎承担）、3 条部分对应；每条「等效」均给出双方精确测试名（当次源码导出）。按像素滚动三层证据链完整闭合。本轮把原先 ⚠️ 中的六条处置完毕：三条 OSC 侧逐条断言（ST 终止、无关 OSC 不触发、非法 base64 不进入剪贴板）、缩窄重排保留文本单独成例、U=1 虚拟占位放置定位指到既有用例，另有一条收窄断言（工作目录）补齐至与上游同宽；剩余 3 条 ⚠️ 均为搜索与 256 色板的邻近覆盖（断言面不同，非缺口）。
 - 上游 B 的 145 条引擎行为测试不属本仓测试域（依赖行为由 libghostty-vt 承担）；键位、队列、标题、SGR 编码、回滚深度等区域有直接锚点（文中点名逐一实测）。
 - 原三条观察项均已核结，不再保留待办：#23（缩窄重排保留文本）已补用例
   `shrink_reflow_keeps_wrapped_text`（连同备用屏只裁剪用例
