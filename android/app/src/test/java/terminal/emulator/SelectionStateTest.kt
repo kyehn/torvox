@@ -115,4 +115,56 @@ class SelectionStateTest {
         val inactive = committed.copy(active = false)
         assertEquals(inactive, inactive.withPendingDrag(HandleDragResult(0, 0, 0, 1, true)))
     }
+
+    // ── 快速路径与慢速路径共用同一份实时边界 ──────────────────────────
+
+    @Test
+    fun `slow path folds onto the pending boundary from the fast path`() {
+        // 已提交选区仍是 (0,2)-(0,10)；快速路径已把 END 拖过 START 到 0，
+        // 未提交的实时边界为 (0,0)-(0,2)、被拖柄翻成 START。
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val pending = HandleDragResult(0, 0, 0, 2, true)
+
+        // 慢速路径（边缘滚动）下一帧把 START 拖到 1。
+        val next =
+            resolveDragBounds(
+                current = committed,
+                pending = pending,
+                draggingStart = pending.draggingStart,
+                row = 0,
+                col = 1,
+                maxRow = 23,
+                maxCol = 79,
+            )
+
+        // 未被拖动的一侧必须钉在 2（交叉后的位置），不得弹回已提交的 10。
+        assertEquals(HandleDragResult(0, 1, 0, 2, true), next)
+    }
+
+    @Test
+    fun `fast path folds onto the boundary written by the slow path`() {
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        // 慢速路径刚把 END 拖到 16 并写入状态，实时边界即 (0,2)-(0,16)。
+        val slow = resolveDragBounds(committed, null, draggingStart = false, row = 0, col = 16, maxRow = 23, maxCol = 79)
+        assertEquals(HandleDragResult(0, 2, 0, 16, false), slow)
+        // 快速路径接着把 END 拖到 20：基准是慢路径的 16，不是已提交的 10。
+        val fast = resolveDragBounds(committed, slow, draggingStart = slow.draggingStart, row = 0, col = 20, maxRow = 23, maxCol = 79)
+        assertEquals(HandleDragResult(0, 2, 0, 20, false), fast)
+    }
+
+    @Test
+    fun `drag bounds are clamped to the grid on both paths`() {
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val bounds =
+            resolveDragBounds(
+                current = committed,
+                pending = null,
+                draggingStart = false,
+                row = 99,
+                col = 999,
+                maxRow = 23,
+                maxCol = 79,
+            )
+        assertEquals(HandleDragResult(0, 2, 23, 79, false), bounds)
+    }
 }
