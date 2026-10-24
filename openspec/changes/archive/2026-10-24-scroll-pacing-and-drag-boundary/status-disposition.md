@@ -13,6 +13,10 @@ PID 与设备标识。
 
 ## 逐项证据
 
+仪器化复跑（x86_64 模拟器，软件 Vulkan）：`SelectionDragQuantifiedTest` 7 例、
+`TextSearchEndToEndTest` 10 例、`ScrollBehaviorQuantifiedTest` 3 例、
+`SelectionEspressoTest` 9 例，全部通过（0 失败）。
+
 ### 一、滚动
 
 - 日志计量：渲染循环窗口平均 ≈72fps（显示刷新 60Hz）；呈现成对出现（3–5ms），

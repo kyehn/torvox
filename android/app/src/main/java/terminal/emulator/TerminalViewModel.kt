@@ -134,7 +134,8 @@ internal fun SelectionState.withPendingDrag(pending: HandleDragResult?): Selecti
  * 交替的瞬间（快速拖动 ←→ 边缘滚动）把**未拖动**的一侧弹回已提交的旧端点：
  * 现象正是「另一边界异常增加，手柄与边界不再对齐」。
  *
- * @param maxRow 绝对网格行上界（含），@param maxCol 列上界（含）。
+ * @param maxRow 绝对网格行上界（含）。
+ * @param maxCol 列上界（含）。
  */
 internal fun resolveDragBounds(
     current: SelectionState,
