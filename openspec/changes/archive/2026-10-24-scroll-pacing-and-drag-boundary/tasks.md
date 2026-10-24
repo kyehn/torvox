@@ -38,8 +38,9 @@
 - [x] 5.1 Rust：`cargo fmt --all`、`cargo clippy --all-targets -- -D warnings`、
       `cargo test --lib` 全绿
 - [x] 5.2 JVM：`:app:testDebugUnitTest`（本轮涉及的用例类）、`:app:detekt`、`:app:spotlessCheck` 全绿
-- [ ] 5.3 真机复测（Mali）：滚动期间呈现间隔不低于一个显示周期，无 60ms 以上取帧空档，
-      搜索当前命中与其余命中颜色可辨，反向越过对侧手柄后另一边界不回弹
+- [x] 5.3 仪器化复跑（x86_64 模拟器）：`SelectionDragQuantifiedTest`、
+      `TextSearchEndToEndTest`、`ScrollBehaviorQuantifiedTest`、`SelectionEspressoTest` 全绿
+- [ ] 5.4 真机复测（Mali）：滚动期间呈现间隔不低于一个显示周期，无 60ms 以上取帧空档
 
 ## Workflow follow-up
 
