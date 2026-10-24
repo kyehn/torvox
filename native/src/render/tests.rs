@@ -1480,22 +1480,19 @@ fn search_highlight_multiple_matches_same_row() {
     );
 }
 
-// ── Production-value alpha tests (P1-2) ──────────────────────────
+// ── 生产取值钉 ──────────────────────────────────────────────────
 //
-// Kotlin 侧用 `SearchHighlightColors.kt` 中的常量打包搜索高亮 RGBA 字节
-// （跨语言唯一锚点）：
-//   - 当前命中 → SearchHighlightColors.CURRENT_MATCH_ALPHA = 255
-//   - 其余命中 → SearchHighlightColors.OTHER_MATCH_ALPHA = 160
-//     （自 96 上调，使每处命中都反色，见规范 text-search-highlight
-//     「所有命中可见且反色」）
-// 以下用例把渲染器行为钉在这些生产值上。改动任一侧都必须在同一个 PR 内
-// 改动另一侧（另见 SearchHighlightColors 的文档注释）。
+// 搜索高亮的两个 alpha 常量（`cell_builder::SEARCH_HIGHLIGHT_*_ALPHA`）同时决定
+// 代码里的字面量与「当前/其余命中」的观感差异：
+//   - 当前命中 → 255（完全不透明）
+//   - 其余命中 → 160（≥ 128，同样反色，只按不透明度淡出）
+// 以下用例把渲染结果钉在这些取值上：改常量必须一并改这里的期望值。
 
 #[test]
 fn search_highlight_current_match_alpha_matches_production() {
     use crate::render::cell_builder::apply_search_highlight;
 
-    // Production anchor: SearchHighlightColors.CURRENT_MATCH_ALPHA = 255.
+    // Production anchor: SEARCH_HIGHLIGHT_CURRENT_ALPHA = 255.
     let hl: [u8; 4] = [255, 200, 0, 255];
 
     let original_foreground: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white text
@@ -1531,8 +1528,8 @@ fn search_highlight_current_match_alpha_matches_production() {
 fn search_highlight_other_match_alpha_matches_production() {
     use crate::render::cell_builder::apply_search_highlight;
 
-    // Production anchor: SearchHighlightColors.OTHER_MATCH_ALPHA = 160,
-    // at or above the 128 swap threshold (: ALL matches invert).
+    // Production anchor: SEARCH_HIGHLIGHT_OTHER_ALPHA = 160,
+    // at or above the 128 swap threshold (all matches invert).
     let hl: [u8; 4] = [100, 150, 200, 160];
 
     let original_foreground: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
@@ -1548,18 +1545,67 @@ fn search_highlight_other_match_alpha_matches_production() {
         "alpha=160 must swap foreground/background like every match: {:?}",
         foreground
     );
-    // Background gets the highlight blended over the swapped background — which now
-    // holds the ORIGINAL foreground — visibly different from BOTH the
-    // untouched background and the fully opaque current-match treatment.
-    let expected_background = blend_highlight(original_foreground, hl);
+    // 底色从**原背景**混向高亮色，故 160 与 255 的底色必然不同；若拿交换后的
+    // 背景（此时是原前景色）当基准，同色系的高亮会把 alpha 整个吃掉。
+    let expected_background = blend_highlight(original_background, hl);
     assert!(
         f32_arrays_equal(&background, &expected_background),
-        "background should be highlight blended over the swapped background: {:?}",
+        "background should be the highlight blended over the original background: {:?}",
         background
     );
     assert!(
         !f32_arrays_equal(&background, &original_background),
         "the alpha=160 blend must visibly change the background"
+    );
+}
+
+/// 高亮色等于原前景色（默认主题无 `[colors.selection]`，选区色回退到前景）时，
+/// 当前命中与其余命中 MUST 仍可区分。
+///
+/// 判别力：用交换后的背景做混合基准时，`blend(前景, 前景)` 与 alpha 无关，
+/// 255 与 160 渲染成同一块像素——这正是用户报障的「两种高亮颜色应该不同」。
+#[test]
+fn other_match_stays_distinct_when_highlight_equals_foreground() {
+    use crate::render::cell_builder::apply_search_highlight;
+
+    let foreground_color: [f32; 4] = [
+        0xF8 as f32 / 255.0,
+        0xF8 as f32 / 255.0,
+        0xF2 as f32 / 255.0,
+        1.0,
+    ];
+    let background_color: [f32; 4] = [
+        0x21 as f32 / 255.0,
+        0x21 as f32 / 255.0,
+        0x21 as f32 / 255.0,
+        1.0,
+    ];
+    let highlight: [u8; 4] = [0xF8, 0xF8, 0xF2, 160];
+
+    let mut current_foreground = foreground_color;
+    let mut current_background = background_color;
+    apply_search_highlight(
+        &mut current_foreground,
+        &mut current_background,
+        [0xF8, 0xF8, 0xF2, 255],
+    );
+
+    let mut other_foreground = foreground_color;
+    let mut other_background = background_color;
+    apply_search_highlight(&mut other_foreground, &mut other_background, highlight);
+
+    assert!(
+        !f32_arrays_equal(&other_background, &current_background),
+        "其余命中的底色必须与当前命中不同：other={other_background:?} current={current_background:?}"
+    );
+    assert!(
+        !f32_arrays_equal(&other_background, &background_color),
+        "其余命中必须与未高亮的背景不同：other={other_background:?}"
+    );
+    assert!(
+        f32_arrays_equal(&other_foreground, &background_color),
+        "其余命中的文字取原背景色：{:?}",
+        other_foreground
     );
 }
 

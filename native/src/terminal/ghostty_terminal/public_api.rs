@@ -944,7 +944,7 @@ impl super::GhosttyTerminal {
             |tx| Query::SearchViewportHighlights { tx },
             SearchViewportHighlights {
                 matches: Vec::new(),
-                selected: None,
+                selected: Vec::new(),
                 scrollback_lines: 0,
             },
             "search_viewport_highlights",

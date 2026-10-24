@@ -3856,7 +3856,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
 /// 里就只能靠像素级仪器化测试间接覆盖。
 fn build_search_highlights(
     matches: &[crate::terminal::ghostty_terminal::SearchMatch],
-    selected: Option<&crate::terminal::ghostty_terminal::SearchMatch>,
+    selected: &[crate::terminal::ghostty_terminal::SearchMatch],
     viewport_top: i32,
     grid_rows: i32,
     palette: &crate::terminal::theme::Palette,
@@ -3868,7 +3868,7 @@ fn build_search_highlights(
             if row < 0 || row >= grid_rows {
                 return None;
             }
-            let color = if selected == Some(matched) {
+            let color = if selected.contains(matched) {
                 let current = palette.foreground;
                 [
                     current.r,
@@ -3933,7 +3933,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
         let palette = &render_state.theme.palette;
         render_state.search_highlights.current = build_search_highlights(
             &highlights.matches,
-            highlights.selected.as_ref(),
+            &highlights.selected,
             viewport_top,
             grid_rows,
             palette,
@@ -5404,7 +5404,7 @@ mod search_highlight_tests {
         let other = matched(5, 0, 4);
         let highlights = build_search_highlights(
             &[other.clone(), current.clone()],
-            Some(&current),
+            std::slice::from_ref(&current),
             0,
             20,
             &palette(),
@@ -5455,7 +5455,7 @@ mod search_highlight_tests {
             matched(4, 0, 3),  // 视口内
             matched(25, 0, 3), // 视口下方
         ];
-        let highlights = build_search_highlights(&matches, None, 3, 20, &palette());
+        let highlights = build_search_highlights(&matches, &[], 3, 20, &palette());
         assert_eq!(1, highlights.len(), "只有视口内的命中可以写入高亮");
         assert_eq!(1, highlights[0].row, "折算后的行号是绝对行减去视口顶行");
     }
@@ -5467,13 +5467,39 @@ mod search_highlight_tests {
     #[test]
     fn without_selection_all_matches_use_other_color() {
         let matches = [matched(1, 0, 3), matched(2, 0, 3)];
-        let highlights = build_search_highlights(&matches, None, 0, 20, &palette());
+        let highlights = build_search_highlights(&matches, &[], 0, 20, &palette());
         assert_eq!(2, highlights.len());
         for hl in &highlights {
             assert_eq!(
                 SEARCH_HIGHLIGHT_OTHER_ALPHA, hl.color[3],
                 "无选中命中时不得有「当前项」着色"
             );
+        }
+    }
+
+    /// 跨软换行的选中命中：每个物理行都 MUST 按「当前命中」着色。
+    ///
+    /// 判别力：上游把命中拆成逐行区间，选中态若只记首行，续行会落回「其余命中」
+    /// 的淡色，同一处命中在画面上被劈成两种颜色。
+    #[test]
+    fn soft_wrapped_selection_colors_every_physical_row() {
+        let first_row = matched(4, 70, 80);
+        let second_row = matched(5, 0, 6);
+        let other = matched(9, 1, 3);
+        let highlights = build_search_highlights(
+            &[other, first_row.clone(), second_row.clone()],
+            &[first_row, second_row],
+            0,
+            20,
+            &palette(),
+        );
+        for hl in &highlights {
+            let expected = if hl.row == 4 || hl.row == 5 {
+                SEARCH_HIGHLIGHT_CURRENT_ALPHA
+            } else {
+                SEARCH_HIGHLIGHT_OTHER_ALPHA
+            };
+            assert_eq!(expected, hl.color[3], "行 {} 的高亮归属有误", hl.row);
         }
     }
 }
