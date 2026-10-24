@@ -90,7 +90,7 @@ class ModifierBarTest : TerminalLogcatTest() {
 
     @Test
     fun modifier_bar_ctrl_long_press_locks() {
-        // Hold past LONG_PRESS_MS (400): the release itself counts even
+        // Hold past the system long-press timeout: the release itself counts even
         // with zero MOVE events, so a plain down/sleep/up is deterministic.
         composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
         composeTestRule.onNodeWithTag("Key_CTRL").performTouchInput {
