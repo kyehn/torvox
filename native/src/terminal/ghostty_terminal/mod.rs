@@ -47,6 +47,9 @@ pub struct GhosttyTerminal {
     /// 行级抽取的可观测计数，仅测试使用。
     #[cfg(test)]
     pub(crate) cache_stats: internal::CacheStats,
+    /// Kitty 占位符扫描计数（复用行 / 扫描行），仅测试使用。
+    #[cfg(test)]
+    pub(crate) kitty_stats: internal::CacheStats,
 }
 
 /// Terminate 投递的短时等待：try_send 在队列满时失败，但 VT 线程按批排空
@@ -79,6 +82,8 @@ impl Drop for GhosttyTerminal {
     }
 }
 
+#[cfg(test)]
+mod kitty_cache_tests;
 #[cfg(test)]
 mod tests;
 

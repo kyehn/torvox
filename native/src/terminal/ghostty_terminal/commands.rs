@@ -135,7 +135,11 @@ pub enum Query {
         tx: Sender<Option<KittyGraphicsImageData>>,
     },
     /// 采集全部可见 Kitty 放置（含几何 + RGBA），供渲染线程组装图集。
+    ///
+    /// `row_signatures` 是按视口行下标的占位符布局签名（0 = 该行无占位符），
+    /// 由渲染线程从本帧 `CellData` 算出：命中缓存的行不再逐格扫描 FFI。
     TakeKittyPlacements {
+        row_signatures: Option<std::sync::Arc<[u64]>>,
         tx: Sender<Vec<KittyPlacementFrame>>,
     },
     /// 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按终端状态选 SGR/X10/UTF-8）。
@@ -237,4 +241,7 @@ pub(crate) struct RunConfig {
     /// 行级抽取的可观测计数，仅测试使用：生产构建无此字段。
     #[cfg(test)]
     pub(crate) cache_stats: super::internal::CacheStats,
+    /// Kitty 占位符扫描计数，仅测试使用。
+    #[cfg(test)]
+    pub(crate) kitty_stats: super::internal::CacheStats,
 }

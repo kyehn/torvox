@@ -84,6 +84,11 @@ impl super::GhosttyTerminal {
             let shared = CacheStats::default();
             (shared.clone(), shared)
         };
+        #[cfg(test)]
+        let (kitty_stats_for_run, kitty_stats_for_self) = {
+            let shared = CacheStats::default();
+            (shared.clone(), shared)
+        };
         // 就绪握手：`thread::spawn` 返回时新线程可能尚未被调度，此时构造完成、
         // 调用方立刻发查询，查询会在 QUERY_TIMEOUT_MS 内无人应答而回退到
         // DISCONNECTED_*（表现为「spawn 完马上 resize 却拿到旧网格」的竞态）。
@@ -113,6 +118,8 @@ impl super::GhosttyTerminal {
                         clipboard_tx,
                         #[cfg(test)]
                         cache_stats: cache_stats_for_run.clone(),
+                        #[cfg(test)]
+                        kitty_stats: kitty_stats_for_run.clone(),
                     })
                 }));
                 if let Err(panic) = result {
@@ -150,6 +157,8 @@ impl super::GhosttyTerminal {
             resize_failed,
             #[cfg(test)]
             cache_stats: cache_stats_for_self,
+            #[cfg(test)]
+            kitty_stats: kitty_stats_for_self,
         })
     }
 
@@ -157,6 +166,12 @@ impl super::GhosttyTerminal {
     #[cfg(test)]
     pub(crate) fn take_cache_stats(&self) -> (u64, u64) {
         self.cache_stats.take()
+    }
+
+    /// 本终端的占位符扫描计数：取出并清零，返回（复用行数，扫描行数）。
+    #[cfg(test)]
+    pub(crate) fn take_kitty_scan_stats(&self) -> (u64, u64) {
+        self.kitty_stats.take()
     }
 
     pub fn drain_pty_write_responses(&self) -> Vec<Vec<u8>> {
@@ -373,14 +388,23 @@ impl super::GhosttyTerminal {
     }
 
     pub fn take_kitty_placements(&self) -> Vec<KittyPlacementFrame> {
-        Self::take_kitty_placements_on(&self.query_tx)
+        Self::take_kitty_placements_on(&self.query_tx, None)
     }
 
     /// [`Self::take_kitty_placements`] 的通道外置版，理由同 [`Self::title_on`]。
-    pub(crate) fn take_kitty_placements_on(query_tx: &Sender<Query>) -> Vec<KittyPlacementFrame> {
+    ///
+    /// `row_signatures` 非空时按视口行复用 VT 侧扫描缓存（见 `Query::TakeKittyPlacements`），
+    /// 纯滚动与滚动落定后的重查不再逐格走 FFI；传 `None` 则无条件全量扫描。
+    pub(crate) fn take_kitty_placements_on(
+        query_tx: &Sender<Query>,
+        row_signatures: Option<std::sync::Arc<[u64]>>,
+    ) -> Vec<KittyPlacementFrame> {
         Self::query_on(
             query_tx,
-            |tx| Query::TakeKittyPlacements { tx },
+            |tx| Query::TakeKittyPlacements {
+                row_signatures: row_signatures.clone(),
+                tx,
+            },
             Vec::new(),
             "take_kitty_placements",
         )

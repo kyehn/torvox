@@ -319,3 +319,63 @@ pub(crate) const MAX_GRAPHEME_CLUSTERS: usize = 8;
 pub(crate) const MAX_GRAPHEME_EXTRA: usize = MAX_GRAPHEME_CLUSTERS - 1;
 pub(crate) const DEFAULT_CELL_WIDTH: u32 = 8;
 pub(crate) const DEFAULT_CELL_HEIGHT: u32 = 16;
+
+const SIGNATURE_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+fn signature_fold(hash: u64, value: u64) -> u64 {
+    (hash ^ value).wrapping_mul(SIGNATURE_PRIME)
+}
+
+/// 每行占位符布局签名（0 = 该行无占位符）。
+///
+/// 只含行内布局（列、图像行列记号、颜色编码），不含视口行号：纯滚动时同一
+/// 绝对行的内容与签名都不变，VT 侧得以按行复用扫描结果。
+pub(crate) fn placeholder_row_signatures(cells: &[CellData], rows: u32) -> Vec<u64> {
+    let mut signatures = vec![0u64; rows as usize];
+    for cell in cells {
+        if cell.codepoint != super::unicode_placement::PLACEHOLDER {
+            continue;
+        }
+        let Some(signature) = signatures.get_mut(cell.row as usize) else {
+            continue;
+        };
+        let mut hash = if *signature == 0 {
+            0xcbf2_9ce4_8422_2325
+        } else {
+            *signature
+        };
+        hash = signature_fold(hash, u64::from(cell.col));
+        // 图像行列由字素簇续接记号编码；高 id 位同样藏在这里。
+        for extra in cell.grapheme_extra {
+            hash = signature_fold(hash, u64::from(extra));
+        }
+        // fg / underline 是图像 id 与放置 id 的来源，须纳入签名。
+        for channel in cell.foreground {
+            hash = signature_fold(hash, u64::from(channel.to_bits()));
+        }
+        for channel in cell.underline_color {
+            hash = signature_fold(hash, u64::from(channel.to_bits()));
+        }
+        *signature = hash;
+    }
+    signatures
+}
+
+/// 视口占位符布局签名：合并逐行签名并带上绝对行号，0 表示视口内无占位符。
+///
+/// `viewport_top_row` 是视口顶行的绝对行号（回滚区顶部 = 0）：纯滚动时行内容
+/// 与绝对行号一一对应，签名保持不变，渲染线程得以只平移缓存帧。
+pub(crate) fn placeholder_layout_signature(row_signatures: &[u64], viewport_top_row: u64) -> u64 {
+    let mut signature = 0xcbf2_9ce4_8422_2325u64;
+    let mut count = 0u64;
+    for (row, &row_signature) in row_signatures.iter().enumerate() {
+        if row_signature == 0 {
+            continue;
+        }
+        let absolute_row = viewport_top_row + row as u64;
+        signature = signature_fold(signature, absolute_row);
+        signature = signature_fold(signature, row_signature);
+        count += 1;
+    }
+    if count == 0 { 0 } else { signature ^ count }
+}
