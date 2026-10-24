@@ -233,6 +233,7 @@ object UxTestUtils {
         val p95Ms: Double,
         val maxMs: Double,
         val preMaxMs: Double,
+        val preP95Ms: Double,
         val fps: Int,
     ) {
         /** 窗口的采样区间是否与 [fromMs]..[toMs] 有交集（区间由自身计量反推）。 */
@@ -245,7 +246,7 @@ object UxTestUtils {
             private val pattern =
                 Regex(
                     """^(\d+)\.\d+\s+\d+\s+\d+\s+I Runtime\s*:\s*session \d+ loop timing window \((\d+) frames\): """ +
-                        """avg=([\d.]+)ms p95=([\d.]+)ms max=([\d.]+)ms pre_max=([\d.]+)ms ≈(\d+)fps""",
+                        """avg=([\d.]+)ms p95=([\d.]+)ms max=([\d.]+)ms pre_max=([\d.]+)ms pre_p95=([\d.]+)ms ≈(\d+)fps""",
                 )
 
             fun parse(line: String): LoopTimingWindow? {
@@ -257,7 +258,8 @@ object UxTestUtils {
                     p95Ms = match.groupValues[4].toDouble(),
                     maxMs = match.groupValues[5].toDouble(),
                     preMaxMs = match.groupValues[6].toDouble(),
-                    fps = match.groupValues[7].toInt(),
+                    preP95Ms = match.groupValues[7].toDouble(),
+                    fps = match.groupValues[8].toInt(),
                 )
             }
         }

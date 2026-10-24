@@ -1963,6 +1963,7 @@ constructor(
                                             val loopP95Ms = loopReport.p95Nanos / NANOS_PER_MILLI
                                             val loopMaxMs = loopReport.maxNanos / NANOS_PER_MILLI
                                             val preMaxMs = (preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI
+                                            val preP95Ms = (preReport?.p95Nanos ?: 0L) / NANOS_PER_MILLI
                                             val fps =
                                                 if (loopReport.averageNanos > 0) {
                                                     (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
@@ -1975,6 +1976,7 @@ constructor(
                                                     "(${loopReport.frameCount} frames): " +
                                                     "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
                                                     "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
+                                                    "pre_p95=${preP95Ms}ms " +
                                                     "≈${fps}fps",
                                             )
                                         }

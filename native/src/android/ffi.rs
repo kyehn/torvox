@@ -486,6 +486,9 @@ struct RenderState {
     /// 它**同时**是 Kotlin 渲染循环的唤醒信号与空闲门控的通过条件之一——绝不可作为
     /// 外层短路（空闲重绘决策在门控内部做出）。
     dirty: AtomicBool,
+    /// 主题变更等需要整屏重绘的标志。置位后下一帧所有行标脏，
+    /// 避免仅 cursor/highlight 行重绘导致旧底色残留在其余行。
+    full_repaint: bool,
 }
 
 /// 按会话键控的一段渲染态数据。
@@ -613,6 +616,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             last_kitty_scroll: (i64::MIN, u32::MAX),
             kitty_overlay_dirty: false,
             dirty: AtomicBool::new(false),
+            full_repaint: false,
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
@@ -2668,6 +2672,11 @@ fn render_inner(session_id: u64) -> jint {
                     &render_state.search_highlights.drawn,
                 ),
             );
+            // 主题变更等需要整屏重绘：把所有行标脏并清除标志。
+            if render_state.full_repaint {
+                dirty_mask[..rows_usize].fill(true);
+                render_state.full_repaint = false;
+            }
             let result = render_state.renderer.render_cell_data(
                 &cells,
                 rows,
@@ -2722,7 +2731,8 @@ fn render_inner(session_id: u64) -> jint {
             let needs_repaint = highlights_changed
                 || scroll_px_changed
                 || content_dirty
-                || render_state.renderer.frame_invalidated;
+                || render_state.renderer.frame_invalidated
+                || render_state.full_repaint;
             if !needs_repaint {
                 return 0;
             }
@@ -2742,6 +2752,10 @@ fn render_inner(session_id: u64) -> jint {
                     &render_state.search_highlights.drawn,
                 ),
             );
+            if render_state.full_repaint {
+                dirty_mask[..rows_usize].fill(true);
+                render_state.full_repaint = false;
+            }
             // Idle Kitty 同步：字体/缩放变化不经过 VT（无 New 帧），缓存实例
             // 会按旧单元格尺寸错位。纯本地经布局重建（无 RPC，图集未变不重传）。
             if !render_state.kitty_frames.is_empty() {
@@ -4042,6 +4056,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
+            render_state.full_repaint = true;
         }
         drop(state);
         log::info!("setTheme: session {id} theme={name}");

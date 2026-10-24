@@ -8,6 +8,11 @@ icat、mpv `--vo=kitty` 等都靠它出图。协议本身有两处「必须答�
 以及终端自身的单元格像素几何（放置尺寸由它推出）。本规范钉住这两处关卡，
 以及叠加层与增量渲染的关系——图像在场时终端不得退化。
 
+PNG 载荷（`f=100`）的解码器 MUST 在进程加载时安装为 libghostty 的全局回调，
+MUST NOT 由各 VT 线程各自安装（多线程并发安装会与其他会话的 libghostty 调用
+相撞）。解码 MUST 使用上游 `RustPngDecoder`（按 libghostty 分配器上限先取缓冲区
+再解码），MUST NOT 自行实现 PNG 解码。
+
 ## Requirements
 
 ### Requirement: 能力探测必须应答并回显被查询的图像 id
