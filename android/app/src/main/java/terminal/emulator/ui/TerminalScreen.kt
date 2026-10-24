@@ -343,8 +343,15 @@ fun TerminalScreen(
             // 视口滚动偏移的 Compose 可观察镜像：搜索高亮按绝对行→视口行换算绘制，
             // 换算依赖滚动偏移。直接读 Surface 的普通方法拿不到重组通知，滚动后
             // 高亮会整体停在旧行；此处由所有改变可见偏移的路径（手势、程序化滚动、
-            // 会话切换与输出引起的贴底复位）同步。
+            // 会话切换与输出引起的贴底复位）同步。手势滚动只在搜索可见时写
+            // （见 onScrollChanged），故打开搜索时先补一次当前偏移。
             val viewportScrollOffset = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
+            LaunchedEffect(showTextSearch) {
+                if (showTextSearch) {
+                    viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
+                }
+            }
 
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
@@ -502,7 +509,14 @@ fun TerminalScreen(
                                         createdSurface[0] = surface
                                         surface.attachViewModel(viewModel)
                                         surface.onScrollChanged = { offset ->
-                                            viewportScrollOffset.intValue = offset
+                                            // 只有搜索高亮需要这份 Compose 可观察镜像。
+                                            // 逐事件写它会让整个 TerminalScreen 每个滚动
+                                            // 事件重组一次（主线程被重组占住时 vsync 回调
+                                            // 迟到，滚动顿挫）；未开搜索时不写，打开时由
+                                            // 下方 showTextSearch 的副作用补一次。
+                                            if (showTextSearch) {
+                                                viewportScrollOffset.intValue = offset
+                                            }
                                             viewModel.runtime.setScrollOffset(offset)
                                         }
                                         surface.onScrollingStateChanged = { isScrolling ->
