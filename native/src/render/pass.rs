@@ -3,8 +3,26 @@ use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::context::MIN_VERTEX_BUFFER_SIZE;
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
+use crate::render::slow_log::SlowLogThrottle;
 use std::sync::OnceLock;
 use std::sync::mpsc::SyncSender;
+
+/// 渲染分段慢帧诊断的限频闸门。
+///
+/// 静态而非渲染态字段：渲染态是**全局单例**（`RENDER_STATE`），挂在它上面与静态
+/// 等价，却要多改构造路径。此处每类诊断一个闸门，互不吞掉。
+static SLOW_RENDER_PHASE_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
+/// 单元构建慢帧诊断的限频闸门（与渲染分段各自限频）。
+static SLOW_CELL_BUILD_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
+/// 取纹理请求被拒（工作线程忙或已死）的限频闸门。
+///
+/// 该路径每帧都可能命中（工作线程卡住时逐帧被拒），逐条记会把 logcat 刷成告警洪水；
+/// 真正的升级信号是 [`super::context`] 侧的连续跳过计数（到上限记 error）。
+static ACQUIRE_BUSY_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
+/// 取纹理工作线程内 panic 的限频闸门（panic 可逐帧复现）。
+static ACQUIRE_PANIC_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
+/// 取纹理超时的限频闸门（慢 SurfaceFlinger/SwiftShader 下可逐帧命中）。
+static ACQUIRE_TIMEOUT_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
 
 /// 设备轮询超时：仅测试回读脚手架使用（`render_to_buffer` 内），生产零引用。
 #[cfg(test)]
@@ -385,7 +403,9 @@ impl Renderer {
             // 请求从未进入工作线程（退回的请求里没有本帧的在途克隆），
             // 立刻销账，避免排干方白等一个不存在的在途取帧。
             lane.finish();
-            log::warn!("acquire_texture: worker busy or dead ({error}); frame skipped");
+            if ACQUIRE_BUSY_THROTTLE.should_log() {
+                log::warn!("acquire_texture: worker busy or dead ({error}); frame skipped");
+            }
             return AcquireOutcome::Skipped;
         }
 
@@ -400,14 +420,18 @@ impl Renderer {
                 _ => AcquireOutcome::Skipped,
             },
             Ok(Err(_)) => {
-                log::warn!("acquire_texture: get_current_texture panicked");
+                if ACQUIRE_PANIC_THROTTLE.should_log() {
+                    log::warn!("acquire_texture: get_current_texture panicked");
+                }
                 AcquireOutcome::Skipped
             }
             Err(_) => {
-                log::warn!(
-                    "acquire_texture: get_current_texture timed out after {}ms (slow SurfaceFlinger/SwiftShader; frame skipped, retried next frame)",
-                    deadline.as_millis()
-                );
+                if ACQUIRE_TIMEOUT_THROTTLE.should_log() {
+                    log::warn!(
+                        "acquire_texture: get_current_texture timed out after {}ms (slow SurfaceFlinger/SwiftShader; frame skipped, retried next frame)",
+                        deadline.as_millis()
+                    );
+                }
                 AcquireOutcome::Skipped
             }
         }
@@ -845,8 +869,13 @@ impl Renderer {
 
         // 慢帧只记一条，区分 acquire/编码/提交/呈现哪段阻塞；30ms 与 Kotlin 侧
         // SLOW_FRAME 阈值一致，正常帧不产生日志。
+        //
+        // 限频：持续慢时每帧都超阈值，逐帧记会把 logcat 刷成慢帧洪水
+        // （实测软件 Vulkan 上 500ms 窗口内可出数百条），规范要求两次输出间隔
+        // 不小于 500ms。本类诊断独占一个闸门，不与单元构建诊断共用计数器。
         let total = present_done.duration_since(frame_start);
-        if total >= std::time::Duration::from_millis(30) {
+        if total >= std::time::Duration::from_millis(30) && SLOW_RENDER_PHASE_THROTTLE.should_log()
+        {
             let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
             log::warn!(
                 "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={}",
@@ -1001,7 +1030,7 @@ impl Renderer {
         let gpu_done = std::time::Instant::now();
         self.cpu_instances = cpu_instances;
         let total = gpu_done.duration_since(build_start);
-        if total >= std::time::Duration::from_millis(30) {
+        if total >= std::time::Duration::from_millis(30) && SLOW_CELL_BUILD_THROTTLE.should_log() {
             let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
             log::warn!(
                 "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms instances={} partial={partial} rows={rows}",
