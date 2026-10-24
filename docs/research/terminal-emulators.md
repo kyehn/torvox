@@ -80,4 +80,4 @@ vt-parser 的 `ParserInputWake` 三态输入背压：`small_pending`（不足 1K
 
 ## 结论
 
-七个项目中，与本项目架构同族的只有 ghostty（独立渲染线程）与 rio（wgpu）；本项目在这两点上与最优实践同构，且在移动端特有的省电 latch、FFI 无重数据两点上更进一层。背压形状与 foot 殊途同归，引擎解耦与 wezterm 同思路、与 libghostty-vt 的集成同源。真正可落地的参考集中在三处：锁让渡自查（ghostty）、damage 边界用例（alacritty）、输入三档压测用例（kitty）；xterm 作为行为仲裁基准入库引用即可，无需引入任何代码。
+七个项目中，与本项目架构同族的只有 ghostty（独立渲染线程）与 rio（wgpu）；本项目在这两点上与最优实践同构，且在移动端特有的省电 latch、FFI 无重数据两点上更进一层。背压形状与 foot 殊途同归，引擎解耦与 wezterm 同思路、与 libghostty-vt 的集成同源。原先可落地的三处（锁让渡自查、damage 边界用例、输入三档压测用例）已逐条核结，结论见「参考点归属」；xterm 作为行为仲裁基准入库引用即可，无需引入任何代码。
