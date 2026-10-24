@@ -54,13 +54,20 @@ vt-parser 的 `ParserInputWake` 三态输入背压：`small_pending`（不足 1K
 4. **引擎解耦**：wezterm `term` crate 零 GUI/PTY 依赖，与本项目 `libghostty-vt` 引擎/宿主分离同思路；本项目把引擎放进 Rust 进程内则更进一步，无跨语言边界。
 5. **表驱动解析**：xterm 与 wezterm `vtparse` 均为表驱动，本项目经 libghostty-vt（其解析器同族）继承该路线。
 
-### 可参考点
+### 参考点归属
 
-1. **锁让渡**（ghostty `yieldToDemand`）：渲染持帧快照锁时若 IO 线程在等，主动让渡——值得对照本项目渲染线程与 VT 线程的锁次序自查：是否存在渲染长帧期间 VT 输入线程被帧快照锁挡住的路径。
-2. **damage 语义清单**（alacritty）：光标移动即损伤、`display_offset` 过滤视口外损伤——本项目脏带渲染应对照确认「光标移出/移入视口」「滚动后旧脏行偏移」两类场景正确进入脏集。
-3. **解析与渲染的饥饿防护**（kitty）：大块输入按时间拒收、小输入合帧唤醒——本项目读线程直读 + `pollEvent` 有界排空 + 续写队列已是等效背压；其价值在于命名了三个明确的输入档位，可作本项目输入路径压测用例设计的参照（突发 1KB 内 / 突发大块 / 持续中速流三档）。
-4. **quirks 集中层**（foot）：把平台兼容 workaround 集中到一个文件并配日志——本项目 Android 机型差异（OEM 内核、SurfaceFlinger 行为）若有新增 workaround，照此集中。
-5. **xterm 作为仲裁基准**：VT 行为歧义（DEC private mode 细节、回滚边界行为）以 xterm 实测为准，terminal-state-regression 用例可引用其行为作预期。
+原「可参考点」五项已全部核结，条目随解决即从本文档移除：
+
+1. 锁让渡：VT 线程从不取 `RENDER_STATE`（`native/src/terminal` 零引用），渲染线程只在
+   持会话锁期间取渲染锁，无反向等待。
+2. damage 语义清单：当前光标行与上一光标行都标脏；滚动偏移非零或变化即强制全量重绘，
+   不存在「滚动后旧脏行偏移」漏画。
+3. 输入三档压测：突发无损 `bulk_output_is_processed_without_loss` 与有界通道弃帧限频
+   `cell_frame_drop_warning_is_throttled` 已覆盖，三档命名仅作设计参照。
+4. quirks 集中层：现无新增平台 workaround；已有 workaround 就地注释（surface 失效、
+   取帧超时）。测量口径见 openspec 能力 `performance-measurement`。
+5. xterm 仲裁基准：`terminal-state-regression` 已声明「VT 语义以上游为准，不以自建
+   语料自验证」。
 
 ### 不采用项（记录理由）
 
@@ -73,4 +80,4 @@ vt-parser 的 `ParserInputWake` 三态输入背压：`small_pending`（不足 1K
 
 ## 结论
 
-七个项目中，与本项目架构同族的只有 ghostty（独立渲染线程）与 rio（wgpu）；本项目在这两点上与最优实践同构，且在移动端特有的省电 latch、FFI 无重数据两点上更进一层。背压形状与 foot 殊途同归，引擎解耦与 wezterm 同思路、与 libghostty-vt 的集成同源。真正可落地的参考集中在三处：锁让渡自查（ghostty）、damage 边界用例（alacritty）、输入三档压测用例（kitty）；xterm 作为行为仲裁基准入库引用即可，无需引入任何代码。
+七个项目中，与本项目架构同族的只有 ghostty（独立渲染线程）与 rio（wgpu）；本项目在这两点上与最优实践同构，且在移动端特有的省电 latch、FFI 无重数据两点上更进一层。背压形状与 foot 殊途同归，引擎解耦与 wezterm 同思路、与 libghostty-vt 的集成同源。原先可落地的三处（锁让渡自查、damage 边界用例、输入三档压测用例）已逐条核结，结论见「参考点归属」；xterm 作为行为仲裁基准入库引用即可，无需引入任何代码。

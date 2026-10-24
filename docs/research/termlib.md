@@ -56,23 +56,19 @@ termlib 最值得研究的是其四层性能测量体系，层层分离关注点
 1. `FrameTimingMetric` 基于主线程 Choreographer doFrame 统计。termlib 的终端渲染在其覆盖范围内，是全覆盖核心工具；本项目的终端内容由 Rust 线程直接向 ANativeWindow 呈现，不产生主线程 doFrame，该指标只覆盖 Compose UI 层（修饰键栏动画、IME insets 动画、会话抽屉），测不到终端内容渲染帧。
 2. termlib 一切依赖"渲染在 Compose 管线内"的手法（display list 视口裁剪、draw phase 读取、帧时钟合帧），对本项目终端内容渲染不适用；对 Compose UI 层适用。
 
-## 可参考点
+## 参考点归属
 
-### 直接可参考（方法论，与渲染架构无关）
+原「可参考点 / 行动建议」已全部核结，条目随解决即从本文档移除：
 
-1. 真 PTY 捕获重放：记录 read 时间戳与字节数、按 60 Hz 重组帧边界重放。可用于将 `vt_typing` 基准从合成负载升级为真实负载，直接提升回归检出能力。
-2. opt-in 微基准门控：环境变量加 `assumeTrue` 显式开启，输出中位数与分配字节，不进常规 CI。
-3. 测量规程明文化：p95/p99/missed-deadline 判据、无效捕获非零退出、同 harness 同设备交替顺序、`conditions.json` 记录环境。真机基准操作规程应照此成文。
-4. bounded PerfettoConfig：trace 采集直接采用窄配置写法，规避宽配置在部分系统构建上的启动停滞。
-5. 增量与全新 Surface 逐像素一致性断言（`TerminalRedrawTest`：`changed.sameAs(fresh)`）：现成的测试范式，可补强 render-stability 规格中"幂等渲染"的验收。
-6. 旋转 resize 循环加双堆采样断言 scratch 复用（`AndroidMemoryTest`）：对应 Activity 重建场景，可作 Rust 与 JNI 侧内存不增长断言的样板。
-7. JNI 回调所有权修复史（break JNI callback ownership cycles）：本项目 `ffi.rs` 事件通道可对照自查同类全局引用泄漏。
-8. benchmark/README.md 明文写清每层测量能测什么、不能测什么、模拟器结论的边界——测量能力边界文档化本身值得学。
-
-### 需改造后适用（映射到 Rust 侧）
-
-- trace 关联诊断移植：输入侧在喂 PTY/VT 时打序号 counter，Rust 渲染循环每帧把已消费序号写入 atrace counter（或等价探针），真机 Perfetto 与 FrameTimeline 关联即可得出 input-to-present 延迟。这是 termlib 体系中价值最高但需要移植的一条。
-- 终端输出负载基准：termlib 用 `FrameTimingMetric` 测；本项目的等效物是渲染循环既有 logcat 时序窗口统计加真机 Perfetto，而非 `FrameTimingMetric`。
+- 真机测量操作规程（p95/p99、同设备同条件交替、环境记录、模拟器结论边界）已成文，
+  见 openspec 能力 `performance-measurement`。
+- 基准负载固定为合成负载（不采纳真机 PTY 捕获重放）与不采纳 atrace counter 关联的
+  理由，同见该能力。
+- 增量 vs 全新一致性：`cached_build_matches_full_build_byte_for_byte`；
+  resize 循环不累积：`resize_cycles_do_not_accumulate_stale_rows`。
+- opt-in 微基准门控：criterion 基准不进测试套件，`check.nu` 显式 `--quick`。
+- JNI 回调所有权：本仓不建任何 JNI 全局引用，无环。
+- macrobenchmark 边界：见本文档「macrobenchmark 评估」节，维持现状。
 
 ### 不适用（明确排除，防误参考）
 
@@ -99,13 +95,3 @@ termlib 最值得研究的是其四层性能测量体系，层层分离关注点
 2. InteractionAnimationBenchmark 有效。修饰键弹簧动画与 IME insets 逐帧跟随确实经主线程 doFrame，`FrameTimingMetric` 采得到，对应 ime-animation-smoothness 规格的"不卡顿"要求。选型正确。
 3. 终端内容渲染架构上测不到。终端帧由 Rust 线程 wgpu 直绘 ANativeWindow，不产生主线程 doFrame，`FrameTimingMetric` 统计载荷不覆盖该路径；termlib 的 `TerminalFrameBenchmark`（text/cacafire 负载加 `FrameTimingMetric`）是为 Canvas/Compose 架构设计的，照搬得到空数据或误导数据。本领域正确工具已存在：criterion 微基准、渲染循环时序探针、可选 trace 关联。
 4. CI 只编译不运行是对的。swiftshader 软件渲染模拟器的帧率不能作回归判据（现有基准注释已声明，termlib README 持同文结论）；`check.nu` 仅 `compileBenchmarkReleaseKotlin` 成本合适。上 CI 门禁的唯一候选是 `StartupTimingMetric` 相对回归检测，需要真机稳定环境，当前不现实。
-
-## 行动建议
-
-优先级从高到低，均不依赖 macrobenchmark 库：
-
-1. 真机基准操作规程文档：同设备同条件交替顺序、p95/p99 判据、环境记录，作为后续所有真机性能工作的前提。
-2. 真实 PTY 捕获重放：捕获脚本加 `vt_typing` 重放模式，替换合成负载。
-3. Rust 帧循环 trace counter 与 FrameTimeline 关联：评估 input-to-present 延迟，覆盖 termlib 体系中 `FrameTimingMetric` 对本项目不可达的部分。
-
-维持现状不动项：三个宏基准测试、CI 编译位、baselineprofile 闭环；不新增终端渲染的 `FrameTimingMetric` 负载基准。

@@ -36,12 +36,14 @@ OSC 52/9;4 引擎不回调，以 side-scanner 在 PTY 流被动扫描（1 MiB �
 - **选择走引擎**：本项目同样经 `GHOSTTY_TERMINAL_OPT_SELECTION` 用 tracked refs，选区跟随由上游承担
 - **bidi/歧义宽不支持**：同引擎的固有边界，其文档论证（渲染层改宽会与列核算失配）可直接引用为依据
 
-### 可参考点
+### 参考点归属
 
-1. **mksh SIGWINCH 教训的验证角度**：其「spawn after first view layout + skip no-op resize」是问题的一种解法；本项目走另一条路（固定 24x80 种子 spawn 再 resize，`startup-grid-resize` 规格已定）。其经验价值在于：任何「先猜尺寸」的路径都会踩 `mksh` 擦提示符，本项目改动启动时序时应保住「首次 resize 前不把提示符喂给 shell」这一不变量。
-2. **grapheme 行级标志门控**：行级 cheap flag 让非 grapheme 行零开销——本项目 Rust 侧快照/网格提取若需携带簇信息，同模式可用。
-3. **key_encoder 前同步 setopt**：每次编码按键前从终端同步模式状态，防止陈旧模式发出错误序列。本项目 key encoding 应对照确认模式读取与编码在同一锁内完成。
-4. **文档质量本身**：其 `docs/architecture.md` 把每个特性的「为什么不这么做」写清（如双击检测禁用 GestureDetector 的原因、Select all 保持工具栏的原因），是本项目 openspec 文档可看齐的写法标准。
+原「可参考点」四项已全部核结，条目随解决即从本文档移除：
+
+- mksh SIGWINCH 不变量：`startup-grid-resize` 规定首次 resize 前不把提示符喂给 shell。
+- grapheme 行级标志门控：本仓 `CellData` 直接携带 `grapheme_extra`，无带外溢出缓冲层。
+- key encoder 前同步 setopt：VT 线程每次编码前调用 `set_options_from_terminal`。
+- 文档质量（写清为什么这么做）：本仓以 openspec 变更的 design.md 承担该写法。
 
 ### 不适用项
 

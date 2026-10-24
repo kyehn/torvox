@@ -42,13 +42,18 @@
 - bootstrap zip + `SYMLINKS.txt` + staging + 原子 rename 安装流程
 - 通知常驻（会话数量 + 退出按钮）、applicationId `com.termux`、AOSP testkey 签名
 
-### 可参考点
+### 参考点归属
 
-1. **KeyHandler 映射完整性自查**：以 Termux 的 KEYCODE→escape 表为清单，对照本项目 `TerminalInputEncoder` 与 Rust 侧 key encoding 逐项核对（F 键、小键盘、Break、Back→ESC），补缺即为 bug 修复。
-2. **auto-repeat 的无障碍联动**：长按时长取系统值而非硬编码，用户在系统设置加大长按时长后修饰键栏 repeat 同步变慢。本项目若有 auto-repeat 应同源取值。
-3. **双 client 生命周期模式**：会话回调持有两个 client（带 Activity 引用与仅 Service 引用），`onUnbind` 主动解引用。本项目会话归属 Rust，但 Kotlin 侧事件消费者的生命周期解耦可对照自查。
-4. **主线程消息泵输入模型**：`MSG_NEW_INPUT` 合帧后单次 `onTextChanged`，天然合并不定长 PTY 突发。本项目渲染线程 latch 语义等价，无需改动，列为架构印证。
-5. **`TerminalTestCase` 式仿真器直测**：本项目 Rust 侧 `ghostty_terminal/tests.rs` 已是同思路，其 `History`/`Resize`/`UnicodeInput` 用例名可作补测清单。
+原「可参考点」五项已全部核结，条目随解决即从本文档移除：
+
+1. KeyHandler 映射完整性：逐键对照后补齐 `KEYCODE_BREAK` → 上游 `key::Key::Pause`
+   （此前无文本回退，整个键静默失效）；`KEYCODE_BACK` 归系统返回手势，不在键表职责内。
+   见 openspec `key-input-encoding`「Android 键码映射覆盖 Termux 键表」。
+2. auto-repeat 无障碍联动：长按阈值改取 `ViewConfiguration` 的系统值（越界退回 400ms），
+   锁定与自动重复共用。见 openspec `modifier-bar-auto-repeat`。
+3. 双 client 生命周期：会话归属 Rust，Kotlin 侧不持 Activity 引用，LeakCanary 用例在位。
+4. 主线程消息泵：渲染线程 latch 与合帧唤醒等价，架构印证。
+5. `TerminalTestCase` 式直测：`ghostty_terminal/tests.rs` 直接驱动 VT 断言网格。
 
 ### 不适用项
 

@@ -27,12 +27,17 @@
 
 两项目功能域几乎不重叠：内嵌 proot 在本项目的禁止清单中，bootstrap 仅安装 Termux prefix（zip + `SYMLINKS.txt`/`EXECUTABLES.txt` 清单，权限由清单承担），SSH/SFTP 均在范围外。因此 RedTerm 的主体实现对本项目没有直接移植对象，参考价值集中在**外围工程实践与防错模式**。
 
-## 可参考点
+## 参考点归属
 
-1. **wake lock 自检重取**：本项目 `TerminalForegroundService` 已有半程续期（`scheduleWakeLockRenewal`），但缺 RedTerm 的第二重保险——续期时若 `isHeld != true` 立即重取。OEM 内核内存压力下 partial wake lock 会被静默释放，症状是「屏幕关闭后会话随机停滞」。一行式自检即可加固，成本低。
-2. **启动路径单一事实源**：RedTerm 的 `ProotLaunch` 让交互终端与非交互命令共用同一个启动器脚本生成函数，杜绝「终端里能跑、App 调用就失败」（bind 缺失、PATH 不同、环境修复未 source）。本项目的会话启动（`session.rs`、`shell_env.rs`）与 second stage 环境装配应对照自查是否存在两套并行的环境拼装路径。
-3. **假对端测试模式**：`FakeSftpServer` 让协议解析在 JVM 单测里对假服务器跑完整握手。本项目 `mock_pty.rs` 已是同思路（mock PTY 侧），该模式值得在更多边界测试延续——凡「对端行为」依赖处，用假对端固化协议语义。
-4. **错误注释纪律**：AGENTS.md 的「注释必须保持为真」「分支不得依赖显示字符串」两条规定，与本项目注释极简原则同源，可作为评审口径。
+原「可参考点」四项已全部核结，条目随解决即从本文档移除，不再保留「已解决」副本：
+
+- wake lock 自检重取：已实现，`TerminalForegroundService` 续期时 `isHeld` 为假即重取。
+- 启动路径单一事实源：已核实，PTY 会话只有一条环境装配（`ShellEnv` → `pty::base_env`）；
+  安装器的 dpkg 环境面向维护脚本，消费者不同，不合并。
+- 假对端测试：已有 `native/src/terminal/mock_pty.rs`。
+- 注释纪律：与 `STYLE.md`「注释极简」同源，作评审口径。
+
+性能测量类口径见 openspec 能力 `performance-measurement`。
 
 ## 不适用项（明确排除，防误参考）
 
@@ -49,7 +54,3 @@
 - **16 KB 页对齐**：RedTerm 显式 `-z max-page-size=16384` 并构建后验证；本项目 `libnative.so` 经 readelf 核实 LOAD 段对齐已为 `0x4000`（16384），满足 Android 15+ 要求，无需改动。
 - **通知诚实性**：本项目通知仅报会话数量与退出按钮，不猜显示名，已与 RedTerm 修后的行为一致。
 - **bootstrap 权限保真**：本项目走 Termux 上游 zip 格式（`SYMLINKS.txt` + `EXECUTABLES.txt` 清单），权限由清单承担，无 tar 模式位保真问题；zip 滑移防护、`SYMLINKS.txt` 有界读取、失败 staging 清理均已具备。
-
-## 行动建议
-
-仅一项落地：为 `TerminalForegroundService` 的 wake lock 续期路径补充 `isHeld` 自检重取（对应上文可参考点 1）；其余参考点属评审口径，不产生代码变更。不引入任何 RedTerm 功能域组件。
