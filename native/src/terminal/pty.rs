@@ -152,6 +152,22 @@ pub trait Pty: Send + Sync {
     }
 }
 
+/// 给一组 fd 置 `FD_CLOEXEC`。
+///
+/// `exec` 后仍存活的 fd 会泄漏给子进程：pty 主端泄漏会让 shell 子进程继续持有终端，
+/// 父进程退出的 EOF 永远到不了 shell；回报管道写端泄漏则让父进程永远等不到 EOF，
+/// 把「exec 成功」误判成「exec 失败」。
+fn set_cloexec(fds: &[&OwnedFd]) -> Result<(), PtyError> {
+    for fd in fds {
+        nix::fcntl::fcntl(
+            *fd,
+            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+        )
+        .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
+    }
+    Ok(())
+}
+
 /// 等待主端变为可写直至 `deadline`。
 ///
 /// `unsafe`：仅调用 `poll`，其输入是本方法内构造的 `pollfd` 与调用方持有的有效
@@ -247,13 +263,7 @@ impl PtyPair {
         let slave_fd = result.slave;
         // openpty 不保证 FD_CLOEXEC：exec 后泄漏的 pty 主 fd 会让 shell 子进程
         // 继续持有终端，父进程退出的 EOF 永远到不了 shell。
-        for fd in [&master_fd, &slave_fd] {
-            nix::fcntl::fcntl(
-                fd,
-                nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
-            )
-            .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
-        }
+        set_cloexec(&[&master_fd, &slave_fd])?;
 
         // execve 失败回报管道：写端带 FD_CLOEXEC，execve 成功时随 exec 关闭，
         // 父进程读到 EOF 即「exec 成功」；失败时子进程把 errno 写进去。
@@ -262,13 +272,7 @@ impl PtyPair {
         // 的编码撞车，会把正常收尾误报成 execve 失败。管道给的是确切 errno。
         let (exec_failure_reader, exec_failure_writer) = nix::unistd::pipe()
             .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
-        for fd in [&exec_failure_reader, &exec_failure_writer] {
-            nix::fcntl::fcntl(
-                fd,
-                nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
-            )
-            .map_err(|errno| PtyError::Open(std::io::Error::from_raw_os_error(errno as i32)))?;
-        }
+        set_cloexec(&[&exec_failure_reader, &exec_failure_writer])?;
 
         // fork 之前构建好子进程的全部数据，避免子进程中分配
         // （多线程进程中 fork 可能破坏 malloc 堆）。
