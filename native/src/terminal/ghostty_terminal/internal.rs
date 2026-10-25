@@ -89,6 +89,18 @@ const ANSI_PALETTE_INDICES: [PaletteIndex; 16] = [
     PaletteIndex::BRIGHT_WHITE,
 ];
 
+/// VT 线程等待到的事件：命令通道或查询通道就绪。
+///
+/// 两条通道必须一起等：只等命令通道时，查询要等命令批尾或空闲节拍
+/// （`VT_IDLE_TICK_MS`）到点才被排空——空闲终端上每次查询都等满一个节拍，
+/// 渲染线程的 kitty 放置查询每等满一节拍就丢掉一帧（真机实测 ~54ms 慢帧）。
+enum VtEvent {
+    /// 命令通道就绪；`Err` 表示通道断开（会话销毁）。
+    Command(Result<Command, flume::RecvError>),
+    /// 查询通道就绪；`Err` 表示通道断开（会话销毁）。
+    Query(Result<Query, flume::RecvError>),
+}
+
 /// 终端网格列数：ghostty 断开时回退 DISCONNECTED_COLS。调用方一律经此取值，
 /// 不重复写 `unwrap_or` 链。
 fn grid_cols(terminal: &Terminal) -> u32 {
@@ -916,8 +928,12 @@ impl super::GhosttyTerminal {
     /// 排空查询通道，使查询看到最新终端状态。返回真表示本批中有查询安装了选区，
     /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
     /// `all_text` 跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
+    ///
+    /// `first` 是本轮等待时已从通道取出的查询（见 [`VtEvent`]）：它已离开通道，
+    /// 必须在此处理，否则会被丢弃、查询方只能等到超时。
     pub(crate) fn drain_queries<'term>(
         query_receiver: &flume::Receiver<Query>,
+        first: Option<Query>,
         terminal: &mut Terminal<'term, '_>,
         all_text: &mut Option<String>,
         encoders: &mut Encoders,
@@ -929,7 +945,15 @@ impl super::GhosttyTerminal {
         kitty_cache: &mut KittyPlacementCache,
     ) -> bool {
         let mut selection_installed = false;
-        while let Ok(query) = query_receiver.try_recv() {
+        let mut taken = first;
+        loop {
+            let query = match taken.take() {
+                Some(query) => query,
+                None => match query_receiver.try_recv() {
+                    Ok(query) => query,
+                    Err(_) => break,
+                },
+            };
             // 累积而非覆盖：同批中选区安装查询之后若跟着普通查询（如 SelectionText），
             // 普通查询返回 false 会抹掉安装信号，导致行缓存不失效、反白帧不重推。
             selection_installed |= Self::process_query(
@@ -1174,61 +1198,88 @@ impl super::GhosttyTerminal {
         // 同步更新（模式 2026）的保持起点：引擎不会自行结束保持，
         // 程序崩溃或忘记 ESU 时由这里超时解锁（见 `synchronized_output_hold`）。
         let mut synchronized_output_held_since: Option<std::time::Instant> = None;
+        // 查询通道是否仍在参与等待：通道断开后 `flume::Selector` 对它恒为就绪，
+        // 继续监听会变成忙等（发送端随会话一起销毁）。
+        let mut query_channel_open = true;
 
         'vt_loop: loop {
-            // 等待有界通道里的下一条命令。用超时，以便在没有命令待处理时
-            // （例如两次写入之间的查询）也周期性检查查询通道。tick 长度同时是
-            // 查询的最坏延迟，调用方的超时窗口必须大于它（见 `VT_IDLE_TICK_MS`）。
-            let mut pending =
-                match config
-                    .command_receiver
-                    .recv_timeout(std::time::Duration::from_millis(
+            // 同时等待命令与查询：任一就绪即醒。查询必须即时应答——只按空闲节拍
+            // 轮转查询通道时，无命令在途的终端上每次查询都要等满一个节拍
+            // （`VT_IDLE_TICK_MS`），渲染线程的 kitty 放置查询每等满一节拍
+            // 就丢掉一帧（真机实测 ~54ms 的慢帧即此）。节拍只负责周期职责。
+            let event = if query_channel_open {
+                flume::Selector::new()
+                    .recv(&config.command_receiver, VtEvent::Command)
+                    .recv(&query_receiver, VtEvent::Query)
+                    .wait_timeout(std::time::Duration::from_millis(
                         super::types::VT_IDLE_TICK_MS,
-                    )) {
-                    Ok(command) => Some(command),
-                    Err(flume::RecvTimeoutError::Timeout) => {
-                        // 没有待处理的有界命令——排空查询通道，让命令之间的查询
-                        // 不必无限期等待。
-                        if Self::drain_queries(
-                            &query_receiver,
-                            &mut terminal,
-                            &mut cached_all_text,
-                            &mut encoders,
-                            default_foreground,
-                            default_background,
-                            &mut search,
-                            &mut match_buffer,
-                            &mut extractors,
-                            &mut kitty_cache,
-                        ) {
-                            // 查询内安装与 Command::SetSelection 同款失效：
-                            // 反白改变每行内容，帧必须重推。
-                            last_cell_data_push = None;
-                            grid_dirty = true;
-                            cell_data_dirty = true;
-                            extractors.invalidate_row_cache();
-                        }
-                        // ── 自动推送 CellData（仅在真实状态变化后）──
-                        if cell_data_dirty
-                            && !synchronized_output_hold(
-                                &mut terminal,
-                                &mut synchronized_output_held_since,
-                            )
-                        {
-                            Self::refresh_cell_data(
-                                &config,
-                                &terminal,
-                                default_foreground,
-                                default_background,
-                                &mut last_cell_data_push,
-                                &mut extractors,
-                            );
-                            cell_data_dirty = false;
-                        }
-                        continue;
-                    }
-                    Err(flume::RecvTimeoutError::Disconnected) => break,
-                };
+                    ))
+            } else {
+                flume::Selector::new()
+                    .recv(&config.command_receiver, VtEvent::Command)
+                    .wait_timeout(std::time::Duration::from_millis(
+                        super::types::VT_IDLE_TICK_MS,
+                    ))
+            };
+            // 本轮已从通道取出的查询：查询就绪时它已离开通道，必须一并处理。
+            let mut taken_query = None;
+            let mut pending = match event {
+                Err(flume::select::SelectError::Timeout) => None,
+                Ok(VtEvent::Command(Ok(command))) => Some(command),
+                Ok(VtEvent::Command(Err(_))) => break,
+                Ok(VtEvent::Query(Ok(query))) => {
+                    taken_query = Some(query);
+                    None
+                }
+                Ok(VtEvent::Query(Err(_))) => {
+                    // 查询通道断开（会话销毁）：此后只等命令通道。
+                    query_channel_open = false;
+                    continue;
+                }
+            };
+            // 无命令就绪：要么节拍到点，要么有查询到达。命令与查询同属一条逻辑
+            // 队列，故先取走已入队的命令——有命令就走命令批处理（批尾统一应答
+            // 查询，查询因而能看到命令的效果），没有命令才直接应答查询。
+            if pending.is_none() {
+                pending = config.command_receiver.try_recv().ok();
+            }
+            if pending.is_none() {
+                if Self::drain_queries(
+                    &query_receiver,
+                    taken_query,
+                    &mut terminal,
+                    &mut cached_all_text,
+                    &mut encoders,
+                    default_foreground,
+                    default_background,
+                    &mut search,
+                    &mut match_buffer,
+                    &mut extractors,
+                    &mut kitty_cache,
+                ) {
+                    // 查询内安装与 Command::SetSelection 同款失效：
+                    // 反白改变每行内容，帧必须重推。
+                    last_cell_data_push = None;
+                    grid_dirty = true;
+                    cell_data_dirty = true;
+                    extractors.invalidate_row_cache();
+                }
+                // ── 自动推送 CellData（仅在真实状态变化后）──
+                if cell_data_dirty
+                    && !synchronized_output_hold(&mut terminal, &mut synchronized_output_held_since)
+                {
+                    Self::refresh_cell_data(
+                        &config,
+                        &terminal,
+                        default_foreground,
+                        default_background,
+                        &mut last_cell_data_push,
+                        &mut extractors,
+                    );
+                    cell_data_dirty = false;
+                }
+                continue;
+            }
             // 整批命令处理完只做一次 cell-data 构建。poll_pty_output 每个渲染帧
             // 最多喂入 MAX_CHUNKS_PER_FRAME 条 Write 命令；若每条 Write 之后
             // 都重建整个网格（每次遍历 ~2444 次 Ghostty FFI 调用），SwiftShader
@@ -1446,8 +1497,11 @@ impl super::GhosttyTerminal {
                 pending = config.command_receiver.try_recv().ok();
             }
             // 整批处理完后排空待处理查询，让它们看到完全更新后的终端状态。
+            // 本轮等待时已取出的那条查询（`taken_query`）也在这里一并应答：
+            // 它已离开通道，不带上就会被丢弃、查询方只能等到超时。
             if Self::drain_queries(
                 &query_receiver,
+                taken_query.take(),
                 &mut terminal,
                 &mut cached_all_text,
                 &mut encoders,

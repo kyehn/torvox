@@ -518,9 +518,8 @@ fn read_all_text_answers_repeated_queries_within_query_timeout() {
             "第 {round} 轮内容必须与首轮一致"
         );
     }
-    // 缓存命中时单轮必须留在查询期限内。VT 循环以 recv_timeout(50ms) 的粒度
-    // 轮转查询通道，故每轮延迟上限即该节拍（约 50ms）；越过 500ms 说明查询排不上
-    // VT 线程——回滚填满时的全量重建正是这条路。
+    // 缓存命中时单轮必须留在查询期限内。VT 线程收到查询即应答（不再等空闲节拍），
+    // 越过 500ms 说明查询排不上 VT 线程——回滚填满时的全量重建正是这条路。
     let started = Instant::now();
     let cached = terminal_under_test.read_all_text();
     let elapsed = started.elapsed();
@@ -550,6 +549,31 @@ fn read_all_text_answers_repeated_queries_within_query_timeout() {
         text.contains("fresh-marker"),
         "网格变动后缓存必须失效（重试到期限仍未读到新内容，长度={}）",
         text.len()
+    );
+}
+
+/// 空闲 VT 线程必须即时应答查询：查询延迟不得被空闲节拍串行化。
+///
+/// VT 线程原本只在空闲节拍（`VT_IDLE_TICK_MS`）到点时排空查询通道，无命令在途时
+/// 一次查询要等满整个节拍。渲染线程的 kitty 放置查询走的正是这条路：每等满一个
+/// 节拍就丢掉一帧（真机实测 ~54ms 的慢帧即此）。
+#[test]
+fn idle_vt_thread_answers_queries_without_waiting_for_tick() {
+    use super::types::VT_IDLE_TICK_MS;
+    const QUERY_ROUNDS: usize = 8;
+    let terminal_under_test = terminal();
+    // 让 VT 线程进入空闲等待：节拍自此刻起算。
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let started = Instant::now();
+    for _ in 0..QUERY_ROUNDS {
+        let _title = terminal_under_test.title();
+    }
+    let elapsed = started.elapsed();
+    // 一个节拍只够服务一轮查询：被节拍串行化的实现至少要等 7 个节拍（~350ms）。
+    assert!(
+        elapsed < std::time::Duration::from_millis(2 * VT_IDLE_TICK_MS),
+        "{QUERY_ROUNDS} 次查询总耗时 {elapsed:?}，必须小于两个空闲节拍（{}ms）",
+        2 * VT_IDLE_TICK_MS
     );
 }
 
