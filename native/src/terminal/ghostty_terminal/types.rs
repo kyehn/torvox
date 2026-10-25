@@ -294,11 +294,12 @@ pub(crate) const CELL_DATA_CHANNEL_CAPACITY: usize = 4;
 /// 上游 OSC 回调事件通道容量（剪贴板写入，低频；满则丢弃，VT 线程永不阻塞）。
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
-/// VT 线程空闲时等待下一条命令的时长，也是查询排空的最坏延迟。
+/// VT 线程空闲时等待下一条命令的时长。
 ///
-/// VT 线程只在命令批尾与**本 tick 到点**时排空查询通道，故无命令在途时一次查询要
-/// 等满整个 tick。凡调用方超时小于本值就等于与它赛跑：超时先到即被当成「读不到」
-/// （见 [`QUERY_TIMEOUT_MS`] 与 `Session::FOCUS_MODE_QUERY_TIMEOUT_MS` 两处的关系）。
+/// VT 线程同时等待命令通道与查询通道（任一就绪即醒），故查询的应答延迟与本值无关：
+/// 本值只决定「无命令无查询时」多久做一次周期职责（排空残留查询、推送单元数据）。
+/// 但命令批处理期间不排空查询（批尾才应答），一次查询最坏要等一整批命令处理完，
+/// 故调用方的查询窗口仍须显著大于本值（见 `Session::FOCUS_MODE_QUERY_TIMEOUT_MS`）。
 pub(crate) const VT_IDLE_TICK_MS: u64 = 50;
 /// 构造函数等待 VT 线程进入其闭包的时限。超过即判定线程调度异常。
 /// 与 [QUERY_TIMEOUT_MS] 同量级：正常调度是微秒级，超时只可能来自系统过载。
