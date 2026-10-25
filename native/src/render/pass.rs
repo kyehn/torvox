@@ -508,8 +508,10 @@ impl Renderer {
         viewport_scroll_px: f32,
         last_drawn_viewport_scroll_px: f32,
     ) -> bool {
-        viewport_scroll_px != 0.0
-            || (viewport_scroll_px - last_drawn_viewport_scroll_px).abs() > f32::EPSILON
+        // 仅当本帧亚行余量**发生变化**时才强制全量：滚动进行中余量每帧都在变，
+        // 必须全量避免累加器旧像素与新几何混叠；余量稳定（含手指停住、空闲重绘）
+        // 时部分渲染是安全的——内容未动，脏带为空，累加器保持自洽。
+        (viewport_scroll_px - last_drawn_viewport_scroll_px).abs() > f32::EPSILON
     }
     /// 部分/全量合成门控：纯函数——脏带部分路径候选与滚动一致性门控的合成。
     /// 滚动激活时一律全量（判定见 is_scroll_offset_active），偏移归零且稳定后恢复部分渲染。
