@@ -157,6 +157,31 @@ internal fun resolveDragBounds(
     )
 }
 
+/**
+ * 长按拖动（没有独立手柄）的边界折叠。
+ *
+ * 调用方没有「正在拖哪个柄」这一信息：越过另一侧后归属已由 [applyHandleDrag]
+ * 翻转到实时边界里，下一帧必须沿用它。若固定按 END 解释，反向回拖时
+ * **未被拖动**的一侧会跟着手指走——用户看到的是「另一边界异常增加」。
+ */
+internal fun resolveLongPressDragBounds(
+    current: SelectionState,
+    pending: HandleDragResult?,
+    row: Int,
+    col: Int,
+    maxRow: Int,
+    maxCol: Int,
+): HandleDragResult =
+    resolveDragBounds(
+        current = current,
+        pending = pending,
+        draggingStart = pending?.draggingStart ?: false,
+        row = row,
+        col = col,
+        maxRow = maxRow,
+        maxCol = maxCol,
+    )
+
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
 data class SessionInfo(val id: Long, val title: String = "")
 
@@ -524,10 +549,9 @@ constructor(
                     // **没被拖动**的一侧算到错误位置——快速路径与边缘滚动交替时，
                     // 现象就是「另一边界异常增加」。
                     val flipped =
-                        resolveDragBounds(
+                        resolveLongPressDragBounds(
                             current = current,
                             pending = lastDragBounds,
-                            draggingStart = false,
                             row = row,
                             col = col,
                             maxRow = maxRow,

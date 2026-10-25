@@ -176,4 +176,21 @@ class SelectionStateTest {
             )
         assertEquals(HandleDragResult(0, 2, 23, 79, false), bounds)
     }
+
+    @Test
+    fun `long press reverse across the anchor keeps the far boundary pinned`() {
+        // 长按拖动没有独立手柄：只能从实时边界推回归属。先从 (0,5) 拖到 1
+        // 越过起点 2，再继续反向拖到 0，然后回拖过起点到 6、10。
+        val committed = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 5)
+        var pending: HandleDragResult? = null
+        fun move(col: Int): HandleDragResult =
+            resolveLongPressDragBounds(committed, pending, row = 0, col = col, maxRow = 23, maxCol = 79)
+                .also { pending = it }
+
+        assertEquals(HandleDragResult(0, 1, 0, 2, true), move(1))
+        // 关键帧：未被拖动的一侧必须钉在 2，旧实现会同时把它挪到 1。
+        assertEquals(HandleDragResult(0, 0, 0, 2, true), move(0))
+        assertEquals(HandleDragResult(0, 2, 0, 6, false), move(6))
+        assertEquals(HandleDragResult(0, 2, 0, 10, false), move(10))
+    }
 }
