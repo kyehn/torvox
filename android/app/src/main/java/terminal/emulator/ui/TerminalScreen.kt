@@ -55,6 +55,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -380,10 +381,26 @@ fun TerminalScreen(
                 }
             }
 
+            /** 空 needle 让上游搜索回到 idle：关闭搜索或查询失效时不留旧命中。 */
+            suspend fun clearNativeSearch() {
+                val bridge = viewModel.runtime.bridge() ?: return
+                // 原生库缺失时 external 链接会抛 UnsatisfiedLinkError（Error 非
+                // Exception）；搜索框可在没有原生的降级态打开，关闭路径必须先设防。
+                if (!terminal.emulator.bridge.NativeBridge.isNativeLoaded()) return
+                try {
+                    withContext(TerminalDispatchers.inputOutput) { bridge.searchSetNeedle("") }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    LogUtil.w("TerminalScreen", "clearing native search failed: ${error.message}")
+                }
+            }
+
             suspend fun performSearch() {
                 val query = searchState.query
                 if (query.isEmpty()) {
                     searchState = searchState.copy(resultCount = 0, selectedMatch = null)
+                    clearNativeSearch()
                     return
                 }
                 surfaceRef.value?.finishComposing()
@@ -404,8 +421,8 @@ fun TerminalScreen(
             }
 
             /**
-             * 把选中命中居中：上游定位策略只保证命中可见，命中会贴视口上下缘，
-             * 上下文为零。居中由视图侧执行，命中行上下各留半屏可读内容。
+             * 把选中命中居中：上游按 `Scroll::None` 选中、不移动视口，
+             * 居中由视图侧执行，命中行上下各留半屏可读内容。
              */
             fun centerSelectedRow(row: Int) {
                 val surface = surfaceRef.value ?: return
@@ -413,7 +430,7 @@ fun TerminalScreen(
                 surface.scrollToRow(centeredRow)
             }
 
-            /** 上一个/下一个：导航由上游完成（顺带滚动视口），此处只消费选中态。 */
+            /** 上一个/下一个：导航由上游完成，视口由 centerSelectedRow 居中。 */
             suspend fun selectSearchMatch(forward: Boolean) {
                 val bridge = viewModel.runtime.bridge() ?: return
                 val selection =
@@ -705,11 +722,19 @@ fun TerminalScreen(
                                 // 匹配文本长度须受限（`text-search` 查询上限条）：超长直接判无命中，
                                 // MUST NOT 截断——截断会让用户搜到另一个串的结果。查询框保留原文。
                                 val coerced = coerceSearchQuery(newQuery, searchQueryMaxLength)
-                                if (coerced == null) {
+                                if (coerced.isNullOrEmpty()) {
+                                    // 空查询与超长查询都不进原生搜索；立刻清掉旧命中与
+                                    // 原生状态，避免空查询框短暂显示上一次的计数/高亮。
                                     searchState =
-                                        searchState.copy(query = newQuery, resultCount = 0, selectedMatch = null)
+                                        searchState.copy(
+                                            query = newQuery,
+                                            resultCount = 0,
+                                            currentIndex = 0,
+                                            selectedMatch = null,
+                                        )
                                     searchJobHolder.get()?.cancel()
                                     searchDebouncer.cancel()
+                                    scope.launch { clearNativeSearch() }
                                 } else {
                                     searchState = searchState.copy(query = coerced)
                                     searchJobHolder.get()?.cancel()
@@ -740,6 +765,7 @@ fun TerminalScreen(
                                 searchDebouncer.cancel()
                                 searchJobHolder.get()?.cancel()
                                 surfaceRef.value?.clearSearchHighlights()
+                                scope.launch { clearNativeSearch() }
                             },
                             modifier = Modifier.testTag("TextSearchBar"),
                         )

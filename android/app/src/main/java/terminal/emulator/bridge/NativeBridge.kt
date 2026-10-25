@@ -323,7 +323,7 @@ object NativeBridge {
     /**
      * 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回
      * `[序号, 总数, 行, 起始列, 结束列]`；无命中、超时、断连或会话不存在返回 null。
-     * 行号是绝对网格行（0 = 回滚顶部），选中时视口已滚到该命中。
+     * 行号是绝对网格行（0 = 回滚顶部）；上游不移动视口，居中由视图侧完成。
      */
     @JvmStatic
     external fun searchSelect(sessionId: Long, forward: Boolean): IntArray?

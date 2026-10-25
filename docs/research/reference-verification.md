@@ -102,17 +102,17 @@
 | xtwinopsSizeReports | `test_xtwinops_size_reports`（`native/src/terminal/test_helpers.rs`） | ✅ |
 | kittyGraphicsAbsentWhenNoImages | `kitty_graphics_absent_when_no_images` | ✅ |
 | kittyGraphicsVirtualUnicodePlaceholder | `kitty_placement_query_reuses_unchanged_rows` / `kitty_placement_row_cache_survives_scrollback_viewing`（U=1 虚拟占位下放置采集与逐行定位） + `kitty_placements_collects_visible_display` | ✅ |
-| searchFindsMatchAcrossScrollbackAndReveals | `search_select_reveals_history_match_in_viewport` + `TextSearchEndToEndTest.searchFindsAndHighlightsMatches` | ✅ |
+| searchFindsMatchAcrossScrollbackAndReveals | `search_select_leaves_scrolling_to_host` + `TextSearchEndToEndTest.searchFindsAndHighlightsMatches` | ✅ |
 | searchCaseSensitivity | `search_is_case_insensitive_for_ascii_letters` + `TextSearchEndToEndTest.lowercaseQueryMatchesUppercaseContent` | ✅ |
 | searchUnicodeCaseFolding | `search_folds_case_for_ascii_letters_only` | ✅ |
 | searchSpansSoftWrap | `search_viewport_matches_span_soft_wrap` | ✅ |
 | searchNoMatchesClearsSelection | `search_no_matches_clears_selection` + `TextSearchEndToEndTest.noResultsIndicator` | ✅ |
 | searchStepWraps | `search_select_walks_from_newest_toward_older_and_wraps` + `TextSearchEndToEndTest.searchNavigatesWithScroll` | ✅ |
-| searchStepRescansAfterOutput | 无逐条（本项目按查询全量重扫；入口节流以 `SearchDebouncerTest` 覆盖） | ⚠️ |
-| searchClearRemovesMatchesAndSelection | 无独立原生 `searchClear` API（UI 关闭即清除：`TextSearchEndToEndTest.closeSearchRestoresModifierBar`） | ⚠️ |
+| searchStepRescansAfterOutput | `search_select_sees_output_written_after_needle`（上游 `select_*` 自带 feed 追赶，不另建重扫路径） | ✅ |
+| searchClearRemovesMatchesAndSelection | `search_empty_needle_clears_matches_and_selection` + 关闭/清空查询走原生空 needle（`TerminalScreen.clearNativeSearch`）+ `TextSearchEndToEndTest.closeSearchRestoresModifierBar` | ✅ |
 | searchCountsPastTheNavigableCapAndKeepsNewestReachable | `search_viewport_matches_cover_every_hit_row`（小规模变体） | ✅ |
 
-`EmulatorVtTest` 小计：✅ 48，⚠️ 2，− 4，共 54。
+`EmulatorVtTest` 小计：✅ 50，⚠️ 0，− 4，共 54。
 
 ### 3.2 其余 15 个测试文件（106 条）
 
@@ -122,7 +122,7 @@
 | `TerminalUiTest` (18) | launchShowsShellTabAndToolbar → `BehaviorVerificationTest.terminal_view_displayed_on_launch`；typedCommandRunsInShell → `UiAutomatorTest.typingViaSystemKeyboardReacts`；stickyCtrlInterruptsCommand → `StickyCtrlInterruptInstrumentedTest.stickyCtrlPlusCInterruptsRunningCommand`；newTabCreatesAndSwitchesSessions → `SessionCreationInstrumentedTest`（5）+ `SessionDrawerInstrumentedTest.addSwitchAndCloseSession`；fontSizeChangeReflowsGridAndSession → `FontSizeReflowInstrumentedTest.fontSizeChangeReflowsGridAndScalesCellHeight`；longPressSelectsWordAndCopyFillsClipboard → `SelectionEspressoTest.realLongPressKeepsMenuAndCopiesPressedLine`；longPressDragExtendsSelection → `SelectionDragQuantifiedTest`（6）；selectAllFromToolbarSelectsWholeBuffer → `selectAllShowsSelectionMenu` + `SelectionMenuActionsTest`（2）；pasteButtonTypesClipboardIntoShell → `PasteButtonInstrumentedTest.pasteMenuTypesClipboardIntoShell`；searchBarFindsAndHighlightsToken → `TextSearchEndToEndTest`（10）；closingActiveTabSwitchesToRemaining → `SessionDrawerInstrumentedTest.addSwitchAndCloseSession`；extraKeysTypeIntoShell → `ModifierBarTest`（14）+ `ModifierBarRobolectricTest`（11） | ✅ 12 |
 | `TerminalUiTest`（其余 6） | extraKeysSettingOpensEditor / extraKeysToggleHidesToolbarButKeepsConfig / extraKeysConfigDrivesToolbar（布局编辑器被禁止）；doubleTapSelectsWord / tripleTapSelectsLine（双击/三击选择未声明）；settingsMenuTogglesKeepScreenOn（keepScreenOn 未声明） | − 6 |
 | `term/OscSideScannerTest` (9) | clipboardWriteBelTerminated → `Osc52ClipboardInstrumentedTest.osc52_sequence_sets_system_clipboard` + `osc_clipboard_via_pty_write_path`；splitAcrossReads → `osc_clipboard_split_buffer`；clipboardWriteStTerminated → `osc_clipboard_st_terminated`；unrelatedOscIgnored → `unrelated_osc_produces_no_clipboard_event`；invalidBase64Ignored → `osc_clipboard_invalid_base64_is_ignored`；clipboardQuery、progressNormalWithValue / progressClearNoValue / progressValueClamped（OSC 52 查询与 OSC 9;4 进度未声明） | ✅ 5 + − 4 |
-| `ThemeModelTest` (4) | presetsArePresentAndResolvable → `ThemeRepositoryTest`（4：catalog 顺序与默认标记断言）+ `TerminalThemePaletteTest`（3）；palette256GeneratesCubeAndGrayscale → 无运行时可写色板断言（主题为构建期产出）；csvRoundTrip / storeSaveRenameDelete（自定义主题编辑被禁止） | ✅ 1 + ⚠️ 1 + − 2 |
+| `ThemeModelTest` (4) | presetsArePresentAndResolvable → `ThemeRepositoryTest`（4：catalog 顺序与默认标记断言）+ `TerminalThemePaletteTest`（3）；palette256GeneratesCubeAndGrayscale → `palette_256_cube_and_grayscale_match_xterm`（xterm 色立方/灰阶外部基准）；csvRoundTrip / storeSaveRenameDelete（自定义主题编辑被禁止） | ✅ 2 + − 2 |
 | `ThemeActivityTest` (1) | launchesAndBuildsSwatchGrid → `ThemeInstrumentedTest.terminalThemeSelectorListsAllThemes` + `SettingsScreenTest.theme_switch_changes_terminal_appearance` | ✅ 1 |
 | `term/SessionServiceExitTest` (1) | exitTearsDownSessionsAndTheActivity → `SessionTableWatcherTest`（3，职责等价：`lastSessionClosedFinishesOnce` 等） | ✅ 1 |
 | `ui/ExtraKeysConfigTest` (30) | 布局编辑器、多 profile、按键宽度倍数、文本迁移、存储读写：规范禁止不落地（本项目修饰键栏固定 2 行 7 列，基础可用性由 `ModifierBarTest` 14 + `ModifierBarRobolectricTest` 11 承接） | − 30 |
@@ -135,14 +135,14 @@
 | `OnboardingActivityTest` (2) | 首次运行向导（规范未声明，首启直入默认会话） | − 2 |
 | `ui/TerminalFontStoreTest` (1) | failedImportLeavesNothingStaged：本仓字体从不复制/移动（`DESIGN.md` 声明），不存在导入暂存概念；字体装配错误面由 `bridge/FontInfoPackedTest` 覆盖 | − 1 |
 
-其余文件小计：✅ 29，⚠️ 1，− 76，共 106。
+其余文件小计：✅ 30，⚠️ 0，− 76，共 106。
 
 ### 3.3 全部合计（上游 A 160 条）
 
 | 状态 | 数量 |
 | --- | --- |
-| ✅ 等效 | 77 |
-| ⚠️ 部分 | 3 |
+| ✅ 等效 | 80 |
+| ⚠️ 部分 | 0 |
 | − 不适用 | 80 |
 
 合计 160，与上游实测一致。
@@ -189,7 +189,7 @@
 
 ## 六、结论与建议
 
-- 上游 A 160 条测试中，77 条在本项目存在等效测试、80 条对应能力不适用（禁止/未声明/依赖行为由引擎承担）、3 条部分对应；每条「等效」均给出双方精确测试名（当次源码导出）。按像素滚动三层证据链完整闭合。本轮把原先 ⚠️ 中的六条处置完毕：三条 OSC 侧逐条断言（ST 终止、无关 OSC 不触发、非法 base64 不进入剪贴板）、缩窄重排保留文本单独成例、U=1 虚拟占位放置定位指到既有用例，另有一条收窄断言（工作目录）补齐至与上游同宽；剩余 3 条 ⚠️ 均为搜索与 256 色板的邻近覆盖（断言面不同，非缺口）。
+- 上游 A 160 条测试中，80 条在本项目存在等效测试、80 条对应能力不适用（禁止/未声明/依赖行为由引擎承担）、0 条部分对应；每条「等效」均给出双方精确测试名（当次源码导出）。按像素滚动三层证据链完整闭合。此前 3 条 ⚠️ 已全部关闭：输出后重扫由 `search_select_sees_output_written_after_needle` 钉住上游 feed 追赶；关闭搜索/清空查询以空 needle 清空原生状态并由 `search_empty_needle_clears_matches_and_selection` 与端到端用例覆盖；256 色由 `palette_256_cube_and_grayscale_match_xterm` 以 xterm 标准值作外部基准。
 - 上游 B 的 145 条引擎行为测试不属本仓测试域（依赖行为由 libghostty-vt 承担）；键位、队列、标题、SGR 编码、回滚深度等区域有直接锚点（文中点名逐一实测）。
 - 原三条观察项均已核结，不再保留待办：#23（缩窄重排保留文本）已补用例
   `shrink_reflow_keeps_wrapped_text`（连同备用屏只裁剪用例
@@ -199,5 +199,5 @@
 
 ## 七、风险
 
-- 所有对应关系以静态与源码实读为据，未在本环境运行仪器化集成测试（上游测试依赖真机/模拟器与 rootfs 镜像等资源）；⚠️ 状态即为此保留，避免由静态阅读推断出比实际更强的断言。
+- 对应关系以源码实读为据；本仓的 `TextSearchEndToEndTest`（10 例）与 `SelectionDragQuantifiedTest`（7 例）已在 Android 15 模拟器复跑通过。上游 A 的其余仪器化用例仍依赖其自有真机/rootfs 资源，未在本环境逐条重跑。
 - 两参考仓库均为移动分支，后续演进不回写到本核验；如需在版本升级后重核，以本次快照（上游 A 2026-08-20、上游 B 2026-09-26）为基线重新对照。
