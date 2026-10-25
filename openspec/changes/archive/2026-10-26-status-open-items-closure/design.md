@@ -18,7 +18,7 @@
 
 下发前的归一取了**包围盒**：
 
-```
+```text
 loRow = min(start.row, end.row); hiRow = max(...)
 loCol = min(start.col, end.col); hiCol = max(...)
 ```
@@ -65,7 +65,7 @@ loCol = min(start.col, end.col); hiCol = max(...)
 `translationY = -shift` 上移 `shift` 像素跟随键盘（`applyImeShift`）。
 `shift = computeImeSurfaceShift(...)`：
 
-```
+```text
 visibleContentPx = surfaceHeight - modifierBarHeight - imeBottom
 shift = (max(contentBottom, cursorBottom) - visibleContentPx).coerceIn(0, imeBottom)
 ```
@@ -78,7 +78,7 @@ shift = (max(contentBottom, cursorBottom) - visibleContentPx).coerceIn(0, imeBot
 `centerSelectedRow` 用 `visibleRows / 2`（`visibleRows = 总行数 − 输入法行数`）作为
 命中行在视口中的位置，遗漏了 `shift` 这一项。`shift ≈ imeBottom` 时：
 
-```
+```text
 screenY = (总行数 − 输入法行数) / 2 * cellHeight − imeBottom
 ```
 
@@ -106,7 +106,7 @@ screenY = (总行数 − 输入法行数) / 2 * cellHeight − imeBottom
 
 ### 实测
 
-```
+```text
 PROBE storage_gen before=2 after=2 placement_gen before=1 after=2
 ```
 
