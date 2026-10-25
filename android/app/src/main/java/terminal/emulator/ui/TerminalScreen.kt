@@ -426,7 +426,7 @@ fun TerminalScreen(
              */
             fun centerSelectedRow(row: Int) {
                 val surface = surfaceRef.value ?: return
-                val centeredRow = (row - surface.getRows() / 2).coerceAtLeast(0)
+                val centeredRow = (row - surface.getVisibleRows() / 2).coerceAtLeast(0)
                 surface.scrollToRow(centeredRow)
             }
 
@@ -464,6 +464,11 @@ fun TerminalScreen(
             // 最大值——两者**取值**都对，失效的是生效时机：那条链路的终点是 insets
             // 遍历内的组合状态写入，不保证被观察到，故位移从未发生。
             val imeInsetPx by viewModel.runtime.imeInsetFlow.collectAsStateWithLifecycle()
+            LaunchedEffect(imeInsetPx, searchState.selectedMatch) {
+                if (showTextSearch && searchState.selectedMatch != null) {
+                    centerSelectedRow(searchState.selectedMatch!!.row)
+                }
+            }
             val runtimeForContent = viewModel.runtime
             // 换视图的触发值必须在此处（组合体自身）读取：读在 `Box` 的内容 lambda 里时，
             // 该 lambda 的捕获未变会被 Compose 跳过，`key(...)` 也就不会被重新求值，

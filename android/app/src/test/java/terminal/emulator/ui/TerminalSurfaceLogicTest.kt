@@ -405,3 +405,17 @@ class TerminalSurfaceLogicTest {
         assertEquals(SelectionBounds(startRow = 20, startCol = 6, endRow = 20, endCol = 6), bounds)
     }
 }
+
+class SearchVisibleRowsTest {
+    @org.junit.Test
+    fun `visible search rows subtract ime rows`() {
+        org.junit.Assert.assertEquals(21, visibleSearchRows(24, 40, 16))
+        org.junit.Assert.assertEquals(24, visibleSearchRows(24, 0, 16))
+    }
+
+    @org.junit.Test
+    fun `center search row accounts for ime inset`() {
+        org.junit.Assert.assertEquals(5, centerSearchRow(10, 24, 40, 16))
+        org.junit.Assert.assertEquals(7, centerSearchRow(10, 24, 0, 16))
+    }
+}

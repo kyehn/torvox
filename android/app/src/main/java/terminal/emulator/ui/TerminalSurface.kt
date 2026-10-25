@@ -3145,6 +3145,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     fun getRows(): Int = rows
 
+    fun getVisibleRows(): Int {
+        val cellHeight = viewModel?.runtime?.cellHeight ?: return rows
+        return visibleSearchRows(rows, imeInsetPx, cellHeight.toInt())
+    }
+
     fun getCols(): Int = cols
 
     // 视图 detach 时 close() 会 shutdown 发送线程；同一实例再次 attach（窗口转换、
@@ -3750,6 +3755,24 @@ internal fun menuAnchor(
  */
 internal fun scrollOffsetForRow(row: Int, scrollbackLength: Int): Int =
     (scrollbackLength - row).coerceIn(0, scrollbackLength)
+
+/**
+ * 输入法遮挡后的可见网格行数。IME 占据底部像素时，搜索居中与定位必须按
+ * 剩余可见高度计算，否则匹配行会落在键盘后面。
+ */
+internal fun visibleSearchRows(totalRows: Int, imeInsetPx: Int, cellHeightPx: Int): Int {
+    val imeRows = if (cellHeightPx > 0) (imeInsetPx + cellHeightPx - 1) / cellHeightPx else 0
+    return (totalRows - imeRows).coerceAtLeast(1)
+}
+
+/**
+ * 把搜索命中行居中时的视口顶行。按可见行数（非总行数）的一半偏移，
+ * 避免输入法弹出后匹配文本被遮挡。
+ */
+internal fun centerSearchRow(row: Int, totalRows: Int, imeInsetPx: Int, cellHeightPx: Int): Int {
+    val visibleRows = visibleSearchRows(totalRows, imeInsetPx, cellHeightPx)
+    return (row - visibleRows / 2).coerceAtLeast(0)
+}
 
 /**
  * 把绝对回滚网格坐标 (row, col) 映射为视口像素坐标。
