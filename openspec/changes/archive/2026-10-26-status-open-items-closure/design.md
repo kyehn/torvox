@@ -90,7 +90,8 @@ screenY = (总行数 − 输入法行数) / 2 * cellHeight − imeBottom
    `targetScreenY = visibleContentPx / 2`；反解出视口行
    `v = (targetScreenY + shift) / cellHeight`。
 2. **折算成纯函数**：`centerSearchViewportRow(visibleContentPx, shiftPx, cellHeightPx)`
-   承担全部折算，测试直接驱动它。
+   承担全部折算，测试直接驱动它。单元高按真实值参与折算：截断成整数会把折算量
+   放大（单元高 20.4 截成 20 时折算量 2000px 差两行），命中行偏离可见带正中数行。
 3. **删除死代码**：`visibleSearchRows` 与 `centerSearchRow` 里 `centerSearchRow`
    只被测试引用（生产代码走 `getVisibleRows`），本轮一并删除，避免「测了个没人用的函数」。
 4. **不引入反馈环**：`shift` 取当前已施加值（`appliedImeShiftPx`）。`scrollToRow`
