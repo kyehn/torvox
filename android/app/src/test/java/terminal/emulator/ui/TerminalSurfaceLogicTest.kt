@@ -406,16 +406,37 @@ class TerminalSurfaceLogicTest {
     }
 }
 
-class SearchVisibleRowsTest {
+class SearchCenterViewportRowTest {
+    /** 命中行的屏幕纵坐标：视口行 × 单元高 − 内容上移量。 */
+    private fun screenY(viewportRow: Int, shiftPx: Int, cellHeightPx: Int): Int = viewportRow * cellHeightPx - shiftPx
+
     @org.junit.Test
-    fun `visible search rows subtract ime rows`() {
-        org.junit.Assert.assertEquals(21, visibleSearchRows(24, 40, 16))
-        org.junit.Assert.assertEquals(24, visibleSearchRows(24, 0, 16))
+    fun `no ime centers the match in the grid`() {
+        // 24 行 × 16px = 384px，无输入法遮挡、无上移：命中行落在视口第 12 行。
+        org.junit.Assert.assertEquals(12, centerSearchViewportRow(384, 0, 16))
     }
 
     @org.junit.Test
-    fun `center search row accounts for ime inset`() {
-        org.junit.Assert.assertEquals(5, centerSearchRow(10, 24, 40, 16))
-        org.junit.Assert.assertEquals(7, centerSearchRow(10, 24, 0, 16))
+    fun `ime inset keeps the match inside the visible band`() {
+        // 输入法遮住 40px，内容整体上移 40px：可见带 344px，正中 172px，
+        // 反解命中行落在视口第 13 行（屏幕纵坐标 13×16−40=168，仍在带内）。
+        val viewportRow = centerSearchViewportRow(344, 40, 16)
+        org.junit.Assert.assertEquals(13, viewportRow)
+        org.junit.Assert.assertTrue(screenY(viewportRow, 40, 16) in 0..344)
+    }
+
+    @org.junit.Test
+    fun `a tall ime does not push the match above the screen top`() {
+        // 输入法遮住 200px（超过总高三分之一），内容上移 200px：
+        // 命中行落在视口第 18 行，屏幕纵坐标 18×16−200=88，仍在可见带 [0,184] 内。
+        // 只按「总行数 − 输入法行数」折算会得到第 5 行，屏幕纵坐标 −120（上看不到）。
+        val viewportRow = centerSearchViewportRow(184, 200, 16)
+        org.junit.Assert.assertEquals(18, viewportRow)
+        org.junit.Assert.assertTrue(screenY(viewportRow, 200, 16) in 0..184)
+    }
+
+    @org.junit.Test
+    fun `a zero cell height yields no offset`() {
+        org.junit.Assert.assertEquals(0, centerSearchViewportRow(384, 0, 0))
     }
 }

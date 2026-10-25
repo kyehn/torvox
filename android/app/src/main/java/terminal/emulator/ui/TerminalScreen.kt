@@ -426,8 +426,7 @@ fun TerminalScreen(
              */
             fun centerSelectedRow(row: Int) {
                 val surface = surfaceRef.value ?: return
-                val centeredRow = (row - surface.getVisibleRows() / 2).coerceAtLeast(0)
-                surface.scrollToRow(centeredRow)
+                surface.scrollToRow(surface.searchViewportTop(row))
             }
 
             /** 上一个/下一个：导航由上游完成，视口由 centerSelectedRow 居中。 */

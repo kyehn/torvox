@@ -3145,9 +3145,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     fun getRows(): Int = rows
 
-    fun getVisibleRows(): Int {
-        val cellHeight = viewModel?.runtime?.cellHeight ?: return rows
-        return visibleSearchRows(rows, imeInsetPx, cellHeight.toInt())
+    /**
+     * 搜索命中行居中后的视口顶行（绝对网格行）。
+     *
+     * 可见带由输入法遮挡、键栏占高与内容跟随键盘的上移量共同决定，折算见
+     * [centerSearchViewportRow]。
+     */
+    fun searchViewportTop(matchRow: Int): Int {
+        val runtime = viewModel?.runtime ?: return matchRow
+        val cellHeight = runtime.cellHeight
+        if (cellHeight <= 0f) return matchRow
+        val visibleContentPx = (height - runtime.modifierBarHeightPx - imeInsetPx).coerceAtLeast(0)
+        val viewportRow =
+            centerSearchViewportRow(visibleContentPx, appliedImeShiftPx, cellHeight.toInt())
+        return (matchRow - viewportRow).coerceAtLeast(0)
     }
 
     fun getCols(): Int = cols
@@ -3757,21 +3768,23 @@ internal fun scrollOffsetForRow(row: Int, scrollbackLength: Int): Int =
     (scrollbackLength - row).coerceIn(0, scrollbackLength)
 
 /**
- * 输入法遮挡后的可见网格行数。IME 占据底部像素时，搜索居中与定位必须按
- * 剩余可见高度计算，否则匹配行会落在键盘后面。
+ * 搜索居中时命中行在视口中的目标行号。
+ *
+ * 可见带按**屏幕坐标**定义：输入法遮住底部一段像素、键栏占一段高度，内容又为跟随
+ * 键盘整体上移一段位移。命中行的屏幕纵坐标 = 视口行 × cellHeight − 上移量；
+ * 令其落在可见带正中即得本值。
+ *
+ * 只按「总行数 − 输入法行数」折算会漏掉上移量：输入法遮挡超过终端总高度的三分之一时，
+ * 命中行会被推到**屏幕上缘之外**，用户仍看不到匹配文本。
+ *
+ * @param visibleContentPx 可见带高度（Surface 高度 − 键栏占高 − 输入法遮挡）。
+ * @param shiftPx 内容跟随键盘整体上移的像素量。
+ * @param cellHeightPx 单元高度（px）。
  */
-internal fun visibleSearchRows(totalRows: Int, imeInsetPx: Int, cellHeightPx: Int): Int {
-    val imeRows = if (cellHeightPx > 0) (imeInsetPx + cellHeightPx - 1) / cellHeightPx else 0
-    return (totalRows - imeRows).coerceAtLeast(1)
-}
-
-/**
- * 把搜索命中行居中时的视口顶行。按可见行数（非总行数）的一半偏移，
- * 避免输入法弹出后匹配文本被遮挡。
- */
-internal fun centerSearchRow(row: Int, totalRows: Int, imeInsetPx: Int, cellHeightPx: Int): Int {
-    val visibleRows = visibleSearchRows(totalRows, imeInsetPx, cellHeightPx)
-    return (row - visibleRows / 2).coerceAtLeast(0)
+internal fun centerSearchViewportRow(visibleContentPx: Int, shiftPx: Int, cellHeightPx: Int): Int {
+    if (cellHeightPx <= 0) return 0
+    val targetScreenYPx = visibleContentPx / 2
+    return ((targetScreenYPx + shiftPx) / cellHeightPx).coerceAtLeast(0)
 }
 
 /**
