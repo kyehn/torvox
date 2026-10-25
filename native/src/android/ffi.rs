@@ -1611,12 +1611,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingA
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(JNI_FALSE);
-        };
-        let session = entry.session.lock();
-        if session.terminal().mouse_tracking_active_atomic() {
+        if read_terminal_atomic_flag(session_id as u64, |session| {
+            session.terminal().mouse_tracking_active_atomic()
+        }) {
             JNI_TRUE
         } else {
             JNI_FALSE
@@ -4493,6 +4490,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
     })
 }
 
+/// 读会话的 VT 线程维护的原子镜像标志（鼠标上报、备用屏等）。
+///
+/// 会话未知或锁被占用时返回 `false`——两者都意味着「此刻无法确认该状态」，
+/// 与标志本身为假同义，故调用方无需区分。
+fn read_terminal_atomic_flag(session_id: u64, read: impl Fn(&Session) -> bool) -> bool {
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&session_id) else {
+        return false;
+    };
+    let session = entry.session.lock();
+    read(&session)
+}
+
 // ── 滚动、模式与状态查询 ────────────────────────────────────────
 /// 设置视口滚动偏移（回滚区内的行数，0 = 活跃屏幕）。与上次偏移的差值在 VT 线程
 /// 经 `scroll_viewport(Delta)` 应用，故下一次 CellData 推送即携带滚动后的视图
@@ -4596,12 +4606,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(JNI_FALSE);
-        };
-        let session = entry.session.lock();
-        if session.terminal().alt_screen_active_atomic() {
+        if read_terminal_atomic_flag(session_id as u64, |session| {
+            session.terminal().alt_screen_active_atomic()
+        }) {
             JNI_TRUE
         } else {
             JNI_FALSE
