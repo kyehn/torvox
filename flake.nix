@@ -116,6 +116,7 @@
               jdk
               android-tools
               git
+              flock
               nushell
               taplo
               yamlfmt
@@ -179,13 +180,17 @@
             shellHook = ''
               set -e
               if [[ -n $NIX_GCROOT ]]; then
-                  repository_root=$(git rev-parse --show-toplevel)
-                  chmod -R +x "$repository_root/scripts" "$repository_root/android/gradlew"
-                  (cd "$repository_root" && nu scripts/download-aosp-testkey.nu)
-                  nu "$repository_root/scripts/download-rapidocr-models.nu"
-                  if [[ ! -d "/tmp/alacritty-theme" ]]; then
-                    git clone --depth 1 --quiet https://github.com/alacritty/alacritty-theme.git /tmp/alacritty-theme
-                  fi
+                  # 初始化会写入共享目录，多个 shell 并发进入时用排他锁串行化
+                  (
+                    flock -x 9
+                    repository_root=$(git rev-parse --show-toplevel)
+                    chmod -R +x "$repository_root/scripts" "$repository_root/android/gradlew"
+                    (cd "$repository_root" && nu scripts/download-aosp-testkey.nu)
+                    nu "$repository_root/scripts/download-rapidocr-models.nu"
+                    if [[ ! -d "/tmp/alacritty-theme" ]]; then
+                      git clone --depth 1 --quiet https://github.com/alacritty/alacritty-theme.git /tmp/alacritty-theme
+                    fi
+                  ) 9>"/tmp/.terminal-devshell-$UID.lock"
               fi
             '';
           };

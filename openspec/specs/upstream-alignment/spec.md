@@ -930,7 +930,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出「不修」的具体理由
   （被测行为不同、脚手架样板、或传状态必需的形参列表），MUST NOT 以「先记着」放行。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
-  下载到 `/tmp/.rapidocr-models`，模型环境已就绪；但
+  下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
+  （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
+  时 MUST 串行执行，MUST NOT 并发写同一 `/tmp` 路径；但
   `scripts/test-emulator.nu` 只跑 `connectedDebugAndroidTest` 与
   `connectedBenchmarkReleaseAndroidTest`，仓内无任何 OCR 消费方，即
   `TESTING.md` 的「拉截图 → 跑 rapidocr → 断言」闭环仍只存在于人工步骤。
