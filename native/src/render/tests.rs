@@ -29,6 +29,37 @@ fn ascii_font() -> crate::render::font::FontPipeline {
     font_pipeline
 }
 
+/// 测试单元格：白前景、透明背景、无字素续接码点、无样式位。
+/// 需要变体时用结构体更新语法覆盖单个字段。
+fn test_cell_data(
+    codepoint: u32,
+    row: u32,
+    col: u32,
+) -> crate::terminal::ghostty_terminal::CellData {
+    crate::terminal::ghostty_terminal::CellData {
+        codepoint,
+        width: 1,
+        grapheme_extra: [0; 7],
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row,
+        col,
+    }
+}
+
+/// 测试光标：块状、白色、原点。
+fn test_cell_cursor(visible: bool) -> CellCursor {
+    CellCursor {
+        row: 0,
+        col: 0,
+        visible,
+        style: CursorStyle::Block,
+        color: [1.0; 4],
+    }
+}
+
 #[test]
 fn cell_instance_size() {
     // 2+2+2+4+4+4+2+1+2 个 f32 = 23 × 4 = 92 字节。去掉从不参与运算的
@@ -563,43 +594,20 @@ fn cursor_rendering_on_visible_cursor() {
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![
         CellData {
-            codepoint: 'A' as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            foreground: [1.0, 1.0, 1.0, 1.0],
             background: [0.0, 0.0, 0.0, 1.0],
-            underline_color: [1.0, 1.0, 1.0, 1.0],
-            flags: 0,
-            row: 0,
-            col: 0,
+            ..test_cell_data('A' as u32, 0, 0)
         },
         CellData {
-            codepoint: 0,
-            width: 1,
-            grapheme_extra: [0; 7],
-            foreground: [1.0, 1.0, 1.0, 1.0],
             background: [0.0, 0.0, 0.0, 1.0],
-            underline_color: [1.0, 1.0, 1.0, 1.0],
-            flags: 0,
-            row: 0,
-            col: 1,
+            ..test_cell_data(0, 0, 1)
         },
     ];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: true,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let cursor = test_cell_cursor(true);
+    let instances = build_instances(
         &cell_data,
         test_config(1, 2, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 2);
     let cursor_cell = &instances[0];
     // Block cursor alpha = cursor_color[3] * 0.7 (CURSOR_BLOCK_ALPHA constant)
@@ -694,6 +702,23 @@ fn test_config<'a>(
     }
 }
 
+/// 构建生产实例并断言成功：网格配置由调用方给出。
+fn build_instances(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    config: cell_builder::CellInstanceConfig<'_>,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) -> Vec<crate::render::CellInstance> {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        cell_data,
+        config,
+        font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    instances
+}
+
 /// Build production instances for one configured cell (shared by cursor
 /// and reverse-video tests): caller supplies the cell contents, cursor
 /// state and grid metrics, unit grid otherwise.
@@ -704,8 +729,7 @@ fn build_configured_cell_instance(
     cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
 ) -> Vec<crate::render::CellInstance> {
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    build_instances(
         cell_data,
         test_config(
             1,
@@ -716,10 +740,7 @@ fn build_configured_cell_instance(
             &[],
         ),
         font_pipeline,
-        &mut instances,
-    );
-    assert!(built.is_some(), "production instance build failed");
-    instances
+    )
 }
 
 /// 每格一个非默认背景的网格（每格都发实例，便于逐格计数）。
@@ -728,15 +749,10 @@ fn non_default_grid(rows: u32, cols: u32) -> Vec<crate::terminal::ghostty_termin
     (0..rows)
         .flat_map(|row| {
             (0..cols).map(move |col| CellData {
-                codepoint: b'a' as u32 + col,
-                width: 1,
-                grapheme_extra: [0; 7],
                 foreground: [0.5, 0.5, 0.5, 1.0],
                 background: [0.1, 0.1, 0.1, 1.0],
                 underline_color: [0.5, 0.5, 0.5, 1.0],
-                flags: 0,
-                row,
-                col,
+                ..test_cell_data(b'a' as u32 + col, row, col)
             })
         })
         .collect()
@@ -756,9 +772,7 @@ fn cached_build_matches_full_build_byte_for_byte() {
     let cursor = CellCursor {
         row: 2,
         col: 1,
-        visible: true,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(true)
     };
     let config = test_config(rows, cols, cell_width, cell_height, cursor, &[]);
 
@@ -865,62 +879,35 @@ fn build_cursor_probe_instance(
 ) -> Vec<crate::render::CellInstance> {
     use crate::terminal::ghostty_terminal::CellData;
     let cell_data = vec![CellData {
-        codepoint,
-        width: 1,
-        grapheme_extra: [0; 7],
         foreground,
         background,
         underline_color: foreground,
         flags,
-        row: 0,
-        col: 0,
+        ..test_cell_data(codepoint, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
+    let cursor = CellCursor {
         visible: cursor_visible,
         style,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(cursor_visible)
     };
     build_configured_cell_instance(&cell_data, cursor, cell_width, cell_height, font_pipeline)
 }
 
 /// Build production instances for a single cell (shared by the bearing tests
-/// below): one [`CellData`], default cursor, unit grid.
+/// below): one cell, default cursor, unit grid.
 fn build_single_cell_instance(
     ch: char,
     cell_width: f32,
     cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
 ) -> Vec<crate::render::CellInstance> {
-    use crate::terminal::ghostty_terminal::CellData;
-    let cell_data = vec![CellData {
-        codepoint: ch as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let cell_data = vec![test_cell_data(ch as u32, 0, 0)];
+    let cursor = test_cell_cursor(false);
+    build_instances(
         &cell_data,
         test_config(1, 1, cell_width, cell_height, cursor, &[]),
         font_pipeline,
-        &mut instances,
-    );
-    assert!(built.is_some(), "production instance build failed");
-    instances
+    )
 }
 
 #[test]
@@ -931,23 +918,10 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
     let mut extras = [0u32; 7];
     extras[0] = 0x301;
     let cell_data = vec![CellData {
-        codepoint: 'e' as u32,
-        width: 1,
         grapheme_extra: extras,
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data('e' as u32, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
+    let cursor = test_cell_cursor(false);
     let instances = build_configured_cell_instance(
         &cell_data,
         cursor,
@@ -982,27 +956,10 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
     extras[0] = 0x301;
     extras[1] = 0x302;
     let cluster_cell = |row: u32, col: u32| CellData {
-        codepoint: 'a' as u32,
-        width: 1,
         grapheme_extra: extras,
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row,
-        col,
+        ..test_cell_data('a' as u32, row, col)
     };
-    let blank_cell = |row: u32, col: u32| CellData {
-        codepoint: ' ' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row,
-        col,
-    };
+    let blank_cell = |row: u32, col: u32| test_cell_data(' ' as u32, row, col);
     // 位于非零列与行的字素簇证明叠加层原点含完整网格原点，而非仅整形偏移。
     let cell_data = vec![
         cluster_cell(0, 0),
@@ -1014,21 +971,16 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         blank_cell(1, 2),
         blank_cell(1, 3),
     ];
-    let cursor = crate::render::CellCursor {
+    let cursor = CellCursor {
         row: 9,
         col: 9,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(false)
     };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(2, 4, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     // Primary glyph plus the positioned combining-mark overlay.
     assert!(
         instances.len() >= 2,
@@ -1091,23 +1043,10 @@ fn cluster_cell_invalid_extra_falls_back_without_overlay() {
     let mut extras = [0u32; 7];
     extras[0] = 0xd800;
     let cell_data = vec![CellData {
-        codepoint: 'x' as u32,
-        width: 1,
         grapheme_extra: extras,
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data('x' as u32, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
+    let cursor = test_cell_cursor(false);
     let instances = build_configured_cell_instance(
         &cell_data,
         cursor,
@@ -1185,33 +1124,14 @@ fn all_chars_share_same_baseline_y() {
     let cell_data: Vec<crate::terminal::ghostty_terminal::CellData> = chars
         .iter()
         .enumerate()
-        .map(|(i, &ch)| crate::terminal::ghostty_terminal::CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            foreground: [1.0; 4],
-            background: [0.0; 4],
-            underline_color: [1.0; 4],
-            flags: 0,
-            row: 0,
-            col: i as u32,
-        })
+        .map(|(i, &ch)| test_cell_data(ch as u32, 0, i as u32))
         .collect();
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let cursor = test_cell_cursor(false);
+    let instances = build_instances(
         &cell_data,
         test_config(1, chars.len() as u32, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), chars.len());
 
     // Baseline alignment: bitmap bottom (origin + bearing + bitmap height)
@@ -1252,32 +1172,16 @@ fn cjk_bearing_y_not_centered() {
             let expected = ascent_pixels - info.placement.top as f32;
 
             let cell_data = vec![crate::terminal::ghostty_terminal::CellData {
-                codepoint: ch as u32,
                 width: 2,
-                grapheme_extra: [0; 7],
-                foreground: [1.0; 4],
-                background: [0.0; 4],
-                underline_color: [1.0; 4],
-                flags: 0,
-                row: 0,
-                col: 0,
+                ..test_cell_data(ch as u32, 0, 0)
             }];
-            let cursor = crate::render::CellCursor {
-                row: 0,
-                col: 0,
-                visible: false,
-                style: CursorStyle::Block,
-                color: [1.0, 1.0, 1.0, 1.0],
-            };
+            let cursor = test_cell_cursor(false);
             let (cell_width, cell_height) = font_pipeline.cell_metrics();
-            let mut instances = Vec::new();
-            let built = crate::render::build_instances_from_cell_data(
+            let instances = build_instances(
                 &cell_data,
                 test_config(1, 2, cell_width, cell_height, cursor, &[]),
                 &mut font_pipeline,
-                &mut instances,
             );
-            assert!(built.is_some(), "production instance build failed");
             let cell = &instances[0];
 
             assert!(
@@ -1396,37 +1300,21 @@ fn search_highlight_blends_on_non_cursor_cell() {
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
-        codepoint: 'X' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        foreground: [1.0, 1.0, 1.0, 1.0],
         background: [0.0, 0.0, 0.0, 1.0],
-        underline_color: [1.0, 1.0, 1.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data('X' as u32, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
+    let cursor = test_cell_cursor(false);
     let highlights = vec![SearchHighlight {
         row: 0,
         start_col: 0,
         end_col_exclusive: 1,
         color: [255, 0, 0, 128],
     }];
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, 1, cell_width, cell_height, cursor, &highlights),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -1442,22 +1330,14 @@ fn cursor_cell_not_affected_by_search_highlight() {
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
-        codepoint: 'A' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
         foreground: [0.0, 1.0, 0.0, 1.0],
         background: [0.0, 0.0, 0.0, 1.0],
         underline_color: [0.0, 1.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data('A' as u32, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: true,
-        style: CursorStyle::Block,
+    let cursor = CellCursor {
         color: [0.5, 0.5, 1.0, 1.0],
+        ..test_cell_cursor(true)
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1465,14 +1345,11 @@ fn cursor_cell_not_affected_by_search_highlight() {
         end_col_exclusive: 1,
         color: [200, 0, 0, 200],
     }];
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, 1, cell_width, cell_height, cursor, &highlights),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -1748,37 +1625,23 @@ fn selection_intersect_current_match_double_swap() {
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
     // Terminal-baked selection: white-on-black becomes black-on-white.
     let cell_data = vec![CellData {
-        codepoint: 'X' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
         foreground: [0.0, 0.0, 0.0, 1.0],
         background: [1.0, 1.0, 1.0, 1.0],
         underline_color: [0.0, 0.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data('X' as u32, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
+    let cursor = test_cell_cursor(false);
     let highlights = vec![SearchHighlight {
         row: 0,
         start_col: 0,
         end_col_exclusive: 1,
         color: [255, 200, 0, 255], // CURRENT_MATCH_ALPHA = 255 >= 128
     }];
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, 1, cell_width, cell_height, cursor, &highlights),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Double swap cancels: the text keeps its ORIGINAL foreground...
@@ -1946,31 +1809,18 @@ fn cursor_color_custom_values() {
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
-        codepoint: 0x20,
-        width: 1,
-        grapheme_extra: [0; 7],
-        foreground: [1.0, 1.0, 1.0, 1.0],
         background: [0.0, 0.0, 0.0, 1.0],
-        underline_color: [1.0, 1.0, 1.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data(0x20, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: true,
-        style: CursorStyle::Block,
+    let cursor = CellCursor {
         color: [0.5, 0.3, 0.8, 1.0],
+        ..test_cell_cursor(true)
     };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, 1, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -2088,20 +1938,8 @@ fn set_render_paused_idempotent() {
 // GPU Pipeline Benchmarks  (wgpu command encoding, submit)
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Benchmark wgpu command encoding overhead: create encoder, begin render pass,
-/// draw instances, end pass, submit. This tests the CPU-side graphics command
-/// path that happens every frame.
-#[test]
-fn bench_gpu_command_encoding_overhead() {
-    let _serial = GPU_BENCH_LOCK.lock();
-    use std::hint::black_box;
-    use std::time::Instant;
-
-    let renderer = Renderer::new_with_no_surface();
-    let device = &renderer.device;
-    let queue = &renderer.queue;
-
-    // 构造最小的离屏渲染目标
+/// 基准用的离屏渲染目标：800×600 Rgba8Unorm，仅作渲染附件。
+fn bench_render_target(device: &wgpu::Device) -> (wgpu::Texture, wgpu::TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Bench Texture"),
         size: wgpu::Extent3d {
@@ -2117,31 +1955,54 @@ fn bench_gpu_command_encoding_overhead() {
         view_formats: &[],
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
+}
+
+/// 编码并提交一个只清屏的渲染通道：基准只测命令编码与提交开销。
+fn submit_clear_pass(device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView) {
+    use std::hint::black_box;
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Bench Encoder"),
+    });
+    {
+        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Bench Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        black_box(&render_pass);
+    }
+    queue.submit(black_box([encoder.finish()]));
+}
+
+/// Benchmark wgpu command encoding overhead: create encoder, begin render pass,
+/// draw instances, end pass, submit. This tests the CPU-side graphics command
+/// path that happens every frame.
+#[test]
+fn bench_gpu_command_encoding_overhead() {
+    let _serial = GPU_BENCH_LOCK.lock();
+    use std::time::Instant;
+
+    let renderer = Renderer::new_with_no_surface();
+    let device = &renderer.device;
+    let queue = &renderer.queue;
+
+    // 构造最小的离屏渲染目标
+    let (_texture, view) = bench_render_target(device);
 
     let iteration_count = 500;
     let start = Instant::now();
     for _ in 0..iteration_count {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Bench Encoder"),
-        });
-        {
-            let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Bench Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-            black_box(&_rp);
-        }
-        queue.submit(black_box([encoder.finish()]));
+        submit_clear_pass(device, queue, &view);
     }
     let elapsed = start.elapsed();
     let submissions_per_sec = iteration_count as f64 / elapsed.as_secs_f64();
@@ -2163,7 +2024,6 @@ fn bench_gpu_command_encoding_overhead() {
 #[test]
 fn bench_gpu_full_submit_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
-    use std::hint::black_box;
     use std::time::Instant;
 
     let renderer = Renderer::new_with_no_surface();
@@ -2171,21 +2031,7 @@ fn bench_gpu_full_submit_throughput() {
     let queue = &renderer.queue;
 
     // Create off-screen target
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Bench Texture"),
-        size: wgpu::Extent3d {
-            width: 800,
-            height: 600,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let (_texture, view) = bench_render_target(device);
 
     // Staging buffer + instance data
     let instance_data: Vec<CellInstance> = (0..1920)
@@ -2217,28 +2063,7 @@ fn bench_gpu_full_submit_throughput() {
     let start = Instant::now();
     for _ in 0..iteration_count {
         queue.write_buffer(&buffer, 0, bytes);
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Bench Encoder"),
-        });
-        {
-            let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Bench Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-            black_box(&_rp);
-        }
-        queue.submit(black_box([encoder.finish()]));
+        submit_clear_pass(device, queue, &view);
     }
     // 排空已提交的全部工作
     let _ = device.poll(wgpu::PollType::Wait {
@@ -2662,17 +2487,7 @@ mod last_content_row_tests {
 
     /// 行优先单元数据（宽字符的占位单元已被终端省略，行长因此可变）。
     fn cell(row: u32, codepoint: u32) -> CellData {
-        CellData {
-            codepoint,
-            width: 1,
-            grapheme_extra: [0; 7],
-            foreground: [1.0, 1.0, 1.0, 1.0],
-            background: [0.0, 0.0, 0.0, 0.0],
-            underline_color: [1.0, 1.0, 1.0, 1.0],
-            flags: 0,
-            row,
-            col: 0,
-        }
+        super::test_cell_data(codepoint, row, 0)
     }
 
     /// 3 行 × 4 列，内容只落在 `marks` 给出的 (行, 列)。
@@ -2777,12 +2592,12 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         let cell_data = terminal_under_test.receive_cell_data();
         let (cells, cursor_info) = cell_data.expect("should receive CellData after flush");
 
-        let cursor = super::CellCursor {
+        let cursor = CellCursor {
             row: cursor_info.row,
             col: cursor_info.col,
             visible: cursor_info.visible,
             style: cursor_info.style,
-            color: [1.0, 1.0, 1.0, 1.0],
+            ..test_cell_cursor(cursor_info.visible)
         };
         let mut instances = Vec::new();
         super::build_instances_from_cell_data(
@@ -2830,23 +2645,11 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
     extras[2] = 0x200d;
     extras[3] = 0x1f467;
     let cell_data = vec![CellData {
-        codepoint: 0x1f468,
         width: 2,
         grapheme_extra: extras,
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row: 0,
-        col: 0,
+        ..test_cell_data(0x1f468, 0, 0)
     }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
+    let cursor = test_cell_cursor(false);
     let instances = build_configured_cell_instance(
         &cell_data,
         cursor,
@@ -2870,36 +2673,19 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
 fn same_glyph_at_different_cells_samples_identical_atlas_region() {
     // 回归网（d 像 a 类字形混淆）：同一字符在不同单元格必须采样同一图集
     // 区域，仅 quad 原点随位置偏移；UV 与位置无关。
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let cell = |row: u32, col: u32| CellData {
-        codepoint: 'd' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row,
-        col,
-    };
+    let cell = |row: u32, col: u32| test_cell_data('d' as u32, row, col);
     let cell_data = vec![cell(0, 0), cell(0, 5)];
-    let cursor = crate::render::CellCursor {
-        row: 0,
+    let cursor = CellCursor {
         col: 99,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(false)
     };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, 6, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 2, "two cells must emit two quads");
     assert_eq!(
         instances[0].atlas_offset, instances[1].atlas_offset,
@@ -2919,36 +2705,19 @@ fn same_glyph_at_different_cells_samples_identical_atlas_region() {
 #[test]
 fn distinct_glyphs_sample_distinct_atlas_regions() {
     // 回归网（d 像 a 类字形混淆）：不同字符必须采样不同图集区域。
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let cell = |ch: char, col: u32| CellData {
-        codepoint: ch as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        foreground: [1.0; 4],
-        background: [0.0; 4],
-        underline_color: [1.0; 4],
-        flags: 0,
-        row: 0,
-        col,
-    };
+    let cell = |ch: char, col: u32| test_cell_data(ch as u32, 0, col);
     let cell_data = vec![cell('d', 0), cell('a', 1)];
-    let cursor = crate::render::CellCursor {
-        row: 0,
+    let cursor = CellCursor {
         col: 99,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(false)
     };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, 2, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 2, "two cells must emit two quads");
     assert!(
         instances[0].atlas_offset != instances[1].atlas_offset
@@ -3010,32 +2779,19 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
     let cell_data: Vec<CellData> = text
         .char_indices()
         .map(|(col, ch)| CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            foreground: [1.0; 4],
-            background: [0.0; 4],
-            underline_color: [1.0; 4],
             flags: 1 << cell_flags::ITALIC,
-            row: 0,
-            col: col as u32,
+            ..test_cell_data(ch as u32, 0, col as u32)
         })
         .collect();
-    let cursor = crate::render::CellCursor {
-        row: 0,
+    let cursor = CellCursor {
         col: 99,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(false)
     };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
+    let instances = build_instances(
         &cell_data,
         test_config(1, text.len() as u32, cell_width, cell_height, cursor, &[]),
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), text.len(), "每个字形一个 quad");
     let (rect_x, rect_y, rect_w, rect_h) = font_pipeline
         .take_dirty_rect()
@@ -3076,28 +2832,18 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
     let cell_data: Vec<CellData> = text
         .char_indices()
         .map(|(col, ch)| CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            foreground: [1.0; 4],
-            background: [0.0; 4],
-            underline_color: [1.0; 4],
             // 交替斜体/正体：两种样式路径都必须幂等。
             flags: if col % 2 == 0 {
                 1 << cell_flags::ITALIC
             } else {
                 0
             },
-            row: 0,
-            col: col as u32,
+            ..test_cell_data(ch as u32, 0, col as u32)
         })
         .collect();
-    let cursor = crate::render::CellCursor {
-        row: 0,
+    let cursor = CellCursor {
         col: 99,
-        visible: false,
-        style: CursorStyle::Block,
-        color: [1.0, 1.0, 1.0, 1.0],
+        ..test_cell_cursor(false)
     };
     let config = test_config(1, text.len() as u32, cell_width, cell_height, cursor, &[]);
     let mut first = Vec::new();
