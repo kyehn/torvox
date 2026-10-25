@@ -1497,21 +1497,23 @@ mod tests {
 
     // ── 滚动一致性门控（fix-scroll-residual-tearing） ──────────────
 
-    /// 滚动一致性门控决策表：偏移非零或相对上一呈现帧变化 → 强制全量。
+    /// 滚动一致性门控决策表：仅当亚行余量相对上一呈现帧发生变化时强制全量。
     #[test]
     fn scroll_offset_active_decision_table() {
         let active = Renderer::is_scroll_offset_active;
         // 偏移为零且与上一帧一致：可走部分路径。
         assert!(!active(0.0, 0.0), "rest state must allow partial bands");
-        // 偏移非零（拖动中），无论是否变化都必须全量。
-        assert!(active(15.375, 15.375), "held non-zero offset stays active");
+        // 余量稳定（含拖动中停住）：不再强制全量，避免空闲帧每帧全量重绘。
+        assert!(
+            !active(15.375, 15.375),
+            "stable non-zero offset must allow partial bands"
+        );
+        // 开始拖动：余量从 0 变为非零，强制全量。
         assert!(active(15.375, 0.0), "starting a drag must force full");
-        // 偏移变化（含归零），即使目标为零也要全量重绘。
+        // 回落至零：余量变化，强制全量。
         assert!(active(0.0, 15.375), "settling back to zero must force full");
+        // 余量变化：强制全量。
         assert!(active(1.0, 2.0), "offset change must force full");
-        // 任何非零偏移都强制全量（保守：EPSILON 量级抖动也走全量，
-        // 只是浪费一次重绘，绝不允许残留）。
-        assert!(active(f32::EPSILON, 0.0), "non-zero offset must force full");
         // 亚 EPSILON 的变化视为浮点噪声，不强制全量。
         assert!(
             !active(0.0, f32::EPSILON),
