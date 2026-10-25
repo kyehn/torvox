@@ -3156,8 +3156,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val cellHeight = runtime.cellHeight
         if (cellHeight <= 0f) return matchRow
         val visibleContentPx = (height - runtime.modifierBarHeightPx - imeInsetPx).coerceAtLeast(0)
-        val viewportRow =
-            centerSearchViewportRow(visibleContentPx, appliedImeShiftPx, cellHeight.toInt())
+        val viewportRow = centerSearchViewportRow(visibleContentPx, appliedImeShiftPx, cellHeight)
         return (matchRow - viewportRow).coerceAtLeast(0)
     }
 
@@ -3779,12 +3778,13 @@ internal fun scrollOffsetForRow(row: Int, scrollbackLength: Int): Int =
  *
  * @param visibleContentPx 可见带高度（Surface 高度 − 键栏占高 − 输入法遮挡）。
  * @param shiftPx 内容跟随键盘整体上移的像素量。
- * @param cellHeightPx 单元高度（px）。
+ * @param cellHeightPx 单元高度（px）。必须是真实值：截断成整数会让折算出的视口行
+ *   偏出数行（单元高 44.625 与 44 的差别在两千像素的折算量上是 6 行）。
  */
-internal fun centerSearchViewportRow(visibleContentPx: Int, shiftPx: Int, cellHeightPx: Int): Int {
-    if (cellHeightPx <= 0) return 0
-    val targetScreenYPx = visibleContentPx / 2
-    return ((targetScreenYPx + shiftPx) / cellHeightPx).coerceAtLeast(0)
+internal fun centerSearchViewportRow(visibleContentPx: Int, shiftPx: Int, cellHeightPx: Float): Int {
+    if (cellHeightPx <= 0f) return 0
+    val targetScreenYPx = visibleContentPx / 2f
+    return ((targetScreenYPx + shiftPx) / cellHeightPx).roundToInt().coerceAtLeast(0)
 }
 
 /**

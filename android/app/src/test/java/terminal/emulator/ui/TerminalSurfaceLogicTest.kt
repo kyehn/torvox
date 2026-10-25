@@ -408,21 +408,21 @@ class TerminalSurfaceLogicTest {
 
 class SearchCenterViewportRowTest {
     /** 命中行的屏幕纵坐标：视口行 × 单元高 − 内容上移量。 */
-    private fun screenY(viewportRow: Int, shiftPx: Int, cellHeightPx: Int): Int = viewportRow * cellHeightPx - shiftPx
+    private fun screenY(row: Int, shift: Int, cellHeight: Float): Float = row * cellHeight - shift
 
     @org.junit.Test
     fun `no ime centers the match in the grid`() {
         // 24 行 × 16px = 384px，无输入法遮挡、无上移：命中行落在视口第 12 行。
-        org.junit.Assert.assertEquals(12, centerSearchViewportRow(384, 0, 16))
+        org.junit.Assert.assertEquals(12, centerSearchViewportRow(384, 0, 16f))
     }
 
     @org.junit.Test
     fun `ime inset keeps the match inside the visible band`() {
         // 输入法遮住 40px，内容整体上移 40px：可见带 344px，正中 172px，
         // 反解命中行落在视口第 13 行（屏幕纵坐标 13×16−40=168，仍在带内）。
-        val viewportRow = centerSearchViewportRow(344, 40, 16)
+        val viewportRow = centerSearchViewportRow(344, 40, 16f)
         org.junit.Assert.assertEquals(13, viewportRow)
-        org.junit.Assert.assertTrue(screenY(viewportRow, 40, 16) in 0..344)
+        org.junit.Assert.assertTrue(screenY(viewportRow, 40, 16f) in 0f..344f)
     }
 
     @org.junit.Test
@@ -430,13 +430,31 @@ class SearchCenterViewportRowTest {
         // 输入法遮住 200px（超过总高三分之一），内容上移 200px：
         // 命中行落在视口第 18 行，屏幕纵坐标 18×16−200=88，仍在可见带 [0,184] 内。
         // 只按「总行数 − 输入法行数」折算会得到第 5 行，屏幕纵坐标 −120（上看不到）。
-        val viewportRow = centerSearchViewportRow(184, 200, 16)
+        val viewportRow = centerSearchViewportRow(184, 200, 16f)
         org.junit.Assert.assertEquals(18, viewportRow)
-        org.junit.Assert.assertTrue(screenY(viewportRow, 200, 16) in 0..184)
+        org.junit.Assert.assertTrue(screenY(viewportRow, 200, 16f) in 0f..184f)
     }
 
     @org.junit.Test
     fun `a zero cell height yields no offset`() {
-        org.junit.Assert.assertEquals(0, centerSearchViewportRow(384, 0, 0))
+        org.junit.Assert.assertEquals(0, centerSearchViewportRow(384, 0, 0f))
+    }
+
+    /**
+     * 单元高带小数时不得截断。
+     *
+     * 判别力：真实网格的单元高常带小数（如 44.625）。截断成整数后折算量被放大：
+     * 折算量 2000px、单元高 20.4 时按 20 算得第 100 行，按真实值算得第 98 行——
+     * 命中行偏离可见带正中两个单元（41px），大字号下尤为明显。
+     */
+    @org.junit.Test
+    fun `a fractional cell height keeps the match near the band center`() {
+        val viewportRow = centerSearchViewportRow(1600, 1200, 20.4f)
+        org.junit.Assert.assertEquals(98, viewportRow)
+        val bandCenterYPx = 1600 / 2f
+        org.junit.Assert.assertTrue(
+            "命中行须落在可见带正中一个单元内，实际 ${screenY(viewportRow, 1200, 20.4f)}px",
+            screenY(viewportRow, 1200, 20.4f) - bandCenterYPx in -20.4f..20.4f,
+        )
     }
 }
