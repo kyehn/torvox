@@ -3050,7 +3050,7 @@ fn kitty_graphics_png_palette_and_gray16_decode() {
 #[test]
 fn kitty_graphics_file_medium_reads_the_image_file() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("torvox-kitty-file-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("kitty-file-{}", std::process::id()));
     std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
     let payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
@@ -3104,12 +3104,11 @@ fn kitty_graphics_temporary_file_medium_reads_the_image_file() {
 #[test]
 fn kitty_graphics_short_file_and_missing_file_answer_identically() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("torvox-kitty-short-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("kitty-short-{}", std::process::id()));
     std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
     let short_payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
-    let missing_path =
-        std::env::temp_dir().join(format!("torvox-kitty-absent-{}", std::process::id()));
+    let missing_path = std::env::temp_dir().join(format!("kitty-absent-{}", std::process::id()));
     let missing_payload =
         base64::engine::general_purpose::STANDARD.encode(missing_path.to_string_lossy().as_bytes());
 
@@ -3165,7 +3164,7 @@ fn kitty_graphics_short_file_and_missing_file_answer_identically() {
 #[test]
 fn kitty_graphics_file_medium_honors_size_and_offset() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("torvox-kitty-offset-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("kitty-offset-{}", std::process::id()));
     std::fs::write(&path, [0x11u8, 0x22, 0x33, 0x44]).expect("写图像文件");
     let payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());

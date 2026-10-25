@@ -463,9 +463,10 @@ fun TerminalScreen(
             // 最大值——两者**取值**都对，失效的是生效时机：那条链路的终点是 insets
             // 遍历内的组合状态写入，不保证被观察到，故位移从未发生。
             val imeInsetPx by viewModel.runtime.imeInsetFlow.collectAsStateWithLifecycle()
-            LaunchedEffect(imeInsetPx, searchState.selectedMatch) {
-                if (showTextSearch && searchState.selectedMatch != null) {
-                    centerSelectedRow(searchState.selectedMatch!!.row)
+            val selectedSearchMatch = searchState.selectedMatch
+            LaunchedEffect(imeInsetPx, showTextSearch, selectedSearchMatch) {
+                if (showTextSearch && selectedSearchMatch != null) {
+                    centerSelectedRow(selectedSearchMatch.row)
                 }
             }
             val runtimeForContent = viewModel.runtime
