@@ -1,7 +1,4 @@
 root = true
-
-# Gradle Kotlin DSL 全仓使用 2 空格缩进；ktlint 插件默认按 4 空格检查，
-# 与 Spotless 的 kotlinGradle 配置冲突。这里统一两者的口径。
 [*.kts]
 indent_style = space
 indent_size = 2

@@ -20,45 +20,6 @@
           system,
           ...
         }:
-        let
-          # semgrep-core ships a prebuilt non-PIE binary whose leading PT_LOAD
-          # segments overlap: rewriting the interpreter and the rpath in a single
-          # patchelf call trips its `splitIndex == -1' assertion, so split the
-          # rewrites into separate calls and use patchelfUnstable. pkgs passes
-          # semgrep-core to semgrep explicitly rather than through the python
-          # package set (see pkgs/top-level/python-packages.nix), so both files
-          # are instantiated directly to get the fix into the build.
-          fixedSemgrepCore =
-            (pkgs.python3.pkgs.callPackage (
-              inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/semgrep-core.nix"
-            ) { }).overrideAttrs
-              (oldAttrs: {
-                nativeBuildInputs =
-                  pkgs.lib.lists.subtractLists [ pkgs.patchelf ] (oldAttrs.nativeBuildInputs or [ ])
-                  ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.patchelfUnstable ];
-                postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-                  ${pkgs.lib.getExe pkgs.patchelfUnstable} \
-                    --set-rpath "$out/bin/libs:${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.libc ]}" \
-                    $out/bin/semgrep-core
-
-                  ${pkgs.lib.getExe pkgs.patchelfUnstable} \
-                    --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
-                    $out/bin/semgrep-core
-                '';
-              });
-          # semgrep 仍使用 mcp 1.x 的 FastMCP API，nixpkgs 的 mcp 2.x 已移除该模块，
-          # 这里把 semgrep 的 mcp 依赖固定回 1.29.0，待 semgrep 适配 mcp 2.x 后移除。
-          fixedSemgrep =
-            (pkgs.python3.pkgs.callPackage (
-              inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/default.nix"
-            ) { semgrep-core = fixedSemgrepCore; }).overridePythonAttrs
-              (oldAttrs: {
-                pythonRelaxDeps = true;
-                dependencies = map (
-                  dependency: if dependency.pname == "mcp" then pkgs.python3.pkgs.mcp_1 else dependency
-                ) oldAttrs.dependencies;
-              });
-        in
         {
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
@@ -131,7 +92,36 @@
               openssl
               zig_0_17
               cargo-ndk
-              fixedSemgrep
+              (
+                (pkgs.python3.pkgs.callPackage
+                  (inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/default.nix")
+                  {
+                    semgrep-core =
+                      (pkgs.python3.pkgs.callPackage (
+                        inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/semgrep-core.nix"
+                      ) { }).overrideAttrs
+                        (oldAttrs: {
+                          nativeBuildInputs =
+                            pkgs.lib.lists.subtractLists [ pkgs.patchelf ] (oldAttrs.nativeBuildInputs or [ ])
+                            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.patchelfUnstable ];
+                          postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                            ${pkgs.lib.getExe pkgs.patchelfUnstable} \
+                              --set-rpath "$out/bin/libs:${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.libc ]}" \
+                              $out/bin/semgrep-core
+
+                            ${pkgs.lib.getExe pkgs.patchelfUnstable} \
+                              --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
+                              $out/bin/semgrep-core
+                          '';
+                        });
+                  }
+                ).overridePythonAttrs
+                (oldAttrs: {
+                  dependencies = map (
+                    dependency: if dependency.pname == "mcp" then pkgs.python3.pkgs.mcp_1 else dependency
+                  ) oldAttrs.dependencies;
+                })
+              )
               systemdLibs
               fontconfig
               libpulseaudio
@@ -181,7 +171,6 @@
             shellHook = ''
               set -e
               if [[ -n $NIX_GCROOT ]]; then
-                  # 初始化会写入共享目录，多个 shell 并发进入时用排他锁串行化
                   (
                     flock -x 9
                     repository_root=$(git rev-parse --show-toplevel)
