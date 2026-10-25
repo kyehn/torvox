@@ -2,6 +2,7 @@ package terminal.emulator
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import terminal.emulator.ui.SelectionBounds
 
 /**
  * Pure selection-state helpers: handle-drag crossing flips. No native
@@ -192,5 +193,50 @@ class SelectionStateTest {
         assertEquals(HandleDragResult(0, 0, 0, 2, true), move(0))
         assertEquals(HandleDragResult(0, 2, 0, 6, false), move(6))
         assertEquals(HandleDragResult(0, 2, 0, 10, false), move(10))
+    }
+
+    // ── 端点下发：行主序线性，不是包围盒 ──────────────────────────────────
+
+    @Test
+    fun `endpoints stay linear when the start column is to the right`() {
+        // 选区从 (10,5) 拖到 (12,2)：起始列大于结束列。
+        // 包围盒角点会是 (10,2)→(12,5)，原生按线性语义解释后，
+        // 高亮会在首行左侧多出 3 格、末行右侧多出 3 格，而手柄仍停在锚点上。
+        val bounds = selectionEndpoints(SelectionAnchor(10, 5), SelectionAnchor(12, 2))
+        assertEquals(SelectionBounds(10, 5, 12, 2), bounds)
+    }
+
+    @Test
+    fun `endpoints stay linear within one row`() {
+        val bounds = selectionEndpoints(SelectionAnchor(3, 8), SelectionAnchor(3, 2))
+        assertEquals(SelectionBounds(3, 2, 3, 8), bounds)
+    }
+
+    @Test
+    fun `endpoints keep the forward order`() {
+        val bounds = selectionEndpoints(SelectionAnchor(3, 2), SelectionAnchor(8, 5))
+        assertEquals(SelectionBounds(3, 2, 8, 5), bounds)
+    }
+
+    @Test
+    fun `drag bounds are the native endpoints verbatim`() {
+        // 快速路径算出的边界必须原样下发给原生：再取一次包围盒就会外扩。
+        val committed = selection(startRow = 10, startCol = 5, endRow = 10, endCol = 8)
+        val dragged =
+            resolveDragBounds(
+                current = committed,
+                pending = null,
+                draggingStart = false,
+                row = 12,
+                col = 2,
+                maxRow = 23,
+                maxCol = 79,
+            )
+        assertEquals(HandleDragResult(10, 5, 12, 2, false), dragged)
+        val endpoints = selectionEndpoints(
+            SelectionAnchor(dragged.startRow, dragged.startCol),
+            SelectionAnchor(dragged.endRow, dragged.endCol),
+        )
+        assertEquals(SelectionBounds(10, 5, 12, 2), endpoints)
     }
 }

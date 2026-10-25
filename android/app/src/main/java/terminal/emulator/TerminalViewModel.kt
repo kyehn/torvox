@@ -37,6 +37,7 @@ import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.ui.SelectionBounds
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.ui.normalizeSelectionAnchors
 import terminal.emulator.util.TerminalDispatchers
@@ -180,6 +181,20 @@ internal fun resolveLongPressDragBounds(
     maxRow = maxRow,
     maxCol = maxCol,
 )
+
+/**
+ * 选区端点对（行主序有序）：高亮下发与取文共用的唯一端点来源。
+ *
+ * 端点就是选区自身的两个锚点，**不是**行列各自取极值的包围盒角点。
+ * 原生按**线性**语义解释端点（`SELECTION_RECTANGLE = false`）：跨行时首行自起始列
+ * 至行尾、末行自行首至结束列。角点会在起始列大于结束列时把高亮区域在首行左侧与
+ * 末行右侧同时外扩，而控制柄仍停在锚点上——现象正是「另一边界异常增加且两个指针
+ * 和边界不再对齐」，且复制出的文本与高亮区域不是同一块。
+ */
+internal fun selectionEndpoints(start: SelectionAnchor, end: SelectionAnchor): SelectionBounds {
+    val (first, second) = normalizeSelectionAnchors(start, end, { it.row }, { it.col })
+    return SelectionBounds(first.row, first.col, second.row, second.col)
+}
 
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
 data class SessionInfo(val id: Long, val title: String = "")
@@ -481,8 +496,7 @@ constructor(
                     maxCol = cachedMaxCol,
                 )
             lastDragBounds = flipped
-            val boundsArray = intArrayOf(flipped.startRow, flipped.startCol, flipped.endRow, flipped.endCol)
-            syncDragBoundsToNativeThrottled(boundsArray)
+            syncDragBoundsToNativeThrottled(flipped)
             return flipped
         }
 
@@ -490,18 +504,23 @@ constructor(
          * 以节流频率把进行中的拖动边界推送到原生渲染器，使单元格反色高亮实时跟随手柄
          * （termux updatePosition 对等），而无需在每个 MOVE 帧都付出一次 JNI 穿越与重渲染。
          * 最终的精确边界由松手时 endSelection 经 runtime.setSelection 提交。
+         *
+         * 下发的是选区自身的两个端点（行主序有序，见 [resolveDragBounds] 的钳位），
+         * 不是行列各自取极值的包围盒角点：原生按线性语义解释端点，角点会让高亮区域
+         * 在首行左侧与末行右侧同时外扩，而手柄仍停在端点上。
          */
-        internal fun syncDragBoundsToNativeThrottled(boundsArray: IntArray) {
+        internal fun syncDragBoundsToNativeThrottled(bounds: HandleDragResult) {
             val nowMs = SystemClock.uptimeMillis()
             if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
             lastDragNativeSyncUptimeMs = nowMs
-            val loRow = minOf(boundsArray[0], boundsArray[2])
-            val hiRow = maxOf(boundsArray[0], boundsArray[2])
-            val loCol = minOf(boundsArray[1], boundsArray[3])
-            val hiCol = maxOf(boundsArray[1], boundsArray[3])
             // 走拖动途中的专用入口：普通提交会把 dragging 清成 false，
             // 那正是「保护只存活一个推送间隔」的由来（见 TerminalRuntime 的同名方法）。
-            runtime.pushSelectionBoundsDuringDrag(loRow, loCol, hiRow, hiCol)
+            runtime.pushSelectionBoundsDuringDrag(
+                bounds.startRow,
+                bounds.startCol,
+                bounds.endRow,
+                bounds.endCol,
+            )
         }
 
         @Volatile private var lastDragNativeSyncUptimeMs = 0L
@@ -661,13 +680,19 @@ constructor(
             }
         }
 
-        /** 选区边界归一化后同步到原生：起止倒置时取最小/最大行列，调用方保证非空。 */
+        /**
+         * 选区边界同步到原生：下发行主序有序的端点对（见 [selectionEndpoints]），
+         * 调用方保证非空。
+         */
         private fun publishNormalizedSelectionBounds(start: SelectionAnchor, end: SelectionAnchor) {
-            val loRow = minOf(start.row, end.row)
-            val hiRow = maxOf(start.row, end.row)
-            val loCol = minOf(start.col, end.col)
-            val hiCol = maxOf(start.col, end.col)
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true)
+            val bounds = selectionEndpoints(start, end)
+            runtime.setSelection(
+                bounds.startRow,
+                bounds.startCol,
+                bounds.endRow,
+                bounds.endCol,
+                true,
+            )
         }
 
         fun shareSelection() {
@@ -728,10 +753,16 @@ constructor(
             // 且格式化器在内部把网格列映射到字符下标，使 CJK 宽字符绝不被切开
             // （等效于 TerminalRow.findStartOfColumn）。
             // 旧的逐行 scrollbackLine + '\n' 拼接无法侦测换行，且可能切开代理对。
-            val (lo, hi) = normalizeSelectionAnchors(start, end, { it.row }, { it.col })
+            val bounds = selectionEndpoints(start, end)
             // 空选区返回 ""，查询失败返回 null——后者必须出声：合并成 "" 会让
             // 复制按钮无声失败，用户只看到「选中了却看不出选中」（无高亮变化）。
-            val text = bridge.selectionText(lo.row, lo.col, hi.row, hi.col)
+            val text =
+                bridge.selectionText(
+                    bounds.startRow,
+                    bounds.startCol,
+                    bounds.endRow,
+                    bounds.endCol,
+                )
             if (text == null) {
                 LogUtil.e("TerminalViewModel", "extractSelectedText: 原生选区查询失败，选区文本未提取")
                 return ""
