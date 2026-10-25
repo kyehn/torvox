@@ -912,23 +912,33 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
-- **aislop**：`aislop scan --json` 退出码 0，`score` 90、label `Healthy`，
-  `summary` 0 errors / 14 warnings / 0 fixable；14 条 `diagnostics` 全部是
-  `complexity/*`（11 条 `complexity/file-too-large`、3 条
-  `complexity/function-too-long`：`pump_sessions`、`render_inner`、`run_inner`），
-  `findingAssessment.byKind` 为 `style-policy` 14 / `confirmed-defect` 0，
-  confidence 分布 high 0 / medium 14 / low 0。
-  **覆盖面限制**：`coverage.supportedFiles` 42、`unsupportedFiles` 125、
+- **aislop**：`aislop scan --json` 退出码 0，`summary` 0 errors / 14 warnings /
+  0 fixable；14 条 `diagnostics` 全部是 `complexity/*`（11 条
+  `complexity/file-too-large`、3 条 `complexity/function-too-long`：`pump_sessions`、
+  `render_inner`、`run_inner`），`findingAssessment.byKind` 为 `style-policy` 14 /
+  `confirmed-defect` 0，confidence 分布 high 0 / medium 14 / low 0。
+  **覆盖面限制**：全仓扫描 `coverage.supportedFiles` 45、`unsupportedFiles` 141、
   `dominantUnsupported` 为 `Kotlin`——该工具扫不到本仓 Android 侧 Kotlin 代码，
   故本项 MUST NOT 被当作全仓门禁；它只对 Rust 侧有判别力。
+  **评分可用性**：该工具仅在 `unsupportedFiles < 10` 或
+  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 141 > 45 × 3 = 135，
+  全仓扫描的 `score` 为 `null`、label 为 `not scored`，故分数基线 MUST 取
+  Rust 子目录扫描（`aislop scan --json native/src`）：`score` 90、label `Healthy`、
+  `supportedFiles` 44、`unsupportedFiles` 0。
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
   `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线各 11 / 3）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，31 处克隆 / 423 行重复 / 0.78%，涉 106 个文件。
-  验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出「不修」的具体理由
-  （被测行为不同、脚手架样板、或传状态必需的形参列表），MUST NOT 以「先记着」放行。
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 26 行重复 / 0.04%，涉 115 个文件。
+  两处残留均已逐处给出「不修」的具体理由：其一为
+  `android/app/src/main/res/drawable/launcher_monochrome.xml` 与 `logo_art.xml`
+  的同形 `pathData`（Android drawable 不支持跨文件引用几何，单色版必须自带路径）；
+  其二为 `native/src/terminal/ghostty_terminal/internal.rs` 内 `process_query`
+  与 `drain_queries` 的同形十参形参表（传状态必需的形参列表，收敛成上下文档反而
+  拖长每一次调用）。验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
+  「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
+  MUST NOT 以「先记着」放行。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
@@ -952,6 +962,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 - **WHEN** 引用 aislop 的结果作为本仓代码质量结论
 - **THEN** MUST 同时写明它不覆盖本仓 Kotlin 代码（`dominantUnsupported` 为
       `Kotlin`），MUST NOT 据其 0 error 声称全仓无问题
+- **AND** 全仓扫描因覆盖面闸门而 `score` 为 `null`、label 为 `not scored` 时，
+      MUST 写明该事实并以 Rust 子目录扫描的分数作基线，
+      MUST NOT 把未评分当作满分或据「not scored」断言质量已达标
 
 #### Scenario: 接入门禁时以基线而非无输出判合格
 

@@ -626,17 +626,8 @@ fn cursor_rendering_on_visible_cursor() {
 fn cursor_not_rendered_when_invisible() {
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let instances = build_cursor_probe_instance(
-        'A' as u32,
-        [1.0, 1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0, 1.0],
-        0,
-        false,
-        cell_width,
-        cell_height,
-        &mut font_pipeline,
-        CursorStyle::Block,
-    );
+    let instances =
+        build_hidden_cursor_probe_instance('A' as u32, cell_width, cell_height, &mut font_pipeline);
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -859,6 +850,26 @@ fn resize_cycles_do_not_accumulate_stale_rows() {
             "resize 后实例数必须等于当前网格单元数（{rows}x{cols}），不得累积旧网格的行"
         );
     }
+}
+
+/// 白字黑底、块状且隐藏的光标探针：光标关闭时该格不得染上光标色。
+fn build_hidden_cursor_probe_instance(
+    codepoint: u32,
+    cell_width: f32,
+    cell_height: f32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) -> Vec<crate::render::CellInstance> {
+    build_cursor_probe_instance(
+        codepoint,
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+        0,
+        false,
+        cell_width,
+        cell_height,
+        font_pipeline,
+        CursorStyle::Block,
+    )
 }
 
 /// Build one cursor-probe cell with white block cursor styling: covers the
@@ -1728,17 +1739,8 @@ fn cursor_geometry_anchored_to_cell_box() {
 fn cursor_not_rendered_when_visible_false() {
     let mut font_pipeline = ascii_font();
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let instances = build_cursor_probe_instance(
-        0x20,
-        [1.0, 1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0, 1.0],
-        0,
-        false,
-        cell_width,
-        cell_height,
-        &mut font_pipeline,
-        CursorStyle::Block,
-    );
+    let instances =
+        build_hidden_cursor_probe_instance(0x20, cell_width, cell_height, &mut font_pipeline);
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // 非光标位置的空白格用默认背景色，而非光标色
