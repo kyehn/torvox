@@ -4339,6 +4339,7 @@ fn ed2_removes_kitty_placements_on_first_clear() {
     terminal.set_cell_pixel_size(8, 16);
     terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
     terminal.flush();
+    let (_, before) = terminal.receive_cell_data().expect("cell data after image");
     assert_eq!(
         1,
         terminal.take_kitty_placements().len(),
@@ -4347,8 +4348,55 @@ fn ed2_removes_kitty_placements_on_first_clear() {
 
     terminal.pty_write(b"\x1b[2J");
     terminal.flush();
+    let (_, after) = terminal.receive_cell_data().expect("cell data after ED2");
+    assert_ne!(
+        before.kitty_placement_generation, after.kitty_placement_generation,
+        "ED2 必须推进放置生成戳：渲染线程靠它知道缓存里的放置已失效"
+    );
     assert!(
         terminal.take_kitty_placements().is_empty(),
         "首次 ED2 后放置集合必须为空（图像不得残留到第二次 clear）"
+    );
+}
+
+/// 虚拟放置（`icat` 常走的「先传图、再放图」两段式）的 ED2 撤除。
+///
+/// 判别力：ED2 撤下虚拟放置时不一定推进图像存储生成戳；旧缓存规则只看它，
+/// 于是既不会醒来也不会重查，图像要等第二次 clear 才消失。放置生成戳
+/// 必须独立变化，渲染侧才能第一次就撤下。
+///
+/// 注：上游对虚拟放置的撤除同样会推进存储生成戳，故这里只锁 VT 侧
+/// 「放置集合立即为空」；渲染缓存对「存储戳不变、放置戳变化」的判定由
+/// `native/src/android/ffi.rs` 的纯函数单测覆盖。
+#[test]
+fn ed2_removes_virtual_kitty_placement_on_first_clear() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(b"\x1b_Ga=T,U=1,f=24,s=1,v=1,i=7,c=1,r=1,q=2;/wAA\x1b\\");
+    terminal.pty_write("\x1b[38;5;7m\u{10EEEE}\u{0305}\u{0305}\x1b[39m".as_bytes());
+    terminal.flush();
+    let (_, before) = terminal
+        .receive_cell_data()
+        .expect("cell data after virtual placement");
+    assert_eq!(
+        1,
+        terminal.take_kitty_placements().len(),
+        "虚拟放置通道必须产生一个可见放置，否则本用例不覆盖撤除路径"
+    );
+    assert_ne!(
+        before.kitty_placement_generation, 0,
+        "虚拟放置必须推进放置生成戳，否则渲染侧无法感知它"
+    );
+
+    terminal.pty_write(b"\x1b[2J");
+    terminal.flush();
+    let (_, after) = terminal.receive_cell_data().expect("cell data after ED2");
+    assert_ne!(
+        before.kitty_placement_generation, after.kitty_placement_generation,
+        "放置生成戳必须变化，渲染线程才能醒来重查"
+    );
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "首次 ED2 后虚拟放置必须为空"
     );
 }

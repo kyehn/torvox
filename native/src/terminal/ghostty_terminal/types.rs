@@ -85,9 +85,12 @@ pub struct CursorInfo {
     pub rows: u32,
     pub cols: u32,
     /// Kitty 图像存储生成戳（上游 `Graphics::generation`；0 = 从未写入）。
-    /// 生成戳不变时放置集合与图像像素相同，渲染线程跳过放置查询；
-    /// 滚动/缩放仍需重算几何（上游语义），由滚动长度与网格尺寸门控。
+    /// 它只随图像内容增删而变化：图集重传按此门控，滚动/移动放置不应触发重传。
     pub kitty_generation: u64,
+    /// Kitty 放置生成戳（上游 `RenderState::image_placements_generation`）。
+    /// 放置被增删、移动、随滚动/重排都会变化，是「需要重查放置」的唯一可靠信号；
+    /// 图像存储生成戳在 ED2 撤下放置时不变，只看它会漏掉首次 clear 的图像残留。
+    pub kitty_placement_generation: u64,
 }
 
 /// 逐单元载荷：会话线程（经 Ghostty CellIterator 产生）→ 渲染线程（转为 CellInstance

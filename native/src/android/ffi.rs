@@ -324,7 +324,10 @@ static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct KittyPlacementKeys {
     session_id: u64,
+    /// 图像内容生成戳：只驱动图集重传（像素变了吗）。
     generation: u64,
+    /// 放置生成戳：驱动放置重查（图的位置/集合变了吗）。
+    placement_generation: u64,
     scroll_offset: i64,
     scrollback_length: u32,
     placeholder_signature: u64,
@@ -373,6 +376,8 @@ fn kitty_cache_invalidation(
 ) -> KittyCacheInvalidation {
     let session_changed = current.session_id != previous.session_id;
     let generation_changed = current.generation != previous.generation;
+    let placement_generation_changed =
+        current.placement_generation != previous.placement_generation;
     // 与视口无关的放置键：任一变化都必须重查，平移无法表达。
     let content_changed = session_changed
         || generation_changed
@@ -398,6 +403,18 @@ fn kitty_cache_invalidation(
             refetch_placements: true,
             overlay_dirty: true,
             repack_atlas: generation_changed || session_changed,
+            viewport_shift_rows: 0,
+        };
+    }
+    // 放置移动但视口没动：ED2 撤下图像、TUI 原地重排都走这里。图像存储生成戳
+    // 在这些场景不变，只看它会让缓存保留已被撤下的放置，首次 clear 后图像残留。
+    // 视口同时移动时交给下面的平移分支，停稳后由补查修正。
+    if placement_generation_changed && viewport_shift_rows == 0 {
+        return KittyCacheInvalidation {
+            sync_cell_size: false,
+            refetch_placements: true,
+            overlay_dirty: true,
+            repack_atlas: false,
             viewport_shift_rows: 0,
         };
     }
@@ -601,6 +618,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_keys: KittyPlacementKeys {
                 session_id: 0,
                 generation: u64::MAX,
+                placement_generation: u64::MAX,
                 scroll_offset: i64::MIN,
                 scrollback_length: u32::MAX,
                 placeholder_signature: u64::MAX,
@@ -2483,6 +2501,7 @@ fn render_inner(session_id: u64) -> jint {
             let kitty_keys = KittyPlacementKeys {
                 session_id,
                 generation: kitty_generation,
+                placement_generation: cursor_info.kitty_placement_generation,
                 scroll_offset,
                 scrollback_length: cursor_info.scrollback_length,
                 placeholder_signature,
@@ -4831,6 +4850,7 @@ mod session_registry_tests {
             rows: 24,
             cols: 80,
             kitty_generation: 0,
+            kitty_placement_generation: 0,
         };
 
         // 首帧尚未被渲染线程取走。
@@ -5594,6 +5614,7 @@ mod kitty_placement_keys_tests {
         KittyPlacementKeys {
             session_id: 7,
             generation: 3,
+            placement_generation: 11,
             scroll_offset: 0,
             scrollback_length: 100,
             placeholder_signature: 0xabcd,
@@ -5642,6 +5663,42 @@ mod kitty_placement_keys_tests {
             );
             assert_eq!(invalidation.viewport_shift_rows, 0, "内容变化不靠平移");
         }
+    }
+
+    /// 放置生成戳变化而视口没动：必须重查，否则 ED2 撤下的图像留在缓存里。
+    ///
+    /// 判别力：放置键此前只看图像存储生成戳；ED2 撤下放置不会改动图像存储，
+    /// 于是首次 clear 后渲染继续复用旧放置，图像要等第二次 clear 才消失。
+    #[test]
+    fn placement_generation_change_without_scroll_refetches() {
+        let previous = keys();
+        let cleared_placements = KittyPlacementKeys {
+            placement_generation: previous.placement_generation + 1,
+            ..previous
+        };
+        let invalidation = kitty_cache_invalidation(cleared_placements, previous, false, false);
+        assert!(invalidation.refetch_placements, "放置撤下必须重查");
+        assert!(invalidation.overlay_dirty, "旧图像像素必须整帧擦除");
+        assert!(
+            !invalidation.repack_atlas,
+            "图像内容未变，不应重传图集（放置生成戳同样随滚动变化）"
+        );
+        assert_eq!(invalidation.viewport_shift_rows, 0);
+    }
+
+    /// 放置生成戳随滚动变化时仍走平移，不得退化为逐行同步查询。
+    #[test]
+    fn placement_generation_change_with_scroll_still_shifts() {
+        let previous = keys();
+        let scrolled = KittyPlacementKeys {
+            placement_generation: previous.placement_generation + 1,
+            scroll_offset: 1,
+            ..previous
+        };
+        let invalidation = kitty_cache_invalidation(scrolled, previous, false, false);
+        assert!(!invalidation.refetch_placements, "滚动中的放置变化只平移");
+        assert!(invalidation.overlay_dirty);
+        assert_eq!(invalidation.viewport_shift_rows, 1);
     }
 
     /// 纯滚动不重查放置：放置帧是视口相对坐标，按视口顶行差量平移即可。
@@ -5713,6 +5770,7 @@ mod kitty_placement_keys_tests {
         let sentinel = KittyPlacementKeys {
             session_id: 0,
             generation: u64::MAX,
+            placement_generation: u64::MAX,
             scroll_offset: i64::MIN,
             scrollback_length: u32::MAX,
             placeholder_signature: u64::MAX,
@@ -5830,6 +5888,7 @@ mod cursor_anchor_tests {
             rows: 24,
             cols: 80,
             kitty_generation: 0,
+            kitty_placement_generation: 0,
         };
         let mut render_state = super::render_state_mut();
         let render_state = render_state

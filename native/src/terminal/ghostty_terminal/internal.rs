@@ -2658,6 +2658,7 @@ impl super::GhosttyTerminal {
                     .ok()
                     .and_then(|graphics| graphics.generation().ok())
                     .unwrap_or(0),
+                kitty_placement_generation: snapshot.image_placements_generation().unwrap_or(0),
             },
         ))
     }
@@ -3403,6 +3404,7 @@ mod tests {
                     rows: 0,
                     cols: 0,
                     kitty_generation: 0,
+                    kitty_placement_generation: 0,
                 },
             ))
             .expect_err("bounded(0) must reject every send");
