@@ -15,13 +15,14 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     @Test
     fun roots_via_resolver_returns_terminal_home() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val cursor = context.contentResolver.query(
-            DocumentsContract.buildRootsUri(authority),
-            null,
-            null,
-            null,
-            null,
-        )
+        val cursor =
+            context.contentResolver.query(
+                DocumentsContract.buildRootsUri(authority),
+                null,
+                null,
+                null,
+                null,
+            )
         requireNotNull(cursor).use {
             assertTrue(it.count >= 1)
             it.moveToFirst()
@@ -35,16 +36,17 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     @Test
     fun subset_projection_does_not_crash() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val cursor = context.contentResolver.query(
-            DocumentsContract.buildRootsUri(authority),
-            arrayOf(
-                DocumentsContract.Root.COLUMN_ROOT_ID,
-                DocumentsContract.Root.COLUMN_FLAGS,
-            ),
-            null,
-            null,
-            null,
-        )
+        val cursor =
+            context.contentResolver.query(
+                DocumentsContract.buildRootsUri(authority),
+                arrayOf(
+                    DocumentsContract.Root.COLUMN_ROOT_ID,
+                    DocumentsContract.Root.COLUMN_FLAGS,
+                ),
+                null,
+                null,
+                null,
+            )
         requireNotNull(cursor).use {
             assertTrue(it.count >= 1)
             it.moveToFirst()
@@ -110,12 +112,13 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val home = File(context.filesDir, "home").apply { mkdirs() }
         File(home, "resolver-create-probe.txt").delete()
         val parentUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
-        val createdUri = DocumentsContract.createDocument(
-            context.contentResolver,
-            parentUri,
-            "text/plain",
-            "resolver-create-probe.txt",
-        )
+        val createdUri =
+            DocumentsContract.createDocument(
+                context.contentResolver,
+                parentUri,
+                "text/plain",
+                "resolver-create-probe.txt",
+            )
         requireNotNull(createdUri) { "resolver create must return a uri" }
         context.contentResolver.openOutputStream(createdUri, "rwt").use { stream ->
             requireNotNull(stream) { "created file must be writable" }
@@ -131,12 +134,13 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val home = File(context.filesDir, "home").apply { mkdirs() }
         File(home, "resolver-dir-probe").deleteRecursively()
         val parentUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
-        val createdUri = DocumentsContract.createDocument(
-            context.contentResolver,
-            parentUri,
-            DocumentsContract.Document.MIME_TYPE_DIR,
-            "resolver-dir-probe",
-        )
+        val createdUri =
+            DocumentsContract.createDocument(
+                context.contentResolver,
+                parentUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                "resolver-dir-probe",
+            )
         requireNotNull(createdUri) { "resolver create dir must return a uri" }
         assertTrue("created dir must land on disk", File(home, "resolver-dir-probe").isDirectory)
         assertTrue(DocumentsContract.deleteDocument(context.contentResolver, createdUri))
@@ -161,6 +165,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
 
         val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
         val rootTreeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
+
         fun dirOnDisk(name: String): File = File(home, name)
         val nestedDirUri =
             DocumentsContract.createDocument(
@@ -255,10 +260,11 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun tree_uri_modify_copy_move_round_trip() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val targetDir = File(home, "tree-mutations-target").apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        val targetDir =
+            File(home, "tree-mutations-target").apply {
+                deleteRecursively()
+                mkdirs()
+            }
         // 只清残留、不预建：`tree-mutations` 由本用例经提供者创建。预建会让提供者
         // 按 AOSP/桌面冲突命名（已存在则追加 " (1)" 起序号）返回 `tree-mutations (1)`，
         // 下面的 docId 断言随之对不上。这里它只是事后读盘的参照，无需先存在。
@@ -268,22 +274,24 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
 
             // 客户端经树 URI 在子目录里建文件（与上面那个用例同一条路）。
-            val childDirUri = DocumentsContract.createDocument(
-                context.contentResolver,
-                rootDocumentUri,
-                DocumentsContract.Document.MIME_TYPE_DIR,
-                "tree-mutations",
-            )
+            val childDirUri =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    rootDocumentUri,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    "tree-mutations",
+                )
             requireNotNull(childDirUri)
             val childDirDocId = DocumentsContract.getDocumentId(childDirUri)
             assertEquals("tree-mutations", childDirDocId)
             val childrenInDir = DocumentsContract.buildChildDocumentsUriUsingTree(rootTreeUri, childDirDocId)
-            val sourceUri = DocumentsContract.createDocument(
-                context.contentResolver,
-                childrenInDir,
-                "text/plain",
-                "source.txt",
-            )
+            val sourceUri =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    childrenInDir,
+                    "text/plain",
+                    "source.txt",
+                )
             requireNotNull(sourceUri) { "tree URI create must return a uri" }
             context.contentResolver.openOutputStream(sourceUri, "rwt").use { stream ->
                 requireNotNull(stream).write("original body".toByteArray())
@@ -319,12 +327,13 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             )
 
             // ③ 移动：把副本移回子目录，原名冲突时按唯一名落在磁盘上（不抛错）。
-            val movedUri = DocumentsContract.moveDocument(
-                context.contentResolver,
-                copiedUri,
-                targetChildren,
-                childrenInDir,
-            )
+            val movedUri =
+                DocumentsContract.moveDocument(
+                    context.contentResolver,
+                    copiedUri,
+                    targetChildren,
+                    childrenInDir,
+                )
             requireNotNull(movedUri) { "moveDocument must return the new document uri" }
             val movedDocId = DocumentsContract.getDocumentId(movedUri)
             // 冲突命名按提供者的唯一名策略（`DocumentMutations.uniqueChild`）：
@@ -360,22 +369,24 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val rootDocumentUri = DocumentsContract.buildDocumentUri(authority, "terminal_home")
             val rootTreeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
 
-            val dirUri = DocumentsContract.createDocument(
-                context.contentResolver,
-                rootDocumentUri,
-                DocumentsContract.Document.MIME_TYPE_DIR,
-                "tree-rename",
-            )
+            val dirUri =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    rootDocumentUri,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    "tree-rename",
+                )
             requireNotNull(dirUri) { "probe dir create must return a uri" }
             val dirDocId = DocumentsContract.getDocumentId(dirUri)
             val childrenInDir = DocumentsContract.buildChildDocumentsUriUsingTree(rootTreeUri, dirDocId)
 
-            val sourceUri = DocumentsContract.createDocument(
-                context.contentResolver,
-                childrenInDir,
-                "text/plain",
-                "before.txt",
-            )
+            val sourceUri =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    childrenInDir,
+                    "text/plain",
+                    "before.txt",
+                )
             requireNotNull(sourceUri) { "tree URI create must return a uri" }
             context.contentResolver.openOutputStream(sourceUri, "rwt").use { stream ->
                 requireNotNull(stream).write("rename body".toByteArray())
@@ -385,11 +396,12 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val sourceViaTree = DocumentsContract.buildDocumentUriUsingTree(rootTreeUri, sourceDocId)
 
             // ① 改名：必须返回新 URI（返回 null 等于「名字没变」，客户端静默收场）。
-            val renamedUri = DocumentsContract.renameDocument(
-                context.contentResolver,
-                sourceViaTree,
-                "after.txt",
-            )
+            val renamedUri =
+                DocumentsContract.renameDocument(
+                    context.contentResolver,
+                    sourceViaTree,
+                    "after.txt",
+                )
             requireNotNull(renamedUri) { "renameDocument must return the renamed document uri" }
             assertEquals("tree-rename/after.txt", DocumentsContract.getDocumentId(renamedUri))
             assertTrue("rename must land on disk", File(probeDir, "after.txt").exists())
@@ -428,17 +440,20 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun terminal_side_change_notifies_open_listing() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val watchDir = File(home, "watch-probe").apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        val watchDir =
+            File(home, "watch-probe").apply {
+                deleteRecursively()
+                mkdirs()
+            }
         val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "watch-probe")
         // 查询子项即登记监视：客户端看到哪一层，提供者就守哪一层。
         context.contentResolver.query(childrenUri, null, null, null, null)?.use {
             assertTrue("探测目录的子项查询必须成功", it.count == 0)
         }
 
-        val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+        val notified =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
         val observer =
             object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) {
@@ -468,16 +483,19 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun terminal_side_delete_notifies_open_listing() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val watchDir = File(home, "watch-delete-probe").apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        val watchDir =
+            File(home, "watch-delete-probe").apply {
+                deleteRecursively()
+                mkdirs()
+            }
         File(watchDir, "to-remove.txt").writeText("x")
         val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "watch-delete-probe")
         context.contentResolver.query(childrenUri, null, null, null, null)?.use {
             assertTrue("探测目录的子项查询必须成功", it.count == 1)
         }
-        val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+        val notified =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
         val observer =
             object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) {
@@ -512,17 +530,20 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun cursor_from_tree_prefixed_listing_observes_terminal_side_changes() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val probeDir = File(home, "prefixed-observe").apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        val probeDir =
+            File(home, "prefixed-observe").apply {
+                deleteRecursively()
+                mkdirs()
+            }
         try {
             val treeUri = DocumentsContract.buildTreeDocumentUri(authority, "terminal_home")
             val childrenViaTree =
                 DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, "terminal_home/prefixed-observe")
             val cursor = context.contentResolver.query(childrenViaTree, null, null, null, null)
             requireNotNull(cursor) { "前缀寻址的子项查询必须成功" }
-            val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+            val notified =
+                java.util.concurrent.atomic
+                    .AtomicBoolean(false)
             val observer =
                 object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
                     override fun onChange(selfChange: Boolean) {
@@ -559,22 +580,26 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun terminal_side_content_append_notifies_document_and_metadata_updates() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val watchDir = File(home, "modify-probe").apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        val watchDir =
+            File(home, "modify-probe").apply {
+                deleteRecursively()
+                mkdirs()
+            }
         val target = File(watchDir, "appended.log").apply { writeText("first") }
         try {
             // 监视按「客户端查询过的目录」登记：先重列一次才启用监听。
-            context.contentResolver.query(
-                DocumentsContract.buildChildDocumentsUri(authority, "modify-probe"),
-                null,
-                null,
-                null,
-                null,
-            )?.use { assertTrue("探测目录的子项查询必须成功", it.count == 1) }
+            context.contentResolver
+                .query(
+                    DocumentsContract.buildChildDocumentsUri(authority, "modify-probe"),
+                    null,
+                    null,
+                    null,
+                    null,
+                )?.use { assertTrue("探测目录的子项查询必须成功", it.count == 1) }
             val documentUri = DocumentsContract.buildDocumentUri(authority, "modify-probe/appended.log")
-            val notified = java.util.concurrent.atomic.AtomicBoolean(false)
+            val notified =
+                java.util.concurrent.atomic
+                    .AtomicBoolean(false)
             val observer =
                 object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
                     override fun onChange(selfChange: Boolean) {
@@ -629,23 +654,25 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val timeBudgetMs = 2_000L
             val payload = "saved-through-saf".toByteArray()
             // 编辑器「保存修改文件」的回存通道：wt = write + truncate + create。
-            context.contentResolver.openOutputStream(
-                DocumentsContract.buildDocumentUri(authority, docId),
-                "wt",
-            ).use { output ->
-                requireNotNull(output).also { it.write(payload) }
-            }
-            val relisted = context.contentResolver.query(
-                DocumentsContract.buildDocumentUri(authority, docId),
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_SIZE,
-                    DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-                ),
-                null,
-                null,
-                null,
-            )
+            context.contentResolver
+                .openOutputStream(
+                    DocumentsContract.buildDocumentUri(authority, docId),
+                    "wt",
+                ).use { output ->
+                    requireNotNull(output).also { it.write(payload) }
+                }
+            val relisted =
+                context.contentResolver.query(
+                    DocumentsContract.buildDocumentUri(authority, docId),
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_SIZE,
+                        DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                    ),
+                    null,
+                    null,
+                    null,
+                )
             requireNotNull(relisted).use {
                 assertTrue("回存后重查必须命中最新的行", it.moveToFirst())
                 assertEquals("回存后的大小必须反映写入内容", payload.size.toLong(), it.getLong(1))
@@ -682,49 +709,52 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val newDisplayName = "rename-probe-new.txt"
             val timeBudgetMs = 2_000L
             val startedAt = android.os.SystemClock.elapsedRealtime()
-            val newUri = DocumentsContract.renameDocument(
-                context.contentResolver,
-                DocumentsContract.buildDocumentUri(authority, docId),
-                newDisplayName,
-            )
+            val newUri =
+                DocumentsContract.renameDocument(
+                    context.contentResolver,
+                    DocumentsContract.buildDocumentUri(authority, docId),
+                    newDisplayName,
+                )
             requireNotNull(newUri)
             // 客户端改名后的第一步：以返回的新 URI 重查行、重列父目录。
             assertNotNull(
                 "改名后第一时间重查必须命中（可直接发射失败提示）",
                 UxTestUtils.pollUntilTrue(timeoutMs = timeBudgetMs, intervalMs = 20) {
-                    context.contentResolver.query(
-                        newUri,
-                        arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-                        null,
-                        null,
-                        null,
-                    )?.use { cursor ->
-                        cursor.moveToFirst() && cursor.getString(0) == newDisplayName
-                    } ?: false
+                    context.contentResolver
+                        .query(
+                            newUri,
+                            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                            null,
+                            null,
+                            null,
+                        )?.use { cursor ->
+                            cursor.moveToFirst() && cursor.getString(0) == newDisplayName
+                        } ?: false
                 },
             )
             val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
             assertNotNull(
                 "下一次父目录列表必须只含新名字、无旧行",
                 UxTestUtils.pollUntilTrue(timeoutMs = timeBudgetMs, intervalMs = 20) {
-                    context.contentResolver.query(
-                        childrenUri,
-                        arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-                        null,
-                        null,
-                        null,
-                    )?.use { cursor ->
-                        val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                        var hasNew = false
-                        var hasOld = false
-                        while (cursor.moveToNext()) {
-                            when (cursor.getString(idIndex)) {
-                                newDisplayName -> hasNew = true
-                                docId -> hasOld = true
+                    context.contentResolver
+                        .query(
+                            childrenUri,
+                            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                            null,
+                            null,
+                            null,
+                        )?.use { cursor ->
+                            val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                            var hasNew = false
+                            var hasOld = false
+                            while (cursor.moveToNext()) {
+                                when (cursor.getString(idIndex)) {
+                                    newDisplayName -> hasNew = true
+                                    docId -> hasOld = true
+                                }
                             }
-                        }
-                        hasNew && !hasOld
-                    } ?: false
+                            hasNew && !hasOld
+                        } ?: false
                 },
             )
             val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
@@ -749,12 +779,13 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val parentUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
         val existing = File(home, "dup-create-probe.txt").apply { writeText("already here") }
         try {
-            val createdUri = DocumentsContract.createDocument(
-                context.contentResolver,
-                parentUri,
-                "text/plain",
-                "dup-create-probe.txt",
-            )
+            val createdUri =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    parentUri,
+                    "text/plain",
+                    "dup-create-probe.txt",
+                )
             requireNotNull(createdUri)
             val docId = DocumentsContract.getDocumentId(createdUri)
             val suffixFile = File(home, "dup-create-probe (1).txt")
@@ -778,12 +809,13 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val existing = File(home, "dup-dir-probe").apply { mkdirs() }
         val suffixDir = File(home, "dup-dir-probe (1)")
         try {
-            val createdUri = DocumentsContract.createDocument(
-                context.contentResolver,
-                DocumentsContract.buildChildDocumentsUri(authority, "terminal_home"),
-                DocumentsContract.Document.MIME_TYPE_DIR,
-                "dup-dir-probe",
-            )
+            val createdUri =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    DocumentsContract.buildChildDocumentsUri(authority, "terminal_home"),
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    "dup-dir-probe",
+                )
             requireNotNull(createdUri)
             val docId = DocumentsContract.getDocumentId(createdUri)
             assertEquals("重名目录必须追加消歧后缀", suffixDir.path, File(home, docId).path)
@@ -806,11 +838,12 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val original = File(home, "conflict-rename-old.txt").apply { writeText("x") }
         val occupant = File(home, "conflict-rename-new.txt").apply { writeText("occupied") }
         try {
-            val newUri = DocumentsContract.renameDocument(
-                context.contentResolver,
-                DocumentsContract.buildDocumentUri(authority, "conflict-rename-old.txt"),
-                "conflict-rename-new.txt",
-            )
+            val newUri =
+                DocumentsContract.renameDocument(
+                    context.contentResolver,
+                    DocumentsContract.buildDocumentUri(authority, "conflict-rename-old.txt"),
+                    "conflict-rename-new.txt",
+                )
             requireNotNull(newUri)
             val docId = DocumentsContract.getDocumentId(newUri)
             assertEquals(
@@ -837,10 +870,11 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
         val probe = File(home, "tree-delete-probe.txt").apply { writeText("to be deleted") }
-        val treeUri = DocumentsContract.buildDocumentUriUsingTree(
-            DocumentsContract.buildTreeDocumentUri(authority, "terminal_home"),
-            "tree-delete-probe.txt",
-        )
+        val treeUri =
+            DocumentsContract.buildDocumentUriUsingTree(
+                DocumentsContract.buildTreeDocumentUri(authority, "terminal_home"),
+                "tree-delete-probe.txt",
+            )
         try {
             assertTrue(probe.exists())
             assertTrue(
@@ -873,11 +907,12 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val uri = DocumentsContract.buildChildDocumentsUri(authority, "listing-budget-probe")
             // 首次查询含提供者冷启动、根解析与 inotify 登记，计入会让阈值失去意义。
             readListing(context, uri).also { assertEquals(entries, it.size) }
-            val samples = (1..3).map {
-                val started = android.os.SystemClock.elapsedRealtime()
-                val rows = readListing(context, uri)
-                android.os.SystemClock.elapsedRealtime() - started
-            }
+            val samples =
+                (1..3).map {
+                    val started = android.os.SystemClock.elapsedRealtime()
+                    val rows = readListing(context, uri)
+                    android.os.SystemClock.elapsedRealtime() - started
+                }
             val sorted = samples.sorted()
             val p50 = sorted[sorted.size / 2]
             UxTestUtils.metric("large_listing_p50_ms", p50)
@@ -909,22 +944,28 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun copy_document_preserves_executable_bit_across_process() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val targetDir = File(home, "exec-copy-target").apply {
-            deleteRecursively()
-            mkdirs()
-        }
-        val source = File(home, "exec-copy-source.sh").apply {
-            delete()
-            writeText("#!/system/bin/sh\necho hi\n")
-        }
-        val executable = java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x")
-        java.nio.file.Files.setPosixFilePermissions(source.toPath(), executable)
+        val targetDir =
+            File(home, "exec-copy-target").apply {
+                deleteRecursively()
+                mkdirs()
+            }
+        val source =
+            File(home, "exec-copy-source.sh").apply {
+                delete()
+                writeText("#!/system/bin/sh\necho hi\n")
+            }
+        val executable =
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x")
+        java.nio.file.Files
+            .setPosixFilePermissions(source.toPath(), executable)
         try {
-            val copiedUri = DocumentsContract.copyDocument(
-                context.contentResolver,
-                DocumentsContract.buildDocumentUri(authority, "exec-copy-source.sh"),
-                DocumentsContract.buildChildDocumentsUri(authority, "exec-copy-target"),
-            )
+            val copiedUri =
+                DocumentsContract.copyDocument(
+                    context.contentResolver,
+                    DocumentsContract.buildDocumentUri(authority, "exec-copy-source.sh"),
+                    DocumentsContract.buildChildDocumentsUri(authority, "exec-copy-target"),
+                )
             requireNotNull(copiedUri) { "copyDocument must return the new document uri" }
             val copied = File(targetDir, "exec-copy-source.sh")
             assertTrue("copied file must land on disk", copied.exists())
@@ -932,7 +973,8 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                 "copied script must stay executable",
                 "rwxr-xr-x",
                 java.nio.file.attribute.PosixFilePermissions.toString(
-                    java.nio.file.Files.getPosixFilePermissions(copied.toPath()),
+                    java.nio.file.Files
+                        .getPosixFilePermissions(copied.toPath()),
                 ),
             )
         } finally {
@@ -946,21 +988,22 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     /** 读完整游标：耗时要包含游标填充，而不只是第一次 `moveToNext`。 */
     private fun readListing(context: android.content.Context, uri: android.net.Uri): List<ListingRow> {
         val rows = ArrayList<ListingRow>(LISTING_ROWS_HINT)
-        context.contentResolver.query(
-            uri,
-            arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            ),
-            null,
-            null,
-            null,
-        ).use { cursor ->
-            requireNotNull(cursor)
-            while (cursor.moveToNext()) {
-                rows += ListingRow(cursor.getString(0), cursor.getString(1))
+        context.contentResolver
+            .query(
+                uri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                ),
+                null,
+                null,
+                null,
+            ).use { cursor ->
+                requireNotNull(cursor)
+                while (cursor.moveToNext()) {
+                    rows += ListingRow(cursor.getString(0), cursor.getString(1))
+                }
             }
-        }
         return rows
     }
 

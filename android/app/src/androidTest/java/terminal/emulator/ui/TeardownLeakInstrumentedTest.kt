@@ -77,7 +77,8 @@ class TeardownLeakInstrumentedTest : TerminalLogcatTest() {
 
         val dump = shellCommand("logcat -d -v brief")
         val leakLines =
-            dump.lineSequence()
+            dump
+                .lineSequence()
                 .filter { it.contains("WindowLeaked") || it.contains("has leaked window") }
                 .filter { it.contains("com.termux") || it.contains("PopupDecorView") }
                 .toList()
@@ -102,7 +103,9 @@ class TeardownLeakInstrumentedTest : TerminalLogcatTest() {
         }
     }
 
-    private fun shellCommand(command: String): String = InstrumentationRegistry.getInstrumentation().uiAutomation
+    private fun shellCommand(command: String): String = InstrumentationRegistry
+        .getInstrumentation()
+        .uiAutomation
         .executeShellCommand(command)
         .use { ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().readText() }
 }

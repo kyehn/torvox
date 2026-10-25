@@ -159,7 +159,9 @@ class NativeBridgeSmokeTest {
             // 以 JSON 报出。Kotlin 侧解析由 PollEventTest 覆盖，落盘由复制链覆盖。
             val marker = "SMOKE52_${System.currentTimeMillis() % 100000}"
             val encoded =
-                java.util.Base64.getEncoder().encodeToString(marker.toByteArray(Charsets.UTF_8))
+                java.util.Base64
+                    .getEncoder()
+                    .encodeToString(marker.toByteArray(Charsets.UTF_8))
             NativeBridge.feedTerminal(sessionId, "\u001B]52;c;$encoded\u0007".toByteArray(Charsets.UTF_8))
             val seen =
                 awaitTrue("clipboard poll event") {
@@ -234,9 +236,10 @@ class NativeBridgeSmokeTest {
         // 绑桩跳转，量不到注册表读锁与数组拷贝，回归就藏得住。
         withSession { sessionId ->
             val iterations = 200
-            val elapsed = measureTimeMillis {
-                repeat(iterations) { NativeBridge.listSessions() }
-            }
+            val elapsed =
+                measureTimeMillis {
+                    repeat(iterations) { NativeBridge.listSessions() }
+                }
             println("JNI overhead diagnostic: $iterations listSessions calls took ${elapsed}ms")
             assertTrue(
                 "$iterations JNI calls took ${elapsed}ms — regression in bridge cost",

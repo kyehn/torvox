@@ -107,14 +107,15 @@ class TerminalForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        sessionCount = if (intent.hasExtra(EXTRA_SESSION_COUNT)) {
-            intent.getIntExtra(EXTRA_SESSION_COUNT, 0).coerceAtLeast(0)
-        } else {
-            // 裸 start()（冷启动/首个会话）不带计数：不得回落成 1——此时可能尚无会话，
-            // 谎报「1 个活动会话」并为不存在的会话持有唤醒锁。
-            // 沿用上次已知值（冷启动为 0，即「启动中」）。
-            sessionCount
-        }
+        sessionCount =
+            if (intent.hasExtra(EXTRA_SESSION_COUNT)) {
+                intent.getIntExtra(EXTRA_SESSION_COUNT, 0).coerceAtLeast(0)
+            } else {
+                // 裸 start()（冷启动/首个会话）不带计数：不得回落成 1——此时可能尚无会话，
+                // 谎报「1 个活动会话」并为不存在的会话持有唤醒锁。
+                // 沿用上次已知值（冷启动为 0，即「启动中」）。
+                sessionCount
+            }
         startForegroundWithSessionCount(sessionCount)
         if (sessionCount >= 1) acquireWakeLockIfNeeded()
         return START_STICKY
@@ -157,13 +158,13 @@ class TerminalForegroundService : Service() {
                 .setContentIntent(pending)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .addAction(
-                    Notification.Action.Builder(
-                        null,
-                        getString(R.string.notification_exit),
-                        exitPending,
-                    ).build(),
-                )
-                .build()
+                    Notification.Action
+                        .Builder(
+                            null,
+                            getString(R.string.notification_exit),
+                            exitPending,
+                        ).build(),
+                ).build()
         // 缺失 POST_NOTIFICATIONS 不会使这里抛异常（平台文档：前台服务照常启动，
         // 只是通知不进抽屉、仅见于任务管理器）；实测 API 35 上拒绝该权限后
         // startForeground 仍成功（dumpsys 报 isForeground=true）。

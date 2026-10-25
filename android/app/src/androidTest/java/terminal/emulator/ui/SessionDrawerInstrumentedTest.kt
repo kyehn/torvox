@@ -127,7 +127,8 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
             "抽屉条目必须显示「[${index + 1}] $title」，实际注册表标题=${sessionTitle(activeId)}",
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
                 probeAssertion {
-                    composeTestRule.onAllNodesWithTag("SessionItem")[index]
+                    composeTestRule
+                        .onAllNodesWithTag("SessionItem")[index]
                         .assertTextContains("[${index + 1}] $title")
                 }
             },

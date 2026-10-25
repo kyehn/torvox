@@ -13,7 +13,6 @@ import kotlin.math.roundToInt
  * 无法发现「Kotlin 与原生各有一份上限常量且已漂移」这类真实缺陷。
  */
 class FontSizeRangeTest {
-
     /**
      * Material `steps` 语义：总档数 = steps + 1（不含上界的中间档），
      * 故 `steps + 2` 个离散值、`steps + 1` 个等分区间。逐档列出实际取值。

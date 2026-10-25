@@ -98,12 +98,15 @@ class DocumentsProviderTest {
         }
     }
 
-    private fun rootDir(): java.io.File = java.io.File(
-        org.robolectric.RuntimeEnvironment.getApplication().filesDir,
-        "home",
-    ).apply {
-        mkdirs()
-    }
+    private fun rootDir(): java.io.File = java.io
+        .File(
+            org.robolectric.RuntimeEnvironment
+                .getApplication()
+                .filesDir,
+            "home",
+        ).apply {
+            mkdirs()
+        }
 
     private fun ensureProvider(): TerminalDocumentsProvider {
         if (!::provider.isInitialized) {
@@ -329,7 +332,8 @@ class DocumentsProviderTest {
         val script = java.io.File(home, "run.sh").apply { writeText("#!/bin/sh\n") }
         java.nio.file.Files.setPosixFilePermissions(
             script.toPath(),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x"),
         )
         provider.openDocument("run.sh", "w", null).use { fd ->
             java.io.FileOutputStream(fd.fileDescriptor).write("#!/bin/sh\necho hi\n".toByteArray())
@@ -338,7 +342,8 @@ class DocumentsProviderTest {
             "editing a script through SAF must keep it executable",
             "rwxr-xr-x",
             java.nio.file.attribute.PosixFilePermissions.toString(
-                java.nio.file.Files.getPosixFilePermissions(script.toPath()),
+                java.nio.file.Files
+                    .getPosixFilePermissions(script.toPath()),
             ),
         )
         assertEquals("#!/bin/sh\necho hi\n", script.readText())
@@ -358,7 +363,8 @@ class DocumentsProviderTest {
         val script = java.io.File(home, "deploy.sh").apply { writeText("#!/bin/sh\nold\n") }
         java.nio.file.Files.setPosixFilePermissions(
             script.toPath(),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x"),
         )
         val provider = ensureProvider()
         provider.renameDocument("deploy.sh", "15398985.rollback")
@@ -368,7 +374,8 @@ class DocumentsProviderTest {
             "replacing a script through SAF must keep it executable",
             "rwxr-xr-x",
             java.nio.file.attribute.PosixFilePermissions.toString(
-                java.nio.file.Files.getPosixFilePermissions(script.toPath()),
+                java.nio.file.Files
+                    .getPosixFilePermissions(script.toPath()),
             ),
         )
     }
@@ -380,13 +387,16 @@ class DocumentsProviderTest {
         val script = java.io.File(home, "a.sh").apply { writeText("#!/bin/sh\n") }
         java.nio.file.Files.setPosixFilePermissions(
             script.toPath(),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x"),
         )
         val provider = ensureProvider()
         provider.renameDocument("a.sh", "a.sh.rollback")
         provider.createDocument("terminal_home", "text/plain", "b.sh")
         val created = java.io.File(home, "b.sh")
-        val createdPermissions = java.nio.file.Files.getPosixFilePermissions(created.toPath())
+        val createdPermissions =
+            java.nio.file.Files
+                .getPosixFilePermissions(created.toPath())
         assertTrue(
             "a fresh document must not inherit another name's execute bits",
             createdPermissions.none {
@@ -483,14 +493,17 @@ class DocumentsProviderTest {
             val thrown =
                 assertThrows(android.os.OperationCanceledException::class.java) {
                     when (label) {
-                        "openDocument" -> provider.openDocument("cancelled.txt", "r", cancelled)
+                        "openDocument" -> {
+                            provider.openDocument("cancelled.txt", "r", cancelled)
+                        }
 
-                        else ->
+                        else -> {
                             provider.openDocumentThumbnail(
                                 "cancelled.txt",
                                 android.graphics.Point(64, 64),
                                 cancelled,
                             )
+                        }
                     }
                 }
             assertTrue("$label must report cancellation", thrown != null)
@@ -511,7 +524,9 @@ class DocumentsProviderTest {
         repeat(maxRounds) {
             if (expected.all { label -> notified.contains(label) }) return
             org.robolectric.shadows.ShadowLooper.getAllLoopers().forEach { looper ->
-                org.robolectric.Shadows.shadowOf(looper).idle()
+                org.robolectric.Shadows
+                    .shadowOf(looper)
+                    .idle()
             }
         }
     }
@@ -537,6 +552,7 @@ class DocumentsProviderTest {
         val documentUri = DocumentsContract.buildDocumentUri(authority, "watched.txt")
         val childrenUri = DocumentsContract.buildChildDocumentsUri(authority, "terminal_home")
         val notified = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
         fun observerFor(label: String) =
             object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) {
@@ -685,7 +701,8 @@ class DocumentsProviderTest {
             java.io.File(requireNotNull(provider.context).filesDir, "outside-secret.txt").apply { writeText("x") }
         assertTrue(outside.exists())
         try {
-            java.lang.Runtime.getRuntime()
+            java.lang.Runtime
+                .getRuntime()
                 .exec(
                     arrayOf(
                         "ln",
@@ -693,8 +710,7 @@ class DocumentsProviderTest {
                         outside.absolutePath,
                         java.io.File(rootDir(), "leak-link").absolutePath,
                     ),
-                )
-                .waitFor()
+                ).waitFor()
         } catch (expected: Exception) {
             fail("symlink creation must work for this test: $expected")
         }
@@ -906,7 +922,8 @@ class DocumentsProviderTest {
                 java.nio.file.attribute.PosixFilePermission.OTHERS_READ,
                 java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE,
             )
-        java.nio.file.Files.setPosixFilePermissions(file.toPath(), fullAccess)
+        java.nio.file.Files
+            .setPosixFilePermissions(file.toPath(), fullAccess)
         provider.openDocument("run.sh", "w", null).use { parcelFileDescriptor ->
             java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("echo new".toByteArray())
         }
@@ -914,13 +931,16 @@ class DocumentsProviderTest {
             java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("+more".toByteArray())
         }
         provider.openDocument("run.sh", "rw", null).use { parcelFileDescriptor ->
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(parcelFileDescriptor).close()
+            android.os.ParcelFileDescriptor
+                .AutoCloseInputStream(parcelFileDescriptor)
+                .close()
         }
         assertEquals("echo new+more", file.readText())
         assertEquals(
             "write cycles must not strip permission bits",
             fullAccess,
-            java.nio.file.Files.getPosixFilePermissions(file.toPath()),
+            java.nio.file.Files
+                .getPosixFilePermissions(file.toPath()),
         )
     }
 
@@ -932,7 +952,8 @@ class DocumentsProviderTest {
         createSymlink("alias.txt", target)
         assertEquals("alias-renamed.txt", provider.renameDocument("alias.txt", "alias-renamed.txt"))
         assertTrue(
-            java.nio.file.Files.isSymbolicLink(java.io.File(rootDir(), "alias-renamed.txt").toPath()),
+            java.nio.file.Files
+                .isSymbolicLink(java.io.File(rootDir(), "alias-renamed.txt").toPath()),
         )
         assertEquals("target-content", target.readText())
         assertEquals("real.txt", target.name)
@@ -991,7 +1012,8 @@ class DocumentsProviderTest {
         provider.deleteDocument("ghost-link.txt")
         assertTrue(
             "dangling link must be unlinked",
-            !java.nio.file.Files.exists(link.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS),
+            !java.nio.file.Files
+                .exists(link.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS),
         )
     }
 
@@ -1033,7 +1055,8 @@ class DocumentsProviderTest {
         val source = java.io.File(rootDir(), "run.sh").apply { writeText("#!/bin/sh\necho hi\n") }
         java.nio.file.Files.setPosixFilePermissions(
             source.toPath(),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x"),
         )
         java.io.File(rootDir(), "dest").apply { mkdirs() }
         provider.copyDocument("run.sh", "dest")
@@ -1042,7 +1065,8 @@ class DocumentsProviderTest {
             "copied script must stay executable",
             "rwxr-xr-x",
             java.nio.file.Files.getPosixFilePermissions(copy.toPath()).let {
-                java.nio.file.attribute.PosixFilePermissions.toString(it)
+                java.nio.file.attribute.PosixFilePermissions
+                    .toString(it)
             },
         )
     }
@@ -1054,12 +1078,14 @@ class DocumentsProviderTest {
         val nested = java.io.File(rootDir(), "proj/bin").apply { mkdirs() }
         java.nio.file.Files.setPosixFilePermissions(
             nested.toPath(),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x"),
         )
         val script = java.io.File(nested, "tool").apply { writeText("#!/bin/sh\n") }
         java.nio.file.Files.setPosixFilePermissions(
             script.toPath(),
-            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("rwxr-xr-x"),
         )
         java.io.File(rootDir(), "dest").apply { mkdirs() }
         provider.copyDocument("proj", "dest")
@@ -1068,7 +1094,8 @@ class DocumentsProviderTest {
             "copied script inside a tree must stay executable",
             "rwxr-xr-x",
             java.nio.file.attribute.PosixFilePermissions.toString(
-                java.nio.file.Files.getPosixFilePermissions(copiedScript.toPath()),
+                java.nio.file.Files
+                    .getPosixFilePermissions(copiedScript.toPath()),
             ),
         )
     }
@@ -1085,8 +1112,10 @@ class DocumentsProviderTest {
         val readOnlyDirectory = java.io.File(rootDir(), "locked").apply { mkdirs() }
         java.io.File(readOnlyDirectory, "note.txt").writeText("keep")
         val readOnlyPermissions =
-            java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-xr-x")
-        java.nio.file.Files.setPosixFilePermissions(readOnlyDirectory.toPath(), readOnlyPermissions)
+            java.nio.file.attribute.PosixFilePermissions
+                .fromString("r-xr-xr-x")
+        java.nio.file.Files
+            .setPosixFilePermissions(readOnlyDirectory.toPath(), readOnlyPermissions)
         java.io.File(rootDir(), "dest").apply { mkdirs() }
         val copiedDirectory = java.io.File(rootDir(), "dest/locked")
         try {
@@ -1095,21 +1124,24 @@ class DocumentsProviderTest {
                 "copied read-only directory must keep its permissions",
                 "r-xr-xr-x",
                 java.nio.file.attribute.PosixFilePermissions.toString(
-                    java.nio.file.Files.getPosixFilePermissions(copiedDirectory.toPath()),
+                    java.nio.file.Files
+                        .getPosixFilePermissions(copiedDirectory.toPath()),
                 ),
             )
             assertEquals("keep", java.io.File(copiedDirectory, "note.txt").readText())
         } finally {
             java.nio.file.Files.setPosixFilePermissions(
                 readOnlyDirectory.toPath(),
-                java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+                java.nio.file.attribute.PosixFilePermissions
+                    .fromString("rwxr-xr-x"),
             )
             // 复制保留了只读权限；不恢复目标目录，Robolectric 的临时目录清理
             // 会因无法删除其子文件而报 "Failed to destroy temp directory"。
             if (copiedDirectory.exists()) {
                 java.nio.file.Files.setPosixFilePermissions(
                     copiedDirectory.toPath(),
-                    java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"),
+                    java.nio.file.attribute.PosixFilePermissions
+                        .fromString("rwxr-xr-x"),
                 )
             }
         }
@@ -1123,7 +1155,12 @@ class DocumentsProviderTest {
         val newId = provider.moveDocument("moving.txt", "terminal_home", "box")
         assertEquals("box/moving.txt", newId)
         assertTrue(java.io.File(rootDir(), "box/moving.txt").exists())
-        assertTrue(java.io.File(rootDir(), "moving.txt").exists().not())
+        assertTrue(
+            java.io
+                .File(rootDir(), "moving.txt")
+                .exists()
+                .not(),
+        )
     }
 
     @Test
@@ -1157,7 +1194,8 @@ class DocumentsProviderTest {
         val moved = java.io.File(rootDir(), newId)
         assertTrue(
             "moved entry must stay a symlink, not an expanded directory",
-            java.nio.file.Files.isSymbolicLink(moved.toPath()),
+            java.nio.file.Files
+                .isSymbolicLink(moved.toPath()),
         )
         assertEquals(tree.canonicalPath, moved.canonicalPath)
     }
@@ -1199,7 +1237,10 @@ class DocumentsProviderTest {
         assertEquals(
             "no runaway copy may be left behind",
             emptyList<String>(),
-            java.io.File(rootDir(), "ctree/sub").list()?.toList() ?: emptyList<String>(),
+            java.io
+                .File(rootDir(), "ctree/sub")
+                .list()
+                ?.toList() ?: emptyList<String>(),
         )
     }
 
@@ -1219,7 +1260,8 @@ class DocumentsProviderTest {
         val copied = java.io.File(rootDir(), newId)
         assertTrue(
             "copied entry must stay a symlink, not an expanded directory tree",
-            java.nio.file.Files.isSymbolicLink(copied.toPath()),
+            java.nio.file.Files
+                .isSymbolicLink(copied.toPath()),
         )
         assertEquals(tree.canonicalPath, copied.canonicalPath)
     }
@@ -1274,17 +1316,23 @@ class DocumentsProviderTest {
         provider.openDocument("fallback.txt", "rwa", null).use { parcelFileDescriptor ->
             java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("b".toByteArray())
         }
-        assertTrue(java.io.File(rootDir(), "fallback.txt").readText().contains("b"))
+        assertTrue(
+            java.io
+                .File(rootDir(), "fallback.txt")
+                .readText()
+                .contains("b"),
+        )
     }
 
     @Test
     fun queryDocument_subset_projection_does_not_crash() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "subset.txt").apply { writeText("x") }
-        val cursor = provider.queryDocument(
-            "subset.txt",
-            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-        )
+        val cursor =
+            provider.queryDocument(
+                "subset.txt",
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            )
         cursor.use {
             assertTrue(it.moveToFirst())
             assertEquals(
@@ -1338,7 +1386,8 @@ class DocumentsProviderTest {
         assertTrue("孙目录必须一并复制", java.io.File(copy, "src").isDirectory)
         assertTrue(
             "链接只复制 inode 自身，不展开成目标目录树",
-            java.nio.file.Files.isSymbolicLink(java.io.File(copy, "alias.txt").toPath()),
+            java.nio.file.Files
+                .isSymbolicLink(java.io.File(copy, "alias.txt").toPath()),
         )
         assertTrue("源目录树必须原样保留", java.io.File(source, "src/main.rs").exists())
     }
@@ -1398,7 +1447,8 @@ class DocumentsProviderTest {
         val copied = java.io.File(root, newId)
         assertTrue(
             "复制出的条目必须仍是符号链接，而不是展开成目标内容",
-            java.nio.file.Files.isSymbolicLink(copied.toPath()),
+            java.nio.file.Files
+                .isSymbolicLink(copied.toPath()),
         )
         assertEquals(
             "链接仍指向原目标",
@@ -1414,8 +1464,10 @@ class DocumentsProviderTest {
     fun copyDocument_refuses_symlink_pointing_outside_home() {
         val provider = ensureProvider()
         val root = rootDir()
-        val outside = java.io.File(requireNotNull(provider.context).filesDir, "outside-secret.txt")
-            .apply { writeText("secret") }
+        val outside =
+            java.io
+                .File(requireNotNull(provider.context).filesDir, "outside-secret.txt")
+                .apply { writeText("secret") }
         createSymlink("portal", outside)
         java.io.File(root, "landing").mkdirs()
 
@@ -1428,7 +1480,10 @@ class DocumentsProviderTest {
         assertTrue("站外目标不得被搬走", outside.exists())
         assertTrue(
             "家目录内不得留下任何复制产物",
-            java.io.File(root, "landing").list().isNullOrEmpty(),
+            java.io
+                .File(root, "landing")
+                .list()
+                .isNullOrEmpty(),
         )
     }
 
@@ -1441,10 +1496,11 @@ class DocumentsProviderTest {
      */
     @Test
     fun queryChildDocuments_orders_directories_first_then_lowercase_names() {
-        val parent = java.io.File(rootDir(), "ordering-fixture").apply {
-            deleteRecursively()
-            mkdirs()
-        }
+        val parent =
+            java.io.File(rootDir(), "ordering-fixture").apply {
+                deleteRecursively()
+                mkdirs()
+            }
         try {
             java.io.File(parent, "Beta.txt").writeText("b")
             java.io.File(parent, "alpha.txt").writeText("a")

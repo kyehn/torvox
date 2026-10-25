@@ -27,7 +27,8 @@ class TerminalAppDebug : TerminalApp() {
                 // debug 覆盖开关经系统属性读取（仅 debug 构建）：无公开 API，必须反射；失败即隐藏。
                 @SuppressLint("PrivateApi")
                 val propValue =
-                    Class.forName("android.os.SystemProperties")
+                    Class
+                        .forName("android.os.SystemProperties")
                         .getMethod("get", String::class.java)
                         .invoke(null, "debug.terminal.overlay") as? String
                 propValue == "full"

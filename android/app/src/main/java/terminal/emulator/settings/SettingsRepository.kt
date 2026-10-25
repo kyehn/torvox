@@ -38,10 +38,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     companion object {
         /** 默认夜间主题：单源在 Rust 侧，不在 Kotlin 侧另存名字面量。 */
-        private fun defaultTheme(): String = terminal.emulator.ui.theme.ThemeRepository.defaultDarkName()
+        private fun defaultTheme(): String = terminal.emulator.ui.theme.ThemeRepository
+            .defaultDarkName()
 
         /** 默认日间主题：单源在 Rust 侧。 */
-        private fun defaultDayTheme(): String = terminal.emulator.ui.theme.ThemeRepository.defaultLightName()
+        private fun defaultDayTheme(): String = terminal.emulator.ui.theme.ThemeRepository
+            .defaultLightName()
 
         const val DEFAULT_FOLLOW_SYSTEM = terminal.emulator.ui.theme.AppThemeMode.FOLLOW_SYSTEM
         const val DEFAULT_THEME_MODE = terminal.emulator.ui.theme.TerminalThemeMode.FIXED
@@ -146,8 +148,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
          *   使两条边界对同一设备给出一致的列数口径。
          */
         fun fontSizeMaxSp(spToPxScale: Float, screenWidthDp: Float): Float {
-            val termuxCeiling = floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
-                .times(FONT_SIZE_STEP_SP)
+            val termuxCeiling =
+                floor(FONT_SIZE_MAX_PX / spToPxScale / FONT_SIZE_STEP_SP)
+                    .times(FONT_SIZE_STEP_SP)
             val usableCeiling =
                 floor(
                     fontSizeForColumns(screenWidthDp, MIN_USABLE_COLUMNS) / FONT_SIZE_STEP_SP,
@@ -188,7 +191,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
         provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: defaultTheme() }
     val themeMode: Flow<String> =
         provider.dataStore.data.map {
-            terminal.emulator.ui.theme.TerminalThemeMode.normalize(it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE)
+            terminal.emulator.ui.theme.TerminalThemeMode
+                .normalize(it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE)
         }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
 

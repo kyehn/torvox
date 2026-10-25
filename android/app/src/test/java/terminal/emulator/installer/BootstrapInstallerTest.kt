@@ -55,11 +55,12 @@ class BootstrapInstallerTest {
     @After
     fun cleanup() {
         prefixDir.deleteRecursively()
-        prefixDir.parentFile?.listFiles { file ->
-            file.name.startsWith(
-                "${prefixDir.name}.",
-            )
-        }?.forEach { it.deleteRecursively() }
+        prefixDir.parentFile
+            ?.listFiles { file ->
+                file.name.startsWith(
+                    "${prefixDir.name}.",
+                )
+            }?.forEach { it.deleteRecursively() }
         homeDir.deleteRecursively()
         stagingDir.deleteRecursively()
         zipFile.delete()
@@ -94,10 +95,9 @@ class BootstrapInstallerTest {
             if (withSymlinks) {
                 val content =
                     """
-            bin/gawk←bin/awk
-            bin/busybox←bin/applets/gunzip
-            """
-                        .trimIndent()
+                    bin/gawk←bin/awk
+                    bin/busybox←bin/applets/gunzip
+                    """.trimIndent()
                 zos.putNextEntry(ZipEntry("SYMLINKS.txt"))
                 zos.write(content.toByteArray())
                 zos.closeEntry()
@@ -430,19 +430,22 @@ class BootstrapInstallerTest {
     fun install_keeps_single_previous_backup() {
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
-        val backupsAfterFirst = prefixDir.parentFile?.listFiles { file ->
-            file.name.startsWith(
-                "${prefixDir.name}.",
-            )
-        } ?: emptyArray()
+        val backupsAfterFirst =
+            prefixDir.parentFile?.listFiles { file ->
+                file.name.startsWith(
+                    "${prefixDir.name}.",
+                )
+            } ?: emptyArray()
         assertTrue("no backup after first install", backupsAfterFirst.isEmpty())
         File(prefixDir, "bin/bash").writeText("#!/system/bin/sh\nfirst\n")
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
-        val backups = prefixDir.parentFile?.listFiles { file ->
-            file.isDirectory && file.name.startsWith(
-                "${prefixDir.name}.",
-            )
-        } ?: emptyArray()
+        val backups =
+            prefixDir.parentFile?.listFiles { file ->
+                file.isDirectory &&
+                    file.name.startsWith(
+                        "${prefixDir.name}.",
+                    )
+            } ?: emptyArray()
         assertEquals("previous prefix kept as single random backup", 1, backups.size)
         assertTrue(
             "backup holds the previous tree",

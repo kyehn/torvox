@@ -12,7 +12,6 @@ import org.junit.Test
  * 且宽度的符号位不得渗进高度半区。
  */
 class CellSizePackingTest {
-
     private fun pack(width: Float, height: Float): Long {
         val widthBits = width.toRawBits().toLong() and 0xFFFFFFFFL
         return ((height.toRawBits().toLong() and 0xFFFFFFFFL) shl 32) or widthBits

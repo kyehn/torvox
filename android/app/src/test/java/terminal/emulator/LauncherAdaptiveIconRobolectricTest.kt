@@ -33,7 +33,6 @@ import kotlin.math.hypot
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w360dp-h640dp-160dpi")
 class LauncherAdaptiveIconRobolectricTest {
-
     @Test
     fun `adaptive icon keeps the whole artwork inside the mask circle`() {
         for (iconSizeDp in intArrayOf(LAUNCHER_ICON_SIZE_DP, CANONICAL_ICON_SIZE_DP, LARGE_ICON_SIZE_DP)) {
@@ -67,9 +66,10 @@ class LauncherAdaptiveIconRobolectricTest {
     @Test
     fun `the monochrome layer also stays inside the mask circle`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val monochrome = requireNotNull(context.resources.getDrawable(R.drawable.launcher_monochrome, null)) {
-            "launcher_monochrome 资源缺失"
-        }
+        val monochrome =
+            requireNotNull(context.resources.getDrawable(R.drawable.launcher_monochrome, null)) {
+                "launcher_monochrome 资源缺失"
+            }
         val layerRegion = (CANONICAL_ICON_SIZE_DP * LAYER_REGION_SCALE).toInt()
         val ratio = inkRadius(monochrome, layerRegion) / layerRegion
         assertTrue(
@@ -80,9 +80,10 @@ class LauncherAdaptiveIconRobolectricTest {
 
     private fun adaptiveIcon(): AdaptiveIconDrawable {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val drawable = requireNotNull(context.resources.getDrawable(R.mipmap.ic_launcher, null)) {
-            "ic_launcher 资源缺失"
-        }
+        val drawable =
+            requireNotNull(context.resources.getDrawable(R.mipmap.ic_launcher, null)) {
+                "ic_launcher 资源缺失"
+            }
         return drawable as? AdaptiveIconDrawable
             ?: error("ic_launcher 必须是自适应图标，实际 ${drawable.javaClass.simpleName}")
     }

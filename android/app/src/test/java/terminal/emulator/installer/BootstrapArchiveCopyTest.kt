@@ -16,7 +16,6 @@ import java.io.OutputStream
  * 无界流写进 cacheDir。此处断言上限被真正执行，而非只是常量存在。
  */
 class BootstrapArchiveCopyTest {
-
     @Test
     fun `stream within the cap is copied in full`() {
         val payload = ByteArray(64 * 1024) { (it % 251).toByte() }

@@ -44,11 +44,10 @@ class BootstrapInstallService : Service() {
                     .getOrElse { "FAILED: ${it.message ?: it.javaClass.simpleName}" }
             LogUtil.i(TAG, "install result: $result")
             stopSelf(startId)
+        }.apply {
+            isDaemon = true
+            start()
         }
-            .apply {
-                isDaemon = true
-                start()
-            }
         return START_NOT_STICKY
     }
 

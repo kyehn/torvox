@@ -43,5 +43,7 @@ constructor(@ApplicationContext private val context: Context) {
      * 字号上界会按不同宽度推导——两者本应是同一条列↔字号比例。
      */
     internal val screenWidthDp: Float
-        get() = context.resources.configuration.screenWidthDp.toFloat()
+        get() =
+            context.resources.configuration.screenWidthDp
+                .toFloat()
 }

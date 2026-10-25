@@ -78,13 +78,15 @@ class MainActivity : ComponentActivity() {
      */
     private val notificationPermissionLauncher =
         registerForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+            androidx.activity.result.contract.ActivityResultContracts
+                .RequestPermission(),
         ) { _ -> }
 
     private var previousNightMode: Int? = null
     private var previousFontScale: Float = 0f
 
     internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // 系统启动屏：冷启动首帧前显示主题背景，与 windowBackground 同色，
         // 首帧就绪后自动切回 Theme.Terminal。
@@ -104,7 +106,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // activity 1.14.0-alpha03 弃用 ComponentActivity.enableEdgeToEdge()，
         // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
-        androidx.core.view.WindowCompat.enableEdgeToEdge(window)
+        androidx.core.view.WindowCompat
+            .enableEdgeToEdge(window)
         previousNightMode =
             resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         previousFontScale = resources.configuration.fontScale

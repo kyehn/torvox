@@ -1,5 +1,4 @@
 rules:
-
   # ── Rust 代码禁令：调试残留、跳过测试、不受管构建与显式退出 ──
   - id: no-dbg-macro
     patterns:
@@ -403,7 +402,6 @@ rules:
         - "/openspec/changes/archive/**"
         # 同上：STATUS.md 是禁改区，基线坐标由维护者书写，可能取短号。
         - "/docs/STATUS.md"
-
   # ── 分层与架构：模块方向、错误类型与抑制属性 ──
   - id: no-hardcoded-paths
     pattern-regex: '/data/[a-zA-Z0-9._]+/files'
@@ -466,7 +464,6 @@ rules:
     severity: ERROR
     languages:
       - rust
-
   # ── Kotlin 代码禁令：跳过测试、协程逃逸、空断言与不受管构建 ──
   - id: no-junit-ignore
     pattern-regex: '@Ignore\b'
@@ -609,7 +606,6 @@ rules:
     paths:
       include:
         - "**/*.gradle.kts"
-
   # ── Android 专有：Activity/Context 泄漏与主线程阻塞 ──
   - id: no-activity-static-leak
     patterns:

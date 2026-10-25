@@ -12,7 +12,6 @@ import org.junit.Test
  * 正是 render-stability 要求的「扣减量单一来源」要防的分叉。
  */
 class ComputeGridAvailableHeightTest {
-
     @Test
     fun `modifier bar and ime reserve are both subtracted`() {
         // 2400px Surface − 200px 键栏 = 2200；备用屏下再扣 1000px 键盘 → 1200。

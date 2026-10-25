@@ -51,12 +51,13 @@
           fixedSemgrep =
             (pkgs.python3.pkgs.callPackage (
               inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/default.nix"
-            ) { semgrep-core = fixedSemgrepCore; }).overridePythonAttrs (oldAttrs: {
-              pythonRelaxDeps = true;
-              dependencies = map (
-                dependency: if dependency.pname == "mcp" then pkgs.python3.pkgs.mcp_1 else dependency
-              ) oldAttrs.dependencies;
-            });
+            ) { semgrep-core = fixedSemgrepCore; }).overridePythonAttrs
+              (oldAttrs: {
+                pythonRelaxDeps = true;
+                dependencies = map (
+                  dependency: if dependency.pname == "mcp" then pkgs.python3.pkgs.mcp_1 else dependency
+                ) oldAttrs.dependencies;
+              });
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {

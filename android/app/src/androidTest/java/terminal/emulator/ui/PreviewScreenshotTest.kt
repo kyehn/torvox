@@ -191,9 +191,13 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
      */
     private fun publishForPull(file: File) {
         val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
+
         fun shell(command: String): String = uiAutomation.executeShellCommand(command).use { fd ->
             // 读到 EOF 才代表命令结束；不读会与进程退出竞态。
-            java.io.FileInputStream(fd.fileDescriptor).readBytes().toString(Charsets.UTF_8)
+            java.io
+                .FileInputStream(fd.fileDescriptor)
+                .readBytes()
+                .toString(Charsets.UTF_8)
         }
         val mkdirError = shell("mkdir -p $PUBLISH_DIR")
         check(mkdirError.isBlank()) { "创建 $PUBLISH_DIR 失败：$mkdirError" }

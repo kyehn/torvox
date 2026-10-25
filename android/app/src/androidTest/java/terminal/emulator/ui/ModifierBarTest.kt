@@ -193,8 +193,10 @@ class ModifierBarTest : TerminalLogcatTest() {
         Thread.sleep(80L)
     }
 
-    private fun ctrlCenter(): Offset =
-        composeTestRule.onNodeWithTag("Key_CTRL").fetchSemanticsNode().boundsInRoot.center
+    private fun ctrlCenter(): Offset = composeTestRule
+        .onNodeWithTag("Key_CTRL")
+        .fetchSemanticsNode()
+        .boundsInRoot.center
 
     @Test
     fun modifier_bar_view_tap_triggers_key() {
@@ -223,7 +225,10 @@ class ModifierBarTest : TerminalLogcatTest() {
         // 长按副动作分支：取消同样吞掉，不触发抽屉打开。
         composeTestRule.onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsNotDisplayed()
         val drawerCenter =
-            composeTestRule.onNodeWithTag("Key_DRAWER").fetchSemanticsNode().boundsInRoot.center
+            composeTestRule
+                .onNodeWithTag("Key_DRAWER")
+                .fetchSemanticsNode()
+                .boundsInRoot.center
         val downTime = SystemClock.uptimeMillis()
         dispatchMotion(downTime, MotionEvent.ACTION_DOWN, drawerCenter)
         dispatchMotion(downTime, MotionEvent.ACTION_CANCEL, drawerCenter)

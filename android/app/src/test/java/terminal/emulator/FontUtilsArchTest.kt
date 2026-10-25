@@ -13,7 +13,6 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class FontUtilsArchTest {
-
     private fun withAbis(vararg abis: String, block: () -> Unit) {
         val field = android.os.Build::class.java.getDeclaredField("SUPPORTED_ABIS")
         field.isAccessible = true

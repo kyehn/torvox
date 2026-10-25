@@ -155,7 +155,8 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
             val surface = findTerminalSurface(composeTestRule.activity)
             height =
                 surface.rootWindowInsets
-                    ?.getInsets(WindowInsets.Type.ime())?.bottom ?: 0
+                    ?.getInsets(WindowInsets.Type.ime())
+                    ?.bottom ?: 0
         }
         return height
     }
@@ -248,9 +249,10 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
             var cost = 0L
             var row = 0
             while (row < stripHeight) {
-                cost += kotlin.math.abs(
-                    (firstInk[row] - secondInk[row - shift + maxShift]).toLong(),
-                )
+                cost +=
+                    kotlin.math.abs(
+                        (firstInk[row] - secondInk[row - shift + maxShift]).toLong(),
+                    )
                 row++
             }
             if (cost < bestCost) {
@@ -425,8 +427,10 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         // 键栏完整位于键盘上方：底边不得低于键盘顶边（差一个取整容差内）。
         val keyboardTop = device.displayHeight - imeHeight
         val barBottom =
-            composeTestRule.onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
-                .fetchSemanticsNode().boundsInRoot.bottom
+            composeTestRule
+                .onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot.bottom
         assertTrue(
             "键栏必须完整位于输入法上方 (键栏底边=$barBottom 键盘顶边=$keyboardTop)",
             barBottom <= keyboardTop + BAR_SEAM_TOLERANCE_PX,
@@ -539,7 +543,8 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         val typedEnter = "$typed\n"
         composeTestRule.activity.runOnUiThread {
             val editorInfo = android.view.inputmethod.EditorInfo()
-            findTerminalSurface(composeTestRule.activity).onCreateInputConnection(editorInfo)
+            findTerminalSurface(composeTestRule.activity)
+                .onCreateInputConnection(editorInfo)
                 ?.commitText(typedEnter, 1)
         }
         // 回显行可能在视口边缘换行（提示符 39 列 + 输入 15 列 > 48 列宽），逐行 contains 会把换行切断的针误判为缺失：压平换行后再判。

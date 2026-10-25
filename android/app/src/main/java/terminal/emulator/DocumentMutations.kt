@@ -37,9 +37,8 @@ internal class DocumentMutations(private val context: Context, private val rootD
      */
     private val replacedPermissions =
         object : LinkedHashMap<String, Set<PosixFilePermission>>(16, 0.75f, true) {
-            override fun removeEldestEntry(
-                eldest: MutableMap.MutableEntry<String, Set<PosixFilePermission>>,
-            ): Boolean = size > REPLACED_PERMISSION_LIMIT
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Set<PosixFilePermission>>): Boolean =
+                size > REPLACED_PERMISSION_LIMIT
         }
 
     fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
@@ -107,8 +106,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
         if (replacedMode != null) {
             rememberReplacedPermissions(parent, replacedName, replacedMode)
         }
-        val newId = TerminalDocumentsProvider.encodeDocId(target, root)
-            ?: throw IOException("Failed to encode docId for '$safeName'")
+        val newId =
+            TerminalDocumentsProvider.encodeDocId(target, root)
+                ?: throw IOException("Failed to encode docId for '$safeName'")
         notifyChildren(parent, root)
         notifyDocument(target, root)
         notifyDocument(source, root)
@@ -174,8 +174,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
         }
         val target = copyTree(effectiveSource, targetParent)
         notifyChildren(targetParent, root)
-        val newId = TerminalDocumentsProvider.encodeDocId(target, root)
-            ?: throw IOException("Failed to encode docId for '${target.name}'")
+        val newId =
+            TerminalDocumentsProvider.encodeDocId(target, root)
+                ?: throw IOException("Failed to encode docId for '${target.name}'")
         notifyDocument(target, root)
         return newId
     }
@@ -244,16 +245,18 @@ internal class DocumentMutations(private val context: Context, private val rootD
             deleteWithoutFollowingSymlinks(source)
             notifyChildren(sourceParentFile, root)
             notifyChildren(targetParent, root)
-            val copiedId = TerminalDocumentsProvider.encodeDocId(copied, root)
-                ?: throw IOException("Failed to encode docId for '${copied.name}'")
+            val copiedId =
+                TerminalDocumentsProvider.encodeDocId(copied, root)
+                    ?: throw IOException("Failed to encode docId for '${copied.name}'")
             notifyDocument(copied, root)
             notifyDocument(source, root)
             return copiedId
         }
         notifyChildren(sourceParentFile, root)
         notifyChildren(targetParent, root)
-        val newId = TerminalDocumentsProvider.encodeDocId(target, root)
-            ?: throw IOException("Failed to encode docId for '${target.name}'")
+        val newId =
+            TerminalDocumentsProvider.encodeDocId(target, root)
+                ?: throw IOException("Failed to encode docId for '${target.name}'")
         notifyDocument(target, root)
         notifyDocument(source, root)
         return newId
@@ -330,8 +333,16 @@ internal class DocumentMutations(private val context: Context, private val rootD
      */
     private fun copySymbolicLink(source: File, target: File, sourceRoot: File, destRoot: File) {
         val originalTarget = Files.readSymbolicLink(source.toPath())
-        val sourceParent = source.parentFile?.toPath()?.toAbsolutePath()?.normalize()
-        val targetParent = target.parentFile?.toPath()?.toAbsolutePath()?.normalize()
+        val sourceParent =
+            source.parentFile
+                ?.toPath()
+                ?.toAbsolutePath()
+                ?.normalize()
+        val targetParent =
+            target.parentFile
+                ?.toPath()
+                ?.toAbsolutePath()
+                ?.normalize()
         if (sourceParent == null || targetParent == null) {
             Files.createSymbolicLink(target.toPath(), originalTarget)
             return
@@ -514,7 +525,10 @@ internal class DocumentMutations(private val context: Context, private val rootD
         if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
             return DEFAULT_DIRECTORY_NAME
         }
-        val extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+        val extension =
+            android.webkit.MimeTypeMap
+                .getSingleton()
+                .getExtensionFromMimeType(mimeType)
         return if (extension.isNullOrEmpty()) DEFAULT_FILE_NAME else "$DEFAULT_FILE_NAME.$extension"
     }
 

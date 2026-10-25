@@ -39,7 +39,11 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
     /** 会话的工作目录（home）随回调传出：断言工作目录的用例需要它，不各自重算。 */
     private fun withShellSession(body: (Long, String) -> Unit) {
         val context = appContext()
-        val home = context.filesDir.resolve("shell-test-home").apply { mkdirs() }.absolutePath
+        val home =
+            context.filesDir
+                .resolve("shell-test-home")
+                .apply { mkdirs() }
+                .absolutePath
         val sessionId =
             NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "")
         assertTrue("原生会话创建失败", sessionId != 0L)
@@ -200,9 +204,10 @@ class ShellPtyInstrumentedTest : TerminalLogcatTest() {
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
                 val json = runCatchingCancellable { NativeBridge.pollEvent() }.getOrNull()
-                val event = json?.let {
-                    runCatchingCancellable { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
-                }
+                val event =
+                    json?.let {
+                        runCatchingCancellable { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
+                    }
                 if (event is PollEvent.Exit && event.sessionId == sessionId) {
                     exit = event
                     true

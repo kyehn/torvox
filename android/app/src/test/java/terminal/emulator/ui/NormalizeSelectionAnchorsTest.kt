@@ -11,7 +11,6 @@ import org.junit.Test
  * leftCol > rightCol；取文那份是对的。菜单只取 `(left + right) / 2` 故当时不可见。
  */
 class NormalizeSelectionAnchorsTest {
-
     private data class Anchor(val row: Int, val col: Int)
 
     private fun normalize(start: Anchor, end: Anchor): Pair<Anchor, Anchor> =

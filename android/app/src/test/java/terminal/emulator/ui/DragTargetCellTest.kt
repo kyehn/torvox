@@ -20,7 +20,6 @@ import terminal.emulator.withPendingDrag
  * 交叉也会被立刻撤销（选中范围塌成起点单格）。
  */
 class DragTargetCellTest {
-
     private val cellWidth = 10f
     private val cellHeight = 20f
     private val cols = 40

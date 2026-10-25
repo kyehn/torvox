@@ -34,7 +34,14 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
         // 平台未提供其他同步存在性查询。slack-lint 在此也标记 getPrimaryClip，
         // 尽管它在 API 37 中没有 @Deprecated 注解（规则数据滞后）——保留同样的调用，
         // 以注释说明意图。
-        if (!clipboard.hasPrimaryClip()) null else clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        if (!clipboard.hasPrimaryClip()) {
+            null
+        } else {
+            clipboard.primaryClip
+                ?.getItemAt(0)
+                ?.text
+                ?.toString()
+        }
     }.onFailure { failure ->
         // 只记异常类名：异常消息可能嵌入剪贴板文本。
         LogUtil.e(tag, "剪贴板读取失败: ${failure.javaClass.simpleName}")

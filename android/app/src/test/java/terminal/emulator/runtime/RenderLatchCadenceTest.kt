@@ -17,7 +17,6 @@ import terminal.emulator.bridge.TestBridges
  * of the wake signal, both side-effect free and deterministic.
  */
 class RenderLatchCadenceTest {
-
     private companion object {
         /** Synthetic staleness threshold — matches the loop's 5s idle clock at call sites. */
         const val IDLE_THRESHOLD_NANOS = 5_000_000_000L

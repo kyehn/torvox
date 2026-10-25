@@ -8,7 +8,6 @@ import org.junit.Test
  * engine involved — the rules are exercised directly on [SelectionState].
  */
 class SelectionStateTest {
-
     private fun selection(startRow: Int = 0, startCol: Int = 0, endRow: Int = 0, endCol: Int = 10) = SelectionState(
         active = true,
         start = SelectionAnchor(startRow, startCol),

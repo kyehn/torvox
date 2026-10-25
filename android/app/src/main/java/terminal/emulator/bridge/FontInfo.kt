@@ -30,9 +30,10 @@ data class FontInfo(
      * 系统语言未知。设置页对它们不得报「未检测到 CJK 备用字体」。
      */
     val isCjkFallbackSkipped: Boolean
-        get() = cjkState == CjkState.SKIPPED_PRIMARY_COVERS ||
-            cjkState == CjkState.SKIPPED_NON_CJK_LOCALE ||
-            cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN
+        get() =
+            cjkState == CjkState.SKIPPED_PRIMARY_COVERS ||
+                cjkState == CjkState.SKIPPED_NON_CJK_LOCALE ||
+                cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN
 
     /**
      * 是否**确实缺失** CJK 回退：原生已上报，且状态既不是「有回退」也不是「按设计跳过」。
@@ -63,13 +64,14 @@ data class FontInfo(
          * Kotlin 侧的 [CjkState.NOT_REPORTED] 不在其中——它由「原生还没上报」
          * 这一事实构造，不是从字节流里解出来的。
          */
-        private val NATIVE_REPORTED_STATES = listOf(
-            CjkState.NONE,
-            CjkState.FALLBACK,
-            CjkState.SKIPPED_PRIMARY_COVERS,
-            CjkState.SKIPPED_NON_CJK_LOCALE,
-            CjkState.SKIPPED_LOCALE_UNKNOWN,
-        )
+        private val NATIVE_REPORTED_STATES =
+            listOf(
+                CjkState.NONE,
+                CjkState.FALLBACK,
+                CjkState.SKIPPED_PRIMARY_COVERS,
+                CjkState.SKIPPED_NON_CJK_LOCALE,
+                CjkState.SKIPPED_LOCALE_UNKNOWN,
+            )
 
         /**
          * 解包原生上报的字节。长度不足即抛异常（契约不一致时不静默显示占位数据）。

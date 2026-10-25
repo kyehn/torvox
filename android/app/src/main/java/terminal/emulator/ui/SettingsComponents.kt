@@ -47,7 +47,10 @@ val SMALL_SCREEN_WIDTH_DP = 400.dp
 @ReadOnlyComposable
 fun rememberIsSmallScreen(): Boolean {
     val screenWidthDp =
-        with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+        with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.width
+                .toDp()
+        }
     return screenWidthDp < SMALL_SCREEN_WIDTH_DP
 }
 
@@ -182,14 +185,12 @@ private fun RowScope.SettingsSelectorPill(
                 } else {
                     Modifier
                 },
-            )
-            .weight(1f)
+            ).weight(1f)
             .clip(RoundedCornerShape(8.dp))
             .background(
                 (if (isSelected) colors.accentColor else colors.cardBackground)
                     .copy(alpha = if (enabled) 1f else 0.5f),
-            )
-            .clickable(enabled = enabled) { onOptionSelected(key) }
+            ).clickable(enabled = enabled) { onOptionSelected(key) }
             .padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -248,21 +249,29 @@ internal fun CjkFallbackStatusLine(fontInfo: FontInfo, secondaryText: Color) {
         }
     val statusLine =
         when {
-            cjkText != null -> stringResource(R.string.font_info_cjk_fallback, cjkText)
+            cjkText != null -> {
+                stringResource(R.string.font_info_cjk_fallback, cjkText)
+            }
 
-            fontInfo.cjkState == CjkState.SKIPPED_PRIMARY_COVERS ->
+            fontInfo.cjkState == CjkState.SKIPPED_PRIMARY_COVERS -> {
                 stringResource(R.string.font_info_cjk_skipped)
+            }
 
-            fontInfo.cjkState == CjkState.SKIPPED_NON_CJK_LOCALE ->
+            fontInfo.cjkState == CjkState.SKIPPED_NON_CJK_LOCALE -> {
                 stringResource(R.string.font_info_cjk_skipped_non_cjk_locale)
+            }
 
-            fontInfo.cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN ->
+            fontInfo.cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN -> {
                 stringResource(R.string.font_info_cjk_skipped_locale_unknown)
+            }
 
-            fontInfo.cjkState == CjkState.NOT_REPORTED ->
+            fontInfo.cjkState == CjkState.NOT_REPORTED -> {
                 stringResource(R.string.font_info_cjk_not_reported)
+            }
 
-            else -> stringResource(R.string.font_info_cjk_none)
+            else -> {
+                stringResource(R.string.font_info_cjk_none)
+            }
         }
     Text(
         text = statusLine,

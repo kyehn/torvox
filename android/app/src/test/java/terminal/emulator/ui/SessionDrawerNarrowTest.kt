@@ -27,7 +27,6 @@ import terminal.emulator.SessionInfo
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
 class SessionDrawerNarrowTest {
-
     @get:Rule val composeRule = createComposeRule()
 
     private fun setDrawer() {
@@ -56,8 +55,10 @@ class SessionDrawerNarrowTest {
         setDrawer()
         for (tag in listOf("SearchButton", "KeyboardToggle", "ResetTerminalButton", "SettingsButton")) {
             val count =
-                composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true)
-                    .fetchSemanticsNodes().size
+                composeRule
+                    .onAllNodes(hasTestTag(tag), useUnmergedTree = true)
+                    .fetchSemanticsNodes()
+                    .size
             assertTrue("按钮必须存在: $tag", count == 1)
         }
     }
@@ -96,7 +97,8 @@ class SessionDrawerNarrowTest {
             }
         }
         val items =
-            composeRule.onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
+            composeRule
+                .onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
                 .fetchSemanticsNodes()
         assertTrue("会话项必须存在", items.size == 1)
         // 序号与终端标题同行（termux 无会话名时的渲染，DESIGN 示例 `[1] ~`）。

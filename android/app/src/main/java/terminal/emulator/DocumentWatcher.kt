@@ -154,11 +154,12 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
         synchronized(lock) {
             if (event and NAMESPACE_EVENTS != 0) pendingChildren += directoryDocId
             if (name != null) {
-                pendingDocuments += if (directoryDocId == TerminalDocumentsProvider.ROOT_ID) {
-                    name
-                } else {
-                    "$directoryDocId/$name"
-                }
+                pendingDocuments +=
+                    if (directoryDocId == TerminalDocumentsProvider.ROOT_ID) {
+                        name
+                    } else {
+                        "$directoryDocId/$name"
+                    }
             }
             if (!flushScheduled) {
                 flushScheduled = true

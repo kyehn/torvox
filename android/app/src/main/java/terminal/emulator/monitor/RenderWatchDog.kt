@@ -53,10 +53,11 @@ class RenderWatchDog(
         // 清空 job 与推进代次必须在**同一个临界区内**：分两次写时 `start()` 会看到
         // 「已停」而启动新一代循环，随后本次 stop 再推进一次代次，那个新循环就永远
         // 发现自己「已过期」——渲染线程再卡死也不会有人回调，等于看门狗被永久关掉。
-        val job = synchronized(fireLock) {
-            generation++
-            watchJob.also { watchJob = null }
-        } ?: return
+        val job =
+            synchronized(fireLock) {
+                generation++
+                watchJob.also { watchJob = null }
+            } ?: return
         // 非阻塞：stop 在 sessionLock 内被调用（pauseRendering 的执行器线程、
         // handleSessionExit 的渲染线程），而该锁同时被主线程的
         // stopForegroundServiceIfIdle 争用——任何等待都按会话数累加为 ANR。

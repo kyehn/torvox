@@ -30,7 +30,6 @@ import terminal.emulator.waitForSession
  */
 @RunWith(AndroidJUnit4::class)
 class SystemBarIconInstrumentedTest {
-
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 

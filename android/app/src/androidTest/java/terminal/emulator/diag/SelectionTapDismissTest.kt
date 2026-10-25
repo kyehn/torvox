@@ -68,7 +68,9 @@ class SelectionTapDismissTest : TerminalLogcatTest() {
         var result = SelectionSnapshot(false, -1, -1, -1, -1)
         val rule = composeTestRule.activityRule as androidx.test.ext.junit.rules.ActivityScenarioRule<*>
         rule.scenario.onActivity { activity: android.app.Activity ->
-            val sel = (activity as MainActivity).terminalViewModel.state.value.selection
+            val sel =
+                (activity as MainActivity)
+                    .terminalViewModel.state.value.selection
             result =
                 SelectionSnapshot(
                     sel.active,

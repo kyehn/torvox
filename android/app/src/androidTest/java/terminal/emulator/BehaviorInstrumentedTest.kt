@@ -134,7 +134,9 @@ class BehaviorInstrumentedTest : TerminalLogcatTest() {
         // 空白格长按只在剪贴板有内容时才出粘贴菜单（否则动作表为空直接
         // return）；新机剪贴板恒空，先放种子文本，保证两种落点都有菜单。
         val clipboardManager =
-            InstrumentationRegistry.getInstrumentation().targetContext
+            InstrumentationRegistry
+                .getInstrumentation()
+                .targetContext
                 .getSystemService(ClipboardManager::class.java)
         clipboardManager?.setPrimaryClip(ClipData.newPlainText("seed", "seed-selection"))
         val beforePress = device.takeScreenshot()
@@ -229,7 +231,8 @@ class BehaviorInstrumentedTest : TerminalLogcatTest() {
     fun behavior_drawer_shows_sessions_and_settings() {
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SettingsButton", useUnmergedTree = true).assertIsDisplayed()
-        composeTestRule.onAllNodesWithText("会话", substring = true)
+        composeTestRule
+            .onAllNodesWithText("会话", substring = true)
             .onFirst()
             .assertIsDisplayed()
     }

@@ -192,7 +192,11 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         val imeHidden =
             UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
                 findTerminalSurface(composeTestRule.activity)
-                    .rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) != true
+                    .rootWindowInsets
+                    ?.isVisible(
+                        android.view.WindowInsets.Type
+                            .ime(),
+                    ) != true
             }
         assertNotNull("鼠标上报中的轻点属于应用，不得拉起输入法", imeHidden)
         disarmMouseReporting()
@@ -220,7 +224,9 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
             "拖动必须转发为滚轮上行, 实际[${readable(receivedBytes())}]",
             wheeled,
         )
-        val scrollOffset = composeTestRule.activity.terminalViewModel.runtime.activeSessionScrollOffset()
+        val scrollOffset =
+            composeTestRule.activity.terminalViewModel.runtime
+                .activeSessionScrollOffset()
         assertTrue("应用启用鼠标上报时本地回滚不得被滚动 (offset=$scrollOffset)", scrollOffset == 0)
         disarmMouseReporting()
         composeTestRule.cleanUpTerminalState()

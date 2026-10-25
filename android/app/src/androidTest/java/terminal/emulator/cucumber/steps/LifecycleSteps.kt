@@ -21,7 +21,8 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
 
     @当("^活动被重建$")
     fun activityIsRecreated() {
-        composeRuleHolder.composeRule.activityRule.scenario.recreate()
+        composeRuleHolder.composeRule.activityRule.scenario
+            .recreate()
         composeRuleHolder.composeRule.waitForIdle()
     }
 

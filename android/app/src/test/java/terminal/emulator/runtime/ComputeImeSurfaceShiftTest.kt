@@ -14,7 +14,6 @@ import org.junit.Test
  * (883px) is deducted, cell height 45px.
  */
 class ComputeImeSurfaceShiftTest {
-
     private val containerHeightPx = 2274
     private val modifierBarHeightPx = 189
     private val keyboardPx = 820

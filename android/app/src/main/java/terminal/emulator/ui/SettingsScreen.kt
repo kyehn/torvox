@@ -114,7 +114,8 @@ fun SettingsScreen(
     SystemBarsFollowBackground(LocalView.current, backgroundColor)
     Surface(
         modifier =
-        modifier.fillMaxSize()
+        modifier
+            .fillMaxSize()
             .testTag("SettingsScreen")
             // 消费设置背景上的点击，使其不穿透到下层的 TerminalScreen。
             // 必须用 pointerInput 而非 clickable：clickable 会强制
@@ -130,7 +131,8 @@ fun SettingsScreen(
             SettingsHeader(onBack, textColor, isSmallScreen)
             LazyColumn(
                 modifier =
-                Modifier.fillMaxSize()
+                Modifier
+                    .fillMaxSize()
                     .padding(horizontal = horizontalPadding)
                     .testTag("SettingsLazyColumn"),
                 verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
@@ -631,7 +633,8 @@ private fun SystemFontSelector(
         Box {
             Row(
                 modifier =
-                Modifier.testTag("FontFamilySelector")
+                Modifier
+                    .testTag("FontFamilySelector")
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(cardBackground)
@@ -641,8 +644,7 @@ private fun SystemFontSelector(
                         // 外观项本身只显示当前族，而 LazyColumn 项每次滚进滚出都会重组，
                         // 挂在组合上等于每滚一次就重跑一轮 JNI 列举 + 目录注册。
                         onFontsVisible()
-                    }
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    }.padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -695,7 +697,8 @@ private fun FontPickerDialog(
                 items(fonts) { font ->
                     Row(
                         modifier =
-                        Modifier.fillMaxWidth()
+                        Modifier
+                            .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { onFamilySelected(font) }
                             .background(
@@ -704,8 +707,7 @@ private fun FontPickerDialog(
                                 } else {
                                     Color.Transparent
                                 },
-                            )
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            ).padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -747,7 +749,8 @@ internal fun AppThemeSelector(
                     val isSelected = selectedMode == mode
                     Box(
                         modifier =
-                        Modifier.testTag("AppTheme_$mode")
+                        Modifier
+                            .testTag("AppTheme_$mode")
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (isSelected) accentColor else cardBackground)
@@ -772,7 +775,8 @@ internal fun AppThemeSelector(
                     val isSelected = selectedMode == mode
                     Box(
                         modifier =
-                        Modifier.testTag("AppTheme_$mode")
+                        Modifier
+                            .testTag("AppTheme_$mode")
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isSelected) accentColor else cardBackground)
@@ -922,18 +926,19 @@ private fun ThemePreview(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier =
-        Modifier.testTag("theme_preview_${theme.name}")
+        Modifier
+            .testTag("theme_preview_${theme.name}")
             .width(previewWidth)
             .clickable(onClick = onClick),
     ) {
         Box(
             modifier =
-            Modifier.fillMaxWidth()
+            Modifier
+                .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(
                     if (isSelected) theme.background else theme.background.copy(alpha = 0.7f),
-                )
-                .padding(padding),
+                ).padding(padding),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 theme.ansi.take(8).forEach { color ->
@@ -1103,18 +1108,25 @@ private fun bootstrapStepText(progress: BootstrapProgress): String = when (progr
         )
     }
 
-    is BootstrapProgress.RunningPostInstall ->
+    is BootstrapProgress.RunningPostInstall -> {
         stringResource(
             R.string.bootstrap_running_postinstall,
             progress.scriptsCompleted,
             progress.totalScripts,
         )
+    }
 
-    BootstrapProgress.CreatingSymlinks -> stringResource(R.string.bootstrap_creating_symlinks)
+    BootstrapProgress.CreatingSymlinks -> {
+        stringResource(R.string.bootstrap_creating_symlinks)
+    }
 
-    BootstrapProgress.Complete -> stringResource(R.string.bootstrap_complete)
+    BootstrapProgress.Complete -> {
+        stringResource(R.string.bootstrap_complete)
+    }
 
-    is BootstrapProgress.Error -> progress.message
+    is BootstrapProgress.Error -> {
+        progress.message
+    }
 }
 
 @Composable

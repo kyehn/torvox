@@ -71,7 +71,9 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // deleteDocument 只删除链接——绝不会删除目标的整棵目录树。
             // 包含性仍针对规范路径检查（指向 home 之外的链接在下文被跳过，同之前）。
             val filePath =
-                if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                if (java.nio.file.Files
+                        .isSymbolicLink(file.toPath())
+                ) {
                     file.path
                 } else {
                     file.canonicalPath
@@ -110,12 +112,15 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val exact = File(rootDir, docId)
             val rootPrefix = "$ROOT_ID/"
             if (docId.startsWith(rootPrefix) && !exact.exists() &&
-                !java.nio.file.Files.isSymbolicLink(exact.toPath())
+                !java.nio.file.Files
+                    .isSymbolicLink(exact.toPath())
             ) {
                 // 去前缀别名只收无链接的普通路径：前缀形恰好命中一条家目录内的链接时，
                 // 交给原样解码走链接自身的读写分支（重命名只动链接、删除只删链接）。
                 val stripped = File(rootDir, docId.removePrefix(rootPrefix))
-                if (!java.nio.file.Files.isSymbolicLink(stripped.toPath())) {
+                if (!java.nio.file.Files
+                        .isSymbolicLink(stripped.toPath())
+                ) {
                     val resolved = stripped.canonicalFile
                     requireInsideRoot(resolved, rootDir)
                     return resolved
@@ -131,7 +136,11 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // rawFile 可能含 ".." 段（恶意 docId），而 File 不会规范化它们。
             // 规范解析父目录后重新追加文件名，使检查覆盖实际被触及的条目。
             // 父目录为 null（无目录部分的裸文件名）无法逃出根目录。
-            if (!java.nio.file.Files.isSymbolicLink(rawFile.toPath())) return false
+            if (!java.nio.file.Files
+                    .isSymbolicLink(rawFile.toPath())
+            ) {
+                return false
+            }
             val parentCanonical = rawFile.parentFile?.canonicalFile ?: return true
             val linkPath = File(parentCanonical, rawFile.name).canonicalPath
             val rootPath = rootDir.canonicalPath
@@ -291,7 +300,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 路径当成仍存在，新建/改名撞「路径已存在」，列表停在旧快照。
         // 链接按链接自身判存在（lstat 语义）：断链会出现在列举结果里，按列举结果回查
         // 必须同样拿得到，否则客户端点开列举里的条目就报「不存在」。
-        if (!file.exists() && !java.nio.file.Files.isSymbolicLink(file.toPath())) {
+        if (!file.exists() &&
+            !java.nio.file.Files
+                .isSymbolicLink(file.toPath())
+        ) {
             throw java.io.FileNotFoundException("queryDocument: no such document '$documentId'")
         }
         queries.addDocRow(cursor, file, rootDir, cols)
@@ -384,32 +396,43 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 仅完全非法的模式才抛错，避免“无法修改”。
         val fileMode =
             when (mode) {
-                "r" -> ParcelFileDescriptor.MODE_READ_ONLY
+                "r" -> {
+                    ParcelFileDescriptor.MODE_READ_ONLY
+                }
 
                 "w",
                 "wt",
-                ->
+                -> {
                     ParcelFileDescriptor.MODE_WRITE_ONLY or
                         ParcelFileDescriptor.MODE_CREATE or
                         ParcelFileDescriptor.MODE_TRUNCATE
+                }
 
-                "wa" ->
+                "wa" -> {
                     ParcelFileDescriptor.MODE_WRITE_ONLY or
                         ParcelFileDescriptor.MODE_CREATE or
                         ParcelFileDescriptor.MODE_APPEND
+                }
 
-                "rw" -> ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
+                "rw" -> {
+                    ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
+                }
 
-                "rwt" ->
+                "rwt" -> {
                     ParcelFileDescriptor.MODE_READ_WRITE or
                         ParcelFileDescriptor.MODE_CREATE or
                         ParcelFileDescriptor.MODE_TRUNCATE
+                }
 
                 "rws",
                 "rwd",
-                -> ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
+                -> {
+                    ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
+                }
 
-                else -> parseOpenModeFallback(mode)
+                else -> {
+                    parseOpenModeFallback(mode)
+                }
             }
         // 句柄关闭即视为外部写回：广播文档与父目录，文件选择器才能看到大小/时间变化。裸 open() 时外部编辑"看起来没反应"。
         return ParcelFileDescriptor.open(file, fileMode, closeNotifyHandler()) {
@@ -527,7 +550,9 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             if (!(canonical.startsWith(rootPath + File.separator) || canonical == rootPath)) {
                 continue
             }
-            if (!java.nio.file.Files.isSymbolicLink(current.toPath()) && current.isDirectory) {
+            if (!java.nio.file.Files
+                    .isSymbolicLink(current.toPath()) && current.isDirectory
+            ) {
                 if (canonical != rootPath && current.name.lowercase().contains(needle)) {
                     queries.addDocRow(cursor, current, rootDir, cols)
                 }

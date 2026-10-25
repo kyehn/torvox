@@ -14,7 +14,6 @@ import terminal.emulator.ui.theme.resolveTerminalThemeName
  * 「跟随系统」时由软件主题（或系统标志）决定的二级裁决。
  */
 class SelectThemeNameTest {
-
     private fun stored(
         themeMode: String = TerminalThemeMode.DAY_NIGHT,
         appThemeMode: String = AppThemeMode.FOLLOW_SYSTEM,

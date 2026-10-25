@@ -22,7 +22,6 @@ import androidx.annotation.MainThread
  */
 @MainThread
 internal class RenderPauseLedger(private val onPauseChanged: (Boolean) -> Unit) {
-
     private val holders = mutableSetOf<Long>()
     private var nextToken = 0L
 

@@ -106,7 +106,10 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
     }
 
     private fun currentText(): String? {
-        runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
+        runCatchingCancellable {
+            terminal.emulator.bridge.NativeBridge
+                .pollEvent()
+        }
         return composeTestRule.getBridge()?.getTerminalText()
     }
 
@@ -200,7 +203,10 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
                     var visible = false
                     InstrumentationRegistry.getInstrumentation().runOnMainSync {
                         visible = composeTestRule.activity.window.decorView.rootWindowInsets
-                            ?.isVisible(android.view.WindowInsets.Type.ime()) == true
+                            ?.isVisible(
+                                android.view.WindowInsets.Type
+                                    .ime(),
+                            ) == true
                     }
                     visible
                 }
@@ -497,7 +503,12 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         val cols = (surface.width / cellWidth).toInt()
         val blankCol = (cols / 2).coerceAtLeast(10)
         val blankRow = markerRow + 1
-        val blankLine = currentText().orEmpty().lines().getOrNull(bridge().scrollbackLength() + blankRow).orEmpty()
+        val blankLine =
+            currentText()
+                .orEmpty()
+                .lines()
+                .getOrNull(bridge().scrollbackLength() + blankRow)
+                .orEmpty()
         assertTrue("长按行尾必须空白 (行=$blankRow 内容=[$blankLine])", blankLine.drop(blankCol).isBlank())
         val blankX = (blankCol + 0.5f) * cellWidth
         val blankY = (blankRow + 0.5f) * cellHeight
@@ -554,11 +565,12 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      */
     @Test
     fun dragging_end_keeps_start_highlight_edge_fixed() {
-        val (tapX, tapY, markerRow) = prepareWordTarget(
-            words = "driftword",
-            targetViewportRow = 9,
-            startColumn = 6,
-        )
+        val (tapX, tapY, markerRow) =
+            prepareWordTarget(
+                words = "driftword",
+                targetViewportRow = 9,
+                startColumn = 6,
+            )
         longPressUntilSelected(tapX, tapY)
         Thread.sleep(700)
         assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
@@ -577,11 +589,12 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         val (cellWidth, cellHeight) = cellPx()
         val bandY = (location[1] + (startViewportRow + 0.5f) * cellHeight).toInt()
         // 背景样本取同行第 0 列：标记从第 6 列起画，那里必为空白。
-        val background = pixelLuminance(
-            UxTestUtils.screenshot(device),
-            location[0] + (cellWidth * 0.5f).toInt(),
-            bandY,
-        )
+        val background =
+            pixelLuminance(
+                UxTestUtils.screenshot(device),
+                location[0] + (cellWidth * 0.5f).toInt(),
+                bandY,
+            )
         val baseline = highlightLeftEdge(bandY, background, location[0], location[0] + surface.width)
 
         // END 柄左移若干整格（不越过 START）：反色区域收缩，但左缘必须不动。
@@ -621,11 +634,12 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      */
     @Test
     fun dragging_end_past_start_keeps_finger_on_the_dragged_boundary() {
-        val (tapX, tapY, _) = prepareWordTarget(
-            words = "crossword",
-            targetViewportRow = 9,
-            startColumn = 6,
-        )
+        val (tapX, tapY, _) =
+            prepareWordTarget(
+                words = "crossword",
+                targetViewportRow = 9,
+                startColumn = 6,
+            )
         longPressUntilSelected(tapX, tapY)
         Thread.sleep(700)
         assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
@@ -663,11 +677,12 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      */
     @Test
     fun dragging_commits_selection_once_per_gesture() {
-        val (tapX, tapY, _) = prepareWordTarget(
-            words = "batchword",
-            targetViewportRow = 9,
-            startColumn = 6,
-        )
+        val (tapX, tapY, _) =
+            prepareWordTarget(
+                words = "batchword",
+                targetViewportRow = 9,
+                startColumn = 6,
+            )
         longPressUntilSelected(tapX, tapY)
         assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
 
@@ -681,9 +696,11 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
 
         val selections = java.util.Collections.synchronizedList(mutableListOf<SelectionState>())
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
-        val job = scope.launch {
-            composeTestRule.activity.terminalViewModel.state.collect { selections += it.selection }
-        }
+        val job =
+            scope.launch {
+                composeTestRule.activity.terminalViewModel.state
+                    .collect { selections += it.selection }
+            }
         Thread.sleep(300)
         val beforeCount = selections.size
 

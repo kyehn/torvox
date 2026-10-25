@@ -225,7 +225,11 @@ class BootstrapInstaller(
                     throw java.io.IOException("EXECUTABLES.txt exceeds $MAX_SYMLINKS_BYTES bytes")
                 }
                 executables.addAll(
-                    bytes.decodeToString().lines().map { it.trim() }.filter { it.isNotEmpty() },
+                    bytes
+                        .decodeToString()
+                        .lines()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() },
                 )
             } else if (entry.isDirectory) {
                 File(stagingDir, name).mkdirs()

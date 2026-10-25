@@ -132,22 +132,23 @@ enum class ToolbarKey(
  *
  * DRAWER 位于左侧第二个键，长按粘贴剪贴板（termux 默认 `popup: 'PASTE'`）。
  */
-internal val TERMUX_EXTRA_KEYS: ImmutableList<ToolbarKey> = persistentListOf(
-    ToolbarKey.ESC,
-    ToolbarKey.DRAWER,
-    ToolbarKey.SCROLL,
-    ToolbarKey.HOME,
-    ToolbarKey.ARROW_UP,
-    ToolbarKey.END,
-    ToolbarKey.PGUP,
-    ToolbarKey.TAB,
-    ToolbarKey.CTRL,
-    ToolbarKey.ALT,
-    ToolbarKey.ARROW_LEFT,
-    ToolbarKey.ARROW_DOWN,
-    ToolbarKey.ARROW_RIGHT,
-    ToolbarKey.PGDN,
-)
+internal val TERMUX_EXTRA_KEYS: ImmutableList<ToolbarKey> =
+    persistentListOf(
+        ToolbarKey.ESC,
+        ToolbarKey.DRAWER,
+        ToolbarKey.SCROLL,
+        ToolbarKey.HOME,
+        ToolbarKey.ARROW_UP,
+        ToolbarKey.END,
+        ToolbarKey.PGUP,
+        ToolbarKey.TAB,
+        ToolbarKey.CTRL,
+        ToolbarKey.ALT,
+        ToolbarKey.ARROW_LEFT,
+        ToolbarKey.ARROW_DOWN,
+        ToolbarKey.ARROW_RIGHT,
+        ToolbarKey.PGDN,
+    )
 
 // 固定 2 行 7 列：从中点切分（termux extra_keys 顺序）。按键表是常量，两行
 // 也可在加载期切好——放进组合期每次重组都要新建两个列表。
@@ -190,7 +191,8 @@ private fun ModifierBarTextInputPage(
         value = textInput,
         onValueChange = { textInput = it },
         modifier =
-        Modifier.fillMaxWidth()
+        Modifier
+            .fillMaxWidth()
             .height(buttonHeight * 2)
             .testTag("TextInputPage"),
         label = { Text(stringResource(R.string.text_input_box)) },
@@ -427,20 +429,29 @@ private fun toolbarKeyClickHandler(
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
 ): () -> Unit = when (key) {
-    ToolbarKey.CTRL -> actions.onToggleCtrl
+    ToolbarKey.CTRL -> {
+        actions.onToggleCtrl
+    }
 
-    ToolbarKey.ALT -> actions.onToggleAlt
+    ToolbarKey.ALT -> {
+        actions.onToggleAlt
+    }
 
-    ToolbarKey.DRAWER -> actions.onDrawerClick
+    ToolbarKey.DRAWER -> {
+        actions.onDrawerClick
+    }
 
-    ToolbarKey.SCROLL -> actions.onScrollClick
+    ToolbarKey.SCROLL -> {
+        actions.onScrollClick
+    }
 
-    else ->
+    else -> {
         if (key.androidKeyCode == null) {
             { }
         } else {
             { sendKeyThroughEncoder(key, actions, modifierStates) }
         }
+    }
 }
 
 /** 由预计算的呈现结果组成的一整行附加键按钮。 */
@@ -540,6 +551,7 @@ private fun RowScope.ExtraKeyButton(
                 // ACTION_CANCEL 会被 MotionEventAdapter 直接丢弃，改由 processCancel 合成
                 // 无 MotionEvent 的全释放事件送达；真实抬手/移动始终携带原始 MotionEvent。
                 var sawRawMotionEvent = currentEvent.motionEvent != null
+
                 fun PointerEvent.isGestureCancelled(): Boolean {
                     val raw = motionEvent
                     if (raw != null) {
@@ -557,6 +569,7 @@ private fun RowScope.ExtraKeyButton(
                         // 只触发一次 secondaryAction。对应 Android 的
                         // onClick/onLongClick 划分。
                         var longPressTriggered = false
+
                         fun maybeFireLongPress(eventTimeMillis: Long) {
                             if (
                                 !longPressTriggered &&
@@ -690,7 +703,8 @@ private fun RowScope.ExtraKeyButton(
 
     Box(
         modifier =
-        Modifier.weight(1f)
+        Modifier
+            .weight(1f)
             .height(BUTTON_HEIGHT_DP.dp)
             .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
             .then(
@@ -698,20 +712,17 @@ private fun RowScope.ExtraKeyButton(
                     animatedBg,
                     RoundedCornerShape(4.dp),
                 ),
-            )
-            .then(
+            ).then(
                 Modifier.semantics {
                     if (contentDescription != null) this.contentDescription = contentDescription
                     // 切换类按键（CTRL/ALT/FN）暴露其置起状态，
                     // 使 UI 测试（与无障碍）无需探测颜色即可验证切换。
                     selected = modifierState != null && modifierState != ModifierState.Off
                 },
-            )
-            .graphicsLayer {
+            ).graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            }
-            .then(gestureModifier),
+            }.then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
         Text(

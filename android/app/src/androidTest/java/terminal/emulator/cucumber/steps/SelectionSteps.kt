@@ -53,7 +53,9 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
     private fun selection(): terminal.emulator.SelectionState {
         var selection: terminal.emulator.SelectionState? = null
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
-            selection = (activity as MainActivity).terminalViewModel.state.value.selection
+            selection =
+                (activity as MainActivity)
+                    .terminalViewModel.state.value.selection
         }
         return checkNotNull(selection) { "读不到选择状态" }
     }
@@ -184,7 +186,11 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         copiedText = null
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        val actual =
+            clipboard.primaryClip
+                ?.getItemAt(0)
+                ?.text
+                ?.toString()
         assertTrue("剪贴板内容应为所选文本 $expected，实际 $actual", actual == expected)
     }
 
@@ -194,7 +200,9 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         // 空白处长按产生纯粘贴选区（startSelection(…, pasteOnly = true) + endSelection），带悬浮粘贴菜单。
         var pasteOnly = false
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
-            pasteOnly = (activity as MainActivity).terminalViewModel.state.value.selection.pasteOnly
+            pasteOnly =
+                (activity as MainActivity)
+                    .terminalViewModel.state.value.selection.pasteOnly
         }
         assertTrue("应为纯粘贴选区", pasteOnly)
     }

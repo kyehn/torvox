@@ -352,14 +352,16 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     private fun parseEvent(json: String): PollResult = when (
-        val event = pollEventJson.decodeFromString<PollEvent>(
-            json,
-        )
+        val event =
+            pollEventJson.decodeFromString<PollEvent>(
+                json,
+            )
     ) {
-        is PollEvent.Clipboard ->
+        is PollEvent.Clipboard -> {
             PollResult(clipboard = event.text.ifEmpty { null }, sessionId = event.sessionId)
+        }
 
-        is PollEvent.Exit ->
+        is PollEvent.Exit -> {
             PollResult(
                 exit = true,
                 exitCode = event.code,
@@ -372,8 +374,9 @@ class Bridge(private val config: TerminalConfig) {
                     ),
                 ),
             )
+        }
 
-        is PollEvent.ClipboardRead ->
+        is PollEvent.ClipboardRead -> {
             PollResult(
                 clipboardReads =
                 listOf(
@@ -384,6 +387,7 @@ class Bridge(private val config: TerminalConfig) {
                     ),
                 ),
             )
+        }
     }
 
     // ── 主题 / 外观 ──
@@ -651,8 +655,9 @@ class Bridge(private val config: TerminalConfig) {
 
     fun searchSetNeedle(needle: String): Int = onQuery("searchSetNeedle", 0) { queryPort.searchSetNeedle(needle) }
 
-    fun searchSelect(forward: Boolean): SearchSelection? =
-        onQuery("searchSelect", null) { queryPort.searchSelect(forward) }
+    fun searchSelect(forward: Boolean): SearchSelection? = onQuery("searchSelect", null) {
+        queryPort.searchSelect(forward)
+    }
 
     fun setScrollOffset(offset: Int): Boolean = queryPort.setScrollOffset(offset)
 

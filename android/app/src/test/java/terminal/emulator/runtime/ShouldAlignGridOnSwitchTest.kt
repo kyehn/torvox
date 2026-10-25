@@ -6,7 +6,6 @@ import org.junit.Test
 
 /** 切会话对齐判定：一致跳过、查不到对齐。网格查询以 lambda 传入，无需伪造 Bridge。 */
 class ShouldAlignGridOnSwitchTest {
-
     private fun packed(rows: Int, cols: Int): Long = (rows.toLong() shl 32) or cols.toLong()
 
     @Test

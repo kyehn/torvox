@@ -53,13 +53,13 @@ class CjkFallbackStatusRobolectricTest {
         fontSizeSp = 14f,
     )
 
-    private fun string(id: Int): String =
-        androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
-            .getString(id)
+    private fun string(id: Int): String = androidx.test.core.app.ApplicationProvider
+        .getApplicationContext<android.content.Context>()
+        .getString(id)
 
-    private fun string(id: Int, vararg args: Any): String =
-        androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
-            .getString(id, *args)
+    private fun string(id: Int, vararg args: Any): String = androidx.test.core.app.ApplicationProvider
+        .getApplicationContext<android.content.Context>()
+        .getString(id, *args)
 
     @Test
     fun `missing fallback reports the gap exactly once`() {
@@ -73,25 +73,30 @@ class CjkFallbackStatusRobolectricTest {
     @Test
     fun `skipped by design reports the reason instead of a gap`() {
         showStatus(info(CjkState.SKIPPED_NON_CJK_LOCALE))
-        composeRule.onNodeWithTag("CjkFallbackStatusLine")
+        composeRule
+            .onNodeWithTag("CjkFallbackStatusLine")
             .assertTextEquals(string(R.string.font_info_cjk_skipped_non_cjk_locale))
-        composeRule.onAllNodesWithText(string(R.string.cjk_fallback_missing_warning))
+        composeRule
+            .onAllNodesWithText(string(R.string.cjk_fallback_missing_warning))
             .assertCountEquals(0)
     }
 
     @Test
     fun `not reported yet states no conclusion`() {
         showStatus(info(CjkState.NOT_REPORTED))
-        composeRule.onNodeWithTag("CjkFallbackStatusLine")
+        composeRule
+            .onNodeWithTag("CjkFallbackStatusLine")
             .assertTextEquals(string(R.string.font_info_cjk_not_reported))
-        composeRule.onAllNodesWithText(string(R.string.cjk_fallback_missing_warning))
+        composeRule
+            .onAllNodesWithText(string(R.string.cjk_fallback_missing_warning))
             .assertCountEquals(0)
     }
 
     @Test
     fun `real fallback lists the families`() {
         showStatus(info(CjkState.FALLBACK, families = listOf("Noto Sans CJK SC")))
-        composeRule.onNodeWithTag("CjkFallbackStatusLine")
+        composeRule
+            .onNodeWithTag("CjkFallbackStatusLine")
             .assertTextEquals(string(R.string.font_info_cjk_fallback, "Noto Sans CJK SC"))
     }
 }

@@ -47,7 +47,10 @@ class SecondStageRunner(
 
     suspend fun run(): Result = withContext(TerminalDispatchers.inputOutput) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
-        if (lockFile.exists() || java.nio.file.Files.isSymbolicLink(lockFile.toPath())) {
+        if (lockFile.exists() ||
+            java.nio.file.Files
+                .isSymbolicLink(lockFile.toPath())
+        ) {
             // 该锁是自指符号链接（如下方所创建）。
             // File.exists() 会跟随链接 → ELOOP → 返回 false，
             // 故被杀进程遗留的陈旧锁（SIGKILL 跳过 finally）
@@ -158,7 +161,8 @@ class SecondStageRunner(
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
             LogUtil.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
             val process =
-                Runtime.getRuntime()
+                Runtime
+                    .getRuntime()
                     .exec(
                         command,
                         envArray,
@@ -221,7 +225,8 @@ class SecondStageRunner(
         var proc: Process? = null
         return try {
             proc =
-                Runtime.getRuntime()
+                Runtime
+                    .getRuntime()
                     .exec(
                         prefixExecutableCommand(File(prefixDir, "bin/dpkg"), listOf("--version")),
                         prefixEnvironment().map { "${it.key}=${it.value}" }.toTypedArray(),
@@ -250,10 +255,9 @@ class SecondStageRunner(
                     } catch (exception: Exception) {
                         LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
                     }
+                }.apply {
+                    isDaemon = true
                 }
-                    .apply {
-                        isDaemon = true
-                    }
             stdoutThread.start()
             if (!proc.waitFor(10, TimeUnit.SECONDS)) {
                 proc.destroyForcibly()

@@ -34,12 +34,14 @@ class BootstrapDownloader(
          * 多套线程池与连接池——它们的线程只能在 keep-alive 结束后自退。
          * 超时是常量，无需每次重建，故按进程缓存。
          */
-        private val defaultClientHolder = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-            OkHttpClient.Builder()
-                .connectTimeout(NETWORK_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                .readTimeout(NETWORK_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                .build()
-        }
+        private val defaultClientHolder =
+            lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+                OkHttpClient
+                    .Builder()
+                    .connectTimeout(NETWORK_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    .readTimeout(NETWORK_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    .build()
+            }
 
         fun defaultClient(): OkHttpClient = defaultClientHolder.value
     }

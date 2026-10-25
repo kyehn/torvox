@@ -115,7 +115,10 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
     private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     private fun pumpAndText(): String? {
-        runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
+        runCatchingCancellable {
+            terminal.emulator.bridge.NativeBridge
+                .pollEvent()
+        }
         return bridge().getTerminalText()
     }
 

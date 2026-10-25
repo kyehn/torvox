@@ -65,8 +65,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
                     Thread.sleep(200)
                 }
                 false
-            }
-                .getOrDefault(false)
+            }.getOrDefault(false)
         if (directClickSucceeded) {
             rule.waitForSettingsScreen(timeoutMs = 60_000)
             return
@@ -86,8 +85,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
                 } else {
                     false
                 }
-            }
-                .getOrDefault(false)
+            }.getOrDefault(false)
         if (uiDirect) {
             rule.waitForSettingsScreen(timeoutMs = 60_000)
             return
@@ -108,8 +106,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
                 runCatchingCancellable {
                     rule.waitForSettingsScreen(timeoutMs = 15_000)
                     true
-                }
-                    .getOrDefault(false) ||
+                }.getOrDefault(false) ||
                 device.hasObject(By.text("字体")) ||
                 device.hasObject(By.res("SettingsScreen"))
             if (settingsReached) return@repeat

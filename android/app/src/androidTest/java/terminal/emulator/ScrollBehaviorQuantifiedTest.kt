@@ -114,6 +114,7 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         // 经 view 管线直发触摸序列(与 flood 测试同路径),避免 UiDevice 系统滑动被抽屉/手势拦截导致零位移 flake。
         val centerX = device.displayWidth / 2
         val downTime = android.os.SystemClock.uptimeMillis()
+
         fun postToView(action: Int, x: Float, y: Float) {
             val eventTime = android.os.SystemClock.uptimeMillis()
             view.post {
@@ -182,6 +183,7 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
             // Sample offsets every ~30ms while the finger is down, driving the
             // gesture through the view's own touch pipeline (house pattern).
             val dt = SystemClock.uptimeMillis()
+
             fun post(action: Int, x: Float, y: Float) {
                 val t = SystemClock.uptimeMillis()
                 view.post {
@@ -324,7 +326,8 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         val sawWindow =
             UxTestUtils.pollUntilTrue(timeoutMs = WINDOW_WAIT_TIMEOUT_MS, intervalMs = 500) {
                 lines = UxTestUtils.logcatSince(dragStartMs)
-                lines.mapNotNull { UxTestUtils.LoopTimingWindow.parse(it) }
+                lines
+                    .mapNotNull { UxTestUtils.LoopTimingWindow.parse(it) }
                     .any { it.covers(dragStartMs, dragEndMs) }
             }
         assertNotNull(
@@ -335,9 +338,16 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         // 阶段耗时有两个来源，按设备速度各自出现：慢帧走 SLOW_LOOP（逐帧、500ms 节流），
         // 快设备只在整窗汇总里留下 pre_max。两者都取上界。
         val slowLoopPreMs =
-            lines.mapNotNull { loopPrePattern.find(it)?.groupValues?.get(1)?.toDoubleOrNull() }
+            lines.mapNotNull {
+                loopPrePattern
+                    .find(it)
+                    ?.groupValues
+                    ?.get(1)
+                    ?.toDoubleOrNull()
+            }
         val windows =
-            lines.mapNotNull { UxTestUtils.LoopTimingWindow.parse(it) }
+            lines
+                .mapNotNull { UxTestUtils.LoopTimingWindow.parse(it) }
                 .filter { it.covers(dragStartMs, dragEndMs) }
         val worstPre = (slowLoopPreMs + windows.map { it.preMaxMs }).maxOrNull()
         assertTrue(

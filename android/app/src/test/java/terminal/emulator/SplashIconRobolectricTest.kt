@@ -32,7 +32,6 @@ import kotlin.math.hypot
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w360dp-h640dp-160dpi")
 class SplashIconRobolectricTest {
-
     @Test
     fun splashIconWrapsSharedArtworkInsideMaskCircle() {
         val themed = themedContext()
@@ -51,9 +50,10 @@ class SplashIconRobolectricTest {
             R.drawable.splash_icon,
             splashValue.resourceId,
         )
-        val splashIcon = requireNotNull(themed.getDrawable(splashValue.resourceId)) {
-            "windowSplashScreenAnimatedIcon 指向的 drawable 必须存在"
-        }
+        val splashIcon =
+            requireNotNull(themed.getDrawable(splashValue.resourceId)) {
+                "windowSplashScreenAnimatedIcon 指向的 drawable 必须存在"
+            }
         assertFalse(
             "启动屏图标不得是自适应图标：平台会沿用桌面蒙版把图案裁成图标形状。" +
                 "实际 ${splashIcon.javaClass.simpleName}",
@@ -82,15 +82,20 @@ class SplashIconRobolectricTest {
             iconBackground,
             true,
         )
-        val backgroundAlpha = when {
-            iconBackground.type in TypedValue.TYPE_FIRST_COLOR_INT..TypedValue.TYPE_LAST_COLOR_INT ->
-                iconBackground.data ushr 24
+        val backgroundAlpha =
+            when {
+                iconBackground.type in TypedValue.TYPE_FIRST_COLOR_INT..TypedValue.TYPE_LAST_COLOR_INT -> {
+                    iconBackground.data ushr 24
+                }
 
-            iconBackground.type == TypedValue.TYPE_REFERENCE ->
-                themed.resources.getColor(iconBackground.resourceId, themed.theme) ushr 24
+                iconBackground.type == TypedValue.TYPE_REFERENCE -> {
+                    themed.resources.getColor(iconBackground.resourceId, themed.theme) ushr 24
+                }
 
-            else -> 0
-        }
+                else -> {
+                    0
+                }
+            }
         assertTrue(
             "图标后不得垫圆形底板，实际底色 type=${iconBackground.type} alpha=$backgroundAlpha",
             backgroundAlpha == 0,
@@ -98,22 +103,27 @@ class SplashIconRobolectricTest {
 
         // 结构：两处 wrapper 都必须单层引用 logo_art（保证图案只此一份）。
         // splash_icon 顶层是单帧动画，帧本身是收缩包装 layer-list。
-        val splashFrame = requireNotNull(splashAnimation.getFrame(0)) {
-            "splash_icon 的唯一帧必须存在"
-        }
-        val splashChild = (splashFrame as LayerDrawable).getDrawable(0)
-            ?: error("splash_frame 的 layer item 必须引用 logo_art")
-        val launcherIcon = requireNotNull(
-            themed.resources.getDrawable(R.drawable.launcher_foreground, themed.theme),
-        )
-        val launcherChild = (launcherIcon as LayerDrawable).getDrawable(0)
-            ?: error("launcher_foreground 的 layer item 必须引用 logo_art")
+        val splashFrame =
+            requireNotNull(splashAnimation.getFrame(0)) {
+                "splash_icon 的唯一帧必须存在"
+            }
+        val splashChild =
+            (splashFrame as LayerDrawable).getDrawable(0)
+                ?: error("splash_frame 的 layer item 必须引用 logo_art")
+        val launcherIcon =
+            requireNotNull(
+                themed.resources.getDrawable(R.drawable.launcher_foreground, themed.theme),
+            )
+        val launcherChild =
+            (launcherIcon as LayerDrawable).getDrawable(0)
+                ?: error("launcher_foreground 的 layer item 必须引用 logo_art")
 
         // 同一份图案：两个 wrapper 的子层都是 logo_art 本身，在固有尺寸
         // （108dp=108px，density 1）的画布上渲染，像素必须完全一致。
-        val artPx = requireNotNull(splashChild.intrinsicWidth) {
-            "logo_art 必须有矢量声明的固有尺寸"
-        }
+        val artPx =
+            requireNotNull(splashChild.intrinsicWidth) {
+                "logo_art 必须有矢量声明的固有尺寸"
+            }
         val splashChildBits = renderBits(splashChild, artPx)
         val launcherChildBits = renderBits(launcherChild, artPx)
         assertTrue(
@@ -139,11 +149,12 @@ class SplashIconRobolectricTest {
                 "实际 ${"%.1f".format(launcherInk)}",
             launcherInk <= MASK_CIRCLE_RADIUS,
         )
-        val starInk = inkRadius(
-            launcherBitmap,
-            minXUnits = STAR_REGION_MIN_X_UNITS,
-            alphaFloor = SOLID_ALPHA_FLOOR,
-        )
+        val starInk =
+            inkRadius(
+                launcherBitmap,
+                minXUnits = STAR_REGION_MIN_X_UNITS,
+                alphaFloor = SOLID_ALPHA_FLOOR,
+            )
         assertTrue(
             "星形墨迹半径不得超过平台蒙版圆半径 $MASK_CIRCLE_RADIUS 单位，" +
                 "实际 ${"%.1f".format(starInk)}",
@@ -169,12 +180,14 @@ class SplashIconRobolectricTest {
     @Test
     fun dotsRenderAsSmallCircles() {
         val themed = themedContext()
-        val art = requireNotNull(themed.getDrawable(R.drawable.logo_art)) {
-            "logo_art 资源缺失"
-        }
-        val artPx = requireNotNull(art.intrinsicWidth) {
-            "logo_art 的固有尺寸必须是矢量声明的 108"
-        }
+        val art =
+            requireNotNull(themed.getDrawable(R.drawable.logo_art)) {
+                "logo_art 资源缺失"
+            }
+        val artPx =
+            requireNotNull(art.intrinsicWidth) {
+                "logo_art 的固有尺寸必须是矢量声明的 108"
+            }
         // 图案已按安全区缩放，点迹随之变细：4 倍渲染才留得住足够的纯色像素
         // 供判别（阈值见 DOT_MIN_SIZE / DOT_MAX_SIZE）。
         val artBitmap = renderBitmap(art, artPx * DOT_RENDER_SCALE)

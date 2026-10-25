@@ -41,7 +41,10 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
 
     /** 设备宽度（dp）：字体缺省字号按它自适应，恢复设置时必须用同一口径。 */
     private val widthDp: Float by lazy {
-        val metrics = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics
+        val metrics =
+            InstrumentationRegistry
+                .getInstrumentation()
+                .targetContext.resources.displayMetrics
         metrics.widthPixels / metrics.density
     }
 
@@ -57,7 +60,8 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
     // 设备屏幕宽（dp）：与 SettingsRepository 的两条边界同源。
     private fun screenWidthDp(): Float = androidx.test.core.app.ApplicationProvider
         .getApplicationContext<android.content.Context>()
-        .resources.configuration.screenWidthDp.toFloat()
+        .resources.configuration.screenWidthDp
+        .toFloat()
 
     private fun spToPxScale(): Float {
         val resources = composeTestRule.activity.resources
@@ -260,10 +264,11 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             // 目标字号取调节条区间内的相邻档：翻倍越界会被钳制导致「未落地」误报；
             // 若已处上限则改走减半，保证尺寸真实变化（变化本身是后续断言的前提）。
             val screenWidth = screenWidthDp()
-            val doubled = (originalSizeSp * 2f).coerceIn(
-                SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth),
-            )
+            val doubled =
+                (originalSizeSp * 2f).coerceIn(
+                    SettingsRepository.FONT_SIZE_MIN_SP,
+                    SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth),
+                )
             val targetSizeSp =
                 if (doubled > originalSizeSp + 0.01f) {
                     doubled

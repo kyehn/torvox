@@ -15,7 +15,6 @@ import terminal.emulator.ui.theme.TerminalTheme
  * 点名真实主题会把当前清单焊死在测试里。
  */
 class SystemBarIconThemeTest {
-
     private fun fakeTheme(themeName: String, background: Color): TerminalTheme = TerminalTheme.fromPackedColors(
         themeName,
         byteArrayOf(background.redByte(), background.greenByte(), background.blueByte()) +

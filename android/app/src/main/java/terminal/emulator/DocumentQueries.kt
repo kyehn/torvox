@@ -24,15 +24,13 @@ internal class DocumentQueries(private val context: Context) {
         .File(
             requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
             "home",
-        )
-        .also { dir ->
+        ).also { dir ->
             // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
             dir.mkdirs()
             if (!dir.isDirectory) {
                 LogUtil.w("TerminalDocumentsProvider", "Failed to create home directory: $dir")
             }
-        }
-        .canonicalFile
+        }.canonicalFile
 
     // 链接条目返回链接自身而非目标：与 queryChildDocuments 给出的行
     // 保持同一 docId，否则客户端按浏览结果回查会拿到另一个 id。
@@ -87,16 +85,17 @@ internal class DocumentQueries(private val context: Context) {
         val parentRel = relativeDocId(parentCanonical.path, rootCanonical)
         val entries = ArrayList<ChildEntry>()
         for (child in parentCanonical.listFiles() ?: return emptyList()) {
-            val attributes = try {
-                java.nio.file.Files.readAttributes(
-                    child.toPath(),
-                    java.nio.file.attribute.BasicFileAttributes::class.java,
-                    java.nio.file.LinkOption.NOFOLLOW_LINKS,
-                )
-            } catch (error: java.io.IOException) {
-                LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
-                continue
-            }
+            val attributes =
+                try {
+                    java.nio.file.Files.readAttributes(
+                        child.toPath(),
+                        java.nio.file.attribute.BasicFileAttributes::class.java,
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                    )
+                } catch (error: java.io.IOException) {
+                    LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+                    continue
+                }
             val docId = if (parentRel.isEmpty()) child.name else "$parentRel/${child.name}"
             val sortKey = child.name.lowercase(java.util.Locale.ROOT)
             if (!attributes.isSymbolicLink) {

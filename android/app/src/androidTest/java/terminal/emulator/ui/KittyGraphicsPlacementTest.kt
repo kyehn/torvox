@@ -108,11 +108,12 @@ class KittyGraphicsPlacementTest : TerminalLogcatTest() {
         )
 
         // 滚动必须真的发生：渲染帧里的回滚长度增长就是证据（它与屏幕像素同源）。
-        val after = awaitSettledImage(
-            bridge,
-            IMAGE_COLOR,
-            minRenderedScrollback = sampleBefore.renderedScrollback + SCROLL_ROWS,
-        )
+        val after =
+            awaitSettledImage(
+                bridge,
+                IMAGE_COLOR,
+                minRenderedScrollback = sampleBefore.renderedScrollback + SCROLL_ROWS,
+            )
         assertNotNull(
             "视口没有上滚（渲染帧回滚长度 ${bridge.renderedScrollbackLength()}，" +
                 "滚动前 ${sampleBefore.renderedScrollback}）",

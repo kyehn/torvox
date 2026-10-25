@@ -26,10 +26,11 @@ class BootstrapDownloaderTest {
 
     @Before
     fun setUp() {
-        tempDir = File.createTempFile("bootstrap-test", "").apply {
-            delete()
-            mkdirs()
-        }
+        tempDir =
+            File.createTempFile("bootstrap-test", "").apply {
+                delete()
+                mkdirs()
+            }
         httpsServer = MockWebServer()
         plainServer = MockWebServer()
     }
@@ -86,19 +87,23 @@ class BootstrapDownloaderTest {
      *  jdk.tls.disabledAlgorithms (RSA < 2048) with handshake_failure. */
     private fun httpsSetup(): OkHttpClient {
         val heldCertificate =
-            HeldCertificate.Builder()
+            HeldCertificate
+                .Builder()
                 .addSubjectAlternativeName("localhost")
                 .build()
         val serverCerts =
-            HandshakeCertificates.Builder()
+            HandshakeCertificates
+                .Builder()
                 .heldCertificate(heldCertificate)
                 .build()
         val clientCerts =
-            HandshakeCertificates.Builder()
+            HandshakeCertificates
+                .Builder()
                 .addTrustedCertificate(heldCertificate.certificate)
                 .build()
         httpsServer.useHttps(serverCerts.sslSocketFactory())
-        return OkHttpClient.Builder()
+        return OkHttpClient
+            .Builder()
             .sslSocketFactory(clientCerts.sslSocketFactory(), clientCerts.trustManager)
             .build()
     }
@@ -120,17 +125,19 @@ class BootstrapDownloaderTest {
         httpsServer.start()
         val payload = ByteArray(1_050_000) { 0x41 } // above MIN_BOOTSTRAP_SIZE_BYTES
         httpsServer.enqueue(
-            MockResponse.Builder()
+            MockResponse
+                .Builder()
                 .code(200)
                 .body(Buffer().write(payload))
                 .build(),
         )
         var progressCalls = 0
-        val downloader = BootstrapDownloader(
-            context(),
-            onProgress = BootstrapProgressCallback { progressCalls++ },
-            client = client,
-        )
+        val downloader =
+            BootstrapDownloader(
+                context(),
+                onProgress = BootstrapProgressCallback { progressCalls++ },
+                client = client,
+            )
         val result = downloader.download(httpsServer.url("/bootstrap.zip").toString(), "test")
         assertTrue("download failed: ${result.exceptionOrNull()}", result.isSuccess)
         val file = result.getOrNull()
@@ -146,13 +153,15 @@ class BootstrapDownloaderTest {
         plainServer.start()
         httpsServer.start()
         plainServer.enqueue(
-            MockResponse.Builder()
+            MockResponse
+                .Builder()
                 .code(200)
                 .body(Buffer().write(ByteArray(1_050_000) { 0x42 }))
                 .build(),
         )
         httpsServer.enqueue(
-            MockResponse.Builder()
+            MockResponse
+                .Builder()
                 .code(302)
                 .addHeader("Location", plainServer.url("/bootstrap.zip").toString())
                 .build(),
@@ -169,7 +178,8 @@ class BootstrapDownloaderTest {
         val client = httpsSetup()
         httpsServer.start()
         httpsServer.enqueue(
-            MockResponse.Builder()
+            MockResponse
+                .Builder()
                 .code(200)
                 .body(Buffer().writeUtf8("tiny"))
                 .build(),
@@ -185,7 +195,8 @@ class BootstrapDownloaderTest {
         val client = httpsSetup()
         httpsServer.start()
         httpsServer.enqueue(
-            MockResponse.Builder()
+            MockResponse
+                .Builder()
                 .code(500)
                 .body(Buffer().writeUtf8("boom"))
                 .build(),
