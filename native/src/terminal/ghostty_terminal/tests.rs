@@ -2684,16 +2684,27 @@ fn encode_paste_sanitizes_control_bytes() {
     );
 }
 
-/// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史后
-/// 搜索仍能命中它，且导航把命中带进视口（揭示由上游按滚动策略完成）。
+/// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史后搜索仍能命中它；
+/// 上游按 `Scroll::None` 选中不移动视口，宿主滚到命中后高亮才可见。
 #[test]
-fn search_select_reveals_history_match_in_viewport() {
+fn search_select_leaves_scrolling_to_host() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     terminal_under_test.vt_write(b"needle\n");
     for index in 0..10 {
         terminal_under_test.vt_write(format!("filler{index}\n").as_bytes());
     }
     terminal_under_test.flush();
+    let viewport_top_text = |terminal: &GhosttyTerminal| {
+        let grid = terminal.dump_grid();
+        grid.visible
+            .iter()
+            .take(grid.cols as usize)
+            .filter(|cell| cell.codepoint != 0)
+            .filter_map(|cell| char::from_u32(cell.codepoint))
+            .collect::<String>()
+    };
+    let before = viewport_top_text(&terminal_under_test);
+    assert_ne!(before, "needle");
     assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
     let selected = terminal_under_test
         .search_select(true)
@@ -2705,12 +2716,16 @@ fn search_select_reveals_history_match_in_viewport() {
         Some("needle".to_string()),
         "hit line must be the needle line"
     );
-    // 导航后该命中必须落在视口内，否则 UI 高亮与滚动定位无从谈起。
+    // 上游不移动视口：命中仍在回滚区，视口顶行仍是 filler。
     assert_eq!(
-        terminal_under_test.search_viewport_highlights().matches,
-        vec![selected.matched.clone()],
-        "selected hit must be revealed in the viewport"
+        viewport_top_text(&terminal_under_test),
+        before,
+        "Scroll::None 选中不得移动视口"
     );
+    // 宿主滚到命中（视图侧居中）后，命中才进入视口。
+    assert!(terminal_under_test.scroll_viewport(-10));
+    terminal_under_test.flush();
+    assert_eq!(viewport_top_text(&terminal_under_test), "needle");
 }
 
 /// 未选中任何命中时视口命中集也必须可用：UI 在用户按「下一个」之前就要画高亮，
@@ -2760,6 +2775,49 @@ fn search_select_walks_from_newest_toward_older_and_wraps() {
         .search_select(true)
         .expect("wraps to newest");
     assert_eq!(wrapped.index, 0, "select_next wraps past the oldest hit");
+}
+
+/// 对标上游 searchStepRescansAfterOutput：needle 不变时，输出写入后的下一次
+/// 导航必须看到新命中。上游 `select_*` 自带追赶（feed），本仓不另建重扫路径。
+#[test]
+fn search_select_sees_output_written_after_needle() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"needle one\n");
+    terminal_under_test.flush();
+    assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
+    let first = terminal_under_test.search_select(true).expect("first hit");
+    assert_eq!(first.total, 1);
+
+    terminal_under_test.vt_write(b"needle two\n");
+    terminal_under_test.flush();
+
+    let second = terminal_under_test.search_select(true).expect("second hit");
+    assert_eq!(second.total, 2, "导航必须看到 needle 之后写入的新命中");
+    assert_eq!(
+        terminal_under_test
+            .search_viewport_highlights()
+            .matches
+            .len(),
+        2,
+        "两行命中都在视口内时高亮必须齐全"
+    );
+}
+
+/// 空 needle 必须让上游搜索回到 idle：总数、选中态与视口命中一并清空，
+/// 关闭搜索后原生侧不保留旧匹配。
+#[test]
+fn search_empty_needle_clears_matches_and_selection() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"needle\n");
+    terminal_under_test.flush();
+    assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
+    assert!(terminal_under_test.search_select(true).is_some());
+
+    assert_eq!(terminal_under_test.search_set_needle(""), 0);
+    let highlights = terminal_under_test.search_viewport_highlights();
+    assert!(highlights.matches.is_empty(), "清空后不得残留视口命中");
+    assert!(highlights.selected.is_empty(), "清空后不得残留选中命中");
+    assert!(terminal_under_test.search_select(true).is_none());
 }
 
 /// 对标上游 searchNoMatchesClearsSelection：无命中时总数为 0、视口命中为空，
@@ -3439,6 +3497,43 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
             &format!("SGR{code} 前景"),
         );
     }
+}
+
+/// 256 色 SGR（`38;5;n` / `48;5;n`）必须落到 xterm 标准色：6×6×6 色立方与
+/// 24 级灰阶由上游调色板生成，本仓不得另造公式。取色立方顶点、灰阶首格与
+/// 一个中间绿做外部基准，证明 16..255 槽位真的进了 CellData。
+#[test]
+fn palette_256_cube_and_grayscale_match_xterm() {
+    let mut terminal =
+        GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
+            .expect("default terminal");
+    terminal.vt_write(b"\x1b[38;5;196mA\x1b[38;5;21mB\x1b[38;5;231mC\x1b[38;5;232mD\x1b[48;5;46mE");
+    terminal.flush();
+    let (cells, _) = terminal.receive_cell_data().expect("cell data");
+    let cell = |marker: char| {
+        cells
+            .iter()
+            .find(|cell| cell.codepoint == marker as u32)
+            .unwrap_or_else(|| panic!("{marker} 单元格缺席"))
+    };
+    let rgb = |color: [f32; 4]| {
+        [
+            (color[0] * 255.0).round() as u8,
+            (color[1] * 255.0).round() as u8,
+            (color[2] * 255.0).round() as u8,
+        ]
+    };
+    // xterm：196=(255,0,0)，21=(0,0,255)，231=(255,255,255)，
+    // 232=灰阶首格 8，46=(0,255,0)。
+    for (marker, expected) in [
+        ('A', [255, 0, 0]),
+        ('B', [0, 0, 255]),
+        ('C', [255, 255, 255]),
+        ('D', [8, 8, 8]),
+    ] {
+        assert_eq!(rgb(cell(marker).foreground), expected, "{marker} 前景");
+    }
+    assert_eq!(rgb(cell('E').background), [0, 255, 0], "E 背景");
 }
 
 /// SGR 3/4/9（斜体/下划线/删除线）必须到达快照层与 CellData 标志位。

@@ -3199,6 +3199,20 @@ impl super::GhosttyTerminal {
         terminal: &mut Terminal<'term, '_>,
         needle: &str,
     ) -> usize {
+        let needle = if needle.chars().count() > Self::MAX_SEARCH_QUERY_CHARS {
+            log::warn!(
+                "ghostty_terminal: search needle over {} chars ignored",
+                Self::MAX_SEARCH_QUERY_CHARS
+            );
+            ""
+        } else {
+            needle
+        };
+        // 关闭搜索（空 needle）且从未建过搜索对象时无事可做：不为一次清空
+        // 分配并运行一个 idle 搜索。
+        if search.is_none() && needle.is_empty() {
+            return 0;
+        }
         if search.is_none() {
             match Search::new(terminal) {
                 Ok(mut created) => {
@@ -3221,15 +3235,6 @@ impl super::GhosttyTerminal {
         let Some(active) = search.as_mut() else {
             return 0;
         };
-        let needle = if needle.chars().count() > Self::MAX_SEARCH_QUERY_CHARS {
-            log::warn!(
-                "ghostty_terminal: search needle over {} chars ignored",
-                Self::MAX_SEARCH_QUERY_CHARS
-            );
-            ""
-        } else {
-            needle
-        };
         if let Err(error) = active.set_needle(terminal, needle.as_bytes()) {
             log::error!("ghostty_terminal: search set_needle failed: {error}");
             return 0;
@@ -3249,7 +3254,8 @@ impl super::GhosttyTerminal {
 
     /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态。
     ///
-    /// 视口滚动由上游按滚动策略完成（`Scroll::IfNeeded`），本仓不重复实现定位。
+    /// 上游按 `Scroll::None` 选中、不移动视口；居中由宿主在拿到行号后完成，
+    /// 滚动来源只有宿主的 `setScrollOffset`（见 `text-search` 规范）。
     fn search_select_impl<'term>(
         search: &mut Option<Search<'_, 'term>>,
         terminal: &mut Terminal<'term, '_>,

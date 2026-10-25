@@ -912,7 +912,7 @@ impl super::GhosttyTerminal {
     }
 
     /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态。
-    /// 无命中时 None；视口滚动由上游按滚动策略完成。
+    /// 无命中时 None；上游不移动视口（`Scroll::None`），居中由宿主完成。
     pub fn search_select(&self, forward: bool) -> Option<SearchSelection> {
         Self::search_select_on(&self.query_tx, forward)
     }

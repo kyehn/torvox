@@ -49,6 +49,28 @@
 - **WHEN** 命中以宽字符起止
 - **THEN** 区间覆盖该宽字符占据的全部列，尾格不另成命中
 
+#### Scenario: 新输出写入后导航看到新命中
+
+- **WHEN** needle 已设置，终端随后写入含该 needle 的新输出
+- **THEN** 下一次上一个/下一个与视口高亮 MUST 看到新命中，搜索对象不重建
+
+### Requirement: 关闭搜索清空原生搜索状态
+
+关闭搜索、查询清空或查询超长 MUST 以空 needle 让上游搜索回到 idle：命中总数、选中态
+与视口命中一并清空，MUST NOT 把旧 needle 留在原生侧。清空 MUST 在输入线程执行，
+MUST NOT 阻塞主线程；失败 MUST 记录日志，MUST NOT 让 UI 停留在「已关闭但仍有高亮」
+的半清状态。
+
+#### Scenario: 关闭后原生无旧命中
+
+- **WHEN** 搜索到 N 条命中后关闭搜索
+- **THEN** 原生搜索回到 idle，再查询命中总数为 0、导航返回 null
+
+#### Scenario: 清空查询立即清掉旧结果
+
+- **WHEN** 用户删空查询串
+- **THEN** 结果计数与选中态立即归零，旧高亮消失，不等下一次防抖搜索
+
 ### Requirement: 查询长度与命中规模有上限
 
 needle 字符数 MUST 不超过 `MAX_SEARCH_QUERY_CHARS`（128），超出直接判为无命中，

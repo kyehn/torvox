@@ -118,7 +118,7 @@ pub enum Query {
         tx: Sender<usize>,
     },
     /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态；
-    /// 无命中时 None。选中时上游按滚动策略移动视口。
+    /// 无命中时 None。选中时不移动视口（`Scroll::None`），居中由宿主完成。
     SearchSelect {
         forward: bool,
         tx: Sender<Option<SearchSelection>>,
