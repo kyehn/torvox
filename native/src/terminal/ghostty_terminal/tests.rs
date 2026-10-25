@@ -3043,6 +3043,149 @@ fn kitty_graphics_png_palette_and_gray16_decode() {
     assert_eq!(gray.data, vec![255, 255, 255, 255]);
 }
 
+/// Kitty 文件介质（`t=f`）：图像数据在文件里时必须能读出并显示。
+///
+/// 协议规定文件介质的载荷是 **base64 编码的文件路径**，`S` 是要从文件里读的
+/// 字节数（缺省读整个文件）。`kitten icat` 等客户端用该介质传大图。
+#[test]
+fn kitty_graphics_file_medium_reads_the_image_file() {
+    use base64::Engine;
+    let path = std::env::temp_dir().join(format!("torvox-kitty-file-{}", std::process::id()));
+    std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
+    let payload =
+        base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
+
+    let mut terminal = terminal();
+    terminal.pty_write(format!("\x1b_Ga=T,t=f,f=24,s=1,v=1,i=21;{payload}\x1b\\").as_bytes());
+    terminal.flush();
+    let image = terminal
+        .take_kitty_graphics_image(21)
+        .expect("文件介质传输后图像必须存在");
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(
+        image.data,
+        vec![255, 0, 0, 255],
+        "文件里的 RGB 载荷归一化为不透明 RGBA"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+/// Kitty 临时文件介质（`t=t`）：文件须位于终端的临时目录白名单内且名字含
+/// `tty-graphics-protocol`，读取后由终端删除。
+#[test]
+fn kitty_graphics_temporary_file_medium_reads_the_image_file() {
+    use base64::Engine;
+    let path = std::env::temp_dir().join(format!("tty-graphics-protocol-{}", std::process::id()));
+    std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
+    let payload =
+        base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
+
+    let mut terminal = terminal();
+    terminal.pty_write(format!("\x1b_Ga=T,t=t,f=24,s=1,v=1,i=22;{payload}\x1b\\").as_bytes());
+    terminal.flush();
+    let image = terminal
+        .take_kitty_graphics_image(22)
+        .expect("临时文件介质传输后图像必须存在");
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(
+        image.data,
+        vec![255, 0, 0, 255],
+        "临时文件里的 RGB 载荷归一化为不透明 RGBA"
+    );
+}
+
+/// 文件读取失败必须以**同一个**应答回报：文件不存在与文件短于客户端声明的
+/// 字节数，答答应逐字节相同。
+///
+/// kitty 协议要求：文件读取失败（不存在、不可读、非普通文件、位于敏感目录、
+/// 短于客户端声明）必须以同一个错误应答回报，不得让远端从应答差异里推断本地
+/// 文件。kitty 客户端的能力探测把 `S` 写成文件路径的长度，必然触发短文件这条
+/// 路径——终端按协议拒绝，不得替客户端改写声明值（那会让远端探知文件大小）。
+#[test]
+fn kitty_graphics_short_file_and_missing_file_answer_identically() {
+    use base64::Engine;
+    let path = std::env::temp_dir().join(format!("torvox-kitty-short-{}", std::process::id()));
+    std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
+    let short_payload =
+        base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
+    let missing_path =
+        std::env::temp_dir().join(format!("torvox-kitty-absent-{}", std::process::id()));
+    let missing_payload =
+        base64::engine::general_purpose::STANDARD.encode(missing_path.to_string_lossy().as_bytes());
+
+    let mut terminal = terminal();
+    // S=60：文件只有 3 字节，短于客户端声明。
+    terminal.pty_write(
+        format!("\x1b_Ga=q,t=f,f=24,s=1,v=1,i=31,S=60;{short_payload}\x1b\\").as_bytes(),
+    );
+    terminal.flush();
+    let short_response = terminal.drain_pty_write_responses();
+    terminal
+        .pty_write(format!("\x1b_Ga=q,t=f,f=24,s=1,v=1,i=32;{missing_payload}\x1b\\").as_bytes());
+    terminal.flush();
+    let missing_response = terminal.drain_pty_write_responses();
+    std::fs::remove_file(&path).ok();
+
+    let short_answer = short_response
+        .last()
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        .unwrap_or_default();
+    let missing_answer = missing_response
+        .last()
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        .unwrap_or_default();
+    assert!(
+        short_answer.contains("EINVAL"),
+        "短于声明字节数的文件必须回错误应答，实际收到：{short_answer:?}"
+    );
+    // 应答只允许在图像 id 上不同，错误内容必须逐字节相同。
+    let error_part = |answer: &str| {
+        answer
+            .split_once(';')
+            .map(|(_, error)| error)
+            .unwrap_or(answer)
+            .to_owned()
+    };
+    assert_eq!(
+        error_part(&short_answer),
+        error_part(&missing_answer),
+        "文件读取失败的应答不得因失败原因不同而不同"
+    );
+    assert!(
+        !short_answer.contains(&path.to_string_lossy().to_string()),
+        "失败应答不得回显文件路径，实际收到：{short_answer:?}"
+    );
+}
+
+/// Kitty 文件介质的 `S`/`O` 键语义：`S` 是**精确**读取的字节数，`O` 是起始偏移。
+///
+/// 协议规定 `S` 不是上限而是精确字节数（文件短于 `S` 即按读取失败处理），`O` 让
+/// 终端从文件内的偏移处开始读。这里从偏移 1 读 3 字节，得到的是文件里的后三个
+/// 字节，而不是文件开头的三个字节。
+#[test]
+fn kitty_graphics_file_medium_honors_size_and_offset() {
+    use base64::Engine;
+    let path = std::env::temp_dir().join(format!("torvox-kitty-offset-{}", std::process::id()));
+    std::fs::write(&path, [0x11u8, 0x22, 0x33, 0x44]).expect("写图像文件");
+    let payload =
+        base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
+
+    let mut terminal = terminal();
+    terminal
+        .pty_write(format!("\x1b_Ga=T,t=f,f=24,s=1,v=1,i=23,S=3,O=1;{payload}\x1b\\").as_bytes());
+    terminal.flush();
+    let image = terminal
+        .take_kitty_graphics_image(23)
+        .expect("按偏移与精确字节数读取后图像必须存在");
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(
+        image.data,
+        vec![0x22, 0x33, 0x44, 0xff],
+        "O=1 起读 3 字节得到的是文件里的后三个字节"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
 /// Kitty 放置采集：传输并显示 1x1 图像后，可见放置恰为 1 个且几何非零。
 #[test]
 fn kitty_placements_collects_visible_display() {
