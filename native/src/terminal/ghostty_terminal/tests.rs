@@ -63,6 +63,70 @@ fn assert_color(actual: [f32; 4], expected: [f32; 4], context: &str) {
     }
 }
 
+/// 写入 20 行文本并排空首帧：视口滚动用例的共同前置。
+fn terminal_with_twenty_lines() -> GhosttyTerminal {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    assert!(
+        terminal_under_test.receive_cell_data().is_some(),
+        "首帧必须到达"
+    );
+    terminal_under_test
+}
+
+/// 等待一帧推送：内容不变的滚动与重推用例必须在超时前收到帧。
+fn await_pushed_frame(terminal_under_test: &mut GhosttyTerminal, context: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut pushed = false;
+    while !pushed {
+        pushed = terminal_under_test.receive_cell_data().is_some();
+        assert!(
+            pushed || std::time::Instant::now() < deadline,
+            "{context}：2s 内未收到 CellData 帧"
+        );
+        if !pushed {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+}
+
+/// 视口某格当前的前景色：选区反白与清除恢复断言的共同取格方式。
+fn viewport_cell_foreground(terminal_under_test: &mut GhosttyTerminal, col: u32) -> [f32; 4] {
+    terminal_under_test.flush();
+    let (cells, _) = terminal_under_test.receive_cell_data().expect("cell data");
+    cells
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == col)
+        .expect("cell present")
+        .foreground
+}
+
+/// 按码点取渲染单元：样式位断言的共同取格方式。
+fn marked_cell(cells: &[CellData], marker: u8) -> &CellData {
+    cells
+        .iter()
+        .find(|cell| cell.codepoint == marker as u32)
+        .expect("marked cell present")
+}
+
+/// SGR31 前景须为 #FF5555：默认配置与默认主题配置共用同一判据。
+fn assert_sgr31_red_foreground(cells: &[CellData], context: &str) {
+    let red_cell = cells
+        .iter()
+        .find(|cell| cell.codepoint == 'R' as u32)
+        .expect("R cell present");
+    assert!(
+        (red_cell.foreground[0] - 1.0).abs() < 0.02
+            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
+            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
+        "{context} 前景须为 #FF5555，实际 {:?}",
+        red_cell.foreground
+    );
+}
+
 /// 从快照中取出指定行列的单元
 #[test]
 fn create_terminal_zero_scrollback() {
@@ -1898,15 +1962,7 @@ fn scroll_viewport_delta_scrolls_cell_data() {
 /// 仍能通过内容断言（真机表现为每次滚轮事件 58ms 卡顿）。
 #[test]
 fn scroll_viewport_reuses_shifted_rows() {
-    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    for line_number in 0..20 {
-        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
-    }
-    terminal_under_test.flush();
-    assert!(
-        terminal_under_test.receive_cell_data().is_some(),
-        "首帧必须到达"
-    );
+    let terminal_under_test = terminal_with_twenty_lines();
     // 清空首帧的全量计数，只统计滚动帧。
     terminal_under_test.take_cache_stats();
 
@@ -1938,15 +1994,7 @@ fn scroll_viewport_reuses_shifted_rows() {
 /// 视口外的输出上看不出差别。
 #[test]
 fn write_after_scroll_does_not_reuse_shifted_rows() {
-    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    for line_number in 0..20 {
-        terminal_under_test.vt_write(format!("line {line_number}\n").as_bytes());
-    }
-    terminal_under_test.flush();
-    assert!(
-        terminal_under_test.receive_cell_data().is_some(),
-        "首帧必须到达"
-    );
+    let mut terminal_under_test = terminal_with_twenty_lines();
     terminal_under_test.take_cache_stats();
 
     assert!(
@@ -1985,18 +2033,7 @@ fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
         "scroll_viewport 应接受增量"
     );
     terminal_under_test.flush();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    let mut pushed = false;
-    while !pushed {
-        pushed = terminal_under_test.receive_cell_data().is_some();
-        assert!(
-            pushed || std::time::Instant::now() < deadline,
-            "内容不变的滚动后 2s 内未收到 CellData 帧"
-        );
-        if !pushed {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
+    await_pushed_frame(&mut terminal_under_test, "内容不变的滚动后");
 }
 
 /// 同步更新（模式 2026）期间，VT 线程不得发布中间帧：BSU 与 ESU 分两次写入，
@@ -2074,18 +2111,7 @@ fn request_repaint_pushes_frame_with_unchanged_content() {
     );
     terminal_under_test.request_repaint();
     terminal_under_test.flush();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    let mut pushed = false;
-    while !pushed {
-        pushed = terminal_under_test.receive_cell_data().is_some();
-        assert!(
-            pushed || std::time::Instant::now() < deadline,
-            "内容不变时重推请求未产生 CellData 帧"
-        );
-        if !pushed {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
+    await_pushed_frame(&mut terminal_under_test, "内容不变时的重推请求");
 }
 
 /// 视口滚动后，绝对网格行（0 = 回滚顶部，与 Kotlin 的
@@ -2358,17 +2384,10 @@ fn selection_text_blank_cell_selects_itself() {
     let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
     terminal_under_test.set_selection((row0, 1), (row0, 1));
-    terminal_under_test.flush();
-    let (selected, _) = terminal_under_test
-        .receive_cell_data()
-        .expect("selected cell data");
-    let theme_background = default_background();
-    let picked = selected
-        .iter()
-        .find(|cell| cell.row == 0 && cell.col == 1)
-        .expect("row 0 col 1 present");
+    let picked_foreground = viewport_cell_foreground(&mut terminal_under_test, 1);
     assert_eq!(
-        picked.foreground, theme_background,
+        picked_foreground,
+        default_background(),
         "blank cell under selection must be inverted"
     );
     terminal_under_test.clear_selection();
@@ -2384,28 +2403,13 @@ fn selection_clear_restores_baseline_colors() {
     let snap = terminal_under_test.take_snapshot();
     let row0 = snap.scrollback_length;
     terminal_under_test.set_selection((row0, 0), (row0, 4));
-    terminal_under_test.flush();
-    let (selected, _) = terminal_under_test
-        .receive_cell_data()
-        .expect("selected cell data");
-    let theme_background = default_background();
-    let picked = selected
-        .iter()
-        .find(|cell| cell.row == 0 && cell.col == 0)
-        .expect("row 0 col 0 present");
-    assert_eq!(picked.foreground, theme_background);
+    let picked_foreground = viewport_cell_foreground(&mut terminal_under_test, 0);
+    assert_eq!(picked_foreground, default_background());
     terminal_under_test.clear_selection();
-    terminal_under_test.flush();
-    let (cleared, _) = terminal_under_test
-        .receive_cell_data()
-        .expect("cleared cell data");
-    let theme_foreground = default_foreground();
-    let restored = cleared
-        .iter()
-        .find(|cell| cell.row == 0 && cell.col == 0)
-        .expect("row 0 col 0 present");
+    let restored_foreground = viewport_cell_foreground(&mut terminal_under_test, 0);
     assert_eq!(
-        restored.foreground, theme_foreground,
+        restored_foreground,
+        default_foreground(),
         "clear must restore baseline foreground"
     );
 }
@@ -2553,17 +2557,10 @@ fn select_word_at_derives_installs_and_returns_bounds() {
         "returned bounds must extract exactly the word"
     );
     // 安装断言：派生快照经 to_ordered 装回终端后，该格渲染必须反白。
-    terminal_under_test.flush();
-    let (selected, _) = terminal_under_test
-        .receive_cell_data()
-        .expect("selected cell data");
-    let theme_background = default_background();
-    let picked = selected
-        .iter()
-        .find(|cell| cell.row == 0 && cell.col == 1)
-        .expect("row 0 col 1 present");
+    let picked_foreground = viewport_cell_foreground(&mut terminal_under_test, 1);
     assert_eq!(
-        picked.foreground, theme_background,
+        picked_foreground,
+        default_background(),
         "derived selection must be installed (cell inverted)"
     );
     terminal_under_test.clear_selection();
@@ -3292,17 +3289,7 @@ fn sgr31_red_reaches_cell_data_foreground() {
     plain.vt_write(b"\x1b[31mRED\x1b[0m");
     plain.flush();
     let (cells, _) = plain.receive_cell_data().expect("cell data");
-    let red_cell = cells
-        .iter()
-        .find(|cell| cell.codepoint == 'R' as u32)
-        .expect("R cell present");
-    assert!(
-        (red_cell.foreground[0] - 1.0).abs() < 0.02
-            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
-            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
-        "默认配置 SGR31 前景须为 #FF5555，实际 {:?}",
-        red_cell.foreground
-    );
+    assert_sgr31_red_foreground(&cells, "默认配置 SGR31");
 
     // 2) 默认主题配置：复刻设备 apply_theme 后的精确状态。
     let default_theme = crate::terminal::theme::default_dark();
@@ -3311,17 +3298,7 @@ fn sgr31_red_reaches_cell_data_foreground() {
     dracula.vt_write(b"\x1b[31mRED\x1b[0m");
     dracula.flush();
     let (cells, _) = dracula.receive_cell_data().expect("cell data");
-    let red_cell = cells
-        .iter()
-        .find(|cell| cell.codepoint == 'R' as u32)
-        .expect("R cell present");
-    assert!(
-        (red_cell.foreground[0] - 1.0).abs() < 0.02
-            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
-            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
-        "Dracula 配置 SGR31 前景须为 #FF5555，实际 {:?}",
-        red_cell.foreground
-    );
+    assert_sgr31_red_foreground(&cells, "Dracula 配置 SGR31");
 }
 
 /// FFI 默认主题下 SGR31 必须到达 CellData 前景。
@@ -3487,10 +3464,7 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
         terminal.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
         terminal.flush();
         let (cells, _) = terminal.receive_cell_data().expect("cell data");
-        let marked = cells
-            .iter()
-            .find(|cell| cell.codepoint == marker as u32)
-            .expect("marked cell present");
+        let marked = marked_cell(&cells, marker);
         assert_color(
             marked.foreground,
             default_ansi(ansi_index),
@@ -3554,10 +3528,7 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
         styled.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
         styled.flush();
         let (cells, _) = styled.receive_cell_data().expect("cell data");
-        let marked = cells
-            .iter()
-            .find(|cell| cell.codepoint == marker as u32)
-            .expect("marked cell present");
+        let marked = marked_cell(&cells, marker);
         assert_eq!(
             (marked.flags >> flag_bit) & 1,
             1,
@@ -3650,10 +3621,7 @@ fn underline_styles_reach_cell_data_and_snapshot() {
         styled.vt_write(format!("\x1b[{sequence}m{}", marker as char).as_bytes());
         styled.flush();
         let (cells, _) = styled.receive_cell_data().expect("cell data");
-        let marked = cells
-            .iter()
-            .find(|cell| cell.codepoint == marker as u32)
-            .expect("marked cell present");
+        let marked = marked_cell(&cells, marker);
         assert_eq!(
             (marked.flags >> cell_flags::UNDERLINE) & 1,
             1,
