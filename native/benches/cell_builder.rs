@@ -15,9 +15,13 @@ use native::terminal::ghostty_terminal::CellData;
 use std::hint::black_box;
 
 fn build_instances(c: &mut Criterion) {
-    let mut font_pipeline = FontPipeline::new(1024, 1024, 14.0);
+    let mut font_pipeline = FontPipeline::new(2048, 2048, 14.0);
     let (rows, cols) = (24u32, 80u32);
     let count = (rows * cols) as usize;
+    let raster_scale = font_pipeline.get_raster_scale();
+    let (metric_width, metric_height) = font_pipeline.cell_metrics();
+    let grid_cell_width = metric_width * raster_scale;
+    let grid_cell_height = metric_height * raster_scale;
 
     let mixed_data = [
         ('A', 1, [0.9, 0.9, 0.9, 1.0], [0.1, 0.1, 0.1, 1.0], 0),
@@ -61,11 +65,11 @@ fn build_instances(c: &mut Criterion) {
             let config = CellInstanceConfig {
                 rows,
                 cols,
-                grid_cell_width: 1024.0,
-                grid_cell_height: 1024.0,
+                grid_cell_width,
+                grid_cell_height,
                 cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
                 search_highlights: &[],
                 default_background: [0.0; 4],
             };
