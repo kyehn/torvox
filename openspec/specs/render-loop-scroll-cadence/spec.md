@@ -244,3 +244,19 @@ MUST 继续发射光标几何。省略 MUST NOT 改变任一场景的可见像�
 - **WHEN** 空白格带非默认背景、光标、下划线或删除线
 - **THEN** 该格仍发射背景四边形
       （用例 `blank_cell_quad_skipped_only_when_clear_color_and_undecorated`）
+
+### Requirement: 稳定滚动余量不强制全量重绘
+
+滚动亚行余量（`viewport_scroll_px`）稳定（与上一呈现帧相同）时，渲染 MUST 允许部分渲染；
+仅在余量发生变化时才强制全量重绘以避免累加器旧像素与新几何混叠。空闲重绘 MUST NOT
+因一个稳定的非零余量而每帧全量重绘。
+
+#### Scenario: 余量稳定时部分渲染
+
+- **WHEN** 连续两帧的滚动余量相同且非零
+- **THEN** 第二帧允许部分渲染，不得因余量非零而强制全量
+
+#### Scenario: 余量变化时全量重绘
+
+- **WHEN** 滚动余量与上一呈现帧不同
+- **THEN** 该帧强制全量重绘

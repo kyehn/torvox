@@ -171,16 +171,15 @@ internal fun resolveLongPressDragBounds(
     col: Int,
     maxRow: Int,
     maxCol: Int,
-): HandleDragResult =
-    resolveDragBounds(
-        current = current,
-        pending = pending,
-        draggingStart = pending?.draggingStart ?: false,
-        row = row,
-        col = col,
-        maxRow = maxRow,
-        maxCol = maxCol,
-    )
+): HandleDragResult = resolveDragBounds(
+    current = current,
+    pending = pending,
+    draggingStart = pending?.draggingStart ?: false,
+    row = row,
+    col = col,
+    maxRow = maxRow,
+    maxCol = maxCol,
+)
 
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
 data class SessionInfo(val id: Long, val title: String = "")

@@ -238,3 +238,17 @@ MUST NOT 逐格重扫；回看历史时 MUST 按 VT 滚动条给出的绝对行�
 
 - **WHEN** 视口上滚一屏后再次查询放置
 - **THEN** 缓存按绝对行命中，MUST NOT 因基准错位而全量重扫
+
+### Requirement: 放置生成戳独立于图像存储生成戳
+
+渲染缓存 MUST 以 VT 的**放置生成戳**（`image_placements_generation`）判定放置是否变化，
+MUST NOT 仅凭图像存储生成戳（`Graphics::generation`）：ED2 撤下虚拟放置、TUI 原地重排
+等场景图像存储生成戳可能不变，仅凭它会漏掉撤除，导致图像残留到第二次清屏。
+VT MUST 在放置变化时推进 placements generation，并把该值随每帧单元数据送达渲染线程；
+渲染线程 MUST 在放置生成戳变化时重新查询放置并整帧重绘以抹掉残留像素。
+
+#### Scenario: ED2 撤下虚拟放置时 placements generation 变化
+
+- **WHEN** 虚拟放置显示一幅图像后收到 ED2
+- **THEN** placements generation 变化，图像存储生成戳可保持不变；渲染线程据此重新查询
+  并在首次清屏即抹掉图像像素
