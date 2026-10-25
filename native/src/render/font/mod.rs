@@ -1493,28 +1493,30 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fonts_xml_index_match_resolves_exact_face() {
+    /// fonts.xml 匹配用例的公共夹具：已加载 CJK 字体的 fontdb 与其中一个
+    /// TTC 字面的 `(文件名, index)`——后者覆盖 `(filename, index)` 映射路径。
+    fn cjk_font_db_with_ttc_face() -> (fontdb::Database, String, u32) {
         let mut font_database = fontdb::Database::new();
         assert!(
             try_load_cjk_fonts(&mut font_database),
             "CJK fonts must load (run inside nix develop)"
         );
-        // 选一个 TTC 字面以覆盖 (filename, index) 映射路径。
         let (filename, index) = font_database
             .faces()
             .filter_map(|face| {
-                let path = match &face.source {
-                    fontdb::Source::File(path) => path,
-                    fontdb::Source::SharedFile(path, _) => path,
-                    fontdb::Source::Binary(_) => return None,
-                };
+                let path = crate::render::font::font_db::face_source_path(face)?;
                 let name = path.file_name()?.to_str()?.to_string();
                 (path.extension()?.to_str()?.eq_ignore_ascii_case("ttc"))
                     .then_some((name, face.index))
             })
             .next()
             .expect("CJK TTC face must exist after try_load_cjk_fonts");
+        (font_database, filename, index)
+    }
+
+    #[test]
+    fn fonts_xml_index_match_resolves_exact_face() {
+        let (font_database, filename, index) = cjk_font_db_with_ttc_face();
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{index}">{filename}</font></family></familyset>"#
         );
@@ -1522,25 +1524,18 @@ mod tests {
         assert_eq!(ids.len(), 1, "exact (filename, index) hit expected");
         let face = font_database.face(ids[0]).expect("matched face exists");
         assert_eq!(face.index, index, "TTC index must match fonts.xml");
-        let matched_name = match &face.source {
-            fontdb::Source::File(path) => path,
-            fontdb::Source::SharedFile(path, _) => path,
-            fontdb::Source::Binary(_) => panic!("matched face must be file-backed"),
-        }
-        .file_name()
-        .and_then(|name| name.to_str())
-        .expect("file-backed face has a name");
+        let matched_name = crate::render::font::font_db::face_source_path(face)
+            .expect("matched face must be file-backed")
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("file-backed face has a name");
         assert_eq!(matched_name, filename);
     }
 
     #[test]
     fn fonts_xml_missing_file_falls_back_to_scan() {
         // 文件名未知：无精确命中，调用方改由扫描结果填充。
-        let mut font_database = fontdb::Database::new();
-        assert!(
-            try_load_cjk_fonts(&mut font_database),
-            "CJK fonts must load (run inside nix develop)"
-        );
+        let (font_database, _, _) = cjk_font_db_with_ttc_face();
         let xml = r#"<familyset version="23"><family lang="zh-Hans"><font index="2">NoSuchFont-Regular.ttc</font></family></familyset>"#;
         let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, xml, "zh-CN", 3);
         assert!(
@@ -1553,25 +1548,7 @@ mod tests {
     fn fonts_xml_duplicate_entries_deduplicated() {
         // 真机形态：zh-Hans 链内同一文件多 weights 同 index 重复出现，
         // 首位命中后后续重复必须去重（真机 Sans index=2 出现 9 次只取 1 个）。
-        let mut font_database = fontdb::Database::new();
-        assert!(
-            try_load_cjk_fonts(&mut font_database),
-            "CJK fonts must load (run inside nix develop)"
-        );
-        let (filename, index) = font_database
-            .faces()
-            .filter_map(|face| {
-                let path = match &face.source {
-                    fontdb::Source::File(path) => path,
-                    fontdb::Source::SharedFile(path, _) => path,
-                    fontdb::Source::Binary(_) => return None,
-                };
-                let name = path.file_name()?.to_str()?.to_string();
-                (path.extension()?.to_str()?.eq_ignore_ascii_case("ttc"))
-                    .then_some((name, face.index))
-            })
-            .next()
-            .expect("CJK TTC face must exist after try_load_cjk_fonts");
+        let (font_database, filename, index) = cjk_font_db_with_ttc_face();
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="100" style="normal" index="{index}">{filename}</font><font weight="400" style="normal" index="{index}">{filename}</font><font weight="900" style="normal" index="{index}">{filename}</font></family></familyset>"#
         );

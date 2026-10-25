@@ -719,8 +719,8 @@ JVM 侧读到待决异常后，MUST NOT 再调用任何 JNI 函数（JNI 规范�
 
 ### Requirement: 研究报告逐份结论登记在本规范内
 
-已退役的 `docs/research` 全部研究报告（编号文档集 31 份 + 逐仓报告 73 份 + `ecosystem.md`）
-的可执行项 MUST 在本规范内有逐份可复核的结论：
+`docs/research` 的全部研究报告（已退役的编号文档集 31 份 + 逐仓报告 73 份 +
+`ecosystem.md`，另加现役在库的 6 份综合研究报告）的可执行项 MUST 在本规范内有逐份可复核的结论：
 每项 MUST 写明判定结果（采纳 / 不采纳及违反哪条采纳门槛 / 未声明不立项 /
 PROHIBITED 明禁）与依据，MUST NOT 只以「其余若干份已核对」这类群体概括收尾，
 MUST NOT 把逐份结论只留在归档变更里。
@@ -1007,8 +1007,10 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 索引完整是本仓删除研究文档的**前置条件**：任取一份报告，其全部可执行项的去向
 MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删除而不丢失任何仍需遵守的结论。
-本仓现已删除 `docs/research` 全部报告，索引表是这批研究的**唯一常驻载体**；
-日后若重新引入研究文档，索引行 MUST 与文档同批提交。
+已退役的 105 份报告（编号文档集 31 份 + 逐仓报告 73 份 + `ecosystem.md`）已整体删除，
+索引表是这批研究的**唯一常驻载体**；另 6 份综合研究报告现役在 `docs/research/`，
+其索引行 MUST 与文档同批维护——文档在库时索引行是这些报告结论的登记处，
+文档删除时索引行承接其全部仍需遵守的结论。
 
 #### Scenario: 索引外的补充事实
 
@@ -1055,7 +1057,7 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 
 #### Scenario: 删除报告不丢结论
 
-- **WHEN** 某份报告被删除（现已整体删除）
+- **WHEN** 某份报告被删除（已退役的 105 份现已整体删除）
 - **THEN** 其提出的可执行项去向（已落地代码位置、被否的门槛理由、未声明/PROHIBITED 判定）
       仍可在索引行与所指向的表内读到，MUST NOT 需要恢复该报告才能复核
 
@@ -1073,6 +1075,12 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 
 | 报告 | 实质 | 判定 | 依据 |
 | --- | --- | --- | --- |
+| `ghostty-android-terminal.md` | 同引擎（libghostty-vt）Android 终端的集成模式深研：Java Canvas UI → JNI → 预编译 libghostty-vt.a → arm64chroot/arm64emu 四层架构 | 已核结，无可移植资产：同引擎集成印证四项（回调经 `feed()` 后拉取而非上推、winsize 带 `ws_xpixel`／`ws_ypixel`、选区经 `GHOSTTY_TERMINAL_OPT_SELECTION` 交引擎跟随、bidi 与歧义宽不支持）本仓已是同一形状；可参考点四项已落地（mksh SIGWINCH 不变量归 `startup-grid-resize`，grapheme 行级标志归 `CellData` 的 `grapheme_extra` 故无带外溢出缓冲层，编码前同步 setopt 归 `set_options_from_terminal`，写清为什么归 openspec 变更的 design.md）；不适用：arm64chroot/arm64emu 与 rootfs 资产（`DESIGN.md` 未声明用户态模拟器，`PROHIBITED.md` 明禁内嵌 proot 与预装发行版）、自建 native 搜索（`text-search` 已定上游 `search::Search` 单一来源）、OSC 52/9;4 side-scanner 与富输入 Editable 镜像（`DESIGN.md` 未要求）、Canvas 渲染全套（本仓 wgpu/Vulkan 直绘） | 本表 `01-sylirre-ghostty-android-terminal.md` 行；`text-search`；`startup-grid-resize`；`key-input-encoding`；`host-linkage` |
+| `redterm.md` | proot 发行版终端 + SSH 客户端（复用 Termux 上游库、不自研引擎）的外围工程实践与防错模式 | 已核结，可参考资产只在工程实践层：四项参考点已落地或由既有规范承接（wake lock 自检重取归 `TerminalForegroundService`，启动路径单一事实源归 `ShellEnv` → `pty::base_env`，假对端测试归 `native/src/terminal/mock_pty.rs`，注释纪律归 `STYLE.md`「注释极简」）；不适用：`script` 会话录制（本仓 Rust 侧天然持有 PTY 读端且规格未要求）、AppLog 持久化日志（`DESIGN.md` 明禁不写日志文件）、259 项调色板纯函数（主题自带 16 色）、`SessionDescriptor` 身份与显示名分离（会话归 Rust 侧，`session-list` 已定「序号 + 标题」）、Choreographer 合帧 invalidate 与链接正则检测（渲染与链接识别在 Rust 侧）、发行版管理／proot／内嵌 OpenSSH／SFTP／文件管理器／备份还原（范围外或 `PROHIBITED.md` 明禁）、CPU% 通知与桌面小部件（通知栏只报会话数量与退出按钮）；已核实无缺口：16 KB 页对齐（`libnative.so` 的 LOAD 段对齐 0x4000）、通知诚实性、bootstrap 权限保真（`bootstrap-install` 走 zip 清单承担权限） | 本表 `GlobalTechInfo-RedTerm.md` 与 `06-GlobalTechInfo-RedTerm.md` 行；`bootstrap-install`；`shell-env`；`logcat-hygiene`；`session-list` |
+| `reference-verification.md` | 参考项目核验文档：上游 A（ghostty-android-terminal）160 条仪器化测试与上游 B（termux-app）145+2 条 JVM 测试逐条对照本仓测试 | 已核结，结论为「本仓测试面已闭合」：上游 A 160 条中 80 条有等效用例、80 条对应能力被禁止或未声明、0 条部分对应，每条等效均给出双方精确测试名；上游 B 的 19 个测试文件按「直接锚点／引擎域／未声明」三分逐区核对，无「上游已测且规范允许而本仓未测」条目；按像素滚动的手势层／运行期层／FFI 与原生渲染层三层证据链闭合；文中五条前版误记（上游测试计数、`TerminalUiTest` 条数、`ExtraKeysConfigTest` 与 `ThemeModelTest` 归类、测试名归属）已按源码实读更正 | 本表 `01-sylirre-ghostty-android-terminal.md` 与 `02-termux-termux-app.md` 行；`scroll-gesture-settle`；`terminal-state-regression` |
+| `terminal-emulators.md` | 终端模拟器横向研究报告：ghostty／alacritty／rio／kitty／wezterm／xterm／foot 七项目的渲染、解析、线程模型与输入路径 | 已核结，结论为「与本仓同族者仅 ghostty 与 rio，且本仓在这两点上同构」：同构印证五项（独立渲染线程 + 合帧唤醒、实例化渲染、部分写退回并保留写进度、引擎与宿主解耦、表驱动解析）本仓已是同一形状；可参考点五项已核结（锁让渡自查落在 `native/src/terminal` 零引用渲染状态、damage 语义清单落在当前与上一光标行标脏且滚动变化强制全量重绘、输入三档压测落在 `bulk_output_is_processed_without_loss` 与 `cell_frame_drop_warning_is_throttled`、quirks 集中层落在既有 workaround 就地注释、xterm 仲裁基准落在 `terminal-state-regression`）；不采用：alacritty 列级 damage（本仓脏带以行为最小单位）、rio 多后端回退（`DESIGN.md` 明禁 CPU/OpenGL 回退）、kitty 时间性拒收（本仓已有有界排空 + 计数退回双背压）、foot box-drawing 几何绘制（规格未要求）、kitty SIMD 多宽度扫描（解析归 libghostty-vt）、rio／foot 主线程渲染（正是本仓独立渲染线程要规避的形状） | 本表 `29-减码杠杆与libghostty家族结论收敛.md` 行；`terminal-state-regression`；`performance-measurement`；`render-loop-scroll-cadence` |
+| `termlib.md` | ConnectBot termlib（Compose 终端组件库，vendored libvterm）深研，含四层性能测量体系与 macrobenchmark 评估 | 已核结，结论为「macrobenchmark 有意义但边界明确」：`AppStartupBenchmark` 刚需、`InteractionAnimationBenchmark` 有效、终端内容渲染架构上测不到（Rust 线程 wgpu 直绘不产生主线程 doFrame）、CI 只编译不运行是对的（swiftshader 帧率不可作回归判据）；可参考点六项已核结（真机测量规程与合成负载取舍归 `performance-measurement`，增量一致性归 `cached_build_matches_full_build_byte_for_byte` 与 `resize_cycles_do_not_accumulate_stale_rows`，criterion 基准不进测试套件且 `check.nu` 走 `--quick`，本仓不建 JNI 全局引用故无所有权环）；不适用：`PackedCells`／`TerminalSnapshot` 等 Kotlin 网格结构（本仓设计上无 Kotlin 网格）、OSC 133 无障碍导航与 Review Mode（规格未要求且 `PROHIBITED.md` 明禁无障碍朗读）、Unicode 宽度表生成脚本（归 libghostty-vt）、Canvas 几何绘制与 bidi level-1 细节（归 wgpu 侧与 libghostty-vt）、Magnifier 选区（文本选择须遵循 Termux 设计） | 本表 `30-VT测试边界与外部基准接入收敛.md` 行；`performance-measurement`；`ime-animation-smoothness`；`text-selection` |
+| `termux-app.md` | termux-app（v0.118.3）深研：四模块结构、终端会话三线程与双向队列、bootstrap 安装流程、修饰键栏三态、前台服务与测试基座 | 已核结，结论为「DESIGN 依 Termux 定规的条目本仓已对齐」：已对齐项逐条在位（修饰键栏布局与粘滞语义、2 行 7 列、回滚 2K 行、块状光标不闪烁、`TERM=xterm-256color` 与 `COLORTERM=truecolor`、bootstrap zip + `SYMLINKS.txt` + staging + 原子 rename、通知常驻「会话数量 + 退出按钮」、applicationId `com.termux`、AOSP testkey 签名）；可参考点五项已核结（`KEYCODE_BREAK` → `key::Key::Pause` 补齐归 `key-input-encoding`，auto-repeat 阈值改取 `ViewConfiguration` 系统值归 `modifier-bar-auto-repeat`，双 client 生命周期归 Rust 侧会话归属与 LeakCanary 用例，主线程消息泵由渲染线程 latch 等价承担，`TerminalTestCase` 式直测由 `ghostty_terminal/tests.rs` 承担）；不适用：插件体系（`PROHIBITED.md` 明禁 termux-api、termux-exec、Termux:Tasker、Termux:Boot，其余插件属 `DESIGN.md` 未声明不立项）、`termux.properties` 与其设置项体系（`PROHIBITED.md` 明禁解析该文件）、F-Droid／GitHub 双分发签名管理（本仓单 testkey）、sharedUserId 与多 APK 签名兼容约束 | 本表 `02-termux-termux-app.md` 行；`key-input-encoding`；`modifier-bar-auto-repeat`；`bootstrap-install`；`session-list` |
 | `8dmusichannels-star-terminator.md` | Kotlin/Compose 自研 VT 子集 + C PTY 桥 | 不采纳：零测试资产且 CI 虚假绿灯；其 OSC 注释清单作生态参照面，OSC 52 安全姿态归 OSC 52 条款；其 `NativePty.c` 一类 C PTY 桥无落点——本仓 PTY 在 Rust 侧（`nix::pty`），仓内无 C 源；多击选词／OSC 8 白名单／提交构建产物三做法属不得反向采纳 | 「Android 侧终端项目的复查台账」terminator 行；「OSC 覆盖逐项核对」；「OSC 52 读取请求的收割与应答须对每个会话有界」；「不得反向采纳的做法」三行 |
 | `DanteAlighierin-foot.md` | C/Wayland 自研 VT 极简终端 | 不采纳：仓内无 VT／网格语料（「无资产」而非门槛违反）；自研 C 解析器违单一来源，box-drawing／组合宽度只作结构对照 | 「已复查结论台账」foot 行 |
 | `GlobalTechInfo-RedTerm.md` | 复用 Termux jar 的 proot 发行版运行器 | 不采纳（门槛 3）：仓内无本仓组件，329 例属 SSH/SFTP/proot 面；16KB 页对齐登记禁改区 | 台账不可采纳行；「禁改区待维护者裁定项台账」；参照面「搜索高亮两层透明度」归 `text-search`，备份「完成后替换 + 孤儿清理」归「参照面与反面做法收敛补齐行」 |
@@ -1178,6 +1186,9 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 | `29-减码杠杆与libghostty家族结论收敛.md` | 减码 L1–L6 分级与红线；libghostty-vt 对比 librio | 采纳并已执行（L1）：JNI 批量合并按 `DESIGN.md` 背书落地（标题／单元格宽高／主题目录／会话计数收敛为批量查询），`getMode` 导出删除；L2–L6 维持「有界重构建议，不扩大为变更」；红线（不减测试、不删 DESIGN 功能）为约束；不换核、不等完整 libghostty 上 Android 归禁止项三条保留 | 「禁止项三条保留」段；「研究阶段残留项与覆盖缺口登记」L2–L6 行；`openspec/changes/archive/` 台账 |
 | `30-VT测试边界与外部基准接入收敛.md` | VT 测试边界与外部基准接入；优先级 1–3 曾落地后又撤回 | 已撤回：原落地 `native/tests/external_benchmarks/`（UAX #11 全量宽度、ghostty fuzz 语料回放、kitty 键盘协议）按维护者口径「不测上游」整体删除，见「外部基准与 BDD 套件的退场」行；边界结论「不扩张成穷举 VT 一致」不变 | `terminal-state-regression`；本能力「上游 VT 语义不由本仓测试覆盖」；「语料判定补齐行」`corpus/stream-initial` 行 |
 | `终端模拟器生态深度研究报告.md` | 生态深度报告：S/A/B/C 评级、五条 VT 路线、跨仓扫描 | 已处置：评级语义归本条「生态参照面组行」定义；路线与扫描结论归本条「生态内其余仍需对照的结论」段 | 本条「生态扫描中仍作为判断依据保留的事实」段与「原 `ecosystem.md` 的 S/A/B/C 参照面评级」段；本表各行 |
+
+上表首 6 行键为现役在 `docs/research/` 的综合研究报告，其结论随文档在库而常驻，
+文档本体删除后由同键索引行承接；其余各行为已退役报告的索引。
 
 上表末 31 行键为另一份退役编号集的文件名（`00`–`30` 去掉 `26` 的 30 份编号文档
 加 `终端模拟器生态深度研究报告.md`；`26` 为 API 清单，成文时即移出研究目录，不在

@@ -1343,6 +1343,23 @@ mod tests {
         )
     }
 
+    /// 退化输入用例的公共夹具：24 行全 `x` 的网格、隐藏光标与 1024² 字体管线。
+    /// 缓存与实例由各用例按自身退化组合构造。
+    fn degraded_grid() -> (Vec<CellData>, CellCursor, crate::render::font::FontPipeline) {
+        let cells: Vec<CellData> = (0..24)
+            .map(|row| cell_data(row, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
+            .collect();
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: [1.0, 1.0, 1.0, 1.0],
+        };
+        let font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        (cells, cursor, font_pipeline)
+    }
+
     fn instances_equal(a: &[CellInstance], b: &[CellInstance]) -> bool {
         a.len() == b.len()
             && a.iter().zip(b).all(|(x, y)| {
@@ -1594,17 +1611,7 @@ mod tests {
     /// 提供陈旧行。
     #[test]
     fn cached_degraded_input_falls_back_to_full_rebuild() {
-        let cells: Vec<CellData> = (0..24)
-            .map(|row| cell_data(row, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
-            .collect();
-        let cursor = CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: [1.0, 1.0, 1.0, 1.0],
-        };
-        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let (cells, cursor, mut font_pipeline) = degraded_grid();
         let full = build(&cells, cursor, &[]);
 
         // 陈旧缓存：按 12 行网格构建，而网格已有 24 行。
@@ -1650,17 +1657,7 @@ mod tests {
     /// 钉住这一退化组合，使其永远不会静默通过。
     #[test]
     fn stale_cache_with_partial_mask_must_not_drop_rows() {
-        let cells: Vec<CellData> = (0..24)
-            .map(|row| cell_data(row, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
-            .collect();
-        let cursor = CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: [1.0, 1.0, 1.0, 1.0],
-        };
-        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let (cells, cursor, mut font_pipeline) = degraded_grid();
         let full = build(&cells, cursor, &[]);
 
         // 模拟 resize 帧：缓存按 24x40 构建，而网格

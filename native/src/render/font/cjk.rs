@@ -107,11 +107,7 @@ impl FontPipeline {
                 let same_file: Vec<(fontdb::ID, u32)> = font_database
                     .faces()
                     .filter_map(|face| {
-                        let path = match &face.source {
-                            fontdb::Source::File(path) => path,
-                            fontdb::Source::SharedFile(path, _) => path,
-                            fontdb::Source::Binary(_) => return None,
-                        };
+                        let path = super::font_db::face_source_path(face)?;
                         path.file_name()
                             .and_then(|name| name.to_str())
                             .filter(|name| name.eq_ignore_ascii_case(filename))?;

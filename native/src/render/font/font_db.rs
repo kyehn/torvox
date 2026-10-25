@@ -333,16 +333,25 @@ pub(crate) fn locale_fallback_files(xml: &str, locale: &str) -> Vec<String> {
         .collect()
 }
 
+/// 面的来源路径：文件面与共享文件面给出路径，内嵌二进制面无路径可循。
+///
+/// 库内面的三种来源里只有前两种能按文件名定位，故按名查找字体时统一走此函数，
+/// 各处各写一份 `match` 会在新增来源类型时漏改。
+pub(crate) fn face_source_path(face: &fontdb::FaceInfo) -> Option<&std::path::Path> {
+    match &face.source {
+        fontdb::Source::File(path) => Some(path.as_path()),
+        fontdb::Source::SharedFile(path, _) => Some(path.as_ref()),
+        fontdb::Source::Binary(_) => None,
+    }
+}
+
 /// 库内是否已有该字体文件。装入一个 TTC 即含其全部面，故按文件名判定即可，
 /// 无需逐面比较索引。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn font_file_is_loaded(font_database: &fontdb::Database, filename: &str) -> bool {
     font_database.faces().any(|face| {
-        let path = match &face.source {
-            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path,
-            fontdb::Source::Binary(_) => return false,
-        };
-        path.file_name()
+        face_source_path(face)
+            .and_then(|path| path.file_name())
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.eq_ignore_ascii_case(filename))
     })
@@ -875,11 +884,10 @@ mod tests {
         font_database.load_system_fonts();
         font_database
             .faces()
-            .find_map(|face| match &face.source {
-                fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => {
-                    path.is_file().then(|| path.clone())
-                }
-                fontdb::Source::Binary(_) => None,
+            .find_map(|face| {
+                super::face_source_path(face)
+                    .filter(|path| path.is_file())
+                    .map(|path| path.to_path_buf())
             })
             .expect("宿主字体库须有可加载的字体文件（run inside nix develop）")
     }
@@ -1494,14 +1502,10 @@ mod tests {
     #[test]
     fn select_primary_face_degrades_to_first_face_without_monospaced() {
         let (host_database, _, proportional) = host_faces();
-        let source_path = match &host_database
-            .face(proportional)
-            .expect("比例面须存在")
-            .source
-        {
-            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path.clone(),
-            fontdb::Source::Binary(_) => panic!("探针面须来自字体文件"),
-        };
+        let source_path =
+            super::face_source_path(host_database.face(proportional).expect("比例面须存在"))
+                .expect("探针面须来自字体文件")
+                .to_path_buf();
         let mut font_database = fontdb::Database::new();
         font_database
             .load_font_file(&source_path)
