@@ -4476,6 +4476,11 @@ fn selection_highlight_covers_blank_row_inside_range() {
 ///
 /// 图像经直接放置通道（`a=T`，即 kitten icat 走的那条）送入，故用同一路径
 /// 构造：VT 侧放置与 Unicode 占位符两条通道共用 ED2 撤除语义。
+///
+/// 两条通道的**存储代数**行为不同（此处只断言共有的放置代数）：直接放置把图像数据
+/// 与放置一起送入，撤下时图像条目一并删除，存储生成戳随之变化；虚拟放置只撤放置，
+/// 图像仍留在存储里，存储生成戳不变（见 `ed2_removes_virtual_kitty_placement_on_first_clear`）。
+/// 渲染缓存因此 MUST 以放置生成戳为撤除信号。
 #[test]
 fn ed2_removes_kitty_placements_on_first_clear() {
     let mut terminal = terminal();
@@ -4504,12 +4509,13 @@ fn ed2_removes_kitty_placements_on_first_clear() {
 
 /// 虚拟放置（`icat` 常走的「先传图、再放图」两段式）的 ED2 撤除。
 ///
-/// 判别力：ED2 撤下虚拟放置时不一定推进图像存储生成戳；旧缓存规则只看它，
+/// 判别力：ED2 撤下虚拟放置时**不**推进图像存储生成戳（实测不变式：存储键只随
+/// 图像内容增删而变，放置的增删与移动走放置生成戳）；旧缓存规则只看存储戳，
 /// 于是既不会醒来也不会重查，图像要等第二次 clear 才消失。放置生成戳
 /// 必须独立变化，渲染侧才能第一次就撤下。
 ///
-/// 注：上游对虚拟放置的撤除同样会推进存储生成戳，故这里只锁 VT 侧
-/// 「放置集合立即为空」；渲染缓存对「存储戳不变、放置戳变化」的判定由
+/// 注：上游对虚拟放置的撤除**不**推进存储生成戳，故此处同时锁住两条不变式；
+/// 渲染缓存对「存储戳不变、放置戳变化」的判定由
 /// `native/src/android/ffi.rs` 的纯函数单测覆盖。
 #[test]
 fn ed2_removes_virtual_kitty_placement_on_first_clear() {
@@ -4534,6 +4540,10 @@ fn ed2_removes_virtual_kitty_placement_on_first_clear() {
     terminal.pty_write(b"\x1b[2J");
     terminal.flush();
     let (_, after) = terminal.receive_cell_data().expect("cell data after ED2");
+    assert_eq!(
+        before.kitty_generation, after.kitty_generation,
+        "撤下虚拟放置不改变图像存储：存储生成戳只随图像内容的增删而变"
+    );
     assert_ne!(
         before.kitty_placement_generation, after.kitty_placement_generation,
         "放置生成戳必须变化，渲染线程才能醒来重查"
