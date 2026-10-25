@@ -1520,7 +1520,12 @@ mod tests {
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{index}">{filename}</font></family></familyset>"#
         );
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, &xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(
+            &font_database,
+            &crate::render::font::font_db::parse_fonts_xml_document(&xml).families,
+            "zh-CN",
+            3,
+        );
         assert_eq!(ids.len(), 1, "exact (filename, index) hit expected");
         let face = font_database.face(ids[0]).expect("matched face exists");
         assert_eq!(face.index, index, "TTC index must match fonts.xml");
@@ -1537,7 +1542,12 @@ mod tests {
         // 文件名未知：无精确命中，调用方改由扫描结果填充。
         let (font_database, _, _) = cjk_font_db_with_ttc_face();
         let xml = r#"<familyset version="23"><family lang="zh-Hans"><font index="2">NoSuchFont-Regular.ttc</font></family></familyset>"#;
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(
+            &font_database,
+            &crate::render::font::font_db::parse_fonts_xml_document(xml).families,
+            "zh-CN",
+            3,
+        );
         assert!(
             ids.is_empty(),
             "unknown file must yield no exact hit: {ids:?}"
@@ -1552,7 +1562,12 @@ mod tests {
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="100" style="normal" index="{index}">{filename}</font><font weight="400" style="normal" index="{index}">{filename}</font><font weight="900" style="normal" index="{index}">{filename}</font></family></familyset>"#
         );
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, &xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(
+            &font_database,
+            &crate::render::font::font_db::parse_fonts_xml_document(&xml).families,
+            "zh-CN",
+            3,
+        );
         assert_eq!(
             ids.len(),
             1,
@@ -1602,7 +1617,12 @@ mod tests {
         let xml = format!(
             r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{first_index}">{first_filename}</font><font weight="400" style="normal" index="{second_index}">{second_filename}</font></family></familyset>"#
         );
-        let ids = FontPipeline::match_fonts_xml_fallbacks(&font_database, &xml, "zh-CN", 3);
+        let ids = FontPipeline::match_fonts_xml_fallbacks(
+            &font_database,
+            &crate::render::font::font_db::parse_fonts_xml_document(&xml).families,
+            "zh-CN",
+            3,
+        );
         assert_eq!(ids.len(), 2, "both entries must resolve: {ids:?}");
         assert_eq!(
             font_database.face(ids[0]).expect("first face exists").index,

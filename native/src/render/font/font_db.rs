@@ -15,9 +15,98 @@ pub(crate) const FONT_DIRS: &[&str] = &[
 ];
 
 /// 按序尝试的 fonts.xml 位置：部分 ROM 只提供 `fonts_fallback.xml`。宿主非测试构建下
-/// 两者都不存在，`read_fonts_xml` 自然返回 `None`，故无需平台分支。
+/// 两者都不存在，`resolve_fonts_xml_document` 自然返回失败，故无需平台分支。
 pub(crate) const FONTS_XML_CANDIDATES: [&str; 2] =
     ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"];
+
+/// AOSP 的等宽族别名：`sans-serif-monospace`/`serif-monospace`（连字符），与真机
+/// fonts.xml 一致（见本文件测试里逐条摘录的片段）。
+const MONOSPACE_FAMILY_NAMES: [&str; 3] = ["monospace", "sans-serif-monospace", "serif-monospace"];
+
+/// `fonts.xml` 的族结构。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct FontsXmlFamilies {
+    /// 等宽族声明的字体文件名（按文档顺序）。
+    pub(crate) monospace: Vec<String>,
+    /// 语言回退块 `(lang, [(文件名, ttc_index)])`（按文档顺序）。
+    pub(crate) lang_fallbacks: Vec<(String, Vec<(String, u32)>)>,
+}
+
+/// `fonts.xml` 的解析产物：一次 XML 解析得到的全部视图。
+///
+/// 族结构、符号层、声明文件集与别名表都从同一棵 DOM 派生：各写一份遍历时任何
+/// 一处增删过滤条件都会静默分叉，而分叉只体现在真机字体缺失上。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct FontsXmlDocument {
+    /// 等宽族与语言回退块。
+    pub(crate) families: FontsXmlFamilies,
+    /// 符号层（既无 `name` 也无 `lang` 的族）的字体文件名。
+    pub(crate) symbol_files: Vec<String>,
+    /// 全部族声明的字体文件名（按文档顺序，不去重）。
+    pub(crate) declared_files: Vec<String>,
+    /// `(alias, filenames)` 对（按文档顺序）。
+    pub(crate) aliases: Vec<(String, Vec<String>)>,
+}
+
+/// 进程级缓存的系统 `fonts.xml` 文档。
+///
+/// `font-selection` 规范要求「`fonts.xml` 只被读盘解析一次」。它在进程存活期间
+/// 不变，而建库、区域回退补装、CJK 回退发现、字体列表四条路径都要它：每次重读
+/// 都从 `/system/etc` 拉一份整份 XML 进内存并重新解析，真机一次启动即 24 次解析，
+/// 日志里尽是同一条 `skip fallbackFor` 噪声。
+static FONTS_XML_DOCUMENT: std::sync::OnceLock<Result<FontsXmlDocument, String>> =
+    std::sync::OnceLock::new();
+
+/// 系统 `fonts.xml` 的缓存条目：文档或失败原因。
+fn fonts_xml_document() -> Result<&'static FontsXmlDocument, &'static str> {
+    FONTS_XML_DOCUMENT
+        .get_or_init(resolve_fonts_xml_document)
+        .as_ref()
+        .map_err(String::as_str)
+}
+
+/// 系统 `fonts.xml` 的缓存文档；不可用时为 `None`（宿主无此文件）。
+pub(crate) fn system_fonts_xml_document() -> Option<&'static FontsXmlDocument> {
+    fonts_xml_document().ok()
+}
+
+/// 系统 `fonts.xml` 的缓存文档：不可用时崩溃退出（DESIGN 字体节）。
+#[cfg(target_os = "android")]
+fn system_fonts_xml_document_or_fatal() -> &'static FontsXmlDocument {
+    match fonts_xml_document() {
+        Ok(document) => document,
+        Err(reason) => fatal(&format!("无法从系统 fonts.xml 解析等宽字体（{reason}）")),
+    }
+}
+
+/// 解析系统 `fonts.xml`：取首个可读**且声明了等宽族**的候选文件。
+///
+/// 候选按 [`FONTS_XML_CANDIDATES`] 顺序尝试。首个可读但未声明等宽族的文件被跳过：
+/// 主字体、符号层与区域层 MUST 取自同一份文件，否则两份 fonts.xml 里的同名族会
+/// 竞争同一字符（主字体来自 fonts_fallback.xml、区域层来自 fonts.xml 时最明显）。
+fn resolve_fonts_xml_document() -> Result<FontsXmlDocument, String> {
+    let mut last_error = String::new();
+    for xml_path in FONTS_XML_CANDIDATES {
+        let content = match std::fs::read_to_string(xml_path) {
+            Ok(content) => content,
+            Err(error) => {
+                last_error = format!("读取 {xml_path} 失败: {error}");
+                continue;
+            }
+        };
+        let document = parse_fonts_xml_document(&content);
+        if document.families.monospace.is_empty() {
+            last_error = format!("{xml_path} 未声明等宽字体");
+            continue;
+        }
+        log::debug!(
+            "FONT_XML: monospace targets={:?}",
+            document.families.monospace
+        );
+        return Ok(document);
+    }
+    Err(last_error)
+}
 
 #[cfg(target_os = "android")]
 static CACHED_FONT_DB: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLock::new();
@@ -63,28 +152,29 @@ pub(crate) fn load_font_database() -> fontdb::Database {
     let font_database = CACHED_FONT_DB.get_or_init(|| {
         let mut font_database = fontdb::Database::new();
 
-        // 主字体：fonts.xml 的 monospace 族**整族**（`resolve_system_monospace_files`
-        // 负责 fonts.xml 缺失或不可解析时崩溃退出）。只装族内首个时，该文件一旦不可用
+        // 主字体、符号层与区域层取自同一份 fonts.xml：该文件缺失或不可解析时
+        // `system_fonts_xml_document_or_fatal` 崩溃退出（DESIGN 字体节）。
+        let document = system_fonts_xml_document_or_fatal();
+
+        // 主字体：fonts.xml 的 monospace 族**整族**。只装族内首个时，该文件一旦不可用
         // 就再无任何面可降级，等于把「某个字体文件缺失」升级成崩溃。
         let mut loaded = load_files(
             &mut font_database,
-            &resolve_font_files(resolve_system_monospace_files()),
+            &resolve_font_files(&document.families.monospace),
         );
 
-        // 一个符号族 + 一个区域族。fonts.xml 缺失时这两项为空：符号缺失只是
-        // ▶ ⏵ ♥ ★ 变豆腐块，区域缺失只是 CJK 变豆腐块，都不该让应用不可用。
-        let Some(content) = read_fonts_xml() else {
-            log::warn!("FONT_LOAD: fonts.xml 不可读，符号与区域回退族为空");
-            log::debug!("FONT_LOAD: loaded {loaded} font files");
-            return font_database;
-        };
-        let symbol = resolve_font_files(&symbol_family_files(&content));
+        // 一个符号族 + 一个区域族：符号缺失只是 ▶ ⏵ ♥ ★ 变豆腐块，区域缺失只是 CJK
+        // 变豆腐块，都不该让应用不可用。
+        let symbol = resolve_font_files(&document.symbol_files);
         loaded += load_files(&mut font_database, &symbol);
-        let region = resolve_font_files(&locale_fallback_files(&content, &current_locale()));
+        let region = resolve_font_files(&locale_fallback_files(
+            &document.families,
+            &current_locale(),
+        ));
         loaded += load_files(&mut font_database, &region);
 
         if !db_has_monospaced(&font_database) {
-            loaded += widen_to_declared_set(&mut font_database, &content);
+            loaded += widen_to_declared_set(&mut font_database, &document.declared_files);
         }
 
         log::debug!(
@@ -145,9 +235,9 @@ pub(crate) fn cjk_coverage_probe_char(system_locale: &str) -> char {
 /// 没有任何等宽面：放宽装入 fonts.xml 全量声明文件（跳过已在库中的），保证
 /// 库内至少有一个可用面，返回新装入的文件数。健康设备永不进入此路径。
 #[cfg(target_os = "android")]
-fn widen_to_declared_set(font_database: &mut fontdb::Database, content: &str) -> u32 {
+fn widen_to_declared_set(font_database: &mut fontdb::Database, declared_files: &[String]) -> u32 {
     let mut loaded = 0u32;
-    for path in resolve_font_files(&parse_fonts_xml_declared_files(content)) {
+    for path in resolve_font_files(declared_files) {
         let Some(filename) = path
             .file_name()
             .and_then(|name| name.to_str())
@@ -202,9 +292,9 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
                 files.push(file_label);
             }
         };
-        if let Some(content) = read_fonts_xml() {
-            for filename in parse_fonts_xml_declared_files(&content) {
-                let Some(path) = resolve_font_path(&filename) else {
+        if let Some(document) = system_fonts_xml_document() {
+            for filename in &document.declared_files {
+                let Some(path) = resolve_font_path(filename) else {
                     continue;
                 };
                 let mut font_database = fontdb::Database::new();
@@ -280,41 +370,16 @@ pub(crate) fn current_locale() -> String {
     CURRENT_LOCALE.read().clone()
 }
 
-/// fonts.xml 里既无 `name` 也无 `lang` 的族即符号层：实测 emulator 的
-/// `NotoSansSymbols-Regular-Subsetted.ttf` 正是声明在这里。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn symbol_family_files(xml: &str) -> Vec<String> {
-    let Ok(document) = roxmltree::Document::parse(xml) else {
-        return Vec::new();
-    };
-    for family in document
-        .root_element()
-        .children()
-        .filter(|node| node.is_element() && node.tag_name().name() == "family")
-    {
-        if family.attribute("name").is_some() || family.attribute("lang").is_some() {
-            continue;
-        }
-        let filenames: Vec<String> = family
-            .children()
-            .filter(|node| node.is_element() && node.tag_name().name() == "font")
-            .filter_map(|font| font.text().map(str::trim).map(str::to_string))
-            .filter(|text| !text.is_empty())
-            .collect();
-        if !filenames.is_empty() {
-            return filenames;
-        }
-    }
-    Vec::new()
-}
-
 /// 当前语言对应的区域回退条目 `(文件名, ttc_index)`（简中 → `zh-Hans` 的 NotoSansCJK）。
 /// 保留 `ttc_index` 供面级匹配使用；按 locale 优先级取首个匹配的 `lang` 块。
 #[cfg(any(target_os = "android", test))]
-pub(crate) fn locale_fallback_entries(xml: &str, locale: &str) -> Vec<(String, u32)> {
-    let (_, lang_fallbacks) = parse_fonts_xml_families(xml);
+pub(crate) fn locale_fallback_entries(
+    families: &FontsXmlFamilies,
+    locale: &str,
+) -> Vec<(String, u32)> {
     for wanted in locale_fonts_xml_langs(locale) {
-        if let Some((_, filenames)) = lang_fallbacks
+        if let Some((_, filenames)) = families
+            .lang_fallbacks
             .iter()
             .find(|(lang, _)| lang.split(',').any(|tag| tag == *wanted))
         {
@@ -326,8 +391,8 @@ pub(crate) fn locale_fallback_entries(xml: &str, locale: &str) -> Vec<(String, u
 
 /// 当前语言对应的区域回退族文件名（简中 → `zh-Hans` 的 NotoSansCJK）。
 #[cfg(any(target_os = "android", test))]
-pub(crate) fn locale_fallback_files(xml: &str, locale: &str) -> Vec<String> {
-    locale_fallback_entries(xml, locale)
+pub(crate) fn locale_fallback_files(families: &FontsXmlFamilies, locale: &str) -> Vec<String> {
+    locale_fallback_entries(families, locale)
         .into_iter()
         .map(|(filename, _)| filename)
         .collect()
@@ -362,15 +427,15 @@ pub(crate) fn font_file_is_loaded(font_database: &fontdb::Database, filename: &s
 /// 字体库在管线创建时构建，而 locale 由 JNI 在其之后才到达：spawn 前的调用被
 /// `Bridge.onSession` 的 `sessionId == 0` 守卫丢弃，随后的重放又晚于库定型。
 /// 故区域族必须能在 locale 到达后按本函数的结果补装，而不是指望它建库时就在。
-/// 纯函数（库 + XML + locale → 缺失项），便于宿主单测覆盖该时序。
+/// 纯函数（库 + 族结构 + locale → 缺失项），便于宿主单测覆盖该时序。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn missing_region_fallback_faces(
     font_database: &fontdb::Database,
-    xml: &str,
+    families: &FontsXmlFamilies,
     system_locale: &str,
 ) -> Vec<(String, u32)> {
     let mut missing: Vec<(String, u32)> = Vec::new();
-    for (filename, index) in locale_fallback_entries(xml, system_locale) {
+    for (filename, index) in locale_fallback_entries(families, system_locale) {
         // 真机 `zh-Hans` 块把同一 TTC 按 weight 100..900 重复声明九次
         // （对照设备 /system/etc/fonts.xml）。装一个文件即含全部面，
         // 故按文件名去重、只补首个。
@@ -397,11 +462,11 @@ pub(crate) fn load_region_fallback_faces(
     font_database: &mut fontdb::Database,
     system_locale: &str,
 ) -> Vec<fontdb::ID> {
-    let Some(content) = read_fonts_xml() else {
+    let Some(document) = system_fonts_xml_document() else {
         log::warn!("FONT_LOAD: fonts.xml 不可读，区域回退族无法补装");
         return Vec::new();
     };
-    let missing = missing_region_fallback_faces(font_database, &content, system_locale);
+    let missing = missing_region_fallback_faces(font_database, &document.families, system_locale);
     let mut loaded = Vec::new();
     for path in resolve_font_files(
         &missing
@@ -470,12 +535,6 @@ pub(crate) fn resolve_font_entry(entry: &str) -> Option<std::path::PathBuf> {
     resolve_font_path(entry)
 }
 
-pub(crate) fn read_fonts_xml() -> Option<String> {
-    FONTS_XML_CANDIDATES
-        .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok())
-}
-
 #[cfg(target_os = "android")]
 fn load_files(font_database: &mut fontdb::Database, paths: &[std::path::PathBuf]) -> u32 {
     let mut count = 0u32;
@@ -515,13 +574,6 @@ pub(crate) fn fatal(reason: &str) -> ! {
     std::process::abort()
 }
 
-/// 等宽字体文件名列表，进程内解析一次：建库与 `find_monospace_font` 共用同一结果。
-///
-/// `fonts.xml` 在进程生命周期内不变，而 `set_font_family("")` 会反复进入
-/// `find_monospace_font`，每次重读重解析整份 XML 都落在渲染线程上。
-#[cfg(target_os = "android")]
-static MONOSPACE_XML_FILES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-
 /// 缓存的等宽字体文件名，按 `fonts.xml` 声明顺序。
 ///
 /// 整族而非首个：族内通常声明多个 `<font>`，只装第一个时它一旦不可用（OEM 改名、
@@ -529,36 +581,7 @@ static MONOSPACE_XML_FILES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLo
 /// 「无法解析」，不该走 [`fatal`]。首个仍是 `find_monospace_font` 的匹配目标。
 #[cfg(target_os = "android")]
 pub(crate) fn resolve_system_monospace_files() -> &'static [String] {
-    MONOSPACE_XML_FILES.get_or_init(resolve_system_monospace_from_fonts_xml)
-}
-
-/// 系统等宽字体文件名列表，取自 `fonts.xml`（DESIGN 字体节：fonts.xml 是唯一来源，
-/// 不得使用任何硬编码字体名）。
-///
-/// 规范要求「系统不存在 fonts.xml 或其内容无法解析，输出日志并崩溃退出」：
-/// 候选文件都读不到、都无法解析、或都没给出等宽字体时经 [`fatal`] 退出。
-/// 宿主（非 Android）不参与：那里没有 fonts.xml。
-#[cfg(target_os = "android")]
-fn resolve_system_monospace_from_fonts_xml() -> Vec<String> {
-    let mut last_error = String::new();
-    for xml_path in FONTS_XML_CANDIDATES {
-        let content = match std::fs::read_to_string(xml_path) {
-            Ok(content) => content,
-            Err(error) => {
-                last_error = format!("读取 {xml_path} 失败: {error}");
-                continue;
-            }
-        };
-        let (monospace, _) = parse_fonts_xml_families(&content);
-        if !monospace.is_empty() {
-            log::debug!("FONT_XML: monospace targets={monospace:?}");
-            return monospace;
-        }
-        last_error = format!("{xml_path} 未声明等宽字体");
-    }
-    fatal(&format!(
-        "无法从系统 fonts.xml 解析等宽字体（{last_error}）"
-    ))
+    &system_fonts_xml_document_or_fatal().families.monospace
 }
 
 /// 面是否覆盖基本拉丁（探测字符 'm'，与单元格度量所用字符一致）：终端主字体的
@@ -655,90 +678,134 @@ pub(crate) fn select_primary_face(
     None
 }
 
-type FontsXmlFamilies = (Vec<String>, Vec<(String, Vec<(String, u32)>)>);
-
-/// 解析 `fonts.xml`，产出等宽字体文件名与有序的 `(lang, [(filename, ttc_index)])`
-/// 回退条目。纯函数，便于宿主测试喂入真实设备片段；无法解析的输入产出空列表。
-pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
-    let mut monospace = Vec::new();
-    let mut lang_fallbacks = Vec::new();
+/// 解析 `fonts.xml` 原文，得到全部视图。纯函数，便于宿主测试喂入真实设备片段；
+/// 无法解析的输入产出空文档。
+pub(crate) fn parse_fonts_xml_document(xml: &str) -> FontsXmlDocument {
     let document = match roxmltree::Document::parse(xml) {
         Ok(document) => document,
         Err(error) => {
             log::error!("FONT_XML: 解析失败（{error}）");
-            return (monospace, lang_fallbacks);
+            return FontsXmlDocument::default();
         }
     };
     let root = document.root_element();
     if !matches!(root.tag_name().name(), "familyset" | "fontconfig") {
         log::error!("FONT_XML: 根元素不是 familyset/fontconfig");
-        return (monospace, lang_fallbacks);
+        return FontsXmlDocument::default();
     }
-    for family in document
-        .root_element()
-        .children()
-        .filter(|node| node.is_element() && node.tag_name().name() == "family")
-    {
-        let mut filenames = Vec::new();
-        // 常规字重（weight=400 或不写）排在族内最前：调用方按序取前若干个，
-        // AOSP 把 Thin/Light/DemiLight 排在 Regular 之前，直接按文档序取会先拿到
-        // 超细字重——spec 要求的却是常规字重的那个面。
-        let mut regular_filenames = Vec::new();
-        for font in family
-            .children()
-            .filter(|node| node.is_element() && node.tag_name().name() == "font")
-        {
-            let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) else {
-                continue;
-            };
-            let index = font
-                .attribute("index")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0);
-            // `fallbackFor="serif"` 之类是**另一条** fallback 链专用的字体：同一族里
-            // 常与正文字体同名同权重并列（如 zh-Hans 的 NotoSerifCJK-Regular.ttc）。
-            // 终端主链按字体文件取面，收进来就会让 serif 面与正体竞争同一字符。
-            if font.attribute("fallbackFor").is_some() {
-                log::debug!(
-                    "FONT_XML: skip fallbackFor={} font='{filename}'",
-                    font.attribute("fallbackFor").unwrap_or_default()
-                );
-                continue;
-            }
-            let is_regular = font
-                .attribute("weight")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(400)
-                == 400;
-            if is_regular {
-                regular_filenames.push((filename.to_string(), index));
-            } else {
-                filenames.push((filename.to_string(), index));
+
+    let mut families = FontsXmlFamilies::default();
+    let mut symbol_files: Vec<String> = Vec::new();
+    let mut declared_files: Vec<String> = Vec::new();
+    let mut aliases: Vec<(String, Vec<String>)> = Vec::new();
+    let mut skipped_fallback_fonts = 0usize;
+    let mut skipped_chains: Vec<String> = Vec::new();
+
+    for family in fonts_xml_families_of(&document) {
+        let name = family.attribute("name");
+        let lang = family.attribute("lang");
+        let files = family_font_files(family);
+        let (candidates, family_chains) = family_candidate_fonts(family);
+        skipped_fallback_fonts += family_chains.len();
+        for chain in family_chains {
+            if !skipped_chains.contains(&chain) {
+                skipped_chains.push(chain);
             }
         }
-        filenames.splice(0..0, regular_filenames);
-        if filenames.is_empty() {
+
+        // 符号层：既无 `name` 也无 `lang` 的族。实测 emulator（API 35）的
+        // `NotoSansSymbols-Regular-Subsetted.ttf` 正声明在这里。
+        if name.is_none() && lang.is_none() && !files.is_empty() && symbol_files.is_empty() {
+            symbol_files = files.clone();
+        }
+        declared_files.extend(files.iter().cloned());
+        if let Some(alias) = name.map(str::trim).filter(|alias| !alias.is_empty())
+            && !files.is_empty()
+        {
+            aliases.push((alias.to_string(), files.clone()));
+        }
+
+        if candidates.is_empty() {
             continue;
         }
-        if let Some(name) = family.attribute("name") {
-            // AOSP 的族名是 `sans-serif-monospace`/`serif-monospace`（连字符），
-            // 与真机 fonts.xml 一致（见本文件测试里逐条摘录的片段）。
-            if ["monospace", "sans-serif-monospace", "serif-monospace"].contains(&name) {
-                monospace.extend(filenames.into_iter().map(|(filename, _)| filename));
+        if let Some(name) = name {
+            if MONOSPACE_FAMILY_NAMES.contains(&name) {
+                families
+                    .monospace
+                    .extend(candidates.into_iter().map(|(filename, _)| filename));
             }
-        } else if let Some(lang) = family.attribute("lang") {
-            lang_fallbacks.push((lang.to_string(), filenames));
+        } else if let Some(lang) = lang {
+            families.lang_fallbacks.push((lang.to_string(), candidates));
         }
     }
-    (monospace, lang_fallbacks)
+
+    // 被跳过的 `fallbackFor` 字体按链汇总成一行：逐个打印时真机一次启动就是
+    // 十几行同形噪声，把真正的诊断挤出可读范围。
+    if skipped_fallback_fonts > 0 {
+        log::debug!(
+            "FONT_XML: 跳过 {skipped_fallback_fonts} 个 fallbackFor 字体（回退链：{}）",
+            skipped_chains.join(", ")
+        );
+    }
+
+    FontsXmlDocument {
+        families,
+        symbol_files,
+        declared_files,
+        aliases,
+    }
+}
+
+/// 一个 `<family>` 下参与终端主链的字体条目 `(文件名, ttc_index)`，以及被跳过的
+/// `fallbackFor` 字体所属的回退链。
+///
+/// `fallbackFor="serif"` 之类是**另一条** fallback 链专用的字体：同一族里常与正文
+/// 字体同名同权重并列（如 zh-Hans 的 NotoSerifCJK-Regular.ttc）。终端主链按字体
+/// 文件取面，收进来就会让 serif 面与正体竞争同一字符。
+///
+/// 常规字重（weight=400 或不写）排在族内最前：调用方按序取前若干个，AOSP 把
+/// Thin/Light/DemiLight 排在 Regular 之前，直接按文档序取会先拿到超细字重——
+/// spec 要求的却是常规字重的那个面。
+fn family_candidate_fonts(family: roxmltree::Node<'_, '_>) -> (Vec<(String, u32)>, Vec<String>) {
+    let mut regular = Vec::new();
+    let mut others = Vec::new();
+    let mut skipped_chains = Vec::new();
+    for font in family
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "font")
+    {
+        let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) else {
+            continue;
+        };
+        if let Some(chain) = font.attribute("fallbackFor") {
+            skipped_chains.push(chain.to_string());
+            continue;
+        }
+        let index = font
+            .attribute("index")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        let is_regular = font
+            .attribute("weight")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(400)
+            == 400;
+        let entry = (filename.to_string(), index);
+        if is_regular {
+            regular.push(entry);
+        } else {
+            others.push(entry);
+        }
+    }
+    // 常规字重排族内最前：把常规项插到其余字重之前。
+    others.splice(0..0, regular);
+    (others, skipped_chains)
 }
 
 /// `fonts.xml` 根下全部 `<family>` 元素（按文档顺序）。
 ///
-/// 三个解析入口（families / declared files / aliases）共用同一条遍历链：
-/// 各写一份时任何一处增删过滤条件都会静默分叉，而分叉只体现在真机字体缺失上。
-/// 三个调用方均为 `#[cfg(any(target_os = "android", test))]`，故同口径限定。
-#[cfg(any(target_os = "android", test))]
+/// 全部视图共用同一条遍历链：各写一份时任何一处增删过滤条件都会静默分叉，
+/// 而分叉只体现在真机字体缺失上。
 fn fonts_xml_families_of<'a, 'input>(
     document: &'a roxmltree::Document<'input>,
 ) -> impl Iterator<Item = roxmltree::Node<'a, 'input>> {
@@ -750,9 +817,8 @@ fn fonts_xml_families_of<'a, 'input>(
 
 /// 一个 `<family>` 下全部非空 `<font>` 文件名（按文档顺序，不去重）。
 ///
-/// `parse_fonts_xml_declared_files` 与 `parse_fonts_xml_aliases` 共用：两处各写
-/// 一份时任何一处增删过滤条件都会静默分叉，而分叉只体现在真机字体缺失上。
-#[cfg(any(target_os = "android", test))]
+/// 符号层、声明文件集与别名表共用：两处各写一份时任何一处增删过滤条件都会
+/// 静默分叉，而分叉只体现在真机字体缺失上。
 fn family_font_files(family: roxmltree::Node<'_, '_>) -> Vec<String> {
     family
         .children()
@@ -764,63 +830,12 @@ fn family_font_files(family: roxmltree::Node<'_, '_>) -> Vec<String> {
         .collect()
 }
 
-/// `fonts.xml` 声明的全部字体文件名（去重前，按文档顺序）。
-///
-/// 覆盖**每个** `<family>` 下的 `<font>`，包括既无 `name` 也无 `lang` 的族：
-/// 实测 emulator（API 35）的 `NotoSansSymbols-Regular-Subsetted*.ttc` 正声明在无名族里，
-/// 终端的 ▶ ⏵ ♥ ★ 依赖它，按 name/lang 过滤会漏掉。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn parse_fonts_xml_declared_files(xml: &str) -> Vec<String> {
-    let mut filenames = Vec::new();
-    let Ok(document) = roxmltree::Document::parse(xml) else {
-        log::error!("FONT_XML: 解析失败");
-        return filenames;
-    };
-    for family in fonts_xml_families_of(&document) {
-        filenames.extend(family_font_files(family));
-    }
-    filenames
-}
-
-/// 按文档顺序把 `fonts.xml` 解析为 `(alias, filenames)` 对。无名字段被跳过。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn parse_fonts_xml_aliases(xml: &str) -> Vec<(String, Vec<String>)> {
-    let mut aliases = Vec::new();
-    let Ok(document) = roxmltree::Document::parse(xml) else {
-        return aliases;
-    };
-    let root = document.root_element();
-    if !matches!(root.tag_name().name(), "familyset" | "fontconfig") {
-        return aliases;
-    }
-    for family in fonts_xml_families_of(&document) {
-        let Some(name) = family
-            .attribute("name")
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        else {
-            continue;
-        };
-        let filenames = family_font_files(family);
-        if !filenames.is_empty() {
-            aliases.push((name.to_string(), filenames));
-        }
-    }
-    aliases
-}
-
-#[cfg(target_os = "android")]
-static FONTS_XML_ALIASES: std::sync::OnceLock<Vec<(String, Vec<String>)>> =
-    std::sync::OnceLock::new();
-
-/// 平台 `fonts.xml` 的别名解析结果，每进程读取一次。
+/// 平台 `fonts.xml` 的别名解析结果（与其它视图同源于进程级缓存的那份文档）。
 #[cfg(target_os = "android")]
 pub(crate) fn fonts_xml_aliases() -> &'static [(String, Vec<String>)] {
-    FONTS_XML_ALIASES.get_or_init(|| {
-        std::fs::read_to_string("/system/etc/fonts.xml")
-            .map(|content| parse_fonts_xml_aliases(&content))
-            .unwrap_or_default()
-    })
+    system_fonts_xml_document()
+        .map(|document| document.aliases.as_slice())
+        .unwrap_or_default()
 }
 
 /// 系统 locale → CJK 变体标记（`sc`/`tc`/`jp`/`kr`，非 CJK 为 `None`）。
@@ -910,11 +925,11 @@ mod tests {
             .and_then(|name| name.to_str())
             .expect("探针字体须有文件名")
             .to_string();
-        let xml = probe_fonts_xml(&filename);
+        let families = super::parse_fonts_xml_document(&probe_fonts_xml(&filename)).families;
 
         let mut font_database = fontdb::Database::new();
         assert_eq!(
-            super::missing_region_fallback_faces(&font_database, &xml, "zh-CN"),
+            super::missing_region_fallback_faces(&font_database, &families, "zh-CN"),
             vec![(filename.clone(), 2)],
             "库在 locale 之前定型时区域族必须报为缺失，否则 zh-CN 用户无 CJK 可用"
         );
@@ -923,7 +938,7 @@ mod tests {
             .load_font_file(&probe)
             .expect("探针字体须可装入");
         assert!(
-            super::missing_region_fallback_faces(&font_database, &xml, "zh-CN").is_empty(),
+            super::missing_region_fallback_faces(&font_database, &families, "zh-CN").is_empty(),
             "补装后不得再报缺失，否则重复调用会重复装入同一个 TTC"
         );
     }
@@ -939,12 +954,13 @@ mod tests {
                 format!(r#"<font weight="{weight}" style="normal" index="2">{filename}</font>"#)
             })
             .collect();
-        let xml = format!(
+        let families = super::parse_fonts_xml_document(&format!(
             r#"<familyset version="23"><family lang="zh-Hans">{weights}</family></familyset>"#
-        );
+        ))
+        .families;
         let font_database = fontdb::Database::new();
         assert_eq!(
-            super::missing_region_fallback_faces(&font_database, &xml, "zh-CN"),
+            super::missing_region_fallback_faces(&font_database, &families, "zh-CN"),
             vec![(filename.to_string(), 2)],
             "同一 TTC 的九个字重声明只补一个文件"
         );
@@ -954,13 +970,14 @@ mod tests {
     #[test]
     fn non_cjk_locale_requests_no_region_fallback() {
         let font_database = fontdb::Database::new();
-        let xml = probe_fonts_xml("NotoSansCJK-Regular.ttc");
+        let families =
+            super::parse_fonts_xml_document(&probe_fonts_xml("NotoSansCJK-Regular.ttc")).families;
         assert!(
-            super::missing_region_fallback_faces(&font_database, &xml, "en-US").is_empty(),
+            super::missing_region_fallback_faces(&font_database, &families, "en-US").is_empty(),
             "非 CJK locale 不得补装区域回退族"
         );
         assert!(
-            super::missing_region_fallback_faces(&font_database, &xml, "ja").is_empty(),
+            super::missing_region_fallback_faces(&font_database, &families, "ja").is_empty(),
             "CJK locale 须报出待补装的区域族，与上方 en-US 构成对照"
         );
     }
@@ -1100,34 +1117,44 @@ mod tests {
     #[test]
     fn symbol_family_comes_from_nameless_family() {
         assert_eq!(
-            super::symbol_family_files(FONTS_XML_SNIPPET),
+            super::parse_fonts_xml_document(FONTS_XML_SNIPPET).symbol_files,
             vec!["NotoSansSymbols-Regular-Subsetted.ttf"]
         );
-        assert!(super::symbol_family_files("<familyset></familyset>").is_empty());
-        assert!(super::symbol_family_files("not xml").is_empty());
+        assert!(
+            super::parse_fonts_xml_document("<familyset></familyset>")
+                .symbol_files
+                .is_empty()
+        );
+        assert!(
+            super::parse_fonts_xml_document("not xml")
+                .symbol_files
+                .is_empty()
+        );
     }
 
     /// 区域族按当前语言取 `lang` 匹配项；语言不匹配时为空（不猜）。
     #[test]
     fn locale_family_follows_system_language() {
+        let families = super::parse_fonts_xml_document(FONTS_XML_SNIPPET).families;
         assert_eq!(
-            super::locale_fallback_files(FONTS_XML_SNIPPET, "zh-CN"),
+            super::locale_fallback_files(&families, "zh-CN"),
             vec!["NotoSansCJK-Regular.ttc"]
         );
         assert_eq!(
-            super::locale_fallback_files(FONTS_XML_SNIPPET, "ja"),
+            super::locale_fallback_files(&families, "ja"),
             vec!["NotoSansCJK-Regular.ttc"]
         );
         assert!(
-            super::locale_fallback_files(FONTS_XML_SNIPPET, "en-US").is_empty(),
+            super::locale_fallback_files(&families, "en-US").is_empty(),
             "非 CJK 语言不得回退到 CJK 族"
         );
     }
 
     #[test]
     fn parse_fonts_xml_monospace_and_lang_blocks() {
-        let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(FONTS_XML_SNIPPET);
-        assert_eq!(monospace, vec!["DroidSansMono.ttf"]);
+        let families = super::parse_fonts_xml_document(FONTS_XML_SNIPPET).families;
+        assert_eq!(families.monospace, vec!["DroidSansMono.ttf"]);
+        let lang_fallbacks = &families.lang_fallbacks;
         assert_eq!(lang_fallbacks.len(), 2);
         assert_eq!(lang_fallbacks[0].0, "zh-Hans");
         assert_eq!(
@@ -1138,6 +1165,39 @@ mod tests {
         assert_eq!(
             lang_fallbacks[1].1,
             vec![("NotoSansCJK-Regular.ttc".to_string(), 0)]
+        );
+    }
+
+    /// 全部视图同源于一次解析：族结构、符号层、声明文件集与别名表必须互相自洽。
+    /// 各写一份遍历时任何一处增删过滤条件都会静默分叉，而分叉只体现在真机字体
+    /// 缺失上——声明文件集少一个族，放宽装库就少装一个文件。
+    #[test]
+    fn fonts_xml_document_views_are_self_consistent() {
+        let document = super::parse_fonts_xml_document(FONTS_XML_SNIPPET);
+        assert_eq!(document.families.monospace, vec!["DroidSansMono.ttf"]);
+        assert_eq!(
+            document.symbol_files,
+            vec!["NotoSansSymbols-Regular-Subsetted.ttf"]
+        );
+        assert_eq!(
+            document.aliases,
+            vec![
+                (
+                    "monospace".to_string(),
+                    vec!["DroidSansMono.ttf".to_string()]
+                ),
+                ("casual".to_string(), vec!["ComingSoon.ttf".to_string()]),
+            ]
+        );
+        assert_eq!(
+            document.declared_files,
+            vec![
+                "DroidSansMono.ttf",
+                "ComingSoon.ttf",
+                "NotoSansCJK-Regular.ttc",
+                "NotoSansCJK-Regular.ttc",
+                "NotoSansSymbols-Regular-Subsetted.ttf",
+            ]
         );
     }
 
@@ -1157,7 +1217,7 @@ mod tests {
         );
         assert_ne!(xml, FONTS_XML_SNIPPET, "片段替换未命中，测试会恒真");
         assert_eq!(
-            super::parse_fonts_xml_families(&xml).0,
+            super::parse_fonts_xml_document(&xml).families.monospace,
             vec!["DroidSansMono.ttf", "DroidSansMonoBold.ttf"]
         );
     }
@@ -1180,8 +1240,10 @@ mod tests {
         </font>"#,
         );
         assert_ne!(xml, FONTS_XML_SNIPPET, "片段替换未命中，测试会恒真");
-        let (_, lang_fallbacks) = super::parse_fonts_xml_families(&xml);
-        let zh_hans = lang_fallbacks
+        let document = super::parse_fonts_xml_document(&xml);
+        let zh_hans = document
+            .families
+            .lang_fallbacks
             .iter()
             .find(|(lang, _)| lang == "zh-Hans")
             .unwrap();
@@ -1203,8 +1265,8 @@ mod tests {
         <font weight="400" style="normal" index="2">NotoSansCJK-Regular.ttc</font>
     </family>
 </familyset>"#;
-        let (_, lang_fallbacks) = super::parse_fonts_xml_families(xml);
-        let names: Vec<&str> = lang_fallbacks[0]
+        let document = super::parse_fonts_xml_document(xml);
+        let names: Vec<&str> = document.families.lang_fallbacks[0]
             .1
             .iter()
             .map(|(name, _)| name.as_str())
@@ -1225,7 +1287,7 @@ mod tests {
     </family>
 </familyset>"#;
         assert_eq!(
-            super::parse_fonts_xml_families(xml).0,
+            super::parse_fonts_xml_document(xml).families.monospace,
             vec!["CutiveMono.ttf"]
         );
     }
@@ -1268,13 +1330,15 @@ mod tests {
         <font weight="400" style="normal">NotoSansSymbols-Regular-Subsetted.ttf</font>
     </family>
 </familyset>"#;
-        let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(REAL_DEVICE_FONTS_XML);
+        let document = super::parse_fonts_xml_document(REAL_DEVICE_FONTS_XML);
         assert_eq!(
-            monospace,
+            document.families.monospace,
             vec!["DroidSansMono.ttf", "CutiveMono.ttf"],
             "主字体必须仍是 DroidSansMono.ttf 打头，否则渲染字形改变"
         );
-        let zh_hans = lang_fallbacks
+        let zh_hans = document
+            .families
+            .lang_fallbacks
             .iter()
             .find(|(lang, _)| lang == "zh-Hans")
             .expect("真机声明 zh-Hans 族");
@@ -1288,7 +1352,7 @@ mod tests {
             "fallbackFor=\"serif\" 的面泄漏进 zh-Hans 候选: {names:?}"
         );
         assert_eq!(
-            super::symbol_family_files(REAL_DEVICE_FONTS_XML),
+            document.symbol_files,
             vec!["NotoSansSymbols-Regular-Subsetted.ttf"],
             "真机的符号层同样声明在无 name/lang 的族里"
         );
@@ -1304,32 +1368,36 @@ mod tests {
     </family>"#,
             "",
         );
-        let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(&xml);
+        let document = super::parse_fonts_xml_document(&xml);
         assert!(
-            monospace.is_empty(),
+            document.families.monospace.is_empty(),
             "只含 lang 族与无名族时不得产出等宽候选，否则崩溃退出条件被静默绕过"
         );
-        assert_eq!(lang_fallbacks.len(), 2, "其余解析不受影响");
+        assert_eq!(
+            document.families.lang_fallbacks.len(),
+            2,
+            "其余解析不受影响"
+        );
     }
 
     #[test]
     fn parse_fonts_xml_rejects_garbage() {
         assert_eq!(
-            super::parse_fonts_xml_families("not xml at all"),
-            (Vec::new(), Vec::new())
+            super::parse_fonts_xml_document("not xml at all").families,
+            super::FontsXmlFamilies::default()
         );
         assert_eq!(
-            super::parse_fonts_xml_families("<html></html>"),
-            (Vec::new(), Vec::new())
+            super::parse_fonts_xml_document("<html></html>").families,
+            super::FontsXmlFamilies::default()
         );
         assert_eq!(
-            super::parse_fonts_xml_families(""),
-            (Vec::new(), Vec::new())
+            super::parse_fonts_xml_document("").families,
+            super::FontsXmlFamilies::default()
         );
     }
 
     #[test]
-    fn parse_fonts_xml_declared_files_includes_nameless_family() {
+    fn fonts_xml_declared_files_include_nameless_family() {
         // emulator（API 35）的符号字体声明在既无 name 也无 lang 的族里，
         // 按 name/lang 过滤会漏掉，终端将失去 ▶ ⏵ ♥ ★。
         let xml = r#"<familyset>
@@ -1338,7 +1406,7 @@ mod tests {
             <family><font>NotoSansSymbols-Regular-Subsetted.ttf</font></family>
         </familyset>"#;
         assert_eq!(
-            super::parse_fonts_xml_declared_files(xml),
+            super::parse_fonts_xml_document(xml).declared_files,
             vec![
                 "DroidSansMono.ttf",
                 "NotoSansCJK-Regular.ttc",
@@ -1348,18 +1416,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_fonts_xml_declared_files_rejects_garbage() {
-        assert!(super::parse_fonts_xml_declared_files("not xml at all").is_empty());
-        assert!(super::parse_fonts_xml_declared_files("").is_empty());
+    fn fonts_xml_declared_files_reject_garbage() {
         assert!(
-            super::parse_fonts_xml_declared_files("<familyset><family></family></familyset>")
+            super::parse_fonts_xml_document("not xml at all")
+                .declared_files
+                .is_empty()
+        );
+        assert!(
+            super::parse_fonts_xml_document("")
+                .declared_files
+                .is_empty()
+        );
+        assert!(
+            super::parse_fonts_xml_document("<familyset><family></family></familyset>")
+                .declared_files
                 .is_empty()
         );
     }
 
     #[test]
-    fn parse_fonts_xml_aliases_in_document_order() {
-        let aliases = super::parse_fonts_xml_aliases(FONTS_XML_SNIPPET);
+    fn fonts_xml_aliases_in_document_order() {
+        let aliases = super::parse_fonts_xml_document(FONTS_XML_SNIPPET).aliases;
         assert_eq!(aliases.len(), 2);
         assert_eq!(aliases[0].0, "monospace");
         assert_eq!(aliases[0].1, vec!["DroidSansMono.ttf"]);
@@ -1368,13 +1445,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_fonts_xml_aliases_skips_nameless_and_rejects_garbage() {
+    fn fonts_xml_aliases_skip_nameless_and_reject_garbage() {
         let xml = FONTS_XML_SNIPPET.replace("<family name=\"casual\">", "<family>");
-        let aliases = super::parse_fonts_xml_aliases(&xml);
+        let aliases = super::parse_fonts_xml_document(&xml).aliases;
         assert_eq!(aliases.len(), 1);
         assert_eq!(aliases[0].0, "monospace");
-        assert!(super::parse_fonts_xml_aliases("not xml at all").is_empty());
-        assert!(super::parse_fonts_xml_aliases("").is_empty());
+        assert!(
+            super::parse_fonts_xml_document("not xml at all")
+                .aliases
+                .is_empty()
+        );
+        assert!(super::parse_fonts_xml_document("").aliases.is_empty());
     }
 
     #[test]

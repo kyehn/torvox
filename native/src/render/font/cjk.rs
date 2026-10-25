@@ -51,11 +51,11 @@ impl FontPipeline {
             return;
         }
 
-        let fonts_xml = super::font_db::read_fonts_xml();
-        self.cjk_fallback_ids = fonts_xml.as_deref().map_or_else(Vec::new, |xml| {
+        let fonts_xml = super::font_db::system_fonts_xml_document();
+        self.cjk_fallback_ids = fonts_xml.map_or_else(Vec::new, |document| {
             Self::match_fonts_xml_fallbacks(
                 self.font_system.db(),
-                xml,
+                &document.families,
                 system_locale,
                 MAX_CJK_FALLBACK_FONTS,
             )
@@ -65,10 +65,10 @@ impl FontPipeline {
         self.cjk_fallback_skip_reason = None;
         if self.cjk_fallback_ids.is_empty() {
             #[cfg(any(target_os = "android", test))]
-            let has_pending_region = fonts_xml.as_deref().is_some_and(|xml| {
+            let has_pending_region = fonts_xml.is_some_and(|document| {
                 !super::font_db::missing_region_fallback_faces(
                     self.font_system.db(),
-                    xml,
+                    &document.families,
                     system_locale,
                 )
                 .is_empty()
@@ -89,11 +89,11 @@ impl FontPipeline {
 
     pub(crate) fn match_fonts_xml_fallbacks(
         font_database: &fontdb::Database,
-        xml: &str,
+        families: &super::font_db::FontsXmlFamilies,
         system_locale: &str,
         max_results: usize,
     ) -> Vec<fontdb::ID> {
-        let (_, lang_fallbacks) = super::font_db::parse_fonts_xml_families(xml);
+        let lang_fallbacks = &families.lang_fallbacks;
         let langs = super::font_db::locale_fonts_xml_langs(system_locale);
         let mut ids = Vec::new();
         for wanted in langs {
