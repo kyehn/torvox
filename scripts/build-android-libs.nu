@@ -5,9 +5,12 @@ const JNILIBS = "android/app/src/main/jniLibs"
 
 def abi-to-target-triple [abi: string] {
     match $abi {
-        "x86_64" => "x86_64-linux-android"
+        x86_64 => "x86_64-linux-android"
         "arm64-v8a" => "aarch64-linux-android"
-        _ => { print $"ERROR: unsupported ABI ($abi)"; exit 1 }
+        _ => {
+            print $"ERROR: unsupported ABI ($abi)"
+            exit 1
+        }
     }
 }
 
@@ -26,7 +29,7 @@ def main [...abis: string] {
         }
     }
 
-    let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
+    let ndk_args = $abis | each {|a| ["--target", $a] } | flatten
     # `cargo ndk` 不接受 `--manifest-path`（它在当前目录解析清单），故进入包根执行。
     cd $CRATE
     cargo ndk ...$ndk_args --platform 33 build --package native --profile release

@@ -42,6 +42,8 @@
             runtimeInputs = with pkgs; [
               taplo
               yamlfmt
+              nufmt
+              nu-lint
             ];
             settings.formatter = {
               toml = {
@@ -55,6 +57,16 @@
                   "*.yaml"
                   "*.yml"
                 ];
+              };
+              nu = {
+                command = "nufmt";
+                includes = [ "*.nu" ];
+                priority = 10;
+              };
+              nu-lint = {
+                command = "nu-lint";
+                includes = [ "*.nu" ];
+                priority = 20;
               };
             };
           };
@@ -80,6 +92,8 @@
               git
               flock
               nushell
+              nufmt
+              nu-lint
               taplo
               yamlfmt
               markdownlint-cli2
