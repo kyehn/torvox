@@ -97,12 +97,12 @@ class Bridge(private val config: TerminalConfig) {
      * 主题名，界面毫无反应，日志还写着一条错误的归因。
      */
     private inline fun <T> onSession(name: String, onUnavailable: T, call: (Long) -> T): T {
-        val id = sessionId
-        if (id == 0L) return onUnavailable
+        val capturedSessionId = sessionId
+        if (capturedSessionId == 0L) return onUnavailable
         return try {
-            call(id)
+            call(capturedSessionId)
         } catch (sessionMissing: IllegalStateException) {
-            LogUtil.warn(TAG, "$name: 会话 $id 已销毁，返回缺省值")
+            LogUtil.warn(TAG, "$name: 会话 $capturedSessionId 已销毁，返回缺省值")
             onUnavailable
         }
     }
@@ -478,8 +478,8 @@ class Bridge(private val config: TerminalConfig) {
      * 生成并写入序列时返回 true；关闭鼠标上报、编码失败或会话消失（事件丢弃）时返回 false。
      */
     fun encodeMouseEvent(
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         action: Int,
         button: Int,
         modifiers: Int,
@@ -489,11 +489,20 @@ class Bridge(private val config: TerminalConfig) {
         // 编码与写入在**同一次** `onSession` 里：两次 `onSession` 各读一遍 `sessionId`，
         // 两次之间会话被销毁并重建时，按旧会话坐标算出的转义序列会写进新会话的 PTY。
         // 与 `processKeyEvent` 同款写法。
-        return onSession("encodeMouseEvent", false) { id ->
+        return onSession("encodeMouseEvent", false) { sessionId ->
             val bytes =
-                NativeBridge.encodeMouseEvent(id, xPx, yPx, action, button, modifiers, cellWidth, cellHeight)
+                NativeBridge.encodeMouseEvent(
+                    sessionId,
+                    pixelX,
+                    pixelY,
+                    action,
+                    button,
+                    modifiers,
+                    cellWidth,
+                    cellHeight,
+                )
             if (bytes.isEmpty()) return@onSession false
-            sendToPty(id, bytes)
+            sendToPty(sessionId, bytes)
             onPtyWrite?.invoke()
             true
         }
@@ -507,8 +516,8 @@ class Bridge(private val config: TerminalConfig) {
      * 返回是否真的写入了（上报关闭、编码失败或会话消失时为 false）。
      */
     fun encodeMouseWheel(
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         button: Int,
         modifiers: Int,
         cellWidth: Float,
@@ -516,11 +525,20 @@ class Bridge(private val config: TerminalConfig) {
         repeat: Int,
     ): Boolean {
         if (repeat <= 0) return false
-        return onSession("encodeMouseWheel", false) { id ->
+        return onSession("encodeMouseWheel", false) { sessionId ->
             val bytes =
-                NativeBridge.encodeMouseWheel(id, xPx, yPx, button, modifiers, cellWidth, cellHeight, repeat)
+                NativeBridge.encodeMouseWheel(
+                    sessionId,
+                    pixelX,
+                    pixelY,
+                    button,
+                    modifiers,
+                    cellWidth,
+                    cellHeight,
+                    repeat,
+                )
             if (bytes.isEmpty()) return@onSession false
-            sendToPty(id, bytes)
+            sendToPty(sessionId, bytes)
             onPtyWrite?.invoke()
             true
         }
@@ -552,7 +570,7 @@ class Bridge(private val config: TerminalConfig) {
         // Alt/Super 在终端语义上是「加 ESC 前缀」，而本入口只处理编码器未覆盖的
         // 键码，故把这条规则折成一个布尔下发：掩码位值不必在两端各写一份。
         val metaPrefix = modifiers and (KeyModifiers.ALT or KeyModifiers.SUPER) != 0
-        return onSession("processKeyEvent", false) { id ->
+        return onSession("processKeyEvent", false) { sessionId ->
             // 编码器按终端状态选择形态：DECCKM 下方向键走 SS3、modifyOtherKeys
             // 下 Ctrl+字母走 `CSI 27;mod;code~`、backarrow key mode 下退格发 BS
             // 而非 DEL。应用不再查询任何模式，也不再维护转义序列表。
@@ -561,7 +579,7 @@ class Bridge(private val config: TerminalConfig) {
             // Delete 都会失效。
             val encoded =
                 NativeBridge.encodeKeyEvent(
-                    sessionId = id,
+                    sessionId = sessionId,
                     keyCode = keyCode,
                     unicodeChar = unicodeChar,
                     unshiftedChar = unshiftedChar,
@@ -570,7 +588,7 @@ class Bridge(private val config: TerminalConfig) {
                 )
             if (encoded.isNotEmpty()) {
                 // 排队写：几乎全部按键走这一支，直写会让子进程不读 stdin 时冻住主线程。
-                sendToPty(id, encoded)
+                sendToPty(sessionId, encoded)
                 onPtyWrite?.invoke()
                 return@onSession true
             }
@@ -581,7 +599,7 @@ class Bridge(private val config: TerminalConfig) {
             // 编码或按上游规则丢弃。
             if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
                 if (!Character.isValidCodePoint(unicodeChar)) return@onSession false
-                sendFallbackKey(id, String(Character.toChars(unicodeChar)), metaPrefix)
+                sendFallbackKey(sessionId, String(Character.toChars(unicodeChar)), metaPrefix)
                 return@onSession true
             }
             // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
@@ -591,7 +609,7 @@ class Bridge(private val config: TerminalConfig) {
             if (!ctrlActive) {
                 val derived = virtualKeyboardMap.get(keyCode, 0)
                 if (derived > 0 && Character.isValidCodePoint(derived)) {
-                    sendFallbackKey(id, String(Character.toChars(derived)), metaPrefix)
+                    sendFallbackKey(sessionId, String(Character.toChars(derived)), metaPrefix)
                     return@onSession true
                 }
             }

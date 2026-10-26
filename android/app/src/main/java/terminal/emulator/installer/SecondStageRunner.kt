@@ -91,7 +91,7 @@ class SecondStageRunner(
         // （postinst 是普通 shell 脚本，DESIGN「不做无意义检查」）。探测失败本身
         // 已在 detectDpkgVersion 内记警告，不是静默。
         val dpkgVersion = detectDpkgVersion().orEmpty()
-        val arch = detectAbi()
+        val architecture = terminal.emulator.detectDeviceArchitecture()
         // 按文件名排序：`File.listFiles()` 的返回顺序未定义（实测为目录项顺序），
         // 于是 postinst 的执行次序随文件系统而变。两个后果：进度条的脚本名顺序不可复现，
         // 且依赖彼此的包（dpkg 自身即依赖某些包先就位）可能随机失败。
@@ -106,21 +106,26 @@ class SecondStageRunner(
             onProgress?.onProgress(
                 BootstrapProgress.RunningPostInstall(scriptsCompleted, totalScripts),
             )
-            runOnePostinst(script, dpkgVersion, arch, errors)
+            runOnePostinst(script, dpkgVersion, architecture, errors)
             scriptsCompleted++
         }
         return Result(errors.isEmpty(), errors)
     }
 
     /** 在 DPKG_* 环境与经链接器包装的解释器下执行一个 dpkg postinst 脚本（从 runPostInstalls 抽出以满足 detekt LongMethod 限制）。 */
-    private suspend fun runOnePostinst(script: File, dpkgVersion: String, arch: String, errors: MutableList<String>) {
+    private suspend fun runOnePostinst(
+        script: File,
+        dpkgVersion: String,
+        architecture: String,
+        errors: MutableList<String>,
+    ) {
         val packageName = script.name.removeSuffix(".postinst")
         // termux dpkg 的 update-alternatives 在状态文件缺失的首次运行时，
         // 正确写完链接与状态文件后 segfault（139，tombstone 落盘，本地 10/10 复现；
         // 有状态后重跑退出 0 且幂等，3/3）。故失败重试一次：确定性失败连挂两次照常上报，
         // 首运崩溃则自愈。首次失败记警告，不隐藏。
         repeat(POSTINST_MAX_ATTEMPTS) { attempt ->
-            if (runOnePostinstAttempt(script, packageName, dpkgVersion, arch, errors, attempt)) return
+            if (runOnePostinstAttempt(script, packageName, dpkgVersion, architecture, errors, attempt)) return
         }
     }
 
@@ -128,21 +133,21 @@ class SecondStageRunner(
         script: File,
         packageName: String,
         dpkgVersion: String,
-        arch: String,
+        architecture: String,
         errors: MutableList<String>,
         attempt: Int,
     ): Boolean {
         // 提到 try 外：成功路径（exitCode == 0）此前直接 return，从不销毁
         // Process。一趟引导几百个 postinst，每个泄 2 个管道 fd，直到 GC/finalizer
         // 才回收；口径与 detectDpkgVersion 的 finally 一致。
-        var proc: Process? = null
+        var postinstProcess: Process? = null
         try {
             Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
             val environment =
                 mapOf(
                     "DPKG_MAINTSCRIPT_PACKAGE" to packageName,
                     "DPKG_MAINTSCRIPT_PACKAGE_REFCOUNT" to "1",
-                    "DPKG_MAINTSCRIPT_ARCH" to arch,
+                    "DPKG_MAINTSCRIPT_ARCH" to architecture,
                     "DPKG_MAINTSCRIPT_NAME" to "postinst",
                     "DPKG_MAINTSCRIPT_DEBUG" to "0",
                     "DPKG_RUNNING_VERSION" to dpkgVersion,
@@ -168,12 +173,12 @@ class SecondStageRunner(
                         envArray,
                         File("/"),
                     )
-            proc = process
+            postinstProcess = process
             process.outputStream.close()
             // 守护消费者：若 destroyForcibly() 之后 postinst 的孙进程仍持有管道，
             // 阻塞的 readText 线程绝不能比进程活得更久
             // （普通线程会泄漏并绑定 JVM 生命周期）。
-            // 排空 lambda 绝不能抛异常：finally 里的 proc?.destroy() 关闭管道时
+            // 排空 lambda 绝不能抛异常：finally 里的 postinstProcess?.destroy() 关闭管道时
             // 守护读取线程可能仍阻塞在 readText 中
             // （设备上已证：子进程先退出时 detectDpkgVersion 出现 FATAL）。
             // 裸 Thread 上未捕获的抛出会杀掉应用进程。
@@ -217,14 +222,14 @@ class SecondStageRunner(
         } finally {
             // 成功路径此前从不销毁 Process：一趟引导几百个 postinst，每个泄 2 个
             // 管道 fd，直到 GC/finalizer 才回收，Android 进程 fd 上限 1024。
-            proc?.destroy()
+            postinstProcess?.destroy()
         }
     }
 
     private fun detectDpkgVersion(): String? {
-        var proc: Process? = null
+        var dpkgProcess: Process? = null
         return try {
-            proc =
+            dpkgProcess =
                 Runtime
                     .getRuntime()
                     .exec(
@@ -232,11 +237,11 @@ class SecondStageRunner(
                         prefixEnvironment().map { "${it.key}=${it.value}" }.toTypedArray(),
                         File("/"),
                     )
-            proc.outputStream.close()
+            dpkgProcess.outputStream.close()
             // 在守护线程上消费 stderr：损坏的 dpkg 二进制若把 stderr 灌满 64KB 管道缓冲，
             // 会使下方 readText() 永久阻塞（主 postinst 路径有 30s 超时；此辅助函数原本没有）。
             val stderrThread =
-                Thread { drainQuietly(proc.errorStream) }
+                Thread { drainQuietly(dpkgProcess.errorStream) }
                     .apply {
                         isDaemon = true
                     }
@@ -248,7 +253,7 @@ class SecondStageRunner(
             val stdoutThread =
                 Thread {
                     try {
-                        val drained = proc.inputStream.bufferedReader().use { it.readText() }
+                        val drained = dpkgProcess.inputStream.bufferedReader().use { it.readText() }
                         // 先读完再入锁：读操作本身可能被永久阻塞（后代进程持有管道），
                         // 持锁读会让主线程紧随其后的 join 超时形同虚设。
                         synchronized(stdoutText) { stdoutText.append(drained) }
@@ -259,8 +264,8 @@ class SecondStageRunner(
                     isDaemon = true
                 }
             stdoutThread.start()
-            if (!proc.waitFor(10, TimeUnit.SECONDS)) {
-                proc.destroyForcibly()
+            if (!dpkgProcess.waitFor(10, TimeUnit.SECONDS)) {
+                dpkgProcess.destroyForcibly()
                 LogUtil.warn("SecondStageRunner", "detectDpkgVersion timed out")
                 return null
             }
@@ -277,11 +282,9 @@ class SecondStageRunner(
             LogUtil.warn("SecondStageRunner", "detectDpkgVersion failed", exception)
             null
         } finally {
-            proc?.destroy()
+            dpkgProcess?.destroy()
         }
     }
-
-    private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()
 
     /** prefix 下可执行文件的基础环境变量：仅含规范白名单内的变量。 */
     internal fun prefixEnvironment(): Map<String, String> = mapOf(

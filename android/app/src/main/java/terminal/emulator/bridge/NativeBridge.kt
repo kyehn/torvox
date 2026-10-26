@@ -129,8 +129,8 @@ object NativeBridge {
     @JvmStatic
     external fun encodeMouseEvent(
         sessionId: Long,
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         action: Int,
         button: Int,
         modifiers: Int,
@@ -148,8 +148,8 @@ object NativeBridge {
     @JvmStatic
     external fun encodeMouseWheel(
         sessionId: Long,
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         button: Int,
         modifiers: Int,
         cellWidth: Float,

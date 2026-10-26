@@ -386,22 +386,22 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val stack = ArrayDeque<Pair<File, File>>()
         source.listFiles()?.forEach { stack.addLast(it to target) }
         while (stack.isNotEmpty()) {
-            val (src, dstParent) = stack.removeLast()
-            if (Files.isSymbolicLink(src.toPath())) {
-                copySymbolicLink(src, File(dstParent, src.name), sourceRoot, destRoot)
-            } else if (src.isDirectory) {
-                val destination = File(dstParent, src.name)
+            val (source, destinationParent) = stack.removeLast()
+            if (Files.isSymbolicLink(source.toPath())) {
+                copySymbolicLink(source, File(destinationParent, source.name), sourceRoot, destRoot)
+            } else if (source.isDirectory) {
+                val destination = File(destinationParent, source.name)
                 if (!destination.mkdirs() && !destination.isDirectory) {
                     throw IOException("Failed to create directory '${destination.path}'")
                 }
-                pendingDirectoryPermissions += src to destination
-                src.listFiles()?.forEach { stack.addLast(it to destination) }
+                pendingDirectoryPermissions += source to destination
+                source.listFiles()?.forEach { stack.addLast(it to destination) }
             } else {
-                copyRegularFile(src, File(dstParent, src.name))
+                copyRegularFile(source, File(destinationParent, source.name))
             }
         }
-        pendingDirectoryPermissions.asReversed().forEach { (src, destination) ->
-            copyPermissions(src, destination)
+        pendingDirectoryPermissions.asReversed().forEach { (source, destination) ->
+            copyPermissions(source, destination)
         }
     }
 

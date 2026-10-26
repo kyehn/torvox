@@ -154,12 +154,12 @@ class KittyGraphicsOverlayTest : TerminalLogcatTest() {
             found,
         )
         val window = requireNotNull(measured) { "帧节奏窗口缺失（仪器失效）" }
-        UxTestUtils.metric("kitty_overlay_fps", window.fps.toLong())
+        UxTestUtils.metric("kitty_overlay_fps", window.framesPerSecond.toLong())
         UxTestUtils.metric("kitty_overlay_p95_ms", window.p95Ms.toLong())
         assertTrue(
-            "kitty 叠加层在场时渲染循环只有 ${window.fps}fps（p95=${window.p95Ms}ms）：" +
+            "kitty 叠加层在场时渲染循环只有 ${window.framesPerSecond}fps（p95=${window.p95Ms}ms）：" +
                 "叠加层又把终端钉回了全量帧",
-            window.fps >= MIN_FPS,
+            window.framesPerSecond >= MIN_FPS,
         )
     }
 

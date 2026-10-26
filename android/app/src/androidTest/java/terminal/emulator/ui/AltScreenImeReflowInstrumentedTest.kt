@@ -53,13 +53,13 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
 
     private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
-    /** 活动会话 id：备用屏开关必须作用在**当前可见**的会话上，故不用临时会话。 */
+    /** 活动会话 sessionId：备用屏开关必须作用在**当前可见**的会话上，故不用临时会话。 */
     private fun sessionId(): Long {
-        var id = 0L
+        var sessionId = 0L
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            id = composeTestRule.activity.runtime.inputTargetSessionId
+            sessionId = composeTestRule.activity.runtime.inputTargetSessionId
         }
-        return id
+        return sessionId
     }
 
     /** 网格行列（原生 PTY 口径）。 */
@@ -161,10 +161,10 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
 
     private fun hideImeAndAwaitRows(rows: Int) {
         composeTestRule.activity.runOnUiThread {
-            val imm =
+            val inputMethodManager =
                 composeTestRule.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
                     as android.view.inputmethod.InputMethodManager
-            imm.hideSoftInputFromWindow(
+            inputMethodManager.hideSoftInputFromWindow(
                 findTerminalSurface(composeTestRule.activity).windowToken,
                 0,
             )
@@ -395,10 +395,10 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
 
             // 仍在备用屏，只收起键盘：唯一的触发点是 insets 派发把遮挡归零。
             composeTestRule.activity.runOnUiThread {
-                val imm =
+                val inputMethodManager =
                     composeTestRule.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
                         as android.view.inputmethod.InputMethodManager
-                imm.hideSoftInputFromWindow(
+                inputMethodManager.hideSoftInputFromWindow(
                     findTerminalSurface(composeTestRule.activity).windowToken,
                     0,
                 )

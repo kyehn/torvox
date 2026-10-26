@@ -21,20 +21,20 @@ class TerminalSurfaceLogicTest {
         // Top boundary is strict `<`: dead-center of the top half-cell is up.
         assertEquals(
             EdgeScrollDirection.UP,
-            edgeScrollDirection(yPx = 9f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(pixelY = 9f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
         // Bottom boundary is `>= surface - half`: exactly at the edge is down.
         assertEquals(
             EdgeScrollDirection.DOWN,
-            edgeScrollDirection(yPx = 190f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(pixelY = 190f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
         assertEquals(
             EdgeScrollDirection.DOWN,
-            edgeScrollDirection(yPx = 200f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(pixelY = 200f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
         assertEquals(
             EdgeScrollDirection.STOP,
-            edgeScrollDirection(yPx = 100f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+            edgeScrollDirection(pixelY = 100f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
         )
     }
 
@@ -42,25 +42,28 @@ class TerminalSurfaceLogicTest {
     fun `degenerate surface favors the top zone`() {
         // Surface shorter than a cell: top zone (y < cellHeight/2) wins at 0
         // when both zones would overlap — matches the `<`/`>=` asymmetry.
-        assertEquals(EdgeScrollDirection.UP, edgeScrollDirection(yPx = 0f, surfaceHeightPx = 10f, cellHeight = 20f))
-        assertEquals(EdgeScrollDirection.DOWN, edgeScrollDirection(yPx = 10f, surfaceHeightPx = 10f, cellHeight = 20f))
+        assertEquals(EdgeScrollDirection.UP, edgeScrollDirection(pixelY = 0f, surfaceHeightPx = 10f, cellHeight = 20f))
+        assertEquals(
+            EdgeScrollDirection.DOWN,
+            edgeScrollDirection(pixelY = 10f, surfaceHeightPx = 10f, cellHeight = 20f),
+        )
     }
 
     // ── pixel → cell mapping ──────────────────────────────────────────────────
 
     @Test
     fun `pixel maps to floored cell`() {
-        assertEquals(3, pixelToCell(px = 70f, cellSize = 20f, maxCells = 40))
-        assertEquals(0, pixelToCell(px = 19f, cellSize = 20f, maxCells = 40))
-        assertEquals(9, pixelToCell(px = 199f, cellSize = 20f, maxCells = 40))
+        assertEquals(3, pixelToCell(pixelX = 70f, cellSize = 20f, maxCells = 40))
+        assertEquals(0, pixelToCell(pixelX = 19f, cellSize = 20f, maxCells = 40))
+        assertEquals(9, pixelToCell(pixelX = 199f, cellSize = 20f, maxCells = 40))
     }
 
     @Test
     fun `pixel is clamped to the grid`() {
-        assertEquals(0, pixelToCell(px = -50f, cellSize = 20f, maxCells = 40))
-        assertEquals(39, pixelToCell(px = 10_000f, cellSize = 20f, maxCells = 40))
+        assertEquals(0, pixelToCell(pixelX = -50f, cellSize = 20f, maxCells = 40))
+        assertEquals(39, pixelToCell(pixelX = 10_000f, cellSize = 20f, maxCells = 40))
         // Zero-cell grid stays 0 instead of clamping to -1.
-        assertEquals(0, pixelToCell(px = 10_000f, cellSize = 20f, maxCells = 0))
+        assertEquals(0, pixelToCell(pixelX = 10_000f, cellSize = 20f, maxCells = 0))
     }
 
     // ── wide-char cell mapping ───────────────────────────────────────────────

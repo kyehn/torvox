@@ -101,7 +101,7 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
-        // 本类量像素墨迹（`ink` 采样），须再等原生 Surface 挂上，否则量到全零——
+        // 本类量像素墨迹（`inkPixels` 采样），须再等原生 Surface 挂上，否则量到全零——
         // 判红原因与被测的 Surface 丢失恢复行为无关。见 waitForTerminalPixels。
         composeTestRule.waitForTerminalPixels()
         assertNotNull(
@@ -155,17 +155,18 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         val top = location[1].coerceIn(0, bitmap.height - 1)
         val right = (left + surface.width).coerceIn(left + 1, bitmap.width)
         val bottom = (top + surface.height / 2).coerceIn(top + 1, bitmap.height)
-        var ink = 0L
-        var y = top
-        while (y < bottom) {
-            var x = left
-            while (x < right) {
-                ink += kotlin.math.abs(bitmap.getPixel(x, y) - terminalBackgroundArgb).toLong() and 0xFFFFFF
-                x += INK_SAMPLE_STEP_PX
+        var inkPixels = 0L
+        var pixelY = top
+        while (pixelY < bottom) {
+            var pixelX = left
+            while (pixelX < right) {
+                inkPixels +=
+                    kotlin.math.abs(bitmap.getPixel(pixelX, pixelY) - terminalBackgroundArgb).toLong() and 0xFFFFFF
+                pixelX += INK_SAMPLE_STEP_PX
             }
-            y += INK_SAMPLE_STEP_PX
+            pixelY += INK_SAMPLE_STEP_PX
         }
-        return ink
+        return inkPixels
     }
 
     private fun awaitInk(phase: String): Long {
@@ -362,15 +363,15 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         val bottom = (top + height / 2).coerceIn(top + 1, bitmap.height)
         val channels = IntArray(3) { index -> index }
         val samples = ArrayList<IntArray>()
-        var y = top
-        while (y < bottom) {
-            var x = left
-            while (x < right) {
-                val pixel = bitmap.getPixel(x, y)
+        var pixelY = top
+        while (pixelY < bottom) {
+            var pixelX = left
+            while (pixelX < right) {
+                val pixel = bitmap.getPixel(pixelX, pixelY)
                 samples += intArrayOf((pixel shr 16) and 0xFF, (pixel shr 8) and 0xFF, pixel and 0xFF)
-                x += INK_SAMPLE_STEP_PX
+                pixelX += INK_SAMPLE_STEP_PX
             }
-            y += INK_SAMPLE_STEP_PX
+            pixelY += INK_SAMPLE_STEP_PX
         }
         if (samples.isEmpty()) return null
         val median =

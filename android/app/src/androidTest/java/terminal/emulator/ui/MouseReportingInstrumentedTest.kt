@@ -120,7 +120,7 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     }
 
     /** `ESC[<BUTTON;COL;ROWM`/`m` 的原始 SGR 序列（1 基单元格坐标）。 */
-    private fun sgr(button: Int, col: Int, row: Int, release: Boolean): String =
+    private fun sgrSequence(button: Int, col: Int, row: Int, release: Boolean): String =
         "\u001b[<$button;${col + 1};${row + 1}${if (release) "m" else "M"}"
 
     /** 滚轮上行（button 64）的按下次数：批量编码必须成对，故按下数即档位数。 */
@@ -132,26 +132,39 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     private fun readable(bytes: String): String = bytes.replace("\u001b", "^[")
 
     /** 分步拖动：DOWN → 逐格 MOVE → UP（字面量步进，落点与断言同式换算）。 */
-    private fun dragGesture(view: View, x: Float, fromY0: Float, toY0: Float) {
-        val t0 = SystemClock.uptimeMillis()
+    private fun dragGesture(view: View, pointerX: Float, fromY0: Float, toY0: Float) {
+        val downTimeMillis = SystemClock.uptimeMillis()
         view.post {
-            view.dispatchTouchEvent(MotionEvent.obtain(t0, t0, MotionEvent.ACTION_DOWN, x, fromY0, 0))
+            view.dispatchTouchEvent(
+                MotionEvent.obtain(downTimeMillis, downTimeMillis, MotionEvent.ACTION_DOWN, pointerX, fromY0, 0),
+            )
         }
         Thread.sleep(STEP_MILLIS)
-        val y = FloatArray(2)
+        var pointerY = 0f
         // 两段等距步进：第一段的一部分被框架 touch slop 吸收，第二段整格入账。
         for (step in 1..2) {
-            val t = SystemClock.uptimeMillis()
+            val releaseTimeMillis = SystemClock.uptimeMillis()
             val yStep = fromY0 + (toY0 - fromY0) * step / 2f
-            y[0] = yStep
+            pointerY = yStep
             view.post {
-                view.dispatchTouchEvent(MotionEvent.obtain(t0, t, MotionEvent.ACTION_MOVE, x, yStep, 0))
+                view.dispatchTouchEvent(
+                    MotionEvent.obtain(downTimeMillis, releaseTimeMillis, MotionEvent.ACTION_MOVE, pointerX, yStep, 0),
+                )
             }
             Thread.sleep(STEP_MILLIS)
         }
-        val tUp = SystemClock.uptimeMillis()
+        val releaseTimeMillis = SystemClock.uptimeMillis()
         view.post {
-            view.dispatchTouchEvent(MotionEvent.obtain(t0, tUp, MotionEvent.ACTION_UP, x, y[0], 0))
+            view.dispatchTouchEvent(
+                MotionEvent.obtain(
+                    downTimeMillis,
+                    releaseTimeMillis,
+                    MotionEvent.ACTION_UP,
+                    pointerX,
+                    pointerY,
+                    0,
+                ),
+            )
         }
         Thread.sleep(2 * STEP_MILLIS)
     }
@@ -163,8 +176,8 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         val surface = findTerminalSurface(composeTestRule.activity)
         val tapX = (TAP_COL + 0.5f) * cellWidth
         val tapY = (TAP_ROW + 0.5f) * cellHeight
-        val expectPress = sgr(0, TAP_COL, TAP_ROW, release = false)
-        val expectRelease = sgr(0, TAP_COL, TAP_ROW, release = true)
+        val expectPress = sgrSequence(0, TAP_COL, TAP_ROW, release = false)
+        val expectRelease = sgrSequence(0, TAP_COL, TAP_ROW, release = true)
         // 抽屉关闭后的 350ms 防护窗会按设计吞掉窗内的首次轻点（防关闭动画穿透误触），
         // 用户会再点一次；用例同形重试，判据仍是「点击最终到达应用」。
         var clicked = false
@@ -208,10 +221,10 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         armMouseReporting()
         val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge())
         val surface = findTerminalSurface(composeTestRule.activity)
-        // 手指上滑两行 = 滚轮上行（SGR button 64）：y 从 row+2 中心滑到 row 中心。
+        // 手指上滑两行 = 滚轮上行（SGR button 64）：pointerY 从 row+2 中心滑到 row 中心。
         dragGesture(
             surface,
-            x = (TAP_COL + 0.5f) * cellWidth,
+            pointerX = (TAP_COL + 0.5f) * cellWidth,
             fromY0 = (TAP_ROW + 2 + 0.5f) * cellHeight,
             toY0 = (TAP_ROW + 0.5f) * cellHeight,
         )
@@ -245,7 +258,7 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         // 四行行程：两段 MOVE 各两行，每段一次 onScroll 各编两档。
         dragGesture(
             surface,
-            x = (TAP_COL + 0.5f) * cellWidth,
+            pointerX = (TAP_COL + 0.5f) * cellWidth,
             fromY0 = (TAP_ROW + 4 + 0.5f) * cellHeight,
             toY0 = (TAP_ROW + 0.5f) * cellHeight,
         )

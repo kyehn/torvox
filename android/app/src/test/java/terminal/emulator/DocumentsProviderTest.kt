@@ -85,15 +85,15 @@ class DocumentsProviderTest {
             val docUri = DocumentsContract.buildDocumentUri(authority, rootDocId)
             val docCursor = provider.query(docUri, null, android.os.Bundle(), null)
             assertNotNull("Document cursor should not be null", docCursor)
-            requireNotNull(docCursor).use { dc ->
-                assertTrue("Root document should exist", dc.count == 1)
-                val mimeIndex = dc.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            requireNotNull(docCursor).use { docCursor ->
+                assertTrue("Root document should exist", docCursor.count == 1)
+                val mimeIndex = docCursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                 // The column must exist AND be a directory — a guard here
                 // would silently lose the assertion when the provider
                 // drops the column.
                 assertTrue("MIME_TYPE column must exist", mimeIndex >= 0)
-                dc.moveToFirst()
-                assertEquals(DocumentsContract.Document.MIME_TYPE_DIR, dc.getString(mimeIndex))
+                docCursor.moveToFirst()
+                assertEquals(DocumentsContract.Document.MIME_TYPE_DIR, docCursor.getString(mimeIndex))
             }
         }
     }
@@ -234,9 +234,9 @@ class DocumentsProviderTest {
     fun openDocument_returns_parcel_file_for_existing_file() {
         val provider = ensureProvider()
         val file = java.io.File(rootDir(), "readme.txt").apply { writeText("hello") }
-        val pfd = provider.openDocument("readme.txt", "r", null)
-        pfd.use { pfd ->
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
+        val parcelFileDescriptor = provider.openDocument("readme.txt", "r", null)
+        parcelFileDescriptor.use { parcelFileDescriptor ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(parcelFileDescriptor).use { input ->
                 val text = input.readBytes().decodeToString()
                 assertEquals("hello", text)
             }
@@ -301,10 +301,10 @@ class DocumentsProviderTest {
         val target = java.io.File(home, "notes.txt").apply { writeText("long original content") }
         // Document id is the path relative to the root (decodeDocId resolves
         // against rootDir), same id the SAF clients receive.
-        val id = "notes.txt"
+        val documentId = "notes.txt"
 
-        provider.openDocument(id, "w", null).use { fd ->
-            java.io.FileOutputStream(fd.fileDescriptor).write("hi".toByteArray())
+        provider.openDocument(documentId, "w", null).use { fileDescriptor ->
+            java.io.FileOutputStream(fileDescriptor.fileDescriptor).write("hi".toByteArray())
         }
         assertEquals("hi", target.readText())
     }
@@ -313,8 +313,8 @@ class DocumentsProviderTest {
     fun openDocument_mode_wa_appends_instead_of_truncating() {
         val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
         val target = java.io.File(home, "log.txt").apply { writeText("start|") }
-        provider.openDocument("log.txt", "wa", null).use { fd ->
-            java.io.FileOutputStream(fd.fileDescriptor).write("more".toByteArray())
+        provider.openDocument("log.txt", "wa", null).use { fileDescriptor ->
+            java.io.FileOutputStream(fileDescriptor.fileDescriptor).write("more".toByteArray())
         }
         assertEquals("start|more", target.readText())
     }
@@ -335,8 +335,8 @@ class DocumentsProviderTest {
             java.nio.file.attribute.PosixFilePermissions
                 .fromString("rwxr-xr-x"),
         )
-        provider.openDocument("run.sh", "w", null).use { fd ->
-            java.io.FileOutputStream(fd.fileDescriptor).write("#!/bin/sh\necho hi\n".toByteArray())
+        provider.openDocument("run.sh", "w", null).use { fileDescriptor ->
+            java.io.FileOutputStream(fileDescriptor.fileDescriptor).write("#!/bin/sh\necho hi\n".toByteArray())
         }
         assertEquals(
             "editing a script through SAF must keep it executable",
@@ -417,8 +417,8 @@ class DocumentsProviderTest {
         val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
         val target = java.io.File(home, "fresh.txt")
         // docId 取相对根路径，与 SAF 客户端从列举里拿到的一致。
-        provider.openDocument("fresh.txt", "w", null).use { fd ->
-            java.io.FileOutputStream(fd.fileDescriptor).write("saved".toByteArray())
+        provider.openDocument("fresh.txt", "w", null).use { fileDescriptor ->
+            java.io.FileOutputStream(fileDescriptor.fileDescriptor).write("saved".toByteArray())
         }
         assertTrue("openDocument(\"w\") must create the document it addresses", target.exists())
         assertEquals("saved", target.readText())
@@ -1352,8 +1352,8 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         val target = java.io.File(rootDir(), "fresh.txt")
         assertTrue(!target.exists())
-        provider.openDocument("fresh.txt", "rw", null).use { fd ->
-            java.io.FileOutputStream(fd.fileDescriptor).write("rw".toByteArray())
+        provider.openDocument("fresh.txt", "rw", null).use { fileDescriptor ->
+            java.io.FileOutputStream(fileDescriptor.fileDescriptor).write("rw".toByteArray())
         }
         assertTrue("openDocument(\"rw\") must create the document it addresses", target.exists())
         assertEquals("rw", target.readText())

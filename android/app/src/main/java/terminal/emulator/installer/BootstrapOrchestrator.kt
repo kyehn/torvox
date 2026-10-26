@@ -78,9 +78,9 @@ class BootstrapOrchestrator(
         }
         try {
             onProgress?.onProgress(BootstrapProgress.Downloading(0, 0))
-            val arch = detectAbi()
+            val architecture = terminal.emulator.detectDeviceArchitecture()
             val zipFile =
-                downloader.download(resolvedUrl, arch).getOrElse { exception ->
+                downloader.download(resolvedUrl, architecture).getOrElse { exception ->
                     onProgress?.onProgress(BootstrapProgress.Error(exception.javaClass.simpleName))
                     state.set(Status.ERROR)
                     return Result.failure(Exception("Download failed: ${exception.javaClass.simpleName}"))
@@ -120,6 +120,4 @@ class BootstrapOrchestrator(
             return Result.failure(Exception(message))
         }
     }
-
-    private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()
 }

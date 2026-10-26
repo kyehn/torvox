@@ -52,25 +52,25 @@ class BootstrapInstallService : Service() {
     }
 
     private fun install(zipPath: String): String {
-        val dirs = bootstrapDirs(this)
+        val directories = bootstrapDirectories(this)
         // 安装前把 zip 移到安全位置——它可能位于 home 目录之下。
         val preserved = File(filesDir, "bootstrap-preserved.zip")
         File(zipPath).copyTo(preserved, overwrite = true)
         // 不得预删 prefix/home/staging：原子换入路径负责旧目录随机备份、失败回滚与 staging
         // 安全清理（含符号链接守卫），预删会绕过安全机制并丢失用户数据（服务侧 deleteRecursively 无符号链接守卫）。
         return runBlocking {
-            val installer = BootstrapInstaller(dirs.prefix, dirs.home, dirs.staging)
+            val installer = BootstrapInstaller(directories.prefix, directories.home, directories.staging)
             try {
                 val install = installer.install(preserved)
                 if (install.isFailure) {
                     install.exceptionOrNull()?.message ?: "install failed"
                 } else {
-                    val stage = SecondStageRunner(dirs.prefix, dirs.home).run()
+                    val stage = SecondStageRunner(directories.prefix, directories.home).run()
                     if (stage.success) {
-                        "OK prefix=${dirs.prefix} shell=" +
+                        "OK prefix=${directories.prefix} shell=" +
                             (
                                 listOf("bin/login", "bin/bash").firstOrNull {
-                                    val entry = File(dirs.prefix, it)
+                                    val entry = File(directories.prefix, it)
                                     entry.isFile && (isElf(entry) || isSystemShellScript(entry))
                                 } ?: "none"
                                 ) +

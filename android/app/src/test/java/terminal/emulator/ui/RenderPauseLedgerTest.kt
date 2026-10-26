@@ -35,13 +35,13 @@ class RenderPauseLedgerTest {
     @Test
     fun `overlapping debounces pause once and resume once`() {
         val surface = ledger.acquire()
-        val ime = ledger.acquire()
+        val imePause = ledger.acquire()
         assertEquals(2, ledger.holderCount)
         // 第二个持有者 MUST NOT 重复暂停：布尔是幂等的，多调只是噪音；
         // 但计数必须仍然分得清，否则先结束的那个会放开仍在等的另一个。
         assertPaused(true)
 
-        ledger.release(ime)
+        ledger.release(imePause)
         assertEquals(1, ledger.holderCount)
         assertStillPaused()
 

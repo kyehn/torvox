@@ -125,15 +125,15 @@ class BackspaceLatencyTest : TerminalLogcatTest() {
         val connection = focusTerminalAndWaitForPrompt(bridge)
 
         val ascii = percentile(sampleDeletes(bridge, connection, ASCII_TYPED).map { it.presentMs }, 0.50)
-        val cjk = percentile(sampleDeletes(bridge, connection, CJK_TYPED).map { it.presentMs }, 0.50)
+        val cjkMedian = percentile(sampleDeletes(bridge, connection, CJK_TYPED).map { it.presentMs }, 0.50)
         UxTestUtils.metric("backspace_ascii_present_p50_ms", ascii)
-        UxTestUtils.metric("backspace_cjk_present_p50_ms", cjk)
+        UxTestUtils.metric("backspace_cjk_present_p50_ms", cjkMedian)
 
         val budget = ascii * CJK_OVER_ASCII_RATIO + RATIO_SLACK_MS
         assertTrue(
-            "中文退格上屏 p50=${cjk}ms 比 ASCII 的 ${ascii}ms 慢出预算（上限 ${budget.toLong()}ms）：" +
+            "中文退格上屏 p50=${cjkMedian}ms 比 ASCII 的 ${ascii}ms 慢出预算（上限 ${budget.toLong()}ms）：" +
                 "汉字与 ASCII 都是一条 0x7F，不应有量级差别",
-            cjk <= budget,
+            cjkMedian <= budget,
         )
     }
 

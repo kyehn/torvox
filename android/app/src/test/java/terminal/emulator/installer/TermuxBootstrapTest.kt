@@ -29,7 +29,7 @@ class TermuxBootstrapTest {
 
     @Test
     fun `every supported abi maps to an arch the release publishes`() {
-        // 设置页只会传这两种 arch（见 detectArchFromAbi）；URL 的末段必须原样带出，
+        // 设置页只会传这两种 arch（见 detectDeviceArchitecture）；URL 的末段必须原样带出，
         // 否则会下载到不存在的归档。
         listOf("aarch64", "x86_64").forEach { arch ->
             assertTrue(

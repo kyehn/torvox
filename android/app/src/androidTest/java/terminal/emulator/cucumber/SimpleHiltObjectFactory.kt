@@ -23,8 +23,8 @@ class SimpleHiltObjectFactory : ObjectFactory {
         } as T
     }
 
-    private fun <T> createInstance(cls: Class<T>): T {
-        val injectConstructor = findInjectConstructor(cls)
+    private fun <T> createInstance(classLiteral: Class<T>): T {
+        val injectConstructor = findInjectConstructor(classLiteral)
         if (injectConstructor != null) {
             val paramInstances =
                 injectConstructor.parameterTypes
@@ -35,17 +35,17 @@ class SimpleHiltObjectFactory : ObjectFactory {
             return injectConstructor.newInstance(*paramInstances) as T
         }
         try {
-            return cls.getDeclaredConstructor().newInstance()
-        } catch (e: NoSuchMethodException) {
+            return classLiteral.getDeclaredConstructor().newInstance()
+        } catch (exception: NoSuchMethodException) {
             throw RuntimeException(
-                "Cannot create instance of ${cls.name}: no @Inject constructor or no-arg constructor",
+                "Cannot create instance of ${classLiteral.name}: no @Inject constructor or no-arg constructor",
             )
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun <T> findInjectConstructor(cls: Class<T>): Constructor<T>? {
-        for (constructor in cls.declaredConstructors) {
+    private fun <T> findInjectConstructor(classLiteral: Class<T>): Constructor<T>? {
+        for (constructor in classLiteral.declaredConstructors) {
             if (constructor.isAnnotationPresent(Inject::class.java)) {
                 return constructor as Constructor<T>
             }

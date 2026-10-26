@@ -211,9 +211,9 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         val nestedFileDocId =
             requireNotNull(childrenCursor).use {
                 val idIndex = it.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val ids = mutableListOf<String>()
-                while (it.moveToNext()) ids.add(it.getString(idIndex))
-                ids.singleOrNull()
+                val documentIds = mutableListOf<String>()
+                while (it.moveToNext()) documentIds.add(it.getString(idIndex))
+                documentIds.singleOrNull()
             }
         assertEquals("$nestedDirName/tree-uri-nested.txt", nestedFileDocId)
 
@@ -900,10 +900,10 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     fun large_directory_listing_stays_within_budget() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = File(context.filesDir, "home").apply { mkdirs() }
-        val dir = File(home, "listing-budget-probe").apply { mkdirs() }
+        val probeDir = File(home, "listing-budget-probe").apply { mkdirs() }
         val entries = 300
         try {
-            repeat(entries) { File(dir, "f$it.txt").writeText("") }
+            repeat(entries) { File(probeDir, "f$it.txt").writeText("") }
             val uri = DocumentsContract.buildChildDocumentsUri(authority, "listing-budget-probe")
             // 首次查询含提供者冷启动、根解析与 inotify 登记，计入会让阈值失去意义。
             readListing(context, uri).also { assertEquals(entries, it.size) }
@@ -914,12 +914,12 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                     android.os.SystemClock.elapsedRealtime() - started
                 }
             val sorted = samples.sorted()
-            val p50 = sorted[sorted.size / 2]
-            UxTestUtils.metric("large_listing_p50_ms", p50)
+            val median = sorted[sorted.size / 2]
+            UxTestUtils.metric("large_listing_p50_ms", median)
             UxTestUtils.metric("large_listing_max_ms", sorted.last())
             assertTrue(
-                "300 项目录列举 p50=${p50}ms 超出 250ms 预算（样本=$samples）",
-                p50 <= LISTING_BUDGET_MS,
+                "300 项目录列举 p50=${median}ms 超出 250ms 预算（样本=$samples）",
+                median <= LISTING_BUDGET_MS,
             )
             // 正确性锚点：行序（目录在前、名字升序）与 docId 形态不能因优化漂移。
             val names = readListing(context, uri).map { it.displayName }
@@ -929,7 +929,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                 readListing(context, uri).all { it.documentId == "listing-budget-probe/${it.displayName}" },
             )
         } finally {
-            dir.deleteRecursively()
+            probeDir.deleteRecursively()
         }
     }
 

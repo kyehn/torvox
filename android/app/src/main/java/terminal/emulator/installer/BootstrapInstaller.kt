@@ -25,12 +25,12 @@ import java.util.zip.ZipInputStream
  * 三者必须同源——目录名只此一处声明，应用内在线安装（`TerminalRuntime`）、
  * 设置页安装（`TerminalViewModel`）与 SAF 离线安装服务三条入口都经它构造。
  */
-internal data class BootstrapDirs(val prefix: File, val home: File, val staging: File)
+internal data class BootstrapDirectories(val prefix: File, val home: File, val staging: File)
 
 /** [Context.getFilesDir] 之下的引导目录；`staging` 由原子换入路径负责失败回滚与安全清理。 */
-internal fun bootstrapDirs(context: Context): BootstrapDirs {
+internal fun bootstrapDirectories(context: Context): BootstrapDirectories {
     val filesDir = context.filesDir
-    return BootstrapDirs(File(filesDir, "usr"), File(filesDir, "home"), File(filesDir, "usr-staging"))
+    return BootstrapDirectories(File(filesDir, "usr"), File(filesDir, "home"), File(filesDir, "usr-staging"))
 }
 
 /**
@@ -160,9 +160,9 @@ class BootstrapInstaller(
         val executables = mutableListOf<String>()
         val totalEntries = ZipFile(zipFile).use { it.size() }
         var lastReportedEntry = 0
-        FileInputStream(zipFile).use { fis ->
-            ZipInputStream(fis).use { zis ->
-                processZipEntries(zis, symlinks, executables) { entryIndex ->
+        FileInputStream(zipFile).use { fileInputStream ->
+            ZipInputStream(fileInputStream).use { zipInputStream ->
+                processZipEntries(zipInputStream, symlinks, executables) { entryIndex ->
                     if (
                         entryIndex - lastReportedEntry >= EXTRACT_PROGRESS_INTERVAL ||
                         entryIndex == totalEntries
@@ -193,12 +193,12 @@ class BootstrapInstaller(
     }
 
     private fun processZipEntries(
-        zis: ZipInputStream,
+        zipInputStream: ZipInputStream,
         symlinks: MutableList<Pair<String, String>>,
         executables: MutableList<String>,
         onEntryProcessed: (Int) -> Unit,
     ) {
-        var entry = zis.nextEntry
+        var entry = zipInputStream.nextEntry
         var entryIndex = 0
         var totalExtractedBytes = 0L
         while (entry != null) {
@@ -214,13 +214,13 @@ class BootstrapInstaller(
             if (name == "SYMLINKS.txt") {
                 // 有界读取：该条目是元数据，必须很小；
                 // 在恶意归档上无界 readBytes() 会让进程 OOM。
-                val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
+                val bytes = zipInputStream.readNBytes(MAX_SYMLINKS_BYTES)
                 if (bytes.size >= MAX_SYMLINKS_BYTES) {
                     throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
                 }
                 symlinks.addAll(parseSymlinks(bytes.decodeToString()))
             } else if (name == "EXECUTABLES.txt") {
-                val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
+                val bytes = zipInputStream.readNBytes(MAX_SYMLINKS_BYTES)
                 if (bytes.size >= MAX_SYMLINKS_BYTES) {
                     throw java.io.IOException("EXECUTABLES.txt exceeds $MAX_SYMLINKS_BYTES bytes")
                 }
@@ -240,7 +240,7 @@ class BootstrapInstaller(
                     var entryBytes = 0L
                     val buffer = ByteArray(COPY_BUFFER_SIZE)
                     while (true) {
-                        val read = zis.read(buffer)
+                        val read = zipInputStream.read(buffer)
                         if (read < 0) break
                         entryBytes += read
                         if (entryBytes > MAX_EXTRACTED_BYTES) {
@@ -266,7 +266,7 @@ class BootstrapInstaller(
             }
             entryIndex++
             onEntryProcessed(entryIndex)
-            entry = zis.nextEntry
+            entry = zipInputStream.nextEntry
         }
     }
 

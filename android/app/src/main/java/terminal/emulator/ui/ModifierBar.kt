@@ -260,8 +260,8 @@ fun ModifierBar(
     onConsumeModifiers: () -> Unit = {},
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
-    val row1 = TERMUX_EXTRA_KEYS_ROW1
-    val row2 = TERMUX_EXTRA_KEYS_ROW2
+    val rowOne = TERMUX_EXTRA_KEYS_ROW1
+    val rowTwo = TERMUX_EXTRA_KEYS_ROW2
     // 第 0 页是按键页，第 1 页是文本输入页（DESIGN：左滑进入文本输入框）。
     val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
     val actions =
@@ -318,8 +318,8 @@ fun ModifierBar(
                 return@HorizontalPager
             }
             Column {
-                ModifierBarButtonRow(row1.map(presentation).toImmutableList(), buttonHeight, textColor)
-                ModifierBarButtonRow(row2.map(presentation).toImmutableList(), buttonHeight, textColor)
+                ModifierBarButtonRow(rowOne.map(presentation).toImmutableList(), buttonHeight, textColor)
+                ModifierBarButtonRow(rowTwo.map(presentation).toImmutableList(), buttonHeight, textColor)
             }
         }
     }
@@ -546,7 +546,7 @@ private fun RowScope.ExtraKeyButton(
                 // 长按阈值取手势事件时间（单调 uptime）而非墙钟：用户改系统时间
                 // 不会让长按误判，测试的虚拟时钟也推进同一条时间线。
                 val downEventTime = down.uptimeMillis
-                val slop = viewConfiguration.touchSlop
+                val touchSlop = viewConfiguration.touchSlop
                 val longPressMs = modifierLongPressMillis(viewConfiguration.longPressTimeoutMillis)
                 // ACTION_CANCEL 会被 MotionEventAdapter 直接丢弃，改由 processCancel 合成
                 // 无 MotionEvent 的全释放事件送达；真实抬手/移动始终携带原始 MotionEvent。
@@ -583,19 +583,19 @@ private fun RowScope.ExtraKeyButton(
                             }
                         }
                         while (true) {
-                            val ev = awaitPointerEvent()
-                            if (ev.isGestureCancelled()) {
+                            val pointerEvent = awaitPointerEvent()
+                            if (pointerEvent.isGestureCancelled()) {
                                 gestureValid = false
                                 break
                             }
-                            val pointerInput = ev.changes.first()
+                            val pointerInput = pointerEvent.changes.first()
                             // 完全静止的长按不产生任何 MOVE 事件，
                             // 故阈值已过时松手本身也必须计入——否则长按会被静默丢失。
                             if (!pointerInput.pressed) {
                                 maybeFireLongPress(pointerInput.uptimeMillis)
                                 break
                             }
-                            if ((pointerInput.position - downPos).getDistance() > slop) {
+                            if ((pointerInput.position - downPos).getDistance() > touchSlop) {
                                 gestureValid = false
                                 break
                             }
@@ -613,14 +613,14 @@ private fun RowScope.ExtraKeyButton(
                         if (currentOnRepeat == null) {
                             var tapValid = true
                             while (true) {
-                                val ev = awaitPointerEvent()
-                                if (ev.isGestureCancelled()) {
+                                val pointerEvent = awaitPointerEvent()
+                                if (pointerEvent.isGestureCancelled()) {
                                     tapValid = false
                                     break
                                 }
-                                val pointerInput = ev.changes.first()
+                                val pointerInput = pointerEvent.changes.first()
                                 if (!pointerInput.pressed) break
-                                if ((pointerInput.position - downPos).getDistance() > slop) {
+                                if ((pointerInput.position - downPos).getDistance() > touchSlop) {
                                     tapValid = false
                                     break
                                 }
@@ -648,7 +648,7 @@ private fun RowScope.ExtraKeyButton(
                                 val remaining = nextRepeatAt - android.os.SystemClock.uptimeMillis()
                                 // withTimeout(0) 在 PointerEventHandlerCoroutine 内与事件送达竞态，
                                 // 触发重复恢复崩溃（Already resumed）；期限已过直接按超时走。
-                                val ev =
+                                val pointerEvent =
                                     if (remaining > 0) {
                                         withTimeoutOrNull(remaining) {
                                             awaitPointerEvent()
@@ -656,7 +656,7 @@ private fun RowScope.ExtraKeyButton(
                                     } else {
                                         null
                                     }
-                                if (ev == null) {
+                                if (pointerEvent == null) {
                                     if (repeatValid) {
                                         if (!repeatFired) {
                                             view.performHapticFeedback(
@@ -671,13 +671,13 @@ private fun RowScope.ExtraKeyButton(
                                     nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
                                     continue
                                 }
-                                if (ev.isGestureCancelled()) {
+                                if (pointerEvent.isGestureCancelled()) {
                                     repeatValid = false
                                     break
                                 }
-                                val pointerInput = ev.changes.first()
+                                val pointerInput = pointerEvent.changes.first()
                                 if (!pointerInput.pressed) break
-                                if ((pointerInput.position - downPos).getDistance() > slop) {
+                                if ((pointerInput.position - downPos).getDistance() > touchSlop) {
                                     repeatValid = false
                                     break
                                 }

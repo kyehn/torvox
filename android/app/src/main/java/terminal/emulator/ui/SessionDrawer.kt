@@ -105,17 +105,17 @@ fun SessionDrawer(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            itemsIndexed(sessions, key = { _, session -> session.id }) { index, session ->
+            itemsIndexed(sessions, key = { _, session -> session.sessionId }) { index, session ->
                 SessionItem(
                     label = sessionItemLabel(stringResource(R.string.session_index, index + 1), session.title),
-                    isActive = session.id == activeSessionId,
-                    closeTestTag = "$CLOSE_SESSION_TAG_PREFIX${session.id}",
+                    isActive = session.sessionId == activeSessionId,
+                    closeTestTag = "$CLOSE_SESSION_TAG_PREFIX${session.sessionId}",
                     onClick = {
-                        onSwitchSession(session.id)
+                        onSwitchSession(session.sessionId)
                         onClose()
                     },
                     onClose = {
-                        onCloseSession(session.id)
+                        onCloseSession(session.sessionId)
                     },
                     accent = accent,
                     surface = surface,

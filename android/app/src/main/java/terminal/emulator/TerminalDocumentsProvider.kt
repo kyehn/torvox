@@ -263,23 +263,23 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     }
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
-        val cols = projection ?: ROOT_PROJECTION
-        val cursor = MatrixCursor(cols)
+        val columns = projection ?: ROOT_PROJECTION
+        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         cursor.newRow().apply {
-            if (Root.COLUMN_ROOT_ID in cols) add(Root.COLUMN_ROOT_ID, ROOT_ID)
-            if (Root.COLUMN_DOCUMENT_ID in cols) add(Root.COLUMN_DOCUMENT_ID, encodeDocId(rootDir, rootDir))
-            if (Root.COLUMN_TITLE in cols) add(Root.COLUMN_TITLE, "Terminal Home")
-            if (Root.COLUMN_SUMMARY in cols) add(Root.COLUMN_SUMMARY, rootDir.absolutePath)
-            if (Root.COLUMN_FLAGS in cols) {
+            if (Root.COLUMN_ROOT_ID in columns) add(Root.COLUMN_ROOT_ID, ROOT_ID)
+            if (Root.COLUMN_DOCUMENT_ID in columns) add(Root.COLUMN_DOCUMENT_ID, encodeDocId(rootDir, rootDir))
+            if (Root.COLUMN_TITLE in columns) add(Root.COLUMN_TITLE, "Terminal Home")
+            if (Root.COLUMN_SUMMARY in columns) add(Root.COLUMN_SUMMARY, rootDir.absolutePath)
+            if (Root.COLUMN_FLAGS in columns) {
                 add(
                     Root.COLUMN_FLAGS,
                     Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_SEARCH or Root.FLAG_SUPPORTS_IS_CHILD,
                 )
             }
-            if (Root.COLUMN_ICON in cols) add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
-            if (Root.COLUMN_MIME_TYPES in cols) add(Root.COLUMN_MIME_TYPES, "*/*")
-            if (Root.COLUMN_AVAILABLE_BYTES in cols) add(Root.COLUMN_AVAILABLE_BYTES, rootDir.freeSpace)
+            if (Root.COLUMN_ICON in columns) add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
+            if (Root.COLUMN_MIME_TYPES in columns) add(Root.COLUMN_MIME_TYPES, "*/*")
+            if (Root.COLUMN_AVAILABLE_BYTES in columns) add(Root.COLUMN_AVAILABLE_BYTES, rootDir.freeSpace)
         }
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
@@ -291,8 +291,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     }
 
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
-        val cols = projection ?: DOC_PROJECTION
-        val cursor = MatrixCursor(cols)
+        val columns = projection ?: DOC_PROJECTION
+        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         val file = queries.resolveLinkEntry(documentId, rootDir)
         // AOSP 契约：文档不存在必须抛 FileNotFoundException（基类签名即如此声明）。
@@ -306,7 +306,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         ) {
             throw java.io.FileNotFoundException("queryDocument: no such document '$documentId'")
         }
-        queries.addDocRow(cursor, file, rootDir, cols)
+        queries.addDocRow(cursor, file, rootDir, columns)
         context?.contentResolver?.let { resolver ->
             // 通知 URI 取由文件反推的行内 docId，而非客户端传来的原样字符串。
             // 树 URI 寻址传的是 `terminal_home/nix.conf`，广播只发行 `nix.conf`，
@@ -330,8 +330,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         sortOrder: String?,
     ): Cursor {
         val started = android.os.SystemClock.elapsedRealtime()
-        val cols = projection ?: DOC_PROJECTION
-        val cursor = MatrixCursor(cols)
+        val columns = projection ?: DOC_PROJECTION
+        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
@@ -350,7 +350,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 避免 O(n log n) 次比较各触发一次 stat，也避免默认 Locale 把 `i` 排错。
         val entries = queries.readChildren(parentCanonical, rootDir.canonicalPath)
         for (entry in entries) {
-            queries.addChildRow(cursor, entry, cols)
+            queries.addChildRow(cursor, entry, columns)
         }
         // 逐条目 stat 在巨大目录里会拖慢整次列举；「保存超时」一类反馈需要一条
         // 「慢在哪一层」的证据，正常规模（毫秒级）不落日志。
@@ -530,8 +530,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     override fun querySearchDocuments(rootId: String, query: String, projection: Array<out String>?): Cursor {
         // 与 Termux 一致的按文件名搜索：迭代遍历、上限截断、符号链接
         // 不得跳出 home。查询词双向小写，修正 Termux 仅小写文件名的遗漏。
-        val cols = projection ?: DOC_PROJECTION
-        val cursor = MatrixCursor(cols)
+        val columns = projection ?: DOC_PROJECTION
+        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         val rootPath = rootDir.canonicalPath
         val needle = query.lowercase()
@@ -554,11 +554,11 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                     .isSymbolicLink(current.toPath()) && current.isDirectory
             ) {
                 if (canonical != rootPath && current.name.lowercase().contains(needle)) {
-                    queries.addDocRow(cursor, current, rootDir, cols)
+                    queries.addDocRow(cursor, current, rootDir, columns)
                 }
                 current.listFiles()?.forEach { pending.addLast(it) }
             } else if (current.name.lowercase().contains(needle)) {
-                queries.addDocRow(cursor, current, rootDir, cols)
+                queries.addDocRow(cursor, current, rootDir, columns)
             }
         }
         if (truncated) {

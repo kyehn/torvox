@@ -79,7 +79,7 @@ class SessionDrawerNarrowTest {
                         sessions =
                         listOf(
                             SessionInfo(
-                                id = 1L,
+                                sessionId = 1L,
                                 title = "VT_TITLE",
                             ),
                         ),

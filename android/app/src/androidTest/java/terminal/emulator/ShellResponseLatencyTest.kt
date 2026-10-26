@@ -20,10 +20,10 @@ import terminal.emulator.awaitShellPrompt
  * Quantified verification of "shell 反应稍显缓慢" — the matrix marked this "(C) 需设备验证" precisely because
  * no number was ever recorded. This test turns it into a first-class metric:
  *
- * TRIGGER write `echo UXMARK<i>` to the PTY, i = 1..SAMPLES. METRIC ms from the write until
+ * TRIGGER write `echo UXMARK<burstIndex>` to the PTY, burstIndex = 1..SAMPLES. METRIC ms from the write until
  * `getTerminalText()` contains the marker (10ms polling granularity), per sample. ASSERT every
- * marker appears, in issue order (no dropped/reordered output through the pipeline); p50 <=
- * P50_BUDGET_MS and max <= MAX_BUDGET_MS on the software-rendered emulator. Budgets are
+ * marker appears, in issue order (no dropped/reordered output through the pipeline); medianMillis <=
+ * P50_BUDGET_MS and maxMillis <= MAX_BUDGET_MS on the software-rendered emulator. Budgets are
  * deliberately generous — they exist to catch ORDER-OF-MAGNITUDE regressions, while the logged
  * UX_METRIC samples carry the real trend for human review.
  */
@@ -99,18 +99,18 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
         }
 
         val sorted = latencies.sorted()
-        val p50 = sorted[sorted.size / 2]
-        val max = sorted.last()
-        UxTestUtils.metric("shell_echo_p50_ms", p50)
-        UxTestUtils.metric("shell_echo_max_ms", max)
+        val medianMillis = sorted[sorted.size / 2]
+        val maxMillis = sorted.last()
+        UxTestUtils.metric("shell_echo_p50_ms", medianMillis)
+        UxTestUtils.metric("shell_echo_max_ms", maxMillis)
 
         assertTrue(
-            "p50 echo latency ${p50}ms exceeds emulator budget ${P50_BUDGET_MS}ms (samples=$latencies)",
-            p50 <= P50_BUDGET_MS,
+            "p50 echo latency ${medianMillis}ms exceeds emulator budget ${P50_BUDGET_MS}ms (samples=$latencies)",
+            medianMillis <= P50_BUDGET_MS,
         )
         assertTrue(
-            "max echo latency ${max}ms exceeds budget ${MAX_BUDGET_MS}ms (samples=$latencies)",
-            max <= MAX_BUDGET_MS,
+            "max echo latency ${maxMillis}ms exceeds budget ${MAX_BUDGET_MS}ms (samples=$latencies)",
+            maxMillis <= MAX_BUDGET_MS,
         )
     }
 
@@ -121,7 +121,7 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
         // ten markers must eventually appear and stay in order — a queued
         // writer that reorders or drops bursts fails here.
         val burst = (1..10).joinToString("") { "echo BURST%02d\n".format(it) }
-        val t0 = SystemClock.uptimeMillis()
+        val startMillis = SystemClock.uptimeMillis()
         bridge.writeToPty(burst.toByteArray(Charsets.UTF_8))
 
         val settled =
@@ -131,7 +131,7 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
             }
         assertNotNull("burst never fully appeared", settled)
         val text = bridge.getTerminalText().orEmpty()
-        val positions = (1..10).map { i -> text.lastIndexOf("BURST%02d".format(i)) }
+        val positions = (1..10).map { burstIndex -> text.lastIndexOf("BURST%02d".format(burstIndex)) }
         assertTrue(
             "some burst markers missing: $positions",
             positions.all { it >= 0 },
@@ -140,6 +140,6 @@ class ShellResponseLatencyTest : TerminalLogcatTest() {
             "burst markers out of order: $positions",
             positions == positions.sorted(),
         )
-        UxTestUtils.metric("burst_10_total_ms", SystemClock.uptimeMillis() - t0)
+        UxTestUtils.metric("burst_10_total_ms", SystemClock.uptimeMillis() - startMillis)
     }
 }

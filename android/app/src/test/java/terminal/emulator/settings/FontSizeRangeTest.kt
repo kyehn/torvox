@@ -45,10 +45,10 @@ class FontSizeRangeTest {
         )
         // 每档都落在 4dip 起、步长 2sp 的网格上：任一档偏离即为错位。
         listOf(0.75f, 1f, 1.5f, 2.625f, 3f, 4f).forEach { spToPxScale ->
-            detents(spToPxScale, 360f).forEach { sp ->
-                val steps = (sp - SettingsRepository.FONT_SIZE_MIN_SP) / 2f
+            detents(spToPxScale, 360f).forEach { sizeSp ->
+                val steps = (sizeSp - SettingsRepository.FONT_SIZE_MIN_SP) / 2f
                 assertEquals(
-                    "spToPxScale=$spToPxScale 的档位 $sp 不在 4dip 起、步长 2sp 的网格上",
+                    "spToPxScale=$spToPxScale 的档位 $sizeSp 不在 4dip 起、步长 2sp 的网格上",
                     steps,
                     steps.roundToInt().toFloat(),
                     0.001f,

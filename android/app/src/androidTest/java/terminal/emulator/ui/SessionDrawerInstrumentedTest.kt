@@ -143,7 +143,7 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
                 composeTestRule.activeSessionId() > 0
             }
         assertNotNull("初始必须有活跃会话", initialSession)
-        val idA = composeTestRule.activeSessionId()
+        val firstSessionId = composeTestRule.activeSessionId()
         val countBefore = composeTestRule.sessionCount()
 
         // 新建会话 B：经抽屉真实点击，B 成为活跃会话。
@@ -152,10 +152,10 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
         composeTestRule.onNodeWithTag("AddSessionButton").performClick()
         val switchedToB =
             UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) {
-                composeTestRule.sessionCount() == countBefore + 1 && composeTestRule.activeSessionId() != idA
+                composeTestRule.sessionCount() == countBefore + 1 && composeTestRule.activeSessionId() != firstSessionId
             }
         assertNotNull("新建后会话数+1 且切到新会话", switchedToB)
-        val idB = composeTestRule.activeSessionId()
+        val secondSessionId = composeTestRule.activeSessionId()
 
         // 在 B 网格直写标记（经 parser，不依赖 shell 就绪）。必须一次写入并带行结束：
         // B 的 shell 仍在跑，它的提示符（以 `\r` 起头）随时可能抵达；标记不换行时
@@ -173,12 +173,12 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
 
         // 切回 A：B 的标记必须消失（可见网格跟随会话）。按 id 定位抽屉位置，不依赖“会话 N”文本。
         composeTestRule.openDrawer()
-        val indexA = composeTestRule.sessionIndex(idA)
+        val indexA = composeTestRule.sessionIndex(firstSessionId)
         assertTrue("抽屉中必须找到首个会话", indexA >= 0)
         composeTestRule.onAllNodesWithTag("SessionItem")[indexA].performClick()
         val backToA =
             UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) {
-                composeTestRule.activeSessionId() == idA
+                composeTestRule.activeSessionId() == firstSessionId
             }
         assertNotNull("必须切回首个会话", backToA)
         val markerGone =
@@ -189,32 +189,34 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
 
         // 切回 B：标记重现。B 追加在末尾，按 id 定位。
         composeTestRule.openDrawer()
-        val indexB = composeTestRule.sessionIndex(idB)
+        val indexB = composeTestRule.sessionIndex(secondSessionId)
         assertTrue("抽屉中必须找到第二个会话", indexB >= 0)
         composeTestRule.onAllNodesWithTag("SessionItem")[indexB].performClick()
         val backToB =
             UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) {
-                composeTestRule.activeSessionId() == idB
+                composeTestRule.activeSessionId() == secondSessionId
             }
         assertNotNull("必须切回第二个会话", backToB)
         val markerBack =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                sessionContains(idB, markerB)
+                sessionContains(secondSessionId, markerB)
             }
         assertNotNull(
-            "切回 B 后标记必须重现 (会话=$idB 标记=$markerB 实际=${NativeBridge.getTerminalText(idB)?.takeLast(120)})",
+            "切回 B 后标记必须重现 (会话=$secondSessionId 标记=$markerB 实际=${NativeBridge.getTerminalText(
+                secondSessionId,
+            )?.takeLast(120)})",
             markerBack,
         )
 
         // 关闭当前会话 B：回落到 A，会话数恢复。B 在末尾，按 id 定位关闭按钮。
         composeTestRule.openDrawer()
         val closeDescription = composeTestRule.activity.getString(R.string.cd_close_session)
-        val closeIndex = composeTestRule.sessionIndex(idB)
+        val closeIndex = composeTestRule.sessionIndex(secondSessionId)
         assertTrue("抽屉中必须找到待关闭会话", closeIndex >= 0)
         composeTestRule.onAllNodesWithContentDescription(closeDescription)[closeIndex].performClick()
         val closedBack =
             UxTestUtils.pollUntilTrue(timeoutMs = STATE_TIMEOUT_MS, intervalMs = 200) {
-                composeTestRule.sessionCount() == countBefore && composeTestRule.activeSessionId() == idA
+                composeTestRule.sessionCount() == countBefore && composeTestRule.activeSessionId() == firstSessionId
             }
         assertNotNull("关闭 B 后必须回落到 A 且数量恢复", closedBack)
     }

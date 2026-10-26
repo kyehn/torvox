@@ -115,11 +115,11 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         val centerX = device.displayWidth / 2
         val downTime = android.os.SystemClock.uptimeMillis()
 
-        fun postToView(action: Int, x: Float, y: Float) {
+        fun postToView(action: Int, x: Float, startY: Float) {
             val eventTime = android.os.SystemClock.uptimeMillis()
             view.post {
                 view.dispatchTouchEvent(
-                    android.view.MotionEvent.obtain(downTime, eventTime, action, x, y, 0),
+                    android.view.MotionEvent.obtain(downTime, eventTime, action, x, startY, 0),
                 )
             }
         }
@@ -182,13 +182,13 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         repeat(4) {
             // Sample offsets every ~30ms while the finger is down, driving the
             // gesture through the view's own touch pipeline (house pattern).
-            val dt = SystemClock.uptimeMillis()
+            val downTimeMillis = SystemClock.uptimeMillis()
 
-            fun post(action: Int, x: Float, y: Float) {
-                val t = SystemClock.uptimeMillis()
+            fun post(action: Int, x: Float, startY: Float) {
+                val eventTimeMillis = SystemClock.uptimeMillis()
                 view.post {
                     view.dispatchTouchEvent(
-                        android.view.MotionEvent.obtain(dt, t, action, x, y, 0),
+                        android.view.MotionEvent.obtain(downTimeMillis, eventTimeMillis, action, x, startY, 0),
                     )
                 }
             }
@@ -286,25 +286,46 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         val before = view.getScrollOffset()
 
         val dragStartMs = System.currentTimeMillis()
-        val dt = SystemClock.uptimeMillis()
+        val downTimeMillis = SystemClock.uptimeMillis()
         view.dispatchTouchEvent(
-            android.view.MotionEvent.obtain(dt, dt, android.view.MotionEvent.ACTION_DOWN, centerX, 300f, 0),
+            android.view.MotionEvent.obtain(
+                downTimeMillis,
+                downTimeMillis,
+                android.view.MotionEvent.ACTION_DOWN,
+                centerX,
+                300f,
+                0,
+            ),
         )
-        var y = 300f
+        var startY = 300f
         while (System.currentTimeMillis() - dragStartMs < 2500) {
             Thread.sleep(16)
             // 单向匀速下移（手指下移 = 翻向更早的内容）。全程不折返：反向移动会
             // 让视口回落，末态可能又回到 0，使「是否滚动」这一前置断言失去意义。
-            y = minOf(y + 10f, device.displayHeight - 200f)
+            startY = minOf(startY + 10f, device.displayHeight - 200f)
             val now = SystemClock.uptimeMillis()
             view.dispatchTouchEvent(
-                android.view.MotionEvent.obtain(dt, now, android.view.MotionEvent.ACTION_MOVE, centerX, y, 0),
+                android.view.MotionEvent.obtain(
+                    downTimeMillis,
+                    now,
+                    android.view.MotionEvent.ACTION_MOVE,
+                    centerX,
+                    startY,
+                    0,
+                ),
             )
         }
         val dragEndMs = System.currentTimeMillis()
-        val upAt = SystemClock.uptimeMillis()
+        val upEventTimeMillis = SystemClock.uptimeMillis()
         view.dispatchTouchEvent(
-            android.view.MotionEvent.obtain(dt, upAt, android.view.MotionEvent.ACTION_UP, centerX, y, 0),
+            android.view.MotionEvent.obtain(
+                downTimeMillis,
+                upEventTimeMillis,
+                android.view.MotionEvent.ACTION_UP,
+                centerX,
+                startY,
+                0,
+            ),
         )
 
         assertTrue(
@@ -358,7 +379,7 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         )
         windows.maxByOrNull { it.p95Ms }?.let { window ->
             UxTestUtils.metric("drag_loop_p95_ms", window.p95Ms.toLong())
-            UxTestUtils.metric("drag_loop_fps", window.fps.toLong())
+            UxTestUtils.metric("drag_loop_fps", window.framesPerSecond.toLong())
         }
         val preMax = worstPre ?: 0.0
         UxTestUtils.metric("drag_loop_pre_max_ms", preMax.toLong())
@@ -369,8 +390,8 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
                 0.0
             } else {
                 val sorted = slowLoopPreMs.sorted()
-                val idx = (sorted.size * 95 + 99) / 100 - 1
-                sorted[idx.coerceIn(0, sorted.lastIndex)]
+                val index = (sorted.size * 95 + 99) / 100 - 1
+                sorted[index.coerceIn(0, sorted.lastIndex)]
             }
         val windowPreP95 = windows.map { it.preP95Ms }.maxOrNull() ?: 0.0
         val worstPreP95 = maxOf(slowLoopPreP95, windowPreP95)

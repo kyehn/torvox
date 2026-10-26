@@ -66,8 +66,8 @@ class ComposingBaseline {
     /** 光标后的 [length] 个 UTF-16 单位；越界时只返回已有的部分。 */
     fun textAfter(length: Int): String {
         if (length <= 0) return ""
-        val to = (cursor + length).coerceAtMost(text.length)
-        return text.substring(cursor, to)
+        val endIndex = (cursor + length).coerceAtMost(text.length)
+        return text.substring(cursor, endIndex)
     }
 
     /**

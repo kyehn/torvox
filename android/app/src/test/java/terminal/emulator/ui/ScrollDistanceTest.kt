@@ -44,9 +44,9 @@ class ScrollDistanceTest {
     @Test
     fun `full row steps are symmetric in both directions`() {
         val down = applyScrollDistance(0f, -120f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
-        val up = applyScrollDistance(0f, 120f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val upwardDistance = applyScrollDistance(0f, 120f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         assertEquals(12, down.newOffset)
-        assertEquals(8, up.newOffset)
+        assertEquals(8, upwardDistance.newOffset)
     }
 
     @Test
@@ -156,9 +156,9 @@ class ScrollDistanceTest {
     @Test
     fun `sub cell movement is symmetric across zero`() {
         // floor 非对称修复：+0.9px 和 -0.9px 均不触发行变（截断趋向零）。
-        val up = applyScrollDistance(0f, 0.9f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val upwardDistance = applyScrollDistance(0f, 0.9f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         val down = applyScrollDistance(0f, -0.9f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
-        assertEquals(MIDDLE_OFFSET, up.newOffset)
+        assertEquals(MIDDLE_OFFSET, upwardDistance.newOffset)
         assertEquals(MIDDLE_OFFSET, down.newOffset)
     }
 
@@ -181,9 +181,9 @@ class ScrollDistanceTest {
     @Test
     fun `slightly over one cell triggers row change in both directions`() {
         // 超过 1 行余量时双向均触发行变。
-        val up = applyScrollDistance(0f, 1.1f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val upwardDistance = applyScrollDistance(0f, 1.1f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         val down = applyScrollDistance(0f, -1.1f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
-        assertEquals(MIDDLE_OFFSET - 1, up.newOffset)
+        assertEquals(MIDDLE_OFFSET - 1, upwardDistance.newOffset)
         assertEquals(MIDDLE_OFFSET + 1, down.newOffset)
     }
 

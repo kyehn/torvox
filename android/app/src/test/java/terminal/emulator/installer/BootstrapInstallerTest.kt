@@ -36,15 +36,15 @@ class BootstrapInstallerTest {
     @Before
     fun setup() {
         // Robolectric 下 SUPPORTED_ABIS 为空：按宿主真实架构声明，
-        // 否则 detectArchFromAbi 按未知 ABI 抛错（生产期望行为）。
+        // 否则 detectDeviceArchitecture 按未知 ABI 抛错（生产期望行为）。
         val field = android.os.Build::class.java.getDeclaredField("SUPPORTED_ABIS")
         field.isAccessible = true
         field.set(null, arrayOf("x86_64"))
-        val id = UUID.randomUUID().toString().take(8)
-        prefixDir = File(context.filesDir, "bstest-$id/usr")
-        homeDir = File(context.filesDir, "bstest-$id/home")
-        stagingDir = File(context.cacheDir, "bstest-$id-staging")
-        zipFile = File(context.cacheDir, "bstest-$id.zip")
+        val runId = UUID.randomUUID().toString().take(8)
+        prefixDir = File(context.filesDir, "bstest-$runId/usr")
+        homeDir = File(context.filesDir, "bstest-$runId/home")
+        stagingDir = File(context.cacheDir, "bstest-$runId-staging")
+        zipFile = File(context.cacheDir, "bstest-$runId.zip")
         // atomicRename() renames staging → prefix, which requires the
         // prefix's parent directory to exist (File.renameTo fails
         // otherwise). The emulator-run original never created it either —
@@ -82,11 +82,11 @@ class BootstrapInstallerTest {
     }
 
     private fun buildFakeBootstrapZip(withSymlinks: Boolean): File {
-        ZipOutputStream(zipFile.outputStream()).use { zos ->
+        ZipOutputStream(zipFile.outputStream()).use { zipOutputStream ->
             fun add(name: String, content: String = "x") {
-                zos.putNextEntry(ZipEntry(name))
-                zos.write(content.toByteArray())
-                zos.closeEntry()
+                zipOutputStream.putNextEntry(ZipEntry(name))
+                zipOutputStream.write(content.toByteArray())
+                zipOutputStream.closeEntry()
             }
             add("bin/bash", "#!/system/bin/sh\necho bash\n")
             add("bin/gawk", "gawk-binary")
@@ -98,9 +98,9 @@ class BootstrapInstallerTest {
                     bin/gawk←bin/awk
                     bin/busybox←bin/applets/gunzip
                     """.trimIndent()
-                zos.putNextEntry(ZipEntry("SYMLINKS.txt"))
-                zos.write(content.toByteArray())
-                zos.closeEntry()
+                zipOutputStream.putNextEntry(ZipEntry("SYMLINKS.txt"))
+                zipOutputStream.write(content.toByteArray())
+                zipOutputStream.closeEntry()
             }
         }
         return zipFile
@@ -115,14 +115,14 @@ class BootstrapInstallerTest {
     @Test
     fun install_rejects_executable_and_symlink_paths_resolving_to_staging_itself() {
         for (listing in listOf("EXECUTABLES.txt", "SYMLINKS.txt")) {
-            ZipOutputStream(zipFile.outputStream()).use { zos ->
-                zos.putNextEntry(ZipEntry("bin/bash"))
-                zos.write("#!/system/bin/sh\n".toByteArray())
-                zos.closeEntry()
-                zos.putNextEntry(ZipEntry(listing))
+            ZipOutputStream(zipFile.outputStream()).use { zipOutputStream ->
+                zipOutputStream.putNextEntry(ZipEntry("bin/bash"))
+                zipOutputStream.write("#!/system/bin/sh\n".toByteArray())
+                zipOutputStream.closeEntry()
+                zipOutputStream.putNextEntry(ZipEntry(listing))
                 val body = if (listing == "EXECUTABLES.txt") "bin/..\n" else "bin/bash←bin/..\n"
-                zos.write(body.toByteArray())
-                zos.closeEntry()
+                zipOutputStream.write(body.toByteArray())
+                zipOutputStream.closeEntry()
             }
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
             val result = runBlocking { installer.install(zipFile) }
@@ -138,10 +138,10 @@ class BootstrapInstallerTest {
 
     @Test
     fun install_extractsFilesAndCreatesSymlinksWithCorrectDirection() {
-        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        val zipFile = buildFakeBootstrapZip(withSymlinks = true)
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
-        val result = runBlocking { installer.install(zip) }
+        val result = runBlocking { installer.install(zipFile) }
 
         assertTrue("install should succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
         assertTrue("bin/bash must exist after install", File(prefixDir, "bin/bash").exists())
@@ -169,10 +169,10 @@ class BootstrapInstallerTest {
 
     @Test
     fun install_failsWhenSymlinksFileMissing() {
-        val zip = buildFakeBootstrapZip(withSymlinks = false)
+        val zipFile = buildFakeBootstrapZip(withSymlinks = false)
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
-        val result = runBlocking { installer.install(zip) }
+        val result = runBlocking { installer.install(zipFile) }
 
         assertTrue("install must fail when SYMLINKS.txt is absent", result.isFailure)
         assertFalse("prefix must not be reported installed on failure", installer.isInstalled())
@@ -186,13 +186,13 @@ class BootstrapInstallerTest {
         val escapeDir = File(context.cacheDir, "zipslip-escape-${UUID.randomUUID().toString().take(8)}")
         escapeDir.mkdirs()
         try {
-            ZipOutputStream(zipFile.outputStream()).use { zos ->
-                zos.putNextEntry(ZipEntry("bin/bash"))
-                zos.write("#!/system/bin/sh\n".toByteArray())
-                zos.closeEntry()
-                zos.putNextEntry(ZipEntry("../zipslip-pwned.txt"))
-                zos.write("PWNED\n".toByteArray())
-                zos.closeEntry()
+            ZipOutputStream(zipFile.outputStream()).use { zipOutputStream ->
+                zipOutputStream.putNextEntry(ZipEntry("bin/bash"))
+                zipOutputStream.write("#!/system/bin/sh\n".toByteArray())
+                zipOutputStream.closeEntry()
+                zipOutputStream.putNextEntry(ZipEntry("../zipslip-pwned.txt"))
+                zipOutputStream.write("PWNED\n".toByteArray())
+                zipOutputStream.closeEntry()
             }
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
@@ -212,11 +212,11 @@ class BootstrapInstallerTest {
     /** The archive's EXECUTABLES.txt is parsed and chmod failures are tolerated. */
     @Test
     fun install_parsesExecutablesTxt() {
-        ZipOutputStream(zipFile.outputStream()).use { zos ->
+        ZipOutputStream(zipFile.outputStream()).use { zipOutputStream ->
             fun add(name: String, content: String = "x") {
-                zos.putNextEntry(ZipEntry(name))
-                zos.write(content.toByteArray())
-                zos.closeEntry()
+                zipOutputStream.putNextEntry(ZipEntry(name))
+                zipOutputStream.write(content.toByteArray())
+                zipOutputStream.closeEntry()
             }
             add("bin/bash", "#!/system/bin/sh\n")
             add("usr/bin/env", "env-binary")
@@ -348,12 +348,12 @@ class BootstrapInstallerTest {
 
     @Test
     fun install_failure_cleans_staging_and_reports_not_installed() {
-        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        val zipFile = buildFakeBootstrapZip(withSymlinks = true)
         // Corrupt the zip: truncate it so extraction fails.
-        zip.writeBytes(zip.readBytes().copyOf(200))
+        zipFile.writeBytes(zipFile.readBytes().copyOf(200))
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
-        val result = runBlocking { installer.install(zip) }
+        val result = runBlocking { installer.install(zipFile) }
 
         assertTrue("corrupted zip install must fail", result.isFailure)
         assertFalse("staging must be cleaned on failure", stagingDir.exists())
@@ -376,7 +376,7 @@ class BootstrapInstallerTest {
      */
     @Test
     fun install_aborts_when_staging_cannot_be_cleared() {
-        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        val zipFile = buildFakeBootstrapZip(withSymlinks = true)
         // 模拟「上次安装被杀」留下的残留树。
         val locked = File(stagingDir, "locked")
         locked.mkdirs()
@@ -386,7 +386,7 @@ class BootstrapInstallerTest {
         try {
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
-            val result = runBlocking { installer.install(zip) }
+            val result = runBlocking { installer.install(zipFile) }
 
             assertTrue("staging 删不净时安装必须失败", result.isFailure)
             assertEquals(
@@ -404,13 +404,13 @@ class BootstrapInstallerTest {
     /** 清空 staging 区必须把上次残留整棵树清掉，不能只删顶层目录。 */
     @Test
     fun install_clears_deep_stale_staging_tree_before_extracting() {
-        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        val zipFile = buildFakeBootstrapZip(withSymlinks = true)
         val deep = File(stagingDir, "a/b/c/stale")
         deep.parentFile?.mkdirs()
         deep.writeText("stale")
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
-        assertTrue(runBlocking { installer.install(zip) }.isSuccess)
+        assertTrue(runBlocking { installer.install(zipFile) }.isSuccess)
 
         assertFalse(
             "残留的深层条目必须被清掉，否则会与新引导混进同一棵树",

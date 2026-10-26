@@ -33,8 +33,8 @@ class SecondStageRunnerTest {
     ) = SecondStageRunner(prefixDir = prefix, homeDir = home)
 
     private fun tempPrefix(): File {
-        val dir = kotlin.io.path.createTempDirectory("prefix")
-        return dir.toFile()
+        val prefixDir = kotlin.io.path.createTempDirectory("prefix")
+        return prefixDir.toFile()
     }
 
     @Test
@@ -48,11 +48,11 @@ class SecondStageRunnerTest {
         val script = File(prefix, "var/lib/dpkg/info/coreutils.postinst")
         requireNotNull(script.parentFile).mkdirs()
         script.writeText("#!/${prefixed.absolutePath}\n")
-        val cmd = runnerWith(prefix).postinstCommand(script)
-        assertEquals("/system/bin/linker64", cmd[0])
-        assertEquals(prefixed.absolutePath, cmd[1])
-        assertEquals(script.absolutePath, cmd[2])
-        assertEquals("configure", cmd[3])
+        val command = runnerWith(prefix).postinstCommand(script)
+        assertEquals("/system/bin/linker64", command[0])
+        assertEquals(prefixed.absolutePath, command[1])
+        assertEquals(script.absolutePath, command[2])
+        assertEquals("configure", command[3])
     }
 
     @Test
@@ -61,24 +61,24 @@ class SecondStageRunnerTest {
         val script = File(prefix, "var/lib/dpkg/info/system-script.postinst")
         requireNotNull(script.parentFile).mkdirs()
         script.writeText("#!/bin/sh\n")
-        val cmd = runnerWith(prefix).postinstCommand(script)
+        val command = runnerWith(prefix).postinstCommand(script)
         // On Linux, /bin/sh is a symlink: command[0] must be its canonical path.
         val expectedInterpreter = File("/bin/sh").canonicalPath
-        assertEquals(expectedInterpreter, cmd[0])
-        assertEquals(script.absolutePath, cmd[1])
-        assertEquals("configure", cmd[2])
+        assertEquals(expectedInterpreter, command[0])
+        assertEquals(script.absolutePath, command[1])
+        assertEquals("configure", command[2])
     }
 
     @Test
     fun prefix_environment_matches_spec_whitelist() {
         val prefix = tempPrefix()
-        val env = runnerWith(prefix).prefixEnvironment()
-        assertEquals(prefix.absolutePath, env["PREFIX"])
-        assertEquals(prefix.absolutePath, env["TERMUX_PREFIX_DIR_PATH"])
-        assertEquals(SecondStageRunner.TERMUX_VERSION, env["TERMUX_VERSION"])
-        assertEquals("en_US.UTF-8", env["LANG"])
+        val environment = runnerWith(prefix).prefixEnvironment()
+        assertEquals(prefix.absolutePath, environment["PREFIX"])
+        assertEquals(prefix.absolutePath, environment["TERMUX_PREFIX_DIR_PATH"])
+        assertEquals(SecondStageRunner.TERMUX_VERSION, environment["TERMUX_VERSION"])
+        assertEquals("en_US.UTF-8", environment["LANG"])
         for (key in listOf("PATH", "SHELL", "LD_PRELOAD", "LD_LIBRARY_PATH", "PWD")) {
-            assertTrue("$key must not be set", !env.containsKey(key))
+            assertTrue("$key must not be set", !environment.containsKey(key))
         }
     }
 
@@ -120,14 +120,14 @@ class SecondStageRunnerTest {
     @Test
     fun dpkg_command_runs_via_linker() {
         val prefix = tempPrefix()
-        val cmd =
+        val command =
             runnerWith(prefix)
                 .prefixExecutableCommand(
                     File(prefix, "bin/dpkg"),
                     listOf("--version"),
                 )
-        assertEquals("/system/bin/linker64", cmd[0])
-        assertEquals("${prefix.absolutePath}/bin/dpkg", cmd[1])
-        assertEquals("--version", cmd[2])
+        assertEquals("/system/bin/linker64", command[0])
+        assertEquals("${prefix.absolutePath}/bin/dpkg", command[1])
+        assertEquals("--version", command[2])
     }
 }

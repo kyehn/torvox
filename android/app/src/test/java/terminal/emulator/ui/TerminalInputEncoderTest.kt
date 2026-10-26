@@ -4,77 +4,77 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Test
 
 class TerminalInputEncoderTest {
-    private fun enc(text: String, ctrl: Boolean = false, alt: Boolean = false): ByteArray =
+    private fun encode(text: String, ctrl: Boolean = false, alt: Boolean = false): ByteArray =
         TerminalInputEncoder.encodeCommittedText(text, ctrl, alt)
 
     private fun bytes(vararg values: Int): ByteArray = ByteArray(values.size) { values[it].toByte() }
 
     @Test
     fun `plain text is utf8 encoded`() {
-        assertArrayEquals(bytes(0x61, 0x62, 0x63), enc("abc"))
+        assertArrayEquals(bytes(0x61, 0x62, 0x63), encode("abc"))
     }
 
     @Test
     fun `ctrl folds single char to control byte`() {
-        assertArrayEquals(bytes(0x01), enc("a", ctrl = true))
-        assertArrayEquals(bytes(0x03), enc("c", ctrl = true))
+        assertArrayEquals(bytes(0x01), encode("a", ctrl = true))
+        assertArrayEquals(bytes(0x03), encode("c", ctrl = true))
     }
 
     @Test
     fun `ctrl with multi char commit does not fold`() {
         // IME pinyin commit "abc" must NOT become 0x01 0x02 0x03
-        assertArrayEquals(bytes(0x61, 0x62, 0x63), enc("abc", ctrl = true))
+        assertArrayEquals(bytes(0x61, 0x62, 0x63), encode("abc", ctrl = true))
     }
 
     @Test
     fun `ctrl 1 9 0 emit csi 27 instead of being dropped`() {
         // zed-port mappings/keys.rs: digits with no traditional caret fold
         // are sent as `CSI 27;5;code~` (see docs/specification/REFERENCE.md).
-        assertArrayEquals(csi27(5, '1'.code), enc("1", ctrl = true))
-        assertArrayEquals(csi27(5, '9'.code), enc("9", ctrl = true))
-        assertArrayEquals(csi27(5, '0'.code), enc("0", ctrl = true))
+        assertArrayEquals(csi27(5, '1'.code), encode("1", ctrl = true))
+        assertArrayEquals(csi27(5, '9'.code), encode("9", ctrl = true))
+        assertArrayEquals(csi27(5, '0'.code), encode("0", ctrl = true))
     }
 
     @Test
     fun `ctrl alt digit prefixes esc to csi 27`() {
         // Ctrl+Alt+1 → ESC [ 27 ; 7 ; 49 ~ (xterm/zed modifier: 1 base +
         // alt 2 + ctrl 4 — same scheme as CSI 1;mod A arrow sequences).
-        assertArrayEquals(csi27(7, '1'.code), enc("1", ctrl = true, alt = true))
+        assertArrayEquals(csi27(7, '1'.code), encode("1", ctrl = true, alt = true))
     }
 
     private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
     @Test
     fun `alt prefixes esc`() {
-        assertArrayEquals(bytes(0x1B, 0x61), enc("a", alt = true))
-        assertArrayEquals(bytes(0x1B, 0x01), enc("a", ctrl = true, alt = true))
+        assertArrayEquals(bytes(0x1B, 0x61), encode("a", alt = true))
+        assertArrayEquals(bytes(0x1B, 0x01), encode("a", ctrl = true, alt = true))
     }
 
     @Test
     fun `ime newline commit becomes carriage return`() {
         // 多行字段的输入法回车走 commitText("\n")；终端回车是 CR，
         // 直接送 LF 会让 raw 模式的 TUI 应用（helix）把它读成 Ctrl+J 即字母 j。
-        assertArrayEquals(bytes(0x0D), enc("\n"))
-        assertArrayEquals(bytes(0x0D), enc("\n", ctrl = true))
-        assertArrayEquals(bytes(0x0D), enc("\n", alt = true))
+        assertArrayEquals(bytes(0x0D), encode("\n"))
+        assertArrayEquals(bytes(0x0D), encode("\n", ctrl = true))
+        assertArrayEquals(bytes(0x0D), encode("\n", alt = true))
     }
 
     @Test
     fun `multi char commit keeps its own newlines`() {
         // 多字符提交（多行粘贴、输入法内部粘贴）里的换行是内容本身，
         // 不得被归一为 CR，否则多行文本会粘成一行。
-        assertArrayEquals("a\nb".toByteArray(Charsets.UTF_8), enc("a\nb"))
+        assertArrayEquals("a\nb".toByteArray(Charsets.UTF_8), encode("a\nb"))
     }
 
     @Test
     fun `emoji surrogate pair survives`() {
-        assertArrayEquals("😀".toByteArray(Charsets.UTF_8), enc("😀"))
+        assertArrayEquals("😀".toByteArray(Charsets.UTF_8), encode("😀"))
     }
 
     @Test
     fun `alt prefixes esc to every multi char commit`() {
         // Alt+drag/IME multi-char commit: xterm Meta prefixes each character.
-        assertArrayEquals(bytes(0x1B, 0x61, 0x1B, 0x62), enc("ab", alt = true))
+        assertArrayEquals(bytes(0x1B, 0x61, 0x1B, 0x62), encode("ab", alt = true))
     }
 
     @Test
@@ -97,7 +97,7 @@ class TerminalInputEncoderTest {
                 ' ' to 0x00,
             )
         for ((char, expected) in upperRow) {
-            assertArrayEquals("Ctrl+$char", bytes(expected), enc(char.toString(), ctrl = true))
+            assertArrayEquals("Ctrl+$char", bytes(expected), encode(char.toString(), ctrl = true))
         }
     }
 
@@ -117,29 +117,29 @@ class TerminalInputEncoderTest {
                 '/' to 0x0F,
             )
         for ((char, expected) in punctuation) {
-            assertArrayEquals("Ctrl+$char", bytes(expected), enc(char.toString(), ctrl = true))
+            assertArrayEquals("Ctrl+$char", bytes(expected), encode(char.toString(), ctrl = true))
         }
     }
 
     @Test
     fun `cjk commit is utf8 passthrough`() {
         // 拼音候选上屏：单汉字与多汉字词组均按 UTF-8 直通，不得折叠。
-        assertArrayEquals("中".toByteArray(Charsets.UTF_8), enc("中"))
-        assertArrayEquals("中文测试".toByteArray(Charsets.UTF_8), enc("中文测试"))
+        assertArrayEquals("中".toByteArray(Charsets.UTF_8), encode("中"))
+        assertArrayEquals("中文测试".toByteArray(Charsets.UTF_8), encode("中文测试"))
     }
 
     @Test
     fun `cjk commit with ctrl held is not folded`() {
         // 粘滞 Ctrl 点亮时提交中文：CJK 码点无 Ctrl 映射，必须直通 UTF-8，
         // 不得丢弃或折叠为控制字节。
-        assertArrayEquals("中".toByteArray(Charsets.UTF_8), enc("中", ctrl = true))
-        assertArrayEquals("中文".toByteArray(Charsets.UTF_8), enc("中文", ctrl = true))
+        assertArrayEquals("中".toByteArray(Charsets.UTF_8), encode("中", ctrl = true))
+        assertArrayEquals("中文".toByteArray(Charsets.UTF_8), encode("中文", ctrl = true))
     }
 
     @Test
     fun `cjk commit with alt prefixes esc per code point`() {
         // Alt+中文：每码点前加 ESC（与西文 alt 路径一致的码点语义）。
         val expected = bytes(0x1B) + "中".toByteArray(Charsets.UTF_8)
-        assertArrayEquals(expected, enc("中", alt = true))
+        assertArrayEquals(expected, encode("中", alt = true))
     }
 }
