@@ -53,11 +53,11 @@ impl FontPipeline {
     }
 
     pub fn ascent_pixels(&self) -> f32 {
-        self.scaled_metric(|m| m.ascent, ASCENT_FALLBACK_RATIO)
+        self.scaled_metric(|metric| metric.ascent, ASCENT_FALLBACK_RATIO)
     }
 
     pub fn descent_pixels(&self) -> f32 {
-        self.scaled_metric(|m| m.descent.abs(), DESCENT_FALLBACK_RATIO)
+        self.scaled_metric(|metric| metric.descent.abs(), DESCENT_FALLBACK_RATIO)
     }
 
     /// 重新计算并缓存主字体单元格度量。
@@ -91,7 +91,7 @@ impl FontPipeline {
                 self.font_system
                     .db()
                     .faces()
-                    .any(|f| f.id == id && f.monospaced)
+                    .any(|face| face.id == id && face.monospaced)
             }) {
                 let glyph_id = charmap.map('m' as u32);
                 let advance = glyph_metrics.advance_width(glyph_id);

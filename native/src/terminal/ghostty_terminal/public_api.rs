@@ -178,7 +178,7 @@ impl super::GhosttyTerminal {
         let mut guard = self
             .pty_write_responses
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(|error| error.into_inner());
         std::mem::take(&mut *guard)
     }
 

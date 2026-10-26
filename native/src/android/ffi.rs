@@ -982,10 +982,10 @@ fn init_session_inner(
             log::info!("FFI: initSession -> id={}", id);
             id as jlong
         }
-        Err(e) => {
+        Err(error) => {
             let _ = env.throw_new(
                 jni_str!("java/lang/RuntimeException"),
-                JNIString::from(format!("initSession failed: {e}")),
+                JNIString::from(format!("initSession failed: {error}")),
             );
             0
         }
@@ -1163,12 +1163,12 @@ fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, co
                 "resize: grid command dropped for session {id} ({rows}x{cols}); PTY updated, grid retries on next resize"
             );
         }
-        Err(e) => {
-            if let Err(e) = env.throw_new(
+        Err(error) => {
+            if let Err(throw_error) = env.throw_new(
                 jni_str!("java/lang/RuntimeException"),
-                JNIString::from(format!("resize: failed: {e}")),
+                JNIString::from(format!("resize: failed: {error}")),
             ) {
-                log::error!("resize: throw_new failed: {e}");
+                log::error!("resize: throw_new failed: {throw_error}");
             }
         }
         Ok(_) => {}
@@ -1220,12 +1220,12 @@ fn set_pixel_size_inner(
     };
     let session = entry.session.lock();
     if let Err(error) = session.set_pixel_size(width, height)
-        && let Err(e) = env.throw_new(
+        && let Err(throw_error) = env.throw_new(
             jni_str!("java/lang/RuntimeException"),
             JNIString::from(format!("setPixelSize failed: {error}")),
         )
     {
-        log::error!("setPixelSize: throw_new failed: {e}");
+        log::error!("setPixelSize: throw_new failed: {throw_error}");
     }
 }
 
@@ -4341,14 +4341,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         if (render_state.font_pipeline.font_size - size).abs() < f32::EPSILON {
             return Ok(());
         }
-        let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
+        let (cell_width, cell_height) = render_state.font_pipeline.set_font_size_in_place(size);
         // 置脏标志：字号变化必须重绘，即便终端空闲（字形度量已变 → 缓存帧过期）。
         // 同时丢弃实例缓存：干净行存的是旧图集 UV 与旧行高，同网格尺寸仍判兼容，
         // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
         render_state.renderer.cell_cache = None;
         render_state.dirty.store(true, Ordering::Relaxed);
         log::info!(
-            "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
+            "setFontSizeInPlace: {} -> cell {cell_width:.1}x{cell_height:.1}",
             size_tenths
         );
     })
@@ -5176,8 +5176,8 @@ mod font_size_cap_tests {
         // `ADAPTIVE_DEFAULT_MAX_SP` 与经 `getRasterScaleRange` 导出的原生端点，
         // 不需要在本文件再抄一份 Kotlin 私有策略值。抄一份的后果：Kotlin 改 24→28
         // 时本文件仍全绿，覆盖面证明静默失效。
-        for i in 0..=RASTER_SCALE_SAMPLES {
-            let scale = sampled_scale(i);
+        for sample_index in 0..=RASTER_SCALE_SAMPLES {
+            let scale = sampled_scale(sample_index);
             let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
             let selectable_max = termux_selectable_max_sp(scale);
             assert!(

@@ -4460,19 +4460,19 @@ fn selection_highlight_covers_blank_row_inside_range() {
         let cells = next_cell_frame(&terminal_under_test);
         let first = cells
             .iter()
-            .find(|c| c.row == 0 && c.col == 0)
+            .find(|cell| cell.row == 0 && cell.col == 0)
             .expect("单元格");
         let blank = cells
             .iter()
-            .find(|c| c.row == 1 && c.col == 0)
+            .find(|cell| cell.row == 1 && cell.col == 0)
             .expect("单元格");
         let blank_mid = cells
             .iter()
-            .find(|c| c.row == 1 && c.col == 3)
+            .find(|cell| cell.row == 1 && cell.col == 3)
             .expect("单元格");
         let outside = cells
             .iter()
-            .find(|c| c.row == 5 && c.col == 0)
+            .find(|cell| cell.row == 5 && cell.col == 0)
             .expect("单元格");
         if first.background != outside.background {
             assert_eq!(

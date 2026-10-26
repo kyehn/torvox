@@ -38,10 +38,9 @@ pub(crate) struct VirtualAnchor {
 pub(crate) fn anchors(cells: &[PlaceholderCell]) -> Vec<VirtualAnchor> {
     let mut out: Vec<VirtualAnchor> = Vec::new();
     for cell in cells {
-        if out
-            .iter()
-            .any(|a| a.image_id == cell.image_id && a.placement_id == cell.placement_id)
-        {
+        if out.iter().any(|placement| {
+            placement.image_id == cell.image_id && placement.placement_id == cell.placement_id
+        }) {
             continue;
         }
         out.push(VirtualAnchor {

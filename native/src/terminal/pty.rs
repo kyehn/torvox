@@ -392,7 +392,7 @@ impl PtyPair {
         } else if let Some((interpreter, _)) = script_dispatch.as_ref() {
             script_linker_cstr
                 .as_ref()
-                .map_or(interpreter.as_ptr(), |c| c.as_ptr())
+                .map_or(interpreter.as_ptr(), |candidate| candidate.as_ptr())
         } else {
             shell_ptr
         };
@@ -442,8 +442,8 @@ impl PtyPair {
         // 安全系统调用）。父进程检查 `ForkResult` 返回值并经 `?` 处理错误。
         match unsafe { nix::unistd::fork()? } {
             nix::unistd::ForkResult::Parent { child } => {
-                if let Err(e) = nix::unistd::close(slave_fd) {
-                    log::warn!("failed to close PTY slave fd in parent after fork: {e}");
+                if let Err(error) = nix::unistd::close(slave_fd) {
+                    log::warn!("failed to close PTY slave fd in parent after fork: {error}");
                 }
                 // 父进程只留读端：写端留着则子进程 exec 成功后管道也不 EOF，
                 // 等待线程会一直阻塞在读上。
@@ -457,10 +457,10 @@ impl PtyPair {
                 })
             }
             nix::unistd::ForkResult::Child => {
-                if let Err(e) = nix::unistd::close(master_fd) {
+                if let Err(error) = nix::unistd::close(master_fd) {
                     // execve 前 close(2) 失败无害，静默忽略
                     // （fork 后不允许分配/记日志）。
-                    let _ = e;
+                    let _ = error;
                 }
                 // 子进程只留写端：读端留着则父进程永远拿不到 EOF。
                 drop(exec_failure_reader);
@@ -556,27 +556,27 @@ impl PtyPair {
                     let mut buf = [0u8; 64];
                     let prefix = b"execve failed: errno=";
                     buf[..prefix.len()].copy_from_slice(prefix);
-                    let mut i = prefix.len();
-                    let mut e = errno as u32;
+                    let mut write_index = prefix.len();
+                    let mut errno_value = errno as u32;
                     let mut digits = [0u8; 10];
-                    let mut d = 0;
-                    if e == 0 {
-                        digits[d] = b'0';
-                        d += 1;
+                    let mut digit_index = 0;
+                    if errno_value == 0 {
+                        digits[digit_index] = b'0';
+                        digit_index += 1;
                     }
-                    while e > 0 {
-                        digits[d] = b'0' + (e % 10) as u8;
-                        e /= 10;
-                        d += 1;
+                    while errno_value > 0 {
+                        digits[digit_index] = b'0' + (errno_value % 10) as u8;
+                        errno_value /= 10;
+                        digit_index += 1;
                     }
-                    while d > 0 {
-                        d -= 1;
-                        buf[i] = digits[d];
-                        i += 1;
+                    while digit_index > 0 {
+                        digit_index -= 1;
+                        buf[write_index] = digits[digit_index];
+                        write_index += 1;
                     }
-                    buf[i] = b'\n';
-                    i += 1;
-                    let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, i);
+                    buf[write_index] = b'\n';
+                    write_index += 1;
+                    let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, write_index);
                     // 把确切 errno 写回父进程：等待线程据此判定 execve 真失败。
                     // 退出码承担不了这件事——shell 被 SIGHUP 杀掉时退出码 129 与
                     // 「errno=29」的编码撞车，会把正常收尾误报成 execve 失败。
@@ -1278,7 +1278,7 @@ mod tests {
         while std::time::Instant::now() < deadline {
             match Pty::read(pty, &mut buf) {
                 Ok(byte_count) => output.extend_from_slice(&buf[..byte_count]),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
                 }
                 Err(_) => break,
@@ -1817,7 +1817,7 @@ mod tests {
         for _ in 0..TEST_READ_ATTEMPTS {
             match Pty::read(&pty, &mut buf) {
                 Ok(byte_count) => output.extend_from_slice(&buf[..byte_count]),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
                 }
                 Err(_) => break,

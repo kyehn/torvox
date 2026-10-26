@@ -119,19 +119,19 @@ fn scroll_px_offset_translates_viewport_down() {
         moved[0]
             .iter()
             .zip(base[0])
-            .all(|(a, b)| (a - b).abs() < 1e-9)
+            .all(|(moved_value, base_value)| (moved_value - base_value).abs() < 1e-9)
     );
     assert!(
         moved[1]
             .iter()
             .zip(base[1])
-            .all(|(a, b)| (a - b).abs() < 1e-9)
+            .all(|(moved_value, base_value)| (moved_value - base_value).abs() < 1e-9)
     );
     assert!(
         moved[2]
             .iter()
             .zip(base[2])
-            .all(|(a, b)| (a - b).abs() < 1e-9)
+            .all(|(moved_value, base_value)| (moved_value - base_value).abs() < 1e-9)
     );
     // Zero offset / zero height are identity.
     let identity = apply_scroll_px_offset(base, 0.0, 600.0);
@@ -140,7 +140,7 @@ fn scroll_px_offset_translates_viewport_down() {
             .iter()
             .flatten()
             .zip(base.iter().flatten())
-            .all(|(a, b)| (a - b).abs() < 1e-9)
+            .all(|(moved_value, base_value)| (moved_value - base_value).abs() < 1e-9)
     );
     let zero_height = apply_scroll_px_offset(base, 30.0, 0.0);
     assert!(
@@ -148,7 +148,7 @@ fn scroll_px_offset_translates_viewport_down() {
             .iter()
             .flatten()
             .zip(base.iter().flatten())
-            .all(|(a, b)| (a - b).abs() < 1e-9)
+            .all(|(moved_value, base_value)| (moved_value - base_value).abs() < 1e-9)
     );
 }
 
@@ -1152,18 +1152,18 @@ fn all_chars_share_same_baseline_y() {
         .iter()
         .map(|inst| inst.quad_origin[1] + inst.bearing[1] + inst.atlas_size[1] * 1024.0)
         .collect();
-    for (i, bottom) in bottoms.iter().enumerate() {
-        if chars[i] == 'y' {
+    for (index, bottom) in bottoms.iter().enumerate() {
+        if chars[index] == 'y' {
             // Descender must reach below the baseline, never float above it.
             assert!(
                 *bottom >= bottoms[0] - 1.0,
-                "cell[{i}] ('y') bottom={bottom} must not float above baseline {}",
+                "cell[{index}] ('y') bottom={bottom} must not float above baseline {}",
                 bottoms[0]
             );
         } else {
             assert!(
                 (bottom - bottoms[0]).abs() < 1.0,
-                "cell[{i}] bottom={bottom} should match baseline bottom={}",
+                "cell[{index}] bottom={bottom} should match baseline bottom={}",
                 bottoms[0]
             );
         }
@@ -2346,12 +2346,12 @@ mod dirty_band_tests {
         cache.update_for_test(
             &[2usize, 3, 3, 6], // row_ends (cumulative)
         );
-        let (s, e) = cache.band_slice(1, 3);
-        assert_eq!((s, e), (2, 3)); // rows 1..3 → instances [2..3)
-        let (s, e) = cache.band_slice(0, 4);
-        assert_eq!((s, e), (0, 6));
-        let (s, e) = cache.band_slice(2, 3);
-        assert_eq!((s, e), (3, 3)); // empty middle row
+        let (start, end) = cache.band_slice(1, 3);
+        assert_eq!((start, end), (2, 3)); // rows 1..3 → instances [2..3)
+        let (start, end) = cache.band_slice(0, 4);
+        assert_eq!((start, end), (0, 6));
+        let (start, end) = cache.band_slice(2, 3);
+        assert_eq!((start, end), (3, 3)); // empty middle row
     }
 }
 
