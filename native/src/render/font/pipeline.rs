@@ -508,7 +508,7 @@ impl FontPipeline {
                 .font_system
                 .db()
                 .face(id)
-                .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
+                .and_then(|family| family.families.first().map(|(name, _)| name.clone()))
         {
             return name;
         }
@@ -867,7 +867,7 @@ impl FontPipeline {
                     let font_database = self.font_system.db();
                     let face_name = font_database
                         .face(fallback_id)
-                        .and_then(|f| f.families.first())
+                        .and_then(|family| family.families.first())
                         .map(|(n, _)| n.clone())
                         .unwrap_or_else(|| "?".to_string());
                     log::debug!(
@@ -985,13 +985,16 @@ impl FontPipeline {
                 }
             }
         }
-        let cleaned_nospace: String = cleaned.chars().filter(|c| !c.is_whitespace()).collect();
+        let cleaned_nospace: String = cleaned
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
         for face in font_database.faces() {
             for (family, _) in &face.families {
                 let fam_nospace: String = family
                     .to_lowercase()
                     .chars()
-                    .filter(|c| !c.is_whitespace())
+                    .filter(|character| !character.is_whitespace())
                     .collect();
                 if fam_nospace == cleaned_nospace {
                     return Some(face.id);

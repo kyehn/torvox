@@ -117,7 +117,7 @@ impl EventQueue {
         };
         let now = Instant::now();
         let mut last = self.last_overflow_warn.lock();
-        if last.is_none_or(|t| now.duration_since(t) >= OVERFLOW_WARN_INTERVAL) {
+        if last.is_none_or(|previous| now.duration_since(previous) >= OVERFLOW_WARN_INTERVAL) {
             log::warn!(
                 "EventQueue: dropping {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
             );

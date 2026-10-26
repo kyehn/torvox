@@ -168,7 +168,7 @@ mod tests {
     /// 偏移一个 raster_scale 倍。缓存键含 raster_scale，键值语义与此处一致。
     #[test]
     fn shaping_advances_in_raster_pixels() {
-        let advance = |glyphs: &[ShapedGlyphInfo]| glyphs.iter().map(|g| g.w).sum::<f32>();
+        let advance = |glyphs: &[ShapedGlyphInfo]| glyphs.iter().map(|glyph| glyph.w).sum::<f32>();
         let mut pipeline = small_pipeline();
         pipeline.set_raster_scale(1.0);
         let at_one = advance(&pipeline.shape_run("Hello"));

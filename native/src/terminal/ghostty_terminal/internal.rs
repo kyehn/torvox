@@ -22,8 +22,8 @@ use flume::Sender;
 
 /// 经通道发送值，失败时记日志。
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
-    if let Err(e) = sender.send(value) {
-        log::error!("ghostty_terminal: {context}: channel send failed: {e}");
+    if let Err(error) = sender.send(value) {
+        log::error!("ghostty_terminal: {context}: channel send failed: {error}");
     }
 }
 

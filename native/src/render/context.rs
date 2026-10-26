@@ -1368,7 +1368,7 @@ impl Renderer {
     #[cfg(target_os = "android")]
     pub fn reconfigure_swapchain(&mut self, width: u32, height: u32) {
         let (surface, config) = match (self.surface.as_ref(), self.surface_config.as_mut()) {
-            (Some(s), Some(c)) => (s, c),
+            (Some(surface), Some(config)) => (surface, config),
             _ => return,
         };
         let (scaled_width, scaled_height) =

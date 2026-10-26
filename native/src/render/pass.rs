@@ -252,7 +252,7 @@ fn partial_frame_bands(
     // `cache.band_slice` → `row_ends[row]`，而 `row_ends` 的长度只由
     // `is_compatible(rows, cols)` 保证与 `rows` 相等，**不**由掩码长度保证。
     // 与 `build_row_instances_into` 的判定同口径（cell_builder 里那处
-    // `dirty_rows.is_some_and(|f| f.len() >= rows as usize)`）：超长只取前
+    // `dirty_rows.is_some_and(|dirty_flags| dirty_flags.len() >= rows as usize)`）：超长只取前
     // `rows` 项（越界的位本就无所谓），过短则放弃分帧、整屏重画。
     // 少了这一步，一旦有调用方传入更长的掩码，release 构建就会在
     // `row_ends[row]` 上越界 panic，把渲染线程整个带走。
@@ -1207,8 +1207,8 @@ impl Renderer {
         let slice = destination.slice(..);
         // 用 oneshot 通道可靠地判定 map 完成。
         let (map_tx, map_rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = map_tx.send(r);
+        slice.map_async(wgpu::MapMode::Read, move |map_result| {
+            let _ = map_tx.send(map_result);
         });
         // 反复轮询直到 map 完成或超时。
         let poll_start = std::time::Instant::now();
@@ -1568,26 +1568,36 @@ mod tests {
     /// （模拟器实测 44.625）才暴露，整数高看不出。
     #[test]
     fn band_clear_range_does_not_bleed_into_neighbour_rows() {
-        let h = 44.625_f32;
+        let cell_height = 44.625_f32;
         // 单元四边形只填充中心落进行跨度的像素行：行 1 = 中心在 [44.625, 89.25)
         // 的像素 = 45..88，故清除范围必须是 [45, 89)，不含像素 44（属行 0）
         // 与 89（属行 2）。
-        assert_eq!(Renderer::band_clear_pixel_range(1, 2, h, 2400), (45, 89));
+        assert_eq!(
+            Renderer::band_clear_pixel_range(1, 2, cell_height, 2400),
+            (45, 89)
+        );
         // 行 3..5：中心在 [133.875, 223.125) 的像素 = 134..222。
-        assert_eq!(Renderer::band_clear_pixel_range(3, 5, h, 2400), (134, 223));
+        assert_eq!(
+            Renderer::band_clear_pixel_range(3, 5, cell_height, 2400),
+            (134, 223)
+        );
         // 连续多带与单带覆盖同一像素集合（分带不得改变覆盖）。
         for row in 1..5 {
-            let (single_lo, single_hi) = Renderer::band_clear_pixel_range(row, row + 1, h, 2400);
-            let (band_lo, band_hi) = Renderer::band_clear_pixel_range(1, 5, h, 2400);
+            let (single_lo, single_hi) =
+                Renderer::band_clear_pixel_range(row, row + 1, cell_height, 2400);
+            let (band_lo, band_hi) = Renderer::band_clear_pixel_range(1, 5, cell_height, 2400);
             if row == 1 {
                 assert_eq!((single_lo, single_hi), (band_lo, band_lo + 44));
             }
             assert!(single_lo >= band_lo && single_hi <= band_hi);
         }
         // 整屏脏带仍覆盖到最后一行的最后一个像素，且不越出帧高。
-        assert_eq!(Renderer::band_clear_pixel_range(0, 24, h, 2400), (0, 1071));
         assert_eq!(
-            Renderer::band_clear_pixel_range(0, 24, h, 1070),
+            Renderer::band_clear_pixel_range(0, 24, cell_height, 2400),
+            (0, 1071)
+        );
+        assert_eq!(
+            Renderer::band_clear_pixel_range(0, 24, cell_height, 1070),
             (0, 1070),
             "帧高上限仍然生效"
         );

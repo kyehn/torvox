@@ -44,7 +44,7 @@ use std::collections::HashMap;
 /// panic 只会换来黑屏而非更好的诊断。
 fn codepoint_to_char(codepoint: u32) -> char {
     match char::from_u32(codepoint) {
-        Some(ch) => ch,
+        Some(character) => character,
         None => {
             static WARNED: std::sync::Once = std::sync::Once::new();
             WARNED.call_once(|| {
@@ -383,11 +383,11 @@ impl CachedInstances {
 /// 预热遍与发射遍都需要它，故只此一处构造——两处各自拼一遍会让每个带组合记号的
 /// 单元在每帧做两次同样的扫描与 `String` 分配。
 fn cluster_text(
-    ch: char,
+    character: char,
     grapheme_extra: &[u32; crate::terminal::ghostty_terminal::MAX_GRAPHEME_EXTRA],
 ) -> String {
     let mut text = String::with_capacity(1 + grapheme_extra.len() * 4);
-    text.push(ch);
+    text.push(character);
     for &codepoint in grapheme_extra {
         if codepoint == 0 {
             continue;
@@ -629,23 +629,30 @@ fn warm_frame_glyphs(
         let _ = font_pipeline.glyph_information('M');
         let _ = font_pipeline.glyph_information('0');
     }
-    for cd in cell_data {
-        let ch = codepoint_to_char(cd.codepoint);
-        if ch == ' ' || ch == '\0' || cd.codepoint == 0 || cd.codepoint == PLACEHOLDER {
+    for cell_data_entry in cell_data {
+        let character = codepoint_to_char(cell_data_entry.codepoint);
+        if character == ' '
+            || character == '\0'
+            || cell_data_entry.codepoint == 0
+            || cell_data_entry.codepoint == PLACEHOLDER
+        {
             continue;
         }
-        let bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
-        let italic = (cd.flags >> cell_flags::ITALIC) & 1 == 1;
+        let bold = (cell_data_entry.flags >> cell_flags::BOLD) & 1 == 1;
+        let italic = (cell_data_entry.flags >> cell_flags::ITALIC) & 1 == 1;
         if bold || italic {
-            let _ = font_pipeline.glyph_information_styled(ch, bold, italic);
+            let _ = font_pipeline.glyph_information_styled(character, bold, italic);
         } else {
-            let _ = font_pipeline.glyph_information(ch);
+            let _ = font_pipeline.glyph_information(character);
         }
-        let has_cluster = cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0);
+        let has_cluster = cell_data_entry
+            .grapheme_extra
+            .iter()
+            .any(|&codepoint| codepoint != 0);
         if !has_cluster {
             continue;
         }
-        let cluster_text = cluster_text(ch, &cd.grapheme_extra);
+        let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
         if cluster_text.chars().count() <= 1 {
             continue;
         }
@@ -666,7 +673,7 @@ fn warm_frame_glyphs(
                 deco: [0.0; 4],
                 flags: 0.0,
             };
-            for codepoint in &cd.grapheme_extra {
+            for codepoint in &cell_data_entry.grapheme_extra {
                 if *codepoint == 0 {
                     continue;
                 }
@@ -693,27 +700,32 @@ fn append_row_instances(
     instances: &mut Vec<CellInstance>,
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
 ) {
-    for cd in cell_row {
+    for cell_data_entry in cell_row {
         // 非法码位由 codepoint_to_char 记录（每个构建都记，不再只有 debug），
         // 避免终端内容缺陷在 release 里被静默替换成方框而不留痕迹。
-        let ch = codepoint_to_char(cd.codepoint);
-        let cell_span = cd.width.max(1) as f32;
-        let quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
-        let mut foreground = cd.foreground;
-        let mut background = cd.background;
+        let character = codepoint_to_char(cell_data_entry.codepoint);
+        let cell_span = cell_data_entry.width.max(1) as f32;
+        let quad_origin = [
+            cell_data_entry.col as f32 * cell_width,
+            cell_data_entry.row as f32 * cell_height,
+        ];
+        let mut foreground = cell_data_entry.foreground;
+        let mut background = cell_data_entry.background;
         // SGR 7 反显：交换前景与背景色
         // 检查反显属性（新布局中为第 2 位，与旧路径
         // pack_style_flags → shader 所用的 `cell.reverse` 位位置一致）。
         // 与 termux TerminalRenderer.java:182-187 一致（选区与
         // reverseVideo 归入同一处前景/背景交换），也与 Ghostty 的
         // 渲染器反显处理一致。
-        if (cd.flags >> cell_flags::REVERSE) & 1 == 1 {
+        if (cell_data_entry.flags >> cell_flags::REVERSE) & 1 == 1 {
             std::mem::swap(&mut foreground, &mut background);
         }
 
         // 搜索高亮叠加（施加在终端烘焙的
         // 选区反显之上）。
-        if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
+        if let Some(hl) =
+            cell_highlight(cell_data_entry.row, cell_data_entry.col, highlights_by_row)
+        {
             apply_search_highlight(&mut foreground, &mut background, *hl);
         }
         // (spec cursor-rendering "宽字符光标几何"): 宽字符
@@ -723,7 +735,9 @@ fn append_row_instances(
         // 首条记录的 `cell_span` 已跨整个字形：Bar 标记按 cell_span
         // 缩放正是让光标覆盖两列的手段。
         // 不存在需要另行标记的间隔单元记录。
-        let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
+        let is_cursor = cursor.visible
+            && cell_data_entry.row == cursor.row
+            && cell_data_entry.col == cursor.col;
         let effective_foreground = foreground;
         let mut effective_background = background;
         // 默认四边形尺寸（方块光标与空单元格共用）
@@ -742,13 +756,20 @@ fn append_row_instances(
         // 整尺寸字形四边形（避免组合记号等被 Bar/Underline
         // 光标标记尺寸裁掉）。
         let glyph_quad_size = [cell_width * cell_span, cell_height];
-        let glyph_quad_origin = [cd.col as f32 * cell_width, cd.row as f32 * cell_height];
-        if ch == ' ' || ch == '\0' || cd.codepoint == 0 || cd.codepoint == PLACEHOLDER {
+        let glyph_quad_origin = [
+            cell_data_entry.col as f32 * cell_width,
+            cell_data_entry.row as f32 * cell_height,
+        ];
+        if character == ' '
+            || character == '\0'
+            || cell_data_entry.codepoint == 0
+            || cell_data_entry.codepoint == PLACEHOLDER
+        {
             // 与清除色同色的空白格不必发射：全量帧已由 Clear 铺底，
             // 部分帧由脏带清除实例铺底；省略后滚动整屏重绘的实例数按
             // 有效字符数而非网格面积增长。
             if !blank_cell_needs_quad(
-                cd.flags,
+                cell_data_entry.flags,
                 is_cursor,
                 effective_background,
                 default_background,
@@ -790,9 +811,9 @@ fn append_row_instances(
                     atlas_size: [0.0; 2],
                     foreground: effective_foreground,
                     background: effective_background,
-                    underline_color: cd.underline_color,
+                    underline_color: cell_data_entry.underline_color,
                     quad_size: size,
-                    flags: cd.flags as f32,
+                    flags: cell_data_entry.flags as f32,
                     bearing: [0.0; 2],
                 });
             }
@@ -804,23 +825,26 @@ fn append_row_instances(
         // 在字形之上可见。
         // 主体字形——单元带 bold/italic 标志时使用同族
         // styled 字面，否则合成）。
-        let cell_bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
-        let cell_italic = (cd.flags >> cell_flags::ITALIC) & 1 == 1;
+        let cell_bold = (cell_data_entry.flags >> cell_flags::BOLD) & 1 == 1;
+        let cell_italic = (cell_data_entry.flags >> cell_flags::ITALIC) & 1 == 1;
         // 组合字形延续符的簇整形（组合记号、emoji ZWJ
         // 序列）：整簇只整形一次，使每个记号落到字体
         // 指定的位置。无附加符的单元完全跳过整形，
         // 常见情形零开销。
-        let cluster_shaped: Vec<crate::render::font::ShapedGlyphInfo> =
-            if cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0) {
-                let cluster_text = cluster_text(ch, &cd.grapheme_extra);
-                if cluster_text.chars().count() > 1 {
-                    font_pipeline.shape_run(&cluster_text)
-                } else {
-                    Vec::new()
-                }
+        let cluster_shaped: Vec<crate::render::font::ShapedGlyphInfo> = if cell_data_entry
+            .grapheme_extra
+            .iter()
+            .any(|&codepoint| codepoint != 0)
+        {
+            let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
+            if cluster_text.chars().count() > 1 {
+                font_pipeline.shape_run(&cluster_text)
             } else {
                 Vec::new()
-            };
+            }
+        } else {
+            Vec::new()
+        };
         // 整簇整形成单个字形（ZWJ emoji）时，它取代主体字形
         // 成为主体四边形；带位置的记号交由下面的 overlay
         // 循环处理。
@@ -832,7 +856,7 @@ fn append_row_instances(
         };
         let has_merged_glyph = merged_cluster_glyph.is_some();
         if let Some(info) = merged_cluster_glyph
-            .or_else(|| font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic))
+            .or_else(|| font_pipeline.glyph_information_styled(character, cell_bold, cell_italic))
         {
             let uv_x = info.atlas_x as f32 / atlas_width;
             let uv_y = info.atlas_y as f32 / atlas_height;
@@ -861,9 +885,9 @@ fn append_row_instances(
                 atlas_size: [uv_w, uv_h],
                 foreground: effective_foreground,
                 background: effective_background,
-                underline_color: cd.underline_color,
+                underline_color: cell_data_entry.underline_color,
                 quad_size: size,
-                flags: cd.flags as f32,
+                flags: cell_data_entry.flags as f32,
                 bearing: [bearing_x, bearing_y],
             });
 
@@ -898,9 +922,9 @@ fn append_row_instances(
                     atlas_size: [0.0; 2],
                     foreground: effective_foreground,
                     background: marker_background,
-                    underline_color: cd.underline_color,
+                    underline_color: cell_data_entry.underline_color,
                     quad_size: marker_size,
-                    flags: cd.flags as f32,
+                    flags: cell_data_entry.flags as f32,
                     bearing: [0.0; 2],
                 });
             }
@@ -925,8 +949,8 @@ fn append_row_instances(
                                 size: glyph_quad_size,
                                 foreground: effective_foreground,
                                 background: effective_background,
-                                deco: cd.underline_color,
-                                flags: cd.flags as f32,
+                                deco: cell_data_entry.underline_color,
+                                flags: cell_data_entry.flags as f32,
                             },
                             cell_height,
                         ) {
@@ -935,7 +959,7 @@ fn append_row_instances(
                     }
                 }
             } else if !has_merged_glyph {
-                for codepoint in &cd.grapheme_extra {
+                for codepoint in &cell_data_entry.grapheme_extra {
                     if *codepoint == 0 {
                         continue;
                     }
@@ -946,8 +970,8 @@ fn append_row_instances(
                             size: glyph_quad_size,
                             foreground: effective_foreground,
                             background: effective_background,
-                            deco: cd.underline_color,
-                            flags: cd.flags as f32,
+                            deco: cell_data_entry.underline_color,
+                            flags: cell_data_entry.flags as f32,
                         },
                         cell_height,
                     ) {
@@ -965,9 +989,9 @@ fn append_row_instances(
                 atlas_size: [0.0; 2],
                 foreground: effective_foreground,
                 background: effective_background,
-                underline_color: cd.underline_color,
+                underline_color: cell_data_entry.underline_color,
                 quad_size,
-                flags: cd.flags as f32,
+                flags: cell_data_entry.flags as f32,
                 bearing: [0.0; 2],
             });
         }
@@ -984,13 +1008,13 @@ mod tests {
     fn cell_data(
         row: u32,
         col: u32,
-        ch: char,
+        character: char,
         foreground: [f32; 4],
         background: [f32; 4],
         flags: u32,
     ) -> CellData {
         CellData {
-            codepoint: ch as u32,
+            codepoint: character as u32,
             width: 1,
             grapheme_extra: [0; 7],
             foreground,
@@ -1360,18 +1384,21 @@ mod tests {
         (cells, cursor, font_pipeline)
     }
 
-    fn instances_equal(a: &[CellInstance], b: &[CellInstance]) -> bool {
-        a.len() == b.len()
-            && a.iter().zip(b).all(|(x, y)| {
-                x.quad_origin == y.quad_origin
-                    && x.atlas_offset == y.atlas_offset
-                    && x.atlas_size == y.atlas_size
-                    && x.foreground == y.foreground
-                    && x.background == y.background
-                    && x.quad_size == y.quad_size
-                    && x.flags == y.flags
-                    && x.bearing == y.bearing
-            })
+    fn instances_equal(left: &[CellInstance], right: &[CellInstance]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left_instance, right_instance)| {
+                    left_instance.quad_origin == right_instance.quad_origin
+                        && left_instance.atlas_offset == right_instance.atlas_offset
+                        && left_instance.atlas_size == right_instance.atlas_size
+                        && left_instance.foreground == right_instance.foreground
+                        && left_instance.background == right_instance.background
+                        && left_instance.quad_size == right_instance.quad_size
+                        && left_instance.flags == right_instance.flags
+                        && left_instance.bearing == right_instance.bearing
+                })
     }
 
     /// 增量路径（build_instances_cached）：只让第 2 行变脏的一帧
@@ -1477,11 +1504,11 @@ mod tests {
         // 帧工作集（95 ASCII）适配 atlas；帧间 churn 逐出旧条目，
         // 第二帧预热/发射中必再次驱逐，覆盖“帧内驱逐致 stale”路径。
         assert!(pool.len() >= 90, "frame working set must be substantial");
-        let mk = |row: u32, col: u32, ch: char, bold: bool| {
+        let make_cell_data = |row: u32, col: u32, character: char, bold: bool| {
             cell_data(
                 row,
                 col,
-                ch,
+                character,
                 [1.0, 1.0, 1.0, 1.0],
                 [0.0, 0.0, 0.0, 1.0],
                 if bold { 1 << cell_flags::BOLD } else { 0 },
@@ -1513,8 +1540,13 @@ mod tests {
         let mut frame1 = Vec::new();
         for row in 0..ROWS {
             for column in 0..COLS_PER_ROW {
-                let ch = pool[((row * COLS_PER_ROW + column) as usize) % pool.len()];
-                frame1.push(mk(row, column, ch, (row + column) % 7 == 0));
+                let character = pool[((row * COLS_PER_ROW + column) as usize) % pool.len()];
+                frame1.push(make_cell_data(
+                    row,
+                    column,
+                    character,
+                    (row + column) % 7 == 0,
+                ));
             }
         }
         let all_dirty = vec![true; ROWS as usize];
@@ -1537,20 +1569,25 @@ mod tests {
             .chain('\u{2190}'..='\u{21FF}')
             .collect();
         assert!(churn.len() > 300, "churn set must exceed atlas headroom");
-        for &ch in &churn {
-            let _ = font_pipeline.glyph_information(ch);
+        for &character in &churn {
+            let _ = font_pipeline.glyph_information(character);
         }
         // Frame 2：偶数行不变（clean），奇数行换新字形（dirty，迫使驱逐）。
         let mut frame2 = Vec::new();
         for row in 0..ROWS {
             for column in 0..COLS_PER_ROW {
-                let idx = (row * COLS_PER_ROW + column) as usize;
-                let ch = if row % 2 == 0 {
-                    pool[idx % pool.len()]
+                let index = (row * COLS_PER_ROW + column) as usize;
+                let character = if row % 2 == 0 {
+                    pool[index % pool.len()]
                 } else {
-                    pool[(idx + 45) % pool.len()]
+                    pool[(index + 45) % pool.len()]
                 };
-                frame2.push(mk(row, column, ch, (row + column) % 7 == 0));
+                frame2.push(make_cell_data(
+                    row,
+                    column,
+                    character,
+                    (row + column) % 7 == 0,
+                ));
             }
         }
         let mut dirty = vec![false; ROWS as usize];
@@ -1576,25 +1613,25 @@ mod tests {
         // （纯命中），否则断言失去意义。
         let generation_before_verify = font_pipeline.atlas_generation();
         for (cell, instance) in frame2.iter().zip(instances.iter()) {
-            let ch = char::from_u32(cell.codepoint).expect("test cells are valid");
+            let character = char::from_u32(cell.codepoint).expect("test cells are valid");
             let bold = (cell.flags >> cell_flags::BOLD) & 1 == 1;
-            let info = font_pipeline.glyph_information_styled(ch, bold, false);
+            let info = font_pipeline.glyph_information_styled(character, bold, false);
             let info = info.expect("frame glyphs must resolve");
             assert!(
                 info.width > 0 && info.height > 0,
-                "glyph {ch:?} must have a bitmap"
+                "glyph {character:?} must have a bitmap"
             );
             assert_eq!(
                 instance.atlas_offset,
                 [info.atlas_x as f32 / ATLAS, info.atlas_y as f32 / ATLAS],
-                "stale UV for {ch:?} (row {}, col {})",
+                "stale UV for {character:?} (row {}, col {})",
                 cell.row,
                 cell.col
             );
             assert_eq!(
                 instance.atlas_size,
                 [info.width as f32 / ATLAS, info.height as f32 / ATLAS],
-                "stale UV size for {ch:?} (row {}, col {})",
+                "stale UV size for {character:?} (row {}, col {})",
                 cell.row,
                 cell.col
             );

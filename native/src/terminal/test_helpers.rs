@@ -14,10 +14,12 @@ pub enum EffectFlag {
 }
 
 /// Compare two `[f32; 4]` colors channel-by-channel with tolerance.
-pub fn colors_approx_eq(a: &[f32; 4], b: &[f32; 4]) -> bool {
-    a.iter()
-        .zip(b.iter())
-        .all(|(x, y)| (x - y).abs() <= COLOR_TOLERANCE)
+pub fn colors_approx_eq(left: &[f32; 4], right: &[f32; 4]) -> bool {
+    left.iter()
+        .zip(right.iter())
+        .all(|(left_channel, right_channel)| {
+            (left_channel - right_channel).abs() <= COLOR_TOLERANCE
+        })
 }
 
 /// Get a cell from a snapshot by row/col.
@@ -29,8 +31,8 @@ pub(crate) fn cell_at(
     if row >= snap.rows || col >= snap.cols {
         return None;
     }
-    let idx = (row * snap.cols + col) as usize;
-    snap.cells.get(idx)
+    let index = (row * snap.cols + col) as usize;
+    snap.cells.get(index)
 }
 
 /// 行文本，去除行尾空单元。
@@ -71,9 +73,9 @@ pub fn assert_invariants(snap: &GridSnapshot) {
         "snapshot cell count {cell_count} != rows×cols ({expected})"
     );
 
-    for (i, cell) in snap.cells.iter().enumerate() {
-        let row = i as u32 / snap.cols;
-        let col = i as u32 % snap.cols;
+    for (index, cell) in snap.cells.iter().enumerate() {
+        let row = index as u32 / snap.cols;
+        let col = index as u32 % snap.cols;
         if cell.codepoint != 0 {
             assert!(
                 char::from_u32(cell.codepoint).is_some(),
@@ -81,16 +83,16 @@ pub fn assert_invariants(snap: &GridSnapshot) {
                 cell.codepoint
             );
         }
-        for ch in &cell.foreground {
+        for channel in &cell.foreground {
             assert!(
-                *ch >= 0.0 && *ch <= 1.0,
-                "foreground channel {ch} out of range [0,1] at ({row},{col})"
+                *channel >= 0.0 && *channel <= 1.0,
+                "foreground channel {channel} out of range [0,1] at ({row},{col})"
             );
         }
-        for ch in &cell.background {
+        for channel in &cell.background {
             assert!(
-                *ch >= 0.0 && *ch <= 1.0,
-                "background channel {ch} out of range [0,1] at ({row},{col})"
+                *channel >= 0.0 && *channel <= 1.0,
+                "background channel {channel} out of range [0,1] at ({row},{col})"
             );
         }
     }
@@ -156,11 +158,11 @@ impl<'a> TermTestCase<'a> {
     /// Assert that given rows contain expected text (trimmed).
     pub fn assert_lines_are(self, expected: &[&str]) -> Self {
         let snap = self.terminal.take_snapshot();
-        for (i, &exp) in expected.iter().enumerate() {
-            let actual = row_text(&snap, i as u32);
+        for (row_index, &expected_row) in expected.iter().enumerate() {
+            let actual = row_text(&snap, row_index as u32);
             assert_eq!(
-                actual, exp,
-                "row {i} mismatch (expected={exp:?}, actual={actual:?})"
+                actual, expected_row,
+                "row {row_index} mismatch (expected={expected_row:?}, actual={actual:?})"
             );
         }
         self
@@ -195,21 +197,21 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert foreground color of the cell at (row, col) using exact u8 RGB values.
-    pub fn assert_foreground_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
+    pub fn assert_foreground_exact(self, row: u32, col: u32, red: u8, green: u8, blue: u8) -> Self {
         let expected = [
-            GhosttyTerminal::byte_to_float(r),
-            GhosttyTerminal::byte_to_float(g),
-            GhosttyTerminal::byte_to_float(b),
+            GhosttyTerminal::byte_to_float(red),
+            GhosttyTerminal::byte_to_float(green),
+            GhosttyTerminal::byte_to_float(blue),
             1.0,
         ];
         self.assert_foreground(row, col, expected)
     }
 
-    pub fn assert_background_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
+    pub fn assert_background_exact(self, row: u32, col: u32, red: u8, green: u8, blue: u8) -> Self {
         let expected = [
-            GhosttyTerminal::byte_to_float(r),
-            GhosttyTerminal::byte_to_float(g),
-            GhosttyTerminal::byte_to_float(b),
+            GhosttyTerminal::byte_to_float(red),
+            GhosttyTerminal::byte_to_float(green),
+            GhosttyTerminal::byte_to_float(blue),
             1.0,
         ];
         self.assert_background(row, col, expected)
@@ -329,15 +331,17 @@ impl<'a> TermTestCase<'a> {
             before.cols, after.cols,
             "col count changed between snapshots"
         );
-        for (i, (b, a)) in before.cells.iter().zip(after.cells.iter()).enumerate() {
+        for (index, (before_cell, after_cell)) in
+            before.cells.iter().zip(after.cells.iter()).enumerate()
+        {
             assert_eq!(
-                b.codepoint,
-                a.codepoint,
-                "cell index {i} (row={}, col={}) codepoint changed: {} → {}",
-                i / before.cols as usize,
-                i % before.cols as usize,
-                b.codepoint,
-                a.codepoint,
+                before_cell.codepoint,
+                after_cell.codepoint,
+                "cell index {index} (row={}, col={}) codepoint changed: {} → {}",
+                index / before.cols as usize,
+                index % before.cols as usize,
+                before_cell.codepoint,
+                after_cell.codepoint,
             );
         }
         self
@@ -354,17 +358,17 @@ impl<'a> TermTestCase<'a> {
         expected_col: u32,
     ) -> Self {
         let token_str = std::str::from_utf8(token).unwrap_or("");
-        let tc = self
+        let test_case = self
             .write(sequence)
             .write(token)
             .assert_cursor_at(expected_row, expected_col);
-        let snap = tc.terminal.take_snapshot();
+        let snap = test_case.terminal.take_snapshot();
         let actual_row = row_text(&snap, expected_row);
         assert!(
             actual_row.contains(token_str),
             "expected token {token_str:?} at row {expected_row}, got {actual_row:?}"
         );
-        tc
+        test_case
     }
 }
 
@@ -394,26 +398,26 @@ mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-    fn terminal() -> GhosttyTerminal {
+    fn new_terminal() -> GhosttyTerminal {
         GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
     }
 
-    fn small_terminal() -> GhosttyTerminal {
+    fn new_small_terminal() -> GhosttyTerminal {
         GhosttyTerminal::new(3, 3, 100).expect("terminal")
     }
 
     #[test]
     fn test_case_write_and_assert_row() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"Hello, World!")
             .assert_row_text(0, "Hello, World!");
     }
 
     #[test]
     fn test_case_write_multiline() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .writeln(b"line one")
             .writeln(b"line two")
             .assert_lines_are(&["line one", "line two"]);
@@ -421,16 +425,16 @@ mod tests {
 
     #[test]
     fn test_case_cursor_movement() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[5;10HX")
             .assert_cursor_at(4, 10);
     }
 
     #[test]
     fn test_case_sgr_bold() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[1mB")
             .assert_effects(0, 0, &[EffectFlag::Bold])
             .assert_no_effects(
@@ -446,18 +450,18 @@ mod tests {
 
     #[test]
     fn test_case_sgr_color() {
-        let mut t = terminal();
+        let mut terminal = new_terminal();
         // 断言 24 位色（SGR 38;2）的字面量分量；调色板索引色的取值随主题而定，不在此断言。
         let red = [1.0, 0.0, 0.0, 1.0];
-        TermTestCase::new(&mut t)
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[38;2;255;0;0mX")
             .assert_foreground(0, 0, red);
     }
 
     #[test]
     fn test_case_sgr_reset_clears_attrs() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[1;3;4;7mA\x1b[0mB")
             .assert_no_effects(
                 0,
@@ -474,8 +478,8 @@ mod tests {
 
     #[test]
     fn test_case_content_preserved_after_noop() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"persistent content")
             .capture_before()
             .write(b"")
@@ -484,17 +488,17 @@ mod tests {
 
     #[test]
     fn test_case_sequence_clean() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t).assert_sequence_clean(b"\x1b[31m", b"OK", 0, 2);
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal).assert_sequence_clean(b"\x1b[31m", b"OK", 0, 2);
     }
 
     #[test]
     fn test_case_row_text_raw_trailing_nulls() {
-        let mut t = small_terminal();
+        let mut terminal = new_small_terminal();
         // The "AB" fills cols 0-1; col 2 has codepoint 0 (empty)
         // row_text_raw encodes codepoint 0 as \0
-        let tc = TermTestCase::new(&mut t).write(b"AB");
-        let snap = tc.terminal.take_snapshot();
+        let test_case = TermTestCase::new(&mut terminal).write(b"AB");
+        let snap = test_case.terminal.take_snapshot();
         let raw = row_text_raw(&snap, 0);
         // Must have exactly 3 chars: A, B, null
         assert_eq!(raw.len(), 3, "3 cols in small_terminal");
@@ -505,45 +509,45 @@ mod tests {
 
     #[test]
     fn test_case_invariants_after_scroll() {
-        let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
-        for i in 0..10u8 {
-            t.vt_write(format!("line {i}\n").as_bytes());
+        let mut terminal = GhosttyTerminal::new(3, 10, 100).expect("terminal");
+        for line_index in 0..10u8 {
+            terminal.vt_write(format!("line {line_index}\n").as_bytes());
         }
-        t.flush();
-        let snap = t.take_snapshot();
+        terminal.flush();
+        let snap = terminal.take_snapshot();
         assert_invariants(&snap);
-        assert!(t.scrollback_length() > 0);
+        assert!(terminal.scrollback_length() > 0);
     }
 
     #[test]
     fn test_assert_lines_are_full_width() {
-        let mut t = GhosttyTerminal::new(3, 5, 100).expect("terminal");
-        TermTestCase::new(&mut t)
+        let mut terminal = GhosttyTerminal::new(3, 5, 100).expect("terminal");
+        TermTestCase::new(&mut terminal)
             .write(b"ABCDE")
             .assert_lines_are(&["ABCDE", "", ""]);
     }
 
     #[test]
     fn test_assert_lines_are_multiple_rows_exact() {
-        let mut t = GhosttyTerminal::new(3, 5, 100).expect("terminal");
-        TermTestCase::new(&mut t)
+        let mut terminal = GhosttyTerminal::new(3, 5, 100).expect("terminal");
+        TermTestCase::new(&mut terminal)
             .write(b"ABCDE\n12345")
             .assert_lines_are(&["ABCDE", "12345", ""]);
     }
 
     #[test]
     fn test_auto_invariants_on_write_no_corruption() {
-        let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
+        let mut terminal = GhosttyTerminal::new(3, 10, 100).expect("terminal");
         // write() auto-calls invariants — if the terminal state is corrupt, this panics
-        TermTestCase::new(&mut t).write(b"normal text\nmore text\nfinal line");
+        TermTestCase::new(&mut terminal).write(b"normal text\nmore text\nfinal line");
     }
 
     #[test]
     fn test_output_capture_dsr() {
-        let mut t = terminal();
-        t.vt_write(b"\x1b[5n");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        let mut terminal = new_terminal();
+        terminal.vt_write(b"\x1b[5n");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         assert!(!responses.is_empty(), "DSR should produce a response");
         let last = responses.last().expect("non-empty");
         let text = String::from_utf8_lossy(last);
@@ -555,11 +559,11 @@ mod tests {
 
     #[test]
     fn test_output_capture_cpr() {
-        let mut t = terminal();
-        t.vt_write(b"\x1b[5;10H"); // CUP to row 5, col 10
-        t.vt_write(b"\x1b[6n"); // CPR
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        let mut terminal = new_terminal();
+        terminal.vt_write(b"\x1b[5;10H"); // CUP to row 5, col 10
+        terminal.vt_write(b"\x1b[6n"); // CPR
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         assert!(!responses.is_empty(), "CPR should produce a response");
         // CPR format: ESC [ row ; col R  (1-indexed)
         let last = responses.last().expect("non-empty");
@@ -572,10 +576,10 @@ mod tests {
 
     #[test]
     fn test_output_capture_decxpr() {
-        let mut t = terminal();
-        t.vt_write(b"\x1b[?6n");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        let mut terminal = new_terminal();
+        terminal.vt_write(b"\x1b[?6n");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         // libghostty-vt does not implement DECXCPR (probe: no response),
         // so an empty response is expected — the assertion only guards
         // the shape if a response ever appears.
@@ -594,19 +598,19 @@ mod tests {
         // DA 查询必须有应答。实测：缺省 trampoline 已按默认属性应答
         // （DA1=`?62;22c`），故不注册自定义回调——自定义属性需先验证
         // 132 列等能力，无消费者要求时不认领。此处只钉住“有应答”。
-        let mut t = terminal();
-        t.vt_write(b"\x1b[c");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        let mut terminal = new_terminal();
+        terminal.vt_write(b"\x1b[c");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         let last = responses.last().expect("DA1 must produce a response");
         let text = String::from_utf8_lossy(last);
         assert!(
             text.starts_with("\x1b[?62") && text.ends_with('c'),
             "DA1 must report VT220 primary, got: {text}"
         );
-        t.vt_write(b"\x1b[>c");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        terminal.vt_write(b"\x1b[>c");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         let last = responses.last().expect("DA2 must produce a response");
         let text = String::from_utf8_lossy(last);
         assert!(
@@ -617,32 +621,32 @@ mod tests {
 
     #[test]
     fn test_xtwinops_size_reports() {
-        // 对标 sylirre xtwinopsSizeReports：CSI 18t 回 CSI 8;行;列 t，
+        // 对标 sylirre xtwinopsSizeReports：CSI 18t 回 CSI 8;行;列 terminal，
         // CSI 14t 回像素区尺寸，CSI 16t 回单元格像素尺寸。
-        let mut t = terminal();
-        t.set_cell_pixel_size(10, 20);
-        t.flush();
-        t.vt_write(b"\x1b[18t");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        let mut terminal = new_terminal();
+        terminal.set_cell_pixel_size(10, 20);
+        terminal.flush();
+        terminal.vt_write(b"\x1b[18t");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         let last = responses.last().expect("18t must produce a response");
         assert_eq!(
             String::from_utf8_lossy(last).into_owned(),
             "\x1b[8;24;80t",
             "18t must report cells"
         );
-        t.vt_write(b"\x1b[14t");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        terminal.vt_write(b"\x1b[14t");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         let last = responses.last().expect("14t must produce a response");
         assert_eq!(
             String::from_utf8_lossy(last).into_owned(),
             "\x1b[4;480;800t",
             "14t must report pixels"
         );
-        t.vt_write(b"\x1b[16t");
-        t.flush();
-        let responses = t.drain_pty_write_responses();
+        terminal.vt_write(b"\x1b[16t");
+        terminal.flush();
+        let responses = terminal.drain_pty_write_responses();
         let last = responses.last().expect("16t must produce a response");
         assert_eq!(
             String::from_utf8_lossy(last).into_owned(),
@@ -655,14 +659,14 @@ mod tests {
     ///（对标 themeColorsApply：fg/bg/调色板红三槽位可测）。
     #[test]
     fn theme_colors_apply_to_cells() {
-        let mut t = terminal();
+        let mut terminal = new_terminal();
         // 换到日间主题：与初态默认（夜间）不同，才能证明下发的是新主题而非初值。
         let light = crate::terminal::theme::by_name(crate::terminal::theme::default_light_name())
             .expect("默认日间主题");
-        t.set_theme(light);
-        t.flush();
+        terminal.set_theme(light);
+        terminal.flush();
         let palette = &light.palette;
-        TermTestCase::new(&mut t)
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[31mX\x1b[0mY")
             .assert_foreground_exact(
                 0,
@@ -689,64 +693,64 @@ mod tests {
 
     #[test]
     fn test_assert_foreground_exact() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[38;2;255;128;64mX")
             .assert_foreground_exact(0, 0, 255, 128, 64);
     }
 
     #[test]
     fn test_assert_background_exact() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[48;2;64;128;255mX")
             .assert_background_exact(0, 0, 64, 128, 255);
     }
 
     #[test]
     fn test_assert_strikethrough() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[9mX")
             .assert_strikethrough(0, 0);
     }
 
     #[test]
     fn test_assert_blink() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[5mX")
             .assert_blink(0, 0);
     }
 
     #[test]
     fn test_assert_hidden() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[8mX")
             .assert_hidden(0, 0);
     }
 
     #[test]
     fn test_assert_title_osc2() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b]2;MyTitle\x1b\\")
             .assert_title("MyTitle");
     }
 
     #[test]
     fn test_assert_title_osc0() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b]0;IconTitle\x1b\\")
             .assert_title("IconTitle");
     }
 
     #[test]
     fn test_assert_mode_set_reset_cycle() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[?1h")
             .assert_mode(1, true)
             .write(b"\x1b[?1l")
@@ -755,8 +759,8 @@ mod tests {
 
     #[test]
     fn test_assert_mode_origin() {
-        let mut t = terminal();
-        TermTestCase::new(&mut t)
+        let mut terminal = new_terminal();
+        TermTestCase::new(&mut terminal)
             .write(b"\x1b[?6h")
             .assert_mode(6, true)
             .write(b"\x1b[?6l")
