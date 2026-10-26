@@ -506,6 +506,12 @@ struct RenderState {
     /// 主题变更等需要整屏重绘的标志。置位后下一帧所有行标脏，
     /// 避免仅 cursor/highlight 行重绘导致旧底色残留在其余行。
     full_repaint: bool,
+    /// 滚动命令在途：滚动已发给 VT 线程，屏幕内容尚未反映它。
+    ///
+    /// 空闲重绘 MUST NOT 在此期间发生——它只能用缓存帧（旧视口）配新余量重绘，
+    /// 画出的内容比实际视口少滚了整行数（滑动慢一拍），且那是一次多余的全量提交。
+    /// 滚动后的帧到达即解除（见 [`render_inner`] 的新帧路径）。
+    scroll_frame_pending: bool,
 }
 
 /// 按会话键控的一段渲染态数据。
@@ -635,6 +641,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_overlay_dirty: false,
             dirty: AtomicBool::new(false),
             full_repaint: false,
+            scroll_frame_pending: false,
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
@@ -2312,6 +2319,30 @@ fn log_frame_failure(error: &GpuError) {
     }
 }
 
+/// 空闲路径的重绘门控（纯函数，表驱动单测）。
+///
+/// 五个变化信号任一为真即需重绘：搜索高亮、亚行余量、内容脏标志、累加器失效、
+/// 需要整屏重绘。
+///
+/// 滚动命令在途（`scroll_frame_pending`）时一律不重绘：屏幕内容尚未反映本次滚动，
+/// 此刻重绘只能用缓存帧（旧视口）配新余量，画出的内容比实际视口少滚了整行数
+/// （滑动慢一拍），且那是一次多余的全量提交。滚动后的内容由终端推送的新帧呈现。
+fn should_repaint_idle(
+    highlights_changed: bool,
+    scroll_px_changed: bool,
+    content_dirty: bool,
+    frame_invalidated: bool,
+    full_repaint: bool,
+    scroll_frame_pending: bool,
+) -> bool {
+    !scroll_frame_pending
+        && (highlights_changed
+            || scroll_px_changed
+            || content_dirty
+            || frame_invalidated
+            || full_repaint)
+}
+
 fn render_inner(session_id: u64) -> jint {
     let render_start = std::time::Instant::now();
     // ── 阶段 0：切会话后索要一帧 ────────────────────────────────────────
@@ -2705,6 +2736,10 @@ fn render_inner(session_id: u64) -> jint {
                 render_state.kitty_overlay_dirty,
             );
             render_done = std::time::Instant::now();
+            // 新帧已就位（成功呈现，或留待空闲重绘重试）：滚动在途状态解除。
+            // 渲染失败时同样解除——那一帧的单元数据已存进 `last_frame`，重试由
+            // `dirty` 标志驱动；若标志不解，重试会被空闲路径自己挡掉。
+            render_state.scroll_frame_pending = false;
             match result {
                 Ok(()) => {
                     render_state.kitty_overlay_dirty = false;
@@ -2739,17 +2774,27 @@ fn render_inner(session_id: u64) -> jint {
             // 空闲重绘门控：仅当确有变化时重绘——搜索高亮、滚动偏移、内容脏标志被置位，
             // 或累加器失效（surface 重挂载/resize：新交换链从未收到过帧，空闲 shell
             // 会永远黑屏）。选区经 VT 线程作为新单元内容到达，故无需自己的门控。
+            // 滚动命令在途时一律不重绘：屏幕内容尚未反映本次滚动，此刻只能用旧视口
+            // 配新余量重绘（见 [`should_repaint_idle`]）。
             let highlights_changed =
                 render_state.search_highlights.current != render_state.search_highlights.drawn;
             let scroll_px_changed =
                 (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
                     > f32::EPSILON;
-            let needs_repaint = highlights_changed
-                || scroll_px_changed
-                || content_dirty
-                || render_state.renderer.frame_invalidated
-                || render_state.full_repaint;
+            let needs_repaint = should_repaint_idle(
+                highlights_changed,
+                scroll_px_changed,
+                content_dirty,
+                render_state.renderer.frame_invalidated,
+                render_state.full_repaint,
+                render_state.scroll_frame_pending,
+            );
             if !needs_repaint {
+                // 只有「滚动在途」会带着脏标志跳过：归还它——字体/主题等改动
+                // 只置此标志、没有别的触发点，被这一帧消费掉就再也不会画出来。
+                if content_dirty {
+                    render_state.dirty.store(true, Ordering::Release);
+                }
                 return 0;
             }
             let rows_usize = cached_rows as usize;
@@ -4570,13 +4615,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
             }
             sent
         };
-        // 行级滚动必须立即重绘：VT 线程推送新 CellData 是异步的，滑动期间无 New 帧时
-        // Idle 门控（highlights / scroll_px / dirty / invalidated）不含行偏移，
-        // 会吞掉本次滑动直到下一次输出或点击才刷出来（“滑动不动、点一下才出”）。
+        // 滚动命令在途：VT 线程推送新 CellData 是异步的，此刻屏幕内容仍是旧视口。
+        // 置位使空闲重绘在此期间跳过——否则只能用旧视口配新余量重绘，画出的内容
+        // 比实际视口少滚了整行数（滑动慢一拍），且那是一次多余的全量提交。
+        // 滚动后的帧到达即解除（渲染线程被帧唤醒钩子叫醒，无需在此强制重绘）。
+        //
+        // 此前这里置 `dirty` 强制重绘：那是「内容去重会吞掉滚动重绘」时代的补丁
+        // （滑动期间无 New 帧时 Idle 门控不含行偏移，滑动被吞到下一次输出才出来）。
+        // 去重缺陷已修——滚动命令会失效去重基线并强制推帧——补丁却留下了多余的提交。
         if sent {
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
-                render_state.dirty.store(true, Ordering::Relaxed);
+                render_state.scroll_frame_pending = true;
             }
         }
         if sent { JNI_TRUE } else { JNI_FALSE }
@@ -5349,6 +5399,53 @@ mod scroll_bookkeeping_tests {
             second.lock().last_scroll_offset(),
             0,
             "另一会话的滚动不得推进本会话的记账"
+        );
+    }
+}
+
+#[cfg(test)]
+mod idle_repaint_gate_tests {
+    use super::should_repaint_idle;
+
+    /// 空闲重绘门控的判定表。
+    ///
+    /// 五个变化信号任一为真即需重绘；滚动命令在途时一律不重绘——屏幕内容尚未
+    /// 反映本次滚动，此刻重绘只能用旧视口配新余量，画出的内容比实际视口少滚了
+    /// 整行数（滑动慢一拍），且那是一次多余的全量提交。
+    ///
+    /// 判别力：去掉「滚动在途」这一位，第三个断言立刻判红。
+    #[test]
+    fn idle_repaint_gate_decision_table() {
+        // 无变化：不必重绘。
+        assert!(
+            !should_repaint_idle(false, false, false, false, false, false),
+            "无变化时不得重绘"
+        );
+        // 五个变化信号各自独立触发重绘。
+        assert!(
+            should_repaint_idle(true, false, false, false, false, false),
+            "搜索高亮变化必须重绘"
+        );
+        assert!(
+            should_repaint_idle(false, true, false, false, false, false),
+            "亚行余量变化必须重绘"
+        );
+        assert!(
+            should_repaint_idle(false, false, true, false, false, false),
+            "内容脏标志置位必须重绘"
+        );
+        assert!(
+            should_repaint_idle(false, false, false, true, false, false),
+            "累加器失效必须重绘"
+        );
+        assert!(
+            should_repaint_idle(false, false, false, false, true, false),
+            "整屏重绘请求必须重绘"
+        );
+        // 滚动在途：无论其余信号如何都不重绘。
+        assert!(
+            !should_repaint_idle(true, true, true, true, true, true),
+            "滚动命令在途期间不得用旧视口重绘"
         );
     }
 }
