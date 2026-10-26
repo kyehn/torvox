@@ -68,8 +68,9 @@ PTY 回写回调、OSC 52 写回回调、XTWINOPS 尺寸回调、编码器、渲
 
 - `prepare_render(session_id) -> bool`：阶段 0 + 阶段 1。返回 `false` 表示
   本帧不渲染（渲染状态缺失、surface 未挂载、图集尺寸未就绪）。
-- `collect_frame_data(session_id) -> Option<FrameData>`：阶段 2。返回 `None`
-  表示本帧不渲染（渲染状态缺失、暂停中、surface 丢失、会话不存在）。
+- `collect_frame_data(session_id) -> Result<FrameData, jint>`：阶段 2。`Err(0)`
+  表示暂停中或 surface 丢失、`Err(-1)` 表示渲染状态缺失或会话不存在——
+  退出码即原先 `render_inner` 的返回值。
 - `render_new_frame(...)`：阶段 3 的新帧路径。
 - `render_idle_frame(...)`：阶段 3 的空闲路径。
 
@@ -90,10 +91,12 @@ PTY 回写回调、OSC 52 写回回调、XTWINOPS 尺寸回调、编码器、渲
 新帧路径有；整屏标脏由 `full_repaint` 标志决定，两条路径都有。
 
 故 helper 形如
-`fill_dirty_mask(dirty_mask, rows, cursor_row, previous_cursor_row, highlight_rows, full_repaint)`
+`mark_dirty_rows(dirty_mask, rows, cursor_row, previous_cursor_row, current_highlights, last_drawn_highlights, full_repaint)`
 ：上一帧光标行以 `Option<u32>` 传入，`None` 表示没有上一帧（新帧路径在会话
-切换后的首帧就是这种情况）。掩码的分配（`clear` + `resize`）留在各路径内，
-因为它依赖的是各自持有的行数来源（`rows` 与 `cached_rows`）。
+切换后的首帧就是这种情况，空闲路径恒为 `None`）；高亮的当前集合与已绘制集合
+一并传入，行号由 helper 内部按「新增 + 消失」求差集。掩码的分配（`clear` +
+`resize`）留在各路径内，因为它依赖的是各自持有的行数来源（`rows` 与
+`cached_rows`）。
 
 **为什么不抽成返回 `Vec<bool>`：**掩码是 `render_state.dirty_mask` 的原地
 写入，渲染器随后以 `Some(&render_state.dirty_mask)` 读取它。返回新向量会
