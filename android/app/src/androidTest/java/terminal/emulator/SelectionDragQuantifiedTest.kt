@@ -148,11 +148,11 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         var lastSeen: String? = null
         for (attempt in 1..3) {
             if (landed != null) break
-            val fed =
+            val fedText =
                 bridge().feedTerminal(
                     "\u001B[${targetViewportRow + 1};${startColumn}H$words".toByteArray(Charsets.UTF_8),
                 )
-            assertTrue("标记送显失败", fed)
+            assertTrue("标记送显失败", fedText)
             landed =
                 UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
                     val text = currentText()
@@ -222,13 +222,13 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      * 入参为 surface 本地坐标，内部换算屏坐标。
      */
     private fun realSwipe(x0Local: Float, y0Local: Float, x1Local: Float, y1Local: Float, steps: Int) {
-        val loc = IntArray(2)
-        attachedSurface().getLocationOnScreen(loc)
+        val windowLocation = IntArray(2)
+        attachedSurface().getLocationOnScreen(windowLocation)
         device.swipe(
-            (loc[0] + x0Local).toInt(),
-            (loc[1] + y0Local).toInt(),
-            (loc[0] + x1Local).toInt(),
-            (loc[1] + y1Local).toInt(),
+            (windowLocation[0] + x0Local).toInt(),
+            (windowLocation[1] + y0Local).toInt(),
+            (windowLocation[0] + x1Local).toInt(),
+            (windowLocation[1] + y1Local).toInt(),
             steps,
         )
         Thread.sleep(150)
@@ -238,7 +238,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      * 长按至选择出现再抬手（慢模拟器主线程卡顿会把固定 1200ms 长按吞成点击）：
      * DOWN 后轮询选择激活（4s），见选择才 MOVE/UP；无选择则抬手重试一轮。
      */
-    private fun longPressUntilSelected(x: Float, y: Float, attempts: Int = 2) {
+    private fun longPressUntilSelected(pressX: Float, pressY: Float, attempts: Int = 2) {
         repeat(attempts) {
             val surface = attachedSurface()
             val downTime = android.os.SystemClock.uptimeMillis()
@@ -248,8 +248,8 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
                         downTime,
                         downTime,
                         android.view.MotionEvent.ACTION_DOWN,
-                        x,
-                        y,
+                        pressX,
+                        pressY,
                         0,
                     ),
                 )
@@ -269,8 +269,8 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
                         downTime,
                         now,
                         android.view.MotionEvent.ACTION_MOVE,
-                        x + 1f,
-                        y + 1f,
+                        pressX + 1f,
+                        pressY + 1f,
                         0,
                     ),
                 )
@@ -279,8 +279,8 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
                         downTime,
                         now,
                         android.view.MotionEvent.ACTION_UP,
-                        x + 1f,
-                        y + 1f,
+                        pressX + 1f,
+                        pressY + 1f,
                         0,
                     ),
                 )
@@ -374,16 +374,16 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
     @Test
     fun whitespace_longpress_shows_paste_only_menu() {
         seedClipboard()
-        val b = bridge()
-        b.writeToPty("clear\n".toByteArray(Charsets.UTF_8))
+        val bridgeInstance = bridge()
+        bridgeInstance.writeToPty("clear\n".toByteArray(Charsets.UTF_8))
         Thread.sleep(1_200)
 
         // Long-press the blank region right of the prompt: guaranteed
         // whitespace target regardless of font metrics (prompt never fills
         // the whole line).
-        val x = device.displayWidth - 160
-        val y = device.displayHeight - 260
-        injectLongPress(attachedSurface(), x.toFloat(), y.toFloat())
+        val pressX = device.displayWidth - 160
+        val pressY = device.displayHeight - 260
+        injectLongPress(attachedSurface(), pressX.toFloat(), pressY.toFloat())
 
         assertNotNull("PASTE item missing for whitespace long-press", waitForMenuText("粘贴"))
         assertTrue(
@@ -740,11 +740,11 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      */
     private fun highlightLeftEdge(bandY: Int, background: Int, left: Int, right: Int): Int {
         val shot = UxTestUtils.screenshot(device)
-        var run = 0
-        for (x in left until minOf(right, shot.width)) {
-            val delta = kotlin.math.abs(pixelLuminance(shot, x, bandY) - background)
-            run = if (delta > EDGE_LUMINANCE_DELTA) run + 1 else 0
-            if (run >= 3) return x - 2
+        var runCount = 0
+        for (pressX in left until minOf(right, shot.width)) {
+            val delta = kotlin.math.abs(pixelLuminance(shot, pressX, bandY) - background)
+            runCount = if (delta > EDGE_LUMINANCE_DELTA) runCount + 1 else 0
+            if (runCount >= 3) return pressX - 2
         }
         return -1
     }

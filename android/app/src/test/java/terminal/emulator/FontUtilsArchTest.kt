@@ -7,7 +7,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * detectArchFromAbi 把 Android ABI 名映射为 bootstrap 安装使用的链接器 triplet。
+ * detectDeviceArchitecture 把 Android ABI 名映射为 bootstrap 安装使用的链接器 triplet。
  * 只支持 arm64-v8a 与 x86_64（见 docs/specification/BUILD.md），因此只测这两个与回退。
  * ABI 列表是静态字段，每个用例用反射固定后再调用。
  */
@@ -23,14 +23,14 @@ class FontUtilsArchTest {
     @Test
     fun `arm64-v8a maps to aarch64 and is 64-bit`() {
         withAbis("arm64-v8a") {
-            assertEquals("aarch64", detectArchFromAbi())
+            assertEquals("aarch64", detectDeviceArchitecture())
         }
     }
 
     @Test
     fun `x86_64 maps to x86_64 and is 64-bit`() {
         withAbis("x86_64") {
-            assertEquals("x86_64", detectArchFromAbi())
+            assertEquals("x86_64", detectDeviceArchitecture())
         }
     }
 
@@ -38,7 +38,7 @@ class FontUtilsArchTest {
     fun `unsupported abi fails fast instead of fetching the wrong arch`() {
         withAbis("riscv64") {
             try {
-                detectArchFromAbi()
+                detectDeviceArchitecture()
                 Assert.fail("riscv64 必须抛而非回退 aarch64")
             } catch (exception: IllegalStateException) {
                 Assert.assertTrue(
@@ -52,7 +52,7 @@ class FontUtilsArchTest {
     fun `empty abi list fails fast`() {
         withAbis {
             try {
-                detectArchFromAbi()
+                detectDeviceArchitecture()
                 Assert.fail("空 ABI 列表必须抛")
             } catch (exception: IllegalStateException) {
                 // error() 即 IllegalStateException

@@ -35,12 +35,12 @@ class BootstrapSymlinkInstrumentedTest : TerminalLogcatTest() {
 
     @Before
     fun setup() {
-        val id = UUID.randomUUID().toString().take(8)
-        prefixDir = File(context.filesDir, "bssym-$id/usr")
+        val runId = UUID.randomUUID().toString().take(8)
+        prefixDir = File(context.filesDir, "bssym-$runId/usr")
         prefixDir.parentFile?.mkdirs()
-        homeDir = File(context.filesDir, "bssym-$id/home")
-        stagingDir = File(context.cacheDir, "bssym-$id-staging")
-        zipFile = File(context.cacheDir, "bssym-$id.zip")
+        homeDir = File(context.filesDir, "bssym-$runId/home")
+        stagingDir = File(context.cacheDir, "bssym-$runId-staging")
+        zipFile = File(context.cacheDir, "bssym-$runId.zip")
     }
 
     @After
@@ -53,11 +53,11 @@ class BootstrapSymlinkInstrumentedTest : TerminalLogcatTest() {
 
     @Test
     fun symlinks_point_at_configured_targets_after_install() {
-        ZipOutputStream(zipFile.outputStream()).use { zos ->
+        ZipOutputStream(zipFile.outputStream()).use { zipOutputStream ->
             fun add(name: String, content: String = "x") {
-                zos.putNextEntry(ZipEntry(name))
-                zos.write(content.toByteArray())
-                zos.closeEntry()
+                zipOutputStream.putNextEntry(ZipEntry(name))
+                zipOutputStream.write(content.toByteArray())
+                zipOutputStream.closeEntry()
             }
             add("bin/bash", "#!/bin/sh\necho bash\n")
             add("bin/gawk", "gawk-binary")

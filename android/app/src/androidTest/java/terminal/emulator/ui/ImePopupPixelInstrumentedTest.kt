@@ -116,12 +116,12 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
     /** 真实点击终端中央弹出输入法（与用户点击同路径），等待窗口内边距稳定。 */
     private fun tapAndAwaitIme() {
         val surface = findTerminalSurface(composeTestRule.activity)
-        val loc = IntArray(2)
-        surface.getLocationOnScreen(loc)
+        val windowLocation = IntArray(2)
+        surface.getLocationOnScreen(windowLocation)
         injectTap(
             surface,
-            (loc[0] + surface.width / 2).toFloat(),
-            (loc[1] + surface.height / 2).toFloat(),
+            (windowLocation[0] + surface.width / 2).toFloat(),
+            (windowLocation[1] + surface.height / 2).toFloat(),
         )
         val visible =
             UxTestUtils.pollUntilTrue(timeoutMs = IME_TIMEOUT_MS, intervalMs = 200) {
@@ -271,14 +271,14 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
 
     /** 每行墨量：从 [top] 起连续 [height] 行，每行抽样像素的亮度之和。 */
     private fun rowInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): IntArray = IntArray(height) { row ->
-        val y = top + row
-        var sum = 0
-        var x = 0
-        while (x < bitmap.width) {
-            sum += android.graphics.Color.red(bitmap.getPixel(x, y))
-            x += ROW_INK_SAMPLE_STEP_PX
+        val row = top + row
+        var pixelSum = 0
+        var column = 0
+        while (column < bitmap.width) {
+            pixelSum += android.graphics.Color.red(bitmap.getPixel(column, row))
+            column += ROW_INK_SAMPLE_STEP_PX
         }
-        sum
+        pixelSum
     }
 
     /** 给定位移下条带内的像素差异数；越界行按跳过处理，避免负下标。 */
@@ -290,19 +290,19 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         shift: Int,
     ): Int {
         var diff = 0
-        var y = 0
-        while (y < stripHeight) {
-            val sourceY = stripTop + y - shift
+        var row = 0
+        while (row < stripHeight) {
+            val sourceY = stripTop + row - shift
             if (sourceY >= 0) {
-                var x = 0
-                while (x < first.width) {
-                    if (pixelDelta(first.getPixel(x, stripTop + y), second.getPixel(x, sourceY)) > 40) {
+                var column = 0
+                while (column < first.width) {
+                    if (pixelDelta(first.getPixel(column, stripTop + row), second.getPixel(column, sourceY)) > 40) {
                         diff++
                     }
-                    x += PIXEL_SAMPLE_STEP_PX
+                    column += PIXEL_SAMPLE_STEP_PX
                 }
             }
-            y += PIXEL_SAMPLE_STEP_PX
+            row += PIXEL_SAMPLE_STEP_PX
         }
         return diff
     }
@@ -329,11 +329,11 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         }
         repeat(3) {
             composeTestRule.activity.runOnUiThread {
-                val imm =
+                val inputMethodManager =
                     composeTestRule.activity.getSystemService(
                         android.content.Context.INPUT_METHOD_SERVICE,
                     ) as android.view.inputmethod.InputMethodManager
-                imm.hideSoftInputFromWindow(
+                inputMethodManager.hideSoftInputFromWindow(
                     composeTestRule.activity.window.decorView.windowToken,
                     0,
                 )
@@ -366,7 +366,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
      *
      * 位移量按内容下沿裁剪（`computeImeSurfaceShift`）：放得下的内容不动，
      * 放不下的才上移。无条件按整块键盘高度上移会把首行提示符推出屏幕上边界
-     * ——终端区实测全空（提示符由 y=134 落到 y=−686），即本用例要钉住的回归。
+     * ——终端区实测全空（提示符由 row=134 落到 row=−686），即本用例要钉住的回归。
      *
      * 故此处度量「弹出前后同一像素条带是否完全一致」而非位移像素：稀疏会话
      * 位移为 0，两帧条带必须逐像素相同（差分 ≤ 采样噪声）；同时条带在两帧

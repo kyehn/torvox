@@ -97,12 +97,12 @@ class Bridge(private val config: TerminalConfig) {
      * 主题名，界面毫无反应，日志还写着一条错误的归因。
      */
     private inline fun <T> onSession(name: String, onUnavailable: T, call: (Long) -> T): T {
-        val id = sessionId
-        if (id == 0L) return onUnavailable
+        val capturedSessionId = sessionId
+        if (capturedSessionId == 0L) return onUnavailable
         return try {
-            call(id)
+            call(capturedSessionId)
         } catch (sessionMissing: IllegalStateException) {
-            LogUtil.w(TAG, "$name: 会话 $id 已销毁，返回缺省值")
+            LogUtil.warn(TAG, "$name: 会话 $capturedSessionId 已销毁，返回缺省值")
             onUnavailable
         }
     }
@@ -114,7 +114,7 @@ class Bridge(private val config: TerminalConfig) {
      */
     private inline fun <T> onQuery(name: String, onUnavailable: T, call: () -> T): T = runCatchingCancellable(call)
         .onFailure {
-            LogUtil.w(TAG, "$name failed, returning default (${it.javaClass.simpleName})")
+            LogUtil.warn(TAG, "$name failed, returning default (${it.javaClass.simpleName})")
         }.getOrDefault(onUnavailable)
 
     fun ping(): String {
@@ -160,7 +160,7 @@ class Bridge(private val config: TerminalConfig) {
             try {
                 NativeBridge.prefetchRenderState()
             } catch (exception: Exception) {
-                LogUtil.w("Bridge", "prefetchRenderState failed", exception)
+                LogUtil.warn("Bridge", "prefetchRenderState failed", exception)
             }
         }
     }
@@ -173,7 +173,7 @@ class Bridge(private val config: TerminalConfig) {
                 // 清理路径：此处失败（未知会话的 RuntimeException、库部分加载的 UnsatisfiedLinkError）
                 // 绝不能外逃——调用方只捕获 Exception，Error 会直达全局处理器并杀掉进程。
                 // 无论成败都移除注册表项，原生容忍未知 ID。
-                LogUtil.e(TAG, "close: destroySession failed", exception)
+                LogUtil.error(TAG, "close: destroySession failed", exception)
             }
             sessionId = 0L
         }
@@ -274,7 +274,7 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     fun releaseGpuSurface() {
-        LogUtil.d(TAG, "releaseGpuSurface()")
+        LogUtil.debug(TAG, "releaseGpuSurface()")
         onSession("releaseGpuSurface", Unit) { NativeBridge.detachWindow(it) }
     }
 
@@ -338,7 +338,7 @@ class Bridge(private val config: TerminalConfig) {
                     // 片段带进 message，而事件 JSON 可能含剪贴板文本或 URL——见 PollEvent
                     // 的 `exceptionsWithDebugInfo = false` 脱敏约定）与 JSON 本身。
                     // 长度足以区分「空/截断」与「结构不符」，且不泄露内容。
-                    LogUtil.w(
+                    LogUtil.warn(
                         TAG,
                         "pollAll: undecodable event dropped (${exception.javaClass.simpleName}, ${json.length} chars)",
                     )
@@ -394,12 +394,12 @@ class Bridge(private val config: TerminalConfig) {
     // 端到端接线：只下发主题标识，终端默认色、ANSI 调色板、光标色与搜索高亮色都由
     // 原生按同一份构建期嵌入的 alacritty 主题解析，故两端不可能各自持一份颜色。
     fun setTheme(themeName: String) {
-        LogUtil.d(TAG, "setTheme: $themeName")
+        LogUtil.debug(TAG, "setTheme: $themeName")
         onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName) }
     }
 
     fun setSystemLocale(locale: String) {
-        LogUtil.d(TAG, "setSystemLocale($locale)")
+        LogUtil.debug(TAG, "setSystemLocale($locale)")
         onSession("setSystemLocale", Unit) { NativeBridge.setSystemLocale(it, locale) }
     }
 
@@ -409,7 +409,7 @@ class Bridge(private val config: TerminalConfig) {
     private val lastExtraFontPaths = AtomicReference<List<String>>(emptyList())
 
     fun setExtraFontPaths(paths: List<String>) {
-        LogUtil.d(TAG, "setExtraFontPaths($paths)")
+        LogUtil.debug(TAG, "setExtraFontPaths($paths)")
         // 原生调用会重建字体管线（重新分配图集），因此跳过重复调用，目录内容在重建时自行拾取。
         if (lastExtraFontPaths.getAndSet(paths) == paths) return
         onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
@@ -438,14 +438,14 @@ class Bridge(private val config: TerminalConfig) {
     // null = 会话在调用间隙未建立/已销毁，无从验证（调用方不得清除设置）；
     // false = 原生明确未找到该字族。
     fun setFontFamily(family: String): Boolean? {
-        LogUtil.d(TAG, "setFontFamily($family)")
+        LogUtil.debug(TAG, "setFontFamily($family)")
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
         return onSession("setFontFamily", null) { NativeBridge.setFontFamily(it, override ?: family) }
     }
 
     fun setFontSizeInPlace(sizeTenths: Int) {
-        LogUtil.d(TAG, "setFontSizeInPlace($sizeTenths)")
+        LogUtil.debug(TAG, "setFontSizeInPlace($sizeTenths)")
         onSession("setFontSizeInPlace", Unit) { NativeBridge.setFontSizeInPlace(it, sizeTenths) }
     }
 
@@ -455,7 +455,7 @@ class Bridge(private val config: TerminalConfig) {
 
     // 自定义字体由原生 fontdb 探测文件、注册到渲染器并返回家族名，失败返回 null。
     fun loadFontFile(path: String): String? {
-        LogUtil.d(TAG, "loadFontFile($path)")
+        LogUtil.debug(TAG, "loadFontFile($path)")
         return onSession("loadFontFile", null) { NativeBridge.loadFontFile(it, path) }
     }
 
@@ -478,8 +478,8 @@ class Bridge(private val config: TerminalConfig) {
      * 生成并写入序列时返回 true；关闭鼠标上报、编码失败或会话消失（事件丢弃）时返回 false。
      */
     fun encodeMouseEvent(
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         action: Int,
         button: Int,
         modifiers: Int,
@@ -489,11 +489,20 @@ class Bridge(private val config: TerminalConfig) {
         // 编码与写入在**同一次** `onSession` 里：两次 `onSession` 各读一遍 `sessionId`，
         // 两次之间会话被销毁并重建时，按旧会话坐标算出的转义序列会写进新会话的 PTY。
         // 与 `processKeyEvent` 同款写法。
-        return onSession("encodeMouseEvent", false) { id ->
+        return onSession("encodeMouseEvent", false) { sessionId ->
             val bytes =
-                NativeBridge.encodeMouseEvent(id, xPx, yPx, action, button, modifiers, cellWidth, cellHeight)
+                NativeBridge.encodeMouseEvent(
+                    sessionId,
+                    pixelX,
+                    pixelY,
+                    action,
+                    button,
+                    modifiers,
+                    cellWidth,
+                    cellHeight,
+                )
             if (bytes.isEmpty()) return@onSession false
-            sendToPty(id, bytes)
+            sendToPty(sessionId, bytes)
             onPtyWrite?.invoke()
             true
         }
@@ -507,8 +516,8 @@ class Bridge(private val config: TerminalConfig) {
      * 返回是否真的写入了（上报关闭、编码失败或会话消失时为 false）。
      */
     fun encodeMouseWheel(
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         button: Int,
         modifiers: Int,
         cellWidth: Float,
@@ -516,11 +525,20 @@ class Bridge(private val config: TerminalConfig) {
         repeat: Int,
     ): Boolean {
         if (repeat <= 0) return false
-        return onSession("encodeMouseWheel", false) { id ->
+        return onSession("encodeMouseWheel", false) { sessionId ->
             val bytes =
-                NativeBridge.encodeMouseWheel(id, xPx, yPx, button, modifiers, cellWidth, cellHeight, repeat)
+                NativeBridge.encodeMouseWheel(
+                    sessionId,
+                    pixelX,
+                    pixelY,
+                    button,
+                    modifiers,
+                    cellWidth,
+                    cellHeight,
+                    repeat,
+                )
             if (bytes.isEmpty()) return@onSession false
-            sendToPty(id, bytes)
+            sendToPty(sessionId, bytes)
             onPtyWrite?.invoke()
             true
         }
@@ -541,7 +559,7 @@ class Bridge(private val config: TerminalConfig) {
     fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
     fun processKeyEvent(keyCode: Int, modifiers: Int, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
-        LogUtil.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
+        LogUtil.debug(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
         // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
         // false，交由平台默认实现（空操作）处理。
@@ -552,7 +570,7 @@ class Bridge(private val config: TerminalConfig) {
         // Alt/Super 在终端语义上是「加 ESC 前缀」，而本入口只处理编码器未覆盖的
         // 键码，故把这条规则折成一个布尔下发：掩码位值不必在两端各写一份。
         val metaPrefix = modifiers and (KeyModifiers.ALT or KeyModifiers.SUPER) != 0
-        return onSession("processKeyEvent", false) { id ->
+        return onSession("processKeyEvent", false) { sessionId ->
             // 编码器按终端状态选择形态：DECCKM 下方向键走 SS3、modifyOtherKeys
             // 下 Ctrl+字母走 `CSI 27;mod;code~`、backarrow key mode 下退格发 BS
             // 而非 DEL。应用不再查询任何模式，也不再维护转义序列表。
@@ -561,7 +579,7 @@ class Bridge(private val config: TerminalConfig) {
             // Delete 都会失效。
             val encoded =
                 NativeBridge.encodeKeyEvent(
-                    sessionId = id,
+                    sessionId = sessionId,
                     keyCode = keyCode,
                     unicodeChar = unicodeChar,
                     unshiftedChar = unshiftedChar,
@@ -570,7 +588,7 @@ class Bridge(private val config: TerminalConfig) {
                 )
             if (encoded.isNotEmpty()) {
                 // 排队写：几乎全部按键走这一支，直写会让子进程不读 stdin 时冻住主线程。
-                sendToPty(id, encoded)
+                sendToPty(sessionId, encoded)
                 onPtyWrite?.invoke()
                 return@onSession true
             }
@@ -581,7 +599,7 @@ class Bridge(private val config: TerminalConfig) {
             // 编码或按上游规则丢弃。
             if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
                 if (!Character.isValidCodePoint(unicodeChar)) return@onSession false
-                sendFallbackKey(id, String(Character.toChars(unicodeChar)), metaPrefix)
+                sendFallbackKey(sessionId, String(Character.toChars(unicodeChar)), metaPrefix)
                 return@onSession true
             }
             // 部分输入法（Gboard 在 InputType.TYPE_NULL 下、组合输入中）发出的按键事件
@@ -591,7 +609,7 @@ class Bridge(private val config: TerminalConfig) {
             if (!ctrlActive) {
                 val derived = virtualKeyboardMap.get(keyCode, 0)
                 if (derived > 0 && Character.isValidCodePoint(derived)) {
-                    sendFallbackKey(id, String(Character.toChars(derived)), metaPrefix)
+                    sendFallbackKey(sessionId, String(Character.toChars(derived)), metaPrefix)
                     return@onSession true
                 }
             }

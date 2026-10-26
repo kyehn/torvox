@@ -209,18 +209,21 @@ fun AndroidComposeTestRule<*, *>.closeDrawer() {
     }
 }
 
-/** 当前活跃会话 id（主线程同步读）：会话增删断言的共享读口。 */
+/** 当前活跃会话 sessionId（主线程同步读）：会话增删断言的共享读口。 */
 fun AndroidComposeTestRule<*, *>.activeSessionId(): Long {
-    var id = -1L
-    runOnMainThread { id = (activity as MainActivity).terminalViewModel.state.value.activeSessionId }
-    return id
+    var sessionId = -1L
+    runOnMainThread { sessionId = (activity as MainActivity).terminalViewModel.state.value.activeSessionId }
+    return sessionId
 }
 
-/** 全部会话 id（主线程同步读）：与 [activeSessionId] 同口径，按列表顺序。 */
+/** 全部会话 sessionId（主线程同步读）：与 [activeSessionId] 同口径，按列表顺序。 */
 fun AndroidComposeTestRule<*, *>.sessionIds(): List<Long> {
-    var ids = emptyList<Long>()
-    runOnMainThread { ids = (activity as MainActivity).terminalViewModel.state.value.sessions.map { it.id } }
-    return ids
+    var sessionIds = emptyList<Long>()
+    runOnMainThread {
+        sessionIds =
+            (activity as MainActivity).terminalViewModel.state.value.sessions.map { it.sessionId }
+    }
+    return sessionIds
 }
 
 /** 会话总数（主线程同步读）：与 [activeSessionId] 同口径。 */
@@ -230,11 +233,12 @@ fun AndroidComposeTestRule<*, *>.sessionCount(): Int {
     return count
 }
 
-/** 会话在抽屉列表中的位置（0 起）：按 id 定位，避免硬编码“会话 N”文本。 */
-fun AndroidComposeTestRule<*, *>.sessionIndex(id: Long): Int {
+/** 会话在抽屉列表中的位置（0 起）：按 sessionId 定位，避免硬编码“会话 N”文本。 */
+fun AndroidComposeTestRule<*, *>.sessionIndex(sessionId: Long): Int {
     var index = -1
     runOnMainThread {
-        index = (activity as MainActivity).terminalViewModel.state.value.sessions.indexOfFirst { it.id == id }
+        index =
+            (activity as MainActivity).terminalViewModel.state.value.sessions.indexOfFirst { it.sessionId == sessionId }
     }
     return index
 }
@@ -297,11 +301,11 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
                     device.wait(Until.hasObject(By.desc("Settings")), 3000) ||
                     device.wait(Until.hasObject(By.text("Settings")), 3000)
             if (found) {
-                val obj =
+                val settingsButton =
                     device.findObject(By.res("SettingsButton"))
                         ?: device.findObject(By.desc("Settings"))
                         ?: device.findObject(By.text("Settings"))
-                obj?.click()
+                settingsButton?.click()
                 waitForIdle()
                 waitForSettingsScreenProbe(8000)
             } else {
@@ -399,12 +403,12 @@ private fun dismissBlockingSystemDialog(device: UiDevice): Boolean {
 
 /** 设置页兜底失败时的定性报告：前台是谁、有没有系统对话框挡着。 */
 private fun foregroundReport(device: UiDevice): String {
-    val pkg = runCatchingCancellable { device.currentPackageName }.getOrNull() ?: "未知"
+    val packageName = runCatchingCancellable { device.currentPackageName }.getOrNull() ?: "未知"
     val dialog =
         listOf("Allow", "ALLOW", "Deny").firstOrNull { label ->
             runCatchingCancellable { device.hasObject(By.text(label)) }.getOrDefault(false)
         }
-    return "前台包=$pkg，系统对话框=${dialog ?: "无"}"
+    return "前台包=$packageName，系统对话框=${dialog ?: "无"}"
 }
 
 private fun AndroidComposeTestRule<*, *>.waitForSettingsScreenProbe(timeoutMs: Long): Boolean {
@@ -535,16 +539,16 @@ fun analyzeNonBlackRatio(bitmap: Bitmap): Double {
     bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
     var nonBlack = 0L
     for (pixel in pixels) {
-        val r = (pixel shr 16) and 0xFF
-        val g = (pixel shr 8) and 0xFF
-        val b = pixel and 0xFF
-        if (r > 15 || g > 15 || b > 15) nonBlack++
+        val red = (pixel shr 16) and 0xFF
+        val green = (pixel shr 8) and 0xFF
+        val blue = pixel and 0xFF
+        if (red > 15 || green > 15 || blue > 15) nonBlack++
     }
     return nonBlack.toDouble() / pixels.size.toDouble()
 }
 
-fun injectLongPress(view: View, x: Float, y: Float) {
-    val dt = SystemClock.uptimeMillis()
+fun injectLongPress(view: View, pointerX: Float, pointerY: Float) {
+    val downTimeMillis = SystemClock.uptimeMillis()
     // Must NOT block the main thread — GestureDetector uses a Handler on the
     // main-thread looper.  If we dispatch DOWN then sleep(800) on the main
     // thread the long-press timer message is queued but never processed before
@@ -552,7 +556,9 @@ fun injectLongPress(view: View, x: Float, y: Float) {
     // and treats the gesture as a tap (the root cause of long-press
     // selection assertions failing in text-selection tests).
     view.post {
-        view.dispatchTouchEvent(MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0))
+        view.dispatchTouchEvent(
+            MotionEvent.obtain(downTimeMillis, downTimeMillis, MotionEvent.ACTION_DOWN, pointerX, pointerY, 0),
+        )
     }
     // Sleep on the CALLER test thread — the main thread is free to process
     // the GestureDetector long-press handler (~500 ms) and the selection
@@ -564,10 +570,24 @@ fun injectLongPress(view: View, x: Float, y: Float) {
     }
     view.post {
         view.dispatchTouchEvent(
-            MotionEvent.obtain(dt, dt + 1200, MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0),
+            MotionEvent.obtain(
+                downTimeMillis,
+                downTimeMillis + 1200,
+                MotionEvent.ACTION_MOVE,
+                pointerX + 1f,
+                pointerY + 1f,
+                0,
+            ),
         )
         view.dispatchTouchEvent(
-            MotionEvent.obtain(dt, dt + 1250, MotionEvent.ACTION_UP, x + 1f, y + 1f, 0),
+            MotionEvent.obtain(
+                downTimeMillis,
+                downTimeMillis + 1250,
+                MotionEvent.ACTION_UP,
+                pointerX + 1f,
+                pointerY + 1f,
+                0,
+            ),
         )
     }
     // Give the main thread time to process MOVE/UP before the caller
@@ -584,10 +604,12 @@ fun injectLongPress(view: View, x: Float, y: Float) {
 // 真实触摸 DOWN→UP 约 50ms，取 50ms。）
 private const val TAP_DOWN_UP_MILLIS = 50L
 
-fun injectTap(view: View, x: Float, y: Float) {
-    val dt = SystemClock.uptimeMillis()
+fun injectTap(view: View, pointerX: Float, pointerY: Float) {
+    val downTimeMillis = SystemClock.uptimeMillis()
     view.post {
-        view.dispatchTouchEvent(MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0))
+        view.dispatchTouchEvent(
+            MotionEvent.obtain(downTimeMillis, downTimeMillis, MotionEvent.ACTION_DOWN, pointerX, pointerY, 0),
+        )
     }
     try {
         Thread.sleep(TAP_DOWN_UP_MILLIS)
@@ -596,7 +618,14 @@ fun injectTap(view: View, x: Float, y: Float) {
     }
     view.post {
         view.dispatchTouchEvent(
-            MotionEvent.obtain(dt, dt + TAP_DOWN_UP_MILLIS, MotionEvent.ACTION_UP, x, y, 0),
+            MotionEvent.obtain(
+                downTimeMillis,
+                downTimeMillis + TAP_DOWN_UP_MILLIS,
+                MotionEvent.ACTION_UP,
+                pointerX,
+                pointerY,
+                0,
+            ),
         )
     }
 }

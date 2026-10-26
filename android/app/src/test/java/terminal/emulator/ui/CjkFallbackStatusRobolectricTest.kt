@@ -53,13 +53,13 @@ class CjkFallbackStatusRobolectricTest {
         fontSizeSp = 14f,
     )
 
-    private fun string(id: Int): String = androidx.test.core.app.ApplicationProvider
+    private fun string(resourceId: Int): String = androidx.test.core.app.ApplicationProvider
         .getApplicationContext<android.content.Context>()
-        .getString(id)
+        .getString(resourceId)
 
-    private fun string(id: Int, vararg args: Any): String = androidx.test.core.app.ApplicationProvider
+    private fun string(resourceId: Int, vararg args: Any): String = androidx.test.core.app.ApplicationProvider
         .getApplicationContext<android.content.Context>()
-        .getString(id, *args)
+        .getString(resourceId, *args)
 
     @Test
     fun `missing fallback reports the gap exactly once`() {

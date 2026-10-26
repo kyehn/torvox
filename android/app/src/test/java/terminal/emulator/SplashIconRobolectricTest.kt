@@ -180,17 +180,17 @@ class SplashIconRobolectricTest {
     @Test
     fun dotsRenderAsSmallCircles() {
         val themed = themedContext()
-        val art =
+        val artwork =
             requireNotNull(themed.getDrawable(R.drawable.logo_art)) {
                 "logo_art 资源缺失"
             }
         val artPx =
-            requireNotNull(art.intrinsicWidth) {
+            requireNotNull(artwork.intrinsicWidth) {
                 "logo_art 的固有尺寸必须是矢量声明的 108"
             }
         // 图案已按安全区缩放，点迹随之变细：4 倍渲染才留得住足够的纯色像素
         // 供判别（阈值见 DOT_MIN_SIZE / DOT_MAX_SIZE）。
-        val artBitmap = renderBitmap(art, artPx * DOT_RENDER_SCALE)
+        val artBitmap = renderBitmap(artwork, artPx * DOT_RENDER_SCALE)
         intArrayOf(DOT_RED, DOT_YELLOW, DOT_GREEN).forEach { fillColor ->
             var minX = Int.MAX_VALUE
             var minY = Int.MAX_VALUE
@@ -256,17 +256,17 @@ class SplashIconRobolectricTest {
         return maxRadius
     }
 
-    private fun renderBitmap(drawable: Drawable, px: Int): Bitmap {
-        val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-        drawable.setBounds(0, 0, px, px)
+    private fun renderBitmap(drawable: Drawable, sizePx: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, sizePx, sizePx)
         drawable.draw(Canvas(bitmap))
         return bitmap
     }
 
-    private fun renderBits(drawable: Drawable, px: Int): IntArray {
-        val bitmap = renderBitmap(drawable, px)
-        val bits = IntArray(px * px)
-        bitmap.getPixels(bits, 0, px, 0, 0, px, px)
+    private fun renderBits(drawable: Drawable, sizePx: Int): IntArray {
+        val bitmap = renderBitmap(drawable, sizePx)
+        val bits = IntArray(sizePx * sizePx)
+        bitmap.getPixels(bits, 0, sizePx, 0, 0, sizePx, sizePx)
         return bits
     }
 

@@ -51,7 +51,7 @@ class FrameTimingStats(
         if (count >= windowSize) {
             if (isReportOverdue(atNanos)) {
                 overdueReported = true
-                LogUtil.e(
+                LogUtil.error(
                     "FrameTimingStats",
                     "window stayed full for more than ${maxWindowNanos / 1_000_000}ms without a report",
                 )

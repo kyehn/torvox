@@ -97,7 +97,7 @@ class RenderLatchCadenceTest {
     @Test
     fun vsyncCallbackTimestampMarksTheChainFresh() {
         val entry =
-            SessionEntry(id = 1L, bridge = TestBridges.create(), renderThreadRef = null, running = false)
+            SessionEntry(sessionId = 1L, bridge = TestBridges.create(), renderThreadRef = null, running = false)
         entry.lastVsyncNanos = System.nanoTime() - RENDER_VSYNC_STALE_NANOS - 1L
         val stale = System.nanoTime() - entry.lastVsyncNanos <= RENDER_VSYNC_STALE_NANOS
         assertFalse("超过阈值的时间戳必须判为不新鲜", stale)
@@ -114,7 +114,7 @@ class RenderLatchCadenceTest {
     @Test
     fun notifyRenderRefreshesIdleClockAndRaisesSignal() {
         val entry =
-            SessionEntry(id = 1L, bridge = TestBridges.create(), renderThreadRef = null, running = false)
+            SessionEntry(sessionId = 1L, bridge = TestBridges.create(), renderThreadRef = null, running = false)
         val staleClock = System.nanoTime() - IDLE_THRESHOLD_NANOS - 1L
         entry.lastSignalNanos = staleClock
         entry.renderSignaled.set(false)

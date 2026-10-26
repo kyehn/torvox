@@ -137,7 +137,7 @@ class MainActivity : ComponentActivity() {
             val sessions = SessionTableWatcher()
             runtime.state.collect { state ->
                 if (sessions.onSessionCount(state.sessionIds.size)) {
-                    LogUtil.d(TAG, "last session closed; finishing activity")
+                    LogUtil.debug(TAG, "last session closed; finishing activity")
                     finish()
                 }
             }
@@ -162,10 +162,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleLaunchIntent(intent: Intent?) {
         if (intent == null) {
-            LogUtil.d("MainActivity", "handleLaunchIntent: null intent")
+            LogUtil.debug("MainActivity", "handleLaunchIntent: null intent")
             return
         }
-        LogUtil.d(
+        LogUtil.debug(
             "MainActivity",
             "handleLaunchIntent: action=${intent.action} failsafe=${intent.getBooleanExtra(
                 EXTRA_FAILSAFE_SESSION,
@@ -207,7 +207,7 @@ class MainActivity : ComponentActivity() {
      * （usr/bin/login）读回，不读标记文件。
      */
     private fun installBootstrapFromPath(zipPath: String) {
-        LogUtil.d("MainActivity", "delegating bootstrap install to :install process")
+        LogUtil.debug("MainActivity", "delegating bootstrap install to :install process")
         startService(
             Intent(this, terminal.emulator.installer.BootstrapInstallService::class.java)
                 .putExtra(terminal.emulator.installer.BootstrapInstallService.EXTRA_ZIP_PATH, zipPath),
@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        LogUtil.d(TAG, "onDestroy")
+        LogUtil.debug(TAG, "onDestroy")
         super.onDestroy()
         // 无会话时停止前台服务：否则用户离开应用后服务（及其 PARTIAL_WAKE_LOCK）
         // 永久存活，持续耗电并常驻通知。有活跃会话时必须继续运行。运行时在会话锁内
@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val handled = terminalViewModel.handleLayoutAwareHardwareKey(event)
         if (handled) {
-            LogUtil.d(TAG, "dispatchKeyEvent: consumed physical-key layout-aware char")
+            LogUtil.debug(TAG, "dispatchKeyEvent: consumed physical-key layout-aware char")
             return true
         }
         return super.dispatchKeyEvent(event)

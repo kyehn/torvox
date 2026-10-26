@@ -173,7 +173,7 @@ internal fun activeLatchTimeoutNanos(vsyncFresh: Boolean): Long =
  * 须与 running 一同在 sessionLock 下读取。
  */
 internal data class SessionEntry(
-    val id: Long,
+    val sessionId: Long,
     // 构造时即绑定、此后不再重新赋值：非空类型让「会话已建而 bridge 未就绪」这一
     // 假想状态在类型上不可表达，故不存在恒假的 null 检查。
     val bridge: Bridge,
@@ -592,11 +592,11 @@ constructor(
         mainHandler.post {
             try {
                 android.view.Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
-                LogUtil.d("Runtime", "vsync frame callback chain started")
+                LogUtil.debug("Runtime", "vsync frame callback chain started")
             } catch (exception: Exception) {
                 // 允许后续会话启动时重试注册。
                 vsyncChainStarted.set(false)
-                LogUtil.e("Runtime", "vsync frame callback registration failed", exception)
+                LogUtil.error("Runtime", "vsync frame callback registration failed", exception)
             }
         }
     }
@@ -682,13 +682,13 @@ constructor(
     private fun consumeFailsafeRequest() {
         if (failsafeRequested) {
             failsafeRequested = false
-            LogUtil.d("Runtime", "failsafe request consumed by the newly created session")
+            LogUtil.debug("Runtime", "failsafe request consumed by the newly created session")
         }
     }
 
     fun requestFailsafeSession() {
         failsafeRequested = true
-        LogUtil.w(
+        LogUtil.warn(
             "Runtime",
             "Failsafe session requested — next start uses /system/bin/sh without prefix",
         )
@@ -755,7 +755,7 @@ constructor(
         try {
             entry.bridge.feedTerminal(text.encodeToByteArray())
         } catch (exception: Exception) {
-            LogUtil.w("Runtime", "feedTerminal failed for [Process completed] prompt", exception)
+            LogUtil.warn("Runtime", "feedTerminal failed for [Process completed] prompt", exception)
         }
         entry.notifyRender()
     }
@@ -766,17 +766,17 @@ constructor(
      * 提示已显示时返回 true（调用方应提前返回且不关闭会话）。
      */
     private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int?): Boolean {
-        if (entry.id != activeSessionId || entry.waitingForProcessCompleted) return false
+        if (entry.sessionId != activeSessionId || entry.waitingForProcessCompleted) return false
         // 正常退出（exit 0）直接关闭会话；非零退出与「码未知」都保留现场待回车确认关闭。
         if (exitCode == 0) return false
         synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return false
+            if (!sessions.containsKey(entry.sessionId)) return false
             entry.waitingForProcessCompleted = true
             entry.processExitCode = exitCode
         }
-        LogUtil.i(
+        LogUtil.info(
             "Runtime",
-            "session ${entry.id} exited with code $exitCode; showing [Process completed] prompt",
+            "session ${entry.sessionId} exited with code $exitCode; showing [Process completed] prompt",
         )
         feedProcessCompletedPrompt(entry, exitCode)
         return true
@@ -797,12 +797,12 @@ constructor(
         // 提示上按 Enter 后的确认关闭（渲染循环重新派发）；确认关闭时跳过提示路径。
         val confirmedClose = entry.processCompletedConfirmed
         if (!confirmedClose && maybeShowProcessCompletedPrompt(entry, exitCode)) return
-        LogUtil.i("Runtime", "session ${entry.id} exited with code $exitCode")
+        LogUtil.info("Runtime", "session ${entry.sessionId} exited with code $exitCode")
         // 阶段 1（加锁）：捕获可能挂起的线程；实际 join 在下方不持锁执行
         // （最长 THREAD_JOIN_TIMEOUT_MS），使挂起的 GPU 线程不阻塞所有会话操作。
         val hungThreadToJoin: Thread?
         synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return
+            if (!sessions.containsKey(entry.sessionId)) return
             entry.running = false
             hungThreadToJoin = if (entry.renderThreadPossiblyAlive) entry.hungRenderThread else null
         }
@@ -826,7 +826,7 @@ constructor(
         // 锁内决定关闭资格，实际的 bridge.close() 放到锁外：Session::drop 会 kill 子进程
         // 并 join reader/wait 线程（可达 ~100ms+），持锁会阻塞所有会话操作（切换/创建/关闭）。
         synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return
+            if (!sessions.containsKey(entry.sessionId)) return
             // 看门狗线程是每会话一个；在此停止（正常退出路径），
             // 否则每个退出会话都会泄漏一个轮询线程。
             entry.renderWatchDog?.stop()
@@ -841,9 +841,9 @@ constructor(
         entry.closeBridgeUnlessRenderThreadAlive("shell exit")
         var activeSessionReplaced = false
         synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return
-            sessions.remove(entry.id)
-            if (entry.id == activeSessionId) {
+            if (!sessions.containsKey(entry.sessionId)) return
+            sessions.remove(entry.sessionId)
+            if (entry.sessionId == activeSessionId) {
                 activeSessionReplaced = true
                 // 前台会话刚刚消失；接替会话没有渲染线程（只有活动会话渲染），
                 // 其输出/事件永远不会被轮询，终端将看似卡死。此刻立即激活它。
@@ -871,20 +871,20 @@ constructor(
         // closeDeadSession(entry) 可能在接替渲染线程启动期间关闭其 bridge，
         // 留下双重消费全局事件队列的孤儿线程。
         synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return
+            if (!sessions.containsKey(entry.sessionId)) return
             entry.closing = true
             entry.running = false
         }
-        // LogUtil.e 已写入 logcat，不重复输出。
-        LogUtil.e("Runtime", "session ${entry.id} exceeded max restart attempts, closing session")
+        // LogUtil.error 已写入 logcat，不重复输出。
+        LogUtil.error("Runtime", "session ${entry.sessionId} exceeded max restart attempts, closing session")
         entry.closeBridgeUnlessRenderThreadAlive("restart limit exceeded")
         synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return
-            sessions.remove(entry.id)
+            if (!sessions.containsKey(entry.sessionId)) return
+            sessions.remove(entry.sessionId)
             // 保持前台服务计数同步，与 handleSessionExit 和 closeSession 对称：
             // 经此路径关闭最后一个会话时必须停掉前台服务并清除其陈旧通知。
             updateForegroundSessionCount(sessions.size)
-            if (entry.id == activeSessionId) {
+            if (entry.sessionId == activeSessionId) {
                 // 同 handleSessionExit：接替会话需要渲染线程，
                 // 否则其输出/事件永远不会被轮询，终端将看似卡死。
                 val remaining = sessions.keys.sorted()
@@ -907,7 +907,7 @@ constructor(
         if (!foregroundServiceRunning) {
             terminal.emulator.service.TerminalForegroundService.start(context)
             foregroundServiceRunning = true
-            LogUtil.d("Runtime", "foreground service started")
+            LogUtil.debug("Runtime", "foreground service started")
         }
     }
 
@@ -925,12 +925,12 @@ constructor(
                 // stopService 的 binder 失败（罕见）不得让标志残留为真：陈旧标志会使
                 // 下次 startForegroundServiceIfNeeded 跳过启动，存活会话因此没有通知也没有唤醒锁。
                 // 无论如何都重置标志——服务要么已停止，要么即将被系统杀死。
-                LogUtil.e("Runtime", "Failed to stop foreground service", serviceException)
+                LogUtil.error("Runtime", "Failed to stop foreground service", serviceException)
                 false
             }
         foregroundServiceRunning = false
         if (stopped) {
-            LogUtil.d("Runtime", "foreground service stopped")
+            LogUtil.debug("Runtime", "foreground service stopped")
         }
     }
 
@@ -957,7 +957,7 @@ constructor(
             // 同理：启动没成功就不能让标志停在真，否则后续 startForegroundServiceIfNeeded
             // 跳过重启，存活会话既无常驻通知也无唤醒锁。
             foregroundServiceRunning = false
-            LogUtil.e("Runtime", "updateSessionCount failed", exception)
+            LogUtil.error("Runtime", "updateSessionCount failed", exception)
         }
     }
 
@@ -1001,9 +1001,9 @@ constructor(
      * 从手势层同步逐像素滚动余量，交由渲染线程转发给原生
      * （同 [setScrollOffset]：只存储 + 通知，由渲染线程在 surface 锁下完成 JNI 穿越）。
      */
-    fun setScrollRemainderPx(px: Float) {
+    fun setScrollRemainderPx(remainderPx: Float) {
         val entry = sessions[activeSessionId] ?: return
-        entry.scrollRemainderPx = px
+        entry.scrollRemainderPx = remainderPx
         // 此处也盖上滚动运动时钟（不只 setScrollOffset 中盖）：逐像素的亚行运动是
         // 拖拽期间频率最高的事件，必须保持循环的活跃节奏。
         entry.lastScrollNanos = System.nanoTime()
@@ -1087,7 +1087,7 @@ constructor(
             if (decision.exhausted && !budget.exhaustedLogged) {
                 // 只告警一次：慢重试仍然每轮都发请求，重复告警只会淹没日志。
                 if (budgetRef.compareAndSet(budget, budget.copy(exhaustedLogged = true))) {
-                    LogUtil.e(
+                    LogUtil.error(
                         TAG,
                         "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS fast recreate attempts exhausted; " +
                             "falling back to one attempt every $SURFACE_RECREATE_SLOW_INTERVAL_MS ms",
@@ -1107,9 +1107,9 @@ constructor(
                     surfaceRecreateSignalState.intValue += 1
                     // 走 LogUtil 而非裸 android.util.Log：仪器化失败时 TerminalLogcatRule
                     // 只按终端相关标签过滤，独立标签的锚点会被整条丢掉。
-                    LogUtil.w(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
+                    LogUtil.warn(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
                 }
-                LogUtil.w(
+                LogUtil.warn(
                     TAG,
                     // 报刚才写下的那次计数，而不是重新读引用——并发复位会让日志
                     // 印出一个从未请求过的次数。慢重试阶段不再有分母。
@@ -1160,7 +1160,7 @@ constructor(
             } catch (exception: Exception) {
                 // 记下读取失败的原因再覆写：只记「写入失败」会把真正的根因（权限/IO）
                 // 丢掉，现场只剩一条与病因无关的消息。
-                LogUtil.w("Runtime", "Failed to read $MKSHRC_FILENAME: $exception")
+                LogUtil.warn("Runtime", "Failed to read $MKSHRC_FILENAME: $exception")
             }
         }
         try {
@@ -1171,7 +1171,7 @@ constructor(
                     "PS1='$OSC_TITLE_START\${PWD##*/}$OSC_TITLE_END\$ '\n",
             )
         } catch (exception: Exception) {
-            LogUtil.w("Runtime", "Failed to write $MKSHRC_FILENAME: $exception")
+            LogUtil.warn("Runtime", "Failed to write $MKSHRC_FILENAME: $exception")
         }
     }
 
@@ -1200,7 +1200,7 @@ constructor(
                 .File(context.filesDir, "home")
                 .apply {
                     if (!exists() && !mkdirs()) {
-                        LogUtil.w("Runtime", "Failed to create home directory: $this")
+                        LogUtil.warn("Runtime", "Failed to create home directory: $this")
                     }
                 }
                 .absolutePath
@@ -1223,7 +1223,7 @@ constructor(
         }
         // 默认入口依次探测 bash 与 login（DESIGN.md:145 文件存在即启动，不检查权限）。
         val prefixShell = findPrefixShell(prefixDir)
-        LogUtil.d(
+        LogUtil.debug(
             "Runtime",
             "prefixShell=$prefixShell prefixDir=$prefixDir",
         )
@@ -1319,9 +1319,9 @@ constructor(
         }
 
         internal suspend fun handleDeadRenderThread(entry: SessionEntry) {
-            LogUtil.w(
+            LogUtil.warn(
                 "Runtime",
-                "session ${entry.id} render thread exited, restart attempt ${entry.restartAttempts + 1}",
+                "session ${entry.sessionId} render thread exited, restart attempt ${entry.restartAttempts + 1}",
             )
 
             // 阶段 1（加锁）：仅做快速状态检查。阶段 2（不持锁）：
@@ -1346,7 +1346,7 @@ constructor(
                 // 在此重查，使在阶段 1 与此刻之间运行的并发 pauseRendering()
                 // 能取消重启，而非在已销毁的 Surface 上启动渲染线程。
                 if (!entry.running) return
-                if (!sessions.containsKey(entry.id)) return
+                if (!sessions.containsKey(entry.sessionId)) return
                 if (entry.restartScheduled) return
                 entry.restartScheduled = true
                 entry.restartAttempts++
@@ -1385,7 +1385,7 @@ constructor(
                 entry.wakeRenderThread()
                 renderThread.join(THREAD_JOIN_TIMEOUT_MS)
                 if (renderThread.isAlive) {
-                    LogUtil.w("Runtime", "Render thread did not exit within timeout, continuing anyway")
+                    LogUtil.warn("Runtime", "Render thread did not exit within timeout, continuing anyway")
                     entry.renderThreadPossiblyAlive = true
                     entry.hungRenderThread = renderThread
                     return
@@ -1414,7 +1414,7 @@ constructor(
                 // 先消费调度标记：无论本次重启执行还是被取消（暂停/关闭），
                 // 后续监视器派发都必须能调度一次全新的重启。
                 entry.restartScheduled = false
-                if (!sessions.containsKey(entry.id)) return
+                if (!sessions.containsKey(entry.sessionId)) return
                 // 仅当会话仍意图运行时才重启。已暂停的会话（Surface 已销毁）
                 // 不应获得渲染线程——恢复路径会在 Surface 回来时启动它。
                 if (!entry.running) return
@@ -1422,23 +1422,23 @@ constructor(
                 if (entry.renderThreadRef?.isAlive == true) return
                 entry.renderThreadExited = false
                 startRenderThread(entry)
-                LogUtil.d(
+                LogUtil.debug(
                     "Runtime",
-                    "session ${entry.id} render thread restarted (attempt ${entry.restartAttempts})",
+                    "session ${entry.sessionId} render thread restarted (attempt ${entry.restartAttempts})",
                 )
             }
         }
 
         internal suspend fun confirmRestartGrace(entry: SessionEntry) {
             synchronized(sessionLock) {
-                if (!sessions.containsKey(entry.id)) return
+                if (!sessions.containsKey(entry.sessionId)) return
                 if (!entry.running) return
                 if (entry.renderThreadExited) return
                 val thread = entry.renderThreadRef
                 if (thread != null && thread.isAlive) {
                     entry.restartAttempts = 0
                     entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
-                    LogUtil.d("Runtime", "session ${entry.id} render thread healthy after restart")
+                    LogUtil.debug("Runtime", "session ${entry.sessionId} render thread healthy after restart")
                 }
             }
         }
@@ -1453,7 +1453,7 @@ constructor(
             // 把该条目误判为运行中而跳过 bridge.close（泄漏原生会话与子进程）。
             if (entry.closing) {
                 entry.running = false
-                LogUtil.d("Runtime", "session ${entry.id} closing — refusing to start render thread")
+                LogUtil.debug("Runtime", "session ${entry.sessionId} closing — refusing to start render thread")
                 return
             }
             entry.renderWatchDog?.stop()
@@ -1463,32 +1463,32 @@ constructor(
             entry.renderSignaled.set(false)
             val oldThread = entry.renderThreadRef
             entry.renderThreadRef = null
-            oldThread?.let { t ->
-                if (t === Thread.currentThread()) {
+            oldThread?.let { thread ->
+                if (thread === Thread.currentThread()) {
                     // join 自身必然超时并错误地把当前线程标记为挂起；跳过
                     // （调用方就是渲染线程本身，如 handleSessionExit 的接替）。
-                    LogUtil.w(
+                    LogUtil.warn(
                         "Runtime",
-                        "session ${entry.id} startRenderThread called from its own render thread — skipping join",
+                        "session ${entry.sessionId} startRenderThread called from its own render thread — skipping join",
                     )
                 } else {
                     entry.wakeRenderThread()
-                    t.join(THREAD_JOIN_TIMEOUT_MS)
-                    if (t.isAlive) {
-                        LogUtil.w(
+                    thread.join(THREAD_JOIN_TIMEOUT_MS)
+                    if (thread.isAlive) {
+                        LogUtil.warn(
                             "Runtime",
-                            "session ${entry.id} previous render thread still alive after join — forcing new thread anyway",
+                            "session ${entry.sessionId} previous render thread still alive after join — forcing new thread anyway",
                         )
                         // 旧线程可能仍在原生渲染代码中。记录之，
                         // 使关闭路径跳过 releaseGpuSurface/close，
                         // 并保留引用以便退出时做最后一次 join。
                         entry.renderThreadPossiblyAlive = true
-                        entry.hungRenderThread = t
+                        entry.hungRenderThread = thread
                     } else {
                         // 仅当已 join 的线程就是记录的挂起线程（或未记录）时才清标志。
                         // 早先 GPU 停滞留下的另一个挂起线程可能仍在原生代码中存活；
                         // 在此清除会让关闭路径在其下销毁会话（use-after-free）。
-                        if (entry.hungRenderThread == null || entry.hungRenderThread === t) {
+                        if (entry.hungRenderThread == null || entry.hungRenderThread === thread) {
                             entry.renderThreadPossiblyAlive = false
                             entry.hungRenderThread = null
                         }
@@ -1535,9 +1535,9 @@ constructor(
                                 // 既适用于软件模拟器（~555ms/帧）也适用于真机（~17ms），
                                 // 无需固定阈值。
                                 val frameTimingTrend = FrameTimingTrend()
-                                LogUtil.d(
+                                LogUtil.debug(
                                     "Runtime",
-                                    "render thread started for session ${entry.id} generation=$generation",
+                                    "render thread started for session ${entry.sessionId} generation=$generation",
                                 )
                                 while (entry.running && renderGeneration.get() == generation) {
                                     // 用户在 [Process completed] 提示上按了 Enter
@@ -1655,14 +1655,14 @@ constructor(
                                             hasPresentedFrame = true
                                             // 冷启动耗时的唯一终点标记：系统启动屏等到这里才撤下，
                                             // 故「进程启动 → 本行」就是用户看到的启动时长。
-                                            LogUtil.i(TAG, "first frame presented")
+                                            LogUtil.info(TAG, "first frame presented")
                                             publishStartupMetrics(startupToFirstFrameMs = elapsedSinceProcessStartMs())
                                         }
                                         val newOutput = renderResult.newOutput
                                         val lastContentRow = renderResult.lastContentRow
                                         if (lastContentRow != entry.lastContentRow) {
                                             entry.lastContentRow = lastContentRow
-                                            if (entry.id == activeSessionId) {
+                                            if (entry.sessionId == activeSessionId) {
                                                 lastContentRowFlowInternal.value = lastContentRow
                                             }
                                         }
@@ -1672,7 +1672,7 @@ constructor(
                                         val altScreenActive = renderResult.altScreenActive
                                         if (altScreenActive != entry.altScreenActive) {
                                             entry.altScreenActive = altScreenActive
-                                            if (entry.id == activeSessionId) {
+                                            if (entry.sessionId == activeSessionId) {
                                                 altScreenActiveFlowInternal.value = altScreenActive
                                             }
                                         }
@@ -1694,9 +1694,9 @@ constructor(
                                             val nowNanos = System.nanoTime()
                                             if (nowNanos - lastSlowFrameLogNanos > 500_000_000L) {
                                                 lastSlowFrameLogNanos = nowNanos
-                                                LogUtil.w(
+                                                LogUtil.warn(
                                                     "Runtime",
-                                                    "SLOW_FRAME session=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
+                                                    "SLOW_FRAME session=${entry.sessionId} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
                                                 )
                                             }
                                         }
@@ -1751,13 +1751,13 @@ constructor(
                                                 consecutiveErrors % RENDER_MAX_TRANSIENT_ERRORS == 0
                                             ) {
                                                 val message =
-                                                    "session ${entry.id} transient render error code=$count (consecutive=$consecutiveErrors, surviving)"
+                                                    "session ${entry.sessionId} transient render error code=$count (consecutive=$consecutiveErrors, surviving)"
                                                 // 首次是正常退化（平台收走了窗口），重复才是异常：
                                                 // 分级见 transientRenderErrorIsWarning。
                                                 if (transientRenderErrorIsWarning(consecutiveErrors)) {
-                                                    LogUtil.w("Runtime", message)
+                                                    LogUtil.warn("Runtime", message)
                                                 } else {
-                                                    LogUtil.i("Runtime", message)
+                                                    LogUtil.info("Runtime", message)
                                                 }
                                             }
                                             consecutiveErrors++
@@ -1779,9 +1779,9 @@ constructor(
                                             delay(sleepMs)
                                         } else {
                                             if (consecutiveErrors > 0) {
-                                                LogUtil.i(
+                                                LogUtil.info(
                                                     "Runtime",
-                                                    "session ${entry.id} recovered after $consecutiveErrors errors",
+                                                    "session ${entry.sessionId} recovered after $consecutiveErrors errors",
                                                 )
                                             }
                                             consecutiveErrors = 0
@@ -1798,7 +1798,7 @@ constructor(
                                                 // 绝不能把活动会话的循环 break 掉——那会让可见终端
                                                 // 冻结到看门狗重启（每次还累加重启计数，最终误关活会话）。
                                                 val selfExited =
-                                                    poll.sessionId == 0L || poll.sessionId == entry.id
+                                                    poll.sessionId == 0L || poll.sessionId == entry.sessionId
                                                 // 先回复空值，再做任何清理：这些剪贴板读取请求
                                                 // 已从原生队列消费且永不会再被派发，
                                                 // 不予回复会挂起请求方。
@@ -1806,16 +1806,16 @@ constructor(
                                                 // bridge，~100ms+）也把延迟降到最低。
                                                 // 每次回复单独保护：此处的 JNI 失败绝不能
                                                 dispatchClipboardRequests(poll.clipboardReads)
-                                                if (poll.sessionId != 0L && poll.sessionId != entry.id) {
+                                                if (poll.sessionId != 0L && poll.sessionId != entry.sessionId) {
                                                     // 后台（非活动）会话的 shell 已退出。
                                                     // 其渲染线程已停止，不会再有其他方回收它
                                                     // ——原生清扫只经本队列上报一次。在此关闭它
                                                     // （handleSessionExit 对非活动会话是安全的：
-                                                    // 接替分支以 entry.id == activeSessionId 为闸门）。
+                                                    // 接替分支以 entry.sessionId == activeSessionId 为闸门）。
                                                     val exitedEntry =
                                                         synchronized(sessionLock) { sessions[poll.sessionId] }
                                                     if (exitedEntry != null) {
-                                                        LogUtil.i(
+                                                        LogUtil.info(
                                                             "Runtime",
                                                             "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
                                                         )
@@ -1833,7 +1833,7 @@ constructor(
                                                 // （首个已在上方处理）。它们的原生 exit_reported
                                                 // 标志已置位且不重发。
                                                 // 仅排除 poll.sessionId——列表中其他每个 id
-                                                // （含后台分支下的 entry.id）都必须回收，
+                                                // （含后台分支下的 entry.sessionId）都必须回收，
                                                 // 否则 Kotlin 条目、原生会话与僵尸子进程将永久泄漏。
                                                 // handleSessionExit 幂等（内部重查 containsKey）。
                                                 poll.exits.forEach { exitInfo ->
@@ -1843,7 +1843,7 @@ constructor(
                                                                 sessionLock,
                                                             ) { sessions[exitInfo.sessionId] }
                                                         if (extra != null) {
-                                                            LogUtil.i(
+                                                            LogUtil.info(
                                                                 "Runtime",
                                                                 "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
                                                             )
@@ -1864,9 +1864,9 @@ constructor(
                                             }
                                             eventDispatcher.handle(poll)
                                         } catch (exception: Exception) {
-                                            LogUtil.e(
+                                            LogUtil.error(
                                                 "Runtime",
-                                                "pollAll failed for session ${entry.id}; deferred events dropped",
+                                                "pollAll failed for session ${entry.sessionId}; deferred events dropped",
                                                 exception,
                                             )
                                         }
@@ -1874,7 +1874,7 @@ constructor(
                                         if (count >= 0) {
                                             diagCount++
                                             if (diagCount == 1) {
-                                                LogUtil.d("Runtime", "session ${entry.id} first render OK")
+                                                LogUtil.debug("Runtime", "session ${entry.sessionId} first render OK")
                                             }
                                             if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
                                                 // 标题刷新移出渲染线程：getTitle 是 VT 通道外置查询，
@@ -1887,7 +1887,7 @@ constructor(
                                                         try {
                                                             bridge.getActiveSessionTitle()
                                                         } catch (exception: Exception) {
-                                                            LogUtil.e("Runtime", "title query failed", exception)
+                                                            LogUtil.error("Runtime", "title query failed", exception)
                                                             ""
                                                         }
                                                     if (title.isNotEmpty() && title != _state.value.title) {
@@ -1945,10 +1945,10 @@ constructor(
                                             val renderMs = (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
                                             val pollMs = (loopPollDoneNanos - renderDoneNanos) / NANOS_PER_MILLI
                                             val totalMs = loopDurationNanos / NANOS_PER_MILLI
-                                            LogUtil.w(
+                                            LogUtil.warn(
                                                 "Runtime",
                                                 "SLOW_LOOP " +
-                                                    "session=${entry.id} " +
+                                                    "session=${entry.sessionId} " +
                                                     "total=${totalMs}ms " +
                                                     "gate=${gateMs}ms " +
                                                     "pre=${preMs}ms " +
@@ -1964,20 +1964,20 @@ constructor(
                                             val loopMaxMs = loopReport.maxNanos / NANOS_PER_MILLI
                                             val preMaxMs = (preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI
                                             val preP95Ms = (preReport?.p95Nanos ?: 0L) / NANOS_PER_MILLI
-                                            val fps =
+                                            val framesPerSecond =
                                                 if (loopReport.averageNanos > 0) {
                                                     (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
                                                 } else {
                                                     0
                                                 }
-                                            LogUtil.i(
+                                            LogUtil.info(
                                                 "Runtime",
-                                                "session ${entry.id} loop timing window " +
+                                                "session ${entry.sessionId} loop timing window " +
                                                     "(${loopReport.frameCount} frames): " +
                                                     "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
                                                     "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
                                                     "pre_p95=${preP95Ms}ms " +
-                                                    "≈${fps}fps",
+                                                    "≈${framesPerSecond}fps",
                                             )
                                         }
                                     } catch (exception: InterruptedException) {
@@ -1988,15 +1988,15 @@ constructor(
                                     } catch (exception: Exception) {
                                         consecutiveErrors++
                                         if (consecutiveErrors == 1) {
-                                            LogUtil.e(
+                                            LogUtil.error(
                                                 "Runtime",
-                                                "session ${entry.id} first render exception",
+                                                "session ${entry.sessionId} first render exception",
                                                 exception,
                                             )
                                         } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                                            LogUtil.e(
+                                            LogUtil.error(
                                                 "Runtime",
-                                                "session ${entry.id} render exception (x$consecutiveErrors)",
+                                                "session ${entry.sessionId} render exception (x$consecutiveErrors)",
                                                 exception,
                                             )
                                         }
@@ -2007,9 +2007,9 @@ constructor(
                                         // 但那只是两个常量的巧合，任一改动即成误杀。
                                         entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
                                         if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
-                                            LogUtil.e(
+                                            LogUtil.error(
                                                 "Runtime",
-                                                "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
+                                                "session ${entry.sessionId} too many render exceptions ($consecutiveErrors), stopping render thread",
                                                 exception,
                                             )
                                             break
@@ -2018,7 +2018,7 @@ constructor(
                                     }
                                 }
                                 entry.renderThreadExited = true
-                                LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
+                                LogUtil.debug("Runtime", "render thread stopped for session ${entry.sessionId}")
                             }
                         } catch (expected: InterruptedException) {
                             // runBlocking 体外的中断（join 前 interrupt 已送达
@@ -2026,10 +2026,10 @@ constructor(
                             // 中断即退出信号而非崩溃，instrumentation 不应报红。
                             Thread.currentThread().interrupt()
                             entry.renderThreadExited = true
-                            LogUtil.d("Runtime", "render thread interrupted for session ${entry.id}")
+                            LogUtil.debug("Runtime", "render thread interrupted for session ${entry.sessionId}")
                         }
                     },
-                    "Render-${entry.id}",
+                    "Render-${entry.sessionId}",
                 )
                     .apply {
                         isDaemon = true
@@ -2043,12 +2043,12 @@ constructor(
                 RenderWatchDog(
                     getMarks = { entry.frameMarks },
                     isRunning = {
-                        entry.running && !entry.renderThreadExited && activeSessionId == entry.id
+                        entry.running && !entry.renderThreadExited && activeSessionId == entry.sessionId
                     },
                     onHangDetected = {
-                        LogUtil.e(
+                        LogUtil.error(
                             "Runtime",
-                            "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
+                            "session ${entry.sessionId} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
                         )
                         // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
                         // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
@@ -2066,16 +2066,16 @@ constructor(
             val thread = entry.renderThreadRef
             entry.renderThreadRef = null
             entry.renderSignaled.set(false)
-            thread?.let { t ->
+            thread?.let { thread ->
                 entry.wakeRenderThread()
-                t.join(THREAD_JOIN_TIMEOUT_MS)
-                if (t.isAlive) {
-                    LogUtil.e(
+                thread.join(THREAD_JOIN_TIMEOUT_MS)
+                if (thread.isAlive) {
+                    LogUtil.error(
                         "Runtime",
-                        "session ${entry.id} render thread still alive after join — possibly hung",
+                        "session ${entry.sessionId} render thread still alive after join — possibly hung",
                     )
                     entry.renderThreadPossiblyAlive = true
-                    entry.hungRenderThread = t
+                    entry.hungRenderThread = thread
                     return false
                 }
             }
@@ -2237,7 +2237,7 @@ constructor(
         // 与计时窗口一同输出的内存计量：回滚行数跨窗口单调增长即表示历史无界。
         val scrollbackRows = entry.bridge.scrollbackLength()
         val summary =
-            "session ${entry.id} frame timing window " +
+            "session ${entry.sessionId} frame timing window " +
                 "(${report.frameCount} frames): " +
                 "avg=${report.averageNanos / NANOS_PER_MILLI}ms " +
                 "p95=${report.p95Nanos / NANOS_PER_MILLI}ms " +
@@ -2248,7 +2248,7 @@ constructor(
             // （模拟器基线 ~555ms/帧；真机 ~17ms）。
             report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
                 report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
-                LogUtil.w(
+                LogUtil.warn(
                     "Runtime",
                     "$summary — severe stall(s), investigate render cost",
                 )
@@ -2257,7 +2257,7 @@ constructor(
             // 且平均至少 100ms）：捕捉绝对阈值无法覆盖的
             // 渐进式、设备特定的降级。
             trendDegraded ->
-                LogUtil.w(
+                LogUtil.warn(
                     "Runtime",
                     "$summary — degraded vs baseline (${baselineMs}ms), " +
                         "investigate render cost",
@@ -2269,7 +2269,7 @@ constructor(
             // 使渐进问题不可见。
             // 每 60 个渲染帧一行（真机 ~1s，模拟器 ~33s），
             // 是安静但始终存在的信号。
-            else -> LogUtil.i("Runtime", summary)
+            else -> LogUtil.info("Runtime", summary)
         }
     }
 
@@ -2437,7 +2437,7 @@ constructor(
     private suspend fun clearUnknownThemeNames(vararg names: String): Boolean {
         val unknown = names.filter { ThemeRepository.byNameOrNull(it) == null }.toSet()
         if (unknown.isEmpty()) return false
-        LogUtil.e("Runtime", "Unknown terminal theme, clearing setting: $unknown")
+        LogUtil.error("Runtime", "Unknown terminal theme, clearing setting: $unknown")
         settingsRepository.clearUnknownThemeNames(unknown)
         return true
     }
@@ -2455,7 +2455,7 @@ constructor(
             starting = true
         }
         // LogUtil.d 已写入 logcat，不重复输出。
-        LogUtil.d("Runtime", "start() called: surface=$surface width=$width height=$height")
+        LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
         // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
         if (surface != null) {
             pendingSurface = PendingSurface(surface, width, height)
@@ -2473,7 +2473,7 @@ constructor(
             // 与 createSession 的守卫对称。没有它，bridge.ping() 抛 RuntimeException，
             // 回滚中的 destroySession 抛 UnsatisfiedLinkError（是 Error，catch(Exception) 捕获不到），
             // 原生库缺失或 ABI 不匹配时应用会崩溃。
-            LogUtil.e("Runtime", "start: native library not loaded, aborting start")
+            LogUtil.error("Runtime", "start: native library not loaded, aborting start")
             synchronized(sessionLock) {
                 starting = false
             }
@@ -2482,7 +2482,7 @@ constructor(
         val displayW = context.resources.displayMetrics.widthPixels
         val displayH = context.resources.displayMetrics.heightPixels
         val density = context.resources.displayMetrics.density
-        LogUtil.d(
+        LogUtil.debug(
             "Runtime",
             "displayMetrics: w=$displayW h=$displayH density=$density",
         )
@@ -2493,7 +2493,7 @@ constructor(
         val bypassMinSurface = BuildConfig.DEBUG && System.getProperty("test.minSurface") != null
 
         if (!bypassMinSurface && (width <= 0 || height <= 0)) {
-            LogUtil.e(
+            LogUtil.error(
                 "Runtime",
                 "start() called with non-positive dimensions, waiting for surfaceChanged",
             )
@@ -2510,7 +2510,7 @@ constructor(
                 .toInt()
                 .coerceIn(MIN_SURFACE_HEIGHT_PX, MAX_SURFACE_HEIGHT_PX)
         if (!bypassMinSurface && (width < minWidth || height < minHeight)) {
-            LogUtil.w(
+            LogUtil.warn(
                 "Runtime",
                 "start() called with small surface ${width}x$height (display=${displayW}x$displayH min=${minWidth}x$minHeight), waiting for correct surfaceChanged",
             )
@@ -2523,9 +2523,9 @@ constructor(
         if (surface != null) {
             // 原生侧经 attachWindow(JNI) 接收 Surface，Kotlin 绝不跨桥传递裸 ANativeWindow 指针；
             // 指针为 0 时不得中止启动，否则终端根本无法启动。
-            LogUtil.d("Runtime", "surface present — 渲染接线尚未就绪")
+            LogUtil.debug("Runtime", "surface present — 渲染接线尚未就绪")
         } else {
-            LogUtil.d("Runtime", "no surface — using GPU offscreen rendering path")
+            LogUtil.debug("Runtime", "no surface — using GPU offscreen rendering path")
         }
 
         try {
@@ -2548,19 +2548,19 @@ constructor(
                         "$scheme://$host"
                     }
                         .getOrNull() ?: "<unparsable>"
-                LogUtil.d("Runtime", "Bootstrap URL set: $origin")
-                val dirs = terminal.emulator.installer.bootstrapDirs(context)
+                LogUtil.debug("Runtime", "Bootstrap URL set: $origin")
+                val directories = terminal.emulator.installer.bootstrapDirectories(context)
                 val installOrchestrator =
                     terminal.emulator.installer.BootstrapOrchestrator(
                         terminal.emulator.installer.BootstrapDownloader(context),
                         terminal.emulator.installer.BootstrapInstaller(
-                            prefixDir = dirs.prefix,
-                            homeDir = dirs.home,
-                            stagingDir = dirs.staging,
+                            prefixDir = directories.prefix,
+                            homeDir = directories.home,
+                            stagingDir = directories.staging,
                         ),
                         terminal.emulator.installer.SecondStageRunner(
-                            prefixDir = dirs.prefix,
-                            homeDir = dirs.home,
+                            prefixDir = directories.prefix,
+                            homeDir = directories.home,
                         ),
                     )
                 when (installOrchestrator.getInstallStatus()) {
@@ -2568,11 +2568,11 @@ constructor(
                         // 绝不自动下载：Termux 引导（~150 MB）必须从设置显式安装，
                         // 应用不得自行下载或安装。仅记录状态使缺失安装仍可诊断；
                         // 设置中的引导按钮是唯一入口。
-                        LogUtil.d("Runtime", "Bootstrap not installed — install manually from Settings")
+                        LogUtil.debug("Runtime", "Bootstrap not installed — install manually from Settings")
                     }
 
                     terminal.emulator.installer.BootstrapOrchestrator.Status.INSTALLED -> {
-                        LogUtil.d("Runtime", "Bootstrap already installed")
+                        LogUtil.debug("Runtime", "Bootstrap already installed")
                     }
 
                     else -> {}
@@ -2580,14 +2580,14 @@ constructor(
             }
             val configStartNs = System.nanoTime()
             val config = buildConfig()
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
                 "buildConfig: fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
             )
             val bridgeStartNs = System.nanoTime()
             val bridge = Bridge(config)
             startedBridge = bridge
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
                 "bridge created: ${bridge.ping()} elapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
             )
@@ -2603,7 +2603,7 @@ constructor(
             // 在其上 spawn 会渲染到已死的窗口（黑屏/挂起）。中止，
             // 让下一次 surface-available 事件用新的 Surface 重试 start()。
             if (surface != null && !surface.isValid) {
-                LogUtil.e(
+                LogUtil.error(
                     "Runtime",
                     "start(): surface became invalid during bootstrap, aborting (will retry on next surface)",
                 )
@@ -2614,7 +2614,7 @@ constructor(
                 try {
                     startedBridge.close()
                 } catch (closeException: Exception) {
-                    LogUtil.e("Runtime", "Failed to close bridge on invalid surface", closeException)
+                    LogUtil.error("Runtime", "Failed to close bridge on invalid surface", closeException)
                 }
                 startedBridge = null
                 starting = false
@@ -2626,12 +2626,12 @@ constructor(
             }
 
             val spawn = spawnTerminalTimed(bridge, config, "start", width, height)
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
                 "spawnTerminal: result=${spawn.sessionId}",
             )
             if (spawn.sessionId <= 0L) {
-                LogUtil.e(
+                LogUtil.error(
                     "Runtime",
                     "spawnTerminal returned ${spawn.sessionId} — native session init failed, aborting start",
                 )
@@ -2658,14 +2658,14 @@ constructor(
                     // 插入第二个活动条目会在唯一的全局事件队列上启动第二个渲染线程，
                     // 并覆盖现有会话的 UI 状态——改为销毁刚 spawn 的原生会话，
                     // 保持现有会话活动。
-                    LogUtil.w("Runtime", "start: sessions already exist, aborting own insertion")
+                    LogUtil.warn("Runtime", "start: sessions already exist, aborting own insertion")
                     starting = false
                     abandonedReason = "duplicate"
                 } else {
                     finalSessionId = spawn.sessionId
                     entry =
                         SessionEntry(
-                            id = finalSessionId,
+                            sessionId = finalSessionId,
                             bridge = bridge,
                             renderThreadRef = null,
                             running = true,
@@ -2689,7 +2689,7 @@ constructor(
                 try {
                     bridge.close()
                 } catch (closeException: Exception) {
-                    LogUtil.e("Runtime", "start: failed to close $abandonedReason bridge", closeException)
+                    LogUtil.error("Runtime", "start: failed to close $abandonedReason bridge", closeException)
                 }
                 return
             }
@@ -2704,7 +2704,7 @@ constructor(
             // 带网格尺寸的首次 resize 必须在 spawn 之后立即发出
             // ——attachPendingSurface → recomputeGridFromFontMetrics 会做这件事；
             // 在 spawn 序列中锚定网格尺寸以便验证。
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
                 "first resize after spawn: grid=${_state.value.rows}x${_state.value.cols}",
             )
@@ -2717,7 +2717,7 @@ constructor(
                 if (!stillActive) {
                     // 插入之后有并发关闭落地：条目已在清理中（closeSession 已移除条目）。
                     // 此刻发布 RuntimeState 或启动前台服务会在拆除之下复活幽灵 UI 状态与通知。
-                    LogUtil.w(
+                    LogUtil.warn(
                         "Runtime",
                         "start: session $finalSessionId closed/stopped during startup, skipping render start",
                     )
@@ -2740,11 +2740,11 @@ constructor(
                         activeSessionId = finalSessionId,
                         sessionIds = listOf(finalSessionId),
                     )
-                LogUtil.d(
+                LogUtil.debug(
                     "Runtime",
                     "session $finalSessionId config: fontSizeTenths=${config.fontSizeTenths}",
                 )
-                LogUtil.d("Runtime", "session $finalSessionId started")
+                LogUtil.debug("Runtime", "session $finalSessionId started")
                 try {
                     startForegroundServiceIfNeeded()
                     updateForegroundSessionCount(sessions.size)
@@ -2757,7 +2757,7 @@ constructor(
                     }
                     // 与 createSession 同样的守卫：服务启动失败
                     // 绝不能回滚已创建的会话。
-                    LogUtil.e(
+                    LogUtil.error(
                         "Runtime",
                         "Failed to start foreground service for session $finalSessionId",
                         serviceException,
@@ -2780,7 +2780,7 @@ constructor(
             try {
                 syncGridDimensions(startedEntry.bridge)
             } catch (exception: Exception) {
-                LogUtil.e("Runtime", "initial grid recompute failed", exception)
+                LogUtil.error("Runtime", "initial grid recompute failed", exception)
             }
         } catch (exception: Exception) {
             // 取消与失败统一先回滚已 spawn 的 bridge，再按类型处理：
@@ -2789,14 +2789,14 @@ constructor(
             try {
                 startedBridge?.close()
             } catch (closeException: Exception) {
-                LogUtil.e("Runtime", "Failed to close bridge during start rollback", closeException)
+                LogUtil.error("Runtime", "Failed to close bridge during start rollback", closeException)
             }
             if (exception is kotlinx.coroutines.CancellationException) {
                 // 重抛取消：吞没它会破坏结构化并发（与 createSessionInner 同一约定）。
                 // finally 块仍会重置 starting。
                 throw exception
             }
-            LogUtil.e("Runtime", "Failed to start terminal", exception)
+            LogUtil.error("Runtime", "Failed to start terminal", exception)
             // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
             // 构造 Bridge 之后的任何失败（设置、attachSurface、spawnTerminal 抛异常而非返回 0）
             // 否则会永久泄漏原生会话及其 PTY 子进程。
@@ -2841,25 +2841,25 @@ constructor(
 
     private suspend fun createSessionInner(surface: Surface, width: Int, height: Int): Long {
         if (starting) {
-            LogUtil.w(
+            LogUtil.warn(
                 "Runtime",
                 "createSession: start() in progress (bootstrap), refusing concurrent creation",
             )
             return -1L
         }
         if (width <= 0 || height <= 0) {
-            LogUtil.e("Runtime", "createSession: invalid dimensions ${width}x$height")
+            LogUtil.error("Runtime", "createSession: invalid dimensions ${width}x$height")
             return -1L
         }
         if (!surface.isValid) {
-            LogUtil.e("Runtime", "createSession: surface is not valid")
+            LogUtil.error("Runtime", "createSession: surface is not valid")
             return -1L
         }
         if (!NativeBridge.isNativeLoaded()) {
             // UnsatisfiedLinkError 是 Error 而非 Exception——当原生库缺失/损坏时
             // （如 x86 模拟器或 32 位设备上的 ABI 不匹配）它会逃出下方的 catch 并使应用崩溃。
             // 软失败并复用既有的回滚路径。
-            LogUtil.e("Runtime", "createSession: native library not loaded, refusing to spawn")
+            LogUtil.error("Runtime", "createSession: native library not loaded, refusing to spawn")
             return -1L
         }
         var nextId = 0L
@@ -2872,7 +2872,7 @@ constructor(
             val config = buildConfig()
             val bridgeStartNs = System.nanoTime()
             val bridge = Bridge(config).also { createdBridge = it }
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
                 "createSession bridgeElapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
             )
@@ -2908,12 +2908,12 @@ constructor(
                     // 插入第二个条目会让两个会话中有一个没有渲染线程（僵尸 shell 进程），
                     // 并使 UI 会话列表失步。拒绝插入；调用方
                     // （onSurfaceTextureAvailable 回退）会在引导完成后经 start() 重试。
-                    LogUtil.w("Runtime", "createSession: start() began during spawn, abandoning insertion")
+                    LogUtil.warn("Runtime", "createSession: start() began during spawn, abandoning insertion")
                     abandonedByStart = true
                 } else {
                     entry =
                         SessionEntry(
-                            id = nextId,
+                            sessionId = nextId,
                             bridge = bridge,
                             renderThreadRef = null,
                             running = false,
@@ -2934,7 +2934,7 @@ constructor(
                 try {
                     bridge.close()
                 } catch (closeException: Exception) {
-                    LogUtil.e("Runtime", "createSession: failed to close abandoned bridge", closeException)
+                    LogUtil.error("Runtime", "createSession: failed to close abandoned bridge", closeException)
                 }
                 return -1L
             }
@@ -2949,7 +2949,7 @@ constructor(
                     "switchSessionInternal aborted for new session $nextId"
                 }
             } catch (exception: Exception) {
-                LogUtil.e("Runtime", "Failed to switch to new session $nextId, rolling back", exception)
+                LogUtil.error("Runtime", "Failed to switch to new session $nextId, rolling back", exception)
                 // 结构性的映射变更在锁内完成（不变式）；
                 // 下方的 bridge 关闭留在锁外（Session::drop 会 join 线程）。
                 synchronized(sessionLock) {
@@ -2964,7 +2964,7 @@ constructor(
                     try {
                         bridge.close()
                     } catch (closeException: Exception) {
-                        LogUtil.e(
+                        LogUtil.error(
                             "Runtime",
                             "Failed to close bridge during session $nextId rollback",
                             closeException,
@@ -2998,7 +2998,7 @@ constructor(
                             // 任何清理由作用域拆除负责。
                             throw serviceException
                         }
-                        LogUtil.e(
+                        LogUtil.error(
                             "Runtime",
                             "Failed to start foreground service for session $nextId",
                             serviceException,
@@ -3007,7 +3007,7 @@ constructor(
                 }
             }
             if (!stillPresent) {
-                LogUtil.w(
+                LogUtil.warn(
                     "Runtime",
                     "createSession: session $nextId removed concurrently (exit/close), rolling back",
                 )
@@ -3025,7 +3025,7 @@ constructor(
                 }
                 return -1L
             }
-            LogUtil.d("Runtime", "session $nextId created and activated")
+            LogUtil.debug("Runtime", "session $nextId created and activated")
             return nextId
         } catch (exception: Exception) {
             // 取消与失败统一先回滚未入库的 bridge，再按类型处理（与 start 同形）。
@@ -3038,7 +3038,7 @@ constructor(
                 try {
                     createdBridge.close()
                 } catch (closeException: Exception) {
-                    LogUtil.e(
+                    LogUtil.error(
                         "Runtime",
                         "Failed to close leaked bridge during createSession rollback",
                         closeException,
@@ -3049,19 +3049,19 @@ constructor(
                 // 重抛取消：吞没它会破坏结构化并发。
                 throw exception
             }
-            LogUtil.e("Runtime", "Failed to create session $nextId", exception)
+            LogUtil.error("Runtime", "Failed to create session $nextId", exception)
             // 完整堆栈经 LogUtil 抵达 logcat，并带稳定的 FAILED grep 锚点。
             return -1L
         }
     }
 
     /**
-     * 返回 `id` 是否已成为活动会话。调用方据此决定是否发布 UI 状态——
+     * 返回 `sessionId` 是否已成为活动会话。调用方据此决定是否发布 UI 状态——
      * 任何一条中止路径（会话不存在、surface 失效、首帧期间被关闭、
      * 渲染线程启动失败）都会让返回值为 false，此时活动会话仍是别的 id。
      */
-    suspend fun switchSession(id: Long, surface: Surface, width: Int, height: Int): Boolean {
-        if (!switchSessionInternal(id, surface, width, height)) return false
+    suspend fun switchSession(sessionId: Long, surface: Surface, width: Int, height: Int): Boolean {
+        if (!switchSessionInternal(sessionId, surface, width, height)) return false
         updateState()
         // 标题只在锁外刷新：取标题要走阻塞式 VT 往返（最长约 1 秒），
         // sessionLock 是所有会话操作的总闸，锁内阻塞等于冻结整个会话子系统。
@@ -3069,7 +3069,7 @@ constructor(
         return true
     }
 
-    private suspend fun switchSessionInternal(id: Long, surface: Surface, width: Int, height: Int): Boolean {
+    private suspend fun switchSessionInternal(sessionId: Long, surface: Surface, width: Int, height: Int): Boolean {
         // 阶段 1（加锁）：校验、停止上一个渲染线程、（重）配置目标 bridge。
         // 阶段 2（不持锁）：同步的首帧渲染重试——bridge.render() 在挂起的 GPU 上
         // 可能永久阻塞，跨它持有 sessionLock 会冻结所有会话操作
@@ -3079,14 +3079,14 @@ constructor(
         val previousActiveId: Long
         synchronized(sessionLock) {
             target =
-                sessions[id]
+                sessions[sessionId]
                     ?: run {
-                        LogUtil.e("Runtime", "switchSession: session $id not found")
+                        LogUtil.error("Runtime", "switchSession: session $sessionId not found")
                         return false
                     }
             // 在任何停止动作之前捕获；用于切换/spawn 失败时恢复前一个会话。
             previousActiveId = activeSessionId
-            if (id == activeSessionId) return true
+            if (sessionId == activeSessionId) return true
             // 把 Surface 交给渲染器（attachWindow JNI 在 Rust 内部提取 ANativeWindow）。
             // 这是惰性的：它只存储引用——wgpu surface 在首个渲染帧才创建，
             // 而那发生在旧会话线程停止、其 surface 在下方释放之后。
@@ -3095,7 +3095,7 @@ constructor(
             target.bridge.attachSurface(surface, width, height)
 
             if (!surface.isValid) {
-                LogUtil.e("Runtime", "switchSession: surface is no longer valid, aborting")
+                LogUtil.error("Runtime", "switchSession: surface is no longer valid, aborting")
                 return false
             }
 
@@ -3119,13 +3119,13 @@ constructor(
                         // 渲染线程挂起时（join 超时）跳过——线程恢复后释放即是 use-after-free。
                         current.bridge.releaseGpuSurface()
                     } else {
-                        LogUtil.e(
+                        LogUtil.error(
                             "Runtime",
-                            "switchSession: session ${current.id} render thread hung — skipping surface release",
+                            "switchSession: session ${current.sessionId} render thread hung — skipping surface release",
                         )
                     }
                 } catch (exception: Exception) {
-                    LogUtil.e("Runtime", "switchSession: error stopping current session", exception)
+                    LogUtil.error("Runtime", "switchSession: error stopping current session", exception)
                 }
             }
 
@@ -3154,17 +3154,17 @@ constructor(
                 initialRender = target.bridge.render()
                 attempts++
             }
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
-                "switchSession: initial render for session $id result=$initialRender (attempts=$attempts)",
+                "switchSession: initial render for session $sessionId result=$initialRender (attempts=$attempts)",
             )
             target.forceRenderRequested = true
             target.notifyRender()
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) throw exception
-            LogUtil.e(
+            LogUtil.error(
                 "Runtime",
-                "switchSession: initial render failed for session $id",
+                "switchSession: initial render failed for session $sessionId",
                 exception,
             )
         }
@@ -3172,10 +3172,10 @@ constructor(
         // 阶段 3（加锁）：发布切换。
         synchronized(sessionLock) {
             // 重新校验：首帧渲染期间会话可能已关闭（用户关闭，或被监视器回收）。
-            if (sessions[id] !== target) {
-                LogUtil.w(
+            if (sessions[sessionId] !== target) {
+                LogUtil.warn(
                     "Runtime",
-                    "switchSession: session $id was closed during first frame, aborting switch",
+                    "switchSession: session $sessionId was closed during first frame, aborting switch",
                 )
                 return false
             }
@@ -3187,20 +3187,20 @@ constructor(
                 concurrentRenderThreadToStop(
                     activeSessionIdAfterRender = activeSessionId,
                     previousActiveId = previousActiveId,
-                    targetId = id,
-                    concurrentSessionId = sessions[activeSessionId]?.id,
+                    targetId = sessionId,
+                    concurrentSessionId = sessions[activeSessionId]?.sessionId,
                 )
             if (concurrentToStop != null) {
                 val concurrent = sessions[concurrentToStop]
                 if (concurrent != null) {
                     try {
                         renderSupervisor.stopRenderThread(concurrent)
-                        LogUtil.w(
+                        LogUtil.warn(
                             "Runtime",
                             "switchSession: stopped concurrent session $concurrentToStop (active changed during first frame)",
                         )
                     } catch (exception: Exception) {
-                        LogUtil.e(
+                        LogUtil.error(
                             "Runtime",
                             "switchSession: failed to stop concurrent session $concurrentToStop",
                             exception,
@@ -3219,35 +3219,38 @@ constructor(
             publishActiveSessionState(target)
             if (isBackgroundPaused) {
                 // 切后台期间不启动；ON_RESUME 由 resumeRendering 统一拉起。
-                LogUtil.d("Runtime", "switchSession: background-paused, deferring render thread start for session $id")
+                LogUtil.debug(
+                    "Runtime",
+                    "switchSession: background-paused, deferring render thread start for session $sessionId",
+                )
             } else {
                 try {
                     renderSupervisor.startRenderThread(target)
                 } catch (exception: Exception) {
-                    LogUtil.e(
+                    LogUtil.error(
                         "Runtime",
-                        "switchSession: failed to start render thread for session $id",
+                        "switchSession: failed to start render thread for session $sessionId",
                         exception,
                     )
                     // 前一个活动会话已停止且其 GPU surface 已释放，恢复它，
                     // 使终端不会被留在冻结状态（无渲染线程，且监视器会永远跳过
                     // !running 的条目）。
                     val previous = sessions[previousActiveId]
-                    if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
-                        LogUtil.w(
+                    if (previous != null && shouldRestorePreviousSession(previous.sessionId, sessionId)) {
+                        LogUtil.warn(
                             "Runtime",
-                            "switchSession: restoring previous session ${previous.id} after failure",
+                            "switchSession: restoring previous session ${previous.sessionId} after failure",
                         )
                         previous.running = true
                         previous.renderThreadExited = false
                         previous.restartAttempts = 0
                         try {
                             renderSupervisor.startRenderThread(previous)
-                            setActiveSessionId(previous.id)
+                            setActiveSessionId(previous.sessionId)
                         } catch (restoreException: Exception) {
-                            LogUtil.e(
+                            LogUtil.error(
                                 "Runtime",
-                                "switchSession: failed to restore previous session ${previous.id}",
+                                "switchSession: failed to restore previous session ${previous.sessionId}",
                                 restoreException,
                             )
                         }
@@ -3256,7 +3259,7 @@ constructor(
                 }
             }
             try {
-                setActiveSessionId(id)
+                setActiveSessionId(sessionId)
                 // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
                 // 故新会话必须从对齐状态开始
                 // （其渲染线程也会在首帧转发零余量）。
@@ -3265,11 +3268,11 @@ constructor(
                 // 不做此步，除首个会话外的所有会话会共用同一个原生活动会话，
                 // 多会话的输出/退出检测将静默失效。
                 try {
-                    NativeBridge.switchSession(id)
+                    NativeBridge.switchSession(sessionId)
                 } catch (exception: Exception) {
-                    LogUtil.e(
+                    LogUtil.error(
                         "Runtime",
-                        "switchSession: native switchSession failed for session $id",
+                        "switchSession: native switchSession failed for session $sessionId",
                         exception,
                     )
                 }
@@ -3277,7 +3280,7 @@ constructor(
                 // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
                 // 查不到原生网格则无条件对齐（fail-open）。
                 alignGridOnSwitch(target.bridge, _state.value.rows, _state.value.cols)
-                LogUtil.d("Runtime", "switched to session $id")
+                LogUtil.debug("Runtime", "switched to session $sessionId")
                 // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
                 // 使获得焦点的 TUI（vim/fzf）恢复其 FocusGained 行为。
@@ -3288,9 +3291,9 @@ constructor(
                 // 目标会话的渲染线程此刻已在运行，故此处不做任何恢复：
                 // 拉起前一个会话会产生第二个事件队列消费者。目标会话继续以
                 // 刚发布的状态运行，网格对齐失败由上面的错误日志暴露。
-                LogUtil.e(
+                LogUtil.error(
                     "Runtime",
-                    "switchSession: post-start step failed for session $id",
+                    "switchSession: post-start step failed for session $sessionId",
                     exception,
                 )
             }
@@ -3331,13 +3334,13 @@ constructor(
      */
     fun closeAllSessions() {
         synchronized(sessionLock) { sessions.keys.sorted().toList() }
-            .forEach { id -> closeSession(id) }
+            .forEach { sessionId -> closeSession(sessionId) }
         // 最后一个会话关闭时计数已归零并停掉服务；此处再确认一次，覆盖
         // 关闭过程中又新建了会话的情况（那时服务应继续存活）。
         stopForegroundServiceIfIdle()
     }
 
-    fun closeSession(id: Long) {
+    fun closeSession(sessionId: Long) {
         // 阶段 1（加锁）：立即捕获关闭资格并清除运行意图标志，与 handleSessionExit 对称
         // ——延迟重启（restartRenderThreadAfterDelay）在锁内检查 running，
         // 必须看到 false 才能取消。若稍后在不持锁状态下读 running，
@@ -3347,13 +3350,13 @@ constructor(
         var wasRunning: Boolean = false
         val entry =
             synchronized(sessionLock) {
-                val sessionEntry = sessions[id] ?: return
+                val sessionEntry = sessions[sessionId] ?: return
                 wasRunning = sessionEntry.running
                 sessionEntry.running = false
                 sessionEntry.closing = true
                 sessionEntry
             }
-        LogUtil.d("Runtime", "closeSession($id)")
+        LogUtil.debug("Runtime", "closeSession($sessionId)")
 
         // 停止任何会话的渲染线程（活动或非活动）。
         // running 与 renderThreadPossiblyAlive 是 @Volatile；条目引用在锁外仍然有效
@@ -3389,9 +3392,9 @@ constructor(
             // 原生会话待进程消亡时回收；在此销毁会在该线程恢复的瞬间构成 use-after-free。
             entry.bridge.close()
         } else {
-            LogUtil.e(
+            LogUtil.error(
                 "Runtime",
-                "session $id render thread hung — skipping surface release AND bridge close to avoid use-after-free",
+                "session $sessionId render thread hung — skipping surface release AND bridge close to avoid use-after-free",
             )
         }
 
@@ -3399,12 +3402,12 @@ constructor(
         // 接替会话的挂起线程 join 与渲染重启留在锁内，与 handleSessionExit 对称
         // （它们仅在关闭活动会话的路径上运行）。
         synchronized(sessionLock) {
-            if (!sessions.containsKey(id)) return
-            sessions.remove(id)
+            if (!sessions.containsKey(sessionId)) return
+            sessions.remove(sessionId)
             updateForegroundSessionCount(sessions.size)
 
             // 若关闭的是活动会话，切换到另一个
-            if (id == activeSessionId) {
+            if (sessionId == activeSessionId) {
                 val remaining = sessions.keys.sorted()
                 if (remaining.isNotEmpty()) {
                     val newId = remaining.last()
@@ -3503,7 +3506,7 @@ constructor(
             setPixelSize(surfaceW, availableHeight)
             return
         }
-        LogUtil.d(
+        LogUtil.debug(
             "Runtime",
             "recomputeGridFromFontMetrics: ${currentRows}x$currentCols -> ${newRows}x$newCols " +
                 "(cell ${cellWidth}x$cellHeight, surface ${surfaceW}x$surfaceH)",
@@ -3530,7 +3533,7 @@ constructor(
         appliedFontSizeTenths = fontSizeTenths
         val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
-        LogUtil.d(
+        LogUtil.debug(
             "Runtime",
             "applyFontSettings: fontFamily='$fontFamily' effective='$effectiveFontFamily' fontSizeTenths=$fontSizeTenths sessions=${sessions.size}",
         )
@@ -3538,7 +3541,7 @@ constructor(
         sessions.values.forEach { entry ->
             try {
                 val familyResult = entry.bridge.setFontFamily(effectiveFontFamily)
-                LogUtil.d("Runtime", "setFontFamily result: $familyResult")
+                LogUtil.debug("Runtime", "setFontFamily result: $familyResult")
                 // null = 该会话在调用间隙销毁，无从验证：不计入聚合，
                 // 否则一次并发关闭会把有效的字体设置误判为“未知字族”并清除。
                 if (familyResult != null) {
@@ -3553,7 +3556,7 @@ constructor(
                 // 重算并 resize 活动会话。
                 recomputeGridFromFontMetrics()
             } catch (exception: Exception) {
-                LogUtil.e("Runtime", "applyFontSettings failed for session", exception)
+                LogUtil.error("Runtime", "applyFontSettings failed for session", exception)
                 applied = false
             }
         }
@@ -3595,14 +3598,14 @@ constructor(
             val written = entry.bridge.writeToPty(data)
             if (!written) {
                 // 会话活着却没有 bridge：粘贴/击键就此消失且毫无症状，必须出声。
-                LogUtil.e("Runtime", "writeToPty: 会话 $sessionId 无 bridge，${data.size} 字节未写入")
+                LogUtil.error("Runtime", "writeToPty: 会话 $sessionId 无 bridge，${data.size} 字节未写入")
             }
             entry.notifyRender()
             return written
         }
         // 两条 false 分支各自在此记全原因（会话不存在/正在关闭，或存活但无 bridge），
         // 调用方不再重复记一条泛化错误。
-        LogUtil.w("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭），${data.size} 字节未写入")
+        LogUtil.warn("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭），${data.size} 字节未写入")
         return false
     }
 
@@ -3663,7 +3666,7 @@ constructor(
                     if (entry.running) {
                         renderSupervisor.stopRenderThread(entry)
                         entry.running = false
-                        LogUtil.d("Runtime", "pauseRendering: session ${entry.id} stopped")
+                        LogUtil.debug("Runtime", "pauseRendering: session ${entry.sessionId} stopped")
                     }
                 }
             }
@@ -3704,7 +3707,7 @@ constructor(
                     NativeBridge.pumpSessions()
                 } catch (exception: Exception) {
                     // 单次失败不终止泵：会话已销毁或原生桥异常时，下一拍自然收敛。
-                    LogUtil.w("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
+                    LogUtil.warn("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
                 }
             },
             0,
@@ -3747,9 +3750,13 @@ constructor(
                     try {
                         activeEntry.running = true
                         renderSupervisor.startRenderThread(activeEntry)
-                        LogUtil.d("Runtime", "resumeRendering: session ${activeEntry.id} restarted")
+                        LogUtil.debug("Runtime", "resumeRendering: session ${activeEntry.sessionId} restarted")
                     } catch (exception: Exception) {
-                        LogUtil.e("Runtime", "resumeRendering failed for session ${activeEntry.id}", exception)
+                        LogUtil.error(
+                            "Runtime",
+                            "resumeRendering failed for session ${activeEntry.sessionId}",
+                            exception,
+                        )
                     }
                 }
                 // 在锁内：在此串行化意味着监视器先于任何并发关闭路径的
@@ -3761,7 +3768,7 @@ constructor(
     }
 
     fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean) {
-        LogUtil.d(
+        LogUtil.debug(
             "Runtime",
             "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection",
         )
@@ -3919,7 +3926,7 @@ constructor(
         val replacement =
             sessions[newId]
                 ?: run {
-                    LogUtil.w("Runtime", "$caller: new active session $newId already removed")
+                    LogUtil.warn("Runtime", "$caller: new active session $newId already removed")
                     setActiveSessionId(0L)
                     updateState()
                     return
@@ -3966,18 +3973,18 @@ constructor(
             try {
                 NativeBridge.switchSession(newId)
             } catch (exception: Exception) {
-                LogUtil.e("Runtime", "$caller: native switchSession failed", exception)
+                LogUtil.error("Runtime", "$caller: native switchSession failed", exception)
                 if (withRetry) {
                     // 重试一次：瞬时 JNI 失败会让原生活动 id 陈旧，
                     // 接替会话降级到后台清扫速率（2 块/帧）。
                     try {
                         val retried = NativeBridge.switchSession(newId)
                         if (retried) {
-                            LogUtil.w("Runtime", "$caller: native switchSession recovered on retry")
+                            LogUtil.warn("Runtime", "$caller: native switchSession recovered on retry")
                         }
                         retried
                     } catch (retryException: Exception) {
-                        LogUtil.e("Runtime", "$caller: native switchSession retry failed", retryException)
+                        LogUtil.error("Runtime", "$caller: native switchSession retry failed", retryException)
                         false
                     }
                 } else {
@@ -3992,7 +3999,7 @@ constructor(
             // 一个「运行中但已死」的接替会话。closing=true 是防御性的：
             // 若原生侧语义日后变化（新增销毁路径），
             // 该条目不会变成被监视器永远跳过的僵死僵尸。
-            LogUtil.w(
+            LogUtil.warn(
                 "Runtime",
                 "$caller: native switchSession returned false for session $newId — skipping render start",
             )
@@ -4010,9 +4017,9 @@ constructor(
         if (isBackgroundPaused) {
             // 切后台期间不拉起新渲染线程；ON_RESUME 由 resumeRendering 统一拉起。
             replacement.running = false
-            LogUtil.d(
+            LogUtil.debug(
                 "Runtime",
-                "activateReplacementSession: background-paused, deferring render start for session ${replacement.id}",
+                "activateReplacementSession: background-paused, deferring render start for session ${replacement.sessionId}",
             )
         } else {
             renderSupervisor.startRenderThread(replacement)
@@ -4029,9 +4036,9 @@ constructor(
             // 并发的 closeSession/closeDeadSession 赢得了接替会话的竞争；
             // startRenderThread 已拒绝（closing 标志）并把 running 重置为 false。
             // 该条目将由那条关闭路径移除。
-            LogUtil.d("Runtime", "$caller: replacement session $newId is closing — render start skipped")
+            LogUtil.debug("Runtime", "$caller: replacement session $newId is closing — render start skipped")
         } else {
-            LogUtil.d("Runtime", "$caller: restarted render for new active session $newId")
+            LogUtil.debug("Runtime", "$caller: restarted render for new active session $newId")
         }
     }
 
@@ -4073,7 +4080,7 @@ constructor(
         val startNs = System.nanoTime()
         val result = bridge.spawnTerminal(rows, cols, bridge.shellPath())
         val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
-        LogUtil.d("Runtime", "$caller spawnTerminal rows=$rows cols=$cols result=$result elapsed=${elapsedMs}ms")
+        LogUtil.debug("Runtime", "$caller spawnTerminal rows=$rows cols=$cols result=$result elapsed=${elapsedMs}ms")
         return SpawnResult(sessionId = result, rows = rows, cols = cols)
     }
 
@@ -4109,7 +4116,7 @@ constructor(
             RenderContract(config.fontSizeTenths, effectiveFont, config.themeName, spToPxScale),
         )
         appliedFontSizeTenths = config.fontSizeTenths
-        LogUtil.d(
+        LogUtil.debug(
             "Runtime",
             "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName}",
         )
@@ -4231,7 +4238,7 @@ constructor(
      */
     fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
-            LogUtil.w(
+            LogUtil.warn(
                 TAG,
                 "onSurfaceDestroyed: stale view ignored (current owner=${surfaceOwnership.currentOwner})",
             )
@@ -4386,7 +4393,7 @@ internal fun isElf(file: java.io.File): Boolean = try {
             magic[3] == 'F'.code.toByte()
     }
 } catch (exception: Exception) {
-    LogUtil.w("Runtime", "isElf: cannot read ${file.absolutePath}", exception)
+    LogUtil.warn("Runtime", "isElf: cannot read ${file.absolutePath}", exception)
     false
 }
 
@@ -4406,7 +4413,7 @@ internal fun isSystemShellScript(file: java.io.File): Boolean = try {
         }
     }
 } catch (exception: Exception) {
-    LogUtil.w("Runtime", "isSystemShellScript: cannot read ${file.absolutePath}", exception)
+    LogUtil.warn("Runtime", "isSystemShellScript: cannot read ${file.absolutePath}", exception)
     false
 }
 
@@ -4627,7 +4634,7 @@ internal fun shouldAlignGridOnSwitch(wantRows: Int, wantCols: Int, gridQuery: ()
         } catch (exception: Exception) {
             // 查询失败与「查到 0」同解（都走无条件对齐），但必须留痕：
             // 静默吞掉会让「切会话后网格错位」无从追溯。
-            LogUtil.e("Runtime", "grid query failed while switching session", exception)
+            LogUtil.error("Runtime", "grid query failed while switching session", exception)
             0L
         }
     return packed == 0L || (packed shr 32).toInt() != wantRows || packed.toInt() != wantCols

@@ -19,53 +19,53 @@ class SelectionStateTest {
 
     @Test
     fun `dragging start past end swaps ownership`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 12)
+        val state = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val result = state.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 12)
         // START swept past END: new start pins at the old END, END follows the finger.
         assertEquals(HandleDragResult(0, 10, 0, 12, false), result)
     }
 
     @Test
     fun `dragging start below end swaps ownership across rows`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 2, endCol = 5)
-        val result = s.applyHandleDrag(draggingStart = true, targetRow = 3, targetCol = 0)
+        val state = selection(startRow = 0, startCol = 2, endRow = 2, endCol = 5)
+        val result = state.applyHandleDrag(draggingStart = true, targetRow = 3, targetCol = 0)
         assertEquals(HandleDragResult(2, 5, 3, 0, false), result)
     }
 
     @Test
     fun `dragging end before start swaps ownership`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 0)
+        val state = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val result = state.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 0)
         assertEquals(HandleDragResult(0, 0, 0, 2, true), result)
     }
 
     @Test
     fun `normal start drag keeps ordering`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 5)
+        val state = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val result = state.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 5)
         assertEquals(HandleDragResult(0, 5, 0, 10, true), result)
     }
 
     @Test
     fun `normal end drag keeps ordering`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 12)
+        val state = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val result = state.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 12)
         assertEquals(HandleDragResult(0, 2, 0, 12, false), result)
     }
 
     @Test
     fun `landing exactly on anchor does not flip`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val startLandsOnEnd = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 10)
+        val state = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val startLandsOnEnd = state.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 10)
         assertEquals(HandleDragResult(0, 10, 0, 10, true), startLandsOnEnd)
-        val endLandsOnStart = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 2)
+        val endLandsOnStart = state.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 2)
         assertEquals(HandleDragResult(0, 2, 0, 2, false), endLandsOnStart)
     }
 
     @Test
     fun `cross then drag back follows flipped handle`() {
-        val s = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val crossed = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 12)
+        val state = selection(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
+        val crossed = state.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 12)
         assertEquals(false, crossed.draggingStart)
         val moved =
             selection(

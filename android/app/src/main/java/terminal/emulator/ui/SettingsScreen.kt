@@ -1020,8 +1020,8 @@ private fun BootstrapSection(
         )
         Spacer(modifier = Modifier.height(4.dp))
 
-        val arch = terminal.emulator.detectArchFromAbi()
-        val termuxUrl = TermuxBootstrap.downloadUrl(arch)
+        val architecture = terminal.emulator.detectDeviceArchitecture()
+        val termuxUrl = TermuxBootstrap.downloadUrl(architecture)
         val presetLabel = stringResource(R.string.bootstrap_preset_termux)
         val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
         BootstrapPresetItem(
@@ -1079,7 +1079,7 @@ private fun formatBytes(bytes: Long): String = when {
 @ReadOnlyComposable
 private fun bootstrapStepText(progress: BootstrapProgress): String = when (progress) {
     is BootstrapProgress.Downloading -> {
-        val pct =
+        val percent =
             if (progress.contentLength > 0) {
                 " (${(progress.bytesWritten * 100 / progress.contentLength)}%)"
             } else {
@@ -1087,14 +1087,14 @@ private fun bootstrapStepText(progress: BootstrapProgress): String = when (progr
             }
         stringResource(
             R.string.bootstrap_downloading,
-            pct,
+            percent,
             formatBytes(progress.bytesWritten),
             if (progress.contentLength > 0) formatBytes(progress.contentLength) else "",
         )
     }
 
     is BootstrapProgress.Extracting -> {
-        val pct =
+        val percent =
             if (progress.totalEntries > 0) {
                 " (${(progress.entriesExtracted * 100 / progress.totalEntries)}%)"
             } else {
@@ -1102,7 +1102,7 @@ private fun bootstrapStepText(progress: BootstrapProgress): String = when (progr
             }
         stringResource(
             R.string.bootstrap_extracting,
-            pct,
+            percent,
             progress.entriesExtracted,
             progress.totalEntries,
         )

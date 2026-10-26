@@ -123,14 +123,14 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
         sampleEdits(connection, growthSteps)
         val monitoringOff = sampleEdits(connection, growthSteps)
 
-        val on = monitoringOn.map { it.elapsedUs }
-        val off = monitoringOff.map { it.elapsedUs }
-        val onP50 = percentile(on, 0.50)
-        val offP50 = percentile(off, 0.50)
+        val monitoringOnSamples = monitoringOn.map { it.elapsedUs }
+        val monitoringOffSamples = monitoringOff.map { it.elapsedUs }
+        val onP50 = percentile(monitoringOnSamples, 0.50)
+        val offP50 = percentile(monitoringOffSamples, 0.50)
         UxTestUtils.metric("composing_edit_on_p50_us", onP50)
-        UxTestUtils.metric("composing_edit_on_p95_us", percentile(on, 0.95))
+        UxTestUtils.metric("composing_edit_on_p95_us", percentile(monitoringOnSamples, 0.95))
         UxTestUtils.metric("composing_edit_off_p50_us", offP50)
-        UxTestUtils.metric("composing_edit_off_p95_us", percentile(off, 0.95))
+        UxTestUtils.metric("composing_edit_off_p95_us", percentile(monitoringOffSamples, 0.95))
 
         // 先记指标再判受理：异常样本的耗时同样是证据，先落日志才读得到。
         val firstBad = (monitoringOn + monitoringOff).firstOrNull { it.error != null || !it.accepted }
@@ -147,7 +147,7 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
         assertTrue(
             "光标监视开启后每次组字回退的主线程耗时 p50=${onP50}us，" +
                 "关闭监视的对照组 p50=${offP50}us，差值超出 ${GAP_BUDGET_US}us —— " +
-                "锚点回报又走回了会等一整帧的同步查询（on=$on off=$off）",
+                "锚点回报又走回了会等一整帧的同步查询（on=$monitoringOnSamples off=$monitoringOffSamples）",
             onP50 - offP50 <= GAP_BUDGET_US,
         )
     }
@@ -178,18 +178,18 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
             val start = System.nanoTime()
             try {
                 accepted = input.setComposingText(text, 1)
-            } catch (t: Throwable) {
+            } catch (throwable: Throwable) {
                 // 采样不因被测路径抛异常而中断：异常本身是证据（实测修正前锚点回报在
                 // `CursorAnchorInfo.Builder.build()` 处必抛，异常逃出回调），
                 // 断言据 [Edit.error] 报出原文。耗时仍照记——抛异常前的等待真发生过。
-                error = describe(t)
+                error = describe(throwable)
             }
             elapsedUs = (System.nanoTime() - start) / 1_000
         }
         return Edit(elapsedUs, accepted, error)
     }
 
-    private fun describe(t: Throwable): String = "${t.javaClass.simpleName}: ${t.message}"
+    private fun describe(throwable: Throwable): String = "${throwable.javaClass.simpleName}: ${throwable.message}"
 
     /**
      * 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。

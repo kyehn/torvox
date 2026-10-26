@@ -78,11 +78,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 强制隐藏输入法：软键盘打开时可能在旋转或返回键期间发生 detach。
         // 不做此步，键盘会残留显示在已销毁的 Activity 窗口之上（键盘卡死问题）。
         try {
-            val imm =
+            val inputMethodManager =
                 context.getSystemService(
                     android.content.Context.INPUT_METHOD_SERVICE,
                 ) as android.view.inputmethod.InputMethodManager
-            imm.hideSoftInputFromWindow(windowToken, 0)
+            inputMethodManager.hideSoftInputFromWindow(windowToken, 0)
         } catch (_: Exception) {
             // 视图已拆除——忽略。
         }
@@ -147,7 +147,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         try {
             magnifier?.dismiss()
         } catch (exception: Exception) {
-            LogUtil.w(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
+            LogUtil.warn(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
         }
         magnifier = null
         // 停止 PtyWriter 发送线程：视图正在被销毁（Activity 重建、返回键），
@@ -234,11 +234,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // TYPE_APPLICATION_SUB_PANEL，层号高者恒在上，覆盖层重建也压不住菜单。
         val selection = viewModel?.state?.value?.selection
         if (selection == null) {
-            LogUtil.w(TAG, "菜单跳过：视图模型为空")
+            LogUtil.warn(TAG, "菜单跳过：视图模型为空")
             return
         }
         if (selection.start == null || selection.end == null) {
-            LogUtil.w(TAG, "菜单跳过：选区无界")
+            LogUtil.warn(TAG, "菜单跳过：选区无界")
             return
         }
         // 文本区动作的显示判定与动作解析共用同一份文本（viewModel.selectionTextForAction
@@ -248,16 +248,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val actions =
             menuActionsForSelection(pasteOnly, clipboardAccess.hasClipboardText(), hasCopyableText)
         if (actions.isEmpty()) {
-            LogUtil.d(TAG, "菜单跳过：无动作")
+            LogUtil.debug(TAG, "菜单跳过：无动作")
             return
         }
         val anchor = menuAnchor(selection)
         if (anchor == null) {
-            LogUtil.d(TAG, "菜单跳过：无处安放")
+            LogUtil.debug(TAG, "菜单跳过：无处安放")
             return
         }
-        val loc = IntArray(2)
-        getLocationInWindow(loc)
+        val windowLocation = IntArray(2)
+        getLocationInWindow(windowLocation)
         val existing = selectionMenuPopup
         val existingBar = selectionMenuBar
         if (existing != null &&
@@ -269,27 +269,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (labels != shownMenuLabels) fillMenuBar(existingBar, actions)
             shownMenuLabels = labels
             existing.update(
-                loc[0] + anchor.first,
-                loc[1] + anchor.second,
+                windowLocation[0] + anchor.first,
+                windowLocation[1] + anchor.second,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             )
-            LogUtil.d(
+            LogUtil.debug(
                 TAG,
-                "菜单原地更新：at=(${loc[0] + anchor.first},${loc[1] + anchor.second}) labels=$labels",
+                "菜单原地更新：at=(${windowLocation[0] + anchor.first},${windowLocation[1] + anchor.second}) labels=$labels",
             )
             return
         }
         // 旧窗口已不在（平台移除或已 dismiss）：清掉引用再重建。
         hideSelectionMenu("showSelectionMenu", restoreHandles = false)
         if (viewDetached || !isAttachedToWindow) {
-            LogUtil.w(TAG, "菜单跳过：未附着")
+            LogUtil.warn(TAG, "菜单跳过：未附着")
             return
         }
-        val bar = buildMenuBar(actions)
+        val menuBar = buildMenuBar(actions)
         val popup =
             PopupWindow(
-                bar,
+                menuBar,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             )
@@ -306,21 +306,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 本回调只在**我们**调用 dismiss() 时触发。平台直接移除弹窗窗口
             // （父视图窗口令牌变化/销毁）不会走到这里——两者是否成对出现，
             // 是区分「应用主动关菜单」与「平台把窗口收走」的唯一依据。
-            popup.setOnDismissListener { LogUtil.d(TAG, "选区菜单 dismiss() 已执行（应用侧主动关闭）") }
-            popup.showAtLocation(this@TerminalSurface, 0, loc[0] + anchor.first, loc[1] + anchor.second)
-            LogUtil.d(
+            popup.setOnDismissListener { LogUtil.debug(TAG, "选区菜单 dismiss() 已执行（应用侧主动关闭）") }
+            popup.showAtLocation(
+                this@TerminalSurface,
+                0,
+                windowLocation[0] + anchor.first,
+                windowLocation[1] + anchor.second,
+            )
+            LogUtil.debug(
                 TAG,
-                "菜单显示：at=(${loc[0] + anchor.first},${loc[1] + anchor.second}) " +
+                "菜单显示：at=(${windowLocation[0] + anchor.first},${windowLocation[1] + anchor.second}) " +
                     "pasteOnly=$pasteOnly actions=${actions.size}",
             )
         } catch (exception: Exception) {
             // Activity 在检查与显示之间被 detach——与选区手柄同一守卫；
             // 弹窗从未变为可见。
-            LogUtil.w(TAG, "showSelectionMenu: popup show failed", exception)
+            LogUtil.warn(TAG, "showSelectionMenu: popup show failed", exception)
             return
         }
         selectionMenuPopup = popup
-        selectionMenuBar = bar
+        selectionMenuBar = menuBar
         shownMenuLabels = actions.map { it.first }
     }
 
@@ -410,7 +415,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (exception: Exception) {
-            LogUtil.w(TAG, "openSelectionAsLink: no handler", exception)
+            LogUtil.warn(TAG, "openSelectionAsLink: no handler", exception)
         }
     }
 
@@ -419,22 +424,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 已在屏幕上的菜单原地换条目走 [fillMenuBar]）。
      */
     private fun buildMenuBar(actions: List<Pair<String, () -> Unit>>): android.widget.LinearLayout {
-        val bar = android.widget.LinearLayout(context)
-        fillMenuBar(bar, actions)
-        return bar
+        val menuBar = android.widget.LinearLayout(context)
+        fillMenuBar(menuBar, actions)
+        return menuBar
     }
 
-    /** 把 [actions] 装进 [bar]：先清空再重建按钮，窗口与背景复用（见 [showSelectionMenu]）。 */
-    private fun fillMenuBar(bar: android.widget.LinearLayout, actions: List<Pair<String, () -> Unit>>) {
+    /** 把 [actions] 装进 [menuBar]：先清空再重建按钮，窗口与背景复用（见 [showSelectionMenu]）。 */
+    private fun fillMenuBar(menuBar: android.widget.LinearLayout, actions: List<Pair<String, () -> Unit>>) {
         val density = resources.displayMetrics.density
         fun densityPixels(value: Int): Int = (value * density + HALF_PIXEL_OFFSET).toInt()
-        bar.orientation = android.widget.LinearLayout.HORIZONTAL
+        menuBar.orientation = android.widget.LinearLayout.HORIZONTAL
         val backgroundDrawable = android.graphics.drawable.GradientDrawable()
         backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
         backgroundDrawable.cornerRadius = densityPixels(MENU_BAR_CORNER_RADIUS_DP).toFloat()
-        bar.background = backgroundDrawable
-        bar.elevation = densityPixels(MENU_ELEVATION_DP).toFloat()
-        bar.removeAllViews()
+        menuBar.background = backgroundDrawable
+        menuBar.elevation = densityPixels(MENU_ELEVATION_DP).toFloat()
+        menuBar.removeAllViews()
         for ((label, action) in actions) {
             val item =
                 android.widget.TextView(context).apply {
@@ -452,7 +457,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     isFocusable = false
                     setOnClickListener { action() }
                 }
-            bar.addView(item)
+            menuBar.addView(item)
         }
     }
 
@@ -485,9 +490,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val end = selection.end ?: return null
         // 行按先后归一（与取文共用 `normalizeSelectionAnchors`）；列取包围盒极值——
         // 多行选区的列是各行内偏移，不存在「全局左右」，故不能跟着行一起换。
-        val (lo, hi) = normalizeSelectionAnchors(start, end, { it.row }, { it.col })
-        val topRow = lo.row
-        val bottomRow = hi.row
+        val (lowerAnchor, upperAnchor) = normalizeSelectionAnchors(start, end, { it.row }, { it.col })
+        val topRow = lowerAnchor.row
+        val bottomRow = upperAnchor.row
         val leftCol = minOf(start.col, end.col)
         val rightCol = maxOf(start.col, end.col)
         val viewportTopGrid = currentViewportTopGrid()
@@ -534,7 +539,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 无此日志时菜单意外消失只能靠猜——PasteButtonInstrumentedTest 在
         // CI 同款几何下曾整段丢失粘贴动作而日志里查不到是谁关的。
         val selection = viewModel?.state?.value?.selection
-        LogUtil.d(
+        LogUtil.debug(
             TAG,
             "hideSelectionMenu($reason): pasteOnly=${selection?.pasteOnly} " +
                 "menuDismissed=${selection?.menuDismissed}",
@@ -543,7 +548,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             popup.dismiss()
         } catch (exception: Exception) {
             // 已 dismiss——只记日志，使原因不丢失。
-            LogUtil.w(TAG, "hideSelectionMenu: dismiss failed", exception)
+            LogUtil.warn(TAG, "hideSelectionMenu: dismiss failed", exception)
         }
         if (restoreHandles) reshowSelectionHandles()
     }
@@ -591,7 +596,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     cellHeight = cellHeight,
                 )
             if (newRows == 0 || newCols == 0) return
-            LogUtil.d(
+            LogUtil.debug(
                 "TerminalSurface",
                 "applyGridResize: $width x $height cell=($cellWidth,$cellHeight) " +
                     "-> ${newRows}x$newCols (was ${rows}x$cols)",
@@ -760,7 +765,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.runtime.recomputeGrid()
             val surface = holder.surface
             if (!surface.isValid) {
-                LogUtil.d(TAG, "applySurfaceResize: surface not valid yet, deferring")
+                LogUtil.debug(TAG, "applySurfaceResize: surface not valid yet, deferring")
                 pendingRetryWidth = width
                 pendingRetryHeight = height
                 return
@@ -778,7 +783,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 可折叠半屏）且没有任何重试——窗口变大后终端将永远空白，
                 // 因为 surfaceChanged 只会 resize。趁 Surface 此刻有效且已定尺寸，
                 // 在此重试会话创建。
-                LogUtil.i(TAG, "applySurfaceResize: runtime not started, retrying default session")
+                LogUtil.info(TAG, "applySurfaceResize: runtime not started, retrying default session")
                 terminalViewModel.ensureDefaultSession()
             }
             lastConfiguredWidth = width
@@ -952,9 +957,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // ——增长/回退/全量重写三种情况集中在一处。
                         val edit = ComposingDiff.reconcile(composing.text, newComposing)
                         // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
-                        // 门控在调用处而非只靠 LogUtil.d：release 下可省掉整条消息串的拼接。
+                        // 门控在调用处而非只靠 LogUtil.debug：release 下可省掉整条消息串的拼接。
                         if (terminal.emulator.BuildConfig.DEBUG) {
-                            LogUtil.d(
+                            LogUtil.debug(
                                 "ComposingDiff",
                                 "reconcile prev=${composing.text.length}ch next=$newComposing " +
                                     "bs=${edit.backspaces} app=${edit.append.length}ch",
@@ -990,7 +995,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 返回 true 等于声称已处理，字符永久丢失（N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) {
                             if (terminal.emulator.BuildConfig.DEBUG) {
-                                LogUtil.d(
+                                LogUtil.debug(
                                     TAG,
                                     "commitText 在抑制窗口内被拒，" +
                                         "剩余 ${(suppressUntilNanos - System.nanoTime()) / 1_000_000}ms",
@@ -1094,8 +1099,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             }
                         }
                         if (safeAfter > 0) {
-                            val del = ByteArray(safeAfter) { DELETE_BYTE }
-                            inputBatchBuffer.write(del)
+                            val deleteBytes = ByteArray(safeAfter) { DELETE_BYTE }
+                            inputBatchBuffer.write(deleteBytes)
                         }
                         return true
                     }
@@ -1292,7 +1297,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
          * 使手柄形态是框架自带的泪滴形而非自定义矢量图。
          */
         internal fun resolveSelectionHandleDrawable(left: Boolean): android.graphics.drawable.Drawable? {
-            val attr =
+            val attributes =
                 intArrayOf(
                     if (left) {
                         android.R.attr.textSelectHandleLeft
@@ -1300,7 +1305,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         android.R.attr.textSelectHandleRight
                     },
                 )
-            val typedArray = context.theme.obtainStyledAttributes(attr)
+            val typedArray = context.theme.obtainStyledAttributes(attributes)
             try {
                 return typedArray.getDrawable(0)
             } finally {
@@ -1349,8 +1354,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 dismissPopupQuietly(content.consumeDeferredDismiss())
             }
 
-            val loc = IntArray(2)
-            getLocationInWindow(loc)
+            val windowLocation = IntArray(2)
+            getLocationInWindow(windowLocation)
             val popup =
                 PopupWindow(content, width, height).apply {
                     isClippingEnabled = false
@@ -1370,11 +1375,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     isOutsideTouchable = false
                 }
             try {
-                popup.showAtLocation(this@TerminalSurface, 0, loc[0], loc[1])
+                popup.showAtLocation(this@TerminalSurface, 0, windowLocation[0], windowLocation[1])
             } catch (exception: Exception) {
                 // WindowManager.BadTokenException：Activity 在 isAttachedToWindow
                 // 检查与 showAtLocation 之间被 detach。
-                LogUtil.w(TAG, "showSelectionHandles: overlay show failed", exception)
+                LogUtil.warn(TAG, "showSelectionHandles: overlay show failed", exception)
                 overlayContent = null
                 return
             }
@@ -1406,7 +1411,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private fun positionAllHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
             val viewportTopGrid = currentViewportTopGrid()
             val visibleStartRow = (startRow - viewportTopGrid).coerceIn(0, rows - 1)
-            val (sx, sy) =
+            val (startX, startY) =
                 gridToScreen(
                     visibleStartRow + 1,
                     startCol,
@@ -1415,7 +1420,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     cellHeight = cellHeight,
                 )
             val visibleEndRow = (endRow - viewportTopGrid).coerceIn(0, rows - 1)
-            val (ex, ey) =
+            val (endX, endY) =
                 gridToScreen(
                     visibleEndRow + 1,
                     endCol + 1,
@@ -1424,10 +1429,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     cellHeight = cellHeight,
                 )
             val content = overlayContent ?: return
-            content.position(HandleDrag.START, Math.round(sx), Math.round(sy))
-            content.position(HandleDrag.END, Math.round(ex), Math.round(ey))
-            updateHitRect(HandleDrag.START, Math.round(sx), Math.round(sy))
-            updateHitRect(HandleDrag.END, Math.round(ex), Math.round(ey))
+            content.position(HandleDrag.START, Math.round(startX), Math.round(startY))
+            content.position(HandleDrag.END, Math.round(endX), Math.round(endY))
+            updateHitRect(HandleDrag.START, Math.round(startX), Math.round(startY))
+            updateHitRect(HandleDrag.END, Math.round(endX), Math.round(endY))
         }
 
         /** 两条定位路径共用的锚点计算（termux hotspot）：START 悬于其单元格角的左下，END 在右下。 */
@@ -1442,9 +1447,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     (width - handleW).coerceAtLeast(0),
                 )
             val handleTop = anchorY.coerceIn(0, (height - handleH).coerceAtLeast(0))
-            val rect = if (which == HandleDrag.START) startHandleRect else endHandleRect
-            rect.set(handleLeft, handleTop, handleLeft + handleW, handleTop + handleH)
-            rect.inset(-handleW / 4, -handleH / 4)
+            val handleBounds = if (which == HandleDrag.START) startHandleRect else endHandleRect
+            handleBounds.set(handleLeft, handleTop, handleLeft + handleW, handleTop + handleH)
+            handleBounds.inset(-handleW / 4, -handleH / 4)
         }
 
         fun hideSelectionHandles() {
@@ -1473,13 +1478,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             try {
                 popup.dismiss()
             } catch (exception: Exception) {
-                LogUtil.w(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
+                LogUtil.warn(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
             }
             try {
-                val wm =
+                val windowManager =
                     context.getSystemService(android.content.Context.WINDOW_SERVICE)
                         as android.view.WindowManager
-                wm.removeViewImmediate(popup.contentView)
+                windowManager.removeViewImmediate(popup.contentView)
             } catch (_: Exception) {
                 // 已被 dismiss 移除——无害忽略。
             }
@@ -1575,9 +1580,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            private fun handleAt(xPx: Int, yPx: Int): HandleDrag? = when {
-                !startHandleRect.isEmpty() && startHandleRect.contains(xPx, yPx) -> HandleDrag.START
-                !endHandleRect.isEmpty() && endHandleRect.contains(xPx, yPx) -> HandleDrag.END
+            private fun handleAt(pixelX: Int, pixelY: Int): HandleDrag? = when {
+                !startHandleRect.isEmpty() && startHandleRect.contains(pixelX, pixelY) -> HandleDrag.START
+                !endHandleRect.isEmpty() && endHandleRect.contains(pixelX, pixelY) -> HandleDrag.END
                 else -> null
             }
 
@@ -1743,7 +1748,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         viewModel.pasteSink = { sessionId, data ->
             // 「粘贴内容没到 shell」必须能从日志判定：本行记入队，[InputBatchBuffer]
             // 记录刷写失败或丢弃，`executePaste` 记跳过——三段合起来覆盖整条链路。
-            LogUtil.d("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
+            LogUtil.debug("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
             inputBatchBuffer.write(data, sessionId)
         }
         // 硬件按键与鼠标事件同样排到批缓冲（理由见 [installPtyWriteQueue]）。
@@ -1882,7 +1887,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val reserved = maxOf(imeBottom - navigationBottom, 0)
             if (reserved != imeInsetPx) {
                 imeInsetPx = reserved
-                LogUtil.d(TAG, "setImeInsetPx: $reserved")
+                LogUtil.debug(TAG, "setImeInsetPx: $reserved")
                 applyImeShift()
                 // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
                 // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
@@ -2344,14 +2349,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /**
-     * 在视口像素 (px, py) 处打开 OSC 8 超链接（若有）。对标 termux 的
+     * 在视口像素 (pixelX, pixelY) 处打开 OSC 8 超链接（若有）。对标 termux 的
      * TerminalView.openLinkAt：经 cellWidth/cellHeight 完成像素→单元格映射，
      * 再查询原生超链接 URI 并启动系统处理器。成功打开链接时返回 true。
      */
-    private fun openLinkAt(px: Float, py: Float): Boolean {
+    private fun openLinkAt(pixelX: Float, pixelY: Float): Boolean {
         if (cellWidth <= 0f || cellHeight <= 0f) return false
-        val col = pixelToCell(px, cellWidth, cols)
-        val row = pixelToCell(py, cellHeight, rows)
+        val col = pixelToCell(pixelX, cellWidth, cols)
+        val row = pixelToCell(pixelY, cellHeight, rows)
         val gridRow = currentViewportTopGrid() + row
         val bridge = viewModel?.runtime?.bridge() ?: return false
         val url = bridge.hyperlinkAt(gridRow, col) ?: return false
@@ -2360,14 +2365,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             try {
                 url.trim().toUri()
             } catch (urlError: IllegalArgumentException) {
-                LogUtil.w(TAG, "openLinkAt: bad URI", urlError)
+                LogUtil.warn(TAG, "openLinkAt: bad URI", urlError)
                 return false
             }
         // 协议白名单：终端输出不可信，故只允许打开 http(s)
         // （阻止 OSC 8 中的 intent:/file:/javascript:）。
         val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
         if (scheme != "http" && scheme != "https") {
-            LogUtil.w(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
+            LogUtil.warn(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
             return false
         }
         return try {
@@ -2378,10 +2383,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             context.startActivity(intent)
             true
         } catch (missingHandler: android.content.ActivityNotFoundException) {
-            LogUtil.w(TAG, "openLinkAt: no handler for $uri", missingHandler)
+            LogUtil.warn(TAG, "openLinkAt: no handler for $uri", missingHandler)
             false
         } catch (blockedError: SecurityException) {
-            LogUtil.w(TAG, "openLinkAt: blocked for $uri", blockedError)
+            LogUtil.warn(TAG, "openLinkAt: blocked for $uri", blockedError)
             false
         }
     }
@@ -2685,7 +2690,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 isAfterLongPress = false
             }
 
-            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+            override fun onScroll(
+                firstEvent: MotionEvent?,
+                secondEvent: MotionEvent,
+                distanceX: Float,
+                distanceY: Float,
+            ): Boolean {
                 // 选词中移动由 ACTION_MOVE 长按拖动分支消费；此处吞掉避免双路径竞争致摇晃。
                 if (isSelectingText) return true
                 // 触摸拖动 = 应用滚动：应用启用鼠标上报时经 Ghostty 鼠标编码器
@@ -2698,8 +2708,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 if (wheelBridge != null && wheelBridge.isMouseTrackingActive()) {
                     val cellWidth = viewModel?.runtime?.cellWidth ?: 1f
                     val cellHeight = viewModel?.runtime?.cellHeight ?: 1f
-                    val pointerXPx = e2.x
-                    val pointerYPx = e2.y
+                    val pointerXPx = secondEvent.x
+                    val pointerYPx = secondEvent.y
                     // 走满一个单元格高度 = 一个滚轮行，与下方的本地滚动映射
                     // （distanceY / cellHeight）一致。
                     val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellHeight).toInt()))
@@ -2713,7 +2723,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             pointerXPx,
                             pointerYPx,
                             button,
-                            KeyModifiers.ghosttyMods(e2.metaState),
+                            KeyModifiers.ghosttyMods(secondEvent.metaState),
                             cellWidth,
                             cellHeight,
                             cappedLines,
@@ -2749,7 +2759,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+            override fun onFling(
+                firstEvent: MotionEvent?,
+                secondEvent: MotionEvent,
+                velocityX: Float,
+                velocityY: Float,
+            ): Boolean {
                 // 选词中 fling 同样吞掉，避免落到滚动路径致视口跳变。
                 if (isSelectingText) return true
                 // 本次手势的拖动已把滚轮转发给应用：惯性段属于应用，
@@ -2764,14 +2779,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     return true
                 }
                 val scrollbackLen = currentScrollbackLength()
-                val absX = kotlin.math.abs(velocityX)
-                val absY = kotlin.math.abs(velocityY)
+                val absoluteX = kotlin.math.abs(velocityX)
+                val absoluteY = kotlin.math.abs(velocityY)
 
                 // 横向 fling 消费掉但不做任何事：DESIGN 只要求修饰键栏左右滑动，
                 // 终端内容区的横向甩动没有声明语义。此前它被映射成向运行中程序注入
                 // ESC / Tab（500px/s 的门槛极低），会在 vim/less 或半行命令中直接
                 // 破坏用户输入。
-                if (absX > absY) {
+                if (absoluteX > absoluteY) {
                     return true
                 }
 
@@ -2933,7 +2948,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             },
         )
 
-    fun handleLongPress(xPx: Float, yPx: Float) {
+    fun handleLongPress(pixelX: Float, pixelY: Float) {
         // 长按 → 词选择。不支持双击/多击选择，词选择只走长按一条路径。
         if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
         isAfterLongPress = true
@@ -2943,8 +2958,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         selectionHandles.hideSelectionHandles()
 
         val bridge = viewModel?.runtime?.bridge()
-        val rawCol = (xPx / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-        val row = (yPx / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+        val rawCol = (pixelX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+        val row = (pixelY / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
         val gridRow = currentViewportTopGrid() + row
         // 落点先吸附到字符起始列：宽字符后半格在行文本里是空格占位，不吸附就会被
         // 当成空白而弹出仅粘贴菜单，长按整个字都选不中。
@@ -2968,7 +2983,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 与 termux 的 setInitialTextSelectionPosition 流程完全一致。
             selectionHandles.showSelectionHandles(gridRow, col, gridRow, col, getAccentColor())
 
-            LogUtil.d(
+            LogUtil.debug(
                 "Selection",
                 "LONG_PRESS whitespace: row=$row col=$col gridRow=$gridRow " +
                     "menu=PASTE_ONLY",
@@ -2979,7 +2994,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // native 侧已安装选区，回传的有序界限驱动状态与控制柄。
             val bounds = resolveWordSelectionBounds(bridge?.selectWordAt(gridRow, col), gridRow, col)
 
-            LogUtil.d(
+            LogUtil.debug(
                 "Selection",
                 "LONG_PRESS text: tapRow=$row tapCol=$col gridRow=$gridRow " +
                     "expanded start=(${bounds.startRow},${bounds.startCol}) " +
@@ -3019,8 +3034,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var keyboardRequested = false
 
     fun finishComposing() {
-        imeConnection.currentInputConnection?.let { ic ->
-            ic.finishComposingText()
+        imeConnection.currentInputConnection?.let { inputConnection ->
+            inputConnection.finishComposingText()
         }
     }
 
@@ -3039,8 +3054,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 整段饿死——历史上多次以「输入一直不被接受」的形式失败。
             // 真正需要拦的只是切换瞬间的余波，交由下方有界窗口处理。
             isPaused = true
-            imeConnection.currentInputConnection?.let { ic ->
-                ic.finishComposingText()
+            imeConnection.currentInputConnection?.let { inputConnection ->
+                inputConnection.finishComposingText()
             }
             armInputSuppression(SUPPRESS_GRACE_PERIOD_NS)
         }
@@ -3059,17 +3074,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 pendingUnpauseRunnable = null
                 if (!hasWindowFocus()) return@Runnable
                 isPaused = false
-                val vm = viewModel ?: return@Runnable
+                val viewModel = viewModel ?: return@Runnable
                 // ON_RESUME 已经发生（只是 Surface 当时未就绪）：切后台那次暂停必须
                 // 此时归还，否则账本里永远留着它，此后任何 acquire 都发不出暂停。
-                vm.runtime.resumeRenderingFromBackground()
+                viewModel.runtime.resumeRenderingFromBackground()
                 val surface = holder.surface
                 // Surface 就绪后按常规路径恢复：清掉 Surface 销毁那次暂停、重启渲染
                 // 线程并出一帧探针。Surface 仍无效时留待下一次 surfaceChanged/resize。
                 if (surface.isValid && width > 0 && height > 0) {
-                    vm.runtime.clearSurfaceDestroyedRenderPause()
-                    vm.runtime.resumeRendering()
-                    vm.runtime.forceRender()
+                    viewModel.runtime.clearSurfaceDestroyedRenderPause()
+                    viewModel.runtime.resumeRendering()
+                    viewModel.runtime.forceRender()
                 }
             }
                 .also { postDelayed(it, delayMillis) }
@@ -3097,7 +3112,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             try {
                 bridge.scrollbackLength().also { lastScrollbackQueryNanos = now }
             } catch (error: Exception) {
-                LogUtil.e(TAG, "scrollbackLength query failed", error)
+                LogUtil.error(TAG, "scrollbackLength query failed", error)
                 cachedScrollbackLength
             }
         viewModel.updateScrollbackLength(cachedScrollbackLength)
@@ -3195,7 +3210,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 这条同样必须留，否则「字节入队了却没到 shell」永远无法从日志判定。
             val target = viewModel
             if (target == null) {
-                LogUtil.w("TerminalSurface", "批缓冲刷写丢弃：视图模型尚未绑定 (${data.size} 字节)")
+                LogUtil.warn("TerminalSurface", "批缓冲刷写丢弃：视图模型尚未绑定 (${data.size} 字节)")
             } else {
                 target.writeToPty(sessionId, data)
             }
@@ -3211,11 +3226,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private fun showSelectionMenuForCurrentSelection() {
         val selection = viewModel?.state?.value?.selection
         if (selection == null) {
-            LogUtil.d(TAG, "同步备份跳过：视图模型为空")
+            LogUtil.debug(TAG, "同步备份跳过：视图模型为空")
             return
         }
         if (!selection.active || selection.start == null || selection.end == null) {
-            LogUtil.d(TAG, "同步备份跳过：选区未就绪")
+            LogUtil.debug(TAG, "同步备份跳过：选区未就绪")
             return
         }
         showSelectionMenu(selection.pasteOnly)
@@ -3237,7 +3252,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 回退分支同样须收尾：只 startSelection 会把选区永久留在拖动态，
         // 此后输入不再自动贴底。
         viewModel?.endSelection()
-        LogUtil.d(
+        LogUtil.debug(
             "Selection",
             "RIGHT_CLICK word: tapRow=$row tapCol=$col " +
                 "expanded start=(${bounds.startRow},${bounds.startCol}) " +
@@ -3248,7 +3263,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             magnifier = magnifier ?: Magnifier.Builder(this@TerminalSurface).build()
             magnifier?.show(event.rawX, event.rawY)
         } catch (exception: Exception) {
-            LogUtil.w(TAG, "magnifier show failed (non-critical)", exception)
+            LogUtil.warn(TAG, "magnifier show failed (non-critical)", exception)
         }
     }
 
@@ -3438,24 +3453,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // `(1,6)-(1,10)` → `(1,6)-(1,7)`），菜单随选区重锚走位，
                     // 用户点下去的一瞬正好点空——表象即「菜单按钮全部失效」。
                     if (!longPressDragStarted) {
-                        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
-                        val dx = event.x - longPressStartX
-                        val dy = event.y - longPressStartY
-                        longPressDragStarted = dx * dx + dy * dy > slop * slop
+                        val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                        val deltaX = event.x - longPressStartX
+                        val deltaY = event.y - longPressStartY
+                        longPressDragStarted = deltaX * deltaX + deltaY * deltaY > touchSlop * touchSlop
                     }
                     if (longPressDragStarted) {
                         val col = pixelToCell(event.x, cellWidth, cols)
                         val row = pixelToCell(event.y, cellHeight, rows)
                         val gridRow = currentViewportTopGrid() + row
                         viewModel?.updateSelection(gridRow, col)
-                        val sel = viewModel?.state?.value?.selection
-                        if (sel?.start != null && sel.end != null) {
+                        val selection = viewModel?.state?.value?.selection
+                        if (selection?.start != null && selection.end != null) {
                             // 重定位而非重建：showSelectionHandles 会 dismiss 并重建
                             // 2 个 PopupWindow（4 次 WindowManager IPC + 分配）
                             // ——在 60-120Hz 的 ACTION_MOVE 下是必然掉帧的来源。
                             // repositionHandle 改用 PopupWindow.update（进程内）。
-                            selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
-                            selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
+                            selectionHandles.repositionHandle(
+                                HandleDrag.START,
+                                selection.start.row,
+                                selection.start.col,
+                            )
+                            selectionHandles.repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
                         }
                     }
                 }
@@ -3478,17 +3497,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 长按拖动同样终结一次选区手势：启用轻击保护，
                     // 使松手轻击无法关闭菜单。
                     lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
-                    val sel = viewModel?.state?.value?.selection
-                    if (sel?.start != null && sel.end != null) {
+                    val selection = viewModel?.state?.value?.selection
+                    if (selection?.start != null && selection.end != null) {
                         viewModel?.endSelection()
                         // （termux 对等）：仅粘贴的单格选区同样获得手柄
                         // ——从空白处开始范围选区正是靠拖动它们。
                         // 工具栏经 onGetContentRect 的手柄高度偏移锚定在手柄之上。
                         selectionHandles.showSelectionHandles(
-                            sel.start.row,
-                            sel.start.col,
-                            sel.end.row,
-                            sel.end.col,
+                            selection.start.row,
+                            selection.start.col,
+                            selection.end.row,
+                            selection.end.col,
                             getAccentColor(),
                         )
                         showSelectionMenuForCurrentSelection()
@@ -3503,7 +3522,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 try {
                     magnifier?.dismiss()
                 } catch (exception: Exception) {
-                    LogUtil.w(TAG, "magnifier dismiss failed (non-critical)", exception)
+                    LogUtil.warn(TAG, "magnifier dismiss failed (non-critical)", exception)
                 }
                 magnifier = null
                 scaleFactor = 1.0f
@@ -3689,14 +3708,14 @@ internal enum class EdgeScrollDirection {
     STOP,
 }
 
-internal fun edgeScrollDirection(yPx: Float, surfaceHeightPx: Float, cellHeight: Float): EdgeScrollDirection = when {
-    yPx < cellHeight / 2 -> EdgeScrollDirection.UP
-    yPx >= surfaceHeightPx - cellHeight / 2 -> EdgeScrollDirection.DOWN
+internal fun edgeScrollDirection(pixelY: Float, surfaceHeightPx: Float, cellHeight: Float): EdgeScrollDirection = when {
+    pixelY < cellHeight / 2 -> EdgeScrollDirection.UP
+    pixelY >= surfaceHeightPx - cellHeight / 2 -> EdgeScrollDirection.DOWN
     else -> EdgeScrollDirection.STOP
 }
 
 /** 像素偏移 → 钳位后的网格单元格（0..maxCells-1；maxCells 为 0 时保持 0）。 */
-internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px / cellSize).toInt().coerceIn(
+internal fun pixelToCell(pixelX: Float, cellSize: Float, maxCells: Int): Int = (pixelX / cellSize).toInt().coerceIn(
     0,
     (maxCells - 1).coerceAtLeast(0),
 )
@@ -3901,17 +3920,29 @@ internal fun clampSelection(
     maxRow: Int,
     maxCol: Int,
 ): SelectionBounds {
-    val maxR = maxRow.coerceAtLeast(0)
-    val maxC = maxCol.coerceAtLeast(0)
-    val sr = startRow.coerceIn(0, maxR)
-    val sc = startCol.coerceIn(0, maxC)
-    val er = endRow.coerceIn(0, maxR)
-    val ec = endCol.coerceIn(0, maxC)
-    return if (er < sr || (er == sr && ec < sc)) {
+    val maxRowLimit = maxRow.coerceAtLeast(0)
+    val maxColumnLimit = maxCol.coerceAtLeast(0)
+    val clampedStartRow = startRow.coerceIn(0, maxRowLimit)
+    val clampedStartColumn = startCol.coerceIn(0, maxColumnLimit)
+    val clampedEndRow = endRow.coerceIn(0, maxRowLimit)
+    val clampedEndColumn = endCol.coerceIn(0, maxColumnLimit)
+    return if (clampedEndRow < clampedStartRow ||
+        (clampedEndRow == clampedStartRow && clampedEndColumn < clampedStartColumn)
+    ) {
         // 输入倒置：交换以使钳位后 start ≤ end。
-        SelectionBounds(startRow = er, startCol = ec, endRow = sr, endCol = sc)
+        SelectionBounds(
+            startRow = clampedEndRow,
+            startCol = clampedEndColumn,
+            endRow = clampedStartRow,
+            endCol = clampedStartColumn,
+        )
     } else {
-        SelectionBounds(startRow = sr, startCol = sc, endRow = er, endCol = ec)
+        SelectionBounds(
+            startRow = clampedStartRow,
+            startCol = clampedStartColumn,
+            endRow = clampedEndRow,
+            endCol = clampedEndColumn,
+        )
     }
 }
 

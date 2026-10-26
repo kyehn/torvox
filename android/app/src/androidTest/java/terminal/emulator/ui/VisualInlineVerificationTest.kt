@@ -34,7 +34,7 @@ import kotlin.math.sqrt
 class VisualInlineVerificationTest : TerminalLogcatTest() {
     @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
 
-    private var tv: View? = null
+    private var terminalView: View? = null
     private var bridge: terminal.emulator.bridge.Bridge? = null
 
     companion object {
@@ -66,8 +66,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             val result =
                 try {
                     InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-                } catch (e: Exception) {
-                    Log.e("VisualInline", "capture exception: ${e.message}")
+                } catch (exception: Exception) {
+                    Log.e("VisualInline", "capture exception: ${exception.message}")
                     null
                 }
             val elapsed = System.currentTimeMillis() - start
@@ -80,21 +80,22 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         }
     }
 
-    private fun Bitmap.getPixel(x: Int, y: Int): Int = if (x in 0 until width && y in 0 until height) {
-        getPixel(x, y)
+    private fun Bitmap.getPixel(column: Int, row: Int): Int = if (column in 0 until width && row in 0 until height) {
+        getPixel(column, row)
     } else {
         0
     }
 
-    private fun colorDiff(a: Int, b: Int): Int = abs(Color.red(a) - Color.red(b)) +
-        abs(Color.green(a) - Color.green(b)) +
-        abs(Color.blue(a) - Color.blue(b))
+    private fun colorDiff(beforeColor: Int, afterColor: Int): Int =
+        abs(Color.red(beforeColor) - Color.red(afterColor)) +
+            abs(Color.green(beforeColor) - Color.green(afterColor)) +
+            abs(Color.blue(beforeColor) - Color.blue(afterColor))
 
     /** 颜色跨度（最大通道 - 最小通道）：中性色（黑/白/灰，含反白选区）≈ 0。 */
     private fun colorSpread(argb: Int): Int = maxOf(Color.red(argb), Color.green(argb), Color.blue(argb)) -
         minOf(Color.red(argb), Color.green(argb), Color.blue(argb))
 
-    private data class Blob(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int, val ink: Int) {
+    private data class Blob(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int, val inkPixels: Int) {
         val centerX get() = (minX + maxX) / 2
         val centerY get() = (minY + maxY) / 2
         val widthPx get() = maxX - minX + 1
@@ -119,60 +120,65 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         cellHeight: Float,
         threshold: Int = 50,
     ): List<Blob> {
-        val w = minOf(before.width, after.width)
-        val h = minOf(before.height, after.height)
-        val changed = Array(h) { BooleanArray(w) }
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val afterPixel = after.getPixel(x, y)
-                changed[y][x] =
-                    colorDiff(before.getPixel(x, y), afterPixel) > threshold &&
+        val width = minOf(before.width, after.width)
+        val height = minOf(before.height, after.height)
+        val changed = Array(height) { BooleanArray(width) }
+        for (row in 0 until height) {
+            for (column in 0 until width) {
+                val afterPixel = after.getPixel(column, row)
+                changed[row][column] =
+                    colorDiff(before.getPixel(column, row), afterPixel) > threshold &&
                     colorSpread(afterPixel) >= COLOR_SPREAD_THRESHOLD
             }
         }
 
-        val visited = Array(h) { BooleanArray(w) }
+        val visited = Array(height) { BooleanArray(width) }
         val blobs = mutableListOf<Blob>()
-        val dirs = listOf(-1 to -1, -1 to 0, -1 to 1, 0 to -1, 0 to 1, 1 to -1, 1 to 0, 1 to 1)
+        val neighborOffsets = listOf(-1 to -1, -1 to 0, -1 to 1, 0 to -1, 0 to 1, 1 to -1, 1 to 0, 1 to 1)
         // 尺寸筛网按字符格缩放（不写像素常量）：手柄约 2.5x1.2 格，至少一格大、
         // 大不过四格，就能把抗锯齿轮廓的碎片挡在外面。
-        val minW = cellWidth * 0.9f
-        val minH = cellHeight * 0.9f
-        val maxW = cellWidth * 4f
-        val maxH = cellHeight * 4f
+        val minWidth = cellWidth * 0.9f
+        val minHeight = cellHeight * 0.9f
+        val maxWidth = cellWidth * 4f
+        val maxHeight = cellHeight * 4f
 
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                if (!changed[y][x] || visited[y][x]) continue
-                var minX = x
-                var maxX = x
-                var minY = y
-                var maxY = y
-                var ink = 0
+        for (row in 0 until height) {
+            for (column in 0 until width) {
+                if (!changed[row][column] || visited[row][column]) continue
+                var minX = column
+                var maxX = column
+                var minY = row
+                var maxY = row
+                var inkPixels = 0
                 val stack = ArrayDeque<Pair<Int, Int>>()
-                stack.addLast(x to y)
-                visited[y][x] = true
+                stack.addLast(column to row)
+                visited[row][column] = true
                 while (stack.isNotEmpty()) {
-                    val (cx, cy) = stack.removeLast()
-                    ink++
-                    minX = minOf(minX, cx)
-                    maxX = maxOf(maxX, cx)
-                    minY = minOf(minY, cy)
-                    maxY = maxOf(maxY, cy)
-                    for ((dx, dy) in dirs) {
-                        val nx = cx + dx
-                        val ny = cy + dy
-                        if (nx in 0 until w && ny in 0 until h && changed[ny][nx] && !visited[ny][nx]) {
-                            visited[ny][nx] = true
-                            stack.addLast(nx to ny)
+                    val (centerX, centerY) = stack.removeLast()
+                    inkPixels++
+                    minX = minOf(minX, centerX)
+                    maxX = maxOf(maxX, centerX)
+                    minY = minOf(minY, centerY)
+                    maxY = maxOf(maxY, centerY)
+                    for ((dx, dy) in neighborOffsets) {
+                        val normalizedX = centerX + dx
+                        val normalizedY = centerY + dy
+                        if (normalizedX in 0 until width && normalizedY in 0 until height &&
+                            changed[normalizedY][normalizedX] &&
+                            !visited[normalizedY][normalizedX]
+                        ) {
+                            visited[normalizedY][normalizedX] = true
+                            stack.addLast(normalizedX to normalizedY)
                         }
                     }
                 }
-                val bw = maxX - minX + 1
-                val bh = maxY - minY + 1
+                val boxWidth = maxX - minX + 1
+                val boxHeight = maxY - minY + 1
                 // 实心度：手柄是满心泪滴，边界框里一半以上都得上色，避免把零散像素当成手柄。
-                if (bw >= minW && bh >= minH && bw <= maxW && bh <= maxH && ink * 2 >= bw * bh) {
-                    blobs.add(Blob(minX, minY, maxX, maxY, ink))
+                if (boxWidth >= minWidth && boxHeight >= minHeight && boxWidth <= maxWidth && boxHeight <= maxHeight &&
+                    inkPixels * 2 >= boxWidth * boxHeight
+                ) {
+                    blobs.add(Blob(minX, minY, maxX, maxY, inkPixels))
                 }
             }
         }
@@ -180,12 +186,12 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     }
 
     private fun pixelDiffCount(before: Bitmap, after: Bitmap, threshold: Int = 50): Int {
-        val w = minOf(before.width, after.width)
-        val h = minOf(before.height, after.height)
+        val width = minOf(before.width, after.width)
+        val height = minOf(before.height, after.height)
         var count = 0
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                if (colorDiff(before.getPixel(x, y), after.getPixel(x, y)) > threshold) count++
+        for (row in 0 until height) {
+            for (column in 0 until width) {
+                if (colorDiff(before.getPixel(column, row), after.getPixel(column, row)) > threshold) count++
             }
         }
         return count
@@ -196,17 +202,17 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     private data class CellMetrics(val cellWidth: Float, val cellHeight: Float, val cols: Int, val rows: Int)
 
     private fun estimateCellMetrics(): CellMetrics? {
-        val surface = requireNotNull(tv)
+        val surface = requireNotNull(terminalView)
         val width = surface.width.toFloat()
         val height = surface.height.toFloat()
         val (cols, rows) =
-            bridge?.let { b ->
+            bridge?.let { afterColor ->
                 try {
-                    val packed = b.getGridRowsColsPacked()
+                    val packed = afterColor.getGridRowsColsPacked()
                     val rows = (packed shr 32).toInt()
                     val cols = packed.toInt()
                     if (rows > 0 && cols > 0) cols to rows else null
-                } catch (e: Exception) {
+                } catch (exception: Exception) {
                     null
                 }
             } ?: (80 to 24)
@@ -227,11 +233,11 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (SystemClock.elapsedRealtime() < deadline) {
             Thread.sleep(700)
-            val cur = captureScreenshot() ?: continue
-            val diff = pixelDiffCount(current, cur)
+            val latest = captureScreenshot() ?: continue
+            val diff = pixelDiffCount(current, latest)
             Log.i(logTag, "Render settle diff: $diff")
-            if (diff < 1200) return cur
-            current = cur
+            if (diff < 1200) return latest
+            current = latest
         }
         Log.w(logTag, "Render did not fully settle within ${timeoutMs}ms; proceeding anyway")
         return current
@@ -248,8 +254,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     private fun pollForSelectionHandles(
         initialBaseline: Bitmap,
         logTag: String,
-        lpX: Float,
-        lpY: Float,
+        leftHandleX: Float,
+        leftHandleY: Float,
         cellWidth: Float,
         cellHeight: Float,
     ): Pair<Bitmap, List<Blob>> {
@@ -275,7 +281,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             handles.forEachIndexed { i, handle ->
                 Log.i(
                     logTag,
-                    "  Candidate $i: (${handle.centerX},${handle.centerY}) ${handle.widthPx}x${handle.heightPx} ink=${handle.ink}",
+                    "  Candidate $i: (${handle.centerX},${handle.centerY}) ${handle.widthPx}x${handle.heightPx} ink=${handle.inkPixels}",
                 )
             }
             if (handles.size >= 2) break
@@ -283,7 +289,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
                 Thread.sleep(1500)
                 clearSelectionNow()
                 baseline = requireNotNull(captureScreenshot()) { "baseline for re-long-press" }
-                injectLongPress(requireNotNull(tv), lpX, lpY)
+                injectLongPress(requireNotNull(terminalView), leftHandleX, leftHandleY)
                 retries++
                 Log.i(logTag, "Re-long-press attempt $retries of 2")
             }
@@ -295,11 +301,11 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
      * 两条手柄同源于一个平台 drawable，尺寸必须一致——旧的「手柄大小的块」判据
      * 会把选区高亮带当成手柄，尺寸一致性把这类误判直接顶回来。
      */
-    private fun assertHandleMarksPaired(h0: Blob, h1: Blob, label: String) {
+    private fun assertHandleMarksPaired(leftHandle: Blob, rightHandle: Blob, label: String) {
         Assert.assertTrue(
-            "$label 两个手柄尺寸不一致: ${h0.widthPx}x${h0.heightPx} vs ${h1.widthPx}x${h1.heightPx}",
-            abs(h0.widthPx - h1.widthPx) <= HANDLE_SIZE_TOLERANCE_PX &&
-                abs(h0.heightPx - h1.heightPx) <= HANDLE_SIZE_TOLERANCE_PX,
+            "$label 两个手柄尺寸不一致: ${leftHandle.widthPx}x${leftHandle.heightPx} vs ${rightHandle.widthPx}x${rightHandle.heightPx}",
+            abs(leftHandle.widthPx - rightHandle.widthPx) <= HANDLE_SIZE_TOLERANCE_PX &&
+                abs(leftHandle.heightPx - rightHandle.heightPx) <= HANDLE_SIZE_TOLERANCE_PX,
         )
     }
 
@@ -312,8 +318,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         bridge = composeRule.getBridge()
         Assert.assertNotNull("Bridge not ready", bridge)
 
-        tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
-        Assert.assertNotNull("TerminalSurface not found", tv)
+        terminalView = findTerminalSurfaceView(composeRule.activity.window.decorView)
+        Assert.assertNotNull("TerminalSurface not found", terminalView)
 
         // 先清场再落字：共用会话里前序用例留下的行、选区与浮动菜单都会让长按落到
         // 另一处或被已有选区吞掉（外部表现是「找不到手柄」，与长按本身无关）。
@@ -337,7 +343,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         // 等渲染器把回显画完，再长按并轮询手柄弹窗。
         val baselineShot = waitForRenderStable("VisualInline-Word")
         Log.i("VisualInline-Word", "Baseline ready")
-        injectLongPress(requireNotNull(tv), longPressX, longPressY)
+        injectLongPress(requireNotNull(terminalView), longPressX, longPressY)
         val (afterSel, handles) =
             pollForSelectionHandles(baselineShot, "Word", longPressX, longPressY, cellW, cellH)
 
@@ -351,18 +357,19 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
 
         Assert.assertTrue("Expected >=2 selection handles, found ${handles.size}", handles.size >= 2)
 
-        val h0 = handles[0]
-        val h1 = handles[1]
-        assertHandleMarksPaired(h0, h1, "word")
-        val rowDiff = abs(h0.centerY - h1.centerY)
+        val leftHandle = handles[0]
+        val rightHandle = handles[1]
+        assertHandleMarksPaired(leftHandle, rightHandle, "word")
+        val rowDiff = abs(leftHandle.centerY - rightHandle.centerY)
         Log.i("VisualInline", "Handle row diff: ${rowDiff}px (cellH=$cellH)")
         Assert.assertTrue("Handles not on same row (diff=$rowDiff)", rowDiff < cellH * 2)
 
         // 校验手柄落在长按位置周边
         val startNear =
-            h0.centerX in (longPressX.toInt() - (cellW * 8).toInt())..(longPressX.toInt() + (cellW * 4).toInt())
+            leftHandle.centerX in (longPressX.toInt() - (cellW * 8).toInt())..(longPressX.toInt() + (cellW * 4).toInt())
         val endNear =
-            h1.centerX in (longPressX.toInt() - (cellW * 2).toInt())..(longPressX.toInt() + (cellW * 8).toInt())
+            rightHandle.centerX in
+                (longPressX.toInt() - (cellW * 2).toInt())..(longPressX.toInt() + (cellW * 8).toInt())
         if (!startNear || !endNear) {
             Log.w("VisualInline", "Start handle near: $startNear, End handle near: $endNear")
         }
@@ -377,9 +384,9 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         composeRule.waitForTerminalPixels()
         bridge = composeRule.getBridge()
         Assert.assertNotNull(bridge)
-        tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
-        Assert.assertNotNull(tv)
-        val surface = requireNotNull(tv)
+        terminalView = findTerminalSurfaceView(composeRule.activity.window.decorView)
+        Assert.assertNotNull(terminalView)
+        val surface = requireNotNull(terminalView)
         Log.i("VisualInline-URL", "Surface ${surface.width}x${surface.height}")
 
         val metrics = requireNotNull(estimateCellMetrics())
@@ -411,7 +418,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         // 主线程吞掉时走重长按兜底）。
         val baseline = waitForRenderStable("VisualInline-URL")
         Log.i("VisualInline-URL", "Baseline ready")
-        injectLongPress(requireNotNull(tv), longPressX, longPressY)
+        injectLongPress(requireNotNull(terminalView), longPressX, longPressY)
         val (afterShot, handles) = pollForSelectionHandles(baseline, "URL", longPressX, longPressY, cellW, cellH)
         saveToExternal("url-baseline", baseline)
         saveToExternal("url-selection", afterShot)
@@ -421,17 +428,17 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
 
         Assert.assertTrue("Expected >=2 handles for URL, found ${handles.size}", handles.size >= 2)
 
-        val h0 = handles[0]
-        val h1 = handles[1]
-        assertHandleMarksPaired(h0, h1, "url")
-        val rowDiff = abs(h0.centerY - h1.centerY)
+        val leftHandle = handles[0]
+        val rightHandle = handles[1]
+        assertHandleMarksPaired(leftHandle, rightHandle, "url")
+        val rowDiff = abs(leftHandle.centerY - rightHandle.centerY)
         // URL is at column 0. Under SwiftShader the two handle strokes can
         // partially bleed into neighboring per-glyph change blobs, so assert
         // only that they share a row band and are separated by a plausible
         // number of cells. (The strict >=5-cell span was flaky on the
         // software renderer; URL selection itself is asserted by >=2 handles.)
         Assert.assertTrue("URL handle rows differ ($rowDiff)", rowDiff < cellH * 2)
-        val urlCells = h1.centerX / cellW.toInt() - h0.centerX / cellW.toInt()
+        val urlCells = rightHandle.centerX / cellW.toInt() - leftHandle.centerX / cellW.toInt()
         Log.i("VisualInline", "URL spans $urlCells cells ($cellW px/cell)")
 
         Log.i("VisualInline", "URL selection verification PASSED")

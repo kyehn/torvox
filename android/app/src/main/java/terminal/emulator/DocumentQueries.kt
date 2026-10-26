@@ -24,11 +24,11 @@ internal class DocumentQueries(private val context: Context) {
         .File(
             requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
             "home",
-        ).also { dir ->
+        ).also { directory ->
             // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
-            dir.mkdirs()
-            if (!dir.isDirectory) {
-                LogUtil.w("TerminalDocumentsProvider", "Failed to create home directory: $dir")
+            directory.mkdirs()
+            if (!directory.isDirectory) {
+                LogUtil.warn("TerminalDocumentsProvider", "Failed to create home directory: $directory")
             }
         }.canonicalFile
 
@@ -52,7 +52,7 @@ internal class DocumentQueries(private val context: Context) {
     fun canonicalOrNull(file: File): String? = try {
         file.canonicalPath
     } catch (error: java.io.IOException) {
-        LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+        LogUtil.warn("TerminalDocumentsProvider", "query skipping unreadable entry", error)
         null
     }
 
@@ -93,7 +93,7 @@ internal class DocumentQueries(private val context: Context) {
                         java.nio.file.LinkOption.NOFOLLOW_LINKS,
                     )
                 } catch (error: java.io.IOException) {
-                    LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+                    LogUtil.warn("TerminalDocumentsProvider", "query skipping unreadable entry", error)
                     continue
                 }
             val docId = if (parentRel.isEmpty()) child.name else "$parentRel/${child.name}"
@@ -163,9 +163,9 @@ internal class DocumentQueries(private val context: Context) {
     }
 
     fun getMimeType(fileName: String): String {
-        val ext = fileName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
-        if (ext.isEmpty()) return "application/octet-stream"
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+        val extension = fileName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        if (extension.isEmpty()) return "application/octet-stream"
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
     }
 
     /** 规范路径 [path] 相对根 [rootCanonical] 的 docId 前缀；根自身为空串。 */

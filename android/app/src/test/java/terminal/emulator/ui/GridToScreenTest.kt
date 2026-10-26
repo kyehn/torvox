@@ -32,7 +32,7 @@ class GridToScreenTest {
     fun `no scroll maps every grid row linearly downward`() {
         // scrollOffset = 0 ⇒ viewportTopGrid = 0: absolute rows are viewport rows.
         for (row in listOf(0, 1, 11, 23)) {
-            val p =
+            val screenPoint =
                 gridToScreen(
                     row = row,
                     col = 0,
@@ -40,30 +40,36 @@ class GridToScreenTest {
                     cellWidth = 9f,
                     cellHeight = 18f,
                 )
-            assertEquals(row * 18f, p.second, epsilon)
+            assertEquals(row * 18f, screenPoint.second, epsilon)
         }
     }
 
     @Test
     fun `columns map left to right by cell width`() {
-        val cw = 12f
-        assertEquals(0f, gridToScreen(0, 0, 0, cw, 20f).first, epsilon)
-        assertEquals(cw, gridToScreen(0, 1, 0, cw, 20f).first, epsilon)
+        val cellWidth = 12f
+        assertEquals(0f, gridToScreen(0, 0, 0, cellWidth, 20f).first, epsilon)
+        assertEquals(cellWidth, gridToScreen(0, 1, 0, cellWidth, 20f).first, epsilon)
         // Last column of an 80-col grid.
-        assertEquals(79 * cw, gridToScreen(0, 79, 0, cw, 20f).first, epsilon)
+        assertEquals(79 * cellWidth, gridToScreen(0, 79, 0, cellWidth, 20f).first, epsilon)
     }
 
     // ── scrolling ─────────────────────────────────────────────────────────
 
     @Test
     fun `scrolling shifts rows up by exactly viewportTopGrid cells`() {
-        val ch = 22f
+        val cellHeight = 22f
         // Mid-scroll: 500 lines of history above a 24-row viewport.
         val viewportTopGrid = 500
         assertPoint(
-            gridToScreen(row = 512, col = 3, viewportTopGrid = viewportTopGrid, cellWidth = 10f, cellHeight = ch),
+            gridToScreen(
+                row = 512,
+                col = 3,
+                viewportTopGrid = viewportTopGrid,
+                cellWidth = 10f,
+                cellHeight = cellHeight,
+            ),
             30f,
-            12 * ch,
+            12 * cellHeight,
         )
     }
 
@@ -84,7 +90,7 @@ class GridToScreenTest {
 
     @Test
     fun `bottom visible row ends at one viewport height`() {
-        val ch = 25f
+        val cellHeight = 25f
         val viewportTopGrid = 40
         val lastVisibleRow = viewportTopGrid + 23
         // Row bottom edge (what drag handles anchor to): pass row + 1.
@@ -94,9 +100,9 @@ class GridToScreenTest {
                 col = 0,
                 viewportTopGrid = viewportTopGrid,
                 cellWidth = 10f,
-                cellHeight = ch,
+                cellHeight = cellHeight,
             )
-        assertEquals(24 * ch, bottomY, epsilon)
+        assertEquals(24 * cellHeight, bottomY, epsilon)
     }
 
     // ── search jump ───────────────────────────────────────────────────────
@@ -183,12 +189,26 @@ class GridToScreenTest {
     @Test
     fun `selection rectangle corners match the four mapped edges`() {
         // onGetContentRect maps (topRow,leftCol) and (bottomRow+1,rightCol+1).
-        val cw = 11f
-        val ch = 21f
-        val vtg = 90
-        val topLeft = gridToScreen(row = 95, col = 4, viewportTopGrid = vtg, cellWidth = cw, cellHeight = ch)
-        val bottomRight = gridToScreen(row = 98, col = 30, viewportTopGrid = vtg, cellWidth = cw, cellHeight = ch)
-        assertPoint(topLeft, 4 * cw, 5 * ch)
-        assertPoint(bottomRight, 30 * cw, 8 * ch)
+        val cellWidth = 11f
+        val cellHeight = 21f
+        val viewportTopGrid = 90
+        val topLeft =
+            gridToScreen(
+                row = 95,
+                col = 4,
+                viewportTopGrid = viewportTopGrid,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+            )
+        val bottomRight =
+            gridToScreen(
+                row = 98,
+                col = 30,
+                viewportTopGrid = viewportTopGrid,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+            )
+        assertPoint(topLeft, 4 * cellWidth, 5 * cellHeight)
+        assertPoint(bottomRight, 30 * cellWidth, 8 * cellHeight)
     }
 }

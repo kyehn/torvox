@@ -129,7 +129,7 @@ class SelectionEspressoTest : TerminalLogcatTest() {
         // 裸 \n 只换行不回车，多行负载逐行右漂并在行尾从中间截断标记，
         // 使 contains 永远失败。用 \r\n 使每行自列 0 起笔。
         val payload = (markers.joinToString("\r\n") + "\r\n").toByteArray(Charsets.UTF_8)
-        var fed = false
+        var fedFlag = false
         val settled =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 500) {
                 runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
@@ -138,12 +138,13 @@ class SelectionEspressoTest : TerminalLogcatTest() {
                     true
                 } else {
                     // 补送幂等：同一标记重复送显不影响 contains 断言。
-                    fed = (runCatchingCancellable { freshBridge().feedTerminal(payload) }.getOrDefault(false)) || fed
+                    fedFlag =
+                        (runCatchingCancellable { freshBridge().feedTerminal(payload) }.getOrDefault(false)) || fedFlag
                     false
                 }
             }
         assertNotNull("标记必须落格", settled)
-        assertTrue("标记送显失败", fed)
+        assertTrue("标记送显失败", fedFlag)
         // 补送循环每 500ms 就追加三行，慢机上缓冲区会被撑到网格底部。全选覆盖整屏时
         // 菜单无处可放——DESIGN.md:171「弹出菜单始终不遮挡被选择文本」要求此时隐藏，
         // 于是下面「菜单必须出现」的断言会随内容高度时红时绿。清屏后只送一次，使内容
@@ -231,9 +232,9 @@ class SelectionEspressoTest : TerminalLogcatTest() {
         // A paste-only selection state (the PasteChipOverlay was removed; an
         // empty-area long-press shows a paste-only selection + menu).
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            val sel = activity.terminalViewModel.state.value.selection
-            assertTrue("Selection should be active", sel.active)
-            assertTrue("Expected a paste-only selection", sel.pasteOnly)
+            val selection = activity.terminalViewModel.state.value.selection
+            assertTrue("Selection should be active", selection.active)
+            assertTrue("Expected a paste-only selection", selection.pasteOnly)
         }
     }
 
@@ -443,17 +444,24 @@ class SelectionEspressoTest : TerminalLogcatTest() {
         // 只少了 InputManager，故覆盖「长按手势 → 词界扩展 → 菜单挂出」整段。
         composeTestRule.activityRule.scenario.onActivity { activity ->
             val decor = activity.window.decorView
-            val x = decor.width / 2f
-            val y = decor.height / 2f
+            val centerX = decor.width / 2f
+            val centerY = decor.height / 2f
             val downTime = SystemClock.uptimeMillis()
             decor.dispatchTouchEvent(
-                MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0).apply {
+                MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, centerX, centerY, 0).apply {
                     source = InputDevice.SOURCE_TOUCHSCREEN
                 },
             )
             decor.postDelayed({
                 decor.dispatchTouchEvent(
-                    MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0).apply {
+                    MotionEvent.obtain(
+                        downTime,
+                        SystemClock.uptimeMillis(),
+                        MotionEvent.ACTION_UP,
+                        centerX,
+                        centerY,
+                        0,
+                    ).apply {
                         source = InputDevice.SOURCE_TOUCHSCREEN
                     },
                 )
@@ -472,10 +480,10 @@ class SelectionEspressoTest : TerminalLogcatTest() {
         composeTestRule.waitForSession()
         val expectedEndCol = startPartialSelection()
         composeTestRule.activityRule.scenario.onActivity { activity ->
-            val sel = activity.terminalViewModel.state.value.selection
-            assertTrue("Selection should be active", sel.active)
-            val start = requireNotNull(sel.start)
-            val end = requireNotNull(sel.end)
+            val selection = activity.terminalViewModel.state.value.selection
+            assertTrue("Selection should be active", selection.active)
+            val start = requireNotNull(selection.start)
+            val end = requireNotNull(selection.end)
             assertEquals(SELECTION_ROW, start.row)
             assertEquals(SELECTION_START_COL, start.col)
             assertEquals(expectedEndCol, end.col)

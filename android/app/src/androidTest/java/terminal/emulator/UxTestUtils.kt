@@ -42,10 +42,10 @@ object UxTestUtils {
         stepDelayMs: Long = 120,
     ) {
         val downTime = SystemClock.uptimeMillis()
-        fun post(action: Int, x: Float, y: Float) {
-            val t = SystemClock.uptimeMillis()
+        fun post(action: Int, pointerX: Float, pointerY: Float) {
+            val eventTimeMillis = SystemClock.uptimeMillis()
             view.post {
-                val event = android.view.MotionEvent.obtain(downTime, t, action, x, y, 0)
+                val event = android.view.MotionEvent.obtain(downTime, eventTimeMillis, action, pointerX, pointerY, 0)
                 try {
                     view.dispatchTouchEvent(event)
                 } finally {
@@ -57,8 +57,8 @@ object UxTestUtils {
         try {
             for (step in 1..steps) {
                 Thread.sleep(stepDelayMs)
-                val frac = step.toFloat() / steps
-                post(android.view.MotionEvent.ACTION_MOVE, x0 + (x1 - x0) * frac, y0 + (y1 - y0) * frac)
+                val fraction = step.toFloat() / steps
+                post(android.view.MotionEvent.ACTION_MOVE, x0 + (x1 - x0) * fraction, y0 + (y1 - y0) * fraction)
             }
             Thread.sleep(stepDelayMs)
         } finally {
@@ -79,28 +79,38 @@ object UxTestUtils {
     }
 
     /**
+     * 同尺寸两图的逐像素数组：尺寸不一致即失败。
+     *
+     * 差异像素计数与差异包围盒共用同一取像素口径，故收归此处一处实现。
+     */
+    private fun sameSizePixels(before: Bitmap, after: Bitmap): Pair<IntArray, IntArray> {
+        require(before.width == after.width && before.height == after.height) {
+            "capture size mismatch: ${before.width}x${before.height} vs ${after.width}x${after.height}"
+        }
+        val width = before.width
+        val height = before.height
+        val beforePixels = IntArray(width * height)
+        val afterPixels = IntArray(width * height)
+        before.getPixels(beforePixels, 0, width, 0, 0, width, height)
+        after.getPixels(afterPixels, 0, width, 0, 0, width, height)
+        return beforePixels to afterPixels
+    }
+
+    /** 两个像素是否在任一通道上相差超过 [tolerance]。 */
+    private fun channelsDiffer(beforePixel: Int, afterPixel: Int, tolerance: Int): Boolean =
+        kotlin.math.abs((beforePixel shr 16 and 0xFF) - (afterPixel shr 16 and 0xFF)) > tolerance ||
+            kotlin.math.abs((beforePixel shr 8 and 0xFF) - (afterPixel shr 8 and 0xFF)) > tolerance ||
+            kotlin.math.abs((beforePixel and 0xFF) - (afterPixel and 0xFF)) > tolerance
+
+    /**
      * Count pixels that differ materially between two same-sized captures. Materially = any channel
      * delta > [tolerance], which absorbs codec noise while still counting real content changes.
      */
     fun changedPixelCount(before: Bitmap, after: Bitmap, tolerance: Int = 12): Int {
-        require(before.width == after.width && before.height == after.height) {
-            "capture size mismatch: ${before.width}x${before.height} vs ${after.width}x${after.height}"
-        }
-        val w = before.width
-        val h = before.height
-        val a = IntArray(w * h)
-        val b = IntArray(w * h)
-        before.getPixels(a, 0, w, 0, 0, w, h)
-        after.getPixels(b, 0, w, 0, 0, w, h)
+        val (beforePixels, afterPixels) = sameSizePixels(before, after)
         var changed = 0
-        for (i in a.indices) {
-            val pa = a[i]
-            val pb = b[i]
-            if (
-                kotlin.math.abs((pa shr 16 and 0xFF) - (pb shr 16 and 0xFF)) > tolerance ||
-                kotlin.math.abs((pa shr 8 and 0xFF) - (pb shr 8 and 0xFF)) > tolerance ||
-                kotlin.math.abs((pa and 0xFF) - (pb and 0xFF)) > tolerance
-            ) {
+        for (pixelIndex in beforePixels.indices) {
+            if (channelsDiffer(beforePixels[pixelIndex], afterPixels[pixelIndex], tolerance)) {
                 changed++
             }
         }
@@ -114,9 +124,9 @@ object UxTestUtils {
      */
     fun countDiffInBand(first: Bitmap, second: Bitmap, top: Int, bottom: Int, step: Int, threshold: Int): Int {
         var count = 0
-        for (y in top until bottom step step) {
-            for (x in 0 until first.width step step) {
-                if (pixelChannelDelta(first.getPixel(x, y), second.getPixel(x, y)) > threshold) count++
+        for (row in top until bottom step step) {
+            for (column in 0 until first.width step step) {
+                if (pixelChannelDelta(first.getPixel(column, row), second.getPixel(column, row)) > threshold) count++
             }
         }
         return count
@@ -129,33 +139,21 @@ object UxTestUtils {
      * geometry, independent of theme colors.
      */
     fun changedBoundingBox(before: Bitmap, after: Bitmap, tolerance: Int = 12): Rect? {
-        require(before.width == after.width && before.height == after.height) {
-            "capture size mismatch: ${before.width}x${before.height} vs ${after.width}x${after.height}"
-        }
-        val w = before.width
-        val h = before.height
-        val a = IntArray(w * h)
-        val b = IntArray(w * h)
-        before.getPixels(a, 0, w, 0, 0, w, h)
-        after.getPixels(b, 0, w, 0, 0, w, h)
+        val (beforePixels, afterPixels) = sameSizePixels(before, after)
+        val width = before.width
+        val height = before.height
         var minX = Int.MAX_VALUE
         var minY = Int.MAX_VALUE
         var maxX = Int.MIN_VALUE
         var maxY = Int.MIN_VALUE
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val i = y * w + x
-                val pa = a[i]
-                val pb = b[i]
-                if (
-                    kotlin.math.abs((pa shr 16 and 0xFF) - (pb shr 16 and 0xFF)) > tolerance ||
-                    kotlin.math.abs((pa shr 8 and 0xFF) - (pb shr 8 and 0xFF)) > tolerance ||
-                    kotlin.math.abs((pa and 0xFF) - (pb and 0xFF)) > tolerance
-                ) {
-                    if (x < minX) minX = x
-                    if (x > maxX) maxX = x
-                    if (y < minY) minY = y
-                    if (y > maxY) maxY = y
+        for (row in 0 until height) {
+            for (column in 0 until width) {
+                val pixelIndex = row * width + column
+                if (channelsDiffer(beforePixels[pixelIndex], afterPixels[pixelIndex], tolerance)) {
+                    if (column < minX) minX = column
+                    if (column > maxX) maxX = column
+                    if (row < minY) minY = row
+                    if (row > maxY) maxY = row
                 }
             }
         }
@@ -234,7 +232,7 @@ object UxTestUtils {
         val maxMs: Double,
         val preMaxMs: Double,
         val preP95Ms: Double,
-        val fps: Int,
+        val framesPerSecond: Int,
     ) {
         /** 窗口的采样区间是否与 [fromMs]..[toMs] 有交集（区间由自身计量反推）。 */
         fun covers(fromMs: Long, toMs: Long): Boolean {
@@ -259,7 +257,7 @@ object UxTestUtils {
                     maxMs = match.groupValues[5].toDouble(),
                     preMaxMs = match.groupValues[6].toDouble(),
                     preP95Ms = match.groupValues[7].toDouble(),
-                    fps = match.groupValues[8].toInt(),
+                    framesPerSecond = match.groupValues[8].toInt(),
                 )
             }
         }
@@ -339,12 +337,12 @@ object UxTestUtils {
                 kotlin.math.abs(android.graphics.Color.blue(pixel) - targetBlue) <= tolerance
             ) {
                 count++
-                val x = index % width
-                val y = index / width
-                if (x < minX) minX = x
-                if (x > maxX) maxX = x
-                if (y < minY) minY = y
-                if (y > maxY) maxY = y
+                val column = index % width
+                val row = index / width
+                if (column < minX) minX = column
+                if (column > maxX) maxX = column
+                if (row < minY) minY = row
+                if (row > maxY) maxY = row
             }
         }
         if (count == 0) return ColorMatch(0, null)
@@ -363,9 +361,9 @@ object UxTestUtils {
 private fun countHuePixels(shot: Bitmap, hue: (red: Int, green: Int, blue: Int) -> Boolean): Int {
     var count = 0
     // 步长 2 采样：步长 3 在阈值边缘会漏掉真实字形，背景纯色区加密后仍为 0。
-    for (y in 0 until shot.height step 2) {
-        for (x in 0 until shot.width step 2) {
-            val pixel = shot.getPixel(x, y)
+    for (row in 0 until shot.height step 2) {
+        for (column in 0 until shot.width step 2) {
+            val pixel = shot.getPixel(column, row)
             if (hue(
                     android.graphics.Color.red(pixel),
                     android.graphics.Color.green(pixel),
@@ -398,9 +396,9 @@ fun pixelChannelDelta(first: Int, second: Int): Int =
         kotlin.math.abs(android.graphics.Color.blue(first) - android.graphics.Color.blue(second))
 
 /** 屏幕像素的感知亮度（0..255）；坐标越界返回 -1。 */
-fun pixelLuminance(shot: Bitmap, x: Int, y: Int): Int {
-    if (x < 0 || x >= shot.width || y < 0 || y >= shot.height) return -1
-    val pixel = shot.getPixel(x, y)
+fun pixelLuminance(shot: Bitmap, column: Int, row: Int): Int {
+    if (column < 0 || column >= shot.width || row < 0 || row >= shot.height) return -1
+    val pixel = shot.getPixel(column, row)
     return (
         (pixel shr 16 and 0xFF) * 299 +
             (pixel shr 8 and 0xFF) * 587 +
@@ -516,8 +514,8 @@ fun placeTextAtRow(bridge: Bridge, row: Int, text: String, timeoutMs: Long = 15_
     val expectedColumn = SGR_SEQUENCE.replace(text, "").length
     val homed = bridge.feedTerminal("\u001B[1;1H".toByteArray(Charsets.UTF_8))
     assertTrue("光标归位送显失败", homed)
-    val fed = bridge.feedTerminal("\u001B[${row + 1};1H$text".toByteArray(Charsets.UTF_8))
-    assertTrue("标记送显失败", fed)
+    val fedBytes = bridge.feedTerminal("\u001B[${row + 1};1H$text".toByteArray(Charsets.UTF_8))
+    assertTrue("标记送显失败", fedBytes)
     val landed = UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 50) {
         val packed = bridge.cursorViewportPacked()
         packed >= 0 &&

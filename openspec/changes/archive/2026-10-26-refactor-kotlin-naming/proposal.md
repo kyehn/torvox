@@ -1,0 +1,44 @@
+# Proposal
+
+## Why
+
+`docs/specification/STYLE.md` 要求「变量与函数一律使用完整描述性名称：禁止单字母
+变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、
+`background` 而非 `bg`、`application` 而非 `app`）」。原生侧已在上一轮按同一标准
+清理完毕（`f158e21f`），Kotlin 侧尚未处理。
+
+Kotlin 侧最刺眼的是 `runtime/LogUtil.kt` 的四个日志函数 `d` / `i` / `w` / `e`：
+它们是全仓调用最频繁的工具函数之一，调用点读起来是 `LogUtil.e("Runtime", ...)`，
+评审时既看不出级别也容易看错。除它之外，主源与测试源还散落着 `wm` / `vm` / `sr` /
+`sc` / `px` / `py` / `ev` / `loc` / `sel` / `bar` / `cur` / `ids` / `dirs` / `meta` /
+`abi` / `arch` / `pct` / `proc` / `src` / `ext` / `fps` / `out` / `enc` / `orch` /
+`frac` / `keyE` / `upAt` 等缩写与单字母变量；逐文件清单见 `design.md`。
+
+## What Changes
+
+- 把 Kotlin 主源与测试源中的单字母标识符替换为完整描述性名称。
+- 把缩写标识符（`wm`/`vm`/`sr`/`sc`/`er`/`ec`/`maxR`/`maxC`/`px`/`py`/`ev`/
+  `loc`/`sel`/`bar`/`absX`/`absY`/`cur`/`ids`/`dirs`/`meta`/`abi`/`arch`/`pct`/
+  `proc`/`src`/`dstParent`/`ext`/`slop`/`fps`/`imm`/`attr`/`rect`/`del`/`row1`/
+  `row2`/`ch`/`cw`/`fd`/`h0`/`h1`/`t0`/`dt`/`up`/`id`/`lo`/`hi`/`sx`/`sy`/`ex`/
+  `ey`/`xPx`/`yPx`/`bootstrapDirs`/`out`/`enc`/`orch`/`frac`/`keyE`/`upAt`/
+  `minW`/`minH`/`maxW`/`maxH` 等）替换为完整名称。
+- `LogUtil.d` / `i` / `w` / `e` 改名为 `debug` / `info` / `warn` / `error`。
+- 只改标识符拼写：控制流、返回值、断言、日志文案与对外接口的形状全部不变。
+
+## Capabilities
+
+### New Capabilities
+
+无。
+
+### Modified Capabilities
+
+无：本次只做等价重命名，不改变任何对外行为。
+
+## Impact
+
+- `android/app/src/main/java/terminal/emulator/**`：标识符重命名。
+- `android/app/src/test/java/**`、`android/app/src/androidTest/java/**`：标识符重命名。
+- 不改 `docs/specification/`、`docs/STATUS.md`、`build.gradle.kts` 等保护文件。
+- 行为不变：由 Kotlin 编译、`detekt`、`spotlessCheck` 与既有单元测试保证。

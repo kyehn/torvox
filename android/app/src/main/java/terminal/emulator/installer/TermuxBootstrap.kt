@@ -26,5 +26,6 @@ internal object TermuxBootstrap {
      * 该版本 + 变体的下载 URL。`+` 在路径里必须转义为 `%2B`，否则 GitHub 会 404
      * ——这是一个静默失败（下载失败只表现为安装进度条停在某个百分比）。
      */
-    fun downloadUrl(arch: String): String = "$DOWNLOAD_BASE/bootstrap-$RELEASE%2B$VARIANT/bootstrap-$arch.zip"
+    fun downloadUrl(architecture: String): String =
+        "$DOWNLOAD_BASE/bootstrap-$RELEASE%2B$VARIANT/bootstrap-$architecture.zip"
 }

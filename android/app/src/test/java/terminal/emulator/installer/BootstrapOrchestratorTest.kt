@@ -31,7 +31,7 @@ class BootstrapOrchestratorTest {
     @Before
     fun declareHostAbi() {
         // Robolectric 下 SUPPORTED_ABIS 为空：按宿主真实架构声明，
-        // 否则 detectArchFromAbi 按未知 ABI 抛错，首个 async 在下载前夭折、
+        // 否则 detectDeviceArchitecture 按未知 ABI 抛错，首个 async 在下载前夭折、
         // `downloadEntered.await()` 永等（本次已挂住 20 分钟）。
         val field = android.os.Build::class.java.getDeclaredField("SUPPORTED_ABIS")
         field.isAccessible = true
@@ -62,10 +62,10 @@ class BootstrapOrchestratorTest {
     fun `download failure marks error state`() {
         every { installer.isInstalled() } returns false
         coEvery { downloader.download(any(), any()) } returns Result.failure(IllegalStateException("boom"))
-        val orch = orchestrator()
-        val result = runBlocking { orch.ensureBootstrap("https://example.com/x.zip") }
+        val orchestrator = orchestrator()
+        val result = runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }
         assertTrue(result.isFailure)
-        assertEquals(BootstrapOrchestrator.Status.ERROR, orch.getInstallStatus())
+        assertEquals(BootstrapOrchestrator.Status.ERROR, orchestrator.getInstallStatus())
     }
 
     @Test
@@ -73,10 +73,10 @@ class BootstrapOrchestratorTest {
         every { installer.isInstalled() } returns false
         coEvery { downloader.download(any(), any()) } returns Result.success(File("/tmp/fake.zip"))
         coEvery { installer.install(any()) } returns Result.failure(IllegalStateException("corrupt"))
-        val orch = orchestrator()
-        val result = runBlocking { orch.ensureBootstrap("https://example.com/x.zip") }
+        val orchestrator = orchestrator()
+        val result = runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }
         assertTrue(result.isFailure)
-        assertEquals(BootstrapOrchestrator.Status.ERROR, orch.getInstallStatus())
+        assertEquals(BootstrapOrchestrator.Status.ERROR, orchestrator.getInstallStatus())
     }
 
     @Test
@@ -89,12 +89,12 @@ class BootstrapOrchestratorTest {
                 success = true,
                 errors = listOf("postinst: warning", "detail line"),
             )
-        val orch = orchestrator()
-        val result = runBlocking { orch.ensureBootstrap("https://example.com/x.zip") }
+        val orchestrator = orchestrator()
+        val result = runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }
         assertTrue(result.isSuccess)
         // The success payload is the first 3 diagnostic lines joined.
         assertEquals("- postinst: warning\n- detail line", result.getOrNull())
-        assertEquals(BootstrapOrchestrator.Status.INSTALLED, orch.getInstallStatus())
+        assertEquals(BootstrapOrchestrator.Status.INSTALLED, orchestrator.getInstallStatus())
     }
 
     @Test
@@ -111,11 +111,11 @@ class BootstrapOrchestratorTest {
             gate.await()
         }
 
-        val orch = orchestrator()
-        val first = async { orch.ensureBootstrap("https://example.com/x.zip") }
+        val orchestrator = orchestrator()
+        val first = async { orchestrator.ensureBootstrap("https://example.com/x.zip") }
         // Wait (with timeout) for the first attempt to be inside download.
         withTimeout(30_000) { downloadEntered.await() }
-        val second = orch.ensureBootstrap("https://example.com/x.zip")
+        val second = orchestrator.ensureBootstrap("https://example.com/x.zip")
         assertTrue(second.isFailure)
         assertEquals(
             BootstrapOrchestrator.ERROR_ALREADY_IN_PROGRESS,
@@ -133,8 +133,8 @@ class BootstrapOrchestratorTest {
         coEvery { installer.install(any()) } returns Result.success(Unit)
         coEvery { secondStageRunner.run() } returns
             SecondStageRunner.Result(success = true, errors = emptyList())
-        val orch = orchestrator()
-        assertTrue(runBlocking { orch.ensureBootstrap("https://example.com/x.zip") }.isSuccess)
+        val orchestrator = orchestrator()
+        assertTrue(runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }.isSuccess)
         // After INSTALLED, isInstalled() drives the status.
         every { installer.isInstalled() } returns true
         assertEquals(BootstrapOrchestrator.Status.INSTALLED, orchestrator().getInstallStatus())

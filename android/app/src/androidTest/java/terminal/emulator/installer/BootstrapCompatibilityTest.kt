@@ -22,13 +22,13 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
         }
     }
 
-    private fun exec(cmd: String): String {
-        val pfd =
+    private fun exec(command: String): String {
+        val parcelFileDescriptor =
             InstrumentationRegistry
                 .getInstrumentation()
                 .uiAutomation
-                .executeShellCommand(cmd)
-        return ParcelFileDescriptor.AutoCloseInputStream(pfd).bufferedReader().readText()
+                .executeShellCommand(command)
+        return ParcelFileDescriptor.AutoCloseInputStream(parcelFileDescriptor).bufferedReader().readText()
     }
 
     private fun prefixPath(): String = "${InstrumentationRegistry.getInstrumentation().targetContext.filesDir}/usr"
@@ -38,31 +38,31 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
     private fun makeScript(body: String): File {
         val testFile = File("/data/data/com.termux/cache/tc.sh")
         testFile.parentFile?.mkdirs()
-        val env = (
+        val environment = (
             "export PREFIX=" + prefixPath() + "\n" +
                 "export PATH=\$PREFIX/bin:\$PREFIX/bin/applets:/system/bin" + "\n" +
                 "export HOME=" + homePath() + "\n" +
                 "export SHELL=\$PREFIX/bin/bash" + "\n" +
                 "export TERM=vt100"
             )
-        testFile.writeText(env + "\n" + body + "\n")
+        testFile.writeText(environment + "\n" + body + "\n")
         testFile.setExecutable(true)
         return testFile
     }
 
-    private fun runAs(cmd: String): String = exec(
+    private fun runAs(command: String): String = exec(
         "run-as com.termux /data/data/com.termux/files/usr/bin/bash " +
-            makeScript(cmd).absolutePath,
+            makeScript(command).absolutePath,
     )
 
-    private fun runExit(cmd: String): Pair<String, Int> {
-        val script = makeScript("($cmd)\necho EXITCODE=$?")
-        val out =
+    private fun runExit(command: String): Pair<String, Int> {
+        val script = makeScript("($command)\necho EXITCODE=$?")
+        val output =
             exec(
                 "run-as com.termux /data/data/com.termux/files/usr/bin/bash " +
                     script.absolutePath,
             )
-        val lines = out.trim().lines()
+        val lines = output.trim().lines()
         val last = lines.lastOrNull()?.trim() ?: ""
         val code =
             if (last.startsWith("EXITCODE=")) {
@@ -122,26 +122,26 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
 
     @Test
     fun apt_update() {
-        val out = aptUpdate()
-        Log.i(TAG, "apt update: ${out.take(120)}")
+        val output = aptUpdate()
+        Log.i(TAG, "apt update: ${output.take(120)}")
         Assert.assertTrue(
             "apt update failed",
-            out.contains("Done") || out.contains("Reading") || out.contains("Hit:"),
+            output.contains("Done") || output.contains("Reading") || output.contains("Hit:"),
         )
     }
 
     @Test
     fun apt_listBash() {
-        val out = pkgTermux("list-installed")
-        Assert.assertTrue("bash not listed in packages", out.contains("bash"))
+        val output = pkgTermux("list-installed")
+        Assert.assertTrue("bash not listed in packages", output.contains("bash"))
     }
 
     @Test
     fun apt_installFiglet() {
         val install = aptInstall("figlet")
         Log.i(TAG, "figlet install: ${install.take(120)}")
-        val ver = runAs("figlet --version 2>&1")
-        Assert.assertTrue("figlet version blank", ver.isNotBlank())
+        val versionOutput = runAs("figlet --version 2>&1")
+        Assert.assertTrue("figlet version blank", versionOutput.isNotBlank())
         val ascii = runAs("figlet -f mini HELLO 2>&1")
         Assert.assertTrue("figlet output too short", ascii.length > 20)
     }
@@ -150,18 +150,18 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
     fun apt_installPython() {
         val install = aptInstall("python")
         Log.i(TAG, "python install: ${install.take(120)}")
-        val ver = runAs("python --version 2>&1")
-        Assert.assertTrue("python not found", ver.lowercase().contains("python"))
-        val pi = runAs("python -c 'import math; print(math.pi)' 2>&1")
-        Assert.assertTrue("python math.pi failed", pi.contains("3.14"))
+        val versionOutput = runAs("python --version 2>&1")
+        Assert.assertTrue("python not found", versionOutput.lowercase().contains("python"))
+        val piOutput = runAs("python -c 'import math; print(math.pi)' 2>&1")
+        Assert.assertTrue("python math.pi failed", piOutput.contains("3.14"))
     }
 
     @Test
     fun apt_installGit() {
         val install = aptInstall("git")
         Log.i(TAG, "git install: ${install.take(120)}")
-        val ver = runAs("git --version 2>&1")
-        Assert.assertTrue("git not found", ver.lowercase().contains("git"))
+        val versionOutput = runAs("git --version 2>&1")
+        Assert.assertTrue("git not found", versionOutput.lowercase().contains("git"))
     }
 
     @Test
@@ -197,18 +197,18 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
 
     @Test
     fun pkg_listInstalled() {
-        val out = pkgTermux("list-installed")
-        Assert.assertTrue("pkg list-installed failed", out.contains("bash"))
+        val output = pkgTermux("list-installed")
+        Assert.assertTrue("pkg list-installed failed", output.contains("bash"))
     }
 
     @Test
     fun dpkg_query() {
         val ensure = runAs("command -v dpkg || (apt update -qq && apt install -y -qq dpkg 2>&1)")
         Log.i(TAG, "dpkg ensure: ${ensure.take(80)}")
-        val out = runAs("dpkg -L bash 2>&1")
+        val output = runAs("dpkg -L bash 2>&1")
         Assert.assertTrue(
             "dpkg -L bash should list files",
-            out.contains("bin/bash") || out.contains("/usr/bin/"),
+            output.contains("bin/bash") || output.contains("/usr/bin/"),
         )
     }
 
@@ -230,47 +230,47 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
     @Test
     fun bash_heredoc() {
         val script = makeScript("cat <<EOF\nhello\nworld\nEOF\n")
-        val out =
+        val output =
             exec(
                 "run-as com.termux /data/data/com.termux/files/usr/bin/bash " + script.absolutePath,
             )
-        Assert.assertTrue("heredoc should contain hello", out.contains("hello"))
-        Assert.assertTrue("heredoc should contain world", out.contains("world"))
+        Assert.assertTrue("heredoc should contain hello", output.contains("hello"))
+        Assert.assertTrue("heredoc should contain world", output.contains("world"))
     }
 
     @Test
     fun filesystem_bin_permissions() {
-        val out = runAs("ls -la /data/data/com.termux/files/usr/bin/ 2>&1 | head -5")
-        Assert.assertFalse("bin directory should not be empty", out.isBlank())
-        Assert.assertTrue("bin entries should be files", out.contains("-") || out.contains("l"))
+        val output = runAs("ls -la /data/data/com.termux/files/usr/bin/ 2>&1 | head -5")
+        Assert.assertFalse("bin directory should not be empty", output.isBlank())
+        Assert.assertTrue("bin entries should be files", output.contains("-") || output.contains("l"))
     }
 
     @Test
     fun bash_long_running() {
-        val out = runAs("for i in 1 2 3 4 5; do echo \"line-\$i\"; done 2>&1")
-        val lines = out.trim().lines()
+        val output = runAs("for i in 1 2 3 4 5; do echo \"line-\$i\"; done 2>&1")
+        val lines = output.trim().lines()
         Assert.assertEquals(5, lines.size)
         Assert.assertEquals("line-3", lines[2].trim())
     }
 
     @Test
     fun apt_unauthenticated_install_fallback() {
-        val out = aptInstall("sl")
-        Log.i(TAG, "sl install: ${out.take(120)}")
-        val ver = runAs("sl --version 2>&1")
+        val output = aptInstall("sl")
+        Log.i(TAG, "sl install: ${output.take(120)}")
+        val versionOutput = runAs("sl --version 2>&1")
         Assert.assertTrue(
             "sl should be installable",
-            out.contains("Setting up") || ver.contains("sl") || ver.isNotBlank(),
+            output.contains("Setting up") || versionOutput.contains("sl") || versionOutput.isNotBlank(),
         )
     }
 
     @Test
     fun apt_cache_policy() {
-        val out = runAs("apt-cache policy 2>&1 || apt policy 2>&1")
-        Log.i(TAG, "apt policy: ${out.take(120)}")
+        val output = runAs("apt-cache policy 2>&1 || apt policy 2>&1")
+        Log.i(TAG, "apt policy: ${output.take(120)}")
         Assert.assertTrue(
             "apt policy should show repositories",
-            out.contains("://") || out.contains("sources"),
+            output.contains("://") || output.contains("sources"),
         )
     }
 }

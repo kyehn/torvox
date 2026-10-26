@@ -14,15 +14,15 @@ package terminal.emulator.runtime
  */
 internal fun SessionEntry.closeBridgeUnlessRenderThreadAlive(reason: String) {
     if (renderThreadPossiblyAlive) {
-        LogUtil.e(
+        LogUtil.error(
             "Runtime",
-            "session $id render thread possibly alive — skipping bridge close ($reason)",
+            "session $sessionId render thread possibly alive — skipping bridge close ($reason)",
         )
         return
     }
     try {
         bridge.close()
     } catch (exception: Exception) {
-        LogUtil.e("Runtime", "session $id bridge close failed ($reason)", exception)
+        LogUtil.error("Runtime", "session $sessionId bridge close failed ($reason)", exception)
     }
 }

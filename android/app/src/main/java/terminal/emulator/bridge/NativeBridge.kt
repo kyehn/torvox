@@ -43,9 +43,9 @@ object NativeBridge {
         try {
             System.loadLibrary("native")
             nativeLoaded = true
-            LogUtil.i(TAG, "Native library loaded: native on $loaderThreadName")
+            LogUtil.info(TAG, "Native library loaded: native on $loaderThreadName")
         } catch (exception: UnsatisfiedLinkError) {
-            LogUtil.e(TAG, "Failed to load native library: ${exception.message}")
+            LogUtil.error(TAG, "Failed to load native library: ${exception.message}")
         }
     }
 
@@ -129,8 +129,8 @@ object NativeBridge {
     @JvmStatic
     external fun encodeMouseEvent(
         sessionId: Long,
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         action: Int,
         button: Int,
         modifiers: Int,
@@ -148,8 +148,8 @@ object NativeBridge {
     @JvmStatic
     external fun encodeMouseWheel(
         sessionId: Long,
-        xPx: Float,
-        yPx: Float,
+        pixelX: Float,
+        pixelY: Float,
         button: Int,
         modifiers: Int,
         cellWidth: Float,

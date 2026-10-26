@@ -90,18 +90,18 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
      */
     private fun runCommand(command: String, timeoutMs: Long = OUTPUT_TIMEOUT_MS): Int {
         val home = shellHome()
-        val rc = File(home, "preview-cmd.rc")
-        val tmp = File(home, "preview-cmd.rc.tmp")
-        rc.delete()
-        tmp.delete()
+        val commandFile = File(home, "preview-cmd.rc")
+        val tempFile = File(home, "preview-cmd.rc.tmp")
+        commandFile.delete()
+        tempFile.delete()
         val bridge = composeTestRule.awaitBridge()
         val line =
-            "$command; printf '%s\\n' $? > ${quote(tmp)} && mv ${quote(tmp)} ${quote(rc)}"
+            "$command; printf '%s\\n' $? > ${quote(tempFile)} && mv ${quote(tempFile)} ${quote(commandFile)}"
         assertTrue("PTY write rejected: $command", bridge.writeToPty("$line\n".toByteArray(Charsets.UTF_8)))
-        val done = UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) { rc.length() > 0 }
+        val done = UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) { commandFile.length() > 0 }
         assertNotNull("命令在 ${timeoutMs}ms 内未结束：$command", done)
-        val code = rc.readText().trim().toIntOrNull()
-        assertNotNull("退出码文件内容不可解析：${rc.readText().take(32)}", code)
+        val code = commandFile.readText().trim().toIntOrNull()
+        assertNotNull("退出码文件内容不可解析：${commandFile.readText().take(32)}", code)
         return requireNotNull(code)
     }
 
@@ -158,13 +158,13 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
 
     private fun saveScreenshot(name: String) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val dir = File(context.getExternalFilesDir(null), SCREENSHOT_DIR)
-        assertTrue("无法创建截图目录 $dir", dir.isDirectory || dir.mkdirs())
+        val screenshotDir = File(context.getExternalFilesDir(null), SCREENSHOT_DIR)
+        assertTrue("无法创建截图目录 $screenshotDir", screenshotDir.isDirectory || screenshotDir.mkdirs())
         val bitmap =
             InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                 ?: throw AssertionError("UiAutomation.takeScreenshot 返回 null（屏幕未合成？）")
         try {
-            val file = File(dir, name)
+            val file = File(screenshotDir, name)
             FileOutputStream(file).use { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "PNG 编码失败：$file" }
             }
@@ -192,10 +192,10 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
     private fun publishForPull(file: File) {
         val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
 
-        fun shell(command: String): String = uiAutomation.executeShellCommand(command).use { fd ->
+        fun shell(command: String): String = uiAutomation.executeShellCommand(command).use { fileDescriptor ->
             // 读到 EOF 才代表命令结束；不读会与进程退出竞态。
             java.io
-                .FileInputStream(fd.fileDescriptor)
+                .FileInputStream(fileDescriptor.fileDescriptor)
                 .readBytes()
                 .toString(Charsets.UTF_8)
         }

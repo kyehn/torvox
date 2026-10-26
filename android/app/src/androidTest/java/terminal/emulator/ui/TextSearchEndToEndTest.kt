@@ -134,9 +134,9 @@ class TextSearchEndToEndTest : TerminalLogcatTest() {
     }
 
     private fun saveScreenshot(name: String) {
-        val dir = File(composeTestRule.activity.filesDir, SCREENSHOT_DIR)
-        dir.mkdirs()
-        val file = File(dir, "$name.png")
+        val screenshotDir = File(composeTestRule.activity.filesDir, SCREENSHOT_DIR)
+        screenshotDir.mkdirs()
+        val file = File(screenshotDir, "$name.png")
         try {
             // 必须走 UiAutomation.takeScreenshot：它取的是真实屏幕合成结果。
             // 自造 `decorView.draw(canvas)` 有两个问题——测试体不在主线程，
@@ -146,13 +146,13 @@ class TextSearchEndToEndTest : TerminalLogcatTest() {
             val bitmap =
                 InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                     ?: throw AssertionError("takeScreenshot returned null")
-            FileOutputStream(file).use { fos ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
+            FileOutputStream(file).use { fileOutputStream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fileOutputStream)
             }
             bitmap.recycle()
             Log.d(TAG, "Screenshot saved: ${file.absolutePath}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save screenshot", e)
+        } catch (exception: Exception) {
+            Log.e(TAG, "Failed to save screenshot", exception)
         }
     }
 
@@ -406,11 +406,11 @@ class TextSearchEndToEndTest : TerminalLogcatTest() {
 
         // Close IME and verify search bar still works
         composeTestRule.activity.runOnUiThread {
-            val imm =
+            val inputMethodManager =
                 composeTestRule.activity.getSystemService(
                     android.content.Context.INPUT_METHOD_SERVICE,
                 ) as android.view.inputmethod.InputMethodManager
-            imm.hideSoftInputFromWindow(
+            inputMethodManager.hideSoftInputFromWindow(
                 composeTestRule.activity.window.decorView.windowToken,
                 0,
             )

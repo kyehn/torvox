@@ -19,7 +19,7 @@ const val PASTE_CHUNK_BYTES = 12_000
 internal fun truncatePasteText(text: String, maxChars: Int = MAX_PASTE_CHARS): String {
     if (text.isBlank()) return ""
     if (text.length > maxChars) {
-        LogUtil.w("PasteChunker", "clipboard too large (${text.length} chars), truncating to $maxChars")
+        LogUtil.warn("PasteChunker", "clipboard too large (${text.length} chars), truncating to $maxChars")
     }
     var truncated = text.take(maxChars)
     if (text.length > maxChars && truncated.isNotEmpty() &&

@@ -46,10 +46,10 @@ class NormalizeSelectionAnchorsTest {
     fun `down-left selection orders by row not column`() {
         val start = Anchor(2, 3)
         val end = Anchor(5, 1)
-        val (lo, hi) = normalize(start, end)
-        assertEquals(lo.row to lo.col, 2 to 3)
-        assertEquals(hi.row to hi.col, 5 to 1)
-        assertEquals("行序不得反向", true, lo.row <= hi.row)
+        val (lowerAnchor, upperAnchor) = normalize(start, end)
+        assertEquals(lowerAnchor.row to lowerAnchor.col, 2 to 3)
+        assertEquals(upperAnchor.row to upperAnchor.col, 5 to 1)
+        assertEquals("行序不得反向", true, lowerAnchor.row <= upperAnchor.row)
     }
 
     /** 同一行内的反向选择才按列换向。 */
@@ -57,8 +57,8 @@ class NormalizeSelectionAnchorsTest {
     fun `same-row reverse selection swaps by column`() {
         val start = Anchor(3, 8)
         val end = Anchor(3, 2)
-        val (lo, hi) = normalize(start, end)
-        assertEquals(lo.col <= hi.col, true)
+        val (lowerAnchor, upperAnchor) = normalize(start, end)
+        assertEquals(lowerAnchor.col <= upperAnchor.col, true)
     }
 
     @Test

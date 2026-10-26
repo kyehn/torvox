@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-26
+skip_specs: true
+goal: |
+  把 Kotlin 侧（main / test / androidTest）的缩写与单字母标识符统一替换为完整
+  描述性名称，落实 docs/specification/STYLE.md「变量与函数一律使用完整描述性名称」。
+  本变更只改标识符拼写，不改任何行为，故不放 delta。

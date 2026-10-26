@@ -91,10 +91,10 @@ class UiAutomatorTest : TerminalLogcatTest() {
         device.waitForIdle(1000)
 
         // 系统键盘经 IME 异步弹出，单次直查会把「还没来得及」判成「按键缺席」，与计数节点同口径轮询。
-        val keyE =
+        val letterEKey =
             device.wait(Until.findObject(By.text("e")), 15000)
                 ?: device.wait(Until.findObject(By.desc("e")), 5000)
-        requireNotNull(keyE) { "System keyboard key 'e' should be visible" }.click()
+        requireNotNull(letterEKey) { "System keyboard key 'e' should be visible" }.click()
         device.waitForIdle(1000)
 
         // 计数节点由「点击按键 → IME 提交 → query 状态更新 → 重组」这条链产生

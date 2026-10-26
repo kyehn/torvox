@@ -25,9 +25,9 @@ class SearchDebouncerTest {
         /** Advance the clock; runs every action due at or before the new time. */
         fun advance(millis: Long) {
             now += millis
-            val due = scheduled.filter { it.first <= now }
-            scheduled.removeAll(due.toSet())
-            due.forEach { (_, action) -> action() }
+            val dueActions = scheduled.filter { it.first <= now }
+            scheduled.removeAll(dueActions.toSet())
+            dueActions.forEach { (_, action) -> action() }
         }
     }
 

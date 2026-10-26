@@ -17,18 +17,18 @@ import org.junit.Test
  */
 class ShouldResetScrollOnInputTest {
 
-    private val cr = byteArrayOf('\r'.code.toByte())
-    private val lf = byteArrayOf('\n'.code.toByte())
+    private val carriageReturn = byteArrayOf('\r'.code.toByte())
+    private val lineFeed = byteArrayOf('\n'.code.toByte())
     private val crlf = byteArrayOf('l'.code.toByte(), 's'.code.toByte(), '\r'.code.toByte())
 
     @Test
     fun bareCarriageReturnTriggersSnap() {
-        assertTrue(shouldResetScrollOnInput(cr, hasSelectionOrDrag = false))
+        assertTrue(shouldResetScrollOnInput(carriageReturn, hasSelectionOrDrag = false))
     }
 
     @Test
     fun bareLineFeedTriggersSnap() {
-        assertTrue(shouldResetScrollOnInput(lf, hasSelectionOrDrag = false))
+        assertTrue(shouldResetScrollOnInput(lineFeed, hasSelectionOrDrag = false))
     }
 
     @Test
@@ -58,7 +58,7 @@ class ShouldResetScrollOnInputTest {
 
     @Test
     fun activeHandleDragSuppressesSnap() {
-        assertFalse(shouldResetScrollOnInput(cr, hasSelectionOrDrag = true))
+        assertFalse(shouldResetScrollOnInput(carriageReturn, hasSelectionOrDrag = true))
     }
 
     @Test

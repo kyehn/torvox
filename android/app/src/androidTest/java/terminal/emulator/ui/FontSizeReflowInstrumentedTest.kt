@@ -191,33 +191,33 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             val maxSizeSp = SettingsRepository.fontSizeMaxSp(scale, screenWidthDp())
             // 先落到下端量出原生单元格宽，再以「字号比 × 该宽度」预测上端的宽度。
             // 判据完全落在原生回读量上：上端被原生拒收时宽度不会按比例变大。
-            val min = applyAndAwait(minSizeSp)
-            val colsAtMin = min.cols
+            val minMetrics = applyAndAwait(minSizeSp)
+            val colsAtMin = minMetrics.cols
             assertTrue("最小字号下列数必须为正，实际 $colsAtMin", colsAtMin > 0)
-            assertTrue("最小字号下单元格宽必须为正，实际 ${min.cellWidth}", min.cellWidth > 0f)
-            val expectedWidthAtMax = min.cellWidth * (maxSizeSp / minSizeSp)
-            val max = applyAndAwait(maxSizeSp) { expectedWidthAtMax }
-            val colsAtMax = max.cols
+            assertTrue("最小字号下单元格宽必须为正，实际 ${minMetrics.cellWidth}", minMetrics.cellWidth > 0f)
+            val expectedWidthAtMax = minMetrics.cellWidth * (maxSizeSp / minSizeSp)
+            val maxMetrics = applyAndAwait(maxSizeSp) { expectedWidthAtMax }
+            val colsAtMax = maxMetrics.cols
             assertTrue("最大字号下列数必须为正，实际 $colsAtMax", colsAtMax > 0)
-            assertTrue("最大字号下单元格宽必须为正，实际 ${max.cellWidth}", max.cellWidth > 0f)
+            assertTrue("最大字号下单元格宽必须为正，实际 ${maxMetrics.cellWidth}", maxMetrics.cellWidth > 0f)
             // 调节条末端必须真的划得到原生接受的上界：被原生静默丢弃时，
             // 宽度会停在当前字号的值，而不是按比例放大到 $expectedWidthAtMax。
             assertEquals(
-                "调节条上端 ${maxSizeSp}sp 必须被原生接受：原生单元格宽 ${max.cellWidth}，" +
+                "调节条上端 ${maxSizeSp}sp 必须被原生接受：原生单元格宽 ${maxMetrics.cellWidth}，" +
                     "按 min→max 比例应为 $expectedWidthAtMax",
                 expectedWidthAtMax,
-                max.cellWidth,
+                maxMetrics.cellWidth,
                 kotlin.math.max(0.5f, expectedWidthAtMax * 0.02f),
             )
             assertTrue(
                 "字号由 ${minSizeSp}sp 升到 ${maxSizeSp}sp，单元格宽必须变大" +
-                    "（前 ${min.cellWidth} 后 ${max.cellWidth}）",
-                max.cellWidth > min.cellWidth,
+                    "（前 ${minMetrics.cellWidth} 后 ${maxMetrics.cellWidth}）",
+                maxMetrics.cellWidth > minMetrics.cellWidth,
             )
             assertTrue(
                 "字号由 ${minSizeSp}sp 升到 ${maxSizeSp}sp，单元格高必须变大" +
-                    "（前 ${min.cellHeight} 后 ${max.cellHeight}）",
-                max.cellHeight > min.cellHeight,
+                    "（前 ${minMetrics.cellHeight} 后 ${maxMetrics.cellHeight}）",
+                maxMetrics.cellHeight > minMetrics.cellHeight,
             )
             assertTrue(
                 "字号放大后列数必须收缩（$colsAtMin → $colsAtMax）",
@@ -225,8 +225,8 @@ class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
             )
             android.util.Log.i(
                 "FontSizeReflow",
-                "scale=$scale min=$minSizeSp cols=$colsAtMin cell=${min.cellWidth}x${min.cellHeight} " +
-                    "max=$maxSizeSp cols=$colsAtMax cell=${max.cellWidth}x${max.cellHeight}",
+                "scale=$scale min=$minSizeSp cols=$colsAtMin cell=${minMetrics.cellWidth}x${minMetrics.cellHeight} " +
+                    "max=$maxSizeSp cols=$colsAtMax cell=${maxMetrics.cellWidth}x${maxMetrics.cellHeight}",
             )
         } finally {
             // 恢复规范默认值（持久化在 SharedPreferences，防污染其他测试与后续复跑）。

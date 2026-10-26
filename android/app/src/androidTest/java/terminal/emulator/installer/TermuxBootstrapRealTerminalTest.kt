@@ -59,11 +59,11 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
 
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    private fun shell(cmd: String): String {
+    private fun shell(command: String): String {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        val pfd = automation.executeShellCommand(cmd)
-        return pfd.fileDescriptor.let { fd ->
-            java.io.FileInputStream(fd).bufferedReader().use { it.readText() }
+        val parcelFileDescriptor = automation.executeShellCommand(command)
+        return parcelFileDescriptor.fileDescriptor.let { fileDescriptor ->
+            java.io.FileInputStream(fileDescriptor).bufferedReader().use { it.readText() }
         }
     }
 
@@ -126,8 +126,8 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
 
     @Test
     fun termuxBootstrap_shell_runs_real_commands_with_asserted_output() {
-        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val packageName = ctx.packageName
+        val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val packageName = targetContext.packageName
         // zip 已在应用私有 cacheDir 就位（:install 进程同 uid 可读），无需外部预置。
         val zipPath = stageBootstrapZip()
         val bashPath = "/data/user/0/$packageName/files/usr/bin/bash"
