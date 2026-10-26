@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-10-26
+skip_specs: true
+goal: |
+  收敛原生侧代码质量告警：删除 MockPty 上永不生效的退出态死代码；把
+  render_inner、pump_sessions、run_inner 三个超长函数按既有的阶段注释拆分，
+  并消除新帧/空闲帧两条路径之间重复的脏行掩码构建。
+  本变更只做等价重构与死代码清理，不改变任何对外行为，故不放 delta。
