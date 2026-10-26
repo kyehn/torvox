@@ -30,10 +30,11 @@
 
 ## 5. 集成验证
 
-- [ ] 5.1 Rust：`cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings`、
+- [x] 5.1 Rust：`cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings`、
       `cargo test --lib` 全绿
-- [ ] 5.2 `aislop scan` 的超长函数告警收敛
-- [ ] 5.3 规范：`openspec validate --all --strict` 全绿
+- [x] 5.2 `aislop scan` 的超长函数告警收敛（函数过长 3 条 → 1 条；
+      剩下的 `run_inner` 为事件循环，拆分方案见 design.md「代价」一节）
+- [x] 5.3 规范：`openspec validate --all --strict` 全绿
 
 ## Workflow follow-up
 
