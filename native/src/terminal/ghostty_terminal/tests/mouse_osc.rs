@@ -92,9 +92,6 @@ fn cell_snapshot_default() {
     assert!(!cell.italic);
 }
 
-#[test]
-// 与字面量默认值精确比较，不涉及浮点运算。
-
 /// Verify that the CellIterator-based build_snapshot() produces the same
 /// output as the legacy per-cell terminal.grid_ref() path for the viewport.
 ///

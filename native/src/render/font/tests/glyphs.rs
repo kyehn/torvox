@@ -1,5 +1,4 @@
 use super::*;
-use crate::render::font::*;
 
 #[test]
 fn han_is_wide_and_non_emoji() {

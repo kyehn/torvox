@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn drain_output(session: &mut Session, deadline: std::time::Instant) {
