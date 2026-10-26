@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::terminal::ghostty_terminal::CellData;
 
