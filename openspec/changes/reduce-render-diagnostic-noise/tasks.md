@@ -2,15 +2,15 @@
 
 ## 1. 原生侧逐帧呈现诊断
 
-- [ ] 1.1 `slow_log` 新增带计数的限频闸门（累计窗口内事件数，放行时交出），
+- [x] 1.1 `slow_log` 新增带计数的限频闸门（累计窗口内事件数，放行时交出），
       验证：窗口内事件被压住且计数不丢，首条可见
-- [ ] 1.2 `Renderer` 持有该闸门；`render_frame_with_plan` 的呈现诊断改为
+- [x] 1.2 `Renderer` 持有该闸门；`render_frame_with_plan` 的呈现诊断改为
       汇总输出，`bands` 改称 `dirty_bands`，
       验证：输出间隔不小于 500ms，每行带窗口内呈现帧数与末帧形态
 
 ## 2. 原生侧热路径落点
 
-- [ ] 2.1 `setScrollOffset` 的落点日志降为 trace（与 `setScrollYPx` 一致），
+- [x] 2.1 `setScrollOffset` 的落点日志降为 trace（与 `setScrollYPx` 一致），
       验证：默认日志级别下不再出现，注释同步更新
 
 ## 3. 宿主侧帧节奏窗口

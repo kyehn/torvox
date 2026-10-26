@@ -1,4 +1,4 @@
-//! 慢帧诊断的限频闸门。
+//! 诊断日志的限频闸门。
 //!
 //! `logcat-hygiene` 规范要求逐帧诊断限频：两次输出之间的间隔不小于 500ms，
 //! MUST NOT 以逐帧频率刷屏。渲染侧有四类慢帧诊断（帧内分段、渲染分段、单元构建、
@@ -66,9 +66,44 @@ impl SlowLogThrottle {
     }
 }
 
+/// 带计数的限频闸门：在限频窗口内累计事件数，放行时把计数一并交出。
+///
+/// 逐帧诊断若逐条输出会把 logcat 刷成洪水；若只按闸门丢弃，窗口内发生了多少
+/// 次就此不可见，排障时看不出「多久一次」。本类型两者兼得：每个窗口放行一次，
+/// 窗口内的事件计数随该次输出一起交出。
+pub(crate) struct CountedLogThrottle {
+    throttle: SlowLogThrottle,
+    count: u32,
+}
+
+impl CountedLogThrottle {
+    pub(crate) const fn new() -> Self {
+        Self {
+            throttle: SlowLogThrottle::new(),
+            count: 0,
+        }
+    }
+
+    /// 记一次事件；闸门放行时返回窗口内累计的事件数，否则返回 `None`。
+    pub(crate) fn record(&mut self) -> Option<u32> {
+        self.record_at(now_ms())
+    }
+
+    /// 以给定时刻记账（测试用，免去睡眠）。
+    pub(crate) fn record_at(&mut self, now_ms: u64) -> Option<u32> {
+        self.count += 1;
+        if !self.throttle.should_log_at(now_ms) {
+            return None;
+        }
+        let count = self.count;
+        self.count = 0;
+        Some(count)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SLOW_LOG_INTERVAL_MS, SlowLogThrottle};
+    use super::{CountedLogThrottle, SLOW_LOG_INTERVAL_MS, SlowLogThrottle};
 
     /// 首条必须可见：诊断的第一条往往就是最关键的那条（首次出现的慢帧）。
     #[test]
@@ -106,5 +141,42 @@ mod tests {
         assert!(throttle.should_log_at(10_000));
         assert!(!throttle.should_log_at(9_000));
         assert!(!throttle.should_log_at(5_000));
+    }
+
+    /// 首条必须可见：汇总行的第一条同样承载「诊断刚发生」这一事实。
+    #[test]
+    fn counted_throttle_reports_the_first_event() {
+        let mut throttle = CountedLogThrottle::new();
+        assert_eq!(throttle.record_at(1_000), Some(1));
+    }
+
+    /// 窗口内的事件被压住，但计数不得丢失：限频吞掉的是条数，不是次数。
+    #[test]
+    fn counted_throttle_keeps_the_suppressed_count() {
+        let mut throttle = CountedLogThrottle::new();
+        assert_eq!(throttle.record_at(1_000), Some(1));
+        for now in [1_100, 1_200, 1_300] {
+            assert_eq!(throttle.record_at(now), None, "now={now} 落在窗口内");
+        }
+        assert_eq!(
+            throttle.record_at(1_000 + SLOW_LOG_INTERVAL_MS),
+            Some(4),
+            "窗口内累计 4 次（首条 + 3 次压住）必须原样交出"
+        );
+    }
+
+    /// 交出计数后重新计数：下一窗口不得把上一窗口的次数算进来。
+    #[test]
+    fn counted_throttle_resets_the_count_after_handover() {
+        let mut throttle = CountedLogThrottle::new();
+        assert_eq!(throttle.record_at(1_000), Some(1));
+        assert_eq!(throttle.record_at(1_100), None);
+        assert_eq!(throttle.record_at(1_000 + SLOW_LOG_INTERVAL_MS), Some(2));
+        assert_eq!(throttle.record_at(1_100 + SLOW_LOG_INTERVAL_MS), None);
+        assert_eq!(
+            throttle.record_at(1_000 + 2 * SLOW_LOG_INTERVAL_MS),
+            Some(2),
+            "新窗口只统计本窗口的事件"
+        );
     }
 }
