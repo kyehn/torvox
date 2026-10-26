@@ -7,7 +7,6 @@ use crate::terminal::pty::{Pty, PtyError};
 
 struct MockPtyInner {
     input_buffer: VecDeque<Vec<u8>>,
-    child_exited: bool,
     rows: u16,
     cols: u16,
     /// Number of resize() calls, for tests asserting the short-circuit does
@@ -95,7 +94,6 @@ impl MockPty {
             gate: None,
             partial_write: None,
             block_writes: false,
-            child_exited: false,
             rows,
             cols,
         }));
@@ -116,14 +114,6 @@ impl MockPtyHandle {
         let mut inner = self.inner.lock().expect("mock mutex poisoned");
         inner.partial_write = None;
         inner.block_writes = false;
-    }
-
-    pub fn set_exited(&self) {
-        self.inner.lock().expect("mock mutex poisoned").child_exited = true;
-    }
-
-    pub fn is_exited(&self) -> bool {
-        self.inner.lock().expect("mock mutex poisoned").child_exited
     }
 
     pub fn written(&self) -> Vec<u8> {
@@ -178,12 +168,6 @@ impl Pty for MockPty {
             inner.interrupt_writes -= 1;
             return Err(io::Error::from(io::ErrorKind::Interrupted));
         }
-        if inner.child_exited {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "child process exited",
-            ));
-        }
         inner.input_buffer.push_back(buf.to_vec());
         Ok(buf.len())
     }
@@ -191,14 +175,7 @@ impl Pty for MockPty {
     /// 替身不承载输出侧：没有注入口，故 PTY 输出经 `try_clone_reader_fd`
     /// 返回的 `/dev/null` 读取（见该方法），这里恒报「无数据」。
     fn read(&self, _buf: &mut [u8]) -> io::Result<usize> {
-        let inner = self.inner.lock().expect("mock mutex poisoned");
-        if inner.child_exited {
-            return Ok(0);
-        }
-        Err(io::Error::new(
-            io::ErrorKind::WouldBlock,
-            "no data available",
-        ))
+        Err(io::Error::from(io::ErrorKind::WouldBlock))
     }
 
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
