@@ -6,6 +6,22 @@
 名称，使同一套风格在两侧一致。Kotlin 侧此前未处理，`LogUtil.d/i/w/e` 这类
 单字母函数名尤其醒目。
 
+## 逐文件清单
+
+| 位置 | 改前的标识符 |
+| --- | --- |
+| `runtime/LogUtil.kt` | `d` / `i` / `w` / `e` 四个日志函数 |
+| `ui/TerminalSurface.kt` | `wm` / `vm` / `dx` / `dy` / `sr` / `sc` / `er` / `ec` / `maxR` / `maxC` / `px` / `py` / `e1` / `e2` / `loc` / `sel` / `bar` / `absX` / `absY` / `del` / `attr` / `rect` / `imm` / `lo` / `hi` / `sx` / `sy` / `ex` / `ey` |
+| `ui/ModifierBar.kt` | `ev` / `slop` / `row1` / `row2` |
+| `TerminalViewModel.kt` | `SessionInfo.id` / `switchSession(id)` / `cur` / `ids` / `dirs` / `meta` |
+| `runtime/TerminalRuntime.kt` | `entry.id` / `switchSession(id)` / `closeSession(id)` / `px` / `fps` / `t` / `dirs` |
+| `input/ComposingBaseline.kt` | `to` |
+| `bridge/Bridge.kt` / `bridge/NativeBridge.kt` | `val id = sessionId` / `xPx` / `yPx` |
+| `installer/*` | `abi` / `arch` / `pct` / `proc` / `bootstrapDirs` / `dirs` |
+| `DocumentMutations.kt` / `DocumentQueries.kt` | `src` / `dstParent` / `ext` / `key` / `dir` |
+| `TerminalDocumentsProvider.kt` | `cols` |
+| 测试代码 | `w` / `h` / `a` / `b` / `pa` / `pb` / `x` / `y` / `t` / `t0` / `dt` / `fd` / `s` / `ch` / `cw` / `h0` / `h1` / `e` / `up` / `out` / `enc` / `orch` / `frac` / `keyE` / `upAt` / `minW` / `minH` / `maxW` / `maxH` |
+
 ## 决策
 
 ### 1. 重命名的判定标准
