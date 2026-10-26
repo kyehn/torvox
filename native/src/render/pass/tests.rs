@@ -1,4 +1,6 @@
-use super::*;
+use super::acquire::{AcquireLane, acquire_worker_tx, drain_in_flight_acquires};
+use super::bands::{instance_upload_layout, partial_frame_bands};
+use crate::render::Renderer;
 
 #[test]
 fn acquire_worker_is_singleton() {
