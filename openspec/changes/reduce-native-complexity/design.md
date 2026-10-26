@@ -114,9 +114,10 @@ PTY 回写回调、OSC 52 写回回调、XTWINOPS 尺寸回调、编码器、渲
 
 ### 四、`run_inner` 的初始化段独立成函数
 
-抽出 `configure_terminal(config: &RunConfig) -> Option<Terminal>`，返回
-`None` 表示初始化失败（`Terminal::new` 失败、`Encoders::new` 失败、
-`RenderExtractors::new` 失败），调用方据此退出 VT 线程。
+抽出 `configure_terminal(config: &RunConfig) -> Option<Terminal<'_, '_>>`，返回
+`None` 表示 `Terminal::new` 失败，调用方据此退出 VT 线程。函数体只装「终端
+实例本身的配置」：回滚上限、Kitty 介质、PTY 回写回调、OSC 52 写回回调、
+XTWINOPS 尺寸回调。
 
 **为什么不把事件循环也切细：**事件循环里的 `while let Some(command)` 分派
 要同时改动十来个可变状态（`terminal`、`extractors`、`cached_snapshot`、
