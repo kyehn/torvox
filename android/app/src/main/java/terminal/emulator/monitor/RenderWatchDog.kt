@@ -75,7 +75,7 @@ class RenderWatchDog(
             val marks = getMarks()
             val elapsed = System.nanoTime() - marks.startNanos
             if (marks.startNanos > marks.doneNanos && elapsed > hangTimeoutNanos && isRunning()) {
-                LogUtil.e(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
+                LogUtil.error(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
                 synchronized(fireLock) { if (generation == ownGeneration) onHangDetected() }
             }
         }

@@ -89,7 +89,7 @@ private val searchQueryMaxLength: Int by lazy {
         try {
             bridge.searchQueryMaxChars()
         } catch (error: UnsatisfiedLinkError) {
-            LogUtil.e("TerminalScreen", "searchQueryMaxChars is unavailable: ${error.message}")
+            LogUtil.error("TerminalScreen", "searchQueryMaxChars is unavailable: ${error.message}")
             0
         }
     }
@@ -392,7 +392,7 @@ fun TerminalScreen(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    LogUtil.w("TerminalScreen", "clearing native search failed: ${error.message}")
+                    LogUtil.warn("TerminalScreen", "clearing native search failed: ${error.message}")
                 }
             }
 

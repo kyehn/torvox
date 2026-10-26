@@ -356,7 +356,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 「慢在哪一层」的证据，正常规模（毫秒级）不落日志。
         val elapsed = android.os.SystemClock.elapsedRealtime() - started
         if (elapsed >= SLOW_LISTING_MILLIS) {
-            LogUtil.w(TAG, "slow listing '$parentDocumentId': ${entries.size} entries in ${elapsed}ms")
+            LogUtil.warn(TAG, "slow listing '$parentDocumentId': ${entries.size} entries in ${elapsed}ms")
         }
         context?.contentResolver?.let { resolver ->
             // 同 queryDocument：通知 URI 必须是行内无前缀形式，广播也只发这种，
@@ -493,10 +493,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val started = android.os.SystemClock.elapsedRealtime()
         try {
             val result = block()
-            LogUtil.i(TAG, "$operation ok (${android.os.SystemClock.elapsedRealtime() - started}ms)")
+            LogUtil.info(TAG, "$operation ok (${android.os.SystemClock.elapsedRealtime() - started}ms)")
             return result
         } catch (error: Exception) {
-            LogUtil.w(
+            LogUtil.warn(
                 TAG,
                 "$operation failed (${android.os.SystemClock.elapsedRealtime() - started}ms)",
                 error,
@@ -512,10 +512,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val child = decodeDocId(documentId, rootDir)
             child.canonicalPath.startsWith(parent.canonicalPath + File.separator)
         } catch (error: java.io.FileNotFoundException) {
-            LogUtil.w(TAG, "isChildDocument: docId outside root", error)
+            LogUtil.warn(TAG, "isChildDocument: docId outside root", error)
             false
         } catch (error: IllegalArgumentException) {
-            LogUtil.w(TAG, "isChildDocument: malformed docId", error)
+            LogUtil.warn(TAG, "isChildDocument: malformed docId", error)
             false
         }
     }
@@ -563,7 +563,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         }
         if (truncated) {
             // 静默截断会让用户以为「文件不存在」：只搜到部分目录时必须留证据。
-            LogUtil.i(
+            LogUtil.info(
                 "TerminalDocumentsProvider",
                 "querySearchDocuments: traversal hit $MAX_SEARCH_VISITS entries; results truncated",
             )

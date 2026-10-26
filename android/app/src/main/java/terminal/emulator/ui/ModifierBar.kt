@@ -421,7 +421,7 @@ private fun sendKeyThroughEncoder(key: ToolbarKey, actions: ModifierBarActions, 
     }
     // 按下 CTRL/ALT 再点某个键却什么都没发生——用户只能以为设备卡了。
     // 键栏的每个键都应可编码，故这是编码缺口，须留证据（键码 + 修饰态）。
-    LogUtil.w("ModifierBar", "no encoding for $key (keyCode=$keyCode modifiers=$modifiers); keystroke dropped")
+    LogUtil.warn("ModifierBar", "no encoding for $key (keyCode=$keyCode modifiers=$modifiers); keystroke dropped")
 }
 
 private fun toolbarKeyClickHandler(

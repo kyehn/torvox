@@ -17,7 +17,7 @@ private const val TAG = "SystemFonts"
  */
 internal fun availableFontFamilies(rustFamilies: List<String>): List<String> {
     if (rustFamilies.isEmpty()) {
-        LogUtil.e(TAG, "font database is empty")
+        LogUtil.error(TAG, "font database is empty")
         throw IllegalStateException("No available font families")
     }
     return rustFamilies

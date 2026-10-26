@@ -23,7 +23,7 @@ open class TerminalApp : Application() {
         // NativeBridge，471ms 的 .so 读取就落回主线程（且装载线程名不再是
         // native-preload）。这里只等一次线程调度，不等装载完成。
         if (!nativeClassInitStarted.await(2, TimeUnit.SECONDS)) {
-            LogUtil.w(
+            LogUtil.warn(
                 "TerminalApp",
                 "native-preload did not start within 2s; the load may fall back to the main thread",
             )
@@ -61,7 +61,7 @@ open class TerminalApp : Application() {
             try {
                 logCrash(thread, throwable)
             } catch (exception: Exception) {
-                LogUtil.e("App", "Failed to log crash", exception)
+                LogUtil.error("App", "Failed to log crash", exception)
             }
             // 不自行杀进程：下方平台处理器会终止进程并把 FATAL EXCEPTION
             // 堆栈写入 logcat/dropbox（远程崩溃上报），自行 kill 会让堆栈全丢。
@@ -72,7 +72,7 @@ open class TerminalApp : Application() {
     /** 崩溃诊断只进 logcat：DESIGN.md 禁止把日志写入文件。 */
     private fun logCrash(thread: Thread, throwable: Throwable) {
         val causedBy = throwable.cause
-        LogUtil.e(
+        LogUtil.error(
             "App",
             "Uncaught ${throwable.javaClass.name}: ${throwable.message} on thread ${thread.name}" +
                 (causedBy?.let { "\nCaused by: $it" } ?: ""),

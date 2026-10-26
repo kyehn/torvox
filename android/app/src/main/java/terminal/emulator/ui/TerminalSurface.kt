@@ -147,7 +147,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         try {
             magnifier?.dismiss()
         } catch (exception: Exception) {
-            LogUtil.w(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
+            LogUtil.warn(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
         }
         magnifier = null
         // 停止 PtyWriter 发送线程：视图正在被销毁（Activity 重建、返回键），
@@ -234,11 +234,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // TYPE_APPLICATION_SUB_PANEL，层号高者恒在上，覆盖层重建也压不住菜单。
         val selection = viewModel?.state?.value?.selection
         if (selection == null) {
-            LogUtil.w(TAG, "菜单跳过：视图模型为空")
+            LogUtil.warn(TAG, "菜单跳过：视图模型为空")
             return
         }
         if (selection.start == null || selection.end == null) {
-            LogUtil.w(TAG, "菜单跳过：选区无界")
+            LogUtil.warn(TAG, "菜单跳过：选区无界")
             return
         }
         // 文本区动作的显示判定与动作解析共用同一份文本（viewModel.selectionTextForAction
@@ -248,12 +248,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val actions =
             menuActionsForSelection(pasteOnly, clipboardAccess.hasClipboardText(), hasCopyableText)
         if (actions.isEmpty()) {
-            LogUtil.d(TAG, "菜单跳过：无动作")
+            LogUtil.debug(TAG, "菜单跳过：无动作")
             return
         }
         val anchor = menuAnchor(selection)
         if (anchor == null) {
-            LogUtil.d(TAG, "菜单跳过：无处安放")
+            LogUtil.debug(TAG, "菜单跳过：无处安放")
             return
         }
         val loc = IntArray(2)
@@ -274,7 +274,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             )
-            LogUtil.d(
+            LogUtil.debug(
                 TAG,
                 "菜单原地更新：at=(${loc[0] + anchor.first},${loc[1] + anchor.second}) labels=$labels",
             )
@@ -283,7 +283,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 旧窗口已不在（平台移除或已 dismiss）：清掉引用再重建。
         hideSelectionMenu("showSelectionMenu", restoreHandles = false)
         if (viewDetached || !isAttachedToWindow) {
-            LogUtil.w(TAG, "菜单跳过：未附着")
+            LogUtil.warn(TAG, "菜单跳过：未附着")
             return
         }
         val bar = buildMenuBar(actions)
@@ -306,9 +306,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 本回调只在**我们**调用 dismiss() 时触发。平台直接移除弹窗窗口
             // （父视图窗口令牌变化/销毁）不会走到这里——两者是否成对出现，
             // 是区分「应用主动关菜单」与「平台把窗口收走」的唯一依据。
-            popup.setOnDismissListener { LogUtil.d(TAG, "选区菜单 dismiss() 已执行（应用侧主动关闭）") }
+            popup.setOnDismissListener { LogUtil.debug(TAG, "选区菜单 dismiss() 已执行（应用侧主动关闭）") }
             popup.showAtLocation(this@TerminalSurface, 0, loc[0] + anchor.first, loc[1] + anchor.second)
-            LogUtil.d(
+            LogUtil.debug(
                 TAG,
                 "菜单显示：at=(${loc[0] + anchor.first},${loc[1] + anchor.second}) " +
                     "pasteOnly=$pasteOnly actions=${actions.size}",
@@ -316,7 +316,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } catch (exception: Exception) {
             // Activity 在检查与显示之间被 detach——与选区手柄同一守卫；
             // 弹窗从未变为可见。
-            LogUtil.w(TAG, "showSelectionMenu: popup show failed", exception)
+            LogUtil.warn(TAG, "showSelectionMenu: popup show failed", exception)
             return
         }
         selectionMenuPopup = popup
@@ -410,7 +410,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (exception: Exception) {
-            LogUtil.w(TAG, "openSelectionAsLink: no handler", exception)
+            LogUtil.warn(TAG, "openSelectionAsLink: no handler", exception)
         }
     }
 
@@ -534,7 +534,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 无此日志时菜单意外消失只能靠猜——PasteButtonInstrumentedTest 在
         // CI 同款几何下曾整段丢失粘贴动作而日志里查不到是谁关的。
         val selection = viewModel?.state?.value?.selection
-        LogUtil.d(
+        LogUtil.debug(
             TAG,
             "hideSelectionMenu($reason): pasteOnly=${selection?.pasteOnly} " +
                 "menuDismissed=${selection?.menuDismissed}",
@@ -543,7 +543,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             popup.dismiss()
         } catch (exception: Exception) {
             // 已 dismiss——只记日志，使原因不丢失。
-            LogUtil.w(TAG, "hideSelectionMenu: dismiss failed", exception)
+            LogUtil.warn(TAG, "hideSelectionMenu: dismiss failed", exception)
         }
         if (restoreHandles) reshowSelectionHandles()
     }
@@ -591,7 +591,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     cellHeight = cellHeight,
                 )
             if (newRows == 0 || newCols == 0) return
-            LogUtil.d(
+            LogUtil.debug(
                 "TerminalSurface",
                 "applyGridResize: $width x $height cell=($cellWidth,$cellHeight) " +
                     "-> ${newRows}x$newCols (was ${rows}x$cols)",
@@ -760,7 +760,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             terminalViewModel.runtime.recomputeGrid()
             val surface = holder.surface
             if (!surface.isValid) {
-                LogUtil.d(TAG, "applySurfaceResize: surface not valid yet, deferring")
+                LogUtil.debug(TAG, "applySurfaceResize: surface not valid yet, deferring")
                 pendingRetryWidth = width
                 pendingRetryHeight = height
                 return
@@ -778,7 +778,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 可折叠半屏）且没有任何重试——窗口变大后终端将永远空白，
                 // 因为 surfaceChanged 只会 resize。趁 Surface 此刻有效且已定尺寸，
                 // 在此重试会话创建。
-                LogUtil.i(TAG, "applySurfaceResize: runtime not started, retrying default session")
+                LogUtil.info(TAG, "applySurfaceResize: runtime not started, retrying default session")
                 terminalViewModel.ensureDefaultSession()
             }
             lastConfiguredWidth = width
@@ -952,9 +952,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // ——增长/回退/全量重写三种情况集中在一处。
                         val edit = ComposingDiff.reconcile(composing.text, newComposing)
                         // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
-                        // 门控在调用处而非只靠 LogUtil.d：release 下可省掉整条消息串的拼接。
+                        // 门控在调用处而非只靠 LogUtil.debug：release 下可省掉整条消息串的拼接。
                         if (terminal.emulator.BuildConfig.DEBUG) {
-                            LogUtil.d(
+                            LogUtil.debug(
                                 "ComposingDiff",
                                 "reconcile prev=${composing.text.length}ch next=$newComposing " +
                                     "bs=${edit.backspaces} app=${edit.append.length}ch",
@@ -990,7 +990,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 返回 true 等于声称已处理，字符永久丢失（N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) {
                             if (terminal.emulator.BuildConfig.DEBUG) {
-                                LogUtil.d(
+                                LogUtil.debug(
                                     TAG,
                                     "commitText 在抑制窗口内被拒，" +
                                         "剩余 ${(suppressUntilNanos - System.nanoTime()) / 1_000_000}ms",
@@ -1374,7 +1374,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             } catch (exception: Exception) {
                 // WindowManager.BadTokenException：Activity 在 isAttachedToWindow
                 // 检查与 showAtLocation 之间被 detach。
-                LogUtil.w(TAG, "showSelectionHandles: overlay show failed", exception)
+                LogUtil.warn(TAG, "showSelectionHandles: overlay show failed", exception)
                 overlayContent = null
                 return
             }
@@ -1473,7 +1473,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             try {
                 popup.dismiss()
             } catch (exception: Exception) {
-                LogUtil.w(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
+                LogUtil.warn(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
             }
             try {
                 val wm =
@@ -1743,7 +1743,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         viewModel.pasteSink = { sessionId, data ->
             // 「粘贴内容没到 shell」必须能从日志判定：本行记入队，[InputBatchBuffer]
             // 记录刷写失败或丢弃，`executePaste` 记跳过——三段合起来覆盖整条链路。
-            LogUtil.d("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
+            LogUtil.debug("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
             inputBatchBuffer.write(data, sessionId)
         }
         // 硬件按键与鼠标事件同样排到批缓冲（理由见 [installPtyWriteQueue]）。
@@ -1882,7 +1882,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val reserved = maxOf(imeBottom - navigationBottom, 0)
             if (reserved != imeInsetPx) {
                 imeInsetPx = reserved
-                LogUtil.d(TAG, "setImeInsetPx: $reserved")
+                LogUtil.debug(TAG, "setImeInsetPx: $reserved")
                 applyImeShift()
                 // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
                 // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
@@ -2360,14 +2360,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             try {
                 url.trim().toUri()
             } catch (urlError: IllegalArgumentException) {
-                LogUtil.w(TAG, "openLinkAt: bad URI", urlError)
+                LogUtil.warn(TAG, "openLinkAt: bad URI", urlError)
                 return false
             }
         // 协议白名单：终端输出不可信，故只允许打开 http(s)
         // （阻止 OSC 8 中的 intent:/file:/javascript:）。
         val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
         if (scheme != "http" && scheme != "https") {
-            LogUtil.w(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
+            LogUtil.warn(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
             return false
         }
         return try {
@@ -2378,10 +2378,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             context.startActivity(intent)
             true
         } catch (missingHandler: android.content.ActivityNotFoundException) {
-            LogUtil.w(TAG, "openLinkAt: no handler for $uri", missingHandler)
+            LogUtil.warn(TAG, "openLinkAt: no handler for $uri", missingHandler)
             false
         } catch (blockedError: SecurityException) {
-            LogUtil.w(TAG, "openLinkAt: blocked for $uri", blockedError)
+            LogUtil.warn(TAG, "openLinkAt: blocked for $uri", blockedError)
             false
         }
     }
@@ -2968,7 +2968,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 与 termux 的 setInitialTextSelectionPosition 流程完全一致。
             selectionHandles.showSelectionHandles(gridRow, col, gridRow, col, getAccentColor())
 
-            LogUtil.d(
+            LogUtil.debug(
                 "Selection",
                 "LONG_PRESS whitespace: row=$row col=$col gridRow=$gridRow " +
                     "menu=PASTE_ONLY",
@@ -2979,7 +2979,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // native 侧已安装选区，回传的有序界限驱动状态与控制柄。
             val bounds = resolveWordSelectionBounds(bridge?.selectWordAt(gridRow, col), gridRow, col)
 
-            LogUtil.d(
+            LogUtil.debug(
                 "Selection",
                 "LONG_PRESS text: tapRow=$row tapCol=$col gridRow=$gridRow " +
                     "expanded start=(${bounds.startRow},${bounds.startCol}) " +
@@ -3097,7 +3097,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             try {
                 bridge.scrollbackLength().also { lastScrollbackQueryNanos = now }
             } catch (error: Exception) {
-                LogUtil.e(TAG, "scrollbackLength query failed", error)
+                LogUtil.error(TAG, "scrollbackLength query failed", error)
                 cachedScrollbackLength
             }
         viewModel.updateScrollbackLength(cachedScrollbackLength)
@@ -3195,7 +3195,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 这条同样必须留，否则「字节入队了却没到 shell」永远无法从日志判定。
             val target = viewModel
             if (target == null) {
-                LogUtil.w("TerminalSurface", "批缓冲刷写丢弃：视图模型尚未绑定 (${data.size} 字节)")
+                LogUtil.warn("TerminalSurface", "批缓冲刷写丢弃：视图模型尚未绑定 (${data.size} 字节)")
             } else {
                 target.writeToPty(sessionId, data)
             }
@@ -3211,11 +3211,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private fun showSelectionMenuForCurrentSelection() {
         val selection = viewModel?.state?.value?.selection
         if (selection == null) {
-            LogUtil.d(TAG, "同步备份跳过：视图模型为空")
+            LogUtil.debug(TAG, "同步备份跳过：视图模型为空")
             return
         }
         if (!selection.active || selection.start == null || selection.end == null) {
-            LogUtil.d(TAG, "同步备份跳过：选区未就绪")
+            LogUtil.debug(TAG, "同步备份跳过：选区未就绪")
             return
         }
         showSelectionMenu(selection.pasteOnly)
@@ -3237,7 +3237,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 回退分支同样须收尾：只 startSelection 会把选区永久留在拖动态，
         // 此后输入不再自动贴底。
         viewModel?.endSelection()
-        LogUtil.d(
+        LogUtil.debug(
             "Selection",
             "RIGHT_CLICK word: tapRow=$row tapCol=$col " +
                 "expanded start=(${bounds.startRow},${bounds.startCol}) " +
@@ -3248,7 +3248,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             magnifier = magnifier ?: Magnifier.Builder(this@TerminalSurface).build()
             magnifier?.show(event.rawX, event.rawY)
         } catch (exception: Exception) {
-            LogUtil.w(TAG, "magnifier show failed (non-critical)", exception)
+            LogUtil.warn(TAG, "magnifier show failed (non-critical)", exception)
         }
     }
 
@@ -3503,7 +3503,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 try {
                     magnifier?.dismiss()
                 } catch (exception: Exception) {
-                    LogUtil.w(TAG, "magnifier dismiss failed (non-critical)", exception)
+                    LogUtil.warn(TAG, "magnifier dismiss failed (non-critical)", exception)
                 }
                 magnifier = null
                 scaleFactor = 1.0f

@@ -8,22 +8,22 @@ import terminal.emulator.BuildConfig
  * 不做日志分块（PROHIBITED 禁止）：超出 logcat 单条上限的部分由 logcat 截断。
  */
 object LogUtil {
-    fun d(tag: String, message: String, throwable: Throwable? = null) {
+    fun debug(tag: String, message: String, throwable: Throwable? = null) {
         // Logcat 在 debug 构建中仍由 DEBUG 门控。
         if (BuildConfig.DEBUG) {
             log(Log.DEBUG, tag, message, throwable)
         }
     }
 
-    fun i(tag: String, message: String, throwable: Throwable? = null) {
+    fun info(tag: String, message: String, throwable: Throwable? = null) {
         log(Log.INFO, tag, message, throwable)
     }
 
-    fun w(tag: String, message: String, throwable: Throwable? = null) {
+    fun warn(tag: String, message: String, throwable: Throwable? = null) {
         log(Log.WARN, tag, message, throwable)
     }
 
-    fun e(tag: String, message: String, throwable: Throwable? = null) {
+    fun error(tag: String, message: String, throwable: Throwable? = null) {
         log(Log.ERROR, tag, message, throwable)
     }
 

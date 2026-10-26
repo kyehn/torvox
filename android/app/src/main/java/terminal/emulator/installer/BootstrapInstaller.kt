@@ -136,7 +136,7 @@ class BootstrapInstaller(
         } catch (exception: Exception) {
             // 与 BootstrapDownloader 一致只记录异常类名：异常消息可能嵌入用户提供的路径。
             // 截断到 300 字符以便诊断而不泄露完整路径。
-            LogUtil.e(
+            LogUtil.error(
                 "BootstrapInstaller",
                 "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
             )
@@ -145,7 +145,7 @@ class BootstrapInstaller(
             try {
                 delete(stagingDir)
             } catch (cleanupException: Exception) {
-                LogUtil.w("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
+                LogUtil.warn("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
             }
             Result.failure(exception)
         }
@@ -186,7 +186,7 @@ class BootstrapInstaller(
             try {
                 Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
             } catch (exception: Exception) {
-                LogUtil.w(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
+                LogUtil.warn(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
             }
         }
         return symlinks
@@ -420,7 +420,7 @@ class BootstrapInstaller(
         if (!Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
             val children = file.listFiles()
             if (children == null) {
-                LogUtil.w("BootstrapInstaller", "Cannot list ${file.name}; subtree left in place")
+                LogUtil.warn("BootstrapInstaller", "Cannot list ${file.name}; subtree left in place")
                 clean = false
             } else {
                 children.forEach { if (!delete(it)) clean = false }
@@ -428,7 +428,7 @@ class BootstrapInstaller(
         }
         if (!file.delete()) {
             // 只记名与父目录名：条目名来自用户提供的 ZIP，带全路径会泄露到 logcat。
-            LogUtil.w("BootstrapInstaller", "Failed to delete ${file.name} under ${file.parentFile?.name}")
+            LogUtil.warn("BootstrapInstaller", "Failed to delete ${file.name} under ${file.parentFile?.name}")
             clean = false
         }
         return clean

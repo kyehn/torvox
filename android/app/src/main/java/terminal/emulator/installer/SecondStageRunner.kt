@@ -65,7 +65,7 @@ class SecondStageRunner(
             // BootstrapOrchestrator.processInstalling 串行化，
             // 而跨进程重叠可容忍，因为 postinst 脚本是幂等的
             // （dpkg "configure" 语义）。
-            LogUtil.w("SecondStageRunner", "Stale lock file found, deleting and retrying postinst")
+            LogUtil.warn("SecondStageRunner", "Stale lock file found, deleting and retrying postinst")
             lockFile.delete()
         }
         try {
@@ -159,7 +159,7 @@ class SecondStageRunner(
             // （system_linker_exec 域）运行解释器。
             val command = postinstCommand(script)
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
-            LogUtil.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
+            LogUtil.warn("SecondStageRunner", "postinst exec cmd=${command.toList()}")
             val process =
                 Runtime
                     .getRuntime()
@@ -253,7 +253,7 @@ class SecondStageRunner(
                         // 持锁读会让主线程紧随其后的 join 超时形同虚设。
                         synchronized(stdoutText) { stdoutText.append(drained) }
                     } catch (exception: Exception) {
-                        LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
+                        LogUtil.warn("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
                     }
                 }.apply {
                     isDaemon = true
@@ -261,20 +261,20 @@ class SecondStageRunner(
             stdoutThread.start()
             if (!proc.waitFor(10, TimeUnit.SECONDS)) {
                 proc.destroyForcibly()
-                LogUtil.w("SecondStageRunner", "detectDpkgVersion timed out")
+                LogUtil.warn("SecondStageRunner", "detectDpkgVersion timed out")
                 return null
             }
             stdoutThread.join(STDIO_DRAIN_JOIN_TIMEOUT_MS)
             if (stdoutThread.isAlive) {
                 // 仍有后代进程持有 stdout 管道。`DPKG_RUNNING_VERSION` 会被导成空串，
                 // 依赖它的 postinst 分支将拿到空值而非真实版本——必须出声。
-                LogUtil.w("SecondStageRunner", "detectDpkgVersion stdout still open after exit, version unavailable")
+                LogUtil.warn("SecondStageRunner", "detectDpkgVersion stdout still open after exit, version unavailable")
             }
             val text = synchronized(stdoutText) { stdoutText.toString() }
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value
         } catch (exception: Exception) {
-            LogUtil.w("SecondStageRunner", "detectDpkgVersion failed", exception)
+            LogUtil.warn("SecondStageRunner", "detectDpkgVersion failed", exception)
             null
         } finally {
             proc?.destroy()
@@ -368,7 +368,7 @@ private fun recordPostinstFailure(
     if (attempt + 1 >= maxAttempts) {
         errors.add(report)
     } else {
-        LogUtil.w("SecondStageRunner", "$report — retrying once")
+        LogUtil.warn("SecondStageRunner", "$report — retrying once")
     }
     return false
 }

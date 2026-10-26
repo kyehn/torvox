@@ -102,7 +102,7 @@ class Bridge(private val config: TerminalConfig) {
         return try {
             call(id)
         } catch (sessionMissing: IllegalStateException) {
-            LogUtil.w(TAG, "$name: 会话 $id 已销毁，返回缺省值")
+            LogUtil.warn(TAG, "$name: 会话 $id 已销毁，返回缺省值")
             onUnavailable
         }
     }
@@ -114,7 +114,7 @@ class Bridge(private val config: TerminalConfig) {
      */
     private inline fun <T> onQuery(name: String, onUnavailable: T, call: () -> T): T = runCatchingCancellable(call)
         .onFailure {
-            LogUtil.w(TAG, "$name failed, returning default (${it.javaClass.simpleName})")
+            LogUtil.warn(TAG, "$name failed, returning default (${it.javaClass.simpleName})")
         }.getOrDefault(onUnavailable)
 
     fun ping(): String {
@@ -160,7 +160,7 @@ class Bridge(private val config: TerminalConfig) {
             try {
                 NativeBridge.prefetchRenderState()
             } catch (exception: Exception) {
-                LogUtil.w("Bridge", "prefetchRenderState failed", exception)
+                LogUtil.warn("Bridge", "prefetchRenderState failed", exception)
             }
         }
     }
@@ -173,7 +173,7 @@ class Bridge(private val config: TerminalConfig) {
                 // 清理路径：此处失败（未知会话的 RuntimeException、库部分加载的 UnsatisfiedLinkError）
                 // 绝不能外逃——调用方只捕获 Exception，Error 会直达全局处理器并杀掉进程。
                 // 无论成败都移除注册表项，原生容忍未知 ID。
-                LogUtil.e(TAG, "close: destroySession failed", exception)
+                LogUtil.error(TAG, "close: destroySession failed", exception)
             }
             sessionId = 0L
         }
@@ -274,7 +274,7 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     fun releaseGpuSurface() {
-        LogUtil.d(TAG, "releaseGpuSurface()")
+        LogUtil.debug(TAG, "releaseGpuSurface()")
         onSession("releaseGpuSurface", Unit) { NativeBridge.detachWindow(it) }
     }
 
@@ -338,7 +338,7 @@ class Bridge(private val config: TerminalConfig) {
                     // 片段带进 message，而事件 JSON 可能含剪贴板文本或 URL——见 PollEvent
                     // 的 `exceptionsWithDebugInfo = false` 脱敏约定）与 JSON 本身。
                     // 长度足以区分「空/截断」与「结构不符」，且不泄露内容。
-                    LogUtil.w(
+                    LogUtil.warn(
                         TAG,
                         "pollAll: undecodable event dropped (${exception.javaClass.simpleName}, ${json.length} chars)",
                     )
@@ -394,12 +394,12 @@ class Bridge(private val config: TerminalConfig) {
     // 端到端接线：只下发主题标识，终端默认色、ANSI 调色板、光标色与搜索高亮色都由
     // 原生按同一份构建期嵌入的 alacritty 主题解析，故两端不可能各自持一份颜色。
     fun setTheme(themeName: String) {
-        LogUtil.d(TAG, "setTheme: $themeName")
+        LogUtil.debug(TAG, "setTheme: $themeName")
         onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName) }
     }
 
     fun setSystemLocale(locale: String) {
-        LogUtil.d(TAG, "setSystemLocale($locale)")
+        LogUtil.debug(TAG, "setSystemLocale($locale)")
         onSession("setSystemLocale", Unit) { NativeBridge.setSystemLocale(it, locale) }
     }
 
@@ -409,7 +409,7 @@ class Bridge(private val config: TerminalConfig) {
     private val lastExtraFontPaths = AtomicReference<List<String>>(emptyList())
 
     fun setExtraFontPaths(paths: List<String>) {
-        LogUtil.d(TAG, "setExtraFontPaths($paths)")
+        LogUtil.debug(TAG, "setExtraFontPaths($paths)")
         // 原生调用会重建字体管线（重新分配图集），因此跳过重复调用，目录内容在重建时自行拾取。
         if (lastExtraFontPaths.getAndSet(paths) == paths) return
         onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
@@ -438,14 +438,14 @@ class Bridge(private val config: TerminalConfig) {
     // null = 会话在调用间隙未建立/已销毁，无从验证（调用方不得清除设置）；
     // false = 原生明确未找到该字族。
     fun setFontFamily(family: String): Boolean? {
-        LogUtil.d(TAG, "setFontFamily($family)")
+        LogUtil.debug(TAG, "setFontFamily($family)")
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
         return onSession("setFontFamily", null) { NativeBridge.setFontFamily(it, override ?: family) }
     }
 
     fun setFontSizeInPlace(sizeTenths: Int) {
-        LogUtil.d(TAG, "setFontSizeInPlace($sizeTenths)")
+        LogUtil.debug(TAG, "setFontSizeInPlace($sizeTenths)")
         onSession("setFontSizeInPlace", Unit) { NativeBridge.setFontSizeInPlace(it, sizeTenths) }
     }
 
@@ -455,7 +455,7 @@ class Bridge(private val config: TerminalConfig) {
 
     // 自定义字体由原生 fontdb 探测文件、注册到渲染器并返回家族名，失败返回 null。
     fun loadFontFile(path: String): String? {
-        LogUtil.d(TAG, "loadFontFile($path)")
+        LogUtil.debug(TAG, "loadFontFile($path)")
         return onSession("loadFontFile", null) { NativeBridge.loadFontFile(it, path) }
     }
 
@@ -541,7 +541,7 @@ class Bridge(private val config: TerminalConfig) {
     fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
     fun processKeyEvent(keyCode: Int, modifiers: Int, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
-        LogUtil.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
+        LogUtil.debug(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
         // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
         // false，交由平台默认实现（空操作）处理。

@@ -61,7 +61,7 @@ class TerminalForegroundService : Service() {
                 true
             } catch (exception: Exception) {
                 // 这绝不能使渲染线程崩溃；但失败必须如实报回，不得伪装成已启动。
-                LogUtil.w("TerminalForegroundService", "startForegroundService failed", exception)
+                LogUtil.warn("TerminalForegroundService", "startForegroundService failed", exception)
                 false
             }
         }

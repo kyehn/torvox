@@ -42,7 +42,7 @@ class BootstrapInstallService : Service() {
             val result =
                 runCatchingCancellable { install(zipPath) }
                     .getOrElse { "FAILED: ${it.message ?: it.javaClass.simpleName}" }
-            LogUtil.i(TAG, "install result: $result")
+            LogUtil.info(TAG, "install result: $result")
             stopSelf(startId)
         }.apply {
             isDaemon = true

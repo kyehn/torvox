@@ -43,9 +43,9 @@ object NativeBridge {
         try {
             System.loadLibrary("native")
             nativeLoaded = true
-            LogUtil.i(TAG, "Native library loaded: native on $loaderThreadName")
+            LogUtil.info(TAG, "Native library loaded: native on $loaderThreadName")
         } catch (exception: UnsatisfiedLinkError) {
-            LogUtil.e(TAG, "Failed to load native library: ${exception.message}")
+            LogUtil.error(TAG, "Failed to load native library: ${exception.message}")
         }
     }
 

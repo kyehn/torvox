@@ -28,7 +28,7 @@ internal class DocumentQueries(private val context: Context) {
             // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
             dir.mkdirs()
             if (!dir.isDirectory) {
-                LogUtil.w("TerminalDocumentsProvider", "Failed to create home directory: $dir")
+                LogUtil.warn("TerminalDocumentsProvider", "Failed to create home directory: $dir")
             }
         }.canonicalFile
 
@@ -52,7 +52,7 @@ internal class DocumentQueries(private val context: Context) {
     fun canonicalOrNull(file: File): String? = try {
         file.canonicalPath
     } catch (error: java.io.IOException) {
-        LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+        LogUtil.warn("TerminalDocumentsProvider", "query skipping unreadable entry", error)
         null
     }
 
@@ -93,7 +93,7 @@ internal class DocumentQueries(private val context: Context) {
                         java.nio.file.LinkOption.NOFOLLOW_LINKS,
                     )
                 } catch (error: java.io.IOException) {
-                    LogUtil.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+                    LogUtil.warn("TerminalDocumentsProvider", "query skipping unreadable entry", error)
                     continue
                 }
             val docId = if (parentRel.isEmpty()) child.name else "$parentRel/${child.name}"

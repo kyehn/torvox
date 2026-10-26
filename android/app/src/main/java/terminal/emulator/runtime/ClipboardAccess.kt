@@ -15,7 +15,7 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
     private fun manager(): ClipboardManager? {
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (manager == null) {
-            LogUtil.w(tag, "Clipboard service not available")
+            LogUtil.warn(tag, "Clipboard service not available")
         }
         return manager
     }
@@ -44,7 +44,7 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
         }
     }.onFailure { failure ->
         // 只记异常类名：异常消息可能嵌入剪贴板文本。
-        LogUtil.e(tag, "剪贴板读取失败: ${failure.javaClass.simpleName}")
+        LogUtil.error(tag, "剪贴板读取失败: ${failure.javaClass.simpleName}")
     }
 
     @SuppressLint("DeprecatedCall")

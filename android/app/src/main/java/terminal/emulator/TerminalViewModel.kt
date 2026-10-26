@@ -649,7 +649,7 @@ constructor(
             val rawText = resolvedSelectionText()
             if (rawText.isEmpty()) {
                 // 不再静默：空解析是用户可见的「点了没反应」，必须留痕可查。
-                LogUtil.w("TerminalViewModel", "复制跳过: 选区文本为空 ${selectionBoundsForLog()}")
+                LogUtil.warn("TerminalViewModel", "复制跳过: 选区文本为空 ${selectionBoundsForLog()}")
                 return
             }
             val clipped = rawText.take(CLIPBOARD_TEXT_MAX_LENGTH)
@@ -698,7 +698,7 @@ constructor(
         fun shareSelection() {
             val rawText = resolvedSelectionText()
             if (rawText.isEmpty()) {
-                LogUtil.w("TerminalViewModel", "分享跳过: 选区文本为空 ${selectionBoundsForLog()}")
+                LogUtil.warn("TerminalViewModel", "分享跳过: 选区文本为空 ${selectionBoundsForLog()}")
                 return
             }
             val shareIntent =
@@ -722,7 +722,7 @@ constructor(
             if (bounds == null || bounds.size != SELECTION_BOUNDS_LENGTH) {
                 // 无内容/查询失败：按“无数据”处理，不伪造选择。显式记录：
                 // 静默返回让调用方无法区分空缓冲与查询超时。
-                LogUtil.w("TerminalViewModel", "selectAll: no bounds (bridge/request failed), skipping")
+                LogUtil.warn("TerminalViewModel", "selectAll: no bounds (bridge/request failed), skipping")
                 return
             }
             val selectionState =
@@ -742,7 +742,7 @@ constructor(
             val end = selection.end ?: return ""
             val bridge = runtime.bridge()
             if (bridge == null) {
-                LogUtil.e("TerminalViewModel", "extractSelectedText: 无活动会话，选区文本未提取")
+                LogUtil.error("TerminalViewModel", "extractSelectedText: 无活动会话，选区文本未提取")
                 return ""
             }
             // 选区行以绝对网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
@@ -764,7 +764,7 @@ constructor(
                     bounds.endCol,
                 )
             if (text == null) {
-                LogUtil.e("TerminalViewModel", "extractSelectedText: 原生选区查询失败，选区文本未提取")
+                LogUtil.error("TerminalViewModel", "extractSelectedText: 原生选区查询失败，选区文本未提取")
                 return ""
             }
             return text
@@ -791,7 +791,7 @@ constructor(
                 val text =
                     clipboardAccess.clipboardText().getOrNull()
                         ?: run {
-                            LogUtil.w("TerminalViewModel", "粘贴跳过: 剪贴板无文本")
+                            LogUtil.warn("TerminalViewModel", "粘贴跳过: 剪贴板无文本")
                             return@launch
                         }
                 executePaste(text)
@@ -813,7 +813,7 @@ constructor(
             val sessionId = runtime.inputTargetSessionId
             val truncated = truncatePasteText(text)
             if (truncated.isEmpty()) {
-                LogUtil.d("TerminalViewModel", "粘贴跳过：空白或截断后无内容")
+                LogUtil.debug("TerminalViewModel", "粘贴跳过：空白或截断后无内容")
                 _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
                 return
             }
@@ -821,11 +821,11 @@ constructor(
                 try {
                     NativeBridge.encodePaste(sessionId, truncated.toByteArray(Charsets.UTF_8))
                 } catch (exception: Exception) {
-                    LogUtil.w("TerminalViewModel", "粘贴编码失败", exception)
+                    LogUtil.warn("TerminalViewModel", "粘贴编码失败", exception)
                     null
                 }
             if (encoded == null || encoded.isEmpty()) {
-                LogUtil.w("TerminalViewModel", "粘贴跳过：编码无输出")
+                LogUtil.warn("TerminalViewModel", "粘贴跳过：编码无输出")
                 _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
                 return
             }
@@ -857,7 +857,7 @@ constructor(
          */
         private suspend fun clearUnknownFontFamily(requestedFamily: String, applied: Boolean?) {
             if (applied != false) return
-            LogUtil.e("Font", "Unknown font family, clearing setting: $requestedFamily")
+            LogUtil.error("Font", "Unknown font family, clearing setting: $requestedFamily")
             settingsRepository.clearFontFamily()
         }
 
@@ -936,11 +936,11 @@ constructor(
                     if (fatal is kotlinx.coroutines.CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
                     // 不得静默回退为空列表。
-                    LogUtil.e("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
+                    LogUtil.error("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
                     throw fatal
                 } catch (exception: Exception) {
                     if (exception is kotlinx.coroutines.CancellationException) throw exception
-                    LogUtil.e("TerminalViewModel", "Failed to load font list", exception)
+                    LogUtil.error("TerminalViewModel", "Failed to load font list", exception)
                     throw exception
                 }
             }
@@ -976,13 +976,13 @@ constructor(
         fun setFontFamily(family: String) {
             viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
-                    LogUtil.d("Font", "Setting font family: $family")
+                    LogUtil.debug("Font", "Setting font family: $family")
                     settingsRepository.setFontFamily(family)
                     val applied = runtime.applyFontSettings()
                     val bridge = runtime.bridge()
                     clearUnknownFontFamily(family, applied)
                     publishFontState(bridge)
-                    LogUtil.d("Font", "Font applied: ${_defaultFontName.value}")
+                    LogUtil.debug("Font", "Font applied: ${_defaultFontName.value}")
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         val message =
                             if (applied == false) {
@@ -999,7 +999,7 @@ constructor(
                     }
                 } catch (exception: Exception) {
                     if (exception is kotlinx.coroutines.CancellationException) throw exception
-                    LogUtil.e("Font", "setFontFamily failed for $family", exception)
+                    LogUtil.error("Font", "setFontFamily failed for $family", exception)
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
                             context,
@@ -1180,7 +1180,7 @@ constructor(
                 // 此后所有设置写入全失败——比不清除更糟。
                 watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
                 if (survivors.isNotEmpty()) {
-                    LogUtil.e("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
+                    LogUtil.error("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
                     return@launch
                 }
                 kotlinx.coroutines.withContext(TerminalDispatchers.main) {
@@ -1251,7 +1251,7 @@ constructor(
         ) {
             return
         }
-        LogUtil.d("TerminalViewModel", "ensureDefaultSession: creating default session")
+        LogUtil.debug("TerminalViewModel", "ensureDefaultSession: creating default session")
         createSession()
     }
 
@@ -1346,7 +1346,7 @@ constructor(
                 block(onProgress)
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("TerminalViewModel", "Bootstrap failed", exception)
+                LogUtil.error("TerminalViewModel", "Bootstrap failed", exception)
                 _bootstrapResult.value =
                     context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
             } finally {
@@ -1540,7 +1540,7 @@ constructor(
         val accent = if (hasAltGr) 0 else deadKeys.take()
         val composed = deadKeys.composeWith(accent, unicodeChar)
         if (accent != 0 && composed == 0) {
-            LogUtil.w("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
+            LogUtil.warn("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
         }
         val outChar = if (composed != 0) composed else unicodeChar
         if (outChar <= 0) return false
@@ -1569,7 +1569,7 @@ constructor(
             // 清除一次性（轻点）粘滞修饰键，使其不会延续到下一次击键。
             // 上方编码器已看到本次击键的激活修饰键；消费发生在编码之后。
             consumeOneShotModifiers()
-            LogUtil.d(
+            LogUtil.debug(
                 "TerminalViewModel",
                 // 绝不记录字符本身——硬件键盘输入可能含密码，logcat 无差别记录。
                 "handleLayoutAwareHardwareKey: keyCode=$keyCode mask=$mask",
@@ -1587,7 +1587,7 @@ constructor(
     fun createSession() {
         val surface = currentSurface
         if (surface == null || !surface.isValid) {
-            LogUtil.e(
+            LogUtil.error(
                 "TerminalViewModel",
                 "createSession: surface null or invalid, currentSurface=$currentSurface",
             )
@@ -1596,7 +1596,7 @@ constructor(
         val surfaceWidthPixels = surfaceWidth
         val surfaceHeightPixels = surfaceHeight
         if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) {
-            LogUtil.e(
+            LogUtil.error(
                 "TerminalViewModel",
                 "createSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
             )
@@ -1606,7 +1606,7 @@ constructor(
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             val currentSurfaceNow = currentSurface
             if (currentSurfaceNow == null || !currentSurfaceNow.isValid) {
-                LogUtil.e(
+                LogUtil.error(
                     "TerminalViewModel",
                     "createSession: surface became invalid before launch",
                 )
@@ -1635,14 +1635,14 @@ constructor(
                         )
                     }
                 } else {
-                    LogUtil.e(
+                    LogUtil.error(
                         "TerminalViewModel",
                         "createSession: runtime returned invalid id=$newId",
                     )
                 }
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("TerminalViewModel", "createSession failed", exception)
+                LogUtil.error("TerminalViewModel", "createSession failed", exception)
             }
         }
     }
@@ -1653,7 +1653,7 @@ constructor(
             // 期间可能已失效或被换掉。
             val surface = currentSurface
             if (surface == null || !surface.isValid) {
-                LogUtil.e(
+                LogUtil.error(
                     "TerminalViewModel",
                     "switchSession: surface null or invalid, currentSurface=$currentSurface",
                 )
@@ -1662,7 +1662,7 @@ constructor(
             val surfaceWidthPixels = surfaceWidth
             val surfaceHeightPixels = surfaceHeight
             if (surfaceWidthPixels == 0 || surfaceHeightPixels == 0) {
-                LogUtil.e(
+                LogUtil.error(
                     "TerminalViewModel",
                     "switchSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
                 )
@@ -1673,14 +1673,14 @@ constructor(
                     runtime.switchSession(id, surface, surfaceWidthPixels, surfaceHeightPixels)
                 } catch (exception: Exception) {
                     if (exception is kotlinx.coroutines.CancellationException) throw exception
-                    LogUtil.e("TerminalViewModel", "switchSession failed for id=$id", exception)
+                    LogUtil.error("TerminalViewModel", "switchSession failed for id=$id", exception)
                     return@launch
                 }
             // 运行期中止了切换（会话已关、surface 失效、渲染线程起不来）：
             // 此时活动会话仍是别的 id，发布 activeSessionId=id 会让 UI 状态与
             // runtime.state/inputTargetSessionId 分裂，敲键将送往未显示的会话。
             if (!switched) {
-                LogUtil.w("TerminalViewModel", "switchSession aborted by runtime for id=$id")
+                LogUtil.warn("TerminalViewModel", "switchSession aborted by runtime for id=$id")
                 return@launch
             }
             _state.update { current ->
@@ -1712,7 +1712,7 @@ constructor(
                 // 崩溃会让整个会话进程不可用。
                 // 原生侧能容忍未知/已死的会话。
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("TerminalViewModel", "closeSession failed for id=$id", exception)
+                LogUtil.error("TerminalViewModel", "closeSession failed for id=$id", exception)
                 return@launch
             }
             withContext(TerminalDispatchers.main) {
@@ -1768,7 +1768,7 @@ constructor(
                 NativeBridge.resetTerminal(id)
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("TerminalViewModel", "resetTerminal failed for id=$id", exception)
+                LogUtil.error("TerminalViewModel", "resetTerminal failed for id=$id", exception)
                 return@launch
             }
             // VT 视口已归零：同步清零 Kotlin 侧滚动记账并通知 surface 重同步，

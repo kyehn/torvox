@@ -162,7 +162,7 @@ class BootstrapDownloader(
         } catch (exception: Exception) {
             // 只记录异常类名而非异常本身：HTTP 错误消息会嵌入完整 URL
             // （含任何 token/查询参数），而此日志可能被崩溃报告器采集。
-            LogUtil.e("BootstrapDownloader", "Download failed: ${exception.javaClass.simpleName}")
+            LogUtil.error("BootstrapDownloader", "Download failed: ${exception.javaClass.simpleName}")
             Result.failure(exception)
         }
     }
