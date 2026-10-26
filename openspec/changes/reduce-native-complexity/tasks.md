@@ -2,7 +2,7 @@
 
 ## 1. 死代码清理
 
-- [ ] 1.1 删除 `MockPtyHandle::set_exited` / `is_exited`、`MockPtyInner::child_exited`
+- [x] 1.1 删除 `MockPtyHandle::set_exited` / `is_exited`、`MockPtyInner::child_exited`
       字段及 `MockPty::write` / `read` 中随之不可达的分支，
       验证：`cargo clippy --all-targets -- -D warnings` 零警告，`cargo test --lib` 全绿
 
