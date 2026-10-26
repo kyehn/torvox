@@ -8,13 +8,13 @@
 
 ## 2. `render_inner` 拆分
 
-- [ ] 2.1 `FrameData` 枚举提到模块级；抽出 `prepare_render`（阶段 0 + 阶段 1）
+- [x] 2.1 `FrameData` 枚举提到模块级；抽出 `prepare_render`（阶段 0 + 阶段 1）
       与 `collect_frame_data`（阶段 2），
       验证：锁的获取/释放点与返回值与拆分前逐条一致
-- [ ] 2.2 抽出 `render_new_frame`（阶段 3 新帧路径）与 `render_idle_frame`
+- [x] 2.2 抽出 `render_new_frame`（阶段 3 新帧路径）与 `render_idle_frame`
       （阶段 3 空闲路径），
       验证：Kitty 缓存失效规则、空闲重绘门控、脏标志写回时机不变
-- [ ] 2.3 抽出共用的脏行掩码构建 helper，消除两条路径的重复，
+- [x] 2.3 抽出共用的脏行掩码构建 helper，消除两条路径的重复，
       验证：新帧路径仍标脏上一帧光标行，空闲路径不标
 
 ## 3. `pump_sessions` 拆分
