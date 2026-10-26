@@ -313,10 +313,12 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
         )
 
         val initial = UxTestUtils.logcatSince(dragStartMs)
-        val renderedFrames = initial.count { it.contains("render_frame: presented") }
+        // 原生侧的呈现诊断按 500ms 窗口汇总：每行一条，窗口内的呈现帧数记在该行里。
+        val presentSummaries = initial.count { it.contains("render_frame: presented") }
         assertTrue(
-            "持续滚动 2.5s 内没有任何一帧被呈现：\n" + initial.joinToString("\n").takeLast(800),
-            renderedFrames > 0,
+            "持续滚动 2.5s 内没有任何一帧被呈现（呈现汇总 0 条）：\n" +
+                initial.joinToString("\n").takeLast(800),
+            presentSummaries > 0,
         )
         // 阶段耗时窗口满 60 帧才输出：真机 60 FPS 下约 1s，软件渲染模拟器一帧 ~110ms
         // 就要 6s 以上，必然晚于 2.5s 的拖动结束。要求「窗口在拖动期内结束」等于把
@@ -332,7 +334,7 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
             }
         assertNotNull(
             "等待 ${WINDOW_WAIT_TIMEOUT_MS}ms 仍没有一条帧节奏窗口覆盖拖动期" +
-                "（共呈现 $renderedFrames 帧）——仪器失效，不能当作通过",
+                "（呈现汇总 $presentSummaries 条）——仪器失效，不能当作通过",
             sawWindow,
         )
         // 阶段耗时有两个来源，按设备速度各自出现：慢帧走 SLOW_LOOP（逐帧、500ms 节流），
@@ -351,7 +353,7 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
                 .filter { it.covers(dragStartMs, dragEndMs) }
         val worstPre = (slowLoopPreMs + windows.map { it.preMaxMs }).maxOrNull()
         assertTrue(
-            "滚动期没有采到任何阶段耗时样本（$renderedFrames 帧已呈现）——仪器失效，不能当作通过",
+            "滚动期没有采到任何阶段耗时样本（呈现汇总 $presentSummaries 条）——仪器失效，不能当作通过",
             worstPre != null,
         )
         windows.maxByOrNull { it.p95Ms }?.let { window ->

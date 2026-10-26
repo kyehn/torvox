@@ -890,11 +890,16 @@ impl Renderer {
             );
         }
 
-        log::debug!(
-            "render_frame: presented {} instances (partial={partial}, bands={})",
-            instances.len(),
-            dirty_bands.len(),
-        );
+        // 呈现诊断按 500ms 窗口汇总：逐帧输出会把 logcat 刷成帧洪水（实测 84s 内
+        // 691 行、间隔中位 15ms），规范要求两次输出间隔不小于 500ms。窗口内的
+        // 呈现帧数随该行一起交出——限频吞掉的是条数，不是次数。
+        if let Some(presented_frames) = self.present_log.record() {
+            log::debug!(
+                "render_frame: presented {presented_frames} frames (last: {} instances, partial={partial}, dirty_bands={})",
+                instances.len(),
+                dirty_bands.len(),
+            );
+        }
 
         Ok(())
     }

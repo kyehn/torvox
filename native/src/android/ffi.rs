@@ -4604,7 +4604,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
             let sent = session.terminal().scroll_viewport(-(delta as isize));
             if sent {
                 session.set_last_scroll_offset(target);
-                log::debug!("setScrollOffset: target={target} delta={delta}");
+                // 触摸滚动的每个 MOVE 都会走到这里（数十次/手势），与同路径的
+                // `setScrollYPx` 同级：日志级别取 trace，debug 级只会把 logcat 刷满。
+                // 偏移是否正确在画面上立刻可见，逐次数值不是排障信号。
+                log::trace!("setScrollOffset: target={target} delta={delta}");
             } else {
                 // 命令通道已满或 VT 线程已消失：**不**推进 `last_scroll_offset`，
                 // 使下次以相同目标调用时能重试该增量而非静默丢弃。此前先推进全局
@@ -4657,7 +4660,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
         };
         render_state.renderer.set_viewport_scroll_px(offset_px);
         // 触摸滚动的每个 MOVE 都会走到这里（数十次/手势），日志级别取 trace：
-        // 值本身在 `setScrollOffset` 里已有落点记录，debug 级只会把 CI 日志刷满。
+        // 与同路径的 `setScrollOffset` 同级，debug 级只会把 logcat 刷满。
         log::trace!("setScrollYPx: {offset_px}");
     })
 }

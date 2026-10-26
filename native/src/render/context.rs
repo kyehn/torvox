@@ -300,6 +300,9 @@ pub struct Renderer {
     /// 交换链是否支持 `COPY_DST`（挂载时依据 `usages` 检查）；为 false 时走旧的
     /// 直接渲染路径并忽略脏带。
     pub(crate) swapchain_copy_supported: bool,
+    /// 呈现诊断的汇总闸门：逐帧呈现按 500ms 窗口汇总成一行，窗口内的呈现帧数
+    /// 随该行一起交出（规范要求逐帧诊断限频且不得吞掉计数）。
+    pub(crate) present_log: crate::render::slow_log::CountedLogThrottle,
 }
 
 impl Renderer {
@@ -558,6 +561,7 @@ impl Renderer {
             frame_view: None,
             frame_invalidated: true,
             swapchain_copy_supported: false,
+            present_log: crate::render::slow_log::CountedLogThrottle::new(),
         }
     }
 
