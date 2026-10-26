@@ -986,11 +986,17 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 内层 run 循环（拆出来供 `catch_unwind` 调用）。
-    fn run_inner(config: RunConfig) {
-        let Ok(mut terminal) = Terminal::new(config.cols as u16, config.rows as u16) else {
-            log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
-            return;
+    /// 创建上游终端实例并注册应答回调：回滚上限、Kitty 介质、PTY 回写、
+    /// OSC 52 写回与 XTWINOPS 尺寸。
+    ///
+    /// 返回 `None` 表示终端实例创建失败，调用方据此退出 VT 线程。
+    fn configure_terminal(config: &RunConfig) -> Option<Terminal<'_, '_>> {
+        let mut terminal = match Terminal::new(config.cols as u16, config.rows as u16) {
+            Ok(terminal) => terminal,
+            Err(_) => {
+                log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
+                return None;
+            }
         };
         // 上游（git master）的 `Terminal::new` 已不再接收 options，
         // 回滚改用 `set_scrollback_max_lines` setter 配置。
@@ -1117,6 +1123,14 @@ impl super::GhosttyTerminal {
         }) {
             log::error!("ghostty_terminal: on_size callback registration failed: {error}");
         }
+        Some(terminal)
+    }
+
+    /// 内层 run 循环（拆出来供 `catch_unwind` 调用）。
+    fn run_inner(config: RunConfig) {
+        let Some(mut terminal) = Self::configure_terminal(&config) else {
+            return;
+        };
         let mut default_background = Self::color_to_float(config.theme.palette.background);
         let mut default_foreground = Self::color_to_float(config.theme.palette.foreground);
 
