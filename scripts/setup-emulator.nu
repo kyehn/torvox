@@ -30,6 +30,7 @@ def print_emulator_logs [] {
 
 def wait_for_boot [--boot_timeout: int] {
     let start = (date now)
+    mut waited = 0
     loop {
         let boot = (adb_output [-s emulator-5554 shell getprop sys.boot_completed] | str trim)
         if $boot == "1" {
@@ -46,6 +47,11 @@ def wait_for_boot [--boot_timeout: int] {
             error make { msg: $"Emulator did not boot within ($boot_timeout)s" }
         }
         sleep 5sec
+        $waited += 1
+        # 引导可能长达数分钟，每 30s 报一次等待时长，避免静默被误判为挂死。
+        if $waited mod 6 == 0 {
+            print $"waiting for boot: ((((date now) - $start) / 1sec | into int))s"
+        }
     }
 }
 
@@ -70,6 +76,7 @@ def main [--boot_timeout: int = 360, --gpu: string = "swiftshader_indirect", --k
             }
             if not (($avd_ini | path exists) and ($avd_dir | path exists)) {
                 "no\n" | ^($avdmanager_path) create avd --name test_avd --package $system_image --force
+                print $"AVD created at ($avd_dir)"
             }
 
             mkdir $avd_dir
@@ -77,6 +84,7 @@ def main [--boot_timeout: int = 360, --gpu: string = "swiftshader_indirect", --k
             rm -f ($avd_home | path join "emu-update-last-check.ini")
             let wipe_flag = (if $keep_data { [] } else { ["-wipe-data"] })
             $env.QT_QPA_PLATFORM = "offscreen"
+            print $"Booting emulator, boot timeout ($boot_timeout)s, log: ($emulator_log)"
             ^setsid --fork sh -c 'for f in /proc/self/fd/*; do n=${f##*/}; [ $n -gt 2 ] && eval "exec $n>&-"; done; exec "$@"' -- ($sdk_root | path join "emulator" "emulator") -avd test_avd -no-window -gpu $gpu -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics ...$wipe_flag -memory 2048 -feature -Wifi -dns-server 8.8.8.8 o> $emulator_log e> $emulator_log_err
         }
         wait_for_boot --boot_timeout $boot_timeout
