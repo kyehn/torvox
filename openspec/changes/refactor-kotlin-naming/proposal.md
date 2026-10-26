@@ -16,9 +16,10 @@
 | `runtime/TerminalRuntime.kt` | `entry.id` / `switchSession(id)` / `closeSession(id)` / `px` / `fps` | 缩写 |
 | `input/ComposingBaseline.kt` | `to` | 缩写 |
 | `bridge/Bridge.kt` | `val id = sessionId` | 缩写 |
-| `installer/*` | `abi` / `arch` / `pct` / `proc` | 缩写 |
-| `DocumentMutations.kt` / `DocumentQueries.kt` | `src` / `dstParent` / `ext` / `key` | 缩写 |
-| 测试代码 | `w` / `h` / `a` / `b` / `pa` / `pb` / `x` / `y` / `t` / `t0` / `dt` / `fd` / `s` / `ch` / `cw` / `h0` / `h1` / `e` / `up` | 单字母 + 缩写 |
+| `installer/*` | `abi` / `arch` / `pct` / `proc` / `bootstrapDirs` / `dirs` | 缩写 |
+| `DocumentMutations.kt` / `DocumentQueries.kt` | `src` / `dstParent` / `ext` / `key` / `dir` | 缩写 |
+| `bridge/Bridge.kt` / `bridge/NativeBridge.kt` | `xPx` / `yPx` | 缩写 |
+| 测试代码 | `w` / `h` / `a` / `b` / `pa` / `pb` / `x` / `y` / `t` / `t0` / `dt` / `fd` / `s` / `ch` / `cw` / `h0` / `h1` / `e` / `up` / `out` / `enc` / `orch` / `frac` / `keyE` / `upAt` | 单字母 + 缩写 |
 
 其中 `LogUtil.d` / `LogUtil.i` / `LogUtil.w` / `LogUtil.e` 尤其值得处理：它们是
 全仓调用最频繁的工具函数之一，名字只有一个字母，调用点读起来是
@@ -30,7 +31,9 @@
 - 把缩写标识符（`wm`/`vm`/`sr`/`sc`/`er`/`ec`/`maxR`/`maxC`/`px`/`py`/`ev`/
   `loc`/`sel`/`bar`/`absX`/`absY`/`cur`/`ids`/`dirs`/`meta`/`abi`/`arch`/`pct`/
   `proc`/`src`/`dstParent`/`ext`/`slop`/`fps`/`imm`/`attr`/`rect`/`del`/`row1`/
-  `row2`/`ch`/`cw`/`fd`/`h0`/`h1`/`t0`/`dt`/`up`/`id` 等）替换为完整名称。
+  `row2`/`ch`/`cw`/`fd`/`h0`/`h1`/`t0`/`dt`/`up`/`id`/`lo`/`hi`/`sx`/`sy`/`ex`/
+  `ey`/`xPx`/`yPx`/`bootstrapDirs`/`out`/`enc`/`orch`/`frac`/`keyE`/`upAt`/
+  `minW`/`minH`/`maxW`/`maxH` 等）替换为完整名称。
 - `LogUtil.d` / `i` / `w` / `e` 改名为 `debug` / `info` / `warn` / `error`。
 - 只改标识符拼写：控制流、返回值、断言、日志文案与对外接口的形状全部不变。
 
