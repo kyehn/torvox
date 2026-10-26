@@ -117,7 +117,9 @@ PTY 回写回调、OSC 52 写回回调、XTWINOPS 尺寸回调、编码器、渲
 抽出 `configure_terminal(config: &RunConfig) -> Option<Terminal<'_, '_>>`，返回
 `None` 表示 `Terminal::new` 失败，调用方据此退出 VT 线程。函数体只装「终端
 实例本身的配置」：回滚上限、Kitty 介质、PTY 回写回调、OSC 52 写回回调、
-XTWINOPS 尺寸回调。
+XTWINOPS 尺寸回调。OSC 52 写回回调的闭包体另有 60 余行，独立成
+`register_clipboard_write_callback`，使 `configure_terminal` 落到 aislop 的
+函数长度阈值内。
 
 **为什么不把事件循环也切细：**事件循环里的 `while let Some(command)` 分派
 要同时改动十来个可变状态（`terminal`、`extractors`、`cached_snapshot`、
@@ -125,6 +127,10 @@ XTWINOPS 尺寸回调。
 脏标记、应答通道）。把它们打包成一个结构体传给分派函数，等于把「命令处理」
 重写成另一套形状——改动面远大于收益，且命令语义（每条命令的失效时机）是
 本仓最不该在重构中动的地方。故本轮只抽初始化段。
+
+**代价（已知且接受）：**`run_inner` 仍有 400 余行，aislop 的「函数过长」
+告警由本变更前的 3 条降为 1 条，但不归零。彻底归零需要把命令分派按命令族
+拆成多个函数并引入承载共享状态的结构体，那是另一次改动，应单独评审。
 
 **为什么不抽「渲染提取器 + 编码器」的创建：**它们与 `Terminal` 的生命周期
 绑定，但返回值类型各不相同（`Encoders`、`RenderExtractors`），打包进返回值

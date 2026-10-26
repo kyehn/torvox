@@ -986,6 +986,70 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 注册 OSC 52 剪贴板写回回调。
+    ///
+    /// 上游要求回调返回前必须 `reply`，否则视为拒绝写入并暂停 VT 流。
+    /// OSC 52 无应答时取值被丢弃，但调用本身不可省略。
+    fn register_clipboard_write_callback(
+        terminal: &mut Terminal<'_, '_>,
+        clipboard_tx: flume::Sender<(String, String)>,
+    ) {
+        let result = terminal.on_clipboard_write(move |_terminal, write| {
+            // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
+            let selection = match write.location() {
+                libghostty_vt::terminal::ClipboardLocation::Standard => "c",
+                libghostty_vt::terminal::ClipboardLocation::Primary => "p",
+                libghostty_vt::terminal::ClipboardLocation::Selection => "s",
+            }
+            .to_string();
+            let mut fallback: Option<&[u8]> = None;
+            let mut chosen: Option<&[u8]> = None;
+            for content in write.contents() {
+                if fallback.is_none() {
+                    fallback = Some(content.data);
+                }
+                if content.mime.starts_with(b"text/") {
+                    chosen = Some(content.data);
+                    break;
+                }
+            }
+            let payload = chosen.or(fallback).unwrap_or(&[]);
+            // OSC 52 的负载由被测程序任意大，而下游是 `String` 事件、事件队列与
+            // Kotlin 侧剪贴板：一份几十 MB 的负载会一路复制到 UI 线程并撑爆内存。
+            // 上限取「远超任何真实剪贴板内容、又不至于拖垮进程」的量级，并在
+            // 截断时显式记录——静默截断只会让用户拿到半个剪贴板却不知为何。
+            let original_len = payload.len();
+            let truncated = original_len > MAX_CLIPBOARD_PAYLOAD_BYTES;
+            let payload = if truncated {
+                &payload[..MAX_CLIPBOARD_PAYLOAD_BYTES]
+            } else {
+                payload
+            };
+            let text = String::from_utf8_lossy(payload).into_owned();
+            if truncated {
+                log::warn!(
+                    "OSC 52 clipboard payload truncated from {original_len} to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes"
+                );
+            }
+            // 通道满（`bounded(16)`）且消费侧（渲染暂停时停调）跟不上时丢弃——
+            // 阻塞 VT 线程更糟。丢则记日志并回 `Busy`，不静默。
+            if clipboard_tx.try_send((selection, text)).is_err() {
+                log::warn!("OSC 52 clipboard dropped: channel full");
+                write.reply(
+                    Err(libghostty_vt::terminal::ClipboardWriteError::Busy),
+                    false,
+                );
+            } else {
+                write.reply(Ok(()), false);
+            }
+        });
+        if let Err(error) = result {
+            log::error!(
+                "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
+            );
+        }
+    }
+
     /// 创建上游终端实例并注册应答回调：回滚上限、Kitty 介质、PTY 回写、
     /// OSC 52 写回与 XTWINOPS 尺寸。
     ///
@@ -1046,64 +1110,7 @@ impl super::GhosttyTerminal {
         // 由调用方在 flush 后收割。本仓不再自建 OSC 解析器；try_send 永不阻塞
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
         // 的最小扫描器拦截（FR-036）。
-        // 上游要求回调返回前必须 `reply`，否则视为拒绝写入并暂停 VT 流。
-        // OSC 52 无应答时取值被丢弃，但调用本身不可省略。
-        if let Err(error) = terminal.on_clipboard_write({
-            let clipboard_tx = config.clipboard_tx.clone();
-            move |_terminal, write| {
-                // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
-                let selection = match write.location() {
-                    libghostty_vt::terminal::ClipboardLocation::Standard => "c",
-                    libghostty_vt::terminal::ClipboardLocation::Primary => "p",
-                    libghostty_vt::terminal::ClipboardLocation::Selection => "s",
-                }
-                .to_string();
-                let mut fallback: Option<&[u8]> = None;
-                let mut chosen: Option<&[u8]> = None;
-                for content in write.contents() {
-                    if fallback.is_none() {
-                        fallback = Some(content.data);
-                    }
-                    if content.mime.starts_with(b"text/") {
-                        chosen = Some(content.data);
-                        break;
-                    }
-                }
-                let payload = chosen.or(fallback).unwrap_or(&[]);
-                // OSC 52 的负载由被测程序任意大，而下游是 `String` 事件、事件队列与
-                // Kotlin 侧剪贴板：一份几十 MB 的负载会一路复制到 UI 线程并撑爆内存。
-                // 上限取「远超任何真实剪贴板内容、又不至于拖垮进程」的量级，并在
-                // 截断时显式记录——静默截断只会让用户拿到半个剪贴板却不知为何。
-                let original_len = payload.len();
-                let truncated = original_len > MAX_CLIPBOARD_PAYLOAD_BYTES;
-                let payload = if truncated {
-                    &payload[..MAX_CLIPBOARD_PAYLOAD_BYTES]
-                } else {
-                    payload
-                };
-                let text = String::from_utf8_lossy(payload).into_owned();
-                if truncated {
-                    log::warn!(
-                        "OSC 52 clipboard payload truncated from {original_len} to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes"
-                    );
-                }
-                // 通道满（`bounded(16)`）且消费侧（渲染暂停时停调）跟不上时丢弃——
-                // 阻塞 VT 线程更糟。丢则记日志并回 `Busy`，不静默。
-                if clipboard_tx.try_send((selection, text)).is_err() {
-                    log::warn!("OSC 52 clipboard dropped: channel full");
-                    write.reply(
-                        Err(libghostty_vt::terminal::ClipboardWriteError::Busy),
-                        false,
-                    );
-                } else {
-                    write.reply(Ok(()), false);
-                }
-            }
-        }) {
-            log::error!(
-                "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
-            );
-        }
+        Self::register_clipboard_write_callback(&mut terminal, config.clipboard_tx.clone());
         // XTWINOPS 尺寸查询（CSI 14/16/18t）走上游 on_size 回调：行列取终端
         // 实时值，单元格像素取本层回填的共享几何（Resize 填默认，
         // SetCellPixelSize 填真实字形度量）。无锁读取，永不阻塞 VT 线程。
