@@ -1974,9 +1974,31 @@ fn pump_sessions() {
         );
         // 会话锁在此释放（循环迭代末尾）。
     }
-    // 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
-    // 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
-    // VT 线程绝不能阻塞等待宿主应用，且 `clipboardResult` 可能在任意线程到达。
+    handle_clipboard_reads(pending_clipboard_reads, &mut pending_events);
+
+    for (id, reported) in pending_exits {
+        pending_events.push(Event::Exit {
+            session_id: id,
+            code: match reported {
+                crate::terminal::session::ReportedExit::Code(code) => Some(code),
+                crate::terminal::session::ReportedExit::Unknown => None,
+            },
+        });
+    }
+    // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。
+    for event in pending_events {
+        EVENT_QUEUE.push(event);
+    }
+}
+
+/// 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
+/// 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
+///
+/// VT 线程绝不能阻塞等待宿主应用，且 `clipboardResult` 可能在任意线程到达。
+fn handle_clipboard_reads(
+    pending_clipboard_reads: Vec<(u64, String)>,
+    pending_events: &mut Vec<Event>,
+) {
     let mut flood_shed_answers = 0usize;
     for (session_id, selection) in pending_clipboard_reads {
         let unanswered = unanswered_clipboard_reads(session_id);
@@ -2014,7 +2036,7 @@ fn pump_sessions() {
                 let answer = wait_for_clipboard_answer(rx);
                 // 应答线程是槽位的唯一所有者：无论宿主是否作答（事件被队列淘汰、
                 // UI 未处理、答复晚于截止时间），槽位至多存活 CLIPBOARD_ANSWER_TIMEOUT。
-                // 否则远端反复 `\e]52;c;?` 会让本表无界增长。
+                // 否则远端反复 `\e]52;c;?` 会让本表无界增长。
                 // 迟到的 clipboardResult 在此之后到达即为无操作（见 clipboard_result_inner）。
                 cancel_request(session_id, request_id);
                 let Some(text) = answer else { return };
@@ -2027,20 +2049,6 @@ fn pump_sessions() {
             // 应答线程启动前会话已消失：丢弃一次性槽位，避免 `REQUEST_REGISTRY` 泄漏 Sender。
             cancel_request(session_id, request_id);
         }
-    }
-
-    for (id, reported) in pending_exits {
-        pending_events.push(Event::Exit {
-            session_id: id,
-            code: match reported {
-                crate::terminal::session::ReportedExit::Code(code) => Some(code),
-                crate::terminal::session::ReportedExit::Unknown => None,
-            },
-        });
-    }
-    // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。
-    for event in pending_events {
-        EVENT_QUEUE.push(event);
     }
 }
 
