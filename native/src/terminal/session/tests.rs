@@ -1,4 +1,9 @@
+use super::lifecycle::exit_signal_target;
+use super::output::{MAX_CLIPBOARD_TEXT_QUEUE, MAX_PTY_WRITES_PER_FRAME};
+use super::spawn::{ReaderErrorAction, read_error_action};
 use super::*;
+use crate::terminal::shell_env::ShellEnv;
+use std::time::Duration;
 
 fn drain_output(session: &mut Session, deadline: std::time::Instant) {
     while std::time::Instant::now() < deadline {
