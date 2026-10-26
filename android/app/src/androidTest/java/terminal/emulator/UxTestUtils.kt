@@ -9,6 +9,7 @@ import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.runtime.TerminalRuntime
 import java.io.File
 
@@ -439,18 +440,23 @@ fun scrollViewportToBottom(bridge: Bridge, runtime: TerminalRuntime, timeoutMs: 
  * 白等 30s 后报「shell prompt 未出现」——这与被测行为无关，纯粹是把上一用例的残留
  * 当成了本用例的前提。空行的 Enter 一定会让 shell 重画提示符，故先给一次机会，
  * 只在真的等不到时才发（常见路径不额外多出一行提示符）。
+ *
+ * 轮询前先 `pollEvent`：生产侧输出泵是渲染线程，跨用例 surface 重建后可能停转，
+ * 只读网格而不泵送会一直等到超时。
  */
 fun awaitShellPrompt(bridge: Bridge, timeoutMs: Long = 30_000) {
-    val seen = {
+    val promptVisible = {
         UxTestUtils.pollUntilTrue(timeoutMs = minOf(timeoutMs, 3_000), intervalMs = 100) {
+            NativeBridge.pollEvent()
             bridge.getTerminalText()?.let { it.contains("$") || it.contains("#") } == true
         }
     }
-    if (seen() != null) return
+    if (promptVisible() != null) return
     bridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
     assertNotNull(
         "shell prompt 未出现",
         UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
+            NativeBridge.pollEvent()
             bridge.getTerminalText()?.let { it.contains("$") || it.contains("#") } == true
         },
     )

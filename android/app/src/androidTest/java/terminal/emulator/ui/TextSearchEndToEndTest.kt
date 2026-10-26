@@ -15,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -25,7 +26,9 @@ import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
 import terminal.emulator.util.runCatchingCancellable
@@ -63,6 +66,9 @@ class TextSearchEndToEndTest : TerminalLogcatTest() {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
+    @After
+    fun resetSession() = composeTestRule.cleanUpTerminalState()
+
     private val uniqueMarker: String by lazy {
         "SRCH_${java.util.UUID.randomUUID().toString().take(6).uppercase()}"
     }
@@ -74,16 +80,8 @@ class TextSearchEndToEndTest : TerminalLogcatTest() {
     // ── Helper: generate multi-page content ──
 
     private fun generateMultiPageContent(bridge: Bridge, marker: String) {
-        // 先等 prompt：冷启动 stdin 未消费阶段的字节会丢失（粘贴案定案同类）。轮询自带 pump（pollEvent 驱动 native 输出处理）：生产泵是渲染线程，跨用例 surface 重建后可能停转，只读格不泵送会永远卡死，本用例自己驱动队列。
-        val promptReady =
-            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-                runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
-                runCatchingCancellable { bridge.getTerminalText() }.getOrNull().orEmpty().contains("$")
-            }
-        assertNotNull(
-            "shell prompt 未就绪, 实际尾部: ${runCatchingCancellable { bridge.getTerminalText() }.getOrNull()?.takeLast(300)}",
-            promptReady,
-        )
+        // 共用会话的屏幕可能已被上个用例清空：awaitShellPrompt 等不到时会回车重画提示符。
+        awaitShellPrompt(bridge)
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
         for (i in 1..linesToFill) {
