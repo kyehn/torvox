@@ -1,5 +1,4 @@
 use super::*;
-use crate::render::font::*;
 
 /// 回归钉：样式面判定须随 `clear_identity_caches` 一并失效。
 ///

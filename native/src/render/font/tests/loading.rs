@@ -1,5 +1,4 @@
 use super::*;
-use crate::render::font::*;
 
 #[test]
 fn load_font_file_valid_ttf_returns_family() {
