@@ -134,7 +134,6 @@ fn assert_sgr31_red_foreground(cells: &[CellData], context: &str) {
 
 #[test]
 // 与字面量默认值精确比较，不涉及浮点运算。
-#[allow(clippy::float_cmp)]
 fn cell_snapshot_clone() {
     let cell = CellSnapshot {
         codepoint: 65,
