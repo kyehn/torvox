@@ -152,7 +152,7 @@ class Bridge(private val config: TerminalConfig) {
      * `render_state_mut`），这里通常是幂等空转；它真正保住的是「GPU 初始化失败不致命」：
      * 那次度量查询赶上 GPU 暂不可用会返回 0、由 Kotlin 退回默认网格，此处再试一次。
      *
-     * 下方 [catch] 只接得住 JNI 层抛回的 `RuntimeException`；字体库无任何可用面时
+     * 下方 `catch` 只接得住 JNI 层抛回的 `RuntimeException`；字体库无任何可用面时
      * `font_db::fatal` 走 `process::abort`，是进程级终止，此处接不到。
      */
     fun prefetchRenderStateAsync(scope: kotlinx.coroutines.CoroutineScope) {
@@ -647,7 +647,7 @@ class Bridge(private val config: TerminalConfig) {
     /**
      * 会话**已应用**的滚动偏移（0 = 视口贴底）。
      *
-     * 与 [TerminalRuntime.activeSessionScrollOffset] 的「待消费命令槽」不同：只有 VT 侧
+     * 与 [terminal.emulator.runtime.TerminalRuntime.activeSessionScrollOffset] 的「待消费命令槽」不同：只有 VT 侧
      * 接受了本次滚动后这个值才变化，故可作为「归位已完成」的稳定判据（仪器测试用）。
      */
     fun sessionScrollOffset(): Int = onSession("sessionScrollOffset", 0) {

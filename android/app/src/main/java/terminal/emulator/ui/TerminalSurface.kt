@@ -1836,7 +1836,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 输入法遮挡高度（px，已扣除系统导航条），由平台 insets 派发维护
      * （[installImeInsetListener]）。本视图用它算平移量（[applyImeShift]）；
-     * 网格高度不读这个字段，而是读运行期的 [TerminalRuntime.imeGridReserve]——
+     * 网格高度不读这个字段，而是读运行期的
+     * [terminal.emulator.runtime.TerminalRuntime.imeGridReserve]——
      * 那是网格扣减的唯一来源，与本字段同源但不可独立修改。
      *
      * 备用屏应用按整屏行数布局（helix/vim/less 都进备用屏并占满视口），键盘遮挡
@@ -3210,7 +3211,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /**
      * 本视图的 Surface 归属凭证：一个视图实例一个。用于区分「当前持有 Surface 的视图」
-     * 与「Activity 重建后仍在迟到回调的旧视图」（见 [TerminalRuntime.onSurfaceDestroyed]）。
+     * 与「Activity 重建后仍在迟到回调的旧视图」
+     * （见 [terminal.emulator.runtime.TerminalRuntime.onSurfaceDestroyed]）。
      */
     private val surfaceOwnershipToken = Any()
 
@@ -3978,7 +3980,7 @@ internal fun clampSelection(
  * [line] 是 [Bridge.scrollbackLine] 的原样结果：**每列恰好一个字符**，宽字符尾格是
  * 空格占位，故字符下标即列号，直接取 `line[col]` 即可——按宽度表反推列↔字符映射
  * 会在每个宽字符之后整体错位一格（该模型已删除，见归档变更 design 第 1 节）。
- * 宽字符尾格的落点须先经 [snapToWideCharBoundary] 吸附到字符起始列再传入。
+ * 宽字符尾格的落点须先经 `snapToWideCharBoundary` 吸附到字符起始列再传入。
  *
  * 空行（null）、空白单元、或行尾之后的任何列都算空白：termux 的
  * `getSelectedText(x,y,x,y)` 对三者都返回 ""，故它们都必须归类为仅粘贴——

@@ -140,7 +140,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
          * ①仍是必要的：高密度或大屏设备上②往往比①宽松，Termux 的像素上限此时是更紧的那条。
          *
          * @param spToPxScale sp→像素的完整系数（显示密度 × 系统字体缩放，见
-         *   [TerminalRuntime.spToPxScale]）。必须用完整系数而非仅密度：字形实际
+         *   [terminal.emulator.runtime.TerminalRuntime.spToPxScale]）。必须用完整系数而非仅密度：字形实际
          *   光栅尺度即 `sp * spToPxScale`，只用密度会在系统「字体大小」大于 1 时
          *   放行超出 Termux 像素上限的字号（实测 fontScale=1.3 时 96sp 实际
          *   327px > 256px）。

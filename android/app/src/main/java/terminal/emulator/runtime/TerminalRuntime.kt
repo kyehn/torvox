@@ -243,7 +243,7 @@ internal data class SessionEntry(
      * 退出会话缓存的退出码；`null` 表示原生未能取得（`waitpid` 失败），**不是** 0。
      *
      * 用户在 `[Process completed]` 提示上回车确认关闭时，渲染循环要把缓存的退出码
-     * 再交给 [handleSessionExit] 一次；可空类型让「码未知」在这一跳里也不会退化成 0。
+     * 再交给 `handleSessionExit` 一次；可空类型让「码未知」在这一跳里也不会退化成 0。
      */
     @Volatile var processExitCode: Int? = null,
     // 用户在提示上按 Enter 时由 writeToPty 置位。渲染循环侦测到后重新派发 handleSessionExit，
@@ -283,7 +283,7 @@ internal data class SessionEntry(
      * 渲染线程上次醒来时原生唤醒源的代数。
      *
      * 只由渲染线程读写；与 [Bridge.waitOutput] 的返回值配套，使「查完信号再进场」
-     * 与通知竞争时不丢唤醒（见 [RenderWake] 的代数语义）。
+     * 与通知竞争时不丢唤醒（见 `wakeGeneration` 的代数语义）。
      */
     @Volatile var wakeGeneration: Long = 0L
 
@@ -322,14 +322,14 @@ internal data class SessionEntry(
      * 本会话渲染线程最后见到的视口最后一个有内容的行（0 起，
      * [Bridge.LAST_CONTENT_ROW_NONE] = 视口全空）。输入法跟随位移按它裁剪平移量：
      * 稀疏会话不下移（内容原位），内容占满网格时按整块键盘高度上移。
-     * 与活动会话的 [lastContentRowFlow] 对应，会话切换时随之重新初始化。
+     * 与活动会话的 [TerminalRuntime.lastContentRowFlow] 对应，会话切换时随之重新初始化。
      */
     @Volatile var lastContentRow: Int = Bridge.LAST_CONTENT_ROW_NONE
 
     /**
      * 本会话渲染线程最后见到的备用屏激活状态（helix/vim 等全屏 TUI）。
      * 备用屏恒占满视口，输入法跟随位移必须为 0，否则应用顶部被推出屏幕。
-     * 与活动会话的 [altScreenActiveFlow] 对应，会话切换时随之重新初始化。
+     * 与活动会话的 [TerminalRuntime.altScreenActiveFlow] 对应，会话切换时随之重新初始化。
      */
     @Volatile var altScreenActive: Boolean = false
 
@@ -2261,7 +2261,7 @@ constructor(
 
     /**
      * 渲染循环窗口封尾的帧耗时日志，从渲染线程移到 IO 协程打：
-     * 其中 [SessionEntry.bridge.scrollbackLength] 是 VT 通道外置查询，
+     * 其中 `SessionEntry.bridge.scrollbackLength` 是 VT 通道外置查询，
      * 与 title 同款 50–500ms 等待——留在渲染线程时随窗口边界每 60 帧
      * （≈1 秒）把那一帧拖到 60–115ms（压测环境踩满 500ms）。
      * 严重度判定与趋势喂入已在渲染线程内完成，这里只做取数与打印。
@@ -3923,7 +3923,7 @@ constructor(
      *
      * 该残留不是显示瑕疵：备用屏陈旧为真时 [imeGridReserve] 会一直扣着一份早已
      * 撤走的键盘高度（备用屏网格永久塌缩且不自愈），`computeImeSurfaceShift` 的
-     * 备用屏分支恒返回 0（主屏不再随键盘上移），而 [TerminalSurface] 的输入法
+     * 备用屏分支恒返回 0（主屏不再随键盘上移），而 [terminal.emulator.ui.TerminalSurface] 的输入法
      * 网格防抖会在主屏上白白领走渲染暂停。
      */
     private fun publishActiveSessionState(entry: SessionEntry?) {
@@ -4540,7 +4540,7 @@ private data class RenderContract(
 /**
  * 引导前的占位网格尺寸（xterm 的经典 24×80）。
  *
- * 单一来源：[RuntimeState] 的默认值、视图侧的初始镜像与 [buildConfig] 都取这里。
+ * 单一来源：[RuntimeState] 的默认值、视图侧的初始镜像与 `buildConfig` 都取这里。
  * 三处各写一份时，改一处不会影响另两处——「首个会话的网格」与「视图在拿到真实
  * 尺寸前显示的网格」会分家，表现为启动瞬间的行列跳变。
  */
@@ -4625,7 +4625,7 @@ internal fun initialSpawnGrid(
  * （输入法扣减被丢掉），另两条却收敛到一行——同一几何两种网格，正是
  * 「扣减量单一来源」要防的分叉。
  *
- * @param imeReserve [imeGridReserve]：只在备用屏非零，主屏恒 0。
+ * @param imeReserve [TerminalRuntime.imeGridReserve]：只在备用屏非零，主屏恒 0。
  */
 internal fun computeGridAvailableHeight(surfaceHeight: Int, modifierBarHeightPx: Int, imeReserve: Int): Int =
     (surfaceHeight - modifierBarHeightPx - imeReserve).coerceAtLeast(1)
@@ -4713,7 +4713,7 @@ internal fun alignGridOnSwitch(bridge: Bridge, rows: Int, cols: Int) {
  * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
  * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
  *
- * 位移把网格**顶部**若干行推出屏幕上边界（见 [TerminalSurface] 的显出量处理）：被推出
+ * 位移把网格**顶部**若干行推出屏幕上边界（见 [terminal.emulator.ui.TerminalSurface] 的显出量处理）：被推出
  * 的行不在上滑行程里，只能由边界外的过度滑动按像素回收位移看回来。
  *
  * 显出量按「内容末行」与「光标所在行」中较低的一行计算：光标常落在最后一个有字行的
@@ -4736,7 +4736,7 @@ internal fun computeImeSurfaceShift(
 }
 
 /**
- * surface 重建请求的纯决策（[maybeRequestSurfaceRecreate] 的判据）。
+ * surface 重建请求的纯决策（`maybeRequestSurfaceRecreate` 的判据）。
  *
  * 失效位在原生侧重建成功后回落为 0，故「判死后未回落」本身即是边沿。前
  * [SURFACE_RECREATE_MAX_ATTEMPTS] 次按 [SURFACE_RECREATE_MIN_INTERVAL_NANOS] 快试，
