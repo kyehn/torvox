@@ -260,6 +260,30 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
       用尽后 MUST 转为慢重试（间隔 ≥ 5s）并只告警一次，MUST NOT 永久停止请求——
       平台迟迟不交付新窗口时，停止请求等于把渲染线程钉在死窗口上，用户看到永久空白
 
+### Requirement: 已取出的帧不得因 surface 竞态丢弃
+
+`receive_cell_data` 是破坏性取数，VT 去重基线在入队时已推进，被取走又丢弃的帧不会补发。
+渲染 MUST 在真正提交前复查 surface：若 surface 在取帧之后才被拆除，本帧单元数据 MUST
+存入 `last_frame`，并 MUST 解除滚动在途门控；重新挂载后的空闲重绘据此补画，MUST NOT
+让屏幕停在移除前的旧内容或永久黑屏。
+
+#### Scenario: 取帧与 surface 拆除并发
+
+- **WHEN** 帧数据已从 VT 取出，进入渲染阶段时发现 surface 为空
+- **THEN** 该帧 MUST 写入 `last_frame`、滚动在途标志 MUST 清零，
+      下一次挂载后的空闲重绘 MUST 呈现该帧内容
+
+### Requirement: 空闲重绘失败必须归还内容脏标志
+
+空闲路径是字体、主题等「只置 `dirty`、不产生新帧」改动的唯一送达通道。该标志在被
+`swap(false)` 消费后若渲染失败，MUST 立即重新置位，MUST NOT 让改动永久丢失；缓存不可用
+（无 `last_frame` 或会话不一致）时 MUST NOT 消费该标志。
+
+#### Scenario: 主题变更后空闲重绘失败
+
+- **WHEN** 主题变更只置 `dirty`，随后空闲重绘因 GPU 错误失败
+- **THEN** `dirty` MUST 保持置位，恢复后的下一帧 MUST 重试并呈现新主题
+
 ### Requirement: 切换会话后呈现新会话的整幅内容
 
 累加器与 `last_frame` 缓存只属于产帧的那个会话。切到另一会话后，渲染 MUST NOT 停在
