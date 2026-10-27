@@ -134,6 +134,19 @@ impl Renderer {
                     rp.draw(0..QUAD_VERTEX_COUNT, 0..instances.len() as u32);
                 }
             }
+            // Kitty 叠加层：与生产路径同一套管线与绑定组，回读才能断言图像像素。
+            if !kgp_instances.is_empty()
+                && let (Some(kgp_pipeline), Some(kgp_bind_group)) =
+                    (&self.kgp_pipeline, &self.kgp_bind_group)
+            {
+                rp.set_pipeline(kgp_pipeline);
+                rp.set_bind_group(0, kgp_bind_group, &[]);
+                rp.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                if let Some(ref ib) = self.kgp_instance_buffer {
+                    rp.set_vertex_buffer(1, ib.slice(..));
+                    rp.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
+                }
+            }
         }
 
         let destination = self
