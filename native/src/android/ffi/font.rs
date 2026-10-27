@@ -1,3 +1,6 @@
+use super::query::session_query_channel;
+use super::render::string_to_jstring;
+use super::session::read_jni_string;
 use super::*;
 
 // ── 字体与主题 ──────────────────────────────────────────────────

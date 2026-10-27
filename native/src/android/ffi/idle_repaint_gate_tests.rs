@@ -1,4 +1,4 @@
-use super::should_repaint_idle;
+use super::render::should_repaint_idle;
 
 /// 空闲重绘门控的判定表。
 ///

@@ -1,4 +1,5 @@
-use super::{SessionScoped, highlight_rows_to_mark, mark_overlay_dirty_rows};
+use super::SessionScoped;
+use super::render::{highlight_rows_to_mark, mark_overlay_dirty_rows};
 use crate::render::cell_builder::SearchHighlight;
 
 fn highlight(row: i32) -> SearchHighlight {

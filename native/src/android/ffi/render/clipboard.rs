@@ -1,3 +1,4 @@
+use super::super::query::session_handle;
 use super::super::*;
 
 // ── OSC 52 剪贴板 ───────────────────────────────────────────────────

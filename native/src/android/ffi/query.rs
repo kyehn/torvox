@@ -1,3 +1,5 @@
+use super::render::string_to_jstring;
+use super::session::read_jni_string;
 use super::*;
 
 // ── 文本与滚动查询 ──────────────────────────────────────────────

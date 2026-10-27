@@ -818,20 +818,7 @@ mod session;
 mod state;
 mod wake;
 
-#[allow(unused_imports)]
-use font::*;
-#[allow(unused_imports)]
-use input::*;
-#[allow(unused_imports)]
-use query::*;
-#[allow(unused_imports)]
-use render::*;
-#[allow(unused_imports)]
-use session::*;
-#[allow(unused_imports)]
-use state::*;
-#[allow(unused_imports)]
-use wake::*;
+use render::{ATLAS_SIZE, DEFAULT_FONT_CELL_SIZE};
 
 #[cfg(test)]
 mod cell_size_packing_tests;

@@ -1,3 +1,4 @@
+use super::render::{pump_sessions, string_to_jstring};
 use super::*;
 
 // ── 渲染唤醒 ────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-use super::pack_font_info;
+use super::font::pack_font_info;
 use crate::render::font::pipeline::FontPipeline;
 
 /// 字体信息打包：`u32` 标志 + 三个 `f32` + 两个 `u16` 计数 + NUL 分隔名称。

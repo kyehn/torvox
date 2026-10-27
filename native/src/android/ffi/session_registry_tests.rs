@@ -1,9 +1,10 @@
 use std::sync::{Arc, Mutex};
 
+use super::render::pump_sessions;
 use super::{
     ACTIVE_SESSION_ID, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
     MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, Ordering, RENDERED_CURSOR_NONE,
-    RENDERED_SCROLLBACK_NONE, RenderWake, SessionEntry, pack_rendered_cursor, pump_sessions,
+    RENDERED_SCROLLBACK_NONE, RenderWake, SessionEntry, pack_rendered_cursor,
     rendered_cursor_packed, rendered_scrollback, wlock_session_registry,
 };
 use crate::terminal::pty::Pty;
