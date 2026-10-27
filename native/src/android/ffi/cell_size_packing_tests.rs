@@ -1,4 +1,4 @@
-use super::cell_metrics_packed_from;
+use super::state::cell_metrics_packed_from;
 
 /// 宽高按两个 `f32` 位落进同一个 `jlong`：低位宽、高位高。
 ///

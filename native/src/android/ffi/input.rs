@@ -1,3 +1,6 @@
+use super::query::session_query_channel;
+use super::session::read_jni_string;
+use super::state::read_terminal_atomic_flag;
 use super::*;
 
 // ── 输入、调整与键鼠编码 ────────────────────────────────────────

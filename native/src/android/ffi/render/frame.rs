@@ -1,3 +1,4 @@
+use super::super::query::session_query_channel;
 use super::super::*;
 use super::overlay::{
     build_cursor, log_frame_failure, mark_dirty_rows, request_session_repaint, should_repaint_idle,

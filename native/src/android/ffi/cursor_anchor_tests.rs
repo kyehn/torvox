@@ -1,4 +1,4 @@
-use super::build_cursor;
+use super::render::build_cursor;
 use crate::terminal::ghostty_terminal::CursorInfo;
 use crate::terminal::ghostty_terminal::CursorStyle;
 

@@ -1,3 +1,4 @@
+use super::super::query::{session_query_channel, u64_vec_to_long_array};
 use super::super::*;
 
 // ── 会话枚举与标题 ──────────────────────────────────────────────────

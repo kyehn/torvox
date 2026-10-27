@@ -1,6 +1,5 @@
-use super::{
-    ATLAS_SIZE, RASTER_SCALE_MAX, RASTER_SCALE_MIN, font_size_cap_sp, is_font_size_selectable,
-};
+use super::font::{RASTER_SCALE_MAX, RASTER_SCALE_MIN, font_size_cap_sp, is_font_size_selectable};
+use super::render::ATLAS_SIZE;
 
 /// Kotlin `SettingsRepository.fontSizeMaxSp` 的**权威取值**，即 Termux 自身的
 /// 公开常量：像素上限 256、调整步长 2sp、下限 4sp。这里刻意写死外部数值而非
@@ -16,7 +15,7 @@ fn termux_selectable_max_sp(raster_scale: f32) -> f32 {
     stepped.max(SLIDER_MIN_SP + TERMUX_STEP_SP)
 }
 
-use super::is_raster_scale_acceptable;
+use super::font::is_raster_scale_acceptable;
 
 /// `coerceSpToPxScale` 允许的全系数区间即 `ffi.rs` 的唯一真源
 /// `RASTER_SCALE_MIN/MAX`：Kotlin 侧的钳位区间经 `getRasterScaleRange` 取同一

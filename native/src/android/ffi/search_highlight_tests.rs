@@ -1,4 +1,4 @@
-use super::build_search_highlights;
+use super::font::build_search_highlights;
 use crate::render::cell_builder::{SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA};
 use crate::terminal::ghostty_terminal::SearchMatch;
 use crate::terminal::theme::Palette;

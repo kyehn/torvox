@@ -1,3 +1,4 @@
+use super::super::query::session_handle;
 use super::super::*;
 
 // ── 叠加层与脏区 ────────────────────────────────────────────────────
