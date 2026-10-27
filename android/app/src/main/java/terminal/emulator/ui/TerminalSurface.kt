@@ -3176,6 +3176,31 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         return (matchRow - viewportRow).coerceAtLeast(0)
     }
 
+    /**
+     * 把搜索命中行居中到可见带。
+     *
+     * 只滚动不够：内容为跟随键盘整体上移时，靠近顶部的命中行即使把视口滚到顶
+     * 也仍在屏幕上边界之外（屏幕坐标 = 行号 × 单元高 − 上移量，为负）。此时先
+     * 把位移显出量拉满、上移量归零，再按新的可见带重算一次目标行——命中行才会
+     * 真正出现在键盘上方，而不是「关闭输入法后莫名可见」。
+     */
+    fun centerSearchRow(matchRow: Int) {
+        val runtime = viewModel?.runtime ?: return
+        val cellHeight = runtime.cellHeight
+        if (cellHeight <= 0f) return
+        // 导航要按当前回滚长度换算目标行；缓存可能停在 100ms 节流窗口内的旧值。
+        lastScrollbackQueryNanos = 0L
+        scrollToRow(searchViewportTop(matchRow))
+        // 滚动后上移量可能已随显出量上界变化；命中在视口内的行号 × 单元高
+        // 小于上移量即落在屏幕上边界之外，滚动到顶也救不回。
+        val viewportRow = matchRow - currentViewportTopGrid()
+        if (appliedImeShiftPx > 0 && viewportRow * cellHeight < appliedImeShiftPx.toFloat()) {
+            imeShiftRevealPx = imeShiftCapacityPx.toFloat()
+            applyImeShift()
+            scrollToRow(searchViewportTop(matchRow))
+        }
+    }
+
     fun getCols(): Int = cols
 
     // 视图 detach 时 close() 会 shutdown 发送线程；同一实例再次 attach（窗口转换、
