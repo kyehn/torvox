@@ -82,7 +82,6 @@ fn shrink_alt_screen_clips_without_reflow() {
 
 #[test]
 // 与字面量默认值精确比较，不涉及浮点运算。
-#[allow(clippy::float_cmp)]
 fn cell_snapshot_default() {
     let cell = CellSnapshot::default();
     assert_eq!(cell.codepoint, 0);
