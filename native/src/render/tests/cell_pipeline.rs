@@ -914,6 +914,89 @@ fn replacing_the_kitty_atlas_invalidates_the_accumulator() {
     );
 }
 
+/// Kitty 放置帧：整幅同色，`pixel_*` 决定显示尺寸（与源尺寸不等即缩放）。
+fn kitty_frame(
+    viewport_col: i32,
+    source_width: u32,
+    source_height: u32,
+    pixel_width: u32,
+    pixel_height: u32,
+    rgba: [u8; 4],
+) -> crate::terminal::ghostty_terminal::KittyPlacementFrame {
+    crate::terminal::ghostty_terminal::KittyPlacementFrame {
+        image_id: 1,
+        viewport_col,
+        viewport_row: 0,
+        pixel_width,
+        pixel_height,
+        source_x: 0,
+        source_y: 0,
+        source_width,
+        source_height,
+        cell_offset_x: 0,
+        cell_offset_y: 0,
+        z: 0,
+        image_width: source_width,
+        image_height: source_height,
+        image_rgba: rgba.repeat((source_width * source_height) as usize).into(),
+    }
+}
+
+/// 图集里的相邻条目不得互相串色。
+///
+/// 多幅图像并排写进同一张图集，采样器却是双线性：纹素坐标一旦越过条目边界，
+/// 过滤就会取到**邻条目**的纹素。放大显示时（显示尺寸大于源矩形）左缘会混入
+/// 前一幅图的颜色；条目比图集矮时底缘会混入图集里的透明行，图像于是出现一道
+/// 彩边或一条发虚的半透明边。
+#[test]
+fn kitty_atlas_entries_do_not_bleed_into_each_other() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let mut context = setup_test_gpu_context(device, queue);
+    // 红图 1x3 在左（1:1 显示），绿图 2x2 在右且比图集矮（放大到 4x4 显示）：
+    // 绿图左缘紧邻红图所在列，底缘下方是图集里的透明行。
+    let frames = vec![
+        kitty_frame(0, 1, 3, 1, 3, [255, 0, 0, 255]),
+        kitty_frame(2, 2, 2, 4, 4, [0, 255, 0, 255]),
+    ];
+    let (atlas, atlas_width, atlas_height, instances) =
+        crate::render::kitty::pack_and_build(&frames, 8.0, 8.0).expect("atlas");
+    assert!(
+        context.set_kgp_atlas(&atlas, atlas_width, atlas_height),
+        "图集必须装载成功"
+    );
+
+    let frame = context.render_to_buffer(&[], &instances).expect("readback");
+    let pixel_at = |x: u32, y: u32| -> [u8; 4] {
+        let index = ((y * 50 + x) * 4) as usize;
+        [
+            frame[index],
+            frame[index + 1],
+            frame[index + 2],
+            frame[index + 3],
+        ]
+    };
+    // 绿图绘制在第 2 列（8 像素一格）起、共 4x4 像素。
+    for y in 0..4 {
+        for x in 16..20 {
+            assert_eq!(
+                pixel_at(x, y),
+                [0, 255, 0, 255],
+                "绿图 ({x},{y}) 混入了邻条目的像素"
+            );
+        }
+    }
+    // 红图 1:1 显示，同样不得被图集边界影响。
+    for y in 0..3 {
+        assert_eq!(
+            pixel_at(0, y),
+            [255, 0, 0, 255],
+            "红图 (0,{y}) 混入了邻条目的像素"
+        );
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Dirty-band computation (render-vulkan-performance)
 // ══════════════════════════════════════════════════════════════════════
