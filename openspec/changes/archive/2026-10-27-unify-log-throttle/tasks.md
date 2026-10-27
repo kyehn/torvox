@@ -34,7 +34,7 @@
 - [x] 4.1 `cargo fmt --all -- --check`、`cargo clippy --all-targets -- --deny warnings`、
       `cargo test --no-fail-fast` 全绿。
       验证：三条命令退出码均为 0。
-- [ ] 4.2 `openspec validate 2026-10-27-unify-log-throttle --strict` 通过。
+- [x] 4.2 `openspec validate 2026-10-27-unify-log-throttle --strict` 通过。
       验证：命令退出码为 0。
 
 ## Workflow follow-up

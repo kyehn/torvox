@@ -112,6 +112,11 @@ pub struct FontPipeline {
     pub(crate) dirty_rect: Option<(u32, u32, u32, u32)>,
     system_locale: String,
     pub(crate) shaping_buffer: Option<cosmic_text::Buffer>,
+    /// 族名（小写）→ 用户选文件装入并选中的面。
+    ///
+    /// fontdb 的库只增不删：同一路径的字体文件被替换后旧面仍留在库里，
+    /// 按族名扫库取首个会选回旧面（用户看到「换了字体却不生效」）。
+    pub(crate) user_font_faces: std::collections::HashMap<String, fontdb::ID>,
 }
 
 /// 字形位图在单元格内的竖向定位：返回 `(bearing_y, raw_bearing_y)`。
@@ -204,6 +209,7 @@ impl FontPipeline {
             system_locale: String::new(),
             shaping_buffer: None,
             raster_scale: 1.0,
+            user_font_faces: std::collections::HashMap::new(),
         };
 
         if pipeline.font_id.is_none() {
@@ -353,14 +359,21 @@ impl FontPipeline {
         if family_name.is_empty() {
             self.find_monospace_font();
         } else {
-            // 库内没有该族时按需装入：渲染侧只常驻 3 个族（见 font_db::load_font_database），
-            // 设置页选中的其余族要到这里才真正加载。
-            #[cfg(target_os = "android")]
-            if Self::find_font_by_name(self.font_system.db(), family_name).is_none() {
-                let loaded = super::font_db::load_family(self.font_system.db_mut(), family_name);
-                log::debug!("FONT_SELECT: 按需装入族 '{family_name}': {loaded}");
+            // 用户选文件装入的族用它记住的面：同一路径的字体文件被替换后旧面
+            // 仍在库里，扫库取首个会选回旧面。
+            let mut face_id = self.user_font_face(family_name);
+            if face_id.is_none() {
+                // 库内没有该族时按需装入：渲染侧只常驻 3 个族（见 font_db::load_font_database），
+                // 设置页选中的其余族要到这里才真正加载。
+                #[cfg(target_os = "android")]
+                if Self::find_font_by_name(self.font_system.db(), family_name).is_none() {
+                    let loaded =
+                        super::font_db::load_family(self.font_system.db_mut(), family_name);
+                    log::debug!("FONT_SELECT: 按需装入族 '{family_name}': {loaded}");
+                }
+                face_id = Self::find_font_by_name(self.font_system.db(), family_name);
             }
-            let Some(id) = Self::find_font_by_name(self.font_system.db(), family_name) else {
+            let Some(id) = face_id else {
                 log::warn!("FONT_DIAG: set_font_family('{family_name}') NOT FOUND in fontdb");
                 return false;
             };
@@ -1042,13 +1055,37 @@ impl FontPipeline {
         None
     }
 
+    /// 装入字体文件到当前字体库，返回文件中首个有族名的面的族名。
+    ///
+    /// 该面被记住（见 [`FontPipeline::user_font_faces`]）：按族名选中时用它，
+    /// 而不是扫库取首个——同一路径的文件被替换后旧面仍在库里。
+    ///
+    /// 族名取自**首个有族名的**面：TTC 的首面可能没有族名（无名子集），
+    /// 按首个面取族名会得到空串，用户选字体时无从匹配。
     pub fn load_font_file(&mut self, path: &std::path::Path) -> Option<String> {
         let font_database = self.font_system.db_mut();
         let source = fontdb::Source::File(path.into());
         let ids = font_database.load_font_source(source);
-        let first_id = ids.first()?;
-        let face = font_database.face(*first_id)?;
-        face.families.first().map(|(name, _)| name.clone())
+        let (face_id, family) = ids.iter().find_map(|face_id| {
+            let face = font_database.face(*face_id)?;
+            let family = face.families.first().map(|(name, _)| name.clone())?;
+            Some((*face_id, family))
+        })?;
+        self.user_font_faces.insert(family.to_lowercase(), face_id);
+        Some(family)
+    }
+
+    /// 用户选文件装入的族对应的面。
+    ///
+    /// 面 id 是库内序号（slotmap 键）：库被整体替换后旧 id 指向别的面或失效，
+    /// 故取用前确认它仍在库里。
+    fn user_font_face(&self, family_name: &str) -> Option<fontdb::ID> {
+        let face_id = *self.user_font_faces.get(&family_name.to_lowercase())?;
+        self.font_system
+            .db()
+            .face(face_id)
+            .is_some()
+            .then_some(face_id)
     }
 
     #[cfg(test)]

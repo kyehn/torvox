@@ -391,6 +391,56 @@ fn load_font_file_loaded_font_can_be_set() {
     assert!(ch > 0.0, "cell height positive after setting loaded font");
 }
 
+/// 按族名选中必须用「装入该文件时记住的那份面」。
+///
+/// fontdb 的库只增不删：同一路径的字体文件被替换后旧面仍留在库里，
+/// 按族名扫库取首个会选回旧面，用户看到「换了字体却不生效」。
+#[test]
+fn set_font_family_uses_the_face_loaded_from_the_file() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    let family = pipeline
+        .load_font_file(&find_test_font())
+        .expect("应装入测试字体");
+    let loaded_face = pipeline.user_font_faces[&family.to_lowercase()];
+    assert!(
+        pipeline.set_font_family(&family),
+        "装入后按族名选中必须成功"
+    );
+    assert_eq!(
+        pipeline.font_id,
+        Some(loaded_face),
+        "选中面必须是装入文件时记住的那份"
+    );
+}
+
+/// 同一路径的文件被替换后重新装入：按族名选中必须改用新装入的那份面。
+#[test]
+fn reloading_a_file_switches_family_selection_to_the_new_face() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    let font_path = find_test_font();
+    let family = pipeline
+        .load_font_file(&font_path)
+        .expect("首次装入测试字体");
+    let first_face = pipeline.user_font_faces[&family.to_lowercase()];
+    let reloaded_family = pipeline
+        .load_font_file(&font_path)
+        .expect("再次装入测试字体");
+    let second_face = pipeline.user_font_faces[&reloaded_family.to_lowercase()];
+    assert_ne!(
+        first_face, second_face,
+        "再次装入同一文件必须产生新的面（字体库只增不删）"
+    );
+    assert!(
+        pipeline.set_font_family(&reloaded_family),
+        "重新装入后按族名选中必须成功"
+    );
+    assert_eq!(
+        pipeline.font_id,
+        Some(second_face),
+        "选中面必须是重新装入的那份"
+    );
+}
+
 #[test]
 fn load_font_file_unicode_path() {
     let dir = std::env::temp_dir().join("test_unicode_字体");
