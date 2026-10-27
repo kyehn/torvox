@@ -243,7 +243,7 @@ impl Session {
     /// 的排空上限：调用方持会话锁，VT 线程卡住时不得拖满通用查询超时。
     ///
     /// 写入刻意留给调用方在**释放会话锁之后**做：主端满时排空上限是 5s，而会话锁每帧被
-    /// 渲染与事件收割取得（理由同 [`PtyMaster`]）。
+    /// 渲染与事件收割取得（理由同 [`PtyMaster`](super::PtyMaster)）。
     pub fn focus_event_bytes(&mut self, focused: bool) -> Option<&'static [u8]> {
         if !self.terminal.mode_get_with_timeout(
             libghostty_vt::terminal::Mode::FOCUS_EVENT,
