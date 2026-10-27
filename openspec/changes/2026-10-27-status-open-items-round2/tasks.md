@@ -21,9 +21,13 @@
 ## 4. 全量验证
 
 - [ ] 4.1 `./gradlew :app:testDebugUnitTest` 与 `:app:lintDebug` 通过。
-      沙盒缺少 Android SDK/Gradle，未执行；须在 `nix develop` 内运行。
+      未执行：沙盒缺少 Android SDK/Gradle。本轮已把 Rust 侧环境补齐并验证：
+      `cargo check --all-targets`、`cargo clippy --all-targets -- --deny warnings` 均通过；
+      `cargo test --lib` 728/734 通过，6 个失败均为沙盒缺少 Maple Mono / Noto 可变
+      字体与字体度量差异，与本次改动无关。
 - [ ] 4.2 `openspec validate 2026-10-27-status-open-items-round2 --strict` 通过。
-      `openspec` 由 `flake.nix` 提供，沙盒无 nix，未执行。
+      `openspec` 由 `flake.nix` 提供，沙盒无 nix，未执行；已用结构校验脚本确认
+      Requirement/Scenario 层级完整。
 
 ## Workflow follow-up
 
