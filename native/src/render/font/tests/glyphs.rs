@@ -132,7 +132,10 @@ fn cjk_primary_under_non_cjk_locale_reports_skipped_not_none() {
             .expect("宿主须装入至少一个覆盖「中」的面（nix develop 的 Noto CJK）")
     };
     pipeline.set_system_locale("en-US");
-    assert!(pipeline.set_font_family(&family), "族 '{family}' 应可选中");
+    assert!(
+        pipeline.set_font_family(&family, &[]),
+        "族 '{family}' 应可选中"
+    );
     let info = pipeline.font_info();
     assert_eq!(
         info.active.as_ref().map(|active| active.name.as_str()),
@@ -331,7 +334,7 @@ fn font_matching_stripped_spaces() {
     assert!(stripped != name, "Sanity: stripped name differs");
     let mut p2 = FontPipeline::new(1024, 1024, 14.0);
     assert!(
-        p2.set_font_family(&stripped),
+        p2.set_font_family(&stripped, &[]),
         "set_font_family should find '{}' when given '{}'",
         name,
         stripped
@@ -484,7 +487,7 @@ fn setting_font_family_changes_metrics() {
         .next()
         .expect("系统应至少提供一个等宽字体");
     assert!(
-        pipeline.set_font_family(&name),
+        pipeline.set_font_family(&name, &[]),
         "set_font_family 应对 {name} 成功"
     );
     let (cell_width, cell_height) = pipeline.cell_metrics();
@@ -735,7 +738,7 @@ fn font_switching_changes_font_id() {
         if name.is_empty() {
             continue;
         }
-        if pipeline.set_font_family(name) && pipeline.font_id != original_id {
+        if pipeline.set_font_family(name, &[]) && pipeline.font_id != original_id {
             found_switch = true;
             break;
         }
@@ -758,13 +761,13 @@ fn font_switching_clears_cache() {
     let names = pipeline.list_monospace_fonts();
     if names.len() > 1 {
         let alt = names.last().unwrap();
-        pipeline.set_font_family(alt);
+        pipeline.set_font_family(alt, &[]);
         assert!(
             pipeline.cache_length() < before,
             "cache should shrink after font switch to '{alt}'"
         );
     } else {
-        pipeline.set_font_family("monospace");
+        pipeline.set_font_family("monospace", &[]);
         assert_ne!(
             pipeline.cache_length(),
             0,
@@ -946,12 +949,12 @@ fn set_font_family_empty_resets_to_default() {
         .iter()
         .find(|name| name.as_str() != default_name.as_str())
     {
-        pipeline.set_font_family(other);
+        pipeline.set_font_family(other, &[]);
         assert_eq!(
             pipeline.current_font_family_name().as_deref(),
             Some(other.as_str())
         );
-        pipeline.set_font_family("");
+        pipeline.set_font_family("", &[]);
         assert_eq!(
             pipeline.current_font_family_name().as_deref(),
             Some(default_name.as_str())
@@ -964,7 +967,7 @@ fn set_font_family_persists_through_size_change() {
     let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
     let fonts = pipeline.list_monospace_fonts();
     if let Some(target) = fonts.first() {
-        pipeline.set_font_family(target);
+        pipeline.set_font_family(target, &[]);
         let name_before = pipeline.current_font_family_name();
         pipeline.set_font_size_in_place(20.0);
         let name_after = pipeline.current_font_family_name();

@@ -254,12 +254,13 @@ fn widen_to_declared_set(font_database: &mut fontdb::Database, declared_files: &
     loaded
 }
 
-/// 按需加载一个字体族：设置页选中但尚未装入的族走这里。
+/// 按需装入一个字体族的文件：设置页选中但尚未装入的族走这里。
+///
+/// 族文件列表由调用方给出（`family_files`）：解析它可能触发族索引构建（真机实测
+/// 127ms），MUST 在渲染状态锁外完成，故「解析」与「装入」分成两个函数——装入改的
+/// 是渲染字体库，只能在锁内做。
 #[cfg(target_os = "android")]
-pub(crate) fn load_family(font_database: &mut fontdb::Database, family: &str) -> bool {
-    let Some(files) = family_files(family) else {
-        return false;
-    };
+pub(crate) fn load_family_files(font_database: &mut fontdb::Database, files: &[String]) -> bool {
     load_files(font_database, &resolve_font_files(files)) > 0
 }
 
@@ -336,6 +337,25 @@ pub(crate) fn family_index() -> &'static Vec<FamilyEntry> {
         log::debug!("FONT_INDEX: {} families indexed", entries.len());
         entries
     })
+}
+
+/// 字体族列表的展示名：族索引的显示名，按 `fonts.xml` 文档顺序。
+///
+/// 进程级缓存，与渲染状态无关：调用方 MUST 在渲染状态锁外取——首次构建索引要读完
+/// 全部声明字体文件（真机实测 127ms），持锁取会把渲染线程冻结同样时长。
+#[cfg(target_os = "android")]
+pub(crate) fn family_display_names() -> Vec<String> {
+    family_index()
+        .iter()
+        .map(|entry| entry.display_name.clone())
+        .collect()
+}
+
+/// 按族名（忽略大小写）取其字体文件。宿主构建的字体库已含系统全部字体，没有按需
+/// 装入这回事，故恒为 `None`——JNI 层因此不必按平台分叉取族文件。
+#[cfg(not(target_os = "android"))]
+pub(crate) fn family_files(_family: &str) -> Option<&'static [String]> {
+    None
 }
 
 /// 按族名（忽略大小写）取其字体文件。

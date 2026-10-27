@@ -43,7 +43,7 @@ fn style_face_verdict_is_invalidated_by_clear_identity_caches() {
         .into_iter()
         .find(|name| *name != current_family)
         .expect("宿主应有第二个等宽族（run inside nix develop）");
-    assert!(pipeline.set_font_family(&other), "切到 {other} 应成功");
+    assert!(pipeline.set_font_family(&other, &[]), "切到 {other} 应成功");
     assert!(
         pipeline.caches.style_face_cache.is_empty(),
         "换主字体同样必须作废样式面判定"
@@ -102,7 +102,7 @@ fn symbol_glyph_resolves_via_database_scan() {
         "Liberation Mono must be present (run inside nix develop)"
     );
     assert!(
-        pipeline.set_font_family("Liberation Mono"),
+        pipeline.set_font_family("Liberation Mono", &[]),
         "switch to Liberation Mono"
     );
     let primary = pipeline.font_id.expect("primary font");
@@ -153,7 +153,7 @@ fn cached_notdef_does_not_shortcut_the_fallback_chain() {
         "Liberation Mono must be present (run inside nix develop)"
     );
     assert!(
-        pipeline.set_font_family("Liberation Mono"),
+        pipeline.set_font_family("Liberation Mono", &[]),
         "switch to Liberation Mono"
     );
     // 毒化：先查一个宿主任何字体都没有的码位，让 `.notdef` 进字形缓存。
@@ -247,7 +247,7 @@ fn primary_cjk_font_no_fallback() {
         .filter(|name| name.to_lowercase().contains("cjk"))
         .collect();
     if let Some(cjk_name) = cjk_fonts.first() {
-        pipeline.set_font_family(cjk_name);
+        pipeline.set_font_family(cjk_name, &[]);
         let names = pipeline.cjk_fallback_names();
         assert!(
             names.is_empty(),
@@ -411,7 +411,7 @@ fn maple_mono_primary_skips_cjk_fallback() {
         .load_font_file(&font_path)
         .expect("maple mono loads");
     assert!(
-        pipeline.set_font_family(&family),
+        pipeline.set_font_family(&family, &[]),
         "maple mono selectable as primary"
     );
     pipeline.set_system_locale("zh-CN");

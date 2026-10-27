@@ -4,6 +4,9 @@ use super::session::read_jni_string;
 use super::*;
 
 // ── 字体与主题 ──────────────────────────────────────────────────
+/// 空族文件列表：字族已在渲染字体库中时无需按需装入。
+const NO_FAMILY_FILES: &[String] = &[];
+
 /// 返回字体库的族名列表（fonts.xml 声明的文件集 + 用户投放目录）。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<'local>(
@@ -11,12 +14,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamili
     _class: JClass<'local>,
 ) -> jobjectArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let state = render_state_mut();
-        let Some(render_state) = state.as_ref() else {
-            return Ok(std::ptr::null_mut());
+        // 字体族列表：设备上取进程级族索引——它与渲染状态无关，MUST 在渲染状态锁外
+        // 构造：首次构建索引要读完全部声明字体文件（真机实测 127ms），持锁构造会
+        // 把渲染线程冻结同样时长（打开字体选择器时可见）。
+        #[cfg(target_os = "android")]
+        let families = crate::render::font::font_db::family_display_names();
+        // 宿主构建的列表取自渲染字体库，须持锁取。
+        #[cfg(not(target_os = "android"))]
+        let families = {
+            let state = render_state_mut();
+            let Some(render_state) = state.as_ref() else {
+                return Ok(std::ptr::null_mut());
+            };
+            render_state.font_pipeline.list_monospace_fonts()
         };
-        let families = render_state.font_pipeline.list_monospace_fonts();
-        drop(state);
 
         let string_class = env.find_class(jni_str!("java/lang/String"));
         let Ok(string_class) = string_class else {
@@ -464,12 +475,30 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
         let Some(family_str) = read_jni_string(env, &family, "setFontFamily", "family") else {
             return Ok(JNI_FALSE);
         };
+        // 字族是否已在渲染字体库中：常驻三族与用户选文件装入的面命中这条快径，
+        // 无需族文件列表——族索引也就不会被构建。
+        let family_resident = {
+            let state = render_state_mut();
+            let Some(render_state) = state.as_ref() else {
+                return Ok(JNI_FALSE);
+            };
+            render_state.font_pipeline.family_resident(&family_str)
+        };
+        // 族文件列表 MUST 在渲染状态锁外解析：解析要走族索引（首次构建真机实测
+        // 127ms），持锁解析会把渲染线程冻结同样时长。
+        let family_files = if family_resident {
+            NO_FAMILY_FILES
+        } else {
+            crate::render::font::font_db::family_files(&family_str).unwrap_or(NO_FAMILY_FILES)
+        };
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
             return Ok(JNI_FALSE);
         };
         let previous = render_state.font_pipeline.font_id;
-        let found = render_state.font_pipeline.set_font_family(&family_str);
+        let found = render_state
+            .font_pipeline
+            .set_font_family(&family_str, family_files);
         let changed = render_state.font_pipeline.font_id != previous;
         if changed {
             // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，必须整库丢弃并重绘。
@@ -657,7 +686,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
             // 注册，覆盖会丢掉目录内字体。
             crate::render::font::font_db::add_extra_font_path(std::path::PathBuf::from(&path_str));
             let previous = render_state.font_pipeline.font_id;
-            if !render_state.font_pipeline.set_font_family(&family) {
+            // 族刚装进库中：无需族文件列表（族索引不因装载字体文件而构建）。
+            if !render_state
+                .font_pipeline
+                .set_font_family(&family, NO_FAMILY_FILES)
+            {
                 // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
                 // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
                 log::error!("loadFontFile: cannot apply family {family:?} from {path_str}");
