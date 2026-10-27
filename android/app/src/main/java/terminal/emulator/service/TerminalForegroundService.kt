@@ -1,6 +1,5 @@
 package terminal.emulator.service
 
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -121,14 +120,12 @@ class TerminalForegroundService : Service() {
         return START_STICKY
     }
 
-    // 仅简体中文：无复数形态，plurals 仅 other 分支生效，无需本地化计数修饰。
-    @SuppressLint("ArgInFormattedQuantityStringRes")
     private fun startForegroundWithSessionCount(count: Int) {
         val text =
             when {
                 count <= 0 -> getString(R.string.notification_starting)
                 count == 1 -> getString(R.string.notification_active_single)
-                else -> resources.getQuantityString(R.plurals.notification_active_plural, count, count)
+                else -> getString(R.string.notification_active_multiple, count)
             }
         val openIntent =
             Intent(this, MainActivity::class.java).apply {
