@@ -120,14 +120,19 @@ fn write_all_waits_instead_of_dropping_bytes_past_a_full_pty_buffer() {
         .expect("write_all 不得因缓冲满而丢弃字节");
 
     let deadline = std::time::Instant::now() + Duration::from_secs(PTY_WRITE_TEST_DRAIN_SECS);
+    let mut payload_delivered = false;
     while std::time::Instant::now() < deadline {
         if std::fs::metadata(&capture).is_ok_and(|meta| meta.len() > 0) {
-            std::fs::remove_file(&capture).ok();
-            return;
+            payload_delivered = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(TEST_READ_POLL_STEP_MS));
     }
-    panic!("子进程在期限内未读到任何载荷：write_all 交付失败");
+    assert!(
+        payload_delivered,
+        "子进程在期限内未读到任何载荷：write_all 交付失败"
+    );
+    std::fs::remove_file(&capture).ok();
 }
 
 #[test]
