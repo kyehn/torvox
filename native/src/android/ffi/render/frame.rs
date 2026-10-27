@@ -474,9 +474,11 @@ pub(super) fn render_new_frame(
             log_frame_failure(&error);
             // receive_cell_data() 是破坏性取数，VT 去重基线已推进，未呈现的帧
             // 不会被 VT 补发。把本帧 cells 留在 last_frame，并置 dirty 确保
-            // 下一帧（Idle 或 New）重试，避免该帧内容永久丢失。
+            // 下一帧（Idle 或 New）重试，避免该帧内容永久丢失；全量标记同样
+            // 归还，重试才能覆盖失败帧可能只画了一半的区域。
             render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
             render_state.dirty.store(true, Ordering::Release);
+            render_state.full_repaint = true;
             Ok((-1, lock_done, render_done))
         }
     }
@@ -604,7 +606,9 @@ pub(super) fn render_idle_frame(
             log_frame_failure(&error);
             // 空闲路径是字体/主题等「只置 dirty、无新帧」改动的唯一送达通道：
             // 本帧失败已把该标志换走，不归还就再没有任何触发点，改动永久丢失。
+            // 全量标记同理——失败帧可能只画了部分区域，重试必须整幅覆盖。
             render_state.dirty.store(true, Ordering::Release);
+            render_state.full_repaint = true;
             Ok((-1, lock_done, render_done))
         }
     }
