@@ -651,11 +651,14 @@ fn vt_write_back_is_capped_per_frame_and_carries_over() {
             .filter(|pair| *pair == b"\x1b[")
             .count()
     };
+    // 上面那次 `process_output` 也可能已经写走一整批，故只能量**本次**调用的增量；
+    // 直接对累计值断言，会把前一帧的 16 条算进本帧（实测 32 > 16 的假红）。
+    let before_this_frame = written_responses();
     session.process_output();
+    let this_frame = written_responses() - before_this_frame;
     assert!(
-        written_responses() <= MAX_PTY_WRITES_PER_FRAME,
-        "单帧写出的条数须有上界，实测 {}",
-        written_responses()
+        this_frame <= MAX_PTY_WRITES_PER_FRAME,
+        "单帧写出的条数须有上界，实测 {this_frame}"
     );
     for _ in 0..=query_count {
         if session.pty_write_back_queue.is_empty() {
