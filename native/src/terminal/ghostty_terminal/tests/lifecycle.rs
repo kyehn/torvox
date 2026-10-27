@@ -955,3 +955,23 @@ fn scroll_request_id_travels_with_frame() {
         "帧必须携带 VT 已处理的滚动请求序号"
     );
 }
+
+/// 滚动请求序号必须进程级单调递增、跨会话不复用。
+///
+/// 判别力：序号若按会话各自计数，会话重启后的新请求序号可能不大于重启前的帧
+/// 携带的序号，渲染侧会把新帧误判成「早于在途命令」而永久不呈现（画面冻结）。
+#[test]
+fn scroll_request_id_is_process_wide_and_never_reused() {
+    let first_terminal = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    let second_terminal = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+
+    assert!(first_terminal.scroll_viewport(-1), "首个滚动应被接受");
+    let first_id = first_terminal.latest_scroll_request_id();
+    assert!(second_terminal.scroll_viewport(-1), "第二个滚动应被接受");
+    let second_id = second_terminal.latest_scroll_request_id();
+
+    assert!(
+        second_id > first_id,
+        "序号必须进程级递增、跨会话不复用：{second_id} 应大于 {first_id}"
+    );
+}
