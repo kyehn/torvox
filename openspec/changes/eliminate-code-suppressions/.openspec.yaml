@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-10-27
+skip_specs: true
+goal: |
+  消除原生侧以抑制属性而非修代码来绕过门禁的做法：JNI 门面的 glob 再导出改为
+  显式导入，测试辅助构造器与 PTY 写入测试去掉 #[allow(clippy::too_many_arguments)]、
+  #[allow(clippy::float_cmp)] 与裸 return，使 semgrep scan 归零。
+  本变更只改代码组织形式与测试写法，不改变任何对外行为，故不放 delta。
