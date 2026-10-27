@@ -40,6 +40,18 @@ fn kitty_color_to_id(color: libghostty_vt::style::StyleColor) -> u32 {
     }
 }
 
+/// RGB 三元组 → RGBA8（alpha 固定不透明）。
+///
+/// RGB 图像与 PNG 解码器的 RGB 兜底分支都要这一步：两处各写一遍时，改动只落在
+/// 一处，另一处的图像会少一个通道（颜色错乱且无报错）。
+fn rgb_to_rgba(triples: &[[u8; 3]]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(triples.len() * 4);
+    for triple in triples {
+        out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
+    }
+    out
+}
+
 impl super::GhosttyTerminal {
     /// 上游 Kitty 图像载荷归一化为 RGBA8：Ok(None) 为分片传输待定返回 None；
     /// RGB 直扩 alpha，灰度按亮度展开，PNG 经线程解码器已为 RGBA（按长度兜底）。
@@ -63,11 +75,7 @@ impl super::GhosttyTerminal {
                     return None;
                 }
                 let (triples, _) = bytes.as_chunks::<3>();
-                let mut out = Vec::with_capacity(pixel_count * 4);
-                for triple in triples {
-                    out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
-                }
-                out
+                rgb_to_rgba(triples)
             }
             ImageFormat::Gray => {
                 if bytes.len() != pixel_count {
@@ -96,11 +104,7 @@ impl super::GhosttyTerminal {
                     bytes.to_vec()
                 } else if bytes.len() == pixel_count.checked_mul(3)? {
                     let (triples, _) = bytes.as_chunks::<3>();
-                    let mut out = Vec::with_capacity(pixel_count * 4);
-                    for triple in triples {
-                        out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
-                    }
-                    out
+                    rgb_to_rgba(triples)
                 } else {
                     return None;
                 }

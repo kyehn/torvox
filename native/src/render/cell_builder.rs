@@ -858,11 +858,7 @@ fn append_row_instances(
         if let Some(info) = merged_cluster_glyph
             .or_else(|| font_pipeline.glyph_information_styled(character, cell_bold, cell_italic))
         {
-            let uv_x = info.atlas_x as f32 / atlas_width;
-            let uv_y = info.atlas_y as f32 / atlas_height;
-            let uv_w = info.width as f32 / atlas_width;
-            let uv_h = info.height as f32 / atlas_height;
-            let bearing_x = info.placement.left as f32;
+            let (atlas_offset, atlas_size, bearing_x) = info.atlas_uv(atlas_width, atlas_height);
             // info.height 是光栅化位图高度，单位为物理像素（已乘 raster_scale）
             // ——与物理网格单元高度同单位，居中回退同样按物理像素给出。
             // 该判定与叠加层共用 `glyph_bearing_y`：两处分叉会让组合记号/ZWJ
@@ -881,8 +877,8 @@ fn append_row_instances(
 
             instances.push(CellInstance {
                 quad_origin: origin,
-                atlas_offset: [uv_x, uv_y],
-                atlas_size: [uv_w, uv_h],
+                atlas_offset,
+                atlas_size,
                 foreground: effective_foreground,
                 background: effective_background,
                 underline_color: cell_data_entry.underline_color,

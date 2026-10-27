@@ -175,13 +175,7 @@ impl ReadScan {
                     // 而应答是逐字节拼进 `ESC ] 52 ; <sel> ; <base64> BEL` 写回 PTY 的：
                     // 远端一条 `\e]52;c\r;?\a` 就能让应答里出现裸回车，被 shell 行编辑
                     // 当成回车处理。非读取请求一律原样透传给上游。
-                    self.drain(&mut snapshot.filtered);
-                    if byte == 0x1B {
-                        self.buf.push(byte);
-                        self.state = ReadState::Esc;
-                    } else {
-                        snapshot.filtered.push(byte);
-                    }
+                    self.pass_through(byte, &mut snapshot.filtered);
                 } else if self.buf.len() >= MAX_SCAN_BYTES {
                     // 选择器名超上限：序列原样透传给上游，本仓不再应答。
                     // 必须出声——否则远端只看到「粘贴没反应」，无从定位；但要限频：
@@ -219,13 +213,7 @@ impl ReadScan {
                 if byte == b'\\' {
                     self.emit(snapshot);
                 } else {
-                    self.drain(&mut snapshot.filtered);
-                    if byte == 0x1B {
-                        self.buf.push(byte);
-                        self.state = ReadState::Esc;
-                    } else {
-                        snapshot.filtered.push(byte);
-                    }
+                    self.pass_through(byte, &mut snapshot.filtered);
                 }
             }
         }
@@ -235,6 +223,20 @@ impl ReadScan {
         out.extend_from_slice(&self.buf);
         self.buf.clear();
         self.state = ReadState::Ground;
+    }
+
+    /// 把一个字节原样透传给上游：`ESC` 转入转义态，其余字节直接落进透传缓冲。
+    ///
+    /// 「原样透传」的判定只此一处：两处各写一遍时，漏改一处就会让某个字节既不
+    /// 透传也不进状态机（整段序列被截断）。
+    fn pass_through(&mut self, byte: u8, filtered: &mut Vec<u8>) {
+        self.drain(filtered);
+        if byte == 0x1B {
+            self.buf.push(byte);
+            self.state = ReadState::Esc;
+        } else {
+            filtered.push(byte);
+        }
     }
 
     /// 命中读取请求：解析选择器并报告，吞掉整段序列。

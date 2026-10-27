@@ -264,24 +264,22 @@ pub(super) fn u32_vec_to_int_array(env: &mut Env, values: &[u32]) -> jintArray {
 
 /// 以落点为锚在终端安装选区并回传界限。会话锁与注册表读锁都在构造界限
 /// 后立即释放：选区查询走 VT 线程，绝不能持锁跨越。
+///
+/// 词选区与全选共用此包装：两者只在「选区怎么派生」上不同，通道外置与
+/// 失败语义完全一致，各写一遍时漏改一处即让某个选区查询改回持锁跨越。
 pub(super) fn select_bounds_export<'local>(
     mut unowned_env: EnvUnowned<'local>,
     session_id: jlong,
-    row: jint,
-    col: jint,
     // 通道外置：选区派生在两把锁之外跑（理由同 `getTitle`）。
     select: impl FnOnce(
         &flume::Sender<crate::terminal::ghostty_terminal::Query>,
-        u32,
-        u32,
     ) -> Option<((u32, u32), (u32, u32))>,
 ) -> jintArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let Some(query_tx) = session_query_channel(session_id as u64) else {
             return Ok(std::ptr::null_mut());
         };
-        let bounds = select(&query_tx, row.max(0) as u32, col.max(0) as u32);
-        bounds_to_int_array(env, bounds)
+        bounds_to_int_array(env, select(&query_tx))
     })
 }
 
@@ -296,8 +294,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'
     row: jint,
     col: jint,
 ) -> jintArray {
-    select_bounds_export(unowned_env, session_id, row, col, |query_tx, row, col| {
-        GhosttyTerminal::select_word_at_on(query_tx, row, col)
+    select_bounds_export(unowned_env, session_id, |query_tx| {
+        GhosttyTerminal::select_word_at_on(query_tx, row.max(0) as u32, col.max(0) as u32)
     })
 }
 
@@ -329,16 +327,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCo
 /// 并安装，回传与失败语义同 selectWordAt。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'local>(
-    mut unowned_env: EnvUnowned<'local>,
+    unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
 ) -> jintArray {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let Some(query_tx) = session_query_channel(session_id as u64) else {
-            return Ok(std::ptr::null_mut());
-        };
-        let bounds = crate::terminal::ghostty_terminal::GhosttyTerminal::select_all_on(&query_tx);
-        bounds_to_int_array(env, bounds)
+    select_bounds_export(unowned_env, session_id, |query_tx| {
+        crate::terminal::ghostty_terminal::GhosttyTerminal::select_all_on(query_tx)
     })
 }
 

@@ -63,12 +63,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFont
     _class: JClass<'local>,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let state = render_state_mut();
-        let Some(render_state) = state.as_ref() else {
+        let Some(name) =
+            with_render_state(|render_state| render_state.font_pipeline.default_font_name())
+        else {
             return Ok(std::ptr::null_mut());
         };
-        let name = render_state.font_pipeline.default_font_name();
-        drop(state);
         string_to_jstring(env, &name)
     })
 }
@@ -112,12 +111,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo(
     _class: JClass,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let state = render_state_mut();
-        let Some(render_state) = state.as_ref() else {
+        let Some(packed) = with_render_state(|render_state| {
+            pack_font_info(&render_state.font_pipeline.font_info())
+        }) else {
             return Ok(std::ptr::null_mut());
         };
-        let packed = pack_font_info(&render_state.font_pipeline.font_info());
-        drop(state);
         match env.byte_array_from_slice(&packed) {
             Ok(array) => array.into_raw(),
             Err(error) => {

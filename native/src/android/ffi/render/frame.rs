@@ -34,6 +34,70 @@ pub(super) enum FrameData {
     Idle,
 }
 
+/// 渲染状态锁：持锁、给出渲染状态引用、记下取锁时刻。
+///
+/// 取锁时刻一并记下——它是慢帧诊断的分界点（锁内耗时与锁外耗时分开计），
+/// 三条帧路径都经此取锁，各写一遍时漏记一处即让慢帧归因失真。
+struct RenderStateLock {
+    state: std::sync::MutexGuard<'static, Option<RenderState>>,
+    lock_done: std::time::Instant,
+}
+
+impl RenderStateLock {
+    /// 渲染状态的可变引用；渲染状态缺失即报错退出。
+    fn get(&mut self) -> Result<&mut RenderState, jint> {
+        let Some(render_state) = self.state.as_mut() else {
+            log::error!("render: render state missing");
+            return Err(-1);
+        };
+        Ok(render_state)
+    }
+}
+
+/// 取渲染状态锁并记下取锁时刻。
+fn lock_render_state() -> RenderStateLock {
+    let state = render_state_mut();
+    let lock_done = std::time::Instant::now();
+    RenderStateLock { state, lock_done }
+}
+
+/// 绘制渲染状态里的缓存帧。
+///
+/// 单元数据、行列数与光标都取自渲染状态的帧缓存：新帧路径先把本帧存入缓存
+/// 再绘制，空闲路径直接画缓存。绘制参数序列只此一处——两处各写一遍时，
+/// 新增一个绘制参数漏改一处即表现为「某一帧少画一层」。
+fn draw_cached_frame(
+    render_state: &mut RenderState,
+    cursor: crate::render::CellCursor,
+) -> Result<(), crate::render::GpuError> {
+    // 帧缓存与绘制输入同处一个结构，须按字段拆开借用：缓存取不可变，
+    // 渲染器与字体管道取可变。
+    let RenderState {
+        renderer,
+        font_pipeline,
+        search_highlights,
+        dirty_mask,
+        kitty_instances,
+        kitty_overlay_dirty,
+        last_frame,
+        ..
+    } = render_state;
+    let Some((cells, _, rows, cols, _)) = last_frame.as_ref() else {
+        return Ok(());
+    };
+    renderer.render_cell_data(
+        cells,
+        *rows,
+        *cols,
+        cursor,
+        font_pipeline,
+        &search_highlights.current,
+        Some(&dirty_mask[..]),
+        kitty_instances,
+        *kitty_overlay_dirty,
+    )
+}
+
 /// 阶段 0 + 阶段 1：切会话后索要一帧，并完成渲染前准备（单次持有 RENDER_STATE 锁）。
 ///
 /// 返回 false 表示本帧不渲染（无渲染态、无 surface 或管线尺寸未知）。
@@ -232,12 +296,9 @@ pub(super) fn render_new_frame(
     cols: u32,
     scroll_offset: i64,
 ) -> Result<(jint, std::time::Instant, std::time::Instant), jint> {
-    let mut state = render_state_mut();
-    let Some(render_state) = state.as_mut() else {
-        log::error!("render: render state missing");
-        return Err(-1);
-    };
-    let lock_done = std::time::Instant::now();
+    let mut locked = lock_render_state();
+    let lock_done = locked.lock_done;
+    let render_state = locked.get()?;
     // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
     // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
     // 打包重传，滚动/缩放只经无拷贝布局重建实例。
@@ -291,7 +352,7 @@ pub(super) fn render_new_frame(
     let need_kitty_fetch = invalidation.refetch_placements;
     let sync_cell_width = grid_cell_width.max(1.0) as u32;
     let sync_cell_height = grid_cell_height.max(1.0) as u32;
-    drop(state);
+    drop(locked);
     if need_cell_sync {
         let registry = rlock_session_registry();
         if let Some(entry) = registry.get(&session_id) {
@@ -317,11 +378,8 @@ pub(super) fn render_new_frame(
     } else {
         Vec::new()
     };
-    let mut state = render_state_mut();
-    let Some(render_state) = state.as_mut() else {
-        log::error!("render: render state missing");
-        return Err(-1);
-    };
+    let mut locked = lock_render_state();
+    let render_state = locked.get()?;
     if render_state.renderer.surface.is_none() {
         // collect 之后 surface 才被拆走：本帧数据已被 VT 破坏性取出，丢弃就再没有
         // 补发。存进 last_frame，让重挂载后的空闲重绘能把它画出来；同时解除滚动
@@ -446,17 +504,10 @@ pub(super) fn render_new_frame(
     // 内容脏标志在此消费而非函数入口：上面的提前返回（例如无 surface）没有
     // 呈现任何内容，不能把「字体/主题已变」这类仅靠该标志送达的信号吃掉。
     render_state.dirty.swap(false, Ordering::AcqRel);
-    let result = render_state.renderer.render_cell_data(
-        &cells,
-        rows,
-        cols,
-        cursor,
-        &mut render_state.font_pipeline,
-        &render_state.search_highlights.current,
-        Some(&render_state.dirty_mask),
-        &render_state.kitty_instances,
-        render_state.kitty_overlay_dirty,
-    );
+    // 本帧先入缓存再绘制：新帧与空闲帧都从缓存取单元数据，绘制参数序列
+    // 只有一处。绘制失败时缓存里已是本帧，下一次重试直接重画它。
+    render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+    let result = draw_cached_frame(render_state, cursor);
     let render_done = std::time::Instant::now();
     // 新帧已就位（成功呈现，或留待空闲重绘重试）：滚动在途状态解除。
     // 渲染失败时同样解除——那一帧的单元数据已存进 `last_frame`，重试由
@@ -465,7 +516,6 @@ pub(super) fn render_new_frame(
     match result {
         Ok(()) => {
             render_state.kitty_overlay_dirty = false;
-            render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
             render_state.search_highlights.drawn = render_state.search_highlights.current.clone();
             render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
             Ok((1, lock_done, render_done))
@@ -473,10 +523,9 @@ pub(super) fn render_new_frame(
         Err(error) => {
             log_frame_failure(&error);
             // receive_cell_data() 是破坏性取数，VT 去重基线已推进，未呈现的帧
-            // 不会被 VT 补发。把本帧 cells 留在 last_frame，并置 dirty 确保
-            // 下一帧（Idle 或 New）重试，避免该帧内容永久丢失；全量标记同样
-            // 归还，重试才能覆盖失败帧可能只画了一半的区域。
-            render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+            // 不会被 VT 补发。本帧 cells 已在 last_frame（绘制前存入），并置
+            // dirty 确保下一帧（Idle 或 New）重试，避免该帧内容永久丢失；
+            // 全量标记同样归还，重试才能覆盖失败帧可能只画了一半的区域。
             render_state.dirty.store(true, Ordering::Release);
             render_state.full_repaint = true;
             Ok((-1, lock_done, render_done))
@@ -491,16 +540,12 @@ pub(super) fn render_new_frame(
 pub(super) fn render_idle_frame(
     session_id: u64,
 ) -> Result<(jint, std::time::Instant, std::time::Instant), jint> {
-    let mut state = render_state_mut();
-    let Some(render_state) = state.as_mut() else {
-        log::error!("render: render state missing");
-        return Err(-1);
-    };
-    let lock_done = std::time::Instant::now();
+    let mut locked = lock_render_state();
+    let lock_done = locked.lock_done;
+    let render_state = locked.get()?;
     // 空闲路径：引用 `last_frame`——零克隆。会话不一致时不重绘，避免把旧会话画到新会话。
-    let Some((ref cached_cells, cached_cursor, cached_rows, cached_cols, cached_session)) =
-        render_state.last_frame
-    else {
+    // 单元数据与列数由绘制函数自己从缓存取，故此处只取光标、行数与会话号。
+    let Some((_, cached_cursor, cached_rows, _, cached_session)) = render_state.last_frame else {
         return Err(0);
     };
     if cached_session != session_id {
@@ -582,17 +627,7 @@ pub(super) fn render_idle_frame(
             render_state.kitty_cell_height = idle_cell_height;
         }
     }
-    let result = render_state.renderer.render_cell_data(
-        cached_cells,
-        cached_rows,
-        cached_cols,
-        cursor,
-        &mut render_state.font_pipeline,
-        &render_state.search_highlights.current,
-        Some(&render_state.dirty_mask),
-        &render_state.kitty_instances,
-        render_state.kitty_overlay_dirty,
-    );
+    let result = draw_cached_frame(render_state, cursor);
     let render_done = std::time::Instant::now();
     if result.is_ok() {
         render_state.kitty_overlay_dirty = false;
