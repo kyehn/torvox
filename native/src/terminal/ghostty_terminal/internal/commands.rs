@@ -48,7 +48,7 @@ impl super::GhosttyTerminal {
                 // 显式重推：内容可能与上次推送逐字节相同（切会话时终端本身毫无
                 // 变化），去重基线必须一并失效，否则这次请求被吞掉。
                 state.last_cell_data_push = None;
-                batch.dirty = true;
+                state.cell_data_dirty = true;
                 CommandOutcome::Continue
             }
             Command::Reset => {
@@ -84,7 +84,7 @@ impl super::GhosttyTerminal {
         // 继续套用会跳过脏行判定、复用过期内容。
         extractors.clear_scroll_shift();
         mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         batch.content_changed = true;
     }
 
@@ -113,7 +113,7 @@ impl super::GhosttyTerminal {
         Self::apply_theme(terminal, &theme.palette);
         mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
         extractors.invalidate_row_cache();
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         batch.content_changed = true;
     }
 
@@ -160,7 +160,7 @@ impl super::GhosttyTerminal {
         // `RowCache::covers` 也会拦下这一情形，这里显式失效
         // 使失效时机与既有 `mark_grid_dirty` 保持同处。
         extractors.invalidate_row_cache();
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         batch.content_changed = true;
         CommandOutcome::Continue
     }
@@ -212,7 +212,7 @@ impl super::GhosttyTerminal {
         // 内容去重会吞掉本次滑动的即时重绘。与 SetSelection 同款失效。
         state.last_cell_data_push = None;
         state.grid_dirty = true;
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         match actual_delta {
             // 只有纯视口滚动才平移缓存；本批已有内容变更时缓存
             // 相对新网格已过期，整帧重建。
@@ -241,7 +241,7 @@ impl super::GhosttyTerminal {
         state.last_cell_data_push = None;
         mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
         extractors.invalidate_row_cache();
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         batch.content_changed = true;
     }
 
@@ -261,7 +261,7 @@ impl super::GhosttyTerminal {
         state.last_cell_data_push = None;
         state.grid_dirty = true;
         extractors.invalidate_row_cache();
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         batch.content_changed = true;
     }
 
@@ -278,7 +278,7 @@ impl super::GhosttyTerminal {
         state.last_cell_data_push = None;
         state.grid_dirty = true;
         extractors.invalidate_row_cache();
-        batch.dirty = true;
+        state.cell_data_dirty = true;
         batch.content_changed = true;
     }
 

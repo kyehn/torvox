@@ -688,7 +688,7 @@ impl super::GhosttyTerminal {
     /// 查询会命中上一轮已落盘的缓存，直读查询等到线程恢复后的第一次应答），后者
     /// 只会再等满一个期限后仍回退——调用方拿到的兜底值语义不变。
     /// 有副作用的动作型查询（如 `SearchSelect` 推进搜索游标）经
-    /// [`Self::query_on_once`] 只发一次，防止滞留首查应答丢失后重发双跳。
+    /// [`Self::query_on_attempts`] 只发一次，防止滞留首查应答丢失后重发双跳。
     const QUERY_ATTEMPTS: u8 = 2;
 
     fn query_on<T>(
@@ -698,16 +698,6 @@ impl super::GhosttyTerminal {
         method: &str,
     ) -> T {
         Self::query_on_attempts(query_tx, build, fallback, method, Self::QUERY_ATTEMPTS)
-    }
-
-    /// [`Self::query_on`] 的单发版：供非幂等的动作型查询使用。
-    fn query_on_once<T>(
-        query_tx: &Sender<Query>,
-        build: impl Fn(Sender<T>) -> Query,
-        fallback: T,
-        method: &str,
-    ) -> T {
-        Self::query_on_attempts(query_tx, build, fallback, method, 1)
     }
 
     fn query_on_attempts<T>(
@@ -918,15 +908,17 @@ impl super::GhosttyTerminal {
     }
 
     /// [`Self::search_select`] 的通道外置版（见 [`Self::query_on`]）。
+    /// 推进搜索游标非幂等，故只发一次。
     pub(crate) fn search_select_on(
         query_tx: &Sender<Query>,
         forward: bool,
     ) -> Option<SearchSelection> {
-        Self::query_on_once(
+        Self::query_on_attempts(
             query_tx,
             |tx| Query::SearchSelect { forward, tx },
             None,
             "search_select",
+            1,
         )
     }
 

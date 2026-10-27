@@ -169,24 +169,14 @@ impl Renderer {
             None => return,
         };
 
-        self.cell_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Cell Bind Group"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(atlas_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(atlas_sampler),
-                },
-            ],
-        }));
+        self.cell_bind_group = Some(Self::create_text_bind_group(
+            &self.device,
+            "Cell Bind Group",
+            &pipeline.get_bind_group_layout(0),
+            uniform_buffer,
+            atlas_view,
+            atlas_sampler,
+        ));
     }
 
     /// 轻量的逐帧同步：只刷新单元 uniform 缓冲内容。

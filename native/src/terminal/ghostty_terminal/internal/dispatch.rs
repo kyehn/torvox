@@ -5,17 +5,14 @@ use super::*;
 impl super::GhosttyTerminal {
     /// 处理单条查询。上游 `select_*` 查询会在查询路径内安装选区；成功安装时返回
     /// true，由 run 循环按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
-    pub(crate) fn process_query<'term>(
+    pub(super) fn process_query<'term>(
         query: Query,
         terminal: &mut Terminal<'term, '_>,
         all_text: &mut Option<String>,
-        encoders: &mut Encoders,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        search: &mut Option<Search<'_, 'term>>,
-        match_buffer: &mut MatchBuffer,
         extractors: &mut RenderExtractors<'term>,
-        kitty_cache: &mut KittyPlacementCache,
+        query_context: &mut QueryContext<'term>,
     ) -> bool {
         let mut selection_installed = false;
         match query {
@@ -172,7 +169,8 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchSetNeedle { needle, tx } => {
-                let total = Self::search_set_needle_impl(search, terminal, &needle);
+                let total =
+                    Self::search_set_needle_impl(&mut query_context.search, terminal, &needle);
                 try_send(
                     &tx,
                     total,
@@ -180,7 +178,8 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchSelect { forward, tx } => {
-                let selection = Self::search_select_impl(search, terminal, forward);
+                let selection =
+                    Self::search_select_impl(&mut query_context.search, terminal, forward);
                 try_send(
                     &tx,
                     selection,
@@ -188,8 +187,11 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchViewportHighlights { tx } => {
-                let highlights =
-                    Self::search_viewport_highlights_impl(search, match_buffer, terminal);
+                let highlights = Self::search_viewport_highlights_impl(
+                    &mut query_context.search,
+                    &mut query_context.match_buffer,
+                    terminal,
+                );
                 try_send(
                     &tx,
                     highlights,
@@ -222,7 +224,7 @@ impl super::GhosttyTerminal {
             Query::TakeKittyPlacements { row_signatures, tx } => {
                 let placements = Self::collect_kitty_placements(
                     terminal,
-                    kitty_cache,
+                    &mut query_context.kitty_cache,
                     row_signatures.as_deref(),
                 );
                 try_send(
@@ -246,7 +248,7 @@ impl super::GhosttyTerminal {
                 // 关闭时丢弃事件。编码器选项取自终端（跟踪模式 + 格式），故
                 // SGR/X10/UTF-8 输出遵循应用的 DECSET 选择。
                 Self::encode_mouse_event_into(
-                    encoders,
+                    &mut query_context.encoders,
                     terminal,
                     &mut response,
                     position,
@@ -277,7 +279,7 @@ impl super::GhosttyTerminal {
                 let wheel = Some(Self::mouse_button(button));
                 for _ in 0..repeat.max(1) {
                     Self::encode_mouse_event_into(
-                        encoders,
+                        &mut query_context.encoders,
                         terminal,
                         &mut response,
                         position,
@@ -288,7 +290,7 @@ impl super::GhosttyTerminal {
                         cell_height,
                     );
                     Self::encode_mouse_event_into(
-                        encoders,
+                        &mut query_context.encoders,
                         terminal,
                         &mut response,
                         position,
@@ -309,7 +311,7 @@ impl super::GhosttyTerminal {
                 unshifted,
                 tx,
             } => {
-                let (key_encoder, key_event) = &mut encoders.key;
+                let (key_encoder, key_event) = &mut query_context.encoders.key;
                 let mods = Mods::from_bits_retain(modifiers);
                 key_encoder.set_options_from_terminal(terminal);
                 key_event
@@ -362,18 +364,15 @@ impl super::GhosttyTerminal {
     ///
     /// `first` 是本轮等待时已从通道取出的查询（见 [`VtEvent`]）：它已离开通道，
     /// 必须在此处理，否则会被丢弃、查询方只能等到超时。
-    pub(crate) fn drain_queries<'term>(
+    pub(super) fn drain_queries<'term>(
         query_receiver: &flume::Receiver<Query>,
         first: Option<Query>,
         terminal: &mut Terminal<'term, '_>,
         all_text: &mut Option<String>,
-        encoders: &mut Encoders,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        search: &mut Option<Search<'_, 'term>>,
-        match_buffer: &mut MatchBuffer,
         extractors: &mut RenderExtractors<'term>,
-        kitty_cache: &mut KittyPlacementCache,
+        query_context: &mut QueryContext<'term>,
     ) -> bool {
         let mut selection_installed = false;
         let mut taken = first;
@@ -391,13 +390,10 @@ impl super::GhosttyTerminal {
                 query,
                 terminal,
                 all_text,
-                encoders,
                 default_foreground,
                 default_background,
-                search,
-                match_buffer,
                 extractors,
-                kitty_cache,
+                query_context,
             );
         }
         selection_installed
