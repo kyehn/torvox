@@ -1,7 +1,8 @@
 use super::super::query::session_query_channel;
 use super::super::*;
 use super::overlay::{
-    build_cursor, log_frame_failure, mark_dirty_rows, request_session_repaint, should_repaint_idle,
+    build_cursor, frame_reflects_scroll, log_frame_failure, mark_dirty_rows,
+    request_session_repaint, should_repaint_idle,
 };
 use super::session_ops::ATLAS_SIZE;
 
@@ -30,6 +31,8 @@ pub(super) enum FrameData {
         rows: u32,
         cols: u32,
         scroll_offset: i64,
+        /// 宿主已送达的最后一个滚动请求序号（0 = 从未下发过滚动命令）。
+        latest_scroll_request_id: u64,
     },
     Idle,
 }
@@ -228,6 +231,7 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
                 rows,
                 cols,
                 scroll_offset: session.last_scroll_offset(),
+                latest_scroll_request_id: session.terminal().latest_scroll_request_id(),
             })
         }
         None => Ok(FrameData::Idle),
@@ -259,7 +263,16 @@ pub(super) fn render_inner(session_id: u64) -> jint {
             rows,
             cols,
             scroll_offset,
-        } => render_new_frame(session_id, cells, cursor_info, rows, cols, scroll_offset),
+            latest_scroll_request_id,
+        } => render_new_frame(
+            session_id,
+            cells,
+            cursor_info,
+            rows,
+            cols,
+            scroll_offset,
+            latest_scroll_request_id,
+        ),
         FrameData::Idle => render_idle_frame(session_id),
     };
     let (count, lock_done, render_done) = match outcome {
@@ -295,10 +308,32 @@ pub(super) fn render_new_frame(
     rows: u32,
     cols: u32,
     scroll_offset: i64,
+    latest_scroll_request_id: u64,
 ) -> Result<(jint, std::time::Instant, std::time::Instant), jint> {
     let mut locked = lock_render_state();
     let lock_done = locked.lock_done;
     let render_state = locked.get()?;
+    // 本帧是否早于在途的滚动命令：VT 尚未处理该命令时推送的帧仍是旧视口，
+    // 此刻呈现会用旧视口配新亚行余量——画出的位置比实际视口少滚了整行数，
+    // 视觉上内容先上跳半行、待新视口到达再下跳整行（上下滑动晃动）。
+    // 故陈旧帧一律不呈现，也不解除滚动在途门控：等 VT 处理命令后推送的帧。
+    if !frame_reflects_scroll(cursor_info.scroll_request_id, latest_scroll_request_id) {
+        // 逐帧事件（滚动期间每帧都可能命中）：按 logcat-hygiene 规范记 trace，
+        // 不得以 debug 逐次输出把 logcat 刷满。
+        log::trace!(
+            "scroll frame stale: processed={} latest={}",
+            cursor_info.scroll_request_id,
+            latest_scroll_request_id
+        );
+        // 取帧之后 surface 才被拆走：本帧数据已被 VT 破坏性取出，丢弃就再没有
+        // 补发（滚动命令强制重推的是滚动后的视口，不是这一帧的视口）。存进
+        // last_frame 并解除滚动在途，重挂载后的空闲重绘据此补画。
+        if render_state.renderer.surface.is_none() {
+            render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+            render_state.scroll_frame_pending = false;
+        }
+        return Ok((0, lock_done, std::time::Instant::now()));
+    }
     // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
     // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
     // 打包重传，滚动/缩放只经无拷贝布局重建实例。

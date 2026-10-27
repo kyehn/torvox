@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -155,6 +155,7 @@ impl super::GhosttyTerminal {
             alt_screen_active,
             mouse_tracking_active,
             resize_failed,
+            latest_scroll_request_id: AtomicU64::new(0),
             #[cfg(test)]
             cache_stats: cache_stats_for_self,
             #[cfg(test)]
@@ -279,12 +280,33 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 下发视口滚动命令（向上为负）。成功返回 true。
+    ///
+    /// 每次下发分配一个请求序号（进程级单调递增）：VT 处理命令后把序号随帧回传，
+    /// 渲染侧据此判断收到的帧是否早于在途的滚动命令——在途期间到达的旧视口帧
+    /// 不得呈现（旧视口配新余量会让内容先上跳半行再下跳整行）。
     pub fn scroll_viewport(&self, delta: isize) -> bool {
-        if let Err(error) = self.cmd_tx.try_send(Command::ScrollViewport(delta)) {
+        let request_id = super::commands::next_scroll_request_id();
+        if let Err(error) = self
+            .cmd_tx
+            .try_send(Command::ScrollViewport { delta, request_id })
+        {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for scroll: {error}");
             return false;
         }
+        // 只在确认送达后推进「最新请求序号」：未送达的序号不得让渲染侧把
+        // 后续的帧判成陈旧（那会让滚动后的帧永远不被呈现）。
+        self.latest_scroll_request_id
+            .store(request_id, Ordering::Release);
         true
+    }
+
+    /// 最近一次**已送达**的滚动请求序号（0 = 从未下发过滚动命令）。
+    ///
+    /// 渲染侧拿它与帧携带的「VT 已处理的最后一个序号」比较：帧的序号更小即
+    /// 说明该帧早于在途的滚动命令。
+    pub fn latest_scroll_request_id(&self) -> u64 {
+        self.latest_scroll_request_id.load(Ordering::Acquire)
     }
 
     /// VT 线程接受 resize 命令时为 true。为 false 表示网格**未**缩放（调用方的

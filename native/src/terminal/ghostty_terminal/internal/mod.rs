@@ -271,6 +271,11 @@ pub(crate) struct RenderExtractors<'alloc> {
     /// 下一帧据此平移 `RowCache` 并只逐格抽取露出的边缘行；任何内容变更
     /// 或缓存失效都会清空它，避免拿平移后的旧内容冒充新内容。
     scroll_shift: Option<isize>,
+    /// VT 已处理的最后一个滚动请求序号（0 = 从未处理过滚动命令）。
+    ///
+    /// 随帧回传给渲染侧：帧携带的序号小于宿主已下发的最新序号即说明该帧
+    /// 早于在途的滚动命令，呈现它会用旧视口配新余量。
+    scroll_request_id: u64,
     /// 行级分流计数，仅测试使用：按终端实例隔离，避免并行测试互相污染。
     #[cfg(test)]
     pub(crate) cache_stats: CacheStats,
@@ -307,6 +312,7 @@ impl<'alloc> RenderExtractors<'alloc> {
             cell_iter,
             row_cache: RowCache::new(),
             scroll_shift: None,
+            scroll_request_id: 0,
             // 测试构建下由 `run_inner` 从 `RunConfig` 换成该终端实例的句柄；
             // 生产构建无此字段，故此处为占位。
             #[cfg(test)]
@@ -359,6 +365,11 @@ impl<'alloc> RenderExtractors<'alloc> {
     /// 取走平移量：只对紧随其后的那一帧生效，避免陈旧偏移在后续帧继续套用。
     fn take_scroll_shift(&mut self) -> Option<isize> {
         self.scroll_shift.take()
+    }
+
+    /// 记下刚处理的滚动请求序号：随下一帧回传给渲染侧。
+    fn note_scroll_request(&mut self, request_id: u64) {
+        self.scroll_request_id = request_id;
     }
 }
 

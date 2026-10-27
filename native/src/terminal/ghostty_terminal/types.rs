@@ -79,6 +79,11 @@ pub struct CursorInfo {
     pub style: CursorStyle,
     /// 回滚长度：搭载在单元格数据通道上，渲染线程无需同步 `scrollback_length()` RPC。
     pub scrollback_length: u32,
+    /// 产出本帧时 VT 已处理的最后一个滚动请求序号（0 = 从未处理过滚动命令）。
+    ///
+    /// 渲染线程拿它与宿主已下发的最新序号比较：本帧序号更小即说明该帧早于
+    /// 在途的滚动命令（视口仍是旧的），此刻呈现会用旧视口配新余量。
+    pub scroll_request_id: u64,
     /// 产出本帧时 VT 网格的真实行列：与 CellData 同源，渲染线程不得再读会话侧
     /// `terminal_rows/cols` 原子缓存——后者在 resize 入队时提前发布，
     /// VT 尚未应用新网格时两者不一致，收缩帧会被 `build_row_ranges` 判空丢弃。

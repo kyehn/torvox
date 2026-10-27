@@ -835,6 +835,8 @@ mod render_wake_tests;
 #[cfg(test)]
 mod scroll_bookkeeping_tests;
 #[cfg(test)]
+mod scroll_frame_staleness_tests;
+#[cfg(test)]
 mod search_highlight_repaint_tests;
 #[cfg(test)]
 mod search_highlight_tests;

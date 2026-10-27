@@ -1,7 +1,7 @@
 //! Ghostty 终端引擎：VT 解析、命令分发与公开 API。
 //! 以命令方式在 PTY 读取线程与渲染线程间通信。
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::Duration;
@@ -79,6 +79,11 @@ pub struct GhosttyTerminal {
     /// 行级抽取的可观测计数，仅测试使用。
     #[cfg(test)]
     pub(crate) cache_stats: internal::CacheStats,
+    /// 最近一次**已送达**的滚动请求序号（0 = 从未下发过滚动命令）。
+    ///
+    /// 渲染侧拿它与帧携带的「VT 已处理的最后一个序号」比较，识别早于在途滚动
+    /// 命令的陈旧帧（见 [`GhosttyTerminal::latest_scroll_request_id`]）。
+    pub(crate) latest_scroll_request_id: AtomicU64,
     /// Kitty 占位符扫描计数（复用行 / 扫描行），仅测试使用。
     #[cfg(test)]
     pub(crate) kitty_stats: internal::CacheStats,

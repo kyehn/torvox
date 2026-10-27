@@ -914,3 +914,44 @@ fn terminal_owned_selection_inverts_cell_data() {
     assert_eq!(restored.foreground, theme_foreground);
     assert_eq!(restored.background, theme_background);
 }
+
+/// 滚动请求序号必须随帧回传：渲染侧据此识别「早于在途滚动命令」的陈旧帧。
+///
+/// 判别力：序号不回传时渲染侧无法区分「VT 已处理滚动命令的帧」与「命令在途
+/// 期间推送的旧视口帧」，后者一旦呈现就是旧视口配新亚行余量——内容先上跳
+/// 半行、待新视口到达再下跳整行（上下滑动晃动）。
+#[test]
+fn scroll_request_id_travels_with_frame() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write(b"line0\r\nline1\r\nline2\r\n");
+    terminal_under_test.flush();
+    let (_, cursor_before) = terminal_under_test.receive_cell_data().expect("cell data");
+    assert_eq!(
+        cursor_before.scroll_request_id, 0,
+        "未下发滚动命令时帧不得携带请求序号"
+    );
+
+    assert!(
+        terminal_under_test.scroll_viewport(-1),
+        "scroll_viewport 应接受增量"
+    );
+    let request_id = terminal_under_test.latest_scroll_request_id();
+    assert!(request_id > 0, "已送达的滚动命令必须分配请求序号");
+
+    // VT 处理命令后推送的帧必须携带该序号。
+    let mut stamped = None;
+    for _ in 0..500 {
+        if let Some((_, cursor)) = terminal_under_test.receive_cell_data()
+            && cursor.scroll_request_id == request_id
+        {
+            stamped = Some(cursor);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let stamped = stamped.expect("滚动命令处理后必须推出携带请求序号的帧");
+    assert_eq!(
+        stamped.scroll_request_id, request_id,
+        "帧必须携带 VT 已处理的滚动请求序号"
+    );
+}

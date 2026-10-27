@@ -16,7 +16,8 @@ pub(super) use diagnostics::{
 };
 #[cfg(test)]
 pub(super) use overlay::{
-    build_cursor, highlight_rows_to_mark, mark_overlay_dirty_rows, should_repaint_idle,
+    build_cursor, frame_reflects_scroll, highlight_rows_to_mark, mark_overlay_dirty_rows,
+    should_repaint_idle,
 };
 pub(super) use pump::pump_sessions;
 pub(super) use session_ops::{ATLAS_SIZE, DEFAULT_FONT_CELL_SIZE, string_to_jstring};
