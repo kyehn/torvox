@@ -595,6 +595,9 @@ pub(super) fn render_idle_frame(
         Ok(()) => Ok((1, lock_done, render_done)),
         Err(error) => {
             log_frame_failure(&error);
+            // 空闲路径是字体/主题等「只置 dirty、无新帧」改动的唯一送达通道：
+            // 本帧失败已把该标志换走，不归还就再没有任何触发点，改动永久丢失。
+            render_state.dirty.store(true, Ordering::Release);
             Ok((-1, lock_done, render_done))
         }
     }
