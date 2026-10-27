@@ -639,31 +639,35 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
         // 桌面构建使用系统字体）。其他目标上拒绝加载。
         #[cfg(target_os = "android")]
         let family = {
-            // 用全新的 fontdb 探测文件以获知字体族名。
-            let mut db = crate::render::font::font_db::load_font_database();
-            let ids =
-                db.load_font_source(fontdb::Source::File(std::path::PathBuf::from(&path_str)));
-            let Some(family) = ids
-                .iter()
-                .filter_map(|id| db.face(*id))
-                .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
-                .next()
+            let mut state = render_state_mut();
+            let Some(render_state) = state.as_mut() else {
+                return Ok(std::ptr::null_mut());
+            };
+            // 直接装进当前字体库：文件路径已知，另起一个库探测族名只是把同一个
+            // 文件解析两遍。装入后族已在库内，按族名选中不必枚举全部字体文件
+            // （真机实测枚举 187 个族要 127ms）。
+            let Some(family) = render_state
+                .font_pipeline
+                .load_font_file(std::path::Path::new(&path_str))
             else {
                 log::warn!("loadFontFile: no family name in {path_str}");
                 return Ok(std::ptr::null_mut());
             };
-            // 把文件登记到渲染器并重建其管线，使新字体族可被选中。
-            // 追加而非覆盖：用户字体目录已在此前注册，覆盖会丢掉目录内字体。
+            // 登记到字体列表的扫描路径：追加而非覆盖，用户字体目录已在此前
+            // 注册，覆盖会丢掉目录内字体。
             crate::render::font::font_db::add_extra_font_path(std::path::PathBuf::from(&path_str));
-            let mut state = render_state_mut();
-            if let Some(render_state) = state.as_mut() {
-                rebuild_font_pipeline(render_state);
-                if !render_state.font_pipeline.set_font_family(&family) {
-                    // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
-                    // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
-                    log::error!("loadFontFile: cannot apply family {family:?} from {path_str}");
-                    return Ok(std::ptr::null_mut());
-                }
+            let previous = render_state.font_pipeline.font_id;
+            if !render_state.font_pipeline.set_font_family(&family) {
+                // 丢弃它会让设置页显示新字体名而终端仍用管线的默认字体渲染，
+                // 且无任何日志（对比 setFontFamily 导出：同一结果在此被上报为 false）。
+                log::error!("loadFontFile: cannot apply family {family:?} from {path_str}");
+                return Ok(std::ptr::null_mut());
+            }
+            if render_state.font_pipeline.font_id != previous {
+                // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，
+                // 必须整库丢弃并重绘。
+                render_state.renderer.cell_cache = None;
+                render_state.dirty.store(true, Ordering::Relaxed);
             }
             family
         };
@@ -712,7 +716,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
 
 /// 登记额外的字体目录/文件（应用私有字体目录）：供字体列表枚举（`family_index`）
 /// 与选中时按需装入（`load_family`）使用；渲染常驻字体库不读这些路径
-/// （见 `load_font_database`）。若管线已存在则重建，保持与既有行为一致。
+/// （见 `load_font_database`），故不重建管线——重建会把主字体族与光栅缩放
+/// 一并复位（新建管线回到默认族、缩放 1.0），用户看到字体与字号突然改变。
 ///
 /// # Safety
 /// 仅由 JVM 经 JNI 调用，`paths` 须为本次调用期间有效的 `String[]`。
@@ -756,11 +761,6 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
                 path_list.push(std::path::PathBuf::from(text));
             }
             crate::render::font::font_db::set_extra_font_paths(path_list);
-            // 若管线已存在则重建，使新字体立即可选。
-            let mut state = render_state_mut();
-            if let Some(render_state) = state.as_mut() {
-                rebuild_font_pipeline(render_state);
-            }
             log::info!("setExtraFontPaths: registered extra font paths");
         }
         #[cfg(not(target_os = "android"))]
