@@ -131,7 +131,9 @@ dependencies {
 
   implementation("com.google.dagger:hilt-android:2.60.1")
   ksp("com.google.dagger:hilt-android-compiler:2.60.1")
-  implementation("androidx.hilt:hilt-navigation-compose:1.4.0")
+  // 代码只用到 `androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel`；
+  // 直接依赖该产物，避免 navigation-compose 整条依赖栈。
+  implementation("androidx.hilt:hilt-lifecycle-viewmodel-compose:1.4.0")
 
   implementation("androidx.datastore:datastore-preferences:1.3.0")
 
