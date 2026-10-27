@@ -812,14 +812,8 @@ fn all_static_pipelines_create_without_validation_errors() {
     let _ = crate::render::Renderer::create_kgp_pipeline(&device, format);
 
     for (label, error) in [
-        (
-            "out-of-memory",
-            futures::executor::block_on(oom_scope.pop()),
-        ),
-        (
-            "validation",
-            futures::executor::block_on(validation_scope.pop()),
-        ),
+        ("out-of-memory", pollster::block_on(oom_scope.pop())),
+        ("validation", pollster::block_on(validation_scope.pop())),
     ] {
         assert!(
             error.is_none(),

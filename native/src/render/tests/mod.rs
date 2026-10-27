@@ -71,22 +71,20 @@ fn create_test_device() -> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, 
         backend_options: wgpu::BackendOptions::default(),
         display: None,
     });
-    let adapter =
-        futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: None,
-            power_preference: wgpu::PowerPreference::LowPower,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        }))
-        .ok()?;
-    let (device, queue) =
-        futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("gpu_test_device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            ..Default::default()
-        }))
-        .ok()?;
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        compatible_surface: None,
+        power_preference: wgpu::PowerPreference::LowPower,
+        force_fallback_adapter: false,
+        apply_limit_buckets: false,
+    }))
+    .ok()?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("gpu_test_device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        ..Default::default()
+    }))
+    .ok()?;
     Some((instance, adapter, device, queue))
 }
 
