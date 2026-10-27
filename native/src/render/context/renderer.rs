@@ -269,7 +269,7 @@ impl Renderer {
             frame_view: None,
             frame_invalidated: true,
             swapchain_copy_supported: false,
-            present_log: crate::render::slow_log::CountedLogThrottle::new(),
+            present_log: crate::slow_log::CountedLogThrottle::new(),
         }
     }
 

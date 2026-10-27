@@ -117,7 +117,7 @@ pub struct Renderer {
     pub(crate) swapchain_copy_supported: bool,
     /// 呈现诊断的汇总闸门：逐帧呈现按 500ms 窗口汇总成一行，窗口内的呈现帧数
     /// 随该行一起交出（规范要求逐帧诊断限频且不得吞掉计数）。
-    pub(crate) present_log: crate::render::slow_log::CountedLogThrottle,
+    pub(crate) present_log: crate::slow_log::CountedLogThrottle,
 }
 
 #[cfg(test)]

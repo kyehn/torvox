@@ -531,27 +531,23 @@ fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool, bool) {
 ///
 /// 逐条记没有任何诊断价值（每一条都只是同一个「通道满」），却会挤爆 logcat 并持续
 /// 吃 CPU。故限频；恢复后通道排空时自然不再命中限频，首条即重新可见。
-static LAST_CELL_FRAME_DROP_WARN_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+///
+/// 闸门与渲染侧慢帧诊断共用（`crate::slow_log`）：窗口更长的差异只体现为窗口
+/// 长度，间隔判定仍只此一处——私有一份时口径分叉，间隔下限便失去保证。
 const CELL_FRAME_DROP_WARN_INTERVAL_MS: u64 = 5_000;
+static CELL_FRAME_DROP_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
+    crate::slow_log::SlowLogThrottle::with_interval(CELL_FRAME_DROP_WARN_INTERVAL_MS);
 
-fn warn_drop_throttled(error: &flume::TrySendError<(Vec<CellData>, CursorInfo)>) {
-    use std::sync::atomic::Ordering;
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0);
-    let last = LAST_CELL_FRAME_DROP_WARN_MS.load(Ordering::Relaxed);
-    if now_ms.saturating_sub(last) >= CELL_FRAME_DROP_WARN_INTERVAL_MS
-        && LAST_CELL_FRAME_DROP_WARN_MS
-            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-    {
-        log::warn!(
-            "ghostty_terminal: cell frame dropped ({error}) — further drops within {}ms are not logged",
-            CELL_FRAME_DROP_WARN_INTERVAL_MS,
-        );
+/// 记一条单元帧丢弃告警；返回真表示本次真的写出了告警（未被限频压住）。
+fn warn_drop_throttled(error: &flume::TrySendError<(Vec<CellData>, CursorInfo)>) -> bool {
+    if !CELL_FRAME_DROP_WARN_THROTTLE.should_log() {
+        return false;
     }
+    log::warn!(
+        "ghostty_terminal: cell frame dropped ({error}) — further drops within {}ms are not logged",
+        CELL_FRAME_DROP_WARN_INTERVAL_MS,
+    );
+    true
 }
 
 /// 同步更新（模式 2026）的发布门控：BSU（`2026h`）到 ESU（`2026l`）之间不发布

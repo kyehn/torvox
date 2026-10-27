@@ -13,9 +13,9 @@ use libghostty_vt::style::{Style, StyleColor, Underline};
 /// 放行次数为 1」；去掉限频（每次都记）即失败。
 #[test]
 pub(crate) fn cell_frame_drop_warning_is_throttled() {
-    use std::sync::atomic::Ordering;
-    // 从零起算，确保第一次调用一定落在窗口内（否则静态原子被别的用例推进过）。
-    LAST_CELL_FRAME_DROP_WARN_MS.store(0, Ordering::Relaxed);
+    // 静态闸门是进程级的，别的用例（VT 线程推送帧时通道满即触发丢弃告警）可能
+    // 先推进过窗口起点：复位到「尚未放行过」，首条才必然落在窗口内。
+    CELL_FRAME_DROP_WARN_THROTTLE.reset();
     let error = flume::bounded::<(Vec<CellData>, CursorInfo)>(0)
         .0
         .try_send((
@@ -37,10 +37,8 @@ pub(crate) fn cell_frame_drop_warning_is_throttled() {
     let mut logged = 0;
     for _ in 0..50 {
         // 直接数「本进程内本条是否真的被写出」不可行（log 无测试挂钩），
-        // 故改为驱动限频闸门本身：把窗口设为极大，除首次外必然全部落空。
-        let before = LAST_CELL_FRAME_DROP_WARN_MS.load(Ordering::Relaxed);
-        warn_drop_throttled(&error);
-        if LAST_CELL_FRAME_DROP_WARN_MS.load(Ordering::Relaxed) != before {
+        // 故由告警入口回报本次是否放行：它只依赖对外可见的行为。
+        if warn_drop_throttled(&error) {
             logged += 1;
         }
     }

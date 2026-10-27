@@ -3,13 +3,14 @@
 
 use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::time::Instant;
+
+use crate::slow_log::SlowLogThrottle;
 
 /// 缓冲区满时丢弃最旧事件的上限；避免事件突发超过 UI 消费速度时内存无界增长。
 const MAX_QUEUED_EVENTS: usize = 1024;
 
-/// 溢出告警的最小间隔（限频）。
-const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// 溢出告警的最小间隔（毫秒，限频）。
+const OVERFLOW_WARN_INTERVAL_MS: u64 = 1_000;
 
 /// Rust 发往 Kotlin UI 层的事件。触发来源：`Clipboard` = OSC 52 写入，
 /// `ClipboardRead` = OSC 52 读取请求，`Exit` = `session.is_exited()`；
@@ -43,8 +44,8 @@ pub enum Event {
 /// 再锁队列，反序会死锁。
 pub struct EventQueue {
     inner: Mutex<VecDeque<Event>>,
-    /// 上次记录溢出告警的时刻（限频）。
-    last_overflow_warn: Mutex<Option<Instant>>,
+    /// 溢出告警的限频闸门（与渲染侧慢帧诊断、终端侧告警共用同一实现）。
+    overflow_warn: SlowLogThrottle,
 }
 
 impl Default for EventQueue {
@@ -58,7 +59,7 @@ impl EventQueue {
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(VecDeque::new()),
-            last_overflow_warn: Mutex::new(None),
+            overflow_warn: SlowLogThrottle::with_interval(OVERFLOW_WARN_INTERVAL_MS),
         }
     }
 
@@ -88,16 +89,11 @@ impl EventQueue {
                     // （远端可无界地循环 OSC 52 读请求），一次洪泛就能把队列占满，
                     // 之后连 `Exit` 都会无声无息地丢：而 `exit_reported` 已置位且
                     // 不会重发，会话就此永久泄漏。
-                    let mut last_dropped_warn = self.last_overflow_warn.lock();
-                    let now = Instant::now();
-                    if last_dropped_warn
-                        .is_none_or(|last| now.duration_since(last) >= OVERFLOW_WARN_INTERVAL)
-                    {
+                    if self.overflow_warn.should_log() {
                         log::warn!(
                             "EventQueue: dropping new event, queue holds only protected \
                              events (full at {MAX_QUEUED_EVENTS})"
                         );
-                        *last_dropped_warn = Some(now);
                     }
                     return;
                 }
@@ -115,13 +111,10 @@ impl EventQueue {
             Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
             Event::Exit { session_id, .. } => ("exit", *session_id),
         };
-        let now = Instant::now();
-        let mut last = self.last_overflow_warn.lock();
-        if last.is_none_or(|previous| now.duration_since(previous) >= OVERFLOW_WARN_INTERVAL) {
+        if self.overflow_warn.should_log() {
             log::warn!(
                 "EventQueue: dropping {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
             );
-            *last = Some(now);
         }
     }
 

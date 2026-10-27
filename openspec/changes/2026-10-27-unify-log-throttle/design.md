@@ -2,7 +2,7 @@
 
 ## Context
 
-原生 crate 的两套限频闸门现状：
+原生 crate 此前有四份限频闸门实现，口径分叉：
 
 - `native/src/render/slow_log.rs` 的 `SlowLogThrottle`：以进程内单调时钟
   （`Instant` 相对进程启动时刻）为基准，窗口 500ms；渲染侧四类慢帧诊断各持一个
@@ -10,16 +10,25 @@
 - `native/src/terminal/ghostty_terminal/internal/mod.rs` 的 `warn_drop_throttled`：
   单元帧被丢弃（渲染暂停期通道填满）时的告警，自带一个 `AtomicU64` 与
   `SystemTime::now()` 的墙上时钟，窗口 5000ms。
+- `native/src/terminal/output_processor.rs` 的 `warn_oversized_selection_throttled`：
+  超长 OSC 52 选择器告警，同样是 `AtomicU64` + 墙上时钟，窗口 5000ms。
+- `native/src/android/ffi.rs` 的 `flood_shed_warn_throttled`：剪贴板读请求洪泛削减
+  告警，`AtomicU64` + 墙上时钟，窗口 5000ms。
+- `native/src/event.rs` 的 `EventQueue`：溢出告警用 `Mutex<Option<Instant>>` 判
+  间隔——时钟基准正确，但判定逻辑是第五份。
 
-两者是同一类东西——「同一类诊断的两次输出之间至少隔一段时间」——却各写一份，
-且时钟基准不同。层方向上，终端侧不得依赖渲染侧（semgrep `no-render-in-terminal`
-禁止 `crate::render::`），故共用实现只能落在 crate 根。
+它们是同一类东西——「同一类诊断的两次输出之间至少隔一段时间」——却各写一份。
+墙上时钟被校准向前跳会把两次输出的真实间隔压到远小于限频下限，向后跳会让告警在
+时钟追上之前长期沉默；两者都使「两次输出之间的间隔 MUST 不小于 500ms」失去保证。
+层方向上，终端侧不得依赖渲染侧（semgrep `no-render-in-terminal` 禁止
+`crate::render::`），故共用实现只能落在 crate 根。
 
 ## Goals / Non-Goals
 
-- Goal：限频闸门只有一份实现，渲染侧与终端侧共用。
+- Goal：限频闸门只有一份实现，渲染侧、终端侧、事件队列共用。
 - Goal：间隔判定只用进程内单调时钟，不受墙上时钟校准影响。
-- Goal：间隔按调用点可配置（渲染侧逐帧诊断 500ms，单元帧丢弃告警 5000ms）。
+- Goal：间隔按调用点可配置（渲染侧逐帧诊断 500ms，帧丢弃/洪泛/超长选择器 5000ms，
+  事件队列溢出 1000ms）。
 - Non-goal：不改任何日志的级别、文案与触发条件——本次只改「多久能输出一次」的
   判定依据。
 - Non-goal：不动 `logcat-hygiene` 里「限频不得吞掉升级信号」等既有要求的口径。
@@ -29,7 +38,7 @@
 ### 决策一：闸门放在 crate 根（`crate::slow_log`），而不是渲染侧或公共 util 目录
 
 crate 根已有跨层共享的辅助（`panic_text`），限频闸门与它同类：既不属于渲染，
-也不属于终端，两侧都要用。放在 crate 根使两侧引用路径同形
+也不属于终端，各侧都要用。放在 crate 根使各侧引用路径同形
 （`crate::slow_log::SlowLogThrottle`），也不触犯任何分层禁令。
 
 - 备选「放进 `render` 再让终端引用」：违反层方向（semgrep 直接拦）。
@@ -39,11 +48,11 @@ crate 根已有跨层共享的辅助（`panic_text`），限频闸门与它同�
 
 `SlowLogThrottle` 增一个 `interval_ms` 字段，构造分两种：`new()` 取默认 500ms，
 `with_interval(ms)` 指定。渲染侧四个调用点与 `CountedLogThrottle` 继续用 `new()`，
-行为不变；终端侧用 `with_interval(5_000)`，保持它原有的窗口。
+行为不变；其余调用点用 `with_interval(...)` 给出各自的窗口。
 
 - 备选「两个独立类型（固定间隔版 + 可配版）」：类型多一倍，判定逻辑仍是同一份，
   徒增分叉点。
-- 备选「按调用点各写常量、由调用方比对」：把判定推回调用方，等于回到两份实现。
+- 备选「按调用点各写常量、由调用方比对」：把判定推回调用方，等于回到多份实现。
 
 ### 决策三：终端侧告警直接改用闸门，并让告警函数回报是否真的输出
 
@@ -59,6 +68,12 @@ crate 根已有跨层共享的辅助（`panic_text`），限频闸门与它同�
 
 入口只在 `#[cfg(test)]` 下存在，生产构建没有这条路径。
 
+### 决策五：事件队列的溢出告警并入同一闸门
+
+`EventQueue` 原本用 `Mutex<Option<Instant>>` 自判间隔：时钟基准已正确，但判定
+逻辑仍是第五份，且占一把锁。改持 `SlowLogThrottle`（窗口 1000ms）后与其它调用点
+同源，热路径上也少一次加锁。
+
 ## Risks / Trade-offs
 
 - [静态闸门被并行用例推进 → 限频回归用例时绿时红] → 闸门提供测试用清空入口，
@@ -67,6 +82,8 @@ crate 根已有跨层共享的辅助（`panic_text`），限频闸门与它同�
   新增用例钉住自定义间隔确实生效。
 - [闸门迁出渲染目录 → 引用路径漏改] → 编译器在类型层面兜住（`crate::render::slow_log`
   不复存在），`cargo clippy --all-targets -- --deny warnings` 与全量测试覆盖。
+- [各调用点窗口长度在搬家时写错] → 每个调用点的窗口常量就写在该调用点旁，
+  语义与旧实现一一对照；`grep -rn 'SystemTime' native/src` 无命中作为兜底。
 
 ## Migration Plan
 

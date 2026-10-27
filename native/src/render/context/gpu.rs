@@ -39,8 +39,8 @@ const UNSUPPORTED_QUEUE_FAMILY: &str = "does not support the adapter's queue fam
 ///
 /// 重配本应让下一帧尺寸一致，但重配未生效时该告警会逐帧复现；逐条记会把 logcat
 /// 刷成告警洪水。真正的状态变化（重配后的尺寸）在后续诊断里仍可见。
-pub(super) static SIZE_MISMATCH_THROTTLE: crate::render::slow_log::SlowLogThrottle =
-    crate::render::slow_log::SlowLogThrottle::new();
+pub(super) static SIZE_MISMATCH_THROTTLE: crate::slow_log::SlowLogThrottle =
+    crate::slow_log::SlowLogThrottle::new();
 
 /// 未捕获 GPU 错误是否属于「平台收走原生窗口后 wgpu 重新配置 surface 必然失败」这一类。
 ///
