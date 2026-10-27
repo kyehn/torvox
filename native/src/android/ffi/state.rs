@@ -71,6 +71,22 @@ pub(super) fn read_terminal_atomic_flag(session_id: u64, read: impl Fn(&Session)
     read(&session)
 }
 
+/// 读原子镜像标志并转成 JNI 布尔值。
+///
+/// 备用屏状态与鼠标上报状态两个导出的形状相同：读标志 → 真假映射到
+/// `JNI_TRUE`/`JNI_FALSE`。映射只此一处，两端各写一遍时，「读到的假」与
+/// 「读不到」的分界就可能分叉。
+pub(super) fn read_terminal_flag_jboolean(
+    session_id: u64,
+    read: impl Fn(&Session) -> bool,
+) -> jboolean {
+    if read_terminal_atomic_flag(session_id, read) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
 // ── 滚动、模式与状态查询 ────────────────────────────────────────
 /// 设置视口滚动偏移（回滚区内的行数，0 = 活跃屏幕）。与上次偏移的差值在 VT 线程
 /// 经 `scroll_viewport(Delta)` 应用，故下一次 CellData 推送即携带滚动后的视图
@@ -182,12 +198,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        if read_terminal_atomic_flag(session_id as u64, |session| {
+        read_terminal_flag_jboolean(session_id as u64, |session| {
             session.terminal().alt_screen_active_atomic()
-        }) {
-            JNI_TRUE
-        } else {
-            JNI_FALSE
-        }
+        })
     })
 }

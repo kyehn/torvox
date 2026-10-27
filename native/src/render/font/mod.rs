@@ -149,6 +149,27 @@ pub struct GlyphInfo {
     pub allocation_id: Option<guillotiere::AllocId>,
 }
 
+impl GlyphInfo {
+    /// 字形在图集里的 UV 偏移、UV 尺寸与左边距（物理像素）。
+    ///
+    /// 主字形路径（`cell_builder`）与叠加层（`shaped_overlay_instance`）都要这组
+    /// 值：各自算一遍时，分叉会让叠加字形贴到图集的错误位置——屏幕上的表现只是
+    /// 「组合记号飘在别处」，几乎无从定位。
+    pub fn atlas_uv(&self, atlas_width: f32, atlas_height: f32) -> ([f32; 2], [f32; 2], f32) {
+        (
+            [
+                self.atlas_x as f32 / atlas_width,
+                self.atlas_y as f32 / atlas_height,
+            ],
+            [
+                self.width as f32 / atlas_width,
+                self.height as f32 / atlas_height,
+            ],
+            self.placement.left as f32,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedGlyphInfo {
     pub glyph_id: u16,

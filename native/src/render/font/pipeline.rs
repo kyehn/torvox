@@ -502,11 +502,7 @@ impl FontPipeline {
         let atlas_height = self.atlas_height as f32;
         let raster_scale = self.raster_scale;
         let ascent_pixels = self.ascent_pixels();
-        let uv_x = info.atlas_x as f32 / atlas_width;
-        let uv_y = info.atlas_y as f32 / atlas_height;
-        let uv_w = info.width as f32 / atlas_width;
-        let uv_h = info.height as f32 / atlas_height;
-        let bearing_x = info.placement.left as f32;
+        let (atlas_offset, atlas_size, bearing_x) = info.atlas_uv(atlas_width, atlas_height);
         // 物理像素对物理像素：与主字形路径共用同一个判定（height 已含光栅缩放）。
         let glyph_height_px = info.height as f32;
         // 叠加层只需要 bearing_y；raw 值方块光标才用，故显式忽略。
@@ -519,8 +515,8 @@ impl FontPipeline {
         );
         Some(crate::render::CellInstance {
             quad_origin: quad.origin,
-            atlas_offset: [uv_x, uv_y],
-            atlas_size: [uv_w, uv_h],
+            atlas_offset,
+            atlas_size,
             foreground: quad.foreground,
             background: quad.background,
             underline_color: quad.deco,

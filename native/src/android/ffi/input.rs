@@ -1,6 +1,6 @@
 use super::query::session_query_channel;
 use super::session::read_jni_string;
-use super::state::read_terminal_atomic_flag;
+use super::state::read_terminal_flag_jboolean;
 use super::*;
 
 // ── 输入、调整与键鼠编码 ────────────────────────────────────────
@@ -276,19 +276,34 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
     })
 }
 
+/// 读 JNI 字节数组：失败即抛 `RuntimeException` 并返回 `None`。
+///
+/// 喂给终端（`feedTerminal`）与编码粘贴（`encodePaste`）都要这一步：数组读取
+/// 本身可能失败（数组已被释放），失败必须让调用方知道——静默当作空输入的表现
+/// 是「按键没反应」，无从归因。
+///
+/// # Safety
+/// `data` 须是本次 JNI 调用期间有效的 `jbyteArray`（JNI 方法参数即满足）。
+unsafe fn read_byte_array(env: &mut Env, data: jbyteArray, label: &str) -> Option<Vec<u8>> {
+    // SAFETY: 调用方保证 `data` 在本次调用期间有效；`from_raw` 只包装指针而不
+    // 取得所有权，局部引用由 JVM 在本 native 方法返回时释放。
+    let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
+    match env.convert_byte_array(&byte_array) {
+        Ok(bytes) => Some(bytes),
+        Err(_) => {
+            let message =
+                jni::strings::JNIString::from(format!("{label}: failed to read input bytes"));
+            let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
+            None
+        }
+    }
+}
+
 pub(super) fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
     // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
-    let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-    let input: Vec<u8> = match env.convert_byte_array(&byte_array) {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("feedTerminal: failed to read input bytes"),
-            );
-            return;
-        }
+    let Some(input) = (unsafe { read_byte_array(env, data, "feedTerminal") }) else {
+        return;
     };
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
@@ -536,13 +551,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingA
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        if read_terminal_atomic_flag(session_id as u64, |session| {
+        read_terminal_flag_jboolean(session_id as u64, |session| {
             session.terminal().mouse_tracking_active_atomic()
-        }) {
-            JNI_TRUE
-        } else {
-            JNI_FALSE
-        }
+        })
     })
 }
 
@@ -645,17 +656,8 @@ pub(super) fn encode_paste_inner(
     data: jbyteArray,
 ) -> jbyteArray {
     // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
-    // `from_raw` 只包装指针而不取得所有权；局部引用由 JVM 在本 native 方法返回时释放。
-    let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-    let input: Vec<u8> = match env.convert_byte_array(&byte_array) {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("encodePaste: failed to read input bytes"),
-            );
-            return std::ptr::null_mut();
-        }
+    let Some(input) = (unsafe { read_byte_array(env, data, "encodePaste") }) else {
+        return std::ptr::null_mut();
     };
     // 通道外置：查询在两把锁之外执行（理由同 `encode_mouse_event_inner`）。
     let Some(query_tx) = session_query_channel(session_id as u64) else {
