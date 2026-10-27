@@ -254,7 +254,7 @@ fn shebang_bare_marker_returns_none() {
 
 #[test]
 fn base_env_includes_xterm_256color() {
-    let env = base_env(None);
+    let env = base_env_with_host(None, &|_| None, &|_| false);
     assert!(
         env.iter()
             .any(|(key, value)| key == "TERM" && value == "xterm-256color")
@@ -266,7 +266,7 @@ fn base_env_is_minimal_set() {
     // 固定契约：宿主环境为空时 `base_env` 只产出 TERM/COLORTERM/LANG；
     // 无 PREFIX 时不产出 PREFIX/TMPDIR（规范未声明无引导程序会话的取值）。
     // 不能直接断言 `base_env`：CI 会导出 ANDROID_ROOT/EXTERNAL_STORAGE。
-    let keys: std::collections::BTreeSet<String> = base_env_with_host(None, &|_| None)
+    let keys: std::collections::BTreeSet<String> = base_env_with_host(None, &|_| None, &|_| false)
         .into_iter()
         .map(|(key, _)| key)
         .collect();
@@ -284,7 +284,7 @@ fn base_env_forwards_only_present_host_vars() {
         ("ANDROID_ROOT".to_string(), "/system".to_string()),
         ("EXTERNAL_STORAGE".to_string(), "/sdcard".to_string()),
     ]);
-    let env = base_env_with_host(None, &|key| host.get(key).cloned());
+    let env = base_env_with_host(None, &|key| host.get(key).cloned(), &|_| false);
     assert!(
         env.iter()
             .any(|(key, value)| key == "ANDROID_ROOT" && value == "/system"),
@@ -298,7 +298,7 @@ fn base_env_forwards_only_present_host_vars() {
 
 #[test]
 fn base_env_includes_lang() {
-    let env = base_env(None);
+    let env = base_env_with_host(None, &|_| None, &|_| false);
     assert!(
         env.iter()
             .any(|(key, value)| key == "LANG" && value == "en_US.UTF-8")
@@ -309,13 +309,13 @@ fn base_env_includes_lang() {
 fn base_env_omits_tmpdir_without_prefix() {
     // 规范只声明 TMPDIR = files/usr/tmp；无 PREFIX 时不存在合法的 TMPDIR 取值，
     // 不得回退到未声明路径（DESIGN Bootstrap 节白名单 + 禁止未声明回退）。
-    let env = base_env(None);
+    let env = base_env_with_host(None, &|_| None, &|_| false);
     assert!(!env.iter().any(|(key, _)| key == "TMPDIR"));
 }
 
 #[test]
 fn base_env_includes_prefix_and_tmpdir_when_set() {
-    let env = base_env(Some(TEST_PREFIX));
+    let env = base_env_with_host(Some(TEST_PREFIX), &|_| None, &|_| false);
     assert!(
         env.iter()
             .any(|(key, value)| key == "PREFIX" && value == TEST_PREFIX)
@@ -323,6 +323,70 @@ fn base_env_includes_prefix_and_tmpdir_when_set() {
     assert!(
         env.iter()
             .any(|(key, value)| key == "TMPDIR" && value == TEST_TMPDIR)
+    );
+}
+
+/// PATH 合成：Termux 的 bin 目录在前、宿主 PATH 在后。
+///
+/// 判别力：宿主 PATH 若被丢弃（只设 `{prefix}/bin`），系统命令
+/// （`am`/`pm`/`getprop`）无法按名解析——DESIGN Shell 节要求原 PATH 保留。
+#[test]
+fn base_env_keeps_host_path_after_prefix_bin() {
+    let env = base_env_with_host(
+        Some(TEST_PREFIX),
+        &|key| (key == "PATH").then(|| "/system/bin".to_string()),
+        &|dir| dir == format!("{TEST_PREFIX}/bin"),
+    );
+    assert!(
+        env.iter()
+            .any(|(key, value)| key == "PATH" && value == &format!("{TEST_PREFIX}/bin:/system/bin")),
+        "PATH 必须保留宿主原值并带上 prefix bin，实际：{env:?}"
+    );
+}
+
+/// prefix 的 bin 目录不存在时不把它写进 PATH（不得指向不存在的目录）。
+#[test]
+fn base_env_omits_missing_prefix_bin_from_path() {
+    let env = base_env_with_host(
+        Some(TEST_PREFIX),
+        &|key| (key == "PATH").then(|| "/system/bin".to_string()),
+        &|_| false,
+    );
+    assert!(
+        env.iter()
+            .any(|(key, value)| key == "PATH" && value == "/system/bin"),
+        "目录不存在时 PATH 只能是宿主原值，实际：{env:?}"
+    );
+}
+
+/// failsafe（无 prefix）时保留宿主 PATH，不附加 Termux 的 bin 目录。
+#[test]
+fn base_env_keeps_host_path_without_prefix() {
+    let env = base_env_with_host(
+        None,
+        &|key| (key == "PATH").then(|| "/system/bin".to_string()),
+        &|_| false,
+    );
+    assert!(
+        env.iter()
+            .any(|(key, value)| key == "PATH" && value == "/system/bin"),
+        "failsafe 会话必须保留宿主 PATH，实际：{env:?}"
+    );
+    assert!(
+        !env.iter()
+            .any(|(key, value)| key == "PATH" && value.contains("termux")),
+        "failsafe 会话不得附加 Termux 的 bin 目录，实际：{env:?}"
+    );
+}
+
+/// 宿主没有 PATH 时只给 prefix 的 bin 目录，不凭空造出分隔符。
+#[test]
+fn base_env_uses_prefix_bin_without_host_path() {
+    let env = base_env_with_host(Some(TEST_PREFIX), &|_| None, &|_| true);
+    assert!(
+        env.iter()
+            .any(|(key, value)| key == "PATH" && value == &format!("{TEST_PREFIX}/bin")),
+        "宿主无 PATH 时 PATH 只含 prefix bin，实际：{env:?}"
     );
 }
 
@@ -457,19 +521,6 @@ fn build_env_rejects_unlisted_variables() {
 }
 
 #[test]
-fn build_env_sets_path_to_prefix_bin() {
-    let mut env = test_env();
-    env.prefix = Some(TEST_PREFIX.to_string());
-    let result = build_env(&env);
-    assert!(
-        result
-            .iter()
-            .any(|(key, value)| key == "PATH" && value == &format!("{TEST_PREFIX}/bin")),
-        "PATH must point at the prefix bin for Termux command lookup, got {result:?}"
-    );
-}
-
-#[test]
 fn build_env_without_prefix_omits_prefix_vars() {
     let result = build_env(&test_env());
     for key in [
@@ -477,7 +528,6 @@ fn build_env_without_prefix_omits_prefix_vars() {
         "TERMUX_PREFIX_DIR_PATH",
         "TMPDIR",
         "TERMUX_TMP_PREFIX_DIR_PATH",
-        "PATH",
     ] {
         assert!(
             !result.iter().any(|(name, _)| name == key),
@@ -681,6 +731,40 @@ fn spawned_child_sees_env_mkshrc_path() {
         needle,
         String::from_utf8_lossy(&output)
     );
+}
+
+/// 子进程实际拿到的 PATH：Termux 的 bin 目录在前，宿主 PATH 保留在其后。
+///
+/// 判别力：`base_env` 层的断言只覆盖合成逻辑；此处经真实 fork/execve 查看
+/// 子进程的 `PATH` 本身——合成结果未真正进 env 时，只有这里能发现。
+#[test]
+fn spawned_child_sees_prefix_bin_first_in_path() {
+    use crate::terminal::pty::Pty;
+
+    let prefix = std::env::temp_dir().join("terminal_path_prefix");
+    std::fs::create_dir_all(prefix.join("bin")).expect("create prefix bin dir");
+    let prefix_path = prefix.to_str().expect("utf-8 prefix path").to_string();
+    let env = ShellEnv {
+        prefix: Some(prefix_path.clone()),
+        ..ShellEnv::default()
+    };
+
+    let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
+    pty.set_nonblocking().expect("set_nonblocking failed");
+    Pty::write_all(&pty, b"echo \"PATH-is:$PATH\"\n", WRITE_DRAIN_TIMEOUT, true)
+        .1
+        .expect("write failed");
+
+    let needle = format!("PATH-is:{prefix_path}/bin");
+    let output = read_until(&pty, needle.as_bytes());
+    assert!(
+        output
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes()),
+        "child PATH must start with '{prefix_path}/bin', got: {}",
+        String::from_utf8_lossy(&output)
+    );
+    std::fs::remove_dir_all(&prefix).ok();
 }
 
 #[test]

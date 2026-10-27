@@ -911,7 +911,9 @@ fn close_stray_fds(keep_fd: RawFd) {
 }
 
 fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
-    base_env_with_host(prefix, &|key| std::env::var(key).ok())
+    base_env_with_host(prefix, &|key| std::env::var(key).ok(), &|dir| {
+        std::path::Path::new(dir).is_dir()
+    })
 }
 
 /// 读回子进程报告的 execve 失败 errno。
@@ -933,9 +935,13 @@ pub(crate) fn read_exec_failure_errno(reader: &OwnedFd) -> Option<i32> {
 /// 带可注入宿主环境的 [`base_env`]：生产传真实进程环境，测试传固定映射，
 /// 使断言在任何机器上都保持封闭（CI runner 会导出 ANDROID_ROOT/EXTERNAL_STORAGE，
 /// 开发机通常不会——对 `base_env` 本身做精确集合断言是环境相关的，不可存在）。
+///
+/// 注入点有两个：宿主变量表（`PATH` 取宿主原值）与目录是否存在（决定
+/// `{prefix}/bin` 是否进 `PATH`）。
 fn base_env_with_host(
     prefix: Option<&str>,
     host_var: &dyn Fn(&str) -> Option<String>,
+    dir_exists: &dyn Fn(&str) -> bool,
 ) -> Vec<(String, String)> {
     let mut result = vec![
         ("TERM".to_string(), DEFAULT_TERM.to_string()),
@@ -975,6 +981,25 @@ fn base_env_with_host(
         result.push(("PREFIX".to_string(), prefix.to_string()));
         result.push(("TMPDIR".to_string(), format!("{prefix}/tmp")));
     }
+    // PATH：Termux 的 bin 目录在前、宿主 PATH 在后。Termux 工具（GNU 版
+    // `grep`/`sed`/`ls`）仍优先解析，系统命令（`am`/`pm`/`getprop`）亦可按名
+    // 解析——DESIGN Shell 节要求原 PATH 得以保留，`{prefix}/bin` 仅在目录存在
+    // 时附加；failsafe（无 prefix）时只保留原 PATH。bin 目录必须在 PATH 内：
+    // login 的 termux-exec 探针 `$SHELL -c "coreutils …"` 靠它解析
+    // `$PREFIX/bin` 下的命令，缺了它 login 会关闭 termux-exec。
+    let host_path = host_var("PATH");
+    let prefix_bin = prefix
+        .map(|prefix| format!("{prefix}/bin"))
+        .filter(|bin_dir| dir_exists(bin_dir));
+    let path = match (prefix_bin.as_deref(), host_path.as_deref()) {
+        (Some(bin_dir), Some(host_path)) => Some(format!("{bin_dir}:{host_path}")),
+        (Some(bin_dir), None) => Some(bin_dir.to_string()),
+        (None, Some(host_path)) => Some(host_path.to_string()),
+        (None, None) => None,
+    };
+    if let Some(path) = path {
+        result.push(("PATH".to_string(), path));
+    }
     result
 }
 
@@ -1012,11 +1037,6 @@ pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
             "TERMUX_TMP_PREFIX_DIR_PATH".to_string(),
             format!("{prefix}/tmp"),
         ));
-        // Termux-app 正常会话同款（TermuxShellEnvironment.getEnvironment 的 !isFailSafe 分支）：
-        // login 的 termux-exec 探针 `$SHELL -c "coreutils …"` 与用户 shell 都靠这条 PATH 找到
-        // `$PREFIX/bin` 下的命令；缺了它，login 会 `unset LD_PRELOAD`，termux-exec 被自动关闭。
-        // prefix 不可用（无引导或 failsafe）时不得设置，由宿主 shell 自带默认 PATH 兜底。
-        result.push(("PATH".to_string(), format!("{prefix}/bin")));
     }
     result.push(("TERMUX_VERSION".to_string(), TERMUX_VERSION.to_string()));
     result
