@@ -282,7 +282,7 @@ class BootstrapInstaller(
      * 该条目随后被当作普通文件写出，目标其实是 staging 目录自身（见
      * [resolvesToStagingRoot]）。
      *
-     * 用 [Path.normalize] 消解、[Path.startsWith] 按**路径元素**比较：
+     * 用 `Path.normalize()` 消解、`Path.startsWith()` 按**路径元素**比较：
      * 字符串前缀会把 `..foo` 误判成 `..`。
      */
     internal fun escapesStagingDir(path: String): Boolean {
