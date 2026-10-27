@@ -3,7 +3,6 @@
 
 package terminal.emulator.ui
 
-import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
@@ -108,8 +107,6 @@ private data class SearchState(
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-// 仅简体中文：无复数形态，plurals 仅 other 分支生效，无需本地化计数修饰。
-@SuppressLint("ArgInFormattedQuantityStringRes")
 @Composable
 fun TerminalScreen(
     modifier: Modifier = Modifier,

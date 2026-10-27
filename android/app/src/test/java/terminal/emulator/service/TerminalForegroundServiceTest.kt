@@ -66,11 +66,11 @@ class TerminalForegroundServiceTest {
     }
 
     @Test
-    fun `two sessions publish the plural notification text`() {
+    fun `two sessions publish the counted notification text`() {
         startWith(2)
         assertEquals(
-            "plural text with count",
-            context.resources.getQuantityString(R.plurals.notification_active_plural, 2, 2),
+            "counted text",
+            context.getString(R.string.notification_active_multiple, 2),
             postedNotificationText(),
         )
     }
