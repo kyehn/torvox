@@ -1652,14 +1652,22 @@ constructor(
                                             lastSelection = selectionSnapshot
                                         }
                                         val currentScrollOffset = entry.scrollOffset
-                                        if (
-                                            currentScrollOffset != lastScrollOffset &&
-                                            bridge.setScrollOffset(currentScrollOffset)
-                                        ) {
+                                        // 行偏移未被原生接受时（会话锁占用或命令通道满），
+                                        // 原生视口仍是旧的：此时下发亚行余量就是「旧视口配
+                                        // 新余量」，内容会先上跳半行、待新视口到达再下跳整行
+                                        // （上下滑动晃动）。故余量随偏移同拍提交，偏移未
+                                        // 接受时保留旧值、下一帧重试。
+                                        val scrollOffsetAccepted =
+                                            currentScrollOffset == lastScrollOffset ||
+                                                bridge.setScrollOffset(currentScrollOffset)
+                                        if (scrollOffsetAccepted) {
                                             lastScrollOffset = currentScrollOffset
                                         }
                                         val currentRemainderPx = entry.scrollRemainderPx
-                                        if (currentRemainderPx != lastScrollRemainderPx) {
+                                        if (
+                                            scrollOffsetAccepted &&
+                                            currentRemainderPx != lastScrollRemainderPx
+                                        ) {
                                             // 只登记待用偏移：原生侧下一帧的 begin_frame
                                             // 会按它重写 uniform，此处不做任何 GPU 调用。
                                             bridge.setScrollYPx(currentRemainderPx)
