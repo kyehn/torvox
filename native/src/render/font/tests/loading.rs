@@ -383,7 +383,7 @@ fn load_font_file_loaded_font_can_be_set() {
         .load_font_file(&find_test_font())
         .expect("should load test font");
     assert!(
-        pipeline.set_font_family(&family),
+        pipeline.set_font_family(&family, &[]),
         "set_font_family should succeed for loaded font '{family}'"
     );
     let (cw, ch) = pipeline.cell_metrics();
@@ -403,13 +403,34 @@ fn set_font_family_uses_the_face_loaded_from_the_file() {
         .expect("应装入测试字体");
     let loaded_face = pipeline.user_font_faces[&family.to_lowercase()];
     assert!(
-        pipeline.set_font_family(&family),
+        pipeline.set_font_family(&family, &[]),
         "装入后按族名选中必须成功"
     );
     assert_eq!(
         pipeline.font_id,
         Some(loaded_face),
         "选中面必须是装入文件时记住的那份"
+    );
+}
+
+/// 「族是否已在渲染字体库中」的判定：常驻族与装入的族为常驻，未知族非常驻。
+///
+/// 该判定决定要不要解析族文件列表——解析会构建族索引（真机实测 127ms），故
+/// 已在库中的族必须走「不解析」的快径，否则装载字体文件也会把全量枚举拉起来。
+#[test]
+fn family_resident_reports_only_families_in_the_font_database() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    assert!(
+        pipeline.family_resident(""),
+        "空族名表示系统等宽字体，恒在库内"
+    );
+    let family = pipeline
+        .load_font_file(&find_test_font())
+        .expect("应装入测试字体");
+    assert!(pipeline.family_resident(&family), "装入文件后该族必在库内");
+    assert!(
+        !pipeline.family_resident("__不存在的字体族__"),
+        "库内没有的族不得判为常驻"
     );
 }
 
@@ -431,7 +452,7 @@ fn reloading_a_file_switches_family_selection_to_the_new_face() {
         "再次装入同一文件必须产生新的面（字体库只增不删）"
     );
     assert!(
-        pipeline.set_font_family(&reloaded_family),
+        pipeline.set_font_family(&reloaded_family, &[]),
         "重新装入后按族名选中必须成功"
     );
     assert_eq!(
@@ -459,7 +480,10 @@ fn load_font_file_after_set_font_family() {
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     let fonts = pipeline.list_monospace_fonts();
     if let Some(first) = fonts.first() {
-        assert!(pipeline.set_font_family(first), "set font family {first}");
+        assert!(
+            pipeline.set_font_family(first, &[]),
+            "set font family {first}"
+        );
     }
     let result = pipeline.load_font_file(&find_test_font());
     assert!(
@@ -480,12 +504,15 @@ fn set_font_family_to_current_face_keeps_atlas() {
         .into_iter()
         .next()
         .expect("宿主须有等宽字体");
-    assert!(pipeline.set_font_family(&family), "首次选中 {family}");
+    assert!(pipeline.set_font_family(&family, &[]), "首次选中 {family}");
     assert!(pipeline.glyph_information('A').is_some());
     let generation = pipeline.atlas_generation();
     let cached = pipeline.caches.glyph_cache.len();
 
-    assert!(pipeline.set_font_family(&family), "重设同一字族仍报告找到");
+    assert!(
+        pipeline.set_font_family(&family, &[]),
+        "重设同一字族仍报告找到"
+    );
     assert_eq!(
         pipeline.atlas_generation(),
         generation,

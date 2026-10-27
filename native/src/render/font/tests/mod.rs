@@ -129,7 +129,7 @@ fn styled_test_pipeline() -> (FontPipeline, String) {
         .load_font_file(&font_path)
         .expect("test font loads");
     assert!(
-        pipeline.set_font_family(&family),
+        pipeline.set_font_family(&family, &[]),
         "test font family selects"
     );
     (pipeline, family)

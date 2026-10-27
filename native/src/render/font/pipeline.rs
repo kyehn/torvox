@@ -351,10 +351,15 @@ impl FontPipeline {
 
     /// 选定主字面；字族不在库中返回 false。
     ///
+    /// `family_files` 是该族的字体文件定位串：字族不在渲染字体库中时按需装入它们。
+    /// 列表由调用方解析并给出——解析要走族索引（首次构建真机实测 127ms），而管线
+    /// 住在渲染状态里，它自己解析就等于在渲染状态锁内解析，渲染线程会被冻结同样
+    /// 时长。宿主构建的字体库已含系统全部字体，无需装入，故传空切片。
+    ///
     /// 解析结果与当前字面相同时是空操作：Kotlin 的设置应用、字体应用与会话
     /// 状态发射三条路径都会对同一字族反复调用（真机每次改字号后紧跟两次），
     /// 无条件清图集会让每次调用都整库重光栅并重探回退层。
-    pub fn set_font_family(&mut self, family_name: &str) -> bool {
+    pub fn set_font_family(&mut self, family_name: &str, family_files: &[String]) -> bool {
         let previous = self.font_id;
         if family_name.is_empty() {
             self.find_monospace_font();
@@ -366,11 +371,17 @@ impl FontPipeline {
                 // 库内没有该族时按需装入：渲染侧只常驻 3 个族（见 font_db::load_font_database），
                 // 设置页选中的其余族要到这里才真正加载。
                 #[cfg(target_os = "android")]
-                if Self::find_font_by_name(self.font_system.db(), family_name).is_none() {
+                if !family_files.is_empty()
+                    && Self::find_font_by_name(self.font_system.db(), family_name).is_none()
+                {
                     let loaded =
-                        super::font_db::load_family(self.font_system.db_mut(), family_name);
+                        super::font_db::load_family_files(self.font_system.db_mut(), family_files);
                     log::debug!("FONT_SELECT: 按需装入族 '{family_name}': {loaded}");
                 }
+                // 宿主构建不按需装入：字体库已含系统全部字体，族文件列表恒为空
+                // （见 font_db::family_files）。
+                #[cfg(not(target_os = "android"))]
+                let _ = family_files;
                 face_id = Self::find_font_by_name(self.font_system.db(), family_name);
             }
             let Some(id) = face_id else {
@@ -388,6 +399,19 @@ impl FontPipeline {
         }
         self.refresh_cell_metrics();
         true
+    }
+
+    /// 字族是否已在渲染字体库中：命中则选中它无需族文件。
+    ///
+    /// 空族名表示「系统等宽字体」，恒在库内。判定口径与 [`Self::set_font_family`]
+    /// 的取面顺序一致（用户选文件装入的面优先，其次按族名扫库）：两者若分叉，
+    /// 会出现「判定为常驻却选不中」。
+    pub fn family_resident(&self, family_name: &str) -> bool {
+        if family_name.is_empty() {
+            return true;
+        }
+        self.user_font_face(family_name).is_some()
+            || Self::find_font_by_name(self.font_system.db(), family_name).is_some()
     }
 
     /// 当前系统 locale（CJK 判定按它分片，见 `cjk_probe_char`）。
@@ -940,17 +964,16 @@ impl FontPipeline {
         self.glyph_information_from_font(font_id, '\0', glyph_id)
     }
 
-    /// 字体列表。宿主列出库内全部等宽族；设备上改为按需枚举
-    /// `fonts.xml` 声明的完整族集合——渲染侧只常驻 3 个族（见 `new`：主字体 +
-    /// 符号族 + 区域族），列表却必须完整，故此处才触发那次枚举（约 4ms），
-    /// 且只在设置页显示列表时被调用。
+    /// 字体列表：设备上取进程级族索引，宿主构建列出库内全部等宽族。
+    ///
+    /// 设备上的渲染侧只常驻 3 个族（见 `new`：主字体 + 符号族 + 区域族），列表却
+    /// 必须完整，故那里才触发那次全量枚举。族索引与渲染状态无关：生产路径取列表
+    /// 时 MUST 在渲染状态锁外调用 [`super::font_db::family_display_names`]（首次构建
+    /// 真机实测 127ms，持锁取会把渲染线程冻结同样时长）。
     pub fn list_monospace_fonts(&self) -> Vec<String> {
         #[cfg(target_os = "android")]
         {
-            super::font_db::family_index()
-                .iter()
-                .map(|entry| entry.display_name.clone())
-                .collect()
+            super::font_db::family_display_names()
         }
         #[cfg(not(target_os = "android"))]
         {

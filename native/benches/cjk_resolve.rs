@@ -10,7 +10,7 @@ use std::hint::black_box;
 fn cjk_resolve_steady_state(criterion: &mut Criterion) {
     let mut pipeline = FontPipeline::new(512, 512, 16.0);
     assert!(
-        pipeline.set_font_family("DejaVu Sans Mono"),
+        pipeline.set_font_family("DejaVu Sans Mono", &[]),
         "宿主必须有主字体"
     );
     pipeline.set_system_locale("");
