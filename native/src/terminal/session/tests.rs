@@ -3,6 +3,7 @@ use super::output::{MAX_CLIPBOARD_TEXT_QUEUE, MAX_PTY_WRITES_PER_FRAME};
 use super::spawn::{ReaderErrorAction, read_error_action};
 use super::*;
 use crate::terminal::shell_env::ShellEnv;
+use nix::errno::Errno;
 use std::time::Duration;
 
 fn drain_output(session: &mut Session, deadline: std::time::Instant) {
@@ -102,7 +103,7 @@ fn exec_failure_session_exits_with_errno_encoding() {
     assert!(session.is_exited());
     assert_eq!(
         wait_for_reported_exit(&session, deadline),
-        Some(ReportedExit::Code(100 + libc::ENOENT)),
+        Some(ReportedExit::Code(100 + Errno::ENOENT as i32)),
         "execve 失败的退出码必须是 100 + errno 编码"
     );
 }
@@ -988,18 +989,18 @@ fn session_write_after_exit_returns_error() {
 fn read_error_action_classifies_errno() {
     // EINTR/EAGAIN 是瞬时错误，必须保持读取循环存活。
     assert_eq!(
-        read_error_action(Some(libc::EINTR)),
+        read_error_action(Some(Errno::EINTR)),
         ReaderErrorAction::Retry
     );
     assert_eq!(
-        read_error_action(Some(libc::EAGAIN)),
+        read_error_action(Some(Errno::EAGAIN)),
         ReaderErrorAction::Retry
     );
     // EIO 表示 PTY 从端已关闭（Linux PTY 上的 EOF）——停止。
-    assert_eq!(read_error_action(Some(libc::EIO)), ReaderErrorAction::Stop);
+    assert_eq!(read_error_action(Some(Errno::EIO)), ReaderErrorAction::Stop);
     // 其他 errno（或无 errno）同样停止读取。
     assert_eq!(
-        read_error_action(Some(libc::EPIPE)),
+        read_error_action(Some(Errno::EPIPE)),
         ReaderErrorAction::Stop
     );
     assert_eq!(read_error_action(None), ReaderErrorAction::Stop);

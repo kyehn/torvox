@@ -46,7 +46,7 @@ fn exec_failure_reports_exact_errno_through_the_pipe() {
     );
     assert_eq!(
         read_exec_failure_errno(&reader),
-        Some(libc::ENOENT),
+        Some(nix::errno::Errno::ENOENT as i32),
         "回报管道必须给出确切 errno"
     );
 }

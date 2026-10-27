@@ -240,7 +240,10 @@ pub(super) fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, d
         // 已关闭时主端写得到的正是 `EIO`/`EPIPE`——只判 `Closed` 会漏掉「子进程已经
         // 死了但还没人知道」这段窗口，那正是击键最易命中的时刻。
         if let crate::terminal::session::SessionError::Io(io_error) = &write_error
-            && matches!(io_error.raw_os_error(), Some(libc::EIO) | Some(libc::EPIPE))
+            && matches!(
+                io_error.raw_os_error().map(nix::errno::Errno::from_raw),
+                Some(nix::errno::Errno::EIO) | Some(nix::errno::Errno::EPIPE)
+            )
         {
             log::debug!(
                 "feedPty: 子进程已退出（{write_error}），丢弃 {} 字节",

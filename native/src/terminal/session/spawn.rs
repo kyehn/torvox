@@ -3,12 +3,14 @@ use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::AsFd;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 
 use flume::bounded;
+use nix::errno::Errno;
+use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::output_processor::OutputProcessor;
@@ -33,15 +35,15 @@ pub(super) enum ReaderErrorAction {
 }
 
 /// 把 `read(2)` 错误归类为重试/停止决策。纯函数，使读取循环分支无需真实 PTY 即可测试。
-pub(super) fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
-    match raw_os_error {
-        Some(code) if code == libc::EINTR || code == libc::EAGAIN => ReaderErrorAction::Retry,
+pub(super) fn read_error_action(errno: Option<Errno>) -> ReaderErrorAction {
+    match errno {
+        Some(Errno::EINTR) | Some(Errno::EAGAIN) => ReaderErrorAction::Retry,
         _ => ReaderErrorAction::Stop,
     }
 }
 /// 读取线程在 `poll` 中停驻多久后重新检查退出标志。改用 poll 后输出延迟依旧很低，
 /// 而 PTY 空闲时不再空转 CPU。
-const READ_POLL_TIMEOUT_MS: i32 = 100;
+const READ_POLL_TIMEOUT_MS: u16 = 100;
 
 impl Session {
     /// 以默认主题创建会话。`cwd` 可选，覆盖子进程初始工作目录；
@@ -114,32 +116,24 @@ impl Session {
         let exited_read = exited.clone();
         let reader_handle = std::thread::spawn(move || {
             let mut read_buf = [0u8; READ_BUF_SIZE];
-            let poll_fd = read_file.as_raw_fd();
             loop {
                 if exited_read.load(Ordering::Acquire) {
                     log::info!("reader thread: exiting due to exited flag");
                     break;
                 }
-                let mut poll_fd = libc::pollfd {
-                    fd: poll_fd,
-                    events: libc::POLLIN,
-                    revents: 0,
+                // 借用只活在这一小段里：`read_file` 随后还要以 `&mut` 读取。
+                let poll_result = {
+                    let mut poll_fds = [PollFd::new(read_file.as_fd(), PollFlags::POLLIN)];
+                    poll(&mut poll_fds, PollTimeout::from(READ_POLL_TIMEOUT_MS))
                 };
-                // SAFETY: `poll` 是 POSIX 系统调用；`poll_fd` 是有效且已初始化的
-                // `pollfd`，其 `fd` 是 `read_file` 持有的存活读取 fd。`poll` 只读这些
-                // 输入并回写 `revents`。这是读取线程中仅剩的 `unsafe`，且未绕过
-                // `Pty` 抽象（fd 由 `try_clone_reader_fd` 取得）。
-                let poll_result = unsafe {
-                    libc::poll(&mut poll_fd as *mut libc::pollfd, 1, READ_POLL_TIMEOUT_MS)
-                };
-                match poll_result.cmp(&0) {
-                    std::cmp::Ordering::Greater => {}
-                    std::cmp::Ordering::Equal => continue,
-                    std::cmp::Ordering::Less => {
-                        if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
-                            continue;
-                        }
-                        log::info!("reader thread: poll error: {poll_result}");
+                match poll_result {
+                    // 0 = 本轮无数据，回到循环顶部重查退出标志。
+                    Ok(0) => continue,
+                    Ok(_) => {}
+                    // EINTR 不是失败：信号打断了 poll，等下一轮即可。
+                    Err(Errno::EINTR) => continue,
+                    Err(errno) => {
+                        log::info!("reader thread: poll error: {errno}");
                         exited_read.store(true, Ordering::Release);
                         break;
                     }
@@ -164,18 +158,21 @@ impl Session {
                             wake();
                         }
                     }
-                    Err(read_error) => match read_error_action(read_error.raw_os_error()) {
-                        ReaderErrorAction::Retry => {}
-                        ReaderErrorAction::Stop => {
-                            if read_error.raw_os_error() == Some(libc::EIO) {
-                                log::info!("reader thread: PTY EOF (slave closed, EIO)");
-                            } else {
-                                log::info!("reader thread: read error: {read_error}");
+                    Err(read_error) => {
+                        let errno = read_error.raw_os_error().map(Errno::from_raw);
+                        match read_error_action(errno) {
+                            ReaderErrorAction::Retry => {}
+                            ReaderErrorAction::Stop => {
+                                if errno == Some(Errno::EIO) {
+                                    log::info!("reader thread: PTY EOF (slave closed, EIO)");
+                                } else {
+                                    log::info!("reader thread: read error: {read_error}");
+                                }
+                                exited_read.store(true, Ordering::Release);
+                                break;
                             }
-                            exited_read.store(true, Ordering::Release);
-                            break;
                         }
-                    },
+                    }
                 }
             }
             // `read_file`（及其 fd）在此被丢弃，随之安全关闭。
