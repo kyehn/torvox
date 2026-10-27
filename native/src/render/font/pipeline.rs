@@ -964,7 +964,7 @@ impl FontPipeline {
     ///
     /// 设备上的渲染侧只常驻 3 个族（见 `new`：主字体 + 符号族 + 区域族），列表却
     /// 必须完整，故那里才触发那次全量枚举。族索引与渲染状态无关：生产路径取列表
-    /// 时 MUST 在渲染状态锁外调用 [`super::font_db::family_display_names`]（首次构建
+    /// 时 MUST 在渲染状态锁外调用 `font_db::family_display_names`（首次构建
     /// 真机实测 127ms，持锁取会把渲染线程冻结同样时长）。
     pub fn list_monospace_fonts(&self) -> Vec<String> {
         #[cfg(target_os = "android")]
@@ -1076,7 +1076,7 @@ impl FontPipeline {
 
     /// 装入字体文件到当前字体库，返回文件中首个有族名的面的族名。
     ///
-    /// 该面被记住（见 [`FontPipeline::user_font_faces`]）：按族名选中时用它，
+    /// 该面被记住（见 `user_font_faces`）：按族名选中时用它，
     /// 而不是扫库取首个——同一路径的文件被替换后旧面仍在库里。
     ///
     /// 族名取自**首个有族名的**面：TTC 的首面可能没有族名（无名子集），
