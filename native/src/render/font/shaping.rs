@@ -144,6 +144,10 @@ mod tests {
         FontPipeline::new(512, 512, 12.0)
     }
 
+    fn advance(glyphs: &[ShapedGlyphInfo]) -> f32 {
+        glyphs.iter().map(|glyph| glyph.w).sum()
+    }
+
     #[test]
     fn empty_text_shapes_to_nothing() {
         let mut pipeline = small_pipeline();
@@ -168,7 +172,6 @@ mod tests {
     /// 偏移一个 raster_scale 倍。缓存键含 raster_scale，键值语义与此处一致。
     #[test]
     fn shaping_advances_in_raster_pixels() {
-        let advance = |glyphs: &[ShapedGlyphInfo]| glyphs.iter().map(|glyph| glyph.w).sum::<f32>();
         let mut pipeline = small_pipeline();
         pipeline.set_raster_scale(1.0);
         let at_one = advance(&pipeline.shape_run("Hello"));
@@ -239,11 +242,11 @@ mod tests {
         pipeline.set_font_size_in_place(SCALED_FONT_SIZE);
         let after = pipeline.shape_run(SAMPLE_TEXT);
         assert!(!after.is_empty(), "resized shape must produce glyphs");
-        let before_advance: f32 = before.iter().map(|shaped| shaped.w).sum();
-        let after_advance: f32 = after.iter().map(|shaped| shaped.w).sum();
         assert!(
-            after_advance > before_advance,
-            "larger font must advance wider (before={before_advance}, after={after_advance})"
+            advance(&after) > advance(&before),
+            "larger font must advance wider (before={}, after={})",
+            advance(&before),
+            advance(&after)
         );
         let cached = pipeline.shape_run(SAMPLE_TEXT);
         assert_eq!(after, cached, "resized shape must come from cache");
@@ -275,10 +278,8 @@ mod tests {
         };
         assert_ne!(key_small, key_large, "shape key must distinguish font size");
         let after = pipeline.shape_run("Hello");
-        let before_advance: f32 = before.iter().map(|shaped| shaped.w).sum();
-        let after_advance: f32 = after.iter().map(|shaped| shaped.w).sum();
         assert!(
-            after_advance > before_advance,
+            advance(&after) > advance(&before),
             "larger font must advance wider without reusing stale shaping"
         );
         assert_eq!(

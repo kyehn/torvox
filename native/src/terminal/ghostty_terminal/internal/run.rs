@@ -87,7 +87,7 @@ impl super::GhosttyTerminal {
                 pending = config.command_receiver.try_recv().ok();
             }
             if pending.is_none() {
-                Self::handle_idle_cycle(
+                Self::respond_queries_and_publish(
                     &config,
                     &query_receiver,
                     taken_query,
@@ -157,35 +157,7 @@ impl super::GhosttyTerminal {
         selector.wait_timeout(timeout)
     }
 
-    /// 空闲节拍：应答查询，并补推积压的帧。
-    fn handle_idle_cycle<'term>(
-        config: &RunConfig,
-        query_receiver: &flume::Receiver<Query>,
-        taken_query: Option<Query>,
-        terminal: &mut Terminal<'term, '_>,
-        extractors: &mut RenderExtractors<'term>,
-        query_context: &mut QueryContext<'term>,
-        state: &mut CommandState,
-    ) {
-        if Self::respond_to_queries(
-            query_receiver,
-            taken_query,
-            terminal,
-            extractors,
-            query_context,
-            state,
-        ) {
-            // 查询内安装与 Command::SetSelection 同款失效：
-            // 反白改变每行内容，帧必须重推。
-            state.cell_data_dirty = true;
-        }
-        // ── 自动推送 CellData（仅在真实状态变化后）──
-        if state.cell_data_dirty {
-            Self::publish_cell_data(config, terminal, extractors, state);
-        }
-    }
-
-    /// 批尾：排空待处理查询，按批内变化构建一次帧，最后释放 flush 应答。
+    /// 批尾：应答查询、补推积压的帧，最后释放 flush 应答。
     fn finish_command_batch<'term>(
         config: &RunConfig,
         query_receiver: &flume::Receiver<Query>,
@@ -199,24 +171,15 @@ impl super::GhosttyTerminal {
         // 整批处理完后排空待处理查询，让它们看到完全更新后的终端状态。
         // 本轮等待时已取出的那条查询（`taken_query`）也在这里一并应答：
         // 它已离开通道，不带上就会被丢弃、查询方只能等到超时。
-        if Self::respond_to_queries(
+        Self::respond_queries_and_publish(
+            config,
             query_receiver,
             taken_query,
             terminal,
             extractors,
             query_context,
             state,
-        ) {
-            // 同上：查询内安装的选区需要纳入本批重推。
-            batch.dirty = true;
-        }
-        // 整批只做一次 cell-data 构建——上面的每次状态改动都已完成，
-        // 故这里反映的是积压队列的最终状态。`grid_dirty` 由每条改动型
-        // 命令就地置位，并保持置位直到 TakeSnapshot 消费它为止
-        // （快照缓存失效语义，与逐命令版本相同）。
-        if batch.dirty {
-            Self::publish_cell_data(config, terminal, extractors, state);
-        }
+        );
         // flush 应答只在上面的构建之后释放，保持 `flush()` 原有的
         // 逐命令顺序保证。
         for ack in batch.acks.drain(..) {
@@ -224,35 +187,37 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 排空查询通道；查询安装选区时按 `Command::SetSelection` 同款规则失效
-    /// 帧缓存。返回真表示本批中有查询安装了选区。
-    fn respond_to_queries<'term>(
+    /// 应答查询并补推积压的帧。空闲节拍与批尾共用：两者都先排空查询，
+    /// 查询内安装选区视同 `Command::SetSelection` 失效行缓存，再按
+    /// `cell_data_dirty` 决定是否构建一帧。
+    fn respond_queries_and_publish<'term>(
+        config: &RunConfig,
         query_receiver: &flume::Receiver<Query>,
-        first: Option<Query>,
+        taken_query: Option<Query>,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
         query_context: &mut QueryContext<'term>,
         state: &mut CommandState,
-    ) -> bool {
+    ) {
         let selection_installed = Self::drain_queries(
             query_receiver,
-            first,
+            taken_query,
             terminal,
             &mut state.cached_all_text,
-            &mut query_context.encoders,
             state.default_foreground,
             state.default_background,
-            &mut query_context.search,
-            &mut query_context.match_buffer,
             extractors,
-            &mut query_context.kitty_cache,
+            query_context,
         );
         if selection_installed {
             state.last_cell_data_push = None;
             state.grid_dirty = true;
             extractors.invalidate_row_cache();
+            state.cell_data_dirty = true;
         }
-        selection_installed
+        if state.cell_data_dirty {
+            Self::publish_cell_data(config, terminal, extractors, state);
+        }
     }
 
     /// 构建并推送一帧 CellData（自动推送路径）。

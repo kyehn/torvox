@@ -9,12 +9,12 @@
 - [x] `with_render_state` 收敛渲染状态守卫与解锁时机（`android/ffi/font.rs`）
 - [x] `select_bounds_export` 收敛选区查询导出（`android/ffi/query.rs`）
 - [x] `render_state_guard` 与 `draw_cells` 收敛渲染帧样板（`android/ffi/render/frame.rs`）
-- [ ] 图集像素拷贝统一为一条路径（`render/font/atlas.rs`）
-- [ ] `create_atlas_bind_group` 收敛 wgpu 绑定组创建（`render/context/atlas.rs` + `render/pipeline.rs`）
-- [ ] 查询资源改传 `QueryContext`（`terminal/ghostty_terminal/internal/dispatch.rs`）
-- [ ] 空闲节拍与批尾合并为 `respond_queries_and_publish`（`terminal/ghostty_terminal/internal/run.rs` + `commands.rs`）
-- [ ] 单发查询包装内联（`terminal/ghostty_terminal/public_api.rs`）
+- [x] 图集像素拷贝统一为一条路径（`render/font/atlas.rs`）
+- [x] `create_atlas_bind_group` 收敛 wgpu 绑定组创建（`render/context/atlas.rs` + `render/pipeline.rs`）
+- [x] 查询资源改传 `QueryContext`（`terminal/ghostty_terminal/internal/dispatch.rs`）
+- [x] 空闲节拍与批尾合并为 `respond_queries_and_publish`（`terminal/ghostty_terminal/internal/run.rs` + `commands.rs`）
+- [x] 单发查询包装内联（`terminal/ghostty_terminal/public_api.rs`）
 - [x] 修饰键状态读取收敛为单一读取点（`android/.../ui/TerminalSurface.kt`）
-- [ ] 测试内推进宽度求和 helper（`render/font/shaping.rs`）
+- [x] 测试内推进宽度求和 helper（`render/font/shaping.rs`）
 - [ ] 跑完整 CI 门禁（`nix develop -c nu scripts/check.nu`）
 - [ ] `openspec validate --strict` 通过后归档

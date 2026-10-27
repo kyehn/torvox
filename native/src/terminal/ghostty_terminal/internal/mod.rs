@@ -157,8 +157,6 @@ impl CommandState {
 /// 一批命令的批级状态。
 #[derive(Default)]
 struct BatchState {
-    /// 本批是否有需要重推帧的状态变化。
-    dirty: bool,
     /// 本批是否已有内容变更（输出/主题/尺寸/选区/重置）。纯视口滚动才能
     /// 平移行缓存；若先有内容变更再滚动，缓存相对新网格已过期，必须整帧重建。
     content_changed: bool,

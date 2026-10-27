@@ -84,6 +84,36 @@ impl Renderer {
         })
     }
 
+    /// cell 与 KGP 两条文本管线共用的绑定组：uniform、图集纹理视图、采样器。
+    /// 绑定顺序必须与 [`Self::text_bind_group_layout`] 一致，故只此一处创建。
+    pub(crate) fn create_text_bind_group(
+        device: &wgpu::Device,
+        label: &str,
+        layout: &wgpu::BindGroupLayout,
+        uniform_buffer: &wgpu::Buffer,
+        texture_view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        })
+    }
+
     /// 两条文本管线只差实例顶点布局与混合方式；入口点、图元状态、无深度全部
     /// 一致，单点构造以防走偏。
     fn create_text_pipeline(
@@ -256,24 +286,14 @@ impl Renderer {
             return;
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.kgp_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("KGP Bind Group"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        }));
+        self.kgp_bind_group = Some(Self::create_text_bind_group(
+            &self.device,
+            "KGP Bind Group",
+            &pipeline.get_bind_group_layout(0),
+            uniform_buffer,
+            &view,
+            sampler,
+        ));
     }
 }
 

@@ -9,15 +9,6 @@ pub(super) const GLYPH_CACHE_EVICTION_DIVISOR: usize = 4;
 /// 图集每个像素的字节数（RGBA）。
 pub(crate) const ATLAS_BYTES_PER_PIXEL: usize = 4;
 
-/// 图集像素内红色通道偏移。
-const ATLAS_RED_OFFSET: usize = 0;
-
-/// 图集像素内绿色通道偏移。
-const ATLAS_GREEN_OFFSET: usize = 1;
-
-/// 图集像素内蓝色通道偏移。
-const ATLAS_BLUE_OFFSET: usize = 2;
-
 /// 图集像素内透明通道偏移。
 const ATLAS_ALPHA_OFFSET: usize = 3;
 
@@ -179,64 +170,44 @@ impl FontPipeline {
             }
         }
 
-        match image.content {
-            swash::scale::image::Content::Mask => {
-                let atlas_width_pixels = self.atlas_width as usize;
-                let atlas_height_pixels = self.atlas_height as usize;
-                for offset_y in 0..height as usize {
-                    let destination_y = origin_y as usize + offset_y;
-                    if destination_y >= atlas_height_pixels {
-                        break;
-                    }
-                    for offset_x in 0..width as usize {
-                        let source_index = offset_y * width as usize + offset_x;
-                        let alpha = image.data.get(source_index).copied().unwrap_or(0);
-                        let destination_x = origin_x as usize + offset_x;
-                        if destination_x >= atlas_width_pixels {
-                            break;
-                        }
-                        let destination_index = (destination_y * atlas_width_pixels
-                            + destination_x)
-                            * ATLAS_BYTES_PER_PIXEL;
-                        if destination_index + ATLAS_ALPHA_OFFSET < self.atlas_bitmap.len() {
-                            self.atlas_bitmap[destination_index + ATLAS_RED_OFFSET] = alpha;
-                            self.atlas_bitmap[destination_index + ATLAS_GREEN_OFFSET] = alpha;
-                            self.atlas_bitmap[destination_index + ATLAS_BLUE_OFFSET] = alpha;
-                            self.atlas_bitmap[destination_index + ATLAS_ALPHA_OFFSET] = alpha;
-                        }
-                    }
-                }
+        // 掩码图（普通字形）与彩色图（上游输出 RGBA）都归一到「透明通道写灰度、
+        // 彩色图 alpha 恒不透明」的同一形状，故复制循环只保留一条路径。
+        let is_mask = matches!(image.content, swash::scale::image::Content::Mask);
+        let atlas_width_pixels = self.atlas_width as usize;
+        let atlas_height_pixels = self.atlas_height as usize;
+        for offset_y in 0..height as usize {
+            let destination_y = origin_y as usize + offset_y;
+            if destination_y >= atlas_height_pixels {
+                break;
             }
-            _ => {
-                let atlas_width_pixels = self.atlas_width as usize;
-                let atlas_height_pixels = self.atlas_height as usize;
-                for offset_y in 0..height as usize {
-                    let destination_y = origin_y as usize + offset_y;
-                    if destination_y >= atlas_height_pixels {
-                        break;
-                    }
-                    for offset_x in 0..width as usize {
-                        let destination_x = origin_x as usize + offset_x;
-                        if destination_x >= atlas_width_pixels {
-                            break;
-                        }
-                        let source_index =
-                            (offset_y * width as usize + offset_x) * ATLAS_BYTES_PER_PIXEL;
-                        let destination_index = (destination_y * atlas_width_pixels
-                            + destination_x)
-                            * ATLAS_BYTES_PER_PIXEL;
-                        if destination_index + ATLAS_ALPHA_OFFSET < self.atlas_bitmap.len()
-                            && source_index + ATLAS_ALPHA_OFFSET < image.data.len()
-                        {
-                            let alpha = image.data[source_index + ATLAS_ALPHA_OFFSET];
-                            self.atlas_bitmap[destination_index + ATLAS_RED_OFFSET] = alpha;
-                            self.atlas_bitmap[destination_index + ATLAS_GREEN_OFFSET] = alpha;
-                            self.atlas_bitmap[destination_index + ATLAS_BLUE_OFFSET] = alpha;
-                            self.atlas_bitmap[destination_index + ATLAS_ALPHA_OFFSET] =
-                                OPAQUE_ALPHA;
-                        }
-                    }
+            for offset_x in 0..width as usize {
+                let destination_x = origin_x as usize + offset_x;
+                if destination_x >= atlas_width_pixels {
+                    break;
                 }
+                let destination_index =
+                    (destination_y * atlas_width_pixels + destination_x) * ATLAS_BYTES_PER_PIXEL;
+                let source_index = if is_mask {
+                    offset_y * width as usize + offset_x
+                } else {
+                    (offset_y * width as usize + offset_x) * ATLAS_BYTES_PER_PIXEL
+                };
+                let alpha = image.data.get(source_index).copied().unwrap_or(0);
+                let pixel = if is_mask {
+                    [alpha, alpha, alpha, alpha]
+                } else {
+                    let alpha = image
+                        .data
+                        .get(source_index + ATLAS_ALPHA_OFFSET)
+                        .copied()
+                        .unwrap_or(0);
+                    [alpha, alpha, alpha, OPAQUE_ALPHA]
+                };
+                if destination_index + ATLAS_ALPHA_OFFSET >= self.atlas_bitmap.len() {
+                    continue;
+                }
+                self.atlas_bitmap[destination_index..destination_index + ATLAS_BYTES_PER_PIXEL]
+                    .copy_from_slice(&pixel);
             }
         }
 
