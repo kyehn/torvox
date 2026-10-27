@@ -1,11 +1,13 @@
 //! PTY 主/从端创建：fork 与直接系统调用处允许 unsafe，VT/网格数据路径禁用 unsafe。
 use std::io;
-use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::atomic::{AtomicU16, Ordering};
 #[cfg(test)]
 use std::time::Duration;
 
+use nix::errno::Errno;
+use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 use thiserror::Error;
 
 use crate::terminal::shell_env::ShellEnv;
@@ -82,7 +84,14 @@ pub trait Pty: Send + Sync {
     /// 经 TIOCGWINSZ 查询当前终端窗口尺寸（rows x cols），用于验证 24x80 spawn 种子。
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
     fn child_pid(&self) -> nix::unistd::Pid;
-    fn master_fd(&self) -> RawFd;
+    /// 返回主端 fd 的借用视图，供 `poll` 等待主端可写。
+    ///
+    /// 默认 `None`：没有真实主端的测试替身（`MockPty` 等）继承此实现——
+    /// `write_all` 遇 EAGAIN 时退化为「等满期限即报 WouldBlock」，与真实主端
+    /// 被填满时的观感一致。
+    fn master_borrowed_fd(&self) -> Option<BorrowedFd<'_>> {
+        None
+    }
     /// 返回独立所有的主端 fd 副本供专用读取线程使用。副本与 `master_fd()` 共享同一
     /// 打开文件描述（故共享 O_NONBLOCK 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
     /// dup 在此处（允许 `unsafe` 的位置）完成，使调用方能经安全的 `std::fs::File`
@@ -137,7 +146,15 @@ pub trait Pty: Send + Sync {
                     // PTY 输入缓冲已满。**绝不丢弃剩余字节**：丢弃会让粘贴被静默截断
                     // （子进程执行半条命令），也会把 VT 应答截断在转义序列中间，
                     // 使子应用永久等待一个永远不完整的回答。等子进程消费即可。
-                    if let Err(error) = wait_writable(self.master_fd(), deadline) {
+                    let Some(master) = self.master_borrowed_fd() else {
+                        // 没有可轮询的真实主端（测试替身）：等满期限即报未排空，
+                        // 与真实主端排不空时的结果同形。
+                        std::thread::sleep(
+                            deadline.saturating_duration_since(std::time::Instant::now()),
+                        );
+                        return (written, Err(not_drained()));
+                    };
+                    if let Err(error) = wait_writable(master, deadline) {
                         return (written, Err(error));
                     }
                 }
@@ -168,49 +185,45 @@ fn set_cloexec(fds: &[&OwnedFd]) -> Result<(), PtyError> {
     Ok(())
 }
 
+/// 「等满期限仍未排空」的错误。真实主端与测试替身两条路径共用同一措辞。
+fn not_drained() -> io::Error {
+    io::Error::new(io::ErrorKind::WouldBlock, "PTY 输入缓冲在等待后仍未排空")
+}
+
 /// 等待主端变为可写直至 `deadline`。
-///
-/// `unsafe`：仅调用 `poll`，其输入是本方法内构造的 `pollfd` 与调用方持有的有效
-/// 主端 fd（`Pty` 契约保证 `master_fd` 在对象存活期间有效），`poll` 只写 `revents`。
-fn wait_writable(fd: RawFd, deadline: std::time::Instant) -> io::Result<()> {
+fn wait_writable(fd: BorrowedFd<'_>, deadline: std::time::Instant) -> io::Result<()> {
     loop {
         let now = std::time::Instant::now();
         if now >= deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "PTY 输入缓冲在等待后仍未排空",
-            ));
+            return Err(not_drained());
         }
         let remaining = (deadline - now).as_millis().min(i32::MAX as u128) as i32;
-        let mut poll_fd = libc::pollfd {
-            fd,
-            events: libc::POLLOUT,
-            revents: 0,
-        };
-        // SAFETY: 见上方文档——`poll_fd` 有效且已初始化，`fd` 由 `Pty` 保证存活。
-        let result = unsafe { libc::poll(&mut poll_fd as *mut libc::pollfd, 1, remaining) };
-        if result > 0 {
-            // 必须查 revents：主端挂断（子进程退出）时 poll 立刻返回 > 0，但置的是
-            // POLLHUP/POLLERR 而非 POLLOUT。无条件 Ok(()) 会让调用方重入 write 拿到
-            // EAGAIN → 再次 wait_writable → 立刻返回，整段排空期限变成满速空转，
-            // 既烧 CPU 又拖住持锁的调用方。
-            let fatal = poll_fd.revents & (libc::POLLERR | libc::POLLNVAL | libc::POLLHUP);
-            if fatal != 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "PTY 主端已挂断，无法继续写入",
-                ));
+        // `remaining` 已被夹到 i32::MAX 且非负，转换不会失败；`unwrap_or` 只是兜底。
+        let timeout = PollTimeout::try_from(remaining).unwrap_or(PollTimeout::MAX);
+        let mut poll_fds = [PollFd::new(fd, PollFlags::POLLOUT)];
+        match poll(&mut poll_fds, timeout) {
+            // 0 = 期限内仍不可写，交给下一轮重试（由 deadline 收敛）。
+            Ok(0) => continue,
+            Ok(_) => {
+                // 必须查 revents：主端挂断（子进程退出）时 poll 立刻返回 > 0，但置的是
+                // POLLHUP/POLLERR 而非 POLLOUT。无条件 Ok(()) 会让调用方重入 write 拿到
+                // EAGAIN → 再次 wait_writable → 立刻返回，整段排空期限变成满速空转，
+                // 既烧 CPU 又拖住持锁的调用方。
+                let revents = poll_fds[0].revents().unwrap_or_else(PollFlags::empty);
+                let fatal =
+                    revents & (PollFlags::POLLERR | PollFlags::POLLNVAL | PollFlags::POLLHUP);
+                if fatal != PollFlags::empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "PTY 主端已挂断，无法继续写入",
+                    ));
+                }
+                return Ok(());
             }
-            return Ok(());
+            // EINTR 不是失败：信号打断了 poll，等下去即可。
+            Err(Errno::EINTR) => continue,
+            Err(errno) => return Err(io::Error::from_raw_os_error(errno as i32)),
         }
-        if result < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error);
-        }
-        // 0 = 期限内仍不可写，交给下一轮重试（由 deadline 收敛）。
     }
 }
 
@@ -721,8 +734,8 @@ impl Pty for PtyPair {
         PtyPair::child_pid(self)
     }
 
-    fn master_fd(&self) -> RawFd {
-        PtyPair::master_fd(self)
+    fn master_borrowed_fd(&self) -> Option<BorrowedFd<'_>> {
+        Some(self.master.as_fd())
     }
 
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {

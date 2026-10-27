@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::io;
-use std::os::unix::io::{OwnedFd, RawFd};
+use std::os::unix::io::OwnedFd;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal::pty::{Pty, PtyError};
@@ -197,10 +197,6 @@ impl Pty for MockPty {
         // broadcasting to all processes. Using -1 would send the signal to
         // every process the caller can signal, which is catastrophic in tests.
         nix::unistd::Pid::from_raw(4_194_305)
-    }
-
-    fn master_fd(&self) -> RawFd {
-        -1
     }
 
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {

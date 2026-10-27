@@ -29,7 +29,7 @@ libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9ede35
 ] }
 log = "0.4"
 lru = "0.19"
-nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
+nix = { version = "0.31", features = ["term", "process", "signal", "fs", "poll"] }
 parking_lot = "0.13"
 raw-window-handle = "0.6"
 roxmltree = "0.21"
