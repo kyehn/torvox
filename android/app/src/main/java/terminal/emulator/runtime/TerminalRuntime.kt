@@ -118,6 +118,14 @@ const val RENDER_LATCH_IDLE_TIMEOUT_NANOS: Long = 500_000_000L
 const val RENDER_IDLE_THRESHOLD_NANOS: Long = 5_000_000_000L
 
 /**
+ * 慢帧与慢循环的判定阈值（毫秒）：超过即记一行诊断。
+ *
+ * 放在文件顶层是为了让判定口径的用例能取到同一个值：另存一份会在阈值调整时
+ * 与实现漂移，用例仍绿而实际判定已变。
+ */
+const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
+
+/**
  * 滚动复位决策（termux `onScreenUpdated` 对等语义），纯函数无副作用以便表驱动测试。
  *
  * termux 语义：除文本选区激活或自动滚动被显式关闭外，新输出都会把视口滚回底部。
@@ -166,6 +174,20 @@ internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleT
  */
 internal fun activeLatchTimeoutNanos(vsyncFresh: Boolean): Long =
     if (vsyncFresh) RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS else RENDER_LATCH_TIMEOUT_NANOS
+
+/**
+ * 慢循环判定用的实际工作时长：整循环时长扣掉两段主动等待。
+ *
+ * 空闲门控驻留与渲染失败退避都是设计上主动等的等待，不是慢：把它们算进去会让
+ * 「平台收走原生窗口 → 渲染失败 → 退避」这条正常退化路径在退避后被判成慢循环，
+ * 记出 warn 级告警（`logcat-hygiene` 要求正常退化路径不得记 warn）。纯函数无副作用。
+ *
+ * @param totalNanos 整循环时长。
+ * @param gateNanos 空闲门控驻留时长。
+ * @param backoffNanos 渲染失败退避时长。
+ */
+internal fun slowLoopWorkNanos(totalNanos: Long, gateNanos: Long, backoffNanos: Long): Long =
+    totalNanos - gateNanos - backoffNanos
 
 /**
  * 会话状态由两个布尔量编码：running 且未退出 = 存活；running 且已退出 = 死亡（待清理）；
@@ -1549,6 +1571,9 @@ constructor(
                                     }
                                     try {
                                         val loopFrameStart = System.nanoTime()
+                                        // 渲染失败退避的实测时长：主动等的等待，单独计量
+                                        // 以便从慢循环判定中扣除（见 slowLoopWorkNanos）。
+                                        var loopBackoffNanos = 0L
                                         val bridge = entry.bridge
                                         // ── vsync 唤醒门控 ──
                                         // 循环仅在有唤醒源触发时才渲染：
@@ -1776,7 +1801,12 @@ constructor(
                                                 } else {
                                                     RENDER_ERROR_SLEEP_MS
                                                 }
+                                            // 退避是设计上主动等的等待：单独计量，既不进慢循环
+                                            // 判定，也不并进 poll 段——否则平台收走窗口这条正常
+                                            // 退化路径会在退避后记出 warn 级慢循环告警。
+                                            val backoffStartNanos = System.nanoTime()
                                             delay(sleepMs)
+                                            loopBackoffNanos = System.nanoTime() - backoffStartNanos
                                         } else {
                                             if (consecutiveErrors > 0) {
                                                 LogUtil.info(
@@ -1927,14 +1957,19 @@ constructor(
                                         loopTiming.record(loopDurationNanos)
                                         loopPreTiming.record(loopPrerenderDoneNanos - loopGateDoneNanos)
                                         // 慢循环帧的定位仪器：整循环超阈值才看——但空闲会话的门控
-                                        // 驻留（waitOutput 至多 500ms）是正常设计态而非慢，
-                                        // 按非 gate 作用段之和判定，避免 release 里空终端
-                                        // 永久 WARN 刷屏。各阶段耗时（渲染前推送/渲染 JNI/
-                                        // 输出泵+事件/循环尾）供真机日志定位吃时环节，
+                                        // 驻留（waitOutput 至多 500ms）与渲染失败退避都是设计上
+                                        // 主动等的等待而非慢，按去掉两段等待后的工作时长判定，
+                                        // 避免 release 里空终端永久 WARN 刷屏，也避免平台收走
+                                        // 窗口这类正常退化路径在退避后记出 WARN。各阶段耗时
+                                        // （渲染前推送/渲染 JNI/退避/输出泵+事件/循环尾）供真机
+                                        // 日志定位吃时环节，各段之和等于 total。
                                         // SLOW_FRAME 只看渲染 JNI，循环其他环节静默。
                                         if (
-                                            loopDurationNanos - (loopGateDoneNanos - loopFrameStart) >
-                                            SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L &&
+                                            slowLoopWorkNanos(
+                                                totalNanos = loopDurationNanos,
+                                                gateNanos = loopGateDoneNanos - loopFrameStart,
+                                                backoffNanos = loopBackoffNanos,
+                                            ) > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L &&
                                             System.nanoTime() - lastSlowLoopLogNanos > 500_000_000L
                                         ) {
                                             lastSlowLoopLogNanos = System.nanoTime()
@@ -1943,7 +1978,10 @@ constructor(
                                             val gateMs = (loopGateDoneNanos - loopFrameStart) / NANOS_PER_MILLI
                                             val preMs = (loopPrerenderDoneNanos - loopGateDoneNanos) / NANOS_PER_MILLI
                                             val renderMs = (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
-                                            val pollMs = (loopPollDoneNanos - renderDoneNanos) / NANOS_PER_MILLI
+                                            val backoffMs = loopBackoffNanos / NANOS_PER_MILLI
+                                            val pollMs =
+                                                (loopPollDoneNanos - renderDoneNanos - loopBackoffNanos) /
+                                                    NANOS_PER_MILLI
                                             val totalMs = loopDurationNanos / NANOS_PER_MILLI
                                             LogUtil.warn(
                                                 "Runtime",
@@ -1953,6 +1991,7 @@ constructor(
                                                     "gate=${gateMs}ms " +
                                                     "pre=${preMs}ms " +
                                                     "render=${renderMs}ms " +
+                                                    "backoff=${backoffMs}ms " +
                                                     "poll=${pollMs}ms " +
                                                     "tail=${tailNanos / NANOS_PER_MILLI}ms",
                                             )
@@ -2179,8 +2218,7 @@ constructor(
         private const val RENDER_ERROR_BACKOFF_MS =
             200L // 连续 10 次瞬时错误后延长睡眠
 
-        // 慢帧诊断：超过此值的帧输出一行 SLOW_FRAME（渲染阶段墙钟时间）供离线拆解。
-        private const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
+        // 慢帧诊断的阈值见文件顶层的 SLOW_FRAME_LOG_THRESHOLD_MS。
 
         // 计时报告的换算基数用 Double：真机帧时长集中在 0–2ms，以 Long 整除换算会让
         // 健康窗口一律报出 `avg=0ms p95=0ms`，且由截断均值换算的 fps 会把同一台设备
