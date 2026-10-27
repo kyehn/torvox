@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-10-27
+skip_specs: true
+goal: |
+  修正 setTheme 的 VT flush 时序，避免 premature 旧帧造成混屏；行为要求已在
+  theme-configuration 规范中声明，本变更不新增 delta。
