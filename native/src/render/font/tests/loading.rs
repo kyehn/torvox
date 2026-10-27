@@ -26,27 +26,23 @@ fn load_font_file_nonexistent_path_returns_none() {
 
 #[test]
 fn load_font_file_empty_file_returns_none() {
-    let dir = std::env::temp_dir().join("test_font_load");
-    let _ = std::fs::create_dir_all(&dir);
-    let empty_path = dir.join("empty.ttf");
+    let dir = tempfile::tempdir().unwrap();
+    let empty_path = dir.path().join("empty.ttf");
     std::fs::write(&empty_path, []).ok();
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     let result = pipeline.load_font_file(&empty_path);
     assert!(result.is_none(), "empty file should return None");
-    let _ = std::fs::remove_file(&empty_path);
 }
 
 #[test]
 fn load_font_file_corrupt_file_returns_none() {
-    let dir = std::env::temp_dir().join("test_font_load");
-    let _ = std::fs::create_dir_all(&dir);
-    let corrupt_path = dir.join("corrupt.ttf");
+    let dir = tempfile::tempdir().unwrap();
+    let corrupt_path = dir.path().join("corrupt.ttf");
     let garbage: Vec<u8> = (0..256).map(|raw_byte| (raw_byte ^ 0xAB) as u8).collect();
     std::fs::write(&corrupt_path, &garbage).ok();
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     let result = pipeline.load_font_file(&corrupt_path);
     assert!(result.is_none(), "corrupt file should return None");
-    let _ = std::fs::remove_file(&corrupt_path);
 }
 
 // ──: 粗/斜体字形合成 ─────────────────────────
@@ -464,15 +460,13 @@ fn reloading_a_file_switches_family_selection_to_the_new_face() {
 
 #[test]
 fn load_font_file_unicode_path() {
-    let dir = std::env::temp_dir().join("test_unicode_字体");
-    let _ = std::fs::create_dir_all(&dir);
-    let target = dir.join("测试-font.ttf");
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("测试-font.ttf");
     std::fs::copy(find_test_font(), &target).expect("copy test font to unicode path");
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     let family = pipeline.load_font_file(&target);
     assert!(family.is_some(), "should load font from unicode path");
     assert!(!family.unwrap().is_empty(), "family should not be empty");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

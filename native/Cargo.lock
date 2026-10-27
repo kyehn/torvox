@@ -1048,6 +1048,7 @@ dependencies = [
  "serde_json",
  "shuttle",
  "swash",
+ "tempfile",
  "thiserror",
  "toml",
  "unicode-script",

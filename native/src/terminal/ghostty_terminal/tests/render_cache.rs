@@ -146,7 +146,8 @@ fn kitty_graphics_png_palette_and_gray16_decode() {
 #[test]
 fn kitty_graphics_file_medium_reads_the_image_file() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("kitty-file-{}", std::process::id()));
+    let dir = tempfile::tempdir().expect("创建临时目录");
+    let path = dir.path().join("kitty-file");
     std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
     let payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
@@ -163,7 +164,6 @@ fn kitty_graphics_file_medium_reads_the_image_file() {
         vec![255, 0, 0, 255],
         "文件里的 RGB 载荷归一化为不透明 RGBA"
     );
-    std::fs::remove_file(&path).ok();
 }
 
 /// Kitty 临时文件介质（`t=t`）：文件须位于终端的临时目录白名单内且名字含
@@ -171,8 +171,12 @@ fn kitty_graphics_file_medium_reads_the_image_file() {
 #[test]
 fn kitty_graphics_temporary_file_medium_reads_the_image_file() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("tty-graphics-protocol-{}", std::process::id()));
-    std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
+    let file = tempfile::Builder::new()
+        .prefix("tty-graphics-protocol-")
+        .tempfile()
+        .expect("创建临时文件");
+    let path = file.path();
+    std::fs::write(path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
     let payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
 
@@ -200,11 +204,12 @@ fn kitty_graphics_temporary_file_medium_reads_the_image_file() {
 #[test]
 fn kitty_graphics_short_file_and_missing_file_answer_identically() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("kitty-short-{}", std::process::id()));
+    let dir = tempfile::tempdir().expect("创建临时目录");
+    let path = dir.path().join("kitty-short");
     std::fs::write(&path, [0xffu8, 0x00, 0x00]).expect("写图像文件");
     let short_payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
-    let missing_path = std::env::temp_dir().join(format!("kitty-absent-{}", std::process::id()));
+    let missing_path = dir.path().join("kitty-absent");
     let missing_payload =
         base64::engine::general_purpose::STANDARD.encode(missing_path.to_string_lossy().as_bytes());
 
@@ -260,7 +265,8 @@ fn kitty_graphics_short_file_and_missing_file_answer_identically() {
 #[test]
 fn kitty_graphics_file_medium_honors_size_and_offset() {
     use base64::Engine;
-    let path = std::env::temp_dir().join(format!("kitty-offset-{}", std::process::id()));
+    let dir = tempfile::tempdir().expect("创建临时目录");
+    let path = dir.path().join("kitty-offset");
     std::fs::write(&path, [0x11u8, 0x22, 0x33, 0x44]).expect("写图像文件");
     let payload =
         base64::engine::general_purpose::STANDARD.encode(path.to_string_lossy().as_bytes());
