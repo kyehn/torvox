@@ -5,7 +5,7 @@ use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::context::MIN_VERTEX_BUFFER_SIZE;
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
-use crate::render::slow_log::SlowLogThrottle;
+use crate::slow_log::SlowLogThrottle;
 
 /// 渲染分段慢帧诊断的限频闸门。
 ///

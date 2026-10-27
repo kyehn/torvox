@@ -5,8 +5,12 @@
 //! 采样段），每类各持一个闸门——共用一个计数器会让先到的诊断吞掉后到的，
 //! 规范明令禁止（「慢循环与慢帧各自限频」场景）。
 //!
+//! 终端侧单元帧丢弃告警、剪贴板读请求洪泛告警、超长选择器告警与事件队列溢出
+//! 告警同样限频：各写一份时口径分叉，间隔下限的要求便失去保证，故一律走本模块。
+//!
 //! 闸门用进程内单调时钟（[`Instant`] 相对进程启动时刻），不依赖墙上时钟：
-//! 墙上时钟被校准时可能回跳，回跳会把间隔算成负数而永久放行。
+//! 墙上时钟被校准时可能前跳或回跳，前跳会把两次输出的真实间隔压到下限以下，
+//! 回跳会把间隔算成零而让告警在时钟追上之前长期沉默。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -21,21 +25,42 @@ fn now_ms() -> u64 {
     EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
-/// 一类慢帧诊断的限频闸门。
+/// 一类诊断的限频闸门。
 ///
-/// 语义：首次调用放行；此后两次放行之间的间隔 MUST 不小于
-/// [`SLOW_LOG_INTERVAL_MS`]。并发调用只有一方能推进窗口起点，
-/// 故同一时刻不会输出两行。
+/// 语义：首次调用放行；此后两次放行之间的间隔 MUST 不小于本闸门的窗口长度。
+/// 并发调用只有一方能推进窗口起点，故同一时刻不会输出两行。
+///
+/// 窗口在构造时给定：逐帧诊断取 [`SLOW_LOG_INTERVAL_MS`]，窗口更长的调用点
+/// （如帧丢弃告警）用 [`Self::with_interval`] 另给。
 pub(crate) struct SlowLogThrottle {
     /// 上次放行的时刻（毫秒）。0 表示「尚未放行过」。
     last_logged_ms: AtomicU64,
+    /// 两次放行之间的最小间隔（毫秒）。
+    interval_ms: u64,
 }
 
 impl SlowLogThrottle {
+    /// 取默认窗口（逐帧诊断用）。
     pub(crate) const fn new() -> Self {
+        Self::with_interval(SLOW_LOG_INTERVAL_MS)
+    }
+
+    /// 指定窗口长度（毫秒）：同一类诊断需要比逐帧诊断更长的静默期时用它，
+    /// 而非另写一份闸门。
+    pub(crate) const fn with_interval(interval_ms: u64) -> Self {
         Self {
             last_logged_ms: AtomicU64::new(0),
+            interval_ms,
         }
+    }
+
+    /// 清空窗口起点，回到「尚未放行过」：下一次调用必定放行。
+    ///
+    /// 仅测试构建存在：静态闸门是进程级的，同一测试二进制里别的用例可能先推进
+    /// 过窗口起点，用例需要回到首条必定可见的初始态才敢断言放行次数。
+    #[cfg(test)]
+    pub(crate) fn reset(&self) {
+        self.last_logged_ms.store(0, Ordering::Release);
     }
 
     /// 该次诊断是否允许输出；放行时同时推进窗口起点。
@@ -49,7 +74,7 @@ impl SlowLogThrottle {
     pub(crate) fn should_log_at(&self, now_ms: u64) -> bool {
         let last = self.last_logged_ms.load(Ordering::Acquire);
         // 0 是「尚未放行过」的哨兵：首条必须可见。
-        if last != 0 && now_ms.saturating_sub(last) < SLOW_LOG_INTERVAL_MS {
+        if last != 0 && now_ms.saturating_sub(last) < self.interval_ms {
             return false;
         }
         // CAS：并发调用只有一方能把窗口起点推进到当前时刻，
@@ -141,6 +166,30 @@ mod tests {
         assert!(throttle.should_log_at(10_000));
         assert!(!throttle.should_log_at(9_000));
         assert!(!throttle.should_log_at(5_000));
+    }
+
+    /// 自定义窗口必须生效：窗口更长的调用点靠它拉长静默期，而非另写一份闸门
+    /// ——默认窗口被无视即意味着调用点的配置根本没生效。
+    #[test]
+    fn custom_interval_replaces_the_default_window() {
+        const CUSTOM_INTERVAL_MS: u64 = 5_000;
+        let throttle = SlowLogThrottle::with_interval(CUSTOM_INTERVAL_MS);
+        assert!(throttle.should_log_at(1_000));
+        // 默认窗口早已走完，但自定义窗口未走完：必须压住。
+        assert!(!throttle.should_log_at(1_000 + SLOW_LOG_INTERVAL_MS));
+        assert!(!throttle.should_log_at(1_000 + CUSTOM_INTERVAL_MS - 1));
+        assert!(throttle.should_log_at(1_000 + CUSTOM_INTERVAL_MS));
+    }
+
+    /// 清空窗口起点后首条必定可见：静态闸门被别的用例推进过时，用例需要回到
+    /// 「尚未放行过」的初始态才敢断言放行次数。
+    #[test]
+    fn reset_restores_the_initial_state() {
+        let throttle = SlowLogThrottle::with_interval(5_000);
+        assert!(throttle.should_log_at(1_000));
+        assert!(!throttle.should_log_at(1_100));
+        throttle.reset();
+        assert!(throttle.should_log_at(1_100));
     }
 
     /// 首条必须可见：汇总行的第一条同样承载「诊断刚发生」这一事实。

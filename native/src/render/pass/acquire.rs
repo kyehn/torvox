@@ -1,6 +1,6 @@
 //! 取纹理：在途记账、工作线程与单帧结局。
 use crate::render::Renderer;
-use crate::render::slow_log::SlowLogThrottle;
+use crate::slow_log::SlowLogThrottle;
 use std::sync::OnceLock;
 use std::sync::mpsc::SyncSender;
 

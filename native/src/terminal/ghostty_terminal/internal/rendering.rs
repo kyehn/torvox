@@ -775,7 +775,9 @@ impl super::GhosttyTerminal {
                         wake();
                     }
                 }
-                Err(error) => warn_drop_throttled(&error),
+                Err(error) => {
+                    warn_drop_throttled(&error);
+                }
             }
         }
     }

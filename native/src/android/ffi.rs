@@ -783,32 +783,25 @@ pub(crate) fn unanswered_clipboard_reads(session_id: u64) -> usize {
 }
 
 /// 读请求洪泛削减告警的限频（毫秒）：超限每帧都发生，逐条记会淹没 logcat。
-static LAST_FLOOD_SHED_WARN_MS: AtomicU64 = AtomicU64::new(0);
 const FLOOD_SHED_WARN_INTERVAL_MS: u64 = 5_000;
+static FLOOD_SHED_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
+    crate::slow_log::SlowLogThrottle::with_interval(FLOOD_SHED_WARN_INTERVAL_MS);
 
 /// 帧内分段慢帧诊断的限频闸门（两次输出间隔不小于 500ms）。
-static SLOW_RENDER_INNER_THROTTLE: crate::render::slow_log::SlowLogThrottle =
-    crate::render::slow_log::SlowLogThrottle::new();
+static SLOW_RENDER_INNER_THROTTLE: crate::slow_log::SlowLogThrottle =
+    crate::slow_log::SlowLogThrottle::new();
 /// 采样段慢帧诊断的限频闸门（与帧内分段各自限频，互不吞掉）。
-static SLOW_RENDER_SAMPLE_THROTTLE: crate::render::slow_log::SlowLogThrottle =
-    crate::render::slow_log::SlowLogThrottle::new();
+static SLOW_RENDER_SAMPLE_THROTTLE: crate::slow_log::SlowLogThrottle =
+    crate::slow_log::SlowLogThrottle::new();
 
 fn flood_shed_warn_throttled(session_id: u64, unanswered: usize) {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0);
-    let last = LAST_FLOOD_SHED_WARN_MS.load(Ordering::Relaxed);
-    if now_ms.saturating_sub(last) >= FLOOD_SHED_WARN_INTERVAL_MS
-        && LAST_FLOOD_SHED_WARN_MS
-            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-    {
-        log::warn!(
-            "osc52: clipboard read flood from session {session_id}, \
-             answering empty past {unanswered} unanswered"
-        );
+    if !FLOOD_SHED_WARN_THROTTLE.should_log() {
+        return;
     }
+    log::warn!(
+        "osc52: clipboard read flood from session {session_id}, \
+         answering empty past {unanswered} unanswered"
+    );
 }
 mod font;
 mod input;

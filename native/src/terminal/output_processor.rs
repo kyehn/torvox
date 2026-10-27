@@ -9,25 +9,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 超长选择器告警的限频间隔（毫秒）。与渲染侧的洪泛告警同档。
 const OVERSIZED_SELECTION_WARN_INTERVAL_MS: u64 = 5_000;
-static LAST_OVERSIZED_SELECTION_WARN_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static OVERSIZED_SELECTION_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
+    crate::slow_log::SlowLogThrottle::with_interval(OVERSIZED_SELECTION_WARN_INTERVAL_MS);
 
 /// 限频版告警：同一条诊断每 5s 最多记一次。
 fn warn_oversized_selection_throttled() {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0);
-    let last = LAST_OVERSIZED_SELECTION_WARN_MS.load(Ordering::Relaxed);
-    if now_ms.saturating_sub(last) >= OVERSIZED_SELECTION_WARN_INTERVAL_MS
-        && LAST_OVERSIZED_SELECTION_WARN_MS
-            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-    {
-        log::warn!(
-            "osc52: selection name exceeds {MAX_SCAN_BYTES} bytes, read request passed through unanswered"
-        );
+    if !OVERSIZED_SELECTION_WARN_THROTTLE.should_log() {
+        return;
     }
+    log::warn!(
+        "osc52: selection name exceeds {MAX_SCAN_BYTES} bytes, read request passed through unanswered"
+    );
 }
 
 #[derive(Debug, Default)]
