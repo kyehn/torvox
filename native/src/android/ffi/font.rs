@@ -372,6 +372,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             };
             let session = session_entry.session.lock();
             session.terminal().set_theme(entry);
+            // 先让 VT 线程把换主题后的单元数据推出来，再标记渲染脏：
+            // 否则渲染线程可能先用旧单元数据 + 新背景色重绘一帧，造成新旧底色混屏。
+            session.terminal().flush();
         }
         // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE。`render_inner` 在阶段 3
         // 持 RENDER_STATE 反向取注册表与会话锁，若此处嵌套持有即构成环形等待
@@ -386,6 +389,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             render_state.renderer.set_background_color(background);
             // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
             render_state.renderer.cell_cache = None;
+            // VT 线程已推送换主题后的单元数据：标记脏并整幅重绘。
             render_state.dirty.store(true, Ordering::Relaxed);
             render_state.full_repaint = true;
         }
