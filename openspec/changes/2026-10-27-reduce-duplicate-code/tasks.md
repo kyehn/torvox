@@ -6,9 +6,9 @@
 - [x] `read_terminal_flag_jboolean` 收敛原子标志到 JNI 布尔的映射（`android/ffi/state.rs` + `input.rs`）
 - [x] `rgb_to_rgba` 收敛 RGB 到 RGBA 展开（`terminal/ghostty_terminal/internal/kitty.rs`）
 - [x] `ReadScan::pass_through` 收敛 ESC 透传（`terminal/output_processor.rs`）
-- [ ] `with_render_state` 收敛渲染状态守卫与解锁时机（`android/ffi/font.rs`）
-- [ ] `select_bounds_export` 收敛选区查询导出（`android/ffi/query.rs`）
-- [ ] `render_state_guard` 与 `draw_cells` 收敛渲染帧样板（`android/ffi/render/frame.rs`）
+- [x] `with_render_state` 收敛渲染状态守卫与解锁时机（`android/ffi/font.rs`）
+- [x] `select_bounds_export` 收敛选区查询导出（`android/ffi/query.rs`）
+- [x] `render_state_guard` 与 `draw_cells` 收敛渲染帧样板（`android/ffi/render/frame.rs`）
 - [ ] 图集像素拷贝统一为一条路径（`render/font/atlas.rs`）
 - [ ] `create_atlas_bind_group` 收敛 wgpu 绑定组创建（`render/context/atlas.rs` + `render/pipeline.rs`）
 - [ ] 查询资源改传 `QueryContext`（`terminal/ghostty_terminal/internal/dispatch.rs`）

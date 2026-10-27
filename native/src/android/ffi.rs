@@ -634,6 +634,17 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
     guard
 }
 
+/// 在渲染状态锁内取值，取完即释放锁。
+///
+/// 锁的持有期只覆盖「读渲染状态」这一段：调用方拿到值后再去调 JNI，而 JNI
+/// 可能回调宿主，回调回头取同一把锁即死锁——故取值与交还 JNI 必须分成两段。
+fn with_render_state<T>(read: impl FnOnce(&RenderState) -> T) -> Option<T> {
+    let state = render_state_mut();
+    let value = read(state.as_ref()?);
+    drop(state);
+    Some(value)
+}
+
 fn rlock_session_registry() -> parking_lot::RwLockReadGuard<'static, HashMap<u64, SessionEntry>> {
     // parking_lot 无中毒机制；panic 安全由 `jni_export_guard` 负责。
     SESSION_REGISTRY.read()
