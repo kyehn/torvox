@@ -423,7 +423,7 @@ fun TerminalScreen(
              */
             fun centerSelectedRow(row: Int) {
                 val surface = surfaceRef.value ?: return
-                surface.scrollToRow(surface.searchViewportTop(row))
+                surface.centerSearchRow(row)
             }
 
             /** 上一个/下一个：导航由上游完成，视口由 centerSelectedRow 居中。 */
