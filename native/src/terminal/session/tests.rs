@@ -117,7 +117,7 @@ fn exec_failure_session_exits_with_errno_encoding() {
 #[test]
 fn pty_write_does_not_hold_the_session_lock() {
     use std::io;
-    use std::os::unix::io::{OwnedFd, RawFd};
+    use std::os::unix::io::OwnedFd;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
 
@@ -146,9 +146,6 @@ fn pty_write_does_not_hold_the_session_lock() {
         }
         fn child_pid(&self) -> nix::unistd::Pid {
             nix::unistd::Pid::from_raw(4_194_305)
-        }
-        fn master_fd(&self) -> RawFd {
-            -1
         }
         fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {
             std::fs::File::open("/dev/null").map(OwnedFd::from)
