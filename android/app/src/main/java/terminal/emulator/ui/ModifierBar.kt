@@ -169,6 +169,7 @@ internal fun modifierLongPressMillis(systemTimeoutMs: Long): Long =
 // 按下反馈阈值。
 private const val PRESS_BG_TWEEN_MS = 30
 private const val PRESS_SCALE_TWEEN_MS = 90
+
 // 按下反馈的延迟：覆盖系统底部上滑从 ACTION_DOWN 到 ACTION_CANCEL 的窗口。
 private const val PRESS_FEEDBACK_DELAY_MS = 40
 
