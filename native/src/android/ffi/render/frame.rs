@@ -238,8 +238,6 @@ pub(super) fn render_new_frame(
         return Err(-1);
     };
     let lock_done = std::time::Instant::now();
-    // 内容脏标志：新帧整幅重画，标志在此消费（与空闲路径同源）。
-    render_state.dirty.swap(false, Ordering::AcqRel);
     // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
     // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
     // 打包重传，滚动/缩放只经无拷贝布局重建实例。
@@ -325,6 +323,11 @@ pub(super) fn render_new_frame(
         return Err(-1);
     };
     if render_state.renderer.surface.is_none() {
+        // collect 之后 surface 才被拆走：本帧数据已被 VT 破坏性取出，丢弃就再没有
+        // 补发。存进 last_frame，让重挂载后的空闲重绘能把它画出来；同时解除滚动
+        // 在途，否则那个门控会把这次唯一的送达机会也挡掉。
+        render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+        render_state.scroll_frame_pending = false;
         return Err(0);
     }
     // 强制重查：旧帧像素尺寸按旧几何解算，必须按新几何重算。
@@ -440,6 +443,9 @@ pub(super) fn render_new_frame(
         render_state.full_repaint,
     );
     render_state.full_repaint = false;
+    // 内容脏标志在此消费而非函数入口：上面的提前返回（例如无 surface）没有
+    // 呈现任何内容，不能把「字体/主题已变」这类仅靠该标志送达的信号吃掉。
+    render_state.dirty.swap(false, Ordering::AcqRel);
     let result = render_state.renderer.render_cell_data(
         &cells,
         rows,
@@ -489,7 +495,6 @@ pub(super) fn render_idle_frame(
         return Err(-1);
     };
     let lock_done = std::time::Instant::now();
-    let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
     // 空闲路径：引用 `last_frame`——零克隆。会话不一致时不重绘，避免把旧会话画到新会话。
     let Some((ref cached_cells, cached_cursor, cached_rows, cached_cols, cached_session)) =
         render_state.last_frame
@@ -499,6 +504,8 @@ pub(super) fn render_idle_frame(
     if cached_session != session_id {
         return Err(0);
     }
+    // 取 dirty 放在缓存可用性检查之后：没有可画帧时本次不消费任何变化信号。
+    let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
     let cursor = build_cursor(render_state, &cached_cursor);
     // 空闲重绘门控：仅当确有变化时重绘——搜索高亮、滚动偏移、内容脏标志被置位，
     // 或累加器失效（surface 重挂载/resize：新交换链从未收到过帧，空闲 shell
