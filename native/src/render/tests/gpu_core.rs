@@ -405,9 +405,7 @@ fn cursor_rendering_on_visible_cursor() {
 #[test]
 fn cursor_not_rendered_when_invisible() {
     let mut font_pipeline = ascii_font();
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let instances =
-        build_hidden_cursor_probe_instance('A' as u32, cell_width, cell_height, &mut font_pipeline);
+    let instances = build_hidden_cursor_probe_instance('A' as u32, &mut font_pipeline);
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -420,7 +418,6 @@ fn cursor_not_rendered_when_invisible() {
 fn reverse_video_applied_to_blank_cell() {
     use crate::terminal::ghostty_terminal::cell_flags;
     let mut font_pipeline = ascii_font();
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let foreground = [1.0, 0.0, 0.0, 1.0];
     let background = [0.0, 0.0, 1.0, 1.0];
     let instances = build_cursor_probe_instance(
@@ -429,8 +426,6 @@ fn reverse_video_applied_to_blank_cell() {
         background,
         1 << cell_flags::REVERSE,
         false,
-        cell_width,
-        cell_height,
         &mut font_pipeline,
         CursorStyle::Block,
     );

@@ -305,8 +305,6 @@ fn non_default_grid(rows: u32, cols: u32) -> Vec<crate::terminal::ghostty_termin
 /// 白字黑底、块状且隐藏的光标探针：光标关闭时该格不得染上光标色。
 fn build_hidden_cursor_probe_instance(
     codepoint: u32,
-    cell_width: f32,
-    cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
 ) -> Vec<crate::render::CellInstance> {
     build_cursor_probe_instance(
@@ -315,8 +313,6 @@ fn build_hidden_cursor_probe_instance(
         [0.0, 0.0, 0.0, 1.0],
         0,
         false,
-        cell_width,
-        cell_height,
         font_pipeline,
         CursorStyle::Block,
     )
@@ -325,20 +321,18 @@ fn build_hidden_cursor_probe_instance(
 // Build one cursor-probe cell with white block cursor styling: covers the
 // repeated single-cell cursor/reverse-video setup with varying codepoint,
 // colors, flags and cursor visibility.
-// 测试辅助构造器：参数与被测调用一一对应，成组反而遮蔽映射关系。
-#[allow(clippy::too_many_arguments)]
+// 测试辅助构造器：单元尺寸取自字体流水线，故不作为参数传入。
 fn build_cursor_probe_instance(
     codepoint: u32,
     foreground: [f32; 4],
     background: [f32; 4],
     flags: u32,
     cursor_visible: bool,
-    cell_width: f32,
-    cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
     style: CursorStyle,
 ) -> Vec<crate::render::CellInstance> {
     use crate::terminal::ghostty_terminal::CellData;
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let cell_data = vec![CellData {
         foreground,
         background,

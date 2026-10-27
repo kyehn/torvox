@@ -379,8 +379,6 @@ fn cursor_geometry_anchored_to_cell_box() {
                 [0.0, 0.0, 0.0, 1.0],
                 0,
                 true,
-                cell_width,
-                cell_height,
                 &mut font_pipeline,
                 style,
             );
@@ -431,9 +429,7 @@ fn cursor_geometry_anchored_to_cell_box() {
 #[test]
 fn cursor_not_rendered_when_visible_false() {
     let mut font_pipeline = ascii_font();
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let instances =
-        build_hidden_cursor_probe_instance(0x20, cell_width, cell_height, &mut font_pipeline);
+    let instances = build_hidden_cursor_probe_instance(0x20, &mut font_pipeline);
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // 非光标位置的空白格用默认背景色，而非光标色
@@ -446,15 +442,12 @@ fn cursor_not_rendered_when_visible_false() {
 #[test]
 fn cursor_at_origin() {
     let mut font_pipeline = ascii_font();
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         'A' as u32,
         [1.0, 1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
         0,
         true,
-        cell_width,
-        cell_height,
         &mut font_pipeline,
         CursorStyle::Block,
     );
@@ -473,15 +466,12 @@ fn cursor_at_origin() {
 #[test]
 fn cursor_with_text_and_block_style() {
     let mut font_pipeline = ascii_font();
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let instances = build_cursor_probe_instance(
         'X' as u32,
         [0.0, 1.0, 0.0, 1.0],
         [0.0, 0.0, 1.0, 1.0],
         0,
         true,
-        cell_width,
-        cell_height,
         &mut font_pipeline,
         CursorStyle::Block,
     );
