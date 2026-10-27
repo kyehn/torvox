@@ -92,8 +92,8 @@ pub trait Pty: Send + Sync {
     fn master_borrowed_fd(&self) -> Option<BorrowedFd<'_>> {
         None
     }
-    /// 返回独立所有的主端 fd 副本供专用读取线程使用。副本与 `master_fd()` 共享同一
-    /// 打开文件描述（故共享 O_NONBLOCK 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
+    /// 返回独立所有的主端 fd 副本供专用读取线程使用。副本与 [`Pty::master_borrowed_fd`]
+    /// 共享同一打开文件描述（故共享 O_NONBLOCK 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
     /// dup 在此处（允许 `unsafe` 的位置）完成，使调用方能经安全的 `std::fs::File`
     /// 读取而无需任何 `unsafe` 块。
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
@@ -700,10 +700,6 @@ impl PtyPair {
         nix::fcntl::fcntl(&self.master, nix::fcntl::FcntlArg::F_SETFL(new_flags))
             .map_err(PtyError::Fcntl)?;
         Ok(())
-    }
-
-    pub fn master_fd(&self) -> std::os::unix::io::RawFd {
-        self.master.as_raw_fd()
     }
 }
 
