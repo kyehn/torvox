@@ -54,6 +54,7 @@ criterion = { version = "0.8", default-features = false, features = [
 ] }
 proptest = "1.12"
 shuttle = "0.9"
+tempfile = "3"
 [[bench]]
 name = "cell_builder"
 path = "benches/cell_builder.rs"

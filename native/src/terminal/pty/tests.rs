@@ -95,8 +95,8 @@ fn write_all_retries_after_eintr_instead_of_failing() {
 /// 断言 `write_all` 对超出缓冲的载荷**等待子进程消费**而非报错丢弃。
 #[test]
 fn write_all_waits_instead_of_dropping_bytes_past_a_full_pty_buffer() {
-    let capture = std::env::temp_dir().join(format!("pty-write-{}", std::process::id()));
-    std::fs::remove_file(&capture).ok();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let capture = dir.path().join("pty-write");
     let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
     pty.set_nonblocking().expect("set_nonblocking failed");
     let script = format!("sleep 0.2; cat > {}\n", capture.display());
@@ -132,7 +132,6 @@ fn write_all_waits_instead_of_dropping_bytes_past_a_full_pty_buffer() {
         payload_delivered,
         "子进程在期限内未读到任何载荷：write_all 交付失败"
     );
-    std::fs::remove_file(&capture).ok();
 }
 
 #[test]
@@ -218,38 +217,38 @@ fn read_until(pty: &PtyPair, needle: &[u8]) -> Vec<u8> {
 
 #[test]
 fn shebang_plain_interpreter_parses() {
-    let path = std::env::temp_dir().join("terminal-shebang-plain.sh");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("terminal-shebang-plain.sh");
     std::fs::write(&path, "#!/system/bin/sh\nset -eu\n").unwrap();
     let (interpreter, argument) = read_shebang_interpreter(path.to_str().unwrap()).unwrap();
     assert_eq!(interpreter.to_str().unwrap(), "/system/bin/sh");
     assert!(argument.is_none());
-    std::fs::remove_file(&path).unwrap();
 }
 
 #[test]
 fn shebang_single_argument_parses() {
-    let path = std::env::temp_dir().join("terminal-shebang-arg.sh");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("terminal-shebang-arg.sh");
     std::fs::write(&path, "#!/system/bin/sh -eu\n").unwrap();
     let (interpreter, argument) = read_shebang_interpreter(path.to_str().unwrap()).unwrap();
     assert_eq!(interpreter.to_str().unwrap(), "/system/bin/sh");
     assert_eq!(argument.unwrap().to_str().unwrap(), "-eu");
-    std::fs::remove_file(&path).unwrap();
 }
 
 #[test]
 fn shebang_missing_returns_none() {
-    let path = std::env::temp_dir().join("terminal-shebang-plain-bin");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("terminal-shebang-plain-bin");
     std::fs::write(&path, [0x7fu8, b'E', b'L', b'F', 2]).unwrap();
     assert!(read_shebang_interpreter(path.to_str().unwrap()).is_none());
-    std::fs::remove_file(&path).unwrap();
 }
 
 #[test]
 fn shebang_bare_marker_returns_none() {
-    let path = std::env::temp_dir().join("terminal-shebang-bare.sh");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("terminal-shebang-bare.sh");
     std::fs::write(&path, "#!").unwrap();
     assert!(read_shebang_interpreter(path.to_str().unwrap()).is_none());
-    std::fs::remove_file(&path).unwrap();
 }
 
 #[test]
@@ -677,11 +676,10 @@ fn pty_error_display_works() {
 fn chdir_changes_working_directory() {
     use crate::terminal::pty::Pty;
 
-    let temp = std::env::temp_dir().join("vt_test_chdir");
-    std::fs::create_dir_all(&temp).expect("create test dir failed");
+    let temp = tempfile::tempdir().expect("create test dir failed");
 
     let env = ShellEnv {
-        working_directory: temp.to_string_lossy().to_string(),
+        working_directory: temp.path().to_string_lossy().to_string(),
         ..ShellEnv::default()
     };
 
@@ -691,14 +689,13 @@ fn chdir_changes_working_directory() {
         .1
         .expect("write failed");
 
-    let output = read_until(&pty, temp.to_string_lossy().as_bytes());
-    std::fs::remove_dir_all(&temp).ok();
+    let output = read_until(&pty, temp.path().to_string_lossy().as_bytes());
     assert!(
         output
-            .windows(temp.to_string_lossy().len())
-            .any(|window| window == temp.to_string_lossy().as_bytes()),
+            .windows(temp.path().to_string_lossy().len())
+            .any(|window| window == temp.path().to_string_lossy().as_bytes()),
         "did not see working directory '{}' in pwd output: {}",
-        temp.display(),
+        temp.path().display(),
         String::from_utf8_lossy(&output)
     );
 }
@@ -741,9 +738,13 @@ fn spawned_child_sees_env_mkshrc_path() {
 fn spawned_child_sees_prefix_bin_first_in_path() {
     use crate::terminal::pty::Pty;
 
-    let prefix = std::env::temp_dir().join("terminal_path_prefix");
-    std::fs::create_dir_all(prefix.join("bin")).expect("create prefix bin dir");
-    let prefix_path = prefix.to_str().expect("utf-8 prefix path").to_string();
+    let prefix = tempfile::tempdir().expect("create prefix dir");
+    std::fs::create_dir_all(prefix.path().join("bin")).expect("create prefix bin dir");
+    let prefix_path = prefix
+        .path()
+        .to_str()
+        .expect("utf-8 prefix path")
+        .to_string();
     let env = ShellEnv {
         prefix: Some(prefix_path.clone()),
         ..ShellEnv::default()
@@ -764,7 +765,6 @@ fn spawned_child_sees_prefix_bin_first_in_path() {
         "child PATH must start with '{prefix_path}/bin', got: {}",
         String::from_utf8_lossy(&output)
     );
-    std::fs::remove_dir_all(&prefix).ok();
 }
 
 #[test]
