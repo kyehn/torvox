@@ -909,3 +909,28 @@ fn selection_text_flipped_endpoints() {
         "flipped endpoints must yield the same range (got {flipped:?})"
     );
 }
+
+/// 切换主题必须重着色**已有**单元，而不只是新写入的单元。
+#[test]
+fn theme_change_recolors_existing_cells() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"hello");
+    terminal_under_test.flush();
+    let (before, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("first frame");
+    let before_bg = before[0].background;
+
+    terminal_under_test.set_theme(
+        crate::terminal::theme::by_name(crate::terminal::theme::default_light_name())
+            .expect("default light"),
+    );
+    terminal_under_test.flush();
+    let (after, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("frame after theme change");
+    assert_ne!(
+        after[0].background, before_bg,
+        "existing cells must be recoloured by SetTheme"
+    );
+}
