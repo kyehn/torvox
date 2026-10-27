@@ -124,7 +124,7 @@ pub(crate) fn global_gpu_for_tests() -> &'static GlobalGpu {
 
 /// 初始化 Vulkan 全局对象；失败时按可操作的指引记账（原因只有这一处需要讲清）。
 fn init_gpu() -> Result<GlobalGpu, GpuError> {
-    match futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
+    match pollster::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
         Ok((_inst, _adapt, device, queue)) => Ok(GlobalGpu {
             #[cfg(target_os = "android")]
             instance: _inst,
