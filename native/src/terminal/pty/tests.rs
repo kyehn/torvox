@@ -597,7 +597,11 @@ fn set_pixel_size_reflected_in_winsize() {
     };
     // SAFETY: TIOCGWINSZ 把格式良好的 Winsize 结构写入 `winsize`；
     // fd 自有且有效。返回值已做检查。
-    let result = unsafe { libc::ioctl(pty.master_fd(), libc::TIOCGWINSZ, &mut winsize) };
+    let master_fd = pty
+        .master_borrowed_fd()
+        .expect("真实 PTY 必须提供主端 fd")
+        .as_raw_fd();
+    let result = unsafe { libc::ioctl(master_fd, libc::TIOCGWINSZ, &mut winsize) };
     assert_eq!(result, 0, "TIOCGWINSZ ioctl must succeed");
     assert_eq!(
         (winsize.ws_row, winsize.ws_col),
@@ -770,7 +774,10 @@ fn spawned_child_sees_prefix_bin_first_in_path() {
 #[test]
 fn configure_raw_mode_sets_iutf8_and_clears_ixon_ixoff() {
     let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
-    let fd = pty.master_fd();
+    let fd = pty
+        .master_borrowed_fd()
+        .expect("真实 PTY 必须提供主端 fd")
+        .as_raw_fd();
 
     // 施加与子进程在从端相同的 raw 模式配置。
     configure_raw_mode(fd).expect("configure_raw_mode failed");
