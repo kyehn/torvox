@@ -132,14 +132,9 @@ class InputBatchBuffer(
         // （缓冲区只由帧回调或显式 flush 排空）。
         synchronized(lock) {
             val (pendingId, pending) = drainLocked()
-            if (pending.isNotEmpty()) {
-                try {
-                    sender.execute { flushSink(pendingId, pending) }
-                } catch (exception: java.util.concurrent.RejectedExecutionException) {
-                    // shutdown 与入队竞争；在 detach 时丢弃可接受（视图已不存在）。
-                    LogUtil.warn("InputBatchBuffer", "final flush rejected during close", exception)
-                }
-            }
+            // 走与常规写入同一条出口：执行器会把未捕获异常吞掉（FutureTask 静默收场），
+            // 写入失败必须出声——detach 前的最后一击键丢失没有任何症状才是最难查的故障。
+            sendLocked(pendingId, pending)
         }
         // 摘掉已投递的回调：close 之后它们仍会在最长一个回退超时（或下一帧）后触发，
         // 把本缓冲连同其 sink 闭包一起钉住一个超时周期。摘除与 `scheduled` 的复位
