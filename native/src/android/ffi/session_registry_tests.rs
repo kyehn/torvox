@@ -79,6 +79,7 @@ fn rendered_cursor_reads_published_cell_and_separates_unknown_session() {
         visible,
         style: crate::terminal::ghostty_terminal::CursorStyle::Block,
         scrollback_length: 0,
+        scroll_request_id: 0,
         rows: 24,
         cols: 80,
         kitty_generation: 0,
