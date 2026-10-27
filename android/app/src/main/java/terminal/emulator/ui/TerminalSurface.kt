@@ -46,6 +46,7 @@ import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.SelectionMover
 import terminal.emulator.input.applyTerminalEditorInfo
+import terminal.emulator.input.isActive
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.DEFAULT_GRID_COLS
 import terminal.emulator.runtime.DEFAULT_GRID_ROWS
@@ -849,6 +850,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         )
                     }
 
+                    /**
+                     * 当前粘滞修饰键（ctrl/alt）是否生效。
+                     *
+                     * 输入法提交与硬键盘多码点提交都要这组状态：判定只此一处，
+                     * 两条路径对「一次性修饰键是否算按住」的理解才不会分叉。
+                     */
+                    private fun activeStickyModifiers(): Pair<Boolean, Boolean> {
+                        val state = viewModel?.state?.value
+                        return (state?.ctrlState?.isActive() == true) to (state?.altState?.isActive() == true)
+                    }
+
                     // 同一事务的退格与追加走同一出口（N1-27）：退格同步直写而追加经批缓冲
                     // 异步发送时，超量追加被推迟到下一帧，退格先到即顺序反转。
                     private fun sendBackspaces(count: Int) {
@@ -1004,12 +1016,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             return false
                         }
                         val committedText = text?.toString() ?: return false
-                        val terminalViewModel = viewModel
-                        val state = terminalViewModel?.state?.value
-                        val ctrlActive =
-                            state?.ctrlState == ModifierState.Locked || state?.ctrlState == ModifierState.Once
-                        val altActive =
-                            state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once
+                        val (ctrlActive, altActive) = activeStickyModifiers()
 
                         if (composing.isComposing) {
                             if (committedText == composing.text) {
@@ -1029,7 +1036,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 注意：必须在编码之后消费，且只消费一次——
                         // 无修饰提交不清，避免偷走点亮后尚未使用的 Once。
                         if (ctrlActive || altActive) {
-                            terminalViewModel.consumeOneShotModifiers()
+                            viewModel?.consumeOneShotModifiers()
                         }
                         // 不在此回报锚点：组字刚被清空，锚点的准入条件已不满足，
                         // 任何一次回报都必然被丢弃。
@@ -1208,16 +1215,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     private fun commitEventCharacters(characters: CharSequence?): Boolean {
                         val text = characters?.toString().orEmpty()
                         if (text.isEmpty()) return true
-                        val terminalViewModel = viewModel
-                        val state = terminalViewModel?.state?.value
-                        val ctrlActive =
-                            state?.ctrlState == ModifierState.Locked ||
-                                state?.ctrlState == ModifierState.Once
-                        val altActive =
-                            state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once
+                        val (ctrlActive, altActive) = activeStickyModifiers()
                         encodeAndSend(text, ctrlActive, altActive)
                         if (ctrlActive || altActive) {
-                            terminalViewModel.consumeOneShotModifiers()
+                            viewModel?.consumeOneShotModifiers()
                         }
                         return true
                     }

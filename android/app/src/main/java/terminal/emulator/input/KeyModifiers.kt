@@ -22,10 +22,10 @@ object KeyModifiers {
      */
     fun fromStickyStates(ctrlState: ModifierState, altState: ModifierState): Int {
         var mask = 0
-        if (ctrlState == ModifierState.Locked || ctrlState == ModifierState.Once) {
+        if (ctrlState.isActive()) {
             mask = mask or CTRL
         }
-        if (altState == ModifierState.Locked || altState == ModifierState.Once) {
+        if (altState.isActive()) {
             mask = mask or ALT
         }
         return mask

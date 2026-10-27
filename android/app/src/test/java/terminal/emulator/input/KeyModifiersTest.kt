@@ -147,6 +147,14 @@ class KeyModifiersTest {
     }
 
     @Test
+    fun `only once and locked count as an active modifier`() {
+        // 一次性与锁定都表示「此刻按住」；关闭态不算。
+        assertFalse(ModifierState.Off.isActive())
+        assertTrue(ModifierState.Once.isActive())
+        assertTrue(ModifierState.Locked.isActive())
+    }
+
+    @Test
     fun `mask constants are the bits the native side decodes`() {
         // 掩码要跨 JNI 送到原生去解码，故位序本身是对外契约：改成别的位即红。
         // 位值即上游 `key.Mods` 的原始位——全仓唯一一种修饰表示。

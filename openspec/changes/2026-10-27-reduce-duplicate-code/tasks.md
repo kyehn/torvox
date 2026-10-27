@@ -14,7 +14,7 @@
 - [ ] 查询资源改传 `QueryContext`（`terminal/ghostty_terminal/internal/dispatch.rs`）
 - [ ] 空闲节拍与批尾合并为 `respond_queries_and_publish`（`terminal/ghostty_terminal/internal/run.rs` + `commands.rs`）
 - [ ] 单发查询包装内联（`terminal/ghostty_terminal/public_api.rs`）
-- [ ] 修饰键状态读取收敛为单一读取点（`android/.../ui/TerminalSurface.kt`）
+- [x] 修饰键状态读取收敛为单一读取点（`android/.../ui/TerminalSurface.kt`）
 - [ ] 测试内推进宽度求和 helper（`render/font/shaping.rs`）
 - [ ] 跑完整 CI 门禁（`nix develop -c nu scripts/check.nu`）
 - [ ] `openspec validate --strict` 通过后归档
