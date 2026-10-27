@@ -3187,6 +3187,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val runtime = viewModel?.runtime ?: return
         val cellHeight = runtime.cellHeight
         if (cellHeight <= 0f) return
+        // 导航要按当前回滚长度换算目标行；缓存可能停在 100ms 节流窗口内的旧值。
+        lastScrollbackQueryNanos = 0L
         scrollToRow(searchViewportTop(matchRow))
         // 滚动后上移量可能已随显出量上界变化；命中在视口内的行号 × 单元高
         // 小于上移量即落在屏幕上边界之外，滚动到顶也救不回。
