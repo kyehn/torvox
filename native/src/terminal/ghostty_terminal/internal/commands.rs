@@ -40,8 +40,8 @@ impl super::GhosttyTerminal {
                 cell_width,
                 cell_height,
             } => Self::apply_cell_pixel_size(cell_width, cell_height, config, terminal),
-            Command::ScrollViewport(delta) => {
-                Self::apply_scroll_viewport(delta, terminal, extractors, state, batch);
+            Command::ScrollViewport { delta, request_id } => {
+                Self::apply_scroll_viewport(delta, request_id, terminal, extractors, state, batch);
                 CommandOutcome::Continue
             }
             Command::Repaint => {
@@ -192,11 +192,15 @@ impl super::GhosttyTerminal {
     /// 滚动视口（回滚浏览）。
     fn apply_scroll_viewport<'term>(
         delta: isize,
+        request_id: u64,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
         state: &mut CommandState,
         batch: &mut BatchState,
     ) {
+        // 本次请求的序号随下一帧回传：渲染侧据此识别「早于在途滚动命令」的
+        // 陈旧帧（那种帧仍是旧视口，呈现它会用旧视口配新余量）。
+        extractors.note_scroll_request(request_id);
         // C ABI 返回 void，且越界（已在顶部/底部）会静默钳制。
         // 用滚动条偏移的前后差取实际移动行数，避免在边界上按
         // 请求量平移缓存、把内容推出画面。读取失败时不做平移，

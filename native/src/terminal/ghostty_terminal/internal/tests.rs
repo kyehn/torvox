@@ -27,6 +27,7 @@ pub(crate) fn cell_frame_drop_warning_is_throttled() {
                 visible: false,
                 style: CursorStyle::Block,
                 scrollback_length: 0,
+                scroll_request_id: 0,
                 rows: 0,
                 cols: 0,
                 kitty_generation: 0,

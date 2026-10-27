@@ -62,6 +62,8 @@ impl super::GhosttyTerminal {
         // 只在本帧消费：平移量描述的是「上一帧缓存 → 本帧网格」的关系，
         // 一旦本帧抽取失败或内容另有变更，后续帧不得继续套用。
         let scroll_shift = extractors.take_scroll_shift();
+        // 已处理的滚动请求序号随本帧回传：须在 `parts()` 独占借用之前取值。
+        let scroll_request_id = extractors.scroll_request_id;
         let (render_state, row_iter, cell_iter, row_cache) = extractors.parts();
 
         let snapshot = match render_state.update(terminal) {
@@ -351,6 +353,7 @@ impl super::GhosttyTerminal {
                 visible: cursor_visible,
                 style: cursor_style,
                 scrollback_length: scrollback_len(terminal),
+                scroll_request_id,
                 rows,
                 cols,
                 kitty_generation: terminal

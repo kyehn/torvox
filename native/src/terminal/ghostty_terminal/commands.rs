@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 use flume::{Receiver, Sender};
@@ -30,7 +30,13 @@ pub enum Command {
         tx: Sender<Arc<GridSnapshot>>,
     },
     /// 按增量滚动终端视口（向上为负），供应用浏览回滚。
-    ScrollViewport(isize),
+    ///
+    /// `request_id` 是本次请求的序号（见 [`next_scroll_request_id`]）：VT 处理命令后
+    /// 把序号随帧回传，渲染侧据此判断收到的帧是否早于在途的滚动命令。
+    ScrollViewport {
+        delta: isize,
+        request_id: u64,
+    },
     /// 安装终端持有的线性活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。
     /// 坐标为绝对网格行（0 = 回滚顶部）与列。
     SetSelection {
@@ -46,6 +52,17 @@ pub enum Command {
     /// 重推的帧才让渲染侧把整幅重画一遍，否则屏幕停在上一个会话的内容上。
     Repaint,
     Terminate,
+}
+
+/// 滚动请求序号：进程级单调递增（1 起）。
+///
+/// 序号不复用：会话重启后新请求的序号恒大于重启前的任何序号，渲染侧
+/// 「帧序号 < 在途请求序号 ⇒ 帧早于该次滚动」的判定不会把重启前的帧误判为最新。
+static SCROLL_REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 分配下一个滚动请求序号。
+pub fn next_scroll_request_id() -> u64 {
+    SCROLL_REQUEST_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
 /// 由 VT 线程 `process_query` 应答的无状态查询。
