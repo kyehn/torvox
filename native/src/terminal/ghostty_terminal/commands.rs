@@ -31,8 +31,8 @@ pub enum Command {
     },
     /// 按增量滚动终端视口（向上为负），供应用浏览回滚。
     ///
-    /// `request_id` 是本次请求的序号（见 [`next_scroll_request_id`]）：VT 处理命令后
-    /// 把序号随帧回传，渲染侧据此判断收到的帧是否早于在途的滚动命令。
+    /// `request_id` 是本次请求的序号（进程级单调递增）：VT 处理命令后把序号随帧
+    /// 回传，渲染侧据此判断收到的帧是否早于在途的滚动命令。
     ScrollViewport {
         delta: isize,
         request_id: u64,

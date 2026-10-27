@@ -46,7 +46,7 @@
 
 候选方案是拿帧里的视口绝对行与宿主的目标比。但上游实测否掉了它：
 
-```
+```text
 live      = (total=21, offset=16, len=5, scrollback_rows=16)
 scrolled  = (total=21, offset=13, len=5, scrollback_rows=16)   ← 上滚 3 行
 after out = (total=23, offset=13, len=5, scrollback_rows=18)   ← 回滚中又来 2 行
