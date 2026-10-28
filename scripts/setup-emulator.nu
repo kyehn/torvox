@@ -93,8 +93,8 @@ def main [--boot_timeout: int = 360, --gpu: string = "swiftshader_indirect", --k
             let wipe_flag = (if $keep_data { [] } else { ["-wipe-data"] })
             $env.QT_QPA_PLATFORM = "offscreen"
             print $"Booting emulator, boot timeout ($boot_timeout)s, log: ($emulator_log)"
-            # 用 bash 而非 sh：`/bin/sh` 是 dash，不支持 `exec N>&-`（N>=10），
-            # 会报 `exec: 142: not found`；bash 支持高位 fd，devshell 内已验证。
+            # 用 bash 而非 sh：POSIX sh 不支持 `exec N>&-`（fd>=10），会报
+            # `exec: 142: not found`；bash 支持高位 fd，devshell 内已验证。
             ^setsid --fork bash -c 'for f in /proc/self/fd/*; do n=${f##*/}; [ $n -gt 2 ] && eval "exec $n>&-"; done; exec "$@"' -- ($sdk_root | path join "emulator" "emulator") -avd test_avd -no-window -gpu $gpu -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics ...$wipe_flag -memory 2048 -feature -Wifi -dns-server 8.8.8.8 o> $emulator_log e> $emulator_log_err
         }
         wait_for_boot --boot_timeout $boot_timeout
