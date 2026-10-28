@@ -1,5 +1,29 @@
 use super::*;
 
+/// 帧通道满后仍须补发最终状态，不能停在已入队的旧帧。
+#[test]
+fn saturated_frame_channel_republishes_the_latest_state() {
+    let mut terminal_under_test = terminal();
+    for marker in ['A', 'B', 'C', 'D', 'E'] {
+        terminal_under_test.vt_write(format!("\r{marker}").as_bytes());
+        terminal_under_test.flush();
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        if let Some((cells, _)) = terminal_under_test.receive_cell_data()
+            && row_text_from_cells(&cells, 0).starts_with('E')
+        {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "通道饱和后必须补发最终状态"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 /// OSC 8 hyperlink query (termux TerminalView.openLinkAt equivalent):
 /// after writing an OSC 8 link, hyperlink_at returns the URI at the link
 /// cells and None outside them.
