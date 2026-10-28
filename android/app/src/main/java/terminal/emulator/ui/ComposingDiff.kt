@@ -32,4 +32,61 @@ object ComposingDiff {
         val toAdd = if (next.length > commonPrefixLength) next.substring(commonPrefixLength) else ""
         return Edit(backspaces, toAdd)
     }
+
+    /**
+     * 把组字基线改写为目标基线的重放计划。
+     *
+     * 终端的输入行由终端自身持有，本仓只能靠「方向键 + 退格 + 重打」复现输入法的编辑。
+     * 退格删的是**光标前**的字符，故差分非空时必须先把光标右移到旧组字区末尾——
+     * 光标停在组字区中间时直接退格，删掉的是组字区**之前已提交**的内容。
+     */
+    data class Replay(
+        /** 改写前的右移次数（码点）：差分非空时挪到旧组字区末尾，差分为空时是相对前移量。 */
+        val rightMovesBeforeEdit: Int,
+        /** 差分退格数（码点）。 */
+        val backspaces: Int,
+        /** 差分追加文本。 */
+        val append: String,
+        /** 改写后的左移次数（码点）：差分非空时从新组字区末尾挪到目标组字光标，差分为空时是相对后移量。 */
+        val leftMovesAfterEdit: Int,
+    )
+
+    /**
+     * 计算把组字基线（[previous] / [previousCursor]）改写为（[next] / [nextCursor]）的重放计划。
+     *
+     * [previousCursor] 与 [nextCursor] 是 UTF-16 下标，须落在各自文本范围内。
+     */
+    fun planReplay(previous: String, previousCursor: Int, next: String, nextCursor: Int): Replay {
+        val edit = reconcile(previous, next)
+        if (edit.isEmpty) {
+            // 组字文本未变：MUST NOT 重放字节，光标按相对位移挪动即可。
+            val offset =
+                next.codePointCount(0, nextCursor) - previous.codePointCount(0, previousCursor)
+            return Replay(
+                rightMovesBeforeEdit = if (offset > 0) offset else 0,
+                backspaces = 0,
+                append = "",
+                leftMovesAfterEdit = if (offset < 0) -offset else 0,
+            )
+        }
+        return Replay(
+            rightMovesBeforeEdit = previous.codePointCount(previousCursor, previous.length),
+            backspaces = edit.backspaces,
+            append = edit.append,
+            leftMovesAfterEdit = next.codePointCount(nextCursor, next.length),
+        )
+    }
+
+    /**
+     * 计算清空整个组字区的重放计划：先挪到组字区末尾，再退格删净。
+     *
+     * 退格删的是光标前的字符，故组字光标在中间时必须先右移到末尾，
+     * 否则删掉的是组字区之前已提交的内容。
+     */
+    fun planClear(previous: String, previousCursor: Int): Replay = Replay(
+        rightMovesBeforeEdit = previous.codePointCount(previousCursor, previous.length),
+        backspaces = previous.codePointCount(0, previous.length),
+        append = "",
+        leftMovesAfterEdit = 0,
+    )
 }

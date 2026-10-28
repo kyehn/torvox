@@ -976,22 +976,35 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     private fun applyComposingText(nextText: String, nextCursor: Int): Boolean {
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
-                        val edit = ComposingDiff.reconcile(composing.text, nextText)
+                        val replay =
+                            ComposingDiff.planReplay(
+                                composing.text,
+                                composing.cursor,
+                                nextText,
+                                nextCursor,
+                            )
                         // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
                         // 门控在调用处而非只靠 LogUtil.debug：release 下可省掉整条消息串的拼接。
                         if (terminal.emulator.BuildConfig.DEBUG) {
                             LogUtil.debug(
                                 "ComposingDiff",
                                 "reconcile prev=${composing.text.length}ch next=$nextText " +
-                                    "bs=${edit.backspaces} app=${edit.append.length}ch",
+                                    "bs=${replay.backspaces} app=${replay.append.length}ch " +
+                                    "right=${replay.rightMovesBeforeEdit} " +
+                                    "left=${replay.leftMovesAfterEdit}",
                             )
                         }
-                        if (edit.backspaces > 0) {
-                            sendBackspaces(edit.backspaces)
+                        // 退格删的是光标前的字符：组字光标在组字区中间时必须先挪到末尾，
+                        // 否则退格删掉的是组字区之前已提交的内容。
+                        repeat(replay.rightMovesBeforeEdit) {
+                            sendCursorMove(KeyEvent.KEYCODE_DPAD_RIGHT)
                         }
-                        if (edit.append.isNotEmpty()) {
+                        if (replay.backspaces > 0) {
+                            sendBackspaces(replay.backspaces)
+                        }
+                        if (replay.append.isNotEmpty()) {
                             encodeAndSend(
-                                edit.append,
+                                replay.append,
                                 ctrlActive = false,
                                 altActive = false,
                             )
@@ -999,7 +1012,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         composing.composeAt(nextText, nextCursor)
                         // 差分重放后 PTY 光标位于文本末尾；组字光标在中间时必须同步左移，
                         // 否则输入法按基线在中间改写，字节却落在末尾。
-                        repeat(nextText.codePointCount(nextCursor, nextText.length)) {
+                        repeat(replay.leftMovesAfterEdit) {
                             sendCursorMove(KeyEvent.KEYCODE_DPAD_LEFT)
                         }
                         reportComposingCursorAnchor()
@@ -1048,7 +1061,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             if (committedText == composing.text) {
                                 // 已经组字增量转发；不再重发。
                             } else {
-                                val clear = ComposingDiff.reconcile(composing.text, "")
+                                // 退格删的是光标前的字符：组字光标在组字区中间时必须先挪到
+                                // 末尾，否则删掉的是组字区之前已提交的内容。
+                                val clear = ComposingDiff.planClear(composing.text, composing.cursor)
+                                repeat(clear.rightMovesBeforeEdit) {
+                                    sendCursorMove(KeyEvent.KEYCODE_DPAD_RIGHT)
+                                }
                                 sendBackspaces(clear.backspaces)
                                 encodeAndSend(committedText, ctrlActive, altActive)
                             }
