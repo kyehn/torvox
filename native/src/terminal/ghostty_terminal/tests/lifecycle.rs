@@ -157,6 +157,41 @@ fn request_repaint_pushes_frame_with_unchanged_content() {
     await_pushed_frame(&mut terminal_under_test, "内容不变时的重推请求");
 }
 
+/// 连续推帧后消费者必须取到最新一帧。
+///
+/// 帧通道有界时通道满会丢弃**新**帧：最新的画面反而丢失，终端停在旧视口
+/// （真机表现：突发输出后画面停在若干帧之前）。每次写入后 flush 让每行单独
+/// 成批、单独推帧，而消费者始终不取——通道必然被填满。
+#[test]
+fn newest_frame_reaches_consumer_after_a_burst_of_pushes() {
+    let mut terminal_under_test = GhosttyTerminal::new(10, 40, 200).expect("terminal");
+    for line_number in 0..60 {
+        terminal_under_test.vt_write(format!("line{line_number:02}\r\n").as_bytes());
+        terminal_under_test.flush();
+    }
+    let (cells, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("突发推帧后必须收到 CellData 帧");
+    let row_text = |row: u32| -> String {
+        cells
+            .iter()
+            .filter(|cell| cell.row == row)
+            .filter_map(|cell| {
+                if cell.codepoint == 0 {
+                    None
+                } else {
+                    char::from_u32(cell.codepoint)
+                }
+            })
+            .collect()
+    };
+    // 10 行视口在 60 行输出后停在底部：末行是光标所在的空行，
+    // 其上 9 行依次是最后 9 行输出。
+    assert_eq!(row_text(0), "line51", "视口首行必须是滚动窗口的第一行");
+    assert_eq!(row_text(8), "line59", "视口末行必须是最后写入的一行");
+    assert_eq!(row_text(9), "", "光标行必须为空");
+}
+
 /// 视口滚动后，绝对网格行（0 = 回滚顶部，与 Kotlin 的
 /// `scrollbackLength - scrollOffset + row` 同口径）查询必须仍命中该行的内容。
 /// `dump_grid.visible` 直接取 `Point::Viewport`，即屏幕上真实显示的文本，

@@ -3,52 +3,6 @@ use super::*;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use libghostty_vt::style::{Style, StyleColor, Underline};
 
-/// 回归钉：单元帧被丢弃的告警必须限频。
-///
-/// 渲染暂停期刻意不消费通道（`receive` 是破坏性取数，取走的帧永不呈现），
-/// 通道于是被填满，此后每次推送都失败——实测设备上每秒约 40 条、持续到恢复为止。
-/// 逐条记无诊断价值却挤爆 logcat 并持续吃 CPU。
-///
-/// 判别力：限频窗口内无论调用多少次，只应放行第一次。本例断言「连续 50 次里
-/// 放行次数为 1」；去掉限频（每次都记）即失败。
-#[test]
-pub(crate) fn cell_frame_drop_warning_is_throttled() {
-    // 静态闸门是进程级的，别的用例（VT 线程推送帧时通道满即触发丢弃告警）可能
-    // 先推进过窗口起点：复位到「尚未放行过」，首条才必然落在窗口内。
-    CELL_FRAME_DROP_WARN_THROTTLE.reset();
-    let error = flume::bounded::<(Vec<CellData>, CursorInfo)>(0)
-        .0
-        .try_send((
-            Vec::new(),
-            CursorInfo {
-                row: 0,
-                col: 0,
-                at_wide_tail: false,
-                visible: false,
-                style: CursorStyle::Block,
-                scrollback_length: 0,
-                scroll_request_id: 0,
-                rows: 0,
-                cols: 0,
-                kitty_generation: 0,
-                kitty_placement_generation: 0,
-            },
-        ))
-        .expect_err("bounded(0) must reject every send");
-    let mut logged = 0;
-    for _ in 0..50 {
-        // 直接数「本进程内本条是否真的被写出」不可行（log 无测试挂钩），
-        // 故由告警入口回报本次是否放行：它只依赖对外可见的行为。
-        if warn_drop_throttled(&error) {
-            logged += 1;
-        }
-    }
-    assert_eq!(
-        logged, 1,
-        "限频窗口内只应放行一次告警，实际放行 {logged} 次"
-    );
-}
-
 #[test]
 pub(crate) fn byte_to_float_scales_255() {
     assert_eq!(GhosttyTerminal::byte_to_float(0), 0.0);

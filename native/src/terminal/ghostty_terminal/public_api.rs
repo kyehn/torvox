@@ -6,6 +6,7 @@ use flume::{Sender, bounded};
 use libghostty_vt::key;
 
 use super::commands::{Command, Query, RunConfig};
+use super::frame_mailbox::FrameMailbox;
 #[cfg(test)]
 use super::internal::CacheStats;
 use super::types::*;
@@ -62,8 +63,8 @@ impl super::GhosttyTerminal {
     ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
-        let (cell_data_tx, cell_data_rx) =
-            flume::bounded::<(Vec<CellData>, CursorInfo)>(CELL_DATA_CHANNEL_CAPACITY);
+        let cell_data_mailbox = FrameMailbox::new();
+        let cell_data_mailbox_for_run = cell_data_mailbox.clone();
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
@@ -113,7 +114,7 @@ impl super::GhosttyTerminal {
                         mouse_tracking_active: mouse_tracking_active_for_run,
                         resize_failed: resize_failed_for_run,
                         cell_size_px: cell_size_px_for_run,
-                        cell_data_tx: Some(cell_data_tx),
+                        cell_data_mailbox: cell_data_mailbox_for_run.clone(),
                         frame_wake,
                         clipboard_tx,
                         #[cfg(test)]
@@ -147,7 +148,7 @@ impl super::GhosttyTerminal {
         Ok(Self {
             cmd_tx,
             query_tx,
-            cell_data_rx: Some(cell_data_rx),
+            cell_data_mailbox,
             clipboard_rx,
             handle: Some(handle),
             pty_write_responses,
@@ -351,7 +352,7 @@ impl super::GhosttyTerminal {
     }
 
     /// 请求按当前状态重推一帧 CellData，不作任何状态改变。内容去重对显式请求不适用，
-    /// 故去重基线在 VT 线程上被失效，帧必定到达（通道满时仍会丢弃本请求）。
+    /// 故去重基线在 VT 线程上被失效，帧必定到达（邮箱只留最新帧，重推覆盖旧帧）。
     pub fn request_repaint(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::Repaint) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for repaint: {error}");
@@ -461,13 +462,9 @@ impl super::GhosttyTerminal {
         Self::query_on(query_tx, Query::RenderCursor, None, "render_cursor")
     }
 
+    /// 取走邮箱里的最新一帧：邮箱只保留最新帧，故取到的必是当前画面。
     pub fn receive_cell_data(&self) -> Option<(Vec<CellData>, CursorInfo)> {
-        let rx = self.cell_data_rx.as_ref()?;
-        let mut latest = rx.try_recv().ok()?;
-        while let Ok(next) = rx.try_recv() {
-            latest = next;
-        }
-        Some(latest)
+        self.cell_data_mailbox.take()
     }
 
     /// 用 Ghostty 鼠标编码器把鼠标事件（像素位置、动作、按键）编码为终端转义序列。
