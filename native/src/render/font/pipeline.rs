@@ -689,7 +689,7 @@ impl FontPipeline {
     /// 命中即返回，不做任何合成。
     fn styled_face_glyph(&mut self, style_id: fontdb::ID, ch: char) -> Option<GlyphInfo> {
         let glyph_id = self
-            .style_glyph_id(style_id, ch)
+            .face_glyph_id(style_id, ch)
             .filter(|&glyph| glyph != 0)?;
         let info = self.glyph_information_from_font_with_synthesis(
             style_id,
@@ -771,9 +771,16 @@ impl FontPipeline {
 
     /// 在（可能已加样式的）面上缓存式查 charmap，把 `ch` 映射到字形号，
     /// 避免每次调用都重入 `with_face_data`。
-    fn style_glyph_id(&mut self, face_id: fontdb::ID, ch: char) -> Option<swash::GlyphId> {
+    ///
+    /// 样式面与 CJK 回退链共用此查表：两者的口径相同（某个面能否解析某个码位），
+    /// 而回退链在合成运行下逐帧重走，不入缓存则每帧每字都重建一次 charmap。
+    pub(super) fn face_glyph_id(
+        &mut self,
+        face_id: fontdb::ID,
+        ch: char,
+    ) -> Option<swash::GlyphId> {
         let key = (face_id, ch as u32);
-        if let Some(&cached) = self.caches.style_glyph_id_cache.get(&key) {
+        if let Some(&cached) = self.caches.face_glyph_id_cache.get(&key) {
             return Some(cached);
         }
         let gid = self
@@ -784,7 +791,7 @@ impl FontPipeline {
                 Some(font_ref.charmap().map(ch))
             })
             .flatten()?;
-        self.caches.style_glyph_id_cache.put(key, gid);
+        self.caches.face_glyph_id_cache.put(key, gid);
         Some(gid)
     }
 
@@ -882,15 +889,9 @@ impl FontPipeline {
             // 先收集 id：链会借用 self 的字段，与循环内的 &mut self 渲染调用冲突。
             let cjk_fallback_ids: Vec<fontdb::ID> = self.cjk_fallback_ids.clone();
             for fallback_id in cjk_fallback_ids {
-                let fallback_glyph = {
-                    let font_database = self.font_system.db();
-                    font_database.with_face_data(fallback_id, |font_data, face_index| {
-                        let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                        let charmap = font_ref.charmap();
-                        Some(charmap.map(ch))
-                    })
-                };
-                if let Some(Some(fid)) = fallback_glyph
+                // 查表走缓存：合成运行逐帧重走此链，不入缓存则每帧每字都要
+                // 重入 `with_face_data` 重建 charmap（字体文件重新 mmap）。
+                if let Some(fid) = self.face_glyph_id(fallback_id, ch)
                     && fid != 0
                     && let Some(result) =
                         self.glyph_information_from_font_with_synthesis(fallback_id, fid, synthesis)
@@ -936,9 +937,10 @@ impl FontPipeline {
                 }
                 return Some(result);
             }
-            if !synthesized {
-                self.caches.unresolvable_glyphs.put(ch, ());
-            }
+            // 负缓存与合成无关：`find_glyph_anywhere` 只回答「库里有哪个面能解析
+            // 此码位」，与样式无关，合成运行扫不出结果时同样扫不出。故合成也记入，
+            // 否则粗体/斜体文本里的罕见码位每帧都要重扫全库。
+            self.caches.unresolvable_glyphs.put(ch, ());
         }
 
         // ── 回退到主字体 ────────────────────────────────────────────────────

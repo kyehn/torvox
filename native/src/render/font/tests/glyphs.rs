@@ -69,7 +69,7 @@ fn styled_screenful_of_codepoints_stays_cached() {
         pipeline.glyph_information_styled(*codepoint, true, false);
     }
     assert_eq!(
-        pipeline.caches.style_glyph_id_cache.len(),
+        pipeline.caches.face_glyph_id_cache.len(),
         sample.len(),
         "样式面字形号缓存必须容得下一屏之内的不同码位"
     );

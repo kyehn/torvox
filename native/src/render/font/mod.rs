@@ -14,10 +14,13 @@ pub(crate) const SHAPE_CACHE_CAPACITY: usize = 1024;
 /// 同族样式面解析缓存容量：键为 (字体, 粗, 斜) 三元组，组合数天然很小。
 pub(crate) const STYLE_FACE_CACHE_CAPACITY: usize = 64;
 
-/// 样式面字形号缓存容量：键为 (面, 码位)，规模随**屏幕上出现过的不同字符**增长，
+/// 「面 → 字形号」缓存容量：键为 (面, 码位)，规模随**屏幕上出现过的不同字符**增长，
 /// 与上一项的三元组不同源。一屏 40×20 就有 800 个不同码位，64 条会被立刻穿透，
 /// 而每次穿透都要重入 `with_face_data` 并重建 charmap（字体解压）。
-pub(crate) const STYLE_GLYPH_ID_CACHE_CAPACITY: usize = 4_096;
+///
+/// 样式面与 CJK 回退链共用此缓存：两者查的是同一件事（某个面能否解析某个码位），
+/// 而合成运行（粗体/斜体）逐帧重走回退链，不入缓存则每帧每字都重建一次 charmap。
+pub(crate) const FACE_GLYPH_ID_CACHE_CAPACITY: usize = 4_096;
 
 /// 轮廓来源探测缓存容量：键带光栅尺寸，覆盖常用字号×字形组合。
 pub(crate) const OUTLINE_CACHE_CAPACITY: usize = 10_000;

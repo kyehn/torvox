@@ -2,8 +2,8 @@
 use std::num::NonZeroUsize;
 
 use super::{
-    ASCII_UPPER_BOUND, GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey, OUTLINE_CACHE_CAPACITY,
-    SHAPE_CACHE_CAPACITY, STYLE_FACE_CACHE_CAPACITY, STYLE_GLYPH_ID_CACHE_CAPACITY,
+    ASCII_UPPER_BOUND, FACE_GLYPH_ID_CACHE_CAPACITY, GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey,
+    OUTLINE_CACHE_CAPACITY, SHAPE_CACHE_CAPACITY, STYLE_FACE_CACHE_CAPACITY,
     UNRESOLVABLE_CACHE_CAPACITY,
 };
 use lru::LruCache;
@@ -28,9 +28,13 @@ pub struct GlyphCache {
     /// 缓存可避免逐帧逐单元重跑 fontdb 的族/字重/样式查询：实测样式字形查询
     /// 约 20µs/单元，普通文本仅 0.2µs。
     pub style_face_cache: LruCache<(fontdb::ID, bool, bool), Option<fontdb::ID>>,
-    /// 样式面 charmap 查询（面, 码点 → glyph id），避免逐帧重入 `with_face_data`
+    /// charmap 查询（面, 码点 → glyph id），避免逐帧重入 `with_face_data`
     /// （字体解压与 charmap 构建）。
-    pub style_glyph_id_cache: LruCache<(fontdb::ID, u32), swash::GlyphId>,
+    ///
+    /// 样式面与 CJK 回退链共用：两者查的是同一件事（某个面能否解析某个码位），
+    /// 键与值都相同，故不入两处。合成运行（粗体/斜体）逐帧重走回退链，
+    /// 不入缓存则每帧每字都要重建一次 charmap。
+    pub face_glyph_id_cache: LruCache<(fontdb::ID, u32), swash::GlyphId>,
     /// 轮廓来源缓存（font id, glyph id, 光栅尺寸 → 是否轮廓）。
     /// swash scaler 构建 + Render 约 20µs/次，缓存后 CJK 解析降至约 0.2µs，
     /// 首屏构建次数从 400 降到约 3。键必须带光栅尺寸：embedded bitmap 只在
@@ -67,8 +71,8 @@ impl GlyphCache {
             NonZeroUsize::new(SHAPE_CACHE_CAPACITY).expect("SHAPE_CACHE_CAPACITY > 0");
         let style_face_cache_cap =
             NonZeroUsize::new(STYLE_FACE_CACHE_CAPACITY).expect("STYLE_FACE_CACHE_CAPACITY > 0");
-        let style_glyph_id_cap = NonZeroUsize::new(STYLE_GLYPH_ID_CACHE_CAPACITY)
-            .expect("STYLE_GLYPH_ID_CACHE_CAPACITY > 0");
+        let face_glyph_id_cap = NonZeroUsize::new(FACE_GLYPH_ID_CACHE_CAPACITY)
+            .expect("FACE_GLYPH_ID_CACHE_CAPACITY > 0");
         let outline_cache_cap =
             NonZeroUsize::new(OUTLINE_CACHE_CAPACITY).expect("OUTLINE_CACHE_CAPACITY > 0");
         let unresolvable_cap = NonZeroUsize::new(UNRESOLVABLE_CACHE_CAPACITY)
@@ -80,7 +84,7 @@ impl GlyphCache {
             glyph_id_cache: LruCache::new(cache_cap),
             cjk_glyph_cache: LruCache::new(cache_cap),
             style_face_cache: LruCache::new(style_face_cache_cap),
-            style_glyph_id_cache: LruCache::new(style_glyph_id_cap),
+            face_glyph_id_cache: LruCache::new(face_glyph_id_cap),
             outline_cache: LruCache::new(outline_cache_cap),
             unresolvable_glyphs: LruCache::new(unresolvable_cap),
             used_faces: Vec::new(),

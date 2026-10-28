@@ -237,20 +237,17 @@ impl FontPipeline {
             }
         }
         let glyphs: Vec<(fontdb::ID, swash::GlyphId)> = {
-            let font_database = self.font_system.db();
-            self.cjk_fallback_ids
+            // 先取 id 副本：查表要 `&mut self`，与 `self.cjk_fallback_ids` 的借用冲突。
+            let fallback_ids: Vec<fontdb::ID> = self.cjk_fallback_ids.clone();
+            fallback_ids
                 .iter()
                 .filter_map(|&fallback_id| {
-                    let result =
-                        font_database.with_face_data(fallback_id, |font_data, face_index| {
-                            let font_ref =
-                                swash::FontRef::from_index(font_data, face_index as usize)?;
-                            let charmap = font_ref.charmap();
-                            let gid = charmap.map(ch);
-                            if gid != 0 { Some(gid) } else { None }
-                        })?;
-                    let gid = result?;
-                    Some((fallback_id, gid))
+                    let gid = self.face_glyph_id(fallback_id, ch)?;
+                    if gid != 0 {
+                        Some((fallback_id, gid))
+                    } else {
+                        None
+                    }
                 })
                 .collect()
         };

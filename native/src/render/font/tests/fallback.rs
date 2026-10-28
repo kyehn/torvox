@@ -90,6 +90,66 @@ fn unresolvable_codepoint_is_scanned_once_then_cached() {
     );
 }
 
+/// 合成运行同样须记入「解析不出」的负缓存。
+///
+/// `find_glyph_anywhere` 只回答「库里有哪个面能解析此码位」，与样式无关：
+/// 合成扫不出结果时同样扫不出。不记入则粗体/斜体文本里的罕见码位每帧都要
+/// 遍历 fontdb 全部 face 重扫一次——正是负缓存当初要消掉的开销。
+#[test]
+fn unresolvable_codepoint_is_cached_for_synthesized_runs() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    // U+10FFFD（私用平面）无任何字体覆盖，稳定落在「扫描失败」这一支。
+    let rare = char::from_u32(0x10FFFD).expect("valid private-use codepoint");
+    pipeline.glyph_information_styled(rare, true, false);
+    assert!(
+        pipeline.caches.unresolvable_glyphs.contains(&rare),
+        "合成运行同样须记入负缓存，否则粗体罕见码位每帧重扫全库"
+    );
+}
+
+/// 回退链上的「面 → 字形号」查表必须走缓存。
+///
+/// 合成运行逐帧重走回退链（`cjk_glyph_cache` 被合成路径跳过），查表不入缓存
+/// 则每帧每字都重入 `with_face_data` 重建 charmap——字体文件重新 mmap，
+/// 粗体 CJK 文本越常见越慢。
+#[test]
+fn fallback_chain_face_lookup_is_cached() {
+    let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+    assert!(
+        try_load_cjk_fonts(pipeline.font_system.db_mut()),
+        "宿主须装入覆盖「中」的面（nix develop 的 Noto CJK）"
+    );
+    // 主字体取一个不覆盖「中」的面、回退层取一个覆盖的面，使解析必然走到回退链。
+    // 宿主没有 fonts.xml，回退层须手工装填（安卓上由 fonts.xml 决定）。
+    let (primary_face, fallback_face) = {
+        let font_database = pipeline.font_system.db();
+        let fallback_face = font_database
+            .faces()
+            .find(|face| font_db::face_covers(font_database, face.id, '中'))
+            .map(|face| face.id)
+            .expect("宿主须装入覆盖「中」的面");
+        let primary_face = font_database
+            .faces()
+            .find(|face| {
+                face.id != fallback_face && !font_db::face_covers(font_database, face.id, '中')
+            })
+            .map(|face| face.id)
+            .expect("宿主须有至少一个不覆盖「中」的面");
+        (primary_face, fallback_face)
+    };
+    pipeline.font_id = Some(primary_face);
+    pipeline.cjk_fallback_ids = vec![fallback_face];
+
+    pipeline.glyph_information_styled('中', true, false);
+    assert!(
+        pipeline
+            .caches
+            .face_glyph_id_cache
+            .contains(&(fallback_face, '中' as u32)),
+        "回退链上的查表必须留下 (面, 码位) 条目，否则每帧重建 charmap"
+    );
+}
+
 #[test]
 fn symbol_glyph_resolves_via_database_scan() {
     // U+25B6 (▶) 不在 Liberation Mono 中，却在宿主的 DejaVu Sans 中。
