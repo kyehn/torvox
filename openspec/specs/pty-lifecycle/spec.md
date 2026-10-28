@@ -97,7 +97,7 @@ VT 引擎的应答缓冲（DECRPM/DSR/DA 等 `on_pty_write` 回调产物）无�
 
 - **WHEN** 对同一会话连续两次请求退出
 - **THEN** 只发一组挂断与强杀信号，第二次调用不 panic 且结果与第一次一致
-      （`native/src/terminal/session.rs` 的 `request_exit` 以 `exited` 标志短路，
+      （`native/src/terminal/session/mod.rs` 的 `request_exit` 以 `exited` 标志短路，
       并把输出通道换新使后续取用仍安全）
 
 #### Scenario: 子进程已回收后不再发信号
@@ -130,7 +130,7 @@ VT 引擎的应答缓冲（DECRPM/DSR/DA 等 `on_pty_write` 回调产物）无�
 resize 的结果 MUST 区分两种情形：PTY 与网格都已缩放，以及 PTY winsize 已变、
 而发往 VT 线程的网格命令被丢弃（通道满或 VT 线程卡住）。被丢弃时本会话缓存的
 网格尺寸仍是旧值，调用方 MUST NOT 把它当作已生效的权威值发布
-（`native/src/terminal/session.rs` 的 `ResizeOutcome`）。
+（`native/src/terminal/session/mod.rs` 的 `ResizeOutcome`）。
 
 被丢弃 MUST 置脏，使下一次 resize 即使行列与上次相同也重试修复——这是
 「尺寸无变化的 resize 跳过」的唯一例外，PTY 与网格的不一致 MUST NOT 静默留存。
