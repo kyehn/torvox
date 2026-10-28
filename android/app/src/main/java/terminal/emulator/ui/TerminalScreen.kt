@@ -351,6 +351,12 @@ fun TerminalScreen(
                 }
             }
 
+            // 冷启动时视图 attach 早于首个 Bridge 出现，会话切换又会换掉 Bridge：
+            // 只在 attach 时安装会让硬件键/鼠标退回主线程同步写 PTY（主端满时冻结 5s）。
+            LaunchedEffect(runtimeState.activeSessionId, surfaceRef.value) {
+                surfaceRef.value?.bindActivePtyWriteQueue()
+            }
+
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
                 searchState = SearchState()
