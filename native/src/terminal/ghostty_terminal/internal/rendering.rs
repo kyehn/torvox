@@ -368,8 +368,8 @@ impl super::GhosttyTerminal {
 
     /// 把样式属性打包成与 `cell.wgsl` 着色器布局一致的位掩码：
     /// 第 0 位=bold、1=italic、2=reverse、3=underline、
-    /// 4=blink、5=strikethrough、6=overline、7=dim、8=double_underline
-    /// （blink 会带上，着色器忽略它；留待将来使用）。
+    /// 4=blink、5=strikethrough、6=overline、7=dim、8=double_underline、9=conceal
+    /// （blink 会带上，着色器忽略它；conceal 由单元构建器消费）。
     pub(crate) fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
         use crate::terminal::ghostty_terminal::cell_flags;
         let mut flags = 0u32;
@@ -399,6 +399,9 @@ impl super::GhosttyTerminal {
         }
         if is_double_underline(style.underline) {
             flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
+        }
+        if style.invisible {
+            flags |= 1 << cell_flags::CONCEAL;
         }
         flags
     }
