@@ -206,7 +206,7 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
     let session = entry.session.lock();
     // 关键：**不要**在此调用 `session.terminal().scrollback_length()`——
     // 它是发往 VT 线程的同步 RPC，VT 线程繁忙时会把渲染线程阻塞最多 500ms。
-    // 回滚长度搭载在经单元数据通道传递的 `CursorInfo` 上
+    // 回滚长度搭载在经单元帧邮箱传递的 `CursorInfo` 上
     // （见 `push_cell_data` → `CursorInfo.scrollback_length`）。
     // 网格行列同理：`session.grid_size()` 在 resize 入队时提前发布，
     // VT 尚未应用新网格时与本帧 CellData 不是同一套尺寸；

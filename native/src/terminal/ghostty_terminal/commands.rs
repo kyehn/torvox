@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use flume::{Receiver, Sender};
 use libghostty_vt::key;
 
+use super::frame_mailbox::FrameMailbox;
 use super::types::*;
 
 /// 调用方发往 VT 线程的命令，按序处理。
@@ -24,7 +25,7 @@ pub enum Command {
         cell_width: u32,
         cell_height: u32,
     },
-    /// 取当前视口网格快照。回滚浏览走 CellData 通道（`ScrollViewport` +
+    /// 取当前视口网格快照。回滚浏览走单元帧邮箱（`ScrollViewport` +
     /// `receive_cell_data`），本命令只覆盖当前视口，因此没有偏移参数。
     TakeSnapshot {
         tx: Sender<Arc<GridSnapshot>>,
@@ -247,11 +248,11 @@ pub(crate) struct RunConfig {
     /// 当前单元格像素几何（XTWINOPS 14/16t 应答用）：Resize 回填默认值，
     /// SetCellPixelSize 回填真实字形度量；回调经此共享，无锁读取。
     pub(crate) cell_size_px: Arc<(AtomicU32, AtomicU32)>,
-    /// 可选通道：设置后 VT 线程在网格变化时自动构建并推送 `Vec<CellData>`，
+    /// 单元帧邮箱：VT 线程在网格变化时构建并写入 `Vec<CellData>`，
     /// 即线程拆分架构的数据路径（会话线程 → Vec<CellData> → 渲染线程）。
-    pub(crate) cell_data_tx: Option<flume::Sender<(Vec<CellData>, CursorInfo)>>,
+    pub(crate) cell_data_mailbox: Arc<FrameMailbox>,
     /// 帧入队后的唤醒回调（会话侧接渲染循环的条件变量）。渲染线程只知道
-    /// 「有输出」时会被叫醒，但那一拍 VT 线程可能还没解析完、通道里没有新帧，
+    /// 「有输出」时会被叫醒，但那一拍 VT 线程可能还没解析完、邮箱里没有新帧，
     /// 于是它重新睡满空闲闭锁——真机上表现为静置 5s 后后台输出晚 0..500ms 上屏。
     /// 帧真正入队时再叫一次，屏幕上的延迟就只剩一帧。
     pub(crate) frame_wake: Option<crate::terminal::session::OutputWake>,

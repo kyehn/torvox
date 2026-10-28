@@ -17,6 +17,7 @@ use libghostty_vt::style::PaletteIndex;
 use libghostty_vt::terminal::{Mode, Point, PointCoordinate, PointSpace};
 
 use super::commands::{Command, Query, RunConfig};
+use super::frame_mailbox::FrameMailbox;
 use super::types::*;
 use flume::Sender;
 
@@ -529,34 +530,6 @@ fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool, bool) {
         ),
         Ok(None) | Err(_) => (0, 0, false, false),
     }
-}
-
-/// 单元帧被丢弃告警的限频。
-///
-/// 渲染暂停期（设置页/输入法弹出）**刻意不消费**通道——`receive` 是破坏性取数，
-/// 暂停帧取走后永不呈现，恢复时 VT 的去重基线也不会重推，那正是「IME 弹出时输入
-/// 不可见」的主因。帧于是留在通道里，而通道有界：终端继续输出就把它填满，此后
-/// **每一次**推送都失败。实测设备上这是每秒约 40 条、持续到恢复为止的告警洪水。
-///
-/// 逐条记没有任何诊断价值（每一条都只是同一个「通道满」），却会挤爆 logcat 并持续
-/// 吃 CPU。故限频；恢复后通道排空时自然不再命中限频，首条即重新可见。
-///
-/// 闸门与渲染侧慢帧诊断共用（`crate::slow_log`）：窗口更长的差异只体现为窗口
-/// 长度，间隔判定仍只此一处——私有一份时口径分叉，间隔下限便失去保证。
-const CELL_FRAME_DROP_WARN_INTERVAL_MS: u64 = 5_000;
-static CELL_FRAME_DROP_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
-    crate::slow_log::SlowLogThrottle::with_interval(CELL_FRAME_DROP_WARN_INTERVAL_MS);
-
-/// 记一条单元帧丢弃告警；返回真表示本次真的写出了告警（未被限频压住）。
-fn warn_drop_throttled(error: &flume::TrySendError<(Vec<CellData>, CursorInfo)>) -> bool {
-    if !CELL_FRAME_DROP_WARN_THROTTLE.should_log() {
-        return false;
-    }
-    log::warn!(
-        "ghostty_terminal: cell frame dropped ({error}) — further drops within {}ms are not logged",
-        CELL_FRAME_DROP_WARN_INTERVAL_MS,
-    );
-    true
 }
 
 /// 同步更新（模式 2026）的发布门控：BSU（`2026h`）到 ESU（`2026l`）之间不发布

@@ -9,6 +9,7 @@ use std::time::Duration;
 use flume::Sender;
 
 mod commands;
+mod frame_mailbox;
 mod internal;
 mod public_api;
 mod types;
@@ -17,6 +18,8 @@ pub(crate) mod unicode_placement;
 pub use commands::Command;
 pub use commands::Query;
 pub use types::*;
+
+use self::frame_mailbox::FrameMailbox;
 
 /// VT 线程析构等待上限，与会话拆卸宽限一致，避免无界阻塞。
 const TERMINAL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
@@ -56,7 +59,8 @@ static PNG_DECODER_INIT: extern "C" fn() = {
 pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
     pub(crate) query_tx: Sender<Query>,
-    pub(crate) cell_data_rx: Option<flume::Receiver<(Vec<CellData>, CursorInfo)>>,
+    /// 单元帧邮箱（VT 线程写入，渲染线程取走）：只保留最新一帧。
+    pub(crate) cell_data_mailbox: Arc<FrameMailbox>,
     /// 上游 OSC 52 回调事件接收端（VT 线程经 on_clipboard_write 推送）。
     /// session 在 flush 后收割到锁存槽；BDD 直接轮询断言。
     pub(crate) clipboard_rx: flume::Receiver<(String, String)>,

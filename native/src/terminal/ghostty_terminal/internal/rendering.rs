@@ -719,7 +719,7 @@ impl super::GhosttyTerminal {
         extractors: &mut RenderExtractors<'alloc>,
     ) {
         Self::push_cell_data(
-            config.cell_data_tx.as_ref(),
+            &config.cell_data_mailbox,
             config.frame_wake.as_ref(),
             &ScreenMirrors {
                 alt_screen: &config.alt_screen_active,
@@ -734,7 +734,7 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn push_cell_data<'alloc>(
-        cell_data_tx: Option<&Sender<(Vec<CellData>, CursorInfo)>>,
+        cell_data_mailbox: &FrameMailbox,
         frame_wake: Option<&crate::terminal::session::OutputWake>,
         mirrors: &ScreenMirrors<'_>,
         terminal: &Terminal<'alloc, '_>,
@@ -743,15 +743,13 @@ impl super::GhosttyTerminal {
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
         extractors: &mut RenderExtractors<'alloc>,
     ) {
-        if let Some(tx) = cell_data_tx
-            && let Some(data) = Self::build_cell_data(
-                terminal,
-                default_foreground,
-                default_background,
-                mirrors,
-                extractors,
-            )
-        {
+        if let Some(data) = Self::build_cell_data(
+            terminal,
+            default_foreground,
+            default_background,
+            mirrors,
+            extractors,
+        ) {
             // 自上次推送以来什么都没变时跳过发送：循环定时器（50ms 空闲唤醒）
             // 会在终端毫无活动时重跑这条路径，而渲染线程把收到的每批都当作
             // 新数据 → 每帧全量重绘。把 bytemuck Pod 单元按原始字节（外加光标）
@@ -768,19 +766,12 @@ impl super::GhosttyTerminal {
             if unchanged {
                 return;
             }
-            // 去重基线只在帧真正入队后推进：通道满时本帧被丢弃，若同时推进基线，
-            // 下一帧同一内容会命中 unchanged 而不再补发，屏幕将永久停留在旧帧。
-            match tx.try_send((data.0.clone(), data.1)) {
-                Ok(()) => {
-                    *last_push = Some(data);
-                    // 帧已可被取走：叫醒可能正睡在空闲闭锁上的渲染线程。
-                    if let Some(wake) = frame_wake {
-                        wake();
-                    }
-                }
-                Err(error) => {
-                    warn_drop_throttled(&error);
-                }
+            // 邮箱只留最新一帧：写入即覆盖旧帧，最新的画面不会被丢掉。
+            cell_data_mailbox.store((data.0.clone(), data.1));
+            *last_push = Some(data);
+            // 帧已可被取走：叫醒可能正睡在空闲闭锁上的渲染线程。
+            if let Some(wake) = frame_wake {
+                wake();
             }
         }
     }
