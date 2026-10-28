@@ -21,24 +21,24 @@ fn bearing_fits_inside_cell(glyph: char, label: &str) {
     assert!(cell_height > 0.0, "{label} cell has zero height");
 }
 
+/// 字体库里是否有能解析「中」的面。
+///
+/// 判据是字形覆盖而非族名含 "cjk"：用例要的前提是「能解析汉字」，族名启发式
+/// 会与真实能力脱节——宿主的等宽 CJK 族名是 Maple Mono Normal NF CN（不含
+/// "cjk"），而族名含 "cjk" 的面也可能没有中文字形。
+fn has_cjk_coverage(font_database: &fontdb::Database) -> bool {
+    font_database
+        .faces()
+        .any(|face| crate::render::font::font_db::face_covers(font_database, face.id, '中'))
+}
+
 fn try_load_cjk_fonts(font_database: &mut fontdb::Database) -> bool {
-    let has_cjk = font_database.faces().any(|face| {
-        face.families
-            .first()
-            .map(|(n, _)| n.to_lowercase().contains("cjk"))
-            .unwrap_or(false)
-    });
-    if has_cjk {
+    if has_cjk_coverage(font_database) {
         return true;
     }
     // 只加载系统字体（开发 shell 的字体由 fontconfig 解析），绝不扫描硬编码的 store 路径。
     font_database.load_system_fonts();
-    font_database.faces().any(|face| {
-        face.families
-            .first()
-            .map(|(n, _)| n.to_lowercase().contains("cjk"))
-            .unwrap_or(false)
-    })
+    has_cjk_coverage(font_database)
 }
 
 // ──: 分层回退 ─────────────
