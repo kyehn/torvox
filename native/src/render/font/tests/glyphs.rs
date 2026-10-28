@@ -1,18 +1,5 @@
 use super::*;
 
-#[test]
-fn han_is_wide_and_non_emoji() {
-    let mut pipeline = FontPipeline::new(512, 512, 14.0);
-    let ascii_info = pipeline.glyph_information('A').expect("ASCII glyph info");
-    let han_info = pipeline.glyph_information('世').expect("Han glyph info");
-    assert!(
-        han_info.width as f32 > ascii_info.width as f32 * 1.5,
-        "CJK 回退字体已安装时汉字必须是双格宽：'世' {} vs 'A' {}",
-        han_info.width,
-        ascii_info.width
-    );
-}
-
 /// 回应对"加粗中文空白"：合成样式不得跳过回退链，加粗汉字必须有位图。
 #[test]
 fn bold_cjk_fallback_not_blank() {
@@ -353,30 +340,6 @@ fn glyph_hao_cjk_cross_verify() {
         info.width,
         info.height
     );
-}
-
-#[test]
-fn cjk_width_is_double_ascii() {
-    let mut pipeline = FontPipeline::new(512, 512, 14.0);
-    let ascii_info = pipeline
-        .glyph_information('A')
-        .expect("ascii 'A' glyph info");
-    let cjk_info = pipeline
-        .glyph_information('中')
-        .expect("CJK '中' glyph info");
-    assert!(
-        ascii_info.width > 0,
-        "ASCII glyph should have positive width"
-    );
-    assert!(cjk_info.width > 0, "CJK glyph should have positive width");
-    let (cell_width, _) = pipeline.cell_metrics();
-    assert!(cell_width > 0.0, "cell width should be positive");
-    let cell_span = if cjk_info.width as f32 > ascii_info.width as f32 * 1.5 {
-        2
-    } else {
-        1
-    };
-    assert!(cell_span >= 1, "CJK cell span should be at least 1");
 }
 
 #[test]

@@ -40,6 +40,28 @@ fn read_line_text_index_equals_grid_column_for_wide_chars() {
     );
 }
 
+/// 宽字符的单元宽度取自上游 VT 的宽度表，本仓按该宽度推进列号：
+/// 双宽字符占两列，其后的单元列号须跳过这两列。
+#[test]
+fn cell_iterator_cjk_double_width() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    terminal_under_test.vt_write("A中B".as_bytes());
+    terminal_under_test.flush();
+    let snap = terminal_under_test.take_snapshot();
+
+    let a_cell = &snap.cells[0];
+    assert_eq!(a_cell.codepoint, 'A' as u32, "Cell 0 should be 'A'");
+    assert_eq!(a_cell.width, 1, "'A' should have width=1");
+
+    let cjk_cell = &snap.cells[1];
+    assert_eq!(cjk_cell.codepoint, 0x4E2D, "Cell 1 should be CJK '中'");
+    assert_eq!(cjk_cell.width, 2, "CJK should have width=2");
+
+    let b_cell = &snap.cells[3];
+    assert_eq!(b_cell.codepoint, 'B' as u32, "Cell 3 should be 'B'");
+    assert_eq!(b_cell.width, 1, "'B' should have width=1");
+}
+
 #[test]
 fn wide_char_tail_cols_marks_only_trailing_halves() {
     let mut terminal_under_test = terminal();

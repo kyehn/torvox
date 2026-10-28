@@ -185,27 +185,6 @@ fn cell_iterator_matches_legacy_grid_ref() {
     assert_invariants(&snap);
 }
 
-/// 断言 CellIterator 路径能正确处理快照中的 CJK 双宽字符（width=2）。
-#[test]
-fn cell_iterator_cjk_double_width() {
-    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
-    terminal_under_test.vt_write("A中B".as_bytes());
-    terminal_under_test.flush();
-    let snap = terminal_under_test.take_snapshot();
-
-    let a_cell = &snap.cells[0];
-    assert_eq!(a_cell.codepoint, 'A' as u32, "Cell 0 should be 'A'");
-    assert_eq!(a_cell.width, 1, "'A' should have width=1");
-
-    let cjk_cell = &snap.cells[1];
-    assert_eq!(cjk_cell.codepoint, 0x4E2D, "Cell 1 should be CJK '中'");
-    assert_eq!(cjk_cell.width, 2, "CJK should have width=2");
-
-    let b_cell = &snap.cells[3];
-    assert_eq!(b_cell.codepoint, 'B' as u32, "Cell 3 should be 'B'");
-    assert_eq!(b_cell.width, 1, "'B' should have width=1");
-}
-
 /// Verify that `build_cell_data()` produces correct CellData output
 /// matching the GridSnapshot content.
 #[test]

@@ -150,6 +150,36 @@ fn fallback_chain_face_lookup_is_cached() {
     );
 }
 
+/// 断言码位不由主字体解析，而是由回退面解析出真实字形（非 `.notdef`）。
+fn assert_resolved_via_fallback_face(
+    pipeline: &mut FontPipeline,
+    character: char,
+    primary: fontdb::ID,
+) -> GlyphInfo {
+    let info = pipeline
+        .glyph_information(character)
+        .expect("码位必须解析出字形");
+    assert!(
+        info.width > 0 && info.height > 0,
+        "{character:?} 必须光栅化出非空位图，实得 {info:?}"
+    );
+    let resolved = pipeline
+        .caches
+        .cjk_glyph_cache
+        .get(&character)
+        .copied()
+        .expect("解析结果必须入缓存");
+    assert_ne!(
+        resolved.0, primary,
+        "{character:?} 必须由回退面解析，而非主字体"
+    );
+    assert_ne!(
+        resolved.1, 0,
+        "{character:?} 必须解析到真实字形，而非 .notdef"
+    );
+    info
+}
+
 #[test]
 fn symbol_glyph_resolves_via_database_scan() {
     // U+25B6 (▶) 不在 Liberation Mono 中，却在宿主的 DejaVu Sans 中。
@@ -166,25 +196,7 @@ fn symbol_glyph_resolves_via_database_scan() {
         "switch to Liberation Mono"
     );
     let primary = pipeline.font_id.expect("primary font");
-    let info = pipeline.glyph_information('▶').expect("symbol glyph");
-    assert!(
-        info.width > 0,
-        "symbol must rasterize, got width {}",
-        info.width
-    );
-    let resolved = pipeline
-        .caches
-        .cjk_glyph_cache
-        .get(&'▶')
-        .expect("resolved glyph must be cached");
-    assert_ne!(
-        resolved.0, primary,
-        "symbol must resolve via a fallback font, not the primary"
-    );
-    assert_ne!(
-        resolved.1, 0,
-        "symbol must resolve to a real glyph, not .notdef"
-    );
+    let info = assert_resolved_via_fallback_face(&mut pipeline, '▶', primary);
     // 同一符号再次解析必须稳定一致：缓存读路径不得丢失解析或引入毒化。
     let reread = pipeline
         .glyph_information('▶')
@@ -193,6 +205,27 @@ fn symbol_glyph_resolves_via_database_scan() {
         reread.width, info.width,
         "symbol reread must match first resolution"
     );
+}
+
+/// 汉字必须由回退面解析出真实字形：等宽西文主字体不覆盖它，
+/// 解析结果若是主字体的 `.notdef`，屏幕上就是豆腐块。
+///
+/// 「双格宽」不由字体层决定：单元宽度取自上游 VT 的宽度表，本仓只按该宽度
+/// 推进列号（终端层 `cell_iterator_cjk_double_width` 钉住）。字形位图的墨迹
+/// 宽度是字体自身度量，与单元宽度无关，故不得拿它与 ASCII 位图宽度作比较。
+#[test]
+fn han_resolves_via_fallback_face_to_a_real_glyph() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    assert!(
+        try_load_cjk_fonts(pipeline.font_system.db_mut()),
+        "宿主须装入覆盖「世」的面（nix develop 的 Noto CJK）"
+    );
+    assert!(
+        pipeline.set_font_family("Liberation Mono", &[]),
+        "switch to Liberation Mono"
+    );
+    let primary = pipeline.font_id.expect("primary font");
+    assert_resolved_via_fallback_face(&mut pipeline, '世', primary);
 }
 
 /// `.notdef` 入缓存后不得短路回退链（spec d7 场景 3 的次序变体）。
