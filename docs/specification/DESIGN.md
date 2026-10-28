@@ -1,7 +1,7 @@
 # 设计
 
 - 文中“有 `a` `b` `c` 项”的描述指有且只有，不得增加未声明行为。
-- 未声明的实现细节可参考 [termux-app](https://github.com/termux/termux-app) 与 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal) 同时遵循最佳实践。
+- 未声明的实现细节可参考 [termux-app](https://github.com/termux/termux-app/tree/github-releases/v0.119.0-beta.3) 与 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal) 同时遵循最佳实践。
 
 ---
 
@@ -167,10 +167,11 @@
   - 搜索覆盖回滚区而不只是当前屏幕。
   - 匹配到的单元格反色；当前选中命中特殊高亮并居中显示，其余命中保持反色。
   - 计数在未选中时显示 `共 N 个`，选中后显示 `第 k 个，共 N 个`。
+  - 上一个、下一个滚动到匹配位置，适应输入法弹出时的显示区域
 
-## 侧边面板（按下面顺序合理布局，不可溢出）
+## 侧边面板（合理布局，不可溢出）
 
-- **会话列表**：参考 termux-app 实现，保持一致
+- **会话列表**：列表可能超出可显示范围，可滚动列表，参考 termux-app 实现，保持一致
   - 每一项包括“会话序号、终端标题”（点击切换会话并关闭面板，斜体显示终端标题，不支持修改终端标题），关闭按钮。示例：[1] ~
   - 会话序号从 1 开始递增，序号动态更新。
   - 列表只在打开时刷新，标题由一次批量查询按会话顺序取回。
@@ -180,6 +181,10 @@
 - 文本搜索按钮。
 - 显示 / 隐藏输入法按钮。
 - 设置按钮。
+
+## 应用快捷方式 shortcuts
+
+- 只有“新建会话（Failsafe）”一项，图标和 termux-app 一致，应用已启动和未启动时都能使用，使用 `/system/bin/sh` 作为启动入口
 
 ## 软件
 

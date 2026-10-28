@@ -46,4 +46,4 @@
 ## 受阻时
 
 - 遇到已尝试所有方案仍然无法解决的问题时停止操作并提供说明。
-- 必要时下载参考 `https://github.com/android/skills`
+- 必要时下载 `https://github.com/android/skills` 参考
