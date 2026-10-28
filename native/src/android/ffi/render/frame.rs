@@ -25,16 +25,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
 
 /// 一帧的单元数据：有新输出时携带自有单元与光标，空闲时只表示可绘制。
 pub(super) enum FrameData {
-    New {
-        cells: Vec<crate::terminal::ghostty_terminal::CellData>,
-        cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
-        rows: u32,
-        cols: u32,
-        scroll_offset: i64,
-        /// 宿主已送达的最后一个滚动请求序号（0 = 从未下发过滚动命令）。
-        latest_scroll_request_id: u64,
-    },
+    New(NewFrame),
     Idle,
+}
+
+/// 新帧的全部数据：单元、光标、网格尺寸与宿主滚动状态。
+///
+/// 成组传递：取帧与出图按同一组数据走，拆成散参数传一遍只会让两处签名各写
+/// 一份字段清单，改一处漏一处。
+pub(super) struct NewFrame {
+    cells: Vec<crate::terminal::ghostty_terminal::CellData>,
+    cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
+    rows: u32,
+    cols: u32,
+    scroll_offset: i64,
+    /// 宿主已送达的最后一个滚动请求序号（0 = 从未下发过滚动命令）。
+    latest_scroll_request_id: u64,
 }
 
 /// 渲染状态锁：持锁、给出渲染状态引用、记下取锁时刻。
@@ -225,14 +231,14 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
                 i32::try_from(cursor_info.scrollback_length).unwrap_or(i32::MAX),
                 Ordering::Release,
             );
-            Ok(FrameData::New {
+            Ok(FrameData::New(NewFrame {
                 cells,
                 cursor_info,
                 rows,
                 cols,
                 scroll_offset: session.last_scroll_offset(),
                 latest_scroll_request_id: session.terminal().latest_scroll_request_id(),
-            })
+            }))
         }
         None => Ok(FrameData::Idle),
     }
@@ -257,22 +263,7 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，省去整帧克隆
     // （CellData 96B×行列数）。
     let outcome = match frame_data {
-        FrameData::New {
-            cells,
-            cursor_info,
-            rows,
-            cols,
-            scroll_offset,
-            latest_scroll_request_id,
-        } => render_new_frame(
-            session_id,
-            cells,
-            cursor_info,
-            rows,
-            cols,
-            scroll_offset,
-            latest_scroll_request_id,
-        ),
+        FrameData::New(new_frame) => render_new_frame(session_id, new_frame),
         FrameData::Idle => render_idle_frame(session_id),
     };
     let (count, lock_done, render_done) = match outcome {
@@ -303,13 +294,16 @@ pub(super) fn render_inner(session_id: u64) -> jint {
 /// `Err(退出码)`，此时不进入慢帧诊断。
 pub(super) fn render_new_frame(
     session_id: u64,
-    cells: Vec<crate::terminal::ghostty_terminal::CellData>,
-    cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
-    rows: u32,
-    cols: u32,
-    scroll_offset: i64,
-    latest_scroll_request_id: u64,
+    frame: NewFrame,
 ) -> Result<(jint, std::time::Instant, std::time::Instant), jint> {
+    let NewFrame {
+        cells,
+        cursor_info,
+        rows,
+        cols,
+        scroll_offset,
+        latest_scroll_request_id,
+    } = frame;
     let mut locked = lock_render_state();
     let lock_done = locked.lock_done;
     let render_state = locked.get()?;
