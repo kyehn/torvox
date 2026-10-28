@@ -23,22 +23,6 @@ class ComposingBaseline {
     val isComposing: Boolean
         get() = text.isNotEmpty()
 
-    /**
-     * 记录一次组字：[text] 为空表示组字结束。
-     *
-     * 光标按 [newCursorPosition] 推出，与平台同口径：
-     * - `> 0`：相对组字文本末尾的新偏移（`text.length + newCursorPosition`）；
-     * - `<= 0`：绝对位置 `newCursorPosition`（通常 0 即回到组字开头）。
-     *
-     * 两种语义都钳位在 `0..text.length`：输入法可以给出越界值（诚实降级而非
-     * 抛异常——越界光标会让输入法的后续 diff 全部错位）。
-     */
-    fun compose(text: String?, newCursorPosition: Int) {
-        val next = text.orEmpty()
-        this.text = next
-        cursor = resolveCursor(next, newCursorPosition)
-    }
-
     /** 把组字文本与光标重设为绝对位置；越界光标钳入文本范围。 */
     internal fun composeAt(text: String?, cursor: Int) {
         val next = text.orEmpty()
@@ -46,7 +30,15 @@ class ComposingBaseline {
         this.cursor = cursor.coerceIn(0, next.length)
     }
 
-    /** 计算 `setComposingText` 的绝对光标位置。 */
+    /**
+     * 计算 `setComposingText` 的绝对光标位置（平台口径）。
+     *
+     * - `> 0`：相对组字文本末尾的新偏移（`text.length + newCursorPosition`）；
+     * - `<= 0`：绝对位置 `newCursorPosition`（通常 0 即回到组字开头）。
+     *
+     * 两种语义都钳位在 `0..text.length`：输入法可以给出越界值（诚实降级而非
+     * 抛异常——越界光标会让输入法的后续 diff 全部错位）。
+     */
     internal fun resolveCursor(text: String, newCursorPosition: Int): Int {
         val absolute =
             if (newCursorPosition > 0) {
@@ -99,15 +91,32 @@ class ComposingBaseline {
     }
 
     /**
-     * 把组字区域重锚到 `[start, end)`，返回该区间内的目标组字串；
-     * 范围不落在基线内时返回 null（调用方须拒绝并发出零字节）。
+     * 判定组字区重锚能否受理。
      *
-     * 与 [replaceRange] 的区别是本操作不引入新文本：输入法只是把「哪一段正在组字」
-     * 重新标定，区间外的已提交内容必须原样保留。
+     * 平台语义（`InputConnection.setComposingRegion`）：重锚只重新标定「哪一段正在
+     * 组字」，**一个字符都不改**。本仓的组字基线整体即组字区（差分出口以整段基线
+     * 为单位），故只有覆盖整段基线的重锚可受理；子区间重锚意味着后续组字只替换
+     * 该子区间，而本仓无从处置区间外的已提交内容——如实拒绝，不发字节。
      */
-    fun reanchorRegion(start: Int, end: Int): String? {
-        if (!addressable(start, end)) return null
-        return text.substring(start, end)
+    internal fun acceptsRegionReanchor(start: Int, end: Int): Boolean = start == 0 && end == text.length
+
+    /**
+     * 计算范围替换后的绝对光标位置（平台口径）。
+     *
+     * 平台约定（`InputConnection.replaceText`）：`newCursorPosition > 0` 相对**被插入
+     * 文本末尾减一**，`<= 0` 相对被插入文本开头——故 `1` 总是落在被插入文本之后。
+     * 越界值钳入替换后的文本范围。
+     */
+    internal fun replacedCursor(start: Int, end: Int, insertedLength: Int, newCursorPosition: Int): Int {
+        val replacedLength = text.length - (end - start) + insertedLength
+        val insertEnd = start + insertedLength
+        val absolute =
+            if (newCursorPosition > 0) {
+                insertEnd - 1 + newCursorPosition
+            } else {
+                start + newCursorPosition
+            }
+        return absolute.coerceIn(0, replacedLength)
     }
 
     private fun addressable(start: Int, end: Int): Boolean = start >= 0 && end >= start && end <= text.length

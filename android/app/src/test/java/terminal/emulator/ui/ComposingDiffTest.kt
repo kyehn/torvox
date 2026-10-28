@@ -140,6 +140,18 @@ class ComposingDiffTest {
     }
 
     @Test
+    fun replayOfMiddleReplacementKeepsHeadAndTail() {
+        // 范围替换落在组字区中间：基线「abcdef」把 [2,4) 换成「XY」得到「abXYef」，
+        // 目标光标落在插入文本之后（4）。差分按最长公共前缀重打，头尾随之重写，
+        // 光标再从末尾左移回目标位置。
+        val replay = ComposingDiff.planReplay("abcdef", 6, "abXYef", 4)
+        assertEquals(0, replay.rightMovesBeforeEdit)
+        assertEquals(4, replay.backspaces)
+        assertEquals("XYef", replay.append)
+        assertEquals(2, replay.leftMovesAfterEdit)
+    }
+
+    @Test
     fun clearPlanErasesWholeComposingRegion() {
         val replay = ComposingDiff.planClear("abc", 1)
         assertEquals(2, replay.rightMovesBeforeEdit)

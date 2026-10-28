@@ -973,7 +973,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         return anchorMatrix
                     }
 
-                    private fun applyComposingText(nextText: String, nextCursor: Int): Boolean {
+                    /**
+                     * 把组字基线改写为目标基线：差分重放 + 光标对齐。
+                     *
+                     * 组字区在终端里没有可寻址的文本模型，只能靠「方向键 + 退格 + 重打」
+                     * 复现。退格删的是光标前的字符，故重放前 MUST 先把光标右移到旧组字区
+                     * 末尾，重放后再挪到目标组字光标。
+                     *
+                     * @param nextCursor 目标组字光标在 [nextText] 中的绝对下标。
+                     */
+                    private fun rewriteComposingBaseline(nextText: String, nextCursor: Int): Boolean {
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
                         val replay =
@@ -1025,7 +1034,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 组字基线不得清、字节不得吞，才能靠重发恢复（N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
                         val nextText = text?.toString() ?: ""
-                        return applyComposingText(
+                        return rewriteComposingBaseline(
                             nextText,
                             composing.resolveCursor(nextText, newCursorPosition),
                         )
@@ -1137,7 +1146,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             return if (target.beforeCount + target.afterCount == 0) {
                                 true
                             } else {
-                                applyComposingText(target.text, target.cursor)
+                                rewriteComposingBaseline(target.text, target.cursor)
                             }
                         }
                         if (safeBefore > 0) {
@@ -1198,10 +1207,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 返回 false（拒绝）且**发出零字节**，让输入法重试。
 
                     /**
-                     * 把 `[start, end)` 替换为 [text] 并重设光标（API 34+）。
+                     * 把 `[start, end)` 替换为 [text] 并重设光标（API 33+）。
                      *
-                     * 目标组字串按「头 + 新文本 + 尾」拼出，再交既有
-                     * [ComposingDiff.reconcile] 出口送达，与组字增量同一条路径。
+                     * 目标组字串按「头 + 新文本 + 尾」拼出，再交既有差分出口送达，
+                     * 与组字增量同一条路径：光标先对齐到旧组字区末尾，重放差分后
+                     * 再落到目标组字光标。
                      */
                     override fun replaceText(
                         start: Int,
@@ -1212,32 +1222,35 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     ): Boolean {
                         // 抑制窗口内返回 false 让输入法重试（与组字/提交同形，N1-24）。
                         if (System.nanoTime() < suppressUntilNanos) return false
+                        val replacement = text.toString()
                         val target =
-                            composing.replaceRange(start, end, text.toString())
+                            composing.replaceRange(start, end, replacement)
                                 ?: return false
-                        val edit = ComposingDiff.reconcile(composing.text, target)
-                        sendBackspaces(edit.backspaces)
-                        encodeAndSend(edit.append, ctrlActive = false, altActive = false)
-                        composing.compose(target, newCursorPosition)
-                        reportComposingCursorAnchor()
-                        return true
+                        // 光标按平台口径落在被插入文本处：正数相对其末尾减一，
+                        // 非正数相对其开头（`replaceText` 的 `newCursorPosition` 语义）。
+                        val targetCursor =
+                            composing.replacedCursor(
+                                start = start,
+                                end = end,
+                                insertedLength = replacement.length,
+                                newCursorPosition = newCursorPosition,
+                            )
+                        return rewriteComposingBaseline(target, targetCursor)
                     }
 
                     /**
                      * 把组字区域重锚到 `[start, end)`：只重标定「哪一段正在组字」，
                      * 不引入新文本，区间外的已提交内容必须原样保留。
+                     *
+                     * 平台语义如此：重锚**不改文本**。本仓的组字基线整体即组字区，
+                     * 故只受理覆盖整段基线的重锚（零字节、零光标移动）；子区间重锚
+                     * 要求后续组字只替换该子区间，而本仓的差分出口以整段基线为单位，
+                     * 无从处置区间外的已提交内容——如实拒绝，不发字节。
                      */
                     override fun setComposingRegion(start: Int, end: Int): Boolean {
                         if (System.nanoTime() < suppressUntilNanos) return false
-                        val target = composing.reanchorRegion(start, end) ?: return false
-                        val edit = ComposingDiff.reconcile(composing.text, target)
-                        sendBackspaces(edit.backspaces)
-                        if (edit.append.isNotEmpty()) {
-                            encodeAndSend(edit.append, ctrlActive = false, altActive = false)
-                        }
-                        // 重锚后光标落在新区间末尾。
-                        composing.compose(target, newCursorPosition = 1)
-                        reportComposingCursorAnchor()
+                        if (!composing.acceptsRegionReanchor(start, end)) return false
+                        // 文本与光标均未改变：锚点无变化，不回报。
                         return true
                     }
 
