@@ -16,6 +16,14 @@ pub(crate) struct AtlasEntry {
     atlas_y: u32,
 }
 
+/// 图集字节预算：取图像存储上限（KGP_STORAGE_LIMIT）。
+///
+/// 图集是图像像素的**重排副本**：条带布局把每个放置的源矩形并排铺开，同一幅图像
+/// 被放置 N 次就在图集里铺 N 份，故图集可以远大于图像存储。PTY 同时控制图像尺寸
+/// 与放置数量，两者相乘即可把图集撑到数十 GB——先分配、再由 GPU 侧尺寸检查拒绝
+/// 为时已晚：分配失败会让进程 abort，且没有任何日志。故预算必须在分配**之前**。
+const MAX_ATLAS_BYTES: usize = crate::terminal::ghostty_terminal::KGP_STORAGE_LIMIT as usize;
+
 /// 条带布局：各有效放置的钳制源矩形与图集偏移（与 frames 等长，无效帧占位零矩形）。
 /// 单个无效帧被跳过而非拖垮整张图集；无有效帧时返回 None。
 struct StripLayout {
@@ -46,7 +54,13 @@ fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
         clamped.push(rect);
         // 条目紧挨着排：采样越界由着色器按条目钳制（见 `kitty_graphics.wgsl` 的
         // 「按条目 clamp-to-edge」），图集里不必再为每个条目留沟槽像素。
-        width = width.saturating_add(rect.2);
+        // 受检加法：饱和会把「超限」变成一个看似正常的巨大宽度，最终以分配器
+        // abort 收场（PTY 可控的图像尺寸与放置数量即可触发）。
+        let Some(next_width) = width.checked_add(rect.2) else {
+            log::error!("kitty: atlas width overflows u32; dropping image");
+            return None;
+        };
+        width = next_width;
         height = height.max(rect.3);
     }
     if width == 0 || height == 0 {
@@ -69,7 +83,7 @@ type PackedAtlas<'a> = (Cow<'a, [u8]>, u32, u32, Vec<Option<AtlasEntry>>);
 /// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
 /// 输入总量由上游存储上限约束（KGP_STORAGE_LIMIT=64MiB，见 types.rs）；
 /// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
-/// 计算并在超限时明确记日志后放弃该图集。
+/// 计算，超出预算（[`MAX_ATLAS_BYTES`]）时明确记日志后放弃该图集，绝不先分配。
 fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
     if frames.is_empty() {
         return None;
@@ -99,7 +113,14 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
         }
     }
     let layout = layout_strip(frames)?;
-    let stride = layout.width.checked_mul(4)? as usize;
+    let Some(stride) = layout.width.checked_mul(4) else {
+        log::warn!(
+            "kitty: atlas width {} overflows u32; dropping image",
+            layout.width
+        );
+        return None;
+    };
+    let stride = stride as usize;
     // 受检而非饱和：饱和会把「超限」变成一个看似正常的巨大分配，最终以分配器 abort
     // 收场且无任何日志（PTY 可控的图像尺寸即可触发）。此处显式放弃并留证据。
     let Some(atlas_len) = stride.checked_mul(layout.height as usize) else {
@@ -110,6 +131,17 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
         );
         return None;
     };
+    // 预算检查必须在分配**之前**：条带布局下同一幅图像被放置 N 次就会在图集里
+    // 铺 N 份，PTY 控住图像尺寸与放置数量即可让图集达到数十 GB。分配失败会让
+    // 进程 abort（无日志），且这份缓冲注定传不上 GPU。
+    if atlas_len > MAX_ATLAS_BYTES {
+        log::warn!(
+            "kitty: atlas {}x{} needs {atlas_len} bytes (budget {MAX_ATLAS_BYTES}); dropping image",
+            layout.width,
+            layout.height
+        );
+        return None;
+    }
     let mut atlas = vec![0u8; atlas_len];
     for (index, frame) in frames.iter().enumerate() {
         let (Some(entry), (source_x, source_y, source_width, source_height)) =
@@ -392,6 +424,32 @@ mod tests {
         let instances = build_kitty_instances(&frames, width, height, &entries, 8.0, 16.0);
         assert_eq!(instances.len(), 1);
         assert_eq!(atlas.len(), 2 * 2 * 4);
+    }
+
+    /// 图集超出字节预算时必须在分配**之前**被拒绝。
+    ///
+    /// 判别力：预算检查若放在分配之后，PTY 控住图像尺寸与放置数量即可让图集
+    /// 达到数十 GB——分配失败会让进程 abort（无任何日志），画面直接消失且无从
+    /// 归因。放置帧只声明尺寸不携带像素，故本用例不需要真的备出那份大缓冲。
+    #[test]
+    fn oversized_atlas_is_rejected_before_allocation() {
+        let mut huge = test_frame();
+        huge.image_width = 9_000_000;
+        huge.image_height = 1;
+        huge.source_width = 9_000_000;
+        huge.source_height = 1;
+        // 同一幅图像放两处：条带布局把它的源矩形并排铺开，图集宽度翻倍。
+        let frames = vec![huge.clone(), huge];
+        assert!(
+            pack_atlas(&frames).is_none(),
+            "超预算的图集必须在分配像素缓冲之前被拒绝"
+        );
+        // 布局本身仍可算出（复用路径要靠它比对已上传图集），只是不打包。
+        assert_eq!(
+            layout_entries(&frames).map(|(width, height, _)| (width, height)),
+            Some((18_000_000, 1)),
+            "布局计算不受预算影响"
+        );
     }
 
     #[test]
