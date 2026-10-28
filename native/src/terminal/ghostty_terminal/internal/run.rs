@@ -233,15 +233,16 @@ impl super::GhosttyTerminal {
         if synchronized_output_hold(terminal, &mut state.synchronized_output_held_since) {
             return;
         }
-        Self::refresh_cell_data(
+        if Self::refresh_cell_data(
             config,
             terminal,
             state.default_foreground,
             state.default_background,
             &mut state.last_cell_data_push,
             extractors,
-        );
-        state.cell_data_dirty = false;
+        ) {
+            state.cell_data_dirty = false;
+        }
     }
 
     /// 注册 OSC 52 剪贴板写回回调。

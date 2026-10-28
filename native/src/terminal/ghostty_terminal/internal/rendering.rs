@@ -717,7 +717,7 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
         extractors: &mut RenderExtractors<'alloc>,
-    ) {
+    ) -> bool {
         Self::push_cell_data(
             config.cell_data_tx.as_ref(),
             config.frame_wake.as_ref(),
@@ -730,9 +730,11 @@ impl super::GhosttyTerminal {
             default_background,
             last_push,
             extractors,
-        );
+        )
     }
 
+    /// 返回 `true` 表示已无待发布的网格变化；通道满或提取失败时返回
+    /// `false`，调用方须保留脏位以便下个节拍重试最终状态。
     pub(crate) fn push_cell_data<'alloc>(
         cell_data_tx: Option<&Sender<(Vec<CellData>, CursorInfo)>>,
         frame_wake: Option<&crate::terminal::session::OutputWake>,
@@ -742,15 +744,19 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
         extractors: &mut RenderExtractors<'alloc>,
-    ) {
-        if let Some(tx) = cell_data_tx
-            && let Some(data) = Self::build_cell_data(
-                terminal,
-                default_foreground,
-                default_background,
-                mirrors,
-                extractors,
-            )
+    ) -> bool {
+        let Some(tx) = cell_data_tx else {
+            return true;
+        };
+        let Some(data) = Self::build_cell_data(
+            terminal,
+            default_foreground,
+            default_background,
+            mirrors,
+            extractors,
+        ) else {
+            return false;
+        };
         {
             // 自上次推送以来什么都没变时跳过发送：循环定时器（50ms 空闲唤醒）
             // 会在终端毫无活动时重跑这条路径，而渲染线程把收到的每批都当作
@@ -766,10 +772,10 @@ impl super::GhosttyTerminal {
                 None => false,
             };
             if unchanged {
-                return;
+                return true;
             }
-            // 去重基线只在帧真正入队后推进：通道满时本帧被丢弃，若同时推进基线，
-            // 下一帧同一内容会命中 unchanged 而不再补发，屏幕将永久停留在旧帧。
+            // 去重基线只在帧真正入队后推进；失败时保留脏位，空闲节拍会重试
+            // 最终状态，避免队列里只剩旧帧。
             match tx.try_send((data.0.clone(), data.1)) {
                 Ok(()) => {
                     *last_push = Some(data);
@@ -777,9 +783,11 @@ impl super::GhosttyTerminal {
                     if let Some(wake) = frame_wake {
                         wake();
                     }
+                    true
                 }
                 Err(error) => {
                     warn_drop_throttled(&error);
+                    false
                 }
             }
         }
