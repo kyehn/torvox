@@ -105,6 +105,8 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
+        # 参考资料：照录被禁 API 的事实，不等于实现它。
+        - "/docs/persistence/*"
         - "/README.md"
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
@@ -124,6 +126,8 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
+        # 参考资料：照录被禁预设的历史，不等于提供该预设。
+        - "/docs/persistence/*"
         - "/README.md"
   - id: no-bootstrap-sidecar
     pattern-regex: '\bsidecar\b'
