@@ -157,16 +157,7 @@ fn settled_scroll_refetches_approximate_frames_once() {
 /// release 则静默回绕成无意义值。
 #[test]
 fn sentinel_keys_do_not_overflow() {
-    let sentinel = KittyPlacementKeys {
-        session_id: 0,
-        generation: u64::MAX,
-        placement_generation: u64::MAX,
-        scroll_offset: i64::MIN,
-        scrollback_length: u32::MAX,
-        placeholder_signature: u64::MAX,
-        rows: u32::MAX,
-        cols: u32::MAX,
-    };
+    let sentinel = KittyPlacementKeys::sentinel();
     let plain = KittyPlacementKeys {
         generation: 0,
         scroll_offset: 0,
