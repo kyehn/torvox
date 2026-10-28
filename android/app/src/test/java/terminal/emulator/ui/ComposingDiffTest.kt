@@ -98,4 +98,53 @@ class ComposingDiffTest {
         assertEquals(1, edit.backspaces)
         assertEquals("b", edit.append)
     }
+
+    @Test
+    fun replayMovesCursorToRegionEndBeforeEditing() {
+        // 组字光标在开头：退格删的是光标前的字符，不先挪到组字区末尾，
+        // 退格删掉的就是组字区之前已提交的内容。
+        val replay = ComposingDiff.planReplay("abc", 0, "bc", 0)
+        assertEquals(3, replay.rightMovesBeforeEdit)
+        assertEquals(3, replay.backspaces)
+        assertEquals("bc", replay.append)
+        assertEquals(2, replay.leftMovesAfterEdit)
+    }
+
+    @Test
+    fun replayWithCursorAtEndKeepsByteStreamUnchanged() {
+        // 组字光标在末尾（常见情形）：差分落点本就在组字区末尾，MUST NOT 多发方向键。
+        val replay = ComposingDiff.planReplay("ab", 2, "abc", 3)
+        assertEquals(0, replay.rightMovesBeforeEdit)
+        assertEquals(0, replay.backspaces)
+        assertEquals("c", replay.append)
+        assertEquals(0, replay.leftMovesAfterEdit)
+    }
+
+    @Test
+    fun replayWithUnchangedTextOnlyMovesCursor() {
+        val replay = ComposingDiff.planReplay("abc", 3, "abc", 1)
+        assertEquals(0, replay.rightMovesBeforeEdit)
+        assertEquals(0, replay.backspaces)
+        assertEquals("", replay.append)
+        assertEquals(2, replay.leftMovesAfterEdit)
+    }
+
+    @Test
+    fun replayCountsMovesInCodePoints() {
+        // 👍 是一个码点：挪动次数按码点计，按 UTF-16 单位计会多挪一次。
+        val replay = ComposingDiff.planReplay("👍", 0, "👎", 0)
+        assertEquals(1, replay.rightMovesBeforeEdit)
+        assertEquals(1, replay.backspaces)
+        assertEquals("👎", replay.append)
+        assertEquals(1, replay.leftMovesAfterEdit)
+    }
+
+    @Test
+    fun clearPlanErasesWholeComposingRegion() {
+        val replay = ComposingDiff.planClear("abc", 1)
+        assertEquals(2, replay.rightMovesBeforeEdit)
+        assertEquals(3, replay.backspaces)
+        assertEquals("", replay.append)
+        assertEquals(0, replay.leftMovesAfterEdit)
+    }
 }
