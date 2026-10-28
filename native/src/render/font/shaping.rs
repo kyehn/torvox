@@ -32,6 +32,16 @@ const INFINITE_BUFFER_WIDTH: f32 = 999_999.0;
 
 impl FontPipeline {
     pub fn shape_run(&mut self, text: &str) -> Vec<ShapedGlyphInfo> {
+        self.shape_run_styled(text, false, false)
+    }
+
+    /// 按单元的粗体/斜体选择同族字面；字形缓存键包含这两个维度。
+    pub fn shape_run_styled(
+        &mut self,
+        text: &str,
+        bold: bool,
+        italic: bool,
+    ) -> Vec<ShapedGlyphInfo> {
         if text.is_empty() {
             return Vec::new();
         }
@@ -43,6 +53,8 @@ impl FontPipeline {
             raster_scale_bits: self.raster_scale.to_bits(),
             font_id: self.font_id,
             fallback_generation: self.fallback_generation,
+            bold,
+            italic,
         };
         if let Some(cached) = self.caches.shape_cache.get(&shape_key) {
             return cached.clone();
@@ -69,7 +81,20 @@ impl FontPipeline {
         } else {
             cosmic_text::Family::Name(&family_name)
         };
-        let attrs = cosmic_text::Attrs::new().family(family);
+        let weight = if bold {
+            cosmic_text::Weight::BOLD
+        } else {
+            cosmic_text::Weight::NORMAL
+        };
+        let style = if italic {
+            cosmic_text::Style::Italic
+        } else {
+            cosmic_text::Style::Normal
+        };
+        let attrs = cosmic_text::Attrs::new()
+            .family(family)
+            .weight(weight)
+            .style(style);
 
         buffer.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
         if !self.cjk_fallback_ids.is_empty() {
@@ -105,7 +130,9 @@ impl FontPipeline {
                             list.add_span(
                                 range.clone(),
                                 &cosmic_text::Attrs::new()
-                                    .family(cosmic_text::Family::Name(fallback_name)),
+                                    .family(cosmic_text::Family::Name(fallback_name))
+                                    .weight(weight)
+                                    .style(style),
                             );
                         }
                     }
@@ -125,8 +152,11 @@ impl FontPipeline {
                 font_id: glyph.font_id,
                 x: glyph.x,
                 w: glyph.w,
-                x_offset: glyph.x_offset,
-                y_offset: glyph.y_offset,
+                // 上游 offset 以字号为单位，物理位置为 `x + font_size * x_offset`；
+                // 下游直接加到物理像素原点，故在此一次性换算。
+                x_offset: glyph.x + glyph.x_offset * glyph.font_size,
+                // 上游物理坐标为 `y - font_size * y_offset`。
+                y_offset: -glyph.y_offset * glyph.font_size,
             })
             .collect();
 
@@ -204,6 +234,24 @@ mod tests {
         assert_eq!(glyphs, cached, "cluster shape must come from cache");
     }
 
+    /// 多字形簇的后续字形带累计水平位置；叠加层只加字面偏移会全部叠回起点。
+    #[test]
+    fn multi_glyph_cluster_preserves_advance_position() {
+        let mut pipeline = small_pipeline();
+        let glyphs = pipeline.shape_run("👩‍👩");
+        assert!(
+            glyphs.len() > 1,
+            "ZWJ 序列必须整形为多个字形，实际 {} 个",
+            glyphs.len()
+        );
+        assert!(
+            glyphs[1].x_offset >= glyphs[0].w,
+            "后续字形必须落在首字形推进之后，实际 x_offset={} w={}",
+            glyphs[1].x_offset,
+            glyphs[0].w
+        );
+    }
+
     #[test]
     fn cjk_mixed_text_shapes_without_panic() {
         let mut pipeline = small_pipeline();
@@ -267,6 +315,8 @@ mod tests {
             raster_scale_bits: pipeline.raster_scale.to_bits(),
             font_id: pipeline.font_id,
             fallback_generation: pipeline.fallback_generation,
+            bold: false,
+            italic: false,
         };
         pipeline.font_size = 28.0;
         let key_large = ShapeKey {
@@ -275,6 +325,8 @@ mod tests {
             raster_scale_bits: pipeline.raster_scale.to_bits(),
             font_id: pipeline.font_id,
             fallback_generation: pipeline.fallback_generation,
+            bold: false,
+            italic: false,
         };
         assert_ne!(key_small, key_large, "shape key must distinguish font size");
         let after = pipeline.shape_run("Hello");
@@ -288,5 +340,25 @@ mod tests {
             "both sizes must coexist as distinct entries when the cache is not cleared"
         );
         let _ = key_small;
+    }
+
+    /// 同一簇的常规、粗体、斜体整形不得共用缓存条目。
+    #[test]
+    fn shape_cache_key_distinguishes_style() {
+        let mut pipeline = small_pipeline();
+        let _ = pipeline.shape_run_styled("e\u{301}", false, false);
+        let _ = pipeline.shape_run_styled("e\u{301}", true, false);
+        let _ = pipeline.shape_run_styled("e\u{301}", false, true);
+        let styles: Vec<(bool, bool)> = pipeline
+            .caches
+            .shape_cache
+            .iter()
+            .filter(|(key, _)| key.text == "e\u{301}")
+            .map(|(key, _)| (key.bold, key.italic))
+            .collect();
+        assert_eq!(styles.len(), 3, "三种样式必须各占一条缓存");
+        assert!(styles.contains(&(false, false)));
+        assert!(styles.contains(&(true, false)));
+        assert!(styles.contains(&(false, true)));
     }
 }

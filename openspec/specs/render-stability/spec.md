@@ -60,6 +60,17 @@ IME 弹出/隐藏动画期间产生的 PTY 新输出，在 IME 稳定后 MUST �
 - **WHEN** IME 弹出动画期间 PTY 连续产生多批新输出
 - **THEN** IME 稳定后呈现的是最后一批输出，无缺失无错位
 
+### Requirement: SGR 隐藏文字不生成前景
+
+SGR 8（conceal）MUST 从 VT 样式透传到生产 `CellData`，并 MUST 在实例构建时跳过
+字形、下划线、删除线与上划线；背景、搜索高亮、选区和光标 MUST 保持可见。行为与
+xterm 一致，MUST NOT 只更新仅供测试的快照。
+
+#### Scenario: 隐藏文字仍保留单元格背景
+
+- **WHEN** 程序输出带自定义背景的 `ESC[8m` 文本
+- **THEN** 该单元格不生成字形或文字装饰实例，背景四边形仍正常生成
+
 ### Requirement: 滚动渲染无可见卡顿或撕裂
 
 滚动渲染 MUST NOT 有可见卡顿或撕裂。

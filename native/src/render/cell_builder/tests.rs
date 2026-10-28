@@ -109,6 +109,30 @@ fn bold_italic_flags_reach_instance() {
     );
 }
 
+/// SGR 8 隐藏单元只保留背景，不生成字形或文字装饰。
+#[test]
+fn concealed_cell_emits_background_without_glyph() {
+    let cells = vec![
+        cell_data(0, 0, 'A', [1.0; 4], [0.0; 4], 0),
+        cell_data(
+            0,
+            1,
+            'H',
+            [1.0; 4],
+            [0.25, 0.5, 0.75, 1.0],
+            (1 << 9) | (1 << cell_flags::UNDERLINE),
+        ),
+    ];
+    let instances = build(&cells, CellCursor::default(), &[]);
+    let concealed = instances
+        .iter()
+        .find(|instance| instance.quad_origin[0] > 0.0)
+        .expect("concealed cell must keep its background quad");
+    assert_eq!(concealed.atlas_size, [0.0; 2]);
+    assert_eq!(concealed.background, [0.25, 0.5, 0.75, 1.0]);
+    assert_eq!(concealed.flags, 0.0, "hidden text must emit no decorations");
+}
+
 /// SGR 58 下划线颜色传到 GPU 实例，供 shader 装饰遍使用。
 #[test]
 fn underline_color_reaches_instance() {

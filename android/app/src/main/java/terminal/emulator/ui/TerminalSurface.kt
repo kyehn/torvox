@@ -161,11 +161,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 只摘自己装的那一份：Activity 重建时新旧视图短暂共存，旧视图 detach 可能晚于
         // 新视图 attach；无条件按「当前活动会话」的 bridge 清空会摘掉新视图刚装的钩子，
         // 硬件键/鼠标退回主线程同步写 PTY（PTY 满时每次按键冻结 UI 数秒）。
-        val bridge = ptyWriteQueueBridge
-        if (bridge != null && viewModel?.runtime?.bridge() === bridge) {
-            bridge.ptyWriteQueue = null
+        val binding = ptyWriteQueueBinding
+        if (binding != null && ptyWriteQueueBridge?.ptyWriteQueue === binding) {
+            ptyWriteQueueBridge?.ptyWriteQueue = null
         }
         ptyWriteQueueBridge = null
+        ptyWriteQueueBinding = null
     }
 
     override fun onAttachedToWindow() {
@@ -177,7 +178,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 排队钩子 MUST 随 attach 恢复：它在 detach 时被摘掉（批缓冲已关闭，留着会让
         // 此后的按键写入被拒），而视图复用不重走 attachViewModel。漏恢复的后果是
         // 硬件键与鼠标退回同步 feedPty——主端满时每次按键最多冻住 UI 线程 5s。
-        installPtyWriteQueue()
+        bindActivePtyWriteQueue()
         // 订阅必须随 attach 恢复，不能只在 attachViewModel 里建一次：detach 会停掉它们
         // （见 onDetachedFromWindow 的清理），而视图复用时不会重新走 AndroidView.factory，
         // 于是 altScreenActiveFlow / lastContentRowFlow / cellMetricsFlow 三条输入全部失联
@@ -867,6 +868,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         if (count > 0) inputBatchBuffer.write(ByteArray(count) { BACKSPACE_BYTE })
                     }
 
+                    /** 光标后删除必须走原生 forward-delete 编码，不能复用退格字节。 */
+                    private fun sendForwardDeletes(count: Int): Boolean {
+                        if (count <= 0) return true
+                        val bridge = viewModel?.runtime?.bridge() ?: return false
+                        repeat(count) {
+                            if (!bridge.processKeyEvent(KeyEvent.KEYCODE_FORWARD_DEL, 0, 0, 0, 0)) {
+                                LogUtil.warn("TerminalSurface", "forward-delete 编码失败")
+                                return false
+                            }
+                        }
+                        return true
+                    }
+
                     /**
                      * 受理输入法的光标位置监视请求。
                      *
@@ -959,21 +973,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         return anchorMatrix
                     }
 
-                    override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        // 交付不按焦点状态整段拒收（见 onWindowFocusChanged 注释）：
-                        // 只有切换瞬间的有界抑制窗口会让输入法重试——返回 false 时
-                        // 组字基线不得清、字节不得吞，才能靠重发恢复（N1-24）。
-                        if (System.nanoTime() < suppressUntilNanos) return false
-                        val newComposing = text?.toString() ?: ""
+                    private fun applyComposingText(nextText: String, nextCursor: Int): Boolean {
                         // 纯校对逻辑（ComposingDiff），已单元测试
                         // ——增长/回退/全量重写三种情况集中在一处。
-                        val edit = ComposingDiff.reconcile(composing.text, newComposing)
+                        val edit = ComposingDiff.reconcile(composing.text, nextText)
                         // 供自动化输入法验证的锚点——日志序列必须与注入的组字文本一一对应。
                         // 门控在调用处而非只靠 LogUtil.debug：release 下可省掉整条消息串的拼接。
                         if (terminal.emulator.BuildConfig.DEBUG) {
                             LogUtil.debug(
                                 "ComposingDiff",
-                                "reconcile prev=${composing.text.length}ch next=$newComposing " +
+                                "reconcile prev=${composing.text.length}ch next=$nextText " +
                                     "bs=${edit.backspaces} app=${edit.append.length}ch",
                             )
                         }
@@ -987,9 +996,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                 altActive = false,
                             )
                         }
-                        composing.compose(newComposing, newCursorPosition)
+                        composing.composeAt(nextText, nextCursor)
+                        // 差分重放后 PTY 光标位于文本末尾；组字光标在中间时必须同步左移，
+                        // 否则输入法按基线在中间改写，字节却落在末尾。
+                        repeat(nextText.codePointCount(nextCursor, nextText.length)) {
+                            sendCursorMove(KeyEvent.KEYCODE_DPAD_LEFT)
+                        }
                         reportComposingCursorAnchor()
                         return true
+                    }
+
+                    override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                        // 交付不按焦点状态整段拒收（见 onWindowFocusChanged 注释）：
+                        // 只有切换瞬间的有界抑制窗口会让输入法重试——返回 false 时
+                        // 组字基线不得清、字节不得吞，才能靠重发恢复（N1-24）。
+                        if (System.nanoTime() < suppressUntilNanos) return false
+                        val nextText = text?.toString() ?: ""
+                        return applyComposingText(
+                            nextText,
+                            composing.resolveCursor(nextText, newCursorPosition),
+                        )
                     }
 
                     override fun finishComposingText(): Boolean {
@@ -1084,32 +1110,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 不得按终端列宽加倍（CJK 发 2 个只会多删一个字符）。
                         val maxDeletes = composing.text.length.coerceAtLeast(MAX_SURROUNDING_DELETES)
                         val safeBefore = beforeLength.coerceIn(0, maxDeletes)
-                        val safeAfter = afterLength.coerceIn(0, maxDeletes)
-                        if (safeBefore > 0) {
-                            // 保持组字基线与 PTY 将要持有的内容同步：
-                            // setComposingText 的增量逻辑（startsWith/追加/退格分支）
-                            // 假定该缓冲区镜像「已提交 + 组字」文本。
-                            // 否则组字期间的输入法退格会在此删一次，
-                            // 又在 setComposingText 的退格分支再删一次，多吃一个字符。
-                            if (composing.isComposing) {
-                                // beforeLength 按码点计数（API 33+）；
-                                // 删去整个码点（含代理对），使 emoji 与 PTY
-                                // 内容保持对齐。退格数与移除码点数 1:1。
-                                val removed = composing.dropTrailingCodePoints(safeBefore)
-                                val removedBs = ByteArray(removed) { BACKSPACE_BYTE }
-                                inputBatchBuffer.write(removedBs)
+                        val maxAfter = if (composing.isComposing) maxDeletes else MAX_FORWARD_DELETES
+                        val safeAfter = afterLength.coerceIn(0, maxAfter)
+                        if (composing.isComposing) {
+                            // 组字光标可能在候选区中间。按目标内容重放差分，
+                            // 同时让基线、PTY 与输入法的删除结果保持一致。
+                            val target = composing.deletionTarget(safeBefore, safeAfter)
+                            return if (target.beforeCount + target.afterCount == 0) {
+                                true
                             } else {
-                                // 非组词直删：safeBefore 已按码点钳制，
-                                // shell 按字符删除，1:1 发送。
-                                val directBs = ByteArray(safeBefore) { BACKSPACE_BYTE }
-                                inputBatchBuffer.write(directBs)
+                                applyComposingText(target.text, target.cursor)
                             }
                         }
-                        if (safeAfter > 0) {
-                            val deleteBytes = ByteArray(safeAfter) { DELETE_BYTE }
-                            inputBatchBuffer.write(deleteBytes)
+                        if (safeBefore > 0) {
+                            val directBs = ByteArray(safeBefore) { BACKSPACE_BYTE }
+                            inputBatchBuffer.write(directBs)
                         }
-                        return true
+                        return sendForwardDeletes(safeAfter)
                     }
 
                     // ── 取文接口：只反映组字基线 ──────────────────────
@@ -1709,7 +1726,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
         private const val BACKSPACE_BYTE = 0x08.toByte()
-        private const val DELETE_BYTE = 0x7F.toByte()
 
         // deleteSurroundingText 参数的上界（输入法输入不可信）。
         // 4096 足以覆盖「全选删除大块已提交内容」：256 左 > 256 字符的选区
@@ -1723,6 +1739,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
          * 超出的部分按截断返回而非构造超长字符串。
          */
         private const val MAX_SURROUNDING_QUERY = 4096
+
+        /** forward-delete 每次都要向原生编码一次，不可信长度须有远低于通用删除的成本上界。 */
+        private const val MAX_FORWARD_DELETES = 64
 
         /**
          * `setSelection` 单次折算的最大位移（码点）。
@@ -1752,8 +1771,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             LogUtil.debug("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
             inputBatchBuffer.write(data, sessionId)
         }
-        // 硬件按键与鼠标事件同样排到批缓冲（理由见 [installPtyWriteQueue]）。
-        installPtyWriteQueue()
+        // 硬件按键与鼠标事件同样排到批缓冲（理由见 [bindActivePtyWriteQueue]）。
+        bindActivePtyWriteQueue()
         observeImeShiftInputs(viewModel)
     }
 
@@ -2194,6 +2213,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /** 当前安装 [Bridge.ptyWriteQueue] 的那条 bridge；detach 时据此只摘自己的一份。 */
     private var ptyWriteQueueBridge: Bridge? = null
+
+    /** 本视图写入该 Bridge 的具体闭包；用于区分新视图已接管的钩子。 */
+    private var ptyWriteQueueBinding: ((Long, ByteArray) -> Unit)? = null
 
     /**
      * 惯性滚动物理：由本视图按 vsync 自驱的指数衰减（[flingOffsetPx]），
@@ -3223,12 +3245,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 保证与输入法写入的先后顺序（两路各写时，缓冲中待发的退格会被直写的击键越过）。
      * attach 与首次绑定都要装，故只此一处实现。
      */
-    private fun installPtyWriteQueue() {
-        val bridge = viewModel?.runtime?.bridge() ?: return
-        bridge.ptyWriteQueue = { sessionId, data ->
-            inputBatchBuffer.write(data, sessionId)
+    internal fun bindActivePtyWriteQueue() {
+        val bridge = viewModel?.runtime?.bridge()
+        val previousBridge = ptyWriteQueueBridge
+        val previousBinding = ptyWriteQueueBinding
+        // 只摘自己装的那一份：新视图可能已接管同一个 Bridge。
+        if (previousBridge !== bridge && previousBridge?.ptyWriteQueue === previousBinding) {
+            previousBridge?.ptyWriteQueue = null
         }
         ptyWriteQueueBridge = bridge
+        ptyWriteQueueBinding = null
+        if (bridge == null) return
+        val binding: (Long, ByteArray) -> Unit = { sessionId, data ->
+            inputBatchBuffer.write(data, sessionId)
+        }
+        bridge.ptyWriteQueue = binding
+        ptyWriteQueueBinding = binding
+    }
+
+    internal fun hasActivePtyWriteQueue(): Boolean {
+        val binding = ptyWriteQueueBinding ?: return false
+        return ptyWriteQueueBridge === viewModel?.runtime?.bridge() &&
+            ptyWriteQueueBridge?.ptyWriteQueue === binding
     }
 
     private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
@@ -3562,15 +3600,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 鼠标滚轮事件（外接鼠标/触控板）。应用启用鼠标上报时
      * （DECSET 1000/1002/1003），滚轮事件经 Ghostty 鼠标编码器编码为按钮 4/5
-     * 并写入 PTY。未启用上报时编码器返回空序列——事件被忽略
-     * （回滚没有滚轮处理，触摸滚动已覆盖该场景）。
+     * 并写入 PTY；未启用时在主屏滚动本地回滚，备用屏保持不滚动。
      */
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+        val fromPointer =
+            event.isFromSource(InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(InputDevice.SOURCE_TOUCHPAD)
+        if (event.action == MotionEvent.ACTION_SCROLL && fromPointer) {
             val runtime = viewModel?.runtime
             val bridge = runtime?.bridge()
+            val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            if (delta == 0f) return super.onGenericMotionEvent(event)
             if (bridge != null) {
-                val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
                 if (
                     bridge.encodeMouseWheel(
@@ -3583,6 +3624,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         1,
                     )
                 ) {
+                    return true
+                }
+            }
+            if (runtime != null && !runtime.altScreenActiveFlow.value) {
+                val rowHeight = cellHeight
+                val scrollbackLen = currentScrollbackLength()
+                if (rowHeight > 0f && scrollbackLen > 0) {
+                    stopFlingAnimation()
+                    // 与触摸同一条管道：滚轮向上一档进入更早历史。
+                    applyScrollStep(
+                        applyScrollDistance(
+                            scrollAccumulatorPx,
+                            -delta * rowHeight,
+                            rowHeight,
+                            scrollOffset,
+                            scrollbackLen,
+                            imeShiftRevealPx,
+                            imeShiftCapacityPx.toFloat(),
+                        ),
+                        scrollbackLen,
+                    )
                     return true
                 }
             }

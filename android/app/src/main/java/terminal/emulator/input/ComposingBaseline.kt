@@ -36,13 +36,25 @@ class ComposingBaseline {
     fun compose(text: String?, newCursorPosition: Int) {
         val next = text.orEmpty()
         this.text = next
+        cursor = resolveCursor(next, newCursorPosition)
+    }
+
+    /** 把组字文本与光标重设为绝对位置；越界光标钳入文本范围。 */
+    internal fun composeAt(text: String?, cursor: Int) {
+        val next = text.orEmpty()
+        this.text = next
+        this.cursor = cursor.coerceIn(0, next.length)
+    }
+
+    /** 计算 `setComposingText` 的绝对光标位置。 */
+    internal fun resolveCursor(text: String, newCursorPosition: Int): Int {
         val absolute =
             if (newCursorPosition > 0) {
-                next.length + newCursorPosition
+                text.length + newCursorPosition
             } else {
                 newCursorPosition
             }
-        cursor = absolute.coerceIn(0, next.length)
+        return absolute.coerceIn(0, text.length)
     }
 
     /** 提交/结束组字：文本与光标一并清空。 */
@@ -68,27 +80,6 @@ class ComposingBaseline {
         if (length <= 0) return ""
         val endIndex = (cursor + length).coerceAtMost(text.length)
         return text.substring(cursor, endIndex)
-    }
-
-    /**
-     * 从组字末尾删去 [count] 个**码点**（跨过代理对按整个 emoji 计一次），
-     * 返回实际删去的码点数。
-     *
-     * 客户端传入的删除数不可信：可能超过已有长度。按码点而非 UTF-16 单元删除，
-     * 是因为退格与 emoji 是 1:1 的（一个 0x08 删掉整个 emoji），
-     * 按 char 计数会把代理对算成两次、多吃一个字符。
-     */
-    fun dropTrailingCodePoints(count: Int): Int {
-        if (count <= 0) return 0
-        var removed = 0
-        var end = text.length
-        while (removed < count && end > 0) {
-            end -= Character.charCount(text.codePointBefore(end))
-            removed++
-        }
-        text = text.substring(0, end)
-        cursor = cursor.coerceAtMost(text.length)
-        return removed
     }
 
     /**
@@ -120,4 +111,27 @@ class ComposingBaseline {
     }
 
     private fun addressable(start: Int, end: Int): Boolean = start >= 0 && end >= start && end <= text.length
+
+    /**
+     * 删除光标前后各若干码点后的组字内容与绝对光标。
+     *
+     * 返回实际删除数：输入法可给出超出基线的长度，按已有内容截断。
+     */
+    internal fun deletionTarget(beforeLength: Int, afterLength: Int): Deletion {
+        var start = cursor
+        var beforeRemoved = 0
+        while (beforeRemoved < beforeLength && start > 0) {
+            start -= Character.charCount(text.codePointBefore(start))
+            beforeRemoved++
+        }
+        var end = cursor
+        var afterRemoved = 0
+        while (afterRemoved < afterLength && end < text.length) {
+            end += Character.charCount(text.codePointAt(end))
+            afterRemoved++
+        }
+        return Deletion(text.removeRange(start, end), start, beforeRemoved, afterRemoved)
+    }
+
+    internal data class Deletion(val text: String, val cursor: Int, val beforeCount: Int, val afterCount: Int)
 }

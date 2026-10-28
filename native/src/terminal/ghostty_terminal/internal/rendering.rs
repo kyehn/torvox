@@ -368,8 +368,8 @@ impl super::GhosttyTerminal {
 
     /// 把样式属性打包成与 `cell.wgsl` 着色器布局一致的位掩码：
     /// 第 0 位=bold、1=italic、2=reverse、3=underline、
-    /// 4=blink、5=strikethrough、6=overline、7=dim、8=double_underline
-    /// （blink 会带上，着色器忽略它；留待将来使用）。
+    /// 4=blink、5=strikethrough、6=overline、7=dim、8=double_underline、9=conceal
+    /// （blink 会带上，着色器忽略它；conceal 由单元构建器消费）。
     pub(crate) fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
         use crate::terminal::ghostty_terminal::cell_flags;
         let mut flags = 0u32;
@@ -399,6 +399,9 @@ impl super::GhosttyTerminal {
         }
         if is_double_underline(style.underline) {
             flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
+        }
+        if style.invisible {
+            flags |= 1 << cell_flags::CONCEAL;
         }
         flags
     }
@@ -704,10 +707,8 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 按当前终端状态重建 CellData 并推给渲染线程的通道（未挂消费者时
-    /// 为空操作）。Write/SetTheme/Resize/ScrollViewport 共用的帧推送块
-    /// 只有这一个调用点。
-    /// 终端网格变化后推送一份新的 cell-data 快照。
+    /// 按当前终端状态重建 CellData 并推给渲染线程的帧邮箱。
+    /// Write/SetTheme/Resize/ScrollViewport 共用的帧推送块只有这一个调用点。
     /// [`Self::push_cell_data`] 的薄封装，补齐各命令处理器共用的
     /// 标准 config/状态接线。
     pub(crate) fn refresh_cell_data<'alloc>(
@@ -733,6 +734,7 @@ impl super::GhosttyTerminal {
         );
     }
 
+    /// 重建一份 cell-data 快照并存入帧邮箱（只留最新一帧）。
     pub(crate) fn push_cell_data<'alloc>(
         cell_data_mailbox: &FrameMailbox,
         frame_wake: Option<&crate::terminal::session::OutputWake>,

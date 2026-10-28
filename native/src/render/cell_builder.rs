@@ -630,6 +630,9 @@ fn warm_frame_glyphs(
         let _ = font_pipeline.glyph_information('0');
     }
     for cell_data_entry in cell_data {
+        if (cell_data_entry.flags >> cell_flags::CONCEAL) & 1 == 1 {
+            continue;
+        }
         let character = codepoint_to_char(cell_data_entry.codepoint);
         if character == ' '
             || character == '\0'
@@ -656,7 +659,7 @@ fn warm_frame_glyphs(
         if cluster_text.chars().count() <= 1 {
             continue;
         }
-        let shaped = font_pipeline.shape_run(&cluster_text);
+        let shaped = font_pipeline.shape_run_styled(&cluster_text, bold, italic);
         if shaped.len() == 1 {
             let glyph = &shaped[0];
             let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
@@ -738,6 +741,9 @@ fn append_row_instances(
         let is_cursor = cursor.visible
             && cell_data_entry.row == cursor.row
             && cell_data_entry.col == cursor.col;
+        // SGR 8：与 xterm 一致，保留背景与光标，跳过字形及全部前景装饰。
+        let concealed = (cell_data_entry.flags >> cell_flags::CONCEAL) & 1 == 1;
+        let emitted_flags = if concealed { 0 } else { cell_data_entry.flags };
         let effective_foreground = foreground;
         let mut effective_background = background;
         // 默认四边形尺寸（方块光标与空单元格共用）
@@ -760,7 +766,8 @@ fn append_row_instances(
             cell_data_entry.col as f32 * cell_width,
             cell_data_entry.row as f32 * cell_height,
         ];
-        if character == ' '
+        if concealed
+            || character == ' '
             || character == '\0'
             || cell_data_entry.codepoint == 0
             || cell_data_entry.codepoint == PLACEHOLDER
@@ -769,7 +776,7 @@ fn append_row_instances(
             // 部分帧由脏带清除实例铺底；省略后滚动整屏重绘的实例数按
             // 有效字符数而非网格面积增长。
             if !blank_cell_needs_quad(
-                cell_data_entry.flags,
+                emitted_flags,
                 is_cursor,
                 effective_background,
                 default_background,
@@ -813,7 +820,7 @@ fn append_row_instances(
                     background: effective_background,
                     underline_color: cell_data_entry.underline_color,
                     quad_size: size,
-                    flags: cell_data_entry.flags as f32,
+                    flags: emitted_flags as f32,
                     bearing: [0.0; 2],
                 });
             }
@@ -838,7 +845,7 @@ fn append_row_instances(
         {
             let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
             if cluster_text.chars().count() > 1 {
-                font_pipeline.shape_run(&cluster_text)
+                font_pipeline.shape_run_styled(&cluster_text, cell_bold, cell_italic)
             } else {
                 Vec::new()
             }
