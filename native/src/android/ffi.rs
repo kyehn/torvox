@@ -335,6 +335,26 @@ struct KittyPlacementKeys {
     cols: u32,
 }
 
+impl KittyPlacementKeys {
+    /// 渲染态初值：每个字段都取「不可能与真实值相等」的哨兵。
+    ///
+    /// 「尚未查询过」必须与任何真实键都不同，否则首帧会被误判成「键未变」，
+    /// 从而跳过重查与整帧重绘，残留图像像素会黏在首帧上。
+    /// `scroll_offset = i64::MIN` 另与 [`viewport_top_row`] 的饱和减法配套。
+    fn sentinel() -> Self {
+        Self {
+            session_id: 0,
+            generation: u64::MAX,
+            placement_generation: u64::MAX,
+            scroll_offset: i64::MIN,
+            scrollback_length: u32::MAX,
+            placeholder_signature: u64::MAX,
+            rows: u32::MAX,
+            cols: u32::MAX,
+        }
+    }
+}
+
 /// Kitty 缓存失效判定：把「哪些变化要做什么」集中到一处，避免散落的条件比较
 /// 随字段增删而漏判。
 struct KittyCacheInvalidation {
@@ -607,16 +627,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             last_scroll_px: 0.0,
             theme: crate::terminal::theme::default_dark(),
             dirty_mask: Vec::new(),
-            kitty_keys: KittyPlacementKeys {
-                session_id: 0,
-                generation: u64::MAX,
-                placement_generation: u64::MAX,
-                scroll_offset: i64::MIN,
-                scrollback_length: u32::MAX,
-                placeholder_signature: u64::MAX,
-                rows: u32::MAX,
-                cols: u32::MAX,
-            },
+            kitty_keys: KittyPlacementKeys::sentinel(),
             kitty_cell_width: 0.0,
             kitty_cell_height: 0.0,
             kitty_frames: Vec::new(),
