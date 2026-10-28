@@ -1,10 +1,10 @@
 # libghostty-vt API 清单
 
+## 0. 来源与口径
+
 上游：<https://github.com/Uzaaft/libghostty-rs>，crate `libghostty-vt`（对 C 库 `libghostty-vt-sys` 的安全 Rust 绑定）。本项目经 `native/Cargo.toml` 跟踪其 master 修订，开启 `log` 与 `png` 两个特性，无本地补丁。
 
 `crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 203 个，其余 515 个未使用。
-
-## 0. 口径
 
 - 已使用：本项目源码（含测试）出现具名引用、构造或方法调用。经字段访问隐含使用的返回类型（`PlacementRenderInfo`、`RowSelection`、`CursorViewport`）计入已使用。
 - 枚举变体随父类型计为一项；`pub const` 常量与 `pub use` 再导出别名各计一项。

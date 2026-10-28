@@ -1,36 +1,40 @@
 # termux-app
 
-## 概况
+## 0. 来源与口径
+
+来源：<https://github.com/termux/termux-app/tree/github-releases/v0.119.0-beta.3>（`DESIGN.md` 指定的参照版本）。文中 `:行号` 指该锚点下的上游源码行号，`文件名:行号` 指上游源文件；本项目的落点另行标注。
+
+## 1. 概况
 
 四模块结构：`terminal-emulator`（Java 终端引擎）、`terminal-view`（View 渲染层）、`termux-shared`（修饰键栏、主题、shell 环境、通知）、`app`（Service/Installer/Activity）。applicationId `com.termux`，`sharedUserId` 绑定全部插件。
 
-## 关键实现
+## 2. 关键实现
 
-### 终端会话
+### 2.1 终端会话
 
 `TerminalSession`：JNI `createSubprocess` 建 PTY；双向各一条 `ByteQueue`（进程→终端 64 KiB，终端→进程 4 KiB）；三线程分工——InputReader 读 PTY 写队列、OutputWriter 把队列写回 PTY、Waiter 阻塞 `waitFor` 上报退出码；仿真回调全部经主线程 Handler 消息驱动（`MSG_NEW_INPUT`/`MSG_PROCESS_EXITED`）。工作目录查询走 `/proc/<pid>/cwd` symlink。会话经 `finishIfRunning` 发 SIGKILL 结束。
 
-### bootstrap 安装
+### 2.2 bootstrap 安装
 
 `TermuxInstaller`：prefix 存在即跳过；staging 目录先清后用；zip 流式提取（`SYMLINKS.txt` 记录延迟建链，其余条目直接落盘）；完成才 rename 发布；非主用户与 files 目录不可达均有明确的失败对话框。
 
-### 修饰键栏
+### 2.3 修饰键栏
 
 `SpecialButtonState` 三态（`isCreated`/`isActive`/`isLocked`）：单击激活、长按锁定、读后自动失效（锁定除外）——本项目粘滞键语义的出处。激活反馈是 MaterialButton 文字变色，无缩放动画。auto-repeat 用定时器逐次触发，长按时长取系统 `ViewConfiguration.getLongPressTimeout()`（随无障碍设置变化），并有上下限钳制。默认布局为 2 行 7 列（`DEFAULT_IVALUE_EXTRA_KEYS`：上行 `ESC`、`/`、`-`（弹 `|`）、`HOME`、`UP`、`END`、`PGUP`；下行 `TAB`、`CTRL`、`ALT`、`LEFT`、`DOWN`、`RIGHT`、`PGDN`）。
 
-### 其他权威常量
+### 2.4 其他权威常量
 
 回滚默认 2000 行（钳制区间 100–50000）；`TERM=xterm-256color`；Android 7+ 因 DT_RUNPATH 显式移除 `LD_LIBRARY_PATH`；failsafe 模式保留宿主 `PATH`/`TMPDIR`。光标为块状并反色其下文字（`invertCursorTextColor`）。`KeyHandler` 持有完整 KEYCODE→escape 序列映射表（F1–F12、方向、Insert/Home/End/PgUp/PgDn、小键盘数字、Break/Back 映射 ESC）。
 
-### 前台服务
+### 2.5 前台服务
 
 `TermuxService` 持会话列表与后台任务；Activity client 与 Service client 分离（`onUnbind` 解除 Activity 引用防泄漏）；wake 与 wifi 锁成对持有；`START_NOT_STICKY`；`onDestroy` 清 TMPDIR 并 kill 全部会话。
 
-### 测试
+### 2.6 测试
 
 `terminal-emulator` 配 15+ JVM 测试（`WcWidth`、`KeyHandler`、`DecSet`、`OSC`、`DCS`、`APC`、`Resize`、`History`、`UnicodeInput`、`RectangularAreas`、`ScreenBuffer` 等），以 `TerminalTestCase` 为基座直接驱动仿真器断言屏幕文本。
 
-## 目录布局与路径常量
+## 3. 目录布局与路径常量
 
 全部路径常量集中于 `termux-shared/src/main/java/com/termux/shared/termux/TermuxConstants.java`，应用与插件共用同一份定义。
 
@@ -60,9 +64,9 @@
 - **双配置目录**：`~/.termux/`（`XDG_DATA_HOME` 语义）与 `~/.config/termux/`（`XDG_CONFIG_HOME` 语义）并存，构成 primary/secondary 两级回落。
 - **包名**：`TERMUX_PACKAGE_NAME = "com.termux"`（:352），插件为 `com.termux.api`、`.boot`、`.window`、`.styling`、`.tasker`、`.widget`（:366-436），全部经 `sharedUserId="com.termux"` 共享 uid（`AndroidManifest.xml:5`）。
 
-## 对外契约
+## 4. 对外契约
 
-### Manifest 暴露面
+### 4.1 Manifest 暴露面
 
 `app/src/main/AndroidManifest.xml`：
 
@@ -82,7 +86,7 @@
 
 自定义权限 `com.termux.permission.RUN_COMMAND` 声明为 `protectionLevel="dangerous"`（:15-20）——即调用方需用户显式授权。
 
-### 权限双门禁
+### 4.2 权限双门禁
 
 两条独立防线，缺一不可：
 
@@ -100,9 +104,9 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 同时，文件型结果（`EXTRA_RESULT_DIRECTORY`）必须在 `allow-external-apps` 确认之后才赋值（:139-150），因为 `ResultSender` 会把调用方控制的 `resultFileErrorFormat` 直接交给 `String.format()`，可用于覆写 `termux.properties` 自身来打开 `allow-external-apps`。
 
-`TERMUX_PROPERTIES_FILE_PATHS_LIST`（:739-741）与 `TERMUX_FLOAT_PROPERTIES_FILE_PATHS_LIST`（:759-761）被 `ContentProvider.openFile` 强制改为只读模式（见 1.8）。
+`TERMUX_PROPERTIES_FILE_PATHS_LIST`（:739-741）与 `TERMUX_FLOAT_PROPERTIES_FILE_PATHS_LIST`（:759-761）被 `ContentProvider.openFile` 强制改为只读模式（见 4.8）。
 
-### RUN_COMMAND Intent 契约
+### 4.3 RUN_COMMAND Intent 契约
 
 `RunCommandService`（action `com.termux.RUN_COMMAND`） extras 全集（`TermuxConstants.java:1128-1193`）：
 
@@ -135,7 +139,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 1. 逗号替代字符替换（:96-102）——Tasker/Locale 类插件宿主会吃掉参数中的逗号，故约定用 `COMMA_ALTERNATIVE`（U+201A `‚`，:905）替代 `COMMA_NORMAL`（:901）；字符集可由 extra 覆盖。
 2. stdin / workdir / runner / sessionAction / shellName / shellCreateMode / label 等赋值（:104-125）。`runner` 缺省为 `TERMINAL_SESSION`，`EXTRA_BACKGROUND=true` 时取 `APP_SHELL`；非法 runner 直接失败（:110-115）。
-3. `allow-external-apps` 校验（:132-137，见 1.2）。
+3. `allow-external-apps` 校验（:132-137，见 4.2）。
 4. 结果目录 extras（:151-158）。
 5. 可执行文件：取 canonical path（:171），要求是 regular file 且可读可执行；**不自动补齐缺失的读/执行权限**（:175-182）。
 6. 工作目录：canonical path，要求目录可读可写；仅对允许的 termux 工作目录才自动创建与补齐权限（:186-204）。
@@ -144,7 +148,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 `EXTRA_SESSION_ACTION` 取值 4 个：`0` 切换并打开 Activity、`1` 保持当前并打开 Activity、`2` 切换到新会话但不打开 Activity、`3` 保持当前且不打开 Activity（:1062-1088），`MIN/MAX` 边界见 :1091-1094。
 
-### 结果回传契约
+### 4.4 结果回传契约
 
 两条并行通道。
 
@@ -164,7 +168,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
   调用方可用 `resultFileOutputFormat` / `resultFileErrorFormat` 覆写。格式串禁止定义超过 `%5$s` 的位置参数（`ShellCommandConstants.java:45-46`），否则抛 `IllegalFormatException`。
 
-### TERMUX_SERVICE Intent 契约
+### 4.5 TERMUX_SERVICE Intent 契约
 
 `TermuxService` 内部 action（`TermuxConstants.java:984-1116`），由 `RunCommandService` 与 `FileReceiverActivity` 驱动：
 
@@ -200,7 +204,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 - `shellCreateMode` 缺省 `ALWAYS`（:410-411）。
 - `executableUri` 参与 intent data，scheme 为 `com.termux.file`（:216 / :367）。
 
-### 广播契约
+### 4.6 广播契约
 
 | 项 | 常量值 | 方向 |
 | --- | --- | --- |
@@ -216,7 +220,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 `ACTION_RELOAD_STYLE` 注册于 `TermuxActivity.registerTermuxActivityBroadcastReceiver`（:918-924，`onStart` 时），分发要求 `mIsVisible`（:946）。
 
-### am.sock UNIX socket 协议
+### 4.7 am.sock UNIX socket 协议
 
 由 `TermuxAmSocketServer`（`termux-shared/.../termux/shell/am/`）承载，socket 文件为 `/data/data/com.termux/files/apps/com.termux/termux-am/am.sock`（`TermuxConstants.java:921-924`）。`$PREFIX/bin/termux-am` 客户端经 `$PREFIX/bin/termux-am-socket` 连接，替代每次拉起 dalvik VM 的 `/system/bin/am`。
 
@@ -237,7 +241,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 - 状态由 `TERMUX_APP_AM_SOCKET_SERVER_ENABLED` 导出为环境变量，**应用启动后即冻结**，避免旧 shell 读到过期值（:92-96）。
 - Android 10+ 执行 `start`/`startservice` 时额外校验 `SYSTEM_ALERT_WINDOW`（`AmSocketServer.java:219-224`）。
 
-### 1.8 文件共享与文档提供者
+### 4.8 文件共享与文档提供者
 
 **`com.termux.files` ContentProvider**（`TermuxOpenReceiver.ContentProvider`）：
 
@@ -249,7 +253,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 **`com.termux.documents`**：`TermuxDocumentsProvider`，权限 `MANAGE_DOCUMENTS`，向系统文件选择器暴露目录树。
 
-### 环境变量契约
+### 4.9 环境变量契约
 
 三层叠加，每层只负责自己的部分。
 
@@ -289,7 +293,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 - 写入为原子操作：先写 `.tmp` 再 `moveRegularFile`（`TermuxShellEnvironment.java:49-59`），避免与 source/read 竞争。
 - 触发点：`TermuxApplication.onCreate`（:72）、`SystemEventReceiver` 收到包增删改（:58-66）、`TermuxInstaller` 安装完成（:222）。
 
-### bootstrap zip 与崩溃日志契约
+### 4.10 bootstrap zip 与崩溃日志契约
 
 **bootstrap**（`app/build.gradle`）：
 
@@ -305,7 +309,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 **其他常量**：Widget 令牌 `com.termux.shortcut.token`（:1315）；Widget action `com.termux.widget.ACTION_WIDGET_ITEM_CLICKED` / `ACTION_REFRESH_WIDGET`（:1324、:1328）、extra `com.termux.widget.EXTRA_FILE_CLICKED`（:1332）；Float action `com.termux.window.ACTION_STOP_SERVICE` / `ACTION_SHOW` / `ACTION_HIDE`（:1248-1254，注意包名为 `com.termux.window` 而非 `com.termux.float`）。
 
-## `~/.termux` 目录
+## 5. `~/.termux` 目录
 
 `~/.termux`（`TERMUX_DATA_HOME_DIR_PATH`）下一共 6 个条目：
 
@@ -319,13 +323,13 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 └── tasker/                    # 仅常量声明，消费方 Termux:Tasker
 ```
 
-### `termux.properties`
+### 5.1 `termux.properties`
 
 **路径**：primary `~/.termux/termux.properties`（`TermuxConstants.java:726`），secondary `~/.config/termux/termux.properties`（:731）。
 
 **文件选择**（`SharedProperties.getPropertiesFileFromList`，:268-289）：按列表顺序取**第一个 `FileType.REGULAR` 且 `canRead()`** 的文件；**明确不跟随符号链接**（`FileUtils.getFileType(path, false)`）。非 REGULAR 或不可读仅告警并继续。两者皆无则全部使用代码内默认值。每次 `loadTermuxPropertiesFromDisk` 都重新搜索（`TermuxSharedProperties.java:45-56`），因为高优先级文件可能在运行后才被创建（issue #2836）。
 
-**编码**：`properties.load(new InputStreamReader(in, StandardCharsets.UTF_8))`（`SharedProperties.java:244`）。与 `colors.properties` 的 Latin-1 形成对照（见 2.3）。
+**编码**：`properties.load(new InputStreamReader(in, StandardCharsets.UTF_8))`（`SharedProperties.java:244`）。与 `colors.properties` 的 Latin-1 形成对照（见 5.3）。
 
 **语法**：标准 `.properties`。键值对，`#` 注释。
 
@@ -388,7 +392,7 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 **触发时机**：`TermuxActivity.onCreate` 调 `reloadProperties()`（:446-447、:207-209）；`TermuxApplication.onCreate` 调 `TermuxAppSharedProperties.init(context)`（:41）。
 
-### 2.2 `termux.float.properties`
+### 5.2 `termux.float.properties`
 
 primary `~/.termux/termux.float.properties`（:746），secondary `~/.config/termux/termux.float.properties`（:751），列表 :759-761。
 
@@ -396,7 +400,7 @@ primary `~/.termux/termux.float.properties`（:746），secondary `~/.config/ter
 
 设计意图：两份文件承载同类安全语义（`allow-external-apps` 一类的开关），因此共享同一套「ContentProvider 不可写」保护。
 
-### 2.3 `colors.properties`
+### 5.3 `colors.properties`
 
 **路径** `~/.termux/colors.properties`（`TermuxConstants.java:766`）。
 
@@ -443,7 +447,7 @@ TermuxActivity.onCreate (:198)
 
 **写入方**：Termux:Styling 应用（`com.termux.styling`）的调色器写此文件，再发 `ACTION_RELOAD_STYLE` 广播让主 app 重载——这是一个「外部写文件 + 通知重载」的松耦合设计。
 
-### 2.4 `font.ttf`
+### 5.4 `font.ttf`
 
 **路径** `~/.termux/font.ttf`（`TermuxConstants.java:771`）。
 
@@ -464,7 +468,7 @@ final Typeface newTypeface = (fontFile.exists() && fontFile.length() > 0)
 
 **上游的 `fonts` 目录**：termux-app **没有** `~/.termux/fonts` 目录概念，仅单文件 `font.ttf`。`~/.termux/fonts` 是本项目 `DESIGN.md:79` 的扩展要求（若目录存在则加入字体扫描路径并在字体列表展示，且软件自身不得创建它）。
 
-### 2.5 `boot/`
+### 5.5 `boot/`
 
 **路径** `~/.termux/boot`（`TermuxConstants.java:797`、File :799）。
 
@@ -474,19 +478,19 @@ final Typeface newTypeface = (fontFile.exists() && fontFile.length() > 0)
 
 **契约语义**（由 Termux:Boot 侧定义，termux-app 只提供路径常量）：设备启动后由 Termux:Boot 枚举该目录下的脚本并以 shell 执行。本项目 `PROHIBITED.md` 已禁止插件体系，故此项不适用。
 
-### 2.6 `tasker/`
+### 5.6 `tasker/`
 
 **路径** `~/.termux/tasker`（`TermuxConstants.java:832`、File :834）。
 
 同样**主 app 无使用点**。注释（:830-831）说明供 Tasker 宿主应用经 Termux:Tasker（`com.termux.tasker`）插件客户端调用。主 app 内唯一的关联代码是 `SettingsActivity` 检测该插件是否安装以决定是否显示对应设置项（`SettingsActivity.java:94-101`）。本项目已禁止，不适用。
 
-### 2.7 secondary 配置目录 `~/.config/termux/`
+### 5.7 secondary 配置目录 `~/.config/termux/`
 
 严格说不属于 `~/.termux`，但与其构成同一契约：`termux.properties` 与 `termux.float.properties` 各有 primary/secondary 两个路径，primary 优先、缺失或不可读（或为符号链接）才回落 secondary。此项即 XDG 惯例的落地，复刻时应保留两级回落语义而非只读 `~/.termux`。
 
-## 三、与本项目规范的对照
+## 6. 与本项目规范的对照
 
-### 3.1 已对齐（`DESIGN.md` 依 Termux 定规且已实现）
+### 6.1 已对齐（`DESIGN.md` 依 Termux 定规且已实现）
 
 | Termux 契约 | 本项目落点 |
 | --- | --- |
@@ -499,16 +503,16 @@ final Typeface newTypeface = (fontFile.exists() && fontFile.length() > 0)
 | `com.termux.documents` authority | `TerminalDocumentsProvider.AUTHORITY` |
 | 回滚 2000 行、`TERM=xterm-256color`、`COLORTERM=truecolor` | `DESIGN.md` + openspec/specs/shell-env |
 
-### 3.2 不适用（`PROHIBITED.md` 已禁止）
+### 6.2 不适用（`PROHIBITED.md` 已禁止）
 
 - `termux.env` 文件及相关逻辑（对应上游 1.9 节末段）。
 - 插件体系全部：`com.termux.api`、`com.termux.boot`、`com.termux.window`、`com.termux.styling`、`com.termux.tasker`、`com.termux.widget`，以及 `~/.termux/boot/`、`~/.termux/tasker/`、`~/.shortcuts/`、`termux.float.properties`。
-- `termux.properties` 及其设置项体系（本项目设置已另行定规，故 2.1 整节作为「上游契约记录」而非「待复刻清单」）。这与 `docs/research/termux-app.md` 早前的结论一致，本文补充了键级别的完整清单与错误处理语义。
+- `termux.properties` 及其设置项体系（本项目设置已另行定规，故 5.1 整节作为「上游契约记录」而非「待复刻清单」）。本文补齐了键级别的完整清单与错误处理语义。
 - `RunCommandService` / `com.termux.permission.RUN_COMMAND` / `allow-external-apps` / `com.termux.files` ContentProvider（外部命令执行面）。
 - `am.sock` 与 `run-termux-am-socket-server`（内建命令均不提供）。
 - `~/storage` 符号链接组、`~/crash_log.md` 轮转（`DESIGN.md` 不得创建 `~/storage`）。
 
-### 3.3 值得留意的设计点
+### 6.3 值得留意的设计点
 
 1. **properties 的键白名单是安全边界，不只是便利**：未知键被丢弃，使外部应用即便拿到文件写权限也无法引入新语义。本项目若不实现 properties 体系，`DESIGN.md` 的「只允许设置下列环境变量」即等价约束。
 2. **`colors.properties` 的「一个坏条目毁掉整份配置」**：`updateWith` 先 `reset()` 再逐项写，中途抛异常导致后续条目丢失且不提示用户。本项目若将来支持用户颜色文件，应在解析阶段做全量校验后再原子提交。
@@ -517,7 +521,7 @@ final Typeface newTypeface = (fontFile.exists() && fontFile.length() > 0)
 5. **am.sock 的 root 例外**：接受 uid 0 的连接但以 termux 用户身份执行，兼顾 root 场景与最小权限。此模式对本项目无对应面，但「peer credential 鉴权 + 权限降级」是本地 socket 服务的标准做法。
 6. **逗号替代字符 `‚`（U+201A）**：为迁就 Tasker/Locale 类插件宿主的参数解析而设计的转义层，是历史上「插件生态约束渗入核心协议」的典型样本。本项目无插件面，不需要。
 
-## 四、结论
+## 7. 结论
 
 - termux-app 的对外契约共 10 类（Manifest 暴露面、权限双门禁、RUN_COMMAND Intent、结果回传、TERMUX_SERVICE Intent、广播、am.sock 协议、文件共享/文档提供者、环境变量三层、bootstrap zip 与崩溃日志），全部常量集中在 `TermuxConstants` 与 `TermuxPropertyConstants` 两个文件，第三方插件可原样 import 而非复制。
 - `~/.termux` 下 6 个条目中，主 app 实际读取 4 个：`termux.properties`（键白名单 + 两级回落 + 只读）、`colors.properties`（4 类 key + 2 种颜色语法 + 异常部分生效）、`font.ttf`（exists && length>0 否则 MONOSPACE）、`termux.float.properties`（仅强制只读）。`boot/` 与 `tasker/` 是给独立插桩的路径声明。
