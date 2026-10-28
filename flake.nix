@@ -194,6 +194,14 @@
                     if [[ ! -d "/tmp/alacritty-theme" ]]; then
                       git clone --depth 1 --quiet https://github.com/alacritty/alacritty-theme.git /tmp/alacritty-theme
                     fi
+                    baseline_profile_dir="$repository_root/android/app/src/release/generated/baselineProfiles"
+                    if [[ ! -f "$baseline_profile_dir/baseline-prof.txt" || ! -f "$baseline_profile_dir/startup-prof.txt" ]]; then
+                      mkdir -p "$baseline_profile_dir"
+                      git -C "$repository_root" fetch --quiet origin +assets:refs/remotes/origin/assets
+                      for profile in baseline-prof.txt startup-prof.txt; do
+                        git -C "$repository_root" show "origin/assets:baselineprofile/$profile" > "$baseline_profile_dir/$profile"
+                      done
+                    fi
                   ) 9>"/tmp/.terminal-devshell-$UID.lock"
               fi
             '';
