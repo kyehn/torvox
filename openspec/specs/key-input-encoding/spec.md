@@ -70,6 +70,22 @@ MUST NOT 用 Kotlin 侧的模式查询结果替代上游的模式读取。
 - **WHEN** 检查终端模式的可观察面
 - **THEN** 不存在独立的模式查询导出；DECCKM 置位后方向键编码为 `SS3 A`、复位后回到 `CSI A`
 
+### Requirement: PTY 异步队列跟随活动 Bridge
+
+硬件键与鼠标写入 MUST 在首个 Bridge 孵化后、以及活动会话切换后重新绑定到当前
+Bridge 的 `ptyWriteQueue`；MUST NOT 只在视图 attach 时尝试一次。旧 Bridge MUST
+解绑，视图 detach MUST 只摘自已安装的闭包，MUST NOT 摘掉新视图已接管的钩子。
+
+#### Scenario: 冷启动后绑定
+
+- **WHEN** 视图先 attach、首个会话的 Bridge 随后异步就绪
+- **THEN** 活动 Bridge 获得写入队列，硬件键不再同步写 PTY
+
+#### Scenario: 切换会话后重绑
+
+- **WHEN** 用户切到另一会话，活动 Bridge 更换
+- **THEN** 新 Bridge 获得队列，旧 Bridge 的钩子被清除
+
 ### Requirement: Android 键码到上游 Key 的映射单一且无行为判断
 
 `KEYCODE_*` 到上游 `key::Key` 的映射 MUST 是唯一的机械对应表，MUST NOT 在映射中

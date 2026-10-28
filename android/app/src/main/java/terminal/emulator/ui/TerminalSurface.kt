@@ -161,11 +161,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 只摘自己装的那一份：Activity 重建时新旧视图短暂共存，旧视图 detach 可能晚于
         // 新视图 attach；无条件按「当前活动会话」的 bridge 清空会摘掉新视图刚装的钩子，
         // 硬件键/鼠标退回主线程同步写 PTY（PTY 满时每次按键冻结 UI 数秒）。
-        val bridge = ptyWriteQueueBridge
-        if (bridge != null && viewModel?.runtime?.bridge() === bridge) {
-            bridge.ptyWriteQueue = null
+        val binding = ptyWriteQueueBinding
+        if (binding != null && ptyWriteQueueBridge?.ptyWriteQueue === binding) {
+            ptyWriteQueueBridge?.ptyWriteQueue = null
         }
         ptyWriteQueueBridge = null
+        ptyWriteQueueBinding = null
     }
 
     override fun onAttachedToWindow() {
@@ -177,7 +178,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 排队钩子 MUST 随 attach 恢复：它在 detach 时被摘掉（批缓冲已关闭，留着会让
         // 此后的按键写入被拒），而视图复用不重走 attachViewModel。漏恢复的后果是
         // 硬件键与鼠标退回同步 feedPty——主端满时每次按键最多冻住 UI 线程 5s。
-        installPtyWriteQueue()
+        bindActivePtyWriteQueue()
         // 订阅必须随 attach 恢复，不能只在 attachViewModel 里建一次：detach 会停掉它们
         // （见 onDetachedFromWindow 的清理），而视图复用时不会重新走 AndroidView.factory，
         // 于是 altScreenActiveFlow / lastContentRowFlow / cellMetricsFlow 三条输入全部失联
@@ -1752,8 +1753,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             LogUtil.debug("TerminalSurface", "粘贴入队 ${data.size} 字节 -> 会话 $sessionId")
             inputBatchBuffer.write(data, sessionId)
         }
-        // 硬件按键与鼠标事件同样排到批缓冲（理由见 [installPtyWriteQueue]）。
-        installPtyWriteQueue()
+        // 硬件按键与鼠标事件同样排到批缓冲（理由见 [bindActivePtyWriteQueue]）。
+        bindActivePtyWriteQueue()
         observeImeShiftInputs(viewModel)
     }
 
@@ -2194,6 +2195,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     /** 当前安装 [Bridge.ptyWriteQueue] 的那条 bridge；detach 时据此只摘自己的一份。 */
     private var ptyWriteQueueBridge: Bridge? = null
+
+    /** 本视图写入该 Bridge 的具体闭包；用于区分新视图已接管的钩子。 */
+    private var ptyWriteQueueBinding: ((Long, ByteArray) -> Unit)? = null
 
     /**
      * 惯性滚动物理：由本视图按 vsync 自驱的指数衰减（[flingOffsetPx]），
@@ -3223,12 +3227,28 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 保证与输入法写入的先后顺序（两路各写时，缓冲中待发的退格会被直写的击键越过）。
      * attach 与首次绑定都要装，故只此一处实现。
      */
-    private fun installPtyWriteQueue() {
-        val bridge = viewModel?.runtime?.bridge() ?: return
-        bridge.ptyWriteQueue = { sessionId, data ->
-            inputBatchBuffer.write(data, sessionId)
+    internal fun bindActivePtyWriteQueue() {
+        val bridge = viewModel?.runtime?.bridge()
+        val previousBridge = ptyWriteQueueBridge
+        val previousBinding = ptyWriteQueueBinding
+        // 只摘自己装的那一份：新视图可能已接管同一个 Bridge。
+        if (previousBridge !== bridge && previousBridge?.ptyWriteQueue === previousBinding) {
+            previousBridge?.ptyWriteQueue = null
         }
         ptyWriteQueueBridge = bridge
+        ptyWriteQueueBinding = null
+        if (bridge == null) return
+        val binding: (Long, ByteArray) -> Unit = { sessionId, data ->
+            inputBatchBuffer.write(data, sessionId)
+        }
+        bridge.ptyWriteQueue = binding
+        ptyWriteQueueBinding = binding
+    }
+
+    internal fun hasActivePtyWriteQueue(): Boolean {
+        val binding = ptyWriteQueueBinding ?: return false
+        return ptyWriteQueueBridge === viewModel?.runtime?.bridge() &&
+            ptyWriteQueueBridge?.ptyWriteQueue === binding
     }
 
     private fun newInputBatchBuffer(): InputBatchBuffer = InputBatchBuffer(
