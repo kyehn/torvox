@@ -1,9 +1,11 @@
 package terminal.emulator.ui
 
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -274,6 +276,59 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
             wheelReleases(bytes),
         )
         disarmMouseReporting()
+        composeTestRule.cleanUpTerminalState()
+    }
+
+    /** 未启用鼠标上报时，外接滚轮必须滚动本地回滚，而不是被静默忽略。 */
+    @Test
+    fun wheelWithoutMouseTrackingScrollsLocalScrollback() {
+        bridge().restoreSharedShellState()
+        bridge().writeToPty("seq 1 120\n".toByteArray(Charsets.UTF_8))
+        assertNotNull(
+            "本地回滚必须先有内容",
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                bridge().scrollbackLength() > 5
+            },
+        )
+        bridge().setScrollOffset(0)
+        val surface = findTerminalSurface(composeTestRule.activity)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val now = SystemClock.uptimeMillis()
+            val properties = arrayOf(MotionEvent.PointerProperties().apply { id = 0 })
+            val coordinates =
+                arrayOf(
+                    MotionEvent.PointerCoords().apply {
+                        x = 30f
+                        y = 30f
+                        setAxisValue(MotionEvent.AXIS_VSCROLL, 1f)
+                    },
+                )
+            val wheel =
+                MotionEvent.obtain(
+                    now,
+                    now,
+                    MotionEvent.ACTION_SCROLL,
+                    1,
+                    properties,
+                    coordinates,
+                    0,
+                    0,
+                    1f,
+                    1f,
+                    0,
+                    0,
+                    InputDevice.SOURCE_MOUSE,
+                    0,
+                )
+            surface.dispatchGenericMotionEvent(wheel)
+            wheel.recycle()
+        }
+        assertNotNull(
+            "滚轮向上必须进入更早的本地回滚",
+            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) {
+                composeTestRule.activity.terminalViewModel.runtime.activeSessionScrollOffset() > 0
+            },
+        )
         composeTestRule.cleanUpTerminalState()
     }
 

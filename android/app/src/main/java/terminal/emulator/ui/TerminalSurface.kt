@@ -3600,15 +3600,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 鼠标滚轮事件（外接鼠标/触控板）。应用启用鼠标上报时
      * （DECSET 1000/1002/1003），滚轮事件经 Ghostty 鼠标编码器编码为按钮 4/5
-     * 并写入 PTY。未启用上报时编码器返回空序列——事件被忽略
-     * （回滚没有滚轮处理，触摸滚动已覆盖该场景）。
+     * 并写入 PTY；未启用时在主屏滚动本地回滚，备用屏保持不滚动。
      */
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+        if (
+            event.action == MotionEvent.ACTION_SCROLL &&
+            (event.isFromSource(InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(InputDevice.SOURCE_TOUCHPAD))
+        ) {
             val runtime = viewModel?.runtime
             val bridge = runtime?.bridge()
+            val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            if (delta == 0f) return super.onGenericMotionEvent(event)
             if (bridge != null) {
-                val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
                 if (
                     bridge.encodeMouseWheel(
@@ -3621,6 +3625,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         1,
                     )
                 ) {
+                    return true
+                }
+            }
+            if (runtime != null && !runtime.altScreenActiveFlow.value) {
+                val rowHeight = cellHeight
+                val scrollbackLen = currentScrollbackLength()
+                if (rowHeight > 0f && scrollbackLen > 0) {
+                    stopFlingAnimation()
+                    // 与触摸同一条管道：滚轮向上一档进入更早历史。
+                    applyScrollStep(
+                        applyScrollDistance(
+                            scrollAccumulatorPx,
+                            -delta * rowHeight,
+                            rowHeight,
+                            scrollOffset,
+                            scrollbackLen,
+                            imeShiftRevealPx,
+                            imeShiftCapacityPx.toFloat(),
+                        ),
+                        scrollbackLen,
+                    )
                     return true
                 }
             }
