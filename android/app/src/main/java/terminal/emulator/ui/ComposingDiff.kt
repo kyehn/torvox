@@ -16,14 +16,15 @@ object ComposingDiff {
 
     fun reconcile(previous: String, next: String): Edit {
         if (previous == next) return Edit(0, "")
-        // 按 UTF-16 下标求最长公共前缀；前缀两侧相同，故码点切分点一致。
+        // 按码点求最长公共前缀：UTF-16 下标可能落在代理对中间（👍 与 👎 只差低代理位），
+        // 那样待追加段是半个码元，编不出合法 UTF-8（会被替换成 U+FFFD），
+        // 待擦除段也只覆盖半个字符。切分点必须落在码点边界上。
         var commonPrefixLength = 0
         val maxPrefixLength = minOf(previous.length, next.length)
-        while (
-            commonPrefixLength < maxPrefixLength &&
-            previous[commonPrefixLength] == next[commonPrefixLength]
-        ) {
-            commonPrefixLength++
+        while (commonPrefixLength < maxPrefixLength) {
+            val previousCodePoint = previous.codePointAt(commonPrefixLength)
+            if (previousCodePoint != next.codePointAt(commonPrefixLength)) break
+            commonPrefixLength += Character.charCount(previousCodePoint)
         }
 
         val textToErase = if (previous.length > commonPrefixLength) previous.substring(commonPrefixLength) else ""
