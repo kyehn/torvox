@@ -37,6 +37,23 @@ CJK 字形 SHALL 按 atlas 位图物理像素 1:1 采样，MUST NOT 按
 - **WHEN** 同一终端同时显示西文与 CJK 字形
 - **THEN** CJK 笔画不增粗，中/文/测/试宽度与 FreeType 无 hint 参考一致（比率 1.000）
 
+### Requirement: 多字形簇按物理基线定位并保留单元样式
+
+复杂字素簇整形后的每个叠加字形 MUST 使用上游物理坐标
+`x + font_size * x_offset` 与 `y - font_size * y_offset` 定位，MUST NOT 只取
+以字号为单位的字面偏移后直接当像素使用。簇整形 MUST 继承单元的粗体与斜体，
+整形缓存键 MUST 区分这两个维度，MUST NOT 让粗斜体簇复用常规字面。
+
+#### Scenario: ZWJ 序列的后续分量不叠回起点
+
+- **WHEN** 渲染包含多个非零推进字形的 ZWJ 簇
+- **THEN** 后续叠加字形落在前一字形推进之后，而非全部叠在单元起点
+
+#### Scenario: 粗体组合字符保持粗体
+
+- **WHEN** 粗体单元包含多码点字素簇并整形成单一字形
+- **THEN** 使用同族粗体字面，不回落为常规字面
+
 ### Requirement: IME 提交的 CJK 文本首帧可见
 
 IME commitText 经 TerminalInputEncoder UTF-8 编码、InputBatchBuffer 单线程发送、

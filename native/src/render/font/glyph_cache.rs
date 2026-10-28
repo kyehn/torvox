@@ -15,6 +15,8 @@ pub struct ShapeKey {
     pub raster_scale_bits: u32,
     pub font_id: Option<fontdb::ID>,
     pub fallback_generation: u64,
+    pub bold: bool,
+    pub italic: bool,
 }
 pub struct GlyphCache {
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
