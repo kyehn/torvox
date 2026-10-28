@@ -17,8 +17,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.fail
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.installer.TerminalPrefix
 import terminal.emulator.util.runCatchingCancellable
 
@@ -173,6 +175,58 @@ fun AndroidComposeTestRule<*, *>.awaitBridge(timeoutMs: Long = BRIDGE_READY_TIME
         getBridge() != null
     }
     return checkNotNull(getBridge()) { "运行时桥必须就绪（${timeoutMs}ms 未孵化）" }
+}
+
+/**
+ * 运行时桥（要求已就绪）。
+ *
+ * 与 [awaitBridge] 的区别是**不等待**：调用点已过就绪门槛（setUp 或用例内显式
+ * 等待），此时桥仍为 null 说明会话被换掉或压根没孵化，属断言失败而非可重试状态。
+ */
+fun AndroidComposeTestRule<*, *>.requireBridge(): Bridge = getBridge() ?: throw AssertionError("运行时桥必须就绪")
+
+/**
+ * 泵送事件队列后读全量终端文本。
+ *
+ * 运行时输出收割由 `pollEvent` 驱动：不泵一次就读，拿到的可能是上一轮的文本
+ * （命令回显尚未落到网格）。
+ */
+fun AndroidComposeTestRule<*, *>.pumpedTerminalText(): String? {
+    runCatchingCancellable { NativeBridge.pollEvent() }
+    return getBridge()?.getTerminalText()
+}
+
+/**
+ * 同步地在 UI 线程执行 [block] 并取回结果。
+ *
+ * 必须用 `runOnMainSync` 而不是 `Activity.runOnUiThread`：后者只是 post，立即返回，
+ * 读到的结果恒为空——耗时也就量成了零。
+ */
+fun <T> onUiThread(block: () -> T): T {
+    var result: T? = null
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { result = block() }
+    @Suppress("UNCHECKED_CAST")
+    return result as T
+}
+
+/**
+ * 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。
+ *
+ * 失焦时输入法写入会被拒收（有界抑制窗口），故须先拿到焦点再提交文本。
+ */
+fun tapToFocus(surface: View) {
+    val location = IntArray(2)
+    onUiThread { surface.getLocationOnScreen(location) }
+    injectTap(
+        surface,
+        (location[0] + surface.width / 2).toFloat(),
+        (location[1] + surface.height / 2).toFloat(),
+    )
+    val focused =
+        UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
+            onUiThread { surface.hasWindowFocus() }
+        }
+    assertNotNull("触摸后窗口仍未获得焦点，输入法写入会被拒收", focused)
 }
 
 fun AndroidComposeTestRule<*, *>.openDrawer() {

@@ -19,11 +19,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.TerminalLogcatTest
-import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.terminalCellSizePx
 import terminal.emulator.terminalGridColumns
-import terminal.emulator.util.runCatchingCancellable
 
 /**
  * Quantified verification of the selection/drag behaviors reported broken:
@@ -54,14 +52,8 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
-        // 桥单次读取：会话孵化中为 null，由调用方轮询重试（getBridge 契约）。
-        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            composeTestRule.getBridge() != null
-        }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
+        composeTestRule.awaitBridge()
     }
-
-    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     /** 本类用 `feedTerminal` 直写标记：不清场即污染共用会话。 */
     @After
@@ -91,7 +83,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
      * 会小 2~3 倍——历史拖拽测试在该错尺度上“恰好”自洽，绝对点击则整体漂移）。
      */
     private fun cellPx(): Pair<Float, Float> {
-        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge())
+        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, composeTestRule.requireBridge())
         assertTrue(
             "cell metrics unavailable ($cellWidth x $cellHeight)",
             cellWidth > 0f && cellHeight > 0f,
@@ -103,14 +95,6 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
     private fun cellAnchorLocal(col: Int, row: Int): Pair<Float, Float> {
         val (cellWidth, cellHeight) = cellPx()
         return Pair(col * cellWidth, (row + 1) * cellHeight)
-    }
-
-    private fun currentText(): String? {
-        runCatchingCancellable {
-            terminal.emulator.bridge.NativeBridge
-                .pollEvent()
-        }
-        return composeTestRule.getBridge()?.getTerminalText()
     }
 
     /**
@@ -127,11 +111,11 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         startColumn: Int = 1,
     ): Triple<Float, Float, Int> {
         // 视口先归位：坐标换算只在滚动偏移为 0 时成立（见 scrollViewportToBottom）。
-        scrollViewportToBottom(bridge(), composeTestRule.activity.terminalViewModel.runtime)
+        scrollViewportToBottom(composeTestRule.requireBridge(), composeTestRule.activity.terminalViewModel.runtime)
         // 标记必须单行放得下：网格列数随屏幕宽度与主字体变化（实测 25～38 列），
         // 超宽即折行，文本查询按整串匹配时恒不成立——外部表现是「标记不落格」，
         // 与送显、与查询超时都无关。前提不成立时在此直接失败，不留到后面误判。
-        val columns = terminalGridColumns(composeTestRule.activity, bridge())
+        val columns = terminalGridColumns(composeTestRule.activity, composeTestRule.requireBridge())
         assertTrue(
             "标记必须单行容得下 (列数=$columns 标记=[$words])",
             words.length <= columns,
@@ -149,21 +133,21 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         for (attempt in 1..3) {
             if (landed != null) break
             val fedText =
-                bridge().feedTerminal(
+                composeTestRule.requireBridge().feedTerminal(
                     "\u001B[${targetViewportRow + 1};${startColumn}H$words".toByteArray(Charsets.UTF_8),
                 )
             assertTrue("标记送显失败", fedText)
             landed =
                 UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-                    val text = currentText()
+                    val text = composeTestRule.pumpedTerminalText()
                     lastSeen = text?.takeLast(200)
                     text?.contains(words) == true
                 }
             android.util.Log.i("SelectionDrag", "feed $words attempt=$attempt hit=${landed != null} tail=[$lastSeen]")
         }
         assertNotNull("标记必须落格: $words tail=[$lastSeen]", landed)
-        val depth = bridge().scrollbackLength()
-        val lines = currentText().orEmpty().lines()
+        val depth = composeTestRule.requireBridge().scrollbackLength()
+        val lines = composeTestRule.pumpedTerminalText().orEmpty().lines()
         val index = lines.indexOfFirst { it.contains(words) }
         assertTrue("输出行定位失败: $words", index >= 0)
         val viewportRow = index - depth
@@ -374,7 +358,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
     @Test
     fun whitespace_longpress_shows_paste_only_menu() {
         seedClipboard()
-        val bridgeInstance = bridge()
+        val bridgeInstance = composeTestRule.requireBridge()
         bridgeInstance.writeToPty("clear\n".toByteArray(Charsets.UTF_8))
         Thread.sleep(1_200)
 
@@ -400,7 +384,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         longPressUntilSelected(tapX, tapY)
 
         // 应用仅简体中文：菜单为中文 PopupWindow（复制/分享/全选），英文 COPY 永不出现。
-        val gridDbg = currentText()?.takeLast(400)
+        val gridDbg = composeTestRule.pumpedTerminalText()?.takeLast(400)
         assertNotNull(
             "COPY item missing for word long-press (tap=$tapX,$tapY row=$tapRow grid=[$gridDbg])",
             waitForMenuText("复制"),
@@ -436,7 +420,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
             endGridRow = selection.end?.row ?: -1
         }
         assertTrue("长按后必须有选择末端 (col=$endCol row=$endGridRow)", endCol >= 0 && endGridRow >= 0)
-        val depthNow = bridge().scrollbackLength()
+        val depthNow = composeTestRule.requireBridge().scrollbackLength()
         val endViewportRow = endGridRow - depthNow
         // END 锚点 = (endCol+1, endRow+1) 格点（positionAllHandles：END 取 endCol+1），
         // 抓取必须落在命中矩形内，tap+2 猜测与少一格都会脱靶。
@@ -504,10 +488,10 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         val blankCol = (cols / 2).coerceAtLeast(10)
         val blankRow = markerRow + 1
         val blankLine =
-            currentText()
+            composeTestRule.pumpedTerminalText()
                 .orEmpty()
                 .lines()
-                .getOrNull(bridge().scrollbackLength() + blankRow)
+                .getOrNull(composeTestRule.requireBridge().scrollbackLength() + blankRow)
                 .orEmpty()
         assertTrue("长按行尾必须空白 (行=$blankRow 内容=[$blankLine])", blankLine.drop(blankCol).isBlank())
         val blankX = (blankCol + 0.5f) * cellWidth
@@ -571,16 +555,11 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
                 targetViewportRow = 9,
                 startColumn = 6,
             )
-        longPressUntilSelected(tapX, tapY)
-        Thread.sleep(700)
-        assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
-
-        val before = committedSelection()
+        val before = longPressAndReadSelection(tapX, tapY)
         val startCol = before.start?.col ?: -1
         val endCol = before.end?.col ?: -1
         val startGridRow = before.start?.row ?: -1
-        assertTrue("长按后必须有跨格选区 ($startCol..$endCol)", startCol >= 0 && endCol > startCol)
-        val startViewportRow = startGridRow - bridge().scrollbackLength()
+        val startViewportRow = startGridRow - composeTestRule.requireBridge().scrollbackLength()
         assertTrue("起点必须在视口内（行=$startViewportRow 标记行=$markerRow）", startViewportRow >= 0)
 
         val surface = attachedSurface()
@@ -640,16 +619,11 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
                 targetViewportRow = 9,
                 startColumn = 6,
             )
-        longPressUntilSelected(tapX, tapY)
-        Thread.sleep(700)
-        assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
-
-        val before = committedSelection()
+        val before = longPressAndReadSelection(tapX, tapY)
         val startCol = before.start?.col ?: -1
         val endCol = before.end?.col ?: -1
         val startGridRow = before.start?.row ?: -1
-        assertTrue("长按后必须有跨格选区 ($startCol..$endCol)", startCol >= 0 && endCol > startCol)
-        val viewportRow = startGridRow - bridge().scrollbackLength()
+        val viewportRow = startGridRow - composeTestRule.requireBridge().scrollbackLength()
         assertTrue("选区必须在视口内 (行=$viewportRow)", viewportRow >= 0)
 
         val (cellWidth, _) = cellPx()
@@ -690,7 +664,7 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
         val endCol = before.end?.col ?: -1
         val endGridRow = before.end?.row ?: -1
         assertTrue("长按后必须有末端 ($endCol,$endGridRow)", endCol > 0)
-        val endViewportRow = endGridRow - bridge().scrollbackLength()
+        val endViewportRow = endGridRow - composeTestRule.requireBridge().scrollbackLength()
         val (cellWidth, _) = cellPx()
         val (grabX, grabY) = cellAnchorLocal(col = endCol + 1, row = endViewportRow)
 
@@ -730,6 +704,23 @@ class SelectionDragQuantifiedTest : TerminalLogcatTest() {
             selection = composeTestRule.activity.terminalViewModel.state.value.selection
         }
         return requireNotNull(selection) { "选区状态读取失败" }
+    }
+
+    /**
+     * 长按选中词并读回选区：菜单已弹出且选区跨格是拖拽的前提。
+     *
+     * 菜单项出现后才能读选区：手势先激活选择，菜单随后才挂上；只等选区会把
+     * 「菜单还没挂」误判成「手势没生效」。
+     */
+    private fun longPressAndReadSelection(pressX: Float, pressY: Float): SelectionState {
+        longPressUntilSelected(pressX, pressY)
+        Thread.sleep(700)
+        assertNotNull("长按未打开选择菜单", waitForMenuText("复制"))
+        val selection = committedSelection()
+        val startCol = selection.start?.col ?: -1
+        val endCol = selection.end?.col ?: -1
+        assertTrue("长按后必须有跨格选区 ($startCol..$endCol)", startCol >= 0 && endCol > startCol)
+        return selection
     }
 
     /**

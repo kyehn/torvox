@@ -1,5 +1,10 @@
 package terminal.emulator
 
+import android.content.Context
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -8,9 +13,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import terminal.emulator.TerminalLogcatTest
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     private val authority = "com.termux.documents"
+
+    /**
+     * 登记目录列表观察者：返回观察者与通知标志。
+     *
+     * 目录变更经提供者的真实 inotify 通道到达，观察者只置标志——通知本身由
+     * `ContentResolver` 派发到主线程。
+     */
+    private fun registerListingObserver(context: Context, childrenUri: Uri): Pair<ContentObserver, AtomicBoolean> {
+        val notified = AtomicBoolean(false)
+        val observer =
+            object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    notified.set(true)
+                }
+            }
+        context.contentResolver.registerContentObserver(childrenUri, true, observer)
+        return observer to notified
+    }
 
     @Test
     fun roots_via_resolver_returns_terminal_home() {
@@ -451,16 +475,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             assertTrue("探测目录的子项查询必须成功", it.count == 0)
         }
 
-        val notified =
-            java.util.concurrent.atomic
-                .AtomicBoolean(false)
-        val observer =
-            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-                override fun onChange(selfChange: Boolean) {
-                    notified.set(true)
-                }
-            }
-        context.contentResolver.registerContentObserver(childrenUri, true, observer)
+        val (observer, notified) = registerListingObserver(context, childrenUri)
         try {
             File(watchDir, "terminal-side.txt").writeText("x")
             assertNotNull(
@@ -493,16 +508,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         context.contentResolver.query(childrenUri, null, null, null, null)?.use {
             assertTrue("探测目录的子项查询必须成功", it.count == 1)
         }
-        val notified =
-            java.util.concurrent.atomic
-                .AtomicBoolean(false)
-        val observer =
-            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-                override fun onChange(selfChange: Boolean) {
-                    notified.set(true)
-                }
-            }
-        context.contentResolver.registerContentObserver(childrenUri, true, observer)
+        val (observer, notified) = registerListingObserver(context, childrenUri)
         try {
             assertTrue("探针删除必须成功", File(watchDir, "to-remove.txt").delete())
             assertNotNull(

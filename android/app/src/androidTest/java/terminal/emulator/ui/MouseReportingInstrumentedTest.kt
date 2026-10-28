@@ -18,15 +18,14 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.bridge.Bridge
-import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.awaitBridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
 import terminal.emulator.injectTap
+import terminal.emulator.pumpedTerminalText
+import terminal.emulator.requireBridge
 import terminal.emulator.restoreSharedShellState
 import terminal.emulator.terminalCellSizePx
-import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -53,18 +52,7 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     @Before
     fun setUp() {
         composeTestRule.waitForSession()
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            composeTestRule.getBridge() != null
-        }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
-    }
-
-    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-
-    /** 泵送事件队列后读全量文本（运行时输出收割需 pollEvent 驱动）。 */
-    private fun currentText(): String? {
-        runCatchingCancellable { NativeBridge.pollEvent() }
-        return composeTestRule.getBridge()?.getTerminalText()
+        composeTestRule.awaitBridge()
     }
 
     /**
@@ -76,8 +64,8 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         // 先复位共享 shell：确保没有残留的前台进程占着 tty、tty 是 sane 的。
         // 否则「写命令」这一步可能被前台进程读走（`-icanon` 下非行缓冲），
         // 命令连同 ETX 一起丢失，表现为「鼠标上报装载失败」。
-        bridge().restoreSharedShellState()
-        bridge().writeToPty(
+        composeTestRule.requireBridge().restoreSharedShellState()
+        composeTestRule.requireBridge().writeToPty(
             (
                 "stty -echo -icanon; printf '\\033[?1000h\\033[?1006h'; printf 'MOUSE_ARMED\\n'; " +
                     "cat > \$HOME/mouse.bin\n"
@@ -86,19 +74,22 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         // MOUSE_ARMED 进入网格 = 其前的 DECSET 已被 VT 消费（同一字节流的顺序保证）。
         val armed =
             UxTestUtils.pollUntilTrue(timeoutMs = ARM_TIMEOUT_MS, intervalMs = 200) {
-                currentText()?.contains("MOUSE_ARMED") == true
+                composeTestRule.pumpedTerminalText()?.contains("MOUSE_ARMED") == true
             }
-        assertNotNull("鼠标上报装载失败, 实际: ${currentText()?.takeLast(200)}", armed)
+        assertNotNull(
+            "鼠标上报装载失败, 实际: ${composeTestRule.pumpedTerminalText()?.takeLast(200)}",
+            armed,
+        )
         // 镜像是**每帧**同步的（VT 线程推帧时写入原子量），而「MOUSE_ARMED 可见」
         // 来自对 VT 的直接查询：两者之间可能差一帧。故这里等镜像追上，
         // 否则紧随其后的触摸会落在「上报尚未生效」的窗口里，被当成本地手势。
         assertNotNull(
             "DECSET 1000 装载后镜像必须为真",
             UxTestUtils.pollUntilTrue(timeoutMs = ARM_TIMEOUT_MS, intervalMs = 50) {
-                bridge().isMouseTrackingActive()
+                composeTestRule.requireBridge().isMouseTrackingActive()
             },
         )
-        bridge().setScrollOffset(0)
+        composeTestRule.requireBridge().setScrollOffset(0)
     }
 
     /** shell 收到的原始字节（cat > $HOME/mouse.bin 的落盘内容，拉丁 1 解码逐字节保真）。 */
@@ -118,7 +109,7 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
      * 复位细节见 [restoreSharedShellState]。
      */
     private fun disarmMouseReporting() {
-        bridge().restoreSharedShellState()
+        composeTestRule.requireBridge().restoreSharedShellState()
     }
 
     /** `ESC[<BUTTON;COL;ROWM`/`m` 的原始 SGR 序列（1 基单元格坐标）。 */
@@ -174,7 +165,8 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     @Test
     fun fingerTapInMouseTuiSendsLeftClickAtSameCell() {
         armMouseReporting()
-        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge())
+        val (cellWidth, cellHeight) =
+            terminalCellSizePx(composeTestRule.activity, composeTestRule.requireBridge())
         val surface = findTerminalSurface(composeTestRule.activity)
         val tapX = (TAP_COL + 0.5f) * cellWidth
         val tapY = (TAP_ROW + 0.5f) * cellHeight
@@ -221,7 +213,8 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     @Test
     fun fingerDragInMouseTuiSendsWheelInsteadOfScrollingScrollback() {
         armMouseReporting()
-        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge())
+        val (cellWidth, cellHeight) =
+            terminalCellSizePx(composeTestRule.activity, composeTestRule.requireBridge())
         val surface = findTerminalSurface(composeTestRule.activity)
         // 手指上滑两行 = 滚轮上行（SGR button 64）：pointerY 从 row+2 中心滑到 row 中心。
         dragGesture(
@@ -255,7 +248,8 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     @Test
     fun multiRowDragForwardsOneReleasePerRow() {
         armMouseReporting()
-        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge())
+        val (cellWidth, cellHeight) =
+            terminalCellSizePx(composeTestRule.activity, composeTestRule.requireBridge())
         val surface = findTerminalSurface(composeTestRule.activity)
         // 四行行程：两段 MOVE 各两行，每段一次 onScroll 各编两档。
         dragGesture(
@@ -282,15 +276,15 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     /** 未启用鼠标上报时，外接滚轮必须滚动本地回滚，而不是被静默忽略。 */
     @Test
     fun wheelWithoutMouseTrackingScrollsLocalScrollback() {
-        bridge().restoreSharedShellState()
-        bridge().writeToPty("seq 1 120\n".toByteArray(Charsets.UTF_8))
+        composeTestRule.requireBridge().restoreSharedShellState()
+        composeTestRule.requireBridge().writeToPty("seq 1 120\n".toByteArray(Charsets.UTF_8))
         assertNotNull(
             "本地回滚必须先有内容",
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                bridge().scrollbackLength() > 5
+                composeTestRule.requireBridge().scrollbackLength() > 5
             },
         )
-        bridge().setScrollOffset(0)
+        composeTestRule.requireBridge().setScrollOffset(0)
         val surface = findTerminalSurface(composeTestRule.activity)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val now = SystemClock.uptimeMillis()
@@ -335,7 +329,7 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
     /** 鼠标上报镜像：DECSET 装载后为真、DECRST 后为假——滚动手势据此免去一次查询往返。 */
     @Test
     fun mouseTrackingMirrorFollowsDecsetState() {
-        val bridge = bridge()
+        val bridge = composeTestRule.requireBridge()
         // 同一会话可能被前序用例留在上报态：先归零，断言只针对本用例造成的两次跃迁。
         // 归零走共享复位（它自带「镜像必须回落」的断言），不复位成功即判红。
         if (bridge.isMouseTrackingActive()) {

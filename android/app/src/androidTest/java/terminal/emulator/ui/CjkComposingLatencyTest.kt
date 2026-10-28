@@ -16,7 +16,8 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.injectTap
+import terminal.emulator.onUiThread
+import terminal.emulator.tapToFocus
 import terminal.emulator.waitForSession
 
 /**
@@ -191,45 +192,9 @@ class CjkComposingLatencyTest : TerminalLogcatTest() {
 
     private fun describe(throwable: Throwable): String = "${throwable.javaClass.simpleName}: ${throwable.message}"
 
-    /**
-     * 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。
-     *
-     * 交付本身不因失焦被拒（`isPaused` 只用于保住组字基线），但窗口获得焦点会开一个
-     * 有界的余波窗口；单次抬起的处理会清掉该窗口并 `requestFocus()`，与
-     * [terminal.emulator.ui.ImePopupPixelInstrumentedTest] 驱动输入法前的那一次触摸同路。
-     */
-    private fun tapToFocus(surface: View) {
-        val location = IntArray(2)
-        onUiThread { surface.getLocationOnScreen(location) }
-        injectTap(
-            surface,
-            (location[0] + surface.width / 2).toFloat(),
-            (location[1] + surface.height / 2).toFloat(),
-        )
-        val focused =
-            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
-                onUiThread { surface.hasWindowFocus() }
-            }
-        assertNotNull("触摸后窗口仍未获得焦点，输入法写入会被拒收", focused)
-    }
-
     private fun percentile(samples: List<Long>, fraction: Double): Long {
         val sorted = samples.sorted()
         val index = ((sorted.size - 1) * fraction).toInt()
         return sorted[index]
-    }
-
-    /**
-     * 同步地在 UI 线程执行 [block]。
-     *
-     * 必须用 `runOnMainSync` 而不是 `Activity.runOnUiThread`：后者只是 `post`，立即返回，
-     * 读到的结果恒为空（本用例第一版即因此报「onCreateInputConnection 返回 null」，
-     * 而视图其实拿对了）——耗时也就量成了零。
-     */
-    private fun <T> onUiThread(block: () -> T): T {
-        var result: T? = null
-        InstrumentationRegistry.getInstrumentation().runOnMainSync { result = block() }
-        @Suppress("UNCHECKED_CAST")
-        return result as T
     }
 }

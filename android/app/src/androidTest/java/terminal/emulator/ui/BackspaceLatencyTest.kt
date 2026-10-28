@@ -17,8 +17,9 @@ import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.injectTap
+import terminal.emulator.onUiThread
 import terminal.emulator.scrollViewportToBottom
+import terminal.emulator.tapToFocus
 import terminal.emulator.waitForSession
 
 /**
@@ -236,22 +237,6 @@ class BackspaceLatencyTest : TerminalLogcatTest() {
         assertNotNull("commitText 一直被拒（切换余波的抑制窗口）", accepted)
     }
 
-    /** 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。 */
-    private fun tapToFocus(surface: View) {
-        val location = IntArray(2)
-        onUiThread { surface.getLocationOnScreen(location) }
-        injectTap(
-            surface,
-            (location[0] + surface.width / 2).toFloat(),
-            (location[1] + surface.height / 2).toFloat(),
-        )
-        val focused =
-            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
-                onUiThread { surface.hasWindowFocus() }
-            }
-        assertNotNull("触摸后窗口仍未获得焦点，输入法写入会被拒收", focused)
-    }
-
     private fun percentile(samples: List<Long>, fraction: Double): Long {
         val sorted = samples.sorted()
         return sorted[((sorted.size - 1) * fraction).toInt()]
@@ -262,12 +247,4 @@ class BackspaceLatencyTest : TerminalLogcatTest() {
 
     /** 去掉行尾空白后是否以 [suffix] 结尾——shell 回显与光标在同一行行尾。 */
     private fun String.atPromptEnd(suffix: String): Boolean = trimEnd().endsWith(suffix)
-
-    /** 同步地在 UI 线程执行 [block]（`runOnUiThread` 只是 post，读不到结果）。 */
-    private fun <T> onUiThread(block: () -> T): T {
-        var result: T? = null
-        InstrumentationRegistry.getInstrumentation().runOnMainSync { result = block() }
-        @Suppress("UNCHECKED_CAST")
-        return result as T
-    }
 }

@@ -21,12 +21,13 @@ import terminal.emulator.R
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.activeSessionId
-import terminal.emulator.bridge.Bridge
+import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.cleanUpTerminalState
-import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
 import terminal.emulator.probeAssertion
+import terminal.emulator.pumpedTerminalText
+import terminal.emulator.requireBridge
 import terminal.emulator.sessionCount
 import terminal.emulator.sessionIndex
 import terminal.emulator.util.runCatchingCancellable
@@ -54,13 +55,8 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
     @Before
     fun setUp() {
         composeTestRule.waitForSession()
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            composeTestRule.getBridge() != null
-        }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
+        composeTestRule.awaitBridge()
     }
-
-    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     /** 共用会话跨全部用例留存：本类建会话并直写标记，不清场即污染后继。 */
     @After
@@ -76,11 +72,6 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
     private fun sessionContains(sessionId: Long, needle: String): Boolean {
         runCatchingCancellable { NativeBridge.pollEvent() }
         return NativeBridge.getTerminalText(sessionId)?.contains(needle) == true
-    }
-
-    private fun currentText(): String? {
-        runCatchingCancellable { NativeBridge.pollEvent() }
-        return composeTestRule.getBridge()?.getTerminalText()
     }
 
     /**
@@ -108,7 +99,8 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
         val title = "TITLE${System.currentTimeMillis() % 100000}"
         assertTrue(
             "标题送显失败",
-            bridge().feedTerminal("\u001B]2;$title\u0007".toByteArray(Charsets.UTF_8)),
+            composeTestRule.requireBridge()
+                .feedTerminal("\u001B]2;$title\u0007".toByteArray(Charsets.UTF_8)),
         )
         // 标题进注册表是异步的，而抽屉只在打开瞬间强制刷新、之后的迟到标题不再补显示：
         // 喂完立刻开抽屉就会断言到一个只有序号的旧条目（CI 实测抓到 `[2] `）。
@@ -163,11 +155,12 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
         val markerB = "SESSB${System.currentTimeMillis() % 100000}"
         assertTrue(
             "标记送显失败",
-            bridge().feedTerminal("$markerB\r\n".toByteArray(Charsets.UTF_8)),
+            composeTestRule.requireBridge()
+                .feedTerminal("$markerB\r\n".toByteArray(Charsets.UTF_8)),
         )
         val markerSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                currentText()?.contains(markerB) == true
+                composeTestRule.pumpedTerminalText()?.contains(markerB) == true
             }
         assertNotNull("B 网格必须显示标记", markerSeen)
 
@@ -183,7 +176,7 @@ class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
         assertNotNull("必须切回首个会话", backToA)
         val markerGone =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                currentText()?.contains(markerB) == false
+                composeTestRule.pumpedTerminalText()?.contains(markerB) == false
             }
         assertNotNull("切回 A 后 B 的标记必须不可见", markerGone)
 
