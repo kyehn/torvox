@@ -73,4 +73,29 @@ class ComposingDiffTest {
         assertEquals(0, edit.backspaces)
         assertEquals("héllo", edit.append)
     }
+
+    @Test
+    fun same_high_surrogate_emoji_replaces_whole_code_point() {
+        // 👍 (U+1F44D) 与 👎 (U+1F44E) 共享高代理位，只差低代理位。
+        // 按 UTF-16 下标求公共前缀会切在代理对中间，待追加段变成半个码元，
+        // 编不出合法 UTF-8（被替换成 U+FFFD）。
+        val edit = ComposingDiff.reconcile("👍", "👎")
+        assertEquals(1, edit.backspaces)
+        assertEquals("👎", edit.append)
+    }
+
+    @Test
+    fun same_high_surrogate_emoji_after_prefix_replaces_whole_code_point() {
+        val edit = ComposingDiff.reconcile("a👍", "a👎")
+        assertEquals(1, edit.backspaces)
+        assertEquals("👎", edit.append)
+    }
+
+    @Test
+    fun shared_emoji_prefix_is_kept_whole() {
+        // 公共前缀本身含代理对时，切分点仍须落在码点边界上。
+        val edit = ComposingDiff.reconcile("👍a", "👍b")
+        assertEquals(1, edit.backspaces)
+        assertEquals("b", edit.append)
+    }
 }
