@@ -16,7 +16,7 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
+import terminal.emulator.requireBridge
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 
@@ -51,8 +51,6 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
 
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-
     /** 活动会话 sessionId：备用屏开关必须作用在**当前可见**的会话上，故不用临时会话。 */
     private fun sessionId(): Long {
         var sessionId = 0L
@@ -64,7 +62,7 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
 
     /** 网格行列（原生 PTY 口径）。 */
     private fun gridRowsCols(): Pair<Int, Int> {
-        val packed = bridge().getGridRowsColsPacked()
+        val packed = composeTestRule.requireBridge().getGridRowsColsPacked()
         return ((packed shr 32).toInt()) to (packed and 0xffffffffL).toInt()
     }
 
@@ -159,7 +157,41 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         Thread.sleep(SETTLE_MILLIS)
     }
 
-    private fun hideImeAndAwaitRows(rows: Int) {
+    /**
+     * 进入备用屏并等两处状态都翻转：原生原子与逐帧发布的运行期值。
+     *
+     * 只等原生原子（更早更新）会让重排读旧状态；两处都要等——网格重排读的是
+     * 运行期发布的那个值，发布滞后一拍就会按旧行数布局。
+     */
+    private fun enterAltScreenAndAwaitPublished() {
+        NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+        assertNotNull(
+            "必须进入备用屏",
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                NativeBridge.getAltScreenState(sessionId())
+            },
+        )
+        assertNotNull(
+            "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                altScreenPublished()
+            },
+        )
+    }
+
+    /** 弹出输入法并等网格收缩到可见高度内。 */
+    private fun showImeAndAwaitShrink(rowsBefore: Int) {
+        showImeAndSettle()
+        assertNotNull(
+            "备用屏下弹出输入法后网格必须收缩（$rowsBefore → ${gridRowsCols().first}；${diagnostics()}）",
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                gridRowsCols().first < rowsBefore
+            },
+        )
+    }
+
+    /** 收起输入法：只发隐藏请求，不等网格复原（复原由调用方断言）。 */
+    private fun hideIme() {
         composeTestRule.activity.runOnUiThread {
             val inputMethodManager =
                 composeTestRule.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
@@ -169,6 +201,10 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                 0,
             )
         }
+    }
+
+    private fun hideImeAndAwaitRows(rows: Int) {
+        hideIme()
         val restored =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
                 gridRowsCols().first == rows
@@ -178,6 +214,26 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         android.util.Log.i(
             "AltScreenIme",
             "cleanup: grid back to ${gridRowsCols().first} (want $rows), restored=$restored",
+        )
+    }
+
+    /** 收尾：先离开备用屏，再收起键盘并等网格复原。 */
+    private fun leaveAltScreenAndRestoreRows(rowsBefore: Int) {
+        NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
+        hideImeAndAwaitRows(rowsBefore)
+    }
+
+    /** 断言网格复原到 [rowsBefore] 行且列数未变（[context] 描述触发路径）。 */
+    private fun assertGridRestored(rowsBefore: Int, colsBefore: Int, context: String) {
+        assertNotNull(
+            "$context，网格必须复原到 $rowsBefore 行（仍为 ${gridRowsCols().first}；${diagnostics()}）",
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                gridRowsCols().first == rowsBefore
+            },
+        )
+        assertTrue(
+            "列数不得变化（前 $colsBefore，后 ${gridRowsCols().second}）",
+            gridRowsCols().second == colsBefore,
         )
     }
 
@@ -200,19 +256,7 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                 rowsWithImeOnPrimary == rowsBefore,
             )
 
-            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            assertNotNull(
-                "必须进入备用屏",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    NativeBridge.getAltScreenState(sessionId())
-                },
-            )
-            assertNotNull(
-                "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    altScreenPublished()
-                },
-            )
+            enterAltScreenAndAwaitPublished()
             assertNotNull(
                 "键盘已展开时进入备用屏，网格必须收缩（$rowsBefore → ${gridRowsCols().first}；${diagnostics()}）",
                 UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
@@ -220,8 +264,7 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                 },
             )
         } finally {
-            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            hideImeAndAwaitRows(rowsBefore)
+            leaveAltScreenAndRestoreRows(rowsBefore)
         }
     }
 
@@ -239,28 +282,8 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         composeTestRule.awaitBridge()
         val (rowsBefore, colsBefore) = gridRowsCols()
         try {
-            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            assertNotNull(
-                "必须进入备用屏",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    NativeBridge.getAltScreenState(sessionId())
-                },
-            )
-            assertNotNull(
-                "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    altScreenPublished()
-                },
-            )
-            showImeAndSettle()
-            assertNotNull(
-                "备用屏下弹出输入法后网格必须收缩（$rowsBefore → ${gridRowsCols().first}；${diagnostics()}）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
-                    gridRowsCols().first < rowsBefore
-                },
-            )
-            val rowsInAltScreen = gridRowsCols().first
-
+            enterAltScreenAndAwaitPublished()
+            showImeAndAwaitShrink(rowsBefore)
             // 键盘仍展开，直接离开备用屏。
             NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
             assertNotNull(
@@ -270,20 +293,9 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
                         !altScreenPublished()
                 },
             )
-            assertNotNull(
-                "键盘仍展开时离开备用屏，网格必须复原到 $rowsBefore 行（仍为 $rowsInAltScreen；" +
-                    diagnostics() + "）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
-                    gridRowsCols().first == rowsBefore
-                },
-            )
-            assertTrue(
-                "列数不得变化（前 $colsBefore，后 ${gridRowsCols().second}）",
-                gridRowsCols().second == colsBefore,
-            )
+            assertGridRestored(rowsBefore, colsBefore, "键盘仍展开时离开备用屏")
         } finally {
-            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            hideImeAndAwaitRows(rowsBefore)
+            leaveAltScreenAndRestoreRows(rowsBefore)
         }
     }
 
@@ -298,19 +310,7 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
 
             // 经 feedTerminal 直接喂 VT 序列：写 PTY 只有 TUI 应用才会响应，
             // shell 会原样吞掉，备用屏永远不会激活。
-            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            val entered =
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    NativeBridge.getAltScreenState(sessionId())
-                }
-            assertNotNull("必须进入备用屏", entered)
-            // 必须等到逐帧发布的备用屏状态也翻转：网格重排读的是运行期发布的值，
-            // 只等原生原子（更早更新）会让重排在旧状态下算出行数。
-            val published =
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    altScreenPublished()
-                }
-            assertNotNull("备用屏状态必须随帧发布到运行期流（${diagnostics()}）", published)
+            enterAltScreenAndAwaitPublished()
 
             showImeAndSettle()
             val (cellHeight, barPx, surfaceHeight) = gridInputs()
@@ -350,8 +350,7 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         } finally {
             // 顺序与另两个用例一致：先离开备用屏，再收起键盘（`hideImeAndAwaitRows`
             // 顺带确认网格真的复原）。
-            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            hideImeAndAwaitRows(rowsBefore)
+            leaveAltScreenAndRestoreRows(rowsBefore)
         }
     }
 
@@ -371,52 +370,14 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         composeTestRule.awaitBridge()
         val (rowsBefore, colsBefore) = gridRowsCols()
         try {
-            NativeBridge.feedTerminal(sessionId(), ENTER_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            assertNotNull(
-                "必须进入备用屏",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    NativeBridge.getAltScreenState(sessionId())
-                },
-            )
-            assertNotNull(
-                "备用屏状态必须随帧发布到运行期流（${diagnostics()}）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    altScreenPublished()
-                },
-            )
-            showImeAndSettle()
-            assertNotNull(
-                "前置条件：备用屏下弹出输入法后网格必须收缩（$rowsBefore → ${gridRowsCols().first}；" +
-                    diagnostics() + "）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
-                    gridRowsCols().first < rowsBefore
-                },
-            )
+            enterAltScreenAndAwaitPublished()
+            showImeAndAwaitShrink(rowsBefore)
 
             // 仍在备用屏，只收起键盘：唯一的触发点是 insets 派发把遮挡归零。
-            composeTestRule.activity.runOnUiThread {
-                val inputMethodManager =
-                    composeTestRule.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                        as android.view.inputmethod.InputMethodManager
-                inputMethodManager.hideSoftInputFromWindow(
-                    findTerminalSurface(composeTestRule.activity).windowToken,
-                    0,
-                )
-            }
-            assertNotNull(
-                "收起输入法后网格必须复原到 $rowsBefore 行（仍为 ${gridRowsCols().first}；" +
-                    diagnostics() + "）",
-                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
-                    gridRowsCols().first == rowsBefore
-                },
-            )
-            assertTrue(
-                "列数不得变化（前 $colsBefore，后 ${gridRowsCols().second}）",
-                gridRowsCols().second == colsBefore,
-            )
+            hideIme()
+            assertGridRestored(rowsBefore, colsBefore, "收起输入法后")
         } finally {
-            NativeBridge.feedTerminal(sessionId(), LEAVE_ALT_SCREEN.toByteArray(Charsets.UTF_8))
-            hideImeAndAwaitRows(rowsBefore)
+            leaveAltScreenAndRestoreRows(rowsBefore)
         }
     }
 }

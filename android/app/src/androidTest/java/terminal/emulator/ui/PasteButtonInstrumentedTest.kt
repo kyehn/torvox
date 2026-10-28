@@ -27,12 +27,11 @@ import terminal.emulator.MainActivity
 import terminal.emulator.R
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.bridge.Bridge
-import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.awaitBridge
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
 import terminal.emulator.injectLongPress
-import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.pumpedTerminalText
+import terminal.emulator.requireBridge
 import terminal.emulator.waitForSession
 
 /**
@@ -62,27 +61,16 @@ class PasteButtonInstrumentedTest : TerminalLogcatTest() {
     @Before
     fun setUp() {
         composeTestRule.waitForSession()
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            composeTestRule.getBridge() != null
-        }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
-    }
-
-    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-
-    /** 泵送事件队列后读全量文本（运行时输出收割需 pollEvent 驱动）。 */
-    private fun currentText(): String? {
-        runCatchingCancellable { NativeBridge.pollEvent() }
-        return composeTestRule.getBridge()?.getTerminalText()
+        composeTestRule.awaitBridge()
     }
 
     /** 等终端输出静默（shell 启动输出落定），避免标记行被追加污染。 */
     private fun awaitQuiet(timeoutMs: Long = 60_000) {
-        var lastText = currentText()
+        var lastText = composeTestRule.pumpedTerminalText()
         var quietSince = android.os.SystemClock.uptimeMillis()
         val quiet =
             UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
-                val current = currentText()
+                val current = composeTestRule.pumpedTerminalText()
                 if (current != lastText) {
                     lastText = current
                     quietSince = android.os.SystemClock.uptimeMillis()
@@ -100,30 +88,36 @@ class PasteButtonInstrumentedTest : TerminalLogcatTest() {
         // 共用会话的行编辑状态（补全等待 `y or n?`、未回车半行）跨用例残留：
         // 先送 ETX 中止再等 prompt，否则门控把 shell 污染误判成未就绪。
         // 空行上的 ETX 仅另起一 prompt，无害。
-        bridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
+        composeTestRule.requireBridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
         // 参考实现首步即等 prompt：静默等待在空屏（shell 未就绪）也会通过，
         // 而 shell 就绪前的粘贴字节去向不明，必须门控 prompt 存在。
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
-                val text = currentText()
+                val text = composeTestRule.pumpedTerminalText()
                 text != null && (text.contains("$") || text.contains("#"))
             }
-        assertNotNull("shell prompt 必须先就绪, 实际: ${currentText()?.takeLast(200)}", promptSeen)
+        assertNotNull(
+            "shell prompt 必须先就绪, 实际: ${composeTestRule.pumpedTerminalText()?.takeLast(200)}",
+            promptSeen,
+        )
         // shell 耳聋探针：直写单字符验“写入→回显”链在此时健康；若 15s 无回显，
         // 说明 shell 尚未消费 stdin（慢模拟器冷启动），等健康后再继续。
         val echoProbe = "Q${System.currentTimeMillis() % 1000}"
-        bridge().writeToPty(echoProbe.toByteArray(Charsets.UTF_8))
+        composeTestRule.requireBridge().writeToPty(echoProbe.toByteArray(Charsets.UTF_8))
         val echoHealthy =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 200) {
-                currentText()?.replace("\n", "")?.contains(echoProbe) == true
+                composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains(echoProbe) == true
             }
         assertNotNull("shell 回显链必须健康 (探针=$echoProbe)", echoHealthy)
         awaitQuiet()
         // 清屏：prompt 回到视口首行，其余行全空，长按落点必为空白。
-        assertTrue("清屏送显失败", bridge().feedTerminal("\u001B[2J".toByteArray(Charsets.UTF_8)))
+        assertTrue(
+            "清屏送显失败",
+            composeTestRule.requireBridge().feedTerminal("\u001B[2J".toByteArray(Charsets.UTF_8)),
+        )
         awaitQuiet()
-        val depth = bridge().scrollbackLength()
-        val lines = currentText().orEmpty().lines()
+        val depth = composeTestRule.requireBridge().scrollbackLength()
+        val lines = composeTestRule.pumpedTerminalText().orEmpty().lines()
         // 视口第 5 行（0 基）必须空白：prompt 占首行，其余无输出。
         val blankIndex = depth + 5
         val blankLine = lines.getOrNull(blankIndex).orEmpty()
@@ -137,7 +131,7 @@ class PasteButtonInstrumentedTest : TerminalLogcatTest() {
         // 缩放须与运行时同口径（密度 × 系统字体缩放，见 terminalCellSizePx）。
         val metrics = composeTestRule.activity.resources
         val spToPxScale = metrics.displayMetrics.density * metrics.configuration.fontScale
-        val (cellWidthSp, cellHeightSp) = bridge().cellSize()
+        val (cellWidthSp, cellHeightSp) = composeTestRule.requireBridge().cellSize()
         val cellWidth = cellWidthSp * spToPxScale
         val cellHeight = cellHeightSp * spToPxScale
         assertTrue("单元格度量不可用 ($cellWidth x $cellHeight)", cellWidth > 0f && cellHeight > 0f)
@@ -196,7 +190,7 @@ class PasteButtonInstrumentedTest : TerminalLogcatTest() {
         // 但无回显，直调对照却成功——双标记二分确认 A 永不出现、B 2s 即达）。
         val pasted =
             UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 100) {
-                currentText()?.replace("\n", "")?.contains(marker) == true
+                composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains(marker) == true
             }
         assertNotNull("剪贴板内容必须到达 shell, 标记: $marker", pasted)
     }

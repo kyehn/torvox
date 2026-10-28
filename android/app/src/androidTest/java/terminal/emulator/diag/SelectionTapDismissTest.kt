@@ -14,7 +14,7 @@ import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.firstColumnBeyondDrawerEdge
-import terminal.emulator.getBridge
+import terminal.emulator.requireBridge
 import terminal.emulator.terminalCellCenterOnScreen
 import terminal.emulator.waitForTerminalScreen
 
@@ -48,12 +48,10 @@ class SelectionTapDismissTest : TerminalLogcatTest() {
         composeTestRule.waitForTerminalScreen()
         composeTestRule.awaitBridge()
         UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {
-            bridge().getTerminalText()?.isNotBlank() == true
+            composeTestRule.requireBridge().getTerminalText()?.isNotBlank() == true
         }
         Thread.sleep(1_000)
     }
-
-    private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
 
     private data class SelectionSnapshot(
         val active: Boolean,
@@ -91,10 +89,10 @@ class SelectionTapDismissTest : TerminalLogcatTest() {
         // 列起点取「抽屉边缘区之后的第一列」：区内触摸被 Surface 直接丢弃
         // （`TerminalSurface.onTouchEvent` 对 `event.x < 32dp` 返回 false），
         // 长按会根本到不了手势检测器，而断言只会报「没建出选区」。
-        val markerColumn = firstColumnBeyondDrawerEdge(activity, bridge())
-        assertTrue("标记送显失败", bridge().feedTerminal(feedBytes(markerColumn)))
+        val markerColumn = firstColumnBeyondDrawerEdge(activity, composeTestRule.requireBridge())
+        assertTrue("标记送显失败", composeTestRule.requireBridge().feedTerminal(feedBytes(markerColumn)))
         val (pressX, pressY) =
-            terminalCellCenterOnScreen(activity, bridge(), markerColumn + 2, MARKER_ROW)
+            terminalCellCenterOnScreen(activity, composeTestRule.requireBridge(), markerColumn + 2, MARKER_ROW)
         // UiDevice.swipe 把 DOWN/UP 发进同一主线程批处理，常被当点按吃掉；
         // 经 input flinger 按真实时长下发，保证长按定时器能触发。
         device.executeShellCommand(
@@ -109,7 +107,7 @@ class SelectionTapDismissTest : TerminalLogcatTest() {
 
         // 点按离选区足够远的空白单元格。
         val (tapX, tapY) =
-            terminalCellCenterOnScreen(activity, bridge(), markerColumn + 2, BLANK_ROW)
+            terminalCellCenterOnScreen(activity, composeTestRule.requireBridge(), markerColumn + 2, BLANK_ROW)
         device.click(tapX, tapY)
 
         // Wait past the 500ms long-press timeout: a phantom onLongPress would

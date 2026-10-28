@@ -16,12 +16,12 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
-import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
 import terminal.emulator.injectTap
-import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.pumpedTerminalText
+import terminal.emulator.requireBridge
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 
@@ -80,33 +80,23 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
         composeTestRule.waitForTerminalPixels()
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            composeTestRule.getBridge() != null
-        }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
-    }
-
-    private fun bridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-
-    private fun pumpAndText(): String? {
-        runCatchingCancellable { NativeBridge.pollEvent() }
-        return bridge().getTerminalText()
+        composeTestRule.awaitBridge()
     }
 
     /** 等 shell 提示符就绪后经 shell 打印输出（writeToPty 口径），回显重发防冷 stdin 丢失。 */
     private fun printAndAwait(command: String, needle: String) {
         // 共用会话的行编辑状态跨用例残留（见 PasteButton 同因说明）：
         // 先送 ETX 中止再等 prompt，否则门控把 shell 污染误判成未就绪。
-        bridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
-        awaitShellPrompt(bridge(), GRID_TIMEOUT_MS)
+        composeTestRule.requireBridge().writeToPty("\u0003".toByteArray(Charsets.UTF_8))
+        awaitShellPrompt(composeTestRule.requireBridge(), GRID_TIMEOUT_MS)
         // 冷启动 stdin 竞态：prompt 落格不等于 shell 已消费 stdin，单次写入
         // 可能丢失（粘贴案定案同类）。幂等重发至多 3 次，回显即停。
         var seen: Long? = null
         repeat(3) {
-            bridge().writeToPty("$command\n".toByteArray(Charsets.UTF_8))
+            composeTestRule.requireBridge().writeToPty("$command\n".toByteArray(Charsets.UTF_8))
             seen =
                 UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                    pumpAndText()?.contains(needle) == true
+                    composeTestRule.pumpedTerminalText()?.contains(needle) == true
                 }
             if (seen != null) return
         }
@@ -182,7 +172,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
     private fun sparseStripHeightPx(): Int {
         val metrics = composeTestRule.activity.resources
         val spToPxScale = metrics.displayMetrics.density * metrics.configuration.fontScale
-        val (_, cellHeightSp) = bridge().cellSize()
+        val (_, cellHeightSp) = composeTestRule.requireBridge().cellSize()
         val cellHeight = cellHeightSp * spToPxScale
         assertTrue("单元格高度不可用 ($cellHeight)", cellHeight > 0f)
         return (SPARSE_STRIP_ROWS * cellHeight).toInt()
@@ -382,11 +372,11 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         clearScreenAndPrint(marker)
         // 光标闪烁是逐像素比对的噪声源（块光标约一格，差分数千像素）：
         // 比对期间隐藏光标，测完恢复。try-finally 保证断言失败也不污染后继用例。
-        bridge().writeToPty("\u001b[?25l".toByteArray(Charsets.UTF_8))
+        composeTestRule.requireBridge().writeToPty("\u001b[?25l".toByteArray(Charsets.UTF_8))
         try {
             contentFewImePopupTerminalStaysPutAndVisibleBody(marker)
         } finally {
-            bridge().writeToPty("\u001b[?25h".toByteArray(Charsets.UTF_8))
+            composeTestRule.requireBridge().writeToPty("\u001b[?25h".toByteArray(Charsets.UTF_8))
         }
     }
 
@@ -397,10 +387,10 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
      * 是满屏内容的位移，而断言却按稀疏内容写——前提与断言不一致，红灯不代表缺陷。
      */
     private fun clearScreenAndPrint(marker: String) {
-        bridge().feedTerminal("\u001b[2J\u001b[H$marker\r\n".toByteArray(Charsets.UTF_8))
+        composeTestRule.requireBridge().feedTerminal("\u001b[2J\u001b[H$marker\r\n".toByteArray(Charsets.UTF_8))
         val landed =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                (bridge().getTerminalText() ?: "").contains(marker)
+                (composeTestRule.requireBridge().getTerminalText() ?: "").contains(marker)
             }
         assertNotNull("清屏后标记必须落格", landed)
         Thread.sleep(SETTLE_MILLIS)
@@ -480,7 +470,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
             "before 截图时输入法必须已收起，否则位移比较无意义",
             !isImeVisible(),
         )
-        val beforeText = pumpAndText() ?: throw AssertionError("弹出前终端文本不可读")
+        val beforeText = composeTestRule.pumpedTerminalText() ?: throw AssertionError("弹出前终端文本不可读")
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
         assertTrue("输入法必须占据高度", imeHeight > 0)
@@ -532,7 +522,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         // 上移前后底部内容完全相同：弹出只平移容器，不改变网格内容。
         // 弹出后的两帧互比恒为零，无法发现吞底；像素逐行比对在位移下恒不等，
         // 故以终端文本落实 TESTING 底部像素条款。
-        val settledText = pumpAndText() ?: throw AssertionError("定居后终端文本不可读")
+        val settledText = composeTestRule.pumpedTerminalText() ?: throw AssertionError("定居后终端文本不可读")
         assertTrue(
             "上移前后底部内容必须完全相同",
             settledText.replace("\n", "") == beforeText.replace("\n", ""),
@@ -550,13 +540,13 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         // 回显行可能在视口边缘换行（提示符 39 列 + 输入 15 列 > 48 列宽），逐行 contains 会把换行切断的针误判为缺失：压平换行后再判。
         val typedSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.replace("\n", "")?.contains(typed) == true
+                composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains(typed) == true
             }
         assertNotNull("输入文本必须落格: $typed", typedSeen)
-        val packed = bridge().getGridRowsColsPacked()
+        val packed = composeTestRule.requireBridge().getGridRowsColsPacked()
         val rows = (packed shr 32).toInt()
         val cols = (packed and 0xFFFFFFFFL).toInt()
-        val flattened = bridge().getTerminalText().orEmpty().replace("\n", "")
+        val flattened = composeTestRule.requireBridge().getTerminalText().orEmpty().replace("\n", "")
         assertTrue(
             "输入文本必须在可见视口内（底部不被吞）, 视口=${rows}x$cols",
             flattened.takeLast(rows * cols).contains(typed),
@@ -569,7 +559,8 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         composeTestRule.waitForSession()
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText().orEmpty().contains("$") || pumpAndText().orEmpty().contains("#")
+                composeTestRule.pumpedTerminalText().orEmpty().contains("$") ||
+                    composeTestRule.pumpedTerminalText().orEmpty().contains("#")
             }
         assertNotNull("shell prompt 未出现", promptSeen)
         // 提交前必须确认连接受理：只有「切换余波」的有界抑制窗口会让 `commitText`
@@ -596,7 +587,7 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         assertNotNull("中文提交必须被输入连接接受（有界抑制窗口内返回 false，需重试）", committed)
         val chineseSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.replace("\n", "")?.contains("中文") == true
+                composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains("中文") == true
             }
         assertNotNull("中文提交必须落格", chineseSeen)
     }

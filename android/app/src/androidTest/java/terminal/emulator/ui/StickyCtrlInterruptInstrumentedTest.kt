@@ -14,11 +14,10 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
-import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
-import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.pumpedTerminalText
 import terminal.emulator.waitForSession
 
 /**
@@ -40,22 +39,10 @@ class StickyCtrlInterruptInstrumentedTest : TerminalLogcatTest() {
 
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    private fun pumpAndText(): String? {
-        runCatchingCancellable { NativeBridge.pollEvent() }
-        return composeTestRule.getBridge()?.getTerminalText()
-    }
-
     @Test
     fun stickyCtrlPlusCInterruptsRunningCommand() {
         composeTestRule.waitForSession()
-        // 桥单次读取：会话孵化中为 null，由调用方轮询重试（getBridge 契约）。
-        var bridgeReady: terminal.emulator.bridge.Bridge? = null
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            bridgeReady = composeTestRule.getBridge()
-            bridgeReady != null
-        }
-        val bridge =
-            bridgeReady ?: throw AssertionError("运行时桥必须就绪（30s 未孵化）")
+        val bridge = composeTestRule.awaitBridge()
         // 共用会话的行编辑残留会挡住 prompt 门控（见 PasteButton 同因说明）：
         // 先送 ETX 中止再等空闲，空行 ETX 无害。
         bridge.writeToPty("\u0003".toByteArray(Charsets.UTF_8))
@@ -65,7 +52,7 @@ class StickyCtrlInterruptInstrumentedTest : TerminalLogcatTest() {
         bridge.writeToPty("sleep 100\n".toByteArray(Charsets.UTF_8))
         val sleepEchoed =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.contains("sleep 100") == true
+                composeTestRule.pumpedTerminalText()?.contains("sleep 100") == true
             }
         assertNotNull("sleep 命令未回显", sleepEchoed)
         Thread.sleep(1_500)
@@ -81,9 +68,9 @@ class StickyCtrlInterruptInstrumentedTest : TerminalLogcatTest() {
         bridge.writeToPty("echo rc=\$?\n".toByteArray(Charsets.UTF_8))
         val interrupted =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.contains("rc=130") == true
+                composeTestRule.pumpedTerminalText()?.contains("rc=130") == true
             }
-        val text = pumpAndText().orEmpty()
+        val text = composeTestRule.pumpedTerminalText().orEmpty()
         assertNotNull("CTRL+c 必须产生真实 ^C 中断（rc=130 未出现）, 实际尾部: ${text.takeLast(200)}", interrupted)
         assertTrue("rc=130 必须出现在终端文本中", text.contains("rc=130"))
     }

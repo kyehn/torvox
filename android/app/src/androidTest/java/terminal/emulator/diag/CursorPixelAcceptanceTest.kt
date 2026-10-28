@@ -14,11 +14,10 @@ import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
-import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
 import terminal.emulator.pixelLuminance
+import terminal.emulator.requireBridge
 import terminal.emulator.terminalCellSizePx
 import terminal.emulator.terminalGridColumns
 import terminal.emulator.waitForTerminalPixels
@@ -54,10 +53,8 @@ class CursorPixelAcceptanceTest : TerminalLogcatTest() {
     @After
     fun resetSession() = composeTestRule.cleanUpTerminalState()
 
-    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-
     private fun renderCursorRowCol(): Pair<Int, Int> {
-        val packed = bridge().cursorViewportPacked()
+        val packed = composeTestRule.requireBridge().cursorViewportPacked()
         val row = if (packed >= 0) (packed shr 32).toInt() else -1
         val col = if (packed >= 0) (packed and 0xffffffffL).toInt() else -1
         return row to col
@@ -72,13 +69,16 @@ class CursorPixelAcceptanceTest : TerminalLogcatTest() {
      */
     private fun cursorContrast(shot: android.graphics.Bitmap, row: Int, col: Int): Int {
         val activity = composeTestRule.activity
-        val (cellWidth, cellHeight) = terminalCellSizePx(activity, bridge())
+        val (cellWidth, cellHeight) = terminalCellSizePx(activity, composeTestRule.requireBridge())
         val location = IntArray(2)
         findTerminalSurface(activity).getLocationOnScreen(location)
         val rowY = (location[1] + (row + 0.55) * cellHeight).toInt()
         val cursorX = (location[0] + (col + 0.5) * cellWidth).toInt()
         // 参照格取同一行最右侧：该行只有光标格有内容，其余皆背景。
-        val backgroundX = (location[0] + (terminalGridColumns(activity, bridge()) - 1.5) * cellWidth).toInt()
+        val backgroundX = (
+            location[0] +
+                (terminalGridColumns(activity, composeTestRule.requireBridge()) - 1.5) * cellWidth
+            ).toInt()
         val cursor = pixelLuminance(shot, cursorX, rowY)
         val background = pixelLuminance(shot, backgroundX, rowY)
         if (cursor < 0 || background < 0) return 0
@@ -87,7 +87,7 @@ class CursorPixelAcceptanceTest : TerminalLogcatTest() {
 
     /** 清屏后把光标放到 [row] 行首列，并轮询至渲染源确认落点。 */
     private fun moveCursorToEmptyRow(row: Int) {
-        val bridge = bridge()
+        val bridge = composeTestRule.requireBridge()
         assertTrue("清屏送显失败", bridge.feedTerminal("\u001B[2J\u001B[H".toByteArray(Charsets.UTF_8)))
         assertTrue("光标定位送显失败", bridge.feedTerminal("\u001B[${row + 1};1H".toByteArray(Charsets.UTF_8)))
         assertNotNull(

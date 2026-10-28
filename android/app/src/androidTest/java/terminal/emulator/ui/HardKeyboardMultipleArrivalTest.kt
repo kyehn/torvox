@@ -15,11 +15,10 @@ import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
-import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
-import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.pumpedTerminalText
 import terminal.emulator.waitForSession
 
 /**
@@ -41,11 +40,6 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
-
-    private fun pumpAndText(): String? {
-        runCatchingCancellable { NativeBridge.pollEvent() }
-        return composeTestRule.getBridge()?.getTerminalText()
-    }
 
     /**
      * 主线程同步投递，返回连接真实的受理结果（异步投递会读到初值）。
@@ -81,13 +75,7 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
     @Test
     fun multipleEventCharactersArriveExactlyOnce() {
         composeTestRule.waitForSession()
-        var bridgeReady: terminal.emulator.bridge.Bridge? = null
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            bridgeReady = composeTestRule.getBridge()
-            bridgeReady != null
-        }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", bridgeReady)
-        val bridge = checkNotNull(bridgeReady)
+        val bridge = composeTestRule.awaitBridge()
         // 清场：中止共用会话遗留的行编辑内容（空行 ETX 无害）。
         bridge.writeToPty("\u0003".toByteArray(Charsets.UTF_8))
         awaitShellPrompt(bridge, OUTPUT_TIMEOUT_MS)
@@ -96,7 +84,7 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
         bridge.writeToPty("echo $healthProbe\n".toByteArray(Charsets.UTF_8))
         val echoSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.replace("\n", "")?.contains(healthProbe) == true
+                composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains(healthProbe) == true
             }
         assertNotNull("shell 回显链不健康，本用例结论不可归因到多字符通路", echoSeen)
 
@@ -105,9 +93,9 @@ class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
         assertTrue("ACTION_MULTIPLE 必须被受理（有界抑制窗口内拒绝属预期失败）", accepted)
         val arrived =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.replace("\n", "")?.contains(marker) == true
+                composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains(marker) == true
             }
-        val text = pumpAndText().orEmpty().replace("\n", "")
+        val text = composeTestRule.pumpedTerminalText().orEmpty().replace("\n", "")
         assertTrue("多字符标记必须落格，实际尾部: ${text.takeLast(200)}", arrived != null)
         assertTrue(
             "标记只可出现一次（重投即重复文本）",
