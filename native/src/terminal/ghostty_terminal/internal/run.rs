@@ -54,9 +54,6 @@ impl super::GhosttyTerminal {
         // xterm 调色板，主题颜色永远进不到网格里。
         Self::apply_theme(&mut terminal, &config.theme.palette);
 
-        // 克隆（flume receiver 是 Arc 句柄）：使下面的命令循环仍能借用
-        // `config`，无需部分移动。
-        let query_receiver = config.query_receiver.clone();
         let mut state = CommandState::new(&config.theme.palette);
         // 查询通道是否仍在参与等待：通道断开后 `flume::Selector` 对它恒为就绪，
         // 继续监听会变成忙等（发送端随会话一起销毁）。
@@ -65,21 +62,20 @@ impl super::GhosttyTerminal {
         'vt_loop: loop {
             // 本轮已从通道取出的查询：查询就绪时它已离开通道，必须一并处理。
             let mut taken_query = None;
-            let mut pending =
-                match Self::wait_for_event(&config, &query_receiver, query_channel_open) {
-                    Err(flume::select::SelectError::Timeout) => None,
-                    Ok(VtEvent::Command(Ok(command))) => Some(command),
-                    Ok(VtEvent::Command(Err(_))) => break,
-                    Ok(VtEvent::Query(Ok(query))) => {
-                        taken_query = Some(query);
-                        None
-                    }
-                    Ok(VtEvent::Query(Err(_))) => {
-                        // 查询通道断开（会话销毁）：此后只等命令通道。
-                        query_channel_open = false;
-                        continue;
-                    }
-                };
+            let mut pending = match Self::wait_for_event(&config, query_channel_open) {
+                Err(flume::select::SelectError::Timeout) => None,
+                Ok(VtEvent::Command(Ok(command))) => Some(command),
+                Ok(VtEvent::Command(Err(_))) => break,
+                Ok(VtEvent::Query(Ok(query))) => {
+                    taken_query = Some(query);
+                    None
+                }
+                Ok(VtEvent::Query(Err(_))) => {
+                    // 查询通道断开（会话销毁）：此后只等命令通道。
+                    query_channel_open = false;
+                    continue;
+                }
+            };
             // 无命令就绪：要么节拍到点，要么有查询到达。命令与查询同属一条逻辑
             // 队列，故先取走已入队的命令——有命令就走命令批处理（批尾统一应答
             // 查询，查询因而能看到命令的效果），没有命令才直接应答查询。
@@ -89,7 +85,6 @@ impl super::GhosttyTerminal {
             if pending.is_none() {
                 Self::respond_queries_and_publish(
                     &config,
-                    &query_receiver,
                     taken_query,
                     &mut terminal,
                     &mut extractors,
@@ -125,7 +120,6 @@ impl super::GhosttyTerminal {
             }
             Self::finish_command_batch(
                 &config,
-                &query_receiver,
                 taken_query,
                 &mut terminal,
                 &mut extractors,
@@ -144,13 +138,12 @@ impl super::GhosttyTerminal {
     /// 就丢掉一帧（真机实测 ~54ms 的慢帧即此）。节拍只负责周期职责。
     fn wait_for_event(
         config: &RunConfig,
-        query_receiver: &flume::Receiver<Query>,
         query_channel_open: bool,
     ) -> Result<VtEvent, flume::select::SelectError> {
         let timeout = std::time::Duration::from_millis(super::super::types::VT_IDLE_TICK_MS);
         let selector = flume::Selector::new().recv(&config.command_receiver, VtEvent::Command);
         let selector = if query_channel_open {
-            selector.recv(query_receiver, VtEvent::Query)
+            selector.recv(&config.query_receiver, VtEvent::Query)
         } else {
             selector
         };
@@ -160,7 +153,6 @@ impl super::GhosttyTerminal {
     /// 批尾：应答查询、补推积压的帧，最后释放 flush 应答。
     fn finish_command_batch<'term>(
         config: &RunConfig,
-        query_receiver: &flume::Receiver<Query>,
         taken_query: Option<Query>,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
@@ -173,7 +165,6 @@ impl super::GhosttyTerminal {
         // 它已离开通道，不带上就会被丢弃、查询方只能等到超时。
         Self::respond_queries_and_publish(
             config,
-            query_receiver,
             taken_query,
             terminal,
             extractors,
@@ -192,7 +183,6 @@ impl super::GhosttyTerminal {
     /// `cell_data_dirty` 决定是否构建一帧。
     fn respond_queries_and_publish<'term>(
         config: &RunConfig,
-        query_receiver: &flume::Receiver<Query>,
         taken_query: Option<Query>,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
@@ -200,12 +190,10 @@ impl super::GhosttyTerminal {
         state: &mut CommandState,
     ) {
         let selection_installed = Self::drain_queries(
-            query_receiver,
+            &config.query_receiver,
             taken_query,
             terminal,
-            &mut state.cached_all_text,
-            state.default_foreground,
-            state.default_background,
+            state,
             extractors,
             query_context,
         );

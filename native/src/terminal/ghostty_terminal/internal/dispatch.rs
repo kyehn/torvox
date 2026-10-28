@@ -8,9 +8,7 @@ impl super::GhosttyTerminal {
     pub(super) fn process_query<'term>(
         query: Query,
         terminal: &mut Terminal<'term, '_>,
-        all_text: &mut Option<String>,
-        default_foreground: [f32; 4],
-        default_background: [f32; 4],
+        state: &mut CommandState,
         extractors: &mut RenderExtractors<'term>,
         query_context: &mut QueryContext<'term>,
     ) -> bool {
@@ -124,18 +122,18 @@ impl super::GhosttyTerminal {
             // 网格未变时复用上次产出：回滚填满时逐格 FFI 单趟即可越过
             // QUERY_TIMEOUT_MS，轮询方会读超时后的空值（表现为「内容不见了」）。
             Query::ReadAllText(tx) => {
-                if all_text.is_none() {
+                if state.cached_all_text.is_none() {
                     let total_rows = scrollback_len(terminal) + grid_rows(terminal);
                     let mut text = String::new();
                     for row in 0..total_rows {
                         text.push_str(&Self::read_all_text_row_impl(terminal, row));
                         text.push('\n');
                     }
-                    *all_text = Some(text);
+                    state.cached_all_text = Some(text);
                 }
                 try_send(
                     &tx,
-                    all_text.clone().unwrap_or_default(),
+                    state.cached_all_text.clone().unwrap_or_default(),
                     "ghostty_terminal: query channel send failed",
                 );
             }
@@ -199,8 +197,11 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::DumpGrid { tx } => {
-                let dumped =
-                    Self::build_dumped_grid(terminal, default_foreground, default_background);
+                let dumped = Self::build_dumped_grid(
+                    terminal,
+                    state.default_foreground,
+                    state.default_background,
+                );
                 try_send(&tx, dumped, "ghostty_terminal: query channel send failed");
             }
             Query::TakeKittyGraphicsImage { id, tx } => {
@@ -360,7 +361,7 @@ impl super::GhosttyTerminal {
 
     /// 排空查询通道，使查询看到最新终端状态。返回真表示本批中有查询安装了选区，
     /// 调用方须按 `Command::SetSelection` 同款规则失效行缓存并重推帧。
-    /// `all_text` 跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
+    /// 全量文本缓存跨批次保留：网格变动由调用方置 `None`（与快照缓存同款失效时机）。
     ///
     /// `first` 是本轮等待时已从通道取出的查询（见 [`VtEvent`]）：它已离开通道，
     /// 必须在此处理，否则会被丢弃、查询方只能等到超时。
@@ -368,9 +369,7 @@ impl super::GhosttyTerminal {
         query_receiver: &flume::Receiver<Query>,
         first: Option<Query>,
         terminal: &mut Terminal<'term, '_>,
-        all_text: &mut Option<String>,
-        default_foreground: [f32; 4],
-        default_background: [f32; 4],
+        state: &mut CommandState,
         extractors: &mut RenderExtractors<'term>,
         query_context: &mut QueryContext<'term>,
     ) -> bool {
@@ -386,15 +385,8 @@ impl super::GhosttyTerminal {
             };
             // 累积而非覆盖：同批中选区安装查询之后若跟着普通查询（如 SelectionText），
             // 普通查询返回 false 会抹掉安装信号，导致行缓存不失效、反白帧不重推。
-            selection_installed |= Self::process_query(
-                query,
-                terminal,
-                all_text,
-                default_foreground,
-                default_background,
-                extractors,
-                query_context,
-            );
+            selection_installed |=
+                Self::process_query(query, terminal, state, extractors, query_context);
         }
         selection_installed
     }
