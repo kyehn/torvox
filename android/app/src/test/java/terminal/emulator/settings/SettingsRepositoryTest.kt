@@ -1,16 +1,21 @@
 package terminal.emulator.settings
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -145,6 +150,44 @@ class SettingsRepositoryTest {
         assertEquals("", repository.shell.first())
         repository.setShell("/data/data/com.termux/files/usr/bin/bash -l")
         assertEquals("/data/data/com.termux/files/usr/bin/bash -l", repository.shell.first())
+    }
+
+    @Test
+    fun `latest bootstrap url survives a blocked write`() {
+        val writeStarted = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val durable =
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+            ) {
+                File(prefsDir, "blocked_write.preferences_pb")
+            }
+        val gated = mockk<DataStore<Preferences>>()
+        every { gated.data } returns durable.data
+        coEvery { gated.updateData(any()) } coAnswers {
+            writeStarted.complete(Unit)
+            releaseWrite.await()
+            durable.updateData(firstArg())
+        }
+        val provider = mockk<SettingsDataStoreProvider>()
+        every { provider.dataStore } returns gated
+        every { provider.screenWidthDp } returns 360f
+        val gatedRepository = SettingsRepository(provider)
+        val urls = (0..7).map { "https://example.invalid/$it.zip" }
+
+        runBlocking {
+            gatedRepository.recordBootstrapUrlEdit(urls.first())
+            withTimeout(2_000) { writeStarted.await() }
+            urls.drop(1).forEach(gatedRepository::recordBootstrapUrlEdit)
+            assertEquals(
+                "缓冲饱和时也必须保留最后编辑值",
+                urls.last(),
+                gatedRepository.latestBootstrapUrlEdit(),
+            )
+            releaseWrite.complete(Unit)
+            Thread.sleep(800)
+            assertEquals("最后一次编辑必须最终落盘", urls.last(), gatedRepository.bootstrapUrl.first())
+        }
     }
 
     @Test

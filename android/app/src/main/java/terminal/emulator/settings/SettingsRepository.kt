@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
@@ -306,7 +307,12 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
 
-    private val bootstrapUrlEdits = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 1)
+    private val bootstrapUrlEdits =
+        MutableSharedFlow<String>(
+            replay = 1,
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
 
     /**
      * 防抖写入与清除的互斥：已在途的 `put` 要么先完成（其产物随即被删除），

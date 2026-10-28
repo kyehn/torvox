@@ -29,6 +29,16 @@
 - **WHEN** 用户修改 Shell 启动入口后查看现存会话
 - **THEN** 现存会话仍运行原入口进程，仅新建会话使用新入口
 
+### Requirement: 防抖写入只保留最新编辑
+
+引导 URL 的防抖流 MUST 以最新值为准：持久化阻塞导致缓冲饱和时 MUST 丢弃旧编辑，
+MUST NOT 丢掉最后一次输入。`latestBootstrapUrlEdit()` 与最终落盘值 MUST 一致。
+
+#### Scenario: 慢写入期间连续编辑
+
+- **WHEN** 首次 DataStore 写入被阻塞，用户继续输入多个 URL
+- **THEN** 最新编辑仍可从仓库读取，解除阻塞后落盘的也是该值
+
 ### Requirement: 文本框只吞掉自己刚写下去的那一次回流
 
 设置项文本框 MUST 只忽略「自己刚写入的那一次」回流（值相等即吞），MUST NOT 用一个
