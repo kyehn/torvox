@@ -2,4 +2,4 @@
 
 基于 `wgpu`（Vulkan）渲染、`Ghostty` VT 解析（`libghostty-vt`）、Rust 引擎与 Kotlin / Compose UI 的 Android 终端模拟器。
 
-> [Screenshots](https://github.com/kyehn/torvox/tree/screenshots/screenshots)
+> [Screenshots](https://github.com/kyehn/torvox/tree/assets/screenshots)

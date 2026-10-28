@@ -41,4 +41,5 @@
 - 不同字重（如 `SemiBoldItalic`）的文本可以被正常显示，颜色文本（如红色的 `error`）可以被正常显示，不会只显示背景。
 - 输入法弹出/隐藏不卡顿，终端无闪烁。
 - `fonts.xml` 可以被正确解析和应用
-- 安装 fastfetch，运行 `fastfetch --logo none --pipe -s "Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Terminal:CPU:Memory:Swap:Disk:Locale"` 命令
+- 安装 fastfetch，运行 `fastfetch --logo none --pipe -s "Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Terminal:CPU:Memory:Swap:Disk:Locale"` 命令，预览截图保存到 assets 分支
+- `macrobenchmark` 需要在模拟器上运行并断言，要求在模拟器上流畅运行

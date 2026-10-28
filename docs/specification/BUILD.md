@@ -24,3 +24,4 @@
 ## 产物
 
 - 构建产物不得提交到仓库。
+- baselineprofile 文件保存到 assets 分支
