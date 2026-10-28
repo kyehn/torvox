@@ -659,7 +659,7 @@ fn warm_frame_glyphs(
         if cluster_text.chars().count() <= 1 {
             continue;
         }
-        let shaped = font_pipeline.shape_run(&cluster_text);
+        let shaped = font_pipeline.shape_run_styled(&cluster_text, bold, italic);
         if shaped.len() == 1 {
             let glyph = &shaped[0];
             let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
@@ -845,7 +845,7 @@ fn append_row_instances(
         {
             let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
             if cluster_text.chars().count() > 1 {
-                font_pipeline.shape_run(&cluster_text)
+                font_pipeline.shape_run_styled(&cluster_text, cell_bold, cell_italic)
             } else {
                 Vec::new()
             }
