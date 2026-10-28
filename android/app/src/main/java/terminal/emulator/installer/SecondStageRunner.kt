@@ -8,18 +8,35 @@ import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.util.concurrent.TimeUnit
 
+/** 排空时保留的最大字节数；超出部分继续读并丢弃。 */
+internal const val DRAIN_KEEP_BYTES = 64 * 1024
+
 /**
  * 把子进程管道读到 EOF，绝不抛异常。destroy() 关闭管道时守护排空可能仍阻塞在 read；
  * 裸 Thread 上未捕获的抛出会导致进程 FATAL（设备上已证：
  * 无 dpkg 的 prefix 上子进程先退出时 detectDpkgVersion 复现）。
  * 读取与关闭竞争时返回 null。无人消费的排空结果直接丢弃。
+ *
+ * 必须读到 EOF（提前停下会让子进程卡在写满的管道上），但只保留前 [DRAIN_KEEP_BYTES]
+ * 字节：崩溃的脚本循环刷 stderr 时，无界累积会把整个进程读成 OOM，而调用方只取其中
+ * 几百字符做诊断。
  */
 internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable {
     // use：读到 EOF 后必须显式关掉读端，否则管道 fd 要等 GC/finalizer 才回收。
     // 一趟引导要跑 var/lib/dpkg/info/*.postinst 全表（真实引导约 250-300 个），
     // 不关就是数百个悬挂 fd；Android 进程 fd 默认上限 1024，未及 GC 就用尽会得到
     // EMFILE，表现为后续 chmod/开文件抛 IOException 而整次 postinst 阶段失败。
-    stream.bufferedReader().use { it.readText() }
+    stream.use { input ->
+        val kept = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            val room = DRAIN_KEEP_BYTES - kept.size()
+            if (room > 0) kept.write(buffer, 0, minOf(read, room))
+        }
+        kept.toByteArray().decodeToString()
+    }
 }.getOrNull()
 
 class SecondStageRunner(
@@ -187,9 +204,11 @@ class SecondStageRunner(
                     .apply {
                         isDaemon = true
                     }
-            val stderrBox = StringBuilder()
+            // 只保留前缀（drainQuietly 有界读取），故用 AtomicReference 交接：
+            // join 超时后排空线程仍可能写入，非线程安全的 StringBuilder 会脏读。
+            val stderrText = java.util.concurrent.atomic.AtomicReference("")
             val stderrThread =
-                Thread { drainQuietly(process.errorStream)?.let { stderrBox.append(it) } }
+                Thread { stderrText.set(drainQuietly(process.errorStream).orEmpty()) }
                     .apply { isDaemon = true }
             stdoutThread.start()
             stderrThread.start()
@@ -210,7 +229,7 @@ class SecondStageRunner(
             stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
             val exitCode = process.exitValue()
             if (exitCode == 0) return true
-            val detail = stderrBox.toString().trim().take(400)
+            val detail = stderrText.get().trim().take(400)
             val report =
                 "$packageName postinst exited with code $exitCode" +
                     if (detail.isEmpty()) "" else " (stderr: $detail)"
@@ -239,7 +258,7 @@ class SecondStageRunner(
                     )
             dpkgProcess.outputStream.close()
             // 在守护线程上消费 stderr：损坏的 dpkg 二进制若把 stderr 灌满 64KB 管道缓冲，
-            // 会使下方 readText() 永久阻塞（主 postinst 路径有 30s 超时；此辅助函数原本没有）。
+            // 会使串行读取的 stdout 永久阻塞（主 postinst 路径有 30s 超时；此辅助函数原本没有）。
             val stderrThread =
                 Thread { drainQuietly(dpkgProcess.errorStream) }
                     .apply {
@@ -249,17 +268,16 @@ class SecondStageRunner(
             // stdout 同样在守护线程上排空，且与 waitFor 并行：dpkg 的任何后代进程若
             // 继承了 stdout 并长期持有管道，waitFor 返回后再读会永远阻塞，
             // finally 的 destroy() 与其后的锁文件清理都执行不到。
-            val stdoutText = StringBuilder()
+            val stdoutText = java.util.concurrent.atomic.AtomicReference("")
             val stdoutThread =
                 Thread {
-                    try {
-                        val drained = dpkgProcess.inputStream.bufferedReader().use { it.readText() }
-                        // 先读完再入锁：读操作本身可能被永久阻塞（后代进程持有管道），
-                        // 持锁读会让主线程紧随其后的 join 超时形同虚设。
-                        synchronized(stdoutText) { stdoutText.append(drained) }
-                    } catch (exception: Exception) {
-                        LogUtil.warn("SecondStageRunner", "detectDpkgVersion stdout read failed", exception)
+                    // 读毕再写：读本身可能被后代进程永久阻塞，写必须是最后一步；
+                    // AtomicReference 允许 join 超时后仍安全交接。
+                    val drained = drainQuietly(dpkgProcess.inputStream)
+                    if (drained == null) {
+                        LogUtil.warn("SecondStageRunner", "detectDpkgVersion stdout read failed")
                     }
+                    stdoutText.set(drained.orEmpty())
                 }.apply {
                     isDaemon = true
                 }
@@ -275,7 +293,7 @@ class SecondStageRunner(
                 // 依赖它的 postinst 分支将拿到空值而非真实版本——必须出声。
                 LogUtil.warn("SecondStageRunner", "detectDpkgVersion stdout still open after exit, version unavailable")
             }
-            val text = synchronized(stdoutText) { stdoutText.toString() }
+            val text = stdoutText.get()
             val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
             match?.value
         } catch (exception: Exception) {

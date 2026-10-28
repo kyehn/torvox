@@ -97,6 +97,28 @@ class SecondStageRunnerTest {
     }
 
     @Test
+    fun drainQuietly_bounds_kept_bytes_but_still_reads_to_eof() {
+        // 读必须走到 EOF（否则子进程卡在写满的管道上），但保留量必须有界：
+        // 崩溃的脚本循环刷 stderr 时，无界累积会把进程读成 OOM。
+        val total = 4 * 1024 * 1024
+        var consumed = 0
+        val stream =
+            object : java.io.InputStream() {
+                override fun read(): Int = if (consumed++ < total) 0 else -1
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (consumed >= total) return -1
+                    val count = minOf(length, total - consumed)
+                    consumed += count
+                    return count
+                }
+            }
+        val text = drainQuietly(stream)
+        assertEquals(DRAIN_KEEP_BYTES, text!!.length)
+        assertEquals(total, consumed)
+    }
+
+    @Test
     fun drain_daemon_survives_raced_close() {
         // Device-proven shape (SecondStageRunner FATAL on a dpkg-less
         // prefix): destroy() closes the pipe while a daemon drain is
