@@ -78,6 +78,28 @@ MUST 确实到达终端；凡本仓未受理的，MUST 如实回报拒绝，MUST
 - **WHEN** 批量编辑进行中输入法提交文本
 - **THEN** 该提交即时送达终端，MUST NOT 滞留至批量结束
 
+### Requirement: 光标前后删除分别使用正确键语义
+
+`deleteSurroundingText` 的光标前删除 MUST 发送退格；光标后删除 MUST 经原生
+`KEYCODE_FORWARD_DEL` 编码发送 `ESC[3~`，MUST NOT 复用退格字节 `0x7f`。组字期间
+MUST 按光标前后各删相应码点生成目标基线，再经既有 `ComposingDiff` 差分重放，
+使组字基线、PTY 与输入法模型一致；代理对按一个码点计。
+
+#### Scenario: 光标后删除不误删光标前字符
+
+- **WHEN** 输入法调用 `deleteSurroundingText(0, 1)`
+- **THEN** PTY 收到 forward-delete 序列，光标前的字符保持不变
+
+#### Scenario: 组字中间删除
+
+- **WHEN** 组字基线为「a😀bc」且光标在 emoji 之后，输入法删除光标后 1 个码点
+- **THEN** 差分把组字变为「a😀c」，PTY 与输入法读取到的基线一致
+
+#### Scenario: 超出基线长度按已有内容截断
+
+- **WHEN** 输入法请求删除的码点数超过组字基线
+- **THEN** 只删除实际存在的码点，不崩溃、不误删已提交内容
+
 ### Requirement: 组字光标位置回报给输入法
 
 输入法请求光标位置更新后，本仓 MUST 受理隐式更新，并在组字光标移动时回报光标锚点，使

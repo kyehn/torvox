@@ -89,37 +89,34 @@ class ComposingBaselineTest {
     }
 
     @Test
-    fun `dropTrailingCodePoints removes whole code points`() {
+    fun `deletionTarget removes code points on both sides of the composing cursor`() {
         val baseline = ComposingBaseline()
-        // 「a」+ 一个 emoji（代理对，UTF-16 长 2）= 3 个 UTF-16 单位、2 个码点。
         val emoji = "😀"
-        baseline.compose("a$emoji", newCursorPosition = 0)
-        // 按码点删 1 个：删掉的是整个 emoji（2 个 UTF-16 单位）。
-        assertEquals(1, baseline.dropTrailingCodePoints(1))
-        assertEquals("a", baseline.text)
+        baseline.composeAt("a${emoji}bc", cursor = 3)
+        val target = baseline.deletionTarget(beforeLength = 1, afterLength = 1)
+        assertEquals("ac", target.text)
+        assertEquals(1, target.cursor)
+        assertEquals(1, target.beforeCount)
+        assertEquals(1, target.afterCount)
     }
 
     @Test
-    fun `dropTrailingCodePoints caps at the available length`() {
+    fun `deletionTarget clamps lengths to the composing baseline`() {
         val baseline = ComposingBaseline()
         baseline.compose("ab", newCursorPosition = 0)
-        // 请求删 5 个，只有 2 个可删：返回实际删除数而非抛异常。
-        assertEquals(2, baseline.dropTrailingCodePoints(5))
-        assertEquals("", baseline.text)
-        assertFalse(baseline.isComposing)
+        val target = baseline.deletionTarget(beforeLength = 0, afterLength = 9)
+        assertEquals("", target.text)
+        assertEquals(0, target.cursor)
+        assertEquals(2, target.afterCount)
     }
 
     @Test
-    fun `dropTrailingCodePoints pulls the cursor back`() {
+    fun `deletionTarget removes surrogate pairs as one code point`() {
         val baseline = ComposingBaseline()
-        // 正值相对末尾偏移 1：光标落在末尾（6+1 钳到 6）。
-        baseline.compose("abcdef", newCursorPosition = 1)
-        assertEquals(6, baseline.cursor)
-        assertEquals(2, baseline.dropTrailingCodePoints(2))
-        // 删后文本短于光标，光标必须回落到新末尾，否则 textBefore 会越界。
-        assertEquals(4, baseline.cursor)
-        assertEquals("abcd", baseline.text)
-        assertEquals("d", baseline.textBefore(1))
+        baseline.composeAt("a😀b", cursor = 1)
+        val target = baseline.deletionTarget(beforeLength = 0, afterLength = 1)
+        assertEquals("ab", target.text)
+        assertEquals(1, target.afterCount)
     }
 
     @Test
