@@ -1,3 +1,4 @@
+use super::env::base_env_with_host;
 use super::*;
 
 /// `Session::spawn` 中 fork 成功后的错误路径上 `Session` 从未构造，
