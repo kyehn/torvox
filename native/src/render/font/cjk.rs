@@ -6,7 +6,7 @@
 use super::{FontPipeline, GlyphInfo};
 
 /// CJK 回退层上限：fonts.xml 的 `lang` 回退条目按语言给出，超出无意义。
-const MAX_CJK_FALLBACK_FONTS: usize = 3;
+pub(crate) const MAX_CJK_FALLBACK_FONTS: usize = 3;
 
 impl FontPipeline {
     /// 主字体是否覆盖 CJK 代表字符（回退层的取舍与 `font_info()` 上报的
