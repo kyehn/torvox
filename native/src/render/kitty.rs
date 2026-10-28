@@ -80,6 +80,17 @@ fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
 /// 调用方只读（见 [`pack_and_build`] 与 `repack_kitty_atlas`），故借用可行。
 type PackedAtlas<'a> = (Cow<'a, [u8]>, u32, u32, Vec<Option<AtlasEntry>>);
 
+/// 图集字节数：跨步 `width * 4` 乘 `height`，受检且不超过 [`MAX_ATLAS_BYTES`]。
+///
+/// [`pack_atlas`] 与 [`layout_entries`] 必须共用同一判据：一方认为可打包、另一方
+/// 拒绝时，复用路径会拿这份布局与已上传图集（永远是 0）比对，于是每帧重试打包、
+/// 每帧刷一条警告，图像却永远不会出现。
+fn atlas_byte_size(width: u32, height: u32) -> Option<usize> {
+    let stride = width.checked_mul(4)?;
+    let bytes = (stride as usize).checked_mul(height as usize)?;
+    (bytes <= MAX_ATLAS_BYTES).then_some(bytes)
+}
+
 /// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
 /// 输入总量由上游存储上限约束（KGP_STORAGE_LIMIT=64MiB，见 types.rs）；
 /// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
@@ -113,35 +124,17 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
         }
     }
     let layout = layout_strip(frames)?;
-    let Some(stride) = layout.width.checked_mul(4) else {
-        log::warn!(
-            "kitty: atlas width {} overflows u32; dropping image",
-            layout.width
-        );
-        return None;
-    };
-    let stride = stride as usize;
-    // 受检而非饱和：饱和会把「超限」变成一个看似正常的巨大分配，最终以分配器 abort
-    // 收场且无任何日志（PTY 可控的图像尺寸即可触发）。此处显式放弃并留证据。
-    let Some(atlas_len) = stride.checked_mul(layout.height as usize) else {
-        log::warn!(
-            "kitty: atlas {}x{} overflows usize; dropping image",
-            layout.width,
-            layout.height
-        );
-        return None;
-    };
     // 预算检查必须在分配**之前**：条带布局下同一幅图像被放置 N 次就会在图集里
     // 铺 N 份，PTY 控住图像尺寸与放置数量即可让图集达到数十 GB。分配失败会让
     // 进程 abort（无日志），且这份缓冲注定传不上 GPU。
-    if atlas_len > MAX_ATLAS_BYTES {
+    let Some(atlas_len) = atlas_byte_size(layout.width, layout.height) else {
         log::warn!(
-            "kitty: atlas {}x{} needs {atlas_len} bytes (budget {MAX_ATLAS_BYTES}); dropping image",
+            "kitty: atlas {}x{} overflows or exceeds the {MAX_ATLAS_BYTES}-byte budget; dropping image",
             layout.width,
             layout.height
         );
         return None;
-    }
+    };
     let mut atlas = vec![0u8; atlas_len];
     for (index, frame) in frames.iter().enumerate() {
         let (Some(entry), (source_x, source_y, source_width, source_height)) =
@@ -276,10 +269,12 @@ pub(crate) fn build_kitty_instances(
 
 /// 无像素拷贝的布局计算（图集未变时滚动/缩放只重建实例）。
 /// 返回（图集宽，高，与 frames 等长的条目表）。
+/// 与 [`pack_atlas`] 共用预算判据：无法打包的布局也不得进入复用路径。
 pub(crate) fn layout_entries(
     frames: &[KittyPlacementFrame],
 ) -> Option<(u32, u32, Vec<Option<AtlasEntry>>)> {
     let layout = layout_strip(frames)?;
+    atlas_byte_size(layout.width, layout.height)?;
     Some((layout.width, layout.height, layout.entries))
 }
 
@@ -444,11 +439,10 @@ mod tests {
             pack_atlas(&frames).is_none(),
             "超预算的图集必须在分配像素缓冲之前被拒绝"
         );
-        // 布局本身仍可算出（复用路径要靠它比对已上传图集），只是不打包。
-        assert_eq!(
-            layout_entries(&frames).map(|(width, height, _)| (width, height)),
-            Some((18_000_000, 1)),
-            "布局计算不受预算影响"
+        // 复用路径必须与打包同判据：放行则会每帧与已上传图集（0）比对失败而重试打包。
+        assert!(
+            layout_entries(&frames).is_none(),
+            "超预算布局不得进入复用路径"
         );
     }
 
