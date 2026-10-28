@@ -147,6 +147,19 @@ pub(crate) fn pack_style_flags_sets_expected_bits() {
     );
     assert_ne!(flags & (1 << cell_flags::OVERLINE), 0, "overline bit");
     assert_ne!(flags & (1 << cell_flags::FAINT), 0, "faint bit");
+    assert_eq!(
+        flags & (1 << cell_flags::CONCEAL),
+        0,
+        "conceal bit stays clear for a visible style"
+    );
+    let concealed = Style {
+        invisible: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        GhosttyTerminal::pack_style_flags(&concealed),
+        1 << cell_flags::CONCEAL
+    );
 }
 
 #[test]

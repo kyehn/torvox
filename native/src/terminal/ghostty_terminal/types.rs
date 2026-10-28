@@ -52,7 +52,7 @@ pub enum CursorStyle {
 
 /// `CellData::flags` 的位定义，是样式打包器、GPU 单元构建器与 `cell.wgsl` 共享的
 /// 单一来源。须与 `pack_style_flags` 和 `shaders/cell.wgsl` 保持一致（着色器读
-/// 3/5/6/7/8 位作装饰；第 4 位 blink 仅透传信息，着色器忽略）。
+/// 3/5/6/7/8 位作装饰；第 4 位 blink 与第 9 位 conceal 仅透传信息，着色器忽略）。
 pub mod cell_flags {
     pub const BOLD: u32 = 0;
     pub const ITALIC: u32 = 1;
@@ -63,6 +63,7 @@ pub mod cell_flags {
     pub const OVERLINE: u32 = 6;
     pub const FAINT: u32 = 7;
     pub const DOUBLE_UNDERLINE: u32 = 8;
+    pub const CONCEAL: u32 = 9;
 }
 
 /// 光标信息：与 CellData 一同发送的终端光标状态，供同帧渲染。由 `build_cell_data`
@@ -176,6 +177,7 @@ mod tests {
             cell_flags::OVERLINE,
             cell_flags::FAINT,
             cell_flags::DOUBLE_UNDERLINE,
+            cell_flags::CONCEAL,
         ];
         let mut used_mask = 0u32;
         for bit in defined_bits {
