@@ -7,7 +7,7 @@ android/build/
 android/app/build/
 android/benchmark/build/
 android/baselineprofile/build/
-android/app/src/release/generated/baselineProfiles/
+android/app/src/*/generated/baselineProfiles/
 android/local.properties
 *.iml
 .idea/
