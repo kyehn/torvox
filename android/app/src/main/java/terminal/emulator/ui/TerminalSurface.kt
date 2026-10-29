@@ -2119,11 +2119,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     private fun forceResumeRendering() {
         cancelDebounceHolds()
-        // 立刻恢复渲染：本函数的所有调用点都刚拿到可用 Surface，故作废生命周期持有
-        // （Surface 销毁、切后台）而不只是自己的——残留持有会让后续领用永远发不出
-        // 暂停。是否真的恢复由账本计数决定（设置页仍在展示时计数非零，仍保持暂停）：
-        // 那是界面层的独立意图，终端视图在设置覆盖层之下仍会收到尺寸变化。
-        viewModel?.runtime?.clearLifecycleRenderPause()
+        // 立刻恢复渲染：本函数的所有调用点都刚把可用 Surface 挂上原生，故「Surface
+        // 销毁」那次暂停已由挂载门闸解除；此处再归还切后台那次——残留持有会让后续
+        // 领用永远发不出暂停。是否真的恢复由账本计数决定（设置页仍在展示时计数非零，
+        // 仍保持暂停）：那是界面层的独立意图，终端视图在设置覆盖层之下仍会收到尺寸变化。
+        viewModel?.runtime?.resumeRenderingFromBackground()
     }
 
     /**
@@ -3137,10 +3137,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 此时归还，否则账本里永远留着它，此后任何 acquire 都发不出暂停。
                 viewModel.runtime.resumeRenderingFromBackground()
                 val surface = holder.surface
-                // Surface 就绪后按常规路径恢复：清掉 Surface 销毁那次暂停、重启渲染
-                // 线程并出一帧探针。Surface 仍无效时留待下一次 surfaceChanged/resize。
-                if (surface.isValid && width > 0 && height > 0) {
-                    viewModel.runtime.clearSurfaceDestroyedRenderPause()
+                // Surface 就绪后按常规路径恢复：重启渲染线程并出一帧探针。
+                // Surface 仍无效时留待下一次 surfaceChanged/resize。
+                //
+                // 新窗口尚未挂上原生时 MUST NOT 恢复：平台已废弃旧 Surface 的
+                // BufferQueue，此刻恢复会让渲染线程在废弃队列上取帧
+                // （ERROR_SURFACE_LOST_KHR，返回后永久黑屏）。那次暂停由门闸
+                // 持有，等 surfaceCreated 挂上新窗口再解除。
+                if (
+                    surface.isValid &&
+                    width > 0 &&
+                    height > 0 &&
+                    !viewModel.runtime.isAwaitingSurfaceAttach
+                ) {
                     viewModel.runtime.resumeRendering()
                     viewModel.runtime.forceRender()
                 }

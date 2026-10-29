@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.view.Surface
+import androidx.annotation.MainThread
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import terminal.emulator.BuildConfig
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
@@ -34,9 +36,11 @@ import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.BUTTON_HEIGHT_DP
 import terminal.emulator.ui.RenderPauseLedger
+import terminal.emulator.ui.SurfaceAttachGate
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
+import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -3884,7 +3888,11 @@ constructor(
     /**
      * 把 Android Surface 交给渲染器。若会话 bridge 尚不存在（spawn 进行中），
      * 则保留为待绑定，会话启动后立即绑定。
+     *
+     * **仅限主线程调用**：末尾解除挂载门闸，而门闸与渲染暂停账本都只在主线程被
+     * 调用（账本非线程安全）。
      */
+    @MainThread
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
         // 只有**换了 Surface 实例**才算新的开孔：同一 Surface 的尺寸变化
         // （旋转、输入法重排）交换链里仍有上一帧，此时盖底色会闪一下。
@@ -3893,13 +3901,16 @@ constructor(
             publishSurfaceBufferPresent(false)
         }
         pendingSurface = PendingSurface(surface, width, height)
-        sessions[activeSessionId]?.bridge?.attachSurface(surface, width, height)
+        val bridge = sessions[activeSessionId]?.bridge ?: return
+        bridge.attachSurface(surface, width, height)
+        // 新窗口已挂上原生：此刻才可解除「Surface 销毁」那次暂停。
+        surfaceAttachGate.onSurfaceAttached()
     }
 
     /** 最近一次交给渲染器的 Surface 实例，用于区分「新开孔」与「同一开孔改尺寸」。 */
     private var attachedSurface: android.view.Surface? = null
 
-    private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
+    private suspend fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
         // 一次取出三元组：读两次之间可能有并发移交，尺寸必须与该 Surface 同源。
         val pending = pendingSurface ?: return
         // bridge spawn 期间持有者可能已被销毁
@@ -3910,6 +3921,15 @@ constructor(
             return
         }
         bridge.attachSurface(pending.surface, pending.width, pending.height)
+        // 新窗口已挂上原生：此刻才可解除「Surface 销毁」那次暂停。
+        //
+        // 解除 MUST 落在主线程：本函数跑在启动序列的 IO 调度器上，而门闸与渲染
+        // 暂停账本都只在主线程被调用（账本非线程安全：持有集合与去重都是普通
+        // 可变状态）。后台线程归还会与主线程的领用交错，计数会算错——多归一次
+        // 会提前放开别人还在等的暂停，少归一次则让渲染永远停在暂停态。
+        withContext(TerminalDispatchers.main) {
+            surfaceAttachGate.onSurfaceAttached()
+        }
         // 网格必须以真实 Surface 为准匹配字体单元格度量。
         // attachSurface 使 Surface 尺寸成为权威；syncGridDimensions 取来原生字体单元格度量，
         // 随后 recomputeGridFromFontMetrics resize 网格，使渲染器的
@@ -4281,7 +4301,11 @@ constructor(
      * 调用方 MUST 只在自己的持有被认领时才释放 GPU Surface/清空 `currentSurface`：
      * 无条件暂停会停掉新视图刚恢复的渲染线程，而该暂停的凭证再也不会被归还
      * （永久黑屏）。
+     *
+     * **仅限主线程调用**：末尾领用挂载门闸的暂停，而门闸与渲染暂停账本都只在主
+     * 线程被调用（账本非线程安全）。
      */
+    @MainThread
     fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
             LogUtil.warn(
@@ -4300,16 +4324,12 @@ constructor(
         // 经账本领暂停而非直写全局布尔：直写的暂停不被任何持有者计数，
         // 别的来源归还时（视图 detach 归还防抖）会把它一并清掉——
         // 而渲染线程此时可能仍在已被系统回收的 BufferQueue 上出帧。
-        // 顺序 MUST 是「先领新的、再归还旧的」：反之会让持有者数经过 0，
-        // 多出一对暂停/恢复回调（同 TerminalSurface 两个防抖的替换路径）。
-        val previous = surfaceDestroyedPauseToken
-        surfaceDestroyedPauseToken = renderPauseLedger.acquire()
-        previous?.let { renderPauseLedger.release(it) }
+        //
+        // 该暂停只能由「新窗口挂上原生」解除（见 [SurfaceAttachGate]）：
+        // 恢复路径提前解除会让渲染线程在被平台废弃的队列上取帧。
+        surfaceAttachGate.onSurfaceDestroyed()
         return true
     }
-
-    /** Surface 销毁那次暂停的凭证。 */
-    private var surfaceDestroyedPauseToken: Long? = null
 
     /** 切后台那次暂停的凭证；重复调用先归还前一次，故不会累计持有。 */
     // 读取方 activateReplacementSession 跑在渲染监视的 IO 作用域，写入方是主线程：
@@ -4373,35 +4393,28 @@ constructor(
      */
     private val renderPauseLedger = RenderPauseLedger { paused -> setRenderPaused(paused) }
 
+    /**
+     * Surface 挂载门闸：Surface 销毁后必须等新窗口挂上原生才解除那次渲染暂停。
+     *
+     * 平台回收 Surface 时会废弃它的 BufferQueue；恢复渲染早于新窗口挂载时，
+     * 渲染线程会在废弃队列上取帧（`ERROR_SURFACE_LOST_KHR`，返回后永久黑屏）。
+     */
+    private val surfaceAttachGate = SurfaceAttachGate(renderPauseLedger)
+
+    /**
+     * Surface 已销毁且新窗口尚未挂上原生。
+     *
+     * 此时 MUST NOT 恢复渲染：那会让渲染线程立刻在被平台废弃的 BufferQueue 上
+     * 取帧。恢复须等新窗口挂上（见 [SurfaceAttachGate]）。
+     */
+    val isAwaitingSurfaceAttach: Boolean
+        get() = surfaceAttachGate.isAwaitingAttach
+
     /** 领一次渲染暂停，返回本次持有的凭证；置位时同步原生标志。 */
     fun acquireRenderPause(): Long = renderPauseLedger.acquire()
 
     /** 归还 [acquireRenderPause] 领到的那一次。 */
     fun releaseRenderPause(token: Long) = renderPauseLedger.release(token)
-
-    /**
-     * 作废**生命周期**持有（Surface 销毁、切后台）并按计数决定是否恢复渲染。
-     *
-     * 只给「刚拿到可用 Surface、必须立刻出一帧」的入口。刻意不清设置页那条：
-     * 那是界面层的独立意图，终端视图在设置页覆盖层之下仍会收到尺寸变化
-     * （设置页自己的键盘），整本清账会把「进入设置时暂停渲染」废掉。
-     */
-    fun clearLifecycleRenderPause() {
-        clearSurfaceDestroyedRenderPause()
-        backgroundPauseToken?.let { renderPauseLedger.release(it) }
-        backgroundPauseToken = null
-    }
-
-    /**
-     * 只归还「Surface 销毁」那一次暂停。
-     *
-     * 切后台那次必须由 [resumeRenderingFromBackground] 单独归还：后台期间系统可能
-     * 已回收 BufferQueue，此时恢复渲染等于让渲染线程去取帧失败（永久黑屏）。
-     */
-    fun clearSurfaceDestroyedRenderPause() {
-        surfaceDestroyedPauseToken?.let { renderPauseLedger.release(it) }
-        surfaceDestroyedPauseToken = null
-    }
 
     fun releaseAllGpuSurfaces() {
         // Surface 销毁：干净地暂停渲染线程，而不是把它们标记为死亡。

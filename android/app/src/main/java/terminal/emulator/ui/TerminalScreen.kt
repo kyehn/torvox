@@ -245,10 +245,16 @@ fun TerminalScreen(
                     // 真的被系统回收时，渲染线程会在取帧失败后随帧上报
                     // `surfaceInvalidated`，由 `maybeRequestSurfaceRecreate` 换成新窗口；
                     // `surfaceDestroyed` 路径则由 `surfaceCreated` 重新绑定。
-                    viewModel.runtime.clearLifecycleRenderPause()
-                    viewModel.runtime.resumeRendering()
-                    // 即使没有新输出也立即出一帧：交换链若已失效，这一帧就是探针。
-                    viewModel.runtime.forceRender()
+                    //
+                    // 切后台那次暂停在此归还；「Surface 销毁」那次由门闸持有，
+                    // 等新窗口挂上原生才解除——提前解除会让渲染线程在被平台
+                    // 废弃的 BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR）。
+                    viewModel.runtime.resumeRenderingFromBackground()
+                    if (!viewModel.runtime.isAwaitingSurfaceAttach) {
+                        viewModel.runtime.resumeRendering()
+                        // 即使没有新输出也立即出一帧：交换链若已失效，这一帧就是探针。
+                        viewModel.runtime.forceRender()
+                    }
                 } else {
                     surface?.postDelayedUnpause(200L)
                 }
