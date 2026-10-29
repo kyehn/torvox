@@ -1,7 +1,6 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.core.view.WindowInsetsControllerCompat
@@ -9,10 +8,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.MainActivity
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.openDrawer
@@ -29,9 +27,7 @@ import terminal.emulator.waitForSession
  * 浅底上，时钟几乎不可见（预览截图 03-settings.png 的实测）。
  */
 @RunWith(AndroidJUnit4::class)
-class SystemBarIconInstrumentedTest {
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+class SystemBarIconInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private fun lightStatusBars(): Boolean {
         val activity = composeTestRule.activity

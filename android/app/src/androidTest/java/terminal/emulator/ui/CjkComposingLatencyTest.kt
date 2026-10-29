@@ -3,15 +3,12 @@ package terminal.emulator.ui
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -31,8 +28,7 @@ import terminal.emulator.waitForSession
  * 毫秒——这正是「退格明显缓慢」的机制。两组的 p50 必须同量级：差值即锚点上报的
  * 等待成本，也是本用例钉住的那条回归线。
  */
-class CjkComposingLatencyTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class CjkComposingLatencyTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 每组样本数：每个样本一次组字回退。 */

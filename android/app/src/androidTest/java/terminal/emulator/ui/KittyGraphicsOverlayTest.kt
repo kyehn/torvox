@@ -2,15 +2,12 @@ package terminal.emulator.ui
 
 import android.graphics.Bitmap
 import android.util.Base64
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.waitForSession
@@ -43,8 +40,7 @@ import java.io.File
  *    「门控→推状态→渲染→pollAll→尾部队列」整循环），断言帧率不低于
  *    [MIN_FPS]。缺陷版本在此处是 1-2fps。
  */
-class KittyGraphicsOverlayTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class KittyGraphicsOverlayTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 注入图像的边长（像素）：够小以便快速上屏，又够大以便在截图里定位。 */

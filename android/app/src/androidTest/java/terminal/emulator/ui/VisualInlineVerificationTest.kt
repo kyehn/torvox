@@ -8,16 +8,12 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.getBridge
 import terminal.emulator.injectLongPress
@@ -31,8 +27,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 @RunWith(AndroidJUnit4::class)
-class VisualInlineVerificationTest : TerminalLogcatTest() {
-    @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
+class VisualInlineVerificationTest : ComposeTerminalLogcatTest() {
 
     private var terminalView: View? = null
     private var bridge: terminal.emulator.bridge.Bridge? = null
@@ -262,8 +257,8 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
         // 清除共用会话的选区状态（用户语义与 cleanUpTerminalState 相同），
         // 随后等上一帧选区渲染出画面再抓基准。
         fun clearSelectionNow() {
-            composeRule.activity.runOnUiThread {
-                composeRule.activity.terminalViewModel.clearSelection()
+            composeTestRule.activity.runOnUiThread {
+                composeTestRule.activity.terminalViewModel.clearSelection()
             }
             Thread.sleep(700)
         }
@@ -312,20 +307,20 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     @Test
     fun verifyWordSelectionPositions() {
         Log.i("VisualInline", "==== Word Selection Position Verification ====")
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         // 本用例采样像素（截图差分找手柄），须再等原生 Surface 挂上，否则量到全零。
-        composeRule.waitForTerminalPixels()
-        bridge = composeRule.getBridge()
+        composeTestRule.waitForTerminalPixels()
+        bridge = composeTestRule.getBridge()
         Assert.assertNotNull("Bridge not ready", bridge)
 
-        terminalView = findTerminalSurfaceView(composeRule.activity.window.decorView)
+        terminalView = findTerminalSurfaceView(composeTestRule.activity.window.decorView)
         Assert.assertNotNull("TerminalSurface not found", terminalView)
 
         // 先清场再落字：共用会话里前序用例留下的行、选区与浮动菜单都会让长按落到
         // 另一处或被已有选区吞掉（外部表现是「找不到手柄」，与长按本身无关）。
-        composeRule.cleanUpTerminalState()
+        composeTestRule.cleanUpTerminalState()
         val wordRow = 1
-        scrollViewportToBottom(requireNotNull(bridge), composeRule.activity.terminalViewModel.runtime)
+        scrollViewportToBottom(requireNotNull(bridge), composeTestRule.activity.terminalViewModel.runtime)
         placeTextAtRow(requireNotNull(bridge), wordRow, WORD_TEXT)
 
         // 长按落在 "world" 内（列约 7，视口第 wordRow 行）。
@@ -380,11 +375,11 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     @Test
     fun verifyUrlSelectionPositions() {
         Log.i("VisualInline", "==== URL Selection Position Verification ====")
-        composeRule.waitForSession()
-        composeRule.waitForTerminalPixels()
-        bridge = composeRule.getBridge()
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
+        bridge = composeTestRule.getBridge()
         Assert.assertNotNull(bridge)
-        terminalView = findTerminalSurfaceView(composeRule.activity.window.decorView)
+        terminalView = findTerminalSurfaceView(composeTestRule.activity.window.decorView)
         Assert.assertNotNull(terminalView)
         val surface = requireNotNull(terminalView)
         Log.i("VisualInline-URL", "Surface ${surface.width}x${surface.height}")
@@ -396,14 +391,14 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
 
         // 先清场再落字：共用会话里前序用例留下的行、选区与浮动菜单都会让长按落到
         // 另一处或被已有选区吞掉（外部表现是「找不到手柄」，与长按本身无关）。
-        composeRule.cleanUpTerminalState()
+        composeTestRule.cleanUpTerminalState()
         // 文本确定性落到指定行：不经 shell（提示符何时打印、echo 输出落在第几行
         // 都随环境变化），落格判据取渲染光标（与单元格内容同源）。网格列数随
         // 屏幕宽度与主字体变化（实测 25～38 列），落字超宽即折行、光标落在下一
         // 行，前提不成立时直接失败而不留到后面误判。
         val urlRow = 2
-        scrollViewportToBottom(requireNotNull(bridge), composeRule.activity.terminalViewModel.runtime)
-        val columns = terminalGridColumns(composeRule.activity, requireNotNull(bridge))
+        scrollViewportToBottom(requireNotNull(bridge), composeTestRule.activity.terminalViewModel.runtime)
+        val columns = terminalGridColumns(composeTestRule.activity, requireNotNull(bridge))
         Assert.assertTrue(
             "URL 必须单行容得下 (列数=$columns 文本=[$URL_TEXT])",
             URL_TEXT.length <= columns,
@@ -445,7 +440,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
     }
 
     private fun saveToExternal(name: String, bitmap: Bitmap) {
-        val extDir = composeRule.activity.getExternalFilesDir("Pictures")
+        val extDir = composeTestRule.activity.getExternalFilesDir("Pictures")
         if (extDir != null) {
             extDir.mkdirs()
             val file = File(extDir, "inline-verify-$name.png")
@@ -453,7 +448,7 @@ class VisualInlineVerificationTest : TerminalLogcatTest() {
             Log.i("VisualInline", "Saved $name: ${file.absolutePath} (${file.length()}B)")
         }
         // 同时存一份到应用私有目录
-        val intDir = File(composeRule.activity.filesDir, "screenshots")
+        val intDir = File(composeTestRule.activity.filesDir, "screenshots")
         intDir.mkdirs()
         val intFile = File(intDir, "inline-verify-$name.png")
         intFile.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }

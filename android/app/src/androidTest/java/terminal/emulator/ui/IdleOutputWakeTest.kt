@@ -1,13 +1,10 @@
 package terminal.emulator.ui
 
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -45,8 +42,7 @@ import java.io.File
  * 光标闪烁会让可见性翻转为「不可见」（打包值 -1），既可能掩盖真正的呈现帧、也会
  * 制造假变化，故先用 DECRST 12 + 稳块形状关掉闪烁——闪烁与本题无关。
  */
-class IdleOutputWakeTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class IdleOutputWakeTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** shell 先睡这么久，确保渲染循环已越过 5s 空闲阈值。 */

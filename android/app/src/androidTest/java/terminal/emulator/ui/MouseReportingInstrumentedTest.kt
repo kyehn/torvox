@@ -4,19 +4,16 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.cleanUpTerminalState
@@ -36,7 +33,7 @@ import terminal.emulator.waitForSession
  * 全程走应用级入口（真实触摸事件注入），不直调内部方法。
  */
 @RunWith(JUnit4::class)
-class MouseReportingInstrumentedTest : TerminalLogcatTest() {
+class MouseReportingInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val ARM_TIMEOUT_MS = 15_000L
         private const val OUTPUT_TIMEOUT_MS = 15_000L
@@ -46,8 +43,6 @@ class MouseReportingInstrumentedTest : TerminalLogcatTest() {
         private const val TAP_COL = 6
         private const val TAP_ROW = 5
     }
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Before
     fun setUp() {

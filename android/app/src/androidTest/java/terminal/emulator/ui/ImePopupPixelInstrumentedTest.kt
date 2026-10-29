@@ -1,20 +1,16 @@
 package terminal.emulator.ui
 
 import android.view.WindowInsets
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -33,7 +29,7 @@ import terminal.emulator.waitForTerminalPixels
  * 输入法经真实点击手势弹出（与用户点击终端同路径），文本经输入连接提交。
  */
 @RunWith(JUnit4::class)
-class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
+class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val IME_TIMEOUT_MS = 10_000L
@@ -66,12 +62,6 @@ class ImePopupPixelInstrumentedTest : TerminalLogcatTest() {
         /** 键栏底边相对键盘顶边的容差：亚像素取整误差。 */
         private const val BAR_SEAM_TOLERANCE_PX = 8
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private lateinit var device: UiDevice
 

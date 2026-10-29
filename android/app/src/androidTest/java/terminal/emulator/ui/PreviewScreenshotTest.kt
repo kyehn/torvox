@@ -2,20 +2,16 @@ package terminal.emulator.ui
 
 import android.graphics.Bitmap
 import android.util.Log
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.activeSessionId
 import terminal.emulator.awaitBridge
@@ -59,7 +55,7 @@ import java.io.FileOutputStream
  * 让「预览截图」不能在没有真实内容的情况下悄悄变绿。
  */
 @RunWith(JUnit4::class)
-class PreviewScreenshotTest : TerminalLogcatTest() {
+class PreviewScreenshotTest : ComposeTerminalLogcatTest() {
     private companion object {
         private const val TAG = "PreviewScreenshot"
         private const val OUTPUT_TIMEOUT_MS = 30_000L
@@ -72,12 +68,6 @@ class PreviewScreenshotTest : TerminalLogcatTest() {
         /** 纯色画面（黑屏/空白）的唯一颜色数远低于此值；真实界面必然超过。 */
         private const val MIN_UNIQUE_COLORS = 16
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     /**
      * 在真实 shell 里执行一条命令，等它**真正结束**，返回退出码。

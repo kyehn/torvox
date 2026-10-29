@@ -1,15 +1,12 @@
 package terminal.emulator.ui
 
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
@@ -23,19 +20,13 @@ import terminal.emulator.waitForSession
  * SIGWINCH 风暴后仍可交互。只覆盖已声明行为，不锁定预览是否重排网格。
  */
 @RunWith(JUnit4::class)
-class ZoomPreviewGestureInstrumentedTest : TerminalLogcatTest() {
+class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val GRID_TIMEOUT_MS = 30_000L
         private const val OUTPUT_TIMEOUT_MS = 20_000L
         private const val SIZE_EPSILON_SP = 0.15f
         private const val TICK_COUNT = 6
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private fun readGridState(): Triple<Float, Int, Int> {
         var appliedSize = 0f

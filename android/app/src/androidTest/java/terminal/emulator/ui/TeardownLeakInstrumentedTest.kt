@@ -1,21 +1,17 @@
 package terminal.emulator.ui
 
 import android.os.ParcelFileDescriptor
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
@@ -32,13 +28,7 @@ import terminal.emulator.waitForSession
  * 守卫修复后若回归，此探头会在 recreate 循环里把排泄重新抓回屏幕。
  */
 @RunWith(AndroidJUnit4::class)
-class TeardownLeakInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+class TeardownLeakInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private lateinit var device: UiDevice
 

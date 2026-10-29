@@ -2,19 +2,16 @@ package terminal.emulator
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.test.rule.GrantPermissionRule
 import org.junit.After
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.closeSettingsOverlay
 
@@ -26,12 +23,7 @@ import terminal.emulator.closeSettingsOverlay
  * 列数随之从 38 掉到 25，所有按网格坐标断言的用例集体漂移。故 [tearDown] 必须
  * 还原族名——缺失还原时失败只出现在 CI 整类连跑，本地单跑恒绿。
  */
-class FontSwitchInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class FontSwitchInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private var originalFamily = ""
 

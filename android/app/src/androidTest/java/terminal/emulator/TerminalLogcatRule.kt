@@ -1,6 +1,8 @@
 package terminal.emulator
 
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.rules.TestRule
 import org.junit.runner.Description
@@ -111,6 +113,23 @@ class TerminalLogcatRule : TestRule {
  * `render: frame failed` 两枚锚点。基类让覆盖成为结构性的：新用例默认带取证。
  */
 abstract class TerminalLogcatTest {
+    // 顺序即规则嵌套顺序：最后声明的 TerminalLogcatRule 在最外层，才能把
+    // Compose 规则自身的失败（Activity 启动等）也附上日志尾部。
+    @get:Rule
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val terminalLogcatRule = TerminalLogcatRule()
+}
+
+/**
+ * 需要 Compose Activity 的仪器化用例基类。
+ *
+ * 不放进 [TerminalLogcatTest]：PTY、安装器等不碰 UI 的用例若也被挂上 Compose 规则，
+ * 每个用例都会额外拉起一个 MainActivity。重复的 Activity 会争用同一套原生会话与
+ * 事件通道，ShellPty 的退出事件因此被另一个活跃会话吃掉（CI 实测）。
+ */
+abstract class ComposeTerminalLogcatTest : TerminalLogcatTest() {
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 }

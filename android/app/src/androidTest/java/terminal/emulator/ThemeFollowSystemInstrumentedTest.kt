@@ -3,13 +3,10 @@ package terminal.emulator
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.test.rule.GrantPermissionRule
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.ui.theme.AppThemeMode
 import terminal.emulator.ui.theme.TerminalThemeMode
@@ -33,12 +30,7 @@ import terminal.emulator.ui.theme.ThemeRepository
  * （两者底色相差极大，颜色扫描不会混淆）。系统夜览模式由 shell 切换：仪器化进程
  * 没有改系统设置的权限。
  */
-class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 底色命中像素的下限：终端内容区整片都是底色，命中上千即说明整屏已换色。 */

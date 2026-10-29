@@ -1,16 +1,12 @@
 package terminal.emulator.diag
 
 import android.graphics.Bitmap
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.Bridge
@@ -29,12 +25,7 @@ import terminal.emulator.waitForTerminalPixels
  * 标记永久丢失（实测差分恒为 0）。落格判据是渲染光标落在标记末列
  * （[placeTextAtRow]），无需沉降等待与自差分重拍。
  */
-class SgrItalicPixelAcceptanceTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class SgrItalicPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
     private lateinit var device: UiDevice
 

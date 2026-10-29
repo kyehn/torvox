@@ -3,17 +3,13 @@ package terminal.emulator.ui
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -30,16 +26,10 @@ import terminal.emulator.waitForSession
  * 不健康时失败会误记到多字符通路。
  */
 @RunWith(JUnit4::class)
-class HardKeyboardMultipleArrivalTest : TerminalLogcatTest() {
+class HardKeyboardMultipleArrivalTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 20_000L
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     /**
      * 主线程同步投递，返回连接真实的受理结果（异步投递会读到初值）。

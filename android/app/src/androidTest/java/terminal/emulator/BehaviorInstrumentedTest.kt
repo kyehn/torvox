@@ -10,7 +10,6 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,29 +17,23 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.ui.theme.ThemeRepository
 
-class BehaviorInstrumentedTest : TerminalLogcatTest() {
+class BehaviorInstrumentedTest : ComposeTerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // without pre-granting it the system permission dialog covers the UI
     // and none of the drawer/settings nodes appear.
-    @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
     // Compose 规则自带 Activity 启动：设置是 Activity 内的浮层，每例重建规则即从
     // 干净状态起步，无需 `am start --activity-clear-task` 之类的自造重置。
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     companion object {
         private const val PACKAGE = "com.termux"

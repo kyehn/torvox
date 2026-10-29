@@ -1,14 +1,11 @@
 package terminal.emulator.ui
 
 import android.util.Log
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -34,8 +31,7 @@ import java.io.File
  * 会话的**真实标题**（VT 收到的 OSC 0/2），经桥接查询读回——不是界面上的
  * 占位文案，也不是内部状态。
  */
-class SessionTitleInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class SessionTitleInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 标题上报的上限（毫秒）：标题由提示符画出时发出，落在首个提示符之后。 */

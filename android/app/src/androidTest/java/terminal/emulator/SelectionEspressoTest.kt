@@ -8,10 +8,8 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
@@ -20,10 +18,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.getBridge
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
@@ -33,7 +29,7 @@ import terminal.emulator.waitForSession
  * (复制/分享/全选/粘贴） — not the system ActionMode toolbar. The popup hosts
  * real TextViews, so menu items are asserted via UiAutomator (By.text).
  */
-class SelectionEspressoTest : TerminalLogcatTest() {
+class SelectionEspressoTest : ComposeTerminalLogcatTest() {
     companion object {
         // 选择菜单是独立系统窗口：慢模拟器上无障碍树同步与首帧渲染滞后，
         // 5s 等待偶发超时，提到与落格门控同量级的 15s。
@@ -43,12 +39,6 @@ class SelectionEspressoTest : TerminalLogcatTest() {
         private const val SELECTION_ROW = 2
         private const val SELECTION_START_COL = 10
     }
-
-    @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     /** 共用会话跨全部用例留存：本类直写网格，不清场即污染后继。 */
     @After

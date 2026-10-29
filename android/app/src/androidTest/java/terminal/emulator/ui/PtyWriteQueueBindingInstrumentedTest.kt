@@ -1,14 +1,11 @@
 package terminal.emulator.ui
 
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.Bridge
@@ -16,8 +13,7 @@ import terminal.emulator.findTerminalSurface
 import terminal.emulator.waitForSession
 
 /** 异步 PTY 写入队列必须跟随冷启动与活动会话切换重新绑定。 */
-class PtyWriteQueueBindingInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class PtyWriteQueueBindingInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private fun surface(): TerminalSurface =
         findTerminalSurface(composeTestRule.activity) as TerminalSurface

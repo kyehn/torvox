@@ -1,16 +1,13 @@
 package terminal.emulator.diag
 
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.firstColumnBeyondDrawerEdge
@@ -33,12 +30,7 @@ import terminal.emulator.waitForTerminalScreen
  * 手势坐标一律由单元格度量算出（[terminalCellCenterOnScreen]）：屏幕尺寸随设备而变，
  * 硬编码坐标在 CI 的 320×640 模拟器上越界，手势根本没进终端，断言却报「幽灵选择」。
  */
-class SelectionTapDismissTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class SelectionTapDismissTest : ComposeTerminalLogcatTest() {
 
     private lateinit var device: UiDevice
 
