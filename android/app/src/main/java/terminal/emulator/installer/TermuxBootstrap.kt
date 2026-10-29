@@ -28,4 +28,22 @@ internal object TermuxBootstrap {
      */
     fun downloadUrl(architecture: String): String =
         "$DOWNLOAD_BASE/bootstrap-$RELEASE%2B$VARIANT/bootstrap-$architecture.zip"
+
+    /**
+     * 该版本 + 变体 + 架构的归档 SHA-256；`null` = 本仓未钉此架构的校验和。
+     *
+     * 与 [RELEASE] 同源：termux-app `app/build.gradle` 的 `downloadBootstraps`
+     * 逐架构公布 SHA-256（aarch64/arm/i686/x86_64）。本仓只支持 aarch64 与
+     * x86_64，故只钉这两个；跟进版本时两者必须同时改，否则安装会立刻失败
+     * ——这正是要的效果：宁可装不上，也不要装上未校验的归档。
+     *
+     * 为什么必须有它：https 只防链路篡改、不保证内容正确，而引导 URL 在设置里
+     * 可由用户编辑，故 https 不构成信任根。归档随后会被解压并**执行**其中的
+     * postinst 脚本，校验和是唯一能证明确实拿到了声明版本的手段。
+     */
+    fun sha256(architecture: String): String? = when (architecture) {
+        "aarch64" -> "ea2aeba8819e517db711f8c32369e89e7c52cee73e07930ff91185e1ab93f4f3"
+        "x86_64" -> "b7fd0f2e3a4de534be3144f9f91acc768630fc463eaf134ab2e64c545e834f7a"
+        else -> null
+    }
 }
