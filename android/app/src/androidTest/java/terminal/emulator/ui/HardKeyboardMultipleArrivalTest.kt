@@ -32,7 +32,7 @@ class HardKeyboardMultipleArrivalTest : ComposeTerminalLogcatTest() {
     }
 
     /**
-     * 主线程同步投递，返回连接真实的受理结果（异步投递会读到初值）。
+     * 主线程同步投递，返回受理结果与尝试次数（重复文本若出现，先看重试次数）。
      *
      * 必须**轮询重试**而不是只发一次：`sendKeyEvent` 的判据是
      * `now < suppressUntilNanos`——窗口切换（获得焦点、抽屉关闭）会开一个**有界**的
@@ -47,9 +47,11 @@ class HardKeyboardMultipleArrivalTest : ComposeTerminalLogcatTest() {
      * 把同一段文本重复送进去。
      */
     @Suppress("DEPRECATION")
-    private fun sendMultipleCharacters(marker: String): Boolean {
+    private fun sendMultipleCharacters(marker: String): Pair<Boolean, Int> {
+        var attempts = 0
         var accepted = false
         UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+            attempts++
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 val connection =
                     findTerminalSurface(composeTestRule.activity)
@@ -59,7 +61,7 @@ class HardKeyboardMultipleArrivalTest : ComposeTerminalLogcatTest() {
             }
             accepted
         }
-        return accepted
+        return accepted to attempts
     }
 
     @Test
@@ -78,18 +80,19 @@ class HardKeyboardMultipleArrivalTest : ComposeTerminalLogcatTest() {
             }
         assertNotNull("shell 回显链不健康，本用例结论不可归因到多字符通路", echoSeen)
 
-        val marker = "MULTIα${System.currentTimeMillis() % 100000}"
-        val accepted = sendMultipleCharacters(marker)
-        assertTrue("ACTION_MULTIPLE 必须被受理（有界抑制窗口内拒绝属预期失败）", accepted)
+        val marker = "MULTIα${SystemClock.uptimeMillis()}"
+        val (accepted, attempts) = sendMultipleCharacters(marker)
+        assertTrue("ACTION_MULTIPLE 必须被受理（有界抑制窗口内拒绝属预期失败，尝试 $attempts 次）", accepted)
         val arrived =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
                 composeTestRule.pumpedTerminalText()?.replace("\n", "")?.contains(marker) == true
             }
         val text = composeTestRule.pumpedTerminalText().orEmpty().replace("\n", "")
         assertTrue("多字符标记必须落格，实际尾部: ${text.takeLast(200)}", arrived != null)
+        val occurrences = Regex(Regex.escape(marker)).findAll(text).count()
         assertTrue(
-            "标记只可出现一次（重投即重复文本）",
-            Regex(Regex.escape(marker)).findAll(text).count() == 1,
+            "标记只可出现一次（重投即重复文本），尝试 $attempts 次后实际 $occurrences 次；尾部: ${text.takeLast(300)}",
+            occurrences == 1,
         )
         bridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
     }
