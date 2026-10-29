@@ -32,13 +32,11 @@ class PtyWriteQueueBindingInstrumentedTest : TerminalLogcatTest() {
         val firstBridge = composeTestRule.awaitBridge()
         val activity = composeTestRule.activity
 
-        val initiallyBound =
-            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 50) {
-                var bound = false
-                onMain { bound = surface().hasActivePtyWriteQueue() }
-                bound
-            }
-        assertNotNull("首个 Bridge 就绪后必须安装异步写入队列", initiallyBound)
+        var terminalSurface: TerminalSurface? = null
+        onMain { terminalSurface = surface() }
+        val surface = requireNotNull(terminalSurface)
+
+        composeTestRule.waitUntil(timeoutMillis = 10_000) { surface.hasActivePtyWriteQueue() }
 
         var firstSessionId = 0L
         onMain { firstSessionId = activity.runtime.state.value.activeSessionId }
@@ -56,13 +54,7 @@ class PtyWriteQueueBindingInstrumentedTest : TerminalLogcatTest() {
         assertNotNull("新会话必须在 20s 内替换活动 Bridge", switched)
         assertTrue("新会话 ID 必须变化", activity.runtime.state.value.activeSessionId != firstSessionId)
 
-        val rebound =
-            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 50) {
-                var bound = false
-                onMain { bound = surface().hasActivePtyWriteQueue() }
-                bound
-            }
-        assertNotNull("切换会话后队列必须重绑到新 Bridge", rebound)
+        composeTestRule.waitUntil(timeoutMillis = 10_000) { surface.hasActivePtyWriteQueue() }
         onMain {
             assertNull("旧 Bridge 不得继续持有已切换视图的写入闭包", firstBridge.ptyWriteQueue)
         }

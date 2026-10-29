@@ -1789,6 +1789,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
+    @Volatile
     private var viewModel: TerminalViewModel? = null
 
     /** 绑定宿主视图模型：Surface 回调内的全部运行期调用经此进入。 */
@@ -2243,9 +2244,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var pendingUnpauseRunnable: Runnable? = null
 
     /** 当前安装 [Bridge.ptyWriteQueue] 的那条 bridge；detach 时据此只摘自己的一份。 */
+    @Volatile
     private var ptyWriteQueueBridge: Bridge? = null
 
     /** 本视图写入该 Bridge 的具体闭包；用于区分新视图已接管的钩子。 */
+    @Volatile
     private var ptyWriteQueueBinding: ((Long, ByteArray) -> Unit)? = null
 
     /**
