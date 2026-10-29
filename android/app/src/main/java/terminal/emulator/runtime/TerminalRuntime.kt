@@ -2500,16 +2500,21 @@ constructor(
     }
 
     suspend fun start(surface: Surface?, width: Int, height: Int) {
+        // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
+        //
+        // MUST 早于下面的「已在启动中」早退：启动进行中时视图可能被重建，新 Surface
+        // 只经这条路径抵达运行期。早退时不记下它，正在进行的启动在 attachPendingSurface
+        // 处读到的仍是旧（已销毁）Surface 或 null——绑定要么落空，要么绑到死窗口，
+        // 终端从此没有画面：渲染循环健康、零异常，直到下一次 Surface 重建才自愈。
+        if (surface != null) {
+            pendingSurface = PendingSurface(surface, width, height)
+        }
         synchronized(sessionLock) {
             if (sessions.isNotEmpty() || starting) return
             starting = true
         }
         // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
-        // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
-        if (surface != null) {
-            pendingSurface = PendingSurface(surface, width, height)
-        }
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
             // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
@@ -2652,7 +2657,12 @@ constructor(
             // 可能已在此期间被销毁（旋转、分屏）；其 ANativeWindow 指针已悬空。
             // 在其上 spawn 会渲染到已死的窗口（黑屏/挂起）。中止，
             // 让下一次 surface-available 事件用新的 Surface 重试 start()。
-            if (surface != null && !surface.isValid) {
+            //
+            // 判据取**登记处里的最新一张**而非 start() 的入参：启动期间视图可能换过
+            // Surface，入参那张早已作废，而登记处那张才是要绑定的窗口——拿作废的那张
+            // 去判死会让整条启动白白中止，终端直到下一次 Surface 事件才有画面。
+            val surfaceToBind = pendingSurface?.surface ?: surface
+            if (surfaceToBind != null && !surfaceToBind.isValid) {
                 LogUtil.error(
                     "Runtime",
                     "start(): surface became invalid during bootstrap, aborting (will retry on next surface)",
@@ -2675,7 +2685,16 @@ constructor(
                 return
             }
 
-            val spawn = spawnTerminalTimed(bridge, config, "start", width, height)
+            // 网格尺寸取登记处里的最新一张：启动期间视图可能换过 Surface，
+            // 入参那套尺寸属于旧窗口，据此 spawn 出的 PTY 初始 winsize 会偏。
+            val spawn =
+                spawnTerminalTimed(
+                    bridge,
+                    config,
+                    "start",
+                    pendingSurface?.width ?: width,
+                    pendingSurface?.height ?: height,
+                )
             LogUtil.debug(
                 "Runtime",
                 "spawnTerminal: result=${spawn.sessionId}",
@@ -2750,7 +2769,15 @@ constructor(
             // 的做法会导致互斥量饿死——守护线程会获取 surface Mutex 并挂起，
             // 永久阻塞真正的渲染线程。改为经 forceRenderRequested 信号渲染循环产出首帧，
             // 由真正的渲染线程启动后取走。
-            attachPendingSurface(bridge)
+            if (!attachPendingSurface(bridge) && surface != null) {
+                // 有 Surface 却绑不上：视图在启动期间被重建，而新 Surface 尚未送达
+                // （或送达时已失效）。会话活着却没有画面——终端空白、渲染线程却
+                // 无错、无重启、无自愈。记错误使这一形态在 logcat 里可见。
+                LogUtil.error(
+                    "Runtime",
+                    "start: session ${startedEntry.sessionId} has no surface to bind; terminal stays blank",
+                )
+            }
             // 带网格尺寸的首次 resize 必须在 spawn 之后立即发出
             // ——attachPendingSurface → recomputeGridFromFontMetrics 会做这件事；
             // 在 spawn 序列中锚定网格尺寸以便验证。
@@ -3910,15 +3937,21 @@ constructor(
     /** 最近一次交给渲染器的 Surface 实例，用于区分「新开孔」与「同一开孔改尺寸」。 */
     private var attachedSurface: android.view.Surface? = null
 
-    private suspend fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
+    /**
+     * 把待绑定的 Surface 交给刚建好的 bridge。
+     *
+     * 返回是否真的绑上了：绑不上即会话没有画面（终端空白），调用方据此记错误——
+     * 这一形态在 logcat 里若无痕迹就只能靠人复现。
+     */
+    private suspend fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge): Boolean {
         // 一次取出三元组：读两次之间可能有并发移交，尺寸必须与该 Surface 同源。
-        val pending = pendingSurface ?: return
+        val pending = pendingSurface ?: return false
         // bridge spawn 期间持有者可能已被销毁
         // （onSurfaceDestroyed 会清空该字段，但竞争的读取仍可能
         // 观察到陈旧值）——绝不绑定已死的 Surface。
         if (!pending.surface.isValid) {
             pendingSurface = null
-            return
+            return false
         }
         bridge.attachSurface(pending.surface, pending.width, pending.height)
         // 新窗口已挂上原生：此刻才可解除「Surface 销毁」那次暂停。
@@ -3938,6 +3971,7 @@ constructor(
         // 而字形却按配置字号光栅化——每次重启后字体显得巨大且行重叠。
         syncGridDimensions(bridge)
         recomputeGridFromFontMetrics()
+        return true
     }
 
     /**

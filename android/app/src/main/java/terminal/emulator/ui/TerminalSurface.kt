@@ -3724,15 +3724,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // ══════════════════════════════════════════════════════════════════════
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        // 先认领归属：此后本视图才是唯一有权暂停渲染的那个，旧视图迟到的
+        // `surfaceDestroyed` 据此被识别为陈旧（见 `TerminalRuntime.onSurfaceDestroyed`）。
+        //
+        // MUST 在任何提前返回之前认领：认领被跳过时，旧视图迟到的销毁仍被当作当前
+        // 持有者处理——它会清空待绑定的 Surface 并领走一次渲染暂停，而新窗口的绑定
+        // 已经发生（此后再无 attach 可归还那次暂停）：终端停在空白画面，渲染线程
+        // 无错、无重启、无自愈。
+        viewModel?.runtime?.onSurfaceClaimed(surfaceOwnershipToken)
         // 0 尺寸守卫：布局可能在视图测量完成前就调用 surfaceCreated
         // （宽高为 0）——绑定 0×0 的 ANativeWindow 会创建一个
         // acquireNextImage 失败的黑色交换链（一闪而过）。推迟到 surfaceChanged 拿到真实尺寸。
         if (width <= 0 || height <= 0) return
         val surface = holder.surface
         if (!surface.isValid) return
-        // 先认领归属：此后本视图才是唯一有权暂停渲染的那个，旧视图迟到的
-        // `surfaceDestroyed` 据此被识别为陈旧（见 `TerminalRuntime.onSurfaceDestroyed`）。
-        viewModel?.runtime?.onSurfaceClaimed(surfaceOwnershipToken)
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         viewModel?.let { terminalViewModel ->
