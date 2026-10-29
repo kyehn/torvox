@@ -84,7 +84,7 @@
   - 对于区域字体情况应正确提示包括“非匹配区域”、“主字体已覆盖”、“未匹配到”等情况
 - **软件主题**：“日间”、“夜间”、“跟随系统”三种。
 - **终端主题**：作用于终端页面与修饰键栏，默认 dracula_plus 主题，开启“日夜切换”开关后可以分别设置日/夜两种终端主题，并跟随“软件主题”在两者间切换。
-  - 构建时从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码颜色，`catppuccin_mocha` 等主题名称在代码中应该只出现一次，硬编码主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light，不得转换名称，不使用 Dracula Plus 命名
+  - 构建时从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码颜色，`catppuccin_mocha` 等主题名称在代码中应该只出现一次，硬编码主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light github_dark_high_contrast moonfly pastel_dark，不得转换名称，不使用 Dracula Plus 命名
   - 默认主题在第一次使用时即被应用。
   - 主题效果支持预览，主题名称不在预览框内，而是在其下方，长主题名称可以被正常显示。
 - **Shell 启动入口路径及参数设置框**。提供保存按钮，支持保存和显示设置的文本，未设置时为空。保存时不检查文本，不检查路径是否存在，不检查参数是否合法。
