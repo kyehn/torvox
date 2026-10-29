@@ -10,6 +10,8 @@ import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.DigestOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 class BootstrapDownloader(
@@ -18,12 +20,17 @@ class BootstrapDownloader(
     internal val client: OkHttpClient = defaultClient(),
 ) {
     companion object {
+        private const val TAG = "BootstrapDownloader"
+
         /** 本地引导 zip 的 URL 方案。门控与前缀剥离共用它，避免两处口径漂移。 */
         private const val FILE_URL_SCHEME = "file://"
         private const val NETWORK_CONNECT_TIMEOUT_MS = 30_000L
         private const val NETWORK_READ_TIMEOUT_MS = 300_000L
         private const val MIN_BOOTSTRAP_SIZE_BYTES = 1_048_576L
         private const val PROGRESS_PERCENT_STEP = 2
+
+        /** 归档校验和算法：`java.security` 保证可用的标准名。 */
+        private const val SHA_256_ALGORITHM = "SHA-256"
 
         /**
          * 进程内唯一的默认客户端。
@@ -115,10 +122,29 @@ class BootstrapDownloader(
                         return@withContext Result.failure(Exception("File too large: $contentLength bytes"))
                     }
                     val body = response.body
-                    val cachedDir = File(context.cacheDir, "bootstrap-$architecture.zip")
-                    cachedDir.delete()
+                    val cachedFile = File(context.cacheDir, "bootstrap-$architecture.zip")
+                    cachedFile.delete()
+                    // 完整性门控的第二道：https 只防链路篡改，不保证拿到的就是声明的那个
+                    // 归档，而引导 URL 在设置里可由用户编辑，故 https 不构成信任根——
+                    // 校验和才是。只对钉住的预设 URL 生效：自定义 URL 的内容本仓无从预知，
+                    // 无从比对，但这次跳过必须留下痕迹，不能静默降级。
+                    val expectedSha256 =
+                        if (url == TermuxBootstrap.downloadUrl(architecture)) {
+                            TermuxBootstrap.sha256(architecture)
+                        } else {
+                            LogUtil.warn(
+                                TAG,
+                                "bootstrap URL is not the pinned preset; checksum not verified",
+                            )
+                            null
+                        }
+                    // 摘要在落盘途中顺带算出，不为校验再读一遍归档。
+                    val digest =
+                        expectedSha256?.let { MessageDigest.getInstance(SHA_256_ALGORITHM) }
                     body.byteStream().use { input ->
-                        FileOutputStream(cachedDir).use { output ->
+                        FileOutputStream(cachedFile).use { rawOutput ->
+                            val output =
+                                digest?.let { DigestOutputStream(rawOutput, it) } ?: rawOutput
                             var total = 0L
                             var lastReportedPercent = -100
                             try {
@@ -145,7 +171,7 @@ class BootstrapDownloader(
                                     },
                                 )
                             } catch (copyError: Exception) {
-                                cachedDir.delete()
+                                cachedFile.delete()
                                 return@withContext if (!isActive) {
                                     Result.failure(Exception(BootstrapOrchestrator.ERROR_CANCELLED))
                                 } else {
@@ -153,12 +179,25 @@ class BootstrapDownloader(
                                 }
                             }
                             if (total < MIN_BOOTSTRAP_SIZE_BYTES) {
-                                cachedDir.delete()
+                                cachedFile.delete()
                                 return@withContext Result.failure(Exception("Download too small: $total bytes"))
+                            }
+                            val actualSha256 = digest?.digest()?.encodeToHex()
+                            if (expectedSha256 != null &&
+                                !expectedSha256.equals(actualSha256, ignoreCase = true)
+                            ) {
+                                cachedFile.delete()
+                                // 摘要本身不含凭据，可以安全地带进日志；归档随后会被解压
+                                // 并执行其 postinst，故不符即删、绝不交给安装器。
+                                return@withContext Result.failure(
+                                    Exception(
+                                        "Bootstrap checksum mismatch: expected $expectedSha256, got $actualSha256",
+                                    ),
+                                )
                             }
                         }
                     }
-                    Result.success(cachedDir)
+                    Result.success(cachedFile)
                 }
             } catch (exception: Exception) {
                 // 只记录异常类名而非异常本身：HTTP 错误消息会嵌入完整 URL
