@@ -294,6 +294,16 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 用任意调色板覆盖主题色（`~/.termux/colors.properties`）。
+    ///
+    /// 调色板按值移交给 VT 线程：它是用户文件的一次性解析结果，生命周期
+    /// 与本命令相同，没有可借用的静态源。
+    pub fn set_colors(&self, palette: crate::terminal::theme::Palette) {
+        if let Err(error) = self.cmd_tx.try_send(Command::SetColors(palette)) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+        }
+    }
+
     /// 下发视口滚动命令（向上为负）。成功返回 true。
     ///
     /// 每次下发分配一个请求序号（进程级单调递增）：VT 处理命令后把序号随帧回传，
@@ -780,6 +790,18 @@ impl super::GhosttyTerminal {
             DISCONNECTED_TITLE.to_string(),
             "title",
         )
+    }
+
+    /// 终端从 OSC 7 记录的工作目录（原始值，通常是 `file://host/path`）。
+    ///
+    /// shell 在每次提示符前上报；空串表示尚未上报，调用方不得把它当成「根目录」。
+    pub fn pwd(&self) -> String {
+        Self::pwd_on(&self.query_tx)
+    }
+
+    /// [`Self::pwd`] 的通道外置版，理由同 [`Self::title_on`]。
+    pub(crate) fn pwd_on(query_tx: &Sender<Query>) -> String {
+        Self::query_on(query_tx, Query::Pwd, DISCONNECTED_PWD.to_string(), "pwd")
     }
 
     pub fn scrollback_length(&self) -> u32 {

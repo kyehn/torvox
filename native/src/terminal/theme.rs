@@ -254,6 +254,14 @@ pub fn default_light_name() -> &'static str {
     SOURCES[DEFAULT_LIGHT_INDEX].0
 }
 
+/// 默认（日间）主题。
+///
+/// 与 [`default_dark`] 对称：跟随系统日间的会话初态取这里，避免调用方
+/// 「先取名字再 `by_name`」时各自重复处理查不到的分支。
+pub fn default_light() -> &'static Theme {
+    by_name(default_light_name()).expect("默认日间主题须在清单中")
+}
+
 /// 主题目录一次查询的跨语言打包字节（小端）。
 ///
 /// 取代「逐个标识取调色板」的往返：设置页一次显示全部主题，逐个取要做

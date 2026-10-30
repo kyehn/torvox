@@ -60,6 +60,13 @@ impl super::GhosttyTerminal {
                     "query channel send failed",
                 );
             }
+            Query::Pwd(tx) => {
+                try_send(
+                    &tx,
+                    String::from_utf8_lossy(terminal.pwd().unwrap_or_default()).into_owned(),
+                    "query channel send failed",
+                );
+            }
             Query::ModeGet(mode, tx) => {
                 // 模式查询失败按「未启用」作答，但必须出声：静默 false 会让调用方
                 // 把「读不到」当成「应用没开」，焦点上报与粘贴包装都会走错分支。

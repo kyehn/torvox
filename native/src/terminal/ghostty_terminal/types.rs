@@ -323,6 +323,8 @@ pub(crate) const DISCONNECTED_CURSOR_Y: u32 = 0;
 /// 排查时看到的正是真正的情况。
 pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = false;
 pub(crate) const DISCONNECTED_TITLE: &str = "";
+/// 查询通道断开时的工作目录回退：空串表示「未知」，与「shell 从未上报」同义。
+pub(crate) const DISCONNECTED_PWD: &str = "";
 pub(crate) const DISCONNECTED_SCROLLBACK: u32 = 0;
 pub(crate) const KGP_STORAGE_LIMIT: u64 = 64 * 1024 * 1024;
 /// 单格字素簇的码位上限：主码位与续接码位合计。
