@@ -90,7 +90,9 @@ fun SettingsSliderRow(
     onValueChangeFinished: () -> Unit = {},
 ) {
     val (_, labelStyle, valueStyle) = rememberSettingsResponsiveStyles()
-    Column(modifier = modifier) {
+    // testTag 必须真的挂上：本函数声明了该参数却直接把 modifier 传下去，
+    // 调用方给的标签会被静默吞掉，按 tag 找不到节点（同文件 SettingsSelectorRow 是对的）。
+    Column(modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
