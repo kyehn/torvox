@@ -607,8 +607,13 @@ internal object ExtraKeysParser {
         }
         cursor.skipWhitespace()
         require(cursor.index == text.length) { "trailing characters after ']'" }
-        require(rows.all { it.isNotEmpty() }) { "extra-keys contains an empty row" }
-        Result.Success(rows, cursor.warnings)
+        // 显式空布局（`[]`）就是「不要键栏」，照常返回零行。
+        // 但只要写了行、坏项又把这些行全掏空，就按写坏处理退回默认——键栏是抽屉与
+        // 滚动锁定的唯一入口，一个空对象不该把它们一起藏起来。
+        if (rows.isEmpty()) return Result.Success(emptyList(), cursor.warnings)
+        val nonEmptyRows = rows.filter { it.isNotEmpty() }
+        require(nonEmptyRows.isNotEmpty()) { "extra-keys contains no usable keys" }
+        Result.Success(nonEmptyRows, cursor.warnings)
     } catch (error: IllegalArgumentException) {
         Result.Failure(error.message ?: "invalid extra-keys")
     } catch (error: IllegalStateException) {
