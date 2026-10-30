@@ -328,7 +328,13 @@ pub(super) fn render_new_frame(
     // 此刻呈现会用旧视口配新亚行余量——画出的位置比实际视口少滚了整行数，
     // 视觉上内容先上跳半行、待新视口到达再下跳整行（上下滑动晃动）。
     // 故陈旧帧一律不呈现，也不解除滚动在途门控：等 VT 处理命令后推送的帧。
-    if !frame_reflects_scroll(cursor_info.scroll_request_id, latest_scroll_request_id) {
+    //
+    // 门控自带超时兜底（`RenderState::scroll_pending`）：只有「确有命令在途」
+    // 才拦，而「在途」是有时限的。少了这条，任何让 VT 不再推出带某序号帧的
+    // 时序都会把画面永久冻住——比原本要修的晃动严重得多。
+    if render_state.scroll_pending()
+        && !frame_reflects_scroll(cursor_info.scroll_request_id, latest_scroll_request_id)
+    {
         // 逐帧事件（滚动期间每帧都可能命中）：按 logcat-hygiene 规范记 trace，
         // 不得以 debug 逐次输出把 logcat 刷满。
         log::trace!(
@@ -342,6 +348,7 @@ pub(super) fn render_new_frame(
         if render_state.renderer.surface.is_none() {
             render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
             render_state.scroll_frame_pending = false;
+            render_state.scroll_pending_since = None;
         }
         return Ok((0, lock_done, std::time::Instant::now()));
     }
@@ -432,6 +439,7 @@ pub(super) fn render_new_frame(
         // 在途，否则那个门控会把这次唯一的送达机会也挡掉。
         render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
         render_state.scroll_frame_pending = false;
+        render_state.scroll_pending_since = None;
         return Err(0);
     }
     // 强制重查：旧帧像素尺寸按旧几何解算，必须按新几何重算。
@@ -561,6 +569,7 @@ pub(super) fn render_new_frame(
     // 渲染失败时同样解除——那一帧的单元数据已存进 `last_frame`，重试由
     // `dirty` 标志驱动；若标志不解，重试会被空闲路径自己挡掉。
     render_state.scroll_frame_pending = false;
+    render_state.scroll_pending_since = None;
     match result {
         Ok(()) => {
             render_state.kitty_overlay_dirty = false;
@@ -617,6 +626,10 @@ pub(super) fn render_idle_frame(
     let scroll_px_changed =
         (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
             > f32::EPSILON;
+    // 必须走 `scroll_pending()`（带超时）而不是读 `scroll_frame_pending` 字段：
+    // 门控除新帧反映命令外唯一的解除时机就是超时，而空闲路径正是在「没有新帧」
+    // 时才反复执行——读字段会让超时兜底在它唯一该生效的场景里失效，画面永久冻结。
+    let scroll_in_flight = render_state.scroll_pending();
     let needs_repaint = should_repaint_idle(
         highlights_changed,
         scroll_px_changed,
@@ -624,7 +637,7 @@ pub(super) fn render_idle_frame(
         render_state.renderer.frame_invalidated,
         render_state.full_repaint,
         cursor_blink_flipped,
-        render_state.scroll_frame_pending,
+        scroll_in_flight,
     );
     if !needs_repaint {
         // 只有「滚动在途」会带着脏标志跳过：归还它——字体/主题等改动

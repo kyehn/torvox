@@ -104,7 +104,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_TRUE, |_env| {
         let target = offset.max(0) as i64;
-        let sent = {
+        let (sent, request_id) = {
             let Some(session) = session_handle(_session_id as u64) else {
                 return Ok(JNI_TRUE);
             };
@@ -136,7 +136,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
                     "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
                 );
             }
-            sent
+            (sent, session.terminal().latest_scroll_request_id())
         };
         // 滚动命令在途：VT 线程推送新 CellData 是异步的，此刻屏幕内容仍是旧视口。
         // 置位使空闲重绘在此期间跳过——否则只能用旧视口配新余量重绘，画出的内容
@@ -149,7 +149,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
         if sent {
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
-                render_state.scroll_frame_pending = true;
+                render_state.begin_scroll_pending(request_id);
             }
         }
         if sent { JNI_TRUE } else { JNI_FALSE }
