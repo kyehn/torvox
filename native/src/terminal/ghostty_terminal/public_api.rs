@@ -18,7 +18,6 @@ impl super::GhosttyTerminal {
             cols,
             scrollback_lines,
             crate::terminal::theme::default_dark(),
-            None,
         )
     }
 
@@ -29,16 +28,8 @@ impl super::GhosttyTerminal {
         cols: u32,
         scrollback_lines: u32,
         theme: &'static crate::terminal::theme::Theme,
-        default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     ) -> Result<Self, TerminalError> {
-        Self::new_with_frame_wake(
-            rows,
-            cols,
-            scrollback_lines,
-            theme,
-            None,
-            default_cursor_style,
-        )
+        Self::new_with_frame_wake(rows, cols, scrollback_lines, theme, None)
     }
 
     /// [`Self::new_with_theme`] + 帧入队唤醒：VT 线程每推送一帧就调用一次
@@ -49,7 +40,6 @@ impl super::GhosttyTerminal {
         scrollback_lines: u32,
         theme: &'static crate::terminal::theme::Theme,
         frame_wake: Option<crate::terminal::session::OutputWake>,
-        default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     ) -> Result<Self, TerminalError> {
         Self::new_with_frame_wake_and_temp_dir(
             rows,
@@ -58,7 +48,6 @@ impl super::GhosttyTerminal {
             theme,
             frame_wake,
             Some(std::env::temp_dir()),
-            default_cursor_style,
         )
     }
 
@@ -71,7 +60,6 @@ impl super::GhosttyTerminal {
         theme: &'static crate::terminal::theme::Theme,
         frame_wake: Option<crate::terminal::session::OutputWake>,
         kitty_temp_dir: Option<std::path::PathBuf>,
-        default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
@@ -123,7 +111,6 @@ impl super::GhosttyTerminal {
                         scrollback_lines,
                         theme,
                         kitty_temp_dir,
-                        default_cursor_style,
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
                         bell_pending: bell_pending_for_run,

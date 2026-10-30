@@ -44,7 +44,6 @@ fn spawn_test_session() -> Session {
         None,
         None,
         2000,
-        None,
     )
     .expect("spawn failed")
 }
@@ -107,7 +106,6 @@ fn exec_failure_session_exits_with_errno_encoding() {
         None,
         None,
         2000,
-        None,
     )
     .expect("spawn failed");
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -761,7 +759,6 @@ fn vt_thread_resize_failure_forces_the_next_resize_to_retry() {
         None,
         Some(std::env::temp_dir()),
         2000,
-        None,
     )
     .expect("session");
 

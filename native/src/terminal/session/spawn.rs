@@ -55,7 +55,6 @@ impl Session {
         cwd: Option<&Path>,
         output_wake: Option<OutputWake>,
         scrollback_lines: u32,
-        default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}, cwd={cwd:?}");
         // 预先拒绝非法尺寸（与 `resize` 同一判据）：0 行/0 列会让 Ghostty 网格与 PTY
@@ -101,7 +100,6 @@ impl Session {
             output_wake.clone(),
             env.tmp_dir().or_else(|| Some(std::env::temp_dir())),
             scrollback_lines,
-            default_cursor_style,
         ) {
             Ok(session) => session,
             Err(inner_error) => {
@@ -233,7 +231,6 @@ impl Session {
         frame_wake: Option<OutputWake>,
         kitty_temp_dir: Option<std::path::PathBuf>,
         scrollback_lines: u32,
-        default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
@@ -252,7 +249,6 @@ impl Session {
             crate::terminal::theme::default_dark(),
             frame_wake,
             kitty_temp_dir,
-            default_cursor_style,
         )
         .map_err(SessionError::Terminal)?;
 

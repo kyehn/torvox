@@ -32,6 +32,13 @@ data class TermuxProperties(
     val terminalMarginVerticalDp: Int = DEFAULT_MARGIN_VERTICAL_DP,
     val terminalCursorStyle: TerminalCursorStyle = TerminalCursorStyle.BLOCK,
     /**
+     * 回滚行数（`terminal-transcript-rows`）。
+     *
+     * 区间 100..50000 与上游一致：上游把越界值钳到边界而不是回退默认，本仓沿用同一
+     * 口径，避免同一份配置在两个应用里算出不同的回滚深度。
+     */
+    val terminalTranscriptRows: Int = DEFAULT_TRANSCRIPT_ROWS,
+    /**
      * 光标闪烁间隔（毫秒）；0 = 不闪。
      *
      * termux 上游默认 500，这里取 0 是刻意的：`DESIGN.md` 要求光标「不闪烁」，
@@ -53,6 +60,12 @@ data class TermuxProperties(
     companion object {
         const val DEFAULT_MARGIN_HORIZONTAL_DP = 3
         const val DEFAULT_MARGIN_VERTICAL_DP = 0
+
+        /** 回滚行数默认值（上游同值）。 */
+        const val DEFAULT_TRANSCRIPT_ROWS = 2000
+
+        /** 回滚行数区间（上游同值）。 */
+        val TRANSCRIPT_ROWS_RANGE = 100..50000
 
         /**
          * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
@@ -404,6 +417,12 @@ internal object TermuxPropertiesParser {
                     }
                 },
                 terminalCursorBlinkRateMs = integer("terminal-cursor-blink-rate", 0, 0..2000),
+                terminalTranscriptRows =
+                integer(
+                    "terminal-transcript-rows",
+                    TermuxProperties.DEFAULT_TRANSCRIPT_ROWS,
+                    TermuxProperties.TRANSCRIPT_ROWS_RANGE,
+                ),
                 shortcutCreateSession = shortcut("shortcut.create-session"),
                 shortcutNextSession = shortcut("shortcut.next-session"),
                 shortcutPreviousSession = shortcut("shortcut.previous-session"),

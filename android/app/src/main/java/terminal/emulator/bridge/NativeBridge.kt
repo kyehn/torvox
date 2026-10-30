@@ -77,7 +77,6 @@ object NativeBridge {
         prefix: String,
         mkshrcPath: String,
         scrollbackLines: Int,
-        cursorStyle: Int,
     ): Long
 
     /** 按 ID 销毁会话，成功返回 true。 */

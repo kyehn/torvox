@@ -241,8 +241,6 @@ pub(crate) struct RunConfig {
     pub(crate) rows: u32,
     pub(crate) cols: u32,
     pub(crate) scrollback_lines: u32,
-    /// 默认光标样式（DECSCUSR 0 q 时恢复的样式）。`None` 时保留上游默认方块。
-    pub(crate) default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     /// 初态主题：调色板经 [`crate::terminal::theme`] 单源解析，`SetTheme` 换主题后
     /// 以命令携带的新主题为准。
     pub(crate) theme: &'static crate::terminal::theme::Theme,

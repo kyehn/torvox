@@ -179,7 +179,6 @@ impl Session {
             None,
             Some(std::env::temp_dir()),
             DEFAULT_SCROLLBACK_LINES,
-            None,
         )
     }
 

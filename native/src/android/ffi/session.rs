@@ -18,7 +18,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     prefix: JString,
     mkshrc_path: JString,
     scrollback_lines: jint,
-    cursor_style: jint,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |env| {
         init_session_inner(
@@ -32,7 +31,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             prefix,
             mkshrc_path,
             scrollback_lines,
-            cursor_style,
         )
     })
 }
@@ -75,7 +73,6 @@ pub(super) fn init_session_inner(
     prefix: JString,
     mkshrc_path: JString,
     scrollback_lines: jint,
-    cursor_style: jint,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
         Ok(r) => r,
@@ -157,8 +154,9 @@ pub(super) fn init_session_inner(
         },
     };
 
-    // 回滚行数固定：PROHIBITED 禁止「终端回滚行数」设置，故不提供任何入参通道。
-    // 会话以默认主题起，真实主题随后经 `setTheme` 按标识下发。
+    // 回滚行数来自 `termux.properties` 的 `terminal-transcript-rows`（Kotlin 侧已按
+    // 上游区间 100..50000 钳制）；负值按默认行数兜底。会话以默认主题起，真实主题
+    // 随后经 `setTheme` 按标识下发。
     let render_wake = Arc::new(RenderWake::default());
     let output_wake = {
         let wake = Arc::clone(&render_wake);
@@ -169,12 +167,6 @@ pub(super) fn init_session_inner(
     } else {
         scrollback_lines as u32
     };
-    let default_cursor_style = match cursor_style {
-        1 => Some(crate::terminal::ghostty_terminal::CursorStyle::Bar),
-        2 => Some(crate::terminal::ghostty_terminal::CursorStyle::Underline),
-        0 => Some(crate::terminal::ghostty_terminal::CursorStyle::Block),
-        _ => Some(crate::terminal::ghostty_terminal::CursorStyle::Block),
-    };
     match Session::spawn(
         &shell_path,
         rows,
@@ -183,7 +175,6 @@ pub(super) fn init_session_inner(
         None,
         output_wake,
         scrollback_lines,
-        default_cursor_style,
     ) {
         Ok(session) => {
             let id = next_session_id();

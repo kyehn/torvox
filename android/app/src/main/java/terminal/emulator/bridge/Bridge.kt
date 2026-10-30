@@ -26,7 +26,6 @@ data class TerminalConfig(
     val mkshrcPath: String,
     val fontSizeTenths: Int,
     val scrollbackLines: Int = 2000,
-    val cursorStyle: CursorStyle = CursorStyle.Block,
 )
 
 /**
@@ -144,7 +143,6 @@ class Bridge(private val config: TerminalConfig) {
                 config.prefix,
                 config.mkshrcPath,
                 config.scrollbackLines,
-                config.cursorStyle.ordinal,
             )
         return sessionId
     }
