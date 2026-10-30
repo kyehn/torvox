@@ -85,16 +85,19 @@ object TerminalKeyCatalog {
     /**
      * 按键的显示文本。
      *
-     * `allCaps` 对应 `extra-keys-text-all-caps`：只影响字母标签，符号与字形不受影响。
+     * 每个样式对应的字形集合逐个对齐 termux `ExtraKeysConstants.EXTRA_KEY_DISPLAY_MAPS`：
+     * `default` 只换方向键与最常用的那几个（回车、Tab、退格、抽屉……），`arrows-all` 才
+     * 加上 Home/End/PgUp/PgDn 的角标，`all` 再把 ESC/CTRL/ALT 换成 ISO 符号，`none` 一个
+     * 都不换。`allCaps` 对应 `extra-keys-text-all-caps`：只影响字母标签，符号与字形不受影响。
      */
     fun displayLabel(name: String, style: ExtraKeysStyle, allCaps: Boolean): String {
         val glyphs =
             when (style) {
-                ExtraKeysStyle.DEFAULT -> arrows + wellKnown + lessKnown + nicer
+                ExtraKeysStyle.DEFAULT -> arrows + wellKnown + nicer
                 ExtraKeysStyle.ARROWS_ONLY -> arrows + nicer
                 ExtraKeysStyle.ARROWS_ALL -> arrows + wellKnown + lessKnown + nicer
-                ExtraKeysStyle.NO_ARROWS -> wellKnown + lessKnown + nicer
-                ExtraKeysStyle.FULL -> arrows + wellKnown + lessKnown + nicer + notKnownIso
+                ExtraKeysStyle.ALL -> arrows + wellKnown + lessKnown + nicer + notKnownIso
+                ExtraKeysStyle.NONE -> emptyMap()
             }
         val upper = name.uppercase()
         val glyph = glyphs[upper] ?: glyphs[name]
