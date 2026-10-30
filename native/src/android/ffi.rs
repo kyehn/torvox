@@ -586,7 +586,7 @@ impl RenderState {
     fn advance_cursor_blink(&mut self) -> bool {
         let phase = cursor_blink_phase_on(
             BLINK_EPOCH.elapsed().as_millis() as u64,
-            CURSOR_BLINK_RATE_MS.load(Ordering::Relaxed),
+            CURSOR_BLINK_RATE_MS.load(Ordering::Acquire),
         );
         if phase == self.cursor_blink_on {
             return false;
