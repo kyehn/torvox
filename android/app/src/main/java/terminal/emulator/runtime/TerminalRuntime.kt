@@ -2223,6 +2223,7 @@ constructor(
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
+
         // 瞬时错误的日志节流间隔（每 N 次连续错误记一行）。渲染线程不按错误数退出：
         // 旋转/切应用的 Surface 中断会连续报错，退出即永久卡死（见渲染循环注释）。
         private const val RENDER_MAX_TRANSIENT_ERRORS = 50
