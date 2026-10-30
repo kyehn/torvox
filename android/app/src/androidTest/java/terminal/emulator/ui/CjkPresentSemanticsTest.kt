@@ -21,7 +21,7 @@ class CjkPresentSemanticsTest : TerminalLogcatTest() {
     fun chinese_text_gridded_and_renderable() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val home = context.filesDir.resolve("cjk-present-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "")
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000, 0)
         assertTrue("会话创建失败", sessionId != 0L)
         try {
             NativeBridge.switchSession(sessionId)
