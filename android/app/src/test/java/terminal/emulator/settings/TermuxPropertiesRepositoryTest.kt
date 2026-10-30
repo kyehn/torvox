@@ -76,4 +76,38 @@ class TermuxPropertiesRepositoryTest {
         assertEquals(TermuxProperties(), repository.configuration.value.properties)
         assertTrue(repository.configuration.value.errors.isEmpty())
     }
+
+    /** 文件在但读不出：沿用上一次成功的结果，不许把覆盖打回全默认。 */
+    @Test
+    fun `an unreadable colors file keeps the last successful overrides`() {
+        val file = writeConfig(".termux/colors.properties", "background = #112233")
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertEquals(0x00112233, repository.configuration.value.colors?.background)
+
+        file.writeText("background = #445566\n" + "#".repeat(64 * 1024))
+        load(repository)
+        assertEquals(
+            "读失败必须保留上次覆盖: ${repository.configuration.value.errors}",
+            0x00112233,
+            repository.configuration.value.colors?.background,
+        )
+        assertTrue(
+            "读失败必须留痕: ${repository.configuration.value.errors}",
+            repository.configuration.value.errors.any { it.contains("larger than") },
+        )
+    }
+
+    /** 文件被清空是「撤销覆盖」，必须生效而不是沿用上次结果。 */
+    @Test
+    fun `an emptied colors file clears the overrides`() {
+        val file = writeConfig(".termux/colors.properties", "background = #112233")
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertEquals(0x00112233, repository.configuration.value.colors?.background)
+
+        file.writeText("# only a comment\n")
+        load(repository)
+        assertNull(repository.configuration.value.colors)
+    }
 }

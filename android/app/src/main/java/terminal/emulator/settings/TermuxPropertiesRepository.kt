@@ -77,10 +77,16 @@ constructor(@ApplicationContext private val context: Context) {
                 if (colorsFile == null) {
                     null
                 } else {
-                    readFile(colorsFile, errors)?.let { text ->
-                        val (parsed, colorErrors) = ColorsPropertiesParser.parse(text)
-                        errors += colorErrors.map { "colors.properties: $it" }
-                        parsed.takeUnless { it.isEmpty }
+                    when (val text = readFile(colorsFile, errors)) {
+                        // 文件在但读不出：沿用上一次成功的结果，与 `termux.properties`
+                        // 同口径——一次 IO 失败不该把主题覆盖打回全默认。文件被清空
+                        // 走的是下面那条（解析出空），那才是「显式撤销覆盖」。
+                        null -> lastGood.colors
+                        else -> {
+                            val (parsed, colorErrors) = ColorsPropertiesParser.parse(text)
+                            errors += colorErrors.map { "colors.properties: $it" }
+                            parsed.takeUnless { it.isEmpty }
+                        }
                     }
                 }
 
