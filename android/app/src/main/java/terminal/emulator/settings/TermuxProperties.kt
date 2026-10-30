@@ -105,11 +105,7 @@ enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, NO_ARROWS, FULL }
 data class ExtraKey(val name: String, val popup: String? = null)
 
 /** 一份配置的来源文件与解析错误，供日志与诊断使用。 */
-data class TermuxPropertiesLoad(
-    val properties: TermuxProperties,
-    val sourcePath: String?,
-    val errors: List<String>,
-)
+data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath: String?, val errors: List<String>)
 
 /** `~/.termux/colors.properties` 的解析结果；null 字段表示「沿用主题」。 */
 data class ColorsProperties(
@@ -236,9 +232,13 @@ internal object PropertiesFile {
             }
             when (val escaped = text[index + 1]) {
                 'n' -> output.append('\n')
+
                 't' -> output.append('\t')
+
                 'r' -> output.append('\r')
+
                 'f' -> output.append('\u000C')
+
                 'u' -> {
                     val hex = text.substring(index + 2, minOf(index + 6, text.length))
                     val code = hex.toIntOrNull(16)
@@ -249,6 +249,7 @@ internal object PropertiesFile {
                         output.append(escaped)
                     }
                 }
+
                 else -> output.append(escaped)
             }
             index += 2
@@ -278,7 +279,9 @@ internal object TermuxPropertiesParser {
             val raw = values[key] ?: return default
             return when (raw.lowercase()) {
                 "true" -> true
+
                 "false" -> false
+
                 else -> {
                     errors += "$key: '$raw' is not true/false; keeping $default"
                     default
@@ -329,6 +332,7 @@ internal object TermuxPropertiesParser {
             values["extra-keys"]?.let { raw ->
                 when (val parsed = ExtraKeysParser.parse(raw)) {
                     is ExtraKeysParser.Result.Success -> parsed.rows
+
                     is ExtraKeysParser.Result.Failure -> {
                         errors += "extra-keys: ${parsed.message}; keeping the default layout"
                         TermuxProperties.DEFAULT_EXTRA_KEYS
@@ -347,8 +351,11 @@ internal object TermuxPropertiesParser {
                 bellCharacter =
                 when (choice("bell-character", "vibrate").lowercase()) {
                     "vibrate" -> BellCharacter.VIBRATE
+
                     "beep" -> BellCharacter.BEEP
+
                     "ignore" -> BellCharacter.IGNORE
+
                     else -> {
                         errors += "bell-character: '${values["bell-character"]}' is unknown; keeping vibrate"
                         BellCharacter.VIBRATE
@@ -360,10 +367,14 @@ internal object TermuxPropertiesParser {
                 terminalCursorStyle =
                 when (choice("terminal-cursor-style", "block").lowercase()) {
                     "block" -> TerminalCursorStyle.BLOCK
+
                     "bar" -> TerminalCursorStyle.BAR
+
                     "underline" -> TerminalCursorStyle.UNDERLINE
+
                     else -> {
-                        errors += "terminal-cursor-style: '${values["terminal-cursor-style"]}' is unknown; keeping block"
+                        errors +=
+                            "terminal-cursor-style: '${values["terminal-cursor-style"]}' is unknown; keeping block"
                         TerminalCursorStyle.BLOCK
                     }
                 },
@@ -375,8 +386,11 @@ internal object TermuxPropertiesParser {
                 nightMode =
                 when (choice("night-mode", "system").lowercase()) {
                     "true" -> NightMode.TRUE
+
                     "false" -> NightMode.FALSE
+
                     "system" -> NightMode.SYSTEM
+
                     else -> {
                         errors += "night-mode: '${values["night-mode"]}' is unknown; following system"
                         NightMode.SYSTEM
@@ -385,10 +399,15 @@ internal object TermuxPropertiesParser {
                 extraKeysStyle =
                 when (choice("extra-keys-style", "default").lowercase()) {
                     "default" -> ExtraKeysStyle.DEFAULT
+
                     "arrows-only" -> ExtraKeysStyle.ARROWS_ONLY
+
                     "arrows-all" -> ExtraKeysStyle.ARROWS_ALL
+
                     "no-arrows" -> ExtraKeysStyle.NO_ARROWS
+
                     "full" -> ExtraKeysStyle.FULL
+
                     else -> {
                         errors += "extra-keys-style: '${values["extra-keys-style"]}' is unknown; using default"
                         ExtraKeysStyle.DEFAULT
@@ -399,7 +418,9 @@ internal object TermuxPropertiesParser {
                 backKey =
                 when (choice("back-key", "back").lowercase()) {
                     "back" -> BackKeyBehaviour.BACK
+
                     "escape" -> BackKeyBehaviour.ESCAPE
+
                     else -> {
                         errors += "back-key: '${values["back-key"]}' is unknown; keeping back"
                         BackKeyBehaviour.BACK
@@ -408,7 +429,9 @@ internal object TermuxPropertiesParser {
                 volumeKeys =
                 when (choice("volume-keys", "virtual").lowercase()) {
                     "virtual" -> VolumeKeysBehaviour.VIRTUAL
+
                     "volume" -> VolumeKeysBehaviour.VOLUME
+
                     else -> {
                         errors += "volume-keys: '${values["volume-keys"]}' is unknown; keeping virtual"
                         VolumeKeysBehaviour.VIRTUAL
@@ -417,9 +440,12 @@ internal object TermuxPropertiesParser {
                 softKeyboardToggleBehaviour =
                 when (choice("soft-keyboard-toggle-behaviour", "show/hide").lowercase()) {
                     "show/hide" -> SoftKeyboardToggleBehaviour.SHOW_HIDE
+
                     "enable/disable" -> SoftKeyboardToggleBehaviour.ENABLE_DISABLE
+
                     else -> {
-                        errors += "soft-keyboard-toggle-behaviour: '${values["soft-keyboard-toggle-behaviour"]}' is unknown; using show/hide"
+                        errors +=
+                            "soft-keyboard-toggle-behaviour: '${values["soft-keyboard-toggle-behaviour"]}' is unknown; using show/hide"
                         SoftKeyboardToggleBehaviour.SHOW_HIDE
                     }
                 },
@@ -503,37 +529,38 @@ internal object ExtraKeysParser {
         }
     }
 
-    fun parse(text: String): Result =
-        try {
-            val cursor = Cursor(text)
-            cursor.consume('[')
-            val rows = mutableListOf<List<ExtraKey>>()
-            if (cursor.peek() == ']') {
-                cursor.consume(']')
-            } else {
-                while (true) {
-                    rows += parseRow(cursor)
-                    when (cursor.peek()) {
-                        ',' -> {
-                            cursor.consume(',')
-                            // 末行后的逗号允许（手写配置常见）。
-                            if (cursor.peek() == ']') break
-                        }
-                        ']' -> break
-                        else -> error("expected ',' or ']' after a row")
+    fun parse(text: String): Result = try {
+        val cursor = Cursor(text)
+        cursor.consume('[')
+        val rows = mutableListOf<List<ExtraKey>>()
+        if (cursor.peek() == ']') {
+            cursor.consume(']')
+        } else {
+            while (true) {
+                rows += parseRow(cursor)
+                when (cursor.peek()) {
+                    ',' -> {
+                        cursor.consume(',')
+                        // 末行后的逗号允许（手写配置常见）。
+                        if (cursor.peek() == ']') break
                     }
+
+                    ']' -> break
+
+                    else -> error("expected ',' or ']' after a row")
                 }
-                cursor.consume(']')
             }
-            cursor.skipWhitespace()
-            require(cursor.index == text.length) { "trailing characters after ']'" }
-            require(rows.all { it.isNotEmpty() }) { "extra-keys contains an empty row" }
-            Result.Success(rows)
-        } catch (error: IllegalArgumentException) {
-            Result.Failure(error.message ?: "invalid extra-keys")
-        } catch (error: IllegalStateException) {
-            Result.Failure(error.message ?: "invalid extra-keys")
+            cursor.consume(']')
         }
+        cursor.skipWhitespace()
+        require(cursor.index == text.length) { "trailing characters after ']'" }
+        require(rows.all { it.isNotEmpty() }) { "extra-keys contains an empty row" }
+        Result.Success(rows)
+    } catch (error: IllegalArgumentException) {
+        Result.Failure(error.message ?: "invalid extra-keys")
+    } catch (error: IllegalStateException) {
+        Result.Failure(error.message ?: "invalid extra-keys")
+    }
 
     private fun parseRow(cursor: Cursor): List<ExtraKey> {
         cursor.consume('[')
@@ -549,7 +576,9 @@ internal object ExtraKeysParser {
                     cursor.consume(',')
                     if (cursor.peek() == ']') break
                 }
+
                 ']' -> break
+
                 else -> error("expected ',' or ']' inside a row")
             }
         }
@@ -612,8 +641,11 @@ internal object ColorsPropertiesParser {
         for ((key, value) in PropertiesFile.parse(text)) {
             when (key) {
                 "foreground" -> foreground = color(key, value)
+
                 "background" -> background = color(key, value)
+
                 "cursor" -> cursor = color(key, value)
+
                 else -> {
                     if (key.startsWith("color")) {
                         val index = key.removePrefix("color").toIntOrNull()
@@ -642,7 +674,9 @@ internal object ColorsPropertiesParser {
                 val b = text[2].digitToInt(16) * 17
                 (r shl 16) or (g shl 8) or b
             }
+
             6 -> text.toInt(16)
+
             else -> text.substring(2).toInt(16)
         }
     }

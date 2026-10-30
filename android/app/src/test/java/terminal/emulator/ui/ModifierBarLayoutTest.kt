@@ -103,7 +103,10 @@ class ModifierBarLayoutTest {
         assertEquals("TAB", buildExtraKeySlots(layout, ExtraKeysStyle.ARROWS_ONLY, true)[0][0].label)
         assertEquals("Tab", buildExtraKeySlots(layout, ExtraKeysStyle.ARROWS_ONLY, false)[0][0].label)
         // 有字形的键在两种取值下都一样。
-        assertEquals("⇱", buildExtraKeySlots(listOf(listOf(ExtraKey("HOME"))), ExtraKeysStyle.DEFAULT, false)[0][0].label)
+        assertEquals(
+            "⇱",
+            buildExtraKeySlots(listOf(listOf(ExtraKey("HOME"))), ExtraKeysStyle.DEFAULT, false)[0][0].label,
+        )
     }
 
     /** popup 随槽位带下去，供长按发送。 */

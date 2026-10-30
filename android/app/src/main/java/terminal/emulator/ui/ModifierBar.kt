@@ -93,39 +93,40 @@ internal fun buildExtraKeySlots(
     rows: List<List<ExtraKey>>,
     style: ExtraKeysStyle,
     allCaps: Boolean,
-): List<List<ExtraKeySlot>> =
-    rows.mapNotNull { row ->
-        val slots =
-            row.mapNotNull { key ->
-                val special = TerminalKeyCatalog.specialFor(key.name)
-                val keyCode = TerminalKeyCatalog.keyCodeFor(key.name)
-                val literal = key.name.length == 1
-                when {
-                    special == TerminalKeyCatalog.Special.FN -> {
-                        // FN 需要一整套二次映射（FN+方向键→Home/End 等），本应用未实现；
-                        // 渲染一个点了没反应的键比不渲染更糟。
-                        LogUtil.warn("ModifierBar", "extra-keys: FN is not supported; key hidden")
-                        null
-                    }
-                    special != null || keyCode != null || literal -> {
-                        ExtraKeySlot(
-                            name = key.name,
-                            label = TerminalKeyCatalog.displayLabel(key.name, style, allCaps),
-                            keyCode = keyCode,
-                            special = special,
-                            repeatable = TerminalKeyCatalog.isRepetitive(key.name),
-                            popup = key.popup,
-                            testTag = testTagFor(key.name),
-                        )
-                    }
-                    else -> {
-                        LogUtil.warn("ModifierBar", "extra-keys: unknown key '${key.name}'; key hidden")
-                        null
-                    }
+): List<List<ExtraKeySlot>> = rows.mapNotNull { row ->
+    val slots =
+        row.mapNotNull { key ->
+            val special = TerminalKeyCatalog.specialFor(key.name)
+            val keyCode = TerminalKeyCatalog.keyCodeFor(key.name)
+            val literal = key.name.length == 1
+            when {
+                special == TerminalKeyCatalog.Special.FN -> {
+                    // FN 需要一整套二次映射（FN+方向键→Home/End 等），本应用未实现；
+                    // 渲染一个点了没反应的键比不渲染更糟。
+                    LogUtil.warn("ModifierBar", "extra-keys: FN is not supported; key hidden")
+                    null
+                }
+
+                special != null || keyCode != null || literal -> {
+                    ExtraKeySlot(
+                        name = key.name,
+                        label = TerminalKeyCatalog.displayLabel(key.name, style, allCaps),
+                        keyCode = keyCode,
+                        special = special,
+                        repeatable = TerminalKeyCatalog.isRepetitive(key.name),
+                        popup = key.popup,
+                        testTag = testTagFor(key.name),
+                    )
+                }
+
+                else -> {
+                    LogUtil.warn("ModifierBar", "extra-keys: unknown key '${key.name}'; key hidden")
+                    null
                 }
             }
-        slots.takeIf { it.isNotEmpty() }
-    }
+        }
+    slots.takeIf { it.isNotEmpty() }
+}
 
 /**
  * 测试标签：方向键沿用字形（`Key_↑`，与既有 UI 测试一致），其余用逻辑键名。
@@ -391,8 +392,11 @@ private data class ModifierBarStates(
 private fun secondaryLongPressAction(slot: ExtraKeySlot, actions: ModifierBarActions): (() -> Unit)? =
     when (slot.special) {
         TerminalKeyCatalog.Special.CTRL -> actions.onLockCtrl
+
         TerminalKeyCatalog.Special.ALT -> actions.onLockAlt
+
         TerminalKeyCatalog.Special.DRAWER -> actions.onPasteClick
+
         else ->
             slot.popup?.let { popup ->
                 { actions.onSubmit(popup) }
@@ -400,13 +404,12 @@ private fun secondaryLongPressAction(slot: ExtraKeySlot, actions: ModifierBarAct
     }
 
 /** 单个按键的实时切换状态；非切换类按键为 `null`。 */
-private fun modifierStateFor(slot: ExtraKeySlot, states: ModifierBarStates): ModifierState? =
-    when (slot.special) {
-        TerminalKeyCatalog.Special.CTRL -> states.ctrlState
-        TerminalKeyCatalog.Special.ALT -> states.altState
-        TerminalKeyCatalog.Special.SCROLL -> if (states.scrollActive) ModifierState.Locked else null
-        else -> null
-    }
+private fun modifierStateFor(slot: ExtraKeySlot, states: ModifierBarStates): ModifierState? = when (slot.special) {
+    TerminalKeyCatalog.Special.CTRL -> states.ctrlState
+    TerminalKeyCatalog.Special.ALT -> states.altState
+    TerminalKeyCatalog.Special.SCROLL -> if (states.scrollActive) ModifierState.Locked else null
+    else -> null
+}
 
 private fun toolbarKeyPresentation(
     slot: ExtraKeySlot,
@@ -441,11 +444,7 @@ private fun toolbarKeyPresentation(
  * modifyOtherKeys 下须走 `CSI 27;mod;code~`，这些形态只有编码器知道，写死在
  * Kotlin 的串在对应模式下就是错的。
  */
-private fun sendKeyThroughEncoder(
-    slot: ExtraKeySlot,
-    actions: ModifierBarActions,
-    modifierStates: ModifierBarStates,
-) {
+private fun sendKeyThroughEncoder(slot: ExtraKeySlot, actions: ModifierBarActions, modifierStates: ModifierBarStates) {
     val keyCode = slot.keyCode
     if (keyCode == null) {
         actions.onSubmit(slot.name)
@@ -458,30 +457,38 @@ private fun sendKeyThroughEncoder(
     }
     // 按下 CTRL/ALT 再点某个键却什么都没发生——用户只能以为设备卡了。
     // 键栏的每个键都应可编码，故这是编码缺口，须留证据（键码 + 修饰态）。
-    LogUtil.warn("ModifierBar", "no encoding for ${slot.name} (keyCode=$keyCode modifiers=$modifiers); keystroke dropped")
+    LogUtil.warn(
+        "ModifierBar",
+        "no encoding for ${slot.name} (keyCode=$keyCode modifiers=$modifiers); keystroke dropped",
+    )
 }
 
 private fun toolbarKeyClickHandler(
     slot: ExtraKeySlot,
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
-): () -> Unit =
-    when (slot.special) {
-        TerminalKeyCatalog.Special.CTRL -> actions.onToggleCtrl
-        TerminalKeyCatalog.Special.ALT -> actions.onToggleAlt
-        TerminalKeyCatalog.Special.DRAWER -> actions.onDrawerClick
-        TerminalKeyCatalog.Special.SCROLL -> actions.onScrollClick
-        TerminalKeyCatalog.Special.KEYBOARD -> actions.onKeyboardClick
-        TerminalKeyCatalog.Special.PASTE -> actions.onPasteClick
-        TerminalKeyCatalog.Special.FN, null -> {
-            if (slot.keyCode == null && slot.popup == null) {
-                // 字面量：没有键码，直接写文本。
-                { actions.onSubmit(slot.name) }
-            } else {
-                { sendKeyThroughEncoder(slot, actions, modifierStates) }
-            }
+): () -> Unit = when (slot.special) {
+    TerminalKeyCatalog.Special.CTRL -> actions.onToggleCtrl
+
+    TerminalKeyCatalog.Special.ALT -> actions.onToggleAlt
+
+    TerminalKeyCatalog.Special.DRAWER -> actions.onDrawerClick
+
+    TerminalKeyCatalog.Special.SCROLL -> actions.onScrollClick
+
+    TerminalKeyCatalog.Special.KEYBOARD -> actions.onKeyboardClick
+
+    TerminalKeyCatalog.Special.PASTE -> actions.onPasteClick
+
+    TerminalKeyCatalog.Special.FN, null -> {
+        if (slot.keyCode == null && slot.popup == null) {
+            // 字面量：没有键码，直接写文本。
+            { actions.onSubmit(slot.name) }
+        } else {
+            { sendKeyThroughEncoder(slot, actions, modifierStates) }
         }
     }
+}
 
 /** 由预计算的呈现结果组成的一整行附加键按钮。 */
 @Composable

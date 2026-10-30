@@ -55,7 +55,9 @@ internal class BellAlerter(context: Context) {
         lastRingMs = now
         when (character) {
             BellCharacter.VIBRATE -> vibrate()
+
             BellCharacter.BEEP -> beep()
+
             // 上面的提前返回已挡掉 IGNORE；列出它是为了让新增取值在编译期就暴露，
             // 而不是悄悄落进某个已有分支。
             BellCharacter.IGNORE -> Unit
@@ -73,14 +75,13 @@ internal class BellAlerter(context: Context) {
         )
     }
 
-    private fun vibrator(): Vibrator? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)
-                ?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
+    private fun vibrator(): Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        (appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)
+            ?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    }
 
     private fun beep() {
         if (toneUnavailable) return
