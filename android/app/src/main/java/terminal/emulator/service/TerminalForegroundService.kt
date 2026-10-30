@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -20,6 +21,7 @@ class TerminalForegroundService : Service() {
         private const val CHANNEL_ID = "terminal"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
+        private const val WIFI_LOCK_TAG = "termvox:wifilock"
         private const val EXTRA_SESSION_COUNT = "session_count"
         private const val ACTION_EXIT = "terminal.emulator.action.EXIT"
 
@@ -67,6 +69,15 @@ class TerminalForegroundService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * Wi-Fi 锁：与唤醒锁配对，参考 termux 的 `WifiLock`（`TermuxService`）。
+     *
+     * 唤醒锁只保证 CPU 不休眠，Wi-Fi 仍会进入省电模式——长连接（ssh、mosh、下载）
+     * 在灭屏几分钟后表现为「卡住，一碰屏幕就恢复」。Wi-Fi 锁把射频钉在高性能档，
+     * 代价是这一段确实更费电，故与唤醒锁同生命周期：只有存在会话时才持有。
+     */
+    private var wifiLock: WifiManager.WifiLock? = null
 
     // 续期走主线程 Handler：唤醒锁的释放/重取必须在有 Looper 的线程上完成。
     private val wakeLockRenewal = Handler(Looper.getMainLooper())
@@ -116,7 +127,10 @@ class TerminalForegroundService : Service() {
                 sessionCount
             }
         startForegroundWithSessionCount(sessionCount)
-        if (sessionCount >= 1) acquireWakeLockIfNeeded()
+        if (sessionCount >= 1) {
+            acquireWakeLockIfNeeded()
+            acquireWifiLockIfNeeded()
+        }
         return START_STICKY
     }
 
@@ -194,6 +208,29 @@ class TerminalForegroundService : Service() {
         scheduleWakeLockRenewal()
     }
 
+    /**
+     * 获取 Wi-Fi 锁。
+     *
+     * 用 `WIFI_MODE_FULL_LOW_LATENCY` 而非 termux 那个年代的 `WIFI_MODE_FULL_HIGH_PERF`：
+     * 后者在 API 29 起被标记为废弃，系统建议的替代正是前者，语义同为「不休眠的满速射频」。
+     *
+     * 网络不可用（无 Wi-Fi 硬件、取不到 WifiManager）时静默跳过：终端不依赖 Wi-Fi，
+     * 移动数据或本地 shell 照常工作，为它报错只会制造噪声。
+     */
+    private fun acquireWifiLockIfNeeded() {
+        if (wifiLock?.isHeld == true) return
+        val wifiManager =
+            applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return
+        wifiLock =
+            wifiManager
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, WIFI_LOCK_TAG)
+                .apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+    }
+
     private fun scheduleWakeLockRenewal() {
         wakeLockRenewal.removeCallbacksAndMessages(null)
         wakeLockRenewal.postDelayed(
@@ -226,8 +263,14 @@ class TerminalForegroundService : Service() {
         wakeLock = null
     }
 
+    private fun releaseWifiLock() {
+        wifiLock?.takeIf { it.isHeld }?.release()
+        wifiLock = null
+    }
+
     override fun onDestroy() {
         releaseWakeLock()
+        releaseWifiLock()
         super.onDestroy()
     }
 
@@ -239,8 +282,9 @@ class TerminalForegroundService : Service() {
         // （此后再无任何调用 acquireWakeLockIfNeeded）。
         // 零会话时不取：裸 start() 冷启动会走到这里，此时 sessionCount 仍为 0，
         // 为不存在的会话持唤醒锁（同 onStartCommand 的判据）。
-        if (sessionCount >= 1 && wakeLock?.isHeld != true) {
-            acquireWakeLockIfNeeded()
+        if (sessionCount >= 1) {
+            if (wakeLock?.isHeld != true) acquireWakeLockIfNeeded()
+            acquireWifiLockIfNeeded()
         }
     }
 }
