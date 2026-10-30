@@ -37,6 +37,10 @@ impl super::GhosttyTerminal {
                 Self::apply_colors_command(palette, config, terminal, extractors, state, batch);
                 CommandOutcome::Continue
             }
+            Command::SetCursorStyle(style) => {
+                Self::apply_cursor_style(style, terminal, state, batch);
+                CommandOutcome::Continue
+            }
             Command::Resize { rows, cols } => {
                 Self::apply_resize(rows, cols, config, terminal, extractors, state, batch)
             }
@@ -149,6 +153,36 @@ impl super::GhosttyTerminal {
             state.default_background,
             state.default_foreground
         );
+    }
+
+    /// 应用默认光标样式（`terminal-cursor-style`）。
+    ///
+    /// 只写**默认值**：程序用 DECSCUSR 设置过样式时以程序为准（上游按此优先级解析），
+    /// 这与 termux 一致——用户在 vim 里选的光标形状不该被配置文件覆盖。
+    ///
+    /// 样式变了要重推单元帧：光标形状烘在 CellData 里，不重推则屏幕上的光标保持旧形状
+    /// 直到下一次输出。
+    fn apply_cursor_style(
+        style: CursorStyle,
+        terminal: &mut Terminal<'_, '_>,
+        state: &mut CommandState,
+        batch: &mut BatchState,
+    ) {
+        let upstream = match style {
+            CursorStyle::Block => libghostty_vt::terminal::CursorStyle::Block,
+            CursorStyle::Bar => libghostty_vt::terminal::CursorStyle::Bar,
+            CursorStyle::Underline => libghostty_vt::terminal::CursorStyle::Underline,
+        };
+        if let Err(error) = terminal.set_default_cursor_style(Some(upstream)) {
+            log::error!("SetCursorStyle: set_default_cursor_style failed: {error}");
+            return;
+        }
+        // 光标形状只影响一个单元，但仍要走整帧重推：CellData 是整帧一次性推送的，
+        // 没有「只更新光标格」的通道。
+        mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
+        state.cell_data_dirty = true;
+        batch.content_changed = true;
+        log::info!("SetCursorStyle: {style:?}");
     }
 
     /// 主题明暗变化时向 PTY 主动推 `CSI ? 997 ; 1|2 n`。

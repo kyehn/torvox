@@ -72,6 +72,9 @@ pub struct GhosttyTerminal {
     /// 供 Android 输入路径免阻塞 RPC 检出备用屏（vim/less/htop），使触摸滚动
     /// 转发为滚轮转义序列而非滚动本地回滚（备用屏会吞掉滚轮）。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
+    /// 待上报的响铃（BEL）：VT 线程在 `on_bell` 回调里置位，宿主取走时清零。
+    /// 二值而非计数——连响 N 次与响 1 次对用户是同一种提示。
+    pub(crate) bell_pending: Arc<AtomicBool>,
     /// 鼠标上报（DECSET 1000/1002/1003）是否启用的无锁镜像，同样由 VT 线程
     /// 每帧刷新。触摸拖动每个事件都要判断一次是否转发滚轮给远端，读原子量
     /// 才能让 UI 线程完全不碰查询通道。
