@@ -11,18 +11,25 @@ package terminal.emulator.settings
  * 用户文件而崩溃——这是外部配置，不是应用自己的设置数据。
  */
 data class TermuxProperties(
+    /** 解析但**不改变行为**：本应用没有会话切换提示通道（见 openspec 的 termux-configuration）。 */
     val disableTerminalSessionChangeToast: Boolean = false,
     val disableHardwareKeyboardShortcuts: Boolean = false,
     val useFullscreenWorkaround: Boolean = false,
     val fullscreen: Boolean = false,
     val ctrlSpaceWorkaround: Boolean = false,
-    val hideSoftKeyboardOnStartup: Boolean = false,
+    /** 解析但**不改变行为**：启动时本就不弹软键盘（等价于恒为 true），而 `false` 被 Android 12+ 拒绝。 */
+    val hideSoftKeyboardOnStartup: Boolean = true,
     val bellCharacter: BellCharacter = BellCharacter.VIBRATE,
     val extraKeysTextAllCaps: Boolean = true,
     val terminalMarginHorizontalDp: Int = DEFAULT_MARGIN_HORIZONTAL_DP,
     val terminalMarginVerticalDp: Int = DEFAULT_MARGIN_VERTICAL_DP,
     val terminalCursorStyle: TerminalCursorStyle = TerminalCursorStyle.BLOCK,
-    /** 光标闪烁间隔（毫秒）；0 = 不闪烁（termux 默认）。 */
+    /**
+     * 光标闪烁间隔（毫秒）；0 = 不闪。
+     *
+     * termux 上游默认 500，这里取 0 是刻意的：`DESIGN.md` 要求光标「不闪烁」，
+     * 默认值必须让默认外观与规范一致；要闪就自己往文件里写间隔。
+     */
     val terminalCursorBlinkRateMs: Int = 0,
     val shortcutCreateSession: Char? = null,
     val shortcutNextSession: Char? = null,
@@ -347,7 +354,7 @@ internal object TermuxPropertiesParser {
                 useFullscreenWorkaround = boolean("use-fullscreen-workaround", false),
                 fullscreen = boolean("fullscreen", false),
                 ctrlSpaceWorkaround = boolean("ctrl-space-workaround", false),
-                hideSoftKeyboardOnStartup = boolean("hide-soft-keyboard-on-startup", false),
+                hideSoftKeyboardOnStartup = boolean("hide-soft-keyboard-on-startup", true),
                 bellCharacter =
                 when (choice("bell-character", "vibrate").lowercase()) {
                     "vibrate" -> BellCharacter.VIBRATE
