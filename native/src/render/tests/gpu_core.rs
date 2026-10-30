@@ -805,29 +805,31 @@ fn cjk_bearing_y_not_centered() {
 
     let cjk_chars = ['中', '文', '好'];
     for ch in cjk_chars {
-        if let Some(info) = font_pipeline.glyph_information(ch) {
-            let expected = ascent_pixels - info.placement.top as f32;
+        // 字形解析不出时直接失败：静默跳过会让用例在回退链断裂时仍然变绿。
+        let info = font_pipeline
+            .glyph_information(ch)
+            .expect("宿主须装入覆盖该汉字的面（nix develop 的 Noto CJK）");
+        let expected = ascent_pixels - info.placement.top as f32;
 
-            let cell_data = vec![crate::terminal::ghostty_terminal::CellData {
-                width: 2,
-                ..test_cell_data(ch as u32, 0, 0)
-            }];
-            let cursor = test_cell_cursor(false);
-            let (cell_width, cell_height) = font_pipeline.cell_metrics();
-            let instances = build_instances(
-                &cell_data,
-                test_config(1, 2, cell_width, cell_height, cursor, &[]),
-                &mut font_pipeline,
-            );
-            let cell = &instances[0];
+        let cell_data = vec![crate::terminal::ghostty_terminal::CellData {
+            width: 2,
+            ..test_cell_data(ch as u32, 0, 0)
+        }];
+        let cursor = test_cell_cursor(false);
+        let (cell_width, cell_height) = font_pipeline.cell_metrics();
+        let instances = build_instances(
+            &cell_data,
+            test_config(1, 2, cell_width, cell_height, cursor, &[]),
+            &mut font_pipeline,
+        );
+        let cell = &instances[0];
 
-            assert!(
-                (cell.bearing[1] - expected).abs() < 1.0,
-                "'{ch}' bearing_y={} should be font baseline {} (not centered)",
-                cell.bearing[1],
-                expected
-            );
-        }
+        assert!(
+            (cell.bearing[1] - expected).abs() < 1.0,
+            "'{ch}' bearing_y={} should be font baseline {} (not centered)",
+            cell.bearing[1],
+            expected
+        );
     }
 }
 

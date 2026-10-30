@@ -1,4 +1,5 @@
 use super::*;
+use crate::render::font::cjk::MAX_CJK_FALLBACK_FONTS;
 
 /// 回归钉：样式面判定须随 `clear_identity_caches` 一并失效。
 ///
@@ -150,6 +151,36 @@ fn fallback_chain_face_lookup_is_cached() {
     );
 }
 
+/// 断言码位不由主字体解析，而是由回退面解析出真实字形（非 `.notdef`）。
+fn assert_resolved_via_fallback_face(
+    pipeline: &mut FontPipeline,
+    character: char,
+    primary: fontdb::ID,
+) -> GlyphInfo {
+    let info = pipeline
+        .glyph_information(character)
+        .expect("码位必须解析出字形");
+    assert!(
+        info.width > 0 && info.height > 0,
+        "{character:?} 必须光栅化出非空位图，实得 {info:?}"
+    );
+    let resolved = pipeline
+        .caches
+        .cjk_glyph_cache
+        .get(&character)
+        .copied()
+        .expect("解析结果必须入缓存");
+    assert_ne!(
+        resolved.0, primary,
+        "{character:?} 必须由回退面解析，而非主字体"
+    );
+    assert_ne!(
+        resolved.1, 0,
+        "{character:?} 必须解析到真实字形，而非 .notdef"
+    );
+    info
+}
+
 #[test]
 fn symbol_glyph_resolves_via_database_scan() {
     // U+25B6 (▶) 不在 Liberation Mono 中，却在宿主的 DejaVu Sans 中。
@@ -166,25 +197,7 @@ fn symbol_glyph_resolves_via_database_scan() {
         "switch to Liberation Mono"
     );
     let primary = pipeline.font_id.expect("primary font");
-    let info = pipeline.glyph_information('▶').expect("symbol glyph");
-    assert!(
-        info.width > 0,
-        "symbol must rasterize, got width {}",
-        info.width
-    );
-    let resolved = pipeline
-        .caches
-        .cjk_glyph_cache
-        .get(&'▶')
-        .expect("resolved glyph must be cached");
-    assert_ne!(
-        resolved.0, primary,
-        "symbol must resolve via a fallback font, not the primary"
-    );
-    assert_ne!(
-        resolved.1, 0,
-        "symbol must resolve to a real glyph, not .notdef"
-    );
+    let info = assert_resolved_via_fallback_face(&mut pipeline, '▶', primary);
     // 同一符号再次解析必须稳定一致：缓存读路径不得丢失解析或引入毒化。
     let reread = pipeline
         .glyph_information('▶')
@@ -193,6 +206,27 @@ fn symbol_glyph_resolves_via_database_scan() {
         reread.width, info.width,
         "symbol reread must match first resolution"
     );
+}
+
+/// 汉字必须由回退面解析出真实字形：等宽西文主字体不覆盖它，
+/// 解析结果若是主字体的 `.notdef`，屏幕上就是豆腐块。
+///
+/// 「双格宽」不由字体层决定：单元宽度取自上游 VT 的宽度表，本仓只按该宽度
+/// 推进列号（终端层 `cell_iterator_cjk_double_width` 钉住）。字形位图的墨迹
+/// 宽度是字体自身度量，与单元宽度无关，故不得拿它与 ASCII 位图宽度作比较。
+#[test]
+fn han_resolves_via_fallback_face_to_a_real_glyph() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    assert!(
+        try_load_cjk_fonts(pipeline.font_system.db_mut()),
+        "宿主须装入覆盖「世」的面（nix develop 的 Noto CJK）"
+    );
+    assert!(
+        pipeline.set_font_family("Liberation Mono", &[]),
+        "switch to Liberation Mono"
+    );
+    let primary = pipeline.font_id.expect("primary font");
+    assert_resolved_via_fallback_face(&mut pipeline, '世', primary);
 }
 
 /// `.notdef` 入缓存后不得短路回退链（spec d7 场景 3 的次序变体）。
@@ -291,46 +325,121 @@ fn fallback_names_report_all_layers() {
     );
 }
 
+/// 主字体覆盖 CJK 后回退层必须被清空。
+///
+/// 回退层只在主字体画不出 CJK 时才有意义：留着它既让每个码位多试几个面，
+/// 又让设置页上报的「回退字体」与实际渲染不符。切换主字体即重新发现回退层
+/// （`rediscover_fallback_fonts`），这条路径必须把旧回退层清掉。
+///
+/// 判据是「该面能否解析 CJK 探测字」而不是族名含 "cjk"：宿主里覆盖 CJK 的
+/// 等宽族名是 Maple Mono Normal NF CN，按族名子串筛一个都找不到——旧实现用
+/// `if let Some` 把「找不到」静默跳过，用例从未真正断言。
 #[test]
-fn primary_cjk_font_no_fallback() {
+fn primary_cjk_font_clears_fallback_layer() {
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     assert!(
         try_load_cjk_fonts(pipeline.font_system.db_mut()),
         "CJK fonts must load (run inside nix develop)"
     );
-    let mut pipeline = FontPipeline::new(512, 512, 14.0);
-    try_load_cjk_fonts(pipeline.font_system.db_mut());
     pipeline.set_system_locale("zh-CN");
-    let cjk_fonts: Vec<String> = pipeline
-        .list_monospace_fonts()
-        .into_iter()
-        .filter(|name| name.to_lowercase().contains("cjk"))
-        .collect();
-    if let Some(cjk_name) = cjk_fonts.first() {
-        pipeline.set_font_family(cjk_name, &[]);
-        let names = pipeline.cjk_fallback_names();
-        assert!(
-            names.is_empty(),
-            "primary font '{cjk_name}' supports CJK → no fallback, got: {names:?}"
-        );
-    }
+    let probe = font_db::cjk_coverage_probe_char("zh-CN");
+    let (cjk_face, fallback_face) = {
+        let font_database = pipeline.font_system.db();
+        let cjk_face = font_database
+            .faces()
+            .find(|face| face.monospaced && font_db::face_covers(font_database, face.id, probe))
+            .expect("宿主须装入覆盖 CJK 的等宽族（nix develop 的 Maple Mono Normal NF CN）");
+        let fallback_face = font_database
+            .faces()
+            .find(|face| {
+                face.id != cjk_face.id && font_db::face_covers(font_database, face.id, probe)
+            })
+            .expect("宿主须装入第二个覆盖 CJK 的面");
+        (cjk_face.id, fallback_face.id)
+    };
+    // 宿主没有 fonts.xml，回退层须手工装填（安卓上由 fonts.xml 决定）。
+    pipeline.cjk_fallback_ids = vec![fallback_face];
+    assert!(
+        !pipeline.cjk_fallback_names().is_empty(),
+        "前置条件：回退层已装填"
+    );
+    let family = pipeline
+        .font_system
+        .db()
+        .face(cjk_face)
+        .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+        .expect("覆盖 CJK 的面须给出族名");
+    assert!(
+        pipeline.set_font_family(&family, &[]),
+        "切到 '{family}' 应成功"
+    );
+    assert!(
+        pipeline.primary_covers_cjk_probe(),
+        "主字体须覆盖 CJK 探测字，否则回退层本就不该被清空"
+    );
+    assert!(
+        pipeline.cjk_fallback_names().is_empty(),
+        "主字体覆盖 CJK 后回退层必须清空，上报状态与实际渲染才一致"
+    );
 }
 
+/// 回退层上限必须生效：fonts.xml 的 `lang` 回退条目可能很多，全装会让每个
+/// 码位多试几个面。截断时保留 xml 顺序的前若干个（首位即实际命中者）。
 #[test]
-fn max_one_fallback_font() {
-    let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+fn cjk_fallback_layer_respects_the_cap() {
+    let (font_database, _, _) = cjk_font_db_with_ttc_face();
+    // 库中互不相同的 (文件名, index)：fonts.xml 只按这两项精确匹配。
+    let mut entries: Vec<(String, u32)> = Vec::new();
+    for face in font_database.faces() {
+        let Some(path) = crate::render::font::font_db::face_source_path(face) else {
+            continue;
+        };
+        let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let entry = (filename.to_string(), face.index);
+        if !entries.contains(&entry) {
+            entries.push(entry);
+        }
+    }
     assert!(
-        try_load_cjk_fonts(pipeline.font_system.db_mut()),
-        "CJK fonts must load (run inside nix develop)"
+        entries.len() > MAX_CJK_FALLBACK_FONTS,
+        "宿主须装入多于 {MAX_CJK_FALLBACK_FONTS} 个可精确匹配的面，实得 {}",
+        entries.len()
     );
-    let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-    try_load_cjk_fonts(pipeline.font_system.db_mut());
-    pipeline.set_system_locale("zh-CN");
-    assert!(
-        pipeline.cjk_fallback_ids.len() <= 3,
-        "MAX_CJK_FALLBACK_FONTS=3, got {} IDs",
-        pipeline.cjk_fallback_ids.len()
+    let fonts_xml = entries
+        .iter()
+        .map(|(filename, index)| {
+            format!(r#"<font weight="400" style="normal" index="{index}">{filename}</font>"#)
+        })
+        .collect::<String>();
+    let xml = format!(
+        r#"<familyset version="23"><family lang="zh-Hans">{fonts_xml}</family></familyset>"#
     );
+    let ids = FontPipeline::match_fonts_xml_fallbacks(
+        &font_database,
+        &crate::render::font::font_db::parse_fonts_xml_document(&xml).families,
+        "zh-CN",
+        MAX_CJK_FALLBACK_FONTS,
+    );
+    assert_eq!(
+        ids.len(),
+        MAX_CJK_FALLBACK_FONTS,
+        "回退层必须截断到上限：{ids:?}"
+    );
+    let first_filename = &entries[0].0;
+    let first_index = entries[0].1;
+    let expected_first = font_database
+        .faces()
+        .find(|face| {
+            face.index == first_index
+                && crate::render::font::font_db::face_source_path(face)
+                    .and_then(|path| path.file_name().and_then(|name| name.to_str()))
+                    .is_some_and(|name| name == first_filename.as_str())
+        })
+        .map(|face| face.id)
+        .expect("首个条目对应的面必须存在");
+    assert_eq!(ids[0], expected_first, "截断必须保留 xml 顺序的前若干个");
 }
 
 #[test]

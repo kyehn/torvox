@@ -1,18 +1,5 @@
 use super::*;
 
-#[test]
-fn han_is_wide_and_non_emoji() {
-    let mut pipeline = FontPipeline::new(512, 512, 14.0);
-    let ascii_info = pipeline.glyph_information('A').expect("ASCII glyph info");
-    let han_info = pipeline.glyph_information('世').expect("Han glyph info");
-    assert!(
-        han_info.width as f32 > ascii_info.width as f32 * 1.5,
-        "CJK 回退字体已安装时汉字必须是双格宽：'世' {} vs 'A' {}",
-        han_info.width,
-        ascii_info.width
-    );
-}
-
 /// 回应对"加粗中文空白"：合成样式不得跳过回退链，加粗汉字必须有位图。
 #[test]
 fn bold_cjk_fallback_not_blank() {
@@ -356,30 +343,6 @@ fn glyph_hao_cjk_cross_verify() {
 }
 
 #[test]
-fn cjk_width_is_double_ascii() {
-    let mut pipeline = FontPipeline::new(512, 512, 14.0);
-    let ascii_info = pipeline
-        .glyph_information('A')
-        .expect("ascii 'A' glyph info");
-    let cjk_info = pipeline
-        .glyph_information('中')
-        .expect("CJK '中' glyph info");
-    assert!(
-        ascii_info.width > 0,
-        "ASCII glyph should have positive width"
-    );
-    assert!(cjk_info.width > 0, "CJK glyph should have positive width");
-    let (cell_width, _) = pipeline.cell_metrics();
-    assert!(cell_width > 0.0, "cell width should be positive");
-    let cell_span = if cjk_info.width as f32 > ascii_info.width as f32 * 1.5 {
-        2
-    } else {
-        1
-    };
-    assert!(cell_span >= 1, "CJK cell span should be at least 1");
-}
-
-#[test]
 fn glyph_information_ascii() {
     let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
     let info = pipeline.glyph_information('A');
@@ -571,18 +534,21 @@ fn bearing_values_non_zero_for_rendered_glyphs() {
     pipeline.rasterize_ascii();
     let glyphs = ['0', 'x', 'g', 'p', 'W', 'M', 'f', '(', ')'];
     for &ch in &glyphs {
-        if let Some(info) = pipeline.glyph_information(ch) {
-            assert!(
-                info.placement.width > 0,
-                "'{ch}' width={} should be > 0",
-                info.placement.width
-            );
-            assert!(
-                info.placement.height > 0,
-                "'{ch}' height={} should be > 0",
-                info.placement.height
-            );
-        }
+        // 字形解析不出时不得跳过断言：ASCII 在等宽字体里必然可渲染，
+        // 解析失败是回归（如主字体丢失、回退链断裂），静默跳过会让用例变绿。
+        let info = pipeline
+            .glyph_information(ch)
+            .expect("宿主字体库须能解析该 ASCII 字形");
+        assert!(
+            info.placement.width > 0,
+            "'{ch}' width={} should be > 0",
+            info.placement.width
+        );
+        assert!(
+            info.placement.height > 0,
+            "'{ch}' height={} should be > 0",
+            info.placement.height
+        );
     }
 }
 
@@ -870,9 +836,10 @@ fn cjk_glyph_bitmap_fits_in_two_cells() {
     for codepoint in [
         '\u{4E2D}', '\u{597D}', '\u{4E16}', '\u{754C}', '\u{65E5}', '\u{672C}',
     ] {
-        let Some(info) = pipeline.glyph_information(codepoint) else {
-            continue;
-        };
+        // 解析不出时直接失败：汉字必须真的渲染出来，跳过会让用例空转。
+        let info = pipeline
+            .glyph_information(codepoint)
+            .expect("宿主须装入覆盖该汉字的面（nix develop 的 Noto CJK）");
         assert!(
             info.width > 0 && info.height > 0,
             "CJK {codepoint} 必须光栅化出非空位图（实得 {info:?}）"
@@ -892,14 +859,15 @@ fn ascii_bearing_y_nonnegative_for_any_font() {
     let ascent = pipeline.ascent_pixels();
     let ascii = ['A', 'B', 'C', 'x', 'y', 'z', '0', '1', '9'];
     for ch in ascii {
-        if let Some(info) = pipeline.glyph_information(ch) {
-            let bearing_y = ascent - info.placement.top as f32;
-            assert!(
-                bearing_y >= -2.0,
-                "bearing_y('{ch}')={:.1} should be >= -2",
-                bearing_y
-            );
-        }
+        let info = pipeline
+            .glyph_information(ch)
+            .expect("宿主字体库须能解析该 ASCII 字形");
+        let bearing_y = ascent - info.placement.top as f32;
+        assert!(
+            bearing_y >= -2.0,
+            "bearing_y('{ch}')={:.1} should be >= -2",
+            bearing_y
+        );
     }
 }
 
@@ -911,22 +879,23 @@ fn all_glyphs_within_atlas_bounds() {
     let atlas_height = pipeline.atlas_height as i32;
     let chars = ['A', '中', '好', 'α', 'Ω'];
     for ch in chars {
-        if let Some(info) = pipeline.glyph_information(ch) {
-            assert!(
-                info.atlas_x + info.width <= atlas_width,
-                "glyph '{ch}' atlas_x({}) + width({}) exceeds atlas_w({})",
-                info.atlas_x,
-                info.width,
-                atlas_width
-            );
-            assert!(
-                info.atlas_y + info.height <= atlas_height,
-                "glyph '{ch}' atlas_y({}) + height({}) exceeds atlas_h({})",
-                info.atlas_y,
-                info.height,
-                atlas_height
-            );
-        }
+        let info = pipeline
+            .glyph_information(ch)
+            .expect("宿主字体库须能解析该字形");
+        assert!(
+            info.atlas_x + info.width <= atlas_width,
+            "glyph '{ch}' atlas_x({}) + width({}) exceeds atlas_w({})",
+            info.atlas_x,
+            info.width,
+            atlas_width
+        );
+        assert!(
+            info.atlas_y + info.height <= atlas_height,
+            "glyph '{ch}' atlas_y({}) + height({}) exceeds atlas_h({})",
+            info.atlas_y,
+            info.height,
+            atlas_height
+        );
     }
 }
 
