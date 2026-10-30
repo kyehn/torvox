@@ -111,8 +111,12 @@ object TerminalInputEncoder {
     }
 
     /**
-     * 可打印 ASCII 码点的 POSIX Ctrl 折叠；null = 不可折叠（调用方原样发送或丢弃）。
-     * 刻意不含数字 9/0：c & 0x1F 会与 Ctrl+Y / Ctrl+P 冲突，调用方在调用前先丢弃它们。
+     * 可打印 ASCII 码点的 POSIX Ctrl 折叠；null = 不可折叠（改走 `CSI 27` 或原样发送）。
+     *
+     * 数字 1/9/0 MUST NOT 折叠：`c & 0x1F` 会把它们压成 Ctrl+Q / Ctrl+Y / Ctrl+P，
+     * 与真实按键冲突，而它们本就没有传统脱字符映射。原先这里只靠调用方在调用前
+     * 先把三者转走，本函数的契约却是假的——兜底分支 `in 0x20..0x7E` 照收不误。
+     * 改为在此显式排除，使契约不依赖调用方先筛一遍。
      */
     private fun controlByteForCodePoint(codePoint: Int): Byte? = when (codePoint) {
         in 'a'.code..'z'.code -> (codePoint - LOWERCASE_CONTROL_OFFSET).toByte()
@@ -135,6 +139,10 @@ object TerminalInputEncoder {
         '7'.code -> 0x1F
 
         '8'.code -> 0x7F
+
+        // 无传统 Ctrl 映射，且 c & 0x1F 会与 Ctrl+Q / Ctrl+Y / Ctrl+P 冲突；
+        // 调用方改以 `CSI 27;5;code~` 发出。必须排在下面的兜底分支之前。
+        '0'.code, '1'.code, '9'.code -> null
 
         // Ctrl+[ → ESC，Ctrl+\ → 0x1C，Ctrl+] → 0x1D，Ctrl+^ → 0x1E，
         // Ctrl+_ → 0x1F，Ctrl+/ → 0x0F，其他标点经 c & 0x1F 处理。
