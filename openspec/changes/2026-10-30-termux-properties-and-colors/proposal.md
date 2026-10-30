@@ -13,6 +13,14 @@
 
 `termux.float.properties` 不在本轮范围内，仍属禁止。
 
+另两条既有条目与本轮相邻，处理方式如下（两处规范均未改动）：
+
+- `DESIGN.md`「输入光标为方块样式（高度、宽度等均参考 Termux），不闪烁」：
+  `terminal-cursor-blink-rate` 的默认值取 **0**，不闪，故默认外观与该条一致；
+  闪烁只在用户自己往文件里写间隔后出现。
+- `PROHIBITED.md`「光标闪烁开关」「光标闪烁速度（提供调节条）」：本仓不提供任何
+  开关或调节条，闪烁只能由 `termux.properties` 控制，仍在禁止范围之内。
+
 ## What Changes
 
 ### 配置读取
