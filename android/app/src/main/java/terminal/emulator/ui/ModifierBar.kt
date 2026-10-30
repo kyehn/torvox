@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import android.view.MotionEvent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -201,6 +202,9 @@ private const val PRESS_SCALE_TWEEN_MS = 90
 
 // 按下反馈的延迟：覆盖系统底部上滑从 ACTION_DOWN 到 ACTION_CANCEL 的窗口。
 private const val PRESS_FEEDBACK_DELAY_MS = 40
+
+// 按下态的缩放。
+private const val PRESSED_SCALE = 0.90f
 
 // 按下态的灰色遮罩（无主题色时的中性反馈）。
 private val PRESSED_SCRIM = Color(0xFF7F7F7F)
@@ -540,16 +544,23 @@ private fun RowScope.ExtraKeyButton(
 
     val scale by
         animateFloatAsState(
-            targetValue = if (isPressed) 0.90f else 1f,
+            targetValue = if (isPressed) PRESSED_SCALE else 1f,
             // 按下反馈延迟启动：系统底部上滑先给 ACTION_DOWN、再把触摸认领走并补发
             // ACTION_CANCEL。按下即缩放会让取消前的一两帧闪一次动画（用户看到
-            // 「上滑触发按键动画」）。延迟覆盖这段窗口，取消时目标未变、无位移；
-            // 抬手复位不延迟，反馈仍然短促。
+            // 「上滑触发按键动画」）。延迟覆盖这段窗口，取消时目标未变、无位移。
+            //
+            // 复位一律瞬时（snap）：手势被系统认领后若再插值一遍复位，按键会
+            // 先缩后弹地「动」一下，正是用户看到的按键动画。抬手同样瞬时复位，
+            // 按下反馈仍由按下方向的插值给出。
             animationSpec =
-            tween(
-                durationMillis = PRESS_SCALE_TWEEN_MS,
-                delayMillis = if (isPressed) PRESS_FEEDBACK_DELAY_MS else 0,
-            ),
+            if (isPressed) {
+                tween(
+                    durationMillis = PRESS_SCALE_TWEEN_MS,
+                    delayMillis = PRESS_FEEDBACK_DELAY_MS,
+                )
+            } else {
+                snap()
+            },
             label = "btnScale",
         )
 
@@ -563,11 +574,16 @@ private fun RowScope.ExtraKeyButton(
     val animatedBg by
         animateColorAsState(
             targetValue = targetBg,
+            // 与缩放同一口径：按下才插值，抬起与取消瞬时复位。
             animationSpec =
-            tween(
-                durationMillis = PRESS_BG_TWEEN_MS,
-                delayMillis = if (isPressed) PRESS_FEEDBACK_DELAY_MS else 0,
-            ),
+            if (isPressed) {
+                tween(
+                    durationMillis = PRESS_BG_TWEEN_MS,
+                    delayMillis = PRESS_FEEDBACK_DELAY_MS,
+                )
+            } else {
+                snap()
+            },
             label = "btnBg",
         )
     val activeFg =
