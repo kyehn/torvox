@@ -1547,7 +1547,7 @@ constructor(
     /** 死键（组合符）状态：组合键本身不产生输出，等下一次击键合成。 */
     private val deadKeys = terminal.emulator.input.DeadKeyState()
 
-    /** Shell 启动入口经保存按钮直接写入（DESIGN.md:89 提供保存按钮），不检查文本。 */
+    /** Shell 启动入口经保存按钮直接写入（DESIGN.md 设置节 Shell 启动入口项），不检查文本。 */
     fun setShell(shell: String) {
         viewModelScope.launch { settingsRepository.setShell(shell) }
     }

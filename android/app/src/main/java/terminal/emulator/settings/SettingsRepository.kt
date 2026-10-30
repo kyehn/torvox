@@ -55,7 +55,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
         /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
         internal const val DEBOUNCE_MILLIS = 300L
 
-        /** Shell 启动入口默认空（DESIGN.md:89 未设置时为空），空即走默认回退链。 */
+        /** Shell 启动入口默认空（DESIGN.md 设置节「未设置时为空」），空即走默认回退链。 */
         const val DEFAULT_SHELL = ""
 
         /**
@@ -104,8 +104,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
         /**
          * 用户可选的字号范围与精度，取自 Termux
-         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md:66
-         * 「默认大小与可选范围/精度须参考 Termux」）：下限 4dip；默认值 12dip 且取偶，
+         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md 设置节字体大小项
+         * 「默认字号按屏宽自适应，调节条的步长和范围必须合理」）：下限 4dip；默认值 12dip 且取偶，
          * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
          *
          * 这是用户可选区间的**唯一**定义处。此前另有一份与原生

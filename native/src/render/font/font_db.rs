@@ -581,7 +581,7 @@ fn resolve_font_path(filename: &str) -> Option<std::path::PathBuf> {
         .find(|path| path.is_file())
 }
 
-/// 字体致命退出的唯一出口（`DESIGN.md:17` 的「输出日志并崩溃退出」）：先输出一行
+/// 字体致命退出的唯一出口（DESIGN.md 习惯节「输出日志并崩溃退出」）：先输出一行
 /// `FONT_FATAL` 错误日志，再 `abort`。
 ///
 /// 用 `log` 门面而非直写 `__android_log_write`：层方向禁止 `render` 依赖 `android`

@@ -18,7 +18,7 @@ import terminal.emulator.settings.TermuxProperties
  */
 class ModifierBarLayoutTest {
 
-    /** `DESIGN.md:157` 定死「固定 2 行 7 列」；默认布局就是这 14 个键，全部可渲染。 */
+    /** DESIGN.md 修饰键栏节定死「固定 2 行 7 列」；默认布局就是这 14 个键，全部可渲染。 */
     @Test
     fun `the default layout is two rows of seven`() {
         val slots = defaultExtraKeySlots()

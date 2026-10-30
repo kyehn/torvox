@@ -458,7 +458,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | 调色板与字节转浮点 | 采用（已修） | 渲染侧 `CATPPUCCIN_MOCHA_BACKGROUND` 与手写除法已删，以 `theme` 单源（构建期 alacritty-theme）为唯一入口，按标识取用（`theme::default_dark`／`theme::by_name`）；中间 epoch 用过的 `GhosttyTerminal::default_palette` 已随「主题改按标识在原生单点解析」删除 |
 | `selection` 交叉翻转归属 | 采用（已修） | 对标 termlib `applyHandleDrag` 五元组：回传新归属柄并收紧等值判据，调用方更新 `handleDragState` |
 | `search::Search` 全文搜索 | 采用（2026 改判） | 自研 `regex` 搜索曾被判定合规，实为重复实现：软换行跨行、随输出增量同步、命中总数与导航滚动上游全已提供。现 VT 线程持有 `search::Search`（同生命周期的局部变量，非自引用结构），needle/总数/导航/视口命中均走上游，本仓只做「上游选区 → 按物理行网格区间」转换。代价：上游仅 ASCII 折叠、无区分大小写开关，`DESIGN.md` 修饰键栏节原「大小写匹配」与「使用库（如 `regex`）实现文本搜索」两条**已由维护者改写**（删去大小写匹配按钮、改写为使用 libghostty-vt Search，与上游口径一致）；`regex` 依赖随之删除。软换行/宽字符/CJK/真实空格的用例语义按上游口径重写，见 `text-search` 规约 |
-| `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | 连击语义与 `DESIGN.md:130`「不得支持 双击 三击 多击选择」正面冲突，该族主体（拖动手势 + 边缘自动滚动）另有两条理由：其自动滚动按定时器在边缘区持续滚动，与 `text-selection` 的 Scenario「下缘拖动逐行滚动」（每次触点移动视口滚动 1 行）与「手指静止不滚动」相反；其手势状态若由 VT 线程持有，则每个触摸帧一次跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。四项上游优势的覆盖情况：词派生、跟踪选区、随滚动跟随、复制格式化已走上游；宽字符吸附的事实取自上游网格单元宽度；边缘滚动节奏不采纳；单一来源已由 `terminal.rs` 承担。 |
+| `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | 连击语义与 DESIGN.md 终端页面节的「不得支持 双击 三击 多击选择」「不得支持 双击 三击 多击选择」正面冲突，该族主体（拖动手势 + 边缘自动滚动）另有两条理由：其自动滚动按定时器在边缘区持续滚动，与 `text-selection` 的 Scenario「下缘拖动逐行滚动」（每次触点移动视口滚动 1 行）与「手指静止不滚动」相反；其手势状态若由 VT 线程持有，则每个触摸帧一次跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。四项上游优势的覆盖情况：词派生、跟踪选区、随滚动跟随、复制格式化已走上游；宽字符吸附的事实取自上游网格单元宽度；边缘滚动节奏不采纳；单一来源已由 `terminal.rs` 承担。 |
 | termlib `trimDetectedUrl`/括号计数/跨行拼接 | 不采用 | DESIGN「链接识别通过 `libghostty-vt` 查询，没有额外检查」即禁止移植；仅保留空白 trim 与协议白名单（属安全检查） |
 | `on_bell`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_desktop_notification`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册。`on_bell` 曾被 7 处注释误记为已接线（`ghostty_terminal/commands.rs` 的 `RunConfig` 悬空附着于 `cell_size_px`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、以及 `session.rs` 的 5 处收割路径文档），实际该通道只承载 OSC 52 剪贴板写入；注释已删除，未新增回调 |
 | `track_grid_ref`、`width_px`/`height_px`、光标色实时查询、`set_mode`、`vt_write_until_ground` | 不采用 | 按需取用；现有轮询与原子镜像满足当前消费者，DESIGN 要求最小实现 |
@@ -1280,7 +1280,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `01-sylirre-ghostty-android-terminal.md` | P2「防 tofu 字形替换思路（须用系统或图标包实现）」 | 仅参照：本仓以回退族供字形并按 `font-selection`「上报实际供出字形的字体」上报（设置页文案「其他被使用字体」），不做字形替换；内嵌图标包属未声明的字体路线 |
 | `01-sylirre-ghostty-android-terminal.md` | P2「网格尺寸 HUD」 | 未声明，不立项（`DESIGN.md` 无调试叠加层） |
 | `01-sylirre-ghostty-android-terminal.md` | P2「真机测试矩阵」 | 仅参照：本仓设备侧面为 `android/app/src/androidTest` 与模拟器基准（`scripts/test-emulator.nu`），不建跨设备矩阵 |
-| `01-sylirre-ghostty-android-terminal.md` | 禁止项「CPU/OpenGL 回退」 | 已明禁：`DESIGN.md:49`「GPU Vulkan 渲染（无 CPU/OpenGL 回退）」 |
+| `01-sylirre-ghostty-android-terminal.md` | 禁止项「CPU/OpenGL 回退」 | 已明禁：DESIGN.md 架构节的「GPU Vulkan 渲染（无 CPU/OpenGL 回退）」「GPU Vulkan 渲染（无 CPU/OpenGL 回退）」 |
 | `02-termux-termux-app.md` | P0「PTY 双线程加队列加主线程泵模型」 | 仅参照：本仓形态为读线程 → 有界输出通道 → 渲染线程轮询（`native/src/terminal/session/mod.rs`、`NativeBridge.pollEvent`），事件靠拉取而非主线程泵，语义已等价 |
 | `02-termux-termux-app.md` | P0「回滚默认 2000」 | 已实现：`DEFAULT_SCROLLBACK_LINES = 2000`（`native/src/terminal/session/mod.rs`），并解除上游默认字节上限使行数成为唯一约束（`native/src/terminal/ghostty_terminal/internal/mod.rs`） |
 | `02-termux-termux-app.md` | P0「会话事件最小集」 | 已实现（形态不同）：本仓事件为 `pollEvent` 拉取的最小事件集（退出、剪贴板、标题、bell 等），无客户端回调注册面 |

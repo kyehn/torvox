@@ -4,11 +4,11 @@ package terminal.emulator
 internal fun termuxDir(context: android.content.Context): java.io.File =
     java.io.File(java.io.File(context.filesDir, "home"), ".termux")
 
-/** 用户字体目录 `~/.termux/fonts`（DESIGN.md:74）：存在时并入字体扫描路径，
+/** 用户字体目录 `~/.termux/fonts`（DESIGN.md 设置节字体选择项）：存在时并入字体扫描路径，
  *  其中的字体出现在字体列表里。从不复制/移动文件。 */
 internal fun termuxFontDir(context: android.content.Context): java.io.File = java.io.File(termuxDir(context), "fonts")
 
-/** 主字体覆盖 `~/.termux/font.ttf`（DESIGN.md:72，ttc/otf 同理）：存在即设为主字体。 */
+/** 主字体覆盖 `~/.termux/font.ttf`（DESIGN.md 设置节字体选择项，ttc/otf 同理）：存在即设为主字体。 */
 internal fun termuxDefaultFontFile(homePath: String): java.io.File? = listOf("font.ttf", "font.ttc", "font.otf")
     .map { java.io.File(java.io.File(homePath, ".termux"), it) }
     .firstOrNull { it.isFile }
