@@ -2,6 +2,7 @@ package terminal.emulator.bridge
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -417,6 +418,80 @@ class NativeBridgeSmokeTest {
             } catch (expected: IllegalStateException) {
                 assertNotNull(expected.message)
             }
+        }
+    }
+
+    /**
+     * 选词（`selectWordAt`）经 JNI 的往返：派生词界 → 装进终端 → 按返回的界限取回该词。
+     *
+     * Rust 侧 `select_word_at_derives_installs_and_returns_bounds` 只覆盖了内部调用；
+     * 这一层要验的是 JNI 边界本身——坐标的钳位、界限数组的打包顺序
+     * （`[startRow, startCol, endRow, endCol]`），以及「选区真的装进了终端」：
+     * 只回传界限而没安装的话，界面上的反白就没了，而界限看上去仍然正确。
+     *
+     * 落点不写死：shell 启动时可能先打印提示符，字面量坐标会落到别的词上。
+     * 行号从 `getTerminalText` 的行序取（它逐行对应网格行），列号从
+     * `scrollbackLine` 取（那一行**每列恰好一个字符**，字符下标即列号）。
+     */
+    @Test
+    fun `selectWordAt derives the word bounds and installs the selection`() {
+        withSession { sessionId ->
+            val marker = "jniword"
+            NativeBridge.feedTerminal(sessionId, "hello $marker world".toByteArray())
+            val applied =
+                awaitTrue("text visible") {
+                    NativeBridge.getTerminalText(sessionId)?.contains(marker) == true
+                }
+            assertTrue("fed text must land before selecting", applied)
+
+            val lines = NativeBridge.getTerminalText(sessionId)!!.split("\n")
+            val row = lines.indexOfFirst { it.contains(marker) }
+            assertTrue("the marker must sit on a known row", row >= 0)
+            val column =
+                requireNotNull(NativeBridge.scrollbackLine(sessionId, row)) {
+                    "the marker row must be readable"
+                }.indexOf(marker)
+            assertTrue("the marker must be found in its own row", column >= 0)
+
+            val bounds =
+                requireNotNull(NativeBridge.selectWordAt(sessionId, row, column)) {
+                    "a word cell must yield bounds"
+                }
+            assertEquals("bounds are [startRow, startCol, endRow, endCol]", 4, bounds.size)
+            assertEquals(row, bounds[0])
+            assertEquals(column, bounds[1])
+            assertEquals("the word sits on one row", row, bounds[2])
+            assertEquals("the word ends at its last cell", column + marker.length - 1, bounds[3])
+            assertEquals(
+                "the installed selection must extract exactly the word",
+                marker,
+                NativeBridge.selectionText(sessionId, bounds[0], bounds[1], bounds[2], bounds[3]),
+            )
+        }
+    }
+
+    /**
+     * 空白格没有词可选、未知会话没有选区：两种情况都是 null，而不是一对零界限。
+     *
+     * 返回零界限会让界面把「没选中」画成「选中了第 0 格第 0 列」。
+     */
+    @Test
+    fun `selectWordAt yields nothing on a blank cell and on an unknown session`() {
+        withSession { sessionId ->
+            NativeBridge.feedTerminal(sessionId, "hello".toByteArray())
+            val applied =
+                awaitTrue("text visible") {
+                    NativeBridge.getTerminalText(sessionId)?.contains("hello") == true
+                }
+            assertTrue("fed text must land before selecting", applied)
+
+            val blankRow = 20
+            assertNull(
+                "row $blankRow must be empty for this case",
+                NativeBridge.scrollbackLine(sessionId, blankRow),
+            )
+            assertNull("a blank cell has no word", NativeBridge.selectWordAt(sessionId, blankRow, 0))
+            assertNull("an unknown session has no selection", NativeBridge.selectWordAt(999_999L, 0, 0))
         }
     }
 
