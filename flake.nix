@@ -85,6 +85,8 @@
                 fenix.targets.aarch64-linux-android.stable.rust-std
               ])
               cargo-machete
+              actionlint
+              shellcheck
               kotlin
               gradle
               jdk
@@ -101,6 +103,7 @@
               mesa
               vulkan-loader
               vulkan-tools
+              vulkan-validation-layers
               nixfmt-rs
               pkg-config
               openssl
@@ -167,6 +170,7 @@
                 ]
               );
               VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
+              VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
               FONTCONFIG_FILE = pkgs.makeFontsConf {
                 fontDirectories = with pkgs; [
                   (maple-mono.Normal-NF-CN.overrideAttrs (_: {

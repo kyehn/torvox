@@ -35,10 +35,10 @@ pub async fn initialize_wgpu()
     // 无实体 GPU 的环境由 Vulkan 软件实现顶上：CI 用 Mesa lavapipe（TESTING 环境节），
     // 模拟器上的具体实现取决于其镜像提供的 Vulkan ICD。
     let backends = wgpu::Backends::VULKAN;
+    // `DEBUG` 会让 lavapipe + Nix vulkan-loader 的 instance 拿不到 adapter
+    // （`wgpu request adapter failed`），故 debug 构建只保留校验与标签丢弃。
     #[cfg(debug_assertions)]
-    let instance_flags = wgpu::InstanceFlags::VALIDATION
-        | wgpu::InstanceFlags::DEBUG
-        | wgpu::InstanceFlags::DISCARD_HAL_LABELS;
+    let instance_flags = wgpu::InstanceFlags::VALIDATION | wgpu::InstanceFlags::DISCARD_HAL_LABELS;
     #[cfg(not(debug_assertions))]
     let instance_flags = wgpu::InstanceFlags::DISCARD_HAL_LABELS;
     // Android 上 wgpu 30 建 instance 时必须带 display handle，否则后续
