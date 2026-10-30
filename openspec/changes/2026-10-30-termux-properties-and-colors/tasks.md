@@ -31,6 +31,10 @@
 - [x] `back-key` / `volume-keys` / `ctrl-space-workaround` / 会话快捷键
 - [x] `soft-keyboard-toggle-behaviour`：`enable-disable` 时 KEYBOARD 键翻转软键盘可用性，
       禁用后轻点终端不再拉起输入法（含平台按 `onCheckIsTextEditor` 自动弹的那条路径）
+- [x] `hide-soft-keyboard-on-startup`：默认 `true` 不弹；`false` 在首帧后请求一次输入法
+- [x] `disable-terminal-session-change-toast`：会话切换顶部提示 `[序号] 标题`，可关闭
+- [x] `extra-keys-style`：五档取值与字形集合对齐上游（`default`/`arrows-only`/
+      `arrows-all`/`all`/`none`）
 
 ## 系统
 
@@ -54,5 +58,3 @@
 
 - [ ] `PROHIBITED.md` 中「禁止解析 termux.properties/colors.properties」与现状冲突，
       属受保护文件，待用户决定是否删除该条
-- [ ] `hide-soft-keyboard-on-startup` / `disable-terminal-session-change-toast` 两项不实现，
-      理由见 proposal
