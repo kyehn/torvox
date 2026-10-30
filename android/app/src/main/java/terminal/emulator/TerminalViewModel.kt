@@ -1711,6 +1711,12 @@ constructor(
 
     fun closeSession(sessionId: Long) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
+            // 关闭资格必须在 closeSession **之前**捕获：runtime 在关掉活动会话时会切到
+            // 接替会话并推 runtime.state，而该 state 的收集器跑在主线程、其 runnable
+            // 先于下面的 withContext(main) 入队，会先把 _state.activeSessionId 改成接替
+            // id。若在块内再读，closedActive 恒为 false——清选区分支永不执行，屏幕上
+            // 留下无手柄、无菜单的幽灵反色（复制还会取到不相干区域）。
+            val closedActive = _state.value.activeSessionId == sessionId
             try {
                 runtime.closeSession(sessionId)
             } catch (exception: Exception) {
@@ -1722,7 +1728,6 @@ constructor(
                 return@launch
             }
             withContext(TerminalDispatchers.main) {
-                val closedActive = _state.value.activeSessionId == sessionId
                 _state.update { current ->
                     val remaining = current.sessions.filter { it.sessionId != sessionId }
                     if (remaining.isEmpty()) {
