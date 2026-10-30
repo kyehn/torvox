@@ -107,8 +107,8 @@ impl Renderer {
         accumulator_ready && !frame_invalidated && band_count > 0 && !kgp_overlay_dirty
     }
 
-    /// 滚动一致性门控：视口像素偏移非零，或自上一呈现帧发生变化时为 true。
-    /// 纹理拷贝无法亚像素平移累加器，这两种情况下脏带部分路径会把旧像素
+    /// 滚动一致性门控：视口像素偏移自上一呈现帧发生变化时为 true。
+    /// 纹理拷贝无法亚像素平移累加器，偏移一变，脏带部分路径就会把旧像素
     /// 与平移后的新几何混叠（滚动残留/撕裂），必须强制全量重绘。
     pub(super) fn is_scroll_offset_active(
         viewport_scroll_px: f32,

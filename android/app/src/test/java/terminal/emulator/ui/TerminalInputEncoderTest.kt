@@ -29,7 +29,7 @@ class TerminalInputEncoderTest {
     @Test
     fun `ctrl 1 9 0 emit csi 27 instead of being dropped`() {
         // zed-port mappings/keys.rs: digits with no traditional caret fold
-        // are sent as `CSI 27;5;code~` (see docs/specification/REFERENCE.md).
+        // are sent as `CSI 27;5;code~` (see openspec/specs/key-input-encoding/spec.md).
         assertArrayEquals(csi27(5, '1'.code), encode("1", ctrl = true))
         assertArrayEquals(csi27(5, '9'.code), encode("9", ctrl = true))
         assertArrayEquals(csi27(5, '0'.code), encode("0", ctrl = true))
