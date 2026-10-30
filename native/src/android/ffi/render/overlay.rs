@@ -23,7 +23,7 @@ pub(crate) fn build_cursor(
         visible: cursor_info.visible,
         style: cursor_info.style,
         color: crate::terminal::ghostty_terminal::GhosttyTerminal::color_to_float(
-            render_state.theme.palette.cursor,
+            render_state.palette.cursor,
         ),
     }
 }

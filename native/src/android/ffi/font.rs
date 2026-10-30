@@ -284,7 +284,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
             .map_or(i32::MAX, |(_, _, rows, _, _)| *rows as i32);
         // 当前选中命中用主题前景色，其余用主题选区色：颜色真源是渲染态持有的
         // 当前主题（见 `setTheme`），Kotlin 不参与。
-        let palette = &render_state.theme.palette;
+        let palette = &render_state.palette;
         render_state.search_highlights.current = build_search_highlights(
             &highlights.matches,
             &highlights.selected,
@@ -394,7 +394,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         // `is_default_background` 恒为 false，背景色判定失效。
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.theme = entry;
+            render_state.palette = entry.palette.clone();
             render_state.renderer.set_background_color(background);
             // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
             render_state.renderer.cell_cache = None;
@@ -405,6 +405,113 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         drop(state);
         log::info!("setTheme: session {id} theme={name}");
     })
+}
+
+/// 覆盖某会话的调色板（`~/.termux/colors.properties`）。
+///
+/// `colors` 为 19 个 `0x00RRGGBB`：背景、前景、光标、十六个 ANSI 色（0..15）。
+/// 长度不符即抛 `IllegalArgumentException`——静默截断会让颜色整体错位一格，
+/// 而错位表现为「某些颜色不对」，无从定位。
+///
+/// 选区底色不在覆盖范围内（colors.properties 没有该键），沿用当前主题的值：
+/// 先单独读一次渲染态再释放锁，不与「注册表 → 会话」的锁序嵌套。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPaletteOverride<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    colors: jintArray,
+) {
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        const EXPECTED: usize = 19;
+        if colors.is_null() {
+            throw_illegal_argument(env, "setPaletteOverride: colors is null");
+            return Ok(());
+        }
+        // SAFETY: `colors` 是 JNI 参数，本次调用期间有效；from_raw 只包装不取所有权。
+        let array = unsafe { jni::objects::JIntArray::from_raw(env, colors) };
+        let length = match array.len(env) {
+            Ok(length) => length,
+            Err(error) => {
+                throw_illegal_argument(
+                    env,
+                    &format!("setPaletteOverride: unreadable array ({error})"),
+                );
+                return Ok(());
+            }
+        };
+        if length != EXPECTED {
+            throw_illegal_argument(
+                env,
+                &format!("setPaletteOverride: expected {EXPECTED} colours, got {length}"),
+            );
+            return Ok(());
+        }
+        let mut values = [0 as jint; EXPECTED];
+        if let Err(error) = array.get_region(env, 0, &mut values) {
+            throw_illegal_argument(env, &format!("setPaletteOverride: copy failed ({error})"));
+            return Ok(());
+        }
+        let rgb = |value: jint| libghostty_vt::style::RgbColor {
+            r: ((value >> 16) & 0xFF) as u8,
+            g: ((value >> 8) & 0xFF) as u8,
+            b: (value & 0xFF) as u8,
+        };
+        let mut ansi = [libghostty_vt::style::RgbColor::default(); 16];
+        for (slot, value) in ansi.iter_mut().zip(values[3..].iter()) {
+            *slot = rgb(*value);
+        }
+        let palette = crate::terminal::theme::Palette {
+            background: rgb(values[0]),
+            foreground: rgb(values[1]),
+            cursor: rgb(values[2]),
+            // 选区底色沿用当前主题：先读、立即释放，避免与下面的锁序嵌套。
+            selection_background: {
+                let state = render_state_mut();
+                state
+                    .as_ref()
+                    .map(|render_state| render_state.palette.selection_background)
+                    .unwrap_or_else(|| {
+                        crate::terminal::theme::default_dark()
+                            .palette
+                            .selection_background
+                    })
+            },
+            ansi,
+        };
+        let background = palette.background;
+        let id = session_id as u64;
+        {
+            let registry = rlock_session_registry();
+            let Some(session_entry) = registry.get(&id) else {
+                throw_session_missing(env, "setPaletteOverride");
+                return Ok(());
+            };
+            let session = session_entry.session.lock();
+            session.terminal().set_colors(palette.clone());
+            // 与 setTheme 同序：先让 VT 线程推出新单元数据，再标记渲染脏。
+            session.terminal().flush();
+        }
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.palette = palette;
+            render_state.renderer.set_background_color(background);
+            render_state.renderer.cell_cache = None;
+            render_state.dirty.store(true, Ordering::Relaxed);
+            render_state.full_repaint = true;
+        }
+        drop(state);
+        log::info!("setPaletteOverride: session {id} applied");
+    })
+}
+
+/// 抛 `IllegalArgumentException`。错误路径可能已在 JNI 上挂起异常，重复抛会
+/// 覆盖首个原因；故仅在无挂起异常时使用。
+fn throw_illegal_argument(env: &mut Env, message: &str) {
+    let _ = env.throw_new(
+        jni_str!("java/lang/IllegalArgumentException"),
+        JNIString::from(message.to_string()),
+    );
 }
 
 /// 开启/关闭持续的 surface 级取纹理失败（见 `Renderer::set_surface_loss_injected_for_test`）。
