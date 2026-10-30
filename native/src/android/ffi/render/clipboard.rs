@@ -11,8 +11,24 @@ pub(super) fn handle_clipboard_reads(
     pending_events: &mut Vec<Event>,
 ) {
     let mut flood_shed_answers = 0usize;
+    // 每会话「未作答计数」的帧内缓存：`unanswered_clipboard_reads` 要锁
+    // `REQUEST_REGISTRY` 并遍历全表，而一个 8KB 输出块可含数百条读请求、一帧十块即
+    // 数千次全表扫描——洪泛削减本是为挡住病态远端，不能自己先成为瓶颈。
+    // 只缓存**已超限**的会话：削减分支不注册槽位，故其计数在本帧内不变；未超限的
+    // 会话走正常分支会注册槽位使计数 +1，缓存会失准，故逐条重算（每会话至多
+    // `MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION` 条走这条路径）。
+    let mut shed_counts: Vec<(u64, usize)> = Vec::new();
     for (session_id, selection) in pending_clipboard_reads {
-        let unanswered = unanswered_clipboard_reads(session_id);
+        let unanswered = match shed_counts.iter().find(|(id, _)| *id == session_id) {
+            Some((_, count)) => *count,
+            None => {
+                let count = unanswered_clipboard_reads(session_id);
+                if count >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
+                    shed_counts.push((session_id, count));
+                }
+                count
+            }
+        };
         if unanswered >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
             // 洪泛削减：就地显式作答空串，不注册、不推事件、不起应答线程。
             // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置。
@@ -26,9 +42,13 @@ pub(super) fn handle_clipboard_reads(
             }
             flood_shed_answers += 1;
             flood_shed_warn_throttled(session_id, unanswered);
-            let registry = wlock_session_registry();
-            let session = registry.get(&session_id).map(|entry| entry.session.clone());
-            if let Some(session) = session {
+            // 读锁而非写锁：本分支只查表，而随后的 `answer_clipboard_read` 要经
+            // `PtyMaster::write_with_timeout` 等 `pty_write_order` 互斥量——该锁可能被
+            // 用户输入写入按住、持有时长**无上界**。持注册表**写**锁等它，会把
+            // `pollEvent`/`switchSession`/`destroySession` 连同其余会话的取句柄一起
+            // 冻在锁外；本文件余下部分与 `pump_sessions` 一律在注册表锁外做会话工作。
+            // 取到 `Arc` 后 guard 即随本句结束而释放，写 PTY 发生在锁外。
+            if let Some(session) = session_handle(session_id) {
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, "") {
                     log::warn!("osc52: flood-shed read answer write-back failed: {error}");
