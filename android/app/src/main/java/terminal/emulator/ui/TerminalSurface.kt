@@ -3116,16 +3116,40 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private var keyboardRequested = false
 
+    /** 启动键盘策略是否已执行过（`hide-soft-keyboard-on-startup`）：只执行一次。 */
+    private var startupKeyboardRequested = false
+
     /**
      * 软键盘是否允许弹出（`soft-keyboard-toggle-behaviour = enable-disable`）。
      *
-     * 只拦本应用自己的显示入口（轻点终端、KEYBOARD 键），**不**改 [onCheckIsTextEditor]
-     * 与焦点生命周期：平台只在视图拿到输入连接时才问 `onCheckIsTextEditor`，而拿到连接
-     * 唯一路径是本视图请求焦点，改它等于把 IME 的整条链路重排一遍。
+     * 两条路径都要拦：轻点/KEYBOARD 键不再调用 `show`，且 [onCheckIsTextEditor] 报否。
+     * 后者不是冗余——平台在焦点变化时会按它**自动**弹键盘，只拦 `show` 的话，轻点里那次
+     * `requestFocus` 就足以把键盘带出来。
      *
      * 默认 `true`：`show-hide` 模式下本字段从不参与判定，行为与未引入时逐字节相同。
      */
     var softKeyboardEnabled: Boolean = true
+
+    /**
+     * `hide-soft-keyboard-on-startup = false`：启动时主动请求一次输入法。
+     *
+     * 只在首次调用时生效（这是启动策略，不是运行期开关）：把 [keyboardRequested] 置真
+     * 后平台才会在焦点变化时按 [onCheckIsTextEditor] 自动弹出，同时自己再显式 `show`
+     * 一次——只靠自动弹出时，焦点往往早已就位、平台不会再问，键盘永远不出现。
+     *
+     * 不保证成功：窗口尚未取得焦点时 `show` 会被平台丢弃。该键的语义是「不要主动隐藏」，
+     * 不是「强制弹出」。
+     */
+    fun requestKeyboardOnStart() {
+        if (startupKeyboardRequested) return
+        startupKeyboardRequested = true
+        keyboardRequested = true
+        post {
+            if (!softKeyboardEnabled) return@post
+            requestFocus()
+            windowInsetsController?.show(android.view.WindowInsets.Type.ime())
+        }
+    }
 
     fun finishComposing() {
         imeConnection.currentInputConnection?.let { inputConnection ->

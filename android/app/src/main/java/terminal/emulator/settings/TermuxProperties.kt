@@ -12,13 +12,19 @@ package terminal.emulator.settings
  * 用户文件而崩溃——这是外部配置，不是应用自己的设置数据。
  */
 data class TermuxProperties(
-    /** 解析但**不改变行为**：本应用没有会话切换提示通道（见 openspec 的 termux-configuration）。 */
+    /** 切换会话时不弹提示（默认 `false`，与 termux 一致）；提示在顶部显示 `[序号] 标题`。 */
     val disableTerminalSessionChangeToast: Boolean = false,
     val disableHardwareKeyboardShortcuts: Boolean = false,
     val useFullscreenWorkaround: Boolean = false,
     val fullscreen: Boolean = false,
     val ctrlSpaceWorkaround: Boolean = false,
-    /** 解析但**不改变行为**：启动时本就不弹软键盘（等价于恒为 true），而 `false` 被 Android 12+ 拒绝。 */
+    /**
+     * 启动时不弹软键盘。
+     *
+     * 默认 `true`，与上游不同（上游默认 `false` = 启动即弹）：本应用启动时从不主动
+     * 请求输入法，默认值必须反映既有外观。写 `false` 会在首帧后主动请求一次；平台仍
+     * 可能拒绝（窗口尚未取得焦点时 `show` 会被丢弃），此时轻点终端即可。
+     */
     val hideSoftKeyboardOnStartup: Boolean = true,
     val bellCharacter: BellCharacter = BellCharacter.VIBRATE,
     val extraKeysTextAllCaps: Boolean = true,
