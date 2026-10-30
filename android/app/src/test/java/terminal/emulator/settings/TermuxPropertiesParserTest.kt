@@ -1,7 +1,6 @@
 package terminal.emulator.settings
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,15 +23,10 @@ class TermuxPropertiesParserTest {
         assertTrue("空文件是正常状态，不该报错: ${loaded.errors}", loaded.errors.isEmpty())
     }
 
-    /**
-     * 两个「启动/切换」键的默认值都是刻意的：启动不主动弹键盘（与既有外观一致，
-     * 上游默认相反），会话切换有提示（与上游一致，嫌吵可关）。
-     */
+    /** 启动不主动弹键盘（与既有外观一致，上游默认相反）。 */
     @Test
-    fun `keyboard and session toast defaults match the app's behaviour`() {
-        val defaults = parse("").properties
-        assertTrue(defaults.hideSoftKeyboardOnStartup)
-        assertFalse(defaults.disableTerminalSessionChangeToast)
+    fun `keyboard startup default matches the app's behaviour`() {
+        assertTrue(parse("").properties.hideSoftKeyboardOnStartup)
     }
 
     @Test

@@ -12,7 +12,6 @@ package terminal.emulator.settings
  */
 data class TermuxProperties(
     /** 切换会话时不弹提示（默认 `false`，与 termux 一致）；提示在顶部显示 `[序号] 标题`。 */
-    val disableTerminalSessionChangeToast: Boolean = false,
     val disableHardwareKeyboardShortcuts: Boolean = false,
     val useFullscreenWorkaround: Boolean = false,
     val fullscreen: Boolean = false,
@@ -375,7 +374,6 @@ internal object TermuxPropertiesParser {
 
         val properties =
             TermuxProperties(
-                disableTerminalSessionChangeToast = boolean("disable-terminal-session-change-toast", false),
                 disableHardwareKeyboardShortcuts = boolean("disable-hardware-keyboard-shortcuts", false),
                 useFullscreenWorkaround = boolean("use-fullscreen-workaround", false),
                 fullscreen = boolean("fullscreen", false),

@@ -211,20 +211,6 @@ data class SessionInfo(
     val workingDirectory: String = "",
 )
 
-/** 提示文案里的换行分隔：`\r\n` 与空行都应压成**一个**空格。 */
-private val sessionToastLineBreaks = Regex("[\\r\\n]+")
-
-/**
- * 会话切换提示的文案：`[序号] 标题`，标题为空时只留序号。
- *
- * 标题来自 VT，shell 可以往里写任意内容——换行 MUST 压成空格，否则一条提示会把
- * 屏幕顶部撑开一大块，而这里只需要一个「切到哪了」的短标识。
- */
-internal fun sessionChangeToastText(indexLabel: String, title: String): String {
-    val singleLine = title.replace(sessionToastLineBreaks, " ").trim()
-    return if (singleLine.isEmpty()) indexLabel else "$indexLabel $singleLine"
-}
-
 /** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
 internal const val SESSION_META_REFRESH_THROTTLE_MS = 2000L
 
@@ -1675,7 +1661,6 @@ constructor(
                 )
                 return@launch
             }
-            val previousActiveId = _state.value.activeSessionId
             try {
                 val newId =
                     runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
@@ -1701,11 +1686,6 @@ constructor(
                             selectionAccent = runtime.accentColor,
                         )
                     }
-                    // 首个会话不算「切换」：用户刚打开应用，屏幕上就一个会话，
-                    // 再弹一条「[1] …」只是噪声。
-                    if (previousActiveId != 0L && previousActiveId != newId) {
-                        notifySessionChanged(newId)
-                    }
                 } else {
                     LogUtil.error(
                         "TerminalViewModel",
@@ -1716,41 +1696,6 @@ constructor(
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.error("TerminalViewModel", "createSession failed", exception)
             }
-        }
-    }
-
-    /** 上一条会话切换提示：连按快捷键时先取消，免得提示滞后到早已离开的会话。 */
-    private var sessionChangeToast: android.widget.Toast? = null
-
-    /**
-     * 会话切换提示（`disable-terminal-session-change-toast` 关闭它）。
-     *
-     * 文案是 termux 的 `[序号] 标题`：抽屉里也按这个序号定位会话，切换后能立刻对上。
-     * 无标题的会话只显示序号——多数 shell 不设标题，此时抽屉里显示的是工作目录，
-     * 提示里再补一句「会话 N」反而与屏幕上的标识不一致。
-     *
-     * 调用点都在 IO 调度器上，而 `Toast.show()` 需要主线程 Looper，故切回主线程。
-     * 提示固定在顶部：底部会被输入法与键栏盖住，而那正是用户切会话时看着的地方。
-     */
-    private fun notifySessionChanged(sessionId: Long) {
-        if (sessionId == 0L) return
-        if (termuxProperties.configuration.value.properties.disableTerminalSessionChangeToast) return
-        val sessions = _state.value.sessions
-        val index = sessions.indexOfFirst { it.sessionId == sessionId }
-        if (index < 0) return
-        val label = context.getString(R.string.session_index, index + 1)
-        val text = sessionChangeToastText(label, sessions[index].title)
-        viewModelScope.launch(TerminalDispatchers.main) {
-            sessionChangeToast?.cancel()
-            sessionChangeToast =
-                android.widget.Toast.makeText(
-                    context,
-                    text,
-                    android.widget.Toast.LENGTH_SHORT,
-                ).apply {
-                    setGravity(android.view.Gravity.TOP, 0, 0)
-                    show()
-                }
         }
     }
 
@@ -1790,7 +1735,6 @@ constructor(
                 LogUtil.warn("TerminalViewModel", "switchSession aborted by runtime for id=$sessionId")
                 return@launch
             }
-            val previousActiveId = _state.value.activeSessionId
             _state.update { current ->
                 current.copy(
                     isRunning = true,
@@ -1803,9 +1747,6 @@ constructor(
                     selection = SelectionState(),
                     selectionAccent = runtime.accentColor,
                 )
-            }
-            if (previousActiveId != sessionId) {
-                notifySessionChanged(sessionId)
             }
         }
     }
@@ -1906,8 +1847,6 @@ constructor(
                 }
                 if (closedActive) {
                     selectionManager.clearSelection()
-                    // 接替会话已经显示出来了，不提示的话用户只看到屏幕忽然换了内容。
-                    notifySessionChanged(_state.value.activeSessionId)
                 }
                 refreshSessionMetas(force = true)
             }
