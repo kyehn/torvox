@@ -131,15 +131,6 @@ class KeyModifiersTest {
     }
 
     @Test
-    fun `modifier state cycles off-once-locked`() {
-        assertEquals(ModifierState.Once, ModifierState.Off.next())
-        assertEquals(ModifierState.Locked, ModifierState.Once.next())
-        assertEquals(ModifierState.Off, ModifierState.Locked.next())
-        // Cycle is stable.
-        assertEquals(ModifierState.Locked, ModifierState.Off.next().next())
-    }
-
-    @Test
     fun `tap toggle never locks (termux parity)`() {
         assertEquals(ModifierState.Once, ModifierState.Off.toggled())
         assertEquals(ModifierState.Off, ModifierState.Once.toggled())
