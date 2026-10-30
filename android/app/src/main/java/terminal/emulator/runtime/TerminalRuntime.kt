@@ -2757,6 +2757,7 @@ constructor(
 
             // 网格尺寸取登记处里的最新一张：启动期间视图可能换过 Surface，
             // 入参那套尺寸属于旧窗口，据此 spawn 出的 PTY 初始 winsize 会偏。
+            val fontFamily = resolveEffectiveFontFamily()
             val spawn =
                 spawnTerminalTimed(
                     bridge,
@@ -2764,6 +2765,7 @@ constructor(
                     "start",
                     pendingSurface?.width ?: width,
                     pendingSurface?.height ?: height,
+                    fontFamily,
                 )
             LogUtil.debug(
                 "Runtime",
@@ -2784,7 +2786,7 @@ constructor(
             // 此处是那时 GPU 恰好不可用时的幂等重试；失败只记账，致命判定在首帧。
             bridge.prefetchRenderStateAsync(scope)
 
-            applyRenderSettings(bridge, config, caller = "start", syncGrid = true)
+            applyRenderSettings(bridge, config, caller = "start", syncGrid = true, fontFamily = fontFamily)
 
             // 原生 spawn 结果是权威会话 ID（当 createSession 与这条较慢的引导路径
             // 并发运行时，原生与 Kotlin 两侧的序列可能漂移）。在锁内以该 ID 插入。
@@ -3031,7 +3033,8 @@ constructor(
             // 当 start()（较慢的引导路径，同样在其锁外 spawn）与 createSession 并发时，
             // Kotlin 的 max+1 序列与原生序列可能漂移；
             // 以原生 ID 路由 switchSession/handleSessionExit 可保持同步。
-            val spawn = spawnTerminalTimed(bridge, config, "createSession", width, height)
+            val fontFamily = resolveEffectiveFontFamily()
+            val spawn = spawnTerminalTimed(bridge, config, "createSession", width, height, fontFamily)
             if (spawn.sessionId <= 0L) {
                 // 无回退：启动入口失败不尝试其他 shell；已有会话原样保留显示，失败经 logcat 输出。
                 throw RuntimeException("native spawn failed (result=${spawn.sessionId})")
@@ -3044,7 +3047,7 @@ constructor(
             // （见上方 bypassMinSurface 分支），此时 createSession 是首个建会话的入口；
             // 不在此补齐整组设置，本进程余下所有会话都会用硬编码的默认字号、
             // 默认光栅尺度渲染，且用户字体目录永不注册。
-            applyRenderSettings(bridge, config, caller = "createSession", syncGrid = false)
+            applyRenderSettings(bridge, config, caller = "createSession", syncGrid = false, fontFamily = fontFamily)
 
             val entry: SessionEntry
             val abandonedByStart: Boolean
@@ -3703,8 +3706,8 @@ constructor(
             try {
                 val familyResult = entry.bridge.setFontFamily(effectiveFontFamily)
                 LogUtil.debug("Runtime", "setFontFamily result: $familyResult")
-                // null = 该会话在调用间隙销毁，无从验证：不计入聚合，
-                // 否则一次并发关闭会把有效的字体设置误判为“未知字族”并清除。
+                // null = 原生库未加载，无从验证：不计入聚合，
+                // 否则一次原生缺失会把有效的字体设置误判为“未知字族”而清除。
                 if (familyResult != null) {
                     applied = (applied ?: true) && familyResult
                 }
@@ -4234,22 +4237,37 @@ constructor(
     }
 
     /**
+     * 生效的字族：设置项经默认字体覆盖解析后的族名。
+     *
+     * 单独成函数是为了让 spawn 与契约下发用**同一份**字族：两处各读一次设置，
+     * 中途改设置就会让初始 winsize 与最终字族不同源。
+     */
+    private suspend fun resolveEffectiveFontFamily(): String =
+        terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+
+    /**
      * 计时调用原生建会话并记录耗时。
      *
      * 调用方各自决定失败后的动作（[start] 优雅收尾，[createSession] 按无回退策略抛出），
      * 故此处只做计时与日志。
      */
-    private fun spawnTerminalTimed(
+    private suspend fun spawnTerminalTimed(
         bridge: Bridge,
         config: terminal.emulator.bridge.TerminalConfig,
         caller: String,
         surfaceWidth: Int,
         surfaceHeight: Int,
+        fontFamily: String,
     ): SpawnResult {
         // PTY 的 winsize 决定 shell 第一个 prompt 的排版宽度：先建 24×80 再 resize 会让
         // shell 重排已打印的 prompt（首屏出现截断 + 补行的两份 prompt）。此处用原生全局
         // 字体度量（不依赖会话）与已知 surface 尺寸算出真实网格，度量未就绪时退回 config
         // 的默认值。
+        //
+        // 字体度量必须**先于**网格计算落定：度量取自字体管线，spawn 之后才下发字号与
+        // 字族的话，初始 winsize 按默认字体算出，attach 时的一次 resize 便会给 shell 发
+        // SIGWINCH，shell 重排已打印的 prompt——首屏多出一行提示符。字族、字号与光栅
+        // 尺度都是全局量（原生只维护一份字体管线），会话建立之前下发即可。
         //
         // 代价：字体管线与 wgpu 渲染器同住在原生 RenderState 里，这次度量查询因此不是
         // 纯 CPU 查询——首次调用会把整个渲染态建起来，于是 shell 的启动从「与初始化并行」
@@ -4258,6 +4276,7 @@ constructor(
         // ponytail: 想拆出「只建字体管线、不建渲染器」的入口，得把 font_pipeline 从
         // RenderState 里搬出去，改生产路径 77 处调用点（连测试共 204 处）；软件 GL 的
         // 启动延迟成为用户可感问题时再拆。
+        bridge.applyFontContract(fontFamily, config.fontSizeTenths, spToPxScale)
         refreshCellMetricsFrom(bridge)
         val (rows, cols) =
             initialSpawnGrid(
@@ -4290,24 +4309,17 @@ constructor(
         config: terminal.emulator.bridge.TerminalConfig,
         caller: String,
         syncGrid: Boolean,
+        fontFamily: String,
     ) {
         // 用户字体目录（home/.termux/font）此刻才真正到达原生字体库。
         bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
-        val effectiveFont =
-            terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
-        // raster_scale 必须覆盖完整的 sp→px 映射：字号以 sp 存储，
-        // 而 sp 同时随显示密度与用户系统字体缩放而缩放。仅按 density 光栅化
-        // 会在 fontScale > 1 时（如「字体大小」无障碍设置）光栅不足，
-        // 着色器随后放大图集位图——即「文字模糊」问题的来源。
-        // 字号同理：原生渲染器以硬编码的 14.0px 启动，不下发则用户的设置永远到不了
-        // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
         val termux = termuxProperties.configuration.value
         bridge.applyRenderContract(
             RenderContract(
                 fontSizeTenths = config.fontSizeTenths,
-                fontFamily = effectiveFont,
+                fontFamily = fontFamily,
                 themeName = config.themeName,
                 rasterScale = spToPxScale,
                 colors = termux.colors,
@@ -4318,7 +4330,7 @@ constructor(
         appliedFontSizeTenths = config.fontSizeTenths
         LogUtil.debug(
             "Runtime",
-            "$caller settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName}",
+            "$caller settings applied: fontFamily=$fontFamily fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName}",
         )
         // 不设 catch：此前「记日志后继续」是 DESIGN.md:20 禁止的未声明 Fallback——
         // 它带着半套设置（字体已换而字号/光栅未换）继续渲染，用户只看到字形忽大忽小，
@@ -4683,11 +4695,23 @@ private fun Bridge.applyRenderContract(contract: RenderContract) {
     setCursorBlinkRate(contract.cursorBlinkRateMs)
     // 覆盖必须在 setTheme 之后：原生把覆盖压在「基底主题」之上，换主题会重置基底。
     // null 表示没有 colors.properties（或已被删除）：此时只下发主题即可，上一次的
-    // 覆盖会随 setTheme 一起被丢掉，无需额外的撤销调用。
+    // 覆盖会随 setTheme 一并被丢掉，无需额外的撤销调用。
     contract.colors?.let { setPaletteOverride(it.toPaletteOverride()) }
-    setFontFamily(contract.fontFamily)
-    setFontSizeInPlace(contract.fontSizeTenths)
-    setRasterScale(contract.rasterScale)
+    applyFontContract(contract.fontFamily, contract.fontSizeTenths, contract.rasterScale)
+}
+
+/**
+ * 字体契约（字族 + 字号 + 光栅尺度）：三项都是**全局**量，原生侧只落在唯一的
+ * 字体管线上，与会话无关。
+ *
+ * 独立成函数是因为它有两个调用时机，且两处必须给同一组值：
+ * 建会话前的 spawn（此时定下的字体度量决定 PTY 的初始 winsize）与建会话后的
+ * 契约下发（主题等其余项此时才可下发）。
+ */
+private fun Bridge.applyFontContract(fontFamily: String, fontSizeTenths: Int, rasterScale: Float) {
+    setFontFamily(fontFamily)
+    setFontSizeInPlace(fontSizeTenths)
+    setRasterScale(rasterScale)
 }
 
 /** 一条会话的渲染设置快照（见 [applyRenderContract]）。 */
