@@ -100,29 +100,6 @@ class TermuxPropertiesParserTest {
         assertEquals(2000, parse("terminal-transcript-rows = 99999").properties.terminalTranscriptRows)
     }
 
-    /**
-     * 闪烁间隔：0 = 不闪；有效区间 100..2000；其余取值按无效处理（不闪）。
-     *
-     * 上游把越界值当无效并直接禁用闪烁，不是钳到边界。
-     */
-    @Test
-    fun `cursor blink rate only accepts zero or the upstream range`() {
-        assertEquals(0, parse("terminal-cursor-blink-rate = 0").properties.terminalCursorBlinkRateMs)
-        assertEquals(500, parse("terminal-cursor-blink-rate = 500").properties.terminalCursorBlinkRateMs)
-        assertEquals(2000, parse("terminal-cursor-blink-rate = 2000").properties.terminalCursorBlinkRateMs)
-        assertEquals(0, parse("terminal-cursor-blink-rate = 50").properties.terminalCursorBlinkRateMs)
-        assertEquals(0, parse("terminal-cursor-blink-rate = 5000").properties.terminalCursorBlinkRateMs)
-    }
-
-    @Test
-    fun `an invalid cursor blink rate is reported`() {
-        val loaded = parse("terminal-cursor-blink-rate = 50")
-        assertTrue(
-            "无效的闪烁间隔必须留痕: ${loaded.errors}",
-            loaded.errors.any { it.contains("terminal-cursor-blink-rate") },
-        )
-    }
-
     @Test
     fun `a non numeric transcript rows keeps the default`() {
         val loaded = parse("terminal-transcript-rows = many")

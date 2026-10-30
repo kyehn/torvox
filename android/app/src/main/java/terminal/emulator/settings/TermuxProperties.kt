@@ -38,13 +38,6 @@ data class TermuxProperties(
      * 「没配好就用默认」。
      */
     val terminalTranscriptRows: Int = DEFAULT_TRANSCRIPT_ROWS,
-    /**
-     * 光标闪烁间隔（毫秒）；0 = 不闪。
-     *
-     * 上游默认值同为 0（`DEFAULT_IVALUE_TERMINAL_CURSOR_BLINK_RATE`），有效区间
-     * 100..2000：其余取值视为无效并按「不闪」处理。
-     */
-    val terminalCursorBlinkRateMs: Int = 0,
     val shortcutCreateSession: Char? = null,
     val shortcutNextSession: Char? = null,
     val shortcutPreviousSession: Char? = null,
@@ -66,9 +59,6 @@ data class TermuxProperties(
 
         /** 回滚行数区间（上游同值）。 */
         val TRANSCRIPT_ROWS_RANGE = 100..50000
-
-        /** 光标闪烁间隔的有效区间（上游 `TerminalView` 同值）；0 表示不闪。 */
-        val CURSOR_BLINK_RATE_RANGE = 100..2000
 
         /**
          * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
@@ -356,28 +346,6 @@ internal object TermuxPropertiesParser {
             return parsed
         }
 
-        /**
-         * 光标闪烁间隔：0 = 不闪，其余必须落在上游的有效区间内。
-         *
-         * 上游把越界值当作无效并直接禁用闪烁（`TerminalView.setTerminalCursorBlinkerRate`），
-         * 不是钳到边界——50ms 的闪烁在 60Hz 下没有意义，用户要的是「没配好就别闪」。
-         */
-        fun cursorBlinkRate(): Int {
-            val raw = values["terminal-cursor-blink-rate"] ?: return 0
-            val parsed = raw.toIntOrNull()
-            if (parsed == null) {
-                errors += "terminal-cursor-blink-rate: '$raw' is not an integer; keeping 0"
-                return 0
-            }
-            if (parsed != 0 && parsed !in TermuxProperties.CURSOR_BLINK_RATE_RANGE) {
-                errors +=
-                    "terminal-cursor-blink-rate: $parsed out of range " +
-                    "${TermuxProperties.CURSOR_BLINK_RATE_RANGE}; keeping 0"
-                return 0
-            }
-            return parsed
-        }
-
         fun choice(key: String, default: String): String {
             val raw = values[key] ?: return default
             return raw
@@ -448,7 +416,6 @@ internal object TermuxPropertiesParser {
                         TerminalCursorStyle.BLOCK
                     }
                 },
-                terminalCursorBlinkRateMs = cursorBlinkRate(),
                 terminalTranscriptRows =
                 integer(
                     "terminal-transcript-rows",

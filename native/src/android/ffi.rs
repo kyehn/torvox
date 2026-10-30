@@ -307,30 +307,6 @@ static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
 /// 且争用可忽略（每帧一次 `render`）。
 static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::new(None);
 
-/// 光标闪烁间隔（毫秒）；0 = 不闪（`termux.properties` 的 `terminal-cursor-blink-rate`）。
-///
-/// 存成全局原子量而不是渲染态字段：设置它**不该**触发 GPU 初始化。渲染态是惰性创建的，
-/// 而这条设置在启动时、Surface 挂载之前就下发——为了一个「间隔」去开 wgpu 适配器，
-/// 只会把首帧前的失败点提前。
-static CURSOR_BLINK_RATE_MS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-/// 闪烁时基：进程启动时刻。相位按「经过的毫秒 / 间隔」的奇偶算出，故任何一帧都能
-/// 独立算对相位，不需要「上一帧何时画的」这类跨帧状态——空闲省电会让帧间隔抖动到秒级，
-/// 按帧计数累加会越走越偏。
-static BLINK_EPOCH: std::sync::LazyLock<std::time::Instant> =
-    std::sync::LazyLock::new(std::time::Instant::now);
-
-/// 光标本帧是否处于「亮」相位。
-///
-/// 间隔为 0 恒为亮（不闪）。由 [`BLINK_EPOCH`] 与 [`CURSOR_BLINK_RATE_MS`] 直接决定，
-/// 因此同一次闪烁周期内任意时刻求值都一致。
-fn cursor_blink_phase_on(elapsed_ms: u64, rate_ms: u32) -> bool {
-    if rate_ms == 0 {
-        return true;
-    }
-    (elapsed_ms / u64::from(rate_ms)).is_multiple_of(2)
-}
-
 /// 当前生效的**基底**主题（未被 `colors.properties` 覆盖的那个）。
 ///
 /// 单独存放而非塞进 [`RENDER_STATE`]：`setPaletteOverride` 要在取会话锁之前就算出
@@ -567,9 +543,6 @@ struct RenderState {
     /// 主题变更等需要整屏重绘的标志。置位后下一帧所有行标脏，
     /// 避免仅 cursor/highlight 行重绘导致旧底色残留在其余行。
     full_repaint: bool,
-    /// 上一帧画出的光标闪烁相位（`true` = 亮）。空闲重绘靠它与当前相位比较来
-    /// 决定是否必须出一帧——否则光标会停在某个半周期上，看起来「卡住不动」。
-    cursor_blink_on: bool,
     /// 滚动命令在途：滚动已发给 VT 线程，屏幕内容尚未反映它。
     ///
     /// 空闲重绘 MUST NOT 在此期间发生——它只能用缓存帧（旧视口）配新余量重绘，
@@ -600,22 +573,6 @@ fn scroll_pending_expired(elapsed_ms: u128) -> bool {
 }
 
 impl RenderState {
-    /// 推进光标闪烁相位，返回本帧是否发生了翻转。
-    ///
-    /// 翻转是空闲路径唯一能让「画面必须重画」的理由：内容没变，但光标该灭（或该亮）了。
-    /// 不返回这个信号，光标就会停在上一相位上直到下一次输出——静止的终端里光标永不闪。
-    fn advance_cursor_blink(&mut self) -> bool {
-        let phase = cursor_blink_phase_on(
-            BLINK_EPOCH.elapsed().as_millis() as u64,
-            CURSOR_BLINK_RATE_MS.load(Ordering::Acquire),
-        );
-        if phase == self.cursor_blink_on {
-            return false;
-        }
-        self.cursor_blink_on = phase;
-        true
-    }
-
     /// 记下一次滚动命令已送达：此后拦帧，直到 VT 把它反映出来。
     ///
     /// 序号相同则保留原有时刻：同一次命令的重复送达不该让等待期重新计时，
@@ -650,13 +607,6 @@ impl RenderState {
         self.scroll_pending_since = None;
         false
     }
-}
-
-/// 设置光标闪烁间隔（毫秒）；0 = 不闪。
-///
-/// 只写原子量：不碰渲染态，故不会在 Surface 挂载之前把 GPU 拉起来。
-pub(super) fn set_cursor_blink_rate(rate_ms: u32) {
-    CURSOR_BLINK_RATE_MS.store(rate_ms, Ordering::Release);
 }
 
 /// 按会话键控的一段渲染态数据。
@@ -763,7 +713,6 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_overlay_dirty: false,
             dirty: AtomicBool::new(false),
             full_repaint: false,
-            cursor_blink_on: true,
             scroll_frame_pending: false,
             scroll_pending_since: None,
         });

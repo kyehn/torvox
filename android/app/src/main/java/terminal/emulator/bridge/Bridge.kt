@@ -480,18 +480,6 @@ class Bridge(private val config: TerminalConfig) {
         return NativeBridge.setFontFamily(0L, override ?: family)
     }
 
-    /**
-     * 光标闪烁间隔（毫秒）；0 = 不闪（`terminal-cursor-blink-rate`）。
-     *
-     * 不分会话：渲染循环只有一条，闪烁是渲染器的时间行为，不是某个终端的状态。
-     * 未加载原生库时静默跳过——此时还没有会话，闪烁也无从谈起。
-     */
-    fun setCursorBlinkRate(rateMs: Int) {
-        if (!NativeBridge.isNativeLoaded()) return
-        runCatchingCancellable { NativeBridge.setCursorBlinkRate(rateMs) }
-            .onFailure { LogUtil.warn(TAG, "setCursorBlinkRate failed (${it.javaClass.simpleName})") }
-    }
-
     /** 字号：同样是全局量（字体管线的唯一一份），会话建立之前也须能下发。 */
     fun setFontSizeInPlace(sizeTenths: Int) {
         LogUtil.debug(TAG, "setFontSizeInPlace($sizeTenths)")
