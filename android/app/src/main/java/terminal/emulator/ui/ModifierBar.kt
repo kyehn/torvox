@@ -100,6 +100,13 @@ internal fun buildExtraKeySlots(
             val keyCode = TerminalKeyCatalog.keyCodeFor(key.name)
             val literal = key.name.length == 1
             when {
+                key.macro != null -> {
+                    // termux 的宏是一串按键事件（`{macro: "CTRL f d"}`），本应用还没有
+                    // 播放器；渲染一个点了没反应的键比不渲染更糟。
+                    LogUtil.warn("ModifierBar", "extra-keys: macro '${key.macro}' is not supported; key hidden")
+                    null
+                }
+
                 special == TerminalKeyCatalog.Special.FN -> {
                     // FN 需要一整套二次映射（FN+方向键→Home/End 等），本应用未实现；
                     // 渲染一个点了没反应的键比不渲染更糟。
@@ -150,18 +157,19 @@ internal fun defaultExtraKeySlots(
 ): List<List<ExtraKeySlot>> = buildExtraKeySlots(TermuxProperties.DEFAULT_EXTRA_KEYS, style, allCaps)
 
 /**
- * 键名是否会被渲染成按键。
+ * 这个按键是否会被渲染。
  *
- * 与 [buildExtraKeySlots] 的 `when` 同判据：FN 需要一整套二次映射（未实现），未知键名
- * 按字面量渲染会点出无意义字符，两者都不渲染。
+ * 与 [buildExtraKeySlots] 的 `when` 同判据：宏没有播放器、FN 需要一整套二次映射
+ * （未实现）、未知键名按字面量渲染会点出无意义字符，三者都不渲染。
  */
-private fun isRenderableKeyName(name: String): Boolean {
-    val special = TerminalKeyCatalog.specialFor(name)
+private fun isRenderableKey(key: ExtraKey): Boolean {
+    if (key.macro != null) return false
+    val special = TerminalKeyCatalog.specialFor(key.name)
     return when {
         special == TerminalKeyCatalog.Special.FN -> false
         special != null -> true
-        TerminalKeyCatalog.keyCodeFor(name) != null -> true
-        else -> name.length == 1
+        TerminalKeyCatalog.keyCodeFor(key.name) != null -> true
+        else -> key.name.length == 1
     }
 }
 
@@ -172,8 +180,7 @@ private fun isRenderableKeyName(name: String): Boolean {
  * 盖住终端底部若干行——它盖在 Surface 之上，被盖的行既看不见也点不到。空行与整行都
  * 被过滤掉的行（例如只写了 `FN`）不算行。
  */
-internal fun extraKeyRowCount(rows: List<List<ExtraKey>>): Int =
-    rows.count { row -> row.any { isRenderableKeyName(it.name) } }
+internal fun extraKeyRowCount(rows: List<List<ExtraKey>>): Int = rows.count { row -> row.any { isRenderableKey(it) } }
 
 /** 单键高度（dp）：`terminal-toolbar-height` 是相对默认值的缩放系数。 */
 internal fun buttonHeightDp(scale: Float): Float = BUTTON_HEIGHT_DP * scale

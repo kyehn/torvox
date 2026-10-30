@@ -70,6 +70,10 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染（那会让用户点出一串
 无意义的字符）。`FN` 未实现，MUST NOT 渲染。
 
+`{macro: ...}` MUST 被解析但 MUST NOT 渲染成按键：没有播放器时，渲染一个点了没反应
+的键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。两者 MUST NOT 让整份
+布局回落到默认——一个不认识的宏不该作废用户配好的其余键位。
+
 `extra-keys-style` MUST 接受 `default` / `arrows-only` / `arrows-all` / `all` / `none`，
 字形集合逐项对齐 termux `ExtraKeysConstants`：五档是逐级加字形（方向键 → 常用符号 →
 Home/End/PgUp/PgDn → ESC/CTRL/ALT），不是五个互不相干的外观。

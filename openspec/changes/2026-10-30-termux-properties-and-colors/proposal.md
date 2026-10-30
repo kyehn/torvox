@@ -34,7 +34,7 @@
 
 | 键 | 落地 |
 | --- | --- |
-| `extra-keys` | 键栏布局完全由配置决定（`buildExtraKeySlots`） |
+| `extra-keys` | 键栏布局完全由配置决定（`buildExtraKeySlots`）；宏被解析但不播放、不渲染 |
 | `extra-keys-style` | 五档字形集合逐项对齐上游 `ExtraKeysConstants`，只改字形，不改键位与 testTag |
 | `extra-keys-text-all-caps` | 只影响字母 |
 | `soft-keyboard-toggle-behaviour` | `enable-disable` 翻转「软键盘可用与否」：禁用时轻点不再拉起输入法 |
