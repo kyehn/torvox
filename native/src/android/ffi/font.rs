@@ -410,6 +410,44 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     })
 }
 
+/// 设置会话的默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。
+///
+/// `style` 取值与 Kotlin `TerminalCursorStyle` 的 `nativeValue` 对应：0 方块、1 竖线、
+/// 2 下划线。越界即抛——静默回落成方块会让用户在配置文件里写的值无声失效。
+///
+/// 只是默认值：程序用 DECSCUSR 指定过样式时以程序为准。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    style: jint,
+) {
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        let Some(cursor_style) = (match style {
+            0 => Some(crate::terminal::ghostty_terminal::CursorStyle::Block),
+            1 => Some(crate::terminal::ghostty_terminal::CursorStyle::Bar),
+            2 => Some(crate::terminal::ghostty_terminal::CursorStyle::Underline),
+            _ => None,
+        }) else {
+            throw_illegal_argument(
+                env,
+                &format!("setCursorStyle: unknown cursor style {style} (expected 0..2)"),
+            );
+            return Ok(());
+        };
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            throw_session_missing(env, "setCursorStyle");
+            return Ok(());
+        };
+        entry.session.lock().terminal().set_cursor_style(cursor_style);
+        drop(registry);
+        log::info!("setCursorStyle: session {id} style={cursor_style:?}");
+    })
+}
+
 /// 覆盖某会话的调色板（`~/.termux/colors.properties`）。
 ///
 /// `colors` 为 19 个 `0x00RRGGBB`：背景、前景、光标、十六个 ANSI 色（0..15）。
