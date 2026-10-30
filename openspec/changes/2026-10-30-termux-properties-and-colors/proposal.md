@@ -29,6 +29,7 @@
 | `extra-keys` | 键栏布局完全由配置决定（`buildExtraKeySlots`） |
 | `extra-keys-style` | 只改字形，不改键位与 testTag |
 | `extra-keys-text-all-caps` | 只影响字母 |
+| `soft-keyboard-toggle-behaviour` | `enable-disable` 翻转「软键盘可用与否」：禁用时轻点不再拉起输入法 |
 | `terminal-toolbar-height` | 单键高度缩放；网格预留随之变化 |
 | `terminal-margin-horizontal` / `-vertical` | 内缩 SurfaceView，网格随尺寸收窄 |
 | `terminal-cursor-style` | 推给 VT 作**默认**样式，程序 DECSCUSR 仍可覆盖 |
@@ -45,13 +46,8 @@
 | `disable-hardware-keyboard-shortcuts` | 关掉上一条 |
 | `colors.properties` | 19 槽覆盖，`-1` = 沿用主题原色 |
 
-### 明确不实现的三项
+### 明确不实现的两项
 
-- **`soft-keyboard-toggle-behaviour = enable-disable`**：`View` 没有
-  `setShowSoftInputOnFocus`（只有 `TextView` 有），而终端是 `SurfaceView`。
-  在 SurfaceView 上禁掉「聚焦即送 IME」要改焦点与 `onCheckIsTextEditor` 的整条
-  生命周期，而 IME 路径是本仓最脆的一段（imeInsetFlow、抑制窗口、锚点准入都依赖它）。
-  代价与收益不成比例，故只实现 `show-hide`。
 - **`hide-soft-keyboard-on-startup`**：本应用启动时本就不弹软键盘（唯一的弹出路径是
   用户轻点终端手势），故 `true` 的语义已天然成立；`false` 需要启动即请求 IME，
   而 Android 12+ 会静默拒绝非受信任手势之外的 `SHOW_IMPLICIT`。

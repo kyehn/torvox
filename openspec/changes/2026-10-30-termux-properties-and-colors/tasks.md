@@ -29,6 +29,8 @@
 - [x] `default-working-directory` 解析（`~`、相对、绝对；尾斜杠归一）
 - [x] 会话抽屉在标题为空时显示 OSC 7 目录
 - [x] `back-key` / `volume-keys` / `ctrl-space-workaround` / 会话快捷键
+- [x] `soft-keyboard-toggle-behaviour`：`enable-disable` 时 KEYBOARD 键翻转软键盘可用性，
+      禁用后轻点终端不再拉起输入法（含平台按 `onCheckIsTextEditor` 自动弹的那条路径）
 
 ## 系统
 
@@ -52,5 +54,5 @@
 
 - [ ] `PROHIBITED.md` 中「禁止解析 termux.properties/colors.properties」与现状冲突，
       属受保护文件，待用户决定是否删除该条
-- [ ] `soft-keyboard-toggle-behaviour = enable-disable` / `hide-soft-keyboard-on-startup`
-      / `disable-terminal-session-change-toast` 三项不实现，理由见 proposal
+- [ ] `hide-soft-keyboard-on-startup` / `disable-terminal-session-change-toast` 两项不实现，
+      理由见 proposal

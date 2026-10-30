@@ -97,16 +97,34 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 - **WHEN** 终端没有任何输出，`terminal-cursor-blink-rate` 为 500
 - **THEN** 光标每 500ms 翻转一次，画面随之重绘
 
+### Requirement: 键盘切换键的两种语义
+
+`soft-keyboard-toggle-behaviour` MUST 支持 `show-hide`（默认，切换当次可见性）与
+`enable-disable`（切换「软键盘是否可用」）。
+
+`enable-disable` 下禁用 MUST 收起正在显示的输入法，且此后的轻点 MUST NOT 拉起输入法
+——**包括平台在焦点变化时自动弹键盘那条路径**：平台按 `onCheckIsTextEditor` 决定要不要
+自动弹，禁用期间它 MUST 报否，否则轻点里那次 `requestFocus` 就足以把键盘带出来。
+
+启用 MUST 只恢复可用性、不主动弹键盘：轻点终端即回来。
+
+两种切换 MUST 各给一次提示：该模式在屏幕上不留任何痕迹，没有提示的话，同一次点击
+在禁用与「坏了」之间无法区分。
+
+#### Scenario: 禁用后轻点终端
+
+- **WHEN** `soft-keyboard-toggle-behaviour = enable-disable`，用户按 KEYBOARD 键禁用软键盘
+- **THEN** 正在显示的输入法立即收起；随后轻点终端只结束选区与滚动，不再弹出输入法
+
+#### Scenario: 再按一次恢复
+
+- **WHEN** 软键盘处于禁用状态，用户再按一次 KEYBOARD 键
+- **THEN** 出现一次「已启用」提示，轻点终端可正常输入
+
 ### Requirement: 明确不实现的键
 
 以下键 MUST 被解析但不改变行为，理由记录在
 `openspec/changes/2026-10-30-termux-properties-and-colors/proposal.md`：
 
-- `soft-keyboard-toggle-behaviour = enable-disable`
 - `hide-soft-keyboard-on-startup`
 - `disable-terminal-session-change-toast`
-
-#### Scenario: 设置 enable-disable
-
-- **WHEN** 用户写 `soft-keyboard-toggle-behaviour = enable-disable`
-- **THEN** 软键盘切换仍按 `show-hide` 行为执行，不做「禁用输入法」的切换
