@@ -620,7 +620,8 @@ fn render_cursor_query_does_not_extract_cells() {
 ///    「全部干净」便直接复用，整行错色直到它再次变化。
 #[test]
 fn render_cursor_query_does_not_poison_the_row_cache_with_literal_colors() {
-    let theme = crate::terminal::theme::by_name("tokyo_night").expect("tokyo_night theme");
+    // 不写主题名：标识只在主题清单出现一次（DESIGN「终端主题」节），测试侧一律取清单本身。
+    let theme = crate::terminal::theme::default_dark();
     let foreground = GhosttyTerminal::color_to_float(theme.palette.foreground);
     let background = GhosttyTerminal::color_to_float(theme.palette.background);
     // 先坐实前提：这个主题确实不同于写死色，否则本例无判别力。

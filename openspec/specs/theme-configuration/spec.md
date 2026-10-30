@@ -9,7 +9,7 @@
 
 ### Requirement: 固定主题目录
 
-终端主题目录 MUST 有且只有 10 个标识，不可增减，清单以 DESIGN 终端主题节 10 标识为准。
+终端主题目录 MUST 有且只有 13 个标识，不可增减，清单以 DESIGN 终端主题节 13 标识为准。
 构建期 MUST 从
 `https://github.com/alacritty/alacritty-theme` 读取配置，仓库 MUST NOT
 硬编码任何颜色。
@@ -17,7 +17,12 @@
 #### Scenario: 目录数量固定
 
 - **WHEN** 审查主题清单
-- **THEN** 标识数量为 10，不多不少
+- **THEN** 标识数量为 13，不多不少，与 DESIGN 终端主题节点名的集合逐一相同
+
+#### Scenario: 目录数量回归
+
+- **WHEN** 主题清单被增减
+- **THEN** 清单规模用例判红，使偏离 DESIGN 点名集合的改动无处遁形
 
 #### Scenario: 颜色不硬编码
 
