@@ -1,4 +1,5 @@
 use super::render::frame_reflects_scroll;
+use super::scroll_pending_expired;
 
 /// 新帧陈旧判定的判定表。
 ///
@@ -21,4 +22,15 @@ fn scroll_frame_staleness_decision_table() {
     );
     // 帧的序号更大：VT 已处理更新的请求（命令已送达且被处理），可呈现。
     assert!(frame_reflects_scroll(8, 7), "更新的帧必须呈现");
+}
+
+/// 在途滚动命令的超时判据。
+///
+/// 判别力：把它改成恒假（永不超时）时最后一条断言判红——正是「VT 不再推出带该
+/// 序号的帧」时画面永久冻结的那个失效模式；本判据是那个场景下唯一的解除时机。
+#[test]
+fn scroll_pending_expires_after_the_bounded_wait() {
+    assert!(!scroll_pending_expired(0), "刚下发时不得判为超时");
+    assert!(!scroll_pending_expired(200), "等待上限内不得判为超时");
+    assert!(scroll_pending_expired(201), "超过等待上限必须判为超时");
 }

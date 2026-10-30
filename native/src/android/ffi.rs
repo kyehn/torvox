@@ -591,6 +591,14 @@ struct RenderState {
 /// 情况降回「晃一下」，代价可控。
 const SCROLL_PENDING_TIMEOUT_MS: u128 = 200;
 
+/// 在途滚动命令是否已等待过久（纯函数，供单测钉住阈值）。
+///
+/// 解除时机只在两条帧路径上：新帧反映命令，或超时。故超时判据本身必须能脱离
+/// 时钟被断言——它决定「永久冻结」与「晃一下」的分界。
+fn scroll_pending_expired(elapsed_ms: u128) -> bool {
+    elapsed_ms > SCROLL_PENDING_TIMEOUT_MS
+}
+
 impl RenderState {
     /// 推进光标闪烁相位，返回本帧是否发生了翻转。
     ///
@@ -622,16 +630,19 @@ impl RenderState {
         self.scroll_frame_pending = true;
     }
 
-    /// 已送达的滚动命令是否仍在途（帧里还没见到它）。
+    /// 已送达的滚动命令是否仍在途（帧里还没见到它），超时即自动解除。
     ///
     /// 超时一并按「不在途」处理并解除门控：任何原因让 VT 不再推出带该序号的
-    /// 帧时，画面 MUST NOT 永久冻结——宁可晃一帧，不可冻住。空闲路径的门控
-    /// 也读这里，故超时后两条路径一起恢复，不会卡在其中一个。
+    /// 帧时，画面 MUST NOT 永久冻结——宁可晃一帧，不可冻住。
+    ///
+    /// 两条帧路径 MUST 都走本方法而不是直接读 [`Self::scroll_frame_pending`]：
+    /// 「VT 不再推出帧」恰恰意味着新帧路径不会被调用，只剩空闲路径在跑，
+    /// 读字段的空闲路径看不到超时，门控就再没有解除时机。
     fn scroll_pending(&mut self) -> bool {
         if self.scroll_frame_pending
             && self
                 .scroll_pending_since
-                .is_none_or(|(_, since)| since.elapsed().as_millis() <= SCROLL_PENDING_TIMEOUT_MS)
+                .is_none_or(|(_, since)| !scroll_pending_expired(since.elapsed().as_millis()))
         {
             return true;
         }

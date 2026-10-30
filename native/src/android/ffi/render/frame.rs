@@ -626,6 +626,10 @@ pub(super) fn render_idle_frame(
     let scroll_px_changed =
         (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
             > f32::EPSILON;
+    // 必须走 `scroll_pending()`（带超时）而不是读 `scroll_frame_pending` 字段：
+    // 门控除新帧反映命令外唯一的解除时机就是超时，而空闲路径正是在「没有新帧」
+    // 时才反复执行——读字段会让超时兜底在它唯一该生效的场景里失效，画面永久冻结。
+    let scroll_in_flight = render_state.scroll_pending();
     let needs_repaint = should_repaint_idle(
         highlights_changed,
         scroll_px_changed,
@@ -633,7 +637,7 @@ pub(super) fn render_idle_frame(
         render_state.renderer.frame_invalidated,
         render_state.full_repaint,
         cursor_blink_flipped,
-        render_state.scroll_frame_pending,
+        scroll_in_flight,
     );
     if !needs_repaint {
         // 只有「滚动在途」会带着脏标志跳过：归还它——字体/主题等改动
