@@ -184,7 +184,7 @@ class SecondStageRunner(
             // （system_linker_exec 域）运行解释器。
             val command = postinstCommand(script)
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
-            LogUtil.warn("SecondStageRunner", "postinst exec cmd=${command.toList()}")
+            LogUtil.info("SecondStageRunner", "postinst exec cmd=${command.toList()}")
             val process =
                 Runtime
                     .getRuntime()
