@@ -78,7 +78,7 @@ data class TermuxProperties(
          * 左缘滑动打开、且它没有滚动锁定，而本应用把这两者做成了键栏上的固定入口。
          * 换成上游默认会让「打开会话列表」和「锁定滚动位置」两个功能失去唯一入口。
          *
-         * 列数仍守 `DESIGN.md:157` 的「固定 2 行 7 列」。用户一旦写了 `extra-keys`，
+         * 列数仍守 DESIGN.md 修饰键栏节的「固定 2 行 7 列」。用户一旦写了 `extra-keys`，
          * 布局、列数与键位完全以配置为准（见 [TermuxPropertiesParser]），本默认值不再参与。
          */
         val DEFAULT_EXTRA_KEYS: List<List<ExtraKey>> =

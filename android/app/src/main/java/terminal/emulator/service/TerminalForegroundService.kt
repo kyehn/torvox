@@ -179,7 +179,7 @@ class TerminalForegroundService : Service() {
         // 缺失 POST_NOTIFICATIONS 不会使这里抛异常（平台文档：前台服务照常启动，
         // 只是通知不进抽屉、仅见于任务管理器）；实测 API 35 上拒绝该权限后
         // startForeground 仍成功（dumpsys 报 isForeground=true）。
-        // 真正的失败（缺 FOREGROUND_SERVICE 权限、被判为后台启动）按 DESIGN.md:17
+        // 真正的失败（缺 FOREGROUND_SERVICE 权限、被判为后台启动）按 DESIGN.md 习惯节
         // 记日志并让进程崩掉，不在此静默吞掉。
         startForeground(NOTIFICATION_ID, notification)
     }

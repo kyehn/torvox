@@ -136,7 +136,8 @@ class SelectionEspressoTest : ComposeTerminalLogcatTest() {
         assertNotNull("标记必须落格", settled)
         assertTrue("标记送显失败", fedFlag)
         // 补送循环每 500ms 就追加三行，慢机上缓冲区会被撑到网格底部。全选覆盖整屏时
-        // 菜单无处可放——DESIGN.md:171「弹出菜单始终不遮挡被选择文本」要求此时隐藏，
+        // 菜单无处可放——DESIGN.md 终端页面文本选择节「弹出菜单尽量不遮挡被选择文本」
+        // 要求此时隐藏，
         // 于是下面「菜单必须出现」的断言会随内容高度时红时绿。清屏后只送一次，使内容
         // 恒为三行、菜单必然放得下；断言本身不动。
         val cleared =
