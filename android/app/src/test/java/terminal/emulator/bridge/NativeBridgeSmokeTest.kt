@@ -360,4 +360,101 @@ class NativeBridgeSmokeTest {
             bridge.close()
         }
     }
+
+    /**
+     * OSC 7 的工作目录经 JNI 回报：`pwd` 与批量版必须同源，且批量版按实参顺序。
+     *
+     * 顺序断言有判别力：会话抽屉按自己的会话表回填，若原生按注册表顺序返回，
+     * 会话一多就会把目录写到别的会话标题下。
+     */
+    @Test
+    fun `getSessionPwds tracks OSC 7 in the requested order`() {
+        withSession { firstId ->
+            withSession { secondId ->
+                // 任何 OSC 7 之前是空串而不是 null：会话活着但没有目录可报。
+                assertEquals("", NativeBridge.getPwd(firstId))
+                NativeBridge.feedTerminal(firstId, "\u001b]7;file://host/tmp/first\u0007".toByteArray())
+                NativeBridge.feedTerminal(secondId, "\u001b]7;file://host/tmp/second\u0007".toByteArray())
+                assertTrue(
+                    "两个工作目录都必须被 VT 线程应用",
+                    awaitTrue("pwd applied") {
+                        NativeBridge.getPwd(firstId)?.endsWith("/tmp/first") == true &&
+                            NativeBridge.getPwd(secondId)?.endsWith("/tmp/second") == true
+                    },
+                )
+                assertEquals(
+                    listOf("/tmp/first", "/tmp/second"),
+                    NativeBridge
+                        .getSessionPwds(longArrayOf(firstId, secondId))
+                        ?.toList()
+                        ?.map { it?.substringAfter("file://host") },
+                )
+                assertEquals(
+                    listOf("/tmp/second", "/tmp/first"),
+                    NativeBridge
+                        .getSessionPwds(longArrayOf(secondId, firstId))
+                        ?.toList()
+                        ?.map { it?.substringAfter("file://host") },
+                )
+                // 未知会话是 null：调用方据此区分「还没有目录」与「会话没了」。
+                assertEquals(
+                    listOf("/tmp/first", null),
+                    NativeBridge
+                        .getSessionPwds(longArrayOf(firstId, 999_999L))
+                        ?.toList()
+                        ?.map { it?.substringAfter("file://host") },
+                )
+            }
+        }
+    }
+
+    /** `getPwd` 对未知会话抛 `IllegalStateException`（与其余按会话查询一致）。 */
+    @Test
+    fun `getPwd throws on an unknown session`() {
+        withSession { _ ->
+            try {
+                NativeBridge.getPwd(999_999L)
+                org.junit.Assert.fail("unknown session must throw")
+            } catch (expected: IllegalStateException) {
+                assertNotNull(expected.message)
+            }
+        }
+    }
+
+    /**
+     * `setPaletteOverride` / `setCursorStyle` 的入参校验在 JNI 边界上完成。
+     *
+     * 越界值若被静默接受，会一路走到 `CursorStyle` 映射处才落空，表现为「设置了
+     * 光标样式但外观不变」——而日志里只有一行来自渲染线程的警告。
+     *
+     * 调色板**成功**路径需要 GPU（它要写渲染态的调色板与清屏色），本机没有
+     * 适配器，故只用未知会话验证「长度与拷贝校验通过」这一步。
+     */
+    @Test
+    fun `palette override and cursor style validate their arguments`() {
+        withSession { sessionId ->
+            NativeBridge.setCursorStyle(sessionId, 2)
+            try {
+                NativeBridge.setCursorStyle(sessionId, 3)
+                org.junit.Assert.fail("style 3 is out of range")
+            } catch (expected: IllegalArgumentException) {
+                assertNotNull(expected.message)
+            }
+            // 长度必须正好 19：少一位会把 16 个 ANSI 色整体错位，而错位后的颜色
+            // 依旧「看起来正常」，谁也不会发现。
+            try {
+                NativeBridge.setPaletteOverride(sessionId, IntArray(18) { -1 })
+                org.junit.Assert.fail("18 slots must be rejected")
+            } catch (expected: IllegalArgumentException) {
+                assertNotNull(expected.message)
+            }
+            // 19 槽走到的是「会话不存在」——说明长度与 region 拷贝都过了。
+            try {
+                NativeBridge.setPaletteOverride(999_999L, IntArray(19) { -1 })
+                org.junit.Assert.fail("unknown session must throw")
+            } catch (expected: IllegalStateException) {
+                assertNotNull(expected.message)
+            }
+        }
+    }
 }
