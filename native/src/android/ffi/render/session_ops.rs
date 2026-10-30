@@ -36,19 +36,48 @@ pub(super) fn get_session_titles_inner<'local>(
     env: &mut Env<'local>,
     session_ids: jlongArray,
 ) -> jobjectArray {
+    collect_session_strings(env, session_ids, "getSessionTitles", session_title)
+}
+
+/// 按传入顺序返回各会话的 OSC 7 工作目录；未知会话或尚未上报的会话为 null。
+///
+/// 与 `getSessionTitles` 同批发生（抽屉打开时一次刷新），理由相同：逐会话各发一次
+/// 就是 N 次同步 JNI，而列表刷新是按帧节流的路径。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionPwds<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_ids: jlongArray,
+) -> jobjectArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        collect_session_strings(env, session_ids, "getSessionPwds", session_pwd)
+    })
+}
+
+/// 批量取字符串的公共实现：按传入顺序为每个会话取一项，取不到的留 `null`。
+///
+/// 标题与工作目录的批量查询只差一个取数函数。各写一遍意味着两处都要维护
+/// 「读数组 → 建 `String[]` → 逐元素填充 → 任一步失败返回 null」这套 JNI 序列，
+/// 而其中任何一步写错都表现为「某些项为空」，极难定位。
+fn collect_session_strings<'local>(
+    env: &mut Env<'local>,
+    session_ids: jlongArray,
+    what: &str,
+    fetch: impl Fn(u64) -> Option<String>,
+) -> jobjectArray {
     // SAFETY：`session_ids` 是本次 JNI 调用的实参，生命周期覆盖本函数。
     let ids = unsafe { JLongArray::from_raw(env, session_ids) };
     let Ok(length) = ids.len(env) else {
-        log::error!("getSessionTitles: cannot read session id array length");
+        log::error!("{what}: cannot read session id array length");
         return std::ptr::null_mut();
     };
     let mut session_id_values = vec![0 as jlong; length];
     if ids.get_region(env, 0, &mut session_id_values).is_err() {
-        log::error!("getSessionTitles: cannot read session ids");
+        log::error!("{what}: cannot read session ids");
         return std::ptr::null_mut();
     }
     let Ok(string_class) = env.find_class(jni_str!("java/lang/String")) else {
-        log::error!("getSessionTitles: find_class java/lang/String failed");
+        log::error!("{what}: find_class java/lang/String failed");
         return std::ptr::null_mut();
     };
     let Ok(array) = env.new_object_array(
@@ -56,23 +85,24 @@ pub(super) fn get_session_titles_inner<'local>(
         string_class,
         JObject::null(),
     ) else {
-        log::error!("getSessionTitles: new_object_array failed");
+        log::error!("{what}: new_object_array failed");
         return std::ptr::null_mut();
     };
     for (index, id) in session_id_values.iter().enumerate() {
-        // 未知会话留 null：调用方按空标题处理，不抛异常。
-        let element: JObject = match session_title(*id as u64) {
-            Some(title) => match env.new_string(title) {
+        // 未知会话留 null：调用方按「无此项」处理，不抛异常——批量查询发生在
+        // 列表刷新途中，竞态下少一个会话是正常状态。
+        let element: JObject = match fetch(*id as u64) {
+            Some(text) => match env.new_string(text) {
                 Ok(text) => text.into(),
                 Err(error) => {
-                    log::error!("getSessionTitles: cannot encode title for {id}: {error}");
+                    log::error!("{what}: cannot encode string for {id}: {error}");
                     return std::ptr::null_mut();
                 }
             },
             None => JObject::null(),
         };
         if let Err(error) = array.set_element(env, index, &element) {
-            log::error!("getSessionTitles: cannot store title {index}: {error}");
+            log::error!("{what}: cannot store element {index}: {error}");
             return std::ptr::null_mut();
         }
     }
@@ -131,6 +161,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
 pub(super) fn session_title(session_id: u64) -> Option<String> {
     let query_tx = session_query_channel(session_id)?;
     Some(crate::terminal::ghostty_terminal::GhosttyTerminal::title_on(&query_tx))
+}
+
+/// 会话的 OSC 7 工作目录；会话未知返回 `None`，尚未上报时是 `Some("")`。
+///
+/// 两者必须分开：空串是「shell 还没报」，调用方据此保留上一次已知目录；
+/// `None` 是「会话没了」，调用方据此清掉该行。
+fn session_pwd(session_id: u64) -> Option<String> {
+    let query_tx = session_query_channel(session_id)?;
+    Some(crate::terminal::ghostty_terminal::GhosttyTerminal::pwd_on(&query_tx))
 }
 
 /// 返回某会话从 OSC 7 记录的工作目录（原始 URI），shell 尚未上报时为空串。
