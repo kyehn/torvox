@@ -205,8 +205,10 @@ fn wait_writable(fd: BorrowedFd<'_>, deadline: std::time::Instant) -> io::Result
             return Err(not_drained());
         }
         let remaining = (deadline - now).as_millis().min(i32::MAX as u128) as i32;
-        // `remaining` 已被夹到 i32::MAX 且非负，转换不会失败；`unwrap_or` 只是兜底。
-        let timeout = PollTimeout::try_from(remaining).unwrap_or(PollTimeout::MAX);
+        // 夹到 `0..=i32::MAX` 之后转换不会失败。此前用 `unwrap_or(PollTimeout::MAX)`
+        // 兜底：真走到那里就会把一次「已到期」翻译成**无限等待**，正是最坏的掩盖方向。
+        let timeout =
+            PollTimeout::try_from(remaining).expect("remaining is clamped to 0..=i32::MAX");
         let mut poll_fds = [PollFd::new(fd, PollFlags::POLLOUT)];
         match poll(&mut poll_fds, timeout) {
             // 0 = 期限内仍不可写，交给下一轮重试（由 deadline 收敛）。
