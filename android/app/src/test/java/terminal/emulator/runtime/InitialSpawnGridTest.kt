@@ -35,4 +35,39 @@ class InitialSpawnGridTest {
         assertEquals(Pair(DEFAULT_GRID_ROWS, DEFAULT_GRID_COLS), initialSpawnGrid(0, 2209, 26.4f, 53.2f, 132, 0))
         assertEquals(Pair(DEFAULT_GRID_ROWS, DEFAULT_GRID_COLS), initialSpawnGrid(1080, 0, 26.4f, 53.2f, 132, 0))
     }
+
+    /**
+     * spawn 网格必须与 attach 之后的重算网格逐字相等。
+     *
+     * 不等即意味着 attach 时会多一次 resize，shell 收到 SIGWINCH 后重排已打印的
+     * prompt（首屏多出一行提示符）。两条路径必须共用同一套扣减与取整口径。
+     */
+    @Test
+    fun `spawn grid equals the grid recomputed with the same metrics`() {
+        val cellWidth = 26.4f
+        val cellHeight = 53.2f
+        val modifierBarHeightPx = 132
+        val spawn =
+            initialSpawnGrid(
+                surfaceWidth = 1080,
+                surfaceHeight = 2209,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+                modifierBarHeightPx = modifierBarHeightPx,
+                imeReserve = 0,
+            )
+        val recomputed =
+            computeGridDimensions(
+                surfaceWidth = 1080,
+                surfaceHeight =
+                computeGridAvailableHeight(
+                    surfaceHeight = 2209,
+                    modifierBarHeightPx = modifierBarHeightPx,
+                    imeReserve = 0,
+                ),
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+            )
+        assertEquals(spawn, recomputed)
+    }
 }

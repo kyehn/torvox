@@ -460,13 +460,24 @@ class Bridge(private val config: TerminalConfig) {
         return family
     }
 
-    // null = 会话在调用间隙未建立/已销毁，无从验证（调用方不得清除设置）；
-    // false = 原生明确未找到该字族。
+    /**
+     * 设置字族。
+     *
+     * 字族是**全局**的：原生侧只落在唯一的字体管线上，与会话无关
+     * （`NativeBridge.setFontFamily` 的 session_id 未被使用）。故不经会话闸：
+     * 会话建立之前也必须能下发——PTY 的初始 winsize 由字体度量算出，字族若在
+     * spawn 之后才落定，attach 时的一次 resize 会给 shell 发 SIGWINCH，
+     * shell 重排已打印的 prompt（首屏多出一行提示符）。
+     *
+     * null = 原生库未加载，无从验证（调用方不得清除设置）；
+     * false = 原生明确未找到该字族。
+     */
     fun setFontFamily(family: String): Boolean? {
         LogUtil.debug(TAG, "setFontFamily($family)")
+        if (!NativeBridge.isNativeLoaded()) return null
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
-        return onSession("setFontFamily", null) { NativeBridge.setFontFamily(it, override ?: family) }
+        return NativeBridge.setFontFamily(0L, override ?: family)
     }
 
     /**
@@ -481,19 +492,29 @@ class Bridge(private val config: TerminalConfig) {
             .onFailure { LogUtil.warn(TAG, "setCursorBlinkRate failed (${it.javaClass.simpleName})") }
     }
 
+    /** 字号：同样是全局量（字体管线的唯一一份），会话建立之前也须能下发。 */
     fun setFontSizeInPlace(sizeTenths: Int) {
         LogUtil.debug(TAG, "setFontSizeInPlace($sizeTenths)")
-        onSession("setFontSizeInPlace", Unit) { NativeBridge.setFontSizeInPlace(it, sizeTenths) }
+        if (!NativeBridge.isNativeLoaded()) return
+        NativeBridge.setFontSizeInPlace(0L, sizeTenths)
     }
 
+    /** 光栅尺度（sp→px 系数）：全局量，与会话无关。 */
     fun setRasterScale(scale: Float) {
-        onSession("setRasterScale", Unit) { NativeBridge.setRasterScale(it, scale) }
+        if (!NativeBridge.isNativeLoaded()) return
+        NativeBridge.setRasterScale(0L, scale)
     }
 
-    // 自定义字体由原生 fontdb 探测文件、注册到渲染器并返回家族名，失败返回 null。
+    /**
+     * 自定义字体由原生 fontdb 探测文件、注册到渲染器并返回家族名，失败返回 null。
+     *
+     * 原生侧是全局操作（把文件装进唯一的字体库并应用），与会话无关：会话建立
+     * 之前也必须可用——`font.ttf` 覆盖的探测发生在 spawn 之前。
+     */
     fun loadFontFile(path: String): String? {
         LogUtil.debug(TAG, "loadFontFile($path)")
-        return onSession("loadFontFile", null) { NativeBridge.loadFontFile(it, path) }
+        if (!NativeBridge.isNativeLoaded()) return null
+        return NativeBridge.loadFontFile(0L, path)
     }
 
     // ── 输入 ──
