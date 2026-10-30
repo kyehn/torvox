@@ -1275,7 +1275,6 @@ constructor(
         // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
         accentColor = resolvedTheme.ansi[5].toArgb()
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
-        val termuxConfig = terminal.emulator.config.TermuxProperties.load(context)
         val homeDir =
             java.io
                 .File(context.filesDir, "home")
@@ -1307,8 +1306,7 @@ constructor(
                 workingDirectory = workingDirectory,
                 prefix = "",
                 mkshrcPath = mkshrcPath,
-                scrollbackLines = termuxConfig.scrollbackLines ?: 2000,
-                cursorStyle = termuxConfig.cursorStyle ?: terminal.emulator.bridge.CursorStyle.Block,
+                scrollbackLines = termuxProperties.configuration.value.properties.terminalTranscriptRows,
             )
         }
         // 默认入口依次探测 bash 与 login（DESIGN.md:145 文件存在即启动，不检查权限）。
@@ -1329,8 +1327,7 @@ constructor(
             workingDirectory = workingDirectory,
             prefix = effectivePrefix,
             mkshrcPath = mkshrcPath,
-            scrollbackLines = termuxConfig.scrollbackLines ?: 2000,
-            cursorStyle = termuxConfig.cursorStyle ?: terminal.emulator.bridge.CursorStyle.Block,
+            scrollbackLines = termuxProperties.configuration.value.properties.terminalTranscriptRows,
         )
     }
 

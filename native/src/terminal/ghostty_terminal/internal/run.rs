@@ -321,23 +321,6 @@ impl super::GhosttyTerminal {
         {
             log::error!("ghostty_terminal: set_scrollback_max_lines failed: {error}");
         }
-        if let Some(style) = config.default_cursor_style {
-            let upstream = match style {
-                crate::terminal::ghostty_terminal::CursorStyle::Block => {
-                    libghostty_vt::terminal::CursorStyle::Block
-                }
-                crate::terminal::ghostty_terminal::CursorStyle::Bar => {
-                    libghostty_vt::terminal::CursorStyle::Bar
-                }
-                crate::terminal::ghostty_terminal::CursorStyle::Underline => {
-                    libghostty_vt::terminal::CursorStyle::Underline
-                }
-            };
-            if let Err(error) = terminal.set_default_cursor_style(Some(upstream)) {
-                log::error!("ghostty_terminal: set_default_cursor_style failed: {error}");
-            }
-        }
-
         // 初始化 Kitty Graphics Protocol（KGP）支持
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
             log::error!("ghostty_terminal: set_kitty_image_storage_limit failed: {error}");

@@ -88,6 +88,23 @@ class TermuxPropertiesParserTest {
     }
 
     @Test
+    fun `transcript rows are clamped into the upstream range`() {
+        assertEquals(2000, parse("terminal-transcript-rows = 2000").properties.terminalTranscriptRows)
+        assertEquals(100, parse("terminal-transcript-rows = 10").properties.terminalTranscriptRows)
+        assertEquals(50000, parse("terminal-transcript-rows = 99999").properties.terminalTranscriptRows)
+    }
+
+    @Test
+    fun `a non numeric transcript rows keeps the default`() {
+        val loaded = parse("terminal-transcript-rows = many")
+        assertEquals(2000, loaded.properties.terminalTranscriptRows)
+        assertTrue(
+            "非法值必须留痕: ${loaded.errors}",
+            loaded.errors.any { it.contains("terminal-transcript-rows") },
+        )
+    }
+
+    @Test
     fun `toolbar height is clamped between its bounds`() {
         assertEquals(1f, parse("terminal-toolbar-height = 1.0").properties.terminalToolbarHeightScale, 0.001f)
         assertEquals(0.4f, parse("terminal-toolbar-height = 0.1").properties.terminalToolbarHeightScale, 0.001f)
