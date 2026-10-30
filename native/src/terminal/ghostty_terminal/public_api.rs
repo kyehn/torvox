@@ -31,7 +31,14 @@ impl super::GhosttyTerminal {
         theme: &'static crate::terminal::theme::Theme,
         default_cursor_style: Option<crate::terminal::ghostty_terminal::CursorStyle>,
     ) -> Result<Self, TerminalError> {
-        Self::new_with_frame_wake(rows, cols, scrollback_lines, theme, None, default_cursor_style)
+        Self::new_with_frame_wake(
+            rows,
+            cols,
+            scrollback_lines,
+            theme,
+            None,
+            default_cursor_style,
+        )
     }
 
     /// [`Self::new_with_theme`] + 帧入队唤醒：VT 线程每推送一帧就调用一次
