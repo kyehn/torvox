@@ -40,7 +40,6 @@ data class TermuxProperties(
     val shortcutNextSession: Char? = null,
     val shortcutPreviousSession: Char? = null,
     val terminalToolbarHeightScale: Float = 1f,
-    val nightMode: NightMode = NightMode.SYSTEM,
     val extraKeysStyle: ExtraKeysStyle = ExtraKeysStyle.DEFAULT,
     val extraKeys: List<List<ExtraKey>> = DEFAULT_EXTRA_KEYS,
     val defaultWorkingDirectory: String = "",
@@ -105,9 +104,6 @@ enum class BackKeyBehaviour { BACK, ESCAPE }
 enum class VolumeKeysBehaviour { VIRTUAL, VOLUME }
 
 enum class SoftKeyboardToggleBehaviour { SHOW_HIDE, ENABLE_DISABLE }
-
-/** `night-mode` 三态：跟随系统 / 强制深色 / 强制浅色。 */
-enum class NightMode { SYSTEM, TRUE, FALSE }
 
 /**
  * `extra-keys-style`：只决定按键的显示字符，不改变按键本身。
@@ -408,19 +404,6 @@ internal object TermuxPropertiesParser {
                 shortcutNextSession = shortcut("shortcut.next-session"),
                 shortcutPreviousSession = shortcut("shortcut.previous-session"),
                 terminalToolbarHeightScale = float("terminal-toolbar-height", 1f, 0.4f..3f),
-                nightMode =
-                when (choice("night-mode", "system").lowercase()) {
-                    "true" -> NightMode.TRUE
-
-                    "false" -> NightMode.FALSE
-
-                    "system" -> NightMode.SYSTEM
-
-                    else -> {
-                        errors += "night-mode: '${values["night-mode"]}' is unknown; following system"
-                        NightMode.SYSTEM
-                    }
-                },
                 extraKeysStyle =
                 when (choice("extra-keys-style", "default").lowercase()) {
                     "default" -> ExtraKeysStyle.DEFAULT

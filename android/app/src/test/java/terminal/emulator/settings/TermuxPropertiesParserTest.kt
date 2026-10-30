@@ -122,8 +122,6 @@ class TermuxPropertiesParserTest {
             TerminalCursorStyle.BAR,
             parse("terminal-cursor-style = beam").properties.terminalCursorStyle,
         )
-        assertEquals(NightMode.TRUE, parse("night-mode = true").properties.nightMode)
-        assertEquals(NightMode.FALSE, parse("night-mode = false").properties.nightMode)
         assertEquals(ExtraKeysStyle.ALL, parse("extra-keys-style = all").properties.extraKeysStyle)
         assertEquals(BackKeyBehaviour.ESCAPE, parse("back-key = escape").properties.backKey)
     }

@@ -67,7 +67,6 @@ import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.settings.SoftKeyboardToggleBehaviour
 import terminal.emulator.ui.theme.ThemeRepository
-import terminal.emulator.ui.theme.applyNightModeOverride
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
@@ -156,10 +155,7 @@ fun TerminalScreen(
             )
         }
     val isSettingsDark =
-        applyNightModeOverride(
-            termuxProperties.properties.nightMode,
-            resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme()),
-        )
+        resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
     // `soft-keyboard-toggle-behaviour = enable-disable` 时 KEYBOARD 键翻转的是
     // 「软键盘可用与否」，而不是当次可见性。状态放在组合里：翻转后 AndroidView 的
     // update 块把新值推给 TerminalSurface，轻点路径据此决定要不要拉起输入法。

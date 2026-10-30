@@ -40,7 +40,6 @@ import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.SurfaceAttachGate
 import terminal.emulator.ui.theme.ThemeRepository
-import terminal.emulator.ui.theme.applyNightModeOverride
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
@@ -2486,15 +2485,12 @@ constructor(
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
                 ) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
-        // `night-mode` 压在应用日夜判定之上：视图侧用同一函数算背景，
-        // 两处必须由同一次判定选出，否则终端画夜间而状态栏图标按日间取色。
-        val nightMode = termuxProperties.configuration.value.properties.nightMode
         return resolveTerminalThemeName(
             mode = stored.themeMode,
             fixedName = stored.themeName,
             dayName = stored.dayThemeName,
             nightName = stored.nightThemeName,
-            isDark = applyNightModeOverride(nightMode, resolveAppDarkMode(stored.appThemeMode, systemDark)),
+            isDark = resolveAppDarkMode(stored.appThemeMode, systemDark),
         )
     }
 
