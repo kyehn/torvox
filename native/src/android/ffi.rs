@@ -332,12 +332,15 @@ static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 
 /// Kitty 放置缓存键：任一项变化都意味着放置几何可能已变，须重查放置。
 ///
-/// 抽成结构体而非散落字段，是为了让失效规则可单测钉住。其中「回滚长度」最易漏：
-/// 新输出把行推入回滚时放置的视口行号随之变化，但用户滚动偏移仍为 0，
-/// 漏掉这一项会让图像钉在旧行、被后续文本覆盖（用户实测现象）。
+/// 抽成结构体而非散落字段，是为了让失效规则可单测钉住。
 ///
-/// 「占位符签名」覆盖 Unicode 虚拟放置：图像位置由可见占位符单元决定，
-/// 生成戳不变时 TUI 仍可能重绘并移动占位符。
+/// 「放置生成戳」是上游 `RenderState::image_placements_generation` 的契约：
+/// 放置被增删、移动、随滚动或重排都会推进它，上游文档写明的用法即
+/// 「值变了就读一次列表」。视口滚动同样推进它（可见放置列表变了），
+/// 故滚动、重排、撤下共用这一个信号，不必再拼凑视口差量。
+///
+/// 「占位符签名」是本仓独立算出的第二信号：Unicode 虚拟放置的位置由可见
+/// 占位符单元决定，签名覆盖 TUI 重绘占位符带来的移动。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct KittyPlacementKeys {
     session_id: u64,
@@ -345,8 +348,6 @@ struct KittyPlacementKeys {
     generation: u64,
     /// 放置生成戳：驱动放置重查（图的位置/集合变了吗）。
     placement_generation: u64,
-    scroll_offset: i64,
-    scrollback_length: u32,
     placeholder_signature: u64,
     rows: u32,
     cols: u32,
@@ -357,14 +358,11 @@ impl KittyPlacementKeys {
     ///
     /// 「尚未查询过」必须与任何真实键都不同，否则首帧会被误判成「键未变」，
     /// 从而跳过重查与整帧重绘，残留图像像素会黏在首帧上。
-    /// `scroll_offset = i64::MIN` 另与 [`viewport_top_row`] 的饱和减法配套。
     fn sentinel() -> Self {
         Self {
             session_id: 0,
             generation: u64::MAX,
             placement_generation: u64::MAX,
-            scroll_offset: i64::MIN,
-            scrollback_length: u32::MAX,
             placeholder_signature: u64::MAX,
             rows: u32::MAX,
             cols: u32::MAX,
@@ -383,45 +381,29 @@ struct KittyCacheInvalidation {
     overlay_dirty: bool,
     /// 须重打包图集（图像增删或换会话）。
     repack_atlas: bool,
-    /// 仅视口滚动时把已有放置帧平移的行数（正值 = 图像在视口内下移）。
-    ///
-    /// 滚动每一步都去 VT 线程同步查一次放置，会让渲染线程每行等一次
-    /// 完整查询（真机 yazi 预览下实测每行约 60ms，滚动掉到 ~16fps）。
-    /// 放置帧是视口相对坐标，纯滚动可以用视口顶行的差量平移复原；
-    /// 只有滚动停稳后再补一次真实查询，把被旧视口裁掉的边缘信息修正回来。
-    viewport_shift_rows: i64,
-}
-
-/// 视口顶行的绝对行号：绝对行 0 = 回滚区顶部，视口贴底时等于回滚长度。
-///
-/// 饱和减法：渲染态初值用 `scroll_offset = i64::MIN` 作「从未查询」哨兵，
-/// 直接相减会在 debug 构建里溢出 panic。
-fn viewport_top_row(keys: KittyPlacementKeys) -> i64 {
-    i64::from(keys.scrollback_length).saturating_sub(keys.scroll_offset)
 }
 
 /// 依据放置键与单元格几何变化判定 Kitty 缓存如何失效。
 ///
 /// 纯文本会话（生成戳 0）没有图像路径：只按需清掉残留图像并整帧重绘。
-/// 视口滚动不是「放置变化」：放置帧按 [`viewport_top_row`] 的差量平移即可，
-/// 只有滚动停稳（`frames_approximate` 且本轮视口未再变化）才重查一次。
+///
+/// 有图像时，放置生成戳一变就重查：它是上游写明的契约（「值变了就读一次
+/// 列表」），覆盖放置被增删、移动、随滚动或重排的全部情形。ED2 撤下放置
+/// 同样推进它，故首次清屏即撤下图像，不必等第二次。
 fn kitty_cache_invalidation(
     current: KittyPlacementKeys,
     previous: KittyPlacementKeys,
     cell_geometry_changed: bool,
-    frames_approximate: bool,
 ) -> KittyCacheInvalidation {
     let session_changed = current.session_id != previous.session_id;
     let generation_changed = current.generation != previous.generation;
-    let placement_generation_changed =
-        current.placement_generation != previous.placement_generation;
-    // 与视口无关的放置键：任一变化都必须重查，平移无法表达。
+    // 与视口无关的放置键：任一变化都必须重查。
     let content_changed = session_changed
         || generation_changed
+        || current.placement_generation != previous.placement_generation
         || current.placeholder_signature != previous.placeholder_signature
         || current.rows != previous.rows
         || current.cols != previous.cols;
-    let viewport_shift_rows = viewport_top_row(previous).saturating_sub(viewport_top_row(current));
     if current.generation == 0 {
         return KittyCacheInvalidation {
             sync_cell_size: false,
@@ -430,7 +412,6 @@ fn kitty_cache_invalidation(
             // 纯文本会话的滚动不涉及叠加层，不必为此丢掉脏带渲染。
             overlay_dirty: session_changed || cell_geometry_changed || previous.generation != 0,
             repack_atlas: false,
-            viewport_shift_rows: 0,
         };
     }
     if content_changed || cell_geometry_changed {
@@ -440,39 +421,6 @@ fn kitty_cache_invalidation(
             refetch_placements: true,
             overlay_dirty: true,
             repack_atlas: generation_changed || session_changed,
-            viewport_shift_rows: 0,
-        };
-    }
-    // 放置移动但视口没动：ED2 撤下图像、TUI 原地重排都走这里。图像存储生成戳
-    // 在这些场景不变，只看它会让缓存保留已被撤下的放置，首次 clear 后图像残留。
-    // 视口同时移动时交给下面的平移分支，停稳后由补查修正。
-    if placement_generation_changed && viewport_shift_rows == 0 {
-        return KittyCacheInvalidation {
-            sync_cell_size: false,
-            refetch_placements: true,
-            overlay_dirty: true,
-            repack_atlas: false,
-            viewport_shift_rows: 0,
-        };
-    }
-    if viewport_shift_rows != 0 {
-        return KittyCacheInvalidation {
-            sync_cell_size: false,
-            refetch_placements: false,
-            // 图像随视口移动：整帧重绘才能同时擦掉旧位置并画到新位置。
-            overlay_dirty: true,
-            repack_atlas: false,
-            viewport_shift_rows,
-        };
-    }
-    if frames_approximate {
-        // 视口已停稳：补一次真实查询，恢复滚动期间按旧视口裁剪的源矩形。
-        return KittyCacheInvalidation {
-            sync_cell_size: false,
-            refetch_placements: true,
-            overlay_dirty: true,
-            repack_atlas: false,
-            viewport_shift_rows: 0,
         };
     }
     KittyCacheInvalidation {
@@ -480,7 +428,6 @@ fn kitty_cache_invalidation(
         refetch_placements: false,
         overlay_dirty: false,
         repack_atlas: false,
-        viewport_shift_rows: 0,
     }
 }
 struct RenderState {
@@ -518,13 +465,6 @@ struct RenderState {
     kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
     kitty_instances: Vec<crate::render::KittyGraphicsInstance>,
     kitty_uploaded_generation: u64,
-    /// [`Self::kitty_frames`] 是否是滚动期间按视口差量平移出来的近似帧。
-    ///
-    /// 平移帧保留的是旧视口的源矩形裁剪；滚动停稳后要重查一次才能恢复边缘。
-    kitty_frames_approximate: bool,
-    /// 上一帧看到的视口键（滚动偏移, 回滚长度）。用于区分「滚动进行中」与「已停稳」：
-    /// 连续两帧相同即视为停稳，此时才允许补那次昂贵的放置查询。
-    last_kitty_scroll: (i64, u32),
     /// Kitty 叠加层自上次**成功呈现**以来是否发生过变化（新增/替换/删除图像）。
     ///
     /// 变化的那一帧必须全量重绘：旧图像的像素仍留在累加器里，不清就会留下残影。
@@ -708,8 +648,6 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_frames: Vec::new(),
             kitty_instances: Vec::new(),
             kitty_uploaded_generation: u64::MAX,
-            kitty_frames_approximate: false,
-            last_kitty_scroll: (i64::MIN, u32::MAX),
             kitty_overlay_dirty: false,
             dirty: AtomicBool::new(false),
             full_repaint: false,

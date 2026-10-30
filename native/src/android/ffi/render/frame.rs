@@ -359,28 +359,17 @@ pub(super) fn render_new_frame(
         session_id,
         generation: kitty_generation,
         placement_generation: cursor_info.kitty_placement_generation,
-        scroll_offset,
-        scrollback_length: cursor_info.scrollback_length,
         placeholder_signature,
         rows,
         cols,
     };
     let kitty_cell_changed = (grid_cell_width - render_state.kitty_cell_width).abs() > f32::EPSILON
         || (grid_cell_height - render_state.kitty_cell_height).abs() > f32::EPSILON;
-    // 滚动进行中（视口键与上一帧不同）只平移已有放置帧；连续两帧视口键相同
-    // 即视为停稳，才补一次真实查询。否则每一行滚动都要在渲染线程同步等一次
-    // VT 查询（yazi 预览下实测约 60ms/行，滚动掉到 ~16fps）。
-    let kitty_scroll = (scroll_offset, cursor_info.scrollback_length);
-    let scroll_moving = kitty_scroll != render_state.last_kitty_scroll;
-    render_state.last_kitty_scroll = kitty_scroll;
     // 失效规则集中在 `kitty_cache_invalidation`：放置键或单元格几何变化才重查，
-    // 纯文本会话零开销跳过。
-    let invalidation = kitty_cache_invalidation(
-        kitty_keys,
-        render_state.kitty_keys,
-        kitty_cell_changed,
-        !scroll_moving && render_state.kitty_frames_approximate,
-    );
+    // 纯文本会话零开销跳过。放置键含上游的「放置生成戳」，故滚动、撤下、
+    // 重排都各自推进它，无需另设视口差量通道。
+    let invalidation =
+        kitty_cache_invalidation(kitty_keys, render_state.kitty_keys, kitty_cell_changed);
     // 单元格几何失步：终端侧仍为旧值时上游按旧几何重算像素尺寸，
     // 与新来源口径不一致。先同步新尺寸到终端再重查
     // （先排空命令积压再处理查询，命令先发即先生效，无竞态）。
@@ -437,25 +426,14 @@ pub(super) fn render_new_frame(
         if kitty_generation == 0 {
             render_state.kitty_frames.clear();
             render_state.kitty_instances.clear();
-            render_state.kitty_frames_approximate = false;
             if render_state.kitty_uploaded_generation != 0 {
                 render_state.renderer.set_kgp_atlas(&[], 0, 0);
                 render_state.kitty_uploaded_generation = 0;
             }
         } else {
-            // 滚动中不查会话，只按视口顶行差量平移已有帧；帧坐标随之与当前
-            // 视口对齐，停稳后的那一次真实查询负责恢复被旧视口裁掉的边缘。
-            if invalidation.viewport_shift_rows != 0 {
-                let shift = i32::try_from(invalidation.viewport_shift_rows).unwrap_or(i32::MAX);
-                for frame in &mut render_state.kitty_frames {
-                    frame.viewport_row = frame.viewport_row.saturating_add(shift);
-                }
-                render_state.kitty_frames_approximate = true;
-            }
             // 锁外已取回放置帧，此处仅应用，不再持渲染状态锁查询会话。
             if invalidation.refetch_placements {
                 render_state.kitty_frames = fetched_kitty_frames;
-                render_state.kitty_frames_approximate = false;
             }
             if invalidation.repack_atlas {
                 repack_kitty_atlas(
