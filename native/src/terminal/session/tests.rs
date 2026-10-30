@@ -221,6 +221,27 @@ fn session_resize_rejects_zero_dimensions() {
     assert_eq!(handle.resize_count(), before, "非法尺寸不得下发到 PTY");
 }
 
+/// 创建与缩放共用同一条尺寸判据：越界值不得靠 `as u16` 静默截断成「合法」网格。
+///
+/// 截断后的尺寸（70000 → 4464）本身是合法网格，没有任何日志可循——会话一建好就是错的，
+/// 而 `resize` 对同一个值如实报错。两条路径必须给出同一个答案。
+#[test]
+fn session_spawn_rejects_dimensions_outside_the_u16_grid() {
+    for (rows, cols) in [
+        (0, 80),
+        (24, 0),
+        (u32::from(u16::MAX) + 1, 80),
+        (24, 70_000),
+    ] {
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let result = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, rows, cols);
+        assert!(
+            matches!(result, Err(SessionError::InvalidDimensions)),
+            "{rows}x{cols} 必须在创建时被判为非法尺寸"
+        );
+    }
+}
+
 #[test]
 fn session_resize_same_size_is_applied_noop() {
     let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);

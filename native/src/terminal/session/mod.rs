@@ -90,6 +90,22 @@ impl SessionError {
         matches!(self, SessionError::Io(io_error) if io_error.kind() == std::io::ErrorKind::WouldBlock)
     }
 }
+
+/// 网格尺寸的**唯一**合法性判据：PTY 的 `TIOCSWINSZ` 与上游 `Terminal` 都只收 `u16`，
+/// 0 行/0 列不成网格。
+///
+/// 创建与缩放共用这一处：分头各写一份时，`spawn` 侧的 `as u16` 会把 70000 列悄悄截成
+/// 4464 列（截断后仍是「合法」尺寸，没有任何日志可循），而 `resize` 侧会如实拒绝——
+/// 同一个值在两条路径上得到两种结果，缺陷只会在会话刚建好时显形。
+pub(super) fn validated_grid(rows: u32, cols: u32) -> Result<(u16, u16), SessionError> {
+    let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
+        return Err(SessionError::InvalidDimensions);
+    };
+    if rows == 0 || cols == 0 {
+        return Err(SessionError::InvalidDimensions);
+    }
+    Ok((rows, cols))
+}
 /// 终端会话：串接 PTY 读取、VT 解析与进程等待。
 ///
 /// 生命周期：`Spawned`（PTY 建立、线程启动）→ `Running` ⇄ `Idle`/`Paused`（有输出即回到
@@ -206,13 +222,7 @@ impl Session {
     /// 把终端缩放到给定行列数，超出 PTY ioctl 的 u16 范围时拒绝。网格命令被丢弃时
     /// PTY winsize 仍已更新（ioctl 已成功），但调用方不得把新尺寸作为权威值发布。
     pub fn resize(&mut self, rows: u32, cols: u32) -> Result<ResizeOutcome, SessionError> {
-        // 0 行/0 列不是合法网格：与越界同判据拒绝，不把无意义尺寸递给 PTY 与 Ghostty。
-        let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
-            return Err(SessionError::InvalidDimensions);
-        };
-        if rows == 0 || cols == 0 {
-            return Err(SessionError::InvalidDimensions);
-        }
+        let (rows, cols) = validated_grid(rows, cols)?;
         // 相同尺寸直接短路，**除非**上一次网格 resize 被丢弃——此时缓存尺寸已与网格
         // 不符，必须重发相同尺寸以修复分歧。
         // `resize_failed` 与 `grid_dirty` 同为「不得按同尺寸短路」的判据：前者来自
@@ -234,8 +244,8 @@ impl Session {
         }
         self.grid_dirty.store(false, Ordering::Release);
         // 入队即发布：VT 尚未应用新网格。帧装配不得读这组缓存
-        // （`CursorInfo.rows/cols` 与 CellData 同源，）；
-        // 它们只服务像素换算、去重短路与 Kotlin 查询。
+        // （`CursorInfo.rows/cols` 与 CellData 同源），它们只服务像素换算、去重短路
+        // 与 Kotlin 查询。
         self.terminal_rows.store(rows as u32, Ordering::Release);
         self.terminal_cols.store(cols as u32, Ordering::Release);
         Ok(ResizeOutcome::Applied)

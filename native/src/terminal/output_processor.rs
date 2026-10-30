@@ -182,8 +182,7 @@ impl ReadScan {
                     // 病态远端每几十字节就能触发一次，逐条记会淹没 logcat 并持续吃 CPU
                     // （与渲染侧那条逐帧告警洪水同一类问题）。
                     warn_oversized_selection_throttled();
-                    self.drain(&mut snapshot.filtered);
-                    snapshot.filtered.push(byte);
+                    self.pass_through(byte, &mut snapshot.filtered);
                 } else {
                     self.buf.push(byte);
                 }
@@ -205,8 +204,7 @@ impl ReadScan {
                     self.state = ReadState::QuestionSt;
                 } else {
                     // `?` 后还有负载（如 `??`）：不是读取请求，原样透传。
-                    self.buf.push(byte);
-                    self.drain(&mut snapshot.filtered);
+                    self.pass_through(byte, &mut snapshot.filtered);
                 }
             }
             ReadState::QuestionSt => {

@@ -18,7 +18,9 @@ use crate::terminal::pty::{Pty, PtyPair};
 use crate::terminal::shell_env::ShellEnv;
 
 use super::pty_master::PtyMaster;
-use super::{ExitCodeSlot, OUTPUT_CHANNEL_BOUND, OutputWake, Session, SessionError};
+use super::{
+    ExitCodeSlot, OUTPUT_CHANNEL_BOUND, OutputWake, Session, SessionError, validated_grid,
+};
 
 const READ_BUF_SIZE: usize = 8192;
 /// 信号致死退出码基数（shell 惯例：128 + 信号码）。
@@ -232,6 +234,10 @@ impl Session {
         kitty_temp_dir: Option<std::path::PathBuf>,
         scrollback_lines: u32,
     ) -> Result<Self, SessionError> {
+        // 与 `resize` 同一条判据：上游 `Terminal::new` 只收 `u16`，在此放行越界值等于
+        // 用一次静默截断替调用方决定网格尺寸。取回的 `u16` 只用于确认已校验，本函数
+        // 的缓存与下游仍按 `u32` 记账。
+        let (grid_rows, grid_cols) = validated_grid(rows, cols)?;
         log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));
@@ -243,8 +249,8 @@ impl Session {
         // 同一份唤醒既用于 PTY 到达，也用于帧入队：渲染线程在「有字节但还没帧」
         // 的那一拍醒来后可以立刻再睡，等帧真正入队时被第二次叫醒。
         let terminal = GhosttyTerminal::new_with_frame_wake_and_temp_dir(
-            rows,
-            cols,
+            u32::from(grid_rows),
+            u32::from(grid_cols),
             scrollback_lines,
             crate::terminal::theme::default_dark(),
             frame_wake,
@@ -266,8 +272,8 @@ impl Session {
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(ExitCodeSlot::Pending)),
-            terminal_rows: AtomicU32::new(rows),
-            terminal_cols: AtomicU32::new(cols),
+            terminal_rows: AtomicU32::new(u32::from(grid_rows)),
+            terminal_cols: AtomicU32::new(u32::from(grid_cols)),
             grid_dirty: AtomicBool::new(false),
             last_scroll_offset: AtomicI64::new(0),
         })

@@ -209,3 +209,41 @@ pub(crate) fn pack_style_flags_curly_dashed_dotted_keep_underline_without_double
         );
     }
 }
+
+/// 未超上限的 OSC 52 负载原样交付。
+#[test]
+pub(crate) fn clipboard_payload_under_the_cap_is_untouched() {
+    let payload = b"hello";
+    let (cut, truncated) = super::run::truncate_clipboard_payload(payload);
+    assert!(!truncated);
+    assert_eq!(cut, payload);
+}
+
+/// 恰好等于上限也不算截断：边界是「大于上限」而非「大于等于」。
+#[test]
+pub(crate) fn clipboard_payload_at_the_cap_is_untouched() {
+    let payload = vec![b'a'; MAX_CLIPBOARD_PAYLOAD_BYTES];
+    let (cut, truncated) = super::run::truncate_clipboard_payload(&payload);
+    assert!(!truncated);
+    assert_eq!(cut.len(), MAX_CLIPBOARD_PAYLOAD_BYTES);
+}
+
+/// 截断必须落在字符边界：切在多字节序列中间时，`from_utf8_lossy` 会补一个 U+FFFD，
+/// 用户拿到的剪贴板末尾就凭空多一个替换符。
+#[test]
+pub(crate) fn clipboard_payload_truncates_on_a_char_boundary() {
+    // 4 字节字符的起始位置刻意让上限落在它的第 3 个字节上（续字节）。
+    let mut payload = vec![b'a'; MAX_CLIPBOARD_PAYLOAD_BYTES - 2];
+    payload.extend_from_slice("😀".as_bytes());
+    let (cut, truncated) = super::run::truncate_clipboard_payload(&payload);
+    assert!(truncated);
+    assert_eq!(
+        cut.len(),
+        MAX_CLIPBOARD_PAYLOAD_BYTES - 2,
+        "必须退到字符起始处，不得切在续字节上"
+    );
+    assert!(
+        !String::from_utf8_lossy(cut).contains('\u{FFFD}'),
+        "截断结果不得含替换符"
+    );
+}
