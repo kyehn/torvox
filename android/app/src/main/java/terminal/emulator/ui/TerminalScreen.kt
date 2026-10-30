@@ -59,9 +59,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.settings.SoftKeyboardToggleBehaviour
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.applyNightModeOverride
 import terminal.emulator.ui.theme.resolveAppDarkMode
@@ -156,6 +158,11 @@ fun TerminalScreen(
             termuxProperties.properties.nightMode,
             resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme()),
         )
+    // `soft-keyboard-toggle-behaviour = enable-disable` 时 KEYBOARD 键翻转的是
+    // 「软键盘可用与否」，而不是当次可见性。状态放在组合里：翻转后 AndroidView 的
+    // update 块把新值推给 TerminalSurface，轻点路径据此决定要不要拉起输入法。
+    val softKeyboardBehaviour = termuxProperties.properties.softKeyboardToggleBehaviour
+    var softKeyboardEnabled by remember { mutableStateOf(true) }
     // 未知名已在 TerminalRuntime.clearUnknownThemeNames 清除对应键；此处取不到
     // 说明该键刚被写入但尚未生效，用默认主题渲染本帧，不抛。
     val resolvedTerminalTheme =
@@ -206,44 +213,57 @@ fun TerminalScreen(
     // 允许同步读一次平台状态；而 IME 高度那条链路不行——它必须靠持续派发，
     // 因为回调里写组合状态不保证被观察到（见 imeInsetFlow 的说明）。
     //
-    // `soft-keyboard-toggle-behaviour = enable-disable`（切换「是否允许软键盘」而非当次
-    // 可见性）**未实现**：`View` 没有 `setShowSoftInputOnFocus`（只有 `TextView` 有），
-    // 而 `TerminalSurface` 是 `SurfaceView`；在 SurfaceView 上禁掉「聚焦即送 IME」
-    // 只能改焦点与 `onCheckIsTextEditor` 的整条生命周期，而 IME 路径是本仓最脆的一段
-    // （imeInsetFlow、抑制窗口、锚点准入都依赖它）。见 openspec 的 termux-properties
-    // 规范里对这一项的说明。
+    // `soft-keyboard-toggle-behaviour = enable-disable` 时这个键翻转的是「软键盘可用
+    // 与否」，而不是当次可见性：禁用后轻点终端不再拉起输入法（见 TerminalSurface 的
+    // `softKeyboardEnabled`），再按一次恢复。禁用时若键盘正显示着，顺手收起——否则
+    // 「已禁用」与眼前的键盘自相矛盾。这个模式在屏幕上不留任何痕迹，故两种切换都
+    // 给一声 Toast；没有提示的话，再按一次看起来就像没反应。
     val toggleKeyboard: () -> Unit = {
         val inputMethodManager =
             context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
                 as android.view.inputmethod.InputMethodManager
-        val imeCurrentlyVisible =
-            view.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
-        if (imeCurrentlyVisible) {
-            inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+        if (softKeyboardBehaviour == SoftKeyboardToggleBehaviour.ENABLE_DISABLE) {
+            softKeyboardEnabled = !softKeyboardEnabled
+            if (!softKeyboardEnabled) {
+                inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+            }
+            android.widget.Toast.makeText(
+                context,
+                context.getString(
+                    if (softKeyboardEnabled) R.string.soft_keyboard_enabled else R.string.soft_keyboard_disabled,
+                ),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
         } else {
-            view.requestFocus()
-            // 此延迟只为让会话抽屉的关闭动画稳定下来
-            // ——在遮罩仍在动画时触发会与之竞争。
-            // 抽屉完全关闭时无可等待，立即显示。
-            val deferForDrawer = drawerState.isOpen || drawerState.isAnimationRunning
-            if (!deferForDrawer) {
-                view.windowInsetsController?.show(
-                    android.view.WindowInsets.Type.ime(),
-                )
+            val imeCurrentlyVisible =
+                view.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+            if (imeCurrentlyVisible) {
+                inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else {
-                // 用户手势之外的 SHOW_IMPLICIT 在 Android 12+ 上会被静默拒绝
-                // （输入法可见性需要受信任的手势或窗口焦点信任），
-                // 这使抽屉的键盘按钮在显示方向形同虚设。
-                // 改用与终端轻点相同的 WindowInsetsController 路径（已证实能显示）；
-                // 它不受手势限制。
-                view.postDelayed(
-                    {
-                        view.windowInsetsController?.show(
-                            android.view.WindowInsets.Type.ime(),
-                        )
-                    },
-                    IME_TOGGLE_DELAY_MS,
-                )
+                view.requestFocus()
+                // 此延迟只为让会话抽屉的关闭动画稳定下来
+                // ——在遮罩仍在动画时触发会与之竞争。
+                // 抽屉完全关闭时无可等待，立即显示。
+                val deferForDrawer = drawerState.isOpen || drawerState.isAnimationRunning
+                if (!deferForDrawer) {
+                    view.windowInsetsController?.show(
+                        android.view.WindowInsets.Type.ime(),
+                    )
+                } else {
+                    // 用户手势之外的 SHOW_IMPLICIT 在 Android 12+ 上会被静默拒绝
+                    // （输入法可见性需要受信任的手势或窗口焦点信任），
+                    // 这使抽屉的键盘按钮在显示方向形同虚设。
+                    // 改用与终端轻点相同的 WindowInsetsController 路径（已证实能显示）；
+                    // 它不受手势限制。
+                    view.postDelayed(
+                        {
+                            view.windowInsetsController?.show(
+                                android.view.WindowInsets.Type.ime(),
+                            )
+                        },
+                        IME_TOGGLE_DELAY_MS,
+                    )
+                }
             }
         }
     }
@@ -627,6 +647,9 @@ fun TerminalScreen(
                             },
                             update = { surface ->
                                 surface.touchEnabled = !isOverlayVisible
+                                // 组合状态是唯一真源：翻转后由这里推给视图，轻点路径才
+                                // 知道该不该拉起输入法。update 每次重组都跑，赋值幂等。
+                                surface.softKeyboardEnabled = softKeyboardEnabled
                                 // 仅在终端网格尺寸真正变化时（resize / 字体变化）才重新布局。
                                 // AndroidView 的 update 块在 TerminalScreen 的每次重组上都会运行，
                                 // 此处无条件 requestLayout() 会迫使每次选区拖动与滚动事件

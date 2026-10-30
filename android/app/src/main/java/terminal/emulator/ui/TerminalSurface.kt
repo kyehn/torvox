@@ -2941,8 +2941,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
                 viewModel?.clearSelection()
                 suppressUntilNanos = 0L
-                keyboardRequested = true
+                // 焦点照常请求：硬件键盘的按键靠它送达，与软键盘是否可用无关。
                 requestFocus()
+                // 软键盘已被 KEYBOARD 键禁用（`enable-disable`）：轻点只结束选区与滚动。
+                // 这里若继续置 keyboardRequested 并 show，禁用就等于形同虚设。
+                if (!softKeyboardEnabled) return true
+                keyboardRequested = true
                 post {
                     val controller = windowInsetsController
                     controller?.show(
@@ -3112,13 +3116,27 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private var keyboardRequested = false
 
+    /**
+     * 软键盘是否允许弹出（`soft-keyboard-toggle-behaviour = enable-disable`）。
+     *
+     * 只拦本应用自己的显示入口（轻点终端、KEYBOARD 键），**不**改 [onCheckIsTextEditor]
+     * 与焦点生命周期：平台只在视图拿到输入连接时才问 `onCheckIsTextEditor`，而拿到连接
+     * 唯一路径是本视图请求焦点，改它等于把 IME 的整条链路重排一遍。
+     *
+     * 默认 `true`：`show-hide` 模式下本字段从不参与判定，行为与未引入时逐字节相同。
+     */
+    var softKeyboardEnabled: Boolean = true
+
     fun finishComposing() {
         imeConnection.currentInputConnection?.let { inputConnection ->
             inputConnection.finishComposingText()
         }
     }
 
-    override fun onCheckIsTextEditor(): Boolean = keyboardRequested
+    // 平台在焦点变化时会问这两个问题：`onCheckIsTextEditor` 为真则**自动**弹出输入法
+    // （`InputMethodManager.checkFocus`），与谁调了 `show` 无关。软键盘被禁用时必须
+    // 报 false——否则轻点请求焦点这一步就足以把键盘带出来，绕过禁用。
+    override fun onCheckIsTextEditor(): Boolean = keyboardRequested && softKeyboardEnabled
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon =
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_TEXT)
