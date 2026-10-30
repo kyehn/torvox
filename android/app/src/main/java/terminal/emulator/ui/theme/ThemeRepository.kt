@@ -9,14 +9,14 @@ import terminal.emulator.bridge.NativeBridge
  * 经原生直接量一次取回整个目录，不在 Kotlin 侧另存名字与颜色副本，不经 JSON。
  */
 object ThemeRepository {
-    /** 十六色数量。 */
-    private const val ANSI_COLOR_COUNT = 16
-
-    /** 单色字节数。 */
-    private const val COLOR_BYTES = 3
-
-    /** 背景、前景与十六色，即设置侧真正消费的全部颜色。 */
-    private const val ENTRY_COLOR_BYTES = (2 + ANSI_COLOR_COUNT) * COLOR_BYTES
+    /**
+     * 背景、前景与十六色，即设置侧真正消费的全部颜色。
+     *
+     * 直接取 [TerminalTheme.PACKED_COLOR_BYTES] 而非在此重算：两处各自写一遍
+     * `(2 + 16) * 3`，任一处改了另一处不改，解析偏移就整体错位，而错位表现为
+     * 主题颜色串位（不报错、只是颜色不对）。打包侧是唯一真源。
+     */
+    private const val ENTRY_COLOR_BYTES = TerminalTheme.PACKED_COLOR_BYTES
 
     /** 目录长度（`u16` 小端）。 */
     private const val CATALOG_COUNT_BYTES = 2

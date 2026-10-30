@@ -78,8 +78,11 @@ fun SessionDrawer(
             .fillMaxHeight()
             // 小屏/横屏可用宽度有限：抽屉占屏幕宽度的 84%，
             // 上限 320.dp，下限 240.dp，保证按钮行与会话项不溢出。
-            .widthIn(min = 240.dp, max = 320.dp)
+            // 顺序 MUST 是先取屏幕 84% 再夹区间：`fillMaxWidth` 取的是**上游给的**
+            // 约束，写在 `widthIn` 之后就只能拿到已被夹到 320dp 的约束，于是宽度恒为
+            // 0.84 × 320 ≈ 269dp，宽屏上抽屉永远达不到屏幕的 84%。
             .fillMaxWidth(0.84f)
+            .widthIn(min = 240.dp, max = 320.dp)
             .background(backgroundColor)
             .testTag("SessionDrawer")
             // 需要 AndroidManifest 的 `windowSoftInputMode="adjustNothing"`
