@@ -328,7 +328,13 @@ pub(super) fn render_new_frame(
     // 此刻呈现会用旧视口配新亚行余量——画出的位置比实际视口少滚了整行数，
     // 视觉上内容先上跳半行、待新视口到达再下跳整行（上下滑动晃动）。
     // 故陈旧帧一律不呈现，也不解除滚动在途门控：等 VT 处理命令后推送的帧。
-    if !frame_reflects_scroll(cursor_info.scroll_request_id, latest_scroll_request_id) {
+    //
+    // 门控自带超时兜底（`RenderState::scroll_pending`）：只有「确有命令在途」
+    // 才拦，而「在途」是有时限的。少了这条，任何让 VT 不再推出带某序号帧的
+    // 时序都会把画面永久冻住——比原本要修的晃动严重得多。
+    if render_state.scroll_pending()
+        && !frame_reflects_scroll(cursor_info.scroll_request_id, latest_scroll_request_id)
+    {
         // 逐帧事件（滚动期间每帧都可能命中）：按 logcat-hygiene 规范记 trace，
         // 不得以 debug 逐次输出把 logcat 刷满。
         log::trace!(
@@ -342,6 +348,7 @@ pub(super) fn render_new_frame(
         if render_state.renderer.surface.is_none() {
             render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
             render_state.scroll_frame_pending = false;
+            render_state.scroll_pending_since = None;
         }
         return Ok((0, lock_done, std::time::Instant::now()));
     }
@@ -432,6 +439,7 @@ pub(super) fn render_new_frame(
         // 在途，否则那个门控会把这次唯一的送达机会也挡掉。
         render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
         render_state.scroll_frame_pending = false;
+        render_state.scroll_pending_since = None;
         return Err(0);
     }
     // 强制重查：旧帧像素尺寸按旧几何解算，必须按新几何重算。
@@ -561,6 +569,7 @@ pub(super) fn render_new_frame(
     // 渲染失败时同样解除——那一帧的单元数据已存进 `last_frame`，重试由
     // `dirty` 标志驱动；若标志不解，重试会被空闲路径自己挡掉。
     render_state.scroll_frame_pending = false;
+    render_state.scroll_pending_since = None;
     match result {
         Ok(()) => {
             render_state.kitty_overlay_dirty = false;

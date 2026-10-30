@@ -576,7 +576,20 @@ struct RenderState {
     /// 画出的内容比实际视口少滚了整行数（滑动慢一拍），且那是一次多余的全量提交。
     /// 滚动后的帧到达即解除（见 [`render_inner`] 的新帧路径）。
     scroll_frame_pending: bool,
+    /// 在途滚动命令的序号与其置位时刻；`None` 即不在途。
+    ///
+    /// 与 [`Self::scroll_frame_pending`] 必须同步更新：它是给该门控兜底用的，
+    /// 时刻缺失则无从判断是否已经等太久。
+    scroll_pending_since: Option<(u64, std::time::Instant)>,
 }
+
+/// 滚动命令下发后，允许它反映到帧上的最长等待时长。
+///
+/// 拦帧的前提是「VT 处理了该命令就会推出带该序号的帧」。这个前提一旦在某种
+/// 时序下不成立（命令入队与帧推送交错），门控就没有第二个解除时机——画面从
+/// 「滑动偶尔晃动」变成「永久冻结」，比它要修的那个问题严重得多。超时把最坏
+/// 情况降回「晃一下」，代价可控。
+const SCROLL_PENDING_TIMEOUT_MS: u128 = 200;
 
 impl RenderState {
     /// 推进光标闪烁相位，返回本帧是否发生了翻转。
@@ -593,6 +606,38 @@ impl RenderState {
         }
         self.cursor_blink_on = phase;
         true
+    }
+
+    /// 记下一次滚动命令已送达：此后拦帧，直到 VT 把它反映出来。
+    ///
+    /// 序号相同则保留原有时刻：同一次命令的重复送达不该让等待期重新计时，
+    /// 否则连续滚动时门控永远等不到超时，兜底也就形同虚设。
+    fn begin_scroll_pending(&mut self, request_id: u64) {
+        if self
+            .scroll_pending_since
+            .is_none_or(|(id, _)| id != request_id)
+        {
+            self.scroll_pending_since = Some((request_id, std::time::Instant::now()));
+        }
+        self.scroll_frame_pending = true;
+    }
+
+    /// 已送达的滚动命令是否仍在途（帧里还没见到它）。
+    ///
+    /// 超时一并按「不在途」处理并解除门控：任何原因让 VT 不再推出带该序号的
+    /// 帧时，画面 MUST NOT 永久冻结——宁可晃一帧，不可冻住。空闲路径的门控
+    /// 也读这里，故超时后两条路径一起恢复，不会卡在其中一个。
+    fn scroll_pending(&mut self) -> bool {
+        if self.scroll_frame_pending
+            && self
+                .scroll_pending_since
+                .is_none_or(|(_, since)| since.elapsed().as_millis() <= SCROLL_PENDING_TIMEOUT_MS)
+        {
+            return true;
+        }
+        self.scroll_frame_pending = false;
+        self.scroll_pending_since = None;
+        false
     }
 }
 
@@ -709,6 +754,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             full_repaint: false,
             cursor_blink_on: true,
             scroll_frame_pending: false,
+            scroll_pending_since: None,
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
