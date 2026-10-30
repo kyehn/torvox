@@ -70,6 +70,10 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染（那会让用户点出一串
 无意义的字符）。`FN` 未实现，MUST NOT 渲染。
 
+`extra-keys-style` MUST 接受 `default` / `arrows-only` / `arrows-all` / `all` / `none`，
+字形集合逐项对齐 termux `ExtraKeysConstants`：五档是逐级加字形（方向键 → 常用符号 →
+Home/End/PgUp/PgDn → ESC/CTRL/ALT），不是五个互不相干的外观。
+
 #### Scenario: 自定义三行布局
 
 - **WHEN** `extra-keys` 给出三行
@@ -121,10 +125,44 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 - **WHEN** 软键盘处于禁用状态，用户再按一次 KEYBOARD 键
 - **THEN** 出现一次「已启用」提示，轻点终端可正常输入
 
-### Requirement: 明确不实现的键
+### Requirement: 启动时的软键盘
 
-以下键 MUST 被解析但不改变行为，理由记录在
-`openspec/changes/2026-10-30-termux-properties-and-colors/proposal.md`：
+`hide-soft-keyboard-on-startup = true`（本应用默认）MUST 表示启动时不主动请求输入法，
+且平台按 `onCheckIsTextEditor` 自动弹键盘那条路径也不得在启动时把键盘带出来。
 
-- `hide-soft-keyboard-on-startup`
-- `disable-terminal-session-change-toast`
+`false` MUST 在首帧后主动请求一次输入法，并把「本视图可接收文本输入」的答案置真——
+否则焦点早已就位，平台不会再问，键盘永远不出现。请求 MUST 只执行一次：这是启动策略，
+不是运行期开关；平台拒绝（窗口尚未取得焦点）时 MUST NOT 重试。
+
+默认取 `true` 而非上游的 `false`，因为本应用启动时从不请求输入法，默认值必须反映
+既有外观。
+
+#### Scenario: 默认启动
+
+- **WHEN** 没有写这个键，冷启动应用
+- **THEN** 键盘保持隐藏，直到用户轻点终端
+
+#### Scenario: 要求启动即弹
+
+- **WHEN** `hide-soft-keyboard-on-startup = false`，冷启动
+- **THEN** 终端拿到焦点后弹出一次输入法；用户收起后不会被再次弹回
+
+### Requirement: 会话切换提示
+
+切换活动会话时 MUST 在屏幕顶部显示一条 `[序号] 标题` 提示；标题为空时只显示序号。
+序号 MUST 与抽屉里的编号一致。首次建立会话 MUST NOT 提示，切到同一个会话 MUST NOT
+提示——那不是「变化」。
+
+`disable-terminal-session-change-toast = true` MUST 抑制这条提示。
+
+连按切换时 MUST 取消上一条提示：排队会让提示滞后到用户早已离开的会话。
+
+#### Scenario: 快捷键切会话
+
+- **WHEN** 两个会话，用户按 `shortcut.next-session`
+- **THEN** 顶部出现一次 `[2] <标题>` 提示；再按一次回到 `[1]`
+
+#### Scenario: 关掉提示
+
+- **WHEN** `disable-terminal-session-change-toast = true`
+- **THEN** 切换会话不出现任何提示，屏幕照常切换
