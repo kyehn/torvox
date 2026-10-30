@@ -15,6 +15,14 @@ data class SearchSelection(val index: Int, val total: Int, val matched: SearchMa
 class NativeQueryPort(private val sessionIdProvider: () -> Long) {
     fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
 
+    /**
+     * 会话的工作目录（OSC 7）；shell 尚未上报时为空串。
+     *
+     * 空串不在这里被替换成任何「默认目录」：调用方据「空」判定「还不知道」并保留
+     * 上一次已知值，替换成猜测值会让标题栏在每次切会话时闪回 home。
+     */
+    fun getPwd(): String = NativeBridge.getPwd(sessionIdProvider()).orEmpty()
+
     fun getActiveSessionTitle(): String = getTitle() ?: ""
 
     /**

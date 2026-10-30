@@ -93,6 +93,14 @@ object NativeBridge {
      */
     @JvmStatic external fun getSessionTitles(sessionIds: LongArray): Array<String?>?
 
+    /**
+     * 按传入顺序返回各会话的 OSC 7 工作目录；未知会话或尚未上报的会话为 null，
+     * 已上报但 shell 未报目录的为空串。
+     *
+     * 与 [getSessionTitles] 同批取回：会话列表刷新原本是逐会话各发一次查询。
+     */
+    @JvmStatic external fun getSessionPwds(sessionIds: LongArray): Array<String?>?
+
     /** 活跃会话 ID；数组为空即无会话。 */
     @JvmStatic external fun listSessions(): LongArray
 
@@ -259,6 +267,14 @@ object NativeBridge {
     /** 会话的终端标题（OSC 0/2），会话未知时为 null。 */
     @JvmStatic external fun getTitle(sessionId: Long): String?
 
+    /**
+     * 会话的工作目录（OSC 7），shell 尚未上报时为空串；会话未知抛异常。
+     *
+     * 空串表示「还不知道」，与「在根目录」不同：调用方据此保留上一次已知目录，
+     * 而不是把标题清空。
+     */
+    @JvmStatic external fun getPwd(sessionId: Long): String?
+
     /** 会话的回滚行数。 */
     @JvmStatic external fun scrollbackLength(sessionId: Long): Int
 
@@ -392,6 +408,30 @@ object NativeBridge {
     /** 按标识应用主题：调色板真源在原生，Kotlin 只传设置里存的标识。 */
     @JvmStatic
     external fun setTheme(sessionId: Long, themeName: String)
+
+    /**
+     * 设置会话的默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。
+     *
+     * `style` 取 [terminal.emulator.settings.TerminalCursorStyle.nativeValue]：0 方块、
+     * 1 竖线、2 下划线；越界抛 `IllegalArgumentException`。
+     * 只是默认值——程序用 DECSCUSR 指定过样式时以程序为准。
+     */
+    @JvmStatic
+    external fun setCursorStyle(sessionId: Long, style: Int)
+
+    /**
+     * 用 `~/.termux/colors.properties` 覆盖当前主题的调色板。
+     *
+     * `colors` 为 19 个 `0x00RRGGBB`：背景、前景、光标，随后 16 个 ANSI 色
+     * （0..15）；**`-1` 表示该槽位不覆盖**，取当前主题原色。`colors.properties`
+     * 通常只写其中几个键，未写的槽位由原生按主题补齐——Kotlin 侧不持有主题色
+     * 副本（光标色尤其不在主题目录的打包里）。
+     *
+     * 长度不符抛 `IllegalArgumentException`——错位一格表现为「某些颜色不对」，
+     * 无从定位。覆盖是压在主题之上的一层，撤销覆盖请重发 [setTheme]。
+     */
+    @JvmStatic
+    external fun setPaletteOverride(sessionId: Long, colors: IntArray)
 
     /**
      * 用上游 `paste::encode` 把剪贴板字节编码为 PTY 写入字节（bracketed 包裹与否
