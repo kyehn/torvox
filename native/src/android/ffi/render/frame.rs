@@ -602,7 +602,10 @@ pub(super) fn render_idle_frame(
     // 取 dirty 放在缓存可用性检查之后：没有可画帧时本次不消费任何变化信号。
     let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
     // 相位推进必须在取光标之前：本帧画出的光标要用推进后的相位。
-    let cursor_blink_flipped = render_state.advance_cursor_blink();
+    // 只有 VT 自己认为光标可见（DECTCEM 开）时，相位翻转才改变画面：光标本就
+    // 隐藏的话，翻转前后都不画它，为它补一帧只是白算。`advance` 必须在 `&&` 左侧
+    // 无条件求值——它同时负责记录相位，短路掉状态就跟不上时基了。
+    let cursor_blink_flipped = render_state.advance_cursor_blink() && cached_cursor.visible;
     let cursor = build_cursor(render_state, &cached_cursor);
     // 空闲重绘门控：仅当确有变化时重绘——搜索高亮、滚动偏移、内容脏标志被置位，
     // 或累加器失效（surface 重挂载/resize：新交换链从未收到过帧，空闲 shell
