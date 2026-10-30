@@ -487,10 +487,10 @@ struct RenderState {
     /// 上次绘制时的视口 Y 像素偏移——供空闲重绘门控检测逐像素滚动余数变化并强制重绘
     /// （该偏移移动像素但不改单元内容）。
     last_scroll_px: f32,
-    /// 当前生效的终端主题（静态清单项）。渲染态自身的颜色——光标色与搜索高亮色——
-    /// 都取自它，故颜色真源只存在于 [`crate::terminal::theme`] 一处，Kotlin 无需
-    /// 回传颜色。由 `setTheme` 写入，主题变更总是伴随重绘。
-    theme: &'static crate::terminal::theme::Theme,
+    /// 当前生效的调色板：主题的，或被 `~/.termux/colors.properties` 覆盖后的。
+    /// 渲染态自身的颜色——光标色——取自它；单元颜色由 VT 线程按同一调色板解析，
+    /// 故两处不会分叉。由 `setTheme` / `setPaletteOverride` 写入。
+    palette: crate::terminal::theme::Palette,
     /// 预分配的脏行掩码，跨帧复用以避免逐帧 `Vec<bool>` 分配（约 100-300 字节 × 120fps）。
     dirty_mask: Vec<bool>,
     /// Kitty 图像缓存（按会话键控）：VT 线程经生成戳推送变更通知，
@@ -625,7 +625,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             search_highlights: SessionScoped::new(),
             last_frame: None,
             last_scroll_px: 0.0,
-            theme: crate::terminal::theme::default_dark(),
+            palette: crate::terminal::theme::default_dark().palette.clone(),
             dirty_mask: Vec::new(),
             kitty_keys: KittyPlacementKeys::sentinel(),
             kitty_cell_width: 0.0,
