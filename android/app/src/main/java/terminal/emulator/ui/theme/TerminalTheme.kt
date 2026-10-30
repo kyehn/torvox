@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import terminal.emulator.settings.NightMode
 
 /**
  * 终端主题：名字与颜色一律经 [ThemeRepository] 从原生单源取回，
@@ -122,6 +123,21 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
     AppThemeMode.NIGHT -> true
     AppThemeMode.DAY -> false
     else -> systemDark
+}
+
+/**
+ * `termux.properties` 的 `night-mode` 覆盖日夜判定。
+ *
+ * 三态与 termux 一致：`true`/`false` 强制，`system` 原样采用传入值。只作用于**终端**
+ * 配色，不动应用外壳的 Material 主题——termux 的该键本来也只管终端。
+ *
+ * 必须是纯函数且只此一份：视图背景与原生主题若各判一次，用户会看到「终端画成夜间、
+ * 状态栏图标按日间取色」这类自相矛盾的画面。
+ */
+fun applyNightModeOverride(nightMode: NightMode, systemDark: Boolean): Boolean = when (nightMode) {
+    NightMode.TRUE -> true
+    NightMode.FALSE -> false
+    NightMode.SYSTEM -> systemDark
 }
 
 /**

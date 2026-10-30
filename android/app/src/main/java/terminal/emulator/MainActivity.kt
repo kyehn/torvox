@@ -30,8 +30,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import terminal.emulator.input.KeyModifiers
+import terminal.emulator.input.ModifierState
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
+import terminal.emulator.settings.BackKeyBehaviour
+import terminal.emulator.settings.VolumeKeysBehaviour
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
 import terminal.emulator.ui.theme.resolveAppDarkMode
@@ -129,6 +133,7 @@ class MainActivity : ComponentActivity() {
             notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         handleLaunchIntent(intent)
+        registerBackKeyMapping()
         // 最后一个会话结束后关闭应用（termux 语义：会话表空了就 finish，见 termux-app
         // TermuxTerminalSessionActivityClient#removeFinishedSession）。此前会话被移除后
         // 应用停在无会话的空界面，用户看到的是「exit 后什么都没关」。
@@ -145,6 +150,36 @@ class MainActivity : ComponentActivity() {
         setContent {
             TerminalNavHost(openSettingsRequests = openSettingsRequests)
         }
+    }
+
+    /**
+     * `back-key` 决定返回键的语义。
+     *
+     * `escape`：返回键改发 ESC 且**不退出应用**——终端里跑 vim/less 时「返回」该怎么走
+     * 由远端决定，退出应用反而是意外的副作用。`back`（默认）交回系统：先收键盘，
+     * 无键盘时退出。
+     *
+     * 走 `OnBackPressedCallback` 而不是 `dispatchKeyEvent` 里截 `KEYCODE_BACK`：
+     * 手势返回与预测性返回不产生按键事件，只有这条通道覆盖全部返回路径。
+     */
+    private fun registerBackKeyMapping() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val properties = terminalViewModel.termuxConfiguration.value.properties
+                    if (properties.backKey == BackKeyBehaviour.ESCAPE) {
+                        terminalViewModel.sendKey(KeyEvent.KEYCODE_ESCAPE)
+                        return
+                    }
+                    // 交回系统前先让位：本回调仍是启用状态时转发会再次进到这里，
+                    // 形成无限递归而不是退出。
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            },
+        )
     }
 
     /**
@@ -243,12 +278,98 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (handleTermuxPropertyKey(event)) {
+            LogUtil.debug(TAG, "dispatchKeyEvent: consumed by termux.properties key mapping")
+            return true
+        }
         val handled = terminalViewModel.handleLayoutAwareHardwareKey(event)
         if (handled) {
             LogUtil.debug(TAG, "dispatchKeyEvent: consumed physical-key layout-aware char")
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * `termux.properties` 里的按键改写，在输入法/编码器之前生效。
+     *
+     * 规则都返回「已消费」，因为它们改写的是**事件的路由**而不是字符：
+     * 放回平台路径就意味着同一个组合键既进终端又触发快捷键。
+     *
+     * - `volume-keys = virtual`（termux 默认）：音量减键当虚拟 Ctrl（termux 的
+     *   `handleVirtualKeys` 把音量减映射成 `mVirtualControlKeyDown`）。音量加在 termux
+     *   里是虚拟 FN，而本应用没有 FN 映射表（FN+字母→ESC/方向键那一套），**故意不拦截**：
+     *   抢走一个只能什么都不做的键，等于白丢音量加。
+     * - `ctrl-space-workaround`：部分输入法/键盘把 Ctrl+空格吞成输入法切换，显式补发 NUL。
+     * - 会话快捷键：`Ctrl+Alt+<char>`，字符由 `shortcut.*-session` 配置；
+     *   `disable-hardware-keyboard-shortcuts = true` 时整条规则不生效，组合键原样进终端。
+     */
+    private fun handleTermuxPropertyKey(event: KeyEvent): Boolean {
+        val properties = terminalViewModel.termuxConfiguration.value.properties
+        val actionDown = event.action == KeyEvent.ACTION_DOWN
+
+        if (
+            properties.volumeKeys == VolumeKeysBehaviour.VIRTUAL &&
+            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+        ) {
+            // 按住期间持续生效在 termux 里是一个独立布尔量；本应用的修饰键只有
+            // 「一次性 / 锁定」两态，故按下即置一次性：按住音量减再敲一个键是实际用法，
+            // 而为此新增一条贯穿编码、输入法提交与工具条的「按住态」不划算。
+            // 抬起时只清掉自己置的那一次，不碰用户在这期间手动切换的状态。
+            if (actionDown) {
+                terminalViewModel.setCtrlModifier(ModifierState.Once)
+            } else if (terminalViewModel.ctrlModifierState == ModifierState.Once) {
+                terminalViewModel.setCtrlModifier(ModifierState.Off)
+            }
+            return true
+        }
+
+        if (
+            properties.ctrlSpaceWorkaround &&
+            actionDown &&
+            event.keyCode == KeyEvent.KEYCODE_SPACE &&
+            event.isCtrlPressed &&
+            !event.isAltPressed
+        ) {
+            // Ctrl+空格在终端语义里就是 NUL。拦截后直接按该语义发送，
+            // 不再交给编码器——两条路径都写会得到两个 NUL。
+            terminalViewModel.sendKey(
+                keyCode = KeyEvent.KEYCODE_SPACE,
+                modifiers = KeyModifiers.CTRL,
+            )
+            return true
+        }
+
+        if (
+            !properties.disableHardwareKeyboardShortcuts &&
+            actionDown &&
+            event.isCtrlPressed &&
+            event.isAltPressed
+        ) {
+            // 取无修饰字符：Ctrl+Alt 下 `event.unicodeChar` 会给出控制码。
+            // 取不到字符一律放行——`null` 与「未配置」比较会相等，那会让任意
+            // Ctrl+Alt+非字符键都变成「新建会话」。
+            val typed = event.getUnicodeChar(0).takeIf { it > 0 }?.toChar()?.lowercaseChar()
+            if (typed != null) {
+                when (typed) {
+                    properties.shortcutCreateSession -> {
+                        terminalViewModel.createSession()
+                        return true
+                    }
+
+                    properties.shortcutNextSession -> {
+                        terminalViewModel.switchToAdjacentSession(forward = true)
+                        return true
+                    }
+
+                    properties.shortcutPreviousSession -> {
+                        terminalViewModel.switchToAdjacentSession(forward = false)
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
 }
 

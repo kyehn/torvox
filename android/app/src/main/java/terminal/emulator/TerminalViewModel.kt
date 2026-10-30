@@ -37,10 +37,13 @@ import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.settings.TermuxConfiguration
+import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.ui.SelectionBounds
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.ui.normalizeSelectionAnchors
 import terminal.emulator.util.TerminalDispatchers
+import terminal.emulator.util.formatWorkingDirectory
 import terminal.emulator.util.runCatchingCancellable
 import javax.inject.Inject
 
@@ -197,7 +200,16 @@ internal fun selectionEndpoints(start: SelectionAnchor, end: SelectionAnchor): S
 }
 
 /** 会话抽屉条目：序号按列表位置渲染，[title] 为该会话终端标题（OSC 0/2）。 */
-data class SessionInfo(val sessionId: Long, val title: String = "")
+data class SessionInfo(
+    val sessionId: Long,
+    val title: String = "",
+    /**
+     * 该会话当前的工作目录（OSC 7 已解析为路径），未知时为空串。
+     *
+     * 与 [title] 分开存：很多 shell 并不设置标题，那时目录才是唯一能区分会话的信息。
+     */
+    val workingDirectory: String = "",
+)
 
 /** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
 internal const val SESSION_META_REFRESH_THROTTLE_MS = 2000L
@@ -251,8 +263,16 @@ class TerminalViewModel
 constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
+    private val termuxProperties: TermuxPropertiesRepository,
     val runtime: TerminalRuntime,
 ) : ViewModel() {
+    /**
+     * `~/.termux/{termux.properties,colors.properties}` 的最新解析结果。
+     *
+     * 视图只读这里，不自己读文件：两份文件是外部输入，读取时机（启动、回前台、
+     * 设置变化）统一由运行期裁定，视图多处各自读会出现「键栏用新布局、边距还是旧的」。
+     */
+    val termuxConfiguration: StateFlow<TermuxConfiguration> = termuxProperties.configuration
     private val clipboardAccess = ClipboardAccess(context, tag = "TerminalViewModel")
 
     private val selectionManager = SelectionManager()
@@ -419,6 +439,22 @@ constructor(
 
     fun lockAltState() {
         _state.update { it.copy(altState = ModifierState.Locked) }
+    }
+
+    /** Ctrl 的当前粘滞态，供按住类输入（音量键虚拟 Ctrl）判断是否需要回退自己置的位。 */
+    val ctrlModifierState: ModifierState
+        get() = _state.value.ctrlState
+
+    /**
+     * 直接设定 Ctrl 粘滞态。
+     *
+     * 与 [cycleCtrlState]/[lockCtrlState] 分开是为让调用方表达「我要它处于这个状态」而不是
+     * 「把它推到下一个状态」：音量键按下/抬起是一对事件，用 `cycle` 表达会在中途被用户的
+     * 手动切换打乱——抬起时再 cycle 一次就把用户刚点亮的 Ctrl 关掉了。
+     */
+    fun setCtrlModifier(state: ModifierState) {
+        if (_state.value.ctrlState == state) return
+        _state.update { it.copy(ctrlState = state) }
     }
 
     fun consumeOneShotModifiers() {
@@ -1227,8 +1263,18 @@ constructor(
             val titles =
                 runCatchingCancellable { NativeBridge.getSessionTitles(sessionIds.toLongArray()) }
                     .getOrNull()
+            // 目录与标题同批取回：两者都由一次会话列表刷新消费，分两次往返只是
+            // 把同一次 JNI 成本付两遍。
+            val directories =
+                runCatchingCancellable { NativeBridge.getSessionPwds(sessionIds.toLongArray()) }
+                    .getOrNull()
             val fresh = sessionIds.mapIndexed { index, sessionId ->
-                SessionInfo(sessionId = sessionId, title = titles?.getOrNull(index).orEmpty())
+                SessionInfo(
+                    sessionId = sessionId,
+                    title = titles?.getOrNull(index).orEmpty(),
+                    workingDirectory =
+                    formatWorkingDirectory(directories?.getOrNull(index).orEmpty()),
+                )
             }
             withContext(TerminalDispatchers.main) {
                 _state.update { current ->
@@ -1703,6 +1749,43 @@ constructor(
                 )
             }
         }
+    }
+
+    /**
+     * 切到相邻会话（`shortcut.next-session` / `shortcut.previous-session`）。
+     *
+     * 顺序取会话表的既有顺序（按 id 升序，与抽屉里显示的顺序一致），循环：
+     * 最后一个的下一个回到第一个。只有一个会话时什么都不做——「切换到自身」
+     * 会白走一次 surface 重挂载，屏幕闪一下。
+     */
+    fun switchToAdjacentSession(forward: Boolean) {
+        val sessions = _state.value.sessions
+        if (sessions.size < 2) return
+        val activeIndex = sessions.indexOfFirst { it.sessionId == _state.value.activeSessionId }
+        if (activeIndex < 0) return
+        val step = if (forward) 1 else -1
+        val target = sessions[Math.floorMod(activeIndex + step, sessions.size)].sessionId
+        switchSession(target)
+    }
+
+    /**
+     * 发送一个不带修饰键的按键。
+     *
+     * 供「返回键映射为 ESC」「音量键映射为方向键」这类**不经过输入法**的通道使用：
+     * 它们不是用户在键盘上敲的字符，而是宿主把平台按键改写成终端按键。
+     *
+     * 返回 false 表示没有会话或原生拒绝了该键（编码器不产生字节），调用方应把事件
+     * 放回平台默认路径——否则音量键会被静默吞掉，用户既调不了音量也发不出方向键。
+     */
+    fun sendKey(keyCode: Int, modifiers: Int = 0): Boolean {
+        val bridge = runtime.bridge() ?: return false
+        return bridge.processKeyEvent(
+            keyCode = keyCode,
+            modifiers = modifiers,
+            action = KeyEvent.ACTION_DOWN,
+            unicodeChar = 0,
+            unshiftedChar = 0,
+        )
     }
 
     fun closeSession() {
