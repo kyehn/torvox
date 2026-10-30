@@ -23,6 +23,23 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
     jni_export_guard!(&mut unowned_env, -1, |_env| render_inner(session_id as u64))
 }
 
+/// 设置光标闪烁间隔（毫秒）；0 = 不闪（`terminal-cursor-blink-rate`）。
+///
+/// 只写一个原子量、不碰渲染态：这条设置在 Surface 挂载之前下发，为一个「间隔」
+/// 去初始化 wgpu 适配器只会把首帧前的失败点提前。宿主要在每次间隔边界上补一帧
+/// （`forceRender`），否则静止的终端里光标会停在某个半相位上。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorBlinkRate<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    rate_ms: jint,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        // 负值当 0：宿主的取值范围是 0..2000，负数只可能来自配置解析之外的路径。
+        set_cursor_blink_rate(rate_ms.max(0) as u32);
+    })
+}
+
 /// 一帧的单元数据：有新输出时携带自有单元与光标，空闲时只表示可绘制。
 pub(super) enum FrameData {
     New(NewFrame),
@@ -486,6 +503,8 @@ pub(super) fn render_new_frame(
             }
         }
     }
+    // 新帧总会整帧下发，故只推进相位、不需要翻转信号。
+    render_state.advance_cursor_blink();
     let cursor = build_cursor(render_state, &cursor_info);
     // 用预分配的缓冲构建脏掩码。
     let rows_usize = rows as usize;
@@ -582,6 +601,8 @@ pub(super) fn render_idle_frame(
     }
     // 取 dirty 放在缓存可用性检查之后：没有可画帧时本次不消费任何变化信号。
     let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
+    // 相位推进必须在取光标之前：本帧画出的光标要用推进后的相位。
+    let cursor_blink_flipped = render_state.advance_cursor_blink();
     let cursor = build_cursor(render_state, &cached_cursor);
     // 空闲重绘门控：仅当确有变化时重绘——搜索高亮、滚动偏移、内容脏标志被置位，
     // 或累加器失效（surface 重挂载/resize：新交换链从未收到过帧，空闲 shell
@@ -599,6 +620,7 @@ pub(super) fn render_idle_frame(
         content_dirty,
         render_state.renderer.frame_invalidated,
         render_state.full_repaint,
+        cursor_blink_flipped,
         render_state.scroll_frame_pending,
     );
     if !needs_repaint {
