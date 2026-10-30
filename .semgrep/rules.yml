@@ -148,6 +148,9 @@ rules:
         - "/.semgrep/**"
         - "/docs/specification/*"
         - "/README.md"
+        # 归档台账要记录「为什么不用独立校验和文件」的取舍，必然提到它；
+        # 与 no-git-short-hash 同口径：历史证据不追溯改写。
+        - "/openspec/changes/archive/**"
   - id: no-prohibited-shells
     pattern-regex: '\b(fish|dash|zsh)\b'
     message: "fish/dash/zsh must not appear in code."

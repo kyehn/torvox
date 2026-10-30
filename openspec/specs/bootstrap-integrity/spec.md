@@ -43,11 +43,16 @@
 - **WHEN** 审阅 `BootstrapDownloader` 注释
 - **THEN** 不出现把 https 检查称为「完整性门控」的表述；实际完整性门控为校验和
 
-### Requirement: 不使用 sha256 sidecar 校验
+### Requirement: 校验和不得改为随归档发布的独立文件
 
-本仓 MUST NOT 采用随归档发布的 `.sha256` sidecar 文件做校验（`PROHIBITED.md` 已禁止），MUST 采用内置钉住版本的已知哈希。
+本仓 MUST NOT 另外网络获取或读取随归档发布的独立校验和文件（`PROHIBITED.md` 已禁止），
+MUST 采用内置钉住版本的已知哈希。
 
-#### Scenario: 校验来源为内置常量而非 sidecar
+理由：独立校验和文件与被校验的归档走同一条网络路径，攻击者替换归档时一并替换它即可，
+校验因此形同虚设；内置常量是唯一不随下载内容漂移的信任根。
+
+#### Scenario: 校验来源为内置常量
 
 - **WHEN** 审阅 `TermuxBootstrap` 与 `BootstrapDownloader`
-- **THEN** 预期哈希来自 `TermuxBootstrap.sha256` 这一代码常量，不存在任何 `.sha256` 文件的网络获取或读取逻辑
+- **THEN** 预期哈希来自 `TermuxBootstrap.sha256` 这一代码常量，不存在任何 `.sha256`
+      文件的网络获取或读取逻辑

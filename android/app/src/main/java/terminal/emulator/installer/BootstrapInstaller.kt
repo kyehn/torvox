@@ -67,6 +67,13 @@ class BootstrapInstaller(
     private val homeDir: File,
     private val stagingDir: File,
     private val onProgress: BootstrapProgressCallback? = null,
+    /**
+     * 清空 staging 区的实现，返回是否全部删净。
+     *
+     * 默认递归删除；测试注入「删不掉」以覆盖中止路径——靠权限位构造该前提在
+     * root 或特殊挂载下不成立，用例只能被静默跳过，等于没测。
+     */
+    private val clearStaging: (File) -> Boolean = ::deleteTree,
 ) {
     // 原子安装：解压到 stagingDir，完成后原子重命名切换（见 installBootstrap）。
     // 不写任何标记文件、不做校验文件，安装状态只认启动入口存在性。
@@ -119,7 +126,7 @@ class BootstrapInstaller(
             //
             // 清不净就必须中止：继续下去会把新引导写进残留的旧树，再由
             // atomicRename 发布成一份混血 prefix，而安装一路报成功。
-            if (!delete(stagingDir)) {
+            if (!clearStaging(stagingDir)) {
                 throw IOException("Bootstrap staging dir could not be fully cleared")
             }
             createDirectories()
@@ -143,7 +150,7 @@ class BootstrapInstaller(
             // 丢弃部分解压的 staging 目录：它可能有数百 MB，
             // 而系统从不清理 filesDir，故安装失败会一直泄漏磁盘直到下次重试。
             try {
-                delete(stagingDir)
+                clearStaging(stagingDir)
             } catch (cleanupException: Exception) {
                 LogUtil.warn("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
             }
@@ -398,39 +405,39 @@ class BootstrapInstaller(
         homeDir.mkdirs()
         File(prefixDir, "tmp").mkdirs()
     }
+}
 
-    /**
-     * 删除一棵目录树，返回是否**全部**删净。
-     *
-     * 返回值必须被调用方检查：清不净的 staging 区会被下一次解压直接写进去，
-     * 最终 `atomicRename` 把「旧引导残留 + 新引导条目」这份混血树当成 prefix 发布，
-     * 而安装一路报成功。`listFiles()` 返回 null 不是「空目录」而是「列举不出来」
-     * （权限/IO 失败）——那意味着一整棵子树根本没被遍历到。
-     *
-     * 用 `NOFOLLOW_LINKS` 判存在性：断链符号链接的 `exists()` 恒为 false，
-     * 用它会让残链永远留在树里。
-     */
-    private fun delete(file: File): Boolean {
-        if (!Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return true
-        var clean = true
-        // 删除时绝不跟随符号链接：指向目录的符号链接会解析为 isDirectory=true，
-        // 于是列举并递归会删除*目标*的内容（数据丢失），
-        // 而自指链接会无限递归（StackOverflowError）。
-        // 符号链接只是一个 inode——删它本身，而非其指向。
-        if (!Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
-            val children = file.listFiles()
-            if (children == null) {
-                LogUtil.warn("BootstrapInstaller", "Cannot list ${file.name}; subtree left in place")
-                clean = false
-            } else {
-                children.forEach { if (!delete(it)) clean = false }
-            }
-        }
-        if (!file.delete()) {
-            // 只记名与父目录名：条目名来自用户提供的 ZIP，带全路径会泄露到 logcat。
-            LogUtil.warn("BootstrapInstaller", "Failed to delete ${file.name} under ${file.parentFile?.name}")
+/**
+ * 删除一棵目录树，返回是否**全部**删净。
+ *
+ * 返回值必须被调用方检查：清不净的 staging 区会被下一次解压直接写进去，
+ * 最终 `atomicRename` 把「旧引导残留 + 新引导条目」这份混血树当成 prefix 发布，
+ * 而安装一路报成功。`listFiles()` 返回 null 不是「空目录」而是「列举不出来」
+ * （权限/IO 失败）——那意味着一整棵子树根本没被遍历到。
+ *
+ * 用 `NOFOLLOW_LINKS` 判存在性：断链符号链接的 `exists()` 恒为 false，
+ * 用它会让残链永远留在树里。
+ */
+private fun deleteTree(file: File): Boolean {
+    if (!Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return true
+    var clean = true
+    // 删除时绝不跟随符号链接：指向目录的符号链接会解析为 isDirectory=true，
+    // 于是列举并递归会删除*目标*的内容（数据丢失），
+    // 而自指链接会无限递归（StackOverflowError）。
+    // 符号链接只是一个 inode——删它本身，而非其指向。
+    if (!Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
+        val children = file.listFiles()
+        if (children == null) {
+            LogUtil.warn("BootstrapInstaller", "Cannot list ${file.name}; subtree left in place")
             clean = false
+        } else {
+            children.forEach { if (!deleteTree(it)) clean = false }
         }
-        return clean
     }
+    if (!file.delete()) {
+        // 只记名与父目录名：条目名来自用户提供的 ZIP，带全路径会泄露到 logcat。
+        LogUtil.warn("BootstrapInstaller", "Failed to delete ${file.name} under ${file.parentFile?.name}")
+        clean = false
+    }
+    return clean
 }
