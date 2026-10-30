@@ -6,10 +6,12 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsets.Type
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -190,6 +192,56 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
         .fetchSemanticsNode()
         .boundsInRoot.center
 
+    private fun escCenter(): Offset = composeTestRule
+        .onNodeWithTag("Key_ESC")
+        .fetchSemanticsNode()
+        .boundsInRoot.center
+
+    /** 两张位图逐像素相同：用于「外观未变」的判别。 */
+    private fun samePixels(
+        first: android.graphics.Bitmap,
+        second: android.graphics.Bitmap,
+    ): Boolean {
+        if (first.width != second.width || first.height != second.height) return false
+        for (row in 0 until first.height) {
+            for (column in 0 until first.width) {
+                if (first.getPixel(column, row) != second.getPixel(column, row)) return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * 全面屏上滑手势（系统认领触摸并补发 ACTION_CANCEL）不得留下按键的按下外观。
+     *
+     * 判别力：按下反馈若在取消后仍走一段复位插值，按键会先缩后弹地动一下——
+     * 用户看到的就是「上滑手势触发了按键动画」。取消后按键必须**立刻**回到未
+     * 按下外观（逐像素比较），不得停留在按下态或复位途中。
+     */
+    @Test
+    fun modifier_bar_cancelled_gesture_restores_unpressed_appearance() {
+        val key = composeTestRule.onNodeWithTag("Key_ESC")
+        key.assertIsDisplayed()
+        val unpressed = key.captureToImage().asAndroidBitmap()
+        val downTime = SystemClock.uptimeMillis()
+        composeTestRule.mainClock.autoAdvance = false
+        try {
+            dispatchMotion(downTime, MotionEvent.ACTION_DOWN, escCenter())
+            // 按下反馈的延迟窗口与插值时长都已过：按下动画此刻已经走完。
+            composeTestRule.mainClock.advanceTimeBy((PRESS_FEEDBACK_DELAY_MS + PRESS_SCALE_TWEEN_MS).toLong())
+            dispatchMotion(downTime, MotionEvent.ACTION_CANCEL, escCenter())
+            // 复位必须瞬时：此刻若仍在插值途中，像素就还没回到未按下外观。
+            composeTestRule.mainClock.advanceTimeBy((PRESS_SCALE_TWEEN_MS / 3).toLong())
+            val afterCancel = key.captureToImage().asAndroidBitmap()
+            assertTrue(
+                "手势被系统认领后按键必须立刻复位到未按下外观",
+                samePixels(unpressed, afterCancel),
+            )
+        } finally {
+            composeTestRule.mainClock.autoAdvance = true
+        }
+    }
+
     @Test
     fun modifier_bar_view_tap_triggers_key() {
         // 对照：View 派发 DOWN+UP 必须触发 —— 保证取消测试非假绿。
@@ -242,15 +294,25 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
                 .windowInsets
                 .getInsets(Type.navigationBars())
                 .bottom
+        // 系统手势区（全面屏上滑返回/多任务）不在导航栏 inset 之内：系统会先
+        // 认领该区域内的触摸再补发 ACTION_CANCEL，键栏压在上面就会把上滑手势
+        // 变成一次按键按下反馈。故键栏底边必须同时避开两者。
+        val systemGestureHeight =
+            windowMetrics
+                .windowInsets
+                .getInsets(Type.systemGestures())
+                .bottom
+        val gestureZoneHeight = maxOf(navBarHeight, systemGestureHeight)
 
         val barSemantics = composeTestRule.onNodeWithTag("ModifierBar").fetchSemanticsNode()
         val barBounds = barSemantics.boundsInRoot
         val barBottom = barBounds.bottom.toInt()
 
-        val gestureZoneTop = displayHeight - navBarHeight
+        val gestureZoneTop = displayHeight - gestureZoneHeight
         assertTrue(
             "ModifierBar bottom ($barBottom) should be above gesture zone top ($gestureZoneTop), " +
-                "displayHeight=$displayHeight, navBarHeight=$navBarHeight, barBounds=$barBounds",
+                "displayHeight=$displayHeight, navBarHeight=$navBarHeight, " +
+                "systemGestureHeight=$systemGestureHeight, barBounds=$barBounds",
             barBottom <= gestureZoneTop,
         )
     }

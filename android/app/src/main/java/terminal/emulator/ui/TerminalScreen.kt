@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
@@ -344,6 +346,16 @@ fun TerminalScreen(
             with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
         }
 
+    // 全面屏手势区（底部上滑返回/多任务）不在导航栏 inset 之内：系统会先认领
+    // 该区域内的触摸，再向应用补发 ACTION_CANCEL。修饰键栏若压在该区域上，
+    // 上滑手势就会触发按键的按下动画（用户报障）。故底部内边距取导航栏与系统
+    // 手势区的较大者，把键栏与终端一并抬出手势区。
+    val density = LocalDensity.current
+    val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
+    val systemGestureBottomPx = WindowInsets.systemGestures.getBottom(density)
+    val gestureSafeBottom =
+        with(density) { (systemGestureBottomPx - navigationBarBottomPx).coerceAtLeast(0).toDp() }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -378,6 +390,7 @@ fun TerminalScreen(
                 .background(terminalBackground)
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .padding(bottom = gestureSafeBottom)
                 // 裁到安全区内：输入法位移把终端整体上移，位移量可达整个键盘高度，
                 // 而 Compose 默认不裁剪，越过 statusBarsPadding 的内容会直接画到
                 // 状态栏底下——时钟与终端行叠字，即输入法弹出时的内容重叠。
