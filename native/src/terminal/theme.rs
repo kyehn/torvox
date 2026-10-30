@@ -42,7 +42,7 @@ macro_rules! theme_sources {
     };
 }
 
-// 主题清单：DESIGN「终端主题」节指定的 10 个，不多不少，标识原样保留。
+// 主题清单：DESIGN「终端主题」节指定的 13 个，不多不少，标识原样保留。
 theme_sources! {
     dir = "/tmp/alacritty-theme/themes/";
     default_dark = 2, default_light = 0;
@@ -56,6 +56,9 @@ theme_sources! {
     "catppuccin_mocha",
     "gruvbox_dark",
     "monokai",
+    "github_dark_high_contrast",
+    "moonfly",
+    "pastel_dark",
 }
 
 /// alacritty 的 `CellForeground`：取本主题前景色（反色段的合法特殊色名）。

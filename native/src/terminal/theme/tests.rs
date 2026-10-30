@@ -211,6 +211,22 @@ fn dark_flag_and_leading_order_follow_background_luminance() {
     assert!(by_name("no-such-theme").is_none());
 }
 
+/// 清单规模须等于 DESIGN「终端主题」节点名的主题数。
+///
+/// 外部标准（DESIGN 点名 13 个）在此落成一条数：清单曾只有 10 个
+/// （缺 `github_dark_high_contrast`、`moonfly`、`pastel_dark`），设置页因此少三项且
+/// 无人察觉——名称不写进测试（见本模块文档），故规模是唯一能钉住这条外部约定的量。
+#[test]
+fn catalog_size_matches_the_design_mandated_set() {
+    const DESIGN_MANDATED_THEME_COUNT: usize = 13;
+    assert_eq!(
+        SOURCES.len(),
+        DESIGN_MANDATED_THEME_COUNT,
+        "主题清单与 DESIGN 点名的主题数不符：{:?}",
+        SOURCES.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+    );
+}
+
 /// 深底判定驱动「跟随系统」的日夜切换，两组不交错；默认主题落在各自主组。
 #[test]
 fn dark_and_light_groups_are_separated() {
