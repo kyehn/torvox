@@ -650,6 +650,11 @@ fun TerminalScreen(
                                 // 组合状态是唯一真源：翻转后由这里推给视图，轻点路径才
                                 // 知道该不该拉起输入法。update 每次重组都跑，赋值幂等。
                                 surface.softKeyboardEnabled = softKeyboardEnabled
+                                // `hide-soft-keyboard-on-startup = false`：只执行一次（首次
+                                // update），之后的行为归用户与 KEYBOARD 键管。
+                                if (!termuxProperties.properties.hideSoftKeyboardOnStartup) {
+                                    surface.requestKeyboardOnStart()
+                                }
                                 // 仅在终端网格尺寸真正变化时（resize / 字体变化）才重新布局。
                                 // AndroidView 的 update 块在 TerminalScreen 的每次重组上都会运行，
                                 // 此处无条件 requestLayout() 会迫使每次选区拖动与滚动事件
