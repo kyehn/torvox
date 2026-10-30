@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
@@ -347,12 +347,13 @@ fun TerminalScreen(
         }
 
     // 全面屏手势区（底部上滑返回/多任务）不在导航栏 inset 之内：系统会先认领
-    // 该区域内的触摸，再向应用补发 ACTION_CANCEL。修饰键栏若压在该区域上，
-    // 上滑手势就会触发按键的按下动画（用户报障）。故底部内边距取导航栏与系统
-    // 手势区的较大者，把键栏与终端一并抬出手势区。
+    // 该区域内的触摸，再向应用补发 ACTION_CANCEL，而 Compose 会丢弃这个取消
+    // 事件——指针既不再上报事件也不抬起。修饰键栏若压在该区域上，上滑手势就会
+    // 触发按键的按下动画且永不复位（用户报障）。故底部内边距取导航栏与系统手势
+    // 区的较大者，把键栏与终端一并抬出手势区。
     val density = LocalDensity.current
     val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
-    val systemGestureBottomPx = WindowInsets.systemGestures.getBottom(density)
+    val systemGestureBottomPx = WindowInsets.safeGestures.getBottom(density)
     val gestureSafeBottom =
         with(density) { (systemGestureBottomPx - navigationBarBottomPx).coerceAtLeast(0).toDp() }
 

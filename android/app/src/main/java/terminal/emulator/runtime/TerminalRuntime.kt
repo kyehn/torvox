@@ -4729,8 +4729,9 @@ internal fun coerceSpToPxScale(density: Float, fontScale: Float, range: ClosedFl
  *
  * 空值 → 家目录；`~` 或 `~/x` → 家目录下；相对路径 → 相对家目录；绝对路径 → 原样。
  *
- * 不做存在性校验：目录不存在时原样交给 PTY 层，由它给出带路径的错误——在这里静默
- * 改回家目录，用户只会看到「设置没生效」，无从知道是自己写错了哪个字符。
+ * 解析结果必须落在真实存在的目录上，否则回退家目录（termux 的
+ * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在时
+ * PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
  *
  * 尾部的 `/` 一律去掉（`/` 自身除外）：shell 启动后经 OSC 7 回报的是规范化路径，若配置里
  * 写成 `~/src/`，会话抽屉会先显示 `src/`、第一条提示符后翻成 `src`——同一个会话在两帧之间
@@ -4746,7 +4747,8 @@ internal fun resolveWorkingDirectory(configured: String, homeDir: String): Strin
             else -> trimmed
         }
     val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
-    return absolute.trimEnd('/').ifEmpty { "/" }
+    val normalized = absolute.trimEnd('/').ifEmpty { "/" }
+    return if (java.io.File(normalized).isDirectory) normalized else homeDir
 }
 
 /**
