@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.PowerManager
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
@@ -124,6 +125,45 @@ class TerminalForegroundServiceTest {
         assertTrue("wake lock must be held while sessions run", requireNotNull(wakeLock).isHeld)
         controller.destroy()
         assertFalse("wake lock must be released on destroy", requireNotNull(wakeLock).isHeld)
+    }
+
+    /**
+     * Wi-Fi 锁与会话同生命周期：有会话时取，服务销毁时放。
+     *
+     * 唤醒锁只保证 CPU 不休眠，Wi-Fi 省电仍会冻结长连接（ssh/mosh 表现为「卡住，
+     * 一碰屏幕就恢复」），故这把锁必须与唤醒锁同时在位、同时释放。
+     */
+    @Test
+    fun `wifi lock is acquired while sessions run and released on destroy`() {
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val shadowWifiManager = shadowOf(wifiManager)
+        val intent =
+            Intent(context, TerminalForegroundService::class.java).apply {
+                putExtra("session_count", 1)
+            }
+        val controller =
+            Robolectric.buildService(TerminalForegroundService::class.java, intent).create()
+        controller.startCommand(0, 1)
+        assertEquals(
+            "a wifi lock must be held while sessions run",
+            1,
+            shadowWifiManager.getActiveLockCount(),
+        )
+        controller.destroy()
+        assertEquals(
+            "the wifi lock must be released on destroy",
+            0,
+            shadowWifiManager.getActiveLockCount(),
+        )
+    }
+
+    /** 没有会话就不该持有 Wi-Fi 锁：锁的代价是功耗，无人使用时不能付。 */
+    @Test
+    fun `no wifi lock is held without sessions`() {
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val shadowWifiManager = shadowOf(wifiManager)
+        startWith(0)
+        assertEquals(0, shadowWifiManager.getActiveLockCount())
     }
 
     @Test
