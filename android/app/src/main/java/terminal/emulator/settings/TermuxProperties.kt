@@ -101,8 +101,14 @@ enum class SoftKeyboardToggleBehaviour { SHOW_HIDE, ENABLE_DISABLE }
 /** `night-mode` 三态：跟随系统 / 强制深色 / 强制浅色。 */
 enum class NightMode { SYSTEM, TRUE, FALSE }
 
-/** `extra-keys-style`：只决定按键的显示字符，不改变按键本身。 */
-enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, NO_ARROWS, FULL }
+/**
+ * `extra-keys-style`：只决定按键的显示字符，不改变按键本身。
+ *
+ * 取值与 termux `TerminalToolbarView` 的解析表一致：`default` / `arrows-only` /
+ * `arrows-all` / `all` / `none`。字形集合逐项对齐 termux `ExtraKeysConstants`——
+ * 同一份配置在两个应用里画出的键栏必须一样，否则「换样式」只是换了个随机外观。
+ */
+enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, ALL, NONE }
 
 /**
  * `extra-keys` 的一个按键。
@@ -412,9 +418,9 @@ internal object TermuxPropertiesParser {
 
                     "arrows-all" -> ExtraKeysStyle.ARROWS_ALL
 
-                    "no-arrows" -> ExtraKeysStyle.NO_ARROWS
+                    "all" -> ExtraKeysStyle.ALL
 
-                    "full" -> ExtraKeysStyle.FULL
+                    "none" -> ExtraKeysStyle.NONE
 
                     else -> {
                         errors += "extra-keys-style: '${values["extra-keys-style"]}' is unknown; using default"

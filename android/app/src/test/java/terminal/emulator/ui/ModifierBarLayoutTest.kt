@@ -90,10 +90,10 @@ class ModifierBarLayoutTest {
     fun `style changes the label but not the test tag`() {
         val layout = listOf(listOf(ExtraKey("UP"), ExtraKey("HOME")))
         val default = buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true)[0]
-        val noArrows = buildExtraKeySlots(layout, ExtraKeysStyle.NO_ARROWS, true)[0]
-        assertEquals(default.map { it.testTag }, noArrows.map { it.testTag })
+        val none = buildExtraKeySlots(layout, ExtraKeysStyle.NONE, true)[0]
+        assertEquals(default.map { it.testTag }, none.map { it.testTag })
         assertEquals("↑", default[0].label)
-        assertEquals("UP", noArrows[0].label)
+        assertEquals("UP", none[0].label)
     }
 
     /** `extra-keys-text-all-caps = false` 时字母保持原样；符号永远不受影响。 */
@@ -105,8 +105,31 @@ class ModifierBarLayoutTest {
         // 有字形的键在两种取值下都一样。
         assertEquals(
             "⇱",
-            buildExtraKeySlots(listOf(listOf(ExtraKey("HOME"))), ExtraKeysStyle.DEFAULT, false)[0][0].label,
+            buildExtraKeySlots(listOf(listOf(ExtraKey("HOME"))), ExtraKeysStyle.ARROWS_ALL, false)[0][0].label,
         )
+    }
+
+    /**
+     * 五档样式是逐级加字形，不是五个随机外观：`default` 只换方向键与最常用的几个，
+     * `arrows-all` 才加 Home/End/PgUp/PgDn，`all` 再加 ESC/CTRL/ALT，`none` 一个都不换。
+     */
+    @Test
+    fun `style glyph sets follow the upstream ladder`() {
+        fun label(name: String, style: ExtraKeysStyle) =
+            buildExtraKeySlots(listOf(listOf(ExtraKey(name))), style, true)[0][0].label
+
+        // default：方向键与常用符号有字形，Home 仍是文字。
+        assertEquals("↑", label("UP", ExtraKeysStyle.DEFAULT))
+        assertEquals("↲", label("ENTER", ExtraKeysStyle.DEFAULT))
+        assertEquals("HOME", label("HOME", ExtraKeysStyle.DEFAULT))
+        // arrows-all：Home/End 也有字形了。
+        assertEquals("⇱", label("HOME", ExtraKeysStyle.ARROWS_ALL))
+        // all：ESC 等换成 ISO 符号。
+        assertEquals("⎋", label("ESC", ExtraKeysStyle.ALL))
+        assertEquals("ESC", label("ESC", ExtraKeysStyle.ARROWS_ALL))
+        // none：全部保持文字。
+        assertEquals("UP", label("UP", ExtraKeysStyle.NONE))
+        assertEquals("ENTER", label("ENTER", ExtraKeysStyle.NONE))
     }
 
     /** popup 随槽位带下去，供长按发送。 */
