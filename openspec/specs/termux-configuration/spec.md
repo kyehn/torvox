@@ -194,10 +194,10 @@ OSC 7 上报在同一次会话里换名字。
 
 ### Requirement: 键盘切换键的两种语义
 
-`soft-keyboard-toggle-behaviour` MUST 支持 `show-hide`（默认，切换当次可见性）与
-`enable-disable`（切换「软键盘是否可用」）。
+`soft-keyboard-toggle-behaviour` MUST 支持 `show/hide`（默认，切换当次可见性）与
+`enable/disable`（切换「软键盘是否可用」）——取值照 termux 上游原样，是斜杠而非连字符。
 
-`enable-disable` 下禁用 MUST 收起正在显示的输入法，且此后的轻点 MUST NOT 拉起输入法
+`enable/disable` 下禁用 MUST 收起正在显示的输入法，且此后的轻点 MUST NOT 拉起输入法
 ——**包括平台在焦点变化时自动弹键盘那条路径**：平台按 `onCheckIsTextEditor` 决定要不要
 自动弹，禁用期间它 MUST 报否，否则轻点里那次 `requestFocus` 就足以把键盘带出来。
 
@@ -208,7 +208,7 @@ OSC 7 上报在同一次会话里换名字。
 
 #### Scenario: 禁用后轻点终端
 
-- **WHEN** `soft-keyboard-toggle-behaviour = enable-disable`，用户按 KEYBOARD 键禁用软键盘
+- **WHEN** `soft-keyboard-toggle-behaviour = enable/disable`，用户按 KEYBOARD 键禁用软键盘
 - **THEN** 正在显示的输入法立即收起；随后轻点终端只结束选区与滚动，不再弹出输入法
 
 #### Scenario: 再按一次恢复
