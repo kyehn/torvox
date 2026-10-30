@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
+import terminal.emulator.util.toLowerHex
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -182,7 +183,7 @@ class BootstrapDownloader(
                                 cachedFile.delete()
                                 return@withContext Result.failure(Exception("Download too small: $total bytes"))
                             }
-                            val actualSha256 = digest?.digest()?.encodeToHex()
+                            val actualSha256 = digest?.digest()?.toLowerHex()
                             if (expectedSha256 != null &&
                                 !expectedSha256.equals(actualSha256, ignoreCase = true)
                             ) {
