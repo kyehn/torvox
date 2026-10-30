@@ -28,9 +28,6 @@ pub(crate) fn pump_sessions() {
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
             }
-            if session.take_bell() {
-                events.push(Event::Bell { session_id });
-            }
             // 退出码就绪才上报（`take_reported_exit` 内部同时锁存「已上报」），后台扫描
             // 分支走同一判定：既保证退出事件恰好一次，也保证报出的是真实退出码。
             if let Some(reported) = session.take_reported_exit() {

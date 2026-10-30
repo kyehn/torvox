@@ -351,17 +351,6 @@ impl super::GhosttyTerminal {
         }) {
             log::error!("ghostty_terminal: on_pty_write callback registration failed: {error}");
         }
-        // 响铃（BEL = 0x07）走上游 `on_bell` 回调：上位解析器自己识别 BEL，
-        // 本仓不必在字节流上再挂一层扫描器——那样还得区分「独立 BEL」与
-        // 「作为 OSC 终止符的 BEL」，正是最容易出错的地方。
-        if let Err(error) = terminal.on_bell({
-            let bell_pending = config.bell_pending.clone();
-            move |_terminal| {
-                bell_pending.store(true, Ordering::Release);
-            }
-        }) {
-            log::error!("ghostty_terminal: on_bell callback registration failed: {error}");
-        }
         // OSC 52 剪贴板写入改走上游回调：序列直达 Ghostty，事件经通道推送、
         // 由调用方在 flush 后收割。本仓不再自建 OSC 解析器；try_send 永不阻塞
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor

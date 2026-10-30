@@ -25,7 +25,6 @@ data class TermuxProperties(
      * 可能拒绝（窗口尚未取得焦点时 `show` 会被丢弃），此时轻点终端即可。
      */
     val hideSoftKeyboardOnStartup: Boolean = true,
-    val bellCharacter: BellCharacter = BellCharacter.VIBRATE,
     val extraKeysTextAllCaps: Boolean = true,
     val terminalMarginHorizontalDp: Int = DEFAULT_MARGIN_HORIZONTAL_DP,
     val terminalMarginVerticalDp: Int = DEFAULT_MARGIN_VERTICAL_DP,
@@ -94,8 +93,6 @@ data class TermuxProperties(
             )
     }
 }
-
-enum class BellCharacter { VIBRATE, BEEP, IGNORE }
 
 /** 终端光标样式；与原生 `TerminalCursorStyle` 的取值一一对应。 */
 enum class TerminalCursorStyle(val nativeValue: Int) {
@@ -384,19 +381,6 @@ internal object TermuxPropertiesParser {
                 fullscreen = boolean("fullscreen", false),
                 ctrlSpaceWorkaround = boolean("ctrl-space-workaround", false),
                 hideSoftKeyboardOnStartup = boolean("hide-soft-keyboard-on-startup", true),
-                bellCharacter =
-                when (choice("bell-character", "vibrate").lowercase()) {
-                    "vibrate" -> BellCharacter.VIBRATE
-
-                    "beep" -> BellCharacter.BEEP
-
-                    "ignore" -> BellCharacter.IGNORE
-
-                    else -> {
-                        errors += "bell-character: '${values["bell-character"]}' is unknown; keeping vibrate"
-                        BellCharacter.VIBRATE
-                    }
-                },
                 extraKeysTextAllCaps = boolean("extra-keys-text-all-caps", true),
                 terminalMarginHorizontalDp = integer("terminal-margin-horizontal", 3, 0..100),
                 terminalMarginVerticalDp = integer("terminal-margin-vertical", 0, 0..100),

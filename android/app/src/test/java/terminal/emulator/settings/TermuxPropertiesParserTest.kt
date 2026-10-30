@@ -60,11 +60,11 @@ class TermuxPropertiesParserTest {
         val loaded = parse(
             """
             fullscreen = yes-please
-            bell-character = beep
+            terminal-transcript-rows = 1000
             """.trimIndent(),
         )
         assertEquals(false, loaded.properties.fullscreen)
-        assertEquals(BellCharacter.BEEP, loaded.properties.bellCharacter)
+        assertEquals(1000, loaded.properties.terminalTranscriptRows)
         assertTrue(
             "非法值必须留下可读的错误: ${loaded.errors}",
             loaded.errors.any { it.contains("fullscreen") },
@@ -169,14 +169,8 @@ class TermuxPropertiesParserTest {
     /** 多字符的快捷键值只禁用该快捷键，不影响其余解析。 */
     @Test
     fun `a multi-character shortcut is disabled and reported`() {
-        val loaded = parse(
-            """
-            shortcut.create-session = ctrl+c
-            bell-character = ignore
-            """.trimIndent(),
-        )
+        val loaded = parse("shortcut.create-session = ctrl+c")
         assertNull(loaded.properties.shortcutCreateSession)
-        assertEquals(BellCharacter.IGNORE, loaded.properties.bellCharacter)
         assertTrue(loaded.errors.any { it.contains("shortcut.create-session") })
     }
 

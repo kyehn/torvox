@@ -413,9 +413,6 @@ constructor(
 
     private val eventDispatcher = EventDispatcher()
 
-    /** 终端响铃（BEL）的落地：震动/提示音/忽略，由 `bell-character` 决定。 */
-    private val bellAlerter = BellAlerter(context)
-
     private val scope = CoroutineScope(SupervisorJob() + terminal.emulator.util.TerminalDispatchers.inputOutput)
 
     private val _state = MutableStateFlow(RuntimeState())
@@ -2188,11 +2185,6 @@ constructor(
                 clipboardAccess.setClipboardText(poll.clipboard)
             }
             dispatchClipboardRequests(poll.clipboardReads)
-            if (poll.bells.isNotEmpty()) {
-                // 字符每次现读外部文件：用户改完 termux.properties 后下一次响铃即生效，
-                // 不必重开会话。多个会话同帧响铃也只提示一次——对用户是同一种提示。
-                bellAlerter.ring(termuxProperties.configuration.value.properties.bellCharacter)
-            }
         }
     }
 
