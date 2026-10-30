@@ -191,6 +191,51 @@ class SettingsRepositoryTest {
     }
 
     @Test
+    fun `failed bootstrap url write does not kill later edits`() {
+        // 回归：`put` 抛异常若逃出 collect，收集器死亡，后续所有编辑静默丢失。
+        // 这条用例让第一次写入失败，第二次必须照常落盘。
+        val durable =
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+            ) {
+                File(prefsDir, "failed_write.preferences_pb")
+            }
+        val gated = mockk<DataStore<Preferences>>()
+        every { gated.data } returns durable.data
+        var failNextWrite = true
+        coEvery { gated.updateData(any()) } coAnswers {
+            if (failNextWrite) {
+                failNextWrite = false
+                throw java.io.IOException("disk full")
+            }
+            durable.updateData(firstArg())
+        }
+        val provider = mockk<SettingsDataStoreProvider>()
+        every { provider.dataStore } returns gated
+        every { provider.screenWidthDp } returns 360f
+        val gatedRepository = SettingsRepository(provider)
+        val firstUrl = "https://example.invalid/first.zip"
+        val secondUrl = "https://example.invalid/second.zip"
+
+        runBlocking {
+            gatedRepository.recordBootstrapUrlEdit(firstUrl)
+            Thread.sleep(800)
+            assertEquals(
+                "失败的写入不得留下半截值",
+                "",
+                gatedRepository.bootstrapUrl.first(),
+            )
+            gatedRepository.recordBootstrapUrlEdit(secondUrl)
+            Thread.sleep(800)
+            assertEquals(
+                "首次写入失败后收集器仍须存活",
+                secondUrl,
+                gatedRepository.bootstrapUrl.first(),
+            )
+        }
+    }
+
+    @Test
     fun `dropped debounce edit never lands, rearmed edit does`() {
         // R16-T6 回归：防抖窗口内（300ms）的编辑若在清除前被丢弃，
         // 绝不能在删除之后落地重建 preferences_pb；清除完成后新编辑照常落盘。
