@@ -1,19 +1,16 @@
 package terminal.emulator.installer
 
 import android.util.Log
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.activeSessionId
 import terminal.emulator.awaitBridge
@@ -37,7 +34,7 @@ import terminal.emulator.waitForSession
  * downloaded nor found pre-staged — an untested install path must not go silently green.
  */
 @RunWith(JUnit4::class)
-class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
+class TermuxBootstrapRealTerminalTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val TAG = "TermuxBootstrapTest"
         private const val ZIP_NAME = "termux-bootstrap-x86_64.zip"
@@ -52,12 +49,6 @@ class TermuxBootstrapRealTerminalTest : TerminalLogcatTest() {
         /** 新增会话到 activeSessionId 切换的等待上限：切换在 IO 协程里，与 Compose 空闲无关。 */
         private const val SESSION_SWITCH_TIMEOUT_MS = 30_000L
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private fun shell(command: String): String {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation

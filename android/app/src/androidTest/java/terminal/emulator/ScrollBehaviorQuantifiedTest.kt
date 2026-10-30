@@ -1,17 +1,14 @@
 package terminal.emulator
 
 import android.os.SystemClock
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.ui.TerminalSurface
@@ -28,7 +25,7 @@ import terminal.emulator.ui.TerminalSurface
  *
  * Every measured value is logged as `UX_METRIC ...` for trend tracking.
  */
-class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
+class ScrollBehaviorQuantifiedTest : ComposeTerminalLogcatTest() {
     companion object {
         /** 洪流行数上限：400 行 × 约 35ms ≈ 14s，远长于手势时长（约 3.5s）。 */
         private const val FLOOD_LINE_LIMIT = 400
@@ -45,12 +42,6 @@ class ScrollBehaviorQuantifiedTest : TerminalLogcatTest() {
          */
         private const val WINDOW_WAIT_TIMEOUT_MS = 60_000L
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private lateinit var device: UiDevice
 

@@ -1,17 +1,13 @@
 package terminal.emulator
 
 import android.os.SystemClock
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -27,12 +23,7 @@ import terminal.emulator.awaitShellPrompt
  * deliberately generous — they exist to catch ORDER-OF-MAGNITUDE regressions, while the logged
  * UX_METRIC samples carry the real trend for human review.
  */
-class ShellResponseLatencyTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class ShellResponseLatencyTest : ComposeTerminalLogcatTest() {
 
     private lateinit var device: UiDevice
 

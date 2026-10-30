@@ -1,17 +1,13 @@
 package terminal.emulator.diag
 
 import android.graphics.Bitmap
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.countBluishPixels
@@ -32,12 +28,7 @@ import terminal.emulator.waitForTerminalPixels
  * 且此后隔离会话在空闲分支恒被判为“会话不一致”而永不重绘，标记永久丢失
  * （实测红/蓝像素恒为 0）。字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑）。
  */
-class SgrColorPixelAcceptanceTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
     private lateinit var device: UiDevice
 

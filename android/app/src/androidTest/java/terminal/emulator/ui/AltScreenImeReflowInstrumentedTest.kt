@@ -1,17 +1,13 @@
 package terminal.emulator.ui
 
 import android.view.WindowInsets
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.NativeBridge
@@ -32,7 +28,7 @@ import terminal.emulator.waitForTerminalPixels
  * 高度、导航条高度、Surface 高度与单元格高按网格公式独立算出——不是复述被测函数。
  */
 @RunWith(JUnit4::class)
-class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
+class AltScreenImeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val IME_TIMEOUT_MS = 10_000L
         private const val GRID_TIMEOUT_MS = 20_000L
@@ -44,12 +40,6 @@ class AltScreenImeReflowInstrumentedTest : TerminalLogcatTest() {
         /** 离开备用屏：DECRST 1049。 */
         private const val LEAVE_ALT_SCREEN = "\u001B[?1049l"
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     /** 活动会话 sessionId：备用屏开关必须作用在**当前可见**的会话上，故不用临时会话。 */
     private fun sessionId(): Long {

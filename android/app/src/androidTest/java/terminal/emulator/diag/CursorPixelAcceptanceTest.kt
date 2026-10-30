@@ -1,17 +1,13 @@
 package terminal.emulator.diag
 
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.cleanUpTerminalState
@@ -33,12 +29,7 @@ import terminal.emulator.waitForTerminalPixels
  * 清屏后把光标移到**空行**再下移一行，原格必为纯背景，亮度不降即唯一地
  * 只能是残留块。
  */
-class CursorPixelAcceptanceTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class CursorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
     private lateinit var device: UiDevice
 

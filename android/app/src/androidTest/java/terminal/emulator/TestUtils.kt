@@ -522,7 +522,7 @@ fun AndroidComposeTestRule<*, *>.waitForSettingsScreen(timeoutMs: Long = 60_000)
  *
  * 缩放系数须与运行时同口径（`TerminalRuntime.spToPxScale` = 密度 × 系统字体缩放，
  * 亦即推给原生 `setRasterScale` 的值）：渲染的四边形尺寸是 `cell_metrics × raster_scale`
- * （`native/src/render/pass.rs`），只乘密度会在系统字体缩放 ≠ 1 时与渲染相差
+ * （`native/src/render/pass/mod.rs`），只乘密度会在系统字体缩放 ≠ 1 时与渲染相差
  * 一个 fontScale 倍，触摸数学随之错位。
  */
 fun terminalCellSizePx(activity: Activity, bridge: Bridge): Pair<Float, Float> {

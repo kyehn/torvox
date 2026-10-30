@@ -145,12 +145,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 每个 detach 一份，整套仪器用例跑下来累积成百个悬空窗口与输入通道。
         selectionHandles.hideSelectionHandles()
         hideSelectionMenu("detach", restoreHandles = false)
-        try {
-            magnifier?.dismiss()
-        } catch (exception: Exception) {
-            LogUtil.warn(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
-        }
-        magnifier = null
+        dismissMagnifier("onDetachedFromWindow")
         // 停止 PtyWriter 发送线程：视图正在被销毁（Activity 重建、返回键），
         // 而新的 TerminalSurface 会构建新的 InputBatchBuffer。
         // 不做此步，每次重建都会泄漏一个守护线程，它经 sink 闭包钉住整条视图链。
@@ -503,7 +498,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cellWidthPixels, cellHeightPixels)
         val density = resources.displayMetrics.density
         val densityPixels = { value: Int -> (value * density + HALF_PIXEL_OFFSET).toInt() }
-        // PopupWindow 在显示时才测量，故用粗略估算（项数 × ~92dp）并钳位到 Surface。
+        // PopupWindow 在显示时才测量，故用固定估算宽度（[MENU_ESTIMATED_WIDTH_DP]，
+        // 覆盖选区菜单的项数上限）并钳位到 Surface。
         val estimatedWidth = width.coerceAtMost(densityPixels(MENU_ESTIMATED_WIDTH_DP))
         val menuHeight = densityPixels(MENU_HEIGHT_DP)
         return menuAnchor(
@@ -1526,16 +1522,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (popup == null) return
             try {
                 popup.dismiss()
+                return
             } catch (exception: Exception) {
                 LogUtil.warn(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
             }
+            // 仅作兜底：dismiss 成功时 contentView 已被摘出 WindowManager，此时再
+            // removeViewImmediate 必然抛 IllegalArgumentException。原先无条件执行它，
+            // 于是**正常路径每次都抛一次异常**，而 catch 是空的——一次真实的窗口拆除
+            // 失败与「本就无需拆除」在日志里完全无法区分（禁止空 catch / 不隐藏错误）。
             try {
                 val windowManager =
                     context.getSystemService(android.content.Context.WINDOW_SERVICE)
                         as android.view.WindowManager
                 windowManager.removeViewImmediate(popup.contentView)
-            } catch (_: Exception) {
-                // 已被 dismiss 移除——无害忽略。
+            } catch (exception: Exception) {
+                LogUtil.warn(TAG, "dismissPopupQuietly: forced remove failed", exception)
             }
         }
 
@@ -1722,6 +1723,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val MENU_ITEM_VERTICAL_PADDING_DP = 12
         private const val MENU_ESTIMATED_WIDTH_DP = 184
         private const val MENU_HEIGHT_DP = 44
+        /** 从屏幕边缘起算的抽屉手势宽度（dp）。 */
+        private const val DRAWER_EDGE_GESTURE_DP = 32
         private const val HALF_PIXEL_OFFSET = 0.5f
 
         private const val ZOOM_THRESHOLD_LOW = 0.9f
@@ -1789,6 +1792,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
+    @Volatile
     private var viewModel: TerminalViewModel? = null
 
     /** 绑定宿主视图模型：Surface 回调内的全部运行期调用经此进入。 */
@@ -1879,6 +1883,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     private var magnifier: Magnifier? = null
+
+    /**
+     * 收起放大镜并丢弃引用。
+     *
+     * `Magnifier` 是系统窗口级组件：只 `show()` 不 `dismiss()` 会让它常驻屏幕，
+     * 直到本视图 detach。收起的调用点因此必须与显示点**成对**——见
+     * [startWordSelectionAt] 与鼠标右键分支。
+     */
+    private fun dismissMagnifier(reason: String) {
+        try {
+            magnifier?.dismiss()
+        } catch (exception: Exception) {
+            LogUtil.warn(TAG, "magnifier dismiss failed ($reason, non-critical)", exception)
+        }
+        magnifier = null
+    }
+
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
     private var pendingSurfaceResize: Runnable? = null
@@ -2118,11 +2139,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     private fun forceResumeRendering() {
         cancelDebounceHolds()
-        // 立刻恢复渲染：本函数的所有调用点都刚拿到可用 Surface，故作废生命周期持有
-        // （Surface 销毁、切后台）而不只是自己的——残留持有会让后续领用永远发不出
-        // 暂停。是否真的恢复由账本计数决定（设置页仍在展示时计数非零，仍保持暂停）：
-        // 那是界面层的独立意图，终端视图在设置覆盖层之下仍会收到尺寸变化。
-        viewModel?.runtime?.clearLifecycleRenderPause()
+        // 立刻恢复渲染：本函数的所有调用点都刚把可用 Surface 挂上原生，故「Surface
+        // 销毁」那次暂停已由挂载门闸解除；此处再归还切后台那次——残留持有会让后续
+        // 领用永远发不出暂停。是否真的恢复由账本计数决定（设置页仍在展示时计数非零，
+        // 仍保持暂停）：那是界面层的独立意图，终端视图在设置覆盖层之下仍会收到尺寸变化。
+        viewModel?.runtime?.resumeRenderingFromBackground()
     }
 
     /**
@@ -2171,7 +2192,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // ModalNavigationDrawer 的遮罩轻击会关闭抽屉，
                 // 但在关闭动画期间该轻击可能穿透到 TerminalSurface
                 // ——终端轻击会清除选区，故关闭抽屉会静默抹掉活跃的文本选区。
-                // 在抽屉关闭动画时长（300ms）内抑制「轻击清除」，
+                // 在抽屉关闭动画时长（[DRAWER_CLOSE_TAP_GRACE_NANOS]）内抑制「轻击清除」，
                 // 使选区能存活抽屉自身的关闭手势。
                 armInputSuppression(DRAWER_CLOSE_TAP_GRACE_NANOS)
             }
@@ -2243,9 +2264,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var pendingUnpauseRunnable: Runnable? = null
 
     /** 当前安装 [Bridge.ptyWriteQueue] 的那条 bridge；detach 时据此只摘自己的一份。 */
+    @Volatile
     private var ptyWriteQueueBridge: Bridge? = null
 
     /** 本视图写入该 Bridge 的具体闭包；用于区分新视图已接管的钩子。 */
+    @Volatile
     private var ptyWriteQueueBinding: ((Long, ByteArray) -> Unit)? = null
 
     /**
@@ -3134,10 +3157,19 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // 此时归还，否则账本里永远留着它，此后任何 acquire 都发不出暂停。
                 viewModel.runtime.resumeRenderingFromBackground()
                 val surface = holder.surface
-                // Surface 就绪后按常规路径恢复：清掉 Surface 销毁那次暂停、重启渲染
-                // 线程并出一帧探针。Surface 仍无效时留待下一次 surfaceChanged/resize。
-                if (surface.isValid && width > 0 && height > 0) {
-                    viewModel.runtime.clearSurfaceDestroyedRenderPause()
+                // Surface 就绪后按常规路径恢复：重启渲染线程并出一帧探针。
+                // Surface 仍无效时留待下一次 surfaceChanged/resize。
+                //
+                // 新窗口尚未挂上原生时 MUST NOT 恢复：平台已废弃旧 Surface 的
+                // BufferQueue，此刻恢复会让渲染线程在废弃队列上取帧
+                // （ERROR_SURFACE_LOST_KHR，返回后永久黑屏）。那次暂停由门闸
+                // 持有，等 surfaceCreated 挂上新窗口再解除。
+                if (
+                    surface.isValid &&
+                    width > 0 &&
+                    height > 0 &&
+                    !viewModel.runtime.isAwaitingSurfaceAttach
+                ) {
                     viewModel.runtime.resumeRendering()
                     viewModel.runtime.forceRender()
                 }
@@ -3443,7 +3475,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 边缘触摸始终属于抽屉手势。抽屉打开时，Surface 必须把全部触摸让给
         // 遮罩（其关闭手势），否则 DOWN 上的 requestDisallowIntercept
         // 会抢走事件流，抽屉将永远无法关闭。
-        val drawerEdgePixels = (32 * resources.displayMetrics.density).toInt()
+        val drawerEdgePixels =
+            (DRAWER_EDGE_GESTURE_DP * resources.displayMetrics.density).toInt()
         if (drawerOpen || event.x < drawerEdgePixels) {
             return false
         }
@@ -3497,9 +3530,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
             when {
                 event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> {
-                    if (event.action == MotionEvent.ACTION_DOWN) {
-                        viewModel?.clearSelection()
-                        startWordSelectionAt(event)
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            viewModel?.clearSelection()
+                            startWordSelectionAt(event)
+                        }
+                        // 本分支对 DOWN 之外的动作也 `return true`，走不到手势收尾处的
+                        // dismiss——而放大镜正是 DOWN 这里弹出的（startWordSelectionAt）。
+                        // 不在此配对收起，右键选词后放大镜会常驻到视图 detach。
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            dismissMagnifier("secondary button release")
+                        }
                     }
                     return true
                 }
@@ -3616,12 +3657,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 handleDragState = HandleDrag.NONE
                 dragPointerId = null
                 invalidateWideCharTailCache()
-                try {
-                    magnifier?.dismiss()
-                } catch (exception: Exception) {
-                    LogUtil.warn(TAG, "magnifier dismiss failed (non-critical)", exception)
-                }
-                magnifier = null
+                dismissMagnifier("gesture end")
                 scaleFactor = 1.0f
             }
         }
@@ -3711,15 +3747,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // ══════════════════════════════════════════════════════════════════════
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        // 先认领归属：此后本视图才是唯一有权暂停渲染的那个，旧视图迟到的
+        // `surfaceDestroyed` 据此被识别为陈旧（见 `TerminalRuntime.onSurfaceDestroyed`）。
+        //
+        // MUST 在任何提前返回之前认领：认领被跳过时，旧视图迟到的销毁仍被当作当前
+        // 持有者处理——它会清空待绑定的 Surface 并领走一次渲染暂停，而新窗口的绑定
+        // 已经发生（此后再无 attach 可归还那次暂停）：终端停在空白画面，渲染线程
+        // 无错、无重启、无自愈。
+        viewModel?.runtime?.onSurfaceClaimed(surfaceOwnershipToken)
         // 0 尺寸守卫：布局可能在视图测量完成前就调用 surfaceCreated
         // （宽高为 0）——绑定 0×0 的 ANativeWindow 会创建一个
         // acquireNextImage 失败的黑色交换链（一闪而过）。推迟到 surfaceChanged 拿到真实尺寸。
         if (width <= 0 || height <= 0) return
         val surface = holder.surface
         if (!surface.isValid) return
-        // 先认领归属：此后本视图才是唯一有权暂停渲染的那个，旧视图迟到的
-        // `surfaceDestroyed` 据此被识别为陈旧（见 `TerminalRuntime.onSurfaceDestroyed`）。
-        viewModel?.runtime?.onSurfaceClaimed(surfaceOwnershipToken)
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         viewModel?.let { terminalViewModel ->

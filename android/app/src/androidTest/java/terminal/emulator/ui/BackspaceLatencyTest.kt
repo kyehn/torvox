@@ -3,15 +3,12 @@ package terminal.emulator.ui
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -38,8 +35,7 @@ import terminal.emulator.waitForSession
  * 都是一条 0x7F，故两者的上屏耗时必须同量级。这条不变式比任何绝对毫秒预算都稳，
  * 也让「中文退格比英文慢」这类回归无处藏身。
  */
-class BackspaceLatencyTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class BackspaceLatencyTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 末四位是汉字：逐次退格各删一个码点。 */

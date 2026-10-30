@@ -3,15 +3,12 @@ package terminal.emulator.ui
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.util.Base64
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.bridge.Bridge
@@ -40,8 +37,7 @@ import java.io.File
  * 2. Unicode 占位符：占位单元处必须出现图像像素，且落在该单元的格子里
  *    （缺陷 2 的判据）。
  */
-class KittyGraphicsPlacementTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 注入图像的边长（像素）。 */

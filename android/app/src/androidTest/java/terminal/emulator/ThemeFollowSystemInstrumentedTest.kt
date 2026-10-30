@@ -3,13 +3,10 @@ package terminal.emulator
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.test.rule.GrantPermissionRule
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.ui.theme.AppThemeMode
 import terminal.emulator.ui.theme.TerminalThemeMode
@@ -33,12 +30,7 @@ import terminal.emulator.ui.theme.ThemeRepository
  * （两者底色相差极大，颜色扫描不会混淆）。系统夜览模式由 shell 切换：仪器化进程
  * 没有改系统设置的权限。
  */
-class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
 
     private companion object {
         /** 底色命中像素的下限：终端内容区整片都是底色，命中上千即说明整屏已换色。 */
@@ -53,6 +45,12 @@ class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
 
     private var originalNightMode = "no"
     private var originalSettings: terminal.emulator.settings.SettingsRepository.SettingsState? = null
+
+    /** 最近一次底色等待里命中的最多像素数；失败时进断言信息。 */
+    private var bestPixelCount = 0
+
+    /** 最近一次底色等待里读回失败的次数；失败时进断言信息。 */
+    private var captureFailures = 0
 
     @Before
     fun setUp() {
@@ -115,11 +113,17 @@ class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
         val nightBackground = ThemeRepository.byName(ThemeRepository.defaultDarkName()).background.toArgb()
 
         val dayShot = awaitBackground(dayBackground, "day")
-        assertNotNull("日间主题底色没有出现在终端 Surface 上", dayShot)
+        assertNotNull(
+            "日间主题底色没有出现在终端 Surface 上（命中 $bestPixelCount 像素，读回失败 $captureFailures 次）",
+            dayShot,
+        )
 
         setNightMode("yes", Configuration.UI_MODE_NIGHT_YES)
         val nightShot = awaitBackground(nightBackground, "night")
-        assertNotNull("系统切到夜间后，终端底色仍不是夜间主题底色", nightShot)
+        assertNotNull(
+            "系统切到夜间后，终端底色仍不是夜间主题底色（命中 $bestPixelCount 像素，读回失败 $captureFailures 次）",
+            nightShot,
+        )
 
         val dayRemainder = UxTestUtils.matchColor(checkNotNull(nightShot), dayBackground).count
         UxTestUtils.metric("theme_day_pixels_after_night", dayRemainder.toLong())
@@ -128,7 +132,10 @@ class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
         // 再切回日间：单程切换通过不等于往返都通过（原生侧可能只认第一次换主题）。
         setNightMode("no", Configuration.UI_MODE_NIGHT_NO)
         val backShot = awaitBackground(dayBackground, "day_back")
-        assertNotNull("系统切回日间后，终端底色仍不是日间主题底色", backShot)
+        assertNotNull(
+            "系统切回日间后，终端底色仍不是日间主题底色（命中 $bestPixelCount 像素，读回失败 $captureFailures 次）",
+            backShot,
+        )
     }
 
     /**
@@ -137,28 +144,44 @@ class ThemeFollowSystemInstrumentedTest : TerminalLogcatTest() {
      * 读回很慢（软件渲染设备上一次整屏合成几百毫秒），故按固定节奏取，
      * 不用它做高频轮询——否则量具本身就把渲染循环按住了。
      *
+     * 诊断量记在 [bestPixelCount] 与 [captureFailures]：命中 0 像素且读回不失败
+     * 即「画面在但不是这个底色」，读回一直失败即「Surface 上根本没有画面」——
+     * 两者的根因完全不同，断言信息里必须能分开。
+     *
      * [metricLabel] 是计量的名字段（ASCII）：logcat 里的计量名要能直接 grep。
      */
     private fun awaitBackground(color: Int, metricLabel: String): Bitmap? {
-        val surface = UxTestUtils.terminalSurface(composeTestRule.activity) ?: return null
         var shot: Bitmap? = null
+        bestPixelCount = 0
+        captureFailures = 0
         UxTestUtils.pollUntilTrue(timeoutMs = THEME_SWITCH_TIMEOUT_MS, intervalMs = 400) {
-            val captured = UxTestUtils.captureSurface(surface)
-            if (captured != null && UxTestUtils.matchColor(captured, color).count >= BACKGROUND_PIXEL_FLOOR) {
-                shot = captured
-                true
-            } else {
-                false
+            // 每轮重新解析视图：Activity 重建后旧的 SurfaceView 引用已失效，
+            // 对着失效视图做 PixelCopy 只会一直失败，而视图本身并未出错。
+            val surface = UxTestUtils.terminalSurface(composeTestRule.activity)
+            if (surface == null) {
+                captureFailures++
+                return@pollUntilTrue false
             }
+            val captured = UxTestUtils.captureSurface(surface)
+            if (captured == null) {
+                captureFailures++
+                return@pollUntilTrue false
+            }
+            val matched = UxTestUtils.matchColor(captured, color).count
+            if (matched > bestPixelCount) bestPixelCount = matched
+            if (matched < BACKGROUND_PIXEL_FLOOR) return@pollUntilTrue false
+            shot = captured
+            true
         }
         UxTestUtils.metric(
             "theme_${metricLabel}_pixels",
             (
                 shot?.let {
                     UxTestUtils.matchColor(it, color).count
-                } ?: 0
+                } ?: bestPixelCount
                 ).toLong(),
         )
+        UxTestUtils.metric("theme_${metricLabel}_capture_failures", captureFailures.toLong())
         return shot
     }
 

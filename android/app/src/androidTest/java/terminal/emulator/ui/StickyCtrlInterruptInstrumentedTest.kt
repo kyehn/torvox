@@ -1,18 +1,14 @@
 package terminal.emulator.ui
 
 import android.view.KeyEvent
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -28,16 +24,10 @@ import terminal.emulator.waitForSession
  * sleep 中断 → echo rc=$? 必须 130（128+SIGINT）。证明折叠出的是真实 ^C。
  */
 @RunWith(JUnit4::class)
-class StickyCtrlInterruptInstrumentedTest : TerminalLogcatTest() {
+class StickyCtrlInterruptInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 20_000L
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
     fun stickyCtrlPlusCInterruptsRunningCommand() {

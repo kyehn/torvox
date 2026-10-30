@@ -1,17 +1,14 @@
 package terminal.emulator.ui
 
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.runtime.coerceSpToPxScale
@@ -32,12 +29,7 @@ import terminal.emulator.waitForSession
  * 自己刚推送的 `appliedFontSizeSp()`——后者对本次缺陷完全无感（见 [applyAndAwait]）。
  */
 @RunWith(JUnit4::class)
-class FontSizeReflowInstrumentedTest : TerminalLogcatTest() {
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+class FontSizeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
 
     /** 设备宽度（dp）：字体缺省字号按它自适应，恢复设置时必须用同一口径。 */
     private val widthDp: Float by lazy {

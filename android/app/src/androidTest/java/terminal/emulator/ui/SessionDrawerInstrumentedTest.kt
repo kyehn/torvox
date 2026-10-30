@@ -2,23 +2,19 @@ package terminal.emulator.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.test.rule.GrantPermissionRule
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.R
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.activeSessionId
 import terminal.emulator.awaitBridge
@@ -39,18 +35,12 @@ import terminal.emulator.waitForSession
  * 关闭当前会话回落到剩余会话。切换走 UI（抽屉项点击），内容隔离走网格断言。
  */
 @RunWith(JUnit4::class)
-class SessionDrawerInstrumentedTest : TerminalLogcatTest() {
+class SessionDrawerInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         // 状态轮询上限：CI 软件渲染过载时切换含渲染线程启停，10s 在满载套件下不够。
         private const val STATE_TIMEOUT_MS = 30_000L
         private const val GRID_TIMEOUT_MS = 15_000L
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Before
     fun setUp() {

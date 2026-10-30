@@ -4,7 +4,6 @@ package terminal.emulator
 import android.view.View
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -12,65 +11,54 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
-class BehaviorVerificationTest : TerminalLogcatTest() {
-    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
-    // the system dialog would cover the UI and break node lookups.
-    @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
-
+class BehaviorVerificationTest : ComposeTerminalLogcatTest() {
     private lateinit var device: UiDevice
 
     @After
-    fun resetScreen() = composeRule.closeSettingsOverlay()
+    fun resetScreen() = composeTestRule.closeSettingsOverlay()
 
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeRule.waitForIdle()
+        composeTestRule.waitForIdle()
     }
 
     private fun openSessionDrawer() {
-        composeRule.onNodeWithTag("Key_DRAWER").performClick()
+        composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         device.waitForIdle(2000)
     }
 
     private fun openSettings() {
         openSessionDrawer()
-        composeRule.onNodeWithText("设置").performClick()
+        composeTestRule.onNodeWithText("设置").performClick()
         device.waitForIdle(2000)
     }
 
     private fun scrollToNode(tag: String) {
-        composeRule
+        composeTestRule
             .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = false)
             .performScrollToNode(hasTestTag(tag))
     }
 
     @Test
     fun terminal_view_displayed_on_launch() {
-        composeRule.waitForSession()
-        composeRule.onNodeWithTag("TerminalScreen", useUnmergedTree = false).assertIsDisplayed()
+        composeTestRule.waitForSession()
+        composeTestRule.onNodeWithTag("TerminalScreen", useUnmergedTree = false).assertIsDisplayed()
     }
 
     @Test
     fun terminal_view_positive_dimensions() {
-        composeRule.activityRule.scenario.onActivity { activity ->
+        composeTestRule.activityRule.scenario.onActivity { activity ->
             val content = activity.findViewById<View>(android.R.id.content)
             assertTrue("Width > 0", content.width > 0)
             assertTrue("Height > 0", content.height > 0)
@@ -79,30 +67,30 @@ class BehaviorVerificationTest : TerminalLogcatTest() {
 
     @Test
     fun session_drawer_opens_and_shows_session_list() {
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         openSessionDrawer()
-        composeRule.onNodeWithTag("SessionDrawer").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("SessionDrawer").assertIsDisplayed()
     }
 
     @Test
     fun session_drawer_close_on_back_press() {
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         openSessionDrawer()
         // The drawer must actually be open, otherwise BACK would finish the
         // activity instead of collapsing the drawer (which surfaces as the
         // misleading "No compose hierarchies" error downstream).
-        composeRule.onNodeWithTag("SessionDrawer").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("SessionDrawer").assertIsDisplayed()
         device.waitForIdle(1000)
         device.pressBack()
         device.waitForIdle(1000)
-        composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
     }
 
     @Test
     fun session_drawer_add_session_button_exists() {
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         openSessionDrawer()
-        composeRule.onNodeWithTag("AddSessionButton").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("AddSessionButton").assertIsDisplayed()
     }
 
     @Test
@@ -110,28 +98,28 @@ class BehaviorVerificationTest : TerminalLogcatTest() {
         openSettings()
 
         scrollToNode("FontSizeSlider")
-        composeRule.onNodeWithTag("FontSizeSlider", useUnmergedTree = false).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("FontSizeSlider", useUnmergedTree = false).assertIsDisplayed()
         scrollToNode("AppThemeSelector")
-        composeRule.onNodeWithTag("AppThemeSelector", useUnmergedTree = false).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("AppThemeSelector", useUnmergedTree = false).assertIsDisplayed()
         scrollToNode("TerminalThemeModeSelector")
-        composeRule
+        composeTestRule
             .onNodeWithTag("TerminalThemeModeSelector", useUnmergedTree = false)
             .assertIsDisplayed()
     }
 
     @Test
     fun settings_back_navigates_to_terminal() {
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         openSessionDrawer()
-        composeRule.onNodeWithText("设置").performClick()
+        composeTestRule.onNodeWithText("设置").performClick()
         device.waitForIdle(2000)
 
-        composeRule.onNodeWithTag("SettingsScreen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("SettingsScreen").assertIsDisplayed()
 
-        composeRule.activityRule.scenario.recreate()
+        composeTestRule.activityRule.scenario.recreate()
         device.waitForIdle(3000)
 
-        composeRule.onNodeWithTag("ModifierBar").assertExists()
+        composeTestRule.onNodeWithTag("ModifierBar").assertExists()
     }
 
     @Test
@@ -140,42 +128,42 @@ class BehaviorVerificationTest : TerminalLogcatTest() {
         scrollToNode("ThemeSelector")
         // themeMode=follow_system renders two theme selector rows (Day and
         // Night previews) — assert on the first of them.
-        composeRule.onAllNodes(hasTestTag("ThemeSelector")).onFirst().assertIsDisplayed()
+        composeTestRule.onAllNodes(hasTestTag("ThemeSelector")).onFirst().assertIsDisplayed()
     }
 
     @Test
     fun app_theme_day_night_buttons_displayed() {
         openSettings()
         scrollToNode("AppThemeSelector")
-        composeRule.onNodeWithTag("AppTheme_day").assertIsDisplayed()
-        composeRule.onNodeWithTag("AppTheme_night").assertIsDisplayed()
-        composeRule.onNodeWithTag("AppTheme_follow_system").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("AppTheme_day").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("AppTheme_night").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("AppTheme_follow_system").assertIsDisplayed()
     }
 
     @Test
     fun app_survives_multiple_pause_resume() {
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         for (i in 1..3) {
-            composeRule.activityRule.scenario.recreate()
+            composeTestRule.activityRule.scenario.recreate()
             device.waitForIdle(1000)
         }
         device.waitForIdle(2000)
-        composeRule.onNodeWithTag("TerminalScreen", useUnmergedTree = false).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("TerminalScreen", useUnmergedTree = false).assertIsDisplayed()
     }
 
     @Test
     fun keyboard_icon_displays_on_modifier_bar() {
-        composeRule.waitForSession()
-        composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
-        composeRule.onNodeWithText("ESC").assertIsDisplayed()
+        composeTestRule.waitForSession()
+        composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
+        composeTestRule.onNodeWithText("ESC").assertIsDisplayed()
     }
 
     @Test
     fun all_modifier_bar_keys_displayed() {
-        composeRule.waitForSession()
+        composeTestRule.waitForSession()
         val expectedKeys = listOf("ESC", "TAB", "CTRL", "ALT", "HOME", "END", "PGUP", "PGDN")
         for (key in expectedKeys) {
-            composeRule.onNodeWithText(key).assertIsDisplayed()
+            composeTestRule.onNodeWithText(key).assertIsDisplayed()
         }
     }
 }

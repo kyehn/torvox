@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.view.Surface
+import androidx.annotation.MainThread
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import terminal.emulator.BuildConfig
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
@@ -34,9 +36,11 @@ import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.BUTTON_HEIGHT_DP
 import terminal.emulator.ui.RenderPauseLedger
+import terminal.emulator.ui.SurfaceAttachGate
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
+import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -897,7 +901,6 @@ constructor(
             entry.closing = true
             entry.running = false
         }
-        // LogUtil.error 已写入 logcat，不重复输出。
         LogUtil.error("Runtime", "session ${entry.sessionId} exceeded max restart attempts, closing session")
         entry.closeBridgeUnlessRenderThreadAlive("restart limit exceeded")
         synchronized(sessionLock) {
@@ -2220,8 +2223,9 @@ constructor(
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
-        private const val RENDER_MAX_TRANSIENT_ERRORS =
-            50 // 约 2.5s 瞬时错误后退出线程
+        // 瞬时错误的日志节流间隔（每 N 次连续错误记一行）。渲染线程不按错误数退出：
+        // 旋转/切应用的 Surface 中断会连续报错，退出即永久卡死（见渲染循环注释）。
+        private const val RENDER_MAX_TRANSIENT_ERRORS = 50
         private const val RENDER_ERROR_SLEEP_MS = 50L
         private const val RENDER_ERROR_BACKOFF_MS =
             200L // 连续 10 次瞬时错误后延长睡眠
@@ -2398,7 +2402,7 @@ constructor(
      * 读原生单元格度量并按光栅缩放换算成物理像素，随后发布。
      *
      * 与渲染器同口径：渲染的四边形尺寸是 `cell_metrics × raster_scale`
-     * （native/render/pass.rs），而 `raster_scale` 就是 spToPxScale。
+     * （native/src/render/pass/mod.rs），而 `raster_scale` 就是 spToPxScale。
      * 只乘 density 会在系统字体缩放 ≠ 1 时与渲染相差一个 fontScale 倍，
      * 触摸命中与网格计算随之错位。0 值（原生尚未就绪或桩实现）保留旧值。
      *
@@ -2496,16 +2500,21 @@ constructor(
     }
 
     suspend fun start(surface: Surface?, width: Int, height: Int) {
+        // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
+        //
+        // MUST 早于下面的「已在启动中」早退：启动进行中时视图可能被重建，新 Surface
+        // 只经这条路径抵达运行期。早退时不记下它，正在进行的启动在 attachPendingSurface
+        // 处读到的仍是旧（已销毁）Surface 或 null——绑定要么落空，要么绑到死窗口，
+        // 终端从此没有画面：渲染循环健康、零异常，直到下一次 Surface 重建才自愈。
+        if (surface != null) {
+            pendingSurface = PendingSurface(surface, width, height)
+        }
         synchronized(sessionLock) {
             if (sessions.isNotEmpty() || starting) return
             starting = true
         }
         // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
-        // 记住 startRuntime 传入的 Surface，待会话 bridge 就绪后由渲染器绑定。
-        if (surface != null) {
-            pendingSurface = PendingSurface(surface, width, height)
-        }
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
             // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
@@ -2648,7 +2657,12 @@ constructor(
             // 可能已在此期间被销毁（旋转、分屏）；其 ANativeWindow 指针已悬空。
             // 在其上 spawn 会渲染到已死的窗口（黑屏/挂起）。中止，
             // 让下一次 surface-available 事件用新的 Surface 重试 start()。
-            if (surface != null && !surface.isValid) {
+            //
+            // 判据取**登记处里的最新一张**而非 start() 的入参：启动期间视图可能换过
+            // Surface，入参那张早已作废，而登记处那张才是要绑定的窗口——拿作废的那张
+            // 去判死会让整条启动白白中止，终端直到下一次 Surface 事件才有画面。
+            val surfaceToBind = pendingSurface?.surface ?: surface
+            if (surfaceToBind != null && !surfaceToBind.isValid) {
                 LogUtil.error(
                     "Runtime",
                     "start(): surface became invalid during bootstrap, aborting (will retry on next surface)",
@@ -2671,7 +2685,16 @@ constructor(
                 return
             }
 
-            val spawn = spawnTerminalTimed(bridge, config, "start", width, height)
+            // 网格尺寸取登记处里的最新一张：启动期间视图可能换过 Surface，
+            // 入参那套尺寸属于旧窗口，据此 spawn 出的 PTY 初始 winsize 会偏。
+            val spawn =
+                spawnTerminalTimed(
+                    bridge,
+                    config,
+                    "start",
+                    pendingSurface?.width ?: width,
+                    pendingSurface?.height ?: height,
+                )
             LogUtil.debug(
                 "Runtime",
                 "spawnTerminal: result=${spawn.sessionId}",
@@ -2746,7 +2769,15 @@ constructor(
             // 的做法会导致互斥量饿死——守护线程会获取 surface Mutex 并挂起，
             // 永久阻塞真正的渲染线程。改为经 forceRenderRequested 信号渲染循环产出首帧，
             // 由真正的渲染线程启动后取走。
-            attachPendingSurface(bridge)
+            if (!attachPendingSurface(bridge) && surface != null) {
+                // 有 Surface 却绑不上：视图在启动期间被重建，而新 Surface 尚未送达
+                // （或送达时已失效）。会话活着却没有画面——终端空白、渲染线程却
+                // 无错、无重启、无自愈。记错误使这一形态在 logcat 里可见。
+                LogUtil.error(
+                    "Runtime",
+                    "start: session ${startedEntry.sessionId} has no surface to bind; terminal stays blank",
+                )
+            }
             // 带网格尺寸的首次 resize 必须在 spawn 之后立即发出
             // ——attachPendingSurface → recomputeGridFromFontMetrics 会做这件事；
             // 在 spawn 序列中锚定网格尺寸以便验证。
@@ -3884,7 +3915,11 @@ constructor(
     /**
      * 把 Android Surface 交给渲染器。若会话 bridge 尚不存在（spawn 进行中），
      * 则保留为待绑定，会话启动后立即绑定。
+     *
+     * **仅限主线程调用**：末尾解除挂载门闸，而门闸与渲染暂停账本都只在主线程被
+     * 调用（账本非线程安全）。
      */
+    @MainThread
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
         // 只有**换了 Surface 实例**才算新的开孔：同一 Surface 的尺寸变化
         // （旋转、输入法重排）交换链里仍有上一帧，此时盖底色会闪一下。
@@ -3893,23 +3928,41 @@ constructor(
             publishSurfaceBufferPresent(false)
         }
         pendingSurface = PendingSurface(surface, width, height)
-        sessions[activeSessionId]?.bridge?.attachSurface(surface, width, height)
+        val bridge = sessions[activeSessionId]?.bridge ?: return
+        bridge.attachSurface(surface, width, height)
+        // 新窗口已挂上原生：此刻才可解除「Surface 销毁」那次暂停。
+        surfaceAttachGate.onSurfaceAttached()
     }
 
     /** 最近一次交给渲染器的 Surface 实例，用于区分「新开孔」与「同一开孔改尺寸」。 */
     private var attachedSurface: android.view.Surface? = null
 
-    private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
+    /**
+     * 把待绑定的 Surface 交给刚建好的 bridge。
+     *
+     * 返回是否真的绑上了：绑不上即会话没有画面（终端空白），调用方据此记错误——
+     * 这一形态在 logcat 里若无痕迹就只能靠人复现。
+     */
+    private suspend fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge): Boolean {
         // 一次取出三元组：读两次之间可能有并发移交，尺寸必须与该 Surface 同源。
-        val pending = pendingSurface ?: return
+        val pending = pendingSurface ?: return false
         // bridge spawn 期间持有者可能已被销毁
         // （onSurfaceDestroyed 会清空该字段，但竞争的读取仍可能
         // 观察到陈旧值）——绝不绑定已死的 Surface。
         if (!pending.surface.isValid) {
             pendingSurface = null
-            return
+            return false
         }
         bridge.attachSurface(pending.surface, pending.width, pending.height)
+        // 新窗口已挂上原生：此刻才可解除「Surface 销毁」那次暂停。
+        //
+        // 解除 MUST 落在主线程：本函数跑在启动序列的 IO 调度器上，而门闸与渲染
+        // 暂停账本都只在主线程被调用（账本非线程安全：持有集合与去重都是普通
+        // 可变状态）。后台线程归还会与主线程的领用交错，计数会算错——多归一次
+        // 会提前放开别人还在等的暂停，少归一次则让渲染永远停在暂停态。
+        withContext(TerminalDispatchers.main) {
+            surfaceAttachGate.onSurfaceAttached()
+        }
         // 网格必须以真实 Surface 为准匹配字体单元格度量。
         // attachSurface 使 Surface 尺寸成为权威；syncGridDimensions 取来原生字体单元格度量，
         // 随后 recomputeGridFromFontMetrics resize 网格，使渲染器的
@@ -3918,6 +3971,7 @@ constructor(
         // 而字形却按配置字号光栅化——每次重启后字体显得巨大且行重叠。
         syncGridDimensions(bridge)
         recomputeGridFromFontMetrics()
+        return true
     }
 
     /**
@@ -4281,7 +4335,11 @@ constructor(
      * 调用方 MUST 只在自己的持有被认领时才释放 GPU Surface/清空 `currentSurface`：
      * 无条件暂停会停掉新视图刚恢复的渲染线程，而该暂停的凭证再也不会被归还
      * （永久黑屏）。
+     *
+     * **仅限主线程调用**：末尾领用挂载门闸的暂停，而门闸与渲染暂停账本都只在主
+     * 线程被调用（账本非线程安全）。
      */
+    @MainThread
     fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
             LogUtil.warn(
@@ -4300,16 +4358,12 @@ constructor(
         // 经账本领暂停而非直写全局布尔：直写的暂停不被任何持有者计数，
         // 别的来源归还时（视图 detach 归还防抖）会把它一并清掉——
         // 而渲染线程此时可能仍在已被系统回收的 BufferQueue 上出帧。
-        // 顺序 MUST 是「先领新的、再归还旧的」：反之会让持有者数经过 0，
-        // 多出一对暂停/恢复回调（同 TerminalSurface 两个防抖的替换路径）。
-        val previous = surfaceDestroyedPauseToken
-        surfaceDestroyedPauseToken = renderPauseLedger.acquire()
-        previous?.let { renderPauseLedger.release(it) }
+        //
+        // 该暂停只能由「新窗口挂上原生」解除（见 [SurfaceAttachGate]）：
+        // 恢复路径提前解除会让渲染线程在被平台废弃的队列上取帧。
+        surfaceAttachGate.onSurfaceDestroyed()
         return true
     }
-
-    /** Surface 销毁那次暂停的凭证。 */
-    private var surfaceDestroyedPauseToken: Long? = null
 
     /** 切后台那次暂停的凭证；重复调用先归还前一次，故不会累计持有。 */
     // 读取方 activateReplacementSession 跑在渲染监视的 IO 作用域，写入方是主线程：
@@ -4373,35 +4427,28 @@ constructor(
      */
     private val renderPauseLedger = RenderPauseLedger { paused -> setRenderPaused(paused) }
 
+    /**
+     * Surface 挂载门闸：Surface 销毁后必须等新窗口挂上原生才解除那次渲染暂停。
+     *
+     * 平台回收 Surface 时会废弃它的 BufferQueue；恢复渲染早于新窗口挂载时，
+     * 渲染线程会在废弃队列上取帧（`ERROR_SURFACE_LOST_KHR`，返回后永久黑屏）。
+     */
+    private val surfaceAttachGate = SurfaceAttachGate(renderPauseLedger)
+
+    /**
+     * Surface 已销毁且新窗口尚未挂上原生。
+     *
+     * 此时 MUST NOT 恢复渲染：那会让渲染线程立刻在被平台废弃的 BufferQueue 上
+     * 取帧。恢复须等新窗口挂上（见 [SurfaceAttachGate]）。
+     */
+    val isAwaitingSurfaceAttach: Boolean
+        get() = surfaceAttachGate.isAwaitingAttach
+
     /** 领一次渲染暂停，返回本次持有的凭证；置位时同步原生标志。 */
     fun acquireRenderPause(): Long = renderPauseLedger.acquire()
 
     /** 归还 [acquireRenderPause] 领到的那一次。 */
     fun releaseRenderPause(token: Long) = renderPauseLedger.release(token)
-
-    /**
-     * 作废**生命周期**持有（Surface 销毁、切后台）并按计数决定是否恢复渲染。
-     *
-     * 只给「刚拿到可用 Surface、必须立刻出一帧」的入口。刻意不清设置页那条：
-     * 那是界面层的独立意图，终端视图在设置页覆盖层之下仍会收到尺寸变化
-     * （设置页自己的键盘），整本清账会把「进入设置时暂停渲染」废掉。
-     */
-    fun clearLifecycleRenderPause() {
-        clearSurfaceDestroyedRenderPause()
-        backgroundPauseToken?.let { renderPauseLedger.release(it) }
-        backgroundPauseToken = null
-    }
-
-    /**
-     * 只归还「Surface 销毁」那一次暂停。
-     *
-     * 切后台那次必须由 [resumeRenderingFromBackground] 单独归还：后台期间系统可能
-     * 已回收 BufferQueue，此时恢复渲染等于让渲染线程去取帧失败（永久黑屏）。
-     */
-    fun clearSurfaceDestroyedRenderPause() {
-        surfaceDestroyedPauseToken?.let { renderPauseLedger.release(it) }
-        surfaceDestroyedPauseToken = null
-    }
 
     fun releaseAllGpuSurfaces() {
         // Surface 销毁：干净地暂停渲染线程，而不是把它们标记为死亡。

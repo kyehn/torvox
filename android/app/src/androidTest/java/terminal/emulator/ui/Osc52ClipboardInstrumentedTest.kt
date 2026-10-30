@@ -3,16 +3,12 @@ package terminal.emulator.ui
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.Context
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
@@ -26,16 +22,10 @@ import terminal.emulator.waitForSession
  * screenshots, no OCR.
  */
 @RunWith(JUnit4::class)
-class Osc52ClipboardInstrumentedTest : TerminalLogcatTest() {
+class Osc52ClipboardInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val OUTPUT_TIMEOUT_MS = 15_000L
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
     // setPrimaryClip：API 36 起废弃但无替代，仍是唯一客户端 API。

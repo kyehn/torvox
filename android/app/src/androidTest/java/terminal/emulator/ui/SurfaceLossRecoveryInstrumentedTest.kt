@@ -1,20 +1,16 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.TerminalLogcatTest
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
@@ -37,7 +33,7 @@ import terminal.emulator.waitForTerminalPixels
  * 废弃后 22 分钟 3074 帧全败，27 个用例退化为「零像素」断言）。
  */
 @RunWith(JUnit4::class)
-class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
+class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         /** 注入后等待自愈的轮询上限：换视图 + 新窗口交付 + 首帧，模拟器上给足余量。 */
         private const val RECOVERY_TIMEOUT_MS = 30_000L
@@ -90,12 +86,6 @@ class SurfaceLossRecoveryInstrumentedTest : TerminalLogcatTest() {
         val theme = ThemeRepository.byNameOrNull(name) ?: ThemeRepository.byName(ThemeRepository.defaultDarkName())
         theme.background.toArgb()
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private lateinit var device: UiDevice
 

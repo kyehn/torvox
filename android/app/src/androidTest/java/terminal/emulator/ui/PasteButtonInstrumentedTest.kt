@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -12,20 +11,17 @@ import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import terminal.emulator.MainActivity
+import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.R
-import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.findTerminalSurface
@@ -43,7 +39,7 @@ import terminal.emulator.waitForSession
  * pasteFromClipboard → InputBatchBuffer → writeToPty），全程不直调内部入口。
  */
 @RunWith(JUnit4::class)
-class PasteButtonInstrumentedTest : TerminalLogcatTest() {
+class PasteButtonInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val QUIET_WINDOW_MS = 2_000L
         private const val PASTE_TIMEOUT_MS = 15_000L
@@ -51,12 +47,6 @@ class PasteButtonInstrumentedTest : TerminalLogcatTest() {
         /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
         private const val TAP_COL = 6
     }
-
-    @get:Rule
-    val notificationPermission =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Before
     fun setUp() {
