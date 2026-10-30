@@ -71,27 +71,56 @@ class TermuxPropertiesParserTest {
         )
     }
 
+    /**
+     * 越界值回退默认，不钳到边界（上游 `getDefaultIfNotInRange` 的口径）。
+     *
+     * 钳制会让「写成 99999」变成 50000 行回滚——用户以为自己配了 10 万行，实际拿到
+     * 的是 5 万；回退默认则与上游、与本仓 `config.md` 一致。
+     */
     @Test
-    fun `margins are clamped into the supported range`() {
+    fun `margins outside the range fall back to the default`() {
         assertEquals(3, parse("terminal-margin-horizontal = 3").properties.terminalMarginHorizontalDp)
-        assertEquals(0, parse("terminal-margin-horizontal = -10").properties.terminalMarginHorizontalDp)
-        assertEquals(100, parse("terminal-margin-vertical = 999").properties.terminalMarginVerticalDp)
+        assertEquals(3, parse("terminal-margin-horizontal = -10").properties.terminalMarginHorizontalDp)
+        assertEquals(0, parse("terminal-margin-vertical = 999").properties.terminalMarginVerticalDp)
     }
 
     @Test
-    fun `clamping is reported`() {
+    fun `an out of range value is reported`() {
         val loaded = parse("terminal-margin-horizontal = 999")
         assertTrue(
-            "钳制必须留痕，否则用户不知道自己写的值被改过: ${loaded.errors}",
+            "越界必须留痕，否则用户不知道自己写的值被改过: ${loaded.errors}",
             loaded.errors.any { it.contains("terminal-margin-horizontal") },
         )
     }
 
     @Test
-    fun `transcript rows are clamped into the upstream range`() {
+    fun `transcript rows outside the range fall back to the default`() {
         assertEquals(2000, parse("terminal-transcript-rows = 2000").properties.terminalTranscriptRows)
-        assertEquals(100, parse("terminal-transcript-rows = 10").properties.terminalTranscriptRows)
-        assertEquals(50000, parse("terminal-transcript-rows = 99999").properties.terminalTranscriptRows)
+        assertEquals(2000, parse("terminal-transcript-rows = 10").properties.terminalTranscriptRows)
+        assertEquals(2000, parse("terminal-transcript-rows = 99999").properties.terminalTranscriptRows)
+    }
+
+    /**
+     * 闪烁间隔：0 = 不闪；有效区间 100..2000；其余取值按无效处理（不闪）。
+     *
+     * 上游把越界值当无效并直接禁用闪烁，不是钳到边界。
+     */
+    @Test
+    fun `cursor blink rate only accepts zero or the upstream range`() {
+        assertEquals(0, parse("terminal-cursor-blink-rate = 0").properties.terminalCursorBlinkRateMs)
+        assertEquals(500, parse("terminal-cursor-blink-rate = 500").properties.terminalCursorBlinkRateMs)
+        assertEquals(2000, parse("terminal-cursor-blink-rate = 2000").properties.terminalCursorBlinkRateMs)
+        assertEquals(0, parse("terminal-cursor-blink-rate = 50").properties.terminalCursorBlinkRateMs)
+        assertEquals(0, parse("terminal-cursor-blink-rate = 5000").properties.terminalCursorBlinkRateMs)
+    }
+
+    @Test
+    fun `an invalid cursor blink rate is reported`() {
+        val loaded = parse("terminal-cursor-blink-rate = 50")
+        assertTrue(
+            "无效的闪烁间隔必须留痕: ${loaded.errors}",
+            loaded.errors.any { it.contains("terminal-cursor-blink-rate") },
+        )
     }
 
     @Test
@@ -105,10 +134,10 @@ class TermuxPropertiesParserTest {
     }
 
     @Test
-    fun `toolbar height is clamped between its bounds`() {
+    fun `toolbar height outside the bounds falls back to the default`() {
         assertEquals(1f, parse("terminal-toolbar-height = 1.0").properties.terminalToolbarHeightScale, 0.001f)
-        assertEquals(0.4f, parse("terminal-toolbar-height = 0.1").properties.terminalToolbarHeightScale, 0.001f)
-        assertEquals(3f, parse("terminal-toolbar-height = 9").properties.terminalToolbarHeightScale, 0.001f)
+        assertEquals(1f, parse("terminal-toolbar-height = 0.1").properties.terminalToolbarHeightScale, 0.001f)
+        assertEquals(1f, parse("terminal-toolbar-height = 9").properties.terminalToolbarHeightScale, 0.001f)
     }
 
     @Test

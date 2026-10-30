@@ -3,10 +3,9 @@ package terminal.emulator.settings
 /**
  * `~/.termux/termux.properties` 的解析结果。
  *
- * 字段语义与默认值对齐 termux-app `TermuxPropertyConstants`（v0.18.0）：默认值不是
- * 随手取的常量，而是上游声明的缺省行为，改动其中任何一个都会让同一份用户配置在
- * 两个应用里表现不同。唯一的例外是 [terminalCursorBlinkRateMs]——本仓有一条
- * 「光标不闪烁」的既定外观规范，理由写在该字段上。
+ * 字段语义与默认值对齐 termux-app `TermuxPropertyConstants`：默认值不是随手取的
+ * 常量，而是上游声明的缺省行为，改动其中任何一个都会让同一份用户配置在两个应用里
+ * 表现不同。
  *
  * 解析失败一律「保留默认值 + 记录错误」，不让一个写错的键把整份配置作废，更不因
  * 用户文件而崩溃——这是外部配置，不是应用自己的设置数据。
@@ -34,15 +33,16 @@ data class TermuxProperties(
     /**
      * 回滚行数（`terminal-transcript-rows`）。
      *
-     * 区间 100..50000 与上游一致：上游把越界值钳到边界而不是回退默认，本仓沿用同一
-     * 口径，避免同一份配置在两个应用里算出不同的回滚深度。
+     * 区间 100..50000 与上游一致；越界值回退默认（上游 `getDefaultIfNotInRange` 的
+     * 口径），不是钳到边界——钳制会让「写成 99999」得到 50000 行回滚，用户要的是
+     * 「没配好就用默认」。
      */
     val terminalTranscriptRows: Int = DEFAULT_TRANSCRIPT_ROWS,
     /**
      * 光标闪烁间隔（毫秒）；0 = 不闪。
      *
-     * termux 上游默认 500，这里取 0 是刻意的：`DESIGN.md` 要求光标「不闪烁」，
-     * 默认值必须让默认外观与规范一致；要闪就自己往文件里写间隔。
+     * 上游默认值同为 0（`DEFAULT_IVALUE_TERMINAL_CURSOR_BLINK_RATE`），有效区间
+     * 100..2000：其余取值视为无效并按「不闪」处理。
      */
     val terminalCursorBlinkRateMs: Int = 0,
     val shortcutCreateSession: Char? = null,
@@ -66,6 +66,9 @@ data class TermuxProperties(
 
         /** 回滚行数区间（上游同值）。 */
         val TRANSCRIPT_ROWS_RANGE = 100..50000
+
+        /** 光标闪烁间隔的有效区间（上游 `TerminalView` 同值）；0 表示不闪。 */
+        val CURSOR_BLINK_RATE_RANGE = 100..2000
 
         /**
          * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
@@ -296,7 +299,8 @@ internal object PropertiesFile {
 /**
  * `termux.properties` 的纯解析器：文本 → [TermuxProperties] + 错误列表。
  *
- * 数值越界按 termux 的区间钳制（边距 0..100、工具栏 0.4..3），非法值保留默认并记错。
+ * 数值越界回退默认并记错（上游 `SharedProperties.getDefaultIfNotInRange` 的口径）：
+ * 边距 0..100、回滚行数 100..50000、工具栏高度 0.4..3。
  */
 internal object TermuxPropertiesParser {
     fun parse(text: String): TermuxPropertiesLoad {
@@ -331,9 +335,11 @@ internal object TermuxPropertiesParser {
                 errors += "$key: '$raw' is not an integer; keeping $default"
                 return default
             }
-            val clamped = parsed.coerceIn(range)
-            if (clamped != parsed) errors += "$key: $parsed out of range $range; clamped to $clamped"
-            return clamped
+            if (parsed !in range) {
+                errors += "$key: $parsed out of range $range; keeping $default"
+                return default
+            }
+            return parsed
         }
 
         fun float(key: String, default: Float, range: ClosedFloatingPointRange<Float>): Float {
@@ -343,9 +349,33 @@ internal object TermuxPropertiesParser {
                 errors += "$key: '$raw' is not a number; keeping $default"
                 return default
             }
-            val clamped = parsed.coerceIn(range)
-            if (clamped != parsed) errors += "$key: $parsed out of range $range; clamped to $clamped"
-            return clamped
+            if (parsed !in range) {
+                errors += "$key: $parsed out of range $range; keeping $default"
+                return default
+            }
+            return parsed
+        }
+
+        /**
+         * 光标闪烁间隔：0 = 不闪，其余必须落在上游的有效区间内。
+         *
+         * 上游把越界值当作无效并直接禁用闪烁（`TerminalView.setTerminalCursorBlinkerRate`），
+         * 不是钳到边界——50ms 的闪烁在 60Hz 下没有意义，用户要的是「没配好就别闪」。
+         */
+        fun cursorBlinkRate(): Int {
+            val raw = values["terminal-cursor-blink-rate"] ?: return 0
+            val parsed = raw.toIntOrNull()
+            if (parsed == null) {
+                errors += "terminal-cursor-blink-rate: '$raw' is not an integer; keeping 0"
+                return 0
+            }
+            if (parsed != 0 && parsed !in TermuxProperties.CURSOR_BLINK_RATE_RANGE) {
+                errors +=
+                    "terminal-cursor-blink-rate: $parsed out of range " +
+                        "${TermuxProperties.CURSOR_BLINK_RATE_RANGE}; keeping 0"
+                return 0
+            }
+            return parsed
         }
 
         fun choice(key: String, default: String): String {
@@ -416,7 +446,7 @@ internal object TermuxPropertiesParser {
                         TerminalCursorStyle.BLOCK
                     }
                 },
-                terminalCursorBlinkRateMs = integer("terminal-cursor-blink-rate", 0, 0..2000),
+                terminalCursorBlinkRateMs = cursorBlinkRate(),
                 terminalTranscriptRows =
                 integer(
                     "terminal-transcript-rows",
