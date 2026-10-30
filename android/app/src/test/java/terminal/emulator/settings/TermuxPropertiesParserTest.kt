@@ -146,6 +146,11 @@ class TermuxPropertiesParserTest {
             TerminalCursorStyle.UNDERLINE,
             parse("terminal-cursor-style = underline").properties.terminalCursorStyle,
         )
+        // `beam` 是竖线的别名（`config.md` 允许的取值），落成 `bar`。
+        assertEquals(
+            TerminalCursorStyle.BAR,
+            parse("terminal-cursor-style = beam").properties.terminalCursorStyle,
+        )
         assertEquals(NightMode.TRUE, parse("night-mode = true").properties.nightMode)
         assertEquals(NightMode.FALSE, parse("night-mode = false").properties.nightMode)
         assertEquals(ExtraKeysStyle.ALL, parse("extra-keys-style = all").properties.extraKeysStyle)
