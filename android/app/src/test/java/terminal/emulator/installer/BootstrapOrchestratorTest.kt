@@ -80,20 +80,18 @@ class BootstrapOrchestratorTest {
     }
 
     @Test
-    fun `successful install reports installed and returns second stage details`() {
+    fun `successful install reports installed with empty payload`() {
         every { installer.isInstalled() } returns false
         coEvery { downloader.download(any(), any()) } returns Result.success(File("/tmp/fake.zip"))
         coEvery { installer.install(any()) } returns Result.success(Unit)
         coEvery { secondStageRunner.run() } returns
-            SecondStageRunner.Result(
-                success = true,
-                errors = listOf("postinst: warning", "detail line"),
-            )
+            SecondStageRunner.Result()
         val orchestrator = orchestrator()
         val result = runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }
         assertTrue(result.isSuccess)
-        // The success payload is the first 3 diagnostic lines joined.
-        assertEquals("- postinst: warning\n- detail line", result.getOrNull())
+        // SecondStageRunner 以 errors.isEmpty() 定义成功，故成功时没有诊断可返回；
+        // 非致命 stderr 只出现在失败分支。
+        assertEquals("", result.getOrNull())
         assertEquals(BootstrapOrchestrator.Status.INSTALLED, orchestrator.getInstallStatus())
     }
 
@@ -132,7 +130,7 @@ class BootstrapOrchestratorTest {
         coEvery { downloader.download(any(), any()) } returns Result.success(File("/tmp/fake.zip"))
         coEvery { installer.install(any()) } returns Result.success(Unit)
         coEvery { secondStageRunner.run() } returns
-            SecondStageRunner.Result(success = true, errors = emptyList())
+            SecondStageRunner.Result()
         val orchestrator = orchestrator()
         assertTrue(runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }.isSuccess)
         // After INSTALLED, isInstalled() drives the status.

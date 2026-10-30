@@ -60,7 +60,10 @@ class SecondStageRunner(
         internal const val TERMUX_VERSION = "0.119.0-beta.3"
     }
 
-    data class Result(val success: Boolean, val errors: List<String> = emptyList())
+    /** 成功即 `errors` 为空：二者不会互相矛盾，也不需要调用方自行对齐。 */
+    data class Result(val errors: List<String> = emptyList()) {
+        val success: Boolean get() = errors.isEmpty()
+    }
 
     suspend fun run(): Result = withContext(TerminalDispatchers.inputOutput) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
@@ -90,7 +93,7 @@ class SecondStageRunner(
             Os.symlink(lockFile.absolutePath, lockFile.absolutePath)
         } catch (exception: android.system.ErrnoException) {
             // EEXIST 表示另一个安装进程正持有锁：postinst 根本没跑，不能报成功。
-            return@withContext Result(false, listOf("Lock file error: ${exception.message}"))
+            return@withContext Result(listOf("Lock file error: ${exception.message}"))
         }
         try {
             return@withContext runPostInstalls()
@@ -103,7 +106,7 @@ class SecondStageRunner(
 
     private suspend fun runPostInstalls(): Result {
         val postinstDir = File(prefixDir, "var/lib/dpkg/info")
-        if (!postinstDir.isDirectory) return Result(true)
+        if (!postinstDir.isDirectory) return Result()
         // dpkg 版本只用于 DPKG_RUNNING_VERSION 环境变量；探测失败不阻断 postinst
         // （postinst 是普通 shell 脚本，DESIGN「不做无意义检查」）。探测失败本身
         // 已在 detectDpkgVersion 内记警告，不是静默。
@@ -126,7 +129,7 @@ class SecondStageRunner(
             runOnePostinst(script, dpkgVersion, architecture, errors)
             scriptsCompleted++
         }
-        return Result(errors.isEmpty(), errors)
+        return Result(errors)
     }
 
     /** 在 DPKG_* 环境与经链接器包装的解释器下执行一个 dpkg postinst 脚本（从 runPostInstalls 抽出以满足 detekt LongMethod 限制）。 */

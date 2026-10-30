@@ -80,9 +80,9 @@ class BootstrapDownloader(
                     Result.failure(exception)
                 }
             }
-            // 完整性门控：引导 zip 会被解压并执行其 postinst 脚本，
-            // 故下载必须经过身份认证。明文 http 极易被中间人篡改；
-            // 而默认 URL 本就是 https，故拒绝 http 对合法用户零成本。
+            // 传输门控：引导 zip 会被解压并执行其 postinst 脚本，
+            // 故下载必须经 TLS 防链路篡改；默认 URL 本就是 https，
+            // 拒绝 http 对合法用户零成本。https 不构成归档内容真值。
             if (!url.startsWith("https://", ignoreCase = true)) {
                 return@withContext Result.failure(
                     Exception("Bootstrap URL must be https (got non-https URL)"),
