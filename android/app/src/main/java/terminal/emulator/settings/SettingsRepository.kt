@@ -15,11 +15,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.floor
 import kotlin.math.roundToInt
+
+private const val TAG = "SettingsRepository"
 
 @Singleton
 class SettingsRepository
@@ -357,11 +360,20 @@ constructor(private val provider: SettingsDataStoreProvider) {
         scope.launch {
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             bootstrapUrlEdits.debounce(DEBOUNCE_MILLIS).collect { value ->
-                bootstrapUrlEditMutex.withLock {
-                    if (bootstrapUrlEditsArmed && value != lastPersistedBootstrapUrl) {
-                        put(Keys.BOOTSTRAP_URL, value)
-                        lastPersistedBootstrapUrl = value
+                // 落盘失败不得终止收集器：`put` 经 DataStore 做文件 IO，抛出的异常会
+                // 直接结束本 collect，此后用户的所有引导 URL 编辑被静默丢弃（重启后
+                // URL 变空），而日志里毫无痕迹——正是「不隐藏错误」要防的情形。
+                // 取消是协作式终止，必须照原样重抛。
+                try {
+                    bootstrapUrlEditMutex.withLock {
+                        if (bootstrapUrlEditsArmed && value != lastPersistedBootstrapUrl) {
+                            put(Keys.BOOTSTRAP_URL, value)
+                            lastPersistedBootstrapUrl = value
+                        }
                     }
+                } catch (exception: Exception) {
+                    if (exception is kotlinx.coroutines.CancellationException) throw exception
+                    LogUtil.error(TAG, "bootstrap url edit persist failed", exception)
                 }
             }
         }
