@@ -248,6 +248,13 @@ object NativeBridge {
     /** 解绑当前 Surface。 */
     @JvmStatic external fun detachWindow(sessionId: Long)
 
+    /**
+     * 光标闪烁间隔（毫秒）；0 = 不闪。
+     *
+     * 进程级：渲染循环只有一条。只写原生侧一个原子量，不初始化 GPU。
+     */
+    @JvmStatic external fun setCursorBlinkRate(rateMs: Int)
+
     /** 经 CellData 快路径渲染一帧：1 已输出，0 空闲，-1 出错。 */
     @JvmStatic external fun render(sessionId: Long, width: Int, height: Int): Int
 
