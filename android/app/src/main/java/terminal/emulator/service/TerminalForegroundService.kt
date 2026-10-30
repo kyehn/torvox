@@ -211,12 +211,22 @@ class TerminalForegroundService : Service() {
     /**
      * 获取 Wi-Fi 锁。
      *
-     * 用 `WIFI_MODE_FULL_LOW_LATENCY` 而非 termux 那个年代的 `WIFI_MODE_FULL_HIGH_PERF`：
-     * 后者在 API 29 起被标记为废弃，系统建议的替代正是前者，语义同为「不休眠的满速射频」。
+     * 用 `WIFI_MODE_FULL_HIGH_PERF`（与 termux 相同）：该模式在**灭屏、应用退到后台**
+     * 时依然生效，而这正是这把锁存在的意义——唤醒锁保证 CPU 不休眠，Wi-Fi 若此时进入
+     * 省电，ssh/mosh 这类长连接会「卡住，一碰屏幕就恢复」。
+     *
+     * `WIFI_MODE_FULL_LOW_LATENCY`（API 29 起）不满足这个前提：官方文档写明它
+     * 「只在屏幕点亮且应用位于前台时生效」，在终端最需要它的时候它等于没加。
+     *
+     * `WIFI_MODE_FULL_HIGH_PERF` 在 API 34 起被标记废弃，平台把这类请求转成
+     * `WIFI_MODE_FULL_LOW_LATENCY`（连同它的限制）——即请求它绝不会比直接请求低延迟
+     * 模式更差，而在仍按老语义处理的系统上它才是灭屏后仍生效的那一个。termux 用的
+     * 也是这个模式。
      *
      * 网络不可用（无 Wi-Fi 硬件、取不到 WifiManager）时静默跳过：终端不依赖 Wi-Fi，
      * 移动数据或本地 shell 照常工作，为它报错只会制造噪声。
      */
+    @Suppress("DEPRECATION") // 高性能锁在 API 34 起废弃，但平台会把它转成低延迟锁，不会更差。
     private fun acquireWifiLockIfNeeded() {
         if (wifiLock?.isHeld == true) return
         val wifiManager =
@@ -224,7 +234,7 @@ class TerminalForegroundService : Service() {
                 ?: return
         wifiLock =
             wifiManager
-                .createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, WIFI_LOCK_TAG)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, WIFI_LOCK_TAG)
                 .apply {
                     setReferenceCounted(false)
                     acquire()
