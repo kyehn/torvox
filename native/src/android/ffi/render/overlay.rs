@@ -20,7 +20,9 @@ pub(crate) fn build_cursor(
         col: cursor_info
             .col
             .saturating_sub(u32::from(cursor_info.at_wide_tail)),
-        visible: cursor_info.visible,
+        // 闪烁相位与 VT 的可见性（DECTCEM）取与：隐藏的光标不因相位变亮，
+        // 而间隔为 0 时 `cursor_blink_on` 恒为真，等价于不闪。
+        visible: cursor_info.visible && render_state.cursor_blink_on,
         style: cursor_info.style,
         color: crate::terminal::ghostty_terminal::GhosttyTerminal::color_to_float(
             render_state.palette.cursor,
@@ -99,6 +101,7 @@ pub(crate) fn should_repaint_idle(
     content_dirty: bool,
     frame_invalidated: bool,
     full_repaint: bool,
+    cursor_blink_flipped: bool,
     scroll_frame_pending: bool,
 ) -> bool {
     !scroll_frame_pending
@@ -106,7 +109,8 @@ pub(crate) fn should_repaint_idle(
             || scroll_px_changed
             || content_dirty
             || frame_invalidated
-            || full_repaint)
+            || full_repaint
+            || cursor_blink_flipped)
 }
 
 /// 新帧是否已反映在途的滚动命令（纯函数，表驱动单测）。
