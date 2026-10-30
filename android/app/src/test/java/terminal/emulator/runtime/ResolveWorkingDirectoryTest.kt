@@ -1,8 +1,8 @@
 package terminal.emulator.runtime
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
 
 /**
  * `default-working-directory` 的解析（[resolveWorkingDirectory]），语义对齐 termux：
