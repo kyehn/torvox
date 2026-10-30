@@ -97,4 +97,3 @@ MUST NOT 在每次重绘或每次改配置时无条件覆盖当前样式。应�
 
 - **WHEN** `terminal-cursor-style = blocky`
 - **THEN** 该键被忽略、回落到默认值，其他键仍照常生效
-
