@@ -156,6 +156,31 @@ class ModifierBarLayoutTest {
         assertEquals("|", slot.popup)
     }
 
+    /** `display` 覆盖键帽文本，且只看它、不改键码/特殊动作。 */
+    @Test
+    fun `display overrides the label without changing the key`() {
+        val slot =
+            buildExtraKeySlots(
+                listOf(listOf(ExtraKey("ESC", display = "退出"))),
+                ExtraKeysStyle.ALL,
+                allCaps = false,
+            )[0][0]
+        assertEquals("退出", slot.label)
+        assertEquals(android.view.KeyEvent.KEYCODE_ESCAPE, slot.keyCode)
+    }
+
+    /** `extra-keys-text-all-caps` 对显式 display 同样生效（termux 的按钮样式就是全大写）。 */
+    @Test
+    fun `all caps applies to the explicit display`() {
+        val slot =
+            buildExtraKeySlots(
+                listOf(listOf(ExtraKey("TAB", display = "next"))),
+                ExtraKeysStyle.DEFAULT,
+                allCaps = true,
+            )[0][0]
+        assertEquals("NEXT", slot.label)
+    }
+
     /** 空行不占高度（termux 的解析器同样不接受空行）。 */
     @Test
     fun `empty rows are dropped`() {

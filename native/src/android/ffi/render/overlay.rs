@@ -3,7 +3,10 @@ use super::super::*;
 
 // ── 叠加层与脏区 ────────────────────────────────────────────────────
 /// 由 `CursorInfo` 快照构建光标，光标色取当前主题。
-/// 光标样式恒为默认块状：样式覆盖已随光标样式设置一并移除。
+///
+/// 样式取自帧：默认样式由配置下发（`setCursorStyle`，termux 的
+/// `terminal-cursor-style`），应用运行期间的 DECSCUSR 覆盖优先。两处都落在 VT 侧，
+/// 渲染层只负责照搬——在这里再夹一层「恒为块状」会让应用设的光标形状失效。
 pub(crate) fn build_cursor(
     render_state: &RenderState,
     cursor_info: &crate::terminal::ghostty_terminal::CursorInfo,
