@@ -42,6 +42,10 @@ MUST NOT 跟随格内字形位图定尺寸——位图高度随字符变化，�
 位图高度随字符变化，空单元格还得另取参考字形，锚位图会让同一光标在空白格与文本格之间
 变高变矮。
 
+竖线的宽 MUST NOT 乘列跨度：它是固定宽度的细条（`BAR_CURSOR_WIDTH_FRACTION`），乘了
+列跨度会在宽字符上变成两倍粗的短横而不再是竖线；其横向覆盖由 `quad_origin` 锚在字形
+左边缘达成——宽字符只有头列一条记录，该原点即字形原点。下划线无此顾虑，故按列跨度取宽。
+
 #### Scenario: 竖线光标在空单元格与文本格上等高
 
 - **WHEN** 同一个竖线光标依次停在空白格、`M` 与降部字形 `g` 上
@@ -58,8 +62,11 @@ MUST NOT 跟随格内字形位图定尺寸——位图高度随字符变化，�
 MUST NOT 只覆盖首列。尾列（spacer）在单元层面不产出独立记录，但光标可以停在该尾列上：
 渲染锚点 MUST 折算到该字形的头列记录，否则该帧匹配不到任何记录、不生成光标四边形。
 
-实现：`build_cursor` 以 `col - u32::from(at_wide_tail)` 归位；`getCursorViewportPacked`
-等可观测查询仍报 VT 的真实列。
+实现：`build_cursor` 以 `col.saturating_sub(u32::from(at_wide_tail))` 归位；
+`getCursorViewportPacked` 等可观测查询仍报 VT 的真实列。用饱和减法而非裸减：
+网格与光标失配时可出现 `at_wide_tail` 为真而 `col == 0` 的陈旧数据，裸减在 debug
+构建里 panic、在 release 里绕成 `u32::MAX`——后者把光标画到视口外，且再无任何记录
+能匹配它。饱和减法的兜底语义是「宁可不画」。
 
 #### Scenario: 光标停在宽字符上
 

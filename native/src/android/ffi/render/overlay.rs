@@ -14,7 +14,12 @@ pub(crate) fn build_cursor(
         // 归位在本函数：它是 VT 真值与渲染锚点之间唯一的转换口，而 `getCursor-
         // ViewportPacked` 等可观测查询继续报 VT 的真实列。
         row: cursor_info.row,
-        col: cursor_info.col - u32::from(cursor_info.at_wide_tail),
+        // 饱和减法而非裸减：`at_wide_tail` 为真而 `col == 0` 是网格与光标失配时的
+        // 陈旧数据，裸减在 debug 构建里 panic、在 release 里绕成 `u32::MAX`——后者会把
+        // 光标画到视口外、且再无任何记录能匹配它。这里按「宁可不画」兜底。
+        col: cursor_info
+            .col
+            .saturating_sub(u32::from(cursor_info.at_wide_tail)),
         visible: cursor_info.visible,
         style: cursor_info.style,
         color: crate::terminal::ghostty_terminal::GhosttyTerminal::color_to_float(

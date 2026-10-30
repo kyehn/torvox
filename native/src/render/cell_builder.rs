@@ -735,9 +735,14 @@ fn append_row_instances(
         // 光标必须覆盖整个字形。build_cell_data 为每个宽字符只发出一条
         // width=2 的 CellData（尾部网格列没有自己的
         // CellData——review-1 已验证 internal.rs 会消费两列），故
-        // 首条记录的 `cell_span` 已跨整个字形：Bar 标记按 cell_span
-        // 缩放正是让光标覆盖两列的手段。
+        // 首条记录的 `cell_span` 已跨整个字形：光标盒按 cell_span 取宽即横跨两列。
         // 不存在需要另行标记的间隔单元记录。
+        //
+        // 三种样式里只有方块与**下划线**把 cell_span 乘进宽度（下面两处分支的
+        // `quad_size` / `[cell_width * cell_span, marker_height]`）；**竖线不乘**——
+        // 它是固定宽度的细条，乘了 cell_span 会在宽字符上变成两倍粗的短横，
+        // 不再是竖线。竖线靠 `quad_origin` 锚在字形左边缘即可覆盖到字形：
+        // 宽字符只有头列一条记录，原点即字形原点。
         let is_cursor = cursor.visible
             && cell_data_entry.row == cursor.row
             && cell_data_entry.col == cursor.col;

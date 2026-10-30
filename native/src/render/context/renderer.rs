@@ -539,13 +539,6 @@ impl Renderer {
         log::info!("release_surface: surface dropped");
     }
 
-    /// 挂载失败后记账：标记 surface 判死，使宿主经 [`Self::surface_invalidated`] 换新
-    /// 窗口重试（既有自愈路径）。
-    ///
-    /// 只挂在失败路径上才有意义：`create_surface_unsafe` / `get_capabilities` /
-    /// `select_surface_format` 任一失败都会提前返回，此时 `surface` 已是 `None`。
-    /// 而 `render` 对「无 surface」返回 0——与空闲帧不可区分，宿主的换窗口看门狗
-    /// 因此永远不触发，终端就此黑屏到 Activity 重建为止。
     /// 能否在已挂载的 surface 上原地 reconfigure（而不是丢弃重建）。
     ///
     /// 同一 `ANativeWindow` 是必要条件：换窗口后缓存 surface 指向的 BufferQueue 已被
@@ -561,6 +554,13 @@ impl Renderer {
         )
     }
 
+    /// 挂载失败后记账：标记 surface 判死，使宿主经 [`Self::surface_invalidated`] 换新
+    /// 窗口重试（既有自愈路径）。
+    ///
+    /// 只挂在失败路径上才有意义：`create_surface_unsafe` / `get_capabilities` /
+    /// `select_surface_format` 任一失败都会提前返回，此时 `surface` 已是 `None`。
+    /// 而 `render` 对「无 surface」返回 0——与空闲帧不可区分，宿主的换窗口看门狗
+    /// 因此永远不触发，终端就此黑屏到 Activity 重建为止。
     pub fn mark_surface_invalidated(&mut self) {
         self.surface_invalidated = true;
     }
