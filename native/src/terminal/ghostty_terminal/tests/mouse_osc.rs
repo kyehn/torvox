@@ -646,7 +646,7 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 /// Measures wall-clock time per iteration — the user-visible metric.
 /// Single anti-flake threshold (no environment checks per TESTING.md):
 /// 并行执行与软件 Vulkan 的争用使墙钟时间噪声较大，故该下限只拦数量级级别的回归。
-/// 细粒度跟踪由基准测试覆盖，见 scripts/check-rust.nu。
+/// 细粒度跟踪由基准测试覆盖，见 scripts/check.nu。
 
 #[test]
 fn bench_typing_latency() {
