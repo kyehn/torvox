@@ -74,6 +74,14 @@ import kotlin.math.min
 private const val IME_TOGGLE_DELAY_MS = 50L
 
 /**
+ * Surface 尚未就绪时重试解除渲染暂停的间隔（ms）。
+ *
+ * 新窗口刚创建、原生侧还没挂上 surface 时会走这条路径；太短会空转，太长则用户
+ * 看到一段黑屏。
+ */
+private const val SURFACE_READY_RETRY_DELAY_MS = 200L
+
+/**
  * 搜索查询串长度上限：向原生取真实值（原生为唯一真源，不在此处自带副本）。
  * 超长查询在 UI 侧直接判为无命中，不送原生（见 [coerceSearchQuery]）。
  */
@@ -256,7 +264,7 @@ fun TerminalScreen(
                         viewModel.runtime.forceRender()
                     }
                 } else {
-                    surface?.postDelayedUnpause(200L)
+                    surface?.postDelayedUnpause(SURFACE_READY_RETRY_DELAY_MS)
                 }
                 view.requestFocus()
             }

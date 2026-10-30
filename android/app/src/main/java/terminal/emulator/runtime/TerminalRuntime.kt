@@ -901,7 +901,6 @@ constructor(
             entry.closing = true
             entry.running = false
         }
-        // LogUtil.error 已写入 logcat，不重复输出。
         LogUtil.error("Runtime", "session ${entry.sessionId} exceeded max restart attempts, closing session")
         entry.closeBridgeUnlessRenderThreadAlive("restart limit exceeded")
         synchronized(sessionLock) {
@@ -2224,8 +2223,9 @@ constructor(
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
-        private const val RENDER_MAX_TRANSIENT_ERRORS =
-            50 // 约 2.5s 瞬时错误后退出线程
+        // 瞬时错误的日志节流间隔（每 N 次连续错误记一行）。渲染线程不按错误数退出：
+        // 旋转/切应用的 Surface 中断会连续报错，退出即永久卡死（见渲染循环注释）。
+        private const val RENDER_MAX_TRANSIENT_ERRORS = 50
         private const val RENDER_ERROR_SLEEP_MS = 50L
         private const val RENDER_ERROR_BACKOFF_MS =
             200L // 连续 10 次瞬时错误后延长睡眠
@@ -2402,7 +2402,7 @@ constructor(
      * 读原生单元格度量并按光栅缩放换算成物理像素，随后发布。
      *
      * 与渲染器同口径：渲染的四边形尺寸是 `cell_metrics × raster_scale`
-     * （native/render/pass.rs），而 `raster_scale` 就是 spToPxScale。
+     * （native/src/render/pass/mod.rs），而 `raster_scale` 就是 spToPxScale。
      * 只乘 density 会在系统字体缩放 ≠ 1 时与渲染相差一个 fontScale 倍，
      * 触摸命中与网格计算随之错位。0 值（原生尚未就绪或桩实现）保留旧值。
      *

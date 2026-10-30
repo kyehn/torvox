@@ -145,12 +145,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 每个 detach 一份，整套仪器用例跑下来累积成百个悬空窗口与输入通道。
         selectionHandles.hideSelectionHandles()
         hideSelectionMenu("detach", restoreHandles = false)
-        try {
-            magnifier?.dismiss()
-        } catch (exception: Exception) {
-            LogUtil.warn(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
-        }
-        magnifier = null
+        dismissMagnifier("onDetachedFromWindow")
         // 停止 PtyWriter 发送线程：视图正在被销毁（Activity 重建、返回键），
         // 而新的 TerminalSurface 会构建新的 InputBatchBuffer。
         // 不做此步，每次重建都会泄漏一个守护线程，它经 sink 闭包钉住整条视图链。
@@ -503,7 +498,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             gridToScreen(bottomRow + 1, rightCol + 1, viewportTopGrid, cellWidthPixels, cellHeightPixels)
         val density = resources.displayMetrics.density
         val densityPixels = { value: Int -> (value * density + HALF_PIXEL_OFFSET).toInt() }
-        // PopupWindow 在显示时才测量，故用粗略估算（项数 × ~92dp）并钳位到 Surface。
+        // PopupWindow 在显示时才测量，故用固定估算宽度（[MENU_ESTIMATED_WIDTH_DP]，
+        // 覆盖选区菜单的项数上限）并钳位到 Surface。
         val estimatedWidth = width.coerceAtMost(densityPixels(MENU_ESTIMATED_WIDTH_DP))
         val menuHeight = densityPixels(MENU_HEIGHT_DP)
         return menuAnchor(
@@ -1526,16 +1522,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             if (popup == null) return
             try {
                 popup.dismiss()
+                return
             } catch (exception: Exception) {
                 LogUtil.warn(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
             }
+            // 仅作兜底：dismiss 成功时 contentView 已被摘出 WindowManager，此时再
+            // removeViewImmediate 必然抛 IllegalArgumentException。原先无条件执行它，
+            // 于是**正常路径每次都抛一次异常**，而 catch 是空的——一次真实的窗口拆除
+            // 失败与「本就无需拆除」在日志里完全无法区分（禁止空 catch / 不隐藏错误）。
             try {
                 val windowManager =
                     context.getSystemService(android.content.Context.WINDOW_SERVICE)
                         as android.view.WindowManager
                 windowManager.removeViewImmediate(popup.contentView)
-            } catch (_: Exception) {
-                // 已被 dismiss 移除——无害忽略。
+            } catch (exception: Exception) {
+                LogUtil.warn(TAG, "dismissPopupQuietly: forced remove failed", exception)
             }
         }
 
@@ -1722,6 +1723,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val MENU_ITEM_VERTICAL_PADDING_DP = 12
         private const val MENU_ESTIMATED_WIDTH_DP = 184
         private const val MENU_HEIGHT_DP = 44
+        /** 从屏幕边缘起算的抽屉手势宽度（dp）。 */
+        private const val DRAWER_EDGE_GESTURE_DP = 32
         private const val HALF_PIXEL_OFFSET = 0.5f
 
         private const val ZOOM_THRESHOLD_LOW = 0.9f
@@ -1880,6 +1883,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     private var magnifier: Magnifier? = null
+
+    /**
+     * 收起放大镜并丢弃引用。
+     *
+     * `Magnifier` 是系统窗口级组件：只 `show()` 不 `dismiss()` 会让它常驻屏幕，
+     * 直到本视图 detach。收起的调用点因此必须与显示点**成对**——见
+     * [startWordSelectionAt] 与鼠标右键分支。
+     */
+    private fun dismissMagnifier(reason: String) {
+        try {
+            magnifier?.dismiss()
+        } catch (exception: Exception) {
+            LogUtil.warn(TAG, "magnifier dismiss failed ($reason, non-critical)", exception)
+        }
+        magnifier = null
+    }
+
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
     private var pendingSurfaceResize: Runnable? = null
@@ -2172,7 +2192,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // ModalNavigationDrawer 的遮罩轻击会关闭抽屉，
                 // 但在关闭动画期间该轻击可能穿透到 TerminalSurface
                 // ——终端轻击会清除选区，故关闭抽屉会静默抹掉活跃的文本选区。
-                // 在抽屉关闭动画时长（300ms）内抑制「轻击清除」，
+                // 在抽屉关闭动画时长（[DRAWER_CLOSE_TAP_GRACE_NANOS]）内抑制「轻击清除」，
                 // 使选区能存活抽屉自身的关闭手势。
                 armInputSuppression(DRAWER_CLOSE_TAP_GRACE_NANOS)
             }
@@ -3455,7 +3475,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 边缘触摸始终属于抽屉手势。抽屉打开时，Surface 必须把全部触摸让给
         // 遮罩（其关闭手势），否则 DOWN 上的 requestDisallowIntercept
         // 会抢走事件流，抽屉将永远无法关闭。
-        val drawerEdgePixels = (32 * resources.displayMetrics.density).toInt()
+        val drawerEdgePixels =
+            (DRAWER_EDGE_GESTURE_DP * resources.displayMetrics.density).toInt()
         if (drawerOpen || event.x < drawerEdgePixels) {
             return false
         }
@@ -3509,9 +3530,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
             when {
                 event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> {
-                    if (event.action == MotionEvent.ACTION_DOWN) {
-                        viewModel?.clearSelection()
-                        startWordSelectionAt(event)
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            viewModel?.clearSelection()
+                            startWordSelectionAt(event)
+                        }
+                        // 本分支对 DOWN 之外的动作也 `return true`，走不到手势收尾处的
+                        // dismiss——而放大镜正是 DOWN 这里弹出的（startWordSelectionAt）。
+                        // 不在此配对收起，右键选词后放大镜会常驻到视图 detach。
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            dismissMagnifier("secondary button release")
+                        }
                     }
                     return true
                 }
@@ -3628,12 +3657,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 handleDragState = HandleDrag.NONE
                 dragPointerId = null
                 invalidateWideCharTailCache()
-                try {
-                    magnifier?.dismiss()
-                } catch (exception: Exception) {
-                    LogUtil.warn(TAG, "magnifier dismiss failed (non-critical)", exception)
-                }
-                magnifier = null
+                dismissMagnifier("gesture end")
                 scaleFactor = 1.0f
             }
         }
