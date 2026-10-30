@@ -1,6 +1,8 @@
 use super::super::query::session_handle;
 use super::super::*;
 
+use crate::terminal::session::SessionError;
+
 // ── OSC 52 剪贴板 ───────────────────────────────────────────────────
 /// 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
 /// 推入事件，并启动短生命周期的应答线程把宿主应用的答复写回 PTY。
@@ -51,7 +53,7 @@ pub(super) fn handle_clipboard_reads(
             if let Some(session) = session_handle(session_id) {
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, "") {
-                    log::warn!("osc52: flood-shed read answer write-back failed: {error}");
+                    log_clipboard_write_back_failure(&error);
                 }
             }
             continue;
@@ -73,7 +75,7 @@ pub(super) fn handle_clipboard_reads(
                 let Some(text) = answer else { return };
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, &text) {
-                    log::warn!("osc52: clipboard read answer write-back failed: {error}");
+                    log_clipboard_write_back_failure(&error);
                 }
             });
         } else {
@@ -94,6 +96,30 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResul
     jni_export_guard!(&mut unowned_env, (), |env| {
         clipboard_result_inner(env, _class, session_id, request_id, text)
     })
+}
+
+/// 剪贴板应答回写失败是否属于「会话已结束」这一正常终态。
+///
+/// 会话已退出（`Closed`），或 PTY 已随子进程关闭（写端收到 `EIO`/`EPIPE`）时，
+/// 远端询问的会话已不存在，应答无处可去——与 `feedPty` 的判定同口径。
+fn clipboard_write_back_session_gone(error: &SessionError) -> bool {
+    match error {
+        SessionError::Closed => true,
+        SessionError::Io(io_error) => matches!(
+            io_error.raw_os_error().map(nix::errno::Errno::from_raw),
+            Some(nix::errno::Errno::EIO) | Some(nix::errno::Errno::EPIPE)
+        ),
+        _ => false,
+    }
+}
+
+/// 剪贴板应答回写失败的分级：会话已结束是正常退化路径，记 debug；其余失败记 warn。
+fn log_clipboard_write_back_failure(error: &SessionError) {
+    if clipboard_write_back_session_gone(error) {
+        log::debug!("osc52: 会话已结束，丢弃剪贴板应答");
+        return;
+    }
+    log::warn!("osc52: read answer write-back failed: {error}");
 }
 
 pub(super) fn clipboard_result_inner<'local>(
@@ -124,5 +150,31 @@ pub(super) fn clipboard_result_inner<'local>(
             }
         };
         let _ = tx.send(answer);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SessionError, clipboard_write_back_session_gone};
+
+    #[test]
+    fn exited_session_write_back_is_not_a_failure() {
+        assert!(clipboard_write_back_session_gone(&SessionError::Closed));
+    }
+
+    #[test]
+    fn closed_pty_write_back_is_not_a_failure() {
+        let broken_pipe = std::io::Error::from_raw_os_error(nix::errno::Errno::EPIPE as i32);
+        assert!(clipboard_write_back_session_gone(&SessionError::Io(
+            broken_pipe
+        )));
+    }
+
+    #[test]
+    fn real_write_failure_stays_a_failure() {
+        let no_space = std::io::Error::from_raw_os_error(nix::errno::Errno::ENOSPC as i32);
+        assert!(!clipboard_write_back_session_gone(&SessionError::Io(
+            no_space
+        )));
     }
 }
