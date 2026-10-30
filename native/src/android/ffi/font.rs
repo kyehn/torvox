@@ -373,6 +373,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             return Ok(());
         };
         let background = entry.palette.background;
+        // 基底先落，覆盖通道（`setPaletteOverride`）随后就以它为底重算：
+        // 换主题时若还留着上一次的覆盖，那覆盖也必须按新主题重算一遍。
+        *super::ACTIVE_THEME.write() = Some(entry);
         {
             let registry = rlock_session_registry();
             let Some(session_entry) = registry.get(&id) else {
@@ -413,8 +416,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
 /// 长度不符即抛 `IllegalArgumentException`——静默截断会让颜色整体错位一格，
 /// 而错位表现为「某些颜色不对」，无从定位。
 ///
-/// 选区底色不在覆盖范围内（colors.properties 没有该键），沿用当前主题的值：
-/// 先单独读一次渲染态再释放锁，不与「注册表 → 会话」的锁序嵌套。
+/// **`-1` 表示该槽位不覆盖**，取当前基底主题的原色。`colors.properties` 通常只写
+/// 其中几个键，让 Kotlin 为没写的槽位补值就得让 Kotlin 也持有主题色副本（含光标色，
+/// 而光标色根本不在主题目录的打包里）——补不对就是「改了背景，光标跟着变白」。
+/// 由原生按基底补齐，Kotlin 只管「写了什么」。
+///
+/// 选区底色不在覆盖范围内（colors.properties 没有该键），沿用基底主题的值。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPaletteOverride<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -424,6 +431,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPaletteOver
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
         const EXPECTED: usize = 19;
+        /// 该槽位不覆盖，沿用基底主题原色。
+        const NO_OVERRIDE: jint = -1;
         if colors.is_null() {
             throw_illegal_argument(env, "setPaletteOverride: colors is null");
             return Ok(());
@@ -447,38 +456,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPaletteOver
             );
             return Ok(());
         }
-        let mut values = [0 as jint; EXPECTED];
+        let mut values = [NO_OVERRIDE; EXPECTED];
         if let Err(error) = array.get_region(env, 0, &mut values) {
             throw_illegal_argument(env, &format!("setPaletteOverride: copy failed ({error})"));
             return Ok(());
         }
-        let rgb = |value: jint| libghostty_vt::style::RgbColor {
-            r: ((value >> 16) & 0xFF) as u8,
-            g: ((value >> 8) & 0xFF) as u8,
-            b: (value & 0xFF) as u8,
-        };
-        let mut ansi = [libghostty_vt::style::RgbColor::default(); 16];
-        for (slot, value) in ansi.iter_mut().zip(values[3..].iter()) {
-            *slot = rgb(*value);
+        let mut overrides = [None; crate::terminal::theme::OVERRIDE_SLOTS];
+        for (slot, value) in overrides.iter_mut().zip(values.iter()) {
+            *slot = if *value == NO_OVERRIDE {
+                None
+            } else {
+                Some(libghostty_vt::style::RgbColor {
+                    r: ((*value >> 16) & 0xFF) as u8,
+                    g: ((*value >> 8) & 0xFF) as u8,
+                    b: (*value & 0xFF) as u8,
+                })
+            };
         }
-        let palette = crate::terminal::theme::Palette {
-            background: rgb(values[0]),
-            foreground: rgb(values[1]),
-            cursor: rgb(values[2]),
-            // 选区底色沿用当前主题：先读、立即释放，避免与下面的锁序嵌套。
-            selection_background: {
-                let state = render_state_mut();
-                state
-                    .as_ref()
-                    .map(|render_state| render_state.palette.selection_background)
-                    .unwrap_or_else(|| {
-                        crate::terminal::theme::default_dark()
-                            .palette
-                            .selection_background
-                    })
-            },
-            ansi,
-        };
+        let palette = super::active_theme().palette.with_overrides(&overrides);
         let background = palette.background;
         let id = session_id as u64;
         {

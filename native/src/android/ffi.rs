@@ -307,6 +307,23 @@ static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
 /// 且争用可忽略（每帧一次 `render`）。
 static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::new(None);
 
+/// 当前生效的**基底**主题（未被 `colors.properties` 覆盖的那个）。
+///
+/// 单独存放而非塞进 [`RENDER_STATE`]：`setPaletteOverride` 要在取会话锁之前就算出
+/// 完整 19 色调色板，而全局锁序是「注册表 → 会话 → RENDER_STATE」，从渲染态里读
+/// 基底就是反向取锁。本锁只做一次指针读或写，不与任何其它锁嵌套。
+///
+/// 基底必须是主题本身、而不是上一次覆盖的结果：否则连续两次覆盖会累积——第一次
+/// 覆盖掉的槽位在第二次被当成「主题原色」保留下来，撤销覆盖也就无从谈起。
+static ACTIVE_THEME: RwLock<Option<&'static theme::Theme>> = RwLock::new(None);
+
+/// 当前生效的基底主题；尚未 [`Java_terminal_emulator_bridge_NativeBridge_setTheme`]
+/// 之前是默认深色主题（与会话初态、首帧清除色同源）。
+pub(crate) fn active_theme() -> &'static theme::Theme {
+    let guard = ACTIVE_THEME.read();
+    (*guard).unwrap_or_else(theme::default_dark)
+}
+
 /// 当前 surface 挂载在（全局）渲染状态上的会话 id，0 = 无。`detachWindow` 仅在调用方
 /// 是属主会话时才丢弃 surface——`switchSession` 先挂载新会话的 surface 再释放旧的，
 /// 无条件 detach 会抹掉刚挂载的 surface（首个之后的每个会话都黑屏）。

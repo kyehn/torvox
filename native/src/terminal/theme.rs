@@ -85,6 +85,31 @@ pub struct Palette {
     pub ansi: [RgbColor; 16],
 }
 
+/// 覆盖通道的槽位数：背景、前景、光标，随后是 16 个 ANSI 色。
+///
+/// 跨语言契约的一侧（另一侧是 `NativeBridge.setPaletteOverride` 的 `IntArray` 长度）。
+pub const OVERRIDE_SLOTS: usize = 19;
+
+impl Palette {
+    /// 用 `overrides` 逐槽覆盖自身，`None` 的槽位保持原值。
+    ///
+    /// 槽位顺序见 [`OVERRIDE_SLOTS`]。`selection_background` 没有对应槽位——`colors.properties`
+    /// 没有这个键——原样保留，故覆盖后的选区色仍与主题一致。
+    pub fn with_overrides(&self, overrides: &[Option<RgbColor>; OVERRIDE_SLOTS]) -> Self {
+        let mut ansi = self.ansi;
+        for (index, color) in ansi.iter_mut().enumerate() {
+            *color = overrides[3 + index].unwrap_or(*color);
+        }
+        Self {
+            background: overrides[0].unwrap_or(self.background),
+            foreground: overrides[1].unwrap_or(self.foreground),
+            cursor: overrides[2].unwrap_or(self.cursor),
+            selection_background: self.selection_background,
+            ansi,
+        }
+    }
+}
+
 /// alacritty `Colors::primary`。
 #[derive(Deserialize)]
 struct Primary {
