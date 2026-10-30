@@ -36,12 +36,6 @@ pub enum Event {
         request_id: u64,
         selection: String,
     },
-    /// 终端响铃（BEL = 0x07）。宿主按 `termux.properties` 的 `bell-character`
-    /// 决定震动、出声还是忽略。
-    ///
-    /// 只带会话号：响铃没有参数，用户在意的也只有「哪个会话在叫」。同一会话的
-    /// 多条 BEL 在入队时合并（见 [`EventQueue::push`]）。
-    Bell { session_id: u64 },
 }
 
 /// Rust 与 Kotlin 共享的线程安全事件队列，FIFO 消费。
@@ -80,16 +74,6 @@ impl EventQueue {
     pub fn push(&self, event: Event) {
         // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
-        // BEL 是可合并的二值信号：程序连发 N 个与发 1 个，对用户是同一种「叮」。
-        // 不合并的话，一个每秒刷新的 TUI 能把 1024 条队列全灌成响铃，并据此外溢
-        // 挤掉剪贴板与退出事件。
-        if let Event::Bell { session_id } = &event
-            && guard
-                .iter()
-                .any(|queued| matches!(queued, Event::Bell { session_id: id } if id == session_id))
-        {
-            return;
-        }
         if guard.len() >= MAX_QUEUED_EVENTS {
             match guard.iter().position(is_evictable) {
                 Some(idx) => {
@@ -126,7 +110,6 @@ impl EventQueue {
             Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
             Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
             Event::Exit { session_id, .. } => ("exit", *session_id),
-            Event::Bell { session_id } => ("bell", *session_id),
         };
         if self.overflow_warn.should_log() {
             log::warn!(

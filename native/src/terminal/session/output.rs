@@ -200,11 +200,6 @@ impl Session {
         }
     }
 
-    /// 取走「自上次调用以来是否响过铃」（BEL）。二值语义，取走后清零。
-    pub fn take_bell(&self) -> bool {
-        self.terminal.take_bell()
-    }
-
     /// 轮询 OSC 52 转义序列写入的剪贴板文本：每次取走最早的一条。
     pub fn poll_clipboard(&self) -> Option<String> {
         self.clipboard_text.lock().pop_front()

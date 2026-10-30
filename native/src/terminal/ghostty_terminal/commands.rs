@@ -250,11 +250,6 @@ pub(crate) struct RunConfig {
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     /// 备用屏状态的无锁镜像，由 VT 线程每帧更新，供输入路径免阻塞 RPC 检出。
     pub(crate) alt_screen_active: Arc<AtomicBool>,
-    /// 待上报的响铃：VT 线程在 `on_bell` 回调里置位，宿主轮询时取走并清零。
-    ///
-    /// 用二值标志而非队列：BEL 没有参数，连发 N 个与发 1 个对用户是同一种「叮」，
-    /// 而用队列会让一个每秒刷新的 TUI 轻易把事件队列灌满。
-    pub(crate) bell_pending: Arc<AtomicBool>,
     /// 鼠标上报（DECSET 1000/1002/1003）是否启用的无锁镜像，同样每帧刷新。
     /// 触摸拖动每个事件都要判一次「远端要不要滚轮」，走查询通道会把 UI 线程
     /// 钉在 VT 线程的一次应答上；读原子量则是纯本地判断。

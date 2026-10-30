@@ -299,8 +299,6 @@ class Bridge(private val config: TerminalConfig) {
         // 本帧见到的全部退出事件，按序。上方单槽字段只描述首个退出；
         // 同帧多余退出必须从该列表回收，否则会泄漏（原生 exit_reported 在推送时置位且不重发）。
         val exits: List<ExitInfo> = emptyList(),
-        // 本帧响过铃的会话，按序。原生已按会话合并，故同一会话只会出现一次。
-        val bells: List<Long> = emptyList(),
     ) {
         /** 把后续轮询到的事件并入本结果，标量字段以后者为准。 */
         fun merge(later: PollResult): PollResult = PollResult(
@@ -314,7 +312,6 @@ class Bridge(private val config: TerminalConfig) {
             // 请求事件累加：每个都带不同的 request_id，必须且只能分发一次。
             clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
-            bells = bells + later.bells,
         )
     }
 
@@ -379,10 +376,6 @@ class Bridge(private val config: TerminalConfig) {
                     ),
                 ),
             )
-        }
-
-        is PollEvent.Bell -> {
-            PollResult(bells = listOf(event.sessionId))
         }
 
         is PollEvent.ClipboardRead -> {
@@ -478,18 +471,6 @@ class Bridge(private val config: TerminalConfig) {
         // DESIGN 字体选择节：font.ttf 存在即默认，不复制文件，直接应用覆盖存入设置。
         val override = probeDefaultFontFile()
         return NativeBridge.setFontFamily(0L, override ?: family)
-    }
-
-    /**
-     * 光标闪烁间隔（毫秒）；0 = 不闪（`terminal-cursor-blink-rate`）。
-     *
-     * 不分会话：渲染循环只有一条，闪烁是渲染器的时间行为，不是某个终端的状态。
-     * 未加载原生库时静默跳过——此时还没有会话，闪烁也无从谈起。
-     */
-    fun setCursorBlinkRate(rateMs: Int) {
-        if (!NativeBridge.isNativeLoaded()) return
-        runCatchingCancellable { NativeBridge.setCursorBlinkRate(rateMs) }
-            .onFailure { LogUtil.warn(TAG, "setCursorBlinkRate failed (${it.javaClass.simpleName})") }
     }
 
     /** 字号：同样是全局量（字体管线的唯一一份），会话建立之前也须能下发。 */

@@ -12,7 +12,6 @@ package terminal.emulator.settings
  */
 data class TermuxProperties(
     /** 切换会话时不弹提示（默认 `false`，与 termux 一致）；提示在顶部显示 `[序号] 标题`。 */
-    val disableTerminalSessionChangeToast: Boolean = false,
     val disableHardwareKeyboardShortcuts: Boolean = false,
     val useFullscreenWorkaround: Boolean = false,
     val fullscreen: Boolean = false,
@@ -25,7 +24,6 @@ data class TermuxProperties(
      * 可能拒绝（窗口尚未取得焦点时 `show` 会被丢弃），此时轻点终端即可。
      */
     val hideSoftKeyboardOnStartup: Boolean = true,
-    val bellCharacter: BellCharacter = BellCharacter.VIBRATE,
     val extraKeysTextAllCaps: Boolean = true,
     val terminalMarginHorizontalDp: Int = DEFAULT_MARGIN_HORIZONTAL_DP,
     val terminalMarginVerticalDp: Int = DEFAULT_MARGIN_VERTICAL_DP,
@@ -38,18 +36,10 @@ data class TermuxProperties(
      * 「没配好就用默认」。
      */
     val terminalTranscriptRows: Int = DEFAULT_TRANSCRIPT_ROWS,
-    /**
-     * 光标闪烁间隔（毫秒）；0 = 不闪。
-     *
-     * 上游默认值同为 0（`DEFAULT_IVALUE_TERMINAL_CURSOR_BLINK_RATE`），有效区间
-     * 100..2000：其余取值视为无效并按「不闪」处理。
-     */
-    val terminalCursorBlinkRateMs: Int = 0,
     val shortcutCreateSession: Char? = null,
     val shortcutNextSession: Char? = null,
     val shortcutPreviousSession: Char? = null,
     val terminalToolbarHeightScale: Float = 1f,
-    val nightMode: NightMode = NightMode.SYSTEM,
     val extraKeysStyle: ExtraKeysStyle = ExtraKeysStyle.DEFAULT,
     val extraKeys: List<List<ExtraKey>> = DEFAULT_EXTRA_KEYS,
     val defaultWorkingDirectory: String = "",
@@ -66,9 +56,6 @@ data class TermuxProperties(
 
         /** 回滚行数区间（上游同值）。 */
         val TRANSCRIPT_ROWS_RANGE = 100..50000
-
-        /** 光标闪烁间隔的有效区间（上游 `TerminalView` 同值）；0 表示不闪。 */
-        val CURSOR_BLINK_RATE_RANGE = 100..2000
 
         /**
          * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
@@ -105,8 +92,6 @@ data class TermuxProperties(
     }
 }
 
-enum class BellCharacter { VIBRATE, BEEP, IGNORE }
-
 /** 终端光标样式；与原生 `TerminalCursorStyle` 的取值一一对应。 */
 enum class TerminalCursorStyle(val nativeValue: Int) {
     BLOCK(0),
@@ -119,9 +104,6 @@ enum class BackKeyBehaviour { BACK, ESCAPE }
 enum class VolumeKeysBehaviour { VIRTUAL, VOLUME }
 
 enum class SoftKeyboardToggleBehaviour { SHOW_HIDE, ENABLE_DISABLE }
-
-/** `night-mode` 三态：跟随系统 / 强制深色 / 强制浅色。 */
-enum class NightMode { SYSTEM, TRUE, FALSE }
 
 /**
  * `extra-keys-style`：只决定按键的显示字符，不改变按键本身。
@@ -356,28 +338,6 @@ internal object TermuxPropertiesParser {
             return parsed
         }
 
-        /**
-         * 光标闪烁间隔：0 = 不闪，其余必须落在上游的有效区间内。
-         *
-         * 上游把越界值当作无效并直接禁用闪烁（`TerminalView.setTerminalCursorBlinkerRate`），
-         * 不是钳到边界——50ms 的闪烁在 60Hz 下没有意义，用户要的是「没配好就别闪」。
-         */
-        fun cursorBlinkRate(): Int {
-            val raw = values["terminal-cursor-blink-rate"] ?: return 0
-            val parsed = raw.toIntOrNull()
-            if (parsed == null) {
-                errors += "terminal-cursor-blink-rate: '$raw' is not an integer; keeping 0"
-                return 0
-            }
-            if (parsed != 0 && parsed !in TermuxProperties.CURSOR_BLINK_RATE_RANGE) {
-                errors +=
-                    "terminal-cursor-blink-rate: $parsed out of range " +
-                    "${TermuxProperties.CURSOR_BLINK_RATE_RANGE}; keeping 0"
-                return 0
-            }
-            return parsed
-        }
-
         fun choice(key: String, default: String): String {
             val raw = values[key] ?: return default
             return raw
@@ -410,25 +370,11 @@ internal object TermuxPropertiesParser {
 
         val properties =
             TermuxProperties(
-                disableTerminalSessionChangeToast = boolean("disable-terminal-session-change-toast", false),
                 disableHardwareKeyboardShortcuts = boolean("disable-hardware-keyboard-shortcuts", false),
                 useFullscreenWorkaround = boolean("use-fullscreen-workaround", false),
                 fullscreen = boolean("fullscreen", false),
                 ctrlSpaceWorkaround = boolean("ctrl-space-workaround", false),
                 hideSoftKeyboardOnStartup = boolean("hide-soft-keyboard-on-startup", true),
-                bellCharacter =
-                when (choice("bell-character", "vibrate").lowercase()) {
-                    "vibrate" -> BellCharacter.VIBRATE
-
-                    "beep" -> BellCharacter.BEEP
-
-                    "ignore" -> BellCharacter.IGNORE
-
-                    else -> {
-                        errors += "bell-character: '${values["bell-character"]}' is unknown; keeping vibrate"
-                        BellCharacter.VIBRATE
-                    }
-                },
                 extraKeysTextAllCaps = boolean("extra-keys-text-all-caps", true),
                 terminalMarginHorizontalDp = integer("terminal-margin-horizontal", 3, 0..100),
                 terminalMarginVerticalDp = integer("terminal-margin-vertical", 0, 0..100),
@@ -448,7 +394,6 @@ internal object TermuxPropertiesParser {
                         TerminalCursorStyle.BLOCK
                     }
                 },
-                terminalCursorBlinkRateMs = cursorBlinkRate(),
                 terminalTranscriptRows =
                 integer(
                     "terminal-transcript-rows",
@@ -459,19 +404,6 @@ internal object TermuxPropertiesParser {
                 shortcutNextSession = shortcut("shortcut.next-session"),
                 shortcutPreviousSession = shortcut("shortcut.previous-session"),
                 terminalToolbarHeightScale = float("terminal-toolbar-height", 1f, 0.4f..3f),
-                nightMode =
-                when (choice("night-mode", "system").lowercase()) {
-                    "true" -> NightMode.TRUE
-
-                    "false" -> NightMode.FALSE
-
-                    "system" -> NightMode.SYSTEM
-
-                    else -> {
-                        errors += "night-mode: '${values["night-mode"]}' is unknown; following system"
-                        NightMode.SYSTEM
-                    }
-                },
                 extraKeysStyle =
                 when (choice("extra-keys-style", "default").lowercase()) {
                     "default" -> ExtraKeysStyle.DEFAULT

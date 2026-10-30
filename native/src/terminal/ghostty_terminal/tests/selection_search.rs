@@ -713,3 +713,42 @@ fn ed2_removes_virtual_kitty_placement_on_first_clear() {
         "首次 ED2 后虚拟放置必须为空"
     );
 }
+
+/// 提示符行上的 ED2 走上游 scrollClear：回滚长度与放置生成戳同时变化。
+///
+/// 判别力：上游 `eraseDisplay(.complete)` 在主屏且最后一行非空内容是提示符时，
+/// 先把该行以上的旧行滚进回滚（scrollClear），再撤下放置。视口因此平移，
+/// 而放置集合已经变了——渲染侧若把这种平移当成「用户滚动」复用旧帧，
+/// 撤下的图像就留在屏幕上，要等下一次重查才消失（用户实测「clear 一下不清，
+/// 两下才清」）。此处锁住 VT 侧不变式：回滚长度增长且放置为空。
+#[test]
+fn ed2_at_prompt_scrolls_and_removes_kitty_placements() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    // OSC 133 A/B 标记提示符行：ED2 在此行走 scrollClear 路径。
+    terminal.pty_write(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\");
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
+    terminal.flush();
+    let (_, before) = terminal.receive_cell_data().expect("cell data after image");
+    assert_eq!(
+        1,
+        terminal.take_kitty_placements().len(),
+        "直接放置通道送入的图像必须产生一个放置，否则本用例不覆盖撤除路径"
+    );
+
+    terminal.pty_write(b"\x1b[2J");
+    terminal.flush();
+    let (_, after) = terminal.receive_cell_data().expect("cell data after ED2");
+    assert!(
+        after.scrollback_length > before.scrollback_length,
+        "提示符行上的 ED2 必须走 scrollClear：旧行滚进回滚，回滚长度增长"
+    );
+    assert_ne!(
+        before.kitty_placement_generation, after.kitty_placement_generation,
+        "ED2 必须推进放置生成戳"
+    );
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "首次 ED2 后放置集合必须为空"
+    );
+}

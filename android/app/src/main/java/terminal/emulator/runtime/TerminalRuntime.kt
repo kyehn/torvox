@@ -40,7 +40,6 @@ import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.SurfaceAttachGate
 import terminal.emulator.ui.theme.ThemeRepository
-import terminal.emulator.ui.theme.applyNightModeOverride
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
@@ -413,20 +412,7 @@ constructor(
 
     private val eventDispatcher = EventDispatcher()
 
-    /** 终端响铃（BEL）的落地：震动/提示音/忽略，由 `bell-character` 决定。 */
-    private val bellAlerter = BellAlerter(context)
-
     private val scope = CoroutineScope(SupervisorJob() + terminal.emulator.util.TerminalDispatchers.inputOutput)
-
-    /**
-     * 光标闪烁的补帧定时器（`terminal-cursor-blink-rate`）。
-     *
-     * 相位由原生按时基算，宿主只负责在间隔边界上叫醒渲染循环：静止的终端没有任何
-     * 「内容变化」，而空闲重绘门控要求一个变化理由才会出帧——不补帧，光标会停在
-     * 某个半相位上直到下一次输出。写入走 forceRender（即时反馈旁路），不新建渲染路径。
-     */
-    private var cursorBlinkJob: Job? = null
-    private val cursorBlinkLock = Any()
 
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
@@ -1118,32 +1104,6 @@ constructor(
         val entry = sessions[activeSessionId] ?: return
         entry.forceRenderRequested = true
         entry.notifyRender()
-    }
-
-    /**
-     * 按 `terminal-cursor-blink-rate` 管理补帧定时器（幂等）。
-     *
-     * 节拍即配置值：原生自己按「经过毫秒 / 间隔」的奇偶算相位，故这里只决定
-     * 「多久叫醒一次」，抖动不会让相位漂移。间隔为 0 时整个定时器不启动——
-     * 不闪的光标没有任何理由把渲染线程从空闲闭锁里叫起来。
-     */
-    private fun scheduleCursorBlink() {
-        val rateMs = termuxProperties.configuration.value.properties.terminalCursorBlinkRateMs
-        synchronized(cursorBlinkLock) {
-            cursorBlinkJob?.cancel()
-            cursorBlinkJob =
-                if (rateMs <= 0) {
-                    null
-                } else {
-                    scope.launch {
-                        while (isActive) {
-                            delay(rateMs.toLong())
-                            // 无活动会话时 forceRender 自身即返回，不必在此重复判断。
-                            forceRender()
-                        }
-                    }
-                }
-        }
     }
 
     /**
@@ -2224,11 +2184,6 @@ constructor(
                 clipboardAccess.setClipboardText(poll.clipboard)
             }
             dispatchClipboardRequests(poll.clipboardReads)
-            if (poll.bells.isNotEmpty()) {
-                // 字符每次现读外部文件：用户改完 termux.properties 后下一次响铃即生效，
-                // 不必重开会话。多个会话同帧响铃也只提示一次——对用户是同一种提示。
-                bellAlerter.ring(termuxProperties.configuration.value.properties.bellCharacter)
-            }
         }
     }
 
@@ -2530,15 +2485,12 @@ constructor(
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
                 ) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
-        // `night-mode` 压在应用日夜判定之上：视图侧用同一函数算背景，
-        // 两处必须由同一次判定选出，否则终端画夜间而状态栏图标按日间取色。
-        val nightMode = termuxProperties.configuration.value.properties.nightMode
         return resolveTerminalThemeName(
             mode = stored.themeMode,
             fixedName = stored.themeName,
             dayName = stored.dayThemeName,
             nightName = stored.nightThemeName,
-            isDark = applyNightModeOverride(nightMode, resolveAppDarkMode(stored.appThemeMode, systemDark)),
+            isDark = resolveAppDarkMode(stored.appThemeMode, systemDark),
         )
     }
 
@@ -2584,7 +2536,6 @@ constructor(
         // 的设置页（用户用 `adb push`、SAF 或装包脚本改写），只能在这些时机重读。
         // 读失败不阻断启动——仓储保留上一次成功的结果，最坏是沿用旧配置。
         termuxProperties.reloadNow()
-        scheduleCursorBlink()
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
             // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
@@ -3585,7 +3536,6 @@ constructor(
         // 的重下发都顺带重读一次，用户的文件改动才有生效时机。读失败保留上次结果，
         // 不会把界面闪回默认值。
         termuxProperties.reloadNow()
-        scheduleCursorBlink()
         val config = buildConfig()
         val effectiveFontFamily =
             terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
@@ -3603,7 +3553,6 @@ constructor(
                 rasterScale = spToPxScale,
                 colors = termux.colors,
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
-                cursorBlinkRateMs = termux.properties.terminalCursorBlinkRateMs,
             )
         sessions.values.forEach { entry ->
             entry.bridge.applyRenderContract(contract)
@@ -3835,11 +3784,6 @@ constructor(
                 }
             }
             startSessionPump()
-            // 渲染线程已停：补帧定时器再叫也没人画，留着只是每 500ms 空转一次。
-            synchronized(cursorBlinkLock) {
-                cursorBlinkJob?.cancel()
-                cursorBlinkJob = null
-            }
         }
     }
 
@@ -3933,8 +3877,6 @@ constructor(
                 // ——绝不会在拆除完成后监视器又被复活。
                 renderSupervisor.startRenderMonitor()
             }
-            // 暂停时停掉的补帧定时器在此恢复；放在锁外——它只读配置并起一个协程。
-            scheduleCursorBlink()
         }
     }
 
@@ -4324,7 +4266,6 @@ constructor(
                 rasterScale = spToPxScale,
                 colors = termux.colors,
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
-                cursorBlinkRateMs = termux.properties.terminalCursorBlinkRateMs,
             ),
         )
         appliedFontSizeTenths = config.fontSizeTenths
@@ -4692,7 +4633,6 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
 private fun Bridge.applyRenderContract(contract: RenderContract) {
     setTheme(contract.themeName)
     setCursorStyle(contract.cursorStyleNativeValue)
-    setCursorBlinkRate(contract.cursorBlinkRateMs)
     // 覆盖必须在 setTheme 之后：原生把覆盖压在「基底主题」之上，换主题会重置基底。
     // null 表示没有 colors.properties（或已被删除）：此时只下发主题即可，上一次的
     // 覆盖会随 setTheme 一并被丢掉，无需额外的撤销调用。
@@ -4724,8 +4664,6 @@ private data class RenderContract(
     val colors: ColorsProperties? = null,
     /** `termux.properties` 的 `terminal-cursor-style`，取 `TerminalCursorStyle.nativeValue`。 */
     val cursorStyleNativeValue: Int = TerminalCursorStyle.BLOCK.nativeValue,
-    /** `termux.properties` 的 `terminal-cursor-blink-rate`（毫秒）；0 = 不闪。 */
-    val cursorBlinkRateMs: Int = 0,
 )
 
 /**

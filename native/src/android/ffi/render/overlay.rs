@@ -20,9 +20,7 @@ pub(crate) fn build_cursor(
         col: cursor_info
             .col
             .saturating_sub(u32::from(cursor_info.at_wide_tail)),
-        // 闪烁相位与 VT 的可见性（DECTCEM）取与：隐藏的光标不因相位变亮，
-        // 而间隔为 0 时 `cursor_blink_on` 恒为真，等价于不闪。
-        visible: cursor_info.visible && render_state.cursor_blink_on,
+        visible: cursor_info.visible,
         style: cursor_info.style,
         color: crate::terminal::ghostty_terminal::GhosttyTerminal::color_to_float(
             render_state.palette.cursor,
@@ -89,8 +87,8 @@ pub(super) fn log_frame_failure(error: &GpuError) {
 
 /// 空闲路径的重绘门控（纯函数，表驱动单测）。
 ///
-/// 六个变化信号任一为真即需重绘：搜索高亮、亚行余量、内容脏标志、累加器失效、
-/// 需要整屏重绘、光标闪烁相位翻转。
+/// 五个变化信号任一为真即需重绘：搜索高亮、亚行余量、内容脏标志、累加器失效、
+/// 需要整屏重绘。
 ///
 /// 滚动命令在途（`scroll_frame_pending`）时一律不重绘：屏幕内容尚未反映本次滚动，
 /// 此刻重绘只能用缓存帧（旧视口）配新余量，画出的内容比实际视口少滚了整行数
@@ -102,7 +100,6 @@ pub(crate) fn should_repaint_idle(
     content_dirty: bool,
     frame_invalidated: bool,
     full_repaint: bool,
-    cursor_blink_flipped: bool,
     scroll_frame_pending: bool,
 ) -> bool {
     !scroll_frame_pending
@@ -110,8 +107,7 @@ pub(crate) fn should_repaint_idle(
             || scroll_px_changed
             || content_dirty
             || frame_invalidated
-            || full_repaint
-            || cursor_blink_flipped)
+            || full_repaint)
 }
 
 /// 新帧是否已反映在途的滚动命令（纯函数，表驱动单测）。

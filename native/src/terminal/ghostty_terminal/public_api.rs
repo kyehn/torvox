@@ -70,8 +70,6 @@ impl super::GhosttyTerminal {
         let pty_for_run = pty_write_responses.clone();
         let alt_screen_active = Arc::new(AtomicBool::new(false));
         let alt_screen_active_for_run = alt_screen_active.clone();
-        let bell_pending = Arc::new(AtomicBool::new(false));
-        let bell_pending_for_run = bell_pending.clone();
         let mouse_tracking_active = Arc::new(AtomicBool::new(false));
         let mouse_tracking_active_for_run = mouse_tracking_active.clone();
         let resize_failed = Arc::new(AtomicBool::new(false));
@@ -113,7 +111,6 @@ impl super::GhosttyTerminal {
                         kitty_temp_dir,
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
-                        bell_pending: bell_pending_for_run,
                         mouse_tracking_active: mouse_tracking_active_for_run,
                         resize_failed: resize_failed_for_run,
                         cell_size_px: cell_size_px_for_run,
@@ -157,7 +154,6 @@ impl super::GhosttyTerminal {
             pty_write_responses,
             last_pty_write_byte: 0,
             alt_screen_active,
-            bell_pending,
             mouse_tracking_active,
             resize_failed,
             latest_scroll_request_id: AtomicU64::new(0),
@@ -186,13 +182,6 @@ impl super::GhosttyTerminal {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         std::mem::take(&mut *guard)
-    }
-
-    /// 取走「自上次调用以来是否响过铃」；取走后标志清零。
-    ///
-    /// 二值语义：期间响了 1 次还是 20 次，对用户都是同一种提示音，宿主无需知道次数。
-    pub fn take_bell(&self) -> bool {
-        self.bell_pending.swap(false, Ordering::AcqRel)
     }
 
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
