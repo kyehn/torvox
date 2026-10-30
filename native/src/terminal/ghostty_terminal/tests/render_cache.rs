@@ -725,13 +725,9 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
     // （码，标记字符，期望 ANSI 槽位）
     let cases: [(u8, u8, usize); 3] = [(31, b'R', 1), (32, b'G', 2), (34, b'B', 4)];
     for (code, marker, ansi_index) in cases {
-        let mut terminal = GhosttyTerminal::new_with_theme(
-            24,
-            80,
-            1000,
-            crate::terminal::theme::default_dark(),
-        )
-        .expect("default terminal");
+        let mut terminal =
+            GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
+                .expect("default terminal");
         terminal.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
         terminal.flush();
         let (cells, _) = terminal.receive_cell_data().expect("cell data");

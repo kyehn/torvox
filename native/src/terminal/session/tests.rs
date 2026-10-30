@@ -36,16 +36,7 @@ fn wait_for_reported_exit(session: &Session, deadline: std::time::Instant) -> Op
 
 /// 为测试创建 24x80 的 `/bin/sh` 会话。
 fn spawn_test_session() -> Session {
-    Session::spawn(
-        "/bin/sh",
-        24,
-        80,
-        &ShellEnv::default(),
-        None,
-        None,
-        2000,
-    )
-    .expect("spawn failed")
+    Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None, None, 2000).expect("spawn failed")
 }
 
 /// 启动 shell、发送 `exit` 并等待会话报告退出。
