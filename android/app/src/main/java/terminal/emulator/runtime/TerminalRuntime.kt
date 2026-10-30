@@ -1220,6 +1220,7 @@ constructor(
         // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
         accentColor = resolvedTheme.ansi[5].toArgb()
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
+        val termuxConfig = terminal.emulator.config.TermuxProperties.load(context)
         val homeDir =
             java.io
                 .File(context.filesDir, "home")
@@ -1241,9 +1242,11 @@ constructor(
                 fontSizeTenths = configReads.fontSizeTenths,
                 themeName = resolvedTheme.name,
                 home = homeDir,
-                workingDirectory = homeDir,
+                workingDirectory = termuxConfig.workingDirectory ?: homeDir,
                 prefix = "",
                 mkshrcPath = mkshrcPath,
+                scrollbackLines = termuxConfig.scrollbackLines ?: 2000,
+                cursorStyle = termuxConfig.cursorStyle ?: terminal.emulator.bridge.CursorStyle.Block,
             )
         }
         // 默认入口依次探测 bash 与 login（DESIGN.md:145 文件存在即启动，不检查权限）。
@@ -1255,15 +1258,16 @@ constructor(
         val effectivePrefix = if (prefixShell != null) prefixDir else ""
         val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
         ensureMkshPromptRc()
-        // 无启动目录设置（DESIGN.md:93）：工作目录恒为家目录。
         return TerminalConfig(
             shell = effectiveShell,
             fontSizeTenths = configReads.fontSizeTenths,
             themeName = resolvedTheme.name,
             home = homeDir,
-            workingDirectory = homeDir,
+            workingDirectory = termuxConfig.workingDirectory ?: homeDir,
             prefix = effectivePrefix,
             mkshrcPath = mkshrcPath,
+            scrollbackLines = termuxConfig.scrollbackLines ?: 2000,
+            cursorStyle = termuxConfig.cursorStyle ?: terminal.emulator.bridge.CursorStyle.Block,
         )
     }
 

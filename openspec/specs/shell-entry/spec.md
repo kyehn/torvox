@@ -20,19 +20,24 @@ Shell 启动入口设置与解析行为：设置框未设置时为空并经保�
 - **WHEN** 用户在框中输入文本并点击保存
 - **THEN** 文本原样存入 `shell` 设置（含参数，不做任何检查）
 
-### Requirement: 无启动目录设置
+### Requirement: 启动目录默认家目录且可由 termux.properties 覆盖
 
-MUST NOT 提供启动目录设置框；`workingDirectory` MUST 恒为家目录。
+MUST NOT 提供启动目录设置框；`workingDirectory` MUST 默认为家目录，MAY 由 `termux.properties` 的 `default-working-directory` 覆盖，非法值回退家目录。
 
 #### Scenario: 设置页无启动目录项
 
 - **WHEN** 打开设置页终端配置区
 - **THEN** 不出现启动目录输入框
 
-#### Scenario: 会话工作目录恒为家目录
+#### Scenario: 会话工作目录默认家目录
 
-- **WHEN** 启动任意会话
+- **WHEN** 未设置 `default-working-directory` 或其值非法
 - **THEN** 子进程初始工作目录为家目录
+
+#### Scenario: 配置覆盖启动目录
+
+- **WHEN** `default-working-directory` 指向存在的目录
+- **THEN** 子进程初始工作目录为该目录
 
 ### Requirement: 默认入口按存在性依次探测
 
