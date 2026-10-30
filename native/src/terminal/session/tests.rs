@@ -36,7 +36,7 @@ fn wait_for_reported_exit(session: &Session, deadline: std::time::Instant) -> Op
 
 /// 为测试创建 24x80 的 `/bin/sh` 会话。
 fn spawn_test_session() -> Session {
-    Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None, None).expect("spawn failed")
+    Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None, None, 2000, None).expect("spawn failed")
 }
 
 /// 启动 shell、发送 `exit` 并等待会话报告退出。
@@ -95,6 +95,8 @@ fn exec_failure_session_exits_with_errno_encoding() {
         80,
         &ShellEnv::default(),
         None,
+        None,
+        2000,
         None,
     )
     .expect("spawn failed");
@@ -743,7 +745,7 @@ fn drop_does_not_stall_on_a_full_output_channel() {
 fn vt_thread_resize_failure_forces_the_next_resize_to_retry() {
     let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
     let mut session =
-        Session::spawn_with_pty(Box::new(pty), 30, 100, None, Some(std::env::temp_dir()))
+        Session::spawn_with_pty(Box::new(pty), 30, 100, None, Some(std::env::temp_dir()), 2000, None)
             .expect("session");
 
     // 基线：同尺寸第二次本就该短路（既有去重，不能被破坏）。

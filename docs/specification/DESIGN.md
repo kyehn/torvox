@@ -91,7 +91,7 @@
   - 支持如 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l` 等写法。
   - 不支持相对路径如 `login.sh`（须为绝对路径），不支持无解释器直接执行脚本路径如 `/data/data/com.termux/files/usr/bin/login.sh`（须经 `/system/bin/sh` 间接执行）
   - 启动入口应该是二进制文件且是绝对路径。
-  - 启动目录为 `/data/data/com.termux/files/home`，不提供启动目录设置。
+  - 启动目录默认 `/data/data/com.termux/files/home`；可通过 `termux.properties` 的 `default-working-directory` 覆盖，非法值回退默认；不提供 GUI 设置。
 - **Bootstrap**：支持 URL 与本地文件安装。
   - 提供 Termux 预设选项，不提供旧版本如 `apt-android-5 2022.04.28-r6`，从 `termux-app/app/build.gradle` 提取逻辑。
   - 原子化替换 `/data/data/com.termux/files/usr/` 目录，下载/安装前要求中间目录 `/data/data/com.termux/files/usr-staging` 不存在，如果存在则拒绝执行，原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
@@ -108,7 +108,7 @@
 - 对于 `nix --help` 这类命令，修饰键栏的向右按键（`->`）和向左按键（`<-`）以及向上和向下按键应该正确发送信号
 - 部分接口支持批量查询以保证性能。
 - 只渲染当前使用的会话，后台会话/切换应用/进入设置时暂停渲染。
-- 输入光标为方块样式（高度、宽度等均参考 Termux），不闪烁。
+- 输入光标默认方块样式（高度、宽度等均参考 Termux），可通过 `termux.properties` 的 `terminal-cursor-style` 设为 `block`/`bar`/`underline`，不闪烁。
 - 切换应用返回或从应用设置返回终端应该正常渲染且无进入卡顿、黑屏、闪烁、跳跃。输入弹出/隐藏时无卡顿、闪烁、跳跃、压扁、拉伸、溢出。
 - 只加载实际需要的字体（如 `DroidSansMono` `NotoColorEmoji` `Noto Sans CJK SC`），加载字体族如 `Noto Sans CJK SC` 而不是仅 `Noto Sans CJK SC Regular`，不加载未使用字体。支持非等宽字体作为主字体。
 - 支持 CJK 字体，比如退格一次一个汉字而不是两次一个汉字。CJK 字体渲染速度应该和英文字体基本一致，退格 CJK 字符的速度应该和英文基本一致，不卡顿。
@@ -146,7 +146,7 @@
 - 仅宿主存在时透传环境变量，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
 - 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
 - shell 崩溃（非主动正常退出）保留现场不关闭会话（参考 Termux，如执行 `exit -1` 后输出 `[Process completed (code 255) - press Enter]`，不主动关闭会话），正常退出时（如 `exit` 命令或用户点击关闭按钮）关闭会话。
-- 回滚行数与 Termux 默认 `transcript-rows` 一致。
+- 回滚行数默认 2000，可通过 `termux.properties` 的 `terminal-transcript-rows` 设置（100–50000），非法值回退 2000。
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和主题背景，而不是从黑屏花费较长时间过渡。
 - 没有任何内建命令，不内置提供 `termux-setup-storage` `termux-open` 等，也没有替代实现。
 - 忽略 bell character，不做出响应

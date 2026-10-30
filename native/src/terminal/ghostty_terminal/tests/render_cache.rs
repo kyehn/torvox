@@ -558,7 +558,7 @@ fn sgr31_red_reaches_cell_data_foreground() {
 
     // 2) 默认主题配置：复刻设备 apply_theme 后的精确状态。
     let default_theme = crate::terminal::theme::default_dark();
-    let mut dracula = GhosttyTerminal::new_with_theme(24, 80, 1000, default_theme)
+    let mut dracula = GhosttyTerminal::new_with_theme(24, 80, 1000, default_theme, None)
         .expect("default theme terminal");
     dracula.vt_write(b"\x1b[31mRED\x1b[0m");
     dracula.flush();
@@ -637,7 +637,7 @@ fn render_cursor_query_does_not_poison_the_row_cache_with_literal_colors() {
     );
 
     let mut terminal_under_test =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, theme).expect("theme terminal");
+        GhosttyTerminal::new_with_theme(24, 80, 1000, theme, None).expect("theme terminal");
     // 先出一帧，让缓存与快照进入「已消费」状态。
     terminal_under_test.vt_write(b"seed\r\n");
     terminal_under_test.flush();
@@ -673,7 +673,7 @@ fn render_cursor_query_does_not_poison_the_row_cache_with_literal_colors() {
 #[test]
 fn sgr31_default_theme_reaches_foreground() {
     let mut terminal_under_test =
-        GhosttyTerminal::new_with_theme(44, 48, 1000, crate::terminal::theme::default_dark())
+        GhosttyTerminal::new_with_theme(44, 48, 1000, crate::terminal::theme::default_dark(), None)
             .expect("default terminal");
     terminal_under_test.vt_write(b"\x1b[31mRED\x1b[0m");
     terminal_under_test.flush();
@@ -695,7 +695,7 @@ fn sgr31_default_theme_reaches_foreground() {
 #[test]
 fn sgr_same_text_tricolor_rows_all_present() {
     let mut terminal =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
+        GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark(), None)
             .expect("default terminal");
     for code in [34u8, 31, 32] {
         terminal.vt_write(format!("\x1b[{code}mEEEEEEEE\x1b[0m\r\n").as_bytes());
@@ -726,7 +726,7 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
     let cases: [(u8, u8, usize); 3] = [(31, b'R', 1), (32, b'G', 2), (34, b'B', 4)];
     for (code, marker, ansi_index) in cases {
         let mut terminal =
-            GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
+            GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark(), None)
                 .expect("default terminal");
         terminal.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
         terminal.flush();
@@ -746,7 +746,7 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
 #[test]
 fn palette_256_cube_and_grayscale_match_xterm() {
     let mut terminal =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark())
+        GhosttyTerminal::new_with_theme(24, 80, 1000, crate::terminal::theme::default_dark(), None)
             .expect("default terminal");
     terminal.vt_write(b"\x1b[38;5;196mA\x1b[38;5;21mB\x1b[38;5;231mC\x1b[38;5;232mD\x1b[48;5;46mE");
     terminal.flush();

@@ -76,6 +76,8 @@ class NativeBridgeSmokeTest {
                 workingDirectory = System.getProperty("user.dir") ?: "",
                 prefix = "",
                 mkshrcPath = "",
+                scrollbackLines = 2000,
+                cursorStyle = 0,
             )
         assertTrue("initSession must return a positive session id, got $sessionId", sessionId > 0)
         try {

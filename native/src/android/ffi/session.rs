@@ -17,6 +17,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     working_directory: JString,
     prefix: JString,
     mkshrc_path: JString,
+    scrollback_lines: jint,
+    cursor_style: jint,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |env| {
         init_session_inner(
@@ -29,6 +31,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             working_directory,
             prefix,
             mkshrc_path,
+            scrollback_lines,
+            cursor_style,
         )
     })
 }
@@ -70,6 +74,8 @@ pub(super) fn init_session_inner(
     working_directory: JString,
     prefix: JString,
     mkshrc_path: JString,
+    scrollback_lines: jint,
+    cursor_style: jint,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
         Ok(r) => r,
@@ -158,7 +164,27 @@ pub(super) fn init_session_inner(
         let wake = Arc::clone(&render_wake);
         Some(Arc::new(move || wake.notify()) as crate::terminal::session::OutputWake)
     };
-    match Session::spawn(&shell_path, rows, cols, &shell_env, None, output_wake) {
+    let scrollback_lines = if scrollback_lines < 0 {
+        crate::terminal::session::DEFAULT_SCROLLBACK_LINES
+    } else {
+        scrollback_lines as u32
+    };
+    let default_cursor_style = match cursor_style {
+        1 => Some(crate::terminal::ghostty_terminal::CursorStyle::Bar),
+        2 => Some(crate::terminal::ghostty_terminal::CursorStyle::Underline),
+        0 => Some(crate::terminal::ghostty_terminal::CursorStyle::Block),
+        _ => Some(crate::terminal::ghostty_terminal::CursorStyle::Block),
+    };
+    match Session::spawn(
+        &shell_path,
+        rows,
+        cols,
+        &shell_env,
+        None,
+        output_wake,
+        scrollback_lines,
+        default_cursor_style,
+    ) {
         Ok(session) => {
             let id = next_session_id();
             let entry = SessionEntry::new(Arc::new(Mutex::new(session)), render_wake);

@@ -172,7 +172,7 @@ impl Session {
         rows: u32,
         cols: u32,
     ) -> Result<Self, SessionError> {
-        Self::spawn_with_pty(pty, rows, cols, None, Some(std::env::temp_dir()))
+        Self::spawn_with_pty(pty, rows, cols, None, Some(std::env::temp_dir()), DEFAULT_SCROLLBACK_LINES, None)
     }
 
     /// 往本会话的输出通道注入一段 PTY 输出（等价于 `pty_read` 收到数据）。
