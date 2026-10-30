@@ -1,9 +1,9 @@
 pluginManagement {
     repositories {
         gradlePluginPortal()
-        maven(url = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/")
         google()
         mavenCentral()
+        maven(url = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/")
     }
 }
 
