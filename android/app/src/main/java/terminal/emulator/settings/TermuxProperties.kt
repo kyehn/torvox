@@ -119,10 +119,16 @@ enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, ALL, NONE }
  *
  * [name] 是 termux 的键名（`ESC`、`F1`、`UP`、`CTRL`……）或单字符字面量；
  * [popup] 是长按/上档显示的次级字符，本应用把它作为长按发送的文本；
- * [macro] 是 termux 的宏（`{macro: "CTRL f d"}`），本应用只解析、不播放——
+ * [display] 是键帽上显示的文本（`{key: 'X', display: 'Y'}`），为空时按 `extra-keys-style`
+ * 取字形；[macro] 是 termux 的宏（`{macro: "CTRL f d"}`），本应用只解析、不播放——
  * 键栏会把这类键隐藏（见 `ModifierBar.buildExtraKeySlots`）。
  */
-data class ExtraKey(val name: String, val popup: String? = null, val macro: String? = null)
+data class ExtraKey(
+    val name: String,
+    val popup: String? = null,
+    val macro: String? = null,
+    val display: String? = null,
+)
 
 /** 一份配置的来源文件与解析错误，供日志与诊断使用。 */
 data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath: String?, val errors: List<String>)
@@ -612,7 +618,7 @@ internal object ExtraKeysParser {
         // 滚动锁定的唯一入口，一个空对象不该把它们一起藏起来。
         if (rows.isEmpty()) return Result.Success(emptyList(), cursor.warnings)
         val nonEmptyRows = rows.filter { it.isNotEmpty() }
-        require(nonEmptyRows.isNotEmpty()) { "extra-keys contains no usable keys" }
+        require(nonEmptyRows.isNotEmpty()) { "extra-keys contains no keys" }
         Result.Success(nonEmptyRows, cursor.warnings)
     } catch (error: IllegalArgumentException) {
         Result.Failure(error.message ?: "invalid extra-keys")
@@ -628,7 +634,9 @@ internal object ExtraKeysParser {
             return keys
         }
         while (true) {
-            keys += parseKey(cursor)
+            // 单个写坏的对象只丢自己那一项（见类文档）：整行/整份布局作废会让用户
+            // 精心配好的键位因为一个不认识的字段全部消失。
+            parseKey(cursor)?.let { keys += it }
             when (cursor.peek()) {
                 ',' -> {
                     cursor.consume(',')
@@ -644,7 +652,7 @@ internal object ExtraKeysParser {
         return keys
     }
 
-    private fun parseKey(cursor: Cursor): ExtraKey {
+    private fun parseKey(cursor: Cursor): ExtraKey? {
         if (cursor.peek() == '{') {
             cursor.consume('{')
             var key: String? = null
@@ -679,10 +687,17 @@ internal object ExtraKeysParser {
                 }
             }
             cursor.consume('}')
-            require(key != null || macro != null) {
-                "extra-keys object needs a 'key' or 'macro' field"
+            if (key == null && macro == null && display == null) {
+                // 没有任何可执行内容：丢掉这一项，其余按键照常保留。
+                cursor.warnings += "extra-keys: object without 'key' or 'macro' dropped"
+                return null
             }
-            return ExtraKey(name = key ?: display.orEmpty(), popup = popup, macro = macro)
+            return ExtraKey(
+                name = key ?: display.orEmpty(),
+                popup = popup,
+                macro = macro,
+                display = display.takeIf { key != null },
+            )
         }
         return ExtraKey(cursor.readString())
     }

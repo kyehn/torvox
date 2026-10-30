@@ -87,8 +87,9 @@ data class ExtraKeySlot(
 /**
  * `extra-keys` 配置 → 可渲染的按键槽位。
  *
- * 未知键名跳过并记警告：把它当字面量渲染会让用户点出一串无意义的字符，静默丢弃至少
- * 留下证据。空行同理跳过（termux 的解析器也不接受空行）。
+ * 不可渲染的键跳过并记警告：把它当字面量渲染会让用户点出一串无意义的字符，静默丢弃
+ * 至少留下证据。判据统一走 [unrenderableReason]，与 [isRenderableKey] 同源——两者一旦
+ * 分家，预留高度就会与实际键栏高度不符。
  */
 internal fun buildExtraKeySlots(
     rows: List<List<ExtraKey>>,
@@ -97,41 +98,20 @@ internal fun buildExtraKeySlots(
 ): List<List<ExtraKeySlot>> = rows.mapNotNull { row ->
     val slots =
         row.mapNotNull { key ->
-            val special = TerminalKeyCatalog.specialFor(key.name)
-            val keyCode = TerminalKeyCatalog.keyCodeFor(key.name)
-            val literal = key.name.length == 1
-            when {
-                key.macro != null -> {
-                    // termux 的宏是一串按键事件（`{macro: "CTRL f d"}`），本应用还没有
-                    // 播放器；渲染一个点了没反应的键比不渲染更糟。
-                    LogUtil.warn("ModifierBar", "extra-keys: macro '${key.macro}' is not supported; key hidden")
-                    null
-                }
-
-                special == TerminalKeyCatalog.Special.FN -> {
-                    // FN 需要一整套二次映射（FN+方向键→Home/End 等），本应用未实现；
-                    // 渲染一个点了没反应的键比不渲染更糟。
-                    LogUtil.warn("ModifierBar", "extra-keys: FN is not supported; key hidden")
-                    null
-                }
-
-                special != null || keyCode != null || literal -> {
-                    ExtraKeySlot(
-                        name = key.name,
-                        label = TerminalKeyCatalog.displayLabel(key.name, style, allCaps),
-                        keyCode = keyCode,
-                        special = special,
-                        repeatable = TerminalKeyCatalog.isRepetitive(key.name),
-                        popup = key.popup,
-                        testTag = testTagFor(key.name),
-                    )
-                }
-
-                else -> {
-                    LogUtil.warn("ModifierBar", "extra-keys: unknown key '${key.name}'; key hidden")
-                    null
-                }
+            unrenderableReason(key)?.let { reason ->
+                LogUtil.warn("ModifierBar", "extra-keys: $reason; key hidden")
+                return@mapNotNull null
             }
+            ExtraKeySlot(
+                name = key.name,
+                label = key.display?.let { display -> if (allCaps) display.uppercase() else display }
+                    ?: TerminalKeyCatalog.displayLabel(key.name, style, allCaps),
+                keyCode = TerminalKeyCatalog.keyCodeFor(key.name),
+                special = TerminalKeyCatalog.specialFor(key.name),
+                repeatable = TerminalKeyCatalog.isRepetitive(key.name),
+                popup = key.popup,
+                testTag = testTagFor(key.name),
+            )
         }
     slots.takeIf { it.isNotEmpty() }
 }
@@ -158,21 +138,26 @@ internal fun defaultExtraKeySlots(
 ): List<List<ExtraKeySlot>> = buildExtraKeySlots(TermuxProperties.DEFAULT_EXTRA_KEYS, style, allCaps)
 
 /**
- * 这个按键是否会被渲染。
+ * 这个按键不可渲染的原因；null 表示可渲染。
  *
- * 与 [buildExtraKeySlots] 的 `when` 同判据：宏没有播放器、FN 需要一整套二次映射
- * （未实现）、未知键名按字面量渲染会点出无意义字符，三者都不渲染。
+ * 单一判据：宏没有播放器、FN 需要一整套二次映射（未实现）、未知键名按字面量渲染
+ * 会点出无意义字符，三者都不渲染。[buildExtraKeySlots] 与 [extraKeyRowCount] 都经
+ * 此处，任何一侧单独写一份判定都会让「预留的行数」与「实际画出的行数」分家。
  */
-private fun isRenderableKey(key: ExtraKey): Boolean {
-    if (key.macro != null) return false
+private fun unrenderableReason(key: ExtraKey): String? {
+    if (key.macro != null) return "macro '${key.macro}' is not supported"
     val special = TerminalKeyCatalog.specialFor(key.name)
     return when {
-        special == TerminalKeyCatalog.Special.FN -> false
-        special != null -> true
-        TerminalKeyCatalog.keyCodeFor(key.name) != null -> true
-        else -> key.name.length == 1
+        special == TerminalKeyCatalog.Special.FN -> "FN is not supported"
+        special != null -> null
+        TerminalKeyCatalog.keyCodeFor(key.name) != null -> null
+        key.name.length == 1 -> null
+        else -> "unknown key '${key.name}'"
     }
 }
+
+/** 这个按键是否会被渲染。 */
+internal fun isRenderableKey(key: ExtraKey): Boolean = unrenderableReason(key) == null
 
 /**
  * 键栏实际渲染的行数，供网格预留高度使用。
