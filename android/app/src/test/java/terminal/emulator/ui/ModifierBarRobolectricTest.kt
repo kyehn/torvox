@@ -22,7 +22,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import terminal.emulator.input.ModifierState
-import terminal.emulator.input.next
+import terminal.emulator.input.toggled
 
 /**
  * JVM (Robolectric) Compose tests for [ModifierBar] — proof that pure-UI semantics run WITHOUT an
@@ -46,8 +46,8 @@ class ModifierBarRobolectricTest {
                     onKey = { _, _ -> false },
                     ctrlState = ctrl,
                     altState = alt,
-                    onToggleCtrl = { ctrl = ctrl.next() },
-                    onToggleAlt = { alt = alt.next() },
+                    onToggleCtrl = { ctrl = ctrl.toggled() },
+                    onToggleAlt = { alt = alt.toggled() },
                 )
             }
         }
@@ -132,7 +132,7 @@ class ModifierBarRobolectricTest {
                     onSubmit = {},
                     onKey = { _, _ -> false },
                     ctrlState = ctrl,
-                    onToggleCtrl = { ctrl = ctrl.next() },
+                    onToggleCtrl = { ctrl = ctrl.toggled() },
                 )
             }
         }
