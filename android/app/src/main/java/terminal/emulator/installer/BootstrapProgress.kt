@@ -17,7 +17,7 @@ sealed class BootstrapProgress {
         override fun overallProgress(): Float = 0.85f +
             if (totalEntries > 0) {
                 // 上限 0.97，使 CreatingSymlinks（0.99）与
-                // RunningPostInstall（0.97..1.0）永不使进度条回退
+                // RunningPostInstall（0.99..1.0）永不使进度条回退
                 (entriesExtracted.toFloat() / totalEntries) * 0.12f
             } else {
                 0f

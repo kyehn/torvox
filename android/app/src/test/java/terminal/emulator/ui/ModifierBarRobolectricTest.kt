@@ -27,7 +27,7 @@ import terminal.emulator.input.next
 /**
  * JVM (Robolectric) Compose tests for [ModifierBar] — proof that pure-UI semantics run WITHOUT an
  * emulator. ModifierBar has no JNI dependency, so it is the reference case for "backend/frontend
- * separation in tests" (see docs/standards/TESTING.md §Instrumented 方法论).
+ * separation in tests" (see docs/specification/TESTING.md §Instrumented 方法论).
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
