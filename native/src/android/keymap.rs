@@ -64,17 +64,19 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         60 => key::Key::ShiftRight,
         61 => key::Key::Tab,
         62 => key::Key::Space,
-        66 => key::Key::Enter,     // KEYCODE_ENTER
-        67 => key::Key::Backspace, // KEYCODE_DEL：Android 的退格键
-        68 => key::Key::Backquote, // KEYCODE_GRAVE
-        69 => key::Key::Minus,     // KEYCODE_MINUS
-        70 => key::Key::Equal,     // KEYCODE_EQUALS
+        65 => key::Key::LaunchMail, // KEYCODE_ENVELOPE：邮件键
+        66 => key::Key::Enter,      // KEYCODE_ENTER
+        67 => key::Key::Backspace,  // KEYCODE_DEL：Android 的退格键
+        68 => key::Key::Backquote,  // KEYCODE_GRAVE
+        69 => key::Key::Minus,      // KEYCODE_MINUS
+        70 => key::Key::Equal,      // KEYCODE_EQUALS
         71 => key::Key::BracketLeft,
         72 => key::Key::BracketRight,
         73 => key::Key::Backslash,
         74 => key::Key::Semicolon,
         75 => key::Key::Quote, // KEYCODE_APOSTROPHE
         76 => key::Key::Slash,
+        82 => key::Key::ContextMenu, // KEYCODE_MENU：上下文菜单键
         85 => key::Key::MediaPlayPause,
         86 => key::Key::MediaStop,
         87 => key::Key::MediaTrackNext,     // KEYCODE_MEDIA_NEXT
@@ -94,6 +96,10 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         122 => key::Key::Home,        // KEYCODE_MOVE_HOME
         123 => key::Key::End,         // KEYCODE_MOVE_END
         124 => key::Key::Insert,
+        125 => key::Key::BrowserForward, // KEYCODE_FORWARD：浏览器前进键
+        126 => key::Key::MediaPlayPause, // KEYCODE_MEDIA_PLAY：单键播放，编码器无独立键位
+        127 => key::Key::MediaPlayPause, // KEYCODE_MEDIA_PAUSE：同上，播放/暂停共用键位
+        129 => key::Key::Eject,          // KEYCODE_MEDIA_EJECT
         143 => key::Key::NumLock,
         154 => key::Key::NumpadDivide,
         155 => key::Key::NumpadMultiply,
@@ -105,17 +111,28 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         161 => key::Key::NumpadEqual,
         162 => key::Key::NumpadParenLeft,
         163 => key::Key::NumpadParenRight,
-        164 => key::Key::AudioVolumeMute, // KEYCODE_VOLUME_MUTE
-        211 => key::Key::KanaMode,        // KEYCODE_ZENKAKU_HANKAKU
-        212 => key::Key::Convert,         // KEYCODE_EISU
-        216 => key::Key::IntlYen,         // KEYCODE_YEN
-        217 => key::Key::IntlRo,          // KEYCODE_RO
-        219 => key::Key::Help,            // KEYCODE_ASSIST
+        164 => key::Key::AudioVolumeMute,  // KEYCODE_VOLUME_MUTE
+        174 => key::Key::BrowserFavorites, // KEYCODE_BOOKMARK
+        209 => key::Key::LaunchApp1,       // KEYCODE_MUSIC
+        210 => key::Key::LaunchApp2,       // KEYCODE_CALCULATOR
+        211 => key::Key::KanaMode,         // KEYCODE_ZENKAKU_HANKAKU
+        212 => key::Key::NonConvert,       // KEYCODE_EISU：英数键，语义是「不转换」
+        213 => key::Key::NonConvert,       // KEYCODE_MUHENKAN：无转换
+        214 => key::Key::Convert,          // KEYCODE_HENKAN：转换
+        215 => key::Key::KanaMode,         // KEYCODE_KATAKANA_HIRAGANA
+        216 => key::Key::IntlYen,          // KEYCODE_YEN
+        217 => key::Key::IntlRo,           // KEYCODE_RO
+        218 => key::Key::KanaMode,         // KEYCODE_KANA
+        219 => key::Key::Help,             // KEYCODE_ASSIST
+        222 => key::Key::MediaSelect,      // KEYCODE_MEDIA_AUDIO_TRACK
         223 => key::Key::Sleep,
         224 => key::Key::WakeUp,
+        259 => key::Key::Help,  // KEYCODE_HELP
+        276 => key::Key::Sleep, // KEYCODE_SOFT_SLEEP
         277 => key::Key::Cut,
         278 => key::Key::Copy,
         279 => key::Key::Paste,
+        285 => key::Key::BrowserRefresh, // KEYCODE_REFRESH
 
         _ => return None,
     })
@@ -162,5 +179,35 @@ mod tests {
         assert_eq!(key_for_android_keycode(4), None); // KEYCODE_BACK
         assert_eq!(key_for_android_keycode(187), None); // KEYCODE_APP_SWITCH
         assert_eq!(key_for_android_keycode(84), None); // KEYCODE_SEARCH
+    }
+
+    /// 补齐的键必须落在语义最近的键位上：漏映射时这些键会退回按键文本，
+    /// 而菜单/浏览器/媒体键的「文本」为空，整个键静默失效。
+    #[test]
+    fn extended_keys_map_to_nearest_terminal_keys() {
+        assert_eq!(key_for_android_keycode(65), Some(key::Key::LaunchMail)); // ENVELOPE
+        assert_eq!(key_for_android_keycode(82), Some(key::Key::ContextMenu)); // MENU
+        assert_eq!(key_for_android_keycode(125), Some(key::Key::BrowserForward)); // FORWARD
+        assert_eq!(key_for_android_keycode(129), Some(key::Key::Eject)); // MEDIA_EJECT
+        assert_eq!(
+            key_for_android_keycode(174),
+            Some(key::Key::BrowserFavorites)
+        ); // BOOKMARK
+        assert_eq!(key_for_android_keycode(209), Some(key::Key::LaunchApp1)); // MUSIC
+        assert_eq!(key_for_android_keycode(210), Some(key::Key::LaunchApp2)); // CALCULATOR
+        assert_eq!(key_for_android_keycode(222), Some(key::Key::MediaSelect)); // MEDIA_AUDIO_TRACK
+        assert_eq!(key_for_android_keycode(259), Some(key::Key::Help)); // HELP
+        assert_eq!(key_for_android_keycode(276), Some(key::Key::Sleep)); // SOFT_SLEEP
+        assert_eq!(key_for_android_keycode(285), Some(key::Key::BrowserRefresh)); // REFRESH
+    }
+
+    /// 日语输入键的转换/非转换方向不得对调：EISU（英数）与 MUHENKAN 都是
+    /// 「不转换」，HENKAN 才是「转换」。对调会让日语输入法把确定键当成取消键。
+    #[test]
+    fn japanese_keys_distinguish_convert_from_non_convert() {
+        assert_eq!(key_for_android_keycode(214), Some(key::Key::Convert)); // HENKAN
+        assert_eq!(key_for_android_keycode(213), Some(key::Key::NonConvert)); // MUHENKAN
+        assert_eq!(key_for_android_keycode(212), Some(key::Key::NonConvert)); // EISU
+        assert_eq!(key_for_android_keycode(215), Some(key::Key::KanaMode)); // KATAKANA_HIRAGANA
     }
 }
