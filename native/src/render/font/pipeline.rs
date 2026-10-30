@@ -88,7 +88,7 @@ pub struct FontInfoActive {
 pub struct FontPipeline {
     pub(crate) font_system: FontSystem,
     pub(crate) scaler_context: swash::scale::ScaleContext,
-    pub(crate) atlas: guillotiere::AtlasAllocator,
+    pub(crate) atlas: etagere::AtlasAllocator,
     pub(crate) caches: super::glyph_cache::GlyphCache,
     pub(crate) atlas_bitmap: Vec<u8>,
     pub(crate) atlas_width: u32,
@@ -186,7 +186,7 @@ impl FontPipeline {
         let font_system = FontSystem::new_with_locale_and_db(String::new(), font_database);
 
         let scaler_context = swash::scale::ScaleContext::new();
-        let atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(atlas_width, atlas_height));
+        let atlas = etagere::AtlasAllocator::new(etagere::size2(atlas_width, atlas_height));
         let atlas_bitmap = vec![0u8; (atlas_width * atlas_height * 4) as usize];
 
         let mut pipeline = Self {
@@ -246,7 +246,7 @@ impl FontPipeline {
     /// 重建字形图集：重置分配器、清位图、递增代次并重光栅化 ASCII。
     /// 字号、光栅缩放或字体族变化后调用。
     fn reset_atlas(&mut self) {
-        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
+        self.atlas = etagere::AtlasAllocator::new(etagere::size2(
             self.atlas_width as i32,
             self.atlas_height as i32,
         ));
@@ -271,7 +271,7 @@ impl FontPipeline {
         // key 不变，LRU 也不会自然淘汰，于是 `bold=true` 一直走合成加粗而非真粗面。
         self.caches.style_face_cache.clear();
         self.caches.used_faces.clear();
-        self.caches.ascii_glyph_ids = [None; 128];
+        self.caches.ascii_glyph_ids = [None; ASCII_UPPER_BOUND as usize];
     }
 
     /// 重新发现 CJK 回退层并重光栅化 ASCII。任何可能改变可用回退字体的

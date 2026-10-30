@@ -149,7 +149,7 @@ pub struct GlyphInfo {
     pub width: i32,
     pub height: i32,
     pub placement: swash::zeno::Placement,
-    pub allocation_id: Option<guillotiere::AllocId>,
+    pub allocation_id: Option<etagere::AllocId>,
 }
 
 impl GlyphInfo {

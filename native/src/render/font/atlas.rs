@@ -107,10 +107,7 @@ impl FontPipeline {
             return None;
         }
 
-        let allocation = match self
-            .atlas
-            .allocate(guillotiere::size2(width + 1, height + 1))
-        {
+        let allocation = match self.atlas.allocate(etagere::size2(width + 1, height + 1)) {
             Some(allocation) => allocation,
             None => {
                 let evict_count =
@@ -129,9 +126,8 @@ impl FontPipeline {
                 if evicted_any {
                     self.atlas_generation = self.atlas_generation.wrapping_add(1);
                 }
-                if let Some(retry_allocation) = self
-                    .atlas
-                    .allocate(guillotiere::size2(width + 1, height + 1))
+                if let Some(retry_allocation) =
+                    self.atlas.allocate(etagere::size2(width + 1, height + 1))
                 {
                     retry_allocation
                 } else {
@@ -142,8 +138,7 @@ impl FontPipeline {
                         self.caches.glyph_cache.len(),
                     );
                     self.rebuild_atlas();
-                    self.atlas
-                        .allocate(guillotiere::size2(width + 1, height + 1))?
+                    self.atlas.allocate(etagere::size2(width + 1, height + 1))?
                 }
             }
         };
@@ -234,7 +229,7 @@ impl FontPipeline {
             .iter()
             .map(|(&k, v)| (k, v.clone()))
             .collect();
-        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
+        self.atlas = etagere::AtlasAllocator::new(etagere::size2(
             self.atlas_width as i32,
             self.atlas_height as i32,
         ));
