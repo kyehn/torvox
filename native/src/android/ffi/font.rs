@@ -442,7 +442,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle
             throw_session_missing(env, "setCursorStyle");
             return Ok(());
         };
-        entry.session.lock().terminal().set_cursor_style(cursor_style);
+        entry
+            .session
+            .lock()
+            .terminal()
+            .set_cursor_style(cursor_style);
         drop(registry);
         log::info!("setCursorStyle: session {id} style={cursor_style:?}");
     })
