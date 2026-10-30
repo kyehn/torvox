@@ -265,12 +265,7 @@ impl super::GhosttyTerminal {
             // 上限取「远超任何真实剪贴板内容、又不至于拖垮进程」的量级，并在
             // 截断时显式记录——静默截断只会让用户拿到半个剪贴板却不知为何。
             let original_len = payload.len();
-            let truncated = original_len > MAX_CLIPBOARD_PAYLOAD_BYTES;
-            let payload = if truncated {
-                &payload[..MAX_CLIPBOARD_PAYLOAD_BYTES]
-            } else {
-                payload
-            };
+            let (payload, truncated) = truncate_clipboard_payload(payload);
             let text = String::from_utf8_lossy(payload).into_owned();
             if truncated {
                 log::warn!(
@@ -451,4 +446,21 @@ impl super::GhosttyTerminal {
     pub(crate) fn byte_to_float(value: u8) -> f32 {
         value as f32 / 255.0
     }
+}
+
+/// 把 OSC 52 的写回负载截到 [`MAX_CLIPBOARD_PAYLOAD_BYTES`]，返回截断后的切片与
+/// 「是否发生过截断」。
+///
+/// 切点落在字符边界：按字节上限硬切时落点可能在一个多字节序列中间，随后的
+/// `from_utf8_lossy` 会补一个 U+FFFD——用户拿到的剪贴板末尾凭空多一个替换符。
+/// 续字节（`10xxxxxx`）一律退回去，最多退 3 字节（4 字节字符的续字节数）。
+pub(super) fn truncate_clipboard_payload(payload: &[u8]) -> (&[u8], bool) {
+    if payload.len() <= MAX_CLIPBOARD_PAYLOAD_BYTES {
+        return (payload, false);
+    }
+    let mut end = MAX_CLIPBOARD_PAYLOAD_BYTES;
+    while end > 0 && payload[end] & 0xC0 == 0x80 {
+        end -= 1;
+    }
+    (&payload[..end], true)
 }
