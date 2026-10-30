@@ -60,7 +60,7 @@ MUST NOT 使整份文件解析失败。
 
 #### Scenario: 数值越界
 
-- **WHEN** `terminal-transcript-rows` 写成 99999
+- **WHEN** `terminal-transcript-rows` 写成 99999（有效区间 100–50000）
 - **THEN** 回滚行数取默认 2000，日志里有一条越界说明
 
 ### Requirement: colors.properties 覆盖
@@ -84,23 +84,13 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 - **WHEN** 用户在设置页换了一个主题，而 `colors.properties` 已不存在
 - **THEN** 终端回到新主题的原色，上一次的覆盖不残留
 
-### Requirement: 键栏由 extra-keys 决定
+### Requirement: 键栏布局由 extra-keys 决定
 
 键栏的行数、键位与字形 MUST 完全由 `extra-keys` / `extra-keys-style` /
 `extra-keys-text-all-caps` 决定，MUST NOT 另有写死的键位表。
 
-`extra-keys` 解析出零行时 MUST NOT 画键栏，且网格 MUST NOT 为它预留高度。
-
-未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染（那会让用户点出一串
-无意义的字符）。`FN` 未实现，MUST NOT 渲染。
-
-`{macro: ...}` MUST 被解析但 MUST NOT 渲染成按键：没有播放器时，渲染一个点了没反应
-的键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。两者 MUST NOT 让整份
-布局回落到默认——一个不认识的宏不该作废用户配好的其余键位。
-
-`extra-keys-style` MUST 接受 `default` / `arrows-only` / `arrows-all` / `all` / `none`，
-字形集合逐项对齐 termux `ExtraKeysConstants`：五档是逐级加字形（方向键 → 常用符号 →
-Home/End/PgUp/PgDn → ESC/CTRL/ALT），不是五个互不相干的外观。
+`extra-keys` 解析出零行时 MUST NOT 画键栏，且网格 MUST NOT 为它预留高度：留着一条
+点不出东西、也看不见内容的空白带，比没有键栏更糟。
 
 #### Scenario: 自定义三行布局
 
@@ -112,31 +102,95 @@ Home/End/PgUp/PgDn → ESC/CTRL/ALT），不是五个互不相干的外观。
 - **WHEN** `extra-keys = []`
 - **THEN** 键栏整条不出现，终端占满可用高度
 
-### Requirement: 工作目录、铃音与光标
+### Requirement: extra-keys-style 的字形档位
 
-- `default-working-directory` MUST 支持 `~`、`~/x`、相对路径与绝对路径；
-  尾部的 `/` MUST 被归一（`/` 自身除外），否则会话抽屉会随 shell 的 OSC 7 上报
-  在同一次会话里换名字。解析结果 MUST 落在真实存在的目录上，否则回退家目录——
-  目录不存在时 PTY 会直接失败，配置里的一个笔误不该让应用「打不开终端」。
-- `bell-character` MUST 支持 `vibrate`（默认）/`beep`/`ignore`；连续响铃 MUST 有
-  最小间隔，避免每秒刷新的程序把手机震成蜂鸣器。
-- `terminal-cursor-style` MUST 接受 `block`/`bar`/`beam`/`underline`
-  （`beam` 与 `bar` 同为竖线），非法值回退 `block`。它 MUST 作为**默认**样式下发，
-  程序用 DECSCUSR 指定过的样式仍然优先。
-- `terminal-transcript-rows` MUST 接受 100–50000，越界回退 2000。
-- `terminal-cursor-blink-rate` 为 0 时 MUST NOT 产生任何补帧；非 0 时 MUST 落在
-  100–2000，越界按「不闪」处理；相位 MUST 由时基计算而 MUST NOT 由帧计数累加
-  ——空闲省电会让帧间隔抖动到秒级。
+`extra-keys-style` MUST 接受 `default` / `arrows-only` / `arrows-all` / `all` / `none`，
+字形集合逐项对齐 termux `ExtraKeysConstants`。
 
-#### Scenario: 静止终端里光标照常闪
+五档不是五套互不相干的外观，而是同一组字形表的嵌套裁剪：`none` 一个都不换，
+`arrows-only` 只换方向键与横线，`default` 再加回车/Tab/退格等常用符号，
+`arrows-all` 再加 Home/End/PgUp/PgDn，`all` 最后把 ESC/CTRL/ALT 换成 ISO 符号。
 
-- **WHEN** 终端没有任何输出，`terminal-cursor-blink-rate` 为 500
-- **THEN** 光标每 500ms 翻转一次，画面随之重绘
+#### Scenario: 逐级加字形
+
+- **WHEN** `extra-keys-style` 从 `none` 逐档改到 `all`
+- **THEN** 每一档都在上一档基础上多出一组字形，`all` 一档含 ESC/CTRL/ALT 的 ISO 符号
+
+### Requirement: 键栏中不可渲染的项
+
+未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染——那会让用户点出一串无意义的
+字符。`FN` 未实现，MUST NOT 渲染。
+
+`{macro: ...}` MUST 被解析但 MUST NOT 渲染成按键：没有播放器时，渲染一个点了没反应的
+键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。
+
+三者 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
+
+#### Scenario: 未知键名不落到键栏
+
+- **WHEN** `extra-keys` 里出现本应用不认识的键名
+- **THEN** 该键不出现在键栏上，日志里有一条警告，同行其余按键照常渲染
+
+#### Scenario: 宏被解析但不渲染
+
+- **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
+- **THEN** 该项不占位置也不可点，其余键位照常生效
+
+### Requirement: default-working-directory 的解析
+
+`default-working-directory` MUST 支持 `~`、`~/x`、相对路径与绝对路径；相对路径按
+家目录解析。尾部的 `/` MUST 被归一（`/` 自身除外），否则会话抽屉会随 shell 的
+OSC 7 上报在同一次会话里换名字。
+
+解析结果 MUST 落在真实存在的目录上，否则回退家目录：目录不存在时 PTY 会直接失败，
+配置里的一个笔误不该让应用「打不开终端」。
 
 #### Scenario: 工作目录不存在
 
 - **WHEN** `default-working-directory` 指向一个不存在的路径
 - **THEN** 会话仍能启动，工作目录是家目录
+
+#### Scenario: 尾部斜杠被归一
+
+- **WHEN** `default-working-directory` 写成 `~/work/`
+- **THEN** 工作目录是 `~/work`，OSC 7 上报的名字不带尾斜杠
+
+### Requirement: bell-character 的响铃方式
+
+`bell-character` MUST 支持 `vibrate`（默认）/`beep`/`ignore`；非法值 MUST 回退
+`vibrate`。
+
+连续响铃 MUST 有最小间隔，避免每秒刷新的程序把手机震成蜂鸣器。
+
+#### Scenario: 连续响铃被节流
+
+- **WHEN** 程序在极短时间内连发两次 BEL
+- **THEN** 只提示一次，不叠加成连震
+
+### Requirement: terminal-cursor-style 的取值
+
+`terminal-cursor-style` MUST 接受 `block`/`bar`/`beam`/`underline`（`beam` 与 `bar`
+同为竖线），非法值 MUST 回退 `block`。
+
+它 MUST 作为**默认**样式下发，程序用 DECSCUSR 指定过的样式仍然优先。
+
+#### Scenario: beam 与 bar 同形
+
+- **WHEN** `terminal-cursor-style = beam`
+- **THEN** 光标画成竖线，与 `bar` 的效果相同
+
+### Requirement: terminal-cursor-blink-rate 的区间与相位
+
+`terminal-cursor-blink-rate` 为 0 时 MUST NOT 产生任何补帧；非 0 时 MUST 落在
+100–2000，越界按「不闪」处理。
+
+相位 MUST 由时基计算而 MUST NOT 由帧计数累加：空闲省电会让帧间隔抖动到秒级，
+累加出来的相位会跟着漂。
+
+#### Scenario: 静止终端里光标照常闪
+
+- **WHEN** 终端没有任何输出，`terminal-cursor-blink-rate` 为 500
+- **THEN** 光标每 500ms 翻转一次，画面随之重绘
 
 ### Requirement: 键盘切换键的两种语义
 
