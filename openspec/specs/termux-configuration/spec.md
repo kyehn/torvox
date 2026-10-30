@@ -122,9 +122,15 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 字符。`FN` 未实现，MUST NOT 渲染。
 
 `{macro: ...}` MUST 被解析但 MUST NOT 渲染成按键：没有播放器时，渲染一个点了没反应的
-键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。
+键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。既没有 `key` 也没有
+`macro`、`display` 的对象 MUST 只丢自己那一项，MUST NOT 作废整行或整份布局。
 
-三者 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
+`display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变
+键码、特殊动作或长按内容。
+
+上述情形 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
+唯一的例外是「写了行、但每一行都被坏项掏空」——此时退回默认布局并记错误，因为键栏是
+抽屉与滚动锁定的唯一入口，空键栏会把它们一起藏起来。显式写 `[]` 仍按「不要键栏」处理。
 
 #### Scenario: 未知键名不落到键栏
 
@@ -135,6 +141,16 @@ Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光
 
 - **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
 - **THEN** 该项不占位置也不可点，其余键位照常生效
+
+#### Scenario: 空对象只丢自己
+
+- **WHEN** `extra-keys = [['ESC',{popup:'|'},'TAB']]`
+- **THEN** 键栏只有 ESC 与 TAB，日志里说明那一项被丢弃
+
+#### Scenario: display 覆盖键帽
+
+- **WHEN** `extra-keys = [[{key:'ESC',display:'quit'}]]` 且 `extra-keys-text-all-caps = false`
+- **THEN** 键帽显示 `quit`，按下仍发出 ESC
 
 ### Requirement: default-working-directory 的解析
 
