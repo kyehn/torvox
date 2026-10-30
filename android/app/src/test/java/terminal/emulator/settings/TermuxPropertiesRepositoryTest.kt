@@ -2,7 +2,6 @@ package terminal.emulator.settings
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 
 /**
  * 配置文件的**读取规则**：首个可读常规文件生效、符号链接跳过、超大文件跳过。

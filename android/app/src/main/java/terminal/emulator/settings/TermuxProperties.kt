@@ -372,7 +372,7 @@ internal object TermuxPropertiesParser {
             if (parsed != 0 && parsed !in TermuxProperties.CURSOR_BLINK_RATE_RANGE) {
                 errors +=
                     "terminal-cursor-blink-rate: $parsed out of range " +
-                        "${TermuxProperties.CURSOR_BLINK_RATE_RANGE}; keeping 0"
+                    "${TermuxProperties.CURSOR_BLINK_RATE_RANGE}; keeping 0"
                 return 0
             }
             return parsed
