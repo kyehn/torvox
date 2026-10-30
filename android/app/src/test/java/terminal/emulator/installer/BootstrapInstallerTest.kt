@@ -6,7 +6,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -370,10 +369,9 @@ class BootstrapInstallerTest {
      * 继续：新一轮条目写进旧树，`atomicRename` 把这份混血树当 prefix 发布，而安装
      * 一路报成功。
      *
-     * 关键在只读目录的位置：放在 `locked/`（ZIP 只写 `bin/`、`lib/`），于是
-     * **去掉守卫后解压会顺利成功**——本例据此与旧行为区分，而不是靠「反正也失败」
-     * 这种任何实现都能蒙对的断言。测试以非 root 身份运行；Robolectric 无
-     * symlink/ACL 支持，故用权限位制造真实的删不掉。
+     * 「删不掉」由注入的清理器制造：靠权限位在 root 或特殊挂载下不成立，用例只能
+     * 被静默跳过，等于没测。去掉守卫时，解压会顺利写进残留树、`atomicRename` 把
+     * 「旧残留 + 新条目」发布成 prefix，而安装报成功——本例据此与旧行为区分。
      */
     @Test
     fun install_aborts_when_staging_cannot_be_cleared() {
@@ -382,30 +380,19 @@ class BootstrapInstallerTest {
         val locked = File(stagingDir, "locked")
         locked.mkdirs()
         File(locked, "leftover-from-previous-run").writeText("stale binary")
-        locked.setWritable(false, false)
-        locked.setReadable(true, false)
-        // 前提：权限位必须真的能挡住删除。root 无视权限位，此时构造不出
-        // 「删不掉」的场景，用例本身无从判别——跳过而非伪装成通过。
-        assumeFalse(
-            "当前身份可无视目录权限位，无法构造删不掉的 staging 残留",
-            locked.canWrite(),
+
+        val installer =
+            BootstrapInstaller(prefixDir, homeDir, stagingDir, clearStaging = { false })
+
+        val result = runBlocking { installer.install(zipFile) }
+
+        assertTrue("staging 删不净时安装必须失败", result.isFailure)
+        assertEquals(
+            "失败原因须是清空 staging 区，而不是后续解压步骤",
+            "Bootstrap staging dir could not be fully cleared",
+            result.exceptionOrNull()?.message,
         )
-        try {
-            val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-
-            val result = runBlocking { installer.install(zipFile) }
-
-            assertTrue("staging 删不净时安装必须失败", result.isFailure)
-            assertEquals(
-                "失败原因须是清空 staging 区，而不是后续解压步骤",
-                "Bootstrap staging dir could not be fully cleared",
-                result.exceptionOrNull()?.message,
-            )
-            assertFalse("prefix 绝不能被原子换入", installer.isInstalled())
-        } finally {
-            locked.setWritable(true, false)
-            stagingDir.deleteRecursively()
-        }
+        assertFalse("prefix 绝不能被原子换入", installer.isInstalled())
     }
 
     /** 清空 staging 区必须把上次残留整棵树清掉，不能只删顶层目录。 */

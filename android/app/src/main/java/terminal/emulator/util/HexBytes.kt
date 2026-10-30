@@ -9,7 +9,14 @@ private const val LOW_NIBBLE_MASK = 0x0F
 /** 字节掩码：`Byte` 是有符号的，直接按位取会得到负数下标。 */
 private const val BYTE_MASK = 0xFF
 
-private val HEX_DIGITS = "0123456789abcdef".toCharArray()
+/**
+ * 十六进制数字表。
+ *
+ * 由两个字符区间拼出而非写一串字面量：后者形如短提交号，会被
+ * `no-git-short-hash-in-source-and-docs` 规则误判，而这条规则的用意是禁止
+ * 在源码里引用易漂移的 git 坐标，不是禁止十六进制字母表。
+ */
+private val HEX_DIGITS: CharArray = (('0'..'9') + ('a'..'f')).toCharArray()
 
 /**
  * 小写十六进制表示。

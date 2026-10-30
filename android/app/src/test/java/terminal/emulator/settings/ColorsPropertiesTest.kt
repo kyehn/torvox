@@ -48,8 +48,8 @@ class ColorsPropertiesTest {
     /** `#AARRGGBB` 的 alpha 被丢弃：终端调色板不带透明度，保留它会让颜色算错。 */
     @Test
     fun `eight digit form keeps only rgb`() {
-        val (colors, _) = parse("foreground = #80ff8000")
-        assertEquals(0xFF8000, colors.foreground)
+        val (colors, _) = parse("foreground = #80123456")
+        assertEquals(0x123456, colors.foreground)
     }
 
     @Test
