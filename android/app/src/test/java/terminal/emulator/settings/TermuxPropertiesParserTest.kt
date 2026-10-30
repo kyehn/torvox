@@ -224,4 +224,30 @@ class TermuxPropertiesParserTest {
             loaded.properties.extraKeys,
         )
     }
+
+    /**
+     * 宏是 termux 的正式语法（`{macro: "CTRL f d"}`），本应用只解析、不播放。
+     * 它 MUST 只丢自己那一项：整份布局因为一个宏回到默认，等于用户配好的键位被
+     * 一个不认识的对象整体作废。
+     */
+    @Test
+    fun `a macro key does not void the whole layout`() {
+        val loaded = parse("""extra-keys = [['ESC',{macro:'CTRL f d',display:'tmux'}]]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d"))),
+            loaded.properties.extraKeys,
+        )
+        assertTrue("宏本身不是错误: ${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /** 对象形式的 popup（宏）被跳过并留证，主键本身照常保留。 */
+    @Test
+    fun `an object popup is dropped without losing the key`() {
+        val loaded = parse("""extra-keys = [[{key:'TAB',popup:{macro:'SHIFT TAB'}}]]""")
+        assertEquals(listOf(listOf(ExtraKey("TAB"))), loaded.properties.extraKeys)
+        assertTrue(
+            "丢掉 popup 必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("popup") },
+        )
+    }
 }

@@ -132,6 +132,23 @@ class ModifierBarLayoutTest {
         assertEquals("ENTER", label("ENTER", ExtraKeysStyle.NONE))
     }
 
+    /** 宏没有播放器：键不渲染，但同一行的其他键与行数都不受影响。 */
+    @Test
+    fun `macro keys are hidden without dropping the row`() {
+        val layout = listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d")))
+        val slots = buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true)
+        assertEquals(listOf("ESC"), slots[0].map { it.name })
+        assertEquals(1, extraKeyRowCount(layout))
+    }
+
+    /** 只有宏的一行不占高度：预留高度必须与画出的键栏同判据。 */
+    @Test
+    fun `a macro-only row reserves no height`() {
+        val layout = listOf(listOf(ExtraKey("tmux", macro = "CTRL f d")))
+        assertEquals(0, extraKeyRowCount(layout))
+        assertTrue(buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true).isEmpty())
+    }
+
     /** popup 随槽位带下去，供长按发送。 */
     @Test
     fun `popup text survives the conversion`() {

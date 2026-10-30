@@ -120,9 +120,11 @@ enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, ALL, NONE }
  * `extra-keys` 的一个按键。
  *
  * [name] 是 termux 的键名（`ESC`、`F1`、`UP`、`CTRL`……）或单字符字面量；
- * [popup] 是长按/上档显示的次级字符，本应用把它作为长按发送的文本。
+ * [popup] 是长按/上档显示的次级字符，本应用把它作为长按发送的文本；
+ * [macro] 是 termux 的宏（`{macro: "CTRL f d"}`），本应用只解析、不播放——
+ * 键栏会把这类键隐藏（见 `ModifierBar.buildExtraKeySlots`）。
  */
-data class ExtraKey(val name: String, val popup: String? = null)
+data class ExtraKey(val name: String, val popup: String? = null, val macro: String? = null)
 
 /** 一份配置的来源文件与解析错误，供日志与诊断使用。 */
 data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath: String?, val errors: List<String>)
@@ -351,7 +353,10 @@ internal object TermuxPropertiesParser {
         val extraKeys =
             values["extra-keys"]?.let { raw ->
                 when (val parsed = ExtraKeysParser.parse(raw)) {
-                    is ExtraKeysParser.Result.Success -> parsed.rows
+                    is ExtraKeysParser.Result.Success -> {
+                        errors += parsed.warnings
+                        parsed.rows
+                    }
 
                     is ExtraKeysParser.Result.Failure -> {
                         errors += "extra-keys: ${parsed.message}; keeping the default layout"
@@ -481,16 +486,24 @@ internal object TermuxPropertiesParser {
  * 带引号的字符串，或 `{key: 'x', popup: 'y'}`。不引入 JSON 库：这份语法只有三种
  * 记号（数组、对象、字符串），而且 termux 允许单引号与裸键名，标准 JSON 解析器反而
  * 不接收。
+ *
+ * 本应用不支持的字段（`macro`、对象形式的 `popup`）MUST 只丢自己那一项：整份布局
+ * 因为一个宏回到默认，等于用户精心配的两行键位被一个不认识的对象整体作废。
  */
 internal object ExtraKeysParser {
     sealed interface Result {
-        data class Success(val rows: List<List<ExtraKey>>) : Result
+        data class Success(
+            val rows: List<List<ExtraKey>>,
+            /** 保住了布局、但有一项被丢掉时的说明（例如对象形式的 popup）。 */
+            val warnings: List<String> = emptyList(),
+        ) : Result
 
         data class Failure(val message: String) : Result
     }
 
     private class Cursor(private val text: String) {
         var index: Int = 0
+        val warnings: MutableList<String> = mutableListOf()
 
         fun skipWhitespace() {
             while (index < text.length && text[index].isWhitespace()) index++
@@ -547,6 +560,43 @@ internal object ExtraKeysParser {
             require(index > start) { "expected a name at offset $start" }
             return text.substring(start, index)
         }
+
+        /** 字段值：字符串或裸名；`{...}`、`[...]` 这类复合值整段跳过并返回 null。 */
+        fun readValueOrNull(): String? {
+            skipWhitespace()
+            return when (text.getOrNull(index)) {
+                '{', '[' -> {
+                    skipComposite()
+                    null
+                }
+
+                else -> readString()
+            }
+        }
+
+        /** 跳过一段配平的 `{...}` / `[...]`；字符串里的括号不参与配对。 */
+        fun skipComposite() {
+            var depth = 0
+            while (index < text.length) {
+                when (text[index]) {
+                    '\'', '"' -> readString()
+
+                    '{', '[' -> {
+                        depth++
+                        index++
+                    }
+
+                    '}', ']' -> {
+                        depth--
+                        index++
+                        if (depth == 0) return
+                    }
+
+                    else -> index++
+                }
+            }
+            error("unterminated object or array")
+        }
     }
 
     fun parse(text: String): Result = try {
@@ -575,7 +625,7 @@ internal object ExtraKeysParser {
         cursor.skipWhitespace()
         require(cursor.index == text.length) { "trailing characters after ']'" }
         require(rows.all { it.isNotEmpty() }) { "extra-keys contains an empty row" }
-        Result.Success(rows)
+        Result.Success(rows, cursor.warnings)
     } catch (error: IllegalArgumentException) {
         Result.Failure(error.message ?: "invalid extra-keys")
     } catch (error: IllegalStateException) {
@@ -611,19 +661,28 @@ internal object ExtraKeysParser {
             cursor.consume('{')
             var key: String? = null
             var popup: String? = null
+            var macro: String? = null
+            var display: String? = null
             while (true) {
                 val name = cursor.readBare()
                 cursor.consume(':')
-                val value =
-                    if (cursor.peek() == '\'' || cursor.peek() == '"') {
-                        cursor.readString()
-                    } else {
-                        cursor.readBare()
-                    }
                 when (name) {
-                    "key" -> key = value
-                    "popup" -> popup = value
-                    else -> Unit // 未知字段忽略：termux 未来可能加新字段。
+                    "key" -> key = cursor.readValueOrNull()
+
+                    "popup" -> {
+                        popup = cursor.readValueOrNull()
+                        if (popup == null) {
+                            cursor.warnings +=
+                                "extra-keys: object popups are not supported; long-press action dropped"
+                        }
+                    }
+
+                    "macro" -> macro = cursor.readValueOrNull()
+
+                    "display" -> display = cursor.readValueOrNull()
+
+                    // 未知字段：吃掉值（可能是嵌套对象），别让它拖垮整份布局。
+                    else -> cursor.readValueOrNull()
                 }
                 when (cursor.peek()) {
                     ',' -> cursor.consume(',')
@@ -632,10 +691,10 @@ internal object ExtraKeysParser {
                 }
             }
             cursor.consume('}')
-            return ExtraKey(
-                name = requireNotNull(key) { "extra-keys object without a 'key' field" },
-                popup = popup,
-            )
+            require(key != null || macro != null) {
+                "extra-keys object needs a 'key' or 'macro' field"
+            }
+            return ExtraKey(name = key ?: display.orEmpty(), popup = popup, macro = macro)
         }
         return ExtraKey(cursor.readString())
     }
