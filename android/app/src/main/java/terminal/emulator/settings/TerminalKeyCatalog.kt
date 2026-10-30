@@ -63,8 +63,7 @@ object TerminalKeyCatalog {
 
     fun isRepetitive(name: String): Boolean = name.uppercase() in repetitive
 
-    fun isKnown(name: String): Boolean =
-        keyCodeFor(name) != null || specialFor(name) != null || name.length == 1
+    fun isKnown(name: String): Boolean = keyCodeFor(name) != null || specialFor(name) != null || name.length == 1
 
     /** 各样式下 termux 使用的显示字符。样式只改外观，不改按键本身。 */
     private val arrows = mapOf("LEFT" to "←", "RIGHT" to "→", "UP" to "↑", "DOWN" to "↓")

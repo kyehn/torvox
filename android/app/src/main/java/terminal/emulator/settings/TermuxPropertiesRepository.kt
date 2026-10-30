@@ -2,10 +2,6 @@ package terminal.emulator.settings
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
-import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +11,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
+import java.io.File
+import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
 
 private const val TAG = "TermuxProperties"
 
@@ -110,14 +110,13 @@ constructor(@ApplicationContext private val context: Context) {
     }
 
     /** 读不出时记错误并返回 null；`null` 的语义是「保留上次结果」，不是「空配置」。 */
-    private fun readFile(file: File, errors: MutableList<String>): String? =
-        try {
-            file.readText(Charsets.UTF_8)
-        } catch (error: IOException) {
-            errors += "${file.name}: read failed (${error.message})"
-            null
-        } catch (error: SecurityException) {
-            errors += "${file.name}: read denied (${error.message})"
-            null
-        }
+    private fun readFile(file: File, errors: MutableList<String>): String? = try {
+        file.readText(Charsets.UTF_8)
+    } catch (error: IOException) {
+        errors += "${file.name}: read failed (${error.message})"
+        null
+    } catch (error: SecurityException) {
+        errors += "${file.name}: read denied (${error.message})"
+        null
+    }
 }

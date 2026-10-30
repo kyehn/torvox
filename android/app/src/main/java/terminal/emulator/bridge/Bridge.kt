@@ -654,7 +654,6 @@ class Bridge(private val config: TerminalConfig) {
     /** 工作目录（OSC 7）；空串表示 shell 尚未上报。 */
     fun getPwd(): String = onQuery("getPwd", "") { queryPort.getPwd() }
 
-
     fun getActiveSessionTitle(): String = onQuery("getActiveSessionTitle", "") { queryPort.getActiveSessionTitle() }
 
     // ── 选区 ──
