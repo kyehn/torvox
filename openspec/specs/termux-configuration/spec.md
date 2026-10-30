@@ -18,6 +18,12 @@
 前者不存在或不可读时回落后者。任一文件读取或解析失败 MUST 保留上一次成功的解析结果
 并记录错误，MUST NOT 抛给调用方、MUST NOT 清空已有配置。
 
+只认**常规文件**且 MUST NOT 跟随符号链接：这两份文件由外部写入，链接可以把读取带到
+家目录之外，也可能指向设备；非常规文件（管道、目录）同样跳过。
+
+读取 MUST 为 UTF-8；单文件超过 64 KiB MUST 视为无效并跳过（MUST NOT 读进内存）。
+应用 MUST NOT 创建、写入或修改这两份文件。
+
 #### Scenario: 文件写到一半
 
 - **WHEN** `termux.properties` 被外部进程截断成半行
@@ -28,16 +34,34 @@
 - **WHEN** `~/.termux/termux.properties` 与 `~/.config/termux/termux.properties` 同时存在
 - **THEN** 以前者为准，后者不参与解析
 
+#### Scenario: 配置是符号链接
+
+- **WHEN** `~/.termux/termux.properties` 是指向别处的符号链接
+- **THEN** 该路径被跳过，改用次路径；次路径不存在时全部取默认值
+
+#### Scenario: 配置过大
+
+- **WHEN** `termux.properties` 超过 64 KiB
+- **THEN** 该文件不被读取，日志里有一条体积超限的说明，配置取默认值
+
 ### Requirement: properties 语法
 
 解析器 MUST 支持 `key = value`、`#` 与 `!` 行注释、行尾续行符 `\`，
 以及值内的 `\n` `\t` `\r` `\f` `\uXXXX` 转义。未知键 MUST 被忽略，
-MUST NOT 使整份文件解析失败。数值键 MUST 钳到各自区间，越界值取边界。
+MUST NOT 使整份文件解析失败。
+
+数值键越界 MUST 回退各自的默认值并记录错误，MUST NOT 钳到区间边界——
+上游 `getDefaultIfNotInRange` 的口径是「没配好就用默认」。
 
 #### Scenario: 未知键
 
 - **WHEN** 文件里出现本应用不认识的键
 - **THEN** 该行被忽略，其余键照常生效
+
+#### Scenario: 数值越界
+
+- **WHEN** `terminal-transcript-rows` 写成 99999
+- **THEN** 回滚行数取默认 2000，日志里有一条越界说明
 
 ### Requirement: colors.properties 覆盖
 
@@ -92,18 +116,27 @@ Home/End/PgUp/PgDn → ESC/CTRL/ALT），不是五个互不相干的外观。
 
 - `default-working-directory` MUST 支持 `~`、`~/x`、相对路径与绝对路径；
   尾部的 `/` MUST 被归一（`/` 自身除外），否则会话抽屉会随 shell 的 OSC 7 上报
-  在同一次会话里换名字。
+  在同一次会话里换名字。解析结果 MUST 落在真实存在的目录上，否则回退家目录——
+  目录不存在时 PTY 会直接失败，配置里的一个笔误不该让应用「打不开终端」。
 - `bell-character` MUST 支持 `vibrate`（默认）/`beep`/`ignore`；连续响铃 MUST 有
   最小间隔，避免每秒刷新的程序把手机震成蜂鸣器。
-- `terminal-cursor-style` MUST 作为**默认**样式下发，程序用 DECSCUSR 指定过的样式
-  仍然优先。
-- `terminal-cursor-blink-rate` 为 0 时 MUST NOT 产生任何补帧；非 0 时相位 MUST 由
-  时基计算而 MUST NOT 由帧计数累加——空闲省电会让帧间隔抖动到秒级。
+- `terminal-cursor-style` MUST 接受 `block`/`bar`/`beam`/`underline`
+  （`beam` 与 `bar` 同为竖线），非法值回退 `block`。它 MUST 作为**默认**样式下发，
+  程序用 DECSCUSR 指定过的样式仍然优先。
+- `terminal-transcript-rows` MUST 接受 100–50000，越界回退 2000。
+- `terminal-cursor-blink-rate` 为 0 时 MUST NOT 产生任何补帧；非 0 时 MUST 落在
+  100–2000，越界按「不闪」处理；相位 MUST 由时基计算而 MUST NOT 由帧计数累加
+  ——空闲省电会让帧间隔抖动到秒级。
 
 #### Scenario: 静止终端里光标照常闪
 
 - **WHEN** 终端没有任何输出，`terminal-cursor-blink-rate` 为 500
 - **THEN** 光标每 500ms 翻转一次，画面随之重绘
+
+#### Scenario: 工作目录不存在
+
+- **WHEN** `default-working-directory` 指向一个不存在的路径
+- **THEN** 会话仍能启动，工作目录是家目录
 
 ### Requirement: 键盘切换键的两种语义
 
