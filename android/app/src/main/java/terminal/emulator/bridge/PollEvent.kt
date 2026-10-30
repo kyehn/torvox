@@ -37,6 +37,14 @@ sealed class PollEvent {
         @SerialName("request_id") val requestId: Long = 0,
         val selection: String = "",
     ) : PollEvent()
+
+    /**
+     * 终端响铃（BEL = 0x07）。同一会话的多条 BEL 由原生合并，故这里只表示
+     * 「响过」，不携带次数——响 1 次与响 20 次对用户是同一种提示。
+     */
+    @Serializable
+    @SerialName("bell")
+    data class Bell(@SerialName("session_id") val sessionId: Long = 0) : PollEvent()
 }
 
 /**

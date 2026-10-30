@@ -301,6 +301,8 @@ class Bridge(private val config: TerminalConfig) {
         // 本帧见到的全部退出事件，按序。上方单槽字段只描述首个退出；
         // 同帧多余退出必须从该列表回收，否则会泄漏（原生 exit_reported 在推送时置位且不重发）。
         val exits: List<ExitInfo> = emptyList(),
+        // 本帧响过铃的会话，按序。原生已按会话合并，故同一会话只会出现一次。
+        val bells: List<Long> = emptyList(),
     ) {
         /** 把后续轮询到的事件并入本结果，标量字段以后者为准。 */
         fun merge(later: PollResult): PollResult = PollResult(
@@ -314,6 +316,7 @@ class Bridge(private val config: TerminalConfig) {
             // 请求事件累加：每个都带不同的 request_id，必须且只能分发一次。
             clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
+            bells = bells + later.bells,
         )
     }
 
@@ -380,6 +383,10 @@ class Bridge(private val config: TerminalConfig) {
             )
         }
 
+        is PollEvent.Bell -> {
+            PollResult(bells = listOf(event.sessionId))
+        }
+
         is PollEvent.ClipboardRead -> {
             PollResult(
                 clipboardReads =
@@ -400,6 +407,22 @@ class Bridge(private val config: TerminalConfig) {
     fun setTheme(themeName: String) {
         LogUtil.debug(TAG, "setTheme: $themeName")
         onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName) }
+    }
+
+    /**
+     * 用 `colors.properties` 覆盖当前主题调色板（19 槽，`-1` = 沿用主题原色）。
+     *
+     * 必须在 [setTheme] 之后调用：原生把覆盖压在「基底主题」之上，换主题会先重置
+     * 基底，覆盖需要重下一遍。
+     */
+    fun setPaletteOverride(colors: IntArray) {
+        LogUtil.debug(TAG, "setPaletteOverride: ${colors.size} slots")
+        onSession("setPaletteOverride", Unit) { NativeBridge.setPaletteOverride(it, colors) }
+    }
+
+    /** 默认光标样式（`terminal-cursor-style`）；程序用 DECSCUSR 覆盖时以程序为准。 */
+    fun setCursorStyle(nativeValue: Int) {
+        onSession("setCursorStyle", Unit) { NativeBridge.setCursorStyle(it, nativeValue) }
     }
 
     fun setSystemLocale(locale: String) {
@@ -627,6 +650,10 @@ class Bridge(private val config: TerminalConfig) {
 
     // ── 终端查询（委托给 TerminalQueryPort 接缝） ──
     fun getTitle(): String? = onQuery("getTitle", null) { queryPort.getTitle() }
+
+    /** 工作目录（OSC 7）；空串表示 shell 尚未上报。 */
+    fun getPwd(): String = onQuery("getPwd", "") { queryPort.getPwd() }
+
 
     fun getActiveSessionTitle(): String = onQuery("getActiveSessionTitle", "") { queryPort.getActiveSessionTitle() }
 
