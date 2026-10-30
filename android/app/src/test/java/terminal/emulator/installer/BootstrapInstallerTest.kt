@@ -6,6 +6,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -383,6 +384,12 @@ class BootstrapInstallerTest {
         File(locked, "leftover-from-previous-run").writeText("stale binary")
         locked.setWritable(false, false)
         locked.setReadable(true, false)
+        // 前提：权限位必须真的能挡住删除。root 无视权限位，此时构造不出
+        // 「删不掉」的场景，用例本身无从判别——跳过而非伪装成通过。
+        assumeFalse(
+            "当前身份可无视目录权限位，无法构造删不掉的 staging 残留",
+            locked.canWrite(),
+        )
         try {
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
