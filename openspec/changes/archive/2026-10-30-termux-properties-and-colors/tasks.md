@@ -53,8 +53,19 @@
 - [x] 新增 `openspec/specs/termux-configuration/spec.md`
 - [x] 更新 `modifier-bar-height-reservation`（预留高度改为数据驱动）
 - [x] 更新 `cursor-rendering`（默认样式与闪烁）
+- [x] 把 `termux-config` 的读取契约与三个受控键的校验并入 `termux-configuration`，
+      删掉「只允许三个键」的旧要求
+
+## 复查修正
+
+- [x] 工作目录必须落在真实存在的目录上，否则回退家目录（原先直接交给 PTY，会话起不来）
+- [x] 数值键越界回退默认而不是钳到边界（上游 `getDefaultIfNotInRange` 的口径）
+- [x] 闪烁间隔只接受 0 或 100..2000，越界按「不闪」处理
+- [x] 配置文件只认常规文件、不跟随符号链接、超过 64 KiB 跳过
+- [x] Wi-Fi 锁改用 `WIFI_MODE_FULL_HIGH_PERF`：低延迟模式在灭屏时不生效
+- [x] 光标样式重新接受 `beam` 并落成竖线
 
 ## 遗留
 
 - [ ] `PROHIBITED.md` 中「禁止解析 termux.properties/colors.properties」与现状冲突，
-      属受保护文件，待用户决定是否删除该条
+      属受保护文件，待用户决定是否删除该条（已记入 `docs/termux-config-review.md`）
