@@ -221,5 +221,6 @@ fn row_text_from_cells(cells: &[CellData], row: u32) -> String {
 mod grid_text;
 mod lifecycle;
 mod mouse_osc;
+mod osc_state;
 mod render_cache;
 mod selection_search;

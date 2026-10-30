@@ -415,6 +415,14 @@ impl super::GhosttyTerminal {
         {
             log::error!("ghostty_terminal: apply_theme failed to set foreground color");
         }
+        // 光标色也是 OSC 12 查询的应答来源：不推会让 `printf '\e]12;?\a'`
+        // 拿到内建默认色而非主题色，程序按错的底色决定光标对比度。
+        if terminal
+            .set_default_cursor_color(Some(palette.cursor))
+            .is_err()
+        {
+            log::error!("ghostty_terminal: apply_theme failed to set cursor color");
+        }
         match terminal.default_color_palette() {
             Ok(mut colors) => {
                 for (index, color) in ANSI_PALETTE_INDICES.iter().zip(palette.ansi.iter()) {

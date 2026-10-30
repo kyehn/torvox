@@ -30,7 +30,11 @@ impl super::GhosttyTerminal {
                 CommandOutcome::Continue
             }
             Command::SetTheme(theme) => {
-                Self::apply_theme_command(theme, terminal, extractors, state, batch);
+                Self::apply_theme_command(theme, config, terminal, extractors, state, batch);
+                CommandOutcome::Continue
+            }
+            Command::SetColors(palette) => {
+                Self::apply_colors_command(palette, config, terminal, extractors, state, batch);
                 CommandOutcome::Continue
             }
             Command::Resize { rows, cols } => {
@@ -93,6 +97,7 @@ impl super::GhosttyTerminal {
     /// 默认前景/背景参与每个单元的颜色解算，故缓存中的颜色逐行过时。
     fn apply_theme_command<'term>(
         theme: &'static crate::terminal::theme::Theme,
+        config: &RunConfig,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
         state: &mut CommandState,
@@ -111,10 +116,67 @@ impl super::GhosttyTerminal {
         // 所以 OSC 方案会静默保留内置的 xterm 调色板。
         // 这些 setter 写入的默认色正是上游单元颜色查询的解析基准。
         Self::apply_theme(terminal, &theme.palette);
+        Self::report_color_scheme_on_change(terminal, config, theme.dark);
         mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
         extractors.invalidate_row_cache();
         state.cell_data_dirty = true;
         batch.content_changed = true;
+    }
+
+    /// 应用用户调色板覆盖（`colors.properties`）。
+    ///
+    /// 与换主题走同一套默认色 API，区别只在调色板来自文件而非静态清单；明暗上报
+    /// 由背景色的感知亮度决定（用户可能把深色主题的背景改成浅色）。
+    fn apply_colors_command<'term>(
+        palette: crate::terminal::theme::Palette,
+        config: &RunConfig,
+        terminal: &mut Terminal<'term, '_>,
+        extractors: &mut RenderExtractors<'term>,
+        state: &mut CommandState,
+        batch: &mut BatchState,
+    ) {
+        state.default_background = Self::color_to_float(palette.background);
+        state.default_foreground = Self::color_to_float(palette.foreground);
+        Self::apply_theme(terminal, &palette);
+        let dark = palette.background.perceived_luminance() <= 0.5;
+        Self::report_color_scheme_on_change(terminal, config, dark);
+        mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
+        extractors.invalidate_row_cache();
+        state.cell_data_dirty = true;
+        batch.content_changed = true;
+        log::info!(
+            "SetColors: background={:?} foreground={:?}",
+            state.default_background,
+            state.default_foreground
+        );
+    }
+
+    /// 主题明暗变化时向 PTY 主动推 `CSI ? 997 ; 1|2 n`。
+    ///
+    /// 上游只在查询（`CSI ? 996 n`）时作答，不会因默认色改变而主动上报；而
+    /// shell/编辑器跟随系统明暗靠的正是 2031 模式下的这条**主动**通知。门控在
+    /// 模式位上：程序没声明关心明暗时不得往它的输入流里塞未经请求的字节。
+    fn report_color_scheme_on_change(terminal: &Terminal<'_, '_>, config: &RunConfig, dark: bool) {
+        use libghostty_vt::terminal::Mode;
+        match terminal.mode(Mode::COLOR_SCHEME_REPORT) {
+            Ok(true) => {
+                let report: &[u8] = if dark {
+                    b"\x1b[?997;1n"
+                } else {
+                    b"\x1b[?997;2n"
+                };
+                match config.response_buffer.lock() {
+                    Ok(mut guard) => guard.push(report.to_vec()),
+                    Err(error) => log::warn!(
+                        "ghostty_terminal: colour scheme report buffer poisoned: {error}"
+                    ),
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                log::warn!("ghostty_terminal: reading colour scheme mode failed: {error}")
+            }
+        }
     }
 
     /// 调整网格尺寸。
