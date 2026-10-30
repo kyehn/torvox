@@ -1723,6 +1723,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val MENU_ITEM_VERTICAL_PADDING_DP = 12
         private const val MENU_ESTIMATED_WIDTH_DP = 184
         private const val MENU_HEIGHT_DP = 44
+
         /** 从屏幕边缘起算的抽屉手势宽度（dp）。 */
         private const val DRAWER_EDGE_GESTURE_DP = 32
         private const val HALF_PIXEL_OFFSET = 0.5f
@@ -3535,6 +3536,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             viewModel?.clearSelection()
                             startWordSelectionAt(event)
                         }
+
                         // 本分支对 DOWN 之外的动作也 `return true`，走不到手势收尾处的
                         // dismiss——而放大镜正是 DOWN 这里弹出的（startWordSelectionAt）。
                         // 不在此配对收起，右键选词后放大镜会常驻到视图 detach。
