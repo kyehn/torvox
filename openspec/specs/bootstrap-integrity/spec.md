@@ -1,8 +1,10 @@
+# bootstrap-integrity Specification
+
 ## Purpose
 
 引导归档（bootstrap zip）在解压并执行其 postinst 脚本之前 MUST 经校验和验证。本能力确立「https 与体积区间不是完整性依据、校验和才是信任根」的原则，并明确规定仅对默认钉住的预设 URL 做校验、自定义 URL 必须明示未校验。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 钉住预设归档的校验和验证
 
