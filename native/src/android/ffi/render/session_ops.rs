@@ -169,7 +169,9 @@ pub(super) fn session_title(session_id: u64) -> Option<String> {
 /// `None` 是「会话没了」，调用方据此清掉该行。
 fn session_pwd(session_id: u64) -> Option<String> {
     let query_tx = session_query_channel(session_id)?;
-    Some(crate::terminal::ghostty_terminal::GhosttyTerminal::pwd_on(&query_tx))
+    Some(crate::terminal::ghostty_terminal::GhosttyTerminal::pwd_on(
+        &query_tx,
+    ))
 }
 
 /// 返回某会话从 OSC 7 记录的工作目录（原始 URI），shell 尚未上报时为空串。
