@@ -9,12 +9,33 @@
 
 ## Requirements
 
-### Requirement: 预留高度等于实际总高
+### Requirement: 预留高度由布局数据算出
 
-`MODIFIER_BAR_HEIGHT_DP` MUST 等于 `BUTTON_HEIGHT_DP` 两行实际总高（72dp），
-使网格预留行数与 IME 平移量严格一致。
+`modifierBarHeightPx` MUST 由 `extra-keys` 的实际行数与 `terminal-toolbar-height`
+的单键高度算出，MUST NOT 用写死的行数常量。
+
+行数 MUST 与「实际画出的行数」用同一判据（`extraKeyRowCount` 与
+`buildExtraKeySlots` 共用 `isRenderableKeyName`）。两者一旦分家，键栏就会盖住终端
+底部若干行——它盖在 Surface 之上，被盖的行既看不见也点不到，日志里没有异常。
+
+解析出零行时 MUST 返回 0 且不画键栏。
 
 #### Scenario: 输入法弹出底部行可见
 
 - **WHEN** 输入法弹出且光标在底部行
 - **THEN** 底部行恰好停在键栏上方，不多不少，不被遮挡
+
+#### Scenario: 自定义三行布局
+
+- **WHEN** `extra-keys` 给出三行且全部可渲染
+- **THEN** 预留高度是三行，终端行数按同一高度扣减
+
+#### Scenario: 只有不可渲染键的一行
+
+- **WHEN** 某行只写了 `FN`（未实现，不渲染）
+- **THEN** 该行不计入行数，也不占高度
+
+#### Scenario: 键栏被清空
+
+- **WHEN** `extra-keys = []`
+- **THEN** 预留高度为 0，键栏不出现在界面上

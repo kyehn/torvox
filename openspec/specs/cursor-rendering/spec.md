@@ -77,3 +77,51 @@ MUST NOT 只覆盖首列。尾列（spacer）在单元层面不产出独立记�
 
 - **WHEN** VT 光标落在某个宽字符的第二格（`at_wide_tail`）
 - **THEN** 渲染锚点等值于该字形头列上的光标，该帧仍生成光标四边形
+
+### Requirement: 默认光标样式由配置提供，DECSCUSR 优先
+
+`terminal-cursor-style`（`block` / `bar` / `underline`）MUST 只作为**初始**样式下发给 VT，
+MUST NOT 在每次重绘或每次改配置时无条件覆盖当前样式。应用通过 `DECSCUSR`
+（`CSI Ps SP q`）设置的样式 MUST 保持有效，直到应用自己再次改变它或被重置。
+
+实现：Kotlin 侧把样式折算成 `setCursorStyle` 的原生枚举值（`block = 0`、`bar = 1`、
+`underline = 2`）随 `RenderContract` 下发，JNI 转调 `Terminal::set_default_cursor_style`；
+该 API 的语义是「默认值」，已由应用覆盖时不生效。
+
+#### Scenario: 应用设置的竖线光标不被配置刷掉
+
+- **WHEN** `terminal-cursor-style = block`，终端内运行 `printf '\033[5 q'` 切到竖线闪烁光标
+- **THEN** 光标保持竖线闪烁；直到应用发 `\033[0 q` 才回到配置的方块
+
+#### Scenario: 配置文件写错样式名不改变现状
+
+- **WHEN** `terminal-cursor-style = blocky`
+- **THEN** 该键被忽略、回落到默认值，其他键仍照常生效
+
+### Requirement: 光标闪烁由时基算相位
+
+`terminal-cursor-blink-rate`（毫秒）MUST 表示「一个半周期」，即亮 `rate` 毫秒、灭 `rate`
+毫秒。相位 MUST 由进程启动以来的单调时基算出（`elapsed / rate` 的奇偶），MUST NOT 用
+「每帧取反」的帧计数器累加：帧率随内容变化，帧计数器的闪烁速度会跟着内容漂移，且
+空闲补帧与内容重绘会各自推进相位、相互打乱。
+
+`terminal-cursor-blink-rate = 0` MUST 表示不闪（恒亮），此时宿主 MUST NOT 为闪烁安排任何
+定时唤醒——空闲时终端必须能真正静止。
+
+原生侧只在采样到相位翻转时返回「需重绘」，宿主据此判断空闲帧是否可以跳过；
+渲染层 MUST 在相位为「灭」时不产出光标四边形。
+
+#### Scenario: 闪烁与帧率无关
+
+- **WHEN** 闪烁间隔为 500 ms，先以每秒 60 帧重绘、随后内容静止
+- **THEN** 两次亮灭切换之间的实际间隔仍为 500 ms，不随重绘次数变化
+
+#### Scenario: 间隔为 0 时不产生补帧
+
+- **WHEN** `terminal-cursor-blink-rate = 0`
+- **THEN** 光标恒亮，且没有为闪烁安排的定时任务
+
+#### Scenario: 闪烁相位翻转必须触发重绘
+
+- **WHEN** 内容无变化但时基跨过半周期边界
+- **THEN** 空闲判定返回「需要重绘」，光标可见性随之切换
