@@ -15,7 +15,7 @@
 的单键高度算出，MUST NOT 用写死的行数常量。
 
 行数 MUST 与「实际画出的行数」用同一判据（`extraKeyRowCount` 与
-`buildExtraKeySlots` 共用 `isRenderableKeyName`）。两者一旦分家，键栏就会盖住终端
+`buildExtraKeySlots` 共用 `isRenderableKey`）。两者一旦分家，键栏就会盖住终端
 底部若干行——它盖在 Surface 之上，被盖的行既看不见也点不到，日志里没有异常。
 
 解析出零行时 MUST 返回 0 且不画键栏。

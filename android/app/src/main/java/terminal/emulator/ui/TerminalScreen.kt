@@ -156,7 +156,7 @@ fun TerminalScreen(
         }
     val isSettingsDark =
         resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
-    // `soft-keyboard-toggle-behaviour = enable-disable` 时 KEYBOARD 键翻转的是
+    // `soft-keyboard-toggle-behaviour = enable/disable` 时 KEYBOARD 键翻转的是
     // 「软键盘可用与否」，而不是当次可见性。状态放在组合里：翻转后 AndroidView 的
     // update 块把新值推给 TerminalSurface，轻点路径据此决定要不要拉起输入法。
     val softKeyboardBehaviour = termuxProperties.properties.softKeyboardToggleBehaviour
@@ -211,7 +211,7 @@ fun TerminalScreen(
     // 允许同步读一次平台状态；而 IME 高度那条链路不行——它必须靠持续派发，
     // 因为回调里写组合状态不保证被观察到（见 imeInsetFlow 的说明）。
     //
-    // `soft-keyboard-toggle-behaviour = enable-disable` 时这个键翻转的是「软键盘可用
+    // `soft-keyboard-toggle-behaviour = enable/disable` 时这个键翻转的是「软键盘可用
     // 与否」，而不是当次可见性：禁用后轻点终端不再拉起输入法（见 TerminalSurface 的
     // `softKeyboardEnabled`），再按一次恢复。禁用时若键盘正显示着，顺手收起——否则
     // 「已禁用」与眼前的键盘自相矛盾。这个模式在屏幕上不留任何痕迹，故两种切换都

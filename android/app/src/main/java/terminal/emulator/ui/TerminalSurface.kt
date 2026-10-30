@@ -2943,7 +2943,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 suppressUntilNanos = 0L
                 // 焦点照常请求：硬件键盘的按键靠它送达，与软键盘是否可用无关。
                 requestFocus()
-                // 软键盘已被 KEYBOARD 键禁用（`enable-disable`）：轻点只结束选区与滚动。
+                // 软键盘已被 KEYBOARD 键禁用（`enable/disable`）：轻点只结束选区与滚动。
                 // 这里若继续置 keyboardRequested 并 show，禁用就等于形同虚设。
                 if (!softKeyboardEnabled) return true
                 keyboardRequested = true
@@ -3120,13 +3120,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var startupKeyboardRequested = false
 
     /**
-     * 软键盘是否允许弹出（`soft-keyboard-toggle-behaviour = enable-disable`）。
+     * 软键盘是否允许弹出（`soft-keyboard-toggle-behaviour = enable/disable`）。
      *
      * 两条路径都要拦：轻点/KEYBOARD 键不再调用 `show`，且 [onCheckIsTextEditor] 报否。
      * 后者不是冗余——平台在焦点变化时会按它**自动**弹键盘，只拦 `show` 的话，轻点里那次
      * `requestFocus` 就足以把键盘带出来。
      *
-     * 默认 `true`：`show-hide` 模式下本字段从不参与判定，行为与未引入时逐字节相同。
+     * 默认 `true`：`show/hide` 模式下本字段从不参与判定，行为与未引入时逐字节相同。
      */
     var softKeyboardEnabled: Boolean = true
 
