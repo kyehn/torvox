@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -62,6 +63,7 @@ import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.ThemeRepository
+import terminal.emulator.ui.theme.applyNightModeOverride
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
@@ -134,8 +136,26 @@ fun TerminalScreen(
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
     // 开孔是否已有缓冲区：决定要不要在窗口层涂底色（见 TerminalRuntime.surfaceBufferPresent）。
     val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsStateWithLifecycle()
+    // `~/.termux/termux.properties` 的解析结果。视图只读，不自己读文件——读取时机
+    // （启动、设置变化）统一由运行期裁定。
+    val termuxProperties by viewModel.termuxConfiguration.collectAsStateWithLifecycle()
+    val modifierLayout =
+        remember(
+            termuxProperties.properties.extraKeys,
+            termuxProperties.properties.extraKeysStyle,
+            termuxProperties.properties.extraKeysTextAllCaps,
+        ) {
+            buildExtraKeySlots(
+                rows = termuxProperties.properties.extraKeys,
+                style = termuxProperties.properties.extraKeysStyle,
+                allCaps = termuxProperties.properties.extraKeysTextAllCaps,
+            )
+        }
     val isSettingsDark =
-        resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
+        applyNightModeOverride(
+            termuxProperties.properties.nightMode,
+            resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme()),
+        )
     // 未知名已在 TerminalRuntime.clearUnknownThemeNames 清除对应键；此处取不到
     // 说明该键刚被写入但尚未生效，用默认主题渲染本帧，不抛。
     val resolvedTerminalTheme =
@@ -173,13 +193,25 @@ fun TerminalScreen(
     // 表现为「切回终端瞬间图标闪一下」。覆盖层自己按自己的底色写。
     if (!isOverlayVisible) {
         SystemBarsFollowBackground(view, terminalBackground)
+        SystemBarsFullscreen(
+            view = view,
+            fullscreen = termuxProperties.properties.fullscreen,
+            transientBarsBySwipe = termuxProperties.properties.useFullscreenWorkaround,
+        )
     }
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
-    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用
-    // （修饰键栏布局不可配置，故没有 KEYBOARD 附加键，见 PROHIBITED 的布局编辑器禁令）。
+    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用，
+    // `extra-keys` 里写 `KEYBOARD` 也会走到这里。
     // 可见性在轻点时从已挂载的 window insets 同步读取：这里是用户手势，
     // 允许同步读一次平台状态；而 IME 高度那条链路不行——它必须靠持续派发，
     // 因为回调里写组合状态不保证被观察到（见 imeInsetFlow 的说明）。
+    //
+    // `soft-keyboard-toggle-behaviour = enable-disable`（切换「是否允许软键盘」而非当次
+    // 可见性）**未实现**：`View` 没有 `setShowSoftInputOnFocus`（只有 `TextView` 有），
+    // 而 `TerminalSurface` 是 `SurfaceView`；在 SurfaceView 上禁掉「聚焦即送 IME」
+    // 只能改焦点与 `onCheckIsTextEditor` 的整条生命周期，而 IME 路径是本仓最脆的一段
+    // （imeInsetFlow、抑制窗口、锚点准入都依赖它）。见 openspec 的 termux-properties
+    // 规范里对这一项的说明。
     val toggleKeyboard: () -> Unit = {
         val inputMethodManager =
             context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
@@ -283,8 +315,14 @@ fun TerminalScreen(
         scope.launch { drawerState.close() }
     }
 
-    // 抽屉面板要避开状态栏：见 DrawerSheet。
-    val statusBarTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+    // 抽屉面板要避开状态栏：见 DrawerSheet。全屏时状态栏被隐藏，而隐藏后
+    // `WindowInsets.statusBars` 仍可能报出旧高度——按它内缩会在面板顶端留一条空白。
+    val statusBarTop =
+        if (termuxProperties.properties.fullscreen) {
+            0.dp
+        } else {
+            with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+        }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -530,6 +568,13 @@ fun TerminalScreen(
                                 } else {
                                     Modifier.background(terminalBackground)
                                 },
+                            )
+                            // `terminal-margin-*`：内缩的是 SurfaceView，不是整个内容盒——
+                            // 背景涂满外层，边距处露出的是同一片终端底色，看起来只是
+                            // 文字离屏幕边缘远了一点。网格由 Surface 尺寸算出，随之收窄。
+                            .padding(
+                                horizontal = termuxProperties.properties.terminalMarginHorizontalDp.dp,
+                                vertical = termuxProperties.properties.terminalMarginVerticalDp.dp,
                             ),
                     ) {
                         // 工厂在**组合期**被调用（ComposeNode 创建阶段），而
@@ -803,24 +848,31 @@ fun TerminalScreen(
                             remember(viewModel, scope, drawerState) {
                                 buildModifierBarActions(viewModel, scope, drawerState)
                             }
-                        ModifierBar(
-                            modifier = Modifier.testTag("ModifierBar"),
-                            onSubmit = modifierBarActions.onSubmit,
-                            onKey = modifierBarActions.onKey,
-                            onConsumeModifiers = modifierBarActions.onConsumeModifiers,
-                            onDrawerClick = modifierBarActions.onDrawerClick,
-                            onPasteClick = modifierBarActions.onPasteClick,
-                            onScrollClick = modifierBarActions.onScrollClick,
-                            scrollActive = state.scrollActive,
-                            ctrlState = state.ctrlState,
-                            altState = state.altState,
-                            onToggleCtrl = modifierBarActions.onToggleCtrl,
-                            onToggleAlt = modifierBarActions.onToggleAlt,
-                            onLockCtrl = modifierBarActions.onLockCtrl,
-                            onLockAlt = modifierBarActions.onLockAlt,
-                            textColor = resolvedTerminalTheme.foreground,
-                            backgroundColor = resolvedTerminalTheme.background,
-                        )
+                        // `extra-keys` 解析出零行（用户显式写了 `extra-keys = []`）时整条不画：
+                        // 画一个空条会在终端底部留一条点不动、也看不见内容的色带，
+                        // 而网格已按同一判据（见 TerminalRuntime.modifierBarHeightPx）不再为它留高度。
+                        if (modifierLayout.isNotEmpty()) {
+                            ModifierBar(
+                                modifier = Modifier.testTag("ModifierBar"),
+                                onSubmit = modifierBarActions.onSubmit,
+                                onKey = modifierBarActions.onKey,
+                                onConsumeModifiers = modifierBarActions.onConsumeModifiers,
+                                onDrawerClick = modifierBarActions.onDrawerClick,
+                                onPasteClick = modifierBarActions.onPasteClick,
+                                onScrollClick = modifierBarActions.onScrollClick,
+                                scrollActive = state.scrollActive,
+                                ctrlState = state.ctrlState,
+                                altState = state.altState,
+                                onToggleCtrl = modifierBarActions.onToggleCtrl,
+                                onToggleAlt = modifierBarActions.onToggleAlt,
+                                onLockCtrl = modifierBarActions.onLockCtrl,
+                                onLockAlt = modifierBarActions.onLockAlt,
+                                textColor = resolvedTerminalTheme.foreground,
+                                backgroundColor = resolvedTerminalTheme.background,
+                                layout = modifierLayout,
+                                buttonHeightScale = termuxProperties.properties.terminalToolbarHeightScale,
+                            )
+                        }
                     }
                 }
             } // 关闭内容盒——终端 Surface 与键栏读同一个 ime 高度，但平移量按内容

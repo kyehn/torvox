@@ -109,8 +109,14 @@ fun SessionDrawer(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(sessions, key = { _, session -> session.sessionId }) { index, session ->
+                val label =
+                    sessionItemLabel(
+                        indexLabel = stringResource(R.string.session_index, index + 1),
+                        title = session.title,
+                        workingDirectory = session.workingDirectory,
+                    )
                 SessionItem(
-                    label = sessionItemLabel(stringResource(R.string.session_index, index + 1), session.title),
+                    label = label,
                     isActive = session.sessionId == activeSessionId,
                     closeTestTag = "$CLOSE_SESSION_TAG_PREFIX${session.sessionId}",
                     onClick = {
@@ -252,13 +258,19 @@ private fun SessionDrawerActions(
  * 与 termux 无会话名时的渲染一致（`TermuxSessionsListViewController.getView` 的
  * `numberPart + sessionTitlePart`）：termux 只在有会话名时才换行，本应用没有会话名，
  * 因此标题始终跟在序号后。标题为空时只剩序号，不占第二行。
+ *
+ * 标题为空而 [workingDirectory] 已知时改显目录：多数 shell 不设标题，此时目录是
+ * 唯一能区分两个会话的信息。两者都空（shell 尚未上报任何 OSC）时只留序号——
+ * 补一个「未知」只是噪声。
  */
-internal fun sessionItemLabel(indexLabel: String, title: String): AnnotatedString = buildAnnotatedString {
-    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("$indexLabel ") }
-    if (title.isNotEmpty()) {
-        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(title) }
+internal fun sessionItemLabel(indexLabel: String, title: String, workingDirectory: String = ""): AnnotatedString =
+    buildAnnotatedString {
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("$indexLabel ") }
+        val secondary = title.ifEmpty { workingDirectory }
+        if (secondary.isNotEmpty()) {
+            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(secondary) }
+        }
     }
-}
 
 @Composable
 private fun SessionItem(

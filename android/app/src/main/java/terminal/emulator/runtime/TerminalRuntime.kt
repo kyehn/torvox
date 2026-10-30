@@ -33,11 +33,14 @@ import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
+import terminal.emulator.settings.ColorsProperties
 import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.ui.BUTTON_HEIGHT_DP
+import terminal.emulator.settings.TerminalCursorStyle
+import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.SurfaceAttachGate
 import terminal.emulator.ui.theme.ThemeRepository
+import terminal.emulator.ui.theme.applyNightModeOverride
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
@@ -385,6 +388,7 @@ class TerminalRuntime
 constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
+    private val termuxProperties: TermuxPropertiesRepository,
 ) {
     /**
      * 由 TerminalSurface 移交的 Surface；待会话的 Bridge 就绪后才绑定（attach 只能在 spawn 之后）。
@@ -408,6 +412,9 @@ constructor(
     private val clipboardAccess = ClipboardAccess(context, tag = "Runtime")
 
     private val eventDispatcher = EventDispatcher()
+
+    /** 终端响铃（BEL）的落地：震动/提示音/忽略，由 `bell-character` 决定。 */
+    private val bellAlerter = BellAlerter(context)
 
     private val scope = CoroutineScope(SupervisorJob() + terminal.emulator.util.TerminalDispatchers.inputOutput)
 
@@ -637,9 +644,21 @@ constructor(
      * ModifierBar 覆盖层高度（物理像素）。该预留量的唯一所有者：网格计算
      * （recomputeGridFromFontMetrics 与 TerminalSurface.applyGridResize）与输入法跟随滚动
      * 都减去同一值，故行数与滚动永远不会对工具栏遮盖哪些行产生分歧。
+     *
+     * 行数随 `extra-keys` 变、单键高度随 `terminal-toolbar-height` 变，两者都取自
+     * `termux.properties`。写死两行会让键栏在自定义布局下盖住终端底部几行——键栏
+     * 盖在 Surface 之上，被盖的行既看不见也点不到。
      */
     internal val modifierBarHeightPx: Int
-        get() = (MODIFIER_BAR_HEIGHT_DP * context.resources.displayMetrics.density + 0.5f).toInt()
+        get() {
+            val properties = termuxProperties.configuration.value.properties
+            // 零行（`extra-keys = []`）返回 0：此时键栏整条不画，网格也不该为它留高度，
+            // 否则终端底部会挂着一条点不出东西、也看不见内容的空白带。
+            val rows = terminal.emulator.ui.extraKeyRowCount(properties.extraKeys)
+            if (rows == 0) return 0
+            val buttonHeightDp = terminal.emulator.ui.buttonHeightDp(properties.terminalToolbarHeightScale)
+            return (rows * buttonHeightDp * context.resources.displayMetrics.density + 0.5f).toInt()
+        }
 
     /**
      * sp→设备像素的完整系数，与推给原生的 `setRasterScale` 取值同源
@@ -1230,6 +1249,13 @@ constructor(
                     }
                 }
                 .absolutePath
+        // `default-working-directory`：termux 语义是「空值 = 家目录，相对路径相对家目录，
+        // `~` 展开为家目录」。写错的路径原样交给 PTY 层报错，不在这里静默改回家目录。
+        val workingDirectory =
+            resolveWorkingDirectory(
+                termuxProperties.configuration.value.properties.defaultWorkingDirectory,
+                homeDir,
+            )
         // Failsafe（termux 应用快捷方式 “New session (Failsafe)”）：完全绕开引导程序——
         // 系统 shell、系统 PATH、无 PREFIX——避免引导程序损坏后终端彻底不可用
         // （对应 termux-app TermuxSession.java:95-113 的 isFailsafe 路径）。
@@ -1242,7 +1268,7 @@ constructor(
                 fontSizeTenths = configReads.fontSizeTenths,
                 themeName = resolvedTheme.name,
                 home = homeDir,
-                workingDirectory = termuxConfig.workingDirectory ?: homeDir,
+                workingDirectory = workingDirectory,
                 prefix = "",
                 mkshrcPath = mkshrcPath,
                 scrollbackLines = termuxConfig.scrollbackLines ?: 2000,
@@ -1258,12 +1284,13 @@ constructor(
         val effectivePrefix = if (prefixShell != null) prefixDir else ""
         val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
         ensureMkshPromptRc()
+        // 启动目录由 `default-working-directory` 决定，未配置时是家目录。
         return TerminalConfig(
             shell = effectiveShell,
             fontSizeTenths = configReads.fontSizeTenths,
             themeName = resolvedTheme.name,
             home = homeDir,
-            workingDirectory = termuxConfig.workingDirectory ?: homeDir,
+            workingDirectory = workingDirectory,
             prefix = effectivePrefix,
             mkshrcPath = mkshrcPath,
             scrollbackLines = termuxConfig.scrollbackLines ?: 2000,
@@ -2164,6 +2191,11 @@ constructor(
                 clipboardAccess.setClipboardText(poll.clipboard)
             }
             dispatchClipboardRequests(poll.clipboardReads)
+            if (poll.bells.isNotEmpty()) {
+                // 字符每次现读外部文件：用户改完 termux.properties 后下一次响铃即生效，
+                // 不必重开会话。多个会话同帧响铃也只提示一次——对用户是同一种提示。
+                bellAlerter.ring(termuxProperties.configuration.value.properties.bellCharacter)
+            }
         }
     }
 
@@ -2187,14 +2219,6 @@ constructor(
 
         /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */
         private const val U16_MAX = 0xFFFF
-
-        /**
-         * 按字体度量重算网格时为 ModifierBar 预留的覆盖层高度：修饰键栏恒为两行、
-         * 零间距，故由单行按钮高度派生而非另写一份数值——spec
-         * `modifier-bar-height-reservation` 要求此处与实际总高严格相等，
-         * 派生才使「改了按钮高度」不可能漏改预留。
-         */
-        private const val MODIFIER_BAR_HEIGHT_DP = BUTTON_HEIGHT_DP * 2
 
         /**
          * 「至少放得下若干行/列」的 Surface 像素下界。
@@ -2473,12 +2497,15 @@ constructor(
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
                 ) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
+        // `night-mode` 压在应用日夜判定之上：视图侧用同一函数算背景，
+        // 两处必须由同一次判定选出，否则终端画夜间而状态栏图标按日间取色。
+        val nightMode = termuxProperties.configuration.value.properties.nightMode
         return resolveTerminalThemeName(
             mode = stored.themeMode,
             fixedName = stored.themeName,
             dayName = stored.dayThemeName,
             nightName = stored.nightThemeName,
-            isDark = resolveAppDarkMode(stored.appThemeMode, systemDark),
+            isDark = applyNightModeOverride(nightMode, resolveAppDarkMode(stored.appThemeMode, systemDark)),
         )
     }
 
@@ -2520,6 +2547,10 @@ constructor(
         }
         // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
+        // 首帧前读一次 termux.properties / colors.properties：这两份文件不经过本应用
+        // 的设置页（用户用 `adb push`、SAF 或装包脚本改写），只能在这些时机重读。
+        // 读失败不阻断启动——仓储保留上一次成功的结果，最坏是沿用旧配置。
+        termuxProperties.reloadNow()
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
             // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
@@ -3513,6 +3544,10 @@ constructor(
     }
 
     suspend fun applySettings() {
+        // colors.properties / termux.properties 不经过设置页改写：任何一次「设置变了」
+        // 的重下发都顺带重读一次，用户的文件改动才有生效时机。读失败保留上次结果，
+        // 不会把界面闪回默认值。
+        termuxProperties.reloadNow()
         val config = buildConfig()
         val effectiveFontFamily =
             terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
@@ -3521,8 +3556,16 @@ constructor(
         // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
         // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
         // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
+        val termux = termuxProperties.configuration.value
         val contract =
-            RenderContract(config.fontSizeTenths, effectiveFontFamily, config.themeName, spToPxScale)
+            RenderContract(
+                fontSizeTenths = config.fontSizeTenths,
+                fontFamily = effectiveFontFamily,
+                themeName = config.themeName,
+                rasterScale = spToPxScale,
+                colors = termux.colors,
+                cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
+            )
         sessions.values.forEach { entry ->
             entry.bridge.applyRenderContract(contract)
             entry.notifyRender()
@@ -4217,8 +4260,16 @@ constructor(
         // 着色器随后放大图集位图——即「文字模糊」问题的来源。
         // 字号同理：原生渲染器以硬编码的 14.0px 启动，不下发则用户的设置永远到不了
         // GPU 路径——字形始终很小，表现为「设置无效/重启后更糟」。
+        val termux = termuxProperties.configuration.value
         bridge.applyRenderContract(
-            RenderContract(config.fontSizeTenths, effectiveFont, config.themeName, spToPxScale),
+            RenderContract(
+                fontSizeTenths = config.fontSizeTenths,
+                fontFamily = effectiveFont,
+                themeName = config.themeName,
+                rasterScale = spToPxScale,
+                colors = termux.colors,
+                cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
+            ),
         )
         appliedFontSizeTenths = config.fontSizeTenths
         LogUtil.debug(
@@ -4584,6 +4635,11 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
  */
 private fun Bridge.applyRenderContract(contract: RenderContract) {
     setTheme(contract.themeName)
+    setCursorStyle(contract.cursorStyleNativeValue)
+    // 覆盖必须在 setTheme 之后：原生把覆盖压在「基底主题」之上，换主题会重置基底。
+    // null 表示没有 colors.properties（或已被删除）：此时只下发主题即可，上一次的
+    // 覆盖会随 setTheme 一起被丢掉，无需额外的撤销调用。
+    contract.colors?.let { setPaletteOverride(it.toPaletteOverride()) }
     setFontFamily(contract.fontFamily)
     setFontSizeInPlace(contract.fontSizeTenths)
     setRasterScale(contract.rasterScale)
@@ -4595,6 +4651,10 @@ private data class RenderContract(
     val fontFamily: String,
     val themeName: String,
     val rasterScale: Float,
+    /** `colors.properties` 的覆盖；null 表示不覆盖（纯主题）。 */
+    val colors: ColorsProperties? = null,
+    /** `termux.properties` 的 `terminal-cursor-style`，取 `TerminalCursorStyle.nativeValue`。 */
+    val cursorStyleNativeValue: Int = TerminalCursorStyle.BLOCK.nativeValue,
 )
 
 /**
@@ -4616,6 +4676,31 @@ const val DEFAULT_GRID_COLS = 80
  */
 internal fun coerceSpToPxScale(density: Float, fontScale: Float, range: ClosedFloatingPointRange<Float>): Float =
     (density * fontScale).coerceIn(range.start, range.endInclusive)
+
+/**
+ * `default-working-directory` 的解析（termux 语义）。
+ *
+ * 空值 → 家目录；`~` 或 `~/x` → 家目录下；相对路径 → 相对家目录；绝对路径 → 原样。
+ *
+ * 不做存在性校验：目录不存在时原样交给 PTY 层，由它给出带路径的错误——在这里静默
+ * 改回家目录，用户只会看到「设置没生效」，无从知道是自己写错了哪个字符。
+ *
+ * 尾部的 `/` 一律去掉（`/` 自身除外）：shell 启动后经 OSC 7 回报的是规范化路径，若配置里
+ * 写成 `~/src/`，会话抽屉会先显示 `src/`、第一条提示符后翻成 `src`——同一个会话在两帧之间
+ * 换了名字，看起来像切换了目录。
+ */
+internal fun resolveWorkingDirectory(configured: String, homeDir: String): String {
+    val trimmed = configured.trim()
+    if (trimmed.isEmpty()) return homeDir
+    val expanded =
+        when {
+            trimmed == "~" -> homeDir
+            trimmed.startsWith("~/") -> homeDir + trimmed.removePrefix("~")
+            else -> trimmed
+        }
+    val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
+    return absolute.trimEnd('/').ifEmpty { "/" }
+}
 
 /**
  * recomputeGridFromFontMetrics 背后的纯网格尺寸计算：cols = floor(surfaceWidth / cellWidth)，
