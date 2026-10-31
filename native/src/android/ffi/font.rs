@@ -373,9 +373,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             return Ok(());
         };
         let background = entry.palette.background;
-        // 基底先落，覆盖通道（`setPaletteOverride`）随后就以它为底重算：
-        // 换主题时若还留着上一次的覆盖，那覆盖也必须按新主题重算一遍。
-        *super::ACTIVE_THEME.write() = Some(entry);
         {
             let registry = rlock_session_registry();
             let Some(session_entry) = registry.get(&id) else {
@@ -449,96 +446,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle
             .set_cursor_style(cursor_style);
         drop(registry);
         log::info!("setCursorStyle: session {id} style={cursor_style:?}");
-    })
-}
-
-/// 覆盖某会话的调色板（`~/.termux/colors.properties`）。
-///
-/// `colors` 为 19 个 `0x00RRGGBB`：背景、前景、光标、十六个 ANSI 色（0..15）。
-/// 长度不符即抛 `IllegalArgumentException`——静默截断会让颜色整体错位一格，
-/// 而错位表现为「某些颜色不对」，无从定位。
-///
-/// **`-1` 表示该槽位不覆盖**，取当前基底主题的原色。`colors.properties` 通常只写
-/// 其中几个键，让 Kotlin 为没写的槽位补值就得让 Kotlin 也持有主题色副本（含光标色，
-/// 而光标色根本不在主题目录的打包里）——补不对就是「改了背景，光标跟着变白」。
-/// 由原生按基底补齐，Kotlin 只管「写了什么」。
-///
-/// 选区底色不在覆盖范围内（colors.properties 没有该键），沿用基底主题的值。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPaletteOverride<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    colors: jintArray,
-) {
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        const EXPECTED: usize = 19;
-        /// 该槽位不覆盖，沿用基底主题原色。
-        const NO_OVERRIDE: jint = -1;
-        if colors.is_null() {
-            throw_illegal_argument(env, "setPaletteOverride: colors is null");
-            return Ok(());
-        }
-        // SAFETY: `colors` 是 JNI 参数，本次调用期间有效；from_raw 只包装不取所有权。
-        let array = unsafe { jni::objects::JIntArray::from_raw(env, colors) };
-        let length = match array.len(env) {
-            Ok(length) => length,
-            Err(error) => {
-                throw_illegal_argument(
-                    env,
-                    &format!("setPaletteOverride: unreadable array ({error})"),
-                );
-                return Ok(());
-            }
-        };
-        if length != EXPECTED {
-            throw_illegal_argument(
-                env,
-                &format!("setPaletteOverride: expected {EXPECTED} colours, got {length}"),
-            );
-            return Ok(());
-        }
-        let mut values = [NO_OVERRIDE; EXPECTED];
-        if let Err(error) = array.get_region(env, 0, &mut values) {
-            throw_illegal_argument(env, &format!("setPaletteOverride: copy failed ({error})"));
-            return Ok(());
-        }
-        let mut overrides = [None; crate::terminal::theme::OVERRIDE_SLOTS];
-        for (slot, value) in overrides.iter_mut().zip(values.iter()) {
-            *slot = if *value == NO_OVERRIDE {
-                None
-            } else {
-                Some(libghostty_vt::style::RgbColor {
-                    r: ((*value >> 16) & 0xFF) as u8,
-                    g: ((*value >> 8) & 0xFF) as u8,
-                    b: (*value & 0xFF) as u8,
-                })
-            };
-        }
-        let palette = super::active_theme().palette.with_overrides(&overrides);
-        let background = palette.background;
-        let id = session_id as u64;
-        {
-            let registry = rlock_session_registry();
-            let Some(session_entry) = registry.get(&id) else {
-                throw_session_missing(env, "setPaletteOverride");
-                return Ok(());
-            };
-            let session = session_entry.session.lock();
-            session.terminal().set_colors(palette.clone());
-            // 与 setTheme 同序：先让 VT 线程推出新单元数据，再标记渲染脏。
-            session.terminal().flush();
-        }
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.palette = palette;
-            render_state.renderer.set_background_color(background);
-            render_state.renderer.cell_cache = None;
-            render_state.dirty.store(true, Ordering::Relaxed);
-            render_state.full_repaint = true;
-        }
-        drop(state);
-        log::info!("setPaletteOverride: session {id} applied");
     })
 }
 

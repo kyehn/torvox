@@ -2,11 +2,11 @@
 
 ## Purpose
 
-`~/.termux/termux.properties` 与 `~/.termux/colors.properties` 是 termux 生态里用户
-改配置的方式（`adb push`、SAF、装包脚本都直接写文件，不经过本应用的设置页）。
-本能力定义这两份文件的读取时机、容错口径与逐键语义。
+`~/.termux/termux.properties` 是 termux 生态里用户改配置的方式（`adb push`、SAF、
+装包脚本都直接写文件，不经过本应用的设置页）。本能力定义该文件的读取时机、容错口径
+与逐键语义。
 
-两份文件都**不经过设置页**，因此没有「设置变了」这种事件可用：读取只能发生在
+该文件**不经过设置页**，因此没有「设置变了」这种事件可用：读取只能发生在
 启动与会话配置重下发这两个时机。读失败 MUST 保留上一份可用配置——写到一半的文件
 不该把界面打回全默认。
 
@@ -14,15 +14,17 @@
 
 ### Requirement: 读取路径与容错
 
-解析器 MUST 依次尝试 `~/.termux/<文件名>` 与 `~/.config/termux/<文件名>`，
-前者不存在或不可读时回落后者。任一文件读取或解析失败 MUST 保留上一次成功的解析结果
+解析器 MUST 依次尝试 `~/.termux/termux.properties` 与 `~/.config/termux/termux.properties`，
+前者不存在或不可读时回落后者。文件读取或解析失败 MUST 保留上一次成功的解析结果
 并记录错误，MUST NOT 抛给调用方、MUST NOT 清空已有配置。
 
-只认**常规文件**且 MUST NOT 跟随符号链接：这两份文件由外部写入，链接可以把读取带到
+只认**常规文件**且 MUST NOT 跟随符号链接：该文件由外部写入，链接可以把读取带到
 家目录之外，也可能指向设备；非常规文件（管道、目录）同样跳过。
 
 读取 MUST 为 UTF-8；单文件超过 64 KiB MUST 视为无效并跳过（MUST NOT 读进内存）。
-应用 MUST NOT 创建、写入或修改这两份文件。
+应用 MUST NOT 创建、写入或修改该文件。
+
+`colors.properties` MUST NOT 被读取或解析，终端配色只来自内置主题。
 
 #### Scenario: 文件写到一半
 
@@ -44,6 +46,11 @@
 - **WHEN** `termux.properties` 超过 64 KiB
 - **THEN** 该文件不被读取，日志里有一条体积超限的说明，配置取默认值
 
+#### Scenario: colors.properties 不生效
+
+- **WHEN** 用户写入 `~/.termux/colors.properties`
+- **THEN** 终端配色仍取当前主题，该文件不影响任何颜色
+
 ### Requirement: properties 语法
 
 解析器 MUST 支持 `key = value`、`#` 与 `!` 行注释、行尾续行符 `\`，
@@ -62,27 +69,6 @@ MUST NOT 使整份文件解析失败。
 
 - **WHEN** `terminal-transcript-rows` 写成 99999（有效区间 100–50000）
 - **THEN** 回滚行数取默认 2000，日志里有一条越界说明
-
-### Requirement: colors.properties 覆盖
-
-`colors.properties` 的 19 个颜色槽（背景、前景、光标、16 个 ANSI）MUST 以
-「覆盖槽位」形式下发：未出现的槽用 `-1` 表示「沿用主题原色」，由原生按基底主题补齐。
-
-Kotlin 侧 MUST NOT 拼出完整调色板。主题目录的打包数据不含光标色，在 Kotlin 侧拼
-完整调色板会缺项，表现为「只改了背景，光标却变白」。
-
-覆盖 MUST 压在**基底主题**之上，MUST NOT 压在上一次覆盖的结果之上——否则连续两次
-覆盖会把上一次的结果当成新基底累积。
-
-#### Scenario: 只改背景
-
-- **WHEN** `colors.properties` 只写了 `background`
-- **THEN** 背景换色，前景、光标与 16 个 ANSI 色保持当前主题原色
-
-#### Scenario: 换主题后覆盖失效
-
-- **WHEN** 用户在设置页换了一个主题，而 `colors.properties` 已不存在
-- **THEN** 终端回到新主题的原色，上一次的覆盖不残留
 
 ### Requirement: 键栏布局由 extra-keys 决定
 
@@ -228,4 +214,3 @@ OSC 7 上报在同一次会话里换名字。
 
 - **WHEN** `hide-soft-keyboard-on-startup = false`，冷启动
 - **THEN** 终端拿到焦点后弹出一次输入法；用户收起后不会被再次弹回
-

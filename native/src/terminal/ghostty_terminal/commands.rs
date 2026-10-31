@@ -15,11 +15,6 @@ pub enum Command {
     Write(Vec<u8>),
     FlushAck(Sender<()>),
     SetTheme(&'static crate::terminal::theme::Theme),
-    /// 用任意调色板覆盖主题色（`~/.termux/colors.properties`）。
-    ///
-    /// 与 `SetTheme` 分开：主题是静态清单里的具名项，覆盖是用户文件算出的
-    /// 一次性调色板，不能被 `&'static` 引用（也没有名字可存）。
-    SetColors(crate::terminal::theme::Palette),
     /// 默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。
     ///
     /// 是**默认值**：程序仍可用 DECSCUSR 覆盖它，覆盖优先级与 termux 一致。

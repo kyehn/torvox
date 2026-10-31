@@ -33,7 +33,6 @@ import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
-import terminal.emulator.settings.ColorsProperties
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TerminalCursorStyle
 import terminal.emulator.settings.TermuxPropertiesRepository
@@ -2532,8 +2531,8 @@ constructor(
         }
         // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
-        // 首帧前读一次 termux.properties / colors.properties：这两份文件不经过本应用
-        // 的设置页（用户用 `adb push`、SAF 或装包脚本改写），只能在这些时机重读。
+        // 首帧前读一次 termux.properties：这份文件不经过本应用的
+        // 设置页（用户用 `adb push`、SAF 或装包脚本改写），只能在这些时机重读。
         // 读失败不阻断启动——仓储保留上一次成功的结果，最坏是沿用旧配置。
         termuxProperties.reloadNow()
         if (!NativeBridge.isNativeLoaded()) {
@@ -3532,7 +3531,7 @@ constructor(
     }
 
     suspend fun applySettings() {
-        // colors.properties / termux.properties 不经过设置页改写：任何一次「设置变了」
+        // termux.properties 不经过设置页改写：任何一次「设置变了」
         // 的重下发都顺带重读一次，用户的文件改动才有生效时机。读失败保留上次结果，
         // 不会把界面闪回默认值。
         termuxProperties.reloadNow()
@@ -3551,7 +3550,6 @@ constructor(
                 fontFamily = effectiveFontFamily,
                 themeName = config.themeName,
                 rasterScale = spToPxScale,
-                colors = termux.colors,
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
             )
         sessions.values.forEach { entry ->
@@ -4264,7 +4262,6 @@ constructor(
                 fontFamily = fontFamily,
                 themeName = config.themeName,
                 rasterScale = spToPxScale,
-                colors = termux.colors,
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
             ),
         )
@@ -4633,10 +4630,6 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
 private fun Bridge.applyRenderContract(contract: RenderContract) {
     setTheme(contract.themeName)
     setCursorStyle(contract.cursorStyleNativeValue)
-    // 覆盖必须在 setTheme 之后：原生把覆盖压在「基底主题」之上，换主题会重置基底。
-    // null 表示没有 colors.properties（或已被删除）：此时只下发主题即可，上一次的
-    // 覆盖会随 setTheme 一并被丢掉，无需额外的撤销调用。
-    contract.colors?.let { setPaletteOverride(it.toPaletteOverride()) }
     applyFontContract(contract.fontFamily, contract.fontSizeTenths, contract.rasterScale)
 }
 
@@ -4660,8 +4653,6 @@ private data class RenderContract(
     val fontFamily: String,
     val themeName: String,
     val rasterScale: Float,
-    /** `colors.properties` 的覆盖；null 表示不覆盖（纯主题）。 */
-    val colors: ColorsProperties? = null,
     /** `termux.properties` 的 `terminal-cursor-style`，取 `TerminalCursorStyle.nativeValue`。 */
     val cursorStyleNativeValue: Int = TerminalCursorStyle.BLOCK.nativeValue,
 )
