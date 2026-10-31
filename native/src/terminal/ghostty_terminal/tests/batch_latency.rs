@@ -91,3 +91,39 @@ fn query_is_answered_while_output_keeps_flowing() {
         "持续输出下查询须拿到真实网格行数（超时回退值是 24）"
     );
 }
+
+/// 断批不得丢命令：突发写入的编号序列必须连续。
+///
+/// 判别力：批尾判据若放在取下一条命令**之后**，被取出的那条命令会随断批一起消失，
+/// 输出出现空洞（实测 500 条里成片丢失，`flush` 的应答也随丢，调用方等到超时）。
+#[test]
+fn bounded_batch_keeps_every_command() {
+    let mut terminal_under_test = GhosttyTerminal::new(24, 80, 5_000).expect("terminal");
+    for index in 0..500u32 {
+        terminal_under_test.vt_write(format!("SEQ_{index:04}\r\n").as_bytes());
+    }
+    assert!(
+        terminal_under_test.flush_with_timeout(Duration::from_secs(5)),
+        "flush 必须得到应答：丢命令会让应答随丢"
+    );
+
+    let depth = terminal_under_test.scrollback_length();
+    let mut previous: Option<u32> = None;
+    for row in 0..depth {
+        let text = terminal_under_test.read_line_text(row).unwrap_or_default();
+        let number: u32 = text
+            .trim()
+            .strip_prefix("SEQ_")
+            .and_then(|rest| rest.parse().ok())
+            .unwrap_or(u32::MAX);
+        if let Some(previous_number) = previous {
+            assert_eq!(
+                number,
+                previous_number + 1,
+                "第 {row} 行出现空洞：{previous_number} 之后是 {number}"
+            );
+        }
+        previous = Some(number);
+    }
+    assert!(previous.is_some(), "回滚区必须留下写入痕迹");
+}

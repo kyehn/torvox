@@ -18,4 +18,6 @@
 - [x] `native/src/terminal/ghostty_terminal/tests/batch_latency.rs`：积压被切成有界的若干批
 - [x] `native/src/terminal/ghostty_terminal/tests/batch_latency.rs`：持续输出下查询仍被
       及时应答（拿到真实网格行数而非超时回退值）
-- [x] `cargo test --lib`：768 项全过
+- [x] `native/src/terminal/ghostty_terminal/tests/batch_latency.rs`：断批不丢命令（突发写入
+      的编号序列连续，`flush` 应答不丢）
+- [x] `cargo test --lib`：769 项全过
