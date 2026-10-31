@@ -309,6 +309,20 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 - **WHEN** 外接字母键盘在场，用户按它的音量减
 - **THEN** 该按键不被应用拦截，交给键盘自身处理
 
+`virtual` 的按住 MUST NOT 改写用户手动锁定的 Ctrl：按下置按住态、抬起按「是按住态就关」
+回收时，锁定态会在那一次按住里被静默吃掉。抬起 MUST 只回收自己置的按住态，这期间用户
+手动切成的一次性或锁定态一律不碰。
+
+#### Scenario: 已锁定 Ctrl 时按音量减不吃掉锁定
+
+- **WHEN** 用户已长按锁定 Ctrl，随后按住并松开音量减
+- **THEN** Ctrl 仍是锁定态，MUST NOT 变成关闭
+
+#### Scenario: 按住期间用户手动切换后抬起不误清
+
+- **WHEN** 按住音量减期间用户把 Ctrl 切成锁定，随后松开音量减
+- **THEN** 锁定态保留，MUST NOT 因这次抬起被清掉
+
 #### Scenario: Ctrl+空格补发为 NUL
 
 - **WHEN** `ctrl-space-workaround = true` 且用户按下 Ctrl+空格

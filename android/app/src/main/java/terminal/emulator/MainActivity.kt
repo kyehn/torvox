@@ -32,7 +32,7 @@ import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import terminal.emulator.input.KeyModifiers
-import terminal.emulator.input.ModifierState
+import terminal.emulator.input.afterVirtualCtrlKey
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.BackKeyBehaviour
@@ -316,14 +316,12 @@ class MainActivity : ComponentActivity() {
             event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN &&
             !isExternalAlphabeticKeyEvent(event)
         ) {
-            // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：`Held` 不会被
-            // `consumeOneShotModifiers` 回收，故按住音量减再敲多键每键都带 Ctrl；
-            // 抬起时仅回收自己置的 `Held`，不碰用户手动锁定的 Ctrl。
-            if (actionDown) {
-                terminalViewModel.setCtrlModifier(ModifierState.Held)
-            } else if (terminalViewModel.ctrlModifierState == ModifierState.Held) {
-                terminalViewModel.setCtrlModifier(ModifierState.Off)
-            }
+            // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：判据见
+            // `ModifierState.afterVirtualCtrlKey`（含「不得吞掉手动锁定」与「抬起只回收
+            // 自己置的 Held」两条），此处只做接线。
+            terminalViewModel.ctrlModifierState
+                .afterVirtualCtrlKey(actionDown)
+                ?.let { terminalViewModel.setCtrlModifier(it) }
             return true
         }
 

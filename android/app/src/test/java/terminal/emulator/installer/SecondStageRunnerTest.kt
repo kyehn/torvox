@@ -114,7 +114,7 @@ class SecondStageRunnerTest {
                 }
             }
         val text = drainQuietly(stream)
-        assertEquals(DRAIN_KEEP_BYTES, text!!.length)
+        assertEquals(DRAIN_KEEP_BYTES, requireNotNull(text).length)
         assertEquals(total, consumed)
     }
 

@@ -444,7 +444,9 @@ class NativeBridgeSmokeTest {
                 }
             assertTrue("fed text must land before selecting", applied)
 
-            val lines = NativeBridge.getTerminalText(sessionId)!!.split("\n")
+            val lines =
+                requireNotNull(NativeBridge.getTerminalText(sessionId)) { "终端文本不得为空" }
+                    .split("\n")
             val row = lines.indexOfFirst { it.contains(marker) }
             assertTrue("the marker must sit on a known row", row >= 0)
             val column =

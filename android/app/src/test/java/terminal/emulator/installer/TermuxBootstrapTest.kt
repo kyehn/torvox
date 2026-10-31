@@ -54,11 +54,10 @@ class TermuxBootstrapTest {
     @Test
     fun `every supported abi has a pinned sha256`() {
         listOf("aarch64", "x86_64").forEach { arch ->
-            val digest = TermuxBootstrap.sha256(arch)
-            assertTrue("arch=$arch 未钉住摘要", digest != null)
+            val digest = requireNotNull(TermuxBootstrap.sha256(arch)) { "arch=$arch 未钉住摘要" }
             assertTrue(
                 "arch=$arch 的摘要不是 64 位十六进制：$digest",
-                digest!!.matches(Regex("[0-9a-f]{64}")),
+                digest.matches(Regex("[0-9a-f]{64}")),
             )
         }
         assertEquals("未受支持的架构不得有摘要", null, TermuxBootstrap.sha256("arm"))
