@@ -6,7 +6,11 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
 import okio.Buffer
@@ -80,6 +84,25 @@ class BootstrapDownloaderTest {
     }
 
     private fun downloader(): BootstrapDownloader = BootstrapDownloader(context())
+
+    /**
+     * 对任意 URL 直接回一份固定内容的客户端：不碰网络，也不依赖本地 https 服务。
+     *
+     * 校验和门控按**请求 URL** 判定（钉住的预设 URL 才比对），故这里必须让请求 URL
+     * 保持调用方传入的那一个——响应由拦截器就地生成，请求根本没出网。
+     */
+    private fun cannedClient(): OkHttpClient = OkHttpClient
+        .Builder()
+        .addInterceptor { chain ->
+            Response
+                .Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(ByteArray(1_050_000) { 0x41 }.toResponseBody("application/zip".toMediaType()))
+                .build()
+        }.build()
 
     /** Configures httpsServer with an okhttp-tls HeldCertificate (2048-bit,
      *  SAN=localhost) and returns a client that trusts that exact certificate.
@@ -205,5 +228,37 @@ class BootstrapDownloaderTest {
         val result = downloader.download(httpsServer.url("/bootstrap.zip").toString(), "test")
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("500") == true)
+    }
+
+    /**
+     * 预设归档的字节与钉住摘要不符时必须失败，且不把归档留给安装器。
+     *
+     * 归档随后会被解压并执行其中的 postinst，摘要不符即放行等于执行任意内容。
+     */
+    @Test
+    fun pinnedPresetArchiveWithWrongBytesIsRejected() = runBlocking {
+        val downloader = BootstrapDownloader(context(), client = cannedClient())
+        val result = downloader.download(TermuxBootstrap.downloadUrl("aarch64"), "aarch64")
+        assertTrue("摘要不符必须失败", result.isFailure)
+        val message = result.exceptionOrNull()?.message.orEmpty()
+        assertTrue("错误信息须说明摘要不符：$message", message.contains("checksum mismatch"))
+        assertTrue(
+            "不符的归档不得留在缓存里",
+            !File(tempDir, "bootstrap-aarch64.zip").exists(),
+        )
+    }
+
+    /**
+     * 自定义 URL 不做摘要比对，但必须放行而不是失败——本仓无从预知其内容。
+     *
+     * 跳过这件事由 `BootstrapDownloader` 记 warn 级日志明示，不静默降级。
+     */
+    @Test
+    fun customUrlIsDownloadedWithoutChecksumVerification() = runBlocking {
+        val downloader = BootstrapDownloader(context(), client = cannedClient())
+        val result = downloader.download("https://example.invalid/bootstrap.zip", "aarch64")
+        assertTrue("自定义 URL 必须放行：${result.exceptionOrNull()}", result.isSuccess)
+        result.getOrNull()?.delete()
+        Unit
     }
 }
